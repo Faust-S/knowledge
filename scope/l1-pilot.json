@@ -1,0 +1,34 @@
+{
+  "schema": "iwxa.knowledge.l1-scope/0.1",
+  "claim": "data_candidate",
+  "snapshot_sha256": "91ef5261b738545ee46db296ab18e814bd952e34216e85c41f07bed8504c1d41",
+  "out_of_scope": [
+    "Complete professional taxonomy of Russia",
+    "Executable agent and Personal Agent integration",
+    "Independent AI evaluation and final market release",
+    "Russian legal qualification"
+  ],
+  "review_claims": {
+    "scope": "PASS",
+    "source_semantics": "PASS",
+    "russian_applicability": "PASS",
+    "adversarial": "PASS",
+    "utility": "PASS"
+  },
+  "use_cases": [
+    {
+      "id": "offline-procurement-lookup",
+      "input": "сопоставить ценовые предложения",
+      "expected": "task.procurement.pricing returned from installed modules",
+      "observed": "PASS",
+      "evidence_file": "restored/build/report.json"
+    },
+    {
+      "id": "no-learning-leakage",
+      "input": "learning query with only core + procurement installed",
+      "expected": "No uninstalled learning tasks",
+      "observed": "PASS",
+      "evidence_file": "restored/build/report.json"
+    }
+  ]
+}
