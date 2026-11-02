@@ -1,7 +1,30 @@
-# IWXA Knowledge - public tooling
+# IWXA Verified Agents — библиотека проверяемых агентных исполнителей
 
-This repository contains a publicly reproducible data-only knowledge import, validation, packaging and offline retrieval pilot. It does not contain private IWXA product source. Development uses separate `work/*` branches and no `main` branch.
+**Новая предметная задача проекта** (02.11.2026): находить реальные готовые агентные программы, проверять на конкретных задачах, подключать через действующий Personal Agent. **Не** строить базу общих вопросов, O*NET-энциклопедию, Task Discovery clone или собственный agent runtime.
 
-First source snapshot is preserved in `bootstrap/seed.part*.b64` (XZ-compressed tar of 18 text files). Recover with `python bootstrap/restore_public_source.py --target restored` then run `cd restored && python tools/run_pilot.py --out build`. The restore script checks archive and core SHA-256 and the exact file inventory. This bootstrap stage is a temporary transport: code is to be promoted to ordinary public files after workflow validation.
+Этот публичный репозиторий содержит только разрешённый к публикации каталог **КАНДИДАТОВ**, протокол квалификации, проверки и будущие воспроизводимые публичные квитанции. На момент первого формирования проекта **нет ни одного нового агента со статусом IWXA_VERIFIED**. Отобранные upstream-программы не выдаются за проверенные в работе.
 
-This is a candidate, **not a production release**. The first reviewer is the building assistant; any independent review belongs to a later stage. No code in the pilot executes imported skills or external agents; no models are invoked.
+## Одна библиотека, один агент за раз
+
+Человек определяет задачу в Personal Agent → существующие Task Discovery / Context Compiler помогают уточнить её и источники → библиотека предлагает агента по подтверждённым функциям → действующий AgentRuntimePort/ToolRuntime проверяет доступность и права → реальный запуск, результат и readback. Обычная модель с инструментами сохраняется полноценной альтернативой.
+
+Проект не копирует модель, не хранит данные человека, не устанавливает программу без явного действия и не создаёт реестр пользовательских прав.
+
+## Структура
+
+- `catalog/agents/*.json` — отдельная карточка реального upstream агента; **S1 SOURCE_SCREENED**, не готовность.
+- `plans/*.json` — конкретные сценарии для будущих реальных тестов, без выдуманных результатов.
+- `tools/registry.py` — проверка метаданных, запрет поддельного VERIFIED, генерация индекса.
+- `tests/` — негативные испытания инфраструктуры; **не подтверждают исполнение агента**.
+- `docs/SELECTION_AND_RELEASE_RU.md` — методика отбора, реального исполнения и выпуска.
+- `docs/PERSONAL_AGENT_BOUNDARY_RU.md` — граница с существующей архитектурой Personal Agent.
+
+Входная точка: `python -m unittest discover -s tests -v`; `python tools/registry.py`.
+
+## Два репозитория, без нового продукта-движка
+
+- Публичный: `Faust-S/knowledge` (историческое имя; содержимое теперь agent library).
+- Закрытый: `Faust-S/IWXA-knowledge` (частные исследования, решения, протоколы, без дублирования public code).
+- Реальное исполнение, AgentRuntimePort/ToolRuntime/Programs Center: **уже существующий** `Faust-S/iwxa-personal-agent`, который здесь не изменяется.
+
+Исторические классификационные ветки и ZIP-срезы Knowledge объявлены тупиковой архитектурой и выводятся из активной разработки. **Не переносить** их в новый проект. Не создавать `main` в публичном репозитории.

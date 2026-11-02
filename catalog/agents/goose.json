@@ -1,0 +1,51 @@
+{
+  "schema": "iwxa.verified-agent-candidate/0.1",
+  "id": "goose",
+  "name": "goose",
+  "kind": "agent_program",
+  "source": {
+    "repository": "aaif-goose/goose",
+    "commit": "cfb67d72f6129ba3c9f68d4c225d8dfcaba18a87",
+    "license": "Apache-2.0",
+    "license_file": "LICENSE",
+    "license_blob": "c83043d4494071fbd93ef245a14e573c5a8280c4",
+    "readme_blob": "44c960f0193de1ccd3a13721cfe2daf5e7707ac5"
+  },
+  "selection": {
+    "task_families": [
+      "code_work",
+      "document_work",
+      "workflow_work"
+    ],
+    "advertised_functions": [
+      "Выполнение задач с инструментами через CLI и desktop-интерфейс"
+    ],
+    "requires": [
+      "Установленный и проверенный goose",
+      "Доступный совместимый AI provider",
+      "Разрешённые источники и инструменты"
+    ],
+    "not_for": [
+      "Автоматическое выполнение PRIVATE через текущий IWXA GooseLocalCliAdapter",
+      "Самостоятельные внешние действия без отдельного ToolRuntime разрешения"
+    ]
+  },
+  "iwxa": {
+    "adapter": "goose_local_cli",
+    "integration": "SOURCE_OBSERVED_PROPOSAL_ONLY",
+    "currently_allowed_privacy": [
+      "PUBLIC",
+      "SYNTHETIC"
+    ],
+    "tool_execution_verified": false
+  },
+  "verification": {
+    "status": "SOURCE_SCREENED",
+    "verified_functions": [],
+    "trial_receipts": [],
+    "known_blockers": [
+      "Нет проверенного сквозного выполнения пользовательской задачи в этой библиотеке",
+      "Текущий адаптер Personal Agent ограничен PUBLIC/SYNTHETIC и предложениями без внешних действий"
+    ]
+  }
+}

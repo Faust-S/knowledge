@@ -1,0 +1,46 @@
+{
+  "schema": "iwxa.verified-agent-candidate/0.1",
+  "id": "aider",
+  "name": "aider",
+  "kind": "terminal_agent",
+  "source": {
+    "repository": "Aider-AI/aider",
+    "commit": "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+    "license": "Apache-2.0",
+    "license_file": "LICENSE.txt",
+    "license_blob": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+    "readme_blob": "816c876cb67021fa9f8d37267c8e57923eabdb07"
+  },
+  "selection": {
+    "task_families": [
+      "code_work"
+    ],
+    "advertised_functions": [
+      "Работа с кодом в локальном git-репозитории через терминал"
+    ],
+    "requires": [
+      "Установленный CLI и поддерживаемый AI provider",
+      "Локальный рабочий git checkout",
+      "Контролируемая запись и тесты"
+    ],
+    "not_for": [
+      "Неподтверждённая работа с PRIVATE без независимой проверки",
+      "Использование как универсального агента не связанных с кодом задач"
+    ]
+  },
+  "iwxa": {
+    "adapter": null,
+    "integration": "NOT_IMPLEMENTED",
+    "currently_allowed_privacy": [],
+    "tool_execution_verified": false
+  },
+  "verification": {
+    "status": "SOURCE_SCREENED",
+    "verified_functions": [],
+    "trial_receipts": [],
+    "known_blockers": [
+      "Нет воспроизводимого запуска в IWXA",
+      "Совместимость с Windows/моделью/правами не проверена"
+    ]
+  }
+}

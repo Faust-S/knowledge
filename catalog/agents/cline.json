@@ -1,0 +1,45 @@
+{
+  "schema": "iwxa.verified-agent-candidate/0.1",
+  "id": "cline",
+  "name": "Cline",
+  "kind": "editor_agent_extension",
+  "source": {
+    "repository": "cline/cline",
+    "commit": "59cce11bc2fe2aaf250f8b97ccdf75af195c09c2",
+    "license": "Apache-2.0",
+    "license_file": "LICENSE",
+    "license_blob": "05ae14a377caf4df24e26edde0c4f7b22ef3ef30",
+    "readme_blob": "1b870599c7e12943b5a71b69c975744d61cbc25a"
+  },
+  "selection": {
+    "task_families": [
+      "code_work"
+    ],
+    "advertised_functions": [
+      "Агентная работа с проектами через интеграции редактора и терминала"
+    ],
+    "requires": [
+      "Совместимый клиент редактора или standalone-конфигурация",
+      "AI provider и подтверждённый доступ к инструментам"
+    ],
+    "not_for": [
+      "Автоматическое представление как встроенного IWXA AgentRuntimePort",
+      "PRIVATE без отдельного анализа хост-приложения и его разрешений"
+    ]
+  },
+  "iwxa": {
+    "adapter": null,
+    "integration": "NOT_IMPLEMENTED",
+    "currently_allowed_privacy": [],
+    "tool_execution_verified": false
+  },
+  "verification": {
+    "status": "SOURCE_SCREENED",
+    "verified_functions": [],
+    "trial_receipts": [],
+    "known_blockers": [
+      "Не проверен независимый локальный маршрут на Windows",
+      "Нет протокола IWXA adapter"
+    ]
+  }
+}
