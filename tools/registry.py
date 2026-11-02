@@ -62,6 +62,8 @@ def validate(row):
     require(type(v["verified_functions"]) is list and type(v["trial_receipts"]) is list and type(v["known_blockers"]) is list,"INVALID_EVIDENCE")
     if v["status"] in ("DISCOVERED","SOURCE_SCREENED","INSTALL_TESTED"):
         require(not v["verified_functions"] and not v["trial_receipts"],"FAKE_VERIFIED_RESULTS")
+    if v["status"] in ("DISCOVERED","SOURCE_SCREENED"):
+        require(i["integration"]!="REAL_INTEGRATION_TESTED" and not i["tool_execution_verified"],"UNQUALIFIED_INTEGRATION")
     if v["status"] in ("TASK_TESTED","IWXA_VERIFIED"):
         require(v["trial_receipts"] and v["verified_functions"],"REAL_TRIALS_REQUIRED")
     if v["status"]=="IWXA_VERIFIED":
