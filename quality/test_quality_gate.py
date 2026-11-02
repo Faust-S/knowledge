@@ -7,12 +7,21 @@ BASE=Path(__file__).resolve().parent.parent
 R=json.loads((BASE/'restored/build/report.json').read_text('utf-8'))
 V=json.loads((BASE/'restored/review/completed.json').read_text('utf-8'))
 S=json.loads((BASE/'scope/l1-pilot.json').read_text('utf-8'))
+SNAP=json.loads((BASE/'restored/build/snapshot.json').read_text('utf-8'))
 
 class TestNoShellOrPrematureRelease(unittest.TestCase):
     def test_complete_scoped_candidate(self):
-        certificate=evaluate(R,V,S)
+        certificate=evaluate(R,V,S,SNAP)
         self.assertEqual(certificate['status'],'L1_SCOPED_CANDIDATE_COMPLETE')
         self.assertEqual(certificate['production_release'],'NOT_AUTHORIZED')
+    def test_snapshot_tampering_rejected(self):
+        snap=copy.deepcopy(SNAP)
+        snap['body']['records'][0]['labels']['ru']='Подмена'
+        with self.assertRaises(ValueError):evaluate(R,V,S,snap)
+    def test_unchecked_edges_rejected(self):
+        reviews=copy.deepcopy(V)
+        reviews[0]['edge_checks'].pop()
+        with self.assertRaises(ValueError):evaluate(R,reviews,S,SNAP)
     def test_all_invalid_mutations_rejected(self):
         modifications=[
           lambda r,v,s: r['tests'].__setitem__('skipped',1),
@@ -42,5 +51,5 @@ class TestNoShellOrPrematureRelease(unittest.TestCase):
             with self.subTest(i=i):
                 r,v,s=copy.deepcopy(R),copy.deepcopy(V),copy.deepcopy(S)
                 mutate(r,v,s)
-                with self.assertRaises(ValueError):evaluate(r,v,s)
+                with self.assertRaises(ValueError):evaluate(r,v,s,SNAP)
 if __name__=='__main__': unittest.main()
