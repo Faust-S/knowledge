@@ -1,12 +1,13 @@
 {
   "schema": "iwxa.knowledge.l1-scope/0.1",
-  "claim": "data_candidate",
+  "claim": "toolchain_candidate",
   "snapshot_sha256": "91ef5261b738545ee46db296ab18e814bd952e34216e85c41f07bed8504c1d41",
   "out_of_scope": [
     "Complete professional taxonomy of Russia",
     "Executable agent and Personal Agent integration",
     "Independent AI evaluation and final market release",
-    "Russian legal qualification"
+    "Russian legal qualification",
+    "Current generic process acceptance criteria require substantive revision before data-base L1"
   ],
   "review_claims": {
     "scope": "PASS",

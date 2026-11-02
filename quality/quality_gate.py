@@ -11,6 +11,7 @@ import sys
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT/'restored/src'))
 import iwxa_knowledge as knowledge
+from semantic_invariants import scan as scan_semantics
 
 STAGES = ('scope', 'source_semantics', 'russian_applicability', 'adversarial', 'utility')
 REVIEW_ROLES = ('source_semantics', 'ru_applicability', 'adversarial_integration')
@@ -29,7 +30,7 @@ def evaluate(report, reviews, scope, snapshot):
     require(report.get('release_authorized') is False,'no production release')
     require(report.get('snapshot_sha256')==scope.get('snapshot_sha256'),'stale scope')
     claim=scope.get('claim')
-    require(claim in ('data_candidate','agent_recipe_candidate','agent_executable','program_integration'),'claim')
+    require(claim in ('toolchain_candidate','data_candidate','agent_recipe_candidate','agent_executable','program_integration'),'claim')
     require(not any(scope.get(n) for n in ('production_ready','fully_autonomous','verified_russian_law','ready_agent')),'premature claim')
     require(isinstance(scope.get('out_of_scope'),list) and scope['out_of_scope']
             and all(isinstance(x,str) and x.strip() for x in scope['out_of_scope']),'explicit limitations')
@@ -51,6 +52,8 @@ def evaluate(report, reviews, scope, snapshot):
     require(sum(p.get('records',0) for p in packages)==report.get('records'),'records omitted/duplicated')
     # A derived database cannot be a plain upstream file or title-only shell.
     require(all(len(knowledge.canonical(r.get('payload',{})))>=80 for r in records),'record payload is only a shell')
+    known_content_issues=scan_semantics(records,snapshot['body']['sources'])
+    require(not known_content_issues or claim=='toolchain_candidate','known semantic shell/contradiction in data candidate')
     require(all((r['kind']!='localization' or r['payload']['applicability']!='source_supported') for r in records),'RU evidence profile cannot yet establish trusted jurisdiction')
     excerpt_values={v.strip() for src in snapshot['body']['sources'].values() for v in src['excerpts'].values()}
     require(not any(knowledge.canonical(r['payload']).decode('utf-8').strip() in excerpt_values for r in records),'unadapted copied payload')
@@ -76,10 +79,11 @@ def evaluate(report, reviews, scope, snapshot):
         edges=r.get('edge_checks',[])
         require(edges and {x.get('id') for x in edges}==exact_edges and len(edges)==len(exact_edges) and all(x.get('verdict')=='pass' for x in edges),'edge review incomplete')
     return {'schema':'iwxa.knowledge.l1-certificate/0.1',
-        'status':'L1_SCOPED_CANDIDATE_COMPLETE','snapshot_sha256':scope['snapshot_sha256'],
+        'status':'L1_TOOLCHAIN_VALIDATED' if claim=='toolchain_candidate' else 'L1_SCOPED_CANDIDATE_COMPLETE','snapshot_sha256':scope['snapshot_sha256'],
         'claim':claim,'record_count':report['records'],'review_stages':list(STAGES),
         'independent_ai_review':'NOT_PERFORMED','production_release':'NOT_AUTHORIZED',
-        'scope_limitations':scope['out_of_scope']}
+        'scope_limitations':scope['out_of_scope'],
+        'known_content_defects':known_content_issues}
 
 def main():
     p=argparse.ArgumentParser()

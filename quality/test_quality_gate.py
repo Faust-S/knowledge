@@ -12,8 +12,13 @@ SNAP=json.loads((BASE/'restored/build/snapshot.json').read_text('utf-8'))
 class TestNoShellOrPrematureRelease(unittest.TestCase):
     def test_complete_scoped_candidate(self):
         certificate=evaluate(R,V,S,SNAP)
-        self.assertEqual(certificate['status'],'L1_SCOPED_CANDIDATE_COMPLETE')
+        self.assertEqual(certificate['status'],'L1_TOOLCHAIN_VALIDATED')
+        self.assertTrue(certificate['known_content_defects'])
         self.assertEqual(certificate['production_release'],'NOT_AUTHORIZED')
+    def test_full_data_candidate_blocked_by_generic_process(self):
+        altered=copy.deepcopy(S)
+        altered['claim']='data_candidate'
+        with self.assertRaises(ValueError):evaluate(R,V,altered,SNAP)
     def test_snapshot_tampering_rejected(self):
         snap=copy.deepcopy(SNAP)
         snap['body']['records'][0]['labels']['ru']='Подмена'
