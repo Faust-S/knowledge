@@ -1,0 +1,29 @@
+name: One-time migration to Verified Agents
+on:
+  push:
+    branches: ['work/2026-11-02-verified-agents']
+    paths: ['.github/workflows/one-time-cleanup.yml']
+permissions:
+  contents: write
+jobs:
+  check-and-prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Check Python source-catalog guard tests
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Validate public source-index does not falsely claim verification
+        run: python tools/registry.py
+      - name: Delete thirteen exact obsolete research branches after tests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          for ref in 'work/2026-11-02-activity-map' 'work/2026-11-02-agent-recipes' 'work/2026-11-02-evaluation-cases' 'work/2026-11-02-first-ru-pack' 'work/2026-11-02-methods' 'work/2026-11-02-module-catalog' 'work/2026-11-02-needs-situations' 'work/2026-11-02-processes' 'work/2026-11-02-program-bindings' 'work/2026-11-02-regional-overlays' 'work/2026-11-02-skills' 'work/2026-11-02-sources-rights' 'work/2026-11-02-task-templates'; do
+            echo "Deleting obsolete ref: $ref"
+            gh api --method DELETE "/repos/Faust-S/knowledge/git/refs/heads/$ref"
+          done
+          echo 'OBSOLETE_BRANCHES_DELETED'
