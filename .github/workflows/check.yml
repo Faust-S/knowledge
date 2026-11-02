@@ -27,7 +27,7 @@ jobs:
       - name: L1 evidence and mutation tests
         run: python -m unittest discover -s quality -p 'test_*.py' -v
       - name: Scope-limited first-level certificate
-        run: python quality/quality_gate.py --report restored/build/report.json --reviews restored/review/completed.json --scope scope/l1-pilot.json --out restored/build/l1-certificate.json
+        run: python quality/quality_gate.py --report restored/build/report.json --reviews restored/review/completed.json --scope scope/l1-pilot.json --snapshot restored/build/snapshot.json --out restored/build/l1-certificate.json
       - name: Save reproducible evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
