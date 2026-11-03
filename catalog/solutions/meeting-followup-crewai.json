@@ -1,0 +1,94 @@
+{
+  "id": "meeting-followup-crewai",
+  "title": "Агент извлечения поручений из протокола совещания",
+  "agent_kind": "specialized_workflow",
+  "status": "ADAPTED_NOT_EXECUTED",
+  "source": {
+    "catalog": "CrewAI Examples / Meeting Assistant Flow",
+    "url": "https://github.com/crewAIInc/crewAI-examples/tree/da94a91e691e1cf5b3151416bb15b5b62729bea8/flows/meeting_assistant_flow",
+    "repository": "crewAIInc/crewAI-examples",
+    "commit": "da94a91e691e1cf5b3151416bb15b5b62729bea8",
+    "files_verified": [
+      {
+        "path": "flows/meeting_assistant_flow/src/meeting_assistant_flow/main.py",
+        "git_blob": "3e791ace5170ec8088309cc51134bdc344f7c37f"
+      },
+      {
+        "path": "flows/meeting_assistant_flow/src/meeting_assistant_flow/crews/meeting_assistant_crew/config/agents.yaml",
+        "git_blob": "7e4128c08c01563a3cd4d4c99d3f30ce79a3b7cb"
+      },
+      {
+        "path": "flows/meeting_assistant_flow/src/meeting_assistant_flow/crews/meeting_assistant_crew/config/tasks.yaml",
+        "git_blob": "c6bdda261d0b9a7d8d197a2b0c180efea26148b7"
+      },
+      {
+        "path": "flows/meeting_assistant_flow/README.md",
+        "git_blob": "24f764835caef374825826b623a613a44b083944"
+      }
+    ],
+    "source_rights": "NOT_VERIFIED_FOR_REDISTRIBUTION",
+    "native_workflow_acquired": true,
+    "third_party_code_redistributed": false,
+    "source_risks": [
+      "Исходный flow вызывает Trello/Slack и пишет CSV без отдельного IWXA Human Review",
+      "Примерный проект и его зависимости не прошли эксплуатационную проверку"
+    ]
+  },
+  "task_and_result": {
+    "user_request": "Из протокола совещания подготовить проверяемый черновик поручений",
+    "input_slots": [
+      "transcript_text",
+      "meeting_date",
+      "participants_if_known"
+    ],
+    "expected_result": [
+      "action_items_with_source_quotes",
+      "uncertainties_and_questions",
+      "reviewable_draft"
+    ],
+    "not_for": [
+      "автоматическая отправка в Slack/Trello",
+      "фиктивное утверждение людей ответственными",
+      "создание пользовательских Task без Human Review"
+    ]
+  },
+  "structure": {
+    "process_steps": [
+      "sanitize_transcript",
+      "extract_candidate_actions",
+      "resolve_known_owners_and_deadlines",
+      "evidence_audit",
+      "human_review"
+    ],
+    "prompts": [
+      "extractor",
+      "auditor"
+    ],
+    "algorithms": [
+      "source_span_grounding",
+      "missing_owner_due_date_as_unknown",
+      "dedup_only_when_same_target_result"
+    ],
+    "external_effects": "NONE_IN_IWXA_ADAPTATION",
+    "definition_file": "solutions/meeting-followup/agent.json"
+  },
+  "requirements": {
+    "host": "EXISTING_IWXA_PERSONAL_AGENT",
+    "tools": [
+      "read_authorized_text"
+    ],
+    "models": [
+      "user_selected_compatible_llm"
+    ],
+    "external_apps_optional": [
+      "Trello",
+      "Slack"
+    ]
+  },
+  "qualification": {
+    "iwxa_verified": false,
+    "execution_receipts": [],
+    "reason": "Схема IWXA создана на основе изученного примера, но не выполнена реальная задача через Personal Agent"
+  },
+  "installable": false
+}

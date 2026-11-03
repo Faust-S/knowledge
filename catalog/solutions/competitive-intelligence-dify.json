@@ -1,0 +1,67 @@
+{
+  "id": "competitive-intelligence-dify",
+  "title": "Агент конкурентной и отраслевой аналитики",
+  "agent_kind": "specialized_workflow",
+  "status": "LISTING_SCREENED",
+  "source": {
+    "catalog": "Dify Marketplace",
+    "url": "https://marketplace.dify.ai/template/tavilyai/56616ed4-7cb8-44cd-ac87-5a84f876829f",
+    "marketplace_id": "56616ed4-7cb8-44cd-ac87-5a84f876829f",
+    "author": "tavilyai",
+    "native_workflow_acquired": false,
+    "source_rights": "NOT_VERIFIED_FOR_REDISTRIBUTION",
+    "third_party_code_redistributed": false,
+    "source_risks": [
+      "Не проверено содержимое исходного workflow-файла",
+      "Tavily API/другой сетевой поиск требует разрешения и конфигурации"
+    ]
+  },
+  "task_and_result": {
+    "user_request": "Исследовать конкурентную ситуацию в конкретной отрасли и подготовить сравнительный отчёт с источниками",
+    "input_slots": [
+      "industry",
+      "focus",
+      "time_horizon"
+    ],
+    "expected_result": [
+      "sourced_market_report",
+      "ranked_comparison",
+      "assumptions"
+    ],
+    "not_for": [
+      "информация без проверяемых ссылок",
+      "автоматическое конкурентное решение без человека"
+    ]
+  },
+  "structure": {
+    "process_steps": [
+      "identify_trends",
+      "collect_evidence",
+      "compare_trends",
+      "compute_scores",
+      "synthesize_report"
+    ],
+    "prompts": [],
+    "algorithms": [
+      "scored_trend_matrix"
+    ],
+    "external_effects": "NETWORK_RESEARCH_REQUIRE_APPROVAL",
+    "definition_file": null
+  },
+  "requirements": {
+    "host": "DIFY_OR_FUTURE_IWXA_ADAPTER",
+    "tools": [
+      "Tavily Search"
+    ],
+    "models": [
+      "user_selected_compatible_llm"
+    ],
+    "external_apps_optional": []
+  },
+  "qualification": {
+    "iwxa_verified": false,
+    "execution_receipts": [],
+    "reason": "Проверена карточка маркетплейса, а не оригинальный YAML, исполнение или IWXA адаптер"
+  },
+  "installable": false
+}
