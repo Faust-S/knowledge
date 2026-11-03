@@ -29,12 +29,6 @@ def verify(transcript, draft):
         ):
             errors.append(prefix + "SOURCE_SPAN_MISMATCH")
             continue
-        # One sentence may assign two distinct tasks; reject only identical duplicates.
-        assignment = (start, end, item.get("action"), item.get("assignee"), item.get("due_date"))
-        if assignment in spans:
-            errors.append(prefix + "DUPLICATE_ASSIGNMENT")
-            continue
-        spans.add(assignment)
         action = item.get("action")
         if not isinstance(action, str) or not action.strip():
             errors.append(prefix + "ACTION_REQUIRED")
@@ -49,6 +43,12 @@ def verify(transcript, draft):
         if item["due_date"] != "UNKNOWN" and item["due_date"] not in quote:
             errors.append(prefix + "DEADLINE_UNSUPPORTED")
             continue
+        # One sentence may assign two distinct tasks; reject only identical duplicates.
+        assignment = (start, end, item.get("action"), item.get("assignee"), item.get("due_date"))
+        if assignment in spans:
+            errors.append(prefix + "DUPLICATE_ASSIGNMENT")
+            continue
+        spans.add(assignment)
         accepted.append(item)
     if any(not isinstance(q, str) for q in draft["open_questions"]):
         errors.append("INVALID_QUESTIONS")
