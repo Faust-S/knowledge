@@ -47,7 +47,7 @@ class MeetingFollowupAttributionTests(unittest.TestCase):
         text = "🧪" + TEXT
         draft = {
             "action_items": [item(text, "Мария подготовит бюджет к пятнице.",
-                                  "Подготовить бюджет", "Мария", "пятница")],
+                                  "Подготовить бюджет", "Мария", "пятнице")],
             "open_questions": [],
         }
         self.assertTrue(verify(text, draft)["passed"])
