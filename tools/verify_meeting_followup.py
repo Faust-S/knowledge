@@ -11,6 +11,9 @@ def verify(transcript, draft):
     if not isinstance(draft.get("open_questions"), list):
         return {"passed": False, "errors": ["QUESTIONS_REQUIRED"], "accepted": []}
     accepted = []
+    if not draft["action_items"] and not draft["open_questions"]:
+        errors.append("NO_ACTIONS_REQUIRES_QUESTION")
+    spans = set()
     for index, item in enumerate(draft["action_items"]):
         prefix = f"ITEM_{index}_"
         if not isinstance(item, dict):
@@ -26,6 +29,11 @@ def verify(transcript, draft):
         ):
             errors.append(prefix + "SOURCE_SPAN_MISMATCH")
             continue
+        span = (start, end)
+        if span in spans:
+            errors.append(prefix + "DUPLICATE_SOURCE_SPAN")
+            continue
+        spans.add(span)
         action = item.get("action")
         if not isinstance(action, str) or not action.strip():
             errors.append(prefix + "ACTION_REQUIRED")
