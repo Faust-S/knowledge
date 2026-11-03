@@ -77,6 +77,22 @@ class MeetingFollowupAttributionTests(unittest.TestCase):
             ["ITEM_0_DEADLINE_UNSUPPORTED"],
         )
 
+    def test_no_actions_require_clarifying_question(self):
+        self.assertEqual(
+            verify(TEXT, {"action_items": [], "open_questions": []})["errors"],
+            ["NO_ACTIONS_REQUIRES_QUESTION"],
+        )
+        self.assertTrue(
+            verify(TEXT, {"action_items": [], "open_questions": ["Какие решения приняли?"]})["passed"],
+        )
+
+    def test_duplicate_source_span(self):
+        row = item(TEXT, "Иван проверит смету.", "Проверить смету", "Иван")
+        self.assertEqual(
+            verify(TEXT, {"action_items": [row, row], "open_questions": []})["errors"],
+            ["ITEM_1_DUPLICATE_SOURCE_SPAN"],
+        )
+
     def test_questions_required(self):
         self.assertEqual(verify(TEXT, {"action_items": []})["errors"], ["QUESTIONS_REQUIRED"])
 
