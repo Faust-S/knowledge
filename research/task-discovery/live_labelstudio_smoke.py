@@ -118,7 +118,11 @@ def main() -> int:
     try:
         result = exercise_local_server(os.environ.get("LABEL_STUDIO_URL", "http://127.0.0.1:8080"),
                                        os.environ.get("LABEL_STUDIO_API_KEY", ""))
-    except (transport.SetupHold, HTTPError, URLError, OSError, ValueError, TypeError):
+    except transport.SetupHold as error:
+        # SetupHold contains only stable refusal/status codes, no source or token.
+        print(json.dumps({"status": "HOLD", "code": str(error)}))
+        return 2
+    except (HTTPError, URLError, OSError, ValueError, TypeError):
         print(json.dumps({"status": "HOLD", "code": "LOCAL_LABEL_STUDIO_LIVE_API_NOT_QUALIFIED"}))
         return 2
     print(json.dumps(result, sort_keys=True))
