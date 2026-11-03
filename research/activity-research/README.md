@@ -47,6 +47,16 @@
 
 Автозапуск через `.github/workflows/activity-research-verify.yml` ограничен изменениями этой директории в публичной миграционной ветке, не нуждается в токенах. Связанные исследования и каталог не меняются в своём функциональном коде.
 
+## PET-01 — настоящий открытый корпус и измеряемый baseline (03.11.2026)
+
+Публичный [PETv1.1](https://github.com/patriziobellan86/PETv1.1/tree/4bcacf71b5b191840789bb307c1a7f288a274ded) имеет конкретный `PETv1.1-entities.jsonl`, original Git blob `7b8db47fe78dc0614614708732118d38e77e030b` и размер 187158 байт. В upstream нет root LICENSE в проверенном Git tree; [карточка набора](https://huggingface.co/datasets/patriziobellan/PET) заявляет MIT; не делаем из этого вывода о праве на перепубликацию стороннего текста. **Сами исходные байты не хранятся в нашем репозитории и не публикуются в Actions artifacts.**
+
+В имеющемся `pet_activity_benchmark.mjs` уже реализованы четыре независимые дорожки: all-token, explicit request cue, morphology cue, leave-one-document-prefix-family-out perceptron. Метрики: token-level precision/recall/F1, exact-span и macro. Данные PET характеризуют **действия, упомянутые в текстах**, а не факт исполнения действия человеком и не принятую задачу.
+
+Новый CI запускает Node unit tests, загружает PET непосредственно с закреплённого Git SHA, проверяет исходный Git blob через существующий benchmark, измеряет family-heldout результаты и публикует только derived JSON (counts/metrics, не текст корпуса). Не выполнять `predictions` при `split=document`; любые результаты разработческого корпуса считать `EXPLORATORY`, не E5 и не самостоятельно подтверждённой полезностью. До успешного workflow `PET_REAL_REPLAY=PENDING`.
+
+**Следующий шаг после PET:** разделить activity span extraction, provenance-bound U1 statements и истинно обнаруженные Task hypotheses. Новый собственный scorer для Task запрещён до независимых меток; сначала сравнивать исходное предложение, прямой поиск/regex и утверждения существующего U1.
+
 ## Чего не хватает для реального PASS
 
 Полученных байтов ATUS/BPI/PET в этом переносе нет; full benchmark не выполнен. Нужны реальный source ingestion/replay, независимая разметка Task/не-Task, сравнение с простыми подходами, стоимость человека и вычислений. Синтетические тесты не являются проверкой человеческой деятельности, а наличие DOI/продуктового описания не означает независимого практического подтверждения.

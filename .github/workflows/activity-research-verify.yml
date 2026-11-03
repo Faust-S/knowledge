@@ -23,3 +23,21 @@ jobs:
           node-version: '22'
       - name: Verify source blobs and research-only contract
         run: node --test research/activity-research/tests/*.test.mjs
+      - name: Fetch exact PET v1.1 public corpus without redistributing source
+        run: |
+          curl --fail --location --retry 2 --max-time 90 --silent --show-error \
+            'https://raw.githubusercontent.com/patriziobellan86/PETv1.1/4bcacf71b5b191840789bb307c1a7f288a274ded/PETv1.1-entities.jsonl' \
+            -o "$RUNNER_TEMP/PETv1.1-entities.jsonl"
+      - name: Real PET leave-one-family-out activity benchmark
+        run: |
+          node research/activity-research/pet_activity_benchmark.mjs \
+            "$RUNNER_TEMP/PETv1.1-entities.jsonl" family metrics \
+            > "$RUNNER_TEMP/pet-activity-metrics.json"
+          node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/pet-activity-metrics.json')); if(r.status!=='EXPLORATORY_GROUPED_EVALUATION_NOT_TASK_DISCOVERY_QUALIFICATION'||!r.evaluation.train_and_test_family_disjoint||r.counts.documents<2||r.counts.gold_activity_spans<1||r.counts.gold_activity_tokens<1||!r.source?.sha256||!r.methods?.document_heldout_perceptron?.token)process.exit(1);console.log('PET_REAL_CORPUS_EXPLORATORY_PASS',r.counts.documents,'documents',r.counts.gold_activity_spans,'gold spans','spanF1',r.methods.document_heldout_perceptron.exact_span.f1,'tokenF1',r.methods.document_heldout_perceptron.token.f1)"
+      - name: Publish derived research metrics only
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-pet-activity-exploratory-metrics
+          path: ${{ runner.temp }}/pet-activity-metrics.json
+          retention-days: 7
+          if-no-files-found: error
