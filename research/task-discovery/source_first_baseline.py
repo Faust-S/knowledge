@@ -11,10 +11,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sys
 import time
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 HERE = Path(__file__).resolve().parent
@@ -78,9 +80,15 @@ def _projection(item: dict, input_dir: Path | None) -> bytes:
         raw = p.read_bytes()
     else:
         url = f"https://api.github.com/repos/{repo}/issues/{number}"
-        req = Request(url, headers={
+        headers = {
             "Accept": "application/vnd.github+json",
-            "User-Agent": "IWXA-PublicSourceFirstBaseline/0.1"})
+            "User-Agent": "IWXA-PublicSourceFirstBaseline/0.1",
+        }
+        # Actions' ephemeral repository-scoped token is NOT a PAT/private checkout.
+        # It is optional and never exposed in diagnostics.
+        if os.environ.get("GITHUB_TOKEN"):
+            headers["Authorization"] = "Bearer " + os.environ["GITHUB_TOKEN"]
+        req = Request(url, headers=headers)
         with urlopen(req, timeout=15) as response:
             require(response.status == 200, "SOURCE_HTTP_UNAVAILABLE")
             payload = response.read(MAX_HTTP_BYTES + 1)
@@ -193,8 +201,15 @@ def main() -> int:
         manifest = read_manifest(args.manifest)
         result = replay(manifest, input_dir=args.input_dir)
     except Exception as exc:
-        # Safe fixed error codes: no original text or URLs in logs.
-        code = str(exc) if isinstance(exc, BaselineHold) else "SOURCE_REPLAY_UNAVAILABLE"
+        # Safe fixed error codes: no original text, local URL or token in logs.
+        if isinstance(exc, BaselineHold):
+            code = str(exc)
+        elif isinstance(exc, HTTPError):
+            code = "PUBLIC_GITHUB_HTTP_" + str(exc.code)
+        elif isinstance(exc, URLError):
+            code = "PUBLIC_GITHUB_NETWORK_UNAVAILABLE"
+        else:
+            code = "SOURCE_REPLAY_UNAVAILABLE"
         print(json.dumps({"status": "HOLD", "code": code}, sort_keys=True))
         return 2
     print(json.dumps(result, sort_keys=True, ensure_ascii=False))

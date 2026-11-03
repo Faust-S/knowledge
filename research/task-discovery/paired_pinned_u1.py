@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 import sys
 import time
+from urllib.error import HTTPError, URLError
 
 import source_first_baseline as baseline
 
@@ -123,7 +124,14 @@ def main() -> int:
         manifest = baseline.read_manifest(baseline.MANIFEST)
         result = paired_run(manifest, input_dir=args.input_dir)
     except Exception as error:
-        code = str(error) if isinstance(error, baseline.BaselineHold) else "PAIRED_REPLAY_UNAVAILABLE"
+        if isinstance(error, baseline.BaselineHold):
+            code = str(error)
+        elif isinstance(error, HTTPError):
+            code = "PUBLIC_GITHUB_HTTP_" + str(error.code)
+        elif isinstance(error, URLError):
+            code = "PUBLIC_GITHUB_NETWORK_UNAVAILABLE"
+        else:
+            code = "PAIRED_REPLAY_UNAVAILABLE"
         print(json.dumps({"status": "HOLD", "code": code}, sort_keys=True))
         return 2
     print(json.dumps(result, sort_keys=True, ensure_ascii=False))
