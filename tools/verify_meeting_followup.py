@@ -20,13 +20,20 @@ def verify(transcript, draft):
             errors.append(prefix + "INVALID")
             continue
         quote, start, end = item.get("quote"), item.get("start"), item.get("end")
-        if (
-            not isinstance(quote, str) or not quote.strip()
-            or not isinstance(start, int) or isinstance(start, bool)
-            or not isinstance(end, int) or isinstance(end, bool)
-            or start < 0 or end <= start or end > len(transcript)
-            or transcript[start:end] != quote
-        ):
+        quote_ok = isinstance(quote, str) and bool(quote.strip())
+        claimed_span = (
+            quote_ok
+            and isinstance(start, int) and not isinstance(start, bool)
+            and isinstance(end, int) and not isinstance(end, bool)
+            and 0 <= start < end <= len(transcript)
+            and transcript[start:end] == quote
+        )
+        if not claimed_span and quote_ok:
+            first = transcript.find(quote)
+            if first >= 0 and transcript.find(quote, first + 1) < 0:
+                start, end = first, first + len(quote)
+                claimed_span = True
+        if not claimed_span:
             errors.append(prefix + "SOURCE_SPAN_MISMATCH")
             continue
         action = item.get("action")
@@ -49,7 +56,7 @@ def verify(transcript, draft):
             errors.append(prefix + "DUPLICATE_ASSIGNMENT")
             continue
         spans.add(assignment)
-        accepted.append(item)
+        accepted.append({**item, "start": start, "end": end})
     if any(not isinstance(q, str) for q in draft["open_questions"]):
         errors.append("INVALID_QUESTIONS")
     return {"passed": not errors, "errors": errors, "accepted": accepted}
