@@ -83,3 +83,38 @@ jobs:
           path: ${{ runner.temp }}/bpi13-scoped-receipt.json
           retention-days: 7
           if-no-files-found: error
+      - name: BPI source-bound controlled mutation tests
+        run: python -m unittest discover -s research/activity-research/tests -p 'test_bpi13_mutation_*.py' -v
+      - name: Real BPI registered-event sample with synthetic semantic perturbations
+        run: |
+          python research/activity-research/bpi13_mutation_stress.py \
+            --xes-gz "$RUNNER_TEMP/bpi13-open-problems.xes.gz" \
+            --max-traces 12 \
+            --out "$RUNNER_TEMP/bpi13-mutation-receipt.json"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          r=json.loads((Path(os.environ['RUNNER_TEMP'])/'bpi13-mutation-receipt.json').read_text())
+          assert r['schema']=='IWXA_BPI13_ACTIVITY_MUTATION_STRESS/0.1'
+          assert r['status']=='REAL_LOG_WITH_SYNTHETIC_MUTATIONS_SCOPED_EXPERIMENT'
+          assert r['summary']['cases']==7
+          assert r['summary']['accepted_as_formally_valid_reported_logs']==6
+          assert r['summary']['rejected_as_formally_invalid_logs']==1
+          assert r['baseline']['registered_event_rows']==50
+          assert r['summary']['independent_task_quality']=='NOT_MEASURED'
+          assert r['summary']['without_baseline_real_world_integrity']=='NOT_DETERMINED'
+          assert all(x['task_type_ids_assigned']==0 and x['engine_accepted'] is False
+                     and x['real_world_activity_truth']=='UNKNOWN'
+                     for x in r['scenarios'])
+          print('BPI13_MUTATION_STRESS_SCOPED_PASS',
+                r['summary']['cases'],'synthetic interventions',
+                r['summary']['accepted_as_formally_valid_reported_logs'],'formally valid',
+                r['summary']['rejected_as_formally_invalid_logs'],'rejected')
+          PY
+      - name: Upload derived mutation comparison receipt only
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-bpi13-controlled-mutation-u1-receipt
+          path: ${{ runner.temp }}/bpi13-mutation-receipt.json
+          retention-days: 7
+          if-no-files-found: error

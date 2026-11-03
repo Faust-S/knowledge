@@ -132,15 +132,8 @@ def native_u1():
     from pinned_owner import load_native_u1
     return load_native_u1()
 
-def analyze(compressed: bytes, *, max_traces: int = 12,
-            u1_loader=native_u1) -> dict:
-    check(type(max_traces) is int and 1 <= max_traces <= 24,
-          "BPI_SAMPLE_SIZE_INVALID")
-    traces, population = parse_xes(compressed)
-    ordered = sorted((case for case, events in traces.items() if len(events) >= 2),
-                     key=lambda c: (sha256(("BPI13:"+c).encode()).digest(), c))
-    check(len(ordered) >= max_traces, "BPI_TOO_FEW_ELIGIBLE_TRACES")
-    selected = ordered[:max_traces]
+def project_registered_rows(traces: dict, selected: list[str]) -> tuple[list[dict], int]:
+    """Deterministic pseudonymous U1 event projection, shared by replay and tests."""
     data = []
     equal_time_cases = 0
     for index, case in enumerate(selected, 1):
@@ -162,6 +155,10 @@ def analyze(compressed: bytes, *, max_traces: int = 12,
                     "task_type": "NOT_DETERMINED",
                 }
             })
+    return data, equal_time_cases
+
+def inspect_registered_rows(data: list[dict], *, u1_loader=native_u1) -> tuple[bytes, dict, str]:
+    """Use only the original pinned U1; never infer Task or real execution."""
     raw = ("\n".join(json.dumps(row, ensure_ascii=True, sort_keys=True,
                                  separators=(",", ":")) for row in data) + "\n").encode()
     check(len(raw) <= 4 * 1024 * 1024 and len(data) <= 10000,
@@ -190,6 +187,19 @@ def analyze(compressed: bytes, *, max_traces: int = 12,
                   "REPORTED_CASE_SEQUENCE_NOT_VERIFIED_EXECUTION"
               and x["process_context"]["task_type_identity"] == "NOT_DETERMINED"
               for x in receipt["units"]), "BPI_EPISTEMIC_CONTRACT_FAIL")
+    return raw, receipt, owner_blob
+
+def analyze(compressed: bytes, *, max_traces: int = 12,
+            u1_loader=native_u1) -> dict:
+    check(type(max_traces) is int and 1 <= max_traces <= 24,
+          "BPI_SAMPLE_SIZE_INVALID")
+    traces, population = parse_xes(compressed)
+    ordered = sorted((case for case, events in traces.items() if len(events) >= 2),
+                     key=lambda c: (sha256(("BPI13:"+c).encode()).digest(), c))
+    check(len(ordered) >= max_traces, "BPI_TOO_FEW_ELIGIBLE_TRACES")
+    selected = ordered[:max_traces]
+    data, equal_time_cases = project_registered_rows(traces, selected)
+    raw, receipt, owner_blob = inspect_registered_rows(data, u1_loader=u1_loader)
     distribution = Counter(len(traces[c]) for c in selected)
     return {
         "schema": VERSION, "status": "THIRD_PARTY_MIRROR_REAL_WORLD_EVENT_REPLAY_PROVENANCE_HOLD",
