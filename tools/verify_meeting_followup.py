@@ -29,11 +29,12 @@ def verify(transcript, draft):
         ):
             errors.append(prefix + "SOURCE_SPAN_MISMATCH")
             continue
-        span = (start, end)
-        if span in spans:
-            errors.append(prefix + "DUPLICATE_SOURCE_SPAN")
+        # One sentence may assign two distinct tasks; reject only identical duplicates.
+        assignment = (start, end, item.get("action"), item.get("assignee"), item.get("due_date"))
+        if assignment in spans:
+            errors.append(prefix + "DUPLICATE_ASSIGNMENT")
             continue
-        spans.add(span)
+        spans.add(assignment)
         action = item.get("action")
         if not isinstance(action, str) or not action.strip():
             errors.append(prefix + "ACTION_REQUIRED")
