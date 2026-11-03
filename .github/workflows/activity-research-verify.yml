@@ -46,3 +46,40 @@ jobs:
           python-version: '3.13'
       - name: ATUS diary conversion synthetic contract tests
         run: python -m unittest discover -s research/activity-research/tests -p 'test_atus_*.py' -v
+      - name: BPI XES synthetic contract and pinned U1 integration tests
+        run: python -m unittest discover -s research/activity-research/tests -p 'test_bpi13_*.py' -v
+      - name: Fetch Git-blob-pinned public BPI 2013 open-problems XES copy
+        run: |
+          curl --fail --location --retry 2 --max-time 90 --silent --show-error \
+            'https://raw.githubusercontent.com/ziaridoy20/Smart-Process-Analytics-on-Business-Process-Intelligence-Challenge/8c3dddac389eae0a222d5506f0474bc1641121d6/BPI_Challenge_2013_open_problems.xes.gz' \
+            -o "$RUNNER_TEMP/bpi13-open-problems.xes.gz"
+      - name: Real registered corporate events through pinned U1
+        run: |
+          python research/activity-research/bpi13_xes_u1_replay.py \
+            --xes-gz "$RUNNER_TEMP/bpi13-open-problems.xes.gz" \
+            --max-traces 12 --out "$RUNNER_TEMP/bpi13-scoped-receipt.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          r=json.loads((Path(os.environ['RUNNER_TEMP'])/'bpi13-scoped-receipt.json').read_text())
+          assert r['schema']=='IWXA_BPI13_OPEN_PROBLEMS_U1_REPLAY/0.1'
+          assert r['status']=='THIRD_PARTY_MIRROR_REAL_WORLD_EVENT_REPLAY_PROVENANCE_HOLD'
+          assert r['sample']['traces']==12
+          assert r['sample']['registered_events']>=24
+          assert r['sample']['raw_case_ids_or_actor_ids_exported'] is False
+          assert r['sample']['real_world_activity_truth']=='UNKNOWN'
+          assert r['source']['original_4tu_file_sha_match']=='NOT_VERIFIED'
+          assert r['u1']['task_type_ids_assigned']==0
+          assert r['u1']['engine_accepted'] is False
+          print('BPI13_REGISTERED_EVENTS_U1_ENGINEERING_PASS',r['source_population']['recorded_traces'],'cases',
+                r['source_population']['registered_events'],'registered events',
+                r['sample']['registered_events'],'sample events',
+                'source_sha256='+r['source']['mirror_sha256'])
+          PY
+      - name: Upload derived BPI scoped receipt only
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-bpi13-registered-events-u1-scoped-receipt
+          path: ${{ runner.temp }}/bpi13-scoped-receipt.json
+          retention-days: 7
+          if-no-files-found: error
