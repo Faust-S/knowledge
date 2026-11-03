@@ -85,6 +85,12 @@ python research/activity-research/atus_diary_replay.py --zip /path/to/atusact-20
 
 Следующая адресная работа — официальный 4TU source match и контролируемые отрицательные контрпримеры (запись задним числом, пропуск, конфликт состояния). Успех технического U1 intake не использовать вместо независимой оценки полезности обнаруженных задач.
 
+## BPI13-02 — controlled corruption of real registered-event snapshots (04.11.2026)
+
+[Исследовательский отчёт и границы выводов](BPI13_MUTATION_STRESS_2026-11-04_RU.md) / [стресс-тест через pinned U1](bpi13_mutation_stress.py) / [7 unit tests](tests/test_bpi13_mutation_stress.py). Реальный public CI [run 41719080479](https://github.com/Faust-S/knowledge/actions/runs/41719080479): **completed/success**; 12 cases/50 оригинальных зарегистрированных событий BPI13, 7 синтетических сценариев и повторная проверка PET/ATUS/BPI, всего 8 Node + 28 Python tests PASS. В U1 шесть сценариев получили формально допустимые log receipts (из них один не изменил исходные данные), один сценарий нарушенной уникальности `event_id` был отклонён. Пять **содержательно искажённых** вариантов были структурно допустимы; это штатная граница `REPORTED_EVENT_IN_UNVERIFIED_LOG`, а не порок semantic truth inference.
+
+Главный результат: log-only evidence не может восстановить отсутствующее физическое действие и не доказывает правильность `case_id`, времени, activity label или истинность нового «шага». Исходная/изменённая версия различимы по checksum при наличии обеих, но без независимого источника **неизвестно**, какая соответствует фактической деятельности. `U1_FORMAT_REPLAY=PASS`, `SOURCE_SNAPSHOT_CONTRAST=RESEARCH_ENGINEERING_PASS`, `HUMAN_ACTIVITY_TRUTH=UNKNOWN`, `TASK_DISCOVERY_QUALITY=NOT_MEASURED`, `E5_NOT_RUN`.
+
 ## Чего не хватает для реального PASS
 
 Полученных байтов ATUS/BPI/PET в этом переносе нет; full benchmark не выполнен. Нужны реальный source ingestion/replay, независимая разметка Task/не-Task, сравнение с простыми подходами, стоимость человека и вычислений. Синтетические тесты не являются проверкой человеческой деятельности, а наличие DOI/продуктового описания не означает независимого практического подтверждения.
