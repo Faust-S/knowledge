@@ -1,0 +1,27 @@
+name: Task Discovery public source-first replay
+
+on:
+  push:
+    branches:
+      - work/2026-11-03-unified-task-migration
+    paths:
+      - 'research/task-discovery/**'
+      - '.github/workflows/task-discovery-source-first.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Native offline integration tests
+        run: python -m unittest discover -s research/task-discovery -p 'test_*.py' -v
+      - name: Exact frozen original public issues replay (no private source texts in logs)
+        run: python research/task-discovery/source_first_baseline.py

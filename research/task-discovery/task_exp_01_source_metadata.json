@@ -1,0 +1,101 @@
+{
+  "schema": "IWXA_TASK_EXP_01_PUBLIC_ISSUE_SOURCE_SLICE/0.1",
+  "purpose": "EXPLORATORY_REAL_SOURCE_REVIEW_NOT_TASK_GOLD",
+  "selected_on": "2026-11-02",
+  "selection_rule": "Two recent non-PR, nonempty public issue reports per repository chosen before running U1, from issue-list metadata only; includes any language and any cue count.",
+  "source_reuse": "LOCAL_ANALYSIS_CLAIM_ONLY_NO_REDISTRIBUTION",
+  "no_gold": true,
+  "methods_frozen": false,
+  "task_level_quality_measured": false,
+  "subjects_not_balanced": true,
+  "items": [
+    {
+      "repository": "paperless-ngx/paperless-ngx",
+      "issue_number": 14657,
+      "html_url": "https://github.com/paperless-ngx/paperless-ngx/issues/14657",
+      "created_at": "2026-11-02T17:12:10Z",
+      "updated_at": "2026-11-02T17:12:10Z",
+      "source_projection": "TITLE_NEWLINE_BODY_NEWLINE_UTF8",
+      "projection_sha256": "bae848d260c79b505960589c077a2875ca03959c0ac9ee1106f53b966354f8f4",
+      "body_sha256": "4faf81c0fd5131b487cfb598ffbc9cdb5b7d0c8ee740347b9826fb88681f1426",
+      "projection_bytes": 1678
+    },
+    {
+      "repository": "paperless-ngx/paperless-ngx",
+      "issue_number": 14655,
+      "html_url": "https://github.com/paperless-ngx/paperless-ngx/issues/14655",
+      "created_at": "2026-11-02T15:39:25Z",
+      "updated_at": "2026-11-02T16:09:41Z",
+      "source_projection": "TITLE_NEWLINE_BODY_NEWLINE_UTF8",
+      "projection_sha256": "594da7852e1fc542bc55851a94e3a65975bb70d98adebb8676b90004a4654f82",
+      "body_sha256": "34441673b45392b01d53da6294ef916af5087bb705aed7d40b6ee5d9c0c94960",
+      "projection_bytes": 4856
+    },
+    {
+      "repository": "immich-app/immich",
+      "issue_number": 32872,
+      "html_url": "https://github.com/immich-app/immich/issues/32872",
+      "created_at": "2026-11-02T09:07:34Z",
+      "updated_at": "2026-11-02T15:54:47Z",
+      "source_projection": "TITLE_NEWLINE_BODY_NEWLINE_UTF8",
+      "projection_sha256": "da397f8fe2509eb4ac0c7d602ba542cf4c5f86d0c3fd7a058925fe28b1fea497",
+      "body_sha256": "e9687efc3ac17979d8f8a2d8d68ff6ee9f191e8d933337012ec95cd5f6317237",
+      "projection_bytes": 1563
+    },
+    {
+      "repository": "immich-app/immich",
+      "issue_number": 32871,
+      "html_url": "https://github.com/immich-app/immich/issues/32871",
+      "created_at": "2026-11-02T08:56:38Z",
+      "updated_at": "2026-11-02T14:09:58Z",
+      "source_projection": "TITLE_NEWLINE_BODY_NEWLINE_UTF8",
+      "projection_sha256": "a14591ae057730c131fccac8305b3ffa94402c76488cbc0e1283f2eb7c24139f",
+      "body_sha256": "34327b0bbf7ce5d0bbbad639d2770c6b5ae5e238ec82019181e5be3460000cbd",
+      "projection_bytes": 8211
+    },
+    {
+      "repository": "actualbudget/actual",
+      "issue_number": 9403,
+      "html_url": "https://github.com/actualbudget/actual/issues/9403",
+      "created_at": "2026-11-02T03:08:06Z",
+      "updated_at": "2026-11-02T03:08:42Z",
+      "source_projection": "TITLE_NEWLINE_BODY_NEWLINE_UTF8",
+      "projection_sha256": "3ab40bbeb0a34a78ef8dadb80c03261929a3d4d04a2c7d82dbb312c30690028d",
+      "body_sha256": "1cfc83de4a89ad4b0d1b5318b009fe912aac819019d17818cb19f39d2ea08511",
+      "projection_bytes": 1005
+    },
+    {
+      "repository": "actualbudget/actual",
+      "issue_number": 9400,
+      "html_url": "https://github.com/actualbudget/actual/issues/9400",
+      "created_at": "2026-11-01T19:42:34Z",
+      "updated_at": "2026-11-01T19:42:45Z",
+      "source_projection": "TITLE_NEWLINE_BODY_NEWLINE_UTF8",
+      "projection_sha256": "82b310ea5b1bca8e9ba522000e3080beefb2beb2addebe5734627b1ee523dcd4",
+      "body_sha256": "3ca3d2c9328aa0fb53bd2a1df55830f9b7d690dd3a985f88ef89119a0d3cc92a",
+      "projection_bytes": 2085
+    },
+    {
+      "repository": "home-assistant/core",
+      "issue_number": 190088,
+      "html_url": "https://github.com/home-assistant/core/issues/190088",
+      "created_at": "2026-11-02T16:30:21Z",
+      "updated_at": "2026-11-02T16:30:29Z",
+      "source_projection": "TITLE_NEWLINE_BODY_NEWLINE_UTF8",
+      "projection_sha256": "cd978f90a778ab4accae76c7ada588e428d140e0527158063d21913da5a9a5bd",
+      "body_sha256": "c4fe78309478e092553075fd35f082d62303effd3230bf684012c7f66847bc26",
+      "projection_bytes": 4213
+    },
+    {
+      "repository": "home-assistant/core",
+      "issue_number": 190078,
+      "html_url": "https://github.com/home-assistant/core/issues/190078",
+      "created_at": "2026-11-02T15:36:08Z",
+      "updated_at": "2026-11-02T16:57:50Z",
+      "source_projection": "TITLE_NEWLINE_BODY_NEWLINE_UTF8",
+      "projection_sha256": "39c982fbf0dda6e15dbdbe74076f2174c533965e0bbfa0782579a4ee5974ad97",
+      "body_sha256": "78bb798ccf405b95a407e21e5e69ebba47f12f0ef07c065b559935a96ec5cbee",
+      "projection_bytes": 1018
+    }
+  ]
+}
