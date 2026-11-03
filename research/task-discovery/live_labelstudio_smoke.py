@@ -44,8 +44,6 @@ def traced_api(base: str, credential: str, route: str, body=None):
     """Report only fixed stage and bounded synthetic form-validation details."""
     if route == "/api/projects/":
         stage = "PROJECT_CREATE"
-    elif route.startswith("/api/projects/") and route.endswith("/"):
-        stage = "PROJECT_CONFIG_READBACK"
     elif "/import?" in route:
         stage = "TASK_IMPORT"
     elif "/annotations/" in route:
@@ -107,20 +105,30 @@ def synthetic_tasks() -> list[dict]:
     return tasks
 
 
-def exercise_local_server(base: str, token: str) -> dict:
+def exercise_local_server(base: str, token: str, *, second_token: str = '') -> dict:
     """Real HTTP end-to-end; fail-closed on non-source-first export."""
     base = transport.local_url(base)
     credential = transport.resolve_api_credential(base, token, mode="legacy")
     account = traced_api(base, credential, "/api/current-user/whoami")
     transport.require(type(account) is dict and type(account.get("id")) is int,
                       "LIVE_LABEL_STUDIO_ACCOUNT_NOT_VERIFIED")
+    second_credential = None
+    if second_token:
+        second_credential = transport.resolve_api_credential(base, second_token, mode="legacy")
+        second_account = traced_api(base, second_credential, "/api/current-user/whoami")
+        transport.require(type(second_account) is dict and
+                          type(second_account.get("id")) is int and
+                          second_account["id"] != account["id"],
+                          "LIVE_SYNTHETIC_REVIEWER_ACCOUNTS_NOT_DISTINCT")
     tasks = synthetic_tasks()
     receipt = transport.create_projects(tasks, SYNTHETIC_XML, base, credential, slots=2, call=traced_api)
     project_ids = receipt["project_ids"]
     # No one completed a review. Programmatically exercise annotations so
     # the real API export format, IDs and import round-trip can be checked.
     annotated = 0
-    for pid in project_ids:
+    for project_index, pid in enumerate(project_ids):
+        writer = (second_credential if project_index == 1 and second_credential
+                  else credential)
         exported = traced_api(base, credential,
                                  f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true")
         transport.require(type(exported) is list and len(exported) == 8,
@@ -129,7 +137,7 @@ def exercise_local_server(base: str, token: str) -> dict:
             task_id = item.get("id") if type(item) is dict else None
             transport.require(type(task_id) is int and task_id > 0,
                               "LIVE_LABEL_STUDIO_TASK_ID_MISSING")
-            response = traced_api(base, credential,
+            response = traced_api(base, writer,
                 f"/api/tasks/{task_id}/annotations/", {
                     "result": [{"from_name": "review_coverage", "to_name": "source_text",
                                 "type": "choices", "value": {
@@ -145,22 +153,37 @@ def exercise_local_server(base: str, token: str) -> dict:
     # two-independent-reviewer exporter MUST refuse and emit no export files.
     with tempfile.TemporaryDirectory(prefix="iwxa-ls-native-synthetic-") as directory:
         output_a, output_b = Path(directory) / "a.json", Path(directory) / "b.json"
-        try:
-            transport.export_reviewed_projects(
+        if second_credential:
+            exported_receipt = transport.export_reviewed_projects(
                 tasks, base, credential, tuple(project_ids), output_a, output_b, call=traced_api)
-        except transport.SetupHold as error:
-            transport.require(str(error) == "LABEL_STUDIO_SAME_REVIEWER_IN_BOTH_PROJECTS",
-                              "LIVE_LABEL_STUDIO_WRONG_EXPORT_REFUSAL")
+            transport.require(exported_receipt["sources_per_export"] == 8 and
+                              exported_receipt["reviewer_id_claims_distinct"] is True and
+                              exported_receipt["human_gold"] is False and
+                              output_a.is_file() and output_b.is_file(),
+                              "LIVE_TWO_SYNTHETIC_ACCOUNTS_EXPORT_FAILED")
+            for saved in (output_a, output_b):
+                records = json.loads(saved.read_text("utf-8"))
+                transport.require(len(records) == 8 and
+                                  all(len(entry.get("annotations", [])) == 1
+                                      for entry in records),
+                                  "LIVE_TWO_SYNTHETIC_ACCOUNTS_EXPORT_INCOMPLETE")
         else:
-            raise transport.SetupHold("LIVE_LABEL_STUDIO_SAME_USER_NOT_REFUSED")
-        transport.require(not output_a.exists() and not output_b.exists(),
-                          "LIVE_LABEL_STUDIO_UNEXPECTED_REVIEW_EXPORT")
+            try:
+                transport.export_reviewed_projects(
+                    tasks, base, credential, tuple(project_ids), output_a, output_b, call=traced_api)
+            except transport.SetupHold as error:
+                transport.require(str(error) == "LABEL_STUDIO_SAME_REVIEWER_IN_BOTH_PROJECTS",
+                                  "LIVE_LABEL_STUDIO_WRONG_EXPORT_REFUSAL")
+            else:
+                raise transport.SetupHold("LIVE_LABEL_STUDIO_SAME_USER_NOT_REFUSED")
+            transport.require(not output_a.exists() and not output_b.exists(),
+                              "LIVE_LABEL_STUDIO_UNEXPECTED_REVIEW_EXPORT")
     return {"schema": SCHEMA, "status": "ACTUAL_LABEL_STUDIO_HTTP_ROUNDTRIP_PASS",
             "label_studio_version_expected": "1.23.2",
             "synthetic_projects": 2, "synthetic_sources_per_project": 8,
-            "persisted_review_form_checked": receipt["persisted_review_form_checked"],
             "api_created_coverage_annotations": annotated,
-            "same_user_export_refused": True,
+            "same_user_export_refused": second_credential is None,
+            "two_synthetic_accounts_export_passed": second_credential is not None,
             "independent_human_review_completed": False,
             "owner_exact_xml_exercised": False,
             "human_task_gold": False,
@@ -172,7 +195,8 @@ def exercise_local_server(base: str, token: str) -> dict:
 def main() -> int:
     try:
         result = exercise_local_server(os.environ.get("LABEL_STUDIO_URL", "http://127.0.0.1:8080"),
-                                       os.environ.get("LABEL_STUDIO_API_KEY", ""))
+                                       os.environ.get("LABEL_STUDIO_API_KEY", ""),
+                                       second_token=os.environ.get("LABEL_STUDIO_SECOND_API_KEY", ""))
     except transport.SetupHold as error:
         # SetupHold contains only stable refusal/status codes, no source or token.
         print(json.dumps({"status": "HOLD", "code": str(error)}))
