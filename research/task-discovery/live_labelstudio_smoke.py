@@ -44,6 +44,8 @@ def traced_api(base: str, credential: str, route: str, body=None):
     """Report only fixed stage and bounded synthetic form-validation details."""
     if route == "/api/projects/":
         stage = "PROJECT_CREATE"
+    elif route.startswith("/api/projects/") and route.endswith("/"):
+        stage = "PROJECT_CONFIG_READBACK"
     elif "/import?" in route:
         stage = "TASK_IMPORT"
     elif "/annotations/" in route:
@@ -156,6 +158,7 @@ def exercise_local_server(base: str, token: str) -> dict:
     return {"schema": SCHEMA, "status": "ACTUAL_LABEL_STUDIO_HTTP_ROUNDTRIP_PASS",
             "label_studio_version_expected": "1.23.2",
             "synthetic_projects": 2, "synthetic_sources_per_project": 8,
+            "persisted_review_form_checked": receipt["persisted_review_form_checked"],
             "api_created_coverage_annotations": annotated,
             "same_user_export_refused": True,
             "independent_human_review_completed": False,

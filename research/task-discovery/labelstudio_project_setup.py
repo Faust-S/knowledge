@@ -202,6 +202,24 @@ def api(base: str, token: str, route: str, body: object = None):
         raise SetupHold("LOCAL_LABEL_STUDIO_UNAVAILABLE") from None
 
 
+def same_review_form(expected: str, saved: object) -> bool:
+    """Compare actual persisted Label Studio form, ignoring only formatting.
+
+    Preserve control order, text values and attributes. Cosmetic XML
+    indentation is not a different reviewer form, but missing task fields are.
+    """
+    if type(saved) is not str:
+        return False
+    try:
+        def signature(node):
+            return (node.tag, tuple(sorted(node.attrib.items())),
+                    (node.text or "").strip(),
+                    tuple(signature(child) for child in node))
+        return signature(ET.fromstring(expected)) == signature(ET.fromstring(saved))
+    except (ET.ParseError, TypeError, ValueError):
+        return False
+
+
 def create_projects(tasks: list[dict], xml: str, url: str, token: str,
                     *, slots: int = 2, call=api) -> dict:
     """Import and read back two separate blind projects; no human labels made."""
@@ -221,6 +239,12 @@ def create_projects(tasks: list[dict], xml: str, url: str, token: str,
             pid = project.get("id") if type(project) is dict else None
             require(type(pid) is int and pid > 0, "LABEL_STUDIO_PROJECT_NOT_CREATED")
             created.append(pid)
+            # The form visible in the actual project must be the reviewed
+            # owner form, not a server default or a truncated generic E5 form.
+            persisted = call(base, token, f"/api/projects/{pid}/")
+            require(type(persisted) is dict and persisted.get("id") == pid and
+                    same_review_form(xml, persisted.get("label_config")),
+                    "LABEL_STUDIO_SAVED_REVIEW_FORM_CHANGED")
             imported = call(base, token,
                             f"/api/projects/{pid}/import?return_task_ids=true", tasks)
             require(type(imported) is dict and imported.get("task_count") == 8 and
@@ -246,7 +270,8 @@ def create_projects(tasks: list[dict], xml: str, url: str, token: str,
         raise SetupHold(str(error), tuple(created)) from None
     return {"schema": SCHEMA, "status": "LOCAL_PROJECTS_CREATED_ALL_SOURCES_UNANNOTATED",
             "reviewer_slots": slots, "project_ids": created,
-            "sources_per_project": 8, "human_reviews_completed": 0,
+            "sources_per_project": 8, "persisted_review_form_checked": True,
+            "human_reviews_completed": 0,
             "reviewer_independence_verified": False, "human_gold": False}
 
 

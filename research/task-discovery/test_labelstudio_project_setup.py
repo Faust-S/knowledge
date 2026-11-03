@@ -56,6 +56,7 @@ class FakeLabelStudio(BaseHTTPRequestHandler):
     projects = {}
     next_id = 1
     partial = False
+    form_modified = False
 
     def log_message(self, format, *args):
         pass
@@ -86,7 +87,14 @@ class FakeLabelStudio(BaseHTTPRequestHandler):
 
     def do_GET(self):
         assert self.headers['Authorization'] == 'Token synthetic-key'
-        if self.path.endswith('/export?exportType=JSON&download_all_tasks=true'):
+        if self.path.startswith('/api/projects/') and self.path.endswith('/') and (
+                not self.path.endswith('/export/')):
+            ident = int(self.path.split('/')[3])
+            config = type(self).projects[ident]['config']
+            if type(self).form_modified:
+                config = config.replace('review_coverage', 'wrong_control')
+            self.response({'id': ident, 'label_config': config})
+        elif self.path.endswith('/export?exportType=JSON&download_all_tasks=true'):
             ident = int(self.path.split('/')[3])
             original = type(self).projects[ident]['tasks']
             if type(self).partial:
@@ -115,6 +123,7 @@ class LocalLabelStudioSetupTests(unittest.TestCase):
         FakeLabelStudio.projects = {}
         FakeLabelStudio.next_id = 1
         FakeLabelStudio.partial = False
+        FakeLabelStudio.form_modified = False
         server = ThreadingHTTPServer(('127.0.0.1', 0), FakeLabelStudio)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -179,6 +188,39 @@ class LocalLabelStudioSetupTests(unittest.TestCase):
         with self.assertRaisesRegex(ls.SetupHold,
                                     'TASK_EXP_TASK_INTERPRETATION_CONTROLS_MISSING'):
             ls.validate_owner_xml(minimal, expected_blob=ls.git_blob(minimal))
+
+
+    def test_persisted_form_mismatch_refused_before_import(self):
+        _, tasks = fixture()
+        FakeLabelStudio.projects = {}
+        FakeLabelStudio.next_id = 1
+        FakeLabelStudio.form_modified = True
+        FakeLabelStudio.partial = False
+        server = ThreadingHTTPServer(('127.0.0.1', 0), FakeLabelStudio)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with self.assertRaisesRegex(
+                    ls.SetupHold, 'LABEL_STUDIO_SAVED_REVIEW_FORM_CHANGED') as err:
+                ls.create_projects(tasks, CONFIG.decode('utf-8'),
+                    f'http://127.0.0.1:{server.server_port}', 'synthetic-key')
+            self.assertEqual(err.exception.created_project_ids, (1,))
+            self.assertEqual(FakeLabelStudio.projects[1]['tasks'], [])
+        finally:
+            FakeLabelStudio.form_modified = False
+            server.shutdown()
+            thread.join(timeout=2)
+            server.server_close()
+
+    def test_semantic_form_readback_ignores_whitespace_only(self):
+        xml = CONFIG.decode('utf-8')
+        self.assertTrue(ls.same_review_form(xml, xml))
+        self.assertTrue(ls.same_review_form(xml, xml.replace(
+            '<Text ', '\n  <Text ')))
+        self.assertFalse(ls.same_review_form(xml, xml.replace(
+            'acceptance_criterion', 'wrong_field')))
+        self.assertFalse(ls.same_review_form(xml, '<View>'))
+        self.assertFalse(ls.same_review_form(xml, None))
 
 
 if __name__ == '__main__':
