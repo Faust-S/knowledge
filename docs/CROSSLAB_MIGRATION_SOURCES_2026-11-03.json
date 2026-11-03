@@ -1,0 +1,53 @@
+{
+  "schema": "IWXA_OPEN_TASK_RESEARCH_MIGRATION_SOURCES/0.1",
+  "date": "2026-11-03",
+  "status": "PREPARATION_ONLY",
+  "source_ownership_transferred": false,
+  "sources": [
+    {
+      "repository": "Faust-S/iwxa",
+      "branch": "research/ai-crosslab-practical-pilot",
+      "head": "f7449fc5e07c8f8510e55e1f79e0d840d4b05bf9",
+      "tree": "bbbfd4547ab6d622f956c233cb010a56e896ef00",
+      "paths": [
+        "architecture/foundation/experiments/ai-crosslab-pilot/real_issue_replication.py",
+        "architecture/foundation/experiments/ai-crosslab-pilot/test_real_issue_replication.py",
+        "architecture/foundation/experiments/ai-crosslab-pilot/REAL_PUBLIC_ISSUE_SLICE_20261103.json",
+        "architecture/foundation/experiments/ai-crosslab-pilot/REAL_ISSUE_REPLICATION_QA_2026-11-03.json"
+      ],
+      "publication_status": "NOT_AUDITED_FOR_PUBLIC_COPY"
+    },
+    {
+      "repository": "Faust-S/iwxa",
+      "branch": "knowledge/2026-10-02-system-atlas",
+      "head": "8a456bd322670e2ca7d0bb9e19653253a13b71e4",
+      "tree": "6a3e9ad08eed2d0a0d71d28791f0ebbed2b4c45f",
+      "paths": [
+        "knowledge/task-catalog/engine/universal_evidence.py",
+        "knowledge/task-catalog/engine/E5_LABEL_STUDIO_SOURCE_FIRST.xml",
+        "knowledge/task-catalog/engine/research/task_exp_01_review_bridge.py"
+      ],
+      "publication_status": "PRIVATE_OWNER_NO_PUBLIC_COPY"
+    },
+    {
+      "repository": "Faust-S/knowledge",
+      "branch": "work/2026-11-03-meeting-followup-qa",
+      "head": "091e9ec96f4f2aa89783aab9b0a3b256ad058b30",
+      "tree": "89dc0a67bf2919bf5a31ea4ae9339469283c2967",
+      "publication_status": "PUBLIC_AGENT_CATALOG_BASE"
+    }
+  ],
+  "quality": {
+    "new_corpus_human_gold": false,
+    "new_corpus_original_native_u1_replay": "NOT_RUN",
+    "task_precision_recall_f1": "NOT_MEASURED",
+    "e5": "NOT_RUN",
+    "iwxa_verified_agent_count": 0
+  },
+  "rules": {
+    "public_ci_requires_public_licensed_sources": true,
+    "no_private_token_in_public_actions": true,
+    "no_second_engine": true,
+    "no_synthetic_gold": true
+  }
+}
