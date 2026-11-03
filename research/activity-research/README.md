@@ -91,6 +91,14 @@ python research/activity-research/atus_diary_replay.py --zip /path/to/atusact-20
 
 Главный результат: log-only evidence не может восстановить отсутствующее физическое действие и не доказывает правильность `case_id`, времени, activity label или истинность нового «шага». Исходная/изменённая версия различимы по checksum при наличии обеих, но без независимого источника **неизвестно**, какая соответствует фактической деятельности. `U1_FORMAT_REPLAY=PASS`, `SOURCE_SNAPSHOT_CONTRAST=RESEARCH_ENGINEERING_PASS`, `HUMAN_ACTIVITY_TRUTH=UNKNOWN`, `TASK_DISCOVERY_QUALITY=NOT_MEASURED`, `E5_NOT_RUN`.
 
+## BPI13-03 — владельческая проблема → исследовательские задачи и границы свидетельств (04.11.2026)
+
+[Отчёт и научная граница](BPI13_OWNER_QUESTIONS_AUDIT_2026-11-04_RU.md) / [исходники анализа](bpi13_owner_questions_audit.py) / [адресные тесты](tests/test_bpi13_owner_questions_audit.py). [Реальный GitHub Actions run 41732224986](https://github.com/Faust-S/knowledge/actions/runs/41732224986) — **PASS**: опубликованы четыре вопроса владельца BPI Challenge 2013 (источник CEUR-WS), сверены с 819 cases / 2351 registered events из публичного Open Problems mirror; 284 обычных activity-label A–B–A последовательности по timestamp, что **не** доказывает передачу задач между командами. Всего 8 Node + 40 Python tests PASS, origin самого 4TU файла всё ещё не подтверждён побайтово. Из четырёх вопросов первый прямо относится к **Incidents**, следовательно выбранный Open Problems log недостаточен.
+
+Главный вывод — два разных источника (*постановка вопросов + журнал*) ещё не являются независимыми доказательствами нарушения либо фактически совершённой деятельности. Подтверждён только пригодный предмет исследования с явно обозначенными недостающими данными. `PUBLISHED_INVESTIGATION_GOAL=FOUND`, `CONCRETE_TASK=NOT_ACCEPTED`, `SOURCE_FIT=PARTIAL`, `REAL_WORK_CAUSALITY=UNKNOWN`, `E5=NOT_RUN`.
+
+**Для передачи в новый чат и проект «Система знаний»** использовать [HANDOFF_NEW_CHAT_2026-11-04_RU.md](HANDOFF_NEW_CHAT_2026-11-04_RU.md); исходная архитектура и исследования остаются совместно с Task Discovery и Cross-Lab, не создавать параллельный движок.
+
 ## Чего не хватает для реального PASS
 
 Полученных байтов ATUS/BPI/PET в этом переносе нет; full benchmark не выполнен. Нужны реальный source ingestion/replay, независимая разметка Task/не-Task, сравнение с простыми подходами, стоимость человека и вычислений. Синтетические тесты не являются проверкой человеческой деятельности, а наличие DOI/продуктового описания не означает независимого практического подтверждения.
