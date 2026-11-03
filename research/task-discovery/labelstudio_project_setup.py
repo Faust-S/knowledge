@@ -212,6 +212,88 @@ def create_projects(tasks: list[dict], xml: str, url: str, token: str,
             "reviewer_independence_verified": False, "human_gold": False}
 
 
+
+def export_reviewed_projects(tasks: list[dict], url: str, token: str,
+                             project_ids: tuple[int, int],
+                             output_a: Path, output_b: Path, *, call=api) -> dict:
+    """Read two completed projects, preserve original JSON for the owner bridge.
+
+    The *owning* task_exp_01_review_bridge.py remains the only authority
+    for label semantics, disagreements and completion. This transport step
+    rejects incomplete/non-source-first projects without evaluating tasks.
+    """
+    base = local_url(url)
+    require(bool(token) and type(project_ids) is tuple and
+            len(project_ids) == 2 and
+            all(type(pid) is int and pid > 0 for pid in project_ids) and
+            project_ids[0] != project_ids[1], "TWO_DISTINCT_PROJECT_IDS_REQUIRED")
+    require(output_a != output_b and
+            not output_a.exists() and not output_b.exists() and
+            not output_a.is_symlink() and not output_b.is_symlink(),
+            "REVIEW_OUTPUT_PATHS_MUST_BE_NEW_AND_DISTINCT")
+    originals = {task["data"]["source_sha256"]: task["data"] for task in tasks}
+    require(len(originals) == len(tasks) == 8, "SOURCE_FIRST_IMPORT_INCOMPLETE")
+    collected = []
+    reviewer_ids = []
+    for pid in project_ids:
+        exported = call(base, token,
+                        f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true")
+        require(type(exported) is list and len(exported) == 8,
+                "LABEL_STUDIO_REVIEW_EXPORT_INCOMPLETE")
+        found = set()
+        ids = set()
+        for record in exported:
+            require(type(record) is dict and type(record.get("data")) is dict and
+                    not record.get("predictions") and
+                    type(record.get("annotations")) is list and
+                    len(record["annotations"]) == 1,
+                    "LABEL_STUDIO_REVIEW_EXPORT_NOT_SINGLE_COMPLETE")
+            data = record["data"]
+            source = data.get("source_sha256")
+            require(source in originals and source not in found and
+                    data == originals[source],
+                    "LABEL_STUDIO_REVIEW_SOURCE_MISMATCH")
+            found.add(source)
+            review = record["annotations"][0]
+            require(type(review) is dict and
+                    review.get("was_cancelled") is not True and
+                    type(review.get("result")) is list,
+                    "LABEL_STUDIO_REVIEW_UNFINISHED")
+            reviewer = review.get("completed_by")
+            if type(reviewer) is dict:
+                reviewer = reviewer.get("id")
+            require(type(reviewer) in (int, str) and
+                    (type(reviewer) is not int or reviewer > 0) and
+                    bool(str(reviewer).strip()),
+                    "LABEL_STUDIO_REVIEWER_IDENTIFIER_MISSING")
+            ids.add(str(reviewer))
+        require(found == set(originals) and len(ids) == 1,
+                "LABEL_STUDIO_REVIEW_SOURCE_OR_REVIEWER_SET_MISMATCH")
+        reviewer_ids.extend(ids)
+        collected.append(exported)
+    require(len(set(reviewer_ids)) == 2,
+            "LABEL_STUDIO_SAME_REVIEWER_IN_BOTH_PROJECTS")
+
+    # Only now create protected owner-local files. Never upload these to CI.
+    created = []
+    try:
+        for path, export in zip((output_a, output_b), collected):
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            created.append(path)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                json.dump(export, stream, ensure_ascii=False, sort_keys=True)
+                stream.write("\n")
+    except OSError:
+        for path in created:
+            path.unlink(missing_ok=True)
+        raise SetupHold("REVIEW_OUTPUT_WRITE_FAILED") from None
+    return {"schema": SCHEMA, "status": "TWO_OWNER_LOCAL_REVIEW_EXPORTS_READY_FOR_OWNER_BRIDGE",
+            "project_ids": list(project_ids), "sources_per_export": 8,
+            "reviewer_id_claims_distinct": True,
+            "reviewer_independence_verified": False,
+            "human_gold": False, "adjudication_completed": False,
+            "task_precision": None, "task_recall": None, "task_f1": None}
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tasks", required=True, type=Path,
@@ -220,7 +302,13 @@ def main() -> int:
                         help="Exact original TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml")
     parser.add_argument("--url", default="http://127.0.0.1:8080")
     parser.add_argument("--reviewer-slots", type=int, choices=(1, 2), default=2)
-    parser.add_argument("--create-local-projects", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--create-local-projects", action="store_true")
+    mode.add_argument("--export-reviewed-projects", action="store_true")
+    parser.add_argument("--project-a-id", type=int)
+    parser.add_argument("--project-b-id", type=int)
+    parser.add_argument("--review-a-out", type=Path)
+    parser.add_argument("--review-b-out", type=Path)
     parser.add_argument("--confirm-local-import", action="store_true")
     args = parser.parse_args()
     try:
@@ -232,6 +320,15 @@ def main() -> int:
             token = os.environ.get("LABEL_STUDIO_API_KEY", "")
             result = create_projects(tasks, xml, args.url, token,
                                      slots=args.reviewer_slots)
+        elif args.export_reviewed_projects:
+            require(not args.confirm_local_import and
+                    args.project_a_id is not None and args.project_b_id is not None and
+                    args.review_a_out is not None and args.review_b_out is not None,
+                    "REVIEW_EXPORT_ARGUMENTS_INCOMPLETE")
+            result = export_reviewed_projects(
+                tasks, args.url, os.environ.get("LABEL_STUDIO_API_KEY", ""),
+                (args.project_a_id, args.project_b_id),
+                args.review_a_out, args.review_b_out)
         else:
             require(not args.confirm_local_import,
                     "IMPORT_CONFIRMATION_WITHOUT_CREATE_MODE")
