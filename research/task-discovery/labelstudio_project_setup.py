@@ -144,12 +144,50 @@ def local_url(base: str) -> str:
     return base.rstrip("/")
 
 
+def resolve_api_credential(base: str, token: str, mode: str = "legacy") -> str:
+    """Return a request credential for either Label Studio HTTP API token type.
+
+    Legacy tokens use Token auth; Personal Access Tokens must first be
+    exchanged for a short-lived JWT via the *existing* Label Studio API.
+    No token is persisted or included in the result receipt.
+    """
+    base = local_url(base)
+    require(type(token) is str and 0 < len(token) <= 8192 and
+            "\n" not in token and "\r" not in token,
+            "LABEL_STUDIO_API_KEY_MISSING_OR_INVALID")
+    require(mode in ("legacy", "personal"), "LABEL_STUDIO_AUTH_MODE_INVALID")
+    if mode == "legacy":
+        return "Token " + token
+    payload = json.dumps({"refresh": token}).encode("utf-8")
+    request = Request(base + "/api/token/refresh/", data=payload, method="POST",
+                      headers={"Accept": "application/json",
+                               "Content-Type": "application/json"})
+    try:
+        with urlopen(request, timeout=25) as response:
+            raw = response.read(MAX_JSON_BYTES + 1)
+            require(response.status in (200, 201) and len(raw) <= MAX_JSON_BYTES,
+                    "LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE_INVALID")
+        result = json.loads(raw)
+        access = result.get("access") if type(result) is dict else None
+        require(type(access) is str and 0 < len(access) <= 8192 and
+                "\n" not in access and "\r" not in access,
+                "LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE_INVALID")
+        return "Bearer " + access
+    except HTTPError as error:
+        raise SetupHold("LABEL_STUDIO_PERSONAL_TOKEN_HTTP_" + str(error.code)) from None
+    except URLError:
+        raise SetupHold("LOCAL_LABEL_STUDIO_UNAVAILABLE") from None
+    except (ValueError, UnicodeError):
+        raise SetupHold("LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE_INVALID") from None
+
+
 def api(base: str, token: str, route: str, body: object = None):
     payload = (json.dumps(body, ensure_ascii=False).encode("utf-8")
                if body is not None else None)
+    authorization = token if token.startswith(("Token ", "Bearer ")) else "Token " + token
     req = Request(base + route, data=payload,
                   method="POST" if body is not None else "GET",
-                  headers={"Authorization": "Token " + token,
+                  headers={"Authorization": authorization,
                            "Accept": "application/json",
                            "Content-Type": "application/json"})
     try:
@@ -301,6 +339,9 @@ def main() -> int:
     parser.add_argument("--owner-label-config", required=True, type=Path,
                         help="Exact original TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml")
     parser.add_argument("--url", default="http://127.0.0.1:8080")
+    parser.add_argument("--auth-mode", choices=("legacy", "personal"),
+                        default="legacy",
+                        help="Personal Access Token requires JWT refresh; legacy mode kept for old setups")
     parser.add_argument("--reviewer-slots", type=int, choices=(1, 2), default=2)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--create-local-projects", action="store_true")
@@ -317,7 +358,9 @@ def main() -> int:
         xml = validate_owner_xml(args.owner_label_config.read_bytes())
         if args.create_local_projects:
             require(args.confirm_local_import, "EXPLICIT_LOCAL_IMPORT_CONFIRMATION_REQUIRED")
-            token = os.environ.get("LABEL_STUDIO_API_KEY", "")
+            token = resolve_api_credential(args.url,
+                                           os.environ.get("LABEL_STUDIO_API_KEY", ""),
+                                           mode=args.auth_mode)
             result = create_projects(tasks, xml, args.url, token,
                                      slots=args.reviewer_slots)
         elif args.export_reviewed_projects:
@@ -325,8 +368,11 @@ def main() -> int:
                     args.project_a_id is not None and args.project_b_id is not None and
                     args.review_a_out is not None and args.review_b_out is not None,
                     "REVIEW_EXPORT_ARGUMENTS_INCOMPLETE")
+            token = resolve_api_credential(args.url,
+                                           os.environ.get("LABEL_STUDIO_API_KEY", ""),
+                                           mode=args.auth_mode)
             result = export_reviewed_projects(
-                tasks, args.url, os.environ.get("LABEL_STUDIO_API_KEY", ""),
+                tasks, args.url, token,
                 (args.project_a_id, args.project_b_id),
                 args.review_a_out, args.review_b_out)
         else:
