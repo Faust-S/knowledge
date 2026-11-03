@@ -25,3 +25,5 @@ jobs:
         run: python -m unittest discover -s research/task-discovery -p 'test_*.py' -v
       - name: Exact frozen original public issues replay (no private source texts in logs)
         run: python research/task-discovery/source_first_baseline.py
+      - name: Same eight sources, pinned Cross-Lab owner U1 versus title baseline
+        run: python research/task-discovery/paired_pinned_u1.py
