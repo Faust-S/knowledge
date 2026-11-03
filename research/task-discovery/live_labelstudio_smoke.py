@@ -34,6 +34,24 @@ SYNTHETIC_XML = """<View>
 </View>"""
 
 
+def traced_api(base: str, credential: str, route: str, body=None):
+    """Fixed route-category diagnostic; never emit source, token or HTTP body."""
+    if route == "/api/projects/":
+        stage = "PROJECT_CREATE"
+    elif "/import?" in route:
+        stage = "TASK_IMPORT"
+    elif "/annotations/" in route:
+        stage = "ANNOTATION_WRITE"
+    elif "/export?" in route:
+        stage = "TASK_READBACK"
+    else:
+        stage = "WHOAMI"
+    try:
+        return transport.api(base, credential, route, body)
+    except transport.SetupHold as error:
+        raise transport.SetupHold("LIVE_" + stage + "_" + str(error)) from None
+
+
 def synthetic_tasks() -> list[dict]:
     selection_sha = "sha256:" + hashlib.sha256(b"synthetic-local-api-smoke-1").hexdigest()
     tasks = []
@@ -57,17 +75,17 @@ def exercise_local_server(base: str, token: str) -> dict:
     """Real HTTP end-to-end; fail-closed on non-source-first export."""
     base = transport.local_url(base)
     credential = transport.resolve_api_credential(base, token, mode="legacy")
-    account = transport.api(base, credential, "/api/current-user/whoami")
+    account = traced_api(base, credential, "/api/current-user/whoami")
     transport.require(type(account) is dict and type(account.get("id")) is int,
                       "LIVE_LABEL_STUDIO_ACCOUNT_NOT_VERIFIED")
     tasks = synthetic_tasks()
-    receipt = transport.create_projects(tasks, SYNTHETIC_XML, base, credential, slots=2)
+    receipt = transport.create_projects(tasks, SYNTHETIC_XML, base, credential, slots=2, call=traced_api)
     project_ids = receipt["project_ids"]
     # No one completed a review. Programmatically exercise annotations so
     # the real API export format, IDs and import round-trip can be checked.
     annotated = 0
     for pid in project_ids:
-        exported = transport.api(base, credential,
+        exported = traced_api(base, credential,
                                  f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true")
         transport.require(type(exported) is list and len(exported) == 8,
                           "LIVE_LABEL_STUDIO_EXPORT_INCOMPLETE")
@@ -75,7 +93,7 @@ def exercise_local_server(base: str, token: str) -> dict:
             task_id = item.get("id") if type(item) is dict else None
             transport.require(type(task_id) is int and task_id > 0,
                               "LIVE_LABEL_STUDIO_TASK_ID_MISSING")
-            response = transport.api(base, credential,
+            response = traced_api(base, credential,
                 f"/api/tasks/{task_id}/annotations/", {
                     "result": [{"from_name": "review_coverage", "to_name": "source_text",
                                 "type": "choices", "value": {
@@ -93,7 +111,7 @@ def exercise_local_server(base: str, token: str) -> dict:
         output_a, output_b = Path(directory) / "a.json", Path(directory) / "b.json"
         try:
             transport.export_reviewed_projects(
-                tasks, base, credential, tuple(project_ids), output_a, output_b)
+                tasks, base, credential, tuple(project_ids), output_a, output_b, call=traced_api)
         except transport.SetupHold as error:
             transport.require(str(error) == "LABEL_STUDIO_SAME_REVIEWER_IN_BOTH_PROJECTS",
                               "LIVE_LABEL_STUDIO_WRONG_EXPORT_REFUSAL")
