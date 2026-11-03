@@ -1,0 +1,16 @@
+<View>
+  <Header value="E5: независимо выделите все исследуемые фрагменты документа."/>
+  <Text name="source_text" value="$source_text" valueType="text" granularity="word"/>
+  <Labels name="taskness" toName="source_text" choice="single">
+    <Label value="PROCESS"/>
+    <Label value="INDEPENDENT_TASK"/>
+    <Label value="OPERATION"/>
+    <Label value="INSUFFICIENT_EVIDENCE"/>
+  </Labels>
+  <Header value="После разметки отметьте полноту просмотра источника."/>
+  <Choices name="review_coverage" toName="source_text" choice="single" required="true">
+    <Choice value="ALL_RELEVANT_SPANS_MARKED"/>
+    <Choice value="NO_TASK_RELEVANT_SPANS"/>
+    <Choice value="REVIEW_INCOMPLETE"/>
+  </Choices>
+</View>

@@ -1,0 +1,57 @@
+name: IWXA Cross-Lab pinned native U1 real-source replay
+
+on:
+  push:
+    branches:
+      - work/2026-11-03-unified-task-migration
+    paths:
+      - 'research/cross-lab/**'
+      - '.github/workflows/crosslab-native-replay.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-native-replay:
+    name: Source-first U1 against eight pinned public GitHub issues
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Native U1 and frozen-source regression
+        run: python -W error::ResourceWarning -m unittest discover -s research/cross-lab/tests -v
+      - name: Real original-source replay (no tokens, no text artifacts)
+        run: python research/cross-lab/replay.py --out "${RUNNER_TEMP}/crosslab-native-receipt.json"
+      - name: Verify non-authoritative output contract
+        env:
+          RECEIPT: ${{ runner.temp }}/crosslab-native-receipt.json
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          result = json.loads(Path(os.environ['RECEIPT']).read_text(encoding='utf-8'))
+          assert result['schema'] == 'IWXA_CROSSLAB_NATIVE_PUBLIC_REPLICATION/0.1'
+          assert result['source_count'] == result['source_first_documents'] == 8
+          assert len(result['worklist']) == 8
+          assert len({row['source_ref'] for row in result['worklist']}) == 8
+          assert all(row['included_for_human_review'] for row in result['worklist'])
+          assert result['owner_u1_blob_sha'] == 'eb15aec5ba1a749c29d7c40a868127e1a384b6bf'
+          assert result['independent_task_gold'] is False
+          assert result['precision'] is None and result['recall'] is None and result['f1'] is None
+          assert result['task_candidates_created'] == 0
+          assert result['t1_acceptances_created'] == 0
+          assert result['e4_approvals_created'] == 0
+          assert 'source_text' not in json.dumps(result)
+          print('NATIVE_PUBLIC_RECEIPT_SCHEMA_PASS; HUMAN_TASK_QUALITY_NOT_MEASURED')
+          PY
+      - name: Upload only public hash/count receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: crosslab-public-native-u1-receipt
+          path: ${{ runner.temp }}/crosslab-native-receipt.json
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,98 @@
+{
+  "schema": "IWXA_CROSSLAB_PUBLIC_ISSUE_REPLICATION_SLICE/0.1",
+  "selected_on": "2026-11-03",
+  "selection_rule": "Before inspecting algorithmic outputs, choose two latest non-PR public GitHub issues with nonempty bodies by created_at from each of python/cpython, nodejs/node, pandas-dev/pandas, microsoft/vscode. Record source bytes hashes at selection, never change or filter items based on algorithm output.",
+  "purpose": "EXPLORATORY_EXTERNAL_REPLICATION_NOT_E5_TASK_GOLD",
+  "no_gold": true,
+  "e5_held_out": false,
+  "subject_lines_balanced": false,
+  "source_access": "PUBLIC_PAGE_LOCAL_ANALYSIS_CLAIM_ONLY",
+  "rights_independently_verified": false,
+  "annotation_status": "NOT_PERFORMED",
+  "human_reviewers": 0,
+  "source_text_published": false,
+  "methods_frozen": false,
+  "source_projection": "TITLE_NEWLINE_BODY_NEWLINE_UTF8",
+  "items": [
+    {
+      "repository": "python/cpython",
+      "issue_number": 161242,
+      "html_url": "https://github.com/python/cpython/issues/161242",
+      "created_at": "2026-11-03T08:59:19Z",
+      "updated_at": "2026-11-03T11:39:44Z",
+      "projection_sha256": "ba5210159b2acea3352ce50517e31d7edf71425e9c4477ade9f994974f60edfa",
+      "body_sha256": "f72c5da03ee0cf05b62b3b840549a02b8981112eed62969447f54698fbb68233",
+      "projection_bytes": 858
+    },
+    {
+      "repository": "python/cpython",
+      "issue_number": 161241,
+      "html_url": "https://github.com/python/cpython/issues/161241",
+      "created_at": "2026-11-03T08:54:47Z",
+      "updated_at": "2026-11-03T11:02:00Z",
+      "projection_sha256": "af16c43f5eba10bcae04637bfccedc3c577f2ebb99f3935c3c40f15b6f204fd4",
+      "body_sha256": "ef3dc3a9307571877b16fa27230ff5521165c9da515aa4c57f708b9f86499f14",
+      "projection_bytes": 723
+    },
+    {
+      "repository": "nodejs/node",
+      "issue_number": 67217,
+      "html_url": "https://github.com/nodejs/node/issues/67217",
+      "created_at": "2026-11-03T08:39:49Z",
+      "updated_at": "2026-11-03T08:39:49Z",
+      "projection_sha256": "703e2e5e037539372765686c110a1f76eb6e1712bd8313eeecae586891e7a36c",
+      "body_sha256": "2c86f0b820e5a47fcd5ce9245093c2ec94297a53daed07d2d5b96e6666466984",
+      "projection_bytes": 513
+    },
+    {
+      "repository": "nodejs/node",
+      "issue_number": 67216,
+      "html_url": "https://github.com/nodejs/node/issues/67216",
+      "created_at": "2026-11-03T08:10:43Z",
+      "updated_at": "2026-11-03T08:10:43Z",
+      "projection_sha256": "a8c6b8883f6750f2db0591df6d65f3e9ba04d025c087bc2aa1914a8b7fd8332b",
+      "body_sha256": "06766cdab545d05aca51c3e87fe1840ec7f8fc7821072fdf6d000598c6d8a6ae",
+      "projection_bytes": 2394
+    },
+    {
+      "repository": "pandas-dev/pandas",
+      "issue_number": 71853,
+      "html_url": "https://github.com/pandas-dev/pandas/issues/71853",
+      "created_at": "2026-11-02T23:10:01Z",
+      "updated_at": "2026-11-03T11:00:11Z",
+      "projection_sha256": "2903518e95a6ea4c3442ab8112a38d08a82316e8c7eee8107069daf9ac50799d",
+      "body_sha256": "c03e97813f831d9185718b3f77a39992bc0dd4115518fbcc80ba825c89e99f3e",
+      "projection_bytes": 2429
+    },
+    {
+      "repository": "pandas-dev/pandas",
+      "issue_number": 71843,
+      "html_url": "https://github.com/pandas-dev/pandas/issues/71843",
+      "created_at": "2026-11-02T13:35:05Z",
+      "updated_at": "2026-11-02T14:46:17Z",
+      "projection_sha256": "dcce3587f48585ebcae499f0447d45cd606433ba272e36ca87726129a0415563",
+      "body_sha256": "45b760059d19faf844b6cbd8df0a0212e4137ee782217101bdb4aad417b38d69",
+      "projection_bytes": 3309
+    },
+    {
+      "repository": "microsoft/vscode",
+      "issue_number": 345801,
+      "html_url": "https://github.com/microsoft/vscode/issues/345801",
+      "created_at": "2026-11-03T11:27:08Z",
+      "updated_at": "2026-11-03T11:28:32Z",
+      "projection_sha256": "ab92453988bdeab14f625bc792ae557f96e9b53af2cf9b11cafd71f6e82753a9",
+      "body_sha256": "0cfba043b5474128b8bf45124a06207ffb3d7320e06964d2bb421e29e0406438",
+      "projection_bytes": 3792
+    },
+    {
+      "repository": "microsoft/vscode",
+      "issue_number": 345799,
+      "html_url": "https://github.com/microsoft/vscode/issues/345799",
+      "created_at": "2026-11-03T11:17:51Z",
+      "updated_at": "2026-11-03T11:20:01Z",
+      "projection_sha256": "a684efd3d66873b6d5aeacc4010741672a1652ec774a8028895a3cc928f4a7d8",
+      "body_sha256": "d8d79cb3858a4659df466ec46a5a3c14b64bfa51a2defebc11e5d8802689f9e4",
+      "projection_bytes": 3494
+    }
+  ]
+}
