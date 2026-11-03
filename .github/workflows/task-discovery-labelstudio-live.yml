@@ -6,6 +6,7 @@ on:
       - work/2026-11-03-unified-task-migration
     paths:
       - 'research/task-discovery/live_labelstudio_smoke.py'
+      - 'research/task-discovery/labelstudio_project_setup.py'
       - '.github/workflows/task-discovery-labelstudio-live.yml'
   workflow_dispatch:
 
