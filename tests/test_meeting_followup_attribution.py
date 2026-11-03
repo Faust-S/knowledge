@@ -63,6 +63,20 @@ class MeetingFollowupAttributionTests(unittest.TestCase):
             ["ITEM_0_SOURCE_SPAN_MISMATCH"],
         )
 
+    def test_owner_not_supported_by_exact_quote(self):
+        row = item(TEXT, "Мария подготовит бюджет к пятнице.", "Подготовить бюджет", "Иван", "пятнице")
+        self.assertEqual(
+            verify(TEXT, {"action_items": [row], "open_questions": []})["errors"],
+            ["ITEM_0_OWNER_UNSUPPORTED"],
+        )
+
+    def test_deadline_not_supported_by_exact_quote(self):
+        row = item(TEXT, "Иван проверит смету.", "Проверить смету", "Иван", "завтра")
+        self.assertEqual(
+            verify(TEXT, {"action_items": [row], "open_questions": []})["errors"],
+            ["ITEM_0_DEADLINE_UNSUPPORTED"],
+        )
+
     def test_questions_required(self):
         self.assertEqual(verify(TEXT, {"action_items": []})["errors"], ["QUESTIONS_REQUIRED"])
 
