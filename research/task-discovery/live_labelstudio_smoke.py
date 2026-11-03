@@ -26,6 +26,12 @@ SYNTHETIC_XML = """<View>
     <Label value="OPERATION"/>
     <Label value="INSUFFICIENT_EVIDENCE"/>
   </Labels>
+  <View visibleWhen="region-selected" whenTagName="source_text" whenLabelValue="INDEPENDENT_TASK">
+    <Header value="Synthetic test-only goal, result and acceptance fields"/>
+    <TextArea name="goal" toName="source_text" perRegion="true" maxSubmissions="1" rows="2"/>
+    <TextArea name="expected_result" toName="source_text" perRegion="true" maxSubmissions="1" rows="2"/>
+    <TextArea name="acceptance_criterion" toName="source_text" perRegion="true" maxSubmissions="1" rows="2"/>
+  </View>
   <Choices name="review_coverage" toName="source_text" choice="single" required="true">
     <Choice value="ALL_RELEVANT_SPANS_MARKED"/>
     <Choice value="NO_TASK_RELEVANT_SPANS"/>
