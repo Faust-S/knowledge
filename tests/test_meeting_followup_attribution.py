@@ -100,6 +100,14 @@ class MeetingFollowupAttributionTests(unittest.TestCase):
             verify(TEXT, {"action_items": [row, second], "open_questions": []})["passed"]
         )
 
+    def test_malformed_action_is_reported_without_exception(self):
+        row = item(TEXT, "Иван проверит смету.", "Проверить смету", "Иван")
+        row["action"] = []
+        self.assertEqual(
+            verify(TEXT, {"action_items": [row], "open_questions": []})["errors"],
+            ["ITEM_0_ACTION_REQUIRED"],
+        )
+
     def test_questions_required(self):
         self.assertEqual(verify(TEXT, {"action_items": []})["errors"], ["QUESTIONS_REQUIRED"])
 
