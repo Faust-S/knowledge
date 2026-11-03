@@ -41,7 +41,7 @@ SYNTHETIC_XML = """<View>
 
 
 def traced_api(base: str, credential: str, route: str, body=None):
-    """Fixed route-category diagnostic; never emit source, token or HTTP body."""
+    """Report only fixed stage and bounded synthetic form-validation details."""
     if route == "/api/projects/":
         stage = "PROJECT_CREATE"
     elif "/import?" in route:
@@ -53,6 +53,34 @@ def traced_api(base: str, credential: str, route: str, body=None):
     else:
         stage = "WHOAMI"
     try:
+        if stage == "PROJECT_CREATE":
+            # This run uses only a synthetic form and CI account. Capture the
+            # exact API validation category, not credentials or source texts.
+            from urllib.request import Request, urlopen
+            data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+            req = Request(base + route, data=data, method="POST",
+                          headers={"Authorization": credential,
+                                   "Accept": "application/json",
+                                   "Content-Type": "application/json"})
+            try:
+                with urlopen(req, timeout=25) as response:
+                    return json.loads(response.read(1_000_000))
+            except HTTPError as error:
+                payload = error.read(6000)
+                try:
+                    parsed = json.loads(payload)
+                    detail = {k: str(v)[:350] for k, v in parsed.items()
+                              if k in ("detail", "label_config", "validation_errors",
+                                       "non_field_errors", "organization", "message")}
+                    print(json.dumps({"phase": "LIVE_SYNTHETIC_PROJECT_CREATE",
+                                      "status_code": error.code,
+                                      "validation_fields": sorted(parsed),
+                                      "validation_details": detail}, sort_keys=True))
+                except (ValueError, TypeError, AttributeError):
+                    print(json.dumps({"phase": "LIVE_SYNTHETIC_PROJECT_CREATE",
+                                      "status_code": error.code,
+                                      "validation_response_format": "NON_OBJECT"}))
+                raise transport.SetupHold("LABEL_STUDIO_HTTP_" + str(error.code)) from None
         return transport.api(base, credential, route, body)
     except transport.SetupHold as error:
         raise transport.SetupHold("LIVE_" + stage + "_" + str(error)) from None
