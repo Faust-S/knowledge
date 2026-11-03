@@ -75,7 +75,7 @@ class FakeLabelStudio(BaseHTTPRequestHandler):
         if self.path == '/api/projects/':
             ident = cls.next_id
             cls.next_id += 1
-            cls.projects[ident] = {'config': data['label_config'], 'tasks': []}
+            cls.projects[ident] = {'config': data['label_config'], 'title': data['title'], 'tasks': []}
             self.response({'id': ident, 'config_has_control_tags': True}, 201)
         elif self.path.endswith('/import?return_task_ids=true'):
             ident = int(self.path.split('/')[3])
@@ -128,6 +128,7 @@ class LocalLabelStudioSetupTests(unittest.TestCase):
             self.assertEqual(len(FakeLabelStudio.projects), 2)
             for project in FakeLabelStudio.projects.values():
                 self.assertIn('review_coverage', project['config'])
+                self.assertLessEqual(len(project['title']), 50)
                 self.assertEqual(len(project['tasks']), 8)
                 self.assertFalse(any('predictions' in task for task in project['tasks']))
         finally:
