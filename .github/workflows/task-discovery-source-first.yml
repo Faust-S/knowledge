@@ -39,6 +39,19 @@ jobs:
           assert r['sources'] == r['review_sources'] == len(r['source_rows']) == 8
           assert r['owner_u1_git_blob'] == 'eb15aec5ba1a749c29d7c40a868127e1a384b6bf'
           assert r['frozen_manifest_git_blob'] == '4ecaa74522ba1c3fa4e8851e877200c7767ad0de'
+          # Pre-gold method commitment is durable in Git; do not silently
+          # replace the frozen baseline after seeing reviewer outputs.
+          commitment = json.loads(Path('research/task-discovery/pre_gold_method_commitment_20261103.json').read_text('utf-8'))
+          assert commitment['schema'] == 'IWXA_TASK_EXP_01_PRE_GOLD_METHOD_COMMITMENT/0.1'
+          assert commitment['frozen_before_human_gold'] is True
+          assert commitment['method_output_sha256'] == r['method_output_sha256']
+          assert commitment['source_commit'] == 'f6f559edc26fdcae733c01266d3aaef188fdfe95'
+          assert commitment['source_run_id'] == 41670916077
+          assert commitment['owner_u1_git_blob'] == r['owner_u1_git_blob']
+          assert commitment['frozen_manifest_git_blob'] == r['frozen_manifest_git_blob']
+          assert commitment['label_studio_xml_git_blob'] == r['label_studio_xml_git_blob']
+          assert commitment['sources'] == r['sources']
+          assert commitment['human_gold'] is False and commitment['task_f1'] is None
           assert r['human_gold'] is False and r['task_f1'] is None
           assert r['task_candidates_created'] == 0
           assert r['source_text_exported'] is False

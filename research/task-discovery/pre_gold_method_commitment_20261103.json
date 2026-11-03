@@ -1,0 +1,20 @@
+{
+  "schema": "IWXA_TASK_EXP_01_PRE_GOLD_METHOD_COMMITMENT/0.1",
+  "frozen_before_human_gold": true,
+  "source_repository": "Faust-S/knowledge",
+  "source_branch": "work/2026-11-03-unified-task-migration",
+  "source_commit": "f6f559edc26fdcae733c01266d3aaef188fdfe95",
+  "source_run_id": 41670916077,
+  "source_run_url": "https://github.com/Faust-S/knowledge/actions/runs/41670916077",
+  "method_output_sha256": "93e76fc6983364c5718a8e26f797d7220ed51899cd90bf92f15731d3c5f94bf0",
+  "owner_u1_git_blob": "eb15aec5ba1a749c29d7c40a868127e1a384b6bf",
+  "frozen_manifest_git_blob": "4ecaa74522ba1c3fa4e8851e877200c7767ad0de",
+  "label_studio_xml_git_blob": "7b82dbd05b4e28c53446d863c5bb48b72245a10d",
+  "sources": 8,
+  "human_gold": false,
+  "task_precision": null,
+  "task_recall": null,
+  "task_f1": null,
+  "method_coordinates_exported": false,
+  "source_text_exported": false
+}

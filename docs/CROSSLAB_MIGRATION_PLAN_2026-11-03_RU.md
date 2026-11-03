@@ -147,3 +147,34 @@ characteristic, **не доказательство роста task recall**.
 task-level TP/FP/FN и precision/recall/F1. Formal E5 требует отдельной
 новой выборки и специалистов. Публичный workflow не является
 заменой этих человеческих процедур.
+
+
+## M2: неизменяемое доэкспертное обязательство методов (03.11.2026)
+
+Новый существующий `research/task-discovery/method_snapshot.py` сформировал
+непубликуемый JSON с точными координатами сигнальных фрагментов для всех восьми
+источников. Подтверждено в **действительном** публичном Actions
+https://github.com/Faust-S/knowledge/actions/runs/41670916077,
+HEAD `f6f559edc26fdcae733c01266d3aaef188fdfe95`, **16/16 native tests PASS**,
+исходный real replay/защита исходного SHA/квитанция **PASS**.
+
+До получения экспертной разметки в
+`research/task-discovery/pre_gold_method_commitment_20261103.json`
+зафиксированы SHA-256 полного канонического снимка
+`93e76fc6983364c5718a8e26f797d7220ed51899cd90bf92f15731d3c5f94bf0`,
+pinned U1 blob `eb15aec5ba1a749c29d7c40a868127e1a384b6bf`,
+source manifest Git blob `4ecaa74522ba1c3fa4e8851e877200c7767ad0de`
+и оригинальный source-first XML `7b82dbd05b4e28c53446d863c5bb48b72245a10d`.
+Публичная запись не содержит исходный текст, сигнальные координаты,
+экспертные записи или вымышленные Task. Дальнейший штатный публичный CI
+сверяет новый вычисленный снимок с исходным неизменяемым хешем;
+пересмотр метода потребует отдельно зарегистрированную новую редакцию,
+а не переписывание исходной.
+
+**Граница квалификации:** это криптографическое обязательство *относительно*
+точных lexical cues, а не task-level prediction gold; `M3_REAL_REVIEW=PENDING`,
+`M3_ADJUDICATION=PENDING`, `TASK_PRECISION_RECALL_F1=NOT_MEASURED`,
+`HUMAN_REVIEW_TIME=NOT_MEASURED`, `E5_FORMAL=NOT_RUN`.
+Следующий реальный шаг — owner-local независимая разметка двух людей
+в существующем Label Studio, без показа U1/regex и с замером человеческого
+времени; затем независимое разрешение разногласий, но не автопринятие задач.
