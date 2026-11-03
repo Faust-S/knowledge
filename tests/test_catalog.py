@@ -36,7 +36,7 @@ class SpecializedSolutionTests(unittest.TestCase):
         d["state_machine"][-1]["produces"]="TASK_CREATED"
         with self.assertRaisesRegex(ValueError,"MISSING_HUMAN_REVIEW"):c.check_definition(d)
     def test_unpinned_source_rejected(self):
-        x=copy.deepcopy(self.rows[0])
+        x=copy.deepcopy(next(row for row in self.rows if row["id"]=="meeting-followup-crewai"))
         x["source"]["commit"]="main"
         with self.assertRaisesRegex(ValueError,"SOURCE_NOT_PINNED"):c.check_solution(x)
     def test_runtime_app_claim_rejected(self):
