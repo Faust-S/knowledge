@@ -24,13 +24,35 @@ class MeetingFollowupAttributionTests(unittest.TestCase):
         }
         self.assertTrue(verify(TEXT, draft)["passed"])
 
-    def test_wrong_offset(self):
+    def test_wrong_offset_unique_quote_is_recovered(self):
         row = item(TEXT, "Иван проверит смету.", "Проверить смету", "Иван")
+        expected_start, expected_end = row["start"], row["end"]
         row["start"] += 1
+        result = verify(TEXT, {"action_items": [row], "open_questions": []})
+        self.assertTrue(result["passed"])
+        self.assertEqual((result["accepted"][0]["start"], result["accepted"][0]["end"]), (expected_start, expected_end))
+
+    def test_no_model_offsets_unique_quote(self):
+        row = item(TEXT, "Иван проверит смету.", "Проверить смету", "Иван")
+        row.pop("start")
+        row.pop("end")
+        result = verify(TEXT, {"action_items": [row], "open_questions": []})
+        self.assertTrue(result["passed"])
+        self.assertIsInstance(result["accepted"][0]["start"], int)
+
+    def test_repeated_quote_requires_disambiguation(self):
+        source = "🧪 Иван проверит смету. Иван проверит смету."
+        quote = "Иван проверит смету."
+        row = {"action": "Проверить смету", "quote": quote,
+               "assignee": "Иван", "due_date": "UNKNOWN"}
         self.assertEqual(
-            verify(TEXT, {"action_items": [row], "open_questions": []})["errors"],
+            verify(source, {"action_items": [row], "open_questions": []})["errors"],
             ["ITEM_0_SOURCE_SPAN_MISMATCH"],
         )
+        second_start = source.rfind(quote)
+        resolved = verify(source, {"action_items": [{**row, "start": second_start,
+                                "end": second_start + len(quote)}], "open_questions": []})
+        self.assertTrue(resolved["passed"])
 
     def test_invented_quote(self):
         row = item(TEXT, "Иван проверит смету.", "Проверить смету", "Иван")
