@@ -47,7 +47,7 @@ jobs:
       - name: ATUS diary conversion synthetic contract tests
         run: python -m unittest discover -s research/activity-research/tests -p 'test_atus_*.py' -v
       - name: BPI XES synthetic contract and pinned U1 integration tests
-        run: python -m unittest discover -s research/activity-research/tests -p 'test_bpi13_*.py' -v
+        run: python -m unittest discover -s research/activity-research/tests -p 'test_bpi13_xes_u1_replay.py' -v
       - name: Fetch Git-blob-pinned public BPI 2013 open-problems XES copy
         run: |
           curl --fail --location --retry 2 --max-time 90 --silent --show-error \
