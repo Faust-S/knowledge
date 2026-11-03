@@ -214,7 +214,7 @@ def create_projects(tasks: list[dict], xml: str, url: str, token: str,
         for slot in range(slots):
             name = "A" if slot == 0 else "B"
             project = call(base, token, "/api/projects/", {
-                "title": "IWXA TASK-EXP-01 blind source-first reviewer slot " + name,
+                "title": "IWXA TASK-EXP-01 reviewer " + name,
                 "description": "Exploratory 8 sources. Assign independent human reviewer manually; no method predictions or task gold.",
                 "label_config": xml,
             })
