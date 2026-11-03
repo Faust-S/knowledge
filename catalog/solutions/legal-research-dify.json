@@ -1,0 +1,67 @@
+{
+  "id": "legal-research-dify",
+  "title": "Агент поиска документов и исследований правовых вопросов",
+  "agent_kind": "specialized_workflow",
+  "status": "LISTING_SCREENED",
+  "source": {
+    "catalog": "Dify Marketplace",
+    "url": "https://marketplace.dify.ai/template/scarlettmao/79472c38-268e-4e8b-9ac3-a4584260b708",
+    "marketplace_id": "79472c38-268e-4e8b-9ac3-a4584260b708",
+    "author": "scarlettmao",
+    "native_workflow_acquired": false,
+    "source_rights": "NOT_VERIFIED_FOR_REDISTRIBUTION",
+    "third_party_code_redistributed": false,
+    "source_risks": [
+      "Исходный сценарий ориентирован на англоязычные базы Qdrant, не на российское право",
+      "Внешний API и хранение данных нуждаются в отдельной проверке"
+    ]
+  },
+  "task_and_result": {
+    "user_request": "Найти проверяемые источники по правовому вопросу и выдать ссылки и ограничения",
+    "input_slots": [
+      "question",
+      "jurisdiction",
+      "approved_corpus"
+    ],
+    "expected_result": [
+      "grounded_summary",
+      "citations",
+      "uncertain_claims"
+    ],
+    "not_for": [
+      "юридическое заключение без проверки компетентным специалистом",
+      "ложная применимость иностранных законов к РФ"
+    ]
+  },
+  "structure": {
+    "process_steps": [
+      "scope_question",
+      "retrieve_approved_docs",
+      "fallback_search_if_allowed",
+      "synthesize_cited_summary"
+    ],
+    "prompts": [],
+    "algorithms": [
+      "retrieval_routing"
+    ],
+    "external_effects": "NETWORK_SEARCH_REQUIRE_APPROVAL",
+    "definition_file": null
+  },
+  "requirements": {
+    "host": "DIFY_OR_FUTURE_IWXA_ADAPTER",
+    "tools": [
+      "Qdrant",
+      "Web Search"
+    ],
+    "models": [
+      "user_selected_compatible_llm"
+    ],
+    "external_apps_optional": []
+  },
+  "qualification": {
+    "iwxa_verified": false,
+    "execution_receipts": [],
+    "reason": "Изучена только опубликованная карточка, не выполнены реальные испытания"
+  },
+  "installable": false
+}
