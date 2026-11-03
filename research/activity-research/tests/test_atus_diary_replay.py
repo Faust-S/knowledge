@@ -120,6 +120,15 @@ class ATUSTests(unittest.TestCase):
         with self.assertRaisesRegex(Hold, "ATUS_SAMPLE_SIZE_INVALID"):
             analyze(make_zip(GOOD_1), max_diaries=17, u1_loader=stub_loader)
 
+    def test_synthetic_diary_really_passes_exact_owner_pinned_u1(self):
+        # This is an integration contract, NOT real external source evidence.
+        result = analyze(make_zip(GOOD_1 + GOOD_2), max_diaries=2)
+        self.assertEqual(result["projection"]["u1_reported_events"], 6)
+        self.assertEqual(result["u1"]["source_snapshot_git_blob"],
+                         "eb15aec5ba1a749c29d7c40a868127e1a384b6bf")
+        self.assertFalse(result["u1"]["engine_accepted"])
+        self.assertEqual(result["u1"]["task_type_ids_assigned"], 0)
+
     def test_source_and_events_are_bounded(self):
         payload = make_zip(GOOD_1 + GOOD_2)
         got = analyze(payload, u1_loader=stub_loader)
