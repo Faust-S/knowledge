@@ -118,3 +118,37 @@ jobs:
           path: ${{ runner.temp }}/bpi13-mutation-receipt.json
           retention-days: 7
           if-no-files-found: error
+      - name: Real BPI process-owner published questions evidence audit tests
+        run: python -m unittest discover -s research/activity-research/tests -p 'test_bpi13_owner_questions_*.py' -v
+      - name: Published process-owner questions vs real registered BPI event evidence
+        run: |
+          python research/activity-research/bpi13_owner_questions_audit.py \
+            --xes-gz "$RUNNER_TEMP/bpi13-open-problems.xes.gz" \
+            --max-traces 12 --out "$RUNNER_TEMP/bpi13-owner-question-audit.json"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          r=json.loads((Path(os.environ['RUNNER_TEMP'])/'bpi13-owner-question-audit.json').read_text())
+          assert r['schema']=='IWXA_ACTIVITY_OWNER_QUESTIONS_EVIDENCE_AUDIT/0.1'
+          assert r['question_count']==4
+          assert r['reported_baseline']['reported_cases']==819
+          assert r['reported_baseline']['reported_events']==2351
+          assert r['accepted_task_count']==0 and r['accepted_task_type_count']==0
+          assert not r['sources']['independent_real_world_event_confirmation']
+          assert r['quality_of_task_discovery']=='NOT_MEASURED'
+          assert r['u1_sample']['reported_events']==50
+          assert all(x['required_but_not_verified'] and not x['can_conclude_misconduct_or_fault_exists']
+                     for x in r['questions'])
+          print('BPI13_PUBLISHED_OWNER_QUESTIONS_SCOPED_PASS',
+                r['question_count'],'published questions',
+                r['reported_baseline']['reported_cases'],'reported cases',
+                r['reported_baseline']['activity_A_B_A_motifs_in_declared_timestamp_order'],
+                'registered-label A-B-A motifs (NOT team ping-pong)')
+          PY
+      - name: Upload derived problem-evidence audit only
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-bpi13-owner-question-evidence-audit
+          path: ${{ runner.temp }}/bpi13-owner-question-audit.json
+          retention-days: 7
+          if-no-files-found: error
