@@ -118,6 +118,21 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
              'OWNER_BRIDGE_RECEIPT_INCOMPATIBLE')
         need(tuple(sha256_file(p) for p in inputs) == pinned,
              'REVIEW_INPUT_CHANGED_AFTER_BRIDGE')
+        # A successful bridge response is not sufficient: the reviewer needs
+        # the actual owner-local disagreement packet for adjudication.
+        need(disagreements_out.is_file() and not disagreements_out.is_symlink(),
+             'OWNER_DISAGREEMENTS_NOT_WRITTEN')
+        disagreements = safe_json(disagreements_out.read_text(encoding='utf-8'))
+        need(disagreements.get('schema') ==
+             'IWXA_TASK_EXP_01_LOCAL_DISAGREEMENT_PACKET/0.1' and
+             disagreements.get('status') ==
+             'ADJUDICATION_PENDING_NO_AUTOMATIC_TASK_ADOPTION' and
+             type(disagreements.get('disagreements')) is list and
+             type(native.get('sources_with_disagreement')) is int and
+             len(disagreements['disagreements']) ==
+             native['sources_with_disagreement'] and
+             disagreements.get('human_task_gold') is False,
+             'OWNER_DISAGREEMENTS_INCOMPATIBLE')
         receipt = Path(temporary) / 'owner-bridge-receipt.json'
         receipt.write_text(json.dumps(native, ensure_ascii=False) + '\n', encoding='utf-8')
         effort_command = [sys.executable, str(script),
@@ -148,6 +163,7 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
         'status': 'OWNER_BRIDGE_AND_REVIEW_EFFORT_COMPLETED_NOT_GOLD',
         'sources': 8, 'annotations': 16,
         'bridge_checked_not_adjudicated': True,
+        'sources_with_disagreement': native['sources_with_disagreement'],
         'platform_lead_time_complete': (
             effort.get('label_studio_lead_time_seconds_total') is not None),
         'human_gold': False, 'adjudication_completed': False,

@@ -35,11 +35,16 @@ class CycleFixture:
         self.calls.append((command, cwd))
         if len(self.calls) == 1:
             Path(command[command.index('--restricted-disagreement-output') + 1]).write_text(
-                '{"disagreements":[]}\n', encoding='utf-8')
+                json.dumps({
+                    'schema': 'IWXA_TASK_EXP_01_LOCAL_DISAGREEMENT_PACKET/0.1',
+                    'status': 'ADJUDICATION_PENDING_NO_AUTOMATIC_TASK_ADOPTION',
+                    'disagreements': [], 'human_task_gold': False,
+                }) + '\n', encoding='utf-8')
             return json.dumps({
                 'schema': cycle.BRIDGE_SCHEMA,
                 'status': 'BLINDED_REVIEW_CLAIMS_CHECKED_NOT_ADJUDICATED_NOT_GOLD',
-                'sources_checked': 8, 'reviewer_ids_distinct': True,
+                'sources_checked': 8, 'sources_with_disagreement': 0,
+                'reviewer_ids_distinct': True,
                 'human_task_gold': False, 'adjudication_completed': False})
         if len(self.calls) == 2:
             Path(command[command.index('--out') + 1]).write_text(json.dumps({
@@ -72,6 +77,7 @@ class OwnerReviewCycleTests(unittest.TestCase):
             result = f.execute(hourly_rate_usd='50.50')
             self.assertEqual(result['status'], 'OWNER_BRIDGE_AND_REVIEW_EFFORT_COMPLETED_NOT_GOLD')
             self.assertEqual(result['annotations'], 16)
+            self.assertEqual(result['sources_with_disagreement'], 0)
             self.assertFalse(result['human_gold'])
             self.assertEqual(len(f.calls), 2)
             native, wc = f.calls[0]
@@ -136,6 +142,50 @@ class OwnerReviewCycleTests(unittest.TestCase):
             with self.assertRaisesRegex(cycle.CycleHold, 'REVIEW_INPUT_CHANGED_AFTER_EFFORT'):
                 f.execute(runner=changing)
             self.assertEqual(len(f.calls), 2)
+
+    def test_missing_disagreement_packet_rejects_bridge_success(self):
+        with TemporaryDirectory() as td:
+            f = CycleFixture(Path(td))
+            def missing(command, cwd):
+                result = f.runner(command, cwd)
+                if len(f.calls) == 1:
+                    f.disagreement.unlink()
+                return result
+            with self.assertRaisesRegex(cycle.CycleHold,
+                                        'OWNER_DISAGREEMENTS_NOT_WRITTEN'):
+                f.execute(runner=missing)
+            self.assertEqual(len(f.calls), 1)
+            self.assertFalse(f.effort.exists())
+
+    def test_corrupt_disagreement_packet_is_hold(self):
+        with TemporaryDirectory() as td:
+            f = CycleFixture(Path(td))
+            def invalid(command, cwd):
+                result = f.runner(command, cwd)
+                if len(f.calls) == 1:
+                    f.disagreement.write_text(
+                        '{"schema":"wrong","disagreements":[]}\n',
+                        encoding='utf-8')
+                return result
+            with self.assertRaisesRegex(cycle.CycleHold,
+                                        'OWNER_DISAGREEMENTS_INCOMPATIBLE'):
+                f.execute(runner=invalid)
+            self.assertEqual(len(f.calls), 1)
+
+    def test_disagreement_count_mismatch_is_hold(self):
+        with TemporaryDirectory() as td:
+            f = CycleFixture(Path(td))
+            def mismatch(command, cwd):
+                result = f.runner(command, cwd)
+                if len(f.calls) == 1:
+                    obj = json.loads(f.disagreement.read_text('utf-8'))
+                    obj['disagreements'] = [{'source_sha256': 'unmatched'}]
+                    f.disagreement.write_text(json.dumps(obj), encoding='utf-8')
+                return result
+            with self.assertRaisesRegex(cycle.CycleHold,
+                                        'OWNER_DISAGREEMENTS_INCOMPATIBLE'):
+                f.execute(runner=mismatch)
+            self.assertEqual(len(f.calls), 1)
 
     def test_missing_effort_file_does_not_claim_completion(self):
         with TemporaryDirectory() as td:
