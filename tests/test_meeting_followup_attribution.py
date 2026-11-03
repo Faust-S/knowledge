@@ -108,6 +108,11 @@ class MeetingFollowupAttributionTests(unittest.TestCase):
             ["ITEM_0_ACTION_REQUIRED"],
         )
 
+    def test_short_actionable_transcript(self):
+        source = "Мария сдаст отчёт."
+        proposed = item(source, source, "Сдать отчёт", "Мария")
+        self.assertTrue(verify(source, {"action_items": [proposed], "open_questions": []})["passed"])
+
     def test_questions_required(self):
         self.assertEqual(verify(TEXT, {"action_items": []})["errors"], ["QUESTIONS_REQUIRED"])
 
