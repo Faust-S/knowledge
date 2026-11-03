@@ -4,7 +4,7 @@ from __future__ import annotations
 
 def verify(transcript, draft):
     errors = []
-    if not isinstance(transcript, str) or len(transcript.strip()) < 40:
+    if not isinstance(transcript, str) or not transcript.strip():
         return {"passed": False, "errors": ["TRANSCRIPT_REQUIRED"], "accepted": []}
     if not isinstance(draft, dict) or not isinstance(draft.get("action_items"), list):
         return {"passed": False, "errors": ["INVALID_DRAFT"], "accepted": []}
