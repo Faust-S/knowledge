@@ -42,3 +42,58 @@
 Стандартные public GitHub Actions подходят для воспроизведения разрешённого Python/JS кода и открытых данных. Не запускать workflows, пока нет самодостаточного разрешённого исходного набора; не создавать фальшивых тестов на вторичной копии U1. Не публиковать raw Label Studio reviewer exports; отдельные независимые метки остаются owner-local.
 
 **M0 результат:** архитектура и карта записаны; фактический перенос исходного Cross-Lab и native replay ещё PENDING. При изменении исходной ветки перечитать HEAD, оценить diff и выполнить fast-forward без force.
+
+## Реализовано M1/M2 — публичные экспериментальные маршруты (03.11.2026)
+
+**TASK-EXP-01 baseline:** исходный git blob `4ecaa74522ba1c3fa4e8851e877200c7767ad0de` (восемь публичных GitHub issue, только метаданные/URL/хеши) перенесён побайтово в `research/task-discovery/task_exp_01_source_metadata.json`. Исходные тексты, модели, приватные результаты Label Studio, U1 и Task Engine **не копировались** в этом поднаправлении. Добавлены самостоятельный `source_first_baseline.py`, 5 offline unit-тестов и узкий публичный workflow `.github/workflows/task-discovery-source-first.yml`.
+
+Публикация: `ecbb5006d48c81c02231a4aaf7bcbf7b8e0e53ab`,
+TREE `3273957cf6e773f801dbbdf15dab7672be947689`.
+Фактическая native Ubuntu / CPython 3.13:
+https://github.com/Faust-S/knowledge/actions/runs/41665922121,
+`completed/success`, **5/5 tests PASS**;
+**8/8 реальных исходников совпали с исходными SHA**;
+заранее фиксированный простой заголовочный regex дал **5 cues в 3 источниках**,
+пять без cues не исключены (8/8 source-first review coverage).
+В квитанции только SHA, ссылки на источники, счётчики и UTF-8 byte offsets;
+`human_task_gold=false`, P/R/F1 null; время Title Regex (не полный fetch,
+не время человека) 0.111 ms в одном hosted run, не benchmark.
+
+**Cross-Lab:** параллельный инженерный цикл опубликовал
+`research/cross-lab/owner_pins/universal_evidence.py` и версионированный
+нативный adapter/replay в этой **же** миграционной ветке коммитом
+`c73493bfe9198cbb910efc440e03d1355df9a405`, с собственным
+фиксированным корпусом из других восьми issues. Его реальный public CI
+https://github.com/Faust-S/knowledge/actions/runs/41665816570
+завершён `success`. Это одна pinned **копия** canonical owner-кода для
+эксперимента, а не передача ownership или право на независимую переработку
+U1. Перед обновлением pinned snapshot необходимы источник, exact SHA,
+разрешение публикации и проверка соответствия owner.
+
+**Важные различия:** Cross-Lab и TASK-EXP-01 имеют по восемь **разных**
+первичных источников, не сводить их counts в один gold или E5.
+Предыдущая owner-реплика TASK-EXP-01 зафиксировала 14 U1 lexical cues в
+3/8 документах на том же TASK-EXP-01 source set; новый title-only regex
+нашёл 5 cues в 3/8. Эти количества характеризуют coverage подсказок,
+**не** precision/recall человеческих задач. Отдельный U1 replay
+TASK-EXP-01 в публичной среде и количественное парное сопоставление
+точных cue locations ещё не доказаны этим baseline workflow.
+
+**Статусы:** `M1_METADATA_EXPORT=PASS`;
+`M2_TASK_EXP_01_PUBLIC_TITLE_BASELINE=PASS_REAL_8_OF_8`;
+`M2_CROSSLAB_PINNED_U1_PUBLIC_CI=PASS_SCOPED`;
+`M2_TASK_EXP_01_NATIVE_U1_SAME_SOURCE_PAIR=PENDING`;
+`REAL_INDEPENDENT_HUMAN_REVIEW=PENDING`;
+`HUMAN_TASK_GOLD=NOT_MEASURED`;
+`TASK_PRECISION_RECALL_F1=NOT_MEASURED`;
+`HUMAN_REVIEW_TIME=NOT_MEASURED`;
+`E5_FORMAL=NOT_RUN`; `AGENT_T3_HANDOFF=PENDING`.
+
+**Следующий инженерный шаг:** использовать уже опубликованный pinned U1
+через **его существующий** replay и выполнить один одинаковый восьми-source
+TASK-EXP-01 paired run, зафиксировав source-anchored outcomes и версии.
+Не создавать третий U1 или альтернативную систему разметки. Затем
+двухэкспертная слепая owner-local Label Studio разметка всех восьми исходных
+source-first случаев (включая cue-silent), отдельная adjudication и
+precision/recall/F1 с знаменателями. Отсутствие human gold не блокирует
+адресные исходные инженерные проверки, но блокирует научную квалификацию.
