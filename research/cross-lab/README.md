@@ -4,6 +4,8 @@
 
 This directory provides one pinned copy of the owning U1 reader (`Faust-S/iwxa@research/ai-crosslab-practical-pilot`) *only* as a frozen execution dependency for open regression. It has **not** been adapted or maintained as a public runtime. The real code owner remains the original repository; any future U1 change must be qualified at its source, then separately pinned here. No new Task Engine, Context Compiler, Store, Rights or Label Studio evaluator is implemented.
 
+**Передача в проект «Система знаний» (04.11.2026):** [полный Cross-Lab handoff](HANDOFF_SYSTEMA_ZNANIY_2026-11-04_RU.md). В нём приведены актуальные инженерные результаты, владельцы, научные ограничения и следующий предметный gate M3.
+
 ## Source-pinned components
 
 | Artifact | Exact original Git blob | Purpose |
