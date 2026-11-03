@@ -1,0 +1,24 @@
+name: Open IWXA knowledge checks
+on:
+  push:
+    branches:
+      - work/2026-11-02-pipeline-foundation
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python tools/check_catalog.py
+      - run: python -m unittest discover -s tests -p "test_*.py" -v

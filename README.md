@@ -15,3 +15,14 @@
 - `docs/BOUNDARIES_RU.md` — разделение специализированного агента, программы и контекста
 
 **Существующие IWXA AgentRuntimePort, ToolRuntime, Task Discovery, Context Compiler, Programs Center не дублируем.** Публичные материалы не включают приватные данные, токены, копии исходного кода CrewAI или Dify YAML без удостоверения прав.
+
+## Открытая исследовательская линия Task → Agent/Skill → Result
+
+С 03.11.2026 здесь размещаются воспроизводимые открытые эксперименты Task Discovery, Cross-Lab, исполнительных платформ и совместимости Task/Result. Каталог специализированных агентов сохраняет собственный статус `IWXA_VERIFIED=0` и существующие определения.
+
+- [Границы и owners соседних продуктов](docs/INTEGRATION_AND_OWNERSHIP_RU.md)
+- [Программа открытых экспериментов](research/OPEN_EXPERIMENTS_RU.md)
+- [Синтетический Task→черновик Result](research/fixtures/meeting-task-result.json) + `tests/test_open_task_result_boundary.py` — **не** исполнение AI или PA.
+- `.github/workflows/public-checks.yml` — публичные Linux/Windows Python checks без подключения к приватным репозиториям.
+
+Публичная реплика T3/PA/Admin/Publisher **не создаётся**; код остаётся у своих owners. Лицензия самостоятельного открытого пакета должна быть явно утверждена владельцем: публичность GitHub не заменяет LICENSE.

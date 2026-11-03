@@ -1,0 +1,46 @@
+{
+  "schema": "iwxa.public-task-result-fixture/0.1",
+  "origin": "SYNTHETIC_CREATED_FOR_PUBLIC_TESTS",
+  "task": {
+    "id": "fixture:meeting-task-01",
+    "text": "Совещание 3 ноября. Мария подготовит бюджет к пятнице. Иван проверит смету. Идею про маркетинг пока только обсуждали.",
+    "organization_assignment": false
+  },
+  "agent_solution": {
+    "catalog_id": "meeting-followup-crewai",
+    "catalog_status": "ADAPTED_NOT_EXECUTED",
+    "runtime_executed": false
+  },
+  "draft": {
+    "action_items": [
+      {
+        "quote": "Мария подготовит бюджет к пятнице.",
+        "start": 20,
+        "end": 54,
+        "action": "Подготовить бюджет",
+        "assignee": "Мария",
+        "due_date": "пятнице"
+      },
+      {
+        "quote": "Иван проверит смету.",
+        "start": 55,
+        "end": 75,
+        "action": "Проверить смету",
+        "assignee": "Иван",
+        "due_date": "UNKNOWN"
+      }
+    ],
+    "open_questions": [
+      "Уточнить срок проверки сметы",
+      "Уточнить, нужна ли ревизия каталога"
+    ]
+  },
+  "result_provenance": {
+    "source": "USER_SUPPLIED_SYNTHETIC",
+    "model_executed": false,
+    "human_review": "NOT_PERFORMED",
+    "external_actions_performed": false,
+    "durable_product_result": false
+  },
+  "qualification": "OPEN_CONTRACT_ONLY"
+}
