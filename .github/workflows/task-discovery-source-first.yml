@@ -21,9 +21,60 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Native offline integration tests
-        run: python -m unittest discover -s research/task-discovery -p 'test_*.py' -v
-      - name: Same eight sources, pinned Cross-Lab owner U1 versus title baseline
+      - name: Offline tests including frozen method handoff
+        run: python -W error::ResourceWarning -m unittest discover -s research/task-discovery -p 'test_*.py' -v
+      - name: Real original eight sources, frozen U1 and title regex
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python research/task-discovery/paired_pinned_u1.py
+        run: python research/task-discovery/method_snapshot.py --out "$RUNNER_TEMP/task-method-snapshot.json"
+      - name: Assert source-first, no gold, and no raw document export
+        env:
+          RECEIPT: ${{ runner.temp }}/task-method-snapshot.json
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          r = json.loads(Path(os.environ['RECEIPT']).read_text('utf-8'))
+          assert r['schema'] == 'IWXA_TASK_EXP_01_PRE_GOLD_PAIRED_METHOD_SNAPSHOT/0.1'
+          assert r['sources'] == r['review_sources'] == len(r['source_rows']) == 8
+          assert r['owner_u1_git_blob'] == 'eb15aec5ba1a749c29d7c40a868127e1a384b6bf'
+          assert r['frozen_manifest_git_blob'] == '4ecaa74522ba1c3fa4e8851e877200c7767ad0de'
+          assert r['human_gold'] is False and r['task_f1'] is None
+          assert r['task_candidates_created'] == 0
+          assert r['source_text_exported'] is False
+          assert all('source_text' not in row and 'annotations' not in row
+                     for row in r['source_rows'])
+          print('PINNED_PRE_GOLD_METHOD_SNAPSHOT_PASS; INDEPENDENT_GOLD_NOT_MEASURED')
+          PY
+      - name: Publish only pre-gold SHA commitment (hide method coordinates)
+        env:
+          RECEIPT: ${{ runner.temp }}/task-method-snapshot.json
+          COMMITMENT: ${{ runner.temp }}/task-method-commitment.json
+        run: |
+          python - <<'PYCOMMIT'
+          import json, os
+          from pathlib import Path
+          r = json.loads(Path(os.environ['RECEIPT']).read_text('utf-8'))
+          commitment = {
+              'schema': 'IWXA_TASK_EXP_01_PRE_GOLD_METHOD_COMMITMENT/0.1',
+              'method_output_sha256': r['method_output_sha256'],
+              'owner_u1_git_blob': r['owner_u1_git_blob'],
+              'frozen_manifest_git_blob': r['frozen_manifest_git_blob'],
+              'label_studio_xml_git_blob': r['label_studio_xml_git_blob'],
+              'sources': r['sources'],
+              'human_gold': False,
+              'task_precision': None, 'task_recall': None, 'task_f1': None,
+              'method_coordinates_exported': False, 'source_text_exported': False,
+          }
+          with Path(os.environ['COMMITMENT']).open('x', encoding='utf-8') as output:
+              json.dump(commitment, output, sort_keys=True, indent=2)
+              output.write('\n')
+          print('PRE_GOLD_HASH_ONLY_COMMITMENT_PASS; PRIVATE_COORDINATES_NOT_UPLOADED')
+          PYCOMMIT
+      - name: Upload only hash commitment (not source text or method spans)
+        uses: actions/upload-artifact@v4
+        with:
+          name: task-exp-01-pre-gold-hash-commitment
+          path: ${{ runner.temp }}/task-method-commitment.json
+          if-no-files-found: error
+          retention-days: 7
