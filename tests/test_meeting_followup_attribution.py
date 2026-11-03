@@ -90,7 +90,14 @@ class MeetingFollowupAttributionTests(unittest.TestCase):
         row = item(TEXT, "Иван проверит смету.", "Проверить смету", "Иван")
         self.assertEqual(
             verify(TEXT, {"action_items": [row, row], "open_questions": []})["errors"],
-            ["ITEM_1_DUPLICATE_SOURCE_SPAN"],
+            ["ITEM_1_DUPLICATE_ASSIGNMENT"],
+        )
+
+    def test_distinct_actions_can_share_one_source_quote(self):
+        row = item(TEXT, "Мария подготовит бюджет к пятнице.", "Подготовить бюджет", "Мария", "пятнице")
+        second = {**row, "action": "Подготовить часть бюджета"}
+        self.assertTrue(
+            verify(TEXT, {"action_items": [row, second], "open_questions": []})["passed"]
         )
 
     def test_questions_required(self):
