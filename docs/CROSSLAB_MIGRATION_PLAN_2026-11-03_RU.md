@@ -97,3 +97,53 @@ TASK-EXP-01 paired run, зафиксировав source-anchored outcomes и в�
 source-first случаев (включая cue-silent), отдельная adjudication и
 precision/recall/F1 с знаменателями. Отсутствие human gold не блокирует
 адресные исходные инженерные проверки, но блокирует научную квалификацию.
+
+## M2 TASK-EXP-01 same-source U1 + simple baseline — real native PASS (03.11.2026)
+
+Самостоятельный follow-up в действующей public ветке, без изменения canonical
+`Faust-S/iwxa` и без нового U1:
+- `research/task-discovery/paired_pinned_u1.py` использует уже опубликованный
+  **existing** `research/cross-lab/pinned_owner.py` / `replay.u1_claim`;
+  loaded U1 pinned git blob `eb15aec5ba1a749c29d7c40a868127e1a384b6bf`.
+  Никакого копирования/изменения U1 специально для TASK-EXP-01 нет.
+- 8 исходных TASK-EXP-01 real GitHub issue projections проверены по тому же
+  exact source manifest blob `4ecaa74522ba1c3fa4e8851e877200c7767ad0de`.
+  SHA совпали **8/8**, source-first coverage остаётся 8/8.
+- Оба метода исполняются на **одних и тех же bytes**, за один fetch исходника.
+  CI использует только ephemeral `github.token`, ограниченный public repository,
+  без PAT/private checkout и без выдачи доступа к `Faust-S/iwxa`.
+  При изменении source SHA — HOLD, а не замена зафиксированного корпуса.
+- Native GitHub Actions run
+  https://github.com/Faust-S/knowledge/actions/runs/41667026355,
+  HEAD `38c4bc2841f9fa2cb31ca30752801296ffbe5528`:
+  **7/7 адресных offline тестов PASS**, **парный реальный replay PASS**,
+  исходных U1 RawStatements **455**; U1 signals **14** в **3/8**;
+  fixed title-regex signals **5** в **3/8**.
+  Источники, в которых оба метода дали сигналы: **1/8**;
+  union cue-bearing sources **5/8**;
+  ни один метод не дал сигнал в **3/8** (все три остаются в выборке).
+  U1 native processing `9.451 ms` за один hosted run,
+  без I/O и human time — это не comparative cost benchmark.
+- Run `41666726723` до исправления временно завершался HOLD после
+  7/7 offline tests при повторной загрузке публичного GitHub API;
+  исключён повторный fetch, повышена читаемость HTTP rejection,
+  отдельный новый успешный run указан выше.
+
+**Интерпретация:** дополняющий источник сигналов — наблюдаемая engineering
+characteristic, **не доказательство роста task recall**.
+Возможные дополнительные ложные сигналы неизвестны до независимого gold.
+`TASK_PRECISION_RECALL_F1=NOT_MEASURED`;
+`REVIEWER_A/B=NOT_COLLECTED`;
+`ADJUDICATION=PENDING`;
+`E5_FORMAL=NOT_RUN`;
+`AGENT_T3_HANDOFF=PENDING`.
+
+**Следующий действительно предметный шаг:** сохранить исходные unlabelled
+8-source E5 envelopes в разрешённой owner-local среде, раздать двум
+независимым рецензентам **без сигналов U1/regex** и замерить время
+каждого. Затем через существующий `task_exp_01_review_bridge.py`
+проверить два экспорта, зафиксировать disagreements, провести
+независимую adjudication и только после неё вычислить сравнимые
+task-level TP/FP/FN и precision/recall/F1. Formal E5 требует отдельной
+новой выборки и специалистов. Публичный workflow не является
+заменой этих человеческих процедур.
