@@ -1,0 +1,61 @@
+name: TASK-EXP-01 Label Studio 1.23.2 live synthetic API smoke
+
+on:
+  push:
+    branches:
+      - work/2026-11-03-unified-task-migration
+    paths:
+      - 'research/task-discovery/live_labelstudio_smoke.py'
+      - '.github/workflows/task-discovery-labelstudio-live.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-labelstudio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start exact Label Studio 1.23.2 (disposable, no real source data)
+        run: |
+          docker run --detach --name iwxa-label-studio \
+            --publish 127.0.0.1:8080:8080 \
+            --env LABEL_STUDIO_USERNAME=iwxa-smoke@example.invalid \
+            --env LABEL_STUDIO_PASSWORD=synthetic-credential-ci-only \
+            --env LABEL_STUDIO_USER_TOKEN=synthetic-ci-legacy-token \
+            --env LABEL_STUDIO_ENABLE_LEGACY_API_TOKEN=true \
+            heartexlabs/label-studio:1.23.2
+      - name: Verify actual authenticated Label Studio service is available
+        env:
+          LABEL_STUDIO_API_KEY: synthetic-ci-legacy-token
+        run: |
+          python3 - <<'PY'
+          import json, os, time
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError, URLError
+          url = 'http://127.0.0.1:8080/api/current-user/whoami'
+          for attempt in range(100):
+              try:
+                  request = Request(url, headers={'Authorization': 'Token ' + os.environ['LABEL_STUDIO_API_KEY']})
+                  with urlopen(request, timeout=3) as response:
+                      obj = json.loads(response.read(50000))
+                  assert isinstance(obj.get('id'), int), 'Label Studio user ID absent'
+                  print('ACTUAL_LABEL_STUDIO_AUTHENTICATED_API_READY')
+                  break
+              except (HTTPError, URLError, TimeoutError, OSError, ValueError, AssertionError):
+                  time.sleep(2)
+          else:
+              raise SystemExit('LABEL_STUDIO_NATIVE_API_NOT_READY')
+          PY
+      - name: Actual project creation, 8+8 import and readback, 16 API annotations, export refusal
+        env:
+          LABEL_STUDIO_URL: http://127.0.0.1:8080
+          LABEL_STUDIO_API_KEY: synthetic-ci-legacy-token
+        run: python3 research/task-discovery/live_labelstudio_smoke.py
+      - name: Report native image and container status on failure
+        if: failure()
+        run: |
+          docker ps -a --filter name=iwxa-label-studio --format 'name={{.Names}} status={{.Status}} image={{.Image}}'
+          docker inspect iwxa-label-studio --format 'image={{.Image}} state={{.State.Status}} exit={{.State.ExitCode}}' || true
