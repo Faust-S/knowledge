@@ -34,6 +34,12 @@ def verify(transcript, draft):
                    for key in ("assignee", "due_date")):
             errors.append(prefix + "OWNER_OR_DEADLINE_UNKNOWN_MUST_BE_EXPLICIT")
             continue
+        if item["assignee"] != "UNKNOWN" and item["assignee"] not in quote:
+            errors.append(prefix + "OWNER_UNSUPPORTED")
+            continue
+        if item["due_date"] != "UNKNOWN" and item["due_date"] not in quote:
+            errors.append(prefix + "DEADLINE_UNSUPPORTED")
+            continue
         accepted.append(item)
     if any(not isinstance(q, str) for q in draft["open_questions"]):
         errors.append("INVALID_QUESTIONS")
