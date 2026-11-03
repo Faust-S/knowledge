@@ -7,3 +7,9 @@
 Файлы из локальной среды передаются без публикации в существующий `Faust-S/iwxa/knowledge/task-catalog/engine/research/task_exp_01_review_bridge.py`. Его параметры: `--source-first-packet`, `--review-a`, `--review-b`, `--restricted-disagreement-output`, `--confirm-independent-local-review`. Этот owner bridge отвечает за Unicode spans, смысловые labels, поля цели/результата/критерия и разногласия. После сверки требуется отдельное экспертное согласование.
 
 Локальная инженерная проверка адаптера: 9/9 адресных тестов на synthetic HTTP API PASS. Настоящие независимые человеческие оценки, task P/R/F1 и human time — NOT_MEASURED. Ни raw exports, ни оригинальные документы не отправляются в GitHub.
+
+## Подключение Label Studio: два действующих режима API
+
+Транспортный адаптер поддерживает старые `Token` и современные Personal Access Token (PAT). При `--auth-mode legacy` (значение по умолчанию) используется `Authorization: Token`. При `--auth-mode personal` PAT из локального `LABEL_STUDIO_API_KEY` сначала обменивается штатным `POST /api/token/refresh/` на краткоживущий токен, затем используется `Authorization: Bearer`. Режим нужно указать при создании проектов и при получении экспортов. Оригинальный PAT и временный токен не включаются в квитанции; адрес API ограничен локальным Label Studio.
+
+Для владельца с PAT достаточно добавить `--auth-mode personal` к существующим командам. Авторизация относится только к существующему серверу; ни рецензентов, ни gold автоматически не создаёт. На текущем этапе HTTP-контракт проверяется автоматическими тестами, а настоящий Label Studio с двумя людьми остаётся PENDING.
