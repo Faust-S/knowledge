@@ -39,7 +39,7 @@ class MeetingFollowupAttributionTests(unittest.TestCase):
 
     def test_missing_transcript(self):
         self.assertEqual(
-            verify("нет", {"action_items": [], "open_questions": []})["errors"],
+            verify(" ", {"action_items": [], "open_questions": []})["errors"],
             ["TRANSCRIPT_REQUIRED"],
         )
 
