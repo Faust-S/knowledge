@@ -1,0 +1,25 @@
+name: IWXA Activity Research migrated sources verification
+
+on:
+  push:
+    branches:
+      - work/2026-11-03-unified-task-migration
+    paths:
+      - 'research/activity-research/**'
+      - '.github/workflows/activity-research-verify.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-open-research-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify source blobs and research-only contract
+        run: node --test research/activity-research/tests/*.test.mjs

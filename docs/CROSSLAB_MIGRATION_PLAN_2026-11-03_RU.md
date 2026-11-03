@@ -43,6 +43,12 @@
 
 **M0 результат:** архитектура и карта записаны; фактический перенос исходного Cross-Lab и native replay ещё PENDING. При изменении исходной ветки перечитать HEAD, оценить diff и выполнить fast-forward без force.
 
+## Дополнение Activity Discovery к миграции — 03.11.2026
+
+Параллельное исследование Activity Discovery & Reconstruction включено **в эту же миграционную ветку**, без параллельного U1 и переименования owner. Подробнее: [research/activity-research/README.md](../research/activity-research/README.md), [манифест из 7 source blobs](../research/activity-research/SOURCE_MIGRATION.json) и Node verification / `.github/workflows/activity-research-verify.yml`. Содержимое: теория, международная перепроверка (47 ссылок), 13 dataset candidates (metadata, не загруженные данные), ADP-001 desk study и read-only PET probe; PET upstream corpus не копировался. Старое исследование `knowledge/activity-research/` остаётся в `Faust-S/iwxa` как исходный authority/historical basis; следующие открытые экспериментальные изменения — здесь после согласования owner contract.
+
+**Соседи:** `research/task-discovery` сохраняет E5/TaskType gold границу; `research/cross-lab` — единый pinned U1 и сравнения на реальных источниках; `catalog/solutions`/Personal Agent — лишь downstream принятых Task. Нельзя мерить улучшение TaskType по PET Activity spans или изначально выдуманным кейсам. Реальный ATUS/PET/BPI ingest и независимая разметка **NOT_RUN**; отсюда нет нового product/E5 PASS. Работа с медицинскими корпусами — через документированные разрешения, а не общую публикацию исходников.
+
 ## Реализовано M1/M2 — публичные экспериментальные маршруты (03.11.2026)
 
 **TASK-EXP-01 baseline:** исходный git blob `4ecaa74522ba1c3fa4e8851e877200c7767ad0de` (восемь публичных GitHub issue, только метаданные/URL/хеши) перенесён побайтово в `research/task-discovery/task_exp_01_source_metadata.json`. Исходные тексты, модели, приватные результаты Label Studio, U1 и Task Engine **не копировались** в этом поднаправлении. Добавлены самостоятельный `source_first_baseline.py`, 5 offline unit-тестов и узкий публичный workflow `.github/workflows/task-discovery-source-first.yml`.

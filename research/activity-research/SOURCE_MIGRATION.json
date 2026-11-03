@@ -1,0 +1,76 @@
+{
+  "schema": "IWXA_ACTIVITY_RESEARCH_MIGRATION/0.1",
+  "as_of": "2026-11-03",
+  "migration_kind": "PUBLIC_RESEARCH_SNAPSHOT_NOT_SOURCE_OWNERSHIP_TRANSFER",
+  "source_repository": "Faust-S/iwxa",
+  "source_branch": "knowledge/2026-10-02-system-atlas",
+  "source_commit": "8a456bd322670e2ca7d0bb9e19653253a13b71e4",
+  "target_repository": "Faust-S/knowledge",
+  "target_branch": "work/2026-11-03-unified-task-migration",
+  "qualification": "RESEARCH_REPLAY_REQUIRED; NO_NEW_TASKTYPE_OR_PRODUCT_AUTHORITY",
+  "owner_status": "CANONICAL_U1_E1_E4_TASK_ENGINE_AND_CONTEXT_COMPILER_REMAIN_FAUST_S_IWXA",
+  "files": [
+    {
+      "source_path": "knowledge/activity-research/THEORETICAL_FOUNDATIONS_RU.md",
+      "target_path": "research/activity-research/THEORETICAL_FOUNDATIONS_RU.md",
+      "git_blob_sha": "3d7b4a41000c5332daa96f9f8d81156a3bdeaff1",
+      "classification": "THEORY",
+      "exact_bytes": true
+    },
+    {
+      "source_path": "knowledge/activity-research/INTERNATIONAL_REVIEW_2026-10-12_RU.md",
+      "target_path": "research/activity-research/INTERNATIONAL_REVIEW_2026-10-12_RU.md",
+      "git_blob_sha": "e7689a2270d287cb6d540416cdc0a2795f3c537d",
+      "classification": "INTERNATIONAL_PRIOR_ART_REVIEW",
+      "exact_bytes": true
+    },
+    {
+      "source_path": "knowledge/activity-research/EVIDENCE_REGISTRY.json",
+      "target_path": "research/activity-research/EVIDENCE_REGISTRY.json",
+      "git_blob_sha": "2a60248d66617917af4b2c1338278ef3264a8c06",
+      "classification": "SOURCE_REFERENCES_NOT_FIELD_EVIDENCE",
+      "exact_bytes": true
+    },
+    {
+      "source_path": "knowledge/activity-research/DATASET_SOURCE_CANDIDATES_2026-10-23.json",
+      "target_path": "research/activity-research/DATASET_SOURCE_CANDIDATES_2026-10-23.json",
+      "git_blob_sha": "7602a1e3c1c68ef9114c2f60dc0fe66174fa40db",
+      "classification": "DATASET_METADATA_NO_RAW_IMPORT",
+      "exact_bytes": true
+    },
+    {
+      "source_path": "knowledge/activity-research/pet_activity_benchmark.mjs",
+      "target_path": "research/activity-research/pet_activity_benchmark.mjs",
+      "git_blob_sha": "8d349758cb4631bc01d390dd3e500ebba40e72f6",
+      "classification": "READ_ONLY_RESEARCH_PROBE_REQUIRES_UPSTREAM_CORPUS",
+      "exact_bytes": true
+    },
+    {
+      "source_path": "knowledge/activity-research/pilots/ADP-001.json",
+      "target_path": "research/activity-research/pilots/ADP-001.json",
+      "git_blob_sha": "106c5fde979911382e45ba066e3cb6b6b538bb05",
+      "classification": "SECONDARY_CASE_NOT_FIELD_TRIAL",
+      "exact_bytes": true
+    },
+    {
+      "source_path": "knowledge/activity-research/pilots/ADP-001_RU.md",
+      "target_path": "research/activity-research/pilots/ADP-001_RU.md",
+      "git_blob_sha": "9fff55d426d3dfb74633ef42324bc2ff92dbfabb",
+      "classification": "SECONDARY_CASE_REPORT",
+      "exact_bytes": true
+    }
+  ],
+  "not_included": [
+    "OWNER_ONLY_CODE: task-catalog/engine/*",
+    "PROTECTED_DATA: private source and reviewer labels",
+    "FULL_CORPORA: source bytes downloaded only by approved source-specific route",
+    "LARGE_HISTORICAL_REPORT: OWNERSHIP_AND_REAL_SYNTHETIC_CORPORA_2026-10-23_RU.md (109KB; exact historical source kept at owner; concise updated owners in README)"
+  ],
+  "rules": [
+    "Do not assert new IWXA TaskTypes from PET activity spans",
+    "Do not use ADP-001 desk synthesis as blind gold",
+    "Do not treat ATUS/health or BPI dataset catalog metadata as imported data",
+    "Only public workflows without private checkout or secrets",
+    "Task discovery and U1 remain scoped to approved owner contract"
+  ]
+}

@@ -25,6 +25,12 @@ Task, Agent Solution, Skill, Knowledge/Context и Runtime — пять разн�
 - Текущие разработческие корпуса (Werkzeug, TASK-EXP-01, выбранные issue) не выдавать за независимый E5 gold; нулевая разметка означает `NOT_MEASURED`, не PASS.
 - Исследовательский cue, ссылка issue, README или сторонний marketplace badge не являются принятым Task, источником authority или доказанным результатом.
 
+## Activity Discovery & Reconstruction — открытая исследовательская область
+
+Рабочая точка входа — [research/activity-research/README.md](research/activity-research/README.md); [SOURCE_MIGRATION.json](research/activity-research/SOURCE_MIGRATION.json) фиксирует семь byte-identical исходных файлов из приватного владельца `Faust-S/iwxa`. Это разрешённый исследовательский snapshot, НЕ перенос runtime ownership. Использовать исходные публикации, реальный разрешённый корпус, синтетические искажения и независимую оценку, не ручной многошаговый опрос владельца как основу инженерной квалификации. Отдельно хранить `reported/observed/inferred/target`, task hypothesis и принятый Task. PET token Activity не TaskType; ADP-001 — secondary desk cases, не field gold. Оригинальные персональные и медицинские сведения пользователя в публичный репозиторий не переносить.
+
+Связи: `research/task-discovery` даёт TaskType hypotheses и U1/baselines; `research/cross-lab` — контекстные источники, историю, повторные проверки и стоимость; `catalog/solutions` — возможные agent solutions после принятой Task; `Faust-S/IWXA-knowledge` — закрытая интеграция; `Faust-S/iwxa` — canonical U1/E1–E4 и Context Compiler; Personal Agent/домены — потребители. Отдельный Activity Engine, Store, Context Compiler, agent runtime создавать нельзя. Для проверки использовать `node --test research/activity-research/tests/*.test.mjs` и адресный публичный Actions без закрытых credential.
+
 ## Библиотека специализированных агентов (сохранённая предметная область)
 
 Основная единица каталога — законченный Agent Solution: цель, workflow/process, prompts/roles, алгоритм, инструменты, входные условия, критерии результата и тесты. Не подменять библиотеку перечнем Goose/Aider/Cline/OpenHands как отдельных агентов. Источники и лицензии изучать в CrewAI/Dify/n8n/Flowise и реальных репозиториях. Стадии `LISTING_SCREENED → SOURCE_INSPECTED → ADAPTED_NOT_EXECUTED → TASK_TESTED → IWXA_VERIFIED`; последний статус требует настоящего воспроизводимого исполнения в существующем runtime, Result/readback/restart. Не повышать его по статическим тестам; `IWXA_VERIFIED=0` до подтверждения обратного.

@@ -1,0 +1,420 @@
+{
+  "schema": "IWXA_ACTIVITY_DISCOVERY_METHOD_PILOT/0.1",
+  "pilot_id": "ADP-001",
+  "created_at": "2026-10-12",
+  "owner_repo": "Faust-S/iwxa",
+  "scope": "DESK_REANALYSIS_AND_HYPOTHETICAL_ZERO_DATA_NOT_FIELD_STUDY",
+  "research_question": "Можно ли не спутать первичные сообщения, авторские наблюдения, авторскую интерпретацию, типовые задачи и подтверждённую реальность при реконструкции деятельности из общего запроса?",
+  "permissions": "Публичные научные публикации; личных данных участников, исходных журналов и фотографий нет; приватных наблюдений не проводится.",
+  "data_provenance": "Сведения вторично извлечены из открытых опубликованных исследований, не из оригинальных интервью/наблюдений или первичных файлов.",
+  "baseline_comparators": "PAPER_ONLY_AND_TYPICAL_TASK_PRIOR_ARE_CONCEPTUAL_COUNTEREXAMPLES_NOT_EXECUTED_BASELINE",
+  "evaluation": "NO_BLIND_TRIAL_NO_USER_VALIDATION_NO_SUCCESS_PERCENTAGE",
+  "catalog": "Current 300 are NOT_ACCEPTED, the old 700 PROHIBITED; candidate task texts are provisional, no minted TaskType IDs.",
+  "sources": [
+    {
+      "id": "S1",
+      "title": "Persisting workarounds in Electronic Health Record System use: types, risks and benefits",
+      "authors": "Boonstra et al.",
+      "year": 2021,
+      "doi": "10.1186/s12911-021-01548-0",
+      "url": "https://link.springer.com/article/10.1186/s12911-021-01548-0",
+      "access": "OPEN_FULL_TEXT",
+      "origin": "PUBLISHED_STUDY_NOT_RAW_OBSERVATION"
+    },
+    {
+      "id": "S2",
+      "title": "Value and Usage of a Workaround Artifact: A Cognitive Work Analysis of Brains Use by Hospital Nurses",
+      "authors": "Mount-Campbell et al.",
+      "year": 2019,
+      "doi": "10.1177/1555343418825429",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7535084/",
+      "access": "OPEN_FULL_TEXT_VIA_PMC",
+      "origin": "PUBLISHED_STUDY_NOT_RAW_NOTES_OR_PHOTOS"
+    },
+    {
+      "id": "S3",
+      "title": "Cognitive household labor: gender disparities and consequences for maternal mental health and wellbeing",
+      "authors": "Aviv et al.",
+      "year": 2024,
+      "doi": "10.1007/s00737-024-01490-w",
+      "url": "https://link.springer.com/article/10.1007/s00737-024-01490-w",
+      "access": "OPEN_FULL_TEXT",
+      "origin": "PUBLISHED_SURVEY_NOT_HOUSEHOLD_OBSERVATION",
+      "publication_note": "Online 2024; print volume 2025"
+    },
+    {
+      "id": "S4",
+      "title": "Understanding the Digital Disruption of Health Care: An Ethnographic Study of Real-Time Multidisciplinary Clinical Behavior in a New Digital Hospital",
+      "authors": "Canfell et al.",
+      "year": 2022,
+      "doi": "10.1055/s-0042-1758482",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9646403/",
+      "access": "OPEN_FULL_TEXT_VIA_PMC",
+      "origin": "PUBLISHED_STUDY_NOT_RAW_OBSERVATION"
+    },
+    {
+      "id": "S5",
+      "title": "Artful Systems in the Home",
+      "authors": "Taylor and Swan",
+      "year": 2005,
+      "doi": "10.1145/1054972.1055060",
+      "url": "https://www.microsoft.com/en-us/research/publication/artful-systems-in-the-home/",
+      "access": "PUBLISHER_ABSTRACT_ONLY_IN_THIS_PASS",
+      "origin": "ACADEMIC_ABSTRACT_NOT_CASE_LEVEL_RAW_DATA"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "E01",
+      "source": "S1",
+      "locator": "Methods",
+      "claim": "Исследование в отделении внутренних болезней одной нидерландской больницы: наблюдения 6 пользователей ЭМК и 17 полуструктурированных интервью.",
+      "mode": "PUBLISHED_STUDY_METHODS",
+      "epistemic": "RESEARCHER_REPORTED_METHOD",
+      "scope": "single_department_case"
+    },
+    {
+      "id": "E02",
+      "source": "S1",
+      "locator": "Results > Ignoring pop-ups",
+      "claim": "Игнорирование предупреждений упоминалось на интервью двумя медсёстрами и тремя врачами, но не наблюдалось непосредственно исследователями.",
+      "mode": "PUBLISHED_REPORT_OF_INTERVIEWS",
+      "epistemic": "REPORTED_NOT_OBSERVED",
+      "scope": "case_study_interviews"
+    },
+    {
+      "id": "E03",
+      "source": "S1",
+      "locator": "Results > Pre-starting a patient's visit",
+      "claim": "Предварительное начало визита в ЭМК наблюдалось у двух врачей; ещё двое говорили об этом на интервью.",
+      "mode": "PUBLISHED_REPORT_OF_DIRECT_OBSERVATION",
+      "epistemic": "OBSERVED_BY_STUDY_AUTHORS_ONLY",
+      "scope": "two_physicians_in_study"
+    },
+    {
+      "id": "E04",
+      "source": "S1",
+      "locator": "Results > Pre-starting a patient's visit > consequences",
+      "claim": "Авторы описывают риск ненадлежащего выставления счёта при отсутствии пациента на основании механизма раннего запуска выставления счетов и рассказа врача; число подтверждённых ошибочных счетов не приведено.",
+      "mode": "PUBLISHED_INTERPRETATION_AND_INTERVIEW",
+      "epistemic": "RISK_NOT_MEASURED_EFFECT",
+      "scope": "proposed_billing_hazard"
+    },
+    {
+      "id": "E05",
+      "source": "S1",
+      "locator": "Results > Using paper",
+      "claim": "Использование бумаги наблюдалось один раз, но упоминалось 12 раз в интервью; устные объяснения включают поддержание контакта с пациентом и последующее внесение записей.",
+      "mode": "PUBLISHED_MIXED_OBSERVATION_AND_INTERVIEW",
+      "epistemic": "MIXED_DISTINGUISHED",
+      "scope": "case_study_respondents"
+    },
+    {
+      "id": "E06",
+      "source": "S2",
+      "locator": "Method and Results",
+      "claim": "В двух больницах исследованы 20 медсестёр: 39 сеансов наблюдения, 156 часов и 322 фотографии рабочих бумажных карточек для 161 пациента.",
+      "mode": "PUBLISHED_REPORT_OF_FIELD_OBSERVATIONS",
+      "epistemic": "OBSERVED_BY_STUDY_AUTHORS_ONLY",
+      "scope": "two_hospitals_selected_units"
+    },
+    {
+      "id": "E07",
+      "source": "S2",
+      "locator": "Results > Typical use; Discussion",
+      "claim": "Бумажные карточки использовались для краткой актуальной информации и отслеживания запланированных и возникающих дел; пригодность этой функции авторы связывают с оперативностью обращения к сведениям.",
+      "mode": "PUBLISHED_OBSERVATION_PLUS_AUTHOR_EXPLANATION",
+      "epistemic": "OBSERVATION_AND_INTERPRETATION_SEPARABLE",
+      "scope": "selected_nurse_shifts"
+    },
+    {
+      "id": "E08",
+      "source": "S3",
+      "locator": "Abstract and Methods",
+      "claim": "322 матери маленьких детей сообщили о распределении когнитивной (планирование) и физической (исполнение) домашней работы в 30 бытовых задачах.",
+      "mode": "PUBLISHED_SURVEY_SELF_REPORT",
+      "epistemic": "AGGREGATE_SELF_REPORTED_NOT_DIRECT_OBSERVATION",
+      "scope": "restricted_survey_sample"
+    },
+    {
+      "id": "E09",
+      "source": "S3",
+      "locator": "Current study > grocery shopping example; Methods > Participants",
+      "claim": "Авторы различают оценку запасов, планирование еды, составление списка покупок и собственно поход в магазин; выборка ограничена матерями в совместно проживающих разнополых парах.",
+      "mode": "PUBLISHED_TASK_DECOMPOSITION_AND_SAMPLE_LIMITATION",
+      "epistemic": "STUDY_INSTRUMENT_AND_SAMPLE",
+      "scope": "example_not_individual_user_case"
+    },
+    {
+      "id": "E10",
+      "source": "S4",
+      "locator": "Abstract, Results",
+      "claim": "В новом цифровом госпитале наблюдали 55 клиницистов в течение 58 часов, 99 контактов; выявлены и положительные, и проблемные аспекты цифровой работы, а также гибридные бумажно-цифровые практики.",
+      "mode": "PUBLISHED_REPORT_OF_FIELD_OBSERVATIONS",
+      "epistemic": "OBSERVED_BY_STUDY_AUTHORS_ONLY",
+      "scope": "single_182_bed_hospital_transition"
+    },
+    {
+      "id": "E11",
+      "source": "S5",
+      "locator": "Abstract",
+      "claim": "Этнография семейной жизни описывает формирование домашних организационных систем через календари, заметки и списки, которые также влияют на отношения в семье.",
+      "mode": "PUBLISHED_ABSTRACT",
+      "epistemic": "AUTHOR_CLAIM_ABSTRACT_ONLY",
+      "scope": "study_described_in_abstract"
+    }
+  ],
+  "cases": [
+    {
+      "id": "CASE-0",
+      "line": "Personal",
+      "type": "ZERO_DATA_THOUGHT_EXPERIMENT",
+      "input": "Хочу, чтобы с бытовыми делами стало проще.",
+      "source_ids": [],
+      "evidence_ids": [],
+      "confirmed_activity": [],
+      "possible_task_hypotheses": [
+        "меньше пропущенных обязательств",
+        "меньше времени на координацию",
+        "меньше затрат на регулярные покупки",
+        "меньше ручной организационной работы"
+      ],
+      "hypothesis_status": "POSSIBLE_ONLY_NOT_OBSERVED",
+      "first_nonleading_question": "Вспомните последний конкретный случай, когда домашние дела потребовали больше сил или времени, чем хотелось. Что произошло и чем закончилось?",
+      "critical_unknowns": [
+        "чья потребность и кто ещё вовлечён",
+        "что реально происходило",
+        "что именно считается улучшением",
+        "существует ли повторяемость и какие данные допустимы"
+      ],
+      "outcome": "CLARIFY_INSTEAD_OF_INVENTING_PROCESS",
+      "execution_context": "INCOMPLETE_FOR_PURPOSE",
+      "task_types": "NONE_ACCEPTED"
+    },
+    {
+      "id": "CASE-1",
+      "line": "Corporate",
+      "type": "SECONDARY_ANALYSIS_OBSERVATIONAL_PUBLISHED_STUDY",
+      "input": "Общая условная потребность: наладить работу ЭМК без ущерба пациентам и персоналу.",
+      "source_ids": [
+        "S1"
+      ],
+      "evidence_ids": [
+        "E01",
+        "E02",
+        "E03",
+        "E04",
+        "E05"
+      ],
+      "confirmed_activity": [
+        "В изученном кейсе авторы наблюдали раннее открытие приёма у двух врачей.",
+        "В исследовании зафиксированы также обходные бумажные записи (прямое наблюдение с ограниченным охватом)."
+      ],
+      "reported_only": [
+        "Привычка закрывать предупреждения отмечена в интервью, но не наблюдалась.",
+        "Счёт пациенту до фактического приёма — риск/описание механизма, подтверждённое число таких счетов отсутствует."
+      ],
+      "possible_task_hypotheses": [
+        "подготовка назначений до физического приёма без фиктивного статуса посещения",
+        "управление предупреждениями с сохранением клинически необходимых проверок",
+        "корректность счета и сверка фактического обслуживания",
+        "быстрое внесение и поиск информации при сохранении контакта с пациентом"
+      ],
+      "hypothesis_status": "REVIEW_REQUIRED_NO_STAKEHOLDER_ACCEPTANCE",
+      "first_nonleading_question": "Расскажите о последнем случае подготовки пациента к приёму: какие действия и где выполнялись до фактической встречи, а какие после?",
+      "critical_unknowns": [
+        "фактические внутренние права и процедуры учреждения",
+        "экспортируемые журналом события и их значение",
+        "частота прерываний и реальные ошибки",
+        "какие предупреждения клинически обязательны",
+        "согласованные цели пациентов, врачей и руководства"
+      ],
+      "outcome": "PARTIAL_MODEL_WITH_RISKS_NOT_ACTION",
+      "execution_context": "INCOMPLETE_FOR_PURPOSE",
+      "task_types": "NONE_ACCEPTED"
+    },
+    {
+      "id": "CASE-2",
+      "line": "Corporate",
+      "type": "SECONDARY_ANALYSIS_OBSERVATIONAL_PUBLISHED_STUDY",
+      "input": "Условная потребность: улучшить доступность сведений и управление работой смены.",
+      "source_ids": [
+        "S2"
+      ],
+      "evidence_ids": [
+        "E06",
+        "E07"
+      ],
+      "confirmed_activity": [
+        "Исследователи описали создание и изменение бумажных карточек медсёстрами во время передачи смены и работы.",
+        "В опубликованных наблюдениях карточки выполняли функции краткой сводки и контроля дел."
+      ],
+      "possible_task_hypotheses": [
+        "быстрый доступ к минимальной актуальной сводке в точке оказания услуги",
+        "совмещение формальных и самостоятельно планируемых действий в одном рабочем представлении",
+        "согласованная передача смены и проверка полноты последующей записи"
+      ],
+      "hypothesis_status": "REVIEW_REQUIRED_NO_STAKEHOLDER_ACCEPTANCE",
+      "first_nonleading_question": "Вспомните случай, когда рабочая карточка помогла или подвела: какая информация понадобилась и откуда её получили?",
+      "critical_unknowns": [
+        "контроль доступа и конфиденциальность",
+        "эффект на ошибки, безопасность и время",
+        "частота устаревших бумажных сведений",
+        "конкретный механизм обновления между сменами"
+      ],
+      "outcome": "DO_NOT_AUTO_ELIMINATE_PAPER",
+      "execution_context": "INCOMPLETE_FOR_PURPOSE",
+      "task_types": "NONE_ACCEPTED"
+    },
+    {
+      "id": "CASE-3",
+      "line": "Personal",
+      "type": "SECONDARY_ANALYSIS_PUBLISHED_SELF_REPORT_SURVEY",
+      "input": "Условная потребность: сделать домашние обязанности легче и справедливее.",
+      "source_ids": [
+        "S3",
+        "S5"
+      ],
+      "evidence_ids": [
+        "E08",
+        "E09",
+        "E11"
+      ],
+      "confirmed_activity": [
+        "Нет данных о конкретной семье. Есть только агрегированные самоотчёты исследовательской выборки и описание этнографического исследования в статье."
+      ],
+      "possible_task_hypotheses": [
+        "выявить невидимые обязанности предвидения и планирования, помимо физического выполнения",
+        "согласовать желаемое распределение организационной нагрузки",
+        "выявить текущие домашние вспомогательные артефакты, не навязывая единого приложения"
+      ],
+      "hypothesis_status": "POPULATION_PRIOR_ONLY_PERSON_SPECIFIC_UNKNOWN",
+      "first_nonleading_question": "Вспомните последнее общее домашнее дело. Кто заметил, что его нужно сделать, кто организовал и кто выполнил?",
+      "critical_unknowns": [
+        "состав и интересы конкретного домохозяйства",
+        "кто фактически организует работу и сколько времени тратит",
+        "насколько справедливо распределение по мнению участников",
+        "какое изменение желают участники",
+        "имеются ли разрешения на обмен между ними"
+      ],
+      "outcome": "ASK_BEFORE_CONTEXT_AND_DELEGATION",
+      "execution_context": "INCOMPLETE_FOR_PURPOSE",
+      "task_types": "NONE_ACCEPTED"
+    },
+    {
+      "id": "CASE-4",
+      "line": "Corporate",
+      "type": "CONTRARY_SECONDARY_EVIDENCE",
+      "input": "Контрпроверка тезиса «цифровизация всегда делает работу хуже».",
+      "source_ids": [
+        "S4"
+      ],
+      "evidence_ids": [
+        "E10"
+      ],
+      "confirmed_activity": [
+        "Публикация описывает смешанные последствия цифрового перехода, включая наблюдавшиеся полезные и неудобные практики."
+      ],
+      "possible_task_hypotheses": [
+        "выявлять конкретные вредные и полезные эффекты, а не оценивать ИС по ярлыку цифровая/бумажная"
+      ],
+      "hypothesis_status": "METHOD_STRESS_ONLY",
+      "first_nonleading_question": "В каком конкретном случае цифровой инструмент помог выполнить работу, а в каком помешал?",
+      "critical_unknowns": [
+        "генерализуемость на иные организации",
+        "сравнимые до/после измерения и каузальные оценки"
+      ],
+      "outcome": "REJECT_ALL_DIGITAL_HARM_GENERALIZATION",
+      "execution_context": "NOT_AN_EXECUTION_TASK",
+      "task_types": "NONE_ACCEPTED"
+    }
+  ],
+  "negative_probes": [
+    {
+      "id": "N1",
+      "case_id": "CASE-1",
+      "tempting_claim": "Игнорирование предупреждений прямо зафиксировано наблюдателями.",
+      "evidence_ids": [
+        "E02"
+      ],
+      "expected": "REJECT_AS_UNSUPPORTED",
+      "reason": "Только интервью; исследователи явно не наблюдали."
+    },
+    {
+      "id": "N2",
+      "case_id": "CASE-1",
+      "tempting_claim": "Подтверждено определённое количество ошибочных счетов реальным пациентам.",
+      "evidence_ids": [
+        "E04"
+      ],
+      "expected": "REJECT_AS_UNSUPPORTED",
+      "reason": "Описан риск/логика выставления счетов, но не измерены подтверждённые случаи."
+    },
+    {
+      "id": "N3",
+      "case_id": "CASE-2",
+      "tempting_claim": "Бумажные карточки — бессмысленное нарушение, подлежащее немедленному устранению.",
+      "evidence_ids": [
+        "E06",
+        "E07"
+      ],
+      "expected": "REJECT_AS_UNSUPPORTED",
+      "reason": "Наблюдалась когнитивная функция, последствия и безопасная замена не проверены."
+    },
+    {
+      "id": "N4",
+      "case_id": "CASE-3",
+      "tempting_claim": "В конкретной семье всегда один человек осуществляет все этапы покупок.",
+      "evidence_ids": [
+        "E08",
+        "E09"
+      ],
+      "expected": "REJECT_AS_UNSUPPORTED",
+      "reason": "Агрегированный самоотчёт выборки не описывает конкретную семью."
+    },
+    {
+      "id": "N5",
+      "case_id": "CASE-0",
+      "tempting_claim": "Из одной жалобы уже установлены три реальные бытовые задачи.",
+      "evidence_ids": [],
+      "expected": "REJECT_AS_UNSUPPORTED",
+      "reason": "Нет субъектных фактов, ни отдельного наблюдения."
+    },
+    {
+      "id": "N6",
+      "case_id": "CASE-0",
+      "tempting_claim": "Пакет данных достаточен для автоматизированных внешних действий.",
+      "evidence_ids": [],
+      "expected": "REJECT_AS_UNSUPPORTED",
+      "reason": "Не согласованы задача, данные, критерии и полномочия."
+    },
+    {
+      "id": "N7",
+      "case_id": "CASE-4",
+      "tempting_claim": "Электронные системы всегда ухудшают фактическую работу.",
+      "evidence_ids": [
+        "E10"
+      ],
+      "expected": "REJECT_AS_UNSUPPORTED",
+      "reason": "Прямое наблюдение показывает смешанные эффекты."
+    },
+    {
+      "id": "N8",
+      "case_id": "CASE-1",
+      "tempting_claim": "Статус визита в ЭМК доказывает физическое присутствие пациента.",
+      "evidence_ids": [
+        "E03"
+      ],
+      "expected": "REJECT_AS_UNSUPPORTED",
+      "reason": "Событие в системе может быть инициировано до фактического визита."
+    }
+  ],
+  "checks_to_run": [
+    "source_id_referential_integrity",
+    "evidence_id_referential_integrity",
+    "candidate_task_not_accepted",
+    "zero_data_no_factual_activity_claim",
+    "correctness_verdicts_are_hypothetical_without_blind_independent_review"
+  ],
+  "qualification": "DESK_CASES_PREPARED_NO_EMPIRICAL_PASS"
+}
