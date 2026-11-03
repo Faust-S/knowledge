@@ -43,3 +43,55 @@ https://github.com/Faust-S/knowledge/actions/runs/41667026355:
 Значения — инженерные сигналы, не человеческие Task.
 Независимая expert gold, разногласия, task precision/recall/F1 и
 человеко-время остаются `PENDING/NOT_MEASURED`.
+
+
+## M3 — owner-local запуск двух независимых проектов Label Studio
+
+Новый `labelstudio_project_setup.py` — исключительно адаптер к **уже существующему**
+Label Studio (не новый аннотатор и не новый E5). Он принимает JSON, прошедший
+проверку исходного `Faust-S/iwxa` через `task_exp_01_labelstudio_import.py`,
+а также **оригинальный** конфигурационный файл
+`knowledge/task-catalog/engine/research/TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml`
+(Git blob `7922b634b145bc064a33f95d04c058d3c5da18f6`).
+Не использовать сокращённую базовую `E5_LABEL_STUDIO_SOURCE_FIRST.xml`:
+она не содержит полей `goal/expected_result/acceptance_criterion`.
+
+Пример для разрешённой owner-local машины с работающим Label Studio
+на `http://127.0.0.1:8080` (пути `/PRIVATE` — иллюстрация, не путь checkout):
+
+```sh
+# Предварительно owner iwxa создаёт /PRIVATE/labelstudio-import.json
+# с помощью существующего task_exp_01_real_slice.py.
+python research/task-discovery/labelstudio_project_setup.py \
+  --tasks /PRIVATE/labelstudio-import.json \
+  --owner-label-config /PRIVATE/TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml
+
+# API-ключ задаётся только локально в окружении; в GitHub CI его не хранить.
+python research/task-discovery/labelstudio_project_setup.py \
+  --tasks /PRIVATE/labelstudio-import.json \
+  --owner-label-config /PRIVATE/TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml \
+  --url http://127.0.0.1:8080 \
+  --reviewer-slots 2 \
+  --create-local-projects --confirm-local-import
+```
+
+Операция создаёт два **раздельных** пустых по аннотациям проекта с одинаковыми
+8 оригинальными источниками, сравнивает каждую импортированную запись через
+Label Studio JSON export/readback с исходным владельческим пакетом. Не
+пропускает предсказания U1 и regex к рецензентам. При частичной ошибке выводит
+ID уже созданных проектов для ручного восстановления; сама их не удаляет.
+Назначение действительно независимых рецензентов и изоляцию доступа
+организует оператор; два слота **не доказывают** человеческую независимость.
+
+Далее каждый человек независимо размечает все 8 текстов; сведения о времени
+фиксируются в разрешённом локальном контуре отдельно и не выводятся из
+синтетических тестов. Раздельные экспорты передаются в **исходный**
+`task_exp_01_review_bridge.py` (owner `Faust-S/iwxa`) для сохранения
+расхождений. Для согласования требуется самостоятельное экспертное решение.
+Настоящий двупользовательский браузерный запуск в owner-local Label Studio
+пока **PENDING**. Нет gold, нет task precision/recall/F1, нет human review time.
+
+Инженерные проверки транспортного адаптера: 5 offline тестов с локальным
+HTTP-сервером (имитатор Label Studio API), включая два проекта/8+8 readback,
+отказ при изменённых данных и обработку частичного импорта. Эти тесты не
+подменяют реальную пользовательскую приёмку.
