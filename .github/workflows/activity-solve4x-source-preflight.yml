@@ -14,6 +14,8 @@ on:
       - 'research/activity-research/solve4x_same_case_audit.py'
       - 'research/activity-research/solve4x_scene_component_lineage.py'
       - 'research/activity-research/solve4x_cross_source_coverage.py'
+      - 'research/activity-research/solve4x_c14_raw_reed_review.py'
+      - 'research/activity-research/tests/test_solve4x_c14_raw_reed_review.py'
       - 'research/activity-research/solve4x_c13_episode_triage.py'
       - 'research/activity-research/tests/test_solve4x_c13_episode_triage.py'
       - 'research/activity-research/tests/test_solve4x_cross_source_coverage.py'
@@ -420,6 +422,8 @@ jobs:
 
       - name: Offline C12 cross-source negative controls
         run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_cross_source_coverage.py' -v
+      - name: Test C14 raw reed transitions and UI state coverage
+        run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_c14_raw_reed_review.py' -v
       - name: Test C13 redacted sensor UI episode characterization
         run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_c13_episode_triage.py' -v
       - name: Replay C12 real sensor video and browser UI evidence
@@ -448,6 +452,22 @@ jobs:
           assert c13["raw_values_or_event_ids_exported"] is False
           assert c13["plus_one_day_control_candidates_5s"]==0
           assert c13["source_records_for_complete_candidate_review"] >= 3
+          c14=r["c14_raw_reed_review"]
+          assert c14["schema"]=="IWXA_SOLVE4X_C14_RAW_REED_EPISODE_REVIEW/0.1"
+          assert c14["status"]=="RAW_REED_SOURCE_DESCRIPTIVE_COMPARISON"
+          assert c14["denominators"]["outside_video_sensor_events"]==3
+          assert c14["denominators"]["browser_ui_rows"]==43
+          assert c14["raw_values_or_identifiers_exported"] is False
+          assert c14["limitations"]["accepted_tasks"]==0
+          assert c14["limitations"]["cross_device_clock_calibration_proven"] is False
+          assert c14["sensor_plus_one_day_negative"]["candidate_edges"]==0
+          assert len(c14["review_episodes"])==3
+          print("SOLVE4X_C14_REED_REVIEW",
+                "raw_source_sha256",r["c14_raw_reed_sha256"],
+                "denominators",c14["denominators"],
+                "time_sensor_state",c14["time_sensor_and_state"],
+                "episode_aggregates",c14["review_episodes"],
+                "NO_HUMAN_TASK_CLAIM")
           print("SOLVE4X_C13_EPISODES",c13["episodes"],
                 "unique_ui",c13["unique_ui_candidate_records_5s"],
                 "review_records",c13["source_records_for_complete_candidate_review"])
