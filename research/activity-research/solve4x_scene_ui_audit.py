@@ -28,10 +28,12 @@ def analyze(raw: bytes) -> dict:
         text = raw.decode("utf-8-sig", errors="strict")
     except UnicodeError:
         raise idx.Hold("UI_CSV_UTF8_HOLD") from None
-    # Detect delimiter by author schema only; no values exported.
+    # Exact header separator baseline: malformed rows must fail at arity gate.
     try:
-        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
-        reader = csv.DictReader(StringIO(text), dialect=dialect)
+        header = text.splitlines()[0]
+        delimiter = max((",", ";", "\t"), key=lambda c: (header.count(c), c))
+        idx.check(header.count(delimiter) > 0, "UI_CSV_SCHEMA_INVALID")
+        reader = csv.DictReader(StringIO(text), delimiter=delimiter)
         fields = reader.fieldnames
         idx.check(fields is not None and len(fields) == len(set(fields)) and
                   len(fields) <= 40 and len(fields) > 1,
