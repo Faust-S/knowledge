@@ -7,6 +7,8 @@ on:
       - work/2026-11-03-unified-task-migration
     paths:
       - '.github/workflows/activity-solve4x-source-preflight.yml'
+      - 'research/activity-research/solve4x_small_member_pair.py'
+      - 'research/activity-research/solve4x_zip_range_probe.py'
 
 permissions:
   contents: read
