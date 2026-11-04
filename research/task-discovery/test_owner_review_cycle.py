@@ -490,6 +490,8 @@ class OwnerReviewCycleTests(unittest.TestCase):
                  'OWNER_DISAGREEMENT_SOURCE_IDENTITY_MISMATCH'),
                 (cycle.CycleHold('private reviewer text /PRIVATE/secret.json'),
                  'OWNER_LOCAL_M3_CYCLE_INCOMPLETE'),
+                (cycle.CycleHold('SECRET_ACCOUNT_123'),
+                 'OWNER_LOCAL_M3_CYCLE_INCOMPLETE'),
                 (cycle.CycleHold('UNSAFE_CODE\\n/PRIVATE/secret.json'),
                  'OWNER_LOCAL_M3_CYCLE_INCOMPLETE'),
                 (ValueError('/PRIVATE/secret.json'),

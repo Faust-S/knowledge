@@ -12,7 +12,6 @@ import hashlib
 import json
 import math
 import os
-import re
 from pathlib import Path
 import subprocess
 import sys
@@ -25,6 +24,47 @@ import review_form_contract as form_contract
 OWNER_BRIDGE_BLOB = '9b56bc4624341f54799340b08872d3cfbed6e13b'
 BRIDGE_SCHEMA = 'IWXA_TASK_EXP_01_INDEPENDENT_REVIEW_CROSSCHECK/0.1'
 EFFORT_SCHEMA = 'IWXA_TASK_EXP_01_OWNER_LOCAL_REVIEW_EFFORT/0.1'
+
+# Approved owner-local diagnostic codes only. No arbitrary user-provided text,
+# including upper-case input, can appear as an error receipt.
+PUBLIC_HOLD_CODES = frozenset((
+    'DUPLICATED_RESULT_KEY',
+    'EFFORT_FILE_INCOMPATIBLE',
+    'EFFORT_FROZEN_METHOD_BINDING_MISMATCH',
+    'EFFORT_OUTPUT_NOT_WRITTEN',
+    'EFFORT_RECEIPT_FILE_MISMATCH',
+    'EFFORT_RECEIPT_INCOMPATIBLE',
+    'EXPLICIT_LOCAL_REVIEW_CONFIRMATION_REQUIRED',
+    'OWNER_BRIDGE_MISSING',
+    'OWNER_BRIDGE_RECEIPT_INCOMPATIBLE',
+    'OWNER_BRIDGE_TEST_PIN_MISMATCH',
+    'OWNER_BRIDGE_VERSION_CHANGED',
+    'OWNER_DISAGREEMENTS_INCOMPATIBLE',
+    'OWNER_DISAGREEMENTS_NOT_WRITTEN',
+    'OWNER_DISAGREEMENT_NOT_A_CONFLICT',
+    'OWNER_DISAGREEMENT_RECEIPT_TOTALS_MISMATCH',
+    'OWNER_DISAGREEMENT_SOURCE_IDENTITY_MISMATCH',
+    'OWNER_DISAGREEMENT_SOURCE_SELECTION_UNAVAILABLE',
+    'OWNER_LOCAL_INPUT_OUTPUT_ALIAS_REFUSED',
+    'OWNER_LOCAL_OUTPUT_DIRECTORY_UNAVAILABLE',
+    'OWNER_LOCAL_OUTPUT_EXISTS_OR_CONFLICTS',
+    'OWNER_LOCAL_OUTPUT_PUBLICATION_FAILED',
+    'OWNER_LOCAL_PROCESS_UNAVAILABLE',
+    'OWNER_LOCAL_RESULT_TOO_LARGE',
+    'OWNER_LOCAL_STEP_REJECTED',
+    'OWNER_LOCAL_SYMLINK_PATH_REFUSED',
+    'OWNER_REVIEW_INSTRUMENT_MISMATCH',
+    'OWNER_REVIEW_INSTRUMENT_MISSING',
+    'PUBLIC_EFFORT_ADAPTER_MISSING',
+    'RESULT_JSON_INVALID',
+    'RESULT_JSON_NONFINITE_NUMBER',
+    'RESULT_SCHEMA_INVALID',
+    'REVIEW_INPUT_CHANGED_AFTER_BRIDGE',
+    'REVIEW_INPUT_CHANGED_AFTER_EFFORT',
+    'REVIEW_INPUT_CHANGED_BEFORE_PUBLICATION',
+    'REVIEW_INPUT_SIZE_INVALID',
+    'REVIEW_INPUT_UNAVAILABLE',
+))
 
 
 class CycleHold(ValueError):
@@ -333,11 +373,9 @@ def main() -> int:
         print(json.dumps(result, sort_keys=True))
         return 0
     except CycleHold as error:
-        # All current CycleHold instances carry fixed, non-sensitive codes.
-        # Reject anything that resembles a private path, snippet or message
-        # if a future caller accidentally constructs a dynamic error.
+        # Only allow predefined diagnostics; never expose a dynamic error.
         code = str(error)
-        if re.fullmatch(r'[A-Z0-9_]{3,100}', code) is None:
+        if code not in PUBLIC_HOLD_CODES:
             code = 'OWNER_LOCAL_M3_CYCLE_INCOMPLETE'
         print(json.dumps({'status': 'HOLD', 'code': code},
                          sort_keys=True), file=sys.stderr)
