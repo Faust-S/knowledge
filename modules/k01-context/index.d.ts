@@ -57,12 +57,14 @@ export interface ContextOmission {
 export interface ContextProjection {
   readonly contractVersion: string;
   readonly taskId: string;
+  /** SHA-256 canonical selection intent; not an authentication seal. */
+  readonly requestBinding: string;
   readonly selected: ContextSelection[];
   readonly omissions: ContextOmission[];
   readonly estimatedTokens: number;
   readonly missing: boolean;
 }
-export declare const CONTRACT_VERSION: '0.2.4';
+export declare const CONTRACT_VERSION: '0.2.5';
 export declare function selectContext(request: ContextRequest, port: ObservationPort): Promise<ContextProjection>;
 export declare function traceEvidence(projection: ContextProjection): Array<Pick<ContextSelection, 'id' | 'sourceRef' | 'revision' | 'epistemic' | 'evidenceRef' | 'sha256'>>;
 export declare function summarizeMemory(items: readonly KnowledgeItem[], constraints: { maxTokens: number; allowInferred?: boolean }): {
@@ -78,7 +80,7 @@ export interface ContextRevalidationFailure {
   readonly reason: 'projection_modified' | 'observation_failed' | 'incomplete_source' |
     'stale' | 'unverified_evidence' | 'evidence_changed' | 'empty_projection' |
     'task_mismatch' | 'source_not_allowed' | 'inferred_not_allowed' |
-    'budget_exceeded' | 'projection_inconsistent' | 'context_incomplete';
+    'budget_exceeded' | 'projection_inconsistent' | 'context_incomplete' | 'request_mismatch';
   readonly requestedRevision?: string;
   readonly currentRevision?: string;
 }
@@ -95,6 +97,10 @@ export interface ContextUseRequest {
   readonly maxTokens: number;
   readonly allowInferred?: boolean;
   readonly requireNoOmissions?: boolean;
+  readonly terms?: readonly string[];
+  readonly profile?: string;
+  /** Require terms at the point of use; revalidation fails before source reads if omitted. */
+  readonly requireRequestMatch?: boolean;
 }
 export declare function revalidateProjection(
   projection: ContextProjection, observationPort: Pick<ObservationPort, 'observe'>,

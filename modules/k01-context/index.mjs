@@ -1,7 +1,8 @@
 // K01: stateless, host-neutral context projection. No storage or network access.
 import { createHash } from 'node:crypto';
+import { fingerprintContextRequest } from './request-binding.mjs';
 
-export const CONTRACT_VERSION = '0.2.4';
+export const CONTRACT_VERSION = '0.2.5';
 const MAX_ITEMS = 4096;
 const MAX_EXCERPT_BYTES = 65536;
 const identifier = value => typeof value === 'string' && value.length > 0 && value.length <= 512 && value.trim() === value && !/[\x00-\x1f]/.test(value);
@@ -22,7 +23,8 @@ function normalize(request) {
   if (!request || !identifier(request.taskId) || !Array.isArray(request.terms)
       || !Array.isArray(request.allowedSources) || !Number.isSafeInteger(request.maxTokens)
       || request.maxTokens < 0 || request.terms.length > 128 || request.allowedSources.length > 4096
-      || (request.profile !== undefined && !identifier(request.profile))) {
+      || (request.profile !== undefined && !identifier(request.profile))
+      || (request.allowInferred !== undefined && typeof request.allowInferred !== 'boolean')) {
     throw new TypeError('invalid ContextRequest');
   }
   const terms = [...new Set(request.terms.map(term => {
@@ -123,7 +125,8 @@ export async function selectContext(request, observationPort) {
   });
   omissions.sort((a, b) => compare(a.sourceRef, b.sourceRef) || compare(a.id, b.id)
     || compare(a.reason, b.reason));
-  return { contractVersion: CONTRACT_VERSION, taskId: req.taskId, selected: coherent, omissions,
+  return { contractVersion: CONTRACT_VERSION, taskId: req.taskId,
+    requestBinding: fingerprintContextRequest(req), selected: coherent, omissions,
     estimatedTokens: coherent.reduce((sum, entry) => sum + entry.estimatedTokens, 0),
     missing: req.terms.length > 0 && coherent.length === 0 };
 }

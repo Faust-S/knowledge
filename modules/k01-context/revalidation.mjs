@@ -1,5 +1,6 @@
 // Checks selected evidence at the host's point of use. No persistence, authorization or apply.
 import { sha256, CONTRACT_VERSION } from './index.mjs';
+import { fingerprintContextRequest } from './request-binding.mjs';
 
 const id = value => typeof value === 'string' && value.length > 0 && value.length <= 512
   && value.trim() === value && !/[\x00-\x1f]/.test(value);
@@ -41,10 +42,27 @@ export async function revalidateProjection(projection, observationPort, expected
         || expectedRequest.allowedSources.some(source => !id(source))
         || !Number.isSafeInteger(expectedRequest.maxTokens) || expectedRequest.maxTokens < 0
         || (expectedRequest.allowInferred !== undefined && typeof expectedRequest.allowInferred !== 'boolean')
-        || (expectedRequest.requireNoOmissions !== undefined && typeof expectedRequest.requireNoOmissions !== 'boolean')) {
+        || (expectedRequest.requireNoOmissions !== undefined && typeof expectedRequest.requireNoOmissions !== 'boolean')
+        || (expectedRequest.requireRequestMatch !== undefined && typeof expectedRequest.requireRequestMatch !== 'boolean')
+        || (expectedRequest.terms !== undefined && (!Array.isArray(expectedRequest.terms)
+          || expectedRequest.terms.length > 128))
+        || (expectedRequest.profile !== undefined && !id(expectedRequest.profile))) {
       throw new TypeError('invalid host ContextUseRequest');
     }
     if (projection.taskId !== expectedRequest.taskId) failures.push({ reason: 'task_mismatch' });
+    if (expectedRequest.requireRequestMatch === true && expectedRequest.terms === undefined) {
+      throw new TypeError('invalid host ContextUseRequest: terms required for binding');
+    }
+    // Optional strict check: the same task can be revised to ask a different question.
+    // Matching a hash does not authenticate a host-owned projection.
+    if (expectedRequest.terms !== undefined) {
+      let expectedBinding;
+      try { expectedBinding = fingerprintContextRequest(expectedRequest); }
+      catch { throw new TypeError('invalid host ContextUseRequest'); }
+      if (!digest(projection.requestBinding) || projection.requestBinding !== expectedBinding) {
+        failures.push({ reason: 'request_mismatch' });
+      }
+    }
     const allowed = new Set(expectedRequest.allowedSources);
     for (const item of entries) {
       if (!allowed.has(item.sourceRef)) {
