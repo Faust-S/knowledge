@@ -56,9 +56,14 @@ def read_json(path: Path):
     def nonfinite(_value):
         raise EffortHold('LOCAL_JSON_NONFINITE_NUMBER')
 
+    def finite_float(value):
+        number = float(value)
+        require(math.isfinite(number), 'LOCAL_JSON_NONFINITE_NUMBER')
+        return number
+
     try:
         return json.loads(raw.decode('utf-8'), object_pairs_hook=unique_pairs,
-                          parse_constant=nonfinite)
+                          parse_constant=nonfinite, parse_float=finite_float)
     except EffortHold:
         raise
     except (ValueError, UnicodeError, RecursionError):

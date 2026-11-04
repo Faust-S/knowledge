@@ -368,6 +368,8 @@ class LocalLabelStudioSetupTests(unittest.TestCase):
                     (b'{"data": {"value": 1, "value": 2}}', "LOCAL_INPUT_DUPLICATE_KEY"),
                     (b'{"data": NaN}', "LOCAL_INPUT_NONFINITE_NUMBER"),
                     (b'{"data": Infinity}', "LOCAL_INPUT_NONFINITE_NUMBER"),
+                    (b'{"data": 1e999}', "LOCAL_INPUT_NONFINITE_NUMBER"),
+                    (b'{"data": -1e999}', "LOCAL_INPUT_NONFINITE_NUMBER"),
                     (b'{"data":', "LOCAL_INPUT_JSON_INVALID"),
                     (b'\\xff', "LOCAL_INPUT_JSON_INVALID")):
                 path.write_bytes(raw)

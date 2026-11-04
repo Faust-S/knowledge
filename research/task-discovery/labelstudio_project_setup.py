@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -94,9 +95,14 @@ def read_json(path: Path):
     def nonfinite(_):
         raise SetupHold("LOCAL_INPUT_NONFINITE_NUMBER")
 
+    def finite_float(value):
+        number = float(value)
+        require(math.isfinite(number), "LOCAL_INPUT_NONFINITE_NUMBER")
+        return number
+
     try:
         return json.loads(raw, object_pairs_hook=unique_pairs,
-                          parse_constant=nonfinite)
+                          parse_constant=nonfinite, parse_float=finite_float)
     except SetupHold:
         raise
     except (UnicodeError, ValueError, RecursionError):

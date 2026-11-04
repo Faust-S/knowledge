@@ -403,7 +403,8 @@ class OwnerReviewCycleTests(unittest.TestCase):
             self.assertFalse(f.calls)
 
     def test_bad_json_or_duplicate_keys_cannot_qualify(self):
-        for value in ('{"schema":"a","schema":"b"}', '{"a":NaN}', '[1,2,3]'):
+        for value in ('{"schema":"a","schema":"b"}', '{"a":NaN}',
+                      '{"a":1e999}', '{"a":-1e999}', '[1,2,3]'):
             with self.subTest(value=value), self.assertRaises(cycle.CycleHold):
                 cycle.safe_json(value)
 

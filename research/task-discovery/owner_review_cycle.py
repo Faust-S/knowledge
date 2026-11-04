@@ -10,6 +10,7 @@ import argparse
 from contextlib import ExitStack
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -51,10 +52,18 @@ def safe_json(raw: str) -> dict:
             need(key not in obj, 'DUPLICATED_RESULT_KEY')
             obj[key] = value
         return obj
+    def finite_float(value):
+        number = float(value)
+        need(math.isfinite(number), 'RESULT_JSON_NONFINITE_NUMBER')
+        return number
+
     try:
         data = json.loads(raw, object_pairs_hook=no_duplicate,
-                          parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
-    except (ValueError, TypeError, UnicodeError):
+                          parse_constant=lambda _: (_ for _ in ()).throw(ValueError()),
+                          parse_float=finite_float)
+    except CycleHold:
+        raise
+    except (ValueError, TypeError, UnicodeError, RecursionError):
         raise CycleHold('RESULT_JSON_INVALID') from None
     need(type(data) is dict, 'RESULT_SCHEMA_INVALID')
     return data

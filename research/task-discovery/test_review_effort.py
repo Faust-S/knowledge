@@ -66,6 +66,8 @@ class EffortTests(unittest.TestCase):
                 ('{"a":{"b":1,"b":2}}', 'LOCAL_JSON_DUPLICATE_KEY'),
                 ('{"a":NaN}', 'LOCAL_JSON_NONFINITE_NUMBER'),
                 ('{"a":Infinity}', 'LOCAL_JSON_NONFINITE_NUMBER'),
+                ('{"a":1e999}', 'LOCAL_JSON_NONFINITE_NUMBER'),
+                ('{"a":-1e999}', 'LOCAL_JSON_NONFINITE_NUMBER'),
                 ('{"a":-Infinity}', 'LOCAL_JSON_NONFINITE_NUMBER'),
                 ('{"a":', 'LOCAL_JSON_INVALID'),
             ):
