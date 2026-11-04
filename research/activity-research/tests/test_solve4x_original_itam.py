@@ -10,10 +10,16 @@ class Tests(TestCase):
         data=b'{"event":"secret text","time":"2024"}\n{"event":"other","time":"2025"}\n'
         r=original.parse_jsonl(data)
         self.assertEqual(r["structure"]["nonempty_jsonl_rows"],2)
-        self.assertEqual(r["structure"]["outer_keys"]["event"],2)
+        self.assertEqual(r["structure"]["outer_known_field_occurrences"]["event"],2)
         self.assertNotIn("secret text",str(r))
         self.assertFalse(r["source"]["raw_rows_published"])
         self.assertEqual(r["qualification"]["accepted_tasks"],0)
+    def test_unknown_map_key_never_exposed(self):
+        raw=b'{"ocel:events":{"customer-secret-918":{"ocel:activity":"A"}}}'
+        report=original.parse_jsonl(raw)
+        self.assertNotIn("customer-secret-918",str(report))
+        self.assertIn("ocel:events",report["structure"]["first_record_container_shapes"])
+        self.assertEqual(report["structure"]["first_record_container_shapes"]["ocel:events"]["record_count"],1)
     def test_invalid_json_is_hold(self):
         with self.assertRaisesRegex(index.Hold,"ITAM_NONSTANDARD_JSON_FRAMING_HOLD"):
             original.parse_jsonl(b'{"broken"\n')
