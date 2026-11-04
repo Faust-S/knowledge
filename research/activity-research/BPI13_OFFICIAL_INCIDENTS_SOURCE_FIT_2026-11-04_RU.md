@@ -46,3 +46,10 @@
 Следующее испытание: независимый источник по одному действительному эпизоду, с доказательством самостоятельного происхождения; затем paired `source-first` и `TaskTypes-prior-first` на одинаковом замороженном source, строго сохраняя `UNKNOWN` и `proposed investigation`. Каталог типов `Faust-S/iwxa/knowledge/task-catalog/data/*.catalog` разрешён только как **read-only structured candidates**, не как E5 gold. False confident claims, correct abstentions и расходы на получение данных по независимому human gold **NOT_MEASURED**, Task→Result **NOT_RUN**. Не создавать новые U1, Task Engine, Activity Engine, Context Compiler, Runtime или Store.
 
 См. [BPI13-03](BPI13_OWNER_QUESTIONS_AUDIT_2026-11-04_RU.md), [Task Discovery](../task-discovery/README_RU.md), [Cross-Lab](../cross-lab/README.md), [Unified task architecture](../../docs/UNIFIED_TASK_ARCHITECTURE_RU.md).
+
+
+## Корректировка семантики `organization involved` по BPI13-05 (04.11.2026)
+
+Ранее в этом документе количество **25** описано как число организационных значений и ошибочно предположено, что они могут использоваться для сравнения двух организаций поддержки. По [описанию исходного VINST](https://ais.win.tue.nl/bpi/2013/vinst_data_set.pdf) `organization involved` относится к подразделению заявителя проблемы, а не к IT-организации, ответственной за обработку инцидента. Число **25** — разнообразие значений *заявителей*, и не квалифицирует сравнение A2/C. Поле `org:group` характеризует зарегистрированную назначенную группу, но сопоставление её с реальной командой, организацией и линией поддержки также требует проверяемой внешней карты.
+
+Текущий [адаптер](bpi13_incidents_applicability.py) заменил прежнее `MULTIPLE_RECORDED_ORGANIZATIONS_DESCRIBABLE` на `REQUESTER_ORG_FIELD_NOT_SUPPORT_ORG_CONFORMITY`, добавлен негативный тест. Доказательство: [BPI13-05](BPI13_QUESTION_METHOD_PAIR_2026-11-04_RU.md), [GitHub Actions 41818918823](https://github.com/Faust-S/knowledge/actions/runs/41818918823) PASS. Эта корректировка имеет приоритет над более ранними интерпретациями данного документа; 25 значений остаются корректным количественным агрегатом, но смысл этого агрегата уточнён.
