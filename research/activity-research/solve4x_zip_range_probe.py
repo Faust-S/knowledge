@@ -105,6 +105,13 @@ def parse_central_directory(directory: bytes, entries_expected: int) -> list[dic
 def summarize(entries: list[dict], source: dict) -> dict:
     matches = [e for e in entries if any(
         e["name"].split("/")[-1] == item for item in TARGETS)]
+    # Source index only: original global directory names are not raw log data.
+    # Explicitly distinguish the true ITAM export from joined global OCEL.
+    itam_names = [e for e in entries if e["name"].lower().split("/")[-1]
+                  in ("itam_ocel.json", "itam.jsonocel", "itam.ocelxml",
+                      "itam_ocel.xml", "itam.json", "itam_ocel.jsonocel")]
+    global_files = [e for e in entries if e["name"].startswith("global/")
+                    and not e["name"].endswith("/")]
     return {
         "schema": SCHEMA,
         "status": "ZIP_RANGE_INDEX_ONLY_NOT_MULTIMODAL_REPLAY",
@@ -112,6 +119,11 @@ def summarize(entries: list[dict], source: dict) -> dict:
         "archive_entry_count": len(entries),
         "target_files": matches,
         "target_files_count": len(matches),
+        "global_source_files": global_files[:50],
+        "global_source_count": len(global_files),
+        "original_itam_candidates": itam_names[:20],
+        "original_itam_candidate_count": len(itam_names),
+        "index_lists_no_human_event_rows": True,
         "target_name_both_video_and_ocel": (
             any(x["name"].endswith("/scene01_vid.json") for x in matches)
             and any(x["name"].endswith("/scene01_ocel.json") for x in matches)),
