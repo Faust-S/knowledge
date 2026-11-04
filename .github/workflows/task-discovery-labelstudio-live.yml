@@ -16,7 +16,7 @@ permissions:
 jobs:
   native-labelstudio:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
       - name: Start exact Label Studio 1.23.2 (disposable, no real source data)
@@ -158,6 +158,139 @@ jobs:
               "M3_HUMAN_INDEPENDENCE_PROVEN": False,
               "M3_PROJECT_ISOLATION_CONTRACT_QUALIFIED": not cross_readable,
           }, sort_keys=True))
+          PY
+      - name: Two isolated native Label Studio databases, credentials and source-first exports
+        env:
+          LABEL_STUDIO_API_KEY: synthetic-ci-legacy-token
+        run: |
+          python3 - <<'PY'
+          import json, os, secrets, subprocess, sys, tempfile, time
+          from pathlib import Path
+          sys.path.insert(0, 'research/task-discovery')
+          import labelstudio_project_setup as setup
+          from live_labelstudio_smoke import synthetic_tasks, SYNTHETIC_XML
+
+          a_base, b_base = 'http://127.0.0.1:8080', 'http://127.0.0.1:8081'
+          container = 'iwxa-label-studio-isolated-b'
+          a_token = os.environ['LABEL_STUDIO_API_KEY']
+          b_admin_token = secrets.token_urlsafe(36)
+
+          def require(condition, code):
+              if not condition:
+                  raise setup.SetupHold(code)
+
+          def docker(args, timeout=60):
+              result = subprocess.run(['docker', *args], capture_output=True,
+                                      text=True, check=False, timeout=timeout)
+              require(result.returncode == 0, 'ISOLATED_DOCKER_STEP_FAILED')
+              return result.stdout.strip()
+
+          def whoami(base, token):
+              person = setup.api(base, token, '/api/current-user/whoami')
+              require(type(person) is dict and
+                      type(person.get('id')) is int and
+                      type(person.get('active_organization')) is int,
+                      'ISOLATED_WHOAMI_INVALID')
+              return person
+
+          def denied(base, token):
+              try:
+                  setup.api(base, token, '/api/current-user/whoami')
+              except setup.SetupHold as error:
+                  return str(error) in ('LABEL_STUDIO_HTTP_401', 'LABEL_STUDIO_HTTP_403')
+              return False
+
+          def annotate_and_export(base, token, output, expected_id):
+              tasks = synthetic_tasks()
+              project = setup.create_projects(tasks, SYNTHETIC_XML, base, token, slots=1)
+              pid = project['project_ids'][0]
+              rows = setup.api(base, token,
+                  f'/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true')
+              require(type(rows) is list and len(rows) == 8,
+                      'ISOLATED_SOURCE_READBACK_INVALID')
+              for row in rows:
+                  task_id = row.get('id') if type(row) is dict else None
+                  require(type(task_id) is int and task_id > 0,
+                          'ISOLATED_TASK_ID_INVALID')
+                  annotation = setup.api(base, token, f'/api/tasks/{task_id}/annotations/', {
+                      'result': [{'from_name': 'review_coverage',
+                                  'to_name': 'source_text', 'type': 'choices',
+                                  'value': {'choices': ['NO_TASK_RELEVANT_SPANS']}}],
+                      'was_cancelled': False})
+                  require(type(annotation) is dict and type(annotation.get('id')) is int,
+                          'ISOLATED_ANNOTATION_WRITE_FAILED')
+              receipt = setup.export_single_reviewed_project(tasks, base, token, pid, output)
+              require(receipt['sources_per_export'] == 8 and
+                      receipt['human_gold'] is False, 'ISOLATED_SINGLE_EXPORT_FAILED')
+              export = json.loads(output.read_text('utf-8'))
+              require(len(export) == 8 and
+                      all(len(entry.get('annotations', [])) == 1 and
+                          entry['annotations'][0]['completed_by'] == expected_id
+                          for entry in export), 'ISOLATED_NATIVE_AUTHOR_ID_CHANGED')
+              return {r['data']['source_sha256'] for r in export}
+
+          try:
+              a_id = whoami(a_base, a_token)['id']
+              b_email = 'isolated-admin-' + secrets.token_hex(12) + '@example.invalid'
+              docker(['run', '--detach', '--name', container,
+                      '--publish', '127.0.0.1:8081:8080',
+                      '--env', 'LABEL_STUDIO_USERNAME=' + b_email,
+                      '--env', 'LABEL_STUDIO_PASSWORD=' + secrets.token_urlsafe(36),
+                      '--env', 'LABEL_STUDIO_USER_TOKEN=' + b_admin_token,
+                      '--env', 'LABEL_STUDIO_ENABLE_LEGACY_API_TOKEN=true',
+                      'heartexlabs/label-studio:1.23.2'], timeout=90)
+              for attempt in range(110):
+                  try:
+                      b_admin = whoami(b_base, b_admin_token)
+                      break
+                  except setup.SetupHold:
+                      time.sleep(1)
+              else:
+                  raise setup.SetupHold('SECOND_ISOLATED_SERVER_NOT_READY')
+              b_reviewer_email = 'isolated-reviewer-' + secrets.token_hex(12) + '@example.invalid'
+              created = setup.api(b_base, b_admin_token, '/api/users/', {
+                  'username': b_reviewer_email, 'email': b_reviewer_email,
+                  'password': secrets.token_urlsafe(36),
+                  'active_organization': b_admin['active_organization']})
+              require(type(created) is dict and type(created.get('id')) is int
+                      and created['id'] != b_admin['id'],
+                      'ISOLATED_REVIEWER_B_NOT_CREATED')
+              code = ('from users.models import User; print(User.objects.get(email='
+                      + repr(b_reviewer_email) + ').get_token().key)')
+              stdout = docker(['exec', container, 'python', 'label_studio/manage.py',
+                               'shell', '-c', code])
+              b_token = stdout.splitlines()[-1] if stdout else ''
+              require(len(b_token) >= 20 and b_token != a_token,
+                      'ISOLATED_REVIEWER_B_TOKEN_INVALID')
+              b_id = whoami(b_base, b_token)['id']
+              require(b_id == created['id'] and b_id != a_id,
+                      'ISOLATED_NATIVE_COMPLETED_BY_IDS_COLLIDE')
+              require(denied(a_base, b_token) and denied(b_base, a_token)
+                      and denied(a_base, b_admin_token),
+                      'ISOLATED_CROSS_INSTANCE_AUTH_UNEXPECTED')
+              with tempfile.TemporaryDirectory(prefix='iwxa-m3b-isolated-synthetic-') as tmp:
+                  source_a = annotate_and_export(
+                      a_base, a_token, Path(tmp) / 'a.json', a_id)
+                  source_b = annotate_and_export(
+                      b_base, b_token, Path(tmp) / 'b.json', b_id)
+                  require(len(source_a) == len(source_b) == 8 and source_a == source_b,
+                          'ISOLATED_SOURCE_BYTES_DIFFER')
+              print(json.dumps({
+                  'status': 'TWO_NATIVE_ISOLATED_LABEL_STUDIO_SYNTHETIC_PASS',
+                  'label_studio_version': '1.23.2',
+                  'separate_database_containers': 2,
+                  'cross_instance_tokens_rejected': True,
+                  'original_completed_by_ids_distinct': True,
+                  'synthetic_sources_each': 8, 'api_annotations_total': 16,
+                  'owner_exact_xml_exercised': False,
+                  'human_review_independence_verified': False,
+                  'human_task_gold': False,
+                  'task_precision': None, 'task_recall': None, 'task_f1': None
+              }, sort_keys=True))
+          finally:
+              # All tokens and exports stay in memory / temporary files.
+              subprocess.run(['docker', 'rm', '-f', container],
+                             capture_output=True, text=True, check=False, timeout=30)
           PY
       - name: Report native image and container status on failure
         if: failure()
