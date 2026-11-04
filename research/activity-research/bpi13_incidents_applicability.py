@@ -11,6 +11,7 @@ from collections import Counter
 from hashlib import sha256
 import json
 from pathlib import Path
+import re
 import sys
 
 import bpi13_xes_u1_replay as bpi
@@ -34,7 +35,7 @@ def evaluate_registered_fields(traces: dict, event_fields: dict,
               "INCIDENTS_EVENT_FIELD_ALIGNMENT_INVALID")
     event_coverage, case_coverage = Counter(), Counter()
     org_values = set()
-    changes = returns = wait_user = 0
+    changes = returns = wait_user = wait_user_cases = 0
     for case, events in traces.items():
         rows = event_fields[case]
         bpi.check(len(rows) == len(events), "INCIDENTS_EVENT_FIELD_ALIGNMENT_INVALID")
@@ -44,6 +45,7 @@ def evaluate_registered_fields(traces: dict, event_fields: dict,
                 if key == "organization involved":
                     org_values.add(value)
         groups = []
+        case_has_wait_user = False
         for (_, activity, _, lifecycle), meta in zip(events, rows):
             for key in EVENT_KEYS:
                 if meta[key]:
@@ -51,9 +53,14 @@ def evaluate_registered_fields(traces: dict, event_fields: dict,
             if meta["organization involved"]:
                 org_values.add(meta["organization involved"])
             groups.append(meta["org:group"])
-            status = ((activity or "") + " " + (lifecycle or "")).casefold()
-            if "wait-user" in status or "wait user" in status:
+            status = re.sub(r"[^a-z0-9]+", " ",
+                            ((activity or "") + " " + (lifecycle or "")).casefold())
+            tokens = status.split()
+            if any(a == "wait" and z == "user"
+                   for a, z in zip(tokens, tokens[1:])):
                 wait_user += 1
+                case_has_wait_user = True
+        wait_user_cases += int(case_has_wait_user)
         for a, z in zip(groups, groups[1:]):
             changes += int(bool(a and z and a != z))
         for a, z, c in zip(groups, groups[1:], groups[2:]):
@@ -67,6 +74,8 @@ def evaluate_registered_fields(traces: dict, event_fields: dict,
         "consecutive_registered_group_changes": changes,
         "registered_group_A_B_A_motifs": returns,
         "wait_user_label_events": wait_user,
+        "wait_user_label_cases": wait_user_cases,
+        "wait_user_detection_scope": "CONCEPT_NAME_AND_LIFECYCLE_ONLY_NORMALIZED_PUNCTUATION",
         "group_change_is_actual_human_handover": False,
         "group_return_is_proven_process_abuse": False,
         "wait_label_is_proven_actual_waiting": False,
@@ -177,6 +186,17 @@ def analyze(compressed: bytes, *, expected_sha256: str | None = None,
                 "declared_timestamp_regressions_in_file_order"],
         },
         "field_applicability": coverage,
+        "descriptive_literature_comparison": {
+            "source": "https://www.ceur-ws.org/Vol-1052/paper10.pdf",
+            "reference_wait_user_events": 4217,
+            "reference_wait_user_cases": 2495,
+            "same_origin_system_not_independent_work_evidence": True,
+            "method_only_agreement": (
+                coverage["wait_user_label_events"] == 4217
+                and coverage["wait_user_label_cases"] == 2495
+            ),
+            "can_prove_misconduct_or_actual_waiting": False,
+        },
         "questions": question_gates(coverage),
         "question_count": 4,
         "u1_sample": {

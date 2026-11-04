@@ -23,7 +23,7 @@ def fixture(*, include_group=True, bad_time=False):
                 + ('"' if bad_time else '+00:00"') + '/></event>')
     c1 = ('<trace><string key="concept:name" value="C1"/>'
           + evt("Assigned", "L1", "2013-03-01T08:00:00", "Accepted/Assigned")
-          + evt("Waiting", "L2", "2013-03-01T09:00:00", "Accepted/Wait-User")
+          + evt("Waiting", "L2", "2013-03-01T09:00:00", "Accepted/Wait - User")
           + evt("Closed", "L1", "2013-03-01T10:00:00", "Completed/Closed")
           + '</trace>')
     c2 = ('<trace><string key="concept:name" value="C2"/>'
@@ -73,6 +73,13 @@ class IncidentsTests(TestCase):
             "different_exports_are_independent_real_world_observations"])
         self.assertEqual(r["field_applicability"]["registered_group_A_B_A_motifs"], 1)
         self.assertEqual(r["field_applicability"]["wait_user_label_events"], 1)
+        self.assertEqual(r["field_applicability"]["wait_user_label_cases"], 1)
+        self.assertIn("NORMALIZED_PUNCTUATION",
+                      r["field_applicability"]["wait_user_detection_scope"])
+        self.assertFalse(r["descriptive_literature_comparison"][
+            "same_origin_system_not_independent_work_evidence"] is False)
+        self.assertFalse(r["descriptive_literature_comparison"]["method_only_agreement"])
+        self.assertEqual(r["questions"][2]["source_fit"], "WAIT_USER_REPORTED_LABEL_PRESENT")
         self.assertEqual(r["questions"][0]["source_fit"],
                          "INCIDENT_LOG_AND_GROUP_ATTRIBUTE_PRESENT")
 

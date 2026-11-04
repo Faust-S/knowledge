@@ -162,13 +162,19 @@ jobs:
             -o "$RUNNER_TEMP/bpi13-incidents.xes.gz"; then
             if python research/activity-research/bpi13_incidents_applicability.py \
               --xes-gz "$RUNNER_TEMP/bpi13-incidents.xes.gz" \
-              --sample-cases 12 --out bpi13-incidents-fit.json; then
+              --sample-cases 12 \
+              --expected-sha256 6ec2136c607648608655802486df97a866f351668751b7ecbca51e1f8715d522 \
+              --out bpi13-incidents-fit.json; then
               python - <<'PY'
           import json
           r=json.load(open('bpi13-incidents-fit.json'))
           assert r['schema']=='IWXA_BPI13_OFFICIAL_INCIDENTS_APPLICABILITY/0.1'
           assert r['population']['catalogue_counts_match']
           assert r['question_count']==4
+          assert r['source']['sha_pinned_before_this_run'] is True
+          assert r['source']['official_file_identity_independently_verified'] is False
+          assert r['field_applicability']['wait_user_label_cases'] >= 0
+          assert r['field_applicability']['wait_user_label_events'] >= r['field_applicability']['wait_user_label_cases']
           assert r['u1_sample']['native_owner_git_blob']=='eb15aec5ba1a749c29d7c40a868127e1a384b6bf'
           assert not r['u1_sample']['engine_accepted']
           assert r['qualification']['accepted_user_tasks']==0
@@ -178,6 +184,8 @@ jobs:
                 r['population']['registered_events'],'registered events',
                 'group_changes',r['field_applicability']['consecutive_registered_group_changes'],
                 'wait_user_labels',r['field_applicability']['wait_user_label_events'],
+                'wait_user_cases',r['field_applicability']['wait_user_label_cases'],
+                'literature_descriptive_match',r['descriptive_literature_comparison']['method_only_agreement'],
                 'sha256',r['source']['file_sha256'])
           PY
             else
