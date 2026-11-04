@@ -12,7 +12,9 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import statistics
 import sys
 
@@ -223,6 +225,30 @@ def summarize(export_a: object, export_b: object, owner_receipt: dict,
     }
 
 
+def write_restricted_result(path: Path, result: dict) -> None:
+    """Publish one complete owner-local JSON without exposing partial output.
+
+    A temporary 0700 directory lives next to the final file so that the
+    exclusive hard link cannot cross filesystem boundaries. Preserve the
+    original result on collision, never follow a dangling output symlink.
+    """
+    require(path.parent.is_dir(), 'LOCAL_OUTPUT_DIRECTORY_UNAVAILABLE')
+    require(not path.exists() and not path.is_symlink(),
+            'REFUSE_OVERWRITE_EFFORT_RECEIPT')
+    with TemporaryDirectory(prefix='.iwxa-m3-effort-', dir=path.parent) as tmp:
+        staged = Path(tmp) / 'review-effort.json'
+        fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+            json.dump(result, stream, ensure_ascii=False,
+                      indent=2, sort_keys=True, allow_nan=False)
+            stream.write('\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        # os.link fails if the final destination already exists. The private
+        # temporary directory is cleaned on *any* error before publication.
+        os.link(staged, path)
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--owner-bridge-receipt', type=Path, required=True,
@@ -235,16 +261,14 @@ def main() -> int:
     opts = p.parse_args()
     try:
         rate = Decimal(opts.hourly_rate_usd) if opts.hourly_rate_usd is not None else None
-        require(not opts.out.exists(), 'REFUSE_OVERWRITE_EFFORT_RECEIPT')
+        require(not opts.out.exists() and not opts.out.is_symlink(),
+                'REFUSE_OVERWRITE_EFFORT_RECEIPT')
         selected = frozen_sources()
         commitment = read_method_commitment()
         result = summarize(read_json(opts.review_a), read_json(opts.review_b),
                            read_json(opts.owner_bridge_receipt), selected, commitment,
                            hourly_rate_usd=rate)
-        with opts.out.open('x', encoding='utf-8') as f:
-            json.dump(result, f, ensure_ascii=False, indent=2,
-                      sort_keys=True, allow_nan=False)
-            f.write('\n')
+        write_restricted_result(opts.out, result)
         print(json.dumps({'status': result['status'], 'sources': 8,
                           'complete_lead_time': result['label_studio_lead_time_seconds_total'] is not None,
                           'human_task_gold': False}, sort_keys=True))

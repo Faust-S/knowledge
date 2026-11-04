@@ -100,6 +100,61 @@ class EffortTests(unittest.TestCase):
         self.assertEqual(output['status'], 'LEAD_TIME_PARTIAL_NOT_TASK_GOLD')
         json.dumps(output, allow_nan=False)
 
+    def test_restricted_output_publishes_complete_json_exclusively(self):
+        import os
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as td:
+            path = Path(td) / 'effort.json'
+            payload = {'human_task_gold': False, 'status': 'synthetic'}
+            e.write_restricted_result(path, payload)
+            self.assertEqual(json.loads(path.read_text('utf-8')), payload)
+            if os.name == 'posix':
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            with self.assertRaisesRegex(e.EffortHold,
+                                        'REFUSE_OVERWRITE_EFFORT_RECEIPT'):
+                e.write_restricted_result(path, {'overwritten': True})
+            self.assertEqual(json.loads(path.read_text('utf-8')), payload)
+            self.assertFalse(list(Path(td).glob('.iwxa-m3-effort-*')))
+
+    def test_restricted_output_write_failure_leaves_no_partial_result(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        with TemporaryDirectory() as td:
+            path = Path(td) / 'effort.json'
+            with patch.object(e.json, 'dump', side_effect=OSError('disk unavailable')):
+                with self.assertRaises(OSError):
+                    e.write_restricted_result(path, {'test': 'synthetic'})
+            self.assertFalse(path.exists())
+            self.assertFalse(list(Path(td).glob('.iwxa-m3-effort-*')))
+            with patch.object(e.os, 'link', side_effect=OSError('link unavailable')):
+                with self.assertRaises(OSError):
+                    e.write_restricted_result(path, {'test': 'synthetic'})
+            self.assertFalse(path.exists())
+            self.assertFalse(list(Path(td).glob('.iwxa-m3-effort-*')))
+            with self.assertRaises(ValueError):
+                e.write_restricted_result(path, {'unsafe': float('inf')})
+            self.assertFalse(path.exists())
+            e.write_restricted_result(path, {'retry': True})
+            self.assertEqual(json.loads(path.read_text('utf-8')), {'retry': True})
+
+    def test_restricted_output_rejects_dangling_symlink(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / 'effort.json'
+            try:
+                path.symlink_to(root / 'nonexistent')
+            except (OSError, NotImplementedError):
+                self.skipTest('OS does not support symlinks')
+            with self.assertRaisesRegex(e.EffortHold,
+                                        'REFUSE_OVERWRITE_EFFORT_RECEIPT'):
+                e.write_restricted_result(path, {'synthetic': True})
+            self.assertTrue(path.is_symlink())
+            self.assertFalse((root / 'nonexistent').exists())
+
     def test_source_changed_rejected(self):
         a, b, receipt, sources = fixture()
         a[0]['data']['source_text'] += 'changed'
