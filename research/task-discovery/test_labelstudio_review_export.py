@@ -18,7 +18,8 @@ REVIEW_XML = CONFIG.decode("utf-8")
 
 
 def fake_export(tasks, *, same_user=False, missing=False, drift=False,
-                form_drift=False):
+                form_drift=False, coverage_missing=False, coverage_incomplete=False,
+                coverage_duplicate=False):
     def respond(base, token, route, body=None):
         if route == "/api/current-user/whoami":
             # The fixture's single-project author follows the native token
@@ -42,6 +43,13 @@ def fake_export(tasks, *, same_user=False, missing=False, drift=False,
             }]
         if drift:
             rows[0]["data"]["source_text"] += "unexpected"
+        if coverage_missing:
+            rows[0]["annotations"][0]["result"] = []
+        if coverage_incomplete:
+            rows[0]["annotations"][0]["result"][0]["value"]["choices"] = ["REVIEW_INCOMPLETE"]
+        if coverage_duplicate:
+            rows[0]["annotations"][0]["result"].append(copy.deepcopy(
+                rows[0]["annotations"][0]["result"][0]))
         return rows
     return respond
 
@@ -119,6 +127,27 @@ class ExportHandoffTests(unittest.TestCase):
             if __import__("os").name == "posix":
                 self.assertEqual(a.stat().st_mode & 0o777, 0o600)
                 self.assertEqual(b.stat().st_mode & 0o777, 0o600)
+
+    def test_nonfinal_coverage_refuses_single_and_legacy_exports(self):
+        _, tasks = fixture()
+        with tempfile.TemporaryDirectory() as folder:
+            first, second = Path(folder) / "a.json", Path(folder) / "b.json"
+            for flaw in ("coverage_missing", "coverage_incomplete", "coverage_duplicate"):
+                with self.subTest(flaw=flaw):
+                    call = fake_export(tasks, **{flaw: True})
+                    with self.assertRaisesRegex(
+                            setup.SetupHold, "LABEL_STUDIO_REVIEW_COVERAGE_NOT_FINAL"):
+                        setup.export_single_reviewed_project(
+                            tasks, "http://127.0.0.1:8080", "synthetic-a", 10,
+                            first, expected_xml=REVIEW_XML, call=call)
+                    with self.assertRaisesRegex(
+                            setup.SetupHold, "LABEL_STUDIO_REVIEW_COVERAGE_NOT_FINAL"):
+                        setup.export_reviewed_projects(
+                            tasks, "http://127.0.0.1:8080", "synthetic",
+                            (10, 11), first, second,
+                            expected_xml=REVIEW_XML, call=call)
+                    self.assertFalse(first.exists())
+                    self.assertFalse(second.exists())
 
     def test_single_export_author_must_match_authenticated_reviewer(self):
         _, tasks = fixture()

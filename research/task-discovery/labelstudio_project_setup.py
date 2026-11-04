@@ -428,6 +428,20 @@ def _checked_project_export(tasks: list[dict], base: str, token: str,
                 review.get("was_cancelled") is not True and
                 type(review.get("result")) is list,
                 "LABEL_STUDIO_REVIEW_UNFINISHED")
+        # Minimal transport completeness required by the existing owner
+        # Review Bridge: every source must explicitly record a final coverage
+        # decision. An annotation with result=[] is not a completed review.
+        # The owning bridge still judges labels, regions and Task semantics.
+        coverage = [row for row in review["result"]
+                    if type(row) is dict and
+                    row.get("from_name") == "review_coverage"]
+        require(len(coverage) == 1 and
+                coverage[0].get("to_name") == "source_text" and
+                coverage[0].get("type") == "choices" and
+                type(coverage[0].get("value")) is dict and
+                coverage[0]["value"].get("choices") in
+                (["ALL_RELEVANT_SPANS_MARKED"], ["NO_TASK_RELEVANT_SPANS"]),
+                "LABEL_STUDIO_REVIEW_COVERAGE_NOT_FINAL")
         reviewer = review.get("completed_by")
         if type(reviewer) is dict:
             reviewer = reviewer.get("id")
