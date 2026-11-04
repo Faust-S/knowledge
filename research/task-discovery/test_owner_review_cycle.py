@@ -201,9 +201,9 @@ class OwnerReviewCycleTests(unittest.TestCase):
     def test_inputs_and_output_paths_must_be_distinct(self):
         with TemporaryDirectory() as td:
             f = CycleFixture(Path(td))
-            with self.assertRaisesRegex(cycle.CycleHold, 'OWNER_LOCAL_OUTPUT_EXISTS_OR_CONFLICTS'):
+            with self.assertRaisesRegex(cycle.CycleHold, 'OWNER_LOCAL_INPUT_OUTPUT_ALIAS_REFUSED'):
                 f.execute(effort_out=f.disagreement)
-            with self.assertRaisesRegex(cycle.CycleHold, 'OWNER_LOCAL_OUTPUT_EXISTS_OR_CONFLICTS'):
+            with self.assertRaisesRegex(cycle.CycleHold, 'OWNER_LOCAL_INPUT_OUTPUT_ALIAS_REFUSED'):
                 f.execute(review_b=f.a)
 
     def test_symlinked_reviewer_input_is_refused_before_execution(self):
