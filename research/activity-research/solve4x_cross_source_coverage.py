@@ -112,6 +112,9 @@ def probe():
  c=trace(joined,video,sensors)["counts"]
  ensure(c.get("video_only_exact")==23 and c.get("sensor_only_exact")==17 and c.get("joined_event_not_in_components",0)==0,"C11_LINEAGE_DRIFT")
  result=analyze(video,sensors,raw["scene01/scene01_ui.csv"])
+ from solve4x_c13_episode_triage import analyze as triage_episodes
+ result["c13_review_episodes"]=triage_episodes(
+     video,sensors,raw["scene01/scene01_ui.csv"])
  result["source"]={"article":meta["article_id"],"sha256":SHA,"archive_downloaded":False,"raw_events_published":False}
  return result
 def main():
