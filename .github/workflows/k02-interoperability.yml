@@ -18,5 +18,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test modules/k02-interoperability/tests/*.test.mjs
-      - run: node --check modules/k02-interoperability/index.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Contract and provider negative cases
+        run: node --test modules/k02-interoperability/tests/*.test.mjs
+      - name: Independent Python consumer and real public GitHub REST source
+        run: python modules/k02-interoperability/consumers/python_public_source_consumer.py 6d04b82f1b0b614fa22c735075b66f20c1d85f92 solutions/meeting-followup/agent.json
+      - name: Syntax and import validation
+        run: |
+          node --check modules/k02-interoperability/index.mjs
+          node --check modules/k02-interoperability/adapters/github-public-rest.mjs
+          node --check modules/k02-interoperability/consumers/public-source-bridge.mjs
+          python -m py_compile modules/k02-interoperability/consumers/python_public_source_consumer.py
