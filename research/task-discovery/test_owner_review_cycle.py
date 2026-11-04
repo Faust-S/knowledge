@@ -21,6 +21,9 @@ class CycleFixture:
         bridge.parent.mkdir(parents=True)
         bridge.write_text('''# synthetic bridge stub; never actual owner labels\n''', encoding='utf-8')
         self.bridge_blob = cycle.git_blob(bridge.read_bytes())
+        self.owner_form = bridge.parent / 'TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml'
+        self.owner_form.write_text("<View>\n<Text name=\"source_text\" value=\"$source_text\"/>\n<Labels name=\"taskness\" toName=\"source_text\">\n<Label value=\"PROCESS\"/><Label value=\"INDEPENDENT_TASK\"/>\n<Label value=\"OPERATION\"/><Label value=\"INSUFFICIENT_EVIDENCE\"/>\n</Labels>\n<View visibleWhen=\"region-selected\" whenTagName=\"source_text\" whenLabelValue=\"INDEPENDENT_TASK\">\n<TextArea name=\"goal\" toName=\"source_text\" perRegion=\"true\" maxSubmissions=\"1\"/>\n<TextArea name=\"expected_result\" toName=\"source_text\" perRegion=\"true\" maxSubmissions=\"1\"/>\n<TextArea name=\"acceptance_criterion\" toName=\"source_text\" perRegion=\"true\" maxSubmissions=\"1\"/>\n</View>\n<Choices name=\"review_coverage\" toName=\"source_text\">\n<Choice value=\"ALL_RELEVANT_SPANS_MARKED\"/>\n<Choice value=\"NO_TASK_RELEVANT_SPANS\"/>\n<Choice value=\"REVIEW_INCOMPLETE\"/>\n</Choices>\n</View>\n", encoding='utf-8')
+        self.form_blob = cycle.git_blob(self.owner_form.read_bytes())
         self.packet = location / 'packet.json'
         self.a = location / 'a.json'
         self.b = location / 'b.json'
@@ -68,6 +71,7 @@ class CycleFixture:
                        disagreements_out=self.disagreement, effort_out=self.effort,
                        confirmation=True, runner=self.runner,
                        expected_owner_blob=self.bridge_blob,
+                       expected_owner_xml_blob=self.form_blob,
                        effort_script=self.effort_script)
         options.update(overrides)
         with patch.object(cycle, 'OWNER_BRIDGE_BLOB', self.bridge_blob):
@@ -84,6 +88,8 @@ class OwnerReviewCycleTests(unittest.TestCase):
             self.assertEqual(result['annotations'], 16)
             self.assertEqual(result['sources_with_disagreement'], 0)
             self.assertFalse(result['human_gold'])
+            self.assertTrue(result['owner_review_instrument_verified'])
+            self.assertEqual(result['owner_review_instrument_git_blob'], f.form_blob)
             self.assertEqual(len(f.calls), 2)
             native, wc = f.calls[0]
             effort, ec = f.calls[1]
@@ -99,6 +105,37 @@ class OwnerReviewCycleTests(unittest.TestCase):
             self.assertEqual(before, [hashlib.sha256(p.read_bytes()).hexdigest()
                                       for p in (f.packet, f.a, f.b)])
             self.assertNotIn('fixture', json.dumps(result))
+
+    def test_owner_instrument_missing_refuses_before_bridge(self):
+        with TemporaryDirectory() as td:
+            f = CycleFixture(Path(td))
+            f.owner_form.unlink()
+            with self.assertRaisesRegex(
+                    cycle.CycleHold, 'OWNER_REVIEW_INSTRUMENT_MISSING'):
+                f.execute()
+            self.assertFalse(f.calls)
+
+    def test_changed_owner_instrument_refuses_before_bridge(self):
+        with TemporaryDirectory() as td:
+            f = CycleFixture(Path(td))
+            f.owner_form.write_text('<View/>', encoding='utf-8')
+            with self.assertRaisesRegex(
+                    cycle.CycleHold, 'OWNER_REVIEW_INSTRUMENT_MISMATCH'):
+                f.execute()
+            self.assertFalse(f.calls)
+
+    def test_generic_e5_form_cannot_replace_task_exp_review_instrument(self):
+        with TemporaryDirectory() as td:
+            f = CycleFixture(Path(td))
+            # This form lacks the region-scoped Task interpretation fields.
+            f.owner_form.write_text(
+                '<View><Text name="source_text" value="$source_text"/></View>',
+                encoding='utf-8')
+            other_blob = cycle.git_blob(f.owner_form.read_bytes())
+            with self.assertRaisesRegex(
+                    cycle.CycleHold, 'OWNER_REVIEW_INSTRUMENT_MISMATCH'):
+                f.execute(expected_owner_xml_blob=other_blob)
+            self.assertFalse(f.calls)
 
     def test_never_claim_review_without_explicit_local_confirmation(self):
         with TemporaryDirectory() as td:

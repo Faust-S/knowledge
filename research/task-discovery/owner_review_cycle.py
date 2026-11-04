@@ -18,6 +18,7 @@ import tempfile
 from typing import Callable
 
 import review_effort as effort_contract
+import review_form_contract as form_contract
 
 OWNER_BRIDGE_BLOB = '9b56bc4624341f54799340b08872d3cfbed6e13b'
 BRIDGE_SCHEMA = 'IWXA_TASK_EXP_01_INDEPENDENT_REVIEW_CROSSCHECK/0.1'
@@ -81,12 +82,32 @@ def owner_bridge_path(owner_root: Path) -> tuple[Path, Path]:
     return catalog, bridge
 
 
+def verify_owner_review_instrument(owner_root: Path, *,
+                                   expected_xml_blob: str = form_contract.TASK_EXP_XML_BLOB) -> None:
+    """Pin the actual TASK-EXP-01 human instrument, distinct from generic E5.
+
+    This verifies owner-local provenance, NOT that either reviewer was blind.
+    The Label Studio import/export adapter independently checks persisted XML.
+    """
+    xml = (owner_root / 'knowledge' / 'task-catalog' / 'engine' / 'research' /
+           'TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml')
+    need(xml.is_file() and not xml.is_symlink(), 'OWNER_REVIEW_INSTRUMENT_MISSING')
+    try:
+        receipt = form_contract.check_xml(xml.read_bytes(), pinned_blob=expected_xml_blob)
+    except (form_contract.ContractHold, OSError):
+        raise CycleHold('OWNER_REVIEW_INSTRUMENT_MISMATCH') from None
+    need(receipt.get('owner_bridge_expected_fields_present') is True and
+         receipt.get('generic_e5_xml_is_not_this_form') is True,
+         'OWNER_REVIEW_INSTRUMENT_MISMATCH')
+
+
 def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
               disagreements_out: Path, effort_out: Path,
               hourly_rate_usd: str | None = None,
               confirmation: bool = False,
               runner: Callable[[list[str], Path], str] = executed,
               expected_owner_blob: str = OWNER_BRIDGE_BLOB,
+              expected_owner_xml_blob: str = form_contract.TASK_EXP_XML_BLOB,
               effort_script: Path | None = None) -> dict:
     # Refuse symlink aliases before resolving paths. The owner bridge and
     # effort adapter must consume the exact same local files, not aliases
@@ -107,6 +128,7 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
     catalog, bridge = owner_bridge_path(owner_root)
     need(git_blob(bridge.read_bytes()) == expected_owner_blob,
          'OWNER_BRIDGE_TEST_PIN_MISMATCH')
+    verify_owner_review_instrument(owner_root, expected_xml_blob=expected_owner_xml_blob)
     need(review_a != review_b and disagreements_out != effort_out and
          not disagreements_out.exists() and not effort_out.exists(),
          'OWNER_LOCAL_OUTPUT_EXISTS_OR_CONFLICTS')
@@ -239,6 +261,8 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
         'sources': 8, 'annotations': 16,
         'bridge_checked_not_adjudicated': True,
         'sources_with_disagreement': native['sources_with_disagreement'],
+        'owner_review_instrument_git_blob': expected_owner_xml_blob,
+        'owner_review_instrument_verified': True,
         'platform_lead_time_complete': (
             effort.get('label_studio_lead_time_seconds_total') is not None),
         'human_gold': False, 'adjudication_completed': False,
