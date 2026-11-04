@@ -47,8 +47,11 @@ def confusion(cues: set[str], labels: dict[str, str]) -> dict:
     tn = sum(k not in cues and v == "NO_TASK" for k, v in resolved.items())
     precision = ratio(tp, tp + fp)
     recall = ratio(tp, tp + fn)
-    f1 = ratio(2 * tp, 2 * tp + fp + fn) if (
-        precision is not None and recall is not None) else None
+    # F1 uses its own denominator. A method that finds no cues while a
+    # confirmed positive exists has F1=0 (FN>0), even though precision is
+    # undefined. Likewise false positives without any gold positive give
+    # F1=0 despite undefined recall. Only 0/0 is unmeasurable.
+    f1 = ratio(2 * tp, 2 * tp + fp + fn)
     return {
         "tp": tp, "fp": fp, "fn": fn, "tn": tn,
         "resolved_denominator": len(resolved),

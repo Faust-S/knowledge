@@ -100,6 +100,36 @@ class PostReviewCueTests(unittest.TestCase):
         self.assertIsNone(c["recall"])
         self.assertIsNone(c["f1"])
 
+    def test_zero_cues_with_confirmed_task_has_measurable_zero_f1(self):
+        # No lexical cue predicted, but a human adjudicator found a task:
+        # TP=0 FP=0 FN=1 TN=7; precision undefined, recall/F1 = 0.
+        m, s, a = inputs(["TASK_PRESENT"] + ["NO_TASK"] * 7)
+        out = compare.analyze(
+            m, s, a, method_sha=s["method_output_sha256"])
+        no_cues = compare.confusion(
+            set(), {r["source_sha256"]: entry["resolution"]
+                    for r, entry in zip(s["source_rows"], a["sources"])})
+        self.assertEqual((no_cues["tp"], no_cues["fp"],
+                          no_cues["fn"], no_cues["tn"]), (0, 0, 1, 7))
+        self.assertIsNone(no_cues["precision"])
+        self.assertEqual(no_cues["recall"], 0.0)
+        self.assertEqual(no_cues["f1"], 0.0)
+        # On this fixture the pinned U1 also has only negative cues.
+        self.assertEqual(out["source_retrieval"]["pinned_u1"]["f1"], 0.0)
+        self.assertFalse(out["human_gold"])
+        self.assertIsNone(out["task_f1"])
+
+    def test_false_cue_with_no_positive_gold_has_zero_f1(self):
+        m, s, a = inputs(["NO_TASK"] * 8)
+        out = compare.analyze(
+            m, s, a, method_sha=s["method_output_sha256"])
+        title = out["source_retrieval"]["title_regex"]
+        self.assertEqual((title["tp"], title["fp"], title["fn"]), (0, 3, 0))
+        self.assertEqual(title["precision"], 0.0)
+        self.assertIsNone(title["recall"])
+        self.assertEqual(title["f1"], 0.0)
+        self.assertEqual(title["resolved_denominator"], 8)
+
     def test_resolutions_must_cover_exact_frozen_eight_once(self):
         for alteration, code in (
                 ("duplicate", "MANUAL_SOURCE_SELECTION_OR_RESOLUTION_INVALID"),
