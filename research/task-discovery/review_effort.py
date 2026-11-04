@@ -43,9 +43,25 @@ def read_json(path: Path):
     require(path.is_file() and not path.is_symlink(), 'LOCAL_INPUT_UNAVAILABLE')
     raw = path.read_bytes()
     require(0 < len(raw) <= MAX_FILE_BYTES, 'LOCAL_INPUT_SIZE_INVALID')
+    # The original owner bridge uses a strict JSON parser. Preserve that
+    # invariant when the effort adapter is invoked independently or when
+    # files are replaced between the two owner-local steps.
+    def unique_pairs(pairs):
+        values = {}
+        for key, value in pairs:
+            require(key not in values, 'LOCAL_JSON_DUPLICATE_KEY')
+            values[key] = value
+        return values
+
+    def nonfinite(_value):
+        raise EffortHold('LOCAL_JSON_NONFINITE_NUMBER')
+
     try:
-        return json.loads(raw.decode('utf-8'))
-    except (ValueError, UnicodeError):
+        return json.loads(raw.decode('utf-8'), object_pairs_hook=unique_pairs,
+                          parse_constant=nonfinite)
+    except EffortHold:
+        raise
+    except (ValueError, UnicodeError, RecursionError):
         raise EffortHold('LOCAL_JSON_INVALID') from None
 
 
@@ -143,11 +159,16 @@ def _quantile90(values: list[float]) -> float:
 def _slot(values: list[float | None]) -> dict:
     valid = [t for t in values if t is not None]
     complete = len(valid) == 8
+    # Individual finite values may still overflow their sum. Never serialize
+    # Infinity/NaN as though they were measured seconds.
+    observed_sum = sum(valid) if complete else None
+    require(observed_sum is None or math.isfinite(observed_sum),
+            'LABEL_STUDIO_LEAD_TIME_TOTAL_NONFINITE')
     return {
         'annotations': 8,
         'lead_time_reported': len(valid),
         'lead_time_missing': 8 - len(valid),
-        'lead_time_seconds_sum': round(sum(valid), 3) if complete else None,
+        'lead_time_seconds_sum': round(observed_sum, 3) if complete else None,
         'lead_time_seconds_median': round(statistics.median(valid), 3) if complete else None,
         'lead_time_seconds_p90_nearest_rank': round(_quantile90(valid), 3) if complete else None,
     }
@@ -161,7 +182,11 @@ def summarize(export_a: object, export_b: object, owner_receipt: dict,
     require(a_claim != b_claim, 'SAME_REVIEWER_CLAIM')
     slot_a, slot_b = _slot(a), _slot(b)
     complete = slot_a['lead_time_missing'] == slot_b['lead_time_missing'] == 0
-    total = round(slot_a['lead_time_seconds_sum'] + slot_b['lead_time_seconds_sum'], 3) if complete else None
+    observed_total = (slot_a['lead_time_seconds_sum'] +
+                      slot_b['lead_time_seconds_sum']) if complete else None
+    require(observed_total is None or math.isfinite(observed_total),
+            'LABEL_STUDIO_LEAD_TIME_TOTAL_NONFINITE')
+    total = round(observed_total, 3) if complete else None
     cost = None
     if hourly_rate_usd is not None:
         require(type(hourly_rate_usd) is Decimal and hourly_rate_usd.is_finite() and
@@ -212,7 +237,8 @@ def main() -> int:
                            read_json(opts.owner_bridge_receipt), selected, commitment,
                            hourly_rate_usd=rate)
         with opts.out.open('x', encoding='utf-8') as f:
-            json.dump(result, f, ensure_ascii=False, indent=2, sort_keys=True)
+            json.dump(result, f, ensure_ascii=False, indent=2,
+                      sort_keys=True, allow_nan=False)
             f.write('\n')
         print(json.dumps({'status': result['status'], 'sources': 8,
                           'complete_lead_time': result['label_studio_lead_time_seconds_total'] is not None,

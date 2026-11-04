@@ -56,6 +56,48 @@ class EffortTests(unittest.TestCase):
         self.assertIsNone(out['estimated_review_cost_usd'])
         self.assertEqual(out['reviewer_slots']['A']['lead_time_missing'], 1)
 
+    def test_strict_local_json_rejects_duplicate_keys_and_nonfinite(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / 'review.json'
+            for value, expected in (
+                ('{"a":1,"a":2}', 'LOCAL_JSON_DUPLICATE_KEY'),
+                ('{"a":{"b":1,"b":2}}', 'LOCAL_JSON_DUPLICATE_KEY'),
+                ('{"a":NaN}', 'LOCAL_JSON_NONFINITE_NUMBER'),
+                ('{"a":Infinity}', 'LOCAL_JSON_NONFINITE_NUMBER'),
+                ('{"a":-Infinity}', 'LOCAL_JSON_NONFINITE_NUMBER'),
+                ('{"a":', 'LOCAL_JSON_INVALID'),
+            ):
+                with self.subTest(value=value):
+                    path.write_text(value, encoding='utf-8')
+                    with self.assertRaisesRegex(e.EffortHold, expected):
+                        e.read_json(path)
+
+    def test_finite_individual_times_must_not_overflow_slot_or_total(self):
+        a, b, receipt, sources = fixture()
+        # Every sample is finite, but sum of eight is Infinity in float.
+        for row in a:
+            row['annotations'][0]['lead_time'] = 1e308
+        with self.assertRaisesRegex(e.EffortHold,
+                                    'LABEL_STUDIO_LEAD_TIME_TOTAL_NONFINITE'):
+            e.summarize(a, b, receipt, sources, 'pinned')
+        a, b, receipt, sources = fixture()
+        # Each reviewer's sum stays finite; their combined total overflows.
+        for row in a + b:
+            row['annotations'][0]['lead_time'] = 1.2e307
+        with self.assertRaisesRegex(e.EffortHold,
+                                    'LABEL_STUDIO_LEAD_TIME_TOTAL_NONFINITE'):
+            e.summarize(a, b, receipt, sources, 'pinned')
+
+    def test_regular_partial_time_remains_null_and_serializable(self):
+        a, b, receipt, sources = fixture()
+        b[0]['annotations'][0].pop('lead_time')
+        output = e.summarize(a, b, receipt, sources, 'pinned')
+        self.assertIsNone(output['label_studio_lead_time_seconds_total'])
+        self.assertEqual(output['status'], 'LEAD_TIME_PARTIAL_NOT_TASK_GOLD')
+        json.dumps(output, allow_nan=False)
+
     def test_source_changed_rejected(self):
         a, b, receipt, sources = fixture()
         a[0]['data']['source_text'] += 'changed'
