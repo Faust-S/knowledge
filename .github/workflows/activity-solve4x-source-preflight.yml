@@ -14,6 +14,8 @@ on:
       - 'research/activity-research/solve4x_same_case_audit.py'
       - 'research/activity-research/solve4x_scene_component_lineage.py'
       - 'research/activity-research/solve4x_cross_source_coverage.py'
+      - 'research/activity-research/solve4x_c13_episode_triage.py'
+      - 'research/activity-research/tests/test_solve4x_c13_episode_triage.py'
       - 'research/activity-research/tests/test_solve4x_cross_source_coverage.py'
       - 'research/activity-research/tests/test_solve4x_scene_component_lineage.py'
       - 'research/activity-research/solve4x_global_itam_audit.py'
@@ -418,6 +420,8 @@ jobs:
 
       - name: Offline C12 cross-source negative controls
         run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_cross_source_coverage.py' -v
+      - name: Test C13 redacted sensor UI episode characterization
+        run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_c13_episode_triage.py' -v
       - name: Replay C12 real sensor video and browser UI evidence
         run: |
           python3 research/activity-research/solve4x_cross_source_coverage.py --out solve4x-c12-report.json
@@ -432,6 +436,21 @@ jobs:
           assert r["calibrated_clock"] is False
           assert r["accepted_tasks"]==0
           assert r["independent_human_gold"]=="NOT_MEASURED"
+          c13=r["c13_review_episodes"]
+          assert c13["schema"]=="IWXA_SOLVE4X_C13_SENSOR_UI_REVIEW/0.1"
+          assert c13["status"]=="REDACTED_SOURCE_REVIEW_EPISODES_NOT_TASKS"
+          assert c13["sensor_total"]==17
+          assert c13["sensor_outside_video"]==3
+          assert len(c13["episodes"])==3
+          assert c13["new_human_actions_confirmed"]==0
+          assert c13["accepted_tasks"]==0
+          assert c13["clock_synchronization_confirmed"] is False
+          assert c13["raw_values_or_event_ids_exported"] is False
+          assert c13["plus_one_day_control_candidates_5s"]==0
+          assert c13["source_records_for_complete_candidate_review"] >= 3
+          print("SOLVE4X_C13_EPISODES",c13["episodes"],
+                "unique_ui",c13["unique_ui_candidate_records_5s"],
+                "review_records",c13["source_records_for_complete_candidate_review"])
           for win in ("1s","5s","30s"):
               x=r["sensor_ui"][win]
               assert x["one_to_one_upper_bound"]<=min(x["sensor_with_ui"],x["ui_with_sensor"],17)
