@@ -155,7 +155,7 @@ jobs:
 
       - name: Run same-case identity and non-independence negative tests
         run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_same_case_audit.py' -v
-      - name: Compare registered case references across two source derivatives
+      - name: Compare author video activities with structurally marked OCEL events
         run: |
           python3 research/activity-research/solve4x_same_case_audit.py \
             --out solve4x-same-case-derived.json || true
