@@ -71,12 +71,32 @@ def parse_jsonl(raw: bytes) -> dict:
                 records.append(item)
                 index.check(len(records) <= MAX_RECORDS, "ITAM_SEQUENCE_TOO_MANY_RECORDS")
     index.check(0 < len(records) <= MAX_RECORDS, "ITAM_RECORD_POPULATION_HOLD")
-    keys = Counter(k for item in records for k in item)
-    types = Counter(type(item).__name__ for item in records)
+    # Top-level schemas are safe only for known field names; OCEL maps can be
+    # keyed by employee, event or asset identifiers. Never disclose those keys.
+    known_fields = {
+        "ocel:events", "ocel:objects", "ocel:global-log",
+        "ocel:global-event", "ocel:global-object", "ocel:activity",
+        "ocel:timestamp", "ocel:omap", "ocel:vmap", "ocel:type",
+        "id", "event_id", "object_id", "eventType", "event_type",
+        "activity", "type", "time", "timestamp", "action",
+        "attributes", "data", "events", "objects", "items", "records",
+        "resource", "actor", "value", "changes",
+    }
+    keys = Counter(k for item in records for k in item if k in known_fields)
+    unknown_key_occurrences = sum(1 for item in records
+                                  for key in item if key not in known_fields)
     primary = records[0]
-    nested = {k: sorted(str(p) for p in v)[:40]
-              for k,v in primary.items() if isinstance(v,dict)}
-    arrays = {k: len(v) for k,v in primary.items() if isinstance(v,list)}
+    nested = {key: {
+        "container": type(value).__name__,
+        "record_count": len(value),
+        "sample_value_type": (type(next(iter(value.values()))).__name__
+                              if isinstance(value, dict) and value else
+                              type(value[0]).__name__
+                              if isinstance(value, list) and value else "EMPTY"),
+    } for key, value in primary.items()
+         if key in known_fields and isinstance(value, (dict, list))}
+    arrays = {k: len(v) for k, v in primary.items()
+              if k in known_fields and isinstance(v, list)}
     return {
         "schema":SCHEMA,
         "status":"ORIGINAL_ITAM_JSONL_LOADED_SCHEMA_ONLY",
@@ -86,9 +106,10 @@ def parse_jsonl(raw: bytes) -> dict:
         "structure":{"nonempty_jsonl_rows":len(records),
                      "parse_mode":parse_mode,
                      "file_nonempty_lines":len(lines),
-                     "outer_keys":dict(sorted(keys.items())),
-                     "outer_record_types":dict(sorted(types.items())),
-                     "first_record_nested_field_names":nested,
+                     "outer_known_field_occurrences":dict(sorted(keys.items())),
+                     "outer_other_field_occurrences":unknown_key_occurrences,
+                     "outer_record_types":{"dict":len(records)},
+                     "first_record_container_shapes":nested,
                      "first_record_array_sizes":arrays},
         "qualification":{"source_independence_from_joined_ocel":"NOT_YET_AUDITED",
                          "actual_person_work":"UNKNOWN",
