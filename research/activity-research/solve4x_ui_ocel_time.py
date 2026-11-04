@@ -118,6 +118,35 @@ def analyze(ui_csv:bytes, scene:dict) -> dict:
     }
 
 
+def conditional_naive_calendar_proximity(ui_csv: bytes, scene: dict) -> dict:
+    """Same-wall-clock assumption ONLY, not verified timezone synchronization."""
+    content=ui_csv.decode("utf-8-sig")
+    first=content.splitlines()[0]
+    delimiter=max((",", ";", "\t"),key=lambda c:(first.count(c),c))
+    rows=list(csv.DictReader(StringIO(content),delimiter=delimiter))
+    def local_seconds(value):
+        stamp=datetime.fromisoformat(value)
+        idx.check(stamp.tzinfo is None,"NAIVE_CLOCK_ONLY")
+        return (stamp-datetime(1970,1,1)).total_seconds()
+    ui=[local_seconds(r["timestamp"]) for r in rows]
+    events=scene["ocel:events"]
+    marked=[e for e in events.values() if isinstance(e.get("ocel:vmap"),dict)
+            and "end_time" in e["ocel:vmap"]]
+    unmarked=[e for e in events.values() if e not in marked]
+    system_time=[local_seconds(e["ocel:timestamp"]) for e in unmarked]
+    video_time=[local_seconds(e["ocel:timestamp"]) for e in marked]
+    return {
+      "conditional_only_same_naive_clock_assumed":True,
+      "clock_time_zone_or_offset_verified":False,
+      "window_counts":{str(window)+"s":{
+          "ui_near_system":counts_within(ui,system_time,window),
+          "system_near_ui":counts_within(system_time,ui,window),
+          "ui_near_video_derived":counts_within(ui,video_time,window),
+          "video_derived_near_ui":counts_within(video_time,ui,window)}
+          for window in WINDOWS},
+    }
+
+
 def clock_profile(ui_csv: bytes, scene: dict) -> dict:
     content=ui_csv.decode("utf-8-sig")
     first=content.splitlines()[0]
@@ -163,6 +192,11 @@ def run():
           "clock_format_profile":profile,
           "counts":{"ui_rows":sum(profile["ui"].values()),
                     "scene_ocel_events":sum(profile["ocel"].values())},
+          "conditional_naive_wall_time": (
+              conditional_naive_calendar_proximity(raw[UI],scene)
+              if (profile["ui"]["aware"]==0 and profile["ocel"]["aware"]==0 and
+                  profile["ui"]["invalid"]==0 and profile["ocel"]["invalid"]==0)
+              else {"status":"UNAVAILABLE_MIXED_OR_INVALID_CLOCKS"}),
           "limitations":{"aligned_clocks_proven":False,
               "temporal_proximity_confirms_same_action":False,
               "independent_human_action_truth":"NOT_MEASURED",
