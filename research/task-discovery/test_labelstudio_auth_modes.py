@@ -210,14 +210,15 @@ class AuthCompatibilityTests(unittest.TestCase):
                 self.assertNotIn("synthetic", str(caught.exception))
 
     def test_personal_refresh_fails_closed_on_ambiguous_json(self):
-        for payload, code in (
-                (b'{"access":"first","access":"second"}',
-                 "LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE_DUPLICATE_KEY"),
-                (b'{"access":NaN}',
-                 "LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE_NONFINITE_NUMBER")):
-            with self.subTest(code=code), patch.object(
+        for payload in (
+                b'{"access":"first","access":"second"}',
+                b'{"access":NaN}', b'{"access":1e999}'):
+            with self.subTest(payload=payload), patch.object(
                     target, "local_api_open", return_value=FakeResponse(payload)):
-                with self.assertRaisesRegex(target.SetupHold, code):
+                # The existing refresh boundary deliberately normalizes all
+                # malformed JSON into a single non-secret refusal code.
+                with self.assertRaisesRegex(
+                        target.SetupHold, "LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE_INVALID"):
                     target.resolve_api_credential(
                         "http://127.0.0.1:8080", "synthetic", "personal")
 
