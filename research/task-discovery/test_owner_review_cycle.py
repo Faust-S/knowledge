@@ -224,7 +224,7 @@ class OwnerReviewCycleTests(unittest.TestCase):
                     f.effort.write_text('created-by-another-process\n', encoding='utf-8')
                 return result
             with self.assertRaisesRegex(
-                    cycle.CycleHold, 'OWNER_LOCAL_OUTPUT_PUBLICATION_FAILED'):
+                    cycle.CycleHold, 'OWNER_LOCAL_OUTPUT_EXISTS_OR_CONFLICTS'):
                 f.execute(runner=racing)
             self.assertFalse(f.disagreement.exists())
             self.assertEqual(f.effort.read_text('utf-8'), 'created-by-another-process\n')
