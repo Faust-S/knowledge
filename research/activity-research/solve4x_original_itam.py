@@ -16,6 +16,8 @@ NAME = "global/itam_ocel.jsonl"
 SCHEMA = "IWXA_SOLVE4X_ORIGINAL_ITAM_JSONL_SOURCE/0.1"
 MAX_BYTES = 256 * 1024
 MAX_RECORDS = 5000
+PINNED_SOURCE_SHA256 = "5849db2c795f0bbdda4546f363331a57ab70fcd64812f4852a9bbbf8be26f2ca"
+PINNED_SCENE_SHA256 = "5de185ada7d0e8d82e3f43929e594c31a1c52aad334197557cc7c2550d3f1f15"
 
 def parse_jsonl(raw: bytes, *, include_records: bool = False):
     index.check(isinstance(raw, bytes) and 0 < len(raw) <= MAX_BYTES,
@@ -264,6 +266,11 @@ def probe() -> dict:
     result["original_itam_vs_scene"] = compare_original_itam_to_scene(
         raw, scene_raw)
     result["source"]["scene_ocel_sha256"] = sha256(scene_raw).hexdigest()
+    result["source"]["comparative_input_sha_pins_checked"] = True
+    index.check(result["source"]["sha256"] == PINNED_SOURCE_SHA256,
+                "ORIGINAL_ITAM_SOURCE_SHA_DRIFT")
+    index.check(result["source"]["scene_ocel_sha256"] == PINNED_SCENE_SHA256,
+                "SCENE_OCEL_SOURCE_SHA_DRIFT")
     result["source"]["figshare_article_id"]=meta["article_id"]
     result["source"]["central_sha256"]=zip_index["source"]["central_sha256"]
     return result
