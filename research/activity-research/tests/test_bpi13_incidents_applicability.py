@@ -82,6 +82,12 @@ class IncidentsTests(TestCase):
         self.assertEqual(r["questions"][2]["source_fit"], "WAIT_USER_REPORTED_LABEL_PRESENT")
         self.assertEqual(r["questions"][0]["source_fit"],
                          "INCIDENT_LOG_AND_GROUP_ATTRIBUTE_PRESENT")
+        self.assertEqual(r["questions"][3]["source_fit"],
+                         "REQUESTER_ORG_FIELD_NOT_SUPPORT_ORG_CONFORMITY")
+        self.assertEqual(r["field_applicability"]["organization_involved_semantics"],
+                         "REPORTER_BUSINESS_AREA_NOT_SUPPORT_ORG")
+        self.assertFalse(r["owner_documentary_context"][
+            "support_organization_A2_C_from_reporter_field"])
 
     def test_missing_group_remains_unknown(self):
         r = inc.analyze(fixture(include_group=False), sample_cases=2)
