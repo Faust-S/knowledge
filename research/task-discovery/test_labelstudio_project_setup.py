@@ -249,7 +249,7 @@ class LocalLabelStudioSetupTests(unittest.TestCase):
                     (base.endswith(":8080") and token == "Token account-b") or
                     (base.endswith(":8081") and token == "Token account-a")):
                 if route == "/api/current-user/whoami":
-                    return {"id": 999}
+                    raise ls.SetupHold("LABEL_STUDIO_HTTP_403")
                 return [{"data": {}}]
             if route == "/api/current-user/whoami":
                 return {"id": 10 if base.endswith(":8080") else 11}
@@ -308,7 +308,7 @@ class LocalLabelStudioSetupTests(unittest.TestCase):
                 return [{**copy.deepcopy(t), "predictions": [], "annotations": []}
                         for t in tasks]
             raise AssertionError("unexpected route")
-        with self.assertRaisesRegex(ls.SetupHold, "ISOLATED_REVIEW_ACCOUNT_IDS_COLLIDE"):
+        with self.assertRaisesRegex(ls.SetupHold, "ISOLATED_NATIVE_REVIEWER_IDS_COLLIDE"):
             ls.isolated_review_preflight(
                 tasks, CONFIG.decode("utf-8"),
                 "http://127.0.0.1:8080", "Token account-a", 40,

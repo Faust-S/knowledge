@@ -298,33 +298,64 @@ def create_projects(tasks: list[dict], xml: str, url: str, token: str,
 
 
 
-def isolated_review_preflight(
-        tasks: list[dict], xml: str,
-        url_a: str, token_a: str, project_a: int,
-        url_b: str, token_b: str, project_b: int, *, call=api) -> dict:
-    """Read-only pre-human M3 gate against two existing Label Studio instances.
+def verify_isolated_reviewers(url_a: str, token_a: str,
+                              url_b: str, token_b: str, *, call=api) -> dict:
+    """Reusable read-only account boundary for local independent review.
 
-    Validate both persisted forms and their still-blind original source sets,
-    then use the *other* instance's credential against both identity and
-    project-export endpoints. This is an API access observation only: it does
-    not establish human identity, no communication, UI isolation or gold.
+    Distinct account claims plus denied cross-auth are a technical gate, not
+    evidence of separate storage, independent humans or an accepted task gold.
     """
     a, b = local_url(url_a), local_url(url_b)
-    require(a != b and type(project_a) is int and project_a > 0 and
-            type(project_b) is int and project_b > 0 and
-            type(xml) is str and bool(xml) and
-            type(token_a) is str and bool(token_a) and
-            type(token_b) is str and bool(token_b) and token_a != token_b,
-            "ISOLATED_REVIEW_PREFLIGHT_ARGUMENTS_INVALID")
-    originals = {t["data"]["source_sha256"]: t["data"] for t in tasks}
-    require(len(originals) == len(tasks) == 8, "SOURCE_FIRST_IMPORT_INCOMPLETE")
-    observed_ids = []
-    for base, token, pid in ((a, token_a, project_a), (b, token_b, project_b)):
+    port_a = urlsplit(a).port or 80
+    port_b = urlsplit(b).port or 80
+    require(port_a != port_b, "ISOLATED_REVIEW_REQUIRES_DISTINCT_LOCAL_PORTS")
+    require(type(token_a) is str and type(token_b) is str and
+            bool(token_a) and bool(token_b) and token_a != token_b,
+            "ISOLATED_REVIEW_CREDENTIALS_INVALID_OR_REUSED")
+    ids = []
+    for base, token in ((a, token_a), (b, token_b)):
         account = call(base, token, "/api/current-user/whoami")
         ident = account.get("id") if type(account) is dict else None
         require(type(ident) is int and ident > 0,
                 "ISOLATED_REVIEW_ACCOUNT_NOT_VERIFIED")
-        observed_ids.append(ident)
+        ids.append(ident)
+    require(ids[0] != ids[1], "ISOLATED_NATIVE_REVIEWER_IDS_COLLIDE")
+    for base, token in ((a, token_b), (b, token_a)):
+        try:
+            call(base, token, "/api/current-user/whoami")
+        except SetupHold as error:
+            require(str(error) in ("LABEL_STUDIO_HTTP_401",
+                                   "LABEL_STUDIO_HTTP_403",
+                                   "LABEL_STUDIO_HTTP_404"),
+                    "ISOLATED_REVIEW_CROSS_AUTH_NOT_PROVEN")
+        else:
+            raise SetupHold("ISOLATED_REVIEW_CROSS_ACCOUNT_ACCESSIBLE")
+    return {
+        "schema": SCHEMA,
+        "status": "TWO_LOCAL_REVIEW_ACCOUNTS_API_PREFLIGHT_PASS_NOT_HUMAN_GOLD",
+        "cross_instance_credentials_rejected": True,
+        "reviewer_id_claims_distinct": True,
+        "platform_storage_isolation_verified": False,
+        "human_gold": False,
+    }
+
+
+def isolated_review_preflight(
+        tasks: list[dict], xml: str,
+        url_a: str, token_a: str, project_a: int,
+        url_b: str, token_b: str, project_b: int, *, call=api) -> dict:
+    """Read-only pre-human project/form/source gate on top of account preflight."""
+    a, b = local_url(url_a), local_url(url_b)
+    require(type(project_a) is int and project_a > 0 and
+            type(project_b) is int and project_b > 0 and
+            type(xml) is str and bool(xml),
+            "ISOLATED_REVIEW_PREFLIGHT_ARGUMENTS_INVALID")
+    # Shared account check, including cross-credential rejection. Never infer
+    # cross-instance storage isolation merely from distinct account IDs.
+    verify_isolated_reviewers(a, token_a, b, token_b, call=call)
+    originals = {t["data"]["source_sha256"]: t["data"] for t in tasks}
+    require(len(originals) == len(tasks) == 8, "SOURCE_FIRST_IMPORT_INCOMPLETE")
+    for base, token, pid in ((a, token_a, project_a), (b, token_b, project_b)):
         saved = call(base, token, f"/api/projects/{pid}/")
         require(type(saved) is dict and saved.get("id") == pid and
                 same_review_form(xml, saved.get("label_config")),
@@ -332,30 +363,19 @@ def isolated_review_preflight(
         exported = call(base, token,
                         f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true")
         _blind_project_readback(exported, originals)
-    # The canonical owner review bridge requires distinct original completed_by
-    # identifiers. Fail before work begins if these two CURRENT account IDs
-    # collide. A later reviewer may still differ: the operator must check.
-    require(observed_ids[0] != observed_ids[1],
-            "ISOLATED_REVIEW_ACCOUNT_IDS_COLLIDE")
 
-    def denied(base: str, other_token: str, pid: int, route: str) -> None:
+    for base, foreign_token, pid in ((a, token_b, project_a),
+                                     (b, token_a, project_b)):
         try:
-            call(base, other_token, route)
+            call(base, foreign_token,
+                 f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true")
         except SetupHold as error:
             require(str(error) in ("LABEL_STUDIO_HTTP_401",
                                    "LABEL_STUDIO_HTTP_403",
                                    "LABEL_STUDIO_HTTP_404"),
                     "ISOLATED_REVIEW_CROSS_ACCESS_UNEXPECTED_ERROR")
-            return
-        # Any successful cross-read, even an empty result, violates the gate.
-        raise SetupHold("ISOLATED_REVIEW_CROSS_ACCESS_EXPOSED")
-
-    for base, other_token, pid in ((a, token_b, project_a),
-                                   (b, token_a, project_b)):
-        denied(base, other_token, pid, "/api/current-user/whoami")
-        denied(base, other_token, pid,
-               f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true")
-    # No source bodies, identities, credentials or method predictions in receipt.
+        else:
+            raise SetupHold("ISOLATED_REVIEW_CROSS_ACCESS_EXPOSED")
     return {
         "schema": SCHEMA,
         "status": "TWO_LOCAL_REVIEW_INSTANCES_API_PREFLIGHT_PASS_NOT_HUMAN_GOLD",
