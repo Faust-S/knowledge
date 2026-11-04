@@ -29,6 +29,7 @@ class IdentityTests(TestCase):
         self.v["localisations"][0]["data"]["process"]="ID900"
         result=a.analyze_scene(self.v,self.o)
         self.assertEqual(result["counts"]["case_references_in_both"],1)
+        self.assertEqual(result["constraints"]["false_confident_claim_rate_vs_human_gold"],"NOT_MEASURED")
     def test_same_literal_activity_in_video_marked_ocel(self):
         self.o["ocel:events"]["e2"]["ocel:activity"]="Handover"
         self.o["ocel:events"]["e2"]["ocel:vmap"]={"end_time":"2024-01-01T00:00:00Z"}
@@ -37,7 +38,6 @@ class IdentityTests(TestCase):
         self.assertFalse(r["counts"]["literal_video_ocel_marked_activity_multisets_equal"])
         self.assertEqual(r["constraints"]["end_time_field_marker_origin"],
                          "STRUCTURAL_PROXY_NOT_INDEPENDENTLY_ATTESTED")
-        self.assertEqual(result["constraints"]["false_confident_claim_rate_vs_human_gold"],"NOT_MEASURED")
     def test_no_video_localisations_is_hold(self):
         with self.assertRaisesRegex(idx.Hold,"VIDEO_LOCALISATIONS_MISSING"):
             a.analyze_scene({"localisations":None},self.o)
