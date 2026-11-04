@@ -1,79 +1,131 @@
-// K01: host-neutral, stateless context projection. No network or persistent storage.
+// K01: stateless, host-neutral context projection. No storage or network access.
 import { createHash } from 'node:crypto';
-export const CONTRACT_VERSION = '0.1.0';
-const id = x => typeof x === 'string' && x.length > 0 && x.length <= 512;
-const hash = text => createHash('sha256').update(text, 'utf8').digest('hex');
-const stable = o => JSON.stringify(o);
+
+export const CONTRACT_VERSION = '0.2.0';
+const MAX_ITEMS = 4096;
+const MAX_EXCERPT_BYTES = 65536;
+const identifier = value => typeof value === 'string' && value.length > 0 && value.length <= 512 && value.trim() === value && !/[\x00-\x1f]/.test(value);
+const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+
 function checkItem(item) {
-  if (!item || !id(item.id) || !id(item.sourceRef) || !id(item.revision)
-      || !id(item.type) || !['observed','reported','inferred','target'].includes(item.epistemic)
-      || !Number.isSafeInteger(item.estimatedTokens) || item.estimatedTokens < 0) throw new TypeError('invalid KnowledgeItem');
+  if (!item || !identifier(item.id) || !identifier(item.sourceRef) || !identifier(item.revision)
+      || !identifier(item.type) || !['observed', 'reported', 'inferred', 'target'].includes(item.epistemic)
+      || !Number.isSafeInteger(item.estimatedTokens) || item.estimatedTokens < 0
+      || (item.keywords !== undefined && (!Array.isArray(item.keywords) || item.keywords.some(k => !identifier(k))))) {
+    throw new TypeError('invalid KnowledgeItem');
+  }
   return item;
 }
+
 function normalize(request) {
-  if (!request || !id(request.taskId) || !Array.isArray(request.terms)
-      || !Number.isSafeInteger(request.maxTokens) || request.maxTokens < 0
-      || !Array.isArray(request.allowedSources)) throw new TypeError('invalid ContextRequest');
-  const terms = [...new Set(request.terms.map(t => {
-    if (!id(t)) throw new TypeError('invalid search term');
-    return t.toLowerCase().trim();
-  }).filter(Boolean))].sort();
-  const allowed = [...new Set(request.allowedSources.map(s => {
-    if (!id(s)) throw new TypeError('invalid source');
-    return s;
-  }))].sort();
-  return { taskId: request.taskId, terms, maxTokens: request.maxTokens, allowedSources: allowed, allowInferred: request.allowInferred === true };
+  if (!request || !identifier(request.taskId) || !Array.isArray(request.terms)
+      || !Array.isArray(request.allowedSources) || !Number.isSafeInteger(request.maxTokens)
+      || request.maxTokens < 0 || request.terms.length > 128 || request.allowedSources.length > 4096
+      || (request.profile !== undefined && !identifier(request.profile))) {
+    throw new TypeError('invalid ContextRequest');
+  }
+  const terms = [...new Set(request.terms.map(term => {
+    if (!identifier(term)) throw new TypeError('invalid term');
+    return term.toLowerCase();
+  }))].sort(compare);
+  const allowedSources = [...new Set(request.allowedSources.map(ref => {
+    if (!identifier(ref)) throw new TypeError('invalid allowed source');
+    return ref;
+  }))].sort(compare);
+  return { taskId: request.taskId, terms, allowedSources, maxTokens: request.maxTokens,
+    allowInferred: request.allowInferred === true, profile: request.profile };
 }
-function score(item, terms) {
-  const hay = [item.type, ...(Array.isArray(item.keywords) ? item.keywords : [])].join(' ').toLowerCase();
-  return terms.reduce((n, t) => n + (hay.includes(t) ? 1 : 0), 0);
+
+function relevance(item, terms) {
+  const indexed = [item.type, ...(item.keywords ?? [])].join(' ').toLowerCase();
+  return terms.reduce((total, term) => total + Number(indexed.includes(term)), 0);
 }
+
 export async function selectContext(request, observationPort) {
   const req = normalize(request);
-  if (!observationPort || typeof observationPort.query !== 'function' || typeof observationPort.observe !== 'function') throw new TypeError('observationPort requires query and observe');
-  const items = await observationPort.query({ taskId:req.taskId, terms:req.terms, allowedSources:req.allowedSources });
-  if (!Array.isArray(items)) throw new TypeError('query must return an array');
-  const candidates = items.map(checkItem).filter(item => req.allowedSources.includes(item.sourceRef))
-    .map(item => ({ item, relevance: score(item, req.terms) }))
-    .filter(x => x.relevance > 0)
-    .sort((a,b) => b.relevance-a.relevance || a.item.sourceRef.localeCompare(b.item.sourceRef) || a.item.id.localeCompare(b.item.id) || a.item.revision.localeCompare(b.item.revision));
-  const selected = [], omissions = [];
-  let tokens = 0;
-  for (const {item,relevance} of candidates) {
-    if (item.epistemic === 'inferred' && !req.allowInferred) { omissions.push({id:item.id,reason:'inferred_excluded'}); continue; }
-    const obs = await observationPort.observe({sourceRef:item.sourceRef,requestedRevision:item.revision,itemId:item.id});
-    if (!obs || obs.sourceRef !== item.sourceRef || !id(obs.currentRevision) || obs.complete !== true) {
-      omissions.push({id:item.id,reason:'incomplete_source'}); continue;
-    }
-    if (obs.currentRevision !== item.revision) { omissions.push({id:item.id,reason:'stale',requestedRevision:item.revision,currentRevision:obs.currentRevision}); continue; }
-    if (typeof obs.excerpt !== 'string' || !obs.excerpt || !id(obs.evidenceRef) || typeof obs.sha256 !== 'string' || hash(obs.excerpt) !== obs.sha256) {
-      omissions.push({id:item.id,reason:'unverified_evidence'}); continue;
-    }
-    if (tokens + item.estimatedTokens > req.maxTokens) { omissions.push({id:item.id,reason:'budget_exceeded'}); continue; }
-    tokens += item.estimatedTokens;
-    selected.push({id:item.id,type:item.type,sourceRef:item.sourceRef,revision:item.revision,
-      epistemic:item.epistemic, evidenceRef:obs.evidenceRef, sha256:obs.sha256,
-      excerpt:obs.excerpt, estimatedTokens:item.estimatedTokens,relevance,
-      inclusionReason:'term_match_pinned_verified_source'});
+  if (!observationPort || typeof observationPort.query !== 'function' || typeof observationPort.observe !== 'function') {
+    throw new TypeError('observationPort requires query and observe');
   }
-  return {contractVersion:CONTRACT_VERSION,taskId:req.taskId,selected,omissions,estimatedTokens:tokens,
-    missing:req.terms.length > 0 && selected.length === 0};
+  const items = await observationPort.query({ taskId: req.taskId, terms: req.terms,
+    allowedSources: req.allowedSources, profile: req.profile });
+  if (!Array.isArray(items) || items.length > MAX_ITEMS) throw new TypeError('invalid query result');
+  const allowed = new Set(req.allowedSources);
+  const seen = new Set();
+  const candidates = [];
+  for (const raw of items) {
+    const item = checkItem(raw);
+    if (!allowed.has(item.sourceRef)) continue;
+    const key = JSON.stringify([item.sourceRef, item.id]);
+    if (seen.has(key)) throw new TypeError('ambiguous duplicate KnowledgeItem');
+    seen.add(key);
+    const rank = relevance(item, req.terms);
+    if (rank > 0) candidates.push({ item, rank });
+  }
+  candidates.sort((a, b) => b.rank - a.rank || compare(a.item.sourceRef, b.item.sourceRef)
+    || compare(a.item.id, b.item.id) || compare(a.item.revision, b.item.revision));
+
+  const selected = [];
+  const omissions = [];
+  let estimatedTokens = 0;
+  for (const { item, rank } of candidates) {
+    const omit = (reason, additional = {}) => omissions.push({ id: item.id, sourceRef: item.sourceRef, reason, ...additional });
+    if (item.epistemic === 'inferred' && !req.allowInferred) { omit('inferred_excluded'); continue; }
+    if (item.estimatedTokens > req.maxTokens - estimatedTokens) { omit('budget_exceeded'); continue; }
+    const observation = await observationPort.observe({ sourceRef: item.sourceRef,
+      requestedRevision: item.revision, itemId: item.id });
+    if (!observation || observation.sourceRef !== item.sourceRef || !identifier(observation.currentRevision)
+        || observation.complete !== true) { omit('incomplete_source'); continue; }
+    if (observation.currentRevision !== item.revision) {
+      omit('stale', { requestedRevision: item.revision, currentRevision: observation.currentRevision });
+      continue;
+    }
+    if (typeof observation.excerpt !== 'string' || !observation.excerpt
+        || !identifier(observation.evidenceRef) || typeof observation.sha256 !== 'string') {
+      omit('unverified_evidence'); continue;
+    }
+    const bytes = Buffer.byteLength(observation.excerpt, 'utf8');
+    if (bytes > MAX_EXCERPT_BYTES || sha256(observation.excerpt) !== observation.sha256) {
+      omit('unverified_evidence'); continue;
+    }
+    // Host estimate may undercount; this lower-bound heuristic is not an LLM-token guarantee.
+    const cost = Math.max(item.estimatedTokens, Math.ceil(bytes / 4));
+    if (cost > req.maxTokens - estimatedTokens) { omit('budget_exceeded'); continue; }
+    selected.push({ id: item.id, type: item.type, sourceRef: item.sourceRef, revision: item.revision,
+      epistemic: item.epistemic, evidenceRef: observation.evidenceRef, sha256: observation.sha256,
+      excerpt: observation.excerpt, estimatedTokens: cost, relevance: rank,
+      inclusionReason: 'term_match_pinned_verified_source' });
+    estimatedTokens += cost;
+  }
+  return { contractVersion: CONTRACT_VERSION, taskId: req.taskId, selected, omissions,
+    estimatedTokens, missing: req.terms.length > 0 && selected.length === 0 };
 }
+
 export function traceEvidence(projection) {
   if (!projection || !Array.isArray(projection.selected)) throw new TypeError('invalid ContextProjection');
-  return projection.selected.map(({id,sourceRef,revision,epistemic,evidenceRef,sha256}) =>
-    ({id,sourceRef,revision,epistemic,evidenceRef,sha256}));
+  return projection.selected.map(({ id, sourceRef, revision, epistemic, evidenceRef, sha256: digest }) =>
+    ({ id, sourceRef, revision, epistemic, evidenceRef, sha256: digest }));
 }
+
 export function summarizeMemory(readonlyItems, constraints) {
-  if (!Array.isArray(readonlyItems) || !constraints || !Number.isSafeInteger(constraints.maxTokens) || constraints.maxTokens < 0) throw new TypeError('invalid summary input');
-  const sorted = readonlyItems.map(checkItem).sort((a,b)=>a.sourceRef.localeCompare(b.sourceRef)||a.id.localeCompare(b.id));
-  let count=0;
-  const selected=[];
-  for(const item of sorted) {
-    if (item.epistemic === 'inferred' || count + item.estimatedTokens > constraints.maxTokens) continue;
-    count+=item.estimatedTokens;
-    selected.push({id:item.id,sourceRef:item.sourceRef,revision:item.revision,epistemic:item.epistemic,type:item.type});
+  if (!Array.isArray(readonlyItems) || readonlyItems.length > MAX_ITEMS || !constraints
+      || !Number.isSafeInteger(constraints.maxTokens) || constraints.maxTokens < 0) {
+    throw new TypeError('invalid memory summary input');
   }
-  return {contractVersion:CONTRACT_VERSION,selected,estimatedTokens:count};
+  const items = readonlyItems.map(checkItem).sort((a, b) => compare(a.sourceRef, b.sourceRef)
+    || compare(a.id, b.id) || compare(a.revision, b.revision));
+  const selected = [];
+  let estimatedTokens = 0;
+  const seen = new Set();
+  for (const item of items) {
+    const key = JSON.stringify([item.sourceRef, item.id]);
+    if (seen.has(key)) throw new TypeError('ambiguous duplicate KnowledgeItem');
+    seen.add(key);
+    if (item.epistemic === 'inferred' && constraints.allowInferred !== true) continue;
+    if (item.estimatedTokens > constraints.maxTokens - estimatedTokens) continue;
+    estimatedTokens += item.estimatedTokens;
+    selected.push({ id: item.id, sourceRef: item.sourceRef, revision: item.revision,
+      epistemic: item.epistemic, type: item.type });
+  }
+  return { contractVersion: CONTRACT_VERSION, selected, estimatedTokens };
 }
-export const sha256 = hash;

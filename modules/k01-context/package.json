@@ -1,10 +1,13 @@
 {
   "name": "@iwxa/k01-context",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "exports": "./index.mjs",
-  "scripts": {
-    "test": "node --test tests/*.test.mjs"
-  }
+  "engines": { "node": ">=22" },
+  "exports": {
+    ".": { "types": "./index.d.ts", "default": "./index.mjs" },
+    "./document-source": { "types": "./adapters/document-source.d.mts", "default": "./adapters/document-source.mjs" },
+    "./local-file": { "types": "./adapters/local-file.d.mts", "default": "./adapters/local-file.mjs" }
+  },
+  "scripts": { "test": "node --test tests/*.test.mjs" }
 }
