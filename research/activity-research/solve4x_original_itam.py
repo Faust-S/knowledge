@@ -266,11 +266,11 @@ def probe() -> dict:
     result["original_itam_vs_scene"] = compare_original_itam_to_scene(
         raw, scene_raw)
     result["source"]["scene_ocel_sha256"] = sha256(scene_raw).hexdigest()
-    result["source"]["comparative_input_sha_pins_checked"] = True
     index.check(result["source"]["sha256"] == PINNED_SOURCE_SHA256,
                 "ORIGINAL_ITAM_SOURCE_SHA_DRIFT")
     index.check(result["source"]["scene_ocel_sha256"] == PINNED_SCENE_SHA256,
                 "SCENE_OCEL_SOURCE_SHA_DRIFT")
+    result["source"]["comparative_input_sha_pins_checked"] = True
     result["source"]["figshare_article_id"]=meta["article_id"]
     result["source"]["central_sha256"]=zip_index["source"]["central_sha256"]
     return result
