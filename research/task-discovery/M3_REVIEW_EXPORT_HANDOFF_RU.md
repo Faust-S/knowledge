@@ -6,6 +6,18 @@
 
 Label Studio Community Edition в одной организации позволяет видеть чужие проекты; два проекта на одном сервере не обеспечивают слепоту. Поэтому владелец использует **два независимо доступных экземпляра с отдельными базами данных и отдельными реальными рецензентами**. Режимы CLI `--reviewer-slots 2` и `--export-reviewed-projects` заблокированы для человеческого M3 (соответственно `M3_TWO_PROJECTS_IN_ONE_CE_NOT_BLIND` и `M3_SAME_SERVER_PAIRED_EXPORT_NOT_BLIND`). Соответствующие Python-функции сохранены **только для синтетических транспортных тестов**, а не как путь реальной разметки. Функция `--export-single-reviewed-project` остаётся производственным маршрутом.
 
+## Контроль исходной выборки перед приглашением рецензентов
+
+**04.11.2026 — проверено 8/8.** Сравнены живые GitHub API источники с неизменённым публичным манифестом `task_exp_01_source_metadata.json` (Git blob `4ecaa74522ba1c3fa4e8851e877200c7767ad0de`). Все **8/8** совпали по SHA-256 полной текстовой проекции `title + "\\n" + body + "\\n"`, SHA-256 тела и количеству UTF-8 байтов. У **4/8** изменилось служебное `updated_at`; это не привело к изменению закреплённых текстов. Не обновлять `source_edition` из текущей метаактивности GitHub, не переотбирать выборку и не перекалибровывать уже frozen U1/regex.
+
+Перед реальным owner-local импортом можно повторить проверку **существующей** командой из публичного checkout:
+
+```sh
+python research/task-discovery/source_first_baseline.py
+```
+
+Она проверяет восемь байтово закреплённых исходников через публичный GitHub API и даёт только cue/source receipt, **не** человеческий gold. При отказе или расхождении SHA — `HOLD`: использовать официально сохранённые owner-local неизменённые проекции либо восстановить их с проверкой тех же SHA, но **не** заменять текст актуальным отредактированным Issue. Исходный `task_exp_01_real_slice.py` также проверяет body/projection SHA и остаётся владельцем подготовки приватного E5 packet.
+
 ## Последовательность в разрешённом owner-local окружении
 
 1. Из исходного `Faust-S/iwxa@knowledge/2026-10-02-system-atlas` получить **ровно восемь оригинальных источников** существующей командой `python -m engine.research.task_exp_01_real_slice --restricted-output /PRIVATE/e5-envelope.json --restricted-import-output /PRIVATE/labelstudio-import.json --restricted-method-output /PRIVATE/u1-method-spans.json --confirm-local-source-review`. Повторно проверить SHA каждого источника; приватные выходные файлы хранить вне Git checkout.
