@@ -130,9 +130,10 @@ def conditional_naive_calendar_proximity(ui_csv: bytes, scene: dict) -> dict:
         return (stamp-datetime(1970,1,1)).total_seconds()
     ui=[local_seconds(r["timestamp"]) for r in rows]
     events=scene["ocel:events"]
-    marked=[e for e in events.values() if isinstance(e.get("ocel:vmap"),dict)
-            and "end_time" in e["ocel:vmap"]]
-    unmarked=[e for e in events.values() if e not in marked]
+    marked_ids={k for k,e in events.items() if isinstance(e.get("ocel:vmap"),dict)
+                and "end_time" in e["ocel:vmap"]}
+    marked=[events[k] for k in marked_ids]
+    unmarked=[e for k,e in events.items() if k not in marked_ids]
     system_time=[local_seconds(e["ocel:timestamp"]) for e in unmarked]
     video_time=[local_seconds(e["ocel:timestamp"]) for e in marked]
     return {
