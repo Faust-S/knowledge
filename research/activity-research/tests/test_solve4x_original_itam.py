@@ -106,6 +106,44 @@ class Tests(TestCase):
         self.assertEqual(result["exact_ids_and_activity_timestamp"],1)
         self.assertEqual(result["shared_event_ids_with_comparable_object_links"],1)
         self.assertEqual(result["exact_ids_timestamp_activity_and_object_links"],0)
+    def test_representation_overlap_without_event_identity(self):
+        left={"e1":{"ocel:activity":"Check out",
+                    "ocel:timestamp":"2024-03-25T08:48:22",
+                    "ocel:omap":["sensitive-object-ID"]}}
+        right={"other":{"ocel:activity":" check out ",
+                       "ocel:timestamp":"2024-03-25T08:48:23",
+                       "ocel:omap":["second-object-ID"]}}
+        r=original.source_alignment_coverage(left,right)
+        self.assertEqual(r["shared_literal_activity_strings"],0)
+        self.assertEqual(r["shared_casefold_trim_activity_strings"],1)
+        self.assertEqual(r["shared_literal_object_references"],0)
+        self.assertEqual(r["time_window_counts"]["1s"]["scene_events_near_original"],1)
+        self.assertEqual(r["clock_comparison_mode"],
+                         "CONDITIONAL_SAME_NAIVE_WALL_CLOCK_NOT_CALIBRATED")
+        self.assertNotIn("sensitive-object-ID",str(r))
+        self.assertFalse(r["clock_calibration_confirmed"])
+    def test_mixed_clock_formats_abstain(self):
+        left={"e1":{"ocel:activity":"A","ocel:timestamp":"2024-03-25T10:48:22+02:00"}}
+        right={"e2":{"ocel:activity":"A","ocel:timestamp":"2024-03-25T08:48:22"}}
+        r=original.source_alignment_coverage(left,right)
+        self.assertEqual(r["clock_comparison_mode"],
+                         "UNKNOWN_MIXED_OR_INVALID_TIMESTAMP_FORMATS")
+        self.assertIsNone(r["time_window_counts"]["1s"])
+        self.assertEqual(r["accepted_tasks"],0)
+    def test_explicit_tz_normalization_not_calibration(self):
+        left={"e1":{"ocel:activity":"A","ocel:timestamp":"2024-03-25T10:48:22+02:00"}}
+        right={"e2":{"ocel:activity":"A","ocel:timestamp":"2024-03-25T08:48:22Z"}}
+        r=original.source_alignment_coverage(left,right)
+        self.assertEqual(r["time_window_counts"]["1s"]["scene_events_near_original"],1)
+        self.assertEqual(r["clock_comparison_mode"],
+                         "EXPLICIT_ZONES_NORMALIZED_NOT_CALIBRATED")
+        self.assertFalse(r["event_identity_or_semantic_mapping_confirmed"])
+    def test_invalid_source_clock_abstains(self):
+        left={"a":{"ocel:activity":"A","ocel:timestamp":"not-a-clock"}}
+        right={"b":{"ocel:activity":"A","ocel:timestamp":"2024-03-25T08:48:22"}}
+        r=original.source_alignment_coverage(left,right)
+        self.assertEqual(r["source_timestamp_format_counts"]["INVALID"],1)
+        self.assertIsNone(r["time_window_counts"]["5s"])
     def test_empty_is_hold(self):
         with self.assertRaisesRegex(index.Hold,"ITAM_JSONL_BYTES_INVALID"):
             original.parse_jsonl(b'')

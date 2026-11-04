@@ -122,6 +122,108 @@ def parse_jsonl(raw: bytes, *, include_records: bool = False):
     return (report, records) if include_records else report
 
 
+
+def source_alignment_coverage(original_events: dict, scene_candidates: dict) -> dict:
+    """Aggregate-only representation diagnostics, no ID or clock offset inference."""
+    from bisect import bisect_left
+    from datetime import datetime, timezone
+
+    def activities(events):
+        return [e["ocel:activity"] for e in events.values()
+                if isinstance(e, dict) and isinstance(e.get("ocel:activity"), str)]
+
+    left_activities, right_activities = activities(original_events), activities(scene_candidates)
+    literal_left, literal_right = set(left_activities), set(right_activities)
+    norm_left = {x.strip().casefold() for x in left_activities}
+    norm_right = {x.strip().casefold() for x in right_activities}
+
+    def linked_objects(events):
+        return {item for e in events.values() if isinstance(e, dict)
+                for links in [e.get("ocel:omap")]
+                if isinstance(links, list)
+                for item in links if isinstance(item, str)}
+
+    original_objects, scene_objects = linked_objects(original_events), linked_objects(scene_candidates)
+
+    def timestamp_profile(events):
+        count = Counter()
+        parsed = []
+        for e in events.values():
+            value = e.get("ocel:timestamp") if isinstance(e, dict) else None
+            if not isinstance(value, str):
+                count["INVALID"] += 1
+                continue
+            try:
+                moment = datetime.fromisoformat(
+                    value[:-1] + "+00:00" if value.endswith("Z") else value)
+            except ValueError:
+                count["INVALID"] += 1
+                continue
+            kind = "AWARE" if moment.tzinfo is not None and moment.utcoffset() is not None else "NAIVE"
+            count[kind] += 1
+            parsed.append((kind, moment))
+        return dict(count), parsed
+
+    left_profile, left_times = timestamp_profile(original_events)
+    right_profile, right_times = timestamp_profile(scene_candidates)
+    mode = "UNKNOWN_MIXED_OR_INVALID_TIMESTAMP_FORMATS"
+    calendar_day_overlap = None
+    window_counts = {"1s": None, "5s": None, "30s": None}
+
+    if (len(left_times) == len(original_events) and
+        len(right_times) == len(scene_candidates) and left_times and right_times and
+        len({kind for kind, _ in left_times + right_times}) == 1):
+        kind = left_times[0][0]
+        mode = ("EXPLICIT_ZONES_NORMALIZED_NOT_CALIBRATED" if kind == "AWARE"
+                else "CONDITIONAL_SAME_NAIVE_WALL_CLOCK_NOT_CALIBRATED")
+
+        def ticks(entries):
+            return sorted((dt - datetime(1970, 1, 1)).total_seconds()
+                          if kind == "NAIVE" else
+                          dt.astimezone(timezone.utc).timestamp()
+                          for _, dt in entries)
+
+        orig_ticks, scene_ticks = ticks(left_times), ticks(right_times)
+        calendar_day_overlap = len({int(v // 86400) for v in orig_ticks} &
+                                   {int(v // 86400) for v in scene_ticks})
+
+        def close_count(needles, pool, threshold):
+            count = 0
+            for stamp in needles:
+                i = bisect_left(pool, stamp)
+                nearest = min((abs(pool[j] - stamp) for j in (i - 1, i)
+                               if 0 <= j < len(pool)), default=float("inf"))
+                if nearest <= threshold:
+                    count += 1
+            return count
+
+        for seconds in (1, 5, 30):
+            window_counts[f"{seconds}s"] = {
+                "scene_events_near_original": close_count(scene_ticks, orig_ticks, seconds),
+                "original_events_near_scene": close_count(orig_ticks, scene_ticks, seconds),
+            }
+    return {
+        "original_distinct_activity_strings": len(literal_left),
+        "scene_distinct_activity_strings": len(literal_right),
+        "shared_literal_activity_strings": len(literal_left & literal_right),
+        "shared_casefold_trim_activity_strings": len(norm_left & norm_right),
+        "original_distinct_object_references": len(original_objects),
+        "scene_distinct_object_references": len(scene_objects),
+        "shared_literal_object_references": len(original_objects & scene_objects),
+        "source_timestamp_format_counts": left_profile,
+        "scene_timestamp_format_counts": right_profile,
+        "clock_comparison_mode": mode,
+        "shared_calendar_days_under_stated_mode": calendar_day_overlap,
+        "time_window_counts": window_counts,
+        "no_time_offset_fitted": True,
+        "clock_calibration_confirmed": False,
+        "event_identity_or_semantic_mapping_confirmed": False,
+        "disagreement_proves_unrecorded_work": False,
+        "task_quality": "NOT_MEASURED",
+        "accepted_tasks": 0,
+    }
+
+
 def compare_original_itam_to_scene(raw: bytes, scene_raw: bytes) -> dict:
     """Only exact registered-event evidence; no inferred person actions."""
     report, records = parse_jsonl(raw, include_records=True)
@@ -213,6 +315,8 @@ def compare_original_itam_to_scene(raw: bytes, scene_raw: bytes) -> dict:
         "scene_non_video_marker_events": len(candidates),
         "literal_activity_and_timestamp_multiset_intersection":
             sum((source_signatures & candidate_signatures).values()),
+        "source_representation_diagnostics":
+            source_alignment_coverage(source_events, candidates),
         "literal_event_id_intersection": len(valid_shared_ids),
         "exact_ids_and_activity_timestamp": exact_ids_and_signatures,
         "scene_candidate_event_ids_absent_in_source":

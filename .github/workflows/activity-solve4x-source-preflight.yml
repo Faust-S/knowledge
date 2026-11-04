@@ -325,6 +325,22 @@ jobs:
               assert comparison["human_task_gold"]=="NOT_MEASURED"
               assert comparison["exact_ids_timestamp_activity_and_object_links"] <= comparison["shared_event_ids_with_comparable_object_links"]
               assert comparison["exact_ids_timestamp_activity_and_object_links"] <= comparison["exact_ids_and_activity_timestamp"]
+              diagnostic=comparison["source_representation_diagnostics"]
+              assert diagnostic["accepted_tasks"]==0
+              assert diagnostic["no_time_offset_fitted"] is True
+              assert diagnostic["clock_calibration_confirmed"] is False
+              assert diagnostic["event_identity_or_semantic_mapping_confirmed"] is False
+              assert diagnostic["disagreement_proves_unrecorded_work"] is False
+              assert comparison["source_record_count"]==205
+              assert comparison["literal_event_id_intersection"]==0
+              assert comparison["literal_activity_and_timestamp_multiset_intersection"]==0
+              print("SOLVE4X_ITAM_REPRESENTATION_DIAGNOSTIC",
+                    "source_events",comparison["source_record_count"],
+                    "scene_system_events",comparison["scene_non_video_marker_events"],
+                    "shared_activity_labels",diagnostic["shared_literal_activity_strings"],
+                    "shared_object_refs",diagnostic["shared_literal_object_references"],
+                    "clock_mode",diagnostic["clock_comparison_mode"],
+                    "windows",diagnostic["time_window_counts"])
               print("SOLVE4X_ITAM_SCENE_MATCH",comparison["status"],
                     "matches",comparison.get("exact_ids_and_activity_timestamp","UNKNOWN"),
                     "of_scene",comparison.get("scene_non_video_marker_events","UNKNOWN"))
