@@ -62,7 +62,8 @@ class PostReviewCueTests(unittest.TestCase):
         self.assertFalse(result["human_independence_independently_verified"])
         self.assertNotIn("source_ref", json.dumps(result))
         self.assertNotIn("TASK_PRESENT", json.dumps(result))
-        self.assertNotIn("source_text", json.dumps(result))
+        self.assertNotIn('"source_text":', json.dumps(result))
+        self.assertIs(result["source_text_exported"], False)
 
     def test_refuse_false_adjudication_and_visibility_claims(self):
         for key in ("human_adjudication_claimed", "methods_hidden_during_review"):
