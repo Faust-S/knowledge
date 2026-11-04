@@ -109,6 +109,28 @@ def describe(value):
         result["records"] = len(value)
         if value and isinstance(value[0], dict):
             result["record_keys"] = sorted(str(k) for k in value[0])[:30]
+    for field in ("ocel:events", "ocel:objects", "localisations", "label"):
+        child = value.get(field) if isinstance(value, dict) else None
+        if isinstance(child, (dict, list)):
+            sample = next(iter(child.values()), None) if isinstance(child, dict) else (
+                child[0] if child else None)
+            shape = {"container_type": type(child).__name__,
+                     "container_count": len(child),
+                     "sample_type": type(sample).__name__}
+            if isinstance(sample, dict):
+                shape["sample_record_keys"] = sorted(str(k) for k in sample)[:30]
+                for inner_key, inner_val in sample.items():
+                    if isinstance(inner_val, (dict, list)):
+                        shape["nested_field_shapes"] = {
+                            str(inner_key): {"kind": type(inner_val).__name__,
+                                             "count": len(inner_val)}
+                        }
+                        break
+            elif isinstance(sample, list):
+                shape["sample_list_length"] = len(sample)
+                if sample and isinstance(sample[0], dict):
+                    shape["sample_list_record_keys"] = sorted(str(k) for k in sample[0])[:30]
+            result[field + "_nested_structure"] = shape
     return result
 
 
