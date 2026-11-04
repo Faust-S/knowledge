@@ -71,6 +71,8 @@ def evaluate_registered_fields(traces: dict, event_fields: dict,
         "event_attribute_coverage_counts": dict(sorted(event_coverage.items())),
         "case_attribute_coverage_counts": dict(sorted(case_coverage.items())),
         "distinct_recorded_organizations": len(org_values),
+        "organization_involved_semantics": "REPORTER_BUSINESS_AREA_NOT_SUPPORT_ORG",
+        "support_organization_identity_from_reporter_field": False,
         "consecutive_registered_group_changes": changes,
         "registered_group_A_B_A_motifs": returns,
         "wait_user_label_events": wait_user,
@@ -87,7 +89,6 @@ def question_gates(coverage: dict) -> list[dict]:
     ev = coverage["event_attribute_coverage_counts"]
     group = ev.get("org:group", 0) > 0
     wait = coverage["wait_user_label_events"] > 0
-    org = coverage["distinct_recorded_organizations"] >= 2
     return [
         {
             "id": "INCIDENT_ESCALATION_TIMING",
@@ -115,9 +116,9 @@ def question_gates(coverage: dict) -> list[dict]:
         },
         {
             "id": "ORGANIZATION_PROCESS_CONFORMITY",
-            "source_fit": ("MULTIPLE_RECORDED_ORGANIZATIONS_DESCRIBABLE"
-                           if org else "ORGANIZATION_COMPARABILITY_UNKNOWN"),
-            "missing_evidence": ["authoritative_organization_membership",
+            "source_fit": "REQUESTER_ORG_FIELD_NOT_SUPPORT_ORG_CONFORMITY",
+            "missing_evidence": ["authoritative_support_organization_A2_C_mapping",
+                                 "authoritative_organization_membership",
                                  "comparable_case_mix", "normative_process_model"],
             "normative_nonconformity_proven": False,
         },
@@ -186,6 +187,12 @@ def analyze(compressed: bytes, *, expected_sha256: str | None = None,
                 "declared_timestamp_regressions_in_file_order"],
         },
         "field_applicability": coverage,
+        "owner_documentary_context": {
+            "url": "https://ais.win.tue.nl/bpi/2013/vinst_data_set.pdf",
+            "status": "DESCRIPTIVE_PROCESS_DOCUMENT_NOT_INDEPENDENT_EVENT_OBSERVATION",
+            "organization_involved_field": "REPORTER_BUSINESS_AREA",
+            "support_organization_A2_C_from_reporter_field": False,
+        },
         "descriptive_literature_comparison": {
             "source": "https://www.ceur-ws.org/Vol-1052/paper10.pdf",
             "reference_wait_user_events": 4217,
