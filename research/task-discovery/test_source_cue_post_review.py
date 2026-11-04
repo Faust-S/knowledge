@@ -30,6 +30,27 @@ def inputs(statuses=None):
     return manifest, snap, review
 
 
+def frozen_literal(manifest):
+    # Method-only synthetic fixture: never human gold or actual E5 evidence.
+    selected = {0, 4, 5, 7}
+    rows = [{"source_sha256": item["projection_sha256"], "hit": i in selected}
+            for i, item in enumerate(manifest["items"])]
+    return {
+        "schema": compare.literal.SCHEMA,
+        "status": "PINNED_LITERAL_SEARCH_BEFORE_HUMAN_GOLD",
+        "frozen_manifest_git_blob": compare.frozen.MANIFEST_GIT_BLOB,
+        "method_spec_sha256": compare.literal.SPEC_SHA,
+        "method_output_sha256": compare.literal.source_output_sha(rows),
+        "sources_verified": 8,
+        "sources_with_literal_hit": 4,
+        "sources_without_literal_hit_still_included": 4,
+        "source_rows": rows,
+        "source_text_exported": False,
+        "human_gold": False,
+        "task_precision": None, "task_recall": None, "task_f1": None,
+    }
+
+
 FIXTURE_METHOD_SHA = ms.freeze(*fake_inputs())["method_output_sha256"]
 
 
@@ -69,6 +90,60 @@ class PostReviewCueTests(unittest.TestCase):
         self.assertNotIn("TASK_PRESENT", json.dumps(result))
         self.assertNotIn('"source_text":', json.dumps(result))
         self.assertIs(result["source_text_exported"], False)
+
+    def test_pinned_literal_is_fourth_source_level_method_not_task_f1(self):
+        manifest, snap, review = inputs()
+        literal = frozen_literal(manifest)
+        with patch.object(compare.literal, "OUTPUT_SHA",
+                          literal["method_output_sha256"]):
+            result = compare.analyze(
+                manifest, snap, review, literal_snapshot=literal)
+        self.assertEqual(set(result["source_retrieval"]), set(compare.METHODS))
+        stats = result["source_retrieval"]["literal_exact"]
+        self.assertEqual((stats["tp"], stats["fp"], stats["fn"], stats["tn"]),
+                         (2, 1, 0, 4))
+        self.assertEqual((stats["resolved_denominator"], stats["unresolved_excluded"]),
+                         (7, 1))
+        self.assertEqual(result["exact_search_baseline"],
+                         "PINNED_FULL_SOURCE_LITERAL_HITS_SCORED_NOT_TASK")
+        self.assertEqual(result["literal_exact_output_sha256"],
+                         literal["method_output_sha256"])
+        self.assertFalse(result["human_gold"])
+        self.assertIsNone(result["task_f1"])
+        self.assertFalse(result["individual_source_resolutions_exported"])
+
+    def test_literal_tamper_refused_even_when_hit_count_unchanged(self):
+        manifest, snap, review = inputs()
+        literal = frozen_literal(manifest)
+        pinned = literal["method_output_sha256"]
+        literal["source_rows"][0]["hit"] = False
+        literal["source_rows"][1]["hit"] = True
+        with patch.object(compare.literal, "OUTPUT_SHA", pinned):
+            with self.assertRaisesRegex(
+                    compare.ComparisonHold, "FROZEN_LITERAL_SOURCE_HITS_CHANGED"):
+                compare.analyze(manifest, snap, review,
+                                literal_snapshot=literal)
+
+    def test_literal_replay_must_match_exact_manifest_and_method_pin(self):
+        manifest, snap, review = inputs()
+        literal = frozen_literal(manifest)
+        pinned = literal["method_output_sha256"]
+        with patch.object(compare.literal, "OUTPUT_SHA", pinned):
+            bad = copy.deepcopy(literal)
+            bad["method_output_sha256"] = "0" * 64
+            with self.assertRaisesRegex(
+                    compare.ComparisonHold, "FROZEN_LITERAL_REPLAY_NOT_VERIFIED"):
+                compare.analyze(manifest, snap, review, literal_snapshot=bad)
+            bad = copy.deepcopy(literal)
+            bad["source_rows"][0]["source_sha256"] = "a" * 64
+            with self.assertRaisesRegex(
+                    compare.ComparisonHold, "FROZEN_LITERAL_SOURCE_ROWS_INVALID"):
+                compare.analyze(manifest, snap, review, literal_snapshot=bad)
+            bad = copy.deepcopy(literal)
+            bad["human_gold"] = True
+            with self.assertRaisesRegex(
+                    compare.ComparisonHold, "FROZEN_LITERAL_REPLAY_NOT_VERIFIED"):
+                compare.analyze(manifest, snap, review, literal_snapshot=bad)
 
     def test_refuse_false_adjudication_and_visibility_claims(self):
         for key in ("human_adjudication_claimed", "methods_hidden_during_review"):

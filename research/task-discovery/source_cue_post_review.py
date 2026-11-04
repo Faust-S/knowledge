@@ -2,8 +2,8 @@
 """Exploratory TASK-EXP-01 source-cue comparison after human adjudication.
 
 This is NOT Task-level precision/recall/F1, E5 evaluation, a Task Engine, or
-automatic approval. It only compares the frozen U1 and title-regex *presence
-of lexical review cues* with manually reported source-level decisions.
+automatic approval. It compares independently pinned full-source literal hits and frozen
+U1/title-regex lexical cues with manually reported source-level decisions.
 Real independent adjudication must happen elsewhere before using this tool.
 No source text, region labels, reviewer identities or per-source outcomes
 appear in the output.
@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 import sys
 
+import exact_search_baseline as literal
 import method_snapshot as frozen
 import review_effort as effort
 import source_first_baseline as baseline
@@ -23,7 +24,7 @@ SCHEMA = "IWXA_TASK_EXP_01_EXPLORATORY_SOURCE_CUE_COMPARISON/0.1"
 INPUT_SCHEMA = "IWXA_TASK_EXP_01_MANUAL_SOURCE_ADJUDICATION/0.1"
 EXPECTED_METHOD_SHA = effort.EXPECTED_METHOD_SHA
 ALLOWED = frozenset(("TASK_PRESENT", "NO_TASK", "UNRESOLVED"))
-METHODS = ("title_regex", "pinned_u1", "either_cue")
+METHODS = ("title_regex", "pinned_u1", "either_cue", "literal_exact")
 
 
 class ComparisonHold(ValueError):
@@ -62,7 +63,8 @@ def confusion(cues: set[str], labels: dict[str, str]) -> dict:
     }
 
 
-def analyze(manifest: dict, snapshot: dict, adjudication: dict) -> dict:
+def analyze(manifest: dict, snapshot: dict, adjudication: dict, *,
+            literal_snapshot: dict | None = None) -> dict:
     """Compare only the pinned *source-cue* method, never caller-supplied SHA."""
     need(type(manifest) is dict and
          manifest.get("schema") == "IWXA_TASK_EXP_01_PUBLIC_ISSUE_SOURCE_SLICE/0.1" and
@@ -133,9 +135,50 @@ def analyze(manifest: dict, snapshot: dict, adjudication: dict) -> dict:
         labels[sha] = state
     need(set(labels) == set(sources), "MANUAL_SOURCE_SET_INCOMPLETE")
 
+    # The literal search has a separate pre-gold SHA commitment. It is not
+    # part of the older U1/title method hash and does not change it.
+    literal_status = "PINNED_LITERAL_AVAILABLE_NOT_REPLAYED"
+    literal_rows = None
+    if literal_snapshot is not None:
+        need(literal.frozen.canonical_sha(literal.specification()) == literal.SPEC_SHA,
+             "FROZEN_LITERAL_SPECIFICATION_CHANGED")
+        need(type(literal_snapshot) is dict and
+             literal_snapshot.get("schema") == literal.SCHEMA and
+             literal_snapshot.get("status") == "PINNED_LITERAL_SEARCH_BEFORE_HUMAN_GOLD" and
+             literal_snapshot.get("frozen_manifest_git_blob") == frozen.MANIFEST_GIT_BLOB and
+             literal_snapshot.get("method_spec_sha256") == literal.SPEC_SHA and
+             literal_snapshot.get("method_output_sha256") == literal.OUTPUT_SHA and
+             literal_snapshot.get("sources_verified") == 8 and
+             literal_snapshot.get("human_gold") is False and
+             literal_snapshot.get("source_text_exported") is False and
+             all(literal_snapshot.get(k) is None for k in
+                 ("task_precision", "task_recall", "task_f1")),
+             "FROZEN_LITERAL_REPLAY_NOT_VERIFIED")
+        literal_rows = literal_snapshot.get("source_rows")
+        need(type(literal_rows) is list and len(literal_rows) == 8 and
+             all(type(row) is dict and
+                 set(row) == {"source_sha256", "hit"} and
+                 type(row["source_sha256"]) is str and
+                 type(row["hit"]) is bool for row in literal_rows) and
+             [row["source_sha256"] for row in literal_rows] ==
+             [item["projection_sha256"] for item in manifest["items"]],
+             "FROZEN_LITERAL_SOURCE_ROWS_INVALID")
+        hits = sum(row["hit"] for row in literal_rows)
+        need(type(literal_snapshot.get("sources_with_literal_hit")) is int and
+             type(literal_snapshot.get("sources_without_literal_hit_still_included")) is int and
+             literal_snapshot["sources_with_literal_hit"] == hits and
+             literal_snapshot["sources_without_literal_hit_still_included"] == 8 - hits,
+             "FROZEN_LITERAL_REPLAY_NOT_VERIFIED")
+        need(literal.source_output_sha(literal_rows) == literal.OUTPUT_SHA,
+             "FROZEN_LITERAL_SOURCE_HITS_CHANGED")
+        literal_status = "PINNED_FULL_SOURCE_LITERAL_HITS_SCORED_NOT_TASK"
+
     title = {k for k, v in index.items() if v["title_regex_cue_spans"]}
     u1 = {k for k, v in index.items() if v["u1_review_cue_spans"]}
     groups = {"title_regex": title, "pinned_u1": u1, "either_cue": title | u1}
+    if literal_rows is not None:
+        groups["literal_exact"] = {
+            row["source_sha256"] for row in literal_rows if row["hit"]}
     counted = {name: confusion(group, labels) for name, group in groups.items()}
     return {
         "schema": SCHEMA,
@@ -147,7 +190,9 @@ def analyze(manifest: dict, snapshot: dict, adjudication: dict) -> dict:
         "unresolved_sources": sum(v == "UNRESOLVED" for v in labels.values()),
         "source_retrieval": counted,
         "full_source_reading_required": 8,
-        "exact_search_baseline": "NOT_FROZEN_NOT_SCORED",
+        "exact_search_baseline": literal_status,
+        "literal_exact_spec_sha256": literal.SPEC_SHA if literal_rows is not None else None,
+        "literal_exact_output_sha256": literal.OUTPUT_SHA if literal_rows is not None else None,
         "human_independence_independently_verified": False,
         "manual_adjudication_attestation_independently_verified": False,
         "human_gold": False,
@@ -160,13 +205,15 @@ def analyze(manifest: dict, snapshot: dict, adjudication: dict) -> dict:
     }
 
 
-def replay_method(input_dir: Path | None = None) -> tuple[dict, dict]:
+def replay_method(input_dir: Path | None = None, *,
+                  get_source=None) -> tuple[dict, dict]:
     """Regenerate the existing pre-gold U1/title method, never update it."""
     import paired_pinned_u1 as paired
     need(frozen.git_blob_sha(frozen.SELECTION.read_bytes()) ==
          frozen.MANIFEST_GIT_BLOB, "SOURCE_MANIFEST_BLOB_CHANGED")
     manifest = baseline.read_manifest(frozen.SELECTION)
-    snapshot = frozen.freeze(manifest, paired.paired_run(manifest, input_dir=input_dir))
+    snapshot = frozen.freeze(manifest, paired.paired_run(
+        manifest, input_dir=input_dir, get_source=get_source))
     need(snapshot["method_output_sha256"] == EXPECTED_METHOD_SHA,
          "PRE_GOLD_METHOD_HASH_CHANGED")
     return manifest, snapshot
@@ -180,8 +227,19 @@ def main() -> int:
     try:
         # Never upload or print the adjudication rows or replay coordinates.
         adjudication = effort.read_json(opts.manual_adjudication)
-        manifest, snapshot = replay_method(opts.input_dir)
-        result = analyze(manifest, snapshot, adjudication)
+        # Read each immutable original source once for both pinned methods.
+        # The U1/title commitment and the newer literal commitment stay
+        # separate; neither method sees the independent review labels.
+        source_cache = {}
+        def source_once(item: dict) -> bytes:
+            key = item["projection_sha256"]
+            if key not in source_cache:
+                source_cache[key] = baseline._projection(item, opts.input_dir)
+            return source_cache[key]
+
+        manifest, snapshot = replay_method(opts.input_dir, get_source=source_once)
+        exact = literal.replay(manifest, fetch_source=source_once)
+        result = analyze(manifest, snapshot, adjudication, literal_snapshot=exact)
         print(json.dumps(result, sort_keys=True, allow_nan=False))
         return 0
     except (ComparisonHold, frozen.SnapshotHold, baseline.BaselineHold,
