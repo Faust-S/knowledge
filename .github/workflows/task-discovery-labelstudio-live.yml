@@ -243,7 +243,7 @@ jobs:
                   try:
                       b_admin = whoami(b_base, b_admin_token)
                       break
-                  except setup.SetupHold:
+                  except (setup.SetupHold, OSError, TimeoutError):
                       time.sleep(1)
               else:
                   raise setup.SetupHold('SECOND_ISOLATED_SERVER_NOT_READY')
