@@ -1,39 +1,43 @@
-# TASK-EXP-01 — M3: раздельные экспорты Label Studio
+# TASK-EXP-01 — M3: раздельная человеческая разметка в Label Studio
 
-## Важное изменение: один проект на изолированную установку
+**Текущий статус:** два изолированных экземпляра Label Studio 1.23.2, раздельная передача источников и экспорт проверены на синтетическом HTTP-сценарии. **Независимых человеческих оценок нет; M3 и adjudication PENDING; precision/recall/F1 NOT_MEASURED.**
 
-В настоящем Label Studio 1.23.2 подтверждено, что два пользователя одной организации могут прочитать чужие аннотации через проектный экспорт ([нативная проверка](https://github.com/Faust-S/knowledge/actions/runs/41818715004)). Поэтому прежний маршрут `--export-reviewed-projects` для двух проектов **одного сервера** остаётся только для синтетического тестирования транспорта, но **не является** научно слепой независимой разметкой. Ни два проекта, ни два `completed_by` сами по себе не обеспечивают независимость.
+## Граница изоляции
 
-Безопасное значение по умолчанию `--reviewer-slots` теперь **1**. Для M3b используйте два отдельно развёрнутых Label Studio 1.23.2 с разными БД и локальными API, по одному проекту на каждом. На обоих экземплярах необходимы **одинаковые исходные восемь owner-local документов** и оригинальная `TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml`. Их не отправлять в публичный GitHub/Actions.
+Label Studio Community Edition в одной организации позволяет видеть чужие проекты; два проекта на одном сервере не обеспечивают слепоту. Поэтому владелец использует **два независимо доступных экземпляра с отдельными базами данных и отдельными реальными рецензентами**. Режимы CLI `--reviewer-slots 2` и `--export-reviewed-projects` заблокированы для человеческого M3 (соответственно `M3_TWO_PROJECTS_IN_ONE_CE_NOT_BLIND` и `M3_SAME_SERVER_PAIRED_EXPORT_NOT_BLIND`). Соответствующие Python-функции сохранены **только для синтетических транспортных тестов**, а не как путь реальной разметки. Функция `--export-single-reviewed-project` остаётся производственным маршрутом.
 
-На каждой установке с её собственным локальным `LABEL_STUDIO_API_KEY`:
+## Последовательность в разрешённом owner-local окружении
 
-```sh
-python research/task-discovery/labelstudio_project_setup.py \
-  --tasks /PRIVATE/labelstudio-import.json \
-  --owner-label-config /PRIVATE/TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml \
-  --url http://127.0.0.1:8080 \
-  --create-local-projects --confirm-local-import
-```
+1. Из исходного `Faust-S/iwxa@knowledge/2026-10-02-system-atlas` получить **ровно восемь оригинальных источников** существующей командой `python -m engine.research.task_exp_01_real_slice --restricted-output /PRIVATE/e5-envelope.json --restricted-import-output /PRIVATE/labelstudio-import.json --restricted-method-output /PRIVATE/u1-method-spans.json --confirm-local-source-review`. Повторно проверить SHA каждого источника; приватные выходные файлы хранить вне Git checkout.
+2. Использовать исходный `knowledge/task-catalog/engine/research/TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml`, а **не** общий E5 XML. Проверить его существующим `review_form_contract.py`.
+3. Создать **по одному** проекту на экземплярах A и B, каждый раз задавая свой `LABEL_STUDIO_API_KEY` локально и запуская из публичного checkout:
 
-Для B используйте отдельный локальный порт, например `8081`, отдельный credential и отдельную БД. После создания обоих проектов **до начала разметки** выполните существующий `--preflight-isolated-reviewers` с `--url`, `--project-id`, `--other-url`, `--other-project-id`; второй секрет берётся из `LABEL_STUDIO_SECOND_API_KEY`. Он проверяет совпадение зафиксированных источников и форм, отрицательный перекрёстный доступ и разные штатные пользовательские ID. Непрохождение — **HOLD**, а не разрешение продолжать. Администратор отдельно подтверждает реальную физическую изоляцию хранилищ, отсутствие общего административного доступа и независимость людей.
+   ```sh
+   python research/task-discovery/labelstudio_project_setup.py \
+     --tasks /PRIVATE/labelstudio-import.json \
+     --owner-label-config /PRIVATE/TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml \
+     --url http://127.0.0.1:8080 --create-local-projects --confirm-local-import
+   ```
 
-После самостоятельной человеческой разметки 8/8 у каждого используйте **на каждом отдельном экземпляре** `--export-single-reviewed-project --project-id <реальный ID> --review-out /PRIVATE/review-a.json` (для второго — `review-b.json` с его собственным токеном и портом). Транспорт сверяет автора аннотаций с авторизованным пользователем, формат и исходные данные. Экспорты неизменёнными направляются в оригинальный owner Review Bridge; в GitHub их не загружать. Числовые ID разных баз могут совпадать: это блокер до разметки, нельзя переписывать `completed_by` после экспорта.
+   Для экземпляра B использовать его локальный URL/порт и другой токен; фактический ID проекта сохранить из квитанции.
+4. **До разметки** выполнить `--preflight-isolated-reviewers` с `--project-id`, `--other-url`, `--other-project-id` и токенами `LABEL_STUDIO_API_KEY`, `LABEL_STUDIO_SECOND_API_KEY`. Проверяются 8/8 неизменённых первичных источников в каждом проекте, неизменные XML, отсутствие аннотаций/предсказаний и отказ перекрёстного API-доступа. Это **техническая** проверка, а не независимое удостоверение реальных людей/оборудования.
+5. Два независимых специалиста лично размечают **каждый 8/8** исходных документов по исходной форме без U1/regex подсказок. `INDEPENDENT_TASK` требует цель, проверяемый результат и критерий принятия; для каждого источника нужен окончательный `review_coverage`. `REVIEW_INCOMPLETE` нельзя экспортировать.
+6. Каждый рецензент в **своём** экземпляре запускает однопроектный экспорт:
 
-**Научная квалификация остаётся отдельной:** человеческая независимость, adjudication, TP/FP/FN, precision/recall/F1 и экономия времени пока `NOT MEASURED`. Синтетические нативные Docker PASS не являются независимым gold.
+   ```sh
+   python research/task-discovery/labelstudio_project_setup.py \
+     --tasks /PRIVATE/labelstudio-import.json \
+     --owner-label-config /PRIVATE/TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml \
+     --url http://127.0.0.1:8080 --export-single-reviewed-project \
+     --project-id ACTUAL_ID --review-out /PRIVATE/review-a.json
+   ```
 
----
+   Для B используйте другой `review-b.json`. Экспорт проверяет соответствие текущего authenticated user автору аннотаций, но сам по себе не удостоверяет независимость людей.
+7. Передать **два неизменённых** JSON в существующий `task_exp_01_review_bridge.py` через `owner_review_cycle.py`, затем сохранить отдельные ответы и разногласия. Независимый adjudication выполняет эксперт, а не алгоритм. После этого — отдельные предметные метрики U1/regex/прямого чтения и фактические затраты.
 
-Существующий `labelstudio_project_setup.py` дополнен режимом `--export-reviewed-projects`: принимает два ID уже размеченных проектов, локальные пути двух новых JSON-файлов, прежние `--tasks`, `--owner-label-config` и адрес локального сервера. Токен Label Studio хранится только в локальном окружении.
+## Зафиксированные границы
 
-Проверяет все восемь исходных SHA, отсутствие model predictions, по одной завершённой аннотации на источник, постоянство заявленного reviewer ID в каждом проекте и различие учётных записей между проектами. Экспорт не означает независимую квалификацию специалистов, согласование или gold.
-
-Файлы из локальной среды передаются без публикации в существующий `Faust-S/iwxa/knowledge/task-catalog/engine/research/task_exp_01_review_bridge.py`. Его параметры: `--source-first-packet`, `--review-a`, `--review-b`, `--restricted-disagreement-output`, `--confirm-independent-local-review`. Этот owner bridge отвечает за Unicode spans, смысловые labels, поля цели/результата/критерия и разногласия. После сверки требуется отдельное экспертное согласование.
-
-Локальная инженерная проверка адаптера: 9/9 адресных тестов на synthetic HTTP API PASS. Настоящие независимые человеческие оценки, task P/R/F1 и human time — NOT_MEASURED. Ни raw exports, ни оригинальные документы не отправляются в GitHub.
-
-## Подключение Label Studio: два действующих режима API
-
-Транспортный адаптер поддерживает старые `Token` и современные Personal Access Token (PAT). При `--auth-mode legacy` (значение по умолчанию) используется `Authorization: Token`. При `--auth-mode personal` PAT из локального `LABEL_STUDIO_API_KEY` сначала обменивается штатным `POST /api/token/refresh/` на краткоживущий токен, затем используется `Authorization: Bearer`. Режим нужно указать при создании проектов и при получении экспортов. Оригинальный PAT и временный токен не включаются в квитанции; адрес API ограничен локальным Label Studio.
-
-Для владельца с PAT достаточно добавить `--auth-mode personal` к существующим командам. Авторизация относится только к существующему серверу; ни рецензентов, ни gold автоматически не создаёт. На текущем этапе HTTP-контракт проверяется автоматическими тестами, а настоящий Label Studio с двумя людьми остаётся PENDING.
+- Публичный CI может проверять только синтетический транспорт, никогда не квалифицирует человеческий gold. Не публиковать исходные тексты, аннотации, токены или adjudication.
+- Совпадение цифровых `completed_by` на разных экземплярах приводит к отказу исходного Bridge; не редактировать эти ID вручную. Оформить реальные учётные записи до разметки.
+- `annotations.lead_time` — время, сообщаемое Label Studio, которое может включать паузы, а не чистое активное время специалиста.
+- Frozen pre-gold SHA-256 `93e76fc6983364c5718a8e26f797d7220ed51899cd90bf92f15731d3c5f94bf0` не изменять; восемь exploratory issues не заменяют формальный held-out E5.

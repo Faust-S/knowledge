@@ -598,6 +598,9 @@ def main() -> int:
         manifest = load_manifest()
         tasks = validate_import(read_json(args.tasks), manifest)
         xml = validate_owner_xml(args.owner_label_config.read_bytes())
+        # One CE instance exposes all its projects to local users.
+        # Do not present the synthetic two-project transport as human blinding.
+        require(args.reviewer_slots == 1, "M3_TWO_PROJECTS_IN_ONE_CE_NOT_BLIND")
         if args.create_local_projects:
             require(args.confirm_local_import, "EXPLICIT_LOCAL_IMPORT_CONFIRMATION_REQUIRED")
             token = resolve_api_credential(args.url,
@@ -635,17 +638,9 @@ def main() -> int:
                 tasks, args.url, token, args.project_id, args.review_out,
                 expected_xml=xml)
         elif args.export_reviewed_projects:
-            require(not args.confirm_local_import and
-                    args.project_a_id is not None and args.project_b_id is not None and
-                    args.review_a_out is not None and args.review_b_out is not None,
-                    "REVIEW_EXPORT_ARGUMENTS_INCOMPLETE")
-            token = resolve_api_credential(args.url,
-                                           os.environ.get("LABEL_STUDIO_API_KEY", ""),
-                                           mode=args.auth_mode)
-            result = export_reviewed_projects(
-                tasks, args.url, token,
-                (args.project_a_id, args.project_b_id),
-                args.review_a_out, args.review_b_out, expected_xml=xml)
+            # Keep the paired function only for CI transport QA. Genuine M3
+            # runs require single exports from isolated reviewer instances.
+            raise SetupHold("M3_SAME_SERVER_PAIRED_EXPORT_NOT_BLIND")
         else:
             require(not args.confirm_local_import,
                     "IMPORT_CONFIRMATION_WITHOUT_CREATE_MODE")

@@ -408,6 +408,40 @@ class LocalLabelStudioSetupTests(unittest.TestCase):
                 "http://127.0.0.1:8081", "Token account-b", 50,
                 call=respond)
 
+    def test_human_cli_refuses_same_server_two_project_workflow(self):
+        _, tasks = fixture()
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            import_file = root / "labelstudio-import.json"
+            owner_xml = root / "owner.xml"
+            import_file.write_text(json.dumps(tasks), encoding="utf-8")
+            owner_xml.write_bytes(CONFIG)
+            cli = [
+                "--tasks", str(import_file),
+                "--owner-label-config", str(owner_xml),
+            ]
+            from unittest.mock import patch
+            from io import StringIO
+            # Check prohibited modes before any credential lookup or API call.
+            with patch.object(ls, "load_manifest", return_value=fixture()[0]), \
+                 patch.object(ls, "validate_owner_xml", return_value=CONFIG.decode("utf-8")), \
+                 patch.object(ls, "resolve_api_credential") as credential, \
+                 patch.object(ls, "api") as api_call:
+                for arguments, code in (
+                    (["--reviewer-slots", "2", "--create-local-projects",
+                      "--confirm-local-import"], "M3_TWO_PROJECTS_IN_ONE_CE_NOT_BLIND"),
+                    (["--export-reviewed-projects", "--project-a-id", "10",
+                      "--project-b-id", "11", "--review-a-out", str(root / "a.json"),
+                      "--review-b-out", str(root / "b.json")],
+                     "M3_SAME_SERVER_PAIRED_EXPORT_NOT_BLIND")):
+                    with self.subTest(arguments=arguments), \
+                         patch("sys.argv", ["labelstudio_project_setup.py", *cli, *arguments]), \
+                         patch("sys.stdout", new_callable=StringIO) as out:
+                        self.assertEqual(ls.main(), 2)
+                        self.assertEqual(json.loads(out.getvalue())["code"], code)
+                credential.assert_not_called()
+                api_call.assert_not_called()
+
     def test_semantic_form_readback_ignores_whitespace_only(self):
         xml = CONFIG.decode('utf-8')
         self.assertTrue(ls.same_review_form(xml, xml))
