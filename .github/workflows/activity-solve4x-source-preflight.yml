@@ -13,6 +13,8 @@ on:
       - 'research/activity-research/tests/test_solve4x_original_itam.py'
       - 'research/activity-research/solve4x_same_case_audit.py'
       - 'research/activity-research/solve4x_scene_component_lineage.py'
+      - 'research/activity-research/solve4x_cross_source_coverage.py'
+      - 'research/activity-research/tests/test_solve4x_cross_source_coverage.py'
       - 'research/activity-research/tests/test_solve4x_scene_component_lineage.py'
       - 'research/activity-research/solve4x_global_itam_audit.py'
       - 'research/activity-research/solve4x_scene_ui_audit.py'
@@ -411,5 +413,38 @@ jobs:
         with:
           name: iwxa-solve4x-scene-provenance-counts
           path: solve4x-scene-component-lineage.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Offline C12 cross-source negative controls
+        run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_cross_source_coverage.py' -v
+      - name: Replay C12 real sensor video and browser UI evidence
+        run: |
+          python3 research/activity-research/solve4x_cross_source_coverage.py --out solve4x-c12-report.json
+          python3 - <<'PY'
+          import json
+          r=json.load(open("solve4x-c12-report.json"))
+          assert r["schema"]=="IWXA_SOLVE4X_C12_MULTICHANNEL/0.1"
+          assert r["status"]=="SOURCE_COVERAGE_ONLY_NO_HUMAN_GOLD"
+          assert r["denominators"]=={"video_intervals":23,"sensor_events":17,"ui_records":43}
+          assert r["raw_values_exported"] is False
+          assert r["source"]["archive_downloaded"] is False
+          assert r["calibrated_clock"] is False
+          assert r["accepted_tasks"]==0
+          assert r["independent_human_gold"]=="NOT_MEASURED"
+          for win in ("1s","5s","30s"):
+              x=r["sensor_ui"][win]
+              assert x["one_to_one_upper_bound"]<=min(x["sensor_with_ui"],x["ui_with_sensor"],17)
+          assert r["plus_one_day_negative"]["30s"]["candidate_edges"]==0
+          print("SOLVE4X_C12_COUNTS",r["denominators"],
+                "sensor_in_video",r["sensor_video"]["inside"],
+                "ui_in_video",r["ui_video"]["inside"],
+                "sensor_ui",r["sensor_ui"])
+          PY
+      - name: Publish redacted C12 aggregate research only
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-solve4x-c12-evidence-aggregates
+          path: solve4x-c12-report.json
           retention-days: 7
           if-no-files-found: error
