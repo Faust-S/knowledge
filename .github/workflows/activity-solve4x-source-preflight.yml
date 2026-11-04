@@ -9,6 +9,8 @@ on:
       - '.github/workflows/activity-solve4x-source-preflight.yml'
       - 'research/activity-research/solve4x_small_member_pair.py'
       - 'research/activity-research/solve4x_zip_range_probe.py'
+      - 'research/activity-research/solve4x_original_itam.py'
+      - 'research/activity-research/tests/test_solve4x_original_itam.py'
       - 'research/activity-research/solve4x_same_case_audit.py'
       - 'research/activity-research/solve4x_global_itam_audit.py'
       - 'research/activity-research/solve4x_scene_ui_audit.py'
@@ -291,5 +293,32 @@ jobs:
         with:
           name: iwxa-solve4x-ui-ocel-time-windows
           path: solve4x-ui-time.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Offline original ITAM JSONL source negative tests
+        run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_original_itam.py' -v
+      - name: Fetch only original ITAM JSONL and report structural counts
+        run: |
+          python3 research/activity-research/solve4x_original_itam.py \
+            --out solve4x-original-itam-summary.json || true
+          python3 - <<'PY'
+          import json
+          r=json.load(open("solve4x-original-itam-summary.json"))
+          assert r["schema"]=="IWXA_SOLVE4X_ORIGINAL_ITAM_JSONL_SOURCE/0.1"
+          assert r["source"]["raw_rows_published"] is False
+          assert r["qualification"]["accepted_tasks"]==0
+          if r["status"]=="ORIGINAL_ITAM_JSONL_LOADED_SCHEMA_ONLY":
+              assert r["source"]["bytes"]==89150
+              assert r["structure"]["nonempty_jsonl_rows"]>0
+              assert r["source"]["full_archive_downloaded"] is False
+          print("SOLVE4X_ORIGINAL_ITAM_SOURCE_RESULT",r["status"],
+                "rows",r.get("structure",{}).get("nonempty_jsonl_rows","UNKNOWN"))
+          PY
+      - name: Upload original ITAM structure only
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-solve4x-original-itam-structure
+          path: solve4x-original-itam-summary.json
           retention-days: 7
           if-no-files-found: error
