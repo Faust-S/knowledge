@@ -228,3 +228,33 @@ jobs:
           path: bpi13-method-pair.json
           retention-days: 7
           if-no-files-found: error
+
+      - name: Solve4X scene author annotation regression tests
+        run: python -m unittest discover -s research/activity-research/tests -p 'test_solve4x_scene_probe.py' -v
+      - name: Attempt real Solve4X published-scene replay, not full audiovisual verification
+        run: |
+          if python research/activity-research/solve4x_scene_probe.py \
+            --probe-figshare --out solve4x-scene01-derived.json; then
+            python - <<'PY'
+          import json
+          with open('solve4x-scene01-derived.json') as f: r=json.load(f)
+          assert r['schema']=='IWXA_SOLVE4X_SCENE01_SCOPED/0.1'
+          assert r['observed_in_author_annotation']['cases']==3
+          assert r['observed_in_author_annotation']['segments']==23
+          assert r['independence']['separate_ITAM_transaction_log_loaded'] is False
+          assert r['qualification']['task_discovery']=='NOT_MEASURED'
+          assert r['source']['video_downloaded'] is False
+          print('SOLVE4X_PUBLISHED_SCENE_SCOPED_PASS',r['observed_in_author_annotation']['segments'],'author-annotated segments')
+          PY
+          else
+            printf '{"status":"SOURCE_ACCESS_OR_LAYOUT_HOLD","task_gold":"NOT_MEASURED"}\n' \
+              > solve4x-scene01-derived.json
+            echo "SOLVE4X_PUBLISHED_SCENE_SOURCE_HOLD (not a real-scene PASS)"
+          fi
+      - name: Publish Solve4X derived scene metrics and source hashes only
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-solve4x-scene01-scoped-aggregates
+          path: solve4x-scene01-derived.json
+          retention-days: 7
+          if-no-files-found: error
