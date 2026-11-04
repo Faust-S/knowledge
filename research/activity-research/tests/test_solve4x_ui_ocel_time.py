@@ -33,3 +33,10 @@ class TemporalTests(TestCase):
  def test_missing_scene_is_hold(self):
   with self.assertRaisesRegex(archive.Hold,"SCENE_OCEL_EVENTS_MISSING"):
    mod.analyze(self.csv,{})
+ def test_naive_calendar_window_does_not_verify_clocks(self):
+  source=b'timestamp,action\n2024-01-01T00:00:00,click\n2024-01-01T00:00:05,click\n'
+  records={'ocel:events':{'a':event('2024-01-01T00:00:01'),'b':event('2024-01-01T00:00:05',True)}}
+  result=mod.conditional_naive_calendar_proximity(source,records)
+  self.assertEqual(result['window_counts']['1s']['ui_near_system'],1)
+  self.assertEqual(result['window_counts']['1s']['ui_near_video_derived'],1)
+  self.assertFalse(result['clock_time_zone_or_offset_verified'])
