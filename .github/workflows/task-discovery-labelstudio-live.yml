@@ -266,8 +266,12 @@ jobs:
               b_id = whoami(b_base, b_token)['id']
               require(b_id == created['id'] and b_id != a_id,
                       'ISOLATED_NATIVE_COMPLETED_BY_IDS_COLLIDE')
-              require(denied(a_base, b_token) and denied(b_base, a_token)
-                      and denied(a_base, b_admin_token),
+              preflight = setup.verify_isolated_reviewers(
+                  a_base, 'Token ' + a_token, b_base, 'Token ' + b_token)
+              require(preflight['cross_instance_credentials_rejected'] and
+                      preflight['reviewer_id_claims_distinct'] and
+                      preflight['human_gold'] is False and
+                      denied(a_base, b_admin_token),
                       'ISOLATED_CROSS_INSTANCE_AUTH_UNEXPECTED')
               with tempfile.TemporaryDirectory(prefix='iwxa-m3b-isolated-synthetic-') as tmp:
                   source_a = annotate_and_export(

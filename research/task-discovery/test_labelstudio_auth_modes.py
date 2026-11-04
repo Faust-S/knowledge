@@ -118,6 +118,78 @@ class AuthCompatibilityTests(unittest.TestCase):
             for thread in threads:
                 thread.join(timeout=2)
 
+    def test_isolated_preflight_accepts_distinct_ids_and_denied_cross_auth(self):
+        calls = []
+        def fake(base, token, route):
+            self.assertEqual(route, "/api/current-user/whoami")
+            calls.append((base, token))
+            authorized = {
+                ("http://127.0.0.1:8080", "Token first"): 11,
+                ("http://127.0.0.1:8081", "Token second"): 12,
+            }
+            if (base, token) not in authorized:
+                raise target.SetupHold("LABEL_STUDIO_HTTP_401")
+            return {"id": authorized[(base, token)], "active_organization": 1}
+
+        receipt = target.verify_isolated_reviewers(
+            "http://127.0.0.1:8080", "Token first",
+            "http://127.0.0.1:8081", "Token second", call=fake)
+        self.assertEqual(len(calls), 4)
+        self.assertTrue(receipt["cross_instance_credentials_rejected"])
+        self.assertTrue(receipt["reviewer_id_claims_distinct"])
+        self.assertFalse(receipt["platform_storage_isolation_verified"])
+        self.assertFalse(receipt["human_gold"])
+        self.assertNotIn("first", json.dumps(receipt))
+        self.assertNotIn("second", json.dumps(receipt))
+
+    def test_isolated_preflight_rejects_numeric_reviewer_collision(self):
+        calls = []
+        def fake(base, token, route):
+            calls.append((base, token))
+            return {"id": 1, "active_organization": 1}
+        with self.assertRaisesRegex(
+                target.SetupHold, "ISOLATED_NATIVE_REVIEWER_IDS_COLLIDE"):
+            target.verify_isolated_reviewers(
+                "http://127.0.0.1:8080", "Token first",
+                "http://127.0.0.1:8081", "Token second", call=fake)
+        self.assertEqual(len(calls), 2, "Collision must refuse before probe")
+
+    def test_isolated_preflight_rejects_cross_readable_users(self):
+        def fake(base, credential, route):
+            return {"id": 11 if base.endswith(":8080") else 12,
+                    "active_organization": 1}
+        with self.assertRaisesRegex(
+                target.SetupHold, "ISOLATED_REVIEW_CROSS_ACCOUNT_ACCESSIBLE"):
+            target.verify_isolated_reviewers(
+                "http://127.0.0.1:8080", "Token first",
+                "http://127.0.0.1:8081", "Token second", call=fake)
+
+    def test_isolated_preflight_refuses_uncertain_cross_access(self):
+        def fake(base, credential, route):
+            if ((base.endswith(":8080") and credential == "Token second")
+                    or (base.endswith(":8081") and credential == "Token first")):
+                raise target.SetupHold("LOCAL_LABEL_STUDIO_UNAVAILABLE")
+            return {"id": 11 if base.endswith(":8080") else 12,
+                    "active_organization": 1}
+        with self.assertRaisesRegex(
+                target.SetupHold, "ISOLATED_REVIEW_CROSS_AUTH_NOT_PROVEN"):
+            target.verify_isolated_reviewers(
+                "http://127.0.0.1:8080", "Token first",
+                "http://127.0.0.1:8081", "Token second", call=fake)
+
+    def test_isolated_preflight_rejects_same_port_or_reused_credential(self):
+        for url_b in ("http://localhost:8080", "http://127.0.0.1:8080"):
+            with self.subTest(url=url_b), self.assertRaisesRegex(
+                    target.SetupHold, "ISOLATED_REVIEW_REQUIRES_DISTINCT_LOCAL_PORTS"):
+                target.verify_isolated_reviewers(
+                    "http://127.0.0.1:8080", "Token first",
+                    url_b, "Token second", call=lambda *args: None)
+        with self.assertRaisesRegex(
+                target.SetupHold, "ISOLATED_REVIEW_CREDENTIALS_INVALID_OR_REUSED"):
+            target.verify_isolated_reviewers(
+                "http://127.0.0.1:8080", "Token reused",
+                "http://127.0.0.1:8081", "Token reused", call=lambda *args: None)
+
     def test_remote_refresh_refused(self):
         with patch.object(target, "local_api_open") as opened:
             with self.assertRaisesRegex(target.SetupHold,
