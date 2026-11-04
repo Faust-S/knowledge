@@ -1,4 +1,4 @@
-name: IWXA Solve4X direct source feasibility (metadata only)
+name: IWXA Solve4X bounded source and pair inspection
 
 on:
   workflow_dispatch:
