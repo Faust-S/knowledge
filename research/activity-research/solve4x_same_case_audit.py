@@ -45,6 +45,7 @@ def analyze_scene(video: dict, ocel: dict) -> dict:
               "VIDEO_NODES_EMPTY_OR_OVERSIZED")
     video_case_refs = set()
     video_labels = set()
+    video_activities = Counter()
     nodes_with_case = 0
     video_data_fields = Counter()
     author_types = Counter()
@@ -64,8 +65,13 @@ def analyze_scene(video: dict, ocel: dict) -> dict:
         label = data.get("label")
         if isinstance(label, str) and label:
             video_labels.add(label)
+        activity = data.get("activity")
+        if isinstance(activity, str) and activity:
+            video_activities[activity] += 1
     ocel_case_refs = set()
     ocel_labels = set()
+    ocel_video_marker_activity = Counter()
+    ocel_other_activity = Counter()
     count_with_case_ref = 0
     ocel_vmap_fields = Counter()
     ocel_vmap_ref_hits = 0
@@ -92,6 +98,11 @@ def analyze_scene(video: dict, ocel: dict) -> dict:
         vmap = event.get("ocel:vmap", {})
         idx.check(isinstance(vmap, dict), "OCEL_EVENT_VMAP_INVALID")
         ocel_vmap_fields.update(str(k) for k in vmap)
+        if isinstance(activity, str) and activity:
+            if "end_time" in vmap:
+                ocel_video_marker_activity[activity] += 1
+            else:
+                ocel_other_activity[activity] += 1
         if any(isinstance(v, str) and CASE_PATTERN.search(v) for v in vmap.values()):
             ocel_vmap_ref_hits += 1
         refs = set()
@@ -102,6 +113,12 @@ def analyze_scene(video: dict, ocel: dict) -> dict:
             count_with_case_ref += 1
             ocel_case_refs.update(refs)
     shared = video_case_refs.intersection(ocel_case_refs)
+    def multiset_intersection(left, right):
+        return sum(min(n, right.get(key, 0)) for key, n in left.items())
+    source_video_marked_matches = multiset_intersection(
+        video_activities, ocel_video_marker_activity)
+    source_other_matches = multiset_intersection(
+        video_activities, ocel_other_activity)
     return {
         "schema": SCHEMA,
         "status": "REAL_SCENE_DERIVATIVES_IDENTITY_COMPARISON_NOT_INDEPENDENT_TRUTH",
@@ -117,6 +134,14 @@ def analyze_scene(video: dict, ocel: dict) -> dict:
             "video_distinct_label_strings": len(video_labels),
             "ocel_distinct_activity_strings": len(ocel_labels),
             "shared_literal_activity_strings": len(video_labels.intersection(ocel_labels)),
+            "video_annotated_activity_segments": sum(video_activities.values()),
+            "video_annotated_distinct_activities": len(video_activities),
+            "ocel_events_with_end_time_marker": sum(ocel_video_marker_activity.values()),
+            "ocel_events_without_end_time_marker": sum(ocel_other_activity.values()),
+            "literal_activity_multiset_match_with_end_time_marker": source_video_marked_matches,
+            "literal_activity_multiset_match_without_marker": source_other_matches,
+            "literal_video_ocel_marked_activity_multisets_equal": (
+                video_activities == ocel_video_marker_activity),
             "video_annotation_data_key_occurrences": dict(sorted(video_data_fields.items())),
             "video_localisation_value_type_occurrences": dict(sorted(author_types.items())),
             "ocel_vmap_key_occurrences": dict(sorted(ocel_vmap_fields.items())),
@@ -128,6 +153,8 @@ def analyze_scene(video: dict, ocel: dict) -> dict:
         "constraints": {
             "video_labels_from_author_annotations_not_independent_review": True,
             "scene_ocel_is_joined_source_cannot_claim_independent_support": True,
+            "end_time_field_marker_origin": "STRUCTURAL_PROXY_NOT_INDEPENDENTLY_ATTESTED",
+            "literal_activity_multiset_overlap_is_not_event_level_time_alignment": True,
             "matching_case_refs_are_documentary_link_not_event_agreement": True,
             "nonmatching_label_is_not_an_undocumented_human_action": True,
             "actual_video_self_review": "NOT_RUN",
