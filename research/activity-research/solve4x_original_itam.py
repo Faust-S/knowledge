@@ -41,13 +41,35 @@ def parse_jsonl(raw: bytes) -> dict:
         raise index.Hold("ITAM_UNSUPPORTED_WHOLE_JSON_ROOT")
     else:
         parse_mode = "JSON_LINES"
+        valid_json_lines = True
         for line in lines:
             try:
                 item = json.loads(line)
             except ValueError:
-                raise index.Hold("ITAM_MULTILINE_OR_NONSTANDARD_JSON_HOLD") from None
+                valid_json_lines = False
+                break
             index.check(isinstance(item, dict), "ITAM_JSONL_OBJECT_EXPECTED")
             records.append(item)
+        if not valid_json_lines:
+            # Some exporters write adjacent pretty-printed JSON objects rather
+            # than one object per physical line. Decode without accepting text
+            # that is not valid JSON. This is not permissive error recovery.
+            decoder = json.JSONDecoder()
+            pos = 0
+            records = []
+            parse_mode = "MULTILINE_JSON_SEQUENCE"
+            while pos < len(data):
+                while pos < len(data) and data[pos].isspace():
+                    pos += 1
+                if pos == len(data):
+                    break
+                try:
+                    item, pos = decoder.raw_decode(data, pos)
+                except ValueError:
+                    raise index.Hold("ITAM_NONSTANDARD_JSON_FRAMING_HOLD") from None
+                index.check(isinstance(item, dict), "ITAM_SEQUENCE_OBJECT_EXPECTED")
+                records.append(item)
+                index.check(len(records) <= MAX_RECORDS, "ITAM_SEQUENCE_TOO_MANY_RECORDS")
     index.check(0 < len(records) <= MAX_RECORDS, "ITAM_RECORD_POPULATION_HOLD")
     keys = Counter(k for item in records for k in item)
     types = Counter(type(item).__name__ for item in records)
