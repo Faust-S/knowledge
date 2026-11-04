@@ -108,7 +108,7 @@ jobs:
               check=True, capture_output=True, text=True, timeout=40,
           )
           secondary_token = token_cli.stdout.strip().splitlines()[-1]
-          assert len(secondary_token) >= 20 and secondary_token != primary_token, \\
+          assert len(secondary_token) >= 20 and secondary_token != primary_token, \
               "SECOND_ACCOUNT_TOKEN_UNAVAILABLE"
 
           second_whoami = api("Token " + secondary_token, "/api/current-user/whoami")
