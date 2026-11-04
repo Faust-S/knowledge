@@ -23,6 +23,10 @@ jobs:
           python-version: '3.13'
       - name: Offline tests including frozen method handoff
         run: python -W error::ResourceWarning -m unittest discover -s research/task-discovery -p 'test_*.py' -v
+      - name: Frozen full-source literal exact search (no human gold)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python research/task-discovery/exact_search_baseline.py
       - name: Real original eight sources, frozen U1 and title regex
         env:
           GITHUB_TOKEN: ${{ github.token }}
