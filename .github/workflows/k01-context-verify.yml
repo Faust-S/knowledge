@@ -1,0 +1,21 @@
+name: K01 Context Kit verification
+on:
+  push:
+    branches:
+      - work/2026-11-04-k01-knowledge-context-kit
+    paths:
+      - 'modules/k01-context/**'
+      - '.github/workflows/k01-context-verify.yml'
+  workflow_dispatch:
+jobs:
+  k01:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test modules/k01-context/tests/context.test.mjs
