@@ -43,6 +43,8 @@ PUBLIC_HOLD_CODES = frozenset((
     'OWNER_DISAGREEMENTS_NOT_WRITTEN',
     'OWNER_DISAGREEMENT_NOT_A_CONFLICT',
     'OWNER_DISAGREEMENT_RECEIPT_TOTALS_MISMATCH',
+    'OWNER_DISAGREEMENT_REGION_COUNT_MISMATCH',
+    'OWNER_DISAGREEMENT_REGIONS_INVALID',
     'OWNER_DISAGREEMENT_SOURCE_IDENTITY_MISMATCH',
     'OWNER_DISAGREEMENT_SOURCE_SELECTION_UNAVAILABLE',
     'OWNER_LOCAL_INPUT_OUTPUT_ALIAS_REFUSED',
@@ -244,6 +246,7 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
         except (effort_contract.EffortHold, OSError, ValueError):
             raise CycleHold('OWNER_DISAGREEMENT_SOURCE_SELECTION_UNAVAILABLE') from None
         seen_disagreements = set()
+        observed_region_difference = 0
         for item in disagreements['disagreements']:
             need(type(item) is dict and
                  type(item.get('source_sha256')) is str and
@@ -265,6 +268,26 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
                  (item['review_a_regions'] != item['review_b_regions'] or
                   item['review_a_coverage'] != item['review_b_coverage']),
                  'OWNER_DISAGREEMENT_NOT_A_CONFLICT')
+            # Cross-check the owning Bridge's region symmetric-difference
+            # count without reinterpreting region labels or Task semantics.
+            groups = []
+            for key in ('review_a_regions', 'review_b_regions'):
+                group = []
+                for region in item[key]:
+                    need(type(region) is list and len(region) == 6 and
+                         type(region[0]) is int and type(region[1]) is int and
+                         type(region[2]) is str and
+                         all(x is None or type(x) is str for x in region[3:]),
+                         'OWNER_DISAGREEMENT_REGIONS_INVALID')
+                    group.append(tuple(region))
+                need(len(set(group)) == len(group),
+                     'OWNER_DISAGREEMENT_REGIONS_INVALID')
+                groups.append(set(group))
+            observed_region_difference += len(groups[0] ^ groups[1])
+        need(type(native.get('disagreement_region_symmetric_difference')) is int and
+             native['disagreement_region_symmetric_difference'] ==
+             observed_region_difference,
+             'OWNER_DISAGREEMENT_REGION_COUNT_MISMATCH')
         receipt = Path(temporary) / 'owner-bridge-receipt.json'
         receipt.write_text(json.dumps(native, ensure_ascii=False) + '\n', encoding='utf-8')
         effort_command = [sys.executable, str(script),
