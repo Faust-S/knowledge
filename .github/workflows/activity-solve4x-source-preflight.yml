@@ -272,6 +272,18 @@ jobs:
               assert r["counts"]["scene_video_derived_events"]==23
               assert r["source"]["ui_csv_sha256"]=="653e0b52ec64c9f1629eb758091cdad5e5c3cb47d68531b2174ec0c6a6c0a1bb"
               assert r["limitations"]["aligned_clocks_proven"] is False
+          if r["status"]=="TIMEZONE_ALIGNMENT_HOLD" and r.get("conditional_naive_wall_time"):
+              p=r["clock_format_profile"]
+              assert p["ui"]=={"aware":0,"naive":43,"invalid":0}
+              assert p["ocel"]=={"aware":0,"naive":40,"invalid":0}
+              conditional=r["conditional_naive_wall_time"]
+              assert conditional["clock_time_zone_or_offset_verified"] is False
+              assert conditional["window_counts"]["5s"]["ui_near_system"]==5
+              assert conditional["window_counts"]["5s"]["system_near_ui"]==5
+              assert conditional["window_counts"]["30s"]["system_near_ui"]==15
+              print("SOLVE4X_CONDITIONAL_WALL_CLOCK_REPLAY_PASS",
+                    "five_seconds_system_hits",5,"thirty_seconds",15,
+                    "CLOCK_ALIGNMENT_HOLD")
           print("SOLVE4X_UI_TIME_STATUS",r["status"],"counts",r.get("counts",{}))
           PY
       - name: Publish UI-to-OCEL time window aggregates only
