@@ -16,6 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
+      - uses: actions/checkout@v4
+      - name: Offline ZIP-directory parsing and fail-closed tests
+        run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_zip_range_probe.py' -v
       - name: Request official article metadata, never media
         run: |
           python3 - <<'PY'
@@ -94,5 +97,29 @@ jobs:
         with:
           name: iwxa-solve4x-source-availability-only
           path: solve4x-source-preflight.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Probe HTTP range index only; do not download the ZIP archive
+        run: |
+          python3 research/activity-research/solve4x_zip_range_probe.py \
+            --out solve4x-zip-range-index.json || true
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          result=json.loads(Path("solve4x-zip-range-index.json").read_text())
+          assert result["schema"]=="IWXA_SOLVE4X_ZIP_RANGE_INDEX/0.1"
+          assert result["full_archive_downloaded"] is False
+          assert result["case_level_two_modalities_loaded"] is False
+          assert result["accepted_tasks"] == 0
+          print("SOLVE4X_ZIP_INDEX_RESULT",result["status"],
+                "candidate_files",result.get("target_files_count","UNKNOWN"),
+                "task_gold",result["human_task_gold"])
+          PY
+      - name: Upload ZIP directory file names and bounded source hashes only
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-solve4x-zip-range-index
+          path: solve4x-zip-range-index.json
           retention-days: 7
           if-no-files-found: error
