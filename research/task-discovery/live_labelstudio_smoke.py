@@ -105,6 +105,76 @@ def synthetic_tasks() -> list[dict]:
     return tasks
 
 
+def synthetic_annotation_result(source_text: str, *, task_example: bool) -> list[dict]:
+    """Synthetic full form controls, not human-labeled Task candidates."""
+    if not task_example:
+        return [{"from_name": "review_coverage", "to_name": "source_text",
+                 "type": "choices",
+                 "value": {"choices": ["NO_TASK_RELEVANT_SPANS"]}}]
+    # A substring from the original synthetic source, not a generated label.
+    selected = "Synthetic 1"
+    transport.require(source_text.startswith(selected),
+                      "SYNTHETIC_REGION_SOURCE_MISMATCH")
+    region = "ci-synthetic-independent-task"
+    result = [{
+        "id": region, "from_name": "taskness", "to_name": "source_text",
+        "type": "labels",
+        "value": {"start": 0, "end": len(selected),
+                  "text": selected, "labels": ["INDEPENDENT_TASK"]},
+    }]
+    for field, example in (
+            ("goal", "test-only goal"),
+            ("expected_result", "test-only output"),
+            ("acceptance_criterion", "test-only check")):
+        result.append({
+            "id": region, "from_name": field, "to_name": "source_text",
+            "type": "textarea", "value": {"text": [example]},
+        })
+    result.append({
+        "from_name": "review_coverage", "to_name": "source_text",
+        "type": "choices",
+        "value": {"choices": ["ALL_RELEVANT_SPANS_MARKED"]},
+    })
+    return result
+
+
+def verify_synthetic_region_roundtrip(rows: object) -> None:
+    """Verify Label Studio kept every region+textarea+coverage field.
+
+    No semantic Task scoring, human gold or original owner XML is inferred.
+    """
+    tasks = synthetic_tasks()
+    expected = {row["data"]["source_sha256"]:
+                synthetic_annotation_result(
+                    row["data"]["source_text"], task_example=(i == 0))
+                for i, row in enumerate(tasks)}
+    transport.require(type(rows) is list and len(rows) == len(expected),
+                      "SYNTHETIC_REGION_EXPORT_INCOMPLETE")
+    found = set()
+    for row in rows:
+        transport.require(type(row) is dict and type(row.get("data")) is dict and
+                          type(row.get("annotations")) is list and
+                          len(row["annotations"]) == 1,
+                          "SYNTHETIC_REGION_ANNOTATIONS_INVALID")
+        key = row["data"].get("source_sha256")
+        transport.require(key in expected and key not in found,
+                          "SYNTHETIC_REGION_SOURCE_SET_CHANGED")
+        found.add(key)
+        actual = row["annotations"][0].get("result")
+        planned = expected[key]
+        transport.require(type(actual) is list and len(actual) == len(planned),
+                          "SYNTHETIC_REGION_RESULT_COUNT_CHANGED")
+        for item in planned:
+            matching = [r for r in actual if type(r) is dict and
+                        r.get("from_name") == item["from_name"]]
+            transport.require(
+                len(matching) == 1 and
+                all(matching[0].get(k) == v for k, v in item.items()),
+                "SYNTHETIC_REGION_FIELD_ROUNDTRIP_MISMATCH")
+    transport.require(found == set(expected),
+                      "SYNTHETIC_REGION_SOURCE_SET_CHANGED")
+
+
 def exercise_local_server(base: str, token: str, *, second_token: str = '') -> dict:
     """Real HTTP end-to-end; fail-closed on non-source-first export."""
     base = transport.local_url(base)
@@ -137,11 +207,15 @@ def exercise_local_server(base: str, token: str, *, second_token: str = '') -> d
             task_id = item.get("id") if type(item) is dict else None
             transport.require(type(task_id) is int and task_id > 0,
                               "LIVE_LABEL_STUDIO_TASK_ID_MISSING")
+            source_data = item.get("data") if type(item) is dict else None
+            transport.require(type(source_data) is dict,
+                              "LIVE_LABEL_STUDIO_SOURCE_DATA_MISSING")
+            is_task = (source_data.get("source_sha256") ==
+                       tasks[0]["data"]["source_sha256"])
             response = traced_api(base, writer,
                 f"/api/tasks/{task_id}/annotations/", {
-                    "result": [{"from_name": "review_coverage", "to_name": "source_text",
-                                "type": "choices", "value": {
-                                    "choices": ["NO_TASK_RELEVANT_SPANS"]}}],
+                    "result": synthetic_annotation_result(
+                        source_data["source_text"], task_example=is_task),
                     "was_cancelled": False,
                 })
             transport.require(type(response) is dict and
@@ -149,6 +223,11 @@ def exercise_local_server(base: str, token: str, *, second_token: str = '') -> d
                               "LIVE_LABEL_STUDIO_ANNOTATION_API_FAILED")
             annotated += 1
     transport.require(annotated == 16, "LIVE_LABEL_STUDIO_ANNOTATION_COUNT_INVALID")
+    for pid in project_ids:
+        native_rows = traced_api(
+            base, credential,
+            f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true")
+        verify_synthetic_region_roundtrip(native_rows)
     # Both projects were annotated by the SAME CI account, so the production
     # two-independent-reviewer exporter MUST refuse and emit no export files.
     with tempfile.TemporaryDirectory(prefix="iwxa-ls-native-synthetic-") as directory:
@@ -200,6 +279,7 @@ def exercise_local_server(base: str, token: str, *, second_token: str = '') -> d
             "label_studio_version_expected": "1.23.2",
             "synthetic_projects": 2, "synthetic_sources_per_project": 8,
             "api_created_coverage_annotations": annotated,
+            "synthetic_task_region_and_interpretations_roundtrip": True,
             "same_user_export_refused": second_credential is None,
             "single_project_export_http_passed": True,
             "two_synthetic_accounts_export_passed": second_credential is not None,

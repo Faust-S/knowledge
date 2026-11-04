@@ -168,7 +168,8 @@ jobs:
           from pathlib import Path
           sys.path.insert(0, 'research/task-discovery')
           import labelstudio_project_setup as setup
-          from live_labelstudio_smoke import synthetic_tasks, SYNTHETIC_XML
+          from live_labelstudio_smoke import (synthetic_tasks, SYNTHETIC_XML,
+              synthetic_annotation_result, verify_synthetic_region_roundtrip)
 
           a_base, b_base = 'http://127.0.0.1:8080', 'http://127.0.0.1:8081'
           container = 'iwxa-label-studio-isolated-b'
@@ -215,10 +216,13 @@ jobs:
                   task_id = row.get('id') if type(row) is dict else None
                   require(type(task_id) is int and task_id > 0,
                           'ISOLATED_TASK_ID_INVALID')
+                  data = row.get('data') if type(row) is dict else None
+                  require(type(data) is dict, 'ISOLATED_TASK_SOURCE_MISSING')
                   annotation = setup.api(base, token, f'/api/tasks/{task_id}/annotations/', {
-                      'result': [{'from_name': 'review_coverage',
-                                  'to_name': 'source_text', 'type': 'choices',
-                                  'value': {'choices': ['NO_TASK_RELEVANT_SPANS']}}],
+                      'result': synthetic_annotation_result(
+                          data['source_text'],
+                          task_example=(data.get('source_sha256') ==
+                                        tasks[0]['data']['source_sha256'])),
                       'was_cancelled': False})
                   require(type(annotation) is dict and type(annotation.get('id')) is int,
                           'ISOLATED_ANNOTATION_WRITE_FAILED')
@@ -228,6 +232,7 @@ jobs:
                       receipt['annotation_author_matches_authenticated_account'] is True and
                       receipt['human_gold'] is False, 'ISOLATED_SINGLE_EXPORT_FAILED')
               export = json.loads(output.read_text('utf-8'))
+              verify_synthetic_region_roundtrip(export)
               require(len(export) == 8 and
                       all(len(entry.get('annotations', [])) == 1 and
                           entry['annotations'][0]['completed_by'] == expected_id
@@ -311,6 +316,7 @@ jobs:
                   'cross_instance_tokens_rejected': True,
                   'original_completed_by_ids_distinct': True,
                   'synthetic_sources_each': 8, 'api_annotations_total': 16,
+                  'task_region_interpretation_roundtrip': True,
                   'owner_exact_xml_exercised': False,
                   'human_review_independence_verified': False,
                   'human_task_gold': False,
