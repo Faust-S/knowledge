@@ -167,6 +167,21 @@ jobs:
           assert r["raw_source_exported"] is False
           assert r["constraints"]["accepted_tasks"]==0
           assert r["constraints"]["independent_itam_raw_log_source"]=="NOT_LOADED"
+          if r["status"]=="REAL_SCENE_DERIVATIVES_IDENTITY_COMPARISON_NOT_INDEPENDENT_TRUTH":
+              c=r["counts"]
+              assert c["author_annotation_nodes"]==26
+              assert c["video_annotated_activity_segments"]==23
+              assert c["ocel_registered_events"]==40
+              assert c["ocel_events_with_end_time_marker"]==23
+              assert c["ocel_events_without_end_time_marker"]==17
+              assert c["literal_activity_multiset_match_with_end_time_marker"]==23
+              assert c["literal_video_ocel_marked_activity_multisets_equal"] is True
+              assert r["constraints"]["end_time_field_marker_origin"]=="STRUCTURAL_PROXY_NOT_INDEPENDENTLY_ATTESTED"
+              assert r["source"]["video_annotation_sha256"]=="d698dc90741b359b9594cfc262887f180215d15434301a55d941e835621b5ff3"
+              assert r["source"]["joined_ocel_sha256"]=="5de185ada7d0e8d82e3f43929e594c31a1c52aad334197557cc7c2550d3f1f15"
+              print("SOLVE4X_VIDEO_JOINED_OCEL_MULTISETS_MATCH",23,"of",23,
+                    "remaining_unmarked_events",17,
+                    "INDEPENDENT_WORK_TRUTH_NOT_VERIFIED")
           print("SOLVE4X_SAME_CASE_COUNTS",r["status"],
                 r.get("counts",{}).get("case_references_in_both","UNKNOWN"),
                 "literal_activity_overlaps",
