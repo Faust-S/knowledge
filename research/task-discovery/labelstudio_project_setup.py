@@ -230,6 +230,10 @@ def resolve_api_credential(base: str, token: str, mode: str = "legacy") -> str:
         raise SetupHold("LABEL_STUDIO_PERSONAL_TOKEN_HTTP_" + str(error.code)) from None
     except URLError:
         raise SetupHold("LOCAL_LABEL_STUDIO_UNAVAILABLE") from None
+    except SetupHold:
+        # SetupHold subclasses ValueError: preserve precise strict-JSON codes
+        # instead of collapsing duplicate/nonfinite responses to INVALID.
+        raise
     except (ValueError, UnicodeError):
         raise SetupHold("LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE_INVALID") from None
 
