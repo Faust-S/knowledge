@@ -63,17 +63,35 @@ def event_time(raw: str | None) -> datetime:
           "XES_TIMESTAMP_TIMEZONE_REQUIRED")
     return result
 
-def parse_xes(compressed: bytes) -> tuple[dict[str, list[tuple[int, str, str, str | None]]], dict]:
-    check(type(compressed) is bytes and 0 < len(compressed) <= MAX_GZIP_BYTES,
-          "BPI_GZIP_SIZE_INVALID")
-    check(len(compressed) == MIRROR_BYTES and git_blob(compressed) == MIRROR_BLOB,
-          "BPI_PINNED_MIRROR_GIT_BLOB_MISMATCH")
+def parse_xes(compressed: bytes, *, source_profile: str = "PINNED_OPEN_PROBLEMS",
+              expected_sha256: str | None = None, on_trace=None, on_event=None
+              ) -> tuple[dict[str, list[tuple[int, str, str, str | None]]], dict]:
+    """One XES parser for the pinned Problems mirror and source-hashed Incidents.
+
+    Callback values are source-private. A caller-supplied digest does NOT
+    independently establish the original source identity.
+    """
+    if source_profile == "PINNED_OPEN_PROBLEMS":
+        max_gzip, max_xes = MAX_GZIP_BYTES, MAX_XES_BYTES
+        check(type(compressed) is bytes and 0 < len(compressed) <= max_gzip,
+              "BPI_GZIP_SIZE_INVALID")
+        check(len(compressed) == MIRROR_BYTES and git_blob(compressed) == MIRROR_BLOB,
+              "BPI_PINNED_MIRROR_GIT_BLOB_MISMATCH")
+    elif source_profile == "OFFICIAL_INCIDENTS_CLAIM":
+        max_gzip, max_xes = 8 * 1024 * 1024, 96 * 1024 * 1024
+        check(type(compressed) is bytes and 0 < len(compressed) <= max_gzip,
+              "BPI_INCIDENTS_GZIP_SIZE_INVALID")
+        check(isinstance(expected_sha256, str) and len(expected_sha256) == 64
+              and sha256(compressed).hexdigest() == expected_sha256,
+              "BPI_INCIDENTS_SOURCE_SHA_MISMATCH")
+    else:
+        raise Hold("BPI_UNKNOWN_SOURCE_PROFILE")
     try:
         with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as f:
-            raw = f.read(MAX_XES_BYTES + 1)
+            raw = f.read(max_xes + 1)
     except (OSError, EOFError, ValueError):
         raise Hold("BPI_GZIP_INVALID") from None
-    check(0 < len(raw) <= MAX_XES_BYTES, "BPI_DECOMPRESSED_SIZE_INVALID")
+    check(0 < len(raw) <= max_xes, "BPI_DECOMPRESSED_SIZE_INVALID")
     upper = raw.upper()
     check(b"<!DOCTYPE" not in upper and b"<!ENTITY" not in upper,
           "BPI_XML_DTD_OR_ENTITY_FORBIDDEN")
@@ -95,6 +113,8 @@ def parse_xes(compressed: bytes) -> tuple[dict[str, list[tuple[int, str, str, st
         check(isinstance(case, str) and 0 < len(case) <= 200,
               "BPI_CASE_ID_INVALID")
         check(case not in traces, "BPI_DUPLICATE_CASE_ID")
+        if on_trace is not None:
+            on_trace(case, t)
         events = []
         previous = None
         for item in t:
@@ -114,6 +134,8 @@ def parse_xes(compressed: bytes) -> tuple[dict[str, list[tuple[int, str, str, st
                 tie_count += int(timestamp == previous)
             previous = timestamp
             distinct_activities.add(activity)
+            if on_event is not None:
+                on_event(case, len(events) + 1, item)
             events.append((len(events) + 1, activity, timestamp.isoformat(), lifecycle))
         check(events, "BPI_EMPTY_TRACE")
         traces[case] = events
@@ -123,7 +145,11 @@ def parse_xes(compressed: bytes) -> tuple[dict[str, list[tuple[int, str, str, st
         "registered_activity_labels": len(distinct_activities),
         "declared_timestamp_regressions_in_file_order": regression_count,
         "declared_timestamp_ties_in_file_order": tie_count,
-        "log_origin_claim": "PUBLIC_THIRD_PARTY_MIRROR_ORIGINAL_4TU_NOT_BYTE_VERIFIED",
+        "log_origin_claim": (
+            "PUBLIC_THIRD_PARTY_MIRROR_ORIGINAL_4TU_NOT_BYTE_VERIFIED"
+            if source_profile == "PINNED_OPEN_PROBLEMS" else
+            "OFFICIAL_URL_ASSERTED_BY_CALLER_BYTES_NOT_INDEPENDENTLY_PINNED"
+        ),
     }
 
 def native_u1():
@@ -157,7 +183,11 @@ def project_registered_rows(traces: dict, selected: list[str]) -> tuple[list[dic
             })
     return data, equal_time_cases
 
-def inspect_registered_rows(data: list[dict], *, u1_loader=native_u1) -> tuple[bytes, dict, str]:
+def inspect_registered_rows(data: list[dict], *, u1_loader=native_u1,
+                            source_reference=OFFICIAL_DOI,
+                            owner_ref="BPI2013-PUBLIC-MIRROR-RESEARCH",
+                            authorization_ref="PUBLIC_RESEARCH_REUSE_ASSERTED_LICENSE_AUDIT_PENDING"
+                            ) -> tuple[bytes, dict, str]:
     """Use only the original pinned U1; never infer Task or real execution."""
     raw = ("\n".join(json.dumps(row, ensure_ascii=True, sort_keys=True,
                                  separators=(",", ":")) for row in data) + "\n").encode()
@@ -166,15 +196,15 @@ def inspect_registered_rows(data: list[dict], *, u1_loader=native_u1) -> tuple[b
     u1, owner_blob = u1_loader()
     m = {
         "schema": u1.VERSION, "kind": "EVENT_LOG_JSONL",
-        "owner_ref": "BPI2013-PUBLIC-MIRROR-RESEARCH",
+        "owner_ref": owner_ref,
         "jurisdiction": "EU", "as_of": "2026-11-03",
         "retention_until": "2035-12-31",
         "purpose": "ENGINE_RESEARCH_AND_TEST",
         "disclosure": "PUBLIC", "access_basis": "PUBLIC_REUSE_CLAIM",
-        "authorization_ref": "PUBLIC_RESEARCH_REUSE_ASSERTED_LICENSE_AUDIT_PENDING",
+        "authorization_ref": authorization_ref,
         "permission_asserted": True, "authorized_actions": ["LOCAL_ANALYSIS"],
         "revocation_status": "ACTIVE", "sha256": sha256(raw).hexdigest(),
-        "source_reference": OFFICIAL_DOI,
+        "source_reference": source_reference,
     }
     receipt = u1.inspect(raw, m, today=date(2026, 11, 3))
     check(receipt["unit_count"] == len(data)

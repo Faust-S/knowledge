@@ -15,7 +15,7 @@ permissions:
 jobs:
   verify-open-research-snapshot:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -150,5 +150,52 @@ jobs:
         with:
           name: iwxa-bpi13-owner-question-evidence-audit
           path: ${{ runner.temp }}/bpi13-owner-question-audit.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Official BPI13 Incidents source-fit adapter tests
+        run: python -m unittest discover -s research/activity-research/tests -p 'test_bpi13_incidents_*.py' -v
+      - name: Attempt direct official 4TU Incidents source and audit registered fields
+        run: |
+          if curl --fail --location --retry 1 --max-time 80 --silent --show-error \
+            'https://data.4tu.nl/file/0fc5c579-e544-4fab-9143-fab1f5192432/aa51ffbb-25fd-4b5a-b0b8-9aba659b7e8c' \
+            -o "$RUNNER_TEMP/bpi13-incidents.xes.gz"; then
+            if python research/activity-research/bpi13_incidents_applicability.py \
+              --xes-gz "$RUNNER_TEMP/bpi13-incidents.xes.gz" \
+              --sample-cases 12 --out bpi13-incidents-fit.json; then
+              python - <<'PY'
+          import json
+          r=json.load(open('bpi13-incidents-fit.json'))
+          assert r['schema']=='IWXA_BPI13_OFFICIAL_INCIDENTS_APPLICABILITY/0.1'
+          assert r['population']['catalogue_counts_match']
+          assert r['question_count']==4
+          assert r['u1_sample']['native_owner_git_blob']=='eb15aec5ba1a749c29d7c40a868127e1a384b6bf'
+          assert not r['u1_sample']['engine_accepted']
+          assert r['qualification']['accepted_user_tasks']==0
+          assert not r['source_independence']['different_exports_are_independent_real_world_observations']
+          print('BPI13_OFFICIAL_INCIDENTS_SOURCE_SCOPE_PASS',
+                r['population']['recorded_cases'],'cases',
+                r['population']['registered_events'],'registered events',
+                'group_changes',r['field_applicability']['consecutive_registered_group_changes'],
+                'wait_user_labels',r['field_applicability']['wait_user_label_events'],
+                'sha256',r['source']['file_sha256'])
+          PY
+            else
+              echo "BPI13_OFFICIAL_INCIDENTS_SOURCE_CONTENT_HOLD"
+              if [ ! -f bpi13-incidents-fit.json ]; then
+                printf '{"source_access":"SOURCE_CONTENT_HOLD","accepted_tasks":0}\n' \
+                  > bpi13-incidents-fit.json
+              fi
+            fi
+          else
+            printf '{"source_access":"SOURCE_ACCESS_HOLD","accepted_tasks":0}\n' \
+              > bpi13-incidents-fit.json
+            echo "BPI13_OFFICIAL_INCIDENTS_SOURCE_ACCESS_HOLD"
+          fi
+      - name: Upload aggregate official Incidents source-fit report only
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-bpi13-official-incidents-source-fit
+          path: bpi13-incidents-fit.json
           retention-days: 7
           if-no-files-found: error
