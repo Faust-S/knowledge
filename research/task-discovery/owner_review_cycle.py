@@ -191,6 +191,39 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
              native['sources_with_disagreement'] and
              disagreements.get('human_task_gold') is False,
              'OWNER_DISAGREEMENTS_INCOMPATIBLE')
+        # A matching count alone cannot prove this packet refers to the
+        # eight pinned original sources. Keep the adjudicator's source queue
+        # bound to the original selection without interpreting Task labels.
+        need(type(native.get('sources_exactly_agreed')) is int and
+             native['sources_exactly_agreed'] +
+             native['sources_with_disagreement'] == 8,
+             'OWNER_DISAGREEMENT_RECEIPT_TOTALS_MISMATCH')
+        try:
+            frozen = effort_contract.frozen_sources()
+        except (effort_contract.EffortHold, OSError, ValueError):
+            raise CycleHold('OWNER_DISAGREEMENT_SOURCE_SELECTION_UNAVAILABLE') from None
+        seen_disagreements = set()
+        for item in disagreements['disagreements']:
+            need(type(item) is dict and
+                 type(item.get('source_sha256')) is str and
+                 item['source_sha256'].startswith('sha256:'),
+                 'OWNER_DISAGREEMENT_SOURCE_IDENTITY_MISMATCH')
+            source_sha = item['source_sha256'][7:]
+            source = frozen.get(source_sha)
+            need(source is not None and
+                 source_sha not in seen_disagreements and
+                 item.get('source_ref') == source['html_url'],
+                 'OWNER_DISAGREEMENT_SOURCE_IDENTITY_MISMATCH')
+            seen_disagreements.add(source_sha)
+            # Ensure the queue contains a conflict rather than an agreed
+            # source inserted by a stale or incompatible receipt.
+            need(type(item.get('review_a_regions')) is list and
+                 type(item.get('review_b_regions')) is list and
+                 type(item.get('review_a_coverage')) is str and
+                 type(item.get('review_b_coverage')) is str and
+                 (item['review_a_regions'] != item['review_b_regions'] or
+                  item['review_a_coverage'] != item['review_b_coverage']),
+                 'OWNER_DISAGREEMENT_NOT_A_CONFLICT')
         receipt = Path(temporary) / 'owner-bridge-receipt.json'
         receipt.write_text(json.dumps(native, ensure_ascii=False) + '\n', encoding='utf-8')
         effort_command = [sys.executable, str(script),

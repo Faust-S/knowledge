@@ -48,6 +48,7 @@ class CycleFixture:
                 'schema': cycle.BRIDGE_SCHEMA,
                 'status': 'BLINDED_REVIEW_CLAIMS_CHECKED_NOT_ADJUDICATED_NOT_GOLD',
                 'sources_checked': 8, 'sources_with_disagreement': 0,
+                'sources_exactly_agreed': 8,
                 'reviewer_ids_distinct': True,
                 'human_task_gold': False, 'adjudication_completed': False})
         if len(self.calls) == 2:
@@ -229,6 +230,74 @@ class OwnerReviewCycleTests(unittest.TestCase):
                                         'OWNER_DISAGREEMENTS_INCOMPATIBLE'):
                 f.execute(runner=mismatch)
             self.assertEqual(len(f.calls), 1)
+
+    def test_adjudication_queue_requires_frozen_identity_and_real_conflict(self):
+        # Synthetic records only. Count equality must not license a stale,
+        # unrelated or duplicate issue for the third human adjudicator.
+        sha = 'a' * 64
+        url = 'https://github.com/example/research/issues/1'
+        frozen = {sha: {'html_url': url}}
+        good = {'source_sha256': 'sha256:' + sha, 'source_ref': url,
+                'review_a_coverage': 'NO_TASK_RELEVANT_SPANS',
+                'review_b_coverage': 'ALL_RELEVANT_SPANS_MARKED',
+                'review_a_regions': [],
+                'review_b_regions': [[0, 5, 'PROCESS', None, None, None]]}
+
+        for case, records, expected in (
+            ('valid', [good], None),
+            ('foreign', [{**good, 'source_sha256': 'sha256:' + 'b' * 64}],
+             'OWNER_DISAGREEMENT_SOURCE_IDENTITY_MISMATCH'),
+            ('wrong_ref', [{**good, 'source_ref': 'https://invalid.example/other'}],
+             'OWNER_DISAGREEMENT_SOURCE_IDENTITY_MISMATCH'),
+            ('duplicate', [good, dict(good)],
+             'OWNER_DISAGREEMENT_SOURCE_IDENTITY_MISMATCH'),
+            ('agreed', [{**good, 'review_b_regions': [],
+                         'review_b_coverage': 'NO_TASK_RELEVANT_SPANS'}],
+             'OWNER_DISAGREEMENT_NOT_A_CONFLICT'),
+        ):
+            with self.subTest(case=case), TemporaryDirectory() as scenario:
+                f = CycleFixture(Path(scenario))
+                def with_queue(command, cwd):
+                    response = f.runner(command, cwd)
+                    if len(f.calls) == 1:
+                        saved = Path(command[
+                            command.index('--restricted-disagreement-output') + 1])
+                        packet = json.loads(saved.read_text('utf-8'))
+                        packet['disagreements'] = records
+                        saved.write_text(json.dumps(packet), encoding='utf-8')
+                        native = json.loads(response)
+                        native['sources_with_disagreement'] = len(records)
+                        native['sources_exactly_agreed'] = 8 - len(records)
+                        return json.dumps(native)
+                    return response
+                with patch.object(cycle.effort_contract, 'frozen_sources',
+                                  return_value=frozen):
+                    if expected:
+                        with self.assertRaisesRegex(cycle.CycleHold, expected):
+                            f.execute(runner=with_queue)
+                        self.assertFalse(f.disagreement.exists())
+                        self.assertFalse(f.effort.exists())
+                    else:
+                        result = f.execute(runner=with_queue)
+                        self.assertEqual(result['sources_with_disagreement'], 1)
+                        self.assertTrue(f.disagreement.exists())
+                        self.assertFalse(result['human_gold'])
+
+    def test_bridge_disagreement_totals_require_exactly_eight(self):
+        with TemporaryDirectory() as td:
+            f = CycleFixture(Path(td))
+            def incorrect_totals(command, cwd):
+                response = f.runner(command, cwd)
+                if len(f.calls) == 1:
+                    native = json.loads(response)
+                    native['sources_exactly_agreed'] = 7
+                    return json.dumps(native)
+                return response
+            with self.assertRaisesRegex(cycle.CycleHold,
+                                        'OWNER_DISAGREEMENT_RECEIPT_TOTALS_MISMATCH'):
+                f.execute(runner=incorrect_totals)
+            self.assertFalse(f.disagreement.exists())
+            self.assertFalse(f.effort.exists())
 
     def test_missing_effort_file_does_not_claim_completion(self):
         with TemporaryDirectory() as td:
