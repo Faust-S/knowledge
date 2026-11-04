@@ -119,11 +119,6 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
     # This also allows a safe retry after a failed second step.
     need(disagreements_out.parent.is_dir() and effort_out.parent.is_dir(),
          'OWNER_LOCAL_OUTPUT_DIRECTORY_UNAVAILABLE')
-    bridge_command = [sys.executable, '-m', 'engine.research.task_exp_01_review_bridge',
-                      '--source-first-packet', str(packet),
-                      '--review-a', str(review_a), '--review-b', str(review_b),
-                      '--restricted-disagreement-output', str(staged_disagreements),
-                      '--confirm-independent-local-review']
     with ExitStack() as scope:
         private_diff = Path(scope.enter_context(tempfile.TemporaryDirectory(
             prefix='.iwxa-m3-diff-', dir=disagreements_out.parent)))
@@ -133,6 +128,11 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
             prefix='iwxa-m3-receipt-'))
         staged_disagreements = private_diff / 'disagreements.json'
         staged_effort = private_effort / 'review-effort.json'
+        bridge_command = [sys.executable, '-m', 'engine.research.task_exp_01_review_bridge',
+                          '--source-first-packet', str(packet),
+                          '--review-a', str(review_a), '--review-b', str(review_b),
+                          '--restricted-disagreement-output', str(staged_disagreements),
+                          '--confirm-independent-local-review']
         native = safe_json(runner(bridge_command, catalog))
         need(native.get('schema') == BRIDGE_SCHEMA and
              native.get('status') == 'BLINDED_REVIEW_CLAIMS_CHECKED_NOT_ADJUDICATED_NOT_GOLD' and
