@@ -122,6 +122,42 @@ jobs:
           assert receipt["two_synthetic_accounts_export_passed"] is True
           assert receipt["human_task_gold"] is False
           print(json.dumps(receipt, sort_keys=True))
+          # M3b blind-review boundary: distinct accounts in one Label Studio
+          # organization may still read each other's completed annotations.
+          # Inspect real server access, never log annotation content or tokens.
+          listing = api("Token " + primary_token, "/api/projects/")
+          assert type(listing) is dict and type(listing.get("results")) is list, \
+              "LABEL_STUDIO_PROJECT_INDEX_UNEXPECTED"
+          a_projects = [item for item in listing["results"]
+                        if type(item) is dict and
+                        item.get("title") == "IWXA TASK-EXP-01 reviewer A" and
+                        type(item.get("id")) is int]
+          assert a_projects, "NATIVE_A_PROJECT_NOT_FOUND"
+          other_pid = max(item["id"] for item in a_projects)
+          request = Request(
+              base + f"/api/projects/{other_pid}/export?exportType=JSON&download_all_tasks=true",
+              headers={"Authorization": "Token " + secondary_token,
+                       "Accept": "application/json"},
+          )
+          try:
+              with urlopen(request, timeout=25) as response:
+                  cross_export = json.loads(response.read(1_000_000))
+              cross_readable = (
+                  type(cross_export) is list and len(cross_export) == 8 and
+                  all(type(item) is dict and
+                      type(item.get("annotations")) is list and
+                      len(item["annotations"]) == 1 and
+                      item["annotations"][0].get("completed_by") == first["id"]
+                      for item in cross_export)
+              )
+          except HTTPError as error:
+              assert error.code in (401, 403, 404), "CROSS_PROJECT_PROBE_HTTP_UNEXPECTED"
+              cross_readable = False
+          print(json.dumps({
+              "M3_SAME_ORGANIZATION_REVIEW_A_VISIBLE_TO_REVIEW_B": cross_readable,
+              "M3_HUMAN_INDEPENDENCE_PROVEN": False,
+              "M3_PROJECT_ISOLATION_CONTRACT_QUALIFIED": not cross_readable,
+          }, sort_keys=True))
           PY
       - name: Report native image and container status on failure
         if: failure()
