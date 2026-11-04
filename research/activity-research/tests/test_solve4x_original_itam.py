@@ -44,6 +44,39 @@ class Tests(TestCase):
         self.assertFalse(diag["source_contents_returned"])
         self.assertNotIn("private-user-555",str(diag))
         self.assertNotIn("sensitive-person-999",str(diag))
+    def test_original_itam_unmarked_exact_match_only(self):
+        original_bytes=(b'{"ocel:events":{"evt-1":{"ocel:activity":"Check out",'
+                        b'"ocel:timestamp":"2024-01-01T00:00:00"},'
+                        b'"evt-2":{"ocel:activity":"Other",'
+                        b'"ocel:timestamp":"2024-01-01T00:01:00"}}}')
+        scene_bytes=(b'{"ocel:events":{"evt-1":{"ocel:activity":"Check out",'
+                     b'"ocel:timestamp":"2024-01-01T00:00:00"},'
+                     b'"video-1":{"ocel:activity":"Human action",'
+                     b'"ocel:timestamp":"2024-01-01T00:00:05",'
+                     b'"ocel:vmap":{"end_time":"2024-01-01T00:00:06"}}}}')
+        r=original.compare_original_itam_to_scene(original_bytes,scene_bytes)
+        self.assertEqual(r["literal_event_id_intersection"],1)
+        self.assertEqual(r["literal_activity_and_timestamp_multiset_intersection"],1)
+        self.assertEqual(r["scene_non_video_marker_events"],1)
+        self.assertFalse(r["literal_event_match_proves_independent_human_action"])
+        self.assertFalse(r["raw_values_exported"])
+        self.assertEqual(r["human_task_gold"],"NOT_MEASURED")
+    def test_unrecognised_event_schema_abstains(self):
+        source=b'{"object":"x","action":"y"}'
+        scene=b'{"ocel:events":{}}'
+        r=original.compare_original_itam_to_scene(source,scene)
+        self.assertEqual(r["status"],"ORIGINAL_ITAM_EVENT_SCHEMA_NOT_QUALIFIED")
+        self.assertEqual(r["matched_scene_unmarked"],"NOT_MEASURED")
+        self.assertEqual(r["accepted_tasks"],0)
+    def test_same_activity_different_timestamp_not_exact(self):
+        source=(b'{"ocel:events":{"1":{"ocel:activity":"A",'
+                b'"ocel:timestamp":"2024-01-01T00:00:00"}}}')
+        scene=(b'{"ocel:events":{"1":{"ocel:activity":"A",'
+               b'"ocel:timestamp":"2024-01-01T00:00:01"}}}')
+        r=original.compare_original_itam_to_scene(source,scene)
+        self.assertEqual(r["literal_event_id_intersection"],1)
+        self.assertEqual(r["exact_ids_and_activity_timestamp"],0)
+        self.assertFalse(r["time_zone_or_clock_calibration_proven"])
     def test_empty_is_hold(self):
         with self.assertRaisesRegex(index.Hold,"ITAM_JSONL_BYTES_INVALID"):
             original.parse_jsonl(b'')
