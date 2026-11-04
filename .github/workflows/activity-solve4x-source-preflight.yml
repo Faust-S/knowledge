@@ -9,6 +9,7 @@ on:
       - '.github/workflows/activity-solve4x-source-preflight.yml'
       - 'research/activity-research/solve4x_small_member_pair.py'
       - 'research/activity-research/solve4x_zip_range_probe.py'
+      - 'research/activity-research/solve4x_same_case_audit.py'
 
 permissions:
   contents: read
