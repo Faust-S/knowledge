@@ -20,7 +20,7 @@ test('host-neutral revisioned source selects verified current evidence', async (
     readEvidence: async () => ({ observedRevision: old, evidenceRef: 'line:2', excerpt: 'Delivery: 8 days.' }),
   });
   const result = await selectContext(request,port);
-  assert.equal(CONTRACT_VERSION,'0.2.6');
+  assert.equal(CONTRACT_VERSION,'0.2.7');
   assert.equal(result.selected[0].excerpt,'Delivery: 8 days.');
   assert.equal(result.selected[0].revision,old);
   assert.equal((await revalidateProjection(result,port)).allCurrent,true);

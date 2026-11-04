@@ -1,6 +1,6 @@
 {
   "name": "@iwxa/k01-context",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "private": true,
   "type": "module",
   "engines": {
@@ -26,6 +26,10 @@
     "./atlas-public-source": {
       "types": "./integrations/atlas-public-source.d.mts",
       "default": "./integrations/atlas-public-source.mjs"
+    },
+    "./atlas-project-source": {
+      "types": "./integrations/atlas-project-source.d.mts",
+      "default": "./integrations/atlas-project-source.mjs"
     }
   },
   "scripts": {

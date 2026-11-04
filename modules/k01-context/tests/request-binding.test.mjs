@@ -17,7 +17,7 @@ test('selection intent fingerprint survives JSON round-trip and irrelevant term 
   const first=await persisted(task);
   const second=await persisted({...task,terms:['LEAD','delivery','lead'],
     allowedSources:[sourceRef,sourceRef]});
-  assert.equal(CONTRACT_VERSION,'0.2.6');
+  assert.equal(CONTRACT_VERSION,'0.2.7');
   assert.match(first.requestBinding,/^[a-f0-9]{64}$/);
   assert.equal(first.requestBinding,second.requestBinding);
   assert.deepEqual(first.selected,second.selected);
