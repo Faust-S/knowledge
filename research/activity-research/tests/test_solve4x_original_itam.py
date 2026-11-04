@@ -144,6 +144,60 @@ class Tests(TestCase):
         r=original.source_alignment_coverage(left,right)
         self.assertEqual(r["source_timestamp_format_counts"]["INVALID"],1)
         self.assertIsNone(r["time_window_counts"]["5s"])
+
+    def test_author_export_contract_shape_not_proof(self):
+        source={"42":{"ocel:activity":"Check-Out",
+                      "ocel:timestamp":"2024-03-25T07:48:23Z",
+                      "ocel:omap":["item_asset_1","missing"]}}
+        objects={"item_asset_1":{},"admin_user_6":{},"other-prefix":{}}
+        out=original.author_exporter_contract_coverage(source,objects)
+        self.assertEqual(out["ocel_object_links_resolved_in_source"],1)
+        self.assertEqual(out["object_ids_with_exporter_role_prefix"],2)
+        self.assertEqual(out["object_ids_without_known_role_prefix"],1)
+        self.assertTrue(out["format_consistency_not_authentication"])
+    def test_published_clock_candidate_and_negative_controls(self):
+        src={"42":{"ocel:timestamp":"2024-03-25T07:48:22Z"}}
+        scene={"A":{"ocel:timestamp":"2024-03-25T08:48:23"}}
+        result=original.published_site_clock_hypothesis(src,scene)
+        windows=result["variant_windows"]
+        self.assertEqual(windows["AUGSBURG_EUROPE_BERLIN_HYPOTHESIS"]["1s"]["max_cardinality_time_only_pairs"],1)
+        self.assertEqual(windows["UTC_NAIVE_UNCALIBRATED_CONTROL"]["30s"]["scene_events_with_candidate"],0)
+        self.assertEqual(windows["NEXT_DAY_NEGATIVE_CONTROL"]["30s"]["scene_events_with_candidate"],0)
+        self.assertFalse(result["clock_synchronization_proven"])
+    def test_many_to_one_cannot_count_two_event_pairs(self):
+        src={"42":{"ocel:timestamp":"2024-03-25T07:48:22Z"}}
+        scene={"A":{"ocel:timestamp":"2024-03-25T08:48:22"},
+               "B":{"ocel:timestamp":"2024-03-25T08:48:23"}}
+        result=original.published_site_clock_hypothesis(src,scene)
+        stats=result["variant_windows"]["AUGSBURG_EUROPE_BERLIN_HYPOTHESIS"]["1s"]
+        self.assertEqual(stats["scene_events_with_candidate"],2)
+        self.assertEqual(stats["max_cardinality_time_only_pairs"],1)
+    def test_naive_source_and_aware_scene_abstain(self):
+        src={"a":{"ocel:timestamp":"2024-03-25T07:48:22"}}
+        scene={"b":{"ocel:timestamp":"2024-03-25T08:48:22"}}
+        out=original.published_site_clock_hypothesis(src,scene)
+        self.assertEqual(out["status"],"ORIGINAL_CLOCK_NOT_ALL_AWARE_HOLD")
+        scene={"b":{"ocel:timestamp":"2024-03-25T08:48:22+01:00"}}
+        src={"a":{"ocel:timestamp":"2024-03-25T07:48:22Z"}}
+        self.assertEqual(original.published_site_clock_hypothesis(src,scene)["status"],
+                         "SCENE_CLOCK_NOT_ALL_NAIVE_HOLD")
+    def test_outside_recording_date_and_invalid_source_abstain(self):
+        src={"a":{"ocel:timestamp":"2024-03-25T07:48:22Z"}}
+        other={"b":{"ocel:timestamp":"2024-03-26T08:48:22"}}
+        self.assertEqual(original.published_site_clock_hypothesis(src,other)["status"],
+                         "SCENE_OUTSIDE_PUBLISHED_RECORDING_DATE_HOLD")
+        bad={"b":{"ocel:timestamp":"bad-timestamp"}}
+        self.assertEqual(original.published_site_clock_hypothesis(src,bad)["status"],
+                         "SOURCE_OR_SCENE_CLOCK_INVALID_HOLD")
+    def test_conditional_time_only_report_does_not_disclose_event_values(self):
+        src={"hidden-source-id":{"ocel:timestamp":"2024-03-25T07:48:22Z",
+                                 "ocel:activity":"sensitive-action"}}
+        scene={"hidden-scene-id":{"ocel:timestamp":"2024-03-25T08:48:22",
+                                   "ocel:activity":"sensitive-action"}}
+        report=str(original.published_site_clock_hypothesis(src,scene))
+        self.assertNotIn("hidden-",report)
+        self.assertNotIn("sensitive-action",report)
+        self.assertEqual(original.published_site_clock_hypothesis(src,scene)["accepted_tasks"],0)
     def test_empty_is_hold(self):
         with self.assertRaisesRegex(index.Hold,"ITAM_JSONL_BYTES_INVALID"):
             original.parse_jsonl(b'')

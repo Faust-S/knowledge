@@ -334,6 +334,24 @@ jobs:
               assert comparison["source_record_count"]==205
               assert comparison["literal_event_id_intersection"]==0
               assert comparison["literal_activity_and_timestamp_multiset_intersection"]==0
+              contract=comparison["author_export_contract"]
+              assert contract["author_exporter_commit"]=="2c0aa9a8f59e31c955e0d2159df720f10ad93bf0"
+              assert contract["source_event_count"]==205
+              assert contract["source_object_count"]==51
+              assert contract["accepted_tasks"]==0
+              clock=comparison["published_recording_site_clock_hypothesis"]
+              assert clock["accepted_tasks"]==0
+              assert clock["clock_synchronization_proven"] is False
+              assert clock["no_clock_offset_optimized"] is True
+              assert clock["status"]=="EXTERNALLY_PREDECLARED_CLOCK_HYPOTHESIS_NOT_CALIBRATED"
+              assert clock["source_event_count"]==205
+              assert clock["scene_event_count"]==17
+              assert clock["variant_windows"]["NEXT_DAY_NEGATIVE_CONTROL"]["30s"]["scene_events_with_candidate"]==0
+              print("SOLVE4X_AUTHOR_EXPORTER_CONTRACT",contract["source_event_count"],
+                    "events",contract["ocel_object_links_resolved_in_source"],
+                    "resolved links",contract["object_ids_with_exporter_role_prefix"],
+                    "object IDs with expected role prefix")
+              print("SOLVE4X_CLOCK_HYPOTHESES_NOT_ATTESTED",clock["variant_windows"])
               print("SOLVE4X_ITAM_REPRESENTATION_DIAGNOSTIC",
                     "source_events",comparison["source_record_count"],
                     "scene_system_events",comparison["scene_non_video_marker_events"],

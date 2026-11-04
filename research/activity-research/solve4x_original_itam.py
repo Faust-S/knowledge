@@ -224,6 +224,145 @@ def source_alignment_coverage(original_events: dict, scene_candidates: dict) -> 
     }
 
 
+
+def author_exporter_contract_coverage(events: dict, objects: dict) -> dict:
+    """Read-only structure check against dtdi/laravel-eventlog, not origin proof."""
+    roles = ("admin", "item", "location", "target")
+    role_counts = {r: 0 for r in roles}
+    unknown = 0
+    for object_id in objects:
+        if not isinstance(object_id, str):
+            unknown += 1
+            continue
+        role, sep, rest = object_id.partition("_")
+        if sep and role in roles and rest:
+            role_counts[role] += 1
+        else:
+            unknown += 1
+    refs = resolved = invalid_ref = missing_omap = 0
+    for event in events.values():
+        links = event.get("ocel:omap") if isinstance(event, dict) else None
+        if not isinstance(links, list):
+            missing_omap += 1
+            continue
+        for object_id in links:
+            refs += 1
+            if not isinstance(object_id, str):
+                invalid_ref += 1
+            elif object_id in objects:
+                resolved += 1
+    return {
+        "author_exporter_repo": "dtdi/laravel-eventlog",
+        "author_exporter_commit": "2c0aa9a8f59e31c955e0d2159df720f10ad93bf0",
+        "source_event_id_origin": "model.id",
+        "source_activity_origin": "action_type",
+        "source_timestamp_origin": "created_at/Carbon.toJSON",
+        "source_object_id_shape": "relation_model_id",
+        "source_event_count": len(events),
+        "source_object_count": len(objects),
+        "event_keys_decimal_only": sum(isinstance(k, str) and k.isdecimal() for k in events),
+        "object_ids_with_exporter_role_prefix": sum(role_counts.values()),
+        "object_ids_without_known_role_prefix": unknown,
+        "role_prefix_counts": role_counts,
+        "ocel_object_links_total": refs,
+        "ocel_object_links_resolved_in_source": resolved,
+        "ocel_object_links_invalid_type": invalid_ref,
+        "events_without_object_link_list": missing_omap,
+        "format_consistency_not_authentication": True,
+        "source_to_scene_identity_mapping": "NOT_ATTESTED",
+        "independent_human_activity_gold": "NOT_MEASURED",
+        "accepted_tasks": 0,
+    }
+
+
+def published_site_clock_hypothesis(original_events: dict, scene_candidates: dict) -> dict:
+    """Predeclared city/date timezone hypothesis; never estimate clock shift."""
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    def parse(value):
+        if not isinstance(value, str):
+            raise ValueError("CLOCK_VALUE_INVALID")
+        return datetime.fromisoformat(
+            value[:-1] + "+00:00" if value.endswith("Z") else value)
+
+    try:
+        original = [parse(e.get("ocel:timestamp")) for e in original_events.values()]
+        scenes = [parse(e.get("ocel:timestamp")) for e in scene_candidates.values()]
+    except (ValueError, TypeError, AttributeError):
+        return {"status": "SOURCE_OR_SCENE_CLOCK_INVALID_HOLD", "accepted_tasks": 0}
+    if not original or not scenes:
+        return {"status": "SOURCE_OR_SCENE_EMPTY_HOLD", "accepted_tasks": 0}
+    if any(t.tzinfo is None or t.utcoffset() is None for t in original):
+        return {"status": "ORIGINAL_CLOCK_NOT_ALL_AWARE_HOLD", "accepted_tasks": 0}
+    if any(t.tzinfo is not None and t.utcoffset() is not None for t in scenes):
+        return {"status": "SCENE_CLOCK_NOT_ALL_NAIVE_HOLD", "accepted_tasks": 0}
+    if any((t.year, t.month, t.day) != (2024, 3, 25) for t in scenes):
+        return {"status": "SCENE_OUTSIDE_PUBLISHED_RECORDING_DATE_HOLD", "accepted_tasks": 0}
+
+    berlin = [t.astimezone(ZoneInfo("Europe/Berlin")).replace(tzinfo=None)
+              for t in original]
+    utc = [t.astimezone(timezone.utc).replace(tzinfo=None) for t in original]
+
+    def counts(source_times, window):
+        edges = []
+        for moment in scenes:
+            options = [i for i, t in enumerate(source_times)
+                       if abs((t - moment).total_seconds()) <= window]
+            options.sort(key=lambda i: (abs((source_times[i] - moment).total_seconds()), i))
+            edges.append(options)
+        matched_source = {}
+        def augment(scene_index, seen):
+            for i in edges[scene_index]:
+                if i in seen:
+                    continue
+                seen.add(i)
+                if i not in matched_source or augment(matched_source[i], seen):
+                    matched_source[i] = scene_index
+                    return True
+            return False
+        maximum = 0
+        for i in sorted(range(len(scenes)), key=lambda j: (len(edges[j]), j)):
+            if augment(i, set()):
+                maximum += 1
+        return {
+            "scene_events_with_candidate": sum(bool(row) for row in edges),
+            "source_events_near_scene": len({i for row in edges for i in row}),
+            "candidate_pair_edges": sum(len(row) for row in edges),
+            "scene_events_with_multiple_candidates": sum(len(row) > 1 for row in edges),
+            "max_cardinality_time_only_pairs": maximum,
+        }
+
+    variants = {
+        "AUGSBURG_EUROPE_BERLIN_HYPOTHESIS": berlin,
+        "UTC_NAIVE_UNCALIBRATED_CONTROL": utc,
+        "BERLIN_PLUS_ONE_HOUR_SENSITIVITY": [t + timedelta(hours=1) for t in berlin],
+        "BERLIN_MINUS_ONE_HOUR_SENSITIVITY": [t - timedelta(hours=1) for t in berlin],
+        "NEXT_DAY_NEGATIVE_CONTROL": [t + timedelta(days=1) for t in berlin],
+    }
+    return {
+        "status": "EXTERNALLY_PREDECLARED_CLOCK_HYPOTHESIS_NOT_CALIBRATED",
+        "published_experiment_date": "2024-03-25",
+        "published_recording_city": "Augsburg",
+        "fixed_city_zone_hypothesis": "Europe/Berlin",
+        "zone_claim_source": "Solve4X authors recording location and date",
+        "source_event_count": len(original),
+        "scene_event_count": len(scenes),
+        "predeclared_windows_seconds": [1, 5, 30],
+        "variant_windows": {
+            name: {f"{w}s": counts(seq, w) for w in (1, 5, 30)}
+            for name, seq in variants.items()
+        },
+        "candidate_zone_not_selected_by_max_match": True,
+        "no_clock_offset_optimized": True,
+        "clock_synchronization_proven": False,
+        "source_to_scene_semantic_event_identity": "NOT_VERIFIED",
+        "human_work_ground_truth": "NOT_MEASURED",
+        "task_quality": "NOT_MEASURED",
+        "accepted_tasks": 0,
+    }
+
+
 def compare_original_itam_to_scene(raw: bytes, scene_raw: bytes) -> dict:
     """Only exact registered-event evidence; no inferred person actions."""
     report, records = parse_jsonl(raw, include_records=True)
@@ -317,6 +456,12 @@ def compare_original_itam_to_scene(raw: bytes, scene_raw: bytes) -> dict:
             sum((source_signatures & candidate_signatures).values()),
         "source_representation_diagnostics":
             source_alignment_coverage(source_events, candidates),
+        "author_export_contract": author_exporter_contract_coverage(
+            source_events, records[0].get("ocel:objects", {})
+            if len(records) == 1 and isinstance(records[0].get("ocel:objects"), dict)
+            else {}),
+        "published_recording_site_clock_hypothesis":
+            published_site_clock_hypothesis(source_events, candidates),
         "literal_event_id_intersection": len(valid_shared_ids),
         "exact_ids_and_activity_timestamp": exact_ids_and_signatures,
         "scene_candidate_event_ids_absent_in_source":
