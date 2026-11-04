@@ -10,6 +10,8 @@ on:
       - 'research/activity-research/solve4x_small_member_pair.py'
       - 'research/activity-research/solve4x_zip_range_probe.py'
       - 'research/activity-research/solve4x_same_case_audit.py'
+      - 'research/activity-research/solve4x_global_itam_audit.py'
+      - 'research/activity-research/tests/test_solve4x_global_itam_audit.py'
       - 'research/activity-research/tests/test_solve4x_same_case_audit.py'
 
 permissions:
@@ -192,5 +194,38 @@ jobs:
         with:
           name: iwxa-solve4x-same-case-identity-aggregates
           path: solve4x-same-case-derived.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Validate scoped global ITAM source comparison on offline negative controls
+        run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_global_itam_audit.py' -v
+      - name: Compare exact original global OCEL with scene OCEL, no event export
+        run: |
+          python3 research/activity-research/solve4x_global_itam_audit.py \
+            --out solve4x-global-itam-derived.json || true
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("solve4x-global-itam-derived.json").read_text())
+          assert r["schema"]=="IWXA_SOLVE4X_GLOBAL_ITAM_SCENE_COMPARISON/0.1"
+          assert r["raw_source_events_exported"] is False
+          assert r["limits"]["accepted_tasks"] == 0
+          assert r["limits"]["human_task_gold"] == "NOT_MEASURED"
+          if r["status"]=="DIRECT_GLOBAL_AND_SCENE_OCEL_RECORD_SCOPE_COMPARED":
+              assert r["counts"]["scene_recorded_events"]==40
+              assert r["counts"]["scene_marked_end_time_events"]==23
+              assert r["counts"]["scene_unmarked_end_time_events"]==17
+              assert r["source"]["scene_ocel_sha256"]=="5de185ada7d0e8d82e3f43929e594c31a1c52aad334197557cc7c2550d3f1f15"
+              assert r["source"]["full_archive_downloaded"] is False
+          print("SOLVE4X_GLOBAL_ITAM_CONSISTENCY",r["status"],
+                "global_recorded",r.get("counts",{}).get("global_recorded_events","UNKNOWN"),
+                "scene_unmarked_matched",r.get("counts",{}).get("scene_unmarked_matching_global_timestamp_activity","UNKNOWN"),
+                "human_gold",r["limits"]["human_task_gold"])
+          PY
+      - name: Upload aggregate global-to-scene ITAM source comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-solve4x-global-itam-scene-aggregates
+          path: solve4x-global-itam-derived.json
           retention-days: 7
           if-no-files-found: error
