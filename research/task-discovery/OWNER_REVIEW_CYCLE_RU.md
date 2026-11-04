@@ -45,6 +45,14 @@ python research/task-discovery/owner_review_cycle.py \
 
 Проверено публичной source-first регрессией: [run 41858272318](https://github.com/Faust-S/knowledge/actions/runs/41858272318) — SUCCESS (85 tests). Исходный owner review bridge не изменялся.
 
+## Контроль специализированной формы перед owner Review Bridge
+
+Перед запуском исходного `task_exp_01_review_bridge.py` локальный цикл теперь проверяет **точную owner XML** по пути `knowledge/task-catalog/engine/research/TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml` внутри `--owner-root`. Используется уже существующий `review_form_contract.check_xml`, закреплённый Git blob `7922b634b145bc064a33f95d04c058d3c5da18f6`; проверяются выбор `INDEPENDENT_TASK`, три поля интерпретации, `review_coverage` и источник `source_text`. Файл только читается в owner-local checkout, в публичную ветку не переносится.
+
+Отсутствие или изменение формы, а также попытка подмены общим E5 XML дают `HOLD` **до запуска Bridge и до создания выходных файлов**. Проверка служит подтверждением инструментального контракта, а не доказательством, что люди действительно работали по этой форме; факт сохранённого XML в каждом Label Studio отдельно проверяется `labelstudio_project_setup.py`. Предшествующее обязательство frozen U1/regex `93e76fc6983364c5718a8e26f797d7220ed51899cd90bf92f15731d3c5f94bf0` не изменено.
+
+Проверяемый код: [commit e5295165](https://github.com/Faust-S/knowledge/commit/e529516581b1f0439e447ca7a88e589a79203ea9); [GitHub Actions 41864421171](https://github.com/Faust-S/knowledge/actions/runs/41864421171) — на момент фиксации **в очереди, PASS не подтверждён**.
+
 ## Что тестируется, чего ещё нет
 
 - Адресные offline-тесты проверяют два последовательных вызова, подтверждение источников, неизменность входных файлов, наличие реального локального пакета разногласий и совпадение его числа случаев с квитанцией owner bridge, отказ при ошибках bridge и отсутствие ложного результата при частичной записи. Модуль не создаёт второй Task Engine, Store, Rights или систему аннотаций.
