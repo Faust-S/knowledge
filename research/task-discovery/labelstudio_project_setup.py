@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import math
+import math
 import os
 from pathlib import Path
 import re
@@ -89,9 +90,16 @@ def strict_json_bytes(raw: bytes, *, prefix: str):
     def nonfinite(_value):
         raise SetupHold(prefix + "_NONFINITE_NUMBER")
 
+    def finite_float(value):
+        # A valid JSON numeral can overflow a Python float (1e999) and
+        # silently become Infinity without invoking parse_constant.
+        parsed = float(value)
+        require(math.isfinite(parsed), prefix + "_NONFINITE_NUMBER")
+        return parsed
+
     try:
         return json.loads(raw.decode("utf-8"), object_pairs_hook=unique_pairs,
-                          parse_constant=nonfinite)
+                          parse_constant=nonfinite, parse_float=finite_float)
     except SetupHold:
         raise
     except (UnicodeError, ValueError, RecursionError, TypeError):
