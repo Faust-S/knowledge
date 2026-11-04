@@ -12,6 +12,8 @@ on:
       - 'research/activity-research/solve4x_original_itam.py'
       - 'research/activity-research/tests/test_solve4x_original_itam.py'
       - 'research/activity-research/solve4x_same_case_audit.py'
+      - 'research/activity-research/solve4x_scene_component_lineage.py'
+      - 'research/activity-research/tests/test_solve4x_scene_component_lineage.py'
       - 'research/activity-research/solve4x_global_itam_audit.py'
       - 'research/activity-research/solve4x_scene_ui_audit.py'
       - 'research/activity-research/solve4x_ui_ocel_time.py'
@@ -373,5 +375,41 @@ jobs:
         with:
           name: iwxa-solve4x-original-itam-structure
           path: solve4x-original-itam-summary.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Verify scene video and sensor source lineage, including conflicts
+        run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_scene_component_lineage.py' -v
+      - name: Replay exact scene OCEL source components on original ZIP bytes
+        run: |
+          python3 research/activity-research/solve4x_scene_component_lineage.py --out solve4x-scene-component-lineage.json
+          python3 - <<'PY'
+          import json
+          with open("solve4x-scene-component-lineage.json", encoding="utf-8") as stream:
+              r=json.load(stream)
+          assert r["schema"] == "IWXA_SOLVE4X_SCENE_COMPONENT_LINEAGE/0.1"
+          assert r["status"] == "DIRECT_PUBLISHED_COMPONENT_LINEAGE_AUDIT"
+          assert r["source_values_exported"] is False
+          assert r["accepted_tasks"] == 0
+          assert r["source"]["source_bytes_written_to_artifact"] is False
+          assert r["source"]["full_archive_downloaded"] is False
+          assert r["counts"]["joined_total"] == 40
+          assert r["counts"]["joined_with_end_time_field"] == 23
+          assert r["counts"]["joined_without_end_time_field"] == 17
+          c=r["counts"]
+          print("SOLVE4X_PROVENANCE_COMPONENTS",
+                "video",c["video_component_total"],
+                "sensor",c["sensor_component_total"],
+                "video_exact",c.get("video_only_exact",0),
+                "sensor_exact",c.get("sensor_only_exact",0),
+                "both_exact",c.get("both_components_exact",0),
+                "conflicting",c.get("source_id_present_but_no_exact_core",0),
+                "unattributed",c.get("joined_event_not_in_components",0))
+          PY
+      - name: Save source SHA and aggregate counts only
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-solve4x-scene-provenance-counts
+          path: solve4x-scene-component-lineage.json
           retention-days: 7
           if-no-files-found: error
