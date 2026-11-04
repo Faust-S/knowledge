@@ -21,7 +21,7 @@ MAX_TAIL = 131072
 MAX_DIRECTORY = 8 * 1024 * 1024
 MAX_METADATA = 1024 * 1024
 TARGETS = ("scene01_vid.json", "scene01_ocel.json", "scene01_video_ocel.json",
-           "scene01_ui.csv", "itam.ocelxml", "itam_ocel.json", "global_ocel.json")
+           "scene01_ui.csv", "itam.ocelxml", "itam_ocel.json", "global_ocel.json", "itam_ocel.jsonl")
 SCHEMA = "IWXA_SOLVE4X_ZIP_RANGE_INDEX/0.1"
 
 
@@ -109,7 +109,7 @@ def summarize(entries: list[dict], source: dict) -> dict:
     # Explicitly distinguish the true ITAM export from joined global OCEL.
     itam_names = [e for e in entries if e["name"].lower().split("/")[-1]
                   in ("itam_ocel.json", "itam.jsonocel", "itam.ocelxml",
-                      "itam_ocel.xml", "itam.json", "itam_ocel.jsonocel")]
+                      "itam_ocel.xml", "itam.json", "itam_ocel.jsonocel", "itam_ocel.jsonl")]
     global_files = [e for e in entries if e["name"].startswith("global/")
                     and not e["name"].endswith("/")]
     return {
