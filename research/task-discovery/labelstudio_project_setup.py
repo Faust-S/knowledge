@@ -562,7 +562,8 @@ def review_progress(tasks: list[dict], url: str, token: str, pid: int, *,
             unannotated += 1
             continue
         ann = row["annotations"][0]
-        ident = ann.get("completed_by") if type(ann) is dict else None
+        require(type(ann) is dict, "REVIEW_PROGRESS_ANNOTATION_MALFORMED")
+        ident = ann.get("completed_by")
         if type(ident) is dict:
             ident = ident.get("id")
         require(type(ident) in (int, str) and type(ident) is not bool and

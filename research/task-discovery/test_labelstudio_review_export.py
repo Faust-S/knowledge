@@ -110,6 +110,32 @@ class ExportHandoffTests(unittest.TestCase):
                                       "synthetic", 10,
                                       expected_xml=REVIEW_XML, call=changed)
 
+    def test_malformed_annotation_payload_is_controlled_hold(self):
+        # A malformed Label Studio response must not raise AttributeError or
+        # create a private export. No Task judgement or human labels involved.
+        _, tasks = fixture()
+        for malformed in (None, True, "broken", [], 17):
+            def changed(base, token, route, body=None):
+                value = fake_export(tasks)(base, token, route, body)
+                if "export?exportType=JSON" in route:
+                    value[0]["annotations"][0] = malformed
+                return value
+
+            with self.subTest(annotation=repr(malformed)):
+                with self.assertRaisesRegex(
+                        setup.SetupHold, "REVIEW_PROGRESS_ANNOTATION_MALFORMED"):
+                    setup.review_progress(
+                        tasks, "http://127.0.0.1:8080", "synthetic", 10,
+                        expected_xml=REVIEW_XML, call=changed)
+                with tempfile.TemporaryDirectory() as folder:
+                    output = Path(folder) / "review-a.json"
+                    with self.assertRaisesRegex(
+                            setup.SetupHold, "LABEL_STUDIO_REVIEW_UNFINISHED"):
+                        setup.export_single_reviewed_project(
+                            tasks, "http://127.0.0.1:8080", "synthetic",
+                            10, output, expected_xml=REVIEW_XML, call=changed)
+                    self.assertFalse(output.exists())
+
     def test_progress_refuses_drifted_form_and_does_not_write_export(self):
         _, tasks = fixture()
         with tempfile.TemporaryDirectory() as folder:
