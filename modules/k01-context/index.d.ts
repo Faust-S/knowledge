@@ -62,7 +62,7 @@ export interface ContextProjection {
   readonly estimatedTokens: number;
   readonly missing: boolean;
 }
-export declare const CONTRACT_VERSION: '0.2.1';
+export declare const CONTRACT_VERSION: '0.2.2';
 export declare function selectContext(request: ContextRequest, port: ObservationPort): Promise<ContextProjection>;
 export declare function traceEvidence(projection: ContextProjection): Array<Pick<ContextSelection, 'id' | 'sourceRef' | 'revision' | 'epistemic' | 'evidenceRef' | 'sha256'>>;
 export declare function summarizeMemory(items: readonly KnowledgeItem[], constraints: { maxTokens: number; allowInferred?: boolean }): {
@@ -71,3 +71,22 @@ export declare function summarizeMemory(items: readonly KnowledgeItem[], constra
   estimatedTokens: number;
 };
 export declare function sha256(bytes: string | Uint8Array): string;
+
+export interface ContextRevalidationFailure {
+  readonly id?: string;
+  readonly sourceRef?: string;
+  readonly reason: 'projection_modified' | 'observation_failed' | 'incomplete_source' |
+    'stale' | 'unverified_evidence' | 'evidence_changed' | 'empty_projection';
+  readonly requestedRevision?: string;
+  readonly currentRevision?: string;
+}
+export interface ContextRevalidation {
+  readonly contractVersion: string;
+  readonly taskId: string;
+  readonly allCurrent: boolean;
+  readonly checked: number;
+  readonly failures: ContextRevalidationFailure[];
+}
+export declare function revalidateProjection(
+  projection: ContextProjection, observationPort: Pick<ObservationPort, 'observe'>
+): Promise<ContextRevalidation>;

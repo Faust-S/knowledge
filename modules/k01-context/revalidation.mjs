@@ -1,0 +1,79 @@
+// Checks selected evidence at the host's point of use. No persistence, authorization or apply.
+import { sha256, CONTRACT_VERSION } from './index.mjs';
+
+const id = value => typeof value === 'string' && value.length > 0 && value.length <= 512
+  && value.trim() === value && !/[\x00-\x1f]/.test(value);
+const digest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+const compare = (a,b) => a < b ? -1 : a > b ? 1 : 0;
+const MAX_ITEMS = 4096;
+const MAX_EXCERPT_BYTES = 65536;
+
+export async function revalidateProjection(projection, observationPort) {
+  if (!projection || projection.contractVersion !== CONTRACT_VERSION || !id(projection.taskId)
+      || !Array.isArray(projection.selected) || projection.selected.length > MAX_ITEMS
+      || !observationPort || typeof observationPort.observe !== 'function') {
+    throw new TypeError('invalid projection or observation port');
+  }
+  // Validate/snapshot the entire input before any asynchronous host observation.
+  const seen = new Set();
+  const entries = projection.selected.map(item => {
+    if (!item || !id(item.id) || !id(item.type) || !id(item.sourceRef)
+        || !id(item.revision) || !id(item.evidenceRef) || !digest(item.sha256)
+        || !['observed', 'reported', 'inferred', 'target'].includes(item.epistemic)
+        || typeof item.excerpt !== 'string' || !item.excerpt
+        || !Number.isSafeInteger(item.estimatedTokens) || item.estimatedTokens < 0) {
+      throw new TypeError('invalid projection selection');
+    }
+    const key = JSON.stringify([item.sourceRef, item.id]);
+    if (seen.has(key)) throw new TypeError('duplicate projection selection');
+    seen.add(key);
+    return { id: item.id, type: item.type, sourceRef: item.sourceRef,
+      revision: item.revision, epistemic: item.epistemic, evidenceRef: item.evidenceRef,
+      sha256: item.sha256, excerpt: item.excerpt };
+  });
+  const failures = [];
+  let checked = 0;
+  for (const entry of entries) {
+    const fail = (reason, details = {}) =>
+      failures.push({ id: entry.id, sourceRef: entry.sourceRef, reason, ...details });
+    if (Buffer.byteLength(entry.excerpt, 'utf8') > MAX_EXCERPT_BYTES
+        || sha256(entry.excerpt) !== entry.sha256) {
+      fail('projection_modified');
+      continue;
+    }
+    let observation;
+    try {
+      observation = await observationPort.observe({ sourceRef: entry.sourceRef,
+        itemId: entry.id, requestedRevision: entry.revision });
+    } catch {
+      // Host exception details can include credentials or private file paths.
+      fail('observation_failed');
+      continue;
+    }
+    checked++;
+    if (!observation || observation.sourceRef !== entry.sourceRef
+        || !id(observation.currentRevision) || observation.complete !== true) {
+      fail('incomplete_source');
+      continue;
+    }
+    if (observation.currentRevision !== entry.revision) {
+      fail('stale', { requestedRevision: entry.revision, currentRevision: observation.currentRevision });
+      continue;
+    }
+    if (typeof observation.excerpt !== 'string' || !observation.excerpt
+        || Buffer.byteLength(observation.excerpt, 'utf8') > MAX_EXCERPT_BYTES
+        || !id(observation.evidenceRef) || !digest(observation.sha256)
+        || sha256(observation.excerpt) !== observation.sha256) {
+      fail('unverified_evidence');
+      continue;
+    }
+    if (observation.evidenceRef !== entry.evidenceRef || observation.sha256 !== entry.sha256) {
+      fail('evidence_changed');
+    }
+  }
+  if (entries.length === 0) failures.push({ reason: 'empty_projection' });
+  failures.sort((a,b) => compare(a.sourceRef ?? '', b.sourceRef ?? '')
+    || compare(a.id ?? '', b.id ?? '') || compare(a.reason,b.reason));
+  return { contractVersion: CONTRACT_VERSION, taskId: projection.taskId,
+    allCurrent: failures.length === 0, checked, failures };
+}

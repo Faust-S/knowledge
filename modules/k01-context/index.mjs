@@ -1,7 +1,7 @@
 // K01: stateless, host-neutral context projection. No storage or network access.
 import { createHash } from 'node:crypto';
 
-export const CONTRACT_VERSION = '0.2.1';
+export const CONTRACT_VERSION = '0.2.2';
 const MAX_ITEMS = 4096;
 const MAX_EXCERPT_BYTES = 65536;
 const identifier = value => typeof value === 'string' && value.length > 0 && value.length <= 512 && value.trim() === value && !/[\x00-\x1f]/.test(value);
@@ -156,3 +156,5 @@ export function summarizeMemory(readonlyItems, constraints) {
   }
   return { contractVersion: CONTRACT_VERSION, selected, estimatedTokens };
 }
+
+export { revalidateProjection } from './revalidation.mjs';
