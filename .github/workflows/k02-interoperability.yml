@@ -33,6 +33,8 @@ jobs:
           node --check modules/k02-interoperability/adapters/github-public-rest.mjs
           node --check modules/k02-interoperability/consumers/public-source-bridge.mjs
           python -m py_compile modules/k02-interoperability/consumers/python_public_source_consumer.py
+          python -m py_compile modules/k02-interoperability/consumers/python_source_backed_review.py
+          node --check modules/k02-interoperability/consumers/source-backed-review.mjs
   k02-real-local-model:
     runs-on: ubuntu-latest
     timeout-minutes: 12
@@ -72,3 +74,5 @@ jobs:
           PY
       - name: Genuine model inference, validated output and token observations
         run: node modules/k02-interoperability/consumers/live-local-model.mjs
+      - name: Independent Python host verifies source evidence model draft
+        run: python modules/k02-interoperability/consumers/python_source_backed_review.py 6d04b82f1b0b614fa22c735075b66f20c1d85f92
