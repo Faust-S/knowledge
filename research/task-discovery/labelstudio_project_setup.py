@@ -279,8 +279,12 @@ def _blind_project_readback(exported: object, originals: dict[str, dict]) -> Non
 
 
 def create_projects(tasks: list[dict], xml: str, url: str, token: str,
-                    *, slots: int = 2, call=api) -> dict:
-    """Import and read back two separate blind projects; no human labels made."""
+                    *, slots: int = 1, call=api) -> dict:
+    """Import one source-first review project per isolated owner-local instance.
+
+    Two slots remain explicit for legacy synthetic transport QA; two projects
+    in one CE organization do not provide blind human-review isolation.
+    """
     base = local_url(url)
     require(slots in (1, 2) and bool(token), "PROJECT_SLOTS_OR_TOKEN_MISSING")
     originals = {t["data"]["source_sha256"]: t["data"] for t in tasks}
@@ -572,7 +576,8 @@ def main() -> int:
     parser.add_argument("--auth-mode", choices=("legacy", "personal"),
                         default="legacy",
                         help="Personal Access Token requires JWT refresh; legacy mode kept for old setups")
-    parser.add_argument("--reviewer-slots", type=int, choices=(1, 2), default=2)
+    parser.add_argument("--reviewer-slots", type=int, choices=(1, 2), default=1,
+                        help="One per isolated instance (default); two only for synthetic transport QA")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--create-local-projects", action="store_true")
     mode.add_argument("--export-reviewed-projects", action="store_true")

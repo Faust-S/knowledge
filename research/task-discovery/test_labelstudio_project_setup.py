@@ -145,6 +145,28 @@ class LocalLabelStudioSetupTests(unittest.TestCase):
             thread.join(timeout=2)
             server.server_close()
 
+    def test_default_creates_one_project_for_isolated_reviewer(self):
+        _, tasks = fixture()
+        FakeLabelStudio.projects = {}
+        FakeLabelStudio.next_id = 1
+        FakeLabelStudio.partial = False
+        FakeLabelStudio.form_modified = False
+        server = ThreadingHTTPServer(("127.0.0.1", 0), FakeLabelStudio)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            receipt = ls.create_projects(
+                tasks, CONFIG.decode("utf-8"),
+                f"http://127.0.0.1:{server.server_port}", "synthetic-key")
+            self.assertEqual(receipt["reviewer_slots"], 1)
+            self.assertEqual(receipt["project_ids"], [1])
+            self.assertEqual(len(FakeLabelStudio.projects), 1)
+            self.assertFalse(receipt["human_gold"])
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+            server.server_close()
+
     def test_partial_readback_fails_and_reports_only_created_id(self):
         _, tasks = fixture()
         FakeLabelStudio.projects = {}
