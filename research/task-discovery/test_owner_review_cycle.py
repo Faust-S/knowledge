@@ -51,6 +51,7 @@ class CycleFixture:
                 'status': 'BLINDED_REVIEW_CLAIMS_CHECKED_NOT_ADJUDICATED_NOT_GOLD',
                 'sources_checked': 8, 'sources_with_disagreement': 0,
                 'sources_exactly_agreed': 8,
+                'disagreement_region_symmetric_difference': 0,
                 'reviewer_ids_distinct': True,
                 'human_task_gold': False, 'adjudication_completed': False})
         if len(self.calls) == 2:
@@ -247,6 +248,10 @@ class OwnerReviewCycleTests(unittest.TestCase):
 
         for case, records, expected in (
             ('valid', [good], None),
+            ('wrong_count', [good], 'OWNER_DISAGREEMENT_REGION_COUNT_MISMATCH'),
+            ('duplicate_region', [{**good,
+                                   'review_b_regions': good['review_b_regions'] * 2}],
+             'OWNER_DISAGREEMENT_REGIONS_INVALID'),
             ('foreign', [{**good, 'source_sha256': 'sha256:' + 'b' * 64}],
              'OWNER_DISAGREEMENT_SOURCE_IDENTITY_MISMATCH'),
             ('wrong_ref', [{**good, 'source_ref': 'https://invalid.example/other'}],
@@ -270,6 +275,12 @@ class OwnerReviewCycleTests(unittest.TestCase):
                         native = json.loads(response)
                         native['sources_with_disagreement'] = len(records)
                         native['sources_exactly_agreed'] = 8 - len(records)
+                        native['disagreement_region_symmetric_difference'] = sum(
+                            len({tuple(x) for x in row['review_a_regions']} ^
+                                {tuple(x) for x in row['review_b_regions']})
+                            for row in records)
+                        if case == 'wrong_count':
+                            native['disagreement_region_symmetric_difference'] = -1
                         return json.dumps(native)
                     return response
                 with patch.object(cycle.effort_contract, 'frozen_sources',
