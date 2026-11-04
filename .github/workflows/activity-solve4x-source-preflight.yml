@@ -310,8 +310,21 @@ jobs:
           assert r["qualification"]["accepted_tasks"]==0
           if r["status"]=="ORIGINAL_ITAM_JSONL_LOADED_SCHEMA_ONLY":
               assert r["source"]["bytes"]==89150
-              assert r["structure"]["nonempty_jsonl_rows"]>0
+              assert r["source"]["sha256"]=="5849db2c795f0bbdda4546f363331a57ab70fcd64812f4852a9bbbf8be26f2ca"
+              assert r["source"]["scene_ocel_sha256"]=="5de185ada7d0e8d82e3f43929e594c31a1c52aad334197557cc7c2550d3f1f15"
+              assert r["source"]["comparative_input_sha_pins_checked"] is True
+              assert r["structure"]["parse_mode"]=="WHOLE_JSON_OBJECT"
+              assert r["structure"]["nonempty_jsonl_rows"]==1
               assert r["source"]["full_archive_downloaded"] is False
+              comparison=r["original_itam_vs_scene"]
+              assert comparison["accepted_tasks"]==0
+              assert comparison["raw_values_exported"] is False
+              print("SOLVE4X_ITAM_SCENE_MATCH",comparison["status"],
+                    "matches",comparison.get("exact_ids_and_activity_timestamp","UNKNOWN"),
+                    "of_scene",comparison.get("scene_non_video_marker_events","UNKNOWN"))
+          else:
+              raise AssertionError("ORIGINAL_ITAM_QUALIFICATION_HOLD: "+r["status"]+
+                                   " "+r.get("reason_code",""))
           print("SOLVE4X_ORIGINAL_ITAM_SOURCE_RESULT",r["status"],
                 "rows",r.get("structure",{}).get("nonempty_jsonl_rows","UNKNOWN"))
           PY
