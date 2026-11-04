@@ -19,6 +19,14 @@ python research/task-discovery/live_labelstudio_smoke.py
 
 Успех означает `ACTUAL_LABEL_STUDIO_HTTP_ROUNDTRIP_PASS` и `two_synthetic_accounts_export_passed=true`, а также `human_task_gold=false`. Отрицательное условие одинаковых ID даёт `LIVE_SYNTHETIC_REVIEWER_ACCOUNTS_NOT_DISTINCT`. Существующий публичный CI с **одним** аккаунтом продолжает демонстрировать отказ выдавать его за двух людей.
 
+## Подтверждение M3a: нативные два аккаунта (04.11.2026)
+
+**M3a ENGINEERING PASS** на точной ревизии `6e2806273704a1091dabb24a53afb4f0f5a6bd5b`: [GitHub Actions run 41812516645](https://github.com/Faust-S/knowledge/actions/runs/41812516645) — `completed/success`, все шаги настоящего Label Studio 1.23.2 PASS. В disposable Docker создан второй синтетический пользователь через штатный API, его отдельный legacy token считан только внутри контейнера, обе HTTP-сессии подтверждены по различным `whoami.id` и одной организации. В штатном smoke записаны 8+8 API-аннотаций, выполнены два независимых по аккаунту JSON-экспорта в локальном временном каталоге, после чего файлы удалены. Отдельный прежний одноаккаунтный сценарий сохранил корректный отказ при одинаковом reviewer ID.
+
+Проверенный receipt: `synthetic_projects=2`, `synthetic_sources_per_project=8`, `api_created_coverage_annotations=16`, `two_synthetic_accounts_export_passed=true`, `independent_human_review_completed=false`, `owner_exact_xml_exercised=false`, `human_task_gold=false`, `task_precision/recall/f1=null`. Credentials, reviewer IDs, исходные тексты и полные экспорты не публиковались в artifacts.
+
+Первый пробный коммит `c4c99a94...` завершился ошибкой Python line continuation в YAML inline script; исправлено коммитом `6e280627...` и подтверждено вторым нативным прогоном. Этот технический PASS **не заменяет** human source-first annotation, независимость мыслей или gold. Следующий этап — M3b, назначение двух реальных рецензентов в owner-local Label Studio с исходной frozen TASK-EXP-01 формой, последующая штатная сверка и человеческий adjudication. Не использовать synthetic exports как human gold.
+
 ## Что требуется для M3
 
 1. **Реальный двухаккаунтный HTTP-прогон** в временном локальном Label Studio с разрешённым синтетическим набором (без публикации секретов).
