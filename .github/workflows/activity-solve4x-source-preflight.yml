@@ -12,6 +12,8 @@ on:
       - 'research/activity-research/solve4x_same_case_audit.py'
       - 'research/activity-research/solve4x_global_itam_audit.py'
       - 'research/activity-research/solve4x_scene_ui_audit.py'
+      - 'research/activity-research/solve4x_ui_ocel_time.py'
+      - 'research/activity-research/tests/test_solve4x_ui_ocel_time.py'
       - 'research/activity-research/tests/test_solve4x_global_itam_audit.py'
       - 'research/activity-research/tests/test_solve4x_same_case_audit.py'
 
@@ -250,5 +252,32 @@ jobs:
         with:
           name: iwxa-solve4x-ui-source-schema
           path: solve4x-ui-summary.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Validate UI to scene event temporal proximity and negative controls
+        run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_ui_ocel_time.py' -v
+      - name: Compare two time-stamped source types in bounded research
+        run: |
+          python3 research/activity-research/solve4x_ui_ocel_time.py --out solve4x-ui-time.json || true
+          python3 - <<'PY'
+          import json
+          r=json.load(open("solve4x-ui-time.json"))
+          assert r["schema"]=="IWXA_SOLVE4X_UI_OCEL_TEMPORAL_CO_OCCURRENCE/0.1"
+          assert r["raw_values_exported"] is False
+          assert r["limitations"]["accepted_tasks"]==0
+          if r["status"]=="DIRECT_UI_OCEL_ABSOLUTE_TIME_PROXIMITY_NOT_EVENT_IDENTITY":
+              assert r["counts"]["ui_rows"]==43
+              assert r["counts"]["scene_system_candidate_events"]==17
+              assert r["counts"]["scene_video_derived_events"]==23
+              assert r["source"]["ui_csv_sha256"]=="653e0b52ec64c9f1629eb758091cdad5e5c3cb47d68531b2174ec0c6a6c0a1bb"
+              assert r["limitations"]["aligned_clocks_proven"] is False
+          print("SOLVE4X_UI_TIME_STATUS",r["status"],"counts",r.get("counts",{}))
+          PY
+      - name: Publish UI-to-OCEL time window aggregates only
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-solve4x-ui-ocel-time-windows
+          path: solve4x-ui-time.json
           retention-days: 7
           if-no-files-found: error
