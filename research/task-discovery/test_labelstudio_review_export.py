@@ -12,12 +12,19 @@ import tempfile
 import unittest
 
 import labelstudio_project_setup as setup
-from test_labelstudio_project_setup import fixture
+from test_labelstudio_project_setup import fixture, CONFIG
+
+REVIEW_XML = CONFIG.decode("utf-8")
 
 
-def fake_export(tasks, *, same_user=False, missing=False, drift=False):
+def fake_export(tasks, *, same_user=False, missing=False, drift=False,
+                form_drift=False):
     def respond(base, token, route, body=None):
         pid = int(route.split("/")[3])
+        if route.endswith("/"):
+            xml = (REVIEW_XML.replace("review_coverage", "drifted_control")
+                   if form_drift else REVIEW_XML)
+            return {"id": pid, "label_config": xml}
         rows = copy.deepcopy(tasks)
         for index, entry in enumerate(rows):
             entry["predictions"] = []
@@ -41,7 +48,7 @@ class ExportHandoffTests(unittest.TestCase):
             a, b = Path(folder) / "a.json", Path(folder) / "b.json"
             result = setup.export_reviewed_projects(
                 tasks, "http://127.0.0.1:8080", "synthetic",
-                (10, 11), a, b, call=fake_export(tasks))
+                (10, 11), a, b, expected_xml=REVIEW_XML, call=fake_export(tasks))
             self.assertEqual(result["sources_per_export"], 8)
             self.assertEqual(result["project_ids"], [10, 11])
             self.assertFalse(result["human_gold"])
@@ -61,7 +68,7 @@ class ExportHandoffTests(unittest.TestCase):
                     setup.SetupHold, "LABEL_STUDIO_REVIEW_EXPORT_NOT_SINGLE_COMPLETE"):
                 setup.export_reviewed_projects(
                     tasks, "http://127.0.0.1:8080", "synthetic",
-                    (10, 11), a, b, call=fake_export(tasks, missing=True))
+                    (10, 11), a, b, expected_xml=REVIEW_XML, call=fake_export(tasks, missing=True))
             self.assertFalse(a.exists())
             self.assertFalse(b.exists())
 
@@ -75,13 +82,13 @@ class ExportHandoffTests(unittest.TestCase):
                 with self.assertRaisesRegex(setup.SetupHold, error):
                     setup.export_reviewed_projects(
                         tasks, "http://127.0.0.1:8080", "synthetic",
-                        (10, 11), a, b, call=fake_export(tasks, **opts))
+                        (10, 11), a, b, expected_xml=REVIEW_XML, call=fake_export(tasks, **opts))
                 self.assertFalse(a.exists())
                 self.assertFalse(b.exists())
             with self.assertRaisesRegex(setup.SetupHold, "TWO_DISTINCT_PROJECT_IDS_REQUIRED"):
                 setup.export_reviewed_projects(
                     tasks, "http://127.0.0.1:8080", "synthetic",
-                    (10, 10), a, b, call=fake_export(tasks))
+                    (10, 10), a, b, expected_xml=REVIEW_XML, call=fake_export(tasks))
 
     def test_isolated_one_project_export_on_each_local_instance(self):
         _, tasks = fixture()
@@ -89,10 +96,10 @@ class ExportHandoffTests(unittest.TestCase):
             a, b = Path(folder) / "a.json", Path(folder) / "b.json"
             result_a = setup.export_single_reviewed_project(
                 tasks, "http://127.0.0.1:8080", "synthetic-a",
-                10, a, call=fake_export(tasks))
+                10, a, expected_xml=REVIEW_XML, call=fake_export(tasks))
             result_b = setup.export_single_reviewed_project(
                 tasks, "http://127.0.0.1:8081", "synthetic-b",
-                11, b, call=fake_export(tasks))
+                11, b, expected_xml=REVIEW_XML, call=fake_export(tasks))
             self.assertEqual(result_a["sources_per_export"], 8)
             self.assertEqual(result_b["sources_per_export"], 8)
             self.assertFalse(result_a["platform_isolation_verified"])
@@ -118,12 +125,12 @@ class ExportHandoffTests(unittest.TestCase):
                 with self.subTest(options=options), self.assertRaisesRegex(setup.SetupHold, error):
                     setup.export_single_reviewed_project(
                         tasks, "http://127.0.0.1:8080", "synthetic",
-                        10, output, call=fake_export(tasks, **options))
+                        10, output, expected_xml=REVIEW_XML, call=fake_export(tasks, **options))
                 self.assertFalse(output.exists())
             with self.assertRaisesRegex(setup.SetupHold, "SINGLE_REVIEW_PROJECT_OR_TOKEN_MISSING"):
                 setup.export_single_reviewed_project(
                     tasks, "http://127.0.0.1:8080", "synthetic",
-                    0, output, call=fake_export(tasks))
+                    0, output, expected_xml=REVIEW_XML, call=fake_export(tasks))
             self.assertFalse(output.exists())
 
     def test_single_export_never_overwrites_or_follows_symlink(self):
@@ -135,7 +142,7 @@ class ExportHandoffTests(unittest.TestCase):
                     setup.SetupHold, "REVIEW_OUTPUT_PATHS_MUST_BE_NEW_AND_DISTINCT"):
                 setup.export_single_reviewed_project(
                     tasks, "http://127.0.0.1:8080", "synthetic",
-                    10, output, call=fake_export(tasks))
+                    10, output, expected_xml=REVIEW_XML, call=fake_export(tasks))
             self.assertEqual(output.read_text("utf-8"), "existing")
             output.unlink()
             output.symlink_to(Path(folder) / "nonexistent")
@@ -143,7 +150,36 @@ class ExportHandoffTests(unittest.TestCase):
                     setup.SetupHold, "REVIEW_OUTPUT_PATHS_MUST_BE_NEW_AND_DISTINCT"):
                 setup.export_single_reviewed_project(
                     tasks, "http://127.0.0.1:8080", "synthetic",
-                    10, output, call=fake_export(tasks))
+                    10, output, expected_xml=REVIEW_XML, call=fake_export(tasks))
+
+    def test_form_drift_refused_at_export_with_no_output(self):
+        _, tasks = fixture()
+        with tempfile.TemporaryDirectory() as folder:
+            a, b = Path(folder) / "a", Path(folder) / "b"
+            with self.assertRaisesRegex(
+                    setup.SetupHold, "LABEL_STUDIO_EXPORT_REVIEW_FORM_CHANGED"):
+                setup.export_single_reviewed_project(
+                    tasks, "http://127.0.0.1:8080", "synthetic", 10, a,
+                    expected_xml=REVIEW_XML, call=fake_export(tasks, form_drift=True))
+            self.assertFalse(a.exists())
+            with self.assertRaisesRegex(
+                    setup.SetupHold, "LABEL_STUDIO_EXPORT_REVIEW_FORM_CHANGED"):
+                setup.export_reviewed_projects(
+                    tasks, "http://127.0.0.1:8080", "synthetic", (10, 11), a, b,
+                    expected_xml=REVIEW_XML, call=fake_export(tasks, form_drift=True))
+            self.assertFalse(a.exists())
+            self.assertFalse(b.exists())
+
+    def test_export_requires_expected_owner_form(self):
+        _, tasks = fixture()
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "one.json"
+            with self.assertRaisesRegex(
+                    setup.SetupHold, "LABEL_STUDIO_EXPORT_EXPECTED_REVIEW_FORM_MISSING"):
+                setup.export_single_reviewed_project(
+                    tasks, "http://127.0.0.1:8080", "synthetic", 10, path,
+                    expected_xml="", call=fake_export(tasks))
+            self.assertFalse(path.exists())
 
     def test_existing_file_is_not_overwritten(self):
         _, tasks = fixture()
@@ -153,7 +189,7 @@ class ExportHandoffTests(unittest.TestCase):
             with self.assertRaisesRegex(setup.SetupHold, "REVIEW_OUTPUT_PATHS_MUST_BE_NEW_AND_DISTINCT"):
                 setup.export_reviewed_projects(
                     tasks, "http://127.0.0.1:8080", "synthetic",
-                    (10, 11), a, b, call=fake_export(tasks))
+                    (10, 11), a, b, expected_xml=REVIEW_XML, call=fake_export(tasks))
             self.assertEqual(a.read_text("utf-8"), "preserve")
 
 

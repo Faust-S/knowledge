@@ -34,7 +34,18 @@ class TwoAccountSmokeTests(unittest.TestCase):
             self.assertIn('perRegion="true"', xml)
             return {"project_ids": [71, 72]}
 
-        def export(tasks, base, credential, ids, a, b, call):
+        def single_export(tasks, base, credential, pid, output, *,
+                          expected_xml, call):
+            self.assertEqual(expected_xml, smoke.SYNTHETIC_XML)
+            output.write_text(json.dumps([
+                {"data": row["data"], "annotations": [
+                    {"completed_by": 10, "result": []}]}
+                for row in tasks]), encoding="utf-8")
+            return {"sources_per_export": 8, "human_gold": False,
+                    "platform_isolation_verified": False}
+
+        def export(tasks, base, credential, ids, a, b, *, expected_xml, call):
+            self.assertEqual(expected_xml, smoke.SYNTHETIC_XML)
             self.assertEqual(ids, (71, 72))
             exports.extend((a, b))
             for path in (a, b):
@@ -49,12 +60,14 @@ class TwoAccountSmokeTests(unittest.TestCase):
         with (patch.object(transport, "resolve_api_credential", side_effect=auth),
               patch.object(smoke, "traced_api", side_effect=call),
               patch.object(transport, "create_projects", side_effect=create),
-              patch.object(transport, "export_reviewed_projects", side_effect=export)):
+              patch.object(transport, "export_reviewed_projects", side_effect=export),
+              patch.object(transport, "export_single_reviewed_project", side_effect=single_export)):
             result = smoke.exercise_local_server(
                 "http://127.0.0.1:8080", "one", second_token="two")
         self.assertEqual(writes, ["Token one"] * 8 + ["Token two"] * 8)
         self.assertEqual(len(exports), 2)
         self.assertTrue(result["two_synthetic_accounts_export_passed"])
+        self.assertTrue(result["single_project_export_http_passed"])
         self.assertFalse(result["same_user_export_refused"])
         self.assertFalse(result["independent_human_review_completed"])
         self.assertFalse(result["human_task_gold"])

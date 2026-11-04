@@ -153,9 +153,22 @@ def exercise_local_server(base: str, token: str, *, second_token: str = '') -> d
     # two-independent-reviewer exporter MUST refuse and emit no export files.
     with tempfile.TemporaryDirectory(prefix="iwxa-ls-native-synthetic-") as directory:
         output_a, output_b = Path(directory) / "a.json", Path(directory) / "b.json"
+        # Both original synthetic API projects can also be read by the
+        # independent-instance transport, without asserting CE isolation.
+        single_a, single_b = Path(directory) / "single-a.json", Path(directory) / "single-b.json"
+        for index, single_out in enumerate((single_a, single_b)):
+            single_receipt = transport.export_single_reviewed_project(
+                tasks, base, credential, project_ids[index], single_out,
+                expected_xml=SYNTHETIC_XML, call=traced_api)
+            transport.require(single_receipt["sources_per_export"] == 8 and
+                              single_receipt["human_gold"] is False and
+                              single_receipt["platform_isolation_verified"] is False and
+                              len(json.loads(single_out.read_text("utf-8"))) == 8,
+                              "LIVE_SINGLE_INSTANCE_EXPORT_FAILED")
         if second_credential:
             exported_receipt = transport.export_reviewed_projects(
-                tasks, base, credential, tuple(project_ids), output_a, output_b, call=traced_api)
+                tasks, base, credential, tuple(project_ids), output_a, output_b,
+                expected_xml=SYNTHETIC_XML, call=traced_api)
             transport.require(exported_receipt["sources_per_export"] == 8 and
                               exported_receipt["reviewer_id_claims_distinct"] is True and
                               exported_receipt["human_gold"] is False and
@@ -170,7 +183,8 @@ def exercise_local_server(base: str, token: str, *, second_token: str = '') -> d
         else:
             try:
                 transport.export_reviewed_projects(
-                    tasks, base, credential, tuple(project_ids), output_a, output_b, call=traced_api)
+                    tasks, base, credential, tuple(project_ids), output_a, output_b,
+                expected_xml=SYNTHETIC_XML, call=traced_api)
             except transport.SetupHold as error:
                 transport.require(str(error) == "LABEL_STUDIO_SAME_REVIEWER_IN_BOTH_PROJECTS",
                                   "LIVE_LABEL_STUDIO_WRONG_EXPORT_REFUSAL")
@@ -183,6 +197,7 @@ def exercise_local_server(base: str, token: str, *, second_token: str = '') -> d
             "synthetic_projects": 2, "synthetic_sources_per_project": 8,
             "api_created_coverage_annotations": annotated,
             "same_user_export_refused": second_credential is None,
+            "single_project_export_http_passed": True,
             "two_synthetic_accounts_export_passed": second_credential is not None,
             "independent_human_review_completed": False,
             "owner_exact_xml_exercised": False,

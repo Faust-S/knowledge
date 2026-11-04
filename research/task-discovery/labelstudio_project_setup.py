@@ -294,9 +294,19 @@ def create_projects(tasks: list[dict], xml: str, url: str, token: str,
 
 
 def _checked_project_export(tasks: list[dict], base: str, token: str,
-                            pid: int, *, call=api) -> tuple[list[dict], str]:
-    """Verify one exact source-first export. Owner Bridge owns label semantics."""
+                            pid: int, *, expected_xml: str, call=api) -> tuple[list[dict], str]:
+    """Recheck persisted reviewer form before exporting source-first records.
+
+    The owner bridge alone judges review semantics; this transport refuses
+    exports produced after a project form drifted from the frozen owner XML.
+    """
     require(type(pid) is int and pid > 0, "REVIEW_PROJECT_ID_INVALID")
+    require(type(expected_xml) is str and bool(expected_xml),
+            "LABEL_STUDIO_EXPORT_EXPECTED_REVIEW_FORM_MISSING")
+    persisted = call(base, token, f"/api/projects/{pid}/")
+    require(type(persisted) is dict and persisted.get("id") == pid and
+            same_review_form(expected_xml, persisted.get("label_config")),
+            "LABEL_STUDIO_EXPORT_REVIEW_FORM_CHANGED")
     originals = {task["data"]["source_sha256"]: task["data"] for task in tasks}
     require(len(originals) == len(tasks) == 8, "SOURCE_FIRST_IMPORT_INCOMPLETE")
     exported = call(base, token,
@@ -352,14 +362,16 @@ def _write_restricted_exports(exports: tuple[tuple[Path, list[dict]], ...]) -> N
 
 
 def export_single_reviewed_project(tasks: list[dict], url: str, token: str,
-                                   pid: int, output: Path, *, call=api) -> dict:
+                                   pid: int, output: Path, *,
+                                   expected_xml: str, call=api) -> dict:
     """Export one isolated CE installation, without claiming human independence."""
     base = local_url(url)
     require(bool(token) and type(pid) is int and pid > 0,
             "SINGLE_REVIEW_PROJECT_OR_TOKEN_MISSING")
     require(not output.exists() and not output.is_symlink(),
             "REVIEW_OUTPUT_PATHS_MUST_BE_NEW_AND_DISTINCT")
-    data, reviewer = _checked_project_export(tasks, base, token, pid, call=call)
+    data, reviewer = _checked_project_export(
+        tasks, base, token, pid, expected_xml=expected_xml, call=call)
     _write_restricted_exports(((output, data),))
     return {"schema": SCHEMA,
             "status": "ONE_OWNER_LOCAL_REVIEW_EXPORT_READY_FOR_OWNER_BRIDGE",
@@ -373,7 +385,8 @@ def export_single_reviewed_project(tasks: list[dict], url: str, token: str,
 
 def export_reviewed_projects(tasks: list[dict], url: str, token: str,
                              project_ids: tuple[int, int],
-                             output_a: Path, output_b: Path, *, call=api) -> dict:
+                             output_a: Path, output_b: Path, *,
+                             expected_xml: str, call=api) -> dict:
     """Legacy same-server transport; distinct accounts alone are not blind."""
     base = local_url(url)
     require(bool(token) and type(project_ids) is tuple and
@@ -388,7 +401,7 @@ def export_reviewed_projects(tasks: list[dict], url: str, token: str,
     reviewer_ids = []
     for pid in project_ids:
         export, reviewer = _checked_project_export(
-            tasks, base, token, pid, call=call)
+            tasks, base, token, pid, expected_xml=expected_xml, call=call)
         collected.append(export)
         reviewer_ids.append(reviewer)
     require(len(set(reviewer_ids)) == 2,
@@ -447,7 +460,8 @@ def main() -> int:
                                            os.environ.get("LABEL_STUDIO_API_KEY", ""),
                                            mode=args.auth_mode)
             result = export_single_reviewed_project(
-                tasks, args.url, token, args.project_id, args.review_out)
+                tasks, args.url, token, args.project_id, args.review_out,
+                expected_xml=xml)
         elif args.export_reviewed_projects:
             require(not args.confirm_local_import and
                     args.project_a_id is not None and args.project_b_id is not None and
@@ -459,7 +473,7 @@ def main() -> int:
             result = export_reviewed_projects(
                 tasks, args.url, token,
                 (args.project_a_id, args.project_b_id),
-                args.review_a_out, args.review_b_out)
+                args.review_a_out, args.review_b_out, expected_xml=xml)
         else:
             require(not args.confirm_local_import,
                     "IMPORT_CONFIRMATION_WITHOUT_CREATE_MODE")
