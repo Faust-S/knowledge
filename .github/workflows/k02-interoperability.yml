@@ -25,6 +25,8 @@ jobs:
         run: node --test modules/k02-interoperability/tests/*.test.mjs
       - name: Independent Python verifies Node plan, provider and Skill digests
         run: python modules/k02-interoperability/consumers/python_cross_language_verify.py
+      - name: Independent Python checks native Agent request drafts from Node
+        run: python modules/k02-interoperability/consumers/python_agent_port_verify.py
       - name: Independent Python consumer and real public GitHub REST source
         run: python modules/k02-interoperability/consumers/python_public_source_consumer.py 6d04b82f1b0b614fa22c735075b66f20c1d85f92 solutions/meeting-followup/agent.json
       - name: Syntax and import validation
@@ -36,6 +38,8 @@ jobs:
           node --check modules/k02-interoperability/consumers/public-source-bridge.mjs
           python -m py_compile modules/k02-interoperability/consumers/python_public_source_consumer.py
           python -m py_compile modules/k02-interoperability/consumers/python_source_backed_review.py
+          python -m py_compile modules/k02-interoperability/consumers/python_agent_port_verify.py
+          node --check modules/k02-interoperability/consumers/agent-port-vector.mjs
           node --check modules/k02-interoperability/consumers/source-backed-review.mjs
   k02-real-local-model:
     runs-on: ubuntu-latest
@@ -76,5 +80,7 @@ jobs:
           PY
       - name: Genuine model inference, validated output and token observations
         run: node modules/k02-interoperability/consumers/live-local-model.mjs
+      - name: Cross-language native port draft with pinned live model probe
+        run: python modules/k02-interoperability/consumers/python_agent_port_verify.py --live
       - name: Independent Python host verifies source evidence model draft
         run: python modules/k02-interoperability/consumers/python_source_backed_review.py 6d04b82f1b0b614fa22c735075b66f20c1d85f92
