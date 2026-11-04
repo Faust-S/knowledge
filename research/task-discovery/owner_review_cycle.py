@@ -207,20 +207,31 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
         need(not disagreements_out.exists() and not disagreements_out.is_symlink() and
              not effort_out.exists() and not effort_out.is_symlink(),
              'OWNER_LOCAL_OUTPUT_EXISTS_OR_CONFLICTS')
-        # Same-filesystem hard links create each final name atomically and
-        # refuse overwrites. Roll back our first link if the second fails;
-        # never delete a concurrently created third-party output.
+        # Same-filesystem links refuse overwrites. If the second link fails,
+        # roll back only an inode that is still our own staged file. An external
+        # process may replace the first path while publication is in progress;
+        # blindly unlinking that name would delete its replacement.
         published = []
         try:
             for temporary_file, destination in (
                     (staged_disagreements, disagreements_out),
                     (staged_effort, effort_out)):
                 temporary_file.chmod(0o600)
+                identity = temporary_file.stat()
                 os.link(temporary_file, destination)
-                published.append(destination)
+                published.append((destination, identity.st_dev, identity.st_ino))
         except OSError:
-            for destination in published:
-                destination.unlink(missing_ok=True)
+            for destination, device, inode in published:
+                try:
+                    actual = destination.stat(follow_symlinks=False)
+                    if (actual.st_dev, actual.st_ino) == (device, inode):
+                        destination.unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    # Avoid deleting or replacing a path whose ownership
+                    # cannot be established. The caller receives HOLD.
+                    pass
             raise CycleHold('OWNER_LOCAL_OUTPUT_PUBLICATION_FAILED') from None
     # Deliberately no authority/grant flags, Task gold or reviewer IDs.
     return {

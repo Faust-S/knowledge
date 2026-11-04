@@ -290,6 +290,47 @@ class OwnerReviewCycleTests(unittest.TestCase):
             self.assertEqual(f.effort.read_text('utf-8'), 'created-by-another-process\n')
             self.assertEqual(len(f.calls), 2)
 
+    def test_second_hardlink_failure_rolls_back_first_publication(self):
+        with TemporaryDirectory() as td:
+            f = CycleFixture(Path(td))
+            original = cycle.os.link
+            calls = []
+            def fail_second(source, destination):
+                calls.append(destination)
+                if Path(destination) == f.effort:
+                    raise OSError('synthetic second link failure')
+                return original(source, destination)
+            with patch.object(cycle.os, 'link', side_effect=fail_second):
+                with self.assertRaisesRegex(
+                        cycle.CycleHold, 'OWNER_LOCAL_OUTPUT_PUBLICATION_FAILED'):
+                    f.execute()
+            self.assertEqual(len(calls), 2)
+            self.assertFalse(f.disagreement.exists())
+            self.assertFalse(f.effort.exists())
+            f.calls.clear()
+            self.assertFalse(f.execute()['human_gold'])
+            self.assertTrue(f.disagreement.exists() and f.effort.exists())
+
+    def test_second_hardlink_failure_preserves_replaced_first_output(self):
+        with TemporaryDirectory() as td:
+            f = CycleFixture(Path(td))
+            original = cycle.os.link
+            def replace_first_then_fail(source, destination):
+                if Path(destination) == f.effort:
+                    self.assertTrue(f.disagreement.exists())
+                    f.disagreement.unlink()
+                    f.disagreement.write_text(
+                        'independent concurrent output\\n', encoding='utf-8')
+                    raise OSError('synthetic link conflict after replacement')
+                return original(source, destination)
+            with patch.object(cycle.os, 'link', side_effect=replace_first_then_fail):
+                with self.assertRaisesRegex(
+                        cycle.CycleHold, 'OWNER_LOCAL_OUTPUT_PUBLICATION_FAILED'):
+                    f.execute()
+            self.assertEqual(
+                f.disagreement.read_text('utf-8'), 'independent concurrent output\\n')
+            self.assertFalse(f.effort.exists())
+
     def test_published_private_outputs_have_restricted_permissions(self):
         with TemporaryDirectory() as td:
             f = CycleFixture(Path(td))
