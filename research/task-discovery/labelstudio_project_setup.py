@@ -220,22 +220,18 @@ def resolve_api_credential(base: str, token: str, mode: str = "legacy") -> str:
             raw = response.read(MAX_JSON_BYTES + 1)
             require(response.status in (200, 201) and len(raw) <= MAX_JSON_BYTES,
                     "LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE_INVALID")
-        result = strict_json_bytes(raw, prefix="LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE")
-        access = result.get("access") if type(result) is dict else None
-        require(type(access) is str and 0 < len(access) <= 8192 and
-                "\n" not in access and "\r" not in access,
-                "LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE_INVALID")
-        return "Bearer " + access
     except HTTPError as error:
         raise SetupHold("LABEL_STUDIO_PERSONAL_TOKEN_HTTP_" + str(error.code)) from None
     except URLError:
         raise SetupHold("LOCAL_LABEL_STUDIO_UNAVAILABLE") from None
-    except SetupHold:
-        # SetupHold subclasses ValueError: preserve precise strict-JSON codes
-        # instead of collapsing duplicate/nonfinite responses to INVALID.
-        raise
-    except (ValueError, UnicodeError):
-        raise SetupHold("LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE_INVALID") from None
+    # Parse outside the network error handler: JSON provenance failures must
+    # remain distinct from transport and token-shape failures.
+    result = strict_json_bytes(raw, prefix="LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE")
+    access = result.get("access") if type(result) is dict else None
+    require(type(access) is str and 0 < len(access) <= 8192 and
+            "\n" not in access and "\r" not in access,
+            "LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE_INVALID")
+    return "Bearer " + access
 
 
 def api(base: str, token: str, route: str, body: object = None):
