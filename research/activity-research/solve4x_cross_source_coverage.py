@@ -115,6 +115,17 @@ def probe():
  from solve4x_c13_episode_triage import analyze as triage_episodes
  result["c13_review_episodes"]=triage_episodes(
      video,sensors,raw["scene01/scene01_ui.csv"])
+ from solve4x_c14_raw_reed_review import analyze as c14_review
+ reed_name="scene01/scene01_reed_switches.csv"
+ ensure(reed_name in entries,"RAW_REED_MEMBER_NOT_FOUND")
+ reed=entries[reed_name]
+ ensure(reed["compression_method"]==8 and 0<reed["compressed_bytes"]<=131072
+        and 0<reed["uncompressed_bytes"]<=131072,"RAW_REED_MEMBER_BOUNDS_HOLD")
+ raw_reed=members._download_member(meta["download_url"],meta["archive_size"],reed,
+             max_compressed=131072,max_uncompressed=131072)
+ result["c14_raw_reed_review"]=c14_review(
+     video,sensors,raw["scene01/scene01_ui.csv"],raw_reed)
+ result["c14_raw_reed_sha256"]=sha256(raw_reed).hexdigest()
  result["source"]={"article":meta["article_id"],"sha256":SHA,"archive_downloaded":False,"raw_events_published":False}
  return result
 def main():
