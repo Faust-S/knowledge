@@ -36,6 +36,14 @@ class Tests(TestCase):
         self.assertEqual(r["structure"]["parse_mode"],"MULTILINE_JSON_SEQUENCE")
         self.assertEqual(r["structure"]["nonempty_jsonl_rows"],2)
         self.assertFalse(r["source"]["raw_rows_published"])
+    def test_framing_diagnostics_never_disclose_private_fields(self):
+        raw=b'{\n"private-user-555":"sensitive-person-999"\n}\n'
+        diag=original.framing_profile(raw)
+        self.assertEqual(diag["first_token_class"], "OBJECT")
+        self.assertGreater(diag["invalid_individual_json_lines"],0)
+        self.assertFalse(diag["source_contents_returned"])
+        self.assertNotIn("private-user-555",str(diag))
+        self.assertNotIn("sensitive-person-999",str(diag))
     def test_empty_is_hold(self):
         with self.assertRaisesRegex(index.Hold,"ITAM_JSONL_BYTES_INVALID"):
             original.parse_jsonl(b'')
