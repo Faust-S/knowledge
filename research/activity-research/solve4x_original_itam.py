@@ -117,6 +117,39 @@ def parse_jsonl(raw: bytes) -> dict:
                          "accepted_tasks":0}
     }
 
+
+def framing_profile(raw: bytes) -> dict:
+    """Safe format diagnostics, never record text or arbitrary JSON keys."""
+    index.check(isinstance(raw, bytes) and 0 < len(raw) <= MAX_BYTES,
+                "FRAMING_DIAGNOSTIC_INPUT_INVALID")
+    try:
+        text = raw.decode("utf-8-sig", errors="strict")
+    except UnicodeError:
+        return {"encoding": "INVALID_UTF8", "source_contents_returned": False}
+    first = text.lstrip()[:1]
+    kind = {"{": "OBJECT", "[": "ARRAY", '"': "STRING"}.get(
+        first, "OTHER" if first else "EMPTY")
+    nonempty = [line for line in text.splitlines() if line.strip()]
+    valid = invalid = objects = 0
+    for line in nonempty[:MAX_RECORDS]:
+        try:
+            parsed = json.loads(line)
+            valid += 1
+            if isinstance(parsed, dict):
+                objects += 1
+        except ValueError:
+            invalid += 1
+    return {
+        "encoding": "UTF8",
+        "first_token_class": kind,
+        "physical_nonempty_lines": len(nonempty),
+        "individually_valid_json_lines": valid,
+        "invalid_individual_json_lines": invalid,
+        "individually_valid_object_lines": objects,
+        "source_contents_returned": False,
+    }
+
+
 def probe() -> dict:
     zip_index=index.probe()
     candidates=[e for e in zip_index["target_files"] if e["name"]==NAME]
@@ -128,7 +161,11 @@ def probe() -> dict:
     meta=index._metadata()
     raw=zip_member._download_member(meta["download_url"],meta["archive_size"],
         item,max_compressed=64*1024,max_uncompressed=MAX_BYTES)
-    result=parse_jsonl(raw)
+    try:
+        result=parse_jsonl(raw)
+    except index.Hold as exc:
+        exc.framing_profile = framing_profile(raw)
+        raise
     result["source"]["figshare_article_id"]=meta["article_id"]
     result["source"]["central_sha256"]=zip_index["source"]["central_sha256"]
     return result
@@ -147,6 +184,8 @@ def main():
                 "reason_code":str(ex)[:90] if isinstance(ex,index.Hold) else "SOURCE_UNAVAILABLE",
                 "source":{"raw_rows_published":False,"full_archive_downloaded":False},
                 "qualification":{"accepted_tasks":0,"matched_scene_events":"NOT_MEASURED"}}
+        if hasattr(ex, "framing_profile"):
+            result["framing_profile"] = ex.framing_profile
         success=False
     args.out.write_text(json.dumps(result,sort_keys=True,indent=2)+"\n",encoding="utf-8")
     print("SOLVE4X_ORIGINAL_ITAM",result["status"],
