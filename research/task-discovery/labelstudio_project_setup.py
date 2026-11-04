@@ -507,6 +507,93 @@ def _write_restricted_exports(exports: tuple[tuple[Path, list[dict]], ...]) -> N
         raise SetupHold("REVIEW_OUTPUT_WRITE_FAILED") from None
 
 
+def review_progress(tasks: list[dict], url: str, token: str, pid: int, *,
+                    expected_xml: str, call=api) -> dict:
+    """Source-safe, read-only M3 progress for one isolated reviewer.
+
+    Count coverage, not human gold or semantic correctness. The original
+    owner bridge remains responsible for interpreting all region labels.
+    No source text, identities, annotation data, or individual source refs
+    appear in the result.
+    """
+    base = local_url(url)
+    require(bool(token) and type(pid) is int and pid > 0 and
+            type(expected_xml) is str and bool(expected_xml),
+            "REVIEW_PROGRESS_ARGUMENTS_INVALID")
+    originals = {task["data"]["source_sha256"]: task["data"] for task in tasks}
+    require(len(tasks) == len(originals) == 8,
+            "SOURCE_FIRST_IMPORT_INCOMPLETE")
+    project = call(base, token, f"/api/projects/{pid}/")
+    require(type(project) is dict and project.get("id") == pid and
+            same_review_form(expected_xml, project.get("label_config")),
+            "REVIEW_PROGRESS_OWNER_FORM_CHANGED")
+    who = call(base, token, "/api/current-user/whoami")
+    reviewer_id = who.get("id") if type(who) is dict else None
+    require(type(reviewer_id) is int and reviewer_id > 0,
+            "REVIEW_PROGRESS_ACCOUNT_NOT_VERIFIED")
+    exported = call(base, token,
+                    f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true")
+    require(type(exported) is list and len(exported) == 8,
+            "REVIEW_PROGRESS_SOURCE_SET_INCOMPLETE")
+    found = set()
+    unannotated = nonfinal = final = 0
+    for row in exported:
+        require(type(row) is dict and type(row.get("data")) is dict and
+                type(row.get("annotations")) is list and
+                not row.get("predictions") and len(row["annotations"]) <= 1,
+                "REVIEW_PROGRESS_EXPORT_AMBIGUOUS")
+        data = row["data"]
+        sha = data.get("source_sha256")
+        require(type(sha) is str and sha in originals and sha not in found and
+                data == originals[sha],
+                "REVIEW_PROGRESS_SOURCE_MISMATCH")
+        found.add(sha)
+        if not row["annotations"]:
+            unannotated += 1
+            continue
+        ann = row["annotations"][0]
+        ident = ann.get("completed_by") if type(ann) is dict else None
+        if type(ident) is dict:
+            ident = ident.get("id")
+        require(type(ident) in (int, str) and type(ident) is not bool and
+                str(ident) == str(reviewer_id),
+                "REVIEW_PROGRESS_FOREIGN_ANNOTATOR")
+        require(type(ann.get("result")) is list,
+                "REVIEW_PROGRESS_ANNOTATION_MALFORMED")
+        coverage = [part for part in ann["result"]
+                    if type(part) is dict and
+                    part.get("from_name") == "review_coverage"]
+        require(len(coverage) <= 1, "REVIEW_PROGRESS_DUPLICATE_COVERAGE")
+        if not coverage or ann.get("was_cancelled") is True:
+            nonfinal += 1
+            continue
+        entry = coverage[0]
+        valid = (entry.get("to_name") == "source_text" and
+                 entry.get("type") == "choices" and
+                 type(entry.get("value")) is dict and
+                 entry["value"].get("choices") in
+                 (["ALL_RELEVANT_SPANS_MARKED"], ["NO_TASK_RELEVANT_SPANS"]))
+        if valid:
+            final += 1
+        else:
+            nonfinal += 1
+    require(found == set(originals), "REVIEW_PROGRESS_SOURCE_SET_INCOMPLETE")
+    return {
+        "schema": SCHEMA,
+        "status": ("REVIEW_FINAL_COVERAGE_RECORDED_NOT_GOLD" if final == 8
+                   else "REVIEW_COVERAGE_PARTIAL_NOT_GOLD"),
+        "sources_checked": 8,
+        "sources_unannotated": unannotated,
+        "sources_with_nonfinal_annotation": nonfinal,
+        "sources_with_final_coverage": final,
+        "review_export_readiness": "COVERAGE_ONLY_NOT_OWNER_BRIDGE_QUALIFIED",
+        "original_reviewer_id_exposed": False,
+        "original_source_text_exposed": False,
+        "reviewer_independence_verified": False,
+        "human_gold": False,
+    }
+
+
 def export_single_reviewed_project(tasks: list[dict], url: str, token: str,
                                    pid: int, output: Path, *,
                                    expected_xml: str, call=api) -> dict:
@@ -589,6 +676,8 @@ def main() -> int:
     mode.add_argument("--export-reviewed-projects", action="store_true")
     mode.add_argument("--export-single-reviewed-project", action="store_true")
     mode.add_argument("--preflight-isolated-reviewers", action="store_true")
+    mode.add_argument("--review-progress", action="store_true",
+                      help="Read-only 8-source coverage counts; never human gold")
     parser.add_argument("--project-id", type=int)
     parser.add_argument("--other-url")
     parser.add_argument("--other-project-id", type=int)
@@ -631,6 +720,19 @@ def main() -> int:
             result = isolated_review_preflight(
                 tasks, xml, args.url, own_token, args.project_id,
                 args.other_url, other_token, args.other_project_id)
+        elif args.review_progress:
+            require(not args.confirm_local_import and
+                    args.project_id is not None and
+                    args.other_url is None and args.other_project_id is None and
+                    args.project_a_id is None and args.project_b_id is None and
+                    args.review_out is None and args.review_a_out is None and
+                    args.review_b_out is None,
+                    "REVIEW_PROGRESS_ARGUMENTS_INCOMPLETE")
+            token = resolve_api_credential(
+                args.url, os.environ.get("LABEL_STUDIO_API_KEY", ""),
+                mode=args.auth_mode)
+            result = review_progress(
+                tasks, args.url, token, args.project_id, expected_xml=xml)
         elif args.export_single_reviewed_project:
             require(not args.confirm_local_import and
                     args.project_id is not None and args.review_out is not None and

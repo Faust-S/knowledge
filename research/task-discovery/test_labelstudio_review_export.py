@@ -55,6 +55,73 @@ def fake_export(tasks, *, same_user=False, missing=False, drift=False,
 
 
 class ExportHandoffTests(unittest.TestCase):
+    def test_read_only_progress_partial_vs_final_source_coverage(self):
+        _, tasks = fixture()
+        def partial(base, token, route, body=None):
+            value = fake_export(tasks)(base, token, route, body)
+            if "export?exportType=JSON" in route:
+                value[0]["annotations"] = []
+                value[1]["annotations"][0]["result"] = []
+                value[2]["annotations"][0]["result"][0]["value"]["choices"] = [
+                    "REVIEW_INCOMPLETE"]
+            return value
+        partial_result = setup.review_progress(
+            tasks, "http://127.0.0.1:8080", "synthetic", 10,
+            expected_xml=REVIEW_XML, call=partial)
+        self.assertEqual(partial_result["sources_unannotated"], 1)
+        self.assertEqual(partial_result["sources_with_nonfinal_annotation"], 2)
+        self.assertEqual(partial_result["sources_with_final_coverage"], 5)
+        self.assertFalse(partial_result["human_gold"])
+        complete = setup.review_progress(
+            tasks, "http://127.0.0.1:8080", "synthetic", 10,
+            expected_xml=REVIEW_XML, call=fake_export(tasks))
+        self.assertEqual(complete["sources_with_final_coverage"], 8)
+        self.assertEqual(
+            complete["status"], "REVIEW_FINAL_COVERAGE_RECORDED_NOT_GOLD")
+        self.assertEqual(
+            complete["review_export_readiness"],
+            "COVERAGE_ONLY_NOT_OWNER_BRIDGE_QUALIFIED")
+        self.assertNotIn("completed_by", json.dumps(complete))
+        self.assertNotIn("Synthetic task", json.dumps(complete))
+        self.assertNotIn("source_ref", json.dumps(complete))
+
+    def test_progress_refuses_foreign_author_and_ambiguous_annotations(self):
+        _, tasks = fixture()
+        for mutation, code in (
+            (lambda rows: rows[0]["annotations"][0].update(completed_by=51),
+             "REVIEW_PROGRESS_FOREIGN_ANNOTATOR"),
+            (lambda rows: rows[0]["annotations"].append(
+                copy.deepcopy(rows[0]["annotations"][0])),
+             "REVIEW_PROGRESS_EXPORT_AMBIGUOUS"),
+            (lambda rows: rows[0]["annotations"][0]["result"].append(
+                copy.deepcopy(rows[0]["annotations"][0]["result"][0])),
+             "REVIEW_PROGRESS_DUPLICATE_COVERAGE"),
+            (lambda rows: rows[0]["data"].update(source_text="tampered"),
+             "REVIEW_PROGRESS_SOURCE_MISMATCH"),
+        ):
+            def changed(base, token, route, body=None):
+                value = fake_export(tasks)(base, token, route, body)
+                if "export?exportType=JSON" in route:
+                    mutation(value)
+                return value
+            with self.subTest(code=code), self.assertRaisesRegex(
+                    setup.SetupHold, code):
+                setup.review_progress(tasks, "http://127.0.0.1:8080",
+                                      "synthetic", 10,
+                                      expected_xml=REVIEW_XML, call=changed)
+
+    def test_progress_refuses_drifted_form_and_does_not_write_export(self):
+        _, tasks = fixture()
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "review.json"
+            with self.assertRaisesRegex(
+                    setup.SetupHold, "REVIEW_PROGRESS_OWNER_FORM_CHANGED"):
+                setup.review_progress(
+                    tasks, "http://127.0.0.1:8080", "synthetic", 10,
+                    expected_xml=REVIEW_XML,
+                    call=fake_export(tasks, form_drift=True))
+            self.assertFalse(output.exists())
+
     def test_two_complete_exports_remain_distinct_and_ungolded(self):
         _, tasks = fixture()
         with tempfile.TemporaryDirectory() as folder:
