@@ -319,6 +319,12 @@ jobs:
               comparison=r["original_itam_vs_scene"]
               assert comparison["accepted_tasks"]==0
               assert comparison["raw_values_exported"] is False
+              assert comparison["status"]=="ORIGINAL_ITAM_SCENE_DESCRIPTIVE_COMPARISON"
+              assert comparison["scene_non_video_marker_events"]==17
+              assert comparison["time_zone_or_clock_calibration_proven"] is False
+              assert comparison["human_task_gold"]=="NOT_MEASURED"
+              assert comparison["exact_ids_timestamp_activity_and_object_links"] <= comparison["shared_event_ids_with_comparable_object_links"]
+              assert comparison["exact_ids_timestamp_activity_and_object_links"] <= comparison["exact_ids_and_activity_timestamp"]
               print("SOLVE4X_ITAM_SCENE_MATCH",comparison["status"],
                     "matches",comparison.get("exact_ids_and_activity_timestamp","UNKNOWN"),
                     "of_scene",comparison.get("scene_non_video_marker_events","UNKNOWN"))
