@@ -274,6 +274,10 @@ class LocalLabelStudioSetupTests(unittest.TestCase):
                 ("xml", "ISOLATED_REVIEW_SAVED_FORM_MISMATCH"),
                 ("annotated", "LABEL_STUDIO_READBACK_NOT_BLIND_OR_CHANGED")):
             def respond(base, token, route, body=None):
+                own = (base.endswith(":8080") and token == "Token account-a") or (
+                       base.endswith(":8081") and token == "Token account-b")
+                if not own:
+                    raise ls.SetupHold("LABEL_STUDIO_HTTP_403")
                 if route == "/api/current-user/whoami":
                     return {"id": 10 if base.endswith(":8080") else 11}
                 pid = 40 if base.endswith(":8080") else 50
