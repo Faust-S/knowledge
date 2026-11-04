@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -470,6 +472,54 @@ class OwnerReviewCycleTests(unittest.TestCase):
                     cycle.CycleHold, 'OWNER_LOCAL_INPUT_OUTPUT_ALIAS_REFUSED'):
                 f.execute(effort_out=f.packet)
             self.assertFalse(f.calls)
+
+    def test_cli_reports_fixed_m3_hold_code_without_source_payload(self):
+        argv = ['owner_review_cycle.py', '--owner-root', '/PRIVATE/owner',
+                '--source-first-packet', '/PRIVATE/packet.json',
+                '--review-a', '/PRIVATE/review-a.json',
+                '--review-b', '/PRIVATE/review-b.json',
+                '--restricted-disagreements-out', '/PRIVATE/disagreements.json',
+                '--effort-out', '/PRIVATE/review-effort.json',
+                '--confirm-independent-local-review']
+        for error, expected in (
+                (cycle.CycleHold('OWNER_REVIEW_INSTRUMENT_MISSING'),
+                 'OWNER_REVIEW_INSTRUMENT_MISSING'),
+                (cycle.CycleHold('OWNER_BRIDGE_VERSION_CHANGED'),
+                 'OWNER_BRIDGE_VERSION_CHANGED'),
+                (cycle.CycleHold('OWNER_DISAGREEMENT_SOURCE_IDENTITY_MISMATCH'),
+                 'OWNER_DISAGREEMENT_SOURCE_IDENTITY_MISMATCH'),
+                (cycle.CycleHold('private reviewer text /PRIVATE/secret.json'),
+                 'OWNER_LOCAL_M3_CYCLE_INCOMPLETE'),
+                (cycle.CycleHold('UNSAFE_CODE\\n/PRIVATE/secret.json'),
+                 'OWNER_LOCAL_M3_CYCLE_INCOMPLETE'),
+                (ValueError('/PRIVATE/secret.json'),
+                 'OWNER_LOCAL_M3_CYCLE_INCOMPLETE'),
+        ):
+            with self.subTest(expected=expected, error=str(error)):
+                stderr = io.StringIO()
+                with patch('sys.argv', argv), patch.object(
+                        cycle, 'run_cycle', side_effect=error), redirect_stderr(stderr):
+                    self.assertEqual(cycle.main(), 2)
+                self.assertEqual(json.loads(stderr.getvalue()),
+                                 {'status': 'HOLD', 'code': expected})
+                self.assertNotIn('/PRIVATE/', stderr.getvalue())
+                self.assertNotIn('reviewer text', stderr.getvalue())
+
+    def test_cli_success_receipt_still_has_no_human_gold(self):
+        argv = ['owner_review_cycle.py', '--owner-root', '/PRIVATE/owner',
+                '--source-first-packet', '/PRIVATE/packet.json',
+                '--review-a', '/PRIVATE/review-a.json',
+                '--review-b', '/PRIVATE/review-b.json',
+                '--restricted-disagreements-out', '/PRIVATE/disagreements.json',
+                '--effort-out', '/PRIVATE/review-effort.json',
+                '--confirm-independent-local-review']
+        expected = {'status': 'OWNER_BRIDGE_AND_REVIEW_EFFORT_COMPLETED_NOT_GOLD',
+                    'sources': 8, 'human_gold': False}
+        stdout = io.StringIO()
+        with patch('sys.argv', argv), patch.object(
+                cycle, 'run_cycle', return_value=expected), redirect_stdout(stdout):
+            self.assertEqual(cycle.main(), 0)
+        self.assertEqual(json.loads(stdout.getvalue()), expected)
 
     def test_bad_json_or_duplicate_keys_cannot_qualify(self):
         for value in ('{"schema":"a","schema":"b"}', '{"a":NaN}',

@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -331,7 +332,17 @@ def main() -> int:
             confirmation=opts.confirm_independent_local_review)
         print(json.dumps(result, sort_keys=True))
         return 0
-    except (CycleHold, ValueError, OSError, TypeError):
+    except CycleHold as error:
+        # All current CycleHold instances carry fixed, non-sensitive codes.
+        # Reject anything that resembles a private path, snippet or message
+        # if a future caller accidentally constructs a dynamic error.
+        code = str(error)
+        if re.fullmatch(r'[A-Z0-9_]{3,100}', code) is None:
+            code = 'OWNER_LOCAL_M3_CYCLE_INCOMPLETE'
+        print(json.dumps({'status': 'HOLD', 'code': code},
+                         sort_keys=True), file=sys.stderr)
+        return 2
+    except (ValueError, OSError, TypeError):
         print(json.dumps({'status': 'HOLD', 'code': 'OWNER_LOCAL_M3_CYCLE_INCOMPLETE'},
                          sort_keys=True), file=sys.stderr)
         return 2
