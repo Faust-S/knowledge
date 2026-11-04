@@ -293,15 +293,88 @@ def create_projects(tasks: list[dict], xml: str, url: str, token: str,
 
 
 
+def _checked_project_export(tasks: list[dict], base: str, token: str,
+                            pid: int, *, call=api) -> tuple[list[dict], str]:
+    """Verify one exact source-first export. Owner Bridge owns label semantics."""
+    require(type(pid) is int and pid > 0, "REVIEW_PROJECT_ID_INVALID")
+    originals = {task["data"]["source_sha256"]: task["data"] for task in tasks}
+    require(len(originals) == len(tasks) == 8, "SOURCE_FIRST_IMPORT_INCOMPLETE")
+    exported = call(base, token,
+                    f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true")
+    require(type(exported) is list and len(exported) == 8,
+            "LABEL_STUDIO_REVIEW_EXPORT_INCOMPLETE")
+    found = set()
+    ids = set()
+    for record in exported:
+        require(type(record) is dict and type(record.get("data")) is dict and
+                not record.get("predictions") and
+                type(record.get("annotations")) is list and
+                len(record["annotations"]) == 1,
+                "LABEL_STUDIO_REVIEW_EXPORT_NOT_SINGLE_COMPLETE")
+        data = record["data"]
+        source = data.get("source_sha256")
+        require(source in originals and source not in found and
+                data == originals[source],
+                "LABEL_STUDIO_REVIEW_SOURCE_MISMATCH")
+        found.add(source)
+        review = record["annotations"][0]
+        require(type(review) is dict and
+                review.get("was_cancelled") is not True and
+                type(review.get("result")) is list,
+                "LABEL_STUDIO_REVIEW_UNFINISHED")
+        reviewer = review.get("completed_by")
+        if type(reviewer) is dict:
+            reviewer = reviewer.get("id")
+        require(type(reviewer) in (int, str) and
+                (type(reviewer) is not int or reviewer > 0) and
+                bool(str(reviewer).strip()),
+                "LABEL_STUDIO_REVIEWER_IDENTIFIER_MISSING")
+        ids.add(str(reviewer))
+    require(found == set(originals) and len(ids) == 1,
+            "LABEL_STUDIO_REVIEW_SOURCE_OR_REVIEWER_SET_MISMATCH")
+    return exported, next(iter(ids))
+
+
+def _write_restricted_exports(exports: tuple[tuple[Path, list[dict]], ...]) -> None:
+    """Write verified exports only; remove partial files after write errors."""
+    created = []
+    try:
+        for path, records in exports:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            created.append(path)
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(records, stream, ensure_ascii=False, sort_keys=True)
+                stream.write("\n")
+    except (OSError, UnicodeError, ValueError, TypeError):
+        for path in created:
+            path.unlink(missing_ok=True)
+        raise SetupHold("REVIEW_OUTPUT_WRITE_FAILED") from None
+
+
+def export_single_reviewed_project(tasks: list[dict], url: str, token: str,
+                                   pid: int, output: Path, *, call=api) -> dict:
+    """Export one isolated CE installation, without claiming human independence."""
+    base = local_url(url)
+    require(bool(token) and type(pid) is int and pid > 0,
+            "SINGLE_REVIEW_PROJECT_OR_TOKEN_MISSING")
+    require(not output.exists() and not output.is_symlink(),
+            "REVIEW_OUTPUT_PATHS_MUST_BE_NEW_AND_DISTINCT")
+    data, reviewer = _checked_project_export(tasks, base, token, pid, call=call)
+    _write_restricted_exports(((output, data),))
+    return {"schema": SCHEMA,
+            "status": "ONE_OWNER_LOCAL_REVIEW_EXPORT_READY_FOR_OWNER_BRIDGE",
+            "project_id": pid, "sources_per_export": 8,
+            "reviewer_id_claim_present": bool(reviewer),
+            "reviewer_independence_verified": False,
+            "platform_isolation_verified": False, "human_gold": False,
+            "adjudication_completed": False,
+            "task_precision": None, "task_recall": None, "task_f1": None}
+
+
 def export_reviewed_projects(tasks: list[dict], url: str, token: str,
                              project_ids: tuple[int, int],
                              output_a: Path, output_b: Path, *, call=api) -> dict:
-    """Read two completed projects, preserve original JSON for the owner bridge.
-
-    The *owning* task_exp_01_review_bridge.py remains the only authority
-    for label semantics, disagreements and completion. This transport step
-    rejects incomplete/non-source-first projects without evaluating tasks.
-    """
+    """Legacy same-server transport; distinct accounts alone are not blind."""
     base = local_url(url)
     require(bool(token) and type(project_ids) is tuple and
             len(project_ids) == 2 and
@@ -311,68 +384,24 @@ def export_reviewed_projects(tasks: list[dict], url: str, token: str,
             not output_a.exists() and not output_b.exists() and
             not output_a.is_symlink() and not output_b.is_symlink(),
             "REVIEW_OUTPUT_PATHS_MUST_BE_NEW_AND_DISTINCT")
-    originals = {task["data"]["source_sha256"]: task["data"] for task in tasks}
-    require(len(originals) == len(tasks) == 8, "SOURCE_FIRST_IMPORT_INCOMPLETE")
     collected = []
     reviewer_ids = []
     for pid in project_ids:
-        exported = call(base, token,
-                        f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true")
-        require(type(exported) is list and len(exported) == 8,
-                "LABEL_STUDIO_REVIEW_EXPORT_INCOMPLETE")
-        found = set()
-        ids = set()
-        for record in exported:
-            require(type(record) is dict and type(record.get("data")) is dict and
-                    not record.get("predictions") and
-                    type(record.get("annotations")) is list and
-                    len(record["annotations"]) == 1,
-                    "LABEL_STUDIO_REVIEW_EXPORT_NOT_SINGLE_COMPLETE")
-            data = record["data"]
-            source = data.get("source_sha256")
-            require(source in originals and source not in found and
-                    data == originals[source],
-                    "LABEL_STUDIO_REVIEW_SOURCE_MISMATCH")
-            found.add(source)
-            review = record["annotations"][0]
-            require(type(review) is dict and
-                    review.get("was_cancelled") is not True and
-                    type(review.get("result")) is list,
-                    "LABEL_STUDIO_REVIEW_UNFINISHED")
-            reviewer = review.get("completed_by")
-            if type(reviewer) is dict:
-                reviewer = reviewer.get("id")
-            require(type(reviewer) in (int, str) and
-                    (type(reviewer) is not int or reviewer > 0) and
-                    bool(str(reviewer).strip()),
-                    "LABEL_STUDIO_REVIEWER_IDENTIFIER_MISSING")
-            ids.add(str(reviewer))
-        require(found == set(originals) and len(ids) == 1,
-                "LABEL_STUDIO_REVIEW_SOURCE_OR_REVIEWER_SET_MISMATCH")
-        reviewer_ids.extend(ids)
-        collected.append(exported)
+        export, reviewer = _checked_project_export(
+            tasks, base, token, pid, call=call)
+        collected.append(export)
+        reviewer_ids.append(reviewer)
     require(len(set(reviewer_ids)) == 2,
             "LABEL_STUDIO_SAME_REVIEWER_IN_BOTH_PROJECTS")
-
-    # Only now create protected owner-local files. Never upload these to CI.
-    created = []
-    try:
-        for path, export in zip((output_a, output_b), collected):
-            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            created.append(path)
-            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-                json.dump(export, stream, ensure_ascii=False, sort_keys=True)
-                stream.write("\n")
-    except OSError:
-        for path in created:
-            path.unlink(missing_ok=True)
-        raise SetupHold("REVIEW_OUTPUT_WRITE_FAILED") from None
+    _write_restricted_exports(((output_a, collected[0]), (output_b, collected[1])))
     return {"schema": SCHEMA, "status": "TWO_OWNER_LOCAL_REVIEW_EXPORTS_READY_FOR_OWNER_BRIDGE",
             "project_ids": list(project_ids), "sources_per_export": 8,
             "reviewer_id_claims_distinct": True,
             "reviewer_independence_verified": False,
+            "platform_isolation_verified": False,
             "human_gold": False, "adjudication_completed": False,
             "task_precision": None, "task_recall": None, "task_f1": None}
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -388,6 +417,9 @@ def main() -> int:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--create-local-projects", action="store_true")
     mode.add_argument("--export-reviewed-projects", action="store_true")
+    mode.add_argument("--export-single-reviewed-project", action="store_true")
+    parser.add_argument("--project-id", type=int)
+    parser.add_argument("--review-out", type=Path)
     parser.add_argument("--project-a-id", type=int)
     parser.add_argument("--project-b-id", type=int)
     parser.add_argument("--review-a-out", type=Path)
@@ -405,6 +437,17 @@ def main() -> int:
                                            mode=args.auth_mode)
             result = create_projects(tasks, xml, args.url, token,
                                      slots=args.reviewer_slots)
+        elif args.export_single_reviewed_project:
+            require(not args.confirm_local_import and
+                    args.project_id is not None and args.review_out is not None and
+                    args.project_a_id is None and args.project_b_id is None and
+                    args.review_a_out is None and args.review_b_out is None,
+                    "SINGLE_REVIEW_EXPORT_ARGUMENTS_INCOMPLETE")
+            token = resolve_api_credential(args.url,
+                                           os.environ.get("LABEL_STUDIO_API_KEY", ""),
+                                           mode=args.auth_mode)
+            result = export_single_reviewed_project(
+                tasks, args.url, token, args.project_id, args.review_out)
         elif args.export_reviewed_projects:
             require(not args.confirm_local_import and
                     args.project_a_id is not None and args.project_b_id is not None and
