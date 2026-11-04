@@ -1,0 +1,98 @@
+name: IWXA Solve4X direct source feasibility (metadata only)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - work/2026-11-03-unified-task-migration
+    paths:
+      - '.github/workflows/activity-solve4x-source-preflight.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  source-feasibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Request official article metadata, never media
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, socket, urllib.request, urllib.error
+          from pathlib import Path
+
+          url="https://api.figshare.com/v2/articles/25246291"
+          result={
+            "schema":"IWXA_SOLVE4X_DIRECT_METADATA_FEASIBILITY/0.1",
+            "status":"SOURCE_ACCESS_HOLD",
+            "source_url":url,
+            "expected_article_id":25246291,
+            "media_downloaded":False,
+            "source_file_bytes_redistributed":False,
+            "raw_video_processed":False,
+            "case_level_multimodal_agreement":"NOT_MEASURED",
+            "independent_task_quality":"NOT_MEASURED",
+          }
+          try:
+              request=urllib.request.Request(url,headers={
+                  "User-Agent":"IWXA-Research-Source-Preflight/0.1",
+                  "Accept":"application/json",
+              })
+              with urllib.request.urlopen(request,timeout=16) as response:
+                  raw=response.read(1024*1024+1)
+              if not (0<len(raw)<=1024*1024):
+                  result.update(status="METADATA_SIZE_HOLD")
+              else:
+                  obj=json.loads(raw)
+                  files=obj.get("files")
+                  if obj.get("id")!=25246291 or not isinstance(files,list):
+                      result.update(status="METADATA_ID_OR_FILES_HOLD")
+                  else:
+                      eligible=[]
+                      for f in files:
+                          if not isinstance(f,dict):continue
+                          name=f.get("name")
+                          size=f.get("size")
+                          if not isinstance(name,str) or not isinstance(size,int):continue
+                          if (name in ("itam.ocelxml","itam_ocel.json","scene01_vid.json",
+                                       "scene01_ocel.json","scene01_video_ocel.json") or
+                              name.endswith("/scene01_vid.json") or
+                              name.endswith("/scene01_ocel.json") or
+                              name.lower().endswith(".zip")):
+                              eligible.append({
+                                  "name":name,
+                                  "size_bytes":size,
+                                  "file_id":f.get("id") if isinstance(f.get("id"),int) else None,
+                                  "selective_under_8mb":size<=8*1024*1024,
+                              })
+                      result.update(
+                          status="DIRECT_FIGSHARE_METADATA_PASS_NOT_CASE_ALIGNMENT",
+                          article_id=obj["id"],
+                          metadata_sha256=hashlib.sha256(raw).hexdigest(),
+                          files_declared=len(files),
+                          total_declared_bytes=sum(f.get("size",0) for f in files
+                              if isinstance(f,dict) and isinstance(f.get("size"),int)),
+                          target_name_candidates=eligible[:100],
+                          file_listing_truncated=len(eligible)>100,
+                          license_from_figshare_metadata=obj.get("defined_type_name"),
+                          provider_license=obj.get("license"),
+                      )
+          except (OSError,ValueError,TimeoutError,socket.timeout,
+                  urllib.error.HTTPError,urllib.error.URLError) as exc:
+              result.update(status="SOURCE_ACCESS_HOLD",
+                            failure_class=type(exc).__name__)
+          Path("solve4x-source-preflight.json").write_text(json.dumps(
+              result,ensure_ascii=False,indent=2,sort_keys=True)+"\n")
+          print("SOLVE4X_SOURCE_PREFLIGHT",result["status"],
+                "files",result.get("files_declared","UNKNOWN"),
+                "target_candidates",len(result.get("target_name_candidates",[])),
+                "case_alignment",result["case_level_multimodal_agreement"])
+          PY
+      - name: Upload source manifest only (no data files)
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-solve4x-source-availability-only
+          path: solve4x-source-preflight.json
+          retention-days: 7
+          if-no-files-found: error
