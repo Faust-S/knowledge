@@ -17,6 +17,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Atlas
+          ref: 81b4ce3fc19a3c0adab7150459846152f61c2d85
+          path: atlas-public
+          persist-credentials: false
+          sparse-checkout: src
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

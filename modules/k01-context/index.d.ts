@@ -64,7 +64,7 @@ export interface ContextProjection {
   readonly estimatedTokens: number;
   readonly missing: boolean;
 }
-export declare const CONTRACT_VERSION: '0.2.5';
+export declare const CONTRACT_VERSION: '0.2.6';
 export declare function selectContext(request: ContextRequest, port: ObservationPort): Promise<ContextProjection>;
 export declare function traceEvidence(projection: ContextProjection): Array<Pick<ContextSelection, 'id' | 'sourceRef' | 'revision' | 'epistemic' | 'evidenceRef' | 'sha256'>>;
 export declare function summarizeMemory(items: readonly KnowledgeItem[], constraints: { maxTokens: number; allowInferred?: boolean }): {

@@ -14,6 +14,7 @@ const normalizedStrings = (values, label, limit, lowercase = false) => {
 };
 export function fingerprintContextRequest(request) {
   if (!request || !valid(request.taskId)
+      || (!Number.isSafeInteger(request.maxTokens) || request.maxTokens < 0)
       || (request.profile !== undefined && !valid(request.profile))
       || (request.allowInferred !== undefined && typeof request.allowInferred !== 'boolean')) {
     throw new TypeError('invalid context request identity');
@@ -22,11 +23,12 @@ export function fingerprintContextRequest(request) {
     request.taskId,
     normalizedStrings(request.terms, 'terms', 128, true),
     normalizedStrings(request.allowedSources, 'sources', 4096),
+    request.maxTokens,
     request.profile ?? null,
     request.allowInferred === true,
   ];
   return createHash('sha256')
-    .update('iwxa-k01-context-request-v1\0', 'utf8')
+    .update('iwxa-k01-context-request-v2\0', 'utf8')
     .update(JSON.stringify(fields), 'utf8')
     .digest('hex');
 }
