@@ -11,6 +11,7 @@ on:
       - 'research/activity-research/solve4x_zip_range_probe.py'
       - 'research/activity-research/solve4x_same_case_audit.py'
       - 'research/activity-research/solve4x_global_itam_audit.py'
+      - 'research/activity-research/solve4x_scene_ui_audit.py'
       - 'research/activity-research/tests/test_solve4x_global_itam_audit.py'
       - 'research/activity-research/tests/test_solve4x_same_case_audit.py'
 
@@ -227,5 +228,27 @@ jobs:
         with:
           name: iwxa-solve4x-global-itam-scene-aggregates
           path: solve4x-global-itam-derived.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Validate separate user interface CSV structure
+        run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_scene_ui_audit.py' -v
+      - name: Inspect published UI CSV without exporting source values
+        run: |
+          python3 research/activity-research/solve4x_scene_ui_audit.py --out solve4x-ui-summary.json || true
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("solve4x-ui-summary.json").read_text())
+          assert r["schema"]=="IWXA_SOLVE4X_SCENE_UI_CSV_SOURCE_AUDIT/0.1"
+          assert r["source"]["original_rows_exported"] is False
+          assert r["qualification"]["accepted_tasks"]==0
+          print("SOLVE4X_UI_SCOPE",r["status"],"rows",r.get("scope",{}).get("row_count","UNKNOWN"))
+          PY
+      - name: Upload UI CSV schema and counts only
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-solve4x-ui-source-schema
+          path: solve4x-ui-summary.json
           retention-days: 7
           if-no-files-found: error
