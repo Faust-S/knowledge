@@ -20,6 +20,11 @@ REVIEW_XML = CONFIG.decode("utf-8")
 def fake_export(tasks, *, same_user=False, missing=False, drift=False,
                 form_drift=False):
     def respond(base, token, route, body=None):
+        if route == "/api/current-user/whoami":
+            # The fixture's single-project author follows the native token
+            # for each isolated instance. Same-server legacy export never
+            # uses this branch.
+            return {"id": 26 if token == "synthetic-b" else 25}
         pid = int(route.split("/")[3])
         if route.endswith("/"):
             xml = (REVIEW_XML.replace("review_coverage", "drifted_control")
@@ -114,6 +119,36 @@ class ExportHandoffTests(unittest.TestCase):
             if __import__("os").name == "posix":
                 self.assertEqual(a.stat().st_mode & 0o777, 0o600)
                 self.assertEqual(b.stat().st_mode & 0o777, 0o600)
+
+    def test_single_export_author_must_match_authenticated_reviewer(self):
+        _, tasks = fixture()
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "single.json"
+            with self.assertRaisesRegex(
+                    setup.SetupHold, "SINGLE_REVIEW_EXPORT_AUTHOR_AUTH_MISMATCH"):
+                # This account is not the author of project 11 (id 26).
+                setup.export_single_reviewed_project(
+                    tasks, "http://127.0.0.1:8081", "synthetic-a",
+                    11, output, expected_xml=REVIEW_XML,
+                    call=fake_export(tasks))
+            self.assertFalse(output.exists(), "Never write a misattributed export")
+
+    def test_single_export_whoami_absent_or_invalid_is_hold(self):
+        _, tasks = fixture()
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "single.json"
+            native = fake_export(tasks)
+            for malformed in (None, {}, {"id": True}, {"id": "25"}, {"id": 0}):
+                def called(base, token, route, body=None):
+                    if route == "/api/current-user/whoami":
+                        return malformed
+                    return native(base, token, route, body)
+                with self.subTest(malformed=malformed), self.assertRaisesRegex(
+                        setup.SetupHold, "SINGLE_REVIEW_EXPORT_AUTHOR_AUTH_MISMATCH"):
+                    setup.export_single_reviewed_project(
+                        tasks, "http://127.0.0.1:8080", "synthetic",
+                        10, output, expected_xml=REVIEW_XML, call=called)
+                self.assertFalse(output.exists())
 
     def test_single_export_rejects_incomplete_or_changed_source_without_file(self):
         _, tasks = fixture()

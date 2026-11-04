@@ -157,8 +157,12 @@ def exercise_local_server(base: str, token: str, *, second_token: str = '') -> d
         # independent-instance transport, without asserting CE isolation.
         single_a, single_b = Path(directory) / "single-a.json", Path(directory) / "single-b.json"
         for index, single_out in enumerate((single_a, single_b)):
+            # When two accounts wrote separately, each isolated-style
+            # export must authenticate as the actual annotation author.
+            reviewer_credential = (
+                second_credential if index == 1 and second_credential else credential)
             single_receipt = transport.export_single_reviewed_project(
-                tasks, base, credential, project_ids[index], single_out,
+                tasks, base, reviewer_credential, project_ids[index], single_out,
                 expected_xml=SYNTHETIC_XML, call=traced_api)
             transport.require(single_receipt["sources_per_export"] == 8 and
                               single_receipt["human_gold"] is False and

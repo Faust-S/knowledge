@@ -300,6 +300,18 @@ class LocalLabelStudioSetupTests(unittest.TestCase):
                     "http://127.0.0.1:8081", "Token account-b", 50,
                     call=respond)
 
+    def test_isolated_identity_404_is_not_proof_of_auth_refusal(self):
+        def called(base, token, route, body=None):
+            if ((base.endswith(":8080") and token == "Token account-b") or
+                    (base.endswith(":8081") and token == "Token account-a")):
+                raise ls.SetupHold("LABEL_STUDIO_HTTP_404")
+            return {"id": 10 if base.endswith(":8080") else 11}
+        with self.assertRaisesRegex(
+                ls.SetupHold, "ISOLATED_REVIEW_CROSS_AUTH_NOT_PROVEN"):
+            ls.verify_isolated_reviewers(
+                "http://127.0.0.1:8080", "Token account-a",
+                "http://127.0.0.1:8081", "Token account-b", call=called)
+
     def test_isolated_preflight_fails_on_colliding_ids(self):
         _, tasks = fixture()
         def respond(base, token, route, body=None):

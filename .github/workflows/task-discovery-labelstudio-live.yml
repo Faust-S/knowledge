@@ -225,6 +225,7 @@ jobs:
               receipt = setup.export_single_reviewed_project(tasks, base, token, pid, output,
                   expected_xml=SYNTHETIC_XML)
               require(receipt['sources_per_export'] == 8 and
+                      receipt['annotation_author_matches_authenticated_account'] is True and
                       receipt['human_gold'] is False, 'ISOLATED_SINGLE_EXPORT_FAILED')
               export = json.loads(output.read_text('utf-8'))
               require(len(export) == 8 and

@@ -325,8 +325,7 @@ def verify_isolated_reviewers(url_a: str, token_a: str,
             call(base, token, "/api/current-user/whoami")
         except SetupHold as error:
             require(str(error) in ("LABEL_STUDIO_HTTP_401",
-                                   "LABEL_STUDIO_HTTP_403",
-                                   "LABEL_STUDIO_HTTP_404"),
+                                   "LABEL_STUDIO_HTTP_403"),
                     "ISOLATED_REVIEW_CROSS_AUTH_NOT_PROVEN")
         else:
             raise SetupHold("ISOLATED_REVIEW_CROSS_ACCOUNT_ACCESSIBLE")
@@ -469,9 +468,19 @@ def export_single_reviewed_project(tasks: list[dict], url: str, token: str,
             "REVIEW_OUTPUT_PATHS_MUST_BE_NEW_AND_DISTINCT")
     data, reviewer = _checked_project_export(
         tasks, base, token, pid, expected_xml=expected_xml, call=call)
+    # With isolated owner-local installations, export as the reviewer who
+    # actually annotated. Distinct numeric IDs alone are not enough: the
+    # source-bound annotations must match the currently authenticated user.
+    # The check is performed before writing any protected export.
+    account = call(base, token, "/api/current-user/whoami")
+    actual_id = account.get("id") if type(account) is dict else None
+    require(type(actual_id) is int and actual_id > 0 and
+            str(actual_id) == reviewer,
+            "SINGLE_REVIEW_EXPORT_AUTHOR_AUTH_MISMATCH")
     _write_restricted_exports(((output, data),))
     return {"schema": SCHEMA,
             "status": "ONE_OWNER_LOCAL_REVIEW_EXPORT_READY_FOR_OWNER_BRIDGE",
+            "annotation_author_matches_authenticated_account": True,
             "project_id": pid, "sources_per_export": 8,
             "reviewer_id_claim_present": bool(reviewer),
             "reviewer_independence_verified": False,
