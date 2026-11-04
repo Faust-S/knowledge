@@ -34,7 +34,7 @@ def selected_members(index):
     return chosen
 
 
-def decode_member(header: bytes, compressed: bytes, expected: dict) -> bytes:
+def decode_member(header: bytes, compressed: bytes, expected: dict, *, max_uncompressed=MAX_UNCOMPRESSED) -> bytes:
     zipidx.check(len(header) >= 30, "ZIP_LOCAL_HEADER_SHORT")
     signature, version, flags, method, mtime, mdate, crc, csize, usize, namelen, extralen = (
         struct.unpack_from("<IHHHHHIIIHH", header, 0))
@@ -54,8 +54,9 @@ def decode_member(header: bytes, compressed: bytes, expected: dict) -> bytes:
     filename = header[30:30 + namelen].decode("utf-8" if flags & 0x800 else "cp437")
     zipidx.check(filename == expected["name"], "ZIP_MEMBER_FILENAME_MISMATCH")
     obj = zlib.decompressobj(-15)
-    data = obj.decompress(compressed, MAX_UNCOMPRESSED + 1)
-    zipidx.check(obj.eof and len(data) <= MAX_UNCOMPRESSED and
+    zipidx.check(0 < max_uncompressed <= 1024 * 1024, "ZIP_MEMBER_DECOMPRESSED_CAP_INVALID")
+    data = obj.decompress(compressed, max_uncompressed + 1)
+    zipidx.check(obj.eof and len(data) <= max_uncompressed and
                  not obj.unused_data and not obj.unconsumed_tail,
                  "ZIP_MEMBER_DECOMPRESSION_INCOMPLETE")
     zipidx.check(len(data) == expected["uncompressed_bytes"],
@@ -65,7 +66,7 @@ def decode_member(header: bytes, compressed: bytes, expected: dict) -> bytes:
     return data
 
 
-def _download_member(url: str, archive_total: int, item: dict) -> bytes:
+def _download_member(url: str, archive_total: int, item: dict, *, max_compressed=MAX_COMPRESSED, max_uncompressed=MAX_UNCOMPRESSED) -> bytes:
     offset = item["zip_local_header_offset"]
     first, at, _ = zipidx._read_range(url, f"bytes={offset}-{offset+29}",
                                       30, archive_total)
@@ -85,9 +86,9 @@ def _download_member(url: str, archive_total: int, item: dict) -> bytes:
     payload_at = offset + 30 + rest_len
     compressed, at, _ = zipidx._read_range(url,
           f"bytes={payload_at}-{payload_at+item['compressed_bytes']-1}",
-          MAX_COMPRESSED, archive_total)
+          max_compressed, archive_total)
     zipidx.check(at == payload_at, "ZIP_MEMBER_PAYLOAD_POSITION_DRIFT")
-    return decode_member(first + rest, compressed, item)
+    return decode_member(first + rest, compressed, item, max_uncompressed=max_uncompressed)
 
 
 def describe(value):
