@@ -17,7 +17,7 @@ SCHEMA = "IWXA_SOLVE4X_ORIGINAL_ITAM_JSONL_SOURCE/0.1"
 MAX_BYTES = 256 * 1024
 MAX_RECORDS = 5000
 
-def parse_jsonl(raw: bytes) -> dict:
+def parse_jsonl(raw: bytes, *, include_records: bool = False):
     index.check(isinstance(raw, bytes) and 0 < len(raw) <= MAX_BYTES,
                 "ITAM_JSONL_BYTES_INVALID")
     try:
@@ -97,7 +97,7 @@ def parse_jsonl(raw: bytes) -> dict:
          if key in known_fields and isinstance(value, (dict, list))}
     arrays = {k: len(v) for k, v in primary.items()
               if k in known_fields and isinstance(v, list)}
-    return {
+    report = {
         "schema":SCHEMA,
         "status":"ORIGINAL_ITAM_JSONL_LOADED_SCHEMA_ONLY",
         "source":{"archive_member":NAME,"sha256":sha256(raw).hexdigest(),
@@ -115,6 +115,90 @@ def parse_jsonl(raw: bytes) -> dict:
                          "actual_person_work":"UNKNOWN",
                          "matched_scene_events":"NOT_MEASURED",
                          "accepted_tasks":0}
+    }
+
+    return (report, records) if include_records else report
+
+
+def compare_original_itam_to_scene(raw: bytes, scene_raw: bytes) -> dict:
+    """Only exact registered-event evidence; no inferred person actions."""
+    report, records = parse_jsonl(raw, include_records=True)
+    try:
+        scene = json.loads(scene_raw)
+    except (UnicodeError, ValueError):
+        raise index.Hold("SCENE_OCEL_JSON_INVALID") from None
+    index.check(isinstance(scene, dict) and
+                isinstance(scene.get("ocel:events"), dict),
+                "SCENE_OCEL_EVENTS_MISSING")
+    scene_events = scene["ocel:events"]
+    source_events = {}
+    representation = "UNRECOGNISED"
+    if len(records) == 1 and isinstance(records[0].get("ocel:events"), dict):
+        source_events = records[0]["ocel:events"]
+        representation = "OCEL_EVENT_MAP"
+    elif records and all(isinstance(r.get("ocel:activity"), str) and
+                         isinstance(r.get("ocel:timestamp"), str)
+                         for r in records):
+        # Source records are standalone events; their original IDs, when
+        # present, are used only for exact provenance comparisons.
+        representation = "INDIVIDUAL_OCEL_EVENTS"
+        for index_number, item in enumerate(records):
+            key = item.get("ocel:eid", item.get("event_id", item.get("id")))
+            if key is not None:
+                index.check(isinstance(key, (str, int)),
+                            "ITAM_EVENT_ID_TYPE_INVALID")
+                key = str(key)
+            else:
+                key = "UNIDENTIFIED_EVENT_" + str(index_number)
+            index.check(key not in source_events, "ITAM_EVENT_ID_DUPLICATE")
+            source_events[key] = item
+    else:
+        return {
+            "status": "ORIGINAL_ITAM_EVENT_SCHEMA_NOT_QUALIFIED",
+            "record_representation": representation,
+            "source_record_count": len(records),
+            "matched_scene_unmarked": "NOT_MEASURED",
+            "accepted_tasks": 0,
+            "raw_values_exported": False,
+        }
+    index.check(len(source_events) <= MAX_RECORDS, "ITAM_EVENT_COUNT_EXCESSIVE")
+    def signature(event):
+        if not isinstance(event, dict):
+            return None
+        a, t = event.get("ocel:activity"), event.get("ocel:timestamp")
+        return (a, t) if isinstance(a, str) and isinstance(t, str) else None
+    source_signatures = Counter(x for x in
+                                (signature(e) for e in source_events.values())
+                                if x is not None)
+    candidates = {k:e for k,e in scene_events.items()
+                  if isinstance(e, dict) and
+                  not (isinstance(e.get("ocel:vmap"), dict) and
+                       "end_time" in e["ocel:vmap"])}
+    candidate_signatures = Counter(x for x in
+                                   (signature(e) for e in candidates.values())
+                                   if x is not None)
+    valid_shared_ids = set(source_events).intersection(candidates)
+    exact_ids_and_signatures = sum(
+        signature(source_events[k]) is not None and
+        signature(source_events[k]) == signature(candidates[k])
+        for k in valid_shared_ids)
+    return {
+        "status": "ORIGINAL_ITAM_SCENE_DESCRIPTIVE_COMPARISON",
+        "record_representation": representation,
+        "source_record_count": len(source_events),
+        "source_records_with_valid_activity_and_time":
+            sum(source_signatures.values()),
+        "scene_non_video_marker_events": len(candidates),
+        "literal_activity_and_timestamp_multiset_intersection":
+            sum((source_signatures & candidate_signatures).values()),
+        "literal_event_id_intersection": len(valid_shared_ids),
+        "exact_ids_and_activity_timestamp": exact_ids_and_signatures,
+        "time_zone_or_clock_calibration_proven": False,
+        "literal_event_match_proves_independent_human_action": False,
+        "source_lineage_independence_from_joined_ocel": "NOT_ATTESTED",
+        "human_task_gold": "NOT_MEASURED",
+        "accepted_tasks": 0,
+        "raw_values_exported": False,
     }
 
 
@@ -166,6 +250,20 @@ def probe() -> dict:
     except index.Hold as exc:
         exc.framing_profile = framing_profile(raw)
         raise
+    # Compare directly against the original scene export only after a valid
+    # original ITAM parse; no extra data fetch is needed for a schema HOLD.
+    scene_members = [e for e in zip_index["target_files"]
+                     if e["name"] == "scene01/scene01_ocel.json"]
+    index.check(len(scene_members) == 1, "SCENE_OCEL_MEMBER_NOT_FOUND")
+    scene_item = scene_members[0]
+    index.check(scene_item["uncompressed_bytes"] <= zip_member.MAX_UNCOMPRESSED
+                and scene_item["compressed_bytes"] <= zip_member.MAX_COMPRESSED,
+                "SCENE_OCEL_TOO_LARGE")
+    scene_raw = zip_member._download_member(meta["download_url"],
+                                            meta["archive_size"], scene_item)
+    result["original_itam_vs_scene"] = compare_original_itam_to_scene(
+        raw, scene_raw)
+    result["source"]["scene_ocel_sha256"] = sha256(scene_raw).hexdigest()
     result["source"]["figshare_article_id"]=meta["article_id"]
     result["source"]["central_sha256"]=zip_index["source"]["central_sha256"]
     return result
