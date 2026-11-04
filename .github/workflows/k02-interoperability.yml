@@ -23,6 +23,8 @@ jobs:
           python-version: '3.13'
       - name: Contract and provider negative cases
         run: node --test modules/k02-interoperability/tests/*.test.mjs
+      - name: Independent Python verifies Node plan, provider and Skill digests
+        run: python modules/k02-interoperability/consumers/python_cross_language_verify.py
       - name: Independent Python consumer and real public GitHub REST source
         run: python modules/k02-interoperability/consumers/python_public_source_consumer.py 6d04b82f1b0b614fa22c735075b66f20c1d85f92 solutions/meeting-followup/agent.json
       - name: Syntax and import validation
