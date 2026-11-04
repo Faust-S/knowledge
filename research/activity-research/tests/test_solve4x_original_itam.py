@@ -77,6 +77,26 @@ class Tests(TestCase):
         self.assertEqual(r["literal_event_id_intersection"],1)
         self.assertEqual(r["exact_ids_and_activity_timestamp"],0)
         self.assertFalse(r["time_zone_or_clock_calibration_proven"])
+    def test_event_object_links_need_same_membership(self):
+        original_data=(b'{"ocel:events":{"evt-1":{"ocel:activity":"Use",'
+                       b'"ocel:timestamp":"2024-01-01T00:00:00",'
+                       b'"ocel:omap":["asset-A","person-1"]}}}')
+        scene_equal=(b'{"ocel:events":{"evt-1":{"ocel:activity":"Use",'
+                     b'"ocel:timestamp":"2024-01-01T00:00:00",'
+                     b'"ocel:omap":["person-1","asset-A"]}}}')
+        same=original.compare_original_itam_to_scene(original_data,scene_equal)
+        self.assertEqual(same["exact_ids_timestamp_activity_and_object_links"],1)
+        self.assertEqual(same["shared_event_ids_with_comparable_object_links"],1)
+        scene_different=scene_equal.replace(b"person-1",b"person-2")
+        diff=original.compare_original_itam_to_scene(original_data,scene_different)
+        self.assertEqual(diff["exact_ids_and_activity_timestamp"],1)
+        self.assertEqual(diff["exact_ids_timestamp_activity_and_object_links"],0)
+        self.assertEqual(diff["accepted_tasks"],0)
+    def test_missing_object_links_abstains(self):
+        data=b'{"ocel:events":{"a":{"ocel:activity":"A","ocel:timestamp":"T"}}}'
+        r=original.compare_original_itam_to_scene(data,data)
+        self.assertEqual(r["shared_event_ids_with_comparable_object_links"],0)
+        self.assertEqual(r["exact_ids_timestamp_activity_and_object_links"],0)
     def test_empty_is_hold(self):
         with self.assertRaisesRegex(index.Hold,"ITAM_JSONL_BYTES_INVALID"):
             original.parse_jsonl(b'')
