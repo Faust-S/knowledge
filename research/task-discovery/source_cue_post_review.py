@@ -243,7 +243,7 @@ def main() -> int:
         print(json.dumps(result, sort_keys=True, allow_nan=False))
         return 0
     except (ComparisonHold, frozen.SnapshotHold, baseline.BaselineHold,
-            effort.EffortHold, OSError, ValueError, TypeError, KeyError):
+            literal.ExactHold, effort.EffortHold, OSError, ValueError, TypeError, KeyError):
         print(json.dumps({"status": "HOLD",
                           "code": "SOURCE_CUE_EXPLORATORY_ANALYSIS_INCOMPLETE"},
                          sort_keys=True), file=sys.stderr)

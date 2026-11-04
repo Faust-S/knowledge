@@ -257,5 +257,32 @@ class PostReviewCueTests(unittest.TestCase):
             compare.analyze(m, s, a)
 
 
+    def test_main_exact_search_hold_is_controlled_without_traceback(self):
+        # A frozen literal replay may refuse changed source bytes.
+        # The operator receives only the fixed safe HOLD, never a traceback.
+        from io import StringIO
+        from pathlib import Path
+        import sys
+        fake_argv = ["source_cue_post_review.py",
+                     "--manual-adjudication", "/PRIVATE/reviewer-adjudication.json"]
+        with (
+            patch.object(sys, "argv", fake_argv),
+            patch.object(compare.effort, "read_json", return_value={}),
+            patch.object(compare, "replay_method", return_value=({}, {})),
+            patch.object(compare.literal, "replay",
+                         side_effect=compare.literal.ExactHold(
+                             "FROZEN_EXACT_SOURCE_BYTES_CHANGED")),
+            patch.object(sys, "stderr", new_callable=StringIO) as err,
+        ):
+            self.assertEqual(compare.main(), 2)
+            output = json.loads(err.getvalue())
+        self.assertEqual(output, {
+            "status": "HOLD",
+            "code": "SOURCE_CUE_EXPLORATORY_ANALYSIS_INCOMPLETE",
+        })
+        self.assertNotIn("FROZEN_EXACT_SOURCE_BYTES_CHANGED", json.dumps(output))
+        self.assertNotIn("/PRIVATE", json.dumps(output))
+
+
 if __name__ == "__main__":
     unittest.main()
