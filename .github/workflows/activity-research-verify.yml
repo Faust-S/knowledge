@@ -207,3 +207,24 @@ jobs:
           path: bpi13-incidents-fit.json
           retention-days: 7
           if-no-files-found: error
+
+      - name: BPI13 source-first versus catalogue-prior bounded comparison tests
+        run: node --test research/activity-research/tests/test_bpi13_question_method_pair.test.mjs
+      - name: Real official Incidents aggregate into source-first investigation comparison
+        run: |
+          if node research/activity-research/bpi13_question_method_pair.mjs \
+            --fit bpi13-incidents-fit.json --out bpi13-method-pair.json; then
+            node -e "const r=require('./bpi13-method-pair.json');if(r.schema!=='IWXA_BPI13_METHOD_PAIR/0.1'||r.source_first.question_count!==4||r.source_first.missing_evidence_categories<4||r.qualification.accepted_tasks!==0||r.catalogue_prior.status!=='NOT_RUN_OWNER_LOCAL_CATALOGUE_ABSENT')process.exit(2);console.log('BPI13_METHOD_PAIR_REPLAY_PASS',r.source_first.question_count,'questions',r.source_first.missing_evidence_categories,'evidence gaps','zero accepted tasks')"
+          else
+            echo "BPI13_METHOD_PAIR_SOURCE_HOLD"
+            if [ ! -f bpi13-method-pair.json ]; then
+              printf '{"status":"SOURCE_HOLD","accepted_tasks":0}\n' > bpi13-method-pair.json
+            fi
+          fi
+      - name: Publish aggregate investigation comparison, no private catalogue
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-bpi13-source-first-method-pair
+          path: bpi13-method-pair.json
+          retention-days: 7
+          if-no-files-found: error
