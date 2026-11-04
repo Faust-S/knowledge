@@ -80,7 +80,7 @@ def parse_jsonl(raw: bytes, *, include_records: bool = False):
         "ocel:global-event", "ocel:global-object", "ocel:activity",
         "ocel:timestamp", "ocel:omap", "ocel:vmap", "ocel:type",
         "id", "event_id", "object_id", "eventType", "event_type",
-        "activity", "type", "time", "timestamp", "action",
+        "event", "activity", "type", "time", "timestamp", "action",
         "attributes", "data", "events", "objects", "items", "records",
         "resource", "actor", "value", "changes",
     }
@@ -202,7 +202,7 @@ def compare_original_itam_to_scene(raw: bytes, scene_raw: bytes) -> dict:
         linked_qualified += 1
         if (signature(original_event) is not None and
             signature(original_event) == signature(scene_event) and
-            set(left) == set(right)):
+            Counter(left) == Counter(right)):
             exact_id_signature_and_links += 1
     return {
         "status": "ORIGINAL_ITAM_SCENE_DESCRIPTIVE_COMPARISON",

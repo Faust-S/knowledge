@@ -97,6 +97,15 @@ class Tests(TestCase):
         r=original.compare_original_itam_to_scene(data,data)
         self.assertEqual(r["shared_event_ids_with_comparable_object_links"],0)
         self.assertEqual(r["exact_ids_timestamp_activity_and_object_links"],0)
+    def test_duplicate_object_links_are_not_exact(self):
+        source=(b'{"ocel:events":{"1":{"ocel:activity":"A",'
+                b'"ocel:timestamp":"T","ocel:omap":["X","X"]}}}')
+        scene=(b'{"ocel:events":{"1":{"ocel:activity":"A",'
+               b'"ocel:timestamp":"T","ocel:omap":["X"]}}}')
+        result=original.compare_original_itam_to_scene(source,scene)
+        self.assertEqual(result["exact_ids_and_activity_timestamp"],1)
+        self.assertEqual(result["shared_event_ids_with_comparable_object_links"],1)
+        self.assertEqual(result["exact_ids_timestamp_activity_and_object_links"],0)
     def test_empty_is_hold(self):
         with self.assertRaisesRegex(index.Hold,"ITAM_JSONL_BYTES_INVALID"):
             original.parse_jsonl(b'')
