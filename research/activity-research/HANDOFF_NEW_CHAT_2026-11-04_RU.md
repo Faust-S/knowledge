@@ -1,3 +1,5 @@
+> **Последняя предметная квалификация C11:** [Actions 41896311957](https://github.com/Faust-S/knowledge/actions/runs/41896311957) подтверждает источник каждого из 40 событий scene01 OCEL: **23 видео + 17 сенсоры**, пересечений event IDs и core conflicts нет. Прежнее именование 17 как «ITAM system events» в C3–C10 исправлено: сравнение raw ITAM ↔ 17 sensor events не является проверкой Snipe converter. Код `solve4x_scene_component_lineage.py`, экспериментальный отчёт `SOLVE4X_MULTICHANNEL_REPLAY_2026-11-04_RU.md`. Источник human activity gold и Task quality всё ещё `NOT_MEASURED`; `TASK_ACCEPTED=0`.
+
 # IWXA Activity Discovery & Reconstruction — передача в новый чат проекта «Система знаний»
 
 **Дата:** 04.11.2026.
