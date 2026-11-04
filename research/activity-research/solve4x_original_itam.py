@@ -25,15 +25,30 @@ def parse_jsonl(raw: bytes) -> dict:
     except UnicodeError:
         raise index.Hold("ITAM_JSONL_ENCODING_HOLD") from None
     lines = [line for line in data.splitlines() if line.strip()]
-    index.check(0 < len(lines) <= MAX_RECORDS, "ITAM_JSONL_POPULATION_HOLD")
+    index.check(0 < len(lines) <= MAX_RECORDS, "ITAM_LINES_POPULATION_HOLD")
     records = []
-    for line in lines:
-        try:
-            item = json.loads(line)
-        except ValueError:
-            raise index.Hold("ITAM_JSONL_ROW_INVALID") from None
-        index.check(isinstance(item, dict), "ITAM_JSONL_OBJECT_EXPECTED")
-        records.append(item)
+    try:
+        whole = json.loads(data)
+    except ValueError:
+        whole = None
+    if isinstance(whole, dict):
+        records = [whole]
+        parse_mode = "WHOLE_JSON_OBJECT"
+    elif isinstance(whole, list) and all(isinstance(x, dict) for x in whole):
+        records = whole
+        parse_mode = "WHOLE_JSON_ARRAY"
+    elif whole is not None:
+        raise index.Hold("ITAM_UNSUPPORTED_WHOLE_JSON_ROOT")
+    else:
+        parse_mode = "JSON_LINES"
+        for line in lines:
+            try:
+                item = json.loads(line)
+            except ValueError:
+                raise index.Hold("ITAM_MULTILINE_OR_NONSTANDARD_JSON_HOLD") from None
+            index.check(isinstance(item, dict), "ITAM_JSONL_OBJECT_EXPECTED")
+            records.append(item)
+    index.check(0 < len(records) <= MAX_RECORDS, "ITAM_RECORD_POPULATION_HOLD")
     keys = Counter(k for item in records for k in item)
     types = Counter(type(item).__name__ for item in records)
     primary = records[0]
@@ -47,6 +62,8 @@ def parse_jsonl(raw: bytes) -> dict:
                   "bytes":len(raw),"raw_rows_published":False,
                   "full_archive_downloaded":False},
         "structure":{"nonempty_jsonl_rows":len(records),
+                     "parse_mode":parse_mode,
+                     "file_nonempty_lines":len(lines),
                      "outer_keys":dict(sorted(keys.items())),
                      "outer_record_types":dict(sorted(types.items())),
                      "first_record_nested_field_names":nested,
