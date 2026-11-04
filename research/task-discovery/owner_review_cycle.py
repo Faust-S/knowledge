@@ -17,6 +17,8 @@ import sys
 import tempfile
 from typing import Callable
 
+import review_effort as effort_contract
+
 OWNER_BRIDGE_BLOB = '9b56bc4624341f54799340b08872d3cfbed6e13b'
 BRIDGE_SCHEMA = 'IWXA_TASK_EXP_01_INDEPENDENT_REVIEW_CROSSCHECK/0.1'
 EFFORT_SCHEMA = 'IWXA_TASK_EXP_01_OWNER_LOCAL_REVIEW_EFFORT/0.1'
@@ -183,6 +185,23 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
              effort.get('source_text_exported') is False and
              effort.get('reviewer_ids_exported') is False,
              'EFFORT_FILE_INCOMPATIBLE')
+        # The owning workflow uses one frozen pre-gold method. A success
+        # receipt from the subprocess must not endorse a result file bound to
+        # another method or frozen source selection.
+        need(effort.get('method_output_sha256') ==
+             effort_contract.EXPECTED_METHOD_SHA and
+             effort.get('original_source_manifest_git_blob') ==
+             effort_contract.MANIFEST_BLOB,
+             'EFFORT_FROZEN_METHOD_BINDING_MISMATCH')
+        # Verify that the exact receipt and saved artifact agree about
+        # measured/partial platform time. This never asserts human attention
+        # time, quality, adjudication, or completed scientific evaluation.
+        complete = effort.get('label_studio_lead_time_seconds_total') is not None
+        need(type(stage.get('complete_lead_time')) is bool and
+             stage['complete_lead_time'] == complete and
+             effort.get('status') == stage.get('status') and
+             complete == (stage['status'] == 'LEAD_TIME_RECORDED_NOT_TASK_GOLD'),
+             'EFFORT_RECEIPT_FILE_MISMATCH')
         need(tuple(sha256_file(p) for p in inputs) == pinned,
              'REVIEW_INPUT_CHANGED_BEFORE_PUBLICATION')
         need(not disagreements_out.exists() and not disagreements_out.is_symlink() and

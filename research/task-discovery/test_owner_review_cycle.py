@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 import owner_review_cycle as cycle
+import review_effort as effort_contract
 
 
 class CycleFixture:
@@ -52,9 +53,13 @@ class CycleFixture:
                 'annotation_count': 16, 'human_task_gold': False,
                 'adjudication_completed': False, 'source_text_exported': False,
                 'reviewer_ids_exported': False,
+                'method_output_sha256': effort_contract.EXPECTED_METHOD_SHA,
+                'original_source_manifest_git_blob': effort_contract.MANIFEST_BLOB,
+                'status': 'LEAD_TIME_RECORDED_NOT_TASK_GOLD',
                 'label_studio_lead_time_seconds_total': 72.0}) + '\n', encoding='utf-8')
             return json.dumps({'status': 'LEAD_TIME_RECORDED_NOT_TASK_GOLD',
-                               'sources': 8, 'human_task_gold': False})
+                               'sources': 8, 'human_task_gold': False,
+                               'complete_lead_time': True})
         raise AssertionError('unexpected third process')
 
     def execute(self, **overrides):
@@ -198,6 +203,61 @@ class OwnerReviewCycleTests(unittest.TestCase):
                                    'sources':8,'human_task_gold':False})
             with self.assertRaisesRegex(cycle.CycleHold, 'EFFORT_OUTPUT_NOT_WRITTEN'):
                 f.execute(runner=no_write)
+
+    def test_effort_receipt_and_saved_result_must_agree(self):
+        with TemporaryDirectory() as td:
+            f = CycleFixture(Path(td))
+            def mismatch(command, cwd):
+                receipt = f.runner(command, cwd)
+                if len(f.calls) == 2:
+                    outcome = json.loads(receipt)
+                    outcome['complete_lead_time'] = False
+                    return json.dumps(outcome)
+                return receipt
+            with self.assertRaisesRegex(cycle.CycleHold,
+                                        'EFFORT_RECEIPT_FILE_MISMATCH'):
+                f.execute(runner=mismatch)
+            self.assertFalse(f.disagreement.exists())
+            self.assertFalse(f.effort.exists())
+
+    def test_unpinned_method_in_saved_result_refuses_publication(self):
+        with TemporaryDirectory() as td:
+            f = CycleFixture(Path(td))
+            def unpinned(command, cwd):
+                receipt = f.runner(command, cwd)
+                if len(f.calls) == 2:
+                    staged = Path(command[command.index('--out') + 1])
+                    saved = json.loads(staged.read_text('utf-8'))
+                    saved['method_output_sha256'] = '0' * 64
+                    staged.write_text(json.dumps(saved), encoding='utf-8')
+                return receipt
+            with self.assertRaisesRegex(cycle.CycleHold,
+                                        'EFFORT_FROZEN_METHOD_BINDING_MISMATCH'):
+                f.execute(runner=unpinned)
+            self.assertFalse(f.disagreement.exists())
+            self.assertFalse(f.effort.exists())
+
+    def test_partial_lead_time_consistency_is_valid(self):
+        with TemporaryDirectory() as td:
+            f = CycleFixture(Path(td))
+            def partial(command, cwd):
+                receipt = f.runner(command, cwd)
+                if len(f.calls) == 2:
+                    staged = Path(command[command.index('--out') + 1])
+                    saved = json.loads(staged.read_text('utf-8'))
+                    saved['status'] = 'LEAD_TIME_PARTIAL_NOT_TASK_GOLD'
+                    saved['label_studio_lead_time_seconds_total'] = None
+                    staged.write_text(json.dumps(saved), encoding='utf-8')
+                    return json.dumps({
+                        'status': 'LEAD_TIME_PARTIAL_NOT_TASK_GOLD',
+                        'sources': 8, 'human_task_gold': False,
+                        'complete_lead_time': False,
+                    })
+                return receipt
+            result = f.execute(runner=partial)
+            self.assertFalse(result['platform_lead_time_complete'])
+            self.assertTrue(f.disagreement.is_file())
+            self.assertTrue(f.effort.is_file())
 
     def test_second_step_failure_never_publishes_partial_private_results(self):
         with TemporaryDirectory() as td:
