@@ -188,6 +188,25 @@ class EffortTests(unittest.TestCase):
             with self.subTest(value=bad), self.assertRaisesRegex(e.EffortHold, 'LABEL_STUDIO_LEAD_TIME_INVALID'):
                 e.summarize(a,b,r,s,'pinned')
 
+    def test_large_valid_json_integer_time_produces_hold_not_overflow(self):
+        a, b, receipt, sources = fixture()
+        # A 320-digit positive integer is valid JSON; math.isfinite(int)
+        # raises OverflowError before checking finiteness.
+        a[0]['annotations'][0]['lead_time'] = int('9' * 320)
+        with self.assertRaisesRegex(
+                e.EffortHold, 'LABEL_STUDIO_LEAD_TIME_INVALID'):
+            e.summarize(a, b, receipt, sources, 'pinned')
+        # Also exercise the actual strict JSON decoder used by owner-local CLI.
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as td:
+            path = Path(td) / 'review.json'
+            path.write_text(json.dumps(a), encoding='utf-8')
+            loaded = e.read_json(path)
+            with self.assertRaisesRegex(
+                    e.EffortHold, 'LABEL_STUDIO_LEAD_TIME_INVALID'):
+                e.summarize(loaded, b, receipt, sources, 'pinned')
+
     def test_bridge_required_and_distinct_reviewer_claims(self):
         a,b,r,s=fixture()
         r['status']='GOLD'

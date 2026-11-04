@@ -148,10 +148,18 @@ def extract_one(export: object, selected: dict) -> tuple[list[float | None], str
         if lead is None:
             found[digest] = None
         else:
-            require(type(lead) in (int, float) and
-                    math.isfinite(lead) and lead >= 0,
+            require(type(lead) in (int, float) and lead >= 0,
                     'LABEL_STUDIO_LEAD_TIME_INVALID')
-            found[digest] = float(lead)
+            # JSON permits arbitrarily large decimal integers. Python's
+            # math.isfinite(big_int) first converts to float and can raise an
+            # uncaught OverflowError instead of the fixed owner-local HOLD.
+            try:
+                seconds = float(lead)
+            except OverflowError:
+                raise EffortHold('LABEL_STUDIO_LEAD_TIME_INVALID') from None
+            require(math.isfinite(seconds),
+                    'LABEL_STUDIO_LEAD_TIME_INVALID')
+            found[digest] = seconds
     require(len(annotator_claims) == 1 and len(found) == len(selected),
             'REVIEW_EXPORT_INCOMPLETE_OR_MIXED_REVIEWERS')
     return [found['sha256:' + h] for h in sorted(selected)], next(iter(annotator_claims))
