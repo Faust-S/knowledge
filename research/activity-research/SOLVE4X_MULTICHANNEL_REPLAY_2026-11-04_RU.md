@@ -87,3 +87,24 @@
 В существующем `solve4x_original_itam.py` исправлен root: известное безопасное поле `event` добавлено в whitelist, неизвестные имена полей и ключи OCEL event/object maps по-прежнему не экспортируются. Проверка `ocel:omap` усилена с `set(left)==set(right)` до `Counter(left)==Counter(right)`, чтобы дублирование связей не давало ложный exact match. Добавлен регрессионный тест на одинаковые ID/time/activity при разной кратности объектных связей. Нет второго Activity Engine, Store, Context или Task runtime.
 
 Новая проверка на том же публичном runner: [Actions 41877061817](https://github.com/Faust-S/knowledge/actions/runs/41877061817), commit `06b8745e48bcb4923e37476b5cf8732ed3e83ca9`, на момент записи **QUEUED**. Значения `exact_ids_and_activity_timestamp`, `exact_ids_timestamp_activity_and_object_links` и `scene_candidate_event_ids_absent_in_source` по настоящим оригинальным байтам сохраняют **NOT_MEASURED** до завершения run. `HUMAN_ACTIVITY_GOLD=NOT_MEASURED`, `ACCEPTED_TASKS=0`. Нельзя интерпретировать 17 scene system candidates как независимые физические действия без отдельной аттестации.
+
+
+## C9 — фактические ограничения сопоставления ITAM 205 ↔ Scene 17 (04.11.2026)
+
+**Эксперимент проведён на реальных исходных байтах**, а не на искусственно подобранном смещении часов. [Actions 41877061817](https://github.com/Faust-S/knowledge/actions/runs/41877061817) после C8 завершился SUCCESS, [артефакт оригинального ITAM](https://github.com/Faust-S/knowledge/actions/runs/41877061817) содержит: исходный `global/itam_ocel.jsonl`, SHA-256 `5849db2c795f0bbdda4546f363331a57ab70fcd64812f4852a9bbbf8be26f2ca`, 205 системных событий / 51 объект; scene 01 — 17 не-видео-маркированных событий. **Совпадение exact event ID = 0; exact (activity,timestamp) = 0; exact ID+activity+time+objects = 0.** `scene_candidate_event_ids_absent_in_source=17` говорит только о буквальных ID, не о том, что операции не регистрировались.
+
+Для объяснения нулевого пересечения добавлен read-only aggregate-only `source_alignment_coverage` внутри существующего `solve4x_original_itam.py`, с четырьмя отрицательными/условными unit-контролями. [Адресный Actions 41891651115](https://github.com/Faust-S/knowledge/actions/runs/41891651115) на коммите `608f0fa013a8c561c92d9468d339f865c88f9233` **SUCCESS**, 18 Python-тестов оригинального ITAM, реальное чтение 205 и 17 событий. Диагностика показывает:
+
+| Проверка | Оригинальный ITAM | Сцена 01 | Пересечение |
+|---|---:|---:|---:|
+| зарегистрированные события | 205 | 17 | по exact ID: **0** |
+| уникальные строковые метки действий | 6 | 5 | буквальное **0**, trim/casefold **0** |
+| различные объектные ссылки | 51 | 6 | по exact object ref **0** |
+| метки времени с timezone | 205 | 0 | нельзя сравнивать автоматически |
+| метки времени без timezone | 0 | 17 | нельзя сравнивать автоматически |
+
+`clock_comparison_mode=UNKNOWN_MIXED_OR_INVALID_TIMESTAMP_FORMATS`, так что окна 1, 5 и 30 секунд обозначены `null` / **NOT_MEASURED**. **Сдвиг часового пояса или именование объектов не подбирались**, source values/IDs не экспортировались. Уточнение первичного авторского исследования: после эксперимента транзакционные записи Snipe-IT были экспортированы и преобразованы авторским скриптом в OCEL 1.0; `global_ocel.json` — объединённое представление. Поэтому разница ID/меток может отражать преобразование/согласование, а не отсутствие фактического действия. Авторский первичный источник: https://pmc.ncbi.nlm.nih.gov/articles/PMC11305206/ .
+
+**Инженерная квалификация C9:** реальный идентифицированный semantic/clock gap = PASS; самостоятельное отождествление source events = HOLD; доказательство независимых конкретных действий человека = UNKNOWN; точность выявления Task = NOT_MEASURED; принято Task = 0; E5 = NOT_RUN. Не использовать нулевой match как отрицательное человеческое наблюдение или как повод дополнить события синтетической реконструкцией.
+
+**Следующий эксперимент:** найти *документированное* авторское правило mapping исходного ITAM→сценовые OCEL ID/activity/object, а также provenance преобразования timezone. Если связь недоступна, сравнивать через UI как независимый кандидатный интерфейсный канал с `UNKNOWN`, без искусственного timestamp offset и без выдачи корреляции за причинность. Не создавать второй Activity/Task Engine.
