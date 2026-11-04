@@ -123,7 +123,17 @@ def describe(value):
                     if isinstance(inner_val, (dict, list)):
                         shape["nested_field_shapes"] = {
                             str(inner_key): {"kind": type(inner_val).__name__,
-                                             "count": len(inner_val)}
+                                             "count": len(inner_val),
+                                             "keys": (sorted(str(k) for k in inner_val)[:40]
+                                                      if isinstance(inner_val, dict) else []),
+                                             "item_shape": (
+                                                 sorted(str(k) for k in inner_val[0])[:30]
+                                                 if isinstance(inner_val, list) and inner_val
+                                                 and isinstance(inner_val[0], dict) else []),
+                                             "value_type": (
+                                                 type(next(iter(inner_val.values()))).__name__
+                                                 if isinstance(inner_val, dict) and inner_val
+                                                 else "UNKNOWN")}
                         }
                         break
             elif isinstance(sample, list):
