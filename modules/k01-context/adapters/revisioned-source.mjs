@@ -62,7 +62,8 @@ export function createRevisionedObservationPort({
       if (after !== before) return { sourceRef, currentRevision: after, complete: true };
       if (!evidence || !valid(evidence.observedRevision)) return incomplete();
       if (evidence.observedRevision !== after) {
-        return { sourceRef, currentRevision: evidence.observedRevision, complete: true };
+        // Evidence revision is untrusted metadata, not proof that the source head moved.
+        return { sourceRef, currentRevision: after, complete: false };
       }
       if (typeof evidence.excerpt !== 'string' || !evidence.excerpt
           || Buffer.byteLength(evidence.excerpt, 'utf8') > MAX_EXCERPT_BYTES

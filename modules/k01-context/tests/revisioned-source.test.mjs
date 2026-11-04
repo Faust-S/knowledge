@@ -20,7 +20,7 @@ test('host-neutral revisioned source selects verified current evidence', async (
     readEvidence: async () => ({ observedRevision: old, evidenceRef: 'line:2', excerpt: 'Delivery: 8 days.' }),
   });
   const result = await selectContext(request,port);
-  assert.equal(CONTRACT_VERSION,'0.2.3');
+  assert.equal(CONTRACT_VERSION,'0.2.4');
   assert.equal(result.selected[0].excerpt,'Delivery: 8 days.');
   assert.equal(result.selected[0].revision,old);
   assert.equal((await revalidateProjection(result,port)).allCurrent,true);
@@ -59,7 +59,7 @@ test('evidence from different revision rejected even if source head is unchanged
   });
   const result=await selectContext(request,port);
   assert.equal(result.selected.length,0);
-  assert.equal(result.omissions[0].reason,'stale');
+  assert.equal(result.omissions[0].reason,'incomplete_source');
   assert.equal(JSON.stringify(result).includes('5 days'),false);
 });
 

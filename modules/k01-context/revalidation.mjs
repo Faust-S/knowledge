@@ -8,7 +8,7 @@ const compare = (a,b) => a < b ? -1 : a > b ? 1 : 0;
 const MAX_ITEMS = 4096;
 const MAX_EXCERPT_BYTES = 65536;
 
-export async function revalidateProjection(projection, observationPort) {
+export async function revalidateProjection(projection, observationPort, expectedRequest) {
   if (!projection || projection.contractVersion !== CONTRACT_VERSION || !id(projection.taskId)
       || !Array.isArray(projection.selected) || projection.selected.length > MAX_ITEMS
       || !observationPort || typeof observationPort.observe !== 'function') {
@@ -29,9 +29,48 @@ export async function revalidateProjection(projection, observationPort) {
     seen.add(key);
     return { id: item.id, type: item.type, sourceRef: item.sourceRef,
       revision: item.revision, epistemic: item.epistemic, evidenceRef: item.evidenceRef,
-      sha256: item.sha256, excerpt: item.excerpt };
+      sha256: item.sha256, excerpt: item.excerpt, estimatedTokens: item.estimatedTokens };
   });
   const failures = [];
+  // For a restored projection, the host must pass its current Task and source constraints.
+  // Keep the third argument optional for existing 0.2.x callers, but without it no Task binding is verified.
+  if (expectedRequest !== undefined) {
+    if (!expectedRequest || !id(expectedRequest.taskId)
+        || !Array.isArray(expectedRequest.allowedSources)
+        || expectedRequest.allowedSources.length > MAX_ITEMS
+        || expectedRequest.allowedSources.some(source => !id(source))
+        || !Number.isSafeInteger(expectedRequest.maxTokens) || expectedRequest.maxTokens < 0
+        || (expectedRequest.allowInferred !== undefined && typeof expectedRequest.allowInferred !== 'boolean')
+        || (expectedRequest.requireNoOmissions !== undefined && typeof expectedRequest.requireNoOmissions !== 'boolean')) {
+      throw new TypeError('invalid host ContextUseRequest');
+    }
+    if (projection.taskId !== expectedRequest.taskId) failures.push({ reason: 'task_mismatch' });
+    const allowed = new Set(expectedRequest.allowedSources);
+    for (const item of entries) {
+      if (!allowed.has(item.sourceRef)) {
+        failures.push({ id: item.id, sourceRef: item.sourceRef, reason: 'source_not_allowed' });
+      }
+      if (item.epistemic === 'inferred' && expectedRequest.allowInferred !== true) {
+        failures.push({ id: item.id, sourceRef: item.sourceRef, reason: 'inferred_not_allowed' });
+      }
+    }
+    const cost = entries.reduce((sum, item) => sum + item.estimatedTokens, 0);
+    if (!Number.isSafeInteger(projection.estimatedTokens)
+        || cost !== projection.estimatedTokens || !Number.isSafeInteger(cost)) {
+      failures.push({ reason: 'projection_inconsistent' });
+    }
+    if (cost > expectedRequest.maxTokens) failures.push({ reason: 'budget_exceeded' });
+    if (expectedRequest.requireNoOmissions === true
+        && (!Array.isArray(projection.omissions) || projection.omissions.length !== 0)) {
+      failures.push({ reason: 'context_incomplete' });
+    }
+    if (failures.length > 0) {
+      failures.sort((a, b) => compare(a.sourceRef ?? '', b.sourceRef ?? '')
+        || compare(a.id ?? '', b.id ?? '') || compare(a.reason, b.reason));
+      return { contractVersion: CONTRACT_VERSION, taskId: projection.taskId,
+        allCurrent: false, checked: 0, failures };
+    }
+  }
   let checked = 0;
   for (const entry of entries) {
     const fail = (reason, details = {}) =>
