@@ -17,7 +17,7 @@ import re
 import sys
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 import xml.etree.ElementTree as ET
 
 HERE = Path(__file__).resolve().parent
@@ -33,6 +33,22 @@ ALLOWED_DATA = frozenset((
     "source_as_of", "selection_sha256",
 ))
 MAX_JSON_BYTES = 1_000_000
+
+
+class _RejectRedirects(HTTPRedirectHandler):
+    # A local Label Studio must not redirect API tokens or protected sources to
+    # another endpoint. urllib forwards request headers on HTTP redirects.
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+# Ignore environment proxy variables even on localhost; all API data must stay
+# on the direct loopback connection. Never install this opener globally.
+_LOCAL_HTTP_OPENER = build_opener(ProxyHandler({}), _RejectRedirects())
+
+
+def local_api_open(request: Request, timeout: int):
+    return _LOCAL_HTTP_OPENER.open(request, timeout=timeout)
 
 
 class SetupHold(ValueError):
@@ -163,7 +179,7 @@ def resolve_api_credential(base: str, token: str, mode: str = "legacy") -> str:
                       headers={"Accept": "application/json",
                                "Content-Type": "application/json"})
     try:
-        with urlopen(request, timeout=25) as response:
+        with local_api_open(request, timeout=25) as response:
             raw = response.read(MAX_JSON_BYTES + 1)
             require(response.status in (200, 201) and len(raw) <= MAX_JSON_BYTES,
                     "LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE_INVALID")
@@ -182,6 +198,7 @@ def resolve_api_credential(base: str, token: str, mode: str = "legacy") -> str:
 
 
 def api(base: str, token: str, route: str, body: object = None):
+    base = local_url(base)
     payload = (json.dumps(body, ensure_ascii=False).encode("utf-8")
                if body is not None else None)
     authorization = token if token.startswith(("Token ", "Bearer ")) else "Token " + token
@@ -191,7 +208,7 @@ def api(base: str, token: str, route: str, body: object = None):
                            "Accept": "application/json",
                            "Content-Type": "application/json"})
     try:
-        with urlopen(req, timeout=25) as response:
+        with local_api_open(req, timeout=25) as response:
             raw = response.read(MAX_JSON_BYTES + 1)
             require(response.status in (200, 201, 202) and
                     len(raw) <= MAX_JSON_BYTES, "LABEL_STUDIO_RESPONSE_INVALID")
