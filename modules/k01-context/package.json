@@ -1,6 +1,6 @@
 {
   "name": "@iwxa/k01-context",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "engines": {
@@ -18,6 +18,10 @@
     "./local-file": {
       "types": "./adapters/local-file.d.mts",
       "default": "./adapters/local-file.mjs"
+    },
+    "./revisioned-source": {
+      "types": "./adapters/revisioned-source.d.mts",
+      "default": "./adapters/revisioned-source.mjs"
     }
   },
   "scripts": {
