@@ -118,6 +118,29 @@ def analyze(ui_csv:bytes, scene:dict) -> dict:
     }
 
 
+def clock_profile(ui_csv: bytes, scene: dict) -> dict:
+    content=ui_csv.decode("utf-8-sig")
+    first=content.splitlines()[0]
+    delimiter=max((",", ";", "\t"),key=lambda c:(first.count(c),c))
+    idx.check(first.count(delimiter)>0,"UI_HEADER_MISSING")
+    rows=list(csv.DictReader(StringIO(content),delimiter=delimiter))
+    idx.check(len(rows)>0 and all(r.get("timestamp") for r in rows),"UI_TIMESTAMP_MISSING")
+    idx.check(isinstance(scene,dict) and isinstance(scene.get("ocel:events"),dict),"OCEL_EVENTS_MISSING")
+    source_times=[r["timestamp"] for r in rows]
+    ocel_times=[e.get("ocel:timestamp") for e in scene["ocel:events"].values()]
+    def classify(values):
+        counts={"aware":0,"naive":0,"invalid":0}
+        for value in values:
+            try:
+                v=value[:-1]+"+00:00" if isinstance(value,str) and value.endswith("Z") else value
+                stamp=datetime.fromisoformat(v)
+                counts["aware" if stamp.tzinfo is not None and stamp.utcoffset() is not None else "naive"]+=1
+            except (ValueError,TypeError):
+                counts["invalid"]+=1
+        return counts
+    return {"ui":classify(source_times),"ocel":classify(ocel_times)}
+
+
 def run():
     index=idx.probe()
     entries={item["name"]:item for item in index["target_files"]}
@@ -131,7 +154,23 @@ def run():
                   0<item["uncompressed_bytes"]<=pair.MAX_UNCOMPRESSED,
                   "UI_SCENE_MEMBER_BOUNDS_INVALID")
         raw[name]=pair._download_member(meta["download_url"],meta["archive_size"],item)
-    report=analyze(raw[UI],json.loads(raw[SCENE]))
+    scene=json.loads(raw[SCENE])
+    profile=clock_profile(raw[UI],scene)
+    if profile["ui"]["naive"] or profile["ocel"]["naive"] or profile["ui"]["invalid"] or profile["ocel"]["invalid"]:
+        report={
+          "schema":SCHEMA,
+          "status":"TIMEZONE_ALIGNMENT_HOLD",
+          "clock_format_profile":profile,
+          "counts":{"ui_rows":sum(profile["ui"].values()),
+                    "scene_ocel_events":sum(profile["ocel"].values())},
+          "limitations":{"aligned_clocks_proven":False,
+              "temporal_proximity_confirms_same_action":False,
+              "independent_human_action_truth":"NOT_MEASURED",
+              "accepted_tasks":0},
+          "raw_values_exported":False}
+    else:
+        report=analyze(raw[UI],scene)
+        report["clock_format_profile"]=profile
     report["source"]={
         "figshare_article_id":meta["article_id"],
         "archive_central_sha256":index["source"]["central_sha256"],
