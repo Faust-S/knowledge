@@ -123,3 +123,29 @@ jobs:
           path: solve4x-zip-range-index.json
           retention-days: 7
           if-no-files-found: error
+
+      - name: Verify bounded selective member extraction and no raw source leakage
+        run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_small_member_pair.py' -v
+      - name: Fetch two tiny source members using exact ZIP byte ranges
+        run: |
+          python3 research/activity-research/solve4x_small_member_pair.py \
+            --out solve4x-small-member-pair.json || true
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("solve4x-small-member-pair.json").read_text())
+          assert r["schema"]=="IWXA_SOLVE4X_SMALL_MEMBER_PAIR/0.1"
+          assert r["no_full_archive_download"] is True
+          assert r["raw_member_content_exported"] is False
+          assert r["two_modalities_case_alignment"]=="NOT_MEASURED"
+          assert r["accepted_tasks"]==0
+          print("SOLVE4X_SELECTIVE_PAIR",r["status"],"members",len(r.get("members",{})),
+                "full_archive","NOT_DOWNLOADED")
+          PY
+      - name: Publish small JSON schema and SHA diagnostics only
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-solve4x-two-small-member-structure
+          path: solve4x-small-member-pair.json
+          retention-days: 7
+          if-no-files-found: error
