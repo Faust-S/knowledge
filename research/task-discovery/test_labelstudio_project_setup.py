@@ -312,6 +312,61 @@ class LocalLabelStudioSetupTests(unittest.TestCase):
                 "http://127.0.0.1:8080", "Token account-a",
                 "http://127.0.0.1:8081", "Token account-b", call=called)
 
+    def test_isolated_project_export_404_does_not_qualify_blindness(self):
+        _, tasks = fixture()
+        def respond(base, token, route, body=None):
+            own = (base.endswith(":8080") and token == "Token account-a") or (
+                   base.endswith(":8081") and token == "Token account-b")
+            if not own:
+                if route == "/api/current-user/whoami":
+                    raise ls.SetupHold("LABEL_STUDIO_HTTP_403")
+                raise ls.SetupHold("LABEL_STUDIO_HTTP_404")
+            if route == "/api/current-user/whoami":
+                return {"id": 10 if base.endswith(":8080") else 11}
+            pid = 40 if base.endswith(":8080") else 50
+            if route == f"/api/projects/{pid}/":
+                return {"id": pid, "label_config": CONFIG.decode("utf-8")}
+            if route == f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true":
+                return [{**copy.deepcopy(t), "predictions": [], "annotations": []}
+                        for t in tasks]
+            raise AssertionError("unexpected route")
+        with self.assertRaisesRegex(
+                ls.SetupHold, "ISOLATED_REVIEW_CROSS_ACCESS_UNEXPECTED_ERROR"):
+            ls.isolated_review_preflight(
+                tasks, CONFIG.decode("utf-8"),
+                "http://127.0.0.1:8080", "Token account-a", 40,
+                "http://127.0.0.1:8081", "Token account-b", 50,
+                call=respond)
+
+    def test_owner_local_input_refuses_duplicate_and_nonfinite_json(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "private-import.json"
+            for raw, code in (
+                    (b'{"data": 1, "data": 2}', "LOCAL_INPUT_DUPLICATE_KEY"),
+                    (b'{"data": {"value": 1, "value": 2}}', "LOCAL_INPUT_DUPLICATE_KEY"),
+                    (b'{"data": NaN}', "LOCAL_INPUT_NONFINITE_NUMBER"),
+                    (b'{"data": Infinity}', "LOCAL_INPUT_NONFINITE_NUMBER"),
+                    (b'{"data":', "LOCAL_INPUT_JSON_INVALID"),
+                    (b'\\xff', "LOCAL_INPUT_JSON_INVALID")):
+                path.write_bytes(raw)
+                with self.subTest(raw=raw[:20]), self.assertRaisesRegex(
+                        ls.SetupHold, code):
+                    ls.read_json(path)
+            path.write_bytes(b'{"data": ["original", "source"]}')
+            self.assertEqual(ls.read_json(path), {"data": ["original", "source"]})
+
+    def test_owner_local_json_symlink_input_refused(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "private-import.json"
+            path.write_bytes(b'{"data": []}')
+            alias = Path(td) / "alias.json"
+            try:
+                alias.symlink_to(path)
+            except (OSError, NotImplementedError):
+                self.skipTest("OS cannot create symlinks")
+            with self.assertRaisesRegex(ls.SetupHold, "LOCAL_INPUT_UNAVAILABLE"):
+                ls.read_json(alias)
+
     def test_isolated_preflight_fails_on_colliding_ids(self):
         _, tasks = fixture()
         def respond(base, token, route, body=None):

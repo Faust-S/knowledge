@@ -73,9 +73,34 @@ def digest(raw: bytes) -> str:
 
 
 def read_json(path: Path):
+    """Read owner-local inputs without silently changing ambiguous JSON.
+
+    Duplicate object keys and non-finite numbers must not be accepted here
+    when the owning Review Bridge will later reject them. Never log source
+    bytes or local paths on failure.
+    """
+    require(path.is_file() and not path.is_symlink(),
+            "LOCAL_INPUT_UNAVAILABLE")
     raw = path.read_bytes()
     require(0 < len(raw) <= MAX_JSON_BYTES, "LOCAL_INPUT_SIZE_INVALID")
-    return json.loads(raw)
+
+    def unique_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result, "LOCAL_INPUT_DUPLICATE_KEY")
+            result[key] = value
+        return result
+
+    def nonfinite(_):
+        raise SetupHold("LOCAL_INPUT_NONFINITE_NUMBER")
+
+    try:
+        return json.loads(raw, object_pairs_hook=unique_pairs,
+                          parse_constant=nonfinite)
+    except SetupHold:
+        raise
+    except (UnicodeError, ValueError, RecursionError):
+        raise SetupHold("LOCAL_INPUT_JSON_INVALID") from None
 
 
 def load_manifest(path: Path = MANIFEST,
@@ -369,9 +394,10 @@ def isolated_review_preflight(
             call(base, foreign_token,
                  f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true")
         except SetupHold as error:
+            # A 404 is not evidence of authorization denial. It could be a
+            # wrong API route/project, masking a broken preflight.
             require(str(error) in ("LABEL_STUDIO_HTTP_401",
-                                   "LABEL_STUDIO_HTTP_403",
-                                   "LABEL_STUDIO_HTTP_404"),
+                                   "LABEL_STUDIO_HTTP_403"),
                     "ISOLATED_REVIEW_CROSS_ACCESS_UNEXPECTED_ERROR")
         else:
             raise SetupHold("ISOLATED_REVIEW_CROSS_ACCESS_EXPOSED")
