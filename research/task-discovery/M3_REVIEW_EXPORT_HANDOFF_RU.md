@@ -35,6 +35,23 @@ Label Studio Community Edition в одной организации позвол
    Для B используйте другой `review-b.json`. Экспорт проверяет соответствие текущего authenticated user автору аннотаций, но сам по себе не удостоверяет независимость людей.
 7. Передать **два неизменённых** JSON в существующий `task_exp_01_review_bridge.py` через `owner_review_cycle.py`, затем сохранить отдельные ответы и разногласия. Независимый adjudication выполняет эксперт, а не алгоритм. После этого — отдельные предметные метрики U1/regex/прямого чтения и фактические затраты.
 
+## Проверка прогресса без экспорта человеческих данных
+
+Добавлен необязательный **read-only** режим `--review-progress` существующего `labelstudio_project_setup.py`. Он проверяет актуальную XML-форму, неизменность восьми исходных документов, авторство текущей учётной записи и отсутствие предсказаний/дублирующих аннотаций, после чего возвращает **только три счётчика**: без аннотации, с незавершённой разметкой, с финальным `review_coverage`. Никакие тексты источников, точечные ответы, список SHA или авторские ID не выводятся.
+
+Для каждого отдельного экземпляра после начала человеческой разметки:
+
+```sh
+python research/task-discovery/labelstudio_project_setup.py \
+  --tasks /PRIVATE/labelstudio-import.json \
+  --owner-label-config /PRIVATE/TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml \
+  --url http://127.0.0.1:8080 --project-id ACTUAL_ID --review-progress
+```
+
+Для второго экземпляра используйте его URL и локальный `LABEL_STUDIO_API_KEY`. Квитанция `REVIEW_COVERAGE_PARTIAL_NOT_GOLD` или `REVIEW_FINAL_COVERAGE_RECORDED_NOT_GOLD` **не удостоверяет правильность Task-разметки**, отсутствие человеческой зависимости, пригодность смысловых полей или экспертное согласие. Даже при `sources_with_final_coverage=8` необходимо отдельно выполнить `--export-single-reviewed-project` и исходный Review Bridge, затем независимый adjudication. При изменении источника, формы, автора или неоднозначных аннотациях возвращается `HOLD`.
+
+Семь локальных синтетических тестов функций контроля дали PASS. Опубликованная реализация: [commit 7cf0c89f](https://github.com/Faust-S/knowledge/commit/7cf0c89fee7a6f45f4f99a6804ac8cb0b6c164ae); [public source-first Actions 41866169429](https://github.com/Faust-S/knowledge/actions/runs/41866169429), [native Label Studio 41866169403](https://github.com/Faust-S/knowledge/actions/runs/41866169403) — **QUEUED** на момент записи, интегрированный PASS ещё не подтверждён.
+
 ## Зафиксированные границы
 
 - Публичный CI может проверять только синтетический транспорт, никогда не квалифицирует человеческий gold. Не публиковать исходные тексты, аннотации, токены или adjudication.
