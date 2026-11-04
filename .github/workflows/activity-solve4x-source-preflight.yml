@@ -10,6 +10,7 @@ on:
       - 'research/activity-research/solve4x_small_member_pair.py'
       - 'research/activity-research/solve4x_zip_range_probe.py'
       - 'research/activity-research/solve4x_same_case_audit.py'
+      - 'research/activity-research/tests/test_solve4x_same_case_audit.py'
 
 permissions:
   contents: read
