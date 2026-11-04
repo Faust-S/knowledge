@@ -15,11 +15,17 @@ class Tests(TestCase):
         self.assertFalse(r["source"]["raw_rows_published"])
         self.assertEqual(r["qualification"]["accepted_tasks"],0)
     def test_invalid_json_is_hold(self):
-        with self.assertRaisesRegex(index.Hold,"ITAM_JSONL_ROW_INVALID"):
+        with self.assertRaisesRegex(index.Hold,"ITAM_MULTILINE_OR_NONSTANDARD_JSON_HOLD"):
             original.parse_jsonl(b'{"broken"\n')
+    def test_pretty_document_and_line_records(self):
+        r=original.parse_jsonl(b'{\n  "ocel:events": {},\n  "ocel:objects": {}\n}\n')
+        self.assertEqual(r["structure"]["parse_mode"],"WHOLE_JSON_OBJECT")
+        r2=original.parse_jsonl(b'{"activity":"a"}\n{"activity":"b"}\n')
+        self.assertEqual(r2["structure"]["parse_mode"],"JSON_LINES")
+        self.assertEqual(r2["structure"]["nonempty_jsonl_rows"],2)
     def test_empty_is_hold(self):
         with self.assertRaisesRegex(index.Hold,"ITAM_JSONL_BYTES_INVALID"):
             original.parse_jsonl(b'')
     def test_nonobject_is_hold(self):
-        with self.assertRaisesRegex(index.Hold,"ITAM_JSONL_OBJECT_EXPECTED"):
+        with self.assertRaisesRegex(index.Hold,"ITAM_UNSUPPORTED_WHOLE_JSON_ROOT"):
             original.parse_jsonl(b'[1,2]\n')
