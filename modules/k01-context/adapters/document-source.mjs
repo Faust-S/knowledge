@@ -10,22 +10,34 @@ export function createDocumentObservationPort({ sourceRef, pinnedItems, readSnap
       || typeof readSnapshot !== 'function') throw new TypeError('invalid document source');
   const specifications = new Map();
   const descriptors = [];
+  let commonRevision;
   for (const { linePrefix, ...item } of pinnedItems) {
-    if (!valid(item.id) || item.sourceRef !== sourceRef || !valid(linePrefix)
-        || !/^sha256:[a-f0-9]{64}$/.test(item.revision) || specifications.has(item.id)) {
+    if (!valid(item.id) || !valid(item.type) || item.sourceRef !== sourceRef || !valid(linePrefix)
+        || /[\r\n]/.test(linePrefix) || !/^sha256:[a-f0-9]{64}$/.test(item.revision)
+        || !['observed', 'reported', 'inferred', 'target'].includes(item.epistemic)
+        || !Number.isSafeInteger(item.estimatedTokens) || item.estimatedTokens < 0
+        || (item.keywords !== undefined && (!Array.isArray(item.keywords)
+          || item.keywords.some(keyword => !valid(keyword))))
+        || specifications.has(item.id) || (commonRevision !== undefined && item.revision !== commonRevision)) {
       throw new TypeError('invalid pinned source item');
     }
-    specifications.set(item.id, linePrefix);
-    descriptors.push({ ...item });
+    commonRevision = item.revision;
+    specifications.set(item.id, { linePrefix, revision: item.revision });
+    // Query exposes only the contract's approved metadata, never host-only fields.
+    descriptors.push({ id: item.id, type: item.type, sourceRef: item.sourceRef,
+      revision: item.revision, epistemic: item.epistemic, estimatedTokens: item.estimatedTokens,
+      ...(item.keywords === undefined ? {} : { keywords: [...item.keywords] }) });
   }
   return {
     async query({ allowedSources }) {
       if (!Array.isArray(allowedSources) || !allowedSources.includes(sourceRef)) return [];
-      return descriptors.map(item => ({ ...item, keywords: item.keywords ? [...item.keywords] : undefined }));
+      return descriptors.map(item => ({ ...item, ...(item.keywords === undefined ? {} : { keywords: [...item.keywords] }) }));
     },
     async observe({ sourceRef: requestedSource, itemId, requestedRevision }) {
-      if (requestedSource !== sourceRef || !specifications.has(itemId)
-          || !valid(requestedRevision)) return { sourceRef, currentRevision: 'unavailable', complete: false };
+      const specification = specifications.get(itemId);
+      if (requestedSource !== sourceRef || !specification || requestedRevision !== specification.revision) {
+        return { sourceRef, currentRevision: 'unavailable', complete: false };
+      }
       let contents;
       try { contents = await readSnapshot(); }
       catch (error) {
@@ -46,7 +58,7 @@ export function createDocumentObservationPort({ sourceRef, pinnedItems, readSnap
       try { document = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
       catch { return { sourceRef, currentRevision, complete: false }; }
       const lines = document.split(/\r?\n/);
-      const prefix = specifications.get(itemId);
+      const prefix = specification.linePrefix;
       const matches = [];
       for (let i = 0; i < lines.length; i++) {
         if (lines[i].startsWith(prefix) && lines[i].length > prefix.length) matches.push(i);

@@ -1,7 +1,7 @@
 // K01: stateless, host-neutral context projection. No storage or network access.
 import { createHash } from 'node:crypto';
 
-export const CONTRACT_VERSION = '0.2.0';
+export const CONTRACT_VERSION = '0.2.1';
 const MAX_ITEMS = 4096;
 const MAX_EXCERPT_BYTES = 65536;
 const identifier = value => typeof value === 'string' && value.length > 0 && value.length <= 512 && value.trim() === value && !/[\x00-\x1f]/.test(value);
@@ -62,21 +62,38 @@ export async function selectContext(request, observationPort) {
     const rank = relevance(item, req.terms);
     if (rank > 0) candidates.push({ item, rank });
   }
+  // One source cannot be represented by incompatible pinned revisions in a single projection.
+  const declaredRevisions = new Map();
+  for (const { item } of candidates) {
+    if (item.epistemic === 'inferred' && !req.allowInferred) continue;
+    const pinnedRevision = declaredRevisions.get(item.sourceRef);
+    if (pinnedRevision !== undefined && pinnedRevision !== item.revision) {
+      throw new TypeError('conflicting pinned revisions for source');
+    }
+    declaredRevisions.set(item.sourceRef, item.revision);
+  }
   candidates.sort((a, b) => b.rank - a.rank || compare(a.item.sourceRef, b.item.sourceRef)
     || compare(a.item.id, b.item.id) || compare(a.item.revision, b.item.revision));
 
   const selected = [];
   const omissions = [];
+  const changedSources = new Map();
   let estimatedTokens = 0;
   for (const { item, rank } of candidates) {
     const omit = (reason, additional = {}) => omissions.push({ id: item.id, sourceRef: item.sourceRef, reason, ...additional });
     if (item.epistemic === 'inferred' && !req.allowInferred) { omit('inferred_excluded'); continue; }
+    // A later stale observation invalidates earlier excerpts of the same source.
+    if (changedSources.has(item.sourceRef)) {
+      omit('stale', { requestedRevision: item.revision, currentRevision: changedSources.get(item.sourceRef) });
+      continue;
+    }
     if (item.estimatedTokens > req.maxTokens - estimatedTokens) { omit('budget_exceeded'); continue; }
     const observation = await observationPort.observe({ sourceRef: item.sourceRef,
       requestedRevision: item.revision, itemId: item.id });
     if (!observation || observation.sourceRef !== item.sourceRef || !identifier(observation.currentRevision)
         || observation.complete !== true) { omit('incomplete_source'); continue; }
     if (observation.currentRevision !== item.revision) {
+      changedSources.set(item.sourceRef, observation.currentRevision);
       omit('stale', { requestedRevision: item.revision, currentRevision: observation.currentRevision });
       continue;
     }
@@ -97,8 +114,18 @@ export async function selectContext(request, observationPort) {
       inclusionReason: 'term_match_pinned_verified_source' });
     estimatedTokens += cost;
   }
-  return { contractVersion: CONTRACT_VERSION, taskId: req.taskId, selected, omissions,
-    estimatedTokens, missing: req.terms.length > 0 && selected.length === 0 };
+  // Do not return an earlier successful excerpt if the source changed later in this selection.
+  const coherent = selected.filter(entry => {
+    if (!changedSources.has(entry.sourceRef)) return true;
+    omissions.push({ id: entry.id, sourceRef: entry.sourceRef, reason: 'stale',
+      requestedRevision: entry.revision, currentRevision: changedSources.get(entry.sourceRef) });
+    return false;
+  });
+  omissions.sort((a, b) => compare(a.sourceRef, b.sourceRef) || compare(a.id, b.id)
+    || compare(a.reason, b.reason));
+  return { contractVersion: CONTRACT_VERSION, taskId: req.taskId, selected: coherent, omissions,
+    estimatedTokens: coherent.reduce((sum, entry) => sum + entry.estimatedTokens, 0),
+    missing: req.terms.length > 0 && coherent.length === 0 };
 }
 
 export function traceEvidence(projection) {
