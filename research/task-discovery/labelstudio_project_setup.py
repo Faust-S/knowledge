@@ -219,60 +219,6 @@ def api(base: str, token: str, route: str, body: object = None):
         raise SetupHold("LOCAL_LABEL_STUDIO_UNAVAILABLE") from None
 
 
-def verify_isolated_reviewers(base_a: str, credential_a: str,
-                              base_b: str, credential_b: str, *, call=api) -> dict:
-    """Fail-closed access/identity preflight before *human* review begins.
-
-    Two CE projects within one organization are not blinded. This check
-    verifies distinct loopback endpoints, authentic reviewer IDs and that
-    neither credential authenticates on the other instance. It does not
-    inspect annotation content or certify separate storage/real people.
-    Preserve original completed_by; do not normalize IDs across databases.
-    """
-    a, b = local_url(base_a), local_url(base_b)
-    first, second = urlsplit(a), urlsplit(b)
-    require(first.port is not None and second.port is not None and
-            first.port != second.port,
-            "ISOLATED_REVIEW_REQUIRES_DISTINCT_LOCAL_PORTS")
-    require(type(credential_a) is str and type(credential_b) is str and
-            credential_a.startswith(("Token ", "Bearer ")) and
-            credential_b.startswith(("Token ", "Bearer ")) and
-            credential_a != credential_b,
-            "ISOLATED_REVIEW_CREDENTIALS_INVALID_OR_REUSED")
-    identities = []
-    for base, credential in ((a, credential_a), (b, credential_b)):
-        user = call(base, credential, "/api/current-user/whoami")
-        require(type(user) is dict and
-                type(user.get("id")) is int and user["id"] > 0 and
-                type(user.get("active_organization")) is int and
-                user["active_organization"] > 0,
-                "ISOLATED_REVIEWER_WHOAMI_INVALID")
-        identities.append(user["id"])
-    require(identities[0] != identities[1],
-            "ISOLATED_NATIVE_REVIEWER_IDS_COLLIDE")
-    # A non-401/403 error is NOT proof of isolation (e.g. missing server or
-    # malformed route). Denial must come from the actual other Label Studio.
-    for base, wrong_credential in ((a, credential_b), (b, credential_a)):
-        try:
-            call(base, wrong_credential, "/api/current-user/whoami")
-        except SetupHold as error:
-            require(str(error) in ("LABEL_STUDIO_HTTP_401", "LABEL_STUDIO_HTTP_403"),
-                    "ISOLATED_REVIEW_CROSS_AUTH_NOT_PROVEN")
-        else:
-            raise SetupHold("ISOLATED_REVIEW_CROSS_ACCOUNT_ACCESSIBLE")
-    return {
-        "schema": SCHEMA,
-        "status": "ISOLATED_REVIEWER_ACCESS_PREFLIGHT_PASS_SCOPED",
-        "reviewer_id_claims_distinct": True,
-        "cross_instance_credentials_rejected": True,
-        "original_completed_by_rewrite": False,
-        "independent_human_review_completed": False,
-        "platform_storage_isolation_verified": False,
-        "human_independence_verified": False,
-        "human_gold": False,
-    }
-
-
 def same_review_form(expected: str, saved: object) -> bool:
     """Compare actual persisted Label Studio form, ignoring only formatting.
 
@@ -289,6 +235,22 @@ def same_review_form(expected: str, saved: object) -> bool:
         return signature(ET.fromstring(expected)) == signature(ET.fromstring(saved))
     except (ET.ParseError, TypeError, ValueError):
         return False
+
+
+def _blind_project_readback(exported: object, originals: dict[str, dict]) -> None:
+    """Confirm every imported source is unchanged and has no review content."""
+    require(type(exported) is list and len(exported) == 8,
+            "LABEL_STUDIO_READBACK_INCOMPLETE")
+    seen = set()
+    for record in exported:
+        require(type(record) is dict and type(record.get("data")) is dict and
+                record["data"].get("source_sha256") in originals and
+                record["data"]["source_sha256"] not in seen and
+                record["data"] == originals[record["data"]["source_sha256"]] and
+                not record.get("annotations") and not record.get("predictions"),
+                "LABEL_STUDIO_READBACK_NOT_BLIND_OR_CHANGED")
+        seen.add(record["data"]["source_sha256"])
+    require(seen == set(originals), "LABEL_STUDIO_READBACK_INCOMPLETE")
 
 
 def create_projects(tasks: list[dict], xml: str, url: str, token: str,
@@ -325,18 +287,7 @@ def create_projects(tasks: list[dict], xml: str, url: str, token: str,
                     "LABEL_STUDIO_IMPORT_COUNT_MISMATCH")
             exported = call(base, token,
                             f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true")
-            require(type(exported) is list and len(exported) == 8,
-                    "LABEL_STUDIO_READBACK_INCOMPLETE")
-            seen = set()
-            for record in exported:
-                require(type(record) is dict and type(record.get("data")) is dict and
-                        record.get("data", {}).get("source_sha256") in originals and
-                        record["data"]["source_sha256"] not in seen and
-                        record["data"] == originals[record["data"]["source_sha256"]] and
-                        not record.get("annotations") and not record.get("predictions"),
-                        "LABEL_STUDIO_READBACK_NOT_BLIND_OR_CHANGED")
-                seen.add(record["data"]["source_sha256"])
-            require(len(seen) == 8, "LABEL_STUDIO_READBACK_INCOMPLETE")
+            _blind_project_readback(exported, originals)
     except SetupHold as error:
         raise SetupHold(str(error), tuple(created)) from None
     return {"schema": SCHEMA, "status": "LOCAL_PROJECTS_CREATED_ALL_SOURCES_UNANNOTATED",
@@ -345,6 +296,78 @@ def create_projects(tasks: list[dict], xml: str, url: str, token: str,
             "human_reviews_completed": 0,
             "reviewer_independence_verified": False, "human_gold": False}
 
+
+
+def isolated_review_preflight(
+        tasks: list[dict], xml: str,
+        url_a: str, token_a: str, project_a: int,
+        url_b: str, token_b: str, project_b: int, *, call=api) -> dict:
+    """Read-only pre-human M3 gate against two existing Label Studio instances.
+
+    Validate both persisted forms and their still-blind original source sets,
+    then use the *other* instance's credential against both identity and
+    project-export endpoints. This is an API access observation only: it does
+    not establish human identity, no communication, UI isolation or gold.
+    """
+    a, b = local_url(url_a), local_url(url_b)
+    require(a != b and type(project_a) is int and project_a > 0 and
+            type(project_b) is int and project_b > 0 and
+            type(xml) is str and bool(xml) and
+            type(token_a) is str and bool(token_a) and
+            type(token_b) is str and bool(token_b) and token_a != token_b,
+            "ISOLATED_REVIEW_PREFLIGHT_ARGUMENTS_INVALID")
+    originals = {t["data"]["source_sha256"]: t["data"] for t in tasks}
+    require(len(originals) == len(tasks) == 8, "SOURCE_FIRST_IMPORT_INCOMPLETE")
+    observed_ids = []
+    for base, token, pid in ((a, token_a, project_a), (b, token_b, project_b)):
+        account = call(base, token, "/api/current-user/whoami")
+        ident = account.get("id") if type(account) is dict else None
+        require(type(ident) is int and ident > 0,
+                "ISOLATED_REVIEW_ACCOUNT_NOT_VERIFIED")
+        observed_ids.append(ident)
+        saved = call(base, token, f"/api/projects/{pid}/")
+        require(type(saved) is dict and saved.get("id") == pid and
+                same_review_form(xml, saved.get("label_config")),
+                "ISOLATED_REVIEW_SAVED_FORM_MISMATCH")
+        exported = call(base, token,
+                        f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true")
+        _blind_project_readback(exported, originals)
+    # The canonical owner review bridge requires distinct original completed_by
+    # identifiers. Fail before work begins if these two CURRENT account IDs
+    # collide. A later reviewer may still differ: the operator must check.
+    require(observed_ids[0] != observed_ids[1],
+            "ISOLATED_REVIEW_ACCOUNT_IDS_COLLIDE")
+
+    def denied(base: str, other_token: str, pid: int, route: str) -> None:
+        try:
+            call(base, other_token, route)
+        except SetupHold as error:
+            require(str(error) in ("LABEL_STUDIO_HTTP_401",
+                                   "LABEL_STUDIO_HTTP_403",
+                                   "LABEL_STUDIO_HTTP_404"),
+                    "ISOLATED_REVIEW_CROSS_ACCESS_UNEXPECTED_ERROR")
+            return
+        # Any successful cross-read, even an empty result, violates the gate.
+        raise SetupHold("ISOLATED_REVIEW_CROSS_ACCESS_EXPOSED")
+
+    for base, other_token, pid in ((a, token_b, project_a),
+                                   (b, token_a, project_b)):
+        denied(base, other_token, pid, "/api/current-user/whoami")
+        denied(base, other_token, pid,
+               f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true")
+    # No source bodies, identities, credentials or method predictions in receipt.
+    return {
+        "schema": SCHEMA,
+        "status": "TWO_LOCAL_REVIEW_INSTANCES_API_PREFLIGHT_PASS_NOT_HUMAN_GOLD",
+        "sources_each": 8, "persisted_owner_forms_checked": True,
+        "unannotated_original_sources_checked": True,
+        "cross_instance_identity_and_export_denied": True,
+        "account_id_claims_differ": True,
+        "human_independence_verified": False,
+        "environmental_isolation_independently_verified": False,
+        "human_gold": False, "adjudication_completed": False,
+        "task_precision": None, "task_recall": None, "task_f1": None,
+    }
 
 
 def _checked_project_export(tasks: list[dict], base: str, token: str,
@@ -477,8 +500,6 @@ def main() -> int:
     parser.add_argument("--owner-label-config", required=True, type=Path,
                         help="Exact original TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml")
     parser.add_argument("--url", default="http://127.0.0.1:8080")
-    parser.add_argument("--url-b", help="Second isolated owner-local Label Studio endpoint")
-    parser.add_argument("--auth-mode-b", choices=("legacy", "personal"), default="legacy")
     parser.add_argument("--auth-mode", choices=("legacy", "personal"),
                         default="legacy",
                         help="Personal Access Token requires JWT refresh; legacy mode kept for old setups")
@@ -489,6 +510,9 @@ def main() -> int:
     mode.add_argument("--export-single-reviewed-project", action="store_true")
     mode.add_argument("--preflight-isolated-reviewers", action="store_true")
     parser.add_argument("--project-id", type=int)
+    parser.add_argument("--other-url")
+    parser.add_argument("--other-project-id", type=int)
+    parser.add_argument("--other-auth-mode", choices=("legacy", "personal"), default="legacy")
     parser.add_argument("--review-out", type=Path)
     parser.add_argument("--project-a-id", type=int)
     parser.add_argument("--project-b-id", type=int)
@@ -500,26 +524,30 @@ def main() -> int:
         manifest = load_manifest()
         tasks = validate_import(read_json(args.tasks), manifest)
         xml = validate_owner_xml(args.owner_label_config.read_bytes())
-        if args.preflight_isolated_reviewers:
-            require(not args.confirm_local_import and args.url_b is not None and
-                    args.project_id is None and args.project_a_id is None and
-                    args.project_b_id is None and args.review_out is None and
-                    args.review_a_out is None and args.review_b_out is None,
-                    "ISOLATED_PREFLIGHT_ARGUMENTS_INVALID")
-            first = resolve_api_credential(
-                args.url, os.environ.get("LABEL_STUDIO_API_KEY", ""),
-                mode=args.auth_mode)
-            second = resolve_api_credential(
-                args.url_b, os.environ.get("LABEL_STUDIO_SECOND_API_KEY", ""),
-                mode=args.auth_mode_b)
-            result = verify_isolated_reviewers(args.url, first, args.url_b, second)
-        elif args.create_local_projects:
+        if args.create_local_projects:
             require(args.confirm_local_import, "EXPLICIT_LOCAL_IMPORT_CONFIRMATION_REQUIRED")
             token = resolve_api_credential(args.url,
                                            os.environ.get("LABEL_STUDIO_API_KEY", ""),
                                            mode=args.auth_mode)
             result = create_projects(tasks, xml, args.url, token,
                                      slots=args.reviewer_slots)
+        elif args.preflight_isolated_reviewers:
+            require(not args.confirm_local_import and
+                    args.project_id is not None and args.other_project_id is not None and
+                    args.other_url is not None and
+                    args.review_out is None and args.review_a_out is None and
+                    args.review_b_out is None and
+                    args.project_a_id is None and args.project_b_id is None,
+                    "ISOLATED_REVIEW_PREFLIGHT_ARGUMENTS_INCOMPLETE")
+            own_token = resolve_api_credential(
+                args.url, os.environ.get("LABEL_STUDIO_API_KEY", ""),
+                mode=args.auth_mode)
+            other_token = resolve_api_credential(
+                args.other_url, os.environ.get("LABEL_STUDIO_SECOND_API_KEY", ""),
+                mode=args.other_auth_mode)
+            result = isolated_review_preflight(
+                tasks, xml, args.url, own_token, args.project_id,
+                args.other_url, other_token, args.other_project_id)
         elif args.export_single_reviewed_project:
             require(not args.confirm_local_import and
                     args.project_id is not None and args.review_out is not None and

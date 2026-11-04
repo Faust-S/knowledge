@@ -212,6 +212,109 @@ class LocalLabelStudioSetupTests(unittest.TestCase):
             thread.join(timeout=2)
             server.server_close()
 
+    def test_isolated_preflight_reads_both_forms_and_rejects_cross_access(self):
+        _, tasks = fixture()
+        calls = []
+        def respond(base, token, route, body=None):
+            calls.append((base, token, route))
+            good = (base.endswith(":8080") and token == "Token account-a") or (
+                    base.endswith(":8081") and token == "Token account-b")
+            if not good:
+                raise ls.SetupHold("LABEL_STUDIO_HTTP_403")
+            if route == "/api/current-user/whoami":
+                return {"id": 10 if base.endswith(":8080") else 11}
+            pid = 40 if base.endswith(":8080") else 50
+            if route == f"/api/projects/{pid}/":
+                return {"id": pid, "label_config": CONFIG.decode("utf-8")}
+            if route == f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true":
+                return [{**copy.deepcopy(t), "predictions": [], "annotations": []}
+                        for t in tasks]
+            raise AssertionError("unexpected API route")
+        receipt = ls.isolated_review_preflight(
+            tasks, CONFIG.decode("utf-8"),
+            "http://127.0.0.1:8080", "Token account-a", 40,
+            "http://127.0.0.1:8081", "Token account-b", 50,
+            call=respond)
+        self.assertEqual(receipt["sources_each"], 8)
+        self.assertTrue(receipt["cross_instance_identity_and_export_denied"])
+        self.assertFalse(receipt["human_gold"])
+        self.assertFalse(receipt["human_independence_verified"])
+        self.assertEqual(len(calls), 10)
+        self.assertNotIn("account-a", json.dumps(receipt))
+
+    def test_isolated_preflight_refuses_cross_instance_project_visibility(self):
+        _, tasks = fixture()
+        def respond(base, token, route, body=None):
+            if token.startswith("Token other") or (
+                    (base.endswith(":8080") and token == "Token account-b") or
+                    (base.endswith(":8081") and token == "Token account-a")):
+                if route == "/api/current-user/whoami":
+                    return {"id": 999}
+                return [{"data": {}}]
+            if route == "/api/current-user/whoami":
+                return {"id": 10 if base.endswith(":8080") else 11}
+            pid = 40 if base.endswith(":8080") else 50
+            if route == f"/api/projects/{pid}/":
+                return {"id": pid, "label_config": CONFIG.decode("utf-8")}
+            if route == f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true":
+                return [{**copy.deepcopy(t), "predictions": [], "annotations": []}
+                        for t in tasks]
+            raise AssertionError("unexpected route")
+        with self.assertRaisesRegex(
+                ls.SetupHold, "ISOLATED_REVIEW_CROSS_ACCESS_EXPOSED"):
+            ls.isolated_review_preflight(
+                tasks, CONFIG.decode("utf-8"),
+                "http://127.0.0.1:8080", "Token account-a", 40,
+                "http://127.0.0.1:8081", "Token account-b", 50,
+                call=respond)
+
+    def test_isolated_preflight_fails_on_form_drift_or_annotated_source(self):
+        _, tasks = fixture()
+        for fail_kind, code in (
+                ("xml", "ISOLATED_REVIEW_SAVED_FORM_MISMATCH"),
+                ("annotated", "LABEL_STUDIO_READBACK_NOT_BLIND_OR_CHANGED")):
+            def respond(base, token, route, body=None):
+                if route == "/api/current-user/whoami":
+                    return {"id": 10 if base.endswith(":8080") else 11}
+                pid = 40 if base.endswith(":8080") else 50
+                if route == f"/api/projects/{pid}/":
+                    xml = CONFIG.decode("utf-8")
+                    if fail_kind == "xml" and base.endswith(":8081"):
+                        xml = xml.replace("review_coverage", "wrong_control")
+                    return {"id": pid, "label_config": xml}
+                if route == f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true":
+                    values = [{**copy.deepcopy(t), "predictions": [], "annotations": []}
+                              for t in tasks]
+                    if fail_kind == "annotated" and base.endswith(":8081"):
+                        values[0]["annotations"] = [{"completed_by": 11}]
+                    return values
+                raise AssertionError("unexpected route")
+            with self.subTest(fail_kind=fail_kind), self.assertRaisesRegex(ls.SetupHold, code):
+                ls.isolated_review_preflight(
+                    tasks, CONFIG.decode("utf-8"),
+                    "http://127.0.0.1:8080", "Token account-a", 40,
+                    "http://127.0.0.1:8081", "Token account-b", 50,
+                    call=respond)
+
+    def test_isolated_preflight_fails_on_colliding_ids(self):
+        _, tasks = fixture()
+        def respond(base, token, route, body=None):
+            if route == "/api/current-user/whoami":
+                return {"id": 10}
+            pid = 40 if base.endswith(":8080") else 50
+            if route == f"/api/projects/{pid}/":
+                return {"id": pid, "label_config": CONFIG.decode("utf-8")}
+            if route == f"/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true":
+                return [{**copy.deepcopy(t), "predictions": [], "annotations": []}
+                        for t in tasks]
+            raise AssertionError("unexpected route")
+        with self.assertRaisesRegex(ls.SetupHold, "ISOLATED_REVIEW_ACCOUNT_IDS_COLLIDE"):
+            ls.isolated_review_preflight(
+                tasks, CONFIG.decode("utf-8"),
+                "http://127.0.0.1:8080", "Token account-a", 40,
+                "http://127.0.0.1:8081", "Token account-b", 50,
+                call=respond)
+
     def test_semantic_form_readback_ignores_whitespace_only(self):
         xml = CONFIG.decode('utf-8')
         self.assertTrue(ls.same_review_form(xml, xml))
