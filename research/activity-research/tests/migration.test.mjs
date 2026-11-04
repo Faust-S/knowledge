@@ -64,7 +64,7 @@ test('ADP-001 contains only secondary cases, no promoted TaskType or field pass'
 });
 
 test('all local Markdown research and adjacent-work links resolve',()=>{
- for(const item of [...manifest.files.filter(x=>x.target_path.endsWith('.md')).map(x=>x.target_path.slice('research/activity-research/'.length)),'README.md']){
+ for(const item of manifest.files.filter(x=>x.target_path.endsWith('.md')).map(x=>x.target_path.slice('research/activity-research/'.length))){
   const doc=read(item).toString('utf8');
   const links=[...doc.matchAll(/\]\(([^)]+)\)/g)].map(m=>m[1]);
   for(const href of links){
