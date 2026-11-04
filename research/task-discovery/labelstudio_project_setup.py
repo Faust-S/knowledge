@@ -224,9 +224,13 @@ def resolve_api_credential(base: str, token: str, mode: str = "legacy") -> str:
         raise SetupHold("LABEL_STUDIO_PERSONAL_TOKEN_HTTP_" + str(error.code)) from None
     except URLError:
         raise SetupHold("LOCAL_LABEL_STUDIO_UNAVAILABLE") from None
-    # Parse outside the network error handler: JSON provenance failures must
-    # remain distinct from transport and token-shape failures.
-    result = strict_json_bytes(raw, prefix="LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE")
+    # Refresh endpoint exposes only a generic non-secret invalid-response
+    # code. The strict parser still rejects duplicates, NaN and 1e999; the
+    # local file and ordinary API boundaries retain their detailed codes.
+    try:
+        result = strict_json_bytes(raw, prefix="LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE")
+    except SetupHold:
+        raise SetupHold("LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE_INVALID") from None
     access = result.get("access") if type(result) is dict else None
     require(type(access) is str and 0 < len(access) <= 8192 and
             "\n" not in access and "\r" not in access,
