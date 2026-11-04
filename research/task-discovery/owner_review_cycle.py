@@ -84,11 +84,20 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
               runner: Callable[[list[str], Path], str] = executed,
               expected_owner_blob: str = OWNER_BRIDGE_BLOB,
               effort_script: Path | None = None) -> dict:
+    # Refuse symlink aliases before resolving paths. The owner bridge and
+    # effort adapter must consume the exact same local files, not aliases
+    # that could be redirected or mistaken for independent reviewer inputs.
+    raw_inputs = (packet, review_a, review_b)
+    raw_outputs = (disagreements_out, effort_out)
+    need(all(not path.is_symlink() for path in raw_inputs + raw_outputs),
+         'OWNER_LOCAL_SYMLINK_PATH_REFUSED')
     # Resolve before switching subprocess cwd into the owning task catalog.
     # A caller may supply relative owner-local input/output paths.
     owner_root, packet, review_a, review_b = (
         owner_root.resolve(), packet.resolve(), review_a.resolve(), review_b.resolve())
     disagreements_out, effort_out = disagreements_out.resolve(), effort_out.resolve()
+    need(len({packet, review_a, review_b, disagreements_out, effort_out}) == 5,
+         'OWNER_LOCAL_INPUT_OUTPUT_ALIAS_REFUSED')
     # Arguments deliberately match the owning bridge and existing effort adapter.
     need(confirmation, 'EXPLICIT_LOCAL_REVIEW_CONFIRMATION_REQUIRED')
     catalog, bridge = owner_bridge_path(owner_root)

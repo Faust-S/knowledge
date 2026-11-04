@@ -206,6 +206,24 @@ class OwnerReviewCycleTests(unittest.TestCase):
             with self.assertRaisesRegex(cycle.CycleHold, 'OWNER_LOCAL_OUTPUT_EXISTS_OR_CONFLICTS'):
                 f.execute(review_b=f.a)
 
+    def test_symlinked_reviewer_input_is_refused_before_execution(self):
+        with TemporaryDirectory() as td:
+            f = CycleFixture(Path(td))
+            alias = f.root / 'review-a-alias.json'
+            alias.symlink_to(f.a)
+            with self.assertRaisesRegex(
+                    cycle.CycleHold, 'OWNER_LOCAL_SYMLINK_PATH_REFUSED'):
+                f.execute(review_a=alias)
+            self.assertFalse(f.calls)
+
+    def test_output_cannot_alias_an_input(self):
+        with TemporaryDirectory() as td:
+            f = CycleFixture(Path(td))
+            with self.assertRaisesRegex(
+                    cycle.CycleHold, 'OWNER_LOCAL_INPUT_OUTPUT_ALIAS_REFUSED'):
+                f.execute(effort_out=f.packet)
+            self.assertFalse(f.calls)
+
     def test_bad_json_or_duplicate_keys_cannot_qualify(self):
         for value in ('{"schema":"a","schema":"b"}', '{"a":NaN}', '[1,2,3]'):
             with self.subTest(value=value), self.assertRaises(cycle.CycleHold):
