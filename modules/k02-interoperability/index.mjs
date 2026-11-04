@@ -251,6 +251,8 @@ export async function verifyInvocationReadiness(plan, requirementId, provider, t
   const step = plan.steps.find(x => x.requirementId === requirementId);
   if (!step) fail('INVALID_PLAN', 'requirement_not_in_plan');
   const current = await describeCapabilities(provider);
+  // Provider discovery is asynchronous; a mutable plan may change while it runs.
+  assertTrustedPlan(plan, trustedPlanDigest);
   if (current.availability !== 'available') fail('PROVIDER_UNAVAILABLE', 'provider_no_longer_available');
   if (current.providerId !== step.providerId) fail('BINDING_CHANGED', 'provider_id');
   const cap = current.capabilities.find(x => x.kind === step.kind && x.capabilityId === step.capabilityId);
