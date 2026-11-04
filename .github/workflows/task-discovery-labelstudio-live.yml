@@ -55,6 +55,74 @@ jobs:
           LABEL_STUDIO_URL: http://127.0.0.1:8080
           LABEL_STUDIO_API_KEY: synthetic-ci-legacy-token
         run: python3 research/task-discovery/live_labelstudio_smoke.py
+      - name: Real two-account synthetic HTTP route (ephemeral second user, no exported files)
+        env:
+          LABEL_STUDIO_URL: http://127.0.0.1:8080
+          LABEL_STUDIO_API_KEY: synthetic-ci-legacy-token
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import secrets
+          import subprocess
+          import sys
+          from urllib.error import HTTPError
+          from urllib.request import Request, urlopen
+
+          base = os.environ["LABEL_STUDIO_URL"]
+          primary_token = os.environ["LABEL_STUDIO_API_KEY"]
+
+          def api(credential, route, body=None):
+              payload = json.dumps(body).encode("utf-8") if body is not None else None
+              request = Request(
+                  base + route, data=payload,
+                  method="POST" if body is not None else "GET",
+                  headers={"Authorization": credential, "Accept": "application/json",
+                           "Content-Type": "application/json"},
+              )
+              try:
+                  with urlopen(request, timeout=25) as response:
+                      return json.loads(response.read(1_000_000))
+              except HTTPError as error:
+                  raise SystemExit("SECOND_ACCOUNT_PROVISION_HTTP_" + str(error.code)) from None
+
+          first = api("Token " + primary_token, "/api/current-user/whoami")
+          assert type(first.get("id")) is int, "PRIMARY_ID_NOT_VERIFIED"
+          organization = first.get("active_organization")
+          assert type(organization) is int, "PRIMARY_ORGANIZATION_NOT_VERIFIED"
+          email = "iwxa-disposable-" + secrets.token_hex(12) + "@example.invalid"
+          second = api("Token " + primary_token, "/api/users/", {
+              "username": email, "email": email, "password": secrets.token_urlsafe(32),
+              "active_organization": organization,
+          })
+          assert type(second.get("id")) is int and second["id"] != first["id"], \
+              "SECOND_ACCOUNT_CREATION_NOT_VERIFIED"
+
+          # Read a freshly created synthetic user token only inside the
+          # disposable Docker process. stdout is captured, never logged.
+          code = ("from users.models import User; "
+                  "print(User.objects.get(email=" + repr(email) + ").get_token().key)")
+          token_cli = subprocess.run(
+              ["docker", "exec", "iwxa-label-studio", "python",
+               "label_studio/manage.py", "shell", "-c", code],
+              check=True, capture_output=True, text=True, timeout=40,
+          )
+          secondary_token = token_cli.stdout.strip().splitlines()[-1]
+          assert len(secondary_token) >= 20 and secondary_token != primary_token, \\
+              "SECOND_ACCOUNT_TOKEN_UNAVAILABLE"
+
+          second_whoami = api("Token " + secondary_token, "/api/current-user/whoami")
+          assert second_whoami.get("id") == second["id"] and \
+                 second_whoami.get("active_organization") == organization, \
+                 "SECOND_ACCOUNT_AUTH_OR_ORGANIZATION_MISMATCH"
+          sys.path.insert(0, "research/task-discovery")
+          from live_labelstudio_smoke import exercise_local_server
+          receipt = exercise_local_server(base, primary_token,
+                                          second_token=secondary_token)
+          assert receipt["two_synthetic_accounts_export_passed"] is True
+          assert receipt["human_task_gold"] is False
+          print(json.dumps(receipt, sort_keys=True))
+          PY
       - name: Report native image and container status on failure
         if: failure()
         run: |
