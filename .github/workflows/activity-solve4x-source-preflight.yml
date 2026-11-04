@@ -151,3 +151,29 @@ jobs:
           path: solve4x-small-member-pair.json
           retention-days: 7
           if-no-files-found: error
+
+      - name: Run same-case identity and non-independence negative tests
+        run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_same_case_audit.py' -v
+      - name: Compare registered case references across two source derivatives
+        run: |
+          python3 research/activity-research/solve4x_same_case_audit.py \
+            --out solve4x-same-case-derived.json || true
+          python3 - <<'PY'
+          import json
+          with open("solve4x-same-case-derived.json") as f: r=json.load(f)
+          assert r["schema"]=="IWXA_SOLVE4X_SAME_CASE_EVIDENCE_AUDIT/0.1"
+          assert r["raw_source_exported"] is False
+          assert r["constraints"]["accepted_tasks"]==0
+          assert r["constraints"]["independent_itam_raw_log_source"]=="NOT_LOADED"
+          print("SOLVE4X_SAME_CASE_COUNTS",r["status"],
+                r.get("counts",{}).get("case_references_in_both","UNKNOWN"),
+                "literal_activity_overlaps",
+                r.get("counts",{}).get("shared_literal_activity_strings","UNKNOWN"))
+          PY
+      - name: Publish derived same-case comparison with no source event text
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-solve4x-same-case-identity-aggregates
+          path: solve4x-same-case-derived.json
+          retention-days: 7
+          if-no-files-found: error
