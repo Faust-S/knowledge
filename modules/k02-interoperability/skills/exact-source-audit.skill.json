@@ -1,0 +1,57 @@
+{
+  "schema": "IWXA.K02.SKILL/0.1.0",
+  "skillId": "exact-source-audit",
+  "instructionRef": "skills/exact-source-audit.instructions.json",
+  "parametersSchema": {
+    "type": "object",
+    "required": [
+      "transcript",
+      "candidates"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "transcript": {
+        "type": "string",
+        "minLength": 1
+      },
+      "candidates": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string"
+            },
+            "quote": {
+              "type": "string"
+            },
+            "start": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "end": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "action",
+            "quote",
+            "start",
+            "end"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "requiredCapabilities": [
+    "evidence.exact.audit"
+  ],
+  "verification": {
+    "type": "EXACT_SOURCE_SPAN",
+    "outputStatus": "REVIEW_REQUIRED"
+  },
+  "dependencies": [],
+  "status": "HOST_VERIFICATION_REQUIRED"
+}

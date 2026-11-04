@@ -1,0 +1,22 @@
+name: K02 CLI interoperability
+on:
+  push:
+    branches:
+      - work/2026-11-04-k02-interoperability-kit
+    paths:
+      - 'modules/k02-interoperability/**'
+      - '.github/workflows/k02-interoperability.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  k02-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test modules/k02-interoperability/tests/*.test.mjs
+      - run: node --check modules/k02-interoperability/index.mjs

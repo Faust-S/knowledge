@@ -1,0 +1,16 @@
+{
+  "schema": "IWXA.K02.INSTRUCTION/0.1.0",
+  "skillId": "exact-source-audit",
+  "steps": [
+    {
+      "operation": "evidence.exact.audit",
+      "input": "transcript and exact quoted spans",
+      "output": "accepted/rejected spans"
+    },
+    {
+      "operation": "human_review",
+      "kind": "HOST_RESPONSIBILITY",
+      "description": "No automatic Task creation or approval"
+    }
+  ]
+}
