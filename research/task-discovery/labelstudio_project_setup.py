@@ -73,40 +73,38 @@ def digest(raw: bytes) -> str:
     return "sha256:" + hashlib.sha256(raw).hexdigest()
 
 
-def read_json(path: Path):
-    """Read owner-local inputs without silently changing ambiguous JSON.
+def strict_json_bytes(raw: bytes, *, prefix: str):
+    """Reject ambiguous JSON from both local files and Label Studio HTTP.
 
-    Duplicate object keys and non-finite numbers must not be accepted here
-    when the owning Review Bridge will later reject them. Never log source
-    bytes or local paths on failure.
+    Duplicate keys and nonfinite numbers otherwise silently alter provenance,
+    reviewer identity and annotations. Never include response bytes in errors.
     """
+    def unique_pairs(pairs):
+        obj = {}
+        for key, value in pairs:
+            require(key not in obj, prefix + "_DUPLICATE_KEY")
+            obj[key] = value
+        return obj
+
+    def nonfinite(_value):
+        raise SetupHold(prefix + "_NONFINITE_NUMBER")
+
+    try:
+        return json.loads(raw.decode("utf-8"), object_pairs_hook=unique_pairs,
+                          parse_constant=nonfinite)
+    except SetupHold:
+        raise
+    except (UnicodeError, ValueError, RecursionError, TypeError):
+        raise SetupHold(prefix + "_JSON_INVALID") from None
+
+
+def read_json(path: Path):
+    """Strict owner-local inputs; never print source contents or file paths."""
     require(path.is_file() and not path.is_symlink(),
             "LOCAL_INPUT_UNAVAILABLE")
     raw = path.read_bytes()
     require(0 < len(raw) <= MAX_JSON_BYTES, "LOCAL_INPUT_SIZE_INVALID")
-
-    def unique_pairs(pairs):
-        result = {}
-        for key, value in pairs:
-            require(key not in result, "LOCAL_INPUT_DUPLICATE_KEY")
-            result[key] = value
-        return result
-
-    def nonfinite(_):
-        raise SetupHold("LOCAL_INPUT_NONFINITE_NUMBER")
-
-    def finite_float(value):
-        number = float(value)
-        require(math.isfinite(number), "LOCAL_INPUT_NONFINITE_NUMBER")
-        return number
-
-    try:
-        return json.loads(raw, object_pairs_hook=unique_pairs,
-                          parse_constant=nonfinite, parse_float=finite_float)
-    except SetupHold:
-        raise
-    except (UnicodeError, ValueError, RecursionError):
-        raise SetupHold("LOCAL_INPUT_JSON_INVALID") from None
+    return strict_json_bytes(raw, prefix="LOCAL_INPUT")
 
 
 def load_manifest(path: Path = MANIFEST,
@@ -214,7 +212,7 @@ def resolve_api_credential(base: str, token: str, mode: str = "legacy") -> str:
             raw = response.read(MAX_JSON_BYTES + 1)
             require(response.status in (200, 201) and len(raw) <= MAX_JSON_BYTES,
                     "LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE_INVALID")
-        result = json.loads(raw)
+        result = strict_json_bytes(raw, prefix="LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE")
         access = result.get("access") if type(result) is dict else None
         require(type(access) is str and 0 < len(access) <= 8192 and
                 "\n" not in access and "\r" not in access,
@@ -243,7 +241,7 @@ def api(base: str, token: str, route: str, body: object = None):
             raw = response.read(MAX_JSON_BYTES + 1)
             require(response.status in (200, 201, 202) and
                     len(raw) <= MAX_JSON_BYTES, "LABEL_STUDIO_RESPONSE_INVALID")
-        return json.loads(raw)
+        return strict_json_bytes(raw, prefix="LABEL_STUDIO_RESPONSE")
     except HTTPError as error:
         raise SetupHold("LABEL_STUDIO_HTTP_" + str(error.code)) from None
     except URLError:

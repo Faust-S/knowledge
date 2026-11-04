@@ -190,6 +190,50 @@ class AuthCompatibilityTests(unittest.TestCase):
                 "http://127.0.0.1:8080", "Token reused",
                 "http://127.0.0.1:8081", "Token reused", call=lambda *args: None)
 
+    def test_api_refuses_ambiguous_server_json(self):
+        samples = (
+            (b'{"id":1,"id":2}', "LABEL_STUDIO_RESPONSE_DUPLICATE_KEY"),
+            (b'{"annotations":[{"completed_by":1,"completed_by":2}]}',
+             "LABEL_STUDIO_RESPONSE_DUPLICATE_KEY"),
+            (b'{"id":NaN}', "LABEL_STUDIO_RESPONSE_NONFINITE_NUMBER"),
+            (b'{"id":Infinity}', "LABEL_STUDIO_RESPONSE_NONFINITE_NUMBER"),
+            (b'{"id":-Infinity}', "LABEL_STUDIO_RESPONSE_NONFINITE_NUMBER"),
+            (b'{"id":', "LABEL_STUDIO_RESPONSE_JSON_INVALID"),
+            (b'{"id":"\xff"}', "LABEL_STUDIO_RESPONSE_JSON_INVALID"),
+        )
+        for payload, error in samples:
+            with self.subTest(error=error), patch.object(
+                    target, "local_api_open", return_value=FakeResponse(payload)):
+                with self.assertRaisesRegex(target.SetupHold, error) as caught:
+                    target.api("http://127.0.0.1:8080", "synthetic",
+                               "/api/projects/7/")
+                self.assertNotIn("synthetic", str(caught.exception))
+
+    def test_personal_refresh_fails_closed_on_ambiguous_json(self):
+        for payload in (
+                b'{"access":"first","access":"second"}',
+                b'{"access":NaN}'):
+            with self.subTest(payload=payload), patch.object(
+                    target, "local_api_open", return_value=FakeResponse(payload)):
+                with self.assertRaisesRegex(
+                        target.SetupHold, "LABEL_STUDIO_PERSONAL_TOKEN_RESPONSE_INVALID"):
+                    target.resolve_api_credential(
+                        "http://127.0.0.1:8080", "synthetic", "personal")
+
+    def test_existing_owner_local_json_rejection_codes_preserved(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "synthetic.json"
+            for payload, code in (
+                    (b'{"data":1,"data":2}', "LOCAL_INPUT_DUPLICATE_KEY"),
+                    (b'{"data":NaN}', "LOCAL_INPUT_NONFINITE_NUMBER"),
+                    (b'{"data":', "LOCAL_INPUT_JSON_INVALID")):
+                path.write_bytes(payload)
+                with self.subTest(code=code), self.assertRaisesRegex(
+                        target.SetupHold, code):
+                    target.read_json(path)
+
     def test_remote_refresh_refused(self):
         with patch.object(target, "local_api_open") as opened:
             with self.assertRaisesRegex(target.SetupHold,
