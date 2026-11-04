@@ -46,10 +46,14 @@ def analyze_scene(video: dict, ocel: dict) -> dict:
     video_case_refs = set()
     video_labels = set()
     nodes_with_case = 0
+    video_data_fields = Counter()
+    author_types = Counter()
     for node in video_nodes:
         data = node.get("data")
+        author_types[type(node.get("localisation")).__name__] += 1
         if not isinstance(data, dict):
             continue
+        video_data_fields.update(str(k) for k in data)
         refs = set()
         for value in data.values():
             if isinstance(value, str):
@@ -63,6 +67,18 @@ def analyze_scene(video: dict, ocel: dict) -> dict:
     ocel_case_refs = set()
     ocel_labels = set()
     count_with_case_ref = 0
+    ocel_vmap_fields = Counter()
+    ocel_vmap_ref_hits = 0
+    ocel_event_id_ref_hits = 0
+    object_types = Counter()
+    for event_id in ocel["ocel:events"]:
+        if isinstance(event_id, str) and CASE_PATTERN.search(event_id):
+            ocel_event_id_ref_hits += 1
+    for object_data in ocel["ocel:objects"].values():
+        if isinstance(object_data, dict):
+            t = object_data.get("ocel:type")
+            if isinstance(t, str):
+                object_types[t] += 1
     for object_id in ocel["ocel:objects"]:
         if isinstance(object_id, str):
             ocel_case_refs.update(CASE_PATTERN.findall(object_id))
@@ -73,6 +89,11 @@ def analyze_scene(video: dict, ocel: dict) -> dict:
             ocel_labels.add(activity)
         omap = event.get("ocel:omap", [])
         idx.check(isinstance(omap, list), "OCEL_EVENT_OMAP_INVALID")
+        vmap = event.get("ocel:vmap", {})
+        idx.check(isinstance(vmap, dict), "OCEL_EVENT_VMAP_INVALID")
+        ocel_vmap_fields.update(str(k) for k in vmap)
+        if any(isinstance(v, str) and CASE_PATTERN.search(v) for v in vmap.values()):
+            ocel_vmap_ref_hits += 1
         refs = set()
         for ref in omap:
             if isinstance(ref, str):
@@ -96,6 +117,13 @@ def analyze_scene(video: dict, ocel: dict) -> dict:
             "video_distinct_label_strings": len(video_labels),
             "ocel_distinct_activity_strings": len(ocel_labels),
             "shared_literal_activity_strings": len(video_labels.intersection(ocel_labels)),
+            "video_annotation_data_key_occurrences": dict(sorted(video_data_fields.items())),
+            "video_localisation_value_type_occurrences": dict(sorted(author_types.items())),
+            "ocel_vmap_key_occurrences": dict(sorted(ocel_vmap_fields.items())),
+            "ocel_vmap_values_containing_case_ref": ocel_vmap_ref_hits,
+            "ocel_event_id_containing_case_ref": ocel_event_id_ref_hits,
+            "ocel_distinct_object_types": len(object_types),
+            "ocel_object_type_frequency_profile": sorted(object_types.values()),
         },
         "constraints": {
             "video_labels_from_author_annotations_not_independent_review": True,
