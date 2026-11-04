@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { OllamaLocalModelProvider, MODEL_INPUT, MODEL_OUTPUT } from '../adapters/ollama-local.mjs';
-import { describeCapabilities, resolveRequirements, buildInvocationPlan, validateInvocationInput, validateInvocationOutput } from '../index.mjs';
+import { describeCapabilities, resolveRequirements, buildInvocationPlan, validateInvocationInput, validateInvocationOutput, verifyInvocationReadiness } from '../index.mjs';
 
 const modelName = process.env.K02_MODEL_NAME || 'smollm2:135m-instruct-q2_K';
 const expectedDigest = process.env.K02_MODEL_DIGEST;
@@ -18,6 +18,7 @@ const solution = {
 const selected = resolveRequirements(solution, [descriptor]);
 assert.equal(selected.status, 'SUPPORTED');
 const plan = buildInvocationPlan({ taskId: 'SYNTHETIC-MODEL-REAL-INVOKE', solutionId: solution.solutionId }, [], selected);
+await verifyInvocationReadiness(plan, 'generation', provider, plan.planDigest);
 const input = { system: 'Return a short plain-language reply.', prompt: 'Complete this greeting in English: Hello,', max_output_tokens: 48 };
 validateInvocationInput(plan.steps[0], input);
 const result = await provider.invoke('text.generate', input, {

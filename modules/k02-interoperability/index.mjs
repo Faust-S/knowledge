@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 
 export const CONTRACT_VERSION = 'IWXA.K02.INTEROP/0.1.0';
+export const PLAN_BINDING_VERSION = 'IWXA.K02.PLAN_BINDING/0.1.0';
+const HEX64 = /^[a-f0-9]{64}$/;
 const TYPES = new Set(['object', 'array', 'string', 'integer', 'number', 'boolean', 'null']);
 const SCHEMA_KEYS = new Set(['type', 'properties', 'required', 'additionalProperties', 'items', 'enum', 'minLength', 'maxLength', 'minimum', 'maximum', 'minItems', 'maxItems']);
 const MAX_JSON_BYTES = 1_000_000;
@@ -168,7 +170,8 @@ export function resolveRequirements(solution, available) {
         requirementId: req.requirementId, providerId: pick.provider.providerId,
         kind: req.kind, capabilityId: req.capabilityId, effectClass: req.effectClass,
         inputSchema: req.inputSchema, outputSchema: req.outputSchema,
-        providerFeeUsd: pick.cap.providerFeeUsd, latencyMsP50: pick.cap.latencyMsP50
+        providerFeeUsd: pick.cap.providerFeeUsd, latencyMsP50: pick.cap.latencyMsP50,
+        capabilityDigest: digest({ contractVersion: CONTRACT_VERSION, providerId: pick.provider.providerId, capability: pick.cap })
       });
     } else missing.push({ requirementId: req.requirementId, required: req.required,
       reason: ['UNAVAILABLE', 'UNSUPPORTED', 'SCHEMA_MISMATCH', 'EFFECT_MISMATCH'].find(x => causes.has(x)) || 'ABSENT' });
@@ -184,16 +187,24 @@ export function buildInvocationPlan(task, selectedSkills, resolution) {
   name(task.taskId, 'taskId'); name(task.solutionId, 'solutionId');
   if (resolution.status !== 'SUPPORTED' || resolution.solutionId !== task.solutionId || resolution.contractVersion !== CONTRACT_VERSION) fail('INVALID_PLAN', 'unresolved');
   const covered = new Set(resolution.selected.map(s => s.capabilityId));
+  if (resolution.selected.some(s => !object(s) || !HEX64.test(s.capabilityDigest ?? '') ||
+      typeof s.providerId !== 'string' || typeof s.kind !== 'string' ||
+      typeof s.capabilityId !== 'string')) fail('INVALID_PLAN', 'unbound_capability');
   const skills = [];
   for (const skill of selectedSkills) {
-    if (!object(skill) || skill.schema !== 'IWXA.K02.SKILL/0.1.0' || typeof skill.skillId !== 'string' || !Array.isArray(skill.requiredCapabilities) || !skill.requiredCapabilities.every(x => covered.has(x)) || !skill.instructionRef || !skill.verification) fail('INVALID_PLAN', 'skill_dependency');
+    if (!object(skill) || skill.schema !== 'IWXA.K02.SKILL/0.1.0' || typeof skill.skillId !== 'string' || !Array.isArray(skill.requiredCapabilities) || !skill.requiredCapabilities.every(x => covered.has(x)) || !skill.instructionRef || !skill.verification || !HEX64.test(skill.instructionDigest ?? '') ||
+      !/^skills\/[A-Za-z0-9._/-]+$/.test(skill.instructionRef) ||
+      skill.instructionRef.split('/').includes('..')) fail('INVALID_PLAN', 'skill_dependency');
     name(skill.skillId, 'skillId');
     validateSchema(skill.parametersSchema);
-    skills.push({ skillId: skill.skillId, instructionRef: skill.instructionRef, verification: skill.verification });
+    skills.push({ skillId: skill.skillId, instructionRef: skill.instructionRef,
+      instructionDigest: skill.instructionDigest, descriptorDigest: digest(skill), verification: skill.verification });
   }
-  const body = { contractVersion: CONTRACT_VERSION, taskId: task.taskId, solutionId: task.solutionId,
+  const body = { contractVersion: CONTRACT_VERSION, bindingVersion: PLAN_BINDING_VERSION,
+    taskId: task.taskId, solutionId: task.solutionId,
     skills, steps: resolution.selected.map(s => ({ requirementId: s.requirementId, providerId: s.providerId,
-      kind: s.kind, capabilityId: s.capabilityId, effectClass: s.effectClass,
+      kind: s.kind, capabilityId: s.capabilityId, capabilityDigest: s.capabilityDigest,
+      effectClass: s.effectClass,
       inputSchema: s.inputSchema, outputSchema: s.outputSchema, hostApprovalRequired: true,
       invocationAuthority: 'HOST_ONLY', invocationState: 'NOT_INVOKED', proofOfInvoke: null })),
     estimates: resolution.estimates };
@@ -206,4 +217,68 @@ export function validateInvocationInput(step, input) {
 export function validateInvocationOutput(step, output) {
   if (!object(step) || step.invocationAuthority !== 'HOST_ONLY') fail('INVALID_PLAN', 'step');
   return validatePayload(step.outputSchema, output);
+}
+
+function assertTrustedPlan(plan, trustedPlanDigest) {
+  if (!object(plan) || plan.contractVersion !== CONTRACT_VERSION ||
+      plan.bindingVersion !== PLAN_BINDING_VERSION ||
+      !HEX64.test(trustedPlanDigest ?? '') || !HEX64.test(plan.planDigest ?? '') ||
+      trustedPlanDigest !== plan.planDigest) fail('INVALID_PLAN', 'untrusted_plan');
+  const body = { ...plan };
+  delete body.planDigest;
+  if (digest(body) !== trustedPlanDigest || !Array.isArray(plan.steps) ||
+      !Array.isArray(plan.skills)) fail('INVALID_PLAN', 'plan_changed');
+  const seen = new Set();
+  for (const step of plan.steps) {
+    if (!object(step) || typeof step.requirementId !== 'string' ||
+        seen.has(step.requirementId) || typeof step.providerId !== 'string' ||
+        !HEX64.test(step.capabilityDigest ?? '') ||
+        !['model', 'tool'].includes(step.kind) ||
+        step.hostApprovalRequired !== true ||
+        step.invocationAuthority !== 'HOST_ONLY' ||
+        step.invocationState !== 'NOT_INVOKED' || step.proofOfInvoke !== null) {
+      fail('INVALID_PLAN', 'step_binding');
+    }
+    seen.add(step.requirementId);
+  }
+  return plan;
+}
+
+// This is a compatibility check, NOT an execution grant. The host alone
+// supplies the trusted digest and the authority to invoke its existing port.
+export async function verifyInvocationReadiness(plan, requirementId, provider, trustedPlanDigest) {
+  assertTrustedPlan(plan, trustedPlanDigest);
+  const step = plan.steps.find(x => x.requirementId === requirementId);
+  if (!step) fail('INVALID_PLAN', 'requirement_not_in_plan');
+  const current = await describeCapabilities(provider);
+  if (current.availability !== 'available') fail('PROVIDER_UNAVAILABLE', 'provider_no_longer_available');
+  if (current.providerId !== step.providerId) fail('BINDING_CHANGED', 'provider_id');
+  const cap = current.capabilities.find(x => x.kind === step.kind && x.capabilityId === step.capabilityId);
+  if (!cap || !cap.supported || cap.effectClass !== step.effectClass ||
+      canonical(cap.inputSchema) !== canonical(step.inputSchema) ||
+      canonical(cap.outputSchema) !== canonical(step.outputSchema) ||
+      digest({ contractVersion: CONTRACT_VERSION, providerId: current.providerId, capability: cap }) !== step.capabilityDigest) {
+    fail('BINDING_CHANGED', 'capability');
+  }
+  return { status: 'MATCHED_NOT_AUTHORIZED', planDigest: trustedPlanDigest,
+    requirementId, providerId: current.providerId, capabilityDigest: step.capabilityDigest };
+}
+
+// Host supplies the originally selected descriptor and loaded raw instruction
+// bytes. Neither text nor descriptor confers permission to call a runtime.
+export function verifySkillBinding(plan, skillId, skillDescriptor, instructionBytes, trustedPlanDigest) {
+  assertTrustedPlan(plan, trustedPlanDigest);
+  const selected = plan.skills.find(x => x.skillId === skillId);
+  if (!selected || !object(skillDescriptor) || skillDescriptor.skillId !== skillId ||
+      digest(skillDescriptor) !== selected.descriptorDigest ||
+      skillDescriptor.instructionRef !== selected.instructionRef ||
+      skillDescriptor.instructionDigest !== selected.instructionDigest) {
+    fail('BINDING_CHANGED', 'skill_descriptor');
+  }
+  if (!(instructionBytes instanceof Uint8Array) ||
+      instructionBytes.byteLength > 1_000_000 ||
+      createHash('sha256').update(instructionBytes).digest('hex') !== selected.instructionDigest) {
+    fail('BINDING_CHANGED', 'skill_instructions');
+  }
+  return { status: 'MATCHED_NOT_ACTIVATED', skillId, instructionDigest: selected.instructionDigest };
 }

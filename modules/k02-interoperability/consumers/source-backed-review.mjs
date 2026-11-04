@@ -7,7 +7,8 @@ import { OllamaLocalModelProvider, MODEL_INPUT, MODEL_OUTPUT } from '../adapters
 import { GIT_INPUT, GIT_OUTPUT } from '../adapters/git-cli.mjs';
 import {
   CONTRACT_VERSION, InteropError, describeCapabilities, resolveRequirements,
-  buildInvocationPlan, validateInvocationInput, validateInvocationOutput, digest
+  buildInvocationPlan, validateInvocationInput, validateInvocationOutput, digest,
+  verifyInvocationReadiness, verifySkillBinding
 } from '../index.mjs';
 
 const PINNED_SHA = /^[0-9a-f]{40}$/;
@@ -51,11 +52,15 @@ export async function sourceBackedReview({
     { taskId: 'K02-PUBLIC-DEMO-NOT-PRODUCT-TASK', solutionId: solution.solutionId },
     [skill], resolution,
   );
+  const trustedPlanDigest = plan.planDigest;
+  const instructionBytes = await readFile(new URL('../skills/exact-source-audit.instructions.json', import.meta.url));
+  verifySkillBinding(plan, skill.skillId, skill, instructionBytes, trustedPlanDigest);
   const step = name => {
     const row = plan.steps.find(item => item.requirementId === name);
     if (!row) throw new InteropError('INVALID_PLAN', 'missing_' + name);
     return row;
   };
+  await verifyInvocationReadiness(plan, 'source', sourceProvider, trustedPlanDigest);
   const inputSource = { revision: sourceRevision, path: SOURCE_PATH };
   validateInvocationInput(step('source'), inputSource);
   const source = await sourceProvider.invoke('source.git.show', inputSource, { hostApproved: true });
@@ -85,6 +90,7 @@ export async function sourceBackedReview({
     transcript: source.output.content,
     candidates: [{ action: 'Human review before creating a task', quote, start, end: start + quote.length }],
   };
+  await verifyInvocationReadiness(plan, 'evidence', evidenceProvider, trustedPlanDigest);
   validateInvocationInput(step('evidence'), auditInput);
   const evidence = await evidenceProvider.invoke('evidence.exact.audit', auditInput, { hostApproved: true });
   if (evidence.status !== 'SUCCEEDED') throw new InteropError('PROVIDER_UNAVAILABLE', 'evidence_failed');
@@ -100,6 +106,7 @@ export async function sourceBackedReview({
     prompt: 'Source requirement: "' + quote + '". Draft ONE specific question a reviewer should answer before turning a meeting follow-up draft into a task.',
     max_output_tokens: 64,
   };
+  await verifyInvocationReadiness(plan, 'draft', modelProvider, trustedPlanDigest);
   validateInvocationInput(step('draft'), modelInput);
   const model = await modelProvider.invoke('text.generate', modelInput, {
     hostApproved: true, pinnedModelDigest: modelDigest,
