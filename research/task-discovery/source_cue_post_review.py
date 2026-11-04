@@ -62,9 +62,8 @@ def confusion(cues: set[str], labels: dict[str, str]) -> dict:
     }
 
 
-def analyze(manifest: dict, snapshot: dict, adjudication: dict, *,
-            method_sha: str = EXPECTED_METHOD_SHA) -> dict:
-    """Return descriptive *source-retrieval* metrics, not Task accuracy."""
+def analyze(manifest: dict, snapshot: dict, adjudication: dict) -> dict:
+    """Compare only the pinned *source-cue* method, never caller-supplied SHA."""
     need(type(manifest) is dict and
          manifest.get("schema") == "IWXA_TASK_EXP_01_PUBLIC_ISSUE_SOURCE_SLICE/0.1" and
          manifest.get("no_gold") is True and
@@ -75,7 +74,7 @@ def analyze(manifest: dict, snapshot: dict, adjudication: dict, *,
                                    for k in sources),
          "FROZEN_SOURCE_IDENTITY_INVALID")
     need(type(snapshot) is dict and snapshot.get("schema") == frozen.SCHEMA and
-         snapshot.get("method_output_sha256") == method_sha and
+         snapshot.get("method_output_sha256") == EXPECTED_METHOD_SHA and
          snapshot.get("frozen_manifest_git_blob") == frozen.MANIFEST_GIT_BLOB and
          snapshot.get("owner_u1_git_blob") == frozen.OWNER_U1_GIT_BLOB and
          snapshot.get("human_gold") is False and
@@ -102,6 +101,18 @@ def analyze(manifest: dict, snapshot: dict, adjudication: dict, *,
         frozen.validate_spans(r["u1_review_cue_spans"], size, "U1", with_kind=True)
         index[sha] = r
     need(set(index) == set(sources), "METHOD_SOURCE_SET_INCOMPLETE")
+    # Rebuild exactly the payload hashed before review by method_snapshot.
+    # Checking only the stored SHA would accept modified cue coordinates
+    # disguised under that previously pinned digest. No new method is run.
+    payload = {
+        "sources": [index[item["projection_sha256"]]
+                    for item in manifest["items"]],
+        "title_pattern_sha256": baseline.sha(
+            baseline.TITLE_PATTERN.encode("utf-8")),
+        "owner_u1_blob": frozen.OWNER_U1_GIT_BLOB,
+    }
+    need(frozen.canonical_sha(payload) == EXPECTED_METHOD_SHA,
+         "FROZEN_METHOD_COORDINATES_CHANGED")
 
     need(type(adjudication) is dict and set(adjudication) == {
         "schema", "human_adjudication_claimed", "methods_hidden_during_review",
@@ -129,7 +140,7 @@ def analyze(manifest: dict, snapshot: dict, adjudication: dict, *,
     return {
         "schema": SCHEMA,
         "status": "EXPLORATORY_SOURCE_CUE_ASSOCIATION_SELF_REPORTED_NOT_E5",
-        "frozen_method_output_sha256": method_sha,
+        "frozen_method_output_sha256": EXPECTED_METHOD_SHA,
         "frozen_manifest_git_blob": frozen.MANIFEST_GIT_BLOB,
         "sources_selected": 8,
         "resolved_sources": sum(v != "UNRESOLVED" for v in labels.values()),

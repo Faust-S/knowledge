@@ -30,11 +30,16 @@ def inputs(statuses=None):
     return manifest, snap, review
 
 
+FIXTURE_METHOD_SHA = ms.freeze(*fake_inputs())["method_output_sha256"]
+
+
+@patch.object(compare, "EXPECTED_METHOD_SHA", FIXTURE_METHOD_SHA)
+@patch.object(compare.baseline, "TITLE_PATTERN", "immutable-method")
 class PostReviewCueTests(unittest.TestCase):
     def test_source_metrics_use_frozen_cues_not_task_predictions(self):
         m, s, a = inputs()
         result = compare.analyze(
-            m, s, a, method_sha=s["method_output_sha256"])
+            m, s, a)
         self.assertEqual((result["resolved_sources"],
                           result["unresolved_sources"]), (7, 1))
         self.assertEqual(
@@ -71,18 +76,32 @@ class PostReviewCueTests(unittest.TestCase):
             a[key] = False
             with self.subTest(key=key), self.assertRaisesRegex(
                     compare.ComparisonHold, "MANUAL_ADJUDICATION_NOT_CONFIRMED"):
-                compare.analyze(m, s, a, method_sha=s["method_output_sha256"])
+                compare.analyze(m, s, a)
 
     def test_refuse_forged_frozen_method_digest(self):
         m, s, a = inputs()
         s["method_output_sha256"] = "0" * 64
         with self.assertRaisesRegex(
                 compare.ComparisonHold, "FROZEN_METHOD_REPLAY_NOT_VERIFIED"):
-            compare.analyze(m, s, a, method_sha=compare.EXPECTED_METHOD_SHA)
+            compare.analyze(m, s, a)
+
+    def test_tampered_cue_coordinates_are_not_the_frozen_method(self):
+        manifest, snapshot, review = inputs()
+        # Reuse the original stored SHA but replace one actual frozen cue.
+        snapshot["source_rows"][0]["title_regex_cue_spans"] = []
+        with self.assertRaisesRegex(
+                compare.ComparisonHold, "FROZEN_METHOD_COORDINATES_CHANGED"):
+            compare.analyze(manifest, snapshot, review)
+
+    def test_unpinned_hash_override_is_not_part_of_public_analysis(self):
+        manifest, snapshot, review = inputs()
+        with self.assertRaises(TypeError):
+            compare.analyze(manifest, snapshot, review,
+                            method_sha=snapshot["method_output_sha256"])
 
     def test_no_negative_label_from_unresolved_source(self):
         m, s, a = inputs(["UNRESOLVED"] * 8)
-        out = compare.analyze(m, s, a, method_sha=s["method_output_sha256"])
+        out = compare.analyze(m, s, a)
         c = out["source_retrieval"]["either_cue"]
         self.assertEqual(c["resolved_denominator"], 0)
         self.assertEqual(c["unresolved_excluded"], 8)
@@ -105,7 +124,7 @@ class PostReviewCueTests(unittest.TestCase):
         # TP=0 FP=0 FN=1 TN=7; precision undefined, recall/F1 = 0.
         m, s, a = inputs(["TASK_PRESENT"] + ["NO_TASK"] * 7)
         out = compare.analyze(
-            m, s, a, method_sha=s["method_output_sha256"])
+            m, s, a)
         no_cues = compare.confusion(
             set(), {r["source_sha256"]: entry["resolution"]
                     for r, entry in zip(s["source_rows"], a["sources"])})
@@ -122,7 +141,7 @@ class PostReviewCueTests(unittest.TestCase):
     def test_false_cue_with_no_positive_gold_has_zero_f1(self):
         m, s, a = inputs(["NO_TASK"] * 8)
         out = compare.analyze(
-            m, s, a, method_sha=s["method_output_sha256"])
+            m, s, a)
         title = out["source_retrieval"]["title_regex"]
         self.assertEqual((title["tp"], title["fp"], title["fn"]), (0, 3, 0))
         self.assertEqual(title["precision"], 0.0)
@@ -148,19 +167,19 @@ class PostReviewCueTests(unittest.TestCase):
                 a["sources"].pop()
             with self.subTest(alteration=alteration), self.assertRaisesRegex(
                     compare.ComparisonHold, code):
-                compare.analyze(m, s, a, method_sha=s["method_output_sha256"])
+                compare.analyze(m, s, a)
 
     def test_manual_source_input_never_augments_engine_or_gold(self):
         m, s, a = inputs()
         a["task_f1"] = 1.0
         with self.assertRaisesRegex(
                 compare.ComparisonHold, "MANUAL_ADJUDICATION_NOT_CONFIRMED"):
-            compare.analyze(m, s, a, method_sha=s["method_output_sha256"])
+            compare.analyze(m, s, a)
         m, s, a = inputs()
         s["task_candidates_created"] = 1
         with self.assertRaisesRegex(
                 compare.ComparisonHold, "FROZEN_METHOD_REPLAY_NOT_VERIFIED"):
-            compare.analyze(m, s, a, method_sha=s["method_output_sha256"])
+            compare.analyze(m, s, a)
 
 
 if __name__ == "__main__":
