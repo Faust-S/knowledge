@@ -28,6 +28,47 @@ jobs:
       - name: Syntax and import validation
         run: |
           node --check modules/k02-interoperability/index.mjs
+          node --check modules/k02-interoperability/adapters/ollama-local.mjs
+          node --check modules/k02-interoperability/consumers/live-local-model.mjs
           node --check modules/k02-interoperability/adapters/github-public-rest.mjs
           node --check modules/k02-interoperability/consumers/public-source-bridge.mjs
           python -m py_compile modules/k02-interoperability/consumers/python_public_source_consumer.py
+  k02-real-local-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install upstream Ollama open local runtime
+        run: |
+          curl --fail --location --silent --show-error https://ollama.com/install.sh -o "${RUNNER_TEMP}/ollama-install.sh"
+          sh "${RUNNER_TEMP}/ollama-install.sh"
+          ollama --version
+      - name: Start Ollama and pull small open model
+        run: |
+          nohup ollama serve > "${RUNNER_TEMP}/ollama.log" 2>&1 &
+          for n in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:11434/api/tags > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:11434/api/tags > /dev/null
+          ollama pull smollm2:135m-instruct-q2_K
+      - name: Pin and verify exact observed model digest
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request
+          data=json.load(urllib.request.urlopen("http://127.0.0.1:11434/api/tags",timeout=10))
+          found=[x for x in data["models"] if x["name"]=="smollm2:135m-instruct-q2_K"]
+          assert len(found)==1, "model_missing"
+          digest=found[0]["digest"]
+          assert len(digest)==64 and digest.startswith("888e2e49aff1"), "model_digest_not_expected_release"
+          with open(os.environ["GITHUB_ENV"],"a",encoding="utf-8") as env:
+            env.write("K02_MODEL_NAME=smollm2:135m-instruct-q2_K\n")
+            env.write("K02_MODEL_DIGEST="+digest+"\n")
+          print("MODEL_PIN_VERIFIED "+digest)
+          PY
+      - name: Genuine model inference, validated output and token observations
+        run: node modules/k02-interoperability/consumers/live-local-model.mjs
