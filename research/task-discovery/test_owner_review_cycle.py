@@ -149,7 +149,7 @@ class OwnerReviewCycleTests(unittest.TestCase):
             def missing(command, cwd):
                 result = f.runner(command, cwd)
                 if len(f.calls) == 1:
-                    f.disagreement.unlink()
+                    Path(command[command.index('--restricted-disagreement-output') + 1]).unlink()
                 return result
             with self.assertRaisesRegex(cycle.CycleHold,
                                         'OWNER_DISAGREEMENTS_NOT_WRITTEN'):
@@ -163,7 +163,7 @@ class OwnerReviewCycleTests(unittest.TestCase):
             def invalid(command, cwd):
                 result = f.runner(command, cwd)
                 if len(f.calls) == 1:
-                    f.disagreement.write_text(
+                    Path(command[command.index('--restricted-disagreement-output') + 1]).write_text(
                         '{"schema":"wrong","disagreements":[]}\n',
                         encoding='utf-8')
                 return result
@@ -178,9 +178,10 @@ class OwnerReviewCycleTests(unittest.TestCase):
             def mismatch(command, cwd):
                 result = f.runner(command, cwd)
                 if len(f.calls) == 1:
-                    obj = json.loads(f.disagreement.read_text('utf-8'))
+                    actual = Path(command[command.index('--restricted-disagreement-output') + 1])
+                    obj = json.loads(actual.read_text('utf-8'))
                     obj['disagreements'] = [{'source_sha256': 'unmatched'}]
-                    f.disagreement.write_text(json.dumps(obj), encoding='utf-8')
+                    actual.write_text(json.dumps(obj), encoding='utf-8')
                 return result
             with self.assertRaisesRegex(cycle.CycleHold,
                                         'OWNER_DISAGREEMENTS_INCOMPATIBLE'):
@@ -197,6 +198,45 @@ class OwnerReviewCycleTests(unittest.TestCase):
                                    'sources':8,'human_task_gold':False})
             with self.assertRaisesRegex(cycle.CycleHold, 'EFFORT_OUTPUT_NOT_WRITTEN'):
                 f.execute(runner=no_write)
+
+    def test_second_step_failure_never_publishes_partial_private_results(self):
+        with TemporaryDirectory() as td:
+            f = CycleFixture(Path(td))
+            def failing_second(command, cwd):
+                if not f.calls:
+                    return f.runner(command, cwd)
+                raise cycle.CycleHold('SYNTHETIC_EFFORT_FAILURE')
+            with self.assertRaisesRegex(cycle.CycleHold, 'SYNTHETIC_EFFORT_FAILURE'):
+                f.execute(runner=failing_second)
+            self.assertFalse(f.disagreement.exists())
+            self.assertFalse(f.effort.exists())
+            # Rerun with the same verified inputs works; no manual cleanup.
+            f.calls.clear()
+            self.assertFalse(f.execute()['human_gold'])
+            self.assertTrue(f.disagreement.exists() and f.effort.exists())
+
+    def test_conflicting_output_race_rolls_back_only_our_first_link(self):
+        with TemporaryDirectory() as td:
+            f = CycleFixture(Path(td))
+            def racing(command, cwd):
+                result = f.runner(command, cwd)
+                if len(f.calls) == 2:
+                    f.effort.write_text('created-by-another-process\n', encoding='utf-8')
+                return result
+            with self.assertRaisesRegex(
+                    cycle.CycleHold, 'OWNER_LOCAL_OUTPUT_PUBLICATION_FAILED'):
+                f.execute(runner=racing)
+            self.assertFalse(f.disagreement.exists())
+            self.assertEqual(f.effort.read_text('utf-8'), 'created-by-another-process\n')
+            self.assertEqual(len(f.calls), 2)
+
+    def test_published_private_outputs_have_restricted_permissions(self):
+        with TemporaryDirectory() as td:
+            f = CycleFixture(Path(td))
+            f.execute()
+            if __import__('os').name == 'posix':
+                self.assertEqual(f.disagreement.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(f.effort.stat().st_mode & 0o777, 0o600)
 
     def test_inputs_and_output_paths_must_be_distinct(self):
         with TemporaryDirectory() as td:

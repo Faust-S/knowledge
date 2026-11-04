@@ -7,8 +7,10 @@ second evaluator, publish documents or declare human gold.
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -111,12 +113,26 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
     script = effort_script or Path(__file__).resolve().with_name('review_effort.py')
     need(script.is_file() and not script.is_symlink(), 'PUBLIC_EFFORT_ADAPTER_MISSING')
 
+    # The owner bridge and effort adapter can fail independently. Stage both
+    # private files in their destination directories and expose neither final
+    # result until both tools, their receipts, and the original inputs pass.
+    # This also allows a safe retry after a failed second step.
+    need(disagreements_out.parent.is_dir() and effort_out.parent.is_dir(),
+         'OWNER_LOCAL_OUTPUT_DIRECTORY_UNAVAILABLE')
     bridge_command = [sys.executable, '-m', 'engine.research.task_exp_01_review_bridge',
                       '--source-first-packet', str(packet),
                       '--review-a', str(review_a), '--review-b', str(review_b),
-                      '--restricted-disagreement-output', str(disagreements_out),
+                      '--restricted-disagreement-output', str(staged_disagreements),
                       '--confirm-independent-local-review']
-    with tempfile.TemporaryDirectory(prefix='iwxa-m3-receipt-') as temporary:
+    with ExitStack() as scope:
+        private_diff = Path(scope.enter_context(tempfile.TemporaryDirectory(
+            prefix='.iwxa-m3-diff-', dir=disagreements_out.parent)))
+        private_effort = Path(scope.enter_context(tempfile.TemporaryDirectory(
+            prefix='.iwxa-m3-effort-', dir=effort_out.parent)))
+        temporary = scope.enter_context(tempfile.TemporaryDirectory(
+            prefix='iwxa-m3-receipt-'))
+        staged_disagreements = private_diff / 'disagreements.json'
+        staged_effort = private_effort / 'review-effort.json'
         native = safe_json(runner(bridge_command, catalog))
         need(native.get('schema') == BRIDGE_SCHEMA and
              native.get('status') == 'BLINDED_REVIEW_CLAIMS_CHECKED_NOT_ADJUDICATED_NOT_GOLD' and
@@ -129,9 +145,9 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
              'REVIEW_INPUT_CHANGED_AFTER_BRIDGE')
         # A successful bridge response is not sufficient: the reviewer needs
         # the actual owner-local disagreement packet for adjudication.
-        need(disagreements_out.is_file() and not disagreements_out.is_symlink(),
+        need(staged_disagreements.is_file() and not staged_disagreements.is_symlink(),
              'OWNER_DISAGREEMENTS_NOT_WRITTEN')
-        disagreements = safe_json(disagreements_out.read_text(encoding='utf-8'))
+        disagreements = safe_json(staged_disagreements.read_text(encoding='utf-8'))
         need(disagreements.get('schema') ==
              'IWXA_TASK_EXP_01_LOCAL_DISAGREEMENT_PACKET/0.1' and
              disagreements.get('status') ==
@@ -147,7 +163,7 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
         effort_command = [sys.executable, str(script),
                           '--owner-bridge-receipt', str(receipt),
                           '--review-a', str(review_a), '--review-b', str(review_b),
-                          '--out', str(effort_out)]
+                          '--out', str(staged_effort)]
         if hourly_rate_usd is not None:
             effort_command += ['--hourly-rate-usd', hourly_rate_usd]
         stage = safe_json(runner(effort_command, script.parent))
@@ -157,8 +173,8 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
              'EFFORT_RECEIPT_INCOMPATIBLE')
         need(tuple(sha256_file(p) for p in inputs) == pinned,
              'REVIEW_INPUT_CHANGED_AFTER_EFFORT')
-        need(effort_out.is_file(), 'EFFORT_OUTPUT_NOT_WRITTEN')
-        effort = safe_json(effort_out.read_text('utf-8'))
+        need(staged_effort.is_file(), 'EFFORT_OUTPUT_NOT_WRITTEN')
+        effort = safe_json(staged_effort.read_text('utf-8'))
         need(effort.get('schema') == EFFORT_SCHEMA and
              effort.get('sources_verified') == 8 and
              effort.get('annotation_count') == 16 and
@@ -167,6 +183,26 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
              effort.get('source_text_exported') is False and
              effort.get('reviewer_ids_exported') is False,
              'EFFORT_FILE_INCOMPATIBLE')
+        need(tuple(sha256_file(p) for p in inputs) == pinned,
+             'REVIEW_INPUT_CHANGED_BEFORE_PUBLICATION')
+        need(not disagreements_out.exists() and not disagreements_out.is_symlink() and
+             not effort_out.exists() and not effort_out.is_symlink(),
+             'OWNER_LOCAL_OUTPUT_EXISTS_OR_CONFLICTS')
+        # Same-filesystem hard links create each final name atomically and
+        # refuse overwrites. Roll back our first link if the second fails;
+        # never delete a concurrently created third-party output.
+        published = []
+        try:
+            for temporary_file, destination in (
+                    (staged_disagreements, disagreements_out),
+                    (staged_effort, effort_out)):
+                temporary_file.chmod(0o600)
+                os.link(temporary_file, destination)
+                published.append(destination)
+        except OSError:
+            for destination in published:
+                destination.unlink(missing_ok=True)
+            raise CycleHold('OWNER_LOCAL_OUTPUT_PUBLICATION_FAILED') from None
     # Deliberately no authority/grant flags, Task gold or reviewer IDs.
     return {
         'status': 'OWNER_BRIDGE_AND_REVIEW_EFFORT_COMPLETED_NOT_GOLD',
