@@ -200,10 +200,13 @@ jobs:
                   return str(error) in ('LABEL_STUDIO_HTTP_401', 'LABEL_STUDIO_HTTP_403')
               return False
 
-          def annotate_and_export(base, token, output, expected_id):
+          def create_blind_project(base, token):
               tasks = synthetic_tasks()
-              project = setup.create_projects(tasks, SYNTHETIC_XML, base, token, slots=1)
-              pid = project['project_ids'][0]
+              return setup.create_projects(
+                  tasks, SYNTHETIC_XML, base, token, slots=1)['project_ids'][0]
+
+          def annotate_and_export(base, token, pid, output, expected_id):
+              tasks = synthetic_tasks()
               rows = setup.api(base, token,
                   f'/api/projects/{pid}/export?exportType=JSON&download_all_tasks=true')
               require(type(rows) is list and len(rows) == 8,
@@ -273,11 +276,31 @@ jobs:
                       preflight['human_gold'] is False and
                       denied(a_base, b_admin_token),
                       'ISOLATED_CROSS_INSTANCE_AUTH_UNEXPECTED')
+              # On both real disposable servers, prove the complete M3b API
+              # preflight BEFORE writing any annotations, not just whoami.
+              a_project = create_blind_project(a_base, a_token)
+              b_project = create_blind_project(b_base, b_token)
+              review_gate = setup.isolated_review_preflight(
+                  synthetic_tasks(), SYNTHETIC_XML,
+                  a_base, 'Token ' + a_token, a_project,
+                  b_base, 'Token ' + b_token, b_project)
+              require(review_gate['sources_each'] == 8 and
+                      review_gate['persisted_owner_forms_checked'] and
+                      review_gate['unannotated_original_sources_checked'] and
+                      review_gate['cross_instance_identity_and_export_denied'] and
+                      review_gate['human_gold'] is False,
+                      'ISOLATED_FULL_PROJECT_PREFLIGHT_FAILED')
+              print(json.dumps({
+                  'status': review_gate['status'],
+                  'sources_each': 8,
+                  'owner_exact_xml_exercised': False,
+                  'human_gold': False,
+              }, sort_keys=True))
               with tempfile.TemporaryDirectory(prefix='iwxa-m3b-isolated-synthetic-') as tmp:
                   source_a = annotate_and_export(
-                      a_base, a_token, Path(tmp) / 'a.json', a_id)
+                      a_base, a_token, a_project, Path(tmp) / 'a.json', a_id)
                   source_b = annotate_and_export(
-                      b_base, b_token, Path(tmp) / 'b.json', b_id)
+                      b_base, b_token, b_project, Path(tmp) / 'b.json', b_id)
                   require(len(source_a) == len(source_b) == 8 and source_a == source_b,
                           'ISOLATED_SOURCE_BYTES_DIFFER')
               print(json.dumps({
