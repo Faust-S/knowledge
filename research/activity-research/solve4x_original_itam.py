@@ -184,6 +184,26 @@ def compare_original_itam_to_scene(raw: bytes, scene_raw: bytes) -> dict:
         signature(source_events[k]) is not None and
         signature(source_events[k]) == signature(candidates[k])
         for k in valid_shared_ids)
+    # A stronger documentary consistency gate checks the affected OCEL objects
+    # for matched event IDs. It is never a claim about independently witnessed
+    # physical work. Missing/malformed links stay UNKNOWN rather than matching.
+    linked_qualified = 0
+    exact_id_signature_and_links = 0
+    for event_id in valid_shared_ids:
+        original_event = source_events[event_id]
+        scene_event = candidates[event_id]
+        if not isinstance(original_event, dict) or not isinstance(scene_event, dict):
+            continue
+        left, right = original_event.get("ocel:omap"), scene_event.get("ocel:omap")
+        if not isinstance(left, list) or not isinstance(right, list):
+            continue
+        if not all(isinstance(v, str) for v in left + right):
+            continue
+        linked_qualified += 1
+        if (signature(original_event) is not None and
+            signature(original_event) == signature(scene_event) and
+            set(left) == set(right)):
+            exact_id_signature_and_links += 1
     return {
         "status": "ORIGINAL_ITAM_SCENE_DESCRIPTIVE_COMPARISON",
         "record_representation": representation,
@@ -195,6 +215,13 @@ def compare_original_itam_to_scene(raw: bytes, scene_raw: bytes) -> dict:
             sum((source_signatures & candidate_signatures).values()),
         "literal_event_id_intersection": len(valid_shared_ids),
         "exact_ids_and_activity_timestamp": exact_ids_and_signatures,
+        "scene_candidate_event_ids_absent_in_source":
+            len(set(candidates) - set(source_events)),
+        "shared_event_ids_with_signature_disagreement":
+            len(valid_shared_ids) - exact_ids_and_signatures,
+        "shared_event_ids_with_comparable_object_links": linked_qualified,
+        "exact_ids_timestamp_activity_and_object_links":
+            exact_id_signature_and_links,
         "time_zone_or_clock_calibration_proven": False,
         "literal_event_match_proves_independent_human_action": False,
         "source_lineage_independence_from_joined_ocel": "NOT_ATTESTED",
