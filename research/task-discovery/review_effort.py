@@ -252,6 +252,36 @@ def active_time_totals(log: object, selected: dict,
     return {'slots': totals, 'total': round(total, 3)}
 
 
+def prepare_active_time_template(export_a: object, export_b: object,
+                                 receipt: dict, selected: dict,
+                                 export_sha256: tuple[str, str]) -> dict:
+    """Owner-local blank stopwatch handoff from existing review exports.
+
+    Generate no human seconds, gold or adjudication. Existing validators
+    check the frozen eight and distinct reviewer claims; the owner bridge
+    must already have processed the original exports.
+    """
+    bridge_checked(receipt)
+    require(type(export_sha256) is tuple and len(export_sha256) == 2 and
+            all(type(v) is str and len(v) == 64 and
+                all(ch in '0123456789abcdef' for ch in v)
+                for v in export_sha256),
+            'ACTIVE_TIME_EXPORT_BINDING_REQUIRED')
+    _, reviewer_a = extract_one(export_a, selected)
+    _, reviewer_b = extract_one(export_b, selected)
+    require(reviewer_a != reviewer_b, 'SAME_REVIEWER_CLAIM')
+    require(len(selected) == 8, 'ACTIVE_TIME_SOURCE_SET_INCOMPLETE')
+    rows = [{'source_sha256': 'sha256:' + key, 'active_seconds': None}
+            for key in sorted(selected)]
+    return {
+        'schema': ACTIVE_TIME_SCHEMA,
+        'measurement_method': ACTIVE_TIME_METHOD,
+        'review_export_sha256': {'A': export_sha256[0], 'B': export_sha256[1]},
+        'active_seconds_by_source': {'A': [dict(row) for row in rows],
+                                     'B': [dict(row) for row in rows]},
+    }
+
+
 def summarize(export_a: object, export_b: object, owner_receipt: dict,
               selected: dict, method_sha: str, *, hourly_rate_usd: Decimal | None = None,
               active_time_log: dict | None = None,
@@ -343,6 +373,8 @@ def main() -> int:
     p.add_argument('--review-b', type=Path, required=True)
     p.add_argument('--active-time-input', type=Path,
                    help='Private per-source stopwatch log bound to both review export SHA256')
+    p.add_argument('--prepare-active-time-template', action='store_true',
+                   help='Write 16 blank owner-local stopwatch rows tied to unchanged exports')
     p.add_argument('--hourly-rate-usd', type=str,
                    help='Optional assumed hourly labor cost, not verified actual expense')
     p.add_argument('--out', required=True, type=Path)
@@ -353,14 +385,30 @@ def main() -> int:
                 'REFUSE_OVERWRITE_EFFORT_RECEIPT')
         selected = frozen_sources()
         commitment = read_method_commitment()
+        require(not (opts.prepare_active_time_template and
+                     (opts.active_time_input is not None or rate is not None)),
+                'ACTIVE_TIME_TEMPLATE_ARGUMENTS_INVALID')
         log = read_json(opts.active_time_input) if opts.active_time_input else None
         # Read each export ONCE. The stopwatch digest must identify exactly
         # the bytes parsed for summarization, not an earlier disk snapshot.
         export_a, sha_a = read_json(opts.review_a, return_sha256=True)
         export_b, sha_b = read_json(opts.review_b, return_sha256=True)
+        receipt = read_json(opts.owner_bridge_receipt)
+        if opts.prepare_active_time_template:
+            # Editable review details must never be placed in the public repo.
+            require(not opts.out.resolve().is_relative_to(HERE.parents[1].resolve()),
+                    'ACTIVE_TIME_TEMPLATE_MUST_REMAIN_OWNER_LOCAL')
+            template = prepare_active_time_template(
+                export_a, export_b, receipt, selected, (sha_a, sha_b))
+            write_restricted_result(opts.out, template)
+            print(json.dumps({
+                'status': 'ACTIVE_TIME_TEMPLATE_UNFILLED_NOT_HUMAN_MEASURED',
+                'sources_per_reviewer': 8, 'reviewer_slots': 2,
+                'human_task_gold': False, 'reported_active_time': False,
+            }, sort_keys=True))
+            return 0
         export_hashes = (sha_a, sha_b) if log is not None else None
-        result = summarize(export_a, export_b,
-                           read_json(opts.owner_bridge_receipt), selected, commitment,
+        result = summarize(export_a, export_b, receipt, selected, commitment,
                            hourly_rate_usd=rate, active_time_log=log,
                            export_sha256=export_hashes)
         write_restricted_result(opts.out, result)
