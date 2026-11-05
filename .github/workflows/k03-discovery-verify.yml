@@ -75,7 +75,10 @@ jobs:
         run: python -m unittest discover -s modules/k03-activity-task-discovery/tests -p 'test_solve4x_activity_projection.py' -v
       - name: Real Solve4X Scene 01 pinned source projection through existing C12
         run: |
-          python modules/k03-activity-task-discovery/solve4x_activity_projection.py --original-scene01 > "$RUNNER_TEMP/k03-solve4x-scene01.json"
+          if ! python modules/k03-activity-task-discovery/solve4x_activity_projection.py --original-scene01 > "$RUNNER_TEMP/k03-solve4x-scene01.json"; then
+            cat "$RUNNER_TEMP/k03-solve4x-scene01.json"
+            exit 1
+          fi
           python - "$RUNNER_TEMP/k03-solve4x-scene01.json" <<'PY'
           import json
           from pathlib import Path
