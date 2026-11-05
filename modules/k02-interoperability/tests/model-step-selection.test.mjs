@@ -105,7 +105,7 @@ test('external router overhead greater than estimated savings produces SKIP_EXTR
 });
 test('escalation only proposes a new model following exact verified failure',()=>{
  const r=choose({step:step('reasoning','complex'),qualityEvidence:complex,previousFailure:{
- providerId:'small',modelPin:SMALL,taskClass:'reasoning',difficulty:'complex',proofRef:'test:failed-step',verified:true}});
+ providerId:'small',modelPin:SMALL,taskClass:'reasoning',difficulty:'complex',operatingSystem:'Windows 11',runtimeVersion:'1.0',proofRef:'test:failed-step',verified:true}});
  assert.equal(selectedName(r),'large');
  assert.equal(r.escalation.status,'STRONGER_MODEL_PROPOSED_NOT_EXECUTED');
  assert.equal(r.hostAuthorityGranted,false);
@@ -135,4 +135,28 @@ test('repeatable selection benchmark compares baseline and new logic without cla
    syntheticEstimatedPriceUsd:outcome.selected.estimates.estimatedTotalUsd,
    accuracy:'NOT_MEASURED',modelExecution:'NOT_TESTED'})+'\n');
  assert.equal(selectedName(outcome),'small');
+});
+
+test('stale failure from different OS or runtime version cannot disqualify or escalate a model',()=>{
+  for(const change of [{operatingSystem:'Ubuntu 24.04'},{runtimeVersion:'0.9'}]){
+    const r=choose({step:step('reasoning','complex'),qualityEvidence:complex,previousFailure:{
+      providerId:'small',modelPin:SMALL,taskClass:'reasoning',difficulty:'complex',
+      operatingSystem:'Windows 11',runtimeVersion:'1.0',proofRef:'test:stale-failure',verified:true,
+      ...change,
+    }});
+    assert.equal(selectedName(r),'large');
+    assert.equal(r.escalation,null);
+  }
+});
+test('external classifier cost in latency can negate any price saving',()=>{
+  const r=choose({qualityEvidence:goodSimple,externalRouter:{
+    directProviderId:'large',additionalFeeUsd:0,additionalLatencyMs:200}});
+  assert.equal(r.externalRouting.advice,'SKIP_EXTRA_ROUTER');
+  assert.ok(r.externalRouting.estimatedLatencySavedBeforeOverheadMs<200);
+});
+test('positive vendor compatibility is not confused with model-quality evidence',()=>{
+  const r=choose({qualityEvidence:[]});
+  assert.equal(r.decision,'QUALITY_UNKNOWN');
+  assert.equal(r.hostAuthorityGranted,false);
+  assert.equal(r.executionState,'NOT_INVOKED');
 });

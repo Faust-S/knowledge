@@ -118,11 +118,13 @@ function validate({ solution, requirementId, step, available, profiles,
     unique.add(key);
   }
   if (previousFailure !== null) {
-    strictKeys(previousFailure, ['providerId','modelPin','taskClass','difficulty','proofRef','verified'],
+    strictKeys(previousFailure, ['providerId','modelPin','taskClass','difficulty','operatingSystem','runtimeVersion','proofRef','verified'],
       'previous_failure_fields');
     str(previousFailure.providerId,'failed_provider');
     checkPin(previousFailure.modelPin,'failed_pin');
     str(previousFailure.proofRef,'failed_proof');
+    str(previousFailure.operatingSystem,'failed_os');
+    str(previousFailure.runtimeVersion,'failed_runtime_version');
     if (previousFailure.verified !== true || previousFailure.taskClass !== step.taskClass ||
       previousFailure.difficulty !== step.difficulty) invalid('failure_not_exact_or_verified');
   }
@@ -205,7 +207,9 @@ export function recommendModelForStep({
       else continue;
     }
     if (previousFailure && previousFailure.providerId === chosen.providerId &&
-      pinKey(previousFailure.modelPin) === pinKey(pin)) {
+      pinKey(previousFailure.modelPin) === pinKey(pin) &&
+      previousFailure.operatingSystem === environment.operatingSystem &&
+      previousFailure.runtimeVersion === profile?.runtimeVersion) {
       exclusions.push({providerId:chosen.providerId,reason:'VERIFIED_STEP_FAILURE',
         proofRef:previousFailure.proofRef});
       continue;
@@ -251,21 +255,31 @@ export function recommendModelForStep({
   const routeSaving = selected && direct && selected.estimates.estimatedTotalUsd !== null &&
       direct.estimates.estimatedTotalUsd !== null
     ? direct.estimates.estimatedTotalUsd - selected.estimates.estimatedTotalUsd : null;
-  const originalFailureQuality = previousFailure
+  const matchedPreviousFailure = previousFailure &&
+    previousFailure.operatingSystem === environment.operatingSystem &&
+    profileById.get(previousFailure.providerId)?.runtimeVersion === previousFailure.runtimeVersion;
+  const originalFailureQuality = matchedPreviousFailure
     ? qualityEvidence.find(e => e.providerId === previousFailure.providerId &&
         pinKey(e.modelPin) === pinKey(previousFailure.modelPin) &&
         e.taskClass === step.taskClass && e.difficulty === step.difficulty &&
         e.operatingSystem === environment.operatingSystem &&
-        e.runtimeVersion === profileById.get(e.providerId)?.runtimeVersion)
+        e.runtimeVersion === profileById.get(e.providerId)?.runtimeVersion &&
+        e.runtimeVersion === previousFailure.runtimeVersion)
     : null;
   const previousRate = originalFailureQuality?.attempts >= step.minSamples
     ? originalFailureQuality.passed / originalFailureQuality.attempts : null;
+  const latencySaving = selected && direct &&
+    selected.estimates.projectedLatencyMs !== null &&
+    direct.estimates.projectedLatencyMs !== null
+    ? direct.estimates.projectedLatencyMs - selected.estimates.projectedLatencyMs : null;
   const externalRouting = externalRouter ? {
-    advice: routeSaving !== null && externalRouter.additionalFeeUsd >= routeSaving
+    advice: (routeSaving !== null && externalRouter.additionalFeeUsd >= routeSaving) ||
+      (latencySaving !== null && externalRouter.additionalLatencyMs >= latencySaving)
       ? 'SKIP_EXTRA_ROUTER' : 'BENEFIT_NOT_PROVEN',
     additionalFeeUsd:externalRouter.additionalFeeUsd,
     additionalLatencyMs:externalRouter.additionalLatencyMs,
     estimatedSavingsBeforeOverheadUsd:routeSaving,
+    estimatedLatencySavedBeforeOverheadMs:latencySaving,
   } : null;
   return {
     version:STEP_MODEL_RECOMMENDATION_VERSION,
@@ -275,7 +289,7 @@ export function recommendModelForStep({
     alternatives:compatible.filter(c=>c!==selected),
     excluded:exclusions,
     externalRouting,
-    escalation:previousFailure ? {
+    escalation:matchedPreviousFailure ? {
       status: !selected ? 'NO_QUALIFIED_ESCALATION'
         : previousRate !== null && selected.quality.observedRate > previousRate
           ? 'STRONGER_MODEL_PROPOSED_NOT_EXECUTED'
