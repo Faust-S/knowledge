@@ -9,6 +9,7 @@ on:
       - 'research/cross-lab/tests/test_k05_evaluation.py'
       - 'research/cross-lab/tests/test_k05_k03_projection.py'
       - 'research/cross-lab/tests/test_k05_c17_projection.py'
+      - 'research/cross-lab/tests/test_k05_agent_consumer.py'
       - 'research/cross-lab/k05_c17_projection.py'
       - 'research/cross-lab/tests/k05_k03_live.py'
       - '.github/workflows/k05-evidence-evaluation.yml'
@@ -78,6 +79,36 @@ jobs:
           assert "source_text" not in str(receipt)
           print("K05_MULTI_SOURCE_PINNED_PASS; HUMAN_OUTCOME_NOT_MEASURED")
           PY
+      - name: Live pinned Python release revision evidence for Agent Result handoff
+        run: |
+          python - <<'PY'
+          import sys, json
+          from dataclasses import asdict
+          from pathlib import Path
+          sys.path.insert(0, 'research/cross-lab')
+          import k05_evaluation as k05
+          case = k05.CPYTHON_CASE
+          verified_bytes = {pin.version:k05.fetch_public_pinned_source(pin)
+                            for pin in case.sources}
+          result = asdict(k05.evaluate_case(case, verified_bytes, rounds=30))
+          assert k05.verify_evidence_receipt(result, case, verified_bytes)
+          assert result['schema'] == 'IWXA_K05_COMPARISON_RESULT/0.2'
+          assert result['status'] == 'CONFIRMED'
+          assert result['tested']['status'] == 'EVIDENCE_CHANGED'
+          assert [o['locator'] for o in result['tested']['observations']] == ['L1', 'L1']
+          assert all(o['state']=='OBSERVED' for o in result['tested']['observations'])
+          assert result['scope']['claim_labels_semantically_validated'] is False
+          assert result['unknown']['agent_result_readback'] == 'NOT_TESTED'
+          assert result['unknown']['human_completion_time_ms'] is None
+          out=Path(__import__('os').environ['RUNNER_TEMP'])/'k05-agent-result-evidence.json'
+          with out.open('x', encoding='utf-8') as stream:
+              json.dump(result, stream, sort_keys=True, ensure_ascii=True, indent=2)
+          print('K05_REAL_PYTHON_312_313_AGENT_EVIDENCE_PASS',
+                'source_versions', result['measured']['versions_verified'],
+                'baseline_bytes', result['measured']['review_bytes_baseline'],
+                'tested_excerpt_bytes', result['measured']['review_bytes_tested'],
+                'semantic_claim_accuracy', result['unknown']['semantic_claim_accuracy'])
+          PY
       - name: C17 aggregate projection regression (no human reviews)
         run: |
           python - <<'PY'
@@ -114,4 +145,5 @@ jobs:
           path: |
             ${{ runner.temp }}/k05-proof.json
             ${{ runner.temp }}/k05-suite-proof.json
+            ${{ runner.temp }}/k05-agent-result-evidence.json
           retention-days: 7

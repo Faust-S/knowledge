@@ -400,6 +400,11 @@ def verify_evidence_receipt(
         return False
     try:
         independently_computed = asdict(evaluate_case(case, sources, rounds=1))
+        # A Result must not accept additional authority-bearing fields (for
+        # example task_accepted, human_gold or a forged context decision).
+        # Preserve the existing ComparisonResult/0.2 schema exactly.
+        if set(receipt) != set(independently_computed):
+            return False
         if any(receipt.get(key) != independently_computed[key] for key in (
             "schema", "case_id", "status", "checks", "unknown"
         )):
