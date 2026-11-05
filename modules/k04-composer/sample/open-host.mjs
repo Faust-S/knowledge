@@ -12,7 +12,7 @@ const makeCapability = requirement => ({
   supported: true, effectClass: requirement.effectClass,
   inputSchema: requirement.inputSchema, outputSchema: requirement.outputSchema,
   providerFeeUsd: 0, latencyMsP50: 1,
-  ...(requirement.kind === 'model' ? {inputModes: ['text'], outputModes: ['text']} : {})
+  ...(requirement.kind === 'model' ? {inputModes: ['text'], outputModes: ['text'], modelPin: {name: 'open-test-model:stable', digest: 'a'.repeat(64)}} : {})
 });
 export function sampleAvailability({withModel = false, withoutAudit = false, noSkill = false} = {}) {
   const providers = [];

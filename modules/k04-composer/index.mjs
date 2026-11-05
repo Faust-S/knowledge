@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 
-export const CONTRACT_VERSION = 'IWXA.K04.SOLUTION/0.2.0';
-export const PLAN_VERSION = 'IWXA.K04.HOST_PLAN/0.2.0';
+export const CONTRACT_VERSION = 'IWXA.K04.SOLUTION/0.3.0';
+export const PLAN_VERSION = 'IWXA.K04.HOST_PLAN/0.3.0';
 export const K02_VERSION = 'IWXA.K02.INTEROP/0.1.0';
 export const K02_SKILL_VERSION = 'IWXA.K02.SKILL/0.1.0';
 const MAX_INPUT_BYTES = 1_000_000;
@@ -128,7 +128,10 @@ function verifySelections(selected) {
     if (!obj(item) || !str(item.requirementId) || !str(item.providerId) ||
         !str(item.capabilityId) || !['model', 'tool'].includes(item.kind) ||
         !str(item.effectClass) || !/^[0-9a-f]{64}$/.test(item.descriptorDigest ?? '') ||
-        ids.has(item.requirementId)) fail('UNBOUND_CAPABILITIES');
+        ids.has(item.requirementId) ||
+        (item.kind === 'model' && (!obj(item.modelPin) ||
+          !str(item.modelPin.name) || !/^[a-f0-9]{64}$/.test(item.modelPin.digest ?? ''))))
+        fail('UNBOUND_CAPABILITIES');
     ids.add(item.requirementId);
   }
 }
@@ -166,6 +169,11 @@ function findProvider(req, providers) {
       reasons.add('SCHEMA_MISMATCH'); continue;
     }
     if (req.kind === 'model' &&
+      (!obj(cap.modelPin) || !str(cap.modelPin.name) ||
+       !/^[a-f0-9]{64}$/.test(cap.modelPin.digest ?? ''))) {
+      reasons.add('PIN_REQUIRED'); continue;
+    }
+    if (req.kind === 'model' &&
       (req.inputModes || []).some(mode => !cap.inputModes?.includes(mode))) {
       reasons.add('MODE_MISMATCH'); continue;
     }
@@ -178,7 +186,9 @@ function findProvider(req, providers) {
     }
     matches.push({requirementId: req.requirementId, kind: req.kind,
       capabilityId: req.capabilityId, effectClass: req.effectClass,
-      providerId: provider.providerId, descriptorDigest: digest({providerId: provider.providerId, cap})});
+      providerId: provider.providerId,
+      ...(req.kind === 'model' ? {modelPin: copy(cap.modelPin)} : {}),
+      descriptorDigest: digest({providerId: provider.providerId, cap})});
   }
   matches.sort((a, b) => a.providerId.localeCompare(b.providerId, 'en'));
   return {match: matches[0] ?? null, reason: [...reasons].sort()[0] ?? 'ABSENT'};
@@ -326,6 +336,42 @@ export function createHostNeutralPlan({task, solution = null, resolution, mode =
   const plan = {...common, steps};
   return {...plan, planDigest: digest(plan)};
 }
+/** Strict conversion of completed K02 model output; no invocation or Task mutation. */
+export function normalizeModelDraft(output, expectedPin) {
+  if (!obj(expectedPin) || !str(expectedPin.name) ||
+      !/^[a-f0-9]{64}$/.test(expectedPin.digest ?? '')) fail('MODEL_PIN_REQUIRED');
+  if (!obj(output) || !str(output.text) || output.model !== expectedPin.name ||
+      output.model_digest !== expectedPin.digest ||
+      Buffer.byteLength(output.text, 'utf8') > 65536)
+    fail('MODEL_OUTPUT_NOT_PINNED');
+  const raw = output.text.trim();
+  const mark = String.fromCharCode(96).repeat(3);
+  let candidate = raw;
+  if (raw.startsWith(mark)) {
+    const firstNewline = raw.indexOf('\n');
+    if (firstNewline < 0 || ![mark, mark + 'json'].includes(raw.slice(0, firstNewline).trim()) ||
+        !raw.endsWith(mark)) fail('MODEL_DRAFT_NOT_JSON');
+    candidate = raw.slice(firstNewline + 1, -mark.length).trim();
+  }
+  let draft;
+  try { draft = JSON.parse(candidate); } catch { fail('MODEL_DRAFT_NOT_JSON'); }
+  if (!obj(draft) || !Array.isArray(draft.action_items) ||
+      !Array.isArray(draft.open_questions) ||
+      Object.keys(draft).some(k => !['action_items', 'open_questions'].includes(k)) ||
+      draft.action_items.length > 100 || draft.open_questions.length > 100)
+    fail('MODEL_DRAFT_STRUCTURE_INVALID');
+  for (const item of draft.action_items) {
+    if (!obj(item) ||
+        Object.keys(item).some(k => ![
+          'action','quote','start','end','assignee','due_date','worker_kind','actual_work_status'
+        ].includes(k)) ||
+        !['human','unassigned'].includes(item.worker_kind) ||
+        item.actual_work_status !== 'NOT_EXECUTED')
+      fail('MODEL_DRAFT_STRUCTURE_INVALID');
+  }
+  return draft;
+}
+
 export function checkMeetingEvidence(transcript, draft) {
   const errors = [];
   if (!str(transcript) || !obj(draft) ||
@@ -371,29 +417,56 @@ export function evaluateResultAgainstCriteria(observation) {
     errors.push('SOURCE_DIGEST_MISMATCH');
   const verified = checkMeetingEvidence(transcript, draft);
   errors.push(...verified.errors);
+  const modelBranch = plan.branches?.extraction === 'model_json';
   if (!Array.isArray(receipts)) errors.push('RECEIPTS_REQUIRED');
   else {
-    if (receipts.length !== 2 || new Set(receipts.map(r => r?.stepId)).size !== 2)
+    const expected = modelBranch ? ['extract', 'normalize', 'audit'] : ['extract', 'audit'];
+    if (receipts.length !== expected.length ||
+        new Set(receipts.map(r => r?.stepId)).size !== expected.length ||
+        receipts.some(r => !expected.includes(r?.stepId)))
       errors.push('RECEIPT_COUNT');
-    for (const stepId of ['extract', 'audit']) {
+    const extract = receipts.find(r => r?.stepId === 'extract');
+    for (const stepId of expected) {
       const receipt = receipts.find(r => r?.stepId === stepId);
       const step = plan.steps.find(s => s.id === stepId);
       const requiredInputDigest = stepId === 'extract' ? digest(transcript) :
-        digest({transcript, draft});
+        stepId === 'normalize' ? (obj(extract?.output) ? digest(extract.output) : null) :
+          digest({transcript, draft});
       if (!obj(receipt) || !step || receipt.status !== 'SUCCEEDED' ||
-        receipt.planDigest !== planDigest ||
-        receipt.descriptorDigest !== step.selected?.descriptorDigest ||
-        receipt.inputDigest !== requiredInputDigest ||
-        receipt.providerId !== step.selected?.providerId ||
-        receipt.capabilityId !== step.selected?.capabilityId ||
-        !obj(receipt.output) || receipt.outputDigest !== digest(receipt.output)) {
+          receipt.planDigest !== planDigest ||
+          receipt.inputDigest !== requiredInputDigest ||
+          !obj(receipt.output) || receipt.outputDigest !== digest(receipt.output)) {
         errors.push('RECEIPT_INVALID_' + stepId); continue;
       }
-      if (stepId === 'extract' && digest(receipt.output) !== digest(draft))
+      if (stepId === 'normalize') {
+        if (receipt.operation !== 'PARSE_JSON_ACTION_DRAFT' ||
+            receipt.providerId !== 'HOST_TRANSFORM' || !obj(extract?.output)) {
+          errors.push('NORMALIZATION_BINDING_INVALID'); continue;
+        }
+        try {
+          const normalized = normalizeModelDraft(extract.output,
+            plan.steps.find(s => s.id === 'extract').selected.modelPin);
+          if (digest(normalized) !== digest(receipt.output) ||
+              digest(normalized) !== digest(draft))
+            errors.push('NORMALIZATION_OUTPUT_MISMATCH');
+        } catch { errors.push('NORMALIZATION_OUTPUT_INVALID'); }
+        continue;
+      }
+      if (receipt.descriptorDigest !== step.selected?.descriptorDigest ||
+          receipt.providerId !== step.selected?.providerId ||
+          receipt.capabilityId !== step.selected?.capabilityId) {
+        errors.push('RECEIPT_CAPABILITY_MISMATCH_' + stepId); continue;
+      }
+      if (stepId === 'extract' && !modelBranch && digest(receipt.output) !== digest(draft))
         errors.push('EXTRACT_OUTPUT_MISMATCH');
+      if (stepId === 'extract' && modelBranch) {
+        try { normalizeModelDraft(receipt.output, step.selected.modelPin); }
+        catch { errors.push('MODEL_EXTRACT_OUTPUT_INVALID'); }
+      }
       if (stepId === 'audit' &&
-        (receipt.output.passed !== true || !Array.isArray(receipt.output.errors) ||
-         receipt.output.errors.length || digest(receipt.output.accepted) !== digest(draft?.action_items)))
+          (receipt.output.passed !== true || !Array.isArray(receipt.output.errors) ||
+           receipt.output.errors.length ||
+           digest(receipt.output.accepted) !== digest(draft?.action_items)))
         errors.push('AUDIT_OUTPUT_MISMATCH');
     }
   }
