@@ -17,7 +17,7 @@ const restored = async request => JSON.parse(JSON.stringify(await selectContext(
 
 test('scope revision survives host-owned JSON save/readback',async () => {
   const projection = await restored(task);
-  assert.equal(CONTRACT_VERSION,'0.2.8');
+  assert.equal(CONTRACT_VERSION,'0.2.9');
   assert.equal(projection.selected.length,1);
   assert.equal((await revalidateProjection(projection,source(),{...task,requireRequestMatch:true})).allCurrent,true);
 });
