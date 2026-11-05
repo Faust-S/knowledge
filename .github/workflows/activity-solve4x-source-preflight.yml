@@ -15,6 +15,8 @@ on:
       - 'research/activity-research/solve4x_scene_component_lineage.py'
       - 'research/activity-research/solve4x_cross_source_coverage.py'
       - 'research/activity-research/solve4x_c14_raw_reed_review.py'
+      - 'research/activity-research/solve4x_source_bound_handoff.py'
+      - 'research/activity-research/tests/test_solve4x_source_bound_handoff.py'
       - 'research/activity-research/tests/test_solve4x_c14_raw_reed_review.py'
       - 'research/activity-research/tests/test_solve4x_c15_video_boundary.py'
       - 'research/activity-research/solve4x_c16_review_footprint.py'
@@ -427,6 +429,8 @@ jobs:
 
       - name: Offline C12 cross-source negative controls
         run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_cross_source_coverage.py' -v
+      - name: Test read-only owner-local evidence locator projection
+        run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_source_bound_handoff.py' -v
       - name: Test C17 blinded source review and conservative scoring
         run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_c17_blind_review.py' -v
       - name: Test C16 annotation footprint and time-cost abstention
@@ -463,6 +467,18 @@ jobs:
           assert c13["raw_values_or_event_ids_exported"] is False
           assert c13["plus_one_day_control_candidates_5s"]==0
           assert c13["source_records_for_complete_candidate_review"] >= 3
+          source_bound=r["c12_c16_source_bound_handoff"]
+          assert source_bound["schema"]=="IWXA_SOLVE4X_C12_C16_SOURCE_BOUND_HANDOFF/0.1"
+          assert source_bound["pin_authority"]=="PINNED_SOLVE4X"
+          assert source_bound["episode_count"]==3
+          assert source_bound["video_baseline_counts"]=={
+            "all":23,"literal_enter_leave":6,"reed_closed_after_end_5s":3}
+          assert source_bound["human_gold"]=="NOT_MEASURED"
+          assert source_bound["accepted_tasks"]==0
+          assert source_bound["authorized_source_locator_publicly_available"] is False
+          assert source_bound["source_identifiers_timestamps_actor_or_values_exported"] is False
+          assert all(e["original_source_locator"]=="OWNER_LOCAL_REQUIRED"
+                     and e["same_human_action"]=="UNKNOWN" for e in source_bound["episodes"])
           c14=r["c14_raw_reed_review"]
           assert c14["schema"]=="IWXA_SOLVE4X_C14_RAW_REED_EPISODE_REVIEW/0.1"
           assert c14["status"]=="RAW_REED_SOURCE_DESCRIPTIVE_COMPARISON"

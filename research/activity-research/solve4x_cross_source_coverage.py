@@ -126,6 +126,16 @@ def probe():
  result["c14_raw_reed_review"]=c14_review(
      video,sensors,raw["scene01/scene01_ui.csv"],raw_reed)
  result["c14_raw_reed_sha256"]=sha256(raw_reed).hexdigest()
+ from solve4x_source_bound_handoff import prepare_owner_local, public_summary
+ owner_packet=prepare_owner_local(
+     raw["scene01/scene01_video_ocel.json"],
+     raw["scene01/scene01_sensors_ocel.json"],
+     raw["scene01/scene01_ui.csv"],raw_reed)
+ result["c12_c16_source_bound_handoff"]=public_summary(owner_packet)
+ ensure(result["c12_c16_source_bound_handoff"]["episode_count"]==3 and
+        result["c12_c16_source_bound_handoff"]["video_baseline_counts"]==
+        {"all":23,"literal_enter_leave":6,"reed_closed_after_end_5s":3},
+        "HANDOFF_REAL_SOURCE_SCOPE_DRIFT")
  result["source"]={"article":meta["article_id"],"sha256":SHA,"archive_downloaded":False,"raw_events_published":False}
  return result
 def main():
