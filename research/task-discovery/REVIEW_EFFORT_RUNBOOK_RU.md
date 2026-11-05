@@ -54,6 +54,18 @@ Label Studio `lead_time` может включать ожидание и пер�
 }
 ```
 
+Вместо ручного переноса 16 source SHA и двух export SHA можно **после успешного исходного Review Bridge** создать незаполненный шаблон из оригинальных экспортов (только в owner-local каталоге **вне Git checkout**):
+
+```sh
+python research/task-discovery/review_effort.py \
+  --owner-bridge-receipt /PRIVATE/bridge-receipt.json \
+  --review-a /PRIVATE/review-a.json --review-b /PRIVATE/review-b.json \
+  --prepare-active-time-template \
+  --out /PRIVATE/active-review-time.json
+```
+
+Этот режим один раз читает каждый неизменённый экспорт, фиксирует его реальный SHA-256 и сохраняет **8+8 строк** с `active_seconds: null`; сверяет frozen набор и заявленные разные ID рецензентов, не создаёт времена, метки Task или gold. Незаполненный шаблон **не проходит** штатный `active_time_totals`: оператор обязан подставить фактически записанные при разметке секунды из отдельных секундомеров. Исходный Review Bridge остаётся единственным владельцем проверки разметки, а сама квитанция Bridge ещё не подтверждает независимость людей. Нельзя задавать `--hourly-rate-usd` и `--active-time-input` при генерации шаблона. Повторный запуск не перезаписывает существующий файл.
+
 Это только форма **демонстрации**, в каждой из групп A/B необходимо ровно 8 записей, по одной на исходник; реальные значения и SHA вычисляет оператор, их не придумывать. Для `review_export_sha256` вычислить SHA-256 по точным байтам экспортов (например, `sha256sum /PRIVATE/review-a.json /PRIVATE/review-b.json`). Добавить `--active-time-input /PRIVATE/active-review-time.json` в существующий запуск `owner_review_cycle.py`; он передаст журнал в `review_effort.py`, откажет при изменении файлов, ошибке покрытия или SHA и опубликует только агрегаты `reported_active_seconds_by_reviewer`, `reported_active_seconds_total`, `estimated_active_review_cost_usd` (последнее только при условной почасовой ставке).
 
 Если файл не задан, новые показатели останутся `null`. В обоих случаях `active_time_independently_verified=false` и `independent_attention_time_measured=false` — записи не удостоверяют человеческое внимание и не измеряют эффект Cross-Lab. Для сравнения с direct reading/regex потребуется отдельный контролируемый опыт после настоящего adjudication. Не публиковать приватные входы в публичные Actions.
