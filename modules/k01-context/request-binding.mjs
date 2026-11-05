@@ -1,6 +1,6 @@
 // Canonical request fingerprint; caller retains all source access and Task authority.
 // SHA-256 is an equality check, not authentication or private-data encryption.
-import { createHash } from 'node:crypto';
+import { sha256 } from './hash.mjs';
 
 const valid = s => typeof s === 'string' && s.length > 0 && s.length <= 512
   && s.trim() === s && !/[\x00-\x1f]/.test(s);
@@ -31,8 +31,5 @@ export function fingerprintContextRequest(request) {
     request.allowInferred === true,
     request.scopeRevision ?? null,
   ];
-  return createHash('sha256')
-    .update('iwxa-k01-context-request-v3\0', 'utf8')
-    .update(JSON.stringify(fields), 'utf8')
-    .digest('hex');
+  return sha256('iwxa-k01-context-request-v3\0' + JSON.stringify(fields));
 }

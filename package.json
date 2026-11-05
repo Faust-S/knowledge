@@ -1,0 +1,41 @@
+{
+  "name": "@iwxa/k01-context",
+  "version": "0.2.9",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@noble/hashes": "2.4.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./modules/k01-context/index.d.ts",
+      "default": "./modules/k01-context/index.mjs"
+    },
+    "./revisioned-source": {
+      "types": "./modules/k01-context/adapters/revisioned-source.d.mts",
+      "default": "./modules/k01-context/adapters/revisioned-source.mjs"
+    },
+    "./document-source": {
+      "types": "./modules/k01-context/adapters/document-source.d.mts",
+      "default": "./modules/k01-context/adapters/document-source.mjs"
+    },
+    "./local-file": {
+      "types": "./modules/k01-context/adapters/local-file.d.mts",
+      "default": "./modules/k01-context/adapters/local-file.mjs"
+    },
+    "./atlas-public-source": {
+      "types": "./modules/k01-context/integrations/atlas-public-source.d.mts",
+      "default": "./modules/k01-context/integrations/atlas-public-source.mjs"
+    },
+    "./atlas-project-source": {
+      "types": "./modules/k01-context/integrations/atlas-project-source.d.mts",
+      "default": "./modules/k01-context/integrations/atlas-project-source.mjs"
+    }
+  },
+  "files": [
+    "modules/k01-context"
+  ]
+}

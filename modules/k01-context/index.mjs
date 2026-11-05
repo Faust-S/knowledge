@@ -1,13 +1,13 @@
 // K01: stateless, host-neutral context projection. No storage or network access.
-import { createHash } from 'node:crypto';
+import { sha256, utf8ByteLength } from './hash.mjs';
+export { sha256 } from './hash.mjs';
 import { fingerprintContextRequest } from './request-binding.mjs';
 
-export const CONTRACT_VERSION = '0.2.8';
+export const CONTRACT_VERSION = '0.2.9';
 const MAX_ITEMS = 4096;
 const MAX_EXCERPT_BYTES = 65536;
 const identifier = value => typeof value === 'string' && value.length > 0 && value.length <= 512 && value.trim() === value && !/[\x00-\x1f]/.test(value);
 const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
-export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
 function checkItem(item) {
   if (!item || !identifier(item.id) || !identifier(item.sourceRef) || !identifier(item.revision)
@@ -106,7 +106,7 @@ export async function selectContext(request, observationPort) {
         || !identifier(observation.evidenceRef) || typeof observation.sha256 !== 'string') {
       omit('unverified_evidence'); continue;
     }
-    const bytes = Buffer.byteLength(observation.excerpt, 'utf8');
+    const bytes = utf8ByteLength(observation.excerpt);
     if (bytes > MAX_EXCERPT_BYTES || sha256(observation.excerpt) !== observation.sha256) {
       omit('unverified_evidence'); continue;
     }

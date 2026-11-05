@@ -27,4 +27,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: npm install --no-audit --no-fund --ignore-scripts
+      - run: npm pack --dry-run --json > /dev/null
       - run: node --test modules/k01-context/tests/*.test.mjs

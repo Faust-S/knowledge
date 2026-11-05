@@ -49,7 +49,7 @@ export function createDocumentObservationPort({ sourceRef, pinnedItems, readSnap
       if (!(typeof contents === 'string' || contents instanceof Uint8Array)) {
         return { sourceRef, currentRevision: 'unavailable', complete: false };
       }
-      const bytes = typeof contents === 'string' ? Buffer.from(contents, 'utf8') : contents;
+      const bytes = typeof contents === 'string' ? new TextEncoder().encode(contents) : contents;
       if (bytes.byteLength > MAX_SOURCE_BYTES) return { sourceRef, currentRevision: 'unavailable', complete: false };
       const currentRevision = 'sha256:' + sha256(bytes);
       // One byte snapshot determines both revision and evidence. On mismatch no content leaves the adapter.

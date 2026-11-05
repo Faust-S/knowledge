@@ -1,5 +1,5 @@
 // K01 adapter for host-owned, revisioned sources. No Git/API client or state store.
-import { sha256 } from '../index.mjs';
+import { sha256, utf8ByteLength } from '../hash.mjs';
 
 const valid = value => typeof value === 'string' && value.trim() === value
   && value.length > 0 && value.length <= 512 && !/[\x00-\x1f]/.test(value);
@@ -66,7 +66,7 @@ export function createRevisionedObservationPort({
         return { sourceRef, currentRevision: after, complete: false };
       }
       if (typeof evidence.excerpt !== 'string' || !evidence.excerpt
-          || Buffer.byteLength(evidence.excerpt, 'utf8') > MAX_EXCERPT_BYTES
+          || utf8ByteLength(evidence.excerpt) > MAX_EXCERPT_BYTES
           || !valid(evidence.evidenceRef)) return incomplete();
       return {
         sourceRef, currentRevision: after, complete: true,

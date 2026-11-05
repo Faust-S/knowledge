@@ -1,5 +1,6 @@
 // Checks selected evidence at the host's point of use. No persistence, authorization or apply.
-import { sha256, CONTRACT_VERSION } from './index.mjs';
+import { CONTRACT_VERSION } from './index.mjs';
+import { sha256, utf8ByteLength } from './hash.mjs';
 import { fingerprintContextRequest } from './request-binding.mjs';
 
 const id = value => typeof value === 'string' && value.length > 0 && value.length <= 512
@@ -97,7 +98,7 @@ export async function revalidateProjection(projection, observationPort, expected
   for (const entry of entries) {
     const fail = (reason, details = {}) =>
       failures.push({ id: entry.id, sourceRef: entry.sourceRef, reason, ...details });
-    if (Buffer.byteLength(entry.excerpt, 'utf8') > MAX_EXCERPT_BYTES
+    if (utf8ByteLength(entry.excerpt) > MAX_EXCERPT_BYTES
         || sha256(entry.excerpt) !== entry.sha256) {
       fail('projection_modified');
       continue;
@@ -122,7 +123,7 @@ export async function revalidateProjection(projection, observationPort, expected
       continue;
     }
     if (typeof observation.excerpt !== 'string' || !observation.excerpt
-        || Buffer.byteLength(observation.excerpt, 'utf8') > MAX_EXCERPT_BYTES
+        || utf8ByteLength(observation.excerpt) > MAX_EXCERPT_BYTES
         || !id(observation.evidenceRef) || !digest(observation.sha256)
         || sha256(observation.excerpt) !== observation.sha256) {
       fail('unverified_evidence');

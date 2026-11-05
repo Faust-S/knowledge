@@ -13,8 +13,8 @@ const knowledge = (id, text = documentV1, prefix = 'Lead:') => ({
 });
 const request = { taskId: 'task:delivery', allowedSources: [sourceRef], terms: ['lead'], maxTokens: 40 };
 
-test('contract version 0.2.8 and no host private metadata', async () => {
-  assert.equal(CONTRACT_VERSION, '0.2.8');
+test('contract version 0.2.9 and no host private metadata', async () => {
+  assert.equal(CONTRACT_VERSION, '0.2.9');
   const port = createDocumentObservationPort({ sourceRef,
     pinnedItems: [{ ...knowledge('one'), privateNote: 'private-metadata-123', credentials: 'private-creds-123' }],
     readSnapshot: async () => documentV1 });
