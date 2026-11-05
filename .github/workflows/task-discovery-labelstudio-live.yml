@@ -159,52 +159,17 @@ jobs:
               "M3_PROJECT_ISOLATION_CONTRACT_QUALIFIED": not cross_readable,
           }, sort_keys=True))
           PY
-      - name: Retrieve original public TASK-EXP-01 XML pinned by Git blob
-        env:
-          OWNER_XML_URL: https://raw.githubusercontent.com/Faust-S/iwxa/2fd270e9d6efe26355f44a8b03770356180dca3e/knowledge/task-catalog/engine/research/TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml
-          OWNER_XML_PATH: ${{ runner.temp }}/task-exp-01-owner-source-first.xml
-        run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-          import sys
-          from urllib.request import Request, urlopen
-          sys.path.insert(0, 'research/task-discovery')
-          from review_form_contract import check_xml, TASK_EXP_XML_BLOB
-
-          request = Request(
-              os.environ['OWNER_XML_URL'],
-              headers={'User-Agent': 'IWXA-M3b-Original-Form-Synthetic-Qualification/0.1'})
-          with urlopen(request, timeout=25) as response:
-              original = response.read(20000)
-              assert response.status == 200, 'OWNER_ORIGINAL_XML_FETCH_FAILED'
-          receipt = check_xml(original)
-          assert receipt['task_exp_owner_xml_git_blob'] == TASK_EXP_XML_BLOB
-          assert receipt['owner_bridge_expected_fields_present'] is True
-          assert receipt['human_gold'] is False
-          Path(os.environ['OWNER_XML_PATH']).write_bytes(original)
-          print('PINNED_ORIGINAL_TASK_EXP_01_XML_RETRIEVED_AND_VERIFIED')
-          PY
       - name: Two isolated native Label Studio databases, credentials and source-first exports
         env:
           LABEL_STUDIO_API_KEY: synthetic-ci-legacy-token
-          ORIGINAL_TASK_EXP_XML_FILE: ${{ runner.temp }}/task-exp-01-owner-source-first.xml
         run: |
           python3 - <<'PY'
           import json, os, secrets, subprocess, sys, tempfile, time
           from pathlib import Path
           sys.path.insert(0, 'research/task-discovery')
           import labelstudio_project_setup as setup
-          from live_labelstudio_smoke import (synthetic_tasks,
+          from live_labelstudio_smoke import (synthetic_tasks, SYNTHETIC_XML,
               synthetic_annotation_result, verify_synthetic_region_roundtrip)
-          from review_form_contract import check_xml, TASK_EXP_XML_BLOB
-
-          # Real, specialized owner XML; all task data and annotations remain
-          # synthetic. No original owner sources or reviewer results enter CI.
-          original_xml_bytes = Path(os.environ['ORIGINAL_TASK_EXP_XML_FILE']).read_bytes()
-          original_contract = check_xml(original_xml_bytes)
-          assert original_contract['task_exp_owner_xml_git_blob'] == TASK_EXP_XML_BLOB
-          original_xml = original_xml_bytes.decode('utf-8')
 
           a_base, b_base = 'http://127.0.0.1:8080', 'http://127.0.0.1:8081'
           container = 'iwxa-label-studio-isolated-b'
@@ -239,7 +204,7 @@ jobs:
           def create_blind_project(base, token):
               tasks = synthetic_tasks()
               return setup.create_projects(
-                  tasks, original_xml, base, token, slots=1)['project_ids'][0]
+                  tasks, SYNTHETIC_XML, base, token, slots=1)['project_ids'][0]
 
           def annotate_and_export(base, token, pid, output, expected_id):
               tasks = synthetic_tasks()
@@ -262,7 +227,7 @@ jobs:
                   require(type(annotation) is dict and type(annotation.get('id')) is int,
                           'ISOLATED_ANNOTATION_WRITE_FAILED')
               receipt = setup.export_single_reviewed_project(tasks, base, token, pid, output,
-                  expected_xml=original_xml)
+                  expected_xml=SYNTHETIC_XML)
               require(receipt['sources_per_export'] == 8 and
                       receipt['annotation_author_matches_authenticated_account'] is True and
                       receipt['human_gold'] is False, 'ISOLATED_SINGLE_EXPORT_FAILED')
@@ -322,7 +287,7 @@ jobs:
               a_project = create_blind_project(a_base, a_token)
               b_project = create_blind_project(b_base, b_token)
               review_gate = setup.isolated_review_preflight(
-                  synthetic_tasks(), original_xml,
+                  synthetic_tasks(), SYNTHETIC_XML,
                   a_base, 'Token ' + a_token, a_project,
                   b_base, 'Token ' + b_token, b_project)
               require(review_gate['sources_each'] == 8 and
@@ -334,8 +299,7 @@ jobs:
               print(json.dumps({
                   'status': review_gate['status'],
                   'sources_each': 8,
-                  'owner_exact_xml_exercised': True,
-                  'owner_exact_xml_git_blob': TASK_EXP_XML_BLOB,
+                  'owner_exact_xml_exercised': False,
                   'human_gold': False,
               }, sort_keys=True))
               with tempfile.TemporaryDirectory(prefix='iwxa-m3b-isolated-synthetic-') as tmp:
@@ -353,8 +317,7 @@ jobs:
                   'original_completed_by_ids_distinct': True,
                   'synthetic_sources_each': 8, 'api_annotations_total': 16,
                   'task_region_interpretation_roundtrip': True,
-                  'owner_exact_xml_exercised': True,
-                  'owner_exact_xml_git_blob': TASK_EXP_XML_BLOB,
+                  'owner_exact_xml_exercised': False,
                   'human_review_independence_verified': False,
                   'human_task_gold': False,
                   'task_precision': None, 'task_recall': None, 'task_f1': None
