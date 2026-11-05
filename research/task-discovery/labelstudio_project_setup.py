@@ -479,6 +479,7 @@ def create_isolated_review_pair(
         "project_a_id": created[0], "project_b_id": created[1],
         "sources_each": 8, "reviewer_projects_created": 2,
         "persisted_owner_forms_checked": True,
+        "unannotated_original_sources_checked": True,
         "cross_instance_identity_and_export_denied": True,
         "annotation_completed": False, "human_gold": False,
         "human_independence_independently_verified": False,
