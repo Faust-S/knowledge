@@ -583,5 +583,75 @@ class OwnerReviewCycleTests(unittest.TestCase):
             self.assertFalse(f.effort.exists())
 
 
+    def test_owner_bridge_human_review_failure_is_actionable_without_leak(self):
+        from subprocess import CompletedProcess
+        base = [cycle.sys.executable, '-m',
+                'engine.research.task_exp_01_review_bridge',
+                '--review-a', '/PRIVATE/raw-review-a.json']
+        safe = 'INDEPENDENT_TASK_GOAL_RESULT_CRITERION_REQUIRED'
+        output = json.dumps({'status': 'HOLD', 'code': safe})
+        with patch.object(cycle.subprocess, 'run',
+                          return_value=CompletedProcess(base, 2, output,
+                                                        'PRIVATE_SOURCE_TEXT')) as run:
+            with self.assertRaisesRegex(cycle.CycleHold, safe):
+                cycle.executed(base, Path('/tmp'))
+        self.assertEqual(run.call_count, 1)
+        self.assertIn(safe, cycle.PUBLIC_HOLD_CODES)
+        for value in (
+            json.dumps({'status': 'HOLD', 'code': 'PRIVATE_SOURCE_TEXT'}),
+            json.dumps({'status': 'HOLD', 'code': safe, 'source': 'confidential'}),
+            json.dumps({'status': 'HOLD', 'code': safe}).replace(
+                '"code"', '"code":"FAKE","code"'),
+            json.dumps({'status': 'PASS', 'code': safe}),
+            '/PRIVATE/raw-review-a.json',
+            output + '\\nPRIVATE_SOURCE_TEXT',
+        ):
+            with self.subTest(value=value[:32]), \
+                 patch.object(cycle.subprocess, 'run',
+                              return_value=CompletedProcess(base, 2, value, 'private')):
+                with self.assertRaisesRegex(cycle.CycleHold,
+                                            'OWNER_LOCAL_STEP_REJECTED'):
+                    cycle.executed(base, Path('/tmp'))
+
+    def test_owner_bridge_only_exact_pinned_path_and_exit_code_can_reveal_hold(self):
+        from subprocess import CompletedProcess
+        safe = 'COVERAGE_CONTRADICTS_REGION_COUNT'
+        output = json.dumps({'status': 'HOLD', 'code': safe})
+        commands = (
+            [cycle.sys.executable, '-m', 'engine.research.other_bridge'],
+            [cycle.sys.executable, '/PRIVATE/review_effort.py'],
+            [cycle.sys.executable, '-m', 'engine.research.task_exp_01_review_bridge'],
+        )
+        for command, code in (
+            (commands[0], 2), (commands[1], 2), (commands[2], 1),
+            (commands[2], 3),
+        ):
+            with self.subTest(command=command, code=code), \
+                 patch.object(cycle.subprocess, 'run',
+                              return_value=CompletedProcess(command, code,
+                                                            output, 'secret')):
+                with self.assertRaisesRegex(cycle.CycleHold,
+                                            'OWNER_LOCAL_STEP_REJECTED'):
+                    cycle.executed(command, Path('/tmp'))
+
+    def test_repairable_bridge_hold_codes_are_grounded_and_no_human_gold(self):
+        expected = {
+            'INDEPENDENT_TASK_GOAL_RESULT_CRITERION_REQUIRED',
+            'NON_TASK_REGION_WITH_TASK_INTERPRETATION',
+            'COVERAGE_CONTRADICTS_REGION_COUNT',
+            'SOURCE_REVIEW_COVERAGE_MISSING',
+            'REVIEW_INCOMPLETE',
+            'TASK_REGION_SOURCE_OR_LABEL_MISMATCH',
+            'SAME_REVIEWER_NOT_INDEPENDENT',
+            'ORPHAN_TASK_INTERPRETATION',
+            'REVIEW_NOT_COMPLETED',
+            'SOURCE_CONTENT_OR_VERSION_CHANGED',
+        }
+        self.assertEqual(cycle.BRIDGE_REPAIRABLE_HOLD_CODES, expected)
+        self.assertTrue(expected <= cycle.PUBLIC_HOLD_CODES)
+        self.assertNotIn('HUMAN_GOLD_PASS', cycle.BRIDGE_REPAIRABLE_HOLD_CODES)
+
+
+
 if __name__ == '__main__':
     unittest.main()

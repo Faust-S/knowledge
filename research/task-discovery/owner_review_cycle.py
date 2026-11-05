@@ -27,6 +27,21 @@ EFFORT_SCHEMA = 'IWXA_TASK_EXP_01_OWNER_LOCAL_REVIEW_EFFORT/0.1'
 
 # Approved owner-local diagnostic codes only. No arbitrary user-provided text,
 # including upper-case input, can appear as an error receipt.
+# Only stable, owner-pinned Review Bridge errors that explain a repairable
+# human-review or source mismatch. Never forward unknown stdout or stderr.
+BRIDGE_REPAIRABLE_HOLD_CODES = frozenset((
+    'INDEPENDENT_TASK_GOAL_RESULT_CRITERION_REQUIRED',
+    'NON_TASK_REGION_WITH_TASK_INTERPRETATION',
+    'COVERAGE_CONTRADICTS_REGION_COUNT',
+    'SOURCE_REVIEW_COVERAGE_MISSING',
+    'REVIEW_INCOMPLETE',
+    'TASK_REGION_SOURCE_OR_LABEL_MISMATCH',
+    'SAME_REVIEWER_NOT_INDEPENDENT',
+    'ORPHAN_TASK_INTERPRETATION',
+    'REVIEW_NOT_COMPLETED',
+    'SOURCE_CONTENT_OR_VERSION_CHANGED',
+))
+
 PUBLIC_HOLD_CODES = frozenset((
     'DUPLICATED_RESULT_KEY',
     'EFFORT_FILE_INCOMPATIBLE',
@@ -66,7 +81,7 @@ PUBLIC_HOLD_CODES = frozenset((
     'REVIEW_INPUT_CHANGED_BEFORE_PUBLICATION',
     'REVIEW_INPUT_SIZE_INVALID',
     'REVIEW_INPUT_UNAVAILABLE',
-))
+)) | BRIDGE_REPAIRABLE_HOLD_CODES
 
 
 class CycleHold(ValueError):
@@ -112,15 +127,42 @@ def safe_json(raw: str) -> dict:
     return data
 
 
+def repairable_bridge_failure(command: list[str], stdout: str,
+                              returncode: int) -> str | None:
+    """Decode ONLY pinned review bridge's bounded, machine-readable HOLD.
+
+    The original bridge prints exactly {"status":"HOLD","code":"..."} on
+    review validation failure. Arbitrary messages, stderr, owner paths and
+    unknown codes stay private. Effort-adapter failures never flow through.
+    """
+    if (returncode != 2 or len(command) < 3 or
+            command[1:3] != ['-m', 'engine.research.task_exp_01_review_bridge'] or
+            type(stdout) is not str or len(stdout) > 1024):
+        return None
+    try:
+        result = safe_json(stdout)
+    except CycleHold:
+        return None
+    if (set(result) == {'status', 'code'} and
+            result.get('status') == 'HOLD' and
+            type(result.get('code')) is str and
+            result['code'] in BRIDGE_REPAIRABLE_HOLD_CODES):
+        return result['code']
+    return None
+
+
 def executed(command: list[str], cwd: Path) -> str:
     try:
         proc = subprocess.run(command, cwd=cwd, capture_output=True, text=True,
                               encoding='utf-8', timeout=180, check=False)
     except (OSError, subprocess.TimeoutExpired, UnicodeError):
         raise CycleHold('OWNER_LOCAL_PROCESS_UNAVAILABLE') from None
-    # The native tools may include input paths in diagnostics. Never forward
-    # their raw stdout/stderr if the process fails.
-    need(proc.returncode == 0, 'OWNER_LOCAL_STEP_REJECTED')
+    # The native tools may include input paths in diagnostics. Forward only
+    # a small whitelist of fixed errors from the pinned original Review Bridge.
+    # Other stdout/stderr and every effort-adapter error stay non-disclosing.
+    if proc.returncode != 0:
+        known = repairable_bridge_failure(command, proc.stdout, proc.returncode)
+        raise CycleHold(known or 'OWNER_LOCAL_STEP_REJECTED')
     need(len(proc.stdout) < 32_000, 'OWNER_LOCAL_RESULT_TOO_LARGE')
     return proc.stdout.strip()
 
