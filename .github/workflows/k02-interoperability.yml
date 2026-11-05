@@ -32,6 +32,7 @@ jobs:
       - name: Syntax and import validation
         run: |
           node --check modules/k02-interoperability/index.mjs
+          node --check modules/k02-interoperability/tests/model-selection-pin.test.mjs
           node --check modules/k02-interoperability/adapters/ollama-local.mjs
           node --check modules/k02-interoperability/consumers/live-local-model.mjs
           node --check modules/k02-interoperability/adapters/github-public-rest.mjs
