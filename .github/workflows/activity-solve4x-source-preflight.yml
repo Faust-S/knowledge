@@ -19,6 +19,8 @@ on:
       - 'research/activity-research/tests/test_solve4x_c15_video_boundary.py'
       - 'research/activity-research/solve4x_c16_review_footprint.py'
       - 'research/activity-research/tests/test_solve4x_c16_review_footprint.py'
+      - 'research/activity-research/solve4x_c17_blind_review.py'
+      - 'research/activity-research/tests/test_solve4x_c17_blind_review.py'
       - 'research/activity-research/solve4x_c13_episode_triage.py'
       - 'research/activity-research/tests/test_solve4x_c13_episode_triage.py'
       - 'research/activity-research/tests/test_solve4x_cross_source_coverage.py'
@@ -425,6 +427,8 @@ jobs:
 
       - name: Offline C12 cross-source negative controls
         run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_cross_source_coverage.py' -v
+      - name: Test C17 blinded source review and conservative scoring
+        run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_c17_blind_review.py' -v
       - name: Test C16 annotation footprint and time-cost abstention
         run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_c16_review_footprint.py' -v
       - name: Test C15 room entry and exit video annotation boundaries
@@ -469,6 +473,16 @@ jobs:
           assert c14["limitations"]["cross_device_clock_calibration_proven"] is False
           assert c14["sensor_plus_one_day_negative"]["candidate_edges"]==0
           assert len(c14["review_episodes"])==3
+          c17=c14["c17_blind_video_review_plan"]
+          assert c17["schema"]=="IWXA_SOLVE4X_C17_BLIND_VIDEO_REVIEW/0.1"
+          assert c17["status"]=="BLIND_REVIEW_DESIGN_READY_NO_MEDIA_OR_HUMAN_MEASUREMENT"
+          assert c17["denominators"]=={"video_annotations":23,"literal_enter_leave":6,"reed_focused":3}
+          assert c17["source_sha256"]=="619f52a0fb845926790388008b505fff5969adcd25cac31f0bb0e62d01980e99"
+          assert c17["independent_video_reviews"]==0
+          assert c17["human_activity_gold"]=="NOT_MEASURED"
+          assert c17["active_review_seconds"] is None
+          assert c17["accepted_tasks"]==0
+          assert c17["source_identifiers_times_actors_or_verdicts_exported"] is False
           c16=c14["c16_annotation_review_footprint"]
           assert c16["schema"]=="IWXA_SOLVE4X_C16_ANNOTATION_REVIEW_FOOTPRINT/0.1"
           assert c16["status"]=="AUTHOR_ANNOTATION_DURATION_PROXY_NOT_OBSERVED_REVIEW_TIME"
