@@ -1,0 +1,395 @@
+#!/usr/bin/env python3
+"""C17: owner-local blinded video review plan and aggregate-only scoring.
+
+Reuses C16 selection. Never downloads/decodes video, invents human reviews,
+creates Tasks, or treats author OCEL labels as independent human truth.
+The private packet contains original source locators and must stay owner-local.
+Only public_plan() and score() are suitable for publishing as aggregates.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import re
+
+import solve4x_c16_review_footprint as c16
+
+SCHEMA = 'IWXA_SOLVE4X_C17_BLIND_VIDEO_REVIEW/0.1'
+RECEIPT = 'IWXA_SOLVE4X_C17_OWNER_LOCAL_REVIEW_RECEIPT/0.1'
+ARMS = ('all', 'literal_enter_leave', 'reed_closed_after_end_5s')
+ROLES = ('reference_a', 'reference_b', 'adjudicator', 'arm_all',
+         'arm_literal_enter_leave', 'arm_reed_closed_after_end_5s')
+VERDICTS = frozenset(('VISIBLE_ENTER_OR_EXIT', 'NOT_VISIBLE', 'UNKNOWN'))
+SOURCE_SHA = '619f52a0fb845926790388008b505fff5969adcd25cac31f0bb0e62d01980e99'
+CONTEXT_SECONDS = c16.CONTEXT_SECONDS
+HEX64 = re.compile(r'[a-f0-9]{64}\Z')
+
+
+class ReviewHold(ValueError):
+    """Fixed rejection code; do not include source text or reviewer identity."""
+
+
+def require(ok, code):
+    if not ok:
+        raise ReviewHold(code)
+
+
+def _digest(obj):
+    return hashlib.sha256(json.dumps(obj, ensure_ascii=False, sort_keys=True,
+                                     separators=(',', ':'), allow_nan=False
+                                     ).encode('utf-8')).hexdigest()
+
+
+def prepare(video_doc, outside_sensor_events, *, source_sha256=SOURCE_SHA):
+    """Create a private index + blinded task IDs; no media or human values.
+
+    The caller must verify source bytes against source_sha256 before this call.
+    Event keys/time coordinates are used only in owner_index, never public_plan.
+    """
+    require(type(source_sha256) is str and HEX64.fullmatch(source_sha256),
+            'C17_SOURCE_SHA_INVALID')
+    footprint = c16.analyze(video_doc, outside_sensor_events)
+    rows = c16._rows(video_doc)
+    events = video_doc['ocel:events']
+    require(len(rows) == len(events) and
+            all(type(key) is str and key for key in events),
+            'C17_SOURCE_EVENT_KEYS_INVALID')
+    pairs = sorted(zip(events.items(), rows),
+                   key=lambda pair: (pair[1][0], pair[1][1],
+                                     pair[1][2] or '', pair[0][0]))
+    closed = [float(t) for t, sensor, state in outside_sensor_events
+              if sensor == 'ENTRANCE' and state == 'CLOSED']
+    index = []
+    arms = {name: [] for name in ARMS}
+    for ordinal, ((source_key, event), (start, end, kind)) in enumerate(pairs, 1):
+        label_only = kind is not None
+        focused = label_only and any(0 <= t - end <= 5 for t in closed)
+        clip_id = f'clip-{ordinal:04d}'
+        # Intentionally no author label, actor ID or sensor explanation in
+        # blinded tasks. Exact event keys and timestamps stay owner-local.
+        index.append({'clip_id': clip_id, 'source_event_key': source_key,
+                      'annotation_start': event['ocel:timestamp'],
+                      'annotation_end': event['ocel:vmap']['end_time'],
+                      'author_label_family': kind or 'OTHER',
+                      'selected_in': [name for name, select in zip(
+                          ARMS, (True, label_only, focused)) if select]})
+        arms['all'].append(clip_id)
+        if label_only:
+            arms['literal_enter_leave'].append(clip_id)
+        if focused:
+            arms['reed_closed_after_end_5s'].append(clip_id)
+    expected = footprint['review_baselines']
+    require((len(arms['all']) == expected['all_published_video_annotations']['annotations_to_review']
+             and len(arms['literal_enter_leave']) ==
+             expected['literal_enter_leave_labels_only']['annotations_to_review']
+             and len(arms['reed_closed_after_end_5s']) ==
+             expected['reed_closed_after_video_end_5s']['annotations_to_review']),
+            'C17_C16_SELECTION_DRIFT')
+    frozen = {'source_sha256': source_sha256, 'context_seconds': CONTEXT_SECONDS,
+              'owner_index': index, 'arms': arms}
+    return {'schema': SCHEMA,
+            'status': 'OWNER_LOCAL_PACKET_NOT_HUMAN_GOLD',
+            'plan_sha256': _digest(frozen), **frozen,
+            'blind_tasks': {
+                role: [{'clip_id': clip_id, 'media_locator': None}
+                       for clip_id in arms['all' if role.startswith('reference_') or
+                                           role == 'adjudicator' else role.removeprefix('arm_')]]
+                for role in ROLES},
+            'not_for_publication': True}
+
+
+def _verified_packet(packet):
+    require(type(packet) is dict and packet.get('schema') == SCHEMA and
+            packet.get('status') == 'OWNER_LOCAL_PACKET_NOT_HUMAN_GOLD' and
+            packet.get('not_for_publication') is True and
+            type(packet.get('owner_index')) is list and
+            type(packet.get('arms')) is dict and
+            type(packet.get('plan_sha256')) is str and
+            type(packet.get('source_sha256')) is str and
+            packet.get('context_seconds') == CONTEXT_SECONDS,
+            'C17_PACKET_INVALID')
+    frozen = {k: packet[k] for k in ('source_sha256', 'context_seconds',
+                                    'owner_index', 'arms')}
+    require(HEX64.fullmatch(packet['source_sha256']) and
+            _digest(frozen) == packet['plan_sha256'],
+            'C17_PACKET_FINGERPRINT_MISMATCH')
+    index, arms = packet['owner_index'], packet['arms']
+    require(0 < len(index) <= 10000 and set(arms) == set(ARMS),
+            'C17_PACKET_SCOPE_INVALID')
+    ids = [row['clip_id'] for row in index]
+    require(len(set(ids)) == len(index) and
+            ids == [f'clip-{i:04d}' for i in range(1, len(index)+1)],
+            'C17_PACKET_CLIP_IDS_INVALID')
+    require(all(type(v) is list and len(v) == len(set(v)) and
+                all(type(k) is str and k in ids for k in v)
+                for v in arms.values()) and
+            arms['all'] == ids and
+            all(arms[name] == [row['clip_id'] for row in index
+                              if name in row['selected_in']] for name in ARMS),
+            'C17_PACKET_ARMS_INVALID')
+    require(all(type(row) is dict and
+                set(row['selected_in']).issubset(ARMS) for row in index),
+            'C17_PACKET_INDEX_INVALID')
+    return ids, arms
+
+
+def public_plan(packet):
+    """Safe to include in the existing aggregate-only C12/C14 report."""
+    ids, arms = _verified_packet(packet)
+    return {
+        'schema': SCHEMA,
+        'status': 'BLIND_REVIEW_DESIGN_READY_NO_MEDIA_OR_HUMAN_MEASUREMENT',
+        'source_sha256': packet['source_sha256'],
+        'frozen_plan_sha256': packet['plan_sha256'],
+        'denominators': {'video_annotations': len(ids),
+                         'literal_enter_leave': len(arms['literal_enter_leave']),
+                         'reed_focused': len(arms['reed_closed_after_end_5s'])},
+        'independent_video_reviews': 0,
+        'adjudicated_clips': 0,
+        'active_review_seconds': None,
+        'label_studio_lead_time_seconds': None,
+        'missed_visible_clips': None,
+        'unknown_agreement_rate': None,
+        'contradicted_confident_claims': None,
+        'clock_calibration_proven': False,
+        'source_author_labels_are_human_gold': False,
+        'real_video_decoded': False,
+        'human_activity_gold': 'NOT_MEASURED',
+        'task_precision': None,
+        'accepted_tasks': 0,
+        'source_identifiers_times_actors_or_verdicts_exported': False,
+    }
+
+
+def blank_receipt(packet, role):
+    """Owner-local skeleton only. Never pre-populate human verdicts or time."""
+    _, arms = _verified_packet(packet)
+    require(role in ROLES, 'C17_ROLE_INVALID')
+    method = 'all' if role.startswith('reference_') or role == 'adjudicator' else role.removeprefix('arm_')
+    return {'schema': RECEIPT, 'plan_sha256': packet['plan_sha256'],
+            'role': role, 'reviewer_key': None,
+            'items': [{'clip_id': name, 'verdict': None,
+                       'active_seconds': None, 'label_studio_lead_time_seconds': None}
+                      for name in arms[method]]}
+
+
+def _seconds(value, *, allow_zero):
+    if value is None:
+        return None
+    require(type(value) in (int, float) and (value >= 0 if allow_zero else value > 0),
+            'C17_REVIEW_SECONDS_INVALID')
+    try:
+        result = float(value)
+    except OverflowError:
+        raise ReviewHold('C17_REVIEW_SECONDS_INVALID') from None
+    require(math.isfinite(result), 'C17_REVIEW_SECONDS_INVALID')
+    return result
+
+
+def _checked_receipt(packet, role, receipt, expected_ids):
+    require(type(receipt) is dict and set(receipt) == {
+                'schema', 'plan_sha256', 'role', 'reviewer_key', 'items'} and
+            receipt['schema'] == RECEIPT and
+            receipt['plan_sha256'] == packet['plan_sha256'] and
+            receipt['role'] == role,
+            'C17_REVIEW_RECEIPT_NOT_BOUND')
+    key = receipt['reviewer_key']
+    require(type(key) is str and 0 < len(key) <= 128 and key.strip() == key,
+            'C17_REVIEWER_CLAIM_REQUIRED')
+    rows = receipt['items']
+    require(type(rows) is list and len(rows) == len(expected_ids),
+            'C17_REVIEW_COVERAGE_INCOMPLETE')
+    observed = {}
+    for row in rows:
+        require(type(row) is dict and set(row) == {
+                    'clip_id', 'verdict', 'active_seconds', 'label_studio_lead_time_seconds'} and
+                type(row['clip_id']) is str and row['clip_id'] in expected_ids and
+                row['clip_id'] not in observed and type(row['verdict']) is str and
+                row['verdict'] in VERDICTS,
+                'C17_REVIEW_ROW_INVALID')
+        active = _seconds(row['active_seconds'], allow_zero=False)
+        lead = _seconds(row['label_studio_lead_time_seconds'], allow_zero=True)
+        observed[row['clip_id']] = (row['verdict'], active, lead)
+    require(set(observed) == set(expected_ids), 'C17_REVIEW_COVERAGE_INCOMPLETE')
+    return key, observed
+
+
+def _total(measurements, offset):
+    numbers = [values[offset] for values in measurements.values()]
+    if any(value is None for value in numbers):
+        return None
+    try:
+        total = math.fsum(numbers)
+    except OverflowError:
+        raise ReviewHold('C17_REVIEW_TIME_SUM_NONFINITE') from None
+    require(math.isfinite(total), 'C17_REVIEW_TIME_SUM_NONFINITE')
+    return round(total, 3)
+
+
+def score(packet, receipts):
+    """Aggregate *claimed* owner-local video reviews; no independent truth claim.
+
+    A/B and adjudicator must each assess all 23. Unresolved reference verdicts
+    never turn into negative examples. Compare three independent arm sessions
+    only descriptively: no causal labor savings or physical identity inference.
+    """
+    ids, arms = _verified_packet(packet)
+    require(type(receipts) is dict and set(receipts) == set(ROLES),
+            'C17_REVIEW_RECEIPTS_INCOMPLETE')
+    checks = {}
+    keys = []
+    for role in ROLES:
+        requested = arms['all' if role.startswith('reference_') or role == 'adjudicator'
+                         else role.removeprefix('arm_')]
+        key, parsed = _checked_receipt(packet, role, receipts[role], requested)
+        keys.append(key)
+        checks[role] = parsed
+    require(len(set(keys)) == len(ROLES), 'C17_REUSED_REVIEWER_CLAIM')
+    a, b, adjudicated = (checks[r] for r in ROLES[:3])
+    final = {key: adjudicated[key][0] for key in ids}
+    visible = {key for key, verdict in final.items() if verdict == 'VISIBLE_ENTER_OR_EXIT'}
+    unknown = {key for key, verdict in final.items() if verdict == 'UNKNOWN'}
+    result = {}
+    for name in ARMS:
+        values = checks['arm_'+name]
+        selection = set(arms[name])
+        # Method provides candidate exposure, not a predicted positive action.
+        result[name] = {
+            'clips_reviewed': len(selection),
+            'adjudicated_visible_in_selection': len(selection & visible),
+            'adjudicated_visible_omitted': len(visible-selection),
+            'adjudicated_unknown_in_selection': len(selection & unknown),
+            'visible_clip_retrieval_fraction': (round(len(selection & visible)/len(visible), 6)
+                                                if visible else None),
+            'confident_contradictions_vs_adjudicator': sum(
+                result_row[0] == 'VISIBLE_ENTER_OR_EXIT' and
+                final[clip] == 'NOT_VISIBLE'
+                for clip, result_row in values.items()),
+            'confident_on_adjudicated_unknown': sum(
+                result_row[0] == 'VISIBLE_ENTER_OR_EXIT' and clip in unknown
+                for clip, result_row in values.items()),
+            'unknown_agreement_with_adjudicator': sum(
+                result_row[0] == 'UNKNOWN' and clip in unknown
+                for clip, result_row in values.items()),
+            'unknown_on_resolved_reference': sum(
+                result_row[0] == 'UNKNOWN' and clip not in unknown
+                for clip, result_row in values.items()),
+            'reported_active_seconds': _total(values, 1),
+            'label_studio_lead_time_seconds': _total(values, 2),
+        }
+    full = result['all']['reported_active_seconds']
+    focused = result['reed_closed_after_end_5s']['reported_active_seconds']
+    return {
+        'schema': SCHEMA,
+        'status': 'OWNER_CLAIMED_INDEPENDENT_CLIP_REVIEWS_NOT_ATTESTED_PHYSICAL_GOLD',
+        'denominators': {'video_annotations': len(ids),
+                         'reviewed_reference_a': len(a),
+                         'reviewed_reference_b': len(b),
+                         'adjudicated': len(adjudicated),
+                         'adjudicated_visible': len(visible),
+                         'adjudicated_not_visible': sum(v == 'NOT_VISIBLE' for v in final.values()),
+                         'adjudicated_unknown': len(unknown),
+                         'reference_a_b_disagreements': sum(a[i][0] != b[i][0] for i in ids),
+                         'reference_a_b_agreement_unknown': sum(
+                             a[i][0] == b[i][0] == 'UNKNOWN' for i in ids)},
+        'arm_summaries': result,
+        'reference_active_seconds': {role: _total(checks[role], 1) for role in ROLES[:3]},
+        'descriptive_active_seconds_full_minus_focused': (
+            round(full-focused, 3) if full is not None and focused is not None else None),
+        'reported_active_time_is_self_report_not_verified': True,
+        'label_studio_lead_time_may_include_idle': True,
+        'reviewer_identity_and_independence_verified': False,
+        'adjudicator_truth_independently_verified': False,
+        'same_actor_or_intention_proven': False,
+        'clock_calibration_proven': False,
+        'causal_labor_saving_established': False,
+        'task_precision': None,
+        'accepted_tasks': 0,
+        'source_identifiers_times_actors_or_reviewer_keys_exported': False,
+    }
+
+
+def _owner_json(path):
+    """Reuse existing Task Discovery's strict owner-local JSON reader."""
+    import sys
+    from pathlib import Path
+    sibling = str(Path(__file__).resolve().parents[1] / 'task-discovery')
+    if sibling not in sys.path:
+        sys.path.insert(0, sibling)
+    from review_effort import read_json
+    return read_json(Path(path), return_sha256=True)
+
+
+def _owner_output(path, data):
+    """Never put source locators or owner reviews inside a Git checkout."""
+    import os
+    from pathlib import Path
+    target = Path(path).expanduser().resolve()
+    repo_root = Path(__file__).resolve().parents[2]
+    require(target != repo_root and repo_root not in target.parents and
+            target.parent.is_dir(), 'C17_OWNER_OUTPUT_PATH_INVALID')
+    raw = (json.dumps(data, ensure_ascii=False, sort_keys=True,
+                      indent=2, allow_nan=False) + '\n').encode('utf-8')
+    fd = None
+    try:
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'wb') as handle:
+            fd = None
+            handle.write(raw)
+    except FileExistsError:
+        raise ReviewHold('C17_OWNER_OUTPUT_EXISTS') from None
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def main(argv=None):
+    """Owner-local CLI. Never run with source data in public CI/artifacts."""
+    import argparse
+    parser = argparse.ArgumentParser(description='C17 owner-local blinded review adapter')
+    sub = parser.add_subparsers(dest='command', required=True)
+    prepare_parser = sub.add_parser('prepare')
+    prepare_parser.add_argument('--video-ocel', required=True)
+    prepare_parser.add_argument('--sensors-ocel', required=True)
+    prepare_parser.add_argument('--out', required=True)
+    blank_parser = sub.add_parser('blank')
+    blank_parser.add_argument('--packet', required=True)
+    blank_parser.add_argument('--out', required=True)
+    score_parser = sub.add_parser('score')
+    score_parser.add_argument('--packet', required=True)
+    score_parser.add_argument('--receipts', required=True)
+    score_parser.add_argument('--out', required=True)
+    args = parser.parse_args(argv)
+    if args.command == 'prepare':
+        from solve4x_cross_source_coverage import SHA
+        from solve4x_c14_raw_reed_review import _outside_video_events
+        video, video_sha = _owner_json(args.video_ocel)
+        sensors, sensors_sha = _owner_json(args.sensors_ocel)
+        require(video_sha == SHA['scene01/scene01_video_ocel.json'] and
+                sensors_sha == SHA['scene01/scene01_sensors_ocel.json'],
+                'C17_ORIGINAL_SOURCE_SHA_MISMATCH')
+        packet = prepare(video, _outside_video_events(video, sensors),
+                         source_sha256=video_sha)
+        _owner_output(args.out, packet)
+        status = public_plan(packet)['status']
+    elif args.command == 'blank':
+        packet, _ = _owner_json(args.packet)
+        _owner_output(args.out, {role: blank_receipt(packet, role) for role in ROLES})
+        status = 'C17_BLANK_RECEIPTS_NO_HUMAN_VALUES'
+    else:
+        packet, _ = _owner_json(args.packet)
+        receipts, _ = _owner_json(args.receipts)
+        _owner_output(args.out, score(packet, receipts))
+        status = 'C17_OWNER_LOCAL_AGGREGATE_SCORE_CREATED'
+    print(json.dumps({'schema': SCHEMA, 'status': status,
+                      'files_exported_to_public_github': False}, sort_keys=True))
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (ReviewHold, c16.Hold) as exc:
+        import sys
+        print(str(exc), file=sys.stderr)
+        sys.exit(2)
