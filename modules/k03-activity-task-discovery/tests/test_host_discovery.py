@@ -227,7 +227,7 @@ class HostDiscoveryTests(unittest.TestCase):
                                     "K03_HOST_SOURCE_SET_INVALID"):
             host.discover(request, [row], today=TODAY)
         with self.assertRaisesRegex(k03.DiscoveryHold,
-                                    "K03_HOST_SOURCE_SET_INVALID"):
+                                    "K03_HOST_EXPECTED_REVISION_INVALID"):
             host.discover(need(), [row, row], today=TODAY)
 
     def test_no_task_level_f1_or_human_savings(self):
