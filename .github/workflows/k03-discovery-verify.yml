@@ -23,6 +23,54 @@ jobs:
           python-version: '3.13'
       - name: Offline source, revision, selection and negative tests
         run: python -W error::ResourceWarning -m unittest discover -s modules/k03-activity-task-discovery/tests -p 'test_*.py' -v
+      - name: Host-neutral input and user-supplied evidence contract
+        run: |
+          python -W error::ResourceWarning -m unittest discover -s modules/k03-activity-task-discovery/tests -p 'test_host_discovery.py' -v
+          python - <<'PY'
+          import hashlib, json, pathlib, subprocess, sys, tempfile
+          file = pathlib.Path('modules/k03-activity-task-discovery/host_discovery.py')
+          note = 'Нужно проверить заявки перед передачей смены.\\n'
+          raw = note.encode('utf-8')
+          record = {
+              'source_id':'doc-1', 'revision':'v1', 'text':note,
+              'epistemic':'reported',
+              'manifest': {
+                'schema':'IWXA_ENGINE_UNIVERSAL_EVIDENCE/0.1',
+                'kind':'PERSONAL_NOTE_UTF8',
+                'owner_ref':'synthetic-ci-person',
+                'jurisdiction':'UNDETERMINED',
+                'as_of':'2026-11-05',
+                'retention_until':'2027-12-31',
+                'purpose':'ENGINE_RESEARCH_AND_TEST',
+                'disclosure':'PERSONAL',
+                'access_basis':'OWNER_AUTHORIZATION_CLAIM',
+                'authorization_ref':'synthetic-ci-permission',
+                'permission_asserted':True,
+                'authorized_actions':['LOCAL_ANALYSIS'],
+                'revocation_status':'ACTIVE',
+                'sha256':hashlib.sha256(raw).hexdigest(),
+                'source_reference':'host://provided/doc-1',
+              }
+          }
+          payload = {'request': {
+            'mode':'NEED','text':'Хочу разобраться с заявками',
+            'expected_revisions': {'doc-1':'v1'}},
+            'sources':[record]}
+          with tempfile.TemporaryDirectory() as d:
+            target = pathlib.Path(d) / 'host-input.json'
+            target.write_text(json.dumps(payload,ensure_ascii=False),encoding='utf-8')
+            proc = subprocess.run([sys.executable,str(file),'--input-json',str(target)],
+                                  capture_output=True,text=True,check=True)
+            result = json.loads(proc.stdout)
+            assert result['schema'] == 'IWXA_K03_HOST_DISCOVERY/0.2.0'
+            assert result['route'] == 'QUALIFICATION_REQUIRED'
+            assert len(result['task_hypotheses']) == 1
+            assert result['source_count'] == 1
+            assert result['accepted_task_count'] == 0
+            assert result['task_created'] is False and result['result_created'] is False
+            assert result['human_task_gold'] is False and result['task_f1'] is None
+            print('K03_HOST_NEED_SOURCE_NATIVE_U1_PASS; P01_SELECTION_ONLY')
+          PY
       - name: Reproducible ADP-001 desk corpus and abstention
         run: |
           python modules/k03-activity-task-discovery/k03.py --all > "$RUNNER_TEMP/k03-receipt.json"
