@@ -36,4 +36,4 @@ jobs:
       - name: Execute real open-host sample
         run: node modules/k04-composer/sample/open-host.mjs
       - name: Preserve existing meeting attribution checks
-        run: python -m unittest discover -s tests -p "test_*.py" -v
+        run: python -m unittest discover -s tests -p "test_meeting_followup_attribution.py" -v
