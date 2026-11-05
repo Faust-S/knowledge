@@ -53,7 +53,7 @@ jobs:
               }
           }
           payload = {'request': {
-            'mode':'NEED','text':'Хочу разобраться с заявками',
+            'mode':'NEED','text':'Хочу проверить заявки',
             'expected_revisions': {'doc-1':'v1'}},
             'sources':[record]}
           with tempfile.TemporaryDirectory() as d:
