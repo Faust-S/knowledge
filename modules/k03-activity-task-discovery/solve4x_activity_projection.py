@@ -56,6 +56,7 @@ def _bound(name: str, *, episode: int | None = None, scope: str) -> dict:
         "source_id": name,
         "source_ref": _source_ref(name),
         "source_version": SOURCE_SHA[name],
+        "source_revision": SOURCE_SHA[name],
         "source_sha256": SOURCE_SHA[name],
         "locator": locator,
         "locator_granularity": "DERIVED_ORDINAL_NOT_RAW_EVENT_OR_VIDEO_FRAME",
