@@ -160,6 +160,89 @@ class K05Tests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "INVALID_BENCHMARK_ROUNDS"):
             k05.evaluate_case(case, sources, rounds=True)
 
+
+    def test_public_suite_source_diversity_and_negative_control(self):
+        self.assertEqual(len(k05.PUBLIC_SUITE), 4)
+        self.assertEqual(
+            {p.repository for c in k05.PUBLIC_SUITE for p in c.sources},
+            {"Faust-S/knowledge", "python/cpython", "nodejs/node"})
+        self.assertEqual(
+            len({(p.repository, p.path, p.version)
+                 for c in k05.PUBLIC_SUITE for p in c.sources}), 6)
+        self.assertEqual(
+            [c.expected_check for c in k05.PUBLIC_SUITE],
+            ["EVIDENCE_CHANGED", "EVIDENCE_CHANGED",
+             "EVIDENCE_CHANGED", "EVIDENCE_UNCHANGED"])
+
+    def test_suite_valid_proof_and_negative_control(self):
+        first, values = make_case()
+        second, values2 = make_case(b"same\n", b"same\n")
+        second = replace(
+            second, case_id="STABLE", expected_check="EVIDENCE_UNCHANGED",
+            sources=(
+                replace(second.sources[0], version="c" * 40,
+                        blob_sha=k05.git_blob_sha(b"same\n"),
+                        anchor="same", claim="SAME"),
+                replace(second.sources[1], version="d" * 40,
+                        blob_sha=k05.git_blob_sha(b"same\n"),
+                        anchor="same", claim="SAME")))
+        raw = {(p.repository, p.path, p.version): values[p.version]
+               for p in first.sources}
+        for pin in second.sources:
+            raw[(pin.repository, pin.path, pin.version)] = b"same\n"
+        result = k05.evaluate_suite((first, second), raw, rounds=2)
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["summary"]["evidence_changed_cases"], 1)
+        self.assertEqual(result["summary"]["evidence_unchanged_cases"], 1)
+        self.assertEqual(result["summary"]["baseline_agreement_count"], 2)
+        self.assertTrue(k05.verify_suite_receipt(result, (first, second), raw))
+        self.assertIsNone(result["unknown"]["human_task_accuracy"])
+        self.assertEqual(result["unknown"]["real_agent_result_readback"], "NOT_TESTED")
+
+    def test_suite_receipt_forgery_is_detected(self):
+        case, values = make_case()
+        raw = {(p.repository, p.path, p.version): values[p.version]
+               for p in case.sources}
+        receipt = k05.evaluate_suite((case,), raw, rounds=1)
+        receipt["summary"]["confirmed_cases"] += 1
+        self.assertFalse(k05.verify_suite_receipt(receipt, (case,), raw))
+        receipt = k05.evaluate_suite((case,), raw, rounds=1)
+        receipt["cases"][0]["tested"]["observations"][0]["claim"] = "FORGED"
+        self.assertFalse(k05.verify_suite_receipt(receipt, (case,), raw))
+
+    def test_suite_rejects_ambiguous_or_missing_source_pins(self):
+        case, values = make_case()
+        raw = {(p.repository, p.path, p.version): values[p.version]
+               for p in case.sources}
+        with self.assertRaisesRegex(ValueError, "INVALID_EVALUATION_SUITE"):
+            k05.evaluate_suite((case, case), raw)
+        with self.assertRaisesRegex(k05.PinMismatch, "SOURCE_VERSION_UNAVAILABLE"):
+            k05.evaluate_suite((case,), {})
+        other = replace(case, case_id="OTHER",
+                        sources=(replace(case.sources[0], blob_sha="0" * 40),
+                                 case.sources[1]))
+        with self.assertRaisesRegex(k05.PinMismatch, "SOURCE_PIN_INCONSISTENT"):
+            k05.evaluate_suite((case, other), raw, rounds=1)
+
+    def test_suite_remote_source_restricts_exact_version_and_blob(self):
+        pin = k05.CPYTHON_CASE.sources[0]
+        self.assertIn(
+            (pin.repository, pin.path, pin.version, pin.blob_sha),
+            k05.ALLOWED_REMOTE_PINS)
+        with self.assertRaisesRegex(k05.PinMismatch, "REMOTE_SOURCE_NOT_ALLOWLISTED"):
+            k05.fetch_public_pinned_source(replace(pin, version="f" * 40))
+
+    def test_suite_replay_reuses_identical_source_pin(self):
+        case, sources = make_case()
+        extra = replace(case, case_id="ANOTHER_CASE")
+        with patch.object(k05, "PUBLIC_SUITE", (case, extra)), patch.object(
+            k05, "fetch_public_pinned_source",
+            side_effect=lambda p: sources[p.version]
+        ) as fetched:
+            result = k05.public_suite_replay(rounds=1)
+        self.assertEqual(result["summary"]["unique_source_versions"], 2)
+        self.assertEqual(fetched.call_count, 2)
+
     def test_real_pin_metadata_stable(self):
         p, q = k05.PUBLIC_CASE.sources
         self.assertEqual((p.repository, p.path), (q.repository, q.path))

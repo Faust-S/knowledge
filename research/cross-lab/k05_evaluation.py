@@ -92,6 +92,94 @@ PUBLIC_CASE = EvaluationCase(
 )
 
 
+CPYTHON_CASE = EvaluationCase(
+    case_id="K05_CPYTHON_RELEASE_REVISION",
+    sources=(
+        SourcePin(
+            repository="python/cpython",
+            path="README.rst",
+            version="0fb18b02c8ad56299d6a2910be0bab8ad601ef24",
+            blob_sha="979ca01896a6db92678cb6b0eff902e329c313a6",
+            locator_line=1,
+            anchor="This is Python version 3.12.0",
+            claim="PYTHON_RELEASE_3_12",
+        ),
+        SourcePin(
+            repository="python/cpython",
+            path="README.rst",
+            version="60403a5409ff2c3f3b07dd2ca91a7a3e096839c7",
+            blob_sha="7c1e463273b4185fdbe037466c04ec802c3b9696",
+            locator_line=1,
+            anchor="This is Python version 3.13.0",
+            claim="PYTHON_RELEASE_3_13",
+        ),
+    ),
+    expected_check="EVIDENCE_CHANGED",
+)
+
+NODE_RELEASE_CASE = EvaluationCase(
+    case_id="K05_NODE_RELEASE_BRANCH_REVISION",
+    sources=(
+        SourcePin(
+            repository="nodejs/node",
+            path="README.md",
+            version="12fb157f79da8c094a54bc99370994941c28c235",
+            blob_sha="a3ee8b7444bfb46217a7a4413b3d2617d4b442ea",
+            locator_line=46,
+            anchor="[v19.x](https://github.com/nodejs/node/tree/v19.x)). Node.js releases a new",
+            claim="NODE_CURRENT_BRANCH_REFERENCE_V19",
+        ),
+        SourcePin(
+            repository="nodejs/node",
+            path="README.md",
+            version="c5349f43cd66d2aa02d86414c9ed426f71d3ae48",
+            blob_sha="38a0afaaa363617e338ce50466adc51f13896196",
+            locator_line=46,
+            anchor="[v22.x](https://github.com/nodejs/node/tree/v22.x)). Node.js releases a new",
+            claim="NODE_CURRENT_BRANCH_REFERENCE_V22",
+        ),
+    ),
+    expected_check="EVIDENCE_CHANGED",
+)
+
+NODE_STABLE_CASE = EvaluationCase(
+    case_id="K05_NODE_STABLE_TEXT_NEGATIVE_CONTROL",
+    sources=(
+        SourcePin(
+            repository="nodejs/node",
+            path="README.md",
+            version="12fb157f79da8c094a54bc99370994941c28c235",
+            blob_sha="a3ee8b7444bfb46217a7a4413b3d2617d4b442ea",
+            locator_line=3,
+            anchor="Node.js is an open-source, cross-platform JavaScript runtime environment.",
+            claim="NODE_DESCRIPTION_STABLE",
+        ),
+        SourcePin(
+            repository="nodejs/node",
+            path="README.md",
+            version="c5349f43cd66d2aa02d86414c9ed426f71d3ae48",
+            blob_sha="38a0afaaa363617e338ce50466adc51f13896196",
+            locator_line=3,
+            anchor="Node.js is an open-source, cross-platform JavaScript runtime environment.",
+            claim="NODE_DESCRIPTION_STABLE",
+        ),
+    ),
+    expected_check="EVIDENCE_UNCHANGED",
+)
+
+PUBLIC_SUITE = (
+    PUBLIC_CASE,
+    CPYTHON_CASE,
+    NODE_RELEASE_CASE,
+    NODE_STABLE_CASE,
+)
+SUITE_SCHEMA = "IWXA_K05_EVALUATION_SUITE/0.1"
+ALLOWED_REMOTE_PINS = frozenset(
+    (pin.repository, pin.path, pin.version, pin.blob_sha)
+    for case in PUBLIC_SUITE
+    for pin in case.sources
+)
+
 def git_blob_sha(data: bytes) -> str:
     return hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + b"\x00" + data).hexdigest()
 
@@ -126,7 +214,7 @@ def verify_source(pin: SourcePin, data: bytes) -> None:
 
 def fetch_public_pinned_source(pin: SourcePin) -> bytes:
     _validate_pin(pin)
-    if pin.repository != "Faust-S/knowledge" or pin.path != "AGENTS.md":
+    if (pin.repository, pin.path, pin.version, pin.blob_sha) not in ALLOWED_REMOTE_PINS:
         raise PinMismatch("REMOTE_SOURCE_NOT_ALLOWLISTED")
     url = (
         "https://raw.githubusercontent.com/"
@@ -373,6 +461,153 @@ def verify_evidence_receipt(
         return False
 
 
+
+def _pin_key(pin: SourcePin) -> tuple[str, str, str]:
+    return pin.repository, pin.path, pin.version
+
+
+def _case_sources(
+    case: EvaluationCase,
+    sources: Mapping[tuple[str, str, str], bytes],
+) -> dict[str, bytes]:
+    subset: dict[str, bytes] = {}
+    for pin in case.sources:
+        key = _pin_key(pin)
+        if key not in sources:
+            raise PinMismatch("SOURCE_VERSION_UNAVAILABLE")
+        subset[pin.version] = sources[key]
+    return subset
+
+
+def evaluate_suite(
+    cases: tuple[EvaluationCase, ...],
+    sources: Mapping[tuple[str, str, str], bytes],
+    *,
+    rounds: int = 100,
+) -> dict:
+    if not cases or len(cases) > 100 or len({case.case_id for case in cases}) != len(cases):
+        raise ValueError("INVALID_EVALUATION_SUITE")
+    results = []
+    unique_pins = {}
+    for case in cases:
+        source_subset = _case_sources(case, sources)
+        for pin in case.sources:
+            key = _pin_key(pin)
+            if key in unique_pins and unique_pins[key] != pin.blob_sha:
+                raise PinMismatch("SOURCE_PIN_INCONSISTENT")
+            unique_pins[key] = pin.blob_sha
+        result = asdict(evaluate_case(case, source_subset, rounds=rounds))
+        if not verify_evidence_receipt(result, case, source_subset):
+            raise PinMismatch("RECEIPT_EVIDENCE_MISMATCH")
+        results.append(result)
+
+    confirmed = sum(r["status"] == "CONFIRMED" for r in results)
+    status = "PASS" if confirmed == len(cases) else "HOLD"
+    summary = {
+        "case_count": len(cases),
+        "confirmed_cases": confirmed,
+        "baseline_agreement_count": sum(
+            r["checks"]["baseline_tested_agreement"] for r in results
+        ),
+        "evidence_changed_cases": sum(
+            r["tested"]["status"] == "EVIDENCE_CHANGED" for r in results
+        ),
+        "evidence_unchanged_cases": sum(
+            r["tested"]["status"] == "EVIDENCE_UNCHANGED" for r in results
+        ),
+        "literal_conflict_cases": sum(
+            r["tested"]["status"] == "LITERAL_CONFLICT" for r in results
+        ),
+        "review_payload_bytes_baseline": sum(
+            r["baseline"]["review_bytes"] for r in results
+        ),
+        "review_payload_bytes_tested": sum(
+            r["tested"]["review_bytes"] for r in results
+        ),
+        "unique_source_versions": len(unique_pins),
+        "unique_repositories": len({k[0] for k in unique_pins}),
+    }
+    return {
+        "schema": SUITE_SCHEMA,
+        "status": status,
+        "bench_rounds": rounds,
+        "scope": {
+            "corpus_selection": "CURATED_SOURCE_PINS_NO_INDEPENDENT_GOLD",
+            "baseline": "DIRECT_READ_EXACT_SEARCH",
+            "tested": "PINNED_LINE_EXACT",
+            "baseline_has_no_line_locator": True,
+            "tested_has_curated_line_locator": True,
+            "human_gold": False,
+            "source_access": "PIN_VERIFIED_BYTES",
+        },
+        "summary": summary,
+        "source_pins": [
+            {
+                "repository": key[0],
+                "path": key[1],
+                "version": key[2],
+                "git_blob_sha": blob,
+            }
+            for key, blob in sorted(unique_pins.items())
+        ],
+        "cases": results,
+        "unknown": {
+            "human_task_accuracy": None,
+            "human_completion_time_ms": None,
+            "human_review_cost_usd": None,
+            "independent_semantic_gold": None,
+            "real_agent_result_readback": "NOT_TESTED",
+        },
+    }
+
+
+def verify_suite_receipt(
+    receipt: Mapping[str, object],
+    cases: tuple[EvaluationCase, ...],
+    sources: Mapping[tuple[str, str, str], bytes],
+) -> bool:
+    if not isinstance(receipt, Mapping):
+        return False
+    try:
+        # Recompute each evidence case independently. Timing measurements are
+        # not independently authenticated by a portable source proof.
+        recomputed = evaluate_suite(cases, sources, rounds=1)
+        if set(receipt) != set(recomputed):
+            return False
+        for key in ("schema", "status", "scope", "summary", "source_pins", "unknown"):
+            if receipt.get(key) != recomputed[key]:
+                return False
+        rounds = receipt.get("bench_rounds")
+        if type(rounds) is not int or not 1 <= rounds <= 10000:
+            return False
+        case_receipts = receipt.get("cases")
+        if not isinstance(case_receipts, list) or len(case_receipts) != len(cases):
+            return False
+        for case, result in zip(cases, case_receipts):
+            if not isinstance(result, Mapping):
+                return False
+            if result.get("scope", {}).get("bench_rounds") != rounds:
+                return False
+            if not verify_evidence_receipt(result, case, _case_sources(case, sources)):
+                return False
+        return True
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return False
+
+
+def public_suite_replay(*, rounds: int = 100) -> dict:
+    source_map: dict[tuple[str, str, str], bytes] = {}
+    for case in PUBLIC_SUITE:
+        for pin in case.sources:
+            key = _pin_key(pin)
+            if key not in source_map:
+                source_map[key] = fetch_public_pinned_source(pin)
+    receipt = evaluate_suite(PUBLIC_SUITE, source_map, rounds=rounds)
+    if not verify_suite_receipt(receipt, PUBLIC_SUITE, source_map):
+        raise PinMismatch("SUITE_RECEIPT_MISMATCH")
+    return receipt
+
+
 def public_replay(*, rounds: int = 100) -> ComparisonResult:
     sources = {pin.version: fetch_public_pinned_source(pin) for pin in PUBLIC_CASE.sources}
     result = evaluate_case(PUBLIC_CASE, sources, rounds=rounds)
@@ -385,20 +620,38 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--rounds", type=int, default=100)
+    parser.add_argument("--suite", action="store_true")
     args = parser.parse_args()
     try:
-        result = asdict(public_replay(rounds=args.rounds))
+        result = (
+            public_suite_replay(rounds=args.rounds)
+            if args.suite else asdict(public_replay(rounds=args.rounds))
+        )
         with args.out.open("x", encoding="utf-8") as stream:
             json.dump(result, stream, ensure_ascii=True, indent=2, sort_keys=True)
             stream.write("\n")
-        print(json.dumps({
-            "schema": result["schema"],
-            "status": result["status"],
-            "versions_verified": result["measured"]["versions_verified"],
-            "baseline_tested_agreement": result["checks"]["baseline_tested_agreement"],
-            "human_gold": False,
-        }, sort_keys=True))
-        return 0 if result["status"] == "CONFIRMED" else 2
+        if args.suite:
+            report = {
+                "schema": result["schema"],
+                "status": result["status"],
+                "confirmed_cases": result["summary"]["confirmed_cases"],
+                "case_count": result["summary"]["case_count"],
+                "source_versions": result["summary"]["unique_source_versions"],
+                "repositories": result["summary"]["unique_repositories"],
+                "human_gold": False,
+            }
+            good = result["status"] == "PASS"
+        else:
+            report = {
+                "schema": result["schema"],
+                "status": result["status"],
+                "versions_verified": result["measured"]["versions_verified"],
+                "baseline_tested_agreement": result["checks"]["baseline_tested_agreement"],
+                "human_gold": False,
+            }
+            good = result["status"] == "CONFIRMED"
+        print(json.dumps(report, sort_keys=True))
+        return 0 if good else 2
     except (ValueError, OSError) as exc:
         error = str(exc) if isinstance(exc, PinMismatch) else "SOURCE_OR_ENVIRONMENT_UNAVAILABLE"
         print(json.dumps({"status": "HOLD", "code": error}), file=sys.stderr)

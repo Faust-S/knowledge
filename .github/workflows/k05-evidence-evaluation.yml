@@ -48,8 +48,36 @@ jobs:
           assert "source_text" not in str(receipt)
           print("K05_REVISION_CHANGE_BASELINE_PASS; SEMANTIC_CONFLICT_NOT_INFERRED")
           PY
+      - name: Evaluate public multi-repository pinned suite
+        run: python research/cross-lab/k05_evaluation.py --suite --out "$RUNNER_TEMP/k05-suite-proof.json" --rounds 100
+      - name: Verify portable multi-source source-first proof
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          receipt = json.loads((Path(os.environ["RUNNER_TEMP"]) / "k05-suite-proof.json").read_text())
+          assert receipt["schema"] == "IWXA_K05_EVALUATION_SUITE/0.1"
+          assert receipt["status"] == "PASS"
+          assert receipt["summary"]["case_count"] == 4
+          assert receipt["summary"]["confirmed_cases"] == 4
+          assert receipt["summary"]["baseline_agreement_count"] == 4
+          assert receipt["summary"]["evidence_changed_cases"] == 3
+          assert receipt["summary"]["evidence_unchanged_cases"] == 1
+          assert receipt["summary"]["unique_source_versions"] == 6
+          assert receipt["summary"]["unique_repositories"] == 3
+          assert receipt["scope"]["human_gold"] is False
+          assert receipt["scope"]["tested_has_curated_line_locator"] is True
+          assert receipt["unknown"]["human_task_accuracy"] is None
+          assert receipt["unknown"]["real_agent_result_readback"] == "NOT_TESTED"
+          assert receipt["summary"]["review_payload_bytes_tested"] < receipt["summary"]["review_payload_bytes_baseline"]
+          assert "source_text" not in str(receipt)
+          print("K05_MULTI_SOURCE_PINNED_PASS; HUMAN_OUTCOME_NOT_MEASURED")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: k05-public-hash-only-proof
-          path: ${{ runner.temp }}/k05-proof.json
+          path: |
+            ${{ runner.temp }}/k05-proof.json
+            ${{ runner.temp }}/k05-suite-proof.json
           retention-days: 7
