@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { fingerprintContextRequest } from './request-binding.mjs';
 
-export const CONTRACT_VERSION = '0.2.7';
+export const CONTRACT_VERSION = '0.2.8';
 const MAX_ITEMS = 4096;
 const MAX_EXCERPT_BYTES = 65536;
 const identifier = value => typeof value === 'string' && value.length > 0 && value.length <= 512 && value.trim() === value && !/[\x00-\x1f]/.test(value);
@@ -24,6 +24,8 @@ function normalize(request) {
       || !Array.isArray(request.allowedSources) || !Number.isSafeInteger(request.maxTokens)
       || request.maxTokens < 0 || request.terms.length > 128 || request.allowedSources.length > 4096
       || (request.profile !== undefined && !identifier(request.profile))
+      || (request.scopeRevision !== undefined && !(identifier(request.scopeRevision)
+        || Number.isSafeInteger(request.scopeRevision) && request.scopeRevision >= 0))
       || (request.allowInferred !== undefined && typeof request.allowInferred !== 'boolean')) {
     throw new TypeError('invalid ContextRequest');
   }
@@ -36,7 +38,8 @@ function normalize(request) {
     return ref;
   }))].sort(compare);
   return { taskId: request.taskId, terms, allowedSources, maxTokens: request.maxTokens,
-    allowInferred: request.allowInferred === true, profile: request.profile };
+    allowInferred: request.allowInferred === true, profile: request.profile,
+    scopeRevision: request.scopeRevision };
 }
 
 function relevance(item, terms) {

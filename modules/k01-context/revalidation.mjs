@@ -46,7 +46,11 @@ export async function revalidateProjection(projection, observationPort, expected
         || (expectedRequest.requireRequestMatch !== undefined && typeof expectedRequest.requireRequestMatch !== 'boolean')
         || (expectedRequest.terms !== undefined && (!Array.isArray(expectedRequest.terms)
           || expectedRequest.terms.length > 128))
-        || (expectedRequest.profile !== undefined && !id(expectedRequest.profile))) {
+        || (expectedRequest.profile !== undefined && !id(expectedRequest.profile))
+        || (expectedRequest.scopeRevision !== undefined
+          && !(id(expectedRequest.scopeRevision)
+            || Number.isSafeInteger(expectedRequest.scopeRevision)
+              && expectedRequest.scopeRevision >= 0))) {
       throw new TypeError('invalid host ContextUseRequest');
     }
     if (projection.taskId !== expectedRequest.taskId) failures.push({ reason: 'task_mismatch' });

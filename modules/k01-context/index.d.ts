@@ -15,6 +15,8 @@ export interface ContextRequest {
   readonly maxTokens: number;
   readonly allowInferred?: boolean;
   readonly profile?: string;
+  /** Host-owned snapshot revision (e.g. Atlas project revision). */
+  readonly scopeRevision?: string | number;
 }
 export interface SourceObservation {
   readonly sourceRef: string;
@@ -64,7 +66,7 @@ export interface ContextProjection {
   readonly estimatedTokens: number;
   readonly missing: boolean;
 }
-export declare const CONTRACT_VERSION: '0.2.7';
+export declare const CONTRACT_VERSION: '0.2.8';
 export declare function selectContext(request: ContextRequest, port: ObservationPort): Promise<ContextProjection>;
 export declare function traceEvidence(projection: ContextProjection): Array<Pick<ContextSelection, 'id' | 'sourceRef' | 'revision' | 'epistemic' | 'evidenceRef' | 'sha256'>>;
 export declare function summarizeMemory(items: readonly KnowledgeItem[], constraints: { maxTokens: number; allowInferred?: boolean }): {
@@ -99,6 +101,8 @@ export interface ContextUseRequest {
   readonly requireNoOmissions?: boolean;
   readonly terms?: readonly string[];
   readonly profile?: string;
+  /** Current host snapshot revision; strict request matching rejects outdated projections. */
+  readonly scopeRevision?: string | number;
   /** Require terms at the point of use; revalidation fails before source reads if omitted. */
   readonly requireRequestMatch?: boolean;
 }

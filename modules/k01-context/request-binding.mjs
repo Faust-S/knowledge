@@ -5,6 +5,8 @@ import { createHash } from 'node:crypto';
 const valid = s => typeof s === 'string' && s.length > 0 && s.length <= 512
   && s.trim() === s && !/[\x00-\x1f]/.test(s);
 const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+const validScopeRevision = value => value === undefined
+  || (Number.isSafeInteger(value) && value >= 0) || valid(value);
 const normalizedStrings = (values, label, limit, lowercase = false) => {
   if (!Array.isArray(values) || values.length > limit
       || values.some(value => !valid(value))) {
@@ -16,6 +18,7 @@ export function fingerprintContextRequest(request) {
   if (!request || !valid(request.taskId)
       || (!Number.isSafeInteger(request.maxTokens) || request.maxTokens < 0)
       || (request.profile !== undefined && !valid(request.profile))
+      || !validScopeRevision(request.scopeRevision)
       || (request.allowInferred !== undefined && typeof request.allowInferred !== 'boolean')) {
     throw new TypeError('invalid context request identity');
   }
@@ -26,9 +29,10 @@ export function fingerprintContextRequest(request) {
     request.maxTokens,
     request.profile ?? null,
     request.allowInferred === true,
+    request.scopeRevision ?? null,
   ];
   return createHash('sha256')
-    .update('iwxa-k01-context-request-v2\0', 'utf8')
+    .update('iwxa-k01-context-request-v3\0', 'utf8')
     .update(JSON.stringify(fields), 'utf8')
     .digest('hex');
 }
