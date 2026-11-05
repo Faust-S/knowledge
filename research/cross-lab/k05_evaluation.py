@@ -40,7 +40,7 @@ class EvidenceObservation:
     locator: str | None
     claim: str | None
     state: str
-    git_blob_sha: str
+    git_blob_sha: str | None
     sha256: str
     line_sha256: str | None = None
     literal_key: str | None = None
@@ -606,6 +606,162 @@ def public_suite_replay(*, rounds: int = 100) -> dict:
     if not verify_suite_receipt(receipt, PUBLIC_SUITE, source_map):
         raise PinMismatch("SUITE_RECEIPT_MISMATCH")
     return receipt
+
+
+
+OFFSET_PROJECTION_SCHEMA = "IWXA_K05_SOURCE_OFFSET_PROJECTION/0.1"
+
+
+def project_k03_issue_evidence(
+    bundle: Mapping[str, object], source_bytes: bytes, *,
+    manifest_bytes: bytes, expected_manifest_git_blob: str,
+) -> dict:
+    """Project verified source bytes/offsets, not task truth or U1 decisions.
+
+    The caller obtains the K03 bundle and source bytes from the owning replay.
+    The expected manifest blob must come from a trusted owner pin, not bundle.
+    """
+    if not isinstance(bundle, Mapping) or bundle.get("schema") != (
+        "IWXA_K03_PUBLIC_ISSUE_DISCOVERY/0.1.0"
+    ):
+        raise PinMismatch("K03_SOURCE_BUNDLE_UNSUPPORTED")
+    if (type(manifest_bytes) is not bytes
+        or len(manifest_bytes) > MAX_SOURCE_BYTES
+        or type(expected_manifest_git_blob) is not str
+        or PIN_RE.fullmatch(expected_manifest_git_blob) is None
+        or git_blob_sha(manifest_bytes) != expected_manifest_git_blob
+        or bundle.get("source_manifest_git_blob") != expected_manifest_git_blob):
+        raise PinMismatch("SOURCE_MANIFEST_VERSION_CHANGED")
+    try:
+        selection = json.loads(manifest_bytes.decode("utf-8", "strict"))
+    except (ValueError, UnicodeError) as exc:
+        raise PinMismatch("SOURCE_MANIFEST_INVALID") from None
+    if (type(selection) is not dict
+        or selection.get("schema") != "IWXA_TASK_EXP_01_PUBLIC_ISSUE_SOURCE_SLICE/0.1"
+        or selection.get("no_gold") is not True
+        or type(selection.get("items")) is not list):
+        raise PinMismatch("SOURCE_MANIFEST_INVALID")
+
+    source_ref, source_sha = bundle.get("source_ref"), bundle.get("source_sha256")
+    if (type(source_ref) is not str or not source_ref.startswith("https://github.com/")
+        or type(source_sha) is not str
+        or re.fullmatch(r"[0-9a-f]{64}", source_sha) is None
+        or type(bundle.get("case_id")) is not str):
+        raise PinMismatch("SOURCE_IDENTITY_INVALID")
+    matching = [row for row in selection["items"]
+                if type(row) is dict and row.get("html_url") == source_ref]
+    if len(matching) != 1:
+        raise PinMismatch("SOURCE_NOT_IN_PINNED_SELECTION")
+    row = matching[0]
+    if (row.get("projection_sha256") != source_sha
+        or row.get("source_projection") != "TITLE_NEWLINE_BODY_NEWLINE_UTF8"
+        or type(row.get("projection_bytes")) is not int):
+        raise PinMismatch("SOURCE_MANIFEST_BINDING_CHANGED")
+    if (type(source_bytes) is not bytes
+        or len(source_bytes) > MAX_SOURCE_BYTES
+        or len(source_bytes) != row["projection_bytes"]
+        or hashlib.sha256(source_bytes).hexdigest() != source_sha):
+        raise PinMismatch("SOURCE_VERSION_MISMATCH")
+    try:
+        source_bytes.decode("utf-8", "strict")
+    except UnicodeError as exc:
+        raise PinMismatch("SOURCE_ENCODING_INVALID") from None
+    # K03 owns evidence->hypothesis interpretation and native U1 replay.
+    # Refuse to upgrade a task or claim human gold from an untrusted bundle.
+    if (bundle.get("human_task_gold") is not False
+        or bundle.get("accepted_task_count") != 0
+        or bundle.get("task_type_accepted") is not False
+        or bundle.get("source_text_exported") is not False):
+        raise PinMismatch("TASK_AUTHORITY_NOT_SOURCE_EVIDENCE")
+    rows = bundle.get("activity_observations")
+    if type(rows) is not list or not 1 <= len(rows) <= 100:
+        raise PinMismatch("INVALID_SOURCE_OBSERVATIONS")
+    exported = []
+    seen = set()
+    cue_excerpt_bytes = 0
+    for obs in rows:
+        if type(obs) is not dict:
+            raise PinMismatch("INVALID_SOURCE_OBSERVATIONS")
+        eid = obs.get("id")
+        if (type(eid) is not str or not eid or eid in seen
+            or obs.get("source_ref") != source_ref
+            or obs.get("source_sha256") != source_sha
+            or obs.get("source_version") != expected_manifest_git_blob):
+            raise PinMismatch("SOURCE_OBSERVATION_REVISION_CHANGED")
+        if any(key in obs for key in (
+            "claim", "claim_verified", "task_accepted", "semantic_truth"
+        )):
+            raise PinMismatch("UNSUPPORTED_SEMANTIC_ASSERTION")
+        seen.add(eid)
+        locator = obs.get("locator")
+        if type(locator) is not dict or set(locator) != {"byte_start", "byte_end"}:
+            raise PinMismatch("SOURCE_LOCATOR_INVALID")
+        start, end = locator["byte_start"], locator["byte_end"]
+        if (type(start) is not int or type(end) is not int
+            or not 0 <= start < end <= len(source_bytes)):
+            raise PinMismatch("SOURCE_LOCATOR_INVALID")
+        span_digest = hashlib.sha256(source_bytes[start:end]).hexdigest()
+        if "asserted_span_sha256" in obs and obs["asserted_span_sha256"] != span_digest:
+            raise PinMismatch("ASSERTED_SPAN_NOT_SOURCE_BOUND")
+        cue = obs.get("cue_kind")
+        if cue is not None:
+            if type(cue) is not str or not cue:
+                raise PinMismatch("SOURCE_CUE_METADATA_INVALID")
+            cue_excerpt_bytes += end - start
+        exported.append({
+            "id": eid,
+            "source_span_sha256": span_digest,
+            "observation": asdict(EvidenceObservation(
+                source=source_ref, version=source_sha,
+                locator=f"bytes:{start}-{end}", claim=None,
+                state="OBSERVED", git_blob_sha=None, sha256=source_sha,
+            )),
+        })
+    return {
+        "schema": OFFSET_PROJECTION_SCHEMA,
+        "status": "PINNED_SOURCE_SPANS_VERIFIED_SEMANTICS_NOT_MEASURED",
+        "case_id": bundle["case_id"],
+        "source_ref": source_ref,
+        "source_sha256": source_sha,
+        "source_manifest_git_blob": expected_manifest_git_blob,
+        "evidence_observations": exported,
+        "measured": {
+            "source_integrity_scan_bytes": len(source_bytes),
+            "direct_read_reference_bytes": len(source_bytes),
+            "pinned_cue_excerpt_bytes": cue_excerpt_bytes,
+            "observation_count": len(exported),
+        },
+        "scope": {
+            "source_sha256_verified": True,
+            "manifest_git_blob_verified": True,
+            "source_locator_verified": True,
+            "k03_native_u1_replayed_by_k05": False,
+            "k03_hypotheses_verified_by_k05": False,
+            "cue_span_meaning_verified": False,
+            "curated_locator_cost_included": False,
+            "source_fetch_cost_included": False,
+        },
+        "unknown": {
+            "human_task_gold": False,
+            "task_precision": None, "task_recall": None, "task_f1": None,
+            "human_task_completion_ms": None, "semantic_claim_accuracy": None,
+            "agent_result_readback": "NOT_TESTED",
+        },
+    }
+
+
+def verify_k03_source_projection(
+    receipt: Mapping[str, object], bundle: Mapping[str, object],
+    source_bytes: bytes, *, manifest_bytes: bytes,
+    expected_manifest_git_blob: str,
+) -> bool:
+    """Portable recheck of K05 source proof; no independent task adjudication."""
+    try:
+        return receipt == project_k03_issue_evidence(
+            bundle, source_bytes, manifest_bytes=manifest_bytes,
+            expected_manifest_git_blob=expected_manifest_git_blob)
+    except (PinMismatch, TypeError, ValueError, KeyError):
+        return False
 
 
 def public_replay(*, rounds: int = 100) -> ComparisonResult:

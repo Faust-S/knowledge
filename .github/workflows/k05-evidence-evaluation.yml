@@ -7,6 +7,8 @@ on:
     paths:
       - 'research/cross-lab/k05_evaluation.py'
       - 'research/cross-lab/tests/test_k05_evaluation.py'
+      - 'research/cross-lab/tests/test_k05_k03_projection.py'
+      - 'research/cross-lab/tests/k05_k03_live.py'
       - '.github/workflows/k05-evidence-evaluation.yml'
   workflow_dispatch:
 
@@ -74,6 +76,17 @@ jobs:
           assert "source_text" not in str(receipt)
           print("K05_MULTI_SOURCE_PINNED_PASS; HUMAN_OUTCOME_NOT_MEASURED")
           PY
+      - name: Checkout pinned K03 owner source (read-only public)
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 5688d58432b807b1c8afe41b1aa54bd949ab7ab1
+          path: .k03-owner
+          persist-credentials: false
+      - name: K05 source-only proof of one real K03 issue without a new evaluator
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python research/cross-lab/tests/k05_k03_live.py
       - uses: actions/upload-artifact@v4
         with:
           name: k05-public-hash-only-proof
