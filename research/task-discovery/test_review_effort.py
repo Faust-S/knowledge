@@ -328,6 +328,90 @@ class EffortTests(unittest.TestCase):
             self.assertFalse(result['human_task_gold'])
             self.assertFalse(result['active_time_independently_verified'])
 
+    def test_blank_time_template_is_source_bound_and_not_measured(self):
+        a, b, receipt, selected = fixture()
+        hashes = ('a' * 64, 'b' * 64)
+        template = e.prepare_active_time_template(
+            a, b, receipt, selected, hashes)
+        self.assertEqual(template['schema'], e.ACTIVE_TIME_SCHEMA)
+        self.assertEqual(template['review_export_sha256'],
+                         {'A': hashes[0], 'B': hashes[1]})
+        self.assertEqual(len(template['active_seconds_by_source']['A']), 8)
+        self.assertEqual(len(template['active_seconds_by_source']['B']), 8)
+        for slot in ('A', 'B'):
+            self.assertEqual({row['source_sha256'] for row in
+                              template['active_seconds_by_source'][slot]},
+                             {'sha256:' + key for key in selected})
+            self.assertTrue(all(row['active_seconds'] is None for row in
+                                template['active_seconds_by_source'][slot]))
+        self.assertNotIn('Synthetic task', json.dumps(template))
+        self.assertNotIn('completed_by', json.dumps(template))
+        with self.assertRaisesRegex(e.EffortHold, 'ACTIVE_TIME_SECONDS_INVALID'):
+            e.summarize(a, b, receipt, selected, 'pinned',
+                        active_time_log=template, export_sha256=hashes)
+
+    def test_blank_time_template_requires_existing_bridge_and_distinct_reviewers(self):
+        a, b, receipt, selected = fixture()
+        receipt['status'] = 'NOT_CHECKED'
+        with self.assertRaisesRegex(e.EffortHold,
+                                    'OWNER_REVIEW_BRIDGE_RECEIPT_REQUIRED'):
+            e.prepare_active_time_template(
+                a, b, receipt, selected, ('a' * 64, 'b' * 64))
+        a, b, receipt, selected = fixture()
+        b[0]['annotations'][0]['completed_by'] = 10
+        for row in b:
+            row['annotations'][0]['completed_by'] = 10
+        with self.assertRaisesRegex(e.EffortHold, 'SAME_REVIEWER_CLAIM'):
+            e.prepare_active_time_template(
+                a, b, receipt, selected, ('a' * 64, 'b' * 64))
+
+    def test_cli_prepares_unfilled_owner_local_file_using_exact_export_bytes(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        import os
+        import sys
+        a, b, receipt, selected = fixture()
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            first, second = root / 'review-a.json', root / 'review-b.json'
+            bridge_path, target = root / 'bridge.json', root / 'stopwatch.json'
+            first.write_text(json.dumps(a), encoding='utf-8')
+            second.write_text(json.dumps(b), encoding='utf-8')
+            bridge_path.write_text(json.dumps(receipt), encoding='utf-8')
+            expected = {'A': hashlib.sha256(first.read_bytes()).hexdigest(),
+                        'B': hashlib.sha256(second.read_bytes()).hexdigest()}
+            original = Path.read_bytes
+            reads = {first: 0, second: 0}
+
+            def count_reads(path):
+                if path in reads:
+                    reads[path] += 1
+                return original(path)
+
+            argv = ['review_effort.py', '--owner-bridge-receipt', str(bridge_path),
+                    '--review-a', str(first), '--review-b', str(second),
+                    '--prepare-active-time-template', '--out', str(target)]
+            with (patch.object(sys, 'argv', argv),
+                  patch.object(e, 'frozen_sources', return_value=selected),
+                  patch.object(e, 'read_method_commitment', return_value='pinned'),
+                  patch.object(Path, 'read_bytes', count_reads)):
+                self.assertEqual(e.main(), 0)
+            self.assertEqual(reads, {first: 1, second: 1})
+            template = json.loads(target.read_text('utf-8'))
+            self.assertEqual(template['review_export_sha256'], expected)
+            self.assertEqual(len(template['active_seconds_by_source']['A']), 8)
+            self.assertTrue(all(row['active_seconds'] is None for row in
+                                template['active_seconds_by_source']['B']))
+            if os.name == 'posix':
+                self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+            old_bytes = target.read_bytes()
+            with (patch.object(sys, 'argv', argv),
+                  patch.object(e, 'frozen_sources', return_value=selected),
+                  patch.object(e, 'read_method_commitment', return_value='pinned')):
+                self.assertEqual(e.main(), 2)
+            self.assertEqual(target.read_bytes(), old_bytes)
+
     def test_absent_stopwatch_log_is_not_inferred_from_lead_time(self):
         a,b,r,s=fixture()
         output=e.summarize(a,b,r,s,'pinned')
