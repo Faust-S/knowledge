@@ -226,5 +226,61 @@ class EffortTests(unittest.TestCase):
             e.summarize(a,b,r,s,'pinned',hourly_rate_usd=Decimal('-1'))
 
 
+    def test_owner_local_stopwatch_log_is_bound_to_eight_and_export_digests(self):
+        import copy
+        a,b,receipt,selected=fixture()
+        hashes=('a'*64,'b'*64)
+        rows=lambda factor:[{'source_sha256':'sha256:'+digest,
+                              'active_seconds':(index+1)*factor}
+                             for index,digest in enumerate(selected)]
+        log={'schema':e.ACTIVE_TIME_SCHEMA,
+             'measurement_method':e.ACTIVE_TIME_METHOD,
+             'review_export_sha256':{'A':hashes[0],'B':hashes[1]},
+             'active_seconds_by_source':{'A':rows(1),'B':rows(2)}}
+        output=e.summarize(a,b,receipt,selected,'pinned',
+                           hourly_rate_usd=Decimal('60'),
+                           active_time_log=log,export_sha256=hashes)
+        self.assertEqual(output['reported_active_seconds_total'],108)
+        self.assertEqual(output['reported_active_seconds_by_reviewer'],
+                         {'A':36,'B':72})
+        self.assertEqual(output['estimated_active_review_cost_usd'],'1.8000')
+        self.assertFalse(output['active_time_independently_verified'])
+        self.assertFalse(output['independent_attention_time_measured'])
+        self.assertFalse(output['human_task_gold'])
+        self.assertNotIn('source_sha256',json.dumps(output))
+        for mutate, expected in (
+            (lambda x:x['review_export_sha256'].update(B='c'*64),
+             'ACTIVE_TIME_EXPORT_BINDING_MISMATCH'),
+            (lambda x:x['active_seconds_by_source']['A'].pop(),
+             'ACTIVE_TIME_SOURCE_SET_INCOMPLETE'),
+            (lambda x:x['active_seconds_by_source']['A'][0].update(active_seconds=True),
+             'ACTIVE_TIME_SECONDS_INVALID'),
+            (lambda x:x['active_seconds_by_source']['A'][0].update(active_seconds=-1),
+             'ACTIVE_TIME_SECONDS_INVALID'),
+            (lambda x:x['active_seconds_by_source']['A'][0].update(
+                source_sha256='sha256:'+'0'*64),'ACTIVE_TIME_SOURCE_SET_INVALID'),
+            (lambda x:[r.update(active_seconds=1e308)
+                       for r in x['active_seconds_by_source']['A']],
+             'ACTIVE_TIME_TOTAL_NONFINITE'),
+        ):
+            bad=copy.deepcopy(log)
+            mutate(bad)
+            with self.subTest(expected=expected),self.assertRaisesRegex(
+                    e.EffortHold,expected):
+                e.summarize(a,b,receipt,selected,'pinned',
+                            active_time_log=bad,export_sha256=hashes)
+        with self.assertRaisesRegex(e.EffortHold,
+                                    'ACTIVE_TIME_EXPORT_BINDING_REQUIRED'):
+            e.summarize(a,b,receipt,selected,'pinned',active_time_log=log)
+
+    def test_absent_stopwatch_log_is_not_inferred_from_lead_time(self):
+        a,b,r,s=fixture()
+        output=e.summarize(a,b,r,s,'pinned')
+        self.assertFalse(output['active_time_reported'])
+        self.assertIsNone(output['reported_active_seconds_total'])
+        self.assertIsNone(output['estimated_active_review_cost_usd'])
+        self.assertFalse(output['independent_attention_time_measured'])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -189,13 +189,78 @@ def _slot(values: list[float | None]) -> dict:
     }
 
 
+
+ACTIVE_TIME_SCHEMA = 'IWXA_TASK_EXP_01_OWNER_LOCAL_REVIEW_ACTIVE_TIME/0.1'
+ACTIVE_TIME_METHOD = 'PER_SOURCE_STOPWATCH_IDLE_EXCLUDED'
+
+
+def active_time_totals(log: object, selected: dict,
+                       export_sha256: tuple[str, str] | None) -> dict:
+    """Sum owner-local stopwatch records bound to the two unchanged exports.
+
+    A timing log is a human/operator claim, NOT independently proven attention
+    time, a Task label, or evidence that Cross-Lab improved results.
+    """
+    require(type(log) is dict and set(log) == {
+        'schema', 'measurement_method', 'review_export_sha256',
+        'active_seconds_by_source'
+    } and log['schema'] == ACTIVE_TIME_SCHEMA and
+            log['measurement_method'] == ACTIVE_TIME_METHOD,
+            'ACTIVE_TIME_LOG_FORMAT_INVALID')
+    require(type(export_sha256) is tuple and len(export_sha256) == 2 and
+            all(type(v) is str and len(v) == 64 for v in export_sha256),
+            'ACTIVE_TIME_EXPORT_BINDING_REQUIRED')
+    bound = log['review_export_sha256']
+    require(type(bound) is dict and set(bound) == {'A', 'B'} and
+            bound['A'] == export_sha256[0] and bound['B'] == export_sha256[1],
+            'ACTIVE_TIME_EXPORT_BINDING_MISMATCH')
+    parts = log['active_seconds_by_source']
+    require(type(parts) is dict and set(parts) == {'A', 'B'},
+            'ACTIVE_TIME_LOG_FORMAT_INVALID')
+    expected = {'sha256:' + digest for digest in selected}
+    totals = {}
+    for slot in ('A', 'B'):
+        records = parts[slot]
+        require(type(records) is list and len(records) == 8,
+                'ACTIVE_TIME_SOURCE_SET_INCOMPLETE')
+        seen = set()
+        seconds = []
+        for row in records:
+            require(type(row) is dict and set(row) == {
+                'source_sha256', 'active_seconds'},
+                'ACTIVE_TIME_ROW_INVALID')
+            key, sec = row['source_sha256'], row['active_seconds']
+            require(type(key) is str and key in expected and key not in seen,
+                    'ACTIVE_TIME_SOURCE_SET_INVALID')
+            require(type(sec) in (int, float) and sec > 0,
+                    'ACTIVE_TIME_SECONDS_INVALID')
+            try:
+                value = float(sec)
+            except OverflowError:
+                raise EffortHold('ACTIVE_TIME_SECONDS_INVALID') from None
+            require(math.isfinite(value), 'ACTIVE_TIME_SECONDS_INVALID')
+            seen.add(key)
+            seconds.append(value)
+        require(seen == expected, 'ACTIVE_TIME_SOURCE_SET_INCOMPLETE')
+        total_slot = sum(seconds)
+        require(math.isfinite(total_slot), 'ACTIVE_TIME_TOTAL_NONFINITE')
+        totals[slot] = round(total_slot, 3)
+    total = sum(totals.values())
+    require(math.isfinite(total), 'ACTIVE_TIME_TOTAL_NONFINITE')
+    return {'slots': totals, 'total': round(total, 3)}
+
+
 def summarize(export_a: object, export_b: object, owner_receipt: dict,
-              selected: dict, method_sha: str, *, hourly_rate_usd: Decimal | None = None) -> dict:
+              selected: dict, method_sha: str, *, hourly_rate_usd: Decimal | None = None,
+              active_time_log: dict | None = None,
+              export_sha256: tuple[str, str] | None = None) -> dict:
     bridge_checked(owner_receipt)
     a, a_claim = extract_one(export_a, selected)
     b, b_claim = extract_one(export_b, selected)
     require(a_claim != b_claim, 'SAME_REVIEWER_CLAIM')
     slot_a, slot_b = _slot(a), _slot(b)
+    recorded = (active_time_totals(active_time_log, selected, export_sha256)
+                if active_time_log is not None else None)
     complete = slot_a['lead_time_missing'] == slot_b['lead_time_missing'] == 0
     observed_total = (slot_a['lead_time_seconds_sum'] +
                       slot_b['lead_time_seconds_sum']) if complete else None
@@ -203,11 +268,16 @@ def summarize(export_a: object, export_b: object, owner_receipt: dict,
             'LABEL_STUDIO_LEAD_TIME_TOTAL_NONFINITE')
     total = round(observed_total, 3) if complete else None
     cost = None
+    active_cost = None
     if hourly_rate_usd is not None:
         require(type(hourly_rate_usd) is Decimal and hourly_rate_usd.is_finite() and
                 hourly_rate_usd >= 0, 'ASSUMED_HOURLY_RATE_INVALID')
         if complete:
             cost = str((Decimal(str(total)) * hourly_rate_usd / Decimal('3600')).quantize(
+                Decimal('0.0001'), rounding=ROUND_HALF_UP))
+        if recorded is not None:
+            active_cost = str((Decimal(str(recorded['total'])) * hourly_rate_usd /
+                               Decimal('3600')).quantize(
                 Decimal('0.0001'), rounding=ROUND_HALF_UP))
     return {
         'schema': SCHEMA,
@@ -222,6 +292,12 @@ def summarize(export_a: object, export_b: object, owner_receipt: dict,
         'independent_attention_time_measured': False,
         'hourly_rate_usd_assumed': str(hourly_rate_usd) if hourly_rate_usd is not None else None,
         'estimated_review_cost_usd': cost,
+        'active_time_reported': recorded is not None,
+        'reported_active_seconds_by_reviewer': recorded['slots'] if recorded else None,
+        'reported_active_seconds_total': recorded['total'] if recorded else None,
+        'active_time_measurement_claim': ACTIVE_TIME_METHOD if recorded else None,
+        'active_time_independently_verified': False,
+        'estimated_active_review_cost_usd': active_cost,
         'rate_is_assumption_not_actual_expense': hourly_rate_usd is not None,
         'reviewer_identity_claims_independently_verified': False,
         'reviewer_independence_independently_verified': False,
@@ -263,6 +339,8 @@ def main() -> int:
                    help='Unmodified non-sensitive receipt from existing owner review_bridge')
     p.add_argument('--review-a', type=Path, required=True)
     p.add_argument('--review-b', type=Path, required=True)
+    p.add_argument('--active-time-input', type=Path,
+                   help='Private per-source stopwatch log bound to both review export SHA256')
     p.add_argument('--hourly-rate-usd', type=str,
                    help='Optional assumed hourly labor cost, not verified actual expense')
     p.add_argument('--out', required=True, type=Path)
@@ -273,12 +351,17 @@ def main() -> int:
                 'REFUSE_OVERWRITE_EFFORT_RECEIPT')
         selected = frozen_sources()
         commitment = read_method_commitment()
+        log = read_json(opts.active_time_input) if opts.active_time_input else None
+        export_hashes = (hashlib.sha256(opts.review_a.read_bytes()).hexdigest(),
+                         hashlib.sha256(opts.review_b.read_bytes()).hexdigest()) if log else None
         result = summarize(read_json(opts.review_a), read_json(opts.review_b),
                            read_json(opts.owner_bridge_receipt), selected, commitment,
-                           hourly_rate_usd=rate)
+                           hourly_rate_usd=rate, active_time_log=log,
+                           export_sha256=export_hashes)
         write_restricted_result(opts.out, result)
         print(json.dumps({'status': result['status'], 'sources': 8,
                           'complete_lead_time': result['label_studio_lead_time_seconds_total'] is not None,
+                          'active_time_reported': result['active_time_reported'],
                           'human_task_gold': False}, sort_keys=True))
         return 0
     except (EffortHold, OSError, TypeError, ValueError, InvalidOperation):

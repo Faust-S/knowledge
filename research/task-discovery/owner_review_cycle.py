@@ -156,6 +156,7 @@ def verify_owner_review_instrument(owner_root: Path, *,
 def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
               disagreements_out: Path, effort_out: Path,
               hourly_rate_usd: str | None = None,
+              active_time_input: Path | None = None,
               confirmation: bool = False,
               runner: Callable[[list[str], Path], str] = executed,
               expected_owner_blob: str = OWNER_BRIDGE_BLOB,
@@ -164,7 +165,7 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
     # Refuse symlink aliases before resolving paths. The owner bridge and
     # effort adapter must consume the exact same local files, not aliases
     # that could be redirected or mistaken for independent reviewer inputs.
-    raw_inputs = (packet, review_a, review_b)
+    raw_inputs = (packet, review_a, review_b) + ((active_time_input,) if active_time_input else ())
     raw_outputs = (disagreements_out, effort_out)
     need(all(not path.is_symlink() for path in raw_inputs + raw_outputs),
          'OWNER_LOCAL_SYMLINK_PATH_REFUSED')
@@ -173,7 +174,11 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
     owner_root, packet, review_a, review_b = (
         owner_root.resolve(), packet.resolve(), review_a.resolve(), review_b.resolve())
     disagreements_out, effort_out = disagreements_out.resolve(), effort_out.resolve()
-    need(len({packet, review_a, review_b, disagreements_out, effort_out}) == 5,
+    if active_time_input is not None:
+        active_time_input = active_time_input.resolve()
+    all_paths = (packet, review_a, review_b, disagreements_out, effort_out) + (
+        (active_time_input,) if active_time_input is not None else ())
+    need(len(set(all_paths)) == len(all_paths),
          'OWNER_LOCAL_INPUT_OUTPUT_ALIAS_REFUSED')
     # Arguments deliberately match the owning bridge and existing effort adapter.
     need(confirmation, 'EXPLICIT_LOCAL_REVIEW_CONFIRMATION_REQUIRED')
@@ -184,7 +189,7 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
     need(review_a != review_b and disagreements_out != effort_out and
          not disagreements_out.exists() and not effort_out.exists(),
          'OWNER_LOCAL_OUTPUT_EXISTS_OR_CONFLICTS')
-    inputs = (packet, review_a, review_b)
+    inputs = (packet, review_a, review_b) + ((active_time_input,) if active_time_input else ())
     pinned = tuple(sha256_file(p) for p in inputs)
     script = effort_script or Path(__file__).resolve().with_name('review_effort.py')
     need(script.is_file() and not script.is_symlink(), 'PUBLIC_EFFORT_ADAPTER_MISSING')
@@ -296,6 +301,8 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
                           '--out', str(staged_effort)]
         if hourly_rate_usd is not None:
             effort_command += ['--hourly-rate-usd', hourly_rate_usd]
+        if active_time_input is not None:
+            effort_command += ['--active-time-input', str(active_time_input)]
         stage = safe_json(runner(effort_command, script.parent))
         need(stage.get('status') in ('LEAD_TIME_RECORDED_NOT_TASK_GOLD',
                                     'LEAD_TIME_PARTIAL_NOT_TASK_GOLD') and
@@ -330,6 +337,12 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
              effort.get('status') == stage.get('status') and
              complete == (stage['status'] == 'LEAD_TIME_RECORDED_NOT_TASK_GOLD'),
              'EFFORT_RECEIPT_FILE_MISMATCH')
+        if active_time_input is not None:
+            need(effort.get('active_time_reported') is True and
+                 type(effort.get('reported_active_seconds_total')) in (int, float) and
+                 effort.get('active_time_independently_verified') is False and
+                 stage.get('active_time_reported') is True,
+                 'EFFORT_FILE_INCOMPATIBLE')
         need(tuple(sha256_file(p) for p in inputs) == pinned,
              'REVIEW_INPUT_CHANGED_BEFORE_PUBLICATION')
         need(not disagreements_out.exists() and not disagreements_out.is_symlink() and
@@ -371,6 +384,7 @@ def run_cycle(*, owner_root: Path, packet: Path, review_a: Path, review_b: Path,
         'owner_review_instrument_verified': True,
         'platform_lead_time_complete': (
             effort.get('label_studio_lead_time_seconds_total') is not None),
+        'human_active_time_self_reported': active_time_input is not None,
         'human_gold': False, 'adjudication_completed': False,
     }
 
@@ -384,6 +398,7 @@ def main() -> int:
     parser.add_argument('--restricted-disagreements-out', type=Path, required=True)
     parser.add_argument('--effort-out', type=Path, required=True)
     parser.add_argument('--hourly-rate-usd')
+    parser.add_argument('--active-time-input', type=Path)
     parser.add_argument('--confirm-independent-local-review', action='store_true')
     opts = parser.parse_args()
     try:
@@ -392,7 +407,8 @@ def main() -> int:
             review_a=opts.review_a, review_b=opts.review_b,
             disagreements_out=opts.restricted_disagreements_out,
             effort_out=opts.effort_out, hourly_rate_usd=opts.hourly_rate_usd,
-            confirmation=opts.confirm_independent_local_review)
+            confirmation=opts.confirm_independent_local_review,
+            active_time_input=opts.active_time_input)
         print(json.dumps(result, sort_keys=True))
         return 0
     except CycleHold as error:

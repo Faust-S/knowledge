@@ -541,5 +541,47 @@ class OwnerReviewCycleTests(unittest.TestCase):
                 cycle.safe_json(value)
 
 
+    def test_optional_active_stopwatch_log_flows_to_existing_effort(self):
+        with TemporaryDirectory() as td:
+            f=CycleFixture(Path(td))
+            active=f.root/'active-time.json'
+            active.write_text('{"synthetic":true}\\n',encoding='utf-8')
+            def runner(command,cwd):
+                result=f.runner(command,cwd)
+                if len(f.calls)==2:
+                    self.assertEqual(Path(command[command.index(
+                        '--active-time-input')+1]),active)
+                    saved=Path(command[command.index('--out')+1])
+                    payload=json.loads(saved.read_text('utf-8'))
+                    payload['active_time_reported']=True
+                    payload['reported_active_seconds_total']=12.0
+                    payload['active_time_independently_verified']=False
+                    saved.write_text(json.dumps(payload),encoding='utf-8')
+                    response=json.loads(result)
+                    response['active_time_reported']=True
+                    result=json.dumps(response)
+                return result
+            receipt=f.execute(active_time_input=active,runner=runner)
+            self.assertTrue(receipt['human_active_time_self_reported'])
+            self.assertFalse(receipt['human_gold'])
+            self.assertTrue(f.disagreement.exists() and f.effort.exists())
+
+    def test_stopwatch_file_changed_after_bridge_is_rejected(self):
+        with TemporaryDirectory() as td:
+            f=CycleFixture(Path(td))
+            active=f.root/'active-time.json'
+            active.write_text('{"synthetic":"old"}\\n',encoding='utf-8')
+            def modify(command,cwd):
+                result=f.runner(command,cwd)
+                if len(f.calls)==1:
+                    active.write_text('{"synthetic":"new"}\\n',encoding='utf-8')
+                return result
+            with self.assertRaisesRegex(cycle.CycleHold,
+                                        'REVIEW_INPUT_CHANGED_AFTER_BRIDGE'):
+                f.execute(active_time_input=active,runner=modify)
+            self.assertFalse(f.disagreement.exists())
+            self.assertFalse(f.effort.exists())
+
+
 if __name__ == '__main__':
     unittest.main()
