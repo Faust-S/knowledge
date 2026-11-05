@@ -123,6 +123,25 @@ class K03Test(unittest.TestCase):
         self.assertIsNone(result["task_id"])
         self.assertIn("HOST_TASK_QUALIFICATION", result["next_owner"])
 
+    def test_selection_rechecks_tampered_source_and_candidate(self):
+        valid = self.run_case("CASE-2")
+        forged = copy.deepcopy(valid)
+        forged["task_hypotheses"][0]["text"] = "Already an accepted Task"
+        # Even a forged positive check receipt cannot authorize selection.
+        forged["independent_check"]["trace_check"] = "PASS_REPLAYED_AGAINST_PINNED_SOURCE"
+        with self.assertRaisesRegex(k03.DiscoveryHold,
+                                    "HYPOTHESIS_EVIDENCE_OR_AUTHORITY_CHANGED"):
+            k03.select_hypothesis(
+                forged, "H-CASE-2-1", choice="HUMAN_SELECT_FOR_QUALIFICATION",
+                selection_ref="review-003")
+        forged = copy.deepcopy(valid)
+        forged["activity_observations"][1]["source_version"] = "wrong-revision"
+        with self.assertRaisesRegex(k03.DiscoveryHold,
+                                    "OBSERVATION_SOURCE_REPLAY_FAILED"):
+            k03.select_hypothesis(
+                forged, "H-CASE-2-1", choice="HUMAN_SELECT_FOR_QUALIFICATION",
+                selection_ref="review-004")
+
     def test_selection_rejects_zero_data_and_unsupported_id(self):
         with self.assertRaisesRegex(k03.DiscoveryHold,
                                     "HYPOTHESIS_NOT_SELECTABLE"):
