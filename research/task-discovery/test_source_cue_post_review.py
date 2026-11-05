@@ -257,6 +257,54 @@ class PostReviewCueTests(unittest.TestCase):
             compare.analyze(m, s, a)
 
 
+    def test_blank_owner_local_template_has_no_expert_decisions(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        import os
+        manifest, snapshot, _ = inputs()
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "manual-source-resolution.json"
+            with patch.object(compare.literal, "checked_manifest",
+                              return_value=manifest):
+                receipt = compare.prepare_manual_resolution(path)
+            blank = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(receipt["sources"], 8)
+            self.assertFalse(receipt["human_gold"])
+            self.assertFalse(blank["human_adjudication_claimed"])
+            self.assertFalse(blank["methods_hidden_during_review"])
+            self.assertEqual(len(blank["sources"]), 8)
+            self.assertEqual({r["source_sha256"] for r in blank["sources"]},
+                             {r["projection_sha256"] for r in manifest["items"]})
+            self.assertEqual({r["resolution"] for r in blank["sources"]},
+                             {compare.BLANK_RESOLUTION})
+            self.assertNotIn("source_text", path.read_text(encoding="utf-8"))
+            self.assertNotIn("reviewer_id", path.read_text(encoding="utf-8"))
+            with self.assertRaisesRegex(
+                    compare.ComparisonHold, "MANUAL_ADJUDICATION_NOT_CONFIRMED"):
+                compare.analyze(manifest, snapshot, blank)
+            if os.name == "posix":
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_template_refuses_git_checkout_and_existing_output(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        manifest, _, _ = inputs()
+        with patch.object(compare.literal, "checked_manifest",
+                          return_value=manifest):
+            in_repo = compare.frozen.SELECTION.parent / "not-an-adjudication.json"
+            with self.assertRaisesRegex(
+                    compare.ComparisonHold,
+                    "MANUAL_ADJUDICATION_OUTPUT_INSIDE_CHECKOUT"):
+                compare.prepare_manual_resolution(in_repo)
+            self.assertFalse(in_repo.exists())
+            with TemporaryDirectory() as folder:
+                path = Path(folder) / "resolution.json"
+                path.write_text("existing", encoding="utf-8")
+                with self.assertRaisesRegex(
+                        compare.ComparisonHold, "MANUAL_ADJUDICATION_OUTPUT_EXISTS"):
+                    compare.prepare_manual_resolution(path)
+                self.assertEqual(path.read_text(encoding="utf-8"), "existing")
+
     def test_main_exact_search_hold_is_controlled_without_traceback(self):
         # A frozen literal replay may refuse changed source bytes.
         # The operator receives only the fixed safe HOLD, never a traceback.
