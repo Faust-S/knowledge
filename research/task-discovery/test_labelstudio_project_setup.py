@@ -525,5 +525,138 @@ class LocalLabelStudioSetupTests(unittest.TestCase):
         self.assertEqual(failure.exception.created_project_ids, (12, 17))
 
 
+    def test_paired_review_progress_uses_existing_read_only_gate(self):
+        _, tasks = fixture()
+        complete = {
+            "sources_checked": 8, "human_gold": False,
+            "original_reviewer_id_exposed": False,
+            "original_source_text_exposed": False,
+            "sources_unannotated": 0,
+            "sources_with_nonfinal_annotation": 0,
+            "sources_with_final_coverage": 8,
+        }
+        partial = {
+            **complete, "sources_unannotated": 1,
+            "sources_with_nonfinal_annotation": 1,
+            "sources_with_final_coverage": 6,
+        }
+        with patch.object(ls, "verify_isolated_reviewers") as accounts, \
+             patch.object(ls, "review_progress",
+                          side_effect=[complete, partial]) as progress, \
+             patch.object(ls, "create_projects") as creating:
+            outcome = ls.paired_review_progress(
+                tasks, CONFIG.decode("utf-8"),
+                "http://127.0.0.1:8080", "Token account-a", 40,
+                "http://127.0.0.1:8081", "Token account-b", 50)
+        accounts.assert_called_once()
+        self.assertEqual(progress.call_count, 2)
+        creating.assert_not_called()
+        self.assertEqual(outcome["reviewer_a"]["final_coverage"], 8)
+        self.assertEqual(outcome["reviewer_b"]["final_coverage"], 6)
+        self.assertFalse(outcome["both_reached_final_coverage"])
+        self.assertEqual(outcome["status"],
+                         "TWO_LOCAL_REVIEW_COVERAGE_PARTIAL_NOT_GOLD")
+        self.assertFalse(outcome["human_gold"])
+        self.assertIsNone(outcome["task_f1"])
+        self.assertNotIn("source_sha256", json.dumps(outcome))
+        self.assertNotIn("completed_by", json.dumps(outcome))
+        with patch.object(ls, "verify_isolated_reviewers"), \
+             patch.object(ls, "review_progress",
+                          side_effect=[complete, complete]):
+            finished = ls.paired_review_progress(
+                tasks, CONFIG.decode("utf-8"),
+                "http://127.0.0.1:8080", "Token account-a", 40,
+                "http://127.0.0.1:8081", "Token account-b", 50)
+        self.assertTrue(finished["both_reached_final_coverage"])
+        self.assertEqual(finished["status"],
+                         "TWO_LOCAL_REVIEW_COVERAGE_COMPLETE_NOT_BRIDGE_QUALIFIED")
+        self.assertEqual(finished["review_export_readiness"],
+                         "COVERAGE_ONLY_NOT_OWNER_BRIDGE_QUALIFIED")
+        self.assertFalse(finished["adjudication_completed"])
+
+    def test_paired_review_progress_rejects_drift_and_bad_identity(self):
+        _, tasks = fixture()
+        counts = {
+            "sources_checked": 8, "human_gold": False,
+            "original_reviewer_id_exposed": False,
+            "original_source_text_exposed": False,
+            "sources_unannotated": 0,
+            "sources_with_nonfinal_annotation": 0,
+            "sources_with_final_coverage": 8,
+        }
+        with patch.object(ls, "verify_isolated_reviewers",
+                          side_effect=ls.SetupHold("ISOLATED_NATIVE_REVIEWER_IDS_COLLIDE")), \
+             patch.object(ls, "review_progress") as progress:
+            with self.assertRaisesRegex(
+                    ls.SetupHold, "ISOLATED_NATIVE_REVIEWER_IDS_COLLIDE"):
+                ls.paired_review_progress(
+                    tasks, CONFIG.decode("utf-8"),
+                    "http://127.0.0.1:8080", "Token account-a", 40,
+                    "http://127.0.0.1:8081", "Token account-b", 50)
+            progress.assert_not_called()
+        for mutation in (
+            {"sources_with_final_coverage": 9},
+            {"original_source_text_exposed": True},
+            {"human_gold": True},
+            {"sources_with_nonfinal_annotation": True},
+            {"sources_checked": 7},
+        ):
+            broken = {**counts, **mutation}
+            with self.subTest(mutation=mutation), \
+                 patch.object(ls, "verify_isolated_reviewers"), \
+                 patch.object(ls, "review_progress", side_effect=[counts, broken]), \
+                 self.assertRaisesRegex(ls.SetupHold,
+                                         "PAIRED_REVIEW_PROGRESS_RECEIPT_INVALID"):
+                ls.paired_review_progress(
+                    tasks, CONFIG.decode("utf-8"),
+                    "http://127.0.0.1:8080", "Token account-a", 40,
+                    "http://127.0.0.1:8081", "Token account-b", 50)
+
+    def test_paired_review_progress_cli_dispatch_and_missing_arguments(self):
+        from io import StringIO
+        _, tasks = fixture()
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            task_file = root / "source-first.json"
+            xml_file = root / "owner.xml"
+            task_file.write_text(json.dumps(tasks), encoding="utf-8")
+            xml_file.write_bytes(CONFIG)
+            base = ["labelstudio_project_setup.py", "--tasks", str(task_file),
+                    "--owner-label-config", str(xml_file)]
+            with patch.object(ls, "load_manifest", return_value=fixture()[0]), \
+                 patch.object(ls, "validate_owner_xml",
+                              return_value=CONFIG.decode("utf-8")), \
+                 patch.object(ls, "resolve_api_credential") as tokens, \
+                 patch.object(ls, "paired_review_progress") as inspect, \
+                 patch("sys.argv", base + ["--paired-review-progress",
+                                          "--project-id", "40"]), \
+                 patch("sys.stdout", new_callable=StringIO) as output:
+                self.assertEqual(ls.main(), 2)
+                self.assertEqual(json.loads(output.getvalue())["code"],
+                                 "PAIRED_REVIEW_PROGRESS_ARGUMENTS_INCOMPLETE")
+                tokens.assert_not_called()
+                inspect.assert_not_called()
+            expected = {
+                "status": "TWO_LOCAL_REVIEW_COVERAGE_PARTIAL_NOT_GOLD",
+                "human_gold": False,
+            }
+            with patch.object(ls, "load_manifest", return_value=fixture()[0]), \
+                 patch.object(ls, "validate_owner_xml",
+                              return_value=CONFIG.decode("utf-8")), \
+                 patch.object(ls, "resolve_api_credential",
+                              side_effect=["Token account-a", "Token account-b"]) as tokens, \
+                 patch.object(ls, "paired_review_progress",
+                              return_value=expected) as inspect, \
+                 patch("sys.argv", base + [
+                     "--paired-review-progress", "--url", "http://127.0.0.1:8080",
+                     "--project-id", "40", "--other-url", "http://127.0.0.1:8081",
+                     "--other-project-id", "50",
+                 ]), \
+                 patch("sys.stdout", new_callable=StringIO) as output:
+                self.assertEqual(ls.main(), 0)
+                self.assertEqual(json.loads(output.getvalue()), expected)
+                self.assertEqual(tokens.call_count, 2)
+                inspect.assert_called_once()
+
 if __name__ == '__main__':
     unittest.main()

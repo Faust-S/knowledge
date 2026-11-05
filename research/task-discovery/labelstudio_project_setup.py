@@ -691,6 +691,62 @@ def review_progress(tasks: list[dict], url: str, token: str, pid: int, *,
     }
 
 
+def paired_review_progress(
+        tasks: list[dict], xml: str,
+        url_a: str, token_a: str, project_a: int,
+        url_b: str, token_b: str, project_b: int, *,
+        call=api) -> dict:
+    """Read-only coverage of A and B, using the existing single-slot gate.
+
+    This deliberately does not interpret Taskness, export annotations,
+    authenticate real humans, or claim independent adjudication. The original
+    review bridge still judges each complete export.
+    """
+    require(type(project_a) is int and project_a > 0 and
+            type(project_b) is int and project_b > 0 and
+            type(xml) is str and bool(xml),
+            "PAIRED_REVIEW_PROGRESS_ARGUMENTS_INVALID")
+    verify_isolated_reviewers(url_a, token_a, url_b, token_b, call=call)
+    reports = []
+    for url, token, project in ((url_a, token_a, project_a),
+                                (url_b, token_b, project_b)):
+        record = review_progress(tasks, url, token, project,
+                                 expected_xml=xml, call=call)
+        counts = (
+            record.get("sources_unannotated"),
+            record.get("sources_with_nonfinal_annotation"),
+            record.get("sources_with_final_coverage"),
+        )
+        require(record.get("sources_checked") == 8 and
+                record.get("human_gold") is False and
+                record.get("original_reviewer_id_exposed") is False and
+                record.get("original_source_text_exposed") is False and
+                all(type(number) is int and number >= 0 for number in counts) and
+                sum(counts) == 8,
+                "PAIRED_REVIEW_PROGRESS_RECEIPT_INVALID")
+        reports.append({
+            "unannotated": counts[0],
+            "nonfinal": counts[1],
+            "final_coverage": counts[2],
+        })
+    complete = all(record["final_coverage"] == 8 for record in reports)
+    return {
+        "schema": SCHEMA,
+        "status": ("TWO_LOCAL_REVIEW_COVERAGE_COMPLETE_NOT_BRIDGE_QUALIFIED"
+                   if complete else "TWO_LOCAL_REVIEW_COVERAGE_PARTIAL_NOT_GOLD"),
+        "sources_each": 8,
+        "reviewer_a": reports[0], "reviewer_b": reports[1],
+        "both_reached_final_coverage": complete,
+        "review_export_readiness": "COVERAGE_ONLY_NOT_OWNER_BRIDGE_QUALIFIED",
+        "original_source_text_exposed": False,
+        "original_reviewer_ids_exposed": False,
+        "human_independence_verified": False,
+        "adjudication_completed": False,
+        "human_gold": False,
+        "task_precision": None, "task_recall": None, "task_f1": None,
+    }
+
+
 def export_single_reviewed_project(tasks: list[dict], url: str, token: str,
                                    pid: int, output: Path, *,
                                    expected_xml: str, call=api) -> dict:
@@ -777,6 +833,8 @@ def main() -> int:
     mode.add_argument("--preflight-isolated-reviewers", action="store_true")
     mode.add_argument("--review-progress", action="store_true",
                       help="Read-only 8-source coverage counts; never human gold")
+    mode.add_argument("--paired-review-progress", action="store_true",
+                      help="Read-only A+B coverage on separate local Label Studio instances")
     parser.add_argument("--project-id", type=int)
     parser.add_argument("--other-url")
     parser.add_argument("--other-project-id", type=int)
@@ -835,6 +893,24 @@ def main() -> int:
             result = isolated_review_preflight(
                 tasks, xml, args.url, own_token, args.project_id,
                 args.other_url, other_token, args.other_project_id)
+        elif args.paired_review_progress:
+            require(not args.confirm_local_import and
+                    args.project_id is not None and
+                    args.other_url is not None and
+                    args.other_project_id is not None and
+                    args.project_a_id is None and args.project_b_id is None and
+                    args.review_out is None and args.review_a_out is None and
+                    args.review_b_out is None,
+                    "PAIRED_REVIEW_PROGRESS_ARGUMENTS_INCOMPLETE")
+            token_a = resolve_api_credential(
+                args.url, os.environ.get("LABEL_STUDIO_API_KEY", ""),
+                mode=args.auth_mode)
+            token_b = resolve_api_credential(
+                args.other_url, os.environ.get("LABEL_STUDIO_SECOND_API_KEY", ""),
+                mode=args.other_auth_mode)
+            result = paired_review_progress(
+                tasks, xml, args.url, token_a, args.project_id,
+                args.other_url, token_b, args.other_project_id)
         elif args.review_progress:
             require(not args.confirm_local_import and
                     args.project_id is not None and

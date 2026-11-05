@@ -307,6 +307,25 @@ jobs:
                       b_base, b_token, b_project, Path(tmp) / 'b.json', b_id)
                   require(len(source_a) == len(source_b) == 8 and source_a == source_b,
                           'ISOLATED_SOURCE_BYTES_DIFFER')
+              # Read both reviewed projects with the same owner-local
+              # read-only coverage adapter. This reports no human gold,
+              # region text, author identity or reviewer-level resolution.
+              progress = setup.paired_review_progress(
+                  synthetic_tasks(), SYNTHETIC_XML,
+                  a_base, 'Token ' + a_token, a_project,
+                  b_base, 'Token ' + b_token, b_project)
+              require(progress['status'] ==
+                      'TWO_LOCAL_REVIEW_COVERAGE_COMPLETE_NOT_BRIDGE_QUALIFIED' and
+                      progress['both_reached_final_coverage'] is True and
+                      progress['reviewer_a']['final_coverage'] == 8 and
+                      progress['reviewer_b']['final_coverage'] == 8 and
+                      progress['human_gold'] is False,
+                      'ISOLATED_PAIRED_COVERAGE_READBACK_FAILED')
+              print(json.dumps({
+                  'status': progress['status'],
+                  'sources_each': progress['sources_each'],
+                  'human_gold': False,
+              }, sort_keys=True))
               print(json.dumps({
                   'status': 'TWO_NATIVE_ISOLATED_LABEL_STUDIO_SYNTHETIC_PASS',
                   'label_studio_version': '1.23.2',

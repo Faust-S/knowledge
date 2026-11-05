@@ -73,6 +73,19 @@ python research/task-discovery/labelstudio_project_setup.py \
   --url http://127.0.0.1:8080 --project-id ACTUAL_ID --review-progress
 ```
 
+**Совместная проверка готовности A+B (05.11.2026):** после разметки можно не запускать два `--review-progress` по очереди, а один раз вызвать существующий адаптер с обоими адресами, учётными данными и ранее полученными ID проектов:
+
+```sh
+python research/task-discovery/labelstudio_project_setup.py \
+  --tasks /PRIVATE/labelstudio-import.json \
+  --owner-label-config /PRIVATE/TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml \
+  --url http://127.0.0.1:8080 --project-id ACTUAL_A_ID \
+  --other-url http://127.0.0.1:8081 --other-project-id ACTUAL_B_ID \
+  --paired-review-progress
+```
+
+Локальные переменные окружения `LABEL_STUDIO_API_KEY` и `LABEL_STUDIO_SECOND_API_KEY` должны указывать на своих рецензентов. Режим **ничего не создаёт и не экспортирует**, повторно проверяет раздельные учётные записи, форму и восемь исходников каждого участника и выдаёт только агрегаты `unannotated/nonfinal/final_coverage` по A и B. Статус `TWO_LOCAL_REVIEW_COVERAGE_COMPLETE_NOT_BRIDGE_QUALIFIED` означает только 8/8 **завершённых coverage** у каждого, не доказательство полноценной Task-разметки, успешного Review Bridge или человеческой независимости. При ошибке исходника, автора, формы либо API — `HOLD`.
+
 Для второго экземпляра используйте его URL и локальный `LABEL_STUDIO_API_KEY`. Квитанция `REVIEW_COVERAGE_PARTIAL_NOT_GOLD` или `REVIEW_FINAL_COVERAGE_RECORDED_NOT_GOLD` **не удостоверяет правильность Task-разметки**, отсутствие человеческой зависимости, пригодность смысловых полей или экспертное согласие. Даже при `sources_with_final_coverage=8` необходимо отдельно выполнить `--export-single-reviewed-project` и исходный Review Bridge, затем независимый adjudication. При изменении источника, формы, автора или неоднозначных аннотациях возвращается `HOLD`.
 
 Актуальная приёмка рабочего маршрута на коммите `43bd7061fdf772f104477b56c15cdc8cf8233a8a`: [source-first regression 41875521472](https://github.com/Faust-S/knowledge/actions/runs/41875521472) — **106/106 PASS**; [native Label Studio 1.23.2 HTTP 41875521460](https://github.com/Faust-S/knowledge/actions/runs/41875521460) — **PASS**. Синтетическая проверка не содержит независимых человеческих оценок.
