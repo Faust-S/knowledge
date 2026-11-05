@@ -164,6 +164,123 @@ def _counts(episodes, raw, *, window, require_state):
     }
 
 
+
+# C15 reuses C14's video and sensor records, without additional source loading.
+C15_WINDOWS = (1, 5, 15)
+C15_DOOR_LABELS = {"enter room": "ENTER_ROOM", "leave room": "LEAVE_ROOM"}
+
+
+def _boundary_max_matching(edges):
+    assigned = {}
+
+    def augment(i, seen):
+        for j in edges[i]:
+            if j in seen:
+                continue
+            seen.add(j)
+            if j not in assigned or augment(assigned[j], seen):
+                assigned[j] = i
+                return True
+        return False
+
+    for i in sorted(range(len(edges)), key=lambda i: (len(edges[i]), i)):
+        augment(i, set())
+    return len(assigned)
+
+
+def _boundary_counts(closings, annotations, window):
+    c12.ensure(window in C15_WINDOWS, "C15_UNDECLARED_TIME_WINDOW")
+    edges = [
+        [j for j, (start, end, _) in enumerate(annotations)
+         if min(abs(t - start), abs(t - end)) <= window]
+        for t in closings
+    ]
+    covered = {j for row in edges for j in row}
+    by_label = Counter(annotations[j][2] for row in edges for j in row)
+    return {
+        "closings_with_candidate": sum(bool(row) for row in edges),
+        "candidate_annotation_edges": sum(map(len, edges)),
+        "unique_candidate_annotation_segments": len(covered),
+        "ambiguous_closings": sum(len(row) > 1 for row in edges),
+        "one_to_one_time_boundary_upper_bound": _boundary_max_matching(edges),
+        "enter_room_edges": by_label["ENTER_ROOM"],
+        "leave_room_edges": by_label["LEAVE_ROOM"],
+        "after_annotation_end_edges": sum(
+            0 <= t - end <= window for t in closings
+            for start, end, _ in annotations),
+        "before_annotation_start_edges": sum(
+            0 <= start - t <= window for t in closings
+            for start, end, _ in annotations),
+    }
+
+
+def video_boundary_evidence(video_doc, outside_sensor_events):
+    """Conditional boundary proximity, not independent video-human action gold.
+
+    Only literal published door activity labels qualify. Report non-door
+    boundaries and predeclared clock shifts as specificity controls.
+    """
+    c12.ensure(isinstance(video_doc, dict) and
+               isinstance(video_doc.get("ocel:events"), dict),
+               "C15_VIDEO_EVENTS_INVALID")
+    door, other = [], []
+    unknown_activity = 0
+    for event in video_doc["ocel:events"].values():
+        c12.ensure(isinstance(event, dict) and
+                   isinstance(event.get("ocel:vmap"), dict),
+                   "C15_VIDEO_EVENT_INVALID")
+        start = c12.stamp(event.get("ocel:timestamp"))
+        end = c12.stamp(event["ocel:vmap"].get("end_time"))
+        c12.ensure(start <= end, "C15_VIDEO_INTERVAL_REVERSED")
+        label = event.get("ocel:activity")
+        if not isinstance(label, str):
+            unknown_activity += 1
+            label = ""
+        kind = C15_DOOR_LABELS.get(" ".join(label.casefold().split()))
+        if kind:
+            door.append((start, end, kind))
+        else:
+            other.append((start, end, "OTHER"))
+    closings = [
+        t for t, sensor_name, state in outside_sensor_events
+        if sensor_name == "ENTRANCE" and state == "CLOSED"
+    ]
+    fixed = {
+        f"{window}s": _boundary_counts(closings, door, window)
+        for window in C15_WINDOWS
+    }
+    generic = {
+        f"{window}s": _boundary_counts(closings, other, window)
+        for window in C15_WINDOWS
+    }
+    return {
+        "schema": "IWXA_SOLVE4X_C15_VIDEO_BOUNDARY_EVIDENCE/0.1",
+        "status": "AUTHOR_VIDEO_LABEL_BOUNDARY_PROXIMITY_NOT_HUMAN_GOLD",
+        "video_annotated_events": len(door) + len(other),
+        "video_entrance_exit_annotations": len(door),
+        "video_enter_room_annotations": sum(x[2] == "ENTER_ROOM" for x in door),
+        "video_leave_room_annotations": sum(x[2] == "LEAVE_ROOM" for x in door),
+        "non_door_video_annotations": len(other),
+        "video_annotations_without_activity": unknown_activity,
+        "outside_video_entrance_closing_events": len(closings),
+        "fixed_boundary_windows": fixed,
+        "non_door_video_boundary_baseline": generic,
+        "plus_90_seconds_sensitivity_5s":
+            _boundary_counts([t + 90 for t in closings], door, 5),
+        "plus_one_day_negative_15s":
+            _boundary_counts([t + 86400 for t in closings], door, 15),
+        "unique_annotated_door_segments_to_review_15s":
+            fixed["15s"]["unique_candidate_annotation_segments"],
+        "same_human_action": "UNKNOWN",
+        "actor_identity": "NOT_ATTESTED",
+        "author_video_labels_independent_human_gold": False,
+        "clock_synchronization_confirmed": False,
+        "task_quality": "NOT_MEASURED",
+        "accepted_tasks": 0,
+        "source_values_and_actor_ids_exported": False,
+    }
+
+
 def analyze(video_doc, sensor_doc, ui_csv, raw_reed_csv):
     original = _outside_video_events(video_doc, sensor_doc)
     ui = parse_ui_context(ui_csv)
@@ -171,6 +288,7 @@ def analyze(video_doc, sensor_doc, ui_csv, raw_reed_csv):
     c13_report = c13.analyze(video_doc, sensor_doc, ui_csv)
     c12.ensure(len(original) == c13_report["sensor_outside_video"],
                "REVIEW_SCOPE_DISAGREES_C13")
+    video_boundary = video_boundary_evidence(video_doc, original)
     strict = {str(window) + "s": _counts(original, raw, window=window,
                                         require_state=True) for window in WINDOWS}
     location_only = {str(window) + "s": _counts(original, raw, window=window,
@@ -236,6 +354,10 @@ def analyze(video_doc, sensor_doc, ui_csv, raw_reed_csv):
         "minimal_distinct_raw_rows_for_review": len(needed_raw),
         "minimal_distinct_ui_rows_for_review": len(needed_ui),
         "source_rows_to_review_total": len(original) + len(needed_raw) + len(needed_ui),
+        "c15_video_annotation_boundaries": video_boundary,
+        "c15_review_records_including_candidate_video_segments":
+            len(original) + len(needed_raw) + len(needed_ui) +
+            video_boundary["unique_annotated_door_segments_to_review_15s"],
         "limitations": {
             "internal_derived_log_consistency_not_independent_physical_truth": True,
             "cross_device_clock_calibration_proven": False,
