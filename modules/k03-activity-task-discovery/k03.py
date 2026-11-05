@@ -261,9 +261,10 @@ def select_hypothesis(bundle: dict, hypothesis_id: str, *, choice: str,
                       selection_ref: str) -> dict:
     """A host-neutral selection event; never creates/accepts a Task."""
     need(bundle.get("schema") == SCHEMA
-         and bundle.get("independent_check", {}).get("trace_check")
-         == "PASS_REPLAYED_AGAINST_PINNED_SOURCE"
          and bundle.get("accepted_task_count") == 0, "DISCOVERY_NOT_TRACE_CHECKED")
+    # A host-provided receipt or PASS flag is not authority. Before selection,
+    # independently replay the entire candidate against the pinned corpus.
+    verify_trace(bundle, load_pinned_pilot(), load_rationale())
     need(choice == "HUMAN_SELECT_FOR_QUALIFICATION"
          and type(selection_ref) is str
          and 1 <= len(selection_ref) <= 128
