@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import labelstudio_project_setup as setup
 from test_labelstudio_project_setup import fixture, CONFIG
@@ -308,6 +309,94 @@ class ExportHandoffTests(unittest.TestCase):
                 setup.export_single_reviewed_project(
                     tasks, "http://127.0.0.1:8080", "synthetic",
                     10, output, expected_xml=REVIEW_XML, call=fake_export(tasks))
+
+    def test_single_export_published_only_after_complete_private_write(self):
+        _, tasks = fixture()
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "review-a.json"
+            real_dump = setup.json.dump
+            calls = []
+
+            def during_dump(records, stream, **kwargs):
+                self.assertFalse(output.exists(), "Partial final export became visible")
+                self.assertNotEqual(stream.name, str(output))
+                calls.append(True)
+                return real_dump(records, stream, **kwargs)
+
+            with patch.object(setup.json, "dump",
+                                            side_effect=during_dump):
+                receipt = setup.export_single_reviewed_project(
+                    tasks, "http://127.0.0.1:8080", "synthetic",
+                    10, output, expected_xml=REVIEW_XML, call=fake_export(tasks))
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(receipt["sources_per_export"], 8)
+            self.assertEqual(len(json.loads(output.read_text("utf-8"))), 8)
+            self.assertFalse(list(Path(folder).glob(".iwxa-m3-review-*")))
+            if __import__("os").name == "posix":
+                self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+
+    def test_failed_private_write_leaves_no_partial_final_export(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "review-a.json"
+
+            def broken_dump(records, stream, **kwargs):
+                stream.write('{"incomplete":')
+                raise OSError("synthetic interrupted export write")
+
+            with patch.object(setup.json, "dump",
+                                            side_effect=broken_dump):
+                with self.assertRaisesRegex(
+                        setup.SetupHold, "REVIEW_OUTPUT_WRITE_FAILED"):
+                    setup._write_restricted_exports(((output, [{"synthetic": True}]),))
+            self.assertFalse(output.exists())
+            self.assertFalse(list(Path(folder).glob(".iwxa-m3-review-*")))
+            setup._write_restricted_exports(((output, [{"synthetic": True}]),))
+            self.assertEqual(json.loads(output.read_text("utf-8")),
+                             [{"synthetic": True}])
+
+    def test_two_export_link_failure_rolls_back_only_own_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            a, b = root / "a.json", root / "b.json"
+            real_link = setup.os.link
+            calls = []
+
+            def second_link_fails(src, dst, *args, **kwargs):
+                calls.append(dst)
+                if len(calls) == 2:
+                    # Another writer replaced our first linked export.
+                    a.unlink()
+                    a.write_text("independent replacement", encoding="utf-8")
+                    raise OSError("synthetic second publication failure")
+                return real_link(src, dst, *args, **kwargs)
+
+            with patch.object(setup.os, "link",
+                                            side_effect=second_link_fails):
+                with self.assertRaisesRegex(
+                        setup.SetupHold, "REVIEW_OUTPUT_WRITE_FAILED"):
+                    setup._write_restricted_exports((
+                        (a, [{"slot": "A"}]), (b, [{"slot": "B"}])))
+            self.assertEqual(a.read_text("utf-8"), "independent replacement")
+            self.assertFalse(b.exists())
+            self.assertFalse(list(root.glob(".iwxa-m3-review-*")))
+            a.unlink()
+            calls.clear()
+
+            def fail_second(src, dst, *args, **kwargs):
+                calls.append(dst)
+                if len(calls) == 2:
+                    raise OSError("synthetic second publication failure")
+                return real_link(src, dst, *args, **kwargs)
+
+            with patch.object(setup.os, "link",
+                                            side_effect=fail_second):
+                with self.assertRaisesRegex(
+                        setup.SetupHold, "REVIEW_OUTPUT_WRITE_FAILED"):
+                    setup._write_restricted_exports((
+                        (a, [{"slot": "A"}]), (b, [{"slot": "B"}])))
+            self.assertFalse(a.exists())
+            self.assertFalse(b.exists())
+            self.assertFalse(list(root.glob(".iwxa-m3-review-*")))
 
     def test_form_drift_refused_at_export_with_no_output(self):
         _, tasks = fixture()
