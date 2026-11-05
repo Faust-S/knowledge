@@ -141,7 +141,42 @@ def check_owner_aggregate(score: object) -> dict:
         need(type(delta) in (int, float) and math.isfinite(delta)
              and abs(delta - round(full - focused, 3)) < 0.0000001,
              "C17_OWNER_ACTIVE_TIME_DELTA_INVALID")
-    # Preserve C17's actual result; K05 does not score individual reviews.
+    # Only allow explicitly enumerated aggregate fields. Do not silently
+    # copy unexpected owner-local identifiers or reviewer/clip records.
+    top = {
+        "schema", "status", "denominators", "arm_summaries",
+        "reference_active_seconds",
+        "descriptive_active_seconds_full_minus_focused",
+        "reported_active_time_is_self_report_not_verified",
+        "label_studio_lead_time_may_include_idle",
+        "reviewer_identity_and_independence_verified",
+        "adjudicator_truth_independently_verified",
+        "same_actor_or_intention_proven", "clock_calibration_proven",
+        "causal_labor_saving_established", "task_precision",
+        "accepted_tasks",
+        "source_identifiers_times_actors_or_reviewer_keys_exported",
+    }
+    part_fields = {
+        "clips_reviewed", "adjudicated_visible_in_selection",
+        "adjudicated_visible_omitted", "adjudicated_unknown_in_selection",
+        "visible_clip_retrieval_fraction",
+        "confident_contradictions_vs_adjudicator",
+        "confident_on_adjudicated_unknown",
+        "unknown_agreement_with_adjudicator",
+        "unknown_on_resolved_reference", "reported_active_seconds",
+        "label_studio_lead_time_seconds",
+    }
+    den_fields = {
+        "video_annotations", "reviewed_reference_a", "reviewed_reference_b",
+        "adjudicated", "adjudicated_visible", "adjudicated_not_visible",
+        "adjudicated_unknown", "reference_a_b_disagreements",
+        "reference_a_b_agreement_unknown",
+    }
+    need(set(score) == top
+         and set(den) == den_fields
+         and all(set(summaries[name]) == part_fields for name in OWNER_C17_ARMS),
+         "C17_OWNER_AGGREGATE_UNEXPECTED_FIELDS")
+    # Preserve the prevalidated aggregate, never any raw receipt.
     return score
 
 

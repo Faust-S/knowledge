@@ -246,6 +246,20 @@ class C17Projection(unittest.TestCase):
         with self.assertRaisesRegex(projection.ProjectionHold, "ARM_AGGREGATES_CONTRADICTORY"):
             projection.compare_c17_aggregate(footprint, plan, owner_score=owner)
 
+    def test_extra_private_aggregate_fields_rejected(self):
+        packet, receipts = owner_score()
+        score = c17.score(packet, receipts)
+        footprint, plan = case()
+        score["private_reviewer_details"] = ["do-not-export"]
+        with self.assertRaisesRegex(projection.ProjectionHold,
+                                    "C17_OWNER_AGGREGATE_UNEXPECTED_FIELDS"):
+            projection.compare_c17_aggregate(footprint, plan, owner_score=score)
+        score = c17.score(packet, receipts)
+        score["arm_summaries"]["all"]["private_clip_ids"] = ["secret"]
+        with self.assertRaisesRegex(projection.ProjectionHold,
+                                    "C17_OWNER_AGGREGATE_UNEXPECTED_FIELDS"):
+            projection.compare_c17_aggregate(footprint, plan, owner_score=score)
+
     def test_unknown_not_negative_and_unverified_clocks(self):
         packet, receipts = owner_score()
         owner = c17.score(packet, receipts)
