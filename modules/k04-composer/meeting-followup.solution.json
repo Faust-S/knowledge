@@ -1,0 +1,367 @@
+{
+  "schema": "IWXA.K04.SOLUTION/0.1.0",
+  "id": "meeting-followup-crewai",
+  "version": "0.1.0",
+  "taskKinds": [
+    "meeting_followup"
+  ],
+  "provenance": {
+    "origin": "IWXA_AUTHORED_HOST_NEUTRAL_ADAPTER",
+    "upstreamRepository": "crewAIInc/crewAI-examples",
+    "upstreamRevision": "da94a91e691e1cf5b3151416bb15b5b62729bea8",
+    "upstreamExample": "flows/meeting_assistant_flow",
+    "upstreamRights": "NOT_VERIFIED_FOR_REDISTRIBUTION",
+    "thirdPartyCodeCopied": false,
+    "adapterLicense": "OWNER_LICENSE_DECISION_PENDING"
+  },
+  "qualification": {
+    "scope": "OPEN_HOST_SAMPLE",
+    "iwxaVerified": false,
+    "desktopE2EVerified": false,
+    "twoColdRestartsVerified": false
+  },
+  "inputs": [
+    {
+      "name": "transcript_text",
+      "required": true,
+      "minLength": 40
+    }
+  ],
+  "requires": {
+    "fixed": [
+      {
+        "requirementId": "exact_source_audit",
+        "kind": "tool",
+        "capabilityId": "evidence.exact.audit",
+        "effectClass": "PURE_COMPUTE",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "transcript",
+            "draft"
+          ],
+          "properties": {
+            "transcript": {
+              "type": "string",
+              "minLength": 1
+            },
+            "draft": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "action_items",
+                "open_questions"
+              ],
+              "properties": {
+                "action_items": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "action",
+                      "quote",
+                      "start",
+                      "end",
+                      "assignee",
+                      "due_date",
+                      "worker_kind",
+                      "actual_work_status"
+                    ],
+                    "properties": {
+                      "action": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "quote": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "start": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "end": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "assignee": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "due_date": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "worker_kind": {
+                        "type": "string",
+                        "enum": [
+                          "human",
+                          "unassigned"
+                        ]
+                      },
+                      "actual_work_status": {
+                        "type": "string",
+                        "enum": [
+                          "NOT_EXECUTED"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "open_questions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "passed",
+            "errors",
+            "accepted"
+          ],
+          "properties": {
+            "passed": {
+              "type": "boolean"
+            },
+            "errors": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "accepted": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "quote",
+                  "start",
+                  "end",
+                  "assignee",
+                  "due_date",
+                  "worker_kind",
+                  "actual_work_status"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "quote": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "start": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "end": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "assignee": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "due_date": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "worker_kind": {
+                    "type": "string",
+                    "enum": [
+                      "human",
+                      "unassigned"
+                    ]
+                  },
+                  "actual_work_status": {
+                    "type": "string",
+                    "enum": [
+                      "NOT_EXECUTED"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
+    "alternatives": [
+      {
+        "requirementId": "structured_rule",
+        "kind": "tool",
+        "capabilityId": "meeting.structured.extract",
+        "effectClass": "PURE_COMPUTE",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "transcript"
+          ],
+          "properties": {
+            "transcript": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action_items",
+            "open_questions"
+          ],
+          "properties": {
+            "action_items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "quote",
+                  "start",
+                  "end",
+                  "assignee",
+                  "due_date",
+                  "worker_kind",
+                  "actual_work_status"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "quote": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "start": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "end": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "assignee": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "due_date": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "worker_kind": {
+                    "type": "string",
+                    "enum": [
+                      "human",
+                      "unassigned"
+                    ]
+                  },
+                  "actual_work_status": {
+                    "type": "string",
+                    "enum": [
+                      "NOT_EXECUTED"
+                    ]
+                  }
+                }
+              }
+            },
+            "open_questions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      },
+      {
+        "requirementId": "model_json",
+        "kind": "model",
+        "capabilityId": "text.generate",
+        "effectClass": "MODEL_INFERENCE",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "system",
+            "prompt",
+            "max_output_tokens"
+          ],
+          "properties": {
+            "system": {
+              "type": "string",
+              "minLength": 1
+            },
+            "prompt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "max_output_tokens": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65536
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "text"
+          ],
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "inputModes": [
+          "text"
+        ],
+        "outputModes": [
+          "text"
+        ]
+      }
+    ],
+    "skills": [
+      {
+        "schema": "IWXA.K02.SKILL/0.1.0",
+        "skillId": "exact-source-audit"
+      }
+    ]
+  },
+  "stages": [
+    "input",
+    "extract",
+    "audit",
+    "human_review"
+  ],
+  "allowedExternalEffects": [],
+  "resultCriteria": {
+    "quotedSourceOffsets": "UNICODE_CODEPOINT",
+    "unknownOwnerOrDate": "UNKNOWN",
+    "extractionIsNotExecution": true,
+    "taskReportIsNotGoalDecision": true,
+    "humanReviewOwnedByHost": true
+  }
+}

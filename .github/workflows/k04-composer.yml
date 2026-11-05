@@ -1,0 +1,39 @@
+name: K04 Agent Solution Composer open-host
+on:
+  push:
+    branches:
+      - work/2026-11-05-k04-agent-solution-composer
+    paths:
+      - modules/k04-composer/**
+      - .github/workflows/k04-composer.yml
+  pull_request:
+    paths:
+      - modules/k04-composer/**
+      - .github/workflows/k04-composer.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  k04-open-host:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate JS source
+        run: node --check modules/k04-composer/index.mjs
+      - name: Execute K04 contract tests
+        run: node --test modules/k04-composer/tests/composer.test.mjs
+      - name: Execute real open-host sample
+        run: node modules/k04-composer/sample/open-host.mjs
+      - name: Preserve existing meeting attribution checks
+        run: python -m unittest discover -s tests -p "test_*.py" -v
