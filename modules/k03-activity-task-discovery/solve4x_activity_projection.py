@@ -343,10 +343,16 @@ def main() -> int:
         }
         print(json.dumps(aggregate, sort_keys=True, allow_nan=False))
         return 0
-    except (k03.DiscoveryHold, OSError, ValueError, KeyError, TypeError,
-            UnicodeError, TimeoutError):
+    except k03.DiscoveryHold as error:
+        # Stable K03 code only: never echo source fields or event values.
+        print(json.dumps({"status": "HOLD", "code": str(error)}, sort_keys=True))
+        return 2
+    except (OSError, ValueError, KeyError, TypeError, UnicodeError,
+            TimeoutError) as error:
         print(json.dumps({
-            "status": "HOLD", "code": "K03_C12_C16_ORIGINAL_SOURCE_UNAVAILABLE"
+            "status": "HOLD",
+            "code": "K03_C12_C16_UPSTREAM_SOURCE_UNAVAILABLE",
+            "failure_class": type(error).__name__,
         }, sort_keys=True))
         return 2
 
