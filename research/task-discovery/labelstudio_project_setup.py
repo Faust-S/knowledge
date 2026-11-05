@@ -9,12 +9,14 @@ Run on the reviewer's local machine with an existing Label Studio installation.
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import hashlib
 import json
 import math
 import math
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import re
 import sys
 from urllib.error import HTTPError, URLError
@@ -553,18 +555,51 @@ def _checked_project_export(tasks: list[dict], base: str, token: str,
 
 
 def _write_restricted_exports(exports: tuple[tuple[Path, list[dict]], ...]) -> None:
-    """Write verified exports only; remove partial files after write errors."""
-    created = []
+    """Stage complete private exports before publishing their final filenames.
+
+    Human-reviewed data must never be visible in a truncated final JSON file.
+    On a two-file synthetic QA route, roll back only our own first inode if
+    publishing the second fails. Never delete an intervening replacement.
+    """
+    paths = [path for path, _ in exports]
+    require(1 <= len(paths) <= 2 and len(set(paths)) == len(paths) and
+            all(path.parent.is_dir() and
+                not path.exists() and not path.is_symlink() for path in paths),
+            "REVIEW_OUTPUT_PATHS_MUST_BE_NEW_AND_DISTINCT")
     try:
-        for path, records in exports:
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            created.append(path)
-            with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                json.dump(records, stream, ensure_ascii=False, sort_keys=True)
-                stream.write("\n")
+        with ExitStack() as scope:
+            staged = []
+            for path, records in exports:
+                private = Path(scope.enter_context(TemporaryDirectory(
+                    prefix=".iwxa-m3-review-", dir=path.parent)))
+                candidate = private / "review-export.json"
+                fd = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                    json.dump(records, stream, ensure_ascii=False,
+                              sort_keys=True, allow_nan=False)
+                    stream.write("\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                staged.append((candidate, path))
+            published = []
+            try:
+                for candidate, path in staged:
+                    identity = candidate.stat()
+                    # Hard-link publication is exclusive on the same filesystem:
+                    # a competing output file is never overwritten.
+                    os.link(candidate, path)
+                    published.append((path, identity.st_dev, identity.st_ino))
+            except OSError:
+                for path, device, inode in published:
+                    try:
+                        actual = path.stat(follow_symlinks=False)
+                        if (actual.st_dev, actual.st_ino) == (device, inode):
+                            path.unlink()
+                    except OSError:
+                        # Preserve a file that cannot be proven to be ours.
+                        pass
+                raise
     except (OSError, UnicodeError, ValueError, TypeError):
-        for path in created:
-            path.unlink(missing_ok=True)
         raise SetupHold("REVIEW_OUTPUT_WRITE_FAILED") from None
 
 
