@@ -291,6 +291,8 @@ def analyze(video_doc, sensor_doc, ui_csv, raw_reed_csv):
     video_boundary = video_boundary_evidence(video_doc, original)
     from solve4x_c16_review_footprint import analyze as review_footprint
     c16_footprint = review_footprint(video_doc, original)
+    from solve4x_c17_blind_review import prepare as prepare_c17, public_plan as public_c17
+    c17_public_plan = public_c17(prepare_c17(video_doc, original))
     c12.ensure(c16_footprint["denominators"]["video_annotation_total"] ==
                video_boundary["video_annotated_events"] and
                c16_footprint["review_baselines"]["reed_closed_after_video_end_5s"]["annotations_to_review"] ==
@@ -363,6 +365,7 @@ def analyze(video_doc, sensor_doc, ui_csv, raw_reed_csv):
         "source_rows_to_review_total": len(original) + len(needed_raw) + len(needed_ui),
         "c15_video_annotation_boundaries": video_boundary,
         "c16_annotation_review_footprint": c16_footprint,
+        "c17_blind_video_review_plan": c17_public_plan,
         "c15_review_records_including_candidate_video_segments":
             len(original) + len(needed_raw) + len(needed_ui) +
             video_boundary["unique_annotated_door_segments_to_review_15s"],
