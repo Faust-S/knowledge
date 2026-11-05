@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -25,6 +26,7 @@ INPUT_SCHEMA = "IWXA_TASK_EXP_01_MANUAL_SOURCE_ADJUDICATION/0.1"
 EXPECTED_METHOD_SHA = effort.EXPECTED_METHOD_SHA
 ALLOWED = frozenset(("TASK_PRESENT", "NO_TASK", "UNRESOLVED"))
 METHODS = ("title_regex", "pinned_u1", "either_cue", "literal_exact")
+BLANK_RESOLUTION = "PENDING_HUMAN_ADJUDICATION"
 
 
 class ComparisonHold(ValueError):
@@ -205,6 +207,49 @@ def analyze(manifest: dict, snapshot: dict, adjudication: dict, *,
     }
 
 
+def prepare_manual_resolution(path: Path) -> dict:
+    """Prepare eight pinned source IDs, never a human decision or task gold.
+
+    Keep this editable local handoff outside the Git checkout. A third
+    independent expert must later supply all resolutions and attestations.
+    The unchanged analyzer deliberately rejects this blank file.
+    """
+    manifest = literal.checked_manifest()
+    sources = [item["projection_sha256"] for item in manifest["items"]]
+    need(len(sources) == len(set(sources)) == 8 and
+         all(type(sha) is str and len(sha) == 64 and
+             all(ch in "0123456789abcdef" for ch in sha)
+             for sha in sources),
+         "FROZEN_SOURCE_IDENTITY_INVALID")
+    repo_root = frozen.SELECTION.parents[2].resolve()
+    need(not path.resolve().is_relative_to(repo_root),
+         "MANUAL_ADJUDICATION_OUTPUT_INSIDE_CHECKOUT")
+    need(not path.exists() and not path.is_symlink(),
+         "MANUAL_ADJUDICATION_OUTPUT_EXISTS")
+    need(path.parent.is_dir(), "MANUAL_ADJUDICATION_OUTPUT_PARENT_UNAVAILABLE")
+    template = {
+        "schema": INPUT_SCHEMA,
+        "human_adjudication_claimed": False,
+        "methods_hidden_during_review": False,
+        "sources": [
+            {"source_sha256": sha, "resolution": BLANK_RESOLUTION}
+            for sha in sources
+        ],
+    }
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(template, stream, sort_keys=True, ensure_ascii=False,
+                      indent=2, allow_nan=False)
+            stream.write("\n")
+    except (OSError, TypeError, ValueError, UnicodeError):
+        raise ComparisonHold("MANUAL_ADJUDICATION_TEMPLATE_WRITE_FAILED") from None
+    return {
+        "status": "EIGHT_SOURCE_MANUAL_ADJUDICATION_TEMPLATE_NOT_GOLD",
+        "sources": 8, "unresolved_human_decisions": 8, "human_gold": False,
+    }
+
+
 def replay_method(input_dir: Path | None = None, *,
                   get_source=None) -> tuple[dict, dict]:
     """Regenerate the existing pre-gold U1/title method, never update it."""
@@ -221,10 +266,18 @@ def replay_method(input_dir: Path | None = None, *,
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--manual-adjudication", required=True, type=Path)
+    mode = p.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--manual-adjudication", type=Path)
+    mode.add_argument("--prepare-manual-resolution", type=Path,
+                      help="Write blank eight-source owner-local template outside checkout")
     p.add_argument("--input-dir", type=Path)
     opts = p.parse_args()
     try:
+        if opts.prepare_manual_resolution is not None:
+            need(opts.input_dir is None, "MANUAL_TEMPLATE_DOES_NOT_USE_SOURCE_TEXT")
+            result = prepare_manual_resolution(opts.prepare_manual_resolution)
+            print(json.dumps(result, sort_keys=True))
+            return 0
         # Never upload or print the adjudication rows or replay coordinates.
         adjudication = effort.read_json(opts.manual_adjudication)
         # Read each immutable original source once for both pinned methods.
