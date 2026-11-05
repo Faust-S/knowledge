@@ -15,15 +15,15 @@ permissions:
 jobs:
   k03-owner-contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 7
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Source and selection contract tests
+      - name: Offline source, revision, selection and negative tests
         run: python -W error::ResourceWarning -m unittest discover -s modules/k03-activity-task-discovery/tests -p 'test_*.py' -v
-      - name: All-case replay with baseline and negative evidence
+      - name: Reproducible ADP-001 desk corpus and abstention
         run: |
           python modules/k03-activity-task-discovery/k03.py --all > "$RUNNER_TEMP/k03-receipt.json"
           python - "$RUNNER_TEMP/k03-receipt.json" <<'PY'
@@ -38,5 +38,32 @@ jobs:
           assert row["all_trace_checks_pass"] is True
           assert row["task_instances_created"] == 0
           assert row["human_gold"] is False and row["task_f1"] is None
-          print("K03_SOURCE_REPLAY_PASS; TASK_QUALITY_NOT_MEASURED; AGENT_E2E_NOT_RUN")
+          print("K03_DESK_SOURCE_PASS; INDEPENDENT_TASK_QUALITY_NOT_MEASURED")
+          PY
+      - name: Actual pinned native U1 on eight public issues, three baselines
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python modules/k03-activity-task-discovery/issue_replay.py --all > "$RUNNER_TEMP/k03-public-issue-replay.json"
+          python - "$RUNNER_TEMP/k03-public-issue-replay.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          row = json.loads(Path(sys.argv[1]).read_text("utf-8"))
+          assert row["schema"] == "IWXA_K03_PUBLIC_ISSUE_DISCOVERY/0.1.0"
+          assert row["source_count"] == row["source_level_methods"]["source_first_full_review"] == 8
+          assert row["sources_read_once"] is True
+          assert row["frozen_manifest_git_blob"] == "4ecaa74522ba1c3fa4e8851e877200c7767ad0de"
+          assert row["owner_u1_git_blob"] == "eb15aec5ba1a749c29d7c40a868127e1a384b6bf"
+          assert row["frozen_u1_method_output_sha256"] == "93e76fc6983364c5718a8e26f797d7220ed51899cd90bf92f15731d3c5f94bf0"
+          assert row["frozen_literal_output_sha256"] == "7512d8e85790cc4444214fc8757e3cb24c8214bfd54fe8a36e057f78aa16fec1"
+          assert 0 <= row["investigation_candidates"] <= row["source_count"]
+          assert row["investigation_candidates"] + row["clarification_only_sources"] == 8
+          assert 0 <= row["source_level_methods"]["title_regex_cue_sources"] <= 8
+          assert 0 <= row["source_level_methods"]["literal_full_source_hit_sources"] <= 8
+          assert row["source_text_exported"] is False
+          assert row["task_instances_created"] == 0
+          assert row["human_task_gold"] is False and row["task_f1"] is None
+          assert row["user_time_savings"] is None
+          print("K03_PINNED_REAL_ISSUE_NATIVE_U1_PASS; THREE_BASELINES; NO_TASK_GOLD")
           PY
