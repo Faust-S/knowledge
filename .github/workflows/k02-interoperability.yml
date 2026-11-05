@@ -27,6 +27,8 @@ jobs:
         run: python modules/k02-interoperability/consumers/python_cross_language_verify.py
       - name: Independent Python checks native Agent request drafts from Node
         run: python modules/k02-interoperability/consumers/python_agent_port_verify.py
+      - name: Persist Node plan, independently verify in Python, restore in fresh Node process
+        run: python modules/k02-interoperability/consumers/python_portable_plan_session.py
       - name: Independent Python consumer and real public GitHub REST source
         run: python modules/k02-interoperability/consumers/python_public_source_consumer.py 6d04b82f1b0b614fa22c735075b66f20c1d85f92 solutions/meeting-followup/agent.json
       - name: Syntax and import validation
@@ -83,5 +85,7 @@ jobs:
         run: node modules/k02-interoperability/consumers/live-local-model.mjs
       - name: Cross-language native port draft with pinned live model probe
         run: python modules/k02-interoperability/consumers/python_agent_port_verify.py --live
+      - name: Restore portable plan with live pinned Ollama discovery
+        run: python modules/k02-interoperability/consumers/python_portable_plan_session.py --live
       - name: Independent Python host verifies source evidence model draft
         run: python modules/k02-interoperability/consumers/python_source_backed_review.py 6d04b82f1b0b614fa22c735075b66f20c1d85f92
