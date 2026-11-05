@@ -17,6 +17,8 @@ on:
       - 'research/activity-research/solve4x_c14_raw_reed_review.py'
       - 'research/activity-research/tests/test_solve4x_c14_raw_reed_review.py'
       - 'research/activity-research/tests/test_solve4x_c15_video_boundary.py'
+      - 'research/activity-research/solve4x_c16_review_footprint.py'
+      - 'research/activity-research/tests/test_solve4x_c16_review_footprint.py'
       - 'research/activity-research/solve4x_c13_episode_triage.py'
       - 'research/activity-research/tests/test_solve4x_c13_episode_triage.py'
       - 'research/activity-research/tests/test_solve4x_cross_source_coverage.py'
@@ -423,6 +425,8 @@ jobs:
 
       - name: Offline C12 cross-source negative controls
         run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_cross_source_coverage.py' -v
+      - name: Test C16 annotation footprint and time-cost abstention
+        run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_c16_review_footprint.py' -v
       - name: Test C15 room entry and exit video annotation boundaries
         run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_c15_video_boundary.py' -v
       - name: Test C14 raw reed transitions and UI state coverage
@@ -465,6 +469,30 @@ jobs:
           assert c14["limitations"]["cross_device_clock_calibration_proven"] is False
           assert c14["sensor_plus_one_day_negative"]["candidate_edges"]==0
           assert len(c14["review_episodes"])==3
+          c16=c14["c16_annotation_review_footprint"]
+          assert c16["schema"]=="IWXA_SOLVE4X_C16_ANNOTATION_REVIEW_FOOTPRINT/0.1"
+          assert c16["status"]=="AUTHOR_ANNOTATION_DURATION_PROXY_NOT_OBSERVED_REVIEW_TIME"
+          assert c16["denominators"]=={"video_annotation_total":23,
+                                       "literal_enter_leave_annotations":6,
+                                       "out_of_video_door_closings":3}
+          assert c16["review_baselines"]["reed_closed_after_video_end_5s"]["annotations_to_review"]==3
+          assert c16["review_baselines"]["all_published_video_annotations"]["annotations_to_review"]==23
+          assert c16["review_baselines"]["literal_enter_leave_labels_only"]["annotations_to_review"]==6
+          assert c16["annotation_count_reduction_full_to_focused"]==20
+          assert c16["reviewer_gains_measured"] is False
+          assert c16["human_effort_seconds_delta"] is None
+          assert c16["human_cost_savings"] is None
+          assert c16["clock_calibration_proven"] is False
+          assert c16["accepted_tasks"]==0
+          assert c16["raw_event_ids_timestamps_actor_ids_or_values_exported"] is False
+          for method in c16["review_baselines"].values():
+              assert method["sum_of_annotated_interval_seconds"]>=0
+              assert method["union_seconds_with_two_second_context"]>=0
+              assert method["actual_human_review_seconds"] is None
+          print("SOLVE4X_C16_REVIEW_FOOTPRINT",c16["review_baselines"],
+                "fixed_windows",c16["fixed_window_selection"],
+                "offset_sensitivity",c16["predeclared_offset_sensitivity_candidate_counts_5s"],
+                "HUMAN_REVIEW_TIME_NOT_MEASURED")
           c15=c14["c15_video_annotation_boundaries"]
           assert c15["schema"]=="IWXA_SOLVE4X_C15_VIDEO_BOUNDARY_EVIDENCE/0.1"
           assert c15["status"]=="AUTHOR_VIDEO_LABEL_BOUNDARY_PROXIMITY_NOT_HUMAN_GOLD"
