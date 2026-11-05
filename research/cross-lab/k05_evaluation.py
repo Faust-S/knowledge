@@ -12,9 +12,10 @@ import time
 from typing import Mapping
 from urllib.request import Request, urlopen
 
-SCHEMA = "IWXA_K05_COMPARISON_RESULT/0.1"
+SCHEMA = "IWXA_K05_COMPARISON_RESULT/0.2"
 PIN_RE = re.compile(r"^[0-9a-f]{40}$")
 MAX_SOURCE_BYTES = 1_000_000
+LITERAL_RE = re.compile(r"^([a-z][a-z0-9_.-]{0,63})\s*[:=]\s*(true|false)$", re.IGNORECASE)
 
 
 class PinMismatch(ValueError):
@@ -41,13 +42,16 @@ class EvidenceObservation:
     state: str
     git_blob_sha: str
     sha256: str
+    line_sha256: str | None = None
+    literal_key: str | None = None
+    literal_value: bool | None = None
 
 
 @dataclass(frozen=True)
 class EvaluationCase:
     case_id: str
     sources: tuple[SourcePin, SourcePin]
-    expected_check: str = "CONFLICT"
+    expected_check: str = "EVIDENCE_CHANGED"
 
 
 @dataclass(frozen=True)
@@ -147,6 +151,8 @@ def _observe(pin: SourcePin, data: bytes, method: str) -> EvidenceObservation:
     else:
         raise ValueError("UNKNOWN_METHOD")
     line = matches[0] if len(matches) == 1 else None
+    observed = lines[line - 1].rstrip("\r\n") if line is not None else None
+    literal = LITERAL_RE.fullmatch(observed.strip()) if observed is not None else None
     return EvidenceObservation(
         source=_source_ref(pin),
         version=pin.version,
@@ -155,6 +161,11 @@ def _observe(pin: SourcePin, data: bytes, method: str) -> EvidenceObservation:
         state="OBSERVED" if line is not None else "UNKNOWN",
         git_blob_sha=pin.blob_sha,
         sha256=hashlib.sha256(data).hexdigest(),
+        line_sha256=hashlib.sha256(observed.encode("utf-8")).hexdigest()
+        if observed is not None else None,
+        literal_key=literal.group(1).lower() if literal is not None else None,
+        literal_value=(literal.group(2).lower() == "true")
+        if literal is not None else None,
     )
 
 
@@ -164,14 +175,18 @@ def _method(
     observations = tuple(_observe(pin, sources[pin.version], method) for pin in case.sources)
     if any(o.state == "UNKNOWN" for o in observations):
         status = "UNKNOWN"
-    elif observations[0].claim != observations[1].claim:
-        status = "CONFLICT"
-        observations = tuple(
-            EvidenceObservation(**{**asdict(o), "state": "CONFLICT"})
-            for o in observations
-        )
+    elif (
+        observations[0].literal_key is not None
+        and observations[0].literal_key == observations[1].literal_key
+        and observations[0].literal_value != observations[1].literal_value
+        and observations[0].literal_value is not None
+        and observations[1].literal_value is not None
+    ):
+        status = "LITERAL_CONFLICT"
+    elif observations[0].line_sha256 == observations[1].line_sha256:
+        status = "EVIDENCE_UNCHANGED"
     else:
-        status = "AGREEMENT"
+        status = "EVIDENCE_CHANGED"
     total = sum(len(sources[p.version]) for p in case.sources)
     if method == "DIRECT_READ_EXACT_SEARCH":
         review_bytes = total
@@ -199,8 +214,12 @@ def evaluate_case(
     *,
     rounds: int = 100,
 ) -> ComparisonResult:
-    if rounds < 1 or rounds > 10000:
+    if type(rounds) is not int or rounds < 1 or rounds > 10000:
         raise ValueError("INVALID_BENCHMARK_ROUNDS")
+    if case.expected_check not in {
+        "LITERAL_CONFLICT", "EVIDENCE_CHANGED", "EVIDENCE_UNCHANGED"
+    }:
+        raise ValueError("UNSUPPORTED_EXPECTED_RELATION")
     if len(case.sources) != 2 or case.sources[0].version == case.sources[1].version:
         raise ValueError("CASE_REQUIRES_TWO_DISTINCT_VERSIONS")
     if case.sources[0].repository != case.sources[1].repository or case.sources[0].path != case.sources[1].path:
@@ -235,6 +254,8 @@ def evaluate_case(
         if expected else "UNKNOWN"
         if baseline["status"] == "UNKNOWN" or tested["status"] == "UNKNOWN"
         else "METHOD_DISAGREEMENT"
+        if not same_observations or baseline["status"] != tested["status"]
+        else "EXPECTED_RELATION_NOT_OBSERVED"
     )
     return ComparisonResult(
         schema=SCHEMA,
@@ -248,11 +269,14 @@ def evaluate_case(
             "source_path": case.sources[0].path,
             "bench_rounds": rounds,
             "source_access": "PIN_VERIFIED_BYTES",
+            "relation_basis": "EXACT_LINE_DIGEST_OR_EXPLICIT_BOOLEAN_LITERAL",
+            "claim_labels_semantically_validated": False,
+            "pinned_locator_requires_upstream_provenance": True,
             "human_gold": False,
         },
         checks={
             "same_source_distinct_versions": True,
-            "baseline_tested_agreement": same_observations,
+            "baseline_tested_agreement": same_observations and baseline["status"] == tested["status"],
             "expected_source_check": case.expected_check,
             "expected_check_met": expected,
         },
@@ -265,6 +289,8 @@ def evaluate_case(
         },
         unknown={
             "human_task_accuracy": None,
+            "semantic_claim_accuracy": None,
+            "source_revision_chronology_independently_verified": None,
             "human_completion_time_ms": None,
             "human_review_cost_usd": None,
             "compute_cost_usd": None,
@@ -276,9 +302,83 @@ def evaluate_case(
     )
 
 
+def verify_evidence_receipt(
+    receipt: Mapping[str, object],
+    case: EvaluationCase,
+    sources: Mapping[str, bytes],
+) -> bool:
+    # Recompute evidence against pinned bytes. Timing and Agent readback are not certified.
+    if not isinstance(receipt, Mapping):
+        return False
+    try:
+        independently_computed = asdict(evaluate_case(case, sources, rounds=1))
+        if any(receipt.get(key) != independently_computed[key] for key in (
+            "schema", "case_id", "status", "checks", "unknown"
+        )):
+            return False
+        for name in ("baseline", "tested"):
+            received = receipt.get(name)
+            if not isinstance(received, Mapping):
+                return False
+            without_timing = {
+                key: value for key, value in received.items()
+                if key != "latency_ms_median"
+            }
+            known = {
+                key: value for key, value in independently_computed[name].items()
+                if key != "latency_ms_median"
+            }
+            if without_timing != known:
+                return False
+            measured_ms = received.get("latency_ms_median")
+            if (
+                type(measured_ms) not in (int, float)
+                or not 0 <= measured_ms < float("inf")
+            ):
+                return False
+        scope = receipt.get("scope")
+        if not isinstance(scope, Mapping):
+            return False
+        reported_rounds = scope.get("bench_rounds")
+        if type(reported_rounds) is not int or not 1 <= reported_rounds <= 10000:
+            return False
+        if {
+            key: value for key, value in scope.items() if key != "bench_rounds"
+        } != {
+            key: value for key, value in independently_computed["scope"].items()
+            if key != "bench_rounds"
+        }:
+            return False
+        measured = receipt.get("measured")
+        if not isinstance(measured, Mapping):
+            return False
+        latency_keys = (
+            "processing_latency_ms_median_baseline",
+            "processing_latency_ms_median_tested",
+        )
+        if {
+            key: value for key, value in measured.items()
+            if key not in latency_keys
+        } != {
+            key: value for key, value in independently_computed["measured"].items()
+            if key not in latency_keys
+        }:
+            return False
+        for key in latency_keys:
+            value = measured.get(key)
+            if type(value) not in (int, float) or not 0 <= value < float("inf"):
+                return False
+        return True
+    except (ValueError, KeyError, TypeError):
+        return False
+
+
 def public_replay(*, rounds: int = 100) -> ComparisonResult:
     sources = {pin.version: fetch_public_pinned_source(pin) for pin in PUBLIC_CASE.sources}
-    return evaluate_case(PUBLIC_CASE, sources, rounds=rounds)
+    result = evaluate_case(PUBLIC_CASE, sources, rounds=rounds)
+    if not verify_evidence_receipt(asdict(result), PUBLIC_CASE, sources):
+        raise PinMismatch("RECEIPT_EVIDENCE_MISMATCH")
+    return result
 
 
 def main() -> int:

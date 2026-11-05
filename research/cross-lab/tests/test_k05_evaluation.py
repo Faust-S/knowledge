@@ -30,10 +30,12 @@ class K05Tests(unittest.TestCase):
         case, source = make_case()
         result = asdict(k05.evaluate_case(case, source, rounds=3))
         self.assertEqual(result["status"], "CONFIRMED")
-        self.assertEqual(result["baseline"]["status"], "CONFLICT")
-        self.assertEqual(result["tested"]["status"], "CONFLICT")
+        self.assertFalse(result["scope"]["claim_labels_semantically_validated"])
+        self.assertIsNone(result["unknown"]["semantic_claim_accuracy"])
+        self.assertEqual(result["baseline"]["status"], "EVIDENCE_CHANGED")
+        self.assertEqual(result["tested"]["status"], "EVIDENCE_CHANGED")
         self.assertEqual([o["state"] for o in result["tested"]["observations"]],
-                         ["CONFLICT", "CONFLICT"])
+                         ["OBSERVED", "OBSERVED"])
         self.assertEqual([o["locator"] for o in result["tested"]["observations"]],
                          ["L1", "L1"])
         self.assertTrue(result["checks"]["baseline_tested_agreement"])
@@ -95,13 +97,76 @@ class K05Tests(unittest.TestCase):
         with self.assertRaisesRegex(k05.PinMismatch, "REMOTE_SOURCE_NOT_ALLOWLISTED"):
             k05.fetch_public_pinned_source(replace(case.sources[0], path="private.txt"))
 
+
+    def test_explicit_boolean_literals_only_prove_narrow_conflict(self):
+        case, sources = make_case(b"enabled: true\n", b"enabled: false\n")
+        case = replace(
+            case,
+            expected_check="LITERAL_CONFLICT",
+            sources=(
+                replace(case.sources[0], anchor="enabled: true",
+                        blob_sha=k05.git_blob_sha(sources["a" * 40])),
+                replace(case.sources[1], anchor="enabled: false",
+                        blob_sha=k05.git_blob_sha(sources["b" * 40])),
+            ),
+        )
+        result = asdict(k05.evaluate_case(case, sources, rounds=2))
+        self.assertEqual(result["status"], "CONFIRMED")
+        self.assertEqual(result["tested"]["status"], "LITERAL_CONFLICT")
+        self.assertEqual(result["tested"]["observations"][0]["literal_value"], True)
+        self.assertEqual(result["tested"]["observations"][1]["literal_value"], False)
+
+    def test_different_claim_labels_do_not_prove_semantic_conflict(self):
+        case, sources = make_case(b"same line\n", b"same line\n")
+        case = replace(
+            case,
+            expected_check="EVIDENCE_UNCHANGED",
+            sources=(
+                replace(case.sources[0], anchor="same line",
+                        blob_sha=k05.git_blob_sha(sources["a" * 40])),
+                replace(case.sources[1], anchor="same line",
+                        blob_sha=k05.git_blob_sha(sources["b" * 40])),
+            ),
+        )
+        result = asdict(k05.evaluate_case(case, sources, rounds=1))
+        self.assertEqual(result["status"], "CONFIRMED")
+        self.assertEqual(result["tested"]["status"], "EVIDENCE_UNCHANGED")
+
+    def test_wrong_expected_relation_cannot_be_confirmed(self):
+        case, sources = make_case()
+        case = replace(case, expected_check="LITERAL_CONFLICT")
+        result = k05.evaluate_case(case, sources, rounds=1)
+        self.assertEqual(result.status, "EXPECTED_RELATION_NOT_OBSERVED")
+        self.assertFalse(result.checks["expected_check_met"])
+
+    def test_receipt_detects_mutated_evidence_without_claiming_readback(self):
+        case, sources = make_case()
+        receipt = asdict(k05.evaluate_case(case, sources, rounds=2))
+        self.assertTrue(k05.verify_evidence_receipt(receipt, case, sources))
+        receipt["tested"]["observations"][0]["line_sha256"] = "0" * 64
+        self.assertFalse(k05.verify_evidence_receipt(receipt, case, sources))
+
+    def test_receipt_requires_correct_source_version_and_unknown_fields(self):
+        case, sources = make_case()
+        receipt = asdict(k05.evaluate_case(case, sources, rounds=1))
+        receipt["unknown"]["agent_result_readback"] = "PASS"
+        self.assertFalse(k05.verify_evidence_receipt(receipt, case, sources))
+        receipt = asdict(k05.evaluate_case(case, sources, rounds=1))
+        receipt["scope"]["source_access"] = "SYNTHETIC"
+        self.assertFalse(k05.verify_evidence_receipt(receipt, case, sources))
+
+    def test_boolean_round_count_rejected(self):
+        case, sources = make_case()
+        with self.assertRaisesRegex(ValueError, "INVALID_BENCHMARK_ROUNDS"):
+            k05.evaluate_case(case, sources, rounds=True)
+
     def test_real_pin_metadata_stable(self):
         p, q = k05.PUBLIC_CASE.sources
         self.assertEqual((p.repository, p.path), (q.repository, q.path))
         self.assertNotEqual(p.version, q.version)
         self.assertNotEqual(p.blob_sha, q.blob_sha)
         self.assertEqual((p.locator_line, q.locator_line), (3, 5))
-        self.assertEqual(k05.SCHEMA, "IWXA_K05_COMPARISON_RESULT/0.1")
+        self.assertEqual(k05.SCHEMA, "IWXA_K05_COMPARISON_RESULT/0.2")
 
     def test_remote_replay_uses_real_verified_bytes_without_readback_claims(self):
         case, sources = make_case()

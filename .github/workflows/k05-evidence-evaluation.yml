@@ -33,18 +33,20 @@ jobs:
           import os
           from pathlib import Path
           receipt = json.loads((Path(os.environ["RUNNER_TEMP"]) / "k05-proof.json").read_text())
-          assert receipt["schema"] == "IWXA_K05_COMPARISON_RESULT/0.1"
+          assert receipt["schema"] == "IWXA_K05_COMPARISON_RESULT/0.2"
           assert receipt["status"] == "CONFIRMED"
-          assert receipt["baseline"]["status"] == receipt["tested"]["status"] == "CONFLICT"
+          assert receipt["baseline"]["status"] == receipt["tested"]["status"] == "EVIDENCE_CHANGED"
           assert receipt["checks"]["baseline_tested_agreement"] is True
           assert receipt["measured"]["versions_verified"] == 2
           assert receipt["measured"]["review_bytes_tested"] < receipt["measured"]["review_bytes_baseline"]
           assert receipt["scope"]["human_gold"] is False
+          assert receipt["scope"]["claim_labels_semantically_validated"] is False
+          assert receipt["unknown"]["semantic_claim_accuracy"] is None
           assert receipt["unknown"]["human_task_accuracy"] is None
           assert receipt["unknown"]["human_completion_time_ms"] is None
           assert receipt["unknown"]["agent_result_readback"] == "NOT_TESTED"
           assert "source_text" not in str(receipt)
-          print("K05_PINNED_CONFLICT_BASELINE_PASS; HUMAN_OUTCOME_NOT_MEASURED")
+          print("K05_REVISION_CHANGE_BASELINE_PASS; SEMANTIC_CONFLICT_NOT_INFERRED")
           PY
       - uses: actions/upload-artifact@v4
         with:
