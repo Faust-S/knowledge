@@ -16,6 +16,7 @@ on:
       - 'research/activity-research/solve4x_cross_source_coverage.py'
       - 'research/activity-research/solve4x_c14_raw_reed_review.py'
       - 'research/activity-research/tests/test_solve4x_c14_raw_reed_review.py'
+      - 'research/activity-research/tests/test_solve4x_c15_video_boundary.py'
       - 'research/activity-research/solve4x_c13_episode_triage.py'
       - 'research/activity-research/tests/test_solve4x_c13_episode_triage.py'
       - 'research/activity-research/tests/test_solve4x_cross_source_coverage.py'
@@ -422,6 +423,8 @@ jobs:
 
       - name: Offline C12 cross-source negative controls
         run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_cross_source_coverage.py' -v
+      - name: Test C15 room entry and exit video annotation boundaries
+        run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_c15_video_boundary.py' -v
       - name: Test C14 raw reed transitions and UI state coverage
         run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_c14_raw_reed_review.py' -v
       - name: Test C13 redacted sensor UI episode characterization
@@ -462,6 +465,24 @@ jobs:
           assert c14["limitations"]["cross_device_clock_calibration_proven"] is False
           assert c14["sensor_plus_one_day_negative"]["candidate_edges"]==0
           assert len(c14["review_episodes"])==3
+          c15=c14["c15_video_annotation_boundaries"]
+          assert c15["schema"]=="IWXA_SOLVE4X_C15_VIDEO_BOUNDARY_EVIDENCE/0.1"
+          assert c15["status"]=="AUTHOR_VIDEO_LABEL_BOUNDARY_PROXIMITY_NOT_HUMAN_GOLD"
+          assert c15["video_annotated_events"]==23
+          assert c15["outside_video_entrance_closing_events"]==3
+          assert c15["accepted_tasks"]==0
+          assert c15["clock_synchronization_confirmed"] is False
+          assert c15["same_human_action"]=="UNKNOWN"
+          assert c15["source_values_and_actor_ids_exported"] is False
+          assert c15["plus_one_day_negative_15s"]["candidate_annotation_edges"]==0
+          assert c14["c15_review_records_including_candidate_video_segments"]==(
+              c14["source_rows_to_review_total"]+
+              c15["unique_annotated_door_segments_to_review_15s"])
+          print("SOLVE4X_C15_BOUNDARY",c15["video_entrance_exit_annotations"],
+                "room_enter_exit_annotations",c15["fixed_boundary_windows"],
+                "non_door_baseline",c15["non_door_video_boundary_baseline"],
+                "review_scope",c14["c15_review_records_including_candidate_video_segments"],
+                "NO_HUMAN_GOLD")
           print("SOLVE4X_C14_REED_REVIEW",
                 "raw_source_sha256",r["c14_raw_reed_sha256"],
                 "denominators",c14["denominators"],
