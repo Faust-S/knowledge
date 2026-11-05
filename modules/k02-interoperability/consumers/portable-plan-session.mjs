@@ -4,7 +4,7 @@ import { GitCliProvider, GIT_INPUT, GIT_OUTPUT } from '../adapters/git-cli.mjs';
 import { NodeEvidenceCliProvider, AUDIT_INPUT, AUDIT_OUTPUT } from '../adapters/node-evidence-cli.mjs';
 import { OllamaLocalModelProvider, MODEL_INPUT, MODEL_OUTPUT } from '../adapters/ollama-local.mjs';
 import { CONTRACT_VERSION, InteropError, describeCapabilities, resolveRequirements,
-  buildInvocationPlan, verifyInvocationReadiness, verifySkillBinding, digest } from '../index.mjs';
+  buildInvocationPlan, verifyPortablePlan, digest } from '../index.mjs';
 
 const SESSION_SCHEMA = 'IWXA.K02.PORTABLE_PLAN_SESSION/0.1.0';
 const MODEL_NAME = 'smollm2:135m-instruct-q2_K';
@@ -99,15 +99,12 @@ export async function resumePortableSession(filepath, trustedDigest, options = {
   }
   const skillBytes = await readFile(
     new URL('../skills/exact-source-audit.instructions.json', import.meta.url));
-  const verifiedSkill = verifySkillBinding(plan, bundle.skill.skillId,
-    bundle.skill, skillBytes, trustedDigest);
-  const checks = [];
+  // K02's reusable verification checks the reloaded plan against native
+  // host-provided providers and bytes; saved descriptors are compared separately.
+  const restored = await verifyPortablePlan(plan, trustedDigest,
+    linked.map((provider, i) => ({ providerId: providerDescriptors[i].providerId, provider })),
+    [{ descriptor: bundle.skill, instructionBytes: skillBytes }]);
   for (const step of plan.steps) {
-    const active = providerMap.get(step.providerId);
-    if (!active) fail('provider_not_available');
-    // No calls to provider.invoke here: the product host retains execution authority.
-    const checked = await verifyInvocationReadiness(
-      plan, step.requirementId, active, trustedDigest);
     const captured = bundle.descriptors.find(x => x.providerId === step.providerId);
     const cap = captured?.capabilities?.find(x => x.kind === step.kind &&
       x.capabilityId === step.capabilityId);
@@ -116,11 +113,9 @@ export async function resumePortableSession(filepath, trustedDigest, options = {
     }) !== step.capabilityDigest) {
       throw new InteropError('BINDING_CHANGED', 'saved_provider_descriptor');
     }
-    checks.push({ requirementId: checked.requirementId, providerId: checked.providerId,
-      status: checked.status });
   }
   return { status: 'RESTORED_NOT_AUTHORIZED', planDigest: trustedDigest,
-    steps: checks.length, skills: verifiedSkill.status === 'MATCHED_NOT_ACTIVATED' ? 1 : 0,
+    steps: restored.checkedSteps.length, skills: restored.checkedSkills.length,
     modelPin: plan.steps.find(x => x.kind === 'model')?.modelPin,
     invocations: 0, taskCreated: false, resultProduced: false };
 }

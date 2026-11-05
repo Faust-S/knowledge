@@ -226,11 +226,14 @@ export function buildInvocationPlan(task, selectedSkills, resolution) {
       typeof s.providerId !== 'string' || typeof s.kind !== 'string' ||
       typeof s.capabilityId !== 'string')) fail('INVALID_PLAN', 'unbound_capability');
   const skills = [];
+  const selectedSkillIds = new Set();
   for (const skill of selectedSkills) {
     if (!object(skill) || skill.schema !== 'IWXA.K02.SKILL/0.1.0' || typeof skill.skillId !== 'string' || !Array.isArray(skill.requiredCapabilities) || !skill.requiredCapabilities.every(x => covered.has(x)) || !skill.instructionRef || !skill.verification || !HEX64.test(skill.instructionDigest ?? '') ||
       !/^skills\/[A-Za-z0-9._/-]+$/.test(skill.instructionRef) ||
       skill.instructionRef.split('/').includes('..')) fail('INVALID_PLAN', 'skill_dependency');
     name(skill.skillId, 'skillId');
+    if (selectedSkillIds.has(skill.skillId)) fail('INVALID_PLAN', 'duplicate_skill');
+    selectedSkillIds.add(skill.skillId);
     validateSchema(skill.parametersSchema);
     skills.push({ skillId: skill.skillId, instructionRef: skill.instructionRef,
       instructionDigest: skill.instructionDigest, descriptorDigest: digest(skill), verification: skill.verification });
@@ -264,6 +267,16 @@ function assertTrustedPlan(plan, trustedPlanDigest) {
   delete body.planDigest;
   if (digest(body) !== trustedPlanDigest || !Array.isArray(plan.steps) ||
       !Array.isArray(plan.skills)) fail('INVALID_PLAN', 'plan_changed');
+  const skillIds = new Set();
+  for (const skill of plan.skills) {
+    if (!object(skill) || typeof skill.skillId !== 'string' ||
+        skillIds.has(skill.skillId) || typeof skill.instructionRef !== 'string' ||
+        !HEX64.test(skill.instructionDigest ?? '') ||
+        !HEX64.test(skill.descriptorDigest ?? '')) {
+      fail('INVALID_PLAN', 'skill_binding');
+    }
+    skillIds.add(skill.skillId);
+  }
   const seen = new Set();
   for (const step of plan.steps) {
     if (!object(step) || typeof step.requirementId !== 'string' ||
@@ -320,4 +333,64 @@ export function verifySkillBinding(plan, skillId, skillDescriptor, instructionBy
     fail('BINDING_CHANGED', 'skill_instructions');
   }
   return { status: 'MATCHED_NOT_ACTIVATED', skillId, instructionDigest: selected.instructionDigest };
+}
+
+
+// Generic, host-owned recovery check for a plan loaded from JSON or another
+// transport. Caller supplies the trusted digest OUTSIDE the received plan and
+// the host's registered provider objects and Skill instruction bytes.
+// No provider invoke, no Skill activation and no native Agent port calls.
+export async function verifyPortablePlan(plan, trustedPlanDigest, providers, skillBindings) {
+  assertTrustedPlan(plan, trustedPlanDigest);
+  if (!Array.isArray(providers) || !Array.isArray(skillBindings)) {
+    fail('INVALID_PLAN', 'host_bindings');
+  }
+  const runtimeProviders = new Map();
+  for (const entry of providers) {
+    if (!object(entry) || typeof entry.providerId !== 'string' ||
+        !entry.provider || typeof entry.provider.describeCapabilities !== 'function' ||
+        runtimeProviders.has(entry.providerId)) {
+      fail('INVALID_PLAN', 'provider_registry');
+    }
+    runtimeProviders.set(entry.providerId, entry.provider);
+  }
+  const hostSkills = new Map();
+  for (const entry of skillBindings) {
+    if (!object(entry) || !object(entry.descriptor) ||
+        typeof entry.descriptor.skillId !== 'string' ||
+        !(entry.instructionBytes instanceof Uint8Array) ||
+        hostSkills.has(entry.descriptor.skillId)) {
+      fail('INVALID_PLAN', 'skill_registry');
+    }
+    hostSkills.set(entry.descriptor.skillId, entry);
+  }
+  if (hostSkills.size !== plan.skills.length ||
+      plan.skills.some(skill => !hostSkills.has(skill.skillId))) {
+    fail('INVALID_PLAN', 'selected_skills_missing_or_unexpected');
+  }
+  // Check instructions before contacting providers; a mismatched Skill
+  // must not be disguised by a separate provider availability failure.
+  const verifiedSkills = [];
+  for (const skill of plan.skills) {
+    const entry = hostSkills.get(skill.skillId);
+    const check = verifySkillBinding(
+      plan, skill.skillId, entry.descriptor, entry.instructionBytes, trustedPlanDigest);
+    verifiedSkills.push({ skillId: check.skillId, status: check.status });
+  }
+  const verifiedSteps = [];
+  for (const step of plan.steps) {
+    const provider = runtimeProviders.get(step.providerId);
+    if (!provider) fail('PROVIDER_UNAVAILABLE', 'host_provider_not_registered');
+    const check = await verifyInvocationReadiness(
+      plan, step.requirementId, provider, trustedPlanDigest);
+    verifiedSteps.push({
+      requirementId: check.requirementId, providerId: check.providerId, status: check.status,
+    });
+  }
+  assertTrustedPlan(plan, trustedPlanDigest);
+  return {
+    status: 'RESTORED_NOT_AUTHORIZED', planDigest: trustedPlanDigest,
+    checkedSteps: verifiedSteps, checkedSkills: verifiedSkills,
+    providerInvocations: 0, taskCreated: false, resultProduced: false,
+  };
 }
