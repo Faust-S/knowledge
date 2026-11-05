@@ -455,5 +455,75 @@ class LocalLabelStudioSetupTests(unittest.TestCase):
         self.assertFalse(ls.same_review_form(xml, None))
 
 
+    def test_isolated_pair_preflights_before_both_creations(self):
+        _, tasks = fixture()
+        from unittest.mock import call
+        with patch.object(ls, "verify_isolated_reviewers") as accounts, \
+             patch.object(ls, "create_projects", side_effect=[
+                 {"project_ids": [12]}, {"project_ids": [17]}]) as create, \
+             patch.object(ls, "isolated_review_preflight", return_value={
+                 "status": "TWO_LOCAL_REVIEW_INSTANCES_API_PREFLIGHT_PASS_NOT_HUMAN_GOLD",
+                 "sources_each": 8, "persisted_owner_forms_checked": True,
+                 "cross_instance_identity_and_export_denied": True,
+                 "human_gold": False,
+             }) as verify:
+            receipt = ls.create_isolated_review_pair(
+                tasks, CONFIG.decode("utf-8"),
+                "http://127.0.0.1:8080", "Token a",
+                "http://127.0.0.1:8081", "Token b")
+        accounts.assert_called_once()
+        self.assertEqual(create.call_count, 2)
+        self.assertEqual(create.call_args_list[0].kwargs["slots"], 1)
+        self.assertEqual(create.call_args_list[1].kwargs["slots"], 1)
+        verify.assert_called_once()
+        self.assertEqual(receipt["project_a_id"], 12)
+        self.assertEqual(receipt["project_b_id"], 17)
+        self.assertFalse(receipt["human_gold"])
+        self.assertFalse(receipt["human_independence_independently_verified"])
+        self.assertFalse(receipt["annotation_completed"])
+
+    def test_isolated_pair_rejects_bad_accounts_before_writing(self):
+        _, tasks = fixture()
+        with patch.object(ls, "verify_isolated_reviewers",
+                          side_effect=ls.SetupHold("ISOLATED_NATIVE_REVIEWER_IDS_COLLIDE")), \
+             patch.object(ls, "create_projects") as create:
+            with self.assertRaisesRegex(ls.SetupHold,
+                                        "ISOLATED_NATIVE_REVIEWER_IDS_COLLIDE"):
+                ls.create_isolated_review_pair(
+                    tasks, CONFIG.decode("utf-8"),
+                    "http://127.0.0.1:8080", "Token a",
+                    "http://127.0.0.1:8081", "Token b")
+            create.assert_not_called()
+
+    def test_isolated_pair_reports_partial_projects_without_success(self):
+        _, tasks = fixture()
+        with patch.object(ls, "verify_isolated_reviewers"), \
+             patch.object(ls, "create_projects", side_effect=[
+                 {"project_ids": [12]},
+                 ls.SetupHold("LABEL_STUDIO_IMPORT_COUNT_MISMATCH", (17,))]):
+            with self.assertRaisesRegex(
+                    ls.SetupHold, "LABEL_STUDIO_IMPORT_COUNT_MISMATCH") as failure:
+                ls.create_isolated_review_pair(
+                    tasks, CONFIG.decode("utf-8"),
+                    "http://127.0.0.1:8080", "Token a",
+                    "http://127.0.0.1:8081", "Token b")
+        self.assertEqual(failure.exception.created_project_ids, (12, 17))
+
+    def test_isolated_pair_final_form_drift_is_not_ready(self):
+        _, tasks = fixture()
+        with patch.object(ls, "verify_isolated_reviewers"), \
+             patch.object(ls, "create_projects", side_effect=[
+                 {"project_ids": [12]}, {"project_ids": [17]}]), \
+             patch.object(ls, "isolated_review_preflight",
+                          side_effect=ls.SetupHold("ISOLATED_REVIEW_SAVED_FORM_MISMATCH")):
+            with self.assertRaisesRegex(
+                    ls.SetupHold, "ISOLATED_REVIEW_SAVED_FORM_MISMATCH") as failure:
+                ls.create_isolated_review_pair(
+                    tasks, CONFIG.decode("utf-8"),
+                    "http://127.0.0.1:8080", "Token a",
+                    "http://127.0.0.1:8081", "Token b")
+        self.assertEqual(failure.exception.created_project_ids, (12, 17))
+
+
 if __name__ == '__main__':
     unittest.main()

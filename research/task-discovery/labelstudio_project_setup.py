@@ -435,6 +435,56 @@ def isolated_review_preflight(
     }
 
 
+def create_isolated_review_pair(
+        tasks: list[dict], xml: str,
+        url_a: str, token_a: str, url_b: str, token_b: str, *,
+        call=api) -> dict:
+    """Prepare one reviewed-form project on EACH already-running local CE.
+
+    This is an owner-local convenience over existing transport functions, not
+    a new annotation service. Verify separate credentials before any import
+    and recheck the original bytes/form and cross-access after both imports.
+    If B or the final preflight fails, report created IDs for local cleanup:
+    no automated deletion or claim that an incomplete pair is ready.
+    """
+    originals = {t["data"]["source_sha256"] for t in tasks}
+    require(len(tasks) == len(originals) == 8 and type(xml) is str and bool(xml),
+            "SOURCE_FIRST_IMPORT_INCOMPLETE")
+    # If accounts have the same completed_by ID or can read each other's API,
+    # refuse before creating any project. Distinct ports alone are not enough.
+    verify_isolated_reviewers(url_a, token_a, url_b, token_b, call=call)
+    created: list[int] = []
+    try:
+        first = create_projects(tasks, xml, url_a, token_a, slots=1, call=call)
+        created.extend(first["project_ids"])
+        second = create_projects(tasks, xml, url_b, token_b, slots=1, call=call)
+        created.extend(second["project_ids"])
+        verified = isolated_review_preflight(
+            tasks, xml, url_a, token_a, created[0],
+            url_b, token_b, created[1], call=call)
+        require(verified.get("status") ==
+                "TWO_LOCAL_REVIEW_INSTANCES_API_PREFLIGHT_PASS_NOT_HUMAN_GOLD" and
+                verified.get("sources_each") == 8 and
+                verified.get("persisted_owner_forms_checked") is True and
+                verified.get("cross_instance_identity_and_export_denied") is True and
+                verified.get("human_gold") is False,
+                "ISOLATED_PAIR_FINAL_PREFLIGHT_INVALID")
+    except SetupHold as error:
+        # Existing partial-result convention. Order: A then B. An unfinished
+        # project is never represented by a successful pair receipt.
+        raise SetupHold(str(error), tuple(created) + error.created_project_ids) from None
+    return {
+        "schema": SCHEMA,
+        "status": "TWO_LOCAL_ISOLATED_SOURCE_FIRST_PROJECTS_READY_NOT_GOLD",
+        "project_a_id": created[0], "project_b_id": created[1],
+        "sources_each": 8, "reviewer_projects_created": 2,
+        "persisted_owner_forms_checked": True,
+        "cross_instance_identity_and_export_denied": True,
+        "annotation_completed": False, "human_gold": False,
+        "human_independence_independently_verified": False,
+    }
+
+
 def _checked_project_export(tasks: list[dict], base: str, token: str,
                             pid: int, *, expected_xml: str, call=api) -> tuple[list[dict], str]:
     """Recheck persisted reviewer form before exporting source-first records.
@@ -684,6 +734,8 @@ def main() -> int:
                         help="One per isolated instance (default); two only for synthetic transport QA")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--create-local-projects", action="store_true")
+    mode.add_argument("--create-isolated-pair", action="store_true",
+                      help="Create A and B on separate local CE servers with a preflight")
     mode.add_argument("--export-reviewed-projects", action="store_true")
     mode.add_argument("--export-single-reviewed-project", action="store_true")
     mode.add_argument("--preflight-isolated-reviewers", action="store_true")
@@ -714,6 +766,22 @@ def main() -> int:
                                            mode=args.auth_mode)
             result = create_projects(tasks, xml, args.url, token,
                                      slots=args.reviewer_slots)
+        elif args.create_isolated_pair:
+            require(args.confirm_local_import and
+                    args.other_url is not None and args.project_id is None and
+                    args.other_project_id is None and
+                    args.project_a_id is None and args.project_b_id is None and
+                    args.review_out is None and args.review_a_out is None and
+                    args.review_b_out is None,
+                    "ISOLATED_PAIR_CREATION_ARGUMENTS_INCOMPLETE")
+            token_a = resolve_api_credential(
+                args.url, os.environ.get("LABEL_STUDIO_API_KEY", ""),
+                mode=args.auth_mode)
+            token_b = resolve_api_credential(
+                args.other_url, os.environ.get("LABEL_STUDIO_SECOND_API_KEY", ""),
+                mode=args.other_auth_mode)
+            result = create_isolated_review_pair(
+                tasks, xml, args.url, token_a, args.other_url, token_b)
         elif args.preflight_isolated_reviewers:
             require(not args.confirm_local_import and
                     args.project_id is not None and args.other_project_id is not None and

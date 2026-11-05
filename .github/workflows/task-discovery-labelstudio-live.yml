@@ -201,11 +201,6 @@ jobs:
                   return str(error) in ('LABEL_STUDIO_HTTP_401', 'LABEL_STUDIO_HTTP_403')
               return False
 
-          def create_blind_project(base, token):
-              tasks = synthetic_tasks()
-              return setup.create_projects(
-                  tasks, SYNTHETIC_XML, base, token, slots=1)['project_ids'][0]
-
           def annotate_and_export(base, token, pid, output, expected_id):
               tasks = synthetic_tasks()
               rows = setup.api(base, token,
@@ -284,12 +279,15 @@ jobs:
                       'ISOLATED_CROSS_INSTANCE_AUTH_UNEXPECTED')
               # On both real disposable servers, prove the complete M3b API
               # preflight BEFORE writing any annotations, not just whoami.
-              a_project = create_blind_project(a_base, a_token)
-              b_project = create_blind_project(b_base, b_token)
-              review_gate = setup.isolated_review_preflight(
+              # The same owner-local one-shot route also has a real native
+              # two-server synthetic test here. Exact original XML is checked
+              # by the owner-local contract, not copied into public CI.
+              review_gate = setup.create_isolated_review_pair(
                   synthetic_tasks(), SYNTHETIC_XML,
-                  a_base, 'Token ' + a_token, a_project,
-                  b_base, 'Token ' + b_token, b_project)
+                  a_base, 'Token ' + a_token,
+                  b_base, 'Token ' + b_token)
+              a_project = review_gate['project_a_id']
+              b_project = review_gate['project_b_id']
               require(review_gate['sources_each'] == 8 and
                       review_gate['persisted_owner_forms_checked'] and
                       review_gate['unannotated_original_sources_checked'] and
