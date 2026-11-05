@@ -100,7 +100,7 @@ function findProvider(req, providers) {
       (req.outputModes || []).some(mode => !cap.outputModes?.includes(mode))) {
       reasons.add('MODE_MISMATCH'); continue;
     }
-    if (req.modelPin && digest(req.modelPin) !== digest(cap.modelPin)) {
+    if (req.modelPin && (!cap.modelPin || digest(req.modelPin) !== digest(cap.modelPin))) {
       reasons.add('PIN_MISMATCH'); continue;
     }
     matches.push({requirementId: req.requirementId, kind: req.kind,
