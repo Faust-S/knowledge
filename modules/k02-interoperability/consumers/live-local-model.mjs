@@ -13,7 +13,9 @@ assert.equal(descriptor.availability, 'available', descriptor.unavailableReason 
 const solution = {
   solutionId: 'K02-OPEN-MODEL-SAMPLE',
   requirements: [{ requirementId: 'generation', kind: 'model', capabilityId: 'text.generate', effectClass: 'MODEL_INFERENCE', required: true,
-    inputSchema: MODEL_INPUT, outputSchema: MODEL_OUTPUT }],
+    inputSchema: MODEL_INPUT, outputSchema: MODEL_OUTPUT,
+    inputModes: ['text'], outputModes: ['text'],
+    modelPin: { name: modelName, digest: expectedDigest } }],
 };
 const selected = resolveRequirements(solution, [descriptor]);
 assert.equal(selected.status, 'SUPPORTED');

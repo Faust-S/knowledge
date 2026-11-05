@@ -94,6 +94,9 @@ def validate_model(draft, plan, expected_input, expected_digest):
            "model_name_changed")
     insist(payload["local_model"]["digest"] == expected_digest,
            "model_pin_changed")
+    if "modelPin" in step:
+        insist(step["modelPin"] == payload["local_model"], "plan_model_pin_changed")
+
     return True
 
 

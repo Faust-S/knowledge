@@ -27,6 +27,7 @@ const model = LIVE ? new OllamaLocalModelProvider({
       inputSchema: MODEL_INPUT, outputSchema: MODEL_OUTPUT,
       effectClass: 'MODEL_INFERENCE', providerFeeUsd: 0, latencyMsP50: null,
       inputModes: ['text'], outputModes: ['text'],
+      modelPin: { name: MODEL_NAME, digest: MODEL_DIGEST },
     }],
   }),
 };
@@ -39,7 +40,9 @@ const solution = {
   requirements: [
     { requirementId: 'generation', kind: 'model', capabilityId: 'text.generate',
       inputSchema: MODEL_INPUT, outputSchema: MODEL_OUTPUT,
-      effectClass: 'MODEL_INFERENCE', required: true },
+      effectClass: 'MODEL_INFERENCE', required: true,
+      inputModes: ['text'], outputModes: ['text'],
+      modelPin: { name: MODEL_NAME, digest: MODEL_DIGEST } },
     { requirementId: 'audit', kind: 'tool', capabilityId: 'evidence.exact.audit',
       inputSchema: AUDIT_INPUT, outputSchema: AUDIT_OUTPUT,
       effectClass: 'PURE_COMPUTE', required: true },

@@ -76,6 +76,9 @@ export async function draftAgentModelRequest({
   if (step.providerId === 'ollama-local-pinned' && !Object.hasOwn(nativeBinding,'localModelPin')) {
     invalid('local_model_pin_required');
   }
+  if (step.modelPin !== undefined && !Object.hasOwn(nativeBinding, 'localModelPin')) {
+    throw new InteropError('BINDING_CHANGED', 'missing_selected_model_pin');
+  }
   if (Object.hasOwn(nativeBinding, 'localModelPin')) {
     if (!LOCAL_NATIVE_IDS.has(nativeBinding.logicalProviderId)) invalid('local_port_identity');
     const pin = nativeBinding.localModelPin;
@@ -87,6 +90,10 @@ export async function draftAgentModelRequest({
     }
     if (provider.expectedDigest !== undefined && provider.expectedDigest !== pin.digest) {
       throw new InteropError('BINDING_CHANGED', 'local_model_digest');
+    }
+    if (step.modelPin &&
+        (step.modelPin.name !== pin.name || step.modelPin.digest !== pin.digest)) {
+      throw new InteropError('BINDING_CHANGED', 'selected_model_pin');
     }
     payload.local_model = { name: pin.name, digest: pin.digest };
   }

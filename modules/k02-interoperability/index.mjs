@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 export const CONTRACT_VERSION = 'IWXA.K02.INTEROP/0.1.0';
 export const PLAN_BINDING_VERSION = 'IWXA.K02.PLAN_BINDING/0.1.0';
+export const MODEL_SELECTION_VERSION = 'IWXA.K02.MODEL_SELECTION/0.1.0';
 const HEX64 = /^[a-f0-9]{64}$/;
 const TYPES = new Set(['object', 'array', 'string', 'integer', 'number', 'boolean', 'null']);
 const SCHEMA_KEYS = new Set(['type', 'properties', 'required', 'additionalProperties', 'items', 'enum', 'minLength', 'maxLength', 'minimum', 'maximum', 'minItems', 'maxItems']);
@@ -95,8 +96,19 @@ export function validatePayload(schema, value) {
 function positiveOrNull(value, name) {
   if (value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) fail('INVALID_DESCRIPTOR', name);
 }
+function verifyModes(modes, label) {
+  if (!Array.isArray(modes) || modes.length < 1 || modes.length > 16 ||
+    modes.some(m => typeof m !== 'string' || !/^[a-z][a-z0-9._-]{0,63}$/.test(m)) ||
+    new Set(modes).size !== modes.length) fail('INVALID_DESCRIPTOR', label);
+}
+function verifyModelPin(pin, label) {
+  if (!object(pin) || Object.keys(pin).sort().join(',') !== 'digest,name' ||
+      typeof pin.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(pin.name) ||
+      pin.name.toLowerCase().endsWith(':cloud') ||
+      typeof pin.digest !== 'string' || !HEX64.test(pin.digest)) fail('INVALID_DESCRIPTOR', label);
+}
 function capability(cap) {
-  requireKeys(cap, ['kind', 'capabilityId', 'supported', 'unsupportedReason', 'inputSchema', 'outputSchema', 'effectClass', 'providerFeeUsd', 'latencyMsP50', 'inputModes', 'outputModes'], 'capability');
+  requireKeys(cap, ['kind', 'capabilityId', 'supported', 'unsupportedReason', 'inputSchema', 'outputSchema', 'effectClass', 'providerFeeUsd', 'latencyMsP50', 'inputModes', 'outputModes', 'modelPin'], 'capability');
   if (!['tool', 'model'].includes(cap.kind)) fail('INVALID_DESCRIPTOR', 'kind');
   name(cap.capabilityId, 'capabilityId');
   if (typeof cap.supported !== 'boolean') fail('INVALID_DESCRIPTOR', 'supported');
@@ -105,7 +117,13 @@ function capability(cap) {
   checkSchema(cap.inputSchema); checkSchema(cap.outputSchema);
   positiveOrNull(cap.providerFeeUsd, 'providerFeeUsd');
   positiveOrNull(cap.latencyMsP50, 'latencyMsP50');
-  if (cap.kind === 'model' && (!Array.isArray(cap.inputModes) || !Array.isArray(cap.outputModes) || !cap.inputModes.every(x => typeof x === 'string') || !cap.outputModes.every(x => typeof x === 'string'))) fail('INVALID_DESCRIPTOR', 'model_modes');
+  if (cap.kind === 'model') {
+    verifyModes(cap.inputModes, 'model_input_modes');
+    verifyModes(cap.outputModes, 'model_output_modes');
+    if (cap.modelPin !== undefined) verifyModelPin(cap.modelPin, 'model_pin');
+  } else if (cap.inputModes !== undefined || cap.outputModes !== undefined || cap.modelPin !== undefined) {
+    fail('INVALID_DESCRIPTOR', 'tool_model_fields');
+  }
 }
 function descriptor(desc) {
   requireKeys(desc, ['contractVersion', 'providerId', 'availability', 'unavailableReason', 'capabilities'], 'provider');
@@ -129,12 +147,19 @@ export async function describeCapabilities(provider) {
   return descriptor(await provider.describeCapabilities());
 }
 function requirement(req) {
-  requireKeys(req, ['requirementId', 'kind', 'capabilityId', 'inputSchema', 'outputSchema', 'effectClass', 'required'], 'requirement');
+  requireKeys(req, ['requirementId', 'kind', 'capabilityId', 'inputSchema', 'outputSchema', 'effectClass', 'required', 'inputModes', 'outputModes', 'modelPin'], 'requirement');
   name(req.requirementId, 'requirementId');
   name(req.capabilityId, 'capabilityId');
   name(req.effectClass, 'effectClass');
   if (!['tool', 'model'].includes(req.kind) || typeof req.required !== 'boolean') fail('INVALID_DESCRIPTOR', 'requirement');
   checkSchema(req.inputSchema); checkSchema(req.outputSchema);
+  if (req.kind === 'model') {
+    if (req.inputModes !== undefined) verifyModes(req.inputModes, 'required_input_modes');
+    if (req.outputModes !== undefined) verifyModes(req.outputModes, 'required_output_modes');
+    if (req.modelPin !== undefined) verifyModelPin(req.modelPin, 'required_model_pin');
+  } else if (req.inputModes !== undefined || req.outputModes !== undefined || req.modelPin !== undefined) {
+    fail('INVALID_DESCRIPTOR', 'tool_model_requirements');
+  }
 }
 function rank(cap, providerId) {
   return [cap.providerFeeUsd === null ? Infinity : cap.providerFeeUsd, cap.latencyMsP50 === null ? Infinity : cap.latencyMsP50, providerId];
@@ -161,6 +186,15 @@ export function resolveRequirements(solution, available) {
       if (!cap.supported) { causes.add('UNSUPPORTED'); continue; }
       if (cap.effectClass !== req.effectClass) { causes.add('EFFECT_MISMATCH'); continue; }
       if (canonical(cap.inputSchema) !== canonical(req.inputSchema) || canonical(cap.outputSchema) !== canonical(req.outputSchema)) { causes.add('SCHEMA_MISMATCH'); continue; }
+      if (req.kind === 'model') {
+        if ((req.inputModes && !req.inputModes.every(mode => cap.inputModes.includes(mode))) ||
+            (req.outputModes && !req.outputModes.every(mode => cap.outputModes.includes(mode)))) {
+          causes.add('MODE_MISMATCH'); continue;
+        }
+        if (req.modelPin && (!cap.modelPin || canonical(cap.modelPin) !== canonical(req.modelPin))) {
+          causes.add('PIN_MISMATCH'); continue;
+        }
+      }
       candidates.push({ provider, cap });
     }
     candidates.sort(cmp);
@@ -171,10 +205,11 @@ export function resolveRequirements(solution, available) {
         kind: req.kind, capabilityId: req.capabilityId, effectClass: req.effectClass,
         inputSchema: req.inputSchema, outputSchema: req.outputSchema,
         providerFeeUsd: pick.cap.providerFeeUsd, latencyMsP50: pick.cap.latencyMsP50,
+        ...(req.kind === 'model' && pick.cap.modelPin ? { modelPin: pick.cap.modelPin } : {}),
         capabilityDigest: digest({ contractVersion: CONTRACT_VERSION, providerId: pick.provider.providerId, capability: pick.cap })
       });
     } else missing.push({ requirementId: req.requirementId, required: req.required,
-      reason: ['UNAVAILABLE', 'UNSUPPORTED', 'SCHEMA_MISMATCH', 'EFFECT_MISMATCH'].find(x => causes.has(x)) || 'ABSENT' });
+      reason: ['UNAVAILABLE', 'UNSUPPORTED', 'SCHEMA_MISMATCH', 'PIN_MISMATCH', 'MODE_MISMATCH', 'EFFECT_MISMATCH'].find(x => causes.has(x)) || 'ABSENT' });
   }
   const requiredMissing = missing.some(m => m.required);
   const totalProviderFeeUsd = selected.every(s => s.providerFeeUsd !== null) ? selected.reduce((n,s) => n + s.providerFeeUsd, 0) : null;
@@ -204,6 +239,7 @@ export function buildInvocationPlan(task, selectedSkills, resolution) {
     taskId: task.taskId, solutionId: task.solutionId,
     skills, steps: resolution.selected.map(s => ({ requirementId: s.requirementId, providerId: s.providerId,
       kind: s.kind, capabilityId: s.capabilityId, capabilityDigest: s.capabilityDigest,
+      ...(s.kind === 'model' && s.modelPin ? { modelPin: s.modelPin } : {}),
       effectClass: s.effectClass,
       inputSchema: s.inputSchema, outputSchema: s.outputSchema, hostApprovalRequired: true,
       invocationAuthority: 'HOST_ONLY', invocationState: 'NOT_INVOKED', proofOfInvoke: null })),
@@ -259,6 +295,7 @@ export async function verifyInvocationReadiness(plan, requirementId, provider, t
   if (!cap || !cap.supported || cap.effectClass !== step.effectClass ||
       canonical(cap.inputSchema) !== canonical(step.inputSchema) ||
       canonical(cap.outputSchema) !== canonical(step.outputSchema) ||
+      canonical(cap.modelPin ?? null) !== canonical(step.modelPin ?? null) ||
       digest({ contractVersion: CONTRACT_VERSION, providerId: current.providerId, capability: cap }) !== step.capabilityDigest) {
     fail('BINDING_CHANGED', 'capability');
   }

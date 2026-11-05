@@ -93,6 +93,16 @@ def verify(vector, instruction_bytes, trusted_digest):
                     if cap["kind"] == step["kind"] and cap["capabilityId"] == step["capabilityId"]), None)
         check(cap is not None and cap.get("supported") is True, "capability_unsupported")
         check(cap["effectClass"] == step["effectClass"], "effect_changed")
+        if step["kind"] == "model":
+            check(cap.get("modelPin") == step.get("modelPin"), "model_pin_changed")
+            if "modelPin" in step:
+                pin = step["modelPin"]
+                check(type(pin) is dict and set(pin) == {"name", "digest"}, "model_pin_shape")
+                check(type(pin["name"]) is str, "model_name_type")
+                check(type(pin["digest"]) is str and HEX64.fullmatch(pin["digest"]), "model_pin_digest")
+            check(type(cap.get("inputModes")) is list and
+                  type(cap.get("outputModes")) is list, "model_modes_missing")
+
         check(canonical(cap["inputSchema"]) == canonical(step["inputSchema"]), "input_schema_changed")
         check(canonical(cap["outputSchema"]) == canonical(step["outputSchema"]), "output_schema_changed")
         bound = {"contractVersion": CONTRACT, "providerId": pid, "capability": cap}

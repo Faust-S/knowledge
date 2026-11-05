@@ -42,7 +42,14 @@ export async function sourceBackedReview({
     describeCapabilities(sourceProvider), describeCapabilities(evidenceProvider),
     describeCapabilities(modelProvider),
   ]);
-  const solution = { solutionId: 'K02-SOURCE-BACKED-HUMAN-REVIEW', requirements };
+  // Bind the selected model to the exact digest approved by this host.
+  const expectedModelPin = modelProvider.modelName
+    ? { name: modelProvider.modelName, digest: modelDigest }
+    : null;
+  const pinnedRequirements = requirements.map(req => req.requirementId === 'draft' && expectedModelPin
+    ? { ...req, inputModes: ['text'], outputModes: ['text'], modelPin: expectedModelPin }
+    : req);
+  const solution = { solutionId: 'K02-SOURCE-BACKED-HUMAN-REVIEW', requirements: pinnedRequirements };
   const resolution = resolveRequirements(solution, [sourceDescriptor, evidenceDescriptor, modelDescriptor]);
   if (resolution.status !== 'SUPPORTED') {
     throw new InteropError('PROVIDER_UNAVAILABLE', JSON.stringify(resolution.missing));

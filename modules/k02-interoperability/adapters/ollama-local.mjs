@@ -114,6 +114,7 @@ export class OllamaLocalModelProvider {
         supported: true, inputSchema: MODEL_INPUT, outputSchema: MODEL_OUTPUT,
         effectClass: 'MODEL_INFERENCE', providerFeeUsd: 0, latencyMsP50: null,
         inputModes: ['text'], outputModes: ['text'],
+        modelPin: { name: this.modelName, digest: this.expectedDigest },
       }],
     };
   }
