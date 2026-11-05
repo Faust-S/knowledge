@@ -163,6 +163,10 @@ export function recommendModelForStep({
     const chosen = resolved.selected[0];
     const profile = profileById.get(chosen.providerId) ?? null;
     const pin = chosen.modelPin ?? null;
+    if (profile && pinKey(profile.modelPin) !== pinKey(pin)) {
+      exclusions.push({providerId:chosen.providerId,reason:'BINDING_CHANGED'});
+      continue;
+    }
     const observed = profile && pin && pinKey(pin) === pinKey(profile.modelPin)
       ? evidenceFor(qualityEvidence, pin,
         {providerId: chosen.providerId,taskClass:step.taskClass,difficulty:step.difficulty},
