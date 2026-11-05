@@ -295,13 +295,7 @@ function assertTrustedPlan(plan, trustedPlanDigest) {
 
 // This is a compatibility check, NOT an execution grant. The host alone
 // supplies the trusted digest and the authority to invoke its existing port.
-export async function verifyInvocationReadiness(plan, requirementId, provider, trustedPlanDigest) {
-  assertTrustedPlan(plan, trustedPlanDigest);
-  const step = plan.steps.find(x => x.requirementId === requirementId);
-  if (!step) fail('INVALID_PLAN', 'requirement_not_in_plan');
-  const current = await describeCapabilities(provider);
-  // Provider discovery is asynchronous; a mutable plan may change while it runs.
-  assertTrustedPlan(plan, trustedPlanDigest);
+function verifySelectedStepAgainstDescriptor(step, current, trustedPlanDigest) {
   if (current.availability !== 'available') fail('PROVIDER_UNAVAILABLE', 'provider_no_longer_available');
   if (current.providerId !== step.providerId) fail('BINDING_CHANGED', 'provider_id');
   const cap = current.capabilities.find(x => x.kind === step.kind && x.capabilityId === step.capabilityId);
@@ -313,7 +307,20 @@ export async function verifyInvocationReadiness(plan, requirementId, provider, t
     fail('BINDING_CHANGED', 'capability');
   }
   return { status: 'MATCHED_NOT_AUTHORIZED', planDigest: trustedPlanDigest,
-    requirementId, providerId: current.providerId, capabilityDigest: step.capabilityDigest };
+    requirementId: step.requirementId, providerId: current.providerId,
+    capabilityDigest: step.capabilityDigest };
+}
+
+// Each invocation preflight probes the current provider again. Restored-plan
+// snapshot optimization below does not cache or authorize actual invocations.
+export async function verifyInvocationReadiness(plan, requirementId, provider, trustedPlanDigest) {
+  assertTrustedPlan(plan, trustedPlanDigest);
+  const step = plan.steps.find(x => x.requirementId === requirementId);
+  if (!step) fail('INVALID_PLAN', 'requirement_not_in_plan');
+  const current = await describeCapabilities(provider);
+  // Provider discovery is asynchronous; a mutable plan may change while it runs.
+  assertTrustedPlan(plan, trustedPlanDigest);
+  return verifySelectedStepAgainstDescriptor(step, current, trustedPlanDigest);
 }
 
 // Host supplies the originally selected descriptor and loaded raw instruction
@@ -377,14 +384,28 @@ export async function verifyPortablePlan(plan, trustedPlanDigest, providers, ski
       plan, skill.skillId, entry.descriptor, entry.instructionBytes, trustedPlanDigest);
     verifiedSkills.push({ skillId: check.skillId, status: check.status });
   }
-  const verifiedSteps = [];
+  // Build one capability snapshot per referenced provider. When multiple plan
+  // steps share the same registered provider, do not repeat network/model probes.
+  // Unused registered providers must not cause extra calls or failures.
+  const referenced = new Map();
   for (const step of plan.steps) {
     const provider = runtimeProviders.get(step.providerId);
     if (!provider) fail('PROVIDER_UNAVAILABLE', 'host_provider_not_registered');
-    const check = await verifyInvocationReadiness(
-      plan, step.requirementId, provider, trustedPlanDigest);
+    referenced.set(step.providerId, provider);
+  }
+  const snapshots = new Map(await Promise.all(
+    [...referenced].map(async ([providerId, provider]) =>
+      [providerId, await describeCapabilities(provider)]),
+  ));
+  // This preflight uses a single current snapshot, not an execution authority.
+  // Actual invocation must separately probe through verifyInvocationReadiness.
+  assertTrustedPlan(plan, trustedPlanDigest);
+  const verifiedSteps = [];
+  for (const step of plan.steps) {
+    const checked = verifySelectedStepAgainstDescriptor(
+      step, snapshots.get(step.providerId), trustedPlanDigest);
     verifiedSteps.push({
-      requirementId: check.requirementId, providerId: check.providerId, status: check.status,
+      requirementId: checked.requirementId, providerId: checked.providerId, status: checked.status,
     });
   }
   assertTrustedPlan(plan, trustedPlanDigest);
