@@ -168,9 +168,80 @@ function cmp(a, b) {
   const x = rank(a.cap, a.provider.providerId), y = rank(b.cap, b.provider.providerId);
   return x[0] - y[0] || x[1] - y[1] || x[2].localeCompare(y[2], 'en');
 }
-export function resolveRequirements(solution, available) {
+// Optional, host-supplied negative observations only. This is NOT an agent
+// selector, an evidence store, or proof that any executor ran within IWXA.
+// Omitted configuration fields mean "not qualified"; never extrapolate a trial.
+const TRIAL_FAILURES = new Set([
+  'NO_REQUIRED_CHANGE', 'INCORRECT_RESULT', 'INCOMPLETE_TASK',
+  'REPEATED_EXTERNAL_EFFECTS',
+]);
+function nonemptyString(value, field) {
+  if (typeof value !== 'string' || value.length === 0 || value.trim() !== value ||
+      value.length > 256) fail('INVALID_DESCRIPTOR', field);
+}
+function trialStack(row, failure = false) {
+  requireKeys(row, ['providerId', 'kind', 'capabilityId', 'modelId',
+    'executorVersion', 'mode', 'operatingSystem',
+    ...(failure ? ['taskKey', 'failureKind', 'proofRef'] : [])],
+  failure ? 'observed_failure' : 'candidate_configuration');
+  name(row.providerId, 'trial_provider');
+  name(row.capabilityId, 'trial_capability');
+  if (!['model', 'tool'].includes(row.kind)) fail('INVALID_DESCRIPTOR', 'trial_kind');
+  for (const field of ['modelId', 'mode']) {
+    if (row[field] !== null) nonemptyString(row[field], 'trial_' + field);
+  }
+  nonemptyString(row.executorVersion, 'trial_executor_version');
+  nonemptyString(row.operatingSystem, 'trial_operating_system');
+  if (failure) {
+    nonemptyString(row.taskKey, 'trial_task_key');
+    if (!TRIAL_FAILURES.has(row.failureKind)) fail('INVALID_DESCRIPTOR', 'trial_failure_kind');
+    nonemptyString(row.proofRef, 'trial_proof_ref');
+  }
+}
+function trialKey(taskKey, row) {
+  // JSON tuple avoids separator collisions in versions, IDs and model tags.
+  return canonical([taskKey, row.providerId, row.kind, row.capabilityId,
+    row.modelId, row.executorVersion, row.mode, row.operatingSystem]);
+}
+function negativeEvidenceIndex(scope) {
+  if (scope == null) return null;
+  requireKeys(scope, ['taskKey', 'candidateConfigurations', 'failures'], 'trial_scope');
+  nonemptyString(scope.taskKey, 'task_key');
+  if (!Array.isArray(scope.candidateConfigurations) || !Array.isArray(scope.failures) ||
+      scope.candidateConfigurations.length > 128 || scope.failures.length > 512) {
+    fail('INVALID_DESCRIPTOR', 'trial_observation_size');
+  }
+  const configurations = new Map();
+  for (const entry of scope.candidateConfigurations) {
+    trialStack(entry);
+    const key = canonical([entry.providerId, entry.kind, entry.capabilityId]);
+    if (configurations.has(key)) fail('INVALID_DESCRIPTOR', 'duplicate_trial_configuration');
+    configurations.set(key, entry);
+  }
+  const failed = new Map();
+  for (const row of scope.failures) {
+    trialStack(row, true);
+    const key = trialKey(row.taskKey, row);
+    if (failed.has(key)) fail('INVALID_DESCRIPTOR', 'duplicate_observed_failure');
+    failed.set(key, row);
+  }
+  return { taskKey: scope.taskKey, configurations, failed };
+}
+function matchedObservedFailure(evidence, provider, cap) {
+  if (evidence === null) return null;
+  const stack = evidence.configurations.get(canonical([provider.providerId, cap.kind, cap.capabilityId]));
+  if (!stack) return null; // Unknown candidate version/model/mode/OS is NOT a trial match.
+  // For direct model capabilities do not accept host metadata that contradicts
+  // the pinned model name. Tool runtimes bind their model via the owning host.
+  if (cap.kind === 'model' && cap.modelPin && stack.modelId !== cap.modelPin.name) return null;
+  return evidence.failed.get(trialKey(evidence.taskKey, stack)) ?? null;
+}
+
+export function resolveRequirements(solution, available, trialEvidence = null) {
   if (!object(solution) || typeof solution.solutionId !== 'string' || !Array.isArray(solution.requirements) || !Array.isArray(available)) fail('INVALID_DESCRIPTOR', 'resolution_input');
   name(solution.solutionId, 'solutionId');
+  const observationIndex = negativeEvidenceIndex(trialEvidence);
+  const evidenceExclusions = [];
   const providerIds = new Set();
   for (const provider of available) { descriptor(provider); if (providerIds.has(provider.providerId)) fail('INVALID_DESCRIPTOR', 'duplicate_provider'); providerIds.add(provider.providerId); }
   const reqIds = new Set(), selected = [], missing = [];
@@ -195,6 +266,18 @@ export function resolveRequirements(solution, available) {
           causes.add('PIN_MISMATCH'); continue;
         }
       }
+      // Do not rank a known exact task-result failure by price or latency.
+      // Vendor success / CLI exit 0 never creates a positive IWXA verdict.
+      const failedTrial = matchedObservedFailure(observationIndex, provider, cap);
+      if (failedTrial) {
+        causes.add('OBSERVED_TASK_FAILURE');
+        evidenceExclusions.push({
+          requirementId: req.requirementId, providerId: provider.providerId,
+          reason: 'OBSERVED_TASK_FAILURE', failureKind: failedTrial.failureKind,
+          proofRef: failedTrial.proofRef,
+        });
+        continue;
+      }
       candidates.push({ provider, cap });
     }
     candidates.sort(cmp);
@@ -209,13 +292,14 @@ export function resolveRequirements(solution, available) {
         capabilityDigest: digest({ contractVersion: CONTRACT_VERSION, providerId: pick.provider.providerId, capability: pick.cap })
       });
     } else missing.push({ requirementId: req.requirementId, required: req.required,
-      reason: ['UNAVAILABLE', 'UNSUPPORTED', 'SCHEMA_MISMATCH', 'PIN_MISMATCH', 'MODE_MISMATCH', 'EFFECT_MISMATCH'].find(x => causes.has(x)) || 'ABSENT' });
+      reason: ['OBSERVED_TASK_FAILURE', 'UNAVAILABLE', 'UNSUPPORTED', 'SCHEMA_MISMATCH', 'PIN_MISMATCH', 'MODE_MISMATCH', 'EFFECT_MISMATCH'].find(x => causes.has(x)) || 'ABSENT' });
   }
   const requiredMissing = missing.some(m => m.required);
   const totalProviderFeeUsd = selected.every(s => s.providerFeeUsd !== null) ? selected.reduce((n,s) => n + s.providerFeeUsd, 0) : null;
   const estimatedLatencyMs = selected.every(s => s.latencyMsP50 !== null) ? selected.reduce((n,s) => n + s.latencyMsP50, 0) : null;
   return { contractVersion: CONTRACT_VERSION, solutionId: solution.solutionId, status: requiredMissing ? 'UNSUPPORTED' : 'SUPPORTED',
-    selected, missing, estimates: { providerFeeUsd: totalProviderFeeUsd, latencyMs: estimatedLatencyMs, hostComputeCostUsd: null } };
+    selected, missing, estimates: { providerFeeUsd: totalProviderFeeUsd, latencyMs: estimatedLatencyMs, hostComputeCostUsd: null },
+    ...(observationIndex === null ? {} : { evidenceExclusions }) };
 }
 export function buildInvocationPlan(task, selectedSkills, resolution) {
   if (!object(task) || !task.taskId || !task.solutionId || !Array.isArray(selectedSkills) || !object(resolution)) fail('INVALID_PLAN', 'inputs');
