@@ -40,6 +40,25 @@ jobs:
           assert row["human_gold"] is False and row["task_f1"] is None
           print("K03_DESK_SOURCE_PASS; INDEPENDENT_TASK_QUALITY_NOT_MEASURED")
           PY
+      - name: Targeted replay of one original source without full-corpus scan
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python modules/k03-activity-task-discovery/issue_replay.py --source-ref https://github.com/paperless-ngx/paperless-ngx/issues/14657 > "$RUNNER_TEMP/k03-one-issue.json"
+          python - "$RUNNER_TEMP/k03-one-issue.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          row = json.loads(Path(sys.argv[1]).read_text("utf-8"))
+          assert row["schema"] == "IWXA_K03_PUBLIC_ISSUE_DISCOVERY/0.1.0"
+          assert row["source_ref"] == "https://github.com/paperless-ngx/paperless-ngx/issues/14657"
+          assert row["source_verified"] is True
+          assert row["accepted_task_count"] == 0
+          assert row["human_task_gold"] is False
+          assert row["source_text_exported"] is False
+          assert row["owner_u1_git_blob"] == "eb15aec5ba1a749c29d7c40a868127e1a384b6bf"
+          print("K03_TARGETED_ONE_SOURCE_NATIVE_U1_PASS")
+          PY
       - name: Actual pinned native U1 on eight public issues, three baselines
         env:
           GITHUB_TOKEN: ${{ github.token }}

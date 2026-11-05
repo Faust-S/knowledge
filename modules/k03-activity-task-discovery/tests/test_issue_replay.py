@@ -133,12 +133,13 @@ class SourceContractTests(TestCase):
     def test_issue_hypothesis_selection_replays_before_emit(self):
         item, row = example()
         bundle = issue.issue_case(item, row, exact_hit=True)
-        with patch.object(issue, "replay_issues",
-                          return_value={"cases": [bundle]}) as replay:
+        with patch.object(issue, "replay_issue",
+                          return_value=bundle) as replay:
             output = issue.selected_issue_hypothesis(
                 bundle, bundle["task_hypotheses"][0]["id"],
                 choice=issue.SELECTION, selection_ref="human-001")
-            replay.assert_called_once_with(input_dir=None, get_source=None)
+            replay.assert_called_once_with(
+                bundle["source_ref"], input_dir=None, get_source=None)
         self.assertEqual(output["schema"], k03.SELECTION_SCHEMA)
         self.assertFalse(output["task_created"])
         self.assertFalse(output["result_created"])
@@ -151,8 +152,8 @@ class SourceContractTests(TestCase):
         canonical = issue.issue_case(item, row, exact_hit=True)
         tampered = copy.deepcopy(canonical)
         tampered["task_hypotheses"][0]["text"] = "Approved already"
-        with patch.object(issue, "replay_issues",
-                          return_value={"cases": [canonical]}):
+        with patch.object(issue, "replay_issue",
+                          return_value=canonical):
             with self.assertRaisesRegex(k03.DiscoveryHold,
                                         "ISSUE_SELECTION_REPLAY_MISMATCH"):
                 issue.selected_issue_hypothesis(
@@ -162,8 +163,8 @@ class SourceContractTests(TestCase):
     def test_selection_rejects_unknown_id_even_after_replay(self):
         item, row = example()
         canonical = issue.issue_case(item, row, exact_hit=True)
-        with patch.object(issue, "replay_issues",
-                          return_value={"cases": [canonical]}):
+        with patch.object(issue, "replay_issue",
+                          return_value=canonical):
             with self.assertRaisesRegex(k03.DiscoveryHold,
                                         "HYPOTHESIS_NOT_SELECTABLE"):
                 issue.selected_issue_hypothesis(
@@ -178,6 +179,103 @@ class SourceContractTests(TestCase):
             issue.selected_issue_hypothesis(
                 canonical, "H-UNSUPPORTED",
                 choice="AUTO_ACCEPT", selection_ref="human-001")
+
+
+    def test_targeted_replay_reads_one_pinned_original_and_native_u1(self):
+        from unittest.mock import Mock
+        raw = b"Request to fix slow behavior\nMy report is below.\n"
+        import hashlib
+        item = {
+            "repository": "owner/repo", "issue_number": 123,
+            "html_url": "https://github.com/owner/repo/issues/123",
+            "projection_sha256": hashlib.sha256(raw).hexdigest(),
+            "body_sha256": hashlib.sha256(b"My report is below.").hexdigest(),
+            "projection_bytes": len(raw),
+        }
+        manifest = {"items": [item], "no_gold": True}
+
+        class FakeOwner:
+            def inspect(self, value, claim, *, today):
+                self_inspect = value == raw
+                assert self_inspect
+                return {
+                    "units": [{"id": "raw-unit", "kind": "RawStatement",
+                               "locator": {"byte_start": 0, "byte_end": len(raw)}}],
+                    "unit_count": 1,
+                    "source": {"id": "test-pinned-source"},
+                    "engine_accepted": False, "task_type_ids_assigned": 0,
+                }
+
+            def review_hints(self, value, claim, *, today):
+                assert value == raw
+                return {
+                    "hints": [{"source_unit_id": "raw-unit",
+                               "cue_byte_start": 0, "cue_byte_end": 7,
+                               "cue_kind": "EXPLICIT_REQUEST_REVIEW_CUE"}],
+                    "hint_count": 1,
+                    "source": {"id": "test-pinned-source"},
+                    "engine_accepted": False,
+                    "candidate_task_count": 0, "task_type_ids_assigned": 0,
+                }
+
+        reader = Mock(return_value=raw)
+        loader = Mock(return_value=(
+            FakeOwner(), issue.frozen.OWNER_U1_GIT_BLOB,
+            lambda metadata, data: {"sha256": hashlib.sha256(data).hexdigest()}))
+        with patch.object(issue, "checked_manifest", return_value=manifest), \
+             patch.object(issue.paired, "load_owner", loader):
+            result = issue.replay_issue(item["html_url"], get_source=reader)
+            self.assertEqual(reader.call_count, 1)
+            self.assertEqual(reader.call_args.args[0]["html_url"], item["html_url"])
+            self.assertEqual(loader.call_count, 1)
+            self.assertEqual(len(result["task_hypotheses"]), 1)
+            self.assertFalse(result["task_type_accepted"])
+            self.assertEqual(result["source_sha256"], item["projection_sha256"])
+            self.assertTrue(result["baseline"]["title_regex_cue"])
+            self.assertEqual(result["accepted_task_count"], 0)
+            selection = issue.selected_issue_hypothesis(
+                result, result["task_hypotheses"][0]["id"],
+                choice=issue.SELECTION, selection_ref="human-01",
+                get_source=reader)
+            self.assertEqual(reader.call_count, 2)
+            self.assertFalse(selection["task_created"])
+            self.assertFalse(selection["result_created"])
+            self.assertEqual(selection["next_owner"], "HOST_TASK_QUALIFICATION")
+
+            tampered = copy.deepcopy(result)
+            tampered["task_hypotheses"][0]["text"] = "Already accepted"
+            with self.assertRaisesRegex(k03.DiscoveryHold,
+                                        "ISSUE_SELECTION_REPLAY_MISMATCH"):
+                issue.selected_issue_hypothesis(
+                    tampered, result["task_hypotheses"][0]["id"],
+                    choice=issue.SELECTION, selection_ref="human-02",
+                    get_source=reader)
+
+            reader.return_value = raw.replace(b"slow", b"fast")
+            with self.assertRaisesRegex(k03.DiscoveryHold,
+                                        "ISSUE_FROZEN_SOURCE_BYTES_CHANGED"):
+                issue.replay_issue(item["html_url"], get_source=reader)
+
+            with self.assertRaisesRegex(k03.DiscoveryHold,
+                                        "ISSUE_SOURCE_NOT_IN_FROZEN_CORPUS"):
+                issue.replay_issue("https://example.net/untrusted", get_source=reader)
+            self.assertEqual(reader.call_count, 4)
+
+    def test_single_source_route_preserves_mandatory_body_revision(self):
+        import hashlib
+        raw = b"Request to fix slow behavior\nMy report is below.\n"
+        item = {
+            "repository": "owner/repo", "issue_number": 123,
+            "html_url": "https://github.com/owner/repo/issues/123",
+            "projection_sha256": hashlib.sha256(raw).hexdigest(),
+            "body_sha256": hashlib.sha256(b"Old unrelated body").hexdigest(),
+            "projection_bytes": len(raw),
+        }
+        with patch.object(issue, "checked_manifest",
+                          return_value={"items": [item]}):
+            with self.assertRaisesRegex(k03.DiscoveryHold,
+                                        "ISSUE_FROZEN_SOURCE_BODY_CHANGED"):
+                issue.replay_issue(item["html_url"], get_source=lambda _: raw)
 
     def test_receipt_never_carries_raw_public_document(self):
         item, row = example()

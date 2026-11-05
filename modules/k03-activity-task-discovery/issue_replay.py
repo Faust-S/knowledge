@@ -7,6 +7,7 @@ Native U1 is loaded by the existing research/task-discovery adapter, not copied.
 from __future__ import annotations
 
 import argparse
+from datetime import date
 import json
 from pathlib import Path
 import sys
@@ -164,6 +165,86 @@ def verify_issue_case(bundle: dict, item: dict, row: dict, *, exact_hit: bool) -
     }
 
 
+def replay_issue(source_ref: str, input_dir: Path | None = None, *,
+                 get_source=None) -> dict:
+    """Revalidate precisely one frozen source with the existing pinned native U1.
+
+    The eight-source METHOD_SHA/OUTPUT_SHA are deliberately NOT claimed as
+    recomputed here. Only --all proves their full-corpus equality.
+    """
+    manifest = checked_manifest()
+    need(type(source_ref) is str, "ISSUE_SOURCE_NOT_IN_FROZEN_CORPUS")
+    selected = [item for item in manifest["items"]
+                if item["html_url"] == source_ref]
+    need(len(selected) == 1, "ISSUE_SOURCE_NOT_IN_FROZEN_CORPUS")
+    item = selected[0]
+    # The method rules themselves are pinned for targeted replay; the global
+    # method-result hash cannot be verified without processing all eight.
+    need(source.sha(source.TITLE_PATTERN.encode("utf-8"))
+         == "f10f1d7d6a673df8b2b24ff541a0798c14277a27f9ad0aeb45380ae42c866348",
+         "ISSUE_FROZEN_TITLE_RULE_CHANGED")
+    need(frozen.canonical_sha(literal.specification()) == literal.SPEC_SHA,
+         "ISSUE_FROZEN_LITERAL_RULE_CHANGED")
+    raw = (get_source(item) if get_source is not None
+           else source._projection(item, input_dir))
+    need(type(raw) is bytes and len(raw) == item["projection_bytes"]
+         and source.sha(raw) == item["projection_sha256"],
+         "ISSUE_FROZEN_SOURCE_BYTES_CHANGED")
+    title, sep, body = raw.partition(b"\n")
+    need(sep == b"\n" and body.endswith(b"\n")
+         and source.sha(body[:-1]) == item["body_sha256"],
+         "ISSUE_FROZEN_SOURCE_BODY_CHANGED")
+    raw.decode("utf-8", "strict")
+
+    owner, owner_blob, claim_factory = paired.load_owner()
+    need(owner_blob == frozen.OWNER_U1_GIT_BLOB,
+         "ISSUE_PINNED_NATIVE_U1_CHANGED")
+    claim = claim_factory(item, raw)
+    # Preserve exactly the existing owner adapter's 2026-11-03 evaluation date.
+    evidence = owner.inspect(raw, claim, today=date(2026, 11, 3))
+    cues = owner.review_hints(raw, claim, today=date(2026, 11, 3))
+    units_list = evidence["units"]
+    hints = cues["hints"]
+    need(type(units_list) is list and type(hints) is list,
+         "ISSUE_U1_INVALID_EVIDENCE_STRUCTURE")
+    units = {unit["id"]: unit for unit in units_list}
+    need(evidence["unit_count"] == len(units) == len(units_list)
+         and evidence["unit_count"] >= 1
+         and cues["hint_count"] == len(hints)
+         and evidence["source"]["id"] == cues["source"]["id"]
+         and evidence["engine_accepted"] is False
+         and cues["engine_accepted"] is False
+         and evidence["task_type_ids_assigned"] == 0
+         and cues["task_type_ids_assigned"] == 0
+         and cues["candidate_task_count"] == 0,
+         "ISSUE_U1_AUTHORITY_OR_UNIT_MISMATCH")
+    spans = []
+    for hint in hints:
+        unit = units.get(hint["source_unit_id"])
+        a, b = hint["cue_byte_start"], hint["cue_byte_end"]
+        need(unit is not None and unit["kind"] == "RawStatement"
+             and type(a) is int and type(b) is int
+             and type(unit["locator"]["byte_start"]) is int
+             and type(unit["locator"]["byte_end"]) is int
+             and unit["locator"]["byte_start"] <= a < b
+             <= unit["locator"]["byte_end"] <= len(raw)
+             and raw[a:b].strip() != b"",
+             "ISSUE_U1_CUE_NOT_SOURCE_BOUND")
+        spans.append({
+            "byte_start": a, "byte_end": b, "cue_kind": hint["cue_kind"],
+        })
+    row = {
+        "source_ref": item["html_url"],
+        "source_sha256": item["projection_sha256"],
+        "u1_raw_statements": evidence["unit_count"],
+        "title_regex_cue_spans": source.title_spans(raw),
+        "u1_review_cue_spans": spans,
+    }
+    result = issue_case(item, row, exact_hit=literal.exact_hit(raw))
+    verify_issue_case(result, item, row, exact_hit=result["baseline"]["full_source_literal_hit"])
+    return result
+
+
 def replay_issues(input_dir: Path | None = None, *, get_source=None) -> dict:
     """Read eight immutable original source projections once across three baselines."""
     manifest = checked_manifest()
@@ -244,39 +325,50 @@ def replay_issues(input_dir: Path | None = None, *, get_source=None) -> dict:
     }
 
 
-def selected_issue_hypothesis(bundle: dict, hypothesis_id: str, *,
-                              choice: str, selection_ref: str,
-                              input_dir: Path | None = None,
-                              get_source=None) -> dict:
-    """Replay original pinned U1/issue evidence before emitting neutral selection."""
-    need(type(bundle) is dict and bundle.get("schema") == SCHEMA,
+def _selection_intent(verified: dict, hypothesis_id: str, *,
+                      choice: str, selection_ref: str) -> dict:
+    """Generate only an unprivileged host qualification request."""
+    need(type(verified) is dict and verified.get("schema") == SCHEMA
+         and verified.get("accepted_task_count") == 0,
          "ISSUE_SELECTION_INPUT_INVALID")
     need(choice == SELECTION and type(selection_ref) is str
          and 1 <= len(selection_ref) <= 128
          and not any(ch.isspace() for ch in selection_ref),
          "EXPLICIT_HUMAN_SELECTION_REQUIRED")
-    # The input (including purported checked flags) is untrusted.
-    fresh = replay_issues(input_dir=input_dir, get_source=get_source)
-    matches = [row for row in fresh["cases"]
-               if row["case_id"] == bundle.get("case_id")]
-    need(len(matches) == 1 and bundle == matches[0],
-         "ISSUE_SELECTION_REPLAY_MISMATCH")
-    selected = [h for h in matches[0]["task_hypotheses"]
+    selected = [h for h in verified["task_hypotheses"]
                 if h["id"] == hypothesis_id and h["evidence_links"]]
     need(len(selected) == 1, "HYPOTHESIS_NOT_SELECTABLE")
     hyp = selected[0]
     return {
         "schema": k03.SELECTION_SCHEMA,
         "selection_ref": selection_ref, "choice": choice,
-        "case_id": bundle["case_id"], "hypothesis_id": hyp["id"],
-        "candidate_text": hyp["text"],
-        "evidence_links": hyp["evidence_links"],
-        "source_ref": bundle["source_ref"],
-        "source_sha256": bundle["source_sha256"],
+        "case_id": verified["case_id"], "hypothesis_id": hyp["id"],
+        "candidate_text": hyp["text"], "evidence_links": hyp["evidence_links"],
+        "source_ref": verified["source_ref"],
+        "source_sha256": verified["source_sha256"],
         "status": "SELECTED_CANDIDATE_AWAITING_HOST_TASK_QUALIFICATION",
         "task_created": False, "task_id": None, "result_created": False,
         "next_owner": "HOST_TASK_QUALIFICATION",
     }
+
+
+def selected_issue_hypothesis(bundle: dict, hypothesis_id: str, *,
+                              choice: str, selection_ref: str,
+                              input_dir: Path | None = None,
+                              get_source=None) -> dict:
+    """Reject forged input after a fresh single-source native U1 replay."""
+    need(type(bundle) is dict and bundle.get("schema") == SCHEMA,
+         "ISSUE_SELECTION_INPUT_INVALID")
+    need(choice == SELECTION and type(selection_ref) is str
+         and 1 <= len(selection_ref) <= 128
+         and not any(ch.isspace() for ch in selection_ref),
+         "EXPLICIT_HUMAN_SELECTION_REQUIRED")
+    # Untrusted caller PASS flags and source offsets cannot skip this replay.
+    verified = replay_issue(
+        bundle.get("source_ref"), input_dir=input_dir, get_source=get_source)
+    need(bundle == verified, "ISSUE_SELECTION_REPLAY_MISMATCH")
+    return _selection_intent(verified, hypothesis_id,
+                             choice=choice, selection_ref=selection_ref)
 
 
 def main() -> int:
@@ -295,38 +387,16 @@ def main() -> int:
              "SELECTION_REQUIRES_EXPLICIT_REFERENCE")
         need(not args.all or args.select is None,
              "SELECTION_REQUIRES_SINGLE_SOURCE")
-        output = replay_issues(args.input_dir)
         if args.all:
+            output = replay_issues(args.input_dir)
             output.pop("cases")
         else:
-            matches = [r for r in output["cases"]
-                       if r["source_ref"] == args.source_ref]
-            need(len(matches) == 1, "ISSUE_SOURCE_NOT_IN_FROZEN_CORPUS")
-            chosen = matches[0]
+            # Only the nominated original is read; no other issue is requested.
+            output = replay_issue(args.source_ref, args.input_dir)
             if args.select is not None:
-                # CLI output was just replayed; enforce identical intent rules,
-                # avoiding a second network fetch in the same invocation.
-                need(type(args.selection_ref) is str
-                     and 1 <= len(args.selection_ref) <= 128
-                     and not any(ch.isspace() for ch in args.selection_ref),
-                     "EXPLICIT_HUMAN_SELECTION_REQUIRED")
-                hyps = [h for h in chosen["task_hypotheses"]
-                        if h["id"] == args.select and h["evidence_links"]]
-                need(len(hyps) == 1, "HYPOTHESIS_NOT_SELECTABLE")
-                hyp = hyps[0]
-                chosen = {
-                    "schema": k03.SELECTION_SCHEMA,
-                    "selection_ref": args.selection_ref, "choice": SELECTION,
-                    "case_id": chosen["case_id"], "hypothesis_id": hyp["id"],
-                    "candidate_text": hyp["text"],
-                    "evidence_links": hyp["evidence_links"],
-                    "source_ref": chosen["source_ref"],
-                    "source_sha256": chosen["source_sha256"],
-                    "status": "SELECTED_CANDIDATE_AWAITING_HOST_TASK_QUALIFICATION",
-                    "task_created": False, "task_id": None, "result_created": False,
-                    "next_owner": "HOST_TASK_QUALIFICATION",
-                }
-            output = chosen
+                output = _selection_intent(
+                    output, args.select, choice=SELECTION,
+                    selection_ref=args.selection_ref)
         print(json.dumps(output, ensure_ascii=False, sort_keys=True, allow_nan=False))
         return 0
     except (k03.DiscoveryHold, source.BaselineHold, frozen.SnapshotHold,
