@@ -71,6 +71,31 @@ jobs:
             assert result['human_task_gold'] is False and result['task_f1'] is None
             print('K03_HOST_NEED_SOURCE_NATIVE_U1_PASS; P01_SELECTION_ONLY')
           PY
+      - name: C12-C16 offline projection and abstention tests
+        run: python -m unittest discover -s modules/k03-activity-task-discovery/tests -p 'test_solve4x_activity_projection.py' -v
+      - name: Real Solve4X Scene 01 pinned source projection through existing C12
+        run: |
+          python modules/k03-activity-task-discovery/solve4x_activity_projection.py --original-scene01 > "$RUNNER_TEMP/k03-solve4x-scene01.json"
+          python - "$RUNNER_TEMP/k03-solve4x-scene01.json" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+          receipt = json.loads(Path(sys.argv[1]).read_text("utf-8"))
+          assert receipt["schema"] == "IWXA_K03_C12_C16_ACTIVITY_PROJECTION/0.1"
+          assert receipt["route"] == "CLARIFICATION_REQUIRED"
+          assert receipt["source_integrity"] == "UPSTREAM_C12_PINNED_ORIGINAL_BYTES_ZIP_CRC_VERIFIED"
+          m = receipt["evidence_metrics_for_k05"]
+          assert m["research_episodes"] == 3
+          assert m["digitally_recorded_raw_transitions_unique"] == 3
+          assert m["unknown_activity_count"] == 3
+          assert m["hypothesis_count"] == 0 and m["accepted_tasks"] == 0
+          assert m["video_source_annotation_total"] == 23
+          assert m["video_annotation_review_candidates_5s"] == 3
+          assert receipt["clarification_count"] == 3
+          assert not receipt["task_hypotheses"] and receipt["accepted_task_count"] == 0
+          assert receipt["source_revisions"]["scene01/scene01_reed_switches.csv"] == "5e469a4bd4f14f831bbdce1048fe4ec963a8c263c05b90c77a167cf0dc5bf5e0"
+          print("K03_SOLVE4X_REAL_C12_C16_SOURCE_PROJECTION_PASS; UNKNOWN_NOT_TASK")
+          PY
       - name: Reproducible ADP-001 desk corpus and abstention
         run: |
           python modules/k03-activity-task-discovery/k03.py --all > "$RUNNER_TEMP/k03-receipt.json"
