@@ -289,6 +289,13 @@ def analyze(video_doc, sensor_doc, ui_csv, raw_reed_csv):
     c12.ensure(len(original) == c13_report["sensor_outside_video"],
                "REVIEW_SCOPE_DISAGREES_C13")
     video_boundary = video_boundary_evidence(video_doc, original)
+    from solve4x_c16_review_footprint import analyze as review_footprint
+    c16_footprint = review_footprint(video_doc, original)
+    c12.ensure(c16_footprint["denominators"]["video_annotation_total"] ==
+               video_boundary["video_annotated_events"] and
+               c16_footprint["review_baselines"]["reed_closed_after_video_end_5s"]["annotations_to_review"] ==
+               video_boundary["fixed_boundary_windows"]["5s"]["unique_candidate_annotation_segments"],
+               "C16_C15_REVIEW_SELECTION_DISAGREEMENT")
     strict = {str(window) + "s": _counts(original, raw, window=window,
                                         require_state=True) for window in WINDOWS}
     location_only = {str(window) + "s": _counts(original, raw, window=window,
@@ -355,6 +362,7 @@ def analyze(video_doc, sensor_doc, ui_csv, raw_reed_csv):
         "minimal_distinct_ui_rows_for_review": len(needed_ui),
         "source_rows_to_review_total": len(original) + len(needed_raw) + len(needed_ui),
         "c15_video_annotation_boundaries": video_boundary,
+        "c16_annotation_review_footprint": c16_footprint,
         "c15_review_records_including_candidate_video_segments":
             len(original) + len(needed_raw) + len(needed_ui) +
             video_boundary["unique_annotated_door_segments_to_review_15s"],
