@@ -8,6 +8,8 @@ on:
       - 'research/cross-lab/k05_evaluation.py'
       - 'research/cross-lab/tests/test_k05_evaluation.py'
       - 'research/cross-lab/tests/test_k05_k03_projection.py'
+      - 'research/cross-lab/tests/test_k05_c17_projection.py'
+      - 'research/cross-lab/k05_c17_projection.py'
       - 'research/cross-lab/tests/k05_k03_live.py'
       - '.github/workflows/k05-evidence-evaluation.yml'
   workflow_dispatch:
@@ -75,6 +77,25 @@ jobs:
           assert receipt["summary"]["review_payload_bytes_tested"] < receipt["summary"]["review_payload_bytes_baseline"]
           assert "source_text" not in str(receipt)
           print("K05_MULTI_SOURCE_PINNED_PASS; HUMAN_OUTCOME_NOT_MEASURED")
+          PY
+      - name: C17 aggregate projection regression (no human reviews)
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, 'research/cross-lab')
+          sys.path.insert(0, 'research/cross-lab/tests')
+          import test_k05_c17_projection as example
+          import k05_c17_projection as k05
+          from dataclasses import asdict
+          footprint, plan = example.case()
+          output = asdict(k05.compare_c17_aggregate(footprint, plan))
+          assert output["measured"]["candidate_counts"] == {
+              "all": 23, "literal_enter_leave": 6, "reed_closed_after_end_5s": 3}
+          assert output["measured"]["potential_footprint_reduction_percent"] == 93.17
+          assert output["unknown"]["human_active_seconds"] is None
+          assert output["unknown"]["task_f1"] is None
+          assert k05.verify_c17_comparison(output, footprint, plan)
+          print('K05_C17_23_6_3_AGGREGATE_PASS; HUMAN_REVIEW_NOT_MEASURED')
           PY
       - name: Checkout pinned K03 owner source (read-only public)
         uses: actions/checkout@v4
