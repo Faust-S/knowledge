@@ -96,12 +96,27 @@ def main():
     model_digest = os.environ["K02_MODEL_DIGEST"]
     assert HEX40.fullmatch(source_revision) is not None
     assert HEX64.fullmatch(model_digest) is not None
-    output = subprocess.run(
-        ["node", str(BRIDGE), source_revision],
-        cwd=ROOT, capture_output=True, text=True,
-        encoding="utf-8", timeout=150, check=True,
-    )
-    receipt = json.loads(output.stdout)
+    receipt = None
+    for attempt in range(3):
+        output = subprocess.run(
+            ["node", str(BRIDGE), source_revision],
+            cwd=ROOT, capture_output=True, text=True,
+            encoding="utf-8", timeout=150, check=False,
+        )
+        if output.returncode == 0:
+            receipt = json.loads(output.stdout)
+            break
+        try:
+            error_code = json.loads(output.stderr)["code"]
+        except (ValueError, KeyError, TypeError):
+            error_code = "BRIDGE_UNEXPECTED_FAILURE"
+        # Retry only transient provider/network unavailability. A binding,
+        # schema, authorization, or provenance error remains a hard failure.
+        if error_code != "PROVIDER_UNAVAILABLE" or attempt == 2:
+            raise RuntimeError("K02_BRIDGE_FAILED:" + error_code)
+        import time
+        time.sleep(attempt + 1)
+    assert receipt is not None
     reference = authoritative_public_source(source_revision)
     result = verify(receipt, reference, source_revision, model_digest)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
