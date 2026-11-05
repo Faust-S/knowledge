@@ -80,9 +80,13 @@ export async function runOpenHost({transcript, sourceRevision = 'fixture-v1'} = 
   const receipts = [
     {stepId: 'extract', providerId: plan.steps[1].selected.providerId,
       capabilityId: plan.steps[1].selected.capabilityId,
+      descriptorDigest: plan.steps[1].selected.descriptorDigest,
+      planDigest: plan.planDigest, inputDigest: digest(content),
       status: 'SUCCEEDED', output: draft, outputDigest: digest(draft), durationMs: extractMs},
     {stepId: 'audit', providerId: plan.steps[2].selected.providerId,
       capabilityId: plan.steps[2].selected.capabilityId,
+      descriptorDigest: plan.steps[2].selected.descriptorDigest,
+      planDigest: plan.planDigest, inputDigest: digest({transcript: content, draft}),
       status: 'SUCCEEDED', output: audit, outputDigest: digest(audit), durationMs: auditMs}
   ];
   const observation = {plan, transcript: content, draft, receipts,

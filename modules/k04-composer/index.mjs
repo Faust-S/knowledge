@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 
-export const CONTRACT_VERSION = 'IWXA.K04.SOLUTION/0.1.0';
-export const PLAN_VERSION = 'IWXA.K04.HOST_PLAN/0.1.0';
+export const CONTRACT_VERSION = 'IWXA.K04.SOLUTION/0.2.0';
+export const PLAN_VERSION = 'IWXA.K04.HOST_PLAN/0.2.0';
 export const K02_VERSION = 'IWXA.K02.INTEROP/0.1.0';
 export const K02_SKILL_VERSION = 'IWXA.K02.SKILL/0.1.0';
 const MAX_INPUT_BYTES = 1_000_000;
@@ -74,6 +74,79 @@ export function matchTask(task, solutions) {
     alternative: {mode: 'model_skills', hostResolutionRequired: true, allowed: true},
     taskCreated: false, executionStarted: false};
 }
+function validateAvailability(available) {
+  if (!obj(available) || !Array.isArray(available.providers) ||
+      !Array.isArray(available.skills)) fail('INVALID_AVAILABILITY');
+  const providerIds = new Set(), skillIds = new Set();
+  for (const p of available.providers) {
+    if (!obj(p) || p.contractVersion !== K02_VERSION || !str(p.providerId) ||
+        !Array.isArray(p.capabilities) || !['available', 'unavailable'].includes(p.availability) ||
+        providerIds.has(p.providerId)) fail('INVALID_PROVIDER_DESCRIPTOR');
+    providerIds.add(p.providerId);
+    const capIds = new Set();
+    for (const cap of p.capabilities) {
+      if (!obj(cap) || !['model', 'tool'].includes(cap.kind) || !str(cap.capabilityId) ||
+          typeof cap.supported !== 'boolean' ||
+          (cap.kind === 'model' && (!Array.isArray(cap.inputModes) || !Array.isArray(cap.outputModes))) ||
+          !obj(cap.inputSchema) || !obj(cap.outputSchema) ||
+          capIds.has(cap.kind + ':' + cap.capabilityId)) fail('INVALID_PROVIDER_DESCRIPTOR');
+      capIds.add(cap.kind + ':' + cap.capabilityId);
+    }
+  }
+  for (const skill of available.skills) {
+    if (!obj(skill) || skill.schema !== K02_SKILL_VERSION || !str(skill.skillId) ||
+        !Array.isArray(skill.requiredCapabilities) || skillIds.has(skill.skillId))
+      fail('INVALID_SKILL_DESCRIPTOR');
+    skillIds.add(skill.skillId);
+  }
+}
+function selectSkills(requirements, available, selected, missing) {
+  const skills = [];
+  for (const req of requirements) {
+    const skill = available.skills.find(s => s.schema === K02_SKILL_VERSION && s.skillId === req.skillId);
+    if (!skill) { missing.push({skillId: req.skillId, reason: 'SKILL_ABSENT'}); continue; }
+    if (skill.requiredCapabilities.some(id => !selected.some(s => s.capabilityId === id))) {
+      missing.push({skillId: req.skillId, reason: 'SKILL_CAPABILITY_MISSING'}); continue;
+    }
+    skills.push({skillId: skill.skillId, descriptorDigest: digest(skill)});
+  }
+  return skills;
+}
+function withResolutionDigest(value) {
+  return {...value, resolutionDigest: digest(value)};
+}
+function verifyResolutionDigest(resolution) {
+  if (!obj(resolution) || !/^[0-9a-f]{64}$/.test(resolution.resolutionDigest ?? ''))
+    fail('UNBOUND_RESOLUTION');
+  const {resolutionDigest, ...unsigned} = resolution;
+  if (digest(unsigned) !== resolutionDigest) fail('RESOLUTION_DIGEST_MISMATCH');
+}
+function verifySelections(selected) {
+  if (!Array.isArray(selected)) fail('UNBOUND_CAPABILITIES');
+  const ids = new Set();
+  for (const item of selected) {
+    if (!obj(item) || !str(item.requirementId) || !str(item.providerId) ||
+        !str(item.capabilityId) || !['model', 'tool'].includes(item.kind) ||
+        !str(item.effectClass) || !/^[0-9a-f]{64}$/.test(item.descriptorDigest ?? '') ||
+        ids.has(item.requirementId)) fail('UNBOUND_CAPABILITIES');
+    ids.add(item.requirementId);
+  }
+}
+function verifySkills(skills) {
+  if (!Array.isArray(skills)) fail('UNBOUND_SKILLS');
+  const ids = new Set();
+  for (const item of skills) {
+    if (!obj(item) || !str(item.skillId) ||
+        !/^[0-9a-f]{64}$/.test(item.descriptorDigest ?? '') ||
+        ids.has(item.skillId)) fail('UNBOUND_SKILLS');
+    ids.add(item.skillId);
+  }
+}
+function selectionMatches(req, selection) {
+  return selection?.requirementId === req.requirementId &&
+    selection.kind === req.kind && selection.capabilityId === req.capabilityId &&
+    selection.effectClass === req.effectClass;
+}
 function findProvider(req, providers) {
   const reasons = new Set();
   const matches = [];
@@ -112,8 +185,8 @@ function findProvider(req, providers) {
 }
 export function resolveRequiredCapabilities(solution, available, options = {}) {
   requirements(solution);
-  if (!obj(available) || !Array.isArray(available.providers) ||
-      !Array.isArray(available.skills) || !obj(options)) fail('INVALID_AVAILABILITY');
+  validateAvailability(available);
+  if (!obj(options)) fail('INVALID_AVAILABILITY');
   const selected = [], missing = [];
   for (const req of solution.requires.fixed) {
     const r = findProvider(req, available.providers);
@@ -132,19 +205,43 @@ export function resolveRequiredCapabilities(solution, available, options = {}) {
     if (r.match) { chosenOption = req.requirementId; selected.push(r.match); break; }
   }
   if (!chosenOption) missing.push({requirementId: 'extraction_alternative', reason: 'NO_COMPATIBLE_OPTION'});
-  const skills = [];
-  for (const req of solution.requires.skills) {
-    const skill = available.skills.find(s => obj(s) && s.schema === req.schema &&
-      s.skillId === req.skillId && Array.isArray(s.requiredCapabilities));
-    if (!skill) { missing.push({skillId: req.skillId, reason: 'SKILL_ABSENT'}); continue; }
-    if (skill.requiredCapabilities.some(id => !selected.some(s => s.capabilityId === id))) {
-      missing.push({skillId: req.skillId, reason: 'SKILL_CAPABILITY_MISSING'}); continue;
-    }
-    skills.push({skillId: skill.skillId, descriptorDigest: digest(skill)});
-  }
-  return {schema: CONTRACT_VERSION, solutionId: solution.id, solutionVersion: solution.version,
+  const skills = selectSkills(solution.requires.skills, available, selected, missing);
+  return withResolutionDigest({schema: CONTRACT_VERSION, mode: 'solution',
+    solutionId: solution.id, solutionVersion: solution.version, solutionDigest: digest(solution),
     status: missing.length ? 'UNSUPPORTED' : 'SUPPORTED', chosenOption, selected, skills, missing,
-    hostAuthorityGranted: false, invocationOccurred: false};
+    hostAuthorityGranted: false, invocationOccurred: false});
+}
+
+/** Resolve plain model+Skills without requiring a specialized Agent Solution. */
+export function resolveModelAndSkills({modelRequirement, toolRequirements = [], selectedSkillIds = []}, available) {
+  validateAvailability(available);
+  if (!obj(modelRequirement) || modelRequirement.kind !== 'model' ||
+      modelRequirement.capabilityId !== 'text.generate' || !str(modelRequirement.requirementId) ||
+      !Array.isArray(toolRequirements) || !Array.isArray(selectedSkillIds) ||
+      !selectedSkillIds.length || new Set(selectedSkillIds).size !== selectedSkillIds.length ||
+      selectedSkillIds.some(id => !str(id))) fail('INVALID_MODEL_SKILLS_REQUEST');
+  const requirements = [modelRequirement, ...toolRequirements], ids = new Set();
+  for (const req of requirements) {
+    if (!obj(req) || !str(req.requirementId) || !str(req.capabilityId) ||
+        !['model', 'tool'].includes(req.kind) || !str(req.effectClass) ||
+        !obj(req.inputSchema) || !obj(req.outputSchema) || ids.has(req.requirementId))
+      fail('INVALID_MODEL_SKILLS_REQUEST');
+    ids.add(req.requirementId);
+  }
+  const selected = [], missing = [];
+  for (const req of requirements) {
+    const match = findProvider(req, available.providers);
+    if (match.match) selected.push(match.match);
+    else missing.push({requirementId: req.requirementId, reason: match.reason});
+  }
+  const skills = selectSkills(selectedSkillIds.map(skillId => ({skillId})),
+    available, selected, missing);
+  return withResolutionDigest({schema: CONTRACT_VERSION, mode: 'model_skills',
+    solutionId: null, solutionVersion: null, solutionDigest: null,
+    requirementsDigest: digest(requirements), requiredSelections: requirements.map(x => x.requirementId),
+    status: missing.length ? 'UNSUPPORTED' : 'SUPPORTED', selected, skills, missing,
+    hostAuthorityGranted: false, invocationOccurred: false});
+
 }
 function validateTask(task, solution = null) {
   if (!obj(task) || !str(task.taskId) || !str(task.kind) ||
@@ -159,45 +256,73 @@ function validateTask(task, solution = null) {
 }
 export function createHostNeutralPlan({task, solution = null, resolution, mode = 'solution', selectedSkills = []}) {
   if (!['solution', 'model_skills'].includes(mode) || !obj(resolution) ||
-    resolution.status !== 'SUPPORTED' || resolution.hostAuthorityGranted === true ||
-    !Array.isArray(selectedSkills)) fail('INVALID_PLAN_INPUT');
+    resolution.schema !== CONTRACT_VERSION || resolution.mode !== mode ||
+    resolution.status !== 'SUPPORTED' || resolution.hostAuthorityGranted !== false ||
+    resolution.invocationOccurred !== false || !Array.isArray(selectedSkills))
+    fail('INVALID_PLAN_INPUT');
+  verifyResolutionDigest(resolution);
+  verifySelections(resolution.selected);
+  verifySkills(resolution.skills);
   if (mode === 'solution') {
     requirements(solution);
     validateTask(task, solution);
-    if (resolution.schema !== CONTRACT_VERSION || resolution.solutionId !== solution.id ||
-      resolution.solutionVersion !== solution.version ||
-      !solution.requires.fixed.every(r => resolution.selected?.some(s => s.requirementId === r.requirementId)) ||
-      !solution.requires.alternatives.some(r => r.requirementId === resolution.chosenOption &&
-        resolution.selected?.some(s => s.requirementId === r.requirementId)) ||
-      !solution.requires.skills.every(r => resolution.skills?.some(s => s.skillId === r.skillId))) {
-      fail('UNRESOLVED_REQUIREMENTS');
-    }
+    const chosen = solution.requires.alternatives.find(r => r.requirementId === resolution.chosenOption);
+    const expected = [...solution.requires.fixed, chosen].filter(Boolean);
+    if (resolution.solutionId !== solution.id || resolution.solutionVersion !== solution.version ||
+        resolution.solutionDigest !== digest(solution) || !chosen ||
+        resolution.selected.length !== expected.length ||
+        !expected.every(r => resolution.selected.some(s => selectionMatches(r, s))) ||
+        resolution.skills.length !== solution.requires.skills.length ||
+        !solution.requires.skills.every(r => resolution.skills.some(s => s.skillId === r.skillId)) ||
+        selectedSkills.length) fail('UNRESOLVED_REQUIREMENTS');
   } else {
     validateTask(task);
-    if (solution !== null || !resolution.selected?.some(s => s.kind === 'model' && s.capabilityId === 'text.generate') ||
-      !selectedSkills.length || selectedSkills.some(s => !str(s))) fail('MODEL_SKILLS_NOT_RESOLVED');
+    if (solution !== null || resolution.solutionId !== null ||
+        resolution.solutionDigest !== null ||
+        !Array.isArray(resolution.requiredSelections) ||
+        resolution.selected.length !== resolution.requiredSelections.length ||
+        !resolution.requiredSelections.every(id => resolution.selected.some(s => s.requirementId === id)) ||
+        !resolution.selected.some(s => s.kind === 'model' && s.capabilityId === 'text.generate') ||
+        !selectedSkills.length || new Set(selectedSkills).size !== selectedSkills.length ||
+        selectedSkills.some(s => !str(s)) ||
+        selectedSkills.length !== resolution.skills.length ||
+        !selectedSkills.every(id => resolution.skills.some(s => s.skillId === id)))
+      fail('MODEL_SKILLS_NOT_RESOLVED');
   }
   const common = {schema: PLAN_VERSION, mode, taskRef: task.taskId,
     input: {sourceRef: task.source.ref, sourceRevision: task.source.revision,
       sourceRights: task.source.rights, transcriptDigest: digest(task.input.transcript_text)},
     solutionRef: mode === 'solution' ? {id: solution.id, version: solution.version} : null,
     branches: mode === 'solution' ? {extraction: resolution.chosenOption} : null,
+    resolutionDigest: resolution.resolutionDigest,
     hostApprovalRequired: true, executionState: 'NOT_EXECUTED',
     resultState: 'NOT_PRODUCED', externalEffectsAuthorized: false};
   const selected = resolution.selected;
-  const steps = mode === 'solution'
-    ? [{id: 'input', type: 'HOST_INPUT', authorizedSourceRef: task.source.ref},
-      {id: 'extract', type: 'CAPABILITY_REQUEST', dependsOn: ['input'],
-        selected: copy(selected.find(s => s.requirementId === resolution.chosenOption))},
-      {id: 'audit', type: 'CAPABILITY_REQUEST', dependsOn: ['extract'],
+  let steps;
+  if (mode === 'solution') {
+    const extract = {id: 'extract', type: 'CAPABILITY_REQUEST', dependsOn: ['input'],
+      selected: copy(selected.find(s => s.requirementId === resolution.chosenOption))};
+    const modelPath = extract.selected.kind === 'model';
+    steps = [{id: 'input', type: 'HOST_INPUT', authorizedSourceRef: task.source.ref},
+      extract, ...(modelPath ? [{id: 'normalize', type: 'HOST_TRANSFORM',
+        operation: 'PARSE_JSON_ACTION_DRAFT', dependsOn: ['extract'],
+        expectedOutputSchema: copy(solution.requires.alternatives.find(s =>
+          s.requirementId === 'structured_rule')?.outputSchema ?? solution.requires.fixed[0].inputSchema.properties.draft),
+        executionState: 'NOT_EXECUTED'}] : []),
+      {id: 'audit', type: 'CAPABILITY_REQUEST',
+        dependsOn: [modelPath ? 'normalize' : 'extract'],
         selected: copy(selected.find(s => s.requirementId === solution.requires.fixed[0].requirementId))},
       {id: 'human_review', type: 'HOST_GATE', dependsOn: ['audit'],
-        decision: 'PENDING', createsTask: false, authorizesExternalEffects: false}]
-    : [{id: 'model', type: 'CAPABILITY_REQUEST', selected: copy(selected.find(s =>
-        s.kind === 'model' && s.capabilityId === 'text.generate'))},
-      {id: 'skills', type: 'HOST_SKILLS_REQUEST', selectedSkillIds: [...selectedSkills],
+        decision: 'PENDING', createsTask: false, authorizesExternalEffects: false}];
+  } else {
+    steps = [{id: 'model', type: 'CAPABILITY_REQUEST', selected: copy(selected.find(s =>
+      s.kind === 'model' && s.capabilityId === 'text.generate'))},
+      {id: 'skills', type: 'HOST_SKILLS_REQUEST',
+        selectedSkillIds: [...selectedSkills],
+        selectedCapabilities: copy(selected.filter(s => s.kind === 'tool')),
         dependsOn: ['model']},
       {id: 'human_review', type: 'HOST_GATE', decision: 'PENDING', dependsOn: ['skills']}];
+  }
   const plan = {...common, steps};
   return {...plan, planDigest: digest(plan)};
 }
@@ -253,7 +378,12 @@ export function evaluateResultAgainstCriteria(observation) {
     for (const stepId of ['extract', 'audit']) {
       const receipt = receipts.find(r => r?.stepId === stepId);
       const step = plan.steps.find(s => s.id === stepId);
+      const requiredInputDigest = stepId === 'extract' ? digest(transcript) :
+        digest({transcript, draft});
       if (!obj(receipt) || !step || receipt.status !== 'SUCCEEDED' ||
+        receipt.planDigest !== planDigest ||
+        receipt.descriptorDigest !== step.selected?.descriptorDigest ||
+        receipt.inputDigest !== requiredInputDigest ||
         receipt.providerId !== step.selected?.providerId ||
         receipt.capabilityId !== step.selected?.capabilityId ||
         !obj(receipt.output) || receipt.outputDigest !== digest(receipt.output)) {
@@ -280,5 +410,7 @@ export function evaluateResultAgainstCriteria(observation) {
     humanReviewStatus: review, taskReportStatus: report,
     assignmentsExecuted: false, goalCompletionAttested: false,
     hostGoalDecisionObserved: observation.goalDecision?.status ?? 'NOT_DECIDED',
-    taskCreated: false, externalEffectsPerformed: false};
+    taskCreated: false, externalEffectsPerformed: false,
+    receiptBindingChecked: errors.length === 0,
+    hostAuthorityVerified: false};
 }

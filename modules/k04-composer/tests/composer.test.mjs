@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {
   CONTRACT_VERSION, PLAN_VERSION, ComposerError, describeSolution, matchTask,
-  resolveRequiredCapabilities, createHostNeutralPlan, checkMeetingEvidence,
+  resolveRequiredCapabilities, resolveModelAndSkills, createHostNeutralPlan, checkMeetingEvidence,
   evaluateResultAgainstCriteria
 } from '../index.mjs';
 import {solution, sampleAvailability, runOpenHost, extractStructuredMeeting} from '../sample/open-host.mjs';
@@ -94,7 +94,9 @@ test('pure versioned plan and unapproved source is blocked', () => {
     resolution: resolve(sampleAvailability({withoutAudit: true}))}), err('INVALID_PLAN_INPUT'));
 });
 test('model+Skills works independently of catalog Solution', () => {
-  const r = {status:'SUPPORTED', selected:[{kind:'model',capabilityId:'text.generate',providerId:'host'}]};
+  const a = sampleAvailability({withModel: true});
+  const r = resolveModelAndSkills({modelRequirement: solution.requires.alternatives[1],
+    toolRequirements: solution.requires.fixed, selectedSkillIds: ['exact-source-audit']}, a);
   const p = createHostNeutralPlan({task: task(), resolution:r, mode:'model_skills',
     selectedSkills:['exact-source-audit']});
   assert.equal(p.solutionRef, null);
@@ -180,4 +182,66 @@ test('no third-party code reused or external effects granted', () => {
   assert.equal(solution.provenance.upstreamRights, 'NOT_VERIFIED_FOR_REDISTRIBUTION');
   assert.equal(solution.provenance.adapterLicense, 'OWNER_LICENSE_DECISION_PENDING');
   assert.deepEqual(solution.allowedExternalEffects, []);
+});
+
+test('plan is bound to exact manifest and resolution, not caller-mutated picks', () => {
+  const r = resolve(), modified = clone(r);
+  modified.selected[1].providerId = 'attacker';
+  assert.throws(() => createHostNeutralPlan({task: task(), solution, resolution: modified}),
+    err('RESOLUTION_DIGEST_MISMATCH'));
+  const altered = clone(solution);
+  altered.requires.alternatives[0].effectClass = 'SIDE_EFFECT';
+  assert.throws(() => createHostNeutralPlan({task: task(), solution: altered, resolution: r}),
+    err('UNRESOLVED_REQUIREMENTS'));
+  const missingDigest = clone(r); delete missingDigest.resolutionDigest;
+  assert.throws(() => createHostNeutralPlan({task: task(), solution, resolution: missingDigest}),
+    err('UNBOUND_RESOLUTION'));
+});
+test('model+Skills resolution is concrete, with no model execution', () => {
+  const r = resolveModelAndSkills({modelRequirement: solution.requires.alternatives[1],
+    toolRequirements: solution.requires.fixed, selectedSkillIds: ['exact-source-audit']},
+    sampleAvailability({withModel: true}));
+  assert.equal(r.status, 'SUPPORTED');
+  assert.equal(r.selected.length, 2);
+  const p = createHostNeutralPlan({task: task(), resolution: r, mode:'model_skills',
+    selectedSkills:['exact-source-audit']});
+  assert.equal(p.executionState, 'NOT_EXECUTED');
+  assert.equal(p.steps[1].selectedCapabilities.length, 1);
+  const missing = resolveModelAndSkills({modelRequirement: solution.requires.alternatives[1],
+    toolRequirements: solution.requires.fixed, selectedSkillIds: ['exact-source-audit']},
+    sampleAvailability());
+  assert.equal(missing.status, 'UNSUPPORTED');
+  assert.throws(() => createHostNeutralPlan({task:task(),resolution:missing,mode:'model_skills',
+    selectedSkills:['exact-source-audit']}), err('INVALID_PLAN_INPUT'));
+});
+test('model route must include explicit JSON normalization before evidence audit', () => {
+  const r = resolve(sampleAvailability({withModel:true}), {preferOption:'model_json'});
+  const p = createHostNeutralPlan({task:task(),solution,resolution:r});
+  assert.deepEqual(p.steps.map(s => s.id), ['input','extract','normalize','audit','human_review']);
+  assert.equal(p.steps[2].operation, 'PARSE_JSON_ACTION_DRAFT');
+  assert.deepEqual(p.steps[3].dependsOn, ['normalize']);
+});
+test('duplicate providers or capabilities and repeated Skill descriptors fail', () => {
+  const duplicate = sampleAvailability();
+  duplicate.providers.push(clone(duplicate.providers[0]));
+  assert.throws(() => resolve(duplicate), err('INVALID_PROVIDER_DESCRIPTOR'));
+  const duplicateCaps = sampleAvailability();
+  duplicateCaps.providers[0].capabilities.push(clone(duplicateCaps.providers[0].capabilities[0]));
+  assert.throws(() => resolve(duplicateCaps), err('INVALID_PROVIDER_DESCRIPTOR'));
+  const duplicateSkills = sampleAvailability();
+  duplicateSkills.skills.push(clone(duplicateSkills.skills[0]));
+  assert.throws(() => resolve(duplicateSkills), err('INVALID_SKILL_DESCRIPTOR'));
+});
+test('receipt verification binds exact plan, selected provider descriptor and input', async () => {
+  for (const mutate of [
+    o => { o.receipts[0].planDigest = '0'.repeat(64); },
+    o => { o.receipts[1].planDigest = '0'.repeat(64); },
+    o => { o.receipts[0].descriptorDigest = 'f'.repeat(64); },
+    o => { o.receipts[1].descriptorDigest = 'f'.repeat(64); },
+    o => { o.receipts[0].inputDigest = 'f'.repeat(64); },
+    o => { o.receipts[1].inputDigest = 'f'.repeat(64); }
+  ]) {
+    const o = await observation(); mutate(o);
+    assert.equal(evaluateResultAgainstCriteria(o).passed, false);
+  }
 });

@@ -1,7 +1,7 @@
 {
-  "schema": "IWXA.K04.SOLUTION/0.1.0",
+  "schema": "IWXA.K04.SOLUTION/0.2.0",
   "id": "meeting-followup-crewai",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "taskKinds": [
     "meeting_followup"
   ],
