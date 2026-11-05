@@ -1,0 +1,42 @@
+name: K03 Activity and Task Discovery contract
+on:
+  push:
+    branches:
+      - work/2026-11-05-k03-activity-task-discovery
+    paths:
+      - 'modules/k03-activity-task-discovery/**'
+      - 'research/activity-research/pilots/ADP-001.json'
+      - '.github/workflows/k03-discovery-verify.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  k03-owner-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Source and selection contract tests
+        run: python -W error::ResourceWarning -m unittest discover -s modules/k03-activity-task-discovery/tests -p 'test_*.py' -v
+      - name: All-case replay with baseline and negative evidence
+        run: |
+          python modules/k03-activity-task-discovery/k03.py --all > "$RUNNER_TEMP/k03-receipt.json"
+          python - "$RUNNER_TEMP/k03-receipt.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          row = json.loads(Path(sys.argv[1]).read_text("utf-8"))
+          assert row["schema"] == "IWXA_K03_DISCOVERY/0.1.0"
+          assert row["cases"] == 5
+          assert row["negative_no_source_cases"] == 1
+          assert row["first_prior_unsupported_negative_count"] == 1
+          assert row["all_trace_checks_pass"] is True
+          assert row["task_instances_created"] == 0
+          assert row["human_gold"] is False and row["task_f1"] is None
+          print("K03_SOURCE_REPLAY_PASS; TASK_QUALITY_NOT_MEASURED; AGENT_E2E_NOT_RUN")
+          PY
