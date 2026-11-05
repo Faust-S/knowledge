@@ -41,7 +41,8 @@ def git_blob(raw: bytes) -> str:
     return hashlib.sha1(b'blob ' + str(len(raw)).encode('ascii') + b'\0' + raw).hexdigest()
 
 
-def read_json(path: Path):
+def read_json(path: Path, *, return_sha256: bool = False):
+    """Parse one exact byte snapshot; optionally bind its SHA to the parsed JSON."""
     require(path.is_file() and not path.is_symlink(), 'LOCAL_INPUT_UNAVAILABLE')
     raw = path.read_bytes()
     require(0 < len(raw) <= MAX_FILE_BYTES, 'LOCAL_INPUT_SIZE_INVALID')
@@ -64,8 +65,9 @@ def read_json(path: Path):
         return number
 
     try:
-        return json.loads(raw.decode('utf-8'), object_pairs_hook=unique_pairs,
-                          parse_constant=nonfinite, parse_float=finite_float)
+        parsed = json.loads(raw.decode('utf-8'), object_pairs_hook=unique_pairs,
+                            parse_constant=nonfinite, parse_float=finite_float)
+        return (parsed, hashlib.sha256(raw).hexdigest()) if return_sha256 else parsed
     except EffortHold:
         raise
     except (ValueError, UnicodeError, RecursionError):
@@ -352,9 +354,12 @@ def main() -> int:
         selected = frozen_sources()
         commitment = read_method_commitment()
         log = read_json(opts.active_time_input) if opts.active_time_input else None
-        export_hashes = (hashlib.sha256(opts.review_a.read_bytes()).hexdigest(),
-                         hashlib.sha256(opts.review_b.read_bytes()).hexdigest()) if log else None
-        result = summarize(read_json(opts.review_a), read_json(opts.review_b),
+        # Read each export ONCE. The stopwatch digest must identify exactly
+        # the bytes parsed for summarization, not an earlier disk snapshot.
+        export_a, sha_a = read_json(opts.review_a, return_sha256=True)
+        export_b, sha_b = read_json(opts.review_b, return_sha256=True)
+        export_hashes = (sha_a, sha_b) if log is not None else None
+        result = summarize(export_a, export_b,
                            read_json(opts.owner_bridge_receipt), selected, commitment,
                            hourly_rate_usd=rate, active_time_log=log,
                            export_sha256=export_hashes)

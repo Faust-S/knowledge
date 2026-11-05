@@ -273,6 +273,61 @@ class EffortTests(unittest.TestCase):
                                     'ACTIVE_TIME_EXPORT_BINDING_REQUIRED'):
             e.summarize(a,b,receipt,selected,'pinned',active_time_log=log)
 
+    def test_active_time_cli_hashes_the_same_bytes_it_parses(self):
+        """A reviewer export cannot change between digest and JSON parsing."""
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        import sys
+
+        a, b, receipt, selected = fixture()
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            first, second = root / 'review-a.json', root / 'review-b.json'
+            receipt_path = root / 'bridge-receipt.json'
+            log_path = root / 'active-time.json'
+            result_path = root / 'effort.json'
+            first.write_text(json.dumps(a), encoding='utf-8')
+            second.write_text(json.dumps(b), encoding='utf-8')
+            receipt_path.write_text(json.dumps(receipt), encoding='utf-8')
+            expected = (hashlib.sha256(first.read_bytes()).hexdigest(),
+                        hashlib.sha256(second.read_bytes()).hexdigest())
+            rows = lambda: [
+                {'source_sha256': 'sha256:' + key, 'active_seconds': 10}
+                for key in selected
+            ]
+            log_path.write_text(json.dumps({
+                'schema': e.ACTIVE_TIME_SCHEMA,
+                'measurement_method': e.ACTIVE_TIME_METHOD,
+                'review_export_sha256': {'A': expected[0], 'B': expected[1]},
+                'active_seconds_by_source': {'A': rows(), 'B': rows()},
+            }), encoding='utf-8')
+            actual_read = Path.read_bytes
+            reads = {first: 0, second: 0}
+
+            def once(path):
+                if path in reads:
+                    reads[path] += 1
+                    if reads[path] > 1:
+                        raise OSError('review export read again after digest')
+                return actual_read(path)
+
+            argv = ['review_effort.py',
+                    '--owner-bridge-receipt', str(receipt_path),
+                    '--review-a', str(first), '--review-b', str(second),
+                    '--active-time-input', str(log_path), '--out', str(result_path)]
+            with (patch.object(Path, 'read_bytes', once),
+                  patch.object(e, 'frozen_sources', return_value=selected),
+                  patch.object(e, 'read_method_commitment', return_value='pinned'),
+                  patch.object(sys, 'argv', argv)):
+                self.assertEqual(e.main(), 0)
+            self.assertEqual(reads, {first: 1, second: 1})
+            result = json.loads(result_path.read_text('utf-8'))
+            self.assertTrue(result['active_time_reported'])
+            self.assertEqual(result['reported_active_seconds_total'], 160.0)
+            self.assertFalse(result['human_task_gold'])
+            self.assertFalse(result['active_time_independently_verified'])
+
     def test_absent_stopwatch_log_is_not_inferred_from_lead_time(self):
         a,b,r,s=fixture()
         output=e.summarize(a,b,r,s,'pinned')
