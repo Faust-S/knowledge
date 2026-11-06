@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {CONTRACT_VERSION, buildInvocationPlan, resolveRequirements} from '../index.mjs';
-import {resolveProgramInterface, verifyProgramInterfaceReadiness, PROGRAM_INTERFACE_VERSION} from '../program-interface-selection.mjs';
+import {resolveProgramInterface, verifyProgramInterfaceReadiness, draftAgentU01Candidate, AGENT_U01_PREPARATION_VERSION, PROGRAM_INTERFACE_VERSION} from '../program-interface-selection.mjs';
 
 const NOW=1_000_000;
 const IN={type:'object',properties:{value:{type:'string'}},required:['value'],additionalProperties:false};
@@ -247,4 +247,109 @@ test('method cost/latency and recovery are explanatory; never pretend measured U
     assert.ok(a.limitations.includes('RESULT_NOT_YET_VERIFIED'));
   }
   assert.equal(r.resultProduced,false);
+});
+
+
+const NATIVE_ARGUMENTS={type:'object',properties:{
+  operation:{type:'string'},
+  parameters:{type:'object',properties:{expression:{type:'string'}},
+    required:['expression'],additionalProperties:false},
+  connection_epoch:{type:'string'},
+},required:['operation','parameters','connection_epoch'],additionalProperties:false};
+const nativeSolution={solutionId:'native-agent03-program',requirements:[{
+  requirementId:'program-step',kind:'tool',capabilityId:'program.invoke',
+  inputSchema:NATIVE_ARGUMENTS,outputSchema:OUT,effectClass:'HOST_AUTHORIZED_WRITE',required:true,
+}]};
+const nativeTask={taskId:'existing-P01-task-ref',solutionId:nativeSolution.solutionId};
+const nativeProvider={contractVersion:CONTRACT_VERSION,providerId:'JQ_CLI_V1',
+  availability:'available',capabilities:[{kind:'tool',capabilityId:'program.invoke',
+    supported:true,inputSchema:NATIVE_ARGUMENTS,outputSchema:OUT,
+    effectClass:'HOST_AUTHORIZED_WRITE',providerFeeUsd:null,latencyMsP50:null}]};
+const nativeObservation={
+  providerId:'JQ_CLI_V1',path:'API',programRef:'JQ_CLI_V1',operationId:'program.invoke',
+  u01:{connected:true,operationVerified:false,firstUseEligible:true,
+    programOperation:'evaluate',operationId:'program.invoke',
+    connectionEpoch:'123456789abcdef0',observationRef:'u01:connected'},
+  u03:{compatible:false,reasons:['U03_CAPABILITY_UNAVAILABLE:program.evaluate'],
+    capabilityStatusId:'program.evaluate',
+    status:{schema:'IWXA_CAPABILITY_STATUS/1.0.0',id:'program.evaluate',
+      available:false,reason:'execution-receipt-missing'}},
+  host:{permissionObserved:false,permissionRef:'host:pending'},
+  result:{observable:true,method:'READBACK',observationRef:'p01:readback-later'},
+  observedAtMs:NOW-10,maxAgeMs:5000,
+};
+const nativeChoice=(o=nativeObservation)=>resolveProgramInterface({
+ task:nativeTask,solution:nativeSolution,requirementId:'program-step',
+ available:[nativeProvider],observations:[o],nowMs:NOW,operatingSystem:'Windows 11',
+});
+test('native Agent 0.3 first-use U01 proposal does not require a prior Core execution receipt',async()=>{
+  const proposal=nativeChoice();
+  assert.equal(proposal.decision,'INTERFACE_PROPOSED_NOT_AUTHORIZED');
+  assert.equal(proposal.selected.firstUseNeedsNativeApproval,true);
+  assert.equal(proposal.hostAuthorityGranted,false);
+  assert.equal(proposal.resultProduced,false);
+  assert.ok(proposal.selected.limitations.includes('U01_FIRST_USE_REQUIRES_NATIVE_PREPARE_APPROVAL'));
+  const preflight=await verifyProgramInterfaceReadiness({
+    handoff:proposal,trustedHandoffDigest:proposal.handoffDigest,
+    trustedPlanDigest:proposal.plan.planDigest,
+    provider:{describeCapabilities:async()=>nativeProvider},
+    observe:async()=>nativeObservation,nowMs:NOW,operatingSystem:'Windows 11',
+  });
+  assert.equal(preflight.status,'MATCHED_NOT_AUTHORIZED');
+  assert.equal(preflight.hostAuthorityGranted,false);
+  const candidate=draftAgentU01Candidate({
+    handoff:proposal,trustedHandoffDigest:proposal.handoffDigest,
+    trustedPlanDigest:proposal.plan.planDigest,parameters:{expression:'1+1'},
+  });
+  assert.equal(candidate.schema,AGENT_U01_PREPARATION_VERSION);
+  assert.equal(candidate.status,'ACTION_CANDIDATE_DRAFT_NOT_ACCEPTED');
+  assert.deepEqual(candidate.intendedAction,{
+    operation:'program.invoke',target:'JQ_CLI_V1',
+    arguments:{operation:'evaluate',parameters:{expression:'1+1'},
+      connection_epoch:'123456789abcdef0'},
+    risk:'high',reversible:false,execution_tier:'T6_REQUIRED',
+  });
+  assert.equal(candidate.hostAuthorityGranted,false);
+  assert.equal(candidate.providerInvoked,false);
+  assert.equal(candidate.resultProduced,false);
+  assert.equal(candidate.providerOperationRef,null);
+});
+test('first-use U03 unavailable states are only admitted for a declared and offerable U01 operation',()=>{
+  for(const [change,reason] of [
+    [o=>{o.u01.connected=false;},'U01_OPERATION_NOT_VERIFIED'],
+    [o=>{o.u01.firstUseEligible=false;},'U01_OPERATION_NOT_VERIFIED'],
+    [o=>{o.u01.programOperation='wrong';},'U01_OPERATION_NOT_VERIFIED'],
+    [o=>{o.u03.status.reason='operation-unsupported';},'U03_CAPABILITY_UNAVAILABLE'],
+    [o=>{o.u03.reasons=[];},'U03_CAPABILITY_UNAVAILABLE'],
+    [o=>{o.u03.status.available=true;o.u03.status.version='1.0.0';o.u03.status.observationRef='unearned';},'U03_CAPABILITY_UNAVAILABLE'],
+  ]){
+    const o=structuredClone(nativeObservation);change(o);
+    const r=nativeChoice(o);
+    assert.equal(r.decision,'NO_READY_INTERFACE');
+    assert.equal(r.excluded[0].reason,reason);
+  }
+});
+test('draft refuses changed identity, incorrect native parameters and missing approval-proof fields',()=>{
+  const p=nativeChoice();
+  const base={handoff:p,trustedHandoffDigest:p.handoffDigest,
+    trustedPlanDigest:p.plan.planDigest,parameters:{expression:'1+1'}};
+  assert.throws(()=>draftAgentU01Candidate({...base,parameters:{wrong:'value'}}),/SCHEMA_VALUE_INVALID/);
+  const mutated=structuredClone(p);
+  mutated.selectedObservation.u01.connectionEpoch='new-connection-epoch';
+  assert.throws(()=>draftAgentU01Candidate({...base,handoff:mutated}),/INVALID_INTERFACE_CHOICE/);
+  assert.equal('idempotency_key_or_none' in draftAgentU01Candidate(base),false);
+  assert.equal('nativeBindingVerified' in draftAgentU01Candidate(base),false);
+  assert.equal('approval_id' in draftAgentU01Candidate(base),false);
+});
+test('native program operation is not equivalent to direct tool execution or a product Result',()=>{
+  const p=nativeChoice();
+  assert.equal(p.plan.steps[0].capabilityId,'program.invoke');
+  assert.equal(p.selected.identity.u01ProgramOperation,'evaluate');
+  assert.equal(p.selected.identity.u03CapabilityStatusId,'program.evaluate');
+  assert.equal(p.selected.expectedResultObservation.observedAfterInvocation,false);
+  const wrong=structuredClone(nativeObservation);
+  wrong.operationId='program.evaluate';wrong.u01.operationId='program.evaluate';
+  const result=nativeChoice(wrong);
+  assert.equal(result.decision,'NO_READY_INTERFACE');
+  assert.equal(result.excluded[0].reason,'OPERATION_MISMATCH');
 });

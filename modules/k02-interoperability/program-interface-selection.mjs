@@ -3,10 +3,11 @@
 // the native window/surface. P01 owns grants, invocation and Result.
 import {
   CONTRACT_VERSION, InteropError, digest, resolveRequirements,
-  buildInvocationPlan, verifyInvocationReadiness,
+  buildInvocationPlan, verifyInvocationReadiness, validateInvocationInput,
 } from './index.mjs';
 
 export const PROGRAM_INTERFACE_VERSION = 'IWXA.K02.PROGRAM_INTERFACE_CHOICE/0.1.0';
+export const AGENT_U01_PREPARATION_VERSION = 'IWXA.K02.AGENT_U01_PREPARATION/0.1.0';
 const PATHS = ['API', 'BROWSER_USE', 'COMPUTER_USE'];
 const U03_STATUS = 'IWXA_CAPABILITY_STATUS/1.0.0';
 const U04_BRIDGE = 'IWXA_PRESENTATION_BRIDGE/1.0.0';
@@ -28,16 +29,22 @@ function checkShape(o) {
     'browser','computer','u04'], 'interface_fields');
   for (const k of ['providerId','programRef','operationId']) if (!token(o[k])) fail(k);
   if (!PATHS.includes(o.path)) fail('interface_path');
-  fields(o.u01,['connected','operationVerified','operationId','connectionEpoch','observationRef'],'u01');
+  fields(o.u01,['connected','operationVerified','operationId','connectionEpoch','observationRef','firstUseEligible','programOperation'],'u01');
   if (!token(o.u01.connectionEpoch) || !token(o.u01.observationRef) ||
       !token(o.u01.operationId) ||
-      typeof o.u01.connected !== 'boolean' || typeof o.u01.operationVerified !== 'boolean') fail('u01_observation');
+      typeof o.u01.connected !== 'boolean' || typeof o.u01.operationVerified !== 'boolean' ||
+      (o.u01.firstUseEligible !== undefined && typeof o.u01.firstUseEligible !== 'boolean') ||
+      (o.u01.programOperation !== undefined && !token(o.u01.programOperation))) fail('u01_observation');
   fields(o.u03,['status','capabilityStatusId','compatible','reasons'],'u03');
   fields(o.u03.status,['schema','id','version','available','observationRef','reason'],'u03_status');
   if (o.u03.status.schema !== U03_STATUS || !token(o.u03.status.id) ||
       !token(o.u03.capabilityStatusId) ||
-      !token(o.u03.status.version) || !token(o.u03.status.observationRef) ||
+      (o.u03.status.version !== undefined && !token(o.u03.status.version)) ||
+      (o.u03.status.observationRef !== undefined && !token(o.u03.status.observationRef)) ||
+      (o.u03.status.reason !== undefined && !token(o.u03.status.reason)) ||
       typeof o.u03.status.available !== 'boolean' ||
+      (o.u03.status.available && (!token(o.u03.status.version) ||
+        !token(o.u03.status.observationRef))) ||
       typeof o.u03.compatible !== 'boolean' ||
       !Array.isArray(o.u03.reasons)) fail('u03_provenance');
   fields(o.host,['permissionObserved','permissionRef'],'host');
@@ -84,12 +91,28 @@ function readiness(o, nowMs, operatingSystem) {
   if (!Number.isSafeInteger(nowMs) || nowMs < 0 || !token(operatingSystem)) fail('clock_or_os');
   if (nowMs < o.observedAtMs || nowMs - o.observedAtMs > o.maxAgeMs)
     return 'OBSERVATION_STALE';
-  if (o.u01.operationId !== o.operationId || !o.u01.connected || !o.u01.operationVerified)
+  // The native Agent U01 bridge deliberately reports U03.available=false
+  // until a real, digest-verified Core receipt exists. First invocation must
+  // remain offerable through P01's existing prepare/approve/execute path.
+  const firstUse = o.path === 'API' && o.operationId === 'program.invoke' &&
+    o.u01.firstUseEligible === true && !o.u01.operationVerified &&
+    token(o.u01.programOperation) &&
+    o.u03.capabilityStatusId === 'program.' + o.u01.programOperation;
+  if (o.u01.operationId !== o.operationId || !o.u01.connected ||
+      (!o.u01.operationVerified && !firstUse))
     return 'U01_OPERATION_NOT_VERIFIED';
   if (o.u03.status.id !== o.u03.capabilityStatusId) return 'U03_CAPABILITY_ID_CHANGED';
-  if (o.u03.compatible !== true || o.u03.status.available !== true ||
+  if (firstUse) {
+    const expectedReason = 'U03_CAPABILITY_UNAVAILABLE:' + o.u03.capabilityStatusId;
+    if (o.u03.status.available !== false || o.u03.compatible !== false ||
+        !['operation-unverified','execution-receipt-missing'].includes(o.u03.status.reason) ||
+        o.u03.reasons.length !== 1 || o.u03.reasons[0] !== expectedReason)
+      return 'U03_CAPABILITY_UNAVAILABLE';
+  } else if (o.u03.compatible !== true || o.u03.status.available !== true ||
       o.u03.reasons.length !== 0) return 'U03_CAPABILITY_UNAVAILABLE';
-  if (!o.host.permissionObserved) return 'HOST_PERMISSION_NOT_OBSERVED';
+  // Before the very first U01 call, the P01 approval does not yet exist.
+  // The result is always a proposal, never an invocation or authority grant.
+  if (!o.host.permissionObserved && !firstUse) return 'HOST_PERMISSION_NOT_OBSERVED';
   if (!o.result.observable) return 'RESULT_OBSERVATION_UNAVAILABLE';
   if (o.path === 'BROWSER_USE') {
     if (o.browser.commandId !== o.operationId || !o.browser.commandSupported)
@@ -116,8 +139,15 @@ function identity(o) {
     connectionEpoch:o.u01.connectionEpoch,
     u01ObservationRef:o.u01.observationRef,
     u01OperationId:o.u01.operationId,
+    u01ProgramOperation:o.u01.programOperation ?? null,
+    u01FirstUseEligible:o.u01.firstUseEligible === true,
+    u01OperationVerified:o.u01.operationVerified,
     u03CapabilityStatusId:o.u03.capabilityStatusId,
-    u03ObservationRef:o.u03.status.observationRef,
+    u03ObservationRef:o.u03.status.observationRef ?? null,
+    u03Available:o.u03.status.available,
+    u03Reason:o.u03.status.reason ?? null,
+    u03Version:o.u03.status.version ?? null,
+    hostPermissionObserved:o.host.permissionObserved,
     hostPermissionRef:o.host.permissionRef,
     resultObservationRef:o.result.observationRef,
     ...(o.browser?{tabRef:o.browser.tabRef,tabEpoch:o.browser.tabEpoch,
@@ -138,7 +168,10 @@ function summary(o, selected) {
     expectedResultObservation:{method:o.result.method,observationRef:o.result.observationRef,
       required:true,observedAfterInvocation:false},
     limitations:['HOST_REOBSERVATION_REQUIRED','HOST_INVOCATION_AUTHORITY_REQUIRED',
-      'RESULT_NOT_YET_VERIFIED','RECOVERY_REQUIRES_CURRENT_BINDING'],
+      'RESULT_NOT_YET_VERIFIED','RECOVERY_REQUIRES_CURRENT_BINDING',
+      ...(o.u01.firstUseEligible === true && !o.u01.operationVerified
+        ? ['U01_FIRST_USE_REQUIRES_NATIVE_PREPARE_APPROVAL'] : [])],
+    firstUseNeedsNativeApproval:o.u01.firstUseEligible === true && !o.u01.operationVerified,
     accuracy:'NOT_MEASURED',recovery:'REOBSERVE_AND_REPLAN',
   };
 }
@@ -231,4 +264,74 @@ export async function verifyProgramInterfaceReadiness({
     requirementId:probed.requirementId,planDigest:trustedPlanDigest,
     handoffDigest:trustedHandoffDigest,expectedResultObservation:handoff.selected.expectedResultObservation,
     hostAuthorityGranted:false,providerInvoked:false,resultProduced:false};
+}
+
+
+// Agent 0.3's U01 executable is not the public per-operation descriptor:
+// ToolRuntime uses the single consequential tool "program.invoke" and keeps
+// action-candidate acceptance, native plan, approval, idempotency and receipt
+// under P01. K02 can only prepare fields for a candidate draft; it must NOT
+// fabricate native Task refs, approval, receipt, or invoke ToolProviderPort.
+export function draftAgentU01Candidate({
+  handoff, trustedHandoffDigest, trustedPlanDigest, parameters,
+}) {
+  if (!object(handoff) || !HEX.test(trustedHandoffDigest ?? '') ||
+      !HEX.test(trustedPlanDigest ?? '')) fail('u01_trusted_digest');
+  const original={...handoff};delete original.handoffDigest;
+  if (handoff.handoffDigest!==trustedHandoffDigest ||
+      digest(original)!==trustedHandoffDigest ||
+      handoff.decision!=='INTERFACE_PROPOSED_NOT_AUTHORIZED' ||
+      !handoff.plan || handoff.plan.planDigest!==trustedPlanDigest ||
+      handoff.hostAuthorityGranted!==false || handoff.providerInvoked!==false ||
+      handoff.resultProduced!==false) fail('u01_handoff_changed');
+  const selected=handoff.selected;
+  const observed=handoff.selectedObservation;
+  if (!selected || !observed || selected.path!=='API' || observed.path!=='API' ||
+      selected.operationId!=='program.invoke' ||
+      observed.u01.operationId!=='program.invoke' ||
+      !token(observed.u01.programOperation) ||
+      observed.u03.status.id!=='program.'+observed.u01.programOperation ||
+      observed.u01.connected!==true) fail('not_native_u01_program');
+  if (digest(identity(observed))!==digest(selected.identity))
+    fail('u01_identity_changed');
+  const step=handoff.plan.steps.find(x=>x.requirementId===handoff.requirementId);
+  if (!step || step.kind!=='tool' || step.capabilityId!=='program.invoke' ||
+      step.providerId!==selected.providerId ||
+      step.capabilityDigest!==selected.capabilityDigest ||
+      step.invocationAuthority!=='HOST_ONLY' ||
+      step.proofOfInvoke!==null) fail('u01_plan_step');
+  if (!object(parameters)) fail('u01_parameters');
+  const args={
+    operation:observed.u01.programOperation,
+    parameters,
+    connection_epoch:observed.u01.connectionEpoch,
+  };
+  // The K02 schema is a *candidate preview*, never the native ToolCatalog
+  // descriptor or the source of a provider-binding digest.
+  validateInvocationInput(step,args);
+  return {
+    schema:AGENT_U01_PREPARATION_VERSION,
+    status:'ACTION_CANDIDATE_DRAFT_NOT_ACCEPTED',
+    k02PlanDigest:trustedPlanDigest,
+    handoffDigest:trustedHandoffDigest,
+    intendedAction:{
+      operation:'program.invoke',
+      target:observed.programRef,
+      arguments:args,
+      risk:'high',
+      reversible:false,
+      execution_tier:'T6_REQUIRED',
+    },
+    nativeRequirements:[
+      'P01_TASK_AND_RESULT_REFERENCES',
+      'P01_HUMAN_ACCEPTED_ACTION_CANDIDATE',
+      'P01_TOOL_CATALOG_AND_PROVIDER_BINDING',
+      'P01_EXECUTION_PLAN_AND_APPROVAL',
+      'P01_IDEMPOTENCY_AND_RECEIPT_READBACK',
+    ],
+    hostAuthorityGranted:false,
+    providerInvoked:false,
+    resultProduced:false,
+    providerOperationRef:null,
+  };
 }
