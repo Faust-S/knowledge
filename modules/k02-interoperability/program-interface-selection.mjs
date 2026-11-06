@@ -382,6 +382,5 @@ export function projectAgentU01Operation(view, programOperation) {
       compatible:row.execution_verified,
       reasons:row.execution_verified?[]:['U03_CAPABILITY_UNAVAILABLE:'+row.capability_id],
     },
-    hostAuthorityGranted:false,executionVerified:row.execution_verified,
   };
 }

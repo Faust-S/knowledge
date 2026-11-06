@@ -373,7 +373,7 @@ function agentProjection({verified=false,offer=true,epoch='123456789abcdef0',rea
 test('Agent 0.3 native projection becomes an offerable U01 first-use draft without inventing execution proof',()=>{
   const mapped=projectAgentU01Operation(agentProjection(),'evaluate');
   assert.equal(mapped.u01.firstUseEligible,true);
-  assert.equal(mapped.executionVerified,false);
+  assert.equal(mapped.u01.operationVerified,false);
   assert.equal(mapped.u03.status.available,false);
   const obs={...structuredClone(nativeObservation),...mapped};
   const proposal=nativeChoice(obs);
@@ -388,7 +388,7 @@ test('Agent 0.3 native projection becomes an offerable U01 first-use draft witho
 });
 test('Agent 0.3 native projection distinguishes executed receipt from first-use capability',()=>{
   const mapped=projectAgentU01Operation(agentProjection({verified:true}),'evaluate');
-  assert.equal(mapped.executionVerified,true);
+  assert.equal(mapped.u01.operationVerified,true);
   assert.equal(mapped.u01.firstUseEligible,false);
   assert.equal(mapped.u03.status.available,true);
   assert.equal(mapped.u03.status.observationRef,'TXR-confirmed');
