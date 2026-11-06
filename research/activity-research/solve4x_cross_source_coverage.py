@@ -131,7 +131,23 @@ def probe():
      raw["scene01/scene01_video_ocel.json"],
      raw["scene01/scene01_sensors_ocel.json"],
      raw["scene01/scene01_ui.csv"],raw_reed)
- result["c12_c16_source_bound_handoff"]=public_summary(owner_packet)
+ owner_files={
+     "scene01/scene01_video_ocel.json":raw["scene01/scene01_video_ocel.json"],
+     "scene01/scene01_sensors_ocel.json":raw["scene01/scene01_sensors_ocel.json"],
+     "scene01/scene01_ui.csv":raw["scene01/scene01_ui.csv"],
+     "scene01/scene01_reed_switches.csv":raw_reed}
+ from solve4x_source_bound_handoff import verify_owner_local_locator
+ for episode in owner_packet["episodes"]:
+  locators=[episode["sensor_observation"]]
+  for key in ("raw_reed_candidates_5s", "browser_ui_candidates_5s",
+              "author_video_annotation_candidates_5s"):
+   locators.extend(episode[key])
+  for ref in locators:
+   verified=verify_owner_local_locator(owner_files[ref["source_member"]],ref)
+   ensure(verified["source_record_verified"] and
+          verified["same_human_action"]=="UNKNOWN","HANDOFF_LOCATOR_REPLAY_HOLD")
+ result["c12_c16_source_bound_handoff"]=public_summary(
+     owner_packet,source_files=owner_files)
  ensure(result["c12_c16_source_bound_handoff"]["episode_count"]==3 and
         result["c12_c16_source_bound_handoff"]["video_baseline_counts"]==
         {"all":23,"literal_enter_leave":6,"reed_closed_after_end_5s":3},

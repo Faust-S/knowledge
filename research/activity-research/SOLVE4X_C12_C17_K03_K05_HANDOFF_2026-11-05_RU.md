@@ -63,3 +63,9 @@ python3 research/activity-research/solve4x_cross_source_coverage.py --out /tmp/s
 ```
 
 Existing `.github/workflows/activity-solve4x-source-preflight.yml` runs pinned Solve4X and all existing C13-C17 checks, plus the new adapter tests; raw original sources and owner-local packet must never be uploaded. No source access => HOLD, no synthetic fallback. Status remains `HUMAN_GOLD=NOT_MEASURED`, `TASK_ACCEPTED=0`.
+
+## Follow-up 06.11.2026: negative round-trip qualification
+
+Source locator replay now uses `verify_owner_local_locator(member_bytes, ref)`: exact SHA-256, OCEL source key or CSV original record number/physical lines. This returns only source-record existence, not actual human action or permission. `public_summary(packet)` alone is explicitly `PUBLIC_UNVERIFIED_AGGREGATE` and `original_bytes_sha_verified=false`; passing original `source_files` triggers complete private-packet replay before returning `PUBLIC_SOURCE_RECORDS_REPLAY_VERIFIED`. Pinned Solve4X `probe()` verifies all candidate locators independently. Tests reject duplicate JSON source keys, stale OCEL/CSV locators, wrong member bytes, forged private packet classes/ordinals and metadata leakage.
+
+Compatibility boundary: Current K03 host_discovery accepts authorized UTF-8 text/manifest + U1 owner, not raw OCEL/CSV event members; current K05 source projection verifies GitHub issue byte offsets, not Solve4X semantics. Neither module is modified. C17 remains a research review adapter, not Label Studio replacement. `HUMAN_GOLD=NOT_MEASURED`, `TASK_ACCEPTED=0`.

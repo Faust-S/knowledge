@@ -35,9 +35,18 @@ def _check(files, pins):
                    "HANDOFF_SOURCE_SHA_HOLD")
 
 
+def _no_duplicate_json_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        c12.ensure(key not in result, "HANDOFF_DUPLICATE_JSON_KEY_HOLD")
+        result[key] = value
+    return result
+
+
 def _ocel(raw):
     try:
-        doc = json.loads(raw.decode("utf-8-sig"))
+        doc = json.loads(raw.decode("utf-8-sig"),
+                         object_pairs_hook=_no_duplicate_json_keys)
     except (UnicodeError, ValueError):
         raise c12.Hold("HANDOFF_OCEL_INVALID") from None
     c12.ensure(type(doc) is dict and type(doc.get("ocel:events")) is dict
@@ -70,6 +79,50 @@ def _csv_locators(data, count):
 
 def _ref(member, sha, locator):
     return {"source_member": member, "source_sha256": sha, "locator": locator}
+
+
+def verify_owner_local_locator(original_bytes, ref, *, expected_pins=None):
+    """Verify exact member revision and original event/CSV record, never action truth."""
+    pins = PINS if expected_pins is None else expected_pins
+    c12.ensure(type(pins) is dict and set(pins) == set(PINS)
+               and type(ref) is dict, "HANDOFF_LOCATOR_SCOPE_HOLD")
+    member = ref.get("source_member")
+    c12.ensure(type(member) is str and member in PINS
+               and type(original_bytes) is bytes and 0 < len(original_bytes) <= 524288
+               and type(ref.get("source_sha256")) is str
+               and ref["source_sha256"] == pins[member]
+               and hashlib.sha256(original_bytes).hexdigest() == pins[member],
+               "HANDOFF_LOCATOR_REVISION_HOLD")
+    locator = ref.get("locator")
+    c12.ensure(type(locator) is dict, "HANDOFF_LOCATOR_KIND_HOLD")
+    if member in (VIDEO, SENSOR):
+        c12.ensure(set(locator) == {"kind", "source_event_key"}
+                   and locator["kind"] == "OCEL_EVENT_KEY"
+                   and type(locator["source_event_key"]) is str
+                   and bool(locator["source_event_key"]), "HANDOFF_LOCATOR_KIND_HOLD")
+        events = _ocel(original_bytes)["ocel:events"]
+        c12.ensure(locator["source_event_key"] in events
+                   and type(events[locator["source_event_key"]]) is dict,
+                   "HANDOFF_OCEL_EVENT_NOT_FOUND")
+    else:
+        c12.ensure(set(locator) == {"kind", "record_number",
+                                    "physical_line_start", "physical_line_end"}
+                   and locator["kind"] == "CSV_RECORD"
+                   and all(type(locator[k]) is int and locator[k] > 0 for k in
+                           ("record_number", "physical_line_start", "physical_line_end")),
+                   "HANDOFF_CSV_LOCATOR_HOLD")
+        count = len(c14.parse_raw_reed(original_bytes)) if member == REED else len(c14.parse_ui_context(original_bytes))
+        locations = _csv_locators(original_bytes, count)
+        n = locator["record_number"]
+        c12.ensure(n <= count and locator == locations[n-1],
+                   "HANDOFF_CSV_LOCATOR_STALE")
+    return {"schema": SCHEMA, "status": "SOURCE_RECORD_ONLY_VERIFIED",
+            "source_sha256": pins[member], "source_member": member,
+            "original_event_id_exported": False,
+            "source_record_verified": True,
+            "clock_calibrated": False, "same_human_action": "UNKNOWN",
+            "human_gold": "NOT_MEASURED", "accepted_tasks": 0,
+            "source_access_permission_attested": False}
 
 
 def prepare_owner_local(video_bytes, sensor_bytes, ui_bytes, reed_bytes, *,
@@ -162,18 +215,58 @@ def prepare_owner_local(video_bytes, sensor_bytes, ui_bytes, reed_bytes, *,
             "permissions_attested": False, "not_for_publication": True}
 
 
-def public_summary(packet):
+def public_summary(packet, *, source_files=None):
     """Only closed classes and counts: no source ID, timestamp, actor or raw text."""
     c12.ensure(type(packet) is dict and packet.get("schema") == SCHEMA
                and packet.get("not_for_publication") is True
                and type(packet.get("episodes")) is list
                and packet.get("accepted_tasks") == 0, "HANDOFF_PACKET_HOLD")
+    pins = packet.get("source_sha256")
+    baselines = packet.get("video_baseline_counts")
+    c12.ensure(type(pins) is dict and set(pins) == set(PINS)
+               and all(type(v) is str and len(v) == 64
+                       and all(ch in "0123456789abcdef" for ch in v)
+                       for v in pins.values())
+               and packet.get("pin_authority") in
+                   ("PINNED_SOLVE4X", "CALLER_SUPPLIED_UNQUALIFIED")
+               and (packet["pin_authority"] != "PINNED_SOLVE4X" or pins == PINS)
+               and type(baselines) is dict and set(baselines) ==
+                   {"all", "literal_enter_leave", "reed_closed_after_end_5s"}
+               and all(type(v) is int and 0 <= v <= 10000
+                       for v in baselines.values())
+               and baselines["reed_closed_after_end_5s"] <=
+                   baselines["literal_enter_leave"] <= baselines["all"]
+               and packet.get("clock_calibration_proven") is False
+               and packet.get("same_human_action_confirmed") is False
+               and packet.get("permissions_attested") is False
+               and packet.get("human_gold") == "NOT_MEASURED",
+               "HANDOFF_PUBLIC_METADATA_HOLD")
+    checked = False
+    if source_files is not None:
+        c12.ensure(type(source_files) is dict and set(source_files) == set(PINS),
+                   "HANDOFF_REPLAY_SOURCE_SET_HOLD")
+        replayed = prepare_owner_local(
+            source_files[VIDEO], source_files[SENSOR],
+            source_files[UI], source_files[REED],
+            expected_pins=None if packet["pin_authority"] == "PINNED_SOLVE4X"
+            else pins)
+        c12.ensure(replayed == packet, "HANDOFF_REPLAY_MISMATCH")
+        checked = True
     safe = []
-    for e in packet["episodes"]:
+    for ordinal, e in enumerate(packet["episodes"], 1):
         c12.ensure(type(e) is dict and e.get("sensor_class") in
                    {"ENTRANCE", "MOUSE_CUPBOARD", "KEYBOARD_CUPBOARD",
                     "CUPBOARD_UNRESOLVED", "UNKNOWN"}
-                   and e.get("same_human_action") == "UNKNOWN",
+                   and e.get("same_human_action") == "UNKNOWN"
+                   and type(e.get("review_ordinal_not_original_id")) is int
+                   and e["review_ordinal_not_original_id"] == ordinal
+                   and e.get("temporal_uncertainty") == CLOCK
+                   and e.get("task_hypothesis") == "NOT_QUALIFIED"
+                   and type(e.get("accepted_tasks")) is int
+                   and e["accepted_tasks"] == 0
+                   and all(type(e.get(k)) is list for k in
+                       ("raw_reed_candidates_5s", "browser_ui_candidates_5s",
+                        "author_video_annotation_candidates_5s")),
                    "HANDOFF_UNKNOWN_GUARD")
         safe.append({
             "review_ordinal_not_original_id": e["review_ordinal_not_original_id"],
@@ -186,12 +279,13 @@ def public_summary(packet):
                 len(e["author_video_annotation_candidates_5s"]),
             "temporal_uncertainty": CLOCK, "same_human_action": "UNKNOWN",
             "task_hypothesis": "NOT_QUALIFIED"})
-    return {"schema": SCHEMA, "status": "PUBLIC_ONLY_OWNER_LOCAL_SOURCE_LOCATOR_REQUIRED",
+    return {"schema": SCHEMA, "status": ("PUBLIC_SOURCE_RECORDS_REPLAY_VERIFIED" if checked
+                       else "PUBLIC_UNVERIFIED_AGGREGATE"),
             "pin_authority": packet["pin_authority"],
             "source_sha256": dict(packet["source_sha256"]),
             "episode_count": len(safe), "episodes": safe,
             "video_baseline_counts": dict(packet["video_baseline_counts"]),
-            "original_bytes_sha_verified": True,
+            "original_bytes_sha_verified": checked,
             "authorized_source_locator_publicly_available": False,
             "clock_calibration_proven": False, "same_human_action_confirmed": False,
             "human_gold": "NOT_MEASURED", "accepted_tasks": 0,

@@ -106,3 +106,58 @@ class SourceBoundHandoff(TestCase):
         packet["episodes"][0]["same_human_action"] = "CONFIRMED"
         with self.assertRaisesRegex(c12.Hold,"HANDOFF_UNKNOWN_GUARD"):
             handoff.public_summary(packet)
+    def test_locator_roundtrip_and_absent_source(self):
+        packet = self.run_packet()
+        refs = []
+        for episode in packet["episodes"]:
+            refs.append(episode["sensor_observation"])
+            for k in ("raw_reed_candidates_5s", "browser_ui_candidates_5s",
+                      "author_video_annotation_candidates_5s"):
+                refs.extend(episode[k])
+        self.assertEqual(len(refs), 7)
+        for ref in refs:
+            receipt = handoff.verify_owner_local_locator(
+                self.files[ref["source_member"]],ref,expected_pins=self.pins)
+            self.assertEqual(receipt["same_human_action"],"UNKNOWN")
+            self.assertFalse(receipt["source_access_permission_attested"])
+        self.assertFalse(handoff.public_summary(packet)["original_bytes_sha_verified"])
+        self.assertTrue(handoff.public_summary(
+            packet,source_files=self.files)["original_bytes_sha_verified"])
+
+    def test_replay_rejects_tampered_sensor_class(self):
+        packet = self.run_packet()
+        packet["episodes"][0]["sensor_state_class"] = "FORGED"
+        with self.assertRaisesRegex(c12.Hold,"HANDOFF_REPLAY_MISMATCH"):
+            handoff.public_summary(packet,source_files=self.files)
+
+    def test_missing_locator_stale_csv_line_and_member_hold(self):
+        packet = self.run_packet()
+        source = packet["episodes"][0]["sensor_observation"]
+        bad = {**source, "locator":{"kind":"OCEL_EVENT_KEY","source_event_key":"missing"}}
+        with self.assertRaisesRegex(c12.Hold,"HANDOFF_OCEL_EVENT_NOT_FOUND"):
+            handoff.verify_owner_local_locator(self.files[handoff.SENSOR],bad,
+                                               expected_pins=self.pins)
+        row = packet["episodes"][0]["browser_ui_candidates_5s"][0]
+        bad = {**row,"locator":{**row["locator"],"physical_line_start":500}}
+        with self.assertRaisesRegex(c12.Hold,"HANDOFF_CSV_LOCATOR_STALE"):
+            handoff.verify_owner_local_locator(self.files[handoff.UI],bad,
+                                               expected_pins=self.pins)
+        with self.assertRaisesRegex(c12.Hold,"HANDOFF_LOCATOR_REVISION_HOLD"):
+            handoff.verify_owner_local_locator(self.files[handoff.VIDEO],source,
+                                               expected_pins=self.pins)
+
+    def test_duplicate_json_event_key_and_invalid_public_metadata_hold(self):
+        files = dict(self.files)
+        files[handoff.SENSOR] = files[handoff.SENSOR].replace(
+            b'"real-key-A":', b'"real-key-A":null,"real-key-A":')
+        pins = {k:hashlib.sha256(v).hexdigest() for k,v in files.items()}
+        with self.assertRaisesRegex(c12.Hold,"HANDOFF_DUPLICATE_JSON_KEY_HOLD"):
+            self.run_packet(files,pins)
+        packet = self.run_packet()
+        packet["source_sha256"][handoff.UI]="private.example/"
+        with self.assertRaisesRegex(c12.Hold,"HANDOFF_PUBLIC_METADATA_HOLD"):
+            handoff.public_summary(packet)
+        packet = self.run_packet()
+        packet["episodes"][0]["review_ordinal_not_original_id"]="private@email"
+        with self.assertRaisesRegex(c12.Hold,"HANDOFF_UNKNOWN_GUARD"):
+            handoff.public_summary(packet)

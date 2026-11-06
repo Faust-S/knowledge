@@ -471,6 +471,8 @@ jobs:
           assert source_bound["schema"]=="IWXA_SOLVE4X_C12_C16_SOURCE_BOUND_HANDOFF/0.1"
           assert source_bound["pin_authority"]=="PINNED_SOLVE4X"
           assert source_bound["episode_count"]==3
+          assert source_bound["status"]=="PUBLIC_SOURCE_RECORDS_REPLAY_VERIFIED"
+          assert source_bound["original_bytes_sha_verified"] is True
           assert source_bound["video_baseline_counts"]=={
             "all":23,"literal_enter_leave":6,"reed_closed_after_end_5s":3}
           assert source_bound["human_gold"]=="NOT_MEASURED"
