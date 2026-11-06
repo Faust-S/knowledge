@@ -256,6 +256,16 @@ def discover(request: dict, sources: list, *, today: date | None = None,
     }]
     hypotheses, summaries = [], []
     loader = u1_loader if u1_loader is not None else issue_replay.paired.load_owner
+    # All supplied sources use the same pinned native U1 owner. Loading the
+    # owner once per request avoids repeated module/source reads while keeping
+    # inspect/review_hints and the permission check per document.
+    owner_once = None
+    def pinned_owner():
+        nonlocal owner_once
+        if owner_once is None:
+            owner_once = loader()
+        return owner_once
+
     for row in sources:
         o, h, summary = _one_source(
             row, expected[row["source_id"]], terms,

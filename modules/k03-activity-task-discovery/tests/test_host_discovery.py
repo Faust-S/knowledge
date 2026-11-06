@@ -230,6 +230,42 @@ class HostDiscoveryTests(unittest.TestCase):
                                     "K03_HOST_EXPECTED_REVISION_INVALID"):
             host.discover(need(), [row, row], today=TODAY)
 
+    def test_u1_owner_loaded_once_for_multiple_documents(self):
+        row1 = input_source()
+        row2 = input_source(source_id="doc-2", revision="v2")
+        row2["manifest"]["source_reference"] = "host://provided/doc-2"
+        request = {
+            "mode": "NEED", "text": "Хочу разобраться, почему теряются заявки",
+            "expected_revisions": {"doc-1": "v1", "doc-2": "v2"},
+        }
+        with patch.object(host.issue_replay.paired, "load_owner",
+                          wraps=host.issue_replay.paired.load_owner) as loader:
+            result = host.discover(request, [row1, row2], today=TODAY)
+        self.assertEqual(loader.call_count, 1)
+        self.assertEqual(result["source_count"], 2)
+        self.assertEqual(result["native_u1_calls"], 4)
+        self.assertEqual(result["processed_source_bytes"],
+                         2 * len(SOURCE.encode("utf-8")))
+        self.assertEqual(len(result["task_hypotheses"]), 2)
+        self.assertEqual(
+            {x["source_revision"] for h in result["task_hypotheses"]
+             for x in h["evidence_links"]},
+            {"v1", "v2"})
+        self.assertTrue(all(h["status"] == "PROPOSED_NOT_QUALIFIED_TASK"
+                            for h in result["task_hypotheses"]))
+        self.assertFalse(result["task_created"])
+        self.assertFalse(result["result_created"])
+
+    def test_u1_loader_not_called_for_need_without_documents(self):
+        with patch.object(host.issue_replay.paired, "load_owner",
+                          side_effect=AssertionError("should not load U1")):
+            result = host.discover(
+                {"mode": "NEED", "text": "Хочу разобраться",
+                 "expected_revisions": {}}, [], today=TODAY)
+        self.assertEqual(result["route"], "CLARIFICATION_REQUIRED")
+        self.assertEqual(result["native_u1_calls"], 0)
+        self.assertFalse(result["task_created"])
+
     def test_no_task_level_f1_or_human_savings(self):
         row = input_source()
         result = host.discover(need(), [row], today=TODAY)
