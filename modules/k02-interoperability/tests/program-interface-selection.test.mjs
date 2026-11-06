@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {CONTRACT_VERSION, buildInvocationPlan, resolveRequirements} from '../index.mjs';
-import {resolveProgramInterface, verifyProgramInterfaceReadiness, draftAgentU01Candidate, AGENT_U01_PREPARATION_VERSION, PROGRAM_INTERFACE_VERSION} from '../program-interface-selection.mjs';
+import {resolveProgramInterface, verifyProgramInterfaceReadiness, draftAgentU01Candidate, projectAgentU01Operation, AGENT_U01_PREPARATION_VERSION, PROGRAM_INTERFACE_VERSION} from '../program-interface-selection.mjs';
 
 const NOW=1_000_000;
 const IN={type:'object',properties:{value:{type:'string'}},required:['value'],additionalProperties:false};
@@ -352,4 +352,61 @@ test('native program operation is not equivalent to direct tool execution or a p
   const result=nativeChoice(wrong);
   assert.equal(result.decision,'NO_READY_INTERFACE');
   assert.equal(result.excluded[0].reason,'OPERATION_MISMATCH');
+});
+
+
+function agentProjection({verified=false,offer=true,epoch='123456789abcdef0',reason}={}) {
+  return {
+    program_id:'JQ_CLI_V1',
+    source:{schema:'IWXA_PROGRAM_CONNECTION/1.0.0',program_id:'JQ_CLI_V1',
+      transport:'cli',status:'DECLARED',connected:true,connection_epoch:epoch},
+    operations:[{operation:'evaluate',capability_id:'program.evaluate',
+      can_offer_invocation:offer,execution_verified:verified,
+      observation:verified
+        ? {schema:'IWXA_CAPABILITY_STATUS/1.0.0',id:'program.evaluate',
+           available:true,version:'1.0.0',observationRef:'TXR-confirmed'}
+        : {schema:'IWXA_CAPABILITY_STATUS/1.0.0',id:'program.evaluate',
+           available:false,reason:reason??'execution-receipt-missing'}}],
+    execution_authority_granted:false,
+  };
+}
+test('Agent 0.3 native projection becomes an offerable U01 first-use draft without inventing execution proof',()=>{
+  const mapped=projectAgentU01Operation(agentProjection(),'evaluate');
+  assert.equal(mapped.u01.firstUseEligible,true);
+  assert.equal(mapped.executionVerified,false);
+  assert.equal(mapped.u03.status.available,false);
+  const obs={...structuredClone(nativeObservation),...mapped};
+  const proposal=nativeChoice(obs);
+  assert.equal(proposal.decision,'INTERFACE_PROPOSED_NOT_AUTHORIZED');
+  const candidate=draftAgentU01Candidate({
+    handoff:proposal,trustedHandoffDigest:proposal.handoffDigest,
+    trustedPlanDigest:proposal.plan.planDigest,parameters:{expression:'2+2'},
+  });
+  assert.equal(candidate.intendedAction.arguments.connection_epoch,'123456789abcdef0');
+  assert.equal(candidate.hostAuthorityGranted,false);
+  assert.equal(candidate.resultProduced,false);
+});
+test('Agent 0.3 native projection distinguishes executed receipt from first-use capability',()=>{
+  const mapped=projectAgentU01Operation(agentProjection({verified:true}),'evaluate');
+  assert.equal(mapped.executionVerified,true);
+  assert.equal(mapped.u01.firstUseEligible,false);
+  assert.equal(mapped.u03.status.available,true);
+  assert.equal(mapped.u03.status.observationRef,'TXR-confirmed');
+  const obs={...structuredClone(nativeObservation),...mapped,
+    host:{permissionObserved:true,permissionRef:'host:pending'}};
+  assert.equal(nativeChoice(obs).decision,'INTERFACE_PROPOSED_NOT_AUTHORIZED');
+});
+test('Agent 0.3 U01 translation rejects unsupported operation, removed connection and false receipt',()=>{
+  const disconnected=agentProjection();disconnected.source.connected=false;
+  assert.throws(()=>projectAgentU01Operation(disconnected,'evaluate'),/INVALID_INTERFACE_CHOICE/);
+  const changed=agentProjection();changed.source.connection_epoch=null;
+  assert.throws(()=>projectAgentU01Operation(changed,'evaluate'),/INVALID_INTERFACE_CHOICE/);
+  const wrong=agentProjection();wrong.operations[0].capability_id='program.other';
+  assert.throws(()=>projectAgentU01Operation(wrong,'evaluate'),/INVALID_INTERFACE_CHOICE/);
+  const denied=agentProjection({offer:false});
+  assert.throws(()=>projectAgentU01Operation(denied,'evaluate'),/INVALID_INTERFACE_CHOICE/);
+  const fabricated=agentProjection();fabricated.operations[0].execution_verified=true;
+  assert.throws(()=>projectAgentU01Operation(fabricated,'evaluate'),/INVALID_INTERFACE_CHOICE/);
+  const absence=agentProjection();absence.operations[0].observation.reason='operation-unsupported';
+  assert.throws(()=>projectAgentU01Operation(absence,'evaluate'),/INVALID_INTERFACE_CHOICE/);
 });

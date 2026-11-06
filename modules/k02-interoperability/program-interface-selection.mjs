@@ -335,3 +335,53 @@ export function draftAgentU01Candidate({
     providerOperationRef:null,
   };
 }
+
+
+// Read-only translation of the actual Agent 0.3
+// runtime/u01_capability_host.py program_use_projection structure.
+// This is intentionally partial: P01 must still provide its own current
+// permission observation, Task, capability provider and result readback.
+export function projectAgentU01Operation(view, programOperation) {
+  if (!object(view) || !token(programOperation) ||
+      !token(view.program_id) || !object(view.source) ||
+      view.source.connected !== true || view.source.status !== 'DECLARED' ||
+      view.source.program_id !== view.program_id ||
+      !token(view.source.connection_epoch) ||
+      !Array.isArray(view.operations)) fail('agent_u01_projection_invalid');
+  const matches=view.operations.filter(row => row?.operation === programOperation);
+  if (matches.length !== 1) fail('agent_u01_operation_not_unique');
+  const row=matches[0];
+  if (!token(row.capability_id) || row.capability_id !== 'program.'+programOperation ||
+      typeof row.can_offer_invocation !== 'boolean' ||
+      typeof row.execution_verified !== 'boolean' ||
+      !object(row.observation) || row.observation.schema !== U03_STATUS ||
+      row.observation.id !== row.capability_id ||
+      typeof row.observation.available !== 'boolean') fail('agent_u01_operation_invalid');
+  if (!row.can_offer_invocation) fail('agent_u01_operation_not_offerable');
+  if (row.execution_verified !== row.observation.available) fail('agent_u01_receipt_inconsistent');
+  const reason=row.observation.reason??null;
+  if (!row.execution_verified && !['operation-unverified','execution-receipt-missing'].includes(reason))
+    fail('agent_u01_missing_receipt_state');
+  if (row.execution_verified &&
+      (!token(row.observation.version)||!token(row.observation.observationRef)))
+    fail('agent_u01_verified_receipt_missing');
+  const sourceRef='u01:'+view.program_id+':'+view.source.connection_epoch;
+  return {
+    programRef:view.program_id,
+    u01:{
+      connected:true,operationId:'program.invoke',
+      operationVerified:row.execution_verified,
+      firstUseEligible:!row.execution_verified && row.can_offer_invocation,
+      programOperation,
+      connectionEpoch:view.source.connection_epoch,
+      observationRef:sourceRef,
+    },
+    u03:{
+      capabilityStatusId:row.capability_id,
+      status:structuredClone(row.observation),
+      compatible:row.execution_verified,
+      reasons:row.execution_verified?[]:['U03_CAPABILITY_UNAVAILABLE:'+row.capability_id],
+    },
+    hostAuthorityGranted:false,executionVerified:row.execution_verified,
+  };
+}
