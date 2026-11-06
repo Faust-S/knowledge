@@ -36,6 +36,13 @@ function observe(read){
      o.revision!=='sha256:'+s.sha256||p.revision!==o.revision||
      o.contentRef!==o.revision)
     invalid('IDENTITY_MISMATCH');
+  // P01 constructs the opaque hkw:// source identity from this exact
+  // provider/binding/path tuple. A self-consistent forged ref is insufficient.
+  const opaqueIdentity=hash(Buffer.from(JSON.stringify([
+    provenance.provider,provenance.bindingDigest,provenance.sourcePath
+  ]),'utf8'));
+  if(o.sourceRef!=='hkw://iwxa-personal-agent/'+opaqueIdentity)
+    invalid('OPAQUE_SOURCE_IDENTITY_MISMATCH');
   if(typeof s.content!=='string')invalid('CONTENT_UNAVAILABLE');
   const bytes=Buffer.from(s.content,'utf8');
   if(bytes.length>LIMIT||o.bytes!==bytes.length||hash(bytes)!==s.sha256)

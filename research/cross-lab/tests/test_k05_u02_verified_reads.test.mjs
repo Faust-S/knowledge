@@ -87,6 +87,15 @@ test('stale content, claimed revision and forged identity fail closed',async()=>
  assert.throws(()=>compareU02VerifiedReads(first,bound,api.sourceChange),
   /IDENTITY_MISMATCH/);
 });
+test('self-consistent forged opaque source identity is not accepted',async()=>{
+ const first=await make('A'),api=await owner();
+ const forged=structuredClone(first);
+ const fake='hkw://iwxa-personal-agent/'+'f'.repeat(64);
+ forged.observation.sourceRef=fake;
+ forged.pin.sourceRef=fake;
+ assert.throws(()=>compareU02VerifiedReads(forged,forged,api.sourceChange),
+  /OPAQUE_SOURCE_IDENTITY_MISMATCH/);
+});
 test('no inferred claim or review from U02 sourceChange; disagreement rejected',async()=>{
  const a=await make('enabled: true'),b=await make('enabled: false');
  const api=await owner();
