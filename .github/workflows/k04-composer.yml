@@ -37,11 +37,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: c027e8922e854685afc5a8809b9f31733bc24a43
+          ref: 2fac2a6b007a84f3cf14220d2d4a668f9d97916c
           path: .k02-peer
           persist-credentials: false
       - name: Verify per-step requests with actual K02 functions
-        run: node --test modules/k04-composer/integration/k02-actual.test.mjs
+        run: node --test modules/k04-composer/integration/*.test.mjs
       - name: Execute real open-host sample
         run: node modules/k04-composer/sample/open-host.mjs
       - name: Preserve existing meeting attribution checks
