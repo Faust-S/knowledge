@@ -17,7 +17,7 @@ import k05_evaluation as k05
 CORPUS_SCHEMA = "IWXA_K05_K02_SOURCE_CASES/0.1"
 K02_OWNER_COMMIT = "0542febfc07db9b2b2b610c7af124b9c61f682ab"
 K02_OWNER_PATH = "modules/k02-interoperability/model-step-selection.mjs"
-K02_OWNER_BLOB = "f94ef3c4dfdaba9de7cda56177ff5c380a08dad9"
+K02_OWNER_BLOB = "96aeccc0b12e81c8cab629bd06d69effac4a06e4"
 CODE_ANCHOR = "hostAuthorityGranted:false,proofOfInvoke:null,"
 NO_MODEL_EVIDENCE = "NOT_MEASURED"
 

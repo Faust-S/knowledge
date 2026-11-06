@@ -7,7 +7,7 @@ import {resolve, join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const K02_SHA='f94ef3c4dfdaba9de7cda56177ff5c380a08dad9';
+const K02_SHA='96aeccc0b12e81c8cab629bd06d69effac4a06e4';
 const K02_PATH='modules/k02-interoperability/model-step-selection.mjs';
 const REPORT_SCHEMA='IWXA_K05_K02_STRATEGY_COMPARISON/0.1';
 const kinds=new Set(['exact_extraction','cited_summary','conflicting_revisions','multi_step',
