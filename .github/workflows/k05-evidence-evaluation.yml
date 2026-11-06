@@ -10,6 +10,8 @@ on:
       - 'research/cross-lab/tests/test_k05_k03_projection.py'
       - 'research/cross-lab/tests/test_k05_c17_projection.py'
       - 'research/cross-lab/tests/test_k05_agent_consumer.py'
+      - 'research/cross-lab/k05_u02_verified_reads.mjs'
+      - 'research/cross-lab/tests/test_k05_u02_verified_reads.test.mjs'
       - 'research/cross-lab/k05_k02_source_cases.py'
       - 'research/cross-lab/k05_k02_strategy_compare.mjs'
       - 'research/cross-lab/tests/test_k05_k02_source_cases.py'
@@ -113,6 +115,18 @@ jobs:
                 'tested_excerpt_bytes', result['measured']['review_bytes_tested'],
                 'semantic_claim_accuracy', result['unknown']['semantic_claim_accuracy'])
           PY
+      - name: Checkout owner U02 source port, read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Br-test
+          ref: fc045f7bc34a98299f598dfda9ac757db85497e5
+          path: .u02-owner
+          persist-credentials: false
+      - name: Compare two already-verified U02 snapshots without network access from K05
+        env:
+          K05_U02_OWNER_ROOT: .u02-owner
+        run: |
+          node --test research/cross-lab/tests/test_k05_u02_verified_reads.test.mjs
       - name: Checkout pinned K02 owner code, read-only
         uses: actions/checkout@v4
         with:
