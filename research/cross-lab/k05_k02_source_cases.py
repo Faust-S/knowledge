@@ -15,9 +15,9 @@ from typing import Mapping
 import k05_evaluation as k05
 
 CORPUS_SCHEMA = "IWXA_K05_K02_SOURCE_CASES/0.1"
-K02_OWNER_COMMIT = "0542febfc07db9b2b2b610c7af124b9c61f682ab"
+K02_OWNER_COMMIT = "2fac2a6b007a84f3cf14220d2d4a668f9d97916c"
 K02_OWNER_PATH = "modules/k02-interoperability/model-step-selection.mjs"
-K02_OWNER_BLOB = "96aeccc0b12e81c8cab629bd06d69effac4a06e4"
+K02_OWNER_BLOB = "45263714c1c2440406889e4ba5791686bc386c8f"
 CODE_ANCHOR = "hostAuthorityGranted:false,proofOfInvoke:null,"
 NO_MODEL_EVIDENCE = "NOT_MEASURED"
 

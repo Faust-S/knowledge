@@ -18,7 +18,7 @@ class K02SourceCaseTests(unittest.TestCase):
         self.assertEqual({x.difficulty for x in cases.TASKS}, {"simple", "moderate", "complex"})
         self.assertEqual(sum(x.source_code_required for x in cases.TASKS), 1)
         self.assertEqual(sum(x.judge.startswith("UNKNOWN") for x in cases.TASKS), 2)
-        self.assertEqual(cases.K02_OWNER_COMMIT, "0542febfc07db9b2b2b610c7af124b9c61f682ab")
+        self.assertEqual(cases.K02_OWNER_COMMIT, "2fac2a6b007a84f3cf14220d2d4a668f9d97916c")
 
     def test_source_code_needs_exact_verified_owner_blob(self):
         data = b"hostAuthorityGranted:false,proofOfInvoke:null,\n"
