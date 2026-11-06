@@ -10,6 +10,10 @@ on:
       - 'research/cross-lab/tests/test_k05_k03_projection.py'
       - 'research/cross-lab/tests/test_k05_c17_projection.py'
       - 'research/cross-lab/tests/test_k05_agent_consumer.py'
+      - 'research/cross-lab/k05_k02_source_cases.py'
+      - 'research/cross-lab/k05_k02_strategy_compare.mjs'
+      - 'research/cross-lab/tests/test_k05_k02_source_cases.py'
+      - 'research/cross-lab/tests/test_k05_k02_strategy_compare.test.mjs'
       - 'research/cross-lab/k05_c17_projection.py'
       - 'research/cross-lab/tests/k05_k03_live.py'
       - '.github/workflows/k05-evidence-evaluation.yml'
@@ -109,6 +113,51 @@ jobs:
                 'tested_excerpt_bytes', result['measured']['review_bytes_tested'],
                 'semantic_claim_accuracy', result['unknown']['semantic_claim_accuracy'])
           PY
+      - name: Checkout pinned K02 owner code, read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 0542febfc07db9b2b2b610c7af124b9c61f682ab
+          path: .k02-owner
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare 8 real pinned source-bound tasks, no LLM calls
+        run: |
+          python research/cross-lab/k05_k02_source_cases.py \
+            --k02-owner-root .k02-owner \
+            --out "$RUNNER_TEMP/k05-k02-corpus.json"
+      - name: Run K02 selection policies on reproducible synthetic outcomes
+        env:
+          K05_K02_CASES_PATH: ${{ runner.temp }}/k05-k02-corpus.json
+          K05_K02_OWNER_ROOT: .k02-owner
+        run: |
+          node --test research/cross-lab/tests/test_k05_k02_strategy_compare.test.mjs
+          node research/cross-lab/k05_k02_strategy_compare.mjs \
+            --corpus "$RUNNER_TEMP/k05-k02-corpus.json" \
+            --k02-owner-root .k02-owner \
+            --out "$RUNNER_TEMP/k05-k02-routing-diagnostic.json"
+      - name: Confirm no model inference or invented usage
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])
+          corpus=json.loads((root/'k05-k02-corpus.json').read_text())
+          comparison=json.loads((root/'k05-k02-routing-diagnostic.json').read_text())
+          assert corpus['case_count']==8
+          assert corpus['unique_verified_source_versions']==7
+          assert corpus['model_quality']=='NOT_MEASURED'
+          assert comparison['source_corpus_cases']==8
+          assert len(comparison['strategies'])==4
+          assert comparison['limitations']['real_model_invocations']==0
+          assert comparison['limitations']['model_quality']=='NOT_MEASURED'
+          assert comparison['limitations']['actual_provider_cost_usd'] is None
+          assert comparison['limitations']['actual_inference_latency_ms'] is None
+          assert comparison['limitations']['no_router_comparison_win_established'] is True
+          print('K05_K02_PINNED_EIGHT_CASES_AND_FOUR_STRATEGIES_PASS')
+          PY
       - name: C17 aggregate projection regression (no human reviews)
         run: |
           python - <<'PY'
@@ -146,4 +195,6 @@ jobs:
             ${{ runner.temp }}/k05-proof.json
             ${{ runner.temp }}/k05-suite-proof.json
             ${{ runner.temp }}/k05-agent-result-evidence.json
+            ${{ runner.temp }}/k05-k02-corpus.json
+            ${{ runner.temp }}/k05-k02-routing-diagnostic.json
           retention-days: 7
