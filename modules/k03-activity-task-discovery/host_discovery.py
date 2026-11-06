@@ -269,7 +269,7 @@ def discover(request: dict, sources: list, *, today: date | None = None,
     for row in sources:
         o, h, summary = _one_source(
             row, expected[row["source_id"]], terms,
-            today=today or date.today(), loader=loader)
+            today=today or date.today(), loader=pinned_owner)
         observations.extend(o)
         hypotheses.extend(h)
         summaries.append(summary)
