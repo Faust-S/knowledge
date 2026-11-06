@@ -121,10 +121,11 @@ function identity(o) {
     hostPermissionRef:o.host.permissionRef,
     resultObservationRef:o.result.observationRef,
     ...(o.browser?{tabRef:o.browser.tabRef,tabEpoch:o.browser.tabEpoch,
-      commandId:o.browser.commandId}:{}),
+      commandId:o.browser.commandId,browserObservationRef:o.browser.observationRef}:{}),
     ...(o.computer?{windowRef:o.computer.windowRef,processStamp:o.computer.processStamp,
       screenRef:o.computer.screenRef,screenEpoch:o.computer.screenEpoch,
       operatingSystem:o.computer.operatingSystem,
+      screenObservationRef:o.computer.observationRef,
       u04BindingRef:o.u04.binding.bindingRef}:{}),
   };
 }
@@ -153,7 +154,9 @@ export function resolveProgramInterface({
   if (!object(task) || task.solutionId !== solution.solutionId ||
       !Array.isArray(available) || !Array.isArray(observations) ||
       !Array.isArray(selectedSkills) || observations.length>128) fail('inputs');
-  if (solution.requirements.length !== 1) fail('one_operation_per_handoff');
+  // The owning Task may contain many K04 steps. Only this requirement is
+  // projected into the existing K02 plan; no second decomposition is created.
+  const scopedSolution={solutionId:solution.solutionId,requirements:[req]};
   const ids=new Set(), accepted=[],excluded=[];
   for (const o of observations) {
     checkShape(o);
@@ -164,7 +167,7 @@ export function resolveProgramInterface({
     }
     const d=available.find(x=>x.providerId===o.providerId);
     if (!d) { excluded.push({providerId:o.providerId,reason:'PROVIDER_NOT_REGISTERED'});continue; }
-    const matched=resolveRequirements(solution,[d],trialEvidence);
+    const matched=resolveRequirements(scopedSolution,[d],trialEvidence);
     if (matched.status !== 'SUPPORTED') {
       excluded.push({providerId:o.providerId,reason:matched.missing[0]?.reason??'INCOMPATIBLE'});
       continue;
@@ -176,7 +179,7 @@ export function resolveProgramInterface({
   const sorted=accepted.sort((a,b) => PATHS.indexOf(a.observation.path)-PATHS.indexOf(b.observation.path));
   const firstPath=sorted[0]?.observation.path;
   const peers=sorted.filter(x=>x.observation.path===firstPath).map(x=>x.descriptor);
-  const resolved=firstPath?resolveRequirements(solution,peers,trialEvidence):null;
+  const resolved=firstPath?resolveRequirements(scopedSolution,peers,trialEvidence):null;
   const selected=resolved?.status==='SUPPORTED'?resolved.selected[0]:null;
   const o=selected?sorted.find(x=>x.observation.providerId===selected.providerId)?.observation:null;
   const plan=selected?buildInvocationPlan(task,selectedSkills,resolved):null;
@@ -185,7 +188,7 @@ export function resolveProgramInterface({
     decision:chosen?'INTERFACE_PROPOSED_NOT_AUTHORIZED':'NO_READY_INTERFACE',
     requirementId,selected:chosen,alternatives:sorted
       .filter(x=>x.observation.providerId!==selected?.providerId)
-      .map(x=>summary(x.observation,resolveRequirements(solution,[x.descriptor],trialEvidence).selected[0])),
+      .map(x=>summary(x.observation,resolveRequirements(scopedSolution,[x.descriptor],trialEvidence).selected[0])),
     excluded,plan,
     selectedObservation:o??null,
     hostAuthorityGranted:false,providerInvoked:false,resultProduced:false};

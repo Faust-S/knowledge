@@ -194,3 +194,57 @@ test('one chosen interface produces a normal K02 plan that requires P01 approval
  assert.equal(result.selected.expectedResultObservation.observedAfterInvocation,false);
  assert.equal(result.resultProduced,false);
 });
+
+test('changed browser and computer observations invalidate selected surface, even at same epoch',async()=>{
+  const b=choose({available:[available[1]],observations:[observations[1]]});
+  const alteredTab=structuredClone(observations[1]);
+  alteredTab.browser.observationRef='browser:new-observation';
+  const r=await ready(b,async()=>alteredTab);
+  assert.equal(r.status,'INTERFACE_NOT_READY');
+  assert.equal(r.reason,'TAB_OR_BINDING_CHANGED');
+
+  const c=choose({available:[available[2]],observations:[observations[2]]});
+  const alteredScreen=structuredClone(observations[2]);
+  alteredScreen.computer.observationRef='screen:new-observation';
+  const g=await ready(c,async()=>alteredScreen);
+  assert.equal(g.status,'INTERFACE_NOT_READY');
+  assert.equal(g.reason,'WINDOW_OR_SCREEN_CHANGED');
+});
+test('stale observation is refused during fresh pre-invocation readiness',async()=>{
+  const b=choose({available:[available[1]],observations:[observations[1]]});
+  const r=await verifyProgramInterfaceReadiness({
+    handoff:b,trustedHandoffDigest:b.handoffDigest,
+    trustedPlanDigest:b.plan.planDigest,provider:fakeProvider('browser'),
+    observe:async()=>observations[1],nowMs:NOW+6000,operatingSystem:'Windows 11',
+  });
+  assert.equal(r.status,'INTERFACE_NOT_READY');
+  assert.equal(r.reason,'OBSERVATION_STALE');
+  assert.equal(r.hostAuthorityGranted,false);
+});
+test('one existing Task with multiple K04 requirements produces a one-step K02 host draft',()=>{
+  const extended={solutionId:solution.solutionId,requirements:[
+    {requirementId:'context',kind:'tool',capabilityId:'source.read',
+      inputSchema:IN,outputSchema:OUT,effectClass:'HOST_AUTHORIZED_READ',required:true},
+    ...solution.requirements,
+  ]};
+  const r=choose({solution:extended});
+  assert.equal(r.decision,'INTERFACE_PROPOSED_NOT_AUTHORIZED');
+  assert.equal(r.plan.steps.length,1);
+  assert.equal(r.plan.steps[0].requirementId,'update');
+  assert.equal(r.plan.taskId,task.taskId);
+  assert.equal(r.plan.solutionId,solution.solutionId);
+  checkNoExecute(r);
+});
+test('method cost/latency and recovery are explanatory; never pretend measured UI success',()=>{
+  const r=choose();
+  const fee=r.alternatives.map(a=>a.providerFeeUsd);
+  assert.deepEqual(fee,[0.003,0.001]);
+  assert.equal(r.selected.providerFeeUsd,0.025);
+  for (const a of [r.selected,...r.alternatives]) {
+    assert.equal(a.accuracy,'NOT_MEASURED');
+    assert.equal(a.recovery,'REOBSERVE_AND_REPLAN');
+    assert.equal(a.expectedResultObservation.observedAfterInvocation,false);
+    assert.ok(a.limitations.includes('RESULT_NOT_YET_VERIFIED'));
+  }
+  assert.equal(r.resultProduced,false);
+});
