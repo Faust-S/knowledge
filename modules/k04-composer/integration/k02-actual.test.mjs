@@ -45,9 +45,9 @@ const makeTool=(req,id,cost=0)=>({
 function resolveChoice(step,optionId,providers) {
   const choice=step.choices.find(c=>c.optionId===optionId);
   const resolution=k02Resolve(choice.k02Request,providers);
-  if(resolution.status!=='SUPPORTED') return {resolution,choice};
+  if(resolution.status!=='SUPPORTED') return {stepId:step.stepId,optionId,resolution,invocationPlan:null};
   const invocationPlan=k02Plan({taskId:'TEST-'+step.stepId,solutionId:choice.k02Request.solutionId},[],resolution);
-  return {stepId:step.stepId,optionId,resolution,invocationPlan,choice};
+  return {stepId:step.stepId,optionId,resolution,invocationPlan};
 }
 const failure=code=>err=>err instanceof ComposerError&&err.code===code;
 
