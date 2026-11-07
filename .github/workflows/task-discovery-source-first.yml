@@ -6,6 +6,9 @@ on:
       - work/2026-11-03-unified-task-migration
     paths:
       - 'research/task-discovery/**'
+      # Markdown handoffs are not executable inputs or frozen method commitments.
+      # Preserve code/data tests and manual workflow_dispatch qualification.
+      - '!research/task-discovery/**/*.md'
       - '.github/workflows/task-discovery-source-first.yml'
   workflow_dispatch:
 
