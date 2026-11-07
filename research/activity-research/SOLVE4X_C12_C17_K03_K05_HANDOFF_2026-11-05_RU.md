@@ -89,3 +89,10 @@ C17 `_verified_packet` теперь отвергает подмену `blind_tas
 Разделены `original_bytes_sha_verified` и `canonical_solve4x_pins_verified`. Оригинальные байты с caller-supplied SHA могут быть корректно перечитаны в синтетическом тесте, но не получают полномочий canonical Solve4X. `canonical_solve4x_pins_verified=true` выставляется только при actual owner-local original replay, неизменных закреплённых SHA из C12 и полном сравнении packet. Даже это не удостоверяет права доступа или независимый human gold.
 
 Контракт K03/K05 по-прежнему **не** является непосредственным входом K03 Task Engine или K05 Evaluation Engine: K03 владеет Task hypotheses и уточнениями, K05 владеет измерением и independent review. Следующая предметная квалификация — реальная owner-local независимая разметка видео в существующей инфраструктуре Label Studio. До неё `HUMAN_GOLD=NOT_MEASURED`, `TASK_ACCEPTED=0`.
+
+
+## Проверка фактических потребителей (07.11.2026)
+
+K03 (`work/2026-11-05-k03-activity-task-discovery`, HEAD `8f3ce9e58723fff2d51a44cee5b63b4dd15a6441`) уже содержит `modules/k03-activity-task-discovery/solve4x_activity_projection.py`: `project_scene01()`, `verify_projection()`, `replay_scene01()`. Этот потребитель выдаёт `CLARIFICATION_REQUIRED` и 0 Tasks, но `DERIVED_REVIEW_EPISODE_ORDINAL` не является локатором настоящего OCEL event ID. Для owner-local source verification использовать существующие `prepare_owner_local()` и `verify_owner_local_locator()`; не считать числовой ordinal исходным событием.
+
+K05 (`work/2026-11-05-k05-evidence-context-evaluation`, HEAD `5a85e1fe01d842d9cef1388b1088ecb0cdc78c41`) уже содержит `research/cross-lab/k05_c17_projection.py` и `compare_c17_aggregate()`. Он проверяет три baseline 23/6/3 и структуру C17, но `owner_score` остаётся неаттестованным агрегатом. До оценки нужно зафиксировать отдельный `frozen_plan_sha256` из C17 `prepare`; CLI `blank` и `score` теперь требуют `--expected-plan-sha256`. Это предотвращает незамеченную смену плана, но не удостоверяет подлинность разметки. Ни K03, ни K05 не редактируются этой исследовательской веткой. `HUMAN_GOLD=NOT_MEASURED`, `TASK_ACCEPTED=0`.

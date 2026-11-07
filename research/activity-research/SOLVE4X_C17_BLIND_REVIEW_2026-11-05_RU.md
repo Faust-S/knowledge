@@ -28,6 +28,7 @@ python research/activity-research/solve4x_c17_blind_review.py prepare \
 
 python research/activity-research/solve4x_c17_blind_review.py blank \
   --packet /PRIVATE/c17-packet.json \
+  --expected-plan-sha256 FROZEN_PLAN_SHA_FROM_PREPARE \
   --out /PRIVATE/c17-blank-receipts.json
 ```
 
@@ -37,6 +38,7 @@ python research/activity-research/solve4x_c17_blind_review.py blank \
 python research/activity-research/solve4x_c17_blind_review.py score \
   --packet /PRIVATE/c17-packet.json \
   --receipts /PRIVATE/c17-reviewed-receipts.json \
+  --expected-plan-sha256 FROZEN_PLAN_SHA_FROM_PREPARE \
   --out /PRIVATE/c17-aggregate.json
 ```
 
@@ -55,3 +57,8 @@ python research/activity-research/solve4x_c17_blind_review.py score \
 18 офлайн Python-тестов на синтетических данных прошли локально: неизменность выбора 23/6/3, стабильность порядка, отсутствие исходных ID/времени в агрегате, полнота покрытий, запрет duplicate/missing, SHA-привязка, `UNKNOWN`, nonfinite/overflow seconds, отсутствие human claims по умолчанию. Адресный C17-test включён в **существующий** `.github/workflows/activity-solve4x-source-preflight.yml`; тот же workflow проверяет на реальном pinned Solve4X только **план** 23/6/3, не само видео и не оценки людей.
 
 Следующий блок: получить и проверить GitHub Actions по точной ревизии; выполнить owner-local независимый review с оригинальным доступным видео и существующим Label Studio; проверить фактическое покрытие, ложную уверенность и затраты. До этого не повышать C17 в independent human gold, Task quality или продуктовую квалификацию.
+
+
+## Сохранение SHA до независимой разметки (07.11.2026)
+
+Команда `prepare` выводит `frozen_plan_sha256`. Оператор сохраняет этот SHA **отдельно от изменяемого файла packet** до показа клипов рецензентам. Для `blank` и `score` требуется `--expected-plan-sha256`, значение берётся из заранее сохранённой записи, а не из текущего packet. Несовпадение → `C17_EXTERNAL_PLAN_PIN_MISMATCH`, некорректный SHA → `C17_EXTERNAL_PLAN_PIN_INVALID`; до исправления JSON результата не создаётся. Программные `prepare()`, `blank_receipt()` и `score()` остаются прежними, чтобы не менять контракт K05. Факт совпадения SHA **не подтверждает** видео, независимость людей, право доступа или human gold.

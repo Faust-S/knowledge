@@ -174,6 +174,21 @@ def public_plan(packet):
     }
 
 
+def require_precommitted_plan(packet, expected_plan_sha256):
+    """Check a separately retained owner-local plan SHA before review.
+
+    The expected value must have been frozen before reviewers saw clips.
+    This check does not authenticate reviewers, source video or human gold.
+    """
+    _verified_packet(packet)
+    require(type(expected_plan_sha256) is str and
+            HEX64.fullmatch(expected_plan_sha256) is not None,
+            'C17_EXTERNAL_PLAN_PIN_INVALID')
+    require(packet['plan_sha256'] == expected_plan_sha256,
+            'C17_EXTERNAL_PLAN_PIN_MISMATCH')
+    return True
+
+
 def blank_receipt(packet, role):
     """Owner-local skeleton only. Never pre-populate human verdicts or time."""
     _, arms = _verified_packet(packet)
@@ -368,10 +383,12 @@ def main(argv=None):
     blank_parser = sub.add_parser('blank')
     blank_parser.add_argument('--packet', required=True)
     blank_parser.add_argument('--out', required=True)
+    blank_parser.add_argument('--expected-plan-sha256', required=True)
     score_parser = sub.add_parser('score')
     score_parser.add_argument('--packet', required=True)
     score_parser.add_argument('--receipts', required=True)
     score_parser.add_argument('--out', required=True)
+    score_parser.add_argument('--expected-plan-sha256', required=True)
     args = parser.parse_args(argv)
     if args.command == 'prepare':
         from solve4x_cross_source_coverage import SHA
@@ -387,14 +404,19 @@ def main(argv=None):
         status = public_plan(packet)['status']
     elif args.command == 'blank':
         packet, _ = _owner_json(args.packet)
+        require_precommitted_plan(packet, args.expected_plan_sha256)
         _owner_output(args.out, {role: blank_receipt(packet, role) for role in ROLES})
         status = 'C17_BLANK_RECEIPTS_NO_HUMAN_VALUES'
     else:
         packet, _ = _owner_json(args.packet)
+        require_precommitted_plan(packet, args.expected_plan_sha256)
         receipts, _ = _owner_json(args.receipts)
         _owner_output(args.out, score(packet, receipts))
         status = 'C17_OWNER_LOCAL_AGGREGATE_SCORE_CREATED'
     print(json.dumps({'schema': SCHEMA, 'status': status,
+                      'frozen_plan_sha256': packet['plan_sha256'],
+                      'external_plan_pin_matched': args.command != 'prepare',
+                      'source_video_review_or_human_gold_attested': False,
                       'files_exported_to_public_github': False}, sort_keys=True))
 
 

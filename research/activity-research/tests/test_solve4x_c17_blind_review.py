@@ -1,6 +1,9 @@
 import copy
+from contextlib import redirect_stdout, redirect_stderr
+from io import StringIO
 import json
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -203,6 +206,53 @@ class C17BlindReview(unittest.TestCase):
 
     def test_c17_does_not_self_attest_unchecked_source_bytes(self):
         self.assertFalse(c17.public_plan(self.packet)['source_bytes_verified_by_c17'])
+
+    def test_external_plan_pin_rejects_stale_or_invalid_value(self):
+        self.assertTrue(c17.require_precommitted_plan(
+            self.packet, self.packet['plan_sha256']))
+        with self.assertRaisesRegex(c17.ReviewHold, 'C17_EXTERNAL_PLAN_PIN_INVALID'):
+            c17.require_precommitted_plan(self.packet, 'not-a-sha')
+        with self.assertRaisesRegex(c17.ReviewHold, 'C17_EXTERNAL_PLAN_PIN_MISMATCH'):
+            c17.require_precommitted_plan(self.packet, '0' * 64)
+
+    def test_owner_cli_requires_frozen_plan_sha(self):
+        # Synthetic transport only, not human reviews or video access.
+        with tempfile.TemporaryDirectory(prefix='c17-owner-') as tmp:
+            root = Path(tmp)
+            packet_path, receipts_path = root / 'packet.json', root / 'receipts.json'
+            packet_path.write_text(json.dumps(self.packet), encoding='utf-8')
+            receipts_path.write_text(json.dumps(self.receipts()), encoding='utf-8')
+            pin = self.packet['plan_sha256']
+            for command in ('blank', 'score'):
+                out = root / (command + '.json')
+                args = [command, '--packet', str(packet_path)]
+                if command == 'score':
+                    args += ['--receipts', str(receipts_path)]
+                args += ['--out', str(out)]
+                with redirect_stderr(StringIO()):
+                    with self.assertRaises(SystemExit) as err:
+                        c17.main(args)
+                self.assertEqual(err.exception.code, 2)
+                self.assertFalse(out.exists())
+                with self.assertRaisesRegex(
+                        c17.ReviewHold, 'C17_EXTERNAL_PLAN_PIN_MISMATCH'):
+                    c17.main(args + ['--expected-plan-sha256', '0' * 64])
+                self.assertFalse(out.exists())
+                stdout = StringIO()
+                with redirect_stdout(stdout):
+                    self.assertIsNone(c17.main(
+                        args + ['--expected-plan-sha256', pin]))
+                self.assertTrue(out.is_file())
+                meta = json.loads(stdout.getvalue())
+                self.assertEqual(meta['frozen_plan_sha256'], pin)
+                self.assertTrue(meta['external_plan_pin_matched'])
+                self.assertFalse(meta['source_video_review_or_human_gold_attested'])
+                if command == 'score':
+                    score = json.loads(out.read_text(encoding='utf-8'))
+                    self.assertFalse(score['reviewer_identity_and_independence_verified'])
+                else:
+                    self.assertIsNone(json.loads(out.read_text())['reference_a']['reviewer_key'])
+                self.assertNotIn('private-reviewer', stdout.getvalue())
 
     def test_missing_receipts_fail_closed(self):
         with self.assertRaisesRegex(c17.ReviewHold,'C17_REVIEW_RECEIPTS_INCOMPLETE'):
