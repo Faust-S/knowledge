@@ -10,6 +10,8 @@
 
 ## Действующий маршрут
 
+**После реальных экспортов A+B предпочтителен один существующий `owner_review_cycle.py`** по [OWNER_REVIEW_CYCLE_RU.md](OWNER_REVIEW_CYCLE_RU.md): он вызывает оригинальный Bridge и этот адаптер на тех же двух входных файлах. Прямые вызовы ниже показаны для раздельной диагностики и **не требуются** после успешного единого цикла. `--source-first-packet` должен указывать на оригинальный пакет, фактически записанный параметром `--restricted-output` (в общем M3 runbook: `/PRIVATE/e5-envelope.json`).
+
 1. **Owner-local:** владелец существующего `Faust-S/iwxa@knowledge/2026-10-02-system-atlas` создаёт восемь source-first Label Studio задач штатным `task_exp_01_real_slice.py` и `task_exp_01_labelstudio_import.py`. Исходная версия и SHA проверяются штатно. Никаких приватных исходников/текстов в публичный checkout не переносить.
 2. **Owner-local:** через имеющийся `labelstudio_project_setup.py` создаются **два изолированных экземпляра Label Studio CE с разными БД и по одному проекту**, с оригинальной `TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml`, **не** с общей сокращённой E5 формой. Реальных независимых экспертов и их раздельный доступ организует оператор. Рабочий тест HTTP-имитатора не равен настоящей человеческой разметке.
 3. После полного просмотра и JSON-экспорта `review-a.json` / `review-b.json` владелец запускает **оригинальный** bridge, который сверяет разметку, источники, идентификаторы и разногласия:
@@ -17,7 +19,7 @@
 ```sh
 # Запускать из корня owner Faust-S/iwxa/knowledge/task-catalog
 python -m engine.research.task_exp_01_review_bridge \
-  --source-first-packet /PRIVATE/e5-source-first.json \
+  --source-first-packet /PRIVATE/e5-envelope.json \
   --review-a /PRIVATE/review-a.json --review-b /PRIVATE/review-b.json \
   --restricted-disagreement-output /PRIVATE/disagreements.json \
   --confirm-independent-local-review > /PRIVATE/bridge-receipt.json

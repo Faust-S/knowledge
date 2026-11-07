@@ -15,12 +15,14 @@
 
 Предпосылки: действующий исходный checkout `Faust-S/iwxa` (нужна проверенная версия bridge), публичный checkout `Faust-S/knowledge`, созданный owner-local `e5-source-first.json`, два **действительно заполненных** независимыми людьми и экспортированных `review-a.json` / `review-b.json`. Ранее применённые адаптеры `labelstudio_project_setup.py` и оригинальный owner `task_exp_01_labelstudio_import.py` остаются без изменений.
 
+**Единый путь от генератора до Bridge:** в [M3_REVIEW_EXPORT_HANDOFF_RU.md](M3_REVIEW_EXPORT_HANDOFF_RU.md) исходный `task_exp_01_real_slice.py --restricted-output` сохраняет `/PRIVATE/e5-envelope.json`. В `--source-first-packet` передавайте **этот же фактически созданный файл** (либо иной реально указанный путь `--restricted-output`), а не новое имя. `--restricted-import-output /PRIVATE/labelstudio-import.json` — отдельный файл импорта Label Studio; не путайте его с пакетом для owner Bridge.
+
 Из корня публичного `knowledge`:
 
 ```sh
 python research/task-discovery/owner_review_cycle.py \
   --owner-root /PRIVATE/iwxa \
-  --source-first-packet /PRIVATE/e5-source-first.json \
+  --source-first-packet /PRIVATE/e5-envelope.json \
   --review-a /PRIVATE/review-a.json \
   --review-b /PRIVATE/review-b.json \
   --restricted-disagreements-out /PRIVATE/disagreements.json \
