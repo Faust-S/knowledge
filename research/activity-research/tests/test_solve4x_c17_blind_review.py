@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -395,6 +396,21 @@ class C17BlindReview(unittest.TestCase):
                     'zip_crc32': f'{zlib.crc32(data):08x}',
                 }],
             }
+            # Synthetic MP4 has different bytes from the pinned Solve4X
+            # archive. Override the real immutable member only in this test.
+            synthetic_pin = {
+                **index['target_files'][0],
+                'compressed_bytes': 1000,
+                'zip_local_header_offset': 12345,
+            }
+            index['target_files'][0].update({
+                'compressed_bytes': 1000,
+                'zip_local_header_offset': 12345,
+            })
+            patcher = patch.object(c17, 'SOLVE4X_SCENE01_MP4_PIN',
+                                   synthetic_pin)
+            patcher.start()
+            self.addCleanup(patcher.stop)
             pin = self.packet['plan_sha256']
             def check(**kwargs):
                 return c17.verify_owner_local_media(
@@ -424,7 +440,7 @@ class C17BlindReview(unittest.TestCase):
                     declared_video_duration_seconds=2.0)
             altered = copy.deepcopy(index)
             altered['target_files'][0]['zip_crc32'] = '00000000'
-            with self.assertRaisesRegex(c17.ReviewHold, 'C17_MEDIA_CRC_MISMATCH'):
+            with self.assertRaisesRegex(c17.ReviewHold, 'C17_MEDIA_MEMBER_PIN_DRIFT'):
                 c17.verify_owner_local_media(
                     self.packet, video_path, altered,
                     expected_plan_sha256=pin,
@@ -432,7 +448,7 @@ class C17BlindReview(unittest.TestCase):
                     declared_video_duration_seconds=2.0)
             altered = copy.deepcopy(index)
             altered['target_files'][0]['uncompressed_bytes'] = 1
-            with self.assertRaisesRegex(c17.ReviewHold, 'C17_MEDIA_SIZE_OR_TYPE_MISMATCH'):
+            with self.assertRaisesRegex(c17.ReviewHold, 'C17_MEDIA_MEMBER_PIN_DRIFT'):
                 c17.verify_owner_local_media(
                     self.packet, video_path, altered,
                     expected_plan_sha256=pin,
@@ -505,6 +521,19 @@ class C17BlindReview(unittest.TestCase):
                     'zip_crc32': f'{zlib.crc32(original):08x}',
                 }],
             }
+            synthetic_pin = {
+                **index['target_files'][0],
+                'compressed_bytes': 1000,
+                'zip_local_header_offset': 12345,
+            }
+            index['target_files'][0].update({
+                'compressed_bytes': 1000,
+                'zip_local_header_offset': 12345,
+            })
+            patcher = patch.object(c17, 'SOLVE4X_SCENE01_MP4_PIN',
+                                   synthetic_pin)
+            patcher.start()
+            self.addCleanup(patcher.stop)
             actual_run = subprocess.run
 
             def replace_during_probe(*args, **kwargs):
@@ -520,6 +549,54 @@ class C17BlindReview(unittest.TestCase):
                         expected_media_sha256=hashlib.sha256(original).hexdigest(),
                         assumed_scene_start='2024-03-25T08:29:58',
                         declared_video_duration_seconds=2.0)
+
+    def test_original_solve4x_member_is_pinned_independently_of_json_claims(self):
+        # Fixture confirmed in two separate pinned ZIP-range Action artifacts.
+        pin = c17.SOLVE4X_SCENE01_MP4_PIN
+        self.assertEqual(pin, {
+            'name': 'scene01/scene01.mp4',
+            'compressed_bytes': 86978890,
+            'uncompressed_bytes': 87053127,
+            'compression_method': 8,
+            'zip_crc32': '81b9100c',
+            'zip_local_header_offset': 13914870,
+        })
+        index = {
+            'schema': 'IWXA_SOLVE4X_ZIP_RANGE_INDEX/0.1',
+            'status': 'ZIP_RANGE_INDEX_ONLY_NOT_MULTIMODAL_REPLAY',
+            'source': {'central_sha256': c17.SOLVE4X_ZIP_CENTRAL_SHA256},
+            'target_files': [dict(pin)],
+        }
+        with tempfile.TemporaryDirectory(prefix='c17-original-pin-') as tmp:
+            missing = Path(tmp) / 'not-a-real-video.mp4'
+
+            def check(value):
+                return c17.verify_owner_local_media(
+                    self.packet, missing, value,
+                    expected_plan_sha256=self.packet['plan_sha256'],
+                    assumed_scene_start='2024-03-25T08:48:23',
+                    declared_video_duration_seconds=392.166667)
+
+            # A real pinned index passes member validation before the local
+            # media absence is reported. Do not fabricate an original MP4.
+            with self.assertRaisesRegex(
+                    c17.ReviewHold, 'C17_MEDIA_SOURCE_UNAVAILABLE'):
+                check(index)
+            for key, forged_value in (
+                    ('uncompressed_bytes', 60000),
+                    ('compressed_bytes', 20),
+                    ('zip_crc32', '00000001'),
+                    ('zip_local_header_offset', 12),
+                    ('compression_method', 0),
+                    ('name', 'scene01/scene01.mp4.replacement'),
+                    ):
+                forged = copy.deepcopy(index)
+                forged['target_files'][0][key] = forged_value
+                expected = ('C17_MEDIA_ZIP_MEMBER_UNRESOLVED' if key == 'name'
+                            else 'C17_MEDIA_MEMBER_PIN_DRIFT')
+                with self.subTest(key=key):
+                    with self.assertRaisesRegex(c17.ReviewHold, expected):
+                        check(forged)
 
     def test_missing_receipts_fail_closed(self):
         with self.assertRaisesRegex(c17.ReviewHold,'C17_REVIEW_RECEIPTS_INCOMPLETE'):

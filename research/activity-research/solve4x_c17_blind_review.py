@@ -270,6 +270,19 @@ def public_media_window_sanity(packet, *, assumed_scene_start,
 SOLVE4X_ZIP_CENTRAL_SHA256 = (
     'bd47f03d561c6468d77df80ec8f920a3dd65502987440abf8a25dacaeb16c5b5')
 
+# Independently captured from two successful pinned Solve4X ZIP-range
+# central-directory replays. A caller-controlled JSON index that merely
+# repeats the central SHA cannot prove its own member CRC/size/offset.
+# Pin the exact original MP4 member tuple before examining any local video.
+SOLVE4X_SCENE01_MP4_PIN = {
+    'name': 'scene01/scene01.mp4',
+    'compressed_bytes': 86978890,
+    'uncompressed_bytes': 87053127,
+    'compression_method': 8,
+    'zip_crc32': '81b9100c',
+    'zip_local_header_offset': 13914870,
+}
+
 
 def verify_owner_local_media(packet, media_file, zip_index, *,
                              expected_plan_sha256, assumed_scene_start,
@@ -302,6 +315,9 @@ def verify_owner_local_media(packet, media_file, zip_index, *,
                   ('scene01/scene01.mp4', 'solve4x/scene01/scene01.mp4')]
     require(len(candidates) == 1, 'C17_MEDIA_ZIP_MEMBER_UNRESOLVED')
     member = candidates[0]
+    require(all(member.get(field) == expected
+                for field, expected in SOLVE4X_SCENE01_MP4_PIN.items()),
+            'C17_MEDIA_MEMBER_PIN_DRIFT')
     expected_bytes = member.get('uncompressed_bytes')
     expected_crc32 = member.get('zip_crc32')
     require(member.get('compression_method') in (0, 8) and
