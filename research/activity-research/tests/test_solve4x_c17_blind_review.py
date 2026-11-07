@@ -467,6 +467,60 @@ class C17BlindReview(unittest.TestCase):
                     assumed_scene_start='2024-03-25T08:29:58',
                     declared_video_duration_seconds=2.0)
 
+    def test_owner_media_rejects_path_replacement_between_hash_and_ffprobe(self):
+        import hashlib
+        import os
+        import shutil
+        import subprocess
+        import zlib
+        from unittest.mock import patch
+
+        if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):
+            self.skipTest('ffmpeg and ffprobe not installed')
+        with tempfile.TemporaryDirectory(prefix='c17-media-race-') as tmp:
+            root = Path(tmp)
+            media = root / 'original.mp4'
+            replacement = root / 'replacement.mp4'
+            for path, color in ((media, 'black'), (replacement, 'white')):
+                run = subprocess.run(
+                    ['ffmpeg', '-hide_banner', '-loglevel', 'error',
+                     '-f', 'lavfi', '-i',
+                     f'color=c={color}:s=160x90:r=30',
+                     '-t', '2', '-an', '-c:v', 'mpeg4',
+                     '-y', str(path)],
+                    capture_output=True, timeout=35, check=False)
+                self.assertEqual(run.returncode, 0)
+            original = media.read_bytes()
+            self.assertNotEqual(
+                hashlib.sha256(original).hexdigest(),
+                hashlib.sha256(replacement.read_bytes()).hexdigest())
+            index = {
+                'schema': 'IWXA_SOLVE4X_ZIP_RANGE_INDEX/0.1',
+                'status': 'ZIP_RANGE_INDEX_ONLY_NOT_MULTIMODAL_REPLAY',
+                'source': {'central_sha256': c17.SOLVE4X_ZIP_CENTRAL_SHA256},
+                'target_files': [{
+                    'name': 'scene01/scene01.mp4',
+                    'compression_method': 8,
+                    'uncompressed_bytes': len(original),
+                    'zip_crc32': f'{zlib.crc32(original):08x}',
+                }],
+            }
+            actual_run = subprocess.run
+
+            def replace_during_probe(*args, **kwargs):
+                os.replace(replacement, media)
+                return actual_run(*args, **kwargs)
+
+            with patch('subprocess.run', side_effect=replace_during_probe):
+                with self.assertRaisesRegex(
+                        c17.ReviewHold, 'C17_MEDIA_SOURCE_CHANGED'):
+                    c17.verify_owner_local_media(
+                        self.packet, media, index,
+                        expected_plan_sha256=self.packet['plan_sha256'],
+                        expected_media_sha256=hashlib.sha256(original).hexdigest(),
+                        assumed_scene_start='2024-03-25T08:29:58',
+                        declared_video_duration_seconds=2.0)
+
     def test_missing_receipts_fail_closed(self):
         with self.assertRaisesRegex(c17.ReviewHold,'C17_REVIEW_RECEIPTS_INCOMPLETE'):
             c17.score(self.packet,{})

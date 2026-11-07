@@ -98,3 +98,10 @@ python3 research/activity-research/solve4x_c17_blind_review.py media-verify \
 ```
 
 Опционально: `--expected-media-sha256 SHA_FROM_INDEPENDENTLY_PINNED_MEDIA_SOURCE`. Выходной JSON имеет `OWNER_LOCAL_MEDIA_CRC_SIZE_PROBE_PASS_CLOCK_UNKNOWN`, SHA и технические агрегаты **только в приватном месте**. Даже PASS размера+CRC+ffprobe — не независимая аттестация происхождения MP4, не полная кадровая привязка с OCEL, не доступ к видео, не подтверждение прав, не человеческая разметка. Из ZIP central directory SHA нельзя выводить SHA самого MP4. `media_to_ocel_clock_calibrated=false`, `ready_for_human_review=false`, `human_gold=NOT_MEASURED`, `accepted_tasks=0`. Для настоящей независимой оценки по-прежнему требуется проверенный clock mapping, показ реального видео и receipts действующей Label Studio, не авторские OCEL labels.
+
+
+## C17 — защита согласованности проверяемого MP4 (07.11.2026)
+
+Исправлен воспроизведённый race: после подсчёта SHA-256/CRC32 `ffprobe` повторно открывает файл по пути, поэтому прежняя реализация могла выдать SHA файла A и видеопараметры заменившего его файла B. Перед `ffprobe`, сразу после него и перед выдачей результата проверяются `st_dev`, `st_ino`, `st_size`, `st_mtime_ns`, `st_ctime_ns` исходного открытого файла относительно пути без следования последней символической ссылке. Изменение на любом этапе → `C17_MEDIA_SOURCE_CHANGED`, без итогового медиарезультата. Проверка не защищает от злоумышленника, способного целенаправленно подделывать все характеристики файла; необходимы изолированные owner-local исходники и независимо закреплённый SHA.
+
+Отрицательный интеграционный тест использует **два разных синтетических MP4 с одинаковой длительностью**, подменяет имя файла атомарным `os.replace` между хешированием и FFprobe и требует `C17_MEDIA_SOURCE_CHANGED`. Синтетический тест не загружает или публикует исходное Scene 01 видео. Результаты `HUMAN_GOLD=NOT_MEASURED`, `TASK_ACCEPTED=0`, clock-to-OCEL remains unknown.

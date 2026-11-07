@@ -347,14 +347,29 @@ def verify_owner_local_media(packet, media_file, zip_index, *,
     except OSError:
         raise ReviewHold('C17_MEDIA_SOURCE_UNAVAILABLE') from None
     require(size == expected_bytes and
-            before.st_size == after.st_size and
-            before.st_mtime_ns == after.st_mtime_ns and
-            before.st_ino == after.st_ino,
+            all(getattr(before, field) == getattr(after, field)
+                for field in ('st_dev', 'st_ino', 'st_size',
+                              'st_mtime_ns', 'st_ctime_ns')),
             'C17_MEDIA_SOURCE_CHANGED')
     digest = media_sha.hexdigest()
     require(f'{crc:08x}' == expected_crc32, 'C17_MEDIA_CRC_MISMATCH')
     require(expected_media_sha256 is None or digest == expected_media_sha256,
             'C17_MEDIA_SHA_MISMATCH')
+    # FFprobe opens the filename independently from the SHA/CRC stream.
+    # Detect an atomic replacement or in-place rewrite before/after probing:
+    # otherwise SHA could describe file A while duration describes file B.
+    def _require_same_media_file():
+        try:
+            current = os.stat(absolute, follow_symlinks=False)
+        except OSError:
+            raise ReviewHold('C17_MEDIA_SOURCE_CHANGED') from None
+        require(stat.S_ISREG(current.st_mode) and
+                all(getattr(before, field) == getattr(current, field)
+                    for field in ('st_dev', 'st_ino', 'st_size',
+                                  'st_mtime_ns', 'st_ctime_ns')),
+                'C17_MEDIA_SOURCE_CHANGED')
+
+    _require_same_media_file()
     try:
         process = subprocess.run([
             'ffprobe', '-v', 'error', '-show_entries',
@@ -362,7 +377,9 @@ def verify_owner_local_media(packet, media_file, zip_index, *,
             '-of', 'json', str(absolute)],
             capture_output=True, timeout=35, check=False)
     except (OSError, subprocess.TimeoutExpired):
+        _require_same_media_file()
         raise ReviewHold('C17_MEDIA_FFPROBE_UNAVAILABLE') from None
+    _require_same_media_file()
     require(process.returncode == 0 and
             0 < len(process.stdout) <= 65536, 'C17_MEDIA_FFPROBE_FAILED')
     try:
@@ -380,6 +397,7 @@ def verify_owner_local_media(packet, media_file, zip_index, *,
     window_screen = public_media_window_sanity(
         packet, assumed_scene_start=assumed_scene_start,
         declared_media_duration_seconds=duration)
+    _require_same_media_file()
     return {
         'schema': 'IWXA_SOLVE4X_C17_MEDIA_LOCAL_VERIFICATION/0.1',
         'status': 'OWNER_LOCAL_MEDIA_CRC_SIZE_PROBE_PASS_CLOCK_UNKNOWN',
