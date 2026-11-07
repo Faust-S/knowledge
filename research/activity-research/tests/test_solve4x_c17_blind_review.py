@@ -381,8 +381,8 @@ class C17BlindReview(unittest.TestCase):
                  '-f', 'lavfi', '-i', 'color=c=black:s=160x90:r=30',
                  '-t', '2', '-an', '-c:v', 'mpeg4', '-y', str(video_path)],
                 capture_output=True, timeout=35, check=False)
-            if build.returncode != 0:
-                self.skipTest('test video encoder unavailable')
+            self.assertEqual(build.returncode, 0,
+                             'synthetic ffmpeg fixture failed')
             data = video_path.read_bytes()
             index = {
                 'schema': 'IWXA_SOLVE4X_ZIP_RANGE_INDEX/0.1',

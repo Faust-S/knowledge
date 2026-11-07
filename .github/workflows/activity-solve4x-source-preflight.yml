@@ -40,7 +40,7 @@ permissions:
 jobs:
   source-feasibility:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
       - uses: actions/checkout@v4
       - name: Offline ZIP-directory parsing and fail-closed tests
@@ -431,6 +431,12 @@ jobs:
         run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_cross_source_coverage.py' -v
       - name: Test read-only owner-local evidence locator projection
         run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_source_bound_handoff.py' -v
+      - name: Install FFmpeg and FFprobe for C17 synthetic media test
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          command -v ffmpeg
+          command -v ffprobe
       - name: Test C17 blinded source review and conservative scoring
         run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_c17_blind_review.py' -v
       - name: Test C16 annotation footprint and time-cost abstention
