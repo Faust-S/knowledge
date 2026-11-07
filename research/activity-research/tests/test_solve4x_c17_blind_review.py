@@ -307,6 +307,65 @@ class C17BlindReview(unittest.TestCase):
                           '--out', str(output_path)])
             self.assertFalse(output_path.exists())
 
+    def test_media_window_screen_is_aggregate_only_and_clock_unknown(self):
+        # Start is a hypothetical metadata origin, NOT a calibrated clock.
+        public = c17.public_media_window_sanity(
+            self.packet, assumed_scene_start='2024-03-25T08:29:58',
+            declared_media_duration_seconds=228.0)
+        self.assertEqual(public['method_window_counts']['all']['selected_annotations'], 23)
+        self.assertEqual(public['method_window_counts']['literal_enter_leave']['selected_annotations'], 6)
+        self.assertEqual(public['method_window_counts']['reed_closed_after_end_5s']['selected_annotations'], 3)
+        self.assertEqual(public['method_window_counts']['all']['outside_declared_video_bounds'], 1)
+        self.assertEqual(public['method_window_counts']['reed_closed_after_end_5s']['outside_declared_video_bounds'], 0)
+        self.assertEqual(public['max_trailing_overhang_seconds'], 1.0)
+        self.assertEqual(public['max_leading_overhang_seconds'], 0.0)
+        self.assertEqual(public['status'],
+                         'PUBLISHED_MEDIA_METADATA_WINDOW_SCREEN_NOT_VIDEO_ALIGNMENT')
+        for flag in ('media_video_bytes_verified',
+                     'camera_frame_to_ocel_clock_calibrated',
+                     'camera_origin_independently_attested',
+                     'original_media_permissions_attested',
+                     'video_clips_prepared_or_reviewed', 'ready_for_human_review',
+                     'source_event_ids_timestamps_and_media_paths_exported'):
+            self.assertFalse(public[flag])
+        self.assertEqual(public['independent_human_gold'], 'NOT_MEASURED')
+        self.assertEqual(public['accepted_tasks'], 0)
+        text = json.dumps(public)
+        for sensitive in ('private-source', 'secret-actor', '2024-03-25', 'clip-0001'):
+            self.assertNotIn(sensitive, text)
+
+    def test_media_window_screen_includes_boundary_context(self):
+        result = c17.public_media_window_sanity(
+            self.packet, assumed_scene_start='2024-03-25T08:30:00',
+            declared_media_duration_seconds=235.0)
+        self.assertEqual(result['max_leading_overhang_seconds'], 2)
+        self.assertEqual(result['method_window_counts']['all']['leading_context_outside_bounds'], 1)
+        self.assertEqual(result['method_window_counts']['all']['trailing_context_outside_bounds'], 0)
+        self.assertEqual(result['method_window_counts']['all']['outside_declared_video_bounds'], 1)
+
+    def test_media_window_invalid_origin_or_duration_holds(self):
+        for bad in (None, float('nan'), float('inf'), -1, 0, 86401, True):
+            with self.assertRaisesRegex(c17.ReviewHold, 'C17_MEDIA_DURATION_INVALID'):
+                c17.public_media_window_sanity(
+                    self.packet, assumed_scene_start='2024-03-25T08:30:00',
+                    declared_media_duration_seconds=bad)
+        for origin in ('2024-03-25T08:30:00Z', '', 'not-a-time', None):
+            with self.assertRaisesRegex(c17.ReviewHold, 'C17_MEDIA_ASSUMED_ORIGIN_INVALID'):
+                c17.public_media_window_sanity(
+                    self.packet, assumed_scene_start=origin,
+                    declared_media_duration_seconds=392.166667)
+
+    def test_media_window_invalid_owner_annotation_holds(self):
+        altered = copy.deepcopy(self.packet)
+        altered['owner_index'][0]['annotation_end'] = '2024-03-25T08:29:59'
+        altered['plan_sha256'] = c17._digest({
+            name: altered[name] for name in
+            ('source_sha256', 'context_seconds', 'owner_index', 'arms')})
+        with self.assertRaisesRegex(c17.ReviewHold, 'C17_MEDIA_ANNOTATION_INTERVAL_INVALID'):
+            c17.public_media_window_sanity(
+                altered, assumed_scene_start='2024-03-25T08:30:00',
+                declared_media_duration_seconds=392.166667)
+
     def test_missing_receipts_fail_closed(self):
         with self.assertRaisesRegex(c17.ReviewHold,'C17_REVIEW_RECEIPTS_INCOMPLETE'):
             c17.score(self.packet,{})

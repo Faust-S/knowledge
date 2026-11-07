@@ -22,3 +22,5 @@ python3 research/activity-research/solve4x_cross_source_coverage.py --out /tmp/s
 Последняя команда обращается к pinned публичному Solve4X; при недоступности или SHA-drift — HOLD, не PASS. Публичный workflow `activity-solve4x-source-preflight.yml` не публикует оригинальные события, видео, имена, raw source values или owner-local review.
 
 Для K03/K05 требуется отдельная авторизованная consumer-side адаптация к их действующим контрактам. Не считать sensor OCEL/raw reed независимыми человеческими наблюдателями. `HUMAN_GOLD=NOT_MEASURED`, `TASK_ACCEPTED=0`.
+
+**C17 video scope preflight:** `public_media_window_sanity()` условно сравнивает исходные окна 23/6/3 с опубликованной продолжительностью MP4 без скачивания медиаданных или привязки кадров к OCEL; агрегат находится в `c12.probe()['c17_published_media_window_screen']`. Отрицательные тесты проверяют контекст у границ, нечисловую длительность, неизвестный timezone и недопустимый интервал. Подробнее: [протокол C17](SOLVE4X_C17_BLIND_REVIEW_2026-11-05_RU.md). До owner-local проверки видео `ready_for_human_review=false`.

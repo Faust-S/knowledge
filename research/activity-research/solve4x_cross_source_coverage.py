@@ -126,6 +126,15 @@ def probe():
  result["c14_raw_reed_review"]=c14_review(
      video,sensors,raw["scene01/scene01_ui.csv"],raw_reed)
  result["c14_raw_reed_sha256"]=sha256(raw_reed).hexdigest()
+ # This only screens published Scene 01 metadata against the pinned OCEL
+ # annotations. No video bytes, frame calibration or human review are inferred.
+ from solve4x_c17_blind_review import (
+     prepare as c17_prepare, public_media_window_sanity)
+ from solve4x_c14_raw_reed_review import _outside_video_events
+ result["c17_published_media_window_screen"]=public_media_window_sanity(
+     c17_prepare(video,_outside_video_events(video,sensors)),
+     assumed_scene_start="2024-03-25T08:48:23",
+     declared_media_duration_seconds=392.166667)
  from solve4x_source_bound_handoff import (
      prepare_owner_local, public_summary, reconcile_with_existing_reports)
  owner_packet=prepare_owner_local(

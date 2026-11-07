@@ -194,6 +194,77 @@ def public_plan(packet):
     }
 
 
+def public_media_window_sanity(packet, *, assumed_scene_start,
+                               declared_media_duration_seconds):
+    """Read-only screen of planned review windows against *claimed* media time.
+
+    The origin and duration are external metadata, not synchronized camera
+    frames. Never generate clips or promote this check to media verification.
+    The output contains counts only: no owner event IDs or timestamps.
+    """
+    ids, arms = _verified_packet(packet)
+    require(type(declared_media_duration_seconds) in (int, float) and
+            math.isfinite(declared_media_duration_seconds) and
+            0 < declared_media_duration_seconds <= 86400,
+            'C17_MEDIA_DURATION_INVALID')
+    try:
+        origin = c16.naive_timestamp(assumed_scene_start)
+    except c16.Hold:
+        raise ReviewHold('C17_MEDIA_ASSUMED_ORIGIN_INVALID') from None
+    flags = {}
+    max_left, max_right = 0.0, 0.0
+    for row in packet['owner_index']:
+        try:
+            begin = c16.naive_timestamp(row['annotation_start'])
+            end = c16.naive_timestamp(row['annotation_end'])
+        except c16.Hold:
+            raise ReviewHold('C17_MEDIA_ANNOTATION_TIME_INVALID') from None
+        require(begin <= end and end - begin <= 86400,
+                'C17_MEDIA_ANNOTATION_INTERVAL_INVALID')
+        lower = begin - origin - CONTEXT_SECONDS
+        upper = end - origin + CONTEXT_SECONDS
+        leading = max(0.0, -lower)
+        trailing = max(0.0, upper - declared_media_duration_seconds)
+        max_left = max(max_left, leading)
+        max_right = max(max_right, trailing)
+        flags[row['clip_id']] = (leading > 0, trailing > 0)
+    require(len(flags) == len(ids), 'C17_MEDIA_CLIP_SCOPE_DRIFT')
+    scope = {}
+    for method in ARMS:
+        selected = arms[method]
+        scope[method] = {
+            'selected_annotations': len(selected),
+            'outside_declared_video_bounds': sum(
+                any(flags[clip_id]) for clip_id in selected),
+            'leading_context_outside_bounds': sum(
+                flags[clip_id][0] for clip_id in selected),
+            'trailing_context_outside_bounds': sum(
+                flags[clip_id][1] for clip_id in selected),
+        }
+    return {
+        'schema': SCHEMA,
+        'status': 'PUBLISHED_MEDIA_METADATA_WINDOW_SCREEN_NOT_VIDEO_ALIGNMENT',
+        'method': 'OWNER_INDEX_WITH_EXTERNAL_UNCALIBRATED_MEDIA_ORIGIN',
+        'source_sha256': packet['source_sha256'],
+        'frozen_plan_sha256': packet['plan_sha256'],
+        'declared_video_duration_seconds': round(
+            float(declared_media_duration_seconds), 6),
+        'context_seconds_each_side': CONTEXT_SECONDS,
+        'method_window_counts': scope,
+        'max_leading_overhang_seconds': round(max_left, 3),
+        'max_trailing_overhang_seconds': round(max_right, 3),
+        'media_video_bytes_verified': False,
+        'camera_frame_to_ocel_clock_calibrated': False,
+        'camera_origin_independently_attested': False,
+        'original_media_permissions_attested': False,
+        'video_clips_prepared_or_reviewed': False,
+        'independent_human_gold': 'NOT_MEASURED',
+        'accepted_tasks': 0,
+        'ready_for_human_review': False,
+        'source_event_ids_timestamps_and_media_paths_exported': False,
+    }
+
+
 def require_precommitted_plan(packet, expected_plan_sha256):
     """Check a separately retained owner-local plan SHA before review.
 

@@ -508,6 +508,24 @@ jobs:
           assert c14["limitations"]["cross_device_clock_calibration_proven"] is False
           assert c14["sensor_plus_one_day_negative"]["candidate_edges"]==0
           assert len(c14["review_episodes"])==3
+          video_screen=r["c17_published_media_window_screen"]
+          assert video_screen["schema"]=="IWXA_SOLVE4X_C17_BLIND_VIDEO_REVIEW/0.1"
+          assert video_screen["status"]=="PUBLISHED_MEDIA_METADATA_WINDOW_SCREEN_NOT_VIDEO_ALIGNMENT"
+          assert video_screen["declared_video_duration_seconds"]==392.166667
+          assert video_screen["context_seconds_each_side"]==2
+          assert video_screen["frozen_plan_sha256"]==c14["c17_blind_video_review_plan"]["frozen_plan_sha256"]
+          assert video_screen["method_window_counts"]["all"]["selected_annotations"]==23
+          assert video_screen["method_window_counts"]["literal_enter_leave"]["selected_annotations"]==6
+          assert video_screen["method_window_counts"]["reed_closed_after_end_5s"]["selected_annotations"]==3
+          assert 0 <= video_screen["method_window_counts"]["all"]["outside_declared_video_bounds"] <= 23
+          assert video_screen["media_video_bytes_verified"] is False
+          assert video_screen["camera_frame_to_ocel_clock_calibrated"] is False
+          assert video_screen["camera_origin_independently_attested"] is False
+          assert video_screen["video_clips_prepared_or_reviewed"] is False
+          assert video_screen["ready_for_human_review"] is False
+          assert video_screen["independent_human_gold"]=="NOT_MEASURED"
+          assert video_screen["accepted_tasks"]==0
+          assert video_screen["source_event_ids_timestamps_and_media_paths_exported"] is False
           c17=c14["c17_blind_video_review_plan"]
           assert c17["schema"]=="IWXA_SOLVE4X_C17_BLIND_VIDEO_REVIEW/0.1"
           assert c17["status"]=="BLIND_REVIEW_DESIGN_READY_NO_MEDIA_OR_HUMAN_MEASUREMENT"
