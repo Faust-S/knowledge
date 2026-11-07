@@ -297,7 +297,7 @@ def _blind_project_readback(exported: object, originals: dict[str, dict]) -> Non
 
 
 def create_projects(tasks: list[dict], xml: str, url: str, token: str,
-                    *, slots: int = 1, call=api) -> dict:
+                    *, slots: int = 1, reviewer_label: str = "A", call=api) -> dict:
     """Import one source-first review project per isolated owner-local instance.
 
     Two slots remain explicit for legacy synthetic transport QA; two projects
@@ -305,12 +305,14 @@ def create_projects(tasks: list[dict], xml: str, url: str, token: str,
     """
     base = local_url(url)
     require(slots in (1, 2) and bool(token), "PROJECT_SLOTS_OR_TOKEN_MISSING")
+    require(reviewer_label in ("A", "B"), "REVIEWER_LABEL_INVALID")
     originals = {t["data"]["source_sha256"]: t["data"] for t in tasks}
     require(len(tasks) == len(originals) == 8, "SOURCE_FIRST_IMPORT_INCOMPLETE")
     created = []
     try:
         for slot in range(slots):
-            name = "A" if slot == 0 else "B"
+            name = (reviewer_label if slots == 1 else
+                    ("A" if slot == 0 else "B"))
             project = call(base, token, "/api/projects/", {
                 "title": "IWXA TASK-EXP-01 reviewer " + name,
                 "description": "Exploratory 8 sources. Assign independent human reviewer manually; no method predictions or task gold.",
@@ -457,9 +459,11 @@ def create_isolated_review_pair(
     verify_isolated_reviewers(url_a, token_a, url_b, token_b, call=call)
     created: list[int] = []
     try:
-        first = create_projects(tasks, xml, url_a, token_a, slots=1, call=call)
+        first = create_projects(tasks, xml, url_a, token_a,
+                                slots=1, reviewer_label="A", call=call)
         created.extend(first["project_ids"])
-        second = create_projects(tasks, xml, url_b, token_b, slots=1, call=call)
+        second = create_projects(tasks, xml, url_b, token_b,
+                                 slots=1, reviewer_label="B", call=call)
         created.extend(second["project_ids"])
         verified = isolated_review_preflight(
             tasks, xml, url_a, token_a, created[0],
@@ -824,6 +828,8 @@ def main() -> int:
                         help="Personal Access Token requires JWT refresh; legacy mode kept for old setups")
     parser.add_argument("--reviewer-slots", type=int, choices=(1, 2), default=1,
                         help="One per isolated instance (default); two only for synthetic transport QA")
+    parser.add_argument("--reviewer-label", choices=("A", "B"), default="A",
+                        help="Label for one isolated reviewer project; paired mode uses A/B")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--create-local-projects", action="store_true")
     mode.add_argument("--create-isolated-pair", action="store_true",
@@ -859,7 +865,8 @@ def main() -> int:
                                            os.environ.get("LABEL_STUDIO_API_KEY", ""),
                                            mode=args.auth_mode)
             result = create_projects(tasks, xml, args.url, token,
-                                     slots=args.reviewer_slots)
+                                     slots=args.reviewer_slots,
+                                     reviewer_label=args.reviewer_label)
         elif args.create_isolated_pair:
             require(args.confirm_local_import and
                     args.other_url is not None and args.project_id is None and

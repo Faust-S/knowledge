@@ -161,6 +161,33 @@ class LocalLabelStudioSetupTests(unittest.TestCase):
             self.assertEqual(receipt["reviewer_slots"], 1)
             self.assertEqual(receipt["project_ids"], [1])
             self.assertEqual(len(FakeLabelStudio.projects), 1)
+            self.assertEqual(FakeLabelStudio.projects[1]["title"],
+                             "IWXA TASK-EXP-01 reviewer A")
+            self.assertFalse(receipt["human_gold"])
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+            server.server_close()
+
+    def test_single_isolated_reviewer_b_has_b_project_title(self):
+        _, tasks = fixture()
+        FakeLabelStudio.projects = {}
+        FakeLabelStudio.next_id = 1
+        FakeLabelStudio.partial = False
+        FakeLabelStudio.form_modified = False
+        server = ThreadingHTTPServer(("127.0.0.1", 0), FakeLabelStudio)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            receipt = ls.create_projects(
+                tasks, CONFIG.decode("utf-8"),
+                f"http://127.0.0.1:{server.server_port}",
+                "synthetic-key", reviewer_label="B")
+            self.assertEqual(receipt["reviewer_slots"], 1)
+            self.assertEqual(receipt["project_ids"], [1])
+            self.assertEqual(FakeLabelStudio.projects[1]["title"],
+                             "IWXA TASK-EXP-01 reviewer B")
+            self.assertEqual(len(FakeLabelStudio.projects[1]["tasks"]), 8)
             self.assertFalse(receipt["human_gold"])
         finally:
             server.shutdown()
@@ -475,6 +502,8 @@ class LocalLabelStudioSetupTests(unittest.TestCase):
         self.assertEqual(create.call_count, 2)
         self.assertEqual(create.call_args_list[0].kwargs["slots"], 1)
         self.assertEqual(create.call_args_list[1].kwargs["slots"], 1)
+        self.assertEqual(create.call_args_list[0].kwargs["reviewer_label"], "A")
+        self.assertEqual(create.call_args_list[1].kwargs["reviewer_label"], "B")
         verify.assert_called_once()
         self.assertEqual(receipt["project_a_id"], 12)
         self.assertEqual(receipt["project_b_id"], 17)
