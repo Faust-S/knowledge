@@ -20,7 +20,7 @@ ARCHIVE_NAME = "solve4x.zip"
 MAX_TAIL = 131072
 MAX_DIRECTORY = 8 * 1024 * 1024
 MAX_METADATA = 1024 * 1024
-TARGETS = ("scene01_vid.json", "scene01_ocel.json", "scene01_video_ocel.json",
+TARGETS = ("scene01.mp4", "scene01_vid.json", "scene01_ocel.json", "scene01_video_ocel.json",
            "scene01_sensors_ocel.json", "scene01_reed_switches.csv", "scene01_ui.csv", "itam.ocelxml", "itam_ocel.json", "global_ocel.json", "itam_ocel.jsonl")
 SCHEMA = "IWXA_SOLVE4X_ZIP_RANGE_INDEX/0.1"
 

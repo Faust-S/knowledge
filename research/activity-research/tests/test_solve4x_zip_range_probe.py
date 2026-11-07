@@ -27,7 +27,10 @@ class ZIPIndexTests(TestCase):
         entries = p.parse_central_directory(raw[offset:offset+size], count)
         self.assertEqual(len(entries), 3)
         report = p.summarize(entries, {"test": True})
-        self.assertEqual(report["target_files_count"], 2)
+        self.assertEqual(report["target_files_count"], 3)
+        self.assertEqual([x["name"] for x in report["target_files"] if x["name"].endswith(".mp4")],
+                         ["solve4x/scene01/scene01.mp4"])
+        self.assertFalse(report["media_downloaded"])
         self.assertTrue(report["target_name_both_video_and_ocel"])
         self.assertFalse(report["case_level_two_modalities_loaded"])
         self.assertEqual(report["human_task_gold"], "NOT_MEASURED")

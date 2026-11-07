@@ -366,6 +366,107 @@ class C17BlindReview(unittest.TestCase):
                 altered, assumed_scene_start='2024-03-25T08:30:00',
                 declared_media_duration_seconds=392.166667)
 
+    def test_owner_media_verification_uses_real_ffprobe_and_bounded_bytes(self):
+        import hashlib
+        import shutil
+        import subprocess
+        import zlib
+        if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):
+            self.skipTest('ffmpeg and ffprobe not installed')
+        with tempfile.TemporaryDirectory(prefix='c17-media-local-') as tmp:
+            root = Path(tmp)
+            video_path = root / 'synthetic.mp4'
+            build = subprocess.run(
+                ['ffmpeg', '-hide_banner', '-loglevel', 'error',
+                 '-f', 'lavfi', '-i', 'color=c=black:s=160x90:r=30',
+                 '-t', '2', '-an', '-c:v', 'mpeg4', '-y', str(video_path)],
+                capture_output=True, timeout=35, check=False)
+            if build.returncode != 0:
+                self.skipTest('test video encoder unavailable')
+            data = video_path.read_bytes()
+            index = {
+                'schema': 'IWXA_SOLVE4X_ZIP_RANGE_INDEX/0.1',
+                'status': 'ZIP_RANGE_INDEX_ONLY_NOT_MULTIMODAL_REPLAY',
+                'source': {'central_sha256': c17.SOLVE4X_ZIP_CENTRAL_SHA256},
+                'target_files': [{
+                    'name': 'scene01/scene01.mp4',
+                    'compression_method': 8,
+                    'uncompressed_bytes': len(data),
+                    'zip_crc32': f'{zlib.crc32(data):08x}',
+                }],
+            }
+            pin = self.packet['plan_sha256']
+            def check(**kwargs):
+                return c17.verify_owner_local_media(
+                    self.packet, video_path, index,
+                    expected_plan_sha256=pin,
+                    assumed_scene_start='2024-03-25T08:29:58',
+                    declared_video_duration_seconds=2.0, **kwargs)
+            valid = check(expected_media_sha256=hashlib.sha256(data).hexdigest())
+            self.assertTrue(valid['matches_explicitly_supplied_media_sha256'])
+            self.assertTrue(valid['matches_pinned_zip_index_size_and_crc'])
+            self.assertEqual(valid['ffprobe_duration_seconds'], 2.0)
+            self.assertFalse(valid['archive_content_sha_independently_attested'])
+            self.assertFalse(valid['media_to_ocel_clock_calibrated'])
+            self.assertFalse(valid['media_permissions_attested'])
+            self.assertFalse(valid['ready_for_human_review'])
+            self.assertEqual(valid['human_gold'], 'NOT_MEASURED')
+            self.assertNotIn(str(video_path), json.dumps(valid))
+            unpinned = check()
+            self.assertFalse(unpinned['matches_explicitly_supplied_media_sha256'])
+            altered = copy.deepcopy(index)
+            altered['source']['central_sha256'] = '0' * 64
+            with self.assertRaisesRegex(c17.ReviewHold, 'C17_MEDIA_INDEX_NOT_PINNED'):
+                c17.verify_owner_local_media(
+                    self.packet, video_path, altered,
+                    expected_plan_sha256=pin,
+                    assumed_scene_start='2024-03-25T08:29:58',
+                    declared_video_duration_seconds=2.0)
+            altered = copy.deepcopy(index)
+            altered['target_files'][0]['zip_crc32'] = '00000000'
+            with self.assertRaisesRegex(c17.ReviewHold, 'C17_MEDIA_CRC_MISMATCH'):
+                c17.verify_owner_local_media(
+                    self.packet, video_path, altered,
+                    expected_plan_sha256=pin,
+                    assumed_scene_start='2024-03-25T08:29:58',
+                    declared_video_duration_seconds=2.0)
+            altered = copy.deepcopy(index)
+            altered['target_files'][0]['uncompressed_bytes'] = 1
+            with self.assertRaisesRegex(c17.ReviewHold, 'C17_MEDIA_SIZE_OR_TYPE_MISMATCH'):
+                c17.verify_owner_local_media(
+                    self.packet, video_path, altered,
+                    expected_plan_sha256=pin,
+                    assumed_scene_start='2024-03-25T08:29:58',
+                    declared_video_duration_seconds=2.0)
+            with self.assertRaisesRegex(c17.ReviewHold, 'C17_MEDIA_SHA_MISMATCH'):
+                check(expected_media_sha256='0' * 64)
+            with self.assertRaisesRegex(c17.ReviewHold, 'C17_MEDIA_DECLARED_DURATION_DRIFT'):
+                c17.verify_owner_local_media(
+                    self.packet, video_path, index,
+                    expected_plan_sha256=pin,
+                    assumed_scene_start='2024-03-25T08:29:58',
+                    declared_video_duration_seconds=3.0)
+            with self.assertRaisesRegex(c17.ReviewHold, 'C17_EXTERNAL_PLAN_PIN_MISMATCH'):
+                c17.verify_owner_local_media(
+                    self.packet, video_path, index,
+                    expected_plan_sha256='0' * 64,
+                    assumed_scene_start='2024-03-25T08:29:58',
+                    declared_video_duration_seconds=2.0)
+            link = root / 'link.mp4'
+            link.symlink_to(video_path)
+            with self.assertRaisesRegex(c17.ReviewHold, 'C17_MEDIA_PATH_INVALID'):
+                c17.verify_owner_local_media(
+                    self.packet, link, index,
+                    expected_plan_sha256=pin,
+                    assumed_scene_start='2024-03-25T08:29:58',
+                    declared_video_duration_seconds=2.0)
+            with self.assertRaisesRegex(c17.ReviewHold, 'C17_MEDIA_SOURCE_UNAVAILABLE'):
+                c17.verify_owner_local_media(
+                    self.packet, root / 'missing.mp4', index,
+                    expected_plan_sha256=pin,
+                    assumed_scene_start='2024-03-25T08:29:58',
+                    declared_video_duration_seconds=2.0)
+
     def test_missing_receipts_fail_closed(self):
         with self.assertRaisesRegex(c17.ReviewHold,'C17_REVIEW_RECEIPTS_INCOMPLETE'):
             c17.score(self.packet,{})

@@ -265,6 +265,149 @@ def public_media_window_sanity(packet, *, assumed_scene_start,
     }
 
 
+# The pinned central-directory SHA is a provenance locator, NOT a media
+# content SHA. C17 does not silently promote ZIP CRC into independent proof.
+SOLVE4X_ZIP_CENTRAL_SHA256 = (
+    'bd47f03d561c6468d77df80ec8f920a3dd65502987440abf8a25dacaeb16c5b5')
+
+
+def verify_owner_local_media(packet, media_file, zip_index, *,
+                             expected_plan_sha256, assumed_scene_start,
+                             declared_video_duration_seconds,
+                             expected_media_sha256=None):
+    """Owner-local MP4 byte/probe gate against the pinned ZIP central index.
+
+    Never downloads media, exports frame/audio, calibrates a camera clock or
+    creates review clips. If the independent media SHA is unavailable, CRC and
+    size are ONLY weak archive-member consistency checks.
+    """
+    import os
+    from pathlib import Path
+    import stat
+    import subprocess
+    import zlib
+
+    require_precommitted_plan(packet, expected_plan_sha256)
+    require(type(zip_index) is dict and
+            zip_index.get('schema') == 'IWXA_SOLVE4X_ZIP_RANGE_INDEX/0.1' and
+            zip_index.get('status') ==
+                'ZIP_RANGE_INDEX_ONLY_NOT_MULTIMODAL_REPLAY' and
+            type(zip_index.get('source')) is dict and
+            zip_index['source'].get('central_sha256') ==
+                SOLVE4X_ZIP_CENTRAL_SHA256 and
+            type(zip_index.get('target_files')) is list,
+            'C17_MEDIA_INDEX_NOT_PINNED')
+    candidates = [e for e in zip_index['target_files']
+                  if type(e) is dict and e.get('name') in
+                  ('scene01/scene01.mp4', 'solve4x/scene01/scene01.mp4')]
+    require(len(candidates) == 1, 'C17_MEDIA_ZIP_MEMBER_UNRESOLVED')
+    member = candidates[0]
+    expected_bytes = member.get('uncompressed_bytes')
+    expected_crc32 = member.get('zip_crc32')
+    require(member.get('compression_method') in (0, 8) and
+            type(expected_bytes) is int and
+            0 < expected_bytes <= 128 * 1024 * 1024 and
+            type(expected_crc32) is str and
+            re.fullmatch('[0-9a-f]{8}', expected_crc32) is not None,
+            'C17_MEDIA_INDEX_ENTRY_INVALID')
+    require(type(declared_video_duration_seconds) in (int, float) and
+            math.isfinite(declared_video_duration_seconds) and
+            0 < declared_video_duration_seconds <= 86400,
+            'C17_MEDIA_DURATION_INVALID')
+    require(expected_media_sha256 is None or
+            (type(expected_media_sha256) is str and
+             HEX64.fullmatch(expected_media_sha256) is not None),
+            'C17_MEDIA_SHA_PIN_INVALID')
+    require(isinstance(media_file, (str, Path)), 'C17_MEDIA_PATH_INVALID')
+    try:
+        target = Path(media_file).expanduser()
+        repo_root = Path(__file__).resolve().parents[2]
+        absolute = target.resolve(strict=True)
+        require(not target.is_symlink() and
+                absolute != repo_root and repo_root not in absolute.parents,
+                'C17_MEDIA_PATH_INVALID')
+        with target.open('rb') as stream:
+            before = os.fstat(stream.fileno())
+            require(stat.S_ISREG(before.st_mode) and
+                    before.st_size == expected_bytes,
+                    'C17_MEDIA_SIZE_OR_TYPE_MISMATCH')
+            media_sha = hashlib.sha256()
+            crc = 0
+            size = 0
+            while True:
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                media_sha.update(chunk)
+                crc = zlib.crc32(chunk, crc)
+                size += len(chunk)
+                require(size <= expected_bytes,
+                        'C17_MEDIA_SIZE_OR_TYPE_MISMATCH')
+            after = os.fstat(stream.fileno())
+    except OSError:
+        raise ReviewHold('C17_MEDIA_SOURCE_UNAVAILABLE') from None
+    require(size == expected_bytes and
+            before.st_size == after.st_size and
+            before.st_mtime_ns == after.st_mtime_ns and
+            before.st_ino == after.st_ino,
+            'C17_MEDIA_SOURCE_CHANGED')
+    digest = media_sha.hexdigest()
+    require(f'{crc:08x}' == expected_crc32, 'C17_MEDIA_CRC_MISMATCH')
+    require(expected_media_sha256 is None or digest == expected_media_sha256,
+            'C17_MEDIA_SHA_MISMATCH')
+    try:
+        process = subprocess.run([
+            'ffprobe', '-v', 'error', '-show_entries',
+            'format=duration:stream=codec_type,codec_name,r_frame_rate',
+            '-of', 'json', str(absolute)],
+            capture_output=True, timeout=35, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        raise ReviewHold('C17_MEDIA_FFPROBE_UNAVAILABLE') from None
+    require(process.returncode == 0 and
+            0 < len(process.stdout) <= 65536, 'C17_MEDIA_FFPROBE_FAILED')
+    try:
+        descriptor = json.loads(process.stdout)
+        duration = float(descriptor['format']['duration'])
+        videos = [stream for stream in descriptor.get('streams', [])
+                  if type(stream) is dict and
+                  stream.get('codec_type') == 'video']
+    except (ValueError, TypeError, KeyError, OverflowError):
+        raise ReviewHold('C17_MEDIA_FFPROBE_INVALID') from None
+    require(math.isfinite(duration) and duration > 0 and
+            len(videos) >= 1, 'C17_MEDIA_FFPROBE_INVALID')
+    require(abs(duration - declared_video_duration_seconds) <= 0.1,
+            'C17_MEDIA_DECLARED_DURATION_DRIFT')
+    window_screen = public_media_window_sanity(
+        packet, assumed_scene_start=assumed_scene_start,
+        declared_media_duration_seconds=duration)
+    return {
+        'schema': 'IWXA_SOLVE4X_C17_MEDIA_LOCAL_VERIFICATION/0.1',
+        'status': 'OWNER_LOCAL_MEDIA_CRC_SIZE_PROBE_PASS_CLOCK_UNKNOWN',
+        'source_zip_central_sha256': SOLVE4X_ZIP_CENTRAL_SHA256,
+        'media_file_bytes': size,
+        'media_file_sha256': digest,
+        'matches_pinned_zip_index_size_and_crc': True,
+        'matches_explicitly_supplied_media_sha256':
+            expected_media_sha256 is not None,
+        'archive_content_sha_independently_attested': False,
+        'zip_index_retrieved_live_by_c17': False,
+        'ffprobe_duration_seconds': round(duration, 6),
+        'ffprobe_video_stream_count': len(videos),
+        'ffprobe_video_codec_names':
+            sorted(set(str(stream.get('codec_name', 'UNKNOWN'))
+                       for stream in videos)),
+        'media_window_screen': window_screen,
+        'media_to_ocel_clock_calibrated': False,
+        'independent_camera_start_attested': False,
+        'media_permissions_attested': False,
+        'actual_human_review_seconds': None,
+        'human_gold': 'NOT_MEASURED',
+        'accepted_tasks': 0,
+        'ready_for_human_review': False,
+        'media_paths_frames_audio_or_source_keys_exported': False,
+    }
+
+
 def require_precommitted_plan(packet, expected_plan_sha256):
     """Check a separately retained owner-local plan SHA before review.
 
@@ -480,6 +623,15 @@ def main(argv=None):
     score_parser.add_argument('--receipts', required=True)
     score_parser.add_argument('--out', required=True)
     score_parser.add_argument('--expected-plan-sha256', required=True)
+    media_parser = sub.add_parser('media-verify')
+    media_parser.add_argument('--packet', required=True)
+    media_parser.add_argument('--zip-index', required=True)
+    media_parser.add_argument('--video-file', required=True)
+    media_parser.add_argument('--assumed-scene-start', required=True)
+    media_parser.add_argument('--declared-duration-seconds', required=True, type=float)
+    media_parser.add_argument('--expected-plan-sha256', required=True)
+    media_parser.add_argument('--expected-media-sha256')
+    media_parser.add_argument('--out', required=True)
     args = parser.parse_args(argv)
     if args.command == 'prepare':
         from solve4x_cross_source_coverage import SHA
@@ -498,12 +650,23 @@ def main(argv=None):
         require_precommitted_plan(packet, args.expected_plan_sha256)
         _owner_output(args.out, {role: blank_receipt(packet, role) for role in ROLES})
         status = 'C17_BLANK_RECEIPTS_NO_HUMAN_VALUES'
-    else:
+    elif args.command == 'score':
         packet, _ = _owner_json(args.packet)
         require_precommitted_plan(packet, args.expected_plan_sha256)
         receipts, _ = _owner_json(args.receipts)
         _owner_output(args.out, score(packet, receipts))
         status = 'C17_OWNER_LOCAL_AGGREGATE_SCORE_CREATED'
+    else:
+        packet, _ = _owner_json(args.packet)
+        zip_index, _ = _owner_json(args.zip_index)
+        media_report = verify_owner_local_media(
+            packet, args.video_file, zip_index,
+            expected_plan_sha256=args.expected_plan_sha256,
+            expected_media_sha256=args.expected_media_sha256,
+            assumed_scene_start=args.assumed_scene_start,
+            declared_video_duration_seconds=args.declared_duration_seconds)
+        _owner_output(args.out, media_report)
+        status = media_report['status']
     print(json.dumps({'schema': SCHEMA, 'status': status,
                       'frozen_plan_sha256': packet['plan_sha256'],
                       'external_plan_pin_matched': args.command != 'prepare',

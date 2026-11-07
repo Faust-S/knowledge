@@ -77,3 +77,24 @@ python research/activity-research/solve4x_c17_blind_review.py score \
 Опубликованный источник Fraunhofer Scene 01 указывает начало `2024-03-25 08:48:23` и MP4 длительностью `392.166667` секунды; файлы сцены включают `scene01.mp4`, `scene01_video_ocel.json`. Официальные страницы: https://x2log.pages.fraunhofer.de/solve4x/dataset/scenes/scene01/ и https://x2log.pages.fraunhofer.de/solve4x/docs/data-sources/video/ . C12 `probe()` повторно использует эти **опубликованные метаданные только как условие расчёта**, а не как независимо измеренный video-to-OCEL offset. Оригинальный MP4 в данной проверке **не загружен, не хеширован, не декодирован и не просмотрен**; факт, что публикация сообщает о синхронизации двух камер по видимым часам, не является доказательством синхронизации с OCEL/сенсорами. Положительный результат про попадание клипов в границы — только техническая возможность временной выборки, **не** подтверждение содержания видео. Отрицательный результат (выход контекста за границу) — основание HOLD на автоматическую подготовку соответствующего клипа до ручного разрешения начала сцены/границ, а не разрешение автоматически обрезать отрезок.
 
 Контракт результата: `method_window_counts.all/literal_enter_leave/reed_closed_after_end_5s`, `outside_declared_video_bounds`, `leading_context_outside_bounds`, `trailing_context_outside_bounds`, `max_leading_overhang_seconds`, `max_trailing_overhang_seconds`, `ready_for_human_review=false`, `camera_frame_to_ocel_clock_calibrated=false`, `media_video_bytes_verified=false`, `independent_human_gold=NOT_MEASURED`, `accepted_tasks=0`. Счётчики вычисляются при pinned C12 replay и остаются aggregate-only. C17 `prepare/blank_receipt/score` и действующий K05 consumer не меняются.
+
+## C17 — owner-local MP4 verification (07.11.2026)
+
+Действующий `solve4x_zip_range_probe.py` теперь включает имя `scene01.mp4` в **только индексную**, без скачивания видео, выборку `target_files`. Для самого MP4 добавлен узкий owner-local `verify_owner_local_media(packet, media_file, zip_index, expected_plan_sha256, assumed_scene_start, declared_video_duration_seconds, expected_media_sha256=None)` в прежний `solve4x_c17_blind_review.py`. Никакого нового медиаобработчика, хранилища, автоматического генератора клипов или Review Engine нет.
+
+Вход: неизменный private C17 packet с заранее зафиксированным `plan_sha256`, **ранее полученный** индекс закреплённого Solve4X ZIP c `central_sha256=bd47f03d…`, отдельный **разрешённый** owner-local `scene01.mp4` и заявленные `assumed_scene_start=2024-03-25T08:48:23`, `declared_video_duration_seconds=392.166667`. Оператор вправе отдельно указать ранее независимо полученный `expected_media_sha256` — именно он нужен для строгого cryptographic-content pin, если доверенная сторона заранее зафиксировала SHA. Код не получает MP4 из сети. Локальные проверки: размер и CRC против записи оригинального центрального ZIP-каталога, подсчёт собственного SHA256 потоком с лимитом размера, проверка типа файла, опциональный expected SHA, установленный `ffprobe` (duration/video stream), сравнение длительности с явно заданной и уже существующая `public_media_window_sanity`. Отрицательные тесты отклоняют подменённый CRC/SHA/размер/index, неверную длительность, отсутствующий файл и symlink.
+
+Запуск, **только на разрешённом приватном узле**:
+
+```sh
+python3 research/activity-research/solve4x_c17_blind_review.py media-verify \
+  --packet /PRIVATE/c17-packet.json \
+  --expected-plan-sha256 FROZEN_PLAN_SHA_FROM_SEPARATELY_RETAINED_RECORD \
+  --zip-index /PRIVATE/solve4x-zip-range-index.json \
+  --video-file /PRIVATE/scene01.mp4 \
+  --assumed-scene-start 2024-03-25T08:48:23 \
+  --declared-duration-seconds 392.166667 \
+  --out /PRIVATE/c17-media-verify-aggregate.json
+```
+
+Опционально: `--expected-media-sha256 SHA_FROM_INDEPENDENTLY_PINNED_MEDIA_SOURCE`. Выходной JSON имеет `OWNER_LOCAL_MEDIA_CRC_SIZE_PROBE_PASS_CLOCK_UNKNOWN`, SHA и технические агрегаты **только в приватном месте**. Даже PASS размера+CRC+ffprobe — не независимая аттестация происхождения MP4, не полная кадровая привязка с OCEL, не доступ к видео, не подтверждение прав, не человеческая разметка. Из ZIP central directory SHA нельзя выводить SHA самого MP4. `media_to_ocel_clock_calibrated=false`, `ready_for_human_review=false`, `human_gold=NOT_MEASURED`, `accepted_tasks=0`. Для настоящей независимой оценки по-прежнему требуется проверенный clock mapping, показ реального видео и receipts действующей Label Studio, не авторские OCEL labels.
