@@ -57,6 +57,7 @@ class FakeLabelStudio(BaseHTTPRequestHandler):
     next_id = 1
     partial = False
     form_modified = False
+    title_modified = False
 
     def log_message(self, format, *args):
         pass
@@ -93,7 +94,10 @@ class FakeLabelStudio(BaseHTTPRequestHandler):
             config = type(self).projects[ident]['config']
             if type(self).form_modified:
                 config = config.replace('review_coverage', 'wrong_control')
-            self.response({'id': ident, 'label_config': config})
+            title = type(self).projects[ident]['title']
+            if type(self).title_modified:
+                title = "IWXA TASK-EXP-01 reviewer A"
+            self.response({'id': ident, 'label_config': config, 'title': title})
         elif self.path.endswith('/export?exportType=JSON&download_all_tasks=true'):
             ident = int(self.path.split('/')[3])
             original = type(self).projects[ident]['tasks']
@@ -257,6 +261,32 @@ class LocalLabelStudioSetupTests(unittest.TestCase):
             self.assertEqual(FakeLabelStudio.projects[1]['tasks'], [])
         finally:
             FakeLabelStudio.form_modified = False
+            server.shutdown()
+            thread.join(timeout=2)
+            server.server_close()
+
+    def test_persisted_reviewer_b_title_must_match_before_import(self):
+        """A successful POST cannot qualify an instance renamed back to A."""
+        _, tasks = fixture()
+        FakeLabelStudio.projects = {}
+        FakeLabelStudio.next_id = 1
+        FakeLabelStudio.partial = False
+        FakeLabelStudio.form_modified = False
+        FakeLabelStudio.title_modified = True
+        server = ThreadingHTTPServer(("127.0.0.1", 0), FakeLabelStudio)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with self.assertRaisesRegex(
+                    ls.SetupHold, "LABEL_STUDIO_SAVED_REVIEW_TITLE_CHANGED") as failure:
+                ls.create_projects(
+                    tasks, CONFIG.decode("utf-8"),
+                    f"http://127.0.0.1:{server.server_port}",
+                    "synthetic-key", reviewer_label="B")
+            self.assertEqual(failure.exception.created_project_ids, (1,))
+            self.assertEqual(FakeLabelStudio.projects[1]["tasks"], [])
+        finally:
+            FakeLabelStudio.title_modified = False
             server.shutdown()
             thread.join(timeout=2)
             server.server_close()

@@ -327,6 +327,11 @@ def create_projects(tasks: list[dict], xml: str, url: str, token: str,
             require(type(persisted) is dict and persisted.get("id") == pid and
                     same_review_form(xml, persisted.get("label_config")),
                     "LABEL_STUDIO_SAVED_REVIEW_FORM_CHANGED")
+            # The separate instance B must really persist its B role, not
+            # merely acknowledge the POST that requested it.
+            require(persisted.get("title") ==
+                    "IWXA TASK-EXP-01 reviewer " + name,
+                    "LABEL_STUDIO_SAVED_REVIEW_TITLE_CHANGED")
             imported = call(base, token,
                             f"/api/projects/{pid}/import?return_task_ids=true", tasks)
             require(type(imported) is dict and imported.get("task_count") == 8 and
