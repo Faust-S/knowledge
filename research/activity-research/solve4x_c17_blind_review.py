@@ -36,9 +36,14 @@ def require(ok, code):
 
 
 def _digest(obj):
-    return hashlib.sha256(json.dumps(obj, ensure_ascii=False, sort_keys=True,
-                                     separators=(',', ':'), allow_nan=False
-                                     ).encode('utf-8')).hexdigest()
+    try:
+        canonical = json.dumps(obj, ensure_ascii=False, sort_keys=True,
+                               separators=(',', ':'), allow_nan=False).encode('utf-8')
+    except (TypeError, ValueError, OverflowError, RecursionError):
+        # A malformed private packet must HOLD with a fixed code. Never
+        # print an owner event/key or an exception containing private data.
+        raise ReviewHold('C17_FROZEN_PLAN_INVALID') from None
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def _blank_blind_tasks(arms):
@@ -123,20 +128,35 @@ def _verified_packet(packet):
     index, arms = packet['owner_index'], packet['arms']
     require(0 < len(index) <= 10000 and set(arms) == set(ARMS),
             'C17_PACKET_SCOPE_INVALID')
+    # Validate the private index BEFORE extracting IDs, making sets or
+    # constructing derived blind tasks. A corrupt JSON packet must return
+    # ReviewHold, not an unhandled TypeError/KeyError or traceback.
+    expected_fields = {
+        'clip_id', 'source_event_key', 'annotation_start', 'annotation_end',
+        'author_label_family', 'selected_in'}
+    require(all(
+        type(row) is dict and set(row) == expected_fields and
+        type(row['clip_id']) is str and
+        type(row['source_event_key']) is str and bool(row['source_event_key']) and
+        type(row['annotation_start']) is str and bool(row['annotation_start']) and
+        type(row['annotation_end']) is str and bool(row['annotation_end']) and
+        row['author_label_family'] in ('ENTER_ROOM', 'LEAVE_ROOM', 'OTHER') and
+        type(row['selected_in']) is list and
+        all(type(k) is str and k in ARMS for k in row['selected_in']) and
+        len(set(row['selected_in'])) == len(row['selected_in'])
+        for row in index),
+        'C17_PACKET_INDEX_INVALID')
     ids = [row['clip_id'] for row in index]
     require(len(set(ids)) == len(index) and
             ids == [f'clip-{i:04d}' for i in range(1, len(index)+1)],
             'C17_PACKET_CLIP_IDS_INVALID')
-    require(all(type(v) is list and len(v) == len(set(v)) and
-                all(type(k) is str and k in ids for k in v)
-                for v in arms.values()) and
+    require(all(type(v) is list and
+                all(type(k) is str and k in ids for k in v) and
+                len(v) == len(set(v)) for v in arms.values()) and
             arms['all'] == ids and
             all(arms[name] == [row['clip_id'] for row in index
                               if name in row['selected_in']] for name in ARMS),
             'C17_PACKET_ARMS_INVALID')
-    require(all(type(row) is dict and
-                set(row['selected_in']).issubset(ARMS) for row in index),
-            'C17_PACKET_INDEX_INVALID')
     # The original plan digest covers owner_index and arms. The derived,
     # unblinded task inventory must match those frozen arms exactly; otherwise
     # it could silently reorder/drop or add clips without changing plan_sha256.

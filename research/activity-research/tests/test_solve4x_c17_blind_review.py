@@ -254,6 +254,59 @@ class C17BlindReview(unittest.TestCase):
                     self.assertIsNone(json.loads(out.read_text())['reference_a']['reviewer_key'])
                 self.assertNotIn('private-reviewer', stdout.getvalue())
 
+
+    def _refingerprint(self, packet):
+        frozen = {k: packet[k] for k in (
+            'source_sha256', 'context_seconds', 'owner_index', 'arms')}
+        packet['plan_sha256'] = c17._digest(frozen)
+        return packet
+
+    def test_malformed_private_owner_packet_holds_without_python_traceback(self):
+        # Recompute the digest to reach structural validation, not only hash drift.
+        bad = copy.deepcopy(self.packet)
+        bad['owner_index'][0] = None
+        self._refingerprint(bad)
+        with self.assertRaisesRegex(c17.ReviewHold, 'C17_PACKET_INDEX_INVALID'):
+            c17.public_plan(bad)
+        bad = copy.deepcopy(self.packet)
+        bad['owner_index'][0].pop('selected_in')
+        self._refingerprint(bad)
+        with self.assertRaisesRegex(c17.ReviewHold, 'C17_PACKET_INDEX_INVALID'):
+            c17.blank_receipt(bad, 'reference_a')
+        bad = copy.deepcopy(self.packet)
+        bad['owner_index'][0]['selected_in'] = [['all']]
+        self._refingerprint(bad)
+        with self.assertRaisesRegex(c17.ReviewHold, 'C17_PACKET_INDEX_INVALID'):
+            c17.score(bad, self.receipts())
+        bad = copy.deepcopy(self.packet)
+        bad['owner_index'][0]['source_event_key'] = []
+        self._refingerprint(bad)
+        with self.assertRaisesRegex(c17.ReviewHold, 'C17_PACKET_INDEX_INVALID'):
+            c17.public_plan(bad)
+        bad = copy.deepcopy(self.packet)
+        bad['arms']['literal_enter_leave'] = [dict(unhashable=True)]
+        self._refingerprint(bad)
+        with self.assertRaisesRegex(c17.ReviewHold, 'C17_PACKET_ARMS_INVALID'):
+            c17.public_plan(bad)
+        bad = copy.deepcopy(self.packet)
+        bad['owner_index'][0]['annotation_start'] = float('nan')
+        with self.assertRaisesRegex(c17.ReviewHold, 'C17_FROZEN_PLAN_INVALID'):
+            c17.public_plan(bad)
+
+    def test_owner_cli_malformed_packet_rejected_before_any_output(self):
+        with tempfile.TemporaryDirectory(prefix='c17-invalid-packet-') as tmp:
+            root = Path(tmp)
+            packet_path, output_path = root / 'packet.json', root / 'blank.json'
+            bad = copy.deepcopy(self.packet)
+            bad['owner_index'][0]['selected_in'] = None
+            self._refingerprint(bad)
+            packet_path.write_text(json.dumps(bad), encoding='utf-8')
+            with self.assertRaisesRegex(c17.ReviewHold, 'C17_PACKET_INDEX_INVALID'):
+                c17.main(['blank', '--packet', str(packet_path),
+                          '--expected-plan-sha256', bad['plan_sha256'],
+                          '--out', str(output_path)])
+            self.assertFalse(output_path.exists())
+
     def test_missing_receipts_fail_closed(self):
         with self.assertRaisesRegex(c17.ReviewHold,'C17_REVIEW_RECEIPTS_INCOMPLETE'):
             c17.score(self.packet,{})
