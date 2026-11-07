@@ -70,6 +70,17 @@ class SourceBoundHandoff(TestCase):
         self.assertEqual(summary["episodes"][0]["original_source_locator"],"OWNER_LOCAL_REQUIRED")
         self.assertEqual(summary["pin_authority"],"CALLER_SUPPLIED_UNQUALIFIED")
         self.assertFalse(summary["authorized_source_locator_publicly_available"])
+        self.assertFalse(summary["canonical_solve4x_pins_verified"])
+        self.assertEqual(
+            summary["episodes"][0]["raw_reed_state_compatible_candidates_5s"], 1)
+        self.assertEqual(
+            summary["episodes"][0]["raw_reed_other_state_or_unknown_candidates_5s"], 0)
+        self.assertEqual(
+            summary["episodes"][1]["raw_reed_state_compatible_candidates_5s"], 0)
+        self.assertEqual(
+            summary["episodes"][1]["raw_reed_other_state_or_unknown_candidates_5s"], 1)
+        self.assertFalse(
+            summary["episodes"][0]["raw_reed_independent_physical_source_proven"])
 
     def test_source_drift_and_missing_bytes_hold(self):
         files = dict(self.files)
@@ -124,6 +135,38 @@ class SourceBoundHandoff(TestCase):
             handoff.reconcile_with_existing_reports(
                 self.run_packet(), c13_report, c14_report)
 
+    def test_reconciliation_rejects_forged_raw_state_distribution(self):
+        import solve4x_c13_episode_triage as c13
+        import solve4x_c14_raw_reed_review as c14
+        video, sensors = (json.loads(self.files[handoff.VIDEO]),
+                          json.loads(self.files[handoff.SENSOR]))
+        c13_result = c13.analyze(video, sensors, self.files[handoff.UI])
+        c14_result = c14.analyze(
+            video, sensors, self.files[handoff.UI], self.files[handoff.REED])
+        self.assertEqual(c14_result["review_episodes"][0]["raw_state_classes"],
+                         {"CLOSED": 1})
+        c14_result["review_episodes"][0]["raw_state_classes"] = {"OPENED": 1}
+        with self.assertRaisesRegex(c12.Hold, "HANDOFF_C13_C14_EPISODE_DRIFT"):
+            handoff.reconcile_with_existing_reports(
+                self.run_packet(), c13_result, c14_result)
+
+    def test_reconciliation_rejects_forged_ui_context_coverage(self):
+        import solve4x_c13_episode_triage as c13
+        import solve4x_c14_raw_reed_review as c14
+        video, sensors = (json.loads(self.files[handoff.VIDEO]),
+                          json.loads(self.files[handoff.SENSOR]))
+        c13_result = c13.analyze(video, sensors, self.files[handoff.UI])
+        c14_result = c14.analyze(
+            video, sensors, self.files[handoff.UI], self.files[handoff.REED])
+        self.assertEqual(
+            c14_result["review_episodes"][0]["ui_context_populated_field_counts"],
+            {"has_active_url": 1, "has_target_element_type": 1})
+        c14_result["review_episodes"][0]["ui_context_populated_field_counts"] = {
+            "has_active_url": 0, "has_target_element_type": 1}
+        with self.assertRaisesRegex(c12.Hold, "HANDOFF_C13_C14_EPISODE_DRIFT"):
+            handoff.reconcile_with_existing_reports(
+                self.run_packet(), c13_result, c14_result)
+
     def test_reconciliation_does_not_reinterpret_clock_proximity(self):
         import solve4x_c13_episode_triage as c13
         import solve4x_c14_raw_reed_review as c14
@@ -162,8 +205,10 @@ class SourceBoundHandoff(TestCase):
             self.assertEqual(receipt["same_human_action"],"UNKNOWN")
             self.assertFalse(receipt["source_access_permission_attested"])
         self.assertFalse(handoff.public_summary(packet)["original_bytes_sha_verified"])
-        self.assertTrue(handoff.public_summary(
-            packet,source_files=self.files)["original_bytes_sha_verified"])
+        replayed = handoff.public_summary(packet,source_files=self.files)
+        self.assertTrue(replayed["original_bytes_sha_verified"])
+        # Synthetic caller-supplied pins are not authoritative Solve4X pins.
+        self.assertFalse(replayed["canonical_solve4x_pins_verified"])
 
     def test_replay_rejects_tampered_sensor_class(self):
         packet = self.run_packet()

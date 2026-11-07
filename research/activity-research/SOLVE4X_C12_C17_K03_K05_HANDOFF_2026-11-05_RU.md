@@ -79,3 +79,13 @@ Pinned Scene 01 ожидает `review_scope={sensor_derived_episode_source_rows
 C17 `_verified_packet` теперь отвергает подмену `blind_tasks` по сравнению с зафиксированными `arms`: удаление, reorder, новые IDs или предварительная подстановка media locator приводят к `C17_BLIND_TASKS_DRIFT`. В `public_plan` явное `source_bytes_verified_by_c17=False`: C17 не проверяет оригинальные байты самостоятельно; это делает pinned C12 до вызова C14/C17. Оператор продолжает связывать медиа и настоящие verdicts **вне этого frozen packet** через действующий owner-local Label Studio. Ключи, время и события источника в public aggregate не попадают.
 
 Инварианты: `HUMAN_GOLD=NOT_MEASURED`, `TASK_ACCEPTED=0`, `CLOCK_CALIBRATION=UNKNOWN`. Нет нового workflow, оценщика, Task Engine или хранилища.
+
+## Уточнение проверки K03/K05: состояние raw reed и source authority (07.11.2026)
+
+Сверка `reconcile_with_existing_reports()` теперь отвергает дрейф `raw_state_classes` и `ui_context_populated_field_counts` в каждом C14 эпизоде: простого равенства числа raw/UI записей недостаточно. Сопоставление использует уже разобранные C14 исходные строки и не создаёт нового detector.
+
+Публичный `public_summary()` различает `raw_reed_state_compatible_candidates_5s` и `raw_reed_other_state_or_unknown_candidates_5s`; оба типа — **только временные кандидаты**. Состояние raw reed, совпадающее с производной записью sensor OCEL, **не доказывает независимость исходного устройства, личность, действие или синхронизацию часов**: `raw_reed_independent_physical_source_proven=false`. Для pinned Scene 01 в каждом из трёх эпизодов C14 содержит 2 raw reed кандидата: 1 с совпадающим и 1 с иным состоянием. Три state-compatible пары не равны трём человеческим действиям.
+
+Разделены `original_bytes_sha_verified` и `canonical_solve4x_pins_verified`. Оригинальные байты с caller-supplied SHA могут быть корректно перечитаны в синтетическом тесте, но не получают полномочий canonical Solve4X. `canonical_solve4x_pins_verified=true` выставляется только при actual owner-local original replay, неизменных закреплённых SHA из C12 и полном сравнении packet. Даже это не удостоверяет права доступа или независимый human gold.
+
+Контракт K03/K05 по-прежнему **не** является непосредственным входом K03 Task Engine или K05 Evaluation Engine: K03 владеет Task hypotheses и уточнениями, K05 владеет измерением и independent review. Следующая предметная квалификация — реальная owner-local независимая разметка видео в существующей инфраструктуре Label Studio. До неё `HUMAN_GOLD=NOT_MEASURED`, `TASK_ACCEPTED=0`.

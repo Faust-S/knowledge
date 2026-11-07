@@ -2,6 +2,7 @@
 """C12-C16 read-only owner-local source locators. No Task/Gold inference."""
 from __future__ import annotations
 import csv
+from collections import Counter
 import hashlib
 from io import StringIO
 import json
@@ -252,11 +253,20 @@ def reconcile_with_existing_reports(packet, c13_report, c14_report):
                    and c14_row.get("ui_candidates_5s") == len(ui_rows)
                    and c13_row.get("nearby_ui_record_count") == len(ui_rows)
                    and c13_row.get("ui_event_classes") ==
-                       dict(sorted(__import__("collections").Counter(
+                       dict(sorted(Counter(
                            row["event_class"] for row in ui_rows).items()))
                    and c13_row.get("ui_target_classes") ==
-                       dict(sorted(__import__("collections").Counter(
-                           row["target_class"] for row in ui_rows).items())),
+                       dict(sorted(Counter(
+                           row["target_class"] for row in ui_rows).items()))
+                   and c14_row.get("raw_state_classes") ==
+                       dict(sorted(Counter(
+                           row["state_class"] for row in raw_rows).items()))
+                   and c14_row.get("ui_context_populated_field_counts") ==
+                       dict(sorted(Counter(
+                           flag for row in ui_rows
+                           for flag, populated in row["context_presence_flags"].items()
+                           if populated
+                       ).items())),
                    "HANDOFF_C13_C14_EPISODE_DRIFT")
         for row in raw_rows:
             raw_keys.add((row["source_member"], row["locator"]["record_number"]))
@@ -354,6 +364,13 @@ def public_summary(packet, *, source_files=None):
             "modality": "AMBIENT_SENSOR_DERIVED", "sensor_class": e["sensor_class"],
             "original_source_locator": "OWNER_LOCAL_REQUIRED",
             "raw_reed_candidates_5s": len(e["raw_reed_candidates_5s"]),
+            "raw_reed_state_compatible_candidates_5s": sum(
+                row["state_compatible"] is True
+                for row in e["raw_reed_candidates_5s"]),
+            "raw_reed_other_state_or_unknown_candidates_5s": sum(
+                row["state_compatible"] is not True
+                for row in e["raw_reed_candidates_5s"]),
+            "raw_reed_independent_physical_source_proven": False,
             "ui_candidates_5s": len(e["browser_ui_candidates_5s"]),
             "author_video_annotation_candidates_5s":
                 len(e["author_video_annotation_candidates_5s"]),
@@ -366,6 +383,8 @@ def public_summary(packet, *, source_files=None):
             "episode_count": len(safe), "episodes": safe,
             "video_baseline_counts": dict(packet["video_baseline_counts"]),
             "original_bytes_sha_verified": checked,
+            "canonical_solve4x_pins_verified": bool(
+                checked and packet["pin_authority"] == "PINNED_SOLVE4X"),
             "authorized_source_locator_publicly_available": False,
             "clock_calibration_proven": False, "same_human_action_confirmed": False,
             "human_gold": "NOT_MEASURED", "accepted_tasks": 0,

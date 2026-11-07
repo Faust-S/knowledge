@@ -478,6 +478,14 @@ jobs:
           assert source_bound["review_scope"]["distinct_author_video_annotation_rows"]==3
           assert source_bound["review_scope"]["source_rows_without_video"]==14
           assert source_bound["review_scope"]["source_rows_including_video"]==17
+          assert source_bound["canonical_solve4x_pins_verified"] is True
+          assert [e["raw_reed_candidates_5s"] for e in source_bound["episodes"]]==[2,2,2]
+          assert [e["raw_reed_state_compatible_candidates_5s"]
+                  for e in source_bound["episodes"]]==[1,1,1]
+          assert [e["raw_reed_other_state_or_unknown_candidates_5s"]
+                  for e in source_bound["episodes"]]==[1,1,1]
+          assert all(e["raw_reed_independent_physical_source_proven"] is False
+                     for e in source_bound["episodes"])
           assert source_bound["review_scope"]["human_gold"]=="NOT_MEASURED"
           assert source_bound["review_scope"]["accepted_tasks"]==0
           assert source_bound["status"]=="PUBLIC_SOURCE_RECORDS_REPLAY_VERIFIED"
