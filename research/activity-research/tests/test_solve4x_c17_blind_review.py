@@ -185,6 +185,25 @@ class C17BlindReview(unittest.TestCase):
         with self.assertRaisesRegex(c17.ReviewHold,'C17_PACKET_FINGERPRINT_MISMATCH'):
             c17.public_plan(bad)
 
+    def test_tampered_blind_tasks_hold_before_scoring(self):
+        bad = copy.deepcopy(self.packet)
+        bad['blind_tasks']['arm_all'][0]['clip_id'] = 'clip-9999'
+        with self.assertRaisesRegex(c17.ReviewHold, 'C17_BLIND_TASKS_DRIFT'):
+            c17.public_plan(bad)
+        with self.assertRaisesRegex(c17.ReviewHold, 'C17_BLIND_TASKS_DRIFT'):
+            c17.score(bad, self.receipts())
+        bad = copy.deepcopy(self.packet)
+        bad['blind_tasks']['reference_a'][0]['media_locator'] = 'private.invalid'
+        with self.assertRaisesRegex(c17.ReviewHold, 'C17_BLIND_TASKS_DRIFT'):
+            c17.blank_receipt(bad, 'reference_a')
+        bad = copy.deepcopy(self.packet)
+        bad['blind_tasks'].pop('adjudicator')
+        with self.assertRaisesRegex(c17.ReviewHold, 'C17_BLIND_TASKS_DRIFT'):
+            c17.public_plan(bad)
+
+    def test_c17_does_not_self_attest_unchecked_source_bytes(self):
+        self.assertFalse(c17.public_plan(self.packet)['source_bytes_verified_by_c17'])
+
     def test_missing_receipts_fail_closed(self):
         with self.assertRaisesRegex(c17.ReviewHold,'C17_REVIEW_RECEIPTS_INCOMPLETE'):
             c17.score(self.packet,{})

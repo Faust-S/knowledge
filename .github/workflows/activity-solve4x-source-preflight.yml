@@ -471,6 +471,15 @@ jobs:
           assert source_bound["schema"]=="IWXA_SOLVE4X_C12_C16_SOURCE_BOUND_HANDOFF/0.1"
           assert source_bound["pin_authority"]=="PINNED_SOLVE4X"
           assert source_bound["episode_count"]==3
+          assert source_bound["review_scope"]["status"]=="SOURCE_REVIEW_SCOPE_RECONCILED_NO_HUMAN_GOLD"
+          assert source_bound["review_scope"]["sensor_derived_episode_source_rows"]==3
+          assert source_bound["review_scope"]["distinct_raw_reed_source_rows"]==6
+          assert source_bound["review_scope"]["distinct_browser_ui_source_rows"]==5
+          assert source_bound["review_scope"]["distinct_author_video_annotation_rows"]==3
+          assert source_bound["review_scope"]["source_rows_without_video"]==14
+          assert source_bound["review_scope"]["source_rows_including_video"]==17
+          assert source_bound["review_scope"]["human_gold"]=="NOT_MEASURED"
+          assert source_bound["review_scope"]["accepted_tasks"]==0
           assert source_bound["status"]=="PUBLIC_SOURCE_RECORDS_REPLAY_VERIFIED"
           assert source_bound["original_bytes_sha_verified"] is True
           assert source_bound["video_baseline_counts"]=={
@@ -497,6 +506,7 @@ jobs:
           assert c17["denominators"]=={"video_annotations":23,"literal_enter_leave":6,"reed_focused":3}
           assert c17["source_sha256"]=="619f52a0fb845926790388008b505fff5969adcd25cac31f0bb0e62d01980e99"
           assert c17["independent_video_reviews"]==0
+          assert c17["source_bytes_verified_by_c17"] is False
           assert c17["human_activity_gold"]=="NOT_MEASURED"
           assert c17["active_review_seconds"] is None
           assert c17["accepted_tasks"]==0

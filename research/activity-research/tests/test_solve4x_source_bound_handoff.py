@@ -101,6 +101,47 @@ class SourceBoundHandoff(TestCase):
                             and e["same_human_action"] == "UNKNOWN"
                             for e in packet["episodes"]))
 
+    def test_reconciliation_matches_existing_c13_c14_without_task_claim(self):
+        import solve4x_c13_episode_triage as c13
+        import solve4x_c14_raw_reed_review as c14
+        video = json.loads(self.files[handoff.VIDEO])
+        sensors = json.loads(self.files[handoff.SENSOR])
+        c13_report = c13.analyze(video, sensors, self.files[handoff.UI])
+        c14_report = c14.analyze(
+            video, sensors, self.files[handoff.UI], self.files[handoff.REED])
+        scope = handoff.reconcile_with_existing_reports(
+            self.run_packet(), c13_report, c14_report)
+        self.assertEqual(scope["sensor_derived_episode_source_rows"], 2)
+        self.assertEqual(scope["distinct_raw_reed_source_rows"], 2)
+        self.assertEqual(scope["distinct_browser_ui_source_rows"], 2)
+        self.assertEqual(scope["distinct_author_video_annotation_rows"], 1)
+        self.assertEqual(scope["source_rows_without_video"], 6)
+        self.assertEqual(scope["source_rows_including_video"], 7)
+        self.assertEqual(scope["human_gold"], "NOT_MEASURED")
+        self.assertEqual(scope["accepted_tasks"], 0)
+        c14_report["review_episodes"][0]["raw_same_sensor_5s"] = 99
+        with self.assertRaisesRegex(c12.Hold, "HANDOFF_C13_C14_EPISODE_DRIFT"):
+            handoff.reconcile_with_existing_reports(
+                self.run_packet(), c13_report, c14_report)
+
+    def test_reconciliation_does_not_reinterpret_clock_proximity(self):
+        import solve4x_c13_episode_triage as c13
+        import solve4x_c14_raw_reed_review as c14
+        video, sensors = (json.loads(self.files[handoff.VIDEO]),
+                          json.loads(self.files[handoff.SENSOR]))
+        c13_result = c13.analyze(video, sensors, self.files[handoff.UI])
+        c14_result = c14.analyze(
+            video, sensors, self.files[handoff.UI], self.files[handoff.REED])
+        c13_result["episodes"][0]["nearby_ui_record_count"] = 0
+        with self.assertRaisesRegex(c12.Hold, "HANDOFF_C13_C14_EPISODE_DRIFT"):
+            handoff.reconcile_with_existing_reports(
+                self.run_packet(), c13_result, c14_result)
+        c13_result = c13.analyze(video, sensors, self.files[handoff.UI])
+        c14_result["minimal_distinct_raw_rows_for_review"] = 0
+        with self.assertRaisesRegex(c12.Hold, "HANDOFF_REVIEW_SCOPE_DRIFT"):
+            handoff.reconcile_with_existing_reports(
+                self.run_packet(), c13_result, c14_result)
+
     def test_public_tampered_confirmation_is_rejected(self):
         packet = self.run_packet()
         packet["episodes"][0]["same_human_action"] = "CONFIRMED"

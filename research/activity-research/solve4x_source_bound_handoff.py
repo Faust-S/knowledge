@@ -215,6 +215,86 @@ def prepare_owner_local(video_bytes, sensor_bytes, ui_bytes, reed_bytes, *,
             "permissions_attested": False, "not_for_publication": True}
 
 
+def reconcile_with_existing_reports(packet, c13_report, c14_report):
+    """Reconcile source-record review scope with C13/C14, never human gold.
+
+    Runs after owner-local original-source replay. Source record identifiers
+    remain internal; only deduplicated counts are returned.
+    """
+    c12.ensure(type(packet) is dict and packet.get("schema") == SCHEMA
+               and packet.get("not_for_publication") is True
+               and type(c13_report) is dict
+               and c13_report.get("schema") == c13.SCHEMA
+               and type(c14_report) is dict
+               and c14_report.get("schema") == c14.SCHEMA,
+               "HANDOFF_RECONCILIATION_SCOPE_HOLD")
+    episodes = packet.get("episodes")
+    c13_rows, c14_rows = c13_report.get("episodes"), c14_report.get("review_episodes")
+    c12.ensure(type(episodes) is list and type(c13_rows) is list
+               and type(c14_rows) is list
+               and len(episodes) == len(c13_rows) == len(c14_rows) ==
+                   c14_report["denominators"]["outside_video_sensor_events"],
+               "HANDOFF_EPISODE_COUNT_DRIFT")
+    raw_keys, ui_keys, video_keys = set(), set(), set()
+    raw_edges, ui_edges, video_edges = 0, 0, 0
+    for index, (episode, c13_row, c14_row) in enumerate(
+            zip(episodes, c13_rows, c14_rows), 1):
+        raw_rows = episode["raw_reed_candidates_5s"]
+        ui_rows = episode["browser_ui_candidates_5s"]
+        video_rows = episode["author_video_annotation_candidates_5s"]
+        c12.ensure(c13_row.get("review_ordinal") == index
+                   and c14_row.get("review_ordinal") == index
+                   and c14_row.get("sensor_class") == episode["sensor_class"]
+                   and c14_row.get("ocel_state_class") == episode["sensor_state_class"]
+                   and c14_row.get("raw_same_sensor_5s") == len(raw_rows)
+                   and c14_row.get("raw_same_sensor_and_state_5s") ==
+                       sum(row["state_compatible"] is True for row in raw_rows)
+                   and c14_row.get("ui_candidates_5s") == len(ui_rows)
+                   and c13_row.get("nearby_ui_record_count") == len(ui_rows)
+                   and c13_row.get("ui_event_classes") ==
+                       dict(sorted(__import__("collections").Counter(
+                           row["event_class"] for row in ui_rows).items()))
+                   and c13_row.get("ui_target_classes") ==
+                       dict(sorted(__import__("collections").Counter(
+                           row["target_class"] for row in ui_rows).items())),
+                   "HANDOFF_C13_C14_EPISODE_DRIFT")
+        for row in raw_rows:
+            raw_keys.add((row["source_member"], row["locator"]["record_number"]))
+        for row in ui_rows:
+            ui_keys.add((row["source_member"], row["locator"]["record_number"]))
+        for row in video_rows:
+            video_keys.add((row["source_member"], row["locator"]["source_event_key"]))
+        raw_edges += len(raw_rows)
+        ui_edges += len(ui_rows)
+        video_edges += len(video_rows)
+    source_rows = len(episodes) + len(raw_keys) + len(ui_keys)
+    c12.ensure(c14_report.get("minimal_distinct_raw_rows_for_review") == len(raw_keys)
+               and c14_report.get("minimal_distinct_ui_rows_for_review") == len(ui_keys)
+               and c14_report.get("source_rows_to_review_total") == source_rows
+               and c13_report.get("unique_ui_candidate_records_5s") == len(ui_keys)
+               and c13_report.get("source_records_for_complete_candidate_review") ==
+                   len(episodes) + len(ui_keys)
+               and c14_report["c16_annotation_review_footprint"][
+                   "review_baselines"]["reed_closed_after_video_end_5s"][
+                       "annotations_to_review"] == len(video_keys),
+               "HANDOFF_REVIEW_SCOPE_DRIFT")
+    return {
+        "status": "SOURCE_REVIEW_SCOPE_RECONCILED_NO_HUMAN_GOLD",
+        "sensor_derived_episode_source_rows": len(episodes),
+        "distinct_raw_reed_source_rows": len(raw_keys),
+        "distinct_browser_ui_source_rows": len(ui_keys),
+        "distinct_author_video_annotation_rows": len(video_keys),
+        "source_rows_without_video": source_rows,
+        "source_rows_including_video": source_rows + len(video_keys),
+        "temporal_candidate_edges": {
+            "raw_reed": raw_edges, "browser_ui": ui_edges,
+            "author_video": video_edges},
+        "cross_device_clock_calibration_proven": False,
+        "human_gold": "NOT_MEASURED", "accepted_tasks": 0,
+        "raw_source_event_identifiers_exported": False,
+    }
+
+
 def public_summary(packet, *, source_files=None):
     """Only closed classes and counts: no source ID, timestamp, actor or raw text."""
     c12.ensure(type(packet) is dict and packet.get("schema") == SCHEMA

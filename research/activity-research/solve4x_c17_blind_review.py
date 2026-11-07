@@ -41,6 +41,16 @@ def _digest(obj):
                                      ).encode('utf-8')).hexdigest()
 
 
+def _blank_blind_tasks(arms):
+    """Deterministic reviewer tasks; never copy private media or author labels."""
+    return {
+        role: [{'clip_id': clip_id, 'media_locator': None}
+               for clip_id in arms['all' if role.startswith('reference_') or
+                                   role == 'adjudicator' else role.removeprefix('arm_')]]
+        for role in ROLES
+    }
+
+
 def prepare(video_doc, outside_sensor_events, *, source_sha256=SOURCE_SHA):
     """Create a private index + blinded task IDs; no media or human values.
 
@@ -91,11 +101,7 @@ def prepare(video_doc, outside_sensor_events, *, source_sha256=SOURCE_SHA):
     return {'schema': SCHEMA,
             'status': 'OWNER_LOCAL_PACKET_NOT_HUMAN_GOLD',
             'plan_sha256': _digest(frozen), **frozen,
-            'blind_tasks': {
-                role: [{'clip_id': clip_id, 'media_locator': None}
-                       for clip_id in arms['all' if role.startswith('reference_') or
-                                           role == 'adjudicator' else role.removeprefix('arm_')]]
-                for role in ROLES},
+            'blind_tasks': _blank_blind_tasks(arms),
             'not_for_publication': True}
 
 
@@ -131,6 +137,11 @@ def _verified_packet(packet):
     require(all(type(row) is dict and
                 set(row['selected_in']).issubset(ARMS) for row in index),
             'C17_PACKET_INDEX_INVALID')
+    # The original plan digest covers owner_index and arms. The derived,
+    # unblinded task inventory must match those frozen arms exactly; otherwise
+    # it could silently reorder/drop or add clips without changing plan_sha256.
+    require(packet.get('blind_tasks') == _blank_blind_tasks(arms),
+            'C17_BLIND_TASKS_DRIFT')
     return ids, arms
 
 
@@ -141,6 +152,7 @@ def public_plan(packet):
         'schema': SCHEMA,
         'status': 'BLIND_REVIEW_DESIGN_READY_NO_MEDIA_OR_HUMAN_MEASUREMENT',
         'source_sha256': packet['source_sha256'],
+        'source_bytes_verified_by_c17': False,
         'frozen_plan_sha256': packet['plan_sha256'],
         'denominators': {'video_annotations': len(ids),
                          'literal_enter_leave': len(arms['literal_enter_leave']),

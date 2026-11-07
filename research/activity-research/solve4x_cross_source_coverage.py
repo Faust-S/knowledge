@@ -126,7 +126,8 @@ def probe():
  result["c14_raw_reed_review"]=c14_review(
      video,sensors,raw["scene01/scene01_ui.csv"],raw_reed)
  result["c14_raw_reed_sha256"]=sha256(raw_reed).hexdigest()
- from solve4x_source_bound_handoff import prepare_owner_local, public_summary
+ from solve4x_source_bound_handoff import (
+     prepare_owner_local, public_summary, reconcile_with_existing_reports)
  owner_packet=prepare_owner_local(
      raw["scene01/scene01_video_ocel.json"],
      raw["scene01/scene01_sensors_ocel.json"],
@@ -148,6 +149,9 @@ def probe():
           verified["same_human_action"]=="UNKNOWN","HANDOFF_LOCATOR_REPLAY_HOLD")
  result["c12_c16_source_bound_handoff"]=public_summary(
      owner_packet,source_files=owner_files)
+ result["c12_c16_source_bound_handoff"]["review_scope"]=(
+     reconcile_with_existing_reports(
+         owner_packet,result["c13_review_episodes"],result["c14_raw_reed_review"]))
  ensure(result["c12_c16_source_bound_handoff"]["episode_count"]==3 and
         result["c12_c16_source_bound_handoff"]["video_baseline_counts"]==
         {"all":23,"literal_enter_leave":6,"reed_closed_after_end_5s":3},
