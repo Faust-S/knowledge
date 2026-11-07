@@ -24,6 +24,54 @@ docker ps --filter name=iwxa-m3-review
 
 Далее используйте существующий `--create-isolated-pair --confirm-local-import`, затем `--preflight-isolated-reviewers`, два индивидуальных `--export-single-reviewed-project` и исходный `owner_review_cycle.py` из следующих разделов **строго на неизменённом owner-local наборе 8/8**. Отдельные volume решают проблему хранения и изоляции проектов на уровне установок; они **не доказывают** независимость двух людей или отсутствие обмена ответами. При недоступности Docker, неподтверждённых учётных данных, несовпадении ID/блобов или отсутствии настоящих специалистов возвращайтесь к `HOLD`, не создавайте синтетические Human Gold.
 
+## Windows PowerShell: существующий маршрут M3 без Unix-путей
+
+Для Windows установлены **два различных** понятия: Docker хранит проекты в именованных томах (команды выше), а `/PRIVATE/...` в остальных примерах означает **приватную директорию вне Git checkout**, а не обязательный путь в Windows. PowerShell не использует обратный слеш `\` как перенос аргументов Bash. Ниже — однострочные вызовы **тех же существующих Python CLI**, без новых адаптеров. Примерные `C:\IWXA\...` пути заменить своими фактическими каталогами. Команды предполагают, что контейнеры A/B уже запущены и оба локальных API доступны.
+
+```powershell
+$owner = 'C:\IWXA\iwxa'
+$public = 'C:\IWXA\knowledge'
+$private = 'C:\IWXA-Private\M3'
+New-Item -ItemType Directory -Force -Path $private | Out-Null
+$packet = Join-Path $private 'e5-envelope.json'
+$import = Join-Path $private 'labelstudio-import.json'
+$method = Join-Path $private 'u1-method-spans.json'
+$xml = Join-Path $private 'TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml'
+
+Push-Location (Join-Path $owner 'knowledge\task-catalog')
+try {
+    python -m engine.research.task_exp_01_real_slice --restricted-output $packet --restricted-import-output $import --restricted-method-output $method --confirm-local-source-review
+    if ($LASTEXITCODE -ne 0) { throw 'M3 owner source replay HOLD' }
+} finally { Pop-Location }
+
+Copy-Item -LiteralPath (Join-Path $owner 'knowledge\task-catalog\engine\research\TASK_EXP_01_LABEL_STUDIO_SOURCE_FIRST.xml') -Destination $xml -ErrorAction Stop
+
+if (-not $env:LABEL_STUDIO_API_KEY -or -not $env:LABEL_STUDIO_SECOND_API_KEY) {
+    throw 'M3 reviewer credentials are not configured in this private session'
+}
+Push-Location $public
+try {
+    $pairJson = python research/task-discovery/labelstudio_project_setup.py --tasks $import --owner-label-config $xml --url http://127.0.0.1:8080 --other-url http://127.0.0.1:8081 --create-isolated-pair --confirm-local-import
+    if ($LASTEXITCODE -ne 0) { throw 'M3 isolated pair HOLD; inspect partial project IDs before retry' }
+    $pair = $pairJson | ConvertFrom-Json
+    if ($pair.status -ne 'TWO_LOCAL_ISOLATED_SOURCE_FIRST_PROJECTS_READY_NOT_GOLD') { throw 'M3 pair not qualified' }
+    $preflightJson = python research/task-discovery/labelstudio_project_setup.py --tasks $import --owner-label-config $xml --url http://127.0.0.1:8080 --project-id $pair.project_a_id --other-url http://127.0.0.1:8081 --other-project-id $pair.project_b_id --preflight-isolated-reviewers
+    if ($LASTEXITCODE -ne 0) { throw 'M3 reviewer preflight HOLD' }
+    $preflightJson | ConvertFrom-Json | Select-Object status, sources_each, human_gold
+} finally { Pop-Location }
+```
+
+Перед этим кодом оператор должен разрешить **локальную** работу с закреплёнными публичными исходниками, обеспечить два реально раздельных экземпляра и получить API-токен каждого **настоящего** специалиста в его разрешённой среде; секреты не записывать в Git, журналы команд, сообщения и отчёты. `$pair.project_a_id` и `$pair.project_b_id` — реальные ID, полученные в текущем запуске; их надо сохранить локально, но **не** создавать новый проект при повторном запуске только ради их восстановления. Исходная XML проверяется собственным SHA и persisted-form readback. При повторном запуске генератор не должен перезаписывать уже созданные защищённые пакеты; использовать существующие проверенные файлы.
+
+После фактической независимой разметки 8+8 **каждый** специалист выполняет `--export-single-reviewed-project` из своего отдельного сеанса PowerShell, где `LABEL_STUDIO_API_KEY` соответствует **его** собственному Label Studio (A: порт 8080, B: порт 8081), задаёт сохранённый `--project-id`, `--review-out` и оригинальные `--tasks`/`--owner-label-config`. Только после появления двух настоящих, неизменённых `review-a.json` и `review-b.json` оператор запускает из `$public`:
+
+```powershell
+python research/task-discovery/owner_review_cycle.py --owner-root $owner --source-first-packet $packet --review-a (Join-Path $private 'review-a.json') --review-b (Join-Path $private 'review-b.json') --restricted-disagreements-out (Join-Path $private 'disagreements.json') --effort-out (Join-Path $private 'review-effort.json') --confirm-independent-local-review
+if ($LASTEXITCODE -ne 0) { throw 'M3 original Review Bridge / effort HOLD' }
+```
+
+Токены необходимо держать в отдельных локальных средах A/B; запускать два экспорта одним общим административным токеном **нельзя**. `owner_review_cycle.py` сверяет исходные два экспорта и передаёт их **исходному owner Review Bridge**, но не делает независимого adjudication. При одинаковых reviewer ID, изменённом источнике, неверной XML, отсутствии Docker или двух людей остановиться на `HOLD`; не подменять разметки синтетикой. Данный PowerShell-маршрут сверён **по аргументам существующих CLI**, но исполнение на Windows с реальными людьми **NOT_TESTED**.
+
 ## Контроль исходной выборки перед приглашением рецензентов
 
 **04.11.2026 — проверено 8/8.** Сравнены живые GitHub API источники с неизменённым публичным манифестом `task_exp_01_source_metadata.json` (Git blob `4ecaa74522ba1c3fa4e8851e877200c7767ad0de`). Все **8/8** совпали по SHA-256 полной текстовой проекции `title + "\\n" + body + "\\n"`, SHA-256 тела и количеству UTF-8 байтов. У **4/8** изменилось служебное `updated_at`; это не привело к изменению закреплённых текстов. Не обновлять `source_edition` из текущей метаактивности GitHub, не переотбирать выборку и не перекалибровывать уже frozen U1/regex.
