@@ -90,7 +90,9 @@ class C17LabelStudioTransport(unittest.TestCase):
         for url in ('https://example.com/clip.mp4','file:///tmp/clip.mp4',
                     '/data/local-files/?d=../secret.mp4',
                     'http://outside.example/data/local-files/?d=clip.mp4',
-                    'http://127.0.0.1/data/local-files/?d=%2e%2e/secret'):
+                    'http://127.0.0.1/data/local-files/?d=%2e%2e/secret',
+                    'http://127.0.0.1/data/local-files/?d=%252e%252e/secret',
+                    'http://127.0.0.1/data/local-files/?d=clips/a.mp4&other=1'):
             urls = dict(self.urls)
             urls[self.packet['arms']['all'][0]] = url
             with self.subTest(url=url), self.assertRaisesRegex(

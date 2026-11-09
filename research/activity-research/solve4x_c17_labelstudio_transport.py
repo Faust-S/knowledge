@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import solve4x_c17_blind_review as c17
 
@@ -44,9 +44,24 @@ def _local_media_url(url):
                     u.path.startswith('/data/local-files/') and bool(u.query))
     except ValueError:
         raise c17.ReviewHold('C17_LS_MEDIA_URL_INVALID') from None
-    path = unquote(u.path + '?' + u.query)
+    try:
+        params = parse_qs(u.query, keep_blank_values=True, strict_parsing=True)
+    except ValueError:
+        raise c17.ReviewHold('C17_LS_MEDIA_URL_INVALID') from None
     require((local_path or loopback) and not u.fragment and
-            not any(part == '..' for part in path.replace('?', '/').split('/')),
+            set(params) == {'d'} and len(params['d']) == 1,
+            'C17_LS_MEDIA_URL_INVALID')
+    media_path = params['d'][0]
+    # Decoding once misses %252e%252e. Reject any unresolved percent escapes,
+    # absolute paths, separators and parent traversal in the local-file route.
+    for _ in range(4):
+        decoded = unquote(media_path)
+        if decoded == media_path:
+            break
+        media_path = decoded
+    require(media_path and not media_path.startswith(('/', '\\')) and
+            not any(char in media_path for char in ('\\', '%', '?', '#')) and
+            all(part not in ('', '.', '..') for part in media_path.split('/')),
             'C17_LS_MEDIA_URL_INVALID')
     return url
 
