@@ -22,6 +22,9 @@ on:
       - 'research/activity-research/solve4x_c16_review_footprint.py'
       - 'research/activity-research/tests/test_solve4x_c16_review_footprint.py'
       - 'research/activity-research/solve4x_c17_blind_review.py'
+      - 'research/activity-research/solve4x_c17_labelstudio_transport.py'
+      - 'research/activity-research/solve4x_c17_labelstudio_config.xml'
+      - 'research/activity-research/tests/test_solve4x_c17_labelstudio_transport.py'
       - 'research/activity-research/tests/test_solve4x_c17_blind_review.py'
       - 'research/activity-research/solve4x_c13_episode_triage.py'
       - 'research/activity-research/tests/test_solve4x_c13_episode_triage.py'
@@ -439,6 +442,8 @@ jobs:
           command -v ffprobe
       - name: Test C17 blinded source review and conservative scoring
         run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_c17_blind_review.py' -v
+      - name: Test owner-local C17 Label Studio JSON transport (synthetic only)
+        run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_c17_labelstudio_transport.py' -v
       - name: Test C16 annotation footprint and time-cost abstention
         run: python3 -m unittest discover -s research/activity-research/tests -p 'test_solve4x_c16_review_footprint.py' -v
       - name: Test C15 room entry and exit video annotation boundaries

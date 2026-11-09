@@ -1,0 +1,9 @@
+<View>
+  <Header value="Что видно на видеозаписи? Выберите один ответ."/>
+  <Video name="video" value="$video"/>
+  <Choices name="verdict" toName="video" choice="single" showInline="true" required="true">
+    <Choice value="Вход или выход виден"/>
+    <Choice value="Вход или выход не виден"/>
+    <Choice value="Невозможно определить"/>
+  </Choices>
+</View>
