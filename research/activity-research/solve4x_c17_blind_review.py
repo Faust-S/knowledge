@@ -274,6 +274,11 @@ SOLVE4X_ZIP_CENTRAL_SHA256 = (
 # central-directory replays. A caller-controlled JSON index that merely
 # repeats the central SHA cannot prove its own member CRC/size/offset.
 # Pin the exact original MP4 member tuple before examining any local video.
+# Extracted from the *actual* Figshare ZIP member in the isolated public
+# bounded-range replay, GitHub Actions run 42598543512. Never publish frames.
+# Unlike ZIP CRC32 this is a cryptographic pin of the uncompressed MP4 bytes.
+SOLVE4X_SCENE01_MP4_SHA256 = '26a7245f91e43964b4d0478033145c5032cb6e09f3a75715bfe8d387201c72ce'
+
 SOLVE4X_SCENE01_MP4_PIN = {
     'name': 'scene01/scene01.mp4',
     'compressed_bytes': 86978890,
@@ -369,6 +374,8 @@ def verify_owner_local_media(packet, media_file, zip_index, *,
             'C17_MEDIA_SOURCE_CHANGED')
     digest = media_sha.hexdigest()
     require(f'{crc:08x}' == expected_crc32, 'C17_MEDIA_CRC_MISMATCH')
+    require(digest == SOLVE4X_SCENE01_MP4_SHA256,
+            'C17_MEDIA_ORIGINAL_SHA_MISMATCH')
     require(expected_media_sha256 is None or digest == expected_media_sha256,
             'C17_MEDIA_SHA_MISMATCH')
     # FFprobe opens the filename independently from the SHA/CRC stream.
@@ -421,6 +428,7 @@ def verify_owner_local_media(packet, media_file, zip_index, *,
         'media_file_bytes': size,
         'media_file_sha256': digest,
         'matches_pinned_zip_index_size_and_crc': True,
+        'matches_original_pinned_media_sha256': True,
         'matches_explicitly_supplied_media_sha256':
             expected_media_sha256 is not None,
         'archive_content_sha_independently_attested': False,

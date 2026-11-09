@@ -409,8 +409,13 @@ class C17BlindReview(unittest.TestCase):
             })
             patcher = patch.object(c17, 'SOLVE4X_SCENE01_MP4_PIN',
                                    synthetic_pin)
+            sha_patcher = patch.object(
+                c17, 'SOLVE4X_SCENE01_MP4_SHA256',
+                hashlib.sha256(data).hexdigest())
             patcher.start()
+            sha_patcher.start()
             self.addCleanup(patcher.stop)
+            self.addCleanup(sha_patcher.stop)
             pin = self.packet['plan_sha256']
             def check(**kwargs):
                 return c17.verify_owner_local_media(
@@ -421,6 +426,7 @@ class C17BlindReview(unittest.TestCase):
             valid = check(expected_media_sha256=hashlib.sha256(data).hexdigest())
             self.assertTrue(valid['matches_explicitly_supplied_media_sha256'])
             self.assertTrue(valid['matches_pinned_zip_index_size_and_crc'])
+            self.assertTrue(valid['matches_original_pinned_media_sha256'])
             self.assertEqual(valid['ffprobe_duration_seconds'], 2.0)
             self.assertFalse(valid['archive_content_sha_independently_attested'])
             self.assertFalse(valid['media_to_ocel_clock_calibrated'])
@@ -532,8 +538,13 @@ class C17BlindReview(unittest.TestCase):
             })
             patcher = patch.object(c17, 'SOLVE4X_SCENE01_MP4_PIN',
                                    synthetic_pin)
+            sha_patcher = patch.object(
+                c17, 'SOLVE4X_SCENE01_MP4_SHA256',
+                hashlib.sha256(original).hexdigest())
             patcher.start()
+            sha_patcher.start()
             self.addCleanup(patcher.stop)
+            self.addCleanup(sha_patcher.stop)
             actual_run = subprocess.run
 
             def replace_during_probe(*args, **kwargs):
@@ -553,6 +564,9 @@ class C17BlindReview(unittest.TestCase):
     def test_original_solve4x_member_is_pinned_independently_of_json_claims(self):
         # Fixture confirmed in two separate pinned ZIP-range Action artifacts.
         pin = c17.SOLVE4X_SCENE01_MP4_PIN
+        self.assertEqual(
+            c17.SOLVE4X_SCENE01_MP4_SHA256,
+            '26a7245f91e43964b4d0478033145c5032cb6e09f3a75715bfe8d387201c72ce')
         self.assertEqual(pin, {
             'name': 'scene01/scene01.mp4',
             'compressed_bytes': 86978890,
@@ -597,6 +611,47 @@ class C17BlindReview(unittest.TestCase):
                 with self.subTest(key=key):
                     with self.assertRaisesRegex(c17.ReviewHold, expected):
                         check(forged)
+
+    def test_original_sha_pin_cannot_be_replaced_by_matching_crc_and_size(self):
+        # Real SHA pin and ZIP member pin are independent checks. A fake
+        # uncompressed MP4 with the same synthetic CRC/size is not sufficient.
+        import hashlib
+        import shutil
+        import subprocess
+        import zlib
+        if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):
+            self.skipTest('ffmpeg/ffprobe unavailable')
+        with tempfile.TemporaryDirectory(prefix='c17-digest-pin-') as temp:
+            target = Path(temp) / 'synthetic.mp4'
+            p = subprocess.run([
+                'ffmpeg','-hide_banner','-loglevel','error',
+                '-f','lavfi','-i','color=c=black:s=160x90:r=30',
+                '-t','2','-an','-c:v','mpeg4','-y',str(target)],
+                capture_output=True,timeout=35)
+            self.assertEqual(p.returncode,0)
+            raw = target.read_bytes()
+            member = {
+                'name':'scene01/scene01.mp4',
+                'compressed_bytes':len(raw),
+                'uncompressed_bytes':len(raw),
+                'compression_method':8,
+                'zip_crc32':f'{zlib.crc32(raw):08x}',
+                'zip_local_header_offset':12345,
+            }
+            index = {
+                'schema':'IWXA_SOLVE4X_ZIP_RANGE_INDEX/0.1',
+                'status':'ZIP_RANGE_INDEX_ONLY_NOT_MULTIMODAL_REPLAY',
+                'source':{'central_sha256':c17.SOLVE4X_ZIP_CENTRAL_SHA256},
+                'target_files':[member],
+            }
+            with patch.object(c17,'SOLVE4X_SCENE01_MP4_PIN',member):
+                with self.assertRaisesRegex(
+                        c17.ReviewHold,'C17_MEDIA_ORIGINAL_SHA_MISMATCH'):
+                    c17.verify_owner_local_media(
+                        self.packet,target,index,
+                        expected_plan_sha256=self.packet['plan_sha256'],
+                        assumed_scene_start='2024-03-25T08:29:58',
+                        declared_video_duration_seconds=2.0)
 
     def test_missing_receipts_fail_closed(self):
         with self.assertRaisesRegex(c17.ReviewHold,'C17_REVIEW_RECEIPTS_INCOMPLETE'):
