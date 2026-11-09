@@ -1,5 +1,41 @@
 # IWXA TASK-EXP-01 — передача в проект «Система знаний»
 
+## Как фактически использовать разработку (Agent 0.4 и M3)
+
+**Два разных назначения.** Для человека TASK-EXP-01 переиспользуется через **экспериментальную K03-панель существующего Agent 0.4**; для исследователя M3 остаётся **отдельным owner-local научным экспериментом**. Сама лаборатория не является готовой Windows-программой, не создаёт Task, не оценивает Task precision/recall/F1 без независимого gold.
+
+### 1. Пробное использование K03 в Windows Agent 0.4
+
+Необходима **разработческая сборка Agent 0.4**, содержащая K03 UI, и публичный `knowledge` на **закреплённом K03 SHA** `8f3ce9e58723fff2d51a44cee5b63b4dd15a6441`. Встроенный Agent `runtime/k03_discovery_host.py` проверяет точные Git blob owner-файлов. Обычный установленный Agent не обязательно содержит или автоматически подключает эту функцию. Не перезаписывать уже существующие рабочие checkout:
+
+```powershell
+New-Item -ItemType Directory -Force -Path 'C:\IWXA' | Out-Null
+git clone --single-branch --branch work/2026-11-05-k03-activity-task-discovery https://github.com/Faust-S/knowledge.git C:\IWXA\knowledge-k03
+git -C C:\IWXA\knowledge-k03 checkout --detach 8f3ce9e58723fff2d51a44cee5b63b4dd15a6441
+git -C C:\IWXA\knowledge-k03 rev-parse HEAD
+[Environment]::SetEnvironmentVariable('IWXA_K03_PUBLIC_ROOT','C:\IWXA\knowledge-k03','User')
+$env:IWXA_K03_PUBLIC_ROOT = 'C:\IWXA\knowledge-k03'
+```
+
+`rev-parse HEAD` должен вернуть полный SHA выше. Переменную должен унаследовать **процесс Core**, поэтому после изменения полностью завершите Agent и Core и запустите в новом окружении; при необходимости повторно войдите в Windows. Из исходного checkout Agent 0.4 можно провести только read-only диагностический вызов (путь заменить на свой):
+
+```powershell
+Push-Location C:\IWXA\iwxa-personal-agent
+try { python -c "from runtime.k03_discovery_host import source_status; print(source_status())" }
+finally { Pop-Location }
+```
+
+Ожидается `status=AVAILABLE_PINNED_ONLY`, `task_created=false`, режимы `PINNED_SECONDARY_DESK`, `PINNED_PUBLIC_GITHUB_ISSUE` и `AUTHORIZED_TEXT_WITH_PINNED_U1`. При `K03_NOT_CONNECTED`, `K03_SOURCE_REVISION_CHANGED` и иных `NOT_CONNECTED` проверить переменную/точный checkout. **Не отключать SHA-проверки.** CLI-диагностика не доказывает доступность установленного GUI.
+
+В интерфейсе Agent 0.4: **«Ваш запрос» → «Уточнить неясную потребность»**. Для демонстрации есть закреплённый `CASE-2`, либо ссылка на **один из восьми** источников, например `https://github.com/immich-app/immich/issues/32871`. Для своих данных раскройте **«Уточнить потребность по своей заметке»**, заполните «Что нужно выяснить?» и «Разрешённый вами текст источника» (не более **128 000 UTF-8 байтов**), подтвердите разрешение на локальное исследование, нажмите **«Проверить источник и гипотезы»**. Если появились гипотезы, выберите одну, сформулируйте **«Ожидаемый результат»**, нажмите **«Добавить в существующий черновик»**. После этого самостоятельно проверьте и отправьте обычную Task, получите Result и проверьте сохранение. Кандидат не равен принятой задаче; отсутствие кандидатов допустимо. Не пытаться обрабатывать произвольные GitHub issues через pinned issue-режим.
+
+### 2. Использование M3 для доказательства качества
+
+Это **не** функция конечного пользователя: два настоящих независимых рецензента работают по **8 фиксированным source-first документам** в двух отдельных Label Studio 1.23.2 с раздельными БД; затем исходный `Faust-S/iwxa` Review Bridge и третий adjudicator. Все команды Windows PowerShell, Docker, `--create-isolated-pair`, `--export-single-reviewed-project` и `owner_review_cycle.py` находятся в существующих [M3_REVIEW_EXPORT_HANDOFF_RU.md](M3_REVIEW_EXPORT_HANDOFF_RU.md) и [OWNER_REVIEW_CYCLE_RU.md](OWNER_REVIEW_CYCLE_RU.md). Секреты, исходные приватные пакеты, разметки и reviewer ID в публичный GitHub не переносить.
+
+**Фактические границы на 09.11.2026:** TASK-EXP [159/159 PASS](https://github.com/Faust-S/knowledge/actions/runs/42404824159), K03 [76+17+12 PASS](https://github.com/Faust-S/knowledge/actions/runs/42293843117), нативный Label Studio A/B **синтетический** PASS. Подтверждённых независимых человеческих оценок `0/16`, `ADJUDICATION=PENDING`, `TASK_LEVEL_QUALITY=NOT_MEASURED`, `E5=NOT_RUN`. Установленная продуктовая цепочка Agent 0.4 K03 → Task → Result → review → restart/readback **не подтверждена**: наличие исходного UI не означает принятую функцию.
+
+
 Первичная передача: 04.11.2026. Актуализация: 09.11.2026. Продолжение действующей разработки, **не** новый Task Engine, Annotation Platform или проект с нуля.
 
 **Актуализация M3 (05.11):** действующая инструкция — [M3_REVIEW_EXPORT_HANDOFF_RU.md](M3_REVIEW_EXPORT_HANDOFF_RU.md), миграция — этот файл. Предыдущие 106/106 и 123/123 относятся к истории; **последний подтверждённый полный прогон Task Discovery — [159/159 PASS](https://github.com/Faust-S/knowledge/actions/runs/42404824159)** на `eb8cee8e22cf93404067a6a4ec5ce1b2b02aa990`; frozen pre-gold SHA PASS. Последующие коммиты общей ветки затронули только `research/activity-research/`, а не исходники TASK-EXP-01. Нативный [Label Studio 1.23.2 A/B synthetic PASS](https://github.com/Faust-S/knowledge/actions/runs/42401822171) подтверждён на предыдущем кодовом коммите `c75c5625151261dce3b15109822c1f2067acb477`. [Native Label Studio 1.23.2 synthetic HTTP](https://github.com/Faust-S/knowledge/actions/runs/41875521460) — PASS на предыдущей ревизии, не на текущем HEAD. В source-level анализаторе параллельная разработка уже исправила контроль фактического хеша cue-координат и добавила тест отказа от подмены; **не дублировать**. Старый маршрут двух проектов на одном Community Edition отменён. Это всё ещё **не** независимая человеческая экспертиза.
