@@ -18,7 +18,8 @@ const WRITE_OPS = new Set([
   "t1.putAsset", "t1.deleteAsset",
   "t1.softDeleteWorkspace", "t1.restoreWorkspace",
   "t1.purgePreview", "t1.purgeCommit", "t1.purgeCancel",
-  "t2.importCommit",
+  "t2.exportPackage", "t2.confirmExport",
+  "t2.importPreview", "t2.importCommit", "t2.importCancel",
 ]);
 
 export async function readFromLiveT2Kernel({
