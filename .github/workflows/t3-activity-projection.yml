@@ -28,4 +28,5 @@ jobs:
       - run: node --check modules/t3-activity-projection/index.mjs
       - run: node --check modules/t3-activity-projection/kernel-reader.mjs
       - run: node --check modules/t3-activity-projection/live-iwxa-client.mjs
+      - run: node --check modules/t3-activity-projection/t2-host-witness.mjs
       - run: node --test modules/t3-activity-projection/test/*.test.mjs
