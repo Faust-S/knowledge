@@ -31,7 +31,9 @@
     "test:product-browser": "node --test tests/factory2-product-kernel.browser.mjs",
     "test:studio-browser": "node --test tests/factory2-studio.browser.mjs",
     "test:first-run": "node --experimental-strip-types --test tests/first-run-workspace.test.mjs tests/first-run-epoch.test.mjs tests/static-workspace-bootstrap.test.mjs tests/t2-capability-control-plane-metadata.test.mjs tests/stage-domain-security.test.mjs tests/first-run-host-recovery.test.mjs",
-    "check:runtime": "node scripts/check-active-runtime-contract.mjs"
+    "check:runtime": "node scripts/check-active-runtime-contract.mjs",
+    "test:product:core": "node scripts/run-t3-product-core-tests.mjs",
+    "test:product:workspace": "vitest run --config vitest.t3-product.config.mjs"
   },
   "dependencies": {
     "ajv": "^8.20.0",

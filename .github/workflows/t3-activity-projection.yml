@@ -55,12 +55,22 @@ jobs:
         if: always()
         working-directory: packages/t3-core
         run: npm run check:source
-      - name: Original T2 Node core regression
+      - name: T3 product core regressions over inherited T2 code
         if: always()
         working-directory: packages/t3-core
-        run: npm run test:core
-      - name: Original T2 Workspace and DOM regressions
+        run: npm run test:product:core
+      - name: T3 product Workspace and DOM regressions
         if: always()
+        working-directory: packages/t3-core
+        run: npm run test:product:workspace
+      - name: Original T2 archival Node diagnostics (nonportable T2 metadata)
+        if: always()
+        continue-on-error: true
+        working-directory: packages/t3-core
+        run: npm run test:core
+      - name: Original T2 archival Workspace diagnostics (nonportable docs)
+        if: always()
+        continue-on-error: true
         working-directory: packages/t3-core
         run: npm run test:workspace
 
