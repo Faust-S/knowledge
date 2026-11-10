@@ -1,0 +1,113 @@
+{
+  "schema": "IWXA_T2_QUALIFIED_KERNEL_ARTIFACT_PINS_V1",
+  "artifacts": [
+    {
+      "kernel": "0.3.5",
+      "contract": "1.2.0",
+      "sourcePackageSha256": "6c35dafefab6072d19021b44bc8fa6e142aa23bbf7dceb4e23ef24bd95eac757",
+      "qualification": "product/K035_WINDOWS_LOCAL_QUALIFICATION_2026-09-19.json",
+      "files": [
+        {
+          "path": "_iwxa/loader.js",
+          "sha256": "fe8f98c259d08d0ec649f86902b4eaeb36bde9309b374ba2d8bf12b197f60083"
+        },
+        {
+          "path": "_iwxa/validator.js",
+          "sha256": "457fee8f254eb061b9184c5bfcaeb31a3348c8f8b9fc9eee4755eb6bab16eba9"
+        },
+        {
+          "path": "_iwxa/current.json",
+          "sha256": "9156525fcec23c126e372dc098aa4e7b99242924714a32102ba1d721d62610c3"
+        },
+        {
+          "path": "_iwxa/runtime/0.3.5/runtime.js",
+          "sha256": "5702d83164a4bf7157afdcf29d6408a34c6c4ef09cad1226e86569d8333c4fec"
+        }
+      ]
+    },
+    {
+      "kernel": "0.3.6",
+      "contract": "1.3.0",
+      "sourceTreeSha256": "9917c5c12790f138184100de2e7b725395fc77b1fd901c676d6e21e47acd4a1b",
+      "acceptanceLock": "product/RUNTIME_CONTRACT_1_3_0_K036_ATOMIC_GRAPH_ACCEPTANCE_LOCK_2026-10-07.json",
+      "qualification": "product/D06_REMAINING_LIMITATIONS_LOCAL_QUALIFICATION_2026-10-07.json",
+      "files": [
+        {
+          "path": "_iwxa/loader.js",
+          "sha256": "f38f9e716dab71b37b41d74864a55f69d064eacb85ed8a43adbd234376f30126"
+        },
+        {
+          "path": "_iwxa/validator.js",
+          "sha256": "457fee8f254eb061b9184c5bfcaeb31a3348c8f8b9fc9eee4755eb6bab16eba9"
+        },
+        {
+          "path": "_iwxa/current.json",
+          "sha256": "862e003a1b932e7ba20fa06a950404b4c565258e80c77365902b8e718847ee13"
+        },
+        {
+          "path": "_iwxa/runtime/0.3.6/runtime.js",
+          "sha256": "31c046796400d8c6074510d2ee113331a085f0aadf71bed3aa5507cc10502b06"
+        }
+      ]
+    },
+    {
+      "artifactId": "iwxa-kernel-k036-import-timestamp-20261018-qualified.1",
+      "kernel": "0.3.6",
+      "contract": "1.3.0",
+      "runtimeInternalVersion": "0.3.6",
+      "releaseAccepted": true,
+      "productionActivation": false,
+      "baseSourceTreeSha256": "9917c5c12790f138184100de2e7b725395fc77b1fd901c676d6e21e47acd4a1b",
+      "patchedCommitSourceSha256": "c6628836b5f7d1b39432cf52889976378cda798183eea58ecf2619dcac4c3d0f",
+      "archiveSha256": "3db58051e93004012a00a8630ba2e296be937aaf3b5afb3fd3e2f3b6b6d4ccbc",
+      "qualification": "kernel-successors/k036-import-timestamp-20261018/QUALIFICATION.md",
+      "files": [
+        {
+          "path": "_iwxa/loader.js",
+          "sha256": "f38f9e716dab71b37b41d74864a55f69d064eacb85ed8a43adbd234376f30126"
+        },
+        {
+          "path": "_iwxa/validator.js",
+          "sha256": "457fee8f254eb061b9184c5bfcaeb31a3348c8f8b9fc9eee4755eb6bab16eba9"
+        },
+        {
+          "path": "_iwxa/current.json",
+          "sha256": "862e003a1b932e7ba20fa06a950404b4c565258e80c77365902b8e718847ee13"
+        },
+        {
+          "path": "_iwxa/runtime/0.3.6/runtime.js",
+          "sha256": "3d6940cb24042412ba2664e45c84737c9fcb3e5be4c557802a29f9680d1df534"
+        }
+      ]
+    },
+    {
+      "artifactId": "iwxa-kernel-k036-same-store-history-20261019-qualified.1",
+      "kernel": "0.3.6",
+      "contract": "1.3.0",
+      "runtimeInternalVersion": "0.3.6",
+      "releaseAccepted": true,
+      "productionActivation": false,
+      "baseSourceTreeSha256": "9917c5c12790f138184100de2e7b725395fc77b1fd901c676d6e21e47acd4a1b",
+      "archiveSha256": "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68",
+      "qualification": "kernel-successors/k036-same-store-event-history-20261019/QUALIFICATION.md",
+      "files": [
+        {
+          "path": "_iwxa/loader.js",
+          "sha256": "f38f9e716dab71b37b41d74864a55f69d064eacb85ed8a43adbd234376f30126"
+        },
+        {
+          "path": "_iwxa/validator.js",
+          "sha256": "457fee8f254eb061b9184c5bfcaeb31a3348c8f8b9fc9eee4755eb6bab16eba9"
+        },
+        {
+          "path": "_iwxa/current.json",
+          "sha256": "862e003a1b932e7ba20fa06a950404b4c565258e80c77365902b8e718847ee13"
+        },
+        {
+          "path": "_iwxa/runtime/0.3.6/runtime.js",
+          "sha256": "e1737245aba309e900203b458087ca07cb08d9ccc89901754e1122cbc9a01e78"
+        }
+      ]
+    }
+  ]
+}

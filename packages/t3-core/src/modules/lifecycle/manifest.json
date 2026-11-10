@@ -1,0 +1,54 @@
+{
+  "module_manifest_version": "1.0.0",
+  "module_id": "iwxa.workspace.lifecycle",
+  "module_version": "0.1.0",
+  "title": "IWXA Workspace Lifecycle",
+  "compatibility": {
+    "workspace_contract": "0.1.0",
+    "runtime_contract": "1.3.0"
+  },
+  "contributions": {
+    "routes": [
+      {
+        "id": "lifecycle.home"
+      },
+      {
+        "id": "lifecycle.trash"
+      }
+    ],
+    "navigation": [
+      {
+        "id": "lifecycle.nav.trash"
+      }
+    ],
+    "editors": [],
+    "viewers": [],
+    "commands": [
+      {
+        "id": "lifecycle.soft-delete-workspace"
+      },
+      {
+        "id": "lifecycle.restore-workspace"
+      },
+      {
+        "id": "lifecycle.purge-preview"
+      },
+      {
+        "id": "lifecycle.purge-commit"
+      },
+      {
+        "id": "lifecycle.purge-cancel"
+      }
+    ],
+    "panels": [],
+    "dashboard_cards": [],
+    "validators": [],
+    "migrations": [],
+    "legacy_importers": []
+  },
+  "security": {
+    "direct_indexeddb": false,
+    "remote_code": false,
+    "iwxa_executable_payload": false
+  }
+}

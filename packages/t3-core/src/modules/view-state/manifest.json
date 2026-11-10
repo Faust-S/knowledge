@@ -1,0 +1,38 @@
+{
+  "module_manifest_version": "1.0.0",
+  "module_id": "iwxa.workspace.view-state",
+  "module_version": "0.1.0",
+  "title": "IWXA Workspace View State",
+  "compatibility": {
+    "workspace_contract": "0.1.0",
+    "runtime_contract": "1.3.0"
+  },
+  "contributions": {
+    "routes": [],
+    "navigation": [],
+    "editors": [],
+    "viewers": [],
+    "commands": [
+      {
+        "id": "workspace.view-state.save"
+      },
+      {
+        "id": "workspace.view-state.delete"
+      }
+    ],
+    "panels": [],
+    "dashboard_cards": [],
+    "validators": [
+      {
+        "id": "view-state.saved-view.schema"
+      }
+    ],
+    "migrations": [],
+    "legacy_importers": []
+  },
+  "security": {
+    "direct_indexeddb": false,
+    "remote_code": false,
+    "iwxa_executable_payload": false
+  }
+}

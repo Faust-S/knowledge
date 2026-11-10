@@ -41,3 +41,9 @@ jobs:
       - name: Run original T2 Runtime 1.3 Host facade regression
         working-directory: packages/t3-core
         run: ./node_modules/.bin/vitest run --config vitest.t3-bootstrap.config.mjs
+      - name: Check T3 core inherited TypeScript source
+        working-directory: packages/t3-core
+        run: npm run typecheck
+      - name: Build T3 core from inherited T2 source
+        working-directory: packages/t3-core
+        run: npm run build

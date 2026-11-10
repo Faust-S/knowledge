@@ -1,0 +1,211 @@
+{
+  "module_manifest_version": "1.0.0",
+  "module_id": "iwxa.workspace.base",
+  "module_version": "0.1.0",
+  "title": "IWXA Workspace Base",
+  "compatibility": {
+    "workspace_contract": "0.1.0",
+    "runtime_contract": "1.3.0"
+  },
+  "contributions": {
+    "routes": [
+      {
+        "id": "base.home"
+      },
+      {
+        "id": "base.workspaces"
+      },
+      {
+        "id": "base.workspace"
+      },
+      {
+        "id": "base.object"
+      },
+      {
+        "id": "base.activity"
+      },
+      {
+        "id": "base.diagnostics"
+      }
+    ],
+    "navigation": [
+      {
+        "id": "base.nav.home"
+      },
+      {
+        "id": "base.nav.workspaces"
+      },
+      {
+        "id": "base.nav.activity"
+      },
+      {
+        "id": "base.nav.diagnostics"
+      }
+    ],
+    "editors": [],
+    "viewers": [
+      {
+        "id": "builtin.generic.note.preview"
+      },
+      {
+        "id": "builtin.generic.note.detail"
+      },
+      {
+        "id": "builtin.generic.deck.preview"
+      },
+      {
+        "id": "builtin.generic.deck.detail"
+      },
+      {
+        "id": "builtin.generic.project.preview"
+      },
+      {
+        "id": "builtin.generic.project.detail"
+      },
+      {
+        "id": "builtin.personal.role.preview"
+      },
+      {
+        "id": "builtin.personal.role.detail"
+      },
+      {
+        "id": "builtin.personal.goal.preview"
+      },
+      {
+        "id": "builtin.personal.goal.detail"
+      },
+      {
+        "id": "builtin.personal.project.preview"
+      },
+      {
+        "id": "builtin.personal.project.detail"
+      },
+      {
+        "id": "builtin.personal.evidence.preview"
+      },
+      {
+        "id": "builtin.personal.evidence.detail"
+      },
+      {
+        "id": "builtin.personal.activity-event.preview"
+      },
+      {
+        "id": "builtin.personal.activity-event.detail"
+      },
+      {
+        "id": "builtin.learning.learning-goal.preview"
+      },
+      {
+        "id": "builtin.learning.learning-goal.detail"
+      },
+      {
+        "id": "builtin.learning.competency.preview"
+      },
+      {
+        "id": "builtin.learning.competency.detail"
+      },
+      {
+        "id": "builtin.learning.competency-gap.preview"
+      },
+      {
+        "id": "builtin.learning.competency-gap.detail"
+      },
+      {
+        "id": "builtin.learning.career-route.preview"
+      },
+      {
+        "id": "builtin.learning.career-route.detail"
+      },
+      {
+        "id": "builtin.learning.learning-route.preview"
+      },
+      {
+        "id": "builtin.learning.learning-route.detail"
+      },
+      {
+        "id": "builtin.learning.task.preview"
+      },
+      {
+        "id": "builtin.learning.task.detail"
+      },
+      {
+        "id": "builtin.learning.practice-result.preview"
+      },
+      {
+        "id": "builtin.learning.practice-result.detail"
+      },
+      {
+        "id": "builtin.learning.reflection.preview"
+      },
+      {
+        "id": "builtin.learning.reflection.detail"
+      },
+      {
+        "id": "builtin.organization.diagnostic-case.preview"
+      },
+      {
+        "id": "builtin.organization.diagnostic-case.detail"
+      },
+      {
+        "id": "builtin.organization.analytical-result.preview"
+      },
+      {
+        "id": "builtin.organization.analytical-result.detail"
+      },
+      {
+        "id": "builtin.organization.finding.preview"
+      },
+      {
+        "id": "builtin.organization.finding.detail"
+      },
+      {
+        "id": "builtin.organization.risk.preview"
+      },
+      {
+        "id": "builtin.organization.risk.detail"
+      },
+      {
+        "id": "builtin.organization.action.preview"
+      },
+      {
+        "id": "builtin.organization.action.detail"
+      },
+      {
+        "id": "builtin.organization.process.preview"
+      },
+      {
+        "id": "builtin.organization.process.detail"
+      },
+      {
+        "id": "builtin.organization.route.preview"
+      },
+      {
+        "id": "builtin.organization.route.detail"
+      },
+      {
+        "id": "builtin.health.sensitive-object.preview"
+      },
+      {
+        "id": "builtin.health.sensitive-object.detail"
+      }
+    ],
+    "commands": [
+      {
+        "id": "workspace.catalog.refresh"
+      },
+      {
+        "id": "workspace.focus.select"
+      }
+    ],
+    "panels": [],
+    "dashboard_cards": [],
+    "validators": [],
+    "migrations": [],
+    "legacy_importers": []
+  },
+  "security": {
+    "direct_indexeddb": false,
+    "remote_code": false,
+    "iwxa_executable_payload": false
+  }
+}
