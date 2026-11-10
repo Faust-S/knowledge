@@ -67,7 +67,7 @@ for (const path of paths) {
       payload.packages[""].name=payload.name;
       payload.packages[""].version=payload.version;
     }
-    bytes=Buffer.from(JSON.stringify(payload,null,2)+"\\n");
+    bytes=Buffer.from(JSON.stringify(payload,null,2)+"\n");
   }
   const digest=sha(bytes);
   if (/(-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|github_pat_[A-Za-z0-9_]{15}|ghp_[A-Za-z0-9]{20})/.test(bytes.toString("utf8"))) {
