@@ -1,0 +1,14 @@
+{
+  "id": "obj-gap-1",
+  "type": "competency-gap",
+  "workspaceId": "ws-learn",
+  "createdAt": "2026-07-01T10:00:00.000Z",
+  "updatedAt": "2026-07-15T10:00:00.000Z",
+  "data": {
+    "title": "Оконные функции — дефицит",
+    "summary": "Проваленные задачи на ranking в последней сессии.",
+    "delta": 2,
+    "competencyId": "obj-comp-1",
+    "source": "practice"
+  }
+}

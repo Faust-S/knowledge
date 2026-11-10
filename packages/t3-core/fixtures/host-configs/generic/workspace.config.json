@@ -1,0 +1,109 @@
+{
+  "workspace_config_schema_version": "1.0.0",
+  "config_version": "0.20.0-synthetic",
+  "domain_id": "synthetic.generic",
+  "workspace_service_id": "synthetic.generic.workspace",
+  "base_path": "/workspace/",
+  "profile": "generic",
+  "shell_config_path": "/_iwxa/domain-shell.json",
+  "host": {
+    "required_contract_version": "1.3.0",
+    "required_runtime_version": "0.3.6",
+    "local_store_name": "iwxa-local",
+    "storage_access": "iwxa-client-only",
+    "direct_indexeddb": false
+  },
+  "module_loading": {
+    "strategy": "compile-time-registry",
+    "allow_remote_modules": false,
+    "lazy_loading": "dynamic-import",
+    "unknown_module_policy": "disable-with-diagnostics"
+  },
+  "navigation": {
+    "home_path": "/workspace/",
+    "back_to_domain_path": "/",
+    "inherit_domain_navigation": true,
+    "route_references": "opaque"
+  },
+  "terminology": {},
+  "modules": [
+    {
+      "module_id": "iwxa.workspace.base",
+      "state": "active",
+      "ui_mode": "standard",
+      "route_base": "/workspace/",
+      "slots": [
+        "main"
+      ],
+      "required_levels": [
+        "T0"
+      ],
+      "required_operations": [],
+      "object_schemas": [],
+      "dependencies": []
+    },
+    {
+      "module_id": "iwxa.workspace.exchange",
+      "state": "active",
+      "ui_mode": "standard",
+      "route_base": "/workspace/exchange/",
+      "slots": [],
+      "required_levels": [
+        "T2"
+      ],
+      "required_operations": [],
+      "object_schemas": [],
+      "dependencies": [
+        "iwxa.workspace.base"
+      ]
+    },
+    {
+      "module_id": "iwxa.workspace.lifecycle",
+      "state": "active",
+      "ui_mode": "standard",
+      "route_base": "/workspace/lifecycle/",
+      "slots": [],
+      "required_levels": [
+        "T1"
+      ],
+      "required_operations": [],
+      "object_schemas": [],
+      "dependencies": [
+        "iwxa.workspace.base"
+      ]
+    },
+    {
+      "module_id": "iwxa.workspace.view-state",
+      "state": "active",
+      "ui_mode": "background",
+      "route_base": "/workspace/",
+      "slots": [],
+      "required_levels": [
+        "T1"
+      ],
+      "required_operations": [],
+      "object_schemas": [
+        "iwxa.workspace.internal.saved-view"
+      ],
+      "dependencies": [
+        "iwxa.workspace.base"
+      ]
+    }
+  ],
+  "unknown_objects": {
+    "preserve": true,
+    "viewer": "generic-inspector",
+    "editing": "read-only"
+  },
+  "security": {
+    "trusted_build_modules_only": true,
+    "module_direct_indexeddb": false,
+    "executable_code_in_iwxa": false,
+    "remote_module_urls": false
+  },
+  "release": {
+    "build_strategy": "per-domain-static-build",
+    "exclude_test_harness": true,
+    "exclude_unconfigured_modules": true
+  }
+}

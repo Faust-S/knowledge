@@ -1,0 +1,16 @@
+{
+  "id": "obj-practice-1",
+  "type": "practice-result",
+  "workspaceId": "ws-learn",
+  "createdAt": "2026-07-14T18:00:00.000Z",
+  "updatedAt": "2026-07-14T18:22:00.000Z",
+  "data": {
+    "title": "Практика · ranking",
+    "accuracy": 0.72,
+    "itemsAttempted": 25,
+    "itemsCorrect": 18,
+    "durationSeconds": 1320,
+    "finishedAt": "2026-07-14T18:22:00.000Z",
+    "targetId": "obj-comp-1"
+  }
+}

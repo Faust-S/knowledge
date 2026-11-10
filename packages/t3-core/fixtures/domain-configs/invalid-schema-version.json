@@ -1,0 +1,12 @@
+{
+  "config_schema_version": "1.1.0",
+  "domain_id": "synthetic.bad-version",
+  "origin": "https://badversion.example.test",
+  "local_store_name": "iwxa-local",
+  "workspace_profile": "generic",
+  "brand": "Synthetic Bad Version",
+  "modules": [
+    { "service_id": "synthetic.bad-version.workspace", "base_path": "/workspace/" }
+  ],
+  "enabled_capabilities": ["T0"]
+}

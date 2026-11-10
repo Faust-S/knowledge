@@ -1,0 +1,14 @@
+{
+  "id": "obj-comp-1",
+  "type": "competency",
+  "workspaceId": "ws-learn",
+  "createdAt": "2026-06-01T09:05:00.000Z",
+  "updatedAt": "2026-07-10T18:00:00.000Z",
+  "data": {
+    "title": "SQL — оконные функции",
+    "domain": "data",
+    "level": 2,
+    "target": 4,
+    "description": "Уметь писать оконные агрегаты, ranking и running totals."
+  }
+}

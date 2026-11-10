@@ -1,0 +1,12 @@
+{
+  "config_schema_version": "1.0.0",
+  "domain_id": "synthetic.personal",
+  "origin": "https://personal.example.test",
+  "local_store_name": "iwxa-local",
+  "workspace_profile": "personal",
+  "brand": "Synthetic Personal",
+  "modules": [
+    { "service_id": "synthetic.personal.workspace", "base_path": "/workspace/" }
+  ],
+  "enabled_capabilities": ["T0", "T1"]
+}

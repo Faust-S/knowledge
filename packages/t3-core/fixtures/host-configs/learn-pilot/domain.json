@@ -1,0 +1,86 @@
+{
+  "config_schema_version": "1.0.0",
+  "config_version": "final-t2-learn-pilot-0.1.0",
+  "status": "pilot-candidate",
+  "domain_id": "ru.iwxa.learn",
+  "origin": "https://learn.iwxa.ru",
+  "local_store_name": "iwxa-local",
+  "workspace_profile": "learning",
+  "brand": "IWXA Learn",
+  "runtime": {
+    "kernel_release": "0.3.6",
+    "runtime_version": "0.3.6",
+    "local_store_version": "1.0.0",
+    "package_version": "1.2.0",
+    "current_manifest_path": "/_iwxa/current-manifest.json"
+  },
+  "modules": [
+    {
+      "service_id": "ru.iwxa.learn.main",
+      "base_path": "/"
+    },
+    {
+      "service_id": "ru.iwxa.learn.workspace",
+      "base_path": "/workspace/"
+    },
+    {
+      "service_id": "ru.iwxa.learn.study",
+      "base_path": "/study/"
+    },
+    {
+      "service_id": "ru.iwxa.learn.practice",
+      "base_path": "/practice/"
+    },
+    {
+      "service_id": "ru.iwxa.learn.lad",
+      "base_path": "/lad/"
+    },
+    {
+      "service_id": "ru.iwxa.learn.career",
+      "base_path": "/career/"
+    },
+    {
+      "service_id": "ru.iwxa.learn.calculators",
+      "base_path": "/calculators/"
+    }
+  ],
+  "enabled_profiles": [
+    "learning"
+  ],
+  "enabled_capabilities": [
+    "T0",
+    "T1",
+    "T2"
+  ],
+  "handoff": {
+    "enabled": false,
+    "receive_path": "/_iwxa/handoff",
+    "allowed_origins": [],
+    "require_preview": true,
+    "default_expiry_seconds": 0
+  },
+  "service_worker": {
+    "mode": "disabled",
+    "future_path": "/_iwxa/sw.js",
+    "future_scope": "/"
+  },
+  "diagnostics": {
+    "enabled": true,
+    "path": "/_iwxa/diagnostics"
+  },
+  "security": {
+    "allow_secrets": false,
+    "publish_source_maps": false,
+    "directory_listing": false,
+    "robots_indexing": false,
+    "direct_indexeddb_for_modules": false,
+    "module_service_worker": false,
+    "allowed_object_classes": []
+  },
+  "release": {
+    "deployment_mode": "static",
+    "preserve_paths": [],
+    "release_must_exclude": [],
+    "backup_before_upload": true
+  }
+}

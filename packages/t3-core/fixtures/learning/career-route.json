@@ -1,0 +1,19 @@
+{
+  "id": "obj-career-1",
+  "type": "career-route",
+  "workspaceId": "ws-learn",
+  "createdAt": "2026-05-20T09:00:00.000Z",
+  "updatedAt": "2026-07-01T09:00:00.000Z",
+  "data": {
+    "title": "Data Engineer · Junior → Middle",
+    "role": "Data Engineer",
+    "employer": "generic",
+    "description": "Целевая роль на 12 месяцев с фокусом на batch-пайплайны и SQL.",
+    "milestones": [
+      "Junior offer",
+      "Первый прод-пайплайн",
+      "Ownership витрины",
+      "Middle grade review"
+    ]
+  }
+}

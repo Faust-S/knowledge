@@ -1,0 +1,14 @@
+{
+  "id": "obj-reflect-1",
+  "type": "reflection",
+  "workspaceId": "ws-learn",
+  "createdAt": "2026-07-14T20:00:00.000Z",
+  "updatedAt": "2026-07-14T20:00:00.000Z",
+  "data": {
+    "title": "После практики",
+    "body": "Оконные функции наконец укладываются, но PARTITION BY по нескольким полям всё ещё ломает картину.",
+    "mood": "neutral",
+    "writtenAt": "2026-07-14T20:00:00.000Z",
+    "aboutId": "obj-practice-1"
+  }
+}

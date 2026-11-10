@@ -1,0 +1,14 @@
+{
+  "id": "obj-goal-1",
+  "type": "learning-goal",
+  "workspaceId": "ws-learn",
+  "createdAt": "2026-06-01T09:00:00.000Z",
+  "updatedAt": "2026-07-15T12:00:00.000Z",
+  "data": {
+    "title": "Стать junior data-инженером",
+    "summary": "Освоить построение и сопровождение пайплайнов на Python + SQL за 3 месяца.",
+    "confidence": 0.6,
+    "horizon": "3 месяца",
+    "tags": ["data", "python", "sql"]
+  }
+}

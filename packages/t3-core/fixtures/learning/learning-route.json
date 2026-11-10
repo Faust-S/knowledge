@@ -1,0 +1,18 @@
+{
+  "id": "obj-lroute-1",
+  "type": "learning-route",
+  "workspaceId": "ws-learn",
+  "createdAt": "2026-07-05T09:00:00.000Z",
+  "updatedAt": "2026-07-15T09:00:00.000Z",
+  "data": {
+    "title": "Оконные функции — 2 недели",
+    "goalId": "obj-goal-1",
+    "gapIds": ["obj-gap-1"],
+    "totalMinutes": 480,
+    "steps": [
+      { "title": "Теория: ROW_NUMBER / RANK", "kind": "read", "estimateMinutes": 60 },
+      { "title": "Практика: 20 задач ranking", "kind": "practice", "estimateMinutes": 180 },
+      { "title": "Проект: витрина retention", "kind": "project", "estimateMinutes": 240 }
+    ]
+  }
+}

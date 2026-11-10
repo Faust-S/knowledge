@@ -1,0 +1,15 @@
+{
+  "id": "obj-task-1",
+  "type": "task",
+  "workspaceId": "ws-learn",
+  "createdAt": "2026-07-05T09:10:00.000Z",
+  "updatedAt": "2026-07-14T09:00:00.000Z",
+  "data": {
+    "title": "Задачи ranking · день 3",
+    "status": "doing",
+    "routeId": "obj-lroute-1",
+    "goalId": "obj-goal-1",
+    "dueAt": "2026-07-21T00:00:00.000Z",
+    "notes": "Фокус на PARTITION BY department."
+  }
+}

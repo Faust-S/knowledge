@@ -28,6 +28,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: node --check tools/import-qualified-t2.mjs
       - run: node --check packages/t3-core/src/t3/index.mjs
       - run: node --check packages/t3-core/src/t3/activity/index.mjs
       - run: node --check packages/t3-core/src/t3/activity/kernel-reader.mjs

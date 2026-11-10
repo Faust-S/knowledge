@@ -1,0 +1,13 @@
+{
+  "config_schema_version": "1.0.0",
+  "domain_id": "synthetic.learning",
+  "origin": "https://learning.example.test",
+  "local_store_name": "iwxa-local",
+  "workspace_profile": "learning",
+  "brand": "Synthetic Learning",
+  "modules": [
+    { "service_id": "synthetic.learning.workspace", "base_path": "/workspace/" },
+    { "service_id": "synthetic.learning.lms", "base_path": "/lms/", "title": "Управление обучением" }
+  ],
+  "enabled_capabilities": ["T0", "T1", "T2"]
+}

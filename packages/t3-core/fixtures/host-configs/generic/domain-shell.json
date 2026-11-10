@@ -1,0 +1,58 @@
+{
+  "shell_schema_version": "1.0.0",
+  "config_version": "0.20.0-synthetic",
+  "domain_id": "synthetic.generic",
+  "origin": "https://synthetic.iwxa.dev",
+  "brand": {
+    "name": "IWXA Universal Workspace",
+    "short_name": "IWXA",
+    "descriptor": "Универсальная рабочая область IWXA",
+    "home_path": "/",
+    "logo_path": "/_iwxa/brand/logo.svg",
+    "favicon_path": "/favicon.ico"
+  },
+  "theme": {
+    "theme_id": "iwxa-default",
+    "tokens_path": "/_iwxa/tokens.css",
+    "font_loading": "system-stack",
+    "supports_dark_mode": true
+  },
+  "layout": {
+    "header_variant": "domain",
+    "footer_variant": "domain",
+    "content_width": "wide",
+    "density": "comfortable",
+    "workspace_chrome": "integrated",
+    "mobile_navigation": "drawer"
+  },
+  "navigation": {
+    "active_route_strategy": "longest-prefix",
+    "breadcrumbs": true,
+    "primary": [
+      {
+        "id": "workspace",
+        "label": "Workspace",
+        "path": "/workspace/",
+        "order": 0,
+        "kind": "workspace",
+        "match_prefix": "/workspace/"
+      }
+    ],
+    "utility": []
+  },
+  "workspace_entry": {
+    "id": "workspace",
+    "label": "Workspace",
+    "path": "/workspace/",
+    "placement": "primary"
+  },
+  "accessibility": {
+    "focus_visible": true,
+    "reduced_motion": "respect-system",
+    "minimum_contrast": "WCAG-AA"
+  },
+  "release": {
+    "host_owned": true,
+    "preserve_on_kernel_overlay": true
+  }
+}

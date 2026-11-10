@@ -13,6 +13,7 @@ const PIN_HEAD = "9c64951cd78411283e8a416641c36d71e169fc1d";
 const PIN_TREE = "56e55a9458aeb3ce540ef87dbc2dd9549ae2fcb2";
 const UPSTREAM_ROOT = "t2/current/final-successor/canonical-source/";
 const CODE_FOLDERS = ["src/", "tests/", "scripts/", "fixtures/", "public/"];
+const NON_PUBLIC_TEST_KEYS = new Set(["scripts/real-kernel-e2e.mjs"]);
 const ROOT_FILES = new Set([
   ".gitignore", "package.json", "package-lock.json", "tsconfig.json",
   "eslint.config.mjs", "vite.config.ts", "vitest.config.ts",
@@ -28,6 +29,7 @@ function safeInside(root, path) {
   return r.length>0 && r!==".." && !r.startsWith(".."+sep) && !isAbsolute(r);
 }
 function selectable(path) {
+  if (NON_PUBLIC_TEST_KEYS.has(path)) return false;
   if (path.endsWith(".md") || path.startsWith("docs/")) return false;
   if (ROOT_FILES.has(path)) return true;
   return CODE_FOLDERS.some(folder=>path.startsWith(folder));
@@ -70,7 +72,7 @@ for (const path of paths) {
     bytes=Buffer.from(JSON.stringify(payload,null,2)+"\n");
   }
   const digest=sha(bytes);
-  if (/(-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|github_pat_[A-Za-z0-9_]{15}|ghp_[A-Za-z0-9]{20})/.test(bytes.toString("utf8"))) {
+  if (/(-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|github_pat_[A-Za-z0-9_]{15}|ghp_[A-Za-z0-9]{20}|LOOPBACK_TLS_KEY_DER_B64)/.test(bytes.toString("utf8"))) {
     unsafe++;continue;
   }
   if (existsSync(to)) {

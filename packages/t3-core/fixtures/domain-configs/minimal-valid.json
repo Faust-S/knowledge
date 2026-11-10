@@ -1,0 +1,12 @@
+{
+  "config_schema_version": "1.0.0",
+  "domain_id": "synthetic.minimal",
+  "origin": "https://minimal.example.test",
+  "local_store_name": "iwxa-local",
+  "workspace_profile": "generic",
+  "brand": "Synthetic Minimal",
+  "modules": [
+    { "service_id": "synthetic.minimal.workspace", "base_path": "/workspace/" }
+  ],
+  "enabled_capabilities": ["T0"]
+}

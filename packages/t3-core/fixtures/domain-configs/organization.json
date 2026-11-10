@@ -1,0 +1,13 @@
+{
+  "config_schema_version": "1.0.0",
+  "domain_id": "synthetic.organization",
+  "origin": "https://organization.example.test",
+  "local_store_name": "iwxa-local",
+  "workspace_profile": "organization",
+  "brand": "Synthetic Organization",
+  "modules": [
+    { "service_id": "synthetic.organization.workspace", "base_path": "/workspace/" },
+    { "service_id": "synthetic.organization.admin",     "base_path": "/admin/" }
+  ],
+  "enabled_capabilities": ["T0", "T1", "T2"]
+}

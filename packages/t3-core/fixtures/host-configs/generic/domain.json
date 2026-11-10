@@ -1,0 +1,61 @@
+{
+  "config_schema_version": "1.0.0",
+  "config_version": "0.20.0-synthetic",
+  "status": "synthetic-dev",
+  "domain_id": "synthetic.generic",
+  "origin": "https://synthetic.iwxa.dev",
+  "local_store_name": "iwxa-local",
+  "workspace_profile": "generic",
+  "brand": "IWXA Universal Workspace",
+  "runtime": {
+    "kernel_release": "1.0.0-synthetic",
+    "runtime_version": "0.3.6",
+    "local_store_version": "1.0.0",
+    "package_version": "1.2.0",
+    "current_manifest_path": "/_iwxa/current-manifest.json"
+  },
+  "modules": [
+    {
+      "service_id": "synthetic.generic.workspace",
+      "base_path": "/workspace/"
+    }
+  ],
+  "enabled_profiles": [
+    "generic"
+  ],
+  "enabled_capabilities": [
+    "T0",
+    "T1"
+  ],
+  "handoff": {
+    "enabled": false,
+    "receive_path": "/_iwxa/handoff",
+    "allowed_origins": [],
+    "require_preview": true,
+    "default_expiry_seconds": 0
+  },
+  "service_worker": {
+    "mode": "disabled",
+    "future_path": "/_iwxa/sw.js",
+    "future_scope": "/"
+  },
+  "diagnostics": {
+    "enabled": true,
+    "path": "/_iwxa/diagnostics"
+  },
+  "security": {
+    "allow_secrets": false,
+    "publish_source_maps": false,
+    "directory_listing": false,
+    "robots_indexing": false,
+    "direct_indexeddb_for_modules": false,
+    "module_service_worker": false,
+    "allowed_object_classes": []
+  },
+  "release": {
+    "deployment_mode": "static",
+    "preserve_paths": [],
+    "release_must_exclude": [],
+    "backup_before_upload": true
+  }
+}

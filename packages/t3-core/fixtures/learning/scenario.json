@@ -1,0 +1,13 @@
+{
+  "workspaceId": "ws-learn",
+  "objects": [
+    "./learning-goal.json",
+    "./competency.json",
+    "./competency-gap.json",
+    "./career-route.json",
+    "./learning-route.json",
+    "./task.json",
+    "./practice-result.json",
+    "./reflection.json"
+  ]
+}
