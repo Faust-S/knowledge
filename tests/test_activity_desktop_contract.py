@@ -1,0 +1,79 @@
+"""Open-only checks for the standalone synthetic desktop and Setup Core profile."""
+from __future__ import annotations
+import json
+import re
+import unittest
+from pathlib import Path
+from xml.etree import ElementTree
+
+ROOT = Path(__file__).resolve().parents[1]
+DESKTOP = ROOT / "desktop"
+
+
+class DesktopContract(unittest.TestCase):
+    def test_tauri_and_setup_identity(self):
+        t = json.loads((DESKTOP / "src-tauri/tauri.conf.json").read_text("utf-8"))
+        p = json.loads((DESKTOP / "installer/product.json").read_text("utf-8"))
+        n = json.loads((DESKTOP / "package.json").read_text("utf-8"))
+        self.assertEqual(t["version"], p["version"])
+        self.assertEqual(n["version"], p["version"])
+        self.assertEqual(t["identifier"], p["data_namespace"])
+        self.assertEqual(p["entrypoint"], "iwxa-activity-base-desktop.exe")
+        self.assertEqual(p["schema"], "IWXA_SETUP_PRODUCT/1")
+        self.assertEqual(p["requirements"], ["webview2-evergreen"])
+        self.assertEqual(t["bundle"]["active"], False)
+
+    def test_native_one_window_and_no_external_navigation(self):
+        t = json.loads((DESKTOP / "src-tauri/tauri.conf.json").read_text("utf-8"))
+        self.assertEqual(len(t["app"]["windows"]), 1)
+        self.assertEqual(t["app"]["windows"][0]["label"], "main")
+        self.assertEqual(t["app"]["security"]["capabilities"], ["main"])
+        csp = t["app"]["security"]["csp"]
+        for term in ("frame-src 'none'", "object-src 'none'", "form-action 'none'"):
+            self.assertIn(term, csp)
+        self.assertNotIn("https:", csp)
+        main = (DESKTOP / "src-tauri/src/main.rs").read_text("utf-8")
+        self.assertIn("tauri::Builder::default()", main)
+        self.assertNotIn("Command::new", main)
+        permissions = json.loads((DESKTOP / "src-tauri/capabilities/main.json").read_text("utf-8"))
+        self.assertEqual(permissions["windows"], ["main"])
+        self.assertFalse(any("shell" in perm or "http" in perm or "fs:" in perm
+                             for perm in permissions["permissions"]))
+        app = (DESKTOP / "src/App.tsx").read_text("utf-8")
+        self.assertNotRegex(app, r"window\.open|target=['\"]_blank|<a\b|fetch\(")
+
+    def test_agent_logo_geometry_purple_color(self):
+        svg = ElementTree.fromstring((DESKTOP / "public/brand.svg").read_text("utf-8"))
+        children = list(svg)
+        rect = children[0]
+        self.assertEqual(rect.attrib["fill"], "#8B5CF6")
+        self.assertEqual(rect.attrib["rx"], "10")
+        self.assertEqual(children[1].attrib["x"], "13")
+        self.assertEqual(children[1].attrib["height"], "38")
+        self.assertEqual(children[2].attrib["d"], "M29 14 L51 50 M51 14 L29 50")
+        ps1 = (DESKTOP / "installer/build-brand-icon.ps1").read_text("utf-8")
+        self.assertIn("FromArgb(139,92,246)", ps1)
+        self.assertIn("DrawLine($pen,29,14,51,50)", ps1)
+
+    def test_setup_uses_pinned_existing_core_without_fork(self):
+        script = (DESKTOP / "installer/build-setup-core.ps1").read_text("utf-8")
+        self.assertIn("24d6a0d898e18fef29012735e0ff59da0d3ee182", script)
+        self.assertIn("installer/build_bundle.py", script)
+        self.assertIn("installer/windows/build-stub.ps1", script)
+        self.assertIn("PE_RESOURCE_V2", script)
+        self.assertIn("--source-tree", script)
+        self.assertIn("--verify-installed-file", script)
+        self.assertNotIn("Invoke-WebRequest", script)
+
+    def test_runtime_uses_pure_offline_synthetic_engine(self):
+        engine = (ROOT / "modules/activity-base-anonymizer/engine.mjs").read_text("utf-8")
+        self.assertIn("export async function analyzeSnapshot", engine)
+        self.assertIn("SOURCE_PIN_DIGEST_MISMATCH", engine)
+        self.assertIn("export_allowed: false", engine)
+        self.assertIn("iwxa_package: null", engine)
+        self.assertNotRegex(engine, r"\bfetch\s*\(|XMLHttpRequest|WebSocket|http://|https://")
+        self.assertIn("crypto.subtle.digest", engine)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,70 @@
+name: Activity base native desktop checks
+on:
+  push:
+    branches:
+      - work/2026-11-10-activity-base-anonymizer
+    paths:
+      - modules/activity-base-anonymizer/**
+      - desktop/**
+      - tests/test_activity_base_a1.mjs
+      - tests/test_activity_desktop_contract.py
+      - .github/workflows/activity-base-desktop.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: node --test tests/test_activity_base_a1.mjs
+      - run: python -m unittest discover -s tests -p 'test_activity_desktop_contract.py' -v
+      - run: python -m unittest discover -s tests -p 'test_activity_base_a0.py' -v
+  windows-desktop:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    needs: source-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install pinned frontend dependencies
+        working-directory: desktop
+        run: npm install --no-fund --no-audit
+      - name: Build UI and Rust Tauri executable without browser
+        working-directory: desktop
+        run: npm run desktop:build
+      - name: Fetch only public, pinned IWXA Setup Core
+        shell: pwsh
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/Faust-S/Center.git setup-core-source
+          if ($LASTEXITCODE -ne 0) { throw 'PUBLIC_SETUP_SOURCE_UNAVAILABLE' }
+          git -C setup-core-source checkout 24d6a0d898e18fef29012735e0ff59da0d3ee182
+          if ($LASTEXITCODE -ne 0) { throw 'SETUP_CORE_PIN_UNAVAILABLE' }
+      - name: Package and qualify single-exe Setup Core installer
+        shell: powershell
+        run: desktop/installer/build-setup-core.ps1 -SetupCoreRoot setup-core-source -Output artifacts/IWXA-Activity-0.1.0-dev.1-Setup.exe -InstallForQualification
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-activity-desktop-setup-windows
+          path: |
+            artifacts/IWXA-Activity-0.1.0-dev.1-Setup.exe
+            artifacts/IWXA-Activity-0.1.0-dev.1-Setup.exe.sha256
+          if-no-files-found: error
+          retention-days: 7

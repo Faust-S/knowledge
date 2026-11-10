@@ -1,0 +1,26 @@
+{
+  "name": "iwxa-activity-base-desktop",
+  "version": "0.1.0-dev.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "desktop": "tauri",
+    "desktop:dev": "npm run brand:icon && tauri dev",
+    "desktop:build": "npm run brand:icon && tauri build --no-bundle",
+    "brand:icon": "powershell -NoProfile -ExecutionPolicy Bypass -File installer/build-brand-icon.ps1"
+  },
+  "dependencies": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.2",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@types/node": "22.15.30",
+    "typescript": "5.9.3",
+    "vite": "7.1.0"
+  }
+}

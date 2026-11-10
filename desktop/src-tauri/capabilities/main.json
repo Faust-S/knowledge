@@ -1,0 +1,6 @@
+{
+  "identifier": "main",
+  "description": "Offline IWXA synthetic analysis window. No OS command, filesystem, external browser or network permission.",
+  "windows": ["main"],
+  "permissions": ["core:window:default", "core:window:allow-close", "core:event:default"]
+}
