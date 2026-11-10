@@ -59,7 +59,7 @@ function fixture() {
         requestDigest:sha(request),policyDigest:sha("policy"),
         evaluatedAt:new Date(now).toISOString(),statusObservedAt:new Date(now).toISOString(),
         statusSequence:1,validUntil:new Date(now+(expired?-1000:60000)).toISOString(),
-        authorityPath:[{grantId:subjects[status==="PERMITTED"?selected:0].grant_id}],
+        authorityPath:[{grantId:request.grantId}],
       };
     },
     verifyDecisionBinding:(request,decision)=>binding&&decision.requestDigest===sha(request),
