@@ -1,0 +1,27 @@
+name: Activity base A0 synthetic checks
+on:
+  push:
+    branches:
+      - work/2026-11-10-activity-base-anonymizer
+    paths:
+      - tools/activity_base_anonymizer.py
+      - tests/test_activity_base_a0.py
+      - .github/workflows/activity-base-a0.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  a0-synthetic:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m compileall -q tools/activity_base_anonymizer.py
+      - run: python -m unittest discover -s tests -p 'test_activity_base_a0.py' -v
