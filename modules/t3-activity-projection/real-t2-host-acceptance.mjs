@@ -187,6 +187,30 @@ export function verifyRealT2ColdRestart(before, after) {
   return compareT3ActivityAfterColdRestart(before.projection, after.projection);
 }
 
+export async function proveRealT2StaleRevisionDenied(page, {
+  workspace_id, writer_service_id,
+} = {}) {
+  pageRequired(page);
+  required(workspace_id, "WORKSPACE");
+  required(writer_service_id, "WRITER_SERVICE");
+  const refused = await page.evaluate(async ({ workspace_id, writer_service_id }) => {
+    const session = await globalThis.IWXA.connect({ service_id: writer_service_id });
+    try {
+      await session.t1.putObject({
+        workspace_id, object_id: "activity:a",
+        schema_id: "iwxa.demo.note", schema_version: "1.0.0",
+        base_revision: 0, data: { title: "Unaccepted stale update" },
+        event: { event_type: "t3.activity.updated", payload: {} },
+      });
+      return { denied: false };
+    } catch (error) {
+      return { denied: true, code: String(error?.code ?? "") };
+    }
+  }, { workspace_id, writer_service_id });
+  assert.equal(refused.denied, true, "T2_STALE_REVISION_WRITE_SUCCEEDED");
+  return refused.code;
+}
+
 export async function verifyRealT2UnknownAndTombstone(page, {
   workspace_id, reader_service_id, writer_service_id,
 } = {}) {
