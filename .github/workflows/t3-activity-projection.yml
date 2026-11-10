@@ -5,7 +5,7 @@ on:
     branches:
       - work/2026-11-10-t3-t2-activity-projection
     paths:
-      - modules/t3-activity-projection/**
+      - packages/t3-core/src/t3/activity/**
       - packages/t3-core/**
       - tools/import-qualified-t2.mjs
       - tests/t3-inherited-contract.test.mjs
@@ -28,10 +28,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --check modules/t3-activity-projection/index.mjs
-      - run: node --check modules/t3-activity-projection/kernel-reader.mjs
-      - run: node --check modules/t3-activity-projection/live-iwxa-client.mjs
-      - run: node --check modules/t3-activity-projection/t2-host-witness.mjs
-      - run: node --check modules/t3-activity-projection/real-t2-host-acceptance.mjs
-      - run: node --test modules/t3-activity-projection/test/*.test.mjs
+      - run: node --check packages/t3-core/src/t3/index.mjs
+      - run: node --check packages/t3-core/src/t3/activity/index.mjs
+      - run: node --check packages/t3-core/src/t3/activity/kernel-reader.mjs
+      - run: node --check packages/t3-core/src/t3/activity/live-iwxa-client.mjs
+      - run: node --check packages/t3-core/src/t3/activity/t2-host-witness.mjs
+      - run: node --check packages/t3-core/src/t3/activity/real-t2-host-acceptance.mjs
+      - run: node --test packages/t3-core/src/t3/activity/test/*.test.mjs
       - run: node --experimental-strip-types --test tests/t3-inherited-contract.test.mjs
