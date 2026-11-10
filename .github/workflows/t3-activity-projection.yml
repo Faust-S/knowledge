@@ -22,7 +22,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -48,3 +48,18 @@ jobs:
       - name: Build T3 core from inherited T2 source
         working-directory: packages/t3-core
         run: npm run build
+      - name: Verify ephemeral loopback TLS for inherited T2 Host
+        working-directory: packages/t3-core
+        run: node --test tests/t3-generated-loopback-tls.test.mjs
+      - name: Original T2 source preflight
+        if: always()
+        working-directory: packages/t3-core
+        run: npm run check:source
+      - name: Original T2 Node core regression
+        if: always()
+        working-directory: packages/t3-core
+        run: npm run test:core
+      - name: Original T2 Workspace and DOM regressions
+        if: always()
+        working-directory: packages/t3-core
+        run: npm run test:workspace

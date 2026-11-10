@@ -1,0 +1,8 @@
+import{test}from'node:test';import assert from'node:assert/strict';
+import{auditT2CapabilityControlPlane as audit}from'../scripts/verify-capability-control-plane.mjs';
+const passport=(name)=>({service_id:name,schemas:{'s.test':{}},permissions:{workspace:{create:false}}});
+const none=(name)=>({schema_version:'0.3.1',service_id:name,capability_control:'NONE',capability_ceiling:[],activation_any_of:[],operation_guards:[]});
+const data=()=>({plane:{schema_version:'0.3.1',snapshot_id:'s.snapshot',resolver_id:'s.resolver',trusted_issuers:[],issuance_policies:[],services:[none('a.workspace')]},servicePassports:{'a.workspace':passport('a.workspace')}});
+test('NONE is registration, not a grant',()=>{let r=audit(data());assert.equal(r.status,'METADATA_AUDITED_NOT_AUTHORIZED');assert.equal(r.signedGrantVerified,false)});
+test('REQUIRED metadata supported without issuing grant',()=>{let a=data();Object.assign(a.plane.services[0],{capability_control:'REQUIRED',capability_ceiling:['s.cap'],operation_guards:[{guard_id:'s.guard',operation_id:'t1.putObject',required_capabilities_all:['s.cap'],required_capabilities_any:[],schema_ids:['s.test']}]});assert.equal(audit(a).guardedServiceCount,1);a.plane.services[0].operation_guards[0].operation_id='t1.createWorkspace';assert.equal(audit(a).externalProvisioningRequired,true)});
+test('rejects widening, downgraded guard and forged holders',()=>{for(const edit of[a=>a.plane.grants=[],a=>a.plane.services[0].operation_guards.push({}),a=>a.plane.services[0].capability_control='REQUIRED']){let d=data();edit(d);assert.throws(()=>audit(d),/T2_CAPABILITY_DECLARATION/)}});

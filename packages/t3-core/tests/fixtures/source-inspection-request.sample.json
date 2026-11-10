@@ -1,0 +1,200 @@
+{
+  "schema": "IWXA_T2_D01_EXACT_SOURCE_INSPECTION_REQUEST_V1",
+  "date": "2026-09-21",
+  "domainId": "D01",
+  "productName": "Learn",
+  "status": "EXACT_CLEAN17_RECEIPT_VALIDATED",
+  "sourceName": "IWXA_LEARN_SOURCE_BASELINE_CURRENT_ONLY_CANDIDATE_1.0.0_CLEAN17_2026-08-31.zip",
+  "sourceSha256": "9300960ed122ba139b902b42f6f46be7ee9ef06c7558b57d28e52198984f7cc8",
+  "sourceBytes": 6576150,
+  "sourceTreeSha256": "a0ec555cd5271e74743c28fe93e94d9a228938c9ef77a9d0219f4ba5dab51d31",
+  "acceptedStateBlob": "f6bbf571b6af242333b011ccba3c7971808b99d9",
+  "requiredFindings": [
+    "schemaOwnership",
+    "ownerMutationCommands",
+    "nativeResultAcceptance",
+    "storedDataRoundtrip"
+  ],
+  "schemaOwnership": {
+    "unresolvedTargetSchemaIds": [
+      "competency",
+      "competency-gap",
+      "career-route",
+      "task",
+      "practice-result",
+      "reflection"
+    ],
+    "outputRequired": [
+      "targetSchemaId",
+      "exact owning service/component or explicit UNBOUND",
+      "exact source schema id/version refs",
+      "validator/schema source path",
+      "migration refs if applicable"
+    ]
+  },
+  "ownerMutationCommands": {
+    "components": [
+      "main",
+      "study",
+      "practice",
+      "calculators",
+      "career",
+      "mind"
+    ],
+    "outputRequired": [
+      "component",
+      "exact owner/service id",
+      "exact mutation command ids",
+      "input schema/validator refs",
+      "permission/capability prerequisites",
+      "explicit read-only/no-command classification where applicable"
+    ],
+    "genericPutObjectForbidden": true
+  },
+  "nativeResultAcceptance": {
+    "resultKinds": [
+      "career",
+      "study",
+      "practice",
+      "calculator",
+      "mind"
+    ],
+    "outputRequired": [
+      "result kind",
+      "producer service",
+      "accepted native result identity/schema",
+      "acceptance criteria refs",
+      "provenance refs",
+      "explicit unresolved fields if not source-backed"
+    ],
+    "commonProjectProcessResultWriterForbidden": true,
+    "persistentAuthorityDecisionNotRequiredForInspection": true
+  },
+  "storedDataRoundtrip": {
+    "outputRequired": [
+      "current CLEAN17 storage path/adapter",
+      "create/read/update/archive-or-delete/readback evidence",
+      "schema/version preservation",
+      "object identity preservation",
+      "Study migration roundtrip",
+      "Career compatibility/granular projection roundtrip"
+    ],
+    "routeCompatibilityAlreadyBoundBy": "D01_FINAL_HOSTING_READY_R2_2026-09-01.json"
+  },
+  "forbiddenSourceSha256": [
+    "d0b6149563d3a058881c399319c5a0d5426148071ff5707e9462345af404544b",
+    "7b934fa312df8b8db6a66146c37083c8d9d8d03b6b25ff8d83ed981591910bf1",
+    "cba189b0e07135bcf63e8d54cab9ea6c0248187c95202872e58f8db4a59d4019"
+  ],
+  "rules": [
+    "read-only inspection first",
+    "do not patch CLEAN17 during evidence extraction",
+    "do not use historical Learn source as a substitute for CLEAN17",
+    "do not infer owner/command/schema authority from names",
+    "do not reconstruct unavailable historical archives",
+    "do not run production deployment/materialization",
+    "one exact source fingerprint must back every accepted finding"
+  ],
+  "environment": {
+    "githubActionsRequired": false,
+    "windowsRequired": false,
+    "localExactSourceCheckoutOrExtractionRequired": true
+  },
+  "receiptContract": {
+    "findingStatus": "CAPTURED_EXACT_SOURCE",
+    "eachFindingRequires": [
+      "non-empty items",
+      "non-empty evidenceRefs"
+    ],
+    "sourceTreeSha256MustMatch": true,
+    "emptyObjectDoesNotSatisfyFinding": true,
+    "findingCoverageMustMatchContract": true,
+    "requiredItemFieldsMustBePresent": true,
+    "exactItemCountRequired": true,
+    "requiredItemFieldsAreTypeChecked": true,
+    "validatedFindingsAreDeepImmutable": true
+  },
+  "findingContracts": {
+    "schemaOwnership": {
+      "coverageKey": "item",
+      "requiredCoverage": [
+        "competency",
+        "competency-gap",
+        "career-route",
+        "task",
+        "practice-result",
+        "reflection"
+      ],
+      "requiredItemFields": [
+        "item",
+        "targetSchemaId",
+        "ownershipStatus",
+        "ownerRef",
+        "sourceSchemaRefs",
+        "validatorRefs",
+        "migrationRefs"
+      ]
+    },
+    "ownerMutationCommands": {
+      "coverageKey": "component",
+      "requiredCoverage": [
+        "main",
+        "study",
+        "practice",
+        "calculators",
+        "career",
+        "mind"
+      ],
+      "requiredItemFields": [
+        "component",
+        "ownerRef",
+        "mutationStatus",
+        "commandIds",
+        "inputSchemaRefs",
+        "prerequisiteRefs"
+      ]
+    },
+    "nativeResultAcceptance": {
+      "coverageKey": "producerRef",
+      "requiredCoverage": [
+        "components/career/integration-release/service-passport.json#output_object_types",
+        "components/study/integration-release/service-passport.json#output_object_types",
+        "components/practice/integration-release/service-passport.json#output_object_types",
+        "components/calculators/integration-release/service-passport.json#output_object_types",
+        "components/mind/integration-release/service-passport.json#output_object_types"
+      ],
+      "requiredItemCount": 5,
+      "requiredItemFields": [
+        "resultKind",
+        "producerRef",
+        "acceptanceStatus",
+        "acceptedResultRefs",
+        "acceptanceCriteriaRefs",
+        "provenanceRefs"
+      ]
+    },
+    "storedDataRoundtrip": {
+      "coverageKey": "subject",
+      "requiredCoverage": [
+        "current-clean17-stored-data-roundtrip"
+      ],
+      "requiredItemFields": [
+        "subject",
+        "roundtripStatus",
+        "storageRefs",
+        "operationEvidenceRefs",
+        "schemaVersionRefs",
+        "identityRefs",
+        "studyMigrationRefs",
+        "careerCompatibilityRefs"
+      ]
+    }
+  },
+  "receiptSchema": "IWXA_T2_D01_EXACT_SOURCE_INSPECTION_RECEIPT_V1",
+  "receiptValidation": {
+    "status": "COMPLETE_EXACT_SOURCE",
+    "receiptSha256": "7d55aa350e27e1ad30c74959b40615cf837570666df18dcc9063ab00fd1d403e",
+    "validationRef": "D01_EXACT_SOURCE_INSPECTION_VALIDATION_2026-09-21.json",
+    "receiptFile": "D01_CLEAN17_EXACT_SOURCE_INSPECTION_RECEIPT_2026-09-21.json"
+  }
+}
