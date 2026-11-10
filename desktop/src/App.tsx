@@ -1,11 +1,15 @@
 import {useRef, useState} from 'react';
-import {ActivityHold, analyzeSnapshot, buildSyntheticExample} from '../../modules/activity-base-anonymizer/engine.mjs';
+import {ActivityHold, buildSyntheticExample} from '../../modules/activity-base-anonymizer/engine.mjs';
+import {screenSyntheticDisclosure} from '../../modules/activity-base-anonymizer/risk.mjs';
+import {layoutObservedGraph} from '../../modules/activity-base-anonymizer/graph-order.mjs';
 import type {Preview, ProcessGraph} from '../../modules/activity-base-anonymizer/engine.mjs';
+import type {SyntheticRisk} from '../../modules/activity-base-anonymizer/risk.mjs';
 
 const MAX_INPUT_BYTES = 8 * 1024 * 1024;
 const DEMO_NOTICE = 'Демонстрационный режим: только синтетические снимки. Реальные базы T3 пока недоступны.';
 
 function ProcessCard({process, number}: {process: ProcessGraph; number: number}) {
+  const graph = layoutObservedGraph(process);
   return <section className="process-card" aria-label={`Процесс ${number}`}>
     <header className="process-head">
       <div><span className="eyebrow">ВОССТАНОВЛЕННАЯ ПОСЛЕДОВАТЕЛЬНОСТЬ</span>
@@ -13,18 +17,22 @@ function ProcessCard({process, number}: {process: ProcessGraph; number: number})
       <span className="case-count">{process.trace_count} траектории</span>
     </header>
     <div className="stages" role="list" aria-label="Зафиксированные этапы">
-      {process.states.map((stage, index) =>
+      {graph.ordered.map((stage, index) =>
         <div className="stage" role="listitem" key={stage.id}>
           <span className="stage-index">{String(index + 1).padStart(2, '0')}</span>
           <div className="stage-detail">
-            <strong>Этап {String(index + 1).padStart(2, '0')}</strong>
+            <strong>{graph.linear ? 'Этап' : 'Узел'} {String(index + 1).padStart(2, '0')}</strong>
             <span>{stage.roles.length ? stage.roles.map((role) => `Роль ${role.split('_')[1]}`).join(' · ') : 'Роль не подтверждена'}</span>
           </div>
           <span className="stage-state">Наблюдался</span>
         </div>)}
     </div>
+    <div className="observed-order" aria-label="Наблюдаемые переходы">
+      <span>{graph.cyclic ? 'Цикл: линейный порядок не установлен' : graph.linear ? 'Наблюдаемая последовательность' : 'Наблюдаемый граф без единого линейного порядка'}</span>
+      <strong>{graph.edgeLabels.length ? graph.edgeLabels.join(' · ') : 'Связи не подтверждены'}</strong>
+    </div>
     <footer className="process-footer">
-      <span>{process.observed_successions.length} последовательных переходов</span>
+      <span>{process.observed_successions.length} зафиксированных переходов</span>
       <span>Порядок действий ≠ причинная зависимость</span>
     </footer>
   </section>;
@@ -33,6 +41,7 @@ function ProcessCard({process, number}: {process: ProcessGraph; number: number})
 export function App() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [risk, setRisk] = useState<SyntheticRisk | null>(null);
   const [sourceName, setSourceName] = useState('Источник не выбран');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState('');
@@ -40,11 +49,13 @@ export function App() {
   async function run(input: unknown, label: string) {
     setBusy(true);
     setPreview(null);
+    setRisk(null);
     setProblem('');
     try {
-      const result = await analyzeSnapshot(input);
-      // Do not persist, render, log, transfer or export internalEvidence/source data.
+      const result = await screenSyntheticDisclosure(input);
+      // No source content, raw evidence or risk-internal candidate is persisted or exported.
       setPreview(result.preview);
+      setRisk(result.risk);
       setSourceName(label);
     } catch (error) {
       const code = error instanceof ActivityHold ? error.code : 'INVALID_SYNTHETIC_SNAPSHOT';
@@ -65,11 +76,11 @@ export function App() {
     event.target.value = '';
     if (!file) return;
     if (file.size === 0 || file.size > MAX_INPUT_BYTES) {
-      setPreview(null); setProblem('HOLD: INVALID_FILE_SIZE'); return;
+      setPreview(null); setRisk(null); setProblem('HOLD: INVALID_FILE_SIZE'); return;
     }
     setBusy(true); setProblem('');
     try { await run(JSON.parse(await file.text()), file.name); }
-    catch { setPreview(null); setProblem('HOLD: INVALID_JSON_INPUT'); setBusy(false); }
+    catch { setPreview(null); setRisk(null); setProblem('HOLD: INVALID_JSON_INPUT'); setBusy(false); }
   }
 
   return <div className="app-shell" onDragOver={(e) => e.preventDefault()} onDrop={(e) => e.preventDefault()}>
@@ -111,7 +122,8 @@ export function App() {
             <p><span className="mini-check">✓</span> Детерминированная реконструкция</p>
             <p><span className="mini-check">✓</span> Проверка синтетических ревизий</p>
             <p><span className="mini-pending">·</span> Реальное подключение T3 — далее</p>
-            <p><span className="mini-pending">·</span> Обезличивание и .iwxa — HOLD</p>
+            <p><span className="mini-check">✓</span> Синтетическая оценка редких маршрутов A2</p>
+            <p><span className="mini-pending">·</span> Доказанная анонимность и .iwxa — HOLD</p>
           </div>
         </aside>
         <div className="work-panel">
@@ -132,8 +144,13 @@ export function App() {
             <section className="verification-panel"><div className="verification-left">
               <span className="eyebrow">03 · КОНТРОЛЬ РЕЗУЛЬТАТА</span><h3>Проверка структуры</h3>
               <p>{preview.source_pin_count ? `${preview.source_pin_count} синтетический источник с совпадающим SHA-256. Подлинность T3 Host не подтверждена.` : 'Проверка происхождения ещё не выполнена.'}</p>
+              <p className="risk-result" role="status">{risk?.status === 'HOLD'
+                ? `A2: высокий или неопределённый остаточный риск · HOLD (${risk.reason_codes.join(', ')})`
+                : risk?.status === 'STRUCTURE_PRESERVED_REVIEW_REQUIRED'
+                  ? 'A2: структура сохранена на синтетике; повторная идентификация вне базы не исключена.'
+                  : 'A2: оценка остаточного риска ещё не выполнена.'}</p>
             </div><div className="verification-right"><span className="hold-chip">HOLD · ВЫПУСК ЗАКРЫТ</span>
-              <span>Оценка остаточного риска и независимый импорт .iwxa ещё не завершены.</span></div></section>
+              <span>Анонимность не установлена. Проверка реального T3 и независимый импорт .iwxa не завершены.</span></div></section>
           </> : null}
         </div>
       </section>

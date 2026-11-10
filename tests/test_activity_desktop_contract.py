@@ -74,6 +74,16 @@ class DesktopContract(unittest.TestCase):
         self.assertNotRegex(engine, r"\bfetch\s*\(|XMLHttpRequest|WebSocket|http://|https://")
         self.assertIn("crypto.subtle.digest", engine)
 
+    def test_risk_screen_integrated_without_export_or_network(self):
+        ui = (DESKTOP / "src/App.tsx").read_text("utf-8")
+        risk = (ROOT / "modules/activity-base-anonymizer/risk.mjs").read_text("utf-8")
+        self.assertIn("screenSyntheticDisclosure(input)", ui)
+        self.assertIn("Анонимность не установлена", ui)
+        self.assertIn("STRUCTURE_PRESERVED_REVIEW_REQUIRED", risk)
+        self.assertIn("MIN_INDEPENDENT_TRACES = 3", risk)
+        self.assertIn("export_allowed: false", risk)
+        self.assertNotRegex(risk, r"\bfetch\s*\(|XMLHttpRequest|WebSocket|http://|https://")
+
 
 if __name__ == "__main__":
     unittest.main()

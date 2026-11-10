@@ -28,7 +28,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: node --test tests/test_activity_base_a1.mjs
+      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs
       - run: python -m unittest discover -s tests -p 'test_activity_desktop_contract.py' -v
       - run: python -m unittest discover -s tests -p 'test_activity_base_a0.py' -v
   windows-desktop:
@@ -60,6 +60,9 @@ jobs:
       - name: Package and qualify single-exe Setup Core installer
         shell: powershell
         run: desktop/installer/build-setup-core.ps1 -SetupCoreRoot setup-core-source -Output artifacts/IWXA-Activity-0.1.0-dev.1-Setup.exe -InstallForQualification
+      - name: Installed native window and synthetic first-use witness (no browser)
+        shell: powershell
+        run: desktop/tests/installed-windows-ui.ps1 -Executable "$env:LOCALAPPDATA\Programs\IWXA Activity\iwxa-activity-base-desktop.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: iwxa-activity-desktop-setup-windows
