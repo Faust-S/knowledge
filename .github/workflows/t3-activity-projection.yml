@@ -26,4 +26,5 @@ jobs:
         with:
           node-version: '22'
       - run: node --check modules/t3-activity-projection/index.mjs
-      - run: node --test modules/t3-activity-projection/test/projection.test.mjs
+      - run: node --check modules/t3-activity-projection/kernel-reader.mjs
+      - run: node --test modules/t3-activity-projection/test/*.test.mjs
