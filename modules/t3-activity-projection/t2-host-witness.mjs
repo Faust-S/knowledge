@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { compareLiveT2Readback } from "./live-iwxa-client.mjs";
 
 const MODULES = Object.freeze([
@@ -32,9 +32,9 @@ export function stageT3ActivityWitness({ sourceDir, hostRoot } = {}) {
   if (typeof sourceDir !== "string" || typeof hostRoot !== "string") {
     deny("WITNESS_PATHS_REQUIRED");
   }
-  const source = resolve(sourceDir);
-  const host = resolve(hostRoot);
-  const temporary = resolve(tmpdir());
+  const source = realpathSync(resolve(sourceDir));
+  const host = realpathSync(resolve(hostRoot));
+  const temporary = realpathSync(resolve(tmpdir()));
   if (!inside(temporary, host)) deny("TEST_HOST_MUST_BE_TEMPORARY");
   if (!regularFile(join(host, "_iwxa", "current.json"))) {
     deny("REAL_T2_HOST_STAGE_REQUIRED");
