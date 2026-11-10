@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iwxa.dev/schemas/validation-report.schema.json",
+  "title": "IWXA Package Validation Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "ok",
+    "checked_at",
+    "file_count",
+    "object_count",
+    "schema_issues",
+    "path_issues"
+  ],
+  "properties": {
+    "format": { "const": "iwxa.package.validation" },
+    "ok": { "type": "boolean" },
+    "checked_at": { "type": "string", "format": "date-time" },
+    "file_count": { "type": "integer", "minimum": 0 },
+    "object_count": { "type": "integer", "minimum": 0 },
+    "schema_issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "workspace_id",
+          "object_id",
+          "created_by_service",
+          "updated_by_service",
+          "schema_id",
+          "schema_version",
+          "reason"
+        ],
+        "properties": {
+          "workspace_id": { "type": "string" },
+          "object_id": { "type": "string" },
+          "created_by_service": { "type": "string" },
+          "updated_by_service": { "type": "string" },
+          "schema_id": { "type": "string" },
+          "schema_version": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+          },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "path_issues": { "type": "array", "items": { "type": "string" } }
+  }
+}

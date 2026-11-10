@@ -1,0 +1,27 @@
+{
+  "module_manifest_version": "1.0.0",
+  "module_id": "synthetic.valid",
+  "module_version": "0.1.0",
+  "title": "Synthetic Valid Module",
+  "compatibility": {
+    "workspace_contract": "0.1.0",
+    "runtime_contract": "1.3.0"
+  },
+  "contributions": {
+    "routes": [{ "id": "root" }],
+    "navigation": [{ "id": "root-nav" }],
+    "editors": [],
+    "viewers": [{ "id": "json-viewer" }],
+    "commands": [{ "id": "noop" }],
+    "panels": [],
+    "dashboard_cards": [],
+    "validators": [],
+    "migrations": [],
+    "legacy_importers": []
+  },
+  "security": {
+    "direct_indexeddb": false,
+    "remote_code": false,
+    "iwxa_executable_payload": false
+  }
+}

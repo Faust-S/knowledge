@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iwxa.dev/schemas/workspace.schema.json",
+  "title": "IWXA Workspace",
+  "description": "Canonical envelope for a Workspace record. Wire format is snake_case.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["workspace_id", "profile", "capabilities", "created_at", "updated_at"],
+  "properties": {
+    "workspace_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "profile": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "capabilities": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 64 }, "uniqueItems": true },
+    "read_only": { "type": "boolean" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "deleted_at": { "type": "string", "format": "date-time" },
+    "deleted_by_service": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "read_only_before_delete": { "type": "boolean" }
+  }
+}

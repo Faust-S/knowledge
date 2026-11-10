@@ -1,0 +1,28 @@
+{
+  "version": "0.3.1",
+  "status": "NORMATIVE_TECHNICALLY_FROZEN",
+  "initial_active_profile_id": "IWXA_CAP_ED25519_V1",
+  "profiles": {
+    "IWXA_CAP_ED25519_V1": {
+      "algorithm": "Ed25519",
+      "algorithm_reference": "RFC 8032",
+      "canonicalization": "IWXA_CANONICAL_JSON_V1",
+      "digest_algorithm": "SHA-256",
+      "domain_separator_utf8_escaped": "IWXA-CAPABILITY-GRANT-V1\\u0000",
+      "message_construction": "UTF-8(domain_separator with terminal NUL) || SHA-256(canonical_bytes)",
+      "public_key_material": "32 raw Ed25519 public-key octets",
+      "public_key_encoding": "base64url-nopad",
+      "signature_material": "64 raw Ed25519 signature octets",
+      "signature_encoding": "base64url-nopad",
+      "private_key_in_package": "FORBIDDEN",
+      "verification_failures": [
+        "UNKNOWN_PROFILE",
+        "INVALID_ENCODING",
+        "INVALID_KEY_LENGTH",
+        "INVALID_SIGNATURE_LENGTH",
+        "SIGNATURE_INVALID"
+      ]
+    }
+  },
+  "extension_rule": "Any new signature_profile_id requires an explicit successor common freeze and exact verification; 0.3.1 implementations MUST support IWXA_CAP_ED25519_V1."
+}

@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iwxa.dev/schemas/import-export.schema.json",
+  "title": "IWXA Import and Export Payloads",
+  "description": "Canonical machine schemas for ImportPreview and ImportReceipt.",
+  "$defs": {
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files", "workspaces", "objects", "events", "relations", "assets", "schemas"],
+      "properties": {
+        "files": { "type": "integer", "minimum": 0 },
+        "workspaces": { "type": "integer", "minimum": 0 },
+        "objects": { "type": "integer", "minimum": 0 },
+        "events": { "type": "integer", "minimum": 0 },
+        "relations": { "type": "integer", "minimum": 0 },
+        "assets": { "type": "integer", "minimum": 0 },
+        "schemas": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "inclusionCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaces", "objects", "events", "relations", "assets", "schemas"],
+      "properties": {
+        "workspaces": { "type": "integer", "minimum": 0 },
+        "objects": { "type": "integer", "minimum": 0 },
+        "events": { "type": "integer", "minimum": 0 },
+        "relations": { "type": "integer", "minimum": 0 },
+        "assets": { "type": "integer", "minimum": 0 },
+        "schemas": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "exclusionCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaces", "objects", "events", "relations", "assets", "schemas"],
+      "properties": {
+        "workspaces": { "type": "integer", "minimum": 0 },
+        "objects": { "type": "integer", "minimum": 0 },
+        "events": { "type": "integer", "minimum": 0 },
+        "relations": { "type": "integer", "minimum": 0 },
+        "assets": { "type": "integer", "minimum": 0 },
+        "schemas": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "invalidCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["envelopes", "dependencies", "schema_validation", "schema_conflicts"],
+      "properties": {
+        "envelopes": { "type": "integer", "minimum": 0 },
+        "dependencies": { "type": "integer", "minimum": 0 },
+        "schema_validation": { "type": "integer", "minimum": 0 },
+        "schema_conflicts": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "workspaceRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workspace_id", "exists_locally", "incoming_objects", "incoming_events",
+        "incoming_relations", "incoming_assets"
+      ],
+      "properties": {
+        "workspace_id": { "type": "string" },
+        "exists_locally": { "type": "boolean" },
+        "incoming_objects": { "type": "integer", "minimum": 0 },
+        "incoming_events": { "type": "integer", "minimum": 0 },
+        "incoming_relations": { "type": "integer", "minimum": 0 },
+        "incoming_assets": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "schemaRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_id", "schema_version", "status", "object_count"],
+      "properties": {
+        "schema_id": { "type": "string" },
+        "schema_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "status": {
+          "type": "string",
+          "enum": [
+            "known_domain", "known_persisted", "embedded_new", "embedded_equal",
+            "conflict", "missing", "invalid"
+          ]
+        },
+        "object_count": { "type": "integer", "minimum": 0 },
+        "canonical_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "message": { "type": "string" }
+      }
+    },
+    "objectRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workspace_id", "object_id", "created_by_service", "updated_by_service",
+        "schema_id", "schema_version", "incoming_revision", "local_revision",
+        "data_equal", "conflict"
+      ],
+      "properties": {
+        "workspace_id": { "type": "string" },
+        "object_id": { "type": "string" },
+        "created_by_service": { "type": "string" },
+        "updated_by_service": { "type": "string" },
+        "schema_id": { "type": "string" },
+        "schema_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "incoming_revision": { "type": "integer", "minimum": 0 },
+        "local_revision": { "type": ["integer", "null"], "minimum": 0 },
+        "data_equal": { "type": "boolean" },
+        "conflict": { "type": "boolean" }
+      }
+    },
+    "unsupported": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "schema_id", "schema_version", "object_count"],
+          "properties": {
+            "kind": { "const": "unknown_schema" },
+            "schema_id": { "type": "string" },
+            "schema_version": { "type": "string" },
+            "object_count": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "path", "sample"],
+          "properties": {
+            "kind": { "const": "extension_field" },
+            "path": { "type": "string" },
+            "sample": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "schema_id", "schema_version", "object_count", "reason"],
+          "properties": {
+            "kind": { "const": "forbidden_for_service" },
+            "schema_id": { "type": "string" },
+            "schema_version": { "type": "string" },
+            "object_count": { "type": "integer", "minimum": 0 },
+            "reason": { "const": "not_in_write_permissions" }
+          }
+        }
+      ]
+    },
+    "importPreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest", "package_digest", "semantic_digest", "bytes", "totals",
+        "workspaces", "schemas", "objects", "conflicts", "unsupported",
+        "warnings", "invalid", "included", "excluded_by_permission", "scope_mode"
+      ],
+      "properties": {
+        "manifest": { "$ref": "https://iwxa.dev/schemas/package-manifest.schema.json" },
+        "package_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "semantic_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "totals": { "$ref": "#/$defs/totals" },
+        "workspaces": { "type": "array", "items": { "$ref": "#/$defs/workspaceRow" } },
+        "schemas": { "type": "array", "items": { "$ref": "#/$defs/schemaRow" } },
+        "objects": { "type": "array", "items": { "$ref": "#/$defs/objectRow" } },
+        "conflicts": { "type": "array", "items": { "$ref": "#/$defs/objectRow" } },
+        "unsupported": { "type": "array", "items": { "$ref": "#/$defs/unsupported" } },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "invalid": { "$ref": "#/$defs/invalidCounts" },
+        "included": { "$ref": "#/$defs/inclusionCounts" },
+        "excluded_by_permission": { "$ref": "#/$defs/exclusionCounts" },
+        "scope_mode": { "type": "string", "enum": ["writable_objects", "workspace"] }
+      }
+    },
+    "appliedCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workspaces", "objects_inserted", "objects_updated", "objects_skipped",
+        "events", "relations", "assets",
+        "schemas_inserted", "schemas_reused", "schemas_rejected"
+      ],
+      "properties": {
+        "workspaces": { "type": "integer", "minimum": 0 },
+        "objects_inserted": { "type": "integer", "minimum": 0 },
+        "objects_updated": { "type": "integer", "minimum": 0 },
+        "objects_skipped": { "type": "integer", "minimum": 0 },
+        "events": { "type": "integer", "minimum": 0 },
+        "relations": { "type": "integer", "minimum": 0 },
+        "assets": { "type": "integer", "minimum": 0 },
+        "schemas_inserted": { "type": "integer", "minimum": 0 },
+        "schemas_reused": { "type": "integer", "minimum": 0 },
+        "schemas_rejected": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "importReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "import_id", "format", "format_version", "package_digest", "semantic_digest",
+        "mode", "conflict_policy", "committed_at", "applied", "skipped_conflicts",
+        "workspace_id_map", "excluded_by_permission"
+      ],
+      "properties": {
+        "import_id": { "type": "string", "minLength": 1 },
+        "format": { "const": "iwxa.import.receipt" },
+        "format_version": { "const": "1.0" },
+        "package_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "semantic_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "mode": { "type": "string", "enum": ["full", "selective", "new-workspace", "merge", "cancel"] },
+        "conflict_policy": { "type": "string", "enum": ["overwrite", "skip", "fail"] },
+        "committed_at": { "type": "string", "format": "date-time" },
+        "applied": { "$ref": "#/$defs/appliedCounts" },
+        "skipped_conflicts": { "type": "array", "items": { "type": "string" } },
+        "workspace_id_map": { "type": "object", "additionalProperties": { "type": "string" } },
+        "excluded_by_permission": { "$ref": "#/$defs/exclusionCounts" },
+        "cancelled": { "type": "boolean" }
+      }
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/importPreview" },
+    { "$ref": "#/$defs/importReceipt" }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iwxa.dev/schemas/asset.schema.json",
+  "title": "IWXA Asset metadata",
+  "description": "Metadata envelope for a binary asset. Bytes are carried out-of-band inside the package (assets/<asset_id>).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "asset_id",
+    "workspace_id",
+    "service_id",
+    "mime",
+    "size",
+    "created_at"
+  ],
+  "properties": {
+    "asset_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "workspace_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "service_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "object_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "mime": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "size": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "path": {
+      "type": "string",
+      "maxLength": 240
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_by_service": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

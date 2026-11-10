@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "iwxa://schemas/capability-receipt/0.3.1",
+  "title": "IWXA CapabilityReceipt 0.3.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "decision",
+    "grant_id",
+    "grant_digest",
+    "instance_id",
+    "lineage_id",
+    "instance_class",
+    "audience_service_id",
+    "workspace_id",
+    "effective_capabilities",
+    "evaluation",
+    "created_at",
+    "valid_until",
+    "portable_authority"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.3.1"
+    },
+    "receipt_id": {
+      "type": "string",
+      "minLength": 8
+    },
+    "decision": {
+      "enum": [
+        "ACTIVE",
+        "DENY",
+        "STALE"
+      ]
+    },
+    "grant_id": {
+      "type": "string",
+      "minLength": 8
+    },
+    "grant_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "instance_id": {
+      "type": "string",
+      "minLength": 8
+    },
+    "lineage_id": {
+      "type": "string",
+      "minLength": 8
+    },
+    "instance_class": {
+      "enum": [
+        "STAFF_WORKSPACE_INSTANCE",
+        "CLIENT_CONTEXT_INSTANCE"
+      ]
+    },
+    "audience_service_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+    },
+    "workspace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "effective_capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,191}$"
+      }
+    },
+    "evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signature_status",
+        "issuer_status",
+        "static_ceiling_status",
+        "binding_status",
+        "validity_status",
+        "time_assurance",
+        "evaluated_at",
+        "trusted_time_evidence_id"
+      ],
+      "properties": {
+        "signature_status": {
+          "enum": [
+            "VALID",
+            "INVALID",
+            "UNSUPPORTED_PROFILE"
+          ]
+        },
+        "issuer_status": {
+          "enum": [
+            "TRUSTED",
+            "UNKNOWN",
+            "SUSPENDED",
+            "REVOKED",
+            "OUTSIDE_KEY_VALIDITY"
+          ]
+        },
+        "static_ceiling_status": {
+          "enum": [
+            "WITHIN_CEILING",
+            "EXCEEDS_CEILING",
+            "SERVICE_UNKNOWN"
+          ]
+        },
+        "binding_status": {
+          "enum": [
+            "BOUND",
+            "MISSING_ANCHOR",
+            "MISMATCH",
+            "INSTANCE_MISMATCH",
+            "LINEAGE_MISMATCH"
+          ]
+        },
+        "validity_status": {
+          "enum": [
+            "ACTIVE",
+            "NOT_YET_VALID",
+            "EXPIRED",
+            "TIME_UNVERIFIED"
+          ]
+        },
+        "time_assurance": {
+          "enum": [
+            "OFFLINE_BEST_EFFORT",
+            "TRUSTED_ONLINE_TIME"
+          ]
+        },
+        "evaluated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "trusted_time_evidence_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_verified_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "valid_until": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "portable_authority": {
+      "const": false
+    }
+  }
+}

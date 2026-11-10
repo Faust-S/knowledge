@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "iwxa://schemas/capability-bootstrap-instance/0.3.1",
+  "title": "IWXA Capability Bootstrap Instance 0.3.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "instance_id",
+    "lineage_id",
+    "template_id",
+    "instance_class",
+    "audience_service_id",
+    "issuance_policy_id",
+    "profile_id",
+    "binding",
+    "created_by_issuer",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.3.1"
+    },
+    "instance_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    },
+    "lineage_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    },
+    "template_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128
+    },
+    "instance_class": {
+      "enum": [
+        "STAFF_WORKSPACE_INSTANCE",
+        "CLIENT_CONTEXT_INSTANCE"
+      ]
+    },
+    "audience_service_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+    },
+    "issuance_policy_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+    },
+    "profile_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "required_anchors"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "workspace_lineage",
+            "business_context",
+            "subject_and_workspace_lineage",
+            "subject_and_business_context"
+          ]
+        },
+        "subject_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "organization_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "context_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "required_anchors": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "anchor_type",
+              "anchor_id"
+            ],
+            "properties": {
+              "anchor_type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "anchor_id": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "created_by_issuer": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "instance_class": {
+            "const": "CLIENT_CONTEXT_INSTANCE"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "binding": {
+            "properties": {
+              "mode": {
+                "enum": [
+                  "business_context",
+                  "subject_and_business_context"
+                ]
+              },
+              "context_ref": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "context_ref"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "instance_class": {
+            "const": "STAFF_WORKSPACE_INSTANCE"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "binding": {
+            "properties": {
+              "mode": {
+                "enum": [
+                  "workspace_lineage",
+                  "subject_and_workspace_lineage"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

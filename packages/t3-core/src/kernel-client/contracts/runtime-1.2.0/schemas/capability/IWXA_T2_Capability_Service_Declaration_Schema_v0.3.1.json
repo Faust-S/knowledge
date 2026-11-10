@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "iwxa://schemas/capability-service-declaration/0.3.1",
+  "title": "IWXA Capability Service Declaration 0.3.1",
+  "description": "Static Registry/ServicePassport-adjacent capability ceiling and Kernel operation guard metadata. Does not carry holder grants.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "service_id",
+    "capability_control",
+    "capability_ceiling",
+    "activation_any_of",
+    "operation_guards"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.3.1"
+    },
+    "service_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+    },
+    "capability_control": {
+      "enum": [
+        "NONE",
+        "REQUIRED"
+      ]
+    },
+    "capability_ceiling": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,191}$"
+      }
+    },
+    "activation_any_of": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,191}$"
+      }
+    },
+    "operation_guards": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "guard_id",
+          "operation_id",
+          "required_capabilities_all",
+          "required_capabilities_any",
+          "schema_ids"
+        ],
+        "properties": {
+          "guard_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+          },
+          "operation_id": {
+            "type": "string",
+            "minLength": 3
+          },
+          "required_capabilities_all": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,191}$"
+            }
+          },
+          "required_capabilities_any": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,191}$"
+            }
+          },
+          "schema_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+            }
+          }
+        }
+      }
+    }
+  }
+}

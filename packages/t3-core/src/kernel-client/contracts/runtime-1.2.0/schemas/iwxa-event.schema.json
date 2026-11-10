@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iwxa.dev/schemas/iwxa-event.schema.json",
+  "title": "IWXA Event",
+  "description": "Canonical audit / stream event envelope. The field is `event_type` — the legacy shortcut `type` is forbidden and detected by tests/contract-parity.test.ts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "workspace_id",
+    "service_id",
+    "occurred_at",
+    "payload"
+  ],
+  "properties": {
+    "event_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:/-]*$", "maxLength": 128 },
+    "event_type": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:/-]*$", "maxLength": 128 },
+    "workspace_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:/-]*$", "maxLength": 128 },
+    "service_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:/-]*$", "maxLength": 128 },
+    "object_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:/-]*$", "maxLength": 128 },
+    "revision": { "type": "integer", "minimum": 1 },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "causation_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:/-]*$", "maxLength": 128 },
+    "correlation_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:/-]*$", "maxLength": 128 },
+    "idempotency_key": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "payload": {}
+  }
+}

@@ -36,3 +36,8 @@ jobs:
       - run: node --check packages/t3-core/src/t3/activity/real-t2-host-acceptance.mjs
       - run: node --test packages/t3-core/src/t3/activity/test/*.test.mjs
       - run: node --experimental-strip-types --test tests/t3-inherited-contract.test.mjs
+      - name: Install inherited T2 build dependencies
+        run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+      - name: Run original T2 Runtime 1.3 Host facade regression
+        working-directory: packages/t3-core
+        run: ./node_modules/.bin/vitest run --config vitest.t3-bootstrap.config.mjs

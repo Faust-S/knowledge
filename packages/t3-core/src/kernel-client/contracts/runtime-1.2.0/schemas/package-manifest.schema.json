@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iwxa.dev/schemas/package-manifest.schema.json",
+  "title": "IWXA Package Manifest",
+  "description": "manifest.json at the root of every IWXA portable package, format 1.0.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "format_version",
+    "encryption",
+    "created_at",
+    "workspaces",
+    "workspace_states",
+    "options",
+    "counts",
+    "files",
+    "package_digest",
+    "semantic_digest"
+  ],
+  "properties": {
+    "format": { "const": "iwxa.package" },
+    "format_version": { "const": "1.0" },
+    "encryption": { "const": "none" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "workspaces": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "workspace_states": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["workspace_id", "updated_at"],
+        "properties": {
+          "workspace_id": { "type": "string", "minLength": 1 },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["include_history", "include_assets", "include_relations", "include_schemas"],
+      "properties": {
+        "include_history": { "type": "boolean" },
+        "include_assets": { "type": "boolean" },
+        "include_relations": { "type": "boolean" },
+        "include_schemas": { "type": "boolean" }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaces", "objects", "events", "relations", "assets", "schemas"],
+      "properties": {
+        "workspaces": { "type": "integer", "minimum": 0 },
+        "objects": { "type": "integer", "minimum": 0 },
+        "events": { "type": "integer", "minimum": 0 },
+        "relations": { "type": "integer", "minimum": 0 },
+        "assets": { "type": "integer", "minimum": 0 },
+        "schemas": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "size", "sha256"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^(manifest\\.json|(content|assets|schemas|technical)/[^\\\\\\s][^\\\\]*)$",
+            "maxLength": 240
+          },
+          "size": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "package_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "semantic_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

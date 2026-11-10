@@ -1,0 +1,45 @@
+{
+  "contract_version": "1.2.0",
+  "loader_version": 1,
+  "source_project": "iwxa-domain-kernel",
+  "source_files": [
+    "src/public-contract/index.ts",
+    "src/public-contract/error-catalogue.ts",
+    "schemas/*",
+    "schemas/capability/*"
+  ],
+  "copied_at": "2026-08-11T00:00:00Z",
+  "methods_used": {
+    "t1": [
+      "listWorkspaces",
+      "getWorkspace",
+      "createWorkspace",
+      "listObjects",
+      "getObject",
+      "putObject",
+      "deleteObject",
+      "listEventsSince"
+    ],
+    "t2": [
+      "exportPreview",
+      "exportPackage",
+      "importPreview",
+      "importCommit",
+      "importCancel"
+    ]
+  },
+  "granted_operations": [
+    "t1.listWorkspaces",
+    "t1.getWorkspace",
+    "t1.listObjects",
+    "t1.getObject",
+    "t1.createWorkspace",
+    "t1.putObject",
+    "t1.deleteObject",
+    "t1.listEventsSince",
+    "t2.exportPreview",
+    "t2.exportPackage",
+    "t2.importPreview",
+    "t2.importCommit"
+  ]
+}
