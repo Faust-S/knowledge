@@ -1,5 +1,8 @@
 # IWXA — единая работа с задачами, знаниями и специализированными агентами
 
+**Live 42-repo source index (10.11.2026):** https://github.com/Faust-S/iwxa/blob/knowledge/2026-10-02-system-atlas/knowledge/system/LIVE_ECOSYSTEM_STATUS_2026_11_10.json . Public knowledge develops original K01–K05 and Task Discovery/Activity Research code and tests only. Exact module unit/CI results do not qualify Agent 0.4 or prove independent human field Task-F1/ROI. This index adds no new runtime owner or permission, and private reports and source must stay outside this public repository.
+
+
 **Граница доменов (решение владельца 10.11.2026):** все 11 пар сайтов и доменной логики имеют разных code owners. Парный репозиторий без веб-суффикса каноничен для доменных моделей и алгоритмов, сайт — для интерфейса, T2-интеграции и `dist/`. Применять https://github.com/Faust-S/iwxa/blob/knowledge/2026-10-02-system-atlas/knowledge/system/DOMAIN_CODE_OWNERSHIP_RU.md . Исследовательские модули K не присваивают эти полномочия и не создают вторые доменные ядра.
 
 ## Назначение репозитория
