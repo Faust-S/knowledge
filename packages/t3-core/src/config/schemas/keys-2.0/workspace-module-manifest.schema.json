@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iwxa.dev/schemas/workspace-module-manifest/1.0.0",
+  "title": "IWXA Workspace Module Manifest 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "module_manifest_version",
+    "module_id",
+    "module_version",
+    "title",
+    "compatibility",
+    "contributions",
+    "security"
+  ],
+  "properties": {
+    "module_manifest_version": {
+      "const": "1.0.0"
+    },
+    "module_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "module_version": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workspace_contract",
+        "runtime_contract"
+      ],
+      "properties": {
+        "workspace_contract": {
+          "type": "string"
+        },
+        "runtime_contract": {
+          "const": "1.3.0"
+        }
+      }
+    },
+    "contributions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "routes",
+        "navigation",
+        "editors",
+        "viewers",
+        "commands",
+        "panels",
+        "dashboard_cards",
+        "validators",
+        "migrations",
+        "legacy_importers"
+      ],
+      "properties": {
+        "routes": {
+          "type": "array"
+        },
+        "navigation": {
+          "type": "array"
+        },
+        "editors": {
+          "type": "array"
+        },
+        "viewers": {
+          "type": "array"
+        },
+        "commands": {
+          "type": "array"
+        },
+        "panels": {
+          "type": "array"
+        },
+        "dashboard_cards": {
+          "type": "array"
+        },
+        "validators": {
+          "type": "array"
+        },
+        "migrations": {
+          "type": "array"
+        },
+        "legacy_importers": {
+          "type": "array"
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "direct_indexeddb",
+        "remote_code",
+        "iwxa_executable_payload"
+      ],
+      "properties": {
+        "direct_indexeddb": {
+          "const": false
+        },
+        "remote_code": {
+          "const": false
+        },
+        "iwxa_executable_payload": {
+          "const": false
+        }
+      }
+    }
+  }
+}

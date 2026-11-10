@@ -1,0 +1,46 @@
+{
+  "source_package": "IWXA_Domain_Keys_2.0_RU",
+  "package_version": "2.0",
+  "schema_count": 5,
+  "status": "workspace-host-derived-from-domain-keys-2.0",
+  "source_files": {
+    "domain-config.schema.json": "7164403780c755c7920a02ad2610756fb3602ae0fafa98fe23e3bb549d0f96ee",
+    "domain-key.schema.json": "bf188cbab10932e2978fa9718637eb557cd1771218700b587020748b78e4c835",
+    "domain-shell.schema.json": "373eb2e67e2888b2243713cb60de3dbfad199def8eb09421845a8e0e729d4c93",
+    "workspace-config.schema.json": "0df3a5a457a20c0121af64a2c122bb6bdfe70c0f3aa86deed940c34c47690f7f",
+    "workspace-module-manifest.schema.json": "26e7cfa69400daca34a49db1f6b22731c1dc0eb2ed2af140a5f7c25311ef11cd"
+  },
+  "files": {
+    "domain-config.schema.json": "7164403780c755c7920a02ad2610756fb3602ae0fafa98fe23e3bb549d0f96ee",
+    "domain-key.schema.json": "bf188cbab10932e2978fa9718637eb557cd1771218700b587020748b78e4c835",
+    "domain-shell.schema.json": "6eaa6e853e1f924604a733624adf569013d866d9b104073a742f4d9d4d081221",
+    "workspace-config.schema.json": "e5b3f5a3947a6f7e64879b87b514fad7f62a5a41d220de4a5a7b0b12965458fc",
+    "workspace-module-manifest.schema.json": "fc067d19181082989a25cc86fea18df04b5a16bc3e36a9eb1978a50486267fc4"
+  },
+  "derived_files": {
+    "workspace-config.schema.json": "Workspace host derivative: Runtime Contract 1.3.0 and Kernel 0.3.6; optional required_capabilities_all/any declarations. No runtime acceptance is claimed.",
+    "workspace-module-manifest.schema.json": "Workspace Host module manifest derivative: Runtime Contract 1.3.0; optional required_capabilities_all/any declarations. No entitlement state or issuer trust is stored here.",
+    "domain-shell.schema.json": "Workspace Host derivative of the original Domain Keys shell schema: opt-in site-owned chrome accepted alongside integrated. Source package SHA-256 is retained unchanged in source_files; this packaged derivative's SHA-256 is recorded in files. No changes to the Kernel or authority model."
+  },
+  "authority_boundary": "Domain Keys remains configuration/identity/trust ceiling metadata. Capability grants/receipts/private issuer keys are not part of this schema set.",
+  "retained_donor_discrepancy": {
+    "donor_archive_sha256": "bd10ac792096fa58e45d84b86138cad858e5548081be89bada3c1e9d81f85b6e",
+    "file": "workspace-config.schema.json",
+    "declared_sha256": "69baffe0f88aff15a16bcd2914c3dac9f21d42ad39737d5d95f7101f5eb6a515",
+    "actual_donor_sha256": "2bab48f601e137d8e6593f59c7b6e595dceb4c48e4e7740cab8037b19c5c31c1",
+    "status": "RECORDED_NOT_SILENTLY_ACCEPTED"
+  },
+  "current_derivation": {
+    "date": "2026-09-17",
+    "change": "Explicit 0.3.5/0.3.6 host configuration allowlist plus preservation of cross-document exact version equality. Original Domain Keys source_files remain unchanged.",
+    "runtime_qualification_complete": false
+  },
+  "site_owned_derivation": {
+    "documented_at": "2026-11-03",
+    "status": "RECORDED_DERIVED_FROM_SOURCE",
+    "source_file": "domain-shell.schema.json",
+    "source_sha256": "373eb2e67e2888b2243713cb60de3dbfad199def8eb09421845a8e0e729d4c93",
+    "packaged_sha256": "6eaa6e853e1f924604a733624adf569013d866d9b104073a742f4d9d4d081221",
+    "reason": "The packaged Host shell schema permits site-owned chrome and exact HTTP loopback origins for isolated local preview, while ordinary domains still require HTTPS. The original Domain Keys source hash and runtime origin equality remain unchanged. No production HTTP host is allowed."
+  }
+}

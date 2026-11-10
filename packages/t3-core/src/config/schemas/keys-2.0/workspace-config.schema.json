@@ -1,0 +1,302 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iwxa.dev/schemas/workspace-config/1.0.0",
+  "title": "IWXA Universal Workspace Configuration 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspace_config_schema_version",
+    "config_version",
+    "domain_id",
+    "workspace_service_id",
+    "base_path",
+    "profile",
+    "shell_config_path",
+    "host",
+    "module_loading",
+    "navigation",
+    "terminology",
+    "modules",
+    "unknown_objects",
+    "security",
+    "release"
+  ],
+  "properties": {
+    "workspace_config_schema_version": {
+      "const": "1.0.0"
+    },
+    "config_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "domain_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "workspace_service_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "base_path": {
+      "const": "/workspace/"
+    },
+    "profile": {
+      "enum": [
+        "generic",
+        "learning",
+        "personal",
+        "organization",
+        "health"
+      ]
+    },
+    "shell_config_path": {
+      "const": "/_iwxa/domain-shell.json"
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_contract_version",
+        "required_runtime_version",
+        "local_store_name",
+        "storage_access",
+        "direct_indexeddb"
+      ],
+      "properties": {
+        "required_contract_version": {
+          "const": "1.3.0"
+        },
+        "required_runtime_version": {
+          "const": "0.3.6"
+        },
+        "local_store_name": {
+          "const": "iwxa-local"
+        },
+        "storage_access": {
+          "const": "iwxa-client-only"
+        },
+        "direct_indexeddb": {
+          "const": false
+        }
+      }
+    },
+    "module_loading": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strategy",
+        "allow_remote_modules",
+        "lazy_loading",
+        "unknown_module_policy"
+      ],
+      "properties": {
+        "strategy": {
+          "const": "compile-time-registry"
+        },
+        "allow_remote_modules": {
+          "const": false
+        },
+        "lazy_loading": {
+          "const": "dynamic-import"
+        },
+        "unknown_module_policy": {
+          "const": "disable-with-diagnostics"
+        }
+      }
+    },
+    "navigation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "home_path",
+        "back_to_domain_path",
+        "inherit_domain_navigation",
+        "route_references"
+      ],
+      "properties": {
+        "home_path": {
+          "const": "/workspace/"
+        },
+        "back_to_domain_path": {
+          "const": "/"
+        },
+        "inherit_domain_navigation": {
+          "const": true
+        },
+        "route_references": {
+          "const": "opaque"
+        }
+      }
+    },
+    "terminology": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "modules": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "$ref": "#/$defs/module"
+      }
+    },
+    "unknown_objects": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preserve",
+        "viewer",
+        "editing"
+      ],
+      "properties": {
+        "preserve": {
+          "const": true
+        },
+        "viewer": {
+          "const": "generic-inspector"
+        },
+        "editing": {
+          "const": "read-only"
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trusted_build_modules_only",
+        "module_direct_indexeddb",
+        "executable_code_in_iwxa",
+        "remote_module_urls"
+      ],
+      "properties": {
+        "trusted_build_modules_only": {
+          "const": true
+        },
+        "module_direct_indexeddb": {
+          "const": false
+        },
+        "executable_code_in_iwxa": {
+          "const": false
+        },
+        "remote_module_urls": {
+          "const": false
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "build_strategy",
+        "exclude_test_harness",
+        "exclude_unconfigured_modules"
+      ],
+      "properties": {
+        "build_strategy": {
+          "const": "per-domain-static-build"
+        },
+        "exclude_test_harness": {
+          "const": true
+        },
+        "exclude_unconfigured_modules": {
+          "const": true
+        }
+      }
+    }
+  },
+  "$defs": {
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module_id",
+        "state",
+        "ui_mode",
+        "route_base",
+        "slots",
+        "required_levels",
+        "required_operations",
+        "object_schemas",
+        "dependencies"
+      ],
+      "properties": {
+        "module_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]*$"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "planned",
+            "disabled"
+          ]
+        },
+        "ui_mode": {
+          "enum": [
+            "standard",
+            "wizard",
+            "analytics",
+            "immersive",
+            "background"
+          ]
+        },
+        "route_base": {
+          "type": "string",
+          "pattern": "^/workspace/"
+        },
+        "slots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "required_levels": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "T0",
+              "T1",
+              "T2"
+            ]
+          }
+        },
+        "required_operations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "object_schemas": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "required_capabilities_all": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,191}$"
+          }
+        },
+        "required_capabilities_any": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,191}$"
+          }
+        }
+      }
+    }
+  }
+}

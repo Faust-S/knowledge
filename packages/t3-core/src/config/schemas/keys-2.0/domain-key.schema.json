@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iwxa.dev/schemas/domain-key/2.0.0",
+  "title": "IWXA Domain Integration Key 2.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "key_schema_version",
+    "key_version",
+    "status",
+    "domain_id",
+    "origin",
+    "profile",
+    "supersedes",
+    "deployment_ready",
+    "files",
+    "checks"
+  ],
+  "properties": {
+    "key_schema_version": {
+      "const": "2.0.0"
+    },
+    "key_version": {
+      "type": "string"
+    },
+    "status": {
+      "const": "integration-baseline"
+    },
+    "domain_id": {
+      "type": "string"
+    },
+    "origin": {
+      "type": "string",
+      "format": "uri"
+    },
+    "profile": {
+      "enum": [
+        "generic",
+        "learning",
+        "personal",
+        "organization",
+        "health"
+      ]
+    },
+    "supersedes": {
+      "const": "IWXA_Domain_Configurations_1.1"
+    },
+    "deployment_ready": {
+      "type": "boolean"
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kernel",
+        "shell",
+        "workspace"
+      ],
+      "properties": {
+        "kernel": {
+          "const": "/_iwxa/domain.json"
+        },
+        "shell": {
+          "const": "/_iwxa/domain-shell.json"
+        },
+        "workspace": {
+          "const": "/workspace/workspace.config.json"
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

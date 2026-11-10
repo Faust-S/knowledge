@@ -1,0 +1,298 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iwxa.dev/schemas/domain-shell/1.0.0",
+  "title": "IWXA Domain Shell Configuration 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "shell_schema_version",
+    "config_version",
+    "domain_id",
+    "origin",
+    "brand",
+    "theme",
+    "layout",
+    "navigation",
+    "workspace_entry",
+    "accessibility",
+    "release"
+  ],
+  "properties": {
+    "shell_schema_version": {
+      "const": "1.0.0"
+    },
+    "config_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "domain_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "origin": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^(?:https://|http://(?:127\\.0\\.0\\.1|localhost):[1-9][0-9]{0,4}$)"
+    },
+    "brand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "short_name",
+        "descriptor",
+        "home_path",
+        "logo_path",
+        "favicon_path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "short_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "descriptor": {
+          "type": "string"
+        },
+        "home_path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "logo_path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "favicon_path": {
+          "type": "string",
+          "pattern": "^/"
+        }
+      }
+    },
+    "theme": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "theme_id",
+        "tokens_path",
+        "font_loading",
+        "supports_dark_mode"
+      ],
+      "properties": {
+        "theme_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]*$"
+        },
+        "tokens_path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "font_loading": {
+          "enum": [
+            "local-only",
+            "system-stack"
+          ]
+        },
+        "supports_dark_mode": {
+          "type": "boolean"
+        }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "header_variant",
+        "footer_variant",
+        "content_width",
+        "density",
+        "workspace_chrome",
+        "mobile_navigation"
+      ],
+      "properties": {
+        "header_variant": {
+          "enum": [
+            "domain",
+            "compact",
+            "editor"
+          ]
+        },
+        "footer_variant": {
+          "enum": [
+            "domain",
+            "compact",
+            "none"
+          ]
+        },
+        "content_width": {
+          "enum": [
+            "normal",
+            "wide",
+            "fluid"
+          ]
+        },
+        "density": {
+          "enum": [
+            "comfortable",
+            "compact"
+          ]
+        },
+        "workspace_chrome": {
+          "enum": [
+            "integrated",
+            "site-owned"
+          ]
+        },
+        "mobile_navigation": {
+          "enum": [
+            "drawer",
+            "sheet"
+          ]
+        }
+      }
+    },
+    "navigation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "active_route_strategy",
+        "breadcrumbs",
+        "primary",
+        "utility"
+      ],
+      "properties": {
+        "active_route_strategy": {
+          "const": "longest-prefix"
+        },
+        "breadcrumbs": {
+          "type": "boolean"
+        },
+        "primary": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/navItem"
+          }
+        },
+        "utility": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/navItem"
+          }
+        }
+      }
+    },
+    "workspace_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "path",
+        "placement"
+      ],
+      "properties": {
+        "id": {
+          "const": "workspace"
+        },
+        "label": {
+          "type": "string"
+        },
+        "path": {
+          "const": "/workspace/"
+        },
+        "placement": {
+          "enum": [
+            "primary",
+            "utility",
+            "cta"
+          ]
+        }
+      }
+    },
+    "accessibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "focus_visible",
+        "reduced_motion",
+        "minimum_contrast"
+      ],
+      "properties": {
+        "focus_visible": {
+          "const": true
+        },
+        "reduced_motion": {
+          "const": "respect-system"
+        },
+        "minimum_contrast": {
+          "enum": [
+            "WCAG-AA",
+            "WCAG-AAA"
+          ]
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host_owned",
+        "preserve_on_kernel_overlay"
+      ],
+      "properties": {
+        "host_owned": {
+          "const": true
+        },
+        "preserve_on_kernel_overlay": {
+          "const": true
+        }
+      }
+    }
+  },
+  "$defs": {
+    "navItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "path",
+        "order",
+        "kind",
+        "match_prefix"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]*$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "kind": {
+          "enum": [
+            "page",
+            "module",
+            "workspace",
+            "external"
+          ]
+        },
+        "match_prefix": {
+          "type": "string",
+          "pattern": "^/"
+        }
+      }
+    }
+  }
+}
