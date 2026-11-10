@@ -9,7 +9,6 @@ import {
 import {tmpdir} from 'node:os';
 import {dirname, isAbsolute, join, relative, resolve, sep} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
-import {createRequire} from 'node:module';
 
 const T2_HEAD = '9c64951cd78411283e8a416641c36d71e169fc1d';
 const T2_TREE = '56e55a9458aeb3ce540ef87dbc2dd9549ae2fcb2';
@@ -69,8 +68,7 @@ async function run() {
     pathToFileURL(join(t2Source,'src/factory2/products/domain-completion/independent-browser-witness.mjs')).href);
   const {materializeIntegrationHost,serveRealKernelHost} = await import(
     pathToFileURL(join(t2Source,'scripts/real-kernel-e2e.mjs')).href);
-  const requireT2 = createRequire(join(t2Source,'package.json'));
-  const {chromium} = await import(pathToFileURL(requireT2.resolve('playwright')).href);
+  const {chromium} = await import('playwright');
   const temp = mkdtempSync(join(tmpdir(),'iwxa-t3-d2-real-'));
   const originalCwd = process.cwd();
   let stage = null, witness = null, live = null, browser = null;
