@@ -35,6 +35,9 @@ function selected(owner) {
     "context_id","actor_id","principal_id","role_id","grant_id",
     "realm_id","audience","resource","purpose","workspace_id",
   ]) requiredId(c[key],key.toUpperCase());
+  // Existing T3 scoped Workspace Host binds the signed resource to the exact
+  // selected workspace ID, not to an independently caller-supplied alias.
+  if (c.resource !== c.workspace_id) refused("T3_SUBJECT_RESOURCE_WORKSPACE_MISMATCH");
   if (!Number.isSafeInteger(c.scope_revision) || c.scope_revision < 1) {
     refused("T3_SUBJECT_SCOPE_REVISION_UNKNOWN");
   }

@@ -10,7 +10,7 @@ const subjects=[
   {kind:"CORP",context_id:"corp:one",realm_id:"realm:one",organization_id:"org:one",workspace_id:"ws:one",grant_id:"grant:one"},
   {kind:"CORP",context_id:"corp:two",realm_id:"realm:two",organization_id:"org:two",workspace_id:"ws:two",grant_id:"grant:two"},
 ].map(c=>({...c,actor_id:"person:one",principal_id:c.kind==="CORP"?c.organization_id:"person:one",role_id:"role:member",
-  audience:"host:t3",resource:"workspace:"+c.workspace_id,purpose:"purpose:work",scope_revision:1}));
+  audience:"host:t3",resource:c.workspace_id,purpose:"purpose:work",scope_revision:1}));
 function fixture(contexts=subjects) {
   let selected=0,outcome="PERMITTED",binding=true,expired=false,
       changeDuringAuthorize=false;
@@ -153,5 +153,13 @@ test("corporate authority cannot confuse the human actor with the organization p
   const f=fixture(contexts);
   f.select(1);
   await assert.rejects(f.bound.getWorkspace("ws:one"),{code:"T3_CORPORATE_PRINCIPAL_MISMATCH"});
+  assert.equal(f.calls.length,0);
+});
+
+test("a selected Workspace cannot borrow an Access grant for a different resource",async()=>{
+  const contexts=subjects.map((item,i)=>i===2?{...item,resource:"ws:one"}:item);
+  const f=fixture(contexts);
+  f.select(2);
+  await assert.rejects(f.bound.getWorkspace("ws:two"),{code:"T3_SUBJECT_RESOURCE_WORKSPACE_MISMATCH"});
   assert.equal(f.calls.length,0);
 });
