@@ -38,8 +38,11 @@ function selected(owner) {
   if (!Number.isSafeInteger(c.scope_revision) || c.scope_revision < 1) {
     refused("T3_SUBJECT_SCOPE_REVISION_UNKNOWN");
   }
-  if (c.kind === "CORP") requiredId(c.organization_id,"ORGANIZATION_ID");
-  else if (c.organization_id !== null) refused("T3_PERSONAL_ORGANIZATION_FORBIDDEN");
+  if (c.kind === "CORP") {
+    requiredId(c.organization_id,"ORGANIZATION_ID");
+    // T3 Access grants name the organization as principal; the actor is a person.
+    if (c.principal_id !== c.organization_id) refused("T3_CORPORATE_PRINCIPAL_MISMATCH");
+  } else if (c.organization_id !== null) refused("T3_PERSONAL_ORGANIZATION_FORBIDDEN");
   return Object.freeze({
     kind:c.kind,context_id:c.context_id,actor_id:c.actor_id,
     principal_id:c.principal_id,role_id:c.role_id,grant_id:c.grant_id,

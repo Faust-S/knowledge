@@ -9,9 +9,9 @@ const subjects=[
   {kind:"PERSONAL",context_id:"personal",realm_id:"realm:personal",organization_id:null,workspace_id:"ws:personal",grant_id:"grant:personal"},
   {kind:"CORP",context_id:"corp:one",realm_id:"realm:one",organization_id:"org:one",workspace_id:"ws:one",grant_id:"grant:one"},
   {kind:"CORP",context_id:"corp:two",realm_id:"realm:two",organization_id:"org:two",workspace_id:"ws:two",grant_id:"grant:two"},
-].map(c=>({...c,actor_id:"person:one",principal_id:"principal:one",role_id:"role:member",
+].map(c=>({...c,actor_id:"person:one",principal_id:c.kind==="CORP"?c.organization_id:"person:one",role_id:"role:member",
   audience:"host:t3",resource:"workspace:"+c.workspace_id,purpose:"purpose:work",scope_revision:1}));
-function fixture() {
+function fixture(contexts=subjects) {
   let selected=0,outcome="PERMITTED",binding=true,expired=false,
       changeDuringAuthorize=false;
   const objects=new Map(),events=[],calls=[];
@@ -45,7 +45,7 @@ function fixture() {
     },
   });
   const access=Object.freeze({
-    currentContext:()=>subjects[selected],
+    currentContext:()=>contexts[selected],
     actionFor:op=>({"t1.putObject":"object.write","t1.getObject":"object.read",
       "t1.createWorkspace":"workspace.create","t1.getWorkspace":"workspace.read",
       "t1.listEventsSince":"history.read"})[op],
@@ -146,4 +146,12 @@ test("the caller cannot mutate a digest-authorized T2 write while Access checks 
   assert.equal(receipt.object.data.title,"original");
   assert.deepEqual(f.calls.filter(x=>x[0]==="putObject"),[["putObject","ws:personal"]]);
   assert.equal(f.objects.has("ws:two/item:immutable"),false);
+});
+
+test("corporate authority cannot confuse the human actor with the organization principal",async()=>{
+  const contexts=subjects.map((item,i)=>i===1?{...item,principal_id:"person:one"}:item);
+  const f=fixture(contexts);
+  f.select(1);
+  await assert.rejects(f.bound.getWorkspace("ws:one"),{code:"T3_CORPORATE_PRINCIPAL_MISMATCH"});
+  assert.equal(f.calls.length,0);
 });
