@@ -1,0 +1,29 @@
+name: t3-activity-projection
+
+on:
+  push:
+    branches:
+      - work/2026-11-10-t3-t2-activity-projection
+    paths:
+      - modules/t3-activity-projection/**
+      - .github/workflows/t3-activity-projection.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: t3-activity-projection-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check modules/t3-activity-projection/index.mjs
+      - run: node --test modules/t3-activity-projection/test/projection.test.mjs
