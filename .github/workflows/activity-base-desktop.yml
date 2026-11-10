@@ -28,6 +28,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Verify Windows UI witness syntax before Rust build
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path desktop/tests/installed-windows-ui.ps1).Path,
+            [ref]$tokens,
+            [ref]$errors)
+          if ($errors.Count -gt 0) {
+            foreach ($issue in $errors) { Write-Host $issue.Message }
+            throw 'WINDOWS_UI_WITNESS_SYNTAX_INVALID'
+          }
       - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs
       - run: python -m unittest discover -s tests -p 'test_activity_desktop_contract.py' -v
       - run: python -m unittest discover -s tests -p 'test_activity_base_a0.py' -v

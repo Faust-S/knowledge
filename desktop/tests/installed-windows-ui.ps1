@@ -1,4 +1,4 @@
-# Windows UIAutomation witness for the actual installed Tauri/WebView2 window.
+﻿# Windows UIAutomation witness for the actual installed Tauri/WebView2 window.
 # Never uses Chromium, WebDriver, browser tabs, Playwright or JavaScript injection.
 [CmdletBinding()]
 param([Parameter(Mandatory=$true)][string]$Executable)
@@ -27,7 +27,7 @@ function Open-Window([string]$path) {
     throw 'DESKTOP_MAIN_WINDOW_NOT_VISIBLE_ON_RUNNER'
 }
 function Find-Accessible($root, [string]$name, [int]$attempts = 35) {
-    $condition = New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::NameProperty, $name)
+    $condition = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::NameProperty, $name)
     for ($i = 0; $i -lt $attempts; $i++) {
         $element = $root.FindFirst([Windows.Automation.TreeScope]::Descendants, $condition)
         if ($element) { return $element }
