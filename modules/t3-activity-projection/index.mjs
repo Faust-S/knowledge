@@ -23,7 +23,7 @@ function positiveRevision(value) {
   return value;
 }
 
-function canonical(value, stack = new Set()) {
+export function canonical(value, stack = new Set()) {
   if (value === null || typeof value !== "object") {
     if (typeof value === "number" && !Number.isFinite(value)) fail("NON_JSON_VALUE");
     if (value === undefined || typeof value === "function" || typeof value === "symbol") {
