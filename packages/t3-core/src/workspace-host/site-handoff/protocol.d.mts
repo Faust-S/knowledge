@@ -1,0 +1,10 @@
+export const HANDOFF_PROTOCOL: 'IWXA_T2_SITE_HANDOFF/1';
+export const HANDOFF_ORIGIN_QUERY: 'iwxa_t2_site_origin';
+export const MAX_T0_DOCUMENT_BYTES: number;
+export const NONCE_PATTERN: RegExp;
+export function exactOrigin(raw: string): string;
+export function destinationUrl(raw: string, siteOrigin: string): URL;
+export function claimedSiteOrigin(hostLocation: string): string;
+export function isMessage(value: unknown, kind: string): boolean;
+export function checkCandidateBytes(raw: string, maxBytes?: number): string;
+export function nonceFrom(cryptoSource: Pick<Crypto,'getRandomValues'>): string;

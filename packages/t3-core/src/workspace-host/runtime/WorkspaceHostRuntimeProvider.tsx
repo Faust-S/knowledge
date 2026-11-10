@@ -1,0 +1,184 @@
+/**
+ * WorkspaceHostRuntimeProvider (PROMPT 19 §5-§7).
+ *
+ * Owns the async lifecycle of the WorkspaceHostRuntime handle:
+ *   - starts a new runtime whenever the session identity changes;
+ *   - guards against stale async completions using a monotonically
+ *     incrementing generation counter;
+ *   - disposes the previous runtime before publishing the next one;
+ *   - exposes runtime state through React context.
+ */
+
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import type { KernelSession } from "@/kernel-client/types";
+import type { ProfileFacade } from "@/workspace-contract";
+import { createWorkspaceHostRuntime } from "./create-workspace-host-runtime";
+import type {
+  WorkspaceHostRuntimeHandle,
+  WorkspaceHostRuntimeState,
+} from "./types";
+import type { ModuleLoaderTable } from "../modules";
+
+interface WorkspaceHostRuntimeProviderProps {
+  session: KernelSession | null;
+  workspaceConfig: { modules: readonly Record<string, unknown>[] };
+  termResolver: (key: string, fallback?: string) => string;
+  profile: ProfileFacade;
+  /** Optional live snapshot supplied by the Host for defense-in-depth UI/module guards. */
+  activeCapabilities?: readonly string[];
+  /** Compile-time imported domain loaders owned by this Host build. */
+  compileTimeModuleLoaders?: ModuleLoaderTable;
+  /** Prefer domain home only for site-owned shells. */
+  preferDomainLanding?: boolean;
+  children: ReactNode;
+}
+
+const EMPTY_CAPABILITIES = Object.freeze([] as string[]);
+
+const RuntimeContext = createContext<WorkspaceHostRuntimeState>({
+  status: "idle",
+});
+
+export function useWorkspaceHostRuntime(): WorkspaceHostRuntimeState {
+  return useContext(RuntimeContext);
+}
+
+export function useWorkspaceHostRuntimeHandle(): WorkspaceHostRuntimeHandle | null {
+  const s = useContext(RuntimeContext);
+  return s.status === "ready" ? s.runtime : null;
+}
+
+export function WorkspaceHostRuntimeProvider(
+  props: WorkspaceHostRuntimeProviderProps,
+) {
+  const {
+    session, workspaceConfig, termResolver, profile,
+    activeCapabilities = EMPTY_CAPABILITIES,
+    compileTimeModuleLoaders,
+    preferDomainLanding = false,
+    children,
+  } = props;
+  const [state, setState] = useState<WorkspaceHostRuntimeState>({
+    status: "idle",
+  });
+  const generationRef = useRef(0);
+  const activeHandleRef = useRef<WorkspaceHostRuntimeHandle | null>(null);
+  // Serializes every runtime teardown/start. Without this barrier, two rapid
+  // session/config transitions can overlap: an older module deactivate()
+  // may then dispose singleton services after the newer runtime activated.
+  const transitionRef = useRef<Promise<void>>(Promise.resolve());
+
+  // A stable identity key so we don't restart on unrelated re-renders.
+  const sessionKey = session
+    ? `${session.contract_version}|${(session.granted_operations ?? []).join(",")}|${(session.granted_levels ?? []).join(",")}|cap:${activeCapabilities.join(",")}`
+    : null;
+
+  useEffect(() => {
+    if (!session || !sessionKey) {
+      // Session loss is an authority boundary, not only a UI state change.
+      // Invalidate any in-flight generation and detach the active handle
+      // immediately so old modules/router/listeners cannot remain reachable.
+      ++generationRef.current;
+      const prev = activeHandleRef.current;
+      activeHandleRef.current = null;
+      setState({ status: "idle" });
+      const teardown = transitionRef.current
+        .catch(() => {})
+        .then(async () => {
+          if (!prev) return;
+          try {
+            await prev.dispose();
+          } catch {
+            // Teardown remains best-effort, but the transition barrier still resolves.
+          }
+        });
+      transitionRef.current = teardown.catch(() => {});
+      return;
+    }
+    const myGen = ++generationRef.current;
+    let cancelled = false;
+    setState({ status: "starting" });
+
+    const transition = transitionRef.current
+      .catch(() => {})
+      .then(async () => {
+        if (cancelled || myGen !== generationRef.current) return;
+
+        // Tear down the previous handle first. This executes inside the global
+        // transition queue, so no newer runtime can activate until teardown is done.
+        const prev = activeHandleRef.current;
+        activeHandleRef.current = null;
+        if (prev) {
+          try { await prev.dispose(); } catch { /* ignore */ }
+        }
+        if (cancelled || myGen !== generationRef.current) return;
+
+        try {
+          const runtime = await createWorkspaceHostRuntime({
+            session,
+            workspaceConfig,
+            termResolver,
+            profile,
+            activeCapabilities,
+            compileTimeModuleLoaders,
+            preferDomainLanding,
+          });
+          if (cancelled || myGen !== generationRef.current) {
+            // Superseded — dispose before the queued transition resolves.
+            try { await runtime.dispose(); } catch { /* ignore */ }
+            return;
+          }
+          activeHandleRef.current = runtime;
+          setState({ status: "ready", runtime });
+        } catch (err) {
+          if (cancelled || myGen !== generationRef.current) return;
+          setState({
+            status: "error",
+            error: err instanceof Error ? err : new Error(String(err)),
+            diagnostics: { composition: [], modules: [] },
+          });
+        }
+      });
+    transitionRef.current = transition.catch(() => {});
+
+    return () => {
+      cancelled = true;
+      // Do NOT dispose here synchronously — the effect body handles
+      // handoff via activeHandleRef; the returned cleanup only marks
+      // this generation stale.
+    };
+    // Restart only on session identity or workspaceConfig identity change.
+  }, [sessionKey, session, workspaceConfig, termResolver, profile, activeCapabilities, compileTimeModuleLoaders, preferDomainLanding]);
+
+  // Unmount teardown.
+  useEffect(() => {
+    return () => {
+      ++generationRef.current;
+      const prev = activeHandleRef.current;
+      activeHandleRef.current = null;
+      const teardown = transitionRef.current
+        .catch(() => {})
+        .then(async () => {
+          if (!prev) return;
+          try { await prev.dispose(); } catch { /* ignore */ }
+        });
+      transitionRef.current = teardown.catch(() => {});
+    };
+  }, []);
+
+  const contextValue = useMemo(() => state, [state]);
+
+  return (
+    <RuntimeContext.Provider value={contextValue}>
+      {children}
+    </RuntimeContext.Provider>
+  );
+}
