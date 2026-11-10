@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readActivityFromT2Host } from "../kernel-reader.mjs";
-import { readFromLiveT2Kernel } from "../live-iwxa-client.mjs";
+import { readActivityFromT2Host } from "../../src/t3/activity/kernel-reader.mjs";
+import { readFromLiveT2Kernel } from "../../src/t3/activity/live-iwxa-client.mjs";
 
 const workspaceId = "workspace:one";
 const operations = new Set([

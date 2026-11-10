@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { projectActivitySnapshot } from "../index.mjs";
+import { projectActivitySnapshot } from "../../src/t3/activity/index.mjs";
 
 const workspace = "ws:d06-one";
 const bindings = {

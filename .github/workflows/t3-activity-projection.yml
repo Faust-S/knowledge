@@ -35,7 +35,7 @@ jobs:
       - run: node --check packages/t3-core/src/t3/activity/live-iwxa-client.mjs
       - run: node --check packages/t3-core/src/t3/activity/t2-host-witness.mjs
       - run: node --check packages/t3-core/src/t3/activity/real-t2-host-acceptance.mjs
-      - run: node --test packages/t3-core/src/t3/activity/test/*.test.mjs
+      - run: node --test packages/t3-core/tests/t3-activity/*.test.mjs
       - run: node --experimental-strip-types --test tests/t3-inherited-contract.test.mjs
       - name: Install inherited T2 build dependencies
         run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund

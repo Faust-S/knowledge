@@ -87,7 +87,7 @@ export async function readT3ActivityInLiveBrowser(page, {
   if (!bindings || typeof bindings !== "object") deny("BINDINGS_REQUIRED");
   return page.evaluate(async (args) => {
     if (!globalThis.IWXA?.connect) throw new Error("REAL_T2_IWXA_REQUIRED");
-    const imported = await import("/_t3/activity/live-iwxa-client.mjs");
+    const imported = await import(args.module_url);
     return imported.readFromLiveT2Kernel({
       bootstrap: globalThis.IWXA,
       service_id: args.service_id,
@@ -95,7 +95,8 @@ export async function readT3ActivityInLiveBrowser(page, {
       bindings: args.bindings,
       expected_runtime_version: args.expected_runtime_version,
     });
-  }, { workspace_id, service_id, bindings, expected_runtime_version });
+  }, { workspace_id, service_id, bindings, expected_runtime_version,
+    module_url: `${PUBLIC_MOUNT}live-iwxa-client.mjs` });
 }
 
 // This compares two LIVE results only. The owning browser witness must
