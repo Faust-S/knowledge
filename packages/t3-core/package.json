@@ -1,5 +1,5 @@
 {
-  "name": "@iwxa/t2-canonical-source",
+  "name": "@iwxa/t3-core",
   "private": true,
   "type": "module",
   "scripts": {
@@ -62,7 +62,7 @@
     "vite": "^8.0.16",
     "vitest": "^4.1.10"
   },
-  "version": "0.0.0-convergence",
+  "version": "0.3.0-dev.0",
   "engines": {
     "node": ">=22.16.0"
   }

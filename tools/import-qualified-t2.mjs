@@ -56,7 +56,20 @@ for (const path of paths) {
   if (!safeInside(source,from)||!safeInside(targetRoot,to)) throw new Error("INVALID_SOURCE_PATH");
   const st=lstatSync(from);
   if (st.isSymbolicLink()||!st.isFile()) {unsafe++;continue;}
-  const bytes=readFileSync(from),digest=sha(bytes);
+  let bytes=readFileSync(from);
+  // The adopted code is T3, not a separately running T2 package.
+  // Keep package.json and npm lockfile root identities synchronized.
+  if (relativePath==="package.json" || relativePath==="package-lock.json") {
+    const payload=JSON.parse(bytes.toString("utf8"));
+    payload.name="@iwxa/t3-core";
+    payload.version="0.3.0-dev.0";
+    if (relativePath==="package-lock.json") {
+      payload.packages[""].name=payload.name;
+      payload.packages[""].version=payload.version;
+    }
+    bytes=Buffer.from(JSON.stringify(payload,null,2)+"\\n");
+  }
+  const digest=sha(bytes);
   if (/(-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|github_pat_[A-Za-z0-9_]{15}|ghp_[A-Za-z0-9]{20})/.test(bytes.toString("utf8"))) {
     unsafe++;continue;
   }

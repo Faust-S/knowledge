@@ -17,7 +17,7 @@ test("actual inherited T2 Runtime Contract 1.3.0 is executable in the T3 source 
 });
 test("inherited T2 package and source schemas are present under the single T3 successor path",()=>{
   const pkg=JSON.parse(readFileSync(resolve(ROOT,"package.json"),"utf8"));
-  assert.equal(pkg.name,"@iwxa/t2-canonical-source");
+  assert.equal(pkg.name,"@iwxa/t3-core");
   const base=resolve(ROOT,"src/kernel-client/contracts/runtime-1.3.0/schemas");
   for(const name of ["object.schema.json","relation.schema.json","iwxa-event.schema.json",
     "workspace.schema.json","service-passport.schema.json","package-manifest.schema.json",
