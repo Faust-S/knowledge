@@ -104,3 +104,8 @@ jobs:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
           IWXA_T2_QUALIFIED_KERNEL_VERSION: '0.3.6'
         run: node --test tests/factory2-product-kernel.browser.mjs
+      - name: Run T3 D2 live semantic activity and encrypted offline exchange inheritance
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+        run: node tests/t3-activity/real-qualified-host.browser.mjs
