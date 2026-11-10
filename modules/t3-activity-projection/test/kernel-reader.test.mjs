@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readActivityFromT2Host } from "../kernel-reader.mjs";
+import { readFromLiveT2Kernel } from "../live-iwxa-client.mjs";
 
 const workspaceId = "workspace:one";
 const operations = new Set([
@@ -246,4 +247,45 @@ test("maximum source limits are explicit instead of truncating records", async (
   const { kernel } = fixture();
   await assert.rejects(read(kernel, { max_objects: 1 }), { code: "SOURCE_LIMIT_EXCEEDED" });
   await assert.rejects(read(kernel, { max_events: 0 }), { code: "INVALID_BOUND" });
+});
+
+test("live T2 reader accepts exact read grants and rejects every non-read package or unknown grant", async () => {
+  const readGrants = [
+    "t0.validate", "t1.listWorkspaces", "t1.getWorkspace", "t1.listObjects",
+    "t1.getObject", "t1.listAssets", "t1.getAsset", "t1.listEventsSince",
+  ];
+  const source = fixture();
+  const makeBootstrap = (grants) => ({
+    async connect({ service_id }) {
+      assert.equal(service_id, "iwxa.t2.qualification.reader");
+      return {
+        contract_version: "1.3.0",
+        runtime_version: "0.3.6",
+        service: { service_id },
+        granted_operations: grants,
+        t1: source.kernel,
+      };
+    },
+  });
+  const options = {
+    service_id: "iwxa.t2.qualification.reader",
+    workspace_id: workspaceId, bindings,
+  };
+  const projected = await readFromLiveT2Kernel({
+    ...options, bootstrap: makeBootstrap(readGrants),
+  });
+  assert.equal(projected.view.nodes.length, 2);
+  assert.equal(projected.view.relations.length, 2);
+
+  const readsBefore = { ...source.counts };
+  for (const operation of [
+    "t1.commitObjectGraph", "t2.exportPreview", "t2.exportPackage",
+    "t2.confirmExport", "t2.importPreview", "t2.importCommit",
+    "t2.importCancel", "t3.futureWrite",
+  ]) {
+    await assert.rejects(readFromLiveT2Kernel({
+      ...options, bootstrap: makeBootstrap([...readGrants, operation]),
+    }), { code: "T2_READER_HAS_WRITE_AUTHORITY" });
+    assert.deepEqual(source.counts, readsBefore, "rejected grant must not read source");
+  }
 });

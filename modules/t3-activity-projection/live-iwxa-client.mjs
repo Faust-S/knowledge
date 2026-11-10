@@ -11,15 +11,12 @@ const READ_OPS = Object.freeze([
   "t1.getWorkspace", "t1.listObjects", "t1.getObject", "t1.listEventsSince",
 ]);
 
-const WRITE_OPS = new Set([
-  "t1.createWorkspace", "t1.commitObjectGraph",
-  "t1.putObject", "t1.deleteObject",
-  "t1.putRelation", "t1.deleteRelation",
-  "t1.putAsset", "t1.deleteAsset",
-  "t1.softDeleteWorkspace", "t1.restoreWorkspace",
-  "t1.purgePreview", "t1.purgeCommit", "t1.purgeCancel",
-  "t2.exportPackage", "t2.confirmExport",
-  "t2.importPreview", "t2.importCommit", "t2.importCancel",
+// Runtime Contract 1.3.0 has six t2 package operations, including
+// exportPreview. Fail closed on all non-read or unknown grants rather than
+// maintaining a partial list of forbidden mutations.
+const READ_ONLY_OPS = new Set([
+  ...READ_OPS,
+  "t0.validate", "t1.listWorkspaces", "t1.listAssets", "t1.getAsset",
 ]);
 
 export async function readFromLiveT2Kernel({
@@ -48,7 +45,7 @@ export async function readFromLiveT2Kernel({
   }
 
   // Enforce that the T3 probe uses an independent read-only T2 service.
-  if (session.granted_operations.some((operation) => WRITE_OPS.has(operation))) {
+  if (session.granted_operations.some((operation) => !READ_ONLY_OPS.has(operation))) {
     reject("T2_READER_HAS_WRITE_AUTHORITY");
   }
   if (READ_OPS.some((operation) => !session.granted_operations.includes(operation))) {
