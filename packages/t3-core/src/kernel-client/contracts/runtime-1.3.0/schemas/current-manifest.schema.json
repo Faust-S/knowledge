@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iwxa.dev/schemas/current-manifest.schema.json",
+  "title": "IWXA Runtime current.json",
+  "description": "Canonical pointer served at /_iwxa/current.json. Loader validates it before importing the runtime bundle.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "runtime_version",
+    "runtime_url",
+    "contract_version",
+    "min_loader",
+    "status",
+    "released_at"
+  ],
+  "properties": {
+    "$comment": { "type": "string" },
+    "runtime_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "runtime_url": { "type": "string", "pattern": "^/_iwxa/runtime/[0-9]+\\.[0-9]+\\.[0-9]+/runtime\\.js$" },
+    "contract_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "min_loader": { "type": "integer", "minimum": 1 },
+    "status": { "type": "string", "enum": ["active", "rollback", "draft"] },
+    "released_at": { "type": "string", "format": "date-time" }
+  }
+}

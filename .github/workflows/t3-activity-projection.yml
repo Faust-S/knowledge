@@ -1,4 +1,4 @@
-name: t3-activity-projection
+name: t3-core-source-qualification
 
 on:
   push:
@@ -6,6 +6,9 @@ on:
       - work/2026-11-10-t3-t2-activity-projection
     paths:
       - modules/t3-activity-projection/**
+      - packages/t3-core/**
+      - tools/import-qualified-t2.mjs
+      - tests/t3-inherited-contract.test.mjs
       - .github/workflows/t3-activity-projection.yml
   workflow_dispatch:
 
@@ -31,3 +34,4 @@ jobs:
       - run: node --check modules/t3-activity-projection/t2-host-witness.mjs
       - run: node --check modules/t3-activity-projection/real-t2-host-acceptance.mjs
       - run: node --test modules/t3-activity-projection/test/*.test.mjs
+      - run: node --experimental-strip-types --test tests/t3-inherited-contract.test.mjs

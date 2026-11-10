@@ -1,0 +1,380 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "iwxa://schemas/capability-issuance-policy/0.3.1",
+  "title": "IWXA Capability Issuance Policy 0.3.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "policy_version",
+    "profile_id",
+    "audience_service_id",
+    "instance_class",
+    "binding_mode",
+    "workspace_scope",
+    "capabilities",
+    "anchor_requirements",
+    "continuation",
+    "lifetime"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.3.1"
+    },
+    "policy_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+    },
+    "policy_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "profile_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+    },
+    "audience_service_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+    },
+    "instance_class": {
+      "enum": [
+        "STAFF_WORKSPACE_INSTANCE",
+        "CLIENT_CONTEXT_INSTANCE"
+      ]
+    },
+    "binding_mode": {
+      "enum": [
+        "workspace_lineage",
+        "business_context",
+        "subject_and_workspace_lineage",
+        "subject_and_business_context"
+      ]
+    },
+    "workspace_scope": {
+      "enum": [
+        "package_workspaces",
+        "mapped_workspace_only"
+      ]
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,191}$"
+      }
+    },
+    "anchor_requirements": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "continuation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "export_policy",
+        "copy_semantics",
+        "new_context_policy",
+        "reset_policy",
+        "divergence_policy"
+      ],
+      "properties": {
+        "export_policy": {
+          "const": "carry_forward_same_instance"
+        },
+        "copy_semantics": {
+          "const": "same_logical_instance"
+        },
+        "new_context_policy": {
+          "const": "deny_new_context"
+        },
+        "reset_policy": {
+          "const": "deny_rebind"
+        },
+        "divergence_policy": {
+          "const": "REJECT_DIVERGED_IMPORT_REQUIRES_RECONCILIATION"
+        }
+      }
+    },
+    "lifetime": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "duration_iso8601",
+            "absolute_expires_at",
+            "renewal_policy",
+            "time_assurance",
+            "trusted_time_policy"
+          ],
+          "properties": {
+            "mode": {
+              "const": "FIXED_DURATION"
+            },
+            "duration_iso8601": {
+              "type": "string",
+              "pattern": "^P[1-9][0-9]*(D|M|Y)$"
+            },
+            "absolute_expires_at": {
+              "type": "null"
+            },
+            "renewal_policy": {
+              "enum": [
+                "NO_RENEWAL",
+                "ISSUER_REISSUE_SAME_INSTANCE"
+              ]
+            },
+            "time_assurance": {
+              "enum": [
+                "OFFLINE_BEST_EFFORT",
+                "TRUSTED_ONLINE_TIME"
+              ]
+            },
+            "trusted_time_policy": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "max_age_seconds": {
+                  "type": "integer",
+                  "minimum": 60
+                },
+                "unavailable_policy": {
+                  "const": "DENY"
+                },
+                "grace_seconds": {
+                  "const": 0
+                }
+              },
+              "required": [
+                "max_age_seconds",
+                "unavailable_policy",
+                "grace_seconds"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "duration_iso8601",
+            "absolute_expires_at",
+            "renewal_policy",
+            "time_assurance",
+            "trusted_time_policy"
+          ],
+          "properties": {
+            "mode": {
+              "const": "ABSOLUTE_EXPIRY"
+            },
+            "duration_iso8601": {
+              "type": "null"
+            },
+            "absolute_expires_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "renewal_policy": {
+              "enum": [
+                "NO_RENEWAL",
+                "ISSUER_REISSUE_SAME_INSTANCE"
+              ]
+            },
+            "time_assurance": {
+              "enum": [
+                "OFFLINE_BEST_EFFORT",
+                "TRUSTED_ONLINE_TIME"
+              ]
+            },
+            "trusted_time_policy": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "max_age_seconds": {
+                  "type": "integer",
+                  "minimum": 60
+                },
+                "unavailable_policy": {
+                  "const": "DENY"
+                },
+                "grace_seconds": {
+                  "const": 0
+                }
+              },
+              "required": [
+                "max_age_seconds",
+                "unavailable_policy",
+                "grace_seconds"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "duration_iso8601",
+            "absolute_expires_at",
+            "renewal_policy",
+            "time_assurance",
+            "trusted_time_policy"
+          ],
+          "properties": {
+            "mode": {
+              "const": "PERPETUAL"
+            },
+            "duration_iso8601": {
+              "type": "null"
+            },
+            "absolute_expires_at": {
+              "type": "null"
+            },
+            "renewal_policy": {
+              "enum": [
+                "NO_RENEWAL",
+                "ISSUER_REISSUE_SAME_INSTANCE"
+              ]
+            },
+            "time_assurance": {
+              "enum": [
+                "OFFLINE_BEST_EFFORT",
+                "TRUSTED_ONLINE_TIME"
+              ]
+            },
+            "trusted_time_policy": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "max_age_seconds": {
+                  "type": "integer",
+                  "minimum": 60
+                },
+                "unavailable_policy": {
+                  "const": "DENY"
+                },
+                "grace_seconds": {
+                  "const": 0
+                }
+              },
+              "required": [
+                "max_age_seconds",
+                "unavailable_policy",
+                "grace_seconds"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "instance_class": {
+            "const": "CLIENT_CONTEXT_INSTANCE"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "binding_mode": {
+            "enum": [
+              "business_context",
+              "subject_and_business_context"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "instance_class": {
+            "const": "STAFF_WORKSPACE_INSTANCE"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "binding_mode": {
+            "enum": [
+              "workspace_lineage",
+              "subject_and_workspace_lineage"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "lifetime": {
+            "properties": {
+              "time_assurance": {
+                "const": "OFFLINE_BEST_EFFORT"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "lifetime": {
+            "properties": {
+              "trusted_time_policy": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "lifetime": {
+            "properties": {
+              "time_assurance": {
+                "const": "TRUSTED_ONLINE_TIME"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "lifetime": {
+            "properties": {
+              "trusted_time_policy": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

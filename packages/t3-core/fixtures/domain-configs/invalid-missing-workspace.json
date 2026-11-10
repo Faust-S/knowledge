@@ -1,0 +1,12 @@
+{
+  "config_schema_version": "1.0.0",
+  "domain_id": "synthetic.no-workspace",
+  "origin": "https://noworkspace.example.test",
+  "local_store_name": "iwxa-local",
+  "workspace_profile": "generic",
+  "brand": "Synthetic No Workspace",
+  "modules": [
+    { "service_id": "synthetic.other", "base_path": "/other/" }
+  ],
+  "enabled_capabilities": ["T0"]
+}

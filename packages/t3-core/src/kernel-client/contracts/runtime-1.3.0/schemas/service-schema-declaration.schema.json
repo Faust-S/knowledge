@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iwxa.dev/schemas/service-schema-declaration.schema.json",
+  "title": "IWXA Service Schema Declaration",
+  "description": "Canonical shape of a schema declared by a service passport OR embedded inside an .iwxa package under schemas/<schema_id>@<schema_version>.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "schema_version", "preserve_unknown", "json_schema", "embedded"],
+  "properties": {
+    "schema_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "schema_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "preserve_unknown": { "type": "boolean" },
+    "canonical_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "json_schema": { "type": "object" },
+    "embedded": { "type": "object", "additionalProperties": true }
+  }
+}

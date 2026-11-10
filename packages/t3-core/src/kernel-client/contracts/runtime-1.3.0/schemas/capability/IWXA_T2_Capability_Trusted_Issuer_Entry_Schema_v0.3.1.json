@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "iwxa://schemas/capability-trusted-issuer-entry/0.3.1",
+  "title": "IWXA Capability Trusted Issuer Entry 0.3.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "issuer_id",
+    "key_id",
+    "signature_profile_id",
+    "public_key_encoding",
+    "public_key",
+    "status",
+    "valid_from",
+    "valid_until",
+    "allowed_audiences",
+    "allowed_capability_prefixes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.3.1"
+    },
+    "issuer_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+    },
+    "key_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+    },
+    "signature_profile_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+    },
+    "public_key_encoding": {
+      "const": "base64url-nopad"
+    },
+    "public_key": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "minLength": 16
+    },
+    "status": {
+      "enum": [
+        "ACTIVE",
+        "SUSPENDED",
+        "REVOKED"
+      ]
+    },
+    "valid_from": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "valid_until": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "allowed_audiences": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+      }
+    },
+    "allowed_capability_prefixes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 128
+      }
+    },
+    "allowed_policy_prefixes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 128
+      }
+    },
+    "resolver_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "contract_version": "1.3.0",
+  "runtime_compatibility": ">=0.3.6 <0.4.0",
+  "files": [
+    {
+      "path": "error-catalogue.json",
+      "sha256": "bd7d1bf533b7902614ff214975378ad00d2625db4864e6dfe5b8b960d6ef50c8",
+      "bytes": 11318
+    },
+    {
+      "path": "iwxa-client.d.ts",
+      "sha256": "05f49328b10a6fd363f729e1b3503f3a225db6707388f5088692d7a48c6502e6",
+      "bytes": 31009
+    },
+    {
+      "path": "schemas/asset.schema.json",
+      "sha256": "4bd65df4bbb0c431df4b71585e2e03450a89d4648199f61d62dc77e385ea45f1",
+      "bytes": 1457
+    },
+    {
+      "path": "schemas/capability/IWXA_T2_Capability_Bootstrap_Instance_Schema_v0.3.1.json",
+      "sha256": "f19b6d573bab94da59edc02ac4dac94f8b5f62f4ac71f92ac2f478f13501eeef",
+      "bytes": 3957
+    },
+    {
+      "path": "schemas/capability/IWXA_T2_Capability_Grant_Schema_v0.3.1.json",
+      "sha256": "3ef2bd01705f04ed0a53aa712dce76ee2d9266affc3ad7de7660c518758aaaf7",
+      "bytes": 15483
+    },
+    {
+      "path": "schemas/capability/IWXA_T2_Capability_Guard_Contract_v0.3.1.json",
+      "sha256": "86a3da885c0f00c8dfaf07cd84b3eddd915f1cb0c60c4899b4317b2d4a8d229b",
+      "bytes": 1837
+    },
+    {
+      "path": "schemas/capability/IWXA_T2_Capability_Issuance_Policy_Schema_v0.3.1.json",
+      "sha256": "2c871ec4a97f60538120ca7265b8bbf8e53a1e083d8db10feb55b5e649d1f0a8",
+      "bytes": 9149
+    },
+    {
+      "path": "schemas/capability/IWXA_T2_Capability_Lifetime_Resolution_Contract_v0.3.1.json",
+      "sha256": "803188e4ce023c0fa3a560fc2e314382ba409a8b1d3f1a118513c67801975525",
+      "bytes": 1682
+    },
+    {
+      "path": "schemas/capability/IWXA_T2_Capability_Receipt_Schema_v0.3.1.json",
+      "sha256": "7854eddfe21a34169ba02373f5e70dec22a4cfe6a0cdab1022994be2bec21c76",
+      "bytes": 3603
+    },
+    {
+      "path": "schemas/capability/IWXA_T2_Capability_Service_Declaration_Schema_v0.3.1.json",
+      "sha256": "75c15c71a8f3d88ceb9c609c4b382cad7219df421784ed3bdd20e3d4eae32df9",
+      "bytes": 2522
+    },
+    {
+      "path": "schemas/capability/IWXA_T2_Capability_Signature_Profile_Registry_v0.3.1.json",
+      "sha256": "d138781ebc03b6d14ff46cdc26892377cc68195a9e3f759fb64ec1b71038db79",
+      "bytes": 1151
+    },
+    {
+      "path": "schemas/capability/IWXA_T2_Capability_Trusted_Issuer_Entry_Schema_v0.3.1.json",
+      "sha256": "49174b2a717ed121ad9fea90913b223d4ea114a349f32cc6681f0d76731ae62c",
+      "bytes": 2108
+    },
+    {
+      "path": "schemas/capability/IWXA_T2_Package_Manifest_1.1_Capability_FROZEN_Schema_v0.3.1.json",
+      "sha256": "a204fa96efe5e3d5a227c5def28e22dc19b9c9f469c4c1cb4000a7732e68013c",
+      "bytes": 4834
+    },
+    {
+      "path": "schemas/current-manifest.schema.json",
+      "sha256": "7b8fede6358a3b4a9a777337cbe5258976f1db3b8cb97f5af94fa1e4486d3e63",
+      "bytes": 1025
+    },
+    {
+      "path": "schemas/domain-config.schema.json",
+      "sha256": "7164403780c755c7920a02ad2610756fb3602ae0fafa98fe23e3bb549d0f96ee",
+      "bytes": 5297
+    },
+    {
+      "path": "schemas/import-export.schema.json",
+      "sha256": "b704c9d835c675b5f93f5ea1f21928b6f7154e1602abf90518e69380514eb058",
+      "bytes": 9810
+    },
+    {
+      "path": "schemas/iwxa-event.schema.json",
+      "sha256": "fae758d4233fa63817358d5cb44471ffe86516bde860323700ef4593a376ec24",
+      "bytes": 1427
+    },
+    {
+      "path": "schemas/object.schema.json",
+      "sha256": "8adfe59dbfefb21343c32598b0bc86befc320427851c1e17d9ff3011a7c0ca6e",
+      "bytes": 1455
+    },
+    {
+      "path": "schemas/package-manifest.schema.json",
+      "sha256": "88d159570e72104a3f18537aad24ed0acacf78ac9d83b3750323c612fc3710be",
+      "bytes": 2908
+    },
+    {
+      "path": "schemas/package-schema.schema.json",
+      "sha256": "5f2ec23010914f0d3b8d82919e211ee3e6bfe8b94c52ef6be7f2e0c3675085e0",
+      "bytes": 1263
+    },
+    {
+      "path": "schemas/relation.schema.json",
+      "sha256": "b2eac20d5933091bc6ec420d49575d02b144fd7fd85928e0299cfec79fe37376",
+      "bytes": 1028
+    },
+    {
+      "path": "schemas/service-passport.schema.json",
+      "sha256": "01c5f704a2ddd8c0f292409df5fa93b0b154836b8a4fddae40bd8f3890535e25",
+      "bytes": 5318
+    },
+    {
+      "path": "schemas/service-schema-declaration.schema.json",
+      "sha256": "6a04c504b8c21f5e37422bb636e8d19e7586af06f36a5be18ded639797cc8ccc",
+      "bytes": 917
+    },
+    {
+      "path": "schemas/validation-report.schema.json",
+      "sha256": "a5dff1bec0dbf7000471e5a2b361cbd821e90935fc51a6e271306f98127e1972",
+      "bytes": 1529
+    },
+    {
+      "path": "schemas/workspace.schema.json",
+      "sha256": "287d73812e6053a481067fe75781f2130afdf0a2e4bd8714a0c059c3d2f582fa",
+      "bytes": 1073
+    }
+  ],
+  "aggregate_sha256": "b91d3f031150e979cf9e99e7f661835e00c8587339f171a33d36d053b4397676"
+}

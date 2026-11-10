@@ -1,0 +1,51 @@
+{
+  "config_schema_version": "1.0.0",
+  "config_version": "2026.07.20+full",
+  "status": "active",
+  "domain_id": "synthetic.full",
+  "origin": "https://full.example.test",
+  "local_store_name": "iwxa-local",
+  "workspace_profile": "learning",
+  "brand": "Synthetic Full",
+  "modules": [
+    { "service_id": "synthetic.full.workspace", "base_path": "/workspace/", "title": "Workspace" },
+    { "service_id": "synthetic.full.lms",       "base_path": "/lms/" }
+  ],
+  "enabled_capabilities": ["T0", "T1", "T2"],
+  "enabled_profiles": ["generic", "learning"],
+  "runtime": {
+    "version": "1.4.7",
+    "contract_version": "v1",
+    "min_supported_shell": "1.0.0",
+    "loader_url": "/_iwxa/loader.js",
+    "runtime_url": "/_iwxa/runtime/index.js"
+  },
+  "handoff": {
+    "policy": "opaque-intent",
+    "ttl_seconds": 60,
+    "targets": [
+      { "service_id": "synthetic.full.lms", "base_path": "/lms/", "schema_ids": ["learning.route", "learning.task"] }
+    ]
+  },
+  "service_worker": {
+    "enabled": false,
+    "scope": "/",
+    "url": "/_iwxa/sw.js"
+  },
+  "diagnostics": {
+    "level": "standard",
+    "sink": "console",
+    "sample_rate": 0.1
+  },
+  "security": {
+    "csp_report_only": false,
+    "coop": "same-origin",
+    "coep": "credentialless",
+    "allowed_origins": ["https://full.example.test"]
+  },
+  "release": {
+    "channel": "stable",
+    "build_id": "20260720.1",
+    "notes_url": "https://full.example.test/release/notes"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "config_schema_version": "1.0.0",
+  "domain_id": "synthetic.generic",
+  "origin": "http://localhost:8080",
+  "local_store_name": "iwxa-local",
+  "workspace_profile": "generic",
+  "brand": "IWXA Universal Workspace",
+  "modules": [
+    { "service_id": "synthetic.generic.workspace", "base_path": "/workspace/" }
+  ],
+  "enabled_capabilities": ["T0", "T1"]
+}

@@ -1,0 +1,12 @@
+{
+  "config_schema_version": "1.0.0",
+  "domain_id": "synthetic.bad-store",
+  "origin": "https://badstore.example.test",
+  "local_store_name": "custom-store",
+  "workspace_profile": "generic",
+  "brand": "Synthetic Bad Store",
+  "modules": [
+    { "service_id": "synthetic.bad-store.workspace", "base_path": "/workspace/" }
+  ],
+  "enabled_capabilities": ["T0"]
+}

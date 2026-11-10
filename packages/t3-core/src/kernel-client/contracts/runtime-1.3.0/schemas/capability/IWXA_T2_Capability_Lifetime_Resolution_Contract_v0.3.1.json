@@ -1,0 +1,39 @@
+{
+  "version": "0.3.1",
+  "status": "NORMATIVE_TECHNICALLY_FROZEN",
+  "timestamp_authority": "Concrete timestamps inside signed Grant validity are runtime authority; source duration/absolute policy values are provenance and issuance input.",
+  "current_t2_not_before_rule": "not_before MUST equal issued_at as an instant. Delayed activation is deferred.",
+  "fixed_duration_resolution": {
+    "timezone": "UTC",
+    "grammar": "P<n>D | P<n>M | P<n>Y where n is a positive integer",
+    "P<n>D": "add n calendar days to not_before in UTC",
+    "P<n>M": "add n calendar months, preserve UTC time-of-day, clamp invalid day-of-month to last valid day of target month",
+    "P<n>Y": "add n calendar years, preserve UTC time-of-day, clamp invalid day-of-month to last valid day of target month",
+    "emit": "concrete expires_at RFC3339 date-time; issuer SHOULD emit normalized UTC Z form"
+  },
+  "absolute_expiry_resolution": "expires_at is the policy absolute_expires_at instant; it MUST be strictly later than not_before.",
+  "perpetual_resolution": "expires_at MUST be null.",
+  "copy_export_import": "Never recalculate issued_at, not_before or expires_at.",
+  "test_vectors": [
+    {
+      "not_before": "2026-01-31T12:00:00Z",
+      "duration": "P3M",
+      "expires_at": "2026-04-30T12:00:00Z"
+    },
+    {
+      "not_before": "2028-02-29T00:00:00Z",
+      "duration": "P1Y",
+      "expires_at": "2029-02-28T00:00:00Z"
+    },
+    {
+      "not_before": "2024-02-29T10:15:30Z",
+      "duration": "P5Y",
+      "expires_at": "2029-02-28T10:15:30Z"
+    },
+    {
+      "not_before": "2026-12-29T23:00:00Z",
+      "duration": "P3D",
+      "expires_at": "2027-01-01T23:00:00Z"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iwxa.dev/schemas/object.schema.json",
+  "title": "IWXA Object",
+  "description": "Canonical envelope for a structured record on T0-T2. Wire format is snake_case. Every field is required — no legacy short forms.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "object_id",
+    "workspace_id",
+    "schema_id",
+    "schema_version",
+    "created_by_service",
+    "updated_by_service",
+    "created_at",
+    "updated_at",
+    "revision",
+    "data",
+    "extensions"
+  ],
+  "properties": {
+    "object_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$", "maxLength": 128 },
+    "workspace_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$", "maxLength": 128 },
+    "schema_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:/-]*$", "maxLength": 128 },
+    "schema_version": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "created_by_service": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:/-]*$", "maxLength": 128 },
+    "updated_by_service": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:/-]*$", "maxLength": 128 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "data": {},
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

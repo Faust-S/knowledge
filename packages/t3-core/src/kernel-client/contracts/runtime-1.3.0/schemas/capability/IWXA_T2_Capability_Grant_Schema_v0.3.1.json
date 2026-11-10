@@ -1,0 +1,567 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "iwxa://schemas/capability-grant/0.3.1",
+  "title": "IWXA CapabilityGrant Envelope 0.3.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "signed_claims",
+    "signature"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.3.1"
+    },
+    "signed_claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "grant_id",
+        "grant_kind",
+        "issuance_reason",
+        "renewal_of_grant_id",
+        "issuer",
+        "audience_service_id",
+        "policy_id",
+        "policy_version",
+        "profile_id",
+        "instance",
+        "binding",
+        "workspace_scope",
+        "capabilities",
+        "issued_at",
+        "validity",
+        "continuation"
+      ],
+      "properties": {
+        "grant_id": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128
+        },
+        "grant_kind": {
+          "const": "CAPABILITY_GRANT"
+        },
+        "issuance_reason": {
+          "enum": [
+            "INITIAL",
+            "RENEWAL"
+          ]
+        },
+        "renewal_of_grant_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 8,
+          "maxLength": 128
+        },
+        "issuer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "issuer_id",
+            "key_id",
+            "signature_profile_id"
+          ],
+          "properties": {
+            "issuer_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+            },
+            "key_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+            },
+            "signature_profile_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+            }
+          }
+        },
+        "audience_service_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+        },
+        "policy_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+        },
+        "policy_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "profile_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+        },
+        "instance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "instance_id",
+            "lineage_id",
+            "template_id",
+            "instance_class"
+          ],
+          "properties": {
+            "instance_id": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            },
+            "lineage_id": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            },
+            "template_id": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 128
+            },
+            "instance_class": {
+              "enum": [
+                "STAFF_WORKSPACE_INSTANCE",
+                "CLIENT_CONTEXT_INSTANCE"
+              ]
+            }
+          }
+        },
+        "binding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "required_anchors"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "workspace_lineage",
+                "business_context",
+                "subject_and_workspace_lineage",
+                "subject_and_business_context"
+              ]
+            },
+            "subject_ref": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "organization_ref": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "context_ref": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "required_anchors": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "anchor_type",
+                  "anchor_id"
+                ],
+                "properties": {
+                  "anchor_type": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "anchor_id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "workspace_scope": {
+          "enum": [
+            "package_workspaces",
+            "mapped_workspace_only"
+          ]
+        },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,191}$"
+          }
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "validity": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "lifetime_mode",
+                "source_duration_iso8601",
+                "not_before",
+                "expires_at",
+                "renewal_policy",
+                "time_assurance",
+                "trusted_time_policy"
+              ],
+              "properties": {
+                "lifetime_mode": {
+                  "const": "FIXED_DURATION"
+                },
+                "source_duration_iso8601": {
+                  "type": "string",
+                  "pattern": "^P[1-9][0-9]*(D|M|Y)$"
+                },
+                "not_before": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "expires_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "renewal_policy": {
+                  "enum": [
+                    "NO_RENEWAL",
+                    "ISSUER_REISSUE_SAME_INSTANCE"
+                  ]
+                },
+                "time_assurance": {
+                  "enum": [
+                    "OFFLINE_BEST_EFFORT",
+                    "TRUSTED_ONLINE_TIME"
+                  ]
+                },
+                "trusted_time_policy": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "max_age_seconds": {
+                      "type": "integer",
+                      "minimum": 60
+                    },
+                    "unavailable_policy": {
+                      "const": "DENY"
+                    },
+                    "grace_seconds": {
+                      "const": 0
+                    }
+                  },
+                  "required": [
+                    "max_age_seconds",
+                    "unavailable_policy",
+                    "grace_seconds"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "lifetime_mode",
+                "source_duration_iso8601",
+                "not_before",
+                "expires_at",
+                "renewal_policy",
+                "time_assurance",
+                "trusted_time_policy"
+              ],
+              "properties": {
+                "lifetime_mode": {
+                  "const": "ABSOLUTE_EXPIRY"
+                },
+                "source_duration_iso8601": {
+                  "type": "null"
+                },
+                "not_before": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "expires_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "renewal_policy": {
+                  "enum": [
+                    "NO_RENEWAL",
+                    "ISSUER_REISSUE_SAME_INSTANCE"
+                  ]
+                },
+                "time_assurance": {
+                  "enum": [
+                    "OFFLINE_BEST_EFFORT",
+                    "TRUSTED_ONLINE_TIME"
+                  ]
+                },
+                "trusted_time_policy": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "max_age_seconds": {
+                      "type": "integer",
+                      "minimum": 60
+                    },
+                    "unavailable_policy": {
+                      "const": "DENY"
+                    },
+                    "grace_seconds": {
+                      "const": 0
+                    }
+                  },
+                  "required": [
+                    "max_age_seconds",
+                    "unavailable_policy",
+                    "grace_seconds"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "lifetime_mode",
+                "source_duration_iso8601",
+                "not_before",
+                "expires_at",
+                "renewal_policy",
+                "time_assurance",
+                "trusted_time_policy"
+              ],
+              "properties": {
+                "lifetime_mode": {
+                  "const": "PERPETUAL"
+                },
+                "source_duration_iso8601": {
+                  "type": "null"
+                },
+                "not_before": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "expires_at": {
+                  "type": "null"
+                },
+                "renewal_policy": {
+                  "enum": [
+                    "NO_RENEWAL",
+                    "ISSUER_REISSUE_SAME_INSTANCE"
+                  ]
+                },
+                "time_assurance": {
+                  "enum": [
+                    "OFFLINE_BEST_EFFORT",
+                    "TRUSTED_ONLINE_TIME"
+                  ]
+                },
+                "trusted_time_policy": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "max_age_seconds": {
+                      "type": "integer",
+                      "minimum": 60
+                    },
+                    "unavailable_policy": {
+                      "const": "DENY"
+                    },
+                    "grace_seconds": {
+                      "const": 0
+                    }
+                  },
+                  "required": [
+                    "max_age_seconds",
+                    "unavailable_policy",
+                    "grace_seconds"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "continuation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "export_policy",
+            "copy_semantics",
+            "new_context_policy",
+            "reset_policy",
+            "divergence_policy"
+          ],
+          "properties": {
+            "export_policy": {
+              "const": "carry_forward_same_instance"
+            },
+            "copy_semantics": {
+              "const": "same_logical_instance"
+            },
+            "new_context_policy": {
+              "const": "deny_new_context"
+            },
+            "reset_policy": {
+              "const": "deny_rebind"
+            },
+            "divergence_policy": {
+              "const": "REJECT_DIVERGED_IMPORT_REQUIRES_RECONCILIATION"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "issuance_reason": {
+                "const": "INITIAL"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "renewal_of_grant_id": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "issuance_reason": {
+                "const": "RENEWAL"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "renewal_of_grant_id": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "instance": {
+                "properties": {
+                  "instance_class": {
+                    "const": "CLIENT_CONTEXT_INSTANCE"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "binding": {
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "business_context",
+                      "subject_and_business_context"
+                    ]
+                  },
+                  "context_ref": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "context_ref"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "instance": {
+                "properties": {
+                  "instance_class": {
+                    "const": "STAFF_WORKSPACE_INSTANCE"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "binding": {
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "workspace_lineage",
+                      "subject_and_workspace_lineage"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonicalization",
+        "digest_algorithm",
+        "signed_claims_digest",
+        "signature_encoding",
+        "signature_value"
+      ],
+      "properties": {
+        "canonicalization": {
+          "const": "IWXA_CANONICAL_JSON_V1"
+        },
+        "digest_algorithm": {
+          "const": "SHA-256"
+        },
+        "signed_claims_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "signature_encoding": {
+          "const": "base64url-nopad"
+        },
+        "signature_value": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "minLength": 16
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "version": "0.3.1",
+  "status": "TECHNICALLY_FROZEN",
+  "rules": [
+    "Static operation permission from ServicePassport remains mandatory.",
+    "For capability_control=REQUIRED, Kernel also requires an ACTIVE CapabilityReceipt for the same audience service + workspace + instance.",
+    "Grant capability IDs must be subset of Registry capability_ceiling.",
+    "Each guarded primitive operation is matched against Registry operation_guards; schema_ids narrow generic object operations.",
+    "Workspace module/contribution/command may additionally declare requiredCapabilitiesAll/Any. UI visibility is never sufficient; invocation re-check is mandatory.",
+    "If Registry says an operation is capability-guarded and no matching active capability exists, DENY even if static operation is granted.",
+    "Unknown capability ID, unknown guard metadata, unknown issuer, invalid signature, expired grant, binding mismatch, or required trusted-time failure => no ACTIVE receipt for that guarded action."
+  ],
+  "workspace_successor_shape": {
+    "module_declaration_optional": [
+      "requiredCapabilitiesAll",
+      "requiredCapabilitiesAny"
+    ],
+    "contribution_base_optional": [
+      "requiredCapabilitiesAll",
+      "requiredCapabilitiesAny"
+    ],
+    "commands_has": "checks static operations + capabilities",
+    "commands_invoke": "re-checks static operations + capabilities after async loader"
+  },
+  "kernel_successor_shape": {
+    "session": "keeps static granted_operations and exposes read-only activeCapabilities/authorization view separately",
+    "guard_order": [
+      "service/static operation permission",
+      "receipt ACTIVE",
+      "service audience match",
+      "capability ceiling",
+      "operation guard match",
+      "request schema/context scope"
+    ],
+    "no_domain_local_repository": true
+  }
+}
