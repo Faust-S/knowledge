@@ -1,0 +1,324 @@
+{
+  "contract_version": "1.2.0",
+  "generated_at": "2026-10-07T00:00:00Z",
+  "scope": "production",
+  "count": 29,
+  "entries": [
+    {
+      "service_id": "ru.advice-logistics.main",
+      "service_version": "1.0.0",
+      "base_path": "/",
+      "supported_levels": [
+        "T0"
+      ],
+      "file": "_iwxa/services/ru.advice-logistics.main.json",
+      "sha256": "d126e32a0cb09812d2a4d475d8790ccf6033bb93fb0d9c1ed4c177a866ed48d5"
+    },
+    {
+      "service_id": "ru.advice-logistics.workspace",
+      "service_version": "1.0.0",
+      "base_path": "/workspace/",
+      "supported_levels": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "file": "_iwxa/services/ru.advice-logistics.workspace.json",
+      "sha256": "4df21b0547e2e4d13112bf34643b588e8d89f26f003e1f8f0b0f7dccc721e0f2"
+    },
+    {
+      "service_id": "ru.artbazi.main",
+      "service_version": "1.0.0",
+      "base_path": "/",
+      "supported_levels": [
+        "T0"
+      ],
+      "file": "_iwxa/services/ru.artbazi.main.json",
+      "sha256": "ad13f87df26c2dbd916f2b80e52b5e7b57b1cfe6296a3a9d741a62dda968ff47"
+    },
+    {
+      "service_id": "ru.artbazi.workspace",
+      "service_version": "1.0.0",
+      "base_path": "/workspace/",
+      "supported_levels": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "file": "_iwxa/services/ru.artbazi.workspace.json",
+      "sha256": "f7b39e2a5750a38043d23c141694b51a4b2e25c0be42e0539ccdb735262b657e"
+    },
+    {
+      "service_id": "ru.artbazy.main",
+      "service_version": "1.0.0",
+      "base_path": "/",
+      "supported_levels": [
+        "T0"
+      ],
+      "file": "_iwxa/services/ru.artbazy.main.json",
+      "sha256": "b79e907d452b8a0052514469f9b9451e0c5926379dbd1d05a19828b143232328"
+    },
+    {
+      "service_id": "ru.artbazy.workspace",
+      "service_version": "1.0.0",
+      "base_path": "/workspace/",
+      "supported_levels": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "file": "_iwxa/services/ru.artbazy.workspace.json",
+      "sha256": "94e3c8779b40146e31d17dc348465d1befd5ccc23ed985fc5cc7657b2c39c32a"
+    },
+    {
+      "service_id": "ru.bazmed.main",
+      "service_version": "1.0.0",
+      "base_path": "/",
+      "supported_levels": [
+        "T0"
+      ],
+      "file": "_iwxa/services/ru.bazmed.main.json",
+      "sha256": "86354b88681b05cbc4fcd73b1380656877082e85c2f9c33d953ce0ec754d1a5c"
+    },
+    {
+      "service_id": "ru.bazmed.workspace",
+      "service_version": "1.0.0",
+      "base_path": "/workspace/",
+      "supported_levels": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "file": "_iwxa/services/ru.bazmed.workspace.json",
+      "sha256": "7d988966bf1650940341510976dd2a01dbdfd7b8dc54504d6f9663b53effe598"
+    },
+    {
+      "service_id": "ru.cehovod.main",
+      "service_version": "1.0.0",
+      "base_path": "/",
+      "supported_levels": [
+        "T0"
+      ],
+      "file": "_iwxa/services/ru.cehovod.main.json",
+      "sha256": "4bb291f6c613ba480b12b655c17b96dc9c72d0c3200c1c8891f3dd5897cb54f8"
+    },
+    {
+      "service_id": "ru.cehovod.workspace",
+      "service_version": "1.0.0",
+      "base_path": "/workspace/",
+      "supported_levels": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "file": "_iwxa/services/ru.cehovod.workspace.json",
+      "sha256": "b11e6d32db6912aad930c7e98069bc5ba4f89c94bc7326752c040e5a81a21adf"
+    },
+    {
+      "service_id": "ru.iwxa.club.main",
+      "service_version": "1.0.0",
+      "base_path": "/",
+      "supported_levels": [
+        "T0"
+      ],
+      "file": "_iwxa/services/ru.iwxa.club.main.json",
+      "sha256": "306feeafc49cd7de9783ea8b535e696ca4c009e747f330acc07ee97d8c78d941"
+    },
+    {
+      "service_id": "ru.iwxa.club.workspace",
+      "service_version": "1.0.0",
+      "base_path": "/workspace/",
+      "supported_levels": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "file": "_iwxa/services/ru.iwxa.club.workspace.json",
+      "sha256": "e87877fb0b5dc6bfd8f36a160cc72b9cd6a7dfe5410ceeee1380ea554198fb4d"
+    },
+    {
+      "service_id": "ru.iwxa.hop.main",
+      "service_version": "1.0.0",
+      "base_path": "/",
+      "supported_levels": [
+        "T0"
+      ],
+      "file": "_iwxa/services/ru.iwxa.hop.main.json",
+      "sha256": "e8bf80fc58101cca5f33f9399496bcd95a75161f42bad1bd498738523313d546"
+    },
+    {
+      "service_id": "ru.iwxa.hop.workspace",
+      "service_version": "1.0.0",
+      "base_path": "/workspace/",
+      "supported_levels": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "file": "_iwxa/services/ru.iwxa.hop.workspace.json",
+      "sha256": "26ed2a59857c679af1d1f2a806c9eb61d6667ee43342f0976523398cc20dc58f"
+    },
+    {
+      "service_id": "ru.iwxa.learn.calculators",
+      "service_version": "1.0.0",
+      "base_path": "/calculators/",
+      "supported_levels": [
+        "T0"
+      ],
+      "file": "_iwxa/services/ru.iwxa.learn.calculators.json",
+      "sha256": "bf56ef4d54cc9018dd3e704ba36c983757d5319dcc3b590ba3bd8ae61087694f"
+    },
+    {
+      "service_id": "ru.iwxa.learn.career",
+      "service_version": "1.0.0",
+      "base_path": "/career/",
+      "supported_levels": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "file": "_iwxa/services/ru.iwxa.learn.career.json",
+      "sha256": "3570bc688ea78a14a6c1a3860df082f252148419cc4f6ea716549dc1f4f27f49"
+    },
+    {
+      "service_id": "ru.iwxa.learn.lad",
+      "service_version": "1.0.0",
+      "base_path": "/lad/",
+      "supported_levels": [
+        "T0"
+      ],
+      "file": "_iwxa/services/ru.iwxa.learn.lad.json",
+      "sha256": "ba89ab05e9c38c203cced8830edc8dac11c5392e31a59b630872a722c1279834"
+    },
+    {
+      "service_id": "ru.iwxa.learn.main",
+      "service_version": "1.0.0",
+      "base_path": "/",
+      "supported_levels": [
+        "T0"
+      ],
+      "file": "_iwxa/services/ru.iwxa.learn.main.json",
+      "sha256": "ea985aa16ff06736c65b93d15d796920d30f771ccfbee1e2f7a802fa65b63c5c"
+    },
+    {
+      "service_id": "ru.iwxa.learn.practice",
+      "service_version": "1.0.0",
+      "base_path": "/practice/",
+      "supported_levels": [
+        "T0"
+      ],
+      "file": "_iwxa/services/ru.iwxa.learn.practice.json",
+      "sha256": "86f21f2823fb9f0fdba12b3b528559b365054de9ae5b6f378a0824cd1329746e"
+    },
+    {
+      "service_id": "ru.iwxa.learn.study",
+      "service_version": "1.0.0",
+      "base_path": "/study/",
+      "supported_levels": [
+        "T0"
+      ],
+      "file": "_iwxa/services/ru.iwxa.learn.study.json",
+      "sha256": "1dd8a819439a8d253b618b0be155955dbd7acd87fa824a5f031151f2e10a6ecc"
+    },
+    {
+      "service_id": "ru.iwxa.learn.workspace",
+      "service_version": "1.0.0",
+      "base_path": "/workspace/",
+      "supported_levels": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "file": "_iwxa/services/ru.iwxa.learn.workspace.json",
+      "sha256": "c1eeb3cf8454b7599f186b194464834e67840151d1f20349f4e83c4c6515ef64"
+    },
+    {
+      "service_id": "ru.iwxa.main",
+      "service_version": "1.0.0",
+      "base_path": "/",
+      "supported_levels": [
+        "T0"
+      ],
+      "file": "_iwxa/services/ru.iwxa.main.json",
+      "sha256": "69cafcf7366f39d5199cc6b9dcaed579a680056c9cdd4210f1ba0fb2b7e14613"
+    },
+    {
+      "service_id": "ru.iwxa.workspace",
+      "service_version": "1.0.0",
+      "base_path": "/workspace/",
+      "supported_levels": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "file": "_iwxa/services/ru.iwxa.workspace.json",
+      "sha256": "0736635e2b207410dc4bf2ae479a363eb3e9a2abdba6c71d295705021d04cf56"
+    },
+    {
+      "service_id": "ru.komplektovod.main",
+      "service_version": "1.0.0",
+      "base_path": "/",
+      "supported_levels": [
+        "T0"
+      ],
+      "file": "_iwxa/services/ru.komplektovod.main.json",
+      "sha256": "4f426466b29ab217f4d7ca8d725ecec1abaecba0c419e9c91f27978842f9f58f"
+    },
+    {
+      "service_id": "ru.komplektovod.workspace",
+      "service_version": "1.0.0",
+      "base_path": "/workspace/",
+      "supported_levels": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "file": "_iwxa/services/ru.komplektovod.workspace.json",
+      "sha256": "20b941843cb7b574da6f6c78a7c342037075bc14d7adbb9be3accdce45aec376"
+    },
+    {
+      "service_id": "ru.market-ops.main",
+      "service_version": "1.0.0",
+      "base_path": "/",
+      "supported_levels": [
+        "T0"
+      ],
+      "file": "_iwxa/services/ru.market-ops.main.json",
+      "sha256": "e1a0825122b30c709ed5b87ba4cdee9374c2a58961fe873ab85ec924ea790f48"
+    },
+    {
+      "service_id": "ru.market-ops.workspace",
+      "service_version": "1.0.0",
+      "base_path": "/workspace/",
+      "supported_levels": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "file": "_iwxa/services/ru.market-ops.workspace.json",
+      "sha256": "d8ee288ccdbd7ab5d5af309252e786ae6879f1f28c1895ecceb5d72715782ad4"
+    },
+    {
+      "service_id": "ru.uslugovod.main",
+      "service_version": "1.0.0",
+      "base_path": "/",
+      "supported_levels": [
+        "T0"
+      ],
+      "file": "_iwxa/services/ru.uslugovod.main.json",
+      "sha256": "1a31d25afb5c83c5faabfc2997fc588db192c1cc5755b4274d04336b6fa949e0"
+    },
+    {
+      "service_id": "ru.uslugovod.workspace",
+      "service_version": "1.0.0",
+      "base_path": "/workspace/",
+      "supported_levels": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "file": "_iwxa/services/ru.uslugovod.workspace.json",
+      "sha256": "d3a3bead81148ceff3dde1797358e6c39286559cd4d20842e2e2b3f892f06840"
+    }
+  ]
+}

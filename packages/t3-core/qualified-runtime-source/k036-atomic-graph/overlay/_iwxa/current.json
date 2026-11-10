@@ -1,0 +1,9 @@
+{
+  "$comment": "Canonical pointer to the active Runtime bundle. All fields snake_case. Loader validates min_loader/contract_version before importing runtime_url.",
+  "runtime_version": "0.3.6",
+  "runtime_url": "/_iwxa/runtime/0.3.6/runtime.js",
+  "contract_version": "1.3.0",
+  "min_loader": 1,
+  "status": "active",
+  "released_at": "2026-10-07T00:00:00Z"
+}
