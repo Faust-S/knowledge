@@ -133,3 +133,17 @@ test("source revision is passed unchanged and stale write still fails in the ori
   assert.equal(source.revision,1);
   assert.deepEqual(source.data,{a:1});
 });
+
+test("the caller cannot mutate a digest-authorized T2 write while Access checks the operation",async()=>{
+  const f=fixture();
+  const input={workspace_id:"ws:personal",object_id:"item:immutable",base_revision:0,
+    data:{title:"original"}};
+  const pending=f.bound.putObject(input);
+  input.workspace_id="ws:two";
+  input.data.title="tampered";
+  const receipt=await pending;
+  assert.equal(receipt.object.workspace_id,"ws:personal");
+  assert.equal(receipt.object.data.title,"original");
+  assert.deepEqual(f.calls.filter(x=>x[0]==="putObject"),[["putObject","ws:personal"]]);
+  assert.equal(f.objects.has("ws:two/item:immutable"),false);
+});

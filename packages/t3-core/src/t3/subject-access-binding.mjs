@@ -83,11 +83,17 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
     const context = selected(access);
     // The caller cannot override a Host-selected PERSONAL/CORP context.
     if (context.workspace_id !== workspace_id) refused("T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE");
+    // Capture the actual command before any asynchronous authorization step.
+    // The caller must not change a digest-authorized write while the owner checks it.
+    let command;
+    try { command = structuredClone(input); }
+    catch { refused("T3_KERNEL_INPUT_NOT_CLONEABLE"); }
+    if (command?.workspace_id !== workspace_id) refused("T3_KERNEL_INPUT_SCOPE_MISMATCH");
     const operation = OPERATIONS[method];
     if (!kernel.hasOperation(operation)) refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     const action = await access.actionFor(operation);
     requiredId(action,"ACTION");
-    const operationDigest = await access.operationDigest({operation, input, context});
+    const operationDigest = await access.operationDigest({operation, input:command, context});
     if (typeof operationDigest !== "string" || !HEX.test(operationDigest)) {
       refused("T3_ACCESS_OPERATION_DIGEST_REQUIRED");
     }
@@ -112,19 +118,19 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
     }
     if (!kernel.hasOperation(operation)) refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     const result = method === "getObject"
-      ? await kernel.getObject(workspace_id,input.object_id)
+      ? await kernel.getObject(workspace_id,command.object_id)
       : method === "getWorkspace"
         ? await kernel.getWorkspace(workspace_id)
         : method === "listEventsSince"
           ? await kernel.listEventsSince(workspace_id)
-          : await kernel[method](input);
+          : await kernel[method](command);
     const record = method === "getObject" ? result?.object :
       method === "putObject" ? result?.object :
       method === "createWorkspace" ? result : null;
     if (record && record.workspace_id !== workspace_id) {
       refused("T3_KERNEL_SCOPE_RECEIPT_MISMATCH");
     }
-    if (record && input.object_id && record.object_id !== input.object_id) {
+    if (record && command.object_id && record.object_id !== command.object_id) {
       refused("T3_KERNEL_OBJECT_RECEIPT_MISMATCH");
     }
     if (method === "listEventsSince" &&
