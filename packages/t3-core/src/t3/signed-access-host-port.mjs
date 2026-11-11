@@ -127,6 +127,13 @@ export function createSignedAccessHostPort({
       const atJit = nowFrom(clock);
       decision = corporate.gate.authorize({...input, asOf:atJit},
         {now:atJit,challenge,proof,timeAssurance:"LOCAL_BEST_EFFORT"});
+      // The original Access gate intentionally returns a short DENIED or
+      // UNRESOLVED decision without success-only binding fields. Treat it as
+      // denied, not as a malformed successful decision. No Kernel call follows.
+      if (decision?.schema === ORGANIZATION &&
+          decision.allowed !== true && decision.outcome !== "PERMITTED") {
+        deny("T3_ACCESS_NOT_PERMITTED");
+      }
       requireThat(decision?.schema === ORGANIZATION &&
         decision.requestDigest === expectedRequestDigest &&
         decision.operationDigest === expectedOperationDigest &&

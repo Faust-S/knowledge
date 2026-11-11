@@ -18,7 +18,8 @@ const contexts=[
    workspace_id:"ws:"+n,scope_revision:1,organization_id:"org:"+n})),
 ];
 function fixture({personalOnly=false, corporateOnly=false, corporateProductId="IWXA_ADMIN_CENTER"}={}) {
-  let current=0,revoked=false,mutatePreview=false,mutateDecision=false,proofKey="credential:1";
+  let current=0,revoked=false,mutatePreview=false,mutateDecision=false,
+    compactDenial=false,proofKey="credential:1";
   const calls=[], objects=new Map();
   const owner={
     currentContext:()=>contexts[current],
@@ -56,6 +57,11 @@ function fixture({personalOnly=false, corporateOnly=false, corporateProductId="I
         authorize:(input,{challenge,proof})=>{
           calls.push("authorize");
           const preview=owner.corporate.gate.preview(input);
+          if (compactDenial) {
+            return {schema:"IWXA_T3_ORGANIZATION_OPERATION_DECISION/1",
+              allowed:false,outcome:"DENIED",reasons:["GRANT_REVOKED"],
+              evidenceOnly:true,productionActivation:false};
+          }
           return {
             schema:"IWXA_T3_ORGANIZATION_OPERATION_DECISION/1",
             outcome:revoked?"DENIED":"PERMITTED",allowed:!revoked,
@@ -90,6 +96,7 @@ function fixture({personalOnly=false, corporateOnly=false, corporateProductId="I
   return {access,binding:createSubjectKernelBinding({access,kernel,clock:()=>now}),
     calls,objects,select:n=>current=n,revoke:()=>{revoked=true},
     badPreview:()=>{mutatePreview=true},badDecision:()=>{mutateDecision=true},
+    compactDeny:()=>{compactDenial=true},
     badProof:()=>{proofKey="credential:wrong"}};
 }
 test("personal direct signed-owner decision reaches inherited Kernel through D1",async()=>{
@@ -175,4 +182,13 @@ test("corporate gate must have an explicit product identity; never default to Ad
   assert.throws(()=>fixture({corporateProductId:"IWXA_UNREGISTERED_DOMAIN"}),
     {code:"T3_OWNER_CORPORATE_PRODUCT_UNSUPPORTED"});
   assert.doesNotThrow(()=>fixture({personalOnly:true,corporateProductId:null}));
+});
+
+test("original signed organizational owner short DENIED shape blocks Kernel on revocation",async()=>{
+  const f=fixture();f.select(1);f.compactDeny();
+  await assert.rejects(
+    f.binding.putObject({workspace_id:"ws:1",object_id:"object:denied"}),
+    {code:"T3_ACCESS_NOT_PERMITTED"},
+  );
+  assert.equal(f.calls.includes("kernel"),false);
 });
