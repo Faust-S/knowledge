@@ -23,7 +23,18 @@ function fixture(root) {
     '</title></head><body><main><h1>'+name+
     '</h1><a href="/workspace/">Workspace</a><a href="/tools/">Инструменты</a></main></body></html>';
   write(root,"index.html",page("Тестовый домен"));
-  write(root,"tools/index.html",page("Калькулятор домена"));
+  write(root,"tools/index.html",'<!doctype html><html lang="ru"><head>'+
+    '<title>Калькулятор домена</title></head><body><main>'+
+    '<h1>Калькулятор домена</h1>'+
+    '<label>Первое число<input id="a" type="number"></label>'+
+    '<label>Второе число<input id="b" type="number"></label>'+
+    '<button id="calculate">Рассчитать</button><output id="sum"></output>'+
+    '</main><script type="module" src="/assets/calculator.mjs"></script>'+
+    '</body></html>');
+  write(root,"assets/calculator.mjs",
+    'document.querySelector("#calculate").addEventListener("click",()=>{'+
+    'document.querySelector("#sum").textContent=String('+
+    'Number(document.querySelector("#a").value)+Number(document.querySelector("#b").value));});');
   write(root,"workspace/index.html",page("Исходный Workspace"));
   // No claim that this marker is a qualified Kernel: the workflow separately
   // executes the real 0.3.6 Host and storage witness.
@@ -98,6 +109,10 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     await context.setOffline(true);
     await page.goto(base+"/tools/");
     assert.match(await page.locator("main h1").textContent(),/Калькулятор домена/);
+    await page.locator("#a").fill("6");
+    await page.locator("#b").fill("7");
+    await page.locator("#calculate").click();
+    assert.equal(await page.locator("#sum").textContent(),"13","domain JavaScript works without network");
     await page.goto(base+"/workspace/");
     assert.match(await page.locator("main h1").textContent(),/Исходный Workspace/);
     assert.equal(await page.locator("#iwxa-t3-domain-switch").isChecked(),true);
@@ -109,6 +124,10 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     page=context.pages()[0]||await context.newPage();
     await page.goto(base+"/tools/",{waitUntil:"domcontentloaded",timeout:30000});
     assert.match(await page.locator("main h1").textContent(),/Калькулятор домена/);
+    await page.locator("#a").fill("20");
+    await page.locator("#b").fill("22");
+    await page.locator("#calculate").click();
+    assert.equal(await page.locator("#sum").textContent(),"42","domain calculator still works after cold offline restart");
     await page.waitForFunction(()=>document.documentElement
       .hasAttribute("data-iwxa-t3-autonomous"),null,{timeout:10000});
     assert.equal(await page.locator("#iwxa-t3-domain-switch").isChecked(),true,
