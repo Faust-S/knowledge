@@ -9,6 +9,7 @@ import {resolve, join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {inspectSelectedT3Activity, T3ActivityHold, createTrustedT3ReviewPort} from
   '../modules/activity-base-anonymizer/t3-selected-host.mjs';
+import {bindT3ControlActivityReview} from '../modules/activity-base-anonymizer/t3-control-host-link.mjs';
 import {createT3ReviewController} from
   '../modules/activity-base-anonymizer/t3-review-controller.mjs';
 
@@ -180,4 +181,54 @@ test('original T3 Workspace subscription prevents an in-flight stale Activity UI
   assert.equal(states.at(-1).review,null);
   assert.equal(h.counts.write,0);
   ui.dispose();
+});
+
+test('original T3 D1/D2 reader is invoked from the Control-signed Activity Host link', async () => {
+  const h=fixture(),changed=new Set();
+  let epoch=1,grantCalls=0;
+  const control={
+    snapshot:()=>({context:'ORGANIZATION',contextId:'north-lab',contextEpoch:epoch}),
+    signedActivityAccess:createPort=>{grantCalls++;return createPort(h.signedAccess);},
+    subscribeInvalidation:fn=>{changed.add(fn);return()=>changed.delete(fn);},
+  };
+  const link=bindT3ControlActivityReview({
+    control,context:h.context,bindings:h.bindings,
+    createSignedAccessHostPort:owner=>owner,
+    readActivityFromWorkspaceContext:source.readActivityFromWorkspaceContext,
+  });
+  const states=[],ui=createT3ReviewController({host:link.port,onUpdate:v=>states.push(v)});
+  assert.equal((await ui.readSelected()).status,'REVIEW');
+  assert.equal(grantCalls,1);
+  assert.ok(h.counts.read>=9);
+  assert.equal(h.counts.write,0);
+  assert.equal(states.at(-1).review.export_allowed,false);
+  const readCount=h.counts.read;
+  h.revoke();epoch++;for(const fn of changed)fn();
+  assert.deepEqual(states.at(-1),{status:'READY_TO_READ',review:null});
+  assert.equal((await ui.readSelected()).status,'HOLD');
+  assert.equal(h.counts.read,readCount);
+  assert.equal(h.counts.write,0);
+  assert.equal(grantCalls,2);
+  ui.dispose();link.dispose();
+  assert.equal(changed.size,0);
+});
+
+test('original T3 Workspace switching during the Control-linked read invalidates the UI',async()=>{
+  const h=fixture(),changed=new Set();
+  const control={
+    snapshot:()=>({context:'ORGANIZATION',contextId:'north-lab',contextEpoch:1}),
+    signedActivityAccess:factory=>factory(h.signedAccess),
+    subscribeInvalidation:fn=>{changed.add(fn);return()=>changed.delete(fn);},
+  };
+  const link=bindT3ControlActivityReview({
+    control,context:h.context,bindings:h.bindings,
+    createSignedAccessHostPort:owner=>owner,
+    readActivityFromWorkspaceContext:source.readActivityFromWorkspaceContext,
+  });
+  const updates=[],ui=createT3ReviewController({host:link.port,onUpdate:v=>updates.push(v)});
+  h.switchDuringRead();
+  assert.equal((await ui.readSelected()).status,'INVALIDATED');
+  assert.deepEqual(updates.at(-1),{status:'READY_TO_READ',review:null});
+  assert.equal(h.counts.write,0);
+  ui.dispose();link.dispose();
 });
