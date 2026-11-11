@@ -28,6 +28,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install inherited T2 build dependencies
+        run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
       - run: node --check tools/import-qualified-t2.mjs
       - run: node --check packages/t3-core/src/t3/index.mjs
       - run: node --check packages/t3-core/src/t3/activity/index.mjs
@@ -42,8 +44,6 @@ jobs:
       - run: node --test packages/t3-core/tests/t3-subject-kernel-scope.test.mjs
       - run: node --check packages/t3-core/src/t3/signed-access-host-port.mjs
       - run: node --test packages/t3-core/tests/t3-signed-access-host-port.test.mjs
-      - name: Install inherited T2 build dependencies
-        run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
       - name: Run original T2 Runtime 1.3 Host facade regression
         working-directory: packages/t3-core
         run: ./node_modules/.bin/vitest run --config vitest.t3-bootstrap.config.mjs

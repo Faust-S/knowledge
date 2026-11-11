@@ -369,7 +369,8 @@ test("D1 signed owner permits only authorized Activity reads through the origina
   const accepted=await readActivityFromWorkspaceContext(context,{bindings,signedAccess});
   assert.equal(accepted.workspace_id,workspaceId);
   assert.equal(accepted.nodes.length,2);
-  assert.ok(decisions>=8,"every inherited Kernel read must authorize at the signed port");
+  assert.equal(decisions,Object.values(counts).reduce((sum,count)=>sum+count,0),
+    "every inherited Kernel read must have exactly one signed Access decision");
   assert.equal(listeners.size,0,"focus listener is released after the read");
   const before={...counts};
   status="REVOKED";
