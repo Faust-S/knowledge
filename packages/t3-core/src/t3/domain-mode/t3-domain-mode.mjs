@@ -141,7 +141,7 @@ async function enable(ui) {
   if (!isOwn(reg.active)) throw Error("T3_DOMAIN_SW_NOT_ACTIVE");
   const receipt = await message(reg.active, "T3_INSTALL", ({done,total}) => {
     tell(ui, "Устанавливаю автономный сайт: " + done + " / " + total + " файлов.");
-  });
+  }, {expectedVersion: manifest.version});
   if (receipt?.type !== "READY" || receipt.version !== manifest.version ||
       receipt.files !== manifest.files.length) throw Error("T3_DOMAIN_INSTALL_NOT_VERIFIED");
   tell(ui, "Офлайн-копия установлена. Переключаю сайт на локальный режим…");
@@ -178,8 +178,8 @@ async function applyUpdate(ui) {
   if (!update) return;
   // Native confirmation occurs directly within the user's click.
   const mb = (update.totalBytes / (1024 * 1024)).toFixed(1);
-  if (!window.confirm("Установить обновление автономного T3?\\n" +
-    "Проверю " + update.files + " файлов (около " + mb + " МБ).\\n" +
+  if (!window.confirm("Установить обновление автономного T3?\n" +
+    "Проверю " + update.files + " файлов (около " + mb + " МБ).\n" +
     "До успешной проверки все ресурсы предыдущей версии сохраняются. Модель ИИ не устанавливается.")) return;
   ui.updateInstall.disabled = true;
   ui.updateCheck.disabled = true;
