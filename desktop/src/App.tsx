@@ -94,7 +94,7 @@ function T3ViewCard({view, number}: {view: T3StructuralCandidate; number: number
   </section>;
 }
 
-export function App({t3Host = null}: {t3Host?: T3ReviewHost | null}) {
+export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3ReviewHost | null; brandSrc?: string}) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [risk, setRisk] = useState<SyntheticRisk | null>(null);
@@ -183,7 +183,7 @@ export function App({t3Host = null}: {t3Host?: T3ReviewHost | null}) {
   return <div className="app-shell" onDragOver={(e) => e.preventDefault()} onDrop={(e) => e.preventDefault()}>
     <header className="topbar">
       <div className="brand">
-        <img className="brand-icon" src="/brand.svg" alt="IWXA" />
+        <img className="brand-icon" src={brandSrc} alt="IWXA" />
         <div className="brand-copy"><strong>IWXA</strong><span>Анализ деятельности</span></div>
       </div>
       <div className="topbar-right"><span className="local-status"><span className="local-dot" /> Только локально</span>

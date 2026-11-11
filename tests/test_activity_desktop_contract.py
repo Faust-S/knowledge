@@ -121,6 +121,17 @@ class DesktopContract(unittest.TestCase):
         self.assertIn("subscribeInvalidation", types)
         self.assertNotRegex(controller, r"\bfetch\s*\(|XMLHttpRequest|WebSocket|http://|https://")
 
+    def test_host_surface_native_embedded_but_not_a_second_runtime(self):
+        source = (DESKTOP / "src/host-surface.tsx").read_text("utf-8")
+        config = (DESKTOP / "vite.host.config.ts").read_text("utf-8")
+        app = (DESKTOP / "src/App.tsx").read_text("utf-8")
+        self.assertIn("mountActivityHostSurface", source)
+        self.assertIn("IWXA_ACTIVITY_NARROW_T3_HOST_REQUIRED", source)
+        self.assertIn("root.unmount()", source)
+        self.assertIn("src={brandSrc}", app)
+        self.assertIn("new URL('./brand.svg', import.meta.url).href", source)
+        self.assertIn("external: ['react', 'react-dom/client', 'react/jsx-runtime']", config)
+        self.assertNotRegex(source, r"\bfetch\s*\(|WebSocket|window\.open|signedAccess|grant_id")
 
 if __name__ == "__main__":
     unittest.main()

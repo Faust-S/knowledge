@@ -9,7 +9,8 @@
     "desktop": "tauri",
     "desktop:dev": "npm run brand:icon && tauri dev",
     "desktop:build": "npm run brand:icon && tauri build --no-bundle",
-    "brand:icon": "powershell -NoProfile -ExecutionPolicy Bypass -File installer/build-brand-icon.ps1"
+    "brand:icon": "powershell -NoProfile -ExecutionPolicy Bypass -File installer/build-brand-icon.ps1",
+    "build:host-surface": "tsc --noEmit && vite build --config vite.host.config.ts"
   },
   "dependencies": {
     "react": "19.2.0",
