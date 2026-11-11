@@ -101,6 +101,10 @@ async function run() {
     host.passport.input_object_types.push(LOCAL_INFERENCE_DRAFT_SCHEMA);
     host.passport.output_object_types.push(LOCAL_INFERENCE_DRAFT_SCHEMA);
     host.passport.schemas[LOCAL_INFERENCE_DRAFT_SCHEMA] = LOCAL_INFERENCE_DRAFT_DECLARATION;
+    // Schema declaration is not an operation grant. Explicitly permit the
+    // existing writer service to read/write this one draft type only.
+    host.passport.permissions.objects.read.push(LOCAL_INFERENCE_DRAFT_SCHEMA);
+    host.passport.permissions.objects.write.push(LOCAL_INFERENCE_DRAFT_SCHEMA);
     writeFileSync(join(dist,'_iwxa/domain.json'),JSON.stringify(host.domain));
     const passportFile = '_iwxa/services/' + WRITER + '.json';
     writeFileSync(join(dist,passportFile),JSON.stringify(host.passport));
