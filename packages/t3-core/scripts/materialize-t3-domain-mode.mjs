@@ -1,0 +1,125 @@
+#!/usr/bin/env node
+// Run only after a domain site's T3 successor and original Host/Kernel have
+// been assembled into ONE final dist. Never run against the original T2.
+import {createHash} from "node:crypto";
+import {existsSync, lstatSync, mkdirSync, readdirSync, readFileSync,
+  realpathSync, writeFileSync, copyFileSync} from "node:fs";
+import {dirname, join, relative, resolve, sep} from "node:path";
+import {fileURLToPath} from "node:url";
+
+const SCHEMA = "iwxa.t3.domain-offline/1";
+const scriptRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../src/t3/domain-mode");
+const badFiles = new Set([".env", ".env.local", "package.json", "AGENTS.md",
+  "package-lock.json", "bun.lock", "tsconfig.json", "vite.config.ts"]);
+const denyDirs = new Set([".git", "node_modules", ".vite", "__tests__", "tests"]);
+const sha = bytes => createHash("sha256").update(bytes).digest("hex");
+
+function fail(reason) {throw Error("T3_DOMAIN_OFFLINE_" + reason);}
+function scan(root) {
+  const files = [];
+  function walk(dir) {
+    for (const row of readdirSync(dir, {withFileTypes: true})) {
+      if (row.isSymbolicLink()) fail("SYMLINK_FORBIDDEN");
+      if (denyDirs.has(row.name)) fail("DEVELOPMENT_DIRECTORY_IN_DIST");
+      const path = join(dir, row.name);
+      if (row.isDirectory()) walk(path);
+      else if (row.isFile()) {
+        if (badFiles.has(row.name) || row.name.startsWith(".env") ||
+            row.name.endsWith(".map") || row.name.endsWith(".log")) {
+          fail("DEVELOPMENT_FILE_IN_DIST:" + row.name);
+        }
+        files.push(path);
+      } else fail("NON_FILE_ENTRY");
+      if (files.length > 50000) fail("TOO_MANY_FILES");
+    }
+  }
+  walk(root);
+  return files.sort();
+}
+function checkPageAssets(html, page, siteOrigin) {
+  // <a> links and canonical/social meta URLs are not executable resources.
+  // External page dependencies must not silently disappear in offline mode.
+  const tags = html.match(/<(?:script|iframe|img|source|video|audio|link)\b[^>]*>/gi) || [];
+  for (const tag of tags) {
+    if (/^<link/i.test(tag) &&
+        !/\brel\s*=\s*["']?(?:stylesheet|modulepreload|preload|icon)\b/i.test(tag)) continue;
+    const urls = [...tag.matchAll(/\b(?:src|srcset|href|poster)\s*=\s*["']([^"']+)["']/gi)];
+    for (const match of urls) {
+      for (const url of match[1].split(",").map(x=>x.trim().split(/\s+/)[0])) {
+        if (!/^https?:\/\//i.test(url)) continue;
+        if (new URL(url).origin !== siteOrigin) fail("CROSS_ORIGIN_ASSET:" + page);
+      }
+    }
+  }
+}
+function inject(html, path) {
+  const marker = '<script type="module" src="/t3-domain-mode.mjs" data-iwxa-t3-domain-mode></script>';
+  if (html.includes("data-iwxa-t3-domain-mode")) return html;
+  if (!/<\/body>/i.test(html)) fail("HTML_BODY_REQUIRED:" + path);
+  return html.replace(/<\/body>/i, marker + "\n</body>");
+}
+export function materializeDomainMode(distRoot) {
+  if (typeof distRoot !== "string" || !distRoot.trim()) fail("DIST_REQUIRED");
+  const root = realpathSync(resolve(distRoot));
+  for (const required of ["index.html", "workspace/index.html",
+      "_iwxa/domain.json", "_iwxa/domain-shell.json",
+      "_iwxa/service-catalog.json"]) {
+    if (!existsSync(join(root, required))) fail("ONE_DIST_INCOMPLETE:" + required);
+  }
+  const domain = JSON.parse(readFileSync(join(root, "_iwxa/domain.json"), "utf8"));
+  const domainOrigin = domain?.domain?.origin || domain?.runtime?.origin ||
+    domain?.origin || null;
+  // The real deployment origin must be discoverable, not synthesized.
+  if (typeof domainOrigin !== "string" || !/^https:\/\/[^/]+$/.test(domainOrigin)) {
+    fail("ORIGIN_UNKNOWN");
+  }
+  const htmlPages = scan(root).filter(x => x.endsWith(".html"));
+  if (!htmlPages.includes(join(root, "index.html")) ||
+      !htmlPages.includes(join(root, "workspace/index.html"))) {
+    fail("SITE_AND_WORKSPACE_REQUIRED");
+  }
+  const replacements = [];
+  for (const page of htmlPages) {
+    const before = readFileSync(page, "utf8");
+    checkPageAssets(before, relative(root, page), domainOrigin);
+    replacements.push([page, inject(before, relative(root,page))]);
+  }
+  for (const [path, content] of replacements) writeFileSync(path, content);
+  copyFileSync(join(scriptRoot, "t3-domain-mode.mjs"), join(root, "t3-domain-mode.mjs"));
+  copyFileSync(join(scriptRoot, "t3-sw.js"), join(root, "t3-sw.js"));
+  const files = [];
+  const aliases = [];
+  for (const file of scan(root)) {
+    const path = "/" + relative(root, file).split(sep).join("/");
+    if (path === "/t3-offline-manifest.json") continue;
+    const bytes = readFileSync(file);
+    const entry = {path,sha256:sha(bytes),bytes:bytes.length};
+    files.push(entry);
+    if (path.endsWith("/index.html")) {
+      const alias = path.slice(0, -"index.html".length);
+      aliases.push({...entry,path:alias,source:path});
+    }
+  }
+  files.sort((a,b) => a.path.localeCompare(b.path, "en"));
+  aliases.sort((a,b) => a.path.localeCompare(b.path, "en"));
+  const all = [...files,...aliases];
+  if (new Set(all.map(x=>x.path)).size !== all.length ||
+      !all.some(x=>x.path === "/") || !all.some(x=>x.path === "/workspace/")) {
+    fail("ALIAS_COLLISION");
+  }
+  const total = all.reduce((sum,x)=>sum+x.bytes,0);
+  if (!Number.isSafeInteger(total) || total <= 0) fail("SIZE_INVALID");
+  const version = sha(Buffer.from(all.map(x =>
+    [x.path,x.source||"",x.sha256,x.bytes].join("\0")).join("\n")));
+  const manifest = {schema:SCHEMA,version,complete_static_tree:true,
+    domain_origin:domainOrigin,files:all,total_bytes:total};
+  writeFileSync(join(root,"t3-offline-manifest.json"),JSON.stringify(manifest));
+  return {domain_origin:domainOrigin,version,files:all.length,
+    total_bytes:total,site_pages:htmlPages.length,
+    original_kernel_unchanged:true,local_model_installation_separate:true};
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  if (process.argv.length !== 3) fail("USAGE_FINAL_DIST");
+  console.log(JSON.stringify(materializeDomainMode(process.argv[2])));
+}
