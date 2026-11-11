@@ -30,7 +30,6 @@ import type { HostContributionHub } from "../registries";
 import type { ModuleContextProvider } from "../modules/module-types";
 import { CurrentWorkspaceStore } from "./current-workspace-store";
 import { createKernelFacade } from "./create-kernel-facade";
-import type { SubjectAccessHostOwner } from "../../t3/subject-kernel-module-facade.mjs";
 import { createCommandsFacade } from "./create-commands-facade";
 import { createViewsFacade } from "./create-views-facade";
 import { createPanelsFacade, type PanelsState } from "./create-panels-facade";
@@ -45,8 +44,6 @@ import {
 
 export interface ModuleContextFactoryInput {
   session: KernelSession;
-  /** T3 D1 only: trusted Host-provided selected subject and existing Access owner. */
-  subjectAccess?: SubjectAccessHostOwner;
   router: HostRouter;
   hub: HostContributionHub;
   currentWorkspaceStore: CurrentWorkspaceStore;
@@ -67,29 +64,9 @@ export interface ModuleContextFactoryInput {
 export function createModuleContextProvider(
   input: ModuleContextFactoryInput,
 ): ModuleContextProvider {
-  // A D1-protected module must not advertise raw session capabilities that
-  // its subject-bound KernelFacade will reject. Use the exact inherited
-  // facade's filtered snapshot for commands, views and panels as well.
-  const visibleKernel = input.subjectAccess
-    ? createKernelFacade({ session: input.session, subjectAccess: input.subjectAccess })
-    : null;
   const grantedOperations = Object.freeze(
-    [...(visibleKernel?.grantedOperations ?? input.session.granted_operations ?? [])],
+    [...(input.session.granted_operations ?? [])],
   ) as readonly OperationId[];
-  const selectedWorkspaceId = (): string | null => {
-    if (!input.subjectAccess) return null;
-    try {
-      const context = input.subjectAccess.currentContext();
-      if (!context || typeof context !== "object" || Array.isArray(context)) return null;
-      const id = (context as { workspace_id?: unknown }).workspace_id;
-      return typeof id === "string" && id.length > 0 ? id : null;
-    } catch {
-      return null; // unknown/failed owner context never exposes a stale Workspace.
-    }
-  };
-  const scopedWorkspace = (workspace: WorkspaceRecord | null): WorkspaceRecord | null =>
-    !input.subjectAccess ? workspace :
-      workspace && workspace.workspace_id === selectedWorkspaceId() ? workspace : null;
   const activeCapabilities = Object.freeze([...(input.activeCapabilities ?? [])]);
 
   /**
@@ -102,10 +79,7 @@ export function createModuleContextProvider(
     moduleId: string,
     invocationStack: readonly string[],
   ): WorkspaceModuleContext {
-    const kernel = createKernelFacade({
-      session: input.session,
-      subjectAccess: input.subjectAccess,
-    });
+    const kernel = createKernelFacade({ session: input.session });
     const router = createRouterFacade(input.router);
     const commands = createCommandsFacade({
       moduleId,
@@ -139,17 +113,10 @@ export function createModuleContextProvider(
     });
     const CURRENT_WORKSPACE_OWNER = "iwxa.workspace.base";
     const currentWorkspace: CurrentWorkspaceFacade = Object.freeze({
-      get: () => scopedWorkspace(input.currentWorkspaceStore.get()),
+      get: () => input.currentWorkspaceStore.get(),
       subscribe: (l: (w: WorkspaceRecord | null) => void) =>
-        input.currentWorkspaceStore.subscribe(w => l(scopedWorkspace(w))),
+        input.currentWorkspaceStore.subscribe(l),
       claim: (ws: WorkspaceRecord | null) => {
-        if (input.subjectAccess && ws && ws.workspace_id !== selectedWorkspaceId()) {
-          input.diagnosticsSink.report({
-            code: "subject-current-workspace-claim-denied", moduleId,
-            message: "Workspace focus belongs to another selected subject",
-          });
-          return;
-        }
         if (moduleId !== CURRENT_WORKSPACE_OWNER) {
           input.diagnosticsSink.report({
             code: "current-workspace-claim-denied", moduleId,
@@ -160,14 +127,6 @@ export function createModuleContextProvider(
         input.currentWorkspaceStore.set(ws);
       },
       release: () => {
-        if (input.subjectAccess && input.currentWorkspaceStore.get() &&
-            scopedWorkspace(input.currentWorkspaceStore.get()) === null) {
-          input.diagnosticsSink.report({
-            code: "subject-current-workspace-release-denied", moduleId,
-            message: "Cannot release another subject's current Workspace",
-          });
-          return;
-        }
         if (moduleId !== CURRENT_WORKSPACE_OWNER) {
           input.diagnosticsSink.report({
             code: "current-workspace-release-denied", moduleId,
