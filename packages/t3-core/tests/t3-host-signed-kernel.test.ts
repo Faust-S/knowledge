@@ -226,6 +226,34 @@ describe("T3 D1 original ModuleContext Kernel with signed corporate subject",()=
     await expect(pending).rejects.toMatchObject({code:"T3_HOST_DISPOSED"});
     expect(commits).toBe(1);
   });
+  it("keeps ordinary signed Workspace reads functional without Activity DATA permission",async()=>{
+    const f=fixture();
+    const readPort={...f.access,
+      currentContext:()=>({...f.access.currentContext(),purpose:"workspace.read"}),
+      actionFor:()=>"workspace.read",
+    };
+    const operations=new Set(["getWorkspace","getObject","listObjects","listEventsSince"]);
+    const host=await createWorkspaceHostRuntime({
+      session:f.session,workspaceConfig:{modules:[]},bindLegacyHashDriver:false,
+      termResolver:(_key,fallback)=>fallback??"",
+      signedKernelAccess:(operation:string)=>operations.has(operation)?readPort:null,
+    });
+    try{
+      const kernel=host.contextProvider.createContext("d06").kernel;
+      expect((await kernel.getWorkspace("ws:alpha"))?.workspace_id).toBe("ws:alpha");
+      expect((await kernel.listWorkspaces()).map(x=>x.workspace_id)).toEqual(["ws:alpha"]);
+      const calls=f.calls.length;
+      await expect(host.readAuthorizedActivity({bindings:{
+        objects:[],events:[],
+      }})).rejects.toMatchObject({code:"T3_D1_ACCESS_OWNER_REQUIRED"});
+      await expect(kernel.putObject({workspace_id:"ws:alpha",object_id:"item:1",
+        schema_id:"demo",schema_version:"1.0.0",data:{},
+        event:{event_type:"created"}})).rejects.toMatchObject({
+          code:"T3_D1_ACCESS_OWNER_REQUIRED",
+        });
+      expect(f.calls.length).toBe(calls);
+    }finally{await host.dispose();}
+  });
   it("when signed owner is required but unavailable, no T2 data may escape",async()=>{
     const f=fixture();
     const host=await createWorkspaceHostRuntime({
