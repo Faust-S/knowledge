@@ -2,8 +2,8 @@
 // Run only after a domain site's T3 successor and original Host/Kernel have
 // been assembled into ONE final dist. Never run against the original T2.
 import {createHash} from "node:crypto";
-import {existsSync, lstatSync, mkdirSync, readdirSync, readFileSync,
-  realpathSync, writeFileSync, copyFileSync} from "node:fs";
+import {existsSync, mkdirSync, readdirSync, readFileSync,
+  realpathSync, writeFileSync, copyFileSync, cpSync} from "node:fs";
 import {dirname, join, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
 
@@ -52,13 +52,15 @@ function checkPageAssets(html, page, siteOrigin) {
     }
   }
 }
-function inject(html, path) {
+function inject(html, path, assistant) {
+  const assistantMarker = '<script type="module" src="/_iwxa/t3-assistant/assistant.js" data-iwxa-t3-assistant></script>';
   const marker = '<script type="module" src="/t3-domain-mode.mjs" data-iwxa-t3-domain-mode></script>';
-  if (html.includes("data-iwxa-t3-domain-mode")) return html;
   if (!/<\/body>/i.test(html)) fail("HTML_BODY_REQUIRED:" + path);
-  return html.replace(/<\/body>/i, marker + "\n</body>");
+  const scripts = (html.includes("data-iwxa-t3-domain-mode") ? "" : marker) +
+    (assistant && !html.includes("data-iwxa-t3-assistant") ? "\n" + assistantMarker : "");
+  return html.replace(/<\/body>/i, scripts + "\n</body>");
 }
-export function materializeDomainMode(distRoot) {
+export function materializeDomainMode(distRoot, assistantDistRoot = null) {
   if (typeof distRoot !== "string" || !distRoot.trim()) fail("DIST_REQUIRED");
   const root = realpathSync(resolve(distRoot));
   for (const required of ["index.html", "workspace/index.html",
@@ -73,6 +75,19 @@ export function materializeDomainMode(distRoot) {
   if (typeof domainOrigin !== "string" || !/^https:\/\/[^/]+$/.test(domainOrigin)) {
     fail("ORIGIN_UNKNOWN");
   }
+  if (assistantDistRoot) {
+    const assistantRoot = realpathSync(resolve(assistantDistRoot));
+    if (assistantRoot === root || root.startsWith(assistantRoot + sep) ||
+        assistantRoot.startsWith(root + sep)) fail("ASSISTANT_STAGE_OVERLAP");
+    const candidate = join(assistantRoot, "assistant.js");
+    if (!existsSync(candidate) || !scan(assistantRoot).includes(candidate)) {
+      fail("COMPILED_ASSISTANT_REQUIRED");
+    }
+    const target = join(root, "_iwxa/t3-assistant");
+    if (existsSync(target)) fail("ASSISTANT_ALREADY_STAGED");
+    mkdirSync(target, {recursive:true});
+    cpSync(assistantRoot, target, {recursive:true});
+  }
   const htmlPages = scan(root).filter(x => x.endsWith(".html"));
   if (!htmlPages.includes(join(root, "index.html")) ||
       !htmlPages.includes(join(root, "workspace/index.html"))) {
@@ -82,7 +97,7 @@ export function materializeDomainMode(distRoot) {
   for (const page of htmlPages) {
     const before = readFileSync(page, "utf8");
     checkPageAssets(before, relative(root, page), domainOrigin);
-    replacements.push([page, inject(before, relative(root,page))]);
+    replacements.push([page, inject(before, relative(root,page), !!assistantDistRoot)]);
   }
   for (const [path, content] of replacements) writeFileSync(path, content);
   copyFileSync(join(scriptRoot, "t3-domain-mode.mjs"), join(root, "t3-domain-mode.mjs"));
@@ -116,10 +131,12 @@ export function materializeDomainMode(distRoot) {
   writeFileSync(join(root,"t3-offline-manifest.json"),JSON.stringify(manifest));
   return {domain_origin:domainOrigin,version,files:all.length,
     total_bytes:total,site_pages:htmlPages.length,
+    assistant_installed_in_single_dist:!!assistantDistRoot,
     original_kernel_unchanged:true,local_model_installation_separate:true};
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  if (process.argv.length !== 3) fail("USAGE_FINAL_DIST");
-  console.log(JSON.stringify(materializeDomainMode(process.argv[2])));
+  if (process.argv.length !== 3 && process.argv.length !== 5) fail("USAGE_FINAL_DIST");
+  if (process.argv.length === 5 && process.argv[3] !== "--assistant-dist") fail("USAGE_ASSISTANT_DIST");
+  console.log(JSON.stringify(materializeDomainMode(process.argv[2],process.argv[4] || null)));
 }
