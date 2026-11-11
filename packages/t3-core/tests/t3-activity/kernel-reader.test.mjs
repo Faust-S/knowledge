@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readActivityFromT2Host } from "../../src/t3/activity/kernel-reader.mjs";
+import { readActivityFromWorkspaceContext } from "../../src/t3/index.mjs";
 import { readFromLiveT2Kernel } from "../../src/t3/activity/live-iwxa-client.mjs";
 
 const workspaceId = "workspace:one";
@@ -288,4 +289,44 @@ test("live T2 reader accepts exact read grants and rejects every non-read packag
     }), { code: "T2_READER_HAS_WRITE_AUTHORITY" });
     assert.deepEqual(source.counts, readsBefore, "rejected grant must not read source");
   }
+});
+
+test("D2 in T3 Host reads the actually selected T2 Workspace without separate Kernel",async()=>{
+  const {kernel,counts}=fixture();
+  const selected={workspace_id:workspaceId};
+  const context={kernel,currentWorkspace:{get:()=>selected}};
+  const view=await readActivityFromWorkspaceContext(context,{bindings});
+  assert.equal(view.workspace_id,workspaceId);
+  assert.equal(view.nodes.length,2);
+  assert.equal(view.events.length,1);
+  assert.equal(counts.listObjects,2);
+});
+test("D2 Host refuses foreign requested Workspace before the inherited Kernel reads",async()=>{
+  const {kernel,counts}=fixture();
+  const context={kernel,currentWorkspace:{get:()=>({workspace_id:workspaceId})}};
+  await assert.rejects(readActivityFromWorkspaceContext(context,{
+    workspace_id:"workspace:foreign",bindings,
+  }),{code:"T3_ACTIVITY_SELECTED_WORKSPACE_MISMATCH"});
+  assert.equal(Object.values(counts).reduce((a,b)=>a+b,0),0);
+});
+test("D2 Host refuses to read when no T2 Workspace is selected",async()=>{
+  const {kernel,counts}=fixture();
+  await assert.rejects(readActivityFromWorkspaceContext({
+    kernel,currentWorkspace:{get:()=>null},
+  },{bindings}),{code:"T3_ACTIVITY_WORKSPACE_NOT_SELECTED"});
+  assert.equal(Object.values(counts).reduce((a,b)=>a+b,0),0);
+});
+test("D2 Host does not return stale activity if selection changes during T2 read",async()=>{
+  const {kernel}=fixture();
+  let selected=workspaceId;
+  const base=kernel.listObjects;
+  kernel.listObjects=async query=>{
+    const result=await base(query);
+    selected="workspace:foreign";
+    return result;
+  };
+  const context={kernel,currentWorkspace:{get:()=>({workspace_id:selected})}};
+  await assert.rejects(readActivityFromWorkspaceContext(context,{bindings}),{
+    code:"T3_ACTIVITY_WORKSPACE_CHANGED_DURING_READ",
+  });
 });
