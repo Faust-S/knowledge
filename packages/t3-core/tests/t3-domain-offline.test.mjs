@@ -101,6 +101,7 @@ function fakeBrowser(root,store=null) {
       return {
         async put(key,response){records.set(toKey(key),response.clone());},
         async match(key){return records.get(toKey(key))?.clone();},
+        async delete(key){return records.delete(toKey(key));},
         async keys(){return [...records.keys()].map(url=>new Request(url));}
       };
     },
@@ -174,8 +175,23 @@ test("T3 offline worker installs verified snapshot, blocks remote egress, and su
     const afterRestart=fakeBrowser(root,first.caches);
     assert.equal((await afterRestart.fetchPage(ORIGIN+"/workspace/")).status,200);
     assert.equal(afterRestart.liveFetches,0,"offline restart used only verified CacheStorage");
-    await afterRestart.dispatch("T3_DISABLE");
+    const acknowledgements=[];
+    await afterRestart.dispatch("T3_DISABLE",{postMessage:m=>acknowledgements.push(m)});
+    assert.equal(acknowledgements.at(-1)?.type,"DISABLED");
     assert.equal((await afterRestart.fetchPage(ORIGIN+"/workspace/index.html")).status,200);
     assert.equal(afterRestart.liveFetches,1,"normal network restored only after opt-out");
+    const afterOptOutRestart=fakeBrowser(root,first.caches);
+    const statusAfterRestart=[];
+    await afterOptOutRestart.dispatch("T3_STATUS",{postMessage:m=>statusAfterRestart.push(m)});
+    assert.equal(statusAfterRestart[0]?.active,false,
+      "old cached snapshots never reactivate T3 after user turns it off");
+    assert.equal((await afterOptOutRestart.fetchPage(ORIGIN+"/workspace/")).status,200);
+    assert.equal(afterOptOutRestart.liveFetches,1);
+    const afterReinstall=fakeBrowser(root,first.caches), reinstall=[];
+    await afterReinstall.dispatch("T3_INSTALL",{postMessage:m=>reinstall.push(m)});
+    assert.equal(reinstall.at(-1)?.type,"READY","only explicit reinstall reactivates T3");
+    const enabledAgain=fakeBrowser(root,first.caches);
+    assert.equal((await enabledAgain.fetchPage(ORIGIN+"/workspace/")).status,200);
+    assert.equal(enabledAgain.liveFetches,0);
   }finally{cleanup(root);}
 });
