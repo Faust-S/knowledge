@@ -3,6 +3,9 @@
 import assert from 'node:assert/strict';
 import {createHash, randomUUID} from 'node:crypto';
 import {
+  LOCAL_INFERENCE_DRAFT_SCHEMA, LOCAL_INFERENCE_DRAFT_DECLARATION,
+} from '../../src/t3/local-inference-draft.mjs';
+import {
   cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync,
   realpathSync, rmSync, writeFileSync,
 } from 'node:fs';
@@ -92,7 +95,15 @@ async function run() {
     host.workspaceConfig.host.required_contract_version = CONTRACT;
     writeFileSync(join(dist,'_iwxa/domain.json'),JSON.stringify(host.domain));
     writeFileSync(join(dist,'workspace/workspace.config.json'),JSON.stringify(host.workspaceConfig));
+    // Register the D5 draft as a *real* declared object type on the existing
+    // T2 service passport. Never bypass the original Kernel schema gate.
+    host.domain.security.allowed_object_classes.push(LOCAL_INFERENCE_DRAFT_SCHEMA);
+    host.passport.input_object_types.push(LOCAL_INFERENCE_DRAFT_SCHEMA);
+    host.passport.output_object_types.push(LOCAL_INFERENCE_DRAFT_SCHEMA);
+    host.passport.schemas[LOCAL_INFERENCE_DRAFT_SCHEMA] = LOCAL_INFERENCE_DRAFT_DECLARATION;
+    writeFileSync(join(dist,'_iwxa/domain.json'),JSON.stringify(host.domain));
     const passportFile = '_iwxa/services/' + WRITER + '.json';
+    writeFileSync(join(dist,passportFile),JSON.stringify(host.passport));
     const passportBytes = readFileSync(join(dist,passportFile));
     writeFileSync(join(dist,'_iwxa/service-catalog.json'),JSON.stringify({count:1,entries:[{
       service_id:WRITER,service_version:host.passport.service_version,

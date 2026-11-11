@@ -1,6 +1,25 @@
 // D5: explicit user-approved local model draft in the ORIGINAL T3/T2 Workspace.
 // This does not create a model runtime, Result authority, Store or second Kernel.
 export const LOCAL_INFERENCE_DRAFT_SCHEMA = "iwxa.local-inference.draft";
+export const LOCAL_INFERENCE_DRAFT_DECLARATION = Object.freeze({
+  schema_version: "1.0.0",
+  preserve_unknown: false,
+  json_schema: {
+    type: "object",
+    properties: {
+      status: {const: "DRAFT_UNTRUSTED"},
+      text: {type: "string", minLength: 1, maxLength: 64000},
+      model_id: {type: "string", minLength: 1, maxLength: 256},
+      engine: {type: "string", minLength: 1, maxLength: 256},
+      origin: {const: "BROWSER_LOCAL"},
+      source: {const: "USER_EXPLICIT_SAVE"},
+      model_integrity: {const: "NOT_ATTESTED"},
+    },
+    required: ["status","text","model_id","engine","origin","source","model_integrity"],
+    additionalProperties: false,
+  },
+  embedded: {},
+});
 
 function refuse(code, details) {
   const error = new Error(code);

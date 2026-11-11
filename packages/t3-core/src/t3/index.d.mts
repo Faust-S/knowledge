@@ -71,3 +71,13 @@ export function listLocalInferenceDrafts(
   input: { expected_workspace_id: string },
 ): Promise<Array<{ workspace_id: string; object_id: string; revision: number;
   status: string; model_id: string; text: string }>>;
+
+/** Add this declared schema to the ORIGINAL service passport before saving.
+ * Declaring it does not grant any permission to use the schema. */
+export const LOCAL_INFERENCE_DRAFT_SCHEMA: "iwxa.local-inference.draft";
+export const LOCAL_INFERENCE_DRAFT_DECLARATION: {
+  readonly schema_version: "1.0.0";
+  readonly preserve_unknown: false;
+  readonly json_schema: Record<string, unknown>;
+  readonly embedded: Record<string, never>;
+};
