@@ -134,6 +134,52 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     assert.equal(await page.locator("#iwxa-t3-domain-switch").isChecked(),true,
       "opt-in survives a browser restart with no network");
 
+    // Installing an updated same-origin site is a separate choice. Checking
+    // while offline cannot silently fetch or change the currently working site.
+    const previous=readFileSync(join(root,"tools/index.html"),"utf8");
+    write(root,"tools/index.html",previous.replace(
+      "<h1>Калькулятор домена</h1>",
+      "<h1>Калькулятор домена — обновлён</h1>"));
+    const updated=materializeDomainMode(root);
+    assert.notEqual(updated.version,built.version,"a new on-disk site changes the release");
+    const check=page.getByRole("button",{name:"Проверить обновление T3"});
+    await check.click();
+    await page.getByRole("status").filter({hasText:/Проверка обновления недоступна/}).waitFor();
+    await page.reload();
+    assert.match(await page.locator("main h1").textContent(),/Калькулятор домена/);
+    assert.doesNotMatch(await page.locator("main h1").textContent(),/обновлён/,
+      "previous offline release is preserved after failed update check");
+
+    await context.setOffline(false);
+    await check.click();
+    const installUpdate=page.getByRole("button",{name:"Установить обновление"});
+    await installUpdate.waitFor({state:"visible",timeout:15000});
+    const upgradedReload=page.waitForEvent("load",{timeout:45000});
+    page.once("dialog",dialog=>{
+      assert.match(dialog.message(),/обновление автономного T3/i);
+      return dialog.accept();
+    });
+    await installUpdate.click();
+    await upgradedReload;
+    await page.goto(base+"/tools/");
+    assert.match(await page.locator("main h1").textContent(),/обновлён/,
+      "new version is active only after explicit upgrade");
+    await page.locator("#a").fill("11");
+    await page.locator("#b").fill("31");
+    await page.locator("#calculate").click();
+    assert.equal(await page.locator("#sum").textContent(),"42");
+    await context.close();context=null;
+    context=await launch();
+    await context.setOffline(true);
+    page=context.pages()[0]||await context.newPage();
+    await page.goto(base+"/tools/",{waitUntil:"domcontentloaded",timeout:30000});
+    assert.match(await page.locator("main h1").textContent(),/обновлён/,
+      "updated code survives cold restart without network");
+    await page.locator("#a").fill("17");
+    await page.locator("#b").fill("25");
+    await page.locator("#calculate").click();
+    assert.equal(await page.locator("#sum").textContent(),"42");
+
     // Opt-out does not erase user data and remains off after a new process.
     await context.setOffline(false);
     const ordinaryReload=page.waitForEvent("load",{timeout:30000});
