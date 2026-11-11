@@ -100,9 +100,14 @@ export function materializeDomainMode(distRoot, assistantDistRoot = null) {
     fail("SITE_AND_WORKSPACE_REQUIRED");
   }
   const replacements = [];
+  const pages = [];
   for (const page of htmlPages) {
     const before = readFileSync(page, "utf8");
     checkPageAssets(before, relative(root, page), domainOrigin);
+    const path = "/" + relative(root, page).split(sep).join("/");
+    const route = path.endsWith("/index.html") ? path.slice(0,-"index.html".length) : path;
+    const title = (before.match(/<title[^>]*>([^<]{1,200})<\/title>/i)?.[1] || route).trim();
+    pages.push({path:route,title:title.slice(0,150)});
     replacements.push([page, inject(before, relative(root,page), !!assistantDistRoot)]);
   }
   for (const [path, content] of replacements) writeFileSync(path, content);
@@ -134,7 +139,8 @@ export function materializeDomainMode(distRoot, assistantDistRoot = null) {
   const version = sha(Buffer.from(all.map(x =>
     [x.path,x.source||"",x.sha256,x.bytes].join("\0")).join("\n")));
   const manifest = {schema:SCHEMA,version,complete_static_tree:true,
-    domain_origin:domainOrigin,files:all,total_bytes:total};
+    domain_origin:domainOrigin,files:all,total_bytes:total,
+    pages:pages.sort((a,b)=>a.path.localeCompare(b.path,"en"))};
   writeFileSync(join(root,"t3-offline-manifest.json"),JSON.stringify(manifest));
   return {domain_origin:domainOrigin,version,files:all.length,
     total_bytes:total,site_pages:htmlPages.length,
