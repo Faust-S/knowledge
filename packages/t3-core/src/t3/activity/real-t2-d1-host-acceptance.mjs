@@ -78,7 +78,8 @@ export async function createD1TestHost(page,file) {
   const status=request=>state.status[request.grantId]??"UNKNOWN";
   const actionFor=op=>({"t1.createWorkspace":"workspace.create",
     "t1.getWorkspace":"workspace.read","t1.putObject":"object.write",
-    "t1.getObject":"object.read","t1.listEventsSince":"history.read"})[op];
+    "t1.getObject":"object.read","t1.listObjects":"object.list",
+    "t1.putRelation":"relation.write","t1.listEventsSince":"history.read"})[op];
   const access=createSignedAccessHostPort({
     currentContext,actionFor,
     operationDigest:({operation,input,context})=>digest({operation,input,context}),
