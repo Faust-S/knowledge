@@ -51,6 +51,10 @@ function validate(manifest) {
   }
   return manifest;
 }
+async function snapshotComplete(cache, metadata) {
+  const keys = new Set((await cache.keys()).map(req => new URL(req.url).pathname));
+  return metadata.files.every(file => keys.has(file.path));
+}
 async function installed() {
   if (disabledForThisSession) return null;
   if (current) return current;
@@ -62,7 +66,8 @@ async function installed() {
     try {
       const metadata = validate(await entry.json());
       if (name !== PREFIX + metadata.version) continue;
-      current = {name, files: new Set(metadata.files.map(x => x.path)), manifest: metadata};
+      current = {name, files: new Set(metadata.files.map(x => x.path)), manifest: metadata,
+        complete: await snapshotComplete(cache, metadata)};
       return current;
     } catch { /* Ignore incomplete snapshots. */ }
   }
@@ -86,8 +91,9 @@ async function installSnapshot(port) {
     if (complete) {
       try {
         const old = validate(await complete.json());
-        if (old.version === manifest.version) {
-          current = {name, files: new Set(old.files.map(x => x.path)), manifest: old};
+        if (old.version === manifest.version && await snapshotComplete(cache, old)) {
+          current = {name, files: new Set(old.files.map(x => x.path)), manifest: old,
+            complete: true};
           port.postMessage({type: "READY", version: old.version, files: old.files.length});
           return;
         }
@@ -120,7 +126,8 @@ async function installSnapshot(port) {
       headers: {"content-type": "application/json"}
     }));
     // Do not delete an older complete snapshot until the new one is ready.
-    current = {name, files: new Set(manifest.files.map(x => x.path)), manifest};
+    current = {name, files: new Set(manifest.files.map(x => x.path)), manifest,
+      complete: true};
     disabledForThisSession = false;
     port.postMessage({type: "READY", version: manifest.version, files: count});
   } catch (error) {
@@ -140,7 +147,8 @@ self.addEventListener("message", event => {
   } else if (event.data?.type === "T3_STATUS") {
     const port = event.ports?.[0];
     if (port) event.waitUntil(installed().then(state => port.postMessage({
-      type: "STATUS", active: !!state, version: state?.manifest.version ?? null
+      type: "STATUS", active: !!state, complete: state?.complete === true,
+      version: state?.manifest.version ?? null
     })));
   } else if (event.data?.type === "T3_DISABLE") {
     disabledForThisSession = true;
