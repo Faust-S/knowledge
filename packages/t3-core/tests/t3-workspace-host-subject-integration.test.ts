@@ -25,7 +25,8 @@ function input(){
         return [{workspace_id:"ws:other"}]},
     },
     t2:{
-      exportPreview:async ()=>{calls.push("exportPreview");return {workspaces:[]}},
+      exportPreview:async (options:{workspaces:string[]})=>{
+        calls.push("exportPreview");return {workspaces:[...options.workspaces]}},
     },
   } as unknown as KernelSession;
   let selected="ws:person";
@@ -65,20 +66,22 @@ describe("T3 D1 at the inherited T2 Workspace ModuleContext Host seam",()=>{
     const protectedKernel=createKernelFacade({session:f.session,subjectAccess:f.owner});
     expect(protectedKernel.grantedOperations).toContain("t1.putObject");
     expect(protectedKernel.grantedOperations).not.toContain("t1.listWorkspaces");
-    expect(protectedKernel.grantedOperations).not.toContain("t2.exportPreview");
+    expect(protectedKernel.grantedOperations).toContain("t2.exportPreview");
     expect(protectedKernel.hasOperation("t1.listWorkspaces")).toBe(false);
     await expect(protectedKernel.putObject({workspace_id:"ws:person",object_id:"item:1"} as never))
       .resolves.toHaveProperty("object.workspace_id","ws:person");
     await expect(protectedKernel.listObjects({workspace_id:"ws:person"}))
       .resolves.toHaveLength(1);
-    expect(f.calls).toEqual(["putObject","listObjects"]);
+    await expect(protectedKernel.exportPreview({workspaces:["ws:person"]}))
+      .resolves.toHaveProperty("workspaces",["ws:person"]);
+    expect(f.calls).toEqual(["putObject","listObjects","exportPreview"]);
     await expect(protectedKernel.listWorkspaces()).rejects.toMatchObject({
       code:"T3_SUBJECT_OPERATION_REQUIRES_AUTHORIZED_HOST"});
-    await expect(protectedKernel.exportPreview({workspaces:["ws:person"]})).rejects.toMatchObject({
-      code:"T3_SUBJECT_OPERATION_REQUIRES_AUTHORIZED_HOST"});
+    await expect(protectedKernel.exportPreview({workspaces:["ws:other"]})).rejects.toMatchObject({
+      code:"T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE"});
     await expect(protectedKernel.authorizationForWorkspace("ws:person")).rejects.toMatchObject({
       code:"T3_SUBJECT_OPERATION_REQUIRES_AUTHORIZED_HOST"});
-    expect(f.calls).toEqual(["putObject","listObjects"]);
+    expect(f.calls).toEqual(["putObject","listObjects","exportPreview"]);
   });
   it("denies foreign workspace before inherited T2 kernel invocation",async()=>{
     const f=input();const kernel=createKernelFacade({session:f.session,subjectAccess:f.owner});
