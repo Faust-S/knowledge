@@ -143,3 +143,41 @@ test("missing capabilities and unavailable facade methods cannot bypass Access",
     {code:"T3_KERNEL_OPERATION_UNAVAILABLE"});
   assert.equal(f.calls.length,0);
 });
+
+test("a read from the previous subject is never delivered after Kernel awaits a context switch",async()=>{
+  const f=fixture();
+  let started,finish;
+  const entered=new Promise(resolve=>{started=resolve});
+  const resume=new Promise(resolve=>{finish=resolve});
+  f.kernel.getObject=async(_,objectId)=>{
+    started();
+    await resume;
+    return {object:{workspace_id:ws,object_id:objectId},
+      relations:{incoming:[],outgoing:[]}};
+  };
+  const pending=f.bound.getObject(ws,"item:1");
+  await entered;
+  f.context.scope_revision+=1; // same workspace, new selected authority revision
+  finish();
+  await assert.rejects(pending,{code:"T3_SUBJECT_RESULT_STALE_AFTER_KERNEL"});
+});
+test("a late write receipt is withheld without automatic re-execution",async()=>{
+  const f=fixture();
+  let entered,complete,commits=0;
+  const started=new Promise(resolve=>{entered=resolve});
+  const gate=new Promise(resolve=>{complete=resolve});
+  f.kernel.putObject=async input=>{
+    commits+=1;
+    entered();
+    await gate;
+    return {object:{workspace_id:ws,object_id:input.object_id,revision:1},
+      event:{workspace_id:ws,event_id:"evt:committed"}};
+  };
+  const pending=f.bound.putObject({workspace_id:ws,object_id:"item:1",
+    base_revision:0,data:{title:"original"}});
+  await started;
+  f.context.scope_revision+=1;
+  complete();
+  await assert.rejects(pending,{code:"T3_SUBJECT_RESULT_STALE_AFTER_KERNEL"});
+  assert.equal(commits,1,"Kernel may have committed; no retry or rollback assumed");
+});

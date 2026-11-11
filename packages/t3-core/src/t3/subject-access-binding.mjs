@@ -233,6 +233,13 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
       }
       checkEvent(result.event);
     }
+    // Kernel/Host methods are asynchronous. Selection can change while the
+    // original Kernel is executing, even when Access JIT authorization passed.
+    // Never return the prior subject's read or receipt to the new context.
+    // A write may already have committed: do NOT auto-retry it here.
+    if (identity(context) !== identity(selected(access))) {
+      refused("T3_SUBJECT_RESULT_STALE_AFTER_KERNEL");
+    }
     return result; // Original T2 Kernel receipt; no duplicate source-of-truth.
   }
   return Object.freeze({
