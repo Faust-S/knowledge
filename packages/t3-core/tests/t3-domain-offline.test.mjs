@@ -96,6 +96,7 @@ function fakeBrowser(root,store=null) {
   const handlers={};
   const caches=store||new Map();
   let liveFetches=0;
+  let networkDown=false;
   const toKey=value=>new URL(typeof value==="string"?value:value.url,ORIGIN).href;
   const cacheAPI={
     async open(name){
@@ -113,6 +114,7 @@ function fakeBrowser(root,store=null) {
   };
   const fetch=async request=>{
     liveFetches++;
+    if(networkDown) throw Error("SIMULATED_NETWORK_UNAVAILABLE");
     const path=new URL(toKey(request)).pathname;
     if(path==="/t3-offline-manifest.json"){
       return new Response(readFileSync(join(root,path.slice(1))),{status:200});
@@ -122,16 +124,16 @@ function fakeBrowser(root,store=null) {
     catch{return new Response("not found",{status:404});}
   };
   const self={
-    location:{origin:ORIGIN},
+    location:{origin:ORIGIN,protocol:"https:"},
     clients:{claim:async()=>{}},skipWaiting:async()=>{},
     addEventListener(kind,fn){handlers[kind]=fn;}
   };
   const script=readFileSync(join(root,"t3-sw.js"),"utf8");
   vm.runInNewContext(script,{self,caches:cacheAPI,fetch,crypto:webcrypto,Response,Request,URL,
     Uint8Array,Set,Array,Number,String,Map,Error,Promise,console}, {filename:"t3-sw.js"});
-  const dispatch=async (type,port={postMessage(){}})=>{
+  const dispatch=async (type,port={postMessage(){}},extra={})=>{
     const waits=[];
-    handlers.message({data:{type},ports:[port],waitUntil:p=>waits.push(p)});
+    handlers.message({data:{type,...extra},ports:[port],waitUntil:p=>waits.push(p)});
     await Promise.all(waits);
   };
   const fetchPage=async(url,method="GET")=>{
@@ -140,7 +142,9 @@ function fakeBrowser(root,store=null) {
       respondWith:p=>{result=p;}});
     return result;
   };
-  return {dispatch,fetchPage,caches,get liveFetches(){return liveFetches;}};
+  return {dispatch,fetchPage,caches,
+    setNetworkDown(value){networkDown=!!value;},
+    get liveFetches(){return liveFetches;}};
 }
 test("T3 offline worker installs verified snapshot, blocks remote egress, and survives cold restart",async()=>{
   const root=specimen();
@@ -199,4 +203,69 @@ test("T3 offline worker installs verified snapshot, blocks remote egress, and su
     assert.equal((await enabledAgain.fetchPage(ORIGIN+"/workspace/")).status,200);
     assert.equal(enabledAgain.liveFetches,0);
   }finally{cleanup(root);}
+});
+
+test("Explicit T3 update is atomic: confirmed version, failed download, offline restart",async()=>{
+  const root=specimen();
+  try {
+    const oldRelease=materializeDomainMode(root);
+    const first=fakeBrowser(root), installed=[];
+    await first.dispatch("T3_INSTALL",{postMessage:value=>installed.push(value)},
+      {expectedVersion:oldRelease.version});
+    assert.equal(installed.at(-1)?.type,"READY");
+    assert.match(await (await first.fetchPage(ORIGIN+"/profile/index.html")).text(),/Profile page/);
+
+    // Owner publishes a newer complete snapshot while the installed one is live.
+    write(root,"profile/index.html",
+      '<html><body><main>Updated Profile page</main></body></html>');
+    const updatedRelease=materializeDomainMode(root);
+    assert.notEqual(updatedRelease.version,oldRelease.version);
+    const check=[];
+    await first.dispatch("T3_CHECK_UPDATE",{postMessage:value=>check.push(value)});
+    assert.deepEqual([check.at(-1)?.type,check.at(-1)?.available],
+      ["UPDATE_STATUS",true]);
+    assert.equal(check.at(-1)?.version,updatedRelease.version);
+    assert.equal(check.at(-1)?.currentVersion,oldRelease.version);
+    assert.match(await (await first.fetchPage(ORIGIN+"/profile/index.html")).text(),
+      /Profile page/,"old complete version remains visible before consent");
+
+    // A version that changed after the user's confirmation is rejected.
+    const mismatch=[];
+    await first.dispatch("T3_INSTALL",{postMessage:value=>mismatch.push(value)},
+      {expectedVersion:"0".repeat(64)});
+    assert.equal(mismatch.at(-1)?.type,"FAILED");
+    assert.match(mismatch.at(-1)?.message,/VERSION_CHANGED_RECONFIRM/);
+    assert.match(await (await first.fetchPage(ORIGIN+"/profile/index.html")).text(),
+      /Profile page/);
+
+    // Simulate one corrupt file during the updated download.
+    write(root,"assets/site.css","body{corrupt:true}");
+    const broken=[];
+    await first.dispatch("T3_INSTALL",{postMessage:value=>broken.push(value)},
+      {expectedVersion:updatedRelease.version});
+    assert.equal(broken.at(-1)?.type,"FAILED");
+    assert.match(broken.at(-1)?.message,/INTEGRITY_MISMATCH/);
+    assert.match(await (await first.fetchPage(ORIGIN+"/profile/index.html")).text(),
+      /Profile page/,"old version survives failed upgrade");
+
+    write(root,"assets/site.css","body{font:16px system-ui}");
+    const success=[];
+    await first.dispatch("T3_INSTALL",{postMessage:value=>success.push(value)},
+      {expectedVersion:updatedRelease.version});
+    assert.equal(success.at(-1)?.type,"READY");
+    assert.equal(success.at(-1)?.version,updatedRelease.version);
+    assert.match(await (await first.fetchPage(ORIGIN+"/profile/index.html")).text(),
+      /Updated Profile page/);
+    const restart=fakeBrowser(root,first.caches);
+    restart.setNetworkDown(true);
+    assert.match(await (await restart.fetchPage(ORIGIN+"/profile/index.html")).text(),
+      /Updated Profile page/,"updated version works after a cold offline restart");
+    const beforeCheck=restart.liveFetches, unavailable=[];
+    await restart.dispatch("T3_CHECK_UPDATE",{postMessage:value=>unavailable.push(value)});
+    assert.equal(unavailable.at(-1)?.type,"FAILED","offline update check is honest");
+    assert.equal(restart.liveFetches,beforeCheck+1,
+      "the only attempted remote request followed the user's explicit update check");
+    assert.match(await (await restart.fetchPage(ORIGIN+"/profile/index.html")).text(),
+      /Updated Profile page/,"a failed update check never switches off autonomy");
+  } finally {cleanup(root);}
 });
