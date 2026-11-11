@@ -8,6 +8,8 @@ on:
       - desktop/**
       - tests/test_activity_base_a1.mjs
       - tests/test_activity_ocel2_evidence.mjs
+      - tests/test_activity_t3_selected_host.mjs
+      - tests/test_activity_t3_original_reader.mjs
       - tests/test_activity_desktop_contract.py
       - .github/workflows/activity-base-desktop.yml
   workflow_dispatch:
@@ -43,13 +45,33 @@ jobs:
             foreach ($issue in $errors) { Write-Host $issue.Message }
             throw 'WINDOWS_UI_WITNESS_SYNTAX_INVALID'
           }
-      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs
+      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs
       - run: python -m unittest discover -s tests -p 'test_activity_desktop_contract.py' -v
       - run: python -m unittest discover -s tests -p 'test_activity_base_a0.py' -v
+  t3-original-d2-owner-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    needs: source-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read exact original public T3 core (no private checkout)
+        shell: bash
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/Faust-S/knowledge.git ../t3-public-core
+          git -C ../t3-public-core checkout --detach 301b863c0ffd7e603bafc7468be80e7dc8fa2477
+          test "$(git -C ../t3-public-core rev-parse HEAD)" = "301b863c0ffd7e603bafc7468be80e7dc8fa2477"
+          test "$(git -C ../t3-public-core rev-parse HEAD^{tree})" = "79c31108063a1832db33396e6f08e92e50662c49"
+      - name: Exercise ORIGINAL T3 Workspace D1/D2 reader with synthetic Host owner
+        env:
+          IWXA_T3_PUBLIC_CORE_DIR: ../t3-public-core/packages/t3-core
+        run: node --test tests/test_activity_t3_original_reader.mjs
   windows-desktop:
     runs-on: windows-latest
     timeout-minutes: 50
-    needs: source-tests
+    needs: [source-tests, t3-original-d2-owner-contract]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
