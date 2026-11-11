@@ -4,7 +4,17 @@ const SCHEMA = "iwxa.t3.domain-offline/1";
 const PREFIX = "iwxa-t3-domain-snapshot:";
 const MARKER = "/_iwxa/t3-domain-snapshot";
 const MANIFEST_PATH = "/t3-offline-manifest.json";
-let disabledForThisSession = false;
+const MODE_CACHE = "iwxa-t3-domain-mode-v1";
+const ACTIVE_MARKER = "/_iwxa/t3-domain-mode-enabled";
+async function isEnabled() {
+  const cache = await caches.open(MODE_CACHE);
+  return !!(await cache.match(ACTIVE_MARKER));
+}
+async function setEnabled(value) {
+  const cache = await caches.open(MODE_CACHE);
+  if (value) await cache.put(ACTIVE_MARKER, new Response("on"));
+  else await cache.delete(ACTIVE_MARKER);
+}
 let current = null;
 let installRunning = false;
 
@@ -56,7 +66,9 @@ async function snapshotComplete(cache, metadata) {
   return metadata.files.every(file => keys.has(file.path));
 }
 async function installed() {
-  if (disabledForThisSession) return null;
+  // Opt-out survives Service Worker termination, browser restart and tabs.
+  // Cached assets alone must NEVER silently reactivate autonomous mode.
+  if (!await isEnabled()) { current = null; return null; }
   if (current) return current;
   const names = (await caches.keys()).filter(x => x.startsWith(PREFIX)).reverse();
   for (const name of names) {
@@ -94,6 +106,7 @@ async function installSnapshot(port) {
         if (old.version === manifest.version && await snapshotComplete(cache, old)) {
           current = {name, files: new Set(old.files.map(x => x.path)), manifest: old,
             complete: true};
+          await setEnabled(true);
           port.postMessage({type: "READY", version: old.version, files: old.files.length});
           return;
         }
@@ -128,7 +141,7 @@ async function installSnapshot(port) {
     // Do not delete an older complete snapshot until the new one is ready.
     current = {name, files: new Set(manifest.files.map(x => x.path)), manifest,
       complete: true};
-    disabledForThisSession = false;
+    await setEnabled(true);
     port.postMessage({type: "READY", version: manifest.version, files: count});
   } catch (error) {
     if (pending && (!current || current.name !== pending)) await caches.delete(pending);
@@ -161,9 +174,16 @@ self.addEventListener("message", event => {
       port.postMessage({type: "PAGES", pages});
     }));
   } else if (event.data?.type === "T3_DISABLE") {
-    disabledForThisSession = true;
-    current = null;
-    event.ports?.[0]?.postMessage({type: "DISABLED"});
+    const port = event.ports?.[0];
+    if (port) event.waitUntil((async () => {
+      try {
+        await setEnabled(false);
+        current = null;
+        port.postMessage({type: "DISABLED"});
+      } catch (error) {
+        port.postMessage({type: "FAILED", message: String(error?.message || error)});
+      }
+    })());
   }
 });
 self.addEventListener("fetch", event => {
