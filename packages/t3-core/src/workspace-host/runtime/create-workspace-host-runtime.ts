@@ -175,15 +175,21 @@ export async function createWorkspaceHostRuntime(
         throw Object.assign(new Error(code), { code });
       };
       if (disposed) reject("T3_HOST_DISPOSED");
-      if (!input.signedActivityAccess) reject("T3_D1_ACCESS_OWNER_REQUIRED");
       // The signed Access owner is Host-held. An Activity caller can select
       // semantic mappings, never override the authorizer or Kernel reader.
       if (options && ("signedAccess" in options || "authorizedRead" in options)) {
         reject("T3_ACTIVITY_OWNER_OVERRIDE_FORBIDDEN");
       }
+      // A multi-organization host obtains a fresh owner after each explicit
+      // context selection or STATUS update. No cached port may resurrect A
+      // after A -> B -> A, and the inherited Kernel session remains one.
+      const source = input.signedActivityAccess;
+      const signedAccess = typeof source === "function" ? await source() : source;
+      if (disposed) reject("T3_HOST_DISPOSED");
+      if (!signedAccess) reject("T3_D1_ACCESS_OWNER_REQUIRED");
       const result = await readActivityFromWorkspaceContext(
         contextProvider.createContext("iwxa.workspace.base"),
-        { ...options, signedAccess: input.signedActivityAccess },
+        { ...options, signedAccess },
       );
       if (disposed) reject("T3_HOST_DISPOSED");
       return result;

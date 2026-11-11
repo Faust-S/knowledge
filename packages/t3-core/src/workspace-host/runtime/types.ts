@@ -59,7 +59,8 @@ export type WorkspaceHostRuntimeState =
 export interface CreateWorkspaceHostRuntimeInput {
   session: KernelSession;
   /** Existing signed D1 Access owner, installed by the trusted embedding Host only. */
-  signedActivityAccess?: T3SignedActivityAccess;
+  signedActivityAccess?: T3SignedActivityAccess |
+    (() => T3SignedActivityAccess | null | Promise<T3SignedActivityAccess | null>);
   /** Read-only capability snapshot for module/contribution visibility guards. */
   activeCapabilities?: readonly string[];
   workspaceConfig: { modules: readonly Record<string, unknown>[] };

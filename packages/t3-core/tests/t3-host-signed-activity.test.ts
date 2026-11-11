@@ -26,22 +26,24 @@ function fixture() {
       "t1.listEventsSince","t1.putObject","t2.importPreview"],
     authorization:{forWorkspace:async()=>({}),hasCapability:async()=>true},
     t1:{
-      async getWorkspace(id:string){reads++;return id===ws?workspace:null;},
+      async getWorkspace(id:string){reads++;return id===selected.workspace_id?{...workspace,workspace_id:id}:null;},
       async listObjects(query:{workspace_id:string}){
         reads++;if(onList){const callback=onList;onList=null;callback();}
-        return query.workspace_id===ws?[object]:[];
+        return query.workspace_id===selected.workspace_id?
+          [{...object,workspace_id:query.workspace_id}]:[];
       },
       async getObject(id:string,oid:string){
-        reads++;return id===ws&&oid==="order:1"?
-          {object,relations:{outgoing:[],incoming:[]}}:null;
+        reads++;return id===selected.workspace_id&&oid==="order:1"?
+          {object:{...object,workspace_id:id},relations:{outgoing:[],incoming:[]}}:null;
       },
-      async listEventsSince(id:string){reads++;return id===ws?[event]:[];},
+      async listEventsSince(id:string){reads++;return id===selected.workspace_id?
+        [{...event,workspace_id:id}]:[];},
     },
   } as unknown as KernelSession;
-  const selected = {kind:"PERSONAL",context_id:"context:person",actor_id:"person:1",
+  let selected = {kind:"PERSONAL" as "PERSONAL"|"CORP",context_id:"context:person",actor_id:"person:1",
     principal_id:"person:1",role_id:"role:member",grant_id:"grant:1",
     realm_id:"realm:person",audience:"host:t3",resource:ws,workspace_id:ws,
-    purpose:"activity.read",organization_id:null,scope_revision:1};
+    purpose:"activity.read",organization_id:null as string|null,scope_revision:1};
   const signedActivityAccess = {
     currentContext:()=>selected,
     actionFor:()=>"activity.read",
@@ -49,18 +51,39 @@ function fixture() {
     authorize:(request:unknown)=>{
       checks++;
       const now=Date.now();
-      return {schema:"IWXA_T3_AUTHORIZATION_DECISION/1",evidenceOnly:true,
-        allowed:status==="ACTIVE",outcome:status==="ACTIVE"?"PERMITTED":"DENIED",
+      const common = {evidenceOnly:true,allowed:status==="ACTIVE",
+        outcome:status==="ACTIVE"?"PERMITTED":"DENIED",
         requestDigest:hash(request),policyDigest:hash("policy"),statusSequence:1,
-        authorityPath:[{grantId:"grant:1"}],evaluatedAt:new Date(now).toISOString(),
-        statusObservedAt:new Date(now).toISOString(),
         validUntil:new Date(now+60000).toISOString()};
+      return selected.kind==="CORP" ? {
+        ...common,schema:"IWXA_T3_ORGANIZATION_OPERATION_DECISION/1",
+        operationDigest:hash("signed-corporate-operation"),
+        evidenceDigest:hash("issuer-evidence"),productionActivation:false,
+        organizationId:selected.organization_id,workspaceId:selected.workspace_id,
+        grantId:selected.grant_id,doesNotTransferData:true,doesNotAcceptCorporateCopy:true,
+      } : {
+        ...common,schema:"IWXA_T3_AUTHORIZATION_DECISION/1",
+        authorityPath:[{grantId:selected.grant_id}],
+        evaluatedAt:new Date(now).toISOString(),
+        statusObservedAt:new Date(now).toISOString(),
+      };
     },
     verifyDecisionBinding:(request:unknown,decision:unknown)=>
       (decision as {requestDigest:string}).requestDigest===hash(request),
   };
   return {session,signedActivityAccess,reads:()=>reads,checks:()=>checks,
-    revoke:()=>{status="REVOKED";},onList:(action:()=>void)=>{onList=action;}};
+    revoke:()=>{status="REVOKED";},onList:(action:()=>void)=>{onList=action;},
+    selectOrganization:(name:string)=>{
+      selected={...selected,kind:"CORP",context_id:"context:"+name,
+        principal_id:"org:"+name,grant_id:"grant:"+name,realm_id:"realm:"+name,
+        resource:"ws:"+name,workspace_id:"ws:"+name,organization_id:"org:"+name,
+        scope_revision:selected.scope_revision+1};
+    },
+    freshPort:()=>{
+      const pinned=structuredClone(selected);
+      return {...signedActivityAccess,currentContext:()=>pinned};
+    },
+  };
 }
 async function open(f:ReturnType<typeof fixture>,signed=true) {
   return createWorkspaceHostRuntime({
@@ -120,4 +143,37 @@ describe("T3 D1 signed Activity in the actual Workspace Host runtime",()=>{
     await expect(host.readAuthorizedActivity({bindings})).rejects.toMatchObject({
       code:"T3_HOST_DISPOSED"});
   });
+  it("keeps one T3 Kernel while signed owner follows CORP A -> CORP B -> CORP A",async()=>{
+    const f=fixture();
+    let fetched=0, ownerConnected=true;
+    const host=await createWorkspaceHostRuntime({
+      session:f.session,workspaceConfig:{modules:[]},bindLegacyHashDriver:false,
+      termResolver:(_key,fallback)=>fallback??"",
+      signedActivityAccess:()=>{
+        fetched++;
+        return ownerConnected?f.freshPort():null;
+      },
+    });
+    try{
+      for(const name of ["north","south","north"]){
+        f.selectOrganization(name);
+        host.currentWorkspaceStore.set({workspace_id:"ws:"+name} as never);
+        const result=await host.readAuthorizedActivity({bindings});
+        expect(result.workspace_id).toBe("ws:"+name);
+        expect(result.nodes).toHaveLength(1);
+        expect(result.events).toHaveLength(1);
+      }
+      expect(fetched).toBe(3);
+      expect(f.reads()).toBe(21);
+      expect(f.checks()).toBe(f.reads());
+      ownerConnected=false;
+      const before=f.reads();
+      await expect(host.readAuthorizedActivity({bindings})).rejects.toMatchObject({
+        code:"T3_D1_ACCESS_OWNER_REQUIRED",
+      });
+      expect(f.reads()).toBe(before);
+      expect(host.contextProvider.createContext("d06").kernel.hasOperation("t2.importPreview")).toBe(true);
+    }finally{await host.dispose();}
+  });
+
 });
