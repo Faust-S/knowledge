@@ -96,7 +96,7 @@ class DesktopContract(unittest.TestCase):
         self.assertIn("OBJECT_LOCAL_OBSERVED_TIME_ORDER_NOT_CAUSAL_DEPENDENCY", module)
         self.assertIn("export_allowed: false", module)
         self.assertIn("iwxa_package: null", module)
-        self.assertNotRegex(module, r"\\bfetch\\s*\\(|XMLHttpRequest|WebSocket|http://|https://")
+        self.assertNotRegex(module, r"\bfetch\s*\(|XMLHttpRequest|WebSocket|http://|https://")
 
 
 if __name__ == "__main__":
