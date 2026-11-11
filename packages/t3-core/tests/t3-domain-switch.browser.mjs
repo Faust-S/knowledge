@@ -116,9 +116,12 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
 
     // Opt-out does not erase user data and remains off after a new process.
     await context.setOffline(false);
+    const ordinaryReload=page.waitForEvent("load",{timeout:30000});
     await page.locator("#iwxa-t3-domain-switch").uncheck();
+    await ordinaryReload;
     await page.waitForFunction(()=>document.querySelector("#iwxa-t3-domain-switch") &&
       !document.querySelector("#iwxa-t3-domain-switch").checked,null,{timeout:30000});
+    assert.match(await page.locator("#iwxa-t3-domain-controls").innerText(),/обычном режиме/);
     await context.close();context=null;
     context=await launch();
     page=context.pages()[0]||await context.newPage();
