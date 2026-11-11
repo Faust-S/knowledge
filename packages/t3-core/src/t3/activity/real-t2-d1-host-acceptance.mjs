@@ -265,8 +265,11 @@ export async function verifyD1AfterBrowserRestart(page,file,receipts,{revoke=fal
     // This is a temporary test Workspace and is only purged after the second
     // cold-browser readback verified all objects and relations.
     host.select(0);
+    const removedWorkspaceId=host.contexts[0].workspace_id;
+    const softDeleted=await host.binding.softDeleteWorkspace(removedWorkspaceId);
+    assert.equal(softDeleted.workspace_id,removedWorkspaceId);
     const first=await host.binding.purgePreview({
-      workspace_id:host.contexts[0].workspace_id,acknowledge_no_backup:true});
+      workspace_id:removedWorkspaceId,acknowledge_no_backup:true});
     purgeReceipt=await host.binding.purgeCommit({
       purge_token:first.purge_token,confirmation:first.challenge});
     assert.equal(purgeReceipt.workspace_id,host.contexts[0].workspace_id);
