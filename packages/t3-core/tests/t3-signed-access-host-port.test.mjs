@@ -17,7 +17,7 @@ const contexts=[
    realm_id:"realm:"+n,audience:"host:t3",resource:"ws:"+n,purpose:"purpose:work",
    workspace_id:"ws:"+n,scope_revision:1,organization_id:"org:"+n})),
 ];
-function fixture({personalOnly=false, corporateOnly=false}={}) {
+function fixture({personalOnly=false, corporateOnly=false, corporateProductId="IWXA_ADMIN_CENTER"}={}) {
   let current=0,revoked=false,mutatePreview=false,mutateDecision=false,proofKey="credential:1";
   const calls=[], objects=new Map();
   const owner={
@@ -33,6 +33,7 @@ function fixture({personalOnly=false, corporateOnly=false}={}) {
       statusSequence:1,authorityPath:[{grantId:request.grantId}],
     })},
     corporate:{
+      productId:corporateProductId,
       inputFor:context=>({contextId:context.context_id}),
       prove:({credentialKeyId})=>({keyId:proofKey||credentialKeyId,payload:"synthetic"}),
       gate:{
@@ -164,4 +165,12 @@ test("missing or incomplete owner cannot silently authorize",()=>{
     {code:"T3_OWNER_ACCESS_REQUIRED"});
   assert.throws(()=>createSignedAccessHostPort({...original,corporate:{gate:{}}}),
     {code:"T3_OWNER_ACCESS_REQUIRED"});
+});
+
+test("corporate gate must have an explicit product identity; never default to Admin Center",()=>{
+  assert.throws(()=>fixture({corporateProductId:null}),
+    {code:"T3_OWNER_CORPORATE_PRODUCT_REQUIRED"});
+  assert.throws(()=>fixture({corporateProductId:"IWXA_UNREGISTERED_DOMAIN"}),
+    {code:"T3_OWNER_CORPORATE_PRODUCT_UNSUPPORTED"});
+  assert.doesNotThrow(()=>fixture({personalOnly:true,corporateProductId:null}));
 });

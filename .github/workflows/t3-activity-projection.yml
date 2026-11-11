@@ -39,6 +39,7 @@ jobs:
       - run: node --test packages/t3-core/tests/t3-activity/*.test.mjs
       - run: node --experimental-strip-types --test tests/t3-inherited-contract.test.mjs
       - run: node --test packages/t3-core/tests/t3-subject-binding.test.mjs
+      - run: node --test packages/t3-core/tests/t3-subject-kernel-scope.test.mjs
       - run: node --check packages/t3-core/src/t3/signed-access-host-port.mjs
       - run: node --test packages/t3-core/tests/t3-signed-access-host-port.test.mjs
       - name: Install inherited T2 build dependencies

@@ -54,9 +54,13 @@ export function createSignedAccessHostPort({
   if (corporate != null) requireThat(hasCorporate,"T3_OWNER_CORPORATE_GATE_INVALID");
   // Corporate product IDs are validated by the existing signed enrollment gate.
   // A T3-only invented product ID would make a false claim of compatibility.
-  const productId = corporate?.productId ?? "IWXA_ADMIN_CENTER";
-  requireThat(["IWXA_ADMIN_CENTER","IWXA_CONTROL_CENTER"].includes(productId),
-    "T3_OWNER_CORPORATE_PRODUCT_UNSUPPORTED");
+  const productId = hasCorporate ? corporate.productId : null;
+  if (hasCorporate) {
+    requireThat(typeof productId === "string" && productId.length > 0,
+      "T3_OWNER_CORPORATE_PRODUCT_REQUIRED");
+    requireThat(["IWXA_ADMIN_CENTER","IWXA_CONTROL_CENTER"].includes(productId),
+      "T3_OWNER_CORPORATE_PRODUCT_UNSUPPORTED");
+  }
   const issued = new WeakMap();
 
   async function authorize(request) {

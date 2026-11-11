@@ -11,7 +11,8 @@ const W="iwxa.workspace.integration";
 const digest=value=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const validTo=()=>new Date(Date.now()+60000).toISOString();
 const nowIso=()=>new Date().toISOString();
-const methods=new Set(["t1.createWorkspace","t1.getWorkspace","t1.putObject","t1.getObject","t1.listEventsSince"]);
+const methods=new Set(["t1.createWorkspace","t1.getWorkspace","t1.putObject","t1.getObject",
+  "t1.listObjects","t1.putRelation","t1.listEventsSince"]);
 
 export async function liveT2Facade(page, service_id=W) {
   assert.equal(typeof page?.evaluate,"function");
@@ -41,8 +42,10 @@ export async function liveT2Facade(page, service_id=W) {
     createWorkspace:input=>invoke("createWorkspace",[input]),
     getWorkspace:id=>invoke("getWorkspace",[id]),
     getObject:(id,objectId)=>invoke("getObject",[id,objectId]),
+    listObjects:query=>invoke("listObjects",[query]),
     putObject:input=>invoke("putObject",[input]),
-    listEventsSince:id=>invoke("listEventsSince",[id]),
+    putRelation:input=>invoke("putRelation",[input]),
+    listEventsSince:(id,since)=>invoke("listEventsSince",[id,since]),
   });
 }
 function hostState(file){
@@ -90,6 +93,7 @@ export async function createD1TestHost(page,file) {
       evidenceOnly:true,
     })},
     corporate:{
+      productId:"IWXA_ADMIN_CENTER", // fixture only; never infer this in the production Host
       // The real signed owner is deliberately NOT imported into public Actions.
       // These callbacks model its documented request/response contract only.
       inputFor:context=>({context_id:context.context_id}),
@@ -163,11 +167,38 @@ export async function seedD1OnRealKernel(page,file){
     assert.equal(r.object.workspace_id,c.workspace_id);
     assert.equal(r.object.revision,1);
     assert.ok(r.event?.event_id,"T3_D1_ORIGINAL_KERNEL_EVENT_RECEIPT_MISSING");
-    receipts.push({workspace_id:c.workspace_id,object_id,
-      revision:r.object.revision,event_id:r.event.event_id,kind:c.kind});
+    const linked_id="d1:linked:"+i;
+    const linked=await host.binding.putObject({
+      workspace_id:c.workspace_id,object_id:linked_id,base_revision:0,
+      schema_id:"iwxa.demo.note",schema_version:"1.0.0",
+      data:{linkedTo:object_id},extensions:{},
+      event:{event_type:"t3.d1.subject.linked-object",payload:{}},
+    });
+    assert.equal(linked.object.workspace_id,c.workspace_id);
+    const relation_id="d1:relation:"+i;
+    const relation=await host.binding.putRelation({
+      workspace_id:c.workspace_id,relation_id,from_object_id:object_id,
+      to_object_id:linked_id,kind:"depends_on",
+      event:{event_type:"t3.d1.subject.relation",payload:{}},
+    });
+    assert.equal(relation.relation.relation_id,relation_id);
+    const all=await host.binding.listObjects({workspace_id:c.workspace_id});
+    assert.ok(all.some(item=>item.object_id===object_id));
+    assert.ok(all.some(item=>item.object_id===linked_id));
+    receipts.push({workspace_id:c.workspace_id,object_id,linked_id,relation_id,
+      revision:r.object.revision,event_id:r.event.event_id,
+      linked_event_id:linked.event.event_id,relation_event_id:relation.event.event_id,
+      kind:c.kind});
   }
   host.select(1);
   await assert.rejects(host.binding.getObject(host.contexts[2].workspace_id,"d1:record:2"),
+    {code:"T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE"});
+  await assert.rejects(host.binding.listObjects({
+    workspace_id:host.contexts[2].workspace_id}),
+    {code:"T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE"});
+  await assert.rejects(host.binding.putRelation({
+    workspace_id:host.contexts[2].workspace_id,relation_id:"forbidden:1",
+    from_object_id:"d1:record:1",to_object_id:"d1:record:2",kind:"depends_on"}),
     {code:"T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE"});
   return receipts;
 }
@@ -179,10 +210,16 @@ export async function verifyD1AfterBrowserRestart(page,file,receipts,{revoke=fal
     assert.equal(got.object.workspace_id,r.workspace_id);
     assert.equal(got.object.revision,r.revision);
     assert.deepEqual(got.object.data,{kind:r.kind,subject:host.contexts[i].context_id});
+    assert.ok(got.relations.outgoing.some(x=>x.relation_id===r.relation_id),
+      "T3_D1_ORIGINAL_KERNEL_RELATION_LOST");
+    const objects=await host.binding.listObjects({workspace_id:r.workspace_id});
+    assert.ok(objects.some(x=>x.object_id===r.linked_id),
+      "T3_D1_ORIGINAL_KERNEL_LINKED_OBJECT_LOST");
     const events=await host.binding.listEventsSince(r.workspace_id);
-    assert.ok(events.some(e=>e.event_id===r.event_id),"T3_D1_ORIGINAL_KERNEL_HISTORY_LOST");
+    for(const eid of [r.event_id,r.linked_event_id,r.relation_event_id])
+      assert.ok(events.some(e=>e.event_id===eid),"T3_D1_ORIGINAL_KERNEL_HISTORY_LOST");
     summary.push({context:host.contexts[i].context_id,revision:got.object.revision,
-      event_id:r.event_id});
+      event_id:r.event_id,relation_id:r.relation_id,object_count:objects.length});
   }
   if(revoke){
     for(let i=0;i<3;i++) host.setStatus(i,["REVOKED","UNKNOWN","EXPIRED"][i]);
