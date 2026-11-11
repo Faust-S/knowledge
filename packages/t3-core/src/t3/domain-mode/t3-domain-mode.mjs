@@ -83,6 +83,9 @@ async function status(ui) {
   }
   const answer = await message(reg.active, "T3_STATUS");
   render(ui, answer?.active === true);
+  if (answer?.active === true && answer.complete !== true) {
+    tell(ui, "Офлайн-копия неполная. Выключите режим T3 и установите её снова.");
+  }
 }
 async function enable(ui) {
   const previous = await registration();
@@ -138,8 +141,9 @@ async function main() {
       if (ui.toggle.checked) await enable(ui);
       else await disable(ui);
     } catch (error) {
-      tell(ui, "T3 не включён: " + (error?.message || String(error)));
+      const errorText = error?.message || String(error);
       try { await status(ui); } catch { ui.toggle.checked = false; }
+      tell(ui, "Не удалось изменить режим T3: " + errorText);
     } finally { ui.toggle.disabled = false; }
   });
   document.addEventListener("visibilitychange", () => {
