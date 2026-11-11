@@ -112,7 +112,7 @@ class DesktopContract(unittest.TestCase):
         self.assertIn("inspectSelectedT3Activity(host)", controller)
         self.assertIn("dispose()", controller)
         self.assertIn("subscribeInvalidation", types)
-        self.assertNotRegex(controller, r"\\bfetch\\s*\\(|XMLHttpRequest|WebSocket|http://|https://")
+        self.assertNotRegex(controller, r"\bfetch\s*\(|XMLHttpRequest|WebSocket|http://|https://")
 
 
 if __name__ == "__main__":
