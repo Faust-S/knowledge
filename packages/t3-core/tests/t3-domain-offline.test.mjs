@@ -38,6 +38,8 @@ test("T3 domain switch covers ALL public routes and the original Workspace in on
     assert.equal(result.original_kernel_unchanged,true);
     assert.ok(result.site_pages>=3);
     assert.equal(data.domain_origin,ORIGIN);
+    assert.equal(data.pages.some(x=>x.path==="/profile/"),true);
+    assert.equal(data.pages.some(x=>x.path==="/workspace/"),true);
     const paths=new Set(data.files.map(x=>x.path));
     for(const path of ["/","/index.html","/profile/","/profile/index.html",
       "/workspace/","/workspace/index.html","/workspace/assets/shell.js",
@@ -144,6 +146,10 @@ test("T3 offline worker installs verified snapshot, blocks remote egress, and su
     await first.dispatch("T3_INSTALL",{postMessage:m=>messages.push(m)});
     assert.equal(messages.at(-1)?.type,"READY");
     assert.ok(messages.some(x=>x.type==="PROGRESS"));
+    const pages=[];
+    await first.dispatch("T3_PAGES",{postMessage:m=>pages.push(m)});
+    assert.equal(pages[0]?.type,"PAGES");
+    assert.equal(pages[0]?.pages?.some(x=>x.path==="/profile/"),true);
     const count=first.liveFetches;
     const result=await first.fetchPage(ORIGIN+"/profile/?a=1");
     assert.equal(result.status,200);
