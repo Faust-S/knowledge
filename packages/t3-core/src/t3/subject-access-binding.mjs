@@ -314,11 +314,11 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
       invoke("softDeleteWorkspace",{workspace_id},workspace_id),
     restoreWorkspace: workspace_id =>
       invoke("restoreWorkspace",{workspace_id},workspace_id),
-    exportPreview: options =>
+    exportPreview: async options =>
       invoke("exportPreview",options,oneWorkspace(options?.workspaces)),
-    exportPackage: options =>
+    exportPackage: async options =>
       invoke("exportPackage",options,oneWorkspace(options?.workspaces)),
-    confirmExport: input =>
+    confirmExport: async input =>
       invoke("confirmExport",input,oneWorkspace(input?.workspace_ids)),
   });
 }
