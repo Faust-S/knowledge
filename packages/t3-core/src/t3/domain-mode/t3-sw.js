@@ -32,8 +32,18 @@ function validate(manifest) {
         file.path.split("/").includes("..") ||
         !/^[a-f0-9]{64}$/.test(file.sha256) ||
         !Number.isSafeInteger(file.bytes) || file.bytes < 0 ||
-        seen.has(file.path)) throw new Error("T3_DOMAIN_FILE_INVALID");
+        seen.has(file.path) ||
+        (file.source !== undefined &&
+          (typeof file.source !== "string" || !file.source.startsWith("/") ||
+           file.source.includes("..") || file.source.includes("//")))) {
+      throw new Error("T3_DOMAIN_FILE_INVALID");
+    }
     seen.add(file.path);
+  }
+  for (const file of manifest.files) {
+    if (file.source && (!seen.has(file.source) || file.source === file.path)) {
+      throw new Error("T3_DOMAIN_FILE_SOURCE_UNKNOWN");
+    }
   }
   for (const required of ["/", "/workspace/", "/_iwxa/domain.json",
       "/t3-domain-mode.mjs", "/t3-sw.js"]) {
@@ -44,7 +54,7 @@ function validate(manifest) {
 async function installed() {
   if (disabledForThisSession) return null;
   if (current) return current;
-  const names = (await caches.keys()).filter(x => x.startsWith(PREFIX)).sort().reverse();
+  const names = (await caches.keys()).filter(x => x.startsWith(PREFIX)).reverse();
   for (const name of names) {
     const cache = await caches.open(name);
     const entry = await cache.match(MARKER);
@@ -70,19 +80,36 @@ async function installSnapshot(port) {
     const manifest = validate(await result.json());
     const name = PREFIX + manifest.version;
     const cache = await caches.open(name);
+    // A complete identical snapshot is immutable; never overwrite its
+    // files while attempting to reinstall it.
+    const complete = await cache.match(MARKER);
+    if (complete) {
+      try {
+        const old = validate(await complete.json());
+        if (old.version === manifest.version) {
+          current = {name, files: new Set(old.files.map(x => x.path)), manifest: old};
+          port.postMessage({type: "READY", version: old.version, files: old.files.length});
+          return;
+        }
+      } catch { throw Error("T3_DOMAIN_SNAPSHOT_CONFLICT"); }
+    }
     pending = name;
     let count = 0;
     for (const file of manifest.files) {
       const url = new URL(file.path, self.location.origin);
       if (url.origin !== self.location.origin) throw new Error("T3_DOMAIN_CROSS_ORIGIN_FORBIDDEN");
-      const response = await fetch(url.href, {cache: "reload", credentials: "same-origin"});
-      if (!response.ok || response.type === "opaque") throw new Error("T3_DOMAIN_FETCH_FAILED:" + file.path);
+      const from = new URL(file.source || file.path, self.location.origin).href;
+      const response = file.source
+        ? await cache.match(from) : await fetch(from, {cache: "reload", credentials: "same-origin"});
+      if (!response || !response.ok || response.type === "opaque") {
+        throw new Error("T3_DOMAIN_FETCH_FAILED:" + file.path);
+      }
       const bytes = await response.clone().arrayBuffer();
       if (bytes.byteLength !== file.bytes ||
           hex(await crypto.subtle.digest("SHA-256", bytes)) !== file.sha256) {
         throw new Error("T3_DOMAIN_INTEGRITY_MISMATCH:" + file.path);
       }
-      await cache.put(url.href, response);
+      await cache.put(url.href, response.clone());
       count++;
       if (count % 8 === 0 || count === manifest.files.length) {
         port.postMessage({type: "PROGRESS", done: count, total: manifest.files.length});
