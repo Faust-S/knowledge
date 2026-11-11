@@ -49,6 +49,12 @@ jobs:
       - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs tests/test_activity_t3_review_controller.mjs
       - run: python -m unittest discover -s tests -p 'test_activity_desktop_contract.py' -v
       - run: python -m unittest discover -s tests -p 'test_activity_base_a0.py' -v
+      - name: Typecheck and bundle Activity UI before any native Rust build
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: desktop
+        run: |
+          npm install --no-fund --no-audit
+          npm run build
   t3-original-d2-owner-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 14
