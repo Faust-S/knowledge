@@ -31,6 +31,11 @@ const {
   verifyRealT2UnknownAndTombstone,
   roundTripRealT2Iwxa,
 } = await import(pathToFileURL(join(MODULE_ROOT,"real-t2-host-acceptance.mjs")).href);
+const {
+  initD1TestHostState,
+  seedD1OnRealKernel,
+  verifyD1AfterBrowserRestart,
+} = await import(pathToFileURL(join(MODULE_ROOT, "real-t2-d1-host-acceptance.mjs")).href);
 function inside(root, child) {
   const diff = relative(root, child);
   return diff.length > 0 && diff !== '..' && !diff.startsWith('..' + sep) && !isAbsolute(diff);
@@ -120,6 +125,9 @@ async function run() {
     const staleDenial = await proveRealT2StaleRevisionDenied(writerPage, {
       workspace_id, writer_service_id: WRITER,
     });
+    const d1TestStateFile=join(temp,"d1-contract-only-owner.json");
+    initD1TestHostState(d1TestStateFile,"t3-d1-"+randomUUID());
+    const d1Receipts=await seedD1OnRealKernel(writerPage,d1TestStateFile);
     await browser.context.close();
     browser = null;
     // The owner explicitly closes the complete browser process, then opens
@@ -139,6 +147,12 @@ async function run() {
     const tombstone = await verifyRealT2UnknownAndTombstone(browser.page, {
       workspace_id, reader_service_id: READER, writer_service_id: WRITER,
     });
+    const d1ColdOne=await verifyD1AfterBrowserRestart(browser.page,d1TestStateFile,d1Receipts);
+    await browser.context.close();
+    browser = null;
+    browser = await openBrowser(chromium,profile,live.origin);
+    const d1ColdTwo=await verifyD1AfterBrowserRestart(browser.page,d1TestStateFile,d1Receipts,
+      {revoke:true});
     const report = {
       status:'T3_D2_B0_LIVE_PROJECTION_ROUNDTRIP_PASS',
       t2_head:T2_HEAD,t2_tree:T2_TREE,source_owner:'inherited-T2-inside-T3',
@@ -151,6 +165,17 @@ async function run() {
       independent_read_only:true,reader_write_denial:before.denied_write,stale_revision_denial:staleDenial,
       t3:same,tombstone,process_restarted:true,profile_reused:true,projection_mutation_delta:0,
       snapshot_sha256:sha(Buffer.from(canonical(before.source))),
+      d1_real_t2_kernel:{
+        status:"T3_D1_LIVE_KERNEL_TEST_OWNER_PASS",
+        selected_subjects:d1Receipts.map(x=>x.kind),
+        workspace_count:d1Receipts.length,
+        event_count:d1Receipts.length,
+        first_cold_restart:d1ColdOne,
+        second_cold_restart:d1ColdTwo,
+        browser_process_restarts:2,
+        authority_kind:"SYNTHETIC_CONTRACT_ONLY",
+        signed_owner_product_e2e:false,
+      },
     };
     const evidence = process.env.IWXA_T3_PRIVATE_EVIDENCE_FILE;
     if (evidence) {
