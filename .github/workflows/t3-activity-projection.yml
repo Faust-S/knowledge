@@ -41,6 +41,7 @@ jobs:
       - run: node --test packages/t3-core/tests/t3-subject-binding.test.mjs
       - run: node --test packages/t3-core/tests/t3-subject-kernel-scope.test.mjs
       - run: node --check packages/t3-core/src/t3/signed-access-host-port.mjs
+      - run: node --check packages/t3-core/src/t3/subject-kernel-module-facade.mjs
       - run: node --test packages/t3-core/tests/t3-signed-access-host-port.test.mjs
       - name: Install inherited T2 build dependencies
         run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund

@@ -17,6 +17,7 @@ const OPERATIONS = Object.freeze({
   commitObjectGraph: "t1.commitObjectGraph",
   listEventsSince: "t1.listEventsSince",
 });
+export const SUBJECT_SCOPED_OPERATION_IDS = Object.freeze(Object.values(OPERATIONS));
 const REF = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX = /^[a-f0-9]{64}$/;
 

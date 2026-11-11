@@ -18,8 +18,14 @@ import { adapter } from "@/kernel-client/adapter";
 import type { Level } from "@/kernel-client/contracts/runtime-1.3.0";
 
 import { negotiateAtomicGraph } from "@/kernel-client/contracts/runtime-1.3.0/atomic-graph-negotiation";
+import {
+  createSubjectScopedModuleKernelFacade,
+  type SubjectAccessHostOwner,
+} from "../../t3/subject-kernel-module-facade.mjs";
 export interface KernelFacadeInput {
   session: KernelSession;
+  /** Trusted Host-only T3 D1 owner: never supplied by a module or a package. */
+  subjectAccess?: SubjectAccessHostOwner;
 }
 
 export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
@@ -84,5 +90,10 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     importCommit: async (input) => adapter.importCommit(session, input),
     importCancel: async (token) => adapter.importCancel(session, token),
   };
-  return Object.freeze(facade);
+  const inherited = Object.freeze(facade);
+  // T3 is the direct T2 successor: protect the very same inherited facade
+  // at the Host injection point. Legacy/unprovisioned T2 products are unchanged.
+  return input.subjectAccess
+    ? createSubjectScopedModuleKernelFacade({ kernel: inherited, access: input.subjectAccess })
+    : inherited;
 }

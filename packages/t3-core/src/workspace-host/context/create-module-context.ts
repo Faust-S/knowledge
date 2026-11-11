@@ -30,6 +30,7 @@ import type { HostContributionHub } from "../registries";
 import type { ModuleContextProvider } from "../modules/module-types";
 import { CurrentWorkspaceStore } from "./current-workspace-store";
 import { createKernelFacade } from "./create-kernel-facade";
+import type { SubjectAccessHostOwner } from "../../t3/subject-kernel-module-facade.mjs";
 import { createCommandsFacade } from "./create-commands-facade";
 import { createViewsFacade } from "./create-views-facade";
 import { createPanelsFacade, type PanelsState } from "./create-panels-facade";
@@ -44,6 +45,8 @@ import {
 
 export interface ModuleContextFactoryInput {
   session: KernelSession;
+  /** T3 D1 only: trusted Host-provided selected subject and existing Access owner. */
+  subjectAccess?: SubjectAccessHostOwner;
   router: HostRouter;
   hub: HostContributionHub;
   currentWorkspaceStore: CurrentWorkspaceStore;
@@ -79,7 +82,10 @@ export function createModuleContextProvider(
     moduleId: string,
     invocationStack: readonly string[],
   ): WorkspaceModuleContext {
-    const kernel = createKernelFacade({ session: input.session });
+    const kernel = createKernelFacade({
+      session: input.session,
+      subjectAccess: input.subjectAccess,
+    });
     const router = createRouterFacade(input.router);
     const commands = createCommandsFacade({
       moduleId,
