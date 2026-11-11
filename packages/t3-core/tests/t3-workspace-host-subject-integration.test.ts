@@ -97,9 +97,11 @@ describe("T3 D1 at the inherited T2 Workspace ModuleContext Host seam",()=>{
     }});
     const hub=new HostContributionHub({routeRegistry:routes,
       hostRouteBindings:activeHostRouteBindings(),grantedOperations:[]});
+    const store=new CurrentWorkspaceStore();
+    store.set({workspace_id:"ws:foreign"} as never);
     const provider=createModuleContextProvider({
       session:f.session,subjectAccess:f.owner,router,hub,
-      currentWorkspaceStore:new CurrentWorkspaceStore(),
+      currentWorkspaceStore:store,
       termResolver:(_key:string,fallback?:string)=>fallback??"",
       panelsState:{request:()=>{}},dashboardState:{refresh:()=>{}},
       diagnosticsSink:{report:()=>{}},
@@ -111,5 +113,19 @@ describe("T3 D1 at the inherited T2 Workspace ModuleContext Host seam",()=>{
     expect("subjectAccess" in ctx).toBe(false);
     expect("access" in ctx.kernel).toBe(false);
     expect("session" in ctx.kernel).toBe(false);
+    expect(ctx.currentWorkspace.get()).toBeNull();
+    const received: Array<string|null>=[];
+    const off=ctx.currentWorkspace.subscribe(ws=>received.push(ws?.workspace_id??null));
+    store.set({workspace_id:"ws:person"} as never);
+    expect(ctx.currentWorkspace.get()?.workspace_id).toBe("ws:person");
+    ctx.currentWorkspace.claim({workspace_id:"ws:foreign"} as never);
+    expect(store.get()?.workspace_id).toBe("ws:person");
+    f.select("ws:another");
+    expect(ctx.currentWorkspace.get()).toBeNull();
+    ctx.currentWorkspace.release();
+    expect(store.get()?.workspace_id).toBe("ws:person");
+    store.set({workspace_id:"ws:foreign"} as never);
+    expect(received).toEqual(["ws:person",null]);
+    off();
   });
 });
