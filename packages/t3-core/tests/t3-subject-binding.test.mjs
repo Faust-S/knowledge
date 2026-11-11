@@ -51,9 +51,9 @@ function fixture(contexts=subjects) {
       "t1.listEventsSince":"history.read"})[op],
     operationDigest:({operation,input,context})=>sha({operation,input,context}),
     async authorize(request) {
+      const c=contexts[selected]; // signed decision belongs to the original caller context
       if(changeDuringAuthorize) selected=1;
       const status=outcome;
-      const c=contexts[selected];
       return {
         schema:c.kind==="CORP"?"IWXA_T3_ORGANIZATION_OPERATION_DECISION/1":
           "IWXA_T3_AUTHORIZATION_DECISION/1",outcome:status,
