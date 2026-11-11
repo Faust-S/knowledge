@@ -98,7 +98,8 @@ function fakeBrowser(root,store=null) {
       const records=caches.get(name);
       return {
         async put(key,response){records.set(toKey(key),response.clone());},
-        async match(key){return records.get(toKey(key))?.clone();}
+        async match(key){return records.get(toKey(key))?.clone();},
+        async keys(){return [...records.keys()].map(url=>new Request(url));}
       };
     },
     async keys(){return [...caches.keys()];},
@@ -151,6 +152,19 @@ test("T3 offline worker installs verified snapshot, blocks remote egress, and su
     assert.equal((await first.fetchPage("https://cloud.example/private")).status,503);
     assert.equal((await first.fetchPage(ORIGIN+"/not-installed")).status,503);
     assert.equal((await first.fetchPage(ORIGIN+"/profile/", "POST")).status,503);
+    // A lost cache entry must never be reported as a complete T3 snapshot.
+    const stored=[...first.caches.values()].find(cache=>cache.size>4);
+    assert.ok(stored);
+    const lostKey=[...stored.keys()].find(key=>key.endsWith("/profile/index.html"));
+    const saved=stored.get(lostKey);
+    stored.delete(lostKey);
+    const damaged=fakeBrowser(root,first.caches);
+    const statusEvents=[];
+    await damaged.dispatch("T3_STATUS",{postMessage:m=>statusEvents.push(m)});
+    assert.equal(statusEvents[0].active,true);
+    assert.equal(statusEvents[0].complete,false);
+    assert.equal((await damaged.fetchPage(ORIGIN+"/profile/index.html")).status,503);
+    stored.set(lostKey,saved);
     const afterRestart=fakeBrowser(root,first.caches);
     assert.equal((await afterRestart.fetchPage(ORIGIN+"/workspace/")).status,200);
     assert.equal(afterRestart.liveFetches,0,"offline restart used only verified CacheStorage");
