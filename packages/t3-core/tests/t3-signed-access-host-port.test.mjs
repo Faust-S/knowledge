@@ -17,7 +17,7 @@ const contexts=[
    realm_id:"realm:"+n,audience:"host:t3",resource:"ws:"+n,purpose:"purpose:work",
    workspace_id:"ws:"+n,scope_revision:1,organization_id:"org:"+n})),
 ];
-function fixture() {
+function fixture({personalOnly=false, corporateOnly=false}={}) {
   let current=0,revoked=false,mutatePreview=false,mutateDecision=false,proofKey="credential:1";
   const calls=[], objects=new Map();
   const owner={
@@ -75,6 +75,8 @@ function fixture() {
   };
   // The synthetic gate's preview is deterministic for the same input, despite
   // challenge generation. Host's real gate owns all signature validations.
+  if(personalOnly) owner.corporate=undefined;
+  if(corporateOnly) owner.personal=undefined;
   const access=createSignedAccessHostPort(owner);
   const kernel={
     sessionInfo:{contract_version:"1.3.0"},
@@ -130,4 +132,36 @@ test("cross-workspace requests are rejected before the owner is called",async()=
   const f=fixture();f.select(2);
   await assert.rejects(f.binding.putObject({workspace_id:"ws:1",object_id:"x"}),{code:"T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE"});
   assert.equal(f.calls.length,0);
+});
+
+test("standalone PERSONAL Host needs no corporate gate or Admin Center",async()=>{
+  const f=fixture({personalOnly:true});
+  const r=await f.binding.putObject({workspace_id:"ws:personal",object_id:"local:1",
+    base_revision:0,data:{offline:true}});
+  assert.equal(r.object.data.offline,true);
+  f.select(1);
+  await assert.rejects(f.binding.getObject("ws:1","local:1"),
+    {code:"T3_OWNER_CORPORATE_GATE_UNAVAILABLE"});
+  assert.equal(f.calls.filter(x=>x==="kernel").length,1);
+});
+test("corporate-only Host never invents PERSONAL authority",async()=>{
+  const f=fixture({corporateOnly:true});
+  f.select(1);
+  assert.equal((await f.binding.putObject({workspace_id:"ws:1",
+    object_id:"corp:1",base_revision:0})).object.workspace_id,"ws:1");
+  f.select(0);
+  await assert.rejects(f.binding.getObject("ws:personal","corp:1"),
+    {code:"T3_OWNER_PERSONAL_ACCESS_UNAVAILABLE"});
+  assert.equal(f.calls.filter(x=>x==="kernel").length,1);
+});
+test("missing or incomplete owner cannot silently authorize",()=>{
+  const f=fixture();
+  const original={
+    currentContext:f.access.currentContext,actionFor:f.access.actionFor,
+    operationDigest:f.access.operationDigest,canonicalDigest:hash,
+  };
+  assert.throws(()=>createSignedAccessHostPort(original),
+    {code:"T3_OWNER_ACCESS_REQUIRED"});
+  assert.throws(()=>createSignedAccessHostPort({...original,corporate:{gate:{}}}),
+    {code:"T3_OWNER_ACCESS_REQUIRED"});
 });
