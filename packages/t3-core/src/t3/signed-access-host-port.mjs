@@ -42,15 +42,19 @@ export function createSignedAccessHostPort({
   for (const item of [currentContext, actionFor, operationDigest, canonicalDigest, clock, randomUUID]) {
     requireThat(typeof item === "function", "T3_OWNER_HOST_CALLBACK_REQUIRED");
   }
-  requireThat(typeof personal?.check === "function", "T3_OWNER_PERSONAL_ACCESS_REQUIRED");
-  requireThat(typeof corporate?.gate?.preview === "function" &&
+  // A PERSONAL installation must work without Admin Center or organizational
+  // enrollment. Requiring both owners would break autonomous T3 local work.
+  const hasPersonal = typeof personal?.check === "function";
+  const hasCorporate = typeof corporate?.gate?.preview === "function" &&
     typeof corporate?.gate?.authorize === "function" &&
     typeof corporate?.inputFor === "function" &&
-    typeof corporate?.prove === "function",
-    "T3_OWNER_CORPORATE_GATE_REQUIRED");
+    typeof corporate?.prove === "function";
+  requireThat(hasPersonal || hasCorporate, "T3_OWNER_ACCESS_REQUIRED");
+  if (personal != null) requireThat(hasPersonal,"T3_OWNER_PERSONAL_ACCESS_INVALID");
+  if (corporate != null) requireThat(hasCorporate,"T3_OWNER_CORPORATE_GATE_INVALID");
   // Corporate product IDs are validated by the existing signed enrollment gate.
   // A T3-only invented product ID would make a false claim of compatibility.
-  const productId = corporate.productId ?? "IWXA_ADMIN_CENTER";
+  const productId = corporate?.productId ?? "IWXA_ADMIN_CENTER";
   requireThat(["IWXA_ADMIN_CENTER","IWXA_CONTROL_CENTER"].includes(productId),
     "T3_OWNER_CORPORATE_PRODUCT_UNSUPPORTED");
   const issued = new WeakMap();
@@ -69,11 +73,13 @@ export function createSignedAccessHostPort({
 
     let decision, expectedRequestDigest, expectedOperationDigest = null;
     if (context.kind === "PERSONAL") {
+      requireThat(hasPersonal, "T3_OWNER_PERSONAL_ACCESS_UNAVAILABLE");
       decision = await personal.check(request, context);
       expectedRequestDigest = digestFrom(canonicalDigest, request);
       requireThat(decision?.schema === DIRECT && decision.requestDigest === expectedRequestDigest,
         "T3_OWNER_PERSONAL_DECISION_UNBOUND");
     } else {
+      requireThat(hasCorporate, "T3_OWNER_CORPORATE_GATE_UNAVAILABLE");
       requireThat(context.organization_id === request.principalId,
         "T3_OWNER_CORPORATE_PRINCIPAL_MISMATCH");
       const hostInput = structuredClone(await corporate.inputFor(context));
