@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState} from 'react';
+import {useLayoutEffect, useRef, useState} from 'react';
 import {createT3ReviewController} from '../../modules/activity-base-anonymizer/t3-review-controller.mjs';
 import type {T3ReviewHost, T3ReviewState} from '../../modules/activity-base-anonymizer/t3-review-controller.mjs';
 import type {T3StructuralCandidate} from '../../modules/activity-base-anonymizer/t3-selected-host.mjs';
@@ -101,63 +101,94 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
   const [objectEvidence, setObjectEvidence] = useState<Ocel2EvidenceView | null>(null);
   const [t3Review, setT3Review] = useState<T3ReviewState | null>(null);
   const t3Controller = useRef<ReturnType<typeof createT3ReviewController> | null>(null);
-  useEffect(() => {
-    if (!t3Host) { t3Controller.current = null; setT3Review(null); return; }
-    try {
-      const controller = createT3ReviewController({host: t3Host, onUpdate: setT3Review});
-      t3Controller.current = controller;
-      return () => {t3Controller.current = null; controller.dispose();};
-    } catch {
-      setT3Review({status: 'HOLD', review: null, code: 'T3_TRUSTED_HOST_INVALIDATION_REQUIRED'});
-    }
-  }, [t3Host]);
+  const sourceEpoch = useRef(0);
   const [sourceName, setSourceName] = useState('Источник не выбран');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState('');
 
-  async function run(input: unknown, label: string) {
+  // A T3 owner replacement must clear the previous subject before repaint.
+  useLayoutEffect(() => {
+    sourceEpoch.current += 1;
+    setPreview(null); setRisk(null); setObjectEvidence(null);
+    setSourceName('Источник не выбран'); setProblem(''); setBusy(false);
+    if (!t3Host) { t3Controller.current = null; setT3Review(null); return; }
+    try {
+      const controller = createT3ReviewController({host: t3Host, onUpdate: setT3Review});
+      t3Controller.current = controller;
+      return () => {sourceEpoch.current += 1; t3Controller.current = null; controller.dispose();};
+    } catch {
+      setT3Review({status: 'HOLD', review: null, code: 'T3_TRUSTED_HOST_INVALIDATION_REQUIRED'});
+    }
+  }, [t3Host]);
+
+  function beginSource(): number {
+    const token = ++sourceEpoch.current;
     t3Controller.current?.reset();
+    setPreview(null); setRisk(null); setObjectEvidence(null); setProblem('');
+    return token;
+  }
+
+  async function run(input: unknown, label: string, token: number) {
+    if (token !== sourceEpoch.current) return;
     setBusy(true);
-    setPreview(null);
-    setRisk(null);
-    setObjectEvidence(null);
-    setProblem('');
     try {
       const schema = input && typeof input === 'object' && 'schema' in input ? input.schema : null;
       if (schema === OCEL2_SYNTHETIC_SCHEMA) {
         const evidence = await inspectSyntheticOcel2(input);
+        if (token !== sourceEpoch.current) return;
         // Only structural aliases are retained. No original object, actor, value or source id.
         setObjectEvidence(evidence);
       } else {
         const result = await screenSyntheticDisclosure(input);
+        if (token !== sourceEpoch.current) return;
         // No source content, raw evidence or risk-internal candidate is persisted or exported.
         setPreview(result.preview);
         setRisk(result.risk);
       }
       setSourceName(label);
     } catch (error) {
+      if (token !== sourceEpoch.current) return;
       const code = error instanceof ActivityHold ? error.code : 'INVALID_SYNTHETIC_SNAPSHOT';
       setProblem(`HOLD: ${code}`);
       setSourceName('Источник отклонён');
-    } finally { setBusy(false); }
+    } finally {
+      if (token === sourceEpoch.current) setBusy(false);
+    }
   }
 
   async function loadExample() {
+    const token = beginSource();
     setBusy(true);
-    setProblem('');
-    try { await run(await buildSyntheticExample(), 'Встроенная синтетическая база'); }
-    catch { setProblem('HOLD: LOCAL_SYNTHETIC_EXAMPLE_UNAVAILABLE'); setBusy(false); }
+    setSourceName('Анализ синтетической базы…');
+    try { await run(await buildSyntheticExample(), 'Встроенная синтетическая база', token); }
+    catch {
+      if (token === sourceEpoch.current) {
+        setProblem('HOLD: LOCAL_SYNTHETIC_EXAMPLE_UNAVAILABLE');
+        setSourceName('Источник отклонён');
+      }
+    } finally {
+      if (token === sourceEpoch.current) setBusy(false);
+    }
   }
 
   async function loadOcelExample() {
+    const token = beginSource();
     setBusy(true);
-    setProblem('');
-    try { await run(await buildSyntheticOcel2Example(), 'Встроенная синтетическая база OCEL 2.0'); }
-    catch { setProblem('HOLD: LOCAL_OCEL2_EXAMPLE_UNAVAILABLE'); setBusy(false); }
+    setSourceName('Анализ синтетической базы OCEL 2.0…');
+    try { await run(await buildSyntheticOcel2Example(), 'Встроенная синтетическая база OCEL 2.0', token); }
+    catch {
+      if (token === sourceEpoch.current) {
+        setProblem('HOLD: LOCAL_OCEL2_EXAMPLE_UNAVAILABLE');
+        setSourceName('Источник отклонён');
+      }
+    } finally {
+      if (token === sourceEpoch.current) setBusy(false);
+    }
   }
 
   async function loadSelectedT3() {
-    setPreview(null); setRisk(null); setObjectEvidence(null); setProblem('');
+    beginSource();
+    setBusy(false);
     if (!t3Controller.current) {
       setSourceName('T3 Host не подключён');
       setProblem('HOLD: T3_TRUSTED_HOST_NOT_CONNECTED');
@@ -171,13 +202,26 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    const token = beginSource();
     if (file.size === 0 || file.size > MAX_INPUT_BYTES) {
-      t3Controller.current?.reset();
-      setPreview(null); setRisk(null); setObjectEvidence(null); setProblem('HOLD: INVALID_FILE_SIZE'); return;
+      setSourceName('Источник отклонён');
+      setProblem('HOLD: INVALID_FILE_SIZE');
+      setBusy(false);
+      return;
     }
-    setBusy(true); setProblem('');
-    try { await run(JSON.parse(await file.text()), file.name); }
-    catch { t3Controller.current?.reset(); setPreview(null); setRisk(null); setObjectEvidence(null); setProblem('HOLD: INVALID_JSON_INPUT'); setBusy(false); }
+    setBusy(true);
+    setSourceName('Чтение локального файла…');
+    try {
+      const content = await file.text();
+      if (token !== sourceEpoch.current) return;
+      await run(JSON.parse(content), file.name, token);
+    } catch {
+      if (token !== sourceEpoch.current) return;
+      setPreview(null); setRisk(null); setObjectEvidence(null);
+      setProblem('HOLD: INVALID_JSON_INPUT'); setSourceName('Источник отклонён');
+    } finally {
+      if (token === sourceEpoch.current) setBusy(false);
+    }
   }
 
   return <div className="app-shell" onDragOver={(e) => e.preventDefault()} onDrop={(e) => e.preventDefault()}>

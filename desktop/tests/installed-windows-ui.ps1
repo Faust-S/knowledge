@@ -78,7 +78,16 @@ try {
     if (!(Find-Accessible $window.Root 'HOLD · ВЫПУСК ЗАКРЫТ')) {
         throw 'INSTALLED_OCEL2_HOLD_NOT_VISIBLE'
     }
-    Write-Host 'IWXA_ACTIVITY_INSTALLED_FIRST_USE_PASS native_window=YES built_in_example=YES processes=YES ocel2=YES t3_host_unbound=HOLD export=HOLD'
+    # Selecting a disconnected T3 base MUST remove the previously rendered OCEL graph.
+    $t3Pattern.Invoke()
+    if (!(Find-Accessible $window.Root 'HOLD: T3_TRUSTED_HOST_NOT_CONNECTED')) {
+        throw 'INSTALLED_T3_SOURCE_SWITCH_MUST_HOLD'
+    }
+    Start-Sleep -Milliseconds 700
+    if (Find-Accessible $window.Root 'OCEL 2.0 · связи объектов и событий' 2) {
+        throw 'INSTALLED_T3_SOURCE_SWITCH_STALE_OCEL_PREVIEW'
+    }
+    Write-Host 'IWXA_ACTIVITY_INSTALLED_FIRST_USE_PASS native_window=YES built_in_example=YES processes=YES ocel2=YES t3_host_unbound=HOLD source_switch=NO_STALE export=HOLD'
 } finally {
     if ($window) { Close-Window $window }
 }
