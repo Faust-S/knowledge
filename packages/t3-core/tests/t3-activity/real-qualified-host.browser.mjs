@@ -128,6 +128,36 @@ async function run() {
     const d1TestStateFile=join(temp,"d1-contract-only-owner.json");
     initD1TestHostState(d1TestStateFile,"t3-d1-"+randomUUID());
     const d1Receipts=await seedD1OnRealKernel(writerPage,d1TestStateFile);
+
+    // D5: original T2 Kernel persistence of an explicitly chosen local-model
+    // draft. The text is synthetic: this witness does NOT run WebGPU.
+    const d5WorkspaceId='t3-d5-'+randomUUID();
+    const d5Draft=await writerPage.evaluate(async ({workspace_id,service_id})=>{
+      const session=await globalThis.IWXA.connect({service_id});
+      await session.t1.createWorkspace({workspace_id,profile:'generic'});
+      const focus=Object.freeze({workspace_id});
+      const context={
+        currentWorkspace:{get:()=>focus,subscribe:()=>()=>{}},
+        kernel:{
+          sessionInfo:{contract_version:session.contract_version},
+          hasOperation:op=>session.granted_operations.includes(op),
+          getWorkspace:id=>session.t1.getWorkspace(id),
+          putObject:input=>session.t1.putObject(input),
+          getObject:(ws,id)=>session.t1.getObject(ws,id),
+          listObjects:query=>session.t1.listObjects(query),
+        },
+      };
+      const mod=await import('/_t3/activity/local-inference-draft.mjs');
+      return mod.saveLocalInferenceDraft(context,{
+        expected_workspace_id:workspace_id,
+        model_id:'SYNTHETIC_MODEL_NOT_EXECUTED',
+        engine:'TEST_ONLY_NO_WEBGPU',
+        output:'An explicitly reviewed synthetic draft for the original Kernel',
+      });
+    },{workspace_id:d5WorkspaceId,service_id:WRITER});
+    assert.equal(d5Draft.status,'DRAFT_UNTRUSTED');
+    assert.equal(d5Draft.readback,true);
+
     await browser.context.close();
     browser = null;
     // The owner explicitly closes the complete browser process, then opens
@@ -148,11 +178,27 @@ async function run() {
       workspace_id, reader_service_id: READER, writer_service_id: WRITER,
     });
     const d1ColdOne=await verifyD1AfterBrowserRestart(browser.page,d1TestStateFile,d1Receipts);
+    const d5ColdOne=await browser.page.evaluate(async ({workspace_id,object_id,service_id})=>{
+      const session=await globalThis.IWXA.connect({service_id});
+      const detail=await session.t1.getObject(workspace_id,object_id);
+      const events=await session.t1.listEventsSince(workspace_id);
+      return {object:detail?.object,events};
+    },{workspace_id:d5WorkspaceId,object_id:d5Draft.object_id,service_id:WRITER});
+    assert.equal(d5ColdOne.object?.data?.status,'DRAFT_UNTRUSTED');
+    assert.equal(d5ColdOne.object?.schema_id,'iwxa.local-inference.draft');
+    assert.equal(d5ColdOne.object?.data?.model_id,'SYNTHETIC_MODEL_NOT_EXECUTED');
+    assert.ok(d5ColdOne.events.some(e=>e.event_id===d5Draft.event_id));
     await browser.context.close();
     browser = null;
     browser = await openBrowser(chromium,profile,live.origin);
     const d1ColdTwo=await verifyD1AfterBrowserRestart(browser.page,d1TestStateFile,d1Receipts,
       {revoke:true});
+    const d5ColdTwo=await browser.page.evaluate(async ({workspace_id,object_id,service_id})=>{
+      const session=await globalThis.IWXA.connect({service_id});
+      return (await session.t1.getObject(workspace_id,object_id))?.object;
+    },{workspace_id:d5WorkspaceId,object_id:d5Draft.object_id,service_id:WRITER});
+    assert.equal(d5ColdTwo?.data?.text,d5ColdOne.object.data.text);
+    assert.equal(d5ColdTwo?.revision,d5Draft.revision);
     const report = {
       status:'T3_D2_B0_LIVE_PROJECTION_ROUNDTRIP_PASS',
       t2_head:T2_HEAD,t2_tree:T2_TREE,source_owner:'inherited-T2-inside-T3',
@@ -165,6 +211,14 @@ async function run() {
       independent_read_only:true,reader_write_denial:before.denied_write,stale_revision_denial:staleDenial,
       t3:same,tombstone,process_restarted:true,profile_reused:true,projection_mutation_delta:0,
       snapshot_sha256:sha(Buffer.from(canonical(before.source))),
+      d5_local_draft:{
+        status:"T3_D5_ORIGINAL_T2_SAVE_READBACK_PASS",
+        workspace_id:d5WorkspaceId,object_id:d5Draft.object_id,
+        event_id:d5Draft.event_id,revision:d5Draft.revision,
+        readback_after_two_cold_restarts:true,
+        model_inference_executed:false,model_source:"SYNTHETIC",
+        native_webgpu_qualified:false,
+      },
       d1_real_t2_kernel:{
         status:"T3_D1_LIVE_KERNEL_TEST_OWNER_PASS",
         selected_subjects:d1Receipts.map(x=>x.kind),

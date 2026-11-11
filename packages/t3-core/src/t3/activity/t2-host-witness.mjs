@@ -7,6 +7,9 @@ import { compareLiveT2Readback } from "./live-iwxa-client.mjs";
 const MODULES = Object.freeze([
   "index.mjs", "kernel-reader.mjs", "live-iwxa-client.mjs",
 ]);
+// Reuse the already-staged real T2 browser Host to exercise the D5 draft
+// write/readback without loading a model or a second Runtime.
+const WORKSPACE_DRAFT = "local-inference-draft.mjs";
 const PUBLIC_MOUNT = "/_t3/activity/";
 
 function deny(code) {
@@ -43,8 +46,9 @@ export function stageT3ActivityWitness({ sourceDir, hostRoot } = {}) {
   if (!inside(host, target) || existsSync(target)) {
     deny("TEST_WITNESS_TARGET_NOT_EMPTY");
   }
-  const contents = MODULES.map((name) => {
-    const file = join(source, name);
+  const contents = [...MODULES, WORKSPACE_DRAFT].map((name) => {
+    const file = name === WORKSPACE_DRAFT
+      ? join(source, "..", name) : join(source, name);
     if (!regularFile(file)) deny("WITNESS_SOURCE_INVALID");
     return { name, bytes: readFileSync(file) };
   });
