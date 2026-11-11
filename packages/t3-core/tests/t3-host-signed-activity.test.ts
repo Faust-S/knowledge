@@ -167,7 +167,8 @@ describe("T3 D1 signed Activity in the actual Workspace Host runtime",()=>{
       expect(operations).toContain("listObjects");
       expect(operations).toContain("getObject");
       expect(operations).toContain("listEventsSince");
-      expect(f.checks()).toBeGreaterThanOrEqual(f.reads());
+      expect(f.checks()).toBe(f.reads());
+      // Single original Kernel JIT: no second proof for each Activity row.
       const kernel=host.contextProvider.createContext("d06").kernel;
       const before=f.reads();
       await expect(kernel.putObject({workspace_id:ws,object_id:"order:2",
@@ -179,6 +180,39 @@ describe("T3 D1 signed Activity in the actual Workspace Host runtime",()=>{
       await expect(host.readAuthorizedActivity({bindings}))
         .rejects.toMatchObject({code:"T3_ACCESS_NOT_PERMITTED"});
     } finally {await host.dispose();}
+  });
+  it("rejects general signed Workspace read when Activity DATA consent was not issued",async()=>{
+    const f=fixture();
+    const unrelated={...f.signedActivityAccess,actionFor:()=>"workspace.read"};
+    const host=await createWorkspaceHostRuntime({
+      session:f.session,workspaceConfig:{modules:[]},bindLegacyHashDriver:false,
+      termResolver:(_key,fallback)=>fallback??"",
+      signedKernelAccess:()=>unrelated,
+    });
+    try{
+      host.currentWorkspaceStore.set({workspace_id:ws} as never);
+      await expect(host.readAuthorizedActivity({bindings}))
+        .rejects.toMatchObject({code:"T3_ACTIVITY_EXPLICIT_DATA_GRANT_REQUIRED"});
+      expect(f.reads()).toBe(0);
+      expect(f.checks()).toBe(0);
+    }finally{await host.dispose();}
+  });
+  it("prevents readback after A -> B -> A changes the signed authority during T2 read",async()=>{
+    const f=fixture();
+    const host=await createWorkspaceHostRuntime({
+      session:f.session,workspaceConfig:{modules:[]},bindLegacyHashDriver:false,
+      termResolver:(_key,fallback)=>fallback??"",
+      signedKernelAccess:()=>f.signedActivityAccess,
+    });
+    try{
+      host.currentWorkspaceStore.set({workspace_id:ws} as never);
+      f.onList(()=>{
+        f.selectOrganization("other");
+        f.selectOrganization("personal");
+      });
+      await expect(host.readAuthorizedActivity({bindings}))
+        .rejects.toMatchObject({code:"T3_SUBJECT_RESULT_STALE_AFTER_KERNEL"});
+    }finally{await host.dispose();}
   });
   it("does not silently fall back after an explicit Activity owner declines",async()=>{
     const f=fixture();

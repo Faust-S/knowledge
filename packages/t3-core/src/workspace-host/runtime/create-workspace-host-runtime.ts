@@ -198,11 +198,34 @@ export async function createWorkspaceHostRuntime(
         : typeof kernel === "function" ? await kernel("listObjects") : kernel;
       if (disposed) reject("T3_HOST_DISPOSED");
       if (!signedAccess) reject("T3_D1_ACCESS_OWNER_REQUIRED");
+      // Activity always requires an explicit DATA read grant. The Host's
+      // general getWorkspace/object.write rights must never imply one.
+      if (await signedAccess.actionFor("t1.listObjects") !== "activity.read")
+        reject("T3_ACTIVITY_EXPLICIT_DATA_GRANT_REQUIRED");
+      if (disposed) reject("T3_HOST_DISPOSED");
+      const originalOwner = JSON.stringify(signedAccess.currentContext());
+      // The complete ModuleContext.kernel already performs signed JIT once
+      // per T2 read. Re-wrapping it would run a second credential proof for
+      // every object and event, slowing down large Activity workspaces.
+      // Preserve the explicit Activity gate if one was separately installed.
+      const useSignedKernel = activity === undefined && kernel !== undefined;
       const result = await readActivityFromWorkspaceContext(
         contextProvider.createContext("iwxa.workspace.base"),
-        { ...options, signedAccess },
+        useSignedKernel ? { ...options } : { ...options, signedAccess },
       );
       if (disposed) reject("T3_HOST_DISPOSED");
+      if (useSignedKernel) {
+        // Subject selection can change even while the final original T2
+        // Kernel call finishes. Prevent stale A -> B -> A readback.
+        const current = typeof kernel === "function"
+          ? await kernel("listObjects") : kernel;
+        if (disposed) reject("T3_HOST_DISPOSED");
+        if (!current ||
+            JSON.stringify(signedAccess.currentContext()) !== originalOwner ||
+            JSON.stringify(current.currentContext()) !== originalOwner) {
+          reject("T3_ACTIVITY_WORKSPACE_CHANGED_DURING_READ");
+        }
+      }
       return result;
     };
   const dispose = async () => {
