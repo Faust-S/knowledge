@@ -85,5 +85,19 @@ class DesktopContract(unittest.TestCase):
         self.assertNotRegex(risk, r"\bfetch\s*\(|XMLHttpRequest|WebSocket|http://|https://")
 
 
+    def test_ocel2_reconstruction_is_internal_only(self):
+        ui = (DESKTOP / "src/App.tsx").read_text("utf-8")
+        module = (ROOT / "modules/activity-base-anonymizer/ocel2-evidence.mjs").read_text("utf-8")
+        self.assertIn("inspectSyntheticOcel2(input)", ui)
+        self.assertIn("Открыть пример OCEL 2.0", ui)
+        self.assertIn("OCEL 2.0 · связи объектов и событий", ui)
+        self.assertIn("HOLD · ВЫПУСК ЗАКРЫТ", ui)
+        self.assertIn("JSON_RESTRICTED_PROFILE_PARSED_NOT_FULL_STANDARD_CONFORMANCE", module)
+        self.assertIn("OBJECT_LOCAL_OBSERVED_TIME_ORDER_NOT_CAUSAL_DEPENDENCY", module)
+        self.assertIn("export_allowed: false", module)
+        self.assertIn("iwxa_package: null", module)
+        self.assertNotRegex(module, r"\\bfetch\\s*\\(|XMLHttpRequest|WebSocket|http://|https://")
+
+
 if __name__ == "__main__":
     unittest.main()

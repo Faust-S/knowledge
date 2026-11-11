@@ -2,6 +2,8 @@ import {useRef, useState} from 'react';
 import {ActivityHold, buildSyntheticExample} from '../../modules/activity-base-anonymizer/engine.mjs';
 import {screenSyntheticDisclosure} from '../../modules/activity-base-anonymizer/risk.mjs';
 import {layoutObservedGraph} from '../../modules/activity-base-anonymizer/graph-order.mjs';
+import {OCEL2_SYNTHETIC_SCHEMA, buildSyntheticOcel2Example, inspectSyntheticOcel2} from '../../modules/activity-base-anonymizer/ocel2-evidence.mjs';
+import type {Ocel2EvidenceView, Ocel2ObjectView} from '../../modules/activity-base-anonymizer/ocel2-evidence.mjs';
 import type {Preview, ProcessGraph} from '../../modules/activity-base-anonymizer/engine.mjs';
 import type {SyntheticRisk} from '../../modules/activity-base-anonymizer/risk.mjs';
 
@@ -38,10 +40,37 @@ function ProcessCard({process, number}: {process: ProcessGraph; number: number})
   </section>;
 }
 
+
+function ObjectViewCard({view, number}: {view: Ocel2ObjectView; number: number}) {
+  return <section className="process-card" aria-label={`Объектная траектория ${number}`}>
+    <header className="process-head">
+      <div><span className="eyebrow">OCEL 2.0 · ТРАЕКТОРИЯ ОБЪЕКТА</span>
+        <h3>Тип объекта {String(number).padStart(2, '0')}</h3></div>
+      <span className="case-count">{view.observed_object_count} объектов</span>
+    </header>
+    <div className="observed-order">
+      <span>Наблюдаемые классы действий (алиасы, без исходных названий)</span>
+      <strong>{view.activity_aliases.length ? view.activity_aliases.join(' · ') : 'Нет подтверждённых событий'}</strong>
+    </div>
+    <div className="observed-order">
+      <span>Переходы внутри одного объекта · только порядок, не причинность</span>
+      <strong>{view.observed_successions.length
+        ? view.observed_successions.map((edge) => `${edge.from} → ${edge.to}`).join(' · ')
+        : 'Связанный порядок событий не установлен'}</strong>
+    </div>
+    <footer className="process-footer">
+      <span>{view.observed_successions.length} наблюдаемых типов переходов</span>
+      <span>{view.branching === 'OBSERVED_VARIANTS_NOT_DECISION_RULES'
+        ? 'Варианты ≠ правила DMN' : 'Правила решений не выводились'}</span>
+    </footer>
+  </section>;
+}
+
 export function App() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [risk, setRisk] = useState<SyntheticRisk | null>(null);
+  const [objectEvidence, setObjectEvidence] = useState<Ocel2EvidenceView | null>(null);
   const [sourceName, setSourceName] = useState('Источник не выбран');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState('');
@@ -50,12 +79,20 @@ export function App() {
     setBusy(true);
     setPreview(null);
     setRisk(null);
+    setObjectEvidence(null);
     setProblem('');
     try {
-      const result = await screenSyntheticDisclosure(input);
-      // No source content, raw evidence or risk-internal candidate is persisted or exported.
-      setPreview(result.preview);
-      setRisk(result.risk);
+      const schema = input && typeof input === 'object' && 'schema' in input ? input.schema : null;
+      if (schema === OCEL2_SYNTHETIC_SCHEMA) {
+        const evidence = await inspectSyntheticOcel2(input);
+        // Only structural aliases are retained. No original object, actor, value or source id.
+        setObjectEvidence(evidence);
+      } else {
+        const result = await screenSyntheticDisclosure(input);
+        // No source content, raw evidence or risk-internal candidate is persisted or exported.
+        setPreview(result.preview);
+        setRisk(result.risk);
+      }
       setSourceName(label);
     } catch (error) {
       const code = error instanceof ActivityHold ? error.code : 'INVALID_SYNTHETIC_SNAPSHOT';
@@ -71,16 +108,23 @@ export function App() {
     catch { setProblem('HOLD: LOCAL_SYNTHETIC_EXAMPLE_UNAVAILABLE'); setBusy(false); }
   }
 
+  async function loadOcelExample() {
+    setBusy(true);
+    setProblem('');
+    try { await run(await buildSyntheticOcel2Example(), 'Встроенная синтетическая база OCEL 2.0'); }
+    catch { setProblem('HOLD: LOCAL_OCEL2_EXAMPLE_UNAVAILABLE'); setBusy(false); }
+  }
+
   async function onFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
     if (file.size === 0 || file.size > MAX_INPUT_BYTES) {
-      setPreview(null); setRisk(null); setProblem('HOLD: INVALID_FILE_SIZE'); return;
+      setPreview(null); setRisk(null); setObjectEvidence(null); setProblem('HOLD: INVALID_FILE_SIZE'); return;
     }
     setBusy(true); setProblem('');
     try { await run(JSON.parse(await file.text()), file.name); }
-    catch { setPreview(null); setRisk(null); setProblem('HOLD: INVALID_JSON_INPUT'); setBusy(false); }
+    catch { setPreview(null); setRisk(null); setObjectEvidence(null); setProblem('HOLD: INVALID_JSON_INPUT'); setBusy(false); }
   }
 
   return <div className="app-shell" onDragOver={(e) => e.preventDefault()} onDrop={(e) => e.preventDefault()}>
@@ -90,7 +134,7 @@ export function App() {
         <div className="brand-copy"><strong>IWXA</strong><span>Анализ деятельности</span></div>
       </div>
       <div className="topbar-right"><span className="local-status"><span className="local-dot" /> Только локально</span>
-        <span className="app-version">0.1 · A1 prototype</span></div>
+        <span className="app-version">0.1 · A2 / OCEL 2.0</span></div>
     </header>
     <main className="workspace">
       <section className="intro">
@@ -113,6 +157,9 @@ export function App() {
           <button className="button button-primary" type="button" disabled={busy} onClick={loadExample}>
             {busy ? 'Анализ…' : 'Открыть встроенный пример'}
           </button>
+          <button className="button button-secondary" type="button" disabled={busy} onClick={loadOcelExample}>
+            Открыть пример OCEL 2.0
+          </button>
           <button className="button button-secondary" type="button" disabled={busy} onClick={() => fileInput.current?.click()}>
             Выбрать локальный JSON
           </button>
@@ -123,6 +170,7 @@ export function App() {
             <p><span className="mini-check">✓</span> Проверка синтетических ревизий</p>
             <p><span className="mini-pending">·</span> Реальное подключение T3 — далее</p>
             <p><span className="mini-check">✓</span> Синтетическая оценка редких маршрутов A2</p>
+            <p><span className="mini-check">✓</span> OCEL 2.0: ограниченный JSON-профиль, связи объектов</p>
             <p><span className="mini-pending">·</span> Доказанная анонимность и .iwxa — HOLD</p>
           </div>
         </aside>
@@ -131,7 +179,7 @@ export function App() {
             {preview ? <span className="review-tag">ПРОВЕРЕНА СИНТЕТИКА</span> : null}
           </div>
           {problem ? <div className="error-state" role="alert"><strong>Анализ приостановлен</strong><span>{problem}</span><p>Непроверенные данные не будут превращены в процесс или пакет.</p></div> : null}
-          {!preview && !problem ? <div className="empty-state"><div className="empty-icon">IX</div>
+          {!preview && !objectEvidence && !problem ? <div className="empty-state"><div className="empty-icon">IX</div>
             <strong>Выберите базу для анализа</strong><p>Автоматически появятся обнаруженные процессы, этапы и роли. Для начала доступен встроенный синтетический пример.</p></div> : null}
           {preview ? <>
             <div className="metrics">
@@ -151,6 +199,26 @@ export function App() {
                   : 'A2: оценка остаточного риска ещё не выполнена.'}</p>
             </div><div className="verification-right"><span className="hold-chip">HOLD · ВЫПУСК ЗАКРЫТ</span>
               <span>Анонимность не установлена. Проверка реального T3 и независимый импорт .iwxa не завершены.</span></div></section>
+          </> : null}
+          {objectEvidence ? <>
+            <section className="verification-panel" aria-label="OCEL 2.0 · связи объектов и событий">
+              <div className="verification-left">
+                <span className="eyebrow">OCEL 2.0 · ВНУТРЕННЕЕ НАБЛЮДЕНИЕ</span>
+                <h3>OCEL 2.0 · связи объектов и событий</h3>
+                <p>Прочитан ограниченный синтетический JSON-профиль: {objectEvidence.object_type_count} типов объектов, {objectEvidence.event_type_count} классов событий, {objectEvidence.shared_event_count} общих событий.</p>
+                <p>Порядок подтверждён только по времени внутри объекта. Одно событие может относиться к нескольким объектам; это не доказывает причинную связь.</p>
+                <p className="risk-result">BPMN — только кандидаты; DMN и CMMN — правила и планы не установлены. W3C PROV и IWXA Standard — ещё не квалифицированы.</p>
+              </div>
+              <div className="verification-right">
+                <span className="hold-chip">HOLD · ВЫПУСК ЗАКРЫТ</span>
+                <span>Анонимность, права T3 и независимый импорт .iwxa не подтверждены.</span>
+              </div>
+            </section>
+            <div className="graph-list">{objectEvidence.object_views.map((view, index) =>
+              <ObjectViewCard key={view.id} view={view} number={index + 1} />)}</div>
+            <p className="panel-copy" role="status">{objectEvidence.status === 'HOLD'
+              ? 'Содержательная проверка удержана: неоднозначная или редкая структура.'
+              : 'Синтетическая структура получена для изучения; остаточный риск неизвестен.'}</p>
           </> : null}
         </div>
       </section>

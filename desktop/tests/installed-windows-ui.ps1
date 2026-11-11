@@ -56,7 +56,21 @@ try {
     if (!$processName) { throw 'INSTALLED_GUI_SYNTHETIC_GRAPH_NOT_VISIBLE' }
     $hold = Find-Accessible $window.Root 'HOLD · ВЫПУСК ЗАКРЫТ'
     if (!$hold) { throw 'INSTALLED_GUI_EXPORT_HOLD_NOT_VISIBLE' }
-    Write-Host 'IWXA_ACTIVITY_INSTALLED_FIRST_USE_PASS native_window=YES built_in_example=YES processes=YES export=HOLD'
+    $ocel = Find-Accessible $window.Root 'Открыть пример OCEL 2.0'
+    if (!$ocel) { throw 'INSTALLED_OCEL2_ACTION_NOT_ACCESSIBLE' }
+    $ocelPattern = $ocel.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
+    if (!$ocelPattern) { throw 'INSTALLED_OCEL2_ACTION_NOT_INVOKABLE' }
+    $ocelPattern.Invoke()
+    if (!(Find-Accessible $window.Root 'OCEL 2.0 · связи объектов и событий')) {
+        throw 'INSTALLED_OCEL2_EVIDENCE_NOT_VISIBLE'
+    }
+    if (!(Find-Accessible $window.Root 'Объектная траектория 1')) {
+        throw 'INSTALLED_OCEL2_OBJECT_VIEW_NOT_VISIBLE'
+    }
+    if (!(Find-Accessible $window.Root 'HOLD · ВЫПУСК ЗАКРЫТ')) {
+        throw 'INSTALLED_OCEL2_HOLD_NOT_VISIBLE'
+    }
+    Write-Host 'IWXA_ACTIVITY_INSTALLED_FIRST_USE_PASS native_window=YES built_in_example=YES processes=YES ocel2=YES export=HOLD'
 } finally {
     if ($window) { Close-Window $window }
 }
