@@ -53,13 +53,21 @@ function fixture(contexts=subjects) {
     async authorize(request) {
       if(changeDuringAuthorize) selected=1;
       const status=outcome;
+      const c=contexts[selected];
       return {
-        schema:"IWXA_T3_AUTHORIZATION_DECISION/1",outcome:status,
+        schema:c.kind==="CORP"?"IWXA_T3_ORGANIZATION_OPERATION_DECISION/1":
+          "IWXA_T3_AUTHORIZATION_DECISION/1",outcome:status,
         allowed:status==="PERMITTED",evidenceOnly:true,
         requestDigest:sha(request),policyDigest:sha("policy"),
         evaluatedAt:new Date(now).toISOString(),statusObservedAt:new Date(now).toISOString(),
         statusSequence:1,validUntil:new Date(now+(expired?-1000:60000)).toISOString(),
         authorityPath:[{grantId:request.grantId}],
+        ...(c.kind==="CORP"?{
+          organizationId:c.organization_id,workspaceId:c.workspace_id,
+          grantId:c.grant_id,operationDigest:sha({request,scope:c.workspace_id}),
+          evidenceDigest:sha({request}),productionActivation:false,
+          doesNotTransferData:true,doesNotAcceptCorporateCopy:true,
+        }:{}),
       };
     },
     verifyDecisionBinding:(request,decision)=>binding&&decision.requestDigest===sha(request),
