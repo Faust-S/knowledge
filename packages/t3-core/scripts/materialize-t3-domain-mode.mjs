@@ -61,7 +61,7 @@ function inject(html, path, assistant) {
   if (!/<\/body>/i.test(html)) fail("HTML_BODY_REQUIRED:" + path);
   const scripts = (html.includes("data-iwxa-t3-domain-mode") ? "" : marker) +
     (assistant && !html.includes("data-iwxa-t3-assistant") ? "\n" + assistantMarker : "");
-  return html.replace(/<\/body>/i, scripts + "\n</body>");
+  return scripts ? html.replace(/<\/body>/i, scripts + "\n</body>") : html;
 }
 export function materializeDomainMode(distRoot, assistantDistRoot = null) {
   if (typeof distRoot !== "string" || !distRoot.trim()) fail("DIST_REQUIRED");
