@@ -9,6 +9,8 @@ import {resolve, join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {inspectSelectedT3Activity, T3ActivityHold} from
   '../modules/activity-base-anonymizer/t3-selected-host.mjs';
+import {createT3ReviewController} from
+  '../modules/activity-base-anonymizer/t3-review-controller.mjs';
 
 const root = process.env.IWXA_T3_PUBLIC_CORE_DIR;
 if (!root || !existsSync(join(resolve(root), 'src/t3/index.mjs'))) {
@@ -35,6 +37,7 @@ function fixture() {
   let swapped = false;
   let corrupt = false;
   const listeners = new Set();
+  const accessListeners = new Set();
   const counts = {read: 0, write: 0};
   const objects = Array.from({length: 3}, (_, i) => ({
     object_id: `order:${i}`, workspace_id: W, revision: 2,
@@ -88,7 +91,9 @@ function fixture() {
   const context = {kernel,currentWorkspace:{get:()=>workspace,subscribe(l){listeners.add(l);return()=>listeners.delete(l);}}};
   return {context,signedAccess:port,bindings,
     readActivityFromWorkspaceContext:source.readActivityFromWorkspaceContext,
-    counts, revoke:()=>{revoked=true;}, switchDuringRead:()=>{swapped=true;},
+    subscribeInvalidation(listener){accessListeners.add(listener);return()=>accessListeners.delete(listener);},
+    counts, revoke:()=>{revoked=true;for(const l of accessListeners)l();},
+    switchDuringRead:()=>{swapped=true;},
     corruptSource:()=>{corrupt=true;}, objects, events};
 }
 
@@ -135,4 +140,38 @@ test('original D2 missing object revision yields HOLD, never an assumed transiti
   assert.equal(value.structural_candidate,null);
   assert.ok(value.reason_codes.includes('T3_D2_UNRESOLVED_SOURCE_LINK'));
   assert.equal(h.counts.write,0);
+});
+
+test('original T3 D1/D2 read reaches Host-mounted Activity review and revoked grant clears it',async()=>{
+  const h=fixture();
+  const states=[];
+  const ui=createT3ReviewController({host:h,onUpdate:s=>states.push(s)});
+  assert.equal(states.at(-1).status,'READY_TO_READ');
+  assert.equal(h.counts.read,0);
+  const result=await ui.readSelected();
+  assert.equal(result.status,'REVIEW');
+  assert.equal(states.at(-1).review.status,'STRUCTURE_PRESERVED_REVIEW_REQUIRED');
+  assert.equal(states.at(-1).review.export_allowed,false);
+  assert.ok(h.counts.read>0);
+  const before=h.counts.read;
+  h.revoke();
+  assert.deepEqual(states.at(-1),{status:'READY_TO_READ',review:null});
+  assert.equal((await ui.readSelected()).status,'HOLD');
+  assert.equal(states.at(-1).code,'T3_AUTHORITATIVE_READ_REFUSED');
+  assert.equal(h.counts.read,before,'revocation must prevent original Kernel reads');
+  assert.equal(h.counts.write,0);
+  assert.equal(JSON.stringify(states).includes('PRIVATE_NOT_TO_COPY'),false);
+  ui.dispose();
+});
+
+test('original T3 Workspace subscription prevents an in-flight stale Activity UI view',async()=>{
+  const h=fixture();
+  const states=[];
+  const ui=createT3ReviewController({host:h,onUpdate:s=>states.push(s)});
+  h.switchDuringRead();
+  assert.equal((await ui.readSelected()).status,'INVALIDATED');
+  assert.equal(states.at(-1).status,'READY_TO_READ');
+  assert.equal(states.at(-1).review,null);
+  assert.equal(h.counts.write,0);
+  ui.dispose();
 });
