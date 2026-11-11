@@ -171,6 +171,7 @@ async function run() {
         workspace_count:d1Receipts.length,
         event_count:d1Receipts.length*3,
         workspace_lifecycle_roundtrip:true,
+        single_subject_iwxa_export_confirm:true,
         first_cold_restart:d1ColdOne,
         second_cold_restart:d1ColdTwo,
         browser_process_restarts:2,

@@ -10,7 +10,8 @@ function fixture(){
   const calls=[], allowed=new Set(["t1.createWorkspace","t1.getWorkspace","t1.getObject",
     "t1.listObjects","t1.putObject","t1.deleteObject","t1.putRelation","t1.deleteRelation",
     "t1.listAssets","t1.getAsset","t1.putAsset","t1.deleteAsset","t1.commitObjectGraph",
-    "t1.listEventsSince","t1.softDeleteWorkspace","t1.restoreWorkspace"]);
+    "t1.listEventsSince","t1.softDeleteWorkspace","t1.restoreWorkspace",
+    "t2.exportPreview","t2.exportPackage","t2.confirmExport"]);
   const context={kind:"PERSONAL",context_id:"context:person",actor_id:"person:1",
     principal_id:"person:1",role_id:"role:writer",grant_id:"grant:person",
     realm_id:"realm:person",audience:"host:t3",resource:ws,workspace_id:ws,
@@ -45,6 +46,16 @@ function fixture(){
       return {workspace_id:ws,object:{...record,object_id:input.object.object_id},
         relations_put:[relation],relation_ids_deleted:[],event};},
     async listEventsSince(id,since){calls.push(["listEventsSince",id,since]);return [event];},
+    async exportPreview(options){calls.push(["exportPreview",options]);
+      return {workspaces:[...options.workspaces],counts:{workspaces:1}};},
+    async exportPackage(options){calls.push(["exportPackage",options]);
+      const package_digest="a".repeat(64);
+      return {package_digest,manifest:{package_digest,workspaces:[...options.workspaces],
+        workspace_states:[{workspace_id:ws,updated_at:new Date(now).toISOString()}]},
+        bytes:Uint8Array.from([1,2]),size:2};},
+    async confirmExport(input){calls.push(["confirmExport",input]);
+      return {workspace_ids:[...input.workspace_ids],
+        package_digest:input.package_digest,confirmations:1};},
     async getWorkspace(id){calls.push(["getWorkspace",id]);return {workspace_id:id};},
     async softDeleteWorkspace(id){calls.push(["softDeleteWorkspace",id]);
       return {workspace_id:id,deleted_at:new Date(now).toISOString()};},
@@ -208,4 +219,45 @@ test("D1 denies cross-workspace lifecycle and mismatched original T2 receipts",a
   f.kernel.restoreWorkspace=async()=>null;
   await assert.rejects(f.bound.restoreWorkspace(ws),
     {code:"T3_KERNEL_SCOPE_RECEIPT_MISMATCH"});
+});
+
+test("D1 preserves original single-Workspace T2 export preview, archive and confirmation",async()=>{
+  const f=fixture(),options={workspaces:[ws],include_history:true,include_assets:true};
+  assert.deepEqual((await f.bound.exportPreview(options)).workspaces,[ws]);
+  const artifact=await f.bound.exportPackage(options);
+  assert.deepEqual([...artifact.bytes],[1,2]);
+  assert.deepEqual(artifact.manifest.workspaces,[ws]);
+  const receipt=await f.bound.confirmExport({
+    package_digest:artifact.package_digest,workspace_ids:[ws]});
+  assert.deepEqual(receipt.workspace_ids,[ws]);
+  assert.equal(receipt.package_digest,artifact.package_digest);
+  assert.deepEqual(f.calls.map(x=>x[0]),["exportPreview","exportPackage","confirmExport"]);
+});
+test("D1 cannot implicitly export or confirm another subject Workspace",async()=>{
+  const f=fixture();
+  for(const run of [
+    ()=>f.bound.exportPreview({workspaces:[ws,"ws:foreign"]}),
+    ()=>f.bound.exportPackage({workspaces:["ws:foreign"]}),
+    ()=>f.bound.exportPackage({workspaces:[]}),
+    ()=>f.bound.confirmExport({package_digest:"a".repeat(64)}),
+    ()=>f.bound.confirmExport({package_digest:"a".repeat(64),
+      workspace_ids:[ws,"ws:foreign"]}),
+  ]) await assert.rejects(run(),{
+    code:/T3_SUBJECT_EXCHANGE_SCOPE_INVALID|T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE/});
+  assert.equal(f.calls.length,0);
+});
+test("D1 refuses foreign Exchange manifest or cross-Workspace confirmation receipts",async()=>{
+  const f=fixture();
+  f.kernel.exportPreview=async()=>({workspaces:[ws,"ws:foreign"]});
+  await assert.rejects(f.bound.exportPreview({workspaces:[ws]}),
+    {code:"T3_KERNEL_EXCHANGE_SCOPE_MISMATCH"});
+  f.kernel.exportPackage=async()=>({package_digest:"a".repeat(64),
+    manifest:{package_digest:"a".repeat(64),workspaces:[ws],
+      workspace_states:[{workspace_id:"ws:foreign"}]}});
+  await assert.rejects(f.bound.exportPackage({workspaces:[ws]}),
+    {code:"T3_KERNEL_EXCHANGE_SCOPE_MISMATCH"});
+  f.kernel.confirmExport=async()=>({workspace_ids:[ws],
+    package_digest:"b".repeat(64)});
+  await assert.rejects(f.bound.confirmExport({workspace_ids:[ws],
+    package_digest:"a".repeat(64)}),{code:"T3_KERNEL_EXCHANGE_DIGEST_MISMATCH"});
 });

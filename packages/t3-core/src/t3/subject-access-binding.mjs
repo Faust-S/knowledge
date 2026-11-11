@@ -18,6 +18,9 @@ const OPERATIONS = Object.freeze({
   listEventsSince: "t1.listEventsSince",
   softDeleteWorkspace: "t1.softDeleteWorkspace",
   restoreWorkspace: "t1.restoreWorkspace",
+  exportPreview: "t2.exportPreview",
+  exportPackage: "t2.exportPackage",
+  confirmExport: "t2.confirmExport",
 });
 export const SUBJECT_SCOPED_OPERATION_IDS = Object.freeze(Object.values(OPERATIONS));
 const REF = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
@@ -127,7 +130,18 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
     let command;
     try { command = structuredClone(input); }
     catch { refused("T3_KERNEL_INPUT_NOT_CLONEABLE"); }
-    if (command?.workspace_id !== workspace_id) refused("T3_KERNEL_INPUT_SCOPE_MISMATCH");
+    // T2 Exchange addresses workspaces through an array rather than a
+    // workspace_id property. Require exactly the selected subject's workspace.
+    // Confirming an export without explicit workspace_ids would confirm all
+    // package workspaces and must never be enabled by subject-bound T3.
+    if (["exportPreview","exportPackage","confirmExport"].includes(method)) {
+      const ids=method === "confirmExport" ? command?.workspace_ids : command?.workspaces;
+      if (!Array.isArray(ids) || ids.length!==1 || ids[0]!==workspace_id) {
+        refused("T3_SUBJECT_EXCHANGE_SCOPE_INVALID");
+      }
+    } else if (command?.workspace_id !== workspace_id) {
+      refused("T3_KERNEL_INPUT_SCOPE_MISMATCH");
+    }
     const operation = OPERATIONS[method];
     if (!kernel.hasOperation(operation)) refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     if (typeof kernel[method] !== "function") refused("T3_KERNEL_OPERATION_UNAVAILABLE");
@@ -237,6 +251,31 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
       }
       checkEvent(result.event);
     }
+    // Validate the original T2 Exchange owner receipts without modifying the
+    // archive bytes or creating a parallel packager/manifest parser.
+    if (method === "exportPreview" || method === "confirmExport") {
+      const ids=method === "exportPreview" ? result?.workspaces : result?.workspace_ids;
+      if (!Array.isArray(ids) || ids.length!==1 || ids[0]!==workspace_id) {
+        refused("T3_KERNEL_EXCHANGE_SCOPE_MISMATCH");
+      }
+      if (method === "confirmExport" &&
+          result?.package_digest!==command.package_digest) {
+        refused("T3_KERNEL_EXCHANGE_DIGEST_MISMATCH");
+      }
+    }
+    if (method === "exportPackage") {
+      const manifest=result?.manifest;
+      if (!Array.isArray(manifest?.workspaces) ||
+          manifest.workspaces.length!==1 ||
+          manifest.workspaces[0]!==workspace_id ||
+          !Array.isArray(manifest?.workspace_states) ||
+          manifest.workspace_states.length!==1 ||
+          manifest.workspace_states[0]?.workspace_id!==workspace_id ||
+          !HEX.test(result?.package_digest??"") ||
+          result.package_digest!==manifest.package_digest) {
+        refused("T3_KERNEL_EXCHANGE_SCOPE_MISMATCH");
+      }
+    }
     // Kernel/Host methods are asynchronous. Selection can change while the
     // original Kernel is executing, even when Access JIT authorization passed.
     // Never return the prior subject's read or receipt to the new context.
@@ -245,6 +284,12 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
       refused("T3_SUBJECT_RESULT_STALE_AFTER_KERNEL");
     }
     return result; // Original T2 Kernel receipt; no duplicate source-of-truth.
+  }
+  function oneWorkspace(values) {
+    if (!Array.isArray(values) || values.length!==1) {
+      refused("T3_SUBJECT_EXCHANGE_SCOPE_INVALID");
+    }
+    return requiredId(values[0],"WORKSPACE_ID");
   }
   return Object.freeze({
     createWorkspace: input => invoke("createWorkspace",input,input?.workspace_id),
@@ -269,5 +314,11 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
       invoke("softDeleteWorkspace",{workspace_id},workspace_id),
     restoreWorkspace: workspace_id =>
       invoke("restoreWorkspace",{workspace_id},workspace_id),
+    exportPreview: options =>
+      invoke("exportPreview",options,oneWorkspace(options?.workspaces)),
+    exportPackage: options =>
+      invoke("exportPackage",options,oneWorkspace(options?.workspaces)),
+    confirmExport: input =>
+      invoke("confirmExport",input,oneWorkspace(input?.workspace_ids)),
   });
 }

@@ -13,7 +13,8 @@ const validTo=()=>new Date(Date.now()+60000).toISOString();
 const nowIso=()=>new Date().toISOString();
 const methods=new Set(["t1.createWorkspace","t1.getWorkspace","t1.putObject","t1.getObject",
   "t1.listObjects","t1.putRelation","t1.listEventsSince",
-  "t1.softDeleteWorkspace","t1.restoreWorkspace"]);
+  "t1.softDeleteWorkspace","t1.restoreWorkspace",
+  "t2.exportPreview","t2.exportPackage","t2.confirmExport"]);
 
 export async function liveT2Facade(page, service_id=W) {
   assert.equal(typeof page?.evaluate,"function");
@@ -30,10 +31,11 @@ export async function liveT2Facade(page, service_id=W) {
   async function invoke(method,args) {
     return page.evaluate(async ({service_id,method,args})=>{
       const session=await globalThis.IWXA.connect({service_id});
-      if(!session.granted_operations.includes("t1."+method)){
+      const tier=["exportPreview","exportPackage","confirmExport"].includes(method)?"t2":"t1";
+      if(!session.granted_operations.includes(tier+"."+method)){
         throw new Error("T3_D1_LIVE_KERNEL_GRANT_MISSING");
       }
-      return session.t1[method](...args);
+      return session[tier][method](...args);
     },{service_id,method,args});
   }
   return Object.freeze({
@@ -48,6 +50,9 @@ export async function liveT2Facade(page, service_id=W) {
     putRelation:input=>invoke("putRelation",[input]),
     softDeleteWorkspace:id=>invoke("softDeleteWorkspace",[id]),
     restoreWorkspace:id=>invoke("restoreWorkspace",[id]),
+    exportPreview:options=>invoke("exportPreview",[options]),
+    exportPackage:options=>invoke("exportPackage",[options]),
+    confirmExport:input=>invoke("confirmExport",[input]),
     listEventsSince:(id,since)=>invoke("listEventsSince",[id,since]),
   });
 }
@@ -84,7 +89,10 @@ export async function createD1TestHost(page,file) {
     "t1.getObject":"object.read","t1.listObjects":"object.list",
     "t1.putRelation":"relation.write","t1.listEventsSince":"history.read",
     "t1.softDeleteWorkspace":"workspace.softDelete",
-    "t1.restoreWorkspace":"workspace.restore"})[op];
+    "t1.restoreWorkspace":"workspace.restore",
+    "t2.exportPreview":"exchange.preview",
+    "t2.exportPackage":"exchange.export",
+    "t2.confirmExport":"exchange.confirm"})[op];
   const access=createSignedAccessHostPort({
     currentContext,actionFor,
     operationDigest:({operation,input,context})=>digest({operation,input,context}),
@@ -204,6 +212,16 @@ export async function seedD1OnRealKernel(page,file){
   assert.equal(restored.workspace_id,subjectWorkspace);
   const afterRestore=await host.binding.getObject(subjectWorkspace,"d1:record:0");
   assert.equal(afterRestore.object.revision,1);
+  const exportOptions={workspaces:[subjectWorkspace],include_history:true,
+    include_relations:true,include_schemas:true};
+  const exportPreview=await host.binding.exportPreview(exportOptions);
+  assert.deepEqual(exportPreview.workspaces,[subjectWorkspace]);
+  const exported=await host.binding.exportPackage(exportOptions);
+  assert.deepEqual(exported.manifest.workspaces,[subjectWorkspace]);
+  const confirmed=await host.binding.confirmExport({
+    package_digest:exported.package_digest,workspace_ids:[subjectWorkspace]});
+  assert.deepEqual(confirmed.workspace_ids,[subjectWorkspace]);
+  assert.equal(confirmed.package_digest,exported.package_digest);
   host.select(1);
   await assert.rejects(host.binding.getObject(host.contexts[2].workspace_id,"d1:record:2"),
     {code:"T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE"});
