@@ -82,7 +82,9 @@ function fixture({personalOnly=false, corporateOnly=false, corporateProductId="I
   const kernel={
     sessionInfo:{contract_version:"1.3.0"},
     hasOperation:()=>true,
-    async putObject(x){calls.push("kernel");objects.set(x.workspace_id+"/"+x.object_id,x);return {object:x};},
+    async putObject(x){calls.push("kernel");objects.set(x.workspace_id+"/"+x.object_id,x);return {
+      object:x,event:{workspace_id:x.workspace_id,event_id:"test:event:"+x.object_id}
+    };},
     async getObject(ws,id){calls.push("kernel");return {object:objects.get(ws+"/"+id)};},
   };
   return {access,binding:createSubjectKernelBinding({access,kernel,clock:()=>now}),
