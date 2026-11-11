@@ -86,6 +86,7 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     await page.goto(base+"/");
     const toggle=page.locator("#iwxa-t3-domain-switch");
     await toggle.waitFor();
+    await page.waitForFunction(()=>!document.querySelector("#iwxa-t3-domain-switch").disabled);
     assert.equal(await toggle.isChecked(),false,"normal site is initial default");
     assert.equal(await page.evaluate(()=>navigator.serviceWorker.getRegistrations()
       .then(rows=>rows.length)),0,"T3 does not silently register a worker");
