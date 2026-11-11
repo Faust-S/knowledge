@@ -188,7 +188,9 @@ test("T3 offline worker installs verified snapshot, blocks remote egress, and su
     await afterOptOutRestart.dispatch("T3_STATUS",{postMessage:m=>statusAfterRestart.push(m)});
     assert.equal(statusAfterRestart[0]?.active,false,
       "old cached snapshots never reactivate T3 after user turns it off");
-    assert.equal((await afterOptOutRestart.fetchPage(ORIGIN+"/workspace/")).status,200);
+    // Our mock fetch does not emulate Apache DirectoryIndex; request the
+    // real file when testing the ordinary, non-SW network route.
+    assert.equal((await afterOptOutRestart.fetchPage(ORIGIN+"/workspace/index.html")).status,200);
     assert.equal(afterOptOutRestart.liveFetches,1);
     const afterReinstall=fakeBrowser(root,first.caches), reinstall=[];
     await afterReinstall.dispatch("T3_INSTALL",{postMessage:m=>reinstall.push(m)});
