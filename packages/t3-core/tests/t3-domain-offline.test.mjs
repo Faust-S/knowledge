@@ -22,6 +22,7 @@ function specimen() {
   write(root,"_iwxa/domain-shell.json","{}");
   write(root,"_iwxa/service-catalog.json","{\"entries\":[]}");
   write(root,"_iwxa/runtime/0.3.6/runtime.js","/* original Kernel */");
+  write(root,".htaccess","Options -Indexes\n");
   write(root,"workspace/assets/shell.js","export const kernel = true;");
   write(root,"assets/site.css","body{font:16px system-ui}");
   return root;
@@ -38,6 +39,8 @@ test("T3 domain switch covers ALL public routes and the original Workspace in on
     assert.equal(result.original_kernel_unchanged,true);
     assert.ok(result.site_pages>=3);
     assert.equal(data.domain_origin,ORIGIN);
+    assert.equal(data.files.some(x=>x.path==="/.htaccess"),false,
+      "Apache config is shipped but is not a retrievable browser resource");
     assert.equal(data.pages.some(x=>x.path==="/profile/"),true);
     assert.equal(data.pages.some(x=>x.path==="/workspace/"),true);
     const paths=new Set(data.files.map(x=>x.path));
