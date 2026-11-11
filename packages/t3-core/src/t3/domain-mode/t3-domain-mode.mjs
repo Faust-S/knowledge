@@ -12,6 +12,9 @@ function style() {
     "#iwxa-t3-domain-controls{font:14px system-ui,sans-serif;box-sizing:border-box;color:#f8fafc;background:#142638;border:1px solid #46657b;border-radius:12px;padding:10px 12px;box-shadow:0 8px 20px #0a223333;max-width:min(92vw,340px);z-index:2147483000}",
     "#iwxa-t3-domain-controls[data-floating]{position:fixed;bottom:16px;left:16px}",
     "#iwxa-t3-domain-controls label{display:flex;align-items:center;gap:9px;font-weight:650;cursor:pointer}",
+    "#iwxa-t3-domain-controls button{font:inherit;margin:8px 5px 0 0;padding:5px 9px;border:1px solid #80a9bd;border-radius:6px;color:#f8fafc;background:#20516b;cursor:pointer}",
+    "#iwxa-t3-domain-controls button:disabled{opacity:.55;cursor:default}",
+    "#iwxa-t3-domain-controls [hidden]{display:none!important}",
     "#iwxa-t3-domain-controls input{width:18px;height:18px;accent-color:#3b9d8c}",
     "#iwxa-t3-domain-controls [role=status]{margin:4px 0 0;font-size:12px;line-height:1.4;color:#d5e4ec}",
     "#iwxa-t3-domain-controls input:focus-visible{outline:2px solid #89ceee;outline-offset:3px}"
@@ -34,19 +37,30 @@ function createControl() {
   const text = document.createElement("span");
   text.textContent = "T3 · Автономный сайт";
   label.append(toggle, text);
+  const updateCheck = document.createElement("button");
+  updateCheck.type = "button";
+  updateCheck.textContent = "Проверить обновление T3";
+  updateCheck.hidden = true;
+  const updateInstall = document.createElement("button");
+  updateInstall.type = "button";
+  updateInstall.textContent = "Установить обновление";
+  updateInstall.hidden = true;
   const state = document.createElement("p");
   state.setAttribute("role", "status");
   state.setAttribute("aria-live", "polite");
   state.textContent = "Режим не включён.";
-  box.append(label, state);
+  box.append(label, updateCheck, updateInstall, state);
   (mount || document.body).append(box);
   style();
-  return {toggle, state};
+  return {toggle, state, updateCheck, updateInstall, pendingUpdate: null};
 }
 function tell(ui, text) { ui.state.textContent = text; }
 function render(ui, enabled) {
   ui.toggle.checked = enabled;
   ui.toggle.disabled = false;
+  ui.updateCheck.hidden = !enabled;
+  ui.updateInstall.hidden = true;
+  ui.pendingUpdate = null;
   document.documentElement.toggleAttribute("data-iwxa-t3-autonomous", enabled);
   if (enabled) tell(ui, "Работает локальная копия страниц и T3 Kernel. Модель ИИ устанавливается отдельно.");
   else tell(ui, "Сайт работает в обычном режиме. Включение загрузит его офлайн-копию.");
@@ -59,7 +73,7 @@ async function foreignWorker() {
   return registrations.some(reg =>
     reg.active && new URL(reg.scope).origin === location.origin && !isOwn(reg.active));
 }
-function message(worker, type, progress = () => {}) {
+function message(worker, type, progress = () => {}, extra = {}) {
   return new Promise((resolve, reject) => {
     const channel = new MessageChannel();
     const timer = setTimeout(() => {
@@ -73,7 +87,7 @@ function message(worker, type, progress = () => {}) {
       if (data?.type === "FAILED") reject(Error(data.message || "T3_DOMAIN_INSTALL_FAILED"));
       else resolve(data);
     };
-    try { worker.postMessage({type}, [channel.port2]); }
+    try { worker.postMessage({type, ...extra}, [channel.port2]); }
     catch (error) { clearTimeout(timer); channel.port1.close(); reject(error); }
   });
 }
@@ -133,6 +147,62 @@ async function enable(ui) {
   tell(ui, "Офлайн-копия установлена. Переключаю сайт на локальный режим…");
   location.reload();
 }
+async function checkForUpdate(ui) {
+  if (ui.toggle.disabled) return;
+  ui.updateCheck.disabled = true;
+  ui.updateInstall.hidden = true;
+  ui.pendingUpdate = null;
+  tell(ui, "Проверяю наличие обновления на исходном сайте…");
+  try {
+    const reg = await registration();
+    if (!isOwn(reg?.active)) throw Error("T3_DOMAIN_WORKER_UNAVAILABLE");
+    const result = await message(reg.active, "T3_CHECK_UPDATE");
+    if (result?.type !== "UPDATE_STATUS") throw Error("T3_DOMAIN_UPDATE_REPLY_INVALID");
+    if (!result.available) {
+      tell(ui, "Установлена актуальная офлайн-версия T3. Все данные остаются локальными.");
+      return;
+    }
+    if (!Number.isSafeInteger(result.totalBytes) || result.totalBytes < 1 ||
+        !Number.isInteger(result.files) || result.files < 4 ||
+        !/^[a-f0-9]{64}$/.test(result.version)) throw Error("T3_DOMAIN_UPDATE_INVALID");
+    ui.pendingUpdate = result;
+    ui.updateInstall.hidden = false;
+    tell(ui, "Доступна новая офлайн-версия. Для установки требуется отдельное подтверждение.");
+  } catch (error) {
+    tell(ui, "Проверка обновления недоступна: " + (error?.message || String(error)) +
+      ". Существующая локальная версия не затронута.");
+  } finally { ui.updateCheck.disabled = false; }
+}
+async function applyUpdate(ui) {
+  const update = ui.pendingUpdate;
+  if (!update) return;
+  // Native confirmation occurs directly within the user's click.
+  const mb = (update.totalBytes / (1024 * 1024)).toFixed(1);
+  if (!window.confirm("Установить обновление автономного T3?\\n" +
+    "Проверю " + update.files + " файлов (около " + mb + " МБ).\\n" +
+    "До успешной проверки все ресурсы предыдущей версии сохраняются. Модель ИИ не устанавливается.")) return;
+  ui.updateInstall.disabled = true;
+  ui.updateCheck.disabled = true;
+  ui.toggle.disabled = true;
+  try {
+    const reg = await registration();
+    if (!isOwn(reg?.active)) throw Error("T3_DOMAIN_WORKER_UNAVAILABLE");
+    const receipt = await message(reg.active, "T3_INSTALL",
+      ({done, total}) => tell(ui, "Обновляю локальный сайт: " + done + " / " + total),
+      {expectedVersion: update.version});
+    if (receipt?.type !== "READY" || receipt.version !== update.version ||
+        receipt.files !== update.files) throw Error("T3_DOMAIN_UPDATE_NOT_VERIFIED");
+    tell(ui, "Обновление подтверждено. Открываю новую автономную версию…");
+    location.reload();
+  } catch (error) {
+    tell(ui, "Обновление не установлено: " + (error?.message || String(error)) +
+      ". Предыдущая офлайн-версия сохранена.");
+  } finally {
+    ui.updateInstall.disabled = false;
+    ui.updateCheck.disabled = false;
+    ui.toggle.disabled = false;
+  }
+}
 async function disable(ui) {
   const reg = await registration();
   if (reg?.active && isOwn(reg.active)) {
@@ -154,6 +224,8 @@ async function main() {
   }
   try { await status(ui); }
   catch (error) { ui.toggle.disabled = true; tell(ui, "Не удалось проверить T3: " + error.message); }
+  ui.updateCheck.addEventListener("click", () => void checkForUpdate(ui));
+  ui.updateInstall.addEventListener("click", () => void applyUpdate(ui));
   ui.toggle.addEventListener("change", async () => {
     ui.toggle.disabled = true;
     try {
