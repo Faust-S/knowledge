@@ -149,6 +149,24 @@ describe("T3 D1 original ModuleContext Kernel with signed corporate subject",()=
       expect(f.calls.length).toBe(before);
     }finally{await host.dispose();}
   });
+  it("selects the signed grant per operation; Activity read does not grant object writes",async()=>{
+    const f=fixture();
+    const host=await createWorkspaceHostRuntime({
+      session:f.session,workspaceConfig:{modules:[]},bindLegacyHashDriver:false,
+      termResolver:(_key,fallback)=>fallback??"",
+      signedKernelAccess:(operation:string)=>
+        operation==="putObject"?null:f.access,
+    });
+    try{
+      const kernel=host.contextProvider.createContext("d06").kernel;
+      expect((await kernel.getWorkspace("ws:alpha"))?.workspace_id).toBe("ws:alpha");
+      const before=f.calls.length;
+      await expect(kernel.putObject({workspace_id:"ws:alpha",object_id:"item:1",
+        schema_id:"demo",schema_version:"1.0.0",data:{},event:{event_type:"created"}}))
+        .rejects.toMatchObject({code:"T3_D1_ACCESS_OWNER_REQUIRED"});
+      expect(f.calls.length).toBe(before);
+    }finally{await host.dispose();}
+  });
   it("retains the original T2 .iwxa import preview/commit and rejects foreign target plans",async()=>{
     const f=fixture(),host=await open(f);
     try{

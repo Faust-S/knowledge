@@ -25,7 +25,7 @@ export interface KernelFacadeInput {
   /** Trusted Host-only signed owner, never a module, package, or UI field.
    * The provider resolves the current PERSONAL/CORP authority per operation. */
   signedKernelAccess?: T3SignedActivityAccess |
-    (() => T3SignedActivityAccess | null | Promise<T3SignedActivityAccess | null>);
+    ((operation: string) => T3SignedActivityAccess | null | Promise<T3SignedActivityAccess | null>);
 }
 
 export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
@@ -101,15 +101,15 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     throw Object.assign(new Error(code), { code });
   };
   const source = input.signedKernelAccess;
-  const owner = async (): Promise<T3SignedActivityAccess> => {
-    const current = typeof source === "function" ? await source() : source;
+  const owner = async (operation: string): Promise<T3SignedActivityAccess> => {
+    const current = typeof source === "function" ? await source(operation) : source;
     if (!current) return deny("T3_D1_ACCESS_OWNER_REQUIRED");
     if (typeof current.currentContext !== "function")
       return deny("T3_D1_ACCESS_OWNER_REQUIRED");
     return current;
   };
-  const signed = async () => {
-    const access = await owner();
+  const signed = async (operation: string) => {
+    const access = await owner(operation);
     let bound = instances.get(access);
     if (!bound) {
       bound = createSubjectKernelBinding({ kernel: inherited, access });
@@ -118,8 +118,8 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     const initial = JSON.stringify(access.currentContext());
     return { bound, initial };
   };
-  const revalidate = async (initial: string) => {
-    const current = await owner();
+  const revalidate = async (initial: string, operation: string) => {
+    const current = await owner(operation);
     if (JSON.stringify(current.currentContext()) !== initial)
       deny("T3_SUBJECT_RESULT_STALE_AFTER_KERNEL");
   };
@@ -137,30 +137,30 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
   ];
   for (const method of subjectMethods) {
     guarded[method] = async (...args: unknown[]) => {
-      const { bound, initial } = await signed();
+      const { bound, initial } = await signed(method);
       const delegate = (bound as unknown as Record<string, (...args: unknown[]) =>
         Promise<unknown>>)[method];
       if (typeof delegate !== "function") deny("T3_SUBJECT_OPERATION_UNAVAILABLE");
       const result = await delegate(...args);
-      await revalidate(initial);
+      await revalidate(initial, method);
       return result; // the original T2 receipt, not a second result model
     };
   }
   // Non-subject T2 enumeration cannot expose another organization's
   // workspaces. Filter by the one signed selected workspace instead.
   guarded.listWorkspaces = async (options?: { include_deleted?: boolean }) => {
-    const { bound, initial } = await signed();
-    const active = await owner();
+    const { bound, initial } = await signed("getWorkspace");
+    const active = await owner("getWorkspace");
     const selectedContext = active.currentContext() as { workspace_id?: unknown } | null;
     const workspaceId = selectedContext?.workspace_id;
     if (typeof workspaceId !== "string") return deny("T3_SUBJECT_CONTEXT_UNAVAILABLE");
     const row = await bound.getWorkspace(workspaceId);
-    await revalidate(initial);
+    await revalidate(initial, "getWorkspace");
     return row && (options?.include_deleted === true || !row.deleted_at) ? [row] : [];
   };
   for (const method of ["authorizationForWorkspace","hasCapability"] as const) {
     guarded[method] = async (workspaceId: string, capabilityId?: string) => {
-      const { bound, initial } = await signed();
+      const { bound, initial } = await signed("getWorkspace");
       // GetWorkspace performs the original signed JIT and selected-resource
       // check before the underlying T2 authorization/capability query.
       await bound.getWorkspace(workspaceId);
@@ -168,7 +168,7 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
       const result = method === "hasCapability"
         ? await delegate(workspaceId, capabilityId as string)
         : await delegate(workspaceId);
-      await revalidate(initial);
+      await revalidate(initial, "getWorkspace");
       return result;
     };
   }

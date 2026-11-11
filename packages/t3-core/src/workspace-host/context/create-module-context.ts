@@ -47,7 +47,7 @@ export interface ModuleContextFactoryInput {
   session: KernelSession;
   /** Host-owned signed authority for the complete inherited Kernel facade. */
   signedKernelAccess?: T3SignedActivityAccess |
-    (() => T3SignedActivityAccess | null | Promise<T3SignedActivityAccess | null>);
+    ((operation: string) => T3SignedActivityAccess | null | Promise<T3SignedActivityAccess | null>);
   router: HostRouter;
   hub: HostContributionHub;
   currentWorkspaceStore: CurrentWorkspaceStore;

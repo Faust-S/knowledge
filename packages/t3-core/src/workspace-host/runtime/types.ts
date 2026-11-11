@@ -64,7 +64,7 @@ export interface CreateWorkspaceHostRuntimeInput {
   /** Existing owner for signed authority on all inherited T1/T2 module calls.
    * Explicitly separate from Activity-specific DATA consent. */
   signedKernelAccess?: T3SignedActivityAccess |
-    (() => T3SignedActivityAccess | null | Promise<T3SignedActivityAccess | null>);
+    ((operation: string) => T3SignedActivityAccess | null | Promise<T3SignedActivityAccess | null>);
   /** Read-only capability snapshot for module/contribution visibility guards. */
   activeCapabilities?: readonly string[];
   workspaceConfig: { modules: readonly Record<string, unknown>[] };
