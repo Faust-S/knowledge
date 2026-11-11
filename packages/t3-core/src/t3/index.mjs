@@ -13,3 +13,4 @@ export async function readActivityFromWorkspaceContext(context, options = {}) {
   return readActivityFromT2Host({ ...options, kernel: context.kernel });
 }
 export { createSubjectKernelBinding } from './subject-access-binding.mjs';
+export { createSignedAccessHostPort } from "./signed-access-host-port.mjs";
