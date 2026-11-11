@@ -7,7 +7,7 @@ import {createHash} from 'node:crypto';
 import {existsSync} from 'node:fs';
 import {resolve, join} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {inspectSelectedT3Activity, T3ActivityHold} from
+import {inspectSelectedT3Activity, T3ActivityHold, createTrustedT3ReviewPort} from
   '../modules/activity-base-anonymizer/t3-selected-host.mjs';
 import {createT3ReviewController} from
   '../modules/activity-base-anonymizer/t3-review-controller.mjs';
@@ -145,7 +145,10 @@ test('original D2 missing object revision yields HOLD, never an assumed transiti
 test('original T3 D1/D2 read reaches Host-mounted Activity review and revoked grant clears it',async()=>{
   const h=fixture();
   const states=[];
-  const ui=createT3ReviewController({host:h,onUpdate:s=>states.push(s)});
+  const ui=createT3ReviewController({
+    host:createTrustedT3ReviewPort({...h,subscribeOwnerInvalidation:h.subscribeInvalidation}),
+    onUpdate:s=>states.push(s),
+  });
   assert.equal(states.at(-1).status,'READY_TO_READ');
   assert.equal(h.counts.read,0);
   const result=await ui.readSelected();
@@ -167,7 +170,10 @@ test('original T3 D1/D2 read reaches Host-mounted Activity review and revoked gr
 test('original T3 Workspace subscription prevents an in-flight stale Activity UI view',async()=>{
   const h=fixture();
   const states=[];
-  const ui=createT3ReviewController({host:h,onUpdate:s=>states.push(s)});
+  const ui=createT3ReviewController({
+    host:createTrustedT3ReviewPort({...h,subscribeOwnerInvalidation:h.subscribeInvalidation}),
+    onUpdate:s=>states.push(s),
+  });
   h.switchDuringRead();
   assert.equal((await ui.readSelected()).status,'INVALIDATED');
   assert.equal(states.at(-1).status,'READY_TO_READ');

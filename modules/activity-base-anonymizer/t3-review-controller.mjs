@@ -1,16 +1,72 @@
-// UI lifecycle for an existing signed T3 Host-selected Activity read.
-// It neither grants source access nor persists evidence. The Host owns the
-// original T3 D1/D2 port and must signal grant/status invalidation.
-import {inspectSelectedT3Activity, T3ActivityHold} from './t3-selected-host.mjs';
+// UI lifecycle for a narrow, Host-owned Activity review capability.
+// The renderer never receives T3 Kernel, signed Access, source IDs or grants.
+// The trusted owner runs original signed D1/D2 reads and signals invalidation.
+import {T3ActivityHold, T3_SELECTED_VIEW_SCHEMA} from './t3-selected-host.mjs';
 
+const REASON_CODES = new Set([
+  'T3_D2_UNRESOLVED_SOURCE_LINK', 'T3_D2_UNMAPPED_SOURCE_RECORD',
+  'T3_D2_EVENT_OBJECT_UNVERIFIED', 'T3_D2_NO_OBSERVED_ACTIVITY',
+  'T3_D2_OBJECT_EVENT_ORDER_UNKNOWN', 'T3_D2_OBJECT_WITHOUT_EVENTS',
+  'T3_D2_RARE_OBJECT_ROUTE', 'T3_D2_RARE_OBJECT_RELATION',
+  'T3_D2_RELATION_PRIVACY_REVIEW_REQUIRED',
+  'EXTERNAL_LINKAGE_RISK_UNMEASURED',
+  'T3_SIGNED_OWNER_RESULT_NOT_INDEPENDENTLY_ATTESTED',
+  'OCEL2_FULL_CONFORMANCE_NOT_ESTABLISHED',
+]);
+const BANDS = new Set(['3-9', '10-49', '50+']);
+const ALIAS = /^(?:event_type|object_type)_[0-9]{3,5}$/;
+const obj = v => v && typeof v === 'object' && !Array.isArray(v);
+const exact = (v, keys) => obj(v) &&
+  Object.keys(v).length === keys.length && keys.every(key => Object.hasOwn(v,key));
 const safeCode = error => error instanceof T3ActivityHold &&
   /^T3_[A-Z0-9_]{2,100}$/.test(error.code ?? '') ?
   error.code : 'T3_REVIEW_UNAVAILABLE';
 
+// Strictly disallow raw identifiers, timestamps, arbitrary strings, payloads,
+// active authority fields and future schema extensions before they touch React.
+function acceptedReview(r) {
+  const keys=['schema','status','reason_codes','host_source', 'semantic_mapping',
+    'residual_risk','anonymity','export_allowed','iwxa_package','structural_candidate'];
+  const ok=exact(r,keys) && r.schema === T3_SELECTED_VIEW_SCHEMA &&
+    ['HOLD','STRUCTURE_PRESERVED_REVIEW_REQUIRED'].includes(r.status) &&
+    Array.isArray(r.reason_codes) && r.reason_codes.length <= 16 &&
+    r.reason_codes.every(x=>REASON_CODES.has(x)) &&
+    r.host_source === 'T3_D2_SELECTED_WORKSPACE_INVOKED' &&
+    r.semantic_mapping === 'T0_T1_D2_ONLY_NOT_OCEL2_CONFORMANCE' &&
+    r.residual_risk === (r.status === 'HOLD' ? 'HIGH_OR_UNDETERMINED' : 'UNDETERMINED') &&
+    r.anonymity === 'NOT_ESTABLISHED' && r.export_allowed === false &&
+    r.iwxa_package === null;
+  if (!ok) throw new T3ActivityHold('T3_HOST_RESULT_UNVERIFIED');
+  if (r.status === 'HOLD') {
+    if (r.structural_candidate !== null) throw new T3ActivityHold('T3_HOST_RESULT_UNVERIFIED');
+  } else {
+    if (!Array.isArray(r.structural_candidate) || !r.structural_candidate.length ||
+        r.structural_candidate.length > 2000) throw new T3ActivityHold('T3_HOST_RESULT_UNVERIFIED');
+    for (const v of r.structural_candidate) {
+      if (!exact(v,['object_type','cohort_band','observed_event_kinds','object_local_successions']) ||
+          !ALIAS.test(v.object_type) || !v.object_type.startsWith('object_type_') ||
+          !BANDS.has(v.cohort_band) ||
+          !Array.isArray(v.observed_event_kinds) || v.observed_event_kinds.length > 10000 ||
+          !v.observed_event_kinds.every(x=>ALIAS.test(x) && x.startsWith('event_type_')) ||
+          !Array.isArray(v.object_local_successions) || v.object_local_successions.length > 10000 ||
+          !v.object_local_successions.every(e=>exact(e,['from','to','cohort_band','relation']) &&
+            ALIAS.test(e.from) && e.from.startsWith('event_type_') &&
+            ALIAS.test(e.to) && e.to.startsWith('event_type_') &&
+            BANDS.has(e.cohort_band) &&
+            e.relation === 'OBSERVED_OBJECT_LOCAL_ORDER_NOT_CAUSAL_DEPENDENCY')) {
+        throw new T3ActivityHold('T3_HOST_RESULT_UNVERIFIED');
+      }
+    }
+  }
+  // Copy after validation so the Host cannot mutate a live renderer reference.
+  try { return structuredClone(r); }
+  catch { throw new T3ActivityHold('T3_HOST_RESULT_UNVERIFIED'); }
+}
+
 export function createT3ReviewController({host, onUpdate} = {}) {
   if (!host || typeof onUpdate !== 'function' ||
-      typeof host.subscribeInvalidation !== 'function' ||
-      typeof host.context?.currentWorkspace?.subscribe !== 'function') {
+      typeof host.readSelected !== 'function' ||
+      typeof host.subscribeInvalidation !== 'function') {
     throw new T3ActivityHold('T3_TRUSTED_HOST_INVALIDATION_REQUIRED');
   }
   let generation = 0;
@@ -19,16 +75,11 @@ export function createT3ReviewController({host, onUpdate} = {}) {
     generation += 1;
     if (!detached) onUpdate({status: 'READY_TO_READ', review: null});
   };
-  let unselect = null;
-  let unowner = null;
+  let unowner;
   try {
-    unselect = host.context.currentWorkspace.subscribe(invalidate);
-    unowner = host.subscribeInvalidation(invalidate);
-    if (typeof unselect !== 'function' || typeof unowner !== 'function') {
-      throw new T3ActivityHold('T3_TRUSTED_HOST_INVALIDATION_REQUIRED');
-    }
+    unowner=host.subscribeInvalidation(invalidate);
+    if(typeof unowner!=='function')throw Error('SUBSCRIPTION_MISSING');
   } catch {
-    if (typeof unselect === 'function') unselect();
     throw new T3ActivityHold('T3_TRUSTED_HOST_INVALIDATION_REQUIRED');
   }
   onUpdate({status: 'READY_TO_READ', review: null});
@@ -38,7 +89,7 @@ export function createT3ReviewController({host, onUpdate} = {}) {
       const id = ++generation;
       onUpdate({status: 'READING', review: null});
       try {
-        const review = await inspectSelectedT3Activity(host);
+        const review = acceptedReview(await host.readSelected());
         if (detached || id !== generation) return {status: 'INVALIDATED'};
         onUpdate({status: 'REVIEW', review});
         return {status: 'REVIEW'};
@@ -48,15 +99,11 @@ export function createT3ReviewController({host, onUpdate} = {}) {
         return {status: 'HOLD'};
       }
     },
-    reset() {
-      if (detached) return;
-      invalidate();
-    },
+    reset() { if (!detached) invalidate(); },
     dispose() {
       if (detached) return;
       detached = true;
       generation += 1;
-      unselect();
       unowner();
     },
   });

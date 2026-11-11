@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createT3ReviewController} from '../modules/activity-base-anonymizer/t3-review-controller.mjs';
+import {createTrustedT3ReviewPort} from '../modules/activity-base-anonymizer/t3-selected-host.mjs';
 const secret='VERY_PRIVATE_PERSON_ID';
 const workspace='ws:subject';
 const row=i=>({object_id:`obj:${i}`,revision:1,schema_id:'schema.private',
@@ -13,135 +14,164 @@ const makeView=()=>({workspace_id:workspace,
       occurred_at:'2026-11-11T11:02:00Z',object_ref:{object_id:`obj:${i}`,revision:1}},
   ]),relations:[],unresolved:[],unmapped:{object_ids:[],event_ids:[],relation_ids:[]}});
 function makeHost(options={}) {
-  const listeners=new Set(), ownerListeners=new Set();
+  const selectionListeners=new Set(), ownerListeners=new Set();
   let selected=Object.freeze({workspace_id:workspace});
   let context=Object.freeze({kind:'PERSONAL', workspace_id:workspace,actor_id:secret});
   let reads=0;
   const releases=[];
   const wait=()=>new Promise(res=>{releases.push(res);});
-  let blocked=options.blocked??false;
-  const host={
+  const trusted={
     context:{kernel:{},currentWorkspace:{
       get:()=>selected,
-      subscribe(cb){listeners.add(cb);return ()=>listeners.delete(cb);},
+      subscribe(cb){selectionListeners.add(cb);return ()=>selectionListeners.delete(cb);},
     }},
     signedAccess:{currentContext:()=>context, authorize(){},verifyDecisionBinding(){},
       actionFor(){},operationDigest(){}},
     bindings:{objects:[],events:[]},
-    subscribeInvalidation(cb){ownerListeners.add(cb);return ()=>ownerListeners.delete(cb);},
+    subscribeOwnerInvalidation(cb){ownerListeners.add(cb);return ()=>ownerListeners.delete(cb);},
     async readActivityFromWorkspaceContext(){
       reads++;
-      if(blocked) await wait();
+      if(options.blocked)await wait();
       if(options.deny)throw Error(secret);
       return makeView();
     },
   };
+  const privatePort=createTrustedT3ReviewPort(trusted);
+  // Only this limited capability crosses to the React surface.
+  const host={readSelected:privatePort.readSelected,
+    subscribeInvalidation:privatePort.subscribeInvalidation};
   return {host, selectionChange(){selected=Object.freeze({workspace_id:'ws:other'});
-      listeners.forEach(fn=>fn());}, grantChanged(){ownerListeners.forEach(fn=>fn());},
+      selectionListeners.forEach(fn=>fn());},
+    grantChanged(){ownerListeners.forEach(fn=>fn());},
     changeActor(){context=Object.freeze({kind:'PERSONAL',workspace_id:workspace,actor_id:'changed'});
       ownerListeners.forEach(fn=>fn());},
-    release(){releases.shift()?.();}, listeners, ownerListeners, calls:()=>reads};
+    release(){releases.shift()?.();}, selectionListeners,ownerListeners,calls:()=>reads};
 }
 
-test('connected Host starts READY_TO_READ without fetching any data',async()=>{
-  const h=makeHost(), states=[];
-  const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
+test('renderer only receives a two-method capability, not Kernel or Access',async()=>{
+  const h=makeHost(),states=[];
+  assert.deepEqual(Object.keys(h.host).sort(),['readSelected','subscribeInvalidation']);
+  assert.equal('signedAccess' in h.host,false);
+  assert.equal('context' in h.host,false);
+  const controller=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
   assert.equal(states[0].status,'READY_TO_READ');
   assert.equal(h.calls(),0);
-  const r=await c.readSelected();
-  assert.equal(r.status,'REVIEW');
+  assert.equal((await controller.readSelected()).status,'REVIEW');
   assert.equal(h.calls(),1);
   assert.equal(states.at(-1).review.export_allowed,false);
   assert.equal(states.at(-1).review.anonymity,'NOT_ESTABLISHED');
   assert.equal(JSON.stringify(states).includes(secret),false);
-  c.dispose();
+  controller.dispose();
 });
 
-test('change of selected Workspace invalidates an already shown preview',async()=>{
+test('changing selected Workspace instantly removes an already shown preview',async()=>{
   const h=makeHost(),states=[];
   const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
-  await c.readSelected();
-  h.selectionChange();
+  await c.readSelected();h.selectionChange();
   assert.deepEqual(states.at(-1),{status:'READY_TO_READ',review:null});
   c.dispose();
 });
 
-test('signed status revocation signal clears a completed review',async()=>{
+test('signed status revocation signal clears an already shown preview',async()=>{
   const h=makeHost(),states=[];
   const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
-  await c.readSelected();
-  h.grantChanged();
+  await c.readSelected();h.grantChanged();
   assert.deepEqual(states.at(-1),{status:'READY_TO_READ',review:null});
   c.dispose();
 });
 
-test('in-flight read cannot update the UI after Workspace switch',async()=>{
+test('in-flight read cannot update UI after selected Workspace changes',async()=>{
   const h=makeHost({blocked:true}),states=[];
   const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
-  const p=c.readSelected();
-  await Promise.resolve();
+  const p=c.readSelected();await Promise.resolve();
   h.selectionChange();h.release();
   assert.equal((await p).status,'INVALIDATED');
-  assert.equal(states.at(-1).review,null);
-  c.dispose();
+  assert.equal(states.at(-1).review,null);c.dispose();
 });
 
-test('in-flight read cannot update the UI after signed status change',async()=>{
+test('in-flight read cannot update UI after signed status change',async()=>{
   const h=makeHost({blocked:true}),states=[];
   const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
-  const p=c.readSelected();
-  await Promise.resolve();
+  const p=c.readSelected();await Promise.resolve();
   h.grantChanged();h.release();
   assert.equal((await p).status,'INVALIDATED');
-  assert.equal(states.at(-1).review,null);
-  c.dispose();
+  assert.equal(states.at(-1).review,null);c.dispose();
 });
 
-test('concurrent reads only render the newest completion',async()=>{
+test('concurrent read results never overwrite the newest review',async()=>{
   const h=makeHost({blocked:true}),states=[];
   const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
-  const first=c.readSelected();
-  const second=c.readSelected();
-  h.release();
-  assert.equal((await first).status,'INVALIDATED');
+  const first=c.readSelected(), second=c.readSelected();
+  h.release();assert.equal((await first).status,'INVALIDATED');
   assert.equal(states.at(-1).status,'READING');
-  h.release();
-  assert.equal((await second).status,'REVIEW');
-  assert.equal(states.at(-1).status,'REVIEW');
+  h.release();assert.equal((await second).status,'REVIEW');
   c.dispose();
 });
 
-test('original Host denial is a generic HOLD without private exception',async()=>{
+test('original Host denial becomes a generic HOLD with no private exception',async()=>{
   const h=makeHost({deny:true}),states=[];
   const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
   assert.deepEqual(await c.readSelected(),{status:'HOLD'});
   assert.equal(states.at(-1).code,'T3_AUTHORITATIVE_READ_REFUSED');
-  assert.equal(JSON.stringify(states).includes(secret),false);
-  c.dispose();
+  assert.equal(JSON.stringify(states).includes(secret),false);c.dispose();
 });
 
-test('requires Host-owned invalidation subscription, never silently trusts a stale permission',()=>{
-  const h=makeHost(),states=[];
-  delete h.host.subscribeInvalidation;
-  assert.throws(()=>createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)}),
+test('requires owner invalidation subscription, never trusts unobservable grant',()=>{
+  const h=makeHost();delete h.host.subscribeInvalidation;
+  assert.throws(()=>createT3ReviewController({host:h.host,onUpdate(){}}),
     {code:'T3_TRUSTED_HOST_INVALIDATION_REQUIRED'});
-  assert.equal(states.length,0);
 });
 
-test('detaching removes listeners, rejects read and does not publish late state',async()=>{
+test('detaching removes both trusted Host subscriptions and rejects further reads',async()=>{
   const h=makeHost(),states=[];
   const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
   c.dispose();c.dispose();
-  assert.equal(h.listeners.size,0);assert.equal(h.ownerListeners.size,0);
+  assert.equal(h.selectionListeners.size,0);assert.equal(h.ownerListeners.size,0);
   assert.equal((await c.readSelected()).status,'DETACHED');
   assert.equal(states.length,1);
 });
 
-test('reset switches from T3 review to synthetic example without leaking previous graph',async()=>{
+test('reset switches to synthetic example without keeping old T3-derived review',async()=>{
   const h=makeHost(),states=[];
   const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
-  await c.readSelected();
-  c.reset();
-  assert.deepEqual(states.at(-1),{status:'READY_TO_READ',review:null});
-  c.dispose();
+  await c.readSelected();c.reset();
+  assert.deepEqual(states.at(-1),{status:'READY_TO_READ',review:null});c.dispose();
+});
+
+test('untrusted or extended Host response cannot inject raw identities into renderer',async()=>{
+  const h=makeHost(),states=[];
+  const clean=await h.host.readSelected();
+  h.host.readSelected=async()=>({...clean,source_identity:secret});
+  const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
+  assert.equal((await c.readSelected()).status,'HOLD');
+  assert.equal(states.at(-1).code,'T3_HOST_RESULT_UNVERIFIED');
+  assert.equal(JSON.stringify(states).includes(secret),false);c.dispose();
+});
+
+test('Host cannot report anonymous or exportable when T3 risk is undetermined',async()=>{
+  const h=makeHost(),states=[];
+  const clean=await h.host.readSelected();
+  h.host.readSelected=async()=>({...clean,anonymity:'ANONYMOUS',export_allowed:true,
+    iwxa_package:{source:secret}});
+  const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
+  assert.equal((await c.readSelected()).status,'HOLD');
+  assert.equal(states.at(-1).code,'T3_HOST_RESULT_UNVERIFIED');c.dispose();
+});
+
+test('arbitrary text in Host reason codes is not accepted into UI',async()=>{
+  const h=makeHost(),states=[];const clean=await h.host.readSelected();
+  h.host.readSelected=async()=>({...clean,reason_codes:[secret]});
+  const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
+  assert.equal((await c.readSelected()).status,'HOLD');
+  assert.equal(JSON.stringify(states).includes(secret),false);c.dispose();
+});
+
+test('mutating owner-returned candidate after delivery cannot mutate React review',async()=>{
+  const h=makeHost(),states=[];const owner=await h.host.readSelected();
+  h.host.readSelected=async()=>owner;
+  const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
+  assert.equal((await c.readSelected()).status,'REVIEW');
+  const kept=JSON.stringify(states.at(-1).review);
+  owner.structural_candidate[0].object_type='raw_private_source_id';
+  assert.equal(JSON.stringify(states.at(-1).review),kept);c.dispose();
 });

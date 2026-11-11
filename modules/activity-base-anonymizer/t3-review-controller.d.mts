@@ -4,17 +4,10 @@ export type T3ReviewState = {
   review: T3ActivityReview | null;
   code?: string;
 };
+// Only these two capabilities are visible to the React/Tauri renderer.
+// The original T3 Kernel/Access objects remain exclusively in trusted Host.
 export type T3ReviewHost = {
-  context: {
-    kernel: unknown;
-    currentWorkspace: {
-      get: () => {workspace_id?: string} | null;
-      subscribe: (callback: () => void) => () => void;
-    };
-  };
-  signedAccess: unknown;
-  bindings: unknown;
-  readActivityFromWorkspaceContext: Function;
+  readSelected: () => Promise<T3ActivityReview>;
   subscribeInvalidation: (callback: () => void) => () => void;
 };
 export function createT3ReviewController(input: {

@@ -252,7 +252,7 @@ export function App({t3Host = null}: {t3Host?: T3ReviewHost | null}) {
               <div className="verification-left">
                 <span className="eyebrow">03 · T3 · ДОКАЗАТЕЛЬСТВА И НЕОПРЕДЕЛЁННОСТЬ</span>
                 <h3>Структура выбранной базы T3</h3>
-                <p>Чтение выполнено оригинальным T3 D1/D2 Host. Структурные псевдонимы не передают исходные идентификаторы или содержимое объектов.</p>
+                <p>Структурное представление получено через подключённый T3 Host. Исходные данные и полномочия проверяет сам Host; интерфейс не получает ключи, grant или Kernel.</p>
                 <p className="risk-result">Статус: {t3Review.review.status}. Остаточный риск не установлен; причинность и правила решений не доказаны.</p>
                 <p>{t3Review.review.reason_codes.join(' · ')}</p>
               </div>

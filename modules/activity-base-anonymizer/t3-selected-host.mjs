@@ -227,3 +227,37 @@ export async function inspectSelectedT3Activity({
     'T3_SOURCE_WORKSPACE_MISMATCH');
   return inspectProjection(view);
 }
+
+/**
+ * The existing signed T3 Host calls this in its trusted runtime, not in the
+ * Activity renderer. Only two narrow callbacks cross the UI boundary.
+ * No Access, Workspace context, original Kernel or source rows are returned.
+ */
+export function createTrustedT3ReviewPort({
+  context, signedAccess, bindings, readActivityFromWorkspaceContext,
+  subscribeOwnerInvalidation,
+} = {}) {
+  need(typeof subscribeOwnerInvalidation === 'function' &&
+    typeof context?.currentWorkspace?.subscribe === 'function',
+    'T3_TRUSTED_HOST_INVALIDATION_REQUIRED');
+  return Object.freeze({
+    readSelected: () => inspectSelectedT3Activity({
+      context, signedAccess, bindings, readActivityFromWorkspaceContext,
+    }),
+    subscribeInvalidation(listener) {
+      need(typeof listener === 'function', 'T3_TRUSTED_HOST_INVALIDATION_REQUIRED');
+      let stopSelection = null;
+      let stopOwner = null;
+      try {
+        stopSelection = context.currentWorkspace.subscribe(listener);
+        stopOwner = subscribeOwnerInvalidation(listener);
+        need(typeof stopSelection === 'function' && typeof stopOwner === 'function',
+          'T3_TRUSTED_HOST_INVALIDATION_REQUIRED');
+      } catch {
+        if (typeof stopSelection === 'function') stopSelection();
+        throw new T3ActivityHold('T3_TRUSTED_HOST_INVALIDATION_REQUIRED');
+      }
+      return () => {stopSelection(); stopOwner();};
+    },
+  });
+}
