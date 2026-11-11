@@ -132,7 +132,7 @@ export async function readActivityFromT2Host({
   // An independent second read detects ordinary source/event changes during
   // enumeration. This is NOT an atomic database snapshot or trusted checkpoint.
   const [afterWorkspace, afterObjects, afterEvents] = await Promise.all([
-    kernel.getWorkspace(workspaceId),
+    source.getWorkspace(workspaceId),
     source.listObjects(query),
     source.listEventsSince(workspaceId),
   ]);
