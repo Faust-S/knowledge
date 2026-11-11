@@ -27,6 +27,7 @@ function createControl() {
   const label = document.createElement("label");
   const toggle = document.createElement("input");
   toggle.type = "checkbox";
+  toggle.disabled = true; // Do not accept clicks before the worker state is known.
   toggle.role = "switch";
   toggle.id = "iwxa-t3-domain-switch";
   toggle.setAttribute("aria-label", "Включить полностью локальный режим сайта T3");
@@ -45,6 +46,7 @@ function createControl() {
 function tell(ui, text) { ui.state.textContent = text; }
 function render(ui, enabled) {
   ui.toggle.checked = enabled;
+  ui.toggle.disabled = false;
   document.documentElement.toggleAttribute("data-iwxa-t3-autonomous", enabled);
   if (enabled) tell(ui, "Работает локальная копия страниц и T3 Kernel. Модель ИИ устанавливается отдельно.");
   else tell(ui, "Сайт работает в обычном режиме. Включение загрузит его офлайн-копию.");
