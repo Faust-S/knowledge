@@ -85,8 +85,11 @@ async function installed() {
   }
   return null;
 }
-async function installSnapshot(port) {
-  if (installRunning) throw new Error("T3_DOMAIN_INSTALL_BUSY");
+async function installSnapshot(port, expectedVersion = null) {
+  if (installRunning) {
+    port.postMessage({type: "FAILED", message: "T3_DOMAIN_INSTALL_BUSY"});
+    return;
+  }
   installRunning = true;
   let pending = null;
   try {
@@ -95,6 +98,9 @@ async function installSnapshot(port) {
     const result = await fetch(MANIFEST_PATH, {cache: "no-store", credentials: "same-origin"});
     if (!result.ok) throw new Error("T3_DOMAIN_MANIFEST_UNAVAILABLE");
     const manifest = validate(await result.json());
+    if (expectedVersion !== null && manifest.version !== expectedVersion) {
+      throw new Error("T3_DOMAIN_VERSION_CHANGED_RECONFIRM");
+    }
     const name = PREFIX + manifest.version;
     const cache = await caches.open(name);
     // A complete identical snapshot is immutable; never overwrite its
@@ -150,13 +156,36 @@ async function installSnapshot(port) {
     installRunning = false;
   }
 }
+async function checkUpdate(port) {
+  try {
+    const state = await installed();
+    if (!state) throw new Error("T3_DOMAIN_NOT_INSTALLED");
+    // The only permitted automatic network request is NONE. This fetch runs
+    // exclusively after the user asks to check the same-origin release.
+    const response = await fetch(MANIFEST_PATH, {cache: "no-store", credentials: "same-origin"});
+    if (!response.ok) throw new Error("T3_DOMAIN_UPDATE_CHECK_UNAVAILABLE");
+    const manifest = validate(await response.json());
+    if (manifest.domain_origin !== self.location.origin) {
+      throw new Error("T3_DOMAIN_UPDATE_ORIGIN_MISMATCH");
+    }
+    const available = manifest.version !== state.manifest.version || state.complete !== true;
+    port.postMessage({type: "UPDATE_STATUS", available,
+      version: manifest.version, currentVersion: state.manifest.version,
+      files: manifest.files.length, totalBytes: manifest.total_bytes});
+  } catch (error) {
+    port.postMessage({type: "FAILED", message: String(error?.message || error)});
+  }
+}
 self.addEventListener("install", event => event.waitUntil(self.skipWaiting()));
 self.addEventListener("activate", event => event.waitUntil(self.clients.claim()));
 self.addEventListener("message", event => {
   if (event.data?.type === "T3_INSTALL") {
     const port = event.ports?.[0];
     if (!port) return;
-    event.waitUntil(installSnapshot(port));
+    event.waitUntil(installSnapshot(port, event.data?.expectedVersion ?? null));
+  } else if (event.data?.type === "T3_CHECK_UPDATE") {
+    const port = event.ports?.[0];
+    if (port) event.waitUntil(checkUpdate(port));
   } else if (event.data?.type === "T3_STATUS") {
     const port = event.ports?.[0];
     if (port) event.waitUntil(installed().then(state => port.postMessage({
