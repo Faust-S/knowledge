@@ -1,4 +1,7 @@
-import {useRef, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
+import {createT3ReviewController} from '../../modules/activity-base-anonymizer/t3-review-controller.mjs';
+import type {T3ReviewHost, T3ReviewState} from '../../modules/activity-base-anonymizer/t3-review-controller.mjs';
+import type {T3StructuralCandidate} from '../../modules/activity-base-anonymizer/t3-selected-host.mjs';
 import {ActivityHold, buildSyntheticExample} from '../../modules/activity-base-anonymizer/engine.mjs';
 import {screenSyntheticDisclosure} from '../../modules/activity-base-anonymizer/risk.mjs';
 import {layoutObservedGraph} from '../../modules/activity-base-anonymizer/graph-order.mjs';
@@ -8,7 +11,7 @@ import type {Preview, ProcessGraph} from '../../modules/activity-base-anonymizer
 import type {SyntheticRisk} from '../../modules/activity-base-anonymizer/risk.mjs';
 
 const MAX_INPUT_BYTES = 8 * 1024 * 1024;
-const DEMO_NOTICE = 'Демонстрационный режим: только синтетические снимки. Реальные базы T3 пока недоступны.';
+const DEMO_NOTICE = 'Самостоятельное приложение работает локально. Базу T3 можно прочитать только при подключении доверенного T3 Host с отдельным разрешением Activity Read.';
 
 function ProcessCard({process, number}: {process: ProcessGraph; number: number}) {
   const graph = layoutObservedGraph(process);
@@ -66,16 +69,54 @@ function ObjectViewCard({view, number}: {view: Ocel2ObjectView; number: number})
   </section>;
 }
 
-export function App() {
+
+function T3ViewCard({view, number}: {view: T3StructuralCandidate; number: number}) {
+  return <section className="process-card" aria-label={`Траектория T3 ${number}`}>
+    <header className="process-head">
+      <div><span className="eyebrow">T3 D1/D2 · НАБЛЮДЁННАЯ ДЕЯТЕЛЬНОСТЬ</span>
+        <h3>Тип объекта {String(number).padStart(2, '0')}</h3></div>
+      <span className="case-count">Повторяемость {view.cohort_band}</span>
+    </header>
+    <div className="observed-order">
+      <span>Классы событий · это не порядок выполнения</span>
+      <strong>{view.observed_event_kinds.join(' · ') || 'Действия не подтверждены'}</strong>
+    </div>
+    <div className="observed-order">
+      <span>Наблюдаемые локальные переходы · не причинные зависимости</span>
+      <strong>{view.object_local_successions.length
+        ? view.object_local_successions.map(e => `${e.from} → ${e.to} (${e.cohort_band})`).join(' · ')
+        : 'Подтверждённых переходов нет'}</strong>
+    </div>
+    <footer className="process-footer">
+      <span>Идентификаторы субъектов и исходные события не отображаются</span>
+      <span>Ни BPMN, ни DMN не подтверждены</span>
+    </footer>
+  </section>;
+}
+
+export function App({t3Host = null}: {t3Host?: T3ReviewHost | null}) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [risk, setRisk] = useState<SyntheticRisk | null>(null);
   const [objectEvidence, setObjectEvidence] = useState<Ocel2EvidenceView | null>(null);
+  const [t3Review, setT3Review] = useState<T3ReviewState | null>(null);
+  const t3Controller = useRef<ReturnType<typeof createT3ReviewController> | null>(null);
+  useEffect(() => {
+    if (!t3Host) { t3Controller.current = null; setT3Review(null); return; }
+    try {
+      const controller = createT3ReviewController({host: t3Host, onUpdate: setT3Review});
+      t3Controller.current = controller;
+      return () => {t3Controller.current = null; controller.dispose();};
+    } catch {
+      setT3Review({status: 'HOLD', review: null, code: 'T3_TRUSTED_HOST_INVALIDATION_REQUIRED'});
+    }
+  }, [t3Host]);
   const [sourceName, setSourceName] = useState('Источник не выбран');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState('');
 
   async function run(input: unknown, label: string) {
+    t3Controller.current?.reset();
     setBusy(true);
     setPreview(null);
     setRisk(null);
@@ -115,11 +156,23 @@ export function App() {
     catch { setProblem('HOLD: LOCAL_OCEL2_EXAMPLE_UNAVAILABLE'); setBusy(false); }
   }
 
+  async function loadSelectedT3() {
+    setPreview(null); setRisk(null); setObjectEvidence(null); setProblem('');
+    if (!t3Controller.current) {
+      setSourceName('T3 Host не подключён');
+      setProblem('HOLD: T3_TRUSTED_HOST_NOT_CONNECTED');
+      return;
+    }
+    setSourceName('Выбранная база T3 · идентификатор скрыт');
+    await t3Controller.current.readSelected();
+  }
+
   async function onFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
     if (file.size === 0 || file.size > MAX_INPUT_BYTES) {
+      t3Controller.current?.reset();
       setPreview(null); setRisk(null); setObjectEvidence(null); setProblem('HOLD: INVALID_FILE_SIZE'); return;
     }
     setBusy(true); setProblem('');
@@ -134,7 +187,7 @@ export function App() {
         <div className="brand-copy"><strong>IWXA</strong><span>Анализ деятельности</span></div>
       </div>
       <div className="topbar-right"><span className="local-status"><span className="local-dot" /> Только локально</span>
-        <span className="app-version">0.1 · A2 / OCEL 2.0</span></div>
+        <span className="app-version">0.1 · T3 D1/D2 / OCEL 2.0</span></div>
     </header>
     <main className="workspace">
       <section className="intro">
@@ -142,18 +195,24 @@ export function App() {
           <h1>Структура деятельности <span>из фактов работы</span></h1>
           <p className="intro-text">Программа восстанавливает этапы, роли и порядок действий из накопленной базы. Никаких кейсов и описаний процессов вручную.</p>
         </div>
-        <span className="status-mode">Синтетическая квалификация</span>
+        <span className="status-mode">{t3Host ? 'Подключённая поверхность T3' : 'Автономный desktop'}</span>
       </section>
       <section className="two-columns">
         <aside className="source-panel">
           <div className="section-header"><span className="section-num">01</span><h2>Выбор базы</h2></div>
-          <p className="panel-copy">Загрузите локальный синтетический снимок или откройте встроенный пример.</p>
+          <p className="panel-copy">Откройте синтетический пример либо прочитайте выбранную базу через существующий подписанный T3 Host.</p>
           <div className="source-box"><span className="source-kicker">ТЕКУЩИЙ ИСТОЧНИК</span>
             <strong title={sourceName}>{sourceName}</strong>
             <span>Исходные записи не изменяются и никуда не отправляются.</span>
           </div>
           <input className="visually-hidden" type="file" ref={fileInput} accept=".json,application/json"
             aria-label="Выбрать синтетический JSON" onChange={onFile} />
+          <button className="button button-secondary" type="button" disabled={busy || t3Review?.status === 'READING'} onClick={loadSelectedT3}>
+            Подключить выбранную базу T3
+          </button>
+          <div className="source-connection" role="status">{t3Host
+            ? 'T3 Host предоставлен. Чтение требует отдельного подписанного Activity Read.'
+            : 'T3 Host не подключён · чтение пользовательской базы недоступно.'}</div>
           <button className="button button-primary" type="button" disabled={busy} onClick={loadExample}>
             {busy ? 'Анализ…' : 'Открыть встроенный пример'}
           </button>
@@ -168,7 +227,7 @@ export function App() {
             <p><span className="mini-check">✓</span> Нет облака и браузерных переходов</p>
             <p><span className="mini-check">✓</span> Детерминированная реконструкция</p>
             <p><span className="mini-check">✓</span> Проверка синтетических ревизий</p>
-            <p><span className="mini-pending">·</span> Реальное подключение T3 — далее</p>
+            <p><span className={t3Host ? 'mini-check' : 'mini-pending'}>{t3Host ? '✓' : '·'}</span> T3 D1/D2 — чтение из доверенного Host при подключении</p>
             <p><span className="mini-check">✓</span> Синтетическая оценка редких маршрутов A2</p>
             <p><span className="mini-check">✓</span> OCEL 2.0: ограниченный JSON-профиль, связи объектов</p>
             <p><span className="mini-pending">·</span> Доказанная анонимность и .iwxa — HOLD</p>
@@ -179,8 +238,33 @@ export function App() {
             {preview ? <span className="review-tag">ПРОВЕРЕНА СИНТЕТИКА</span> : null}
           </div>
           {problem ? <div className="error-state" role="alert"><strong>Анализ приостановлен</strong><span>{problem}</span><p>Непроверенные данные не будут превращены в процесс или пакет.</p></div> : null}
-          {!preview && !objectEvidence && !problem ? <div className="empty-state"><div className="empty-icon">IX</div>
+          {t3Review?.status === 'HOLD' ? <div className="error-state" role="alert">
+            <strong>Чтение T3 остановлено</strong><span>HOLD: {t3Review.code}</span>
+            <p>Изменившееся или неподтверждённое разрешение не используется повторно.</p></div> : null}
+          {!preview && !objectEvidence && !t3Review?.review && !problem && t3Review?.status !== 'HOLD' ? <div className="empty-state"><div className="empty-icon">IX</div>
             <strong>Выберите базу для анализа</strong><p>Автоматически появятся обнаруженные процессы, этапы и роли. Для начала доступен встроенный синтетический пример.</p></div> : null}
+          {t3Review?.status === 'READING' ? <div className="empty-state" role="status">
+            <div className="empty-icon">T3</div><strong>Чтение выбранного Workspace</strong>
+            <p>Доступ подтверждается T3 при каждом обращении. Источник не изменяется.</p>
+          </div> : null}
+          {t3Review?.status === 'REVIEW' && t3Review.review ? <>
+            <section className="verification-panel" aria-label="T3 D1/D2 · структура выбранной базы">
+              <div className="verification-left">
+                <span className="eyebrow">03 · T3 · ДОКАЗАТЕЛЬСТВА И НЕОПРЕДЕЛЁННОСТЬ</span>
+                <h3>Структура выбранной базы T3</h3>
+                <p>Чтение выполнено оригинальным T3 D1/D2 Host. Структурные псевдонимы не передают исходные идентификаторы или содержимое объектов.</p>
+                <p className="risk-result">Статус: {t3Review.review.status}. Остаточный риск не установлен; причинность и правила решений не доказаны.</p>
+                <p>{t3Review.review.reason_codes.join(' · ')}</p>
+              </div>
+              <div className="verification-right"><span className="hold-chip">HOLD · ВЫПУСК ЗАКРЫТ</span>
+                <span>Анонимность и независимый импорт .iwxa пока не подтверждены.</span>
+              </div>
+            </section>
+            {t3Review.review.structural_candidate?.length
+              ? <div className="graph-list">{t3Review.review.structural_candidate.map((view, index) =>
+                  <T3ViewCard key={view.object_type} view={view} number={index + 1} />)}</div>
+              : <p className="panel-copy" role="status">Доказательств недостаточно. Структура не восстанавливается автоматически.</p>}
+          </> : null}
           {preview ? <>
             <div className="metrics">
               <div className="metric"><strong>{preview.processes.length}</strong><span>Процессов</span></div>

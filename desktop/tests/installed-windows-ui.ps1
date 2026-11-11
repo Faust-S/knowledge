@@ -47,6 +47,14 @@ function Close-Window($info) {
 $window = $null
 try {
     $window = Open-Window $exe
+    $t3 = Find-Accessible $window.Root 'Подключить выбранную базу T3'
+    if (!$t3) { throw 'INSTALLED_T3_SOURCE_ACTION_MISSING' }
+    $t3Pattern = $t3.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
+    if (!$t3Pattern) { throw 'INSTALLED_T3_SOURCE_ACTION_NOT_INVOKABLE' }
+    $t3Pattern.Invoke()
+    if (!(Find-Accessible $window.Root 'HOLD: T3_TRUSTED_HOST_NOT_CONNECTED')) {
+        throw 'INSTALLED_T3_UNBOUND_HOST_MUST_HOLD'
+    }
     $button = Find-Accessible $window.Root 'Открыть встроенный пример'
     if (!$button) { throw 'INSTALLED_GUI_ACTION_NOT_ACCESSIBLE_OR_NOT_RENDERED' }
     $invoke = $button.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
@@ -70,7 +78,7 @@ try {
     if (!(Find-Accessible $window.Root 'HOLD · ВЫПУСК ЗАКРЫТ')) {
         throw 'INSTALLED_OCEL2_HOLD_NOT_VISIBLE'
     }
-    Write-Host 'IWXA_ACTIVITY_INSTALLED_FIRST_USE_PASS native_window=YES built_in_example=YES processes=YES ocel2=YES export=HOLD'
+    Write-Host 'IWXA_ACTIVITY_INSTALLED_FIRST_USE_PASS native_window=YES built_in_example=YES processes=YES ocel2=YES t3_host_unbound=HOLD export=HOLD'
 } finally {
     if ($window) { Close-Window $window }
 }

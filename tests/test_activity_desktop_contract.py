@@ -98,6 +98,22 @@ class DesktopContract(unittest.TestCase):
         self.assertIn("iwxa_package: null", module)
         self.assertNotRegex(module, r"\bfetch\s*\(|XMLHttpRequest|WebSocket|http://|https://")
 
+    def test_t3_review_requires_trusted_host_and_invalidation(self):
+        app = (DESKTOP / "src/App.tsx").read_text("utf-8")
+        controller = (ROOT / "modules/activity-base-anonymizer/t3-review-controller.mjs").read_text("utf-8")
+        types = (ROOT / "modules/activity-base-anonymizer/t3-review-controller.d.mts").read_text("utf-8")
+        self.assertIn("createT3ReviewController({host: t3Host, onUpdate: setT3Review})", app)
+        self.assertIn("Подключить выбранную базу T3", app)
+        self.assertIn("T3_TRUSTED_HOST_NOT_CONNECTED", app)
+        self.assertIn("Структура выбранной базы T3", app)
+        self.assertIn("HOLD · ВЫПУСК ЗАКРЫТ", app)
+        self.assertIn("host.subscribeInvalidation(invalidate)", controller)
+        self.assertIn("currentWorkspace.subscribe(invalidate)", controller)
+        self.assertIn("inspectSelectedT3Activity(host)", controller)
+        self.assertIn("dispose()", controller)
+        self.assertIn("subscribeInvalidation", types)
+        self.assertNotRegex(controller, r"\\bfetch\\s*\\(|XMLHttpRequest|WebSocket|http://|https://")
+
 
 if __name__ == "__main__":
     unittest.main()
