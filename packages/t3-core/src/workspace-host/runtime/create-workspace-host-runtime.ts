@@ -197,7 +197,7 @@ export async function createWorkspaceHostRuntime(
         ? typeof activity === "function" ? await activity() : activity
         : typeof kernel === "function" ? await kernel("listObjects") : kernel;
       if (disposed) reject("T3_HOST_DISPOSED");
-      if (!signedAccess) reject("T3_D1_ACCESS_OWNER_REQUIRED");
+      if (!signedAccess) return reject("T3_D1_ACCESS_OWNER_REQUIRED");
       // Activity always requires an explicit DATA read grant. The Host's
       // general getWorkspace/object.write rights must never imply one.
       if (await signedAccess.actionFor("t1.listObjects") !== "activity.read")
@@ -220,8 +220,8 @@ export async function createWorkspaceHostRuntime(
         const current = typeof kernel === "function"
           ? await kernel("listObjects") : kernel;
         if (disposed) reject("T3_HOST_DISPOSED");
-        if (!current ||
-            JSON.stringify(signedAccess.currentContext()) !== originalOwner ||
+        if (!current) return reject("T3_ACTIVITY_WORKSPACE_CHANGED_DURING_READ");
+        if (JSON.stringify(signedAccess.currentContext()) !== originalOwner ||
             JSON.stringify(current.currentContext()) !== originalOwner) {
           reject("T3_ACTIVITY_WORKSPACE_CHANGED_DURING_READ");
         }

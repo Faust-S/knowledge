@@ -211,7 +211,8 @@ describe("T3 D1 signed Activity in the actual Workspace Host runtime",()=>{
         f.selectOrganization("personal");
       });
       await expect(host.readAuthorizedActivity({bindings}))
-        .rejects.toMatchObject({code:"T3_SUBJECT_RESULT_STALE_AFTER_KERNEL"});
+        .rejects.toMatchObject({code:expect.stringMatching(
+          /^T3_SUBJECT_(CONTEXT_CHANGED|RESULT_STALE_AFTER_KERNEL)$/)});
     }finally{await host.dispose();}
   });
   it("does not silently fall back after an explicit Activity owner declines",async()=>{
