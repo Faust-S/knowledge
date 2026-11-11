@@ -119,3 +119,6 @@ jobs:
         env:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
         run: node tests/t3-activity/real-qualified-host.browser.mjs
+      - name: Test domain-wide T3 switch and cold offline restart in real Chromium
+        working-directory: packages/t3-core
+        run: node --test tests/t3-domain-switch.browser.mjs
