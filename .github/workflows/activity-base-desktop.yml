@@ -10,6 +10,7 @@ on:
       - tests/test_activity_ocel2_evidence.mjs
       - tests/test_activity_t3_selected_host.mjs
       - tests/test_activity_t3_review_controller.mjs
+      - tests/test_activity_t3_control_host_link.mjs
       - tests/test_activity_t3_original_reader.mjs
       - tests/test_activity_desktop_contract.py
       - .github/workflows/activity-base-desktop.yml
@@ -46,7 +47,7 @@ jobs:
             foreach ($issue in $errors) { Write-Host $issue.Message }
             throw 'WINDOWS_UI_WITNESS_SYNTAX_INVALID'
           }
-      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs tests/test_activity_t3_review_controller.mjs
+      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs tests/test_activity_t3_review_controller.mjs tests/test_activity_t3_control_host_link.mjs
       - run: python -m unittest discover -s tests -p 'test_activity_desktop_contract.py' -v
       - run: python -m unittest discover -s tests -p 'test_activity_base_a0.py' -v
       - name: Typecheck and bundle Activity UI before any native Rust build
