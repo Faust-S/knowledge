@@ -203,3 +203,82 @@ test("a cyclic source record cannot become a silent digest", () => {
   source.objects[1].data.loop = source.objects[1].data;
   assert.throws(() => projectActivitySnapshot(source), { code: "CYCLIC_RECORD" });
 });
+
+test("D06 multi-requirement order projects all declared dependencies with exact revisions", () => {
+  const source = options();
+  source.objects.push(obj("requirement:2","d06.requirement",{amount:240},3));
+  source.objects[1] = {...order,data:{
+    requirement_ids:["requirement:2","requirement:1"],
+    buyer_name:"Sensitive client: never include in view",
+  }};
+  source.bindings = {objects:[
+    bindings.objects[0],
+    {...bindings.objects[1], links:[
+      {field:"requirement_ids",relation:"depends_on",many:true},
+    ]},
+  ],events:bindings.events};
+  const original = structuredClone(source);
+  const projection = projectActivitySnapshot(source);
+  assert.deepEqual(projection.relations.map(x=>[x.source_id,x.target_id,x.source_revision]),[
+    ["order:42","requirement:1",2],["order:42","requirement:2",2],
+  ]);
+  assert.deepEqual(source,original,"projection must never mutate T2 rows");
+  assert.equal(JSON.stringify(projection).includes("Sensitive client"),false);
+  const reversed=structuredClone(source);
+  reversed.objects.reverse();
+  reversed.objects.find(x=>x.object_id==="order:42").data.requirement_ids.reverse();
+  assert.deepEqual(projectActivitySnapshot(reversed),projection,
+    "declared dependency array order must not change the semantic view");
+});
+
+test("D10 plural sale attribution keeps independent semantic owner mapping", () => {
+  const ws="ws:d10";
+  const result=projectActivitySnapshot({
+    workspace_id:ws,
+    objects:[
+      obj("campaign:a","d10.campaign",{},1,ws),
+      obj("campaign:b","d10.campaign",{},1,ws),
+      obj("sale:42","d10.sale",{
+        campaign_ids:["campaign:b","campaign:a"],
+        customer:"Do not expose private customer",
+      },4,ws),
+    ],events:[],
+    bindings:{objects:[
+      {schema_id:"d10.sale",schema_version:"1.0.0",
+        semantic_kind:"Result",links:[{
+          field:"campaign_ids",relation:"attributed_to",many:true,
+        }]},
+      {schema_id:"d10.campaign",schema_version:"1.0.0",semantic_kind:"Activity"},
+    ],events:[]},
+  });
+  assert.deepEqual(result.relations.map(x=>x.target_id),["campaign:a","campaign:b"]);
+  assert.equal(result.nodes.find(x=>x.object_id==="sale:42").revision,4);
+  assert.ok(!JSON.stringify(result).includes("private customer"));
+});
+
+test("plural reference mapping never silently hides unknown, deleted or invalid links", () => {
+  const source=options();
+  source.objects.push(obj("requirement:deleted","d06.requirement",{},2));
+  source.objects[2].deleted=true;
+  source.objects[1]={...order,data:{requirement_ids:[
+    "requirement:1","requirement:deleted","missing:object",42,
+  ]}};
+  source.bindings={objects:[
+    bindings.objects[0],
+    {...bindings.objects[1],links:[{
+      field:"requirement_ids",relation:"depends_on",many:true,
+    }]},
+  ],events:bindings.events};
+  const result=projectActivitySnapshot(source);
+  assert.deepEqual(result.relations.map(x=>x.target_id),["requirement:1"]);
+  assert.deepEqual(result.unresolved.map(x=>x.reason).sort(),[
+    "deleted_ref","invalid_ref","unknown_ref",
+  ]);
+  source.objects[1].data.requirement_ids=["requirement:1","requirement:1"];
+  assert.throws(()=>projectActivitySnapshot(source),{code:"DUPLICATE_LINK_TARGET"});
+  source.objects[1].data.requirement_ids="requirement:1";
+  assert.deepEqual(projectActivitySnapshot(source).unresolved.map(x=>x.reason),["invalid_ref"],
+    "a declared array requires an array, never implicit string coercion");
+  source.bindings.objects[1].links[0].many="yes";
+  assert.throws(()=>projectActivitySnapshot(source),{code:"INVALID_LINK_BINDING"});
+});

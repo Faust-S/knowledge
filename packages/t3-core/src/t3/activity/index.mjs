@@ -73,6 +73,8 @@ function makeBindings(bindings) {
       if (!object(link) || !/^[A-Za-z][A-Za-z0-9_]*$/.test(link.field ?? "") ||
           typeof link.relation !== "string" ||
           !/^[a-z][a-z0-9_.-]*$/.test(link.relation)) fail("INVALID_LINK_BINDING");
+      if (link.many !== undefined && typeof link.many !== "boolean")
+        fail("INVALID_LINK_BINDING");
       if (used.has(link.field + ":" + link.relation)) fail("DUPLICATE_LINK_BINDING");
       used.add(link.field + ":" + link.relation);
     }
@@ -170,20 +172,32 @@ export function projectActivitySnapshot({
   for (const [sourceId, item] of known) {
     for (const link of item.binding.links) {
       if (!Object.hasOwn(item.row.data, link.field)) continue;
-      const targetId = item.row.data[link.field];
-      if (typeof targetId !== "string" || !targetId.trim()) {
-        unresolved.push({ source_id: sourceId, relation: link.relation, reason: "invalid_ref" });
-        continue;
+      // A domain can explicitly declare a plural reference field (e.g.
+      // dependencies or kit components). Never infer a graph edge from an
+      // arbitrary array of data: only version-pinned bindings opt in.
+      const raw = item.row.data[link.field];
+      const targets = link.many === true
+        ? Array.isArray(raw) ? raw : [null]
+        : [raw];
+      const visited = new Set();
+      for (const targetId of targets) {
+        if (typeof targetId !== "string" || !targetId.trim()) {
+          unresolved.push({ source_id: sourceId, relation: link.relation,
+            reason: "invalid_ref" });
+          continue;
+        }
+        if (visited.has(targetId)) fail("DUPLICATE_LINK_TARGET");
+        visited.add(targetId);
+        if (!known.has(targetId)) {
+          unresolved.push({ source_id: sourceId, relation: link.relation,
+            reason: deletedObjects.has(targetId) ? "deleted_ref" : "unknown_ref" });
+          continue;
+        }
+        relations.push({
+          source_id: sourceId, target_id: targetId, relation: link.relation,
+          source_revision: item.row.revision,
+        });
       }
-      if (!known.has(targetId)) {
-        unresolved.push({ source_id: sourceId, relation: link.relation,
-          reason: deletedObjects.has(targetId) ? "deleted_ref" : "unknown_ref" });
-        continue;
-      }
-      relations.push({
-        source_id: sourceId, target_id: targetId, relation: link.relation,
-        source_revision: item.row.revision,
-      });
     }
   }
 
