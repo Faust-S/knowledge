@@ -150,6 +150,16 @@ self.addEventListener("message", event => {
       type: "STATUS", active: !!state, complete: state?.complete === true,
       version: state?.manifest.version ?? null
     })));
+  } else if (event.data?.type === "T3_PAGES") {
+    const port = event.ports?.[0];
+    if (port) event.waitUntil(installed().then(state => {
+      const allowed = state?.files || new Set();
+      const pages = Array.isArray(state?.manifest?.pages)
+        ? state.manifest.pages.filter(x => typeof x?.path === "string" &&
+          typeof x?.title === "string" && allowed.has(x.path)).slice(0,3000)
+        : [];
+      port.postMessage({type: "PAGES", pages});
+    }));
   } else if (event.data?.type === "T3_DISABLE") {
     disabledForThisSession = true;
     current = null;
