@@ -62,3 +62,5 @@ export async function readActivityFromWorkspaceContext(context, options = {}) {
 }
 export { createSubjectKernelBinding } from './subject-access-binding.mjs';
 export { createSignedAccessHostPort } from "./signed-access-host-port.mjs";
+
+export { saveLocalInferenceDraft, listLocalInferenceDrafts } from "./local-inference-draft.mjs";

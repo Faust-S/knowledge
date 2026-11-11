@@ -10,7 +10,7 @@ export interface T3SignedActivityAccess {
 export interface T3ActivityReadOptions {
   bindings: {
     objects: { schema_id: string; schema_version: string; semantic_kind: string;
-      links?: { field: string; relation: string }[] }[];
+      links?: { field: string; relation: string; many?: boolean }[] }[];
     events: { event_type: string; semantic_kind: string }[];
     relations?: { kind: string; relation: string }[];
   };
@@ -45,3 +45,29 @@ export function createSubjectKernelBinding(input: {
   "exportPreview" | "exportPackage" | "confirmExport" |
   "importPreview" | "importCommit" | "importCancel" |
   "purgePreview" | "purgeCommit" | "purgeCancel" | "commitObjectGraph">;
+
+/** D5 explicit local-model suggestion. The original selected ModuleContext.kernel
+ * performs every write/readback; a model draft never becomes accepted evidence. */
+export interface T3LocalInferenceDraftInput {
+  expected_workspace_id: string;
+  model_id: string;
+  engine: string;
+  output: string;
+}
+export interface T3LocalInferenceDraftReceipt {
+  workspace_id: string;
+  object_id: string;
+  revision: number;
+  event_id: string;
+  status: "DRAFT_UNTRUSTED";
+  readback: true;
+}
+export function saveLocalInferenceDraft(
+  context: { kernel: KernelFacade; currentWorkspace: Pick<CurrentWorkspaceFacade, "get" | "subscribe"> },
+  input: T3LocalInferenceDraftInput,
+): Promise<T3LocalInferenceDraftReceipt>;
+export function listLocalInferenceDrafts(
+  context: { kernel: KernelFacade; currentWorkspace: Pick<CurrentWorkspaceFacade, "get" | "subscribe"> },
+  input: { expected_workspace_id: string },
+): Promise<Array<{ workspace_id: string; object_id: string; revision: number;
+  status: string; model_id: string; text: string }>>;
