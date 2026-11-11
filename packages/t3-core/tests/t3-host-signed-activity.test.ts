@@ -143,6 +143,58 @@ describe("T3 D1 signed Activity in the actual Workspace Host runtime",()=>{
     await expect(host.readAuthorizedActivity({bindings})).rejects.toMatchObject({
       code:"T3_HOST_DISPOSED"});
   });
+  it("Activity uses the existing signed DATA owner selected by the one Kernel Host",async()=>{
+    const f=fixture();
+    const operations:string[]=[];
+    const host=await createWorkspaceHostRuntime({
+      session:f.session,workspaceConfig:{modules:[]},bindLegacyHashDriver:false,
+      termResolver:(_key,fallback)=>fallback??"",
+      // The Host has only one signed Access entry point, provided by the
+      // already-installed owner. No Activity-specific second port is needed.
+      signedKernelAccess:(operation:string)=>{
+        operations.push(operation);
+        return ["listObjects","getWorkspace","getObject","listEventsSince"]
+          .includes(operation)?f.signedActivityAccess:null;
+      },
+    });
+    try {
+      host.currentWorkspaceStore.set({workspace_id:ws} as never);
+      const result=await host.readAuthorizedActivity({bindings});
+      expect(result.workspace_id).toBe(ws);
+      expect(result.nodes).toHaveLength(1);
+      expect(result.events).toHaveLength(1);
+      expect(JSON.stringify(result)).not.toContain("private");
+      expect(operations).toContain("listObjects");
+      expect(operations).toContain("getObject");
+      expect(operations).toContain("listEventsSince");
+      expect(f.checks()).toBeGreaterThanOrEqual(f.reads());
+      const kernel=host.contextProvider.createContext("d06").kernel;
+      const before=f.reads();
+      await expect(kernel.putObject({workspace_id:ws,object_id:"order:2",
+        schema_id:"d06.order",schema_version:"1.0.0",data:{},
+        event:{event_type:"created"}}))
+        .rejects.toMatchObject({code:"T3_D1_ACCESS_OWNER_REQUIRED"});
+      expect(f.reads()).toBe(before);
+      f.revoke();
+      await expect(host.readAuthorizedActivity({bindings}))
+        .rejects.toMatchObject({code:"T3_ACCESS_NOT_PERMITTED"});
+    } finally {await host.dispose();}
+  });
+  it("does not silently fall back after an explicit Activity owner declines",async()=>{
+    const f=fixture();
+    const host=await createWorkspaceHostRuntime({
+      session:f.session,workspaceConfig:{modules:[]},bindLegacyHashDriver:false,
+      termResolver:(_key,fallback)=>fallback??"",
+      signedKernelAccess:()=>f.signedActivityAccess,
+      signedActivityAccess:()=>null,
+    });
+    try{
+      host.currentWorkspaceStore.set({workspace_id:ws} as never);
+      await expect(host.readAuthorizedActivity({bindings}))
+        .rejects.toMatchObject({code:"T3_D1_ACCESS_OWNER_REQUIRED"});
+      expect(f.reads()).toBe(0);
+    }finally{await host.dispose();}
+  });
   it("keeps one T3 Kernel while signed owner follows CORP A -> CORP B -> CORP A",async()=>{
     const f=fixture();
     let fetched=0, ownerConnected=true;

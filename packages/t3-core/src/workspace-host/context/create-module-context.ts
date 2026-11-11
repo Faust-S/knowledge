@@ -48,6 +48,7 @@ export interface ModuleContextFactoryInput {
   /** Host-owned signed authority for the complete inherited Kernel facade. */
   signedKernelAccess?: T3SignedActivityAccess |
     ((operation: string) => T3SignedActivityAccess | null | Promise<T3SignedActivityAccess | null>);
+  isHostActive?: () => boolean;
   router: HostRouter;
   hub: HostContributionHub;
   currentWorkspaceStore: CurrentWorkspaceStore;
@@ -75,7 +76,8 @@ export function createModuleContextProvider(
   // Signed D1 state (only original T2 import/purge preview tokens) must remain
   // coherent across the modules of one Host, without copying the T2 session.
   const signedKernel = input.signedKernelAccess
-    ? createKernelFacade({session: input.session, signedKernelAccess: input.signedKernelAccess})
+    ? createKernelFacade({session: input.session, signedKernelAccess: input.signedKernelAccess,
+      isHostActive: input.isHostActive})
     : null;
 
   /**

@@ -65,6 +65,9 @@ export async function createWorkspaceHostRuntime(
     reservedStaticBases,
   });
 
+  // Signed ModuleContext calls must not outlive their originating Host.
+  // The same lifecycle flag also governs readAuthorizedActivity.
+  let disposed = false;
   const currentWorkspaceStore = new CurrentWorkspaceStore();
   const dashboardState = new DashboardRefreshState();
   const panelsState = new HostPanelsState();
@@ -87,6 +90,7 @@ export async function createWorkspaceHostRuntime(
   const contextProvider: ModuleContextProvider = createModuleContextProvider({
     session: input.session,
     signedKernelAccess: input.signedKernelAccess,
+    isHostActive: () => !disposed,
     router,
     hub,
     currentWorkspaceStore,
@@ -169,7 +173,6 @@ export async function createWorkspaceHostRuntime(
     modules: collectedRegistryDiagnostics as never,
   };
 
-  let disposed = false;
   const readAuthorizedActivity: WorkspaceHostRuntimeHandle["readAuthorizedActivity"] =
     async (options) => {
       const reject = (code: string): never => {
@@ -184,8 +187,15 @@ export async function createWorkspaceHostRuntime(
       // A multi-organization host obtains a fresh owner after each explicit
       // context selection or STATUS update. No cached port may resurrect A
       // after A -> B -> A, and the inherited Kernel session remains one.
-      const source = input.signedActivityAccess;
-      const signedAccess = typeof source === "function" ? await source() : source;
+      // When the Host already owns D1 per-operation rights, Activity uses
+      // the same explicit DATA read grant. A separate Activity-only owner is
+      // optional, not a second authority. An explicitly configured Activity
+      // source never falls back to another grant if that source denies.
+      const activity = input.signedActivityAccess;
+      const kernel = input.signedKernelAccess;
+      const signedAccess = activity !== undefined
+        ? typeof activity === "function" ? await activity() : activity
+        : typeof kernel === "function" ? await kernel("listObjects") : kernel;
       if (disposed) reject("T3_HOST_DISPOSED");
       if (!signedAccess) reject("T3_D1_ACCESS_OWNER_REQUIRED");
       const result = await readActivityFromWorkspaceContext(

@@ -26,6 +26,8 @@ export interface KernelFacadeInput {
    * The provider resolves the current PERSONAL/CORP authority per operation. */
   signedKernelAccess?: T3SignedActivityAccess |
     ((operation: string) => T3SignedActivityAccess | null | Promise<T3SignedActivityAccess | null>);
+  /** The original Host lifecycle, not a second authorization registry. */
+  isHostActive?: () => boolean;
 }
 
 export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
@@ -92,6 +94,10 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
   };
   if (!input.signedKernelAccess) return Object.freeze(facade);
 
+  const requireLiveHost = (): void => {
+    if (input.isHostActive?.() === false)
+      throw Object.assign(new Error("T3_HOST_DISPOSED"), { code: "T3_HOST_DISPOSED" });
+  };
   // This remains the original complete T2 facade. A selected subject may
   // invoke it only after the original signed Access owner authorizes that
   // method. We do not create a Kernel, Store, authority or extra grant here.
@@ -102,7 +108,9 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
   };
   const source = input.signedKernelAccess;
   const owner = async (operation: string): Promise<T3SignedActivityAccess> => {
+    requireLiveHost();
     const current = typeof source === "function" ? await source(operation) : source;
+    requireLiveHost();
     if (!current) return deny("T3_D1_ACCESS_OWNER_REQUIRED");
     if (typeof current.currentContext !== "function")
       return deny("T3_D1_ACCESS_OWNER_REQUIRED");
@@ -119,9 +127,11 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     return { bound, initial };
   };
   const revalidate = async (initial: string, operation: string) => {
+    requireLiveHost();
     const current = await owner(operation);
     if (JSON.stringify(current.currentContext()) !== initial)
       deny("T3_SUBJECT_RESULT_STALE_AFTER_KERNEL");
+    requireLiveHost();
   };
   const guarded = facade as unknown as Record<string, unknown>;
   const original = inherited as unknown as Record<string, unknown>;

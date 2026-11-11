@@ -187,6 +187,45 @@ describe("T3 D1 original ModuleContext Kernel with signed corporate subject",()=
       expect(f.calls.filter(x=>x.method==="importCommit")).toHaveLength(1);
     }finally{await host.dispose();}
   });
+  it("rejects retained ModuleContext Kernel after Host disposal, before original T2 writes",async()=>{
+    const f=fixture(),host=await open(f);
+    const kernel=host.contextProvider.createContext("d06").kernel;
+    await host.dispose();
+    const before=f.calls.length;
+    await expect(kernel.putObject({workspace_id:"ws:alpha",object_id:"item:1",
+      schema_id:"demo",schema_version:"1.0.0",data:{},
+      event:{event_type:"created"}})).rejects.toMatchObject({code:"T3_HOST_DISPOSED"});
+    await expect(kernel.getWorkspace("ws:alpha"))
+      .rejects.toMatchObject({code:"T3_HOST_DISPOSED"});
+    await expect(kernel.listWorkspaces())
+      .rejects.toMatchObject({code:"T3_HOST_DISPOSED"});
+    expect(f.calls.length).toBe(before);
+  });
+  it("withholds late signed write receipts after disposal without replaying the Kernel",async()=>{
+    const f=fixture();
+    let started!:()=>void,release!:(value:unknown)=>void,commits=0;
+    const entered=new Promise<void>(resolve=>{started=resolve});
+    const delayed=new Promise<unknown>(resolve=>{release=resolve});
+    const session=f.session as unknown as {
+      t1:{putObject:(input:{workspace_id:string;object_id:string})=>Promise<unknown>};
+    };
+    session.t1.putObject=async input=>{
+      commits++;
+      started();
+      return delayed;
+    };
+    const host=await open(f);
+    const kernel=host.contextProvider.createContext("d06").kernel;
+    const pending=kernel.putObject({workspace_id:"ws:alpha",object_id:"item:late",
+      schema_id:"demo",schema_version:"1.0.0",data:{},
+      event:{event_type:"created"}});
+    await entered;
+    await host.dispose();
+    release({object:{workspace_id:"ws:alpha",object_id:"item:late",revision:1},
+      event:{workspace_id:"ws:alpha",event_id:"event:late"}});
+    await expect(pending).rejects.toMatchObject({code:"T3_HOST_DISPOSED"});
+    expect(commits).toBe(1);
+  });
   it("when signed owner is required but unavailable, no T2 data may escape",async()=>{
     const f=fixture();
     const host=await createWorkspaceHostRuntime({
