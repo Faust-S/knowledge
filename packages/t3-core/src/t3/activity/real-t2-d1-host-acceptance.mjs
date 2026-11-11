@@ -12,7 +12,8 @@ const digest=value=>createHash("sha256").update(JSON.stringify(value)).digest("h
 const validTo=()=>new Date(Date.now()+60000).toISOString();
 const nowIso=()=>new Date().toISOString();
 const methods=new Set(["t1.createWorkspace","t1.getWorkspace","t1.putObject","t1.getObject",
-  "t1.listObjects","t1.putRelation","t1.listEventsSince"]);
+  "t1.listObjects","t1.putRelation","t1.listEventsSince",
+  "t1.softDeleteWorkspace","t1.restoreWorkspace"]);
 
 export async function liveT2Facade(page, service_id=W) {
   assert.equal(typeof page?.evaluate,"function");
@@ -45,6 +46,8 @@ export async function liveT2Facade(page, service_id=W) {
     listObjects:query=>invoke("listObjects",[query]),
     putObject:input=>invoke("putObject",[input]),
     putRelation:input=>invoke("putRelation",[input]),
+    softDeleteWorkspace:id=>invoke("softDeleteWorkspace",[id]),
+    restoreWorkspace:id=>invoke("restoreWorkspace",[id]),
     listEventsSince:(id,since)=>invoke("listEventsSince",[id,since]),
   });
 }
@@ -79,7 +82,9 @@ export async function createD1TestHost(page,file) {
   const actionFor=op=>({"t1.createWorkspace":"workspace.create",
     "t1.getWorkspace":"workspace.read","t1.putObject":"object.write",
     "t1.getObject":"object.read","t1.listObjects":"object.list",
-    "t1.putRelation":"relation.write","t1.listEventsSince":"history.read"})[op];
+    "t1.putRelation":"relation.write","t1.listEventsSince":"history.read",
+    "t1.softDeleteWorkspace":"workspace.softDelete",
+    "t1.restoreWorkspace":"workspace.restore"})[op];
   const access=createSignedAccessHostPort({
     currentContext,actionFor,
     operationDigest:({operation,input,context})=>digest({operation,input,context}),
@@ -191,6 +196,14 @@ export async function seedD1OnRealKernel(page,file){
       linked_event_id:linked.event.event_id,relation_event_id:relation.event.event_id,
       kind:c.kind});
   }
+  host.select(0);
+  const subjectWorkspace=host.contexts[0].workspace_id;
+  const deleted=await host.binding.softDeleteWorkspace(subjectWorkspace);
+  assert.equal(deleted.workspace_id,subjectWorkspace);
+  const restored=await host.binding.restoreWorkspace(subjectWorkspace);
+  assert.equal(restored.workspace_id,subjectWorkspace);
+  const afterRestore=await host.binding.getObject(subjectWorkspace,"d1:record:0");
+  assert.equal(afterRestore.object.revision,1);
   host.select(1);
   await assert.rejects(host.binding.getObject(host.contexts[2].workspace_id,"d1:record:2"),
     {code:"T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE"});

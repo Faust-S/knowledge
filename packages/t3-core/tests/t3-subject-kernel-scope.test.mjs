@@ -10,7 +10,7 @@ function fixture(){
   const calls=[], allowed=new Set(["t1.createWorkspace","t1.getWorkspace","t1.getObject",
     "t1.listObjects","t1.putObject","t1.deleteObject","t1.putRelation","t1.deleteRelation",
     "t1.listAssets","t1.getAsset","t1.putAsset","t1.deleteAsset","t1.commitObjectGraph",
-    "t1.listEventsSince"]);
+    "t1.listEventsSince","t1.softDeleteWorkspace","t1.restoreWorkspace"]);
   const context={kind:"PERSONAL",context_id:"context:person",actor_id:"person:1",
     principal_id:"person:1",role_id:"role:writer",grant_id:"grant:person",
     realm_id:"realm:person",audience:"host:t3",resource:ws,workspace_id:ws,
@@ -46,6 +46,10 @@ function fixture(){
         relations_put:[relation],relation_ids_deleted:[],event};},
     async listEventsSince(id,since){calls.push(["listEventsSince",id,since]);return [event];},
     async getWorkspace(id){calls.push(["getWorkspace",id]);return {workspace_id:id};},
+    async softDeleteWorkspace(id){calls.push(["softDeleteWorkspace",id]);
+      return {workspace_id:id,deleted_at:new Date(now).toISOString()};},
+    async restoreWorkspace(id){calls.push(["restoreWorkspace",id]);
+      return {workspace_id:id,restored_at:new Date(now).toISOString()};},
     async createWorkspace(input){calls.push(["createWorkspace",input]);return {workspace_id:input.workspace_id};},
     async putObject(input){calls.push(["putObject",input]);
       return {object:{...record,object_id:input.object_id},event};},
@@ -180,4 +184,28 @@ test("a late write receipt is withheld without automatic re-execution",async()=>
   complete();
   await assert.rejects(pending,{code:"T3_SUBJECT_RESULT_STALE_AFTER_KERNEL"});
   assert.equal(commits,1,"Kernel may have committed; no retry or rollback assumed");
+});
+
+test("D1 preserves inherited T2 workspace soft-delete and restore lifecycle with exact receipts",async()=>{
+  const f=fixture();
+  const deleted=await f.bound.softDeleteWorkspace(ws);
+  assert.equal(deleted.workspace_id,ws);
+  assert.equal(typeof deleted.deleted_at,"string");
+  const restored=await f.bound.restoreWorkspace(ws);
+  assert.equal(restored.workspace_id,ws);
+  assert.equal(typeof restored.restored_at,"string");
+  assert.deepEqual(f.calls.map(x=>x[0]),["softDeleteWorkspace","restoreWorkspace"]);
+});
+test("D1 denies cross-workspace lifecycle and mismatched original T2 receipts",async()=>{
+  const f=fixture();
+  for(const op of [()=>f.bound.softDeleteWorkspace("ws:foreign"),
+    ()=>f.bound.restoreWorkspace("ws:foreign")])
+    await assert.rejects(op(),{code:"T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE"});
+  assert.equal(f.calls.length,0);
+  f.kernel.softDeleteWorkspace=async()=>({workspace_id:"ws:foreign",deleted_at:"today"});
+  await assert.rejects(f.bound.softDeleteWorkspace(ws),
+    {code:"T3_KERNEL_SCOPE_RECEIPT_MISMATCH"});
+  f.kernel.restoreWorkspace=async()=>null;
+  await assert.rejects(f.bound.restoreWorkspace(ws),
+    {code:"T3_KERNEL_SCOPE_RECEIPT_MISMATCH"});
 });

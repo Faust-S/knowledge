@@ -16,6 +16,8 @@ const OPERATIONS = Object.freeze({
   deleteAsset: "t1.deleteAsset",
   commitObjectGraph: "t1.commitObjectGraph",
   listEventsSince: "t1.listEventsSince",
+  softDeleteWorkspace: "t1.softDeleteWorkspace",
+  restoreWorkspace: "t1.restoreWorkspace",
 });
 export const SUBJECT_SCOPED_OPERATION_IDS = Object.freeze(Object.values(OPERATIONS));
 const REF = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
@@ -182,9 +184,11 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
           ? "T3_KERNEL_EVENT_SCOPE_MISMATCH" : "T3_KERNEL_LIST_SCOPE_MISMATCH");
       }
     }
-    if (["createWorkspace","getWorkspace"].includes(method) && result != null)
+    if (["createWorkspace","getWorkspace","softDeleteWorkspace","restoreWorkspace"]
+      .includes(method) && result != null)
       scoped(result,"T3_KERNEL_SCOPE_RECEIPT_MISMATCH");
-    if (method === "createWorkspace" && result == null)
+    if (["createWorkspace","softDeleteWorkspace","restoreWorkspace"]
+      .includes(method) && result == null)
       refused("T3_KERNEL_SCOPE_RECEIPT_MISMATCH");
     if (method === "getObject" && result != null) {
       scoped(result.object,"T3_KERNEL_SCOPE_RECEIPT_MISMATCH");
@@ -261,5 +265,9 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
     listEventsSince: (workspace_id, since) =>
       invoke("listEventsSince",since === undefined ? {workspace_id} :
         {workspace_id,since:requiredId(since,"SINCE")},workspace_id),
+    softDeleteWorkspace: workspace_id =>
+      invoke("softDeleteWorkspace",{workspace_id},workspace_id),
+    restoreWorkspace: workspace_id =>
+      invoke("restoreWorkspace",{workspace_id},workspace_id),
   });
 }
