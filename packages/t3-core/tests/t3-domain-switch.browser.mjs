@@ -44,9 +44,14 @@ function fixture(root) {
   write(root,"_iwxa/service-catalog.json",JSON.stringify({entries:[]}));
   write(root,".htaccess","Options -MultiViews\nDirectoryIndex index.html\n");
 }
-function serve(root) {
+function serve(root, control = {blockUpdates:false}) {
   return createServer((req,res)=>{
     const url=new URL(req.url??"/","http://127.0.0.1");
+    if (control.blockUpdates && url.pathname === "/t3-offline-manifest.json") {
+      res.writeHead(503,{"cache-control":"no-store"});
+      res.end("SIMULATED_UPDATE_SERVER_UNAVAILABLE");
+      return;
+    }
     const path=url.pathname.endsWith("/")?url.pathname+"index.html":url.pathname;
     const name=join(root,path.replace(/^\/+/,""));
     if(path.includes("..")) {res.writeHead(404);res.end();return;}
@@ -71,7 +76,8 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
 },async()=>{
   const root=mkdtempSync(join(tmpdir(),"t3-domain-chromium-"));
   const profile=mkdtempSync(join(tmpdir(),"t3-domain-browser-profile-"));
-  const server=serve(root);
+  const updateServer={blockUpdates:false};
+  const server=serve(root, updateServer);
   let context;
   try {
     fixture(root);
@@ -143,6 +149,7 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     const updated=materializeDomainMode(root);
     assert.notEqual(updated.version,built.version,"a new on-disk site changes the release");
     const check=page.getByRole("button",{name:"Проверить обновление T3"});
+    updateServer.blockUpdates=true;
     await check.click();
     await page.getByRole("status").filter({hasText:/Проверка обновления недоступна/}).waitFor();
     await page.reload();
@@ -151,6 +158,7 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
       "previous offline release is preserved after failed update check");
 
     await context.setOffline(false);
+    updateServer.blockUpdates=false;
     await check.click();
     const installUpdate=page.getByRole("button",{name:"Установить обновление"});
     await installUpdate.waitFor({state:"visible",timeout:15000});
