@@ -52,6 +52,11 @@ function render(ui, enabled) {
 async function registration() {
   return navigator.serviceWorker.getRegistration("/");
 }
+async function foreignWorker() {
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  return registrations.some(reg =>
+    reg.active && new URL(reg.scope).origin === location.origin && !isOwn(reg.active));
+}
 function message(worker, type, progress = () => {}) {
   return new Promise((resolve, reject) => {
     const channel = new MessageChannel();
@@ -71,6 +76,11 @@ function message(worker, type, progress = () => {}) {
   });
 }
 async function status(ui) {
+  if (await foreignWorker()) {
+    ui.toggle.disabled = true;
+    tell(ui, "Обнаружен другой Service Worker в домене. Автономный T3 не включается поверх него.");
+    return;
+  }
   const reg = await registration();
   if (reg?.active && !isOwn(reg.active)) {
     ui.toggle.disabled = true;
@@ -88,6 +98,7 @@ async function status(ui) {
   }
 }
 async function enable(ui) {
+  if (await foreignWorker()) throw Error("T3_DOMAIN_SW_SCOPE_CONFLICT");
   const previous = await registration();
   if (previous?.active && !isOwn(previous.active)) throw Error("T3_DOMAIN_SW_CONFLICT");
   // Do not download assets, the model, or a Kernel without a user click.
