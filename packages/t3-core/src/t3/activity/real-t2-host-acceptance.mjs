@@ -5,7 +5,10 @@ import { readT3ActivityInLiveBrowser, compareT3ActivityAfterColdRestart } from "
 // Live qualification only: a verified, disposable T2 Host must already be running.
 // This module does not build a Kernel, impersonate IWXA, or emulate persistence.
 export const LIVE_T2_BINDINGS = Object.freeze({
-  objects: [{ schema_id: "iwxa.demo.note", schema_version: "1.0.0", semantic_kind: "Entity" }],
+  objects: [{
+    schema_id: "iwxa.demo.note", schema_version: "1.0.0", semantic_kind: "Entity",
+    links: [{ field: "dependency_ids", relation: "declared_dependency", many: true }],
+  }],
   events: [
     { event_type: "t3.activity.created", semantic_kind: "Event" },
     { event_type: "t3.activity.updated", semantic_kind: "Event" },
@@ -63,7 +66,8 @@ export async function createRealT2ActivityFixture(page, {
       workspace_id, object_id: a.object.object_id,
       schema_id: "iwxa.demo.note", schema_version: "1.0.0",
       base_revision: a.object.revision,
-      data: { title: "Synthetic A updated" }, extensions: {},
+      data: { title: "Synthetic A updated", dependency_ids: ["activity:b"] },
+      extensions: {},
       event: { event_type: "t3.activity.updated", payload: {} },
     });
     const link = await session.t1.putRelation({
@@ -154,8 +158,16 @@ export async function proveRealT2ReadOnlyProjection(page, {
   assert.equal(probe.view.nodes.find(x => x.object_id === "activity:a")?.revision,
     receipts.revisions.a_current);
   assert.equal(probe.view.events.length, receipts.event_ids.length);
-  assert.equal(probe.view.relations.length, 1);
-  assert.equal(probe.view.relations[0].relation_id, receipts.relation_id);
+  assert.equal(probe.view.relations.length, 2);
+  assert.deepEqual(probe.view.relations.find(x=>x.relation==="declared_dependency"),{
+    source_id:"activity:a",target_id:"activity:b",
+    relation:"declared_dependency",source_revision:receipts.revisions.a_current,
+  });
+  assert.equal(probe.view.relations.find(x=>x.relation_id===receipts.relation_id)?.relation,
+    "depends_on");
+  assert.deepEqual(
+    beforeSource.objects.find(x=>x.object_id==="activity:a")?.data?.dependency_ids,
+    ["activity:b"], "ORIGINAL_T2_PLURAL_REFERENCES_NOT_PERSISTED");
   assert.ok(!canonical(probe.view).includes("Synthetic A updated"), "RAW_T2_OBJECT_LEAK");
   assert.ok(!canonical(probe.view).includes(foreign_workspace_id), "FOREIGN_WORKSPACE_LEAK");
   assert.ok(!canonical(probe.view).includes("foreign:unrelated"), "FOREIGN_OBJECT_LEAK");
