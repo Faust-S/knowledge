@@ -153,8 +153,7 @@ describe("T3 D1 signed Activity in the actual Workspace Host runtime",()=>{
       // already-installed owner. No Activity-specific second port is needed.
       signedKernelAccess:(operation:string)=>{
         operations.push(operation);
-        return ["listObjects","getWorkspace","getObject","listEventsSince"]
-          .includes(operation)?f.signedActivityAccess:null;
+        return operation==="activity.read"?f.signedActivityAccess:null;
       },
     });
     try {
@@ -164,9 +163,9 @@ describe("T3 D1 signed Activity in the actual Workspace Host runtime",()=>{
       expect(result.nodes).toHaveLength(1);
       expect(result.events).toHaveLength(1);
       expect(JSON.stringify(result)).not.toContain("private");
-      expect(operations).toContain("listObjects");
-      expect(operations).toContain("getObject");
-      expect(operations).toContain("listEventsSince");
+      expect(operations).toContain("activity.read");
+      expect(operations).not.toContain("listObjects");
+      expect(f.reads()).toBe(7);
       expect(f.checks()).toBe(f.reads());
       // Single original Kernel JIT: no second proof for each Activity row.
       const kernel=host.contextProvider.createContext("d06").kernel;

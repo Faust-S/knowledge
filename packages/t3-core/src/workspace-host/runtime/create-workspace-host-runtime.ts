@@ -33,7 +33,7 @@ import {
   activeHostRouteBindings,
   resolveProductFirstLanding,
 } from "../router";
-import { CurrentWorkspaceStore, createModuleContextProvider } from "../context";
+import { CurrentWorkspaceStore, createModuleContextProvider, createKernelFacade } from "../context";
 import { DashboardRefreshState } from "../context/create-dashboard-facade";
 import { HostPanelsState } from "../context/create-panels-facade";
 import type {
@@ -173,6 +173,12 @@ export async function createWorkspaceHostRuntime(
     modules: collectedRegistryDiagnostics as never,
   };
 
+  // Activity is a trusted Host operation, not a module-level shortcut.
+  // This is the ORIGINAL T2 facade on the same KernelSession and Store;
+  // module consumers only receive the signed ModuleContext facade below.
+  // Activity's separate DATA consent is applied through the existing D1
+  // binding on this facade, so normal workspace.read never implies Activity.
+  const activityT2Kernel = createKernelFacade({session: input.session});
   const readAuthorizedActivity: WorkspaceHostRuntimeHandle["readAuthorizedActivity"] =
     async (options) => {
       const reject = (code: string): never => {
@@ -184,48 +190,32 @@ export async function createWorkspaceHostRuntime(
       if (options && ("signedAccess" in options || "authorizedRead" in options)) {
         reject("T3_ACTIVITY_OWNER_OVERRIDE_FORBIDDEN");
       }
-      // A multi-organization host obtains a fresh owner after each explicit
-      // context selection or STATUS update. No cached port may resurrect A
-      // after A -> B -> A, and the inherited Kernel session remains one.
-      // When the Host already owns D1 per-operation rights, Activity uses
-      // the same explicit DATA read grant. A separate Activity-only owner is
-      // optional, not a second authority. An explicitly configured Activity
-      // source never falls back to another grant if that source denies.
+      // A multi-organization Host obtains the original signed DATA grant
+      // after each context selection/status update. This selector is NOT a
+      // new T2 operation: it only asks the existing Access owner for its
+      // activity.read port; ModuleContext.kernel remains the normal T2 API.
       const activity = input.signedActivityAccess;
-      const kernel = input.signedKernelAccess;
+      const source = input.signedKernelAccess;
       const signedAccess = activity !== undefined
         ? typeof activity === "function" ? await activity() : activity
-        : typeof kernel === "function" ? await kernel("listObjects") : kernel;
+        : typeof source === "function" ? await source("activity.read") : source;
       if (disposed) reject("T3_HOST_DISPOSED");
       if (!signedAccess) return reject("T3_D1_ACCESS_OWNER_REQUIRED");
-      // Activity always requires an explicit DATA read grant. The Host's
-      // general getWorkspace/object.write rights must never imply one.
       if (await signedAccess.actionFor("t1.listObjects") !== "activity.read")
-        reject("T3_ACTIVITY_EXPLICIT_DATA_GRANT_REQUIRED");
+        return reject("T3_ACTIVITY_EXPLICIT_DATA_GRANT_REQUIRED");
       if (disposed) reject("T3_HOST_DISPOSED");
-      const originalOwner = JSON.stringify(signedAccess.currentContext());
-      // The complete ModuleContext.kernel already performs signed JIT once
-      // per T2 read. Re-wrapping it would run a second credential proof for
-      // every object and event, slowing down large Activity workspaces.
-      // Preserve the explicit Activity gate if one was separately installed.
-      const useSignedKernel = activity === undefined && kernel !== undefined;
+      // Only the one original T2 session performs the read. The Activity
+      // binding adds its OWN signed DATA JIT once per original operation;
+      // the standard module's workspace.read grant is neither borrowed nor
+      // unnecessarily rechecked. No second Kernel, Store or registry.
       const result = await readActivityFromWorkspaceContext(
-        contextProvider.createContext("iwxa.workspace.base"),
-        useSignedKernel ? { ...options } : { ...options, signedAccess },
+        {
+          kernel: activityT2Kernel,
+          currentWorkspace: contextProvider.createContext("iwxa.workspace.base").currentWorkspace,
+        },
+        { ...options, signedAccess },
       );
       if (disposed) reject("T3_HOST_DISPOSED");
-      if (useSignedKernel) {
-        // Subject selection can change even while the final original T2
-        // Kernel call finishes. Prevent stale A -> B -> A readback.
-        const current = typeof kernel === "function"
-          ? await kernel("listObjects") : kernel;
-        if (disposed) reject("T3_HOST_DISPOSED");
-        if (!current) return reject("T3_ACTIVITY_WORKSPACE_CHANGED_DURING_READ");
-        if (JSON.stringify(signedAccess.currentContext()) !== originalOwner ||
-            JSON.stringify(current.currentContext()) !== originalOwner) {
-          reject("T3_ACTIVITY_WORKSPACE_CHANGED_DURING_READ");
-        }
-      }
       return result;
     };
   const dispose = async () => {
