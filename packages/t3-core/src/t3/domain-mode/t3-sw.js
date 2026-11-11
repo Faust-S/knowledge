@@ -165,7 +165,10 @@ async function checkUpdate(port) {
     const response = await fetch(MANIFEST_PATH, {cache: "no-store", credentials: "same-origin"});
     if (!response.ok) throw new Error("T3_DOMAIN_UPDATE_CHECK_UNAVAILABLE");
     const manifest = validate(await response.json());
-    if (manifest.domain_origin !== self.location.origin) {
+    // Developer localhost fixtures can use a production HTTPS domain.json,
+    // but a deployed HTTPS origin must match its own immutable release.
+    if (self.location.protocol === "https:" &&
+        manifest.domain_origin !== self.location.origin) {
       throw new Error("T3_DOMAIN_UPDATE_ORIGIN_MISMATCH");
     }
     const available = manifest.version !== state.manifest.version || state.complete !== true;
