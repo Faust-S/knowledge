@@ -68,6 +68,12 @@ export function materializeDomainMode(distRoot, assistantDistRoot = null) {
       "_iwxa/service-catalog.json"]) {
     if (!existsSync(join(root, required))) fail("ONE_DIST_INCOMPLETE:" + required);
   }
+  const runtimeDir = join(root, "_iwxa/runtime");
+  if (!existsSync(runtimeDir) ||
+      !scan(runtimeDir).some(path => path.endsWith("/runtime.js") ||
+        path.endsWith("/runtime.mjs"))) {
+    fail("ORIGINAL_KERNEL_RUNTIME_MISSING");
+  }
   const domain = JSON.parse(readFileSync(join(root, "_iwxa/domain.json"), "utf8"));
   const domainOrigin = domain?.domain?.origin || domain?.runtime?.origin ||
     domain?.origin || null;
@@ -106,6 +112,7 @@ export function materializeDomainMode(distRoot, assistantDistRoot = null) {
   const aliases = [];
   for (const file of scan(root)) {
     const path = "/" + relative(root, file).split(sep).join("/");
+    if (path.startsWith("/_iwxa/diagnostics/")) fail("DIAGNOSTICS_IN_PRODUCT_DIST");
     if (path === "/t3-offline-manifest.json") continue;
     const bytes = readFileSync(file);
     const entry = {path,sha256:sha(bytes),bytes:bytes.length};
