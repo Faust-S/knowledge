@@ -58,23 +58,45 @@ function identity(c) {
   return JSON.stringify(Object.values(c));
 }
 function authorizedDecision(decision,context,now) {
-  if (!decision || decision.schema !== DECISION_SCHEMA || decision.allowed !== true ||
+  const corporate = context.kind === "CORP";
+  const schema = corporate
+    ? "IWXA_T3_ORGANIZATION_OPERATION_DECISION/1"
+    : "IWXA_T3_AUTHORIZATION_DECISION/1";
+  if (!decision || decision.schema !== schema || decision.allowed !== true ||
       decision.outcome !== "PERMITTED" || decision.evidenceOnly !== true ||
       !HEX.test(decision.requestDigest??"") || !HEX.test(decision.policyDigest??"") ||
-      !Number.isSafeInteger(decision.statusSequence) || decision.statusSequence < 0 ||
-      !Array.isArray(decision.authorityPath) ||
+      !Number.isSafeInteger(decision.statusSequence) || decision.statusSequence < 0) {
+    refused("T3_ACCESS_NOT_PERMITTED");
+  }
+  // The organizational owner signs the enrollment and binds the complete
+  // operation in its own digest. Its decision is NOT a direct Access decision.
+  if (corporate) {
+    if (decision.organizationId !== context.organization_id ||
+        decision.workspaceId !== context.workspace_id ||
+        decision.grantId !== context.grant_id ||
+        !HEX.test(decision.operationDigest??"") ||
+        !HEX.test(decision.evidenceDigest??"") ||
+        decision.productionActivation !== false ||
+        decision.doesNotTransferData !== true ||
+        decision.doesNotAcceptCorporateCopy !== true) {
+      refused("T3_ACCESS_CORPORATE_DECISION_MISMATCH");
+    }
+  } else if (!Array.isArray(decision.authorityPath) ||
       decision.authorityPath.at(-1)?.grantId !== context.grant_id) {
     refused("T3_ACCESS_NOT_PERMITTED");
   }
   const until = Date.parse(decision.validUntil);
-  const observed = Date.parse(decision.statusObservedAt);
-  const evaluated = Date.parse(decision.evaluatedAt);
-  if (!Number.isFinite(until) || until <= now ||
-      !Number.isFinite(observed) || observed > now ||
-      !Number.isFinite(evaluated) || evaluated > now) {
-    refused("T3_ACCESS_STATUS_NOT_CURRENT");
+  if (!Number.isFinite(until) || until <= now) refused("T3_ACCESS_STATUS_NOT_CURRENT");
+  if (!corporate) {
+    const observed = Date.parse(decision.statusObservedAt);
+    const evaluated = Date.parse(decision.evaluatedAt);
+    if (!Number.isFinite(observed) || observed > now ||
+        !Number.isFinite(evaluated) || evaluated > now) {
+      refused("T3_ACCESS_STATUS_NOT_CURRENT");
+    }
   }
 }
+
 export function createSubjectKernelBinding({ kernel, access, clock = Date.now } = {}) {
   if (!kernel || typeof kernel.hasOperation !== "function" ||
       !kernel.sessionInfo || kernel.sessionInfo.contract_version !== "1.3.0" ||
