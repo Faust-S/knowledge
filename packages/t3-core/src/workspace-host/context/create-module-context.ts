@@ -30,6 +30,7 @@ import type { HostContributionHub } from "../registries";
 import type { ModuleContextProvider } from "../modules/module-types";
 import { CurrentWorkspaceStore } from "./current-workspace-store";
 import { createKernelFacade } from "./create-kernel-facade";
+import type { T3SignedActivityAccess } from "@/t3/index.mjs";
 import { createCommandsFacade } from "./create-commands-facade";
 import { createViewsFacade } from "./create-views-facade";
 import { createPanelsFacade, type PanelsState } from "./create-panels-facade";
@@ -44,6 +45,9 @@ import {
 
 export interface ModuleContextFactoryInput {
   session: KernelSession;
+  /** Host-owned signed authority for the complete inherited Kernel facade. */
+  signedKernelAccess?: T3SignedActivityAccess |
+    (() => T3SignedActivityAccess | null | Promise<T3SignedActivityAccess | null>);
   router: HostRouter;
   hub: HostContributionHub;
   currentWorkspaceStore: CurrentWorkspaceStore;
@@ -68,6 +72,11 @@ export function createModuleContextProvider(
     [...(input.session.granted_operations ?? [])],
   ) as readonly OperationId[];
   const activeCapabilities = Object.freeze([...(input.activeCapabilities ?? [])]);
+  // Signed D1 state (only original T2 import/purge preview tokens) must remain
+  // coherent across the modules of one Host, without copying the T2 session.
+  const signedKernel = input.signedKernelAccess
+    ? createKernelFacade({session: input.session, signedKernelAccess: input.signedKernelAccess})
+    : null;
 
   /**
    * Internal factory — same shape as the public `createContext`, but
@@ -79,7 +88,7 @@ export function createModuleContextProvider(
     moduleId: string,
     invocationStack: readonly string[],
   ): WorkspaceModuleContext {
-    const kernel = createKernelFacade({ session: input.session });
+    const kernel = signedKernel ?? createKernelFacade({ session: input.session });
     const router = createRouterFacade(input.router);
     const commands = createCommandsFacade({
       moduleId,

@@ -15,11 +15,17 @@ import type { KernelFacade } from "@/workspace-contract";
 import type { OperationId } from "@/kernel-client";
 import type { KernelSession } from "@/kernel-client/types";
 import { adapter } from "@/kernel-client/adapter";
+import { createSubjectKernelBinding } from "@/t3/index.mjs";
+import type { T3SignedActivityAccess } from "@/t3/index.mjs";
 import type { Level } from "@/kernel-client/contracts/runtime-1.3.0";
 
 import { negotiateAtomicGraph } from "@/kernel-client/contracts/runtime-1.3.0/atomic-graph-negotiation";
 export interface KernelFacadeInput {
   session: KernelSession;
+  /** Trusted Host-only signed owner, never a module, package, or UI field.
+   * The provider resolves the current PERSONAL/CORP authority per operation. */
+  signedKernelAccess?: T3SignedActivityAccess |
+    (() => T3SignedActivityAccess | null | Promise<T3SignedActivityAccess | null>);
 }
 
 export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
@@ -84,5 +90,87 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     importCommit: async (input) => adapter.importCommit(session, input),
     importCancel: async (token) => adapter.importCancel(session, token),
   };
+  if (!input.signedKernelAccess) return Object.freeze(facade);
+
+  // This remains the original complete T2 facade. A selected subject may
+  // invoke it only after the original signed Access owner authorizes that
+  // method. We do not create a Kernel, Store, authority or extra grant here.
+  const inherited = Object.freeze({ ...facade });
+  const instances = new WeakMap<object, ReturnType<typeof createSubjectKernelBinding>>();
+  const deny = (code: string): never => {
+    throw Object.assign(new Error(code), { code });
+  };
+  const source = input.signedKernelAccess;
+  const owner = async (): Promise<T3SignedActivityAccess> => {
+    const current = typeof source === "function" ? await source() : source;
+    if (!current) return deny("T3_D1_ACCESS_OWNER_REQUIRED");
+    if (typeof current.currentContext !== "function")
+      return deny("T3_D1_ACCESS_OWNER_REQUIRED");
+    return current;
+  };
+  const signed = async () => {
+    const access = await owner();
+    let bound = instances.get(access);
+    if (!bound) {
+      bound = createSubjectKernelBinding({ kernel: inherited, access });
+      instances.set(access, bound);
+    }
+    const initial = JSON.stringify(access.currentContext());
+    return { bound, initial };
+  };
+  const revalidate = async (initial: string) => {
+    const current = await owner();
+    if (JSON.stringify(current.currentContext()) !== initial)
+      deny("T3_SUBJECT_RESULT_STALE_AFTER_KERNEL");
+  };
+  const guarded = facade as unknown as Record<string, unknown>;
+  const original = inherited as unknown as Record<string, unknown>;
+  const subjectMethods = [
+    "createWorkspace","getWorkspace","getObject","listObjects",
+    "putObject","deleteObject","putRelation","deleteRelation",
+    "listAssets","getAsset","putAsset","deleteAsset","listEventsSince",
+    "softDeleteWorkspace","restoreWorkspace",
+    "exportPreview","exportPackage","confirmExport",
+    "importPreview","importCommit","importCancel",
+    "purgePreview","purgeCommit","purgeCancel",
+    ...(atomicAvailable ? ["commitObjectGraph"] : []),
+  ];
+  for (const method of subjectMethods) {
+    guarded[method] = async (...args: unknown[]) => {
+      const { bound, initial } = await signed();
+      const delegate = (bound as unknown as Record<string, (...args: unknown[]) =>
+        Promise<unknown>>)[method];
+      if (typeof delegate !== "function") deny("T3_SUBJECT_OPERATION_UNAVAILABLE");
+      const result = await delegate(...args);
+      await revalidate(initial);
+      return result; // the original T2 receipt, not a second result model
+    };
+  }
+  // Non-subject T2 enumeration cannot expose another organization's
+  // workspaces. Filter by the one signed selected workspace instead.
+  guarded.listWorkspaces = async (options?: { include_deleted?: boolean }) => {
+    const { bound, initial } = await signed();
+    const active = await owner();
+    const selectedContext = active.currentContext() as { workspace_id?: unknown } | null;
+    const workspaceId = selectedContext?.workspace_id;
+    if (typeof workspaceId !== "string") deny("T3_SUBJECT_CONTEXT_UNAVAILABLE");
+    const row = await bound.getWorkspace(workspaceId);
+    await revalidate(initial);
+    return row && (options?.include_deleted === true || !row.deleted_at) ? [row] : [];
+  };
+  for (const method of ["authorizationForWorkspace","hasCapability"] as const) {
+    guarded[method] = async (workspaceId: string, capabilityId?: string) => {
+      const { bound, initial } = await signed();
+      // GetWorkspace performs the original signed JIT and selected-resource
+      // check before the underlying T2 authorization/capability query.
+      await bound.getWorkspace(workspaceId);
+      const delegate = original[method] as (...args: string[]) => Promise<unknown>;
+      const result = method === "hasCapability"
+        ? await delegate(workspaceId, capabilityId as string)
+        : await delegate(workspaceId);
+      await revalidate(initial);
+      return result;
+    };
+  }
   return Object.freeze(facade);
 }

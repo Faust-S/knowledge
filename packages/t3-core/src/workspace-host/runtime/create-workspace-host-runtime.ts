@@ -86,6 +86,7 @@ export async function createWorkspaceHostRuntime(
 
   const contextProvider: ModuleContextProvider = createModuleContextProvider({
     session: input.session,
+    signedKernelAccess: input.signedKernelAccess,
     router,
     hub,
     currentWorkspaceStore,

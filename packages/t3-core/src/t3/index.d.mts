@@ -30,3 +30,18 @@ export function readActivityFromWorkspaceContext(
   context: { kernel: KernelFacade; currentWorkspace: Pick<CurrentWorkspaceFacade, "get" | "subscribe"> },
   options: T3ActivityReadOptions & { signedAccess?: T3SignedActivityAccess | null },
 ): Promise<T3ActivityProjection>;
+
+/** The existing signed D1 binding for the original selected T2 Kernel.
+ * All requested methods remain implemented by the inherited Runtime 1.3.0. */
+export function createSubjectKernelBinding(input: {
+  kernel: KernelFacade;
+  access: T3SignedActivityAccess;
+  clock?: () => number;
+}): Pick<KernelFacade,
+  "createWorkspace" | "getWorkspace" | "getObject" | "listObjects" |
+  "putObject" | "deleteObject" | "putRelation" | "deleteRelation" |
+  "listAssets" | "getAsset" | "putAsset" | "deleteAsset" |
+  "listEventsSince" | "softDeleteWorkspace" | "restoreWorkspace" |
+  "exportPreview" | "exportPackage" | "confirmExport" |
+  "importPreview" | "importCommit" | "importCancel" |
+  "purgePreview" | "purgeCommit" | "purgeCancel" | "commitObjectGraph">;
