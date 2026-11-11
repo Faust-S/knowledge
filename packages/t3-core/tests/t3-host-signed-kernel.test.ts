@@ -5,7 +5,10 @@ import { createWorkspaceHostRuntime } from "@/workspace-host/runtime";
 
 const hash = (v: unknown) => createHash("sha256").update(JSON.stringify(v)).digest("hex");
 const digest = "d".repeat(64);
-const now = Date.parse("2026-11-11T18:00:00.000Z");
+// Synthetic non-production owner decisions must not expire during the CI suite.
+// Revocation and stale status are exercised separately; this is not a real issuer.
+const now = Date.now();
+const fixtureValidityMs = 24 * 60 * 60 * 1000;
 function fixture() {
   let currentName = "alpha", revision = 1, active = true;
   const calls: Array<{method: string; workspace: string}> = [];
@@ -51,7 +54,7 @@ function fixture() {
         calls.push({method:"importPreview",workspace:ws()});
         expect(bytes).toEqual(Uint8Array.from([1,2,3]));
         return {preview_token:"import:token",package_digest:digest,
-          expires_at:new Date(now+60000).toISOString(),
+          expires_at:new Date(now+fixtureValidityMs).toISOString(),
           preview:{package_digest:digest,manifest:{workspaces:[ws()]},
             workspaces:[{workspace_id:ws()}],objects:[],conflicts:[]}};
       },
@@ -80,7 +83,7 @@ function fixture() {
         policyDigest:hash("policy"),operationDigest:hash("operation"),
         evidenceDigest:hash("evidence"),organizationId:c.organization_id,
         workspaceId:c.workspace_id,grantId:r.grantId,
-        statusSequence:revision,validUntil:new Date(now+60000).toISOString(),
+        statusSequence:revision,validUntil:new Date(now+fixtureValidityMs).toISOString(),
         doesNotTransferData:true,doesNotAcceptCorporateCopy:true};
     },
     verifyDecisionBinding: (req:unknown,decision:unknown) =>
