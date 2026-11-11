@@ -21,6 +21,9 @@ const OPERATIONS = Object.freeze({
   exportPreview: "t2.exportPreview",
   exportPackage: "t2.exportPackage",
   confirmExport: "t2.confirmExport",
+  importPreview: "t2.importPreview",
+  importCommit: "t2.importCommit",
+  importCancel: "t2.importCancel",
   purgePreview: "t1.purgePreview",
   purgeCommit: "t1.purgeCommit",
   purgeCancel: "t1.purgeCancel",
@@ -127,7 +130,8 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
   // T2 Kernel remains sole authority for purge tokens and irreversible commit.
   // A new process must create a fresh preview; no cross-process token reuse.
   let pendingPurge = null;
-  async function invoke(method, input, workspace_id, boundPurge = null) {
+  let pendingImport = null;
+  async function invoke(method, input, workspace_id, boundPurge = null, boundImport = null) {
     requiredId(workspace_id,"WORKSPACE_ID");
     const context = selected(access);
     // The caller cannot override a Host-selected PERSONAL/CORP context.
@@ -151,6 +155,38 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
           boundPurge.purge_token !== command?.purge_token ||
           boundPurge.contextIdentity !== identity(context)) {
         refused("T3_SUBJECT_PURGE_PREVIEW_REQUIRED");
+      }
+    } else if (method === "importPreview") {
+      if (command?.workspace_id !== workspace_id ||
+          !(command?.bytes instanceof Uint8Array)) {
+        refused("T3_SUBJECT_IMPORT_INPUT_INVALID");
+      }
+    } else if (method === "importCommit" || method === "importCancel") {
+      if (!boundImport || boundImport.workspace_id !== workspace_id ||
+          boundImport.preview_token !== command?.preview_token ||
+          boundImport.contextIdentity !== identity(context) ||
+          (method === "importCommit" &&
+            boundImport.package_digest !== command?.package_digest)) {
+        refused("T3_SUBJECT_IMPORT_PREVIEW_REQUIRED");
+      }
+      if (method === "importCommit") {
+        const plan = command?.plan;
+        if (!plan || typeof plan !== "object" ||
+            !["full","selective","merge"].includes(plan.mode) ||
+            (plan.target_workspace != null && plan.target_workspace !== workspace_id) ||
+            (plan.include_workspaces != null &&
+              (!Array.isArray(plan.include_workspaces) ||
+                plan.include_workspaces.some(id => id !== workspace_id))) ||
+            (plan.workspace_id_map != null &&
+              (typeof plan.workspace_id_map !== "object" ||
+                Object.entries(plan.workspace_id_map).some(([from,to]) =>
+                  from !== workspace_id || to !== workspace_id))) ||
+            (plan.include_objects != null &&
+              (!Array.isArray(plan.include_objects) ||
+                plan.include_objects.some(key =>
+                  typeof key !== "string" || !key.startsWith(workspace_id + "/"))))) {
+          refused("T3_SUBJECT_IMPORT_PLAN_OUT_OF_SCOPE");
+        }
       }
     } else if (command?.workspace_id !== workspace_id) {
       refused("T3_KERNEL_INPUT_SCOPE_MISMATCH");
@@ -196,7 +232,13 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
               ? await kernel[method](workspace_id)
               : method === "purgeCancel"
                 ? await kernel.purgeCancel(command.purge_token)
-                : await kernel[method](command);
+                : method === "importPreview"
+                  ? await kernel.importPreview(command.bytes)
+                  : method === "importCancel"
+                    ? await kernel.importCancel(command.preview_token)
+                    : method === "importCommit"
+                      ? await kernel.importCommit(command)
+                      : await kernel[method](command);
     const scoped = (record,code) => {
       if (!record || typeof record !== "object" ||
           record.workspace_id !== workspace_id) refused(code);
@@ -268,6 +310,39 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
     }
     // Validate the original T2 Exchange owner receipts without modifying the
     // archive bytes or creating a parallel packager/manifest parser.
+    if (method === "importPreview") {
+      const imported = result?.preview;
+      const ids = imported?.manifest?.workspaces;
+      if (!Array.isArray(ids) || ids.length!==1 || ids[0]!==workspace_id ||
+          !Array.isArray(imported?.workspaces) ||
+          imported.workspaces.length!==1 ||
+          imported.workspaces[0]?.workspace_id!==workspace_id ||
+          !Array.isArray(imported?.objects) ||
+          imported.objects.some(x => x.workspace_id!==workspace_id) ||
+          !Array.isArray(imported?.conflicts) ||
+          imported.conflicts.some(x => x.workspace_id!==workspace_id) ||
+          !id(result?.preview_token) ||
+          !HEX.test(result?.package_digest??"") ||
+          imported?.package_digest !== result.package_digest ||
+          !Number.isFinite(Date.parse(result.expires_at)) ||
+          Date.parse(result.expires_at)<=Number(clock())) {
+        refused("T3_KERNEL_IMPORT_SCOPE_MISMATCH");
+      }
+    }
+    if (method === "importCommit") {
+      if (result?.package_digest!==command.package_digest ||
+          result?.mode!==command.plan.mode ||
+          !result?.workspace_id_map ||
+          typeof result.workspace_id_map!=="object" ||
+          Object.entries(result.workspace_id_map).some(([from,to])=>
+            from!==workspace_id || to!==workspace_id) ||
+          !Array.isArray(result?.skipped_conflicts) ||
+          result.skipped_conflicts.some(key =>
+            typeof key!=="string" || !key.startsWith(workspace_id + "/"))) {
+        refused("T3_KERNEL_IMPORT_RECEIPT_SCOPE_MISMATCH");
+      }
+    }
+
     if (method === "exportPreview" || method === "confirmExport") {
       const ids=method === "exportPreview" ? result?.workspaces : result?.workspace_ids;
       if (!Array.isArray(ids) || ids.length!==1 || ids[0]!==workspace_id) {
@@ -316,6 +391,14 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
     if (identity(context) !== identity(selected(access))) {
       refused("T3_SUBJECT_RESULT_STALE_AFTER_KERNEL");
     }
+    if (method === "importPreview") {
+      pendingImport = Object.freeze({
+        workspace_id,contextIdentity:identity(context),
+        preview_token:result.preview_token,
+        package_digest:result.package_digest,
+        expiresAt:Date.parse(result.expires_at),
+      });
+    }
     if (method === "purgePreview") {
       pendingPurge = Object.freeze({
         workspace_id,contextIdentity:identity(context),
@@ -326,6 +409,16 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
       });
     }
     return result; // Original T2 Kernel receipt; no duplicate source-of-truth.
+  }
+  function consumeImport(token) {
+    const plan = pendingImport;
+    if (!plan || plan.preview_token !== token ||
+        plan.contextIdentity !== identity(selected(access))) {
+      refused("T3_SUBJECT_IMPORT_PREVIEW_REQUIRED");
+    }
+    pendingImport = null; // One-shot, never retry an ambiguous import.
+    if (Number(clock()) >= plan.expiresAt) refused("T3_SUBJECT_IMPORT_PREVIEW_EXPIRED");
+    return plan;
   }
   function consumePurge(token,confirmation,commit) {
     const plan = pendingPurge;
@@ -382,6 +475,20 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
       invoke("exportPackage",options,oneWorkspace(options?.workspaces)),
     confirmExport: async input =>
       invoke("confirmExport",input,oneWorkspace(input?.workspace_ids)),
+    importPreview: async bytes => {
+      pendingImport = null;
+      const context = selected(access);
+      return invoke("importPreview",{workspace_id:context.workspace_id,bytes},
+        context.workspace_id);
+    },
+    importCommit: async input => {
+      const plan = consumeImport(input?.preview_token);
+      return invoke("importCommit",input,plan.workspace_id,null,plan);
+    },
+    importCancel: async token => {
+      const plan = consumeImport(token);
+      return invoke("importCancel",{preview_token:token},plan.workspace_id,null,plan);
+    },
     purgePreview: async input => {
       pendingPurge = null;
       return invoke("purgePreview",input,input?.workspace_id);

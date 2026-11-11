@@ -336,3 +336,97 @@ test("D1 purge rejects mismatched source preview and commit receipt",async()=>{
   await assert.rejects(f.bound.purgeCommit({purge_token:preview.purge_token,
     confirmation:preview.challenge}),{code:"T3_KERNEL_PURGE_RECEIPT_MISMATCH"});
 });
+
+test("D1 imports a signed single-Workspace .iwxa using original T2 preview and commit",async()=>{
+  const f=fixture(),dg="f".repeat(64),archive=Uint8Array.from([1,2,3]);
+  for(const op of ["t2.importPreview","t2.importCommit","t2.importCancel"])
+    f.allowed.add(op);
+  f.kernel.importPreview=async bytes=>{
+    f.calls.push(["importPreview",bytes]);
+    return {preview_token:"token:import:one",package_digest:dg,
+      expires_at:new Date(now+60000).toISOString(),allowed_modes:["merge"],
+      preview:{package_digest:dg,manifest:{workspaces:[ws]},
+        workspaces:[{workspace_id:ws}],objects:[{workspace_id:ws}],conflicts:[]}};
+  };
+  f.kernel.importCommit=async input=>{
+    f.calls.push(["importCommit",input]);
+    return {package_digest:dg,mode:input.plan.mode,
+      workspace_id_map:{[ws]:ws},skipped_conflicts:[],applied:{workspaces:1}};
+  };
+  const preview=await f.bound.importPreview(archive);
+  assert.equal(preview.package_digest,dg);
+  assert.deepEqual([...f.calls.at(-1)[1]],[1,2,3]);
+  const receipt=await f.bound.importCommit({
+    preview_token:preview.preview_token,package_digest:preview.package_digest,
+    plan:{mode:"merge",workspace_id_map:{[ws]:ws}},
+  });
+  assert.equal(receipt.mode,"merge");
+  assert.equal(receipt.workspace_id_map[ws],ws);
+  assert.deepEqual(f.calls.map(c=>c[0]),["importPreview","importCommit"]);
+  await assert.rejects(f.bound.importCommit({
+    preview_token:preview.preview_token,package_digest:preview.package_digest,
+    plan:{mode:"merge"},
+  }),{code:"T3_SUBJECT_IMPORT_PREVIEW_REQUIRED"});
+  assert.equal(f.calls.filter(c=>c[0]==="importCommit").length,1);
+});
+test("D1 refuses foreign .iwxa preview, foreign import plan, and replay",async()=>{
+  const f=fixture(),dg="b".repeat(64);
+  f.allowed.add("t2.importPreview");f.allowed.add("t2.importCommit");f.allowed.add("t2.importCancel");
+  const valid=()=>({preview_token:"token:import:two",package_digest:dg,
+    expires_at:new Date(now+60000).toISOString(),
+    preview:{package_digest:dg,manifest:{workspaces:[ws]},
+      workspaces:[{workspace_id:ws}],objects:[{workspace_id:ws}],conflicts:[]}});
+  f.kernel.importPreview=async bytes=>{f.calls.push(["importPreview",bytes]);return valid();};
+  f.kernel.importCommit=async input=>{f.calls.push(["importCommit",input]);return {
+    package_digest:dg,mode:input.plan.mode,workspace_id_map:{[ws]:ws},
+    skipped_conflicts:[]};};
+  f.kernel.importCancel=async token=>{f.calls.push(["importCancel",token]);return true;};
+  f.kernel.importPreview=async()=>({...valid(),preview:{
+    ...valid().preview,manifest:{workspaces:["ws:foreign"]}}});
+  await assert.rejects(f.bound.importPreview(Uint8Array.from([2])),
+    {code:"T3_KERNEL_IMPORT_SCOPE_MISMATCH"});
+  await assert.rejects(f.bound.importCommit({
+    preview_token:"token:import:two",package_digest:dg,plan:{mode:"merge"},
+  }),{code:"T3_SUBJECT_IMPORT_PREVIEW_REQUIRED"});
+  f.kernel.importPreview=async bytes=>{f.calls.push(["importPreview",bytes]);return valid();};
+  const first=await f.bound.importPreview(Uint8Array.from([3]));
+  await assert.rejects(f.bound.importCommit({
+    preview_token:first.preview_token,package_digest:dg,
+    plan:{mode:"merge",workspace_id_map:{[ws]:"ws:foreign"}},
+  }),{code:"T3_SUBJECT_IMPORT_PLAN_OUT_OF_SCOPE"});
+  await assert.rejects(f.bound.importCommit({
+    preview_token:first.preview_token,package_digest:dg,
+    plan:{mode:"merge"},
+  }),{code:"T3_SUBJECT_IMPORT_PREVIEW_REQUIRED"});
+  const second=await f.bound.importPreview(Uint8Array.from([4]));
+  const result=await f.bound.importCancel(second.preview_token);
+  assert.equal(result,true);
+  await assert.rejects(f.bound.importCommit({
+    preview_token:second.preview_token,package_digest:dg,plan:{mode:"merge"},
+  }),{code:"T3_SUBJECT_IMPORT_PREVIEW_REQUIRED"});
+  assert.equal(f.calls.filter(c=>c[0]==="importCommit").length,0);
+  assert.equal(f.calls.filter(c=>c[0]==="importCancel").length,1);
+});
+test("D1 refuses changed subject before import and foreign source receipt",async()=>{
+  const f=fixture(),dg="d".repeat(64);
+  for(const op of ["t2.importPreview","t2.importCommit"])f.allowed.add(op);
+  f.kernel.importPreview=async()=>({
+    preview_token:"token:three",package_digest:dg,expires_at:new Date(now+60000).toISOString(),
+    preview:{package_digest:dg,manifest:{workspaces:[ws]},
+      workspaces:[{workspace_id:ws}],objects:[],conflicts:[]},
+  });
+  f.kernel.importCommit=async input=>{f.calls.push(["importCommit",input]);return {
+    package_digest:dg,mode:input.plan.mode,
+    workspace_id_map:{[ws]:"ws:foreign"},skipped_conflicts:[]};
+  };
+  const preview=await f.bound.importPreview(Uint8Array.from([5]));
+  f.context.scope_revision+=1;
+  await assert.rejects(f.bound.importCommit({
+    preview_token:preview.preview_token,package_digest:dg,plan:{mode:"merge"},
+  }),{code:"T3_SUBJECT_IMPORT_PREVIEW_REQUIRED"});
+  assert.equal(f.calls.filter(c=>c[0]==="importCommit").length,0);
+  const next=await f.bound.importPreview(Uint8Array.from([6]));
+  await assert.rejects(f.bound.importCommit({
+    preview_token:next.preview_token,package_digest:dg,plan:{mode:"merge"},
+  }),{code:"T3_KERNEL_IMPORT_RECEIPT_SCOPE_MISMATCH"});
+});
