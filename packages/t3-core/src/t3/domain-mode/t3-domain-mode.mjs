@@ -76,12 +76,18 @@ function message(worker, type, progress = () => {}) {
   });
 }
 async function status(ui) {
+  const reg = await registration();
   if (await foreignWorker()) {
-    ui.toggle.disabled = true;
-    tell(ui, "Обнаружен другой Service Worker в домене. Автономный T3 не включается поверх него.");
+    if (isOwn(reg?.active)) {
+      ui.toggle.checked = true;
+      ui.toggle.disabled = false; // Always allow user opt-out.
+      tell(ui, "Обнаружен другой Service Worker: полная автономность не подтверждена. Выключите T3.");
+    } else {
+      ui.toggle.disabled = true;
+      tell(ui, "Обнаружен другой Service Worker в домене. Автономный T3 не включается поверх него.");
+    }
     return;
   }
-  const reg = await registration();
   if (reg?.active && !isOwn(reg.active)) {
     ui.toggle.disabled = true;
     tell(ui, "Сайт управляется другой службой офлайн-запуска. Сохранение T3 не активировано.");
