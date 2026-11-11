@@ -172,6 +172,8 @@ async function run() {
         event_count:d1Receipts.length*3,
         workspace_lifecycle_roundtrip:true,
         single_subject_iwxa_export_confirm:true,
+        subject_workspace_purge_after_second_readback:
+          d1ColdTwo.purge_workspace_after_readback,
         first_cold_restart:d1ColdOne,
         second_cold_restart:d1ColdTwo,
         browser_process_restarts:2,

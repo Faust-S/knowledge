@@ -21,6 +21,9 @@ const OPERATIONS = Object.freeze({
   exportPreview: "t2.exportPreview",
   exportPackage: "t2.exportPackage",
   confirmExport: "t2.confirmExport",
+  purgePreview: "t1.purgePreview",
+  purgeCommit: "t1.purgeCommit",
+  purgeCancel: "t1.purgeCancel",
 });
 export const SUBJECT_SCOPED_OPERATION_IDS = Object.freeze(Object.values(OPERATIONS));
 const REF = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
@@ -120,7 +123,11 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
     if (typeof access?.[method] !== "function") refused("T3_ACCESS_OWNER_REQUIRED");
   }
 
-  async function invoke(method, input, workspace_id) {
+  // One short-lived Host-side preview binding, NOT a new Store or journal.
+  // T2 Kernel remains sole authority for purge tokens and irreversible commit.
+  // A new process must create a fresh preview; no cross-process token reuse.
+  let pendingPurge = null;
+  async function invoke(method, input, workspace_id, boundPurge = null) {
     requiredId(workspace_id,"WORKSPACE_ID");
     const context = selected(access);
     // The caller cannot override a Host-selected PERSONAL/CORP context.
@@ -138,6 +145,12 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
       const ids=method === "confirmExport" ? command?.workspace_ids : command?.workspaces;
       if (!Array.isArray(ids) || ids.length!==1 || ids[0]!==workspace_id) {
         refused("T3_SUBJECT_EXCHANGE_SCOPE_INVALID");
+      }
+    } else if (method === "purgeCommit" || method === "purgeCancel") {
+      if (!boundPurge || boundPurge.workspace_id !== workspace_id ||
+          boundPurge.purge_token !== command?.purge_token ||
+          boundPurge.contextIdentity !== identity(context)) {
+        refused("T3_SUBJECT_PURGE_PREVIEW_REQUIRED");
       }
     } else if (command?.workspace_id !== workspace_id) {
       refused("T3_KERNEL_INPUT_SCOPE_MISMATCH");
@@ -181,7 +194,9 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
             ? await kernel.listEventsSince(workspace_id,command.since)
             : method === "softDeleteWorkspace" || method === "restoreWorkspace"
               ? await kernel[method](workspace_id)
-              : await kernel[method](command);
+              : method === "purgeCancel"
+                ? await kernel.purgeCancel(command.purge_token)
+                : await kernel[method](command);
     const scoped = (record,code) => {
       if (!record || typeof record !== "object" ||
           record.workspace_id !== workspace_id) refused(code);
@@ -263,6 +278,24 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
         refused("T3_KERNEL_EXCHANGE_DIGEST_MISMATCH");
       }
     }
+    if (method === "purgePreview") {
+      if (result?.workspace_id !== workspace_id ||
+          !id(result?.purge_token) ||
+          typeof result?.challenge !== "string" ||
+          result.challenge.length < 1 ||
+          !Number.isFinite(Date.parse(result.expires_at)) ||
+          Date.parse(result.expires_at) <= Number(clock()) ||
+          !["current","stale","missing"].includes(result?.last_export?.backup_status) ||
+          typeof result.acknowledge_no_backup !== "boolean") {
+        refused("T3_KERNEL_PURGE_PREVIEW_INVALID");
+      }
+    }
+    if (method === "purgeCommit") {
+      if (result?.workspace_id !== workspace_id ||
+          !result?.removed || typeof result.removed !== "object") {
+        refused("T3_KERNEL_PURGE_RECEIPT_MISMATCH");
+      }
+    }
     if (method === "exportPackage") {
       const manifest=result?.manifest;
       if (!Array.isArray(manifest?.workspaces) ||
@@ -283,7 +316,36 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
     if (identity(context) !== identity(selected(access))) {
       refused("T3_SUBJECT_RESULT_STALE_AFTER_KERNEL");
     }
+    if (method === "purgePreview") {
+      pendingPurge = Object.freeze({
+        workspace_id,contextIdentity:identity(context),
+        purge_token:result.purge_token,challenge:result.challenge,
+        expiresAt:Date.parse(result.expires_at),
+        requiresAcknowledgement:result.last_export.backup_status !== "current" &&
+          result.acknowledge_no_backup !== true,
+      });
+    }
     return result; // Original T2 Kernel receipt; no duplicate source-of-truth.
+  }
+  function consumePurge(token,confirmation,commit) {
+    const plan = pendingPurge;
+    if (!plan || plan.purge_token !== token ||
+        plan.contextIdentity !== identity(selected(access))) {
+      refused("T3_SUBJECT_PURGE_PREVIEW_REQUIRED");
+    }
+    if (Number(clock()) >= plan.expiresAt) {
+      pendingPurge = null;
+      refused("T3_SUBJECT_PURGE_PREVIEW_EXPIRED");
+    }
+    if (commit && plan.requiresAcknowledgement)
+      refused("T3_SUBJECT_PURGE_BACKUP_ACK_REQUIRED");
+    if (commit && (typeof confirmation !== "string" ||
+        confirmation !== plan.challenge))
+      refused("T3_SUBJECT_PURGE_CHALLENGE_MISMATCH");
+    // Consume before Access JIT / Kernel await; a conflict or rejection must
+    // result in a new original T2 preview, never an automatic replay.
+    pendingPurge = null;
+    return plan;
   }
   function oneWorkspace(values) {
     if (!Array.isArray(values) || values.length!==1) {
@@ -320,5 +382,17 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
       invoke("exportPackage",options,oneWorkspace(options?.workspaces)),
     confirmExport: async input =>
       invoke("confirmExport",input,oneWorkspace(input?.workspace_ids)),
+    purgePreview: async input => {
+      pendingPurge = null;
+      return invoke("purgePreview",input,input?.workspace_id);
+    },
+    purgeCommit: async input => {
+      const plan = consumePurge(input?.purge_token,input?.confirmation,true);
+      return invoke("purgeCommit",input,plan.workspace_id,plan);
+    },
+    purgeCancel: async token => {
+      const plan = consumePurge(token,null,false);
+      return invoke("purgeCancel",{purge_token:token},plan.workspace_id,plan);
+    },
   });
 }

@@ -14,7 +14,8 @@ const nowIso=()=>new Date().toISOString();
 const methods=new Set(["t1.createWorkspace","t1.getWorkspace","t1.putObject","t1.getObject",
   "t1.listObjects","t1.putRelation","t1.listEventsSince",
   "t1.softDeleteWorkspace","t1.restoreWorkspace",
-  "t2.exportPreview","t2.exportPackage","t2.confirmExport"]);
+  "t2.exportPreview","t2.exportPackage","t2.confirmExport",
+  "t1.purgePreview","t1.purgeCommit","t1.purgeCancel"]);
 
 export async function liveT2Facade(page, service_id=W) {
   assert.equal(typeof page?.evaluate,"function");
@@ -50,6 +51,9 @@ export async function liveT2Facade(page, service_id=W) {
     putRelation:input=>invoke("putRelation",[input]),
     softDeleteWorkspace:id=>invoke("softDeleteWorkspace",[id]),
     restoreWorkspace:id=>invoke("restoreWorkspace",[id]),
+    purgePreview:input=>invoke("purgePreview",[input]),
+    purgeCommit:input=>invoke("purgeCommit",[input]),
+    purgeCancel:token=>invoke("purgeCancel",[token]),
     exportPreview:options=>invoke("exportPreview",[options]),
     exportPackage:options=>invoke("exportPackage",[options]),
     confirmExport:input=>invoke("confirmExport",[input]),
@@ -92,7 +96,10 @@ export async function createD1TestHost(page,file) {
     "t1.restoreWorkspace":"workspace.restore",
     "t2.exportPreview":"exchange.preview",
     "t2.exportPackage":"exchange.export",
-    "t2.confirmExport":"exchange.confirm"})[op];
+    "t2.confirmExport":"exchange.confirm",
+    "t1.purgePreview":"workspace.purge.preview",
+    "t1.purgeCommit":"workspace.purge.commit",
+    "t1.purgeCancel":"workspace.purge.cancel"})[op];
   const access=createSignedAccessHostPort({
     currentContext,actionFor,
     operationDigest:({operation,input,context})=>digest({operation,input,context}),
@@ -253,7 +260,16 @@ export async function verifyD1AfterBrowserRestart(page,file,receipts,{revoke=fal
     summary.push({context:host.contexts[i].context_id,revision:got.object.revision,
       event_id:r.event_id,relation_id:r.relation_id,object_count:objects.length});
   }
+  let purgeReceipt = null;
   if(revoke){
+    // This is a temporary test Workspace and is only purged after the second
+    // cold-browser readback verified all objects and relations.
+    host.select(0);
+    const first=await host.binding.purgePreview({
+      workspace_id:host.contexts[0].workspace_id,acknowledge_no_backup:true});
+    purgeReceipt=await host.binding.purgeCommit({
+      purge_token:first.purge_token,confirmation:first.challenge});
+    assert.equal(purgeReceipt.workspace_id,host.contexts[0].workspace_id);
     for(let i=0;i<3;i++) host.setStatus(i,["REVOKED","UNKNOWN","EXPIRED"][i]);
     // Reconstruct the Host from persisted status after closing the previous
     // test-only owner. A cached PERMITTED response must not carry over.
@@ -265,5 +281,6 @@ export async function verifyD1AfterBrowserRestart(page,file,receipts,{revoke=fal
     }
   }
   return {contexts:summary,revoked_after_second_restart:revoke,
-    authority_kind:"SYNTHETIC_CONTRACT_ONLY",real_access_owner:false};
+    authority_kind:"SYNTHETIC_CONTRACT_ONLY",real_access_owner:false,
+    purge_workspace_after_readback:purgeReceipt?.workspace_id??null};
 }

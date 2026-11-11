@@ -11,7 +11,8 @@ function fixture(){
     "t1.listObjects","t1.putObject","t1.deleteObject","t1.putRelation","t1.deleteRelation",
     "t1.listAssets","t1.getAsset","t1.putAsset","t1.deleteAsset","t1.commitObjectGraph",
     "t1.listEventsSince","t1.softDeleteWorkspace","t1.restoreWorkspace",
-    "t2.exportPreview","t2.exportPackage","t2.confirmExport"]);
+    "t2.exportPreview","t2.exportPackage","t2.confirmExport",
+    "t1.purgePreview","t1.purgeCommit","t1.purgeCancel"]);
   const context={kind:"PERSONAL",context_id:"context:person",actor_id:"person:1",
     principal_id:"person:1",role_id:"role:writer",grant_id:"grant:person",
     realm_id:"realm:person",audience:"host:t3",resource:ws,workspace_id:ws,
@@ -46,6 +47,18 @@ function fixture(){
       return {workspace_id:ws,object:{...record,object_id:input.object.object_id},
         relations_put:[relation],relation_ids_deleted:[],event};},
     async listEventsSince(id,since){calls.push(["listEventsSince",id,since]);return [event];},
+    async purgePreview(input){calls.push(["purgePreview",input]);
+      return {workspace_id:input.workspace_id,purge_token:"token:"+input.workspace_id,
+        challenge:"PURGE "+input.workspace_id,
+        expires_at:new Date(now+60000).toISOString(),
+        last_export:{backup_status:"current"},
+        acknowledge_no_backup:input.acknowledge_no_backup===true};
+    },
+    async purgeCommit(input){calls.push(["purgeCommit",input]);
+      return {workspace_id:ws,removed:{workspaces:1,objects:2,events:2,
+        relations:1,assets:0,permissions:0,service_state:0,outbox:0}};
+    },
+    async purgeCancel(token){calls.push(["purgeCancel",token]);return undefined;},
     async exportPreview(options){calls.push(["exportPreview",options]);
       return {workspaces:[...options.workspaces],counts:{workspaces:1}};},
     async exportPackage(options){calls.push(["exportPackage",options]);
@@ -260,4 +273,66 @@ test("D1 refuses foreign Exchange manifest or cross-Workspace confirmation recei
     package_digest:"b".repeat(64)});
   await assert.rejects(f.bound.confirmExport({workspace_ids:[ws],
     package_digest:"a".repeat(64)}),{code:"T3_KERNEL_EXCHANGE_DIGEST_MISMATCH"});
+});
+
+test("D1 one-time purge preview, exact challenge and original Kernel receipt",async()=>{
+  const f=fixture();
+  await assert.rejects(f.bound.purgeCommit({purge_token:"token:"+ws,
+    confirmation:"PURGE "+ws}),{code:"T3_SUBJECT_PURGE_PREVIEW_REQUIRED"});
+  assert.equal(f.calls.length,0);
+  const preview=await f.bound.purgePreview({workspace_id:ws});
+  assert.equal(preview.purge_token,"token:"+ws);
+  await assert.rejects(f.bound.purgeCommit({purge_token:preview.purge_token,
+    confirmation:"purge "+ws}),{code:"T3_SUBJECT_PURGE_CHALLENGE_MISMATCH"});
+  assert.deepEqual(f.calls.map(x=>x[0]),["purgePreview"]);
+  const receipt=await f.bound.purgeCommit({purge_token:preview.purge_token,
+    confirmation:preview.challenge});
+  assert.equal(receipt.workspace_id,ws);
+  assert.deepEqual(f.calls.map(x=>x[0]),["purgePreview","purgeCommit"]);
+  await assert.rejects(f.bound.purgeCommit({purge_token:preview.purge_token,
+    confirmation:preview.challenge}),{code:"T3_SUBJECT_PURGE_PREVIEW_REQUIRED"});
+  assert.equal(f.calls.filter(x=>x[0]==="purgeCommit").length,1);
+});
+test("D1 purge cancel consumes the original token and cannot commit",async()=>{
+  const f=fixture(),preview=await f.bound.purgePreview({workspace_id:ws});
+  await f.bound.purgeCancel(preview.purge_token);
+  await assert.rejects(f.bound.purgeCommit({purge_token:preview.purge_token,
+    confirmation:preview.challenge}),{code:"T3_SUBJECT_PURGE_PREVIEW_REQUIRED"});
+  assert.deepEqual(f.calls.map(x=>x[0]),["purgePreview","purgeCancel"]);
+});
+test("D1 purge refuses another Workspace, changed scope and missing backup acknowledgement",async()=>{
+  const f=fixture();
+  await assert.rejects(f.bound.purgePreview({workspace_id:"ws:foreign"}),
+    {code:"T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE"});
+  assert.equal(f.calls.length,0);
+  f.kernel.purgePreview=async input=>({workspace_id:ws,
+    purge_token:"token:"+ws,challenge:"PURGE "+ws,
+    expires_at:new Date(now+60000).toISOString(),
+    last_export:{backup_status:"missing"},
+    acknowledge_no_backup:input.acknowledge_no_backup===true});
+  const first=await f.bound.purgePreview({workspace_id:ws});
+  await assert.rejects(f.bound.purgeCommit({purge_token:first.purge_token,
+    confirmation:first.challenge}),{code:"T3_SUBJECT_PURGE_BACKUP_ACK_REQUIRED"});
+  const second=await f.bound.purgePreview({
+    workspace_id:ws,acknowledge_no_backup:true});
+  f.context.scope_revision+=1;
+  await assert.rejects(f.bound.purgeCommit({purge_token:second.purge_token,
+    confirmation:second.challenge}),{code:"T3_SUBJECT_PURGE_PREVIEW_REQUIRED"});
+  assert.equal(f.calls.filter(x=>x[0]==="purgeCommit").length,0);
+});
+test("D1 purge rejects mismatched source preview and commit receipt",async()=>{
+  const f=fixture();
+  f.kernel.purgePreview=async()=>({workspace_id:"ws:foreign",purge_token:"foreign",
+    challenge:"PURGE foreign",expires_at:new Date(now+60000).toISOString(),
+    last_export:{backup_status:"current"},acknowledge_no_backup:false});
+  await assert.rejects(f.bound.purgePreview({workspace_id:ws}),
+    {code:"T3_KERNEL_PURGE_PREVIEW_INVALID"});
+  f.kernel.purgePreview=async input=>({workspace_id:ws,
+    purge_token:"token:"+ws,challenge:"PURGE "+ws,
+    expires_at:new Date(now+60000).toISOString(),
+    last_export:{backup_status:"current"},acknowledge_no_backup:false});
+  f.kernel.purgeCommit=async()=>({workspace_id:"ws:foreign",removed:{workspaces:1}});
+  const preview=await f.bound.purgePreview({workspace_id:ws});
+  await assert.rejects(f.bound.purgeCommit({purge_token:preview.purge_token,
+    confirmation:preview.challenge}),{code:"T3_KERNEL_PURGE_RECEIPT_MISMATCH"});
 });
