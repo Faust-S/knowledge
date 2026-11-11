@@ -20,6 +20,9 @@ function scan(root) {
   function walk(dir) {
     for (const row of readdirSync(dir, {withFileTypes: true})) {
       if (row.isSymbolicLink()) fail("SYMLINK_FORBIDDEN");
+      // Apache configuration is shipped but cannot be retrieved as a
+      // browser asset. Including it would fail every complete installation.
+      if (row.isFile() && row.name === ".htaccess") continue;
       if (denyDirs.has(row.name)) fail("DEVELOPMENT_DIRECTORY_IN_DIST");
       const path = join(dir, row.name);
       if (row.isDirectory()) walk(path);
