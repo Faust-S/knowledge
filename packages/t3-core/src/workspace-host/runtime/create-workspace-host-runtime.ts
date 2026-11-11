@@ -15,6 +15,7 @@
  */
 
 import { adapter } from "@/kernel-client/adapter";
+import { readActivityFromWorkspaceContext } from "@/t3/index.mjs";
 import {
   AVAILABLE_MODULES,
   composeAvailableModules,
@@ -167,7 +168,28 @@ export async function createWorkspaceHostRuntime(
     modules: collectedRegistryDiagnostics as never,
   };
 
+  let disposed = false;
+  const readAuthorizedActivity: WorkspaceHostRuntimeHandle["readAuthorizedActivity"] =
+    async (options) => {
+      const reject = (code: string): never => {
+        throw Object.assign(new Error(code), { code });
+      };
+      if (disposed) reject("T3_HOST_DISPOSED");
+      if (!input.signedActivityAccess) reject("T3_D1_ACCESS_OWNER_REQUIRED");
+      // The signed Access owner is Host-held. An Activity caller can select
+      // semantic mappings, never override the authorizer or Kernel reader.
+      if (options && ("signedAccess" in options || "authorizedRead" in options)) {
+        reject("T3_ACTIVITY_OWNER_OVERRIDE_FORBIDDEN");
+      }
+      const result = await readActivityFromWorkspaceContext(
+        contextProvider.createContext("iwxa.workspace.base"),
+        { ...options, signedAccess: input.signedActivityAccess },
+      );
+      if (disposed) reject("T3_HOST_DISPOSED");
+      return result;
+    };
   const dispose = async () => {
+    disposed = true;
     try {
       await moduleRegistry.stop();
     } catch { /* best-effort */ }
@@ -193,6 +215,7 @@ export async function createWorkspaceHostRuntime(
     grantedOperations: (input.session.granted_operations ?? []) as never,
     activeCapabilities,
     diagnostics,
+    readAuthorizedActivity,
     dispose,
   };
 }

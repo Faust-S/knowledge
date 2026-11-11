@@ -17,6 +17,7 @@ import type { ModuleRegistry } from "../modules";
 import type { CurrentWorkspaceStore } from "../context";
 import type { DashboardRefreshState } from "../context/create-dashboard-facade";
 import type { HostPanelsState } from "../context/create-panels-facade";
+import type { T3ActivityReadOptions, T3ActivityProjection, T3SignedActivityAccess } from "../../t3/index.mjs";
 
 export type WorkspaceHostRuntimeStatus =
   | "idle"
@@ -43,6 +44,8 @@ export interface WorkspaceHostRuntimeHandle {
   /** Host defense-in-depth snapshot; Kernel authorization remains authoritative. */
   readonly activeCapabilities: readonly string[];
   readonly diagnostics: WorkspaceHostRuntimeDiagnostics;
+  /** Selected Workspace Activity via existing signed D1 owner, not new Store. */
+  readonly readAuthorizedActivity: (options: T3ActivityReadOptions) => Promise<T3ActivityProjection>;
   readonly dispose: () => Promise<void>;
 }
 
@@ -55,6 +58,8 @@ export type WorkspaceHostRuntimeState =
 
 export interface CreateWorkspaceHostRuntimeInput {
   session: KernelSession;
+  /** Existing signed D1 Access owner, installed by the trusted embedding Host only. */
+  signedActivityAccess?: T3SignedActivityAccess;
   /** Read-only capability snapshot for module/contribution visibility guards. */
   activeCapabilities?: readonly string[];
   workspaceConfig: { modules: readonly Record<string, unknown>[] };
