@@ -153,7 +153,7 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     const active = await owner();
     const selectedContext = active.currentContext() as { workspace_id?: unknown } | null;
     const workspaceId = selectedContext?.workspace_id;
-    if (typeof workspaceId !== "string") deny("T3_SUBJECT_CONTEXT_UNAVAILABLE");
+    if (typeof workspaceId !== "string") return deny("T3_SUBJECT_CONTEXT_UNAVAILABLE");
     const row = await bound.getWorkspace(workspaceId);
     await revalidate(initial);
     return row && (options?.include_deleted === true || !row.deleted_at) ? [row] : [];
