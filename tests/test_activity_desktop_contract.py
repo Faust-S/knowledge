@@ -117,6 +117,7 @@ class DesktopContract(unittest.TestCase):
         self.assertNotIn("signedAccess", controller)
         self.assertNotIn("signedAccess", types)
         self.assertIn("dispose()", controller)
+        self.assertIn("catch { t3Controller.current?.reset(); setPreview(null);", app)
         self.assertIn("subscribeInvalidation", types)
         self.assertNotRegex(controller, r"\bfetch\s*\(|XMLHttpRequest|WebSocket|http://|https://")
 

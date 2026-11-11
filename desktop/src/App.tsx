@@ -177,7 +177,7 @@ export function App({t3Host = null}: {t3Host?: T3ReviewHost | null}) {
     }
     setBusy(true); setProblem('');
     try { await run(JSON.parse(await file.text()), file.name); }
-    catch { setPreview(null); setRisk(null); setObjectEvidence(null); setProblem('HOLD: INVALID_JSON_INPUT'); setBusy(false); }
+    catch { t3Controller.current?.reset(); setPreview(null); setRisk(null); setObjectEvidence(null); setProblem('HOLD: INVALID_JSON_INPUT'); setBusy(false); }
   }
 
   return <div className="app-shell" onDragOver={(e) => e.preventDefault()} onDrop={(e) => e.preventDefault()}>

@@ -232,3 +232,90 @@ test('original T3 Workspace switching during the Control-linked read invalidates
   assert.equal(h.counts.write,0);
   ui.dispose();link.dispose();
 });
+
+
+test('ORIGINAL T3 signed factory authorizes every Control-linked D2 read and fails on revoked grant',async()=>{
+  assert.equal(typeof source.createSignedAccessHostPort,'function');
+  const h=fixture(),now=Date.now(),changed=new Set();
+  let revoked=false,approvals=0,issued=0;
+  const actor={kind:'CORP',context_id:'context:synthetic-north:1',
+    actor_id:'person:synthetic',principal_id:'org:synthetic-north',
+    role_id:'role:activity-reader',grant_id:'grant:activity-read',
+    realm_id:'realm:synthetic-north',audience:'host:t3',
+    resource:W,workspace_id:W,purpose:'activity.read',
+    organization_id:'org:synthetic-north',scope_revision:1};
+  function observedPreview(input){
+    const operation=input.operation;
+    const request={id:operation.operationId,actorId:actor.actor_id,
+      principalId:actor.principal_id,roleId:actor.role_id,
+      grantId:actor.grant_id,audience:operation.audience,
+      resource:operation.resource,action:operation.action,
+      purpose:operation.purpose,realmId:actor.realm_id,
+      operationDigest:digest({synthetic_gate:input})};
+    return {schema:'IWXA_T3_ORGANIZATION_OPERATION_PREVIEW/1',
+      authorized:false,subjectType:'ORGANIZATION',
+      organizationId:actor.organization_id,workspaceId:W,
+      scopeDigest:request.operationDigest,
+      credentialKeyId:'credential:synthetic',request};
+  }
+  const ownerSpec={
+    currentContext:()=>actor,
+    actionFor(operation){
+      assert.ok(['t1.getWorkspace','t1.listObjects','t1.getObject',
+        't1.listEventsSince'].includes(operation));
+      return 'activity.read';
+    },
+    operationDigest:({operation,input,context})=>digest({operation,input,context}),
+    canonicalDigest:digest,
+    corporate:{productId:'IWXA_CONTROL_CENTER',
+      inputFor:()=>({synthetic:true}),
+      prove:()=>({keyId:'credential:synthetic',proof:'contract-only'}),
+      gate:{
+        preview:observedPreview,
+        authorize(input,{challenge,proof}){
+          approvals++;
+          if(revoked)return {schema:'IWXA_T3_ORGANIZATION_OPERATION_DECISION/1',
+            allowed:false,outcome:'DENIED',evidenceOnly:true,productionActivation:false};
+          const p=observedPreview(input);
+          return {schema:'IWXA_T3_ORGANIZATION_OPERATION_DECISION/1',
+            allowed:true,outcome:'PERMITTED',
+            evidenceOnly:true,productionActivation:false,
+            requestDigest:digest(p.request),policyDigest:digest('synthetic'),
+            operationDigest:p.request.operationDigest,
+            evidenceDigest:digest({challenge,proof}),
+            grantId:actor.grant_id,organizationId:actor.organization_id,
+            workspaceId:W,statusSequence:1,
+            validUntil:new Date(now+60_000).toISOString(),
+            doesNotTransferData:true,doesNotAcceptCorporateCopy:true};
+        },
+      },
+    },
+    clock:()=>now,
+  };
+  const control={
+    snapshot:()=>({context:'ORGANIZATION',contextId:'north-lab',contextEpoch:1}),
+    signedActivityAccess(createPort){issued++;return createPort(ownerSpec);},
+    subscribeInvalidation(fn){changed.add(fn);return()=>changed.delete(fn);},
+  };
+  const link=bindT3ControlActivityReview({
+    control,context:h.context,bindings:h.bindings,
+    createSignedAccessHostPort:source.createSignedAccessHostPort,
+    readActivityFromWorkspaceContext:source.readActivityFromWorkspaceContext,
+  });
+  const states=[],ui=createT3ReviewController({host:link.port,onUpdate:v=>states.push(v)});
+  assert.equal((await ui.readSelected()).status,'REVIEW');
+  assert.equal(issued,1);
+  assert.ok(approvals>=9);
+  assert.ok(h.counts.read>=9);
+  assert.equal(h.counts.write,0);
+  assert.equal(states.at(-1).review.export_allowed,false);
+  assert.equal(states.at(-1).review.anonymity,'NOT_ESTABLISHED');
+  const readCount=h.counts.read;
+  revoked=true;for(const fn of changed)fn();
+  assert.deepEqual(states.at(-1),{status:'READY_TO_READ',review:null});
+  assert.equal((await ui.readSelected()).status,'HOLD');
+  assert.equal(h.counts.read,readCount);
+  assert.equal(issued,2);
+  assert.equal(h.counts.write,0);
+  ui.dispose();link.dispose();assert.equal(changed.size,0);
+});
