@@ -39,6 +39,7 @@ function stableRows(first, second, identity, workspaceId) {
 
 export async function readActivityFromT2Host({
   kernel,
+  authorizedRead = null,
   workspace_id: workspaceId,
   bindings,
   max_objects: maxObjects = 2000,
@@ -55,22 +56,29 @@ export async function readActivityFromT2Host({
   for (const operation of READ_OPERATIONS) {
     if (!kernel.hasOperation(operation)) reject("OPERATION_NOT_GRANTED");
   }
+  // The inherited Kernel remains the source of T2 permissions and metadata.
+  // When the trusted Host supplies its existing signed D1 binding, every
+  // Activity read must dispatch through that binding, never beside it.
   for (const method of ["getWorkspace", "listObjects", "getObject", "listEventsSince"]) {
-    if (typeof kernel[method] !== "function") reject("INCOMPATIBLE_T2_FACADE");
+    if (typeof kernel[method] !== "function" ||
+        (authorizedRead !== null && typeof authorizedRead?.[method] !== "function")) {
+      reject("INCOMPATIBLE_T2_FACADE");
+    }
   }
+  const source = authorizedRead ?? kernel;
   if (!Number.isSafeInteger(maxObjects) || maxObjects < 1 ||
       !Number.isSafeInteger(maxEvents) || maxEvents < 1) {
     reject("INVALID_BOUND");
   }
 
-  const workspace = await kernel.getWorkspace(workspaceId);
+  const workspace = await source.getWorkspace(workspaceId);
   if (!record(workspace) || workspace.workspace_id !== workspaceId ||
       workspace.deleted_at) reject("WORKSPACE_NOT_ACTIVE");
 
   const query = Object.freeze({ workspace_id: workspaceId, include_deleted: true });
   const [objects, events] = await Promise.all([
-    kernel.listObjects(query),
-    kernel.listEventsSince(workspaceId),
+    source.listObjects(query),
+    source.listEventsSince(workspaceId),
   ]);
   verifyScope(objects, workspaceId);
   verifyScope(events, workspaceId);
@@ -87,7 +95,7 @@ export async function readActivityFromT2Host({
       if (typeof row.object_id !== "string" || !row.object_id) {
         reject("INVALID_T2_OBJECT");
       }
-      return kernel.getObject(workspaceId, row.object_id);
+      return source.getObject(workspaceId, row.object_id);
     }));
     for (let index = 0; index < batch.length; index++) {
       const listed = batch[index];
@@ -125,8 +133,8 @@ export async function readActivityFromT2Host({
   // enumeration. This is NOT an atomic database snapshot or trusted checkpoint.
   const [afterWorkspace, afterObjects, afterEvents] = await Promise.all([
     kernel.getWorkspace(workspaceId),
-    kernel.listObjects(query),
-    kernel.listEventsSince(workspaceId),
+    source.listObjects(query),
+    source.listEventsSince(workspaceId),
   ]);
   if (!record(afterWorkspace) || afterWorkspace.workspace_id !== workspaceId ||
       afterWorkspace.deleted_at || canonical(afterWorkspace) !== canonical(workspace)) {

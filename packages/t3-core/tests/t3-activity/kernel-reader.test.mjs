@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { createSignedAccessHostPort } from "../../src/t3/signed-access-host-port.mjs";
 import test from "node:test";
 import { readActivityFromT2Host } from "../../src/t3/activity/kernel-reader.mjs";
 import { readActivityFromWorkspaceContext } from "../../src/t3/index.mjs";
@@ -329,4 +331,86 @@ test("D2 Host does not return stale activity if selection changes during T2 read
   await assert.rejects(readActivityFromWorkspaceContext(context,{bindings}),{
     code:"T3_ACTIVITY_WORKSPACE_CHANGED_DURING_READ",
   });
+});
+
+test("D1 signed owner permits only authorized Activity reads through the original T2 Kernel",async()=>{
+  const {kernel,counts}=fixture();
+  const listeners=new Set();
+  const selection={workspace_id:workspaceId};
+  const currentWorkspace={
+    get:()=>selection,
+    subscribe:listener=>{listeners.add(listener);return ()=>listeners.delete(listener);},
+  };
+  const ownerContext={kind:"PERSONAL",context_id:"context:person",actor_id:"person:1",
+    principal_id:"person:1",role_id:"role:member",grant_id:"grant:person",
+    realm_id:"realm:person",audience:"host:t3",resource:workspaceId,
+    purpose:"activity.read",workspace_id:workspaceId,
+    scope_revision:1,organization_id:null};
+  const hash=value=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  let status="ACTIVE", decisions=0;
+  const now=Date.now();
+  const signedAccess=createSignedAccessHostPort({
+    currentContext:()=>ownerContext,
+    actionFor:()=> "activity.read",
+    operationDigest:({operation,input,context})=>hash({operation,input,context}),
+    canonicalDigest:hash,
+    clock:()=>now,
+    personal:{check:request=>{
+      decisions+=1;
+      return {schema:"IWXA_T3_AUTHORIZATION_DECISION/1",
+        allowed:status==="ACTIVE",outcome:status==="ACTIVE"?"PERMITTED":"DENIED",
+        evidenceOnly:true,requestDigest:hash(request),policyDigest:hash("policy"),
+        evaluatedAt:new Date(now).toISOString(),statusObservedAt:new Date(now).toISOString(),
+        validUntil:new Date(now+60000).toISOString(),
+        statusSequence:1,authorityPath:[{grantId:request.grantId}]};
+    }},
+  });
+  const context={kernel,currentWorkspace};
+  const accepted=await readActivityFromWorkspaceContext(context,{bindings,signedAccess});
+  assert.equal(accepted.workspace_id,workspaceId);
+  assert.equal(accepted.nodes.length,2);
+  assert.ok(decisions>=8,"every inherited Kernel read must authorize at the signed port");
+  assert.equal(listeners.size,0,"focus listener is released after the read");
+  const before={...counts};
+  status="REVOKED";
+  await assert.rejects(readActivityFromWorkspaceContext(context,{bindings,signedAccess}),{
+    code:"T3_ACCESS_NOT_PERMITTED",
+  });
+  assert.deepEqual(counts,before,"a revoked grant must not reach Kernel");
+  assert.equal(listeners.size,0);
+});
+
+test("Activity does not return A after an observed A → B → A context switch",async()=>{
+  const {kernel}=fixture();
+  const listeners=new Set();
+  const first={workspace_id:workspaceId};
+  let current=first;
+  const notify=next=>{current=next;for(const listener of listeners)listener(next);};
+  const context={kernel,currentWorkspace:{
+    get:()=>current,
+    subscribe:listener=>{listeners.add(listener);return ()=>listeners.delete(listener);},
+  }};
+  const original=kernel.listObjects;
+  kernel.listObjects=async query=>{
+    const result=await original(query);
+    notify({workspace_id:"workspace:foreign"});
+    notify(first);
+    return result;
+  };
+  await assert.rejects(readActivityFromWorkspaceContext(context,{bindings}),{
+    code:"T3_ACTIVITY_WORKSPACE_CHANGED_DURING_READ",
+  });
+  assert.equal(current,first,"the final ID alone would not detect this switch");
+  assert.equal(listeners.size,0);
+});
+
+test("signed Activity read refuses a context without the original focus subscription",async()=>{
+  const {kernel,counts}=fixture();
+  const fake={currentContext:()=>({workspace_id:workspaceId})};
+  await assert.rejects(readActivityFromWorkspaceContext({
+    kernel,currentWorkspace:{get:()=>({workspace_id:workspaceId})},
+  },{bindings,signedAccess:fake}),{
+    code:"T3_SIGNED_WORKSPACE_SELECTION_SUBSCRIPTION_REQUIRED",
+  });
+  assert.equal(Object.values(counts).reduce((a,b)=>a+b,0),0);
 });
