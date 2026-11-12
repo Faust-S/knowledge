@@ -30,7 +30,11 @@ jobs:
         with:
           python-version: '3.12'
       - name: Validate JS source
-        run: node --check modules/k04-composer/index.mjs
+        run: |
+          node --check modules/k04-composer/index.mjs
+          node --check modules/k04-composer/meeting-process.mjs
+          node --check modules/k04-composer/meeting-document-host.mjs
+          node --check modules/k04-composer/sample/run-complex-meeting.mjs
       - name: Execute K04 contract tests
         run: node --test modules/k04-composer/tests/*.test.mjs
       - name: Checkout pinned public K02 peer
@@ -44,5 +48,7 @@ jobs:
         run: node --test modules/k04-composer/integration/*.test.mjs
       - name: Execute real open-host sample
         run: node modules/k04-composer/sample/open-host.mjs
+      - name: Execute complete meeting and produce actual documents
+        run: node modules/k04-composer/sample/run-complex-meeting.mjs
       - name: Preserve existing meeting attribution checks
         run: python -m unittest discover -s tests -p "test_meeting_followup_attribution.py" -v
