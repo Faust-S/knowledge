@@ -259,6 +259,32 @@ test('unselected proposed-source removal and unavailable proposal are reviewable
   assert.equal(row.userTimeMs,null);
  }
 });
+test('K05 refuses under-reported field, source and issue changes in owner receipt',async()=>{
+ const revised=await beforeAfter({updated:true});
+ const sources=[revised.saved,revised.old.documents,revised.current.documents];
+ const invoke=receipt=>reviewK01ProjectRefresh({
+  saved:sources[0],ownerRefresh:receipt,
+  previousAuthorizedDocuments:sources[1],currentAuthorizedDocuments:sources[2],
+ });
+ assert.ok(revised.ownerReceipt.fieldChanges.length>0);
+ assert.ok(revised.ownerReceipt.sourceChanges.length>0);
+ for(const [name,mutate,code] of [
+  ['fields',r=>{r.fieldChanges=[];},'OWNER_FIELD_CHANGES_DISAGREE'],
+  ['sources',r=>{r.sourceChanges=[];},'OWNER_SOURCE_CHANGES_DISAGREE'],
+ ]){
+  const altered=structuredClone(revised.ownerReceipt);mutate(altered);
+  assert.throws(()=>invoke(altered),new RegExp('K05_K01_REFRESH_'+code),name);
+ }
+ const conflict=await beforeAfter({addConflict:true});
+ assert.ok(conflict.ownerReceipt.issueChanges.appeared.length>0);
+ const forged=structuredClone(conflict.ownerReceipt);
+ forged.issueChanges.appeared=[];
+ assert.throws(()=>reviewK01ProjectRefresh({
+  saved:conflict.saved,ownerRefresh:forged,
+  previousAuthorizedDocuments:conflict.old.documents,
+  currentAuthorizedDocuments:conflict.current.documents,
+ }),/K05_K01_REFRESH_OWNER_ISSUE_CHANGES_DISAGREE/);
+});
 test('receipt never leaks raw source refs, excerpts, Task content or user filenames',async()=>{
  const {proof,old}=await beforeAfter({updated:true});
  const raw=JSON.stringify(proof);

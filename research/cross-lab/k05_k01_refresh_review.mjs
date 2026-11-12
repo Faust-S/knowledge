@@ -42,6 +42,50 @@ function validateChangeSet(refresh){
        'EPISTEMIC_CHANGED'].includes(k)))fail('OWNER_FIELD_CHANGE_UNSUPPORTED');
 }
 
+// Validate only the receipt's *reported change inventory*. K01 remains the
+// owner of selection, approval semantics and authoritative refresh statuses.
+function structuralChanges(before,after,keyOf,projection){
+ const left=new Map(),right=new Map();
+ for(const [rows,map] of [[before,left],[after,right]]){
+  for(const item of rows){
+   const key=keyOf(item);
+   if(typeof key!=='string'||!key||map.has(key))
+    fail('OWNER_CHANGED_INVENTORY_INVALID');
+   map.set(key,JSON.stringify(projection(item)));
+  }
+ }
+ return [...new Set([...left.keys(),...right.keys()])]
+  .filter(key=>left.get(key)!==right.get(key)).sort();
+}
+const issueKey=x=>JSON.stringify([x.fieldKey,x.type,x.sources]);
+const claimValue=x=>[x.excerpt,x.sourceRef,x.revision,
+ x.evidenceRef,x.sha256,x.epistemic];
+const sourceValue=x=>[x.revision,x.state,x.metadataBinding];
+function assertChangeInventory(saved,refresh){
+ const latest=refresh.latest;
+ const expectedFields=structuralChanges(saved.projection.selected,
+  latest.projection.selected,x=>x.id.slice('field:'.length),claimValue);
+ const reportedFields=[...new Set(refresh.fieldChanges.map(x=>x.fieldKey))].sort();
+ if(JSON.stringify(expectedFields)!==JSON.stringify(reportedFields))
+  fail('OWNER_FIELD_CHANGES_DISAGREE');
+ if(Array.isArray(saved.sourceRevisions)&&Array.isArray(latest.sourceRevisions)){
+  const expected=structuralChanges(saved.sourceRevisions,
+   latest.sourceRevisions,x=>x.sourceRef,sourceValue);
+  const reported=[...new Set(refresh.sourceChanges.map(x=>x.sourceRef))].sort();
+  if(JSON.stringify(expected)!==JSON.stringify(reported))
+   fail('OWNER_SOURCE_CHANGES_DISAGREE');
+ }
+ const oldIssues=new Set(saved.issues.map(issueKey));
+ const newIssues=new Set(latest.issues.map(issueKey));
+ const appeared=[...newIssues].filter(key=>!oldIssues.has(key)).sort();
+ const resolved=[...oldIssues].filter(key=>!newIssues.has(key)).sort();
+ const reportedAppeared=refresh.issueChanges.appeared.map(issueKey).sort();
+ const reportedResolved=refresh.issueChanges.resolved.map(issueKey).sort();
+ if(JSON.stringify(appeared)!==JSON.stringify(reportedAppeared)||
+    JSON.stringify(resolved)!==JSON.stringify(reportedResolved))
+  fail('OWNER_ISSUE_CHANGES_DISAGREE');
+}
+
 export function reviewK01ProjectRefresh({
  saved, ownerRefresh, previousAuthorizedDocuments, currentAuthorizedDocuments
 }){
@@ -103,6 +147,7 @@ export function reviewK01ProjectRefresh({
   fail('FORGED_INCOMPLETE');
  else if(ownerRefresh.status==='UPDATED'&&ownerRefresh.latest.requiredComplete!==true)
   fail('FORGED_UPDATED');
+ assertChangeInventory(saved,ownerRefresh);
  const review=ownerRefresh.status!=='CURRENT';
  return {
   schema:K05_K01_REFRESH_REVIEW,
