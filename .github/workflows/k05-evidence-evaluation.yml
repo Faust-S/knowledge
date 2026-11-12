@@ -200,7 +200,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: d0de69ec0ef714422555861bea20dafee89f5cc7
+          ref: 4d2db2dd1e27c3e27db0fec71dea791657db8453
           path: .k01-refresh-owner
           persist-credentials: false
       - name: Install pinned K01 public dependencies for refresh tests
@@ -222,7 +222,9 @@ jobs:
           proof=json.loads((root/'k05-k01-refresh-measurements.json').read_text())
           assert proof['schema']=='IWXA_K05_K01_REFRESH_MEASUREMENTS/0.1'
           assert [x['status'] for x in proof['trials']] == ['CURRENT','UPDATED',
-            'INCOMPLETE','REJECTED','REJECTED']
+            'INCOMPLETE','REJECTED','REJECTED','UPDATED','UPDATED']
+          assert proof['trials'][5]['unchangedClaims'] is True
+          assert proof['trials'][6]['unchangedClaims'] is True
           assert all(x['repetitions']==12 and x['k05SourceReads']==0
             and x['humanGold'] is False and x['f1'] is None for x in proof['trials'])
           assert proof['trials'][-1]['ownerSourceReads']==0
