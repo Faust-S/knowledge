@@ -129,7 +129,7 @@ export function ExportView({ kernel, scopedWorkspaceId }: ExportViewProps) {
 
   const runPackage = async () => {
     if (busyRef.current) return;
-    if (!state.preview) return;
+    if (!state.preview || !state.ackSensitive) return;
     if (
       !state.preview ||
       !state.previewSnapshot ||
@@ -191,7 +191,7 @@ export function ExportView({ kernel, scopedWorkspaceId }: ExportViewProps) {
   };
 
   const runConfirm = async () => {
-    if (state.status !== "download-initiated") return;
+    if (state.status !== "download-initiated" || !state.fileSavedConfirmed) return;
     if (!state.artifact) return;
     if (!canConfirm) return;
     const workspaceIds = state.packageSnapshot?.workspaces ?? [];
@@ -230,10 +230,11 @@ function renderExport(p: RenderProps) {
     runPreview, runPackage, runDownload, runConfirm, dispatch } = p;
   const busy = state.status === "previewing" || state.status === "packaging" || state.status === "confirming";
   const previewDisabled = !canPreview || state.selection.workspaces.length === 0 || busy;
-  const packageDisabled = !canPackage || !state.preview || busy;
+  const packageDisabled = !canPackage || !state.preview || !state.ackSensitive || busy;
   const downloadDisabled = !state.artifact || busy;
   const confirmDisabled =
-    !state.artifact || !canConfirm || busy || state.status !== "download-initiated";
+    !state.artifact || !canConfirm || !state.fileSavedConfirmed ||
+    busy || state.status !== "download-initiated";
 
   return (
     <div className="space-y-4" data-testid="export-view" data-export-state={state.status}>
@@ -278,6 +279,17 @@ function renderExport(p: RenderProps) {
         ))}
       </fieldset>
 
+      {state.preview && state.status !== "confirmed" && (
+        <label className="flex items-start gap-2 text-xs text-slate-300">
+          <input type="checkbox" data-testid="export-ack-sensitive"
+            checked={state.ackSensitive}
+            onChange={(e) => dispatch({ type: "ack-sensitive", value: e.target.checked })}
+            className="mt-0.5" />
+          <span>Я проверил состав предпросмотра и понимаю, что экспортируемый
+            архив .iwxa не зашифрован.</span>
+        </label>
+      )}
+
       <div className="flex gap-2 flex-wrap">
         <button type="button" onClick={runPreview} disabled={previewDisabled}
           data-testid="export-preview"
@@ -297,9 +309,21 @@ function renderExport(p: RenderProps) {
         <button type="button" onClick={runConfirm} disabled={confirmDisabled}
           data-testid="export-confirm"
           className="px-3 py-1.5 text-xs rounded bg-emerald-900/70 hover:bg-emerald-900 disabled:opacity-40 min-h-[44px]">
-          Подтвердить приём
+          Подтвердить сохранение
         </button>
       </div>
+
+      {state.artifact && ["download-initiated", "confirming", "confirmed"].includes(state.status) && (
+        <label className="flex items-start gap-2 text-xs text-slate-300">
+          <input type="checkbox" data-testid="export-confirm-saved-file"
+            checked={state.fileSavedConfirmed}
+            disabled={state.status !== "download-initiated"}
+            onChange={(e) => dispatch({ type: "ack-file-saved", value: e.target.checked })}
+            className="mt-0.5" />
+          <span>Я проверил, что файл {state.artifact.filename} действительно сохранён
+            на устройстве. Начало скачивания само по себе не подтверждает наличие копии.</span>
+        </label>
+      )}
 
       {!canPreview && (
         <p className="text-xs text-slate-500">Предпросмотр экспорта не предоставлен ядром.</p>
@@ -342,7 +366,11 @@ function renderExport(p: RenderProps) {
 
       {state.receipt && (
         <section aria-labelledby="exp-receipt" data-testid="export-receipt">
-          <h4 id="exp-receipt" className="text-sm font-medium text-emerald-300 mb-1">Приём подтверждён</h4>
+          <h4 id="exp-receipt" className="text-sm font-medium text-emerald-300 mb-1">
+            Сохранение архива подтверждено вами
+          </h4>
+          <p className="text-xs text-slate-400">Это квитанция локального экспорта.
+            Она не означает, что другой получатель импортировал .iwxa.</p>
           <dl className="text-xs text-slate-400 grid grid-cols-2 gap-x-3 gap-y-0.5">
             <dt>confirmed_at</dt><dd className="text-slate-200" data-testid="export-receipt-time">{state.receipt.confirmed_at}</dd>
             <dt>package_digest</dt><dd className="text-slate-200 truncate">{state.receipt.package_digest}</dd>
