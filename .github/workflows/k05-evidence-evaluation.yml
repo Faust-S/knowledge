@@ -180,7 +180,7 @@ jobs:
           python - <<'PY'
           import json,os
           from pathlib import Path
-          p=json.loads((Path(os.environ['RUNNER_TEMP'])/'k05-public-offer-discovery.json').read_text())
+          p=json.loads((Path(os.environ['RUNNER_TEMP'])/'k05-public-offer-proof.json').read_text())
           assert p['status']=='PINNED_PUBLIC_PDF_OBSERVED'
           assert p['source']['sha256']=='a97dcffeead9991795ec68975c71ccb12bd4e0aa6839b5c7e9c667e37a264d64'
           assert p['facts']['arithmetic_total_usd']=='10000.00'
@@ -273,7 +273,7 @@ jobs:
             ${{ runner.temp }}/k05-suite-proof.json
             ${{ runner.temp }}/k05-agent-result-evidence.json
             ${{ runner.temp }}/k05-commercial-ablation.json
-            ${{ runner.temp }}/k05-public-offer-discovery.json
+            ${{ runner.temp }}/k05-public-offer-proof.json
             ${{ runner.temp }}/k05-k02-corpus.json
             ${{ runner.temp }}/k05-k02-routing-diagnostic.json
           retention-days: 7
