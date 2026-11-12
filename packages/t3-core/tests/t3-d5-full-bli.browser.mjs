@@ -113,6 +113,11 @@ try {
   await panel.getByRole("button",{name:"Выбрать объект Workspace"}).click();
   await panel.getByRole("combobox",{name:"Объект для локальной модели"}).selectOption(chosenObject);
   await panel.getByRole("button",{name:"Добавить выбранное содержимое к запросу"}).click();
+  // Kernel read and React state update are asynchronous. Wait for the actual
+  // selected revision to appear instead of racing the click handler.
+  await page.waitForFunction(() => Array.from(document.querySelectorAll("textarea"))
+    .some(textarea => textarea.value.includes("T3 selected context from original Kernel")),
+    null,{timeout:15000});
   assert.match(await panel.getByLabel("Запрос",{exact:true}).inputValue(),
     /T3 selected context from original Kernel/);
   console.log("T3_D5_REAL_KERNEL_CONTEXT_SELECTION_PASS",JSON.stringify({
