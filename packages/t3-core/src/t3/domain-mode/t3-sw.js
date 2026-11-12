@@ -6,14 +6,25 @@ const MARKER = "/_iwxa/t3-domain-snapshot";
 const MANIFEST_PATH = "/t3-offline-manifest.json";
 const MODE_CACHE = "iwxa-t3-domain-mode-v1";
 const ACTIVE_MARKER = "/_iwxa/t3-domain-mode-enabled";
-async function isEnabled() {
+async function enabledVersion() {
   const cache = await caches.open(MODE_CACHE);
-  return !!(await cache.match(ACTIVE_MARKER));
+  const marker = await cache.match(ACTIVE_MARKER);
+  if (!marker) return null;
+  const value = await marker.text();
+  if (/^[a-f0-9]{64}$/.test(value)) return value;
+  // Existing T3 installations wrote "on". The next explicit install
+  // migrates the marker without invalidating an otherwise usable snapshot.
+  if (value === "on") return "";
+  return null;
 }
-async function setEnabled(value) {
+async function setEnabled(value, version) {
   const cache = await caches.open(MODE_CACHE);
-  if (value) await cache.put(ACTIVE_MARKER, new Response("on"));
-  else await cache.delete(ACTIVE_MARKER);
+  if (value) {
+    if (typeof version !== "string" || !/^[a-f0-9]{64}$/.test(version)) {
+      throw Error("T3_DOMAIN_ACTIVE_VERSION_INVALID");
+    }
+    await cache.put(ACTIVE_MARKER, new Response(version));
+  } else await cache.delete(ACTIVE_MARKER);
 }
 let current = null;
 let installRunning = false;
@@ -131,9 +142,14 @@ async function snapshotComplete(cache, metadata) {
 async function installed() {
   // Opt-out survives Service Worker termination, browser restart and tabs.
   // Cached assets alone must NEVER silently reactivate autonomous mode.
-  if (!await isEnabled()) { current = null; return null; }
-  if (current) return current;
-  const names = (await caches.keys()).filter(x => x.startsWith(PREFIX)).reverse();
+  const version = await enabledVersion();
+  if (version === null) { current = null; return null; }
+  if (current && (!version || current.manifest.version === version)) return current;
+  current = null;
+  // The explicitly installed version is authoritative. Never select an old
+  // or unrelated snapshot by SHA lexical order after a cold SW restart.
+  const names = version ? [PREFIX + version] :
+    (await caches.keys()).filter(x => x.startsWith(PREFIX)).reverse();
   for (const name of names) {
     const cache = await caches.open(name);
     const entry = await cache.match(MARKER);
@@ -175,7 +191,7 @@ async function installSnapshot(port, expectedVersion = null) {
         if (old.version === manifest.version && await snapshotComplete(cache, old)) {
           current = {name, files: new Set(old.files.map(x => x.path)), manifest: old,
             complete: true};
-          await setEnabled(true);
+          await setEnabled(true, old.version);
           port.postMessage({type: "READY", version: old.version, files: old.files.length});
           return;
         }
@@ -210,7 +226,7 @@ async function installSnapshot(port, expectedVersion = null) {
     // Do not delete an older complete snapshot until the new one is ready.
     current = {name, files: new Set(manifest.files.map(x => x.path)), manifest,
       complete: true};
-    await setEnabled(true);
+    await setEnabled(true, manifest.version);
     port.postMessage({type: "READY", version: manifest.version, files: count});
   } catch (error) {
     if (pending && (!current || current.name !== pending)) await caches.delete(pending);
