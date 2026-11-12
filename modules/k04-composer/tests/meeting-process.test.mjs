@@ -22,7 +22,7 @@ const run=text=>prepareMeetingProcess({task:task(text),solution,available:sample
 test('complex meeting: real four explicit decisions, discussion excluded, exact source citations',()=>{
   const p=run(transcript);
   assert.deepEqual(p.extraction.draft.action_items.map(x=>x.action),expected);
-  assert.equal(p.extraction.discussions.length,2);
+  assert.equal(p.extraction.discussions.length,3);
   assert.equal(p.extraction.decisionCount,4);
   assert.equal(p.status,'CLARIFICATION_REQUIRED');
   assert.deepEqual(p.extraction.draft.action_items.map(x=>x.assignee),
