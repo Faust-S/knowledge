@@ -394,7 +394,8 @@ export default function LocalInferencePanel() {
       Добавить выбранное содержимое к запросу
     </button>
     <label className="block">Запрос
-      <textarea className="w-full min-h-28 p-2 rounded text-slate-900" maxLength={6000}
+      <textarea aria-label="Запрос" data-testid="t3-d5-prompt"
+        className="w-full min-h-28 p-2 rounded text-slate-900" maxLength={6000}
         value={prompt} onChange={e => setPrompt(e.target.value)}/>
     </label>
     <label className="block">Максимум токенов ответа
@@ -410,7 +411,8 @@ export default function LocalInferencePanel() {
       onClick={() => void run()}>Сгенерировать локально</button>
     <button type="button" disabled={!busy} onClick={() => engine.current?.cancel()}>Остановить</button>
     <label className="block">Черновик · редактируемый
-      <textarea className="w-full min-h-28 p-2 rounded text-slate-900" maxLength={64000}
+      <textarea aria-label="Черновик · редактируемый" data-testid="t3-d5-editable-draft"
+        className="w-full min-h-28 p-2 rounded text-slate-900" maxLength={64000}
         value={output} onChange={e => {setOutput(e.target.value); setSaved(false);}}/>
     </label>
     <button type="button" disabled={!workspaceId || !draftReady || saved || busy || !output.trim() ||

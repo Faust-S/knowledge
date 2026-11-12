@@ -118,7 +118,8 @@ try {
   await page.waitForFunction(() => Array.from(document.querySelectorAll("textarea"))
     .some(textarea => textarea.value.includes("T3 selected context from original Kernel")),
     null,{timeout:15000});
-  assert.match(await panel.getByLabel("Запрос",{exact:true}).inputValue(),
+  await panel.waitFor({state:"visible",timeout:15000});
+  assert.match(await panel.getByTestId("t3-d5-prompt").inputValue(),
     /T3 selected context from original Kernel/);
   console.log("T3_D5_REAL_KERNEL_CONTEXT_SELECTION_PASS",JSON.stringify({
     workspace:chosenWorkspace,object_id:chosenObject,sourceRevision:1,
@@ -175,7 +176,7 @@ try {
         uiAndKernelPreviouslyPassed:true,
       }));
     }else{
-      await panel.getByLabel("Запрос",{exact:true})
+      await panel.getByTestId("t3-d5-prompt")
         .fill("Hi.");
       await panel.getByTestId("t3-d5-max-tokens").fill("1");
       await panel.getByRole("button",{name:"Сгенерировать локально"}).click();
@@ -185,12 +186,12 @@ try {
         if(/Черновик готов/.test(inferenceStatus)||/Модель не запущена|Error|ошибка|Ошибка|Модель не выдала первый токен|Модель перестала отвечать/.test(inferenceStatus))break;
         await page.waitForTimeout(1000);
       }
-      const output=await panel.getByLabel(/Черновик · редактируемый/).inputValue();
+      const output=await panel.getByTestId("t3-d5-editable-draft").inputValue();
       if(/Черновик готов/.test(inferenceStatus) && output.trim()){
         // The generated text itself, not a synthetic placeholder, must
         // reach the original Kernel and remain readable after browser restart.
         const reviewed=output.trim()+" [user-reviewed]";
-        await panel.getByLabel(/Черновик · редактируемый/).fill(reviewed);
+        await panel.getByTestId("t3-d5-editable-draft").fill(reviewed);
         await panel.getByRole("button",{name:"Сохранить черновик через Kernel"}).click();
         await statusLine.filter({hasText:"Kernel подтвердил запись и чтение:"})
           .waitFor({state:"visible",timeout:30000});
