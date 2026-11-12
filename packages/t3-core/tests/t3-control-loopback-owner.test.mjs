@@ -261,6 +261,75 @@ test("a closed invalidation stream blocks an in-flight signed write before the o
   }
 });
 
+
+test("a live signed STATUS invalidation makes delayed grants stale before Kernel write",async()=>{
+  const f=fixture();
+  f.select("north");
+  const encoder=new TextEncoder();
+  let events,releaseAuthorization,authorizationStarted,invalidated;
+  const started=new Promise(resolve=>{authorizationStarted=resolve;});
+  const notified=new Promise(resolve=>{invalidated=resolve;});
+  const stream=new ReadableStream({start(controller){
+    events=controller;
+    controller.enqueue(encoder.encode("event: ready\n\n"));
+  }});
+  const base=f.fetchImpl;
+  let delayed=false;
+  const fetchImpl=async(url,options={})=>{
+    if(url.endsWith("/api/t3/owner-events")){
+      return new Response(stream,{status:200,
+        headers:{"content-type":"text/event-stream"}});
+    }
+    if(url.endsWith("/api/t3/owner") &&
+       JSON.parse(options.body)?.verb==="authorize" && !delayed){
+      delayed=true;
+      await new Promise(resolve=>{
+        releaseAuthorization=resolve;
+        authorizationStarted();
+      });
+    }
+    return base(url,options);
+  };
+  const owner=createControlLoopbackOwner({origin,token,fetchImpl});
+  let notifications=0;
+  const stop=owner.subscribeSignedAccessInvalidation(()=>{
+    notifications++;invalidated();
+  });
+  try{
+    const oldPort=await owner.signedKernelAccess("putObject");
+    assert.ok(oldPort);
+    const oldBinding=createSubjectKernelBinding({kernel:f.kernel,access:oldPort});
+    const pending=oldBinding.putObject({
+      workspace_id:"ws:north",object_id:"item:stale-grant",base_revision:0,
+      schema_id:"demo",schema_version:"1.0.0",data:{title:"must not commit"},
+      event:{event_type:"created"},
+    });
+    await started;
+    // The stream stays healthy. Even if the server mock's epoch has not
+    // advanced, an authentic invalidation makes the old signed port stale.
+    events.enqueue(encoder.encode("event: invalidated\ndata: {}\n\n"));
+    await notified;
+    releaseAuthorization();
+    await assert.rejects(pending,{code:"STALE_CONTEXT_OPERATION"});
+    assert.deepEqual(f.writes,[],"late signed HTTP allow never reaches Kernel");
+    assert.equal(notifications,1);
+    await assert.rejects(oldPort.currentContext(),{code:"STALE_CONTEXT_OPERATION"});
+    // The NEW Host may select a fresh port without disconnecting Control.
+    const fresh=await owner.signedKernelAccess("putObject");
+    assert.ok(fresh);
+    await createSubjectKernelBinding({kernel:f.kernel,access:fresh}).putObject({
+      workspace_id:"ws:north",object_id:"item:fresh-grant",base_revision:0,
+      schema_id:"demo",schema_version:"1.0.0",data:{title:"new Host"},
+      event:{event_type:"created"},
+    });
+    assert.deepEqual(f.writes,["ws:north"]);
+  }finally{
+    releaseAuthorization?.();
+    stop();
+    try{events?.close();}catch{}
+  }
+});
+
 test("expected React cleanup blocks operations until a fresh signed stream is confirmed",async()=>{
   const f=fixture();
   f.select("north");
@@ -283,6 +352,7 @@ test("expected React cleanup blocks operations until a fresh signed stream is co
   try{
     const port=await owner.signedKernelAccess("getWorkspace");
     assert.equal((await port.currentContext()).workspace_id,"ws:north");
+    await assert.rejects(initial.currentContext(),{code:"STALE_CONTEXT_OPERATION"});
   }finally{
     stopAgain();
     for(const controller of controllers)try{controller.close();}catch{}

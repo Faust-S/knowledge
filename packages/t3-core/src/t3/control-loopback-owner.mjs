@@ -22,6 +22,12 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
   let invalidationLost=false;
   const requireTransport=()=>check(!invalidationLost,
     "T3_D1_CONTROL_INVALIDATION_UNAVAILABLE");
+  // An explicit Control invalidation is not a transport loss: a NEW signed
+  // selection may recover, but every port created before the event is stale.
+  // The same is true across a React unmount/remount of the SSE subscription.
+  let selectionGeneration=0;
+  const requireGeneration=generation=>check(generation===selectionGeneration,
+    "STALE_CONTEXT_OPERATION");
   // The first signed operation must not race ahead of the existing Control
   // invalidation channel. A still-working POST endpoint alone is not enough.
   let streamAttached=false,readyForOperations=false,readyPromise=null;
@@ -59,8 +65,9 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
       "T3_D1_CONTROL_EPOCH_UNAVAILABLE");
     return value.contextEpoch;
   };
-  const post=async (scope,operation,epoch,verb,payload={})=>{
+  const post=async (scope,operation,epoch,verb,payload={},generation=null)=>{
     await awaitReady();
+    if(generation!==null)requireGeneration(generation);
     check(KINDS.has(scope)&&typeof operation==="string"&&
       Number.isSafeInteger(epoch),"T3_D1_OWNER_REQUEST_SCOPE_INVALID");
     const response=await fetchImpl(origin+"/api/t3/owner",{
@@ -71,6 +78,7 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
       body:JSON.stringify({scope,operation,verb,...payload}),
     });
     requireTransport();
+    if(generation!==null)requireGeneration(generation);
     if(!response.ok){
       let code="T3_D1_CONTROL_OPERATION_DENIED";
       try{
@@ -82,37 +90,40 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
     }
     const body=await response.json();
     requireTransport(); // A streamed revocation may arrive during this POST.
+    if(generation!==null)requireGeneration(generation);
     return body;
   };
   const select=async (scope,operation)=>{
     requireTransport();
+    const generation=selectionGeneration;
     const epoch=await getEpoch(); // No independent subject selection or grant.
-    const available=await post(scope,operation,epoch,"select");
+    requireGeneration(generation);
+    const available=await post(scope,operation,epoch,"select",{},generation);
     if(available?.contextEpoch!==epoch)fail("STALE_CONTEXT_OPERATION");
     if(available.available!==true)return null;
     const issued=new WeakMap();
     return Object.freeze({
       async currentContext(){
-        const response=await post(scope,operation,epoch,"context");
+        const response=await post(scope,operation,epoch,"context",{},generation);
         check(validObject(response?.context),"T3_D1_OWNER_CONTEXT_UNAVAILABLE");
         return response.context;
       },
       async actionFor(kernelOperation){
         const response=await post(scope,operation,epoch,"action",
-          {kernelOperation});
+          {kernelOperation},generation);
         check(typeof response?.action==="string","T3_D1_OWNER_ACTION_UNAVAILABLE");
         return response.action;
       },
       async operationDigest({operation:kernelOperation,input,context}){
         const response=await post(scope,operation,epoch,"digest",
-          {kernelOperation,command:input,context});
+          {kernelOperation,command:input,context},generation);
         check(typeof response?.digest==="string"&&
           /^[a-f0-9]{64}$/.test(response.digest),
           "T3_D1_OWNER_DIGEST_UNAVAILABLE");
         return response.digest;
       },
       async authorize(request){
-        const response=await post(scope,operation,epoch,"authorize",{request});
+        const response=await post(scope,operation,epoch,"authorize",{request},generation);
         check(validObject(response?.decision),"T3_D1_OWNER_DECISION_UNAVAILABLE");
         // The ORIGINAL native WeakMap verification was completed on the
         // local Control process BEFORE returning this decision. This local
@@ -121,7 +132,8 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
         return response.decision;
       },
       verifyDecisionBinding(request,decision){
-        return !invalidationLost &&
+        return !invalidationLost && streamAttached && readyForOperations &&
+          generation===selectionGeneration &&
           validObject(decision)&&issued.get(decision)===request;
       },
     });
@@ -145,6 +157,7 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
       // Revocation transport is a hard authority dependency. A callback
       // alone would rebuild Host while the source POSTs were still allowed.
       invalidationLost=true;
+      selectionGeneration++;
       readyForOperations=false;
       resolveReady?.(false);
       listener("unavailable");
@@ -177,6 +190,7 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
             readyForOperations=true;
             resolveReady?.(true);
           }else if(live&&/^event:\s*invalidated\s*$/m.test(event)){
+            selectionGeneration++;
             listener();
           }
         }
@@ -187,6 +201,7 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
     return ()=>{
       live=false;abort.abort();
       if(readyPromise===readiness){
+        selectionGeneration++;
         streamAttached=false;readyForOperations=false;
         readyPromise=null;resolveReady?.(false);
         resolveReady=null;failStream=null;
