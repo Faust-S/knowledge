@@ -306,3 +306,71 @@ it("trusted native Access owner may return asynchronous context without bypassin
     expect((await kernel.getWorkspace("ws:beta"))?.workspace_id).toBe("ws:beta");
   } finally {await host.dispose();}
 });
+
+it("logout during signed Access JIT never reaches the original T2 writer",async()=>{
+  const f=fixture();
+  let entered!:()=>void,finish!:()=>void;
+  const started=new Promise<void>(resolve=>{entered=resolve;});
+  const barrier=new Promise<void>(resolve=>{finish=resolve;});
+  const signedOwner={
+    ...f.access,
+    async authorize(request:unknown) {
+      entered(); // An issuer/native status check is still in progress.
+      await barrier;
+      return f.access.authorize(request);
+    },
+  };
+  const host=await createWorkspaceHostRuntime({
+    session:f.session,workspaceConfig:{modules:[]},bindLegacyHashDriver:false,
+    termResolver:(_key,fallback)=>fallback??"",
+    signedKernelAccess:()=>signedOwner,
+  });
+  try {
+    const kernel=host.contextProvider.createContext("d06").kernel;
+    const pending=kernel.putObject({
+      workspace_id:"ws:alpha",object_id:"item:pending-after-logout",
+      schema_id:"demo",schema_version:"1.0.0",data:{name:"must not commit"},
+      event:{event_type:"created"},
+    });
+    await started;
+    host.invalidate(); // Sign-out happens BEFORE the issuer returns.
+    finish();
+    await expect(pending).rejects.toMatchObject({code:"T3_HOST_DISPOSED"});
+    expect(f.calls.filter(c=>c.method==="putObject")).toHaveLength(0);
+  } finally {
+    finish();
+    await host.dispose();
+  }
+});
+
+it("signed read denied after issuer JIT when the original Host was invalidated",async()=>{
+  const f=fixture();
+  let entered!:()=>void,finish!:()=>void;
+  const started=new Promise<void>(resolve=>{entered=resolve;});
+  const barrier=new Promise<void>(resolve=>{finish=resolve;});
+  const signedOwner={
+    ...f.access,
+    async verifyDecisionBinding(req:unknown,decision:unknown) {
+      entered();
+      await barrier;
+      return f.access.verifyDecisionBinding(req,decision);
+    },
+  };
+  const host=await createWorkspaceHostRuntime({
+    session:f.session,workspaceConfig:{modules:[]},bindLegacyHashDriver:false,
+    termResolver:(_key,fallback)=>fallback??"",
+    signedKernelAccess:()=>signedOwner,
+  });
+  try {
+    const kernel=host.contextProvider.createContext("d06").kernel;
+    const pending=kernel.getWorkspace("ws:alpha");
+    await started;
+    host.invalidate();
+    finish();
+    await expect(pending).rejects.toMatchObject({code:"T3_HOST_DISPOSED"});
+    expect(f.calls.filter(c=>c.method==="getWorkspace")).toHaveLength(0);
+  } finally {
+    finish();
+    await host.dispose();
+  }
+});

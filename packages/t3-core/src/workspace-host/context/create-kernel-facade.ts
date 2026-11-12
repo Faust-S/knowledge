@@ -101,7 +101,11 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
   // This remains the original complete T2 facade. A selected subject may
   // invoke it only after the original signed Access owner authorizes that
   // method. We do not create a Kernel, Store, authority or extra grant here.
-  const inherited = Object.freeze({ ...facade });
+  // Keep the ORIGINAL T2 adapter as the only execution backend. Sign-out can
+  // happen while a signed Access JIT request is pending; guard the *last hop*
+  // into the adapter as well as the call entry / returned receipt.
+  const original = Object.freeze({ ...facade }) as Record<string, unknown>;
+  const inherited = { ...facade } as Record<string, unknown>;
   const instances = new WeakMap<object, ReturnType<typeof createSubjectKernelBinding>>();
   const deny = (code: string): never => {
     throw Object.assign(new Error(code), { code });
@@ -120,7 +124,9 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     const access = await owner(operation);
     let bound = instances.get(access);
     if (!bound) {
-      bound = createSubjectKernelBinding({ kernel: inherited, access });
+      bound = createSubjectKernelBinding({
+        kernel: inherited as unknown as KernelFacade, access,
+      });
       instances.set(access, bound);
     }
     const initial = JSON.stringify(await access.currentContext());
@@ -134,7 +140,6 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     requireLiveHost();
   };
   const guarded = facade as unknown as Record<string, unknown>;
-  const original = inherited as unknown as Record<string, unknown>;
   const subjectMethods = [
     "createWorkspace","getWorkspace","getObject","listObjects",
     "putObject","deleteObject","putRelation","deleteRelation",
@@ -146,11 +151,22 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     ...(atomicAvailable ? ["commitObjectGraph"] : []),
   ];
   for (const method of subjectMethods) {
+    const invokeT2 = original[method] as ((...args: unknown[]) => unknown) | undefined;
+    if (typeof invokeT2 === "function") {
+      inherited[method] = (...args: unknown[]) => {
+        requireLiveHost(); // The final hop, AFTER asynchronous signed JIT.
+        return invokeT2(...args);
+      };
+    }
+  }
+  Object.freeze(inherited);
+  for (const method of subjectMethods) {
     guarded[method] = async (...args: unknown[]) => {
       const { bound, initial } = await signed(method);
       const delegate = (bound as unknown as Record<string, (...args: unknown[]) =>
         Promise<unknown>>)[method];
       if (typeof delegate !== "function") deny("T3_SUBJECT_OPERATION_UNAVAILABLE");
+      requireLiveHost();
       const result = await delegate(...args);
       await revalidate(initial, method);
       return result; // the original T2 receipt, not a second result model
@@ -174,6 +190,7 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
       // GetWorkspace performs the original signed JIT and selected-resource
       // check before the underlying T2 authorization/capability query.
       await bound.getWorkspace(workspaceId);
+      requireLiveHost(); // Signed read may complete after logout.
       const delegate = original[method] as (...args: string[]) => Promise<unknown>;
       const result = method === "hasCapability"
         ? await delegate(workspaceId, capabilityId as string)
