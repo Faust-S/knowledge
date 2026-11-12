@@ -14,6 +14,10 @@ on:
       - 'research/cross-lab/tests/test_k05_agent05_observations.py'
       - 'research/cross-lab/k05_real_offer_public.py'
       - 'research/cross-lab/tests/test_k05_real_offer_public.py'
+      - 'research/cross-lab/k05_k01_refresh_review.mjs'
+      - 'research/cross-lab/k05_k01_refresh_study.mjs'
+      - 'research/cross-lab/k05_k01_evidence_check.mjs'
+      - 'research/cross-lab/tests/test_k05_k01_refresh_review.test.mjs'
       - 'research/cross-lab/k05_commercial_ablation.mjs'
       - 'research/cross-lab/k05_k01_evidence_check.mjs'
       - 'research/cross-lab/tests/test_k05_commercial_ablation.test.mjs'
@@ -192,6 +196,40 @@ jobs:
           assert p['facts']['payment_amount_definitely_due_upfront'] is None
           print('K05_REAL_PUBLIC_PROCUREMENT_PINNED_SOURCE_PROOF_PASS')
           PY
+      - name: Checkout current pinned K01 owner for refresh qualification
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: d0de69ec0ef714422555861bea20dafee89f5cc7
+          path: .k01-refresh-owner
+          persist-credentials: false
+      - name: Install pinned K01 public dependencies for refresh tests
+        run: npm install --prefix .k01-refresh-owner --ignore-scripts --no-audit --no-fund --package-lock=false
+      - name: Verify owner refresh and independent K05 source proof
+        env:
+          K05_K01_OWNER_ROOT: .k01-refresh-owner
+        run: |
+          node --test research/cross-lab/tests/test_k05_k01_refresh_review.test.mjs
+          node research/cross-lab/k05_k01_refresh_study.mjs \
+            --k01-owner-root .k01-refresh-owner \
+            --out "$RUNNER_TEMP/k05-k01-refresh-measurements.json"
+      - name: Hold if reported K05 savings or outdated Source status is invented
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])
+          proof=json.loads((root/'k05-k01-refresh-measurements.json').read_text())
+          assert proof['schema']=='IWXA_K05_K01_REFRESH_MEASUREMENTS/0.1'
+          assert [x['status'] for x in proof['trials']] == ['CURRENT','UPDATED',
+            'INCOMPLETE','REJECTED','REJECTED']
+          assert all(x['repetitions']==12 and x['k05SourceReads']==0
+            and x['humanGold'] is False and x['f1'] is None for x in proof['trials'])
+          assert proof['trials'][-1]['ownerSourceReads']==0
+          assert proof['limits']['memoryGain']=='NOT_MEASURED'
+          assert proof['limits']['realModelInvocations']==0
+          print('K05_K01_CURRENT_REFRESH_SOURCE_PROOF_PASS_NO_PRIVATE_INPUTS')
+          PY
       - name: Checkout pinned K02 owner code, read-only
         uses: actions/checkout@v4
         with:
@@ -279,6 +317,7 @@ jobs:
             ${{ runner.temp }}/k05-suite-proof.json
             ${{ runner.temp }}/k05-agent-result-evidence.json
             ${{ runner.temp }}/k05-commercial-ablation.json
+            ${{ runner.temp }}/k05-k01-refresh-measurements.json
             ${{ runner.temp }}/k05-public-offer-proof.json
             ${{ runner.temp }}/k05-k02-corpus.json
             ${{ runner.temp }}/k05-k02-routing-diagnostic.json
