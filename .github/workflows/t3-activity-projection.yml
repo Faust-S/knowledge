@@ -137,6 +137,10 @@ jobs:
           node tests/t3-d5-full-bli.browser.mjs
 
   metal-webgpu:
+    # A macOS runner was not allocated at all in #43233365753 (0 steps,
+    # runner_id=0; cancelled after 15 min). Keep Linux product CI reliable.
+    # Run this qualification manually once a Metal-capable runner is available.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     timeout-minutes: 25
     steps:
