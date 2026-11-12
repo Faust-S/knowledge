@@ -11,10 +11,27 @@ const line=/^line:([1-9][0-9]*)$/;
 const fail=(code)=>{throw Error('K05_K01_EVIDENCE_'+code);};
 
 export function verifyK01ProjectEvidence(result,authorizedDocuments){
- if(!obj(result)||result.contractVersion!=='0.1.0'||!obj(result.projection)||
+ if(!obj(result)||!['0.1.0','0.1.1'].includes(result.contractVersion)||!obj(result.projection)||
     !Array.isArray(result.projection.selected)||!Array.isArray(result.covered)||
     !Array.isArray(result.issues)||!Array.isArray(authorizedDocuments))
    fail('INPUT_INVALID');
+ // K01 0.1.1 retains a pinned catalogue to detect changing approval
+ // metadata. Verify its structure and linkage, not business truth/currentness.
+ let revisions=null;
+ if(result.contractVersion==='0.1.1'){
+  if(!/^[a-f0-9]{64}$/.test(result.catalogBinding??'')||
+     !Array.isArray(result.sourceRevisions)||result.sourceRevisions.length>96)
+   fail('CATALOG_BINDING_INVALID');
+  revisions=new Map();
+  for(const item of result.sourceRevisions){
+   if(!obj(item)||typeof item.sourceRef!=='string'||
+      !revision.test(item.revision??'')||
+      !['accepted','reference','proposed'].includes(item.state)||
+      !/^[a-f0-9]{64}$/.test(item.metadataBinding??'')||
+      revisions.has(item.sourceRef))fail('SOURCE_MANIFEST_INVALID');
+   revisions.set(item.sourceRef,item.revision);
+  }
+ }
  const documents=new Map();
  for(const source of authorizedDocuments){
   if(!obj(source)||typeof source.sourceRef!=='string'||
@@ -33,6 +50,8 @@ export function verifyK01ProjectEvidence(result,authorizedDocuments){
      typeof claim.sha256!=='string'||!/^[a-f0-9]{64}$/.test(claim.sha256))
     fail('EVIDENCE_SHAPE_INVALID');
   seen.add(claim.id);
+  if(revisions&&revisions.get(claim.sourceRef)!==claim.revision)
+   fail('SOURCE_MANIFEST_MISMATCH');
   const source=documents.get(claim.sourceRef);
   if(!source||source.revision!==claim.revision)fail('SOURCE_REVISION_MISMATCH');
   if(!hashed.has(source.sourceRef)){
