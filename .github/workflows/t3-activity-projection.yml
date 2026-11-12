@@ -139,8 +139,11 @@ jobs:
   metal-webgpu:
     # A macOS runner was not allocated at all in #43233365753 (0 steps,
     # runner_id=0; cancelled after 15 min). Keep Linux product CI reliable.
-    # Run this qualification manually once a Metal-capable runner is available.
-    if: github.event_name == 'workflow_dispatch'
+    # The workflow is currently NOT on the repository's default branch,
+    # so workflow_dispatch may not be offered. An explicit push commit with
+    # [t3-metal] in its message opts in without touching the default branch.
+    # Mac runner allocation and exposed hardware GPU must still be verified.
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[t3-metal]')
     runs-on: macos-15
     timeout-minutes: 25
     steps:
