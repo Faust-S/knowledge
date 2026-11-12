@@ -1,0 +1,21 @@
+{
+  "schema": "IWXA.K02.OPEN_DOCUMENT_TASK/0.1.0",
+  "project": "K02-COMPOSITE-01",
+  "currency": "RUB",
+  "orders": [
+    {
+      "documentId": "INV-1042",
+      "quantity": 12,
+      "unitPriceCents": 12500,
+      "discountBps": 1000,
+      "shippingCents": 6000
+    },
+    {
+      "documentId": "INV-1043",
+      "quantity": 7,
+      "unitPriceCents": 4500,
+      "discountBps": 0,
+      "shippingCents": 2000
+    }
+  ]
+}

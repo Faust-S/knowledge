@@ -1,0 +1,6 @@
+PROCUREMENT INVOICE INV-1042
+Project: K02-COMPOSITE-01
+Currency: RUB
+Line item: brackets, quantity 12 at 125.00 RUB each.
+Agreed discount: 10% on line items. Shipping: 60.00 RUB.
+Approval: draft for independent calculation; figures require verification.

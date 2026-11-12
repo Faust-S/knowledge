@@ -84,3 +84,32 @@ test('does not allow remote endpoints, unpinned model, cloud tag or unsupported 
   await assert.rejects(provider.invoke('another.operation', inputs, { hostApproved: true, pinnedModelDigest: digest }), error('UNSUPPORTED'));
   await assert.rejects(provider.invoke('text.generate', { ...inputs, unwanted: true }, { hostApproved: true, pinnedModelDigest: digest }), error('SCHEMA_VALUE_INVALID'));
 });
+
+test('two exact local model bindings can coexist without a second runtime',async()=>{
+  const first=new OllamaLocalModelProvider({modelName,expectedDigest:digest,
+    providerId:'ollama-small',fetchImpl:makeFetch().fetchImpl});
+  const second=new OllamaLocalModelProvider({modelName,expectedDigest:digest,
+    providerId:'ollama-large',fetchImpl:makeFetch().fetchImpl});
+  const descriptors=await Promise.all([first,second].map(p=>p.describeCapabilities()));
+  assert.deepEqual(descriptors.map(d=>d.providerId),['ollama-small','ollama-large']);
+  assert.ok(descriptors.every(d=>d.availability==='available'));
+  assert.throws(()=>new OllamaLocalModelProvider({modelName,expectedDigest:digest,
+    providerId:'invalid provider id'}),error('INVALID_DESCRIPTOR'));
+});
+test('reasoning mode defaults to model automatic behavior; explicit host choice is sent unchanged',async()=>{
+  const {calls,fetchImpl}=makeFetch();
+  const automatic=new OllamaLocalModelProvider({modelName,expectedDigest:digest,fetchImpl});
+  await automatic.invoke('text.generate',inputs,{hostApproved:true,pinnedModelDigest:digest});
+  assert.equal(JSON.parse(calls.find(x=>x.url.endsWith('/api/generate')).opts.body).think,undefined);
+  const choices=[['enabled',true],['disabled',false]];
+  for(const [thinkingMode,expected] of choices){
+    const live=makeFetch();
+    const p=new OllamaLocalModelProvider({modelName,expectedDigest:digest,
+      fetchImpl:live.fetchImpl,thinkingMode,providerId:'ollama-study'});
+    const r=await p.invoke('text.generate',inputs,{hostApproved:true,pinnedModelDigest:digest});
+    assert.equal(JSON.parse(live.calls.find(x=>x.url.endsWith('/api/generate')).opts.body).think,expected);
+    assert.equal(r.observation.thinkingMode,thinkingMode);
+  }
+  assert.throws(()=>new OllamaLocalModelProvider({modelName,expectedDigest:digest,
+    thinkingMode:'always-automatic'}),error('INVALID_DESCRIPTOR'));
+});

@@ -68,18 +68,29 @@ function durationNs(value, label) {
 }
 
 export class OllamaLocalModelProvider {
-  constructor({ modelName, expectedDigest, fetchImpl = globalThis.fetch } = {}) {
+  constructor({ modelName, expectedDigest, fetchImpl = globalThis.fetch,
+    providerId = 'ollama-local-pinned', thinkingMode = 'auto', latencyMsP50 = null } = {}) {
     if (typeof modelName !== 'string' || !MODEL_NAME.test(modelName) || modelName.toLowerCase().endsWith(':cloud')) {
       throw new InteropError('INVALID_DESCRIPTOR', 'model_name');
     }
     if (typeof expectedDigest !== 'string' || !DIGEST.test(expectedDigest)) {
       throw new InteropError('INVALID_DESCRIPTOR', 'expected_model_digest');
     }
+    if (typeof providerId !== 'string' || !MODEL_NAME.test(providerId) ||
+      providerId.length > 160 || !['auto','enabled','disabled'].includes(thinkingMode)) {
+      throw new InteropError('INVALID_DESCRIPTOR', 'provider_id_or_thinking_mode');
+    }
+    if (latencyMsP50 !== null &&
+      (typeof latencyMsP50 !== 'number' || !Number.isFinite(latencyMsP50) || latencyMsP50<0)) {
+      throw new InteropError('INVALID_DESCRIPTOR','latency_observation');
+    }
     if (typeof fetchImpl !== 'function') throw new InteropError('PROVIDER_UNAVAILABLE', 'fetch_unavailable');
     this.modelName = modelName;
     this.expectedDigest = expectedDigest;
     this.fetchImpl = fetchImpl;
-    this.providerId = 'ollama-local-pinned';
+    this.providerId = providerId;
+    this.thinkingMode = thinkingMode;
+    this.latencyMsP50 = latencyMsP50;
   }
   async request(path, options, timeoutMs) {
     // Deliberately fixed loopback origin. Host controls transport, credentials and consent.
@@ -112,7 +123,7 @@ export class OllamaLocalModelProvider {
       capabilities: [{
         kind: 'model', capabilityId: MODEL_CAPABILITY_ID,
         supported: true, inputSchema: MODEL_INPUT, outputSchema: MODEL_OUTPUT,
-        effectClass: 'MODEL_INFERENCE', providerFeeUsd: 0, latencyMsP50: null,
+        effectClass: 'MODEL_INFERENCE', providerFeeUsd: 0, latencyMsP50: this.latencyMsP50,
         inputModes: ['text'], outputModes: ['text'],
         modelPin: { name: this.modelName, digest: this.expectedDigest },
       }],
@@ -132,6 +143,7 @@ export class OllamaLocalModelProvider {
       body: JSON.stringify({
         model: this.modelName, system: input.system, prompt: input.prompt, stream: false,
         options: { temperature: 0, seed: 7, num_predict: input.max_output_tokens },
+        ...(this.thinkingMode === 'auto' ? {} : { think: this.thinkingMode === 'enabled' }),
         keep_alive: '5m',
       }),
     }, 120_000);
@@ -155,6 +167,7 @@ export class OllamaLocalModelProvider {
       status: 'SUCCEEDED', output,
       observation: {
         providerId: this.providerId, capabilityId: operation, transport: 'ollama-local-http',
+        thinkingMode: this.thinkingMode,
         modelName: this.modelName, modelDigest: this.expectedDigest,
         durationMs, promptTokens, completionTokens,
         totalDurationNs, generationDurationNs,

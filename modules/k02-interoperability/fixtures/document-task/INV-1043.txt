@@ -1,0 +1,6 @@
+PROCUREMENT INVOICE INV-1043
+Project: K02-COMPOSITE-01
+Currency: RUB
+Line item: cable fittings, quantity 7 at 45.00 RUB each.
+Agreed discount: 0% on line items. Shipping: 20.00 RUB.
+Approval: draft for independent calculation; figures require verification.
