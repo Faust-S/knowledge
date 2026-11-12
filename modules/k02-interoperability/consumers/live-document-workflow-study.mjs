@@ -240,15 +240,16 @@ async function variant(id,models,{skill=false,program=false}={}){
    hostComputeCostUsd:null,contextPreserved:true};
  reports.push(item);
 }
-async function toolFirstVariant(){
- const id='k02-source-skill-jq',started=performance.now();
+async function toolFirstVariant(withModel=true){
+ const id=withModel?'k02-source-skill-jq':'k02-tools-only',started=performance.now();
  const realGit=new GitCliProvider(process.cwd());
  const realAudit=new NodeEvidenceCliProvider();
  const realJq=new JqCalculationCliProvider();
  const activeQwen=providers.qwen;
  const descs=await Promise.all([
    realGit.describeCapabilities(),realAudit.describeCapabilities(),
-   realJq.describeCapabilities(),activeQwen.describeCapabilities(),
+   realJq.describeCapabilities(),
+   ...(withModel?[activeQwen.describeCapabilities()]:[]),
  ]);
  assert.ok(descs.every(x=>x.availability==='available'),'TOOL_FIRST_PROVIDER_UNAVAILABLE');
  const skill=JSON.parse(await readFile(new URL('../skills/exact-source-audit.skill.json',import.meta.url),'utf8'));
@@ -259,17 +260,17 @@ async function toolFirstVariant(){
    requirement('order-data','tool','source.git.show',GIT_INPUT,GIT_OUTPUT),
    requirement('quote-audit','tool','evidence.exact.audit',AUDIT_INPUT,AUDIT_OUTPUT),
    requirement('compute','tool','invoice.calculate',CALCULATION_INPUT,CALCULATION_OUTPUT),
-   requirement('report','model','text.generate',MODEL_INPUT,MODEL_OUTPUT),
+   ...(withModel?[requirement('report','model','text.generate',MODEL_INPUT,MODEL_OUTPUT)]:[]),
  ]};
  const staged=[
    ['invoice-a','read-invoice-a'],['invoice-b','read-invoice-b'],
    ['order-data','read-order-data'],['quote-audit','audit-source'],
    ['compute','calculate-confirmed'],
  ].map(([requirementId,stageId])=>({requirementId,stageId,requiredContextTokens:1200}));
- staged.push({stageId:'optional-model-summary',requirementId:'report',requiredContextTokens:1800,
+ if(withModel)staged.push({stageId:'optional-model-summary',requirementId:'report',requiredContextTokens:1800,
    step:{taskClass:'summary',difficulty:'complex',minObservedSuccessRate:0.5,
      minSamples:2,maxAttempts:1,maxLatencyMs:null,maxMemoryMiB:null}});
- const recommended=recommendTaskStages({
+ const selectionInput={
    task:{taskId:'open-verified-document-report',solutionId:stepSolution.solutionId},
    solution:stepSolution,stages:staged,available:descs,profiles,
    qualityEvidence:quality,resourceProfiles:resources,selectedSkills:[skill],
@@ -278,12 +279,18 @@ async function toolFirstVariant(){
      sourceRef:'linux-proc-MemAvailable'},
    nowMs:Date.now(),environment:{operatingSystem:osVersion},
    contextBinding:{ref:'public-open-documents',digest:contextDigest},
- });
+ };
+ const rejectedSkill=recommendTaskStages({...selectionInput,
+   selectedSkills:[{...skill,requiredCapabilities:['nonexistent.unapproved.skill.capability']}]});
+ assert.equal(rejectedSkill.decision,'INCOMPATIBLE');
+ assert.equal(rejectedSkill.plan,null);
+ assert.ok(rejectedSkill.blocked.some(x=>x.reason==='SKILL_UNSUPPORTED_OR_UNVERIFIED'));
+ const recommended=recommendTaskStages(selectionInput);
  if(recommended.decision!=='STAGES_PROPOSED_NOT_AUTHORIZED')
    process.stdout.write('K02_TOOL_FIRST_REFUSAL '+JSON.stringify({
      blocked:recommended.blocked,stages:recommended.stages.map(x=>[x.requirementId,x.decision])})+'\n');
  assert.equal(recommended.decision,'STAGES_PROPOSED_NOT_AUTHORIZED');
- assert.equal(recommended.plan.steps.length,6);
+ assert.equal(recommended.plan.steps.length,withModel?6:5);
  assert.equal(recommended.plan.skills[0].skillId,'exact-source-audit');
  assert.equal(verifySkillBinding(recommended.plan,skill.skillId,skill,
    skillBytes,recommended.plan.planDigest).status,'MATCHED_NOT_ACTIVATED');
@@ -329,11 +336,14 @@ async function toolFirstVariant(){
  assert.equal(computed.status,'SUCCEEDED');
  assert.deepEqual(computed.output.lines.map(x=>x.totalCents),[141000,33500]);
  assert.equal(computed.output.grandTotalCents,174500);
- await verifyInvocationReadiness(recommended.plan,'report',activeQwen,recommended.plan.planDigest);
- let proposal='';
- try{proposal=await invokeModel('qwen',reportPrompt('1745.00 RUB'),'tool-first:report');}
- catch(e){problems.push({phase:'tool-first-model-suggestion',error:String(e.code??e.message)});}
- const proposalValid=assess(values.project,computed.output.grandTotalCents,proposal).finalFields;
+ let proposalValid=null;
+ if(withModel){
+   await verifyInvocationReadiness(recommended.plan,'report',activeQwen,recommended.plan.planDigest);
+   let proposal='';
+   try{proposal=await invokeModel('qwen',reportPrompt('1745.00 RUB'),'tool-first:report');}
+   catch(e){problems.push({phase:'tool-first-model-suggestion',error:String(e.code??e.message)});}
+   proposalValid=assess(values.project,computed.output.grandTotalCents,proposal).finalFields;
+ }
  // A failed model draft is not allowed to corrupt a verified file. The host
  // writes a deterministic report from independently observed tool output.
  const reportText=[
@@ -356,7 +366,7 @@ async function toolFirstVariant(){
    'Exact source quotations verified: '+quoteCheck.output.accepted.length,
    ...quoteCheck.output.accepted.map(x=>'- '+x.quote),
    '',
-   'Model commentary: '+(proposalValid?'APPROVED_FOR_DRAFT':'REJECTED_INCORRECT_OR_INCOMPLETE'),
+   'Model commentary: '+(!withModel?'NOT_REQUIRED':proposalValid?'APPROVED_FOR_DRAFT':'REJECTED_INCORRECT_OR_INCOMPLETE'),
    'Human Review: REQUIRED before a Personal Agent Result can be accepted.',
  ].join('\n')+'\n';
  const path=join(outDir,id+'.md');
@@ -369,7 +379,8 @@ async function toolFirstVariant(){
  reports.push({id,status:'REAL_INVOKE',userResultSuccessful:true,
    durationMs:Number((performance.now()-started).toFixed(2)),
    checks:correct,modelDraftVerified:proposalValid,
-   modelDraftIncluded:false,deterministicVerifiedFallback:!proposalValid,
+   modelDraftIncluded:false,deterministicVerifiedFallback:withModel&&!proposalValid,
+   incompatibleSkillRejected:true,modelInvoked:withModel,
    sourceFilesReadByGit:3,sourceQuotesVerified:2,jqExecuted:true,
    toolProofClasses:['REAL_GIT_CLI','REAL_NODE_CLI','REAL_JQ_PROCESS_NOT_PRODUCT_TASK'],
    selected:recommended.stages.map(x=>[x.requirementId,x.providerId]),
@@ -387,10 +398,12 @@ if(recommendation.decision==='STAGES_PROPOSED_NOT_AUTHORIZED'){
  reason:recommendation.blocked,userResultSuccessful:false,hostComputeCostUsd:null});
 await variant('model-and-skill',direct,{skill:true});
 await variant('model-and-cli',direct,{program:true});
-await toolFirstVariant();
+await toolFirstVariant(true);
+await toolFirstVariant(false);
 assert.ok(counts.mini>=2 && counts.qwen>=2,'TWO_REAL_MODEL_VARIANTS_MUST_RUN');
-assert.equal(reports.length,5);
+assert.equal(reports.length,6);
 assert.equal(reports.find(x=>x.id==='k02-source-skill-jq')?.userResultSuccessful,true);
+assert.equal(reports.find(x=>x.id==='k02-tools-only')?.userResultSuccessful,true);
 const measured={schema:'IWXA.K02.LIVE_DOCUMENT_STUDY/0.1.0',
   sourceDigest:contextDigest,modelVariants:modelArgs,calibration,
   recommendation:{decision:recommendation.decision,blocked:recommendation.blocked,

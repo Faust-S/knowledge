@@ -115,6 +115,12 @@ jobs:
         run: |
           node --check modules/k02-interoperability/consumers/live-document-workflow-study.mjs
           node modules/k02-interoperability/consumers/live-document-workflow-study.mjs
+      - name: Independent Python check of source evidence, arithmetic and verified files
+        env:
+          K02_CASE_OUTPUT_DIR: ${{ runner.temp }}/k02-document-case
+        run: |
+          python -m py_compile modules/k02-interoperability/consumers/python_live_document_acceptance.py
+          python modules/k02-interoperability/consumers/python_live_document_acceptance.py
       - name: Publish public fixture results, report files and measurement evidence
         if: always()
         uses: actions/upload-artifact@v4
