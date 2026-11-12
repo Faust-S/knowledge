@@ -5,15 +5,22 @@
 // qualified separately by the original private T3 owner; never copy it here.
 import { afterEach, expect, it } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { KernelSession } from "@/kernel-client/types";
-import { WorkspaceHostRuntimeProvider, useWorkspaceHostRuntimeHandle } from "@/workspace-host/runtime";
+import {
+  WorkspaceHostRuntimeProvider, useWorkspaceHostRuntimeHandle,
+  type WorkspaceHostRuntimeHandle,
+} from "@/workspace-host/runtime";
 
 afterEach(() => cleanup());
 
 function fixture() {
   let selected = "north", active = true;
   const writes: string[] = [];
+  const invalidationListeners = new Set<() => void>();
+  const notify = () => {
+    for (const listener of [...invalidationListeners]) listener();
+  };
   const current = () => ({
     kind:"CORP", context_id:"context:"+selected,
     actor_id:"person:worker", principal_id:"org:"+selected,
@@ -63,7 +70,14 @@ function fixture() {
   } as unknown as KernelSession;
   return {session,owner,writes,
     select:(name:string)=>{selected=name;},
-    revoke:()=>{active=false;}};
+    revoke:()=>{active=false;},
+    subscribe:(listener:()=>void)=>{
+      invalidationListeners.add(listener);
+      return ()=>{invalidationListeners.delete(listener);};
+    },
+    selectAndInvalidate:(name:string)=>{selected=name;notify();},
+    revokeAndInvalidate:()=>{active=false;notify();},
+  };
 }
 
 function UserWorkspace({onSelect}:{onSelect:(name:string)=>void}) {
@@ -139,4 +153,60 @@ it("mounted Host with an absent selected signed owner fails closed instead of fa
   await waitFor(()=>expect(screen.getByTestId("d1-user-result").textContent)
     .toBe("T3_D1_ACCESS_OWNER_REQUIRED"));
   expect(f.writes).toEqual([]);
+});
+
+
+function RuntimeWitness({onHandle}:{
+  onHandle:(handle:WorkspaceHostRuntimeHandle)=>void;
+}) {
+  const handle=useWorkspaceHostRuntimeHandle();
+  useEffect(()=>{if(handle)onHandle(handle);},[handle,onHandle]);
+  return <output data-testid="d1-active-owner-runtime">
+    {handle?"активная подписанная Workspace":"контекст закрыт"}
+  </output>;
+}
+
+it("original Control invalidation detaches old Workspace, discards focus and keeps one signed Kernel",async()=>{
+  const f=fixture(),handles:WorkspaceHostRuntimeHandle[]=[];
+  const track=(handle:WorkspaceHostRuntimeHandle)=>{
+    if(!handles.includes(handle))handles.push(handle);
+  };
+  render(<WorkspaceHostRuntimeProvider
+    session={f.session}
+    workspaceConfig={{modules:[]}}
+    termResolver={(key,fallback)=>fallback??key}
+    profile={{id:"generic",fallback:false,
+      definition:{id:"generic",label:"Generic",description:"",accent:"#64748b"}}}
+    signedKernelAccess={()=>f.owner}
+    subscribeSignedAccessInvalidation={f.subscribe}
+  ><RuntimeWitness onHandle={track}/></WorkspaceHostRuntimeProvider>);
+  await waitFor(()=>expect(handles).toHaveLength(1));
+  const previous=handles[0];
+  previous.currentWorkspaceStore.set({workspace_id:"ws:north"} as never);
+  const oldKernel=previous.contextProvider.createContext("iwxa.domain.demo").kernel;
+
+  await act(async()=>{f.selectAndInvalidate("south");});
+  await expect(oldKernel.getWorkspace("ws:north"))
+    .rejects.toMatchObject({code:"T3_HOST_DISPOSED"});
+  await waitFor(()=>expect(handles).toHaveLength(2));
+  const south=handles[1];
+  expect(south).not.toBe(previous);
+  expect(south.currentWorkspaceStore.get()).toBeNull();
+  const liveKernel=south.contextProvider.createContext("iwxa.domain.demo").kernel;
+  const result=await liveKernel.putObject({
+    workspace_id:"ws:south",object_id:"order:south",schema_id:"d06.order",
+    schema_version:"1.0.0",base_revision:0,data:{title:"South"},
+    event:{event_type:"d06.order.created"},
+  });
+  expect(result.object.workspace_id).toBe("ws:south");
+  expect(f.writes).toEqual(["ws:south"]);
+
+  await act(async()=>{f.revokeAndInvalidate();});
+  await expect(liveKernel.getWorkspace("ws:south"))
+    .rejects.toMatchObject({code:"T3_HOST_DISPOSED"});
+  await waitFor(()=>expect(handles).toHaveLength(3));
+  const revoked=handles[2].contextProvider.createContext("iwxa.domain.demo").kernel;
+  await expect(revoked.getWorkspace("ws:south"))
+    .rejects.toMatchObject({code:"T3_ACCESS_NOT_PERMITTED"});
+  expect(f.writes).toEqual(["ws:south"]);
 });
