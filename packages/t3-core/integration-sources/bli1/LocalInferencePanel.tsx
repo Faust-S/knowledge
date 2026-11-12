@@ -229,6 +229,7 @@ export default function LocalInferencePanel() {
     setOutput("");
     setDraftReady(false);
     setSaved(false);
+    setOpenedDraft(null);
     setStatus("Генерация выполняется локально. Можно остановить.");
     try {
       const result = await (await ensureEngine()).invoke(prompt, {
@@ -267,6 +268,27 @@ export default function LocalInferencePanel() {
       setPendingReadbackId(null);
       setStatus("Kernel подтвердил запись и чтение: " + receipt.object_id +
         " · ревизия " + receipt.revision + " · " + receipt.status);
+      // After an explicit save, show the independently re-opened Kernel text.
+      // A preview read failure cannot turn a confirmed write into an
+      // unconfirmed one or trigger another write.
+      try {
+        const persisted = await getLocalInferenceDraft(context, {
+          expected_workspace_id: workspaceId, object_id: receipt.object_id,
+        });
+        if (alive.current && epoch === focusEpoch.current && current() === workspaceId) {
+          setOpenedDraft(persisted);
+          setStatus("Kernel подтвердил запись и чтение: " + receipt.object_id +
+            " · ревизия " + receipt.revision + " · " + receipt.status +
+            ". Сохранённый текст открыт ниже.");
+        }
+      } catch (e) {
+        if (alive.current && epoch === focusEpoch.current && current() === workspaceId) {
+          setOpenedDraft(null);
+          setStatus("Kernel подтвердил запись и чтение: " + receipt.object_id +
+            ", но повторный просмотр недоступен: " + message(e) +
+            ". Откройте черновик через историю или по ID.");
+        }
+      }
       // Show the new draft using the original Kernel history, not local UI state.
       // A failed history refresh never triggers a duplicate write.
       try {
@@ -413,7 +435,7 @@ export default function LocalInferencePanel() {
     <label className="block">Черновик · редактируемый
       <textarea aria-label="Черновик · редактируемый" data-testid="t3-d5-editable-draft"
         className="w-full min-h-28 p-2 rounded text-slate-900" maxLength={64000}
-        value={output} onChange={e => {setOutput(e.target.value); setSaved(false);}}/>
+        disabled={busy} value={output} onChange={e => {setOutput(e.target.value); setSaved(false);}}/>
     </label>
     <button type="button" disabled={!workspaceId || !draftReady || saved || busy || !output.trim() ||
       !context.kernel.hasOperation("t1.putObject")} onClick={() => void save()}>
