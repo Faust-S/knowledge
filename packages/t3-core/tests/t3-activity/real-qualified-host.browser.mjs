@@ -79,7 +79,7 @@ async function probeOriginalT2OnControlHttp(root,chromium,temp){
     const send=(status,body,type='text/plain')=>{
       response.writeHead(status,{'Content-Type':type,'Cache-Control':'no-store',
         'X-Content-Type-Options':'nosniff',
-        'Content-Security-Policy':"default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'"});
+        'Content-Security-Policy':"default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'"});
       response.end(body);
     };
     try{
