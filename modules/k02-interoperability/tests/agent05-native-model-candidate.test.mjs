@@ -4,6 +4,8 @@ import {
   CONTRACT_VERSION, verifyInvocationReadiness, digest,
 } from '../index.mjs';
 import {MODEL_INPUT,MODEL_OUTPUT} from '../adapters/ollama-local.mjs';
+import {prepareAgent05OwnerRequestDraft,AGENT05_OWNER_REQUEST_DRAFT_VERSION}
+  from '../agent05-owner-request-draft.mjs';
 import {recommendTaskStages} from '../task-step-composition.mjs';
 import {inspectAgent05ModelStep} from '../agent05-model-stage-handoff.mjs';
 import {
@@ -222,4 +224,107 @@ test('provider chosen from quality evidence needs fresh host mapping for each ex
     'CANDIDATE_NATIVE_MAPPING_UNVERIFIED');
   assert.equal(prepare(p,'write',{nativeDescriptor:definition(
     'custom-node-provider',STRONG,0,120)}).reason,'NATIVE_DESCRIPTOR_OR_PIN_CHANGED');
+});
+
+const nativeQuality=({providerId='OLLAMA_LOCAL_V1',modelPin=STRONG,
+    operatingSystem='Windows 11',runtimeVersion='Ollama-v1',
+    passed=9,attempts=10,taskClass='summary',difficulty='complex'}={})=>[{
+  providerId,modelPin,operatingSystem,runtimeVersion,passed,attempts,
+  taskClass,difficulty,
+  proofRef:'host-native-separate-observation-not-alias-proof',
+}];
+const nativeProfile={providerId:'OLLAMA_LOCAL_V1',modelPin:STRONG,
+  runtimeVersion:'Ollama-v1',memoryMiB:900,computeUsdPerAttempt:null,
+  costBasis:'UNKNOWN'};
+function ownerDraft(recommended=recommendation(),overrides={}){
+  const native=prepare(recommended,'write');
+  return prepareAgent05OwnerRequestDraft({
+    nativeCandidate:native,trustedScopedPlanDigest:native.scopedPlanPreview?.planDigest??
+      '0'.repeat(64),nativeDescriptor:nativeStrong,nativeProfile,
+    nativeQualityEvidence:nativeQuality(),step:stages[1].step,
+    environment:{operatingSystem:'Windows 11'},
+    taskId:TASK_ID,requirementId:'write',...overrides,
+  });
+}
+test('native quality trial produces exact existing Agent owner-CLI request, with no U01 invoke',()=>{
+  const original=recommendation();
+  const candidate=prepare(original,'write');
+  const x=ownerDraft(original);
+  assert.equal(x.schema,AGENT05_OWNER_REQUEST_DRAFT_VERSION);
+  assert.equal(x.status,'OWNER_REQUEST_DRAFT_NOT_EXECUTED');
+  assert.equal(x.ownerRequest.schema,'PA.K02_K04.OWNER_REQUEST/0.1.0');
+  assert.equal(x.ownerRequest.task_id,TASK_ID);
+  assert.deepEqual(Object.keys(x.ownerRequest.k02.model_recommendation).sort(),
+    ['environment','profiles','quality_evidence','requirement_id','step','user_model_pin'].sort());
+  assert.equal(x.ownerRequest.k02.providers.length,1);
+  assert.equal(x.ownerRequest.k02.providers[0].providerId,'OLLAMA_LOCAL_V1');
+  assert.equal(x.ownerRequest.k02.solution.requirements.length,1);
+  assert.equal(x.ownerRequest.k02.model_recommendation.requirement_id,'write');
+  assert.deepEqual(x.ownerRequest.k02.model_recommendation.user_model_pin,STRONG);
+  assert.equal(x.ownerRequest.k02.model_recommendation.quality_evidence[0].providerId,
+    'OLLAMA_LOCAL_V1');
+  assert.equal(x.expectedOwnerPlanDigest,candidate.scopedPlanPreview.planDigest);
+  assert.equal(x.ownerRequestDigest,digest(x.ownerRequest));
+  assert.equal(x.ownerExecuted,false);
+  assert.equal(x.ownerReceiptsVerified,false);
+  assert.equal(x.graphChanged,false);
+  assert.equal(x.hostAuthorityGranted,false);
+  assert.equal(x.fullTaskPlanUsable,false);
+});
+test('alias quality evidence cannot be rebadged or silently inherited for native owner',()=>{
+  const rejected=ownerDraft(undefined,{
+    nativeQualityEvidence:nativeQuality({providerId:'candidate-strong'}),
+  });
+  assert.equal(rejected.status,'OWNER_REQUEST_HOLD');
+  assert.equal(rejected.reason,'INDEPENDENT_NATIVE_QUALITY_EVIDENCE_REQUIRED');
+  assert.equal(rejected.ownerRequest,null);
+  for(const row of [
+    nativeQuality({modelPin:SMALL}),
+    nativeQuality({operatingSystem:'Linux'}),
+    nativeQuality({runtimeVersion:'other-runtime'}),
+    nativeQuality({taskClass:'arithmetic'}),
+  ]){
+    assert.equal(ownerDraft(undefined,{nativeQualityEvidence:row}).status,'OWNER_REQUEST_HOLD');
+  }
+  assert.equal(ownerDraft(undefined,{nativeQualityEvidence:[]}).status,'OWNER_REQUEST_HOLD');
+});
+test('insufficient native quality leaves owner recommendation unavailable, not an assumed PASS',()=>{
+  for(const evidence of [nativeQuality({passed:1}),
+    nativeQuality({passed:7}),
+    nativeQuality({passed:1,attempts:3})]){
+    const draft=ownerDraft(undefined,{nativeQualityEvidence:evidence});
+    assert.equal(draft.status,'OWNER_REQUEST_HOLD');
+    assert.equal(draft.ownerExecuted,false);
+    assert.equal(draft.ownerRequest,null);
+  }
+});
+test('changed native descriptor and cost fail to construct owner request',()=>{
+  const moved={...nativeStrong,capabilities:[{
+    ...nativeStrong.capabilities[0],latencyMsP50:999,
+  }]};
+  assert.equal(ownerDraft(undefined,{nativeDescriptor:moved}).reason,
+    'NATIVE_CAPABILITY_CHANGED');
+  const offline={...nativeStrong,availability:'unavailable',unavailableReason:'offline'};
+  assert.equal(ownerDraft(undefined,{nativeDescriptor:offline}).reason,
+    'NATIVE_CAPABILITY_UNAVAILABLE');
+});
+test('a non-native or altered scoped model plan cannot be laundered into existing Agent CLI',()=>{
+  const original=recommendation();
+  const actual=prepare(original,'write');
+  assert.equal(ownerDraft(original,{nativeCandidate:{
+    ...actual,hostAuthorityGranted:true,
+  }}).status,'OWNER_REQUEST_HOLD');
+  assert.equal(ownerDraft(original,{taskId:'TASK-OTHER'}).reason,
+    'NATIVE_CANDIDATE_SCOPE_CHANGED');
+  assert.throws(()=>ownerDraft(original,{trustedScopedPlanDigest:'f'.repeat(64)}),
+    /INVALID_AGENT05_OWNER_DRAFT/);
+  const tampered=structuredClone(actual);
+  tampered.scopedPlanPreview.steps[0].providerId='other';
+  assert.throws(()=>ownerDraft(original,{nativeCandidate:tampered}),
+    /INVALID_AGENT05_OWNER_DRAFT/);
+});
+test('manual pinned model without independently observed quality is not converted to an owner result',()=>{
+  const selected=recommendation({userModelPins:{write:STRONG}});
+  assert.equal(ownerDraft(selected,{nativeQualityEvidence:[]}).status,'OWNER_REQUEST_HOLD');
+  assert.equal(ownerDraft(selected).status,'OWNER_REQUEST_DRAFT_NOT_EXECUTED');
 });

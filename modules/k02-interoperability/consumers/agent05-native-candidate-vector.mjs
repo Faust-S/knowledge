@@ -4,6 +4,7 @@ import {CONTRACT_VERSION} from '../index.mjs';
 import {MODEL_INPUT,MODEL_OUTPUT} from '../adapters/ollama-local.mjs';
 import {recommendTaskStages} from '../task-step-composition.mjs';
 import {prepareAgent05OllamaCandidate} from '../agent05-native-model-candidate.mjs';
+import {prepareAgent05OwnerRequestDraft} from '../agent05-owner-request-draft.mjs';
 
 const A={name:'fixture-small:latest',digest:'a'.repeat(64)};
 const B={name:'fixture-strong:latest',digest:'b'.repeat(64)};
@@ -71,8 +72,21 @@ const native=prepareAgent05OllamaCandidate({
     local_models:[{name:A.name,digest:A.digest},{name:B.name,digest:B.digest}]},
   trustedInventoryRef:'host:explicit-configured-source',nowMs:108,
 });
+const owner=prepareAgent05OwnerRequestDraft({
+  nativeCandidate:native,trustedScopedPlanDigest:native.scopedPlanPreview.planDigest,
+  nativeDescriptor:provider('OLLAMA_LOCAL_V1',B,120),
+  nativeProfile:{providerId:'OLLAMA_LOCAL_V1',modelPin:B,
+    runtimeVersion:'independent-native-trial-v1',memoryMiB:900,
+    computeUsdPerAttempt:null,costBasis:'UNKNOWN'},
+  nativeQualityEvidence:[{providerId:'OLLAMA_LOCAL_V1',modelPin:B,
+    taskClass:'report',difficulty:'complex',
+    operatingSystem:'Windows 11',runtimeVersion:'independent-native-trial-v1',
+    passed:9,attempts:10,proofRef:'synthetic:native-observations-not-alias'}],
+  step:stages[1].step,environment:{operatingSystem:'Windows 11'},
+  taskId,requirementId:'write',
+});
 process.stdout.write(JSON.stringify({
   schema:'IWXA.K02.AGENT05_NATIVE_CANDIDATE_VECTOR/0.1.0',
   scope:'SYNTHETIC_CONTRACT_ONLY_NO_AGENT_RESULT',
-  taskId,context,recommendation,native,
+  taskId,context,recommendation,native,owner,
 })+'\n');

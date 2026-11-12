@@ -70,6 +70,37 @@ def check(data: dict) -> dict:
     for field in ("hostAuthorityGranted", "modelInvoked", "resultProduced",
                   "ownerReceiptsVerified", "nativeBindingVerified", "globalModelChanged"):
         assert output[field] is False, f"authority_field_incorrect:{field}"
+    draft = data["owner"]
+    assert draft["schema"] == "IWXA.K02.AGENT05_OWNER_REQUEST_DRAFT/0.1.0"
+    assert draft["status"] == "OWNER_REQUEST_DRAFT_NOT_EXECUTED"
+    assert draft["ownerExecuted"] is False
+    assert draft["ownerReceiptsVerified"] is False
+    assert draft["hostAuthorityGranted"] is False
+    assert draft["graphChanged"] is False
+    assert draft["modelInvoked"] is False
+    assert draft["resultProduced"] is False
+    assert draft["expectedOwnerPlanDigest"] == native_plan["planDigest"]
+    owner = draft["ownerRequest"]
+    assert draft["ownerRequestDigest"] == hashlib.sha256(json.dumps(
+        owner, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        allow_nan=False).encode("utf-8")).hexdigest()
+    assert owner["schema"] == "PA.K02_K04.OWNER_REQUEST/0.1.0"
+    assert owner["task_id"] == data["taskId"]
+    k02 = owner["k02"]
+    assert len(k02["providers"]) == 1
+    assert k02["providers"][0]["providerId"] == "OLLAMA_LOCAL_V1"
+    assert len(k02["solution"]["requirements"]) == 1
+    assert k02["solution"]["requirements"][0]["modelPin"] == output["modelPin"]
+    assert k02["selected_skills"] == []
+    request = k02["model_recommendation"]
+    assert set(request) == {"requirement_id", "step", "profiles", "quality_evidence",
+                            "environment", "user_model_pin"}
+    assert request["requirement_id"] == "write"
+    assert request["user_model_pin"] == output["modelPin"]
+    assert len(request["quality_evidence"]) == 1
+    assert request["quality_evidence"][0]["providerId"] == "OLLAMA_LOCAL_V1"
+    assert request["profiles"][0]["providerId"] == "OLLAMA_LOCAL_V1"
+    assert request["quality_evidence"][0]["proofRef"] != "fixture-only-quality-evidence"
     return {"status": "PASS", "nativeProvider": step["providerId"],
             "originalStages": len(prior_plan["steps"]), "scopedNativeStages": 1,
             "ownerReceiptProduced": False, "agentResultProduced": False,
