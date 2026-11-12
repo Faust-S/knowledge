@@ -28,6 +28,7 @@ import {
   useWorkspaceHostRuntime,
   useWorkspaceHostRuntimeHandle,
   type CreateWorkspaceHostRuntimeInput,
+  type SignedAccessInvalidationSubscription,
 } from "../workspace-host/runtime";
 import { ModuleRouteOutlet } from "../workspace-host/rendering/ModuleRouteOutlet";
 import { HostDashboardSurface } from "../workspace-host/rendering/HostDashboardSurface";
@@ -59,6 +60,7 @@ export interface AppShellProps {
   /** Trusted, compile-time D1 owner. Never extracted from the page or archive. */
   signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
   signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
+  subscribeSignedAccessInvalidation?: SignedAccessInvalidationSubscription;
 }
 
 /**
@@ -90,6 +92,7 @@ export function AppShell(props: AppShellProps) {
     requireSignedOwner = false,
     signedKernelAccess,
     signedActivityAccess,
+    subscribeSignedAccessInvalidation,
   } = props;
   // Absence of a required original signed owner is a DENIED state, never an
   // invitation to use an unsigned T2 facade. The binding itself remains the
@@ -129,6 +132,7 @@ export function AppShell(props: AppShellProps) {
         profile={profileFacade}
         signedKernelAccess={selectedSignedKernelAccess}
         signedActivityAccess={signedActivityAccess}
+        subscribeSignedAccessInvalidation={subscribeSignedAccessInvalidation}
       >
         <HostShellContent
           host={host}
@@ -348,11 +352,13 @@ interface RuntimeBridgeProps {
   profile: ProfileFacade;
   signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
   signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
+  subscribeSignedAccessInvalidation?: SignedAccessInvalidationSubscription;
   children: React.ReactNode;
 }
 
 function AppShellRuntimeBridge({
-  session, hostWorkspace, profile, signedKernelAccess, signedActivityAccess, children,
+  session, hostWorkspace, profile, signedKernelAccess, signedActivityAccess,
+  subscribeSignedAccessInvalidation, children,
 }: RuntimeBridgeProps) {
   const { terminology, layout } = useDomainShell();
   const [activeCapabilities, setActiveCapabilities] = useState<readonly string[]>([]);
@@ -387,6 +393,7 @@ function AppShellRuntimeBridge({
       preferDomainLanding={layout.workspaceChrome === "site-owned"}
       signedKernelAccess={signedKernelAccess}
       signedActivityAccess={signedActivityAccess}
+      subscribeSignedAccessInvalidation={subscribeSignedAccessInvalidation}
     >
       <WorkspaceCapabilityWatcher session={session} onChange={receiveCapabilities} />
       {children}
