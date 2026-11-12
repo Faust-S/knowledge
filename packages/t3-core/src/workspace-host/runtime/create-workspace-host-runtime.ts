@@ -218,8 +218,12 @@ export async function createWorkspaceHostRuntime(
       if (disposed) reject("T3_HOST_DISPOSED");
       return result;
     };
+  // Revoke access synchronously, BEFORE the serialized asynchronous module
+  // shutdown. A retained signed KernelFacade must stop accepting calls on
+  // logout, replacement or unmount even if the old module has a slow stop().
+  const invalidate = () => { disposed = true; };
   const dispose = async () => {
-    disposed = true;
+    invalidate();
     try {
       await moduleRegistry.stop();
     } catch { /* best-effort */ }
@@ -246,6 +250,7 @@ export async function createWorkspaceHostRuntime(
     activeCapabilities,
     diagnostics,
     readAuthorizedActivity,
+    invalidate,
     dispose,
   };
 }

@@ -129,6 +129,8 @@ export function WorkspaceHostRuntimeProvider(
       ++generationRef.current;
       const prev = activeHandleRef.current;
       activeHandleRef.current = null;
+      // A queued async stop() must not keep the old signed grant usable.
+      prev?.invalidate();
       setState({ status: "idle" });
       const teardown = transitionRef.current
         .catch(() => {})
@@ -145,6 +147,9 @@ export function WorkspaceHostRuntimeProvider(
     }
     const myGen = ++generationRef.current;
     let cancelled = false;
+    // Invalidate immediately when the Session/config/owner identity changes.
+    // The existing transition queue still serializes actual module teardown.
+    activeHandleRef.current?.invalidate();
     setState({ status: "starting" });
 
     const transition = transitionRef.current
@@ -206,6 +211,7 @@ export function WorkspaceHostRuntimeProvider(
       ++generationRef.current;
       const prev = activeHandleRef.current;
       activeHandleRef.current = null;
+      prev?.invalidate();
       const teardown = transitionRef.current
         .catch(() => {})
         .then(async () => {

@@ -210,3 +210,93 @@ it("original Control invalidation detaches old Workspace, discards focus and kee
     .rejects.toMatchObject({code:"T3_ACCESS_NOT_PERMITTED"});
   expect(f.writes).toEqual(["ws:south"]);
 });
+
+
+it("loss of the signed Kernel session denies retained writes before queued module teardown",async()=>{
+  const f=fixture(),handles:WorkspaceHostRuntimeHandle[]=[];
+  const workspaceConfig={modules:[]};
+  const profile={id:"generic",fallback:false,
+    definition:{id:"generic",label:"Generic",description:"",accent:"#64748b"}};
+  const termResolver=(key:string,fallback?:string)=>fallback??key;
+  const signedKernelAccess=()=>f.owner;
+  const onHandle=(h:WorkspaceHostRuntimeHandle)=>{
+    if(!handles.includes(h)) handles.push(h);
+  };
+  const draw=(session:KernelSession|null)=>(
+    <WorkspaceHostRuntimeProvider session={session}
+      workspaceConfig={workspaceConfig} profile={profile}
+      termResolver={termResolver} signedKernelAccess={signedKernelAccess}>
+      <RuntimeWitness onHandle={onHandle}/>
+    </WorkspaceHostRuntimeProvider>);
+  const mounted=render(draw(f.session));
+  await waitFor(()=>expect(handles).toHaveLength(1));
+  const previous=handles[0];
+  const stale=previous.contextProvider.createContext("iwxa.domain.demo").kernel;
+  let finishStop!:()=>void;
+  const pendingStop=new Promise<void>(resolve=>{finishStop=resolve;});
+  const originalDispose=previous.dispose;
+  // Simulate a genuine slow module shutdown. Old Host authority must be
+  // revoked independently of when moduleRegistry.stop() completes.
+  previous.dispose=async()=>{
+    await pendingStop;
+    return originalDispose();
+  };
+  await act(async()=>{mounted.rerender(draw(null));});
+  await expect(stale.getWorkspace("ws:north"))
+    .rejects.toMatchObject({code:"T3_HOST_DISPOSED"});
+  await expect(stale.putObject({
+    workspace_id:"ws:north",object_id:"order:after-logout",
+    schema_id:"d06.order",schema_version:"1.0.0",base_revision:0,
+    data:{title:"Must not save"},event:{event_type:"d06.order.created"},
+  })).rejects.toMatchObject({code:"T3_HOST_DISPOSED"});
+  expect(f.writes).toEqual([]);
+  finishStop();
+  await act(async()=>{mounted.unmount();});
+});
+
+it("switching the signed Kernel session invalidates the old owner before a new Host is ready",async()=>{
+  const f=fixture(),handles:WorkspaceHostRuntimeHandle[]=[];
+  const workspaceConfig={modules:[]};
+  const profile={id:"generic",fallback:false,
+    definition:{id:"generic",label:"Generic",description:"",accent:"#64748b"}};
+  const termResolver=(key:string,fallback?:string)=>fallback??key;
+  const signedKernelAccess=()=>f.owner;
+  const onHandle=(h:WorkspaceHostRuntimeHandle)=>{
+    if(!handles.includes(h))handles.push(h);
+  };
+  const draw=(session:KernelSession)=>(
+    <WorkspaceHostRuntimeProvider session={session}
+      workspaceConfig={workspaceConfig} profile={profile}
+      termResolver={termResolver} signedKernelAccess={signedKernelAccess}>
+      <RuntimeWitness onHandle={onHandle}/>
+    </WorkspaceHostRuntimeProvider>);
+  const mounted=render(draw(f.session));
+  await waitFor(()=>expect(handles).toHaveLength(1));
+  const previous=handles[0];
+  const stale=previous.contextProvider.createContext("iwxa.domain.demo").kernel;
+  let finishStop!:()=>void;
+  const pendingStop=new Promise<void>(resolve=>{finishStop=resolve;});
+  const originalDispose=previous.dispose;
+  previous.dispose=async()=>{await pendingStop;return originalDispose();};
+  const replacement={...f.session} as KernelSession;
+  await act(async()=>{mounted.rerender(draw(replacement));});
+  await expect(stale.getWorkspace("ws:north"))
+    .rejects.toMatchObject({code:"T3_HOST_DISPOSED"});
+  await expect(stale.putObject({
+    workspace_id:"ws:north",object_id:"order:after-switch",
+    schema_id:"d06.order",schema_version:"1.0.0",base_revision:0,
+    data:{title:"Must not save"},event:{event_type:"d06.order.created"},
+  })).rejects.toMatchObject({code:"T3_HOST_DISPOSED"});
+  expect(f.writes).toEqual([]);
+  finishStop();
+  await waitFor(()=>expect(handles).toHaveLength(2));
+  const current=handles[1].contextProvider.createContext("iwxa.domain.demo").kernel;
+  const receipt=await current.putObject({
+    workspace_id:"ws:north",object_id:"order:new-session",
+    schema_id:"d06.order",schema_version:"1.0.0",base_revision:0,
+    data:{title:"New session"},event:{event_type:"d06.order.created"},
+  });
+  expect(receipt.object.workspace_id).toBe("ws:north");
+  expect(f.writes).toEqual(["ws:north"]);
+  mounted.unmount();
+});
