@@ -18,7 +18,7 @@ export function extractAdoptedMeetingDecisions(transcript){
   const action_items=[],open_questions=[],discussions=[];
   for(const line of transcript.matchAll(/[^\r\n]+/gu)){
     const quote=line[0],marker='Решение принято:';
-    if(!quote.includes(marker)){
+    if(!quote.trimStart().startsWith(marker)){
       if(/обсужд|предлож|идея|решение не принято/iu.test(quote))
         discussions.push({quote,start:pointIndex(transcript,line.index)});
       continue;
