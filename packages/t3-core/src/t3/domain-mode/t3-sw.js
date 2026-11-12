@@ -99,7 +99,7 @@ async function modelFetchAllowed(request, url) {
   // arbitrary suffix here: the path itself could otherwise carry private
   // Workspace data to a remote server during an approved installation.
   const file = url.pathname.slice(prefix.length);
-  return /^(?:mlc-chat-config\.json|tokenizer\.(?:json|model)|(?:tensor|ndarray)-cache(?:-b16)?\.json|params_shard_[0-9]{1,5}\.bin)$/.test(file);
+  return /^(?:mlc-chat-config\.json|tokenizer\.(?:json|model)|tokenizer_config\.json|vocab\.json|merges\.txt|(?:tensor|ndarray)-cache(?:-b16)?\.json|params_shard_[0-9]{1,5}\.bin)$/.test(file);
 }
 async function beginModelInstall(event, port) {
   if (leaseStarting) {
