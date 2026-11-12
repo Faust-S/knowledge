@@ -63,7 +63,7 @@ function fixture(){
     async getWorkspace(id){reads.push(id);return {workspace_id:id};},
     async putObject(command){
       writes.push(command.workspace_id);
-      return {object:{...command,revision:1},event:{event_id:"evt:1"}};
+      return {object:{...command,revision:1},event:{event_id:"evt:1",workspace_id:command.workspace_id,object_id:command.object_id,revision:1}};
     },
   };
   return {fetchImpl,kernel,writes,reads,context,
