@@ -93,6 +93,8 @@ export function reviewK01ProjectRefresh({
   if(!sameClaims||saved.catalogBinding!==ownerRefresh.latest.catalogBinding||
      saved.projection.requestBinding!==ownerRefresh.latest.projection.requestBinding||
      saved.requiredComplete!==ownerRefresh.latest.requiredComplete||
+     JSON.stringify(saved.sourceRevisions)!==JSON.stringify(ownerRefresh.latest.sourceRevisions)||
+     JSON.stringify(saved.issues)!==JSON.stringify(ownerRefresh.latest.issues)||
      ownerRefresh.catalogChanged||ownerRefresh.fieldChanges.length||
      ownerRefresh.sourceChanges.length||ownerRefresh.issueChanges.appeared.length||
      ownerRefresh.issueChanges.resolved.length)

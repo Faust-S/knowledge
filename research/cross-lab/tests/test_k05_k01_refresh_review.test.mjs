@@ -148,6 +148,24 @@ test('K05 fails closed on forged CURRENT, falsified revision or a fake owner sta
   saved,ownerRefresh:invalid
  }),/K05_K01_REFRESH_OWNER_REFRESH_CONTRACT_INVALID/);
 });
+test('forged CURRENT cannot conceal approval metadata or changed issue roster',async()=>{
+ const {saved,old,current,ownerReceipt}=await beforeAfter();
+ assert.equal(ownerReceipt.status,'CURRENT');
+ const forged=structuredClone(ownerReceipt);
+ forged.latest.sourceRevisions[0].metadataBinding='f'.repeat(64);
+ assert.throws(()=>reviewK01ProjectRefresh({
+  saved,ownerRefresh:forged,
+  previousAuthorizedDocuments:old.documents,
+  currentAuthorizedDocuments:current.documents
+ }),/K05_K01_REFRESH_FORGED_CURRENT_WITH_CHANGED_SOURCES/);
+ const changedIssues=structuredClone(ownerReceipt);
+ changedIssues.latest.issues.push({fieldKey:'cabinet',type:'pending_change',sources:[]});
+ assert.throws(()=>reviewK01ProjectRefresh({
+  saved,ownerRefresh:changedIssues,
+  previousAuthorizedDocuments:old.documents,
+  currentAuthorizedDocuments:current.documents
+ }),/K05_K01_REFRESH_FORGED_CURRENT_WITH_CHANGED_SOURCES/);
+});
 test('K01 source manifest and approval provenance cannot be forged in K05',async()=>{
  const {fixture,mod}=await owner();
  const host=fixture.makeCommercialCase();
