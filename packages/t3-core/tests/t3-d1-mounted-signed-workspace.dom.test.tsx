@@ -96,7 +96,6 @@ it("signed Access passes from mounted Provider to user actions, switches subject
     termResolver={(key,fallback)=>fallback??key}
     profile={{id:"generic",fallback:false,
       definition:{id:"generic",label:"Generic",description:"",accent:"#64748b"}}}
-    bindLegacyHashDriver={false as never}
     signedKernelAccess={(op)=>op==="putObject"?f.owner:null}
   ><UserWorkspace onSelect={f.select}/></WorkspaceHostRuntimeProvider>);
   // Existing Provider API deliberately keeps its full session/grants; only
