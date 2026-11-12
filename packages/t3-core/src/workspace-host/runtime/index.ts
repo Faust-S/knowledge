@@ -14,4 +14,5 @@ export type {
   WorkspaceHostRuntimeHandle,
   WorkspaceHostRuntimeDiagnostics,
   CreateWorkspaceHostRuntimeInput,
+  SignedAccessInvalidationSubscription,
 } from "./types";
