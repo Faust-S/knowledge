@@ -134,8 +134,8 @@ it("mounted Host with an absent selected signed owner fails closed instead of fa
       definition:{id:"generic",label:"Generic",description:"",accent:"#64748b"}}}
     signedKernelAccess={()=>null}
   ><UserWorkspace onSelect={f.select}/></WorkspaceHostRuntimeProvider>);
-  await act(async()=>fireEvent.click(
-    await screen.findByRole("button",{name:"Сохранить в North"})));
+  const north=await screen.findByRole("button",{name:"Сохранить в North"});
+  await act(async()=>{fireEvent.click(north);});
   await waitFor(()=>expect(screen.getByTestId("d1-user-result").textContent)
     .toBe("T3_D1_ACCESS_OWNER_REQUIRED"));
   expect(f.writes).toEqual([]);
