@@ -200,7 +200,8 @@ if(recommendation.decision==='STAGES_PROPOSED_NOT_AUTHORIZED'){
         failures:[{...nativeStack,taskKey,failureKind:'INCORRECT_RESULT',proofRef}]},
     };
     const denied=prepareAgent05OwnerRequestDraft({...nativeOwnerInputs,
-      nativeTrialObservation,trustedNativeTrialSourceRef:sourceRef});
+      nativeTrialObservation,trustedNativeTrialSourceRef:sourceRef,
+      expectedTrialTaskKey:taskKey});
     assert.equal(denied.status,'OWNER_REQUEST_HOLD');
     assert.equal(denied.reason,'KNOWN_NATIVE_TASK_FAILURE');
     assert.equal(denied.ownerRequest,null);

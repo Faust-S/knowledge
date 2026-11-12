@@ -355,7 +355,8 @@ test('exact native trial scope is transmitted unchanged to existing owner CLI',(
   const observation=exactNativeTrial();
   const original=structuredClone(observation);
   const draft=ownerDraft(undefined,{nativeTrialObservation:observation,
-    trustedNativeTrialSourceRef:nativeTrialSource});
+    trustedNativeTrialSourceRef:nativeTrialSource,
+    expectedTrialTaskKey:'task:verify-invoice-003'});
   assert.equal(draft.status,'OWNER_REQUEST_DRAFT_NOT_EXECUTED');
   assert.deepEqual(draft.ownerRequest.k02.trial_evidence,observation.scope);
   assert.deepEqual(observation,original);
@@ -368,6 +369,7 @@ test('known incorrect native Task result vetoes model even when quality floor wa
     const draft=ownerDraft(undefined,{
       nativeTrialObservation:exactNativeTrial(failureKind),
       trustedNativeTrialSourceRef:nativeTrialSource,
+    expectedTrialTaskKey:'task:verify-invoice-003',
     });
     assert.equal(draft.status,'OWNER_REQUEST_HOLD');
     assert.equal(draft.reason,'KNOWN_NATIVE_TASK_FAILURE');
@@ -398,7 +400,8 @@ test('alias or stale exact-trial bindings cannot inherit a native failure or pos
   ];
   for(const candidate of variants){
     const r=ownerDraft(undefined,{
-      nativeTrialObservation:candidate,trustedNativeTrialSourceRef:nativeTrialSource});
+      nativeTrialObservation:candidate,trustedNativeTrialSourceRef:nativeTrialSource,
+    expectedTrialTaskKey:'task:verify-invoice-003'});
     assert.equal(r.status,'OWNER_REQUEST_HOLD');
     assert.equal(r.reason,'NATIVE_TRIAL_SCOPE_NOT_BOUND');
     assert.equal(r.ownerRequest,null);
@@ -409,7 +412,8 @@ test('invalid negative evidence must fail closed rather than become a valid owne
   const malformed={...observation,scope:{...observation.scope,failures:[
     {...observation.scope.failures[0],failureKind:'VENDOR_SUCCESS'}]}};
   const result=ownerDraft(undefined,{nativeTrialObservation:malformed,
-    trustedNativeTrialSourceRef:nativeTrialSource});
+    trustedNativeTrialSourceRef:nativeTrialSource,
+    expectedTrialTaskKey:'task:verify-invoice-003'});
   assert.equal(result.status,'OWNER_REQUEST_HOLD');
   assert.equal(result.reason,'NATIVE_DESCRIPTOR_OR_EVIDENCE_INVALID');
 });
@@ -420,4 +424,21 @@ test('native trial metadata is optional only when there is no exact scoped trial
   assert.equal(ownerDraft(undefined,{
     nativeTrialObservation:exactNativeTrial(),trustedNativeTrialSourceRef:null,
   }).reason,'NATIVE_TRIAL_SCOPE_NOT_BOUND');
+});
+
+test('trial from another exact Task cannot veto the current Agent 0.5 stage',()=>{
+  const observation=exactNativeTrial('INCORRECT_RESULT');
+  const denied=ownerDraft(undefined,{
+    nativeTrialObservation:observation,
+    trustedNativeTrialSourceRef:nativeTrialSource,
+    expectedTrialTaskKey:'task:some-other-task',
+  });
+  assert.equal(denied.status,'OWNER_REQUEST_HOLD');
+  assert.equal(denied.reason,'NATIVE_TRIAL_SCOPE_NOT_BOUND');
+  assert.equal(denied.ownerRequest,null);
+  const noCurrentTaskKey=ownerDraft(undefined,{
+    nativeTrialObservation:observation,
+    trustedNativeTrialSourceRef:nativeTrialSource,
+  });
+  assert.equal(noCurrentTaskKey.reason,'NATIVE_TRIAL_SCOPE_NOT_BOUND');
 });

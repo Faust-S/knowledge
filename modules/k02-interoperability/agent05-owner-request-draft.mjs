@@ -47,12 +47,14 @@ function safeTrialRows(rows,pin,providerId,profile,step,environment){
 // Existing K02 trial evidence has no model digest field. Require a separate,
 // host-bound observation that pins the EXACT native model digest and task.
 // Do not retag an alias observation (or another OS/mode/model version) as native.
-function checkedNativeTrial(observation,expectedSourceRef,pin,profile,environment){
+function checkedNativeTrial(observation,expectedSourceRef,expectedTaskKey,pin,profile,environment){
   if(observation===null)return {valid:true,scope:null};
   if(!rec(observation)||Object.keys(observation).sort().join(',')!==
        'mode,modelPin,scope,sourceRef,taskKey'||
      typeof expectedSourceRef!=='string'||!expectedSourceRef||
      observation.sourceRef!==expectedSourceRef||
+     typeof expectedTaskKey!=='string'||!expectedTaskKey.trim()||
+     observation.taskKey!==expectedTaskKey||
      !pinMatches(observation.modelPin,pin)||
      typeof observation.taskKey!=='string'||!observation.taskKey.trim()||
      (observation.mode!==null&&(typeof observation.mode!=='string'||!observation.mode.trim()))||
@@ -88,6 +90,7 @@ export function prepareAgent05OwnerRequestDraft({
   nativeDescriptor,nativeProfile,nativeQualityEvidence,
   step,environment,taskId,requirementId,
   nativeTrialObservation=null,trustedNativeTrialSourceRef=null,
+  expectedTrialTaskKey=null,
 }){
   if(!rec(nativeCandidate)||nativeCandidate.schema!==AGENT05_OLLAMA_CANDIDATE_VERSION||
      !TASK.test(taskId??'')||!NAME.test(requirementId??''))
@@ -126,7 +129,7 @@ export function prepareAgent05OwnerRequestDraft({
        'OLLAMA_LOCAL_V1',nativeProfile,step,environment))
     return state('OWNER_REQUEST_HOLD','INDEPENDENT_NATIVE_QUALITY_EVIDENCE_REQUIRED');
   const trial=checkedNativeTrial(nativeTrialObservation,trustedNativeTrialSourceRef,
-    nativeCandidate.modelPin,nativeProfile,environment);
+    expectedTrialTaskKey,nativeCandidate.modelPin,nativeProfile,environment);
   if(!trial.valid)return state('OWNER_REQUEST_HOLD','NATIVE_TRIAL_SCOPE_NOT_BOUND');
   const req={solutionId:snapshot.solutionId,requirements:[{
     requirementId,kind:'model',capabilityId:'text.generate',required:true,
