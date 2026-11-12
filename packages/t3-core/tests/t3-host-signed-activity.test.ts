@@ -263,3 +263,33 @@ describe("T3 D1 signed Activity in the actual Workspace Host runtime",()=>{
   });
 
 });
+
+it("native asynchronous signed Activity owner reads selected Workspace via inherited Kernel",async()=>{
+  const f=fixture();
+  const port={...f.signedActivityAccess,
+    async currentContext(){
+      await Promise.resolve(); // trusted native/IPC owner reply
+      return f.signedActivityAccess.currentContext();
+    },
+  };
+  const host=await createWorkspaceHostRuntime({
+    session:f.session,workspaceConfig:{modules:[]},bindLegacyHashDriver:false,
+    termResolver:(_key,fallback)=>fallback??"",
+    signedActivityAccess:async()=>port,
+  });
+  try{
+    host.currentWorkspaceStore.set({workspace_id:ws} as never);
+    const activity=await host.readAuthorizedActivity({bindings});
+    expect(activity.workspace_id).toBe(ws);
+    expect(activity.nodes).toHaveLength(1);
+    expect(activity.events).toHaveLength(1);
+    expect(JSON.stringify(activity)).not.toContain("private");
+    expect(f.reads()).toBe(7);
+    expect(f.checks()).toBe(f.reads());
+    f.revoke();
+    const before=f.reads();
+    await expect(host.readAuthorizedActivity({bindings}))
+      .rejects.toMatchObject({code:"T3_ACCESS_NOT_PERMITTED"});
+    expect(f.reads()).toBe(before);
+  } finally {await host.dispose();}
+});
