@@ -38,6 +38,9 @@ async function buildActivation(profileId: WorkspaceProfileId): Promise<Activatio
  * Never populate them from window globals, URL parameters, local storage,
  * module manifests, or .iwxa package content. */
 export interface AppProps {
+  /** The trusted T3 entrypoint must explicitly require signed authority.
+   * A missing owner then denies, never silently falls back to unsigned T2. */
+  requireSignedOwner?: boolean;
   signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
   signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
 }
@@ -47,7 +50,7 @@ export interface AppProps {
  * HostConfigResult into a mounted `AppShell`. The legacy DomainConfig
  * projection is not consumed anywhere in the presentation layer.
  */
-export default function App({ signedKernelAccess, signedActivityAccess }: AppProps = {}) {
+export default function App({ requireSignedOwner = false, signedKernelAccess, signedActivityAccess }: AppProps = {}) {
   const host = useHostConfig();
   const [activation, setActivation] = useState<Activation | null>(null);
   const [activationError, setActivationError] = useState<Error | null>(null);
@@ -96,6 +99,7 @@ export default function App({ signedKernelAccess, signedActivityAccess }: AppPro
       profileDefinition={activation.definition}
       profileFallback={activation.fallback}
       devBootstrap={activation.devBootstrap}
+      requireSignedOwner={requireSignedOwner}
       signedKernelAccess={signedKernelAccess}
       signedActivityAccess={signedActivityAccess}
     />
