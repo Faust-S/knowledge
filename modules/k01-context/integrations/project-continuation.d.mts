@@ -1,5 +1,6 @@
 import type {ContextProjection,ContextRequest,EpistemicKind} from '../index.js';
 export declare const PROJECT_CONTINUATION_VERSION:'0.1.1';
+export declare const PROJECT_REFRESH_VERSION:'0.1.0';
 export type ContinuationSourceState='accepted'|'reference'|'proposed';
 export type ContinuationSourceKind='document'|'correspondence'|'decision'|'result';
 export interface ContinuationField {
@@ -56,6 +57,9 @@ export interface ContinuationProjection {
  readonly scopeRevision:string;
  /** SHA-256 canonical relevant source metadata; never source content. */
  readonly catalogBinding:string;
+ /** Relevant host source metadata only, without document content. */
+ readonly sourceRevisions?:readonly {sourceRef:string;revision:string;
+  state:ContinuationSourceState;metadataBinding:string}[];
  readonly request:ContextRequest;
  /** Original, compatible K01 ContextProjection; accepted facts only. */
  readonly projection:ContextProjection;
@@ -77,3 +81,41 @@ export declare function prepareProjectContinuation(
 export declare function revalidateProjectContinuation(
  previous:ContinuationProjection,request:ContinuationRequest,port:ContinuationSourcePort
 ):Promise<ContinuationRecheck>;
+
+
+export type ContinuationRefreshStatus='CURRENT'|'UPDATED'|'INCOMPLETE'|'REJECTED';
+export type ContinuationFieldChangeKind='RESTORED'|'UNAVAILABLE'|'VALUE_CHANGED'|
+ 'SOURCE_CHANGED'|'REVISION_CHANGED'|'EVIDENCE_CHANGED'|'EPISTEMIC_CHANGED';
+export interface ContinuationRevisionRef {
+ readonly sourceRef:string;readonly revision:string;
+ readonly evidenceRef:string;readonly sha256:string;
+}
+export interface ContinuationFieldChange {
+ readonly fieldKey:string;
+ readonly kinds:readonly ContinuationFieldChangeKind[];
+ readonly previous:ContinuationRevisionRef|null;
+ readonly current:ContinuationRevisionRef|null;
+}
+export interface ContinuationSourceChange {
+ readonly sourceRef:string;
+ readonly kind:'SOURCE_ADDED'|'SOURCE_REMOVED'|'SOURCE_REVISED'|
+  'APPROVAL_CHANGED'|'METADATA_CHANGED';
+ readonly previousRevision:string|null;
+ readonly currentRevision:string|null;
+}
+export interface ContinuationRefresh {
+ readonly contractVersion:'0.1.0';
+ readonly status:ContinuationRefreshStatus;
+ readonly reason:string|null;
+ readonly requiresReview:boolean;
+ /** Never implies Task/Result/Human Review acceptance; only source-currentness. */
+ readonly reusable:boolean;
+ readonly latest:ContinuationProjection|null;
+ readonly fieldChanges:readonly ContinuationFieldChange[];
+ readonly sourceChanges:readonly ContinuationSourceChange[];
+ readonly issueChanges:{readonly appeared:readonly ContinuationIssue[];
+  readonly resolved:readonly ContinuationIssue[]};
+ readonly catalogChanged:boolean;
+}
+export declare function refreshProjectContinuation(previous:ContinuationProjection,
+ request:ContinuationRequest,port:ContinuationSourcePort):Promise<ContinuationRefresh>;

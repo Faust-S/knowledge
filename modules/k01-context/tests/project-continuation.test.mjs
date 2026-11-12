@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {performance} from 'node:perf_hooks';
 import {sha256} from '../index.mjs';
-import {prepareProjectContinuation,revalidateProjectContinuation,PROJECT_CONTINUATION_VERSION} from '../integrations/project-continuation.mjs';
+import {prepareProjectContinuation,revalidateProjectContinuation,refreshProjectContinuation,PROJECT_CONTINUATION_VERSION,PROJECT_REFRESH_VERSION} from '../integrations/project-continuation.mjs';
 import {makeCommercialCase,expectedInitial,expectedUpdated,fields} from './fixtures/commercial-project.mjs';
 const value=(p,key)=>p.projection.selected.find(c=>c.id==='field:'+key)?.excerpt??'';
 const matching=(p,map)=>Object.entries(map).filter(([key,expected])=>value(p,key).includes(expected)).length;
@@ -447,4 +447,192 @@ test('published K01 package subpath resolves the continuation API for independen
  assert.equal(api.PROJECT_CONTINUATION_VERSION,PROJECT_CONTINUATION_VERSION);
  assert.equal(api.prepareProjectContinuation,prepareProjectContinuation);
  assert.equal(api.revalidateProjectContinuation,revalidateProjectContinuation);
+});
+
+
+test('refresh reopens revised commercial project, reports exactly changed fields in one read pass',async()=>{
+ const original=makeCommercialCase(),saved=await prepareProjectContinuation(original.request,original.sourcePort);
+ const next=makeCommercialCase({updated:true});
+ const r=await refreshProjectContinuation(JSON.parse(JSON.stringify(saved)),next.request,next.sourcePort);
+ assert.equal(PROJECT_REFRESH_VERSION,'0.1.0');
+ assert.equal(r.contractVersion,'0.1.0');
+ assert.equal(r.status,'UPDATED');
+ assert.equal(r.reusable,false);
+ assert.equal(r.requiresReview,true);
+ assert.equal(r.reason,null);
+ assert.equal(r.latest.requiredComplete,true);
+ assert.equal(r.latest.covered.length,18);
+ assert.deepEqual(r.fieldChanges.map(x=>x.fieldKey).sort(),['cabinet','freight','gross','lead','net','sensors','validity']);
+ assert.ok(r.fieldChanges.every(x=>x.kinds.includes('VALUE_CHANGED')&&x.kinds.includes('SOURCE_CHANGED')));
+ assert.ok(r.sourceChanges.some(x=>x.sourceRef==='doc:quote-revised'&&x.kind==='SOURCE_ADDED'));
+ assert.match(r.latest.projection.selected.find(x=>x.id==='field:gross').excerpt,/990640/);
+ assert.match(r.latest.projection.selected.find(x=>x.id==='field:advance').excerpt,/35%/);
+ assert.equal(next.getMetrics().reads,r.latest.metrics.readCount);
+ assert.equal(next.getMetrics().lists,2,'no duplicate read for a separate revalidation');
+ assert.equal(JSON.stringify(r.fieldChanges).includes('963800 руб'),false,
+  'change summary references revisions; no duplicate source excerpt payload');
+});
+
+test('refresh of unchanged accepted project is reusable but does not grant Task authority',async()=>{
+ const host=makeCommercialCase(),saved=await prepareProjectContinuation(host.request,host.sourcePort);
+ const repeat=makeCommercialCase();
+ const result=await refreshProjectContinuation(saved,repeat.request,repeat.sourcePort);
+ assert.equal(result.status,'CURRENT');
+ assert.equal(result.reusable,true);
+ assert.equal(result.requiresReview,false);
+ assert.equal(result.catalogChanged,false);
+ assert.deepEqual(result.fieldChanges,[]);
+ assert.deepEqual(result.sourceChanges,[]);
+ assert.deepEqual(result.issueChanges,{appeared:[],resolved:[]});
+ assert.equal(result.latest.requiredComplete,true);
+ assert.equal(repeat.getMetrics().lists,2);
+});
+
+test('changed unapproved correspondence is shown even if accepted facts stay identical',async()=>{
+ const host=makeCommercialCase(),original=host.sourcePort;
+ const saved=await prepareProjectContinuation(host.request,host.sourcePort);
+ const sourceRef='mail:proposed-discount';
+ const first=await original.readSource({sourceRef});
+ const modified=first.content.replace('102000 руб.','108000 руб.');
+ const revision='sha256:'+sha256(modified);
+ const current={
+  async listSources(args){
+   const roster=await original.listSources(args);
+   return {...roster,sources:roster.sources.map(s=>s.sourceRef===sourceRef?{...s,revision}:s)};
+  },
+  async readSource(args){
+   return args.sourceRef===sourceRef?{revision,complete:true,content:modified}:original.readSource(args);
+  }
+ };
+ const r=await refreshProjectContinuation(saved,host.request,current);
+ assert.equal(r.status,'UPDATED');
+ assert.equal(r.catalogChanged,true);
+ assert.deepEqual(r.fieldChanges,[]);
+ assert.deepEqual(r.sourceChanges.filter(s=>s.sourceRef===sourceRef).map(s=>s.kind),['SOURCE_REVISED']);
+ assert.equal(r.latest.requiredComplete,true);
+ assert.equal(r.reusable,false);
+});
+
+test('contradictory accepted decision becomes review-blocking while retaining 17 other facts',async()=>{
+ const original=makeCommercialCase(),prior=await prepareProjectContinuation(original.request,original.sourcePort);
+ const now=makeCommercialCase({addConflict:true});
+ const result=await refreshProjectContinuation(prior,now.request,now.sourcePort);
+ assert.equal(result.status,'INCOMPLETE');
+ assert.equal(result.reusable,false);
+ assert.equal(result.requiresReview,true);
+ assert.equal(result.latest.requiredComplete,false);
+ assert.equal(result.latest.projection.selected.length,17);
+ assert.deepEqual(result.fieldChanges.filter(x=>x.fieldKey==='advance').map(x=>x.kinds),[['UNAVAILABLE']]);
+ assert.ok(result.issueChanges.appeared.some(x=>x.type==='contradiction'&&x.fieldKey==='advance'));
+ assert.equal(result.latest.projection.selected.some(x=>x.id==='field:advance'),false);
+});
+
+test('unavailable accepted source never falls back to a superseded historical price',async()=>{
+ const host=makeCommercialCase(),old=await prepareProjectContinuation(host.request,host.sourcePort);
+ const now=makeCommercialCase({unavailable:['doc:quote-approved']});
+ const r=await refreshProjectContinuation(old,now.request,now.sourcePort);
+ assert.equal(r.status,'INCOMPLETE');
+ assert.equal(r.latest.requiredComplete,false);
+ assert.ok(r.fieldChanges.some(x=>x.fieldKey==='cabinet'&&x.kinds.includes('UNAVAILABLE')));
+ assert.ok(r.latest.issues.some(x=>x.fieldKey==='cabinet'&&x.type==='source_unavailable'));
+ assert.equal(JSON.stringify(r.latest.projection).includes('360000 руб'),false);
+ assert.equal(JSON.stringify(r.fieldChanges).includes('398000 руб'),false);
+});
+
+test('unavailable proposal retains signed terms but explicitly changes issue list',async()=>{
+ const host=makeCommercialCase(),saved=await prepareProjectContinuation(host.request,host.sourcePort);
+ const later=makeCommercialCase({unavailable:['mail:proposed-discount']});
+ const r=await refreshProjectContinuation(saved,later.request,later.sourcePort);
+ assert.equal(r.status,'UPDATED');
+ assert.equal(r.latest.requiredComplete,true);
+ assert.deepEqual(r.fieldChanges,[]);
+ assert.ok(r.issueChanges.appeared.some(x=>x.type==='proposal_unavailable'));
+ assert.ok(r.issueChanges.resolved.some(x=>x.type==='pending_change'));
+});
+
+test('permission revoked blocks comparison before any source or roster read',async()=>{
+ const host=makeCommercialCase(),saved=await prepareProjectContinuation(host.request,host.sourcePort);
+ const now=makeCommercialCase();
+ const before=now.getMetrics();
+ const restricted={...now.request,allowedSources:now.request.allowedSources.filter(x=>x!=='doc:quote-approved')};
+ const r=await refreshProjectContinuation(saved,restricted,now.sourcePort);
+ assert.equal(r.status,'REJECTED');
+ assert.equal(r.reason,'permissions_changed');
+ assert.equal(r.latest,null);
+ assert.deepEqual(r.fieldChanges,[]);
+ assert.deepEqual(now.getMetrics(),before);
+});
+
+test('changed field semantics cannot reuse old project evidence or read the host',async()=>{
+ const host=makeCommercialCase(),saved=await prepareProjectContinuation(host.request,host.sourcePort);
+ const next=makeCommercialCase(),before=next.getMetrics();
+ const fields=next.request.fields.map(x=>x.key==='cabinet'?{...x,required:false}:x);
+ const r=await refreshProjectContinuation(saved,{...next.request,fields},next.sourcePort);
+ assert.equal(r.status,'REJECTED');assert.equal(r.reason,'request_mismatch');
+ assert.deepEqual(next.getMetrics(),before);
+});
+
+test('a new Task or changed Workspace cannot disclose old project conditions',async()=>{
+ const host=makeCommercialCase(),saved=await prepareProjectContinuation(host.request,host.sourcePort);
+ for(const kind of ['task','workspace']){
+  const now=makeCommercialCase({workspace:kind==='workspace'?'different-workspace':undefined});
+  const request=kind==='task'?{...now.request,taskId:'task:another'}:now.request;
+  const before=now.getMetrics();
+  const r=await refreshProjectContinuation(saved,request,now.sourcePort);
+  assert.equal(r.status,'REJECTED');
+  assert.equal(r.reason,kind==='task'?'task_changed':'workspace_changed');
+  assert.equal(r.latest,null);assert.deepEqual(now.getMetrics(),before);
+ }
+});
+
+test('modified old excerpt is refused before reading new project sources',async()=>{
+ const host=makeCommercialCase(),saved=await prepareProjectContinuation(host.request,host.sourcePort);
+ const tampered=structuredClone(saved);
+ tampered.projection.selected[0].excerpt='forged claim from user';
+ const next=makeCommercialCase(),before=next.getMetrics();
+ await assert.rejects(refreshProjectContinuation(tampered,next.request,next.sourcePort),
+  /K01_CONTINUATION_PREVIOUS_INVALID/);
+ assert.deepEqual(next.getMetrics(),before);
+});
+
+test('restored old project refresh remains deterministic across independent host doubles',async()=>{
+ const old=makeCommercialCase(),saved=await prepareProjectContinuation(old.request,old.sourcePort);
+ const serialized=JSON.parse(JSON.stringify(saved));
+ const first=makeCommercialCase({updated:true}),second=makeCommercialCase({updated:true});
+ const via={async listSources(args){const r=await second.sourcePort.listSources(args);
+  return {...r,sources:[...r.sources].reverse().map(x=>structuredClone(x))};},
+  async readSource(args){return structuredClone(await second.sourcePort.readSource(args))}};
+ const a=await refreshProjectContinuation(serialized,first.request,first.sourcePort);
+ const b=await refreshProjectContinuation(serialized,second.request,via);
+ assert.deepEqual(a,b);
+ assert.equal(JSON.stringify(a),JSON.stringify(b));
+});
+
+test('original 0.1.1 projection without source manifest still refreshes by catalog digest',async()=>{
+ const old=makeCommercialCase(),saved=await prepareProjectContinuation(old.request,old.sourcePort);
+ const legacy=structuredClone(saved);delete legacy.sourceRevisions;
+ const now=makeCommercialCase({updated:true}),r=await refreshProjectContinuation(legacy,now.request,now.sourcePort);
+ assert.equal(r.status,'UPDATED');
+ assert.equal(r.catalogChanged,true);
+ assert.equal(r.fieldChanges.length,7);
+ assert.deepEqual(r.sourceChanges,[]);
+});
+
+test('refresh uses one document pass rather than revalidate followed by re-prepare',async()=>{
+ const host=makeCommercialCase(),saved=await prepareProjectContinuation(host.request,host.sourcePort);
+ const direct=makeCommercialCase(),r=await refreshProjectContinuation(saved,direct.request,direct.sourcePort);
+ assert.equal(r.status,'CURRENT');
+ const two=makeCommercialCase();
+ const legacy=await revalidateProjectContinuation(saved,two.request,two.sourcePort);
+ assert.equal(legacy.allCurrent,true);
+ await prepareProjectContinuation(two.request,two.sourcePort);
+ assert.equal(direct.getMetrics().lists,2);
+ assert.equal(two.getMetrics().lists,4);
+ assert.equal(two.getMetrics().reads,2*direct.getMetrics().reads);
+});
+
+test('refresh API is available through the declared public package subpath',async()=>{
+ const api=await import('@iwxa/k01-context/project-continuation');
+ assert.equal(api.refreshProjectContinuation,refreshProjectContinuation);
+ assert.equal(api.PROJECT_REFRESH_VERSION,PROJECT_REFRESH_VERSION);
 });

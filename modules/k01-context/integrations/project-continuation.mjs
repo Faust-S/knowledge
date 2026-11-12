@@ -2,6 +2,7 @@
 import {selectContext,revalidateProjection,sha256} from '../index.mjs';
 import {fingerprintContextRequest} from '../request-binding.mjs';
 export const PROJECT_CONTINUATION_VERSION='0.1.1';
+export const PROJECT_REFRESH_VERSION='0.1.0';
 const MAX_SOURCES=96,MAX_FIELDS=64,MAX_SOURCE_BYTES=1048576,MAX_TOTAL_BYTES=4194304,MAX_LINE_BYTES=4096;
 const valid=(s,max=512)=>typeof s==='string'&&s.trim()===s&&s.length>0&&s.length<=max&&!/[\x00-\x1f\x7f]/.test(s);
 const hexRevision=s=>typeof s==='string'&&/^sha256:[a-f0-9]{64}$/.test(s);
@@ -176,6 +177,13 @@ export async function prepareProjectContinuation(rawRequest,sourcePort){
  // The context is bound to the *relevant roster*, not just selected evidence.
  // Changed pending proposals and approval metadata invalidate a saved projection.
  const catalogBinding=sha256(JSON.stringify(relevant));
+ // Minimal owner-controlled metadata needed to explain later source revisions.
+ // No content, index, private source bytes, or issuer credentials are stored.
+ const sourceRevisions=relevant.map(source=>({
+  sourceRef:source.sourceRef,revision:source.revision,state:source.state,
+  metadataBinding:sha256(JSON.stringify([source.kind,source.epistemic,
+   source.issuedAt,source.topics,source.supersedes]))
+ }));
  const replaced=new Map(request.fields.map(f=>[f.key,supersededRefs(relevant,f.key)]));
  const extracted=new Map(),issues=[],failed=new Map();
  let readCount=0,readBytes=0;
@@ -239,7 +247,7 @@ export async function prepareProjectContinuation(rawRequest,sourcePort){
  issues.sort((a,b)=>cmp(a.fieldKey,b.fieldKey)||cmp(a.type,b.type)||
   cmp(a.sources.join('|'),b.sources.join('|')));
  return {contractVersion:PROJECT_CONTINUATION_VERSION,workspaceRef:request.workspaceRef,
-  scopeRevision:request.scopeRevision,catalogBinding,request:coreRequest,projection,covered,
+  scopeRevision:request.scopeRevision,catalogBinding,sourceRevisions,request:coreRequest,projection,covered,
   requiredComplete:request.fields.filter(x=>x.required).every(x=>covered.includes(x.key)),
   issues,metrics:{readCount,readBytes,sourceCount:allSources.length,
    relevantSources:relevant.length,projectionBytes:bytes(JSON.stringify(projection))}};
@@ -287,4 +295,135 @@ export async function revalidateProjectContinuation(previous,rawRequest,sourcePo
   }
  },{...fresh.request,requireRequestMatch:true});
  return {allCurrent:result.allCurrent,checked:result.checked,failures:result.failures};
+}
+
+
+const checkedOldContext=previous=>{
+ if(!previous||previous.contractVersion!==PROJECT_CONTINUATION_VERSION||
+  !valid(previous.workspaceRef)||!valid(previous.scopeRevision)||
+  !previous.request||!Array.isArray(previous.request.allowedSources)||
+  previous.request.allowedSources.length>MAX_SOURCES||
+  previous.request.allowedSources.some(ref=>!valid(ref))||
+  typeof previous.catalogBinding!=='string'||!/^[a-f0-9]{64}$/.test(previous.catalogBinding)||
+  !previous.projection||!valid(previous.projection.taskId)||
+  typeof previous.projection.requestBinding!=='string'||
+  !/^[a-f0-9]{64}$/.test(previous.projection.requestBinding)||
+  !Array.isArray(previous.projection.selected)||
+  previous.projection.selected.length>MAX_FIELDS||
+  !Array.isArray(previous.issues)||previous.issues.length>MAX_SOURCES*MAX_FIELDS)
+  fail('PREVIOUS_INVALID');
+ const seen=new Set();
+ for(const item of previous.projection.selected){
+  if(!item||!valid(item.id)||!item.id.startsWith('field:')||
+   seen.has(item.id)||!valid(item.sourceRef)||!valid(item.revision)||
+   !valid(item.evidenceRef)||typeof item.excerpt!=='string'||!item.excerpt||
+   !/^[a-f0-9]{64}$/.test(item.sha256??'')||
+   sha256(item.excerpt)!==item.sha256||
+   !previous.request.allowedSources.includes(item.sourceRef))fail('PREVIOUS_INVALID');
+  seen.add(item.id);
+ }
+ if(previous.sourceRevisions!==undefined&&(!Array.isArray(previous.sourceRevisions)||
+  previous.sourceRevisions.length>MAX_SOURCES||
+  previous.sourceRevisions.some(row=>!row||!valid(row.sourceRef)||
+   !hexRevision(row.revision)||!states.has(row.state)||
+   !/^[a-f0-9]{64}$/.test(row.metadataBinding??''))))fail('PREVIOUS_INVALID');
+};
+
+function changedIssues(before,after){
+ const key=i=>JSON.stringify([i.fieldKey,i.type,i.sources]);
+ const left=new Set(before.map(key)),right=new Set(after.map(key));
+ return {appeared:after.filter(x=>!left.has(key(x))),
+  resolved:before.filter(x=>!right.has(key(x)))};
+}
+function changedFields(before,after,fields){
+ const old=new Map(before.map(item=>[item.id,item]));
+ const now=new Map(after.map(item=>[item.id,item]));
+ const changes=[];
+ for(const field of fields){
+  const id='field:'+field.key,prior=old.get(id),next=now.get(id);
+  if(!prior&&!next)continue;
+  const kinds=[];
+  if(!prior)kinds.push('RESTORED');
+  else if(!next)kinds.push('UNAVAILABLE');
+  else{
+   if(prior.excerpt!==next.excerpt)kinds.push('VALUE_CHANGED');
+   if(prior.sourceRef!==next.sourceRef)kinds.push('SOURCE_CHANGED');
+   if(prior.revision!==next.revision)kinds.push('REVISION_CHANGED');
+   if(prior.evidenceRef!==next.evidenceRef||prior.sha256!==next.sha256)
+    kinds.push('EVIDENCE_CHANGED');
+   if(prior.epistemic!==next.epistemic)kinds.push('EPISTEMIC_CHANGED');
+  }
+  if(kinds.length)changes.push({fieldKey:field.key,kinds,
+   previous:prior?{sourceRef:prior.sourceRef,revision:prior.revision,
+    evidenceRef:prior.evidenceRef,sha256:prior.sha256}:null,
+   current:next?{sourceRef:next.sourceRef,revision:next.revision,
+    evidenceRef:next.evidenceRef,sha256:next.sha256}:null});
+ }
+ return changes;
+}
+function changedSources(before,after){
+ if(!Array.isArray(before))return [];
+ const old=new Map(before.map(s=>[s.sourceRef,s]));
+ const next=new Map(after.map(s=>[s.sourceRef,s]));
+ const changes=[];
+ for(const sourceRef of [...new Set([...old.keys(),...next.keys()])].sort(cmp)){
+  const a=old.get(sourceRef),b=next.get(sourceRef);
+  let kind;
+  if(!a)kind='SOURCE_ADDED';
+  else if(!b)kind='SOURCE_REMOVED';
+  else if(a.revision!==b.revision)kind='SOURCE_REVISED';
+  else if(a.state!==b.state)kind='APPROVAL_CHANGED';
+  else if(a.metadataBinding!==b.metadataBinding)kind='METADATA_CHANGED';
+  if(kind)changes.push({sourceRef,kind,
+   previousRevision:a?.revision??null,currentRevision:b?.revision??null});
+ }
+ return changes;
+}
+
+/** One explicit user-requested read of current host sources and a reviewable
+ * change list. Never writes Memory, advances Task/Result or silently re-pins.
+ *
+ * A changed Workspace/Task, changed field intent or revoked allowed source
+ * returns a reason without reading documents or returning old private text.
+ * Adding newly authorized sources and advancing scopeRevision are permitted
+ * only after the host supplies its *current* allowedSources and scopeRevision.
+ */
+export async function refreshProjectContinuation(previous,rawRequest,sourcePort){
+ checkedOldContext(previous);
+ const request=validateRequest(rawRequest);
+ const reject=reason=>({contractVersion:PROJECT_REFRESH_VERSION,
+  status:'REJECTED',reason,requiresReview:true,reusable:false,latest:null,
+  fieldChanges:[],sourceChanges:[],
+  issueChanges:{appeared:[],resolved:[]},catalogChanged:false});
+ if(request.workspaceRef!==previous.workspaceRef)return reject('workspace_changed');
+ if(request.taskId!==previous.projection.taskId)return reject('task_changed');
+ const former=previous.request.allowedSources;
+ if(former.some(ref=>!request.allowedSources.includes(ref)))
+  return reject('permissions_changed');
+ const oldRequest=continuationRequest({...request,allowedSources:former,
+  scopeRevision:previous.scopeRevision});
+ if(fingerprintContextRequest(oldRequest)!==previous.projection.requestBinding)
+  return reject('request_mismatch');
+ let latest;
+ try{latest=await prepareProjectContinuation(request,sourcePort);}
+ catch(error){
+  if(error?.message==='K01_CONTINUATION_WORKSPACE_REVISION_CHANGED')
+   return reject('scope_changed');
+  throw error;
+ }
+ const fieldChanges=changedFields(previous.projection.selected,
+  latest.projection.selected,request.fields);
+ const sourceChanges=changedSources(previous.sourceRevisions,latest.sourceRevisions);
+ const issueChanges=changedIssues(previous.issues,latest.issues);
+ const catalogChanged=previous.catalogBinding!==latest.catalogBinding;
+ const changed=catalogChanged||
+  previous.projection.requestBinding!==latest.projection.requestBinding||
+  previous.projection.estimatedTokens!==latest.projection.estimatedTokens||
+  fieldChanges.length>0||sourceChanges.length>0||
+  issueChanges.appeared.length>0||issueChanges.resolved.length>0||
+  previous.requiredComplete!==latest.requiredComplete;
+ const status=!latest.requiredComplete?'INCOMPLETE':changed?'UPDATED':'CURRENT';
+ return {contractVersion:PROJECT_REFRESH_VERSION,status,reason:null,
+  requiresReview:status!=='CURRENT',reusable:status==='CURRENT',
+  latest,fieldChanges,sourceChanges,issueChanges,catalogChanged};
 }
