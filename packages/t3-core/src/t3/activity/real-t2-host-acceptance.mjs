@@ -251,6 +251,103 @@ export async function verifyRealT2UnknownAndTombstone(page, {
   return { tombstone_event_id: deletion.event.event_id };
 }
 
+
+/**
+ * D4: export exactly one owner-selected Workspace with the ORIGINAL T2
+ * Exchange. Keep the exact byte array for TWO independent consumer profiles.
+ * No new .iwxa parser, serializer, envelope or shared Store.
+ */
+export async function exportSelectedRealT2Iwxa(page, {
+  workspace_id, writer_service_id,
+} = {}) {
+  pageRequired(page);
+  required(workspace_id, "WORKSPACE");
+  required(writer_service_id, "WRITER_SERVICE");
+  return page.evaluate(async ({workspace_id, writer_service_id}) => {
+    const session=await globalThis.IWXA.connect({service_id:writer_service_id});
+    const artifact=await session.t2.exportPackage({
+      workspaces:[workspace_id],include_history:true,
+      include_relations:true,include_schemas:true,
+    });
+    if (!(artifact.bytes instanceof Uint8Array) || artifact.bytes.length!==artifact.size ||
+        typeof artifact.package_digest!=="string") {
+      throw new Error("T3_D4_ORIGINAL_EXPORT_BYTES_REQUIRED");
+    }
+    const confirmed=await session.t2.confirmExport({
+      package_digest:artifact.package_digest,workspace_ids:[workspace_id],
+    });
+    if (confirmed.package_digest!==artifact.package_digest ||
+        confirmed.workspace_ids?.length!==1 ||
+        confirmed.workspace_ids[0]!==workspace_id) {
+      throw new Error("T3_D4_EXACT_SELECTED_EXPORT_CONFIRMATION_REQUIRED");
+    }
+    return {
+      workspace_id,bytes:[...artifact.bytes],
+      size:artifact.bytes.length,package_digest:artifact.package_digest,
+      selected_workspaces:[...confirmed.workspace_ids],
+    };
+  }, {workspace_id,writer_service_id});
+}
+
+/**
+ * D4: another real consumer runs the original parser and exact
+ * importPreview -> importCommit in its OWN browser profile and Store.
+ * Caller must create a distinct persistent Chromium profile externally.
+ */
+export async function importSelectedRealT2Iwxa(page, {
+  archive, source_workspace_id, target_workspace_id, writer_service_id,
+} = {}) {
+  pageRequired(page);
+  required(source_workspace_id,"SOURCE_WORKSPACE");
+  required(target_workspace_id,"TARGET_WORKSPACE");
+  required(writer_service_id,"WRITER_SERVICE");
+  assert.notEqual(source_workspace_id,target_workspace_id,"T3_D4_CONSUMER_WORKSPACE_NOT_DISTINCT");
+  assert.equal(archive?.workspace_id,source_workspace_id);
+  assert.deepEqual(archive?.selected_workspaces,[source_workspace_id]);
+  assert.equal(archive?.size,archive?.bytes?.length);
+  return page.evaluate(async ({archive,source_workspace_id,target_workspace_id,writer_service_id})=>{
+    const session=await globalThis.IWXA.connect({service_id:writer_service_id});
+    const before=await session.t1.listWorkspaces();
+    if (!Array.isArray(before)||before.some(w=>w.workspace_id===source_workspace_id ||
+      w.workspace_id===target_workspace_id)) {
+      throw new Error("T3_D4_INDEPENDENT_EMPTY_CONSUMER_REQUIRED");
+    }
+    const bytes=Uint8Array.from(archive.bytes);
+    const preview=await session.t2.importPreview(bytes);
+    if(preview.package_digest!==archive.package_digest ||
+       preview.preview?.package_digest!==archive.package_digest ||
+       !preview.allowed_modes?.includes("new-workspace") ||
+       preview.preview?.manifest?.workspaces?.length!==1 ||
+       preview.preview.manifest.workspaces[0]!==source_workspace_id) {
+      throw new Error("T3_D4_ORIGINAL_PARSER_PREVIEW_MISMATCH");
+    }
+    const committed=await session.t2.importCommit({
+      preview_token:preview.preview_token,package_digest:preview.package_digest,
+      plan:{
+        mode:"new-workspace",
+        workspace_id_map:{[source_workspace_id]:target_workspace_id},
+        include_history:true,include_relations:true,
+      },
+    });
+    if(committed.package_digest!==archive.package_digest ||
+       committed.mode!=="new-workspace" ||
+       committed.workspace_id_map?.[source_workspace_id]!==target_workspace_id){
+      throw new Error("T3_D4_ORIGINAL_CONSUMER_IMPORT_RECEIPT_MISMATCH");
+    }
+    const workspace=await session.t1.getWorkspace(target_workspace_id);
+    const objects=await session.t1.listObjects({workspace_id:target_workspace_id});
+    const events=await session.t1.listEventsSince(target_workspace_id);
+    if(workspace?.workspace_id!==target_workspace_id ||
+       objects.length!==2 || events.length<4){
+      throw new Error("T3_D4_CONSUMER_OWNER_READBACK_MISSING");
+    }
+    return {workspace_id:target_workspace_id,
+      package_digest:committed.package_digest,import_id:committed.import_id,
+      objects:objects.length,events:events.length,
+      relations:committed.applied?.relations??null};
+  },{archive,source_workspace_id,target_workspace_id,writer_service_id});
+}
+
 export async function roundTripRealT2Iwxa(page, {
   workspace_id, restored_workspace_id, writer_service_id,
 } = {}) {
