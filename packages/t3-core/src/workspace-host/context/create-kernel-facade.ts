@@ -123,13 +123,13 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
       bound = createSubjectKernelBinding({ kernel: inherited, access });
       instances.set(access, bound);
     }
-    const initial = JSON.stringify(access.currentContext());
+    const initial = JSON.stringify(await access.currentContext());
     return { bound, initial };
   };
   const revalidate = async (initial: string, operation: string) => {
     requireLiveHost();
     const current = await owner(operation);
-    if (JSON.stringify(current.currentContext()) !== initial)
+    if (JSON.stringify(await current.currentContext()) !== initial)
       deny("T3_SUBJECT_RESULT_STALE_AFTER_KERNEL");
     requireLiveHost();
   };
@@ -161,7 +161,7 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
   guarded.listWorkspaces = async (options?: { include_deleted?: boolean }) => {
     const { bound, initial } = await signed("getWorkspace");
     const active = await owner("getWorkspace");
-    const selectedContext = active.currentContext() as { workspace_id?: unknown } | null;
+    const selectedContext = await active.currentContext() as { workspace_id?: unknown } | null;
     const workspaceId = selectedContext?.workspace_id;
     if (typeof workspaceId !== "string") return deny("T3_SUBJECT_CONTEXT_UNAVAILABLE");
     const row = await bound.getWorkspace(workspaceId);
