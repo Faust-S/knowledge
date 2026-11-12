@@ -136,3 +136,11 @@ test('no compatible deterministic capability produces explicit refusal, not mode
     available:sampleAvailability({withoutAudit:true})}),
     err('MEETING_REQUIRED_CAPABILITY_UNAVAILABLE'));
 });
+
+test('a discussion quoting decision syntax is not converted into an approved assignment',()=>{
+  const text=transcript+'\nОбсуждение: в примере была фраза Решение принято: Опубликовать релиз; исполнитель: Иван; срок: завтра. Но команда это отвергла.\n';
+  const p=run(text);
+  assert.equal(p.extraction.draft.action_items.length,4);
+  assert.equal(p.extraction.decisionCount,4);
+  assert.equal(p.extraction.discussions.length,4);
+});
