@@ -29,7 +29,7 @@ def verify(directory: Path, fixtures: Path, expected_revision: str) -> dict:
     expect(data.get("schema") == "IWXA.K02.LIVE_DOCUMENT_STUDY/0.1.0",
            "wrong_study_schema")
     expect(len(data.get("reports", [])) == 6, "six_comparisons_required")
-    expect(len({x["id"] for x in data["reports"]}) == 5, "comparison_ids_unique")
+    expect(len({x["id"] for x in data["reports"]}) == 6, "comparison_ids_unique")
     expect(data["modelCalls"]["mini"] >= 2 and data["modelCalls"]["qwen"] >= 2,
            "both_models_were_not_invoked")
     expect({x["modelName"] for x in data["modelVariants"]} ==
