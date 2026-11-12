@@ -221,7 +221,14 @@ def compare_saved_model_runs(
         "resources": {
             "actual_cost_usd_delta": None, "router_cost_usd": None,
             "retries": None, "model_invocations_by_k05": 0,
-            "source_reads_by_k05": 0, "result_readback_from_core": "NOT_TESTED",
+            "source_reads_by_k05": 0,
+            "bytes_rehashed_by_k05": (
+                len(baseline_task_bytes) + len(tested_task_bytes)
+                + len(baseline_result_bytes) + len(tested_result_bytes)
+                + sum(entry["bytes_checked"] for entry in a["source_manifest"])
+                + sum(entry["bytes_checked"] for entry in b["source_manifest"])
+            ),
+            "result_readback_from_core": "NOT_TESTED",
         },
         "qualification": "HOST_REPORTED_MODEL_METRICS_NOT_INDEPENDENT_CORE_READBACK",
     }

@@ -89,6 +89,8 @@ class Agent05ObservedQuality(unittest.TestCase):
         self.assertIsNone(result["quality"]["f1"])
         self.assertIsNone(result["resources"]["actual_cost_usd_delta"])
         self.assertEqual(result["resources"]["source_reads_by_k05"], 0)
+        self.assertEqual(result["resources"]["bytes_rehashed_by_k05"],
+                         2*len(TASK)+len(RESULT_A)+len(RESULT_B)+2*len(SOURCE))
         self.assertEqual(result["resources"]["result_readback_from_core"], "NOT_TESTED")
 
     def test_missing_metrics_do_not_turn_into_measured_savings(self):
