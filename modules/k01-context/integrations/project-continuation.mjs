@@ -139,8 +139,21 @@ function supersededRefs(sources,fieldKey){
  }
  return gone;
 }
-function decide(field,claims,sources,unavailable,issues){
+function decide(field,claims,sources,unavailable,unsubstantiated,issues){
  const key=field.key,gone=supersededRefs(sources,key);
+ // A declared topic is not proof that the pinned document contains that fact.
+ // Missing evidence in an approved/reference source must not let an unrelated
+ // older source silently supply a false "current" value.
+ const unsupported=unsubstantiated.filter(ref=>!gone.has(ref));
+ const unsupportedProposals=unsupported.filter(ref=>
+  sources.some(source=>source.sourceRef===ref&&source.state==='proposed'));
+ const unsupportedApproved=unsupported.filter(ref=>!unsupportedProposals.includes(ref));
+ if(unsupportedProposals.length)
+  issues.push(issue('proposal_evidence_missing',key,unsupportedProposals));
+ if(unsupportedApproved.length){
+  issues.push(issue('source_evidence_missing',key,unsupportedApproved));
+  return null;
+ }
  // Missing unapproved correspondence cannot cancel a still-accepted term.
  // Retain a visible warning, but do not replace proven conditions with a gap.
  const proposalUnavailable=unavailable.filter(ref=>!gone.has(ref)&&
@@ -221,7 +234,7 @@ export async function prepareProjectContinuation(rawRequest,sourcePort){
    source.issuedAt,source.topics,source.supersedes]))
  }));
  const replaced=new Map(request.fields.map(f=>[f.key,supersededRefs(relevant,f.key)]));
- const extracted=new Map(),issues=[],failed=new Map();
+ const extracted=new Map(),issues=[],failed=new Map(),unsubstantiated=new Map();
  let readCount=0,readBytes=0;
  for(const source of relevant){
   const topics=source.topics.filter(k=>fieldMap.has(k)&&!replaced.get(k).has(source.sourceRef));
@@ -249,7 +262,11 @@ export async function prepareProjectContinuation(rawRequest,sourcePort){
     const missing=failed.get(key)||[];missing.push(source.sourceRef);failed.set(key,missing);
     issues.push(issue('ambiguous_lines',key,[source.sourceRef]));continue;
    }
-   if(!facts.length)continue;
+   if(!facts.length){
+    const missing=unsubstantiated.get(key)||[];
+    missing.push(source.sourceRef);unsubstantiated.set(key,missing);
+    continue;
+   }
    const fact={...facts[0],id:'field:'+key,fieldKey:key,
     required:fieldMap.get(key).required,sourceRef:source.sourceRef,
     revision:source.revision,kind:source.kind,state:source.state,
@@ -261,7 +278,8 @@ export async function prepareProjectContinuation(rawRequest,sourcePort){
  for(const field of request.fields){
   const claims=extracted.get(field.key)||[];
   const sources=relevant.filter(s=>s.topics.includes(field.key));
-  const chosen=decide(field,claims,sources,failed.get(field.key)||[],issues);
+  const chosen=decide(field,claims,sources,failed.get(field.key)||[],
+   unsubstantiated.get(field.key)||[],issues);
   if(chosen)winners.push(chosen);
  }
  // Detect a new source or Workspace revision during source retrieval.

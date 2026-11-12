@@ -46,7 +46,8 @@ export interface ContinuationSourcePort {
 }
 export type ContinuationIssueType=
  'source_unavailable'|'proposal_unavailable'|'superseded'|'approval_required'|'missing'|
- 'contradiction'|'pending_change'|'ambiguous_lines'|'budget_exceeded';
+ 'contradiction'|'pending_change'|'ambiguous_lines'|'budget_exceeded'|
+ 'source_evidence_missing'|'proposal_evidence_missing';
 export interface ContinuationIssue {
  readonly type:ContinuationIssueType;
  readonly fieldKey:string;

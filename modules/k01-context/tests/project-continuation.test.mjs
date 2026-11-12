@@ -803,3 +803,147 @@ test('invalid relation does not refresh a saved approved project into false curr
   /K01_CONTINUATION_SUPERSESSION_ORDER_INVALID/);
  assert.equal(later.getMetrics().reads,0);
 });
+
+
+// A source may truthfully have the same pinned SHA and still lack the
+// field declared by owner metadata. Never substitute an older accepted term.
+function revisedContentHost(host,sourceRef,edit){
+ const owner=host.sourcePort;
+ const source=host.documents.find(x=>x.sourceRef===sourceRef);
+ if(!source)throw Error('test fixture missing '+sourceRef);
+ const content=edit(source.content);
+ const revision='sha256:'+sha256(content);
+ return {
+  async listSources(args){
+   const catalog=await owner.listSources(args);
+   return {...catalog,sources:catalog.sources.map(s=>s.sourceRef===sourceRef
+    ? {...s,revision}:s)};
+  },
+  async readSource(args){
+   return args.sourceRef===sourceRef
+    ? {complete:true,revision,content}:owner.readSource(args);
+  }
+ };
+}
+
+test('verified active document without its claimed price cannot silently fall back to old quote',async()=>{
+ const host=makeCommercialCase();
+ const port=revisedContentHost(host,'doc:quote-approved',text=>
+  text.replace('Шкафы управления: 398000 руб.','Нужна уточнённая цена шкафов.'));
+ const p=await prepareProjectContinuation(host.request,port);
+ assert.equal(p.requiredComplete,false);
+ assert.equal(value(p,'cabinet'),'');
+ assert.equal(p.covered.length,17);
+ assert.ok(p.issues.some(i=>i.type==='source_evidence_missing'&&
+  i.fieldKey==='cabinet'&&i.sources.includes('doc:quote-approved')));
+ assert.equal(JSON.stringify(p.projection).includes('360000 руб.'),false);
+ assert.equal(JSON.stringify(p.projection).includes('398000 руб.'),false);
+ assert.match(value(p,'sensors'),/206000 руб/);
+});
+
+test('newer accepted source declaring a topic without evidence blocks old value',async()=>{
+ const host=makeCommercialCase(),owner=host.sourcePort;
+ const sourceRef='doc:decision-without-price';
+ const content='# Решение об изменении шкафа\nУтверждено техническое уточнение, но цена не зафиксирована.\n';
+ const revision='sha256:'+sha256(content);
+ const port={
+  async listSources(args){
+   const catalog=await owner.listSources(args);
+   return {...catalog,sources:[...catalog.sources,{
+    sourceRef,revision,workspaceRef:host.request.workspaceRef,kind:'decision',
+    state:'accepted',epistemic:'observed',issuedAt:'2026-11-11T16:00:00Z',
+    topics:['cabinet'],supersedes:[]
+   }]};
+  },
+  async readSource(args){
+   return args.sourceRef===sourceRef?{complete:true,revision,content}:owner.readSource(args);
+  }
+ };
+ const request={...host.request,allowedSources:[...host.request.allowedSources,sourceRef]};
+ const p=await prepareProjectContinuation(request,port);
+ assert.equal(p.requiredComplete,false);
+ assert.equal(value(p,'cabinet'),'');
+ assert.ok(p.issues.some(i=>i.type==='source_evidence_missing'&&
+  i.fieldKey==='cabinet'&&i.sources.includes(sourceRef)));
+ assert.match(value(p,'net'),/790000 руб/);
+});
+
+test('unsubstantiated proposed discount warns but does not erase accepted installation',async()=>{
+ const host=makeCommercialCase();
+ const port=revisedContentHost(host,'mail:proposed-discount',text=>
+  text.replace('Монтаж: 102000 руб. (предложение для переговоров, не утверждено).',
+  'Заказчик пока обсуждает монтаж, новой цены нет.'));
+ const p=await prepareProjectContinuation(host.request,port);
+ assert.equal(p.requiredComplete,true);
+ assert.equal(p.covered.length,18);
+ assert.match(value(p,'installation'),/105000 руб/);
+ assert.match(value(p,'advance'),/35%/);
+ assert.ok(p.issues.some(i=>i.type==='proposal_evidence_missing'&&
+  i.fieldKey==='installation'&&i.sources.includes('mail:proposed-discount')));
+ assert.equal(p.issues.some(i=>i.fieldKey==='installation'&&i.type==='source_evidence_missing'),false);
+});
+
+test('missing claimed scope in verified request is reported without invented scope',async()=>{
+ const host=makeCommercialCase();
+ const port=revisedContentHost(host,'doc:request',text=>text.replace(
+  'Объем проекта: Два шкафа управления насосной станции с восемью датчиками давления, монтаж, пусконаладка и исполнительная документация.',
+  'Запрошено техническое предложение, объём требует согласования.'));
+ const p=await prepareProjectContinuation(host.request,port);
+ assert.equal(p.requiredComplete,false);
+ assert.equal(value(p,'scope'),'');
+ assert.ok(p.issues.some(i=>i.type==='source_evidence_missing'&&i.fieldKey==='scope'));
+ assert.equal(p.covered.length,17);
+ assert.match(value(p,'destination'),/Казань/);
+});
+
+test('refresh after approved source loses a field returns an incomplete projection and evidence cause',async()=>{
+ const old=makeCommercialCase(),saved=await prepareProjectContinuation(old.request,old.sourcePort);
+ const next=makeCommercialCase();
+ const port=revisedContentHost(next,'doc:quote-approved',text=>
+  text.replace('Шкафы управления: 398000 руб.','Уточнение цены ещё не согласовано.'));
+ const r=await refreshProjectContinuation(saved,next.request,port);
+ assert.equal(r.status,'INCOMPLETE');
+ assert.equal(r.requiresReview,true);
+ assert.equal(r.reusable,false);
+ assert.equal(r.latest.requiredComplete,false);
+ assert.equal(r.latest.projection.selected.some(x=>x.id==='field:cabinet'),false);
+ assert.ok(r.fieldChanges.some(x=>x.fieldKey==='cabinet'&&x.kinds.includes('UNAVAILABLE')));
+ assert.ok(r.issueChanges.appeared.some(i=>
+  i.type==='source_evidence_missing'&&i.fieldKey==='cabinet'));
+});
+
+test('an altered proposal with missing labeled evidence is a visible change on refresh',async()=>{
+ const old=makeCommercialCase(),saved=await prepareProjectContinuation(old.request,old.sourcePort);
+ const next=makeCommercialCase();
+ const port=revisedContentHost(next,'mail:proposed-discount',text=>
+  text.replace('Монтаж: 102000 руб. (предложение для переговоров, не утверждено).',
+   'Переписка о монтаже без зафиксированной новой цены.'));
+ const r=await refreshProjectContinuation(saved,next.request,port);
+ assert.equal(r.status,'UPDATED');
+ assert.equal(r.latest.requiredComplete,true);
+ assert.ok(r.issueChanges.appeared.some(i=>
+  i.type==='proposal_evidence_missing'&&i.fieldKey==='installation'));
+ assert.ok(r.sourceChanges.some(s=>
+  s.sourceRef==='mail:proposed-discount'&&s.kind==='SOURCE_REVISED'));
+ assert.equal(r.latest.projection.selected.length,18);
+});
+
+test('evidence missing in a signed technical Result requires a new verified source',async()=>{
+ const host=makeCommercialCase();
+ const port=revisedContentHost(host,'result:engineering-review',text=>
+  text.replace(/^Совместимость: .*$/m,'Совместимость пока требует отдельной проверки.'));
+ const p=await prepareProjectContinuation(host.request,port);
+ assert.equal(p.requiredComplete,false);
+ assert.equal(value(p,'compatibility'),'');
+ assert.ok(p.issues.some(i=>i.type==='source_evidence_missing'&&
+  i.fieldKey==='compatibility'&&i.sources.includes('result:engineering-review')));
+ assert.equal(JSON.stringify(p.projection).includes('Контроллеры совместимы'),false);
+});
+
+test('normal pinned commercial project still selects every verified value',async()=>{
+ const host=makeCommercialCase();
+ const p=await prepareProjectContinuation(host.request,host.sourcePort);
+ assert.equal(p.covered.length,18);
+ assert.equal(p.requiredComplete,true);
+ assert.equal(p.issues.some(i=>i.type==='source_evidence_missing'||i.type==='proposal_evidence_missing'),false);
+});
