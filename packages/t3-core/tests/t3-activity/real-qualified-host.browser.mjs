@@ -172,6 +172,51 @@ async function run() {
     },{workspace_id:d5WorkspaceId,service_id:WRITER});
     assert.equal(d5Draft.status,'DRAFT_UNTRUSTED');
     assert.equal(d5Draft.readback,true);
+    // A real Kernel write commits, but the caller loses its receipt. The
+    // original putObject MUST run exactly once and the same ID MUST reopen.
+    const d5LostAck=await writerPage.evaluate(async ({workspace_id,service_id})=>{
+      const session=await globalThis.IWXA.connect({service_id});
+      const focus=Object.freeze({workspace_id});
+      const context={
+        currentWorkspace:{get:()=>focus,subscribe:()=>()=>{}},
+        kernel:{
+          sessionInfo:{contract_version:session.contract_version},
+          hasOperation:op=>session.granted_operations.includes(op),
+          getWorkspace:id=>session.t1.getWorkspace(id),
+          putObject:async input=>{
+            await session.t1.putObject(input); // committed in original Kernel
+            throw Object.assign(new Error("ack interrupted"),{code:"TEST_D5_LOST_ACK"});
+          },
+          getObject:(ws,id)=>session.t1.getObject(ws,id),
+        },
+      };
+      const mod=await import('/_t3/activity/local-inference-draft.mjs');
+      let uncertain;
+      try {
+        await mod.saveLocalInferenceDraft(context,{
+          expected_workspace_id:workspace_id,
+          model_id:"SYNTHETIC_MODEL_NOT_EXECUTED",
+          engine:"TEST_ONLY_NO_WEBGPU",
+          output:"A committed draft whose Kernel receipt was deliberately lost",
+        });
+        throw Error("T3_D5_LOST_ACK_WAS_NOT_REPORTED");
+      } catch(error) {
+        if(error.code!=="T3_D5_WRITE_MAY_HAVE_COMMITTED") throw error;
+        uncertain={object_id:error.object_id,cause_code:error.cause_code};
+      }
+      const recovered=await mod.getLocalInferenceDraft(context,{
+        expected_workspace_id:workspace_id,object_id:uncertain.object_id,
+      });
+      const records=await session.t1.listObjects({workspace_id});
+      return {
+        ...uncertain,readback:recovered.readback,text:recovered.text,
+        identical_records:records.filter(x=>x.object_id===uncertain.object_id).length,
+      };
+    },{workspace_id:d5WorkspaceId,service_id:WRITER});
+    assert.equal(d5LostAck.cause_code,"TEST_D5_LOST_ACK");
+    assert.equal(d5LostAck.readback,true);
+    assert.equal(d5LostAck.identical_records,1,
+      "T3_D5_LOST_ACK_MUST_NOT_TRIGGER_A_SECOND_KERNEL_WRITE");
 
     await browser.context.close();
     browser = null;
@@ -193,7 +238,7 @@ async function run() {
       workspace_id, reader_service_id: READER, writer_service_id: WRITER,
     });
     const d1ColdOne=await verifyD1AfterBrowserRestart(browser.page,d1TestStateFile,d1Receipts);
-    const d5ColdOne=await browser.page.evaluate(async ({workspace_id,object_id,service_id})=>{
+    const d5ColdOne=await browser.page.evaluate(async ({workspace_id,object_id,lost_ack_object_id,service_id})=>{
       const session=await globalThis.IWXA.connect({service_id});
       const focus=Object.freeze({workspace_id});
       const context={
@@ -209,10 +254,16 @@ async function run() {
       const opened=await mod.getLocalInferenceDraft(context,{
         expected_workspace_id:workspace_id,object_id,
       });
+      const recoveredLost=await mod.getLocalInferenceDraft(context,{
+        expected_workspace_id:workspace_id,object_id:lost_ack_object_id,
+      });
       const detail=await session.t1.getObject(workspace_id,object_id);
       const events=await session.t1.listEventsSince(workspace_id);
-      return {opened,object:detail?.object,events};
-    },{workspace_id:d5WorkspaceId,object_id:d5Draft.object_id,service_id:WRITER});
+      return {opened,recoveredLost,object:detail?.object,events};
+    },{workspace_id:d5WorkspaceId,object_id:d5Draft.object_id,
+      lost_ack_object_id:d5LostAck.object_id,service_id:WRITER});
+    assert.equal(d5ColdOne.recoveredLost?.text,d5LostAck.text,
+      "T3_D5_LOST_ACK_COLD_KERNEL_READBACK_MISMATCH");
     assert.equal(d5ColdOne.opened?.readback,true,'T3_D5_KERNEL_EXACT_DRAFT_REOPEN_MISSING');
     assert.equal(d5ColdOne.opened?.text,
       'An explicitly reviewed synthetic draft for the original Kernel');
@@ -246,6 +297,8 @@ async function run() {
       d5_local_draft:{
         status:"T3_D5_ORIGINAL_T2_SAVE_READBACK_PASS",
         explicit_reopen_through_original_kernel_after_cold_restart:true,
+        lost_ack_original_kernel_commit_recovered_after_restart:true,
+        lost_ack_created_object_count:d5LostAck.identical_records,
         workspace_id:d5WorkspaceId,object_id:d5Draft.object_id,
         event_id:d5Draft.event_id,revision:d5Draft.revision,
         readback_after_two_cold_restarts:true,
