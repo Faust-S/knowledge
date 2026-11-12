@@ -14,6 +14,7 @@ import {LOCAL_INFERENCE_DRAFT_SCHEMA,LOCAL_INFERENCE_DRAFT_DECLARATION}
   from "../src/t3/local-inference-draft.mjs";
 import {materializeIntegrationHost,serveRealKernelHost}
   from "../scripts/real-kernel-e2e.mjs";
+import {materializeDomainMode} from "../scripts/materialize-t3-domain-mode.mjs";
 import {assertQualifiedKernelArtifact}
   from "../src/factory2/products/domain-completion/independent-browser-witness.mjs";
 
@@ -77,12 +78,37 @@ try {
     }],
   }));
   cpSync(join(root,"favicon.ico"),join(root,"workspace","favicon.ico"));
-  live=await serveRealKernelHost(root,{previewOrigin:true,independentWitness:true});
+  // Assemble the existing domain-wide T3 offline mode around the very same
+  // compiled Host, source-pinned BLI and qualified Kernel. No second runtime
+  // or fake offline page: the browser installs this ONE dist by explicit click.
+  live=await serveRealKernelHost(root,{independentWitness:true});
+  host.domain.origin=live.origin;
+  host.shell.origin=live.origin;
+  writeFileSync(join(root,"_iwxa","domain.json"),JSON.stringify(host.domain));
+  writeFileSync(join(root,"_iwxa","domain-shell.json"),JSON.stringify(host.shell));
+  writeFileSync(join(root,"index.html"),
+    '<!doctype html><html lang="ru"><head><title>T3 offline Host</title></head>'+
+    '<body><main><a href="/workspace/">Workspace</a></main></body></html>');
+  const offlineDist=materializeDomainMode(root);
+  assert.equal(offlineDist.original_kernel_unchanged,true);
   context=await chromium.launchPersistentContext(profile,browserLaunch);
   const page=context.pages()[0]||await context.newPage();
   const errors=[];
   page.on("pageerror",error=>errors.push(error.message));
   await page.goto(live.origin+"/workspace/",{waitUntil:"domcontentloaded",timeout:45000});
+  const modeSwitch=page.locator("#iwxa-t3-domain-switch");
+  await modeSwitch.waitFor({state:"visible",timeout:30000});
+  await page.waitForFunction(()=>!document.querySelector("#iwxa-t3-domain-switch")?.disabled);
+  page.once("dialog",dialog=>dialog.accept());
+  await modeSwitch.check();
+  await page.waitForFunction(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous") &&
+    Boolean(navigator.serviceWorker.controller?.scriptURL.endsWith("/t3-sw.js")),
+    null,{timeout:120000});
+  assert.equal(await modeSwitch.isChecked(),true);
+  console.log("T3_D5_ORIGINAL_HOST_ONE_DIST_OFFLINE_MODE_PASS",JSON.stringify({
+    pages:offlineDist.site_pages,files:offlineDist.files,
+    originalKernel:true,modelDownloadSeparate:true,
+  }));
   // First-run is a genuine original-Kernel user action, never mock seeding.
   const gate=page.getByTestId("t2-first-run-create");
   if(await gate.isVisible().catch(()=>false))await gate.click();
@@ -230,8 +256,14 @@ try {
         await context.close();
         context=null;
         context=await chromium.launchPersistentContext(profile,browserLaunch);
+        await context.setOffline(true);
         const coldPage=context.pages()[0]||await context.newPage();
-        await coldPage.goto(live.origin+"/__t2_independent_readback__",{waitUntil:"load"});
+        await coldPage.goto(live.origin+"/workspace/",{waitUntil:"domcontentloaded",timeout:45000});
+        await coldPage.waitForFunction(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous") &&
+          Boolean(navigator.serviceWorker.controller?.scriptURL.endsWith("/t3-sw.js")));
+        // Network is disabled at the browser context before navigation.
+        // Workspace and original Kernel must come from the installed T3 site.
+        assert.equal(await coldPage.evaluate(()=>navigator.onLine),false);
         await coldPage.waitForFunction(()=>typeof globalThis.IWXA?.connect==="function");
         const cold=await coldPage.evaluate(async ({workspace_id,object_id})=>{
           const session=await globalThis.IWXA.connect({service_id:"iwxa.workspace.integration"});
@@ -239,10 +271,25 @@ try {
         },{workspace_id:chosenWorkspace,object_id:savedId});
         assert.equal(cold?.object?.data?.text,reviewed,
           "T3_D5_GENERATED_DRAFT_COLD_READBACK_MISMATCH");
-        console.log("T3_D5_REAL_WEBGPU_KERNEL_COLD_RESTART_PASS",JSON.stringify({
+        const coldLauncher=coldPage.getByTestId("t3-local-inference-launcher");
+        await coldLauncher.waitFor({state:"visible",timeout:30000});
+        await coldLauncher.getByRole("button",{name:"Открыть локальную модель"}).click();
+        const coldPanel=coldPage.getByTestId("t3-local-inference-panel");
+        await coldPanel.waitFor({state:"visible",timeout:15000});
+        await coldPanel.getByRole("button",{name:"Из кеша, без сети"}).waitFor({state:"visible"});
+        const cacheButton=coldPanel.getByRole("button",{name:"Из кеша, без сети"});
+        await cacheButton.waitFor({state:"attached"});
+        await coldPage.waitForFunction(()=>Array.from(document.querySelectorAll(
+          '[data-testid="t3-local-inference-panel"] button')).some(b=>
+          b.textContent?.includes("Из кеша, без сети") && !b.disabled),null,{timeout:30000});
+        await cacheButton.click();
+        await coldPanel.getByRole("button",{name:"Выгрузить"}).waitFor({state:"enabled",timeout:120000});
+        console.log("T3_D5_REAL_WEBGPU_KERNEL_COLD_OFFLINE_PASS",JSON.stringify({
           model:"SmolLM2-360M-Instruct-q4f32_1-MLC",
           generatedCharacters:output.length,workspace:chosenWorkspace,
-          savedObject:savedId,originalKernelReadback:true,coldRestart:true,
+          savedObject:savedId,originalKernelReadback:true,
+          browserColdRestart:true,networkDisabled:true,
+          offlineHost:true,offlineModelLoadedFromCache:true,
         }));
       }else{
         const timedOut=/Модель не выдала первый токен|Модель перестала отвечать/.test(inferenceStatus);
