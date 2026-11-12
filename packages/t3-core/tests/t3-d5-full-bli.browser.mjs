@@ -24,8 +24,8 @@ const browserLaunch={
   headless:true,ignoreHTTPSErrors:true,
   ...(process.platform==="darwin"?{channel:"chromium"}:{}),
   args:process.platform==="darwin"
-    ? ["--enable-unsafe-webgpu"]
-    : ["--no-sandbox","--enable-unsafe-webgpu","--use-angle=swiftshader"],
+    ? ["--enable-unsafe-webgpu","--ignore-certificate-errors"]
+    : ["--no-sandbox","--enable-unsafe-webgpu","--use-angle=swiftshader","--ignore-certificate-errors"],
   viewport:{width:1280,height:900},
 };
 const qualified=process.env.IWXA_T2_QUALIFIED_KERNEL_DIST;
@@ -101,9 +101,28 @@ try {
   await page.waitForFunction(()=>!document.querySelector("#iwxa-t3-domain-switch")?.disabled);
   page.once("dialog",dialog=>dialog.accept());
   await modeSwitch.check();
-  await page.waitForFunction(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous") &&
-    Boolean(navigator.serviceWorker.controller?.scriptURL.endsWith("/t3-sw.js")),
-    null,{timeout:120000});
+  try {
+    await page.waitForFunction(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous") &&
+      Boolean(navigator.serviceWorker.controller?.scriptURL.endsWith("/t3-sw.js")),
+      null,{timeout:45000});
+  } catch (error) {
+    const diagnosis=await page.evaluate(async()=>{
+      const registrations=await navigator.serviceWorker.getRegistrations().catch(()=>[]);
+      return {
+        url:location.href,secure:window.isSecureContext,
+        selected:document.querySelector("#iwxa-t3-domain-switch")?.checked,
+        disabled:document.querySelector("#iwxa-t3-domain-switch")?.disabled,
+        controls:document.querySelector("#iwxa-t3-domain-controls")?.innerText,
+        active:document.documentElement.hasAttribute("data-iwxa-t3-autonomous"),
+        controller:navigator.serviceWorker.controller?.scriptURL,
+        serviceWorkers:registrations.map(reg=>({
+          scope:reg.scope,active:reg.active?.scriptURL,waiting:reg.waiting?.scriptURL,
+        })),
+      };
+    }).catch(e=>({diagnosisFailed:String(e)}));
+    throw Error("T3_D5_AUTONOMOUS_REAL_HOST_NOT_READY "+
+      JSON.stringify({diagnosis,pageErrors:errors,wait:String(error)}));
+  }
   assert.equal(await modeSwitch.isChecked(),true);
   console.log("T3_D5_ORIGINAL_HOST_ONE_DIST_OFFLINE_MODE_PASS",JSON.stringify({
     pages:offlineDist.site_pages,files:offlineDist.files,
