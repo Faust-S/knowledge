@@ -102,7 +102,8 @@ export function prepareAgent05FileActions(pack,{baseDirectory='',deliveryMode='f
       idempotency:'U01_PLAN_AND_RECOVERY_ONLY'};
   });
   const body={
-    schema:AGENT05_FILE_ACTION_VERSION,origin:'P01_SAVED_GRAPH_RESULT',
+    schema:compact?AGENT05_COMPACT_FILE_ACTION_VERSION:AGENT05_FILE_ACTION_VERSION,
+    origin:'P01_SAVED_GRAPH_RESULT',
     taskRef:pack.taskRef,graphExecutionId:pack.graph.executionId,
     graphArtifactDigest:pack.graph.artifactDigest,
     graphNodeRunDigest:pack.graph.nodeRunDigest,
