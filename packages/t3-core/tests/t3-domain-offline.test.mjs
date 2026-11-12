@@ -181,10 +181,23 @@ test("D5 model consent permits only pinned WebLLM assets during autonomous mode"
     const count=browser.liveFetches;
     assert.equal((await browser.fetchPage(blocked)).status,503);
     assert.equal((await browser.fetchPage(pinned.model_url+"/resolve/main/../private")).status,503);
+    assert.equal((await browser.fetchPage(pinned.model_url+"/resolve/main/user-workspace-secret")).status,503,
+      "a model URL must not carry arbitrary private Workspace data");
+    assert.equal((await browser.fetchPage(pinned.model_url+"/resolve/main/params_shard_fake.bin")).status,503);
+    assert.equal((await browser.fetchPage(weights+"?token=private")).status,503);
+    assert.equal((await browser.fetchPage(weights,"POST")).status,503);
     assert.equal(browser.liveFetches,count);
-    assert.equal((await browser.fetchPage(weights)).status,404,
-      "model asset is explicitly allowed to reach network; mock has no remote weights");
-    assert.equal(browser.liveFetches,count+1);
+    for (const asset of [
+      weights,
+      pinned.model_url+"/resolve/main/mlc-chat-config.json",
+      pinned.model_url+"/resolve/main/tokenizer.json",
+      pinned.model_url+"/resolve/main/tensor-cache.json",
+      pinned.wasm_url,
+    ]) {
+      assert.equal((await browser.fetchPage(asset)).status,404,
+        "only pinned upstream model artifacts can reach the network: "+asset);
+    }
+    assert.equal(browser.liveFetches,count+5);
     const wrong=[];
     await browser.dispatch("T3_MODEL_INSTALL_END",
       {postMessage:value=>wrong.push(value)},{token},"other");
