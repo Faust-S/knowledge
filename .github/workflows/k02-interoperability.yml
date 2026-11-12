@@ -27,6 +27,8 @@ jobs:
         run: python modules/k02-interoperability/consumers/python_cross_language_verify.py
       - name: Independent Python checks native Agent request drafts from Node
         run: python modules/k02-interoperability/consumers/python_agent_port_verify.py
+      - name: Python independently verifies P01 compatible Agent 0.5 model-stage handoff
+        run: python modules/k02-interoperability/consumers/python_agent05_stage_handoff.py
       - name: Persist Node plan, independently verify in Python, restore in fresh Node process
         run: python modules/k02-interoperability/consumers/python_portable_plan_session.py
       - name: Independent Python consumer and real public GitHub REST source
