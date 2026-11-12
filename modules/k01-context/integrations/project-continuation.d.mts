@@ -29,6 +29,7 @@ export interface ContinuationSource {
  readonly kind:ContinuationSourceKind;
  readonly state:ContinuationSourceState;
  readonly epistemic:EpistemicKind;
+ /** RFC3339 timestamp with explicit timezone. Superseder must have a later instant. */
  readonly issuedAt:string;
  readonly topics:readonly string[];
  readonly supersedes:readonly ContinuationSupersedes[];

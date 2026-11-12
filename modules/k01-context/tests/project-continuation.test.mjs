@@ -678,3 +678,128 @@ test('removing an unselected proposed source does not reject valid accepted sour
   s.sourceRef==='mail:proposed-discount'&&s.kind==='SOURCE_REMOVED'));
  assert.equal(refreshed.reusable,false);
 });
+
+
+// The catalog is host-owned and can contain imported/partly migrated metadata.
+// A malformed revision link must never make a newer accepted document disappear.
+function catalogPort(host,edit){
+ const owner=host.sourcePort;
+ return {
+  async listSources(args){
+   const snapshot=structuredClone(await owner.listSources(args));
+   edit(snapshot.sources);
+   return snapshot;
+  },
+  async readSource(args){return owner.readSource(args);}
+ };
+}
+
+test('an older accepted quote cannot supersede a newer signed quote',async()=>{
+ const host=makeCommercialCase();
+ const port=catalogPort(host,sources=>{
+  const old=sources.find(x=>x.sourceRef==='doc:quote-old');
+  const current=sources.find(x=>x.sourceRef==='doc:quote-approved');
+  old.supersedes=['doc:quote-approved'];
+  current.supersedes=[];
+ });
+ await assert.rejects(prepareProjectContinuation(host.request,port),
+  /K01_CONTINUATION_SUPERSESSION_ORDER_INVALID/);
+ assert.equal(host.getMetrics().reads,0);
+});
+
+test('supersession respects actual timezones, not string date order',async()=>{
+ const host=makeCommercialCase();
+ const validPort=catalogPort(host,sources=>{
+  sources.find(x=>x.sourceRef==='doc:quote-old').issuedAt='2026-11-04T12:00:00+02:00';
+  sources.find(x=>x.sourceRef==='doc:quote-approved').issuedAt='2026-11-04T10:30:00Z';
+ });
+ const good=await prepareProjectContinuation(host.request,validPort);
+ assert.equal(good.requiredComplete,true);
+ assert.match(good.projection.selected.find(x=>x.id==='field:cabinet').excerpt,/398000/);
+
+ const newerHost=makeCommercialCase();
+ const wrong=catalogPort(newerHost,sources=>{
+  sources.find(x=>x.sourceRef==='doc:quote-old').issuedAt='2026-11-04T10:30:00Z';
+  sources.find(x=>x.sourceRef==='doc:quote-approved').issuedAt='2026-11-04T12:00:00+02:00';
+ });
+ await assert.rejects(prepareProjectContinuation(newerHost.request,wrong),
+  /K01_CONTINUATION_SUPERSESSION_ORDER_INVALID/);
+ assert.equal(newerHost.getMetrics().reads,0);
+});
+
+test('equal instants cannot prove that one accepted revision replaced another',async()=>{
+ const host=makeCommercialCase(),port=catalogPort(host,sources=>{
+  sources.find(x=>x.sourceRef==='doc:quote-old').issuedAt='2026-11-04T11:00:00Z';
+  sources.find(x=>x.sourceRef==='doc:quote-approved').issuedAt='2026-11-04T14:00:00+03:00';
+ });
+ await assert.rejects(prepareProjectContinuation(host.request,port),
+  /K01_CONTINUATION_SUPERSESSION_ORDER_INVALID/);
+ assert.equal(host.getMetrics().reads,0);
+});
+
+test('document may only supersede facts it actually declares as current',async()=>{
+ const host=makeCommercialCase(),port=catalogPort(host,sources=>{
+  const decision=sources.find(x=>x.sourceRef==='doc:payment-decision');
+  decision.supersedes=[{sourceRef:'doc:quote-approved',fields:['cabinet']}];
+ });
+ await assert.rejects(prepareProjectContinuation(host.request,port),
+  /K01_CONTINUATION_SUPERSESSION_SCOPE_INVALID/);
+ assert.equal(host.getMetrics().reads,0);
+});
+
+test('whole-document supersession cannot silently remove unrepresented fields',async()=>{
+ const host=makeCommercialCase(),port=catalogPort(host,sources=>{
+  const next=sources.find(x=>x.sourceRef==='doc:quote-approved');
+  next.topics=['cabinet'];
+ });
+ await assert.rejects(prepareProjectContinuation(host.request,port),
+  /K01_CONTINUATION_SUPERSESSION_SCOPE_INVALID/);
+ assert.equal(host.getMetrics().reads,0);
+});
+
+test('proposed correspondence cannot claim an authoritative replacement',async()=>{
+ const host=makeCommercialCase(),port=catalogPort(host,sources=>{
+  const proposed=sources.find(x=>x.sourceRef==='mail:proposed-discount');
+  proposed.supersedes=[{sourceRef:'doc:quote-approved',fields:['advance']}];
+ });
+ await assert.rejects(prepareProjectContinuation(host.request,port),
+  /K01_CONTINUATION_SUPERSESSION_NOT_ACCEPTED/);
+ assert.equal(host.getMetrics().reads,0);
+});
+
+test('ambiguous local dates and calendar-overflow events are refused',async()=>{
+ for(const invalid of ['11/04/2026','2026-02-30T14:00:00Z','2026-11-04T25:30:00Z',
+  '2026-11-04T14:00:00+15:00']){
+  const host=makeCommercialCase(),port=catalogPort(host,sources=>{
+   sources.find(x=>x.sourceRef==='doc:quote-old').issuedAt=invalid;
+  });
+  await assert.rejects(prepareProjectContinuation(host.request,port),
+   /K01_CONTINUATION_SOURCE_INVALID/);
+  assert.equal(host.getMetrics().reads,0);
+ }
+});
+
+test('catalog ignores malformed non-authorized sources without reading their bytes',async()=>{
+ const baseline=makeCommercialCase();
+ const original=await prepareProjectContinuation(baseline.request,baseline.sourcePort);
+ const host=makeCommercialCase(),port=catalogPort(host,sources=>{
+  sources.unshift({sourceRef:'foreign:unrelated',workspaceRef:'foreign-workspace',
+   issuedAt:'invalid',revision:'not-a-sha',state:'invalid',supersedes:'invalid',
+   topics:'invalid',kind:'untrusted'});
+ });
+ const selected=await prepareProjectContinuation(host.request,port);
+ assert.deepEqual(selected,original);
+ assert.equal(host.getMetrics().reads,selected.metrics.readCount);
+});
+
+test('invalid relation does not refresh a saved approved project into false currency',async()=>{
+ const original=makeCommercialCase();
+ const saved=await prepareProjectContinuation(original.request,original.sourcePort);
+ const later=makeCommercialCase(),port=catalogPort(later,sources=>{
+  sources.find(x=>x.sourceRef==='doc:quote-old').supersedes=['doc:quote-approved'];
+  sources.find(x=>x.sourceRef==='doc:quote-approved').supersedes=[];
+ });
+ await assert.rejects(refreshProjectContinuation(saved,later.request,port),
+  /K01_CONTINUATION_SUPERSESSION_ORDER_INVALID/);
+ assert.equal(later.getMetrics().reads,0);
+});

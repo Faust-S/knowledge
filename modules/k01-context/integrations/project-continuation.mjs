@@ -12,6 +12,24 @@ const bytes=s=>new TextEncoder().encode(s).length;
 const states=new Set(['accepted','reference','proposed']);
 const kinds=new Set(['document','correspondence','decision','result']);
 const epistemic=new Set(['observed','reported','inferred','target']);
+// Host-issued event times are compared as instants, never as lexical strings.
+// Requiring an explicit zone makes decisions reproducible across OS locales.
+function issuedEpoch(value){
+ if(!valid(value,32)||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value))
+  return NaN;
+ const z=value.endsWith('Z')?0:1;
+ const hours=z?Number(value.slice(-5,-3)):0;
+ const minutes=z?Number(value.slice(-2)):0;
+ if(hours>14||minutes>59||(hours===14&&minutes!==0))return NaN;
+ const offset=z?(value.slice(-6,-5)==='-'?-1:1)*(hours*60+minutes):0;
+ const epoch=Date.parse(value);
+ if(!Number.isFinite(epoch))return NaN;
+ // Date.parse may silently normalize 30 February or an invalid clock time.
+ try{
+  if(new Date(epoch+offset*60000).toISOString().slice(0,19)!==value.slice(0,19))return NaN;
+ }catch{return NaN;}
+ return epoch;
+}
 
 function validateRequest(request){
  if(!request||!valid(request.taskId)||!valid(request.workspaceRef)||!valid(request.scopeRevision)||
@@ -38,10 +56,14 @@ function validateCatalog(catalog,request){
  if(!Array.isArray(catalog.sources)||catalog.sources.length>MAX_SOURCES)fail('CATALOG_INVALID');
  const seen=new Set(),authorized=new Set(request.allowedSources),sources=[];
  for(const s of catalog.sources){
-  if(!s||!valid(s.sourceRef)||!hexRevision(s.revision)||
+  if(!s||!valid(s.sourceRef))fail('SOURCE_INVALID');
+  // K01 must not interpret or disclose metadata for a source outside the
+  // current Task authorization; that remains the owner's responsibility.
+  if(!authorized.has(s.sourceRef))continue;
+  if(!hexRevision(s.revision)||
    !valid(s.workspaceRef)||s.workspaceRef!==request.workspaceRef||
    !kinds.has(s.kind)||!states.has(s.state)||!epistemic.has(s.epistemic)||
-   !valid(s.issuedAt,32)||Number.isNaN(Date.parse(s.issuedAt))||
+   !Number.isFinite(issuedEpoch(s.issuedAt))||
    !Array.isArray(s.topics)||s.topics.length>MAX_FIELDS||
    s.topics.some(v=>!valid(v,80))||!Array.isArray(s.supersedes)||
    s.supersedes.length>MAX_SOURCES||
@@ -56,6 +78,20 @@ function validateCatalog(catalog,request){
    supersedes:s.supersedes.map(relation=>typeof relation==='string'?relation:
     {sourceRef:relation.sourceRef,fields:[...relation.fields].sort(cmp)})
     .sort((a,b)=>cmp(JSON.stringify(a),JSON.stringify(b)))});
+ }
+ const byRef=new Map(sources.map(source=>[source.sourceRef,source]));
+ for(const newer of sources){
+  if(newer.supersedes.length&&newer.state!=='accepted')fail('SUPERSESSION_NOT_ACCEPTED');
+  for(const relation of newer.supersedes){
+   const ref=typeof relation==='string'?relation:relation.sourceRef;
+   const older=byRef.get(ref);
+   if(!older)continue; // Missing/unpermitted targets are not interpreted.
+   if(issuedEpoch(newer.issuedAt)<=issuedEpoch(older.issuedAt))
+    fail('SUPERSESSION_ORDER_INVALID');
+   const fields=typeof relation==='string'?older.topics:relation.fields;
+   if(fields.some(key=>!newer.topics.includes(key)||!older.topics.includes(key)))
+    fail('SUPERSESSION_SCOPE_INVALID');
+  }
  }
  return sources.sort((a,b)=>cmp(a.sourceRef,b.sourceRef));
 }
@@ -127,8 +163,8 @@ function decide(field,claims,sources,unavailable,issues){
  }
  const chosen=approved.sort((a,b)=>
   (b.state==='accepted'?1:0)-(a.state==='accepted'?1:0)||
-  cmp(b.issuedAt,a.issuedAt)||cmp(a.sourceRef,b.sourceRef))[0];
- const pending=proposals.filter(p=>p.value!==chosen.value&&cmp(p.issuedAt,chosen.issuedAt)>0);
+  cmp(issuedEpoch(b.issuedAt),issuedEpoch(a.issuedAt))||cmp(a.sourceRef,b.sourceRef))[0];
+ const pending=proposals.filter(p=>p.value!==chosen.value&&cmp(issuedEpoch(p.issuedAt),issuedEpoch(chosen.issuedAt))>0);
  if(pending.length)issues.push(issue('pending_change',key,pending.map(c=>c.sourceRef)));
  return chosen;
 }
