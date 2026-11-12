@@ -176,14 +176,40 @@ if(recommendation.decision==='STAGES_PROPOSED_NOT_AUTHORIZED'){
   const selectedProfile=profiles.find(x=>x.providerId===selected.descriptor.providerId);
   assert.ok(selectedProfile);
   const nativeProfile={...selectedProfile,providerId:'OLLAMA_LOCAL_V1'};
-  const ownerDraft=prepareAgent05OwnerRequestDraft({
+  const nativeOwnerInputs={
     nativeCandidate:observed,trustedScopedPlanDigest:observed.scopedPlanPreview.planDigest,
     nativeDescriptor,nativeProfile,nativeQualityEvidence:evidence,
     step:{taskClass:'summary',difficulty:'complex',
       minObservedSuccessRate:0.5,minSamples:2,maxAttempts:1,
       maxLatencyMs:null,maxMemoryMiB:null},
     environment:{operatingSystem:osName},taskId,requirementId:'summary',
-  });
+  };
+  const ownerDraft=prepareAgent05OwnerRequestDraft(nativeOwnerInputs);
+  const failedResponse=trialResults.find(row=>!row.correct&&row.outputSha256);
+  if(failedResponse){
+    const nativeStack={providerId:'OLLAMA_LOCAL_V1',kind:'model',
+      capabilityId:'text.generate',modelId:selected.modelPin.name,
+      executorVersion:nativeProfile.runtimeVersion,
+      mode:selected.provider.thinkingMode,operatingSystem:osName};
+    const taskKey='open-token-qualification:'+failedResponse.expected;
+    const sourceRef='open-real-native:'+selected.modelPin.digest;
+    const proofRef='open-real-native-incorrect:'+failedResponse.outputSha256;
+    const nativeTrialObservation={
+      modelPin:selected.modelPin,taskKey,sourceRef,mode:nativeStack.mode,
+      scope:{taskKey,candidateConfigurations:[nativeStack],
+        failures:[{...nativeStack,taskKey,failureKind:'INCORRECT_RESULT',proofRef}]},
+    };
+    const denied=prepareAgent05OwnerRequestDraft({...nativeOwnerInputs,
+      nativeTrialObservation,trustedNativeTrialSourceRef:sourceRef});
+    assert.equal(denied.status,'OWNER_REQUEST_HOLD');
+    assert.equal(denied.reason,'KNOWN_NATIVE_TASK_FAILURE');
+    assert.equal(denied.ownerRequest,null);
+    assert.equal(denied.proofRef,proofRef);
+    result.nativeKnownFailureVeto={status:'EXACT_TASK_FAILURE_HELD',
+      taskKey,proofRef,reason:denied.reason,ownerRequestProduced:false};
+  } else {
+    result.nativeKnownFailureVeto={status:'NOT_RUN_NO_OBSERVED_INCORRECT_OUTPUT'};
+  }
   assert.equal(ownerDraft.ownerExecuted,false);
   assert.equal(ownerDraft.ownerReceiptsVerified,false);
   assert.equal(ownerDraft.modelInvoked,false);

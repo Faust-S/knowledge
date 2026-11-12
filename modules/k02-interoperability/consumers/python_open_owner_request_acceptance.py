@@ -39,6 +39,17 @@ def check(directory: Path):
     assert quality["proofRef"].startswith("open-real-native:")
     assert quality["qualification"] == (
         "OBSERVED_OPEN_HOST_SAMPLE_NOT_QUALITY_GUARANTEE")
+    failure = next((row for row in quality["trialResults"]
+                    if not row["correct"] and row.get("outputSha256")), None)
+    veto = trial.get("nativeKnownFailureVeto")
+    assert isinstance(veto, dict), "missing_negative_trial_verification"
+    if failure:
+        assert veto["status"] == "EXACT_TASK_FAILURE_HELD"
+        assert veto["reason"] == "KNOWN_NATIVE_TASK_FAILURE"
+        assert veto["ownerRequestProduced"] is False
+        assert veto["proofRef"].endswith(failure["outputSha256"])
+    else:
+        assert veto["status"] == "NOT_RUN_NO_OBSERVED_INCORRECT_OUTPUT"
     candidate = directory / "native-owner-request-draft.json"
     if trial["ownerRequestDraftStatus"] == "OWNER_REQUEST_HOLD":
         assert quality["passed"] < 1
