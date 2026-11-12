@@ -183,6 +183,82 @@ test('K01 source manifest and approval provenance cannot be forged in K05',async
  assert.throws(()=>verifyK01ProjectEvidence(saved,altered),
   /K05_K01_EVIDENCE_SOURCE_BYTES_MISMATCH/);
 });
+test('K01 newly rejects invalid supersession chronology and scope before any document read',async()=>{
+ const {mod,fixture}=await owner();
+ const original=fixture.makeCommercialCase();
+ const saved=await mod.prepareProjectContinuation(original.request,original.sourcePort);
+ const cases=[
+  {id:'older_cannot_replace_newer',code:'SUPERSESSION_ORDER_INVALID',change:roster=>{
+   roster.find(x=>x.sourceRef==='doc:quote-old').supersedes=['doc:quote-approved'];
+   roster.find(x=>x.sourceRef==='doc:quote-approved').supersedes=[];
+  }},
+  {id:'equal_utc_instants',code:'SUPERSESSION_ORDER_INVALID',change:roster=>{
+   roster.find(x=>x.sourceRef==='doc:quote-old').issuedAt='2026-11-04T11:00:00Z';
+   roster.find(x=>x.sourceRef==='doc:quote-approved').issuedAt='2026-11-04T14:00:00+03:00';
+  }},
+  {id:'unapproved_correspondence',code:'SUPERSESSION_NOT_ACCEPTED',change:roster=>{
+   roster.find(x=>x.sourceRef==='mail:proposed-discount').supersedes=[
+    {sourceRef:'doc:quote-approved',fields:['advance']}];
+  }},
+  {id:'scope_exceeds_document',code:'SUPERSESSION_SCOPE_INVALID',change:roster=>{
+   roster.find(x=>x.sourceRef==='doc:quote-approved').topics=['cabinet'];
+  }},
+  {id:'invalid_timezone',code:'SOURCE_INVALID',change:roster=>{
+   roster.find(x=>x.sourceRef==='doc:quote-old').issuedAt='2026-11-04T14:00:00+15:00';
+  }},
+ ];
+ for(const scenario of cases){
+  const next=fixture.makeCommercialCase();
+  const port={
+   async listSources(args){
+    const roster=structuredClone(await next.sourcePort.listSources(args));
+    scenario.change(roster.sources);
+    return roster;
+   },
+   async readSource(){throw Error('FAIL_K05_CONSUMER_OWNER_READ_NOT_EXPECTED')}
+  };
+  await assert.rejects(mod.refreshProjectContinuation(saved,next.request,port),
+   new RegExp('K01_CONTINUATION_'+scenario.code),scenario.id);
+  assert.equal(next.getMetrics().reads,0,scenario.id);
+  // K05 is never asked to infer a refresh status from a failed owner operation.
+ }
+});
+test('metadata of a non-authorized source does not invalidate a proven current K01 Task',async()=>{
+ const {mod,fixture}=await owner();
+ const prior=fixture.makeCommercialCase();
+ const saved=await mod.prepareProjectContinuation(prior.request,prior.sourcePort);
+ const current=fixture.makeCommercialCase();
+ const port={
+  async listSources(args){
+   const roster=structuredClone(await current.sourcePort.listSources(args));
+   roster.sources.push({sourceRef:'foreign:unpermitted',workspaceRef:'other',
+    issuedAt:'malformed',revision:'not-a-digest',state:'not-accepted',
+    supersedes:'bad',topics:'bad',kind:'untrusted'});
+   return roster;
+  },
+  async readSource(args){return current.sourcePort.readSource(args)}
+ };
+ const refresh=await mod.refreshProjectContinuation(saved,current.request,port);
+ assert.equal(refresh.status,'CURRENT');
+ const proof=reviewK01ProjectRefresh({saved,ownerRefresh:refresh,
+  previousAuthorizedDocuments:prior.documents,
+  currentAuthorizedDocuments:current.documents});
+ assert.equal(proof.status,'SOURCE_BOUND_REUSABLE');
+ assert.ok(!JSON.stringify(proof).includes('foreign:unpermitted'));
+});
+test('unselected proposed-source removal and unavailable proposal are reviewable, not silently current',async()=>{
+ const report=await studyK01Refresh(root);
+ for(const id of ['unselected_proposal_removed','proposed_letter_unavailable']){
+  const row=report.trials.find(x=>x.scenario===id);
+  assert.ok(row,id);
+  assert.equal(row.status,'UPDATED');
+  assert.equal(row.k05Status,'REVIEW_REQUIRED');
+  assert.equal(row.unchangedClaims,true,'the selected price remains but the source roster changed');
+  assert.equal(row.k05SourceReads,0);
+  assert.ok(row.k05BytesRehashed>0);
+  assert.equal(row.userTimeMs,null);
+ }
+});
 test('receipt never leaks raw source refs, excerpts, Task content or user filenames',async()=>{
  const {proof,old}=await beforeAfter({updated:true});
  const raw=JSON.stringify(proof);
@@ -196,9 +272,9 @@ test('receipt never leaks raw source refs, excerpts, Task content or user filena
 
 test('single owner refresh vs zero K05 re-reads, measured for all five cases',async()=>{
  const evidence=await studyK01Refresh(root);
- assert.equal(evidence.trials.length,5);
+ assert.equal(evidence.trials.length,7);
  assert.deepEqual(evidence.trials.map(x=>x.status),
-  ['CURRENT','UPDATED','INCOMPLETE','REJECTED','REJECTED']);
+  ['CURRENT','UPDATED','INCOMPLETE','REJECTED','REJECTED','UPDATED','UPDATED']);
  for(const row of evidence.trials){
   assert.equal(row.repetitions,12);
   assert.equal(row.k05SourceReads,0);

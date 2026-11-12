@@ -10,9 +10,9 @@ import {pathToFileURL} from 'node:url';
 import {reviewK01ProjectRefresh} from './k05_k01_refresh_review.mjs';
 
 export const SCHEMA='IWXA_K05_K01_REFRESH_MEASUREMENTS/0.1';
-const OWNER='d0de69ec0ef714422555861bea20dafee89f5cc7';
+const OWNER='4d2db2dd1e27c3e27db0fec71dea791657db8453';
 const BLOBS={
- 'modules/k01-context/integrations/project-continuation.mjs':'828330f3a6651f468e946fc4111931c34e7fd997',
+ 'modules/k01-context/integrations/project-continuation.mjs':'c92f9777a28645782570e78cb0a9ec14b6bebc48',
  'modules/k01-context/tests/fixtures/commercial-project.mjs':'5a5b58f94bde3913869d268f161a7ea0f17c4338',
 };
 const sha=b=>createHash('sha1').update(Buffer.from('blob '+b.length+'\0')).update(b).digest('hex');
@@ -35,6 +35,8 @@ export async function studyK01Refresh(root){
   {id:'contradicting_decision',options:{addConflict:true},expected:'INCOMPLETE'},
   {id:'missing_accepted_quote',options:{},expected:'REJECTED',remove:true},
   {id:'revoked_permission',options:{},expected:'REJECTED',revoke:true},
+  {id:'unselected_proposal_removed',options:{},expected:'UPDATED',removeProposal:true},
+  {id:'proposed_letter_unavailable',options:{unavailable:['mail:proposed-discount']},expected:'UPDATED',proposalUnavailable:true},
  ];
  const trials=[];
  for(const scenario of cases){
@@ -49,6 +51,11 @@ export async function studyK01Refresh(root){
    if(scenario.revoke)
     currentRequest={...newer.request,allowedSources:newer.request.allowedSources.filter(
      x=>x!=='doc:quote-approved')};
+   if(scenario.removeProposal){
+    port={async listSources(args){const roster=await newer.sourcePort.listSources(args);
+      return {...roster,sources:roster.sources.filter(x=>x.sourceRef!=='mail:proposed-discount')};},
+      async readSource(args){return newer.sourcePort.readSource(args);}};
+   }
    if(scenario.remove){
     port={async listSources(args){const roster=await newer.sourcePort.listSources(args);
       return {...roster,sources:roster.sources.filter(x=>x.sourceRef!=='doc:quote-approved')};},
@@ -62,7 +69,9 @@ export async function studyK01Refresh(root){
     saved,ownerRefresh:receipt,
     ...(scenario.revoke||scenario.remove?{}:{
      previousAuthorizedDocuments:old.documents,
-     currentAuthorizedDocuments:newer.documents,
+     currentAuthorizedDocuments:(scenario.removeProposal||scenario.proposalUnavailable)
+      ? newer.documents.filter(x=>x.sourceRef!=='mail:proposed-discount')
+      : newer.documents,
     }),
    });
    const k05Ms=performance.now()-b;
@@ -75,6 +84,8 @@ export async function studyK01Refresh(root){
     ownerSourceCatalogReads:metrics.lists-prior.lists,
     k05SourceReads:proof.metrics.k05HostReads,
     k05BytesRehashed:proof.metrics.k05RehashedSourceBytes,
+    unchangedClaims:proof.unchangedClaims??null,
+    contentVerificationStatus:proof.currentSourceProof,
     ownerHasCurrentEvidence:receipt.status==='CURRENT'&&!receipt.requiresReview,
     userTimeMs:null,humanGold:false,precision:null,recall:null,f1:null,
     noIndependentLiveSourceVerification:true,
@@ -112,6 +123,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).hr
    scenario:x.scenario,status:x.status,review:x.k05Status,
    ownerReads:x.ownerSourceReads,ownerCatalogReads:x.ownerSourceCatalogReads,
    k05Reads:x.k05SourceReads,bytesRehashed:x.k05BytesRehashed,
+   unchangedClaims:x.unchangedClaims,
    ownerMedianMs:x.ownerWallMsMedian,k05MedianMs:x.k05WallMsMedian,
    ownerP95Ms:x.ownerWallMsP95,k05P95Ms:x.k05WallMsP95,
   })),humanTime:'NOT_MEASURED',inferenceCalls:0}));
