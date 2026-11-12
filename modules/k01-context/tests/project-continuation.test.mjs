@@ -812,6 +812,7 @@ function revisedContentHost(host,sourceRef,edit){
  const source=host.documents.find(x=>x.sourceRef===sourceRef);
  if(!source)throw Error('test fixture missing '+sourceRef);
  const content=edit(source.content);
+ if(content===source.content)throw Error('test_rewrite_was_noop');
  const revision='sha256:'+sha256(content);
  return {
   async listSources(args){
@@ -886,7 +887,7 @@ test('unsubstantiated proposed discount warns but does not erase accepted instal
 test('missing claimed scope in verified request is reported without invented scope',async()=>{
  const host=makeCommercialCase();
  const port=revisedContentHost(host,'doc:request',text=>text.replace(
-  'Объем проекта: Два шкафа управления насосной станции с восемью датчиками давления, монтаж, пусконаладка и исполнительная документация.',
+  'Объем проекта: Два шкафа управления насосной станцией с восемью датчиками давления, монтаж, пусконаладка и исполнительная документация.',
   'Запрошено техническое предложение, объём требует согласования.'));
  const p=await prepareProjectContinuation(host.request,port);
  assert.equal(p.requiredComplete,false);
