@@ -8,7 +8,16 @@ const names=['meeting-decisions.md','action-register.csv','human-followup-drafts
 const obj=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 const str=x=>typeof x==='string'&&x.trim().length>0;
 const fail=code=>{throw new ComposerError(code);};
-const csv=x=>'"'+String(x).replace(/"/gu,'""').replace(/\r?\n/gu,' ')+'"';
+// Spreadsheet consumers must treat these cells as data, not formulae.
+const csv=x=>{
+  const original=String(x).replace(/\r\n?|\n/gu,' ');
+  const safe=/^[\u0000-\u0020\uFEFF]*[=+\-@]/u.test(original)?"'"+original:original;
+  return '"'+safe.replace(/"/gu,'""')+'"';
+};
+// Model/source text cannot create extra Markdown rows, headings, or raw HTML.
+const md=x=>String(x).replace(/[\r\n\t\u0000-\u001f\u007f]/gu,' ')
+  .replace(/&/gu,'&amp;').replace(/</gu,'&lt;').replace(/>/gu,'&gt;')
+  .replace(/[\\|*_~\[\]\x60]/gu,'\\const csv=x=>'"'+String(x).replace(/"/gu,'""').replace(/\r?\n/gu,' ')+'"';');
 const actionKey=x=>x.toLocaleLowerCase('ru-RU').replace(/[.!?]+$/u,'').replace(/\s+/gu,' ').trim();
 const pointIndex=(text,offset)=>Array.from(text.slice(0,offset)).length;
 
@@ -161,12 +170,12 @@ function buildMeetingDocuments(process){
   const items=process.extraction.draft.action_items;
   const questions=process.extraction.draft.open_questions;
   const p=process.provenance;
-  const header='Task: '+process.taskRef+'\nИсточник: '+p.sourceRef+' @ '+p.revision+
+  const header='Task: '+md(process.taskRef)+'\nИсточник: '+md(p.sourceRef)+' @ '+md(p.revision)+
     '\nИсточник SHA-256: '+p.transcriptDigest+'\n'+
-    (process.evidenceLabel?'Graph Result: '+process.evidenceLabel+'\n':'');
-  const rows=items.map((a,i)=>'| '+(i+1)+' | '+a.action+' | '+a.assignee+' | '+a.due_date+
+    (process.evidenceLabel?'Graph Result: '+md(process.evidenceLabel)+'\n':'');
+  const rows=items.map((a,i)=>'| '+(i+1)+' | '+md(a.action)+' | '+md(a.assignee)+' | '+md(a.due_date)+
     ' | НЕ ВЫПОЛНЕНО | '+a.start+'–'+a.end+' |');
-  const warnings=process.reconciliation.conflicts.map(c=>'- '+c.action+
+  const warnings=process.reconciliation.conflicts.map(c=>'- '+md(c.action)+
     ': противоречие записей '+c.indices.map(i=>i+1).join(' и '));
   const summary='# Решения встречи\n\n'+header+'\nСтатус: '+process.status+'\n'+
     'Извлечено решений: '+items.length+'. Обсуждений без решения: '+
@@ -181,11 +190,11 @@ function buildMeetingDocuments(process){
     a.start,a.end,a.quote].map(csv).join(','));
   const register=[table.map(csv).join(','),...csvRows].join('\n')+'\n';
   const human=items.map((a,i)=>'## Поручение '+(i+1)+'\n\n'+
-    'Действие: '+a.action+'\nИсполнитель: '+a.assignee+'\nСрок: '+a.due_date+
-    '\nОснование: «'+a.quote+'»\nСтатус: NOT_EXECUTED\n\n'+
+    'Действие: '+md(a.action)+'\nИсполнитель: '+md(a.assignee)+'\nСрок: '+md(a.due_date)+
+    '\nОснование: «'+md(a.quote)+'»\nСтатус: NOT_EXECUTED\n\n'+
     'Черновик для ручной передачи. Сообщение не отправлено.\n').join('\n');
   const checklist='# Вопросы и проверка перед принятием\n\n'+header+'\nСтатус: '+
-    process.status+'\n\n'+(questions.length?questions.map(q=>'- '+q).join('\n'):
+    process.status+'\n\n'+(questions.length?questions.map(q=>'- '+md(q)).join('\n'):
       '- Неясных исполнителей или сроков в явных решениях не обнаружено.')+
     (warnings.length?'\n\n'+warnings.join('\n'):'')+
     '\n\n- Проверить смысл принятых решений.\n'+

@@ -7,7 +7,7 @@ import {ComposerError,digest,matchTask,resolveRequiredCapabilities,
   createHostNeutralPlan} from '../index.mjs';
 import {solution,sampleAvailability,extractStructuredMeeting} from '../sample/open-host.mjs';
 import {extractAdoptedMeetingDecisions,prepareMeetingProcess,
-  verifyMeetingProcess,reconcileMeetingDecisions,renderMeetingDocuments,createMeetingGraphHandoff} from '../meeting-process.mjs';
+  verifyMeetingProcess,reconcileMeetingDecisions,renderMeetingDocuments,renderMeetingDraftPackage,createMeetingGraphHandoff} from '../meeting-process.mjs';
 import {publishMeetingDocuments} from '../meeting-document-host.mjs';
 const transcript=await readFile(new URL('../sample/meeting-case-05.txt',import.meta.url),'utf8');
 const expected=['Подготовить уточнённый бюджет пилота',
@@ -157,4 +157,42 @@ test('handoff maps to existing native Graph node types but does not claim Graph 
   assert.equal(projection.hostGraphExecution,'NOT_EXECUTED_BY_K04');
   assert.equal(projection.graphPersisted,false);
   assert.equal(projection.humanReview.status,'PENDING');
+});
+
+test('rendered Markdown and CSV keep source text as data, never forged rows or formulas',()=>{
+  const hostileDraft={
+    action_items:[{
+      action:' =HYPERLINK("https://example.test","click") | <img src=x>',
+      quote:'Принято предложение | отчет.\n## ВЫПОЛНЕНО <script>alert(1)</script>',
+      start:0,end:55,assignee:'Иван | директор',
+      due_date:'UNKNOWN',worker_kind:'human',actual_work_status:'NOT_EXECUTED'
+    }],
+    open_questions:['Уточнить дату\n## ВЫПОЛНЕНО <img>']
+  };
+  const packageResult=renderMeetingDraftPackage({
+    taskRef:'TASK-SAMPLE',
+    provenance:{sourceRef:'meeting-source',revision:'authored-v1',
+      rights:'AUTHOR_OWNED',transcriptDigest:'a'.repeat(64)},
+    draft:hostileDraft,
+    reconciliation:{conflicts:[],duplicates:[]},
+    status:'CLARIFICATION_REQUIRED',
+  });
+  const markdown=packageResult.documents['meeting-decisions.md'];
+  assert.equal((markdown.match(/^\| /gmu)||[]).length,3);
+  assert.ok(markdown.includes('\\|'));
+  assert.ok(markdown.includes('&lt;img'));
+  assert.ok(!markdown.includes('<img'));
+  assert.ok(!markdown.includes('\n## ВЫПОЛНЕНО'));
+  assert.ok(markdown.includes('НЕ ВЫПОЛНЕНО'));
+  const followup=packageResult.documents['human-followup-drafts.md'];
+  assert.ok(!followup.includes('\n## ВЫПОЛНЕНО'));
+  assert.ok(!followup.includes('<script>'));
+  const checklist=packageResult.documents['review-questions.md'];
+  assert.ok(!checklist.includes('\n## ВЫПОЛНЕНО'));
+  const csv=packageResult.documents['action-register.csv'];
+  assert.ok(csv.includes("\"' =HYPERLINK"));
+  assert.ok(csv.includes('NOT_EXECUTED'));
+  assert.ok(csv.includes(hostileDraft.action_items[0].quote.replace('\n',' ')));
+  for(const [name,content] of Object.entries(packageResult.documents))
+    assert.equal(digest(content),packageResult.documentDigests[name]);
 });
