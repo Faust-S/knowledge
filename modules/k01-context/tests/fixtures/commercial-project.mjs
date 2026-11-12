@@ -105,7 +105,8 @@ const rev3=doc('doc:quote-revised','2026-11-12T12:00:00Z','accepted','document',
  'Монтаж, пусконаладка, гарантия и оплата сохраняют согласованные условия.'],[
  {sourceRef:'doc:quote-approved',fields:['cabinet','sensors','freight','net','gross','lead','validity']}]);
 export function makeCommercialCase({updated=false,workspace=workspaceRef,unavailable=[],addConflict=false}={}){
- const documents=(updated?[...original,rev3]:original).map(d=>({...d,workspaceRef:workspace}));
+ // Separate every test's metadata graphs; mutations must not escape to another case.
+ const documents=(updated?[...original,rev3]:original).map(d=>({...structuredClone(d),workspaceRef:workspace}));
  if(addConflict)documents.push({...doc('doc:conflicting-decision','2026-11-11T15:00:00Z',
   'accepted','decision',['advance'],[
   '# Дополнительное решение','Аванс: 45% от суммы с НДС.','Подписант утверждает другой порядок оплаты.']),
