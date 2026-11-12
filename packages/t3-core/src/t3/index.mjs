@@ -65,5 +65,5 @@ export { createSignedAccessHostPort } from "./signed-access-host-port.mjs";
 
 export {
   LOCAL_INFERENCE_DRAFT_SCHEMA, LOCAL_INFERENCE_DRAFT_DECLARATION,
-  saveLocalInferenceDraft, listLocalInferenceDrafts,
+  saveLocalInferenceDraft, listLocalInferenceDrafts, getLocalInferenceDraft,
 } from "./local-inference-draft.mjs";
