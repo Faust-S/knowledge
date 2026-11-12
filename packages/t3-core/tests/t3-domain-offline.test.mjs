@@ -270,10 +270,17 @@ test("Explicit T3 update is atomic: confirmed version, failed download, offline 
     assert.match(await (await first.fetchPage(ORIGIN+"/profile/index.html")).text(),/Profile page/);
 
     // Owner publishes a newer complete snapshot while the installed one is live.
-    write(root,"profile/index.html",
-      '<html><body><main>Updated Profile page</main></body></html>');
-    const updatedRelease=materializeDomainMode(root);
-    assert.notEqual(updatedRelease.version,oldRelease.version);
+    // SHA names have NO chronological ordering. Force the newer release to
+    // have the lower hash, which previously made a cold SW restart roll back.
+    let updatedRelease;
+    for(let variant=0;variant<64;variant++){
+      write(root,"profile/index.html",
+        '<html><body><main>Updated Profile page '+variant+'</main></body></html>');
+      updatedRelease=materializeDomainMode(root);
+      if(updatedRelease.version<oldRelease.version)break;
+    }
+    assert.ok(updatedRelease.version<oldRelease.version,
+      "newer release intentionally has a lexicographically lower SHA");
     const check=[];
     await first.dispatch("T3_CHECK_UPDATE",{postMessage:value=>check.push(value)});
     assert.deepEqual([check.at(-1)?.type,check.at(-1)?.available],
@@ -312,6 +319,11 @@ test("Explicit T3 update is atomic: confirmed version, failed download, offline 
       /Updated Profile page/);
     const restart=fakeBrowser(root,first.caches);
     restart.setNetworkDown(true);
+    const coldStatus=[];
+    await restart.dispatch("T3_STATUS",{postMessage:value=>coldStatus.push(value)});
+    assert.equal(coldStatus.at(-1)?.version,updatedRelease.version,
+      "the exact user-installed Host/BLI version survives a cold SW restart");
+    assert.equal(coldStatus.at(-1)?.complete,true);
     assert.match(await (await restart.fetchPage(ORIGIN+"/profile/index.html")).text(),
       /Updated Profile page/,"updated version works after a cold offline restart");
     const beforeCheck=restart.liveFetches, unavailable=[];
