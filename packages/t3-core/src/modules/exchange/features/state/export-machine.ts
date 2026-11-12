@@ -47,6 +47,8 @@ export interface ExportState {
   readonly catalog: ReadonlyArray<WorkspaceRecord>;
   readonly selection: ExportSelection;
   readonly ackSensitive: boolean;
+  /** Explicit human confirmation that the downloaded archive exists as a file. */
+  readonly fileSavedConfirmed: boolean;
   readonly preview: ExportPreview | null;
   readonly artifact: PackageArtifact | null;
   readonly receipt: ConfirmExportReceipt | null;
@@ -70,6 +72,7 @@ export const INITIAL_EXPORT_STATE: ExportState = Object.freeze({
   catalog: Object.freeze([]) as ReadonlyArray<WorkspaceRecord>,
   selection: INITIAL_SELECTION,
   ackSensitive: false,
+  fileSavedConfirmed: false,
   preview: null,
   artifact: null,
   receipt: null,
@@ -84,6 +87,7 @@ export type ExportEvent =
   | { type: "workspaces-failed"; error: string }
   | { type: "set-selection"; selection: Partial<ExportSelection> }
   | { type: "ack-sensitive"; value: boolean }
+  | { type: "ack-file-saved"; value: boolean }
   | { type: "preview-started" }
   | { type: "preview-succeeded"; preview: ExportPreview }
   | { type: "preview-failed"; error: string }
@@ -104,6 +108,7 @@ function invalidate(state: ExportState, next: Partial<ExportState>): ExportState
     artifact: null,
     receipt: null,
     ackSensitive: false,
+    fileSavedConfirmed: false,
     previewSnapshot: null,
     packageSnapshot: null,
     status: state.catalog.length === 0 ? "idle" : "ready",
@@ -155,6 +160,7 @@ export function exportReducer(state: ExportState, event: ExportEvent): ExportSta
         artifact: null,
         receipt: null,
         ackSensitive: false,
+        fileSavedConfirmed: false,
         error: null,
       };
     case "workspaces-failed":
@@ -174,6 +180,7 @@ export function exportReducer(state: ExportState, event: ExportEvent): ExportSta
         return {
           ...state,
           ackSensitive: event.value,
+          fileSavedConfirmed: false,
           artifact: null,
           receipt: null,
           packageSnapshot: null,
@@ -184,11 +191,19 @@ export function exportReducer(state: ExportState, event: ExportEvent): ExportSta
         };
       }
       return { ...state, ackSensitive: event.value };
+    case "ack-file-saved":
+      // Browser download initiation is not a confirmed backup. Only a
+      // deliberate user check after the archive was offered allows the
+      // original T2 confirmExport receipt to mark it as saved.
+      if (!["download-initiated", "confirming"].includes(state.status) ||
+          !state.artifact || state.status === "confirming") return state;
+      return { ...state, fileSavedConfirmed: event.value };
     case "preview-started":
       if (!["ready", "error"].includes(state.status)) return state;
       if (state.selection.workspaces.length === 0) return state;
       return {
         ...state, status: "previewing", error: null, artifact: null, receipt: null,
+        fileSavedConfirmed: false,
         previewSnapshot: state.selection, packageSnapshot: null,
       };
     case "preview-succeeded":
@@ -198,14 +213,15 @@ export function exportReducer(state: ExportState, event: ExportEvent): ExportSta
       if (state.status !== "previewing") return state;
       return { ...state, status: "error", error: event.error };
     case "package-started":
-      if (state.status !== "preview-ready" || !state.preview) return state;
+      if (state.status !== "preview-ready" || !state.preview ||
+          !state.ackSensitive) return state;
       // §3 — freshness: refuse to package if selection drifted from preview snapshot.
       if (state.previewSnapshot && !selectionsEqual(state.previewSnapshot, state.selection)) {
         return state;
       }
       return {
         ...state, status: "packaging", error: null, artifact: null, receipt: null,
-        packageSnapshot: state.selection,
+        fileSavedConfirmed: false, packageSnapshot: state.selection,
       };
     case "package-succeeded":
       if (state.status !== "packaging") return state;
@@ -215,9 +231,10 @@ export function exportReducer(state: ExportState, event: ExportEvent): ExportSta
       return { ...state, status: "error", error: event.error };
     case "download-initiated":
       if (state.status !== "package-ready" || !state.artifact) return state;
-      return { ...state, status: "download-initiated" };
+      return { ...state, status: "download-initiated", fileSavedConfirmed: false };
     case "confirm-started":
-      if (state.status !== "download-initiated" || !state.artifact) return state;
+      if (state.status !== "download-initiated" || !state.artifact ||
+          !state.fileSavedConfirmed) return state;
       return { ...state, status: "confirming", error: null };
     case "confirm-succeeded":
       if (state.status !== "confirming" || !state.artifact) return state;
@@ -239,6 +256,7 @@ export function exportReducer(state: ExportState, event: ExportEvent): ExportSta
     case "reset":
       return { ...state, status: state.catalog.length === 0 ? "idle" : "ready",
                preview: null, artifact: null, receipt: null, ackSensitive: false,
+               fileSavedConfirmed: false,
                previewSnapshot: null, packageSnapshot: null, error: null };
     default:
       return state;
