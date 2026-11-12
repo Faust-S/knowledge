@@ -9,7 +9,7 @@ const matching=(p,map)=>Object.entries(map).filter(([key,expected])=>value(p,key
 
 test('commercial continuation: 18 current fields from history, prices, correspondence and accepted Result',async()=>{
  const host=makeCommercialCase(),p=await prepareProjectContinuation(host.request,host.sourcePort);
- assert.equal(PROJECT_CONTINUATION_VERSION,'0.1.0');
+ assert.equal(PROJECT_CONTINUATION_VERSION,'0.1.1');
  assert.equal(p.projection.contractVersion,'0.2.9');
  assert.equal(p.covered.length,18);
  assert.equal(p.projection.selected.length,18);
@@ -304,5 +304,101 @@ test('source revision change is caught even if host omitted scope advance',async
  };
  const checked=await revalidateProjectContinuation(previous,host.request,port);
  assert.equal(checked.allCurrent,false);
- assert.deepEqual(checked.failures.map(x=>x.reason),['context_changed']);
+ assert.deepEqual(checked.failures.map(x=>x.reason),['catalog_changed']);
+});
+
+
+test('field-label and required-flag changes reject saved context before any host IO',async()=>{
+ const host=makeCommercialCase();
+ const saved=await prepareProjectContinuation(host.request,host.sourcePort);
+ assert.match(saved.catalogBinding,/^[a-f0-9]{64}$/);
+ const fields=host.request.fields.map(f=>f.key==='cabinet'?
+  {...f,labels:[...f.labels,'Альтернативное название шкафа'],required:false}:f);
+ const before=host.getMetrics();
+ const check=await revalidateProjectContinuation(saved,{...host.request,fields},host.sourcePort);
+ assert.equal(check.allCurrent,false);
+ assert.deepEqual(check.failures.map(f=>f.reason),['request_mismatch']);
+ assert.deepEqual(host.getMetrics(),before,'no host reads on changed Task field intent');
+});
+
+test('source permission changes reject saved context without reading documents',async()=>{
+ const host=makeCommercialCase(),saved=await prepareProjectContinuation(host.request,host.sourcePort);
+ const before=host.getMetrics();
+ const allowedSources=host.request.allowedSources.filter(x=>x!=='doc:procurement');
+ const result=await revalidateProjectContinuation(saved,{...host.request,allowedSources},host.sourcePort);
+ assert.deepEqual(result.failures.map(f=>f.reason),['request_mismatch']);
+ assert.deepEqual(host.getMetrics(),before);
+});
+
+test('updated unapproved correspondence invalidates catalog even when accepted facts stay identical',async()=>{
+ const host=makeCommercialCase();
+ const saved=await prepareProjectContinuation(host.request,host.sourcePort);
+ const original=host.sourcePort;
+ const sourceRef='mail:proposed-discount';
+ const first=await original.readSource({sourceRef});
+ const changed=first.content.replace('102000 руб.','110000 руб.');
+ assert.notEqual(changed,first.content);
+ const revision='sha256:'+sha256(changed);
+ const port={
+  async listSources(args){
+   const current=await original.listSources(args);
+   return {...current,sources:current.sources.map(x=>x.sourceRef===sourceRef?{...x,revision}:x)};
+  },
+  async readSource(args){
+   if(args.sourceRef===sourceRef)return {complete:true,revision,content:changed};
+   return original.readSource(args);
+  }
+ };
+ const fresh=await prepareProjectContinuation(host.request,port);
+ assert.deepEqual(fresh.projection.selected,saved.projection.selected);
+ assert.deepEqual(fresh.issues,saved.issues);
+ assert.notEqual(fresh.catalogBinding,saved.catalogBinding);
+ const check=await revalidateProjectContinuation(saved,host.request,port);
+ assert.equal(check.allCurrent,false);
+ assert.deepEqual(check.failures.map(f=>f.reason),['catalog_changed']);
+});
+
+test('mutating a nested signed decision relation during read must not rewrite the first catalog',async()=>{
+ const host=makeCommercialCase(),original=host.sourcePort;
+ let mutated=false;
+ const port={
+  async listSources(args){return original.listSources(args);},
+  async readSource(args){
+   if(!mutated){
+    mutated=true;
+    const catalog=await original.listSources({});
+    const signed=catalog.sources.find(x=>x.sourceRef==='doc:payment-decision');
+    assert.deepEqual(signed.supersedes[0].fields,['advance','balance']);
+    signed.supersedes[0].fields.pop();
+   }
+   return original.readSource(args);
+  }
+ };
+ await assert.rejects(prepareProjectContinuation(host.request,port),
+  /K01_CONTINUATION_CATALOG_CHANGED_DURING_SELECTION/);
+});
+
+test('legacy or stripped continuation evidence cannot be revalidated as the new contract',async()=>{
+ const host=makeCommercialCase(),saved=await prepareProjectContinuation(host.request,host.sourcePort);
+ const before=host.getMetrics();
+ const missing={...saved};delete missing.catalogBinding;
+ await assert.rejects(revalidateProjectContinuation(missing,host.request,host.sourcePort),
+  /K01_CONTINUATION_PREVIOUS_INVALID/);
+ assert.deepEqual(host.getMetrics(),before);
+});
+
+test('canonical source ordering and supersedes list ordering do not create false drift',async()=>{
+ const host=makeCommercialCase(),saved=await prepareProjectContinuation(host.request,host.sourcePort);
+ const original=host.sourcePort;
+ const shuffled={
+  async listSources(args){
+   const item=await original.listSources(args);
+   return {...item,sources:item.sources.reverse().map(row=>({...row,
+    supersedes:[...row.supersedes].reverse(),topics:[...row.topics].reverse()}))};
+  },
+  async readSource(args){return original.readSource(args);}
+ };
+ const result=await revalidateProjectContinuation(saved,host.request,shuffled);
+ assert.equal(result.allCurrent,true);
+ assert.deepEqual(result.failures,[]);
 });

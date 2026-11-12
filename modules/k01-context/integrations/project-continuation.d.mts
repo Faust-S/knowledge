@@ -1,5 +1,5 @@
 import type {ContextProjection,ContextRequest,EpistemicKind} from '../index.js';
-export declare const PROJECT_CONTINUATION_VERSION:'0.1.0';
+export declare const PROJECT_CONTINUATION_VERSION:'0.1.1';
 export type ContinuationSourceState='accepted'|'reference'|'proposed';
 export type ContinuationSourceKind='document'|'correspondence'|'decision'|'result';
 export interface ContinuationField {
@@ -51,9 +51,11 @@ export interface ContinuationIssue {
  readonly sources:readonly string[];
 }
 export interface ContinuationProjection {
- readonly contractVersion:'0.1.0';
+ readonly contractVersion:'0.1.1';
  readonly workspaceRef:string;
  readonly scopeRevision:string;
+ /** SHA-256 canonical relevant source metadata; never source content. */
+ readonly catalogBinding:string;
  readonly request:ContextRequest;
  /** Original, compatible K01 ContextProjection; accepted facts only. */
  readonly projection:ContextProjection;

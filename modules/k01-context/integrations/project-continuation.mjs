@@ -1,6 +1,7 @@
 // Stateless host-owned continuation over the existing K01 ContextProjection.
 import {selectContext,revalidateProjection,sha256} from '../index.mjs';
-export const PROJECT_CONTINUATION_VERSION='0.1.0';
+import {fingerprintContextRequest} from '../request-binding.mjs';
+export const PROJECT_CONTINUATION_VERSION='0.1.1';
 const MAX_SOURCES=96,MAX_FIELDS=64,MAX_SOURCE_BYTES=1048576,MAX_TOTAL_BYTES=4194304,MAX_LINE_BYTES=4096;
 const valid=(s,max=512)=>typeof s==='string'&&s.trim()===s&&s.length>0&&s.length<=max&&!/[\x00-\x1f\x7f]/.test(s);
 const hexRevision=s=>typeof s==='string'&&/^sha256:[a-f0-9]{64}$/.test(s);
@@ -48,8 +49,12 @@ function validateCatalog(catalog,request){
    s.supersedes.some(v=>(typeof v==='string'?v:v.sourceRef)===s.sourceRef)||
    seen.has(s.sourceRef))fail('SOURCE_INVALID');
   seen.add(s.sourceRef);
-  if(authorized.has(s.sourceRef))sources.push({...s,topics:[...s.topics],
-   supersedes:[...s.supersedes]});
+  // Snapshot nested relations before any asynchronous source read. The host may
+  // reuse mutable objects; a later metadata change must not rewrite the before-image.
+  if(authorized.has(s.sourceRef))sources.push({...s,topics:[...s.topics].sort(cmp),
+   supersedes:s.supersedes.map(relation=>typeof relation==='string'?relation:
+    {sourceRef:relation.sourceRef,fields:[...relation.fields].sort(cmp)})
+    .sort((a,b)=>cmp(JSON.stringify(a),JSON.stringify(b)))});
  }
  return sources.sort((a,b)=>cmp(a.sourceRef,b.sourceRef));
 }
@@ -141,6 +146,16 @@ function asObservationPort(winners){
  };
 }
 
+function continuationRequest(request){
+ return {taskId:request.taskId,
+  terms:[...request.fields.map(f=>f.key),'mandatory'],allowedSources:request.allowedSources,
+  maxTokens:request.maxTokens,allowInferred:false,
+  // A changed label, mandatory flag or field mapping is a different Task intent,
+  // even if the selected excerpts happen to be byte-for-byte identical.
+  profile:'project-continuation:'+sha256(JSON.stringify([
+   PROJECT_CONTINUATION_VERSION,request.workspaceRef,request.fields])),
+  scopeRevision:request.scopeRevision};
+}
 /** Host-owned listSources/readSource. Only labeled, source-bound facts are extracted.
  * No index, account, persistence, autonomous approval, or generated facts.
  */
@@ -153,6 +168,9 @@ export async function prepareProjectContinuation(rawRequest,sourcePort){
  const allSources=validateCatalog(catalog,request);
  const fieldMap=new Map(request.fields.map(f=>[f.key,f]));
  const relevant=allSources.filter(s=>s.topics.some(k=>fieldMap.has(k)));
+ // The context is bound to the *relevant roster*, not just selected evidence.
+ // Changed pending proposals and approval metadata invalidate a saved projection.
+ const catalogBinding=sha256(JSON.stringify(relevant));
  const replaced=new Map(request.fields.map(f=>[f.key,supersededRefs(relevant,f.key)]));
  const extracted=new Map(),issues=[],failed=new Map();
  let readCount=0,readBytes=0;
@@ -202,10 +220,7 @@ export async function prepareProjectContinuation(rawRequest,sourcePort){
   workspaceRef:request.workspaceRef,allowedSources:[...request.allowedSources]});
  const endSources=validateCatalog(endCatalog,request);
  if(JSON.stringify(endSources)!==JSON.stringify(allSources))fail('CATALOG_CHANGED_DURING_SELECTION');
- const coreRequest={taskId:request.taskId,
-  terms:[...request.fields.map(f=>f.key),'mandatory'],allowedSources:request.allowedSources,
-  maxTokens:request.maxTokens,allowInferred:false,
-  profile:'project-continuation:'+request.workspaceRef,scopeRevision:request.scopeRevision};
+ const coreRequest=continuationRequest(request);
  const projection=await selectContext(coreRequest,asObservationPort(winners));
  const selectedIds=new Set(projection.selected.map(s=>s.id)),covered=[];
  for(const field of request.fields){
@@ -219,7 +234,7 @@ export async function prepareProjectContinuation(rawRequest,sourcePort){
  issues.sort((a,b)=>cmp(a.fieldKey,b.fieldKey)||cmp(a.type,b.type)||
   cmp(a.sources.join('|'),b.sources.join('|')));
  return {contractVersion:PROJECT_CONTINUATION_VERSION,workspaceRef:request.workspaceRef,
-  scopeRevision:request.scopeRevision,request:coreRequest,projection,covered,
+  scopeRevision:request.scopeRevision,catalogBinding,request:coreRequest,projection,covered,
   requiredComplete:request.fields.filter(x=>x.required).every(x=>covered.includes(x.key)),
   issues,metrics:{readCount,readBytes,sourceCount:allSources.length,
    relevantSources:relevant.length,projectionBytes:bytes(JSON.stringify(projection))}};
@@ -228,7 +243,9 @@ export async function prepareProjectContinuation(rawRequest,sourcePort){
 /** Explicit re-check against the *full* current catalog, including new sources. */
 export async function revalidateProjectContinuation(previous,rawRequest,sourcePort){
  if(!previous||previous.contractVersion!==PROJECT_CONTINUATION_VERSION||
-  !previous.projection||!previous.request||!valid(previous.workspaceRef))fail('PREVIOUS_INVALID');
+  !previous.projection||!previous.request||!valid(previous.workspaceRef)||
+  typeof previous.catalogBinding!=='string'||!/^[a-f0-9]{64}$/.test(previous.catalogBinding))
+  fail('PREVIOUS_INVALID');
  const request=validateRequest(rawRequest);
  if(request.workspaceRef!==previous.workspaceRef)
   return {allCurrent:false,checked:0,failures:[{reason:'workspace_changed'}]};
@@ -236,6 +253,10 @@ export async function revalidateProjectContinuation(previous,rawRequest,sourcePo
   return {allCurrent:false,checked:0,failures:[{reason:'task_changed'}]};
  if(request.scopeRevision!==previous.scopeRevision)
   return {allCurrent:false,checked:0,failures:[{reason:'scope_changed'}]};
+ // Avoid any private-document read when Task intent/field schema/permissions
+ // already differ from the saved projection.
+ if(fingerprintContextRequest(continuationRequest(request))!==previous.projection.requestBinding)
+  return {allCurrent:false,checked:0,failures:[{reason:'request_mismatch'}]};
  let fresh;
  try{fresh=await prepareProjectContinuation(request,sourcePort);}
  catch(e){if(e?.message==='K01_CONTINUATION_WORKSPACE_REVISION_CHANGED')
@@ -244,6 +265,8 @@ export async function revalidateProjectContinuation(previous,rawRequest,sourcePo
  const initial=previous.projection,next=fresh.projection;
  if(initial.requestBinding!==next.requestBinding)
   return {allCurrent:false,checked:0,failures:[{reason:'request_mismatch'}]};
+ if(previous.catalogBinding!==fresh.catalogBinding)
+  return {allCurrent:false,checked:0,failures:[{reason:'catalog_changed'}]};
  if(JSON.stringify(initial.selected)!==JSON.stringify(next.selected)||
   JSON.stringify(previous.issues)!==JSON.stringify(fresh.issues)||
   previous.requiredComplete!==fresh.requiredComplete)
