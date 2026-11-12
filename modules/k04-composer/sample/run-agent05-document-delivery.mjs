@@ -7,6 +7,7 @@ import {digest} from '../index.mjs';
 import {extractAdoptedMeetingDecisions} from '../meeting-process.mjs';
 import {prepareSavedMeetingDocuments} from '../saved-meeting-result.mjs';
 import {prepareAgent05FileActions,inspectAgent05FileReadbacks} from '../agent05-file-actions.mjs';
+import {projectAgent05DeliveryProgress} from '../agent05-delivery-progress.mjs';
 
 const sha=x=>createHash('sha256').update(x,'utf8').digest('hex');
 const canonical=x=>Array.isArray(x)?x.map(canonical):x!==null&&typeof x==='object'?
@@ -48,13 +49,16 @@ export async function runAgent05DocumentDelivery({directory=null,deliveryMode='c
   await mkdir(targetRoot,{recursive:true});
   let created=0,reused=0;
   const observations=[];
+  const progressRows=[];
   for(const action of batch.actions){
     if(basename(action.target)!==action.target)
       throw new Error('OPEN_HOST_SAMPLE_LEAF_ONLY');
     const file=join(targetRoot,action.target);
+    let writeState='NOT_STARTED';
     try{
       await writeFile(file,action.arguments.text,{encoding:'utf8',flag:'wx'});
       created++;
+      writeState='ACKNOWLEDGED'; // Local open-host only; not native U01.
     }catch(e){
       if(e?.code!=='EEXIST')throw e;
       reused++;
@@ -64,6 +68,8 @@ export async function runAgent05DocumentDelivery({directory=null,deliveryMode='c
       throw new Error('OPEN_HOST_READBACK_MISMATCH');
     const readReceiptDigest=digest({kind:'SYNTHETIC_OPEN_HOST_READBACK',
       name:action.name,sha256:sha(text)});
+    progressRows.push({target:action.target,writeState,
+      readback:{root_id:'personal',path:action.target,text,sha256:sha(text)}});
     observations.push({
       data:{root_id:'personal',path:action.target,text,sha256:sha(text)},
       receipt:{tool_id:'files.read',status:'SUCCEEDED',
@@ -71,6 +77,7 @@ export async function runAgent05DocumentDelivery({directory=null,deliveryMode='c
     });
   }
   const checked=inspectAgent05FileReadbacks(batch,observations);
+  const progress=projectAgent05DeliveryProgress(batch,{observations:progressRows});
   if(checked.filesCompared!==batch.actions.length)
     throw new Error('OPEN_HOST_INCOMPLETE');
   return {
@@ -84,6 +91,10 @@ export async function runAgent05DocumentDelivery({directory=null,deliveryMode='c
     },
     outputDirectory:targetRoot,
     documents:checked.files,
+    deliveryProgress:{overallStatus:progress.overallStatus,
+      counts:progress.counts,nextHostStep:progress.nextHostStep,
+      deliveryCompletedByK04:progress.deliveryCompletedByK04,
+      nativeWriteReceiptsVerifiedByK04:progress.nativeWriteReceiptsVerifiedByK04},
     created,reused,
     actualLocalOpenHostWrites:created,
     actualLocalOpenHostReadbacks:checked.filesCompared,

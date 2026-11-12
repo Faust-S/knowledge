@@ -65,6 +65,11 @@ function checkBatch(batch){
       reject('AGENT05_FILE_BATCH_CHANGED');
   }
 }
+/** Check the complete legacy or compact candidate batch without granting execution. */
+export function verifyAgent05FileActionBatch(batch){
+  checkBatch(batch);
+  return true;
+}
 export function prepareAgent05FileActions(pack,{baseDirectory='',deliveryMode='full'}={}){
   if(!['full','compact'].includes(deliveryMode))
     reject('AGENT05_DELIVERY_MODE_INVALID');

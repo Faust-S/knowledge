@@ -22,6 +22,12 @@ test('one compact real open-host file from synthetic multi-person meeting; repla
     assert.equal(result.documents.length,1);
     assert.equal(result.nativeU01Executed,false);
     assert.equal(result.nativeReceiptsAttested,false);
+    assert.equal(result.deliveryProgress.overallStatus,'HOST_REPORTED_ACK_AND_BYTES_MATCH');
+    assert.equal(result.deliveryProgress.counts.hostReportedMatched,1);
+    assert.equal(result.deliveryProgress.nextHostStep,
+      'P01_VERIFY_NATIVE_RECEIPTS_AND_CORE_RESULT');
+    assert.equal(result.deliveryProgress.deliveryCompletedByK04,false);
+    assert.equal(result.deliveryProgress.nativeWriteReceiptsVerifiedByK04,false);
     assert.equal(result.modelInferenceExecuted,false);
     assert.equal(result.employeeActionsExecuted,false);
     const names=await readdir(directory);
@@ -37,6 +43,10 @@ test('one compact real open-host file from synthetic multi-person meeting; repla
     assert.equal(again.created,0);
     assert.equal(again.reused,1);
     assert.deepEqual(again.documents,result.documents);
+    assert.equal(again.deliveryProgress.overallStatus,
+      'PREEXISTING_FILE_NEEDS_HOST_REVIEW');
+    assert.equal(again.deliveryProgress.counts.hostReportedMatched,0);
+    assert.equal(again.deliveryProgress.deliveryCompletedByK04,false);
   }finally{await rm(directory,{recursive:true,force:true});}
 });
 test('full kit is still four files using the same authored meeting source',async()=>{
@@ -46,6 +56,8 @@ test('full kit is still four files using the same authored meeting source',async
     assert.equal(output.mode,'full');
     assert.equal(output.created,4);
     assert.equal(output.actualLocalOpenHostReadbacks,4);
+    assert.equal(output.deliveryProgress.counts.hostReportedMatched,4);
+    assert.equal(output.deliveryProgress.overallStatus,'HOST_REPORTED_ACK_AND_BYTES_MATCH');
     assert.equal((await readdir(directory)).length,4);
     assert.ok(output.documents.some(row=>row.name==='action-register.csv'));
     assert.equal(output.humanReview,'PENDING');
@@ -53,6 +65,9 @@ test('full kit is still four files using the same authored meeting source',async
     assert.equal(again.created,0);
     assert.equal(again.reused,4);
     assert.deepEqual(again.documents,output.documents);
+    assert.equal(again.deliveryProgress.counts.contentConflicts,4);
+    assert.equal(again.deliveryProgress.overallStatus,
+      'PREEXISTING_FILE_NEEDS_HOST_REVIEW');
   }finally{await rm(directory,{recursive:true,force:true});}
 });
 test('an existing tampered document is refused rather than silently rewritten',async()=>{
