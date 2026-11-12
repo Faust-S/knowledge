@@ -7,6 +7,7 @@ import { activateProfile } from "./config/profile-loader";
 import { ErrorPage } from "./errors/ErrorPage";
 import { hostConfigErrorToWorkspaceCode } from "./errors/host-config-error";
 import type { WorkspaceProfileDefinition } from "./profiles/definition";
+import type { CreateWorkspaceHostRuntimeInput } from "./workspace-host/runtime";
 
 interface Activation {
   devBootstrap?: KernelBootstrap;
@@ -33,12 +34,20 @@ async function buildActivation(profileId: WorkspaceProfileId): Promise<Activatio
   };
 }
 
+/** Only a trusted, compile-time Host entrypoint may provide these owners.
+ * Never populate them from window globals, URL parameters, local storage,
+ * module manifests, or .iwxa package content. */
+export interface AppProps {
+  signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
+  signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
+}
+
 /**
  * App bootstrap — the ONLY place that turns the tri-document
  * HostConfigResult into a mounted `AppShell`. The legacy DomainConfig
  * projection is not consumed anywhere in the presentation layer.
  */
-export default function App() {
+export default function App({ signedKernelAccess, signedActivityAccess }: AppProps = {}) {
   const host = useHostConfig();
   const [activation, setActivation] = useState<Activation | null>(null);
   const [activationError, setActivationError] = useState<Error | null>(null);
@@ -87,6 +96,8 @@ export default function App() {
       profileDefinition={activation.definition}
       profileFallback={activation.fallback}
       devBootstrap={activation.devBootstrap}
+      signedKernelAccess={signedKernelAccess}
+      signedActivityAccess={signedActivityAccess}
     />
   );
 }
