@@ -43,7 +43,7 @@ export interface ContinuationSourcePort {
  }):Promise<{revision:string;complete:boolean;content?:string}>;
 }
 export type ContinuationIssueType=
- 'source_unavailable'|'superseded'|'approval_required'|'missing'|
+ 'source_unavailable'|'proposal_unavailable'|'superseded'|'approval_required'|'missing'|
  'contradiction'|'pending_change'|'ambiguous_lines'|'budget_exceeded';
 export interface ContinuationIssue {
  readonly type:ContinuationIssueType;

@@ -104,7 +104,12 @@ function supersededRefs(sources,fieldKey){
 }
 function decide(field,claims,sources,unavailable,issues){
  const key=field.key,gone=supersededRefs(sources,key);
- const blocking=unavailable.filter(ref=>!gone.has(ref));
+ // Missing unapproved correspondence cannot cancel a still-accepted term.
+ // Retain a visible warning, but do not replace proven conditions with a gap.
+ const proposalUnavailable=unavailable.filter(ref=>!gone.has(ref)&&
+  sources.some(s=>s.sourceRef===ref&&s.state==='proposed'));
+ if(proposalUnavailable.length)issues.push(issue('proposal_unavailable',key,proposalUnavailable));
+ const blocking=unavailable.filter(ref=>!gone.has(ref)&&!proposalUnavailable.includes(ref));
  if(blocking.length){issues.push(issue('source_unavailable',key,blocking));return null;}
  const candidates=claims.filter(c=>!gone.has(c.sourceRef));
  for(const old of [...gone].sort(cmp))issues.push(issue('superseded',key,[old]));
