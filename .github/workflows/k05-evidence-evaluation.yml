@@ -10,6 +10,8 @@ on:
       - 'research/cross-lab/tests/test_k05_k03_projection.py'
       - 'research/cross-lab/tests/test_k05_c17_projection.py'
       - 'research/cross-lab/tests/test_k05_agent_consumer.py'
+      - 'research/cross-lab/k05_agent05_observations.py'
+      - 'research/cross-lab/tests/test_k05_agent05_observations.py'
       - 'research/cross-lab/k05_real_offer_public.py'
       - 'research/cross-lab/tests/test_k05_real_offer_public.py'
       - 'research/cross-lab/k05_commercial_ablation.mjs'
@@ -235,6 +237,10 @@ jobs:
           assert comparison['limitations']['no_router_comparison_win_established'] is True
           print('K05_K02_PINNED_EIGHT_CASES_AND_FOUR_STRATEGIES_PASS')
           PY
+      - name: Confirm Agent 0.5 paired observation gate without private agent sources
+        run: |
+          python -m unittest research/cross-lab/tests/test_k05_agent05_observations.py -v
+          echo K05_AGENT05_PAIRED_OBSERVATIONS_CONTRACT_PASS_NO_PRIVATE_CHECKOUT
       - name: C17 aggregate projection regression (no human reviews)
         run: |
           python - <<'PY'
