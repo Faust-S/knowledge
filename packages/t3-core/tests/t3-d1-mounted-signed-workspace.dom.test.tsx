@@ -27,7 +27,8 @@ function fixture() {
     currentContext:current,
     actionFor:(_operation:string)=>"object.write",
     operationDigest:()=> "a".repeat(64),
-    authorize:(request:{grantId:string})=>{
+    authorize:(input:unknown)=>{
+      const request=input as {grantId:string};
       const c=current();
       return {
         schema:"IWXA_T3_ORGANIZATION_OPERATION_DECISION/1",
