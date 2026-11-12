@@ -114,3 +114,75 @@ test("the original subject Kernel binding uses selected local owner, blocks fore
   await assert.rejects(read.getWorkspace("ws:south"),{code:"T3_ACCESS_NOT_PERMITTED"});
   assert.deepEqual(f.reads,["ws:south"]);
 });
+
+
+test("signed Control SSE revokes the mounted Host over CRLF split across network chunks",async()=>{
+  const encoder=new TextEncoder();
+  let streamController;
+  const stream=new ReadableStream({
+    start(controller){streamController=controller;},
+  });
+  const fetchImpl=async(url,options)=>{
+    assert.equal(url,origin+"/api/t3/owner-events");
+    assert.equal(options.headers.Authorization,"Bearer "+token);
+    assert.equal(options.headers.Accept,"text/event-stream");
+    return new Response(stream,{status:200,
+      headers:{"content-type":"text/event-stream; charset=utf-8"}});
+  };
+  const owner=createControlLoopbackOwner({origin,token,fetchImpl});
+  let called=0,received;
+  const notified=new Promise(resolve=>{received=resolve;});
+  const stop=owner.subscribeSignedAccessInvalidation(()=>{
+    called++;received();
+  });
+  try {
+    // The server sends a ready event first; it must NOT revoke the Host.
+    streamController.enqueue(encoder.encode("event: ready\r\n"));
+    streamController.enqueue(encoder.encode("data: {}\r\n\r"));
+    streamController.enqueue(encoder.encode("\n"));
+    // The actual sign-out / signed STATUS change arrives in split frames.
+    streamController.enqueue(encoder.encode("event: invalidated\r"));
+    streamController.enqueue(encoder.encode("\ndata: {}\r\n\r"));
+    streamController.enqueue(encoder.encode("\n"));
+    await Promise.race([notified,new Promise((_,reject)=>
+      setTimeout(()=>reject(Error("T3_D1_STREAM_INVALIDATION_NOT_DELIVERED")),2000))]);
+    assert.equal(called,1);
+    stop();
+    streamController.close();
+    await Promise.resolve();
+    assert.equal(called,1,"an unmounted Host must not be invalidated again");
+  }finally{
+    stop();
+    try{streamController.close();}catch{}
+  }
+});
+
+test("lost original Control event stream triggers fail-closed Host invalidation",async()=>{
+  const stream=new ReadableStream({start(controller){
+    controller.enqueue(new TextEncoder().encode("event: ready\n\ndata: {}\n\n"));
+    controller.close();
+  }});
+  const owner=createControlLoopbackOwner({origin,token,
+    fetchImpl:async()=>new Response(stream,{status:200})});
+  let called=0,received;
+  const notified=new Promise(resolve=>{received=resolve;});
+  const stop=owner.subscribeSignedAccessInvalidation(()=>{called++;received();});
+  try{
+    await Promise.race([notified,new Promise((_,reject)=>
+      setTimeout(()=>reject(Error("T3_D1_DISCONNECTED_OWNER_NOT_DENIED")),2000))]);
+    assert.equal(called,1);
+  }finally{stop();}
+});
+
+test("an unavailable SSE endpoint must deny the old selected subject",async()=>{
+  const owner=createControlLoopbackOwner({origin,token,
+    fetchImpl:async()=>new Response(null,{status:503})});
+  let called=0,received;
+  const notified=new Promise(resolve=>{received=resolve;});
+  const stop=owner.subscribeSignedAccessInvalidation(()=>{called++;received();});
+  try{
+    await Promise.race([notified,new Promise((_,reject)=>
+      setTimeout(()=>reject(Error("T3_D1_OWNER_503_NOT_DENIED")),2000))]);
+    assert.equal(called,1);
+  }finally{stop();}
+});
