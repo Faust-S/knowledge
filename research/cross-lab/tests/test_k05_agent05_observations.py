@@ -201,11 +201,19 @@ class Agent05ObservedQuality(unittest.TestCase):
         result = compare()
         encoded = json.dumps(result, ensure_ascii=False)
         for private in (TASK.decode(), SOURCE.decode(), RESULT_A.decode(),
-                        RESULT_B.decode(), REF, RECEIPTS["k02"], RECEIPTS["k04"]):
+                        RESULT_B.decode(), REF, RECEIPTS["k02"], RECEIPTS["k04"],
+                        "test-local", "synthetic-model-name"):
             self.assertNotIn(private, encoded)
         self.assertIn(h(REF.encode()), encoded)
         self.assertEqual(result["runs"][0]["reported_metrics"]
                          ["saved_graph_artifact_digest"], "e" * 64)
+
+    def test_graph_artifact_revision_is_not_an_unrestricted_source_path(self):
+        b = record("tested", RESULT_B)
+        b["model_observation"]["source_revision"] = "C:/private/source/secret.md"
+        with self.assertRaisesRegex(mod.AgentComparisonHold,
+                                    "AGENT_OBSERVATION_IDENTITY_INVALID"):
+            compare(second=b)
 
     def test_none_outcomes_not_promoted_by_host_reported_latency(self):
         b = record("tested", RESULT_B)

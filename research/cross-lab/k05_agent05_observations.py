@@ -87,7 +87,8 @@ def _observation(value):
             or (value["provenance_status"] in {"NOT_RECORDED", "UNKNOWN"} and owners)):
         fail("OWNER_RECEIPTS_PROVENANCE_CONTRADICTION")
     if (type(value["source_revision"]) is not str
-            or len(value["source_revision"]) > 256
+            or not (value["source_revision"] == ""
+                    or re.fullmatch(r"(?:sha256:)?[0-9a-f]{64}", value["source_revision"]))
             or type(value["provider_id"]) is not str
             or len(value["provider_id"]) > 128
             or type(value["model"]) is not str or len(value["model"]) > 256):
@@ -104,8 +105,8 @@ def _observation(value):
         fail("OBSERVED_WITHOUT_MEASUREMENT")
     return {
         "input_tokens": inp, "output_tokens": out, "latency_ms": latency,
-        "host_model_name": value["model"],
-        "host_provider_id": value["provider_id"],
+        "host_model_name_sha256": sha256(value["model"].encode("utf-8")).hexdigest(),
+        "host_provider_id_sha256": sha256(value["provider_id"].encode("utf-8")).hexdigest(),
         "host_reported_provenance_status": value["provenance_status"],
         "saved_graph_artifact_digest": value["source_revision"],
         "owner_receipt_ref_digests": {key: sha256(ref.encode("utf-8")).hexdigest()
@@ -191,8 +192,8 @@ def compare_saved_model_runs(
         b["reported_metrics"]["host_reported_provenance_status"] == "INCOMPLETE"
     ):
         reasons.append("OWNER_RECEIPT_LINK_INCOMPLETE")
-    if (a["reported_metrics"]["host_provider_id"] != b["reported_metrics"]["host_provider_id"]
-            or a["reported_metrics"]["host_model_name"] != b["reported_metrics"]["host_model_name"]):
+    if (a["reported_metrics"]["host_provider_id_sha256"] != b["reported_metrics"]["host_provider_id_sha256"]
+            or a["reported_metrics"]["host_model_name_sha256"] != b["reported_metrics"]["host_model_name_sha256"]):
         reasons.append("MODEL_IDENTITY_CHANGED")
     comparable = not reasons
     am = a["reported_metrics"]
