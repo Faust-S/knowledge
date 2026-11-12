@@ -26,7 +26,10 @@ import type {
   WorkspaceHostRuntimeState,
 } from "./types";
 import type { ModuleLoaderTable } from "../modules";
-import type { CreateWorkspaceHostRuntimeInput } from "./types";
+import type {
+  CreateWorkspaceHostRuntimeInput,
+  SignedAccessInvalidationSubscription,
+} from "./types";
 
 interface WorkspaceHostRuntimeProviderProps {
   session: KernelSession | null;
@@ -39,6 +42,9 @@ interface WorkspaceHostRuntimeProviderProps {
    * Neither a module nor URL/package may configure these callbacks. */
   signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
   signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
+  /** Reuse the original Control owner's subscribeInvalidation. Context
+   * changes, signed STATUS and revocation must immediately detach old UI. */
+  subscribeSignedAccessInvalidation?: SignedAccessInvalidationSubscription;
   /** Compile-time imported domain loaders owned by this Host build. */
   compileTimeModuleLoaders?: ModuleLoaderTable;
   /** Prefer domain home only for site-owned shells. */
@@ -67,7 +73,7 @@ export function WorkspaceHostRuntimeProvider(
   const {
     session, workspaceConfig, termResolver, profile,
     activeCapabilities = EMPTY_CAPABILITIES,
-    signedKernelAccess, signedActivityAccess,
+    signedKernelAccess, signedActivityAccess, subscribeSignedAccessInvalidation,
     compileTimeModuleLoaders,
     preferDomainLanding = false,
     children,
@@ -75,12 +81,40 @@ export function WorkspaceHostRuntimeProvider(
   const [state, setState] = useState<WorkspaceHostRuntimeState>({
     status: "idle",
   });
+  const [accessEpoch, setAccessEpoch] = useState(0);
   const generationRef = useRef(0);
   const activeHandleRef = useRef<WorkspaceHostRuntimeHandle | null>(null);
   // Serializes every runtime teardown/start. Without this barrier, two rapid
   // session/config transitions can overlap: an older module deactivate()
   // may then dispose singleton services after the newer runtime activated.
   const transitionRef = useRef<Promise<void>>(Promise.resolve());
+
+  // The existing Access owner is responsible for signed context/status
+  // invalidations. Detach the previous subject's UI immediately, invalidate
+  // retained Kernel facades with the original Host dispose(), then rebuild
+  // through the same serialized runtime transition. No second Access state.
+  useEffect(() => {
+    if (!subscribeSignedAccessInvalidation) return;
+    return subscribeSignedAccessInvalidation(() => {
+      ++generationRef.current;
+      const previous = activeHandleRef.current;
+      activeHandleRef.current = null;
+      setState(session ? { status: "starting" } : { status: "idle" });
+      let stopped: Promise<void>;
+      try {
+        // dispose() invalidates bound D1 operations SYNCHRONOUSLY, before
+        // awaiting module and router teardown.
+        stopped = previous?.dispose() ?? Promise.resolve();
+      } catch {
+        stopped = Promise.resolve();
+      }
+      transitionRef.current = Promise.all([
+        transitionRef.current.catch(() => {}),
+        stopped.catch(() => {}),
+      ]).then(() => {});
+      setAccessEpoch(epoch => epoch + 1);
+    });
+  }, [subscribeSignedAccessInvalidation, session]);
 
   // A stable identity key so we don't restart on unrelated re-renders.
   const sessionKey = session
@@ -164,7 +198,7 @@ export function WorkspaceHostRuntimeProvider(
       // this generation stale.
     };
     // Restart only on session identity or workspaceConfig identity change.
-  }, [sessionKey, session, workspaceConfig, termResolver, profile, activeCapabilities, signedKernelAccess, signedActivityAccess, compileTimeModuleLoaders, preferDomainLanding]);
+  }, [sessionKey, session, workspaceConfig, termResolver, profile, activeCapabilities, signedKernelAccess, signedActivityAccess, accessEpoch, compileTimeModuleLoaders, preferDomainLanding]);
 
   // Unmount teardown.
   useEffect(() => {
