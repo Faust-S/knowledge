@@ -34,13 +34,16 @@ export interface FirstRunWorkspaceGateProps {
   profileId: string;
   profileFallback: boolean;
   devBootstrap?: KernelBootstrap;
+  /** A signed D1 Host owns its subject provisioning outside this legacy
+   * first-run connector; do not start an unrelated unsigned provisioner. */
+  signedOwnerRequired?: boolean;
   children: ReactNode;
 }
 
 
 export function FirstRunWorkspaceGate({
   session, domain, workspaceServiceId, profileId, profileFallback,
-  devBootstrap, children,
+  devBootstrap, signedOwnerRequired = false, children,
 }: FirstRunWorkspaceGateProps) {
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
   const selection = selectFirstRunProvisioner(domain, workspaceServiceId, currentOrigin);
@@ -58,11 +61,12 @@ export function FirstRunWorkspaceGate({
   const [refreshId, setRefreshId] = useState(0);
   const pendingIntentRef = useRef<PendingWorkspaceIntent | null>(null);
   const generation = useRef(0);
-  const primary = useMemo(() => session ? sessionApi(session) : null, [session]);
+  const primary = useMemo(() => session && !signedOwnerRequired
+    ? sessionApi(session) : null, [session, signedOwnerRequired]);
 
   useEffect(() => {
     const ticket = ++generation.current;
-    if (!provisionerId || !primary || profileFallback || devBootstrap) return;
+    if (signedOwnerRequired || !provisionerId || !primary || profileFallback || devBootstrap) return;
     setSnapshot({ session, contextKey, phase: 'checking', message: null });
     void findExistingFirstRunWorkspace(primary, profileId)
       .then((exists) => {
@@ -77,10 +81,10 @@ export function FirstRunWorkspaceGate({
         });
       });
     return () => { generation.current++; };
-  }, [primary, session, contextKey, provisionerId, profileFallback, devBootstrap, profileId, refreshId]);
+  }, [primary, session, contextKey, provisionerId, profileFallback, devBootstrap, profileId, refreshId, signedOwnerRequired]);
 
   const create = useCallback(async () => {
-    if (!primary || !session || !provisionerId || runningRef.current ||
+    if (signedOwnerRequired || !primary || !session || !provisionerId || runningRef.current ||
         phase !== 'empty' || profileFallback || devBootstrap) return;
     const ticket = generation.current;
     runningRef.current = true;
@@ -119,8 +123,11 @@ export function FirstRunWorkspaceGate({
       runningRef.current = false;
       setBusy(false);
     }
-  }, [primary, session, provisionerId, phase, contextKey, profileFallback, devBootstrap, profileId]);
+  }, [primary, session, provisionerId, phase, contextKey, profileFallback, devBootstrap, profileId, signedOwnerRequired]);
 
+  // The real signed owner selects and authorizes its Workspace. A first-run
+  // T2 provisioner must not independently enumerate or create subject data.
+  if (signedOwnerRequired) return <>{children}</>;
   if (selection.status === 'disabled') return <>{children}</>;
   if (selection.status === 'blocked') return (
     <div role="alert" data-testid="t2-first-run-blocked" className="p-6 text-amber-300">
