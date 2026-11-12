@@ -17,7 +17,7 @@ const csv=x=>{
 // Model/source text cannot create extra Markdown rows, headings, or raw HTML.
 const md=x=>String(x).replace(/[\r\n\t\u0000-\u001f\u007f]/gu,' ')
   .replace(/&/gu,'&amp;').replace(/</gu,'&lt;').replace(/>/gu,'&gt;')
-  .replace(/[\\|*_~\[\]\x60]/gu,'\\const csv=x=>'"'+String(x).replace(/"/gu,'""').replace(/\r?\n/gu,' ')+'"';');
+  .replace(/[\\|*_~\[\]\x60]/gu,'\\$&');
 const actionKey=x=>x.toLocaleLowerCase('ru-RU').replace(/[.!?]+$/u,'').replace(/\s+/gu,' ').trim();
 const pointIndex=(text,offset)=>Array.from(text.slice(0,offset)).length;
 
