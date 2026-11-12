@@ -18,6 +18,15 @@ import {assertQualifiedKernelArtifact}
   from "../src/factory2/products/domain-completion/independent-browser-witness.mjs";
 
 const core=resolve(dirname(fileURLToPath(import.meta.url)),"..");
+const hardwareRequired=process.env.T3_D5_REQUIRE_HARDWARE_GPU==="1";
+const browserLaunch={
+  headless:true,ignoreHTTPSErrors:true,
+  ...(process.platform==="darwin"?{channel:"chromium"}:{}),
+  args:process.platform==="darwin"
+    ? ["--enable-unsafe-webgpu"]
+    : ["--no-sandbox","--enable-unsafe-webgpu","--use-angle=swiftshader"],
+  viewport:{width:1280,height:900},
+};
 const qualified=process.env.IWXA_T2_QUALIFIED_KERNEL_DIST;
 if(!qualified || !existsSync(join(qualified,"_iwxa","runtime","0.3.6","runtime.js"))) {
   throw Error("T3_D5_REAL_KERNEL_ARTIFACT_REQUIRED");
@@ -69,11 +78,7 @@ try {
   }));
   cpSync(join(root,"favicon.ico"),join(root,"workspace","favicon.ico"));
   live=await serveRealKernelHost(root,{previewOrigin:true,independentWitness:true});
-  context=await chromium.launchPersistentContext(profile,{
-    headless:true,ignoreHTTPSErrors:true,
-    args:["--no-sandbox","--enable-unsafe-webgpu","--use-angle=swiftshader"],
-    viewport:{width:1280,height:900},
-  });
+  context=await chromium.launchPersistentContext(profile,browserLaunch);
   const page=context.pages()[0]||await context.newPage();
   const errors=[];
   page.on("pageerror",error=>errors.push(error.message));
@@ -135,11 +140,20 @@ try {
   const gpu=await page.evaluate(async()=>{
     if(!navigator.gpu?.requestAdapter)return {supported:false,reason:"WEBGPU_API_UNAVAILABLE"};
     try {
-      const adapter=await navigator.gpu.requestAdapter();
-      return adapter?{supported:true,reason:"ADAPTER_PRESENT"}:
-        {supported:false,reason:"WEBGPU_ADAPTER_UNAVAILABLE"};
+      const adapter=await navigator.gpu.requestAdapter({powerPreference:"high-performance"});
+      if(!adapter)return {supported:false,reason:"WEBGPU_ADAPTER_UNAVAILABLE"};
+      const info=adapter.info||{};
+      return {supported:true,reason:"ADAPTER_PRESENT",vendor:info.vendor||"",
+        device:info.device||"",architecture:info.architecture||"",
+        description:info.description||""};
     }catch(e){return {supported:false,reason:String(e)};}
   });
+  const hardwareVendor=[gpu.vendor,gpu.device,gpu.description].join(" ");
+  const realGpu=gpu.supported && /apple|nvidia|amd|intel/i.test(hardwareVendor) &&
+    !/swiftshader|software|llvmpipe|google/i.test(hardwareVendor);
+  if(hardwareRequired && !realGpu) {
+    throw Error("T3_D5_HARDWARE_WEBGPU_NOT_AVAILABLE: "+JSON.stringify(gpu));
+  }
   console.log("T3_D5_REAL_BLI_HOST_BROWSER_PASS",JSON.stringify({
     kernel:"0.3.6",contract:"1.3.0",
     panelVisible:true,webllmConsentRequired:true,
@@ -175,6 +189,7 @@ try {
         status:modelStatus.slice(0,600),requestFailures:modelFailureRequests,
         uiAndKernelPreviouslyPassed:true,
       }));
+      if(hardwareRequired)throw Error("T3_D5_HARDWARE_WEBGPU_MODEL_INSTALL_FAILED");
     }else{
       await panel.getByTestId("t3-d5-prompt")
         .fill("Hi.");
@@ -206,11 +221,7 @@ try {
           "T3_D5_GENERATED_DRAFT_ORIGINAL_KERNEL_READBACK_MISMATCH");
         await context.close();
         context=null;
-        context=await chromium.launchPersistentContext(profile,{
-          headless:true,ignoreHTTPSErrors:true,
-          args:["--no-sandbox","--enable-unsafe-webgpu","--use-angle=swiftshader"],
-          viewport:{width:1280,height:900},
-        });
+        context=await chromium.launchPersistentContext(profile,browserLaunch);
         const coldPage=context.pages()[0]||await context.newPage();
         await coldPage.goto(live.origin+"/__t2_independent_readback__",{waitUntil:"load"});
         await coldPage.waitForFunction(()=>typeof globalThis.IWXA?.connect==="function");
@@ -238,12 +249,14 @@ try {
         }
         console.log("T3_D5_REAL_WEBGPU_GENERATION_NOT_ACCEPTED",JSON.stringify({
           status:inferenceStatus.slice(0,500),generatedCharacters:output.length,
-          modelStarted:true,softwareWebGpuAdapter:true,
+          modelStarted:true,webgpu:gpu,
         }));
+        if(hardwareRequired)throw Error("T3_D5_HARDWARE_WEBGPU_GENERATION_NOT_ACCEPTED");
       }
     }
   }else{
     console.log("T3_D5_REAL_WEBGPU_ENVIRONMENT_UNAVAILABLE",JSON.stringify(gpu));
+    if(hardwareRequired)throw Error("T3_D5_HARDWARE_WEBGPU_API_UNAVAILABLE");
   }
 
 }finally{

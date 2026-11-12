@@ -135,3 +135,42 @@ jobs:
         run: |
           node scripts/qualify-bli-inherited-host.mjs
           node tests/t3-d5-full-bli.browser.mjs
+
+  metal-webgpu:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install inherited T3 Host dependencies
+        run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+      - name: Use OpenSSL 3 for temporary local test certificate
+        run: |
+          if ! brew list --versions openssl@3 >/dev/null 2>&1; then
+            brew install openssl@3
+          fi
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+      - name: Verify and stage original T2 Kernel 0.3.6
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+        run: |
+          set -eu
+          archive=qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip
+          echo "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68  $archive" | shasum -a 256 -c -
+          mkdir -p "$IWXA_T2_QUALIFIED_KERNEL_DIST"
+          unzip -q "$archive" -d "$IWXA_T2_QUALIFIED_KERNEL_DIST"
+          node --input-type=module -e 'import {assertQualifiedKernelArtifact} from "./src/factory2/products/domain-completion/independent-browser-witness.mjs"; assertQualifiedKernelArtifact(process.env.IWXA_T2_QUALIFIED_KERNEL_DIST,{kernel:"0.3.6",contract:"1.3.0",artifactId:"iwxa-kernel-k036-same-store-history-20261019-qualified.1"});'
+      - name: Install Chromium for Metal/WebGPU
+        working-directory: packages/t3-core
+        run: npx --no-install playwright install chromium
+      - name: Build complete BLI and qualify real Metal generation, Kernel readback and cold restart
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+          T3_D5_REQUIRE_HARDWARE_GPU: '1'
+        run: |
+          node scripts/qualify-bli-inherited-host.mjs
+          node tests/t3-d5-full-bli.browser.mjs
