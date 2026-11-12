@@ -26,6 +26,7 @@ import type {
   WorkspaceHostRuntimeState,
 } from "./types";
 import type { ModuleLoaderTable } from "../modules";
+import type { CreateWorkspaceHostRuntimeInput } from "./types";
 
 interface WorkspaceHostRuntimeProviderProps {
   session: KernelSession | null;
@@ -34,6 +35,10 @@ interface WorkspaceHostRuntimeProviderProps {
   profile: ProfileFacade;
   /** Optional live snapshot supplied by the Host for defense-in-depth UI/module guards. */
   activeCapabilities?: readonly string[];
+  /** Trusted embedding Host supplies the original signed Access owner.
+   * Neither a module nor URL/package may configure these callbacks. */
+  signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
+  signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
   /** Compile-time imported domain loaders owned by this Host build. */
   compileTimeModuleLoaders?: ModuleLoaderTable;
   /** Prefer domain home only for site-owned shells. */
@@ -62,6 +67,7 @@ export function WorkspaceHostRuntimeProvider(
   const {
     session, workspaceConfig, termResolver, profile,
     activeCapabilities = EMPTY_CAPABILITIES,
+    signedKernelAccess, signedActivityAccess,
     compileTimeModuleLoaders,
     preferDomainLanding = false,
     children,
@@ -128,6 +134,8 @@ export function WorkspaceHostRuntimeProvider(
             termResolver,
             profile,
             activeCapabilities,
+            signedKernelAccess,
+            signedActivityAccess,
             compileTimeModuleLoaders,
             preferDomainLanding,
           });
@@ -156,7 +164,7 @@ export function WorkspaceHostRuntimeProvider(
       // this generation stale.
     };
     // Restart only on session identity or workspaceConfig identity change.
-  }, [sessionKey, session, workspaceConfig, termResolver, profile, activeCapabilities, compileTimeModuleLoaders, preferDomainLanding]);
+  }, [sessionKey, session, workspaceConfig, termResolver, profile, activeCapabilities, signedKernelAccess, signedActivityAccess, compileTimeModuleLoaders, preferDomainLanding]);
 
   // Unmount teardown.
   useEffect(() => {
