@@ -7,6 +7,7 @@ import {join} from 'node:path';
 import {performance} from 'node:perf_hooks';
 import {OllamaLocalModelProvider,MODEL_INPUT,MODEL_OUTPUT} from '../adapters/ollama-local.mjs';
 import {JqCalculationCliProvider,CALCULATION_INPUT,CALCULATION_OUTPUT} from '../adapters/jq-calculation-cli.mjs';
+import {GitCliProvider,GIT_INPUT,GIT_OUTPUT} from '../adapters/git-cli.mjs';
 import {NodeEvidenceCliProvider,AUDIT_INPUT,AUDIT_OUTPUT} from '../adapters/node-evidence-cli.mjs';
 import {CONTRACT_VERSION,resolveRequirements,buildInvocationPlan,
   verifyInvocationReadiness,verifySkillBinding,validateInvocationOutput} from '../index.mjs';
@@ -57,6 +58,10 @@ const requirement=(id,kind,cap,input,output)=>({requirementId:id,kind,
  ...(kind==='model'?{inputModes:['text'],outputModes:['text']}:{}),
 });
 async function invokeModel(id,prompt,phase){
+ if(!phase.startsWith('calibration:')){
+   assert.ok(prompt.includes(textDocs[0].trim()),'CONTEXT_DOC_A_DROPPED');
+   assert.ok(prompt.includes(textDocs[1].trim()),'CONTEXT_DOC_B_DROPPED');
+ }
  const provider=providers[id],desc=await provider.describeCapabilities();
  assert.equal(desc.availability,'available',desc.unavailableReason??'UNAVAILABLE');
  const sol={solutionId:'study-'+id,requirements:[
@@ -141,13 +146,14 @@ const stages=names.map(([id,taskClass,difficulty])=>({stageId:'task-step-'+id,
  step:{taskClass,difficulty,minObservedSuccessRate:0.5,minSamples:2,
    maxAttempts:1,maxLatencyMs:null,maxMemoryMiB:null}}));
 const startRam=memAvailable();
+const observedAtMs=Date.now();
 const recommendation=recommendTaskStages({
  task:{taskId:'k02-document-task',solutionId:solution.solutionId},
  solution,stages,available,profiles,qualityEvidence:quality,resourceProfiles:resources,
  resourceObservation:startRam===null?null:{availableRamMiB:startRam,
-   availableVramMiB:null,observedAtMs:100000,maxAgeMs:10000,
+   availableVramMiB:null,observedAtMs,maxAgeMs:10000,
    sourceRef:'linux-proc-MemAvailable'},
- environment:{operatingSystem:osVersion},nowMs:100001,selectedSkills:[],
+ environment:{operatingSystem:osVersion},nowMs:Date.now(),selectedSkills:[],
  contextBinding:{ref:'public-open-documents',digest:contextDigest},
 });
 const extractPrompt='Read both documents, output ONLY project ID.\n'+docText;
@@ -234,6 +240,140 @@ async function variant(id,models,{skill=false,program=false}={}){
    hostComputeCostUsd:null,contextPreserved:true};
  reports.push(item);
 }
+async function toolFirstVariant(){
+ const id='k02-source-skill-jq',started=performance.now();
+ const realGit=new GitCliProvider(process.cwd());
+ const realAudit=new NodeEvidenceCliProvider();
+ const realJq=new JqCalculationCliProvider();
+ const activeQwen=providers.qwen;
+ const descs=await Promise.all([
+   realGit.describeCapabilities(),realAudit.describeCapabilities(),
+   realJq.describeCapabilities(),activeQwen.describeCapabilities(),
+ ]);
+ assert.ok(descs.every(x=>x.availability==='available'),'TOOL_FIRST_PROVIDER_UNAVAILABLE');
+ const skill=JSON.parse(await readFile(new URL('../skills/exact-source-audit.skill.json',import.meta.url),'utf8'));
+ const skillBytes=new Uint8Array(await readFile(new URL('../skills/exact-source-audit.instructions.json',import.meta.url)));
+ const stepSolution={solutionId:'k02-source-verified-report',requirements:[
+   requirement('invoice-a','tool','source.git.show',GIT_INPUT,GIT_OUTPUT),
+   requirement('invoice-b','tool','source.git.show',GIT_INPUT,GIT_OUTPUT),
+   requirement('order-data','tool','source.git.show',GIT_INPUT,GIT_OUTPUT),
+   requirement('quote-audit','tool','evidence.exact.audit',AUDIT_INPUT,AUDIT_OUTPUT),
+   requirement('compute','tool','invoice.calculate',CALCULATION_INPUT,CALCULATION_OUTPUT),
+   requirement('report','model','text.generate',MODEL_INPUT,MODEL_OUTPUT),
+ ]};
+ const staged=[
+   ['invoice-a','read-invoice-a'],['invoice-b','read-invoice-b'],
+   ['order-data','read-order-data'],['quote-audit','audit-source'],
+   ['compute','calculate-confirmed'],
+ ].map(([requirementId,stageId])=>({requirementId,stageId,requiredContextTokens:1200}));
+ staged.push({stageId:'optional-model-summary',requirementId:'report',requiredContextTokens:1800,
+   step:{taskClass:'summary',difficulty:'complex',minObservedSuccessRate:0.5,
+     minSamples:2,maxAttempts:1,maxLatencyMs:null,maxMemoryMiB:null}});
+ const recommended=recommendTaskStages({
+   task:{taskId:'open-verified-document-report',solutionId:stepSolution.solutionId},
+   solution:stepSolution,stages:staged,available:descs,profiles,
+   qualityEvidence:quality,resourceProfiles:resources,selectedSkills:[skill],
+   resourceObservation:startRam===null?null:{availableRamMiB:startRam,
+     availableVramMiB:null,observedAtMs:Date.now(),maxAgeMs:10000,
+     sourceRef:'linux-proc-MemAvailable'},
+   nowMs:Date.now(),environment:{operatingSystem:osVersion},
+   contextBinding:{ref:'public-open-documents',digest:contextDigest},
+ });
+ assert.equal(recommended.decision,'STAGES_PROPOSED_NOT_AUTHORIZED');
+ assert.equal(recommended.plan.steps.length,6);
+ assert.equal(recommended.plan.skills[0].skillId,'exact-source-audit');
+ assert.equal(verifySkillBinding(recommended.plan,skill.skillId,skill,
+   skillBytes,recommended.plan.planDigest).status,'MATCHED_NOT_ACTIVATED');
+ const latestRevision=process.env.GITHUB_SHA;
+ assert.match(latestRevision??'',/^[a-f0-9]{40}$/);
+ const readPaths=['INV-1042.txt','INV-1043.txt','orders.json'];
+ const actualContents=[];
+ for(let i=0;i<readPaths.length;i++){
+   const stageId=['invoice-a','invoice-b','order-data'][i];
+   const b=await verifyInvocationReadiness(recommended.plan,stageId,realGit,
+     recommended.plan.planDigest);
+   assert.equal(b.status,'MATCHED_NOT_AUTHORIZED');
+   const got=await realGit.invoke('source.git.show',{
+     revision:latestRevision,path:'modules/k02-interoperability/fixtures/document-task/'+readPaths[i],
+   },{hostApproved:true});
+   assert.equal(got.status,'SUCCEEDED');
+   actualContents.push(got.output.content);
+   assert.equal(got.output.sha256,sha(got.output.content));
+ }
+ assert.equal(actualContents[0],textDocs[0]);
+ assert.equal(actualContents[1],textDocs[1]);
+ const values=JSON.parse(actualContents[2]);
+ assert.deepEqual(values,data);
+ assert.equal(sha(actualContents[0]+'\n\n'+actualContents[1]+'\n'+JSON.stringify(values)),contextDigest);
+ const quoteStep=await verifyInvocationReadiness(recommended.plan,'quote-audit',realAudit,
+   recommended.plan.planDigest);
+ assert.equal(quoteStep.status,'MATCHED_NOT_AUTHORIZED');
+ const verifiedText=actualContents[0]+'\n\n'+actualContents[1];
+ const excerpts=[
+   'Line item: brackets, quantity 12 at 125.00 RUB each.',
+   'Line item: cable fittings, quantity 7 at 45.00 RUB each.',
+ ].map((quote,i)=>({action:'Check '+readPaths[i],quote,
+   start:verifiedText.indexOf(quote),end:verifiedText.indexOf(quote)+quote.length}));
+ const quoteCheck=await realAudit.invoke('evidence.exact.audit',
+   {transcript:verifiedText,candidates:excerpts},{hostApproved:true});
+ assert.equal(quoteCheck.status,'SUCCEEDED');
+ assert.equal(quoteCheck.output.accepted.length,2);
+ assert.equal(quoteCheck.output.rejected.length,0);
+ const calcStep=await verifyInvocationReadiness(recommended.plan,'compute',realJq,
+   recommended.plan.planDigest);
+ assert.equal(calcStep.status,'MATCHED_NOT_AUTHORIZED');
+ const computed=await realJq.invoke('invoice.calculate',{orders:values.orders},{hostApproved:true});
+ assert.equal(computed.status,'SUCCEEDED');
+ assert.deepEqual(computed.output.lines.map(x=>x.totalCents),[141000,33500]);
+ assert.equal(computed.output.grandTotalCents,174500);
+ await verifyInvocationReadiness(recommended.plan,'report',activeQwen,recommended.plan.planDigest);
+ let proposal='';
+ try{proposal=await invokeModel('qwen',reportPrompt('1745.00 RUB'),'tool-first:report');}
+ catch(e){problems.push({phase:'tool-first-model-suggestion',error:String(e.code??e.message)});}
+ const proposalValid=assess(values.project,computed.output.grandTotalCents,proposal).finalFields;
+ // A failed model draft is not allowed to corrupt a verified file. The host
+ // writes a deterministic report from independently observed tool output.
+ const reportText=[
+   '# Verified procurement document report',
+   '',
+   'Project: '+values.project,
+   'Currency: '+values.currency,
+   '',
+   '| Invoice | Payable (RUB) |',
+   '| --- | ---: |',
+   ...computed.output.lines.map(x=>'| '+x.documentId+' | '+(x.totalCents/100).toFixed(2)+' |'),
+   '',
+   'Grand total: '+(computed.output.grandTotalCents/100).toFixed(2)+' RUB',
+   '',
+   'Source revision: '+latestRevision,
+   'Source SHA-256 A: '+sha(actualContents[0]),
+   'Source SHA-256 B: '+sha(actualContents[1]),
+   'Source SHA-256 data: '+sha(actualContents[2]),
+   '',
+   'Exact source quotations verified: '+quoteCheck.output.accepted.length,
+   ...quoteCheck.output.accepted.map(x=>'- '+x.quote),
+   '',
+   'Model commentary: '+(proposalValid?'APPROVED_FOR_DRAFT':'REJECTED_INCORRECT_OR_INCOMPLETE'),
+   'Human Review: REQUIRED before a Personal Agent Result can be accepted.',
+ ].join('\n')+'\n';
+ const path=join(outDir,id+'.md');
+ await writeFile(path,reportText,'utf8');
+ const loaded=await readFile(path,'utf8');
+ assert.equal(sha(loaded),sha(reportText));
+ const correct=assess(values.project,computed.output.grandTotalCents,loaded);
+ assert.ok(correct.project&&correct.total&&correct.finalFields);
+ assert.equal(recommended.hostAuthorityGranted,false);
+ reports.push({id,status:'REAL_INVOKE',userResultSuccessful:true,
+   durationMs:Number((performance.now()-started).toFixed(2)),
+   checks:correct,modelDraftVerified:proposalValid,
+   modelDraftIncluded:false,deterministicVerifiedFallback:!proposalValid,
+   sourceFilesReadByGit:3,sourceQuotesVerified:2,jqExecuted:true,
+   toolProofClasses:['REAL_GIT_CLI','REAL_NODE_CLI','REAL_JQ_PROCESS_NOT_PRODUCT_TASK'],
+   selected:recommended.stages.map(x=>[x.requirementId,x.providerId]),
+   fileReadback:true,fileDigest:sha(loaded),providerFeeUsd:0,
+   hostComputeCostUsd:null,contextPreserved:true});
+}
+
 const direct={extract:'qwen',arithmetic:'qwen',report:'qwen'};
 await variant('single-model',direct);
 if(recommendation.decision==='STAGES_PROPOSED_NOT_AUTHORIZED'){
@@ -244,8 +384,10 @@ if(recommendation.decision==='STAGES_PROPOSED_NOT_AUTHORIZED'){
  reason:recommendation.blocked,userResultSuccessful:false,hostComputeCostUsd:null});
 await variant('model-and-skill',direct,{skill:true});
 await variant('model-and-cli',direct,{program:true});
+await toolFirstVariant();
 assert.ok(counts.mini>=2 && counts.qwen>=2,'TWO_REAL_MODEL_VARIANTS_MUST_RUN');
-assert.equal(reports.length,4);
+assert.equal(reports.length,5);
+assert.equal(reports.find(x=>x.id==='k02-source-skill-jq')?.userResultSuccessful,true);
 const measured={schema:'IWXA.K02.LIVE_DOCUMENT_STUDY/0.1.0',
   sourceDigest:contextDigest,modelVariants:modelArgs,calibration,
   recommendation:{decision:recommendation.decision,blocked:recommendation.blocked,
