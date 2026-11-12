@@ -72,13 +72,24 @@ export function recommendTaskStages({
   if(!str(contextBinding.ref)||!HEX.test(contextBinding.digest??''))issue('context_identity');
   if(resourceProfiles.length>128||Object.keys(userModelPins).length>32)issue('input_size');
   const budget=budgetSnapshot(resourceObservation,nowMs);
-  const seen=new Set(),selected=[],results=[],blocked=[];
+  // K04 owns the decomposition. A host cannot accidentally get a ready
+  // K02 plan after dropping one required K04 capability request.
+  const declared=new Set();
+  for(const requirement of solution.requirements){
+    if(!rec(requirement)||!str(requirement.requirementId)||
+       declared.has(requirement.requirementId))issue('solution_requirements');
+    declared.add(requirement.requirementId);
+  }
+  const allowedPins=new Set(solution.requirements.filter(r=>r.kind==='model').map(r=>r.requirementId));
+  if(Object.keys(userModelPins).some(id=>!allowedPins.has(id)))issue('unmatched_user_model_pin');
+  const seen=new Set(),seenStageIds=new Set(),selected=[],results=[],blocked=[];
   for(const stage of stages){
     keys(stage,['stageId','requirementId','step','requiredContextTokens','providerId'],'stage');
     if(!str(stage.stageId)||!str(stage.requirementId)||seen.has(stage.requirementId)||
+       seenStageIds.has(stage.stageId)||
        !Number.isSafeInteger(stage.requiredContextTokens)||stage.requiredContextTokens<1)
        issue('stage_identity_or_context');
-    seen.add(stage.requirementId);
+    seen.add(stage.requirementId);seenStageIds.add(stage.stageId);
     const requirements=solution.requirements.filter(r=>r.requirementId===stage.requirementId);
     if(requirements.length!==1)issue('stage_requirement_missing_or_duplicated');
     const requirement=requirements[0];
@@ -141,6 +152,10 @@ export function recommendTaskStages({
         expectedLatencyMs:bound?.latencyMsP50??null});
       if(!bound)blocked.push({requirementId:stage.requirementId,reason:selectedToolProvider.reason});
     }else issue('unsupported_stage_kind');
+  }
+  for(const requirement of solution.requirements){
+    if(requirement.required!==false&&!seen.has(requirement.requirementId))
+      blocked.push({requirementId:requirement.requirementId,reason:'REQUIRED_STAGE_MISSING'});
   }
   let plan=null,skillIssue=null;
   if(blocked.length===0){

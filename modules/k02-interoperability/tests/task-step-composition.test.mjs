@@ -204,3 +204,32 @@ test('real Git CLI source read must use HOST_AUTHORIZED_READ, never PURE_COMPUTE
   assert.equal(r.plan.steps[0].effectClass,'HOST_AUTHORIZED_READ');
   assert.equal(r.hostAuthorityGranted,false);
 });
+
+test('missing required K04 step never generates a partial approved-looking Task plan',()=>{
+  const r=go({stages:stages.filter(x=>x.requirementId!=='calculate')});
+  assert.equal(r.decision,'INCOMPATIBLE');
+  assert.equal(r.plan,null);
+  assert.ok(r.blocked.some(x=>x.requirementId==='calculate'&&x.reason==='REQUIRED_STAGE_MISSING'));
+  assert.equal(r.hostAuthorityGranted,false);
+});
+test('an omitted optional K04 step stays optional and does not require a Graph rewrite',()=>{
+  const alternative={...solution,requirements:solution.requirements.map(r=>
+    r.requirementId==='calculate'?{...r,required:false}:r)};
+  const remaining=stages.filter(x=>x.requirementId!=='calculate');
+  const r=go({solution:alternative,stages:remaining});
+  assert.equal(r.decision,'STAGES_PROPOSED_NOT_AUTHORIZED');
+  assert.equal(r.plan.steps.length,3);
+  assert.ok(r.plan.steps.every(x=>x.requirementId!=='calculate'));
+  assert.equal(r.taskExecuted,false);
+});
+test('duplicate stage ids and unknown user model pins fail before producing any execution plan',()=>{
+  const alias=stages.map(x=>({...x}));
+  alias[1].stageId=alias[0].stageId;
+  assert.throws(()=>go({stages:alias}),/INVALID_STAGE_SELECTION/);
+  assert.throws(()=>go({userModelPins:{unknownStage:SMALL}}),/INVALID_STAGE_SELECTION/);
+  assert.throws(()=>go({userModelPins:{calculate:SMALL}}),/INVALID_STAGE_SELECTION/);
+});
+test('duplicate declared requirements cannot be hidden by omitting one occurrence',()=>{
+  const duplicated={...solution,requirements:[...solution.requirements,solution.requirements[2]]};
+  assert.throws(()=>go({solution:duplicated}),/INVALID_STAGE_SELECTION/);
+});
