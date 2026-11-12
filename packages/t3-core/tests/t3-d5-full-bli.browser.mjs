@@ -207,6 +207,8 @@ try {
         // reach the original Kernel and remain readable after browser restart.
         const reviewed=output.trim()+" [user-reviewed]";
         await panel.getByTestId("t3-d5-editable-draft").fill(reviewed);
+        assert.equal(await panel.getByRole("button",{name:"Сохранить черновик через Kernel"}).isEnabled(),true,
+          "generated, user-edited draft must be explicitly saveable");
         await panel.getByRole("button",{name:"Сохранить черновик через Kernel"}).click();
         await statusLine.filter({hasText:"Kernel подтвердил запись и чтение:"})
           .waitFor({state:"visible",timeout:30000});
