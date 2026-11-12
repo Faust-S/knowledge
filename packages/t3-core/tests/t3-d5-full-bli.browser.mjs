@@ -295,6 +295,19 @@ try {
         await coldLauncher.getByRole("button",{name:"Открыть локальную модель"}).click();
         const coldPanel=coldPage.getByTestId("t3-local-inference-panel");
         await coldPanel.waitFor({state:"visible",timeout:15000});
+        // Browser process restart may restore the Kernel DB without restoring
+        // Host focus. Use the existing Workspace owner, not an implicit
+        // rewrite or an unscoped draft save.
+        const restoredFocus=await coldPanel.locator("strong").first().textContent();
+        if(restoredFocus?.trim()!==chosenWorkspace){
+          await coldPanel.getByRole("button",{name:"Найти рабочие области"}).click();
+          await coldPanel.getByLabel("Workspace для локальной модели")
+            .selectOption(chosenWorkspace);
+          await coldPanel.getByRole("button",{name:"Использовать выбранный Workspace"}).click();
+          await coldPage.waitForFunction(id=>
+            document.querySelector('[data-testid="t3-local-inference-panel"] strong')
+              ?.textContent?.includes(id),chosenWorkspace);
+        }
         await coldPanel.getByRole("button",{name:"Из кеша, без сети"}).waitFor({state:"visible"});
         const cacheButton=coldPanel.getByRole("button",{name:"Из кеша, без сети"});
         await cacheButton.waitFor({state:"attached"});
@@ -312,6 +325,44 @@ try {
           savedObject:savedId,originalKernelReadback:true,
           browserColdRestart:true,networkDisabled:true,
           offlineHost:true,offlineModelLoadedFromCache:true,
+        }));
+        // Prove continued offline productivity: the reopened *same* model
+        // actually generates a NEW response while networking is disabled.
+        // The user edits and explicitly saves it through the original
+        // scoped Kernel, then reads back the new persisted object.
+        await coldPanel.getByTestId("t3-d5-prompt")
+          .fill("Reply with one short word about offline work.");
+        await coldPanel.getByTestId("t3-d5-max-tokens").fill("12");
+        await coldPanel.getByRole("button",{name:"Сгенерировать локально"}).click();
+        const offlineStatus=coldPanel.locator('p[role="status"][aria-live="polite"]');
+        await offlineStatus.filter({hasText:"Черновик готов."})
+          .waitFor({state:"visible",timeout:120000});
+        const offlineOutput=await coldPanel.getByTestId("t3-d5-editable-draft").inputValue();
+        assert.ok(offlineOutput.trim(),
+          "T3_D5_OFFLINE_RESTARTED_WEBGPU_INFERENCE_EMPTY");
+        const offlineReviewed=offlineOutput.trim()+" [edited offline]";
+        await coldPanel.getByTestId("t3-d5-editable-draft").fill(offlineReviewed);
+        await coldPanel.getByRole("button",{name:"Сохранить черновик через Kernel"}).click();
+        await offlineStatus.filter({hasText:"Kernel подтвердил запись и чтение:"})
+          .waitFor({state:"visible",timeout:30000});
+        const offlineReceipt=await offlineStatus.textContent();
+        const offlineId=offlineReceipt?.match(/local-inference:[0-9a-f-]{36}/i)?.[0];
+        assert.ok(offlineId && offlineId!==savedId,
+          "T3_D5_OFFLINE_SECOND_KERNEL_RECEIPT_MISSING");
+        const offlineReadback=await coldPage.evaluate(async({workspace_id,object_id})=>{
+          const session=await globalThis.IWXA.connect({service_id:"iwxa.workspace.integration"});
+          return session.t1.getObject(workspace_id,object_id);
+        },{workspace_id:chosenWorkspace,object_id:offlineId});
+        assert.equal(offlineReadback?.object?.data?.text,offlineReviewed,
+          "T3_D5_OFFLINE_NEW_GENERATION_KERNEL_READBACK_MISMATCH");
+        assert.equal(await coldPage.evaluate(()=>navigator.onLine),false,
+          "offline inference must not silently enable network");
+        console.log("T3_D5_REAL_WEBGPU_OFFLINE_REGENERATION_KERNEL_PASS",JSON.stringify({
+          model:"SmolLM2-360M-Instruct-q4f32_1-MLC",
+          freshGeneratedCharacters:offlineOutput.length,
+          workspace:chosenWorkspace,savedObject:offlineId,
+          networkDisabled:true,originalKernelReadback:true,
+          priorDraftStillReadable:true,explicitSecondSave:true,
         }));
       }else{
         const timedOut=/Модель не выдала первый токен|Модель перестала отвечать/.test(inferenceStatus);
