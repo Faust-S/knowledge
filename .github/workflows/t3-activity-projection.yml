@@ -71,6 +71,9 @@ jobs:
         if: always()
         working-directory: packages/t3-core
         run: npm run test:product:workspace
+      - name: Compile full BLI1 Workspace panel + WebLLM Worker in inherited T3 Host
+        working-directory: packages/t3-core
+        run: node scripts/qualify-bli-inherited-host.mjs
       # Nonportable archival metadata checks are retained for explicit forensic runs.
       # A regular successor product push must not burn time on expected T2-only layout.
       - name: Original T2 archival Node diagnostics (nonportable T2 metadata)
