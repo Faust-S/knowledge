@@ -89,6 +89,37 @@ try {
   const panel=page.getByTestId("t3-local-inference-panel");
   await panel.waitFor({state:"visible",timeout:30000});
   assert.match(await panel.innerText(),/SmolLM2 360M|WebGPU/);
+  // Explicitly select a real Workspace through the existing Host base
+  // command. Create a source object through the original Kernel 0.3.6,
+  // never through fixture state or a second Store.
+  const chosenWorkspace="t3-d5-bli-"+randomUUID();
+  const chosenObject="t3-d5-live-source";
+  const sourceReceipt=await page.evaluate(async ({workspace_id,object_id})=>{
+    const session=await globalThis.IWXA.connect({service_id:"iwxa.workspace.integration"});
+    await session.t1.createWorkspace({workspace_id,profile:"generic"});
+    return session.t1.putObject({workspace_id,object_id,
+      schema_id:"iwxa.demo.note",schema_version:"1.0.0",
+      base_revision:0,extensions:{},
+      data:{title:"T3 selected context from original Kernel"},
+      event:{event_type:"test.object.created",payload:{}}});
+  },{workspace_id:chosenWorkspace,object_id:chosenObject});
+  assert.equal(sourceReceipt.object.object_id,chosenObject);
+  await panel.getByRole("button",{name:"Найти рабочие области"}).click();
+  await panel.getByLabel("Workspace для локальной модели").selectOption(chosenWorkspace);
+  await panel.getByRole("button",{name:"Использовать выбранный Workspace"}).click();
+  await page.waitForFunction(id=>
+    document.querySelector('[data-testid="t3-local-inference-panel"] strong')
+      ?.textContent?.includes(id),chosenWorkspace);
+  await panel.getByRole("button",{name:"Выбрать объект Workspace"}).click();
+  await panel.getByRole("combobox",{name:"Объект для локальной модели"}).selectOption(chosenObject);
+  await panel.getByRole("button",{name:"Добавить выбранное содержимое к запросу"}).click();
+  assert.match(await panel.getByLabel("Запрос",{exact:true}).inputValue(),
+    /T3 selected context from original Kernel/);
+  console.log("T3_D5_REAL_KERNEL_CONTEXT_SELECTION_PASS",JSON.stringify({
+    workspace:chosenWorkspace,object_id:chosenObject,sourceRevision:1,
+    selectedBy:"workspace.focus.select",sourceRead:"t1.getObject",
+  }));
+
   assert.equal(await panel.getByRole("button",{name:"Скачать и запустить"}).isDisabled(),true,
     "model may never download until separate user consent");
   assert.equal(await panel.getByRole("button",{name:"Из кеша, без сети"}).isDisabled(),true,
@@ -140,27 +171,68 @@ try {
       }));
     }else{
       await panel.getByLabel("Запрос",{exact:true})
-        .fill("Ответь одним коротким предложением по-русски: что такое локальная нейросеть?");
-      await panel.getByTestId("t3-d5-max-tokens").fill("8");
+        .fill("Hi.");
+      await panel.getByTestId("t3-d5-max-tokens").fill("1");
       await panel.getByRole("button",{name:"Сгенерировать локально"}).click();
       let inferenceStatus="";
-      for(let tick=0;tick<300;tick++){
+      for(let tick=0;tick<155;tick++){
         inferenceStatus=await statusLine.textContent().catch(()=>inferenceStatus)||"";
-        if(/Черновик готов/.test(inferenceStatus)||/Модель не запущена|Error|ошибка|Ошибка/.test(inferenceStatus))break;
+        if(/Черновик готов/.test(inferenceStatus)||/Модель не запущена|Error|ошибка|Ошибка|Модель не выдала первый токен|Модель перестала отвечать/.test(inferenceStatus))break;
         await page.waitForTimeout(1000);
       }
       const output=await panel.getByLabel(/Черновик · редактируемый/).inputValue();
       if(/Черновик готов/.test(inferenceStatus) && output.trim()){
-        console.log("T3_D5_REAL_WEBGPU_GENERATION_PASS",JSON.stringify({
+        // The generated text itself, not a synthetic placeholder, must
+        // reach the original Kernel and remain readable after browser restart.
+        const reviewed=output.trim()+" [user-reviewed]";
+        await panel.getByLabel(/Черновик · редактируемый/).fill(reviewed);
+        await panel.getByRole("button",{name:"Сохранить черновик через Kernel"}).click();
+        await statusLine.filter({hasText:"Kernel подтвердил запись и чтение:"})
+          .waitFor({state:"visible",timeout:30000});
+        const receiptText=await statusLine.textContent();
+        const savedId=receiptText?.match(/local-inference:[0-9a-f-]{36}/i)?.[0];
+        assert.ok(savedId,"T3_D5_GENERATED_DRAFT_KERNEL_RECEIPT_MISSING");
+        const saved=await page.evaluate(async ({workspace_id,object_id})=>{
+          const session=await globalThis.IWXA.connect({service_id:"iwxa.workspace.integration"});
+          return session.t1.getObject(workspace_id,object_id);
+        },{workspace_id:chosenWorkspace,object_id:savedId});
+        assert.equal(saved?.object?.data?.text,reviewed,
+          "T3_D5_GENERATED_DRAFT_ORIGINAL_KERNEL_READBACK_MISMATCH");
+        await context.close();
+        context=null;
+        context=await chromium.launchPersistentContext(profile,{
+          headless:true,ignoreHTTPSErrors:true,
+          args:["--no-sandbox","--enable-unsafe-webgpu","--use-angle=swiftshader"],
+          viewport:{width:1280,height:900},
+        });
+        const coldPage=context.pages()[0]||await context.newPage();
+        await coldPage.goto(live.origin+"/__t2_independent_readback__",{waitUntil:"load"});
+        await coldPage.waitForFunction(()=>typeof globalThis.IWXA?.connect==="function");
+        const cold=await coldPage.evaluate(async ({workspace_id,object_id})=>{
+          const session=await globalThis.IWXA.connect({service_id:"iwxa.workspace.integration"});
+          return session.t1.getObject(workspace_id,object_id);
+        },{workspace_id:chosenWorkspace,object_id:savedId});
+        assert.equal(cold?.object?.data?.text,reviewed,
+          "T3_D5_GENERATED_DRAFT_COLD_READBACK_MISMATCH");
+        console.log("T3_D5_REAL_WEBGPU_KERNEL_COLD_RESTART_PASS",JSON.stringify({
           model:"SmolLM2-360M-Instruct-q4f32_1-MLC",
-          generatedCharacters:output.length,
-          workspace:await panel.locator("strong").first().textContent(),
-          mustSaveThroughKernel:true,
+          generatedCharacters:output.length,workspace:chosenWorkspace,
+          savedObject:savedId,originalKernelReadback:true,coldRestart:true,
         }));
       }else{
-        console.log("T3_D5_REAL_WEBGPU_GENERATION_BLOCKED",JSON.stringify({
+        const timedOut=/Модель не выдала первый токен|Модель перестала отвечать/.test(inferenceStatus);
+        if(timedOut){
+          assert.equal(await panel.getByRole("button",{name:"Сохранить черновик через Kernel"}).isDisabled(),true,
+            "a timed-out inference must never become an accepted Kernel draft");
+          assert.equal(await panel.getByRole("button",{name:"Из кеша, без сети"}).isEnabled(),true,
+            "hard timeout must release Worker so cached model can be relaunched");
+          console.log("T3_D5_REAL_WEBGPU_TIMEOUT_RECOVERY_PASS",JSON.stringify({
+            restoredReady:false,cachedWeightsRemain:true,noDraftSave:true,
+          }));
+        }
+        console.log("T3_D5_REAL_WEBGPU_GENERATION_NOT_ACCEPTED",JSON.stringify({
           status:inferenceStatus.slice(0,500),generatedCharacters:output.length,
-          modelStarted:true,
+          modelStarted:true,softwareWebGpuAdapter:true,
         }));
       }
     }

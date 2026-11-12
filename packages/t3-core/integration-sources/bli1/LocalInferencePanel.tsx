@@ -18,6 +18,8 @@ function message(error: unknown): string {
 export default function LocalInferencePanel() {
   const { context } = useWorkspaceModuleRuntime();
   const [workspaceId, setWorkspaceId] = useState(context.currentWorkspace.get()?.workspace_id ?? "");
+  const [workspaceChoices, setWorkspaceChoices] = useState<{workspace_id:string;profile:string}[]>([]);
+  const [workspaceChoice, setWorkspaceChoice] = useState("");
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
@@ -48,11 +50,14 @@ export default function LocalInferencePanel() {
     focusEpoch.current++;
     sourceSelectionEpoch.current++;
     setWorkspaceId(current());
+    setWorkspaceChoice("");
+    setWorkspaceChoices([]);
     setDraftReady(false);
     setSaved(false);
     setOutput("");
     setPrompt("");
     engine.current?.cancel();
+    setReady(Boolean(engine.current?.ready));
     setObjects([]);
     setObjectId("");
     setDrafts([]);
@@ -147,6 +152,35 @@ export default function LocalInferencePanel() {
       if (alive.current) { setBusy(false); void checkCache(); }
     }
   };
+  // Only the existing base Workspace owner can change Host focus. The
+  // inference module requests that command after an explicit user selection.
+  const discoverWorkspaces = async () => {
+    if (!context.kernel.hasOperation("t1.listWorkspaces") || actionBusy.current) return;
+    const epoch=focusEpoch.current;
+    try {
+      const rows=await context.kernel.listWorkspaces({include_deleted:false});
+      if (!alive.current || epoch!==focusEpoch.current) return;
+      const allowed=rows.filter(w=>w.deleted_at==null && w.profile===context.profile.id)
+        .map(w=>({workspace_id:w.workspace_id,profile:w.profile}));
+      setWorkspaceChoices(allowed);
+      setWorkspaceChoice("");
+      setStatus(allowed.length?"Выберите Workspace и подтвердите переключение.":"Нет доступных рабочих областей этого профиля.");
+    }catch(e){if(alive.current && epoch===focusEpoch.current)setStatus(message(e));}
+  };
+  const selectWorkspace = async () => {
+    if (!workspaceChoice || actionBusy.current ||
+        !context.commands.has("workspace.focus.select")) return;
+    actionBusy.current=true;
+    setBusy(true);
+    try {
+      await context.commands.invoke("workspace.focus.select",{workspace_id:workspaceChoice});
+      if (alive.current) {
+        setWorkspaceId(current());
+        setStatus("Рабочая область выбрана через Host. Теперь можно выбрать объект и сохранить результат.");
+      }
+    }catch(e){if(alive.current)setStatus("Не удалось выбрать Workspace: "+message(e));}
+    finally{actionBusy.current=false;if(alive.current)setBusy(false);}
+  };
   const loadObjects = async () => {
     if (!workspaceId || !context.kernel.hasOperation("t1.listObjects")) return;
     const epoch = focusEpoch.current;
@@ -207,8 +241,15 @@ export default function LocalInferencePanel() {
       setOutput(result);
       setDraftReady(Boolean(result.trim()));
       setStatus("Черновик готов. Просмотрите его перед отдельным сохранением.");
-    } catch (e) { if (alive.current && epoch === focusEpoch.current) setStatus(message(e)); }
-    finally { actionBusy.current = false; if (alive.current) setBusy(false); }
+    } catch (e) {
+      if (alive.current && epoch === focusEpoch.current) {
+        // Timeout and explicit Stop terminate the existing WebLLM Worker.
+        // Never leave the launch UI claiming that a dead engine is ready.
+        setReady(Boolean(engine.current?.ready));
+        setDraftReady(false);
+        setStatus(message(e));
+      }
+    } finally { actionBusy.current = false; if (alive.current) setBusy(false); }
   };
   const save = async () => {
     if (!draftReady || saved || !workspaceId || !output.trim() || actionBusy.current ||
@@ -293,6 +334,23 @@ export default function LocalInferencePanel() {
   return <div className="space-y-3 text-sm" data-testid="t3-local-inference-panel">
     <h3 className="text-base font-semibold">Локальная модель · WebGPU</h3>
     <p>Текущий Workspace: <strong className="break-all">{workspaceId || "не выбран"}</strong></p>
+    <div className="space-y-2 rounded border border-slate-700 p-3" data-testid="t3-d5-workspace-chooser">
+      <p className="text-sm">Выберите рабочую область для контекста и сохранения через оригинальный Kernel.</p>
+      <button type="button" disabled={busy ||
+        !context.kernel.hasOperation("t1.listWorkspaces") ||
+        !context.commands.has("workspace.focus.select")}
+        onClick={() => void discoverWorkspaces()}>Найти рабочие области</button>
+      <select aria-label="Workspace для локальной модели"
+        className="w-full rounded p-2 text-slate-900"
+        disabled={busy || !workspaceChoices.length}
+        value={workspaceChoice} onChange={e=>setWorkspaceChoice(e.target.value)}>
+        <option value="">Не выбран</option>
+        {workspaceChoices.map(w=><option key={w.workspace_id} value={w.workspace_id}>{w.workspace_id} · {w.profile}</option>)}
+      </select>
+      <button type="button" disabled={busy || !workspaceChoice ||
+        !context.commands.has("workspace.focus.select")}
+        onClick={() => void selectWorkspace()}>Использовать выбранный Workspace</button>
+    </div>
     <p>{MODEL.label} · {MODEL.engine}. Запрос выполняется на устройстве. Нет облачного fallback.</p>
     <label className="flex gap-2 items-start"><input type="checkbox" checked={consent}
       onChange={e => setConsent(e.target.checked)}/>Разрешаю скачать файлы модели по сети</label>

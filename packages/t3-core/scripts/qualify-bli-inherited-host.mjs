@@ -18,7 +18,7 @@ import {stageT2ExternalModule} from "./stage-t2-external-module.mjs";
 const core=join(dirname(fileURLToPath(import.meta.url)),"..");
 const source=join(core,"integration-sources","bli1");
 const pin=JSON.parse(readFileSync(join(source,"SOURCE_PIN.json"),"utf8"));
-if(pin.source_head!=="bd50728272b2e6a2e4dd96477b54d6cc2d176bc9" ||
+if(pin.source_head!=="d594e98b5c53d11bca62f400d75e28a6fd5e5f40" ||
    pin.files?.length!==15)throw Error("T3_D5_BLI_SOURCE_PIN_MISSING");
 const shaGitBlob=bytes=>createHash("sha1")
   .update("blob "+bytes.length+"\0").update(bytes).digest("hex");

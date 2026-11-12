@@ -24,6 +24,7 @@ export class BrowserLocalRuntimeAdapter {
   #loading = false;
   #running = false;
   #abortLoad = null;
+  #abortGeneration = null;
   #cancelRequested = false;
 
   async probe() {
@@ -115,16 +116,45 @@ export class BrowserLocalRuntimeAdapter {
 
   async invoke(prompt, { onChunk = () => {}, maxTokens = 256 } = {}) {
     if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > 1024) {
-      throw new BrowserInferenceError("OUTPUT_LIMIT_INVALID", "Недопустимый размер ответа локальной модели.");
+      throw new BrowserInferenceError('OUTPUT_LIMIT_INVALID', 'Недопустимый размер ответа локальной модели.');
     }
     if (!this.#engine) throw new BrowserInferenceError('MODEL_NOT_LOADED', 'Сначала загрузите модель.');
     if (this.#running) throw new BrowserInferenceError('BUSY', 'Генерация уже идёт.');
     const content = requirePrompt(prompt);
+    const activeEngine = this.#engine;
+    const activeWorker = this.#worker;
     this.#running = true;
     this.#cancelRequested = false;
     let output = '';
-    try {
-      const stream = await this.#engine.chat.completions.create({
+    let timer = null;
+    let rejectStopped;
+    const stopped = new Promise((_, reject) => { rejectStopped = reject; });
+
+    // Interrupting an in-flight GPU dispatch is not guaranteed to respond.
+    // Terminate ONLY the existing WebLLM Worker and reject the pending UI
+    // operation immediately; this does not create another inference engine.
+    const hardStop = (code, reason) => {
+      if (this.#cancelRequested) return;
+      this.#cancelRequested = true;
+      activeWorker?.terminate();
+      if (this.#worker === activeWorker) this.#worker = null;
+      if (this.#engine === activeEngine) this.#engine = null;
+      rejectStopped(new BrowserInferenceError(code, reason));
+    };
+    const workerFailed = () => hardStop('WORKER_FAILED', 'WebLLM Worker завершился во время генерации. Перезапустите модель из кеша.');
+    activeWorker?.addEventListener('error', workerFailed);
+    activeWorker?.addEventListener('messageerror', workerFailed);
+    this.#abortGeneration = hardStop;
+    const armTimeout = (ms, kind) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => hardStop('GENERATION_TIMEOUT',
+        (kind === 'first' ? 'Модель не выдала первый токен за 120 секунд. ' :
+          'Модель перестала отвечать более чем на 60 секунд. ') +
+        'Worker остановлен, локальные веса сохранены. Можно запустить модель заново.'), ms);
+    };
+    armTimeout(120000, 'first');
+    const infer = async () => {
+      const stream = await activeEngine.chat.completions.create({
         messages: [{ role: 'user', content }],
         stream: true,
         max_tokens: maxTokens,
@@ -132,23 +162,35 @@ export class BrowserLocalRuntimeAdapter {
       });
       for await (const chunk of stream) {
         if (this.#cancelRequested) throw new BrowserInferenceError('CANCELLED', 'Генерация остановлена.');
-        output += chunk.choices?.[0]?.delta?.content ?? '';
+        const delta = chunk.choices?.[0]?.delta?.content ?? '';
+        if (delta) {
+          output += delta;
+          armTimeout(60000, 'next');
+        }
         onChunk(output);
       }
       if (this.#cancelRequested) throw new BrowserInferenceError('CANCELLED', 'Генерация остановлена.');
+      if (!output.trim()) {
+        throw new BrowserInferenceError('EMPTY_GENERATION', 'Модель завершила генерацию без текста. Попробуйте другой запрос.');
+      }
       return output;
+    };
+    try {
+      return await Promise.race([infer(), stopped]);
     } finally {
+      clearTimeout(timer);
+      activeWorker?.removeEventListener('error', workerFailed);
+      activeWorker?.removeEventListener('messageerror', workerFailed);
+      this.#abortGeneration = null;
       this.#running = false;
       this.#cancelRequested = false;
     }
   }
 
   cancel() {
-    if (this.#engine && this.#running) {
-      this.#cancelRequested = true;
-      this.#engine.interruptGenerate();
-    }
-    else if (this.#loading) this.#abortLoad?.();
+    if (this.#running) {
+      this.#abortGeneration?.('CANCELLED', 'Генерация остановлена. Для повторного запроса запустите модель из кеша.');
+    } else if (this.#loading) this.#abortLoad?.();
   }
 
   async unload() {
@@ -165,7 +207,7 @@ export class BrowserLocalRuntimeAdapter {
     // Closing the Workspace panel must terminate its Worker even when an
     // ongoing generation prevents WebLLM.unload(). No remote fallback.
     if (this.#loading) this.#abortLoad?.();
-    if (this.#running) this.#cancelRequested = true;
+    if (this.#running) this.#abortGeneration?.('CANCELLED', 'Панель закрыта: генерация остановлена.');
     this.#worker?.terminate();
     this.#worker = null;
     this.#engine = null;
