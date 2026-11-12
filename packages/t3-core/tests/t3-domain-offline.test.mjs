@@ -97,6 +97,7 @@ function fakeBrowser(root,store=null) {
   const caches=store||new Map();
   let liveFetches=0;
   let networkDown=false;
+  let ownerAlive=true;
   const toKey=value=>new URL(typeof value==="string"?value:value.url,ORIGIN).href;
   const cacheAPI={
     async open(name){
@@ -125,7 +126,9 @@ function fakeBrowser(root,store=null) {
   };
   const self={
     location:{origin:ORIGIN,protocol:"https:"},
-    clients:{claim:async()=>{}},skipWaiting:async()=>{},
+    clients:{claim:async()=>{},get:async id=>id==="model-owner" && ownerAlive
+      ? {id,type:"window",url:ORIGIN+"/workspace/"} : undefined},
+    skipWaiting:async()=>{},
     addEventListener(kind,fn){handlers[kind]=fn;}
   };
   const script=readFileSync(join(root,"t3-sw.js"),"utf8");
@@ -145,6 +148,7 @@ function fakeBrowser(root,store=null) {
   };
   return {dispatch,fetchPage,caches,
     setNetworkDown(value){networkDown=!!value;},
+    setOwnerAlive(value){ownerAlive=!!value;},
     get liveFetches(){return liveFetches;}};
 }
 test("D5 model consent permits only pinned WebLLM assets during autonomous mode",async()=>{
@@ -198,18 +202,35 @@ test("D5 model consent permits only pinned WebLLM assets during autonomous mode"
         "only pinned upstream model artifacts can reach the network: "+asset);
     }
     assert.equal(browser.liveFetches,count+5);
+    // SW termination during a multi-shard WebLLM download must not lose
+    // the explicit consent. It is stored only in the existing mode cache,
+    // bounded to a live original window, exact files and a 15-minute lease.
+    const resumed=fakeBrowser(root,browser.caches);
+    assert.equal((await resumed.fetchPage(weights)).status,404,
+      "a restarted SW may continue the consented model download");
     const wrong=[];
-    await browser.dispatch("T3_MODEL_INSTALL_END",
+    await resumed.dispatch("T3_MODEL_INSTALL_END",
       {postMessage:value=>wrong.push(value)},{token},"other");
     assert.equal(wrong.at(-1)?.type,"FAILED");
     const ended=[];
-    await browser.dispatch("T3_MODEL_INSTALL_END",
+    await resumed.dispatch("T3_MODEL_INSTALL_END",
       {postMessage:value=>ended.push(value)},{token},source);
     assert.equal(ended.at(-1)?.type,"MODEL_INSTALL_ENDED");
     assert.equal((await browser.fetchPage(weights)).status,503);
-    const afterRestart=fakeBrowser(root,browser.caches);
+    assert.equal((await resumed.fetchPage(weights)).status,503);
+
+    // Closing the consenting window revokes the lease even after a restart.
+    const second=[];
+    await resumed.dispatch("T3_MODEL_INSTALL_BEGIN",
+      {postMessage:value=>second.push(value)},pinned,source);
+    assert.equal(second.at(-1)?.type,"MODEL_INSTALL_ALLOWED");
+    resumed.setOwnerAlive(false);
+    assert.equal((await resumed.fetchPage(weights)).status,503,
+      "a closed owner cannot leave remote model access enabled");
+    resumed.setOwnerAlive(true);
+    const afterRestart=fakeBrowser(root,resumed.caches);
     assert.equal((await afterRestart.fetchPage(weights)).status,503,
-      "temporary model-install permission does not survive a cold SW restart");
+      "a revoked installation does not silently reactivate after cold restart");
   }finally {cleanup(root);}
 });
 
