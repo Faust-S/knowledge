@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   LOCAL_INFERENCE_DRAFT_SCHEMA, saveLocalInferenceDraft,
-  listLocalInferenceDrafts,
+  listLocalInferenceDrafts, getLocalInferenceDraft,
 } from "../src/t3/local-inference-draft.mjs";
 
 const WSA="ws:local-a",WSB="ws:foreign-b";
@@ -135,4 +135,60 @@ test("D5 scoped listing neither exposes foreign records nor treats rejected focu
   f.store.delete("item:foreign");
   const rows=await listLocalInferenceDrafts(f.context,{expected_workspace_id:WSA});
   assert.deepEqual(rows.map(x=>x.object_id),[receipt.object_id]);
+});
+
+test("D5 opens a saved AI draft by exact ID through original Kernel after cold restart",async()=>{
+  const first=fixture();
+  const receipt=await saveLocalInferenceDraft(first.context,INPUT);
+  const afterRestart=fixture();
+  afterRestart.store.set(receipt.object_id,structuredClone(first.store.get(receipt.object_id)));
+  const loaded=await getLocalInferenceDraft(afterRestart.context,{
+    expected_workspace_id:WSA,object_id:receipt.object_id,
+  });
+  assert.equal(loaded.readback,true);
+  assert.equal(loaded.object_id,receipt.object_id);
+  assert.equal(loaded.workspace_id,WSA);
+  assert.equal(loaded.text,INPUT.output);
+  assert.equal(loaded.engine,INPUT.engine);
+  assert.equal(loaded.status,"DRAFT_UNTRUSTED");
+  assert.equal(Object.isFrozen(loaded),true);
+  assert.deepEqual(afterRestart.calls.map(row=>row[0]),["getWorkspace","getObject"]);
+});
+test("D5 opening a saved draft cannot cross workspaces, create records or accept forged IDs",async()=>{
+  const f=fixture();
+  const receipt=await saveLocalInferenceDraft(f.context,INPUT);
+  f.calls.length=0;
+  await assert.rejects(getLocalInferenceDraft(f.context,{
+    expected_workspace_id:WSA,object_id:"local-inference:INVALID",
+  }),{code:"T3_D5_DRAFT_ID_INVALID"});
+  assert.deepEqual(f.calls,[]);
+  const existing=f.store.get(receipt.object_id);
+  f.store.set(receipt.object_id,{...existing,workspace_id:WSB});
+  await assert.rejects(getLocalInferenceDraft(f.context,{
+    expected_workspace_id:WSA,object_id:receipt.object_id,
+  }),{code:"T3_D5_DRAFT_READBACK_INVALID"});
+  assert.equal(f.calls.some(row=>row[0]==="putObject"),false);
+  f.store.set(receipt.object_id,{...existing,deleted_at:"2026-11-12T00:00:00Z"});
+  await assert.rejects(getLocalInferenceDraft(f.context,{
+    expected_workspace_id:WSA,object_id:receipt.object_id,
+  }),{code:"T3_D5_DRAFT_READBACK_INVALID"});
+});
+test("D5 rejects focus A-B-A changes and missing original Kernel read permission",async()=>{
+  const f=fixture();
+  const receipt=await saveLocalInferenceDraft(f.context,INPUT);
+  f.calls.length=0;
+  f.granted.delete("t1.getObject");
+  await assert.rejects(getLocalInferenceDraft(f.context,{
+    expected_workspace_id:WSA,object_id:receipt.object_id,
+  }),{code:"T3_D5_KERNEL_PERMISSION_REQUIRED"});
+  assert.deepEqual(f.calls,[]);
+  f.granted.add("t1.getObject");
+  const original=f.context.kernel.getObject;
+  f.context.kernel.getObject=async(...args)=>{
+    f.select(WSB);f.select(WSA);
+    return original(...args);
+  };
+  await assert.rejects(getLocalInferenceDraft(f.context,{
+    expected_workspace_id:WSA,object_id:receipt.object_id,
+  }),{code:"T3_D5_WORKSPACE_CHANGED"});
 });
