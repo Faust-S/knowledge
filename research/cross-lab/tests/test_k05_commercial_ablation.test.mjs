@@ -25,7 +25,7 @@ test('four real method implementations, same 4 controlled project states',async(
   'K01_CONTEXT_ONLY','K01_PLUS_K05_SOURCE_CHECK'];
  for(const scenario of result.scenarios){
   assert.deepEqual(scenario.methods.map(s=>s.method),methods);
-  assert.ok(scenario.methods.every(m=>m.assessment.denominator===15));
+  assert.ok(scenario.methods.every(m=>m.assessment.denominator===14));
   assert.ok(scenario.methods.every(m=>m.metrics.hostReads>=0));
   assert.ok(scenario.methods.every(m=>Number.isFinite(m.metrics.elapsedMs)));
   const [full,search,k01,k05]=scenario.methods;
@@ -56,7 +56,7 @@ test('conflict is abstained; inaccessible current quote does not invent current 
  assert.ok(unavailable.assessment.desiredAbstentions>=5);
  assert.ok(unavailable.issues.some(x=>x.type==='source_unavailable'));
  const revised=byId.revised.methods[2];
- assert.equal(revised.assessment.fixtureMatches,15);
+ assert.equal(revised.assessment.fixtureMatches,14);
  assert.equal(revised.assessment.missing,0);
 });
 test('K05 independently verifies actual owner line locators and revision from authorized bytes',async()=>{

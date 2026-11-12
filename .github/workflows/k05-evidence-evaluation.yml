@@ -10,6 +10,9 @@ on:
       - 'research/cross-lab/tests/test_k05_k03_projection.py'
       - 'research/cross-lab/tests/test_k05_c17_projection.py'
       - 'research/cross-lab/tests/test_k05_agent_consumer.py'
+      - 'research/cross-lab/k05_commercial_ablation.mjs'
+      - 'research/cross-lab/k05_k01_evidence_check.mjs'
+      - 'research/cross-lab/tests/test_k05_commercial_ablation.test.mjs'
       - 'research/cross-lab/k05_u02_verified_reads.mjs'
       - 'research/cross-lab/tests/test_k05_u02_verified_reads.test.mjs'
       - 'research/cross-lab/k05_k02_source_cases.py'
@@ -127,6 +130,38 @@ jobs:
           K05_U02_OWNER_ROOT: .u02-owner
         run: |
           node --test research/cross-lab/tests/test_k05_u02_verified_reads.test.mjs
+      - name: Checkout pinned K01 owner and commercial research fixture (read-only)
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 81de619f09f4393945ce5073fda5514729a67414
+          path: .k01-owner
+          persist-credentials: false
+      - name: Compare four commercial-offer methods on identical owner inputs
+        env:
+          K05_K01_OWNER_ROOT: .k01-owner
+        run: |
+          node --test research/cross-lab/tests/test_k05_commercial_ablation.test.mjs
+          node research/cross-lab/k05_commercial_ablation.mjs \
+            --k01-owner-root .k01-owner \
+            --out "$RUNNER_TEMP/k05-commercial-ablation.json"
+      - name: Confirm no fake human gold or measured model quality
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          report=json.loads((Path(os.environ['RUNNER_TEMP'])/'k05-commercial-ablation.json').read_text())
+          assert report['schema']=='IWXA_K05_PROJECT_METHOD_ABLATION/0.1'
+          assert len(report['scenarios'])==4
+          assert all(len(case['methods'])==4 for case in report['scenarios'])
+          assert report['constraints']['independentHumanGold'] is False
+          assert report['constraints']['precision'] is None
+          assert report['constraints']['llmCalls']==0
+          assert all(x['metrics'].get('additionalHostReads',0)==0
+            for c in report['scenarios'] for x in c['methods']
+            if x['method']=='K01_PLUS_K05_SOURCE_CHECK')
+          print('K05_K01_FOUR_ARMS_SOURCE_BOUND_MEASUREMENTS_PASS')
+          PY
       - name: Checkout pinned K02 owner code, read-only
         uses: actions/checkout@v4
         with:
@@ -209,6 +244,7 @@ jobs:
             ${{ runner.temp }}/k05-proof.json
             ${{ runner.temp }}/k05-suite-proof.json
             ${{ runner.temp }}/k05-agent-result-evidence.json
+            ${{ runner.temp }}/k05-commercial-ablation.json
             ${{ runner.temp }}/k05-k02-corpus.json
             ${{ runner.temp }}/k05-k02-routing-diagnostic.json
           retention-days: 7
