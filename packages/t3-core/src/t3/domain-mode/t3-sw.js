@@ -57,10 +57,16 @@ function modelFetchAllowed(request, url) {
   }
   if (request.method !== "GET" || url.username || url.password || url.hash ||
       (url.search && url.search !== "?download=true")) return false;
-  return url.href === modelInstall.wasm ||
-    (url.origin === "https://huggingface.co" &&
-      url.pathname.startsWith(modelInstall.modelPath + "/resolve/main/") &&
-      url.pathname.length > (modelInstall.modelPath + "/resolve/main/").length);
+  if (url.href === modelInstall.wasm) return true;
+  const prefix = modelInstall.modelPath + "/resolve/main/";
+  if (url.origin !== "https://huggingface.co" || !url.pathname.startsWith(prefix)) {
+    return false;
+  }
+  // WebLLM 0.2.87 loads a known set of model files. Do NOT allow an
+  // arbitrary suffix here: the path itself could otherwise carry private
+  // Workspace data to a remote server during an approved installation.
+  const file = url.pathname.slice(prefix.length);
+  return /^(?:mlc-chat-config\\.json|tokenizer\\.(?:json|model)|(?:tensor|ndarray)-cache(?:-b16)?\\.json|params_shard_[0-9]{1,5}\\.bin)$/.test(file);
 }
 async function beginModelInstall(event, port) {
   try {
