@@ -137,14 +137,39 @@ export async function runStudy(root){
  const results=[];
  for(const scenario of cases){
   const expected=expectedFor(fixture,scenario);
-  const measured=[];
-  for(const baseline of ['full_first','exact_recent'])
-   measured.push(reportMethod(await runLiteralProxy(fixture,scenario,baseline),expected));
-  measured.push(reportMethod(await runK01(fixture,owner,scenario,false),expected));
-  measured.push(reportMethod(await runK01(fixture,owner,scenario,true),expected));
+  // Rotate execution order across identical source snapshots. This avoids
+  // presenting a one-shot warm-cache sample as a stable timing comparison.
+  const runners=[
+   ()=>runLiteralProxy(fixture,scenario,'full_first'),
+   ()=>runLiteralProxy(fixture,scenario,'exact_recent'),
+   ()=>runK01(fixture,owner,scenario,false),
+   ()=>runK01(fixture,owner,scenario,true),
+  ];
+  const samples=runners.map(()=>[]),outputs=Array(4).fill(null);
+  for(let round=0;round<12;round++){
+   for(let offset=0;offset<runners.length;offset++){
+    const i=(round+offset)%runners.length;
+    const current=reportMethod(await runners[i](),expected);
+    if(outputs[i]===null)outputs[i]=current;
+    else if(JSON.stringify(outputs[i].assessment)!==JSON.stringify(current.assessment)||
+      outputs[i].metrics.hostReads!==current.metrics.hostReads||
+      outputs[i].metrics.bytesRead!==current.metrics.bytesRead)
+      fail('NONDETERMINISTIC_RESULT_OR_COST');
+    samples[i].push(current.metrics.elapsedMs);
+   }
+  }
+  const percentile=(values,p)=>{
+   const sorted=[...values].sort((a,b)=>a-b);
+   return Number(sorted[Math.ceil(sorted.length*p)-1].toFixed(5));
+  };
+  const measured=outputs.map((m,i)=>({...m,metrics:{
+   ...m.metrics,wallMsMedian:percentile(samples[i],0.5),
+   wallMsP95:percentile(samples[i],0.95),
+   repetitions:samples[i].length,
+   timingScope:'ONE_PROCESS_IN_MEMORY_DATA_NO_NETWORK_OR_USER',
+  }}));
   results.push({caseId:scenario.id,sourceKind:'K01_OWNER_AUTHORED_CONTROLLED_FIXTURE',
-   expectedFieldDenominator:Object.keys(expected).length,
-   methods:measured});
+   expectedFieldDenominator:Object.keys(expected).length,methods:measured});
  }
  return {schema:SCHEMA,status:'MEASURED_PROCESSING_ON_OWNER_FIXTURE_NOT_USER_OUTCOME',
   owner:{repo:'Faust-S/knowledge',commit:K01_COMMIT,

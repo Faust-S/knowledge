@@ -11,6 +11,7 @@ class PublicCommercialQuote(unittest.TestCase):
     def test_source_is_official_not_republished_as_artifact(self):
         self.assertEqual(real.SCHEMA, "IWXA_K05_PUBLIC_COMMERCIAL_DOCUMENT_EVIDENCE/0.1")
         self.assertTrue(real.SOURCE.startswith("https://www.woodburycountyiowa.gov/"))
+        self.assertEqual(real.PINNED_SHA256, 'a97dcffeead9991795ec68975c71ccb12bd4e0aa6839b5c7e9c667e37a264d64')
         self.assertLessEqual(real.MAX_BYTES, 80_000_000)
 
     def test_ambiguous_or_missing_locator_is_not_asserted(self):

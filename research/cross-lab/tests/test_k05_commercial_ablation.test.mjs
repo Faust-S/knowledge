@@ -28,6 +28,9 @@ test('four real method implementations, same 4 controlled project states',async(
   assert.ok(scenario.methods.every(m=>m.assessment.denominator===14));
   assert.ok(scenario.methods.every(m=>m.metrics.hostReads>=0));
   assert.ok(scenario.methods.every(m=>Number.isFinite(m.metrics.elapsedMs)));
+  assert.ok(scenario.methods.every(m=>m.metrics.repetitions===12&&
+    Number.isFinite(m.metrics.wallMsMedian)&&Number.isFinite(m.metrics.wallMsP95)));
+
   const [full,search,k01,k05]=scenario.methods;
   assert.equal(k01.assessment.fixtureMismatches,0);
   assert.equal(k05.assessment.fixtureMismatches,0);
@@ -48,6 +51,11 @@ test('four real method implementations, same 4 controlled project states',async(
 test('conflict is abstained; inaccessible current quote does not invent current terms',async()=>{
  const result=await runStudy(root);
  const byId=Object.fromEntries(result.scenarios.map(x=>[x.caseId,x]));
+ assert.equal(byId.approved.methods[1].assessment.fixtureMatches,14);
+ assert.equal(byId.approved.methods[1].assessment.fixtureMismatches,0);
+ assert.equal(byId.revised.methods[1].assessment.fixtureMatches,14);
+ assert.equal(byId.conflicting_approved_decisions.methods[1].assessment.unjustifiedAssertions,1);
+ assert.equal(byId.unavailable_accepted_quote.methods[1].assessment.unjustifiedAssertions,10);
  const conflict=byId.conflicting_approved_decisions.methods[2];
  assert.equal(conflict.assessment.desiredAbstentions,1);
  assert.equal(conflict.assessment.unjustifiedAssertions,0);

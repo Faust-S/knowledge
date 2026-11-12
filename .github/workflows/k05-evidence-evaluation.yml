@@ -173,37 +173,22 @@ jobs:
             sudo apt-get install -y -qq poppler-utils
           fi
           command -v pdftotext
-          python - <<'PY'
-          import urllib.request
-          sources={
-            'woodbury':'https://www.woodburycountyiowa.gov/files/meetings/2016-10-25-2.pdf',
-            'sanmarcos':'https://www.sanmarcostx.gov/AgendaCenter/ViewFile/Agenda/_10212025-4671',
-            'westerly':'https://westerlyri.gov/DocumentCenter/View/16093/27-09-RFQ-Clinic-Supplies-Addendum-1',
-          }
-          for name,url in sources.items():
-            try:
-              req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Accept':'application/pdf'})
-              with urllib.request.urlopen(req,timeout=12) as resp:
-                prefix=resp.read(16)
-                print('K05_OFFICIAL_PDF_PROBE',name,resp.status,
-                  resp.headers.get('Content-Type',''),prefix.hex())
-            except Exception as e:
-              print('K05_OFFICIAL_PDF_PROBE',name,type(e).__name__)
-          PY
           python research/cross-lab/k05_real_offer_public.py \
-            --discover \
-            --out "$RUNNER_TEMP/k05-public-offer-discovery.json"
-      - name: Qualify public quote discovery as unpinned, not proof
+            --out "$RUNNER_TEMP/k05-public-offer-proof.json"
+      - name: Verify pinned public quote evidence and historical unknowns
         run: |
           python - <<'PY'
           import json,os
           from pathlib import Path
           p=json.loads((Path(os.environ['RUNNER_TEMP'])/'k05-public-offer-discovery.json').read_text())
-          assert p['status']=='DISCOVERY_UNPINNED_NOT_ACCEPTED'
-          assert p['source']['sha256']
+          assert p['status']=='PINNED_PUBLIC_PDF_OBSERVED'
+          assert p['source']['sha256']=='a97dcffeead9991795ec68975c71ccb12bd4e0aa6839b5c7e9c667e37a264d64'
           assert p['facts']['arithmetic_total_usd']=='10000.00'
-          assert p['epistemic']['source_revision_pinned'] is False
-          print('K05_PUBLIC_QUOTE_DISCOVERY_SHA_ONLY_NOT_FINAL_PROOF')
+          assert p['epistemic']['source_revision_pinned'] is True
+          assert [x['locator'] for x in p['observations']] == ['pdf-page:67','pdf-page:68','pdf-page:69']
+          assert p['facts']['prior_unrevised_price'] is None
+          assert p['facts']['payment_amount_definitely_due_upfront'] is None
+          print('K05_REAL_PUBLIC_PROCUREMENT_PINNED_SOURCE_PROOF_PASS')
           PY
       - name: Checkout pinned K02 owner code, read-only
         uses: actions/checkout@v4

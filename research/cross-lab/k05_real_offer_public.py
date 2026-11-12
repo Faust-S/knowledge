@@ -20,7 +20,7 @@ import urllib.request
 SCHEMA = "IWXA_K05_PUBLIC_COMMERCIAL_DOCUMENT_EVIDENCE/0.1"
 SOURCE = "https://www.woodburycountyiowa.gov/files/meetings/2016-10-25-2.pdf"
 MAX_BYTES = 80_000_000
-PINNED_SHA256 = ""  # Set only from observed real bytes, not from an invented pin.
+PINNED_SHA256 = "a97dcffeead9991795ec68975c71ccb12bd4e0aa6839b5c7e9c667e37a264d64"  # Independently observed from GitHub Actions PDF discovery.
 
 
 class SourceHold(ValueError):
