@@ -81,6 +81,7 @@ describe("Export blob URL lifecycle (§4)", () => {
       await waitFor(() => screen.getByTestId("export-preview"));
       await act(async () => { fireEvent.click(screen.getByTestId("export-preview")); });
       await waitFor(() => expect(screen.queryByTestId("export-preview-result")).toBeTruthy());
+      await act(async () => { fireEvent.click(screen.getByTestId("export-ack-sensitive")); });
       await act(async () => { fireEvent.click(screen.getByTestId("export-package")); });
       await waitFor(() => expect(screen.queryByTestId("export-artifact")).toBeTruthy());
       await act(async () => { fireEvent.click(screen.getByTestId("export-download")); });

@@ -48,6 +48,7 @@ describe("Export artifact validation (§3)", () => {
     await waitFor(() => screen.getByTestId("export-preview"));
     await act(async () => { fireEvent.click(screen.getByTestId("export-preview")); });
     await waitFor(() => expect(screen.queryByTestId("export-preview-result")).toBeTruthy());
+    await act(async () => { fireEvent.click(screen.getByTestId("export-ack-sensitive")); });
     await act(async () => { fireEvent.click(screen.getByTestId("export-package")); });
 
     await waitFor(() => expect(screen.queryByRole("alert")).toBeTruthy());
@@ -70,6 +71,7 @@ describe("Export artifact validation (§3)", () => {
     await waitFor(() => screen.getByTestId("export-preview"));
     await act(async () => { fireEvent.click(screen.getByTestId("export-preview")); });
     await waitFor(() => expect(screen.queryByTestId("export-preview-result")).toBeTruthy());
+    await act(async () => { fireEvent.click(screen.getByTestId("export-ack-sensitive")); });
     await act(async () => { fireEvent.click(screen.getByTestId("export-package")); });
 
     await waitFor(() => expect(screen.queryByRole("alert")).toBeTruthy());
@@ -116,6 +118,7 @@ describe("Export artifact authority binding", () => {
     await waitFor(() => screen.getByTestId("export-preview"));
     await act(async () => { fireEvent.click(screen.getByTestId("export-preview")); });
     await waitFor(() => expect(screen.queryByTestId("export-preview-result")).toBeTruthy());
+    await act(async () => { fireEvent.click(screen.getByTestId("export-ack-sensitive")); });
     await act(async () => { fireEvent.click(screen.getByTestId("export-package")); });
     await waitFor(() => expect(screen.queryByRole("alert")).toBeTruthy());
     expect(screen.queryByTestId("export-artifact")).toBeNull();
@@ -131,7 +134,8 @@ describe("Export artifact authority binding", () => {
       await waitFor(() => screen.getByTestId("export-preview"));
       await act(async () => { fireEvent.click(screen.getByTestId("export-preview")); });
       await waitFor(() => expect(screen.queryByTestId("export-preview-result")).toBeTruthy());
-      await act(async () => { fireEvent.click(screen.getByTestId("export-package")); });
+      await act(async () => { fireEvent.click(screen.getByTestId("export-ack-sensitive")); });
+    await act(async () => { fireEvent.click(screen.getByTestId("export-package")); });
       await waitFor(() => expect(screen.queryByRole("alert")).toBeTruthy());
       expect(screen.queryByTestId("export-artifact")).toBeNull();
       rendered.unmount();

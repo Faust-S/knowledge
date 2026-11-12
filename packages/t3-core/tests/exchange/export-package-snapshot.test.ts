@@ -26,6 +26,7 @@ describe("Package snapshot (§3)", () => {
       { type: "workspaces-loaded", catalog: [ws("a")], initialWorkspaces: ["a"] });
     s = exportReducer(s, { type: "preview-started" });
     s = exportReducer(s, { type: "preview-succeeded", preview });
+    s = exportReducer(s, { type: "ack-sensitive", value: true });
     s = exportReducer(s, { type: "package-started" });
     expect(s.packageSnapshot?.workspaces).toEqual(["a"]);
   });

@@ -102,9 +102,11 @@ describe("exchange async completion authority", () => {
     state = exportReducer(state, { type: "workspaces-loaded", catalog: [workspace], initialWorkspaces: ["w"] });
     state = exportReducer(state, { type: "preview-started" });
     state = exportReducer(state, { type: "preview-succeeded", preview: exportPreview });
+    state = exportReducer(state, { type: "ack-sensitive", value: true });
     state = exportReducer(state, { type: "package-started" });
     state = exportReducer(state, { type: "package-succeeded", artifact });
     state = exportReducer(state, { type: "download-initiated" });
+    state = exportReducer(state, { type: "ack-file-saved", value: true });
     state = exportReducer(state, { type: "confirm-started" });
     state = exportReducer(state, { type: "confirm-succeeded", receipt: { ...confirmReceipt, package_digest: "other" } });
     expect(state.status).toBe("download-initiated");

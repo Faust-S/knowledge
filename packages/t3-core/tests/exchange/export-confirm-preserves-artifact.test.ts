@@ -35,9 +35,11 @@ describe("Confirm resilience (§7)", () => {
       { type: "workspaces-loaded", catalog, initialWorkspaces: ["a", "b"] });
     s = exportReducer(s, { type: "preview-started" });
     s = exportReducer(s, { type: "preview-succeeded", preview: multiPreview });
+    s = exportReducer(s, { type: "ack-sensitive", value: true });
     s = exportReducer(s, { type: "package-started" });
     s = exportReducer(s, { type: "package-succeeded", artifact: multiArtifact });
     s = exportReducer(s, { type: "download-initiated" });
+    s = exportReducer(s, { type: "ack-file-saved", value: true });
     s = exportReducer(s, { type: "confirm-started" });
     s = exportReducer(s, {
       type: "confirm-succeeded",
@@ -59,9 +61,11 @@ describe("Confirm resilience (§7)", () => {
       { type: "workspaces-loaded", catalog: [ws("a")], initialWorkspaces: ["a"] });
     s = exportReducer(s, { type: "preview-started" });
     s = exportReducer(s, { type: "preview-succeeded", preview });
+    s = exportReducer(s, { type: "ack-sensitive", value: true });
     s = exportReducer(s, { type: "package-started" });
     s = exportReducer(s, { type: "package-succeeded", artifact });
     s = exportReducer(s, { type: "download-initiated" });
+    s = exportReducer(s, { type: "ack-file-saved", value: true });
     s = exportReducer(s, { type: "confirm-started" });
     s = exportReducer(s, { type: "confirm-failed", error: "network" });
     expect(s.status).toBe("download-initiated");

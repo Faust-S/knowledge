@@ -90,6 +90,7 @@ describe("Export confirm after download (§5)", () => {
     await act(async () => { fireEvent.click(await waitForEnabledButton("export-preview")); });
     await waitForExportState("preview-ready");
     expect(screen.queryByTestId("export-preview-result")).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByTestId("export-ack-sensitive")); });
     await act(async () => { fireEvent.click(await waitForEnabledButton("export-package")); });
     await waitForExportState("package-ready");
     expect(screen.queryByTestId("export-artifact")).toBeTruthy();
@@ -115,11 +116,19 @@ describe("Export confirm after download (§5)", () => {
       await act(async () => { fireEvent.click(await waitForEnabledButton("export-preview")); });
       await waitForExportState("preview-ready");
       expect(screen.queryByTestId("export-preview-result")).toBeTruthy();
-      await act(async () => { fireEvent.click(await waitForEnabledButton("export-package")); });
+      await act(async () => { fireEvent.click(screen.getByTestId("export-ack-sensitive")); });
+    await act(async () => { fireEvent.click(await waitForEnabledButton("export-package")); });
       await waitForExportState("package-ready");
       expect(screen.queryByTestId("export-artifact")).toBeTruthy();
       await act(async () => { fireEvent.click(await waitForEnabledButton("export-download")); });
       await waitForExportState("download-initiated");
+      // Starting a download does not establish that the file was actually saved.
+      const premature = screen.getByTestId("export-confirm") as HTMLButtonElement;
+      expect(premature.disabled).toBe(true);
+      premature.disabled = false;
+      await act(async () => { fireEvent.click(premature); });
+      expect(kernel.confirmExport).not.toHaveBeenCalled();
+      await act(async () => { fireEvent.click(screen.getByTestId("export-confirm-saved-file")); });
       await act(async () => { fireEvent.click(await waitForEnabledButton("export-confirm")); });
       await waitForExportState("confirmed");
 

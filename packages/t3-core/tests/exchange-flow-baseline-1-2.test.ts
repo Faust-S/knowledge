@@ -90,11 +90,13 @@ describe("Exchange Baseline 1.2 — export state machine", () => {
     s = exportReducer(s, { type: "workspaces-loaded", catalog: [ws("a")], initialWorkspaces: ["a"] });
     s = exportReducer(s, { type: "preview-started" });
     s = exportReducer(s, { type: "preview-succeeded", preview });
+    s = exportReducer(s, { type: "ack-sensitive", value: true });
     s = exportReducer(s, { type: "package-started" });
     s = exportReducer(s, { type: "package-succeeded", artifact });
     s = exportReducer(s, { type: "download-initiated" });
     expect(s.status).toBe("download-initiated");
     expect(s.receipt).toBeNull();
+    s = exportReducer(s, { type: "ack-file-saved", value: true });
     s = exportReducer(s, { type: "confirm-started" });
     s = exportReducer(s, { type: "confirm-succeeded", receipt });
     expect(s.status).toBe("confirmed");
