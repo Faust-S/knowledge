@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 2fac2a6b007a84f3cf14220d2d4a668f9d97916c
+          ref: 1914680c40cdbd44b8b925e72a1edbbe2e0a79f5
           path: .k02-peer
           persist-credentials: false
       - name: Verify per-step requests with actual K02 functions
