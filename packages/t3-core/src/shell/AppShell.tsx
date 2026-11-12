@@ -54,6 +54,8 @@ export interface AppShellProps {
   profileDefinition: WorkspaceProfileDefinition;
   profileFallback: boolean;
   devBootstrap?: KernelBootstrap;
+  /** Trusted entrypoint opts into signed D1 as a non-downgradeable requirement. */
+  requireSignedOwner?: boolean;
   /** Trusted, compile-time D1 owner. Never extracted from the page or archive. */
   signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
   signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
@@ -73,6 +75,8 @@ export interface AppShellProps {
  * hand. Legacy `#/packages` and `#/trash` URLs are migrated inside the
  * Host Router via `useLegacyRouteMigrations`.
  */
+const MISSING_REQUIRED_SIGNED_OWNER = () => null;
+
 export function AppShell(props: AppShellProps) {
   const {
     host,
@@ -83,9 +87,15 @@ export function AppShell(props: AppShellProps) {
     profileDefinition,
     profileFallback,
     devBootstrap,
+    requireSignedOwner = false,
     signedKernelAccess,
     signedActivityAccess,
   } = props;
+  // Absence of a required original signed owner is a DENIED state, never an
+  // invitation to use an unsigned T2 facade. The binding itself remains the
+  // same original D1 Access owner, supplied by the trusted compiled Host.
+  const selectedSignedKernelAccess = signedKernelAccess ??
+    (requireSignedOwner ? MISSING_REQUIRED_SIGNED_OWNER : undefined);
 
   const serviceId = hostWorkspace.workspace_service_id;
   const { state, retry } = useKernel(
@@ -117,7 +127,7 @@ export function AppShell(props: AppShellProps) {
         session={session}
         hostWorkspace={hostWorkspace}
         profile={profileFacade}
-        signedKernelAccess={signedKernelAccess}
+        signedKernelAccess={selectedSignedKernelAccess}
         signedActivityAccess={signedActivityAccess}
       >
         <HostShellContent
@@ -130,7 +140,7 @@ export function AppShell(props: AppShellProps) {
           profileId={profileId}
           profileDefinition={profileDefinition}
           profileFallback={profileFallback}
-          signedOwnerRequired={signedKernelAccess !== undefined}
+          signedOwnerRequired={selectedSignedKernelAccess !== undefined}
         />
       </AppShellRuntimeBridge>
     </DomainShellProvider>
