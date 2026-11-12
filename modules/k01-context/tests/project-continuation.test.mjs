@@ -253,3 +253,56 @@ test('consumer can prepare the updated commercial arithmetic from selected curre
  assert.equal(JSON.stringify(p.projection).includes('337330'),false);
  assert.equal(p.projection.selected.length,18);
 });
+
+test('two-cell Markdown price tables retain exact line provenance',async()=>{
+ const host=makeCommercialCase(),original=host.sourcePort;
+ const port={
+  async listSources(args){
+   const catalog=await original.listSources(args);
+   const quote=await original.readSource({sourceRef:'doc:quote-approved'});
+   const content=quote.content.replace('Шкафы управления: 398000 руб.',
+    '| Шкафы управления | 398000 руб. |');
+   const revision='sha256:'+sha256(content);
+   return {scopeRevision:'workspace:tables',sources:catalog.sources.map(x=>
+    x.sourceRef==='doc:quote-approved'?{...x,revision}:x)};
+  },
+  async readSource(args){
+   const result=await original.readSource(args);
+   return args.sourceRef==='doc:quote-approved'
+    ? {complete:true,content:result.content.replace('Шкафы управления: 398000 руб.',
+       '| Шкафы управления | 398000 руб. |'),
+       revision:'sha256:'+sha256(result.content.replace('Шкафы управления: 398000 руб.',
+        '| Шкафы управления | 398000 руб. |'))}:result;
+  }
+ };
+ const p=await prepareProjectContinuation({...host.request,scopeRevision:'workspace:tables'},port);
+ assert.equal(p.requiredComplete,true);
+ const selected=p.projection.selected.find(x=>x.id==='field:cabinet');
+ assert.equal(selected.excerpt,'| Шкафы управления | 398000 руб. |');
+ assert.equal(selected.evidenceRef,'line:2');
+ assert.equal(selected.sha256,sha256(selected.excerpt));
+});
+
+test('source revision change is caught even if host omitted scope advance',async()=>{
+ const host=makeCommercialCase(),previous=await prepareProjectContinuation(host.request,host.sourcePort);
+ const original=host.sourcePort;
+ const patched='Шкафы управления: 400000 руб.';
+ const port={
+  async listSources(args){
+   const catalog=await original.listSources(args);
+   const quote=await original.readSource({sourceRef:'doc:quote-approved'});
+   const content=quote.content.replace('Шкафы управления: 398000 руб.',patched);
+   return {...catalog,sources:catalog.sources.map(x=>x.sourceRef==='doc:quote-approved'
+    ? {...x,revision:'sha256:'+sha256(content)}:x)};
+  },
+  async readSource(args){
+   const result=await original.readSource(args);
+   if(args.sourceRef!=='doc:quote-approved')return result;
+   const content=result.content.replace('Шкафы управления: 398000 руб.',patched);
+   return {complete:true,content,revision:'sha256:'+sha256(content)};
+  }
+ };
+ const checked=await revalidateProjectContinuation(previous,host.request,port);
+ assert.equal(checked.allCurrent,false);
+ assert.deepEqual(checked.failures.map(x=>x.reason),['context_changed']);
+});
