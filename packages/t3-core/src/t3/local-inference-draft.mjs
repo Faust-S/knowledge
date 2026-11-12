@@ -84,7 +84,7 @@ export async function saveLocalInferenceDraft(context, {
   requireKernel(kernel, ["t1.getWorkspace", "t1.putObject", "t1.getObject"]);
   const { validate, unsubscribe } = watch(context, choice);
   const objectId = "local-inference:" + globalThis.crypto.randomUUID();
-  let acceptedByKernel = false;
+  let writeAttempted = false;
   try {
     validate();
     const workspace = await kernel.getWorkspace(workspaceId);
@@ -101,6 +101,10 @@ export async function saveLocalInferenceDraft(context, {
       source: "USER_EXPLICIT_SAVE",
       model_integrity: "NOT_ATTESTED",
     };
+    // The original Kernel may commit even if the caller never receives its
+    // reply (transport interruption, worker termination, or lost receipt).
+    // Mark the write BEFORE awaiting, not after it returns.
+    writeAttempted = true;
     const receipt = await kernel.putObject({
       workspace_id: workspaceId,
       object_id: objectId,
@@ -113,7 +117,6 @@ export async function saveLocalInferenceDraft(context, {
         status: "DRAFT_UNTRUSTED", model_id: modelId,
       }},
     });
-    acceptedByKernel = true; // a late failure must NEVER trigger auto-retry
     validate();
     if (receipt?.object?.workspace_id !== workspaceId ||
         receipt.object.object_id !== objectId ||
@@ -137,12 +140,13 @@ export async function saveLocalInferenceDraft(context, {
       status: "DRAFT_UNTRUSTED", readback: true,
     });
   } catch (error) {
-    if (acceptedByKernel) {
-      // The original Kernel may have committed. Return recoverable identity
-      // and a clear ambiguous status instead of a fictitious rollback.
+    if (writeAttempted) {
+      // Once a putObject was attempted, any error (including a rejected
+      // promise) may follow an actual commit. Never retry automatically.
+      // The ID is usable with getLocalInferenceDraft in the same Workspace.
       refuse("T3_D5_WRITE_MAY_HAVE_COMMITTED", {
         object_id: objectId, workspace_id: workspaceId,
-        cause_code: error?.code ?? "UNVERIFIED_READBACK",
+        cause_code: error?.code ?? "UNVERIFIED_WRITE_OR_READBACK",
       });
     }
     throw error;
