@@ -48,8 +48,8 @@ function modelFetchAllowed(request, url) {
       (url.search && url.search !== "?download=true")) return false;
   return url.href === modelInstall.wasm ||
     (url.origin === "https://huggingface.co" &&
-      url.pathname.startsWith(modelInstall.modelPath + "/resolve/") &&
-      url.pathname.length > (modelInstall.modelPath + "/resolve/").length);
+      url.pathname.startsWith(modelInstall.modelPath + "/resolve/main/") &&
+      url.pathname.length > (modelInstall.modelPath + "/resolve/main/").length);
 }
 async function beginModelInstall(event, port) {
   try {
