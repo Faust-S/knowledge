@@ -192,8 +192,8 @@ try {
       if(hardwareRequired)throw Error("T3_D5_HARDWARE_WEBGPU_MODEL_INSTALL_FAILED");
     }else{
       await panel.getByTestId("t3-d5-prompt")
-        .fill("Hi.");
-      await panel.getByTestId("t3-d5-max-tokens").fill("1");
+        .fill("Reply with the word hello.");
+      await panel.getByTestId("t3-d5-max-tokens").fill("8");
       await panel.getByRole("button",{name:"Сгенерировать локально"}).click();
       let inferenceStatus="";
       for(let tick=0;tick<155;tick++){
@@ -210,6 +210,12 @@ try {
         await panel.getByRole("button",{name:"Сохранить черновик через Kernel"}).click();
         await statusLine.filter({hasText:"Kernel подтвердил запись и чтение:"})
           .waitFor({state:"visible",timeout:30000});
+        // The user must see the independently reopened persisted text, not
+        // just a success message or a copy of the generated textarea.
+        const persistedView=panel.getByTestId("t3-d5-saved-draft-readback");
+        await persistedView.waitFor({state:"visible",timeout:30000});
+        assert.ok((await persistedView.innerText()).includes(reviewed),
+          "T3_D5_SAVED_DRAFT_NOT_VISIBLE_FROM_KERNEL");
         const receiptText=await statusLine.textContent();
         const savedId=receiptText?.match(/local-inference:[0-9a-f-]{36}/i)?.[0];
         assert.ok(savedId,"T3_D5_GENERATED_DRAFT_KERNEL_RECEIPT_MISSING");
