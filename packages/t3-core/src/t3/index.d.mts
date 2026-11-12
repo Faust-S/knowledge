@@ -1,7 +1,8 @@
 import type { KernelFacade, CurrentWorkspaceFacade } from "../workspace-contract";
 
 export interface T3SignedActivityAccess {
-  currentContext(): unknown;
+  /** Trusted native owner may deliver its selected context asynchronously. */
+  currentContext(): unknown | Promise<unknown>;
   actionFor(operation: string): string | Promise<string>;
   operationDigest(input: unknown): string | Promise<string>;
   authorize(request: unknown): unknown | Promise<unknown>;
