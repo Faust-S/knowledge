@@ -22,8 +22,31 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
   let invalidationLost=false;
   const requireTransport=()=>check(!invalidationLost,
     "T3_D1_CONTROL_INVALIDATION_UNAVAILABLE");
-  const getEpoch=async()=>{
+  // The first signed operation must not race ahead of the existing Control
+  // invalidation channel. A still-working POST endpoint alone is not enough.
+  let streamAttached=false,readyForOperations=false,readyPromise=null;
+  let resolveReady=null,failStream=null;
+  const awaitReady=async()=>{
     requireTransport();
+    check(streamAttached&&readyPromise,
+      "T3_D1_CONTROL_INVALIDATION_UNAVAILABLE");
+    if(!readyForOperations){
+      let timer;
+      const ready=await Promise.race([
+        readyPromise,
+        new Promise(resolve=>{timer=setTimeout(()=>resolve(false),5000);}),
+      ]).finally(()=>clearTimeout(timer));
+      if(ready!==true){
+        failStream?.(); // Never authorize through an unconfirmed live stream.
+        fail("T3_D1_CONTROL_INVALIDATION_UNAVAILABLE");
+      }
+    }
+    requireTransport();
+    check(streamAttached&&readyForOperations,
+      "T3_D1_CONTROL_INVALIDATION_UNAVAILABLE");
+  };
+  const getEpoch=async()=>{
+    await awaitReady();
     const response=await fetchImpl(origin+"/api/t3/context-epoch",{
       method:"GET",headers:auth,mode:"same-origin",cache:"no-store",
       credentials:"omit",
@@ -37,7 +60,7 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
     return value.contextEpoch;
   };
   const post=async (scope,operation,epoch,verb,payload={})=>{
-    requireTransport();
+    await awaitReady();
     check(KINDS.has(scope)&&typeof operation==="string"&&
       Number.isSafeInteger(epoch),"T3_D1_OWNER_REQUEST_SCOPE_INVALID");
     const response=await fetchImpl(origin+"/api/t3/owner",{
@@ -105,6 +128,16 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
   };
   const subscribeSignedAccessInvalidation=listener=>{
     check(typeof listener==="function","T3_D1_INVALIDATION_LISTENER_REQUIRED");
+    if(invalidationLost){
+      // A remount cannot heal a lost owner stream. The trusted Control must
+      // explicitly relaunch the page with a fresh bearer session.
+      void Promise.resolve().then(()=>{try{listener();}catch{}});
+      return ()=>{};
+    }
+    check(!streamAttached,"T3_D1_CONTROL_INVALIDATION_ALREADY_ATTACHED");
+    streamAttached=true;readyForOperations=false;
+    const readiness=new Promise(resolve=>{resolveReady=resolve;});
+    readyPromise=readiness;
     const abort=new AbortController();
     let live=true;
     const lost=()=>{
@@ -112,8 +145,11 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
       // Revocation transport is a hard authority dependency. A callback
       // alone would rebuild Host while the source POSTs were still allowed.
       invalidationLost=true;
+      readyForOperations=false;
+      resolveReady?.(false);
       listener();
     };
+    failStream=lost;
     const stream=async()=>{
       const response=await fetchImpl(origin+"/api/t3/owner-events",{
         method:"GET",headers:{...auth,Accept:"text/event-stream"},
@@ -137,13 +173,25 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
         while((boundary=/\r?\n\r?\n/.exec(buffer))!==null){
           const event=buffer.slice(0,boundary.index).replace(/\r/g,"");
           buffer=buffer.slice(boundary.index+boundary[0].length);
-          if(live&&/^event:\s*invalidated\s*$/m.test(event))listener();
+          if(live&&/^event:\s*ready\s*$/m.test(event)){
+            readyForOperations=true;
+            resolveReady?.(true);
+          }else if(live&&/^event:\s*invalidated\s*$/m.test(event)){
+            listener();
+          }
         }
       }
       if(live)lost(); // Disconnected source cannot authorize new generations.
     };
     void stream().catch(()=>{if(live)lost();});
-    return ()=>{live=false;abort.abort();};
+    return ()=>{
+      live=false;abort.abort();
+      if(readyPromise===readiness){
+        streamAttached=false;readyForOperations=false;
+        readyPromise=null;resolveReady?.(false);
+        resolveReady=null;failStream=null;
+      }
+    };
   };
   return Object.freeze({
     requireSignedOwner:true,

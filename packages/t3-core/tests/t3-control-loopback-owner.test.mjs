@@ -10,7 +10,7 @@ const now=new Date().toISOString(),until=new Date(Date.now()+3600000).toISOStrin
 
 function fixture(){
   let epoch=1,selected="PERSONAL",revoked=false,decisions=0;
-  const writes=[],reads=[];
+  const writes=[],reads=[],eventControllers=[];
   const context=()=>({
     kind:"CORP",context_id:"corp:"+selected,actor_id:"person:worker",
     principal_id:"org:"+selected,role_id:"role:member",grant_id:"grant:"+selected,
@@ -27,7 +27,12 @@ function fixture(){
       assert.equal(options.method,"GET");
       return respond({contextEpoch:epoch});
     }
-    if(url.endsWith("/owner-events"))return respond({error:"NOT_EXERCISED"},404);
+    if(url.endsWith("/owner-events")){
+      return new Response(new ReadableStream({start(controller){
+        eventControllers.push(controller);
+        controller.enqueue(new TextEncoder().encode("event: ready\n\n"));
+      }}),{status:200,headers:{"content-type":"text/event-stream"}});
+    }
     const input=JSON.parse(options.body);
     assert.equal(options.headers["Content-Type"],"application/json");
     const callerEpoch=Number(options.headers["X-IWXA-Context-Epoch"]);
@@ -68,7 +73,8 @@ function fixture(){
   };
   return {fetchImpl,kernel,writes,reads,context,
     select:org=>{selected=org;epoch++;},revoke:()=>{revoked=true;},
-    decisions:()=>decisions};
+    decisions:()=>decisions,
+    closeEvents:()=>{for(const c of eventControllers)try{c.close();}catch{}}};
 }
 
 test("trusted loopback port requires the original Control session and loopback origin",()=>{
@@ -81,15 +87,20 @@ test("trusted loopback port requires the original Control session and loopback o
 test("PERSONAL cannot reuse organizational rights; genuine Host remains fail-closed",async()=>{
   const f=fixture();
   const owner=createControlLoopbackOwner({origin,token,fetchImpl:f.fetchImpl});
+  const stop=owner.subscribeSignedAccessInvalidation(()=>
+    assert.fail("no signed context has been selected"));
   assert.equal(owner.requireSignedOwner,true);
   assert.equal(await owner.signedKernelAccess("putObject"),null);
   assert.equal(await owner.signedActivityAccess(),null);
   assert.equal(f.writes.length,0);
+  stop();f.closeEvents();
 });
 
 test("the original subject Kernel binding uses selected local owner, blocks foreign and revoked writes",async()=>{
   const f=fixture();
   const owner=createControlLoopbackOwner({origin,token,fetchImpl:f.fetchImpl});
+  const stop=owner.subscribeSignedAccessInvalidation(()=>
+    assert.fail("live signed context should not be invalidated"));
   f.select("north");
   const port=await owner.signedKernelAccess("putObject");
   assert.ok(port);
@@ -113,6 +124,7 @@ test("the original subject Kernel binding uses selected local owner, blocks fore
   f.revoke();
   await assert.rejects(read.getWorkspace("ws:south"),{code:"T3_ACCESS_NOT_PERMITTED"});
   assert.deepEqual(f.reads,["ws:south"]);
+  stop();f.closeEvents();
 });
 
 
@@ -249,21 +261,62 @@ test("a closed invalidation stream blocks an in-flight signed write before the o
   }
 });
 
-test("explicit expected SSE unsubscribe does not poison a live signed owner",async()=>{
+test("expected React cleanup blocks operations until a fresh signed stream is confirmed",async()=>{
   const f=fixture();
   f.select("north");
-  let controller;
-  const stream=new ReadableStream({
-    start(value){controller=value;value.enqueue(
-      new TextEncoder().encode("event: ready\n\n"));},
-  });
+  const controllers=[];
   const owner=createControlLoopbackOwner({origin,token,
     fetchImpl:(url,options)=>url.endsWith("/api/t3/owner-events")?
-      Promise.resolve(new Response(stream,{status:200})):f.fetchImpl(url,options)});
+      Promise.resolve(new Response(new ReadableStream({start(controller){
+        controllers.push(controller);
+        controller.enqueue(new TextEncoder().encode("event: ready\n\n"));
+      }}),{status:200})):f.fetchImpl(url,options)});
   const stop=owner.subscribeSignedAccessInvalidation(()=>
-    assert.fail("expected unsubscribe must not revoke the owner"));
-  stop();
-  const port=await owner.signedKernelAccess("getWorkspace");
-  assert.equal((await port.currentContext()).workspace_id,"ws:north");
-  controller.close();
+    assert.fail("expected cleanup must not revoke the owner"));
+  const initial=await owner.signedKernelAccess("getWorkspace");
+  assert.equal((await initial.currentContext()).workspace_id,"ws:north");
+  stop(); // StrictMode can unsubscribe before remounting.
+  await assert.rejects(owner.signedKernelAccess("getWorkspace"),
+    {code:"T3_D1_CONTROL_INVALIDATION_UNAVAILABLE"});
+  const stopAgain=owner.subscribeSignedAccessInvalidation(()=>
+    assert.fail("fresh subscription should remain live"));
+  try{
+    const port=await owner.signedKernelAccess("getWorkspace");
+    assert.equal((await port.currentContext()).workspace_id,"ws:north");
+  }finally{
+    stopAgain();
+    for(const controller of controllers)try{controller.close();}catch{}
+  }
+});
+
+test("an initial operation cannot outrun original Control's ready event",async()=>{
+  const f=fixture();
+  f.select("north");
+  let control,epochReads=0;
+  const transport=new ReadableStream({start(controller){control=controller;}});
+  const fetchImpl=(url,options)=>{
+    if(url.endsWith("/api/t3/owner-events")){
+      return Promise.resolve(new Response(transport,{status:200,
+        headers:{"content-type":"text/event-stream"}}));
+    }
+    if(url.endsWith("/api/t3/context-epoch"))epochReads++;
+    return f.fetchImpl(url,options);
+  };
+  const owner=createControlLoopbackOwner({origin,token,fetchImpl});
+  const stop=owner.subscribeSignedAccessInvalidation(()=>
+    assert.fail("fresh Control must not disconnect"));
+  try{
+    const pending=owner.signedKernelAccess("getWorkspace");
+    await Promise.resolve();await Promise.resolve();
+    assert.equal(epochReads,0,
+      "no subject operation may begin before the invalidation stream is ready");
+    control.enqueue(new TextEncoder().encode("event: ready\n\n"));
+    const port=await pending;
+    assert.ok(port);
+    assert.equal(epochReads,1);
+    assert.equal((await port.currentContext()).workspace_id,"ws:north");
+  }finally{
+    stop();
+    try{control.close();}catch{}
+  }
 });
