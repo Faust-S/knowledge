@@ -227,7 +227,9 @@ jobs:
           assert proof['trials'][6]['unchangedClaims'] is True
           assert all(x['repetitions']==12 and x['k05SourceReads']==0
             and x['humanGold'] is False and x['f1'] is None for x in proof['trials'])
-          assert proof['trials'][-1]['ownerSourceReads']==0
+          assert proof['trials'][4]['scenario']=='revoked_permission'
+          assert proof['trials'][4]['ownerSourceReads']==0
+          assert proof['trials'][4]['ownerSourceCatalogReads']==0
           assert proof['limits']['memoryGain']=='NOT_MEASURED'
           assert proof['limits']['realModelInvocations']==0
           print('K05_K01_CURRENT_REFRESH_SOURCE_PROOF_PASS_NO_PRIVATE_INPUTS')
