@@ -98,8 +98,11 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
       .then(rows=>rows.length)),0,"T3 does not silently register a worker");
 
     // Rejecting the explicit installation must leave ordinary site unaffected.
+    // A checkbox "check()" waits for a permanently checked state, but a
+    // dismissed consent intentionally and immediately reverts the switch.
+    // Trigger a real click, then assert the resulting cancelled state.
     page.once("dialog",dialog=>dialog.dismiss());
-    await toggle.check();
+    await toggle.click();
     await page.waitForFunction(()=>!document.querySelector("#iwxa-t3-domain-switch").disabled);
     assert.equal(await toggle.isChecked(),false,"user can decline the entire site snapshot");
 
