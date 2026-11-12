@@ -10,6 +10,8 @@ on:
       - 'research/cross-lab/tests/test_k05_k03_projection.py'
       - 'research/cross-lab/tests/test_k05_c17_projection.py'
       - 'research/cross-lab/tests/test_k05_agent_consumer.py'
+      - 'research/cross-lab/k05_real_offer_public.py'
+      - 'research/cross-lab/tests/test_k05_real_offer_public.py'
       - 'research/cross-lab/k05_commercial_ablation.mjs'
       - 'research/cross-lab/k05_k01_evidence_check.mjs'
       - 'research/cross-lab/tests/test_k05_commercial_ablation.test.mjs'
@@ -164,6 +166,24 @@ jobs:
             if x['method']=='K01_PLUS_K05_SOURCE_CHECK')
           print('K05_K01_FOUR_ARMS_SOURCE_BOUND_MEASUREMENTS_PASS')
           PY
+      - name: Discover official published supplier quote and board procurement packet
+        run: |
+          command -v pdftotext
+          python research/cross-lab/k05_real_offer_public.py \
+            --discover \
+            --out "$RUNNER_TEMP/k05-public-offer-discovery.json"
+      - name: Qualify public quote discovery as unpinned, not proof
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=json.loads((Path(os.environ['RUNNER_TEMP'])/'k05-public-offer-discovery.json').read_text())
+          assert p['status']=='DISCOVERY_UNPINNED_NOT_ACCEPTED'
+          assert p['source']['sha256']
+          assert p['facts']['arithmetic_total_usd']=='10000.00'
+          assert p['epistemic']['source_revision_pinned'] is False
+          print('K05_PUBLIC_QUOTE_DISCOVERY_SHA_ONLY_NOT_FINAL_PROOF')
+          PY
       - name: Checkout pinned K02 owner code, read-only
         uses: actions/checkout@v4
         with:
@@ -247,6 +267,7 @@ jobs:
             ${{ runner.temp }}/k05-suite-proof.json
             ${{ runner.temp }}/k05-agent-result-evidence.json
             ${{ runner.temp }}/k05-commercial-ablation.json
+            ${{ runner.temp }}/k05-public-offer-discovery.json
             ${{ runner.temp }}/k05-k02-corpus.json
             ${{ runner.temp }}/k05-k02-routing-diagnostic.json
           retention-days: 7
