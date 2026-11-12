@@ -171,6 +171,10 @@ test("lost original Control event stream triggers fail-closed Host invalidation"
     await Promise.race([notified,new Promise((_,reject)=>
       setTimeout(()=>reject(Error("T3_D1_DISCONNECTED_OWNER_NOT_DENIED")),2000))]);
     assert.equal(called,1);
+    await assert.rejects(owner.signedKernelAccess("putObject"),
+      {code:"T3_D1_CONTROL_INVALIDATION_UNAVAILABLE"});
+    await assert.rejects(owner.signedActivityAccess(),
+      {code:"T3_D1_CONTROL_INVALIDATION_UNAVAILABLE"});
   }finally{stop();}
 });
 
@@ -184,5 +188,82 @@ test("an unavailable SSE endpoint must deny the old selected subject",async()=>{
     await Promise.race([notified,new Promise((_,reject)=>
       setTimeout(()=>reject(Error("T3_D1_OWNER_503_NOT_DENIED")),2000))]);
     assert.equal(called,1);
+    await assert.rejects(owner.signedKernelAccess("getWorkspace"),
+      {code:"T3_D1_CONTROL_INVALIDATION_UNAVAILABLE"});
   }finally{stop();}
+});
+
+
+test("a closed invalidation stream blocks an in-flight signed write before the original Kernel call",async()=>{
+  const f=fixture();
+  f.select("north");
+  let emit,resolveAuthorization,started;
+  const authorizationStarted=new Promise(resolve=>{started=resolve;});
+  const original=f.fetchImpl;
+  const stream=new ReadableStream({
+    start(controller){
+      emit=controller;
+      controller.enqueue(new TextEncoder().encode("event: ready\n\n"));
+    },
+  });
+  let lost;
+  const lostPromise=new Promise(resolve=>{lost=resolve;});
+  const fetchImpl=async(url,options={})=>{
+    if(url.endsWith("/api/t3/owner-events")){
+      return new Response(stream,{status:200,
+        headers:{"content-type":"text/event-stream"}});
+    }
+    if(url.endsWith("/api/t3/owner")&&
+       JSON.parse(options.body)?.verb==="authorize"){
+      await new Promise(resolve=>{
+        resolveAuthorization=resolve;
+        started();
+      });
+    }
+    return original(url,options);
+  };
+  const owner=createControlLoopbackOwner({origin,token,fetchImpl});
+  const stop=owner.subscribeSignedAccessInvalidation(()=>lost());
+  try{
+    const port=await owner.signedKernelAccess("putObject");
+    const bound=createSubjectKernelBinding({kernel:f.kernel,access:port});
+    const pending=bound.putObject({
+      workspace_id:"ws:north",object_id:"item:late-owner",base_revision:0,
+      schema_id:"demo",schema_version:"1.0.0",data:{title:"must not save"},
+      event:{event_type:"created"},
+    });
+    await authorizationStarted;
+    emit.close();
+    await lostPromise;
+    resolveAuthorization();
+    await assert.rejects(pending,
+      {code:"T3_D1_CONTROL_INVALIDATION_UNAVAILABLE"});
+    assert.deepEqual(f.writes,[],
+      "a trusted owner's old POST response is not enough to execute Kernel");
+    await assert.rejects(owner.signedKernelAccess("getWorkspace"),
+      {code:"T3_D1_CONTROL_INVALIDATION_UNAVAILABLE"});
+  }finally{
+    resolveAuthorization?.();
+    stop();
+    try{emit.close();}catch{}
+  }
+});
+
+test("explicit expected SSE unsubscribe does not poison a live signed owner",async()=>{
+  const f=fixture();
+  f.select("north");
+  let controller;
+  const stream=new ReadableStream({
+    start(value){controller=value;value.enqueue(
+      new TextEncoder().encode("event: ready\n\n"));},
+  });
+  const owner=createControlLoopbackOwner({origin,token,
+    fetchImpl:(url,options)=>url.endsWith("/api/t3/owner-events")?
+      Promise.resolve(new Response(stream,{status:200})):f.fetchImpl(url,options)});
+  const stop=owner.subscribeSignedAccessInvalidation(()=>
+    assert.fail("expected unsubscribe must not revoke the owner"));
+  stop();
+  const port=await owner.signedKernelAccess("getWorkspace");
+  assert.equal((await port.currentContext()).workspace_id,"ws:north");
+  controller.close();
 });
