@@ -1,6 +1,6 @@
 {
   "name": "@iwxa/k01-context",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -33,6 +33,10 @@
     "./atlas-project-source": {
       "types": "./modules/k01-context/integrations/atlas-project-source.d.mts",
       "default": "./modules/k01-context/integrations/atlas-project-source.mjs"
+    },
+    "./project-continuation": {
+      "types": "./modules/k01-context/integrations/project-continuation.d.mts",
+      "default": "./modules/k01-context/integrations/project-continuation.mjs"
     }
   },
   "files": [
