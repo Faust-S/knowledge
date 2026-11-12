@@ -7,7 +7,7 @@ import {tmpdir} from 'node:os';
 import {ComposerError,digest} from '../index.mjs';
 import {prepareSavedMeetingDocuments} from '../saved-meeting-result.mjs';
 import {prepareAgent05FileActions,inspectAgent05FileReadbacks,
-  AGENT05_FILE_ACTION_VERSION} from '../agent05-file-actions.mjs';
+  AGENT05_FILE_ACTION_VERSION,AGENT05_COMPACT_FILE_ACTION_VERSION} from '../agent05-file-actions.mjs';
 
 const text='🧪 Встреча: Мария подготовит бюджет к пятнице.';
 const quote='Мария подготовит бюджет к пятнице.';
@@ -157,4 +157,95 @@ test('modified batch intent cannot be accepted as trustworthy U01 readback input
     assert.throws(()=>inspectAgent05FileReadbacks(bad,observations(batch)),
       err('AGENT05_FILE_BATCH_CHANGED'));
   }
+});
+
+test('compact output contains decisions, unknowns and unsent drafts in one reviewable file',()=>{
+  const p=pack();
+  const full=prepareAgent05FileActions(p,{baseDirectory:'Встречи'});
+  const unchanged=prepareAgent05FileActions(p,{baseDirectory:'Встречи',deliveryMode:'full'});
+  assert.deepEqual(full,unchanged,'the existing four-file contract remains unchanged');
+  const compact=prepareAgent05FileActions(p,{baseDirectory:'Встречи',deliveryMode:'compact'});
+  assert.equal(compact.schema,AGENT05_COMPACT_FILE_ACTION_VERSION);
+  assert.equal(compact.deliveryMode,'compact');
+  assert.equal(compact.actions.length,1);
+  assert.equal(compact.actions[0].name,'meeting-followup.md');
+  assert.ok(compact.actions[0].target.startsWith('Встречи/K04-'));
+  assert.equal(compact.actions[0].operation,'files.write_text');
+  assert.equal(compact.actions[0].arguments.mode,'create');
+  assert.equal(compact.actions[0].requiresHumanApproval,true);
+  const result=compact.actions[0].text;
+  assert.ok(result.includes(p.documents['meeting-decisions.md']));
+  assert.ok(result.includes(p.documents['review-questions.md']));
+  assert.ok(result.includes(p.documents['human-followup-drafts.md']));
+  assert.ok(result.includes('НЕ ВЫПОЛНЕНО'));
+  assert.ok(result.includes('Ничего не отправлено'));
+  assert.ok(result.includes('отдельного CSV-реестра'));
+  assert.ok(!compact.sourceDocuments.includes('action-register.csv'));
+  assert.equal(compact.actions[0].bytes,Buffer.byteLength(result,'utf8'));
+  assert.equal(compact.actions[0].contentSha256,rawsha(result));
+  assert.equal(compact.actions[0].k04ContentDigest,digest(result));
+  assert.equal(compact.authorityGranted,false);
+  assert.equal(compact.executed,false);
+  assert.equal(compact.resultAccepted,false);
+});
+test('compact save uses one real open-host write and one readback without duplicating work',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'iwxa-k04-compact-'));
+  try{
+    const original=pack();
+    const batch=prepareAgent05FileActions(original,{deliveryMode:'compact'});
+    assert.equal(batch.actions.length,1);
+    const one=batch.actions[0];
+    await writeFile(join(root,one.target),one.arguments.text,{encoding:'utf8',flag:'wx'});
+    await assert.rejects(writeFile(join(root,one.target),one.arguments.text,
+      {encoding:'utf8',flag:'wx'}),e=>e.code==='EEXIST');
+    const readback=await readFile(join(root,one.target),'utf8');
+    const obs=[{data:{root_id:'personal',path:one.target,text:readback,sha256:rawsha(readback)},
+      receipt:{tool_id:'files.read',status:'SUCCEEDED',receipt_digest:'e'.repeat(64)}}];
+    const verified=inspectAgent05FileReadbacks(batch,obs);
+    assert.equal(verified.filesCompared,1);
+    assert.equal(verified.files.length,1);
+    assert.equal(verified.status,'HOST_SUPPLIED_READBACK_BYTES_MATCH');
+    assert.equal(verified.nativeToolWriteReceiptsVerifiedByK04,false);
+    assert.equal(verified.nativeToolReadReceiptsVerifiedByK04,false);
+    assert.equal(verified.assignmentsExecuted,false);
+    const resumed=prepareAgent05FileActions(pack(),{deliveryMode:'compact'});
+    assert.equal(resumed.batchDigest,batch.batchDigest);
+    assert.equal(rawsha(await readFile(join(root,resumed.actions[0].target),'utf8')),
+      resumed.actions[0].contentSha256);
+    const tampered=structuredClone(obs);tampered[0].data.text+='unexpected';
+    assert.throws(()=>inspectAgent05FileReadbacks(batch,tampered),
+      err('AGENT05_READBACK_MISMATCH'));
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+test('compact mode validates source-derived document package and rejects changed receipts',()=>{
+  const batch=prepareAgent05FileActions(pack(),{deliveryMode:'compact'});
+  const corrupted=structuredClone(batch);
+  corrupted.deliveryMode='full';
+  assert.throws(()=>inspectAgent05FileReadbacks(corrupted,observations(batch)),
+    err('AGENT05_FILE_BATCH_CHANGED'));
+  const another=structuredClone(batch);
+  another.sourceDocuments.reverse();
+  assert.throws(()=>inspectAgent05FileReadbacks(another,observations(batch)),
+    err('AGENT05_FILE_BATCH_CHANGED'));
+  const other=structuredClone(batch);
+  other.actions[0].name='review-questions.md';
+  assert.throws(()=>inspectAgent05FileReadbacks(other,observations(batch)),
+    err('AGENT05_FILE_BATCH_CHANGED'));
+  const obs=observations(batch);
+  assert.equal(inspectAgent05FileReadbacks(batch,obs).filesCompared,1);
+  assert.throws(()=>inspectAgent05FileReadbacks(batch,[...obs,...obs]),
+    err('AGENT05_READBACKS_INCOMPLETE'));
+  assert.throws(()=>prepareAgent05FileActions(pack(),{deliveryMode:'unspecified'}),
+    err('AGENT05_DELIVERY_MODE_INVALID'));
+});
+test('oversized compact/individual file is explicitly refused before any U01 action',()=>{
+  const p=pack();
+  p.documents['human-followup-drafts.md']='A'.repeat(1_020_000);
+  p.documentDigests['human-followup-drafts.md']=digest(p.documents['human-followup-drafts.md']);
+  const {packageDigest,...body}=p;
+  p.packageDigest=digest(body);
+  assert.throws(()=>prepareAgent05FileActions(p,{deliveryMode:'full'}),
+    err('AGENT05_DOCUMENT_TOO_LARGE'));
+  assert.throws(()=>prepareAgent05FileActions(p,{deliveryMode:'compact'}),
+    err('AGENT05_DOCUMENT_TOO_LARGE'));
 });

@@ -4,6 +4,11 @@ import {verifySavedMeetingDocuments} from './saved-meeting-result.mjs';
 
 export const AGENT05_FILE_ACTION_VERSION='IWXA.K04.AGENT05_FILE_ACTIONS/0.1.0';
 export const AGENT05_FILE_READBACK_VERSION='IWXA.K04.AGENT05_FILE_READBACK/0.1.0';
+export const AGENT05_COMPACT_FILE_ACTION_VERSION='IWXA.K04.AGENT05_FILE_ACTIONS/0.2.0';
+const COMPACT_FILE='meeting-followup.md';
+const COMPACT_SOURCES=Object.freeze(['meeting-decisions.md',
+  'review-questions.md','human-followup-drafts.md']);
+const MAX_FILE_BYTES=1_000_000;
 const FILES=Object.freeze(['action-register.csv','human-followup-drafts.md',
   'meeting-decisions.md','review-questions.md']);
 const HEX=/^[0-9a-f]{64}$/;
@@ -27,17 +32,26 @@ function directory(value){
   return value;
 }
 function checkBatch(batch){
-  if(!isObject(batch)||batch.schema!==AGENT05_FILE_ACTION_VERSION||
+  const compact=batch?.schema===AGENT05_COMPACT_FILE_ACTION_VERSION;
+  if(!isObject(batch)||
+     !(batch.schema===AGENT05_FILE_ACTION_VERSION||compact)||
      !HEX.test(batch.batchDigest??''))reject('AGENT05_FILE_BATCH_INVALID');
+  const expected=compact?[COMPACT_FILE]:FILES;
+  if(compact && (batch.deliveryMode!=='compact'||!Array.isArray(batch.sourceDocuments)||
+      batch.sourceDocuments.length!==COMPACT_SOURCES.length||
+      batch.sourceDocuments.some((name,i)=>name!==COMPACT_SOURCES[i])))
+    reject('AGENT05_FILE_BATCH_CHANGED');
+  if(!compact&&('deliveryMode' in batch||'sourceDocuments' in batch))
+    reject('AGENT05_FILE_BATCH_CHANGED');
   const {batchDigest,...payload}=batch;
   if(digest(payload)!==batchDigest||batch.authorityGranted!==false||
      batch.executed!==false||batch.resultAccepted!==false||
      batch.origin!=='P01_SAVED_GRAPH_RESULT' ||
-     !Array.isArray(batch.actions)||batch.actions.length!==FILES.length)
+     !Array.isArray(batch.actions)||batch.actions.length!==expected.length)
     reject('AGENT05_FILE_BATCH_CHANGED');
-  for(let i=0;i<FILES.length;i++){
+  for(let i=0;i<expected.length;i++){
     const x=batch.actions[i];
-    if(!isObject(x)||x.name!==FILES[i]||x.operation!=='files.write_text'||
+    if(!isObject(x)||x.name!==expected[i]||x.operation!=='files.write_text'||
       x.effectClass!=='WRITE'||x.requiresHumanApproval!==true||
       x.executionState!=='NOT_EXECUTED'||x.rootId!=='personal'||
       !isObject(x.arguments)||x.arguments.root_id!=='personal'||
@@ -46,28 +60,42 @@ function checkBatch(batch){
       !HEX.test(x.contentSha256??'')||
       fileSha256(x.text)!==x.contentSha256||
       x.k04ContentDigest!==digest(x.text)||
+      Buffer.byteLength(x.text,'utf8')>MAX_FILE_BYTES||
       !x.target.endsWith('/'+x.name)&&!x.target.endsWith('-'+x.name))
       reject('AGENT05_FILE_BATCH_CHANGED');
   }
 }
-export function prepareAgent05FileActions(pack,{baseDirectory=''}={}){
+export function prepareAgent05FileActions(pack,{baseDirectory='',deliveryMode='full'}={}){
+  if(!['full','compact'].includes(deliveryMode))
+    reject('AGENT05_DELIVERY_MODE_INVALID');
   verifySavedMeetingDocuments(pack);
   const base=directory(baseDirectory);
   if(!isObject(pack.graph)||!HEX.test(pack.graph.artifactDigest??''))
     reject('AGENT05_GRAPH_ORIGIN_REQUIRED');
   if(FILES.some(name=>!goodText(pack.documents?.[name])))
     reject('AGENT05_DOCUMENT_ENCODING_INVALID');
+  const compact=deliveryMode==='compact';
+  const selectedFiles=compact?[COMPACT_FILE]:FILES;
+  const documentContent=compact
+    ?{[COMPACT_FILE]:'# Результат встречи. Черновик для проверки\n\n'+
+        'Все поручения ниже ещё не выполнены. Ничего не отправлено.\n\n'+
+        COMPACT_SOURCES.map(name=>pack.documents[name]).join('\n\n---\n\n')+
+        '\n\nДля отдельного CSV-реестра выберите полный комплект.\n'}
+    :pack.documents;
   // The user chooses an existing writable directory. A stable artifact-derived
   // prefix avoids a second Store, extra mkdir calls and filename collisions.
   const prefix='K04-'+digest({taskRef:pack.taskRef,
     artifactDigest:pack.graph.artifactDigest}).slice(0,20);
-  const actions=FILES.map(name=>{
+  const actions=selectedFiles.map(name=>{
     const target=(base?base+'/':'')+prefix+'-'+name;
-    const text=pack.documents[name];
+    const text=documentContent[name];
+    if(!goodText(text))reject('AGENT05_DOCUMENT_ENCODING_INVALID');
+    if(Buffer.byteLength(text,'utf8')>MAX_FILE_BYTES)
+      reject('AGENT05_DOCUMENT_TOO_LARGE');
     return {name,operation:'files.write_text',target,rootId:'personal',
       arguments:{root_id:'personal',path:target,mode:'create',text},
       text,contentSha256:fileSha256(text),
-      k04ContentDigest:pack.documentDigests[name],
+      k04ContentDigest:compact?digest(text):pack.documentDigests[name],
       bytes:Buffer.byteLength(text,'utf8'),effectClass:'WRITE',
       requiresHumanApproval:true,executionState:'NOT_EXECUTED',
       risk:'medium',reversible:true,
@@ -81,6 +109,7 @@ export function prepareAgent05FileActions(pack,{baseDirectory=''}={}){
     sourceDigest:pack.source.transcriptDigest,
     packageDigest:pack.packageDigest,rootId:'personal',
     baseDirectory:base,filenamePrefix:prefix,actions,
+    ...(compact?{deliveryMode:'compact',sourceDocuments:[...COMPACT_SOURCES]}:{}),
     hostPrerequisites:[
       'P01_REVALIDATE_SAVED_GRAPH_SOURCE_AND_ARTIFACT',
       'P01_HUMAN_ACCEPTED_TASK_AND_ACTION_CANDIDATES',
@@ -101,7 +130,7 @@ export function prepareAgent05FileActions(pack,{baseDirectory=''}={}){
  */
 export function inspectAgent05FileReadbacks(batch,observations){
   checkBatch(batch);
-  if(!Array.isArray(observations)||observations.length!==FILES.length)
+  if(!Array.isArray(observations)||observations.length!==batch.actions.length)
     reject('AGENT05_READBACKS_INCOMPLETE');
   const seen=new Set();
   const files=[];
@@ -131,8 +160,8 @@ export function inspectAgent05FileReadbacks(batch,observations){
     schema:AGENT05_FILE_READBACK_VERSION,batchDigest:batch.batchDigest,
     taskRef:batch.taskRef,graphArtifactDigest:batch.graphArtifactDigest,
     status:'HOST_SUPPLIED_READBACK_BYTES_MATCH',
-    files:FILES.map(name=>files.find(x=>x.name===name)),
-    filesCompared:FILES.length,
+    files:batch.actions.map(x=>files.find(f=>f.name===x.name)),
+    filesCompared:batch.actions.length,
     nativeToolWriteReceiptsVerifiedByK04:false,
     nativeToolReadReceiptsVerifiedByK04:false,
     hostAuthorityGranted:false,
