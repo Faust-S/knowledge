@@ -40,8 +40,13 @@ def capture_pdf() -> tuple[bytes, list[str]]:
     })
     with urllib.request.urlopen(request, timeout=30) as response:
         data = response.read(MAX_BYTES + 1)
+        content_type = response.headers.get('Content-Type', '')
+        http_status = response.status
     if len(data) > MAX_BYTES or not data.startswith(b"%PDF"):
-        raise SourceHold("SOURCE_NOT_VERIFIED_PDF")
+        raise SourceHold('SOURCE_NOT_VERIFIED_PDF:' + json.dumps({
+            'http_status': http_status, 'content_type': content_type,
+            'bytes': len(data), 'prefix_hex': data[:12].hex(),
+        }, sort_keys=True))
     with tempfile.TemporaryDirectory() as directory:
         target = Path(directory) / "source.pdf"
         target.write_bytes(data)

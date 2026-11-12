@@ -21,7 +21,7 @@ test('four real method implementations, same 4 controlled project states',async(
  assert.deepEqual(result.scenarios.map(s=>s.caseId),[
   'approved','revised','conflicting_approved_decisions','unavailable_accepted_quote'
  ]);
- const methods=['DIRECT_FULL_READ_FIRST_MATCH_PROXY','EXACT_SEARCH_LATEST_LINE_PROXY',
+ const methods=['DIRECT_FULL_READ_FIRST_MATCH_PROXY','EXACT_SEARCH_LATEST_APPROVED_PROXY',
   'K01_CONTEXT_ONLY','K01_PLUS_K05_SOURCE_CHECK'];
  for(const scenario of result.scenarios){
   assert.deepEqual(scenario.methods.map(s=>s.method),methods);

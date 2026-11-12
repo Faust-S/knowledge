@@ -86,10 +86,10 @@ async function runLiteralProxy(fixture,spec,which){
   for(const [key,rows] of index){
    if(rows.length!==1){ambiguous++;continue}
    if(which==='full_first'&&!matches.has(key))matches.set(key,rows[0].value);
-   if(which==='exact_recent')matches.set(key,rows[0].value);
+   if(which==='exact_recent'&&doc.state!=='proposed')matches.set(key,rows[0].value);
   }
  }
- return {method:which==='full_first'?'DIRECT_FULL_READ_FIRST_MATCH_PROXY':'EXACT_SEARCH_LATEST_LINE_PROXY',
+ return {method:which==='full_first'?'DIRECT_FULL_READ_FIRST_MATCH_PROXY':'EXACT_SEARCH_LATEST_APPROVED_PROXY',
   values:matches,metrics:{hostReads:host.getMetrics().reads,bytesRead,
    contextBytes:which==='full_first'?bytesRead:Buffer.byteLength([...matches].map(
      ([k,v])=>k+':'+v).join('\n'),'utf8'),
