@@ -414,9 +414,11 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
   }
   async function consumeImport(token) {
     const plan = pendingImport;
-    pendingImport = null; // Consume synchronously BEFORE awaiting native owner.
-    if (!plan || plan.preview_token !== token ||
-        plan.contextIdentity !== identity(await selected(access))) {
+    if (!plan || plan.preview_token !== token) {
+      refused("T3_SUBJECT_IMPORT_PREVIEW_REQUIRED");
+    }
+    pendingImport = null; // Valid token consumed BEFORE awaiting native owner.
+    if (plan.contextIdentity !== identity(await selected(access))) {
       refused("T3_SUBJECT_IMPORT_PREVIEW_REQUIRED");
     }
     if (Number(clock()) >= plan.expiresAt) refused("T3_SUBJECT_IMPORT_PREVIEW_EXPIRED");
@@ -424,20 +426,24 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
   }
   async function consumePurge(token,confirmation,commit) {
     const plan = pendingPurge;
-    pendingPurge = null; // One-shot before any native-owner callback can yield.
-    if (!plan || plan.purge_token !== token ||
-        plan.contextIdentity !== identity(await selected(access))) {
+    if (!plan || plan.purge_token !== token) {
       refused("T3_SUBJECT_PURGE_PREVIEW_REQUIRED");
     }
     if (Number(clock()) >= plan.expiresAt) {
+      pendingPurge = null;
       refused("T3_SUBJECT_PURGE_PREVIEW_EXPIRED");
     }
+    // A mistaken confirmation is corrected within the SAME original preview.
+    // Once valid, consume synchronously before the async owner context read.
     if (commit && plan.requiresAcknowledgement)
       refused("T3_SUBJECT_PURGE_BACKUP_ACK_REQUIRED");
     if (commit && (typeof confirmation !== "string" ||
         confirmation !== plan.challenge))
       refused("T3_SUBJECT_PURGE_CHALLENGE_MISMATCH");
-    // A conflict or rejection requires a fresh original Kernel preview.
+    pendingPurge = null;
+    if (plan.contextIdentity !== identity(await selected(access))) {
+      refused("T3_SUBJECT_PURGE_PREVIEW_REQUIRED");
+    }
     return plan;
   }
   function oneWorkspace(values) {
