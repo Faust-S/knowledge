@@ -46,7 +46,7 @@ jobs:
           node --check modules/k02-interoperability/consumers/source-backed-review.mjs
   k02-real-local-model:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -89,3 +89,37 @@ jobs:
         run: python modules/k02-interoperability/consumers/python_portable_plan_session.py --live
       - name: Independent Python host verifies source evidence model draft
         run: python modules/k02-interoperability/consumers/python_source_backed_review.py 6d04b82f1b0b614fa22c735075b66f20c1d85f92
+
+      - name: Discover jq executable for real deterministic calculations
+        run: |
+          command -v jq
+          jq --version
+      - name: Pull second local model Qwen3 and record its exact digest
+        run: |
+          ollama pull qwen3:0.6b
+          python - <<'PY'
+          import json, os, urllib.request
+          data=json.load(urllib.request.urlopen('http://127.0.0.1:11434/api/tags',timeout=10))
+          found=[x for x in data.get('models',[]) if x.get('name')=='qwen3:0.6b']
+          assert len(found)==1, 'QWEN3_0_6B_UNAVAILABLE'
+          model_digest=found[0]['digest']
+          assert len(model_digest)==64 and all(c in '0123456789abcdef' for c in model_digest), 'QWEN3_PIN_INVALID'
+          with open(os.environ['GITHUB_ENV'],'a',encoding='utf-8') as env:
+            env.write('K02_SECOND_MODEL_NAME=qwen3:0.6b\n')
+            env.write('K02_SECOND_MODEL_DIGEST='+model_digest+'\n')
+          print('QWEN3_REAL_MODEL_PIN '+model_digest)
+          PY
+      - name: Live two-model staged document analysis and real jq plus Skill comparison
+        env:
+          K02_CASE_OUTPUT_DIR: ${{ runner.temp }}/k02-document-case
+        run: |
+          node --check modules/k02-interoperability/consumers/live-document-workflow-study.mjs
+          node modules/k02-interoperability/consumers/live-document-workflow-study.mjs
+      - name: Publish public fixture results, report files and measurement evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k02-live-document-comparison
+          path: ${{ runner.temp }}/k02-document-case
+          if-no-files-found: ignore
+          retention-days: 14
