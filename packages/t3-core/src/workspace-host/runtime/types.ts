@@ -50,6 +50,9 @@ export interface WorkspaceHostRuntimeHandle {
   readonly diagnostics: WorkspaceHostRuntimeDiagnostics;
   /** Selected Workspace Activity via existing signed D1 owner, not new Store. */
   readonly readAuthorizedActivity: (options: T3ActivityReadOptions) => Promise<T3ActivityProjection>;
+  /** Immediately invalidate signed ModuleContext and Activity access on session loss.
+   * Module deactivation still runs later through the original serialized teardown. */
+  readonly invalidate: () => void;
   readonly dispose: () => Promise<void>;
 }
 
