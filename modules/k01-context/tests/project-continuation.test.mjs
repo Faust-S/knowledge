@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {performance} from 'node:perf_hooks';
+import {sha256} from '../index.mjs';
 import {prepareProjectContinuation,revalidateProjectContinuation,PROJECT_CONTINUATION_VERSION} from '../integrations/project-continuation.mjs';
 import {makeCommercialCase,expectedInitial,expectedUpdated,fields} from './fixtures/commercial-project.mjs';
 const value=(p,key)=>p.projection.selected.find(c=>c.id==='field:'+key)?.excerpt??'';
@@ -204,4 +205,51 @@ test('fair full-read and direct-search baselines measure actual host reads and s
  assert.ok(stats.k01ReadBytes<stats.baselineFullReadBytes);
  assert.ok(stats.k01ProjectionPayloadBytes<stats.baselineFullReadBytes);
  assert.ok(Number.isFinite(k01Ms));
+});
+
+test('two matching labels in one correctly pinned document are ambiguous',async()=>{
+ const host=makeCommercialCase();
+ const base=host.sourcePort;
+ let revised;
+ const port={
+  async listSources(args){
+   const catalog=await base.listSources(args);
+   const original=catalog.sources.find(s=>s.sourceRef==='doc:meeting');
+   const snapshot=await base.readSource({sourceRef:original.sourceRef,
+    requestedRevision:original.revision,workspaceRef:host.request.workspaceRef});
+   revised={content:snapshot.content+'\nГарантия: 18 месяцев.',
+    revision:'sha256:'+sha256(snapshot.content+'\nГарантия: 18 месяцев.')};
+   return {scopeRevision:'workspace:4',sources:catalog.sources.map(x=>
+    x.sourceRef==='doc:meeting'?{...x,revision:revised.revision}:x)};
+  },
+  async readSource(args){
+   return args.sourceRef==='doc:meeting'
+    ? {complete:true,...revised}:base.readSource(args);
+  }
+ };
+ const p=await prepareProjectContinuation({...host.request,scopeRevision:'workspace:4'},port);
+ assert.equal(value(p,'warranty'),'');
+ assert.equal(p.requiredComplete,false);
+ assert.ok(p.issues.some(i=>i.type==='ambiguous_lines'&&i.fieldKey==='warranty'));
+});
+
+test('consumer can prepare the updated commercial arithmetic from selected current facts',async()=>{
+ const host=makeCommercialCase({updated:true});
+ const p=await prepareProjectContinuation(host.request,host.sourcePort);
+ const amount=key=>Number(value(p,key).match(/:\s*(\d+)\s*руб\./)?.[1]);
+ const percentage=key=>Number(value(p,key).match(/:\s*(\d+)%/)?.[1]);
+ const parts=['cabinet','sensors','installation','commissioning','freight'].map(amount);
+ const net=parts.reduce((sum,x)=>sum+x,0);
+ const vat=percentage('vat');
+ const gross=net*(100+vat)/100;
+ const advance=Math.round(gross*percentage('advance')/100);
+ const balance=Math.round(gross*percentage('balance')/100);
+ assert.deepEqual({net,gross,advance,balance,vat},
+  {net:812000,gross:990640,advance:346724,balance:643916,vat:22});
+ assert.equal(net,amount('net'));
+ assert.equal(gross,amount('gross'));
+ assert.equal(advance+balance,gross);
+ assert.ok(p.projection.selected.some(x=>x.sourceRef==='result:engineering-review'));
+ assert.equal(JSON.stringify(p.projection).includes('337330'),false);
+ assert.equal(p.projection.selected.length,18);
 });
