@@ -43,6 +43,39 @@ function safeTrialRows(rows,pin,providerId,profile,step,environment){
     Number.isSafeInteger(row.passed)&&row.passed>=0&&row.passed<=row.attempts;
 }
 
+
+// Existing K02 trial evidence has no model digest field. Require a separate,
+// host-bound observation that pins the EXACT native model digest and task.
+// Do not retag an alias observation (or another OS/mode/model version) as native.
+function checkedNativeTrial(observation,expectedSourceRef,pin,profile,environment){
+  if(observation===null)return {valid:true,scope:null};
+  if(!rec(observation)||Object.keys(observation).sort().join(',')!==
+       'mode,modelPin,scope,sourceRef,taskKey'||
+     typeof expectedSourceRef!=='string'||!expectedSourceRef||
+     observation.sourceRef!==expectedSourceRef||
+     !pinMatches(observation.modelPin,pin)||
+     typeof observation.taskKey!=='string'||!observation.taskKey.trim()||
+     (observation.mode!==null&&(typeof observation.mode!=='string'||!observation.mode.trim()))||
+     !rec(observation.scope)||observation.scope.taskKey!==observation.taskKey||
+     !Array.isArray(observation.scope.candidateConfigurations)||
+     observation.scope.candidateConfigurations.length!==1||
+     !Array.isArray(observation.scope.failures))return {valid:false,scope:null};
+  const config=observation.scope.candidateConfigurations[0];
+  const expected={
+    providerId:'OLLAMA_LOCAL_V1',kind:'model',capabilityId:'text.generate',
+    modelId:pin.name,executorVersion:profile.runtimeVersion,
+    mode:observation.mode,operatingSystem:environment.operatingSystem,
+  };
+  if(!rec(config)||Object.keys(config).sort().join(',')!==
+     Object.keys(expected).sort().join(',')||
+     Object.keys(expected).some(k=>config[k]!==expected[k]))return {valid:false,scope:null};
+  if(observation.scope.failures.some(row=>!rec(row)||
+      row.taskKey!==observation.taskKey||
+      Object.keys(expected).some(k=>row[k]!==expected[k])))
+    return {valid:false,scope:null};
+  return {valid:true,scope:observation.scope};
+}
+
 /** Prepare EXACT shape of the existing tools/agent03-owner-cli/k02.mjs.
  *
  * Native evidence MUST be separately collected and keyed by
@@ -54,6 +87,7 @@ export function prepareAgent05OwnerRequestDraft({
   nativeCandidate,trustedScopedPlanDigest,
   nativeDescriptor,nativeProfile,nativeQualityEvidence,
   step,environment,taskId,requirementId,
+  nativeTrialObservation=null,trustedNativeTrialSourceRef=null,
 }){
   if(!rec(nativeCandidate)||nativeCandidate.schema!==AGENT05_OLLAMA_CANDIDATE_VERSION||
      !TASK.test(taskId??'')||!NAME.test(requirementId??''))
@@ -91,6 +125,9 @@ export function prepareAgent05OwnerRequestDraft({
      !safeTrialRows(nativeQualityEvidence,nativeCandidate.modelPin,
        'OLLAMA_LOCAL_V1',nativeProfile,step,environment))
     return state('OWNER_REQUEST_HOLD','INDEPENDENT_NATIVE_QUALITY_EVIDENCE_REQUIRED');
+  const trial=checkedNativeTrial(nativeTrialObservation,trustedNativeTrialSourceRef,
+    nativeCandidate.modelPin,nativeProfile,environment);
+  if(!trial.valid)return state('OWNER_REQUEST_HOLD','NATIVE_TRIAL_SCOPE_NOT_BOUND');
   const req={solutionId:snapshot.solutionId,requirements:[{
     requirementId,kind:'model',capabilityId:'text.generate',required:true,
     inputSchema:snapshot.steps[0].inputSchema,
@@ -100,12 +137,21 @@ export function prepareAgent05OwnerRequestDraft({
   }]};
   let resolution,recommended;
   try {
-    resolution=resolveRequirements(req,[nativeDescriptor]);
+    resolution=resolveRequirements(req,[nativeDescriptor],trial.scope);
+    // The exact-task negative observation is a hard veto even when an
+    // unrelated aggregate quality sample meets the statistical floor.
+    if(resolution.evidenceExclusions?.length){
+      const failure=resolution.evidenceExclusions[0];
+      return state('OWNER_REQUEST_HOLD','KNOWN_NATIVE_TASK_FAILURE',{
+        failureKind:failure.failureKind,proofRef:failure.proofRef,
+        failedProviderId:failure.providerId,
+      });
+    }
     recommended=recommendModelForStep({
       solution:req,requirementId,step,available:[nativeDescriptor],
       profiles:[nativeProfile],qualityEvidence:nativeQualityEvidence,
       environment,userModelPin:nativeCandidate.modelPin,
-      allowPinnedAlternatives:false,
+      allowPinnedAlternatives:false,trialEvidence:trial.scope,
     });
   } catch(e) {
     if(e instanceof InteropError)
@@ -133,7 +179,7 @@ export function prepareAgent05OwnerRequestDraft({
     task_id:taskId,
     k02:{
       solution:req,providers:[nativeDescriptor],selected_skills:[],
-      trial_evidence:null,
+      trial_evidence:trial.scope,
       model_recommendation:{
         requirement_id:requirementId,step,
         profiles:[nativeProfile],quality_evidence:nativeQualityEvidence,

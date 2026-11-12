@@ -328,3 +328,96 @@ test('manual pinned model without independently observed quality is not converte
   assert.equal(ownerDraft(selected,{nativeQualityEvidence:[]}).status,'OWNER_REQUEST_HOLD');
   assert.equal(ownerDraft(selected).status,'OWNER_REQUEST_DRAFT_NOT_EXECUTED');
 });
+
+const nativeTrialSource='native:k05-observation:fixture';
+const exactNativeTrial=(failureKind=null)=>({
+  modelPin:STRONG,sourceRef:nativeTrialSource,
+  taskKey:'task:verify-invoice-003',mode:'think-disabled',
+  scope:{
+    taskKey:'task:verify-invoice-003',
+    candidateConfigurations:[{
+      providerId:'OLLAMA_LOCAL_V1',kind:'model',
+      capabilityId:'text.generate',modelId:STRONG.name,
+      executorVersion:'Ollama-v1',mode:'think-disabled',
+      operatingSystem:'Windows 11',
+    }],
+    failures:failureKind?[{
+      providerId:'OLLAMA_LOCAL_V1',kind:'model',
+      capabilityId:'text.generate',modelId:STRONG.name,
+      executorVersion:'Ollama-v1',mode:'think-disabled',
+      operatingSystem:'Windows 11',
+      taskKey:'task:verify-invoice-003',failureKind,
+      proofRef:'native:checked-bad-result:003',
+    }]:[],
+  },
+});
+test('exact native trial scope is transmitted unchanged to existing owner CLI',()=>{
+  const observation=exactNativeTrial();
+  const original=structuredClone(observation);
+  const draft=ownerDraft(undefined,{nativeTrialObservation:observation,
+    trustedNativeTrialSourceRef:nativeTrialSource});
+  assert.equal(draft.status,'OWNER_REQUEST_DRAFT_NOT_EXECUTED');
+  assert.deepEqual(draft.ownerRequest.k02.trial_evidence,observation.scope);
+  assert.deepEqual(observation,original);
+  assert.equal(draft.ownerRequest.k02.model_recommendation.user_model_pin.digest,STRONG.digest);
+  assert.equal(draft.ownerExecuted,false);
+});
+test('known incorrect native Task result vetoes model even when quality floor was met',()=>{
+  for(const failureKind of ['INCORRECT_RESULT','INCOMPLETE_TASK',
+      'NO_REQUIRED_CHANGE','REPEATED_EXTERNAL_EFFECTS']){
+    const draft=ownerDraft(undefined,{
+      nativeTrialObservation:exactNativeTrial(failureKind),
+      trustedNativeTrialSourceRef:nativeTrialSource,
+    });
+    assert.equal(draft.status,'OWNER_REQUEST_HOLD');
+    assert.equal(draft.reason,'KNOWN_NATIVE_TASK_FAILURE');
+    assert.equal(draft.failureKind,failureKind);
+    assert.equal(draft.proofRef,'native:checked-bad-result:003');
+    assert.equal(draft.failedProviderId,'OLLAMA_LOCAL_V1');
+    assert.equal(draft.ownerRequest,null);
+    assert.equal(draft.ownerExecuted,false);
+  }
+});
+test('alias or stale exact-trial bindings cannot inherit a native failure or positive qualification',()=>{
+  const original=exactNativeTrial('INCORRECT_RESULT');
+  const variants=[
+    {...original,modelPin:SMALL},
+    {...original,sourceRef:'other-source'},
+    {...original,taskKey:'other-task'},
+    {...original,scope:{...original.scope,taskKey:'other-task'}},
+    {...original,scope:{...original.scope,candidateConfigurations:[
+      {...original.scope.candidateConfigurations[0],providerId:'candidate-strong'}]}},
+    {...original,scope:{...original.scope,candidateConfigurations:[
+      {...original.scope.candidateConfigurations[0],executorVersion:'other-ollama'}]}},
+    {...original,scope:{...original.scope,candidateConfigurations:[
+      {...original.scope.candidateConfigurations[0],mode:'think-enabled'}]}},
+    {...original,scope:{...original.scope,candidateConfigurations:[
+      {...original.scope.candidateConfigurations[0],operatingSystem:'Linux'}]}},
+    {...original,scope:{...original.scope,failures:[
+      {...original.scope.failures[0],modelId:SMALL.name}]}},
+  ];
+  for(const candidate of variants){
+    const r=ownerDraft(undefined,{
+      nativeTrialObservation:candidate,trustedNativeTrialSourceRef:nativeTrialSource});
+    assert.equal(r.status,'OWNER_REQUEST_HOLD');
+    assert.equal(r.reason,'NATIVE_TRIAL_SCOPE_NOT_BOUND');
+    assert.equal(r.ownerRequest,null);
+  }
+});
+test('invalid negative evidence must fail closed rather than become a valid owner request',()=>{
+  const observation=exactNativeTrial('INCORRECT_RESULT');
+  const malformed={...observation,scope:{...observation.scope,failures:[
+    {...observation.scope.failures[0],failureKind:'VENDOR_SUCCESS'}]}};
+  const result=ownerDraft(undefined,{nativeTrialObservation:malformed,
+    trustedNativeTrialSourceRef:nativeTrialSource});
+  assert.equal(result.status,'OWNER_REQUEST_HOLD');
+  assert.equal(result.reason,'NATIVE_DESCRIPTOR_OR_EVIDENCE_INVALID');
+});
+test('native trial metadata is optional only when there is no exact scoped trial to forward',()=>{
+  const clean=ownerDraft();
+  assert.equal(clean.status,'OWNER_REQUEST_DRAFT_NOT_EXECUTED');
+  assert.equal(clean.ownerRequest.k02.trial_evidence,null);
+  assert.equal(ownerDraft(undefined,{
+    nativeTrialObservation:exactNativeTrial(),trustedNativeTrialSourceRef:null,
+  }).reason,'NATIVE_TRIAL_SCOPE_NOT_BOUND');
+});
