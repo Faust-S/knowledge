@@ -3,6 +3,7 @@ import {join,resolve,sep} from 'node:path';
 import {performance} from 'node:perf_hooks';
 import {digest,ComposerError} from './index.mjs';
 import {renderMeetingDocuments,verifyMeetingProcess} from './meeting-process.mjs';
+import {verifySavedMeetingDocuments} from './saved-meeting-result.mjs';
 
 export const MEETING_OPEN_HOST_VERSION='IWXA.K04.MEETING_OPEN_HOST/0.1.0';
 const fail=code=>{throw new ComposerError(code);};
@@ -12,14 +13,30 @@ const valid=name=>/^[a-z0-9-]+\.(?:md|csv)$/.test(name);
  * directory and owns all file permissions. No custom Task Engine/Store.
  * Existing identical bytes are read back; different bytes never overwritten.
  */
-export async function publishMeetingDocuments(process,{directory,failAfterWrites=null}={}){
+export async function publishMeetingDocuments(process,options={}){
   verifyMeetingProcess(process);
+  return publishDocuments(renderMeetingDocuments(process),process.taskRef,
+    process.hostPlan.planDigest,'OPEN_K04_PROCESS',options);
+}
+/** Optional output path for an existing P01 Core-verified saved Graph Result.
+ * No second Graph, model call, Task, Human Review or independent Store.
+ */
+export async function publishSavedMeetingDocuments(pack,options={}){
+  verifySavedMeetingDocuments(pack);
+  return publishDocuments(pack,pack.taskRef,pack.graph.artifactDigest,
+    'P01_SAVED_GRAPH_RESULT',options);
+}
+async function publishDocuments(pack,taskRef,originDigest,origin,{directory,failAfterWrites=null}={}){
   if(typeof directory!=='string'||!directory.trim())fail('HOST_OUTPUT_DIRECTORY_REQUIRED');
   if(failAfterWrites!==null&&(!Number.isSafeInteger(failAfterWrites)||failAfterWrites<0))
     fail('INVALID_FAILURE_INJECTION');
   const root=resolve(directory);
-  const pack=renderMeetingDocuments(process);
   const names=Object.keys(pack.documents);
+  const expected=['action-register.csv','human-followup-drafts.md',
+    'meeting-decisions.md','review-questions.md'];
+  if(names.length!==expected.length||names.some(x=>!expected.includes(x))||
+      Object.keys(pack.documentDigests??{}).length!==expected.length)
+    fail('DOCUMENT_MANIFEST_INVALID');
   const start=performance.now();
   await mkdir(root,{recursive:true});
   let created=0,reused=0;
@@ -47,8 +64,8 @@ export async function publishMeetingDocuments(process,{directory,failAfterWrites
     outputs.push({name,path:file,status,
       contentDigest:digest(observed),bytes:Buffer.byteLength(observed,'utf8')});
   }
-  const body={schema:MEETING_OPEN_HOST_VERSION,taskRef:process.taskRef,
-    processDigest:process.processDigest,planDigest:process.hostPlan.planDigest,
+  const body={schema:MEETING_OPEN_HOST_VERSION,taskRef,
+    processDigest:pack.processDigest,originDigest,origin,
     status:'DOCUMENTS_WRITTEN_AND_READ_BACK',files:outputs,
     documentsCreated:created,documentsReused:reused,
     humanReview:'PENDING',assignmentsExecuted:false,taskReport:'NOT_SUBMITTED',

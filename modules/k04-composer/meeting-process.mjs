@@ -141,18 +141,36 @@ export function verifyMeetingProcess(process){
 }
 export function renderMeetingDocuments(process){
   verifyMeetingProcess(process);
+  return buildMeetingDocuments(process);
+}
+/** Pure shared renderer for a host-verified saved Graph draft. No Graph or Task mutation. */
+export function renderMeetingDraftPackage({taskRef,provenance,draft,reconciliation,status,evidenceLabel=null}){
+  if(typeof taskRef!=='string'||!taskRef.trim()||
+     !provenance||typeof provenance.sourceRef!=='string'||
+     typeof provenance.revision!=='string'||
+     typeof provenance.rights!=='string'||
+     !/^[a-f0-9]{64}$/.test(provenance.transcriptDigest??'')||
+     !draft||!Array.isArray(draft.action_items)||!Array.isArray(draft.open_questions)||
+     !reconciliation||typeof status!=='string')
+    fail('INVALID_SAVED_MEETING_DOCUMENT_INPUT');
+  const processDigest=digest({taskRef,provenance,draft,reconciliation,status,evidenceLabel});
+  return buildMeetingDocuments({taskRef,provenance,extraction:{draft,discussions:null},
+    reconciliation,status,processDigest,evidenceLabel});
+}
+function buildMeetingDocuments(process){
   const items=process.extraction.draft.action_items;
   const questions=process.extraction.draft.open_questions;
   const p=process.provenance;
   const header='Task: '+process.taskRef+'\nИсточник: '+p.sourceRef+' @ '+p.revision+
-    '\nИсточник SHA-256: '+p.transcriptDigest+'\n';
+    '\nИсточник SHA-256: '+p.transcriptDigest+'\n'+
+    (process.evidenceLabel?'Graph Result: '+process.evidenceLabel+'\n':'');
   const rows=items.map((a,i)=>'| '+(i+1)+' | '+a.action+' | '+a.assignee+' | '+a.due_date+
     ' | НЕ ВЫПОЛНЕНО | '+a.start+'–'+a.end+' |');
   const warnings=process.reconciliation.conflicts.map(c=>'- '+c.action+
     ': противоречие записей '+c.indices.map(i=>i+1).join(' и '));
   const summary='# Решения встречи\n\n'+header+'\nСтатус: '+process.status+'\n'+
     'Извлечено решений: '+items.length+'. Обсуждений без решения: '+
-    process.extraction.discussions.length+'.\n\n'+
+    (process.extraction.discussions===null?'не определено':process.extraction.discussions.length)+'.\n\n'+
     '| № | Действие | Исполнитель | Срок | Выполнение | Цитата: смещение Unicode |\n'+
     '| --- | --- | --- | --- | --- | --- |\n'+rows.join('\n')+'\n\n'+
     (warnings.length?'Противоречия:\n'+warnings.join('\n')+'\n':'')+
