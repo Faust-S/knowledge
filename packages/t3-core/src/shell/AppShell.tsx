@@ -27,6 +27,7 @@ import {
   WorkspaceHostRuntimeProvider,
   useWorkspaceHostRuntime,
   useWorkspaceHostRuntimeHandle,
+  type CreateWorkspaceHostRuntimeInput,
 } from "../workspace-host/runtime";
 import { ModuleRouteOutlet } from "../workspace-host/rendering/ModuleRouteOutlet";
 import { HostDashboardSurface } from "../workspace-host/rendering/HostDashboardSurface";
@@ -53,6 +54,9 @@ export interface AppShellProps {
   profileDefinition: WorkspaceProfileDefinition;
   profileFallback: boolean;
   devBootstrap?: KernelBootstrap;
+  /** Trusted, compile-time D1 owner. Never extracted from the page or archive. */
+  signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
+  signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
 }
 
 /**
@@ -79,6 +83,8 @@ export function AppShell(props: AppShellProps) {
     profileDefinition,
     profileFallback,
     devBootstrap,
+    signedKernelAccess,
+    signedActivityAccess,
   } = props;
 
   const serviceId = hostWorkspace.workspace_service_id;
@@ -111,6 +117,8 @@ export function AppShell(props: AppShellProps) {
         session={session}
         hostWorkspace={hostWorkspace}
         profile={profileFacade}
+        signedKernelAccess={signedKernelAccess}
+        signedActivityAccess={signedActivityAccess}
       >
         <HostShellContent
           host={host}
@@ -122,6 +130,7 @@ export function AppShell(props: AppShellProps) {
           profileId={profileId}
           profileDefinition={profileDefinition}
           profileFallback={profileFallback}
+          signedOwnerRequired={signedKernelAccess !== undefined}
         />
       </AppShellRuntimeBridge>
     </DomainShellProvider>
@@ -138,6 +147,7 @@ interface HostShellContentProps {
   profileId: WorkspaceProfileId;
   profileDefinition: WorkspaceProfileDefinition;
   profileFallback: boolean;
+  signedOwnerRequired: boolean;
 }
 
 /**
@@ -147,7 +157,7 @@ interface HostShellContentProps {
  * through `useWorkspaceHostRuntimeHandle` — no legacy routing state.
  */
 function HostShellContent(props: HostShellContentProps) {
-  const { host, hostDomain, hostWorkspace, devBootstrap, state, onRetry, profileId, profileDefinition, profileFallback } = props;
+  const { host, hostDomain, hostWorkspace, devBootstrap, state, onRetry, profileId, profileDefinition, profileFallback, signedOwnerRequired } = props;
   const runtimeState = useWorkspaceHostRuntime();
   const runtime = runtimeState.status === "ready" ? runtimeState.runtime : null;
   const { terminology, layout, accessibility } = useDomainShell();
@@ -193,8 +203,10 @@ function HostShellContent(props: HostShellContentProps) {
       ? state.session
       : null;
   const kernel: KernelFacade | null = useMemo(
-    () => (session ? createKernelFacade({ session }) : null),
-    [session],
+    () => runtime
+      ? runtime.contextProvider.createContext("iwxa.workspace.base").kernel
+      : signedOwnerRequired ? null : session ? createKernelFacade({ session }) : null,
+    [runtime, session, signedOwnerRequired],
   );
 
   const termResolver = useCallback(
@@ -280,6 +292,7 @@ function HostShellContent(props: HostShellContentProps) {
             profileId={profileId}
             profileFallback={profileFallback}
             devBootstrap={devBootstrap}
+            signedOwnerRequired={signedOwnerRequired}
           >
             {runtimeState.status === "error" ? (
               <div role="alert" className="p-4" data-t2-ui="product-error">
@@ -323,10 +336,14 @@ interface RuntimeBridgeProps {
   session: KernelSession | null;
   hostWorkspace: WorkspaceConfigDoc;
   profile: ProfileFacade;
+  signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
+  signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
   children: React.ReactNode;
 }
 
-function AppShellRuntimeBridge({ session, hostWorkspace, profile, children }: RuntimeBridgeProps) {
+function AppShellRuntimeBridge({
+  session, hostWorkspace, profile, signedKernelAccess, signedActivityAccess, children,
+}: RuntimeBridgeProps) {
   const { terminology, layout } = useDomainShell();
   const [activeCapabilities, setActiveCapabilities] = useState<readonly string[]>([]);
   const receiveCapabilities = useCallback((next: readonly string[]) => {
@@ -358,6 +375,8 @@ function AppShellRuntimeBridge({ session, hostWorkspace, profile, children }: Ru
       activeCapabilities={activeCapabilities}
       compileTimeModuleLoaders={PRODUCT_MODULE_EXTENSIONS}
       preferDomainLanding={layout.workspaceChrome === "site-owned"}
+      signedKernelAccess={signedKernelAccess}
+      signedActivityAccess={signedActivityAccess}
     >
       <WorkspaceCapabilityWatcher session={session} onChange={receiveCapabilities} />
       {children}
@@ -377,7 +396,9 @@ function WorkspaceCapabilityWatcher({ session, onChange }: {
     let cancelled = false;
     let generation = 0;
     let expiryTimer: ReturnType<typeof setTimeout> | undefined;
-    const kernel = createKernelFacade({ session });
+    // The live Host ModuleContext is the authority-bound façade. Reading
+    // capabilities through a new unsigned session façade would bypass D1.
+    const kernel = runtime.contextProvider.createContext("iwxa.workspace.base").kernel;
     const refresh = async () => {
       const ticket = ++generation;
       if (expiryTimer) clearTimeout(expiryTimer);
