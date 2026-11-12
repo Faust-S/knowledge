@@ -171,3 +171,41 @@ test("a selected Workspace cannot borrow an Access grant for a different resourc
   await assert.rejects(f.bound.getWorkspace("ws:two"),{code:"T3_SUBJECT_RESOURCE_WORKSPACE_MISMATCH"});
   assert.equal(f.calls.length,0);
 });
+
+test("asynchronous native owner context keeps the original user command immutable",async()=>{
+  const f=fixture();
+  let release;
+  const pendingNativeContext=new Promise(resolve=>{release=resolve;});
+  const owner={...f.access,
+    currentContext:async()=>{await pendingNativeContext;return f.access.currentContext();},
+  };
+  const bound=createSubjectKernelBinding({kernel:f.kernel,access:owner,clock:()=>now});
+  const command={workspace_id:"ws:personal",object_id:"item:native",base_revision:0,
+    data:{title:"before owner IPC"}};
+  const pending=bound.putObject(command);
+  // The native hop is pending, but the caller must no longer control bytes
+  // already committed to the authoritative T2 Kernel operation.
+  command.workspace_id="ws:two";
+  command.data.title="mutated while owner was pending";
+  release();
+  const receipt=await pending;
+  assert.equal(receipt.object.workspace_id,"ws:personal");
+  assert.equal(receipt.object.data.title,"before owner IPC");
+  assert.deepEqual(f.calls.filter(x=>x[0]==="putObject"),
+    [["putObject","ws:personal"]]);
+});
+
+test("asynchronous signed context switch before JIT does not reach the T2 Kernel",async()=>{
+  const f=fixture();
+  let release;
+  const pendingNativeContext=new Promise(resolve=>{release=resolve;});
+  const owner={...f.access,
+    currentContext:async()=>{await pendingNativeContext;return f.access.currentContext();},
+  };
+  const bound=createSubjectKernelBinding({kernel:f.kernel,access:owner,clock:()=>now});
+  const pending=bound.getWorkspace("ws:personal");
+  f.select(1); // Control selected a corporate Workspace before native reply.
+  release();
+  await assert.rejects(pending,{code:"T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE"});
+  assert.equal(f.calls.length,0);
+});
