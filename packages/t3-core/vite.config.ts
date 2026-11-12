@@ -24,6 +24,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, "index.html"),
+        signedWorkspace: path.resolve(__dirname, "signed-workspace.html"),
         exchange: path.resolve(__dirname, "exchange.html"),
         lifecycle: path.resolve(__dirname, "lifecycle.html"),
         studio: path.resolve(__dirname, "studio.html"),
