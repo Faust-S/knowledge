@@ -188,3 +188,37 @@ export function renderMeetingDocuments(process){
     hostReadbackRequired:true,humanReviewRequired:true,assignmentsExecuted:false,
     taskCreated:false,externalMessagesSent:false};
 }
+
+/** Read-only mapping for the EXISTING Agent Graph, not a second graph definition.
+ * P01 supplies actual node IDs, provider binding, task authorization and receipts.
+ * Sample open-host receipts are not automatically Graph execution evidence.
+ */
+export function createMeetingGraphHandoff(process){
+  verifyMeetingProcess(process);
+  const stages=process.hostPlan.steps;
+  const nodes=stages.filter(s=>s.type!=='HOST_GATE').map(s=>({
+    k04StepId:s.id,
+    existingNodeType:s.type==='HOST_INPUT'?'DETERMINISTIC_TRANSFORM':
+      s.type==='HOST_TRANSFORM'?'DETERMINISTIC_TRANSFORM':
+        s.selected?.kind==='model'?'MODEL_INVOCATION':'TOOL',
+    dependsOn:Array.isArray(s.dependsOn)?[...s.dependsOn]:[],
+    capabilityRef:s.selected?{
+      providerId:s.selected.providerId,capabilityId:s.selected.capabilityId,
+      kind:s.selected.kind,descriptorDigest:s.selected.descriptorDigest,
+      ...(s.selected.modelPin?{modelPin:structuredClone(s.selected.modelPin)}:{})
+    }:null,
+    hostMustBindAndExecute:true,hostGraphReceipt:null,
+  }));
+  const body={
+    schema:'IWXA.K04.EXISTING_GRAPH_HANDOFF/0.1.0',
+    taskRef:process.taskRef,planDigest:process.hostPlan.planDigest,
+    sourceRef:process.provenance.sourceRef,
+    sourceRevision:process.provenance.revision,
+    sourceDigest:process.provenance.transcriptDigest,
+    nodes,humanReview:{existingHostGate:'human_review',status:'PENDING'},
+    hostGraphExecution:'NOT_EXECUTED_BY_K04',
+    graphPersisted:false,modelInvokedByK04:false,
+    sourceSampleReceiptsNotGraphReceipts:true,
+  };
+  return {...body,handoffDigest:digest(body)};
+}
