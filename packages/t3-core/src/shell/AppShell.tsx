@@ -310,7 +310,8 @@ function HostShellContent(props: HostShellContentProps) {
           >
             {runtimeState.status === "error" ? (
               <div role="alert" className="p-4" data-t2-ui="product-error">
-                {signedOwnerRequired ? (
+                {signedOwnerRequired &&
+                  runtimeState.error.message === "T3_D1_CONTROL_INVALIDATION_UNAVAILABLE" ? (
                   <p data-testid="t3-signed-control-reconnect">
                     Подписанный доступ к Control недоступен. Откройте Workspace
                     повторно из локального Control после выбора организации.

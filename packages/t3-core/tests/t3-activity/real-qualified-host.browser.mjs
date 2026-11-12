@@ -2,6 +2,7 @@
 // extended with T3 activity semantic projection, with real browser restart.
 import assert from 'node:assert/strict';
 import {createHash, randomUUID} from 'node:crypto';
+import {createServer as createHttpServer} from 'node:http';
 import {
   LOCAL_INFERENCE_DRAFT_SCHEMA, LOCAL_INFERENCE_DRAFT_DECLARATION,
 } from '../../src/t3/local-inference-draft.mjs';
@@ -65,6 +66,117 @@ async function openBrowser(chromium, profile, origin) {
   await page.waitForFunction(() => typeof globalThis.IWXA?.connect === 'function');
   return {context,page};
 }
+
+/**
+ * D1 product preflight: ORIGINAL qualified T2 Kernel/Store must actually run
+ * at the exact HTTP loopback origin used by the existing private Control.
+ * The prior HTTPS witness cannot prove this transport works. Only a disposable
+ * browser profile and a test-only static server; no second Kernel or parser.
+ */
+async function probeOriginalT2OnControlHttp(root,chromium,temp){
+  let origin=null,context=null;
+  const server=createHttpServer((request,response)=>{
+    const send=(status,body,type='text/plain')=>{
+      response.writeHead(status,{'Content-Type':type,'Cache-Control':'no-store',
+        'X-Content-Type-Options':'nosniff',
+        'Content-Security-Policy':"default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'"});
+      response.end(body);
+    };
+    try{
+      if(request.headers.host!==new URL(origin).host)
+        return send(403,'HTTP_PROBE_HOST_MISMATCH');
+      const url=new URL(request.url,origin),path=url.pathname;
+      if(path==='/__t3_control_http_kernel__'){
+        return send(200,'<!doctype html><title>T3 original T2 on Control HTTP</title><script src="/_iwxa/loader.js"></script>','text/html');
+      }
+      if(!/^\/_iwxa\/[A-Za-z0-9._/-]+$/.test(path)||
+          path.includes('..')||path.includes('/.'))
+        return send(404,'HTTP_PROBE_ASSET_NOT_FOUND');
+      const file=resolve(root,'.'+path);
+      if(!inside(root,file))return send(404,'HTTP_PROBE_OUTSIDE_ROOT');
+      let bytes=readFileSync(file);
+      if(path==='/_iwxa/domain.json'||path==='/_iwxa/domain-shell.json'){
+        const doc=JSON.parse(bytes.toString('utf8'));
+        doc.origin=origin; // Same qualified asset; only host-owned origin.
+        bytes=Buffer.from(JSON.stringify(doc));
+      }
+      const type=path.endsWith('.json')?'application/json':
+        path.endsWith('.js')||path.endsWith('.mjs')?'text/javascript':
+          path.endsWith('.wasm')?'application/wasm':'application/octet-stream';
+      return send(200,bytes,type);
+    }catch{
+      return send(404,'HTTP_PROBE_ASSET_MISSING');
+    }
+  });
+  try{
+    await new Promise((done,fail)=>{
+      server.once('error',fail);
+      server.listen(0,'127.0.0.1',done);
+    });
+    const address=server.address();
+    assert.ok(address&&typeof address!=='string');
+    origin='http://127.0.0.1:'+address.port;
+    const profile=join(temp,'d1-http-control-loopback');
+    const options={headless:true,serviceWorkers:'block'};
+    const launch=async()=>{
+      context=await chromium.launchPersistentContext(profile,options);
+      const page=context.pages()[0]||await context.newPage();
+      await page.goto(origin+'/__t3_control_http_kernel__',{waitUntil:'load'});
+      await page.waitForFunction(()=>typeof globalThis.IWXA?.connect==='function',
+        undefined,{timeout:20000});
+      return page;
+    };
+    let page=await launch();
+    const workspace_id='t3-d1-loopback-'+randomUUID();
+    const object_id='d1-http-control-object';
+    const committed=await page.evaluate(async({workspace_id,object_id,service_id})=>{
+      const session=await globalThis.IWXA.connect({service_id});
+      if(session.contract_version!=='1.3.0'||session.runtime_version!=='0.3.6'||
+         !session.granted_operations.includes('t1.putObject'))
+        throw Error('T3_D1_HTTP_ORIGINAL_KERNEL_CONTRACT_MISMATCH');
+      const workspace=await session.t1.createWorkspace({workspace_id,profile:'generic'});
+      const saved=await session.t1.putObject({
+        workspace_id,object_id,schema_id:'iwxa.demo.note',schema_version:'1.0.0',
+        base_revision:0,data:{title:'Signed Control HTTP protocol validation'},
+        extensions:{},event:{event_type:'t3.d1.http.loopback.created',payload:{}},
+      });
+      const read=await session.t1.getObject(workspace_id,object_id);
+      return {workspace:workspace?.workspace_id,event:saved?.event?.event_id,
+        revision:saved?.object?.revision,read:read?.object?.data?.title,
+        secureContext:globalThis.isSecureContext};
+    },{workspace_id,object_id,service_id:WRITER});
+    assert.equal(committed.workspace,workspace_id);
+    assert.ok(committed.event);
+    assert.equal(committed.revision,1);
+    assert.equal(committed.read,'Signed Control HTTP protocol validation');
+    assert.equal(committed.secureContext,true,
+      'T3_D1_CONTROL_HTTP_REQUIRES_TRUSTWORTHY_LOOPBACK');
+    await context.close();context=null;
+    page=await launch();
+    const reopened=await page.evaluate(async({workspace_id,object_id,service_id})=>{
+      const session=await globalThis.IWXA.connect({service_id});
+      const saved=await session.t1.getObject(workspace_id,object_id);
+      const events=await session.t1.listEventsSince(workspace_id);
+      return {revision:saved?.object?.revision,title:saved?.object?.data?.title,
+        eventIds:events.map(e=>e.event_id)};
+    },{workspace_id,object_id,service_id:WRITER});
+    assert.equal(reopened.revision,committed.revision,
+      'T3_D1_ORIGINAL_KERNEL_HTTP_COLD_REVISION_MISMATCH');
+    assert.equal(reopened.title,committed.read,
+      'T3_D1_ORIGINAL_KERNEL_HTTP_COLD_READBACK_MISMATCH');
+    assert.ok(reopened.eventIds.includes(committed.event),
+      'T3_D1_ORIGINAL_KERNEL_HTTP_EVENT_MISSING');
+    return {originProtocol:'http:',hostname:'127.0.0.1',
+      originalKernel:'0.3.6',contract:'1.3.0',
+      workspace_id,object_id,eventId:committed.event,
+      coldReadback:true,secureContext:true};
+  }finally{
+    if(context)await context.close().catch(()=>{});
+    server.closeAllConnections();
+    await new Promise(done=>server.close(()=>done()));
+  }
+}
+
 async function run() {
   const t2Source = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '../..'));
   const qualified = requiredDirectory('IWXA_T2_QUALIFIED_KERNEL_DIST');
@@ -121,6 +233,9 @@ async function run() {
     assertQualifiedKernelArtifact(stage.root,{kernel:KERNEL,contract:CONTRACT,artifactId:ARTIFACT});
     witness = stageT3ActivityWitness({sourceDir:MODULE_ROOT,hostRoot:stage.root});
     live = await serveRealKernelHost(stage.root,{independentWitness:true,previewOrigin:true});
+    const originalHttpControl=await probeOriginalT2OnControlHttp(stage.root,chromium,temp);
+    console.log("T3_D1_ORIGINAL_KERNEL_HTTP_CONTROL_LOOPBACK_PASS",
+      JSON.stringify(originalHttpControl));
     const profile = join(temp,'persistent-profile');
     const workspace_id = 't3-d2-'+randomUUID();
     const foreign_id = 't3-foreign-'+randomUUID();
