@@ -168,6 +168,10 @@ jobs:
           PY
       - name: Discover official published supplier quote and board procurement packet
         run: |
+          if ! command -v pdftotext; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq poppler-utils
+          fi
           command -v pdftotext
           python research/cross-lab/k05_real_offer_public.py \
             --discover \
