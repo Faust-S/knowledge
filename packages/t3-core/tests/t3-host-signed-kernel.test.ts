@@ -276,3 +276,33 @@ describe("T3 D1 original ModuleContext Kernel with signed corporate subject",()=
     }finally{await host.dispose();}
   });
 });
+it("trusted native Access owner may return asynchronous context without bypassing T2",async()=>{
+  const f=fixture();
+  const nativePort={...f.access,
+    async currentContext(){
+      await Promise.resolve();
+      return f.access.currentContext();
+    },
+  };
+  const host=await createWorkspaceHostRuntime({
+    session:f.session,workspaceConfig:{modules:[]},bindLegacyHashDriver:false,
+    termResolver:(_key,fallback)=>fallback??"",
+    signedKernelAccess:async()=>nativePort,
+  });
+  try{
+    const kernel=host.contextProvider.createContext("d06").kernel;
+    expect((await kernel.listWorkspaces()).map(w=>w.workspace_id)).toEqual(["ws:alpha"]);
+    const written=await kernel.putObject({
+      workspace_id:"ws:alpha",object_id:"item:async-native",
+      schema_id:"demo",schema_version:"1.0.0",data:{title:"Native owner"},
+      event:{event_type:"created"},
+    });
+    expect(written.object.workspace_id).toBe("ws:alpha");
+    f.select("beta");
+    const count=f.calls.filter(c=>c.method==="getWorkspace").length;
+    await expect(kernel.getWorkspace("ws:alpha"))
+      .rejects.toMatchObject({code:"T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE"});
+    expect(f.calls.filter(c=>c.method==="getWorkspace")).toHaveLength(count);
+    expect((await kernel.getWorkspace("ws:beta"))?.workspace_id).toBe("ws:beta");
+  } finally {await host.dispose();}
+});
