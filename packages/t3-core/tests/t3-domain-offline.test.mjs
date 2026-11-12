@@ -131,9 +131,10 @@ function fakeBrowser(root,store=null) {
   const script=readFileSync(join(root,"t3-sw.js"),"utf8");
   vm.runInNewContext(script,{self,caches:cacheAPI,fetch,crypto:webcrypto,Response,Request,URL,
     Uint8Array,Set,Array,Number,String,Map,Error,Promise,console}, {filename:"t3-sw.js"});
-  const dispatch=async (type,port={postMessage(){}},extra={})=>{
+  const dispatch=async (type,port={postMessage(){}},extra={},source=null)=>{
     const waits=[];
-    handlers.message({data:{type,...extra},ports:[port],waitUntil:p=>waits.push(p)});
+    handlers.message({data:{type,...extra},source,ports:[port],
+      waitUntil:p=>waits.push(p)});
     await Promise.all(waits);
   };
   const fetchPage=async(url,method="GET")=>{
@@ -146,6 +147,59 @@ function fakeBrowser(root,store=null) {
     setNetworkDown(value){networkDown=!!value;},
     get liveFetches(){return liveFetches;}};
 }
+test("D5 model consent permits only pinned WebLLM assets during autonomous mode",async()=>{
+  const root=specimen();
+  try {
+    materializeDomainMode(root);
+    const browser=fakeBrowser(root);
+    const install=[];
+    await browser.dispatch("T3_INSTALL",{postMessage:value=>install.push(value)});
+    assert.equal(install.at(-1)?.type,"READY");
+    const source={type:"window",id:"model-owner",
+      url:ORIGIN+"/workspace/"};
+    const pinned={
+      model_url:"https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC",
+      wasm_url:"https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_87/base/SmolLM2-360M-Instruct-q4f32_1_cs1k-webgpu.wasm",
+    };
+    const weights=pinned.model_url+"/resolve/main/params_shard_0.bin";
+    const blocked="https://example.org/telemetry";
+    const before=browser.liveFetches;
+    assert.equal((await browser.fetchPage(weights)).status,503);
+    assert.equal(browser.liveFetches,before);
+    const rejected=[];
+    await browser.dispatch("T3_MODEL_INSTALL_BEGIN",
+      {postMessage:value=>rejected.push(value)},
+      {...pinned,wasm_url:"https://example.org/any.wasm"},source);
+    assert.equal(rejected.at(-1)?.type,"FAILED");
+    assert.equal((await browser.fetchPage(blocked)).status,503);
+    const permitted=[];
+    await browser.dispatch("T3_MODEL_INSTALL_BEGIN",
+      {postMessage:value=>permitted.push(value)},pinned,source);
+    assert.equal(permitted.at(-1)?.type,"MODEL_INSTALL_ALLOWED");
+    const token=permitted.at(-1).token;
+    assert.equal(typeof token,"string");
+    const count=browser.liveFetches;
+    assert.equal((await browser.fetchPage(blocked)).status,503);
+    assert.equal((await browser.fetchPage(pinned.model_url+"/resolve/main/../private")).status,503);
+    assert.equal(browser.liveFetches,count);
+    assert.equal((await browser.fetchPage(weights)).status,404,
+      "model asset is explicitly allowed to reach network; mock has no remote weights");
+    assert.equal(browser.liveFetches,count+1);
+    const wrong=[];
+    await browser.dispatch("T3_MODEL_INSTALL_END",
+      {postMessage:value=>wrong.push(value)},{token},"other");
+    assert.equal(wrong.at(-1)?.type,"FAILED");
+    const ended=[];
+    await browser.dispatch("T3_MODEL_INSTALL_END",
+      {postMessage:value=>ended.push(value)},{token},source);
+    assert.equal(ended.at(-1)?.type,"MODEL_INSTALL_ENDED");
+    assert.equal((await browser.fetchPage(weights)).status,503);
+    const afterRestart=fakeBrowser(root,browser.caches);
+    assert.equal((await afterRestart.fetchPage(weights)).status,503,
+      "temporary model-install permission does not survive a cold SW restart");
+  }finally {cleanup(root);}
+});
+
 test("T3 offline worker installs verified snapshot, blocks remote egress, and survives cold restart",async()=>{
   const root=specimen();
   try{
