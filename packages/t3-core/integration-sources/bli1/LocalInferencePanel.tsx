@@ -26,6 +26,7 @@ export default function LocalInferencePanel() {
   const [storageStatus, setStorageStatus] = useState("Постоянство браузерного кеша ещё не проверялось.");
   const [status, setStatus] = useState("Выберите модель и подтвердите загрузку.");
   const [prompt, setPrompt] = useState("");
+  const [maxTokens, setMaxTokens] = useState(64);
   const [output, setOutput] = useState("");
   const [draftReady, setDraftReady] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -194,10 +195,14 @@ export default function LocalInferencePanel() {
     setOutput("");
     setDraftReady(false);
     setSaved(false);
+    setStatus("Генерация выполняется локально. Можно остановить.");
     try {
-      const result = await (await ensureEngine()).invoke(prompt, {onChunk: (text: string) => {
-        if (alive.current && epoch === focusEpoch.current) setOutput(text);
-      }});
+      const result = await (await ensureEngine()).invoke(prompt, {
+        maxTokens,
+        onChunk: (text: string) => {
+          if (alive.current && epoch === focusEpoch.current) setOutput(text);
+        },
+      });
       if (!alive.current || epoch !== focusEpoch.current) return;
       setOutput(result);
       setDraftReady(Boolean(result.trim()));
@@ -333,6 +338,15 @@ export default function LocalInferencePanel() {
     <label className="block">Запрос
       <textarea className="w-full min-h-28 p-2 rounded text-slate-900" maxLength={6000}
         value={prompt} onChange={e => setPrompt(e.target.value)}/>
+    </label>
+    <label className="block">Максимум токенов ответа
+      <input type="number" min={1} max={256} step={1}
+        data-testid="t3-d5-max-tokens"
+        className="w-24 rounded p-2 text-slate-900"
+        value={maxTokens} onChange={e => {
+          const n = Number(e.target.value);
+          if (Number.isInteger(n) && n >= 1 && n <= 256) setMaxTokens(n);
+        }}/>
     </label>
     <button type="button" disabled={!ready || busy || !prompt.trim()}
       onClick={() => void run()}>Сгенерировать локально</button>

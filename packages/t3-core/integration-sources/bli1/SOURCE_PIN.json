@@ -1,7 +1,7 @@
 {
   "source_repository": "Faust-S/T3",
   "source_branch": "work/2026-11-03-browser-local-inference-bli1",
-  "source_head": "2869f334fa230de17aa8bce803235672dc256b9e",
+  "source_head": "bd50728272b2e6a2e4dd96477b54d6cc2d176bc9",
   "source_root": "browser-local-inference",
   "files": [
     {
@@ -10,7 +10,7 @@
     },
     {
       "file": "workspace-module/LocalInferencePanel.tsx",
-      "blob": "adeafb40bc9c431898fc71eccbd14a5fb211a51a"
+      "blob": "accbebafdde71d72995f78d3a141afda3ea774d2"
     },
     {
       "file": "workspace-module/catalog.d.mts",

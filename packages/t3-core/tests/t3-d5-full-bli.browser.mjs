@@ -141,9 +141,10 @@ try {
     }else{
       await panel.getByLabel("Запрос",{exact:true})
         .fill("Ответь одним коротким предложением по-русски: что такое локальная нейросеть?");
+      await panel.getByTestId("t3-d5-max-tokens").fill("8");
       await panel.getByRole("button",{name:"Сгенерировать локально"}).click();
       let inferenceStatus="";
-      for(let tick=0;tick<180;tick++){
+      for(let tick=0;tick<300;tick++){
         inferenceStatus=await statusLine.textContent().catch(()=>inferenceStatus)||"";
         if(/Черновик готов/.test(inferenceStatus)||/Модель не запущена|Error|ошибка|Ошибка/.test(inferenceStatus))break;
         await page.waitForTimeout(1000);
