@@ -60,7 +60,7 @@ export default defineConfig({base:"/workspace/",
   run(["run","build"]);
   const dist=join(root,"dist");
   const names=readdirSync(join(dist,"assets")).filter(name=>name.endsWith(".js"));
-  const worker=names.filter(name=>/^model-worker-[A-Za-z0-9_-]+\\.js$/.test(name));
+  const worker=names.filter(name=>/^model-worker-[A-Za-z0-9_-]+\.js$/.test(name));
   if(worker.length!==1)throw Error("T3_D5_UPSTREAM_WORKER_BUNDLE_MISSING");
   const compiled=names.map(name=>readFileSync(join(dist,"assets",name),"utf8"));
   if(!compiled.some(text=>text.includes(worker[0])) ||
