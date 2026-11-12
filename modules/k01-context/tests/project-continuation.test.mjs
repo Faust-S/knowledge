@@ -161,23 +161,38 @@ test('ambiguous document content is rejected instead of using the first match',a
  assert.ok(p.issues.some(i=>i.fieldKey==='warranty'&&i.type==='source_unavailable'));
 });
 
-test('full reading and direct-search baselines yield more obsolete conditions than K01',async()=>{
- const host=makeCommercialCase();
- const t0=performance.now(),raw=host.documents.map(x=>x.content).join('\n');
+test('fair full-read and direct-search baselines measure actual host reads and stale lines',async()=>{
+ const baseline=makeCommercialCase();
+ const t0=performance.now();
+ const catalog=await baseline.sourcePort.listSources({
+  taskId:baseline.request.taskId,workspaceRef:baseline.request.workspaceRef,
+  allowedSources:baseline.request.allowedSources
+ });
+ const contents=[];
+ for(const item of catalog.sources) {
+  const snapshot=await baseline.sourcePort.readSource({sourceRef:item.sourceRef,
+   requestedRevision:item.revision,workspaceRef:baseline.request.workspaceRef});
+  assert.equal(snapshot.complete,true);
+  contents.push(snapshot.content);
+ }
  const fullReadMs=performance.now()-t0;
+ const raw=contents.join('\n'),baselineBytes=Buffer.byteLength(raw);
  const t1=performance.now(),lines=raw.split(/\r?\n/);
  const naive=fields.map(field=>({key:field.key,
   lines:lines.filter(line=>field.labels.some(label=>
    line.toLocaleLowerCase('ru-RU').includes(label.toLocaleLowerCase('ru-RU')+':')))}));
  const searchMs=performance.now()-t1;
- const t2=performance.now(),p=await prepareProjectContinuation(host.request,host.sourcePort);
+ const host=makeCommercialCase(),t2=performance.now();
+ const p=await prepareProjectContinuation(host.request,host.sourcePort);
  const k01Ms=performance.now()-t2;
- const projectionText=p.projection.selected.map(e=>e.excerpt).join('\n');
+ const selectedBytes=Buffer.byteLength(p.projection.selected.map(e=>e.excerpt).join('\n'));
  const stats={case:'commercial-conditions-change',fields:fields.length,
-  baselineAllBytes:Buffer.byteLength(raw),baselineDirectSearchMs:Number(searchMs.toFixed(3)),
+  baselineFullReadBytes:baselineBytes,baselineReads:baseline.getMetrics().reads,
   baselineFullReadMs:Number(fullReadMs.toFixed(3)),
+  baselineDirectSearchMs:Number(searchMs.toFixed(3)),
   baselineExtraVersions:naive.reduce((sum,r)=>sum+Math.max(0,r.lines.length-1),0),
-  k01ReadBytes:p.metrics.readBytes,k01ProjectionPayloadBytes:Buffer.byteLength(projectionText),
+  k01ReadBytes:p.metrics.readBytes,k01Reads:p.metrics.readCount,
+  k01ProjectionPayloadBytes:selectedBytes,
   k01SerializedProjectionBytes:p.metrics.projectionBytes,
   k01ElapsedMs:Number(k01Ms.toFixed(3)),k01Coverage:p.covered.length,
   k01StaleSelected:p.projection.selected.filter(e=>e.sourceRef==='doc:quote-old').length};
@@ -185,6 +200,8 @@ test('full reading and direct-search baselines yield more obsolete conditions th
  assert.equal(stats.k01Coverage,18);
  assert.ok(stats.baselineExtraVersions>=6);
  assert.equal(stats.k01StaleSelected,0);
- assert.ok(stats.k01ProjectionPayloadBytes<stats.baselineAllBytes);
+ assert.ok(stats.k01Reads<stats.baselineReads);
+ assert.ok(stats.k01ReadBytes<stats.baselineFullReadBytes);
+ assert.ok(stats.k01ProjectionPayloadBytes<stats.baselineFullReadBytes);
  assert.ok(Number.isFinite(k01Ms));
 });
