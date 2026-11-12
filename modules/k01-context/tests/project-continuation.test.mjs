@@ -440,3 +440,11 @@ test('test projects never share writable nested supersedes metadata',async()=>{
  assert.deepEqual(twoMeta.sources.find(x=>x.sourceRef==='doc:payment-decision').supersedes[0].fields,
   ['advance','balance']);
 });
+
+
+test('published K01 package subpath resolves the continuation API for independent consumers',async()=>{
+ const api=await import('@iwxa/k01-context/project-continuation');
+ assert.equal(api.PROJECT_CONTINUATION_VERSION,PROJECT_CONTINUATION_VERSION);
+ assert.equal(api.prepareProjectContinuation,prepareProjectContinuation);
+ assert.equal(api.revalidateProjectContinuation,revalidateProjectContinuation);
+});
