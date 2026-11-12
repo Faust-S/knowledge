@@ -636,3 +636,45 @@ test('refresh API is available through the declared public package subpath',asyn
  assert.equal(api.refreshProjectContinuation,refreshProjectContinuation);
  assert.equal(api.PROJECT_REFRESH_VERSION,PROJECT_REFRESH_VERSION);
 });
+
+
+test('disappearing accepted source blocks fallback to obsolete approved quote',async()=>{
+ const host=makeCommercialCase(),prior=await prepareProjectContinuation(host.request,host.sourcePort);
+ const next=makeCommercialCase(),owner=next.sourcePort;
+ const port={
+  async listSources(args){
+   const roster=await owner.listSources(args);
+   return {...roster,sources:roster.sources.filter(s=>s.sourceRef!=='doc:quote-approved')};
+  },
+  async readSource(args){return owner.readSource(args);}
+ };
+ const check=await refreshProjectContinuation(prior,next.request,port);
+ assert.equal(check.status,'REJECTED');
+ assert.equal(check.reason,'selected_source_missing');
+ assert.equal(check.latest,null,'obsolete v1 prices must not be returned as ready');
+ assert.equal(check.reusable,false);
+ assert.equal(check.requiresReview,true);
+ assert.ok(check.sourceChanges.some(s=>
+  s.sourceRef==='doc:quote-approved'&&s.kind==='SOURCE_REMOVED'));
+ assert.equal(JSON.stringify(check).includes('360000 руб'),false);
+ assert.equal(JSON.stringify(check).includes('398000 руб'),false);
+});
+
+test('removing an unselected proposed source does not reject valid accepted source context',async()=>{
+ const host=makeCommercialCase(),prior=await prepareProjectContinuation(host.request,host.sourcePort);
+ const now=makeCommercialCase(),owner=now.sourcePort;
+ const port={
+  async listSources(args){
+   const catalog=await owner.listSources(args);
+   return {...catalog,sources:catalog.sources.filter(s=>s.sourceRef!=='mail:proposed-discount')};
+  },
+  async readSource(args){return owner.readSource(args);}
+ };
+ const refreshed=await refreshProjectContinuation(prior,now.request,port);
+ assert.equal(refreshed.status,'UPDATED');
+ assert.equal(refreshed.latest.requiredComplete,true);
+ assert.equal(refreshed.fieldChanges.length,0);
+ assert.ok(refreshed.sourceChanges.some(s=>
+  s.sourceRef==='mail:proposed-discount'&&s.kind==='SOURCE_REMOVED'));
+ assert.equal(refreshed.reusable,false);
+});

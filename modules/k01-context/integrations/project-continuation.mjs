@@ -411,6 +411,14 @@ export async function refreshProjectContinuation(previous,rawRequest,sourcePort)
    return reject('scope_changed');
   throw error;
  }
+ // A disappearing previously selected source is not proof that an older
+ // accepted document became current again. Do not return such a projection;
+ // require the owner to re-authorize/re-pin the live source roster first.
+ const nowPresent=new Set(latest.sourceRevisions.map(source=>source.sourceRef));
+ if(previous.projection.selected.some(item=>!nowPresent.has(item.sourceRef))){
+  return {...reject('selected_source_missing'),catalogChanged:true,
+   sourceChanges:changedSources(previous.sourceRevisions,latest.sourceRevisions)};
+ }
  const fieldChanges=changedFields(previous.projection.selected,
   latest.projection.selected,request.fields);
  const sourceChanges=changedSources(previous.sourceRevisions,latest.sourceRevisions);
