@@ -35,13 +35,15 @@ jobs:
           node --check modules/k04-composer/meeting-process.mjs
           node --check modules/k04-composer/meeting-document-host.mjs
           node --check modules/k04-composer/sample/run-complex-meeting.mjs
+          node --check modules/k04-composer/sample/run-agent05-document-delivery.mjs
+          node --check modules/k04-composer/agent05-file-actions.mjs
       - name: Execute K04 contract tests
         run: node --test modules/k04-composer/tests/*.test.mjs
       - name: Checkout pinned public K02 peer
         uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 3c19fbb3ed0e7555959e47958c2d0c4365c45b3d
+          ref: 6fd060eb3adc376505f1922bf5b43d557d4c8882
           path: .k02-peer
           persist-credentials: false
       - name: Verify per-step requests with actual K02 functions
@@ -57,6 +59,17 @@ jobs:
         with:
           name: k04-meeting-documents-${{ matrix.os }}
           path: ${{ runner.temp }}/k04-meeting-documents/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Produce compact document from synthetic saved Graph Result
+        run: node modules/k04-composer/sample/run-agent05-document-delivery.mjs
+        env:
+          K04_COMPACT_DIRECTORY: ${{ runner.temp }}/k04-compact-delivery
+      - name: Retain one-file author sample as inspectable output
+        uses: actions/upload-artifact@v4
+        with:
+          name: k04-compact-delivery-${{ matrix.os }}
+          path: ${{ runner.temp }}/k04-compact-delivery/
           if-no-files-found: error
           retention-days: 14
       - name: Preserve existing meeting attribution checks
