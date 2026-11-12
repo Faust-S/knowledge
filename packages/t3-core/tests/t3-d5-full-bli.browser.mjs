@@ -111,6 +111,62 @@ try {
     scope:"actual compiled Host and BLI panel; model not downloaded",
   }));
   assert.equal(errors.length,0,"Unexpected browser exceptions: "+errors.join("; "));
+  // A real GPU adapter was found on the public runner. Attempt the exact
+  // WebLLM installation and WebGPU model inference, never a generated text
+  // stub. The result is reported separately from Host/Kernel acceptance:
+  // network/model-host or SwiftShader limits are not disguised as inference.
+  if(gpu.supported){
+    const modelFailureRequests=[];
+    page.on("requestfailed",request=>{
+      if(modelFailureRequests.length<8)
+        modelFailureRequests.push({url:request.url(),error:request.failure()?.errorText});
+    });
+    await panel.getByRole("checkbox",{name:/Разрешаю скачать файлы модели/}).check();
+    page.once("dialog",dialog=>dialog.accept());
+    await panel.getByRole("button",{name:"Скачать и запустить"}).click();
+    const statusLine=panel.locator('p[role="status"][aria-live="polite"]');
+    let modelStatus="",modelStarted=false;
+    for(let tick=0;tick<420;tick++){
+      modelStatus=await statusLine.textContent().catch(()=>modelStatus)||"";
+      modelStarted=await panel.getByRole("button",{name:"Выгрузить"}).isEnabled().catch(()=>false);
+      if(modelStarted || /^Модель не запущена:/.test(modelStatus))break;
+      await page.waitForTimeout(1000);
+    }
+    if(!modelStarted){
+      console.log("T3_D5_REAL_WEBGPU_INSTALL_BLOCKED",JSON.stringify({
+        model:"SmolLM2-360M-Instruct-q4f32_1-MLC",
+        status:modelStatus.slice(0,600),requestFailures:modelFailureRequests,
+        uiAndKernelPreviouslyPassed:true,
+      }));
+    }else{
+      await panel.getByLabel("Запрос",{exact:true})
+        .fill("Ответь одним коротким предложением по-русски: что такое локальная нейросеть?");
+      await panel.getByRole("button",{name:"Сгенерировать локально"}).click();
+      let inferenceStatus="";
+      for(let tick=0;tick<180;tick++){
+        inferenceStatus=await statusLine.textContent().catch(()=>inferenceStatus)||"";
+        if(/Черновик готов/.test(inferenceStatus)||/Модель не запущена|Error|ошибка|Ошибка/.test(inferenceStatus))break;
+        await page.waitForTimeout(1000);
+      }
+      const output=await panel.getByLabel(/Черновик · редактируемый/).inputValue();
+      if(/Черновик готов/.test(inferenceStatus) && output.trim()){
+        console.log("T3_D5_REAL_WEBGPU_GENERATION_PASS",JSON.stringify({
+          model:"SmolLM2-360M-Instruct-q4f32_1-MLC",
+          generatedCharacters:output.length,
+          workspace:await panel.locator("strong").first().textContent(),
+          mustSaveThroughKernel:true,
+        }));
+      }else{
+        console.log("T3_D5_REAL_WEBGPU_GENERATION_BLOCKED",JSON.stringify({
+          status:inferenceStatus.slice(0,500),generatedCharacters:output.length,
+          modelStarted:true,
+        }));
+      }
+    }
+  }else{
+    console.log("T3_D5_REAL_WEBGPU_ENVIRONMENT_UNAVAILABLE",JSON.stringify(gpu));
+  }
+
 }finally{
   if(context)await context.close().catch(()=>{});
   if(live)await new Promise(resolve=>live.server.close(resolve));
