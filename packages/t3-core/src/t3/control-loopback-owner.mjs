@@ -108,10 +108,13 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
         if(chunk.done)break;
         buffer+=decoder.decode(chunk.value,{stream:true});
         if(buffer.length>16384)fail("T3_D1_INVALIDATION_STREAM_OVERSIZED");
-        let position;
-        while((position=buffer.indexOf("\n\n"))!==-1){
-          const event=buffer.slice(0,position).replace(/\r/g,"");
-          buffer=buffer.slice(position+2);
+        // SSE allows LF or CRLF. Match delimiters across arbitrary HTTP
+        // chunk boundaries, including a split between CR and LF. Do not
+        // normalize each chunk independently: that can invent blank lines.
+        let boundary;
+        while((boundary=/\r?\n\r?\n/.exec(buffer))!==null){
+          const event=buffer.slice(0,boundary.index).replace(/\r/g,"");
+          buffer=buffer.slice(boundary.index+boundary[0].length);
           if(live&&/^event:\s*invalidated\s*$/m.test(event))listener();
         }
       }
