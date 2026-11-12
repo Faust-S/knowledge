@@ -18,6 +18,70 @@ async function setEnabled(value) {
 let current = null;
 let installRunning = false;
 
+// An explicit, short-lived WebLLM installation exception for the already
+// selected model. Normal autonomous browsing and model inference remain
+// cache-only; the original WebLLM cache owns the downloaded files.
+let modelInstall = null;
+const MODEL_INSTALL_MS = 15 * 60 * 1000;
+function modelInstallSources(data) {
+  let model, wasm;
+  try {
+    model = new URL(data?.model_url);
+    wasm = new URL(data?.wasm_url);
+  } catch { throw Error("T3_MODEL_INSTALL_SOURCE_INVALID"); }
+  if (model.origin !== "https://huggingface.co" ||
+      !/^\\/mlc-ai\\/[A-Za-z0-9][A-Za-z0-9._-]{1,128}$/.test(model.pathname) ||
+      wasm.origin !== "https://raw.githubusercontent.com" ||
+      !/^\\/mlc-ai\\/binary-mlc-llm-libs\\/main\\/web-llm-models\\/v0_2_87\\/base\\/[A-Za-z0-9._-]+\\.wasm$/.test(wasm.pathname) ||
+      model.search || model.hash || model.username || model.password ||
+      wasm.search || wasm.hash || wasm.username || wasm.password) {
+    throw Error("T3_MODEL_INSTALL_SOURCE_INVALID");
+  }
+  return {modelPath:model.pathname,wasm:wasm.href};
+}
+function modelFetchAllowed(request, url) {
+  if (!modelInstall) return false;
+  if (Date.now() >= modelInstall.deadline) {
+    modelInstall = null;
+    return false;
+  }
+  if (request.method !== "GET" || url.username || url.password || url.hash ||
+      (url.search && url.search !== "?download=true")) return false;
+  return url.href === modelInstall.wasm ||
+    (url.origin === "https://huggingface.co" &&
+      url.pathname.startsWith(modelInstall.modelPath + "/resolve/") &&
+      url.pathname.length > (modelInstall.modelPath + "/resolve/").length);
+}
+async function beginModelInstall(event, port) {
+  try {
+    const state = await installed();
+    if (!state?.complete) throw Error("T3_MODEL_INSTALL_AUTONOMY_REQUIRED");
+    if (event.source?.type !== "window" || !event.source.id ||
+        new URL(event.source.url).origin !== self.location.origin) {
+      throw Error("T3_MODEL_INSTALL_WINDOW_REQUIRED");
+    }
+    if (modelInstall && Date.now() < modelInstall.deadline) {
+      throw Error("T3_MODEL_INSTALL_BUSY");
+    }
+    const sources = modelInstallSources(event.data);
+    const token = crypto.randomUUID();
+    modelInstall = {...sources,token,owner:event.source.id,
+      deadline:Date.now() + MODEL_INSTALL_MS};
+    port.postMessage({type:"MODEL_INSTALL_ALLOWED",token});
+  } catch (error) {
+    port.postMessage({type:"FAILED",message:String(error?.message || error)});
+  }
+}
+function endModelInstall(event, port) {
+  if (!modelInstall || event.source?.id !== modelInstall.owner ||
+      event.data?.token !== modelInstall.token) {
+    port.postMessage({type:"FAILED",message:"T3_MODEL_INSTALL_TOKEN_INVALID"});
+    return;
+  }
+  modelInstall = null;
+  port.postMessage({type:"MODEL_INSTALL_ENDED"});
+}
+
 function responseError() {
   return new Response("T3 autonomous mode: this resource is not installed on this device.", {
     status: 503, statusText: "T3 offline resource unavailable",
@@ -205,12 +269,19 @@ self.addEventListener("message", event => {
         : [];
       port.postMessage({type: "PAGES", pages});
     }));
+  } else if (event.data?.type === "T3_MODEL_INSTALL_BEGIN") {
+    const port = event.ports?.[0];
+    if (port) event.waitUntil(beginModelInstall(event,port));
+  } else if (event.data?.type === "T3_MODEL_INSTALL_END") {
+    const port = event.ports?.[0];
+    if (port) endModelInstall(event,port);
   } else if (event.data?.type === "T3_DISABLE") {
     const port = event.ports?.[0];
     if (port) event.waitUntil((async () => {
       try {
         await setEnabled(false);
         current = null;
+        modelInstall = null;
         port.postMessage({type: "DISABLED"});
       } catch (error) {
         port.postMessage({type: "FAILED", message: String(error?.message || error)});
@@ -226,7 +297,10 @@ self.addEventListener("fetch", event => {
     const snapshot = await installed();
     if (!snapshot) return fetch(request); // No opt-in => normal domain site.
     if (url.origin !== self.location.origin || request.method !== "GET") {
-      return responseError(); // No cloud fallback or remote mutation.
+      // Permission lasts only during a separately confirmed WebLLM install,
+      // and only for its exact model repo and pinned upstream WASM library.
+      // It never permits a general remote fallback.
+      return modelFetchAllowed(request,url) ? fetch(request) : responseError();
     }
     // Queries are not used as cache keys. They cannot cause network egress.
     const path = url.pathname;
