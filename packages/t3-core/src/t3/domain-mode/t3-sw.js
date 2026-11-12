@@ -29,12 +29,11 @@ function modelInstallSources(data) {
     model = new URL(data?.model_url);
     wasm = new URL(data?.wasm_url);
   } catch { throw Error("T3_MODEL_INSTALL_SOURCE_INVALID"); }
-  if (model.origin !== "https://huggingface.co" ||
-      !/^\\/mlc-ai\\/[A-Za-z0-9][A-Za-z0-9._-]{1,128}$/.test(model.pathname) ||
-      wasm.origin !== "https://raw.githubusercontent.com" ||
-      !/^\\/mlc-ai\\/binary-mlc-llm-libs\\/main\\/web-llm-models\\/v0_2_87\\/base\\/[A-Za-z0-9._-]+\\.wasm$/.test(wasm.pathname) ||
-      model.search || model.hash || model.username || model.password ||
-      wasm.search || wasm.hash || wasm.username || wasm.password) {
+  // Only the exact model and WebGPU library in the pinned WebLLM catalog.
+  if (model.href !==
+      "https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC" ||
+      wasm.href !==
+      "https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_87/base/SmolLM2-360M-Instruct-q4f32_1_cs1k-webgpu.wasm") {
     throw Error("T3_MODEL_INSTALL_SOURCE_INVALID");
   }
   return {modelPath:model.pathname,wasm:wasm.href};
