@@ -92,7 +92,7 @@ function fixture(){
     verifyDecisionBinding:(req,d)=>d.requestDigest===digest(req),
   };
   const bound=createSubjectKernelBinding({kernel,access:owner,clock:()=>now});
-  return {bound,kernel,allowed,calls,context};
+  return {bound,kernel,allowed,calls,context,owner};
 }
 test("all scoped T1 object, relation and asset calls use inherited facade unchanged",async()=>{
   const f=fixture();
@@ -429,4 +429,52 @@ test("D1 refuses changed subject before import and foreign source receipt",async
   await assert.rejects(f.bound.importCommit({
     preview_token:next.preview_token,package_digest:dg,plan:{mode:"merge"},
   }),{code:"T3_KERNEL_IMPORT_RECEIPT_SCOPE_MISMATCH"});
+});
+
+test("async native owner can consume each original Kernel purge/import token only once",async()=>{
+  const f=fixture();
+  const owner={...f.owner,
+    async currentContext(){
+      // A real native Host may respond after concurrent UI actions are queued.
+      await Promise.resolve();
+      return f.owner.currentContext();
+    },
+  };
+  const bound=createSubjectKernelBinding({kernel:f.kernel,access:owner,clock:()=>now});
+  const purge=await bound.purgePreview({workspace_id:ws});
+  const completed=await Promise.allSettled([
+    bound.purgeCommit({purge_token:purge.purge_token,confirmation:purge.challenge}),
+    bound.purgeCommit({purge_token:purge.purge_token,confirmation:purge.challenge}),
+  ]);
+  assert.equal(completed.filter(x=>x.status==="fulfilled").length,1);
+  const denied=completed.filter(x=>x.status==="rejected");
+  assert.equal(denied.length,1);
+  assert.equal(denied[0].reason.code,"T3_SUBJECT_PURGE_PREVIEW_REQUIRED");
+  assert.equal(f.calls.filter(x=>x[0]==="purgeCommit").length,1);
+
+  const dg="f".repeat(64);
+  f.allowed.add("t2.importPreview");
+  f.allowed.add("t2.importCommit");
+  f.kernel.importPreview=async()=>({
+    preview_token:"token:async-import",package_digest:dg,
+    expires_at:new Date(now+60000).toISOString(),
+    preview:{package_digest:dg,manifest:{workspaces:[ws]},
+      workspaces:[{workspace_id:ws}],objects:[],conflicts:[]},
+  });
+  f.kernel.importCommit=async command=>{
+    f.calls.push(["importCommit",command]);
+    return {package_digest:dg,mode:command.plan.mode,
+      workspace_id_map:{[ws]:ws},skipped_conflicts:[]};
+  };
+  const preview=await bound.importPreview(Uint8Array.from([1,2,3]));
+  const commit={preview_token:preview.preview_token,package_digest:dg,
+    plan:{mode:"merge",workspace_id_map:{[ws]:ws}}};
+  const outcomes=await Promise.allSettled([
+    bound.importCommit(commit),bound.importCommit(commit),
+  ]);
+  assert.equal(outcomes.filter(x=>x.status==="fulfilled").length,1);
+  assert.equal(outcomes.filter(x=>x.status==="rejected").length,1);
+  assert.equal(outcomes.find(x=>x.status==="rejected").reason.code,
+    "T3_SUBJECT_IMPORT_PREVIEW_REQUIRED");
+  assert.equal(f.calls.filter(x=>x[0]==="importCommit").length,1);
 });
