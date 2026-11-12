@@ -1,19 +1,9 @@
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
-import App from "./App";
-import { AVAILABLE_MODULES } from "./composition";
-import "./styles.css";
-import "./styles/a11y.css";
+import { mountT3App } from "./mount-t3-app";
 
-// Keep the compile-time module loader table anchored in the entry
-// graph so each module's dynamic-import chunk is emitted, even while
-// AppShell is still doing its legacy direct rendering (PROMPT 18).
-void AVAILABLE_MODULES;
-
-
-
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+// Default public domain boot keeps its original inherited T2/T3 behavior.
+// A trusted signed-Control distribution compiles its OWN entry that imports
+// the exact same mountT3App function with existing private owner callbacks.
+// Neither route creates a second Host, Kernel, Store or React root.
+const target = document.getElementById("root");
+if (!target) throw new Error("T3_HOST_MOUNT_ROOT_REQUIRED");
+mountT3App(target);
