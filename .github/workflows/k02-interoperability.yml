@@ -69,7 +69,17 @@ jobs:
             sleep 1
           done
           curl --fail --silent http://127.0.0.1:11434/api/tags > /dev/null
-          ollama pull smollm2:135m-instruct-q2_K
+          ok=0
+          for attempt in 1 2 3; do
+            if ollama pull smollm2:135m-instruct-q2_K > "${RUNNER_TEMP}/smollm2-pull-${attempt}.log" 2>&1; then
+              ok=1
+              break
+            fi
+            echo "SMOLLM2_PULL_FAILED_ATTEMPT_${attempt}"
+            tail -c 240 "${RUNNER_TEMP}/smollm2-pull-${attempt}.log" | tr '\r' '\n' | tail -n 2
+            sleep $((attempt * 5))
+          done
+          test "$ok" -eq 1 || { echo "SMOLLM2_REGISTRY_UNAVAILABLE"; exit 1; }
       - name: Pin and verify exact observed model digest
         shell: bash
         run: |
@@ -100,7 +110,17 @@ jobs:
           jq --version
       - name: Pull second local model Qwen3 and record its exact digest
         run: |
-          ollama pull qwen3:0.6b
+          ok=0
+          for attempt in 1 2 3; do
+            if ollama pull qwen3:0.6b > "${RUNNER_TEMP}/qwen3-pull-${attempt}.log" 2>&1; then
+              ok=1
+              break
+            fi
+            echo "QWEN3_PULL_FAILED_ATTEMPT_${attempt}"
+            tail -c 240 "${RUNNER_TEMP}/qwen3-pull-${attempt}.log" | tr '\r' '\n' | tail -n 2
+            sleep $((attempt * 5))
+          done
+          test "$ok" -eq 1 || { echo "QWEN3_REGISTRY_UNAVAILABLE"; exit 1; }
           python - <<'PY'
           import json, os, urllib.request
           data=json.load(urllib.request.urlopen('http://127.0.0.1:11434/api/tags',timeout=10))
@@ -119,6 +139,12 @@ jobs:
         run: |
           node --check modules/k02-interoperability/consumers/live-document-workflow-study.mjs
           node modules/k02-interoperability/consumers/live-document-workflow-study.mjs
+      - name: Rebind actual installed Ollama models to one native K02 provider
+        env:
+          K02_CASE_OUTPUT_DIR: ${{ runner.temp }}/k02-document-case
+        run: |
+          node --check modules/k02-interoperability/consumers/live-agent05-native-candidate.mjs
+          node modules/k02-interoperability/consumers/live-agent05-native-candidate.mjs
       - name: Independent Python check of source evidence, arithmetic and verified files
         env:
           K02_CASE_OUTPUT_DIR: ${{ runner.temp }}/k02-document-case
