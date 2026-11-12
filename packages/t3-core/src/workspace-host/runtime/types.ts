@@ -19,6 +19,10 @@ import type { DashboardRefreshState } from "../context/create-dashboard-facade";
 import type { HostPanelsState } from "../context/create-panels-facade";
 import type { T3ActivityReadOptions, T3ActivityProjection, T3SignedActivityAccess } from "../../t3/index.mjs";
 
+/** Original Access/Control owner invalidation signal, supplied by the
+ * trusted compiled Host. No new authority or polling is implemented here. */
+export type SignedAccessInvalidationSubscription = (listener: () => void) => () => void;
+
 export type WorkspaceHostRuntimeStatus =
   | "idle"
   | "starting"
