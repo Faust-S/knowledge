@@ -50,5 +50,14 @@ jobs:
         run: node modules/k04-composer/sample/open-host.mjs
       - name: Execute complete meeting and produce actual documents
         run: node modules/k04-composer/sample/run-complex-meeting.mjs
+        env:
+          K04_OUTPUT_DIRECTORY: ${{ runner.temp }}/k04-meeting-documents
+      - name: Upload authored sample documents for independent inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: k04-meeting-documents-${{ matrix.os }}
+          path: ${{ runner.temp }}/k04-meeting-documents/
+          if-no-files-found: error
+          retention-days: 14
       - name: Preserve existing meeting attribution checks
         run: python -m unittest discover -s tests -p "test_meeting_followup_attribution.py" -v
