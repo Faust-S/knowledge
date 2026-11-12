@@ -121,7 +121,9 @@ def verify_saved_graph_model_observation(
     if type(meta) is not dict or type(spec) is not dict:
         _fail("MODEL_METADATA_OR_CONFIG_MISSING")
     if (type(meta.get("provider_id")) is not str
+            or not meta["provider_id"] or len(meta["provider_id"]) > 128
             or type(meta.get("model")) is not str
+            or not meta["model"] or len(meta["model"]) > 256
             or observation["provider_id"] != meta["provider_id"]
             or observation["model"] != meta["model"]):
         _fail("MODEL_PROVIDER_IDENTITY_MISMATCH")
@@ -148,13 +150,18 @@ def verify_saved_graph_model_observation(
 
     refs = artifact.get("source_refs")
     if type(refs) is not list or len(refs) > 128 or any(
-        type(item) is not str or len(item) > 512 for item in refs
-    ):
+        type(item) is not str or not item or len(item) > 512 for item in refs
+    ) or len(refs) != len(set(refs)):
         _fail("GRAPH_SOURCE_REFS_INVALID")
     binding = meta.get("binding_digest")
-    if type(binding) is not str or "model-binding:" + binding not in refs:
+    if type(binding) is not str or HEX.fullmatch(binding) is None or "model-binding:" + binding not in refs:
         _fail("MODEL_BINDING_REF_MISSING")
     choice = spec.get("model_choice")
+    # Model invocation projects the already-pinned choice into provider_meta.
+    # A self-consistent artifact with a *different* reported choice is not
+    # trustworthy evidence of the configuration that authorized execution.
+    if meta.get("model_choice") != choice:
+        _fail("MODEL_CHOICE_ARTIFACT_CONFIG_DISAGREE")
     config_receipts = (choice.get("owner_receipts")
                        if type(choice) is dict else None)
     if config_receipts is not None:
@@ -163,6 +170,8 @@ def verify_saved_graph_model_observation(
                 or any(type(v) is not str or not re.fullmatch(
                     r"TXR-[A-Za-z0-9_-]{1,100}", v
                 ) for v in config_receipts.values())):
+            _fail("CONFIG_RECEIPTS_INVALID")
+        if config_receipts["k02"] == config_receipts["k04"]:
             _fail("CONFIG_RECEIPTS_INVALID")
         if observation["owner_receipt_refs"] != config_receipts:
             _fail("OWNER_RECEIPT_OBSERVATION_MISMATCH")

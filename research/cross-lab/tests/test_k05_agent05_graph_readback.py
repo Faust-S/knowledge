@@ -62,6 +62,8 @@ def build(run_id, *, input_tokens=120, output_tokens=60,
             "elapsed_ms": elapsed_ms}
     if model_pin:
         meta["model_digest"] = MODEL_DIGEST
+    if owner_receipts:
+        meta["model_choice"] = deepcopy(spec["model_choice"])
     refs = ["model-binding:" + "b" * 64]
     if owner_receipts and linked:
         refs.extend("tool-receipt:" + receipt for receipt in RECEIPTS.values())
@@ -262,6 +264,43 @@ class Agent05GraphReceipt(unittest.TestCase):
                          "OLLAMA_LOCAL_V1", "controlled-local-model"):
             self.assertNotIn(fragment,encoded)
         self.assertIn(sha256(b"controlled-local-model").hexdigest(),encoded)
+
+    def test_missing_binding_identity_and_forged_graph_selection_are_rejected(self):
+        item = build("baseline")
+        bad = deepcopy(item)
+        bad["artifact"]["provider_meta"]["model_choice"]["k02_plan_digest"] = "f" * 64
+        bad["artifact"] = with_digest(bad["artifact"], "artifact_digest")
+        bad["run"]["model_observation"]["source_revision"] = bad["artifact"]["artifact_digest"]
+        with self.assertRaisesRegex(AgentComparisonHold, "MODEL_CHOICE_ARTIFACT_CONFIG_DISAGREE"):
+            verify(bad)
+        bad = deepcopy(item)
+        bad["artifact"]["provider_meta"]["binding_digest"] = ""
+        bad["artifact"]["source_refs"][0] = "model-binding:"
+        bad["artifact"] = with_digest(bad["artifact"], "artifact_digest")
+        bad["run"]["model_observation"]["source_revision"] = bad["artifact"]["artifact_digest"]
+        with self.assertRaisesRegex(AgentComparisonHold, "MODEL_BINDING_REF_MISSING"):
+            verify(bad)
+        bad = deepcopy(item)
+        bad["artifact"]["source_refs"].append(bad["artifact"]["source_refs"][0])
+        bad["artifact"] = with_digest(bad["artifact"], "artifact_digest")
+        bad["run"]["model_observation"]["source_revision"] = bad["artifact"]["artifact_digest"]
+        with self.assertRaisesRegex(AgentComparisonHold, "GRAPH_SOURCE_REFS_INVALID"):
+            verify(bad)
+
+    def test_same_k02_k04_receipt_cannot_support_two_independent_owners(self):
+        item = build("baseline")
+        bad = deepcopy(item)
+        same = bad["config"]["spec"]["model_choice"]["owner_receipts"]["k02"]
+        bad["config"]["spec"]["model_choice"]["owner_receipts"]["k04"] = same
+        bad["config"] = with_digest(bad["config"], "config_digest")
+        bad["artifact"]["config_digest"] = bad["config"]["config_digest"]
+        bad["artifact"]["config_ref"] = "graph-node-config:" + bad["config"]["config_id"] + ":" + bad["config"]["config_digest"]
+        bad["artifact"]["provider_meta"]["model_choice"] = deepcopy(bad["config"]["spec"]["model_choice"])
+        bad["artifact"] = with_digest(bad["artifact"], "artifact_digest")
+        bad["run"]["model_observation"]["source_revision"] = bad["artifact"]["artifact_digest"]
+        bad["run"]["model_observation"]["owner_receipt_refs"]["k04"] = same
+        with self.assertRaisesRegex(AgentComparisonHold, "CONFIG_RECEIPTS_INVALID"):
+            verify(bad)
 
     def test_wrong_artifact_graph_authority_flags_are_rejected(self):
         item = build("baseline")
