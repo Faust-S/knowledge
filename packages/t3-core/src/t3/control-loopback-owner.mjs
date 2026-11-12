@@ -16,18 +16,28 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
     "T3_D1_TRUSTED_CONTROL_SESSION_REQUIRED");
   check(typeof fetchImpl==="function","T3_D1_LOCAL_FETCH_REQUIRED");
   const auth=Object.freeze({Authorization:"Bearer "+token});
+  // Once the sole original Control invalidation transport fails, a new
+  // React Host generation MUST NOT reacquire grants via still-live POSTs.
+  // Recovery requires an explicit fresh trusted Control launch.
+  let invalidationLost=false;
+  const requireTransport=()=>check(!invalidationLost,
+    "T3_D1_CONTROL_INVALIDATION_UNAVAILABLE");
   const getEpoch=async()=>{
+    requireTransport();
     const response=await fetchImpl(origin+"/api/t3/context-epoch",{
       method:"GET",headers:auth,mode:"same-origin",cache:"no-store",
       credentials:"omit",
     });
+    requireTransport();
     if(!response.ok)fail("T3_D1_CONTROL_SESSION_UNAVAILABLE");
     const value=await response.json();
+    requireTransport();
     check(Number.isSafeInteger(value?.contextEpoch)&&value.contextEpoch>=0,
       "T3_D1_CONTROL_EPOCH_UNAVAILABLE");
     return value.contextEpoch;
   };
   const post=async (scope,operation,epoch,verb,payload={})=>{
+    requireTransport();
     check(KINDS.has(scope)&&typeof operation==="string"&&
       Number.isSafeInteger(epoch),"T3_D1_OWNER_REQUEST_SCOPE_INVALID");
     const response=await fetchImpl(origin+"/api/t3/owner",{
@@ -37,6 +47,7 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
         "X-IWXA-Context-Epoch":String(epoch)},
       body:JSON.stringify({scope,operation,verb,...payload}),
     });
+    requireTransport();
     if(!response.ok){
       let code="T3_D1_CONTROL_OPERATION_DENIED";
       try{
@@ -46,9 +57,12 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
       }catch{/* A failed control connection grants no fallback. */}
       fail(code);
     }
-    return response.json();
+    const body=await response.json();
+    requireTransport(); // A streamed revocation may arrive during this POST.
+    return body;
   };
   const select=async (scope,operation)=>{
+    requireTransport();
     const epoch=await getEpoch(); // No independent subject selection or grant.
     const available=await post(scope,operation,epoch,"select");
     if(available?.contextEpoch!==epoch)fail("STALE_CONTEXT_OPERATION");
@@ -84,7 +98,8 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
         return response.decision;
       },
       verifyDecisionBinding(request,decision){
-        return validObject(decision)&&issued.get(decision)===request;
+        return !invalidationLost &&
+          validObject(decision)&&issued.get(decision)===request;
       },
     });
   };
@@ -92,6 +107,13 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
     check(typeof listener==="function","T3_D1_INVALIDATION_LISTENER_REQUIRED");
     const abort=new AbortController();
     let live=true;
+    const lost=()=>{
+      if(!live || invalidationLost)return;
+      // Revocation transport is a hard authority dependency. A callback
+      // alone would rebuild Host while the source POSTs were still allowed.
+      invalidationLost=true;
+      listener();
+    };
     const stream=async()=>{
       const response=await fetchImpl(origin+"/api/t3/owner-events",{
         method:"GET",headers:{...auth,Accept:"text/event-stream"},
@@ -118,9 +140,9 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
           if(live&&/^event:\s*invalidated\s*$/m.test(event))listener();
         }
       }
-      if(live)listener(); // Broken local owner transport: fail closed.
+      if(live)lost(); // Disconnected source cannot authorize new generations.
     };
-    void stream().catch(()=>{if(live)listener();});
+    void stream().catch(()=>{if(live)lost();});
     return ()=>{live=false;abort.abort();};
   };
   return Object.freeze({
