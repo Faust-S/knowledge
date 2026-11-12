@@ -46,8 +46,8 @@ function requiredId(value, field) {
   if (!id(value)) refused("T3_SUBJECT_"+field+"_INVALID");
   return value;
 }
-function selected(owner) {
-  const c = owner.currentContext();
+async function selected(owner) {
+  const c = await owner.currentContext();
   if (!c || typeof c !== "object" || !["PERSONAL","CORP"].includes(c.kind)) {
     refused("T3_SUBJECT_CONTEXT_UNAVAILABLE");
   }
@@ -133,7 +133,7 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
   let pendingImport = null;
   async function invoke(method, input, workspace_id, boundPurge = null, boundImport = null) {
     requiredId(workspace_id,"WORKSPACE_ID");
-    const context = selected(access);
+    const context = await selected(access);
     // The caller cannot override a Host-selected PERSONAL/CORP context.
     if (context.workspace_id !== workspace_id) refused("T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE");
     // Capture the actual command before any asynchronous authorization step.
@@ -216,7 +216,7 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
       refused("T3_ACCESS_DECISION_BINDING_INVALID");
     }
     authorizedDecision(decision,context,Number(clock()));
-    if (identity(context) !== identity(selected(access))) {
+    if (identity(context) !== identity(await selected(access))) {
       refused("T3_SUBJECT_CONTEXT_CHANGED");
     }
     if (!kernel.hasOperation(operation)) refused("T3_KERNEL_OPERATION_NOT_GRANTED");
@@ -388,7 +388,7 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
     // original Kernel is executing, even when Access JIT authorization passed.
     // Never return the prior subject's read or receipt to the new context.
     // A write may already have committed: do NOT auto-retry it here.
-    if (identity(context) !== identity(selected(access))) {
+    if (identity(context) !== identity(await selected(access))) {
       refused("T3_SUBJECT_RESULT_STALE_AFTER_KERNEL");
     }
     if (method === "importPreview") {
@@ -410,20 +410,20 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
     }
     return result; // Original T2 Kernel receipt; no duplicate source-of-truth.
   }
-  function consumeImport(token) {
+  async function consumeImport(token) {
     const plan = pendingImport;
     if (!plan || plan.preview_token !== token ||
-        plan.contextIdentity !== identity(selected(access))) {
+        plan.contextIdentity !== identity(await selected(access))) {
       refused("T3_SUBJECT_IMPORT_PREVIEW_REQUIRED");
     }
     pendingImport = null; // One-shot, never retry an ambiguous import.
     if (Number(clock()) >= plan.expiresAt) refused("T3_SUBJECT_IMPORT_PREVIEW_EXPIRED");
     return plan;
   }
-  function consumePurge(token,confirmation,commit) {
+  async function consumePurge(token,confirmation,commit) {
     const plan = pendingPurge;
     if (!plan || plan.purge_token !== token ||
-        plan.contextIdentity !== identity(selected(access))) {
+        plan.contextIdentity !== identity(await selected(access))) {
       refused("T3_SUBJECT_PURGE_PREVIEW_REQUIRED");
     }
     if (Number(clock()) >= plan.expiresAt) {
@@ -477,16 +477,16 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
       invoke("confirmExport",input,oneWorkspace(input?.workspace_ids)),
     importPreview: async bytes => {
       pendingImport = null;
-      const context = selected(access);
+      const context = await selected(access);
       return invoke("importPreview",{workspace_id:context.workspace_id,bytes},
         context.workspace_id);
     },
     importCommit: async input => {
-      const plan = consumeImport(input?.preview_token);
+      const plan = await consumeImport(input?.preview_token);
       return invoke("importCommit",input,plan.workspace_id,null,plan);
     },
     importCancel: async token => {
-      const plan = consumeImport(token);
+      const plan = await consumeImport(token);
       return invoke("importCancel",{preview_token:token},plan.workspace_id,null,plan);
     },
     purgePreview: async input => {
@@ -494,11 +494,11 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
       return invoke("purgePreview",input,input?.workspace_id);
     },
     purgeCommit: async input => {
-      const plan = consumePurge(input?.purge_token,input?.confirmation,true);
+      const plan = await consumePurge(input?.purge_token,input?.confirmation,true);
       return invoke("purgeCommit",input,plan.workspace_id,plan);
     },
     purgeCancel: async token => {
-      const plan = consumePurge(token,null,false);
+      const plan = await consumePurge(token,null,false);
       return invoke("purgeCancel",{purge_token:token},plan.workspace_id,plan);
     },
   });
