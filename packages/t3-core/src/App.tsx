@@ -7,7 +7,10 @@ import { activateProfile } from "./config/profile-loader";
 import { ErrorPage } from "./errors/ErrorPage";
 import { hostConfigErrorToWorkspaceCode } from "./errors/host-config-error";
 import type { WorkspaceProfileDefinition } from "./profiles/definition";
-import type { CreateWorkspaceHostRuntimeInput } from "./workspace-host/runtime";
+import type {
+  CreateWorkspaceHostRuntimeInput,
+  SignedAccessInvalidationSubscription,
+} from "./workspace-host/runtime";
 
 interface Activation {
   devBootstrap?: KernelBootstrap;
@@ -43,6 +46,7 @@ export interface AppProps {
   requireSignedOwner?: boolean;
   signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
   signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
+  subscribeSignedAccessInvalidation?: SignedAccessInvalidationSubscription;
 }
 
 /**
@@ -50,7 +54,10 @@ export interface AppProps {
  * HostConfigResult into a mounted `AppShell`. The legacy DomainConfig
  * projection is not consumed anywhere in the presentation layer.
  */
-export default function App({ requireSignedOwner = false, signedKernelAccess, signedActivityAccess }: AppProps = {}) {
+export default function App({
+  requireSignedOwner = false, signedKernelAccess, signedActivityAccess,
+  subscribeSignedAccessInvalidation,
+}: AppProps = {}) {
   const host = useHostConfig();
   const [activation, setActivation] = useState<Activation | null>(null);
   const [activationError, setActivationError] = useState<Error | null>(null);
@@ -102,6 +109,7 @@ export default function App({ requireSignedOwner = false, signedKernelAccess, si
       requireSignedOwner={requireSignedOwner}
       signedKernelAccess={signedKernelAccess}
       signedActivityAccess={signedActivityAccess}
+      subscribeSignedAccessInvalidation={subscribeSignedAccessInvalidation}
     />
   );
 }
