@@ -111,7 +111,7 @@ def make_proof(data: bytes, pages: list[str], *, expected_sha256: str | None) ->
             "proposed_purchase_count": 33,
             "used_quote_total_usd": "10000.00",
             "arithmetic_total_usd": str(net),
-            "shipment_quote_valid_days": 30,
+            "quotation_valid_days": 30,
             "unloading_installation": "OWNER_TO_UNLOAD_AND_INSTALL",
             "deposit_of_50_percent": "CONDITIONAL_MAY_BE_REQUIRED",
             "prior_unrevised_price": None,

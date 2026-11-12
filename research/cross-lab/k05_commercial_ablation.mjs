@@ -193,7 +193,8 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).hr
   schema:report.schema,scenarios:report.scenarios.map(s=>({case:s.caseId,
    methods:s.methods.map(m=>({method:m.method,...m.assessment,rows:undefined,
     reads:m.metrics.hostReads,bytesRead:m.metrics.bytesRead,extraBytes:m.metrics.additionalVerificationBytes,
-    elapsedMs:m.metrics.elapsedMs}))})),
+    elapsedMs:m.metrics.elapsedMs,medianMs:m.metrics.wallMsMedian,
+    p95Ms:m.metrics.wallMsP95,repetitions:m.metrics.repetitions}))})),
   independentHumanGold:report.constraints.independentHumanGold,actualUserTimeMs:null
  }));
 }

@@ -30,6 +30,7 @@ class PublicCommercialQuote(unittest.TestCase):
         proof=real.make_proof(mock,[agenda,quote,terms],expected_sha256=None)
         self.assertEqual(proof["status"],"DISCOVERY_UNPINNED_NOT_ACCEPTED")
         self.assertEqual(proof["facts"]["arithmetic_total_usd"],"10000.00")
+        self.assertEqual(proof["facts"]["quotation_valid_days"],30)
         self.assertIsNone(proof["facts"]["prior_unrevised_price"])
         self.assertIsNone(proof["facts"]["independent_approval_of_purchase"])
         with self.assertRaisesRegex(real.SourceHold,"PINNED_PDF_REVISION_CHANGED"):
