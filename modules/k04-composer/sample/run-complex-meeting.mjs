@@ -8,12 +8,12 @@ import {prepareMeetingProcess,renderMeetingDocuments} from '../meeting-process.m
 import {publishMeetingDocuments} from '../meeting-document-host.mjs';
 
 export async function runComplexMeetingSample({transcript,outputDirectory}={}){
-  const source=transcript??await readFile(new URL('meeting-case-05.txt',import.meta.url),'utf8');
+  const source=transcript??(await readFile(new URL('meeting-case-05.txt',import.meta.url),'utf8')).replace(/\r\n?/gu,'\n');
   const directory=outputDirectory??await mkdtemp(join(tmpdir(),'iwxa-k04-user-outcome-'));
   const task={taskId:'OPEN-HOST-MEETING-CASE-05',kind:'meeting_followup',
     input:{transcript_text:source},
     source:{ref:'modules/k04-composer/sample/meeting-case-05.txt',
-      revision:'fixture-2026-11-12',rights:'AUTHOR_OWNED_SYNTHETIC',authorized:true}};
+      revision:'fixture-2026-11-12-normalized-lf',rights:'AUTHOR_OWNED_SYNTHETIC',authorized:true}};
   const start=performance.now();
   const process=prepareMeetingProcess({task,solution,available:sampleAvailability()});
   const pack=renderMeetingDocuments(process);
