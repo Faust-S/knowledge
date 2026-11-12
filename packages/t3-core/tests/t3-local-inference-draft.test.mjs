@@ -99,7 +99,13 @@ test("D5 missing write permission and revoked original Kernel right cannot creat
     {code:"T3_D5_KERNEL_PERMISSION_REQUIRED"});
   assert.deepEqual(f.calls,[]);
   f.granted.add("t1.putObject");f.rejectWrites();
-  await assert.rejects(saveLocalInferenceDraft(f.context,INPUT),{code:"NO_GRANT"});
+  await assert.rejects(saveLocalInferenceDraft(f.context,INPUT),error=>{
+    assert.equal(error.code,"T3_D5_WRITE_MAY_HAVE_COMMITTED");
+    assert.equal(error.cause_code,"NO_GRANT");
+    assert.equal(error.workspace_id,WSA);
+    assert.ok(error.object_id);
+    return true;
+  });
   assert.equal(f.store.size,0);
   assert.equal(f.calls.filter(x=>x[0]==="putObject").length,1);
 });
@@ -191,4 +197,52 @@ test("D5 rejects focus A-B-A changes and missing original Kernel read permission
   await assert.rejects(getLocalInferenceDraft(f.context,{
     expected_workspace_id:WSA,object_id:receipt.object_id,
   }),{code:"T3_D5_WORKSPACE_CHANGED"});
+});
+
+test("D5 preserves exact ID after original Kernel commits but putObject response is lost",async()=>{
+  const f=fixture();
+  const originalPut=f.context.kernel.putObject;
+  f.context.kernel.putObject=async command=>{
+    await originalPut(command);  // A real local commit happened.
+    throw Object.assign(new Error("transport interrupted after commit"),
+      {code:"KERNEL_REPLY_LOST"});
+  };
+  let uncertain;
+  await assert.rejects(saveLocalInferenceDraft(f.context,INPUT),error=>{
+    uncertain=error;
+    assert.equal(error.code,"T3_D5_WRITE_MAY_HAVE_COMMITTED");
+    assert.equal(error.cause_code,"KERNEL_REPLY_LOST");
+    assert.equal(error.workspace_id,WSA);
+    assert.match(error.object_id,/^local-inference:[0-9a-f-]{36}$/);
+    return true;
+  });
+  assert.equal(f.store.size,1,"only one original Kernel object was committed");
+  assert.equal(f.calls.filter(row=>row[0]==="putObject").length,1);
+  // The original Kernel is authoritative; recovery performs no new putObject.
+  const recovered=await getLocalInferenceDraft(f.context,{
+    expected_workspace_id:WSA,object_id:uncertain.object_id,
+  });
+  assert.equal(recovered.readback,true);
+  assert.equal(recovered.text,INPUT.output);
+  assert.equal(recovered.status,"DRAFT_UNTRUSTED");
+  assert.equal(f.calls.filter(row=>row[0]==="putObject").length,1,
+    "readback must never cause a duplicate write");
+});
+test("D5 remains recoverably uncertain when Kernel rejects putObject before commit",async()=>{
+  const f=fixture();f.rejectWrites();
+  let uncertain;
+  await assert.rejects(saveLocalInferenceDraft(f.context,INPUT),error=>{
+    uncertain=error;
+    assert.equal(error.code,"T3_D5_WRITE_MAY_HAVE_COMMITTED");
+    assert.equal(error.cause_code,"NO_GRANT");
+    assert.equal(error.workspace_id,WSA);
+    assert.ok(error.object_id);
+    return true;
+  });
+  assert.equal(f.store.size,0);
+  assert.equal(f.calls.filter(row=>row[0]==="putObject").length,1);
+  await assert.rejects(getLocalInferenceDraft(f.context,{
+    expected_workspace_id:WSA,object_id:uncertain.object_id,
+  }),{code:"T3_D5_DRAFT_READBACK_INVALID"});
+  assert.equal(f.store.size,0,"no speculative duplicate or repair object");
 });
