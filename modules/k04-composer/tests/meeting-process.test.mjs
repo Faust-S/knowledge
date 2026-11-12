@@ -7,7 +7,7 @@ import {ComposerError,digest,matchTask,resolveRequiredCapabilities,
   createHostNeutralPlan} from '../index.mjs';
 import {solution,sampleAvailability,extractStructuredMeeting} from '../sample/open-host.mjs';
 import {extractAdoptedMeetingDecisions,prepareMeetingProcess,
-  verifyMeetingProcess,reconcileMeetingDecisions,renderMeetingDocuments} from '../meeting-process.mjs';
+  verifyMeetingProcess,reconcileMeetingDecisions,renderMeetingDocuments,createMeetingGraphHandoff} from '../meeting-process.mjs';
 import {publishMeetingDocuments} from '../meeting-document-host.mjs';
 const transcript=await readFile(new URL('../sample/meeting-case-05.txt',import.meta.url),'utf8');
 const expected=['Подготовить уточнённый бюджет пилота',
@@ -143,4 +143,18 @@ test('a discussion quoting decision syntax is not converted into an approved ass
   assert.equal(p.extraction.draft.action_items.length,4);
   assert.equal(p.extraction.decisionCount,4);
   assert.equal(p.extraction.discussions.length,4);
+});
+
+test('handoff maps to existing native Graph node types but does not claim Graph execution',()=>{
+  const p=run(transcript),projection=createMeetingGraphHandoff(p);
+  assert.equal(projection.schema,'IWXA.K04.EXISTING_GRAPH_HANDOFF/0.1.0');
+  assert.deepEqual(projection.nodes.map(x=>x.existingNodeType),
+    ['DETERMINISTIC_TRANSFORM','TOOL','TOOL']);
+  assert.deepEqual(projection.nodes[2].dependsOn,['extract']);
+  assert.equal(projection.nodes[1].capabilityRef.capabilityId,'meeting.structured.extract');
+  assert.equal(projection.nodes[2].capabilityRef.capabilityId,'evidence.exact.audit');
+  assert.equal(projection.nodes.every(x=>x.hostGraphReceipt===null),true);
+  assert.equal(projection.hostGraphExecution,'NOT_EXECUTED_BY_K04');
+  assert.equal(projection.graphPersisted,false);
+  assert.equal(projection.humanReview.status,'PENDING');
 });
