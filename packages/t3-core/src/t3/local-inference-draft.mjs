@@ -185,3 +185,53 @@ export async function listLocalInferenceDrafts(context, {
     unsubscribe();
   }
 }
+
+/** Open one saved draft through the original Kernel after a browser restart.
+ * Never trust list-row text as a persistence receipt, and never promote
+ * a model suggestion into an accepted Result without separate review.
+ */
+export async function getLocalInferenceDraft(context, {
+  expected_workspace_id,
+  object_id,
+} = {}) {
+  const {workspaceId,choice}=selected(context,expected_workspace_id);
+  if (typeof expected_workspace_id !== "string" || !expected_workspace_id.trim()) {
+    refuse("T3_D5_EXPLICIT_WORKSPACE_REQUIRED");
+  }
+  if (typeof object_id !== "string" ||
+      !/^local-inference:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(object_id)) {
+    refuse("T3_D5_DRAFT_ID_INVALID");
+  }
+  const kernel=context.kernel;
+  requireKernel(kernel,["t1.getWorkspace","t1.getObject"]);
+  const {validate,unsubscribe}=watch(context,choice);
+  try {
+    validate();
+    const workspace=await kernel.getWorkspace(workspaceId);
+    validate();
+    if (!workspace || workspace.workspace_id!==workspaceId || workspace.deleted_at) {
+      refuse("T3_D5_WORKSPACE_NOT_ACTIVE");
+    }
+    const detail=await kernel.getObject(workspaceId,object_id);
+    validate();
+    const object=detail?.object;
+    const data=object?.data;
+    if (!object || object.workspace_id!==workspaceId ||
+        object.object_id!==object_id || object.schema_id!==LOCAL_INFERENCE_DRAFT_SCHEMA ||
+        object.schema_version!=="1.0.0" || object.deleted || object.deleted_at ||
+        !Number.isInteger(object.revision) || object.revision<1 ||
+        !data || data.status!=="DRAFT_UNTRUSTED" ||
+        data.origin!=="BROWSER_LOCAL" || data.source!=="USER_EXPLICIT_SAVE" ||
+        data.model_integrity!=="NOT_ATTESTED" ||
+        typeof data.text!=="string" || !data.text.trim() ||
+        typeof data.model_id!=="string" || !data.model_id.trim() ||
+        typeof data.engine!=="string" || !data.engine.trim()) {
+      refuse("T3_D5_DRAFT_READBACK_INVALID");
+    }
+    return Object.freeze({
+      workspace_id:workspaceId,object_id,revision:object.revision,
+      status:"DRAFT_UNTRUSTED",model_id:data.model_id,engine:data.engine,text:data.text,
+      readback:true,
+    });
+  } finally {unsubscribe();}
+}
