@@ -11,6 +11,8 @@ import {verifyInvocationReadiness} from '../index.mjs';
 import {recommendTaskStages} from '../task-step-composition.mjs';
 import {prepareAgent05OllamaCandidate}
   from '../agent05-native-model-candidate.mjs';
+import {prepareAgent05OwnerRequestDraft}
+  from '../agent05-owner-request-draft.mjs';
 
 const outputDir=process.env.K02_CASE_OUTPUT_DIR;
 if(!outputDir)throw Error('K02_LIVE_OUTPUT_DIR_REQUIRED');
@@ -89,7 +91,9 @@ const result={schema:'IWXA.K02.OPEN_OLLAMA_NATIVE_REBIND_TRIAL/0.1.0',
   nativeModelPin:null,nativePlanDigest:null,hostProviderInvoked:false,
   nativeAgentResultProduced:false,status:'NOT_RUN',
   resourceBasis:'MemAvailable and estimated model weight plus 256MiB',
-  measuredHostComputeCostUsd:null};
+  measuredHostComputeCostUsd:null,
+  independentNativeQuality:null,ownerRequestDraftStatus:'NOT_RUN',
+  ownerRequestDigest:null,ownerPlanPreviewDigest:null};
 if(recommendation.decision==='STAGES_PROPOSED_NOT_AUTHORIZED'){
   const selected=candidates.find(x=>x.descriptor.providerId===result.selectedCandidateId);
   assert.ok(selected,'SELECTED_REAL_PROVIDER_UNAVAILABLE');
@@ -138,6 +142,71 @@ if(recommendation.decision==='STAGES_PROPOSED_NOT_AUTHORIZED'){
   result.observedDurationMs=inference.observation.durationMs;
   result.proofClass=inference.observation.proofClass;
   result.modelAnswerSha256=createHash('sha256').update(inference.output.text).digest('hex');
+  // These are fresh, independently invoked native-provider trials, not a
+  // relabel of earlier "ollama-qwen" alias quality_evidence. Tiny samples
+  // are only open-host qualification, not future quality guarantees.
+  const trialPrompts=[
+    ['Status is PENDING, not complete. Return only the status token.','PENDING'],
+    ['References X-01 and X-02. Return only the second reference.','X-02'],
+  ];
+  const trialResults=[];
+  for(const [prompt,expected] of trialPrompts){
+    try{
+      const reply=await native.invoke('text.generate',{
+        system:'Answer with the requested single token or code; no commentary.',
+        prompt,max_output_tokens:32,
+      },{hostApproved:true,pinnedModelDigest:selected.modelPin.digest});
+      const actual=reply.output.text.trim();
+      trialResults.push({expected,correct:actual===expected,
+        durationMs:reply.observation.durationMs,
+        outputSha256:createHash('sha256').update(actual).digest('hex'),
+        invokeProof:reply.observation.proofClass});
+    }catch(e){
+      trialResults.push({expected,correct:false,error:String(e.code??e.message)});
+    }
+  }
+  const successes=trialResults.filter(x=>x.correct).length;
+  const nativeRuntimeVersion=osName+';thinking:'+selected.provider.thinkingMode;
+  const evidence=[{
+    providerId:'OLLAMA_LOCAL_V1',modelPin:selected.modelPin,
+    taskClass:'summary',difficulty:'complex',operatingSystem:osName,
+    runtimeVersion:nativeRuntimeVersion,attempts:trialResults.length,
+    passed:successes,proofRef:'open-real-native:'+hash(trialResults),
+  }];
+  const selectedProfile=profiles.find(x=>x.providerId===selected.descriptor.providerId);
+  assert.ok(selectedProfile);
+  const nativeProfile={...selectedProfile,providerId:'OLLAMA_LOCAL_V1'};
+  const ownerDraft=prepareAgent05OwnerRequestDraft({
+    nativeCandidate:observed,trustedScopedPlanDigest:observed.scopedPlanPreview.planDigest,
+    nativeDescriptor,nativeProfile,nativeQualityEvidence:evidence,
+    step:{taskClass:'summary',difficulty:'complex',
+      minObservedSuccessRate:0.5,minSamples:2,maxAttempts:1,
+      maxLatencyMs:null,maxMemoryMiB:null},
+    environment:{operatingSystem:osName},taskId,requirementId:'summary',
+  });
+  assert.equal(ownerDraft.ownerExecuted,false);
+  assert.equal(ownerDraft.ownerReceiptsVerified,false);
+  assert.equal(ownerDraft.modelInvoked,false);
+  assert.equal(ownerDraft.resultProduced,false);
+  result.independentNativeQuality={attempts:trialResults.length,
+    passed:successes,proofRef:evidence[0].proofRef,trialResults,
+    qualification:'OBSERVED_OPEN_HOST_SAMPLE_NOT_QUALITY_GUARANTEE'};
+  result.ownerRequestDraftStatus=ownerDraft.status;
+  result.ownerRequestDigest=ownerDraft.ownerRequestDigest;
+  result.ownerPlanPreviewDigest=ownerDraft.expectedOwnerPlanDigest??null;
+  if(ownerDraft.status==='OWNER_REQUEST_DRAFT_NOT_EXECUTED'){
+    assert.equal(ownerDraft.ownerRequest.k02.providers.length,1);
+    assert.equal(ownerDraft.ownerRequest.k02.providers[0].providerId,'OLLAMA_LOCAL_V1');
+    assert.equal(ownerDraft.ownerRequest.k02.model_recommendation.quality_evidence[0].providerId,
+      'OLLAMA_LOCAL_V1');
+    await writeFile(join(outputDir,'native-owner-request-draft.json'),
+      JSON.stringify({boundary:'OPEN_HOST_DRAFT_NOT_AGENT_U01_OWNER_RECEIPT',
+        ownerRequest:ownerDraft.ownerRequest,ownerRequestDigest:ownerDraft.ownerRequestDigest,
+        modelInvokedByOwner:false,ownerReceiptProduced:false},null,2)+'\n');
+  }else{
+    assert.equal(ownerDraft.status,'OWNER_REQUEST_HOLD');
+    assert.equal(ownerDraft.ownerRequest,null);
+  }
 }
 await writeFile(join(outputDir,'native-ollama-candidate.json'),JSON.stringify(result,null,2)+'\n');
 process.stdout.write('K02_REAL_OLLAMA_NATIVE_CANDIDATE '+JSON.stringify(result)+'\n');

@@ -145,6 +145,12 @@ jobs:
         run: |
           node --check modules/k02-interoperability/consumers/live-agent05-native-candidate.mjs
           node modules/k02-interoperability/consumers/live-agent05-native-candidate.mjs
+      - name: Independently verify real native model quality and Agent owner request draft
+        env:
+          K02_CASE_OUTPUT_DIR: ${{ runner.temp }}/k02-document-case
+        run: |
+          python -m py_compile modules/k02-interoperability/consumers/python_open_owner_request_acceptance.py
+          python modules/k02-interoperability/consumers/python_open_owner_request_acceptance.py
       - name: Independent Python check of source evidence, arithmetic and verified files
         env:
           K02_CASE_OUTPUT_DIR: ${{ runner.temp }}/k02-document-case
