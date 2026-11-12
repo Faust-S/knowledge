@@ -53,6 +53,9 @@ jobs:
       - name: Build T3 core from inherited T2 source
         working-directory: packages/t3-core
         run: npm run build
+      - name: Compile actual upstream WebLLM 0.2.87 Worker (public API only)
+        working-directory: packages/t3-core
+        run: node scripts/qualify-webllm-upstream-bundle.mjs
       - name: Verify ephemeral loopback TLS for inherited T2 Host
         working-directory: packages/t3-core
         run: node --test tests/t3-generated-loopback-tls.test.mjs
