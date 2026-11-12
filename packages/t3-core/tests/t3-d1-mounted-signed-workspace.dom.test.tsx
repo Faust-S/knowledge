@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import type { KernelSession } from "@/kernel-client/types";
 import {
   WorkspaceHostRuntimeProvider, useWorkspaceHostRuntimeHandle,
-  type WorkspaceHostRuntimeHandle,
+  useWorkspaceHostRuntime, type WorkspaceHostRuntimeHandle,
 } from "@/workspace-host/runtime";
 
 afterEach(() => cleanup());
@@ -298,5 +298,60 @@ it("switching the signed Kernel session invalidates the old owner before a new H
   });
   expect(receipt.object.workspace_id).toBe("ws:north");
   expect(f.writes).toEqual(["ws:north"]);
+  mounted.unmount();
+});
+
+
+function D1OwnerConnectionStatus(){
+  const state=useWorkspaceHostRuntime();
+  return <output data-testid="d1-owner-connection-status">
+    {state.status==="error"?state.error.message:state.status}
+  </output>;
+}
+
+it("lost original Control stream displays a terminal signed Host error and cannot auto-remount",async()=>{
+  const f=fixture(),handles:WorkspaceHostRuntimeHandle[]=[];
+  let emit:(reason?:"unavailable")=>void=()=>{};
+  const subscribe=(listener:(reason?:"unavailable")=>void)=>{
+    emit=listener;return ()=>{emit=()=>{};};
+  };
+  const track=(handle:WorkspaceHostRuntimeHandle)=>{
+    if(!handles.includes(handle))handles.push(handle);
+  };
+  const sharedConfig={modules:[]};
+  const profile={id:"generic",fallback:false,
+    definition:{id:"generic",label:"Generic",description:"",accent:"#64748b"}};
+  const terms=(key:string,fallback?:string)=>fallback??key;
+  const source=()=>f.owner;
+  const view=(session:KernelSession)=>(
+    <WorkspaceHostRuntimeProvider session={session}
+      workspaceConfig={sharedConfig} profile={profile}
+      termResolver={terms} signedKernelAccess={source}
+      subscribeSignedAccessInvalidation={subscribe}>
+      <D1OwnerConnectionStatus/>
+      <RuntimeWitness onHandle={track}/>
+    </WorkspaceHostRuntimeProvider>
+  );
+  const mounted=render(view(f.session));
+  await waitFor(()=>expect(screen.getByTestId("d1-owner-connection-status")
+    .textContent).toBe("ready"));
+  expect(handles).toHaveLength(1);
+  const stale=handles[0].contextProvider.createContext("iwxa.domain.demo").kernel;
+  await act(async()=>emit("unavailable"));
+  await waitFor(()=>expect(screen.getByTestId("d1-owner-connection-status")
+    .textContent).toBe("T3_D1_CONTROL_INVALIDATION_UNAVAILABLE"));
+  await expect(stale.putObject({
+    workspace_id:"ws:north",object_id:"after-lost-stream",
+    schema_id:"d06.order",schema_version:"1.0.0",
+    base_revision:0,data:{title:"Must not commit"},
+    event:{event_type:"d06.order.created"},
+  })).rejects.toMatchObject({code:"T3_HOST_DISPOSED"});
+  expect(f.writes).toEqual([]);
+  // The old page may receive a fresh Kernel session without a new trusted
+  // Control owner. This must NOT quietly revive the signed Workspace.
+  await act(async()=>mounted.rerender(view({...f.session} as KernelSession)));
+  await waitFor(()=>expect(screen.getByTestId("d1-owner-connection-status")
+    .textContent).toBe("T3_D1_CONTROL_INVALIDATION_UNAVAILABLE"));
+  expect(handles).toHaveLength(1);
   mounted.unmount();
 });

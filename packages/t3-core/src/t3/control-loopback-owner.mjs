@@ -131,7 +131,7 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
     if(invalidationLost){
       // A remount cannot heal a lost owner stream. The trusted Control must
       // explicitly relaunch the page with a fresh bearer session.
-      void Promise.resolve().then(()=>{try{listener();}catch{}});
+      void Promise.resolve().then(()=>{try{listener("unavailable");}catch{}});
       return ()=>{};
     }
     check(!streamAttached,"T3_D1_CONTROL_INVALIDATION_ALREADY_ATTACHED");
@@ -147,7 +147,7 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
       invalidationLost=true;
       readyForOperations=false;
       resolveReady?.(false);
-      listener();
+      listener("unavailable");
     };
     failStream=lost;
     const stream=async()=>{

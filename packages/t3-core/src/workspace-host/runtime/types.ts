@@ -21,7 +21,8 @@ import type { T3ActivityReadOptions, T3ActivityProjection, T3SignedActivityAcces
 
 /** Original Access/Control owner invalidation signal, supplied by the
  * trusted compiled Host. No new authority or polling is implemented here. */
-export type SignedAccessInvalidationSubscription = (listener: () => void) => () => void;
+export type SignedAccessInvalidationSubscription =
+  (listener: (reason?: "unavailable") => void) => () => void;
 
 export type WorkspaceHostRuntimeStatus =
   | "idle"

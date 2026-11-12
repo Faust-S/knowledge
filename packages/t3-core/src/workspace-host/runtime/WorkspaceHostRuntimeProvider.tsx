@@ -82,6 +82,9 @@ export function WorkspaceHostRuntimeProvider(
     status: "idle",
   });
   const [accessEpoch, setAccessEpoch] = useState(0);
+  // An unexpected original Control stream loss is not an ordinary grant
+  // change. It cannot silently re-mount a "ready" signed Host.
+  const ownerUnavailableRef = useRef(false);
   const generationRef = useRef(0);
   const activeHandleRef = useRef<WorkspaceHostRuntimeHandle | null>(null);
   // Serializes every runtime teardown/start. Without this barrier, two rapid
@@ -95,11 +98,20 @@ export function WorkspaceHostRuntimeProvider(
   // through the same serialized runtime transition. No second Access state.
   useEffect(() => {
     if (!subscribeSignedAccessInvalidation) return;
-    return subscribeSignedAccessInvalidation(() => {
+    return subscribeSignedAccessInvalidation((reason) => {
+      const disconnected = reason === "unavailable";
+      if (disconnected) ownerUnavailableRef.current = true;
       ++generationRef.current;
       const previous = activeHandleRef.current;
       activeHandleRef.current = null;
-      setState(session ? { status: "starting" } : { status: "idle" });
+      setState(disconnected
+        ? {
+            status: "error",
+            error: Object.assign(new Error("T3_D1_CONTROL_INVALIDATION_UNAVAILABLE"),
+              { code: "T3_D1_CONTROL_INVALIDATION_UNAVAILABLE" }),
+            diagnostics: { composition: [], modules: [] },
+          }
+        : session ? { status: "starting" } : { status: "idle" });
       let stopped: Promise<void>;
       try {
         // dispose() invalidates bound D1 operations SYNCHRONOUSLY, before
@@ -112,7 +124,9 @@ export function WorkspaceHostRuntimeProvider(
         transitionRef.current.catch(() => {}),
         stopped.catch(() => {}),
       ]).then(() => {});
-      setAccessEpoch(epoch => epoch + 1);
+      // Genuine context/status changes may rebind through the same original
+      // owner. A severed Control transport requires a NEW trusted page entry.
+      if (!disconnected) setAccessEpoch(epoch => epoch + 1);
     });
   }, [subscribeSignedAccessInvalidation, session]);
 
@@ -143,6 +157,14 @@ export function WorkspaceHostRuntimeProvider(
           }
         });
       transitionRef.current = teardown.catch(() => {});
+      return;
+    }
+    if (ownerUnavailableRef.current) {
+      setState({
+        status: "error",
+        error: new Error("T3_D1_CONTROL_INVALIDATION_UNAVAILABLE"),
+        diagnostics: { composition: [], modules: [] },
+      });
       return;
     }
     const myGen = ++generationRef.current;

@@ -310,8 +310,18 @@ function HostShellContent(props: HostShellContentProps) {
           >
             {runtimeState.status === "error" ? (
               <div role="alert" className="p-4" data-t2-ui="product-error">
-                Не удалось открыть рабочую область.
-                <button className="ml-3 underline" type="button" onClick={() => window.location.reload()}>Повторить</button>
+                {signedOwnerRequired ? (
+                  <p data-testid="t3-signed-control-reconnect">
+                    Подписанный доступ к Control недоступен. Откройте Workspace
+                    повторно из локального Control после выбора организации.
+                    Повторная загрузка этой страницы не восстанавливает полномочия.
+                  </p>
+                ) : (
+                  <>
+                    Не удалось открыть рабочую область.
+                    <button className="ml-3 underline" type="button" onClick={() => window.location.reload()}>Повторить</button>
+                  </>
+                )}
               </div>
             ) : (
               <>
