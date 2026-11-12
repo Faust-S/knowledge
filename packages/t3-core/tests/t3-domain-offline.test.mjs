@@ -188,6 +188,8 @@ test("D5 model consent permits only pinned WebLLM assets during autonomous mode"
     assert.equal((await browser.fetchPage(pinned.model_url+"/resolve/main/user-workspace-secret")).status,503,
       "a model URL must not carry arbitrary private Workspace data");
     assert.equal((await browser.fetchPage(pinned.model_url+"/resolve/main/params_shard_fake.bin")).status,503);
+    assert.equal((await browser.fetchPage(pinned.model_url+"/resolve/main/vocab.dat")).status,503);
+    assert.equal((await browser.fetchPage(pinned.model_url+"/resolve/main/tokenizer_private.json")).status,503);
     assert.equal((await browser.fetchPage(weights+"?token=private")).status,503);
     assert.equal((await browser.fetchPage(weights,"POST")).status,503);
     assert.equal(browser.liveFetches,count);
@@ -195,13 +197,16 @@ test("D5 model consent permits only pinned WebLLM assets during autonomous mode"
       weights,
       pinned.model_url+"/resolve/main/mlc-chat-config.json",
       pinned.model_url+"/resolve/main/tokenizer.json",
+      pinned.model_url+"/resolve/main/tokenizer_config.json",
+      pinned.model_url+"/resolve/main/vocab.json",
+      pinned.model_url+"/resolve/main/merges.txt",
       pinned.model_url+"/resolve/main/tensor-cache.json",
       pinned.wasm_url,
     ]) {
       assert.equal((await browser.fetchPage(asset)).status,404,
         "only pinned upstream model artifacts can reach the network: "+asset);
     }
-    assert.equal(browser.liveFetches,count+5);
+    assert.equal(browser.liveFetches,count+8);
     // SW termination during a multi-shard WebLLM download must not lose
     // the explicit consent. It is stored only in the existing mode cache,
     // bounded to a live original window, exact files and a 15-minute lease.
