@@ -407,6 +407,7 @@ test('canonical source ordering and supersedes list ordering do not create false
 test('unavailable unapproved offer does not erase a confirmed signed installation price',async()=>{
  const host=makeCommercialCase({unavailable:['mail:proposed-discount']});
  const p=await prepareProjectContinuation(host.request,host.sourcePort);
+ console.log('K01_OFFLINE_DIAG '+JSON.stringify({covered:p.covered,issues:p.issues,selected:p.projection.selected.map(x=>x.id)}));
  assert.equal(p.requiredComplete,true);
  assert.equal(p.covered.length,18);
  assert.match(value(p,'installation'),/105000 руб/);
@@ -424,6 +425,7 @@ test('loss of a previously seen proposed source invalidates the saved context wi
  assert.equal(result.allCurrent,false);
  assert.deepEqual(result.failures.map(f=>f.reason),['context_changed']);
  const fresh=await prepareProjectContinuation(now.request,now.sourcePort);
+ console.log('K01_RECHECK_DIAG '+JSON.stringify({covered:fresh.covered,issues:fresh.issues,selected:fresh.projection.selected.map(x=>x.id)}));
  assert.equal(fresh.requiredComplete,true);
  assert.equal(fresh.issues.some(i=>i.type==='proposal_unavailable'),true);
  assert.equal(JSON.stringify(fresh.projection).includes('30%'),false);
