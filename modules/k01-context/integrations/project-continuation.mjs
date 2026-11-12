@@ -54,8 +54,8 @@ function validateCatalog(catalog,request){
  return sources.sort((a,b)=>cmp(a.sourceRef,b.sourceRef));
 }
 
-function extract(content,field){
- const labels=new Set(field.labels.map(l=>l.toLocaleLowerCase('ru-RU'))),found=[];
+function indexDocument(content){
+ const index=new Map();
  const lines=content.split(/\r?\n/);
  for(let i=0;i<lines.length;i++){
   const exact=lines[i];
@@ -63,11 +63,18 @@ function extract(content,field){
   const cleaned=exact.trim().replace(/^(?:[-*+]\s+|\d+\.\s+)/,'');
   const pos=cleaned.indexOf(':');
   if(pos<=0)continue;
-  const key=cleaned.slice(0,pos).trim().replace(/\*\*/g,'').toLocaleLowerCase('ru-RU');
+  const label=cleaned.slice(0,pos).trim().replace(/\*\*/g,'').toLocaleLowerCase('ru-RU');
   const value=cleaned.slice(pos+1).trim();
-  if(labels.has(key)&&value.length&&!/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(value))
-   found.push({value,excerpt:exact,evidenceRef:'line:'+(i+1),sha256:sha256(exact)});
+  if(!value||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(value))continue;
+  const row={value,excerpt:exact,evidenceRef:'line:'+(i+1),sha256:sha256(exact)};
+  const rows=index.get(label)||[];rows.push(row);index.set(label,rows);
  }
+ return index;
+}
+function extract(index,field){
+ const found=[];
+ for(const label of new Set(field.labels.map(l=>l.toLocaleLowerCase('ru-RU'))))
+  found.push(...(index.get(label)||[]));
  return found;
 }
 const issue=(type,fieldKey,sources=[])=>({type,fieldKey,sources:[...new Set(sources)].sort(cmp)});
@@ -160,8 +167,9 @@ export async function prepareProjectContinuation(rawRequest,sourcePort){
    continue;
   }
   readBytes+=bytes(snapshot.content);
+  const lineIndex=indexDocument(snapshot.content);
   for(const key of topics){
-   const facts=extract(snapshot.content,fieldMap.get(key));
+   const facts=extract(lineIndex,fieldMap.get(key));
    if(facts.length>1){
     const missing=failed.get(key)||[];missing.push(source.sourceRef);failed.set(key,missing);
     issues.push(issue('ambiguous_lines',key,[source.sourceRef]));continue;
