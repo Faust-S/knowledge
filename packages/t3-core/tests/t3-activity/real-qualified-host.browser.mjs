@@ -33,6 +33,8 @@ const {
   verifyRealT2ColdRestart,
   verifyRealT2UnknownAndTombstone,
   roundTripRealT2Iwxa,
+  exportSelectedRealT2Iwxa,
+  importSelectedRealT2Iwxa,
 } = await import(pathToFileURL(join(MODULE_ROOT,"real-t2-host-acceptance.mjs")).href);
 const {
   initD1TestHostState,
@@ -131,6 +133,87 @@ async function run() {
     const exchange = await roundTripRealT2Iwxa(writerPage, {
       workspace_id, restored_workspace_id: restored_id, writer_service_id: WRITER,
     });
+    // D4: a SINGLE selected .iwxa produced by the original owner is taken
+    // through the original Kernel parser by TWO fully separate browser
+    // profiles. This is not two tabs and not a second copy of the Store.
+    const selectedArchive=await exportSelectedRealT2Iwxa(writerPage,{
+      workspace_id,writer_service_id:WRITER,
+    });
+    assert.equal(selectedArchive.workspace_id,workspace_id);
+    assert.deepEqual(selectedArchive.selected_workspaces,[workspace_id]);
+    const consumerReceipts=[];
+    const consumerProfiles=[];
+    for (const ordinal of ["a","b"]) {
+      const target='t3-d4-consumer-'+ordinal+'-'+randomUUID();
+      const consumerProfile=join(temp,'d4-consumer-'+ordinal);
+      let consumer=null;
+      try {
+        consumer=await openBrowser(chromium,consumerProfile,live.origin);
+        const imported=await importSelectedRealT2Iwxa(consumer.page,{
+          archive:selectedArchive,source_workspace_id:workspace_id,
+          target_workspace_id:target,writer_service_id:WRITER,
+        });
+        assert.equal(imported.workspace_id,target);
+        assert.equal(imported.package_digest,selectedArchive.package_digest);
+        const original=await readRealT2ActivitySource(consumer.page,{
+          workspace_id:target,reader_service_id:READER,
+        });
+        assert.equal(original.objects.length,2);
+        assert.deepEqual(original.objects.map(x=>x.object_id).sort(),
+          [...receipts.object_ids].sort());
+        assert.equal(original.objects.find(x=>x.object_id==="activity:a")?.revision,
+          receipts.revisions.a_current);
+        assert.deepEqual(
+          original.objects.find(x=>x.object_id==="activity:a")?.data?.dependency_ids,
+          ["activity:b"]);
+        assert.ok(original.details.some(x=>x.relations.outgoing.some(link=>
+          link.relation_id===receipts.relation_id)));
+        await consumer.context.close();
+        consumer=null;
+        // The imported independent consumer keeps its own Store after
+        // closing every browser process. It never re-imports the archive.
+        consumer=await openBrowser(chromium,consumerProfile,live.origin);
+        const reopened=await readRealT2ActivitySource(consumer.page,{
+          workspace_id:target,reader_service_id:READER,
+        });
+        assert.equal(canonical(reopened),canonical(original),
+          "T3_D4_INDEPENDENT_CONSUMER_COLD_READBACK_CHANGED");
+        const isolation=await consumer.page.evaluate(async({source,target,service_id})=>{
+          const session=await globalThis.IWXA.connect({service_id});
+          const workspaces=await session.t1.listWorkspaces();
+          return {
+            containsTarget:workspaces.some(row=>row.workspace_id===target),
+            containsSource:workspaces.some(row=>row.workspace_id===source),
+            count:workspaces.length,
+          };
+        },{source:workspace_id,target,service_id:READER});
+        assert.equal(isolation.containsTarget,true);
+        assert.equal(isolation.containsSource,false,
+          "T3_D4_SOURCE_OWNER_WORKSPACE_LEAKED_IN_CONSUMER");
+        assert.equal(isolation.count,1,
+          "T3_D4_IMPORTED_UNSELECTED_WORKSPACE");
+        consumerReceipts.push({...imported,objects:reopened.objects.length,
+          events:reopened.events.length,coldReadback:true,
+          isolatedWorkspace:true});
+        consumerProfiles.push(consumerProfile);
+      } finally {
+        if(consumer) await consumer.context.close().catch(()=>{});
+      }
+    }
+    assert.equal(consumerReceipts.length,2);
+    assert.notEqual(consumerReceipts[0].workspace_id,consumerReceipts[1].workspace_id);
+    assert.notEqual(consumerReceipts[0].import_id,consumerReceipts[1].import_id);
+    assert.equal(consumerReceipts[0].package_digest,consumerReceipts[1].package_digest);
+    console.log("T3_D4_TWO_INDEPENDENT_ORIGINAL_KERNEL_CONSUMERS_PASS",
+      JSON.stringify({originalKernel:KERNEL,contract:CONTRACT,
+        sourceWorkspace:workspace_id,selectedWorkspaces:1,
+        archiveBytes:selectedArchive.size,
+        packageDigest:selectedArchive.package_digest,
+        consumers:consumerReceipts.map(x=>({workspace:x.workspace_id,
+          objects:x.objects,events:x.events,
+          coldReadback:x.coldReadback,isolatedWorkspace:x.isolatedWorkspace})),
+      }));
+
     const readerPage = await browser.context.newPage();
     await readerPage.goto(live.origin + "/__t2_independent_readback__", {waitUntil:"load"});
     const before = await proveRealT2ReadOnlyProjection(readerPage, {
@@ -321,6 +404,15 @@ async function run() {
       receipts:{objects:receipts.object_ids.length,revisions:receipts.revisions,
         events:receipts.event_ids.length,relation_id:receipts.relation_id},
       iwxa_roundtrip:exchange,
+      d4_independent_consumers:{
+        status:"T3_D4_TWO_INDEPENDENT_ORIGINAL_KERNEL_CONSUMERS_PASS",
+        selected_workspaces:1,consumer_count:consumerReceipts.length,
+        source_workspace_id:workspace_id,archive_digest:selectedArchive.package_digest,
+        bytes:selectedArchive.size,consumers:consumerReceipts,
+        distinct_browser_profiles:consumerProfiles.length,
+        exact_source_bytes_reused:true,original_t2_parser:true,
+        both_cold_reopened:true,
+      },
       independent_read_only:true,reader_write_denial:before.denied_write,stale_revision_denial:staleDenial,
       t3:same,tombstone,process_restarted:true,profile_reused:true,projection_mutation_delta:0,
       snapshot_sha256:sha(Buffer.from(canonical(before.source))),
