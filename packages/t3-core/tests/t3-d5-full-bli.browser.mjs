@@ -302,7 +302,10 @@ try {
           '[data-testid="t3-local-inference-panel"] button')).some(b=>
           b.textContent?.includes("Из кеша, без сети") && !b.disabled),null,{timeout:30000});
         await cacheButton.click();
-        await coldPanel.getByRole("button",{name:"Выгрузить"}).waitFor({state:"enabled",timeout:120000});
+        await coldPanel.getByRole("button",{name:"Выгрузить"}).waitFor({state:"visible"});
+        await coldPage.waitForFunction(() => Array.from(document.querySelectorAll(
+          '[data-testid="t3-local-inference-panel"] button')).some(b=>
+          b.textContent?.includes("Выгрузить") && !b.disabled),null,{timeout:120000});
         console.log("T3_D5_REAL_WEBGPU_KERNEL_COLD_OFFLINE_PASS",JSON.stringify({
           model:"SmolLM2-360M-Instruct-q4f32_1-MLC",
           generatedCharacters:output.length,workspace:chosenWorkspace,
