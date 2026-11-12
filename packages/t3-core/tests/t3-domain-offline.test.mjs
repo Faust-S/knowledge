@@ -91,7 +91,7 @@ test("No T3 mode on incomplete Host or sites requiring external runtime resource
   }finally{cleanup(root);}
 });
 
-function fakeBrowser(root,store=null) {
+function fakeBrowser(root,store=null,clock=Date) {
   const entries=new Map();
   const handlers={};
   const caches=store||new Map();
@@ -133,7 +133,7 @@ function fakeBrowser(root,store=null) {
   };
   const script=readFileSync(join(root,"t3-sw.js"),"utf8");
   vm.runInNewContext(script,{self,caches:cacheAPI,fetch,crypto:webcrypto,Response,Request,URL,
-    Uint8Array,Set,Array,Number,String,Map,Error,Promise,console}, {filename:"t3-sw.js"});
+    Uint8Array,Set,Array,Number,String,Map,Error,Promise,Date:clock,console}, {filename:"t3-sw.js"});
   const dispatch=async (type,port={postMessage(){}},extra={},source=null)=>{
     const waits=[];
     handlers.message({data:{type,...extra},source,ports:[port],
@@ -236,6 +236,22 @@ test("D5 model consent permits only pinned WebLLM assets during autonomous mode"
     const afterRestart=fakeBrowser(root,resumed.caches);
     assert.equal((await afterRestart.fetchPage(weights)).status,503,
       "a revoked installation does not silently reactivate after cold restart");
+
+    // The cached consent must also expire without relying on a timer running
+    // inside a Service Worker (which browsers may terminate at any moment).
+    const fresh=[];
+    await afterRestart.dispatch("T3_MODEL_INSTALL_BEGIN",
+      {postMessage:value=>fresh.push(value)},pinned,source);
+    assert.equal(fresh.at(-1)?.type,"MODEL_INSTALL_ALLOWED");
+    class AfterExpiry extends Date {
+      static now(){return Date.now()+61*60*1000;}
+    }
+    const expired=fakeBrowser(root,afterRestart.caches,AfterExpiry);
+    assert.equal((await expired.fetchPage(weights)).status,503,
+      "model downloads cannot continue after the one-hour consent expires");
+    const noRevival=fakeBrowser(root,expired.caches);
+    assert.equal((await noRevival.fetchPage(weights)).status,503,
+      "expired authority stays revoked after a new Service Worker starts");
   }finally {cleanup(root);}
 });
 
