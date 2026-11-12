@@ -39,7 +39,7 @@ export async function readActivityFromWorkspaceContext(context, options = {}) {
   const unsubscribe = typeof context.currentWorkspace.subscribe === "function"
     ? context.currentWorkspace.subscribe(() => { changed = true; }) : null;
   const ownerContext = signedAccess === null ? null :
-    JSON.stringify(signedAccess.currentContext());
+    JSON.stringify(await signedAccess.currentContext());
   try {
     if (changed || (unsubscribe && context.currentWorkspace.get() !== selection)) {
       contextError("T3_ACTIVITY_WORKSPACE_CHANGED_DURING_READ");
@@ -52,7 +52,7 @@ export async function readActivityFromWorkspaceContext(context, options = {}) {
     if (changed || context.currentWorkspace.get()?.workspace_id !== workspace_id ||
         (unsubscribe && context.currentWorkspace.get() !== selection) ||
         (signedAccess !== null &&
-          JSON.stringify(signedAccess.currentContext()) !== ownerContext)) {
+          JSON.stringify(await signedAccess.currentContext()) !== ownerContext)) {
       contextError("T3_ACTIVITY_WORKSPACE_CHANGED_DURING_READ");
     }
     return result;
