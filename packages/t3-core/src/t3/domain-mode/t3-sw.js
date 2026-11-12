@@ -33,7 +33,7 @@ let installRunning = false;
 // selected model. Normal autonomous browsing and model inference remain
 // cache-only; the original WebLLM cache owns the downloaded files.
 const MODEL_LEASE_MARKER = "/_iwxa/t3-model-install-lease";
-const MODEL_INSTALL_MS = 15 * 60 * 1000;
+const MODEL_INSTALL_MS = 60 * 60 * 1000; // 207 MB model: tolerate slow but consented downloads
 let leaseStarting = false;
 async function modelLease() {
   const cache = await caches.open(MODE_CACHE);
