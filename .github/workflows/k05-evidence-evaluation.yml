@@ -137,6 +137,8 @@ jobs:
           ref: 81de619f09f4393945ce5073fda5514729a67414
           path: .k01-owner
           persist-credentials: false
+      - name: Install exact K01 package dependency in isolated read-only owner checkout
+        run: npm install --prefix .k01-owner --ignore-scripts --no-audit --no-fund --package-lock=false
       - name: Compare four commercial-offer methods on identical owner inputs
         env:
           K05_K01_OWNER_ROOT: .k01-owner
