@@ -61,10 +61,18 @@ function indexDocument(content){
   const exact=lines[i];
   if(bytes(exact)>MAX_LINE_BYTES)continue;
   const cleaned=exact.trim().replace(/^(?:[-*+]\s+|\d+\.\s+)/,'');
-  const pos=cleaned.indexOf(':');
-  if(pos<=0)continue;
-  const label=cleaned.slice(0,pos).trim().replace(/\*\*/g,'').toLocaleLowerCase('ru-RU');
-  const value=cleaned.slice(pos+1).trim();
+  let rawLabel,value;
+  if(cleaned.startsWith('|')&&cleaned.endsWith('|')){
+   const cells=cleaned.slice(1,-1).split('|').map(c=>c.trim());
+   if(cells.length!==2)continue;
+   [rawLabel,value]=cells;
+  }else{
+   const pos=cleaned.indexOf(':');
+   if(pos<=0)continue;
+   rawLabel=cleaned.slice(0,pos).trim();
+   value=cleaned.slice(pos+1).trim();
+  }
+  const label=rawLabel.replace(/\*\*/g,'').toLocaleLowerCase('ru-RU');
   if(!value||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(value))continue;
   const row={value,excerpt:exact,evidenceRef:'line:'+(i+1),sha256:sha256(exact)};
   const rows=index.get(label)||[];rows.push(row);index.set(label,rows);
