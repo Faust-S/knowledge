@@ -1,0 +1,70 @@
+{
+  "source_repository": "Faust-S/T3",
+  "source_branch": "work/2026-11-03-browser-local-inference-bli1",
+  "source_head": "2869f334fa230de17aa8bce803235672dc256b9e",
+  "source_root": "browser-local-inference",
+  "files": [
+    {
+      "file": "workspace-module/LocalInferenceLauncher.tsx",
+      "blob": "27afc5fa0453c8533be1531a9e326e73e9dda09d"
+    },
+    {
+      "file": "workspace-module/LocalInferencePanel.tsx",
+      "blob": "adeafb40bc9c431898fc71eccbd14a5fb211a51a"
+    },
+    {
+      "file": "workspace-module/catalog.d.mts",
+      "blob": "f306156f3ec500bb46bf7ba81fa632df674dd40f"
+    },
+    {
+      "file": "workspace-module/domain-model-install.d.mts",
+      "blob": "1f87db350f70419496b0d613a20f42654a95f345"
+    },
+    {
+      "file": "workspace-module/engine.d.mts",
+      "blob": "48908fc3f9ee6d2bc6a29749a2eb1820524056d4"
+    },
+    {
+      "file": "workspace-module/index.ts",
+      "blob": "1d0194cf4d5f044d63713cb3c44ae20c8ab50d5b"
+    },
+    {
+      "file": "workspace-module/manifest.json",
+      "blob": "3ef3e9ddd92f9bc1315d71d76e7459c325a5184c"
+    },
+    {
+      "file": "workspace-module/storage.d.mts",
+      "blob": "097532c01b3ba1e79361f0179a31cedfe8e64d1e"
+    },
+    {
+      "file": "src/cache-readiness.mjs",
+      "blob": "c7da945fd175cc1a31b5535935f935d78b973435"
+    },
+    {
+      "file": "src/catalog.mjs",
+      "blob": "5d2108154772178721a1ea24ed622e75ba31d79d"
+    },
+    {
+      "file": "src/domain-model-install.mjs",
+      "blob": "54edc16dff1fe6a4c34b47feea3b53ef84a59ca1"
+    },
+    {
+      "file": "src/engine.mjs",
+      "blob": "272b09bb302d1158cfe493c683e69886997562b3"
+    },
+    {
+      "file": "src/model-worker.mjs",
+      "blob": "63e60c90d795694fe2ed529dcd55e15bcf9aa293"
+    },
+    {
+      "file": "src/policy.mjs",
+      "blob": "6f98ac52075058d43fe0824d994ad30736cf82eb"
+    },
+    {
+      "file": "src/storage.mjs",
+      "blob": "d75e6410be38f803408f17738e29a4a506499881"
+    }
+  ],
+  "executable_owner": "Faust-S/knowledge",
+  "purpose": "source-identical BLI1 Host/Worker build; no secrets, weights, or credentials"
+}

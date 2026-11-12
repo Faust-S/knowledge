@@ -1,0 +1,39 @@
+{
+  "module_manifest_version": "1.0.0",
+  "module_id": "iwxa.t3.local-inference",
+  "module_version": "0.1.0",
+  "title": "IWXA T3 Browser Local Inference",
+  "compatibility": {
+    "workspace_contract": "0.1.0",
+    "runtime_contract": "1.3.0"
+  },
+  "contributions": {
+    "routes": [],
+    "navigation": [],
+    "editors": [],
+    "viewers": [],
+    "commands": [
+      {
+        "id": "iwxa.t3.local-inference.open"
+      }
+    ],
+    "panels": [
+      {
+        "id": "iwxa.t3.local-inference.panel"
+      }
+    ],
+    "dashboard_cards": [
+      {
+        "id": "iwxa.t3.local-inference.launcher"
+      }
+    ],
+    "validators": [],
+    "migrations": [],
+    "legacy_importers": []
+  },
+  "security": {
+    "direct_indexeddb": false,
+    "remote_code": false,
+    "iwxa_executable_payload": false
+  }
+}
