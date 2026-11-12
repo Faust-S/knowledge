@@ -72,6 +72,13 @@ export function listLocalInferenceDrafts(
 ): Promise<Array<{ workspace_id: string; object_id: string; revision: number;
   status: string; model_id: string; text: string }>>;
 
+/** Read one retained untrusted draft after a cold browser restart through the original Kernel. */
+export function getLocalInferenceDraft(
+  context: {kernel: KernelFacade;currentWorkspace: Pick<CurrentWorkspaceFacade, "get" | "subscribe">},
+  input: {expected_workspace_id: string;object_id: string},
+): Promise<{workspace_id:string;object_id:string;revision:number;
+  status:"DRAFT_UNTRUSTED";model_id:string;engine:string;text:string;readback:true}>;
+
 /** Add this declared schema to the ORIGINAL service passport before saving.
  * Declaring it does not grant any permission to use the schema. */
 export const LOCAL_INFERENCE_DRAFT_SCHEMA: "iwxa.local-inference.draft";
