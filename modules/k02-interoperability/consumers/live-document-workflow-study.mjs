@@ -54,7 +54,7 @@ let providers=Object.fromEntries(modelArgs.map(x=>[x.id,new OllamaLocalModelProv
 const counts={mini:0,qwen:0},measurements=[],calibration=[],problems=[],reports=[];
 const requirement=(id,kind,cap,input,output)=>({requirementId:id,kind,
  capabilityId:cap,inputSchema:input,outputSchema:output,
- effectClass:kind==='model'?'MODEL_INFERENCE':'PURE_COMPUTE',required:true,
+ effectClass:kind==='model'?'MODEL_INFERENCE':cap==='source.git.show'?'HOST_AUTHORIZED_READ':'PURE_COMPUTE',required:true,
  ...(kind==='model'?{inputModes:['text'],outputModes:['text']}:{}),
 });
 async function invokeModel(id,prompt,phase){
@@ -279,6 +279,9 @@ async function toolFirstVariant(){
    nowMs:Date.now(),environment:{operatingSystem:osVersion},
    contextBinding:{ref:'public-open-documents',digest:contextDigest},
  });
+ if(recommended.decision!=='STAGES_PROPOSED_NOT_AUTHORIZED')
+   process.stdout.write('K02_TOOL_FIRST_REFUSAL '+JSON.stringify({
+     blocked:recommended.blocked,stages:recommended.stages.map(x=>[x.requirementId,x.decision])})+'\n');
  assert.equal(recommended.decision,'STAGES_PROPOSED_NOT_AUTHORIZED');
  assert.equal(recommended.plan.steps.length,6);
  assert.equal(recommended.plan.skills[0].skillId,'exact-source-audit');

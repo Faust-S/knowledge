@@ -6,6 +6,7 @@ import {recommendTaskStages,STAGE_SELECTION_VERSION} from '../task-step-composit
 import {MODEL_INPUT,MODEL_OUTPUT} from '../adapters/ollama-local.mjs';
 import {AUDIT_INPUT,AUDIT_OUTPUT} from '../adapters/node-evidence-cli.mjs';
 import {CALCULATION_INPUT,CALCULATION_OUTPUT} from '../adapters/jq-calculation-cli.mjs';
+import {GitCliProvider,GIT_INPUT,GIT_OUTPUT} from '../adapters/git-cli.mjs';
 
 const pin=(name,digit)=>({name,digest:digit.repeat(64)});
 const SMALL=pin('smollm2:135m-instruct-q2_K','a');
@@ -181,4 +182,25 @@ test('resource data and context from host are not host grants or measured prices
   assert.equal(r.resources.resourceCost,'OBSERVED_AVAILABLE_NOT_RESERVED');
   assert.match(r.recommendationDigest,/^[a-f0-9]{64}$/);
   assert.equal(pick(r,'summarize').quality.qualification,'OBSERVED_SAMPLE_NOT_FUTURE_SUCCESS_GUARANTEE');
+});
+
+test('real Git CLI source read must use HOST_AUTHORIZED_READ, never PURE_COMPUTE',async t=>{
+  const git=new GitCliProvider(process.cwd());
+  const desc=await git.describeCapabilities();
+  if(desc.availability!=='available'){t.diagnostic('GIT_UNAVAILABLE:NOT_RUN');return;}
+  const correct={solutionId:'source-tool-step',requirements:[{
+    requirementId:'source',kind:'tool',capabilityId:'source.git.show',
+    inputSchema:GIT_INPUT,outputSchema:GIT_OUTPUT,effectClass:'HOST_AUTHORIZED_READ',required:true,
+  }]};
+  const wrong={...correct,requirements:[{...correct.requirements[0],effectClass:'PURE_COMPUTE'}]};
+  assert.equal(resolveRequirements(wrong,[desc]).missing[0].reason,'EFFECT_MISMATCH');
+  assert.equal(resolveRequirements(correct,[desc]).status,'SUPPORTED');
+  const r=recommendTaskStages({task:{taskId:'real-tool-scope',solutionId:correct.solutionId},
+    solution:correct,stages:[{stageId:'read-source',requirementId:'source',
+      requiredContextTokens:100}],available:[desc],profiles:[],qualityEvidence:[],
+    environment:env,nowMs:100100,selectedSkills:[],resourceProfiles:[],
+    resourceObservation:null,contextBinding:{ref:'public-source',digest:'f'.repeat(64)}});
+  assert.equal(r.decision,'STAGES_PROPOSED_NOT_AUTHORIZED');
+  assert.equal(r.plan.steps[0].effectClass,'HOST_AUTHORIZED_READ');
+  assert.equal(r.hostAuthorityGranted,false);
 });
