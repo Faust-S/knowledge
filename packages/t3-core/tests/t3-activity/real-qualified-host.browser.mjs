@@ -195,10 +195,27 @@ async function run() {
     const d1ColdOne=await verifyD1AfterBrowserRestart(browser.page,d1TestStateFile,d1Receipts);
     const d5ColdOne=await browser.page.evaluate(async ({workspace_id,object_id,service_id})=>{
       const session=await globalThis.IWXA.connect({service_id});
+      const focus=Object.freeze({workspace_id});
+      const context={
+        currentWorkspace:{get:()=>focus,subscribe:()=>()=>{}},
+        kernel:{
+          sessionInfo:{contract_version:session.contract_version},
+          hasOperation:op=>session.granted_operations.includes(op),
+          getWorkspace:id=>session.t1.getWorkspace(id),
+          getObject:(ws,id)=>session.t1.getObject(ws,id),
+        },
+      };
+      const mod=await import('/_t3/activity/local-inference-draft.mjs');
+      const opened=await mod.getLocalInferenceDraft(context,{
+        expected_workspace_id:workspace_id,object_id,
+      });
       const detail=await session.t1.getObject(workspace_id,object_id);
       const events=await session.t1.listEventsSince(workspace_id);
-      return {object:detail?.object,events};
+      return {opened,object:detail?.object,events};
     },{workspace_id:d5WorkspaceId,object_id:d5Draft.object_id,service_id:WRITER});
+    assert.equal(d5ColdOne.opened?.readback,true,'T3_D5_KERNEL_EXACT_DRAFT_REOPEN_MISSING');
+    assert.equal(d5ColdOne.opened?.text,
+      'An explicitly reviewed synthetic draft for the original Kernel');
     assert.equal(d5ColdOne.object?.data?.status,'DRAFT_UNTRUSTED');
     assert.equal(d5ColdOne.object?.schema_id,'iwxa.local-inference.draft');
     assert.equal(d5ColdOne.object?.data?.model_id,'SYNTHETIC_MODEL_NOT_EXECUTED');
@@ -228,6 +245,7 @@ async function run() {
       snapshot_sha256:sha(Buffer.from(canonical(before.source))),
       d5_local_draft:{
         status:"T3_D5_ORIGINAL_T2_SAVE_READBACK_PASS",
+        explicit_reopen_through_original_kernel_after_cold_restart:true,
         workspace_id:d5WorkspaceId,object_id:d5Draft.object_id,
         event_id:d5Draft.event_id,revision:d5Draft.revision,
         readback_after_two_cold_restarts:true,
