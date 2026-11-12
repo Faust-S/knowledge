@@ -264,6 +264,36 @@ async function run() {
       lost_ack_object_id:d5LostAck.object_id,service_id:WRITER});
     assert.equal(d5ColdOne.recoveredLost?.text,d5LostAck.text,
       "T3_D5_LOST_ACK_COLD_KERNEL_READBACK_MISMATCH");
+    // The recovery field accepts an exact ID, but never lets that ID
+    // escape the explicitly selected Workspace through the original Kernel.
+    const wrongScopeRecovery=await browser.page.evaluate(async ({
+      other_workspace_id,object_id,service_id,
+    })=>{
+      const session=await globalThis.IWXA.connect({service_id});
+      const focus=Object.freeze({workspace_id:other_workspace_id});
+      const context={
+        currentWorkspace:{get:()=>focus,subscribe:()=>()=>{}},
+        kernel:{
+          sessionInfo:{contract_version:session.contract_version},
+          hasOperation:op=>session.granted_operations.includes(op),
+          getWorkspace:id=>session.t1.getWorkspace(id),
+          getObject:(ws,id)=>session.t1.getObject(ws,id),
+        },
+      };
+      const mod=await import('/_t3/activity/local-inference-draft.mjs');
+      try{
+        await mod.getLocalInferenceDraft(context,{
+          expected_workspace_id:other_workspace_id,object_id,
+        });
+        return {denied:false};
+      }catch(error){
+        return {denied:true,code:error.code||error.message};
+      }
+    },{other_workspace_id:foreign_id,object_id:d5LostAck.object_id,
+       service_id:WRITER});
+    assert.equal(wrongScopeRecovery.denied,true,
+      "T3_D5_COLD_RECOVERY_MUST_NOT_OPEN_FOREIGN_WORKSPACE_DRAFT");
+
     assert.equal(d5ColdOne.opened?.readback,true,'T3_D5_KERNEL_EXACT_DRAFT_REOPEN_MISSING');
     assert.equal(d5ColdOne.opened?.text,
       'An explicitly reviewed synthetic draft for the original Kernel');
