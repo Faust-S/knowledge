@@ -5,6 +5,15 @@ const MANIFEST_PATH = "/t3-offline-manifest.json";
 const SCHEMA = "iwxa.t3.domain-offline/1";
 const OWN_SW = new URL(SW_PATH, location.origin).href;
 const isOwn = worker => !!worker && worker.scriptURL === OWN_SW;
+// Installation does not create another runtime. Native browser event is optional.
+let installPrompt = null;
+window.addEventListener("beforeinstallprompt", event => {
+  event.preventDefault();
+  installPrompt = event;
+});
+const standalone = () => window.matchMedia?.("(display-mode: standalone)")?.matches ||
+  window.matchMedia?.("(display-mode: fullscreen)")?.matches ||
+  navigator.standalone === true;
 
 function style() {
   const el = document.createElement("style");
@@ -17,7 +26,8 @@ function style() {
     "#iwxa-t3-domain-controls [hidden]{display:none!important}",
     "#iwxa-t3-domain-controls input{width:18px;height:18px;accent-color:#3b9d8c}",
     "#iwxa-t3-domain-controls [role=status]{margin:4px 0 0;font-size:12px;line-height:1.4;color:#d5e4ec}",
-    "#iwxa-t3-domain-controls input:focus-visible{outline:2px solid #89ceee;outline-offset:3px}"
+    "#iwxa-t3-domain-controls input:focus-visible{outline:2px solid #89ceee;outline-offset:3px}",
+    "#iwxa-t3-domain-controls [data-iwxa-pwa-hint]{font-size:12px;line-height:1.4;margin:6px 0;color:#d5e4ec}"
   ].join("");
   document.head.append(el);
 }
@@ -37,6 +47,17 @@ function createControl() {
   const text = document.createElement("span");
   text.textContent = "T3 · Автономный сайт";
   label.append(toggle, text);
+  const installApp = document.createElement("button");
+  installApp.type = "button";
+  installApp.id = "iwxa-t3-install-app";
+  installApp.textContent = "Установить приложение";
+  installApp.hidden = standalone();
+  const installHint = document.createElement("p");
+  installHint.dataset.iwxaPwaHint = "";
+  installHint.hidden = true;
+  const sharedNote = document.createElement("p");
+  sharedNote.dataset.iwxaPwaHint = "";
+  sharedNote.textContent = "Режим общий для сайта и установленного приложения в одном профиле браузера.";
   const updateCheck = document.createElement("button");
   updateCheck.type = "button";
   updateCheck.textContent = "Проверить обновление T3";
@@ -49,12 +70,39 @@ function createControl() {
   state.setAttribute("role", "status");
   state.setAttribute("aria-live", "polite");
   state.textContent = "Режим не включён.";
-  box.append(label, updateCheck, updateInstall, state);
+  box.append(label, installApp, installHint, updateCheck, updateInstall, sharedNote, state);
   (mount || document.body).append(box);
   style();
-  return {toggle, state, updateCheck, updateInstall, pendingUpdate: null};
+  return {toggle, state, installApp, installHint, updateCheck, updateInstall, pendingUpdate: null};
 }
 function tell(ui, text) { ui.state.textContent = text; }
+async function installApplication(ui) {
+  if (standalone()) {ui.installApp.hidden = true;return;}
+  if (installPrompt) {
+    const prompt = installPrompt;
+    installPrompt = null;
+    try {
+      await prompt.prompt();
+      const choice = await prompt.userChoice;
+      if (choice?.outcome === "accepted") {
+        ui.installHint.hidden = false;
+        ui.installHint.textContent = "Установка подтверждена браузером.";
+        return;
+      }
+    } catch { /* Browser may revoke an old prompt. Offer manual instructions. */ }
+  }
+  const ios = /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  ui.installHint.hidden = false;
+  ui.installHint.textContent = ios ?
+    "Откройте меню «Поделиться» и выберите «На экран Домой»." :
+    "Откройте меню браузера и выберите «Установить этот сайт как приложение» или «Добавить на главный экран».";
+}
+window.addEventListener("appinstalled", () => {
+  installPrompt = null;
+  const button = document.getElementById("iwxa-t3-install-app");
+  if(button)button.hidden = true;
+});
 function render(ui, enabled) {
   ui.toggle.checked = enabled;
   ui.toggle.disabled = false;
@@ -216,6 +264,15 @@ async function disable(ui) {
 async function main() {
   if (!document.body) return;
   const ui = createControl();
+  ui.installApp.addEventListener("click", () => void installApplication(ui));
+  const shared = typeof BroadcastChannel === "function" ?
+    new BroadcastChannel("iwxa-t3-domain-mode") : null;
+  shared?.addEventListener("message", event => {
+    if(event.data?.type !== "changed" || ui.toggle.disabled) return;
+    void status(ui).then(()=>{
+      tell(ui, "Режим T3 изменён в другом окне. Обновите страницу для применения.");
+    }).catch(()=>{});
+  });
   if (!("serviceWorker" in navigator) || !("caches" in window) ||
       !window.isSecureContext) {
     ui.toggle.disabled = true;
@@ -231,6 +288,7 @@ async function main() {
     try {
       if (ui.toggle.checked) await enable(ui);
       else await disable(ui);
+      shared?.postMessage({type:"changed"});
     } catch (error) {
       const errorText = error?.message || String(error);
       try { await status(ui); } catch { ui.toggle.checked = false; }
@@ -239,6 +297,7 @@ async function main() {
   });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && !ui.toggle.disabled) void status(ui).catch(() => {});
+    ui.installApp.hidden = standalone();
   });
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", main, {once:true});
