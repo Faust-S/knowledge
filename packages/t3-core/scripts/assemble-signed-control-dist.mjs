@@ -104,7 +104,7 @@ export function assembleSignedControlDist({
     'iwxa.t3.local-inference.launcher','iwxa.t3.local-inference.open'];
   const marks=markers.map(marker=>jsBodies.some(body=>body.includes(marker)));
   const workers=assets.filter(path=>
-    /^model-worker-[A-Za-z0-9_-]+\\.js$/.test(basename(path)));
+    /^model-worker-[A-Za-z0-9_-]+\.js$/.test(basename(path)));
   const localInference=marks.some(Boolean)||workers.length>0;
   if(localInference && (workers.length!==1||marks.some(mark=>!mark)||
       !readFileSync(workers[0],'utf8').includes('IWXA_NETWORK_DENIED_IN_WORKER')))
@@ -115,7 +115,7 @@ export function assembleSignedControlDist({
       row.service_id===config.workspace_service_id);
     passportPath=serviceEntry?.file;
     if(typeof passportPath!=='string'||
-       !/^_iwxa\\/services\\/[A-Za-z0-9_.-]+\\.json$/.test(passportPath))
+       !/^_iwxa\/services\/[A-Za-z0-9_.-]+\.json$/.test(passportPath))
       fail('ORIGINAL_SERVICE_PASSPORT_PATH');
     const passportFile=required(source,passportPath);
     if(serviceEntry.sha256!==hash(passportFile))
