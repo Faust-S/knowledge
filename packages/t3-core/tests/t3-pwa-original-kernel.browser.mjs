@@ -15,6 +15,10 @@ import {materializeIntegrationHost,serveRealKernelHost}
   from "../scripts/real-kernel-e2e.mjs";
 import {assertQualifiedKernelArtifact}
   from "../src/factory2/products/domain-completion/independent-browser-witness.mjs";
+import {createSubjectKernelBinding}
+  from "../src/t3/subject-access-binding.mjs";
+import {createTemporaryOriginalPersonalAuthority}
+  from "./support/t3-original-personal-authority.mjs";
 
 const SERVICE="iwxa.workspace.integration";
 const RUNTIME="0.3.6";
@@ -165,8 +169,9 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
     assert.ok(cold.eventIds.includes(saved.event));
     assert.equal(await site.locator("#iwxa-t3-domain-switch").isChecked(),true);
     assert.equal(sha(join(dist,"_iwxa/runtime/0.3.6/runtime.js")),pinned);
-    // Independent original T2 Exchange consumer. A second browser profile
-    // has a separate original Kernel Store, exactly as a real .iwxa recipient.
+    // D4: actual independent original T2 recipient with its OWN Store.
+    // Unlike an archive restored into its original source ID, this verifies
+    // real cross-workspace transfer through the existing SIGNED Host binding.
     const recipient=await chromium.launchPersistentContext(join(root,"recipient-profile"),{
       headless:true,ignoreHTTPSErrors:true,
       args:["--no-sandbox","--ignore-certificate-errors"],
@@ -175,23 +180,65 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       const receiver=recipient.pages()[0]||await recipient.newPage();
       await receiver.goto(live.origin+"/workspace/");
       await receiver.waitForFunction(()=>typeof window.IWXA?.connect==="function");
-      const imported=await receiver.evaluate(async({SERVICE,workspace,object,bytes})=>{
-        const original=await window.IWXA.connect({service_id:SERVICE});
-        const archive=Uint8Array.from(bytes);
-        const preview=await original.t2.importPreview(archive);
-        const mode=preview.allowed_modes?.includes("full")?"full":"selective";
-        const receipt=await original.t2.importCommit({
-          preview_token:preview.preview_token,package_digest:preview.package_digest,
-          plan:{mode,include_workspaces:[workspace],include_history:true,
-            include_assets:true,include_relations:true,conflict:"skip"},
-        });
-        const record=await original.t1.getObject(workspace,object);
-        return {imported:!!receipt,title:record?.object?.data?.title,
-          revision:record?.object?.revision};
-      },{SERVICE,workspace,object,bytes:saved.archiveBytes});
-      assert.equal(imported.imported,true);
-      assert.equal(imported.title,title);
-      assert.equal(imported.revision,1);
+      const destination="t3-recipient-"+randomUUID();
+      await receiver.evaluate(async({SERVICE,destination})=>{
+        const original=await IWXA.connect({service_id:SERVICE});
+        await original.t1.createWorkspace({workspace_id:destination,profile:"generic"});
+      },{SERVICE,destination});
+      // Thin request bridge: every receipt and data write comes from the
+      // qualified original 0.3.6 Kernel in the independent recipient profile.
+      // No new Kernel, Store, Exchange parser or issuer is created.
+      const receiverKernel={
+        sessionInfo:{contract_version:"1.3.0",runtime_version:RUNTIME},
+        hasOperation:op=>[
+          "t2.importPreview","t2.importCommit","t1.getObject"
+        ].includes(op),
+        importPreview:bytes=>receiver.evaluate(async({SERVICE,bytes})=>{
+          const original=await IWXA.connect({service_id:SERVICE});
+          return original.t2.importPreview(Uint8Array.from(bytes));
+        },{SERVICE,bytes:[...bytes]}),
+        importCommit:input=>receiver.evaluate(async({SERVICE,input})=>{
+          const original=await IWXA.connect({service_id:SERVICE});
+          return original.t2.importCommit(input);
+        },{SERVICE,input}),
+        getObject:(workspaceId,objectId)=>receiver.evaluate(
+          async({SERVICE,workspaceId,objectId})=>{
+            const original=await IWXA.connect({service_id:SERVICE});
+            return original.t1.getObject(workspaceId,objectId);
+          },{SERVICE,workspaceId,objectId}),
+      };
+      const originalOwner=createTemporaryOriginalPersonalAuthority({
+        workspaceId:destination,now:Date.now(),clock:Date.now,
+        operations:["t2.importPreview","t2.importCommit","t1.getObject"],
+      });
+      const scoped=createSubjectKernelBinding({
+        kernel:receiverKernel,access:originalOwner.access,clock:Date.now,
+      });
+      const preview=await scoped.importPreview(Uint8Array.from(saved.archiveBytes));
+      assert.deepEqual(preview.preview.manifest.workspaces,[workspace]);
+      assert.notEqual(workspace,destination);
+      assert.ok(preview.allowed_modes.includes("merge"),
+        "original T2 recipient must authorize an explicit merge");
+      const receipt=await scoped.importCommit({
+        preview_token:preview.preview_token,package_digest:preview.package_digest,
+        plan:{mode:"merge",include_workspaces:[workspace],
+          target_workspace:destination,include_history:true,
+          include_assets:true,include_relations:true,conflict:"skip"},
+      });
+      assert.equal(receipt.mode,"merge");
+      assert.equal(receipt.workspace_id_map[workspace],destination,
+        "original Kernel mapped exactly the archive source into signed recipient");
+      const received=await scoped.getObject(destination,object);
+      assert.equal(received?.object?.data?.title,title);
+      assert.equal(received?.object?.revision,1);
+      assert.ok(originalOwner.proofCount>=3,
+        "original signed Access must recheck preview, commit and readback");
+      console.log("T3_D4_SIGNED_FOREIGN_WORKSPACE_IWXA_ORIGINAL_KERNEL_PASS",
+        JSON.stringify({sourceDifferentFromDestination:true,
+          signedOriginalPersonalRecipient:true,originalKernel:RUNTIME,
+          independentRecipientStore:true,originalIwxaBytes:true,
+          originalImportMode:"merge",signedOperationProofs:originalOwner.proofCount,
+          originalKernelRecipientReadback:true,secondConsumerNotYetQualified:true}));
     }finally{await recipient.close();}
     console.log("T3_PWA_REAL_ORIGINAL_KERNEL_EXCHANGE_TWO_WINDOW_COLD_PASS",JSON.stringify({
       originalKernel:"0.3.6",sameStore:true,oneServiceWorker:true,
