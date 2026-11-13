@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {ComposerError,digest} from './index.mjs';
 import {verifyAgent05FileActionBatch} from './agent05-file-actions.mjs';
 import {projectAgent05DeliveryProgress} from './agent05-delivery-progress.mjs';
@@ -15,6 +16,15 @@ const FILE_STATES=new Set(['UNAVAILABLE','WORKSPACE_CHANGED','WORKSPACE_UNAVAILA
 const obj=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 const fail=code=>{throw new ComposerError(code);};
 const eq=(a,b)=>digest(a)===digest(b);
+const byteSha=text=>createHash('sha256').update(text,'utf8').digest('hex');
+const RECOVERY_NEXT_STEP=Object.freeze({
+  MATCHES_PROPOSAL:'P01_RECONCILE_MATCHING_BYTES_NOT_EXECUTION_PROOF',
+  OTHER_CONTENT:'P01_STOP_AND_INSPECT_DIFFERENT_FILE',
+  NOT_FOUND:'P01_RECONCILE_MISSING_FILE_NO_AUTO_RETRY',
+  WORKSPACE_CHANGED:'P01_INSPECT_CHANGED_WORKSPACE_BINDING',
+  WORKSPACE_UNAVAILABLE:'P01_RECONNECT_WORKSPACE_AND_REOBSERVE',
+  UNAVAILABLE:'P01_RETRY_READ_ONLY_OBSERVATION'
+});
 const fields=(row,allowed,code)=>{
   if(!obj(row)||Object.keys(row).some(k=>!allowed.includes(k)))fail(code);
 };
@@ -45,7 +55,8 @@ function checkReceipt(plan,receipt,execution){
     receipt.idempotency_key!==plan.idempotency_key||
     !HEX.test(receipt.receipt_digest??'')||
     !['SUCCEEDED','FAILED','INPUT_REQUIRED'].includes(receipt.status)||
-    !EFFECTS.has(receipt.external_effect_state))
+    !EFFECTS.has(receipt.external_effect_state)||
+    (receipt.status!=='SUCCEEDED'&&receipt.external_effect_state==='ACKNOWLEDGED'))
     fail('AGENT05_NATIVE_RECEIPT_MISMATCH');
 }
 function checkReadback(action,readback){
@@ -64,21 +75,31 @@ function checkRecovery(action,plan,recovery){
     recovery.authority!=='READ_ONLY_OBSERVATION'||
     recovery.plan_id!==plan.plan_id||
     recovery.path!==action.target||recovery.mode!=='create'||
+    recovery.planned_text!==action.text||
     recovery.planned_sha256!==action.contentSha256||
+    recovery.previous_sha256!==null||
     !FILE_STATES.has(recovery.current_state)||
+    recovery.current_state==='MATCHES_PREVIOUS'||
     recovery.outcome_proven!==false||
     recovery.retry_authorized!==false||
     recovery.provider_invoked_for_write!==false)
     fail('AGENT05_NATIVE_RECOVERY_MISMATCH');
   const hasText=typeof recovery.current_text==='string';
-  const readable=['MATCHES_PROPOSAL','OTHER_CONTENT','MATCHES_PREVIOUS']
+  const readable=['MATCHES_PROPOSAL','OTHER_CONTENT']
     .includes(recovery.current_state);
   if(hasText!==readable||
     (hasText&&(!HEX.test(recovery.current_sha256??'')||
-      !['MATCHES_PROPOSAL','OTHER_CONTENT'].includes(recovery.current_state)))||
-    (!hasText&&recovery.current_text!==undefined))
+      byteSha(recovery.current_text)!==recovery.current_sha256))||
+    (!hasText&&(recovery.current_text!==undefined||
+      recovery.current_sha256!==null)))
     fail('AGENT05_NATIVE_RECOVERY_MISMATCH');
-  // K04's existing progress projection independently checks byte SHA.
+  const matching=hasText&&recovery.current_sha256===action.contentSha256&&
+    recovery.current_text===action.text;
+  if(recovery.current_state==='MATCHES_PROPOSAL'&&!matching||
+    recovery.current_state==='OTHER_CONTENT'&&matching)
+    fail('AGENT05_NATIVE_RECOVERY_MISMATCH');
+  // A matching file is merely a read-only observation. It is never a
+  // native receipt, execution proof or authorization to retry the write.
   return hasText?{root_id:'personal',path:action.target,
     text:recovery.current_text,sha256:recovery.current_sha256}:null;
 }
@@ -122,7 +143,7 @@ export function projectAgent05OwnerHistory(batch,{entries=[]}={}){
       fail('AGENT05_NATIVE_EXECUTION_RECEIPT_REQUIRED');
     let writeState;
     switch(execution.state){
-      case 'NOT_STARTED':writeState='AWAITING_APPROVAL';break;
+      case 'NOT_STARTED':writeState='OWNER_PLAN_PREPARED';break;
       case 'OUTCOME_UNKNOWN':writeState='UNKNOWN';break;
       case 'SUCCEEDED':
         writeState=hasReceipt&&entry.receipt.status==='SUCCEEDED'&&
@@ -151,6 +172,10 @@ export function projectAgent05OwnerHistory(batch,{entries=[]}={}){
     provenance.push({target:action.target,planId:plan.plan_id,
       receiptId:hasReceipt?entry.receipt.receipt_id:null,
       repairCaseId,executionState:execution.state,
+      approvalStatus:'NOT_OBSERVED_BY_K04',
+      recoveryCurrentState:hasRecovery?entry.recovery.current_state:null,
+      recoveryNextHostStep:hasRecovery
+        ?RECOVERY_NEXT_STEP[entry.recovery.current_state]:null,
       hostNativePlanDigestReported:plan.plan_digest});
   }
   const progress=projectAgent05DeliveryProgress(batch,{observations});

@@ -3,7 +3,7 @@ import {ComposerError,digest} from './index.mjs';
 import {verifyAgent05FileActionBatch} from './agent05-file-actions.mjs';
 
 export const DELIVERY_PROGRESS_VERSION='IWXA.K04.AGENT05_DELIVERY_PROGRESS/0.1.0';
-const STATES=new Set(['NOT_STARTED','AWAITING_APPROVAL','IN_FLIGHT',
+const STATES=new Set(['NOT_STARTED','OWNER_PLAN_PREPARED','AWAITING_APPROVAL','IN_FLIGHT',
   'ACKNOWLEDGED','UNKNOWN','FAILED','DECLINED']);
 const OBSERVATION_KEYS=new Set(['target','writeState','readback','repairCaseId']);
 const HEX=/^[0-9a-f]{64}$/;
@@ -58,6 +58,11 @@ function summarizeFile(action,row){
     // Equal current bytes do NOT prove the intended action took place.
     status='PREEXISTING_FILE_NEEDS_HOST_REVIEW';
     nextHostStep='P01_CHECK_EXISTING_FILE_OR_RECOVERY';
+  }else if(writeState==='OWNER_PLAN_PREPARED'){
+    // P01 historical execution state NOT_STARTED does not reveal whether a
+    // separate native approval exists or has expired.
+    status='PREPARED_OWNER_APPROVAL_UNVERIFIED';
+    nextHostStep='P01_INSPECT_NATIVE_PLAN_AND_APPROVAL';
   }else if(writeState==='AWAITING_APPROVAL'){
     status='AWAITING_USER_APPROVAL';
     nextHostStep='P01_SHOW_CURRENT_NATIVE_TOOL_PLAN';
@@ -107,7 +112,9 @@ export function projectAgent05DeliveryProgress(batch,{observations=[]}={}){
       count('PREEXISTING_FILE_NEEDS_HOST_REVIEW'),
     failed:count('FAILED_REQUIRES_REVIEW'),
     declined:count('DECLINED_BY_USER'),
-    notStarted:count('NOT_STARTED')
+    notStarted:count('NOT_STARTED'),
+    ...(count('PREPARED_OWNER_APPROVAL_UNVERIFIED') ?
+      {preparedOwnerApprovalUnknown:count('PREPARED_OWNER_APPROVAL_UNVERIFIED')} : {})
   };
   const ordered=[
     ['RECONCILIATION_REQUIRED','P01_RECOVER_INTERRUPTED_ACTION_AND_RECONCILE'],
@@ -115,6 +122,7 @@ export function projectAgent05DeliveryProgress(batch,{observations=[]}={}){
     ['PREEXISTING_FILE_NEEDS_HOST_REVIEW','P01_CHECK_EXISTING_FILE_OR_RECOVERY'],
     ['FAILED_REQUIRES_REVIEW','P01_REVIEW_FAILURE_AND_EXECUTION_RECEIPT'],
     ['DECLINED_BY_USER','AWAIT_NEW_USER_DECISION'],
+    ['PREPARED_OWNER_APPROVAL_UNVERIFIED','P01_INSPECT_NATIVE_PLAN_AND_APPROVAL'],
     ['AWAITING_USER_APPROVAL','P01_SHOW_CURRENT_NATIVE_TOOL_PLAN'],
     ['IN_FLIGHT','P01_WAIT_FOR_TOOL_OR_RECOVER_IF_INTERRUPTED'],
     ['READBACK_REQUIRED','P01_FILES_READ_AND_COMPARE_BYTES'],

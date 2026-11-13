@@ -78,10 +78,11 @@ function entry(b,index,state,options={}){
 function recover(action,plan,kind='MATCHES_PROPOSAL'){
   return {authority:'READ_ONLY_OBSERVATION',case_id:'REPAIR-fixture-1',
     plan_id:plan.plan_id,path:action.target,mode:'create',
-    planned_sha256:action.contentSha256,
-    current_state:kind,
+    planned_text:action.text,planned_sha256:action.contentSha256,
+    previous_sha256:null,current_state:kind,
     ...(kind==='MATCHES_PROPOSAL'?{
-      current_text:action.text,current_sha256:sha(action.text)}:{}),
+      current_text:action.text,current_sha256:sha(action.text)}
+      :{current_sha256:null}),
     outcome_proven:false,retry_authorized:false,provider_invoked_for_write:false};
 }
 test('empty native owner history projects a pending K04 compact/full delivery with no authority',()=>{
@@ -104,7 +105,10 @@ test('empty native owner history projects a pending K04 compact/full delivery wi
 test('a real-shape historical U01 plan with no execution asks host to show current approval state',()=>{
   const b=batch('compact'),e=entry(b,0,'NOT_STARTED');
   const v=projectAgent05OwnerHistory(b,{entries:[e]});
-  assert.equal(v.progress.overallStatus,'AWAITING_USER_APPROVAL');
+  assert.equal(v.progress.overallStatus,'PREPARED_OWNER_APPROVAL_UNVERIFIED');
+  assert.equal(v.progress.nextHostStep,'P01_INSPECT_NATIVE_PLAN_AND_APPROVAL');
+  assert.equal(v.progress.counts.preparedOwnerApprovalUnknown,1);
+  assert.equal(v.planReferences[0].approvalStatus,'NOT_OBSERVED_BY_K04');
   assert.equal(v.planReferences[0].planId,e.plan.plan_id);
   assert.equal(v.planReferences[0].receiptId,null);
   assert.equal(v.progress.deliveryCompletedByK04,false);
@@ -128,12 +132,16 @@ test('partial full delivery preserves lost ACK with bytes matching until owner r
   const v=projectAgent05OwnerHistory(b,{entries});
   assert.equal(v.progress.counts.total,4);
   assert.equal(v.progress.counts.hostReportedMatched,1);
-  assert.equal(v.progress.counts.awaitingApproval,1);
+  assert.equal(v.progress.counts.awaitingApproval,0);
+  assert.equal(v.progress.counts.preparedOwnerApprovalUnknown,1);
   assert.equal(v.progress.counts.needsReconciliation,1);
   assert.equal(v.progress.counts.notStarted,1);
   assert.equal(v.progress.overallStatus,'RECONCILIATION_REQUIRED');
   assert.equal(v.progress.files[2].readbackStatus,'MATCHES_PROPOSAL');
   assert.equal(v.progress.files[2].repairCaseId,'REPAIR-fixture-1');
+  assert.equal(v.planReferences[2].recoveryCurrentState,'MATCHES_PROPOSAL');
+  assert.equal(v.planReferences[2].recoveryNextHostStep,
+    'P01_RECONCILE_MATCHING_BYTES_NOT_EXECUTION_PROOF');
   assert.equal(v.progress.retryAuthorizedByK04,false);
   assert.equal(v.ownerRecoveriesAuthenticatedByK04,false);
   assert.deepEqual(v,projectAgent05OwnerHistory(b,{entries:structuredClone(entries)}));
@@ -221,6 +229,11 @@ test('owner recovery cannot grant retries, claim completed outcome or substitute
     x=>{x.recovery.provider_invoked_for_write=true;},
     x=>{x.recovery.path='other.md';},
     x=>{x.recovery.planned_sha256='0'.repeat(64);},
+    x=>{x.recovery.planned_text='other plan';},
+    x=>{x.recovery.previous_sha256='0'.repeat(64);},
+    x=>{x.recovery.current_sha256='0'.repeat(64);},
+    x=>{x.recovery.current_state='OTHER_CONTENT';},
+    x=>{x.recovery.current_state='MATCHES_PREVIOUS';},
     x=>{x.recovery.plan_id='TPLAN-other';},
     x=>{x.recovery.current_text='something else';},
     x=>{delete x.recovery.current_text;},
@@ -257,4 +270,48 @@ test('duplicate plans, duplicate targets, missing historical receipt and inconsi
   wrongRead.execution.state='NOT_STARTED';
   assert.throws(()=>projectAgent05OwnerHistory(b,{entries:[wrongRead]}),
     err('AGENT05_NATIVE_EXECUTION_RECEIPT_REQUIRED'));
+});
+
+test('native read-only recovery gives distinct owner guidance without granting retry',()=>{
+  const b=batch('compact'),action=b.actions[0],base=entry(b,0,'OUTCOME_UNKNOWN');
+  const cases=[
+    ['NOT_FOUND','P01_RECONCILE_MISSING_FILE_NO_AUTO_RETRY'],
+    ['WORKSPACE_CHANGED','P01_INSPECT_CHANGED_WORKSPACE_BINDING'],
+    ['WORKSPACE_UNAVAILABLE','P01_RECONNECT_WORKSPACE_AND_REOBSERVE'],
+    ['UNAVAILABLE','P01_RETRY_READ_ONLY_OBSERVATION'],
+    ['MATCHES_PROPOSAL','P01_RECONCILE_MATCHING_BYTES_NOT_EXECUTION_PROOF']
+  ];
+  for(const [kind,expected] of cases){
+    const row=structuredClone(base);
+    row.recovery=recover(action,row.plan,kind);
+    const v=projectAgent05OwnerHistory(b,{entries:[row]});
+    assert.equal(v.progress.overallStatus,'RECONCILIATION_REQUIRED',kind);
+    assert.equal(v.planReferences[0].recoveryCurrentState,kind);
+    assert.equal(v.planReferences[0].recoveryNextHostStep,expected);
+    assert.equal(v.hostCanRetryActions,false);
+    assert.equal(v.ownerRecoveriesAuthenticatedByK04,false);
+  }
+  const other=structuredClone(base);
+  other.recovery=recover(action,other.plan,'OTHER_CONTENT');
+  other.recovery.current_text='different file bytes';
+  other.recovery.current_sha256=sha(other.recovery.current_text);
+  const v=projectAgent05OwnerHistory(b,{entries:[other]});
+  assert.equal(v.progress.overallStatus,'RECONCILIATION_REQUIRED');
+  assert.equal(v.progress.files[0].readbackStatus,'OTHER_CONTENT');
+  assert.equal(v.planReferences[0].recoveryNextHostStep,
+    'P01_STOP_AND_INSPECT_DIFFERENT_FILE');
+});
+test('a non-successful native receipt cannot claim an acknowledged external write',()=>{
+  const b=batch('compact');
+  const row=entry(b,0,'ATTEMPTED');
+  row.receipt.external_effect_state='ACKNOWLEDGED';
+  assert.throws(()=>projectAgent05OwnerHistory(b,{entries:[row]}),
+    err('AGENT05_NATIVE_RECEIPT_MISMATCH'));
+});
+test('all existing public non-owner delivery states remain unchanged',()=>{
+  const b=batch('compact');
+  const initial=projectAgent05OwnerHistory(b);
+  assert.equal(initial.progress.overallStatus,'NOT_STARTED');
+  assert.equal(initial.progress.counts.notStarted,1);
+  assert.equal('preparedOwnerApprovalUnknown' in initial.progress.counts,false);
 });
