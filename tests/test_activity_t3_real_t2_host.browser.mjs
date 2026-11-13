@@ -204,6 +204,38 @@ try {
         extensions:{},event:{event_type:'d05.bracket.created',payload:{}},
       });
     }
+    // A real process requires observed succession, not just object creation:
+    // three separate sample brackets undergo four original Kernel writes.
+    // Synthetic industrial input, NOT the production 120-bracket CASE-001.
+    const phases=['cut','bent','inspected'];
+    const ids=['d05:source-bracket','d05:source-bracket-1',
+      'd05:source-bracket-2'];
+    for(let index=0;index<ids.length;index++){
+      for(let step=0;step<phases.length;step++){
+        // Original T2 events use millisecond timestamps. Ensure the test
+        // does not invent ordering from multiple writes in the same ms.
+        await new Promise(done=>setTimeout(done,8));
+        const saved=await sourceWriter.t1.putObject({
+          workspace_id:args.source,object_id:ids[index],
+          schema_id:'iwxa.demo.note',schema_version:'1.0.0',
+          base_revision:step+1,
+          data:{title:'PRIVATE_CEHOVOD_CUSTOMER_BRACKET'+
+            (index?'_'+index:'')},
+          extensions:{},event:{event_type:'d05.bracket.'+phases[step],
+            payload:{}},
+        });
+        if(saved?.object?.revision!==step+2)
+          throw Error('REAL_T2_PRODUCTION_PHASE_RECEIPT_INVALID');
+      }
+    }
+    const sourceObjects=await sourceWriter.t1.listObjects({
+      workspace_id:args.source,include_deleted:true,
+    });
+    const sourceEvents=await sourceWriter.t1.listEventsSince(args.source);
+    if(sourceObjects.length!==3||
+      !sourceObjects.every(row=>row.revision===4)||
+      sourceEvents.length!==13)
+      throw Error('REAL_T2_PRODUCTION_PROCESS_HISTORY_MISSING');
     const emptiness=await targetReviewer.t1.listObjects({
       workspace_id:args.target,include_deleted:true,
     });
@@ -280,7 +312,9 @@ try {
       session,control,currentWorkspace,bindings:{
         objects:[{schema_id:'iwxa.demo.note',schema_version:'1.0.0',
           semantic_kind:'Process'}],
-        events:[{event_type:'d05.bracket.created',semantic_kind:'Event'}],
+        events:['created','cut','bent','inspected'].map(phase=>({
+          event_type:'d05.bracket.'+phase,semantic_kind:'Event',
+        })),
         context_events:['workspace.created'],
         relations:[],
       },readActivityFromWorkspaceContext,createSubjectKernelBinding,
@@ -300,8 +334,16 @@ try {
         '_'+String(updates.at(-1)?.code??''));
       const snapshot=updates.at(-1)?.review;
       if(!snapshot||snapshot.export_allowed!==false||
+        snapshot.status!=='STRUCTURE_PRESERVED_REVIEW_REQUIRED'||
+        snapshot.structural_candidate?.length!==1||
+        snapshot.structural_candidate[0].observed_event_kinds.length!==4||
+        snapshot.structural_candidate[0].object_local_successions.length!==3||
+        snapshot.structural_candidate[0].cohort_band!=='3-9'||
+        !snapshot.structural_candidate[0].object_local_successions.every(
+          step=>step.cohort_band==='3-9'&&
+            step.relation==='OBSERVED_OBJECT_LOCAL_ORDER_NOT_CAUSAL_DEPENDENCY')||
         JSON.stringify(snapshot).includes('PRIVATE_CEHOVOD_CUSTOMER'))
-        throw Error('ORIGINAL_T3_D2_ACTIVITY_PREVIEW_UNVERIFIED');
+        throw Error('ORIGINAL_T3_D2_OBSERVED_FOUR_STEP_PROCESS_UNVERIFIED');
       const staged=await ui.stageSelected();
       if(staged.status!=='STAGED')
         throw Error('ORIGINAL_T3_SIGNED_DERIVE_'+staged.status+
@@ -319,6 +361,8 @@ try {
       if(!stagedEvent)throw Error('ORIGINAL_T3_SIGNED_EVENT_NOT_PERSISTED');
       return {status:staged.status,source_review:snapshot.status,
         source_reason_codes:[...snapshot.reason_codes],
+        observed_step_types:snapshot.structural_candidate[0].observed_event_kinds.length,
+        observed_successions:snapshot.structural_candidate[0].object_local_successions.length,
         draft_revision:targetObjects[0].revision,
         draft_object_id:targetObjects[0].object_id,
         event_id:stagedEvent.event_id,
@@ -334,6 +378,8 @@ try {
   },{source,signedTarget,writer,token,schema:T3_ACTIVITY_OWNER_REVIEW_SCHEMA});
   assert.equal(signed.status,'STAGED');
   assert.equal(signed.source_review,'STRUCTURE_PRESERVED_REVIEW_REQUIRED');
+  assert.equal(signed.observed_step_types,4);
+  assert.equal(signed.observed_successions,3);
   assert.deepEqual(signed.source_reason_codes.sort(),[
     'EXTERNAL_LINKAGE_RISK_UNMEASURED',
     'T3_SIGNED_OWNER_RESULT_NOT_INDEPENDENTLY_ATTESTED',
@@ -374,7 +420,7 @@ try {
     signedObjectId:signed.draft_object_id,
     objectId:'activity-review:original-kernel'});
   assert.equal(reopened.source_title,'PRIVATE_CEHOVOD_CUSTOMER_BRACKET');
-  assert.equal(reopened.source_revision,1);
+  assert.equal(reopened.source_revision,4);
   assert.equal(reopened.draft_revision,1);
   assert.equal(reopened.draft_schema,T3_ACTIVITY_OWNER_REVIEW_SCHEMA);
   assert.deepEqual(reopened.draft_data,proofData);
@@ -390,6 +436,8 @@ try {
       sameOriginalT2Store:true,selectedWorkspaceStores:1,
       coldReadback:true,sourceUnchanged:true,
       sourceReview:signed.source_review,
+      observedStepTypes:signed.observed_step_types,
+      observedSuccessions:signed.observed_successions,
       safeReasonCodes:signed.source_reason_codes,
       rendererNoPrivateContent:true,externalTransferAccepted:false}));
   console.log('ACTIVITY_ORIGINAL_T2_REVIEW_PASSPORT_COLD_KERNEL_PASS',
