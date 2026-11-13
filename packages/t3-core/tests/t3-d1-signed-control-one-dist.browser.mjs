@@ -275,6 +275,42 @@ try{
   assert.equal(created?.workspace_id,scopedWorkspace);
   assert.equal(created?.profile,'generic');
   assert.deepEqual(selectedErrors,[]);
+
+  // Adversarial D1 witness, NOT a permitted Host operation. The original T2
+  // bootstrap is global in the same browser origin as the signed Workspace.
+  // Probe another organization's stored object via RAW window.IWXA.connect,
+  // without touching the signed KernelFacade. Log any bypass as a release
+  // blocker; a green UI regression alone must never imply native enforcement.
+  const boundary=await selected.evaluate(async ({serviceId,workspace,object})=>{
+    const exposed=typeof globalThis.IWXA?.connect==='function';
+    if(!exposed)return {rawConnectExposed:false,foreignReadPossible:false};
+    try{
+      const raw=await globalThis.IWXA.connect({service_id:serviceId});
+      const foreign=await raw.t1.getObject(workspace,object);
+      return {
+        rawConnectExposed:true,
+        foreignReadPossible:foreign?.object?.data?.title==='Real original T2 one-dist',
+        foreignObjectId:foreign?.object?.object_id??null,
+      };
+    }catch{
+      return {rawConnectExposed:true,foreignReadPossible:false};
+    }
+  },{serviceId,workspace,object});
+  if(boundary.foreignReadPossible){
+    assert.equal(boundary.foreignObjectId,object);
+    console.log('T3_D1_RAW_ORIGINAL_KERNEL_BYPASS_CONFIRMED_NOT_ACCEPTED',JSON.stringify({
+      signedHostMounted:true,rawConnectExposed:boundary.rawConnectExposed,
+      foreignSignedWorkspaceReadWithoutGrant:true,
+      nativeStoreBoundaryQualified:false,
+      originalKernelVersion:'0.3.6',
+    }));
+  }else{
+    console.log('T3_D1_RAW_ORIGINAL_KERNEL_BYPASS_NOT_REPRODUCED',JSON.stringify({
+      signedHostMounted:true,rawConnectExposed:boundary.rawConnectExposed,
+      foreignSignedWorkspaceReadWithoutGrant:false,
+      nativeStoreBoundaryQualified:false,
+    }));
+  }
   console.log('T3_D1_SYNTHETIC_SIGNED_CREATE_WORKSPACE_PASS',JSON.stringify({
     compiledSignedHost:true,originalKernel:'0.3.6',
     createdViaSignedKernelFacade:true,independentOriginalKernelReadback:true,
