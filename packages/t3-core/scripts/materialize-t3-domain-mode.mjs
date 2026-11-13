@@ -59,7 +59,7 @@ function checkPageAssets(html, page, siteOrigin) {
 function inject(html, path, assistant) {
   const assistantMarker = '<script type="module" src="/_iwxa/t3-assistant/assistant.js" data-iwxa-t3-assistant></script>';
   const marker = '<script type="module" src="/t3-domain-mode.mjs" data-iwxa-t3-domain-mode></script>';
-  const pwaLink = '<link rel="manifest" href="/t3-app.webmanifest" data-iwxa-t3-pwa>';
+  const pwaLink = '<link rel="manifest" href="/t3-app-manifest.json" data-iwxa-t3-pwa>';
   if (!/<\/body>/i.test(html)) fail("HTML_BODY_REQUIRED:" + path);
   const scripts = (html.includes("data-iwxa-t3-domain-mode") ? "" : marker) +
     (assistant && !html.includes("data-iwxa-t3-assistant") ? "\n" + assistantMarker : "");
