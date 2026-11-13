@@ -372,7 +372,7 @@ test('corporate agent performs exact signed RAG and Skill resource checks withou
   assert.equal(kernel.calls.filter(x=>x.schema_id==='iwxa.demo.note').length,0);
 });
 
-test('corporate agent can perform consequential Kernel write only with real HUMAN confirmation signed under same challenge', {timeout:30000},async()=>{
+test('corporate agent write requires a separate person-subject CONFIRMATION proof on the same signed request', {timeout:30000},async()=>{
   const {fixture,agentKeys}=build(),kernel=originalKernelFixture();
   const human=key('key:human-reviewer','person:operator',['CONFIRMATION']);
   fixture.policy.keys[human.signer.keyId]=human.record;
@@ -440,12 +440,12 @@ test('corporate agent can perform consequential Kernel write only with real HUMA
     makeProof(request,challenge,Date.parse(asOf),human.signer,'TEST','CONFIRMATION')
   ]);
   const confirmed=await humanApproval.putObject({
-    ...command('north'),object_id:'result:human-accepted-engineering'
+    ...command('north'),object_id:'item:person-confirmed-work'
   });
-  assert.equal(confirmed.object.object_id,'result:human-accepted-engineering');
+  assert.equal(confirmed.object.object_id,'item:person-confirmed-work');
   assert.equal(confirmed.object.workspace_id,'ws:north');
   const stored=await kernel.api.getObject(
-    'ws:north','result:human-accepted-engineering');
-  assert.equal(stored.object.object_id,'result:human-accepted-engineering');
+    'ws:north','item:person-confirmed-work');
+  assert.equal(stored.object.object_id,'item:person-confirmed-work');
   assert.equal(kernel.calls.filter(x=>x.schema_id==='iwxa.demo.note').length,1);
 });
