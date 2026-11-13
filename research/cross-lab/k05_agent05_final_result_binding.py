@@ -13,6 +13,7 @@ from k05_agent05_graph_readback import (
     AgentComparisonHold, GRAPH_ARTIFACT_CONTRACT, GRAPH_CONFIG_CONTRACT,
     GRAPH_RUNTIME_CONTRACT, MAX_ARTIFACT_BYTES, MAX_CONFIG_BYTES,
     _digest, _fail, _parse, _verify_record, compare_saved_graph_model_runs,
+    verify_saved_graph_model_observation,
 )
 
 CONTRACT = "IWXA_K05_AGENT05_GRAPH_FINAL_PROJECTION_BINDING/0.1"
@@ -151,6 +152,22 @@ def verify_saved_graph_final_projection(
             or final.get("operation_ref") != (meta.get("operation_ref") or "")):
         _fail("FINAL_OPERATION_REF_MISMATCH")
 
+    # This is Agent's already existing optional model observation for this
+    # exact final artifact. Reuse K05's Graph observer; never score the text.
+    model_observation_hash = None
+    model_receipt_link = "NOT_APPLICABLE"
+    if node["node_type"] == "MODEL_INVOCATION":
+        if "model_evaluation" not in final:
+            _fail("FINAL_MODEL_OBSERVATION_MISSING")
+        model_evidence = verify_saved_graph_model_observation(
+            final["model_evaluation"],
+            artifact_bytes=artifact_bytes, config_bytes=config_bytes,
+        )
+        model_observation_hash = _digest(final["model_evaluation"])
+        model_receipt_link = model_evidence["owner_receipt_refs_status"]
+    elif "model_evaluation" in final:
+        _fail("NONMODEL_OBSERVATION_FORGED")
+
     return {
         "schema": CONTRACT,
         "status": "HOST_SUPPLIED_FINAL_TEXT_AND_GRAPH_MATCH",
@@ -170,6 +187,13 @@ def verify_saved_graph_final_projection(
         "source_currentness": "NOT_VERIFIED",
         "human_gold": "NOT_MEASURED",
         "task_acceptance": "NOT_VERIFIED",
+        # Observation integrity is measured; answer quality is not.
+        "model_observation_integrity": (
+            "GRAPH_ARTIFACT_BOUND" if model_observation_hash is not None
+            else "NOT_APPLICABLE"
+        ),
+        "model_observation_sha256": model_observation_hash,
+        "model_owner_receipts_link": model_receipt_link,
         "model_evaluation": "NOT_VERIFIED",
         "quality_evaluation": "NOT_VERIFIED",
         "host_reads_by_k05": 0,
@@ -204,6 +228,18 @@ def compare_saved_graph_final_results(
         execution_instance_bytes=tested_execution_instance_bytes,
         artifact_bytes=tested_artifact_bytes, config_bytes=tested_config_bytes,
         expected_result_text_bytes=tested_result_bytes)
+    # The observations supplied independently for paired cost comparison
+    # must be exactly those embedded by the owner in each final Result.
+    # A matching artifact SHA alone does not make arbitrary token metrics
+    # or displayed latency legitimate.
+    if (before["model_observation_sha256"] is None
+            or after["model_observation_sha256"] is None
+            or type(baseline) is not dict or type(tested) is not dict
+            or _digest(baseline.get("model_observation")) !=
+               before["model_observation_sha256"]
+            or _digest(tested.get("model_observation")) !=
+               after["model_observation_sha256"]):
+        _fail("PAIRED_FINAL_MODEL_OBSERVATION_MISMATCH")
     paired = compare_saved_graph_model_runs(
         baseline, tested, baseline_task_bytes=baseline_task_bytes,
         tested_task_bytes=tested_task_bytes,

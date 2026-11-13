@@ -80,7 +80,7 @@ def final_case(run_id: str, *, text: str | None = None) -> dict:
         "source_refs": list(artifact["source_refs"]),
         "operation_ref": "", "result_is_execution_authority": False,
         "human_review_required": True,
-        "model_evaluation": {"quality_status": "QUALITY_UNKNOWN"},
+        "model_evaluation": deepcopy(item["run"]["model_observation"]),
     }
     item["final"] = projection
     item["graph"] = graph
@@ -145,6 +145,10 @@ class K05FinalResultBinding(unittest.TestCase):
         self.assertNotIn("source_ref_count", proof)
         self.assertEqual(proof["task_acceptance"], "NOT_VERIFIED")
         self.assertEqual(proof["human_gold"], "NOT_MEASURED")
+        self.assertEqual(proof["model_observation_integrity"], "GRAPH_ARTIFACT_BOUND")
+        self.assertEqual(proof["model_observation_sha256"],
+                         binding._digest(item["run"]["model_observation"]))
+        self.assertEqual(proof["model_owner_receipts_link"], "LINKED")
 
     def test_exact_full_text_not_bounded_20k_ui_preview(self):
         large = final_case("large", text=("Документ\n" * 4000) + "Завершение.")
@@ -245,12 +249,16 @@ class K05FinalResultBinding(unittest.TestCase):
 
     def test_final_receipt_does_not_promote_host_reported_model_quality(self):
         item = final_case("baseline")
-        item["final"]["model_evaluation"] = {"quality_status": "PASS", "f1": 1.0}
         item["final"]["quality_evaluation"] = {"hallucination_rate": 0}
         proof = verify(item)
         self.assertEqual(proof["model_evaluation"], "NOT_VERIFIED")
+        self.assertEqual(proof["model_observation_integrity"], "GRAPH_ARTIFACT_BOUND")
         self.assertEqual(proof["quality_evaluation"], "NOT_VERIFIED")
         self.assertEqual(proof["human_gold"], "NOT_MEASURED")
+        item["final"]["model_evaluation"]["quality_status"] = "PASS"
+        item["final"]["model_evaluation"]["f1"] = 1.0
+        with self.assertRaises(AgentComparisonHold):
+            verify(item)
 
     def test_two_verified_final_results_pair_only_under_old_source_model_gates(self):
         a, b = final_case("baseline"), final_case("tested")
@@ -262,6 +270,44 @@ class K05FinalResultBinding(unittest.TestCase):
         self.assertEqual(paired["human_quality_gain"], "NOT_MEASURED")
         self.assertEqual(paired["result_readback_from_core"], "NOT_TESTED")
         self.assertGreater(paired["extra_final_binding_bytes_rehashed"], 0)
+
+    def test_saved_result_model_observation_matches_artifact_metrics(self):
+        item = final_case("baseline")
+        modified = deepcopy(item)
+        modified["final"]["model_evaluation"]["observed_latency_ms"] += 1
+        with self.assertRaisesRegex(AgentComparisonHold, "GRAPH_METRICS_DISAGREE"):
+            verify(modified)
+        modified = deepcopy(item)
+        modified["final"]["model_evaluation"]["source_revision"] = "f" * 64
+        with self.assertRaisesRegex(AgentComparisonHold, "GRAPH_OBSERVATION_DIGEST_MISMATCH"):
+            verify(modified)
+
+    def test_model_observation_missing_or_forged_owner_receipt_is_rejected(self):
+        item = final_case("baseline")
+        missing = deepcopy(item)
+        del missing["final"]["model_evaluation"]
+        with self.assertRaisesRegex(AgentComparisonHold,
+                                    "FINAL_MODEL_OBSERVATION_MISSING"):
+            verify(missing)
+        forged = deepcopy(item)
+        forged["final"]["model_evaluation"]["owner_receipt_refs"]["k02"] = "TXR-fake"
+        with self.assertRaisesRegex(AgentComparisonHold,
+                                    "OWNER_RECEIPT_OBSERVATION_MISMATCH"):
+            verify(forged)
+
+    def test_paired_comparison_cannot_substitute_other_metrics_than_final_result(self):
+        a, b = final_case("baseline"), final_case("tested")
+        # The graph/result snapshots are correct. Only the separately passed
+        # run observation has been changed.
+        b["run"]["model_observation"]["observed_latency_ms"] += 200
+        with self.assertRaisesRegex(AgentComparisonHold,
+                                    "PAIRED_FINAL_MODEL_OBSERVATION_MISMATCH"):
+            compare(a, b)
+        b = final_case("tested")
+        b["run"]["model_observation"]["source_revision"] = "a" * 64
+        with self.assertRaisesRegex(AgentComparisonHold,
+                                    "PAIRED_FINAL_MODEL_OBSERVATION_MISMATCH"):
+            compare(a, b)
 
     def test_paired_graph_result_tampering_is_not_valid_comparison(self):
         a, b = final_case("baseline"), final_case("tested")
