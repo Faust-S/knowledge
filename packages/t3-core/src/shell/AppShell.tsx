@@ -146,6 +146,7 @@ export function AppShell(props: AppShellProps) {
           profileDefinition={profileDefinition}
           profileFallback={profileFallback}
           signedOwnerRequired={selectedSignedKernelAccess !== undefined}
+          signedKernelAccess={selectedSignedKernelAccess}
         />
       </AppShellRuntimeBridge>
     </DomainShellProvider>
@@ -163,6 +164,7 @@ interface HostShellContentProps {
   profileDefinition: WorkspaceProfileDefinition;
   profileFallback: boolean;
   signedOwnerRequired: boolean;
+  signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
 }
 
 /**
@@ -172,7 +174,7 @@ interface HostShellContentProps {
  * through `useWorkspaceHostRuntimeHandle` — no legacy routing state.
  */
 function HostShellContent(props: HostShellContentProps) {
-  const { host, hostDomain, hostWorkspace, devBootstrap, state, onRetry, profileId, profileDefinition, profileFallback, signedOwnerRequired } = props;
+  const { host, hostDomain, hostWorkspace, devBootstrap, state, onRetry, profileId, profileDefinition, profileFallback, signedOwnerRequired, signedKernelAccess } = props;
   const runtimeState = useWorkspaceHostRuntime();
   const runtime = runtimeState.status === "ready" ? runtimeState.runtime : null;
   const { terminology, layout, accessibility } = useDomainShell();
@@ -326,7 +328,8 @@ function HostShellContent(props: HostShellContentProps) {
                 )}
               </div>
             ) : (
-              <SignedSelectedWorkspaceGate required={signedOwnerRequired} kernel={kernel}>
+              <SignedSelectedWorkspaceGate required={signedOwnerRequired} kernel={kernel}
+                profile={profileId} signedKernelAccess={signedKernelAccess}>
                 {productFirst && <HostPanelSurface slot="sidebar" />}
                 <HostDashboardSurface />
                 <ModuleRouteOutlet
