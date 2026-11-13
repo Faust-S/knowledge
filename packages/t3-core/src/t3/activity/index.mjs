@@ -6,6 +6,10 @@ const KINDS = new Set([
 // The Kernel guarantees an event was recorded, not that an inferred or
 // proposed business step actually happened.
 const EPISTEMIC = new Set(["observed", "reported", "declared", "inferred", "proposed"]);
+// T2 lifecycle writes are verified facts about the HOST, not necessarily
+// observed business steps. A domain must explicitly opt in to excluding each
+// known intrinsic event type. Unknown events still HOLD process admission.
+const T2_INTRINSIC_CONTEXT_EVENTS = new Set(["workspace.created"]);
 
 function fail(code) {
   const error = new TypeError(code);
@@ -51,6 +55,14 @@ function makeBindings(bindings) {
   const schemas = new Map();
   const eventTypes = new Map();
   const relationKinds = new Map();
+  const contextEvents = bindings.context_events ?? [];
+  if (!Array.isArray(contextEvents) ||
+      contextEvents.length > T2_INTRINSIC_CONTEXT_EVENTS.size ||
+      contextEvents.some(type => !T2_INTRINSIC_CONTEXT_EVENTS.has(type)) ||
+      new Set(contextEvents).size !== contextEvents.length) {
+    fail("INVALID_T2_CONTEXT_EVENT_BINDING");
+  }
+  const contextEventTypes = new Set(contextEvents);
   const relationBindings = bindings.relations ?? [];
   if (!Array.isArray(relationBindings)) fail("INVALID_RELATION_BINDINGS");
 
@@ -92,6 +104,7 @@ function makeBindings(bindings) {
       fail("INVALID_EVENT_BINDING");
     }
     if (eventTypes.has(eventType)) fail("DUPLICATE_EVENT_BINDING");
+    if (contextEventTypes.has(eventType)) fail("AMBIGUOUS_CONTEXT_EVENT_BINDING");
     // Interpret Event payload references only through exact, declared bindings.
     const objectLinks = entry.object_links ?? [];
     if (!Array.isArray(objectLinks)) fail("INVALID_EVENT_OBJECT_BINDING");
@@ -114,7 +127,8 @@ function makeBindings(bindings) {
     eventTypes.set(eventType, { semantic_kind: entry.semantic_kind, object_links: objectLinks,
       epistemic_status: Object.hasOwn(entry,"epistemic_status") ? entry.epistemic_status : null });
   }
-  return { schemas, eventTypes, relationKinds };
+  return { schemas, eventTypes, relationKinds, contextEventTypes,
+    hasExplicitContextEvents: Object.hasOwn(bindings,"context_events") };
 }
 
 function dedupe(items, idField, conflictCode) {
@@ -143,7 +157,8 @@ export function projectActivitySnapshot({
   const workspaceId = nonempty(workspace_id, "INVALID_WORKSPACE");
   if (!Array.isArray(objects) || !Array.isArray(events) ||
       !Array.isArray(sourceRelations)) fail("INVALID_SOURCE_COLLECTION");
-  const { schemas, eventTypes, relationKinds } = makeBindings(bindings);
+  const { schemas, eventTypes, relationKinds,
+    contextEventTypes, hasExplicitContextEvents } = makeBindings(bindings);
 
   const localObjects = dedupe(
     objects.filter((row) => object(row) && row.workspace_id === workspaceId),
@@ -163,6 +178,9 @@ export function projectActivitySnapshot({
   const nodes = [];
   const unmappedObjects = [];
   const unmappedEvents = [];
+  // Host-only receipt: exact original event IDs remain available for an
+  // independent audit of excluded non-business lifecycle events.
+  const excludedContextEventIds = [];
   const unmappedRelations = [];
   const unresolved = [];
   const relations = [];
@@ -251,6 +269,26 @@ export function projectActivitySnapshot({
   for (const row of localEvents) {
     const eventId = nonempty(row.event_id, "INVALID_SOURCE_ID");
     const eventType = nonempty(row.event_type, "INVALID_EVENT_TYPE");
+    if (contextEventTypes.has(eventType)) {
+      // The original T2 createWorkspace() records this exact lifecycle
+      // payload without an object/revision. Never discard object-linked or
+      // malformed business records disguised as a lifecycle event.
+      const payload = row.payload;
+      if (row.object_id !== undefined || row.revision !== undefined ||
+          !object(payload) || Object.keys(payload).length !== 3 ||
+          typeof payload.profile !== "string" || !payload.profile.trim() ||
+          !Array.isArray(payload.capabilities) ||
+          payload.capabilities.some(v => typeof v !== "string") ||
+          typeof payload.read_only !== "boolean" ||
+          !Object.keys(payload).every(k =>
+            ["profile","capabilities","read_only"].includes(k))) {
+        fail("T2_CONTEXT_EVENT_NOT_VERIFIED");
+      }
+      nonempty(row.occurred_at, "INVALID_EVENT_TIME");
+      if (!Number.isFinite(Date.parse(row.occurred_at))) fail("INVALID_EVENT_TIME");
+      excludedContextEventIds.push(eventId);
+      continue;
+    }
     const binding = eventTypes.get(eventType);
     if (!binding) {
       unmappedEvents.push(eventId);
@@ -350,6 +388,7 @@ export function projectActivitySnapshot({
   ));
   unmappedObjects.sort(byId);
   unmappedEvents.sort(byId);
+  excludedContextEventIds.sort(byId);
   unmappedRelations.sort(byId);
 
   return {
@@ -359,6 +398,8 @@ export function projectActivitySnapshot({
     relations,
     unresolved,
     unmapped: { object_ids: unmappedObjects, event_ids: unmappedEvents,
-      relation_ids: unmappedRelations },
+      relation_ids: unmappedRelations,
+      ...(hasExplicitContextEvents
+        ? { excluded_context_event_ids: excludedContextEventIds } : {}) },
   };
 }
