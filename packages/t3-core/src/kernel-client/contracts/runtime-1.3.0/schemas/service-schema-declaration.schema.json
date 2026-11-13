@@ -1,17 +1,55 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://iwxa.dev/schemas/service-schema-declaration.schema.json",
-  "title": "IWXA Service Schema Declaration",
-  "description": "Canonical shape of a schema declared by a service passport OR embedded inside an .iwxa package under schemas/<schema_id>@<schema_version>.json.",
+  "title": "IWXA Service Passport Child Schema Declaration",
+  "description": "A schema declaration nested under service-passport.schemas[<schema_id>]. The schema_id belongs to the enclosing map key; the portable .iwxa package-schema record has its own schema_id and canonical_sha256.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_id", "schema_version", "preserve_unknown", "json_schema", "embedded"],
+  "required": [
+    "schema_version",
+    "preserve_unknown",
+    "json_schema",
+    "embedded"
+  ],
   "properties": {
-    "schema_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
-    "schema_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
-    "preserve_unknown": { "type": "boolean" },
-    "canonical_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "json_schema": { "type": "object" },
-    "embedded": { "type": "object", "additionalProperties": true }
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "preserve_unknown": {
+      "type": "boolean"
+    },
+    "json_schema": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "object"
+        }
+      }
+    },
+    "embedded": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_id",
+          "schema_version"
+        ],
+        "properties": {
+          "schema_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+          },
+          "schema_version": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+          }
+        }
+      }
+    }
   }
 }
