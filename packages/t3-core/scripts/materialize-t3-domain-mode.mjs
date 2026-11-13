@@ -6,6 +6,7 @@ import {existsSync, mkdirSync, readdirSync, readFileSync,
   realpathSync, writeFileSync, copyFileSync, cpSync} from "node:fs";
 import {dirname, join, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
+import {materializePwaManifest} from "./t3-pwa-manifest.mjs";
 
 const SCHEMA = "iwxa.t3.domain-offline/1";
 const scriptRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../src/t3/domain-mode");
@@ -58,10 +59,17 @@ function checkPageAssets(html, page, siteOrigin) {
 function inject(html, path, assistant) {
   const assistantMarker = '<script type="module" src="/_iwxa/t3-assistant/assistant.js" data-iwxa-t3-assistant></script>';
   const marker = '<script type="module" src="/t3-domain-mode.mjs" data-iwxa-t3-domain-mode></script>';
+  const pwaLink = '<link rel="manifest" href="/t3-app.webmanifest" data-iwxa-t3-pwa>';
   if (!/<\/body>/i.test(html)) fail("HTML_BODY_REQUIRED:" + path);
   const scripts = (html.includes("data-iwxa-t3-domain-mode") ? "" : marker) +
     (assistant && !html.includes("data-iwxa-t3-assistant") ? "\n" + assistantMarker : "");
-  return scripts ? html.replace(/<\/body>/i, scripts + "\n</body>") : html;
+  // Replace only manifest metadata. The original site's visible DOM and scripts stay unchanged.
+  let result=html.replace(/<link\\b[^>]*\\brel=["']manifest["'][^>]*>/gi,"");
+  if(!result.includes("data-iwxa-t3-pwa")) {
+    if(/<\\/head>/i.test(result))result=result.replace(/<\\/head>/i,pwaLink+"\\n</head>");
+    else result=result.replace(/<body\\b/i,pwaLink+"\\n<body");
+  }
+  return scripts ? result.replace(/<\\/body>/i, scripts + "\\n</body>") : result;
 }
 export function materializeDomainMode(distRoot, assistantDistRoot = null) {
   if (typeof distRoot !== "string" || !distRoot.trim()) fail("DIST_REQUIRED");
@@ -102,6 +110,7 @@ export function materializeDomainMode(distRoot, assistantDistRoot = null) {
       !htmlPages.includes(join(root, "workspace/index.html"))) {
     fail("SITE_AND_WORKSPACE_REQUIRED");
   }
+  materializePwaManifest(root,domainOrigin);
   const replacements = [];
   const pages = [];
   for (const page of htmlPages) {
