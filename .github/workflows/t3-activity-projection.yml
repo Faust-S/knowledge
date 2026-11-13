@@ -5,6 +5,7 @@ on:
     branches:
       - work/2026-11-10-t3-t2-activity-projection
       - work/2026-11-13-t3-pwa-integration
+      - work/2026-11-13-t3-d1-native-owner-http
     paths:
       - packages/t3-core/src/t3/activity/**
       - packages/t3-core/**
@@ -47,6 +48,10 @@ jobs:
       - run: node --test packages/t3-core/tests/t3-signed-access-host-port.test.mjs
       - name: Qualify authentic Ed25519 PERSONAL Access over the inherited Kernel
         run: node --test packages/t3-core/tests/t3-d1-real-ed25519-personal.test.mjs
+      - name: Run genuine signed Access through the existing Control HTTP transport
+        run: |
+          node --check packages/t3-core/src/t3/original-control-http-handler.mjs
+          node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs
       - name: Qualify existing offline Ed25519 encrypted local key vault
         run: node --test packages/t3-core/tests/t3-d1-original-vault.test.mjs
       - name: Test BLI declaration in the original signed one-dist
