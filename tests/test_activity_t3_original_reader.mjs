@@ -319,3 +319,59 @@ test('ORIGINAL T3 signed factory authorizes every Control-linked D2 read and fai
   assert.equal(h.counts.write,0);
   ui.dispose();link.dispose();assert.equal(changed.size,0);
 });
+
+function qualifiedOriginalFixture() {
+  const h=fixture();
+  h.bindings=structuredClone(h.bindings);
+  h.bindings.objects.push({
+    schema_id:'d06.material',schema_version:'1.0.0',semantic_kind:'Entity',
+  });
+  h.bindings.events[1].object_links=[
+    {field:'affected',qualifier:'uses',many:true},
+  ];
+  const materials=Array.from({length:3},(_,i)=>({
+    object_id:`material:${i}`,workspace_id:W,revision:1,
+    schema_id:'d06.material',schema_version:'1.0.0',
+    data:{private_supplier:`PRIVATE_SUPPLIER_${i}`},
+    created_at:'2026-11-11T09:00:00Z',updated_at:'2026-11-11T09:00:00Z',
+    created_by_service:'d06',updated_by_service:'d06',extensions:{},
+  }));
+  h.objects.push(...materials);
+  for(let i=0;i<3;i++){
+    const event=h.events.find(e=>e.event_id===`event:${i}:2`);
+    event.payload.affected=[{object_id:`material:${i}`,revision:1}];
+  }
+  return h;
+}
+test('new public T3 D2 projects qualified event-object links through original signed Host to Activity',async()=>{
+  const h=qualifiedOriginalFixture();
+  const before=structuredClone({objects:h.objects,events:h.events,bindings:h.bindings});
+  const result=await inspectSelectedT3Activity(h);
+  assert.equal(result.status,'STRUCTURE_PRESERVED_REVIEW_REQUIRED');
+  assert.equal(result.structural_candidate.length,2);
+  assert.deepEqual(result.structural_candidate.map(x=>x.cohort_band),['3-9','3-9']);
+  assert.equal(result.export_allowed,false);
+  assert.equal(result.anonymity,'NOT_ESTABLISHED');
+  assert.equal(result.iwxa_package,null);
+  assert.ok(h.counts.read>=12,'original Kernel must read every source object and recheck');
+  assert.equal(h.counts.write,0);
+  assert.deepEqual({objects:h.objects,events:h.events,bindings:h.bindings},before);
+  const leaked=JSON.stringify(result);
+  for(const secret of ['material:0','PRIVATE_SUPPLIER','PRIVATE_PERSON_',
+    'PRIVATE_NOT_TO_COPY','d06.material','uses','event:0:2',W])
+    assert.equal(leaked.includes(secret),false,secret);
+  const beforeRevoke=h.counts.read;
+  h.revoke();
+  await assert.rejects(inspectSelectedT3Activity(h),{code:'T3_AUTHORITATIVE_READ_REFUSED'});
+  assert.equal(h.counts.read,beforeRevoke,'revoked actor must never reach original Kernel');
+});
+test('new public T3 D2 reports unresolved multi-object links as privacy HOLD',async()=>{
+  const h=qualifiedOriginalFixture();
+  h.events.find(x=>x.event_id==='event:0:2').payload.affected[0].object_id='external:unverified';
+  const result=await inspectSelectedT3Activity(h);
+  assert.equal(result.status,'HOLD');
+  assert.ok(result.reason_codes.includes('T3_D2_UNRESOLVED_SOURCE_LINK'));
+  assert.equal(result.structural_candidate,null);
+  assert.equal(result.export_allowed,false);
+  assert.equal(JSON.stringify(result).includes('external:unverified'),false);
+});
