@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createHash} from 'node:crypto';
-import {existsSync} from 'node:fs';
+import {existsSync,readFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {bindT3ControlActivityReview} from
@@ -12,7 +12,8 @@ import {createT3ReviewController} from
   '../modules/activity-base-anonymizer/t3-review-controller.mjs';
 import {stageSelectedT3ActivityReview,createTrustedT3ActivityStagePort,
   T3_ACTIVITY_OWNER_REVIEW_SCHEMA,
-  T3_ACTIVITY_OWNER_REVIEW_DECLARATION} from
+  T3_ACTIVITY_OWNER_REVIEW_DECLARATION,
+  T3_ACTIVITY_OWNER_REVIEW_PASSPORT} from
   '../modules/activity-base-anonymizer/t3-owner-review-stage.mjs';
 
 const root=process.env.IWXA_T3_PUBLIC_CORE_DIR;
@@ -416,4 +417,27 @@ test('corporate epoch change after original Kernel commit is uncertain, never re
   assert.equal(deriveListeners.size,0);
   assert.equal(f.listeners[0].size,0);
   assert.equal(f.listeners[1].size,0);
+});
+
+test('actual T2 Runtime 1.3.0 service passport declares private-only review data',()=>{
+  const path=resolve(root,'src/kernel-client/contracts/runtime-1.3.0/schemas');
+  const sourceSchema=JSON.parse(readFileSync(join(path,'service-schema-declaration.schema.json'),'utf8'));
+  const passportSchema=JSON.parse(readFileSync(join(path,'service-passport.schema.json'),'utf8'));
+  const declaration=T3_ACTIVITY_OWNER_REVIEW_DECLARATION;
+  const passport=T3_ACTIVITY_OWNER_REVIEW_PASSPORT;
+  for(const key of sourceSchema.required) assert.ok(Object.hasOwn(declaration,key),key);
+  for(const key of passportSchema.required) assert.ok(Object.hasOwn(passport,key),key);
+  assert.equal(declaration.schema_id,T3_ACTIVITY_OWNER_REVIEW_SCHEMA);
+  assert.equal(passport.schemas[T3_ACTIVITY_OWNER_REVIEW_SCHEMA],declaration);
+  assert.equal(passport.service_id,'iwxa.activity.reviewer');
+  assert.deepEqual(passport.output_object_types,[T3_ACTIVITY_OWNER_REVIEW_SCHEMA]);
+  assert.deepEqual(passport.permissions.objects.read,[T3_ACTIVITY_OWNER_REVIEW_SCHEMA]);
+  assert.deepEqual(passport.permissions.objects.write,[T3_ACTIVITY_OWNER_REVIEW_SCHEMA]);
+  assert.deepEqual(passport.permissions.objects.delete,[]);
+  assert.equal(passport.permissions.packages.export,false);
+  assert.equal(passport.permissions.packages.import,false);
+  assert.equal(passport.permissions.workspace.create,false);
+  assert.ok(!JSON.stringify(passport.permissions).includes('"*"'));
+  assert.equal(declaration.json_schema.properties.export_allowed.const,false);
+  assert.equal(declaration.json_schema.properties.anonymity.const,'NOT_ESTABLISHED');
 });

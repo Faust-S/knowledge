@@ -7,6 +7,7 @@ import {inspectSelectedT3Activity, T3ActivityHold,
 
 export const T3_ACTIVITY_OWNER_REVIEW_SCHEMA = 'iwxa.activity.process-review';
 export const T3_ACTIVITY_OWNER_REVIEW_DECLARATION = Object.freeze({
+  schema_id:T3_ACTIVITY_OWNER_REVIEW_SCHEMA,
   schema_version:'1.0.0', preserve_unknown:false,
   json_schema:{
     type:'object',
@@ -45,6 +46,32 @@ export const T3_ACTIVITY_OWNER_REVIEW_DECLARATION = Object.freeze({
     additionalProperties:false,
   },
   embedded:{},
+});
+
+
+/** Register with the ORIGINAL T2 service registry at trusted Host boot.
+ * This is a normal T2 service passport, not an Activity-owned Kernel.
+ * A derivation service can read and write only its own review objects;
+ * package export/import is explicitly unavailable from this service.
+ * Source Workspace reads use the separately signed existing Host owner.
+ */
+export const T3_ACTIVITY_OWNER_REVIEW_PASSPORT = Object.freeze({
+  service_id:'iwxa.activity.reviewer',
+  service_version:'1.0.0',
+  base_path:'/workspace/activity/',
+  supported_levels:['T1','T2'],
+  input_object_types:[],
+  output_object_types:[T3_ACTIVITY_OWNER_REVIEW_SCHEMA],
+  schemas:{[T3_ACTIVITY_OWNER_REVIEW_SCHEMA]:T3_ACTIVITY_OWNER_REVIEW_DECLARATION},
+  permissions:{
+    workspace:{list:false,read:true,create:false,soft_delete:false,
+      restore:false,purge:false},
+    objects:{read:[T3_ACTIVITY_OWNER_REVIEW_SCHEMA],
+      write:[T3_ACTIVITY_OWNER_REVIEW_SCHEMA],delete:[]},
+    events:{read_scope:'service'},
+    packages:{export:false,import:false,
+      export_scope:'readable_objects',import_scope:'writable_objects'},
+  },
 });
 
 const good=(x)=>x!==null&&typeof x==='object'&&!Array.isArray(x);

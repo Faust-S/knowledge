@@ -1,5 +1,14 @@
 export const T3_ACTIVITY_OWNER_REVIEW_SCHEMA: string;
 export const T3_ACTIVITY_OWNER_REVIEW_DECLARATION: Record<string,unknown>;
+export const T3_ACTIVITY_OWNER_REVIEW_PASSPORT: Readonly<{
+  service_id: 'iwxa.activity.reviewer';
+  service_version: '1.0.0';
+  output_object_types: readonly string[];
+  permissions: {
+    objects: {read: readonly string[]; write: readonly string[]; delete: readonly string[]};
+    packages: {export: false; import: false};
+  };
+}>;
 export function stageSelectedT3ActivityReview(input: {
   sourceContext: unknown;
   sourceSignedAccess: unknown;
