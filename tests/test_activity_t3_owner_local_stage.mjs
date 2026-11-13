@@ -445,3 +445,41 @@ test('actual T2 Runtime 1.3.0 service passport declares private-only review data
   assert.equal(declaration.json_schema.properties.export_allowed.const,false);
   assert.equal(declaration.json_schema.properties.anonymity.const,'NOT_ESTABLISHED');
 });
+
+test('stock Host single CurrentWorkspaceStore never advertises a fake second-Workspace save',async()=>{
+  const f=fixture(),controlListeners=new Set(),deriveListeners=new Set();
+  const control={
+    snapshot:()=>({context:'ORGANIZATION',contextId:'org:cehovod',contextEpoch:1}),
+    signedActivityAccess:()=>f.options.sourceSignedAccess,
+    subscribeInvalidation(fn){controlListeners.add(fn);return()=>controlListeners.delete(fn);},
+  };
+  // In the original T3 ModuleContextProvider every module reads the same
+  // selected Workspace. A target grant does not create a second selection.
+  const singleStoreContext={
+    kernel:f.options.sourceContext.kernel,
+    currentWorkspace:f.options.sourceContext.currentWorkspace,
+  };
+  const bridge=bindT3ControlActivityReview({
+    control,context:f.options.sourceContext,bindings:f.options.bindings,
+    createSignedAccessHostPort:core.createSignedAccessHostPort,
+    readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
+    derivation:{
+      targetContext:singleStoreContext,
+      targetSignedAccess:f.options.targetSignedAccess,
+      createSubjectKernelBinding:core.createSubjectKernelBinding,
+      subscribeOwnerInvalidation(fn){deriveListeners.add(fn);return()=>deriveListeners.delete(fn);},
+    },
+  });
+  assert.deepEqual(Object.keys(bridge.port).sort(),
+    ['readSelected','subscribeInvalidation']);
+  assert.equal(f.state.writeCalls,0);
+  const states=[];
+  const ui=createT3ReviewController({host:bridge.port,onUpdate:s=>states.push(s)});
+  assert.deepEqual(await ui.readSelected(),{status:'REVIEW'});
+  assert.deepEqual(await ui.stageSelected(),{status:'UNAVAILABLE'});
+  assert.equal(f.state.writeCalls,0);
+  ui.dispose();bridge.dispose();
+  assert.equal(controlListeners.size,0);
+  assert.equal(deriveListeners.size,0);
+  assert.equal(f.listeners[0].size,0);
+});

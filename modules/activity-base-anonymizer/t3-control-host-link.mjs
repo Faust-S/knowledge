@@ -43,6 +43,19 @@ export function bindT3ControlActivityReview({
       typeof derivation.subscribeOwnerInvalidation==='function',
       'T3_CONTROL_DERIVATION_OWNER_REQUIRED');
   }
+  // The stock T3 ModuleContext shares ONE CurrentWorkspaceStore across
+  // modules. If the target resolves to the same selected Workspace, offering
+  // a Save button would be a false promise even with a signed derive grant.
+  // Only an actual independent owner-supplied scoped selection enables it.
+  let distinctTargets=false;
+  if(derivation!==null){
+    try{
+      const sourceId=context.currentWorkspace.get()?.workspace_id;
+      const targetId=derivation.targetContext.currentWorkspace.get()?.workspace_id;
+      distinctTargets=typeof sourceId==='string'&&typeof targetId==='string'&&
+        sourceId.length>0&&targetId.length>0&&sourceId!==targetId;
+    }catch{/* Missing independent owner selection never permits a save. */}
+  }
   let generation=0,closed=false,stagePending=false;
   const listeners=new Set();
   const invalidate=()=>{
@@ -113,7 +126,7 @@ export function bindT3ControlActivityReview({
         'T3_CONTROL_CONTEXT_CHANGED_DURING_READ');
       return review;
     },
-    ...(derivation!==null ? {
+    ...(distinctTargets ? {
       async stageSelected() {
         need(!closed,'T3_CONTROL_HOST_DETACHED');
         need(!stagePending,'T3_CONTROL_ACTIVITY_STAGE_IN_PROGRESS');
