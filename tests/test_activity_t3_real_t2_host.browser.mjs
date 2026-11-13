@@ -162,10 +162,15 @@ try {
       });
     }catch{exportDenied=true;}
     try{
-      await targetReviewer.t1.getObject(args.source,'d05:source-bracket');
+      const foreign=await targetReviewer.t1.getObject(
+        args.source,'d05:source-bracket');
+      // The original T2 may conceal an ungranted object by returning null
+      // rather than raising an exception. Both are denied disclosures.
+      foreignDenied=foreign?.object==null;
     }catch{foreignDenied=true;}
     if(!exportDenied||!foreignDenied)
-      throw Error('ORIGINAL_T2_PRIVATE_REVIEW_PERMISSION_LEAK');
+      throw Error('ORIGINAL_T2_PRIVATE_REVIEW_PERMISSION_LEAK_'
+        +String(exportDenied)+'_'+String(foreignDenied));
     return {
       source_revision:sourceWrite.object.revision,
       source_event_id:sourceWrite.event.event_id,
