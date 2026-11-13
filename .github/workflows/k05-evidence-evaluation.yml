@@ -10,6 +10,8 @@ on:
       - 'research/cross-lab/tests/test_k05_k03_projection.py'
       - 'research/cross-lab/tests/test_k05_c17_projection.py'
       - 'research/cross-lab/tests/test_k05_agent_consumer.py'
+      - 'research/cross-lab/k05_agent05_final_result_binding.py'
+      - 'research/cross-lab/tests/test_k05_agent05_final_result_binding.py'
       - 'research/cross-lab/k05_agent05_graph_readback.py'
       - 'research/cross-lab/tests/test_k05_agent05_graph_readback.py'
       - 'research/cross-lab/k05_agent05_observations.py'
@@ -281,6 +283,10 @@ jobs:
           assert comparison['limitations']['no_router_comparison_win_established'] is True
           print('K05_K02_PINNED_EIGHT_CASES_AND_FOUR_STRATEGIES_PASS')
           PY
+      - name: Verify exact Agent Graph final Result readback binding
+        run: |
+          python -m unittest research/cross-lab/tests/test_k05_agent05_final_result_binding.py -v
+          echo K05_AGENT05_GRAPH_FINAL_RESULT_BINDING_PASS_NO_CORE_READS
       - name: Verify saved Graph artifact/config digests against Agent K05 observations
         run: |
           python -m unittest research/cross-lab/tests/test_k05_agent05_graph_readback.py -v
