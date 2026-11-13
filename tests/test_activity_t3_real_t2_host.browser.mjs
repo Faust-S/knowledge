@@ -317,6 +317,7 @@ try {
       const stagedEvent=events.find(e=>e.event_type==='t3.activity.review.staged');
       if(!stagedEvent)throw Error('ORIGINAL_T3_SIGNED_EVENT_NOT_PERSISTED');
       return {status:staged.status,source_review:snapshot.status,
+        source_reason_codes:[...snapshot.reason_codes],
         draft_revision:targetObjects[0].revision,
         draft_object_id:targetObjects[0].object_id,
         event_id:stagedEvent.event_id,
@@ -381,6 +382,7 @@ try {
       sameOriginalT2Store:true,selectedWorkspaceStores:1,
       coldReadback:true,sourceUnchanged:true,
       sourceReview:signed.source_review,
+      safeReasonCodes:signed.source_reason_codes,
       rendererNoPrivateContent:true,externalTransferAccepted:false}));
   console.log('ACTIVITY_ORIGINAL_T2_REVIEW_PASSPORT_COLD_KERNEL_PASS',
     JSON.stringify({original_kernel:kernel,original_contract:contract,
