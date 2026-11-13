@@ -125,8 +125,7 @@ it("foreign Workspace ID from signed port never reaches Kernel.createWorkspace",
     listWorkspaces:vi.fn(async()=>[]),getWorkspace:vi.fn(async()=>null),
     hasOperation:()=>true,createWorkspace,
   } as unknown as KernelFacade;
-  const resolver=vi.fn(async()=>selectedPort("ws:north","ws:south"))
-    as unknown as SignedResolver;
+  const resolver=vi.fn(async()=>selectedPort("ws:north","ws:south")) as unknown as SignedResolver;
   render(<SignedSelectedWorkspaceGate required kernel={candidate}
     profile="generic" signedKernelAccess={resolver}>
     <p data-testid="forbidden">Workspace</p>

@@ -47,6 +47,9 @@ const mockContext=Object.freeze({
   purpose:'workspace.read',workspace_id:scopedWorkspace,
   organization_id:'org:d1-local',scope_revision:1,
 });
+const mockCreateContext=Object.freeze({
+  ...mockContext,grant_id:'grant:d1-create',purpose:'workspace.onboarding',
+});
 const server=createServer((req,res)=>{
   const send=(status,body,type='application/json',workspace=false)=>{
     const csp=workspace
@@ -89,15 +92,18 @@ const server=createServer((req,res)=>{
       req.on('end',()=>{
         try{
           const input=JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          if(input?.scope!=='kernel'||input?.operation!=='getWorkspace')
+          if(input?.scope!=='kernel'||
+             !['getWorkspace','createWorkspace'].includes(input.operation))
             return send(403,{error:'SYNTHETIC_OWNER_SCOPE_DENIED'});
+          const createAction=input.operation==='createWorkspace';
+          const selected=createAction?mockCreateContext:mockContext;
           if(input.verb==='select')
             return send(200,{available:true,contextEpoch:0});
-          if(input.verb==='context')return send(200,{context:mockContext});
+          if(input.verb==='context')return send(200,{context:selected});
           if(input.verb==='action'){
-            if(input.kernelOperation!=='t1.getWorkspace')
+            if(input.kernelOperation!==(createAction?'t1.createWorkspace':'t1.getWorkspace'))
               return send(403,{error:'SYNTHETIC_OWNER_OPERATION_DENIED'});
-            return send(200,{action:'workspace.read'});
+            return send(200,{action:createAction?'workspace.create':'workspace.read'});
           }
           if(input.verb==='digest')
             return send(200,{digest:hash(Buffer.from(JSON.stringify(input.command)))});
@@ -110,8 +116,8 @@ const server=createServer((req,res)=>{
               policyDigest:hash(Buffer.from('SYNTHETIC_POLICY_ONLY')),
               operationDigest:request.operationDigest,
               evidenceDigest:hash(Buffer.from('SYNTHETIC_EVIDENCE_ONLY')),
-              organizationId:mockContext.organization_id,
-              workspaceId:scopedWorkspace,grantId:mockContext.grant_id,
+              organizationId:selected.organization_id,
+              workspaceId:scopedWorkspace,grantId:selected.grant_id,
               statusSequence:0,
               validUntil:new Date(Date.now()+600000).toISOString(),
               productionActivation:false,doesNotTransferData:true,
@@ -254,20 +260,25 @@ try{
   await selected.goto(origin+'/workspace/signed-workspace.html#'+token);
   const missing=selected.getByTestId('t3-d1-selected-workspace-message');
   await missing.waitFor({state:'visible',timeout:60000});
-  assert.match(await missing.innerText(),/ещё нет рабочей области/,
+  assert.match(await missing.innerText(),/пока нет рабочей области/,
     'T3_D1_SIGNED_FIRST_RUN_MUST_EXPLAIN_MISSING_ORIGINAL_WORKSPACE');
   assert.equal(new URL(selected.url()).hash,'');
-  await browser.page.evaluate(async({serviceId,workspace_id})=>{
-    const kernel=await globalThis.IWXA.connect({service_id:serviceId});
-    return kernel.t1.createWorkspace({workspace_id,profile:'generic'});
-  },{serviceId,workspace_id:scopedWorkspace});
-  await selected.getByRole('button',{name:'Проверить повторно'}).click();
+  await selected.getByTestId('t3-d1-create-selected-workspace').click();
   await selected.getByTestId('t3-d1-selected-workspace-gate')
     .waitFor({state:'detached',timeout:30000});
+  // Independently read the workspace from the original Kernel on a
+  // separate probe page. That page does NOT create the Workspace.
+  const created=await browser.page.evaluate(async({serviceId,workspace_id})=>{
+    const kernel=await globalThis.IWXA.connect({service_id:serviceId});
+    return kernel.t1.getWorkspace(workspace_id);
+  },{serviceId,workspace_id:scopedWorkspace});
+  assert.equal(created?.workspace_id,scopedWorkspace);
+  assert.equal(created?.profile,'generic');
   assert.deepEqual(selectedErrors,[]);
-  console.log('T3_D1_SYNTHETIC_SIGNED_SELECTED_WORKSPACE_PASS',JSON.stringify({
-    compiledSignedHost:true,originalKernel:'0.3.6',createdOriginalWorkspace:true,
-    missingWorkspaceExplained:true,explicitRetryReadback:true,
+  console.log('T3_D1_SYNTHETIC_SIGNED_CREATE_WORKSPACE_PASS',JSON.stringify({
+    compiledSignedHost:true,originalKernel:'0.3.6',
+    createdViaSignedKernelFacade:true,independentOriginalKernelReadback:true,
+    missingWorkspaceExplained:true,explicitUserAction:true,
     syntheticOwnerOnly:true,authenticPrivateSignerExecuted:false,
   }));
 
