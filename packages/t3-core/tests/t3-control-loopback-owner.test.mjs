@@ -404,7 +404,7 @@ test("original Control selects separately signed Activity Derive, never inferred
     assert.equal((await read.currentContext()).workspace_id,"ws:north");
     assert.equal(await owner.signedActivityAccess("activity.derive"),null,
       "Activity Read cannot grant Activity Derive");
-    await assert.rejects(owner.signedActivityAccess("activity.publish"),{
+    assert.throws(()=>owner.signedActivityAccess("activity.publish"),{
       code:"T3_D1_ACTIVITY_OPERATION_UNSUPPORTED",
     });
     f.grantDerive();
