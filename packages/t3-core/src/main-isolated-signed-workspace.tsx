@@ -12,8 +12,9 @@ type UiConfig={schema:"IWXA_T3_ISOLATED_WORKSPACE_UI/1";
   kernel_origin:string;service_id:string};
 const fail=(code:string)=>Object.assign(new Error(code),{code});
 const bearer=location.hash.startsWith("#")?location.hash.slice(1):"";
-// Strip the bearer from history BEFORE any import of the React/Host graph.
-history.replaceState(null,"",location.pathname+location.search+"#/overview");
+// Strip the bearer before loading React, then land on the original Host's
+// canonical /workspace/ route. Never expose Control credentials to modules.
+history.replaceState(null,"","/workspace/#/overview");
 const target=document.getElementById("root");
 if(!target)throw fail("T3_HOST_MOUNT_ROOT_REQUIRED");
 

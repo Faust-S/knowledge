@@ -230,7 +230,7 @@ const uiServer=createServer((req,res)=>{
   if(path==='/workspace/t3-isolated-ui.json')
     return uiSend(200,{schema:'IWXA_T3_ISOLATED_WORKSPACE_UI/1',
       kernel_origin:origin,service_id:serviceId});
-  if(path==='/workspace/isolated-signed-workspace.html')
+  if(path==='/workspace/'||path==='/workspace/isolated-signed-workspace.html')
     return uiSend(200,readFileSync(join(output,'workspace/isolated-signed-workspace.html')),
       'text/html; charset=utf-8');
   if(path==='/_iwxa/domain.json'||path==='/_iwxa/domain-shell.json'){
