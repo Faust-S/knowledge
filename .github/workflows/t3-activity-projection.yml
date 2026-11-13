@@ -15,6 +15,7 @@ on:
       - work/2026-11-13-t3-d1-windows-dpapi-custody
       - work/2026-11-13-t3-d1-windows-sequential-enrollment
       - work/2026-11-13-t3-d1-installed-original-host
+      - work/2026-11-13-t3-d1-native-control-webview2
     paths:
       - packages/t3-core/src/t3/activity/**
       - packages/t3-core/**
@@ -226,6 +227,47 @@ jobs:
         run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs
       - name: Windows installed original T3 Host two-origin HTTP and Control route (no native GUI)
         run: node --test packages/t3-core/tests/t3-d1-installed-original-control-host.test.mjs
+
+
+  windows-native-control:
+    # Native Windows EXE qualification is opt-in to avoid rebuilding Rust for
+    # every unrelated original Kernel/source push. No private repositories,
+    # no signing keys, no extra Kernel or installer are introduced.
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[t3-native]')
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare existing IWXA icon and Windows Rust toolchain
+        shell: pwsh
+        run: |
+          rustc --version
+          cargo --version
+          New-Item -ItemType Directory -Force -Path packages/t3-core/native-control/src-tauri/icons | Out-Null
+          Copy-Item packages/t3-core/public/favicon.ico packages/t3-core/native-control/src-tauri/icons/icon.ico
+      - name: Check signed Host ownership and Windows-launch transport
+        shell: pwsh
+        run: |
+          node --check packages/t3-core/src/t3/installed-original-control-host.mjs
+          node --test packages/t3-core/tests/t3-d1-installed-original-control-host.test.mjs
+      - name: Qualify native WebView2 URL admission and denied fallback in Rust
+        run: cargo test --manifest-path packages/t3-core/native-control/src-tauri/Cargo.toml --release
+      - name: Compile actual Windows Tauri WebView2 Control executable
+        run: cargo build --manifest-path packages/t3-core/native-control/src-tauri/Cargo.toml --release
+      - name: Verify Windows EXE exists (not a qualified installer)
+        shell: pwsh
+        run: |
+          $exe = 'packages/t3-core/native-control/src-tauri/target/release/iwxa-t3-control-native.exe'
+          if (-not (Test-Path $exe -PathType Leaf)) { throw 'T3_NATIVE_WINDOWS_CONTROL_EXE_MISSING' }
+          $length = (Get-Item $exe).Length
+          if ($length -lt 100000) { throw 'T3_NATIVE_WINDOWS_CONTROL_EXE_INVALID' }
+          Write-Output "T3_D1_NATIVE_WINDOWS_CONTROL_EXE_BUILD_PASS bytes=$length installed=false productionIssuer=false"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: t3-native-control-windows-${{ github.sha }}
+          path: packages/t3-core/native-control/src-tauri/target/release/iwxa-t3-control-native.exe
+          if-no-files-found: error
+          retention-days: 7
 
   metal-webgpu:
     # A macOS runner was not allocated at all in #43233365753 (0 steps,
