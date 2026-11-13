@@ -102,7 +102,6 @@ async function windowsProtectedData(mode,bytes){
     const input=Buffer.from(bytes.toString("base64"),"ascii");
     child.stdin.on("error",()=>finish(true));
     child.stdin.end(input);
-    input.fill(0);
   });
 }
 
