@@ -25,9 +25,12 @@ function createSigner(name,subject,uses,now){
     },
   };
 }
-export function createTemporaryOriginalPersonalAuthority({workspaceId,now=Date.now()}={}){
+export function createTemporaryOriginalPersonalAuthority({
+  workspaceId,now=Date.now(),readSignedState=null,clock=()=>now,
+}={}){
   if(typeof workspaceId!=="string"||workspaceId.length<6||
-     !Number.isSafeInteger(now))
+     !Number.isSafeInteger(now)||typeof clock!=="function"||
+     (readSignedState!==null&&typeof readSignedState!=="function"))
     throw Error("D1_REAL_PERSONAL_TEST_INPUT_REQUIRED");
   const issuer=createSigner("issuer","issuer:local",["GRANT"],now);
   const status=createSigner("status","issuer:local",["STATUS"],now);
@@ -110,19 +113,21 @@ export function createTemporaryOriginalPersonalAuthority({workspaceId,now=Date.n
     operationDigest:({operation,input,context})=>digest({operation,input,context}),
     canonicalDigest:digest,
     personal:{check:createOriginalPersonalAccessCheck({
-      clock:()=>now,
-      readState:async()=>{registryReads++;return state;},
+      clock,
+      readState:async()=>{registryReads++;return readSignedState
+        ?readSignedState():state;},
       signProof:async(input)=>{
         proofCount++;
         return vaultProof(input);
       },
     })},
-    clock:()=>now,
+    clock,
   });
   return Object.freeze({
     access,
     get proofCount(){return proofCount;},
     get registryReads(){return registryReads;},
+    snapshotSignedState(){return structuredClone(state);},
     revoke(){
       const withdrawn={
         ...statusBase,sequence:2,issuedAt:iso(now-1000),

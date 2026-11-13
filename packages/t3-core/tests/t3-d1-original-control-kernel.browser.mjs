@@ -13,6 +13,8 @@ import {createOriginalControlHttpHandler}
   from "../src/t3/original-control-http-handler.mjs";
 import {createTemporaryOriginalPersonalAuthority}
   from "./support/t3-original-personal-authority.mjs";
+import {createOriginalKernelRegistryStatePort,ORIGINAL_REGISTRY_SCHEMA}
+  from "../src/t3/access/original-kernel-registry-state.mjs";
 import {materializeIntegrationHost,serveRealKernelHost}
   from "../scripts/real-kernel-e2e.mjs";
 import {assertQualifiedKernelArtifact}
@@ -37,7 +39,12 @@ test("real HTTPS Host Control verifies Ed25519 PERSONAL on original Kernel; revo
   let live=null,context=null,handler=null;
   const token=randomBytes(32).toString("base64url");
   const ws="t3-d1-real-"+randomUUID();
-  const authority=createTemporaryOriginalPersonalAuthority({workspaceId:ws,now:Date.now()});
+  let statePort=null,registryPage=null;
+  const registryWs="t3-access-registry-"+randomUUID();
+  const authority=createTemporaryOriginalPersonalAuthority({
+    workspaceId:ws,now:Date.now(),clock:Date.now,
+    readSignedState:()=>statePort.readState(),
+  });
   let epoch=1;
   const listeners=new Set();
   try {
@@ -63,6 +70,19 @@ test("real HTTPS Host Control verifies Ed25519 PERSONAL on original Kernel; revo
     host.domain.runtime.runtime_version="0.3.6";
     host.workspaceConfig.host.required_runtime_version="0.3.6";
     host.workspaceConfig.host.required_contract_version="1.3.0";
+    // Qualified Host fixture: the original T2 service can persist a public,
+    // SIGNED AccessRegistry object using the same Kernel/Store and event log.
+    // The installed native Host must provision this in a trusted service,
+    // not expose the registry write capability to ordinary domain modules.
+    host.domain.security.allowed_object_classes.push(ORIGINAL_REGISTRY_SCHEMA);
+    host.passport.input_object_types.push(ORIGINAL_REGISTRY_SCHEMA);
+    host.passport.output_object_types.push(ORIGINAL_REGISTRY_SCHEMA);
+    host.passport.schemas[ORIGINAL_REGISTRY_SCHEMA]={
+      schema_version:"1.0.0",preserve_unknown:true,
+      json_schema:{type:"object"},embedded:{},
+    };
+    host.passport.permissions.objects.read.push(ORIGINAL_REGISTRY_SCHEMA);
+    host.passport.permissions.objects.write.push(ORIGINAL_REGISTRY_SCHEMA);
     put(dist,"_iwxa/domain.json",JSON.stringify(host.domain));
     put(dist,"workspace/workspace.config.json",JSON.stringify(host.workspaceConfig));
     const pass="_iwxa/services/"+SERVICE+".json";
@@ -94,6 +114,36 @@ test("real HTTPS Host Control verifies Ed25519 PERSONAL on original Kernel; revo
     let page=context.pages()[0]||await context.newPage();
     await page.goto(live.origin+"/workspace/");
     await page.waitForFunction(()=>typeof window.IWXA?.connect==="function");
+    registryPage=await context.newPage();
+    await registryPage.goto(live.origin+"/workspace/");
+    await registryPage.waitForFunction(()=>typeof window.IWXA?.connect==="function");
+    await registryPage.evaluate(async({SERVICE,registryWs})=>{
+      const session=await IWXA.connect({service_id:SERVICE});
+      await session.t1.createWorkspace({workspace_id:registryWs,profile:"generic"});
+    },{SERVICE,registryWs});
+    // Trusted Control uses only the ORIGINAL KernelFacade from the running
+    // Host. All signed records remain in its existing Store and event journal.
+    const registryKernel={
+      sessionInfo:{contract_version:"1.3.0",runtime_version:"0.3.6"},
+      hasOperation:op=>["t1.getObject","t1.putObject","t1.listEventsSince"].includes(op),
+      getObject:(workspaceId,objectId)=>registryPage.evaluate(async({SERVICE,workspaceId,objectId})=>{
+        const session=await IWXA.connect({service_id:SERVICE});
+        return session.t1.getObject(workspaceId,objectId);
+      },{SERVICE,workspaceId,objectId}),
+      putObject:input=>registryPage.evaluate(async({SERVICE,input})=>{
+        const session=await IWXA.connect({service_id:SERVICE});
+        return session.t1.putObject(input);
+      },{SERVICE,input}),
+      listEventsSince:workspaceId=>registryPage.evaluate(async({SERVICE,workspaceId})=>{
+        const session=await IWXA.connect({service_id:SERVICE});
+        return session.t1.listEventsSince(workspaceId);
+      },{SERVICE,workspaceId}),
+    };
+    const portOptions={kernel:registryKernel,workspaceId:registryWs,
+      trustedPolicy:authority.snapshotSignedState().policy};
+    statePort=createOriginalKernelRegistryStatePort(portOptions);
+    const registryInitial=await statePort.commitSignedState(authority.snapshotSignedState());
+    assert.equal(registryInitial.revision,1);
     const initial=await page.evaluate(async({SERVICE,ws,token})=>{
       const raw=await window.IWXA.connect({service_id:SERVICE});
       if(raw.runtime_version!=="0.3.6"||raw.contract_version!=="1.3.0")
@@ -140,6 +190,9 @@ test("real HTTPS Host Control verifies Ed25519 PERSONAL on original Kernel; revo
     assert.equal(authority.proofCount,1);
     assert.equal(authority.registryReads,1);
     authority.revoke();
+    const registryRevoked=await statePort.commitSignedState(authority.snapshotSignedState());
+    assert.equal(registryRevoked.revision,2);
+    assert.equal((await statePort.readState()).statusFloor["authority:personal"],2);
     const forbidden=await page.evaluate(async ws=>{
       try{
         await window.__subjectBound.putObject({
@@ -163,6 +216,13 @@ test("real HTTPS Host Control verifies Ed25519 PERSONAL on original Kernel; revo
     page=context.pages()[0]||await context.newPage();
     await page.goto(live.origin+"/workspace/");
     await page.waitForFunction(()=>typeof window.IWXA?.connect==="function");
+    registryPage=await context.newPage();
+    await registryPage.goto(live.origin+"/workspace/");
+    await registryPage.waitForFunction(()=>typeof window.IWXA?.connect==="function");
+    // Recreate the trusted registry adapter with NO in-memory state
+    // retained from the prior browser profile session.
+    statePort=createOriginalKernelRegistryStatePort(portOptions);
+    assert.equal((await statePort.readState()).statusFloor["authority:personal"],2);
     const cold=await page.evaluate(async({SERVICE,ws})=>{
       const original=await window.IWXA.connect({service_id:SERVICE});
       const old=await original.t1.getObject(ws,"document:one");
@@ -212,6 +272,8 @@ test("real HTTPS Host Control verifies Ed25519 PERSONAL on original Kernel; revo
       singleTrustedHost:true,browserColdRestart:true,originalKernelStore:true,
       revokedBeforeAndAfterCold:true,foreignWorkspaceDenied:true,
       realInstalledControlAccepted:false,hostProcessRestartAccepted:false,
+      originalKernelRegistryRevision:registryRevoked.revision,
+      recoveredSignedStatusFloor:2,secondStoreCreated:false,
     }));
   } finally {
     if(context)await context.close().catch(()=>{});
