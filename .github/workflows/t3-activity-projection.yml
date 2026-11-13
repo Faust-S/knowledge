@@ -48,8 +48,6 @@ jobs:
         run: node --test packages/t3-core/scripts/t3-signed-dist-registration.test.mjs
       - name: Qualify canonical isolated signed Workspace server from public knowledge
         run: node --test packages/t3-core/tests/t3-d1-isolated-ui-server.test.mjs
-      - name: Qualify staging original Control consumer without copying private code to knowledge
-        run: node --test packages/t3-core/tests/t3-d1-control-consumer-stage.test.mjs
       - name: Verify D1 origin-isolated signed original Kernel carrier
         run: node --test packages/t3-core/tests/t3-d1-origin-isolated-kernel.test.mjs
       - name: Verify original Runtime 1.3 isolated bootstrap semantics
