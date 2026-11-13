@@ -33,6 +33,11 @@ function checkPlan(batch,action,plan){
     !HEX.test(plan.plan_digest??'')||
     !HEX.test(plan.provider_binding_digest??'')||
     !TIDK.test(plan.idempotency_key??'')||
+    plan.schema_version!=='1.0.0'||
+    plan.plan_contract!=='PA.CONTRACT.TOOL_PLANNING@1.0.0'||
+    !HEX.test(plan.tool_descriptor_digest??'')||
+    plan.task_ref?.kind!=='task'||
+    !HEX.test(plan.task_ref?.digest_sha256??'')||
     plan.task_ref?.ref_id!==batch.taskRef||
     plan.tool_id!=='files.write_text'||plan.operation!=='files.write_text'||
     plan.provider_slot!=='file_workspace'||plan.provider_id!=='LOCAL_FILES_V1'||
@@ -44,19 +49,41 @@ function checkPlan(batch,action,plan){
     fail('AGENT05_NATIVE_PLAN_MISMATCH');
 }
 function checkReceipt(plan,receipt,execution){
-  if(!obj(receipt)||!TXR.test(receipt.receipt_id??'')||
+  // P01 ToolRuntime execution-receipt-v1 is bound by typed plan_ref.
+  // The old 0.12 plan_id/plan_digest fields do not exist in native 1.0.0.
+  const planRef=receipt?.plan_ref,approvalRef=receipt?.approval_ref;
+  if(!obj(receipt)||receipt.schema_version!=='1.0.0'||
+    receipt.execution_contract!=='PA.CONTRACT.TOOL_EXECUTION@1.0.0'||
+    !TXR.test(receipt.receipt_id??'')||
     receipt.receipt_id!==execution.receipt_id||
-    receipt.plan_id!==plan.plan_id||
-    receipt.plan_digest!==plan.plan_digest||
+    !obj(planRef)||planRef.kind!=='tool_execution_plan'||
+    planRef.ref_id!==plan.plan_id||
+    planRef.digest_sha256!==plan.plan_digest||
+    !obj(approvalRef)||approvalRef.kind!=='approval'||
+    !/^TEAPR-[A-Za-z0-9_-]{1,100}$/.test(approvalRef.ref_id??'')||
+    !HEX.test(approvalRef.digest_sha256??'')||
     receipt.tool_id!==plan.tool_id||
+    receipt.tool_descriptor_digest!==plan.tool_descriptor_digest||
     receipt.provider_slot!==plan.provider_slot||
     receipt.provider_id!==plan.provider_id||
     receipt.provider_binding_digest!==plan.provider_binding_digest||
     receipt.idempotency_key!==plan.idempotency_key||
+    !HEX.test(receipt.output_digest??'')||
     !HEX.test(receipt.receipt_digest??'')||
+    !obj(receipt.response_meta)||
     !['SUCCEEDED','FAILED','INPUT_REQUIRED'].includes(receipt.status)||
     !EFFECTS.has(receipt.external_effect_state)||
-    (receipt.status!=='SUCCEEDED'&&receipt.external_effect_state==='ACKNOWLEDGED'))
+    !['SUCCEEDED','FAILED_KNOWN','UNKNOWN_RECONCILIATION_REQUIRED']
+      .includes(receipt.contract_state)||
+    (receipt.external_effect_state==='UNKNOWN'&&
+      receipt.contract_state!=='UNKNOWN_RECONCILIATION_REQUIRED')||
+    (receipt.external_effect_state==='NONE'&&
+      receipt.contract_state==='UNKNOWN_RECONCILIATION_REQUIRED')||
+    (receipt.status!=='SUCCEEDED'&&
+      receipt.external_effect_state==='ACKNOWLEDGED')||
+    (receipt.status==='FAILED'&&receipt.contract_state==='SUCCEEDED')||
+    (receipt.status==='SUCCEEDED'&&
+      receipt.contract_state==='FAILED_KNOWN'))
     fail('AGENT05_NATIVE_RECEIPT_MISMATCH');
 }
 function checkReadback(action,readback){

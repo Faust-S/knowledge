@@ -41,9 +41,13 @@ const batch=mode=>prepareAgent05FileActions(pack(),{deliveryMode:mode??'full',
   baseDirectory:'Встречи'});
 function plan(b,action,index=0){
   return {
+    schema_version:'1.0.0',plan_contract:'PA.CONTRACT.TOOL_PLANNING@1.0.0',
     plan_id:'TPLAN-fixture-'+(index+1),plan_digest:[A,B,C,D][index],
     task_ref:{kind:'task',ref_id:b.taskRef,digest_sha256:A},
-    tool_id:'files.write_text',operation:'files.write_text',
+    candidate_ref:{kind:'action_candidate',ref_id:'CAND-test-'+(index+1),digest_sha256:B},
+    accepted_artifact_ref:{kind:'accepted_artifact',ref_id:'ART-test',digest_sha256:C},
+    tool_id:'files.write_text',tool_descriptor_digest:B,
+    operation:'files.write_text',
     provider_slot:'file_workspace',provider_id:'LOCAL_FILES_V1',
     provider_binding_digest:C,effect_class:'CONSEQUENTIAL',
     effect_subclass:'WRITE',approval_requirement:'REQUIRED',
@@ -53,12 +57,24 @@ function plan(b,action,index=0){
   };
 }
 function receipt(p,status='SUCCEEDED',effect='ACKNOWLEDGED'){
-  return {receipt_id:'TXR-fixture-'+p.plan_id.slice(-1),
-    plan_id:p.plan_id,plan_digest:p.plan_digest,
-    tool_id:p.tool_id,provider_slot:p.provider_slot,provider_id:p.provider_id,
+  const contractState=effect==='UNKNOWN'?'UNKNOWN_RECONCILIATION_REQUIRED':
+    status==='SUCCEEDED'?'SUCCEEDED':'FAILED_KNOWN';
+  return {schema_version:'1.0.0',
+    execution_contract:'PA.CONTRACT.TOOL_EXECUTION@1.0.0',
+    receipt_id:'TXR-fixture-'+p.plan_id.slice(-1),
+    plan_ref:{kind:'tool_execution_plan',ref_id:p.plan_id,
+      digest_sha256:p.plan_digest},
+    approval_ref:{kind:'approval',ref_id:'TEAPR-fixture-'+p.plan_id.slice(-1),
+      digest_sha256:A},
+    tool_id:p.tool_id,tool_descriptor_digest:p.tool_descriptor_digest,
+    provider_slot:p.provider_slot,provider_id:p.provider_id,
     provider_binding_digest:p.provider_binding_digest,
     idempotency_key:p.idempotency_key,
-    status,external_effect_state:effect,receipt_digest:D};
+    status,contract_state:contractState,external_effect_state:effect,
+    started_at:'2026-11-12T12:00:00+00:00',
+    finished_at:'2026-11-12T12:00:01+00:00',
+    output_digest:C,response_meta:{},provider_operation_ref:null,
+    receipt_digest:D};
 }
 const readback=action=>({
   data:{root_id:'personal',path:action.target,text:action.text,
@@ -167,6 +183,10 @@ test('failed execution and unknown external effect never become successful deliv
 test('stale or other-task plan, changed arguments or new provider are refused',()=>{
   const b=batch('compact'),base=entry(b,0,'SUCCEEDED',{readback:true});
   for(const alter of [
+    x=>{x.plan.schema_version='0.12';},
+    x=>{x.plan.plan_contract='WRONG';},
+    x=>{x.plan.tool_descriptor_digest='invalid';},
+    x=>{x.plan.task_ref.kind='other';},
     x=>{x.plan.task_ref.ref_id='OTHER-TASK';},
     x=>{x.plan.target='other.md';},
     x=>{x.plan.arguments.text+='new';},
@@ -185,14 +205,22 @@ test('stale or other-task plan, changed arguments or new provider are refused',(
 test('forged receipt identity, idempotency or provider binding cannot move the file to ACK',()=>{
   const b=batch('compact'),base=entry(b,0,'SUCCEEDED',{readback:true});
   for(const alter of [
-    x=>{x.receipt.plan_id='TPLAN-another';},
-    x=>{x.receipt.plan_digest='0'.repeat(64);},
+    x=>{x.receipt.plan_ref.ref_id='TPLAN-another';},
+    x=>{x.receipt.plan_ref.digest_sha256='0'.repeat(64);},
+    x=>{x.receipt.plan_ref.kind='not_a_plan';},
+    x=>{x.receipt.approval_ref.kind='not_approval';},
+    x=>{x.receipt.approval_ref.digest_sha256='0';},
+    x=>{x.receipt.tool_descriptor_digest='0'.repeat(64);},
+    x=>{x.receipt.schema_version='0.12';},
+    x=>{x.receipt.execution_contract='UNKNOWN';},
     x=>{x.receipt.idempotency_key='IWXA-TIDK-'+'f'.repeat(40);},
     x=>{x.receipt.provider_binding_digest='0'.repeat(64);},
     x=>{x.receipt.tool_id='other';},
     x=>{x.receipt.receipt_id='TXR-another';},
     x=>{x.receipt.status='COMPLETE';},
     x=>{x.receipt.external_effect_state='INFERRED';},
+    x=>{x.receipt.contract_state='UNKNOWN';},
+    x=>{x.receipt.output_digest='invalid';},
   ]){
     const e=structuredClone(base);alter(e);
     assert.throws(()=>projectAgent05OwnerHistory(b,{entries:[e]}),
@@ -314,4 +342,33 @@ test('all existing public non-owner delivery states remain unchanged',()=>{
   assert.equal(initial.progress.overallStatus,'NOT_STARTED');
   assert.equal(initial.progress.counts.notStarted,1);
   assert.equal('preparedOwnerApprovalUnknown' in initial.progress.counts,false);
+});
+
+test('reject legacy 0.12 flat receipt even when IDs appear to match the plan',()=>{
+  const b=batch('compact'),e=entry(b,0,'SUCCEEDED',{readback:true});
+  const legacy=structuredClone(e.receipt);
+  legacy.schema_version='0.12';
+  delete legacy.plan_ref;
+  delete legacy.approval_ref;
+  legacy.plan_id=e.plan.plan_id;
+  legacy.plan_digest=e.plan.plan_digest;
+  e.receipt=legacy;
+  assert.throws(()=>projectAgent05OwnerHistory(b,{entries:[e]}),
+    err('AGENT05_NATIVE_RECEIPT_MISMATCH'));
+});
+test('native v1 receipt remains tied to original plan across a new prepared attempt',()=>{
+  const b=batch(),one=entry(b,0,'SUCCEEDED');
+  const two=entry(b,1,'SUCCEEDED');
+  two.receipt.plan_ref=structuredClone(one.receipt.plan_ref);
+  assert.throws(()=>projectAgent05OwnerHistory(b,{entries:[two]}),
+    err('AGENT05_NATIVE_RECEIPT_MISMATCH'));
+});
+test('an actual-shaped v1 failure with unknown effect remains reconciliation-only',()=>{
+  const b=batch('compact'),e=entry(b,0,'ATTEMPTED');
+  e.receipt.status='FAILED';
+  e.receipt.external_effect_state='UNKNOWN';
+  e.receipt.contract_state='UNKNOWN_RECONCILIATION_REQUIRED';
+  const view=projectAgent05OwnerHistory(b,{entries:[e]});
+  assert.equal(view.progress.overallStatus,'RECONCILIATION_REQUIRED');
+  assert.equal(view.hostCanRetryActions,false);
 });
