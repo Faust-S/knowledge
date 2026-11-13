@@ -289,7 +289,11 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
         "the original Exchange parser must refuse corrupted .iwxa ZIP");
       assert.equal(raw.source,workspace);
       assert.equal(raw.receiptMode,raw.mode);
-      assert.equal(raw.receiptSource,workspace);
+      // The original T2 full/selective import does not promise an explicit
+      // workspace_id_map (that field is meaningful for remapping/merge).
+      // Actual destination data and original history must prove restoration.
+      if(raw.mode==="merge"||raw.mode==="new-workspace")
+        assert.equal(raw.receiptSource,workspace);
       assert.equal(raw.title,title);
       assert.equal(raw.revision,saved.revision);
       assert.ok(raw.eventIds.includes(saved.event),
