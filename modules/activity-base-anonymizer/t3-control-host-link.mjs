@@ -12,18 +12,25 @@ const safeStageError=error=>new T3ActivityHold(
     ? error.code : 'T3_CONTROL_ACTIVITY_STAGE_REFUSED');
 
 // Run in the existing trusted T3 Host, not in the Tauri/WebView renderer.
-// `control` is the original openMultiOrganizationControl owner; `context` is
-// the original T2/T3 selected ModuleContext. `createSignedAccessHostPort`
-// is the existing original T3 factory, not a new authority or issuer.
+// `control` is either the original openMultiOrganizationControl owner, or
+// the ORIGINAL T3 createControlLoopbackOwner (no parallel Control app).
+// `context` is the original T2/T3 ModuleContext, and the optional factory
+// belongs to the original native Control, not Activity.
 export function bindT3ControlActivityReview({
   control, context, bindings, createSignedAccessHostPort,
   readActivityFromWorkspaceContext,derivation=null,
 }={}) {
-  need(callable(control,['snapshot','signedActivityAccess','subscribeInvalidation']) &&
+  const corporate=callable(control,['snapshot','signedActivityAccess','subscribeInvalidation']);
+  const loopback=!corporate && control?.requireSignedOwner===true &&
+    callable(control,['signedActivityAccess','subscribeSignedAccessInvalidation']);
+  need((corporate||loopback) &&
     callable(context?.currentWorkspace,['get','subscribe']) &&
-    typeof createSignedAccessHostPort==='function' &&
+    (loopback||typeof createSignedAccessHostPort==='function') &&
     typeof readActivityFromWorkspaceContext==='function' && context?.kernel,
     'T3_CONTROL_ORIGINAL_HOST_REQUIRED');
+  const signedSource=()=>loopback
+    ? control.signedActivityAccess('activity.read')
+    : control.signedActivityAccess(createSignedAccessHostPort);
   // Optional derivation is supplied only by a trusted existing T3 Host:
   // separate source/target grants, one Kernel, no invented Authority.
   if (derivation!==null) {
@@ -46,7 +53,9 @@ export function bindT3ControlActivityReview({
   };
   let stopOwner=null,stopWorkspace=null,stopDeriveOwner=null,stopTarget=null;
   try {
-    stopOwner=control.subscribeInvalidation(invalidate);
+    stopOwner=loopback
+      ? control.subscribeSignedAccessInvalidation(invalidate)
+      : control.subscribeInvalidation(invalidate);
     stopWorkspace=context.currentWorkspace.subscribe(invalidate);
     need(typeof stopOwner==='function' && typeof stopWorkspace==='function',
       'T3_CONTROL_OWNER_INVALIDATION_REQUIRED');
@@ -64,6 +73,7 @@ export function bindT3ControlActivityReview({
     throw new T3ActivityHold('T3_CONTROL_OWNER_INVALIDATION_REQUIRED');
   }
   const snapshot=()=>{
+    if(loopback)return null; // signed D1 port owns epoch and SSE generation
     let state;
     try{state=control.snapshot();}catch{}
     need(state?.context==='ORGANIZATION' &&
@@ -83,7 +93,8 @@ export function bindT3ControlActivityReview({
       let signed;
       try {
         // Fresh signed DATA Activity Read for *this* selected subject.
-        signed=await control.signedActivityAccess(createSignedAccessHostPort);
+        signed=await signedSource();
+        need(signed,'T3_CONTROL_ACTIVITY_READ_NOT_GRANTED');
       } catch {
         throw new T3ActivityHold('T3_CONTROL_ACTIVITY_READ_NOT_GRANTED');
       }
@@ -95,8 +106,9 @@ export function bindT3ControlActivityReview({
       need(!closed && generation===epoch,
         'T3_CONTROL_CONTEXT_CHANGED_DURING_READ');
       const after=snapshot();
-      need(after.contextEpoch===before.contextEpoch &&
-        after.contextId===before.contextId &&
+      need((loopback||
+        (after.contextEpoch===before.contextEpoch &&
+         after.contextId===before.contextId)) &&
         context.currentWorkspace.get()===selected,
         'T3_CONTROL_CONTEXT_CHANGED_DURING_READ');
       return review;
@@ -112,7 +124,7 @@ export function bindT3ControlActivityReview({
         let before=null,started=false;
         try{
           before=snapshot();
-          const sourceSignedAccess=await control.signedActivityAccess(createSignedAccessHostPort);
+          const sourceSignedAccess=await signedSource();
           need(sourceSignedAccess&&!closed&&epoch===generation,
             'T3_CONTROL_ACTIVITY_READ_NOT_GRANTED');
           // The trusted owner retains source/target Kernel, signed grants,
@@ -128,8 +140,9 @@ export function bindT3ControlActivityReview({
           const receipt=await ownerStage.stageSelected();
           const after=snapshot();
           need(!closed&&generation===epoch&&
-            after.contextId===before.contextId&&
-            after.contextEpoch===before.contextEpoch&&
+            (loopback||
+              (after.contextId===before.contextId&&
+               after.contextEpoch===before.contextEpoch))&&
             context.currentWorkspace.get()===selected&&
             derivation.targetContext.currentWorkspace.get()===targetSelected,
             'T3_ACTIVITY_WRITE_MAY_HAVE_COMMITTED');
