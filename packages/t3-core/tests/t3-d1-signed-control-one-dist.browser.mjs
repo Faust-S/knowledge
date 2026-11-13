@@ -586,8 +586,8 @@ try{
     }));
     throw error;
   }
-  assert.equal(new URL(isolatedApp.url()).hash,'',
-    'T3_D1_ISOLATED_UI_BEARER_MUST_BE_ERASED');
+  assert.equal(new URL(isolatedApp.url()).hash,'#/overview',
+    'T3_D1_ISOLATED_UI_MUST_OPEN_SAFE_OVERVIEW_WITHOUT_BEARER');
   assert.equal(await isolatedApp.evaluate(()=>typeof window.IWXA),'undefined',
     'T3_D1_ISOLATED_APP_MUST_NOT_EXPOSE_RAW_T2_KERNEL');
   assert.equal((await isolatedApp.evaluate(async()=>(
