@@ -556,6 +556,26 @@ try{
     selectedWorkspaceReadback:true,bearerErased:true,
     syntheticOwnerOnly:true,privateSignerExecuted:false,
   }));
+  // Genuine browser-level SSE invalidation from the existing Control must
+  // disconnect the UI's only signed realm port and unmount old module access.
+  // No React fallback is permitted through the same-origin raw T2 loader.
+  assert.ok(eventStreams.size>=1,'T3_D1_TRUSTED_CONTROL_SSE_REQUIRED');
+  for(const stream of eventStreams){
+    if(!stream.destroyed&&!stream.writableEnded)
+      stream.write('event: invalidated\\ndata: {}\\n\\n'.replace(/\\n/g,'\n'));
+  }
+  await isolatedApp.getByTestId('t3-signed-control-reconnect')
+    .waitFor({state:'visible',timeout:30000});
+  assert.equal(await isolatedApp.evaluate(()=>typeof window.IWXA),'undefined');
+  assert.equal((await isolatedApp.evaluate(async()=>(
+    await fetch('/_iwxa/loader.js',{cache:'no-store'})
+  ).status)),404);
+  assert.deepEqual(isolatedAppErrors,[]);
+  console.log('T3_D1_ISOLATED_REALM_SSE_REVOCATION_PASS',JSON.stringify({
+    originalControlSse:true,oldAppShellInvalidated:true,
+    rawKernelUnavailableInUi:true,signedPortClosed:true,
+    syntheticOwnerOnly:true,
+  }));
   console.log('T3_D1_ACTUAL_ONE_DIST_ORIGINAL_HTTP_PASS',JSON.stringify({
     originalKernel:'0.3.6',runtimeContract:'1.3.0',
     originalLoaderSha256:assembled.original_loader_sha256,
