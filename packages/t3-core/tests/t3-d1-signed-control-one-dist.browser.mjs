@@ -1441,8 +1441,27 @@ try{
     .selectOption('ws:south');
   await recoveredPanel.getByRole('button',
     {name:'Использовать выбранный Workspace'}).click();
+  // The cold original Kernel and corporate JIT focus command both execute
+  // asynchronously. Verify Host focus finished before enabling readback.
+  try{
+    await recoveredSouth.page.waitForFunction(()=>
+      [...document.querySelectorAll(
+        '[data-testid="t3-local-inference-panel"] p[role="status"]')]
+        .some(p=>p.textContent?.includes('Рабочая область выбрана через Host')),
+      null,{timeout:30000});
+  }catch(error){
+    console.log('T3_D1_CORPORATE_COLD_FOCUS_DIAGNOSTIC',
+      JSON.stringify({panel:await recoveredPanel.innerText()}));
+    throw error;
+  }
   await recoveredPanel.getByTestId('t3-d5-recover-draft-id')
     .fill(southCopy.copiedId);
+  await recoveredSouth.page.waitForFunction(()=>
+    [...document.querySelectorAll(
+      '[data-testid="t3-local-inference-panel"] button')]
+      .some(button=>button.textContent?.includes(
+        'Прочитать черновик из Kernel по ID')&&!button.disabled),
+    null,{timeout:12000});
   await recoveredPanel.getByRole('button',
     {name:'Прочитать черновик из Kernel по ID'}).click();
   const coldRead=recoveredPanel.getByTestId('t3-d5-saved-draft-readback');
