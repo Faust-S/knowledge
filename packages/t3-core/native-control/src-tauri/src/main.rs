@@ -72,7 +72,7 @@ fn parse_native_launch(raw: &str) -> Option<NativeLaunch> {
     if !raw.trim_start().starts_with('{') {
         // Compatibility with the previously qualified native Control URL.
         return Some(NativeLaunch {
-            signed_url: parse_signed_host_launch(raw)?,
+            signed_url: Some(parse_signed_host_launch(raw)?),
             choices: vec![],
         });
     }
