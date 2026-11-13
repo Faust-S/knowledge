@@ -71,12 +71,12 @@ function sameOwner(source,target) {
   need(typeof target.purpose==='string'&&target.purpose==='activity.derivation',
     'T3_ACTIVITY_DERIVATION_PURPOSE_REQUIRED');
 }
-function stable(context,choice,owner,port,invalidated) {
+async function stable(context,choice,owner,port,invalidated) {
   need(!invalidated()&&context.currentWorkspace.get()===choice,
     'T3_ACTIVITY_SELECTION_CHANGED');
   // The original signed Host must continue to represent the same actor,
   // grant and scope; a new grant or epoch requires starting over.
-  need(JSON.stringify(port.currentContext())===owner,
+  need(JSON.stringify(await port.currentContext())===owner,
     'T3_ACTIVITY_SIGNED_OWNER_CHANGED');
 }
 
@@ -102,8 +102,8 @@ export async function stageSelectedT3ActivityReview({
     typeof targetSignedAccess?.actionFor==='function',
     'T3_ACTIVITY_INDEPENDENT_SIGNED_ACCESS_REQUIRED');
 
-  const srcOwner=sourceSignedAccess.currentContext();
-  const dstOwner=targetSignedAccess.currentContext();
+  const srcOwner=await sourceSignedAccess.currentContext();
+  const dstOwner=await targetSignedAccess.currentContext();
   need(good(srcOwner)&&good(dstOwner)&&
     srcOwner.workspace_id===sourceChoice.workspace_id&&
     dstOwner.workspace_id===targetChoice.workspace_id,
@@ -120,11 +120,11 @@ export async function stageSelectedT3ActivityReview({
     stopTarget=targetContext.currentWorkspace.subscribe(()=>{targetInvalidated=true;});
     need(typeof stopSource==='function'&&typeof stopTarget==='function',
       'T3_ACTIVITY_OWNER_SUBSCRIPTION_REQUIRED');
-    const check=()=>{
-      stable(sourceContext,sourceChoice,sourceIdentity,sourceSignedAccess,()=>sourceInvalidated);
-      stable(targetContext,targetChoice,targetIdentity,targetSignedAccess,()=>targetInvalidated);
+    const check=async()=>{
+      await stable(sourceContext,sourceChoice,sourceIdentity,sourceSignedAccess,()=>sourceInvalidated);
+      await stable(targetContext,targetChoice,targetIdentity,targetSignedAccess,()=>targetInvalidated);
     };
-    check();
+    await check();
     // ORIGINAL T3 signed D1/D2 read. Keep the source projection only inside
     // this trusted Host closure, never in the renderer or derived Workspace.
     let observedSource=null;
@@ -137,7 +137,7 @@ export async function stageSelectedT3ActivityReview({
       context:sourceContext,signedAccess:sourceSignedAccess,
       bindings,readActivityFromWorkspaceContext:captureOriginal,
     });
-    check();
+    await check();
     need(review.schema===T3_SELECTED_VIEW_SCHEMA&&
       review.anonymity==='NOT_ESTABLISHED'&&review.export_allowed===false&&
       review.iwxa_package===null,
@@ -149,11 +149,11 @@ export async function stageSelectedT3ActivityReview({
     });
     const targetId=targetChoice.workspace_id;
     const ws=await scoped.getWorkspace(targetId);
-    check();
+    await check();
     need(ws?.workspace_id===targetId&&!ws.deleted_at,
       'T3_ACTIVITY_TARGET_WORKSPACE_UNAVAILABLE');
     const existing=await scoped.listObjects({workspace_id:targetId,include_deleted:true});
-    check();
+    await check();
     need(Array.isArray(existing)&&existing.length===0,
       'T3_ACTIVITY_TARGET_NOT_EMPTY');
     // Store only enum/alias/cohort review data in the isolated Workspace.
@@ -164,7 +164,7 @@ export async function stageSelectedT3ActivityReview({
     const currentSource=await readActivityFromWorkspaceContext(sourceContext,{
       bindings,signedAccess:sourceSignedAccess,
     });
-    check();
+    await check();
     need(good(observedSource)&&JSON.stringify(currentSource)===JSON.stringify(observedSource),
       'T3_ACTIVITY_SOURCE_CHANGED_BEFORE_SAVE');
     const data={
@@ -181,12 +181,12 @@ export async function stageSelectedT3ActivityReview({
     need(typeof globalThis.crypto?.randomUUID==='function',
       'T3_ACTIVITY_ID_UNAVAILABLE');
     objectId='activity-review:'+globalThis.crypto.randomUUID();
-    check();
+    await check();
     // An authoritative signed preflight AFTER the source's last read
     // distinguishes a known revoked right from an interrupted Kernel write.
     // The putObject itself still performs another original T3 JIT check.
     const finalTarget=await scoped.getWorkspace(targetId);
-    check();
+    await check();
     need(finalTarget?.workspace_id===targetId&&!finalTarget.deleted_at,
       'T3_ACTIVITY_TARGET_WORKSPACE_UNAVAILABLE');
     // Once invoked, an interrupted Host may have committed; never retry.
@@ -198,13 +198,13 @@ export async function stageSelectedT3ActivityReview({
       event:{event_type:'t3.activity.review.staged',
         payload:{status:'OWNER_REVIEW_DRAFT',disclosure_status:'NOT_EVALUATED'}},
     });
-    check();
+    await check();
     need(receipt?.object?.workspace_id===targetId&&
       receipt.object.object_id===objectId&&receipt.object.revision===1&&
       typeof receipt.event?.event_id==='string',
       'T3_ACTIVITY_ORIGINAL_RECEIPT_INVALID');
     const detail=await scoped.getObject(targetId,objectId);
-    check();
+    await check();
     need(detail?.object?.workspace_id===targetId&&
       detail.object.object_id===objectId&&detail.object.revision===1&&
       detail.object.schema_id===T3_ACTIVITY_OWNER_REVIEW_SCHEMA&&

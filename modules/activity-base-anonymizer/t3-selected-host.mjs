@@ -256,7 +256,7 @@ export async function inspectSelectedT3Activity({
   const selected = context.currentWorkspace.get();
   const selectedId = selected?.workspace_id;
   need(TAG(selectedId), 'T3_SELECTED_WORKSPACE_REQUIRED');
-  const owner = signedAccess.currentContext();
+  const owner = await signedAccess.currentContext();
   need(RECORD(owner) && owner.workspace_id === selectedId &&
     ['PERSONAL','CORP'].includes(owner.kind), 'T3_SIGNED_CONTEXT_MISMATCH');
   // No raw IDs, source references or owner identity in the returned object.
@@ -271,7 +271,7 @@ export async function inspectSelectedT3Activity({
     throw new T3ActivityHold('T3_AUTHORITATIVE_READ_REFUSED');
   }
   need(context.currentWorkspace.get() === selected &&
-    JSON.stringify(signedAccess.currentContext()) === identity,
+    JSON.stringify(await signedAccess.currentContext()) === identity,
     'T3_SELECTED_CONTEXT_CHANGED_AFTER_READ');
   need(RECORD(view) && view.workspace_id === selectedId,
     'T3_SOURCE_WORKSPACE_MISMATCH');
