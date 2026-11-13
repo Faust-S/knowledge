@@ -218,7 +218,10 @@ const uiServer=createServer((req,res)=>{
     res.writeHead(403);res.end();return;
   }
   const path=new URL(req.url,uiOrigin).pathname;
-  const isolatedCsp="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; worker-src 'self' blob:; frame-src "+origin+"; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+  // The inherited Workspace schema compiler still uses new Function().
+  // Restrict eval to this signed, compiled UI origin. The original Control
+  // UI/API and all raw Kernel paths remain completely unavailable here.
+  const isolatedCsp="default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; worker-src 'self' blob:; frame-src "+origin+"; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
   const uiSend=(status,body,type='application/json')=>{
     res.writeHead(status,{'Content-Type':type,'Cache-Control':'no-store',
       'X-Content-Type-Options':'nosniff','Content-Security-Policy':isolatedCsp});
