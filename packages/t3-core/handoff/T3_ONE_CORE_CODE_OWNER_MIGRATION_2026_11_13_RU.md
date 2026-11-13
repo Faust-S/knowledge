@@ -58,3 +58,15 @@ node /path/to/ephemeral-installed-control/interop/server.mjs \
   --product=control --t3-public-core=/path/to/ephemeral-installed-control \
   --t3-dist=/path/to/assembled-t3-dist
 ```
+
+## Точная квалификация установленного Control Consumer, 13.11.2026
+
+**Исполняемый T3 source:** `knowledge@070300a23724dde32b58fac313f2f4570291d928`, рабочая ветка `work/2026-11-10-t3-t2-activity-projection`. [Публичный GitHub Actions #43451591989](https://github.com/Faust-S/knowledge/actions/runs/43451591989): **COMPLETED / SUCCESS**, `test=SUCCESS`, `real-host=SUCCESS`, `metal-webgpu=SKIPPED` (аппаратный профиль для этого коммита не запрашивался).
+
+В `test`: `stage-original-control-consumer.test.mjs` **3/3 PASS**, исходный подписант и checkout не меняются, при несовместимом импорте / пересечении путей / символьной ссылке сборка отказывает. Проверены перенос только **двух точных** исходных D1-квалификаторов и исключение посторонних приватных fixtures; до этого полная папка `qualification` была неоправданно велика. `src/t3/isolated-ui-server.mjs` и `src/t3/signed-access-host-port.mjs` копируются из единственного исходника `knowledge`, их SHA-256 сравнивается, установленный CLI работает по существующим `--t3-public-core=<staged Control root>` и `--t3-dist=<assembled T3 one-dist>`. Все остальные регрессии исходного T2 и T3 прошли. В `real-host` подтверждены квалифицированный оригинальный Kernel 0.3.6, собранный signed one-dist, BLI UI, D2/.iwxa и холодное восстановление на синтетическом Access-owner.
+
+**Подлинный закрытый Control:** [публичный Center workflow #43451809012](https://github.com/Faust-S/Center/actions/runs/43451809012), ветка `work/2026-11-13-t3-d1-private-qualification`, SHA `9fd24a86f5f6f017f4abf22ba36859ad2fdeb176`. Входной токен `IWXA_PRIVATE_SOURCE_READ_TOKEN` присутствует, Checkout `knowledge` PASS, Checkout **закрытого `Faust-S/T3@da85c3aa` FAIL HTTP 403**; завершающая очистка временных файлов PASS. Стадирование настоящего Control, оригинальный Ed25519 AccessRegistry, signed two-organization HTTP и cross-owner D2 E2E на данной ревизии: **NOT_RUN**, а не FAIL/PASS. Предыдущая ошибка синтаксиса публичного workflow `Center@8121f8c0` исправлена в `Center@c0a34b54`; текущий #43451809012 уже выполняет корректный YAML.
+
+**Точный следующий внешний шаг:** владелец GitHub должен переиздать/переопределить `IWXA_PRIVATE_SOURCE_READ_TOKEN` в **Actions secrets открытого `Faust-S/Center`**, выдать этому fine-grained PAT доступ `Contents: Read` только к `Faust-S/T3` (и подтвердить SSO/организационный доступ, если требуется). Не отправлять значение токена в чат, в исходники, workflow или отчёты. После этого повторно запустить существующий публичный Center workflow и устранить реальные обнаруженные дефекты только в `knowledge`, не в приватном T3. Затем выполнить полнофункциональный установленный Windows-маршрут оригинальный Control -> подписанная Workspace -> BLI -> Kernel -> холодный рестарт и общую G4-приёмку.
+
+**Статус:** `D1_D5_PUBLIC_CONSUMER_STAGE=PASS`, `D1_REAL_PRIVATE_SIGNER=NOT_RUN`, `INSTALLED_WINDOWS_G4=NOT_RUN`, `G4=NOT_ACCEPTED`, `T3_READY=false`.
