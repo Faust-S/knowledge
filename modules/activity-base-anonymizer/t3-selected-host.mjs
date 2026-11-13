@@ -9,6 +9,7 @@ const ALLOWED_KINDS = new Set([
   'Entity', 'Statement', 'Event', 'State', 'Activity', 'Process',
   'Observation', 'Decision', 'Result', 'Evidence', 'Provenance',
 ]);
+const EPISTEMIC = new Set(['observed','reported','declared','inferred','proposed']);
 const MAX_NODES = 2000;
 const MAX_EVENTS = 10000;
 const MAX_RELATIONS = 10000;
@@ -77,12 +78,17 @@ function inspectProjection(view) {
   let eventObjectLinkCount = 0;
   for (const event of view.events) {
     need(only(event, ['event_id','event_type','semantic_kind','occurred_at',
-      'causation_id','correlation_id','object_ref','object_refs']) && TAG(event.event_id) &&
+      'causation_id','correlation_id','object_ref','object_refs','epistemic_status']) &&
+      TAG(event.event_id) &&
       TAG(event.event_type) && ['Event','Observation'].includes(event.semantic_kind) &&
       typeof event.occurred_at === 'string' && Number.isFinite(Date.parse(event.occurred_at)),
       'T3_D2_EVENT_INVALID');
     need(!events.has(event.event_id), 'T3_D2_DUPLICATE_EVENT');
     events.add(event.event_id);
+    const truth = Object.hasOwn(event,'epistemic_status')
+      ? event.epistemic_status : 'observed'; // legacy Kernel Event, not business truth
+    need(EPISTEMIC.has(truth),'T3_D2_EVENT_EPISTEMIC_INVALID');
+    if(truth!=='observed') reasons.push('T3_D2_UNVERIFIED_EVENT_STEP');
     const primary = event.object_ref;
     if (primary !== null) {
       need(only(primary, ['object_id','revision']) && TAG(primary.object_id) &&
@@ -119,14 +125,15 @@ function inspectProjection(view) {
       need(bound && ref.revision <= bound.revision, 'T3_D2_EVENT_REFERENCE_STALE');
       eventObjectLinkCount += 1;
       need(eventObjectLinkCount <= MAX_RELATIONS, 'T3_D2_EVENT_LINK_LIMIT');
-      eventsByObject.get(ref.object_id).push(event);
+      if(truth==='observed') eventsByObject.get(ref.object_id).push(event);
     }
     eventLinks.set(event.event_id, refs);
     if (!refs.length) {
       reasons.push('T3_D2_EVENT_OBJECT_UNVERIFIED');
       continue;
     }
-    eventKinds.add(JSON.stringify([event.event_type, event.semantic_kind]));
+    if(truth==='observed')
+      eventKinds.add(JSON.stringify([event.event_type, event.semantic_kind]));
   }
   if (view.events.length === 0) reasons.push('T3_D2_NO_OBSERVED_ACTIVITY');
   // D2 may expose source-qualified multi-object links. They are still a

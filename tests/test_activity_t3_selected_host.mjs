@@ -221,3 +221,31 @@ test('qualified E2O rejects missing primary, stale, duplicate and malformed even
   unknown.events[1].object_refs[1].object_id='foreign:unverifiable';
   await assert.rejects(inspect(host(unknown)),{code:'T3_D2_EVENT_REFERENCE_STALE'});
 });
+
+test('reported, declared, inferred or proposed events never become observed process steps',async()=>{
+  for(const truth of ['reported','declared','inferred','proposed']){
+    const v=sample();
+    const original=structuredClone(v);
+    v.events[1].epistemic_status=truth;
+    v.events[1].correlation_id='SECRET_PROPOSAL_PERSON';
+    const response=await inspect(host(v));
+    assert.equal(response.status,'HOLD');
+    assert.equal(response.structural_candidate,null);
+    assert.equal(response.export_allowed,false);
+    assert.ok(response.reason_codes.includes('T3_D2_UNVERIFIED_EVENT_STEP'));
+    assert.equal(JSON.stringify(response).includes('SECRET_PROPOSAL_PERSON'),false);
+    assert.equal(v.events[0].epistemic_status,undefined);
+    assert.deepEqual(v.events[0],original.events[0]);
+  }
+  const observed=sample();
+  observed.events[1].epistemic_status='observed';
+  assert.equal((await inspect(host(observed))).status,'STRUCTURE_PRESERVED_REVIEW_REQUIRED');
+});
+test('unrecognized event truth values cannot bypass the reviewed D2 shape',async()=>{
+  for(const status of ['verified','accepted','',null,0]){
+    const v=sample();v.events[0].epistemic_status=status;
+    await assert.rejects(inspect(host(v)),{
+      code:'T3_D2_EVENT_EPISTEMIC_INVALID',
+    });
+  }
+});
