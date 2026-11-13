@@ -75,7 +75,7 @@ export function materializePwaManifest(root,domainOrigin) {
     background_color:color(existing.background_color,theme),theme_color:theme,
     icons,prefer_related_applications:false
   };
-  const file="/t3-app.webmanifest";
+  const file="/t3-app-manifest.json";
   writeFileSync(join(root,file.slice(1)),JSON.stringify(app,null,2)+"\n");
   return {path:file,manifest:app};
 }
