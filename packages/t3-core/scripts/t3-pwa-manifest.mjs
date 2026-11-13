@@ -1,6 +1,6 @@
 // Build-time PWA metadata for the SAME T3 domain dist, not a second runtime.
 // Never change the existing T3 Kernel/Store/service worker or site's favicon.
-import {readFileSync,writeFileSync,existsSync,mkdirSync} from "node:fs";
+import {readFileSync,writeFileSync,existsSync,mkdirSync,rmSync} from "node:fs";
 import {join,dirname} from "node:path";
 import {deflateSync,inflateSync} from "node:zlib";
 
@@ -104,10 +104,15 @@ export function materializePwaManifest(root,domainOrigin) {
   const icons=Array.isArray(existing.icons)?
     existing.icons.map(icon=>sameOriginIcon(root,icon,domainOrigin)).filter(Boolean):[];
   for(const size of SIZES){
-    if(icons.some(i=>i.type==="image/png" &&
-        typeof i.sizes==="string" && i.sizes.split(/\s+/).includes(size+"x"+size)))continue;
     const path="/_iwxa/pwa/icon-"+size+".png";
     const absolute=join(root,path.slice(1));
+    if(icons.some(i=>i.type==="image/png" &&
+        typeof i.sizes==="string" && i.sizes.split(/\s+/).includes(size+"x"+size))) {
+      // A branded icon replaced our fallback: do not ship stale, unused assets
+      // in the single complete offline snapshot.
+      if(existsSync(absolute) && !icons.some(i=>i.src===path))rmSync(absolute);
+      continue;
+    }
     mkdirSync(dirname(absolute),{recursive:true});
     writeFileSync(absolute,png(size,theme));
     icons.push({src:path,sizes:size+"x"+size,type:"image/png",purpose:"any"});
