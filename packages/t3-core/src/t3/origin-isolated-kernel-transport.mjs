@@ -48,9 +48,9 @@ export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
   describeOriginalSession,validateOriginalObjects}={}){
   if(!isPort(port)||typeof createSignedFacade!=='function'||
      typeof isActive!=='function')throw fail('T3_D1_TRUSTED_KERNEL_HOST_REQUIRED');
-  let closed=false,sequence=0;
+  let closed=false,revoked=false,sequence=0;
   const pending=new Set();
-  const valid=()=>{try{return !closed&&isActive()===true;}catch{return false;}};
+  const valid=()=>{try{return !closed&&!revoked&&isActive()===true;}catch{return false;}};
   const deny=code=>{throw fail(code);};
   const onMessage=async ev=>{
     const request=ev.data;
@@ -106,7 +106,8 @@ export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
   port.addEventListener('message',onMessage);
   port.start?.();
   return Object.freeze({
-    invalidate(){sequence++;},
+    invalidate(){if(closed||revoked)return;revoked=true;sequence++;
+      port.postMessage({schema:SCHEMA,kind:'invalidated'});},
     close(){if(closed)return;closed=true;sequence++;
       port.removeEventListener?.('message',onMessage);port.close();},
   });
@@ -123,8 +124,9 @@ export function createIsolatedKernelClient({port,isActive=()=>true,timeoutMs=150
   const waiting=new Map();
   const onMessage=ev=>{
     const response=ev.data;
-    if(!object(response)||response.schema!==SCHEMA||
-       !Number.isSafeInteger(response.id))return;
+    if(!object(response)||response.schema!==SCHEMA)return;
+    if(response.kind==='invalidated'){close();return;}
+    if(!Number.isSafeInteger(response.id))return;
     const pending=waiting.get(response.id);
     if(!pending)return;
     waiting.delete(response.id);clearTimeout(pending.timer);

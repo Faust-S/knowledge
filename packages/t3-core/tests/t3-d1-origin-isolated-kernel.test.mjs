@@ -54,7 +54,9 @@ test('context epoch change while signed owner resolves prevents Kernel dispatch'
   try{
     const pending=client.invoke('putObject',{workspace_id:id});
     await entered;receiver.invalidate();release();
-    await assert.rejects(pending,{code:'T3_D1_ORIGINAL_KERNEL_CONTEXT_CHANGED'});
+    await assert.rejects(pending,{code:'T3_D1_ISOLATED_KERNEL_DISCONNECTED'});
+    await assert.rejects(client.invoke('putObject',{workspace_id:id}),
+      {code:'T3_D1_ISOLATED_KERNEL_DISCONNECTED'});
     assert.equal(writes,0);
   }finally{client.close();receiver.close();}
 });

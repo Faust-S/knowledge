@@ -90,10 +90,26 @@ const server=createServer((req,res)=>{
         "window.addEventListener('message',event=>{",
         " if(realm)return;",
         " realm=acceptOriginalKernelRealmChannel({event,uiOrigin:"+JSON.stringify(uiOrigin)+",parentWindow:window.parent,",
-        "  isActive:()=>true,createSignedFacade:async()=>{",
+        "  isActive:()=>true,",
+        "  describeOriginalSession:async()=>{",
+        "   const original=await window.IWXA.connect({service_id:"+JSON.stringify(serviceId)+"});",
+        "   return {contract_version:original.contract_version,runtime_version:original.runtime_version,",
+        "    service:{...original.service},mode:original.mode,",
+        "    granted_levels:[...original.granted_levels],granted_operations:[...original.granted_operations]};",
+        "  },",
+        "  validateOriginalObjects:async(input)=>{",
+        "   const original=await window.IWXA.connect({service_id:"+JSON.stringify(serviceId)+"});",
+        "   return original.t0.validate(input);",
+        "  },",
+        "  createSignedFacade:async()=>{",
         "   const original=await window.IWXA.connect({service_id:"+JSON.stringify(serviceId)+"});",
         "   return Object.freeze({",
         "    async getWorkspace(id){allowed(id);return original.t1.getWorkspace(id);},",
+        "    async getObject(ws,id){allowed(ws);return original.t1.getObject(ws,id);},",
+        "    async listWorkspaces(){const row=await original.t1.getWorkspace(selected);return row?[row]:[];},",
+        "    async authorizationForWorkspace(ws){allowed(ws);return original.authorization.forWorkspace(ws);},",
+        "    async hasCapability(ws,cap){allowed(ws);return original.authorization.hasCapability(ws,cap);},",
+        "    hasOperation(op){return original.granted_operations.includes(op);},",
         "    async putObject(cmd){allowed(cmd?.workspace_id);return original.t1.putObject(cmd);}",
         "   });",
         "  }",
@@ -189,6 +205,12 @@ const uiServer=createServer((req,res)=>{
     res.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8',
       'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
     res.end(readFileSync(join(core,'src/t3/origin-isolated-kernel-transport.mjs')));
+    return;
+  }
+  if(path==='/__isolated_kernel_bootstrap__.mjs'){
+    res.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8',
+      'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
+    res.end(readFileSync(join(core,'src/t3/origin-isolated-kernel-bootstrap.mjs')));
     return;
   }
   if(path==='/__isolated_ui__.html'){
@@ -406,6 +428,20 @@ try{
     });
     try{
       const own=await client.invoke('getWorkspace',selectedId);
+      const kernelModule=await import('/__isolated_kernel_bootstrap__.mjs');
+      const bootstrap=kernelModule.createIsolatedOriginalKernelBootstrap({
+        client,serviceId,
+      });
+      const originalApi=await bootstrap.connect({service_id:serviceId});
+      const throughT1=await originalApi.t1.getWorkspace(selectedId);
+      const t0=await originalApi.t0.validate({objects:[]});
+      const contractFromOriginal=originalApi.contract_version==='1.3.0'&&
+        originalApi.runtime_version==='0.3.6'&&
+        originalApi.granted_operations.includes('t1.getWorkspace');
+      const originalT1Facade=throughT1?.workspace_id===selectedId&&
+        t0?.tier==='t0';
+      const originalT2Surface=typeof originalApi.t2.importCommit==='function'&&
+        typeof originalApi.authorization.forWorkspace==='function';
       let crossReadDenied=false,crossWriteDenied=false,constructorDenied=false;
       try{await client.invoke('getWorkspace',foreignWorkspace);}
       catch(e){crossReadDenied=e.code==='T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE';}
@@ -424,6 +460,7 @@ try{
         crossReadDenied,crossWriteDenied,constructorDenied,
         selectedRead:own?.workspace_id===selectedId,
         selectedWrite:written?.object?.workspace_id===selectedId,
+        contractFromOriginal,originalT1Facade,originalT2Surface,
       };
     }finally{client.close();}
   },{kernelOrigin:origin,selectedId:scopedWorkspace,
@@ -433,6 +470,7 @@ try{
     noRawInUi:true,noLoaderInUi:true,foreignGlobalVisible:false,
     crossReadDenied:true,crossWriteDenied:true,constructorDenied:true,
     selectedRead:true,selectedWrite:true,
+    contractFromOriginal:true,originalT1Facade:true,originalT2Surface:true,
   });
   const isolatedReadback=await browser.page.evaluate(async({serviceId,selectedId})=>{
     const original=await globalThis.IWXA.connect({service_id:serviceId});
@@ -443,7 +481,7 @@ try{
   console.log('T3_D1_TWO_ORIGIN_ORIGINAL_KERNEL_BRIDGE_PASS',JSON.stringify({
     twoDifferentLoopbackOrigins:true,uiCannotLoadOrReadRawKernel:true,
     foreignWorkspaceReadDenied:true,foreignWorkspaceWriteDenied:true,
-    originalKernelReadback:true,syntheticOwnerOnly:true,
+    inheritedT2ContractPreserved:true,originalKernelReadback:true,syntheticOwnerOnly:true,
     privateSignerExecuted:false,nativeStoreBoundaryIntegrated:false,
   }));
   console.log('T3_D1_ACTUAL_ONE_DIST_ORIGINAL_HTTP_PASS',JSON.stringify({
