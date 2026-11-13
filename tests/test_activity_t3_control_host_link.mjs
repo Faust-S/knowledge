@@ -165,3 +165,22 @@ test('subscriber failure never prevents owner context transition',async()=>{
   assert.equal(v.control.snapshot().contextId,'south-lab');
   link.dispose();
 });
+test('read-only corporate adapter never advertises stage without separate signed rights',()=>{
+  const f=fixture();
+  const bridge=bindT3ControlActivityReview(f.args);
+  assert.deepEqual(Object.keys(bridge.port).sort(),['readSelected','subscribeInvalidation']);
+  assert.equal(Object.hasOwn(bridge.port,'stageSelected'),false);
+  bridge.dispose();
+});
+test('corporate adapter fails closed when derivation status cannot be observed',()=>{
+  const f=fixture();
+  const targetContext={kernel:f.context.kernel,currentWorkspace:{
+    get:()=>({workspace_id:'derived:one'}),subscribe:()=>()=>{},
+  }};
+  assert.throws(()=>bindT3ControlActivityReview({...f.args,derivation:{
+    targetContext,
+    targetSignedAccess:{currentContext(){},actionFor(){},authorize(){},
+      verifyDecisionBinding(){},operationDigest(){}},
+    createSubjectKernelBinding(){},
+  }}),{code:'T3_CONTROL_DERIVATION_OWNER_REQUIRED'});
+});

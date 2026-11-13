@@ -6,6 +6,10 @@ import {createHash} from 'node:crypto';
 import {existsSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {bindT3ControlActivityReview} from
+  '../modules/activity-base-anonymizer/t3-control-host-link.mjs';
+import {createT3ReviewController} from
+  '../modules/activity-base-anonymizer/t3-review-controller.mjs';
 import {stageSelectedT3ActivityReview,createTrustedT3ActivityStagePort,
   T3_ACTIVITY_OWNER_REVIEW_SCHEMA,
   T3_ACTIVITY_OWNER_REVIEW_DECLARATION} from
@@ -280,4 +284,89 @@ test('trusted stage port exposes only a non-exportable three-field result',async
   assert.equal('signedAccess' in stagePort,false);
   assert.equal('kernel' in stagePort,false);
   assert.equal(f.saved.size,1);
+});
+
+test('original corporate Control Host binds signed read plus separate derivation',async()=>{
+  const f=fixture(),sourceListeners=new Set(),targetListeners=new Set(),states=[];
+  let epoch=1,grants=0;
+  const control={
+    snapshot:()=>({context:'ORGANIZATION',contextId:'org:cehovod',contextEpoch:epoch}),
+    async signedActivityAccess(){grants++;return f.options.sourceSignedAccess;},
+    subscribeInvalidation(fn){sourceListeners.add(fn);return()=>sourceListeners.delete(fn);},
+  };
+  const bridge=bindT3ControlActivityReview({
+    control,context:f.options.sourceContext,
+    bindings:f.options.bindings,createSignedAccessHostPort:core.createSignedAccessHostPort,
+    readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
+    derivation:{
+      targetContext:f.options.targetContext,
+      targetSignedAccess:f.options.targetSignedAccess,
+      createSubjectKernelBinding:core.createSubjectKernelBinding,
+      subscribeOwnerInvalidation(fn){targetListeners.add(fn);return()=>targetListeners.delete(fn);},
+    },
+  });
+  assert.deepEqual(Object.keys(bridge.port).sort(),
+    ['readSelected','stageSelected','subscribeInvalidation']);
+  for(const key of ['kernel','control','sourceSignedAccess','targetSignedAccess'])
+    assert.equal(Object.hasOwn(bridge.port,key),false);
+  const ui=createT3ReviewController({host:bridge.port,onUpdate:s=>states.push(s)});
+  assert.deepEqual(await ui.readSelected(),{status:'REVIEW'});
+  assert.deepEqual(await ui.stageSelected(),{status:'STAGED'});
+  assert.equal(f.saved.size,1);
+  assert.equal(f.state.writeCalls,1);
+  assert.equal(grants,2,'new source grant for each read and save');
+  assert.equal(states.at(-1).review,null);
+  assert.equal(JSON.stringify(states).includes('org:cehovod'),false);
+  ui.dispose();bridge.dispose();
+  assert.equal(sourceListeners.size,0);
+  assert.equal(targetListeners.size,0);
+  assert.equal(f.listeners[0].size,0);
+  assert.equal(f.listeners[1].size,0);
+});
+test('target grant notification clears Activity review and refuses reuse',async()=>{
+  const f=fixture(),sourceListeners=new Set(),targetListeners=new Set(),states=[];
+  const control={
+    snapshot:()=>({context:'ORGANIZATION',contextId:'org:cehovod',contextEpoch:1}),
+    signedActivityAccess:()=>f.options.sourceSignedAccess,
+    subscribeInvalidation(fn){sourceListeners.add(fn);return()=>sourceListeners.delete(fn);},
+  };
+  const bridge=bindT3ControlActivityReview({
+    control,context:f.options.sourceContext,bindings:f.options.bindings,
+    createSignedAccessHostPort:core.createSignedAccessHostPort,
+    readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
+    derivation:{
+      targetContext:f.options.targetContext,targetSignedAccess:f.options.targetSignedAccess,
+      createSubjectKernelBinding:core.createSubjectKernelBinding,
+      subscribeOwnerInvalidation(fn){targetListeners.add(fn);return()=>targetListeners.delete(fn);},
+    },
+  });
+  const ui=createT3ReviewController({host:bridge.port,onUpdate:s=>states.push(s)});
+  assert.deepEqual(await ui.readSelected(),{status:'REVIEW'});
+  f.state.deriveRevoked=true;
+  for(const fn of targetListeners)fn();
+  assert.deepEqual(states.at(-1),{status:'READY_TO_READ',review:null});
+  assert.deepEqual(await ui.stageSelected(),{status:'UNAVAILABLE'});
+  assert.equal(f.state.writeCalls,0);
+  ui.dispose();bridge.dispose();
+});
+test('trusted renderer stage port strips lost-ack object_id and cause detail',async()=>{
+  const f=fixture();f.state.lostAck=true;
+  const stage=createTrustedT3ActivityStagePort(f.options);
+  await assert.rejects(stage.stageSelected(),error=>{
+    assert.equal(error.code,'T3_ACTIVITY_WRITE_MAY_HAVE_COMMITTED');
+    assert.deepEqual(Object.keys(error).sort(),['code','name']);
+    assert.equal(JSON.stringify(error).includes('activity-review:'),false);
+    return true;
+  });
+  assert.equal(f.saved.size,1);assert.equal(f.state.writeCalls,1);
+});
+test('async signed original Host contexts can still stage a review',async()=>{
+  const f=fixture();
+  const read=f.options.sourceSignedAccess.currentContext.bind(f.options.sourceSignedAccess);
+  const derive=f.options.targetSignedAccess.currentContext.bind(f.options.targetSignedAccess);
+  f.options.sourceSignedAccess.currentContext=async()=>read();
+  f.options.targetSignedAccess.currentContext=async()=>derive();
+  const receipt=await stageSelectedT3ActivityReview(f.options);
+  assert.equal(receipt.status,'OWNER_REVIEW_DRAFT');
+  assert.equal(f.state.writeCalls,1);
 });
