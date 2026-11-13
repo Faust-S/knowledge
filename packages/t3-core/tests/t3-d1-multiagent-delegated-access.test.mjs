@@ -4,6 +4,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync} from 'node:crypto';
+import {createSignedAccessHostPort} from '../src/t3/signed-access-host-port.mjs';
+import {createSubjectKernelBinding} from '../src/t3/subject-access-binding.mjs';
 import {
   PROFILE, iso, digest, signRecord, keyObjectSigner, makeProof, evaluate
 } from '../src/t3/access/core.mjs';
@@ -201,4 +203,51 @@ test('tampering signed agent rights fails cryptographic verification',()=>{
   const decision=f.check();
   assert.equal(decision.allowed,false);
   assert.equal(reason(decision),'SIGNATURE_INVALID');
+});
+
+test('original T3 Host authorizes a separately selected RAG resource but never treats it as a Kernel Workspace',async()=>{
+  const f=createFixture();
+  let selected={
+    kind:'PERSONAL',context_id:'context:personal-agent-work',
+    actor_id:'agent:analyst',principal_id:'person:owner',role_id:'role:owner',
+    grant_id:'grant:analyst',realm_id:'realm:personal',audience:'host:t3',
+    resource:'rag:work',purpose:'purpose:work',workspace_id:'ws:work',
+    organization_id:null,scope_revision:1
+  };
+  const port=createSignedAccessHostPort({
+    currentContext:()=>selected,
+    actionFor:operation=>operation==='rag.retrieve'?'rag.retrieve':'skill.invoke',
+    operationDigest:({operation,input,context})=>digest({operation,input,context}),
+    canonicalDigest:digest,
+    personal:{check:async request=>f.check({req:request})},
+    clock:()=>NOW,
+    randomUUID:()=>String('nonce-').padEnd(36,'0')
+  });
+  const allowed=await port.authorize(f.request);
+  assert.equal(allowed.outcome,'PERMITTED',JSON.stringify(allowed));
+  assert.equal(await port.verifyDecisionBinding(f.request,allowed),true);
+  // A real tool must still run in its trusted Host after this permit.
+  // A raw Kernel call is NOT opened by selecting a non-Workspace resource.
+  let rawKernelCalls=0;
+  const rawKernel={
+    sessionInfo:{contract_version:'1.3.0',runtime_version:'0.3.6'},
+    hasOperation:()=>true,
+    async getObject(){rawKernelCalls++;return {object:{}};}
+  };
+  const binding=createSubjectKernelBinding({kernel:rawKernel,access:port,clock:()=>NOW});
+  await assert.rejects(binding.getObject('ws:work','object:any'),
+    {code:'T3_SUBJECT_RESOURCE_WORKSPACE_MISMATCH'});
+  assert.equal(rawKernelCalls,0);
+
+  selected={...selected,resource:'skill:work'};
+  const skillRequest={...f.request,resource:'skill:work',action:'skill.invoke'};
+  const skillDecision=await port.authorize(skillRequest);
+  assert.equal(skillDecision.allowed,false);
+  assert.equal(reason(skillDecision),'REQUEST_OUTSIDE_GRANT');
+  assert.equal(rawKernelCalls,0);
+
+  // Changing the request's resource without changing the Host-selected
+  // resource cannot authorize anything, even when the grant allows both.
+  await assert.rejects(port.authorize(f.request),
+    {code:'T3_OWNER_CONTEXT_MISMATCH'});
 });

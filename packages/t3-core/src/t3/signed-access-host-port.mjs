@@ -72,8 +72,15 @@ export function createSignedAccessHostPort({
     requireThat(context && (context.kind === "PERSONAL" || context.kind === "CORP") &&
       context.actor_id === request.actorId && context.principal_id === request.principalId &&
       context.role_id === request.roleId && context.grant_id === request.grantId &&
-      context.realm_id === request.realmId && context.workspace_id === request.resource,
+      context.realm_id === request.realmId &&
+      typeof context.workspace_id === "string" && ID.test(context.workspace_id) &&
+      context.resource === request.resource,
       "T3_OWNER_CONTEXT_MISMATCH");
+    // The Host may explicitly select a RAG, process or Skill resource within
+    // its selected Workspace. The inherited Kernel binding is deliberately
+    // stricter: it still requires context.resource === context.workspace_id
+    // for all T2 object/event/Exchange calls. Both gates use the SAME T3
+    // signed authorization owner; neither is an independent IAM.
 
     let decision, expectedRequestDigest, expectedOperationDigest = null;
     if (context.kind === "PERSONAL") {
