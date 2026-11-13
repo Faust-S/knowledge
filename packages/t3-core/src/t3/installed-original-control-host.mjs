@@ -265,6 +265,142 @@ export function createT3InstalledOriginalControlHost({
 }
 
 
+
+/**
+ * Subject choice is a short-lived Host session pointer, NOT an IAM grant.
+ * The installed native Control must explicitly present the existing trusted
+ * PERSONAL/organization choices to the person. The issuer-supplied context
+ * is checked again for every Kernel operation by the unchanged signed gate.
+ *
+ * Context switching increments the existing original Control HTTP epoch and
+ * notifies its SSE subscribers BEFORE a new Workspace is opened. A stale
+ * signed AppShell cannot continue under the next organization's selection.
+ * No user-selected grant, new Store, new issuer or encrypted status cache.
+ */
+const originalSubjectSessions=new WeakSet();
+export function isT3InstalledSubjectSession(value){
+  return !!value&&typeof value==="object"&&originalSubjectSessions.has(value);
+}
+export function createT3InstalledSubjectSession({
+  readCandidates,validateSelection,initialEpoch=1,
+}={}){
+  required(typeof readCandidates==="function"&&
+    typeof validateSelection==="function"&&
+    Number.isSafeInteger(initialEpoch)&&initialEpoch>=1,
+    "SUBJECT_SESSION_TRUSTED_HOST_REQUIRED");
+  const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
+  let selected=null,epoch=initialEpoch,generation=0,closed=false;
+  const subscribers=new Set();
+  const active=()=>required(!closed,"SUBJECT_SESSION_CLOSED");
+  const advance=()=>{
+    required(epoch<Number.MAX_SAFE_INTEGER-1,
+      "SUBJECT_SESSION_EPOCH_EXHAUSTED");
+    epoch++;
+    for(const listener of [...subscribers]){
+      try{listener();}catch{/* A subscriber may not veto revocation. */}
+    }
+  };
+  const verifiedCandidates=async()=>{
+    const records=await readCandidates();
+    active();
+    required(Array.isArray(records)&&records.length<=128,
+      "SUBJECT_SESSION_CANDIDATES_INVALID");
+    const ids=new Set();
+    const result=[];
+    for(const row of records){
+      const context=row?.context;
+      required(typeof row?.selectionId==="string"&&
+        ID.test(row.selectionId)&&!ids.has(row.selectionId)&&
+        typeof row.label==="string"&&row.label.trim().length>0&&
+        row.label.length<=120&&
+        context&&typeof context==="object"&&!Array.isArray(context)&&
+        ID.test(context.context_id??"")&&
+        ID.test(context.actor_id??"")&&
+        ID.test(context.workspace_id??"")&&
+        context.resource===context.workspace_id&&
+        ["PERSONAL","CORP"].includes(context.kind),
+        "SUBJECT_SESSION_CANDIDATE_INVALID");
+      if(context.kind==="PERSONAL"){
+        required(context.organization_id===null&&
+          context.principal_id===context.actor_id,
+          "SUBJECT_SESSION_PERSONAL_SCOPE_INVALID");
+      }else{
+        required(ID.test(context.organization_id??"")&&
+          context.organization_id===context.principal_id&&
+          ID.test(context.grant_id??""),
+          "SUBJECT_SESSION_CORPORATE_SCOPE_INVALID");
+      }
+      ids.add(row.selectionId);
+      result.push({selectionId:row.selectionId,
+        label:row.label,context:structuredClone(context)});
+    }
+    return result;
+  };
+  const api=Object.freeze({
+    currentContext(){
+      active();
+      return selected?structuredClone(selected):null;
+    },
+    currentEpoch(){active();return epoch;},
+    subscribeInvalidation(listener){
+      active();
+      required(typeof listener==="function",
+        "SUBJECT_SESSION_LISTENER_REQUIRED");
+      subscribers.add(listener);
+      return ()=>subscribers.delete(listener);
+    },
+    async availableContexts(){
+      const entries=await verifiedCandidates();
+      return entries.map(row=>Object.freeze({
+        selectionId:row.selectionId,label:row.label,
+        kind:row.context.kind,
+        organizationId:row.context.organization_id,
+        workspaceId:row.context.workspace_id,
+      }));
+    },
+    async selectContext({selectionId,userConfirmed}={}){
+      active();
+      required(userConfirmed===true,"SUBJECT_SESSION_USER_CONFIRMATION_REQUIRED");
+      required(typeof selectionId==="string"&&ID.test(selectionId),
+        "SUBJECT_SESSION_SELECTION_INVALID");
+      const ticket=++generation;
+      const candidates=await verifiedCandidates();
+      const found=candidates.find(row=>row.selectionId===selectionId);
+      required(found!==undefined,"SUBJECT_SESSION_CHOICE_UNAVAILABLE");
+      // This trusted existing-authority callback inspects the issuer's
+      // signed enrollment/state. Returning true is NOT a Kernel permission.
+      const approved=await validateSelection(
+        structuredClone(found.context),selectionId);
+      active();
+      required(ticket===generation,"SUBJECT_SESSION_SELECTION_SUPERSEDED");
+      required(approved===true,"SUBJECT_SESSION_SELECTION_NOT_VERIFIED");
+      selected=structuredClone(found.context);
+      advance();
+      return Object.freeze({
+        schema:"IWXA_T3_SELECTED_SUBJECT_SESSION/1",
+        kind:selected.kind,organizationId:selected.organization_id,
+        workspaceId:selected.workspace_id,contextEpoch:epoch,
+      });
+    },
+    invalidateSignedState(){
+      active();
+      generation++;
+      selected=null;
+      advance();
+    },
+    close(){
+      if(closed)return;
+      generation++;
+      selected=null;
+      advance();
+      closed=true;
+      subscribers.clear();
+    },
+  });
+  originalSubjectSessions.add(api);
+  return api;
+}
+
 /**
  * Bind the existing installed Control HTTP owner to the SAME original signed
  * AccessRegistry in Kernel/Store and the SAME Windows DPAPI Ed25519 vault.
@@ -279,13 +415,15 @@ export function createT3InstalledOriginalControlHost({
  */
 export function createT3InstalledWindowsSignedControlOwner({
   registryKernel,registryWorkspaceId,trustedPolicy,vaultPath,
-  currentContext,actionFor,operationDigest,
+  currentContext,actionFor,operationDigest,subjectSession=null,
   personalCredentialKeyId=null,
   organizationInputFor=null,
   clock=Date.now,randomUUID=()=>globalThis.crypto?.randomUUID(),
 }={}){
   required(process.platform==="win32","WINDOWS_NATIVE_REQUIRED");
-  required(typeof currentContext==="function"&&
+  required((subjectSession===null?typeof currentContext==="function":
+      isT3InstalledSubjectSession(subjectSession)&&
+      currentContext===undefined)&&
     typeof actionFor==="function"&&
     typeof operationDigest==="function"&&
     typeof clock==="function"&&
@@ -338,12 +476,22 @@ export function createT3InstalledWindowsSignedControlOwner({
       })({request,challenge,credentialKeyId,context,asOf});
     },
   };
+  const selectedContext=subjectSession===null?currentContext:
+    subjectSession.currentContext;
   const originalSignedPort=createSignedAccessHostPort({
-    currentContext,actionFor,operationDigest,
+    currentContext:selectedContext,actionFor,operationDigest,
     canonicalDigest:digest,personal,corporate,clock,randomUUID,
   });
   return Object.freeze({
-    ownerFor:async ({scope})=>scope==="kernel"?originalSignedPort:null,
+    ownerFor:async ({scope})=>scope==="kernel"&&selectedContext()!==null
+      ?originalSignedPort:null,
+    ...(subjectSession===null?{}:{
+      currentEpoch:subjectSession.currentEpoch,
+      subscribeInvalidation:subjectSession.subscribeInvalidation,
+      availableContexts:subjectSession.availableContexts,
+      selectContext:subjectSession.selectContext,
+      invalidateSignedState:subjectSession.invalidateSignedState,
+    }),
     credentialInventory:()=>custody.inventory(),
     // Trusted Host-only signed issuer import. Returns only public fields.
     enrollCredential:issued=>custody.enrollCredential(issued),
