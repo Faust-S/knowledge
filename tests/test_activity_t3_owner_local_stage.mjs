@@ -794,7 +794,13 @@ const {planOriginalT2ActivityReviewRegistration}=await import(
 test('original T2 Host build catalog can register review passport without replacing other services',()=>{
   const original={domain:{runtime:{kernel_release:'0.3.6'},security:{
     allowed_object_classes:['iwxa.demo.note'],
-  }},catalog:{contract_version:'1.3.0',count:1,entries:[{
+  },modules:[{service_id:'iwxa.workspace.integration',base_path:'/workspace/'}]},
+    controlPlane:{schema_version:'0.3.1',services:[{
+      schema_version:'0.3.1',service_id:'iwxa.workspace.integration',
+      capability_control:'NONE',capability_ceiling:[],activation_any_of:[],
+      operation_guards:[],
+    }]},
+    catalog:{contract_version:'1.3.0',count:1,entries:[{
     service_id:'iwxa.workspace.integration',service_version:'1.0.0',
     base_path:'/workspace/',supported_levels:['T0','T1','T2'],
     file:'_iwxa/services/iwxa.workspace.integration.json',sha256:'a'.repeat(64),
@@ -802,6 +808,12 @@ test('original T2 Host build catalog can register review passport without replac
   const before=structuredClone(original);
   const ready=planOriginalT2ActivityReviewRegistration(original);
   assert.equal(ready.catalog.count,2);
+  assert.equal(ready.domain.modules.length,2);
+  assert.equal(ready.domain.modules[1].service_id,'iwxa.activity.reviewer');
+  assert.equal(ready.controlPlane.services.length,2);
+  assert.deepEqual(ready.controlPlane.services[0],original.controlPlane.services[0]);
+  assert.equal(ready.controlPlane.services[1].service_id,'iwxa.activity.reviewer');
+  assert.equal(ready.controlPlane.services[1].capability_control,'NONE');
   assert.deepEqual(ready.catalog.entries[0],original.catalog.entries[0]);
   assert.equal(ready.catalog.entries[1].service_id,'iwxa.activity.reviewer');
   assert.equal(ready.catalog.entries[1].file,ready.passport_file);
@@ -818,26 +830,28 @@ test('original T2 Host build catalog can register review passport without replac
   assert.deepEqual(passport.permissions.objects.write,[T3_ACTIVITY_OWNER_REVIEW_SCHEMA]);
   assert.deepEqual(original,before,'original T2 runtime config cannot be mutated');
   const again=planOriginalT2ActivityReviewRegistration({
-    domain:ready.domain,catalog:ready.catalog,
+    domain:ready.domain,catalog:ready.catalog,controlPlane:ready.controlPlane,
   });
   assert.deepEqual(again,ready,'the existing T2 registration must be idempotent');
 });
 test('original service catalog rejects collisions, duplicates and inconsistent counts',()=>{
-  const base={domain:{security:{allowed_object_classes:[]}},
+  const base={domain:{security:{allowed_object_classes:[]},modules:[]},
+    controlPlane:{schema_version:'0.3.1',services:[]},
     catalog:{count:0,entries:[]}};
   const first=planOriginalT2ActivityReviewRegistration(base);
   const wrong=structuredClone(first.catalog);
   wrong.entries[0].sha256='0'.repeat(64);
   assert.throws(()=>planOriginalT2ActivityReviewRegistration({
-    domain:first.domain,catalog:wrong,
+    domain:first.domain,catalog:wrong,controlPlane:first.controlPlane,
   }),{code:'T3_ACTIVITY_SERVICE_PASSPORT_COLLISION'});
   const duplicate=structuredClone(first.catalog);
   duplicate.entries.push({...duplicate.entries[0]});duplicate.count=2;
   assert.throws(()=>planOriginalT2ActivityReviewRegistration({
-    domain:first.domain,catalog:duplicate,
+    domain:first.domain,catalog:duplicate,controlPlane:first.controlPlane,
   }),{code:'T3_ACTIVITY_ORIGINAL_T2_CATALOG_DUPLICATE'});
   assert.throws(()=>planOriginalT2ActivityReviewRegistration({
     domain:base.domain,catalog:{count:2,entries:[]},
+    controlPlane:base.controlPlane,
   }),{code:'T3_ACTIVITY_ORIGINAL_T2_CATALOG_REQUIRED'});
 });
 
@@ -858,4 +872,29 @@ test('optional derived grant rejection never blocks independently signed source 
     assert.equal((await ui.stageSelected()).status,'UNAVAILABLE');
     assert.equal(f.state.writeCalls,0);
   }finally{ui.dispose();bridge.dispose();c.close();}
+});
+
+test('real T2 Host requires service route and control-plane entry along with passport',()=>{
+  const empty={domain:{security:{allowed_object_classes:[]},modules:[]},
+    catalog:{count:0,entries:[]},
+    controlPlane:{schema_version:'0.3.1',services:[]}};
+  const ready=planOriginalT2ActivityReviewRegistration(empty);
+  assert.deepEqual(ready.domain.modules,[{
+    service_id:'iwxa.activity.reviewer',base_path:'/workspace/activity/',
+  }]);
+  assert.deepEqual(ready.controlPlane.services,[{
+    schema_version:'0.3.1',service_id:'iwxa.activity.reviewer',
+    capability_control:'NONE',capability_ceiling:[],
+    activation_any_of:[],operation_guards:[],
+  }]);
+  const evil=structuredClone(ready.controlPlane);
+  evil.services[0].capability_ceiling=['*'];
+  assert.throws(()=>planOriginalT2ActivityReviewRegistration({
+    domain:ready.domain,catalog:ready.catalog,controlPlane:evil,
+  }),{code:'T3_ACTIVITY_SERVICE_PASSPORT_COLLISION'});
+  const missing=structuredClone(empty);
+  delete missing.controlPlane;
+  assert.throws(()=>planOriginalT2ActivityReviewRegistration(missing),{
+    code:'T3_ACTIVITY_ORIGINAL_T2_CATALOG_REQUIRED',
+  });
 });
