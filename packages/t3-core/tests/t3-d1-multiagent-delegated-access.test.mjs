@@ -284,7 +284,7 @@ test('a PERSONALLY owned specialist agent uses its own encrypted Vault key and s
     currentContext:()=>selected,
     actionFor:operation=>operation,
     operationDigest:({operation,input,context})=>digest({operation,input,context}),
-    canonicalDigest:digest,clock:()=>NOW,personal,
+    canonicalDigest:digest,clock:()=>NOW,personal:{check:personal},
     resourceRead:async({operation,arguments:args})=>{
       reads++;
       assert.equal(operation,'rag.retrieve');
