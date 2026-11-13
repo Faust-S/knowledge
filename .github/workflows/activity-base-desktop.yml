@@ -13,6 +13,7 @@ on:
       - tests/test_activity_t3_control_host_link.mjs
       - tests/test_activity_t3_original_reader.mjs
       - tests/test_activity_t3_owner_local_stage.mjs
+      - tests/test_activity_t3_real_t2_host.browser.mjs
       - tests/test_activity_host_surface.mjs
       - tests/test_activity_desktop_contract.py
       - .github/workflows/activity-base-desktop.yml
@@ -82,6 +83,39 @@ jobs:
         env:
           IWXA_T3_PUBLIC_CORE_DIR: ../t3-public-core/packages/t3-core
         run: node --test tests/test_activity_t3_original_reader.mjs tests/test_activity_t3_owner_local_stage.mjs
+  t2-original-review-passport-runtime:
+    # Real original Kernel/Store and cold browser restart, NOT a fake adapter.
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    needs: t3-original-d2-owner-contract
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Reuse exact original public T3 and original qualified T2 artifact
+        shell: bash
+        run: |
+          set -eu
+          git clone --filter=blob:none --no-checkout https://github.com/Faust-S/knowledge.git ../t3-public-core
+          git -C ../t3-public-core checkout --detach 21beaa320de2bba3443188c8f87631d5bfcbc28a
+          test "$(git -C ../t3-public-core rev-parse HEAD^{tree})" = "9e8fd5a207a835735c41320c1c214bf8374ccaeb"
+          archive=../t3-public-core/packages/t3-core/qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip
+          echo "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68  $archive" | sha256sum -c -
+          mkdir -p "$IWXA_T2_QUALIFIED_KERNEL_DIST"
+          unzip -q "$archive" -d "$IWXA_T2_QUALIFIED_KERNEL_DIST"
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+      - name: Reuse original Host browser test dependencies
+        run: npm ci --prefix ../t3-public-core/packages/t3-core --ignore-scripts --no-audit --no-fund
+      - name: Install existing original T2 Host browser test runtime
+        working-directory: ../t3-public-core/packages/t3-core
+        run: npx --no-install playwright install chromium
+      - name: Register Activity reviewer in original T2 Host and cold-reopen Kernel
+        env:
+          IWXA_T3_PUBLIC_CORE_DIR: ../t3-public-core/packages/t3-core
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+        run: node tests/test_activity_t3_real_t2_host.browser.mjs
   windows-desktop:
     runs-on: windows-latest
     timeout-minutes: 50
