@@ -8,6 +8,18 @@ import {existsSync,lstatSync,readFileSync,realpathSync,statSync} from "node:fs";
 import {dirname,extname,isAbsolute,join,relative,resolve,sep} from "node:path";
 import {createOriginalControlHttpHandler} from "./original-control-http-handler.mjs";
 import {createT3IsolatedUiServer} from "./isolated-ui-server.mjs";
+import {digest} from "./access/core.mjs";
+import {createOriginalKernelRegistryStatePort}
+  from "./access/original-kernel-registry-state.mjs";
+import {createOrganizationalOperationGate}
+  from "./access/organizational-operation.mjs";
+import {createOriginalPersonalAccessCheck}
+  from "./access/original-personal-evaluator.mjs";
+import {createOriginalVaultProofSigner}
+  from "./access/original-vault-proof.mjs";
+import {createWindowsOriginalVaultCustody}
+  from "./access/windows-original-vault-custody.mjs";
+import {createSignedAccessHostPort} from "./signed-access-host-port.mjs";
 
 const LOCAL=/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/;
 const SERVICE=/^[A-Za-z0-9][A-Za-z0-9._-]{1,159}$/;
@@ -249,5 +261,94 @@ export function createT3InstalledOriginalControlHost({
       await stopKernel();
       started=false;
     },
+  });
+}
+
+
+/**
+ * Bind the existing installed Control HTTP owner to the SAME original signed
+ * AccessRegistry in Kernel/Store and the SAME Windows DPAPI Ed25519 vault.
+ * No test issuer, new IAM, second Store, local authority cache or separate
+ * private-key format is constructed here.
+ *
+ * The installed trusted Host supplies an ORIGINAL KernelFacade, its pinned
+ * signed policy, a synchronous selected context, and exact user-approved
+ * signed enrollment inputs from the original issuer. Mere possession of a
+ * public credential never authorizes a corporate operation. Selection epoch
+ * and invalidation remain owned by createOriginalControlHttpHandler's Host.
+ */
+export function createT3InstalledWindowsSignedControlOwner({
+  registryKernel,registryWorkspaceId,trustedPolicy,vaultPath,
+  currentContext,actionFor,operationDigest,
+  personalCredentialKeyId=null,
+  organizationInputFor=null,
+  clock=Date.now,randomUUID=()=>globalThis.crypto?.randomUUID(),
+}={}){
+  required(process.platform==="win32","WINDOWS_NATIVE_REQUIRED");
+  required(typeof currentContext==="function"&&
+    typeof actionFor==="function"&&
+    typeof operationDigest==="function"&&
+    typeof clock==="function"&&
+    typeof randomUUID==="function"&&
+    (personalCredentialKeyId!==null||
+      typeof organizationInputFor==="function"),
+    "ORIGINAL_SIGNED_OWNER_REQUIRED");
+  required(organizationInputFor===null||
+    typeof organizationInputFor==="function",
+    "ORIGINAL_CORPORATE_ENROLLMENT_REQUIRED");
+  required(personalCredentialKeyId===null||
+    (typeof personalCredentialKeyId==="string"&&
+      /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(personalCredentialKeyId)),
+    "ORIGINAL_PERSONAL_CREDENTIAL_REQUIRED");
+  // The original Kernel-persisted registry remains the only signed STATUS
+  // authority. Its root policy is pinned by this trusted Host, never by UI.
+  const registry=createOriginalKernelRegistryStatePort({
+    kernel:registryKernel,workspaceId:registryWorkspaceId,
+    trustedPolicy,clock,
+  });
+  const custody=createWindowsOriginalVaultCustody({vaultPath});
+  const personal=personalCredentialKeyId===null?undefined:{
+    check:createOriginalPersonalAccessCheck({
+      readState:()=>registry.readState(),
+      signProof:createOriginalVaultProofSigner({
+        keyId:personalCredentialKeyId,
+        readEncryptedVault:custody.readEncryptedVault,
+        unlockPassphrase:custody.unlockPassphrase,
+      }),
+      clock,randomUUID,
+    }),
+  };
+  const corporate=organizationInputFor===null?undefined:{
+    productId:"IWXA_CONTROL_CENTER",
+    gate:createOrganizationalOperationGate({registry}),
+    inputFor:organizationInputFor,
+    // The organization and issued key are bound by the ORIGINAL signed
+    // enrollment gate immediately before signing; never use a stored
+    // browser-selected key, arbitrary issuer or cached grant.
+    prove:async ({request,challenge,credentialKeyId,context,asOf})=>{
+      required(context?.kind==="CORP"&&
+        typeof context.organization_id==="string"&&
+        typeof credentialKeyId==="string",
+        "ORIGINAL_CORPORATE_SELECTION_REQUIRED");
+      return createOriginalVaultProofSigner({
+        keyId:credentialKeyId,
+        organizationId:context.organization_id,
+        readEncryptedVault:custody.readEncryptedVault,
+        unlockPassphrase:custody.unlockPassphrase,
+      })({request,challenge,credentialKeyId,context,asOf});
+    },
+  };
+  const originalSignedPort=createSignedAccessHostPort({
+    currentContext,actionFor,operationDigest,
+    canonicalDigest:digest,personal,corporate,clock,randomUUID,
+  });
+  return Object.freeze({
+    ownerFor:async ({scope})=>scope==="kernel"?originalSignedPort:null,
+    credentialInventory:()=>custody.inventory(),
+    // Trusted Host-only signed issuer import. Returns only public fields.
+    enrollCredential:issued=>custody.enrollCredential(issued),
+    // The native Host uses the original Kernel to commit signed STATUS.
+    // This port does not expose a browser control endpoint by itself.
+    registry,
   });
 }
