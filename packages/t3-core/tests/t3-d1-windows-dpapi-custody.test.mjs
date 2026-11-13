@@ -75,8 +75,22 @@ test("DPAPI CurrentUser protects original PERSONAL + two CORP Ed25519 credential
     await proofFor(null,"key:personal");
     await proofFor("org:north","key:north");
     await proofFor("org:south","key:south");
-    await assert.rejects(proofFor("org:north","key:south"),
-      {code:"T3_ACCESS_VAULT_CREDENTIAL_MISMATCH"});
+    const north=selected("org:north");
+    const pinnedNorth=createOriginalVaultProofSigner({
+      organizationId:"org:north",keyId:"key:north",...custody});
+    await assert.rejects(pinnedNorth({
+      context:north,request:request(north),
+      credentialKeyId:"key:south",
+      challenge:"win-dpapi-challenge-"+String(now),
+      asOf:new Date(now).toISOString(),
+    }),{code:"T3_ACCESS_VAULT_CREDENTIAL_MISMATCH"});
+    await assert.rejects(pinnedNorth({
+      context:selected("org:south"),
+      request:request(selected("org:south")),
+      credentialKeyId:"key:north",
+      challenge:"win-dpapi-challenge-"+String(now),
+      asOf:new Date(now).toISOString(),
+    }),{code:"T3_ACCESS_VAULT_ORGANIZATION_MISMATCH"});
     const script=`
       import {createWindowsOriginalVaultCustody} from "./src/t3/access/windows-original-vault-custody.mjs";
       import {createOriginalVaultProofSigner} from "./src/t3/access/original-vault-proof.mjs";
