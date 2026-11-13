@@ -15,6 +15,7 @@ import {materializeIntegrationHost,serveRealKernelHost}
   from "../scripts/real-kernel-e2e.mjs";
 import {assertQualifiedKernelArtifact}
   from "../src/factory2/products/domain-completion/independent-browser-witness.mjs";
+import {readStoredZip,createStoredZip} from "../scripts/zip-store.mjs";
 import {createSubjectKernelBinding}
   from "../src/t3/subject-access-binding.mjs";
 import {createTemporaryOriginalPersonalAuthority}
@@ -255,6 +256,59 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       let independent=t2Recipient.pages()[0]||await t2Recipient.newPage();
       await independent.goto(live.origin+"/workspace/");
       await independent.waitForFunction(()=>typeof window.IWXA?.connect==="function");
+      // Construct negative packages using the pre-existing test ZIP writer,
+      // never a replacement runtime importer or a new package format.
+      // The original Kernel must reject unsupported versions and entries
+      // escaping the archive root BEFORE exposing any preview/commit token.
+      const originalEntries=[...readStoredZip(Buffer.from(saved.archiveBytes))]
+        .map(([name,bytes])=>({name,bytes}));
+      const manifestEntry=originalEntries.find(x=>x.name==="manifest.json");
+      assert.ok(manifestEntry,"original T2 .iwxa must contain manifest.json");
+      const manifest=JSON.parse(manifestEntry.bytes.toString("utf8"));
+      assert.equal(manifest.format_version,"1.0");
+      const unsupportedVersion=createStoredZip(originalEntries.map(entry=>
+        entry.name!=="manifest.json"?entry:{
+          name:entry.name,bytes:Buffer.from(JSON.stringify({
+            ...manifest,format_version:"99.0",
+          }),"utf8"),
+        }));
+      const traversal=createStoredZip([...originalEntries,{
+        name:"content/../../escape.json",
+        bytes:Buffer.from('{"untrusted":true}',"utf8"),
+      }]);
+      const negativeCandidates=[
+        {kind:"unsupported-version",bytes:[...unsupportedVersion]},
+        {kind:"zip-path-traversal",bytes:[...traversal]},
+      ];
+      const negative=await independent.evaluate(async({SERVICE,workspace,object,candidates})=>{
+        const original=await IWXA.connect({service_id:SERVICE});
+        const outcomes=[];
+        for(const candidate of candidates){
+          try{
+            const unexpected=await original.t2.importPreview(
+              Uint8Array.from(candidate.bytes));
+            outcomes.push({kind:candidate.kind,rejected:false,
+              tokenIssued:Boolean(unexpected?.preview_token)});
+            if(unexpected?.preview_token && original.hasOperation?.("t2.importCancel"))
+              await original.t2.importCancel(unexpected.preview_token);
+          }catch(error){
+            outcomes.push({kind:candidate.kind,rejected:true,
+              errorCode:String(error?.code??error?.name??"UNKNOWN")});
+          }
+        }
+        const record=await original.t1.getObject(workspace,object);
+        return {outcomes,unchanged:record==null};
+      },{SERVICE,workspace,object,candidates:negativeCandidates});
+      assert.equal(negative.unchanged,true,
+        "invalid packages must not create recipient objects");
+      for(const outcome of negative.outcomes){
+        assert.equal(outcome.rejected,true,
+          "original T2 must refuse "+outcome.kind+
+          ", observed "+JSON.stringify(outcome));
+      }
+      console.log("T3_D4_ORIGINAL_T2_UNSUPPORTED_VERSION_AND_TRAVERSAL_PASS",
+        JSON.stringify({originalParser:true,negative:negative.outcomes,
+          recipientStoreUnchanged:true}));
       const raw=await independent.evaluate(async({SERVICE,workspace,object,bytes})=>{
         const original=await window.IWXA.connect({service_id:SERVICE});
         if(original.contract_version!=="1.3.0"||
