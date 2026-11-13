@@ -19,6 +19,7 @@ CONTRACT = "IWXA_K05_AGENT05_GRAPH_OBSERVATION_PROOF/0.1"
 PAIR_CONTRACT = "IWXA_K05_AGENT05_GRAPH_PAIRED_PROOF/0.1"
 GRAPH_ARTIFACT_CONTRACT = "PA.CONTRACT.GRAPH_NODE_EXECUTOR@1.0.0"
 GRAPH_CONFIG_CONTRACT = "PA.CONTRACT.GRAPH_NODE_CONFIG@1.0.0"
+GRAPH_RUNTIME_CONTRACT = "PA.CONTRACT.GRAPH_RUNTIME@1.0.0"
 HEX = re.compile(r"^[a-f0-9]{64}$")
 MAX_ARTIFACT_BYTES = 8_000_000
 MAX_CONFIG_BYTES = 2_000_000
@@ -225,6 +226,7 @@ GRAPH_EXECUTION_RECEIPT_FIELDS = frozenset({
     "tool_invoked", "agent_invoked", "external_effect_performed", "receipt_digest",
 })
 MAX_EXECUTION_RECEIPT_BYTES = 64_000
+MAX_EXECUTION_INSTANCE_BYTES = 512_000
 
 
 def _verify_execution_receipt_link(artifact_bytes: bytes, receipt_bytes: bytes,
@@ -258,6 +260,25 @@ def _verify_execution_receipt_link(artifact_bytes: bytes, receipt_bytes: bytes,
             or receipt["tool_invoked"] or receipt["agent_invoked"]
             or receipt["model_invoked"] == receipt["artifact_reused"]):
         _fail("EXECUTION_RECEIPT_INVOCATION_CONFLICT")
+    # Exactly the GraphRuntime.completion_receipt() material used by the
+    # owner's executor. Do not claim to have read a separately stored event.
+    event_material = {
+        "contract": GRAPH_RUNTIME_CONTRACT,
+        "object_type": "GraphEvent",
+        "event_type": "NODE_COMPLETED",
+        "execution_id": receipt["execution_id"],
+        "node_id": receipt["node_id"],
+        "node_run_digest": receipt["node_run_digest"],
+        "output_digest": receipt["artifact_digest"],
+        "evidence_refs": [
+            "graph-node-artifact:" + receipt["artifact_digest"],
+            *artifact["source_refs"],
+        ],
+        "external_effect_receipt_ref": "",
+        "replay_executes_external_effect": False,
+    }
+    if _digest(event_material) != receipt["completion_event_digest"]:
+        _fail("COMPLETION_EVENT_DIGEST_MISMATCH")
     return {
         "status": "OWNER_SUPPLIED_RECEIPT_LINKED_TO_SNAPSHOT",
         "receipt_sha256": receipt_digest,
@@ -273,13 +294,47 @@ def _verify_execution_receipt_link(artifact_bytes: bytes, receipt_bytes: bytes,
         "owner_reported_artifact_reused": receipt["artifact_reused"],
         "receipt_bytes_rehashed": len(receipt_bytes),
         "completion_event_content_verified": False,
+        "completion_event_digest_reconstructed_from_artifact": True,
         "core_readback_independently_verified": False,
+    }
+
+
+def _verify_owner_post_execution_instance(instance_bytes: bytes, receipt: dict) -> dict:
+    """Check the exact *immediate* after-completion snapshot supplied by Core.
+
+    A later Graph transition has a different execution_digest and cannot be
+    silently substituted. The caller, not K05, proves the bytes came from Core.
+    """
+    instance = _parse(instance_bytes, MAX_EXECUTION_INSTANCE_BYTES)
+    result_digest = _verify_record(
+        instance, digest_key="execution_digest",
+        contract=GRAPH_RUNTIME_CONTRACT, obj_type="ExecutionInstance",
+    )
+    if (instance.get("external_effect_authority_granted_by_graph") is not False
+            or type(instance.get("transition_sequence")) is not int
+            or instance["transition_sequence"] < 1
+            or type(instance.get("execution_id")) is not str):
+        _fail("POST_COMPLETION_INSTANCE_INVALID")
+    if (result_digest != receipt["result_execution_sha256"]
+            or hashlib.sha256(instance["execution_id"].encode("utf-8")).hexdigest()
+               != receipt["execution_id_sha256"]
+            or instance.get("graph_digest") != receipt["graph_sha256"]
+            or instance.get("last_graph_event_digest") !=
+               receipt["completion_event_sha256"]):
+        _fail("POST_COMPLETION_INSTANCE_MISMATCH")
+    return {
+        "status": "OWNER_SUPPLIED_POST_COMPLETION_INSTANCE_LINKED",
+        "execution_sha256": result_digest,
+        "completion_event_digest": receipt["completion_event_sha256"],
+        "bytes_rehashed": len(instance_bytes),
+        "core_origin_independently_verified": False,
     }
 
 
 def verify_saved_graph_execution_receipt(
     observation: dict, *, artifact_bytes: bytes, config_bytes: bytes,
     execution_receipt_bytes: bytes,
+    after_execution_instance_bytes: bytes | None = None,
 ) -> dict:
     """Verify a self-consistent owner receipt against existing Graph snapshots.
 
@@ -292,9 +347,14 @@ def verify_saved_graph_execution_receipt(
     receipt = _verify_execution_receipt_link(
         artifact_bytes, execution_receipt_bytes, snapshot,
     )
+    post_instance = (
+        _verify_owner_post_execution_instance(after_execution_instance_bytes, receipt)
+        if after_execution_instance_bytes is not None else None
+    )
     return {
         "schema": "IWXA_K05_AGENT05_GRAPH_EXECUTION_LINK/0.1",
         "snapshot": snapshot, "execution": receipt,
+        "post_completion_instance": post_instance,
         "owner_receipt_integrity": "SHA256_LINK_VERIFIED_ON_HOST_BYTES_ONLY",
         "actual_core_readback": "NOT_TESTED",
         "human_gold": False,

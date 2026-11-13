@@ -82,6 +82,40 @@ def build(run_id, *, input_tokens=120, output_tokens=60,
         "source_refs": refs, "provider_meta": meta,
         "external_effect_performed": False, "contains_credentials": False,
     }, "artifact_digest")
+    # Exact event material from the existing GraphRuntime.completion_receipt().
+    event = with_digest({
+        "contract": graph.GRAPH_RUNTIME_CONTRACT,
+        "object_type": "GraphEvent", "event_type": "NODE_COMPLETED",
+        "execution_id": artifact["execution_id"], "node_id": artifact["node_id"],
+        "node_run_digest": artifact["node_run_digest"],
+        "output_digest": artifact["artifact_digest"],
+        "evidence_refs": ["graph-node-artifact:" + artifact["artifact_digest"],
+                          *artifact["source_refs"]],
+        "external_effect_receipt_ref": "",
+        "replay_executes_external_effect": False,
+    }, "event_digest")
+    after = with_digest({
+        "contract": graph.GRAPH_RUNTIME_CONTRACT,
+        "object_type": "ExecutionInstance",
+        "execution_id": artifact["execution_id"],
+        "graph_id": "synthetic-fixture-graph",
+        "graph_revision": 1,
+        "graph_digest": artifact["graph_digest"],
+        "input_digest": "9" * 64,
+        "context_ref": "",
+        "state": "COMPLETED",
+        "current_node_ids": [],
+        "completed_node_ids": [artifact["node_id"]],
+        "node_completion_counts": {artifact["node_id"]: 1},
+        "iteration_count": 1,
+        "elapsed_ms": elapsed_ms,
+        "tool_call_count": 0, "cost_microunits": 0,
+        "transition_sequence": 1,
+        "last_graph_event_digest": event["event_digest"],
+        "cancel_requested": False,
+        "checkpoint_sequence": 0,
+        "external_effect_authority_granted_by_graph": False,
+    }, "execution_digest")
     receipt = with_digest({
         "contract": graph.GRAPH_ARTIFACT_CONTRACT,
         "object_type": "GraphNodeExecutionReceipt",
@@ -92,8 +126,8 @@ def build(run_id, *, input_tokens=120, output_tokens=60,
         "node_run_digest": artifact["node_run_digest"],
         "artifact_digest": artifact["artifact_digest"],
         "source_execution_digest": "e" * 64,
-        "result_execution_digest": "f" * 64,
-        "completion_event_digest": "1" * 64,
+        "result_execution_digest": after["execution_digest"],
+        "completion_event_digest": event["event_digest"],
         "artifact_reused": artifact_reused,
         "model_invoked": not artifact_reused,
         "tool_invoked": False,
@@ -131,7 +165,7 @@ def build(run_id, *, input_tokens=120, output_tokens=60,
         "model_observation": observation,
     }
     return {"artifact": artifact, "config": cfg, "run": run,
-            "receipt": receipt, "result": result}
+            "receipt": receipt, "event": event, "after": after, "result": result}
 
 
 def verify(bundle):
@@ -142,12 +176,14 @@ def verify(bundle):
     )
 
 
-def verify_execution(bundle):
+def verify_execution(bundle, *, with_instance=False):
     return graph.verify_saved_graph_execution_receipt(
         bundle["run"]["model_observation"],
         artifact_bytes=to_bytes(bundle["artifact"]),
         config_bytes=to_bytes(bundle["config"]),
         execution_receipt_bytes=to_bytes(bundle["receipt"]),
+        **({"after_execution_instance_bytes": to_bytes(bundle["after"])}
+           if with_instance else {}),
     )
 
 
@@ -346,6 +382,83 @@ class Agent05GraphReceipt(unittest.TestCase):
         self.assertFalse(evidence["completion_event_content_verified"])
         self.assertEqual(result["actual_core_readback"], "NOT_TESTED")
         self.assertGreater(evidence["receipt_bytes_rehashed"], 200)
+
+    def test_completion_event_reconstruction_matches_owner_graph_runtime(self):
+        item = build("baseline")
+        proof = verify_execution(item)
+        self.assertTrue(proof["execution"][
+            "completion_event_digest_reconstructed_from_artifact"])
+        self.assertEqual(proof["execution"]["completion_event_sha256"],
+                         item["event"]["event_digest"])
+        self.assertFalse(proof["execution"]["completion_event_content_verified"])
+        # An independently supplied GraphEvent is not necessary for a digest
+        # recheck; the event is deterministically constructed from the receipt.
+        self.assertIsNone(proof["post_completion_instance"])
+
+    def test_rehashed_false_completion_event_is_rejected(self):
+        value = build("baseline")
+        bad = deepcopy(value)
+        bad["receipt"]["completion_event_digest"] = "1" * 64
+        bad["receipt"] = with_digest(bad["receipt"], "receipt_digest")
+        with self.assertRaisesRegex(AgentComparisonHold,
+                                    "COMPLETION_EVENT_DIGEST_MISMATCH"):
+            verify_execution(bad)
+
+    def test_host_supplied_after_execution_snapshot_links_event_and_result(self):
+        item = build("baseline")
+        proof = verify_execution(item, with_instance=True)
+        self.assertEqual(proof["post_completion_instance"]["status"],
+                         "OWNER_SUPPLIED_POST_COMPLETION_INSTANCE_LINKED")
+        self.assertEqual(proof["post_completion_instance"]["execution_sha256"],
+                         item["receipt"]["result_execution_digest"])
+        self.assertEqual(proof["post_completion_instance"]["completion_event_digest"],
+                         item["event"]["event_digest"])
+        self.assertEqual(proof["actual_core_readback"], "NOT_TESTED")
+        self.assertFalse(proof["post_completion_instance"][
+            "core_origin_independently_verified"])
+
+    def test_host_after_snapshot_tampering_and_later_instance_cannot_pass(self):
+        item = build("baseline")
+        for name, change, error in (
+            ("altered_after",lambda r: r["after"].update(
+                {"elapsed_ms": r["after"]["elapsed_ms"] + 1}),
+                "DIGEST_MISMATCH"),
+            ("later_snapshot",lambda r: r["after"].update(
+                {"transition_sequence": 2}),
+                "POST_COMPLETION_INSTANCE_MISMATCH"),
+            ("different_event",lambda r: r["after"].update(
+                {"last_graph_event_digest": "7" * 64}),
+                "POST_COMPLETION_INSTANCE_MISMATCH"),
+            ("improper_authority",lambda r: r["after"].update(
+                {"external_effect_authority_granted_by_graph": True}),
+                "POST_COMPLETION_INSTANCE_INVALID"),
+        ):
+            with self.subTest(name=name):
+                tampered = deepcopy(item)
+                change(tampered)
+                if name != "altered_after":
+                    tampered["after"] = with_digest(tampered["after"],
+                                                  "execution_digest")
+                    if name == "later_snapshot":
+                        # Simulate a later owner state: new hash does not
+                        # retroactively replace receipt's earlier result.
+                        pass
+                with self.assertRaisesRegex(AgentComparisonHold, error):
+                    verify_execution(tampered, with_instance=True)
+
+    def test_graph_event_digest_changes_if_source_evidence_set_changes(self):
+        item = build("baseline")
+        # A forged event computed from a modified source list cannot be
+        # accepted just because the receipt itself was re-hashed.
+        bad = deepcopy(item)
+        changed_event = deepcopy(bad["event"])
+        changed_event["evidence_refs"].append("unverified:extra")
+        changed_event = with_digest(changed_event, "event_digest")
+        bad["receipt"]["completion_event_digest"] = changed_event["event_digest"]
+        bad["receipt"] = with_digest(bad["receipt"], "receipt_digest")
+        with self.assertRaisesRegex(AgentComparisonHold,
+                                    "COMPLETION_EVENT_DIGEST_MISMATCH"):
+            verify_execution(bad)
 
     def test_two_separate_owner_receipts_allow_processing_only_comparison(self):
         a, b = build("baseline"), build("tested", input_tokens=97, elapsed_ms=225)
