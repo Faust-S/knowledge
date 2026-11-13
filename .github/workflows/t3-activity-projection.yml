@@ -44,6 +44,8 @@ jobs:
       - run: node --test packages/t3-core/tests/t3-subject-kernel-scope.test.mjs
       - run: node --check packages/t3-core/src/t3/signed-access-host-port.mjs
       - run: node --test packages/t3-core/tests/t3-signed-access-host-port.test.mjs
+      - name: Qualify authentic Ed25519 PERSONAL Access over the inherited Kernel
+        run: node --test packages/t3-core/tests/t3-d1-real-ed25519-personal.test.mjs
       - name: Test BLI declaration in the original signed one-dist
         run: node --test packages/t3-core/scripts/t3-signed-dist-registration.test.mjs
       - name: Qualify canonical isolated signed Workspace server from public knowledge
