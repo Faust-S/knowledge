@@ -23,6 +23,12 @@ jobs:
           python-version: '3.13'
       - name: Contract and provider negative cases
         run: node --test modules/k02-interoperability/tests/*.test.mjs
+      - name: Qualify Agent 0.5 frozen public K02 owner API vs moving branch
+        env:
+          K02_PINNED_SOURCE_SHA: 467fddc8a49dab475af79a63b0ca4eea78fd5ff2
+        run: |
+          node modules/k02-interoperability/consumers/agent05-owner-source-pin-check.mjs
+          python modules/k02-interoperability/consumers/python_agent05_source_pin_verify.py
       - name: Independent Python verifies Node plan, provider and Skill digests
         run: python modules/k02-interoperability/consumers/python_cross_language_verify.py
       - name: Independent Python checks native Agent request drafts from Node
