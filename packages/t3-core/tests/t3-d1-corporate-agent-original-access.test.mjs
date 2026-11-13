@@ -263,6 +263,7 @@ test('corporate agent performs exact signed RAG and Skill resource checks withou
   const gate=createOrganizationalOperationGate({registry});
   let selected={...north.agentContext,resource:'rag:north'};
   const providerCalls=[];
+  let afterRead=null;
   const access=createSignedAccessHostPort({
     currentContext:()=>selected,
     actionFor:op=>op,
@@ -272,6 +273,21 @@ test('corporate agent performs exact signed RAG and Skill resource checks withou
     // not to an invented T3 ToolRuntime or a direct Kernel shortcut.
     resourceRead:async ({operation,arguments:args,context})=>{
       providerCalls.push({operation,args,resource:context.resource});
+      if(afterRead==='switch'){
+        selected={...selected,resource:'skill:north'};
+      } else if(afterRead==='revoke'){
+        const next=structuredClone(fixture.state);
+        const revised={...north.agentStatus,sequence:3,
+          issuedAt:iso(NOW-500),
+          entries:north.agentStatus.entries.map(entry=>({
+            ...entry,
+            state:entry.grantId==='grant:north'?'REVOKED':entry.state,
+            effectiveAt:iso(NOW-600)
+          }))};
+        next.statuses['issuer:north']=signRecord(revised,north.issuerSigner);
+        next.statusFloor['issuer:north']=3;
+        assert.equal((await registry.commitSignedState(next)).revision,2);
+      }
       if(operation==='rag.retrieve')return {
         hits:[{id:'doc:site-survey',source:'rag:north',
           text:'Client requires a 12 kW inverter and 24-hour autonomy'}],
@@ -334,5 +350,24 @@ test('corporate agent performs exact signed RAG and Skill resource checks withou
   const bound=createSubjectKernelBinding({kernel:kernel.api,access,clock:time});
   await assert.rejects(bound.getObject('ws:north','object:blocked'),
     {code:'T3_SUBJECT_RESOURCE_WORKSPACE_MISMATCH'});
+  assert.equal(kernel.calls.filter(x=>x.schema_id==='iwxa.demo.note').length,0);
+
+  // Return no corporate data if the human changes selected scope while the
+  // read-only ToolRuntime is executing.
+  afterRead='switch';
+  await assert.rejects(access.readAuthorizedResource(
+    'rag.retrieve',{query:'in-progress request'}),
+    {code:'T3_OWNER_RESOURCE_CONTEXT_CHANGED'});
+  assert.equal(providerCalls.length,3);
+
+  // A new signed corporate revocation delivered during retrieval blocks
+  // release of the already computed result. No reissued grants or second IAM.
+  selected={...north.agentContext,resource:'rag:north'};
+  afterRead='revoke';
+  await assert.rejects(access.readAuthorizedResource(
+    'rag.retrieve',{query:'pending after root revocation'}),
+    {code:'T3_ACCESS_NOT_PERMITTED'});
+  assert.equal(providerCalls.length,4);
+  assert.equal((await registry.getStatus()).sequences['issuer:north'],3);
   assert.equal(kernel.calls.filter(x=>x.schema_id==='iwxa.demo.note').length,0);
 });
