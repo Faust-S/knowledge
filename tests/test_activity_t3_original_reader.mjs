@@ -20,6 +20,9 @@ if (!root || !existsSync(join(resolve(root), 'src/t3/index.mjs'))) {
 const source = await import(pathToFileURL(join(resolve(root), 'src/t3/index.mjs')).href);
 assert.equal(typeof source.readActivityFromWorkspaceContext, 'function');
 assert.equal(typeof source.createSubjectKernelBinding, 'function');
+const {createControlLoopbackOwner}=await import(pathToFileURL(
+  join(resolve(root),'src/t3/control-loopback-owner.mjs')).href);
+
 
 const W = 'ws:host-selected';
 const now = () => new Date();
@@ -408,4 +411,80 @@ test('malformed epistemic status in original D2 source contract fails closed',as
     code:'T3_AUTHORITATIVE_READ_REFUSED',
   });
   assert.equal(h.counts.write,0);
+});
+
+test('original T3 signed loopback owner mounts Activity Read without second Control app',async()=>{
+  const h=fixture(),origin='http://127.0.0.1:19713',token='q'.repeat(44),epoch=1;
+  const encrypted=new TextEncoder();
+  let eventController=null,accessCount=0;
+  const answer=(value,status=200)=>new Response(JSON.stringify(value),{
+    status,headers:{'Content-Type':'application/json'},
+  });
+  const trustedFetch=async(url,request={})=>{
+    assert.ok(url.startsWith(origin+'/api/t3/'));
+    assert.equal(request.headers.Authorization,'Bearer '+token);
+    if(url.endsWith('/owner-events')){
+      assert.equal(request.headers.Accept,'text/event-stream');
+      return new Response(new ReadableStream({start(controller){
+        eventController=controller;
+        controller.enqueue(encrypted.encode('event: ready\n\n'));
+      }}),{status:200,headers:{'Content-Type':'text/event-stream'}});
+    }
+    if(url.endsWith('/context-epoch'))return answer({contextEpoch:epoch});
+    const command=JSON.parse(request.body);
+    if(command.verb==='select'){
+      accessCount++;
+      return answer({available:command.scope==='activity'&&
+        command.operation==='activity.read',contextEpoch:epoch});
+    }
+    if(command.verb==='context')return answer({
+      context:await h.signedAccess.currentContext(),
+    });
+    if(command.verb==='action')return answer({
+      action:await h.signedAccess.actionFor(command.kernelOperation),
+    });
+    if(command.verb==='digest')return answer({
+      digest:await h.signedAccess.operationDigest({
+        operation:command.kernelOperation,
+        input:command.command,context:command.context,
+      }),
+    });
+    if(command.verb==='authorize')return answer({
+      decision:await h.signedAccess.authorize(command.request),
+    });
+    throw Error('UNRECOGNIZED_ORIGINAL_CONTROL_REQUEST');
+  };
+  const original=createControlLoopbackOwner({
+    origin,token,fetchImpl:trustedFetch,
+  });
+  const bridge=bindT3ControlActivityReview({
+    control:original,context:h.context,bindings:h.bindings,
+    readActivityFromWorkspaceContext:source.readActivityFromWorkspaceContext,
+  });
+  assert.deepEqual(Object.keys(bridge.port).sort(),[
+    'readSelected','subscribeInvalidation',
+  ]);
+  const updates=[],ui=createT3ReviewController({
+    host:bridge.port,onUpdate:value=>updates.push(value),
+  });
+  try{
+    assert.deepEqual(await ui.readSelected(),{status:'REVIEW'});
+    assert.equal(updates.at(-1).review.export_allowed,false);
+    assert.equal(updates.at(-1).review.anonymity,'NOT_ESTABLISHED');
+    assert.equal(h.counts.write,0);
+    assert.equal(accessCount,1);
+    assert.equal(JSON.stringify(updates).includes('PRIVATE_PERSON_'),false);
+    const prior=h.counts.read;
+    const invalidated=new Promise(resolve=>{bridge.port.subscribeInvalidation(resolve);});
+    h.revoke();
+    eventController.enqueue(encrypted.encode('event: invalidated\n\n'));
+    await invalidated;
+    assert.deepEqual(updates.at(-1),{status:'READY_TO_READ',review:null});
+    assert.deepEqual(await ui.readSelected(),{status:'HOLD'});
+    assert.equal(h.counts.read,prior,'revoked Control owner cannot reach Kernel');
+    assert.equal(h.counts.write,0);
+  }finally{
+    ui.dispose();bridge.dispose();
+    try{eventController?.close();}catch{}
+  }
 });
