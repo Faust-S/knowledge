@@ -20,3 +20,16 @@
 - `T3_READY=false`; `G4=NOT_ACCEPTED`.
 
 **Дальнейшее правило:** любые функциональные исправления единого T3 публиковать в `knowledge` и квалифицировать в Actions **открытого** репозитория. Приватные Actions запрещены. Нормативный T2, Admin Center, Publisher и Club не изменять.
+
+
+## Фактическая квалификация мигрированного кода, 13.11.2026
+
+**Точная проверенная ревизия**: `Faust-S/knowledge@7cfead3e24e32055992562725443b031a3e034b1`, [публичный Actions #43446211040](https://github.com/Faust-S/knowledge/actions/runs/43446211040): итог `SUCCESS`; `test=SUCCESS`, `real-host=SUCCESS`, `metal-webgpu=SKIPPED` (новый запуск Apple не запрошен).
+
+- `t3-d1-isolated-ui-server.test.mjs`: **4/4 PASS**. Два URL обслуживают одни подписанные HTML bytes; UI-origin не выдаёт сырой Kernel, файл `.env`, API Control и неподписанный индекс; отдельная CSP для единственного pinned WebLLM Worker; фиксированный UI origin переживает холодный рестарт.
+- Существующие Node-тесты, TypeScript, сборка T3 и регрессии оригинального T2 Host/Workspace: `PASS`.
+- `real-host`: `T3_D1_D5_SIGNED_BLI_COPY_SAVE_ORIGINAL_KERNEL_PASS` подтверждает пользовательский маршрут копирования ранее сохранённого черновика, отдельную подписанную запись и независимое чтение исходным Kernel 0.3.6. Исходный черновик не изменился; второй объект имеет отдельный ID. `syntheticOwnerOnly=true`, `privateIssuerExecuted=false`.
+- `T3_D1_ACTUAL_ONE_DIST_ORIGINAL_HTTP_PASS` и `T3_D5_REAL_BLI_HOST_BROWSER_PASS`: исходный Kernel, изолированный подписанный AppShell и модельный launcher функционируют. Linux SwiftShader — не аппаратная генерация.
+- Исторический приватный `Faust-S/T3@da85c3aa` обновлён **только документационно** (`AGENTS.md` и исторический handoff), чтобы исключить повторную разработку второго исполнительного исходника. Исторические приватные файлы и оригинальный подписант не изменялись.
+
+**Оставшееся разделение:** новый нейтральный HTTP UI server работает и проверяется из `knowledge`, но прежний приватный Control Consumer всё ещё имеет старый импорт для своих архивных квалификаторов. Пока он не переведён на конечную собранную поставку T3, нельзя считать реальный закрытый Control принятым. `T3_READY=false`, `G4=NOT_ACCEPTED`.
