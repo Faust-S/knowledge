@@ -135,6 +135,11 @@ jobs:
         run: |
           node scripts/qualify-bli-inherited-host.mjs
           node tests/t3-d5-full-bli.browser.mjs
+      - name: Run assembled signed Control one-dist on actual T2 Kernel over HTTP
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+        run: node tests/t3-d1-signed-control-one-dist.browser.mjs
 
   metal-webgpu:
     # A macOS runner was not allocated at all in #43233365753 (0 steps,
