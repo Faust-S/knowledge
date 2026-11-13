@@ -21,6 +21,10 @@ const PERSONAL_ACTIONS=Object.freeze({
   "t1.listObjects":"object.read",
   "t1.listEventsSince":"event.read",
   "t1.putObject":"object.write",
+  // D4: permissions for the ORIGINAL T2 recipient Exchange operations.
+  // Only the test issuer grants these; no runtime IAM or new importer.
+  "t2.importPreview":"package.import.preview",
+  "t2.importCommit":"package.import.commit",
 });
 function createSigner(name,subject,uses,now){
   const {publicKey,privateKey}=generateKeyPairSync("ed25519");

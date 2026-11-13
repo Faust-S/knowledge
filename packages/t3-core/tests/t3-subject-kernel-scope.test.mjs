@@ -431,6 +431,103 @@ test("D1 refuses changed subject before import and foreign source receipt",async
   }),{code:"T3_KERNEL_IMPORT_RECEIPT_SCOPE_MISMATCH"});
 });
 
+
+test("D4 merges one selected foreign-source .iwxa into recipient's signed Workspace",async()=>{
+  const f=fixture(),source="ws:sender",dg="c".repeat(64);
+  const archive=Uint8Array.from([80,75,3,4,1,2,3]);
+  let signedArchive=null;
+  const digestOperation=f.owner.operationDigest;
+  f.owner.operationDigest=params=>{
+    if(params.operation==="t2.importPreview")signedArchive=params.input;
+    return digestOperation(params);
+  };
+  for(const op of ["t2.importPreview","t2.importCommit"])
+    f.allowed.add(op);
+  f.kernel.importPreview=async bytes=>{
+    f.calls.push(["importPreview",bytes]);
+    return {
+      preview_token:"token:d4:source",package_digest:dg,
+      expires_at:new Date(now+60000).toISOString(),
+      allowed_modes:["merge","new-workspace"],
+      preview:{package_digest:dg,
+        manifest:{workspaces:[source]},
+        workspaces:[{workspace_id:source}],
+        objects:[{workspace_id:source,object_id:"item:1"}],
+        conflicts:[]},
+    };
+  };
+  f.kernel.importCommit=async input=>{
+    f.calls.push(["importCommit",input]);
+    return {package_digest:dg,mode:input.plan.mode,
+      workspace_id_map:{[source]:ws},skipped_conflicts:[],
+      applied:{workspaces:1,objects_inserted:1,objects_skipped:0}};
+  };
+  const preview=await f.bound.importPreview(archive);
+  assert.equal(preview.preview.manifest.workspaces[0],source);
+  const receipt=await f.bound.importCommit({
+    preview_token:preview.preview_token,package_digest:dg,
+    plan:{mode:"merge",include_workspaces:[source],
+      target_workspace:ws,include_history:true,conflict:"fail"},
+  });
+  assert.equal(receipt.workspace_id_map[source],ws);
+  assert.deepEqual(f.calls.map(x=>x[0]),["importPreview","importCommit"]);
+  assert.deepEqual([...f.calls[0][1]],[...archive],
+    "existing Kernel receives the exact original archive bytes");
+  assert.deepEqual(signedArchive,{
+    workspace_id:ws,archive_size:archive.byteLength,
+    archive_sha256:createHash("sha256").update(archive).digest("hex"),
+  },"signed Access receives plain byte-bound evidence, not a binary Array");
+  assert.equal(f.calls[1][1].plan.target_workspace,ws);
+  await assert.rejects(f.bound.importCommit({
+    preview_token:preview.preview_token,package_digest:dg,
+    plan:{mode:"merge",include_workspaces:[source],target_workspace:ws},
+  }),{code:"T3_SUBJECT_IMPORT_PREVIEW_REQUIRED"});
+  assert.equal(f.calls.filter(x=>x[0]==="importCommit").length,1);
+});
+
+test("D4 foreign import refuses unscoped creation, wrong recipient and forged Kernel mapping",async()=>{
+  const f=fixture(),source="ws:sender",dg="c".repeat(64);
+  for(const op of ["t2.importPreview","t2.importCommit"])f.allowed.add(op);
+  const previewResult=()=>({
+    preview_token:"token:d4:negative",package_digest:dg,
+    expires_at:new Date(now+60000).toISOString(),allowed_modes:["merge","new-workspace"],
+    preview:{package_digest:dg,
+      manifest:{workspaces:[source]},
+      workspaces:[{workspace_id:source}],objects:[],conflicts:[]},
+  });
+  f.kernel.importPreview=async()=>previewResult();
+  let writes=0;
+  f.kernel.importCommit=async input=>{
+    writes++;
+    return {package_digest:dg,mode:input.plan.mode,
+      workspace_id_map:{[source]:"ws:other"},skipped_conflicts:[]};
+  };
+  const bad=[
+    {mode:"new-workspace",include_workspaces:[source],
+      workspace_id_map:{[source]:ws}},
+    {mode:"selective",include_workspaces:[source]},
+    {mode:"merge",include_workspaces:[source],target_workspace:"ws:other"},
+    {mode:"merge",include_workspaces:["ws:other"],target_workspace:ws},
+    {mode:"merge",include_workspaces:[source],target_workspace:ws,
+      workspace_id_map:{[source]:ws}},
+    {mode:"merge",include_workspaces:[source],target_workspace:ws,
+      include_objects:["ws:other/item:1"]},
+  ];
+  for(const plan of bad){
+    const preview=await f.bound.importPreview(Uint8Array.from([1]));
+    await assert.rejects(f.bound.importCommit({
+      preview_token:preview.preview_token,package_digest:dg,plan,
+    }),{code:"T3_SUBJECT_IMPORT_PLAN_OUT_OF_SCOPE"});
+  }
+  assert.equal(writes,0,"no unauthorized plan reaches original Kernel");
+  const preview=await f.bound.importPreview(Uint8Array.from([2]));
+  await assert.rejects(f.bound.importCommit({
+    preview_token:preview.preview_token,package_digest:dg,
+    plan:{mode:"merge",include_workspaces:[source],target_workspace:ws},
+  }),{code:"T3_KERNEL_IMPORT_RECEIPT_SCOPE_MISMATCH"});
+  assert.equal(writes,1,"malformed original Kernel receipt is never exposed");
+});
+
 test("async native owner can consume each original Kernel purge/import token only once",async()=>{
   const f=fixture();
   const owner={...f.owner,

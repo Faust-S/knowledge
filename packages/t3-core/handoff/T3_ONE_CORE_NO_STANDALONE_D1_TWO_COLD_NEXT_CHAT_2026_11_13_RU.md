@@ -2,6 +2,22 @@
 
 **Статус:** продолжается разработка единого автономного T3 как технологической основы существующих программ и доменов. **T3_READY=false, G4=NOT_ACCEPTED.** Этот документ заменяет недействительный путь разработки самостоятельного Windows Control.
 
+## Обновление: D4, настоящий межсубъектный импорт через один исходный T2 Exchange
+
+**Дата:** 13.11.2026. **Изменения в одном существующем технологическом порту, НЕ отдельная программа T3.** Исполняемая квалификация [Faust-S/knowledge@aaa0e7f2](https://github.com/Faust-S/knowledge/commit/aaa0e7f2c0009e17ea772f8f681766af7a98ecdf), [публичный Actions #43502092056](https://github.com/Faust-S/knowledge/actions/runs/43502092056), **COMPLETED SUCCESS**: test PASS, real-host PASS, windows-credential PASS; metal-webgpu SKIPPED.
+
+**Реальный продуктовый дефект:** `createSubjectKernelBinding` требовал, чтобы archive SOURCE Workspace ID совпадал с выбранной Workspace получателя. Настоящий T2 `importCommit` поддерживает `merge` с явным `target_workspace`, но субъектный T3 запрещал такой перенос. Кроме того, оригинальный Ed25519 Access canonicalizer не принимает бинарный `Uint8Array` и отклонял настоящий архив с `PLAIN_DATA_REQUIRED`.
+
+**Исправлено без нового Core/IAM/Store/формата:**
+- `src/t3/subject-access-binding.mjs` хранит различие `sourceWorkspaceId` архива и подписанного recipient `workspace_id`. Разрешён только явный `merge` ровно одного архивного source в выбранный recipient target; отказаны чужой target, чужой source в `include_workspaces`, произвольные `workspace_id_map`, обход через `new-workspace`, replay и foreign Kernel receipt.
+- Для `t2.importPreview` подписант получает **plain SHA-256 + точный размер** исходного архива, а *не бинарный объект*. Исходные байты `.iwxa` без изменений попадают в оригинальный T2 Kernel parser. При отсутствии штатного WebCrypto - явный отказ.
+- В существующей PWA/browser Host qualification выполнен **настоящий** source export в одном оригинальном T2 Kernel Store, перенос в независимый browser profile/Store, signed Ed25519 preview→merge commit→readback в *другую* Workspace. Лог: `T3_D4_SIGNED_FOREIGN_WORKSPACE_IWXA_ORIGINAL_KERNEL_PASS`: `sourceDifferentFromDestination=true`, `independentRecipientStore=true`, `originalIwxaBytes=true`, `signedOperationProofs=3`, `originalKernelRecipientReadback=true`.
+- Старые базовые T2 функции, PWA offline, подписанный PERSONAL/CORP и Windows regressions сохранились.
+
+**Граница принятия:** это оригинальный Kernel и реальная Ed25519-проверка в испытательном Host с TEST issuer. **Не** равняется готовому интегрированному продукту; второй независимый поддерживаемый consumer, подписанное поручение/Review/Accept→Apply (D3), негативные D4 форматы (corrupt ZIP, traversal, unsupported profile) и полная G4 ещё отдельно не квалифицированы. Не объявлять `D4=PRODUCT_ACCEPTED` или `T3_READY=true` по одному маршруту.
+
+**Следующий полезный шаг:** D4 закончить вторым независимым потребителем на этом же штатном Exchange и негативными случаями через original parser; затем D3 реальный signed Task→Result→Review/Accept→Apply с независимыми roots. Другие owner-репозитории не изменять. Не возвращать отдельный T3 Windows Control EXE.
+
 ## 1. Первый маршрут нового чата
 
 1. Прочитать этот файл полностью, затем корневой [AGENTS.md](https://github.com/Faust-S/knowledge/blob/work/2026-11-10-t3-t2-activity-projection/AGENTS.md), [карту 42 репозиториев](https://github.com/Faust-S/T3/blob/work/2026-11-10-t3-t2-upgrade-core/architecture/T3_ONE_CORE_ALL_DOMAINS_SOFTWARE_AI_SOURCE_MAP_2026_11_11_RU.md) и [план B0, D1-D7, G4](https://github.com/Faust-S/T3/blob/work/2026-11-10-t3-t2-upgrade-core/planning/T3_DELTA_ACCEPTANCE_RU.md).
