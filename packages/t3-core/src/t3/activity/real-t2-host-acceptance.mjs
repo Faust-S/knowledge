@@ -344,6 +344,12 @@ export async function importSelectedRealT2Iwxa(page, {
     const workspace=await session.t1.getWorkspace(target_workspace_id);
     const objects=await session.t1.listObjects({workspace_id:target_workspace_id});
     const events=await session.t1.listEventsSince(target_workspace_id);
+    const linked=events.find(row=>row.event_type==="t3.activity.updated");
+    const linkedObjects=linked?.payload?.affected;
+    if(!Array.isArray(linkedObjects)||linkedObjects.length!==1 ||
+       linkedObjects[0].object_id!=="activity:b" || linkedObjects[0].revision!==1){
+      throw new Error("T3_D4_ORIGINAL_EXCHANGE_LOST_QUALIFIED_EVENT_LINKS");
+    }
     if(workspace?.workspace_id!==target_workspace_id ||
        objects.length!==2 || events.length<4){
       throw new Error("T3_D4_CONSUMER_OWNER_READBACK_MISSING");
@@ -351,6 +357,7 @@ export async function importSelectedRealT2Iwxa(page, {
     return {workspace_id:target_workspace_id,
       package_digest:committed.package_digest,import_id:committed.import_id,
       objects:objects.length,events:events.length,
+      qualified_event_links:linkedObjects.length,
       relations:committed.applied?.relations??null};
   },{archive,source_workspace_id,target_workspace_id,writer_service_id});
 }

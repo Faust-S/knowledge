@@ -25,7 +25,8 @@ const READER = 'iwxa.t2.qualification.reader';
 const WRITER = 'iwxa.workspace.integration';
 const MODULE_ROOT = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/t3/activity'));
 const {canonical} = await import(pathToFileURL(join(MODULE_ROOT,"index.mjs")).href);
-const {stageT3ActivityWitness} = await import(pathToFileURL(join(MODULE_ROOT,"t2-host-witness.mjs")).href);
+const {stageT3ActivityWitness, readT3ActivityInLiveBrowser} = await import(
+  pathToFileURL(join(MODULE_ROOT,"t2-host-witness.mjs")).href);
 const {
   createRealT2ActivityFixture,
   readRealT2ActivitySource,
@@ -34,6 +35,7 @@ const {
   verifyRealT2ColdRestart,
   verifyRealT2UnknownAndTombstone,
   roundTripRealT2Iwxa,
+  LIVE_T2_BINDINGS,
   exportSelectedRealT2Iwxa,
   importSelectedRealT2Iwxa,
 } = await import(pathToFileURL(join(MODULE_ROOT,"real-t2-host-acceptance.mjs")).href);
@@ -270,6 +272,8 @@ async function run() {
         });
         assert.equal(imported.workspace_id,target);
         assert.equal(imported.package_digest,selectedArchive.package_digest);
+        assert.equal(imported.qualified_event_links,1,
+          "ORIGINAL_IWXA_RECIPIENT_LOST_QUALIFIED_EVENT_SOURCE");
         const original=await readRealT2ActivitySource(consumer.page,{
           workspace_id:target,reader_service_id:READER,
         });
@@ -283,6 +287,16 @@ async function run() {
           ["activity:b"]);
         assert.ok(original.details.some(x=>x.relations.outgoing.some(link=>
           link.relation_id===receipts.relation_id)));
+        const recipientProjection=await readT3ActivityInLiveBrowser(consumer.page,{
+          workspace_id:target,service_id:READER,bindings:LIVE_T2_BINDINGS,
+        });
+        const linked=recipientProjection.view.events.find(x=>
+          x.event_type==="t3.activity.updated");
+        assert.deepEqual(linked?.object_refs,[
+          {object_id:"activity:a",revision:receipts.revisions.a_current,qualifier:"primary"},
+          {object_id:"activity:b",revision:receipts.revisions.b_current,qualifier:"related_requirement"},
+        ],"ORIGINAL_IWXA_RECIPIENT_D2_QUALIFIED_LINKS_CHANGED");
+        assert.equal(recipientProjection.view.unresolved.length,0);
         await consumer.context.close();
         consumer=null;
         // The imported independent consumer keeps its own Store after
@@ -293,6 +307,12 @@ async function run() {
         });
         assert.equal(canonical(reopened),canonical(original),
           "T3_D4_INDEPENDENT_CONSUMER_COLD_READBACK_CHANGED");
+        const afterColdProjection=await readT3ActivityInLiveBrowser(consumer.page,{
+          workspace_id:target,service_id:READER,bindings:LIVE_T2_BINDINGS,
+        });
+        assert.equal(canonical(afterColdProjection.view),
+          canonical(recipientProjection.view),
+          "ORIGINAL_IWXA_RECIPIENT_QUALIFIED_E2O_COLD_RESTART_CHANGED");
         const isolation=await consumer.page.evaluate(async({source,target,service_id})=>{
           const session=await globalThis.IWXA.connect({service_id});
           const workspaces=await session.t1.listWorkspaces();
