@@ -216,7 +216,31 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
     if (typeof kernel[method] !== "function") refused("T3_KERNEL_OPERATION_UNAVAILABLE");
     const action = await access.actionFor(operation);
     requiredId(action,"ACTION");
-    const operationDigest = await access.operationDigest({operation, input:command, context});
+    // The original Access canonicalizer intentionally accepts PLAIN DATA,
+    // not Uint8Array. Bind the imported archive's exact bytes to the same
+    // signed operation by SHA-256 + size, keeping the bytes untouched for
+    // the ORIGINAL T2 importPreview parser and Kernel.
+    let signedInput = command;
+    if (method === "importPreview") {
+      if (typeof globalThis.crypto?.subtle?.digest !== "function") {
+        refused("T3_ACCESS_IMPORT_DIGEST_UNAVAILABLE");
+      }
+      let rawDigest;
+      try {
+        rawDigest = new Uint8Array(await globalThis.crypto.subtle.digest(
+          "SHA-256",command.bytes));
+      } catch {
+        refused("T3_ACCESS_IMPORT_DIGEST_UNAVAILABLE");
+      }
+      signedInput = {
+        workspace_id:command.workspace_id,
+        archive_size:command.bytes.byteLength,
+        archive_sha256:[...rawDigest].map(x=>x.toString(16).padStart(2,"0")).join(""),
+      };
+    }
+    const operationDigest = await access.operationDigest({
+      operation,input:signedInput,context,
+    });
     if (typeof operationDigest !== "string" || !HEX.test(operationDigest)) {
       refused("T3_ACCESS_OPERATION_DIGEST_REQUIRED");
     }
