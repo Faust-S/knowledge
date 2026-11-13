@@ -1,0 +1,115 @@
+// Real in-memory Ed25519 authority for product E2E tests, NOT an IAM
+// implementation or installed issuer. Uses the ORIGINAL T3 Access evaluator
+// now owned by knowledge and keeps ephemeral private keys on the Node host.
+import {generateKeyPairSync} from "node:crypto";
+import {PROFILE,signRecord,keyObjectSigner,makeProof,digest}
+  from "../../src/t3/access/core.mjs";
+import {createOriginalPersonalAccessCheck}
+  from "../../src/t3/access/original-personal-evaluator.mjs";
+import {createSignedAccessHostPort}
+  from "../../src/t3/signed-access-host-port.mjs";
+
+const iso=value=>new Date(value).toISOString();
+function createSigner(name,subject,uses,now){
+  const {publicKey,privateKey}=generateKeyPairSync("ed25519");
+  return {provider:keyObjectSigner("key:"+name,privateKey),
+    policyKey:{
+      subjectId:subject,environment:"TEST",
+      publicKey:publicKey.export({type:"spki",format:"pem"}).toString(),
+      status:"ACTIVE",uses,notBefore:iso(now-600000),
+      expiresAt:iso(now+86400000),
+    },
+  };
+}
+export function createTemporaryOriginalPersonalAuthority({workspaceId,now=Date.now()}={}){
+  if(typeof workspaceId!=="string"||workspaceId.length<6||
+     !Number.isSafeInteger(now))
+    throw Error("D1_REAL_PERSONAL_TEST_INPUT_REQUIRED");
+  const issuer=createSigner("issuer","issuer:local",["GRANT"],now);
+  const status=createSigner("status","issuer:local",["STATUS"],now);
+  const actor=createSigner("actor","person:local",["PROOF"],now);
+  const selected=Object.freeze({
+    kind:"PERSONAL",context_id:"context:personal",actor_id:"person:local",
+    principal_id:"person:local",role_id:"role:member",
+    grant_id:"grant:personal",realm_id:"realm:personal",audience:"host:t3",
+    resource:workspaceId,purpose:"purpose:work",workspace_id:workspaceId,
+    organization_id:null,scope_revision:1,
+  });
+  const policy={
+    schema:PROFILE,id:"policy:personal",version:"v1",
+    realmId:"realm:personal",environment:"TEST",
+    statusMode:"OFFLINE_BOUNDED",timeAssurance:"LOCAL_BEST_EFFORT",
+    proofMaxAgeSeconds:60,snapshotMaxAgeSeconds:3600,
+    offlineMaxAgeSeconds:3600,
+    keys:{"key:issuer":issuer.policyKey,"key:status":status.policyKey,
+      "key:actor":actor.policyKey},
+    authorities:{"authority:personal":{
+      principalId:"person:local",issuerKeys:["key:issuer"],
+      statusKeys:["key:status"],audiences:["host:t3"],
+      resources:[workspaceId],actions:["object.write"],
+      purposes:["purpose:work"],roles:["role:member"],
+      rightClasses:["ACTION"],membershipEpoch:1,
+      maxTtlSeconds:3600,maxDelegationDepth:0,
+    }},
+    actionCatalog:{"object.write":"ACTION"},
+    prohibitions:[],confirmations:[],
+  };
+  const grant={
+    kind:"GRANT",id:"grant:personal",lineageId:"lineage:personal",
+    renewalOf:null,parentGrantId:null,authorityId:"authority:personal",
+    principalId:"person:local",holderId:"person:local",
+    roleId:"role:member",rightClass:"ACTION",
+    realmId:"realm:personal",environment:"TEST",audience:"host:t3",
+    resources:[workspaceId],actions:["object.write"],purposes:["purpose:work"],
+    issuedAt:iso(now-30000),notBefore:iso(now-20000),
+    expiresAt:iso(now+1200000),remainingDepth:0,membershipEpoch:1,
+    policyId:"policy:personal",policyVersion:"v1",
+    evidenceRefs:["evidence:issuer"],
+  };
+  const statusBase={
+    kind:"STATUS",id:"status:personal",environment:"TEST",
+    realmId:"realm:personal",authorityId:"authority:personal",
+    sequence:1,membershipEpoch:1,issuedAt:iso(now-2000),
+    validUntil:iso(now+600000),
+    entries:[{grantId:"grant:personal",state:"ACTIVE",
+      effectiveAt:iso(now-2500),evidenceRef:"evidence:active"}],
+  };
+  const state={
+    policy,grants:{"grant:personal":signRecord(grant,issuer.provider)},
+    statuses:{"authority:personal":signRecord(statusBase,status.provider)},
+    statusFloor:{"authority:personal":1},tombstones:{},
+  };
+  let proofCount=0,registryReads=0;
+  const access=createSignedAccessHostPort({
+    currentContext:()=>selected,
+    actionFor:operation=>{
+      if(operation!=="t1.putObject")throw Error("D1_OPERATION_DENIED");
+      return "object.write";
+    },
+    operationDigest:({operation,input,context})=>digest({operation,input,context}),
+    canonicalDigest:digest,
+    personal:{check:createOriginalPersonalAccessCheck({
+      clock:()=>now,
+      readState:async()=>{registryReads++;return state;},
+      signProof:async({request,challenge,asOf})=>{
+        proofCount++;
+        return makeProof(request,challenge,Date.parse(asOf),actor.provider);
+      },
+    })},
+    clock:()=>now,
+  });
+  return Object.freeze({
+    access,
+    get proofCount(){return proofCount;},
+    get registryReads(){return registryReads;},
+    revoke(){
+      const withdrawn={
+        ...statusBase,sequence:2,issuedAt:iso(now-1000),
+        entries:[{grantId:"grant:personal",state:"REVOKED",
+          effectiveAt:iso(now-1200),evidenceRef:"evidence:revoked"}],
+      };
+      state.statuses["authority:personal"]=signRecord(withdrawn,status.provider);
+      state.statusFloor["authority:personal"]=2;
+    },
+  });
+}

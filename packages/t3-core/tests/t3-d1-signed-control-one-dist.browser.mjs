@@ -11,6 +11,9 @@ import {dirname,extname,join,resolve,sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {chromium} from 'playwright';
 import {assembleSignedControlDist} from '../scripts/assemble-signed-control-dist.mjs';
+import {createSubjectKernelBinding} from '../src/t3/subject-access-binding.mjs';
+import {createTemporaryOriginalPersonalAuthority}
+  from './support/t3-original-personal-authority.mjs';
 import {materializeIntegrationHost} from '../scripts/real-kernel-e2e.mjs';
 import {assertQualifiedKernelArtifact}
   from '../src/factory2/products/domain-completion/independent-browser-witness.mjs';
@@ -408,6 +411,84 @@ try{
   assert.equal(cold.title,'Real original T2 one-dist');
   assert.equal(cold.revision,1);
   assert.ok(cold.events.includes(first.event));
+  // Real Ed25519 PERSONAL permission, authentic original T3 Access evaluator,
+  // AND original T2 0.3.6 Kernel/Store in the same public CI. No second IAM,
+  // no fake successful decision, no Control checkout or other repo. The
+  // independent original Kernel probe only acts as the test's transport.
+  const personalWs='t3-d1-personal-'+randomUUID();
+  const personalId='local:ed25519';
+  await browser.page.evaluate(async({serviceId,workspaceId})=>{
+    const original=await window.IWXA.connect({service_id:serviceId});
+    await original.t1.createWorkspace({workspace_id:workspaceId,profile:'generic'});
+  },{serviceId,workspaceId:personalWs});
+  const personalAccess=createTemporaryOriginalPersonalAuthority({
+    workspaceId:personalWs,now:Date.now(),
+  });
+  let signedKernelWrites=0;
+  const signedKernelBridge=Object.freeze({
+    sessionInfo:{contract_version:'1.3.0',runtime_version:'0.3.6'},
+    hasOperation:op=>op==='t1.putObject',
+    async putObject(command){
+      signedKernelWrites++;
+      return browser.page.evaluate(async({serviceId,command})=>{
+        const original=await window.IWXA.connect({service_id:serviceId});
+        return original.t1.putObject(command);
+      },{serviceId,command});
+    },
+  });
+  const signedPersonal=createSubjectKernelBinding({
+    kernel:signedKernelBridge,access:personalAccess.access,
+  });
+  const signedPersonalCommand=Object.freeze({
+    workspace_id:personalWs,object_id:personalId,
+    schema_id:'iwxa.local-inference.draft',schema_version:'1.0.0',
+    base_revision:0,extensions:{},
+    data:{status:'DRAFT_UNTRUSTED',
+      text:'Original Ed25519 PERSONAL signed local T3 draft',
+      model_id:'SmolLM2-360M-Instruct-q4f32_1-MLC',
+      engine:'@mlc-ai/web-llm@0.2.87',
+      origin:'BROWSER_LOCAL',source:'USER_EXPLICIT_SAVE',
+      model_integrity:'NOT_ATTESTED'},
+    event:{event_type:'t3.local-inference.draft.saved',
+      payload:{source:'SIGNED_PERSONAL_NODE_HOST'}},
+  });
+  const signedReceipt=await signedPersonal.putObject(signedPersonalCommand);
+  assert.equal(signedReceipt?.object?.workspace_id,personalWs);
+  assert.equal(signedReceipt?.object?.revision,1);
+  assert.equal(personalAccess.proofCount,1);
+  assert.equal(personalAccess.registryReads,1);
+  assert.equal(signedKernelWrites,1);
+
+  // Cold browser restart: the signed result remains in the ONE original
+  // Kernel Store, not an in-memory synthetic state or secondary registry.
+  await browser.context.close();browser=null;
+  browser=await launch();
+  await browser.page.goto(origin+'/__original_kernel_probe__');
+  await browser.page.waitForFunction(()=>typeof window.IWXA?.connect==='function');
+  const personalCold=await browser.page.evaluate(async({serviceId,workspaceId,id})=>{
+    const original=await window.IWXA.connect({service_id:serviceId});
+    const result=await original.t1.getObject(workspaceId,id);
+    const events=await original.t1.listEventsSince(workspaceId);
+    return {object:result?.object,eventIds:events.map(e=>e.event_id)};
+  },{serviceId,workspaceId:personalWs,id:personalId});
+  assert.equal(personalCold.object?.data?.text,signedPersonalCommand.data.text);
+  assert.equal(personalCold.object?.revision,1);
+  assert.ok(personalCold.eventIds.includes(signedReceipt.event.event_id));
+
+  // Existing signer revokes a grant via a newly signed STATUS (higher
+  // sequence). The next write MUST stop before the original Kernel.
+  personalAccess.revoke();
+  await assert.rejects(signedPersonal.putObject({
+    ...signedPersonalCommand,object_id:'local:after-revocation',
+  }),{code:'T3_ACCESS_NOT_PERMITTED'});
+  assert.equal(signedKernelWrites,1);
+  console.log('T3_D1_REAL_ED25519_PERSONAL_ORIGINAL_KERNEL_COLD_PASS',JSON.stringify({
+    realEd25519Grant:true,realSignedActorProof:true,
+    realSignedStatus:true,originalKernel:'0.3.6',
+    originalKernelColdReadback:true,revokedAfterCold:true,
+    originalKernelWriteCount:signedKernelWrites,privateControlUsed:false,
+    completeControlProductAccepted:false,
+  }));
   // Raw T2 original service is deliberately only exercised by the isolated
   // probe page. It does NOT establish corporate signed authority.
   const denied=await browser.context.newPage();
