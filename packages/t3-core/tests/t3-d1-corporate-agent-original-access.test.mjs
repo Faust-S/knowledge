@@ -41,12 +41,22 @@ function build(){
     const member=fixture.all[short],org='org:'+short,
       authority='issuer:'+short,rootId='grant:'+short;
     fixture.policy.authorities[authority].maxDelegationDepth=1;
-    const root={...fixture.state.grants[rootId].payload,remainingDepth:1};
+    // Corporate provisioning: these separately addressable resources are
+    // explicit rights, NOT a complete export of the corporate Workspace.
+    fixture.policy.authorities[authority].resources.push('rag:'+short,'skill:'+short);
+    fixture.policy.authorities[authority].actions.push('rag.retrieve','skill.invoke');
+    fixture.policy.actionCatalog['rag.retrieve']='ACTION';
+    fixture.policy.actionCatalog['skill.invoke']='ACTION';
+    const root={...fixture.state.grants[rootId].payload,remainingDepth:1,
+      resources:['ws:'+short,'rag:'+short,'skill:'+short],
+      actions:['object.write','rag.retrieve','skill.invoke']};
     const rootSigned=signRecord(root,member.issuerSigner);
     fixture.state.grants[rootId]=rootSigned;
     const rootDigest=digest(rootSigned);
     const grantBinding=member.descriptors.grants.find(g=>g.grantId===rootId);
     grantBinding.signedEnvelopeDigest=rootDigest;
+    grantBinding.resources=root.resources;
+    grantBinding.actions=root.actions;
     member.enrollment=signOrganizationEnrollment({
       ...member.enrollment.payload,signedGrantDigest:rootDigest
     },member.issuerSigner);
@@ -60,7 +70,8 @@ function build(){
       parentGrantId:rootId,holderId:'agent:analyst',
       issuedAt:iso(NOW-12000),notBefore:iso(NOW-11000),
       expiresAt:iso(NOW+300000),remainingDepth:0,
-      resources:['ws:'+short],actions:['object.write'],
+      resources:['ws:'+short,'rag:'+short,'skill:'+short],
+      actions:['object.write','rag.retrieve','skill.invoke'],
       evidenceRefs:['evidence:corporate-responsible-person']
     };
     const signedAgentGrant=signRecord(delegated,sponsor.signer);
@@ -229,5 +240,66 @@ test('corporate agent enrolment rejects forged agent, substituted human sponsor 
   await assert.rejects(gate.preview({
     ...input,agentEnrollment:borrowedHumanProofKey
   }),{code:'ORG_AGENT_INDEPENDENT_PROOF_KEY_REQUIRED'});
+  assert.equal(kernel.calls.filter(x=>x.schema_id==='iwxa.demo.note').length,0);
+});
+
+test('corporate agent performs exact signed RAG and Skill resource checks without Kernel bypass', {timeout:30000}, async()=>{
+  const {fixture,agentKeys}=build(),kernel=originalKernelFixture();
+  const north=fixture.all.north,k=agentKeys['org:north'];
+  const vault=emptyVault();
+  importVaultKey(vault,{keyId:k.signer.keyId,subjectId:'agent:analyst',
+    privateKeyPem:k.privateKeyPem,expectedPublicKeyPem:k.record.publicKey});
+  const encrypted=encryptVault(vault,'TEST_CORPORATE_RESOURCE_ONLY');
+  const prove=createOriginalVaultProofSigner({
+    keyId:k.signer.keyId,organizationId:'org:north',
+    readEncryptedVault:async()=>encrypted,
+    unlockPassphrase:async()=> 'TEST_CORPORATE_RESOURCE_ONLY'});
+  const registry=createOriginalKernelRegistryStatePort({
+    kernel:kernel.api,workspaceId:'ws:host-registry',
+    trustedPolicy:fixture.policy,clock:time});
+  assert.equal((await registry.commitSignedState(fixture.state)).revision,1);
+  const gate=createOrganizationalOperationGate({registry});
+  let selected={...north.agentContext,resource:'rag:north'};
+  const access=createSignedAccessHostPort({
+    currentContext:()=>selected,
+    actionFor:op=>op,
+    operationDigest:({operation,input,context})=>digest({operation,input,context}),
+    canonicalDigest:digest,clock:time,
+    corporate:{
+      productId:'IWXA_ADMIN_CENTER',gate,
+      inputFor:async()=>({
+        profile:north.profile,selection:north.selection,
+        descriptors:north.descriptors,credential:north.issuedCredential,
+        enrollment:north.enrollment,agentEnrollment:north.agentEnrollment}),
+      prove:async args=>prove(args)
+    }
+  });
+  const request=(resource,action)=>({
+    id:'request:agent:'+action,actorId:'agent:analyst',
+    principalId:'org:north',roleId:'role:member',
+    grantId:'grant:north-agent',audience:'host:t3',
+    resource,action,purpose:'purpose:work',realmId:'realm:iwxa',
+    operationDigest:digest({task:'corporate-resource-rights',resource,action})
+  });
+  const ragReq=request('rag:north','rag.retrieve');
+  const ragDecision=await access.authorize(ragReq);
+  assert.equal(ragDecision.allowed,true,JSON.stringify(ragDecision));
+  assert.equal(await access.verifyDecisionBinding(ragReq,ragDecision),true);
+
+  selected={...selected,resource:'skill:north'};
+  const skillReq=request('skill:north','skill.invoke');
+  const skillDecision=await access.authorize(skillReq);
+  assert.equal(skillDecision.allowed,true,JSON.stringify(skillDecision));
+
+  selected={...selected,resource:'rag:south'};
+  await assert.rejects(access.authorize(request('rag:south','rag.retrieve')),
+    {code:'ORG_OPERATION_OUTSIDE_GRANT'});
+
+  // Even though the corporate RAG and Skill permits are signed and JIT,
+  // neither is a raw t1.getObject/t1.putObject authorization.
+  selected={...selected,resource:'rag:north'};
+  const bound=createSubjectKernelBinding({kernel:kernel.api,access,clock:time});
+  await assert.rejects(bound.getObject('ws:north','object:blocked'),
+    {code:'T3_SUBJECT_RESOURCE_WORKSPACE_MISMATCH'});
   assert.equal(kernel.calls.filter(x=>x.schema_id==='iwxa.demo.note').length,0);
 });
