@@ -44,7 +44,9 @@ function build(){
     // Corporate provisioning: these separately addressable resources are
     // explicit rights, NOT a complete export of the corporate Workspace.
     fixture.policy.authorities[authority].resources.push('rag:'+short,'skill:'+short);
-    fixture.policy.authorities[authority].actions.push('rag.retrieve','skill.invoke');
+    fixture.policy.authorities[authority].actions=[
+      ...new Set([...fixture.policy.authorities[authority].actions,'rag.retrieve','skill.invoke'])
+    ];
     fixture.policy.actionCatalog['rag.retrieve']='ACTION';
     fixture.policy.actionCatalog['skill.invoke']='ACTION';
     const root={...fixture.state.grants[rootId].payload,remainingDepth:1,
