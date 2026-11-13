@@ -21,6 +21,9 @@ assert.ok(qualified && existsSync(join(qualified,'_iwxa/runtime/0.3.6/runtime.js
   'T3_D1_ORIGINAL_QUALIFIED_T2_REQUIRED');
 assert.ok(existsSync(join(core,'dist/signed-workspace.html')),
   'T3_D1_COMPILED_SIGNED_ENTRY_REQUIRED');
+for(const entry of ['isolated-signed-workspace.html','trusted-kernel-realm.html'])
+  assert.ok(existsSync(join(core,'dist',entry)),
+    'T3_D1_COMPILED_ISOLATED_ENTRY_REQUIRED_'+entry);
 const root=mkdtempSync(join(tmpdir(),'t3-d1-actual-dist-'));
 const source=join(root,'original-t2-dist');
 const output=join(root,'one-dist');
@@ -66,6 +69,18 @@ const server=createServer((req,res)=>{
     if(path==='/__original_kernel_probe__')
       return send(200,'<!doctype html><title>Original Kernel probe</title>'+
         '<script src="/_iwxa/loader.js"></script>','text/html',true);
+    // Compiled trusted T3 realm: original Control SSE/JIT and original T2
+    // loader execute at the pinned kernel origin, not the domain UI origin.
+    if(path==='/workspace/t3-kernel-realm.json')
+      return send(200,{schema:'IWXA_T3_TRUSTED_KERNEL_REALM/1',
+        ui_origin:uiOrigin,service_id:serviceId});
+    if(path==='/workspace/trusted-kernel-realm.html'){
+      const html=readFileSync(join(output,'workspace/trusted-kernel-realm.html'));
+      res.writeHead(200,{'Content-Type':'text/html; charset=utf-8',
+        'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',
+        'Content-Security-Policy':"default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors "+uiOrigin});
+      res.end(html);return;
+    }
     // Test-only trusted original Kernel realm. The real T2 loader and Store
     // remain on their original pinned origin. No application modules are
     // served here; a different UI origin receives only a signed MessagePort.
@@ -201,6 +216,39 @@ const uiServer=createServer((req,res)=>{
     res.writeHead(403);res.end();return;
   }
   const path=new URL(req.url,uiOrigin).pathname;
+  const isolatedCsp="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; worker-src 'self' blob:; frame-src "+origin+"; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+  const uiSend=(status,body,type='application/json')=>{
+    res.writeHead(status,{'Content-Type':type,'Cache-Control':'no-store',
+      'X-Content-Type-Options':'nosniff','Content-Security-Policy':isolatedCsp});
+    res.end(Buffer.isBuffer(body)?body:type==='application/json'?JSON.stringify(body):body);
+  };
+  if(path==='/workspace/t3-isolated-ui.json')
+    return uiSend(200,{schema:'IWXA_T3_ISOLATED_WORKSPACE_UI/1',
+      kernel_origin:origin,service_id:serviceId});
+  if(path==='/workspace/isolated-signed-workspace.html')
+    return uiSend(200,readFileSync(join(output,'workspace/isolated-signed-workspace.html')),
+      'text/html; charset=utf-8');
+  if(path==='/_iwxa/domain.json'||path==='/_iwxa/domain-shell.json'){
+    const document=JSON.parse(readFileSync(join(output,'.'+path),'utf8'));
+    document.origin=uiOrigin;
+    if(document.domain?.origin)document.domain.origin=uiOrigin;
+    if(document.runtime?.origin)document.runtime.origin=uiOrigin;
+    return uiSend(200,document);
+  }
+  if(path==='/workspace/workspace.config.json')
+    return uiSend(200,readFileSync(join(output,'workspace/workspace.config.json')),
+      'application/json');
+  if(path==='/workspace/favicon.ico')
+    return uiSend(200,readFileSync(join(output,'workspace/favicon.ico')),
+      'image/x-icon');
+  if(/^\/workspace\/assets\/[A-Za-z0-9_.\/-]+$/.test(path)&&
+     !path.includes('..')&&!path.includes('/.')&&!path.endsWith('.map')){
+    const target=resolve(output,'.'+path);
+    if(target.startsWith(output+sep)&&existsSync(target)){
+      const type=mime[extname(target).toLowerCase()];
+      if(type)return uiSend(200,readFileSync(target),type);
+    }
+  }
   if(path==='/__isolated_transport__.mjs'){
     res.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8',
       'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
@@ -483,6 +531,30 @@ try{
     foreignWorkspaceReadDenied:true,foreignWorkspaceWriteDenied:true,
     inheritedT2ContractPreserved:true,originalKernelReadback:true,syntheticOwnerOnly:true,
     privateSignerExecuted:false,nativeStoreBoundaryIntegrated:false,
+  }));
+  // FULL compiled React AppShell, not just the transport-demo page.
+  // It renders on a different origin and imports no original T2 loader.
+  const isolatedApp=await browser.context.newPage();
+  const isolatedAppErrors=[];
+  isolatedApp.on('pageerror',error=>isolatedAppErrors.push(error.message));
+  await isolatedApp.goto(uiOrigin+'/workspace/isolated-signed-workspace.html#'+token);
+  await isolatedApp.getByTestId('t3-d1-selected-workspace-gate')
+    .waitFor({state:'detached',timeout:60000});
+  assert.equal(new URL(isolatedApp.url()).hash,'',
+    'T3_D1_ISOLATED_UI_BEARER_MUST_BE_ERASED');
+  assert.equal(await isolatedApp.evaluate(()=>typeof window.IWXA),'undefined',
+    'T3_D1_ISOLATED_APP_MUST_NOT_EXPOSE_RAW_T2_KERNEL');
+  assert.equal((await isolatedApp.evaluate(async()=>(
+    await fetch('/_iwxa/loader.js',{cache:'no-store'})
+  ).status)),404,'T3_D1_ISOLATED_UI_MUST_NEVER_SERVE_RAW_T2_LOADER');
+  assert.equal(await isolatedApp.locator('iframe').count(),1,
+    'T3_D1_ORIGINAL_TRUSTED_IFRAME_REQUIRED');
+  assert.deepEqual(isolatedAppErrors,[]);
+  console.log('T3_D1_COMPILED_ISOLATED_SIGNED_WORKSPACE_PASS',JSON.stringify({
+    fullOriginalAppShell:true,differentLoopbackOrigins:true,
+    originalKernelLoadedOnlyInTrustedRealm:true,
+    selectedWorkspaceReadback:true,bearerErased:true,
+    syntheticOwnerOnly:true,privateSignerExecuted:false,
   }));
   console.log('T3_D1_ACTUAL_ONE_DIST_ORIGINAL_HTTP_PASS',JSON.stringify({
     originalKernel:'0.3.6',runtimeContract:'1.3.0',
