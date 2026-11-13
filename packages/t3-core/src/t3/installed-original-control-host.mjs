@@ -233,8 +233,11 @@ export function createT3InstalledOriginalControlHost({
       };
       if(subjectSession!==null){
         child.stdout.on("data",part=>{
+          if(invalid)return;
           buffer+=part.toString("utf8");
-          if(Buffer.byteLength(buffer,"utf8")>4096)invalid=true;
+          if(Buffer.byteLength(buffer,"utf8")>4096){
+            invalid=true;buffer="";
+          }
         });
       }
       child.once("close",exitCode=>{

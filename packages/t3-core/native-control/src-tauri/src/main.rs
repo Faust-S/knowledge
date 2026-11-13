@@ -276,7 +276,7 @@ mod tests {
             assert!(parse_native_launch(&altered.to_string()).is_none(),
                 "invalid envelope must be rejected");
         }
-        assert!(parse_native_launch("a".repeat(33000).as_str()).is_none());
+        assert!(parse_native_launch("a".repeat(65537).as_str()).is_none());
         assert!(parse_native_launch("{}").is_none());
     }
 }

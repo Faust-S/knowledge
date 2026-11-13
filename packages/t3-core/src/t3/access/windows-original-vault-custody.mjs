@@ -14,7 +14,10 @@ const VAULT_SCHEMA="IWXA_T3_LOCAL_KEY_VAULT/1";
 const ENTROPY="IWXA-T3-WINDOWS-KEY-VAULT/1";
 const MAX_RECORD_BYTES=1024*1024;
 const MAX_DPAPI_BYTES=8192;
-const DPAPI_TIMEOUT_MS=15000;
+// A cold Windows PowerShell/.NET ProtectedData startup can exceed 15s
+// under concurrent Rust/native CI load. Keep an explicit finite timeout,
+// never fall back to an unprotected credential or a different key store.
+const DPAPI_TIMEOUT_MS=45000;
 
 function deny(code){
   const e=new Error(code);e.name="T3WindowsVaultCustodyError";
