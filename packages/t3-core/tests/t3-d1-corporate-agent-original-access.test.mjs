@@ -262,11 +262,26 @@ test('corporate agent performs exact signed RAG and Skill resource checks withou
   assert.equal((await registry.commitSignedState(fixture.state)).revision,1);
   const gate=createOrganizationalOperationGate({registry});
   let selected={...north.agentContext,resource:'rag:north'};
+  const providerCalls=[];
   const access=createSignedAccessHostPort({
     currentContext:()=>selected,
     actionFor:op=>op,
     operationDigest:({operation,input,context})=>digest({operation,input,context}),
     canonicalDigest:digest,clock:time,
+    // The Host connects T3 Access to its trusted read-only provider,
+    // not to an invented T3 ToolRuntime or a direct Kernel shortcut.
+    resourceRead:async ({operation,arguments:args,context})=>{
+      providerCalls.push({operation,args,resource:context.resource});
+      if(operation==='rag.retrieve')return {
+        hits:[{id:'doc:site-survey',source:'rag:north',
+          text:'Client requires a 12 kW inverter and 24-hour autonomy'}],
+        query:args.query
+      };
+      if(operation==='skill.invoke')return {
+        skill:'skill:north',output:'24-hour autonomy verified against approved specification'
+      };
+      throw new Error('UNSUPPORTED_READ_ONLY_OPERATION');
+    },
     corporate:{
       productId:'IWXA_ADMIN_CENTER',gate,
       inputFor:async()=>({
@@ -287,15 +302,31 @@ test('corporate agent performs exact signed RAG and Skill resource checks withou
   const ragDecision=await access.authorize(ragReq);
   assert.equal(ragDecision.allowed,true,JSON.stringify(ragDecision));
   assert.equal(await access.verifyDecisionBinding(ragReq,ragDecision),true);
+  const retrieved=await access.readAuthorizedResource(
+    'rag.retrieve',{query:'inverter autonomy'});
+  assert.equal(retrieved.data.hits[0].source,'rag:north');
+  assert.equal(retrieved.authorization.actorId,'agent:analyst');
+  assert.equal(retrieved.authorization.resource,'rag:north');
+  assert.equal(retrieved.authorization.action,'rag.retrieve');
+  assert.ok(/^[a-f0-9]{64}$/.test(retrieved.authorization.outputDigest));
+  assert.equal(providerCalls.length,1);
 
   selected={...selected,resource:'skill:north'};
   const skillReq=request('skill:north','skill.invoke');
   const skillDecision=await access.authorize(skillReq);
   assert.equal(skillDecision.allowed,true,JSON.stringify(skillDecision));
+  const skillRead=await access.readAuthorizedResource(
+    'skill.invoke',{instruction:'check approved autonomy'});
+  assert.equal(skillRead.data.skill,'skill:north');
+  assert.equal(skillRead.authorization.action,'skill.invoke');
+  assert.equal(providerCalls.length,2);
 
   selected={...selected,resource:'rag:south'};
   await assert.rejects(access.authorize(request('rag:south','rag.retrieve')),
     {code:'ORG_OPERATION_OUTSIDE_GRANT'});
+  await assert.rejects(access.readAuthorizedResource(
+    'rag.retrieve',{query:'cross-org secret'}),{code:'T3_ACCESS_NOT_PERMITTED'});
+  assert.equal(providerCalls.length,2);
 
   // Even though the corporate RAG and Skill permits are signed and JIT,
   // neither is a raw t1.getObject/t1.putObject authorization.
