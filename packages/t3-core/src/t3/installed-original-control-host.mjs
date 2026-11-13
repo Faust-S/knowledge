@@ -2,6 +2,7 @@
 // signed AppShell dist on two isolated loopback origins. This is the product
 // composition of the existing original Control HTTP and isolated UI server,
 // not a replacement Kernel, IAM, Store, Service Worker or test-only Host.
+import {randomBytes} from "node:crypto";
 import {spawn} from "node:child_process";
 import {createServer} from "node:http";
 import {existsSync,lstatSync,readFileSync,realpathSync,statSync} from "node:fs";
@@ -122,9 +123,19 @@ export function createT3InstalledOriginalControlHost({
     "/workspace/trusted-kernel-realm.html",
     "/workspace/isolated-signed-workspace.html",
   ])requiredAsset(path);
+  // One session bearer per explicitly selected PERSONAL/CORP context.
+  // Only the existing Control transport sees it; the old browser's bearer
+  // is invalid after the SAME original Host signed epoch/SSE invalidation.
+  let currentBearer=token;
   const handler=createOriginalControlHttpHandler({
-    origin:kernelOrigin,token,ownerFor,currentEpoch,subscribeInvalidation,
+    origin:kernelOrigin,token,
+    readToken:subjectSession===null?null:()=>currentBearer,
+    ownerFor,currentEpoch,subscribeInvalidation,
   });
+  const stopBearerRotation=subjectSession===null?null:
+    subjectSession.subscribeInvalidation(()=>{
+      currentBearer=randomBytes(48).toString("base64url");
+    });
   const kernel=createServer((req,res)=>{
     const send=(status,data,type="application/json; charset=utf-8",
       frame=false)=>{
@@ -189,7 +200,7 @@ export function createT3InstalledOriginalControlHost({
     await new Promise((resolve,reject)=>
       kernel.close(error=>error?reject(error):resolve()));
   };
-  const launchUrl=()=>uiOrigin+"/workspace/#"+token;
+  const launchUrl=()=>uiOrigin+"/workspace/#"+currentBearer;
 
   async function openNative({executablePath}={}){
     required(started&&!closing,"NOT_STARTED");
@@ -317,6 +328,7 @@ export function createT3InstalledOriginalControlHost({
     launchNativeWindow:openNative,
     async close(){
       closing=true;
+      stopBearerRotation?.();
       // Closing the original Host cannot leave a WebView displaying an
       // apparently trusted corporate Workspace with a dead Control stream.
       for(const child of [...nativeChildren])child.kill();
