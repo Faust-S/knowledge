@@ -223,3 +223,18 @@ export async function stageSelectedT3ActivityReview({
     stopSource?.();stopTarget?.();
   }
 }
+
+// Optional renderer capability: the trusted owner keeps all T3 Kernel,
+// selected Workspace, source evidence and signed Access in its own process.
+// The only result crossing into UI is the three-field, non-exportable status.
+export function createTrustedT3ActivityStagePort(config) {
+  need(good(config),'T3_ACTIVITY_STAGE_OWNER_REQUIRED');
+  return Object.freeze({
+    async stageSelected() {
+      const receipt=await stageSelectedT3ActivityReview({...config,explicitSave:true});
+      need(receipt.status==='OWNER_REVIEW_DRAFT'&&receipt.readback===true&&
+        receipt.export_allowed===false,'T3_ACTIVITY_ORIGINAL_READBACK_INVALID');
+      return Object.freeze({status:'OWNER_REVIEW_DRAFT',readback:true,export_allowed:false});
+    },
+  });
+}
