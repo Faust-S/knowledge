@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/2026-11-10-t3-t2-activity-projection
+      - work/2026-11-13-t3-pwa-integration
     paths:
       - packages/t3-core/src/t3/activity/**
       - packages/t3-core/**
@@ -54,6 +55,10 @@ jobs:
         run: node --test packages/t3-core/tests/t3-d1-isolated-ui-server.test.mjs
       - name: Verify D1 origin-isolated signed original Kernel carrier
         run: node --test packages/t3-core/tests/t3-d1-origin-isolated-kernel.test.mjs
+      - name: Qualify PWA manifest and original one-dist packaging
+        run: |
+          node --check packages/t3-core/scripts/t3-pwa-manifest.mjs
+          node --test packages/t3-core/tests/t3-pwa-install.test.mjs
       - name: Verify original Runtime 1.3 isolated bootstrap semantics
         run: node --test packages/t3-core/tests/t3-d1-origin-isolated-bootstrap.test.mjs
       - name: Run original T2 Runtime 1.3 Host facade regression
