@@ -4,9 +4,9 @@
 // local-vault.mjs and original-vault-proof.mjs without protocol changes.
 import {spawn} from "node:child_process";
 import {randomBytes} from "node:crypto";
-import {lstat,open,readFile,link,unlink} from "node:fs/promises";
+import {lstat,open,readFile,link,unlink,rename} from "node:fs/promises";
 import {basename,dirname,isAbsolute,join} from "node:path";
-import {encryptVault,validateVault} from "./local-vault.mjs";
+import {encryptVault,decryptVault,importVaultKey,vaultPublicInventory,validateVault} from "./local-vault.mjs";
 import {strictJson} from "./strict-json.mjs";
 
 const CUSTODY_SCHEMA="IWXA_T3_WINDOWS_DPAPI_CUSTODY/1";
@@ -137,10 +137,7 @@ export function createWindowsOriginalVaultCustody({vaultPath}={}){
     catch{deny("T3_WINDOWS_DPAPI_RECORD_INVALID");}
     return sealedRecord(record);
   };
-  return Object.freeze({
-    readEncryptedVault:readEnvelope,
-    unlockPassphrase:async()=>{
-      const record=await readEnvelope();
+  const unsealPassphrase=async record=>{
       const protectedSecret=decodeBase64Url(
         record.osCustody.protectedSecret);
       let secretBytes;
@@ -154,6 +151,69 @@ export function createWindowsOriginalVaultCustody({vaultPath}={}){
       }finally{
         protectedSecret.fill(0);
         secretBytes?.fill(0);
+      }
+  };
+  return Object.freeze({
+    readEncryptedVault:readEnvelope,
+    unlockPassphrase:async()=>unsealPassphrase(await readEnvelope()),
+    // Enrolled public keys can be listed by the trusted native Host, but
+    // public-key possession is never treated as a signed corporate grant.
+    inventory:async()=>{
+      const record=await readEnvelope();
+      const phrase=await unsealPassphrase(record);
+      return vaultPublicInventory(decryptVault(record,phrase));
+    },
+    // A trusted Control imports ONE externally issued Ed25519 credential at
+    // a time. The caller must already have checked its real signed issuer,
+    // enrollment and public key through the original Access owner. This API
+    // only preserves OS custody; it never issues an organization grant.
+    enrollCredential:async ({keyId,subjectId,privateKeyPem,
+      expectedPublicKeyPem,createdAt}={})=>{
+      required(typeof expectedPublicKeyPem==="string"&&
+        expectedPublicKeyPem.includes("BEGIN PUBLIC KEY"),
+        "T3_WINDOWS_DPAPI_EXPECTED_PUBLIC_KEY_REQUIRED");
+      const lockPath=vaultPath+".enrollment.lock";
+      let lockHandle=null,tempPath=null;
+      try{
+        // Exclusive CREATE is a cross-process Windows ownership gate.
+        // A second Control process must fail rather than silently discard
+        // credentials written by the first. Crash recovery is explicit.
+        try{lockHandle=await open(lockPath,"wx",0o600);}
+        catch(error){
+          if(error?.code==="EEXIST")deny("T3_WINDOWS_DPAPI_ENROLLMENT_BUSY");
+          deny("T3_WINDOWS_DPAPI_LOCK_UNAVAILABLE");
+        }
+        const record=await readEnvelope();
+        const phrase=await unsealPassphrase(record);
+        const vault=decryptVault(record,phrase);
+        const imported=importVaultKey(vault,{keyId,subjectId,
+          privateKeyPem,expectedPublicKeyPem,createdAt});
+        validateVault(vault);
+        // Preserve the original DPAPI CurrentUser binding. Only the
+        // authenticated original vault ciphertext changes with a fresh IV.
+        const updated={...encryptVault(vault,phrase),osCustody:record.osCustody};
+        const bytes=JSON.stringify(updated);
+        required(Buffer.byteLength(bytes,"utf8")<=MAX_RECORD_BYTES,
+          "T3_WINDOWS_DPAPI_RECORD_INVALID");
+        tempPath=join(dirname(vaultPath),
+          "."+basename(vaultPath)+"."+process.pid+"."+
+          randomBytes(12).toString("hex")+".enrolling");
+        const handle=await open(tempPath,"wx",0o600);
+        try{await handle.writeFile(bytes,"utf8");await handle.sync();}
+        finally{await handle.close();}
+        // This replaces the ONE original vault on the same volume. No
+        // plaintext staging, additional credential Store, or sidecar IAM.
+        await rename(tempPath,vaultPath);
+        tempPath=null;
+        return Object.freeze({keyId:imported.keyId,
+          subjectId:imported.subjectId,algorithm:imported.algorithm,
+          publicKeyPem:imported.publicKeyPem});
+      }finally{
+        if(tempPath)await unlink(tempPath).catch(()=>{});
+        if(lockHandle){
+          await lockHandle.close().catch(()=>{});
+          await unlink(lockPath).catch(()=>{});
+        }
       }
     },
     provision:async vault=>{
