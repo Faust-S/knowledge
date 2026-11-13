@@ -5,7 +5,7 @@
 import {spawn} from "node:child_process";
 import {createServer} from "node:http";
 import {existsSync,lstatSync,readFileSync,realpathSync,statSync} from "node:fs";
-import {extname,isAbsolute,join,relative,resolve,sep} from "node:path";
+import {dirname,extname,isAbsolute,join,relative,resolve,sep} from "node:path";
 import {createOriginalControlHttpHandler} from "./original-control-http-handler.mjs";
 import {createT3IsolatedUiServer} from "./isolated-ui-server.mjs";
 
@@ -235,10 +235,12 @@ export function createT3InstalledOriginalControlHost({
           if(settled)return;
           // Pipe errors are not an authorization fallback: the native
           // process must receive a valid host URL or stay disconnected.
-          child.stdin.once("error",()=>{});
-          child.stdin.end(launchUrl+"\\n");
-          settled=true;
-          resolve(Object.freeze({pid:child.pid,launchMode:"WINDOWS_NATIVE"}));
+          child.stdin.once("error",denied);
+          child.stdin.end(launchUrl+"\n",()=>{
+            if(settled)return;
+            settled=true;
+            resolve(Object.freeze({pid:child.pid,launchMode:"WINDOWS_NATIVE"}));
+          });
         });
       });
     },
