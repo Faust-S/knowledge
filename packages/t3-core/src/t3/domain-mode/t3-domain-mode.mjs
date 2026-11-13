@@ -3,6 +3,15 @@
 const SW_PATH = "/t3-sw.js";
 const MANIFEST_PATH = "/t3-offline-manifest.json";
 const SCHEMA = "iwxa.t3.domain-offline/1";
+const AUTO_CHECK_KEY = "iwxa.t3.offline.offer-updates.v1";
+const LAST_CHECK_KEY = "iwxa.t3.offline.last-update-check.v1";
+const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+function preference(name) {
+  try { return localStorage.getItem(name); } catch { return null; }
+}
+function setPreference(name,value) {
+  try { localStorage.setItem(name,value); return true; } catch { return false; }
+}
 const OWN_SW = new URL(SW_PATH, location.origin).href;
 const isOwn = worker => !!worker && worker.scriptURL === OWN_SW;
 // Installation does not create another runtime. Native browser event is optional.
@@ -27,7 +36,8 @@ function style() {
     "#iwxa-t3-domain-controls input{width:18px;height:18px;accent-color:#3b9d8c}",
     "#iwxa-t3-domain-controls [role=status]{margin:4px 0 0;font-size:12px;line-height:1.4;color:#d5e4ec}",
     "#iwxa-t3-domain-controls input:focus-visible{outline:2px solid #89ceee;outline-offset:3px}",
-    "#iwxa-t3-domain-controls [data-iwxa-pwa-hint]{font-size:12px;line-height:1.4;margin:6px 0;color:#d5e4ec}"
+    "#iwxa-t3-domain-controls [data-iwxa-pwa-hint]{font-size:12px;line-height:1.4;margin:6px 0;color:#d5e4ec}",
+    "#iwxa-t3-domain-controls [data-iwxa-t3-auto-update-label]{font-weight:400;font-size:12px;margin-top:8px}"
   ].join("");
   document.head.append(el);
 }
@@ -58,6 +68,15 @@ function createControl() {
   const sharedNote = document.createElement("p");
   sharedNote.dataset.iwxaPwaHint = "";
   sharedNote.textContent = "Режим общий для сайта и установленного приложения в одном профиле браузера.";
+  const automaticLabel = document.createElement("label");
+  automaticLabel.dataset.iwxaT3AutoUpdateLabel = "";
+  const automatic = document.createElement("input");
+  automatic.id = "iwxa-t3-auto-check-updates";
+  automatic.type = "checkbox";
+  automatic.checked = preference(AUTO_CHECK_KEY) === "on";
+  const automaticText = document.createElement("span");
+  automaticText.textContent = "Предлагать проверку обновлений (не чаще раза в сутки)";
+  automaticLabel.append(automatic, automaticText);
   const updateCheck = document.createElement("button");
   updateCheck.type = "button";
   updateCheck.textContent = "Проверить обновление T3";
@@ -76,10 +95,12 @@ function createControl() {
   state.setAttribute("role", "status");
   state.setAttribute("aria-live", "polite");
   state.textContent = "Режим не включён.";
-  box.append(label, installApp, installHint, updateCheck, updateInstall, reloadWindow, sharedNote, state);
+  box.append(label, installApp, installHint, automaticLabel,
+    updateCheck, updateInstall, reloadWindow, sharedNote, state);
   (mount || document.body).append(box);
   style();
-  return {toggle, state, installApp, installHint, updateCheck, updateInstall, reloadWindow, pendingUpdate: null};
+  return {toggle, state, installApp, installHint, automatic, updateCheck,
+    updateInstall, reloadWindow, pendingUpdate: null, autoCheckInFlight:false};
 }
 function tell(ui, text) { ui.state.textContent = text; }
 async function installApplication(ui) {
@@ -234,6 +255,17 @@ async function checkForUpdate(ui) {
       ". Существующая локальная версия не затронута.");
   } finally { ui.updateCheck.disabled = false; }
 }
+function maybeCheckUpdate(ui) {
+  // User opted in explicitly. No service worker background task, no timers,
+  // no automatic installation or remote model download.
+  if(!ui.automatic.checked || !ui.toggle.checked ||
+     ui.toggle.disabled || navigator.onLine === false || ui.autoCheckInFlight)return;
+  const now=Date.now(),previous=Number(preference(LAST_CHECK_KEY)) || 0;
+  if(previous>0 && now>=previous && now-previous<CHECK_INTERVAL_MS)return;
+  if(!setPreference(LAST_CHECK_KEY,String(now)))return;
+  ui.autoCheckInFlight=true;
+  void checkForUpdate(ui).finally(()=>{ui.autoCheckInFlight=false;});
+}
 async function applyUpdate(ui) {
   const update = ui.pendingUpdate;
   if (!update) return;
@@ -280,6 +312,18 @@ async function main() {
   if (!document.body) return;
   const ui = createControl();
   ui.installApp.addEventListener("click", () => void installApplication(ui));
+  ui.automatic.addEventListener("change", ()=>{
+    if(!setPreference(AUTO_CHECK_KEY,ui.automatic.checked?"on":"off")) {
+      ui.automatic.checked=false;
+      tell(ui,"Не удалось сохранить настройку. Проверка обновлений остаётся ручной.");
+      return;
+    }
+    if(ui.automatic.checked)maybeCheckUpdate(ui);
+  });
+  window.addEventListener("storage", event => {
+    if(event.key===AUTO_CHECK_KEY)
+      ui.automatic.checked=event.newValue==="on";
+  });
   const shared = typeof BroadcastChannel === "function" ?
     new BroadcastChannel("iwxa-t3-domain-mode") : null;
   ui.notifyChanged = () => shared?.postMessage({type:"changed"});
@@ -306,7 +350,7 @@ async function main() {
     tell(ui, "Для автономного T3 требуется HTTPS и поддержка Service Worker.");
     return;
   }
-  try { await status(ui); }
+  try { await status(ui); maybeCheckUpdate(ui); }
   catch (error) { ui.toggle.disabled = true; tell(ui, "Не удалось проверить T3: " + error.message); }
   ui.updateCheck.addEventListener("click", () => void checkForUpdate(ui));
   ui.updateInstall.addEventListener("click", () => void applyUpdate(ui));
@@ -322,9 +366,14 @@ async function main() {
     } finally { ui.toggle.disabled = false; }
   });
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && !ui.toggle.disabled) void status(ui).catch(() => {});
+    if (!document.hidden && !ui.toggle.disabled) {
+      // Preserve a pending update offer while switching between browser
+      // and installed app windows. A fresh status would hide the offer.
+      if(!ui.pendingUpdate)void status(ui).then(()=>maybeCheckUpdate(ui)).catch(()=>{});
+    }
     ui.installApp.hidden = standalone();
   });
+  window.addEventListener("online", ()=>maybeCheckUpdate(ui));
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", main, {once:true});
 else void main();
