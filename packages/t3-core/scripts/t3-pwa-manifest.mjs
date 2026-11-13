@@ -2,7 +2,7 @@
 // Never change the existing T3 Kernel/Store/service worker or site's favicon.
 import {readFileSync,writeFileSync,existsSync,mkdirSync} from "node:fs";
 import {join,dirname} from "node:path";
-import {deflateSync} from "node:zlib";
+import {deflateSync,inflateSync} from "node:zlib";
 
 const SIZES=[192,512];
 function chunk(type,bytes) {
@@ -35,14 +35,61 @@ function png(size,theme) {
   return Buffer.concat([Buffer.from("89504e470d0a1a0a","hex"),
     chunk("IHDR",ihdr),chunk("IDAT",deflateSync(rows,{level:9})),chunk("IEND",Buffer.alloc(0))]);
 }
-function sameOriginIcon(root,icon) {
+const PNG_SIGNATURE=Buffer.from("89504e470d0a1a0a","hex");
+function crc32(bytes) {
+  let crc=0xffffffff;
+  for(const x of bytes) {
+    crc^=x;for(let i=0;i<8;i++)crc=(crc&1)?(crc>>>1)^0xedb88320:crc>>>1;
+  }
+  return (crc^0xffffffff)>>>0;
+}
+function validPng(file,size) {
+  let bytes;
+  try {bytes=readFileSync(file);} catch{return false;}
+  if(bytes.length<57 || bytes.length>8*1024*1024 ||
+     !bytes.subarray(0,8).equals(PNG_SIGNATURE))return false;
+  let offset=8,ihdr=false,idat=[],end=false;
+  try {
+    while(offset+12<=bytes.length) {
+      const count=bytes.readUInt32BE(offset);
+      if(count>bytes.length-offset-12)return false;
+      const type=bytes.toString("ascii",offset+4,offset+8);
+      const chunkData=bytes.subarray(offset+8,offset+8+count);
+      const crc=bytes.readUInt32BE(offset+8+count);
+      if(crc!==crc32(bytes.subarray(offset+4,offset+8+count)))return false;
+      if(!ihdr) {
+        if(type!=="IHDR"||count!==13||
+           chunkData.readUInt32BE(0)!==size||
+           chunkData.readUInt32BE(4)!==size)return false;
+        ihdr=true;
+      }
+      if(type==="IDAT")idat.push(chunkData);
+      if(type==="IEND") {end=count===0;break;}
+      offset+=count+12;
+    }
+    if(!ihdr||!end||idat.length===0)return false;
+    // Reject truncated/corrupted image data before advertising installability.
+    inflateSync(Buffer.concat(idat),{maxOutputLength:128*1024*1024});
+    return true;
+  }catch{return false;}
+}
+function sameOriginIcon(root,icon,domainOrigin) {
   if(!icon || typeof icon.src!=="string")return null;
   let url;
-  try {url=new URL(icon.src,"https://pwa.invalid/");} catch{return null;}
-  if(url.origin!=="https://pwa.invalid" || url.search || url.hash ||
-     !url.pathname.startsWith("/") || url.pathname.includes("..") ||
-     url.pathname.includes("\\"))return null;
-  return existsSync(join(root,url.pathname.slice(1)))?{...icon,src:url.pathname}:null;
+  try {url=new URL(icon.src,domainOrigin+"/site.webmanifest");} catch{return null;}
+  if(url.origin!==domainOrigin || url.search || url.hash ||
+     !url.pathname.startsWith("/") || url.pathname.includes("\\") ||
+     /%2f|%5c|%00/i.test(url.pathname))return null;
+  const file=join(root,url.pathname.slice(1));
+  if(!existsSync(file))return null;
+  if(icon.type==="image/png" && typeof icon.sizes==="string"){
+    const sized=icon.sizes.split(/\s+/).filter(x=>/^\d+x\d+$/.test(x));
+    if(sized.length && !sized.every(dim=>{
+      const [w,h]=dim.split("x").map(Number);
+      return w===h && validPng(file,w);
+    }))return null;
+  }
+  return {...icon,src:url.pathname};
 }
 export function materializePwaManifest(root,domainOrigin) {
   const sitePath=join(root,"site.webmanifest");
@@ -55,7 +102,7 @@ export function materializePwaManifest(root,domainOrigin) {
   const domainName=origin.hostname.replace(/^www\./,"");
   const theme=color(existing.theme_color,"#172A38");
   const icons=Array.isArray(existing.icons)?
-    existing.icons.map(icon=>sameOriginIcon(root,icon)).filter(Boolean):[];
+    existing.icons.map(icon=>sameOriginIcon(root,icon,domainOrigin)).filter(Boolean):[];
   for(const size of SIZES){
     if(icons.some(i=>i.type==="image/png" &&
         typeof i.sizes==="string" && i.sizes.split(/\s+/).includes(size+"x"+size)))continue;

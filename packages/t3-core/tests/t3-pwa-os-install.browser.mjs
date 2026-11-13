@@ -87,7 +87,7 @@ async function getRecord(page) {
 }
 test("browser PWA.install + PWA.launch: actual installed app, same origin data, offline cold restart",{
   timeout:180000
-},async()=>{
+},async(t)=>{
   const root=mkdtempSync(join(tmpdir(),"iwxa-t3-pwa-os-"));
   const profile=mkdtempSync(join(tmpdir(),"iwxa-t3-pwa-profile-"));
   const site=serve(root);
@@ -118,10 +118,23 @@ test("browser PWA.install + PWA.launch: actual installed app, same origin data, 
     const manifest=await pageDevtools.send("Page.getAppManifest");
     assert.equal(manifest.errors?.length,0);
     assert.equal(JSON.parse(manifest.data).display,"standalone");
+    const installability=await pageDevtools.send("Page.getInstallabilityErrors");
+    assert.deepEqual(installability.installabilityErrors,[],
+      "actual browser installability diagnostics must be clean");
     await pageDevtools.detach();
     await putRecord(page,{status:"written-in-ordinary-browser",revision:1});
-    // Call the actual browser-controlled installation endpoint.
-    await cdp.send("PWA.install",{manifestId,installUrlOrBundleUrl:base+"/"});
+    // This experimental protocol command isn't available in all release
+    // browser channels. Mark OS acceptance SKIPPED, not PASS or FAIL.
+    try {
+      await cdp.send("PWA.install",{manifestId,installUrlOrBundleUrl:base+"/"});
+    } catch(error) {
+      if(/PWA\.install.*(?:wasn't found|not found|unknown method)/i.test(String(error))) {
+        t.diagnostic("T3_PWA_OS_INSTALL_NOT_RUN: this browser release lacks PWA.install");
+        t.skip("Native browser PWA installation requires an interactive OS acceptance");
+        return;
+      }
+      throw error;
+    }
     const os=await cdp.send("PWA.getOsAppState",{manifestId});
     assert.equal(typeof os.badgeCount,"number","browser must report the installed OS webapp");
     const launch=await cdp.send("PWA.launch",{manifestId});

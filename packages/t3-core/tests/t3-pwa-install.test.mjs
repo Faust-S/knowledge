@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,rmSync,existsSync} from "node:fs";
+import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,rmSync,existsSync,copyFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join,dirname} from "node:path";
 import {materializeDomainMode} from "../scripts/materialize-t3-domain-mode.mjs";
@@ -62,14 +62,32 @@ test("T3 install app: one dist, standalone identity and two valid PNG icon sizes
 test("T3 install app preserves existing domain brand icons and creates only missing sizes",()=>{
   const root=fixture();
   try {
-    write(root,"android-chrome-192x192.png",Buffer.from("brand-icon"));
+    materializeDomainMode(root);
+    copyFileSync(join(root,"_iwxa/pwa/icon-192.png"),
+      join(root,"android-chrome-192x192.png"));
     write(root,"site.webmanifest",JSON.stringify({name:"Domain",icons:[
-      {src:"/android-chrome-192x192.png",sizes:"192x192",type:"image/png"},
+      {src:"https://club.iwxa.ru/android-chrome-192x192.png",
+        sizes:"192x192",type:"image/png"},
       {src:"https://evil.example/icon.png",sizes:"512x512",type:"image/png"}]}));
     materializeDomainMode(root);
     const m=manifest(root);
     assert.equal(m.icons.find(x=>x.sizes==="192x192").src,"/android-chrome-192x192.png");
     assert.equal(m.icons.find(x=>x.sizes==="512x512").src,"/_iwxa/pwa/icon-512.png");
     assert.equal(existsSync(join(root,"_iwxa/pwa/icon-192.png")),false);
+  }finally{clean(root);}
+});
+
+test("T3 install app rejects corrupt icon bytes instead of shipping broken OS branding",()=>{
+  const root=fixture();
+  try {
+    write(root,"corrupt-192.png",Buffer.from("not a PNG"));
+    write(root,"site.webmanifest",JSON.stringify({name:"Domain",icons:[
+      {src:"/corrupt-192.png",sizes:"192x192",type:"image/png"}]}));
+    materializeDomainMode(root);
+    const m=manifest(root);
+    assert.equal(m.icons.some(x=>x.src==="/corrupt-192.png"),false,
+      "a wrong source icon must never replace a valid generated install icon");
+    assert.equal(m.icons.find(x=>x.sizes==="192x192").src,
+      "/_iwxa/pwa/icon-192.png");
   }finally{clean(root);}
 });
