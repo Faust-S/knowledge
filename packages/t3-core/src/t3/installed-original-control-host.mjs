@@ -63,7 +63,7 @@ function inside(root,target){
  * Without an existing authentic owner it refuses to start.
  */
 export function createT3InstalledOriginalControlHost({
-  distRoot,kernelOrigin,uiPort=null,token,
+  distRoot,kernelOrigin,uiPort=null,token,subjectSession=null,
   ownerFor,currentEpoch,subscribeInvalidation,
 }={}){
   required(typeof distRoot==="string"&&isAbsolute(distRoot)&&
@@ -76,6 +76,8 @@ export function createT3InstalledOriginalControlHost({
   required(Number.isSafeInteger(chosenUiPort)&&chosenUiPort>=1&&
     chosenUiPort<=65535&&chosenUiPort!==port,
     "ISOLATED_PORT_REQUIRED");
+  required(subjectSession===null||isT3InstalledSubjectSession(subjectSession),
+    "SUBJECT_SESSION_TRUSTED_HOST_REQUIRED");
   const uiOrigin="http://127.0.0.1:"+chosenUiPort;
   let root;
   try{
@@ -179,16 +181,111 @@ export function createT3InstalledOriginalControlHost({
   const ui=createT3IsolatedUiServer({
     kernelOrigin,serviceId,assetForPath,uiPort:chosenUiPort,
   });
-  let started=false;
+  let started=false,closing=false;
+  const nativeChildren=new Set();
   const stopKernel=async()=>{
     if(!kernel.listening)return;
     kernel.closeAllConnections();
     await new Promise((resolve,reject)=>
       kernel.close(error=>error?reject(error):resolve()));
   };
+  const launchUrl=()=>uiOrigin+"/workspace/#"+token;
+
+  async function openNative({executablePath}={}){
+    required(started&&!closing,"NOT_STARTED");
+    required(process.platform==="win32","WINDOWS_NATIVE_REQUIRED");
+    required(typeof executablePath==="string"&&isAbsolute(executablePath),
+      "NATIVE_EXECUTABLE_REQUIRED");
+    let binary;
+    try{
+      binary=realpathSync(executablePath);
+      required(statSync(binary).isFile()&&binary.toLowerCase().endsWith(".exe"),
+        "NATIVE_EXECUTABLE_REQUIRED");
+    }catch{deny("NATIVE_EXECUTABLE_REQUIRED");}
+    // Native OS menu gets only the existing issuer's public subject labels
+    // and selection IDs. No corporate proof, private key, grant contents or
+    // signed STATUS are serialized into this launch envelope.
+    const contexts=subjectSession===null?[]:
+      await subjectSession.availableContexts();
+    const descriptor=subjectSession===null?launchUrl():JSON.stringify({
+      schema:"IWXA_T3_NATIVE_CONTEXT_LAUNCH/1",
+      url:subjectSession.currentContext()===null?null:launchUrl(),
+      choices:contexts.map(x=>({selectionId:x.selectionId,label:x.label})),
+    });
+    required(Buffer.byteLength(descriptor,"utf8")<=64*1024,
+      "NATIVE_SUBJECT_CHOICES_OVERSIZED");
+    return await new Promise((resolve,reject)=>{
+      const child=spawn(binary,[],{
+        cwd:dirname(binary),windowsHide:false,
+        // The one private stdout pipe is exclusively for native OS menu
+        // activation, not a WebView/website IPC endpoint.
+        stdio:["pipe",subjectSession===null?"ignore":"pipe","ignore"],
+      });
+      nativeChildren.add(child);
+      let settled=false,buffer="",invalid=false;
+      const denied=()=>{
+        if(settled)return;
+        settled=true;
+        reject(Object.assign(new Error(
+          "T3_D1_INSTALLED_HOST_NATIVE_LAUNCH_FAILED"),{
+          code:"T3_D1_INSTALLED_HOST_NATIVE_LAUNCH_FAILED",
+        }));
+      };
+      if(subjectSession!==null){
+        child.stdout.on("data",part=>{
+          buffer+=part.toString("utf8");
+          if(Buffer.byteLength(buffer,"utf8")>4096)invalid=true;
+        });
+      }
+      child.once("close",exitCode=>{
+        nativeChildren.delete(child);
+        if(subjectSession===null||closing||!started||exitCode!==0||invalid)
+          return;
+        // No arbitrary WebView event is a user confirmation. Only the
+        // immutable installed EXE's native MENU handler can send this exact
+        // single framed request on its private child-process stdout.
+        const lines=buffer.split(/\r?\n/).filter(Boolean);
+        if(lines.length!==1)return;
+        let command;
+        try{command=JSON.parse(lines[0]);}catch{return;}
+        if(command?.schema!=="IWXA_T3_NATIVE_CONTEXT_EVENT/1"||
+           command.kind!=="select"||
+           typeof command.selectionId!=="string"||
+           !contexts.some(x=>x.selectionId===command.selectionId))return;
+        void (async()=>{
+          try{
+            // This is NOT a grant: the signed original issuer/AccessRegistry
+            // must validate eligibility on every selection and JIT operation.
+            await subjectSession.selectContext({
+              selectionId:command.selectionId,userConfirmed:true,
+            });
+          }catch{
+            // Fail closed, then return to the disconnected native chooser.
+            subjectSession.invalidateSignedState();
+          }
+          if(started&&!closing)await openNative({executablePath:binary});
+        })().catch(()=>{
+          try{subjectSession.invalidateSignedState();}catch{}
+        });
+      });
+      child.once("error",denied);
+      child.once("spawn",()=>{
+        if(settled)return;
+        child.stdin.once("error",denied);
+        // Control bearer is never placed in argv/env, on disk or in logs.
+        child.stdin.end(descriptor+"\n",()=>{
+          if(settled)return;
+          settled=true;
+          resolve(Object.freeze({pid:child.pid,launchMode:"WINDOWS_NATIVE",
+            nativeContextMenu:subjectSession!==null}));
+        });
+      });
+    });
+  }
+
   return Object.freeze({
     async listen(){
-      required(!started,"ALREADY_STARTED");
+      required(!started&&!closing,"ALREADY_STARTED");
       await new Promise((resolve,reject)=>{
         const onError=error=>{
           kernel.off("listening",onListening);reject(error);
@@ -207,56 +304,19 @@ export function createT3InstalledOriginalControlHost({
         return Object.freeze({kernelOrigin,uiOrigin,serviceId});
       }catch(error){await stopKernel();throw error;}
     },
-    // Only the trusted native launcher receives this opaque one-time launch
-    // URL. Neither server publishes it; the existing AppShell erases its hash.
     signedWorkspaceLaunchUrl(){
-      required(started,"NOT_STARTED");
-      return uiOrigin+"/workspace/#"+token;
+      required(started&&!closing,"NOT_STARTED");
+      if(subjectSession!==null)
+        required(subjectSession.currentContext()!==null,
+          "SUBJECT_SESSION_NOT_SELECTED");
+      return launchUrl();
     },
-    async launchNativeWindow({executablePath}={}){
-      required(started,"NOT_STARTED");
-      required(process.platform==="win32","WINDOWS_NATIVE_REQUIRED");
-      required(typeof executablePath==="string"&&isAbsolute(executablePath),
-        "NATIVE_EXECUTABLE_REQUIRED");
-      let binary;
-      try{
-        binary=realpathSync(executablePath);
-        required(statSync(binary).isFile()&&
-          binary.toLowerCase().endsWith(".exe"),
-          "NATIVE_EXECUTABLE_REQUIRED");
-      }catch{deny("NATIVE_EXECUTABLE_REQUIRED");}
-      // This is the native Tauri/WebView2 window of the SAME original Host.
-      // Its bearer travels ONLY via a private stdin pipe, never in argv,
-      // environment, file contents, event logs, or a new Control service.
-      const launchUrl=uiOrigin+"/workspace/#"+token;
-      return await new Promise((resolve,reject)=>{
-        const child=spawn(binary,[],{
-          cwd:dirname(binary),windowsHide:false,
-          stdio:["pipe","ignore","ignore"],
-        });
-        let settled=false;
-        const denied=()=>{
-          if(settled)return;settled=true;
-          reject(Object.assign(new Error(
-            "T3_D1_INSTALLED_HOST_NATIVE_LAUNCH_FAILED"),{
-            code:"T3_D1_INSTALLED_HOST_NATIVE_LAUNCH_FAILED",
-          }));
-        };
-        child.once("error",denied);
-        child.once("spawn",()=>{
-          if(settled)return;
-          // Pipe errors are not an authorization fallback: the native
-          // process must receive a valid host URL or stay disconnected.
-          child.stdin.once("error",denied);
-          child.stdin.end(launchUrl+"\n",()=>{
-            if(settled)return;
-            settled=true;
-            resolve(Object.freeze({pid:child.pid,launchMode:"WINDOWS_NATIVE"}));
-          });
-        });
-      });
-    },
+    launchNativeWindow:openNative,
     async close(){
+      closing=true;
+      // Closing the original Host cannot leave a WebView displaying an
+      // apparently trusted corporate Workspace with a dead Control stream.
+      for(const child of [...nativeChildren])child.kill();
       await ui.close();
       await stopKernel();
       started=false;
