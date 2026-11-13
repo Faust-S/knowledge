@@ -6,6 +6,8 @@ import {cpSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync,
   readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {dirname, extname, isAbsolute, join, relative, resolve, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {assertQualifiedKernelArtifact}
+  from '../src/factory2/products/domain-completion/independent-browser-witness.mjs';
 
 const allowedAssetExtensions=new Set([
   '.js','.mjs','.css','.json','.wasm','.png','.svg','.webp','.ico','.woff2',
@@ -39,7 +41,9 @@ function required(root,path){
   if(!existsSync(target)||!statSync(target).isFile())fail('MISSING_'+path);
   return target;
 }
-export function assembleSignedControlDist({t2Dist,t3Build,outputDir}={}){
+export function assembleSignedControlDist({
+  t2Dist,t3Build,outputDir,testOnlyUnqualifiedFixture=false,
+}={}){
   if(![t2Dist,t3Build,outputDir].every(x=>typeof x==='string'&&x.trim()))
     fail('THREE_PATHS_REQUIRED');
   const source=realpathSync(resolve(t2Dist));
@@ -50,6 +54,14 @@ export function assembleSignedControlDist({t2Dist,t3Build,outputDir}={}){
       inside(output,source)||inside(output,compiled))fail('OVERLAPPING_PATHS');
   if(existsSync(output))fail('OUTPUT_ALREADY_EXISTS');
   files(source); // reject symlinks before copying the inherited runtime
+  // Do not label an arbitrary runtime "original T2" just because copying
+  // preserves its bytes. Reuse the exact inherited T2 qualified verifier and
+  // release pin. The test-only fixture switch is never available from CLI.
+  const qualified=testOnlyUnqualifiedFixture ? null :
+    assertQualifiedKernelArtifact(source,{
+      kernel:'0.3.6',contract:'1.3.0',
+      artifactId:'iwxa-kernel-k036-same-store-history-20261019-qualified.1',
+    });
   const originalLoader=required(source,'_iwxa/loader.js');
   const originalRuntime=required(source,'_iwxa/runtime/0.3.6/runtime.js');
   const domain=JSON.parse(readFileSync(required(source,'_iwxa/domain.json'),'utf8'));
@@ -116,6 +128,7 @@ export function assembleSignedControlDist({t2Dist,t3Build,outputDir}={}){
     return {schema:'iwxa.t3.signed-control-one-dist/1',origin,
       workspace_service_id:config.workspace_service_id,
       signed_assets:staged.length,original_kernel:'0.3.6',
+      original_qualified_artifact:qualified?.artifactId??'TEST_ONLY_UNQUALIFIED',
       original_loader_sha256:hash(originalLoader),
       original_runtime_sha256:hash(originalRuntime),
       original_runtime_unchanged:true,output};

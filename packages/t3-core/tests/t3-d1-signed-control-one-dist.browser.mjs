@@ -110,6 +110,8 @@ try{
     t2Dist:source,t3Build:join(core,'dist'),outputDir:output,
   });
   assert.equal(assembled.original_runtime_unchanged,true);
+  assert.equal(assembled.original_qualified_artifact,
+    'iwxa-kernel-k036-same-store-history-20261019-qualified.1');
   assert.equal(assembled.origin,origin);
   assert.equal(hash(readFileSync(join(source,'_iwxa/runtime/0.3.6/runtime.js'))),
     hash(readFileSync(join(output,'_iwxa/runtime/0.3.6/runtime.js'))));

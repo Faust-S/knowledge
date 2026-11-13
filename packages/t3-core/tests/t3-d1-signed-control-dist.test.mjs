@@ -24,7 +24,9 @@ function fixture(){
   put(t3,'assets/signed-123.js','console.log("signed")');
   put(t3,'assets/shared-456.css','body{}');
   put(t3,'favicon.ico','icon');
-  return {dir,t2,t3,out,put,run:()=>assembleSignedControlDist({t2Dist:t2,t3Build:t3,outputDir:out})};
+  return {dir,t2,t3,out,put,run:()=>assembleSignedControlDist({
+    t2Dist:t2,t3Build:t3,outputDir:out,testOnlyUnqualifiedFixture:true,
+  })};
 }
 test('assemble installed Control one-dist from original Kernel, preserving every original asset',()=>{
   const f=fixture();
@@ -58,6 +60,16 @@ test('refuse non-local or missing Control origin and an absent original service'
     f.put(f.t2,'_iwxa/domain.json',JSON.stringify({origin:'http://127.0.0.1:18883'}));
     f.put(f.t2,'_iwxa/service-catalog.json','{"entries":[]}');
     assert.throws(()=>f.run(),/T3_D1_DIST_ORIGINAL_WORKSPACE_SERVICE_REQUIRED/);
+    assert.equal(existsSync(f.out),false);
+  }finally{rmSync(f.dir,{recursive:true,force:true});}
+});
+
+test('production assembly rejects a fabricated Kernel even when its files are self-consistent',()=>{
+  const f=fixture();
+  try{
+    assert.throws(()=>assembleSignedControlDist({
+      t2Dist:f.t2,t3Build:f.t3,outputDir:f.out,
+    }),/FACTORY2_WITNESS_KERNEL_ARTIFACT_MISMATCH/);
     assert.equal(existsSync(f.out),false);
   }finally{rmSync(f.dir,{recursive:true,force:true});}
 });
