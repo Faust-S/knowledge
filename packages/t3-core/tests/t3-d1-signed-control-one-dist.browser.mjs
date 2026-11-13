@@ -37,7 +37,7 @@ const safeAssets=path=>path==='/workspace/signed-workspace.html'||
   path==='/workspace/workspace.config.json'||path==='/workspace/favicon.ico'||
   /^\/workspace\/assets\/[A-Za-z0-9_.\/-]+$/.test(path)||
   /^\/_iwxa\/[A-Za-z0-9_.\/-]+$/.test(path);
-let origin='',installed=false,syntheticOwner=false;
+let origin='',uiOrigin='',installed=false,syntheticOwner=false;
 const scopedWorkspace='t3-d1-selected-'+randomUUID();
 const eventStreams=new Set();
 const mockContext=Object.freeze({
@@ -66,6 +66,42 @@ const server=createServer((req,res)=>{
     if(path==='/__original_kernel_probe__')
       return send(200,'<!doctype html><title>Original Kernel probe</title>'+
         '<script src="/_iwxa/loader.js"></script>','text/html',true);
+    // Test-only trusted original Kernel realm. The real T2 loader and Store
+    // remain on their original pinned origin. No application modules are
+    // served here; a different UI origin receives only a signed MessagePort.
+    if(path==='/__isolated_transport__.mjs')
+      return send(200,readFileSync(join(core,'src/t3/origin-isolated-kernel-transport.mjs')),
+        'text/javascript; charset=utf-8',true);
+    if(path==='/__trusted_kernel_realm__.html'){
+      res.writeHead(200,{'Content-Type':'text/html; charset=utf-8',
+        'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',
+        'Content-Security-Policy':"default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'self'; frame-ancestors "+uiOrigin});
+      res.end('<!doctype html><title>Trusted original T2 Kernel realm</title>'+
+        '<script src="/_iwxa/loader.js"></script>'+
+        '<script type="module" src="/__trusted_kernel_realm__.mjs"></script>');
+      return;
+    }
+    if(path==='/__trusted_kernel_realm__.mjs'){
+      const trustedSource=[
+        "import {acceptOriginalKernelRealmChannel} from '/__isolated_transport__.mjs';",
+        "const selected="+JSON.stringify(scopedWorkspace)+";",
+        "const allowed=ws=>{if(ws!==selected){const e=new Error('out of selected scope');e.code='T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE';throw e;}};",
+        "let realm=null;",
+        "window.addEventListener('message',event=>{",
+        " if(realm)return;",
+        " realm=acceptOriginalKernelRealmChannel({event,uiOrigin:"+JSON.stringify(uiOrigin)+",parentWindow:window.parent,",
+        "  isActive:()=>true,createSignedFacade:async()=>{",
+        "   const original=await window.IWXA.connect({service_id:"+JSON.stringify(serviceId)+"});",
+        "   return Object.freeze({",
+        "    async getWorkspace(id){allowed(id);return original.t1.getWorkspace(id);},",
+        "    async putObject(cmd){allowed(cmd?.workspace_id);return original.t1.putObject(cmd);}",
+        "   });",
+        "  }",
+        " });",
+        "});",
+      ].join('\n');
+      return send(200,trustedSource,'text/javascript; charset=utf-8',true);
+    }
     if(path==='/api/t3/owner-events'){
       if(req.headers.authorization!=='Bearer '+token)
         return send(401,{error:'CONTROL_SESSION_REQUIRED'});
@@ -144,6 +180,25 @@ const server=createServer((req,res)=>{
     if(!res.headersSent)send(500,{error:'TEST_SERVER_FAILED',detail:String(error)});
   }
 });
+const uiServer=createServer((req,res)=>{
+  if(!uiOrigin||req.headers.host!==new URL(uiOrigin).host){
+    res.writeHead(403);res.end();return;
+  }
+  const path=new URL(req.url,uiOrigin).pathname;
+  if(path==='/__isolated_transport__.mjs'){
+    res.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8',
+      'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
+    res.end(readFileSync(join(core,'src/t3/origin-isolated-kernel-transport.mjs')));
+    return;
+  }
+  if(path==='/__isolated_ui__.html'){
+    res.writeHead(200,{'Content-Type':'text/html; charset=utf-8',
+      'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
+    res.end('<!doctype html><title>Isolated T3 UI origin</title><main id="app"></main>');
+    return;
+  }
+  res.writeHead(404,{'Content-Type':'text/plain'});res.end('NOT_FOUND');
+});
 let browser=null;
 const launch=async()=>{
   const context=await chromium.launchPersistentContext(profile,{
@@ -154,6 +209,9 @@ const launch=async()=>{
 try{
   await new Promise((ok,bad)=>{server.once('error',bad);server.listen(0,'127.0.0.1',ok);});
   origin='http://127.0.0.1:'+server.address().port;
+  await new Promise((ok,bad)=>{uiServer.once('error',bad);uiServer.listen(0,'127.0.0.1',ok);});
+  uiOrigin='http://127.0.0.1:'+uiServer.address().port;
+  assert.notEqual(uiOrigin,origin,'T3_D1_ISOLATED_UI_MUST_USE_DISTINCT_ORIGIN');
   mkdirSync(join(source,'workspace/assets'),{recursive:true});
   cpSync(join(qualified,'_iwxa'),join(source,'_iwxa'),{recursive:true});
   assertQualifiedKernelArtifact(source,{kernel:'0.3.6',contract:'1.3.0',
@@ -318,6 +376,76 @@ try{
     syntheticOwnerOnly:true,authenticPrivateSignerExecuted:false,
   }));
 
+  // Real cross-origin boundary proof, using the SAME original T2 Kernel and
+  // Store. The scoped executor inside the trusted realm is synthetic in this
+  // public CI; the real private issuer and native Store gate are NOT accepted.
+  const isolated=await browser.context.newPage();
+  const isolatedErrors=[];
+  isolated.on('pageerror',error=>isolatedErrors.push(error.message));
+  await isolated.goto(uiOrigin+'/__isolated_ui__.html');
+  const isolatedProof=await isolated.evaluate(async({
+    kernelOrigin,selectedId,foreignWorkspace,serviceId,
+  })=>{
+    const noRawInUi=typeof globalThis.IWXA==='undefined';
+    const loaderResponse=await fetch('/_iwxa/loader.js',{cache:'no-store'});
+    const noLoaderInUi=loaderResponse.status===404;
+    const frame=document.createElement('iframe');
+    frame.src=kernelOrigin+'/__trusted_kernel_realm__.html';
+    document.body.append(frame);
+    await new Promise((resolve,reject)=>{
+      frame.onload=resolve;
+      frame.onerror=()=>reject(new Error('TRUSTED_KERNEL_FRAME_FAILED'));
+    });
+    let foreignGlobalVisible=false;
+    try{foreignGlobalVisible=typeof frame.contentWindow.IWXA!=='undefined';}
+    catch{/* Standard browser same-origin policy blocks the read. */}
+    const transport=await import('/__isolated_transport__.mjs');
+    const client=await transport.openOriginalKernelRealm({
+      frame:frame.contentWindow,realmOrigin:kernelOrigin,
+      channelFactory:()=>new MessageChannel(),
+    });
+    try{
+      const own=await client.invoke('getWorkspace',selectedId);
+      let crossReadDenied=false,crossWriteDenied=false,constructorDenied=false;
+      try{await client.invoke('getWorkspace',foreignWorkspace);}
+      catch(e){crossReadDenied=e.code==='T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE';}
+      try{await client.invoke('putObject',{workspace_id:foreignWorkspace,object_id:'foreign'});}
+      catch(e){crossWriteDenied=e.code==='T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE';}
+      try{await client.invoke('constructor');}
+      catch(e){constructorDenied=e.code==='T3_D1_ORIGINAL_KERNEL_METHOD_FORBIDDEN';}
+      const written=await client.invoke('putObject',{
+        workspace_id:selectedId,object_id:'item:isolated-bridge',
+        schema_id:'iwxa.demo.note',schema_version:'1.0.0',base_revision:0,
+        data:{title:'Original Kernel through isolated signed transport'},
+        extensions:{},event:{event_type:'t3.d1.isolated.created',payload:{}},
+      });
+      return {
+        noRawInUi,noLoaderInUi,foreignGlobalVisible,
+        crossReadDenied,crossWriteDenied,constructorDenied,
+        selectedRead:own?.workspace_id===selectedId,
+        selectedWrite:written?.object?.workspace_id===selectedId,
+      };
+    }finally{client.close();}
+  },{kernelOrigin:origin,selectedId:scopedWorkspace,
+     foreignWorkspace:workspace,serviceId});
+  assert.deepEqual(isolatedErrors,[]);
+  assert.deepEqual(isolatedProof,{
+    noRawInUi:true,noLoaderInUi:true,foreignGlobalVisible:false,
+    crossReadDenied:true,crossWriteDenied:true,constructorDenied:true,
+    selectedRead:true,selectedWrite:true,
+  });
+  const isolatedReadback=await browser.page.evaluate(async({serviceId,selectedId})=>{
+    const original=await globalThis.IWXA.connect({service_id:serviceId});
+    return original.t1.getObject(selectedId,'item:isolated-bridge');
+  },{serviceId,selectedId:scopedWorkspace});
+  assert.equal(isolatedReadback?.object?.data?.title,
+    'Original Kernel through isolated signed transport');
+  console.log('T3_D1_TWO_ORIGIN_ORIGINAL_KERNEL_BRIDGE_PASS',JSON.stringify({
+    twoDifferentLoopbackOrigins:true,uiCannotLoadOrReadRawKernel:true,
+    foreignWorkspaceReadDenied:true,foreignWorkspaceWriteDenied:true,
+    originalKernelReadback:true,syntheticOwnerOnly:true,
+    privateSignerExecuted:false,nativeStoreBoundaryIntegrated:false,
+  }));
   console.log('T3_D1_ACTUAL_ONE_DIST_ORIGINAL_HTTP_PASS',JSON.stringify({
     originalKernel:'0.3.6',runtimeContract:'1.3.0',
     originalLoaderSha256:assembled.original_loader_sha256,
@@ -329,6 +457,8 @@ try{
   }));
 }finally{
   if(browser)await browser.context.close().catch(()=>{});
+  uiServer.closeAllConnections();
+  if(uiServer.listening)await new Promise(resolve=>uiServer.close(()=>resolve()));
   server.closeAllConnections();
   await new Promise(resolve=>server.close(()=>resolve()));
   rmSync(root,{recursive:true,force:true});
