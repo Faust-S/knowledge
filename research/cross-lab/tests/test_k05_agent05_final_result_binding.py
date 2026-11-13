@@ -165,7 +165,7 @@ class K05FinalResultBinding(unittest.TestCase):
         item = final_case("baseline")
         for name, mutation, error in [
             ("no_stop", lambda v: v["graph"].update(stop_node_ids=[]),
-             "FINAL_STOP_NODE_UNVERIFIED"),
+             "GRAPH_NODE_MANIFEST_INVALID"),
             ("not_completed", lambda v: v["after"].update(state="READY"),
              "FINAL_GRAPH_EXECUTION_MISMATCH"),
             ("bad_attempt", lambda v: v["after"].update(

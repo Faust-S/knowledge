@@ -47,7 +47,11 @@ def _parse(raw: bytes, limit: int):
             decoded, object_pairs_hook=_nonduplicate_pairs,
             parse_constant=lambda _: _fail("NONFINITE_NUMBER"),
         )
-    except (UnicodeError, ValueError, TypeError, RecursionError) as exc:
+    except AgentComparisonHold:
+        # Preserve precise fail-closed evidence diagnostics (duplicate key,
+        # nonfinite value) instead of hiding them behind INVALID_JSON.
+        raise
+    except (UnicodeError, ValueError, TypeError, RecursionError):
         _fail("INVALID_JSON")
     if type(obj) is not dict:
         _fail("OBJECT_REQUIRED")
