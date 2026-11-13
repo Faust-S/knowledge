@@ -369,6 +369,38 @@ test("D1 imports a signed single-Workspace .iwxa using original T2 preview and c
   }),{code:"T3_SUBJECT_IMPORT_PREVIEW_REQUIRED"});
   assert.equal(f.calls.filter(c=>c[0]==="importCommit").length,1);
 });
+test("D4 signed full import permits original same-ID receipt without merge map but rejects foreign destination",async()=>{
+  const f=fixture(),dg="c".repeat(64);
+  f.allowed.add("t2.importPreview");f.allowed.add("t2.importCommit");
+  let serial=0,receiptMapping;
+  f.kernel.importPreview=async()=>{
+    serial++;
+    return {preview_token:"token:d4:full:"+serial,package_digest:dg,
+      expires_at:new Date(now+60000).toISOString(),allowed_modes:["full"],
+      preview:{package_digest:dg,manifest:{workspaces:[ws]},
+        workspaces:[{workspace_id:ws}],objects:[],conflicts:[]}};
+  };
+  f.kernel.importCommit=async input=>({
+    package_digest:dg,mode:input.plan.mode,skipped_conflicts:[],
+    ...(receiptMapping===undefined?{}:{workspace_id_map:receiptMapping}),
+  });
+  for(const map of [undefined,{}]){
+    receiptMapping=map;
+    const preview=await f.bound.importPreview(Uint8Array.from([1,2,3]));
+    const receipt=await f.bound.importCommit({
+      preview_token:preview.preview_token,package_digest:dg,
+      plan:{mode:"full",include_workspaces:[ws]},
+    });
+    assert.equal(receipt.mode,"full");
+  }
+  receiptMapping={[ws]:"ws:foreign"};
+  const preview=await f.bound.importPreview(Uint8Array.from([1,2,3]));
+  await assert.rejects(f.bound.importCommit({
+    preview_token:preview.preview_token,package_digest:dg,
+    plan:{mode:"full",include_workspaces:[ws]},
+  }),{code:"T3_KERNEL_IMPORT_RECEIPT_SCOPE_MISMATCH"});
+});
+
 test("D1 refuses foreign .iwxa preview, foreign import plan, and replay",async()=>{
   const f=fixture(),dg="b".repeat(64);
   f.allowed.add("t2.importPreview");f.allowed.add("t2.importCommit");f.allowed.add("t2.importCancel");

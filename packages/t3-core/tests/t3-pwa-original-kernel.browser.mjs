@@ -240,6 +240,84 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
           originalImportMode:"merge",signedOperationProofs:originalOwner.proofCount,
           originalKernelRecipientReadback:true,secondConsumerNotYetQualified:true}));
     }finally{await recipient.close();}
+
+    // Second INDEPENDENT supported consumer: unchanged original T2 Exchange,
+    // not the signed T3 selected-Workspace port exercised above. This profile
+    // has another ORIGINAL Kernel Store and must parse the same .iwxa bytes
+    // without a new importer, adapter or schema normalization.
+    const t2RecipientProfile=join(root,"t2-only-recipient-profile");
+    const launchT2Recipient=()=>chromium.launchPersistentContext(t2RecipientProfile,{
+      headless:true,ignoreHTTPSErrors:true,
+      args:["--no-sandbox","--ignore-certificate-errors"],
+    });
+    let t2Recipient=await launchT2Recipient();
+    try {
+      let independent=t2Recipient.pages()[0]||await t2Recipient.newPage();
+      await independent.goto(live.origin+"/workspace/");
+      await independent.waitForFunction(()=>typeof window.IWXA?.connect==="function");
+      const raw=await independent.evaluate(async({SERVICE,workspace,object,bytes})=>{
+        const original=await window.IWXA.connect({service_id:SERVICE});
+        if(original.contract_version!=="1.3.0"||
+           original.runtime_version!=="0.3.6")throw Error("NOT_ORIGINAL_T2");
+        const before=await original.t1.getObject(workspace,object);
+        const archive=Uint8Array.from(bytes);
+        let truncatedZipDenied=false;
+        try {
+          await original.t2.importPreview(archive.subarray(0,11));
+        } catch(error) {
+          truncatedZipDenied=typeof error?.code==="string"||
+            error instanceof Error;
+        }
+        const preview=await original.t2.importPreview(archive);
+        const mode=preview.allowed_modes?.includes("full")?"full":"selective";
+        const receipt=await original.t2.importCommit({
+          preview_token:preview.preview_token,package_digest:preview.package_digest,
+          plan:{mode,include_workspaces:[workspace],include_history:true,
+            include_assets:true,include_relations:true,conflict:"fail"},
+        });
+        const record=await original.t1.getObject(workspace,object);
+        const events=await original.t1.listEventsSince(workspace);
+        return {beforeAbsent:before===null||before===undefined,
+          truncatedZipDenied,mode,source:preview.preview.manifest.workspaces[0],
+          receiptMode:receipt.mode,receiptSource:receipt.workspace_id_map?.[workspace],
+          title:record?.object?.data?.title,revision:record?.object?.revision,
+          eventIds:events.map(e=>e.event_id)};
+      },{SERVICE,workspace,object,bytes:saved.archiveBytes});
+      assert.equal(raw.beforeAbsent,true,
+        "the independent T2 recipient must have its own empty original Store");
+      assert.equal(raw.truncatedZipDenied,true,
+        "the original Exchange parser must refuse corrupted .iwxa ZIP");
+      assert.equal(raw.source,workspace);
+      assert.equal(raw.receiptMode,raw.mode);
+      // The original T2 full/selective import does not promise an explicit
+      // workspace_id_map (that field is meaningful for remapping/merge).
+      // Actual destination data and original history must prove restoration.
+      if(raw.mode==="merge"||raw.mode==="new-workspace")
+        assert.equal(raw.receiptSource,workspace);
+      assert.equal(raw.title,title);
+      assert.equal(raw.revision,saved.revision);
+      assert.ok(raw.eventIds.includes(saved.event),
+        "original event provenance must survive in the second recipient");
+      await t2Recipient.close();t2Recipient=null;
+      t2Recipient=await launchT2Recipient();
+      independent=t2Recipient.pages()[0]||await t2Recipient.newPage();
+      await independent.goto(live.origin+"/workspace/");
+      await independent.waitForFunction(()=>typeof window.IWXA?.connect==="function");
+      const recovered=await read(independent);
+      assert.equal(recovered.text,title);
+      assert.equal(recovered.revision,saved.revision);
+      assert.ok(recovered.eventIds.includes(saved.event),
+        "second original T2 consumer must preserve history after cold restart");
+      console.log("T3_D4_TWO_INDEPENDENT_CONSUMERS_ORIGINAL_IWXA_PASS",JSON.stringify({
+        originalKernel:"0.3.6",contract:"1.3.0",
+        consumerPorts:["signed-selected-T3","original-T2-Exchange"],
+        independentlyPersistedRecipientStores:2,
+        exactOriginalArchiveBytes:true,originalEventProvenanceRecovered:true,
+        corruptZipRejectedByOriginalParser:true,
+        secondConsumerColdRestartReadback:true,
+        twoDifferentInstalledProductsAccepted:false,
+      }));
+    }finally{if(t2Recipient)await t2Recipient.close();}
     console.log("T3_PWA_REAL_ORIGINAL_KERNEL_EXCHANGE_TWO_WINDOW_COLD_PASS",JSON.stringify({
       originalKernel:"0.3.6",sameStore:true,oneServiceWorker:true,
       originalExchangeExport:true,originalExchangeImport:true,
