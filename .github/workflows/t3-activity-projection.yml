@@ -159,7 +159,7 @@ jobs:
     # Mac runner allocation and exposed hardware GPU must still be verified.
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[t3-metal]')
     runs-on: macos-15
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -187,11 +187,18 @@ jobs:
       - name: Install Chromium for Metal/WebGPU
         working-directory: packages/t3-core
         run: npx --no-install playwright install chromium
-      - name: Build complete BLI and qualify real Metal generation, Kernel readback and cold restart
+      - name: Build complete source-pinned BLI1/WebLLM Host once
+        working-directory: packages/t3-core
+        run: node scripts/qualify-bli-inherited-host.mjs
+      - name: D1+D5 real Metal in compiled split-origin signed Workspace and original Kernel
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+          T3_D1_D5_REQUIRE_HARDWARE_GPU: '1'
+        run: node tests/t3-d1-signed-control-one-dist.browser.mjs
+      - name: D5 inherited domain real Metal generation and cold offline restart
         working-directory: packages/t3-core
         env:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
           T3_D5_REQUIRE_HARDWARE_GPU: '1'
-        run: |
-          node scripts/qualify-bli-inherited-host.mjs
-          node tests/t3-d5-full-bli.browser.mjs
+        run: node tests/t3-d5-full-bli.browser.mjs

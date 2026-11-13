@@ -16,6 +16,9 @@ import {assertQualifiedKernelArtifact}
   from '../src/factory2/products/domain-completion/independent-browser-witness.mjs';
 
 const core=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+const requireHardware=process.env.T3_D1_D5_REQUIRE_HARDWARE_GPU==='1';
+if(requireHardware&&process.platform!=='darwin')
+  throw Error('T3_D1_D5_SIGNED_HARDWARE_PROFILE_REQUIRED');
 const qualified=process.env.IWXA_T2_QUALIFIED_KERNEL_DIST;
 assert.ok(qualified && existsSync(join(qualified,'_iwxa/runtime/0.3.6/runtime.js')),
   'T3_D1_ORIGINAL_QUALIFIED_T2_REQUIRED');
@@ -213,6 +216,18 @@ const server=createServer((req,res)=>{
     if(!res.headersSent)send(500,{error:'TEST_SERVER_FAILED',detail:String(error)});
   }
 });
+// Public model URLs are the single pinned original BLI1/WebLLM 0.2.87
+// profile. Only the exact compiled Worker receives this connect-src; the
+// signed page, all other chunks and original Control stay same-origin.
+const modelWorkerConnect=[
+  'https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC/resolve/main/',
+  'https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_87/base/SmolLM2-360M-Instruct-q4f32_1_cs1k-webgpu.wasm',
+  'https://cas-server.xethub.hf.co','https://cas-server.xethub-eu.hf.co',
+  'https://transfer.xethub.hf.co','https://transfer.xethub-eu.hf.co',
+  'https://cas-bridge.xethub.hf.co',
+  'https://us.aws.cdn.hf.co','https://us.gcp.cdn.hf.co',
+  'https://cdn-lfs-us-1.hf.co','https://cdn-lfs-eu-1.hf.co',
+];
 const uiServer=createServer((req,res)=>{
   if(!uiOrigin||req.headers.host!==new URL(uiOrigin).host){
     res.writeHead(403);res.end();return;
@@ -222,9 +237,13 @@ const uiServer=createServer((req,res)=>{
   // Restrict eval to this signed, compiled UI origin. The original Control
   // UI/API and all raw Kernel paths remain completely unavailable here.
   const isolatedCsp="default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; worker-src 'self' blob:; frame-src "+origin+"; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
-  const uiSend=(status,body,type='application/json')=>{
+  const uiSend=(status,body,type='application/json',modelWorker=false)=>{
+    const csp=modelWorker
+      ?isolatedCsp.replace("connect-src 'self';",
+        "connect-src 'self' "+modelWorkerConnect.join(' ')+";")
+      :isolatedCsp;
     res.writeHead(status,{'Content-Type':type,'Cache-Control':'no-store',
-      'X-Content-Type-Options':'nosniff','Content-Security-Policy':isolatedCsp});
+      'X-Content-Type-Options':'nosniff','Content-Security-Policy':csp});
     res.end(Buffer.isBuffer(body)?body:type==='application/json'?JSON.stringify(body):body);
   };
   if(path==='/workspace/t3-isolated-ui.json')
@@ -251,7 +270,9 @@ const uiServer=createServer((req,res)=>{
     const target=resolve(output,'.'+path);
     if(target.startsWith(output+sep)&&existsSync(target)){
       const type=mime[extname(target).toLowerCase()];
-      if(type)return uiSend(200,readFileSync(target),type);
+      if(type)return uiSend(200,readFileSync(target),type,
+        /^\/workspace\/assets\/model-worker-[A-Za-z0-9_-]{6,96}\.js$/.test(path)&&
+        type.startsWith('text/javascript'));
     }
   }
   if(path==='/__isolated_transport__.mjs'){
@@ -278,6 +299,8 @@ let browser=null;
 const launch=async()=>{
   const context=await chromium.launchPersistentContext(profile,{
     headless:true,serviceWorkers:'block',
+    ...(requireHardware?{channel:'chromium',
+      args:['--enable-unsafe-webgpu','--ignore-certificate-errors']}:{})
   });
   return {context,page:context.pages()[0]||await context.newPage()};
 };
@@ -655,6 +678,121 @@ try{
     rawKernelUnavailableInUi:true,signedPortClosed:true,
     syntheticOwnerOnly:true,
   }));
+
+  if(requireHardware){
+    // Mac Metal/WebGPU product route: real BLI1 model in the compiled
+    // isolated signed AppShell. The owner is SYNTHETIC for public CI, but
+    // BOTH draft receipts and cold reads use the ORIGINAL Kernel 0.3.6.
+    // Unlike the Linux check, this branch must generate real model text.
+    const openPanel=async()=>{
+      const page=await browser.context.newPage();
+      await page.goto(uiOrigin+'/workspace/isolated-signed-workspace.html#'+token);
+      const launcher=page.getByTestId('t3-local-inference-launcher');
+      await launcher.waitFor({state:'visible',timeout:45000});
+      await launcher.getByRole('button',{name:'Открыть локальную модель'}).click();
+      const panel=page.getByTestId('t3-local-inference-panel');
+      await panel.waitFor({state:'visible',timeout:30000});
+      await panel.getByRole('button',{name:'Найти рабочие области'}).click();
+      await panel.getByLabel('Workspace для локальной модели')
+        .selectOption(scopedWorkspace);
+      await panel.getByRole('button',{name:'Использовать выбранный Workspace'}).click();
+      await page.waitForFunction(id=>
+        document.querySelector('[data-testid="t3-local-inference-panel"] strong')
+          ?.textContent?.includes(id),scopedWorkspace,{timeout:30000});
+      return {page,panel};
+    };
+    const waitPanelStatus=(page,expected,timeout=180000)=>
+      page.waitForFunction(needle=>[...document.querySelectorAll(
+        '[data-testid="t3-local-inference-panel"] p[role="status"]')]
+        .some(p=>p.textContent?.includes(needle)),expected,{timeout});
+    const generateAndSave=async(page,panel,request)=>{
+      await panel.getByTestId('t3-d5-prompt').fill(request);
+      await panel.getByTestId('t3-d5-max-tokens').fill('18');
+      await panel.getByRole('button',{name:'Сгенерировать локально'}).click();
+      await waitPanelStatus(page,'Черновик готов');
+      const generated=await panel.getByTestId('t3-d5-editable-draft').inputValue();
+      assert.ok(generated.trim().length>0,'SIGNED_BLI_HARDWARE_GENERATION_REQUIRED');
+      await panel.getByRole('button',{name:'Сохранить черновик через Kernel'}).click();
+      await waitPanelStatus(page,'Kernel подтвердил запись и чтение');
+      await panel.getByTestId('t3-d5-saved-draft-readback')
+        .waitFor({state:'visible',timeout:30000});
+      const receiptText=await panel.innerText();
+      const id=receiptText.match(/local-inference:[0-9a-f-]{36}/i)?.[0];
+      assert.ok(id,'SIGNED_BLI_KERNEL_OBJECT_ID_REQUIRED');
+      const detail=await browser.page.evaluate(async({serviceId,workspaceId,id})=>{
+        const kernel=await globalThis.IWXA.connect({service_id:serviceId});
+        return kernel.t1.getObject(workspaceId,id);
+      },{serviceId,workspaceId:scopedWorkspace,id});
+      assert.equal(detail?.object?.workspace_id,scopedWorkspace);
+      assert.equal(detail?.object?.schema_id,'iwxa.local-inference.draft');
+      assert.equal(detail?.object?.data?.status,'DRAFT_UNTRUSTED');
+      assert.equal(detail?.object?.data?.text,generated.trim());
+      return {id,generated:generated.trim()};
+    };
+    let {page:hardwarePage,panel:hardwarePanel}=await openPanel();
+    const gpu=await hardwarePage.evaluate(async()=>{
+      const adapter=await navigator.gpu?.requestAdapter({powerPreference:'high-performance'});
+      return adapter?.info??null;
+    });
+    assert.match([gpu?.vendor,gpu?.device,gpu?.description].join(' '),
+      /apple/i,'SIGNED_BLI_REAL_APPLE_GPU_REQUIRED');
+    assert.equal(await hardwarePanel.getByRole('button',
+      {name:'Скачать и запустить'}).isDisabled(),true);
+    await hardwarePanel.getByRole('checkbox',
+      {name:'Разрешаю скачать файлы модели по сети'}).check();
+    hardwarePage.once('dialog',dialog=>dialog.accept());
+    await hardwarePanel.getByRole('button',{name:'Скачать и запустить'}).click();
+    await waitPanelStatus(hardwarePage,'Модель доступна');
+    const first=await generateAndSave(hardwarePage,hardwarePanel,
+      'Напиши одно короткое слово на русском.');
+    console.log('T3_D1_D5_APPLE_SIGNED_GENERATION_KERNEL_PASS',JSON.stringify({
+      originalKernel:'0.3.6',isolatedUiOrigin:true,webgpu:gpu,
+      generatedCharacters:first.generated.length,userApprovedModelInstall:true,
+      realOriginalKernelReadback:true,syntheticOwnerOnly:true,
+    }));
+
+    // Cold browser restart preserves both 127.0.0.1 origins and upstream
+    // WebLLM Cache Storage. Disable ALL external requests for the SECOND
+    // inference; never substitute a fake response or remote model.
+    await browser.context.close();
+    browser=await launch();
+    await browser.page.goto(origin+'/__original_kernel_probe__');
+    await browser.page.waitForFunction(()=>typeof globalThis.IWXA?.connect==='function');
+    let externalRequests=0;
+    await browser.context.route('**/*',route=>{
+      const target=new URL(route.request().url());
+      if(target.origin!==origin&&target.origin!==uiOrigin){
+        externalRequests++;
+        return route.abort('internetdisconnected');
+      }
+      return route.continue();
+    });
+    ({page:hardwarePage,panel:hardwarePanel}=await openPanel());
+    await hardwarePanel.getByTestId('t3-d5-recover-draft-id').fill(first.id);
+    await hardwarePanel.getByRole('button',
+      {name:'Прочитать черновик из Kernel по ID'}).click();
+    await hardwarePanel.getByTestId('t3-d5-saved-draft-readback')
+      .waitFor({state:'visible',timeout:30000});
+    assert.match(await hardwarePanel.getByTestId('t3-d5-saved-draft-readback')
+      .innerText(),new RegExp(first.generated.slice(0,20)
+        .replace(/[.*+?^${}()|[\]\\]/g,'\\  console.log('T3_D1_ACTUAL_ONE_DIST_ORIGINAL_HTTP_PASS',JSON.stringify({')));
+    await hardwarePage.waitForFunction(()=>
+      [...document.querySelectorAll('[data-testid="t3-local-inference-panel"] p')]
+        .some(p=>p.textContent?.includes('Модель и WebGPU-ресурсы найдены в локальном кеше')),
+      null,{timeout:30000});
+    await hardwarePanel.getByRole('button',{name:'Из кеша, без сети'}).click();
+    await waitPanelStatus(hardwarePage,'Модель доступна');
+    const second=await generateAndSave(hardwarePage,hardwarePanel,
+      'Напиши одно другое короткое слово.');
+    assert.notEqual(first.id,second.id);
+    assert.equal(externalRequests,0,'SIGNED_BLI_COLD_OFFLINE_MUST_NOT_EGRESS');
+    console.log('T3_D1_D5_APPLE_SIGNED_COLD_OFFLINE_REGEN_KERNEL_PASS',JSON.stringify({
+      originalKernel:'0.3.6',sameSignedUiOrigin:true,
+      browserProcessColdRestart:true,externalRequests,
+      independentOriginalKernelReadback:true,secondGeneratedCharacters:second.generated.length,
+      syntheticOwnerOnly:true,privateIssuerExecuted:false,
+    }));
+  }
   console.log('T3_D1_ACTUAL_ONE_DIST_ORIGINAL_HTTP_PASS',JSON.stringify({
     originalKernel:'0.3.6',runtimeContract:'1.3.0',
     originalLoaderSha256:assembled.original_loader_sha256,
