@@ -54,3 +54,26 @@ The existing T3_D1_D5_SIGNED_BLI_COPY_SAVE_ORIGINAL_KERNEL_PASS user-flow still 
 Remaining: bind authentic signed Access to the installed loopback AppShell using the original Host mechanisms, persist authentic monotonic STATUS/registry state without a second Store, qualify two corporate organizations and PERSONAL, real revocation and cold restart, T2 .iwxa roundtrip, hardware BLI and G4 in public knowledge Actions only.
 
 **D1_PERSONAL_SIGNED_KERNEL_E2E=PASS. D1_INSTALLED_CONTROL=NOT_ACCEPTED. G4=NOT_ACCEPTED. T3_READY=false.**
+
+
+## 13.11.2026: PWA в едином T3, точные результаты
+
+**Владелец кода и CI: только Faust-S/knowledge.** T3 исторически хранит теорию. Center, нормативный T2, опубликованные сайты и другие репозитории не изменялись.
+
+Интеграция: [ec545b10](https://github.com/Faust-S/knowledge/commit/ec545b10f0cae9a8b67cc8a46b42d6fa39299f63), [49e5ee85](https://github.com/Faust-S/knowledge/commit/49e5ee85bc2fe2e58d57fdfcbd385ab030c435a0), [f120757e](https://github.com/Faust-S/knowledge/commit/f120757e27838a50b3858e04ac84bd3465097fe1). Основная ветка обновлена обычным fast-forward, исходный TREE 72fce3ae8c1759217d17d995462c1aec2560c922. Изменены существующие материализатор Domain Mode, UI Domain Mode и браузерный тест; добавлены генератор установочного манифеста, иконки и тесты PWA. Единый исходный SW src/t3/domain-mode/t3-sw.js остался байтово идентичным (blob ccf04d88d2e38d9df6e89245b8342ae87c4dd8b9). Нет второго Kernel, Store, IAM, Router, Service Worker или формата пакета.
+
+[PWA Windows/Linux в основной ветке #43459673018](https://github.com/Faust-S/knowledge/actions/runs/43459673018): оба job SUCCESS; на каждой ОС 10/10 unit PASS, браузерная автономность, обновления, два окна и холодный перезапуск PASS. Реальная команда OS PWA.install в обоих браузерах отсутствует: **SKIPPED**, не PASS; Android и iOS **NOT_RUN**.
+
+[Полный T3 в основной ветке #43459673007](https://github.com/Faust-S/knowledge/actions/runs/43459673007): test SUCCESS, real-host SUCCESS. В новом E2E настоящая квалифицированная T2 0.3.6 Kernel/Store выполняет write/receipt, второе окно читает результат; исходный T2 Exchange создаёт .iwxa, независимый получатель импортирует его через оригинальный Kernel, после холодного офлайн-перезапуска исходный результат читается из прежнего Store. Ошибка первого теста IMPORT_EVENT_ID_COLLISION возникла при повторном импорте уже существующего события обратно в ту же БД: корректная защита Kernel. Только тест исправлен с раздельным получателем; исходный Exchange не менялся. Подтверждено #43459263795 SUCCESS.
+
+PWA - штатная установка того же сайта и T3. Установка ОС и включение автономного T3 независимы; модель не загружается автоматически; предложение обновлений только после согласия. Генератор применяется к собранному финальному доменному dist, но сайты пока не менялись. Готово к последующему поочерёдному испытанию на одном домене, не является выпуском T3.
+
+## 13.11.2026: оригинальный Ed25519 PERSONAL на существующем Host HTTP(S)
+
+[D1 HTTP ad00d622](https://github.com/Faust-S/knowledge/commit/ad00d622f166a6be169dd8506c55494c5b64d10e): новый обработчик src/t3/original-control-http-handler.mjs НЕ создаёт сервер, Store, IAM или издателя подписи; подключает существующий протокол браузерного control-loopback-owner к доверенному Host. Он использует штатный signed-access-host-port, проверяет на стороне Host оригинальный WeakMap decision binding, эпоху контекста, Bearer, origin и SSE-инвалидацию. [Публичный CI #43460542952](https://github.com/Faust-S/knowledge/actions/runs/43460542952) SUCCESS.
+
+[D1 HTTPS real Kernel e784eb05](https://github.com/Faust-S/knowledge/commit/e784eb058912419f57c87d7250edf5d5a18ad9a5): на том же квалифицированном HTTPS Host, где работает оригинальный T2 Kernel 0.3.6, выполнены действительные Ed25519 grant, actor proof и STATUS, запись/receipt, отказ чужой Workspace, подписанный отзыв, SSE-инвалидация, холодный браузерный restart/readback и продолжающийся отказ по отозванным правам. Используется существующий сервер через optional controlHandler, не второй локальный сервер. [Публичный CI #43461333618](https://github.com/Faust-S/knowledge/actions/runs/43461333618): COMPLETED SUCCESS; test SUCCESS, real-host SUCCESS, metal-webgpu SKIPPED.
+
+**Границы:** тестовый Host использует исходный Kernel, но полный установленный подписанный Control ПО ещё не прошёл пользовательский маршрут. Во время перезапуска браузера сам доверенный процесс Host остаётся запущенным, поэтому перезапуск процесса с восстановлением сохранённого подписанного STATUS floor NOT_ACCEPTED. Две корпоративные организации с подлинными enrolment proof NOT_RUN. Отдельный UI-маршрут BLI в подписанном AppShell по-прежнему тестируется с синтетическим Control. D1_PERSONAL_REAL_SIGNED_KERNEL_HTTPS=PASS; D1_INSTALLED_CONTROL=NOT_ACCEPTED; G4=NOT_ACCEPTED; T3_READY=false.
+
+Следующие продуктовые шаги в knowledge: привязать подписанта к запуску установленного Host; использовать исходный реестр и штатное долговременное хранение статуса (не создавать второй Store); квалифицировать PERSONAL и 2 CORP после полного перезапуска, затем общую G4. Отдельно провести нативную PWA установку на Windows/Android/iOS.
