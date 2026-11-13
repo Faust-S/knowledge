@@ -183,3 +183,51 @@ test('two organizations admit independent agent keys with signed human sponsor v
   assert.equal((await registry.getStatus()).sequences['issuer:north'],3);
   assert.equal((await registry.getStatus()).sequences['issuer:south'],2);
 });
+
+test('corporate agent enrolment rejects forged agent, substituted human sponsor and foreign issuer', {timeout:20000}, async()=>{
+  const {fixture}=build(),kernel=originalKernelFixture();
+  const registry=createOriginalKernelRegistryStatePort({
+    kernel:kernel.api,workspaceId:'ws:host-registry',
+    trustedPolicy:fixture.policy,clock:time
+  });
+  assert.equal((await registry.commitSignedState(fixture.state)).revision,1);
+  const gate=createOrganizationalOperationGate({registry});
+  const north=fixture.all.north;
+  const input={profile:north.profile,selection:north.selection,
+    descriptors:north.descriptors,credential:north.issuedCredential,
+    enrollment:north.enrollment,agentEnrollment:north.agentEnrollment,
+    operation:{operationId:'operation:agent-signature-check',
+      productId:'IWXA_ADMIN_CENTER',audience:'host:t3',
+      resource:'ws:north',action:'object.write',purpose:'purpose:work',
+      payloadDigest:digest({operation:'test-corporate-agent'})},
+    asOf:iso(NOW)};
+  const valid=await gate.preview(input);
+  assert.equal(valid.request.actorId,'agent:analyst');
+  assert.equal(valid.request.grantId,'grant:north-agent');
+  assert.equal(valid.credentialKeyId,'key:agent-north');
+
+  const forged=structuredClone(north.agentEnrollment);
+  forged.payload.agentId='agent:intruder';
+  await assert.rejects(gate.preview({...input,agentEnrollment:forged}),
+    {code:'ORG_AGENT_ENROLLMENT_SIGNATURE_INVALID'});
+
+  const falseSponsor=signOrganizationAgentEnrollment({
+    ...north.agentEnrollment.payload,responsiblePersonId:'person:impostor'
+  },north.issuerSigner);
+  await assert.rejects(gate.preview({...input,agentEnrollment:falseSponsor}),
+    {code:'ORG_AGENT_RESPONSIBLE_MEMBER_MISMATCH'});
+
+  const foreignIssuer=signOrganizationAgentEnrollment(
+    north.agentEnrollment.payload,fixture.all.south.issuerSigner);
+  await assert.rejects(gate.preview({...input,agentEnrollment:foreignIssuer}),
+    {code:'ORG_AGENT_ISSUER_NOT_TRUSTED'});
+
+  const borrowedHumanProofKey=signOrganizationAgentEnrollment({
+    ...north.agentEnrollment.payload,
+    agentCredentialPublicKeyRef:'key:staff-delegator-north'
+  },north.issuerSigner);
+  await assert.rejects(gate.preview({
+    ...input,agentEnrollment:borrowedHumanProofKey
+  }),{code:'ORG_AGENT_INDEPENDENT_PROOF_KEY_REQUIRED'});
+  assert.equal(kernel.calls.filter(x=>x.schema_id==='iwxa.demo.note').length,0);
+});
