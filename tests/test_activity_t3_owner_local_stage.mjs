@@ -483,3 +483,57 @@ test('stock Host single CurrentWorkspaceStore never advertises a fake second-Wor
   assert.equal(deriveListeners.size,0);
   assert.equal(f.listeners[0].size,0);
 });
+
+test('single original T3 Host stages into a differently signed target without second WorkspaceStore',async()=>{
+  for(const corp of [true,false]){
+    const f=fixture({corp});
+    const sourceStore=f.options.sourceContext.currentWorkspace;
+    const ownerScoped={...f.options,targetContext:null,targetWorkspaceId:R};
+    assert.equal('currentWorkspace' in ownerScoped,false);
+    const receipt=await stageSelectedT3ActivityReview(ownerScoped);
+    assert.equal(receipt.status,'OWNER_REVIEW_DRAFT');
+    assert.equal(receipt.workspace_id,R);
+    assert.equal(receipt.readback,true);
+    assert.equal(f.saved.size,1);
+    assert.equal(f.state.writeCalls,1);
+    assert.equal(f.options.sourceContext.currentWorkspace,sourceStore);
+    assert.equal(JSON.stringify([...f.saved.values()]).includes('PRIVATE_CUSTOMER'),false);
+    assert.equal(f.listeners[1].size,0,'no target WorkspaceStore listener exists');
+  }
+});
+test('original signed target scope, purpose and principal deny false derivation before write',async()=>{
+  const wrong=fixture();
+  await assert.rejects(stageSelectedT3ActivityReview({
+    ...wrong.options,targetContext:null,targetWorkspaceId:'ws:foreign',
+  }),{code:'T3_ACTIVITY_OWNER_WORKSPACE_MISMATCH'});
+  assert.equal(wrong.state.writeCalls,0);
+  const same=fixture();
+  same.chooseTargetSameAsSource();
+  await assert.rejects(stageSelectedT3ActivityReview({
+    ...same.options,targetContext:null,targetWorkspaceId:W,
+  }),{code:'T3_ACTIVITY_SEPARATE_TARGET_WORKSPACE_REQUIRED'});
+  assert.equal(same.state.writeCalls,0);
+  const foreign=fixture();
+  foreign.moveTargetToForeignOrg();
+  await assert.rejects(stageSelectedT3ActivityReview({
+    ...foreign.options,targetContext:null,targetWorkspaceId:R,
+  }),{code:'T3_ACTIVITY_CROSS_PRINCIPAL_TRANSFER_FORBIDDEN'});
+  assert.equal(foreign.state.writeCalls,0);
+  const missing=fixture();
+  await assert.rejects(stageSelectedT3ActivityReview({
+    ...missing.options,targetContext:null,targetWorkspaceId:null,
+  }),{code:'T3_ACTIVITY_SIGNED_TARGET_REQUIRED'});
+  assert.equal(missing.state.writeCalls,0);
+});
+test('signed-target-only path keeps lost acknowledgment private, never repeats T2 write',async()=>{
+  const f=fixture();f.state.lostAck=true;
+  const port=createTrustedT3ActivityStagePort({
+    ...f.options,targetContext:null,targetWorkspaceId:R,
+  });
+  await assert.rejects(port.stageSelected(),e=>{
+    assert.equal(e.code,'T3_ACTIVITY_WRITE_MAY_HAVE_COMMITTED');
+    assert.equal(Object.hasOwn(e,'object_id'),false);
+    return true;
+  });
+  assert.equal(f.state.writeCalls,1);assert.equal(f.saved.size,1);
+});

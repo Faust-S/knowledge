@@ -114,20 +114,25 @@ async function stable(context,choice,owner,port,invalidated) {
     'T3_ACTIVITY_SIGNED_OWNER_CHANGED');
 }
 
-/** Trusted Host only. Source/target are TWO already-selected ModuleContexts,
- * each backed by the original Kernel. Never pass these ports into renderer.
- * The target must be EMPTY, distinct, and owned by the SAME principal.
- * This deliberately does not authorize export of the draft Workspace.
+/** Trusted Host only. The source is the ONE selected original T3
+ * ModuleContext. The target may be the legacy separately selected Context,
+ * OR a different Workspace pinned by the ORIGINAL signed derive owner.
+ * The latter is not a second CurrentWorkspaceStore, selection or Kernel.
+ * Never pass these ports into renderer; do not authorize .iwxa export.
  */
 export async function stageSelectedT3ActivityReview({
-  sourceContext, sourceSignedAccess, targetContext, targetSignedAccess,
-  bindings, readActivityFromWorkspaceContext, createSubjectKernelBinding,
-  explicitSave=false,
+  sourceContext, sourceSignedAccess, targetContext=null, targetWorkspaceId=null,
+  targetSignedAccess, bindings, readActivityFromWorkspaceContext,
+  createSubjectKernelBinding, explicitSave=false,
 }={}) {
   need(explicitSave===true,'T3_ACTIVITY_EXPLICIT_SAVE_REQUIRED');
-  const sourceChoice=selected(sourceContext),targetChoice=selected(targetContext);
-  need(sourceContext.kernel===targetContext.kernel,
+  const sourceChoice=selected(sourceContext);
+  const legacyTarget=targetContext!==null;
+  const targetChoice=legacyTarget ? selected(targetContext) : null;
+  if(legacyTarget) need(sourceContext.kernel===targetContext.kernel,
     'T3_ACTIVITY_SAME_ORIGINAL_KERNEL_REQUIRED');
+  else need(typeof targetWorkspaceId==='string'&&targetWorkspaceId.trim(),
+    'T3_ACTIVITY_SIGNED_TARGET_REQUIRED');
   need(typeof readActivityFromWorkspaceContext==='function'&&
     typeof createSubjectKernelBinding==='function'&&
     sourceSignedAccess!==targetSignedAccess&&
@@ -140,7 +145,9 @@ export async function stageSelectedT3ActivityReview({
   const dstOwner=await targetSignedAccess.currentContext();
   need(good(srcOwner)&&good(dstOwner)&&
     srcOwner.workspace_id===sourceChoice.workspace_id&&
-    dstOwner.workspace_id===targetChoice.workspace_id,
+    (legacyTarget
+      ? dstOwner.workspace_id===targetChoice.workspace_id
+      : dstOwner.workspace_id===targetWorkspaceId),
     'T3_ACTIVITY_OWNER_WORKSPACE_MISMATCH');
   sameOwner(srcOwner,dstOwner);
   need(await targetSignedAccess.actionFor('t1.putObject')==='activity.derive',
@@ -151,12 +158,18 @@ export async function stageSelectedT3ActivityReview({
   let objectId=null,writeAttempted=false;
   try{
     stopSource=sourceContext.currentWorkspace.subscribe(()=>{sourceInvalidated=true;});
-    stopTarget=targetContext.currentWorkspace.subscribe(()=>{targetInvalidated=true;});
-    need(typeof stopSource==='function'&&typeof stopTarget==='function',
+    if(legacyTarget)stopTarget=targetContext.currentWorkspace.subscribe(
+      ()=>{targetInvalidated=true;});
+    need(typeof stopSource==='function'&&
+      (!legacyTarget||typeof stopTarget==='function'),
       'T3_ACTIVITY_OWNER_SUBSCRIPTION_REQUIRED');
     const check=async()=>{
       await stable(sourceContext,sourceChoice,sourceIdentity,sourceSignedAccess,()=>sourceInvalidated);
-      await stable(targetContext,targetChoice,targetIdentity,targetSignedAccess,()=>targetInvalidated);
+      if(legacyTarget)
+        await stable(targetContext,targetChoice,targetIdentity,targetSignedAccess,()=>targetInvalidated);
+      else need(!targetInvalidated&&
+        JSON.stringify(await targetSignedAccess.currentContext())===targetIdentity,
+        'T3_ACTIVITY_SIGNED_OWNER_CHANGED');
     };
     await check();
     // ORIGINAL T3 signed D1/D2 read. Keep the source projection only inside
@@ -179,9 +192,9 @@ export async function stageSelectedT3ActivityReview({
     // ORIGINAL T3 D1 subject-bound Kernel. The target grant must allow
     // t1.getWorkspace, t1.listObjects, t1.putObject and t1.getObject.
     const scoped=createSubjectKernelBinding({
-      kernel:targetContext.kernel,access:targetSignedAccess,
+      kernel:sourceContext.kernel,access:targetSignedAccess,
     });
-    const targetId=targetChoice.workspace_id;
+    const targetId=dstOwner.workspace_id;
     const ws=await scoped.getWorkspace(targetId);
     await check();
     need(ws?.workspace_id===targetId&&!ws.deleted_at,

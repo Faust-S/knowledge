@@ -12,7 +12,9 @@ export const T3_ACTIVITY_OWNER_REVIEW_PASSPORT: Readonly<{
 export function stageSelectedT3ActivityReview(input: {
   sourceContext: unknown;
   sourceSignedAccess: unknown;
-  targetContext: unknown;
+  targetContext?: unknown;
+  /** Trusted Host target id resolved from ORIGINAL signed Access, not UI. */
+  targetWorkspaceId?: string;
   targetSignedAccess: unknown;
   bindings: unknown;
   readActivityFromWorkspaceContext: Function;
