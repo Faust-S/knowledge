@@ -26,9 +26,9 @@ export function launchT2SiteRestore({siteWindow,hostUrl,onCandidate,onStatus=()=
     }
     if(requested&&isMessage(event.data,'restore-candidate')&&event.data.nonce===nonce){
       dispose();
-      const finish=(result,error=null)=>{
+      const finish=(result,error=null,failed=false)=>{
         let status='REJECTED',reason=null;
-        if(error){
+        if(failed){
           reason=error instanceof Error&&/^CLUB_T2_[A-Z0-9_]+$/.test(error.message)
             ?error.message:'T2_RESTORE_CANDIDATE_REJECTED';
         }else if(result&&typeof result==='object'&&result.status==='CANCELLED')
@@ -51,9 +51,9 @@ export function launchT2SiteRestore({siteWindow,hostUrl,onCandidate,onStatus=()=
         // A Promise is not an applied Result. Wait for the original local
         // writer/readback before reporting APPLIED (or another final state).
         if(result&&typeof result.then==='function')
-          Promise.resolve(result).then(value=>finish(value),error=>finish(null,error));
+          Promise.resolve(result).then(value=>finish(value),error=>finish(null,error,true));
         else finish(result);
-      }catch(error){finish(null,error);}
+      }catch(error){finish(null,error,true);}
     }
   };
   siteWindow.addEventListener('message',onMessage);

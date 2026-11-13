@@ -100,3 +100,22 @@ test('async failed restore is REJECTED, never prematurely APPLIED',async()=>{
   assert.ok(statuses.includes('T2_RESTORE_CANDIDATE_REJECTED'));
   assert.ok(!statuses.includes('T2_RESTORE_SITE_APPLIED'));
 });
+
+test('restore rejects even when an asynchronous writer throws a non-Error value',async()=>{
+  const p=pair(),statuses=[];
+  let rejectWrite;
+  launchT2SiteRestore({siteWindow:p.site,
+    hostUrl:'https://localhost:4173/workspace/',
+    onCandidate:()=>new Promise((_,reject)=>{rejectWrite=reject;}),
+    onStatus:v=>statuses.push(v)});
+  const host=mountT2SiteRestoreSender({hostWindow:p.host,
+    expectedSiteOrigin:'https://club.iwxa.ru'});
+  await Promise.resolve();
+  host.send('{"results":[{"object_id":"profile"}]}');
+  assert.equal(host.acknowledgement,null);
+  rejectWrite(null);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(host.acknowledgement,'REJECTED');
+  assert.ok(statuses.includes('T2_RESTORE_CANDIDATE_REJECTED'));
+  assert.ok(!statuses.includes('T2_RESTORE_SITE_APPLIED'));
+});
