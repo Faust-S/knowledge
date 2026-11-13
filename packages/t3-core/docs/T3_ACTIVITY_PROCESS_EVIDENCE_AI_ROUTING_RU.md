@@ -11,7 +11,7 @@ Root instruction: AGENTS.md of this repository; D1–D7/G4 baseline and active T
 - Foundation semantics: Faust-S/T0 and Faust-S/T1; use four T0 concepts and seventeen T1 concepts, no invented primitives. Reuse exact source scopes and observed refs; the private architecture itself does not authorize a runtime read.
 - Original T2 compatibility: Faust-S/T2@main/AGENTS.md. Preserve Runtime Contract 1.3.0 and existing methods (for example t1.getObject, t1.listEventsSince, t2.exportPackage). T3 is the successor and must retain original B0 operations. Never run a second T2 Core inside upgraded T3.
 - **Only executable T3 owner**: this public repository at packages/t3-core/. Signed D1 Control/Access, selected Workspace, original Kernel/Host, D2 projection, Process Intelligence, original .iwxa Exchange, D3–D7/G4 and T3 CI are here, not private Faust-S/T3 and not Center.
-- **IWXA Activity**: this public repository at modules/activity-base-anonymizer/ with desktop/ Tauri UI in the Activity development branch. It is a read-only signed T3 consumer for process reconstruction, standard adapters, privacy risk and structurally derived views. It is NOT IAM, a second Store, source authority, or automatic disclosure right.
+- **IWXA Activity**: this public repository at modules/activity-base-anonymizer/ with desktop/ Tauri UI in the Activity development branch. It reads the original source Workspace through independently signed T3 Activity Read and may save a private owner-local review draft ONLY in a different Workspace of the same principal through separate signed Activity Derive, the SAME original Kernel and one Host-selected CurrentWorkspaceStore. It is NOT IAM, a second Store, source authority, or automatic disclosure right.
 - Agent Task/Goal/Graph/Skills/ToolRuntime/Human Review belong to Faust-S/iwxa-personal-agent. Admin/Publisher/Setup belong to Faust-S/Center with private specifications in Faust-S/IWXA-Admin-Center. Atlas owns projects/plan-fact. Domain business logic belongs to non-web domain repo; its site owns routes, display and one dist. D12 IWXA main website is Faust-S/iwxa-ru-1.
 - Old Faust-S/T3 is historical architecture only, no executable runtime or CI. No private checkout, secrets, token, hidden source or private GitHub Actions permitted for public knowledge builds.
 
@@ -36,7 +36,7 @@ Treat read_source, analyze, derive, execute, modify_source, review, accept, anon
 ## Standards and implementation states
 
 W3C PROV / RDF / JSON-LD / SHACL support provenance bindings and validation, not claim truth.
-OCEL 2.0 requires explicit qualified many-to-many E2O/O2O; the Activity reader currently implements a restricted synthetic profile. The T3 D2 event projection currently has only one optional object_ref; do not invent missing multi-object links or claim full OCEL compliance.
+OCEL 2.0 requires explicit qualified many-to-many E2O/O2O; the Activity reader currently implements a restricted synthetic profile. T3 D2 supports a primary object_ref plus optional qualified object_refs from version-pinned event.object_links with exact revision and qualifier; it is a restricted E2O projection, NOT full OCEL 2.0 conformance. D2 version-pinned event bindings may carry epistemic_status (observed, reported, declared, inferred, proposed). An Event record is not proof that a reported/inferred/proposed business operation occurred; Activity excludes these from observed traces and holds verification. Missing epistemic_status in older records preserves old D2 behavior but does not certify truth.
 XES trace projection can lose object-centric information. BPMN 2.0, DMN, CMMN require distinct parse, display, semantic conformance and real execution tests. ODRL/VC are interoperability patterns, not authorization overrides. Lean/Six Sigma/TOC/APQC PCF are optimization frameworks rather than core T1 primitives.
 For each claimed standard track profile/version, supported subset, loss, structural/semantic/roundtrip/runtime qualification separately.
 
@@ -50,3 +50,12 @@ For each claimed standard track profile/version, supported subset, loss, structu
 6. Mark source-level PASS and installed product PASS separately. T3_READY=false and Activity external .iwxa transfer NOT_ACCEPTED until real complete product evidence exists.
 
 This guide is source-navigation and semantics only. It does not implement the six routes, grant permissions, publish a package or change the runtime readiness status.
+
+
+## Signed owner-local Activity derivation: one original T3 Host
+
+The installed product must provide an explicit original T2 KernelFacade from the EXISTING trusted T3 Host (not the already source-bound ModuleContext.kernel), one source CurrentWorkspaceStore, and two separately signed original Control operations: activity.read for the selected source, activity.derive for a different Workspace of the same actor/principal/realm/organization. The derive target Workspace ID is obtained only from the currently signed derive owner context and must be rechecked with the original signed Access and Kernel before material write.
+
+The Activity host composition is `Faust-S/knowledge/modules/activity-base-anonymizer/t3-control-host-link.mjs`, `openOriginalT3ActivityReviewHost`; the original Kernel private draft writer is `t3-owner-review-stage.mjs`. Read remains available if derive is absent. The single Control invalidation stream is shared or its existing Host owner fan-outs notifications; a second Control SSE/Store/issuer is forbidden. The regular original T2 service passport for `iwxa.activity.reviewer` and typed `iwxa.activity.process-review` is prepared via `t3-owner-review-passport-registration.node.mjs` for normal Host build registration, not added by a new registry or renderer.
+
+The native installed Host registration, cold-restart process readback, external privacy/disclosure approval and recipient .iwxa admission are NOT_ACCEPTED. A private OWNER_REVIEW_DRAFT is neither proven anonymous nor published; its service's export=false is not a universal Exchange prohibition for other services.
