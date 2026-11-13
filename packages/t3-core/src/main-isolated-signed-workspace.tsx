@@ -36,15 +36,18 @@ async function config():Promise<UiConfig>{
 }
 async function launch(){
   let frame:HTMLIFrameElement|null=null;
+  let stage="preflight";
   try{
     if(!TOKEN.test(bearer))throw fail("T3_D1_TRUSTED_CONTROL_SESSION_REQUIRED");
     const owner=await config();
+    stage="config-loaded";
     frame=document.createElement("iframe");
     frame.hidden=true;
     frame.setAttribute("aria-hidden","true");
     frame.sandbox.add("allow-scripts","allow-same-origin");
     frame.src=owner.kernel_origin+"/workspace/trusted-kernel-realm.html";
     document.body.appendChild(frame);
+    stage="iframe-mounted";
     await new Promise<void>((resolve,reject)=>{
       const timer=window.setTimeout(()=>reject(fail("T3_D1_KERNEL_REALM_LOAD_TIMEOUT")),7000);
       frame!.addEventListener("load",()=>{clearTimeout(timer);resolve();},{once:true});
@@ -53,18 +56,21 @@ async function launch(){
       },{once:true});
     });
     if(!frame.contentWindow)throw fail("T3_D1_KERNEL_REALM_FRAME_REQUIRED");
+    stage="iframe-loaded";
     const client=await openOriginalKernelRealm({
       frame:frame.contentWindow,
       realmOrigin:owner.kernel_origin,
       sessionToken:bearer,
       channelFactory:()=>new MessageChannel(),
     });
+    stage="port-connected";
     const bootstrap=createIsolatedOriginalKernelBootstrap({
       client,serviceId:owner.service_id,
     });
     // Mount the ORIGINAL AppShell and T2/3 Host. The only authorized kernel
     // facade is physically held by the realm; no second Store or IAM exists.
     const {mountT3App}=await import("./mount-t3-app");
+    stage="react-mounting";
     const root=mountT3App(target!,{
       requireSignedOwner:true,
       isolatedKernelRequired:true,
@@ -103,6 +109,8 @@ async function launch(){
       typeof e.code==="string"&&/^[A-Z0-9_]{5,100}$/.test(e.code)
         ?e.code:"T3_D1_ISOLATED_LAUNCH_FAILED";
     target!.setAttribute("data-t3-error-code",code);
+    target!.setAttribute("data-t3-error-stage",stage);
+    target!.setAttribute("data-t3-error-name",e instanceof Error?e.name:"Unknown");
     target!.setAttribute("data-testid","t3-isolated-control-reconnect");
     target!.textContent="Не удалось открыть изолированную подписанную Workspace. "+
       "Проверьте локальный Control и откройте её повторно из него.";

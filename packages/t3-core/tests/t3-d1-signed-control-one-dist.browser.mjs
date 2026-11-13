@@ -548,17 +548,21 @@ try{
     selectedGate:!!document.querySelector('[data-testid="t3-d1-selected-workspace-gate"]'),
     reconnect:!!document.querySelector('[data-testid="t3-isolated-control-reconnect"]'),
     errorCode:document.querySelector('#root')?.getAttribute('data-t3-error-code'),
+    errorStage:document.querySelector('#root')?.getAttribute('data-t3-error-stage'),
+    errorName:document.querySelector('#root')?.getAttribute('data-t3-error-name'),
     runtimeError:!!document.querySelector('[data-t2-ui="product-error"]'),
     rootText:document.querySelector('#root')?.textContent?.slice(0,400)??'',
     iframeCount:document.querySelectorAll('iframe').length,
   }));
   try{
-    await isolatedApp.waitForFunction(()=>!!document.querySelector(
-      '[data-t2-ui="workspace"]')&&
+    await isolatedApp.waitForFunction(()=>(
+      !!document.querySelector('[data-testid="t3-isolated-control-reconnect"]')||
+      (!!document.querySelector('[data-t2-ui="workspace"]')&&
       !document.querySelector('[data-testid="t3-d1-selected-workspace-gate"]')&&
-      !document.querySelector('[data-t2-ui="product-error"]')&&
-      !document.querySelector('[data-testid="t3-isolated-control-reconnect"]'),
-      null,{timeout:60000});
+      !document.querySelector('[data-t2-ui="product-error"]'))
+    ),null,{timeout:30000});
+    const observed=await compiledState();
+    if(observed.reconnect)throw Error("T3_D1_COMPILED_REALM_BOOT_DENIED_"+observed.errorStage+"_"+observed.errorName);
   }catch(error){
     console.log('T3_D1_COMPILED_HOST_NOT_READY',JSON.stringify({
       app:await compiledState(),pageErrors:isolatedAppErrors,
