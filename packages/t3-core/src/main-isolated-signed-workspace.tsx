@@ -115,12 +115,11 @@ async function launch(){
   }catch(e){
     // Stop React subscriptions before removing its host DOM. Otherwise a
     // partially mounted AppShell can retain the old signed session closure.
-    mountedRoot?.unmount();
+    // Even when a module throws while React unmounts, original signed
+    // access must still be closed and its trusted iframe destroyed.
+    try { mountedRoot?.unmount(); } catch { /* continue fail-closed cleanup */ }
     mountedRoot=null;
-    // Close the actual signed channel before detaching the trusted realm.
-    // Never leave a live original Control owner stream behind a failed UI.
-    closeTrustedPort?.();
-    frame?.remove();
+    try { closeTrustedPort?.(); } finally { frame?.remove(); }
     const code=e&&typeof e==="object"&&"code" in e&&
       typeof e.code==="string"&&/^[A-Z0-9_]{5,100}$/.test(e.code)
         ?e.code:"T3_D1_ISOLATED_LAUNCH_FAILED";
