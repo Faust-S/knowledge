@@ -37,7 +37,16 @@ const safeAssets=path=>path==='/workspace/signed-workspace.html'||
   path==='/workspace/workspace.config.json'||path==='/workspace/favicon.ico'||
   /^\/workspace\/assets\/[A-Za-z0-9_.\/-]+$/.test(path)||
   /^\/_iwxa\/[A-Za-z0-9_.\/-]+$/.test(path);
-let origin='',installed=false;
+let origin='',installed=false,syntheticOwner=false;
+const scopedWorkspace='t3-d1-selected-'+randomUUID();
+const eventStreams=new Set();
+const mockContext=Object.freeze({
+  kind:'CORP',context_id:'context:d1-local',actor_id:'actor:local',
+  principal_id:'org:d1-local',role_id:'role:local',grant_id:'grant:d1-read',
+  realm_id:'realm:d1-local',audience:'local:t3',resource:scopedWorkspace,
+  purpose:'workspace.read',workspace_id:scopedWorkspace,
+  organization_id:'org:d1-local',scope_revision:1,
+});
 const server=createServer((req,res)=>{
   const send=(status,body,type='application/json',workspace=false)=>{
     const csp=workspace
@@ -57,7 +66,64 @@ const server=createServer((req,res)=>{
     if(path==='/api/t3/owner-events'){
       if(req.headers.authorization!=='Bearer '+token)
         return send(401,{error:'CONTROL_SESSION_REQUIRED'});
-      return send(503,{error:'CONTROL_INVALIDATION_UNAVAILABLE'});
+      if(!syntheticOwner)return send(503,{error:'CONTROL_INVALIDATION_UNAVAILABLE'});
+      res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8',
+        'Cache-Control':'no-store','Connection':'keep-alive'});
+      eventStreams.add(res);
+      res.once('close',()=>eventStreams.delete(res));
+      res.write('event: ready\\ndata: {}\\n\\n'.replace(/\\n/g,'\n'));
+      return;
+    }
+    if(path==='/api/t3/context-epoch'&&syntheticOwner){
+      if(req.headers.authorization!=='Bearer '+token)
+        return send(401,{error:'CONTROL_SESSION_REQUIRED'});
+      return send(200,{contextEpoch:0});
+    }
+    if(path==='/api/t3/owner'&&syntheticOwner){
+      if(req.method!=='POST'||req.headers.origin!==origin ||
+          req.headers.authorization!=='Bearer '+token ||
+          req.headers['x-iwxa-context-epoch']!=='0')
+        return send(403,{error:'SYNTHETIC_OWNER_REQUEST_DENIED'});
+      const chunks=[];
+      req.on('data',chunk=>chunks.push(chunk));
+      req.on('end',()=>{
+        try{
+          const input=JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          if(input?.scope!=='kernel'||input?.operation!=='getWorkspace')
+            return send(403,{error:'SYNTHETIC_OWNER_SCOPE_DENIED'});
+          if(input.verb==='select')
+            return send(200,{available:true,contextEpoch:0});
+          if(input.verb==='context')return send(200,{context:mockContext});
+          if(input.verb==='action'){
+            if(input.kernelOperation!=='t1.getWorkspace')
+              return send(403,{error:'SYNTHETIC_OWNER_OPERATION_DENIED'});
+            return send(200,{action:'workspace.read'});
+          }
+          if(input.verb==='digest')
+            return send(200,{digest:hash(Buffer.from(JSON.stringify(input.command)))});
+          if(input.verb==='authorize'){
+            const request=input.request;
+            return send(200,{decision:{
+              schema:'IWXA_T3_ORGANIZATION_OPERATION_DECISION/1',
+              allowed:true,outcome:'PERMITTED',evidenceOnly:true,
+              requestDigest:hash(Buffer.from(JSON.stringify(request))),
+              policyDigest:hash(Buffer.from('SYNTHETIC_POLICY_ONLY')),
+              operationDigest:request.operationDigest,
+              evidenceDigest:hash(Buffer.from('SYNTHETIC_EVIDENCE_ONLY')),
+              organizationId:mockContext.organization_id,
+              workspaceId:scopedWorkspace,grantId:mockContext.grant_id,
+              statusSequence:0,
+              validUntil:new Date(Date.now()+600000).toISOString(),
+              productionActivation:false,doesNotTransferData:true,
+              doesNotAcceptCorporateCopy:true,
+            }});
+          }
+          return send(400,{error:'SYNTHETIC_OWNER_VERB_INVALID'});
+        }catch{
+          return send(400,{error:'SYNTHETIC_OWNER_REQUEST_INVALID'});
+        }
+      });
+      return;
     }
     if(path.startsWith('/api/'))return send(503,{error:'CONTROL_OWNER_UNAVAILABLE'});
     if(!installed||!safeAssets(path)||path.includes('..')||path.includes('/.')||
@@ -178,6 +244,33 @@ try{
   assert.deepEqual(pageErrors,[]);
   assert.equal(await signed.evaluate(()=>typeof globalThis.IWXA),'undefined',
     'T3_D1_CONTROL_ABSENT_MUST_NOT_BOOT_RAW_T2_KERNEL');
+  // Functional signed onboarding through the compiled SAME React Host and
+  // original T2 Store. This is a test-only synthetic authorization response:
+  // it does NOT qualify the private Ed25519 issuer or enrollment.
+  syntheticOwner=true;
+  const selected=await browser.context.newPage();
+  const selectedErrors=[];
+  selected.on('pageerror',err=>selectedErrors.push(err.message));
+  await selected.goto(origin+'/workspace/signed-workspace.html#'+token);
+  const missing=selected.getByTestId('t3-d1-selected-workspace-message');
+  await missing.waitFor({state:'visible',timeout:60000});
+  assert.match(await missing.innerText(),/ещё нет рабочей области/,
+    'T3_D1_SIGNED_FIRST_RUN_MUST_EXPLAIN_MISSING_ORIGINAL_WORKSPACE');
+  assert.equal(new URL(selected.url()).hash,'');
+  await browser.page.evaluate(async({serviceId,workspace_id})=>{
+    const kernel=await globalThis.IWXA.connect({service_id:serviceId});
+    return kernel.t1.createWorkspace({workspace_id,profile:'generic'});
+  },{serviceId,workspace_id:scopedWorkspace});
+  await selected.getByRole('button',{name:'Проверить повторно'}).click();
+  await selected.getByTestId('t3-d1-selected-workspace-gate')
+    .waitFor({state:'detached',timeout:30000});
+  assert.deepEqual(selectedErrors,[]);
+  console.log('T3_D1_SYNTHETIC_SIGNED_SELECTED_WORKSPACE_PASS',JSON.stringify({
+    compiledSignedHost:true,originalKernel:'0.3.6',createdOriginalWorkspace:true,
+    missingWorkspaceExplained:true,explicitRetryReadback:true,
+    syntheticOwnerOnly:true,authenticPrivateSignerExecuted:false,
+  }));
+
   console.log('T3_D1_ACTUAL_ONE_DIST_ORIGINAL_HTTP_PASS',JSON.stringify({
     originalKernel:'0.3.6',runtimeContract:'1.3.0',
     originalLoaderSha256:assembled.original_loader_sha256,

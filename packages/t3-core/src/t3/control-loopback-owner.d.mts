@@ -1,9 +1,15 @@
-import type {AppProps} from "../App";
+import type { T3SignedActivityAccess } from "./index.mjs";
+import type { SignedAccessInvalidationSubscription } from "../workspace-host/runtime/types";
 
+/** Exact browser owner shape. Every access selector is callable and
+ * asynchronous; a port is either selected by original Control or null. */
 export declare function createControlLoopbackOwner(input:{
   origin:string;
   token:string;
   fetchImpl?:typeof fetch;
-}):Required<Pick<AppProps,
-  "requireSignedOwner"|"signedKernelAccess"|"signedActivityAccess"|
-  "subscribeSignedAccessInvalidation">>;
+}): {
+  requireSignedOwner:true;
+  signedKernelAccess:(operation:string)=>Promise<T3SignedActivityAccess|null>;
+  signedActivityAccess:()=>Promise<T3SignedActivityAccess|null>;
+  subscribeSignedAccessInvalidation:SignedAccessInvalidationSubscription;
+};
