@@ -177,6 +177,7 @@ test('failed execution and unknown external effect never become successful deliv
     .progress.overallStatus,'FAILED_REQUIRES_REVIEW');
   const e=entry(b,0,'SUCCEEDED');
   e.receipt.external_effect_state='UNKNOWN';
+  e.receipt.contract_state='UNKNOWN_RECONCILIATION_REQUIRED';
   assert.equal(projectAgent05OwnerHistory(b,{entries:[e]})
     .progress.overallStatus,'RECONCILIATION_REQUIRED');
 });
