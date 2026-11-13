@@ -60,3 +60,43 @@ test('arbitrary remote destinations rejected before reading any private data',()
  assert.throws(()=>launchT2SiteRestore({siteWindow:p.site,hostUrl:'https://outside.example/workspace/',onCandidate:()=>{}}),/DESTINATION_INVALID/);
  assert.equal(p.sl.size,0);
 });
+
+test('async restore waits for actual Site result before acknowledging the Host',async()=>{
+  const p=pair(),statuses=[];
+  let finish;
+  launchT2SiteRestore({siteWindow:p.site,
+    hostUrl:'https://localhost:4173/workspace/',
+    onCandidate:()=>new Promise(resolve=>{finish=resolve;}),
+    onStatus:value=>statuses.push(value),
+  });
+  const host=mountT2SiteRestoreSender({hostWindow:p.host,
+    expectedSiteOrigin:'https://club.iwxa.ru'});
+  await Promise.resolve();
+  host.send('{"results":[{"object_id":"profile"}]}');
+  assert.equal(host.acknowledgement,null,
+    'a pending local application must not yield a fake APPLIED or REJECTED');
+  finish({status:'APPLIED'});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(host.acknowledgement,'APPLIED');
+  assert.ok(statuses.includes('T2_RESTORE_SITE_APPLIED'));
+});
+
+test('async failed restore is REJECTED, never prematurely APPLIED',async()=>{
+  const p=pair(),statuses=[];
+  let rejectWrite;
+  launchT2SiteRestore({siteWindow:p.site,
+    hostUrl:'https://localhost:4173/workspace/',
+    onCandidate:()=>new Promise((_,reject)=>{rejectWrite=reject;}),
+    onStatus:value=>statuses.push(value),
+  });
+  const host=mountT2SiteRestoreSender({hostWindow:p.host,
+    expectedSiteOrigin:'https://club.iwxa.ru'});
+  await Promise.resolve();
+  host.send('{"results":[{"object_id":"profile"}]}');
+  assert.equal(host.acknowledgement,null);
+  rejectWrite(new Error('KERNEL_PERSISTENCE_REJECTED'));
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(host.acknowledgement,'REJECTED');
+  assert.ok(statuses.includes('T2_RESTORE_CANDIDATE_REJECTED'));
+  assert.ok(!statuses.includes('T2_RESTORE_SITE_APPLIED'));
+});

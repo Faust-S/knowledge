@@ -26,28 +26,34 @@ export function launchT2SiteRestore({siteWindow,hostUrl,onCandidate,onStatus=()=
     }
     if(requested&&isMessage(event.data,'restore-candidate')&&event.data.nonce===nonce){
       dispose();
-      let status='REJECTED',reason=null;
-      try{
-        const raw=checkCandidateBytes(event.data.raw);
-        const result=onCandidate(raw);
-        if(result&&typeof result==='object'&&result.status==='CANCELLED')
+      const finish=(result,error=null)=>{
+        let status='REJECTED',reason=null;
+        if(error){
+          reason=error instanceof Error&&/^CLUB_T2_[A-Z0-9_]+$/.test(error.message)
+            ?error.message:'T2_RESTORE_CANDIDATE_REJECTED';
+        }else if(result&&typeof result==='object'&&result.status==='CANCELLED')
           status='CANCELLED';
         else if(result&&typeof result==='object'&&result.status==='NO_NEW_RESULTS')
           status='UNCHANGED';
         else if(!result||result.status==='APPLIED')status='APPLIED';
         else reason='T2_RESTORE_CANDIDATE_REJECTED';
-      }catch(error){
-        reason=error instanceof Error&&/^CLUB_T2_[A-Z0-9_]+$/.test(error.message)
-          ?error.message:'T2_RESTORE_CANDIDATE_REJECTED';
-      }
+        try{
+          peer.postMessage({protocol:HANDOFF_PROTOCOL,kind:'restore-status',
+            nonce,status},destination.origin);
+        }catch{
+          // A lost reply cannot roll back a completed local write.
+        }
+        if(reason)onStatus(reason);
+        else onStatus('T2_RESTORE_SITE_'+status);
+      };
       try{
-        peer.postMessage({protocol:HANDOFF_PROTOCOL,kind:'restore-status',
-          nonce,status},destination.origin);
-      }catch{
-        // A lost reply does not change local storage or imply Host confirmation.
-      }
-      if(reason)onStatus(reason);
-      else onStatus('T2_RESTORE_SITE_'+status);
+        const result=onCandidate(checkCandidateBytes(event.data.raw));
+        // A Promise is not an applied Result. Wait for the original local
+        // writer/readback before reporting APPLIED (or another final state).
+        if(result&&typeof result.then==='function')
+          Promise.resolve(result).then(value=>finish(value),error=>finish(null,error));
+        else finish(result);
+      }catch(error){finish(null,error);}
     }
   };
   siteWindow.addEventListener('message',onMessage);

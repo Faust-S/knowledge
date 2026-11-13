@@ -187,3 +187,52 @@ test('rejected asynchronous validation and disposed Host never expose a receipt'
   assert.equal(stalePreviews,0);
   assert.throws(()=>previous.sendReceipt('{}'),/RECEIPT_NOT_READY/);
 });
+
+test('site acknowledges write receipt only after asynchronous original Kernel persistence',async()=>{
+  const {siteWindow,hostWindow,cryptoSource}=windowPair();
+  let commit,fail;
+  const siteStatus=[],hostStatus=[];
+  launchT2SiteHandoff({siteWindow,hostUrl:hostOrigin+'/workspace/',
+    collectRawBackup:()=>'{"result":"selected"}',
+    onReceipt:()=>new Promise((resolve,reject)=>{commit=resolve;fail=reject;}),
+    onStatus:status=>siteStatus.push(status),
+  });
+  const receiver=mountT2SiteHandoffReceiver({
+    hostWindow,expectedSiteOrigin:siteOrigin,cryptoSource,
+    validateSource:JSON.parse,onPreview:()=>{},
+    onStatus:status=>hostStatus.push(status),
+  });
+  await new Promise(resolve=>queueMicrotask(resolve));
+  receiver.sendReceipt('{"revision":3}');
+  assert.ok(!hostStatus.includes('WRITE_RECEIPT_SITE_APPLIED'));
+  assert.ok(!siteStatus.includes('WRITE_RECEIPT_APPLIED_TO_LOCAL_SOURCE'));
+  commit();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(hostStatus.includes('WRITE_RECEIPT_SITE_APPLIED'));
+  assert.ok(siteStatus.includes('WRITE_RECEIPT_APPLIED_TO_LOCAL_SOURCE'));
+  assert.equal(typeof fail,'function');
+});
+
+test('asynchronously failed receipt never gets APPLIED acknowledgement',async()=>{
+  const {siteWindow,hostWindow,cryptoSource}=windowPair();
+  let rejectWrite;
+  const siteStatus=[],hostStatus=[];
+  launchT2SiteHandoff({siteWindow,hostUrl:hostOrigin+'/workspace/',
+    collectRawBackup:()=>'{"result":"selected"}',
+    onReceipt:()=>new Promise((_,reject)=>{rejectWrite=reject;}),
+    onStatus:status=>siteStatus.push(status),
+  });
+  const receiver=mountT2SiteHandoffReceiver({
+    hostWindow,expectedSiteOrigin:siteOrigin,cryptoSource,
+    validateSource:JSON.parse,onPreview:()=>{},
+    onStatus:status=>hostStatus.push(status),
+  });
+  await new Promise(resolve=>queueMicrotask(resolve));
+  receiver.sendReceipt('{"revision":3}');
+  assert.ok(!hostStatus.includes('WRITE_RECEIPT_SITE_APPLIED'));
+  rejectWrite(new Error('KERNEL_READBACK_FAILED'));
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(hostStatus.includes('WRITE_RECEIPT_SITE_REJECTED'));
+  assert.ok(siteStatus.includes('WRITE_RECEIPT_APPLICATION_NOT_CONFIRMED'));
+  assert.ok(!siteStatus.includes('WRITE_RECEIPT_APPLIED_TO_LOCAL_SOURCE'));
+});

@@ -40,21 +40,30 @@ export function launchT2SiteHandoff({siteWindow, hostUrl, collectRawBackup, onSt
     if (!awaitingReady && typeof onReceipt === 'function' &&
         isMessage(event.data, 'write-receipt') && event.data.nonce === receiptNonce) {
       cleanup();
-      let result = 'REJECTED';
+      const acknowledge = (status, asynchronousFailure = false) => {
+        try {
+          peer.postMessage({protocol: HANDOFF_PROTOCOL, kind: 'write-receipt-status',
+            nonce: receiptNonce, status}, dest.origin);
+        } catch {
+          // Lost acknowledgement cannot undo an already completed local write.
+        }
+        // A rejected asynchronous write may already have committed before
+        // failing its readback. Never claim the original source is unchanged.
+        onStatus(status === 'APPLIED' ? 'WRITE_RECEIPT_APPLIED_TO_LOCAL_SOURCE' :
+          asynchronousFailure ? 'WRITE_RECEIPT_APPLICATION_NOT_CONFIRMED' :
+            'WRITE_RECEIPT_REJECTED_SOURCE_UNCHANGED');
+      };
       try {
-        onReceipt(checkCandidateBytes(event.data.raw, 64 * 1024));
-        result = 'APPLIED';
+        const written = onReceipt(checkCandidateBytes(event.data.raw, 64 * 1024));
+        // A Kernel/Store receipt can be asynchronous. Do not acknowledge
+        // APPLIED while an owning Host or local readback is still pending.
+        if (written && typeof written.then === 'function') {
+          Promise.resolve(written).then(() => acknowledge('APPLIED'),
+            () => acknowledge('REJECTED', true));
+        } else acknowledge('APPLIED');
       } catch {
-        // The local source remains available for retry or manual inspection.
+        acknowledge('REJECTED');
       }
-      try {
-        peer.postMessage({protocol: HANDOFF_PROTOCOL, kind: 'write-receipt-status',
-          nonce: receiptNonce, status: result}, dest.origin);
-      } catch {
-        // Lost transport acknowledgement cannot roll back an already applied source.
-      }
-      onStatus(result === 'APPLIED' ? 'WRITE_RECEIPT_APPLIED_TO_LOCAL_SOURCE' :
-        'WRITE_RECEIPT_REJECTED_SOURCE_UNCHANGED');
     }
   };
   siteWindow.addEventListener('message', onMessage);
