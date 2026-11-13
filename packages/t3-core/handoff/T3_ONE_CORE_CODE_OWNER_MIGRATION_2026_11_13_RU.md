@@ -33,3 +33,17 @@
 - Исторический приватный `Faust-S/T3@da85c3aa` обновлён **только документационно** (`AGENTS.md` и исторический handoff), чтобы исключить повторную разработку второго исполнительного исходника. Исторические приватные файлы и оригинальный подписант не изменялись.
 
 **Оставшееся разделение:** новый нейтральный HTTP UI server работает и проверяется из `knowledge`, но прежний приватный Control Consumer всё ещё имеет старый импорт для своих архивных квалификаторов. Пока он не переведён на конечную собранную поставку T3, нельзя считать реальный закрытый Control принятым. `T3_READY=false`, `G4=NOT_ACCEPTED`.
+
+## Переключение оригинального Consumer на один кодовый источник
+
+Сборщик `scripts/stage-original-control-consumer.mjs` собирает **локальную, одноразовую установленную копию** подлинного старого Control из внешнего авторизованного checkout. Прежние `interop`, `access-control`, `reconciliation` сохраняются байт-в-байт; `interop/t3-isolated-ui-server.mjs` заменяется на **точный** исходник `knowledge/src/t3/isolated-ui-server.mjs`. Исходный приватный checkout не изменяется. Фиксированный импорт в старом `interop/server.mjs` продолжает работать, новый подписант, IAM, Kernel, Store или формат не создаются.
+
+Пример на машине с разрешённым checkout (`--qualify` только для локальной приёмки, не для пользовательской установки):
+```sh
+node packages/t3-core/scripts/stage-original-control-consumer.mjs \
+  /path/to/original-private-control /path/to/ephemeral-installed-control --qualify
+IWXA_T3_PUBLIC_CORE_DIR=/path/to/knowledge/packages/t3-core \
+  node --test /path/to/ephemeral-installed-control/qualification/t3-d1-loopback-owner-local.test.mjs
+```
+
+Установленный старый Control при старте получает `--t3-public-core` и `--t3-dist` с собранной из `knowledge` T3 Workspace/оригинальным T2 Kernel. **Стадирование кода не равно Ed25519 приёмке**. Не публиковать содержимое staged Control, токены и журналы в публичных CI artifacts. Граница G4 остаётся закрытой до успешной настоящей квалификации.
