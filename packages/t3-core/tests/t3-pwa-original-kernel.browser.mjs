@@ -210,7 +210,16 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       const originalOwner=createTemporaryOriginalPersonalAuthority({
         workspaceId:destination,now:Date.now(),clock:Date.now,
         operations:["t2.importPreview","t2.importCommit","t1.getObject"],
+        // A PERSON owns this agent; the specialist has its OWN Ed25519 key
+        // and only the signed scoped child GRANT, not the person's key.
+        agentActorId:"agent:recipient-analyst",
       });
+      assert.equal(originalOwner.actorId,"agent:recipient-analyst");
+      const originChain=originalOwner.snapshotSignedState();
+      assert.equal(originChain.grants["grant:delegated-agent"].payload.parentGrantId,
+        "grant:personal");
+      assert.equal(originChain.grants["grant:delegated-agent"].payload.holderId,
+        "agent:recipient-analyst");
       const scoped=createSubjectKernelBinding({
         kernel:receiverKernel,access:originalOwner.access,clock:Date.now,
       });
@@ -233,9 +242,18 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       assert.equal(received?.object?.revision,1);
       assert.ok(originalOwner.proofCount>=3,
         "original signed Access must recheck preview, commit and readback");
+      // Revoke the HUMAN parent after successful recipient import. The
+      // original recipient Store keeps the data, while any NEW agent
+      // operation is forbidden by the signed ancestor status.
+      originalOwner.revoke();
+      await assert.rejects(scoped.getObject(destination,object),
+        {code:"T3_ACCESS_NOT_PERMITTED"});
       console.log("T3_D4_SIGNED_FOREIGN_WORKSPACE_IWXA_ORIGINAL_KERNEL_PASS",
         JSON.stringify({sourceDifferentFromDestination:true,
-          signedOriginalPersonalRecipient:true,originalKernel:RUNTIME,
+          signedOriginalPersonalRecipient:true,
+          delegatedAgentRecipient:true,independentAgentKey:true,
+          humanParentRevokedAfterImport:true,
+          originalKernel:RUNTIME,
           independentRecipientStore:true,originalIwxaBytes:true,
           originalImportMode:"merge",signedOperationProofs:originalOwner.proofCount,
           originalKernelRecipientReadback:true,secondConsumerNotYetQualified:true}));

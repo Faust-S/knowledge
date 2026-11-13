@@ -39,42 +39,51 @@ function createSigner(name,subject,uses,now){
 }
 export function createTemporaryOriginalPersonalAuthority({
   workspaceId,now=Date.now(),readSignedState=null,clock=()=>now,
-  operations=["t1.putObject"],
+  operations=["t1.putObject"],agentActorId=null,
 }={}){
   if(typeof workspaceId!=="string"||workspaceId.length<6||
      !Number.isSafeInteger(now)||typeof clock!=="function"||
      (readSignedState!==null&&typeof readSignedState!=="function")||
      !Array.isArray(operations)||operations.length===0||
      operations.some(op=>!Object.hasOwn(PERSONAL_ACTIONS,op))||
-     new Set(operations).size!==operations.length)
+     new Set(operations).size!==operations.length||
+     !(agentActorId===null||(typeof agentActorId==="string"&&
+       /^agent:[A-Za-z0-9._:/@-]{1,153}$/.test(agentActorId))))
     throw Error("D1_REAL_PERSONAL_TEST_INPUT_REQUIRED");
   const permitted=new Set(operations);
   const actions=[...new Set(operations.map(op=>PERSONAL_ACTIONS[op]))];
   const catalog=Object.fromEntries(actions.map(action=>[action,"ACTION"]));
   const issuer=createSigner("issuer","issuer:local",["GRANT"],now);
   const status=createSigner("status","issuer:local",["STATUS"],now);
+  // Only the TEST human signer can delegate the root to a specialist.
+  // It never enters the actor's encrypted Vault or a recipient .iwxa.
+  const human=agentActorId
+    ?createSigner("human-delegator","person:local",["GRANT"],now):null;
+  const actorId=agentActorId??"person:local";
+  const actorKeyId=agentActorId?"key:agent":"key:actor";
   const actorVault=emptyVault();
   const actorKey=generateVaultKey(actorVault,{
-    keyId:"key:actor",subjectId:"person:local",createdAt:iso(now-30000),
+    keyId:actorKeyId,subjectId:actorId,createdAt:iso(now-30000),
   });
   // CI-only secret, never a runtime default. Product Host supplies its own
   // authorized unlock callback and stores only the ciphertext at rest.
   const testPassphrase="CI_TEST_ONLY_NOT_A_PRODUCTION_VAULT_PASSWORD";
   const encryptedActorVault=encryptVault(actorVault,testPassphrase);
   const actor={policyKey:{
-    subjectId:"person:local",environment:"TEST",
+    subjectId:actorId,environment:"TEST",
     publicKey:actorKey.publicKeyPem,status:"ACTIVE",uses:["PROOF"],
     notBefore:iso(now-600000),expiresAt:iso(now+86400000),
   }};
   const vaultProof=createOriginalVaultProofSigner({
-    keyId:"key:actor",
+    keyId:actorKeyId,personalPrincipalId:agentActorId?"person:local":null,
     readEncryptedVault:async()=>JSON.stringify(encryptedActorVault),
     unlockPassphrase:async()=>testPassphrase,
   });
   const selected=Object.freeze({
-    kind:"PERSONAL",context_id:"context:personal",actor_id:"person:local",
+    kind:"PERSONAL",context_id:"context:personal",actor_id:actorId,
     principal_id:"person:local",role_id:"role:member",
-    grant_id:"grant:personal",realm_id:"realm:personal",audience:"host:t3",
+    grant_id:agentActorId?"grant:delegated-agent":"grant:personal",
+    realm_id:"realm:personal",audience:"host:t3",
     resource:workspaceId,purpose:"purpose:work",workspace_id:workspaceId,
     organization_id:null,scope_revision:1,
   });
@@ -85,14 +94,15 @@ export function createTemporaryOriginalPersonalAuthority({
     proofMaxAgeSeconds:60,snapshotMaxAgeSeconds:3600,
     offlineMaxAgeSeconds:3600,
     keys:{"key:issuer":issuer.policyKey,"key:status":status.policyKey,
-      "key:actor":actor.policyKey},
+      [actorKeyId]:actor.policyKey,
+      ...(human?{"key:human-delegator":human.policyKey}:{})},
     authorities:{"authority:personal":{
       principalId:"person:local",issuerKeys:["key:issuer"],
       statusKeys:["key:status"],audiences:["host:t3"],
       resources:[workspaceId],actions,
       purposes:["purpose:work"],roles:["role:member"],
       rightClasses:["ACTION"],membershipEpoch:1,
-      maxTtlSeconds:3600,maxDelegationDepth:0,
+      maxTtlSeconds:3600,maxDelegationDepth:agentActorId?1:0,
     }},
     actionCatalog:catalog,
     prohibitions:[],confirmations:[],
@@ -105,20 +115,31 @@ export function createTemporaryOriginalPersonalAuthority({
     realmId:"realm:personal",environment:"TEST",audience:"host:t3",
     resources:[workspaceId],actions,purposes:["purpose:work"],
     issuedAt:iso(now-30000),notBefore:iso(now-20000),
-    expiresAt:iso(now+1200000),remainingDepth:0,membershipEpoch:1,
+    expiresAt:iso(now+1200000),remainingDepth:agentActorId?1:0,
+    membershipEpoch:1,
     policyId:"policy:personal",policyVersion:"v1",
     evidenceRefs:["evidence:issuer"],
   };
+  const delegated=agentActorId?{
+    ...grant,id:"grant:delegated-agent",parentGrantId:grant.id,
+    holderId:agentActorId,issuedAt:iso(now-15000),
+    notBefore:iso(now-12000),expiresAt:iso(now+900000),
+    remainingDepth:0,
+    evidenceRefs:["evidence:person-delegated-specific-recipient"]
+  }:null;
   const statusBase={
     kind:"STATUS",id:"status:personal",environment:"TEST",
     realmId:"realm:personal",authorityId:"authority:personal",
     sequence:1,membershipEpoch:1,issuedAt:iso(now-2000),
     validUntil:iso(now+600000),
     entries:[{grantId:"grant:personal",state:"ACTIVE",
-      effectiveAt:iso(now-2500),evidenceRef:"evidence:active"}],
+      effectiveAt:iso(now-2500),evidenceRef:"evidence:active"},
+      ...(delegated?[{grantId:delegated.id,state:"ACTIVE",
+        effectiveAt:iso(now-2000),evidenceRef:"evidence:agent-active"}]:[])],
   };
   const state={
-    policy,grants:{"grant:personal":signRecord(grant,issuer.provider)},
+    policy,grants:{"grant:personal":signRecord(grant,issuer.provider),
+      ...(delegated?{[delegated.id]:signRecord(delegated,human.provider)}:{})},
     statuses:{"authority:personal":signRecord(statusBase,status.provider)},
     statusFloor:{"authority:personal":1},tombstones:{},
   };
@@ -143,15 +164,18 @@ export function createTemporaryOriginalPersonalAuthority({
     clock,
   });
   return Object.freeze({
-    access,
+    access,actorId,
     get proofCount(){return proofCount;},
     get registryReads(){return registryReads;},
     snapshotSignedState(){return structuredClone(state);},
     revoke(){
       const withdrawn={
         ...statusBase,sequence:2,issuedAt:iso(now-1000),
-        entries:[{grantId:"grant:personal",state:"REVOKED",
-          effectiveAt:iso(now-1200),evidenceRef:"evidence:revoked"}],
+        entries:statusBase.entries.map(e=>({
+          ...e,state:e.grantId==="grant:personal"?"REVOKED":e.state,
+          effectiveAt:iso(now-1200),
+          evidenceRef:"evidence:revocation-"+e.grantId
+        })),
       };
       state.statuses["authority:personal"]=signRecord(withdrawn,status.provider);
       state.statusFloor["authority:personal"]=2;
