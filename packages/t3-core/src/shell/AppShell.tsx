@@ -56,6 +56,10 @@ export interface AppShellProps {
   profileDefinition: WorkspaceProfileDefinition;
   profileFallback: boolean;
   devBootstrap?: KernelBootstrap;
+  /** Only the original signed Control entrypoint may supply a Kernel realm. */
+  trustedKernelBootstrap?: KernelBootstrap;
+  /** If true, no raw same-origin T2 loader fallback is ever permitted. */
+  isolatedKernelRequired?: boolean;
   /** Trusted entrypoint opts into signed D1 as a non-downgradeable requirement. */
   requireSignedOwner?: boolean;
   /** Trusted, compile-time D1 owner. Never extracted from the page or archive. */
@@ -79,6 +83,13 @@ export interface AppShellProps {
  * Host Router via `useLegacyRouteMigrations`.
  */
 const MISSING_REQUIRED_SIGNED_OWNER = () => null;
+const MISSING_ISOLATED_KERNEL_BOOTSTRAP: KernelBootstrap = Object.freeze({
+  version: 1,
+  async connect() {
+    throw Object.assign(new Error("T3_D1_ORIGINAL_KERNEL_REALM_REQUIRED"),
+      { code: "T3_D1_ORIGINAL_KERNEL_REALM_REQUIRED" });
+  },
+});
 
 export function AppShell(props: AppShellProps) {
   const {
@@ -90,6 +101,8 @@ export function AppShell(props: AppShellProps) {
     profileDefinition,
     profileFallback,
     devBootstrap,
+    trustedKernelBootstrap,
+    isolatedKernelRequired = false,
     requireSignedOwner = false,
     signedKernelAccess,
     signedActivityAccess,
@@ -99,11 +112,17 @@ export function AppShell(props: AppShellProps) {
   // invitation to use an unsigned T2 facade. The binding itself remains the
   // same original D1 Access owner, supplied by the trusted compiled Host.
   const selectedSignedKernelAccess = signedKernelAccess ??
-    (requireSignedOwner ? MISSING_REQUIRED_SIGNED_OWNER : undefined);
+    (requireSignedOwner || isolatedKernelRequired ? MISSING_REQUIRED_SIGNED_OWNER : undefined);
 
   const serviceId = hostWorkspace.workspace_service_id;
+  // This explicit trusted-Host flag prevents a failed isolated connection from
+  // downgrading into the public same-origin original T2 window.IWXA loader.
+  const bootstrap = isolatedKernelRequired
+    ? trustedKernelBootstrap ?? MISSING_ISOLATED_KERNEL_BOOTSTRAP
+    : undefined;
   const { state, retry } = useKernel(
-    useMemo(() => ({ serviceId, devBootstrap }), [serviceId, devBootstrap]),
+    useMemo(() => ({ serviceId, devBootstrap, trustedBootstrap: bootstrap }),
+      [serviceId, devBootstrap, bootstrap]),
   );
 
   const session: KernelSession | null =

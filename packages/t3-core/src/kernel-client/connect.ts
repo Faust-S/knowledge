@@ -7,7 +7,7 @@ export interface ConnectOptions {
   serviceId: string;
   requiredLevels?: Array<"T0" | "T1" | "T2">;
   timeoutMs?: number;
-  /** Dev/tests-only override. Removed from prod bundle by DEV guards. */
+  /** Trusted signed origin bootstrap, or a DEV-only fake supplied by useKernel. */
   bootstrap?: KernelBootstrap;
 }
 

@@ -47,6 +47,10 @@ export interface AppProps {
   signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
   signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
   subscribeSignedAccessInvalidation?: SignedAccessInvalidationSubscription;
+  /** Compile-time trusted T2 Kernel origin bootstrap; never derived from a page or package. */
+  trustedKernelBootstrap?: KernelBootstrap;
+  /** A qualified trusted realm is mandatory. Never load original raw T2 in this UI origin. */
+  isolatedKernelRequired?: boolean;
 }
 
 /**
@@ -57,6 +61,7 @@ export interface AppProps {
 export default function App({
   requireSignedOwner = false, signedKernelAccess, signedActivityAccess,
   subscribeSignedAccessInvalidation,
+  trustedKernelBootstrap, isolatedKernelRequired = false,
 }: AppProps = {}) {
   const host = useHostConfig();
   const [activation, setActivation] = useState<Activation | null>(null);
@@ -106,6 +111,8 @@ export default function App({
       profileDefinition={activation.definition}
       profileFallback={activation.fallback}
       devBootstrap={activation.devBootstrap}
+      trustedKernelBootstrap={trustedKernelBootstrap}
+      isolatedKernelRequired={isolatedKernelRequired}
       requireSignedOwner={requireSignedOwner}
       signedKernelAccess={signedKernelAccess}
       signedActivityAccess={signedActivityAccess}

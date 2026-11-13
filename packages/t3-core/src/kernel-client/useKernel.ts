@@ -7,6 +7,8 @@ export interface UseKernelOptions {
   timeoutMs?: number;
   /** Dev-only override. Ignored in production. */
   devBootstrap?: KernelBootstrap;
+  /** Explicit trusted signed Control bootstrap. Production-safe, no loader fallback. */
+  trustedBootstrap?: KernelBootstrap;
 }
 
 export interface UseKernelResult {
@@ -15,13 +17,14 @@ export interface UseKernelResult {
 }
 
 export function useKernel(opts: UseKernelOptions): UseKernelResult {
-  const { serviceId, timeoutMs, devBootstrap } = opts;
+  const { serviceId, timeoutMs, devBootstrap, trustedBootstrap } = opts;
   const [state, setState] = useState<KernelState>({ status: "loading" });
 
   const run = useCallback(
     async (mode: "initial" | "retry") => {
       setState({ status: "loading" });
-      const bootstrap = import.meta.env.DEV ? devBootstrap : undefined;
+      const bootstrap = trustedBootstrap ??
+        (import.meta.env.DEV ? devBootstrap : undefined);
       const next = await (mode === "retry" ? retryConnect : connectKernel)({
         serviceId: serviceId ?? "",
         timeoutMs,
@@ -29,7 +32,7 @@ export function useKernel(opts: UseKernelOptions): UseKernelResult {
       });
       setState(next);
     },
-    [serviceId, timeoutMs, devBootstrap],
+    [serviceId, timeoutMs, devBootstrap, trustedBootstrap],
   );
 
   useEffect(() => {
