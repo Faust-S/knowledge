@@ -17,6 +17,7 @@ on:
       - work/2026-11-13-t3-d1-installed-original-host
       - work/2026-11-13-t3-d1-native-control-webview2
       - work/2026-11-13-t3-d1-installed-windows-signed-owner
+      - work/2026-11-13-t3-d1-three-subject-session
     paths:
       - packages/t3-core/src/t3/activity/**
       - packages/t3-core/**
@@ -84,6 +85,8 @@ jobs:
           node --test packages/t3-core/tests/t3-d1-installed-original-control-host.test.mjs
       - name: Validate Windows installed signed owner binding and non-Windows fail-closed behavior
         run: node --test packages/t3-core/tests/t3-d1-installed-windows-signed-owner.test.mjs
+      - name: Confirm original Control subject selection, SSE and context epoch on shared Host
+        run: node --test packages/t3-core/tests/t3-d1-installed-subject-session.test.mjs
       - name: Verify D1 origin-isolated signed original Kernel carrier
         run: node --test packages/t3-core/tests/t3-d1-origin-isolated-kernel.test.mjs
       - name: Qualify PWA manifest and original one-dist packaging
@@ -232,6 +235,8 @@ jobs:
         run: node --test packages/t3-core/tests/t3-d1-installed-original-control-host.test.mjs
       - name: Windows ORIGINAL signed Kernel/AccessRegistry JIT with DPAPI corporate credentials and revocation
         run: node --test packages/t3-core/tests/t3-d1-installed-windows-signed-owner.test.mjs
+      - name: Windows one original registry and DPAPI vault for PERSONAL, North and South across explicit switches
+        run: node --test packages/t3-core/tests/t3-d1-installed-windows-three-subjects.test.mjs
 
 
   windows-native-control:
