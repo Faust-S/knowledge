@@ -31,6 +31,18 @@
 
 Ранний [Actions #43504177307](https://github.com/Faust-S/knowledge/actions/runs/43504177307) был FAIL из-за тестового неверного ожидания `workspace_id_map` в полном импорте. Это позволило обнаружить указанную настоящую ошибку T3. Итоговые код и CI — `9eb2ad7`, #43504604724 SUCCESS.
 
+## 3.1. Продолжение D4: получателем оригинального .iwxa выступает личный агент
+
+**Новый квалифицированный коммит:** [ffb61e85](https://github.com/Faust-S/knowledge/commit/ffb61e859d7d8e0e7b5674a949d8e9c7186b893c). [Публичный Actions #43508967493](https://github.com/Faust-S/knowledge/actions/runs/43508967493): **COMPLETED SUCCESS** (test, real-host, windows-credential; metal-webgpu skipped). Изменены только существующие `tests/support/t3-original-personal-authority.mjs` и `tests/t3-pwa-original-kernel.browser.mjs`; исходные Kernel, Host, Exchange, Store, IAM, Task Engine не переписывались.
+
+В существующем полном real-host D4 исходный человек подписывает Ed25519 дочерний GRANT личному `agent:recipient-analyst`, агент предъявляет **свой** proof key через оригинальный encrypted Vault и принимает **неизменённый ZIP .iwxa** в независимый T2 Kernel 0.3.6 / Runtime Contract 1.3.0. Сохраняются объект, исходные Event IDs и границы выбранной recipient Workspace. После успешного импорта signed revocation **корневого человеческого GRANT** запрещает новые операции агента; полученный ранее объект не удаляется без отдельного законного основания.
+
+Маркеры из настоящего real-host:
+- `T3_D4_SIGNED_FOREIGN_WORKSPACE_IWXA_ORIGINAL_KERNEL_PASS`: `delegatedAgentRecipient=true`, `independentAgentKey=true`, `humanParentRevokedAfterImport=true`, `signedOperationProofs=4`, `originalKernelRecipientReadback=true`.
+- `T3_D4_TWO_INDEPENDENT_CONSUMERS_ORIGINAL_IWXA_PASS`: `independentlyPersistedRecipientStores=2`, `originalEventProvenanceRecovered=true`, `secondConsumerColdRestartReadback=true`, `twoDifferentInstalledProductsAccepted=false`.
+
+**Граница приёмки:** это `D4_SIGNED_PERSONAL_AGENT_RECIPIENT_NODE_REAL_HOST_PASS`, а не живой установленный Personal Agent, не корпоративный issuer-отправитель, не доменный Task→Result→Human Review/Accept/Apply и не отдельный холодный перезапуск credential-подписанта агента. Общие `T3_READY=false`, `G4=NOT_ACCEPTED` остаются. Продолжение по D3 делать без нового Task Engine, Review Store и ручного импорта чужого private repo.
+
 ## 4. Следующий продуктовый порядок
 
 1. **D4:** закрыть оставшиеся отрицательные условия через **оригинальный** parser: unsupported profile/version, ZIP path traversal, unsupported semantic data, а также проверить сохранение поддерживаемых полей/relations/refs в конечном пользовательском маршруте. Обычный corrupt ZIP и два независимых технических consumers уже проверены; **не плодить повторяющиеся тесты**. Отдельная квалификация двух установленных продуктов выполняется через штатные Owner Host, когда они доступны.
