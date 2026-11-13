@@ -382,15 +382,22 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
     }
     if (method === "importCommit") {
       const source = boundImport.sourceWorkspaceId;
-      // Check the ORIGINAL Kernel's actual destination mapping after apply.
-      // The source label can be foreign; the destination NEVER can.
+      // Original T2 full/selective receipts can omit the map when importing
+      // without renaming the source Workspace. A foreign-source merge MUST
+      // report the exact recipient destination, never an arbitrary new root.
+      const mapping = result?.workspace_id_map;
+      const names = mapping!==null && typeof mapping==="object" &&
+        !Array.isArray(mapping) ? Object.keys(mapping) : null;
+      const unmodified = source===workspace_id &&
+        ["full","selective"].includes(command.plan.mode);
+      const validMapping = mapping==null
+        ? unmodified
+        : names!==null && (
+          (unmodified && names.length===0) ||
+          (names.length===1 && names[0]===source &&
+            mapping[source]===workspace_id));
       if (result?.package_digest!==command.package_digest ||
-          result?.mode!==command.plan.mode ||
-          !result?.workspace_id_map ||
-          typeof result.workspace_id_map!=="object" ||
-          Array.isArray(result.workspace_id_map) ||
-          Object.keys(result.workspace_id_map).length!==1 ||
-          result.workspace_id_map[source]!==workspace_id ||
+          result?.mode!==command.plan.mode || !validMapping ||
           !Array.isArray(result?.skipped_conflicts) ||
           result.skipped_conflicts.some(key =>
             typeof key!=="string" ||
