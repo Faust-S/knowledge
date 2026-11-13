@@ -14,6 +14,7 @@ on:
       - work/2026-11-13-t3-d1-native-owner-http
       - work/2026-11-13-t3-d1-windows-dpapi-custody
       - work/2026-11-13-t3-d1-windows-sequential-enrollment
+      - work/2026-11-13-t3-d1-installed-original-host
     paths:
       - packages/t3-core/src/t3/activity/**
       - packages/t3-core/**
@@ -75,6 +76,10 @@ jobs:
         run: node --test packages/t3-core/scripts/t3-signed-dist-registration.test.mjs
       - name: Qualify canonical isolated signed Workspace server from public knowledge
         run: node --test packages/t3-core/tests/t3-d1-isolated-ui-server.test.mjs
+      - name: Qualify installed original Kernel + signed Control one-dist Host boundary
+        run: |
+          node --check packages/t3-core/src/t3/installed-original-control-host.mjs
+          node --test packages/t3-core/tests/t3-d1-installed-original-control-host.test.mjs
       - name: Verify D1 origin-isolated signed original Kernel carrier
         run: node --test packages/t3-core/tests/t3-d1-origin-isolated-kernel.test.mjs
       - name: Qualify PWA manifest and original one-dist packaging
@@ -219,6 +224,8 @@ jobs:
           node --test packages/t3-core/tests/t3-d1-windows-dpapi-custody.test.mjs
       - name: Windows original signed Control HTTP transport (Node host only)
         run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs
+      - name: Windows installed original T3 Host two-origin HTTP and Control route (no native GUI)
+        run: node --test packages/t3-core/tests/t3-d1-installed-original-control-host.test.mjs
 
   metal-webgpu:
     # A macOS runner was not allocated at all in #43233365753 (0 steps,
