@@ -117,14 +117,13 @@ export function createT3InstalledOriginalControlHost({
         "Content-Type":type,"Cache-Control":"no-store",
         "X-Content-Type-Options":"nosniff",
         "Referrer-Policy":"no-referrer",
-        "X-Frame-Options":frame?undefined:"DENY",
+        ...(frame?{}:{"X-Frame-Options":"DENY"}),
         "Content-Security-Policy":frame
           ? "default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; "+
             "style-src 'self'; connect-src 'self'; img-src 'self' data:; "+
             "frame-ancestors "+uiOrigin+"; base-uri 'none'; form-action 'none'"
           : "default-src 'none'; frame-ancestors 'none'",
       };
-      if(!frame)delete headers["X-Frame-Options"]===undefined;
       res.writeHead(status,headers);
       res.end(Buffer.isBuffer(data)?data:typeof data==="string"?data:
         JSON.stringify(data));
