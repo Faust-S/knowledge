@@ -249,3 +249,50 @@ test('unrecognized event truth values cannot bypass the reviewed D2 shape',async
     });
   }
 });
+
+test('explicit T2 lifecycle receipts remain private but are marked in reviewed process',async()=>{
+  const view=sample(),secret='PRIVATE_SYSTEM_ORIGINAL_EVENT_ID';
+  view.unmapped.excluded_context_event_ids=[secret];
+  const before=structuredClone(view);
+  const result=await inspect(host(view));
+  assert.equal(result.status,'STRUCTURE_PRESERVED_REVIEW_REQUIRED');
+  assert.ok(result.reason_codes.includes('T3_D2_SYSTEM_CONTEXT_EXCLUDED'));
+  assert.equal(result.structural_candidate.length,1);
+  assert.equal(result.export_allowed,false);
+  assert.equal(result.anonymity,'NOT_ESTABLISHED');
+  assert.equal(JSON.stringify(result).includes(secret),false);
+  assert.deepEqual(view,before,'the original D2 context receipt remains in Host memory');
+});
+
+test('unmapped real business events continue to HOLD despite explicitly excluded T2 context',async()=>{
+  const view=sample();
+  view.unmapped.excluded_context_event_ids=['original:workspace.created'];
+  view.unmapped.event_ids.push('PRIVATE_UNMAPPED_PROCESS_STEP');
+  const result=await inspect(host(view));
+  assert.equal(result.status,'HOLD');
+  assert.ok(result.reason_codes.includes('T3_D2_UNMAPPED_SOURCE_RECORD'));
+  assert.equal(result.structural_candidate,null);
+  assert.equal(JSON.stringify(result).includes('PRIVATE_UNMAPPED_PROCESS_STEP'),false);
+});
+
+test('fabricated lifecycle receipts, duplicate receipts and private extension keys are denied',async()=>{
+  for(const excluded of [
+    ['event:0:1'], // overlaps a projected original business event
+    ['system:1','system:1'],
+    ['system:1',0],
+    ['system:1','event:unknown-unmapped'],
+  ]){
+    const view=sample();
+    view.unmapped.excluded_context_event_ids=excluded;
+    if(excluded.at(-1)==='event:unknown-unmapped')
+      view.unmapped.event_ids.push('event:unknown-unmapped');
+    await assert.rejects(inspect(host(view)),{
+      code:'T3_D2_CONTEXT_EVENT_RECEIPT_INVALID',
+    });
+  }
+  const additional=sample();
+  additional.unmapped.private_record_ids=['SECRET_SERVICE_ID'];
+  await assert.rejects(inspect(host(additional)),{
+    code:'T3_D2_UNMAPPED_SHAPE_INVALID',
+  });
+});
