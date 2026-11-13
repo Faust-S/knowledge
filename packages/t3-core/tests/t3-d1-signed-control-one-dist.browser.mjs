@@ -22,7 +22,11 @@ import {createOrganizationalOperationGate}
   from '../src/t3/access/organizational-operation.mjs';
 import {createSignedAccessHostPort}
   from '../src/t3/signed-access-host-port.mjs';
-import {digest,iso,makeProof,signRecord} from '../src/t3/access/core.mjs';
+import {digest,iso,signRecord} from '../src/t3/access/core.mjs';
+import {emptyVault,importVaultKey,encryptVault}
+  from '../src/t3/access/local-vault.mjs';
+import {createOriginalVaultProofSigner}
+  from '../src/t3/access/original-vault-proof.mjs';
 import {materializeIntegrationHost} from '../scripts/real-kernel-e2e.mjs';
 import {assertQualifiedKernelArtifact}
   from '../src/factory2/products/domain-completion/independent-browser-witness.mjs';
@@ -1147,6 +1151,35 @@ try{
     't1.listEventsSince','t1.putObject',
   ];
   const corporate=twoCorporations({operations:corpOperations});
+  // There is ONE ORIGINAL encrypted local vault containing two
+  // independently enrolled corporate actor credentials. No in-memory
+  // signers are selected by browser or sent to the compiled AppShell.
+  const corporateKeyVault=emptyVault();
+  for(const entry of Object.values(corporate.all)){
+    const keyId=entry.issuedCredential.publicKeyRef;
+    importVaultKey(corporateKeyVault,{
+      keyId,subjectId:entry.context.actor_id,
+      privateKeyPem:entry.credentialPrivateKeyPem,
+      expectedPublicKeyPem:corporate.policy.keys[keyId].publicKey,
+    });
+  }
+  const vaultPath=join(root,'corporate-owner-keys.encrypted.json');
+  const testPassphrase='CI_TEST_ONLY_CORP_CREDENTIALS_NOT_A_DEFAULT_PASSWORD';
+  writeFileSync(vaultPath,JSON.stringify(encryptVault(
+    corporateKeyVault,testPassphrase)),{mode:0o600});
+  assert.equal(readFileSync(vaultPath,'utf8').includes(
+    'BEGIN PRIVATE KEY'),false,'T3_D1_CORP_VAULT_PLAINTEXT_LEAK');
+  const newCredentialProvers=()=>Object.fromEntries(
+    Object.values(corporate.all).map(entry=>[
+      entry.context.organization_id,
+      createOriginalVaultProofSigner({
+        organizationId:entry.context.organization_id,
+        keyId:entry.issuedCredential.publicKeyRef,
+        readEncryptedVault:async()=>readFileSync(vaultPath,'utf8'),
+        unlockPassphrase:async()=>testPassphrase,
+      }),
+    ]));
+  let credentialProvers=newCredentialProvers();
   const corpRegistryWs='ws:corporate-trusted-access-'+randomUUID();
   await browser.page.evaluate(async({serviceId,workspaceId})=>{
     const original=await window.IWXA.connect({service_id:serviceId});
@@ -1213,8 +1246,9 @@ try{
         const entry=corporationFor(context);
         assert.equal(credentialKeyId,entry.issuedCredential.publicKeyRef);
         credentialProofs[selectedCorporation]++;
-        return makeProof(request,challenge,Date.parse(asOf),
-          entry.credentialSigner,'TEST');
+        return credentialProvers[context.organization_id]({
+          request,challenge,credentialKeyId,context,asOf,
+        });
       },
     },
   });
@@ -1411,6 +1445,9 @@ try{
   await browser.page.waitForFunction(()=>
     typeof window.IWXA?.connect==='function');
   corporateRegistry=createOriginalKernelRegistryStatePort(corpRegistryOptions);
+  // Reconstruct proof functions from the ENCRYPTED vault bytes as well;
+  // no stale in-memory KeyObject survives cold browser and Access restart.
+  credentialProvers=newCredentialProvers();
   assert.deepEqual((await corporateRegistry.getStatus()).sequences,{
     'issuer:north':2,'issuer:south':1,
   });
@@ -1486,6 +1523,8 @@ try{
       userCreatedTwoWorkspaces:true,originalKernelBliWrites:2,
       northRevokedAfterSignedStatus:true,
       southActiveAfterColdRestart:true,originalStoreColdReadback:true,
+      existingEncryptedCorporateVault:true,
+      bothCredentialKeysRestoredAfterCold:true,
       installedWindowsControlAccepted:false,
     }));
   console.log('T3_D1_ACTUAL_ONE_DIST_ORIGINAL_HTTP_PASS',JSON.stringify({

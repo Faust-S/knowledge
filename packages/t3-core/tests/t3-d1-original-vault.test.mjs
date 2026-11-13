@@ -68,6 +68,96 @@ test("local original Ed25519 vault survives disk reload and signs verifiable pro
 
   }finally{rmSync(root,{recursive:true,force:true});}
 });
+test("same original encrypted vault signs two separately pinned organization credentials after disk reopen",async()=>{
+  const root=mkdtempSync(join(tmpdir(),"t3-two-corp-vault-"));
+  try{
+    const vault=emptyVault();
+    const a=generateVaultKey(vault,{keyId:"key:corporate-a",
+      subjectId:"person:operator",createdAt:iso(now-20000)});
+    const b=generateVaultKey(vault,{keyId:"key:corporate-b",
+      subjectId:"person:operator",createdAt:iso(now-20000)});
+    const path=join(root,"credentials.encrypted.json");
+    writeFileSync(path,JSON.stringify(encryptVault(vault,passphrase)));
+    const disk=readFileSync(path,"utf8");
+    assert.ok(!disk.includes("BEGIN PRIVATE KEY")&&
+      !disk.includes("privateKeyPem"));
+    const owner=(org,keyId)=>createOriginalVaultProofSigner({
+      organizationId:org,keyId,
+      readEncryptedVault:async()=>readFileSync(path,"utf8"),
+      unlockPassphrase:async()=>passphrase,
+    });
+    const selected=org=>({
+      kind:"CORP",actor_id:"person:operator",
+      principal_id:org,organization_id:org,
+      role_id:"role:member",grant_id:"grant:"+org,
+      realm_id:"realm:local",audience:"host:t3",
+      workspace_id:"ws:"+org,resource:"ws:"+org,
+      purpose:"purpose:work",
+    });
+    const request=context=>({
+      id:"op:"+context.organization_id,
+      actorId:context.actor_id,principalId:context.principal_id,
+      roleId:context.role_id,grantId:context.grant_id,
+      realmId:context.realm_id,audience:context.audience,
+      resource:context.workspace_id,purpose:context.purpose,
+      action:"object.write",operationDigest:"0".repeat(64),
+    });
+    const contextA=selected("org:alpha"),contextB=selected("org:beta");
+    const signerA=owner("org:alpha","key:corporate-a");
+    const signerB=owner("org:beta","key:corporate-b");
+    const ch="corporate-challenge-"+String(now);
+    const args=(context,credentialKeyId)=>({
+      request:request(context),context,challenge:ch,asOf:iso(now),
+      credentialKeyId,
+    });
+    const proofA=await signerA(args(contextA,"key:corporate-a"));
+    // Create a new closure, as an installed trusted Host does on reopen.
+    const proofB=await owner("org:beta","key:corporate-b")(
+      args(contextB,"key:corporate-b"));
+    const policy={environment:"TEST",keys:{}};
+    for(const [keyId,pub] of [["key:corporate-a",a],["key:corporate-b",b]])
+      policy.keys[keyId]={
+        subjectId:"person:operator",environment:"TEST",
+        status:"ACTIVE",uses:["PROOF"],publicKey:pub.publicKeyPem,
+        notBefore:iso(now-20000),expiresAt:iso(now+86400000),
+      };
+    assert.equal(verifyRecord(proofA,policy,now,"PROOF").subjectId,
+      "person:operator");
+    assert.equal(verifyRecord(proofB,policy,now,"PROOF").subjectId,
+      "person:operator");
+    assert.equal(proofA.keyId,"key:corporate-a");
+    assert.equal(proofB.keyId,"key:corporate-b");
+    await assert.rejects(signerA(args(contextB,"key:corporate-a")),
+      {code:"T3_ACCESS_VAULT_ORGANIZATION_MISMATCH"});
+    await assert.rejects(signerA(args(contextA,"key:corporate-b")),
+      {code:"T3_ACCESS_VAULT_CREDENTIAL_MISMATCH"});
+    await assert.rejects(signerA({...args(contextA,"key:corporate-a"),
+      request:{...request(contextA),resource:"ws:org:beta"}}),
+      {code:"T3_ACCESS_VAULT_ORGANIZATION_MISMATCH"});
+    await assert.rejects(signerA({...args(contextA,"key:corporate-a"),
+      context:{...contextA,grant_id:"grant:swapped"}}),
+      {code:"T3_ACCESS_VAULT_ORGANIZATION_MISMATCH"});
+    await assert.rejects(signerA({...args(contextA,"key:corporate-a"),
+      request:{...request(contextA),actorId:"person:intruder"}}),
+      {code:"T3_ACCESS_VAULT_SUBJECT_MISMATCH"});
+    await assert.rejects(signerB({...args(contextB,"key:corporate-b"),
+      context:{...contextB,kind:"PERSONAL",organization_id:null}}),
+      {code:"T3_ACCESS_VAULT_ORGANIZATION_MISMATCH"});
+    const wrongPass= createOriginalVaultProofSigner({
+      organizationId:"org:alpha",keyId:"key:corporate-a",
+      readEncryptedVault:async()=>readFileSync(path,"utf8"),
+      unlockPassphrase:async()=>passphrase+"-incorrect",
+    });
+    await assert.rejects(wrongPass(args(contextA,"key:corporate-a")),
+      {code:"VAULT_UNLOCK_FAILED"});
+    console.log("T3_D1_TWO_CORP_EXISTING_ENCRYPTED_VAULT_PASS",
+      JSON.stringify({distinctCorporateKeys:2,verifiedEd25519Proofs:2,
+        wrongOrgDenied:true,wrongCredentialDenied:true,
+        swappedContextDenied:true,wrongVaultPassphraseDenied:true,
+        noPlaintextOnDisk:true,nativeOsCustodyAccepted:false}));
+  }finally{rmSync(root,{recursive:true,force:true});}
+});
+
 test("wrong passphrase and altered ciphertext deny private-key recovery",()=>{
   const vault=emptyVault();
   generateVaultKey(vault,{keyId:"key:personal",subjectId:"person:local"});

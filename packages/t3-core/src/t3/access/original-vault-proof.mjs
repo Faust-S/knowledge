@@ -1,3 +1,8 @@
+// The SAME encrypted vault supports both a PERSON's personal proof key and
+// organization-issued proof credentials. A corporate signer is always pinned
+// to one trusted organizationId and one issued credentialKeyId. The original
+// organizational gate still verifies the actual signed enrollment, grant
+// and public key independently; this is never a new corporate issuer.
 // Node-only trusted owner adapter. Uses the ONE original IWXA T3 encrypted
 // key vault and Ed25519 proof algorithm adopted in knowledge. It does NOT
 // create a registry, IAM, Store or new signing protocol. Private keys never
@@ -14,20 +19,49 @@ function refuse(code){
 }
 function requireThat(ok,code){if(!ok)refuse(code);}
 export function createOriginalVaultProofSigner({
-  readEncryptedVault,unlockPassphrase,keyId,
+  readEncryptedVault,unlockPassphrase,keyId,organizationId=null,
 }={}){
   requireThat(typeof readEncryptedVault==="function"&&
     typeof unlockPassphrase==="function"&&
-    typeof keyId==="string"&&IDENT.test(keyId),
+    typeof keyId==="string"&&IDENT.test(keyId)&&
+    (organizationId===null||
+      (typeof organizationId==="string"&&IDENT.test(organizationId))),
     "T3_ACCESS_VAULT_CALLBACK_REQUIRED");
   return async function signExistingActorProof({
-    request,context,challenge,asOf,
+    request,context,challenge,asOf,credentialKeyId,
   }={}){
-    requireThat(context?.kind==="PERSONAL"&&
-      context.organization_id===null&&
-      request?.actorId===context.actor_id&&
-      typeof request.actorId==="string"&&IDENT.test(request.actorId),
+    requireThat(request&&context&&
+      typeof request.actorId==="string"&&IDENT.test(request.actorId)&&
+      request.actorId===context.actor_id,
       "T3_ACCESS_VAULT_SUBJECT_MISMATCH");
+    if(organizationId===null){
+      requireThat(context.kind==="PERSONAL"&&
+        context.organization_id===null&&
+        request.principalId===request.actorId,
+        "T3_ACCESS_VAULT_SUBJECT_MISMATCH");
+      // PERSONAL callers may omit credentialKeyId; they still cannot
+      // substitute an unrelated signer if it is present.
+      requireThat(credentialKeyId===undefined||credentialKeyId===keyId,
+        "T3_ACCESS_VAULT_CREDENTIAL_MISMATCH");
+    }else{
+      // The trusted Host pins a distinct organization + credential key.
+      // Neither the browser nor a stale corporate context can select a key
+      // from a different issuer, membership, grant or Workspace.
+      requireThat(context.kind==="CORP"&&
+        context.organization_id===organizationId&&
+        context.principal_id===organizationId&&
+        request.principalId===organizationId&&
+        context.workspace_id===context.resource&&
+        request.resource===context.workspace_id&&
+        request.grantId===context.grant_id&&
+        request.roleId===context.role_id&&
+        request.audience===context.audience&&
+        request.realmId===context.realm_id&&
+        request.purpose===context.purpose,
+        "T3_ACCESS_VAULT_ORGANIZATION_MISMATCH");
+      requireThat(credentialKeyId===keyId,
+        "T3_ACCESS_VAULT_CREDENTIAL_MISMATCH");
+    }
     requireThat(typeof challenge==="string"&&challenge.length>=16,
       "T3_ACCESS_VAULT_CHALLENGE_REQUIRED");
     const now=Date.parse(asOf);
@@ -41,7 +75,8 @@ export function createOriginalVaultProofSigner({
     try{
       encrypted=await readEncryptedVault();
       passphrase=await unlockPassphrase({
-        actorId:context.actor_id,keyId,asOf,
+        actorId:context.actor_id,keyId,
+        organizationId,asOf,
       });
     }catch{refuse("T3_ACCESS_VAULT_UNAVAILABLE");}
     const record=typeof encrypted==="string"?strictJson(encrypted):encrypted;

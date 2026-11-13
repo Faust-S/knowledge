@@ -19,6 +19,9 @@ function signer(keyId,subjectId,uses){
   const {publicKey,privateKey}=generateKeyPairSync("ed25519");
   return {
     sign:keyObjectSigner(keyId,privateKey),
+    // Public test fixture only: imported into the ORIGINAL encrypted vault
+    // by the trusted Host. Never copied into compiled AppShell or dist.
+    privateKeyPem:privateKey.export({type:"pkcs8",format:"pem"}).toString(),
     record:{subjectId,environment:"TEST",
       publicKey:publicKey.export({type:"spki",format:"pem"}).toString(),
       status:"ACTIVE",uses,notBefore:iso(NOW-3600000),
@@ -171,7 +174,9 @@ export function model({operations=["t1.putObject"]}={}){
       organization_id:org,scope_revision:1,
     };
     all[short]={context,profile,selection,descriptors,issuedCredential,
-      enrollment,credentialSigner:credential.sign,status,issuerSigner:issuer.sign};
+      enrollment,credentialSigner:credential.sign,
+      credentialPrivateKeyPem:credential.privateKeyPem,
+      status,issuerSigner:issuer.sign};
   }
   const policy={
     schema:PROFILE,id:"policy:two-org",version:"v1",

@@ -5,8 +5,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {generateKeyPairSync} from "node:crypto";
-import {PROFILE,iso,digest,signRecord,keyObjectSigner,makeProof}
+import {PROFILE,iso,digest,signRecord,keyObjectSigner}
   from "../src/t3/access/core.mjs";
+import {emptyVault,importVaultKey,encryptVault}
+  from "../src/t3/access/local-vault.mjs";
+import {createOriginalVaultProofSigner}
+  from "../src/t3/access/original-vault-proof.mjs";
 import {PRODUCT_CONTRACT_IDS}
   from "../src/t3/access/product-contracts.mjs";
 import {signOrganizationEnrollment,createOrganizationalOperationGate}
@@ -25,6 +29,51 @@ test("two genuine signed organizations retain independent original Access rights
   timeout:30000
 },async()=>{
   const fixture=model(),kernel=originalKernelFixture();
+  // Both separate organization-issued keys live in the SAME encrypted
+  // original Vault. No test-only in-memory signer is used for JIT proofs.
+  const vault=emptyVault();
+  for(const entry of Object.values(fixture.all)){
+    const keyId=entry.issuedCredential.publicKeyRef;
+    importVaultKey(vault,{keyId,subjectId:entry.context.actor_id,
+      privateKeyPem:entry.credentialPrivateKeyPem,
+      expectedPublicKeyPem:fixture.policy.keys[keyId].publicKey});
+  }
+  const encrypted=encryptVault(vault,"TEST_ONLY_CORP_CREDENTIAL_PASSPHRASE");
+  const credentialSigners=Object.fromEntries(
+    Object.values(fixture.all).map(entry=>[
+      entry.context.organization_id,createOriginalVaultProofSigner({
+        keyId:entry.issuedCredential.publicKeyRef,
+        organizationId:entry.context.organization_id,
+        readEncryptedVault:async()=>encrypted,
+        unlockPassphrase:async()=> "TEST_ONLY_CORP_CREDENTIAL_PASSPHRASE",
+      }),
+    ]));
+  const signer=credentialSigners["org:north"];
+  const wrongOrg=fixture.all.south.context;
+  const badRequest={
+    actorId:wrongOrg.actor_id,principalId:wrongOrg.principal_id,
+    grantId:wrongOrg.grant_id,resource:wrongOrg.resource,
+    roleId:wrongOrg.role_id,audience:wrongOrg.audience,
+    realmId:wrongOrg.realm_id,purpose:wrongOrg.purpose,
+  };
+  await assert.rejects(signer({
+    request:badRequest,context:wrongOrg,
+    credentialKeyId:fixture.all.north.issuedCredential.publicKeyRef,
+    challenge:"test-unique-corporate-challenge",asOf:iso(NOW),
+  }),{code:"T3_ACCESS_VAULT_ORGANIZATION_MISMATCH"});
+  const northContext=fixture.all.north.context;
+  const northRequest={
+    actorId:northContext.actor_id,
+    principalId:northContext.principal_id,
+    grantId:northContext.grant_id,resource:northContext.resource,
+    roleId:northContext.role_id,audience:northContext.audience,
+    realmId:northContext.realm_id,purpose:northContext.purpose,
+  };
+  await assert.rejects(signer({
+    request:northRequest,context:northContext,
+    credentialKeyId:fixture.all.south.issuedCredential.publicKeyRef,
+    challenge:"test-unique-corporate-challenge",asOf:iso(NOW),
+  }),{code:"T3_ACCESS_VAULT_CREDENTIAL_MISMATCH"});
   const registry=createOriginalKernelRegistryStatePort({
     kernel:kernel.api,workspaceId:"ws:host-registry",
     trustedPolicy:fixture.policy,clock:time,
@@ -58,8 +107,9 @@ test("two genuine signed organizations retain independent original Access rights
           .find(x=>x.context.organization_id===context.organization_id);
         assert.equal(credentialKeyId,item.issuedCredential.publicKeyRef);
         proofs++;
-        return makeProof(request,challenge,Date.parse(asOf),
-          item.credentialSigner,"TEST");
+        return credentialSigners[context.organization_id]({
+          request,challenge,credentialKeyId,context,asOf,
+        });
       },
     },
   });
@@ -104,6 +154,7 @@ test("two genuine signed organizations retain independent original Access rights
     originalSignedGrants:2,originalSignedEnrollments:2,
     originalKernelContract:"1.3.0",revokedNorth:true,southUnaffected:true,
     forgedOwnerPortRejected:true,encryptedVaultNotInBrowser:true,
+    twoSeparateCredentialsRecoveredFromOriginalEncryptedVault:true,
     installedAppAccepted:false,realKernelBrowserQualified:false,
   }));
 });

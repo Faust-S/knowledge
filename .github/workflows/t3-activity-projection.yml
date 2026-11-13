@@ -9,6 +9,7 @@ on:
       - work/2026-11-13-t3-d1-personal-signed-appshell
       - work/2026-11-13-t3-d1-corporate-original-access
       - work/2026-11-13-t3-d1-two-corp-compiled-appshell
+      - work/2026-11-13-t3-d1-corp-existing-vault
       - work/2026-11-13-t3-pwa-integration
       - work/2026-11-13-t3-d1-native-owner-http
     paths:
@@ -194,6 +195,24 @@ jobs:
         env:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
         run: node tests/t3-d5-full-bli.browser.mjs
+
+  windows-credential:
+    # This verifies the native Windows Node crypto + filesystem behavior of
+    # the SAME original encrypted T3 vault and corporate JIT Access owner.
+    # It is NOT a test of installed Tauri/Windows Control or OS key custody.
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Windows real Ed25519 encrypted-vault PERSONAL and two CORP credentials
+        run: node --test packages/t3-core/tests/t3-d1-original-vault.test.mjs
+      - name: Windows two genuinely signed CORP enrollments on original AccessRegistry
+        run: node --test packages/t3-core/tests/t3-d1-two-corporate-original-access.test.mjs
+      - name: Windows original signed Control HTTP transport (Node host only)
+        run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs
 
   metal-webgpu:
     # A macOS runner was not allocated at all in #43233365753 (0 steps,
