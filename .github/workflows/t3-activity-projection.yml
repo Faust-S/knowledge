@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/2026-11-10-t3-t2-activity-projection
+      - work/2026-11-13-t3-d1-two-cold-hosts-and-handoff
       - work/2026-11-13-t3-remove-unauthorized-control-app
       - work/2026-11-13-t3-d1-original-registry-store
       - work/2026-11-13-t3-d1-cold-host-process
@@ -163,7 +164,7 @@ jobs:
         env:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
         run: node --test tests/t3-d1-original-control-kernel.browser.mjs
-      - name: Confirm original Kernel signed STATUS and encrypted vault survive entire Node Host process restart
+      - name: Confirm original Kernel signed STATUS survives TWO cold Node Host process restarts
         working-directory: packages/t3-core
         env:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
