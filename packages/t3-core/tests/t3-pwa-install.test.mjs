@@ -20,7 +20,7 @@ function fixture() {
   return root;
 }
 const clean=root=>rmSync(root,{recursive:true,force:true});
-const manifest=root=>JSON.parse(readFileSync(join(root,"t3-app.webmanifest"),"utf8"));
+const manifest=root=>JSON.parse(readFileSync(join(root,"t3-app-manifest.json"),"utf8"));
 test("T3 install app: one dist, standalone identity and two valid PNG icon sizes",()=>{
   const root=fixture();
   try {
@@ -46,11 +46,11 @@ test("T3 install app: one dist, standalone identity and two valid PNG icon sizes
     }
     const html=readFileSync(join(root,"index.html"),"utf8");
     assert.equal((html.match(/rel="manifest"/g)||[]).length,1);
-    assert.match(html,/<head>[^]*href="\/t3-app.webmanifest"/);
-    assert.match(readFileSync(join(root,"workspace/index.html"),"utf8"),/t3-app.webmanifest/);
+    assert.match(html,/<head>[^]*href="\/t3-app-manifest.json"/);
+    assert.match(readFileSync(join(root,"workspace/index.html"),"utf8"),/t3-app-manifest.json/);
     assert.equal(readFileSync(join(root,"site.webmanifest"),"utf8"),original);
     const offline=JSON.parse(readFileSync(join(root,"t3-offline-manifest.json"),"utf8"));
-    for(const path of ["/t3-app.webmanifest","/_iwxa/pwa/icon-192.png",
+    for(const path of ["/t3-app-manifest.json","/_iwxa/pwa/icon-192.png",
         "/_iwxa/pwa/icon-512.png"]) {
       assert.ok(offline.files.some(item=>item.path===path),"single-dist cache "+path);
     }
