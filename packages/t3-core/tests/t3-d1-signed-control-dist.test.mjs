@@ -21,6 +21,8 @@ function fixture(){
   put(t2,'workspace/index.html','<p>Original T2 unchanged</p>');
   put(t2,'workspace/assets/original.js','Original T2 chunk');
   put(t3,'signed-workspace.html','<base href="/workspace/"><script type="module" src="/workspace/assets/signed-123.js"></script>');
+  put(t3,'isolated-signed-workspace.html','<base href="/workspace/"><script type="module" src="/workspace/assets/signed-123.js"></script>');
+  put(t3,'trusted-kernel-realm.html','<base href="/workspace/"><script type="module" src="/workspace/assets/signed-123.js"></script>');
   put(t3,'assets/signed-123.js','console.log("signed")');
   put(t3,'assets/shared-456.css','body{}');
   put(t3,'favicon.ico','icon');
@@ -35,6 +37,11 @@ test('assemble installed Control one-dist from original Kernel, preserving every
     assert.equal(result.origin,'http://127.0.0.1:18883');
     assert.equal(result.original_runtime_unchanged,true);
     assert.equal(result.signed_assets,2);
+    assert.equal(result.isolated_realm_entries,true);
+    assert.equal(readFileSync(join(f.out,'workspace/isolated-signed-workspace.html'),'utf8'),
+      readFileSync(join(f.t3,'isolated-signed-workspace.html'),'utf8'));
+    assert.equal(readFileSync(join(f.out,'workspace/trusted-kernel-realm.html'),'utf8'),
+      readFileSync(join(f.t3,'trusted-kernel-realm.html'),'utf8'));
     assert.equal(readFileSync(join(f.out,'workspace/index.html'),'utf8'),'<p>Original T2 unchanged</p>');
     assert.equal(readFileSync(join(f.out,'_iwxa/runtime/0.3.6/runtime.js'),'utf8'),'original Kernel 0.3.6');
     assert.equal(readFileSync(join(f.out,'workspace/assets/signed-123.js'),'utf8'),'console.log("signed")');
