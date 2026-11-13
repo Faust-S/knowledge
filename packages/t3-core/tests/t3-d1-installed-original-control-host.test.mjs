@@ -184,20 +184,52 @@ test("native original Host requires explicitly confirmed PERSONAL choice before 
       subscribeInvalidation:session.subscribeInvalidation,
     });
     const ready=await native.listen();
+    const epochFor=async bearer=>fetch(origin+"/api/t3/context-epoch",{
+      headers:{Authorization:"Bearer "+bearer},
+    });
     assert.throws(()=>native.signedWorkspaceLaunchUrl(),
       {code:"T3_D1_INSTALLED_HOST_SUBJECT_SESSION_NOT_SELECTED"});
+    assert.equal((await (await epochFor(token)).json()).contextEpoch,1);
+    // Existing signed Control SSE tells the previous UI to tear down; the
+    // old bearer must then be unusable even to ask for the new epoch.
+    const stream=await fetch(origin+"/api/t3/owner-events",{
+      headers:{Authorization:"Bearer "+token,Accept:"text/event-stream"},
+    });
+    assert.equal(stream.status,200);
+    const reader=stream.body.getReader(),decoder=new TextDecoder();
+    const readyEvent=await reader.read();
+    assert.match(decoder.decode(readyEvent.value),/event: ready/);
     await session.selectContext({
       selectionId:"personal",userConfirmed:true,
     });
+    const invalidated=await reader.read();
+    assert.match(decoder.decode(invalidated.value),/event: invalidated/);
+    const personalBearer=native.signedWorkspaceLaunchUrl().split("#")[1];
     assert.equal(native.signedWorkspaceLaunchUrl(),
-      ready.uiOrigin+"/workspace/#"+token);
+      ready.uiOrigin+"/workspace/#"+personalBearer);
+    assert.notEqual(personalBearer,token);
+    assert.equal((await epochFor(token)).status,401,
+      "old subject bearer cannot fetch new Control epoch");
+    assert.equal((await (await epochFor(personalBearer)).json()).contextEpoch,2);
     session.invalidateSignedState();
     assert.throws(()=>native.signedWorkspaceLaunchUrl(),
       {code:"T3_D1_INSTALLED_HOST_SUBJECT_SESSION_NOT_SELECTED"});
-    assert.equal((await fetch(origin+"/api/t3/context-epoch",{
-      headers:{Authorization:"Bearer "+token},
-    }).then(r=>r.json())).contextEpoch,3);
-    console.log("T3_D1_NATIVE_CONTEXT_MENU_HOST_REQUIRES_EXPLICIT_SELECTION_PASS");
+    assert.equal((await epochFor(personalBearer)).status,401);
+    await session.selectContext({
+      selectionId:"personal",userConfirmed:true,
+    });
+    const newBearer=native.signedWorkspaceLaunchUrl().split("#")[1];
+    assert.notEqual(newBearer,token);
+    assert.notEqual(newBearer,personalBearer);
+    assert.equal((await (await epochFor(newBearer)).json()).contextEpoch,4);
+    await reader.cancel();
+    console.log("T3_D1_NATIVE_CONTEXT_MENU_BEARER_ROTATION_PASS",JSON.stringify({
+      initialBearerRefusedAfterSelection:true,
+      previousBearerRefusedAfterRevocation:true,
+      originalControlSseInvalidated:true,
+      newSignedSessionEpoch:4,
+      sameOriginalControlAndKernel:true,
+    }));
   }finally{
     await native?.close();
     session.close();
