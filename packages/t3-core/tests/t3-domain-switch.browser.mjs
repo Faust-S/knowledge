@@ -146,6 +146,18 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     assert.equal(await profileWitness(page,"write"),"saved");
     assert.equal(await profileWitness(companion,"read"),"same-origin-persistent-result",
       "site and separate same-profile window share the original browser storage");
+    const automatic=page.locator("#iwxa-t3-auto-check-updates");
+    assert.equal(await automatic.isChecked(),false,
+      "automatic network update checks must be off by default");
+    await automatic.check();
+    await companion.waitForFunction(()=>document.querySelector(
+      "#iwxa-t3-auto-check-updates")?.checked===true);
+    await automatic.uncheck();
+    await companion.waitForFunction(()=>document.querySelector(
+      "#iwxa-t3-auto-check-updates")?.checked===false);
+    assert.equal(await page.evaluate(()=>localStorage.getItem(
+      "iwxa.t3.offline.offer-updates.v1")),"off",
+      "update preference persists in the existing same-origin browser profile");
 
     // Rejecting the explicit installation must leave ordinary site unaffected.
     // A checkbox "check()" waits for a permanently checked state, but a
@@ -165,6 +177,11 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
       .hasAttribute("data-iwxa-t3-autonomous"),null,{timeout:60000});
     assert.equal(await toggle.isChecked(),true,"T3 is visibly enabled after full install");
     assert.match(await page.locator("#iwxa-t3-domain-controls").innerText(),/Модель ИИ устанавливается отдельно/);
+    await automatic.check();
+    await page.getByRole("status").filter({hasText:/актуальную|актуальна|недоступна/}).waitFor();
+    assert.equal(await page.getByRole("button",{name:"Установить обновление"}).isVisible(),
+      false,"automatic opt-in checks availability but never installs an update");
+    await automatic.uncheck();
     await companion.getByRole("button",{name:"Применить изменения в этом окне"})
       .waitFor({state:"visible",timeout:15000});
     await companion.locator("#a").fill("19");
