@@ -547,6 +547,7 @@ try{
     shell:!!document.querySelector('[data-t2-ui="workspace"]'),
     selectedGate:!!document.querySelector('[data-testid="t3-d1-selected-workspace-gate"]'),
     reconnect:!!document.querySelector('[data-testid="t3-isolated-control-reconnect"]'),
+    errorCode:document.querySelector('#root')?.getAttribute('data-t3-error-code'),
     runtimeError:!!document.querySelector('[data-t2-ui="product-error"]'),
     rootText:document.querySelector('#root')?.textContent?.slice(0,400)??'',
     iframeCount:document.querySelectorAll('iframe').length,

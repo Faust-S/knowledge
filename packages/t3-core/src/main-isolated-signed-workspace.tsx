@@ -97,8 +97,12 @@ async function launch(){
       stopEntrySubscription();
       root.unmount();client.close();frame?.remove();
     },{once:true});
-  }catch{
+  }catch(e){
     frame?.remove();
+    const code=e&&typeof e==="object"&&"code" in e&&
+      typeof e.code==="string"&&/^[A-Z0-9_]{5,100}$/.test(e.code)
+        ?e.code:"T3_D1_ISOLATED_LAUNCH_FAILED";
+    target!.setAttribute("data-t3-error-code",code);
     target!.setAttribute("data-testid","t3-isolated-control-reconnect");
     target!.textContent="Не удалось открыть изолированную подписанную Workspace. "+
       "Проверьте локальный Control и откройте её повторно из него.";
