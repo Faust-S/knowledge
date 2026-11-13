@@ -51,8 +51,13 @@ export function createOriginalVaultProofSigner({
         context.organization_id===organizationId&&
         context.principal_id===organizationId&&
         request.principalId===organizationId&&
-        context.workspace_id===context.resource&&
-        request.resource===context.workspace_id&&
+        // Non-Kernel RAG/Skill operations may address a separate Host-
+        // selected resource in this corporate Workspace. The signed Host
+        // insists it matches the JIT request. The original Kernel adapter
+        // independently rejects resource != workspace for Kernel methods.
+        typeof context.workspace_id==="string"&&IDENT.test(context.workspace_id)&&
+        typeof context.resource==="string"&&IDENT.test(context.resource)&&
+        request.resource===context.resource&&
         request.grantId===context.grant_id&&
         request.roleId===context.role_id&&
         request.audience===context.audience&&
