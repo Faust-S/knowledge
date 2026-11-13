@@ -36,6 +36,7 @@ import { HostPanelSurface } from "../workspace-host/rendering/HostPanelSurface";
 import { HostModuleNavigation } from "../workspace-host/rendering/HostModuleNavigation";
 import { createKernelFacade } from "../workspace-host/context/create-kernel-facade";
 import { FirstRunWorkspaceGate } from "../workspace-host/bootstrap/FirstRunWorkspaceGate";
+import { SignedSelectedWorkspaceGate } from "../workspace-host/bootstrap/SignedSelectedWorkspaceGate";
 import type { KernelFacade, ProfileFacade } from "../workspace-contract";
 import {
   hostRouteMatchToBreadcrumbRoute,
@@ -325,7 +326,7 @@ function HostShellContent(props: HostShellContentProps) {
                 )}
               </div>
             ) : (
-              <>
+              <SignedSelectedWorkspaceGate required={signedOwnerRequired} kernel={kernel}>
                 {productFirst && <HostPanelSurface slot="sidebar" />}
                 <HostDashboardSurface />
                 <ModuleRouteOutlet
@@ -333,7 +334,7 @@ function HostShellContent(props: HostShellContentProps) {
                   profileFallback={profileFallback}
                   presentation={productFirst ? "product" : "host"}
                 />
-              </>
+              </SignedSelectedWorkspaceGate>
             )}
             <HostPanelSurface slot="inspector" />
           </FirstRunWorkspaceGate>
