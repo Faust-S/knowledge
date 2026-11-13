@@ -1292,6 +1292,11 @@ try{
     assert.equal(await panel.getByRole('button',
       {name:'Скачать и запустить'}).isDisabled(),true);
     await panel.getByRole('button',{name:'Найти рабочие области'}).click();
+    // The module performs an async, original signed Kernel read. A DOM
+    // snapshot immediately after click races that read on a fast CI runner.
+    await panel.getByLabel('Workspace для локальной модели')
+      .locator('option[value="'+ws+'"]')
+      .waitFor({state:'attached',timeout:30000});
     const options=await panel.getByLabel('Workspace для локальной модели')
       .locator('option').evaluateAll(nodes=>nodes.map(node=>node.value));
     assert.equal(options.includes('ws:'+(short==='north'?'south':'north')),
