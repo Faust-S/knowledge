@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: t3-activity-projection-${{ github.ref }}
+  group: t3-activity-projection-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
