@@ -523,6 +523,12 @@ class Agent05GraphReceipt(unittest.TestCase):
         b["artifact"] = with_digest(b["artifact"], "artifact_digest")
         b["run"]["model_observation"]["source_revision"] = b["artifact"]["artifact_digest"]
         b["receipt"]["artifact_digest"] = b["artifact"]["artifact_digest"]
+        b["event"]["execution_id"] = b["artifact"]["execution_id"]
+        b["event"]["output_digest"] = b["artifact"]["artifact_digest"]
+        b["event"]["evidence_refs"][0] = (
+            "graph-node-artifact:" + b["artifact"]["artifact_digest"])
+        b["event"] = with_digest(b["event"], "event_digest")
+        b["receipt"]["completion_event_digest"] = b["event"]["event_digest"]
         b["receipt"] = with_digest(b["receipt"], "receipt_digest")
         result = compare(a, b, include_execution_receipts=True)
         self.assertEqual(result["status"], "NOT_COMPARABLE")
