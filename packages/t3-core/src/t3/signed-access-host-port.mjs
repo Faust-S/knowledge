@@ -7,6 +7,10 @@ const HEX = /^[a-f0-9]{64}$/;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const OWNER_FIELDS = ["actorId","principalId","roleId","grantId","audience",
   "resource","action","purpose","realmId"];
+const CONTEXT_BINDINGS = ["kind","context_id","actor_id","principal_id","role_id",
+  "grant_id","realm_id","audience","resource","purpose","workspace_id",
+  "organization_id","scope_revision"];
+const contextIdentity = context => JSON.stringify(CONTEXT_BINDINGS.map(k => context?.[k]));
 
 function deny(code) {
   const e = new Error(code);
@@ -37,11 +41,17 @@ function sameRequestFields(actual, expected) {
 // by this adapter, and no signer or registry is exposed in the returned port.
 export function createSignedAccessHostPort({
   currentContext, actionFor, operationDigest, canonicalDigest,
-  personal, corporate, clock = Date.now, randomUUID = () => globalThis.crypto?.randomUUID(),
+  personal, corporate, resourceRead = null,
+  clock = Date.now, randomUUID = () => globalThis.crypto?.randomUUID(),
 } = {}) {
   for (const item of [currentContext, actionFor, operationDigest, canonicalDigest, clock, randomUUID]) {
     requireThat(typeof item === "function", "T3_OWNER_HOST_CALLBACK_REQUIRED");
   }
+  // Only an installed/trusted product Host may supply its existing
+  // READ_ONLY ToolRuntime/knowledge provider. A model or Skill cannot
+  // register a handler, and this never calls consequential ToolRuntime.execute.
+  requireThat(resourceRead === null || typeof resourceRead === "function",
+    "T3_OWNER_RESOURCE_READ_INVALID");
   // A PERSONAL installation must work without Admin Center or organizational
   // enrollment. Requiring both owners would break autonomous T3 local work.
   const hasPersonal = typeof personal?.check === "function";
@@ -163,11 +173,103 @@ export function createSignedAccessHostPort({
         decision.operationDigest === record.expectedOperationDigest));
   }
 
+  // Execution-side guard for the existing read-only provider, not a new
+  // ToolRuntime, IAM, scheduler or Store. Host constructs the complete signed
+  // request from immutable arguments and its own selected resource. The
+  // provider never sees issuer private keys or receives an unsigned grant.
+  async function readAuthorizedResource(operation, argumentsInput) {
+    requireThat(resourceRead !== null, "T3_OWNER_RESOURCE_READ_UNAVAILABLE");
+    requireThat(typeof operation === "string" && ID.test(operation),
+      "T3_OWNER_RESOURCE_OPERATION_INVALID");
+    let args, context;
+    try {
+      args = structuredClone(argumentsInput);
+      context = structuredClone(currentContext());
+    } catch {
+      deny("T3_OWNER_RESOURCE_INPUT_NOT_CLONEABLE");
+    }
+    requireThat(args && typeof args === "object" && !Array.isArray(args),
+      "T3_OWNER_RESOURCE_ARGUMENTS_INVALID");
+    requireThat(context && typeof context === "object" &&
+      Number.isSafeInteger(context.scope_revision) && context.scope_revision > 0 &&
+      ID.test(context.resource??"") && ID.test(context.workspace_id??""),
+      "T3_OWNER_RESOURCE_CONTEXT_INVALID");
+    const selected = contextIdentity(context);
+    const action = await actionFor(operation);
+    requireThat(typeof action === "string" && ID.test(action),
+      "T3_OWNER_RESOURCE_ACTION_INVALID");
+    // The original Host digest implementation binds these precise arguments.
+    const operationHash = await operationDigest({operation,input:args,context});
+    requireThat(typeof operationHash === "string" && HEX.test(operationHash),
+      "T3_OWNER_RESOURCE_DIGEST_INVALID");
+    const request = Object.freeze({
+      id:"t3-"+randomUUID(),actorId:context.actor_id,
+      principalId:context.principal_id,roleId:context.role_id,
+      grantId:context.grant_id,audience:context.audience,
+      resource:context.resource,action,purpose:context.purpose,
+      realmId:context.realm_id,operationDigest:operationHash,
+    });
+    const assertReadDecision = async decision => {
+      requireThat(await verifyDecisionBinding(request,decision) === true,
+        "T3_OWNER_RESOURCE_DECISION_UNBOUND");
+      requireThat(decision.allowed === true && decision.outcome === "PERMITTED" &&
+        decision.evidenceOnly === true &&
+        Number.isSafeInteger(decision.statusSequence) &&
+        decision.statusSequence >= 0 &&
+        Number.isFinite(Date.parse(decision.validUntil)) &&
+        Date.parse(decision.validUntil) > clock(),
+        "T3_OWNER_RESOURCE_ACCESS_NOT_PERMITTED");
+      if(context.kind === "CORP") {
+        requireThat(decision.schema === ORGANIZATION &&
+          decision.organizationId === context.organization_id &&
+          decision.workspaceId === context.workspace_id &&
+          decision.grantId === context.grant_id &&
+          decision.doesNotTransferData === true,
+          "T3_OWNER_RESOURCE_CORPORATE_SCOPE_MISMATCH");
+      } else {
+        requireThat(decision.schema === DIRECT &&
+          decision.authorityPath?.at(-1)?.grantId === context.grant_id,
+          "T3_OWNER_RESOURCE_PERSONAL_SCOPE_MISMATCH");
+      }
+      requireThat(contextIdentity(currentContext()) === selected,
+        "T3_OWNER_RESOURCE_CONTEXT_CHANGED");
+    };
+    const decision = await authorize(request);
+    await assertReadDecision(decision);
+    // This callback must be the existing read-only provider's read() path,
+    // never an external-effect ToolRuntime.execute() without Human Review.
+    const result = await resourceRead({
+      operation,arguments:structuredClone(args),context:structuredClone(context)
+    });
+    // A read can finish after a context switch or a delivered revocation.
+    // Recheck the CURRENT signed grant/status with fresh proof before exposing
+    // its content. In-flight provider access cannot be retroactively undone.
+    requireThat(contextIdentity(currentContext()) === selected,
+      "T3_OWNER_RESOURCE_CONTEXT_CHANGED");
+    const refreshed = await authorize(request);
+    await assertReadDecision(refreshed);
+    let data;
+    try { data=structuredClone(result); }
+    catch { deny("T3_OWNER_RESOURCE_RESULT_NOT_CLONEABLE"); }
+    const outputDigest = digestFrom(canonicalDigest,data);
+    return Object.freeze({
+      data,authorization:Object.freeze({
+        requestDigest:refreshed.requestDigest,
+        policyDigest:refreshed.policyDigest,
+        statusSequence:refreshed.statusSequence,
+        validUntil:refreshed.validUntil,
+        resource:context.resource,action,actorId:context.actor_id,
+        operationDigest:operationHash,outputDigest,
+      })
+    });
+  }
+
   return Object.freeze({
     currentContext,
     actionFor,
     operationDigest,
     authorize,
     verifyDecisionBinding,
+    readAuthorizedResource,
   });
 }
