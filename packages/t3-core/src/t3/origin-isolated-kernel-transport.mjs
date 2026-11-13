@@ -13,7 +13,7 @@ const METHODS=new Set([
   'authorizationForWorkspace','hasCapability','hasOperation',
   // Metadata and T0 validation do not touch the Store; all T1/T2 operations
   // still require the exact signed original KernelFacade in the trusted realm.
-  'describeSession','validateObjects',
+  'describeSession','validateObjects','selectedWorkspaceContext',
 ]);
 const LOCAL_ORIGIN=/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/;
 const fail=code=>Object.assign(new Error(code),{code});
@@ -26,7 +26,8 @@ export const ALLOWED_ISOLATED_KERNEL_METHODS=Object.freeze([...METHODS]);
 // Called by the trusted Kernel-origin HTML only. A cross-origin page may send
 // MessagePorts, but cannot forge the browser's event.origin or source.
 export function acceptOriginalKernelRealmChannel({event,uiOrigin,parentWindow,
-  createSignedFacade,isActive,describeOriginalSession,validateOriginalObjects}={}){
+  createSignedFacade,isActive,describeOriginalSession,validateOriginalObjects,
+  selectedWorkspaceContext}={}){
   if(!LOCAL_ORIGIN.test(uiOrigin??'')||!object(event?.data)||
      event.data.schema!==SCHEMA||event.data.kind!=='attach'||
      typeof event.data.nonce!=='string'||event.data.nonce.length<16||
@@ -37,7 +38,7 @@ export function acceptOriginalKernelRealmChannel({event,uiOrigin,parentWindow,
     throw fail('T3_D1_TRUSTED_KERNEL_HOST_REQUIRED');
   const port=event.ports[0];
   const receiver=bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
-    describeOriginalSession,validateOriginalObjects});
+    describeOriginalSession,validateOriginalObjects,selectedWorkspaceContext});
   port.postMessage({schema:SCHEMA,kind:'ready',nonce:event.data.nonce});
   return receiver;
 }
@@ -45,7 +46,7 @@ export function acceptOriginalKernelRealmChannel({event,uiOrigin,parentWindow,
 // The SIGNED KernelFacade is resolved inside the trusted origin on EVERY
 // operation. Never send a raw T2 session, service passport or signer to UI.
 export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
-  describeOriginalSession,validateOriginalObjects}={}){
+  describeOriginalSession,validateOriginalObjects,selectedWorkspaceContext}={}){
   if(!isPort(port)||typeof createSignedFacade!=='function'||
      typeof isActive!=='function')throw fail('T3_D1_TRUSTED_KERNEL_HOST_REQUIRED');
   let closed=false,revoked=false,sequence=0;
@@ -69,6 +70,18 @@ export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
       if(!valid())deny('T3_D1_ORIGINAL_KERNEL_OWNER_UNAVAILABLE');
       if(typeof method!=='string'||!METHODS.has(method))
         deny('T3_D1_ORIGINAL_KERNEL_METHOD_FORBIDDEN');
+      if(method==='selectedWorkspaceContext'){
+        if(typeof selectedWorkspaceContext!=='function')
+          deny('T3_D1_SELECTED_CONTEXT_UNAVAILABLE');
+        const info=await selectedWorkspaceContext(...args);
+        if(!valid()||captured!==sequence)
+          deny('T3_D1_ORIGINAL_KERNEL_CONTEXT_CHANGED');
+        if(info!==null&&(!object(info)||typeof info.workspace_id!=='string'||
+           info.resource!==info.workspace_id||info.kind!=='CORP'))
+          deny('T3_D1_SELECTED_CONTEXT_INVALID');
+        port.postMessage({schema:SCHEMA,kind:'result',id,result:info});
+        return;
+      }
       if(method==='describeSession'||method==='validateObjects'){
         // Only original metadata or side-effect-free T0 validation can bypass
         // the signed facade. Never expose original session functions or Store.
@@ -172,11 +185,14 @@ export function createIsolatedKernelClient({port,isActive=()=>true,timeoutMs=150
 // Control/Kernel port. The browser delivers the transferable MessagePort
 // only to the selected origin, not to the calling UI's arbitrary scripts.
 export async function openOriginalKernelRealm({frame,realmOrigin,channelFactory,
-  nonceFactory=()=>globalThis.crypto.randomUUID(),timeoutMs=5000}={}){
+  sessionToken=null,nonceFactory=()=>globalThis.crypto.randomUUID(),timeoutMs=5000}={}){
   if(!LOCAL_ORIGIN.test(realmOrigin??'')||
      typeof frame?.postMessage!=='function'||
      typeof channelFactory!=='function'||typeof nonceFactory!=='function')
     throw fail('T3_D1_ISOLATED_KERNEL_ORIGIN_REQUIRED');
+  if(sessionToken!==null&&
+     (typeof sessionToken!=='string'||!/^[A-Za-z0-9_-]{40,128}$/.test(sessionToken)))
+    throw fail('T3_D1_TRUSTED_CONTROL_SESSION_REQUIRED');
   const nonce=nonceFactory();
   if(typeof nonce!=='string'||nonce.length<16||nonce.length>128)
     throw fail('T3_D1_ISOLATED_KERNEL_NONCE_REQUIRED');
@@ -186,8 +202,13 @@ export async function openOriginalKernelRealm({frame,realmOrigin,channelFactory,
   try{
     await new Promise((resolve,reject)=>{
       const onMessage=ev=>{
-        if(ev.data?.schema===SCHEMA&&ev.data?.kind==='ready'&&ev.data?.nonce===nonce){
+        if(ev.data?.schema!==SCHEMA||ev.data?.nonce!==nonce)return;
+        if(ev.data.kind==='ready'){
           clearTimeout(timer);port1.removeEventListener?.('message',onMessage);resolve();
+        }else if(ev.data.kind==='error'){
+          clearTimeout(timer);port1.removeEventListener?.('message',onMessage);
+          reject(fail(typeof ev.data.code==='string'&&/^[A-Z0-9_]{5,100}$/.test(ev.data.code)
+            ?ev.data.code:'T3_D1_TRUSTED_KERNEL_REALM_UNAVAILABLE'));
         }
       };
       port1.addEventListener('message',onMessage);
@@ -196,7 +217,8 @@ export async function openOriginalKernelRealm({frame,realmOrigin,channelFactory,
         port1.removeEventListener?.('message',onMessage);
         reject(fail('T3_D1_ISOLATED_KERNEL_HANDSHAKE_TIMEOUT'));
       },timeoutMs);
-      frame.postMessage({schema:SCHEMA,kind:'attach',nonce},realmOrigin,[port2]);
+      frame.postMessage({schema:SCHEMA,kind:'attach',nonce,
+        ...(sessionToken===null?{}:{bearer:sessionToken})},realmOrigin,[port2]);
     });
     return createIsolatedKernelClient({port:port1});
   }catch(e){clearTimeout(timer);port1.close();port2.close();throw e;}
