@@ -370,3 +370,50 @@ test('async signed original Host contexts can still stage a review',async()=>{
   assert.equal(receipt.status,'OWNER_REVIEW_DRAFT');
   assert.equal(f.state.writeCalls,1);
 });
+
+test('corporate epoch change after original Kernel commit is uncertain, never retried',async()=>{
+  const f=fixture(),ownerListeners=new Set(),deriveListeners=new Set();
+  let epoch=1,entered=null,release=null;
+  const enteredWrite=new Promise(resolve=>{entered=resolve});
+  const original=f.options.sourceContext.kernel.putObject;
+  f.options.sourceContext.kernel.putObject=async input=>{
+    entered();
+    await new Promise(resolve=>{release=resolve});
+    return original.call(f.options.sourceContext.kernel,input);
+  };
+  const control={
+    snapshot:()=>({context:'ORGANIZATION',contextId:'org:cehovod',contextEpoch:epoch}),
+    signedActivityAccess:()=>f.options.sourceSignedAccess,
+    subscribeInvalidation(fn){ownerListeners.add(fn);return()=>ownerListeners.delete(fn);},
+  };
+  const bridge=bindT3ControlActivityReview({
+    control,context:f.options.sourceContext,bindings:f.options.bindings,
+    createSignedAccessHostPort:core.createSignedAccessHostPort,
+    readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
+    derivation:{
+      targetContext:f.options.targetContext,targetSignedAccess:f.options.targetSignedAccess,
+      createSubjectKernelBinding:core.createSubjectKernelBinding,
+      subscribeOwnerInvalidation(fn){deriveListeners.add(fn);return()=>deriveListeners.delete(fn);},
+    },
+  });
+  const first=bridge.port.stageSelected();
+  await enteredWrite;
+  await assert.rejects(bridge.port.stageSelected(),
+    {code:'T3_CONTROL_ACTIVITY_STAGE_IN_PROGRESS'});
+  epoch++;
+  for(const listener of ownerListeners)listener();
+  release();
+  await assert.rejects(first,error=>{
+    assert.equal(error.code,'T3_ACTIVITY_WRITE_MAY_HAVE_COMMITTED');
+    assert.equal(Object.hasOwn(error,'object_id'),false);
+    assert.equal(Object.hasOwn(error,'cause_code'),false);
+    return true;
+  });
+  assert.equal(f.state.writeCalls,1);
+  assert.equal(f.saved.size,1,'the first original commit is preserved, not retried');
+  bridge.dispose();
+  assert.equal(ownerListeners.size,0);
+  assert.equal(deriveListeners.size,0);
+  assert.equal(f.listeners[0].size,0);
+  assert.equal(f.listeners[1].size,0);
+});
