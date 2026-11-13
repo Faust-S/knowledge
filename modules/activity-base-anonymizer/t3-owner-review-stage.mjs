@@ -5,8 +5,15 @@
 import {inspectSelectedT3Activity, T3ActivityHold,
   T3_SELECTED_VIEW_SCHEMA} from './t3-selected-host.mjs';
 
+const frozen=value=>{
+  if(value!==null&&typeof value==='object'){
+    for(const child of Object.values(value))frozen(child);
+    Object.freeze(value);
+  }
+  return value;
+};
 export const T3_ACTIVITY_OWNER_REVIEW_SCHEMA = 'iwxa.activity.process-review';
-export const T3_ACTIVITY_OWNER_REVIEW_DECLARATION = Object.freeze({
+export const T3_ACTIVITY_OWNER_REVIEW_DECLARATION = frozen({
   schema_id:T3_ACTIVITY_OWNER_REVIEW_SCHEMA,
   schema_version:'1.0.0', preserve_unknown:false,
   json_schema:{
@@ -55,7 +62,7 @@ export const T3_ACTIVITY_OWNER_REVIEW_DECLARATION = Object.freeze({
  * package export/import is explicitly unavailable from this service.
  * Source Workspace reads use the separately signed existing Host owner.
  */
-export const T3_ACTIVITY_OWNER_REVIEW_PASSPORT = Object.freeze({
+export const T3_ACTIVITY_OWNER_REVIEW_PASSPORT = frozen({
   service_id:'iwxa.activity.reviewer',
   service_version:'1.0.0',
   base_path:'/workspace/activity/',

@@ -428,6 +428,10 @@ test('actual T2 Runtime 1.3.0 service passport declares private-only review data
   for(const key of sourceSchema.required) assert.ok(Object.hasOwn(declaration,key),key);
   for(const key of passportSchema.required) assert.ok(Object.hasOwn(passport,key),key);
   assert.equal(declaration.schema_id,T3_ACTIVITY_OWNER_REVIEW_SCHEMA);
+  assert.equal(Object.isFrozen(declaration.json_schema.properties.candidate),true);
+  assert.equal(Object.isFrozen(passport.permissions),true);
+  assert.equal(Object.isFrozen(passport.permissions.packages),true);
+  assert.equal(Object.isFrozen(passport.permissions.objects.write),true);
   assert.equal(passport.schemas[T3_ACTIVITY_OWNER_REVIEW_SCHEMA],declaration);
   assert.equal(passport.service_id,'iwxa.activity.reviewer');
   assert.deepEqual(passport.output_object_types,[T3_ACTIVITY_OWNER_REVIEW_SCHEMA]);
