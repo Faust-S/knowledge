@@ -12,6 +12,7 @@ on:
       - work/2026-11-13-t3-d1-corp-existing-vault
       - work/2026-11-13-t3-pwa-integration
       - work/2026-11-13-t3-d1-native-owner-http
+      - work/2026-11-13-t3-d1-windows-dpapi-custody
     paths:
       - packages/t3-core/src/t3/activity/**
       - packages/t3-core/**
@@ -211,6 +212,10 @@ jobs:
         run: node --test packages/t3-core/tests/t3-d1-original-vault.test.mjs
       - name: Windows two genuinely signed CORP enrollments on original AccessRegistry
         run: node --test packages/t3-core/tests/t3-d1-two-corporate-original-access.test.mjs
+      - name: Qualify Windows DPAPI CurrentUser original-vault custody and cold-process Ed25519 proof
+        run: |
+          node --check packages/t3-core/src/t3/access/windows-original-vault-custody.mjs
+          node --test packages/t3-core/tests/t3-d1-windows-dpapi-custody.test.mjs
       - name: Windows original signed Control HTTP transport (Node host only)
         run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs
 
