@@ -201,3 +201,123 @@ export function bindT3ControlActivityReview({
     },
   });
 }
+/** Product entry point in the EXISTING trusted T3 Host.
+ * It shares one original Control invalidation stream, resolves the target
+ * from the real signed derive owner, and binds a narrow renderer port.
+ * The source uses the Host's ONE CurrentWorkspaceStore; the target has no
+ * CurrentWorkspaceStore and is NEVER inferred from a UI workspace selector.
+ *
+ * If the surrounding T3 Host already owns the Control SSE subscription,
+ * it MUST supply subscribeExistingInvalidation. Do not attach twice.
+ */
+export async function openOriginalT3ActivityReviewHost({
+  control,context,bindings,readActivityFromWorkspaceContext,
+  createSubjectKernelBinding,subscribeExistingInvalidation=null,
+}={}) {
+  need(control?.requireSignedOwner===true &&
+    callable(control,['signedActivityAccess','subscribeSignedAccessInvalidation']) &&
+    callable(context?.currentWorkspace,['get','subscribe']) &&
+    typeof readActivityFromWorkspaceContext==='function'&&
+    typeof createSubjectKernelBinding==='function'&&
+    (subscribeExistingInvalidation===null||
+      typeof subscribeExistingInvalidation==='function'),
+    'T3_CONTROL_ORIGINAL_HOST_REQUIRED');
+  let epoch=0,closed=false;
+  const listeners=new Set();
+  const notify=()=>{
+    epoch++;
+    for(const fn of [...listeners]){try{fn();}catch{}}
+  };
+  const subscribe=subscribeExistingInvalidation ??
+    (fn=>control.subscribeSignedAccessInvalidation(fn));
+  let stopControl=null,stopSelection=null,bridge=null;
+  try{
+    // Exactly one existing SSE source. No extra Controller, signed issuer or
+    // callback that can create a grant on the authority side.
+    stopControl=subscribe(notify);
+    need(typeof stopControl==='function',
+      'T3_CONTROL_OWNER_INVALIDATION_REQUIRED');
+    stopSelection=context.currentWorkspace.subscribe(()=>{epoch++;});
+    need(typeof stopSelection==='function',
+      'T3_CONTROL_OWNER_INVALIDATION_REQUIRED');
+    const initialEpoch=epoch,selected=context.currentWorkspace.get();
+    need(typeof selected?.workspace_id==='string'&&selected.workspace_id,
+      'T3_CONTROL_SELECTED_WORKSPACE_REQUIRED');
+    const source=await control.signedActivityAccess('activity.read');
+    need(callable(source,['currentContext','actionFor','authorize',
+      'verifyDecisionBinding','operationDigest']),
+      'T3_CONTROL_ACTIVITY_READ_NOT_GRANTED');
+    const readOwner=await source.currentContext();
+    need(record(readOwner)&&readOwner.workspace_id===selected.workspace_id,
+      'T3_CONTROL_ACTIVITY_READ_NOT_GRANTED');
+    const target=await control.signedActivityAccess('activity.derive');
+    let derivation=null;
+    if(target!==null&&target!==undefined){
+      need(callable(target,['currentContext','actionFor','authorize',
+        'verifyDecisionBinding','operationDigest']),
+        'T3_CONTROL_DERIVATION_OWNER_REQUIRED');
+      const signedTarget=await target.currentContext();
+      const samePrincipal=record(signedTarget)&&
+        ['PERSONAL','CORP'].includes(readOwner.kind)&&
+        typeof readOwner.actor_id==='string'&&readOwner.actor_id.length>0&&
+        typeof readOwner.principal_id==='string'&&readOwner.principal_id.length>0&&
+        typeof readOwner.realm_id==='string'&&readOwner.realm_id.length>0&&
+        ['kind','actor_id','principal_id','realm_id','organization_id'].every(
+          key=>readOwner[key]===signedTarget[key]);
+      const distinct=typeof signedTarget?.workspace_id==='string'&&
+        signedTarget.workspace_id.length>0&&
+        signedTarget.workspace_id!==readOwner.workspace_id;
+      const action=await target.actionFor('t1.putObject');
+      if(samePrincipal&&distinct&&
+        signedTarget.purpose==='activity.derivation'&&
+        action==='activity.derive'){
+        const targetWorkspaceId=signedTarget.workspace_id;
+        derivation=Object.freeze({
+          targetWorkspaceId,
+          createSubjectKernelBinding,
+          // A fresh original Control signed selection is mandatory at
+          // every material effect. The old grant is never reused.
+          resolveTargetSignedAccess:()=>control.signedActivityAccess('activity.derive'),
+        });
+      }
+    }
+    need(!closed&&epoch===initialEpoch&&
+      context.currentWorkspace.get()===selected,
+      'T3_CONTROL_CONTEXT_CHANGED_DURING_READ');
+    // Internal relay is an invalidation FAN-OUT only. It never selects a
+    // principal, issues Rights, creates a Kernel, opens a second SSE, or
+    // reaches the Activity renderer.
+    const shared=Object.freeze({
+      requireSignedOwner:true,
+      signedActivityAccess:operation=>control.signedActivityAccess(operation),
+      subscribeSignedAccessInvalidation:listener=>{
+        need(!closed&&typeof listener==='function',
+          'T3_CONTROL_OWNER_INVALIDATION_REQUIRED');
+        listeners.add(listener);
+        return ()=>listeners.delete(listener);
+      },
+    });
+    bridge=bindT3ControlActivityReview({
+      control:shared,context,bindings,readActivityFromWorkspaceContext,
+      derivation,
+    });
+    stopSelection();stopSelection=null;
+    return Object.freeze({
+      port:bridge.port,
+      dispose(){
+        if(closed)return;
+        closed=true;
+        bridge.dispose();
+        stopControl();stopControl=null;
+        listeners.clear();
+      },
+    });
+  }catch(error){
+    closed=true;
+    try{bridge?.dispose();}catch{}
+    try{stopSelection?.();}catch{}
+    try{stopControl?.();}catch{}
+    listeners.clear();
+    throw safeStageError(error);
+  }
+}
