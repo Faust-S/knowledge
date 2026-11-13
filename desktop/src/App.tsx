@@ -329,8 +329,9 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
             {t3Host?.stageSelected ? <div className="verification-panel">
               <div className="verification-left">
                 <h3>Сохранение для внутренней проверки</h3>
-                <p>Нужна отдельная пустая Workspace того же владельца и подписанное
-                  право Activity Derive. Это не публикация и не экспорт.</p>
+                <p>Доверенный T3 Host определяет отдельную пустую Workspace по подписанному
+                  праву Activity Derive. Второй выбор базы не требуется.
+                  Это не публикация и не экспорт.</p>
               </div>
               <div className="verification-right">
                 <button type="button" className="button button-secondary" disabled={busy}
