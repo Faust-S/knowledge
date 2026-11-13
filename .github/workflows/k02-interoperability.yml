@@ -29,6 +29,24 @@ jobs:
         run: |
           node modules/k02-interoperability/consumers/agent05-owner-source-pin-check.mjs
           python modules/k02-interoperability/consumers/python_agent05_source_pin_verify.py
+      - name: Prove exact frozen K02 and K04 public sources can be fetched by SHA
+        env:
+          K02_PINNED_SOURCE_SHA: 467fddc8a49dab475af79a63b0ca4eea78fd5ff2
+          K04_PINNED_SOURCE_SHA: 43960aad00dad35a224413d3ea0c4bf5167df92d
+        run: |
+          repo="$(mktemp -d)"
+          trap 'rm -rf "$repo"' EXIT
+          git init -q "$repo"
+          git -C "$repo" remote add origin https://github.com/Faust-S/knowledge.git
+          git -C "$repo" fetch --quiet --depth=1 --no-tags origin "$K02_PINNED_SOURCE_SHA"
+          test "$(git -C "$repo" rev-parse FETCH_HEAD)" = "$K02_PINNED_SOURCE_SHA"
+          test "$(git -C "$repo" rev-parse FETCH_HEAD:modules/k02-interoperability/index.mjs)" = "6dd21b566f6dfe3d2e920d3e877548361653460e"
+          test "$(git -C "$repo" rev-parse FETCH_HEAD:modules/k02-interoperability/model-step-selection.mjs)" = "45263714c1c2440406889e4ba5791686bc386c8f"
+          echo "K02_FROZEN_SOURCE_FETCH=PASS"
+          git -C "$repo" fetch --quiet --depth=1 --no-tags origin "$K04_PINNED_SOURCE_SHA"
+          test "$(git -C "$repo" rev-parse FETCH_HEAD)" = "$K04_PINNED_SOURCE_SHA"
+          test "$(git -C "$repo" rev-parse FETCH_HEAD:modules/k04-composer/index.mjs)" = "fda705e614218aca0f283068a516a3487a674732"
+          echo "K04_FROZEN_SOURCE_FETCH=PASS"
       - name: Independent Python verifies Node plan, provider and Skill digests
         run: python modules/k02-interoperability/consumers/python_cross_language_verify.py
       - name: Independent Python checks native Agent request drafts from Node
