@@ -75,9 +75,9 @@ jobs:
         shell: bash
         run: |
           git clone --filter=blob:none --no-checkout https://github.com/Faust-S/knowledge.git ../t3-public-core
-          git -C ../t3-public-core checkout --detach 8b97ee78b79b82cf502d15a0d73765644a30787d
-          test "$(git -C ../t3-public-core rev-parse HEAD)" = "8b97ee78b79b82cf502d15a0d73765644a30787d"
-          test "$(git -C ../t3-public-core rev-parse HEAD^{tree})" = "3357ba96790f15fceaa22f8c93784a886955bc01"
+          git -C ../t3-public-core checkout --detach d08f6af3c308ecd19444d30bd72572af2b139fa2
+          test "$(git -C ../t3-public-core rev-parse HEAD)" = "d08f6af3c308ecd19444d30bd72572af2b139fa2"
+          test "$(git -C ../t3-public-core rev-parse HEAD^{tree})" = "7b3058cbfe9da5031e9c5456b975ebcdcaabcd24"
       - name: Exercise ORIGINAL T3 Workspace D1/D2 reader with synthetic Host owner
         env:
           IWXA_T3_PUBLIC_CORE_DIR: ../t3-public-core/packages/t3-core

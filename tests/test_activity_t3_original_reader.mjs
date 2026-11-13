@@ -375,3 +375,37 @@ test('new public T3 D2 reports unresolved multi-object links as privacy HOLD',as
   assert.equal(result.export_allowed,false);
   assert.equal(JSON.stringify(result).includes('external:unverified'),false);
 });
+
+test('original source-bound epistemic classification reaches Activity and never becomes observed truth',async()=>{
+  for(const epistemic_status of ['reported','declared','inferred','proposed']){
+    const h=fixture();
+    h.bindings=structuredClone(h.bindings);
+    h.bindings.events[1].epistemic_status=epistemic_status;
+    const unchanged=structuredClone({objects:h.objects,events:h.events,bindings:h.bindings});
+    const review=await inspectSelectedT3Activity(h);
+    assert.equal(review.status,'HOLD',epistemic_status);
+    assert.deepEqual(review.reason_codes,['T3_D2_UNVERIFIED_EVENT_STEP']);
+    assert.equal(review.structural_candidate,null);
+    assert.equal(review.export_allowed,false);
+    assert.equal(review.anonymity,'NOT_ESTABLISHED');
+    assert.equal(review.iwxa_package,null);
+    assert.equal(h.counts.write,0);
+    assert.deepEqual({objects:h.objects,events:h.events,bindings:h.bindings},unchanged);
+    const rendered=JSON.stringify(review);
+    for(const secret of ['PRIVATE_PERSON_','PRIVATE_NOT_TO_COPY',W,'d06.order','event:0'])
+      assert.equal(rendered.includes(secret),false,secret);
+  }
+  const observed=fixture();
+  observed.bindings=structuredClone(observed.bindings);
+  observed.bindings.events[1].epistemic_status='observed';
+  assert.equal((await inspectSelectedT3Activity(observed)).status,
+    'STRUCTURE_PRESERVED_REVIEW_REQUIRED');
+});
+test('malformed epistemic status in original D2 source contract fails closed',async()=>{
+  const h=fixture();h.bindings=structuredClone(h.bindings);
+  h.bindings.events[1].epistemic_status='verified_by_ai';
+  await assert.rejects(inspectSelectedT3Activity(h),{
+    code:'T3_AUTHORITATIVE_READ_REFUSED',
+  });
+  assert.equal(h.counts.write,0);
+});
