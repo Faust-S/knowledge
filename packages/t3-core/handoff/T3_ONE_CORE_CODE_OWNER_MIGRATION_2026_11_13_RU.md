@@ -136,3 +136,8 @@ Acceptance boundary: Host is the real original-Kernel qualification environment 
 Публичные issuer/credential из этого CI созданы как временные TEST-ключи и не входят в dist. В существующем тестовом помощнике для двух организаций добавлена параметризованная выдача уже имеющихся подписанных прав чтения, создания и записи; прежний write-only тест не изменён по семантике. Изменены только helper, один существующий продуктовый браузерный E2E и workflow.
 
 **Честная граница:** D1_TWO_CORP_COMPILED_APPSHELL_ORIGINAL_KERNEL=PASS на квалификационном Host и реальном браузере. Настоящий установленный Windows Control, внешние производственные организации и custody credentials NOT_ACCEPTED. OS-установка PWA отдельно NOT_ACCEPTED. Полная единая продуктовая приёмка D1–D7/G4 ещё NOT_ACCEPTED; T3_READY=false. Не подменять native-приёмку этими публичными тестами.
+
+
+### Последний законченный участок D1 и передача в новый чат (13.11.2026)
+
+Проверенный код [c1cbe836](https://github.com/Faust-S/knowledge/commit/c1cbe83617bed8d1f29a4c6f7b36d692c6b272e9), [Actions #43478330754](https://github.com/Faust-S/knowledge/actions/runs/43478330754): test, real-host, windows-credential SUCCESS; Metal SKIPPED. Существующий Ed25519 encrypted vault теперь поддерживает отдельные корпоративные credentials, исходный корпоративный AppShell/Kernel маршрут после холодного запуска подтверждён, но установленный Windows Control и G4 остаются NOT_ACCEPTED. **Полный новый handoff:** [T3_ONE_CORE_D1_CORPORATE_VAULT_G4_2026_11_13_NEXT_CHAT_RU.md](T3_ONE_CORE_D1_CORPORATE_VAULT_G4_2026_11_13_NEXT_CHAT_RU.md).
