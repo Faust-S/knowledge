@@ -206,17 +206,23 @@ export function bindT3ControlActivityReview({
  * from the real signed derive owner, and binds a narrow renderer port.
  * The source uses the Host's ONE CurrentWorkspaceStore; the target has no
  * CurrentWorkspaceStore and is NEVER inferred from a UI workspace selector.
+ * The trusted Host passes its ORIGINAL underlying T2 Kernel facade, not the
+ * already subject-bound ModuleContext.kernel (which can deny the target).
  *
  * If the surrounding T3 Host already owns the Control SSE subscription,
  * it MUST supply subscribeExistingInvalidation. Do not attach twice.
  */
 export async function openOriginalT3ActivityReviewHost({
-  control,context,bindings,readActivityFromWorkspaceContext,
+  control,context,originalKernel,bindings,readActivityFromWorkspaceContext,
   createSubjectKernelBinding,subscribeExistingInvalidation=null,
 }={}) {
   need(control?.requireSignedOwner===true &&
     callable(control,['signedActivityAccess','subscribeSignedAccessInvalidation']) &&
     callable(context?.currentWorkspace,['get','subscribe']) &&
+    callable(originalKernel,['hasOperation','getWorkspace','listObjects',
+      'getObject','listEventsSince','putObject']) &&
+    originalKernel.sessionInfo?.contract_version==='1.3.0'&&
+    originalKernel.sessionInfo?.runtime_version==='0.3.6'&&
     typeof readActivityFromWorkspaceContext==='function'&&
     typeof createSubjectKernelBinding==='function'&&
     (subscribeExistingInvalidation===null||
@@ -297,8 +303,14 @@ export async function openOriginalT3ActivityReviewHost({
         return ()=>listeners.delete(listener);
       },
     });
+    // Reuse the SAME original Kernel facade for both independently signed
+    // scopes. A normal module context.kernel may already be source-bound.
+    // The original backend is never sent to the renderer.
+    const ownerContext=Object.freeze({
+      kernel:originalKernel,currentWorkspace:context.currentWorkspace,
+    });
     bridge=bindT3ControlActivityReview({
-      control:shared,context,bindings,readActivityFromWorkspaceContext,
+      control:shared,context:ownerContext,bindings,readActivityFromWorkspaceContext,
       derivation,
     });
     stopSelection();stopSelection=null;

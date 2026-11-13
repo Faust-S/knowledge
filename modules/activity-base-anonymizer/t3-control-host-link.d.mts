@@ -22,6 +22,8 @@ export function bindT3ControlActivityReview(input: {
 export function openOriginalT3ActivityReviewHost(input: {
   control: unknown;
   context: unknown;
+  /** Original T2 KernelFacade, not a subject-bound ModuleContext.kernel. */
+  originalKernel: unknown;
   bindings: unknown;
   readActivityFromWorkspaceContext: Function;
   createSubjectKernelBinding: Function;

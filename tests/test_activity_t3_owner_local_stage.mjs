@@ -662,6 +662,7 @@ test('installed-shape original Control mounts Activity derive via ONE SSE and ON
   const c=originalSignedControlFixture(f);
   const bound=await openOriginalT3ActivityReviewHost({
     control:c.control,context:f.options.sourceContext,
+    originalKernel:f.options.sourceContext.kernel,
     bindings:f.options.bindings,
     readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
     createSubjectKernelBinding:core.createSubjectKernelBinding,
@@ -690,6 +691,7 @@ test('original signed Control with no derivation grant mounts read-only Activity
   const f=fixture(),c=originalSignedControlFixture(f,{grantDerive:false});
   const bound=await openOriginalT3ActivityReviewHost({
     control:c.control,context:f.options.sourceContext,
+    originalKernel:f.options.sourceContext.kernel,
     bindings:f.options.bindings,
     readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
     createSubjectKernelBinding:core.createSubjectKernelBinding,
@@ -711,6 +713,7 @@ test('original Host shared signed invalidation does not open duplicate Control S
   });
   const bound=await openOriginalT3ActivityReviewHost({
     control:c.control,context:f.options.sourceContext,
+    originalKernel:f.options.sourceContext.kernel,
     bindings:f.options.bindings,
     readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
     createSubjectKernelBinding:core.createSubjectKernelBinding,
@@ -740,6 +743,7 @@ test('signed Control foreign target never exposes the Activity stage command',as
   const c=originalSignedControlFixture(f);
   const bound=await openOriginalT3ActivityReviewHost({
     control:c.control,context:f.options.sourceContext,
+    originalKernel:f.options.sourceContext.kernel,
     bindings:f.options.bindings,
     readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
     createSubjectKernelBinding:core.createSubjectKernelBinding,
@@ -750,4 +754,37 @@ test('signed Control foreign target never exposes the Activity stage command',as
     ]);
     assert.equal(f.state.writeCalls,0);
   }finally{bound.dispose();c.close();}
+});
+
+test('native T3 module signed facade must not substitute original Kernel for second target',async()=>{
+  const f=fixture(),c=originalSignedControlFixture(f);
+  const fakeSourceBound={...f.options.sourceContext,kernel:{
+    sessionInfo:{contract_version:'1.3.0',runtime_version:'0.3.6'},
+    hasOperation:()=>false,
+    async getWorkspace(){throw Error('SOURCE_BOUND_FACADE_NOT_ORIGINAL');},
+  }};
+  const bridge=await openOriginalT3ActivityReviewHost({
+    control:c.control,context:fakeSourceBound,
+    originalKernel:f.options.sourceContext.kernel,
+    bindings:f.options.bindings,
+    readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
+    createSubjectKernelBinding:core.createSubjectKernelBinding,
+  });
+  const ui=createT3ReviewController({host:bridge.port,onUpdate:()=>{}});
+  try{
+    assert.equal((await ui.readSelected()).status,'REVIEW');
+    assert.equal((await ui.stageSelected()).status,'STAGED');
+    assert.equal(f.state.writeCalls,1);
+    assert.equal(f.saved.size,1);
+  }finally{ui.dispose();bridge.dispose();c.close();}
+});
+test('native original Host refuses an untrusted or absent Kernel facade',async()=>{
+  const f=fixture(),c=originalSignedControlFixture(f);
+  await assert.rejects(openOriginalT3ActivityReviewHost({
+    control:c.control,context:f.options.sourceContext,
+    originalKernel:null,bindings:f.options.bindings,
+    readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
+    createSubjectKernelBinding:core.createSubjectKernelBinding,
+  }),{code:'T3_CONTROL_ORIGINAL_HOST_REQUIRED'});
+  assert.equal(c.streams(),0);
 });
