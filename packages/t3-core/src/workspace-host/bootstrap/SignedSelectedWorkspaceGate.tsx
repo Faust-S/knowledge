@@ -21,7 +21,8 @@ export function SignedSelectedWorkspaceGate({
   profile?:string;
   signedKernelAccess?:SignedResolver;
   trustedSelectedContext?: (operation:string)=>Promise<{
-    kind:"CORP";workspace_id:string;resource:string;
+    kind:"CORP"|"PERSONAL";workspace_id:string;resource:string;
+    organization_id?:string|null;
   }|null>;
   children:ReactNode;
 }){
@@ -70,12 +71,15 @@ export function SignedSelectedWorkspaceGate({
               ? await signedKernelAccess("createWorkspace"):signedKernelAccess;
             if(!port)return null;
             return await port.currentContext() as {
-              kind?:unknown;workspace_id?:unknown;resource?:unknown}|null;
+              kind?:unknown;workspace_id?:unknown;resource?:unknown;
+              organization_id?:unknown}|null;
           })();
       if(!context)throw denied("T3_D1_WORKSPACE_CREATE_GRANT_REQUIRED");
       const selected=context?.workspace_id;
-      if(context?.kind!=="CORP"||typeof selected!=="string"||
-         !ID.test(selected)||context.resource!==selected)
+      if(!["CORP","PERSONAL"].includes(String(context?.kind))||
+         (context?.kind==="PERSONAL"&&context.organization_id!==null)||
+         typeof selected!=="string"||!ID.test(selected)||
+         context.resource!==selected)
         throw denied("T3_D1_CREATE_CONTEXT_NOT_TRUSTED");
       if(!profile||!kernel.hasOperation("t1.createWorkspace"))
         throw denied("T3_D1_KERNEL_CREATE_UNAVAILABLE");
@@ -127,8 +131,8 @@ export function SignedSelectedWorkspaceGate({
           <h2 className="font-semibold">Подписанная Workspace недоступна</h2>
           <p role="alert" data-testid="t3-d1-selected-workspace-message">
             {phase==="missing"
-              ? "Для выбранной организации пока нет рабочей области в исходном Kernel. При наличии отдельного разрешения её можно создать здесь."
-              : "Control не подтвердил чтение выбранной Workspace. Проверьте организацию и её полномочия в локальном Control."}
+              ? "Для выбранного профиля пока нет рабочей области в исходном Kernel. При наличии отдельного разрешения её можно создать здесь."
+              : "Control не подтвердил чтение выбранной Workspace. Проверьте профиль и его полномочия в локальном Control."}
           </p>
           {createError&&<p role="alert" data-testid="t3-d1-create-workspace-error"
             className="text-sm text-amber-300">{createError}</p>}

@@ -77,7 +77,9 @@ export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
         if(!valid()||captured!==sequence)
           deny('T3_D1_ORIGINAL_KERNEL_CONTEXT_CHANGED');
         if(info!==null&&(!object(info)||typeof info.workspace_id!=='string'||
-           info.resource!==info.workspace_id||info.kind!=='CORP'))
+           info.resource!==info.workspace_id||
+           !['CORP','PERSONAL'].includes(info.kind)||
+           (info.kind==='PERSONAL'&&info.organization_id!==null)))
           deny('T3_D1_SELECTED_CONTEXT_INVALID');
         port.postMessage({schema:SCHEMA,kind:'result',id,result:info});
         return;

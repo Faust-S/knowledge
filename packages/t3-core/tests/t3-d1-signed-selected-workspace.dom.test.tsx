@@ -157,3 +157,56 @@ it("uncertain Kernel acknowledgement is recovered by exact original ID readback"
   expect(createWorkspace).toHaveBeenCalledTimes(1);
   expect(createWorkspace).toHaveBeenCalledWith({workspace_id:"ws:north",profile:"generic"});
 });
+
+it("PERSONAL first-run uses the same explicitly signed original Kernel create path",async()=>{
+  let rows:Array<{workspace_id:string;profile:string}>=[];
+  const listWorkspaces=vi.fn(async()=>rows);
+  const getWorkspace=vi.fn(async(id:string)=>
+    rows.find(row=>row.workspace_id===id)??null);
+  const createWorkspace=vi.fn(async(input:{workspace_id:string;profile:string})=>{
+    rows=[{...input}];return {...input};
+  });
+  const facade={listWorkspaces,getWorkspace,createWorkspace,
+    hasOperation:(operation:string)=>operation==="t1.createWorkspace"
+  } as unknown as KernelFacade;
+  const owner=vi.fn(async()=>({
+    currentContext:async()=>({
+      kind:"PERSONAL",organization_id:null,
+      workspace_id:"ws:personal",resource:"ws:personal"
+    })
+  })) as unknown as SignedResolver;
+  render(<SignedSelectedWorkspaceGate required kernel={facade}
+    profile="generic" signedKernelAccess={owner}>
+    <p data-testid="personal-workspace-ready">Личная Workspace</p>
+  </SignedSelectedWorkspaceGate>);
+  const missing=await screen.findByTestId("t3-d1-selected-workspace-message");
+  expect(missing.textContent).toMatch(/выбранного профиля/);
+  fireEvent.click(screen.getByTestId("t3-d1-create-selected-workspace"));
+  await screen.findByTestId("personal-workspace-ready");
+  expect(createWorkspace).toHaveBeenCalledTimes(1);
+  expect(createWorkspace).toHaveBeenCalledWith({
+    workspace_id:"ws:personal",profile:"generic",
+  });
+  expect(getWorkspace).toHaveBeenCalledWith("ws:personal");
+});
+it("PERSONAL spoof with a non-null organization never invokes the original writer",async()=>{
+  const createWorkspace=vi.fn(),getWorkspace=vi.fn(async()=>null);
+  const facade={listWorkspaces:vi.fn(async()=>[]),getWorkspace,
+    createWorkspace,hasOperation:()=>true} as unknown as KernelFacade;
+  const owner=vi.fn(async()=>({
+    currentContext:async()=>({
+      kind:"PERSONAL",organization_id:"org:someone",
+      workspace_id:"ws:personal",resource:"ws:personal",
+    }),
+  })) as unknown as SignedResolver;
+  render(<SignedSelectedWorkspaceGate required kernel={facade}
+    profile="generic" signedKernelAccess={owner}>
+    <p data-testid="unauthorized-workspace">Not allowed</p>
+  </SignedSelectedWorkspaceGate>);
+  await screen.findByTestId("t3-d1-selected-workspace-message");
+  fireEvent.click(screen.getByTestId("t3-d1-create-selected-workspace"));
+  await screen.findByTestId("t3-d1-create-workspace-error");
+  expect(createWorkspace).not.toHaveBeenCalled();
+  expect(getWorkspace).not.toHaveBeenCalled();
+  expect(screen.queryByTestId("unauthorized-workspace")).toBeNull();
+});

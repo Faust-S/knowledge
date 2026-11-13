@@ -104,11 +104,14 @@ async function attach(event:MessageEvent){
         const selected=await owner.signedKernelAccess(operation);
         if(!selected||!live)return null;
         const c=await selected.currentContext() as {
-          kind?:unknown;workspace_id?:unknown;resource?:unknown}|null;
-        if(!live||!c||c.kind!=="CORP"||
+          kind?:unknown;workspace_id?:unknown;resource?:unknown;
+          organization_id?:unknown}|null;
+        if(!live||!c||!["CORP","PERSONAL"].includes(String(c.kind))||
+           (c.kind==="PERSONAL"&&c.organization_id!==null)||
            typeof c.workspace_id!=="string"||c.resource!==c.workspace_id)
           throw reject("T3_D1_SELECTED_CONTEXT_INVALID");
-        return {kind:"CORP",workspace_id:c.workspace_id,resource:c.workspace_id};
+        return {kind:c.kind,workspace_id:c.workspace_id,
+          resource:c.workspace_id,organization_id:c.organization_id};
       },
     });
     if(!receiver||!live)throw reject("T3_D1_TRUSTED_REALM_ATTACH_FAILED");

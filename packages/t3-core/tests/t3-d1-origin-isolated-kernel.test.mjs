@@ -105,3 +105,28 @@ test('browser handshake rejects false origin/source and accepts exact isolated r
     assert.deepEqual(await client.invoke('getWorkspace',id),{workspace_id:id});
   }finally{client.close();receiver.close();}
 });
+
+test('trusted isolated realm accepts an exact PERSONAL selection and rejects a disguised corporate identity',async()=>{
+  for(const extraOrg of [null,"org:intruder"]){
+    const ch=new MessageChannel();
+    const receiver=bindSignedOriginalKernelPort({port:ch.port1,
+      isActive:()=>true,
+      createSignedFacade:()=>Object.freeze({}),
+      selectedWorkspaceContext:async()=>({
+        kind:"PERSONAL",organization_id:extraOrg,
+        workspace_id:id,resource:id
+      })
+    });
+    const client=createIsolatedKernelClient({port:ch.port2});
+    try{
+      if(extraOrg===null){
+        assert.deepEqual(await client.invoke("selectedWorkspaceContext","createWorkspace"),{
+          kind:"PERSONAL",organization_id:null,workspace_id:id,resource:id
+        });
+      }else{
+        await assert.rejects(client.invoke("selectedWorkspaceContext","createWorkspace"),
+          {code:"T3_D1_SELECTED_CONTEXT_INVALID"});
+      }
+    }finally{client.close();receiver.close();}
+  }
+});
