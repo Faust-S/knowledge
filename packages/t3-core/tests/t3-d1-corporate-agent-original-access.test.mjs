@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync} from 'node:crypto';
-import {iso,digest,signRecord,keyObjectSigner}
+import {iso,digest,signRecord,keyObjectSigner,makeProof}
   from '../src/t3/access/core.mjs';
 import {emptyVault,importVaultKey,encryptVault}
   from '../src/t3/access/local-vault.mjs';
@@ -370,4 +370,82 @@ test('corporate agent performs exact signed RAG and Skill resource checks withou
   assert.equal(providerCalls.length,4);
   assert.equal((await registry.getStatus()).sequences['issuer:north'],3);
   assert.equal(kernel.calls.filter(x=>x.schema_id==='iwxa.demo.note').length,0);
+});
+
+test('corporate agent can perform consequential Kernel write only with real HUMAN confirmation signed under same challenge', {timeout:30000},async()=>{
+  const {fixture,agentKeys}=build(),kernel=originalKernelFixture();
+  const human=key('key:human-reviewer','person:operator',['CONFIRMATION']);
+  fixture.policy.keys[human.signer.keyId]=human.record;
+  fixture.policy.confirmations.push({
+    authorityId:'issuer:north',action:'object.write',resource:'ws:north',
+    principals:['person:operator'],minimum:1
+  });
+  const analyst=agentKeys['org:north'],vault=emptyVault();
+  importVaultKey(vault,{keyId:analyst.signer.keyId,subjectId:'agent:analyst',
+    privateKeyPem:analyst.privateKeyPem,
+    expectedPublicKeyPem:analyst.record.publicKey});
+  const encrypted=encryptVault(vault,'TEST_CORPORATE_HUMAN_REVIEW_ONLY');
+  const proof=createOriginalVaultProofSigner({
+    keyId:analyst.signer.keyId,organizationId:'org:north',
+    readEncryptedVault:async()=>encrypted,
+    unlockPassphrase:async()=> 'TEST_CORPORATE_HUMAN_REVIEW_ONLY'});
+  const registry=createOriginalKernelRegistryStatePort({
+    kernel:kernel.api,workspaceId:'ws:host-registry',
+    trustedPolicy:fixture.policy,clock:time});
+  assert.equal((await registry.commitSignedState(fixture.state)).revision,1);
+  const gate=createOrganizationalOperationGate({registry});
+  const selected=fixture.all.north.agentContext;
+  const bind=confirm=>{
+    const corporate={
+      productId:'IWXA_ADMIN_CENTER',gate,
+      inputFor:async()=>({
+        profile:fixture.all.north.profile,
+        selection:fixture.all.north.selection,
+        descriptors:fixture.all.north.descriptors,
+        credential:fixture.all.north.issuedCredential,
+        enrollment:fixture.all.north.enrollment,
+        agentEnrollment:fixture.all.north.agentEnrollment
+      }),
+      prove:args=>proof(args)
+    };
+    if(confirm)corporate.confirm=confirm;
+    const access=createSignedAccessHostPort({
+      currentContext:()=>selected,
+      actionFor:op=>op==='t1.putObject'?'object.write':'object.read',
+      operationDigest:({operation,input,context})=>digest({operation,input,context}),
+      canonicalDigest:digest,clock:time,corporate
+    });
+    return createSubjectKernelBinding({kernel:kernel.api,access,clock:time});
+  };
+  const noApproval=bind();
+  await assert.rejects(noApproval.putObject({
+    ...command('north'),object_id:'item:unapproved'
+  }),{code:'T3_ACCESS_NOT_PERMITTED'});
+  assert.equal(await kernel.api.getObject('ws:north','item:unapproved'),null);
+  const counterfeitApproval=bind(({request,challenge,asOf})=>[
+    makeProof(request,challenge,Date.parse(asOf),analyst.signer,'TEST','CONFIRMATION')
+  ]);
+  await assert.rejects(counterfeitApproval.putObject({
+    ...command('north'),object_id:'item:agent-cannot-approve'
+  }),{code:'T3_ACCESS_NOT_PERMITTED'});
+  assert.equal(await kernel.api.getObject('ws:north','item:agent-cannot-approve'),null);
+  const mismatchedApproval=bind(({request,asOf})=>[
+    makeProof(request,'invalid-human-confirmation-challenge',Date.parse(asOf),
+      human.signer,'TEST','CONFIRMATION')
+  ]);
+  await assert.rejects(mismatchedApproval.putObject({
+    ...command('north'),object_id:'item:replayed-human'
+  }),{code:'T3_ACCESS_NOT_PERMITTED'});
+  const humanApproval=bind(({request,challenge,asOf})=>[
+    makeProof(request,challenge,Date.parse(asOf),human.signer,'TEST','CONFIRMATION')
+  ]);
+  const confirmed=await humanApproval.putObject({
+    ...command('north'),object_id:'result:human-accepted-engineering'
+  });
+  assert.equal(confirmed.object.object_id,'result:human-accepted-engineering');
+  assert.equal(confirmed.object.workspace_id,'ws:north');
+  const stored=await kernel.api.getObject(
+    'ws:north','result:human-accepted-engineering');
+  assert.equal(stored.object.object_id,'result:human-accepted-engineering');
+  assert.equal(kernel.calls.filter(x=>x.schema_id==='iwxa.demo.note').length,1);
 });
