@@ -120,3 +120,54 @@ test("installed Host Control route denies missing token, forged Origin and stale
     assert.equal(f.calls.length,0);
   }finally{await f.close();}
 });
+
+test("original Control denies an in-flight GET when the signed Host rotates its bearer",{
+  timeout:10000,
+},async()=>{
+  const first=randomBytes(32).toString("base64url");
+  const second=randomBytes(32).toString("base64url");
+  let active=first,resolveSuspended,waitOnce=true;
+  let handler=null;
+  const server=createServer((request,response)=>{
+    void handler(request,response);
+  });
+  await new Promise((ok,bad)=>{
+    server.once("error",bad);server.listen(0,"127.0.0.1",ok);
+  });
+  const origin="http://127.0.0.1:"+server.address().port;
+  handler=createOriginalControlHttpHandler({
+    origin,token:first,readToken:()=>active,
+    currentEpoch:async()=>{
+      if(waitOnce){
+        waitOnce=false;
+        return await new Promise(ok=>{resolveSuspended=ok;});
+      }
+      return 2;
+    },
+    subscribeInvalidation:()=>()=>{},
+    ownerFor:()=>null,
+  });
+  const get=async bearer=>fetch(origin+"/api/t3/context-epoch",{
+    headers:{Authorization:"Bearer "+bearer},
+  });
+  try{
+    const pending=get(first);
+    while(typeof resolveSuspended!=="function")
+      await new Promise(ok=>setImmediate(ok));
+    // The old client passed its first token check, but cannot read the
+    // newly selected subject's epoch after awaiting original Host state.
+    active=second;
+    resolveSuspended(1);
+    const stale=await pending;
+    assert.equal(stale.status,403);
+    assert.equal((await stale.json()).error,"T3_D1_CONTROL_SESSION_ROTATED");
+    assert.equal((await get(first)).status,401);
+    const fresh=await get(second);
+    assert.equal(fresh.status,200);
+    assert.equal((await fresh.json()).contextEpoch,2);
+    console.log("T3_D1_ORIGINAL_CONTROL_INFLIGHT_BEARER_ROTATION_PASS");
+  }finally{
+    server.closeAllConnections();
+    await new Promise(ok=>server.close(()=>ok()));
+  }
+});
