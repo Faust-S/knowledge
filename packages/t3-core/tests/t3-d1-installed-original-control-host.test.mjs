@@ -180,8 +180,10 @@ test("native original Host requires explicitly confirmed PERSONAL choice before 
       distRoot:root,kernelOrigin:origin,uiPort:ui,token,
       subjectSession:session,
       ownerFor:()=>null,
-      currentEpoch:session.currentEpoch,
-      subscribeInvalidation:session.subscribeInvalidation,
+      // A mistaken external callback must never override the branded
+      // selected subject's real epoch or original SSE subscription.
+      currentEpoch:()=>999,
+      subscribeInvalidation:()=>{throw Error("WRONG_EXTERNAL_SSE");},
     });
     const ready=await native.listen();
     const epochFor=async bearer=>fetch(origin+"/api/t3/context-epoch",{
