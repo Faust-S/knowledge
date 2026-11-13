@@ -98,8 +98,8 @@ jobs:
         run: |
           set -eu
           git clone --filter=blob:none --no-checkout https://github.com/Faust-S/knowledge.git ../t3-public-core
-          git -C ../t3-public-core checkout --detach 21beaa320de2bba3443188c8f87631d5bfcbc28a
-          test "$(git -C ../t3-public-core rev-parse HEAD^{tree})" = "9e8fd5a207a835735c41320c1c214bf8374ccaeb"
+          git -C ../t3-public-core checkout --detach 39c06d44050e45a03bf10141b064b272689cba4a
+          test "$(git -C ../t3-public-core rev-parse HEAD^{tree})" = "bd131b87cc6e4764e2be39809ad9be1f683b386e"
           archive=../t3-public-core/packages/t3-core/qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip
           echo "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68  $archive" | sha256sum -c -
           mkdir -p "$IWXA_T2_QUALIFIED_KERNEL_DIST"
