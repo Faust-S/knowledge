@@ -14,6 +14,14 @@ import {createSignedAccessHostPort}
   from "../../src/t3/signed-access-host-port.mjs";
 
 const iso=value=>new Date(value).toISOString();
+const PERSONAL_ACTIONS=Object.freeze({
+  "t1.getWorkspace":"workspace.read",
+  "t1.createWorkspace":"workspace.create",
+  "t1.getObject":"object.read",
+  "t1.listObjects":"object.read",
+  "t1.listEventsSince":"event.read",
+  "t1.putObject":"object.write",
+});
 function createSigner(name,subject,uses,now){
   const {publicKey,privateKey}=generateKeyPairSync("ed25519");
   return {provider:keyObjectSigner("key:"+name,privateKey),
@@ -27,11 +35,18 @@ function createSigner(name,subject,uses,now){
 }
 export function createTemporaryOriginalPersonalAuthority({
   workspaceId,now=Date.now(),readSignedState=null,clock=()=>now,
+  operations=["t1.putObject"],
 }={}){
   if(typeof workspaceId!=="string"||workspaceId.length<6||
      !Number.isSafeInteger(now)||typeof clock!=="function"||
-     (readSignedState!==null&&typeof readSignedState!=="function"))
+     (readSignedState!==null&&typeof readSignedState!=="function")||
+     !Array.isArray(operations)||operations.length===0||
+     operations.some(op=>!Object.hasOwn(PERSONAL_ACTIONS,op))||
+     new Set(operations).size!==operations.length)
     throw Error("D1_REAL_PERSONAL_TEST_INPUT_REQUIRED");
+  const permitted=new Set(operations);
+  const actions=[...new Set(operations.map(op=>PERSONAL_ACTIONS[op]))];
+  const catalog=Object.fromEntries(actions.map(action=>[action,"ACTION"]));
   const issuer=createSigner("issuer","issuer:local",["GRANT"],now);
   const status=createSigner("status","issuer:local",["STATUS"],now);
   const actorVault=emptyVault();
@@ -70,12 +85,12 @@ export function createTemporaryOriginalPersonalAuthority({
     authorities:{"authority:personal":{
       principalId:"person:local",issuerKeys:["key:issuer"],
       statusKeys:["key:status"],audiences:["host:t3"],
-      resources:[workspaceId],actions:["object.write"],
+      resources:[workspaceId],actions,
       purposes:["purpose:work"],roles:["role:member"],
       rightClasses:["ACTION"],membershipEpoch:1,
       maxTtlSeconds:3600,maxDelegationDepth:0,
     }},
-    actionCatalog:{"object.write":"ACTION"},
+    actionCatalog:catalog,
     prohibitions:[],confirmations:[],
   };
   const grant={
@@ -84,7 +99,7 @@ export function createTemporaryOriginalPersonalAuthority({
     principalId:"person:local",holderId:"person:local",
     roleId:"role:member",rightClass:"ACTION",
     realmId:"realm:personal",environment:"TEST",audience:"host:t3",
-    resources:[workspaceId],actions:["object.write"],purposes:["purpose:work"],
+    resources:[workspaceId],actions,purposes:["purpose:work"],
     issuedAt:iso(now-30000),notBefore:iso(now-20000),
     expiresAt:iso(now+1200000),remainingDepth:0,membershipEpoch:1,
     policyId:"policy:personal",policyVersion:"v1",
@@ -107,8 +122,8 @@ export function createTemporaryOriginalPersonalAuthority({
   const access=createSignedAccessHostPort({
     currentContext:()=>selected,
     actionFor:operation=>{
-      if(operation!=="t1.putObject")throw Error("D1_OPERATION_DENIED");
-      return "object.write";
+      if(!permitted.has(operation))throw Error("D1_OPERATION_DENIED");
+      return PERSONAL_ACTIONS[operation];
     },
     operationDigest:({operation,input,context})=>digest({operation,input,context}),
     canonicalDigest:digest,

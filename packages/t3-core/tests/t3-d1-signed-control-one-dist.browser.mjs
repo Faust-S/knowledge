@@ -14,6 +14,8 @@ import {assembleSignedControlDist} from '../scripts/assemble-signed-control-dist
 import {createSubjectKernelBinding} from '../src/t3/subject-access-binding.mjs';
 import {createTemporaryOriginalPersonalAuthority}
   from './support/t3-original-personal-authority.mjs';
+import {createOriginalControlHttpHandler}
+  from '../src/t3/original-control-http-handler.mjs';
 import {materializeIntegrationHost} from '../scripts/real-kernel-e2e.mjs';
 import {assertQualifiedKernelArtifact}
   from '../src/factory2/products/domain-completion/independent-browser-witness.mjs';
@@ -47,6 +49,8 @@ const safeAssets=path=>path==='/workspace/signed-workspace.html'||
   /^\/workspace\/assets\/[A-Za-z0-9_.\/-]+$/.test(path)||
   /^\/_iwxa\/[A-Za-z0-9_.\/-]+$/.test(path);
 let origin='',uiOrigin='',installed=false,syntheticOwner=false;
+let authenticHandler=null,authenticEpoch=1;
+const authenticInvalidationListeners=new Set();
 const scopedWorkspace='t3-d1-selected-'+randomUUID();
 const eventStreams=new Set();
 const eventStreamSources=new Map();
@@ -75,6 +79,15 @@ const server=createServer((req,res)=>{
   try{
     if(req.headers.host!==new URL(origin).host)return send(403,{error:'HOST_DENIED'});
     const path=new URL(req.url,origin).pathname;
+    // The trusted Host owns this single endpoint. For the final compiled
+    // PERSONAL product route, use REAL Ed25519 Control, not the synthetic
+    // earlier corporate fixture. No extra issuer/HTTP/Kernel server.
+    if(path.startsWith('/api/t3/')&&authenticHandler){
+      void authenticHandler(req,res).catch(()=>{
+        if(!res.headersSent)send(503,{error:'AUTHENTIC_OWNER_UNAVAILABLE'});
+      });
+      return;
+    }
     // This test-only probe is not part of Control or the installed product.
     if(path==='/__original_kernel_probe__')
       return send(200,'<!doctype html><title>Original Kernel probe</title>'+
@@ -964,6 +977,144 @@ try{
       syntheticOwnerOnly:true,privateIssuerExecuted:false,
     }));
   }
+  // Product qualification with the ACTUALLY COMPILED isolated AppShell:
+  // original Control HTTP + real Ed25519 PERSONAL grant/actor proof/signed
+  // STATUS. The exact T2/3 KernelFacade in main-trusted-kernel-realm.ts
+  // dispatches every call after signed JIT into the original T2 Kernel 0.3.6.
+  // Unlike the legacy corporate fixture above, NOT ONE successful decision
+  // in this segment is synthetic.
+  syntheticOwner=false;
+  const authenticWs='t3-authentic-personal-ui-'+randomUUID();
+  const authenticOperations=[
+    't1.getWorkspace','t1.createWorkspace','t1.listObjects',
+    't1.getObject','t1.putObject','t1.listEventsSince',
+  ];
+  const realAuthority=createTemporaryOriginalPersonalAuthority({
+    workspaceId:authenticWs,now:Date.now(),clock:Date.now,
+    operations:authenticOperations,
+  });
+  const knownRealOperations=new Set(authenticOperations.map(op=>op.slice(3)));
+  authenticHandler=createOriginalControlHttpHandler({
+    origin,token,currentEpoch:()=>authenticEpoch,
+    subscribeInvalidation:callback=>{
+      authenticInvalidationListeners.add(callback);
+      return ()=>authenticInvalidationListeners.delete(callback);
+    },
+    ownerFor:({scope,operation})=>
+      scope==='kernel'&&knownRealOperations.has(operation)
+        ?realAuthority.access:null,
+  });
+  const authenticApp=await browser.context.newPage();
+  const authenticErrors=[];
+  authenticApp.on('pageerror',error=>authenticErrors.push(error.message));
+  await authenticApp.goto(uiOrigin+'/workspace/isolated-signed-workspace.html#'+token);
+  await authenticApp.getByTestId('t3-d1-selected-workspace-message')
+    .waitFor({state:'visible',timeout:45000});
+  assert.match(await authenticApp.getByTestId(
+    't3-d1-selected-workspace-message').innerText(),/выбранного профиля/,
+    'PERSONAL_SIGNED_FIRST_RUN_MUST_USE_COMMON_GATE');
+  assert.equal(new URL(authenticApp.url()).hash,'#/overview');
+  assert.equal(await authenticApp.evaluate(()=>typeof window.IWXA),
+    'undefined','AUTHENTIC_PERSONAL_ORIGINAL_KERNEL_MUST_REMAIN_ISOLATED');
+  await authenticApp.getByTestId('t3-d1-create-selected-workspace').click();
+  await authenticApp.getByTestId('t3-d1-selected-workspace-gate')
+    .waitFor({state:'detached',timeout:45000});
+  const realWorkspace=await browser.page.evaluate(async({serviceId,id})=>{
+    const original=await window.IWXA.connect({service_id:serviceId});
+    return original.t1.getWorkspace(id);
+  },{serviceId,id:authenticWs});
+  assert.equal(realWorkspace?.workspace_id,authenticWs);
+  assert.equal(realWorkspace?.profile,'generic');
+  assert.ok(realAuthority.proofCount>=2,'ED25519_PERSONAL_JIT_REQUIRED');
+
+  const realDraft='local-inference:'+randomUUID();
+  const realDraftText='Existing signed PERSONAL draft for original T3 BLI';
+  const realSeed=await browser.page.evaluate(async({serviceId,ws,id,text})=>{
+    const original=await window.IWXA.connect({service_id:serviceId});
+    return original.t1.putObject({
+      workspace_id:ws,object_id:id,
+      schema_id:'iwxa.local-inference.draft',schema_version:'1.0.0',
+      base_revision:0,extensions:{},
+      data:{status:'DRAFT_UNTRUSTED',text,
+        model_id:'SmolLM2-360M-Instruct-q4f32_1-MLC',
+        engine:'@mlc-ai/web-llm@0.2.87',
+        origin:'BROWSER_LOCAL',source:'USER_EXPLICIT_SAVE',
+        model_integrity:'NOT_ATTESTED'},
+      event:{event_type:'t3.local-inference.draft.saved',
+        payload:{status:'DRAFT_UNTRUSTED',
+          model_id:'SmolLM2-360M-Instruct-q4f32_1-MLC'}},
+    });
+  },{serviceId,ws:authenticWs,id:realDraft,text:realDraftText});
+  assert.equal(realSeed.object.object_id,realDraft);
+  const realLauncher=authenticApp.getByTestId('t3-local-inference-launcher');
+  await realLauncher.waitFor({state:'visible',timeout:25000});
+  await realLauncher.getByRole('button',{name:'Открыть локальную модель'}).click();
+  const realPanel=authenticApp.getByTestId('t3-local-inference-panel');
+  await realPanel.waitFor({state:'visible',timeout:25000});
+  assert.equal(await realPanel.getByRole('button',
+    {name:'Скачать и запустить'}).isDisabled(),true,
+    'AUTHENTIC_SIGNED_BLI_MUST_NOT_DOWNLOAD_A_MODEL');
+  await realPanel.getByRole('button',{name:'Найти рабочие области'}).click();
+  await realPanel.getByLabel('Workspace для локальной модели')
+    .selectOption(authenticWs);
+  await realPanel.getByRole('button',{name:'Использовать выбранный Workspace'}).click();
+  await authenticApp.waitForFunction(id=>
+    document.querySelector('[data-testid="t3-local-inference-panel"] strong')
+      ?.textContent?.includes(id),authenticWs,{timeout:30000});
+  await realPanel.getByTestId('t3-d5-recover-draft-id').fill(realDraft);
+  await realPanel.getByRole('button',
+    {name:'Прочитать черновик из Kernel по ID'}).click();
+  const realRead=realPanel.getByTestId('t3-d5-saved-draft-readback');
+  await realRead.waitFor({state:'visible',timeout:20000});
+  assert.ok((await realRead.innerText()).includes(realDraftText));
+  await realPanel.getByRole('button',
+    {name:'Продолжить редактирование как новый черновик'}).click();
+  const realCopyText=realDraftText+'; edited and signed via original Control';
+  await realPanel.getByTestId('t3-d5-editable-draft').fill(realCopyText);
+  await realPanel.getByRole('button',{name:'Сохранить черновик через Kernel'}).click();
+  await authenticApp.waitForFunction(()=>
+    [...document.querySelectorAll(
+      '[data-testid="t3-local-inference-panel"] p[role="status"]')]
+      .some(p=>p.textContent?.includes('Kernel подтвердил запись и чтение')),
+    null,{timeout:45000});
+  const realStatus=await realPanel.innerText();
+  const realCopyId=[...realStatus.matchAll(/local-inference:[0-9a-f-]{36}/gi)]
+    .map(x=>x[0]).find(id=>id!==realDraft);
+  assert.ok(realCopyId,'AUTHENTIC_PERSONAL_KERNEL_COPY_RECEIPT_REQUIRED');
+  const realCopy=await browser.page.evaluate(async({serviceId,ws,id})=>{
+    const original=await window.IWXA.connect({service_id:serviceId});
+    return original.t1.getObject(ws,id);
+  },{serviceId,ws:authenticWs,id:realCopyId});
+  assert.equal(realCopy?.object?.data?.text,realCopyText);
+  assert.equal(realCopy?.object?.revision,1);
+  assert.ok(realAuthority.proofCount>=5,
+    'AUTHENTIC_PERSONAL_ALL_WORKSPACE_ACTIONS_MUST_JIT');
+  assert.deepEqual(authenticErrors,[]);
+  console.log('T3_D1_COMPILED_APP_REAL_PERSONAL_ED25519_BLI_KERNEL_PASS',JSON.stringify({
+    originalKernel:'0.3.6',compiledSignedAppShell:true,
+    genuineControlHttp:true,realEd25519Grant:true,
+    realVaultActorProof:true,realSignedStatus:true,
+    userCreatedPersonalWorkspace:true,userCopiedBliDraft:true,
+    originalKernelReadback:true,originalKernelOnly:true,
+    separateUIOrigin:true,syntheticControl:false,
+    proofCount:realAuthority.proofCount,registryReads:realAuthority.registryReads,
+    nativeWindowsInstallAccepted:false,
+  }));
+  realAuthority.revoke();
+  authenticEpoch++;
+  for(const callback of authenticInvalidationListeners)callback();
+  await authenticApp.getByTestId('t3-signed-control-reconnect')
+    .waitFor({state:'visible',timeout:15000});
+  assert.equal(await authenticApp.evaluate(()=>typeof window.IWXA),'undefined');
+  assert.equal((await authenticApp.evaluate(async()=>(
+    await fetch('/_iwxa/loader.js',{cache:'no-store'})
+  ).status)),404);
+  assert.deepEqual(authenticErrors,[]);
+  console.log('T3_D1_COMPILED_APP_REAL_PERSONAL_REVOCATION_PASS',JSON.stringify({
+    originalControlSse:true,originalKernel:'0.3.6',
+    realSignedRevocation:true,compiledAppShellUnmounted:true,
+    rawKernelNotExposed:true,syntheticControl:false,
+  }));
   console.log('T3_D1_ACTUAL_ONE_DIST_ORIGINAL_HTTP_PASS',JSON.stringify({
     originalKernel:'0.3.6',runtimeContract:'1.3.0',
     originalLoaderSha256:assembled.original_loader_sha256,
