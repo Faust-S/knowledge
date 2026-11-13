@@ -1,0 +1,185 @@
+// Corporate-owned/employee-provided agents are verified by the SAME
+// organization issuer, employee enrollment, signed grant chain, original
+// persisted AccessRegistry and T2 Kernel. No second IAM, signer or Store.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {generateKeyPairSync} from 'node:crypto';
+import {iso,digest,signRecord,keyObjectSigner}
+  from '../src/t3/access/core.mjs';
+import {emptyVault,importVaultKey,encryptVault}
+  from '../src/t3/access/local-vault.mjs';
+import {createOriginalVaultProofSigner}
+  from '../src/t3/access/original-vault-proof.mjs';
+import {
+  signOrganizationEnrollment,signOrganizationAgentEnrollment,
+  createOrganizationalOperationGate
+} from '../src/t3/access/organizational-operation.mjs';
+import {createOriginalKernelRegistryStatePort}
+  from '../src/t3/access/original-kernel-registry-state.mjs';
+import {createSignedAccessHostPort}
+  from '../src/t3/signed-access-host-port.mjs';
+import {createSubjectKernelBinding}
+  from '../src/t3/subject-access-binding.mjs';
+import {NOW,time,model,originalKernelFixture,command}
+  from './support/t3-two-corp-original-authority.mjs';
+
+function key(keyId,subjectId,uses) {
+  const {privateKey,publicKey}=generateKeyPairSync('ed25519');
+  return {
+    signer:keyObjectSigner(keyId,privateKey),
+    privateKeyPem:privateKey.export({type:'pkcs8',format:'pem'}).toString(),
+    record:{subjectId,environment:'TEST',
+      publicKey:publicKey.export({type:'spki',format:'pem'}).toString(),
+      status:'ACTIVE',uses,notBefore:iso(NOW-3600000),
+      expiresAt:iso(NOW+3600000)}
+  };
+}
+function build(){
+  const fixture=model(),agentKeys={};
+  // Activate expressly delegated rights on BOTH existing organizations.
+  for(const short of ['north','south']){
+    const member=fixture.all[short],org='org:'+short,
+      authority='issuer:'+short,rootId='grant:'+short;
+    fixture.policy.authorities[authority].maxDelegationDepth=1;
+    const root={...fixture.state.grants[rootId].payload,remainingDepth:1};
+    const rootSigned=signRecord(root,member.issuerSigner);
+    fixture.state.grants[rootId]=rootSigned;
+    const rootDigest=digest(rootSigned);
+    const grantBinding=member.descriptors.grants.find(g=>g.grantId===rootId);
+    grantBinding.signedEnvelopeDigest=rootDigest;
+    member.enrollment=signOrganizationEnrollment({
+      ...member.enrollment.payload,signedGrantDigest:rootDigest
+    },member.issuerSigner);
+    const sponsor=key('key:staff-delegator-'+short,'person:operator',['GRANT']);
+    const agent=key('key:agent-'+short,'agent:analyst',['PROOF']);
+    fixture.policy.keys[sponsor.signer.keyId]=sponsor.record;
+    fixture.policy.keys[agent.signer.keyId]=agent.record;
+    agentKeys[org]=agent;
+    const delegated={...root,
+      id:'grant:'+short+'-agent',lineageId:'lineage:'+short+'-agent',
+      parentGrantId:rootId,holderId:'agent:analyst',
+      issuedAt:iso(NOW-12000),notBefore:iso(NOW-11000),
+      expiresAt:iso(NOW+300000),remainingDepth:0,
+      resources:['ws:'+short],actions:['object.write'],
+      evidenceRefs:['evidence:corporate-responsible-person']
+    };
+    const signedAgentGrant=signRecord(delegated,sponsor.signer);
+    fixture.state.grants[delegated.id]=signedAgentGrant;
+    const claims={
+      schema:'IWXA_T3_ORGANIZATION_AGENT_ENROLLMENT_CLAIMS/1',
+      organizationId:org,realmId:'realm:iwxa',
+      issuerAuthorityId:authority,responsiblePersonId:'person:operator',
+      workspaceId:'ws:'+short,membershipId:'member:'+short,
+      rootGrantId:rootId,agentId:'agent:analyst',
+      agentCredentialPublicKeyRef:agent.signer.keyId,
+      delegatedGrantId:delegated.id,
+      signedDelegatedGrantDigest:digest(signedAgentGrant),
+      membershipEpoch:1,issuedAt:iso(NOW-9000),
+      notBefore:iso(NOW-8000),expiresAt:iso(NOW+240000)
+    };
+    member.agentEnrollment=signOrganizationAgentEnrollment(claims,member.issuerSigner);
+    const entries=[{grantId:rootId,state:'ACTIVE',
+      effectiveAt:iso(NOW-2500),evidenceRef:'evidence:root-active'},
+      {grantId:delegated.id,state:'ACTIVE',
+      effectiveAt:iso(NOW-1500),evidenceRef:'evidence:agent-active'}];
+    member.agentStatus={...member.status,sequence:2,
+      issuedAt:iso(NOW-1000),entries};
+    fixture.state.statuses[authority]=signRecord(member.agentStatus,member.issuerSigner);
+    fixture.state.statusFloor[authority]=2;
+    member.agentContext={...member.context,actor_id:'agent:analyst',
+      grant_id:delegated.id,context_id:'context:'+short+'-agent'};
+  }
+  return {fixture,agentKeys};
+}
+
+test('two organizations admit independent agent keys with signed human sponsor via original Host/Kernel', {timeout:30000}, async()=>{
+  const {fixture,agentKeys}=build(),kernel=originalKernelFixture();
+  // Each organization’s agent credential is kept in the ORIGINAL encrypted vault.
+  const vault=emptyVault();
+  for(const [org,k] of Object.entries(agentKeys)){
+    importVaultKey(vault,{keyId:k.signer.keyId,subjectId:'agent:analyst',
+      privateKeyPem:k.privateKeyPem,expectedPublicKeyPem:k.record.publicKey});
+  }
+  const passphrase='TEST_ONLY_AGENT_CORPORATE_CREDENTIALS';
+  const encrypted=encryptVault(vault,passphrase);
+  const signer=Object.fromEntries(Object.entries(agentKeys).map(([org,k])=>
+    [org,createOriginalVaultProofSigner({
+      keyId:k.signer.keyId,organizationId:org,
+      readEncryptedVault:async()=>encrypted,unlockPassphrase:async()=>passphrase
+    })]));
+  const registry=createOriginalKernelRegistryStatePort({
+    kernel:kernel.api,workspaceId:'ws:host-registry',
+    trustedPolicy:fixture.policy,clock:time
+  });
+  assert.equal((await registry.commitSignedState(fixture.state)).revision,1);
+  const gate=createOrganizationalOperationGate({registry});
+  let selected=fixture.all.north.agentContext,proofCount=0;
+  const access=createSignedAccessHostPort({
+    currentContext:()=>selected,
+    actionFor:op=>{
+      if(op!=='t1.putObject')throw Error('CORP_AGENT_OPERATION_NOT_ALLOWED');
+      return 'object.write';
+    },
+    operationDigest:({operation,input,context})=>digest({operation,input,context}),
+    canonicalDigest:digest,clock:time,
+    corporate:{
+      productId:'IWXA_ADMIN_CENTER',gate,
+      inputFor:async context=>{
+        const entry=Object.values(fixture.all).find(
+          x=>x.context.organization_id===context.organization_id);
+        assert.ok(entry,'UNKNOWN_ORGANIZATION');
+        return {profile:entry.profile,selection:entry.selection,
+          descriptors:entry.descriptors,credential:entry.issuedCredential,
+          enrollment:entry.enrollment,agentEnrollment:entry.agentEnrollment};
+      },
+      prove:async({request,challenge,credentialKeyId,context,asOf})=>{
+        const k=agentKeys[context.organization_id];
+        assert.equal(credentialKeyId,k.signer.keyId);
+        proofCount++;
+        return signer[context.organization_id]({
+          request,challenge,credentialKeyId,context,asOf});
+      }
+    }
+  });
+  const bound=createSubjectKernelBinding({kernel:kernel.api,access,clock:time});
+
+  const north=await bound.putObject(command('north'));
+  assert.equal(north.object.workspace_id,'ws:north');
+  assert.equal(kernel.calls.filter(x=>x.schema_id==='iwxa.demo.note').length,1);
+  await assert.rejects(bound.putObject(command('south')),
+    {code:'T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE'});
+  selected=fixture.all.south.agentContext;
+  const south=await bound.putObject(command('south'));
+  assert.equal(south.object.workspace_id,'ws:south');
+  assert.equal(proofCount,2);
+
+  // A personally unrelated agent cannot use a valid corporate worker grant.
+  selected={...fixture.all.north.agentContext,actor_id:'agent:household'};
+  await assert.rejects(bound.putObject({
+    ...command('north'),object_id:'item:household-attempt'
+  }),{code:'T3_OWNER_CORPORATE_PREVIEW_MISMATCH'});
+  selected=fixture.all.north.agentContext;
+
+  // Revoking NORTH's human root grant invalidates its agent without affecting SOUTH.
+  const rootRevoked={...fixture.all.north.agentStatus,
+    sequence:3,issuedAt:iso(NOW-500),
+    entries:fixture.all.north.agentStatus.entries.map(e=>({
+      ...e,state:e.grantId==='grant:north'?'REVOKED':e.state,
+      effectiveAt:iso(NOW-600)
+    }))};
+  const next=structuredClone(fixture.state);
+  next.statuses['issuer:north']=signRecord(rootRevoked,fixture.all.north.issuerSigner);
+  next.statusFloor['issuer:north']=3;
+  assert.equal((await registry.commitSignedState(next)).revision,2);
+  await assert.rejects(bound.putObject({
+    ...command('north'),object_id:'item:revoked-agent'
+  }),{code:'T3_ACCESS_NOT_PERMITTED'});
+  assert.equal(await kernel.api.getObject('ws:north','item:revoked-agent'),null);
+  selected=fixture.all.south.agentContext;
+  const unaffected=await bound.putObject({
+    ...command('south'),object_id:'item:south-after-north-revoke'
+  });
+  assert.equal(unaffected.object.revision,1);
+  assert.equal((await registry.getStatus()).sequences['issuer:north'],3);
+  assert.equal((await registry.getStatus()).sequences['issuer:south'],2);
+});

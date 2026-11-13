@@ -80,10 +80,84 @@ export function verifyOrganizationEnrollment(input,state,organization,now) {
   return payload;
 }
 
+
+// A trusted organizational issuer may link a distinct agent key and a
+// narrowed signed GRANT to an existing human staff membership. This is a
+// versioned enrolment of the ORIGINAL organizational Access owner, not a
+// second IAM, issuer, signer or Store. The issuer key never goes to the agent.
+export const ORG_AGENT_ENROLLMENT_SCHEMA = 'IWXA_T3_ORGANIZATION_AGENT_ENROLLMENT/1';
+export const ORG_AGENT_ENROLLMENT_CLAIMS = 'IWXA_T3_ORGANIZATION_AGENT_ENROLLMENT_CLAIMS/1';
+const agentPrefix = 'IWXA-T3-ORG-AGENT-ENROLLMENT-V1\0';
+const agentClaimFields = ['schema','organizationId','realmId','issuerAuthorityId',
+  'responsiblePersonId','workspaceId','membershipId','rootGrantId','agentId',
+  'agentCredentialPublicKeyRef','delegatedGrantId','signedDelegatedGrantDigest',
+  'membershipEpoch','issuedAt','notBefore','expiresAt'];
+export function validateOrganizationAgentEnrollmentClaims(input) {
+  const p=copy(input);
+  fields(p,agentClaimFields);
+  insist(p.schema===ORG_AGENT_ENROLLMENT_CLAIMS,'ORG_AGENT_ENROLLMENT_SCHEMA_INVALID');
+  for(const k of ['organizationId','realmId','issuerAuthorityId','responsiblePersonId',
+    'workspaceId','membershipId','rootGrantId','agentId',
+    'agentCredentialPublicKeyRef','delegatedGrantId']) identifier(p[k]);
+  insist(hex(p.signedDelegatedGrantDigest),'ORG_AGENT_ENROLLMENT_GRANT_DIGEST_INVALID');
+  insist(Number.isSafeInteger(p.membershipEpoch)&&p.membershipEpoch>=0,
+    'ORG_AGENT_ENROLLMENT_EPOCH_INVALID');
+  insist(timestamp(p.issuedAt)<=timestamp(p.notBefore) &&
+    timestamp(p.notBefore)<timestamp(p.expiresAt),
+    'ORG_AGENT_ENROLLMENT_INTERVAL_INVALID');
+  return p;
+}
+const agentEnrollmentMessage=record=>Buffer.from(agentPrefix+canonical({
+  schema:record.schema,keyId:record.keyId,payload:record.payload
+}),'utf8');
+export function signOrganizationAgentEnrollment(claims,issuerSigner) {
+  const payload=validateOrganizationAgentEnrollmentClaims(claims);
+  insist(issuerSigner&&typeof issuerSigner.sign==='function','ORG_ISSUER_SIGNER_REQUIRED');
+  const record={schema:ORG_AGENT_ENROLLMENT_SCHEMA,
+    keyId:identifier(issuerSigner.keyId),payload};
+  const signature=issuerSigner.sign(agentEnrollmentMessage(record));
+  insist(Buffer.isBuffer(signature)&&signature.length===64,'ORG_AGENT_ENROLLMENT_SIGNATURE_INVALID');
+  return {...record,signature:signature.toString('base64url')};
+}
+export function verifyOrganizationAgentEnrollment(input,state,organization,now) {
+  const record=copy(input);
+  fields(record,['schema','keyId','payload','signature']);
+  insist(record.schema===ORG_AGENT_ENROLLMENT_SCHEMA,'ORG_AGENT_ENROLLMENT_SCHEMA_INVALID');
+  identifier(record.keyId);
+  const payload=validateOrganizationAgentEnrollmentClaims(record.payload);
+  insist(typeof record.signature==='string'&&/^[A-Za-z0-9_-]{86}$/.test(record.signature),
+    'ORG_AGENT_ENROLLMENT_SIGNATURE_FORMAT');
+  const signature=Buffer.from(record.signature,'base64url');
+  insist(signature.length===64&&signature.toString('base64url')===record.signature,
+    'ORG_AGENT_ENROLLMENT_SIGNATURE_FORMAT');
+  const authority=state.policy?.authorities?.[organization.issuerAuthorityId];
+  const key=state.policy?.keys?.[record.keyId];
+  insist(authority&&key&&authority.issuerKeys.includes(record.keyId),
+    'ORG_AGENT_ISSUER_NOT_TRUSTED');
+  insist(key.uses.includes('GRANT')&&key.status==='ACTIVE'&&
+    key.environment===state.policy.environment,
+    'ORG_AGENT_ISSUER_KEY_UNAVAILABLE');
+  insist(timestamp(key.notBefore)<=now&&now<timestamp(key.expiresAt),
+    'ORG_AGENT_ISSUER_KEY_EXPIRED');
+  insist(payload.organizationId===organization.organizationId&&
+    payload.realmId===organization.realmId&&
+    payload.issuerAuthorityId===organization.issuerAuthorityId&&
+    payload.membershipEpoch===organization.membershipEpoch,
+    'ORG_AGENT_ENROLLMENT_AUTHORITY_MISMATCH');
+  insist(timestamp(payload.issuedAt)<=now&&timestamp(payload.notBefore)<=now&&
+    now<timestamp(payload.expiresAt),'ORG_AGENT_ENROLLMENT_NOT_CURRENT');
+  insist(timestamp(payload.expiresAt)-timestamp(payload.notBefore)<=authority.maxTtlSeconds*1000,
+    'ORG_AGENT_ENROLLMENT_EXCEEDS_ISSUER_CEILING');
+  insist(createPublicKey(key.publicKey).asymmetricKeyType==='ed25519'&&
+    verify(null,agentEnrollmentMessage(record),createPublicKey(key.publicKey),signature),
+    'ORG_AGENT_ENROLLMENT_SIGNATURE_INVALID');
+  return payload;
+}
+
 function prepareWithBoundState(untrusted) {
   const input=copy(untrusted);
   fields(input,['profile','selection','descriptors','credential','enrollment',
-    'accessState','operation','asOf']);
+    'accessState','operation','asOf'],['agentEnrollment']);
   const person=validateProductContract('PersonalSubjectProfile',input.profile);
   const choice=validateProductContract('ActiveContextSelection',input.selection);
   const credential=validateProductContract('AdminIssuedCredential',input.credential);
@@ -169,25 +243,83 @@ function prepareWithBoundState(untrusted) {
     binding.purposes.includes(op.purpose) &&
     policy.actionCatalog[op.action]===grant.rightClass,
     'ORG_OPERATION_OUTSIDE_GRANT');
+  // A corporate agent is admitted through the SAME signed organizational
+  // membership, root grant, issuer and Access evaluator as a person. Issuer
+  // evidence binds the independent agent proof key to the responsible human.
+  // The proof-only employee credential is NEVER made into a grant signer.
+  let actorId=person.personId,actorGrant=grant;
+  let credentialKeyId=credential.publicKeyRef;
+  let credentialValidUntil=credential.expiresAt;
+  let enrollmentValidUntil=enrollment.expiresAt;
+  let agentBinding=null;
+  if(input.agentEnrollment!==undefined) {
+    const agent=verifyOrganizationAgentEnrollment(input.agentEnrollment,state,org,now);
+    insist(agent.responsiblePersonId===person.personId&&
+      agent.workspaceId===workspace.workspaceId&&
+      agent.membershipId===member.membershipId&&
+      agent.rootGrantId===binding.grantId&&
+      agent.delegatedGrantId!==binding.grantId,
+      'ORG_AGENT_RESPONSIBLE_MEMBER_MISMATCH');
+    insist(timestamp(agent.notBefore)>=timestamp(member.notBefore)&&
+      timestamp(agent.expiresAt)<=timestamp(member.expiresAt)&&
+      timestamp(agent.expiresAt)<=timestamp(grant.expiresAt),
+      'ORG_AGENT_MANDATE_OUTSIDE_MEMBER');
+    const delegatedEnvelope=state.grants[agent.delegatedGrantId];
+    insist(delegatedEnvelope&&
+      digest(delegatedEnvelope)===agent.signedDelegatedGrantDigest,
+      'ORG_AGENT_DELEGATED_GRANT_CHANGED');
+    const agentChain=verifiedChain(agent.delegatedGrantId,state,now);
+    const terminal=agentChain.at(-1);
+    insist(agentChain.length>=2&&agentChain[0].id===binding.grantId&&
+      terminal.id===agent.delegatedGrantId&&
+      terminal.holderId===agent.agentId&&
+      terminal.authorityId===org.issuerAuthorityId&&
+      terminal.principalId===org.organizationId&&
+      terminal.roleId===member.roleId&&
+      terminal.membershipEpoch===member.membershipEpoch&&
+      terminal.realmId===org.realmId&&
+      terminal.audience===op.audience,
+      'ORG_AGENT_SIGNED_DELEGATION_MISMATCH');
+    const agentKey=policy.keys[agent.agentCredentialPublicKeyRef];
+    insist(agentKey&&agentKey.subjectId===agent.agentId&&
+      agentKey.environment===policy.environment&&agentKey.status==='ACTIVE'&&
+      agentKey.uses.includes('PROOF')&&
+      !agentKey.uses.some(use=>['GRANT','STATUS','LICENSE','LICENSE_STATUS'].includes(use))&&
+      !authority.issuerKeys.includes(agent.agentCredentialPublicKeyRef)&&
+      !authority.statusKeys.includes(agent.agentCredentialPublicKeyRef)&&
+      !person.personalPublicKeyRefs.includes(agent.agentCredentialPublicKeyRef)&&
+      timestamp(agentKey.notBefore)<=now&&now<timestamp(agentKey.expiresAt),
+      'ORG_AGENT_INDEPENDENT_PROOF_KEY_REQUIRED');
+    actorId=agent.agentId;
+    actorGrant=terminal;
+    credentialKeyId=agent.agentCredentialPublicKeyRef;
+    credentialValidUntil=agentKey.expiresAt;
+    enrollmentValidUntil=timestamp(agent.expiresAt)<timestamp(enrollment.expiresAt)
+      ?agent.expiresAt:enrollment.expiresAt;
+    agentBinding={agentId:agent.agentId,delegatedGrantId:agent.delegatedGrantId,
+      credentialKeyId,agentEnrollmentDigest:digest(input.agentEnrollment),
+      signedDelegatedGrantDigest:agent.signedDelegatedGrantDigest};
+  }
   const bindingDigest=digest({schema:ORG_OPERATION_SCHEMA,
     selectionId:choice.selectionId,personId:person.personId,
     organizationId:org.organizationId,workspaceId:workspace.workspaceId,
     membershipId:member.membershipId,credentialId:credential.credentialId,
     grantId:binding.grantId,signedGrantDigest:binding.signedEnvelopeDigest,
+    ...(agentBinding?{agentBinding}:{}),
     operation:op});
   const request={id:'org-context:'+bindingDigest,
-    actorId:person.personId,principalId:org.organizationId,roleId:grant.roleId,
-    grantId:binding.grantId,audience:op.audience,resource:op.resource,
+    actorId,principalId:org.organizationId,roleId:actorGrant.roleId,
+    grantId:actorGrant.id,audience:op.audience,resource:op.resource,
     action:op.action,purpose:op.purpose,realmId:org.realmId,
     operationDigest:bindingDigest};
   return {schema:'IWXA_T3_ORGANIZATION_OPERATION_PREVIEW/1',
     outcome:'PREVIEW_ONLY',authorized:false,productionActivation:false,
     subjectType:candidate.subjectType,
     organizationId:org.organizationId,workspaceId:workspace.workspaceId,
-    dataRootId:org.organizationDataRootId,credentialKeyId:credential.publicKeyRef,
+    dataRootId:org.organizationDataRootId,credentialKeyId,
     request,scopeDigest:bindingDigest,contextSelectedByUser:true,
     membershipValidUntil:member.expiresAt,statusObservedUntil:member.statusValidUntil,
-    credentialValidUntil:credential.expiresAt,enrollmentValidUntil:enrollment.expiresAt};
+    credentialValidUntil,enrollmentValidUntil};
 }
 
 function authorizeWithBoundState(input,authorization) {
@@ -246,7 +378,7 @@ export function createOrganizationalOperationGate({registry}={}) {
   const bind = async incoming => {
     const input=copy(incoming);
     fields(input,['profile','selection','descriptors','credential','enrollment',
-      'operation','asOf']);
+      'operation','asOf'],['agentEnrollment']);
     const current=await registry.readState();
     insist(current?.policy&&current.grants&&current.statuses,
       'ORG_REGISTRY_STATE_UNAVAILABLE');
