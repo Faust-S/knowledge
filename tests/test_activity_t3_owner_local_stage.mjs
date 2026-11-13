@@ -905,3 +905,55 @@ test('real T2 Host requires service route and control-plane entry along with pas
     code:'T3_ACTIVITY_ORIGINAL_T2_CATALOG_REQUIRED',
   });
 });
+
+const {useOriginalT2ActivityKernelFacade,openActivityFromOriginalT2Host}=
+  await import('../modules/activity-base-anonymizer/t3-original-t2-owner-host.mjs');
+test('real T2 1.3.0 service is adapted to existing T3 binding without a second Kernel',async()=>{
+  const f=fixture(),raw=f.options.sourceContext.kernel;
+  const t1={getWorkspace:ws=>raw.getWorkspace(ws),
+    listObjects:args=>raw.listObjects(args),
+    getObject:(ws,id)=>raw.getObject(ws,id),
+    listEventsSince:ws=>raw.listEventsSince(ws),
+    putObject:input=>raw.putObject(input)};
+  const ops=['t1.getWorkspace','t1.listObjects','t1.getObject',
+    't1.listEventsSince','t1.putObject'];
+  const session={contract_version:'1.3.0',runtime_version:'0.3.6',
+    mode:'full',service:{service_id:'iwxa.workspace.integration'},
+    granted_operations:ops,t1};
+  const kernel=useOriginalT2ActivityKernelFacade(session);
+  assert.deepEqual(Object.keys(kernel).sort(),
+    ['getObject','getWorkspace','hasOperation','listEventsSince','listObjects','putObject','sessionInfo']);
+  assert.equal(kernel.hasOperation('t1.putObject'),true);
+  assert.equal(kernel.hasOperation('t2.exportPackage'),false);
+  assert.equal((await kernel.getWorkspace(W)).workspace_id,W);
+  assert.equal((await kernel.listObjects({workspace_id:W})).length,3);
+  const control={
+    requireSignedOwner:true,
+    signedActivityAccess:async op=>op==='activity.read'
+      ?f.options.sourceSignedAccess:f.options.targetSignedAccess,
+    subscribeSignedAccessInvalidation:fn=>()=>{},
+  };
+  const view=await openActivityFromOriginalT2Host({
+    session,control,currentWorkspace:f.options.sourceContext.currentWorkspace,
+    bindings:f.options.bindings,
+    readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
+    createSubjectKernelBinding:core.createSubjectKernelBinding,
+  });
+  const ui=createT3ReviewController({host:view.port,onUpdate:()=>{}});
+  try{
+    assert.deepEqual(await ui.readSelected(),{status:'REVIEW'});
+    assert.deepEqual(await ui.stageSelected(),{status:'STAGED'});
+    assert.equal(f.state.writeCalls,1);
+    assert.equal(f.saved.size,1);
+  }finally{ui.dispose();view.dispose();}
+});
+test('original T2 adapter refuses old runtime and incomplete service rather than adding methods',()=>{
+  const bare={contract_version:'1.3.0',runtime_version:'0.3.6',
+    service:{service_id:'iwxa.workspace.integration'},
+    granted_operations:['t1.getWorkspace'],t1:{getWorkspace(){}}};
+  assert.throws(()=>useOriginalT2ActivityKernelFacade(bare),
+    {code:'T3_ACTIVITY_ORIGINAL_T2_SERVICE_REQUIRED'});
+  assert.throws(()=>useOriginalT2ActivityKernelFacade({
+    ...bare,runtime_version:'0.3.5',
+  }),{code:'T3_ACTIVITY_ORIGINAL_T2_SERVICE_REQUIRED'});
+});
