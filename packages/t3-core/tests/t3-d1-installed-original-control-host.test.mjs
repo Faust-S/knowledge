@@ -75,6 +75,11 @@ test("installed one-dist Host serves original Kernel and signed Workspace on iso
     });
     const launch=installed.signedWorkspaceLaunchUrl();
     assert.equal(launch,ready.uiOrigin+"/workspace/#"+token);
+    await assert.rejects(installed.launchNativeWindow({
+      executablePath:join(root,"not-an-installed-native-control.exe"),
+    }),{code:process.platform==="win32"
+      ?"T3_D1_INSTALLED_HOST_NATIVE_EXECUTABLE_REQUIRED"
+      :"T3_D1_INSTALLED_HOST_WINDOWS_NATIVE_REQUIRED"});
     assert.equal(launch.includes("/api/t3/"),false);
     const get=async(base,path,headers)=>fetch(base+path,{headers});
     const original=await get(origin,"/_iwxa/loader.js");
