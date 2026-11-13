@@ -325,7 +325,7 @@ test('corporate agent performs exact signed RAG and Skill resource checks withou
   await assert.rejects(access.authorize(request('rag:south','rag.retrieve')),
     {code:'ORG_OPERATION_OUTSIDE_GRANT'});
   await assert.rejects(access.readAuthorizedResource(
-    'rag.retrieve',{query:'cross-org secret'}),{code:'T3_ACCESS_NOT_PERMITTED'});
+    'rag.retrieve',{query:'cross-org secret'}),{code:'ORG_OPERATION_OUTSIDE_GRANT'});
   assert.equal(providerCalls.length,2);
 
   // Even though the corporate RAG and Skill permits are signed and JIT,
