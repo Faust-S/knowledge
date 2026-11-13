@@ -63,13 +63,15 @@ function inject(html, path, assistant) {
   if (!/<\/body>/i.test(html)) fail("HTML_BODY_REQUIRED:" + path);
   const scripts = (html.includes("data-iwxa-t3-domain-mode") ? "" : marker) +
     (assistant && !html.includes("data-iwxa-t3-assistant") ? "\n" + assistantMarker : "");
-  // Replace only manifest metadata. The original site's visible DOM and scripts stay unchanged.
-  let result=html.replace(/<link\\b[^>]*\\brel=["']manifest["'][^>]*>/gi,"");
+  // Replace only manifest metadata; keep the site's visible DOM and scripts.
+  let result=html.replace(/<link\b[^>]*\brel=["']manifest["'][^>]*>/gi,"");
   if(!result.includes("data-iwxa-t3-pwa")) {
-    if(/<\\/head>/i.test(result))result=result.replace(/<\\/head>/i,pwaLink+"\\n</head>");
-    else result=result.replace(/<body\\b/i,pwaLink+"\\n<body");
+    if(/<\/head>/i.test(result))result=result.replace(/<\/head>/i,pwaLink+"\n</head>");
+    else if(/<body\b/i.test(result))
+      result=result.replace(/<body\b/i,"<head>"+pwaLink+"</head>\n<body");
+    else fail("HTML_BODY_REQUIRED:"+path);
   }
-  return scripts ? result.replace(/<\\/body>/i, scripts + "\\n</body>") : result;
+  return scripts ? result.replace(/<\/body>/i, scripts + "\n</body>") : result;
 }
 export function materializeDomainMode(distRoot, assistantDistRoot = null) {
   if (typeof distRoot !== "string" || !distRoot.trim()) fail("DIST_REQUIRED");
