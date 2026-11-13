@@ -36,6 +36,10 @@ async function config():Promise<UiConfig>{
 }
 async function launch(){
   let frame:HTMLIFrameElement|null=null;
+  // The trusted port may already be open when the lazy React AppShell import
+  // fails (e.g. CSP/asset mismatch). Always dispose it on failed first-run:
+  // a discarded iframe alone is not a reliable Control SSE cleanup boundary.
+  let closeTrustedPort:(()=>void)|null=null;
   let stage="preflight";
   try{
     if(!TOKEN.test(bearer))throw fail("T3_D1_TRUSTED_CONTROL_SESSION_REQUIRED");
@@ -63,6 +67,7 @@ async function launch(){
       sessionToken:bearer,
       channelFactory:()=>new MessageChannel(),
     });
+    closeTrustedPort=()=>client.close();
     stage="port-connected";
     const bootstrap=createIsolatedOriginalKernelBootstrap({
       client,serviceId:owner.service_id,
@@ -104,6 +109,9 @@ async function launch(){
       root.unmount();client.close();frame?.remove();
     },{once:true});
   }catch(e){
+    // Close the actual signed channel before detaching the trusted realm.
+    // Never leave a live original Control owner stream behind a failed UI.
+    closeTrustedPort?.();
     frame?.remove();
     const code=e&&typeof e==="object"&&"code" in e&&
       typeof e.code==="string"&&/^[A-Z0-9_]{5,100}$/.test(e.code)
