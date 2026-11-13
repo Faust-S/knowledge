@@ -39,15 +39,33 @@ export function mountT2SiteHandoffReceiver({hostWindow, expectedSiteOrigin, vali
         event.data.nonce !== nonce) return;
     consumed = true;
     hostWindow.removeEventListener('message', onMessage);
+    // Signed source inspection and Host preview may both be asynchronous.
+    // A pending or rejected Promise must NEVER authorize a write receipt.
+    const rejected = () => {
+      if (!disposed) onStatus('CANDIDATE_REJECTED_NO_WRITE');
+    };
+    const ready = () => {
+      if (disposed) return;
+      previewAccepted = true;
+      onStatus('CANDIDATE_READY_FOR_EXPLICIT_REVIEW');
+    };
+    const present = preview => {
+      if (disposed) return;
+      try {
+        // Preview preparation is not Human Review or application approval.
+        const shown = onPreview(preview);
+        if (shown && typeof shown.then === 'function') {
+          Promise.resolve(shown).then(ready, rejected);
+        } else ready();
+      } catch { rejected(); }
+    };
     try {
       const raw = checkCandidateBytes(event.data.raw);
       const preview = validateSource(raw);
-      onPreview(preview); // Host UI must require separate explicit user consent
-      previewAccepted = true;
-      onStatus('CANDIDATE_READY_FOR_EXPLICIT_REVIEW');
-    } catch {
-      onStatus('CANDIDATE_REJECTED_NO_WRITE');
-    }
+      if (preview && typeof preview.then === 'function') {
+        Promise.resolve(preview).then(present, rejected);
+      } else present(preview);
+    } catch { rejected(); }
   };
   hostWindow.addEventListener('message', onMessage);
   // React StrictMode may mount, dispose and immediately remount an owner

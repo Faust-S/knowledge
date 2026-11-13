@@ -119,3 +119,71 @@ test('Host receipt requires a live preview and site application is acknowledged'
  assert.ok(observed.includes('WRITE_RECEIPT_SITE_APPLIED'));
  assert.throws(()=>receiver.sendReceipt('{"revision":3}'),/RECEIPT_NOT_READY/);
 });
+
+test('asynchronous signed source validation and Host preview gate receipt until both finish',async()=>{
+  const {siteWindow,hostWindow,cryptoSource}=windowPair();
+  let finishValidation,finishPresentation,previewed=0,applied=0;
+  const observed=[];
+  launchT2SiteHandoff({siteWindow,hostUrl:hostOrigin+'/workspace/',
+    collectRawBackup:()=>'{"signedResult":"candidate"}',
+    onReceipt:raw=>{assert.equal(JSON.parse(raw).revision,2);applied++;}});
+  const receiver=mountT2SiteHandoffReceiver({
+    hostWindow,expectedSiteOrigin:siteOrigin,cryptoSource,
+    validateSource:()=>new Promise(resolve=>{finishValidation=resolve;}),
+    onPreview:preview=>{
+      assert.equal(preview.verified,true);
+      previewed++;
+      return new Promise(resolve=>{finishPresentation=resolve;});
+    },
+    onStatus:status=>observed.push(status),
+  });
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(previewed,0);
+  assert.throws(()=>receiver.sendReceipt('{"revision":2}'),/RECEIPT_NOT_READY/);
+  finishValidation({verified:true});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(previewed,1);
+  assert.throws(()=>receiver.sendReceipt('{"revision":2}'),/RECEIPT_NOT_READY/);
+  assert.equal(observed.includes('CANDIDATE_READY_FOR_EXPLICIT_REVIEW'),false);
+  finishPresentation();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(observed.includes('CANDIDATE_READY_FOR_EXPLICIT_REVIEW'),true);
+  receiver.sendReceipt('{"revision":2}');
+  assert.equal(applied,1);
+});
+
+test('rejected asynchronous validation and disposed Host never expose a receipt',async()=>{
+  const {siteWindow,hostWindow,cryptoSource}=windowPair();
+  let rejectValidation,previewed=0;
+  const observed=[];
+  launchT2SiteHandoff({siteWindow,hostUrl:hostOrigin+'/workspace/',
+    collectRawBackup:()=>'{"signedResult":"untrusted"}'});
+  const receiver=mountT2SiteHandoffReceiver({
+    hostWindow,expectedSiteOrigin:siteOrigin,cryptoSource,
+    validateSource:()=>new Promise((_,reject)=>{rejectValidation=reject;}),
+    onPreview:()=>{previewed++;},onStatus:s=>observed.push(s),
+  });
+  await new Promise(resolve=>setImmediate(resolve));
+  rejectValidation(new Error('UNTRUSTED_SIGNATURE'));
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(previewed,0);
+  assert.ok(observed.includes('CANDIDATE_REJECTED_NO_WRITE'));
+  assert.throws(()=>receiver.sendReceipt('{}'),/RECEIPT_NOT_READY/);
+
+  const second=windowPair();
+  let finishStale,stalePreviews=0;
+  launchT2SiteHandoff({siteWindow:second.siteWindow,hostUrl:hostOrigin+'/workspace/',
+    collectRawBackup:()=>'{"signedResult":"stale"}'});
+  const previous=mountT2SiteHandoffReceiver({
+    hostWindow:second.hostWindow,expectedSiteOrigin:siteOrigin,
+    cryptoSource:second.cryptoSource,
+    validateSource:()=>new Promise(resolve=>{finishStale=resolve;}),
+    onPreview:()=>{stalePreviews++;},
+  });
+  await new Promise(resolve=>setImmediate(resolve));
+  previous.dispose();
+  finishStale({verified:true});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(stalePreviews,0);
+  assert.throws(()=>previous.sendReceipt('{}'),/RECEIPT_NOT_READY/);
+});
