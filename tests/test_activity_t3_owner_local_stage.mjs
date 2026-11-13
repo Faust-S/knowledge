@@ -925,6 +925,7 @@ test('real T2 1.3.0 service is adapted to existing T3 binding without a second K
     ['getObject','getWorkspace','hasOperation','listEventsSince','listObjects','putObject','sessionInfo']);
   assert.equal(kernel.hasOperation('t1.putObject'),true);
   assert.equal(kernel.hasOperation('t2.exportPackage'),false);
+  assert.equal(kernel.hasOperation('t1.deleteObject'),false);
   assert.equal((await kernel.getWorkspace(W)).workspace_id,W);
   assert.equal((await kernel.listObjects({workspace_id:W})).length,objects.length);
   const control={

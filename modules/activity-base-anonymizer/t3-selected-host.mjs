@@ -51,11 +51,20 @@ function inspectProjection(view) {
     Array.isArray(view.events) && view.events.length <= MAX_EVENTS &&
     Array.isArray(view.relations) && view.relations.length <= MAX_RELATIONS &&
     Array.isArray(view.unresolved) && RECORD(view.unmapped), 'T3_D2_BOUNDS_INVALID');
-  need(['object_ids','event_ids','relation_ids'].every(k => Array.isArray(view.unmapped[k])),
+  const unmappedKeys=['object_ids','event_ids','relation_ids'];
+  need(unmappedKeys.every(k => Array.isArray(view.unmapped[k])) &&
+    Object.keys(view.unmapped).every(k =>
+      unmappedKeys.includes(k) || k==='excluded_context_event_ids'),
     'T3_D2_UNMAPPED_SHAPE_INVALID');
+  // Original event IDs stay in trusted Host receipts, never in UI.
+  const excluded=view.unmapped.excluded_context_event_ids ?? [];
+  need(Array.isArray(excluded) && excluded.length<=MAX_EVENTS &&
+    excluded.every(TAG) && (new Set(excluded)).size===excluded.length &&
+    !excluded.some(id=>view.unmapped.event_ids.includes(id)),
+    'T3_D2_CONTEXT_EVENT_RECEIPT_INVALID');
   const reasons = [];
   if (view.unresolved.length > 0) reasons.push('T3_D2_UNRESOLVED_SOURCE_LINK');
-  if (Object.values(view.unmapped).some(items => items.length > 0))
+  if (unmappedKeys.some(key=>view.unmapped[key].length>0))
     reasons.push('T3_D2_UNMAPPED_SOURCE_RECORD');
 
   const nodes = new Map();
@@ -135,6 +144,8 @@ function inspectProjection(view) {
     if(truth==='observed')
       eventKinds.add(JSON.stringify([event.event_type, event.semantic_kind]));
   }
+  need(!excluded.some(id=>events.has(id)),
+    'T3_D2_CONTEXT_EVENT_RECEIPT_INVALID');
   if (view.events.length === 0) reasons.push('T3_D2_NO_OBSERVED_ACTIVITY');
   // D2 may expose source-qualified multi-object links. They are still a
   // restricted T0/T1 projection, not full OCEL 2.0 conformance or anonymity.
@@ -228,7 +239,8 @@ function inspectProjection(view) {
     status: 'STRUCTURE_PRESERVED_REVIEW_REQUIRED',
     reason_codes: ['EXTERNAL_LINKAGE_RISK_UNMEASURED',
       'T3_SIGNED_OWNER_RESULT_NOT_INDEPENDENTLY_ATTESTED',
-      'OCEL2_FULL_CONFORMANCE_NOT_ESTABLISHED'],
+      'OCEL2_FULL_CONFORMANCE_NOT_ESTABLISHED',
+      ...(excluded.length ? ['T3_D2_SYSTEM_CONTEXT_EXCLUDED'] : [])],
     host_source: 'T3_D2_SELECTED_WORKSPACE_INVOKED',
     semantic_mapping: 'T0_T1_D2_ONLY_NOT_OCEL2_CONFORMANCE',
     residual_risk: 'UNDETERMINED',

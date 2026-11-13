@@ -281,6 +281,7 @@ try {
         objects:[{schema_id:'iwxa.demo.note',schema_version:'1.0.0',
           semantic_kind:'Process'}],
         events:[{event_type:'d05.bracket.created',semantic_kind:'Event'}],
+        context_events:['workspace.created'],
         relations:[],
       },readActivityFromWorkspaceContext,createSubjectKernelBinding,
     });
@@ -332,6 +333,13 @@ try {
     }
   },{source,signedTarget,writer,token,schema:T3_ACTIVITY_OWNER_REVIEW_SCHEMA});
   assert.equal(signed.status,'STAGED');
+  assert.equal(signed.source_review,'STRUCTURE_PRESERVED_REVIEW_REQUIRED');
+  assert.deepEqual(signed.source_reason_codes.sort(),[
+    'EXTERNAL_LINKAGE_RISK_UNMEASURED',
+    'T3_SIGNED_OWNER_RESULT_NOT_INDEPENDENTLY_ATTESTED',
+    'OCEL2_FULL_CONFORMANCE_NOT_ESTABLISHED',
+    'T3_D2_SYSTEM_CONTEXT_EXCLUDED',
+  ].sort());
   assert.equal(signed.draft_revision,1);
   assert.equal(signed.original_service,writer);
   assert.ok(signed.narrow_host_keys.includes('stageSelected'));

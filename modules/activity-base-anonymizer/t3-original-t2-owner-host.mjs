@@ -37,7 +37,8 @@ export function useOriginalT2ActivityKernelFacade(session){
       mode:session.mode,contract_version:session.contract_version,
       runtime_version:session.runtime_version,service_id:session.service.service_id,
     }),
-    hasOperation:op=>available.has(op),
+    // Expose only the operations backed by methods of this actual facade.
+    hasOperation:op=>OPERATIONS.includes(op)&&available.has(op),
     getWorkspace:ws=>t1.getWorkspace(ws),
     listObjects:query=>t1.listObjects(query),
     getObject:(ws,id)=>t1.getObject(ws,id),
