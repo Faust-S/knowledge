@@ -5,6 +5,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync} from 'node:crypto';
 import {createSignedAccessHostPort} from '../src/t3/signed-access-host-port.mjs';
+import {createOriginalPersonalAccessCheck} from '../src/t3/access/original-personal-evaluator.mjs';
+import {createOriginalVaultProofSigner} from '../src/t3/access/original-vault-proof.mjs';
+import {emptyVault,importVaultKey,encryptVault} from '../src/t3/access/local-vault.mjs';
 import {createSubjectKernelBinding} from '../src/t3/subject-access-binding.mjs';
 import {
   PROFILE, iso, digest, signRecord, keyObjectSigner, makeProof, evaluate
@@ -16,6 +19,7 @@ function identity(id,subjectId,uses){
   const {publicKey,privateKey}=generateKeyPairSync('ed25519');
   return {
     signer:keyObjectSigner(id,privateKey),
+    privateKeyPem:privateKey.export({type:'pkcs8',format:'pem'}).toString(),
     record:{subjectId,environment:'TEST',
       publicKey:publicKey.export({type:'spki',format:'pem'}).toString(),
       status:'ACTIVE',uses,notBefore:time(-600000),expiresAt:time(3600000)}
@@ -250,4 +254,74 @@ test('original T3 Host authorizes a separately selected RAG resource but never t
   // resource cannot authorize anything, even when the grant allows both.
   await assert.rejects(port.authorize(f.request),
     {code:'T3_OWNER_CONTEXT_MISMATCH'});
+});
+
+test('a PERSONALLY owned specialist agent uses its own encrypted Vault key and signed human principal',async()=>{
+  const f=createFixture(),vault=emptyVault();
+  importVaultKey(vault,{keyId:f.keys.analyst.signer.keyId,
+    subjectId:'agent:analyst',privateKeyPem:f.keys.analyst.privateKeyPem,
+    expectedPublicKeyPem:f.keys.analyst.record.publicKey});
+  const encrypted=encryptVault(vault,'TEST_ONLY_PERSONAL_AGENT_VAULT');
+  const signerOptions={
+    keyId:'key:analyst',personalPrincipalId:'person:owner',
+    readEncryptedVault:async()=>encrypted,
+    unlockPassphrase:async()=> 'TEST_ONLY_PERSONAL_AGENT_VAULT'
+  };
+  const signProof=createOriginalVaultProofSigner(signerOptions);
+  const personal=createOriginalPersonalAccessCheck({
+    readState:async()=>f.state,signProof,clock:()=>NOW
+  });
+  let selected={
+    kind:'PERSONAL',context_id:'context:personal-work-analyst',
+    actor_id:'agent:analyst',principal_id:'person:owner',
+    role_id:'role:owner',grant_id:'grant:analyst',
+    realm_id:'realm:personal',audience:'host:t3',resource:'rag:work',
+    purpose:'purpose:work',workspace_id:'ws:work',
+    organization_id:null,scope_revision:1
+  };
+  let reads=0;
+  const port=createSignedAccessHostPort({
+    currentContext:()=>selected,
+    actionFor:operation=>operation,
+    operationDigest:({operation,input,context})=>digest({operation,input,context}),
+    canonicalDigest:digest,clock:()=>NOW,personal,
+    resourceRead:async({operation,arguments:args})=>{
+      reads++;
+      assert.equal(operation,'rag.retrieve');
+      return {hits:[{id:'doc:engineering',text:'Approved engineering drawing'}],
+        query:args.query};
+    }
+  });
+  const result=await port.readAuthorizedResource(
+    'rag.retrieve',{query:'engineering drawing'});
+  assert.equal(result.data.hits[0].id,'doc:engineering');
+  assert.equal(result.authorization.actorId,'agent:analyst');
+  assert.equal(result.authorization.resource,'rag:work');
+  assert.equal(reads,1);
+
+  // Without the Host's human principal pin, the original signer retains
+  // its strict person-only contract; an agent cannot silently impersonate
+  // a person merely by owning a valid local proof key.
+  const noPin=createOriginalVaultProofSigner({
+    ...signerOptions,personalPrincipalId:null
+  });
+  await assert.rejects(noPin({
+    request:f.request,context:selected,
+    challenge:'personal-agent-vault-unique-challenge',asOf:time(0),
+  }),{code:'T3_ACCESS_VAULT_SUBJECT_MISMATCH'});
+  await assert.rejects(signProof({
+    request:{...f.request,principalId:'person:other'},
+    context:{...selected,principal_id:'person:other'},
+    challenge:'personal-agent-vault-unique-challenge',asOf:time(0),
+  }),{code:'T3_ACCESS_VAULT_SUBJECT_MISMATCH'});
+  assert.throws(()=>createOriginalVaultProofSigner({
+    ...signerOptions,organizationId:'org:foreign'
+  }),{code:'T3_ACCESS_VAULT_CALLBACK_REQUIRED'});
+
+  // A personal managing agent has no automatic access to home documents
+  // through the specialist's corporate-like scoped resource.
+  selected={...selected,resource:'ws:house'};
+  await assert.rejects(port.readAuthorizedResource('rag.retrieve',{query:'private'}),
+    {code:'T3_OWNER_RESOURCE_ACCESS_NOT_PERMITTED'});
+  assert.equal(reads,1);
 });
