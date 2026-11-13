@@ -19,7 +19,13 @@ function makeHost(options={}) {
   let context=Object.freeze({kind:'PERSONAL', workspace_id:workspace,actor_id:secret});
   let reads=0;
   const releases=[];
-  const wait=()=>new Promise(res=>{releases.push(res);});
+  let earlyReleases=0;
+  const wait=()=>new Promise(res=>{
+    // A real signed Host can await context before entering the blocked read.
+    // Retain an early test release instead of dropping it in that microtask.
+    if(earlyReleases>0){earlyReleases--;res();}
+    else releases.push(res);
+  });
   const trusted={
     context:{kernel:{},currentWorkspace:{
       get:()=>selected,
@@ -45,7 +51,8 @@ function makeHost(options={}) {
     grantChanged(){ownerListeners.forEach(fn=>fn());},
     changeActor(){context=Object.freeze({kind:'PERSONAL',workspace_id:workspace,actor_id:'changed'});
       ownerListeners.forEach(fn=>fn());},
-    release(){releases.shift()?.();}, selectionListeners,ownerListeners,calls:()=>reads};
+    release(){const next=releases.shift();if(next)next();else earlyReleases++;},
+    selectionListeners,ownerListeners,calls:()=>reads};
 }
 
 test('renderer only receives a two-method capability, not Kernel or Access',async()=>{

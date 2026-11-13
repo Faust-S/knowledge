@@ -18,6 +18,7 @@ function source(){
 function fixture(opts={}){
   let workspace=Object.freeze({workspace_id:W}),epoch=1,scope='ORGANIZATION',org='north-lab';
   let revoked=false,readerCount=0,grantCount=0,allowRead=true,stopRelease=null;
+  let earlyReleases=0;
   const scopeListeners=new Set(),workspaceListeners=new Set();
   const current=()=>({kind:'CORP',workspace_id:W,actor_id:secret,
     grant_id:`private:grant:${epoch}`});
@@ -37,7 +38,10 @@ function fixture(opts={}){
   const args={control,context,createSignedAccessHostPort:({port})=>port,bindings:{},
     readActivityFromWorkspaceContext:async()=>{
       readerCount++;
-      if(opts.blocked)await new Promise(resolve=>{stopRelease=resolve});
+      if(opts.blocked)await new Promise(resolve=>{
+        if(earlyReleases>0){earlyReleases--;resolve();}
+        else stopRelease=resolve;
+      });
       return source();
     }};
   return {args,control,context,
@@ -47,7 +51,7 @@ function fixture(opts={}){
     selectWorkspace(other){workspace=Object.freeze({workspace_id:other});workspaceListeners.forEach(fn=>fn());},
     deny(){allowRead=false;epoch++;scopeListeners.forEach(fn=>fn());},
     tickSilent(){epoch++;},
-    release(){stopRelease?.();stopRelease=null;},
+    release(){if(stopRelease){stopRelease();stopRelease=null;}else earlyReleases++;},
     reads:()=>readerCount,grants:()=>grantCount,
     scopeListeners,workspaceListeners};
 }
