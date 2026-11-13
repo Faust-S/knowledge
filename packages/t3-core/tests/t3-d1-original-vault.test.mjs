@@ -6,6 +6,8 @@ import {join} from "node:path";
 import {keyObjectSigner,signRecord,verifyRecord} from
   "../src/t3/access/core.mjs";
 import {strictJson} from "../src/t3/access/strict-json.mjs";
+import {createOriginalVaultProofSigner}
+  from "../src/t3/access/original-vault-proof.mjs";
 import {emptyVault,generateVaultKey,encryptVault,decryptVault,
   vaultPublicInventory,vaultPrivateKey}
   from "../src/t3/access/local-vault.mjs";
@@ -13,7 +15,7 @@ import {emptyVault,generateVaultKey,encryptVault,decryptVault,
 const now=Date.parse("2026-11-13T12:00:00.000Z");
 const iso=n=>new Date(n).toISOString();
 const passphrase="TEST_ONLY_NEVER_PRODUCTION_LOCAL_PASSPHRASE";
-test("local original Ed25519 vault survives disk reload and signs verifiable proof",()=>{
+test("local original Ed25519 vault survives disk reload and signs verifiable proof",async()=>{
   const root=mkdtempSync(join(tmpdir(),"t3-real-access-vault-"));
   try{
     const vault=emptyVault();
@@ -45,6 +47,25 @@ test("local original Ed25519 vault survives disk reload and signs verifiable pro
     },now,"PROOF");
     assert.equal(verified.subjectId,"person:local");
     assert.equal(signed.keyId,"key:personal");
+    const signFromDisk=createOriginalVaultProofSigner({
+      keyId:"key:personal",
+      readEncryptedVault:async()=>readFileSync(path,"utf8"),
+      unlockPassphrase:async()=>passphrase,
+    });
+    const actorRequest={actorId:"person:local",principalId:"person:local"};
+    const selected={kind:"PERSONAL",actor_id:"person:local",organization_id:null};
+    const recoveredProof=await signFromDisk({
+      request:actorRequest,context:selected,
+      challenge:"unique-local-challenge-"+String(now),asOf:iso(now),
+    });
+    assert.equal(verifyRecord(recoveredProof,{
+      environment:"TEST",keys:{"key:personal":keyRecord},
+    },now,"PROOF").subjectId,"person:local");
+    await assert.rejects(signFromDisk({
+      request:{...actorRequest,actorId:"person:other"},context:selected,
+      challenge:"unique-local-challenge-"+String(now),asOf:iso(now),
+    }),{code:"T3_ACCESS_VAULT_SUBJECT_MISMATCH"});
+
   }finally{rmSync(root,{recursive:true,force:true});}
 });
 test("wrong passphrase and altered ciphertext deny private-key recovery",()=>{

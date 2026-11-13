@@ -2,8 +2,12 @@
 // implementation or installed issuer. Uses the ORIGINAL T3 Access evaluator
 // now owned by knowledge and keeps ephemeral private keys on the Node host.
 import {generateKeyPairSync} from "node:crypto";
-import {PROFILE,signRecord,keyObjectSigner,makeProof,digest}
+import {PROFILE,signRecord,keyObjectSigner,digest}
   from "../../src/t3/access/core.mjs";
+import {emptyVault,generateVaultKey,encryptVault}
+  from "../../src/t3/access/local-vault.mjs";
+import {createOriginalVaultProofSigner}
+  from "../../src/t3/access/original-vault-proof.mjs";
 import {createOriginalPersonalAccessCheck}
   from "../../src/t3/access/original-personal-evaluator.mjs";
 import {createSignedAccessHostPort}
@@ -27,7 +31,24 @@ export function createTemporaryOriginalPersonalAuthority({workspaceId,now=Date.n
     throw Error("D1_REAL_PERSONAL_TEST_INPUT_REQUIRED");
   const issuer=createSigner("issuer","issuer:local",["GRANT"],now);
   const status=createSigner("status","issuer:local",["STATUS"],now);
-  const actor=createSigner("actor","person:local",["PROOF"],now);
+  const actorVault=emptyVault();
+  const actorKey=generateVaultKey(actorVault,{
+    keyId:"key:actor",subjectId:"person:local",createdAt:iso(now-30000),
+  });
+  // CI-only secret, never a runtime default. Product Host supplies its own
+  // authorized unlock callback and stores only the ciphertext at rest.
+  const testPassphrase="CI_TEST_ONLY_NOT_A_PRODUCTION_VAULT_PASSWORD";
+  const encryptedActorVault=encryptVault(actorVault,testPassphrase);
+  const actor={policyKey:{
+    subjectId:"person:local",environment:"TEST",
+    publicKey:actorKey.publicKeyPem,status:"ACTIVE",uses:["PROOF"],
+    notBefore:iso(now-600000),expiresAt:iso(now+86400000),
+  }};
+  const vaultProof=createOriginalVaultProofSigner({
+    keyId:"key:actor",
+    readEncryptedVault:async()=>JSON.stringify(encryptedActorVault),
+    unlockPassphrase:async()=>testPassphrase,
+  });
   const selected=Object.freeze({
     kind:"PERSONAL",context_id:"context:personal",actor_id:"person:local",
     principal_id:"person:local",role_id:"role:member",
@@ -91,9 +112,9 @@ export function createTemporaryOriginalPersonalAuthority({workspaceId,now=Date.n
     personal:{check:createOriginalPersonalAccessCheck({
       clock:()=>now,
       readState:async()=>{registryReads++;return state;},
-      signProof:async({request,challenge,asOf})=>{
+      signProof:async(input)=>{
         proofCount++;
-        return makeProof(request,challenge,Date.parse(asOf),actor.provider);
+        return vaultProof(input);
       },
     })},
     clock:()=>now,
