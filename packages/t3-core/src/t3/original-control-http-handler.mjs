@@ -7,7 +7,7 @@ import {timingSafeEqual} from "node:crypto";
 import {strictJson} from "./access/strict-json.mjs";
 import {canonical} from "./access/core.mjs";
 
-const LOCAL=/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/;
+const LOCAL=/^https?:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/;
 const TOKEN=/^[A-Za-z0-9_-]{40,128}$/;
 const REF=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;

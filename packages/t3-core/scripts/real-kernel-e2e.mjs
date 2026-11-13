@@ -73,12 +73,18 @@ function mime(p) {
   return "application/octet-stream";
 }
 
-export function serveRealKernelHost(root, { independentWitness = false, previewOrigin = false } = {}) {
+export function serveRealKernelHost(root, { independentWitness = false, previewOrigin = false, controlHandler = null } = {}) {
   const { key, cert } = loadLoopbackTlsMaterial();
   const server = createServer({ key, cert }, async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://x");
       const decoded = decodeURIComponent(url.pathname);
+      // The optional original Control route attaches to THIS qualified
+      // original Host, never a parallel server or service worker.
+      if (decoded.startsWith('/api/t3/') && typeof controlHandler === 'function') {
+        const owned = await controlHandler(req,res);
+        if (owned || res.headersSent) return;
+      }
       if (independentWitness && decoded === '/__t2_independent_readback__') {
         res.setHeader('content-type', 'text/html');
         res.setHeader('content-security-policy', "default-src 'none'; script-src 'self' 'unsafe-eval'; connect-src 'self'; frame-ancestors 'none'");

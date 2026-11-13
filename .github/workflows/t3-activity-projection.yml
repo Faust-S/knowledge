@@ -142,6 +142,11 @@ jobs:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
           IWXA_T2_QUALIFIED_KERNEL_VERSION: '0.3.6'
         run: node --test tests/factory2-product-kernel.browser.mjs
+      - name: Qualify genuine Ed25519 Control on same HTTPS Host as original Kernel, cold readback
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+        run: node --test tests/t3-d1-original-control-kernel.browser.mjs
       - name: Run T3 D2 live semantic activity and .iwxa exchange inheritance
         working-directory: packages/t3-core
         env:
