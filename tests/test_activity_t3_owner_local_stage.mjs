@@ -54,7 +54,8 @@ function fixture({corp=true}={}){
   const saved=new Map(),listeners=[new Set(),new Set()];
   const choices=[Object.freeze({workspace_id:W}),Object.freeze({workspace_id:R})];
   const state={sourceRevoked:false,deriveRevoked:false,readCalls:0,writeCalls:0,
-    switchDuringRead:false,lostAck:false};
+    switchDuringRead:false,lostAck:false,sourceEnumerations:0,
+    revisionDriftAfterInitial:false,revokeDeriveOnSourceRecheck:false};
   const owner=(ws,action)=>Object.freeze({
     kind:corp?'CORP':'PERSONAL',context_id:ws,
     actor_id:'person:operator',principal_id:corp?'org:cehovod':'person:operator',
@@ -105,8 +106,16 @@ function fixture({corp=true}={}){
     async listObjects({workspace_id:ws}){
       state.readCalls++;
       if(ws===W) {
+        state.sourceEnumerations++;
+        if(state.revokeDeriveOnSourceRecheck&&state.sourceEnumerations>=3)
+          state.deriveRevoked=true;
         if(state.switchDuringRead){state.switchDuringRead=false;for(const l of listeners[0])l();}
-        return objects.map(x=>structuredClone(x));
+        return objects.map(x=>{
+          const copy=structuredClone(x);
+          if(state.revisionDriftAfterInitial&&state.sourceEnumerations>=3&&
+            copy.object_id==='bracket:0')copy.revision=3;
+          return copy;
+        });
       }
       return [...saved.values()].filter(x=>x.workspace_id===ws).map(x=>structuredClone(x));
     },
@@ -114,7 +123,11 @@ function fixture({corp=true}={}){
     async getObject(ws,id){
       state.readCalls++;
       const found=ws===W?objects.find(x=>x.object_id===id):saved.get(id);
-      return found?{object:structuredClone(found),relations:{incoming:[],outgoing:[]}}:null;
+      if(!found)return null;
+      const object=structuredClone(found);
+      if(state.revisionDriftAfterInitial&&state.sourceEnumerations>=3&&
+        object.object_id==='bracket:0')object.revision=3;
+      return {object,relations:{incoming:[],outgoing:[]}};
     },
     async putObject(input){
       state.writeCalls++;
@@ -234,4 +247,23 @@ test('native original Kernel schema declaration remains a review-only typed obje
   assert.equal(schema.properties.export_allowed.const,false);
   assert.equal(schema.properties.anonymity.const,'NOT_ESTABLISHED');
   assert.equal(schema.properties.disclosure_status.const,'NOT_EVALUATED');
+});
+
+test('source revision drift or JIT derive revocation before material write fails closed',async()=>{
+  const changed=fixture();changed.state.revisionDriftAfterInitial=true;
+  await assert.rejects(stageSelectedT3ActivityReview(changed.options),
+    {code:'T3_ACTIVITY_SOURCE_CHANGED_BEFORE_SAVE'});
+  assert.equal(changed.state.writeCalls,0);
+  const revoked=fixture();revoked.state.revokeDeriveOnSourceRecheck=true;
+  await assert.rejects(stageSelectedT3ActivityReview(revoked.options),
+    {code:'T3_ACCESS_NOT_PERMITTED'});
+  assert.equal(revoked.state.writeCalls,0);
+});
+test('different Kernel even with same principal cannot become a silent store transfer',async()=>{
+  const f=fixture();
+  f.options.targetContext={...f.options.targetContext,
+    kernel:{...f.options.targetContext.kernel}};
+  await assert.rejects(stageSelectedT3ActivityReview(f.options),
+    {code:'T3_ACTIVITY_SAME_ORIGINAL_KERNEL_REQUIRED'});
+  assert.equal(f.state.readCalls,0);assert.equal(f.state.writeCalls,0);
 });

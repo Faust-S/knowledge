@@ -92,6 +92,8 @@ export async function stageSelectedT3ActivityReview({
 }={}) {
   need(explicitSave===true,'T3_ACTIVITY_EXPLICIT_SAVE_REQUIRED');
   const sourceChoice=selected(sourceContext),targetChoice=selected(targetContext);
+  need(sourceContext.kernel===targetContext.kernel,
+    'T3_ACTIVITY_SAME_ORIGINAL_KERNEL_REQUIRED');
   need(typeof readActivityFromWorkspaceContext==='function'&&
     typeof createSubjectKernelBinding==='function'&&
     sourceSignedAccess!==targetSignedAccess&&
@@ -123,10 +125,17 @@ export async function stageSelectedT3ActivityReview({
       stable(targetContext,targetChoice,targetIdentity,targetSignedAccess,()=>targetInvalidated);
     };
     check();
-    // ORIGINAL T3 signed D1/D2 read, with independent per-operation Access.
+    // ORIGINAL T3 signed D1/D2 read. Keep the source projection only inside
+    // this trusted Host closure, never in the renderer or derived Workspace.
+    let observedSource=null;
+    const captureOriginal=async(...args)=>{
+      const view=await readActivityFromWorkspaceContext(...args);
+      observedSource=view;
+      return view;
+    };
     const review=await inspectSelectedT3Activity({
       context:sourceContext,signedAccess:sourceSignedAccess,
-      bindings,readActivityFromWorkspaceContext,
+      bindings,readActivityFromWorkspaceContext:captureOriginal,
     });
     check();
     need(review.schema===T3_SELECTED_VIEW_SCHEMA&&
@@ -149,6 +158,15 @@ export async function stageSelectedT3ActivityReview({
       'T3_ACTIVITY_TARGET_NOT_EMPTY');
     // Store only enum/alias/cohort review data in the isolated Workspace.
     // No source object/event IDs, source digest, actor IDs, keys or grants.
+    // Re-read the original source with a FRESH signed Access decision right
+    // before the material effect. Status revocation, updated source revision
+    // and selected-context changes must not yield a stale derived draft.
+    const currentSource=await readActivityFromWorkspaceContext(sourceContext,{
+      bindings,signedAccess:sourceSignedAccess,
+    });
+    check();
+    need(good(observedSource)&&JSON.stringify(currentSource)===JSON.stringify(observedSource),
+      'T3_ACTIVITY_SOURCE_CHANGED_BEFORE_SAVE');
     const data={
       status:'OWNER_REVIEW_DRAFT',
       source_review_schema:T3_SELECTED_VIEW_SCHEMA,
