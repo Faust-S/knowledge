@@ -215,6 +215,92 @@ def verify_saved_graph_model_observation(
     }
 
 
+# This receipt is created by Agent's existing GraphNodeExecutor for a node
+# completion. Its digest binds stored metadata, NOT who originally wrote it.
+GRAPH_EXECUTION_RECEIPT_FIELDS = frozenset({
+    "contract", "object_type", "execution_id", "graph_digest", "node_id",
+    "node_type", "node_run_digest", "artifact_digest",
+    "source_execution_digest", "result_execution_digest",
+    "completion_event_digest", "artifact_reused", "model_invoked",
+    "tool_invoked", "agent_invoked", "external_effect_performed", "receipt_digest",
+})
+MAX_EXECUTION_RECEIPT_BYTES = 64_000
+
+
+def _verify_execution_receipt_link(artifact_bytes: bytes, receipt_bytes: bytes,
+                                   snapshot: dict) -> dict:
+    """Bind one owner-supplied Graph execution receipt to one verified snapshot."""
+    artifact = _parse(artifact_bytes, MAX_ARTIFACT_BYTES)
+    receipt = _parse(receipt_bytes, MAX_EXECUTION_RECEIPT_BYTES)
+    if set(receipt) != GRAPH_EXECUTION_RECEIPT_FIELDS:
+        _fail("EXECUTION_RECEIPT_CONTRACT_CHANGED")
+    receipt_digest = _verify_record(
+        receipt, digest_key="receipt_digest",
+        contract=GRAPH_ARTIFACT_CONTRACT, obj_type="GraphNodeExecutionReceipt",
+    )
+    for key in ("execution_id", "graph_digest", "node_id", "node_type",
+                "node_run_digest", "artifact_digest"):
+        if receipt.get(key) != artifact.get(key):
+            _fail("EXECUTION_RECEIPT_ARTIFACT_MISMATCH")
+    if receipt["artifact_digest"] != snapshot["artifact_sha256"]:
+        _fail("EXECUTION_RECEIPT_SNAPSHOT_MISMATCH")
+    for key in ("node_run_digest", "graph_digest", "artifact_digest",
+                "source_execution_digest", "result_execution_digest",
+                "completion_event_digest"):
+        if type(receipt[key]) is not str or HEX.fullmatch(receipt[key]) is None:
+            _fail("EXECUTION_RECEIPT_DIGEST_INVALID")
+    for key in ("artifact_reused", "model_invoked", "tool_invoked",
+                "agent_invoked", "external_effect_performed"):
+        if type(receipt[key]) is not bool:
+            _fail("EXECUTION_RECEIPT_FLAGS_INVALID")
+    if (receipt["node_type"] != "MODEL_INVOCATION"
+            or receipt["external_effect_performed"]
+            or receipt["tool_invoked"] or receipt["agent_invoked"]
+            or receipt["model_invoked"] == receipt["artifact_reused"]):
+        _fail("EXECUTION_RECEIPT_INVOCATION_CONFLICT")
+    return {
+        "status": "OWNER_SUPPLIED_RECEIPT_LINKED_TO_SNAPSHOT",
+        "receipt_sha256": receipt_digest,
+        "artifact_sha256": snapshot["artifact_sha256"],
+        "execution_id_sha256": hashlib.sha256(
+            receipt["execution_id"].encode("utf-8")).hexdigest(),
+        "graph_sha256": receipt["graph_digest"],
+        "node_run_sha256": receipt["node_run_digest"],
+        "source_execution_sha256": receipt["source_execution_digest"],
+        "result_execution_sha256": receipt["result_execution_digest"],
+        "completion_event_sha256": receipt["completion_event_digest"],
+        "owner_reported_model_invoked": receipt["model_invoked"],
+        "owner_reported_artifact_reused": receipt["artifact_reused"],
+        "receipt_bytes_rehashed": len(receipt_bytes),
+        "completion_event_content_verified": False,
+        "core_readback_independently_verified": False,
+    }
+
+
+def verify_saved_graph_execution_receipt(
+    observation: dict, *, artifact_bytes: bytes, config_bytes: bytes,
+    execution_receipt_bytes: bytes,
+) -> dict:
+    """Verify a self-consistent owner receipt against existing Graph snapshots.
+
+    Host/Core remains responsible for proving its actual persisted readback
+    and completion event. No network, Core IO, execution or authority granted.
+    """
+    snapshot = verify_saved_graph_model_observation(
+        observation, artifact_bytes=artifact_bytes, config_bytes=config_bytes,
+    )
+    receipt = _verify_execution_receipt_link(
+        artifact_bytes, execution_receipt_bytes, snapshot,
+    )
+    return {
+        "schema": "IWXA_K05_AGENT05_GRAPH_EXECUTION_LINK/0.1",
+        "snapshot": snapshot, "execution": receipt,
+        "owner_receipt_integrity": "SHA256_LINK_VERIFIED_ON_HOST_BYTES_ONLY",
+        "actual_core_readback": "NOT_TESTED",
+        "human_gold": False,
+    }
+
+
 def compare_saved_graph_model_runs(
     baseline: dict, tested: dict, *,
     baseline_task_bytes: bytes, tested_task_bytes: bytes,
@@ -222,6 +308,8 @@ def compare_saved_graph_model_runs(
     baseline_source_bytes: dict, tested_source_bytes: dict,
     baseline_artifact_bytes: bytes, tested_artifact_bytes: bytes,
     baseline_config_bytes: bytes, tested_config_bytes: bytes,
+    baseline_execution_receipt_bytes: bytes | None = None,
+    tested_execution_receipt_bytes: bytes | None = None,
 ) -> dict:
     """Gate an existing processing comparison on two digest-bound Graph outputs.
 
@@ -241,7 +329,28 @@ def compare_saved_graph_model_runs(
         tested_result_bytes=tested_result_bytes,
         baseline_source_bytes=baseline_source_bytes,
         tested_source_bytes=tested_source_bytes)
+    if (baseline_execution_receipt_bytes is None) != (tested_execution_receipt_bytes is None):
+        _fail("EXECUTION_RECEIPT_PAIR_INCOMPLETE")
+    old_execution = new_execution = None
+    if baseline_execution_receipt_bytes is not None:
+        old_execution = _verify_execution_receipt_link(
+            baseline_artifact_bytes, baseline_execution_receipt_bytes, old,
+        )
+        new_execution = _verify_execution_receipt_link(
+            tested_artifact_bytes, tested_execution_receipt_bytes, new,
+        )
     reasons = list(pair["reasons"])
+    if old_execution is not None:
+        if (old_execution["receipt_sha256"] == new_execution["receipt_sha256"]
+                or old_execution["execution_id_sha256"] ==
+                   new_execution["execution_id_sha256"]
+                or old_execution["node_run_sha256"] == new_execution["node_run_sha256"]):
+            reasons.append("SAME_GRAPH_EXECUTION_REPLAYED")
+        if (old_execution["owner_reported_artifact_reused"]
+                or new_execution["owner_reported_artifact_reused"]
+                or not old_execution["owner_reported_model_invoked"]
+                or not new_execution["owner_reported_model_invoked"]):
+            reasons.append("NOT_TWO_FRESH_MODEL_INVOCATIONS")
     if (old["status"] != "GRAPH_SNAPSHOT_LINKED"
             or new["status"] != "GRAPH_SNAPSHOT_LINKED"):
         reasons.append("OWNER_RECEIPTS_NOT_LINKED")
@@ -260,6 +369,19 @@ def compare_saved_graph_model_runs(
         "reasons": pair["reasons"],
         "processing": pair,
         "graph_snapshots": [old, new],
+        "execution_receipts": (
+            [old_execution, new_execution] if old_execution is not None else None
+        ),
+        "fresh_model_execution_comparison": (
+            "OWNER_RECEIPTS_REPORT_TWO_FRESH_EXECUTIONS"
+            if old_execution is not None and not reasons
+            else "NOT_COMPARABLE" if reasons else "NOT_VERIFIED"
+        ),
+        "additional_execution_receipt_bytes_rehashed": (
+            len(baseline_execution_receipt_bytes) +
+            len(tested_execution_receipt_bytes)
+            if old_execution is not None else 0
+        ),
         "additional_artifact_bytes_rehashed": (
             old["artifact_bytes_rehashed"] + new["artifact_bytes_rehashed"]),
         "graph_core_readback": "NOT_TESTED",

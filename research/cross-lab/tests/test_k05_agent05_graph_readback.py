@@ -38,7 +38,7 @@ def to_bytes(obj):
 
 def build(run_id, *, input_tokens=120, output_tokens=60,
           elapsed_ms=145, linked=True, owner_receipts=True,
-          model_pin=True):
+          model_pin=True, artifact_reused=False):
     spec = {"prompt_template": "{{source}}", "system": "",
             "input_node_ids": [], "timeout_seconds": 30,
             "max_output_tokens": 200}
@@ -74,7 +74,7 @@ def build(run_id, *, input_tokens=120, output_tokens=60,
         "execution_id": "execution-" + run_id,
         "node_type": "MODEL_INVOCATION",
         "node_id": "model-" + run_id,
-        "node_run_digest": "c" * 64,
+        "node_run_digest": sha256(("node-run:" + run_id).encode()).hexdigest(),
         "graph_digest": "d" * 64,
         "config_ref": "graph-node-config:" + cfg["config_id"] + ":" + cfg["config_digest"],
         "config_digest": cfg["config_digest"],
@@ -82,6 +82,24 @@ def build(run_id, *, input_tokens=120, output_tokens=60,
         "source_refs": refs, "provider_meta": meta,
         "external_effect_performed": False, "contains_credentials": False,
     }, "artifact_digest")
+    receipt = with_digest({
+        "contract": graph.GRAPH_ARTIFACT_CONTRACT,
+        "object_type": "GraphNodeExecutionReceipt",
+        "execution_id": artifact["execution_id"],
+        "graph_digest": artifact["graph_digest"],
+        "node_id": artifact["node_id"],
+        "node_type": artifact["node_type"],
+        "node_run_digest": artifact["node_run_digest"],
+        "artifact_digest": artifact["artifact_digest"],
+        "source_execution_digest": "e" * 64,
+        "result_execution_digest": "f" * 64,
+        "completion_event_digest": "1" * 64,
+        "artifact_reused": artifact_reused,
+        "model_invoked": not artifact_reused,
+        "tool_invoked": False,
+        "agent_invoked": False,
+        "external_effect_performed": False,
+    }, "receipt_digest")
     provenance = ("LINKED" if linked else "INCOMPLETE") if owner_receipts else "NOT_RECORDED"
     observation = {
         "contract": "PA.K05.MODEL_EXECUTION_OBSERVATION/0.1.0",
@@ -112,7 +130,8 @@ def build(run_id, *, input_tokens=120, output_tokens=60,
         "runtime_revision": "pinned-runtime-1",
         "model_observation": observation,
     }
-    return {"artifact": artifact, "config": cfg, "run": run, "result": result}
+    return {"artifact": artifact, "config": cfg, "run": run,
+            "receipt": receipt, "result": result}
 
 
 def verify(bundle):
@@ -123,7 +142,16 @@ def verify(bundle):
     )
 
 
-def compare(a, b):
+def verify_execution(bundle):
+    return graph.verify_saved_graph_execution_receipt(
+        bundle["run"]["model_observation"],
+        artifact_bytes=to_bytes(bundle["artifact"]),
+        config_bytes=to_bytes(bundle["config"]),
+        execution_receipt_bytes=to_bytes(bundle["receipt"]),
+    )
+
+
+def compare(a, b, *, include_execution_receipts=False):
     return graph.compare_saved_graph_model_runs(
         a["run"], b["run"],
         baseline_task_bytes=TASK_BYTES, tested_task_bytes=TASK_BYTES,
@@ -134,6 +162,10 @@ def compare(a, b):
         tested_artifact_bytes=to_bytes(b["artifact"]),
         baseline_config_bytes=to_bytes(a["config"]),
         tested_config_bytes=to_bytes(b["config"]),
+        **({
+            "baseline_execution_receipt_bytes": to_bytes(a["receipt"]),
+            "tested_execution_receipt_bytes": to_bytes(b["receipt"]),
+        } if include_execution_receipts else {}),
     )
 
 
@@ -301,6 +333,113 @@ class Agent05GraphReceipt(unittest.TestCase):
         bad["run"]["model_observation"]["owner_receipt_refs"]["k04"] = same
         with self.assertRaisesRegex(AgentComparisonHold, "CONFIG_RECEIPTS_INVALID"):
             verify(bad)
+
+    def test_execution_receipt_links_exact_model_node_after_core_supplies_bytes(self):
+        item = build("baseline")
+        result = verify_execution(item)
+        evidence = result["execution"]
+        self.assertEqual(result["schema"], "IWXA_K05_AGENT05_GRAPH_EXECUTION_LINK/0.1")
+        self.assertEqual(evidence["receipt_sha256"], item["receipt"]["receipt_digest"])
+        self.assertEqual(evidence["artifact_sha256"], item["artifact"]["artifact_digest"])
+        self.assertTrue(evidence["owner_reported_model_invoked"])
+        self.assertFalse(evidence["owner_reported_artifact_reused"])
+        self.assertFalse(evidence["completion_event_content_verified"])
+        self.assertEqual(result["actual_core_readback"], "NOT_TESTED")
+        self.assertGreater(evidence["receipt_bytes_rehashed"], 200)
+
+    def test_two_separate_owner_receipts_allow_processing_only_comparison(self):
+        a, b = build("baseline"), build("tested", input_tokens=97, elapsed_ms=225)
+        result = compare(a, b, include_execution_receipts=True)
+        self.assertEqual(result["status"], "SOURCE_BOUND_PROCESSING_COMPARABLE")
+        self.assertEqual(result["fresh_model_execution_comparison"],
+                         "OWNER_RECEIPTS_REPORT_TWO_FRESH_EXECUTIONS")
+        self.assertEqual(result["processing"]["deltas"]["input_tokens_delta"], -23)
+        self.assertEqual(result["processing"]["deltas"]["latency_ms_delta"], 80)
+        self.assertGreater(result["additional_execution_receipt_bytes_rehashed"], 0)
+        self.assertEqual(result["graph_core_readback"], "NOT_TESTED")
+        self.assertEqual(result["human_quality_improvement"], "NOT_MEASURED")
+
+    def test_reused_artifact_does_not_masquerade_as_a_new_fast_model_inference(self):
+        first = build("baseline")
+        resumed = build("tested", artifact_reused=True, elapsed_ms=0)
+        result = compare(first, resumed, include_execution_receipts=True)
+        self.assertEqual(result["status"], "NOT_COMPARABLE")
+        self.assertEqual(result["fresh_model_execution_comparison"], "NOT_COMPARABLE")
+        self.assertIn("NOT_TWO_FRESH_MODEL_INVOCATIONS", result["reasons"])
+        self.assertTrue(all(value is None for value in result["processing"]["deltas"].values()))
+        self.assertTrue(result["execution_receipts"][1]["owner_reported_artifact_reused"])
+
+    def test_receipt_mutation_or_rehashed_node_substitution_cannot_be_passed_off_as_original(self):
+        item = build("baseline")
+        tampered = deepcopy(item)
+        tampered["receipt"]["artifact_digest"] = "2" * 64
+        with self.assertRaisesRegex(AgentComparisonHold, "DIGEST_MISMATCH"):
+            verify_execution(tampered)
+        tampered["receipt"] = with_digest(tampered["receipt"], "receipt_digest")
+        with self.assertRaisesRegex(AgentComparisonHold, "ARTIFACT_MISMATCH"):
+            verify_execution(tampered)
+        tampered = deepcopy(item)
+        tampered["receipt"]["node_run_digest"] = "3" * 64
+        tampered["receipt"] = with_digest(tampered["receipt"], "receipt_digest")
+        with self.assertRaisesRegex(AgentComparisonHold, "ARTIFACT_MISMATCH"):
+            verify_execution(tampered)
+
+    def test_invalid_execution_receipt_boolean_fields_are_not_truthy_evidence(self):
+        item = build("baseline")
+        altered = deepcopy(item)
+        altered["receipt"]["artifact_reused"] = "false"
+        altered["receipt"] = with_digest(altered["receipt"], "receipt_digest")
+        with self.assertRaisesRegex(AgentComparisonHold, "FLAGS_INVALID"):
+            verify_execution(altered)
+        altered = deepcopy(item)
+        altered["receipt"]["model_invoked"] = False
+        altered["receipt"] = with_digest(altered["receipt"], "receipt_digest")
+        with self.assertRaisesRegex(AgentComparisonHold, "INVOCATION_CONFLICT"):
+            verify_execution(altered)
+        altered = deepcopy(item)
+        altered["receipt"]["tool_invoked"] = True
+        altered["receipt"] = with_digest(altered["receipt"], "receipt_digest")
+        with self.assertRaisesRegex(AgentComparisonHold, "INVOCATION_CONFLICT"):
+            verify_execution(altered)
+
+    def test_duplicate_model_execution_cannot_count_as_two_separate_trials(self):
+        a = build("baseline")
+        b = build("tested")
+        b["receipt"]["execution_id"] = a["receipt"]["execution_id"]
+        b["artifact"]["execution_id"] = a["artifact"]["execution_id"]
+        b["artifact"] = with_digest(b["artifact"], "artifact_digest")
+        b["run"]["model_observation"]["source_revision"] = b["artifact"]["artifact_digest"]
+        b["receipt"]["artifact_digest"] = b["artifact"]["artifact_digest"]
+        b["receipt"] = with_digest(b["receipt"], "receipt_digest")
+        result = compare(a, b, include_execution_receipts=True)
+        self.assertEqual(result["status"], "NOT_COMPARABLE")
+        self.assertIn("SAME_GRAPH_EXECUTION_REPLAYED", result["reasons"])
+        self.assertIsNone(result["processing"]["deltas"]["latency_ms_delta"])
+
+    def test_only_one_execution_receipt_is_not_a_qualified_pair(self):
+        a, b = build("baseline"), build("tested")
+        with self.assertRaisesRegex(AgentComparisonHold, "EXECUTION_RECEIPT_PAIR_INCOMPLETE"):
+            graph.compare_saved_graph_model_runs(
+                a["run"], b["run"],
+                baseline_task_bytes=TASK_BYTES, tested_task_bytes=TASK_BYTES,
+                baseline_result_bytes=a["result"], tested_result_bytes=b["result"],
+                baseline_source_bytes={SOURCE_REF: SOURCE_BYTES},
+                tested_source_bytes={SOURCE_REF: SOURCE_BYTES},
+                baseline_artifact_bytes=to_bytes(a["artifact"]),
+                tested_artifact_bytes=to_bytes(b["artifact"]),
+                baseline_config_bytes=to_bytes(a["config"]),
+                tested_config_bytes=to_bytes(b["config"]),
+                baseline_execution_receipt_bytes=to_bytes(a["receipt"]),
+            )
+
+    def test_receipt_qualification_never_leaks_graph_execution_ids_or_payloads(self):
+        a, b = build("baseline"), build("tested")
+        encoded = json.dumps(compare(a, b, include_execution_receipts=True))
+        for raw in (a["artifact"]["execution_id"], b["artifact"]["execution_id"],
+                    TASK_BYTES.decode(), SOURCE_REF, SOURCE_BYTES.decode(),
+                    RECEIPTS["k02"], RECEIPTS["k04"], "controlled-local-model"):
+            self.assertNotIn(raw, encoded)
+        self.assertIn(a["receipt"]["receipt_digest"], encoded)
 
     def test_wrong_artifact_graph_authority_flags_are_rejected(self):
         item = build("baseline")
