@@ -47,6 +47,8 @@ test("T3 install app: one dist, standalone identity and two valid PNG icon sizes
     const html=readFileSync(join(root,"index.html"),"utf8");
     assert.equal((html.match(/rel="manifest"/g)||[]).length,1);
     assert.match(html,/<head>[^]*href="\/t3-app-manifest.json"/);
+    assert.match(html,/<link rel="apple-touch-icon" href="\/_iwxa\/pwa\/icon-192.png"/);
+    assert.match(html,/<meta name="apple-mobile-web-app-capable" content="yes"/);
     assert.match(readFileSync(join(root,"workspace/index.html"),"utf8"),/t3-app-manifest.json/);
     assert.equal(readFileSync(join(root,"site.webmanifest"),"utf8"),original);
     const offline=JSON.parse(readFileSync(join(root,"t3-offline-manifest.json"),"utf8"));
@@ -89,5 +91,24 @@ test("T3 install app rejects corrupt icon bytes instead of shipping broken OS br
       "a wrong source icon must never replace a valid generated install icon");
     assert.equal(m.icons.find(x=>x.sizes==="192x192").src,
       "/_iwxa/pwa/icon-192.png");
+  }finally{clean(root);}
+});
+
+test("T3 install app preserves the domain's existing Apple home-screen icon",()=>{
+  const root=fixture();
+  try{
+    write(root,"index.html",'<html><head><title>Own brand</title>'+
+      '<link rel="apple-touch-icon" href="/original-apple.png">'+
+      '<meta name="apple-mobile-web-app-capable" content="yes">'+
+      '</head><body><main>Site</main></body></html>');
+    materializeDomainMode(root);
+    const html=readFileSync(join(root,"index.html"),"utf8");
+    assert.equal((html.match(/rel="apple-touch-icon"/g)||[]).length,1);
+    assert.match(html,/href="\/original-apple.png"/);
+    assert.equal((html.match(/apple-mobile-web-app-capable/g)||[]).length,1);
+    const before=readFileSync(join(root,"index.html"),"utf8");
+    materializeDomainMode(root);
+    assert.equal(readFileSync(join(root,"index.html"),"utf8"),before,
+      "iOS metadata is stable across domain rebuilds");
   }finally{clean(root);}
 });
