@@ -1,0 +1,237 @@
+// This tests Activity against the exact ORIGINAL public T3 D1/D2 owner.
+// Synthetic data/issuers only; not a production disclosure qualification.
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {createHash} from 'node:crypto';
+import {existsSync} from 'node:fs';
+import {join,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {stageSelectedT3ActivityReview,T3_ACTIVITY_OWNER_REVIEW_SCHEMA,
+  T3_ACTIVITY_OWNER_REVIEW_DECLARATION} from
+  '../modules/activity-base-anonymizer/t3-owner-review-stage.mjs';
+
+const root=process.env.IWXA_T3_PUBLIC_CORE_DIR;
+if(!root||!existsSync(join(resolve(root),'src/t3/index.mjs')))
+  throw Error('PUBLIC_PINNED_T3_CORE_CHECKOUT_REQUIRED');
+const core=await import(pathToFileURL(join(resolve(root),'src/t3/index.mjs')).href);
+assert.equal(typeof core.createSubjectKernelBinding,'function');
+assert.equal(typeof core.readActivityFromWorkspaceContext,'function');
+const W='factory:source',R='factory:derived',OTHER='other:private';
+const sha=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const objects=Array.from({length:3},(_,i)=>[
+  {object_id:`bracket:${i}`,workspace_id:W,revision:2,
+    schema_id:'d05.bracket',schema_version:'1.0.0',
+    created_by_service:'d05',updated_by_service:'d05',
+    created_at:'2026-11-13T08:00:00Z',updated_at:'2026-11-13T09:00:00Z',
+    data:{private_customer:`PRIVATE_CUSTOMER_${i}`},extensions:{}},
+  {object_id:`material:${i}`,workspace_id:W,revision:1,
+    schema_id:'d05.material',schema_version:'1.0.0',
+    created_by_service:'d05',updated_by_service:'d05',
+    created_at:'2026-11-13T08:00:00Z',updated_at:'2026-11-13T08:00:00Z',
+    data:{private_supplier:`SECRET_SUPPLIER_${i}`},extensions:{}},
+]).flat();
+const events=Array.from({length:3},(_,i)=>[
+  {event_id:`event:${i}:1`,workspace_id:W,service_id:'d05',
+    event_type:'d05.bracket.opened',object_id:`bracket:${i}`,revision:1,
+    occurred_at:'2026-11-13T08:00:00Z',payload:{private:'TOP_SECRET'}},
+  {event_id:`event:${i}:2`,workspace_id:W,service_id:'d05',
+    event_type:'d05.bracket.reworked',object_id:`bracket:${i}`,revision:2,
+    occurred_at:'2026-11-13T09:00:00Z',
+    payload:{affected:[{object_id:`material:${i}`,revision:1}],private:'TOP_SECRET'}},
+]).flat();
+const bindings={
+  objects:[
+    {schema_id:'d05.bracket',schema_version:'1.0.0',semantic_kind:'Process'},
+    {schema_id:'d05.material',schema_version:'1.0.0',semantic_kind:'Entity'},
+  ],
+  events:[
+    {event_type:'d05.bracket.opened',semantic_kind:'Event'},
+    {event_type:'d05.bracket.reworked',semantic_kind:'Event',
+      object_links:[{field:'affected',qualifier:'uses',many:true}]},
+  ],
+};
+function fixture({corp=true}={}){
+  const saved=new Map(),listeners=[new Set(),new Set()];
+  const choices=[Object.freeze({workspace_id:W}),Object.freeze({workspace_id:R})];
+  const state={sourceRevoked:false,deriveRevoked:false,readCalls:0,writeCalls:0,
+    switchDuringRead:false,lostAck:false};
+  const owner=(ws,action)=>Object.freeze({
+    kind:corp?'CORP':'PERSONAL',context_id:ws,
+    actor_id:'person:operator',principal_id:corp?'org:cehovod':'person:operator',
+    role_id:'role:operator',grant_id:'grant:'+action,realm_id:'realm:cehovod',
+    audience:'host:t3',workspace_id:ws,resource:ws,
+    purpose:action==='derive'?'activity.derivation':'activity.analysis',
+    organization_id:corp?'org:cehovod':null,scope_revision:1,
+  });
+  const contexts=[owner(W,'read'),owner(R,'derive')];
+  const access=(i)=>({
+    currentContext:()=>contexts[i],
+    actionFor:op=>{
+      if(i===0) {
+        assert.ok(['t1.getWorkspace','t1.listObjects','t1.getObject','t1.listEventsSince'].includes(op));
+        return 'activity.read';
+      }
+      assert.ok(['t1.getWorkspace','t1.listObjects','t1.putObject','t1.getObject'].includes(op));
+      return 'activity.derive';
+    },
+    operationDigest:({operation,input,context})=>sha({operation,input,context}),
+    authorize:async request=>{
+      const c=contexts[i],allowed=!(i===0?state.sourceRevoked:state.deriveRevoked);
+      const now=Date.now();
+      return {
+        schema:corp?'IWXA_T3_ORGANIZATION_OPERATION_DECISION/1':
+          'IWXA_T3_AUTHORIZATION_DECISION/1',
+        allowed,outcome:allowed?'PERMITTED':'DENIED',
+        evidenceOnly:true,requestDigest:sha(request),policyDigest:sha('test-policy'),
+        statusSequence:1,validUntil:new Date(now+60_000).toISOString(),
+        evaluatedAt:new Date(now-1000).toISOString(),
+        statusObservedAt:new Date(now-1000).toISOString(),
+        authorityPath:[{grantId:request.grantId}],
+        ...(corp?{
+          organizationId:c.organization_id,workspaceId:c.workspace_id,
+          grantId:c.grant_id,operationDigest:sha({request,scope:c.workspace_id}),
+          evidenceDigest:sha({request}),productionActivation:false,
+          doesNotTransferData:true,doesNotAcceptCorporateCopy:true,
+        }:{})
+      };
+    },
+    verifyDecisionBinding:(request,decision)=>decision.requestDigest===sha(request),
+  });
+  const kernel={
+    sessionInfo:{contract_version:'1.3.0',runtime_version:'0.3.6',mode:'full'},
+    hasOperation:op=>['t1.getWorkspace','t1.listObjects','t1.getObject',
+      't1.listEventsSince','t1.putObject'].includes(op),
+    async getWorkspace(ws){state.readCalls++;return [W,R].includes(ws)?{workspace_id:ws}:null;},
+    async listObjects({workspace_id:ws}){
+      state.readCalls++;
+      if(ws===W) {
+        if(state.switchDuringRead){state.switchDuringRead=false;for(const l of listeners[0])l();}
+        return objects.map(x=>structuredClone(x));
+      }
+      return [...saved.values()].filter(x=>x.workspace_id===ws).map(x=>structuredClone(x));
+    },
+    async listEventsSince(ws){state.readCalls++;return ws===W?structuredClone(events):[];},
+    async getObject(ws,id){
+      state.readCalls++;
+      const found=ws===W?objects.find(x=>x.object_id===id):saved.get(id);
+      return found?{object:structuredClone(found),relations:{incoming:[],outgoing:[]}}:null;
+    },
+    async putObject(input){
+      state.writeCalls++;
+      assert.equal(input.workspace_id,R);
+      assert.equal(input.base_revision,0);
+      assert.equal(saved.size,0);
+      assert.equal(input.schema_id,T3_ACTIVITY_OWNER_REVIEW_SCHEMA);
+      const object={...structuredClone(input),revision:1};
+      saved.set(input.object_id,object);
+      if(state.lostAck)throw Error('LOST_ACK_AFTER_COMMIT');
+      return {object,event:{workspace_id:R,event_id:'staged:event:1'}};
+    },
+  };
+  const selected=(index)=>({kernel,currentWorkspace:{
+    get:()=>choices[index],
+    subscribe(fn){listeners[index].add(fn);return()=>listeners[index].delete(fn);},
+  }});
+  const sourceContext=selected(0),targetContext=selected(1);
+  const sourceSignedAccess=access(0),targetSignedAccess=access(1);
+  const options={sourceContext,targetContext,sourceSignedAccess,targetSignedAccess,
+    bindings,explicitSave:true,
+    readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
+    createSubjectKernelBinding:core.createSubjectKernelBinding};
+  return {options,saved,state,contexts,listeners,
+    chooseTargetSameAsSource(){choices[1]=choices[0];contexts[1]=Object.freeze({
+      ...contexts[1],context_id:W,workspace_id:W,resource:W,
+    });},
+    moveTargetToForeignOrg(){contexts[1]=Object.freeze({
+      ...contexts[1],principal_id:'org:foreign',organization_id:'org:foreign',
+    });},
+    addExistingTarget(){saved.set('existing:foreign',{object_id:'existing:foreign',
+      workspace_id:R,revision:1,data:{private:'SECRET'}});},
+  };
+}
+test('separate same-owner target writes a review through ORIGINAL D1 Kernel, not a package',async()=>{
+  for(const corp of [true,false]){
+    const f=fixture({corp});
+    const before=structuredClone({objects,events,bindings});
+    const receipt=await stageSelectedT3ActivityReview(f.options);
+    assert.equal(receipt.status,'OWNER_REVIEW_DRAFT');
+    assert.equal(receipt.source_review_status,'STRUCTURE_PRESERVED_REVIEW_REQUIRED');
+    assert.equal(receipt.readback,true);assert.equal(receipt.export_allowed,false);
+    assert.equal(receipt.workspace_id,R);
+    assert.equal(f.saved.size,1);
+    assert.equal(f.state.writeCalls,1);
+    const record=f.saved.get(receipt.object_id);
+    assert.equal(record.schema_id,'iwxa.activity.process-review');
+    assert.equal(record.data.export_allowed,false);
+    assert.equal(record.data.anonymity,'NOT_ESTABLISHED');
+    assert.equal(record.data.disclosure_status,'NOT_EVALUATED');
+    assert.equal(record.data.candidate.length,2);
+    assert.equal(JSON.stringify(record).includes('PRIVATE_CUSTOMER'),false);
+    assert.equal(JSON.stringify(record).includes('TOP_SECRET'),false);
+    assert.equal(JSON.stringify(record).includes('SECRET_SUPPLIER'),false);
+    assert.equal(JSON.stringify(record).includes('bracket:0'),false);
+    assert.equal(JSON.stringify(record).includes('material:0'),false);
+    assert.equal(JSON.stringify(record).includes('org:cehovod'),false);
+    assert.deepEqual({objects,events,bindings},before);
+    assert.equal(f.listeners[0].size,0);assert.equal(f.listeners[1].size,0);
+  }
+});
+test('an explicit approval and separately signed derive operation are mandatory',async()=>{
+  const f=fixture();
+  await assert.rejects(stageSelectedT3ActivityReview({...f.options,explicitSave:false}),
+    {code:'T3_ACTIVITY_EXPLICIT_SAVE_REQUIRED'});
+  assert.equal(f.state.readCalls,0);assert.equal(f.state.writeCalls,0);
+  f.options.targetSignedAccess.actionFor=()=> 'activity.read';
+  await assert.rejects(stageSelectedT3ActivityReview(f.options),
+    {code:'T3_ACTIVITY_DERIVE_ACTION_REQUIRED'});
+  assert.equal(f.state.readCalls,0);assert.equal(f.state.writeCalls,0);
+});
+test('different principal, same Workspace, nonempty target are rejected before writes',async()=>{
+  const x=fixture();x.moveTargetToForeignOrg();
+  await assert.rejects(stageSelectedT3ActivityReview(x.options),
+    {code:'T3_ACTIVITY_CROSS_PRINCIPAL_TRANSFER_FORBIDDEN'});
+  assert.equal(x.state.readCalls,0);
+  const same=fixture();same.chooseTargetSameAsSource();
+  await assert.rejects(stageSelectedT3ActivityReview(same.options),
+    {code:'T3_ACTIVITY_SEPARATE_TARGET_WORKSPACE_REQUIRED'});
+  const occupied=fixture();occupied.addExistingTarget();
+  await assert.rejects(stageSelectedT3ActivityReview(occupied.options),
+    {code:'T3_ACTIVITY_TARGET_NOT_EMPTY'});
+  assert.equal(occupied.state.writeCalls,0);
+});
+test('revoked source read or derive grant cannot produce a draft',async()=>{
+  const read=fixture();read.state.sourceRevoked=true;
+  await assert.rejects(stageSelectedT3ActivityReview(read.options),
+    {code:'T3_AUTHORITATIVE_READ_REFUSED'});
+  assert.equal(read.state.writeCalls,0);
+  const derive=fixture();derive.state.deriveRevoked=true;
+  await assert.rejects(stageSelectedT3ActivityReview(derive.options),
+    {code:'T3_ACCESS_NOT_PERMITTED'});
+  assert.equal(derive.state.writeCalls,0);
+});
+test('source selection A to B to A invalidates analysis even if source ID is unchanged',async()=>{
+  const f=fixture();f.state.switchDuringRead=true;
+  await assert.rejects(stageSelectedT3ActivityReview(f.options),
+    {code:'T3_AUTHORITATIVE_READ_REFUSED'});
+  assert.equal(f.state.writeCalls,0);
+});
+test('lost acknowledgement after original Kernel commit never retries',async()=>{
+  const f=fixture();f.state.lostAck=true;
+  await assert.rejects(stageSelectedT3ActivityReview(f.options),error=>{
+    assert.equal(error.code,'T3_ACTIVITY_WRITE_MAY_HAVE_COMMITTED');
+    assert.equal(error.cause_code,'UNVERIFIED_COMMIT_OR_READBACK');
+    assert.equal(error.object_id&&f.saved.has(error.object_id),true);
+    return true;
+  });
+  assert.equal(f.state.writeCalls,1);
+  assert.equal(f.saved.size,1);
+});
+test('native original Kernel schema declaration remains a review-only typed object',()=>{
+  const schema=T3_ACTIVITY_OWNER_REVIEW_DECLARATION.json_schema;
+  assert.equal(T3_ACTIVITY_OWNER_REVIEW_DECLARATION.schema_version,'1.0.0');
+  assert.equal(schema.additionalProperties,false);
+  assert.equal(schema.properties.status.const,'OWNER_REVIEW_DRAFT');
+  assert.equal(schema.properties.export_allowed.const,false);
+  assert.equal(schema.properties.anonymity.const,'NOT_ESTABLISHED');
+  assert.equal(schema.properties.disclosure_status.const,'NOT_EVALUATED');
+});

@@ -12,6 +12,7 @@ on:
       - tests/test_activity_t3_review_controller.mjs
       - tests/test_activity_t3_control_host_link.mjs
       - tests/test_activity_t3_original_reader.mjs
+      - tests/test_activity_t3_owner_local_stage.mjs
       - tests/test_activity_host_surface.mjs
       - tests/test_activity_desktop_contract.py
       - .github/workflows/activity-base-desktop.yml
@@ -80,7 +81,7 @@ jobs:
       - name: Exercise ORIGINAL T3 Workspace D1/D2 reader with synthetic Host owner
         env:
           IWXA_T3_PUBLIC_CORE_DIR: ../t3-public-core/packages/t3-core
-        run: node --test tests/test_activity_t3_original_reader.mjs
+        run: node --test tests/test_activity_t3_original_reader.mjs tests/test_activity_t3_owner_local_stage.mjs
   windows-desktop:
     runs-on: windows-latest
     timeout-minutes: 50
