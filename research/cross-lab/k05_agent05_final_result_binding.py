@@ -159,7 +159,9 @@ def verify_saved_graph_final_projection(
         "artifact_sha256": artifact_digest,
         "config_sha256": config_digest,
         "full_text_sha256": hashlib.sha256(expected_result_text_bytes).hexdigest(),
-        "source_ref_count": len(refs),
+        # Includes model bindings and owner receipts, not necessarily documents.
+        "artifact_reference_count": len(refs),
+        "document_sources_verified": False,
         "bytes_rehashed_by_binding": (
             len(final_result_bytes) + len(graph_bytes) +
             len(execution_instance_bytes) + len(artifact_bytes) +

@@ -139,6 +139,10 @@ class K05FinalResultBinding(unittest.TestCase):
         self.assertEqual(proof["execution_sha256"], item["after"]["execution_digest"])
         self.assertEqual(proof["full_text_sha256"], hashlib.sha256(item["result"]).hexdigest())
         self.assertEqual(proof["host_reads_by_k05"], 0)
+        self.assertEqual(proof["artifact_reference_count"],
+                         len(item["artifact"]["source_refs"]))
+        self.assertIs(proof["document_sources_verified"], False)
+        self.assertNotIn("source_ref_count", proof)
         self.assertEqual(proof["task_acceptance"], "NOT_VERIFIED")
         self.assertEqual(proof["human_gold"], "NOT_MEASURED")
 
