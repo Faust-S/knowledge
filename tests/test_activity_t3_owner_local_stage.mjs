@@ -537,3 +537,65 @@ test('signed-target-only path keeps lost acknowledgment private, never repeats T
   });
   assert.equal(f.state.writeCalls,1);assert.equal(f.saved.size,1);
 });
+
+test('original single-selection Activity bridge stages using a signed target, without target Context',async()=>{
+  const f=fixture(),listeners=new Set();
+  let sourceGrants=0,targetGrants=0;
+  const control={
+    snapshot:()=>({context:'ORGANIZATION',contextId:'org:cehovod',contextEpoch:1}),
+    signedActivityAccess:()=>{sourceGrants++;return f.options.sourceSignedAccess;},
+    subscribeInvalidation(fn){listeners.add(fn);return()=>listeners.delete(fn);},
+  };
+  const bridge=bindT3ControlActivityReview({
+    control,context:f.options.sourceContext,bindings:f.options.bindings,
+    createSignedAccessHostPort:core.createSignedAccessHostPort,
+    readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
+    derivation:{
+      targetWorkspaceId:R,
+      async resolveTargetSignedAccess(){targetGrants++;return f.options.targetSignedAccess;},
+      createSubjectKernelBinding:core.createSubjectKernelBinding,
+    },
+  });
+  assert.deepEqual(Object.keys(bridge.port).sort(),
+    ['readSelected','stageSelected','subscribeInvalidation']);
+  const state=[],ui=createT3ReviewController({host:bridge.port,onUpdate:x=>state.push(x)});
+  assert.deepEqual(await ui.readSelected(),{status:'REVIEW'});
+  assert.deepEqual(await ui.stageSelected(),{status:'STAGED'});
+  assert.equal(f.saved.size,1);assert.equal(f.state.writeCalls,1);
+  assert.equal(sourceGrants,2);assert.equal(targetGrants,1);
+  assert.equal(f.listeners[1].size,0,'no target selection store was created');
+  assert.equal(state.at(-1).review,null);
+  ui.dispose();bridge.dispose();
+  assert.equal(listeners.size,0);
+  assert.equal(f.listeners[0].size,0);
+});
+test('single-selection signed bridge refuses vanished or changed target scope',async()=>{
+  const f=fixture(),listeners=new Set();
+  let status='absent';
+  const control={
+    snapshot:()=>({context:'ORGANIZATION',contextId:'org:cehovod',contextEpoch:1}),
+    signedActivityAccess:()=>f.options.sourceSignedAccess,
+    subscribeInvalidation(fn){listeners.add(fn);return()=>listeners.delete(fn);},
+  };
+  const bridge=bindT3ControlActivityReview({
+    control,context:f.options.sourceContext,bindings:f.options.bindings,
+    createSignedAccessHostPort:core.createSignedAccessHostPort,
+    readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
+    derivation:{
+      targetWorkspaceId:R,
+      resolveTargetSignedAccess:()=>status==='absent'?null:f.options.targetSignedAccess,
+      createSubjectKernelBinding:core.createSubjectKernelBinding,
+    },
+  });
+  await assert.rejects(bridge.port.stageSelected(),
+    {code:'T3_CONTROL_DERIVATION_OWNER_REQUIRED'});
+  assert.equal(f.state.writeCalls,0);
+  status='present';
+  f.moveTargetToForeignOrg();
+  await assert.rejects(bridge.port.stageSelected(),{
+    code:'T3_ACTIVITY_CROSS_PRINCIPAL_TRANSFER_FORBIDDEN',
+  });
+  assert.equal(f.state.writeCalls,0);
+  bridge.dispose();
+  assert.equal(listeners.size,0);
+});
