@@ -77,9 +77,13 @@ export function assembleSignedControlDist({
      !catalog.entries.some(x=>x.service_id===config.workspace_service_id))
     fail('ORIGINAL_WORKSPACE_SERVICE_REQUIRED');
   const signedHtml=readFileSync(required(compiled,'signed-workspace.html'),'utf8');
-  if(!signedHtml.includes('<base href="/workspace/"')||
-     !/\b(?:src|href)="\/workspace\/assets\/[A-Za-z0-9_.\/-]+"/.test(signedHtml))
-    fail('COMPILED_SIGNED_ENTRY_REQUIRED');
+  const isolatedHtml=readFileSync(required(compiled,'isolated-signed-workspace.html'),'utf8');
+  const trustedHtml=readFileSync(required(compiled,'trusted-kernel-realm.html'),'utf8');
+  for(const [kind,html]of [['SIGNED',signedHtml],['ISOLATED',isolatedHtml],['TRUSTED_REALM',trustedHtml]]){
+    if(!html.includes('<base href="/workspace/"')||
+       !/\b(?:src|href)="\/workspace\/assets\/[A-Za-z0-9_.\/-]+"/.test(html))
+      fail('COMPILED_'+kind+'_ENTRY_REQUIRED');
+  }
   const assetRoot=join(compiled,'assets');
   if(!existsSync(assetRoot)||!lstatSync(assetRoot).isDirectory())
     fail('COMPILED_ASSETS_REQUIRED');
@@ -100,9 +104,15 @@ export function assembleSignedControlDist({
     }
     staged.push({source:path,dest});
   }
-  if(existsSync(join(source,'workspace/signed-workspace.html')) &&
-      readFileSync(join(source,'workspace/signed-workspace.html'),'utf8')!==signedHtml)
-    fail('SIGNED_ENTRY_COLLISION');
+  for(const [file,html]of [
+    ['signed-workspace.html',signedHtml],
+    ['isolated-signed-workspace.html',isolatedHtml],
+    ['trusted-kernel-realm.html',trustedHtml],
+  ]){
+    const target=join(source,'workspace',file);
+    if(existsSync(target)&&readFileSync(target,'utf8')!==html)
+      fail('SIGNED_ENTRY_COLLISION');
+  }
   const favicon=join(source,'workspace/favicon.ico');
   const compiledFavicon=join(compiled,'favicon.ico');
   if(!existsSync(favicon)&&!existsSync(compiledFavicon))fail('SIGNED_FAVICON_REQUIRED');
@@ -114,6 +124,8 @@ export function assembleSignedControlDist({
     cpSync(source,temp,{recursive:true,errorOnExist:true,force:false});
     mkdirSync(join(temp,'workspace/assets'),{recursive:true});
     writeFileSync(join(temp,'workspace/signed-workspace.html'),signedHtml);
+    writeFileSync(join(temp,'workspace/isolated-signed-workspace.html'),isolatedHtml);
+    writeFileSync(join(temp,'workspace/trusted-kernel-realm.html'),trustedHtml);
     for(const item of staged){
       mkdirSync(dirname(join(temp,item.dest)),{recursive:true});
       copyFileSync(item.source,join(temp,item.dest));
@@ -127,7 +139,7 @@ export function assembleSignedControlDist({
     renameSync(temp,output);
     return {schema:'iwxa.t3.signed-control-one-dist/1',origin,
       workspace_service_id:config.workspace_service_id,
-      signed_assets:staged.length,original_kernel:'0.3.6',
+      signed_assets:staged.length,isolated_realm_entries:true,original_kernel:'0.3.6',
       original_qualified_artifact:qualified?.artifactId??'TEST_ONLY_UNQUALIFIED',
       original_loader_sha256:hash(originalLoader),
       original_runtime_sha256:hash(originalRuntime),
