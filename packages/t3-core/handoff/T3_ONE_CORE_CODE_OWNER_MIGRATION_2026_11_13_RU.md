@@ -30,3 +30,27 @@
 3. Выполнить окончательный пользовательский маршрут BLI и общую G4, используя единый установленный `dist/`.
 
 Текущий статус: `D1_REAL_SIGNED_CONTROL=NOT_ACCEPTED`; `T3_READY=false`; `G4=NOT_ACCEPTED`. Нельзя считать успешное стадирование закрытого исходника приёмкой продукта. Публиковать новые исполняемые изменения только в `knowledge`.
+
+
+## D1: original local signed Access and encrypted vault qualification
+
+Executable source: knowledge@d567eaa45b869cd14f90a51c97dd8758683b73de.
+Public Actions: https://github.com/Faust-S/knowledge/actions/runs/43456298605
+**COMPLETED SUCCESS**: test SUCCESS, real-host SUCCESS, metal-webgpu SKIPPED (not requested).
+
+Everything below resides and executes in knowledge/packages/t3-core. No Center checkout, private T3 checkout, cross-repository token, private Actions or CI intermediary was used.
+
+Implemented:
+- src/t3/access/core.mjs: original versioned T3 Access evaluator, real Ed25519 verification of signed grant, actor proof and STATUS. Adopted into the single source tree, not a new IAM, Kernel, Store or transfer format.
+- src/t3/access/original-personal-evaluator.mjs: uses the existing signed-access-host-port; signed registry state is read AFTER the asynchronous actor proof. No cached grant rights.
+- src/t3/access/local-vault.mjs and strict-json.mjs: original offline encrypted Ed25519 key-vault algorithm and strict JSON decoding. No real private keys committed.
+- src/t3/access/original-vault-proof.mjs: authentic local actor signature after authorized vault unlock, without putting private keys into Browser, WebLLM Worker or IWXA packages.
+- New executable Node regressions and the real compiled browser/Kernel test use the original T2 Kernel 0.3.6.
+
+Observed Chromium real-host marker T3_D1_REAL_ED25519_PERSONAL_ORIGINAL_KERNEL_COLD_PASS: realEd25519Grant=true, realSignedActorProof=true, realSignedStatus=true, originalKernelColdReadback=true, revokedAfterCold=true, originalKernelWriteCount=1, privateControlUsed=false, completeControlProductAccepted=false.
+
+The existing T3_D1_D5_SIGNED_BLI_COPY_SAVE_ORIGINAL_KERNEL_PASS user-flow still uses a synthetic Control for that UI route. The vault tests cover encrypted disk reload, a fresh verifiable signature with the recovered key, wrong passphrase, tampering and duplicate-key refusal. This is NOT an end-to-end process restart of a persistent live issuer with signed STATUS chronology.
+
+Remaining: bind authentic signed Access to the installed loopback AppShell using the original Host mechanisms, persist authentic monotonic STATUS/registry state without a second Store, qualify two corporate organizations and PERSONAL, real revocation and cold restart, T2 .iwxa roundtrip, hardware BLI and G4 in public knowledge Actions only.
+
+**D1_PERSONAL_SIGNED_KERNEL_E2E=PASS. D1_INSTALLED_CONTROL=NOT_ACCEPTED. G4=NOT_ACCEPTED. T3_READY=false.**
