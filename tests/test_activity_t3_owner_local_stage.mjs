@@ -6,7 +6,7 @@ import {createHash} from 'node:crypto';
 import {existsSync,readFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {bindT3ControlActivityReview} from
+import {bindT3ControlActivityReview,openOriginalT3ActivityReviewHost} from
   '../modules/activity-base-anonymizer/t3-control-host-link.mjs';
 import {createT3ReviewController} from
   '../modules/activity-base-anonymizer/t3-review-controller.mjs';
@@ -598,4 +598,156 @@ test('single-selection signed bridge refuses vanished or changed target scope',a
   assert.equal(f.state.writeCalls,0);
   bridge.dispose();
   assert.equal(listeners.size,0);
+});
+
+const {createControlLoopbackOwner}=await import(pathToFileURL(
+  join(resolve(root),'src/t3/control-loopback-owner.mjs')).href);
+
+function originalSignedControlFixture(f,{grantDerive=true}={}){
+  const origin='http://127.0.0.1:19841',token='x'.repeat(44);
+  let generation=1,streamCount=0,controller=null,selectedDerive=0;
+  const reply=(value,status=200)=>new Response(JSON.stringify(value),{
+    status,headers:{'Content-Type':'application/json'},
+  });
+  const fetchImpl=async(url,options={})=>{
+    assert.ok(url.startsWith(origin+'/api/t3/'));
+    assert.equal(options.headers.Authorization,'Bearer '+token);
+    if(url.endsWith('/owner-events')){
+      streamCount++;
+      return new Response(new ReadableStream({
+        start(c){
+          controller=c;
+          c.enqueue(new TextEncoder().encode('event: ready\n\n'));
+        },
+      }),{status:200,headers:{'Content-Type':'text/event-stream'}});
+    }
+    if(url.endsWith('/context-epoch'))return reply({contextEpoch:generation});
+    const input=JSON.parse(options.body);
+    const access=input.operation==='activity.derive'
+      ? f.options.targetSignedAccess:f.options.sourceSignedAccess;
+    if(input.verb==='select'){
+      if(input.operation==='activity.derive')selectedDerive++;
+      return reply({
+        contextEpoch:generation,
+        available:input.scope==='activity'&&
+          (input.operation==='activity.read'||
+           (grantDerive&&input.operation==='activity.derive')),
+      });
+    }
+    if(input.verb==='context')return reply({context:await access.currentContext()});
+    if(input.verb==='action')return reply({
+      action:await access.actionFor(input.kernelOperation),
+    });
+    if(input.verb==='digest')return reply({
+      digest:await access.operationDigest({
+        operation:input.kernelOperation,input:input.command,context:input.context,
+      }),
+    });
+    if(input.verb==='authorize')return reply({
+      decision:await access.authorize(input.request),
+    });
+    throw Error('UNEXPECTED_ORIGINAL_CONTROL_METHOD');
+  };
+  const control=createControlLoopbackOwner({origin,token,fetchImpl});
+  return {control,
+    streams:()=>streamCount,selectedDerive:()=>selectedDerive,
+    invalidate(){
+      controller?.enqueue(new TextEncoder().encode('event: invalidated\n\n'));
+    },
+    close(){try{controller?.close();}catch{}},
+  };
+}
+test('installed-shape original Control mounts Activity derive via ONE SSE and ONE selected Workspace',async()=>{
+  const f=fixture();
+  const c=originalSignedControlFixture(f);
+  const bound=await openOriginalT3ActivityReviewHost({
+    control:c.control,context:f.options.sourceContext,
+    bindings:f.options.bindings,
+    readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
+    createSubjectKernelBinding:core.createSubjectKernelBinding,
+  });
+  const updates=[],ui=createT3ReviewController({
+    host:bound.port,onUpdate:state=>updates.push(state),
+  });
+  try{
+    assert.equal(c.streams(),1,'a second Control SSE would break the original Host');
+    assert.deepEqual(Object.keys(bound.port).sort(),
+      ['readSelected','stageSelected','subscribeInvalidation']);
+    assert.deepEqual(await ui.readSelected(),{status:'REVIEW'});
+    assert.deepEqual(await ui.stageSelected(),{status:'STAGED'});
+    assert.equal(f.saved.size,1);assert.equal(f.state.writeCalls,1);
+    assert.equal(c.selectedDerive(),2,'fresh original derive scope is selected for the write');
+    assert.equal(f.listeners[1].size,0,'NO second CurrentWorkspaceStore exists');
+    assert.equal(JSON.stringify(updates).includes('PRIVATE_CUSTOMER'),false);
+    assert.equal(JSON.stringify(updates).includes('org:cehovod'),false);
+    assert.deepEqual(Object.keys(updates.at(-1)),['status','review']);
+    assert.equal(c.streams(),1);
+  }finally{
+    ui.dispose();bound.dispose();c.close();
+  }
+});
+test('original signed Control with no derivation grant mounts read-only Activity',async()=>{
+  const f=fixture(),c=originalSignedControlFixture(f,{grantDerive:false});
+  const bound=await openOriginalT3ActivityReviewHost({
+    control:c.control,context:f.options.sourceContext,
+    bindings:f.options.bindings,
+    readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
+    createSubjectKernelBinding:core.createSubjectKernelBinding,
+  });
+  const state=[],ui=createT3ReviewController({host:bound.port,onUpdate:x=>state.push(x)});
+  try{
+    assert.deepEqual(Object.keys(bound.port).sort(),[
+      'readSelected','subscribeInvalidation',
+    ]);
+    assert.equal((await ui.readSelected()).status,'REVIEW');
+    assert.equal((await ui.stageSelected()).status,'UNAVAILABLE');
+    assert.equal(f.state.writeCalls,0);assert.equal(c.streams(),1);
+  }finally{ui.dispose();bound.dispose();c.close();}
+});
+test('original Host shared signed invalidation does not open duplicate Control SSE',async()=>{
+  const f=fixture(),c=originalSignedControlFixture(f),observers=new Set();
+  const stopParent=c.control.subscribeSignedAccessInvalidation(()=>{
+    for(const fn of observers)fn();
+  });
+  const bound=await openOriginalT3ActivityReviewHost({
+    control:c.control,context:f.options.sourceContext,
+    bindings:f.options.bindings,
+    readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
+    createSubjectKernelBinding:core.createSubjectKernelBinding,
+    subscribeExistingInvalidation:fn=>{
+      observers.add(fn);return()=>observers.delete(fn);
+    },
+  });
+  const events=[],ui=createT3ReviewController({host:bound.port,onUpdate:x=>events.push(x)});
+  try{
+    assert.equal(c.streams(),1);
+    assert.equal((await ui.readSelected()).status,'REVIEW');
+    const notified=new Promise(resolve=>bound.port.subscribeInvalidation(resolve));
+    f.state.sourceRevoked=true;
+    c.invalidate();
+    await notified;
+    assert.deepEqual(events.at(-1),{status:'READY_TO_READ',review:null});
+    assert.equal((await ui.readSelected()).status,'HOLD');
+    assert.equal(f.state.writeCalls,0);
+    assert.equal(c.streams(),1);
+  }finally{
+    ui.dispose();bound.dispose();stopParent();c.close();
+    assert.equal(observers.size,0);
+  }
+});
+test('signed Control foreign target never exposes the Activity stage command',async()=>{
+  const f=fixture();f.moveTargetToForeignOrg();
+  const c=originalSignedControlFixture(f);
+  const bound=await openOriginalT3ActivityReviewHost({
+    control:c.control,context:f.options.sourceContext,
+    bindings:f.options.bindings,
+    readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
+    createSubjectKernelBinding:core.createSubjectKernelBinding,
+  });
+  try{
+    assert.deepEqual(Object.keys(bound.port).sort(),[
+      'readSelected','subscribeInvalidation',
+    ]);
+    assert.equal(f.state.writeCalls,0);
+  }finally{bound.dispose();c.close();}
 });
