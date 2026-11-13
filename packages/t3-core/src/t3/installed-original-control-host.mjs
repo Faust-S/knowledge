@@ -2,6 +2,7 @@
 // signed AppShell dist on two isolated loopback origins. This is the product
 // composition of the existing original Control HTTP and isolated UI server,
 // not a replacement Kernel, IAM, Store, Service Worker or test-only Host.
+import {spawn} from "node:child_process";
 import {createServer} from "node:http";
 import {existsSync,lstatSync,readFileSync,realpathSync,statSync} from "node:fs";
 import {extname,isAbsolute,join,relative,resolve,sep} from "node:path";
@@ -199,6 +200,47 @@ export function createT3InstalledOriginalControlHost({
     signedWorkspaceLaunchUrl(){
       required(started,"NOT_STARTED");
       return uiOrigin+"/workspace/#"+token;
+    },
+    async launchNativeWindow({executablePath}={}){
+      required(started,"NOT_STARTED");
+      required(process.platform==="win32","WINDOWS_NATIVE_REQUIRED");
+      required(typeof executablePath==="string"&&isAbsolute(executablePath),
+        "NATIVE_EXECUTABLE_REQUIRED");
+      let binary;
+      try{
+        binary=realpathSync(executablePath);
+        required(statSync(binary).isFile()&&
+          binary.toLowerCase().endsWith(".exe"),
+          "NATIVE_EXECUTABLE_REQUIRED");
+      }catch{deny("NATIVE_EXECUTABLE_REQUIRED");}
+      // This is the native Tauri/WebView2 window of the SAME original Host.
+      // Its bearer travels ONLY via a private stdin pipe, never in argv,
+      // environment, file contents, event logs, or a new Control service.
+      const launchUrl=uiOrigin+"/workspace/#"+token;
+      return await new Promise((resolve,reject)=>{
+        const child=spawn(binary,[],{
+          cwd:dirname(binary),windowsHide:false,
+          stdio:["pipe","ignore","ignore"],
+        });
+        let settled=false;
+        const denied=()=>{
+          if(settled)return;settled=true;
+          reject(Object.assign(new Error(
+            "T3_D1_INSTALLED_HOST_NATIVE_LAUNCH_FAILED"),{
+            code:"T3_D1_INSTALLED_HOST_NATIVE_LAUNCH_FAILED",
+          }));
+        };
+        child.once("error",denied);
+        child.once("spawn",()=>{
+          if(settled)return;
+          // Pipe errors are not an authorization fallback: the native
+          // process must receive a valid host URL or stay disconnected.
+          child.stdin.once("error",()=>{});
+          child.stdin.end(launchUrl+"\\n");
+          settled=true;
+          resolve(Object.freeze({pid:child.pid,launchMode:"WINDOWS_NATIVE"}));
+        });
+      });
     },
     async close(){
       await ui.close();
