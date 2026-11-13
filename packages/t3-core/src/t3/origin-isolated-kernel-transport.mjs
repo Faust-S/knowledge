@@ -10,7 +10,10 @@ const METHODS=new Set([
   'softDeleteWorkspace','restoreWorkspace','purgePreview','purgeCommit',
   'purgeCancel','exportPreview','exportPackage','confirmExport',
   'importPreview','importCommit','importCancel',
-  'authorizationForWorkspace','hasCapability',
+  'authorizationForWorkspace','hasCapability','hasOperation',
+  // Metadata and T0 validation do not touch the Store; all T1/T2 operations
+  // still require the exact signed original KernelFacade in the trusted realm.
+  'describeSession','validateObjects',
 ]);
 const LOCAL_ORIGIN=/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/;
 const fail=code=>Object.assign(new Error(code),{code});
@@ -22,7 +25,8 @@ export const ALLOWED_ISOLATED_KERNEL_METHODS=Object.freeze([...METHODS]);
 
 // Called by the trusted Kernel-origin HTML only. A cross-origin page may send
 // MessagePorts, but cannot forge the browser's event.origin or source.
-export function acceptOriginalKernelRealmChannel({event,uiOrigin,parentWindow,createSignedFacade,isActive}={}){
+export function acceptOriginalKernelRealmChannel({event,uiOrigin,parentWindow,
+  createSignedFacade,isActive,describeOriginalSession,validateOriginalObjects}={}){
   if(!LOCAL_ORIGIN.test(uiOrigin??'')||!object(event?.data)||
      event.data.schema!==SCHEMA||event.data.kind!=='attach'||
      typeof event.data.nonce!=='string'||event.data.nonce.length<16||
@@ -32,14 +36,16 @@ export function acceptOriginalKernelRealmChannel({event,uiOrigin,parentWindow,cr
   if(typeof createSignedFacade!=='function'||typeof isActive!=='function')
     throw fail('T3_D1_TRUSTED_KERNEL_HOST_REQUIRED');
   const port=event.ports[0];
-  const receiver=bindSignedOriginalKernelPort({port,createSignedFacade,isActive});
+  const receiver=bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
+    describeOriginalSession,validateOriginalObjects});
   port.postMessage({schema:SCHEMA,kind:'ready',nonce:event.data.nonce});
   return receiver;
 }
 
 // The SIGNED KernelFacade is resolved inside the trusted origin on EVERY
 // operation. Never send a raw T2 session, service passport or signer to UI.
-export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive}={}){
+export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
+  describeOriginalSession,validateOriginalObjects}={}){
   if(!isPort(port)||typeof createSignedFacade!=='function'||
      typeof isActive!=='function')throw fail('T3_D1_TRUSTED_KERNEL_HOST_REQUIRED');
   let closed=false,sequence=0;
@@ -63,6 +69,19 @@ export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive}=
       if(!valid())deny('T3_D1_ORIGINAL_KERNEL_OWNER_UNAVAILABLE');
       if(typeof method!=='string'||!METHODS.has(method))
         deny('T3_D1_ORIGINAL_KERNEL_METHOD_FORBIDDEN');
+      if(method==='describeSession'||method==='validateObjects'){
+        // Only original metadata or side-effect-free T0 validation can bypass
+        // the signed facade. Never expose original session functions or Store.
+        const safe=method==='describeSession'
+          ?describeOriginalSession:validateOriginalObjects;
+        if(typeof safe!=='function')
+          deny('T3_D1_ORIGINAL_KERNEL_METADATA_UNAVAILABLE');
+        const result=await safe(...args);
+        if(!valid()||captured!==sequence)
+          deny('T3_D1_ORIGINAL_KERNEL_CONTEXT_CHANGED');
+        port.postMessage({schema:SCHEMA,kind:'result',id,result});
+        return;
+      }
       const signed=await createSignedFacade(method);
       if(!valid()||captured!==sequence)
         deny('T3_D1_ORIGINAL_KERNEL_CONTEXT_CHANGED');
