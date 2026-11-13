@@ -64,8 +64,9 @@ function inject(html, path, assistant) {
   const scripts = (html.includes("data-iwxa-t3-domain-mode") ? "" : marker) +
     (assistant && !html.includes("data-iwxa-t3-assistant") ? "\n" + assistantMarker : "");
   // Replace only manifest metadata; keep the site's visible DOM and scripts.
-  let result=html.replace(/<link\b[^>]*\brel=["']manifest["'][^>]*>/gi,"");
+  let result=html;
   if(!result.includes("data-iwxa-t3-pwa")) {
+    result=result.replace(/<link\b[^>]*\brel=["']manifest["'][^>]*>/gi,"");
     if(/<\/head>/i.test(result))result=result.replace(/<\/head>/i,pwaLink+"\n</head>");
     else if(/<body\b/i.test(result))
       result=result.replace(/<body\b/i,"<head>"+pwaLink+"</head>\n<body");
