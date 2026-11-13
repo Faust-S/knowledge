@@ -105,6 +105,24 @@ function createControl() {
 function tell(ui, text) { ui.state.textContent = text; }
 async function installApplication(ui) {
   if (standalone()) {ui.installApp.hidden = true;return;}
+  // Newer Chromium supports navigator.install(); call synchronously in the
+  // user's click activation. The browser always owns the confirmation UI.
+  if (typeof navigator.install === "function") {
+    try {
+      await navigator.install();
+      ui.installHint.hidden = false;
+      ui.installHint.textContent = "Приложение установлено или открыто браузером.";
+      ui.installApp.hidden = true;
+      return;
+    } catch(error) {
+      if(error?.name==="AbortError" || error?.name==="NotAllowedError") {
+        ui.installHint.hidden = false;
+        ui.installHint.textContent = "Установка отменена. Можно повторить действие.";
+        return;
+      }
+      // Unsupported/invalid-data browsers can still expose the older prompt.
+    }
+  }
   if (installPrompt) {
     const prompt = installPrompt;
     installPrompt = null;
