@@ -160,3 +160,64 @@ test('T3 D2 never proves causal rules, BPMN execution or full OCEL conformance',
   for (const word of ['BPMN_CONFORMANT', 'DMN_VERIFIED', 'OCEL2_FULLY_CONFORMANT'])
     assert.equal(JSON.stringify(r).includes(word), false);
 });
+function qualifiedSource() {
+  const v=sample();
+  v.nodes.push(...Array.from({length:3},(_,i)=>({
+    object_id:`material:${i}`,revision:1,schema_id:'private.material',
+    schema_version:'1.0.0',semantic_kind:'Entity',
+  })));
+  for (const event of v.events) {
+    if (event.event_type!=='synthetic.finished') continue;
+    const idx=Number(event.object_ref.object_id.split(':')[1]);
+    event.object_refs=[
+      {...event.object_ref,qualifier:'primary'},
+      {object_id:`material:${idx}`,revision:1,qualifier:'uses'},
+    ];
+  }
+  return v;
+}
+test('qualified shared D2 events are counted for BOTH object types without ID disclosure',async()=>{
+  const v=qualifiedSource(),before=structuredClone(v);
+  const result=await inspect(host(v));
+  assert.equal(result.status,'STRUCTURE_PRESERVED_REVIEW_REQUIRED');
+  assert.equal(result.structural_candidate.length,2);
+  assert.deepEqual(result.structural_candidate.map(x=>x.cohort_band),['3-9','3-9']);
+  assert.equal(result.export_allowed,false);
+  assert.equal(result.iwxa_package,null);
+  assert.equal(result.anonymity,'NOT_ESTABLISHED');
+  assert.deepEqual(v,before);
+  const raw=JSON.stringify(result);
+  for(const secret of ['order:0','material:0','private.material','uses','2026-11-11',S,W])
+    assert.equal(raw.includes(secret),false,secret);
+  const shuffled=structuredClone(v);
+  shuffled.nodes.reverse();shuffled.events.reverse();
+  for (const event of shuffled.events) event.object_refs?.reverse();
+  assert.deepEqual(await inspect(host(shuffled)),result);
+});
+test('rare qualified E2O route is a HOLD, not automatically anonymized',async()=>{
+  const v=qualifiedSource();
+  v.events.find(x=>x.event_id==='event:0:2').object_refs[1].qualifier='special_secret_path';
+  const result=await inspect(host(v));
+  assert.equal(result.status,'HOLD');
+  assert.ok(result.reason_codes.includes('T3_D2_RARE_OBJECT_ROUTE'));
+  assert.equal(result.structural_candidate,null);
+  assert.equal(result.export_allowed,false);
+  assert.equal(JSON.stringify(result).includes('special_secret_path'),false);
+});
+test('qualified E2O rejects missing primary, stale, duplicate and malformed event refs',async()=>{
+  const v=qualifiedSource();
+  v.events[1].object_refs=v.events[1].object_refs.filter(x=>x.qualifier!=='primary');
+  await assert.rejects(inspect(host(v)),{code:'T3_D2_EVENT_PRIMARY_MISMATCH'});
+  const stale=qualifiedSource();
+  stale.events[1].object_refs[1].revision=99;
+  await assert.rejects(inspect(host(stale)),{code:'T3_D2_EVENT_REFERENCE_STALE'});
+  const duplicate=qualifiedSource();
+  duplicate.events[1].object_refs.push({...duplicate.events[1].object_refs[1]});
+  await assert.rejects(inspect(host(duplicate)),{code:'T3_D2_EVENT_DUPLICATE_OBJECT'});
+  const malformed=qualifiedSource();
+  malformed.events[1].object_refs[1].private_payload=S;
+  await assert.rejects(inspect(host(malformed)),{code:'T3_D2_EVENT_REFERENCE_INVALID'});
+  const unknown=qualifiedSource();
+  unknown.events[1].object_refs[1].object_id='foreign:unverifiable';
+  await assert.rejects(inspect(host(unknown)),{code:'T3_D2_EVENT_REFERENCE_STALE'});
+});

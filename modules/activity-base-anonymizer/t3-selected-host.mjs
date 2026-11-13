@@ -73,27 +73,64 @@ function inspectProjection(view) {
   const events = new Set();
   const eventsByObject = new Map([...nodes.keys()].map(id => [id, []]));
   const eventKinds = new Set();
+  const eventLinks = new Map();
+  let eventObjectLinkCount = 0;
   for (const event of view.events) {
     need(only(event, ['event_id','event_type','semantic_kind','occurred_at',
-      'causation_id','correlation_id','object_ref']) && TAG(event.event_id) &&
+      'causation_id','correlation_id','object_ref','object_refs']) && TAG(event.event_id) &&
       TAG(event.event_type) && ['Event','Observation'].includes(event.semantic_kind) &&
       typeof event.occurred_at === 'string' && Number.isFinite(Date.parse(event.occurred_at)),
       'T3_D2_EVENT_INVALID');
     need(!events.has(event.event_id), 'T3_D2_DUPLICATE_EVENT');
     events.add(event.event_id);
-    const ref = event.object_ref;
-    if (ref === null) { reasons.push('T3_D2_EVENT_OBJECT_UNVERIFIED'); continue; }
-    need(only(ref, ['object_id','revision']) && TAG(ref.object_id) &&
-      Number.isSafeInteger(ref.revision) && ref.revision >= 1,
-      'T3_D2_EVENT_REFERENCE_INVALID');
-    const bound = nodes.get(ref.object_id);
-    need(bound && ref.revision <= bound.revision, 'T3_D2_EVENT_REFERENCE_STALE');
+    const primary = event.object_ref;
+    if (primary !== null) {
+      need(only(primary, ['object_id','revision']) && TAG(primary.object_id) &&
+        Number.isSafeInteger(primary.revision) && primary.revision >= 1,
+        'T3_D2_EVENT_REFERENCE_INVALID');
+    }
+    // The original D2 reader remains the only owner of E2O provenance.
+    // For old D2 records, object_ref is the sole qualified (primary) link.
+    const refs = event.object_refs === undefined
+      ? primary === null ? [] : [{...primary, qualifier:'primary'}]
+      : event.object_refs;
+    need(Array.isArray(refs) && refs.length <= MAX_NODES,
+      'T3_D2_EVENT_REFERENCES_INVALID');
+    if (event.object_refs !== undefined) {
+      if (primary !== null) {
+        need(refs.some(ref => only(ref,['object_id','revision','qualifier']) &&
+          ref.qualifier === 'primary' && ref.object_id === primary.object_id &&
+          ref.revision === primary.revision), 'T3_D2_EVENT_PRIMARY_MISMATCH');
+      } else {
+        need(!refs.some(ref => ref?.qualifier === 'primary'),
+          'T3_D2_EVENT_PRIMARY_MISMATCH');
+      }
+    }
+    const seen = new Set();
+    for (const ref of refs) {
+      need(only(ref,['object_id','revision','qualifier']) && TAG(ref.object_id) &&
+        Number.isSafeInteger(ref.revision) && ref.revision >= 1 &&
+        typeof ref.qualifier === 'string' &&
+        /^[a-z][a-z0-9_.-]*$/.test(ref.qualifier),
+        'T3_D2_EVENT_REFERENCE_INVALID');
+      need(!seen.has(ref.object_id), 'T3_D2_EVENT_DUPLICATE_OBJECT');
+      seen.add(ref.object_id);
+      const bound = nodes.get(ref.object_id);
+      need(bound && ref.revision <= bound.revision, 'T3_D2_EVENT_REFERENCE_STALE');
+      eventObjectLinkCount += 1;
+      need(eventObjectLinkCount <= MAX_RELATIONS, 'T3_D2_EVENT_LINK_LIMIT');
+      eventsByObject.get(ref.object_id).push(event);
+    }
+    eventLinks.set(event.event_id, refs);
+    if (!refs.length) {
+      reasons.push('T3_D2_EVENT_OBJECT_UNVERIFIED');
+      continue;
+    }
     eventKinds.add(JSON.stringify([event.event_type, event.semantic_kind]));
-    eventsByObject.get(ref.object_id).push(event);
   }
   if (view.events.length === 0) reasons.push('T3_D2_NO_OBSERVED_ACTIVITY');
-  // D2 exposes one optional object_ref per event. Never invent OCEL 2.0
-  // many-to-many E2O links or claim a full OCEL-compliant source view.
+  // D2 may expose source-qualified multi-object links. They are still a
+  // restricted T0/T1 projection, not full OCEL 2.0 conformance or anonymity.
   const relationKinds = new Map();
   for (const relation of view.relations) {
     need(only(relation, ['relation_id','source_id','target_id','relation','source_revision']) &&
@@ -130,13 +167,26 @@ function inspectProjection(view) {
         continue;
       }
       if (!rows.length) { reasons.push('T3_D2_OBJECT_WITHOUT_EVENTS'); continue; }
-      const pattern = rows.map(row => eventAliases.get(JSON.stringify([
+      const steps = rows.map(row => eventAliases.get(JSON.stringify([
         row.event_type, row.semantic_kind,
       ])));
+      // A shared event may affect distinct object types in different roles.
+      // Include those roles in the INTERNAL variant signature so unlike
+      // process paths cannot falsely count as one anonymous cohort.
+      const pattern = rows.map((row, index) => {
+        const links = eventLinks.get(row.event_id) ?? [];
+        const local = links.find(link => link.object_id === objectId);
+        const peers = links.filter(link => link.object_id !== objectId).map(link => {
+          const peer = nodes.get(link.object_id);
+          const key = JSON.stringify([peer.schema_id, peer.schema_version, peer.semantic_kind]);
+          return [typeAliases.get(key), link.qualifier];
+        }).sort((a,b) => BY_ID(JSON.stringify(a), JSON.stringify(b)));
+        return [steps[index], local?.qualifier ?? 'unknown', peers];
+      });
       const signature = JSON.stringify(pattern);
       traces.set(signature, (traces.get(signature) ?? 0) + 1);
-      for (let i = 1; i < pattern.length; i++) {
-        const key = JSON.stringify([pattern[i - 1], pattern[i]]);
+      for (let i = 1; i < steps.length; i++) {
+        const key = JSON.stringify([steps[i - 1], steps[i]]);
         edges.set(key, (edges.get(key) ?? 0) + 1);
       }
     }
