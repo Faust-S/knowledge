@@ -15,6 +15,16 @@ import {createTemporaryOriginalPersonalAuthority}
   from "./support/t3-original-personal-authority.mjs";
 import {createOriginalKernelRegistryStatePort,ORIGINAL_REGISTRY_SCHEMA}
   from "../src/t3/access/original-kernel-registry-state.mjs";
+import {createOrganizationalOperationGate}
+  from "../src/t3/access/organizational-operation.mjs";
+import {createSignedAccessHostPort}
+  from "../src/t3/signed-access-host-port.mjs";
+import {createSubjectKernelBinding}
+  from "../src/t3/subject-access-binding.mjs";
+import {digest,iso,makeProof,signRecord}
+  from "../src/t3/access/core.mjs";
+import {NOW,time,model,command}
+  from "./support/t3-two-corp-original-authority.mjs";
 import {materializeIntegrationHost,serveRealKernelHost}
   from "../scripts/real-kernel-e2e.mjs";
 import {assertQualifiedKernelArtifact}
@@ -266,6 +276,124 @@ test("real HTTPS Host Control verifies Ed25519 PERSONAL on original Kernel; revo
       }finally{stop();}
     },{ws,token});
     assert.equal(renewed,"T3_ACCESS_NOT_PERMITTED");
+
+    // Two independently issued CORP grants now run through this SAME
+    // qualified original T2 Kernel/Store and the SAME registry port, not
+    // a synthetic corporate PERMITTED or independent corporate database.
+    const corp=model(),corpRegistryWs="ws:two-corp-access";
+    await registryPage.evaluate(async({SERVICE,workspaces})=>{
+      const native=await IWXA.connect({service_id:SERVICE});
+      for(const workspace_id of workspaces)
+        await native.t1.createWorkspace({workspace_id,profile:"generic"});
+    },{SERVICE,workspaces:[corpRegistryWs,"ws:north","ws:south"]});
+    const corpOptions={kernel:registryKernel,workspaceId:corpRegistryWs,
+      trustedPolicy:corp.policy,clock:time};
+    let corpRegistry=createOriginalKernelRegistryStatePort(corpOptions);
+    assert.equal((await corpRegistry.commitSignedState(corp.state)).revision,1);
+    let corpSelected=corp.all.north.context,corpProofs=0;
+    const corpAccess=(registry)=>{
+      const gate=createOrganizationalOperationGate({registry});
+      return createSignedAccessHostPort({
+        currentContext:()=>corpSelected,
+        actionFor:op=>{
+          if(op!=="t1.putObject")throw Error("CORP_OPERATION_DENIED");
+          return "object.write";
+        },
+        operationDigest:({operation,input,context})=>digest({operation,input,context}),
+        canonicalDigest:digest,clock:time,
+        corporate:{
+          productId:"IWXA_CONTROL_CENTER",gate,
+          inputFor:async context=>{
+            const entry=Object.values(corp.all).find(x=>
+              x.context.organization_id===context.organization_id);
+            assert.ok(entry);
+            return {profile:entry.profile,selection:entry.selection,
+              descriptors:entry.descriptors,credential:entry.issuedCredential,
+              enrollment:entry.enrollment};
+          },
+          prove:async({request,challenge,context,credentialKeyId,asOf})=>{
+            const entry=Object.values(corp.all).find(x=>
+              x.context.organization_id===context.organization_id);
+            assert.equal(credentialKeyId,entry.issuedCredential.publicKeyRef);
+            corpProofs++;
+            return makeProof(request,challenge,Date.parse(asOf),
+              entry.credentialSigner,"TEST");
+          },
+        },
+      });
+    };
+    let corpBinding=createSubjectKernelBinding({
+      kernel:registryKernel,access:corpAccess(corpRegistry),clock:time,
+    });
+    const north=await corpBinding.putObject(command("north"));
+    assert.equal(north.object.workspace_id,"ws:north");
+    await assert.rejects(corpBinding.putObject(command("south")),
+      {code:"T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE"});
+    corpSelected=corp.all.south.context;
+    const south=await corpBinding.putObject(command("south"));
+    assert.equal(south.object.workspace_id,"ws:south");
+    assert.ok(corpProofs>=2);
+    const withdrawn={...corp.all.north.status,sequence:2,
+      issuedAt:iso(NOW-1000),entries:[{
+        grantId:"grant:north",state:"REVOKED",
+        effectiveAt:iso(NOW-1500),evidenceRef:"evidence:revoked-north",
+      }],
+    };
+    const revocation=structuredClone(corp.state);
+    revocation.statuses["issuer:north"]=signRecord(
+      withdrawn,corp.all.north.issuerSigner);
+    revocation.statusFloor["issuer:north"]=2;
+    assert.equal((await corpRegistry.commitSignedState(revocation)).revision,2);
+    corpSelected=corp.all.north.context;
+    await assert.rejects(corpBinding.putObject({
+      ...command("north"),object_id:"item:north-denied",
+    }),{code:"T3_ACCESS_NOT_PERMITTED"});
+    corpSelected=corp.all.south.context;
+    const stillAllowed=await corpBinding.putObject({
+      ...command("south"),object_id:"item:south-still-active",
+    });
+    assert.equal(stillAllowed.object.revision,1);
+    // Cold original browser/kernel: reconstruct registry AND corporate gate.
+    await context.close();context=null;
+    context=await launch();
+    registryPage=context.pages()[0]||await context.newPage();
+    await registryPage.goto(live.origin+"/workspace/");
+    await registryPage.waitForFunction(()=>typeof IWXA?.connect==="function");
+    corpRegistry=createOriginalKernelRegistryStatePort(corpOptions);
+    assert.deepEqual((await corpRegistry.getStatus()).sequences,
+      {"issuer:north":2,"issuer:south":1});
+    corpBinding=createSubjectKernelBinding({
+      kernel:registryKernel,access:corpAccess(corpRegistry),clock:time,
+    });
+    corpSelected=corp.all.north.context;
+    await assert.rejects(corpBinding.putObject({
+      ...command("north"),object_id:"item:cold-north-denied",
+    }),{code:"T3_ACCESS_NOT_PERMITTED"});
+    corpSelected=corp.all.south.context;
+    assert.equal((await corpBinding.putObject({
+      ...command("south"),object_id:"item:cold-south",
+    })).object.revision,1);
+    const orgReadback=await registryPage.evaluate(async SERVICE=>{
+      const native=await IWXA.connect({service_id:SERVICE});
+      const north=await native.t1.getObject("ws:north","item:north");
+      const south=await native.t1.getObject("ws:south","item:cold-south");
+      const denied=await native.t1.getObject("ws:north","item:cold-north-denied");
+      return {north:north?.object?.workspace_id,
+        south:south?.object?.workspace_id,denied:denied?.object??null};
+    },SERVICE);
+    assert.deepEqual(orgReadback,{
+      north:"ws:north",south:"ws:south",denied:null,
+    });
+    assert.equal(sha(join(dist,"_iwxa/runtime/0.3.6/runtime.js")),runtimeHash);
+    console.log("T3_D1_TWO_CORP_REAL_ED25519_ORIGINAL_KERNEL_COLD_PASS",JSON.stringify({
+      genuineIssuerKeys:2,genuineEnrollmentSignatures:2,
+      independentCredentialKeys:2,originalKernel:"0.3.6",
+      singleOriginalStore:true,signedStatusSequenceNorth:2,
+      signedStatusSequenceSouth:1,northRevoked:true,
+      southStillPermitted:true,crossOrgDenied:true,
+      coldOriginalKernelReadback:true,syntheticCorporateOwner:false,
+      installedCorporateControlAccepted:false,
+    }));
     console.log("T3_D1_AUTHENTIC_PERSONAL_CONTROL_ORIGINAL_KERNEL_HTTPS_PASS",JSON.stringify({
       originalKernel:"0.3.6",trueEd25519Grant:true,trueEd25519ActorProof:true,
       trueSignedStatus:true,originalControlHttpProtocol:true,
