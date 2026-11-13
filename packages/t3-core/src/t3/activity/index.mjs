@@ -2,6 +2,10 @@ const KINDS = new Set([
   "Entity", "Statement", "Event", "State", "Activity", "Process",
   "Observation", "Decision", "Result", "Evidence", "Provenance",
 ]);
+// A type binding can classify the business truth of a recorded Event.
+// The Kernel guarantees an event was recorded, not that an inferred or
+// proposed business step actually happened.
+const EPISTEMIC = new Set(["observed", "reported", "declared", "inferred", "proposed"]);
 
 function fail(code) {
   const error = new TypeError(code);
@@ -103,7 +107,12 @@ function makeBindings(bindings) {
       if (used.has(key)) fail("DUPLICATE_EVENT_OBJECT_BINDING");
       used.add(key);
     }
-    eventTypes.set(eventType, { semantic_kind: entry.semantic_kind, object_links: objectLinks });
+    // The source domain, never arbitrary event payload, declares epistemic
+    // status of this event type in the version-pinned binding.
+    if (Object.hasOwn(entry,"epistemic_status") &&
+        !EPISTEMIC.has(entry.epistemic_status)) fail("INVALID_EVENT_EPISTEMIC_STATUS");
+    eventTypes.set(eventType, { semantic_kind: entry.semantic_kind, object_links: objectLinks,
+      epistemic_status: Object.hasOwn(entry,"epistemic_status") ? entry.epistemic_status : null });
   }
   return { schemas, eventTypes, relationKinds };
 }
@@ -320,6 +329,7 @@ export function projectActivitySnapshot({
       event_id: eventId,
       event_type: eventType,
       semantic_kind: binding.semantic_kind,
+      ...(binding.epistemic_status ? { epistemic_status: binding.epistemic_status } : {}),
       occurred_at: occurredAt,
       ...(row.causation_id ? { causation_id: row.causation_id } : {}),
       ...(row.correlation_id ? { correlation_id: row.correlation_id } : {}),

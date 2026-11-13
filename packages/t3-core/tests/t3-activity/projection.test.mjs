@@ -355,3 +355,33 @@ test("legacy Event bindings never expose arbitrary Event payload as E2O",()=>{
   }]};
   assert.throws(()=>projectActivitySnapshot(source),{code:"DUPLICATE_EVENT_OBJECT_REF"});
 });
+
+test("D2 preserves declared epistemic meaning without exposing payload or changing legacy events",()=>{
+  const legacy=projectActivitySnapshot(options());
+  assert.equal(Object.hasOwn(legacy.events[0],"epistemic_status"),false);
+  for(const status of ["observed","reported","declared","inferred","proposed"]){
+    const source=options();
+    source.events[0].payload={epistemic_status:"observed",
+      secret_notes:"PRIVATE_INFERRED_REASONING"};
+    source.bindings={objects:bindings.objects,events:[{
+      ...bindings.events[0],epistemic_status:status,
+    }]};
+    const original=structuredClone(source);
+    const projected=projectActivitySnapshot(source);
+    assert.equal(projected.events[0].epistemic_status,status,
+      "source domain event type must win over raw event payload");
+    assert.deepEqual(source,original);
+    assert.equal(JSON.stringify(projected).includes("PRIVATE_INFERRED_REASONING"),false);
+  }
+});
+test("D2 refuses invalid epistemic classifications instead of inventing source truth",()=>{
+  for(const status of ["accepted","verified","true","",null,0]){
+    const source=options();
+    source.bindings={objects:bindings.objects,events:[{
+      ...bindings.events[0],epistemic_status:status,
+    }]};
+    assert.throws(()=>projectActivitySnapshot(source),{
+      code:"INVALID_EVENT_EPISTEMIC_STATUS",
+    });
+  }
+});
