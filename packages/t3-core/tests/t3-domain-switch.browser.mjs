@@ -90,6 +90,19 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     context=await launch();
     let page=context.pages()[0]||await context.newPage();
     await page.goto(base+"/");
+    const appManifest=await page.evaluate(async()=> {
+      const link=document.querySelector('link[rel="manifest"]');
+      if(!link)return null;
+      return {href:new URL(link.href).pathname,data:await (await fetch(link.href)).json()};
+    });
+    assert.equal(appManifest?.href,"/t3-app-manifest.json");
+    assert.equal(appManifest.data.display,"standalone");
+    assert.equal(appManifest.data.scope,"/");
+    assert.ok(appManifest.data.icons.some(icon=>icon.sizes==="192x192"));
+    assert.ok(appManifest.data.icons.some(icon=>icon.sizes==="512x512"));
+    const installButton=page.locator("#iwxa-t3-install-app");
+    await installButton.waitFor();
+    assert.equal(await installButton.isVisible(),true,"PWA installation is offered separately from T3 autonomy");
     const toggle=page.locator("#iwxa-t3-domain-switch");
     await toggle.waitFor();
     await page.waitForFunction(()=>!document.querySelector("#iwxa-t3-domain-switch").disabled);
