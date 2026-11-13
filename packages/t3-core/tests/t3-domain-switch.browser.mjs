@@ -133,6 +133,18 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     const installButton=page.locator("#iwxa-t3-install-app");
     await installButton.waitFor();
     assert.equal(await installButton.isVisible(),true,"PWA installation is offered separately from T3 autonomy");
+    // Test in-page Web Install API dispatch, not an OS installation claim.
+    await page.evaluate(()=>{
+      Object.defineProperty(navigator,"install",{configurable:true,value:()=>{
+        window.__iwxaInstallInvocations=(window.__iwxaInstallInvocations||0)+1;
+        return Promise.resolve();
+      }});
+    });
+    await installButton.click();
+    assert.equal(await page.evaluate(()=>window.__iwxaInstallInvocations),1,
+      "native Web Install API is called directly from user activation");
+    assert.equal(await installButton.isVisible(),false,
+      "successful install confirmation hides the redundant button");
     const toggle=page.locator("#iwxa-t3-domain-switch");
     await toggle.waitFor();
     await page.waitForFunction(()=>!document.querySelector("#iwxa-t3-domain-switch").disabled);
