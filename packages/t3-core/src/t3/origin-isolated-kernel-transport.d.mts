@@ -3,6 +3,7 @@ export declare const ISOLATED_KERNEL_SCHEMA: string;
 export declare const ALLOWED_ISOLATED_KERNEL_METHODS: readonly string[];
 export interface IsolatedKernelClient {
   invoke(method: string,...args: unknown[]): Promise<any>;
+  subscribeInvalidation(listener:(reason?:"unavailable")=>void):()=>void;
   close(): void;
 }
 export interface IsolatedKernelReceiver {
