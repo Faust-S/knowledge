@@ -1,0 +1,40 @@
+name: T3 PWA installation qualification
+on:
+  push:
+    branches:
+      - work/2026-11-13-t3-pwa-installation
+    paths:
+      - packages/t3-core/scripts/materialize-t3-domain-mode.mjs
+      - packages/t3-core/scripts/t3-pwa-manifest.mjs
+      - packages/t3-core/src/t3/domain-mode/**
+      - packages/t3-core/tests/t3-pwa-install.test.mjs
+      - packages/t3-core/tests/t3-domain-offline.test.mjs
+      - packages/t3-core/tests/t3-domain-switch.browser.mjs
+      - .github/workflows/t3-pwa-installation.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install unchanged inherited T3 dependencies
+        run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+      - name: Validate builder and UI syntax
+        run: |
+          node --check packages/t3-core/scripts/t3-pwa-manifest.mjs
+          node --check packages/t3-core/scripts/materialize-t3-domain-mode.mjs
+          node --check packages/t3-core/src/t3/domain-mode/t3-domain-mode.mjs
+      - name: Verify one-dist install metadata and previous autonomous site lifecycle
+        run: node --test packages/t3-core/tests/t3-pwa-install.test.mjs packages/t3-core/tests/t3-domain-offline.test.mjs
+      - name: Prepare real Chromium
+        working-directory: packages/t3-core
+        run: npx --no-install playwright install chromium
+      - name: Preserve autonomous T3 cold browser restart and updates
+        working-directory: packages/t3-core
+        run: node --test tests/t3-domain-switch.browser.mjs
