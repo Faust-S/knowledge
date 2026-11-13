@@ -86,14 +86,34 @@ function checkReceipt(plan,receipt,execution){
       receipt.contract_state==='FAILED_KNOWN'))
     fail('AGENT05_NATIVE_RECEIPT_MISMATCH');
 }
-function checkReadback(action,readback){
+function checkReadback(action,plan,readback){
   fields(readback,['data','receipt'],'AGENT05_NATIVE_READBACK_INVALID');
   const data=readback.data,receipt=readback.receipt;
+  // The read-side ToolRuntime is still on tool-read-receipt/0.12 even
+  // though consequential execution receipts use execution-receipt-v1.
+  // P01 owns native receipt authentication; this is a pure shape and
+  // source/argument/provider cross-check, never a new receipt authority.
+  const readArguments={root_id:'personal',path:action.target};
   if(!obj(data)||!obj(receipt)||
+     receipt.schema_version!=='0.12'||
+     !/^TRR-[A-Za-z0-9_-]{1,100}$/.test(receipt.receipt_id??'')||
      receipt.tool_id!=='files.read'||receipt.status!=='SUCCEEDED'||
+     receipt.provider_slot!==plan.provider_slot||
+     receipt.provider_id!==plan.provider_id||
+     receipt.provider_binding_digest!==plan.provider_binding_digest||
+     !HEX.test(receipt.tool_descriptor_digest??'')||
+     receipt.arguments_digest!==digest(readArguments)||
+     receipt.output_digest!==digest(data)||
      !HEX.test(receipt.receipt_digest??'')||
+     !obj(receipt.response_meta)||
+     typeof receipt.started_at!=='string'||
+     typeof receipt.finished_at!=='string'||
      data.root_id!=='personal'||data.path!==action.target||
-     typeof data.text!=='string'||!HEX.test(data.sha256??''))
+     typeof data.text!=='string'||
+     typeof data.bytes!=='number'||!Number.isSafeInteger(data.bytes)||
+     data.bytes!==Buffer.byteLength(data.text,'utf8')||
+     !HEX.test(data.sha256??'')||
+     byteSha(data.text)!==data.sha256)
     fail('AGENT05_NATIVE_READBACK_INVALID');
   return {root_id:data.root_id,path:data.path,text:data.text,sha256:data.sha256};
 }
@@ -191,7 +211,7 @@ export function projectAgent05OwnerHistory(batch,{entries=[]}={}){
       readback=checkRecovery(action,plan,entry.recovery);
       repairCaseId=entry.recovery.case_id;
     }else if(entry.readback!==undefined&&entry.readback!==null){
-      readback=checkReadback(action,entry.readback);
+      readback=checkReadback(action,plan,entry.readback);
     }
     observations.push({target:action.target,writeState,
       ...(readback?{readback}:{}),

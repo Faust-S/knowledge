@@ -76,19 +76,29 @@ function receipt(p,status='SUCCEEDED',effect='ACKNOWLEDGED'){
     output_digest:C,response_meta:{},provider_operation_ref:null,
     receipt_digest:D};
 }
-const readback=action=>({
-  data:{root_id:'personal',path:action.target,text:action.text,
-    sha256:sha(action.text)},
-  receipt:{tool_id:'files.read',status:'SUCCEEDED',receipt_digest:D,
-    receipt_id:'TRR-public-test'}
-});
+const readback=(action,plan)=>{
+  const args={root_id:'personal',path:action.target};
+  const data={root_id:'personal',path:action.target,text:action.text,
+    bytes:Buffer.byteLength(action.text,'utf8'),sha256:sha(action.text)};
+  const receipt={
+    schema_version:'0.12',receipt_id:'TRR-public-test',
+    tool_id:'files.read',tool_descriptor_digest:A,
+    provider_slot:plan.provider_slot,provider_id:plan.provider_id,
+    provider_binding_digest:plan.provider_binding_digest,
+    arguments_digest:digest(args),status:'SUCCEEDED',
+    started_at:'2026-11-12T12:00:00+00:00',
+    finished_at:'2026-11-12T12:00:01+00:00',
+    output_digest:digest(data),response_meta:{},receipt_digest:D
+  };
+  return {data,receipt};
+};
 function entry(b,index,state,options={}){
   const action=b.actions[index],p=plan(b,action,index);
   const rec=options.receipt??(state==='SUCCEEDED'?receipt(p):
     state==='ATTEMPTED'?receipt(p,'FAILED','NONE'):null);
   return {target:action.target,plan:p,
     execution:{state,receipt_id:rec?.receipt_id??null},
-    receipt:rec,...(options.readback?{readback:readback(action)}:{}),
+    receipt:rec,...(options.readback?{readback:readback(action,p)}:{}),
     ...(options.recovery?{recovery:options.recovery}:{})};
 }
 function recover(action,plan,kind='MATCHES_PROPOSAL'){
@@ -244,6 +254,8 @@ test('bad or unverified readback cannot qualify a native ACK',()=>{
   const e=structuredClone(base);
   e.readback.data.text+='tampered';
   e.readback.data.sha256=sha(e.readback.data.text);
+  e.readback.data.bytes=Buffer.byteLength(e.readback.data.text,'utf8');
+  e.readback.receipt.output_digest=digest(e.readback.data);
   assert.equal(projectAgent05OwnerHistory(b,{entries:[e]}).progress.overallStatus,
     'CONTENT_CONFLICT');
 });
@@ -275,7 +287,7 @@ test('owner recovery cannot grant retries, claim completed outcome or substitute
       ['AGENT05_NATIVE_RECOVERY_MISMATCH','AGENT05_PROGRESS_READBACK_INVALID']
         .includes(e.code));
   }
-  const extra=structuredClone(base);extra.readback=readback(b.actions[0]);
+  const extra=structuredClone(base);extra.readback=readback(b.actions[0],base.plan);
   assert.throws(()=>projectAgent05OwnerHistory(b,{entries:[extra]}),
     err('AGENT05_NATIVE_DUPLICATE_READBACK'));
 });
@@ -372,4 +384,40 @@ test('an actual-shaped v1 failure with unknown effect remains reconciliation-onl
   const view=projectAgent05OwnerHistory(b,{entries:[e]});
   assert.equal(view.progress.overallStatus,'RECONCILIATION_REQUIRED');
   assert.equal(view.hostCanRetryActions,false);
+});
+
+test('native files.read receipt 0.12 stays bound to the selected path, descriptor and provider',()=>{
+  const b=batch('compact'),base=entry(b,0,'SUCCEEDED',{readback:true});
+  assert.equal(projectAgent05OwnerHistory(b,{entries:[base]})
+    .progress.overallStatus,'HOST_REPORTED_ACK_AND_BYTES_MATCH');
+  for(const change of [
+    x=>{x.readback.receipt.schema_version='1.0.0';},
+    x=>{x.readback.receipt.receipt_id='TXR-other';},
+    x=>{x.readback.receipt.arguments_digest='0'.repeat(64);},
+    x=>{x.readback.receipt.output_digest='0'.repeat(64);},
+    x=>{x.readback.receipt.provider_id='OTHER';},
+    x=>{x.readback.receipt.provider_slot='mcp_tools';},
+    x=>{x.readback.receipt.provider_binding_digest='0'.repeat(64);},
+    x=>{x.readback.receipt.tool_descriptor_digest='invalid';},
+    x=>{x.readback.receipt.response_meta=null;},
+    x=>{x.readback.data.bytes+=1;},
+    x=>{delete x.readback.data.bytes;},
+    x=>{x.readback.data.text+='different';x.readback.data.bytes+=9;},
+  ]){
+    const e=structuredClone(base);change(e);
+    assert.throws(()=>projectAgent05OwnerHistory(b,{entries:[e]}),
+      err('AGENT05_NATIVE_READBACK_INVALID'));
+  }
+});
+test('owner projection accepts a correctly bound native-shaped different file only as conflict',()=>{
+  const b=batch('compact'),e=entry(b,0,'SUCCEEDED',{readback:true});
+  const found='An unrelated file with a different Unicode text: Привет!';
+  e.readback.data.text=found;
+  e.readback.data.bytes=Buffer.byteLength(found,'utf8');
+  e.readback.data.sha256=sha(found);
+  e.readback.receipt.output_digest=digest(e.readback.data);
+  const observed=projectAgent05OwnerHistory(b,{entries:[e]});
+  assert.equal(observed.progress.overallStatus,'CONTENT_CONFLICT');
+  assert.equal(observed.progress.files[0].readbackStatus,'OTHER_CONTENT');
+  assert.equal(observed.hostCanRetryActions,false);
 });
