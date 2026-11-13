@@ -773,9 +773,10 @@ try{
       {name:'Прочитать черновик из Kernel по ID'}).click();
     await hardwarePanel.getByTestId('t3-d5-saved-draft-readback')
       .waitFor({state:'visible',timeout:30000});
-    assert.match(await hardwarePanel.getByTestId('t3-d5-saved-draft-readback')
-      .innerText(),new RegExp(first.generated.slice(0,20)
-        .replace(/[.*+?^${}()|[\]\\]/g,'\\  console.log('T3_D1_ACTUAL_ONE_DIST_ORIGINAL_HTTP_PASS',JSON.stringify({')));
+    const coldReadback=await hardwarePanel.getByTestId('t3-d5-saved-draft-readback')
+      .innerText();
+    assert.ok(coldReadback.includes(first.generated.slice(0,20)),
+      'SIGNED_BLI_DRAFT_COLD_KERNEL_READBACK_MISMATCH');
     await hardwarePage.waitForFunction(()=>
       [...document.querySelectorAll('[data-testid="t3-local-inference-panel"] p')]
         .some(p=>p.textContent?.includes('Модель и WebGPU-ресурсы найдены в локальном кеше')),
