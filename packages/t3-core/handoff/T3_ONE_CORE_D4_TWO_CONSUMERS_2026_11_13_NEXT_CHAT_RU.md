@@ -2,6 +2,19 @@
 
 **Статусы:** `T3_READY=false`, `G4=NOT_ACCEPTED`, `D4_PUBLIC_TWO_PORTS=PASS`, `D4_PRODUCT_NATIVE=NOT_ACCEPTED`, `D4_NEGATIVE_MATRIX=PARTIAL`. T3 — встраиваемый технологический уровень существующих доменов и программ, **не** отдельное приложение.
 
+## Дополнение 14.11.2026: реальный отказ оригинального T2 на опасных архивах (D4)
+
+**Квалифицированный код:** ветка `work/2026-11-14-t3-d4-original-parser-negative`, commit `bc140f096265660c2a90897e7314dc8f429d847b`, [публичный CI #43509132218](https://github.com/Faust-S/knowledge/actions/runs/43509132218) **SUCCESS** (`test`, `real-host`, `windows-credential`; `metal-webgpu=SKIPPED`). В существующем `tests/t3-pwa-original-kernel.browser.mjs` реальные DEFLATE-записи исходного `.iwxa` извлечены **только для создания негативных CI-образцов** штатной утилитой `unzip` в Linux; `scripts/zip-store.mjs` уже существующим тестовым writer пересобрал вариации. Runtime parser и Kernel не изменены.
+
+Оригинальный T2 0.3.6 `t2.importPreview` **отказал** в двух вариантах до выдачи разрешённого предпросмотра:
+- `format_version: 99.0` вместо `1.0` → **`UNSUPPORTED_FORMAT`**.
+- ZIP с entry `content/../../escape.json` → **`VERIFY_FAILED`** (отказ в архиве с выходом пути за корень; не заявлять, что код доказывает отдельный path-specific validator).
+- После этих отказов независимый получатель остался без импортируемого объекта (`recipientStoreUnchanged=true`). Затем обычный оригинальный `.iwxa` импорт и холодное восстановление продолжили успешно работать.
+
+Отрицательная D4 матрица **PARTIAL**: специализированные `unsupported semantic data`, отдельная проверка `unsupported profile` и полноценная приёмка двух разных установленных программ ещё не проведены. Нельзя объявлять `D4_PRODUCT_ACCEPTED` или `G4=ACCEPTED`. Не создавать второй ZIP/parser/Exchange; все будущие проверки — через оригинальный Kernel. В тот же период в основной ветке другая разработка добавила независимый ключ делегированного агента и отзыв родительского grant после импорта — сохранены, не заменены этой правкой.
+
+**Следующий приоритет:** закончить только оставшуюся существенную D4 совместимость, затем D3 signed owner Task→selected Result→separate Human Review/Accept→Apply с независимыми субъектами. `Faust-S/iwxa-personal-agent@work/2026-11-13-agent-0-5-inprocess-k02-k04` содержит штатные `desktop/src/task-review-readback.ts` и `cells/reconciliation.py`: первый проверяет конкретное Human Review, второй устраняет неопределённый внешний эффект; **не** копировать их в T3 как новую универсальную Review/Reconciliation систему. T3 должен обеспечить подписанный перенос и оригинальный Kernel/Store, а решение остаётся у владельца Agent/Admin/домена.
+
 ## 1. Первое действие нового чата
 
 Прочитать полностью этот документ, затем [AGENTS.md](https://github.com/Faust-S/knowledge/blob/work/2026-11-10-t3-t2-activity-projection/AGENTS.md), [карту 42 репозиториев](https://github.com/Faust-S/T3/blob/work/2026-11-10-t3-t2-upgrade-core/architecture/T3_ONE_CORE_ALL_DOMAINS_SOFTWARE_AI_SOURCE_MAP_2026_11_11_RU.md), [план B0/D1-D7/G4](https://github.com/Faust-S/T3/blob/work/2026-11-10-t3-t2-upgrade-core/planning/T3_DELTA_ACCEPTANCE_RU.md) и [предыдущую передачу](https://github.com/Faust-S/knowledge/blob/work/2026-11-10-t3-t2-activity-projection/packages/t3-core/handoff/T3_ONE_CORE_NO_STANDALONE_D1_TWO_COLD_NEXT_CHAT_2026_11_13_RU.md). После чтения получить **свежие** HEAD/TREE ветки `work/2026-11-10-t3-t2-activity-projection`, `Faust-S/T2@main` и последние публичные Actions. Не перезаписывать параллельные изменения.
