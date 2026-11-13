@@ -20,12 +20,16 @@ function refuse(code){
 function requireThat(ok,code){if(!ok)refuse(code);}
 export function createOriginalVaultProofSigner({
   readEncryptedVault,unlockPassphrase,keyId,organizationId=null,
+  personalPrincipalId=null,
 }={}){
   requireThat(typeof readEncryptedVault==="function"&&
     typeof unlockPassphrase==="function"&&
     typeof keyId==="string"&&IDENT.test(keyId)&&
     (organizationId===null||
-      (typeof organizationId==="string"&&IDENT.test(organizationId))),
+      (typeof organizationId==="string"&&IDENT.test(organizationId)))&&
+    (personalPrincipalId===null||
+      (typeof personalPrincipalId==="string"&&IDENT.test(personalPrincipalId)))&&
+    (organizationId===null||personalPrincipalId===null),
     "T3_ACCESS_VAULT_CALLBACK_REQUIRED");
   return async function signExistingActorProof({
     request,context,challenge,asOf,credentialKeyId,
@@ -35,9 +39,24 @@ export function createOriginalVaultProofSigner({
       request.actorId===context.actor_id,
       "T3_ACCESS_VAULT_SUBJECT_MISMATCH");
     if(organizationId===null){
+      // Without a pinned human principal, preserve the existing direct
+      // person-only PERSONAL route. A managing/specialist agent may use its
+      // OWN proof key only when the trusted Host explicitly pins the person
+      // responsible for its selected PERSONAL delegation chain. The signed
+      // Access evaluator still checks all GRANT ancestry, scopes and status.
       requireThat(context.kind==="PERSONAL"&&
         context.organization_id===null&&
-        request.principalId===request.actorId,
+        (personalPrincipalId===null
+          ? request.principalId===request.actorId
+          : context.principal_id===personalPrincipalId&&
+            request.principalId===personalPrincipalId&&
+            typeof context.workspace_id==="string"&&IDENT.test(context.workspace_id)&&
+            context.resource===request.resource&&
+            context.grant_id===request.grantId&&
+            context.role_id===request.roleId&&
+            context.audience===request.audience&&
+            context.realm_id===request.realmId&&
+            context.purpose===request.purpose),
         "T3_ACCESS_VAULT_SUBJECT_MISMATCH");
       // PERSONAL callers may omit credentialKeyId; they still cannot
       // substitute an unrelated signer if it is present.
