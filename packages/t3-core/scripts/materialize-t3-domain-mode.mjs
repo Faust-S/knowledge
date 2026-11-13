@@ -56,10 +56,13 @@ function checkPageAssets(html, page, siteOrigin) {
     }
   }
 }
-function inject(html, path, assistant) {
+function inject(html, path, assistant, appleIcon) {
   const assistantMarker = '<script type="module" src="/_iwxa/t3-assistant/assistant.js" data-iwxa-t3-assistant></script>';
   const marker = '<script type="module" src="/t3-domain-mode.mjs" data-iwxa-t3-domain-mode></script>';
   const pwaLink = '<link rel="manifest" href="/t3-app-manifest.json" data-iwxa-t3-pwa>';
+  const appleLink = '<link rel="apple-touch-icon" href="' + appleIcon +
+    '" data-iwxa-t3-apple-touch>';
+  const iosStandalone = '<meta name="apple-mobile-web-app-capable" content="yes" data-iwxa-t3-ios>';
   if (!/<\/body>/i.test(html)) fail("HTML_BODY_REQUIRED:" + path);
   const scripts = (html.includes("data-iwxa-t3-domain-mode") ? "" : marker) +
     (assistant && !html.includes("data-iwxa-t3-assistant") ? "\n" + assistantMarker : "");
@@ -72,6 +75,13 @@ function inject(html, path, assistant) {
       result=result.replace(/<body\b/i,"<head>"+pwaLink+"</head>\n<body");
     else fail("HTML_BODY_REQUIRED:"+path);
   }
+  const iosParts = [];
+  // Preserve native site branding. Only fill omitted Apple installation hints.
+  if(!/<link\b[^>]*\brel=["']apple-touch-icon["'][^>]*>/i.test(result))
+    iosParts.push(appleLink);
+  if(!/<meta\b[^>]*\bname=["']apple-mobile-web-app-capable["'][^>]*>/i.test(result))
+    iosParts.push(iosStandalone);
+  if(iosParts.length)result=result.replace(/<\/head>/i,iosParts.join("\n")+"\n</head>");
   return scripts ? result.replace(/<\/body>/i, scripts + "\n</body>") : result;
 }
 export function materializeDomainMode(distRoot, assistantDistRoot = null) {
@@ -112,7 +122,11 @@ export function materializeDomainMode(distRoot, assistantDistRoot = null) {
       !htmlPages.includes(join(root, "workspace/index.html"))) {
     fail("SITE_AND_WORKSPACE_REQUIRED");
   }
-  materializePwaManifest(root,domainOrigin);
+  const pwa=materializePwaManifest(root,domainOrigin);
+  const appleIcon=pwa.manifest.icons.find(icon=>
+    icon.type==="image/png" && icon.sizes?.split(/\s+/).includes("192x192"))?.src;
+  if(!appleIcon || !/^\/[a-zA-Z0-9._/-]+$/.test(appleIcon))
+    fail("PWA_APPLE_ICON_MISSING");
   const replacements = [];
   const pages = [];
   for (const page of htmlPages) {
@@ -122,7 +136,8 @@ export function materializeDomainMode(distRoot, assistantDistRoot = null) {
     const route = path.endsWith("/index.html") ? path.slice(0,-"index.html".length) : path;
     const title = (before.match(/<title[^>]*>([^<]{1,200})<\/title>/i)?.[1] || route).trim();
     pages.push({path:route,title:title.slice(0,150)});
-    replacements.push([page, inject(before, relative(root,page), !!assistantDistRoot)]);
+    replacements.push([page, inject(before, relative(root,page), !!assistantDistRoot,
+      appleIcon)]);
   }
   for (const [path, content] of replacements) writeFileSync(path, content);
   copyFileSync(join(scriptRoot, "t3-domain-mode.mjs"), join(root, "t3-domain-mode.mjs"));
