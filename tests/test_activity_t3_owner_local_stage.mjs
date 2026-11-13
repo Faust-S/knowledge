@@ -840,3 +840,22 @@ test('original service catalog rejects collisions, duplicates and inconsistent c
     domain:base.domain,catalog:{count:2,entries:[]},
   }),{code:'T3_ACTIVITY_ORIGINAL_T2_CATALOG_REQUIRED'});
 });
+
+test('optional derived grant rejection never blocks independently signed source reading',async()=>{
+  const f=fixture(),c=originalSignedControlFixture(f);
+  f.options.targetSignedAccess.actionFor=()=>{throw Error('PRIVATE_DERIVE_DENIAL');};
+  const bridge=await openOriginalT3ActivityReviewHost({
+    control:c.control,context:f.options.sourceContext,
+    originalKernel:f.options.sourceContext.kernel,bindings:f.options.bindings,
+    readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
+    createSubjectKernelBinding:core.createSubjectKernelBinding,
+  });
+  const ui=createT3ReviewController({host:bridge.port,onUpdate:()=>{}});
+  try{
+    assert.deepEqual(Object.keys(bridge.port).sort(),
+      ['readSelected','subscribeInvalidation']);
+    assert.equal((await ui.readSelected()).status,'REVIEW');
+    assert.equal((await ui.stageSelected()).status,'UNAVAILABLE');
+    assert.equal(f.state.writeCalls,0);
+  }finally{ui.dispose();bridge.dispose();c.close();}
+});

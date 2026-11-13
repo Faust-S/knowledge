@@ -258,10 +258,12 @@ export async function openOriginalT3ActivityReviewHost({
       'T3_CONTROL_ACTIVITY_READ_NOT_GRANTED');
     const target=await control.signedActivityAccess('activity.derive');
     let derivation=null;
-    if(target!==null&&target!==undefined){
-      need(callable(target,['currentContext','actionFor','authorize',
-        'verifyDecisionBinding','operationDigest']),
-        'T3_CONTROL_DERIVATION_OWNER_REQUIRED');
+    if(target!==null&&target!==undefined&&
+      callable(target,['currentContext','actionFor','authorize',
+        'verifyDecisionBinding','operationDigest'])){
+      // Derive is optional. Its denial, expiry or unusable action must not
+      // block independently authorized source reading. Never infer a grant.
+      try{
       const signedTarget=await target.currentContext();
       const samePrincipal=record(signedTarget)&&
         ['PERSONAL','CORP'].includes(readOwner.kind)&&
@@ -286,6 +288,7 @@ export async function openOriginalT3ActivityReviewHost({
           resolveTargetSignedAccess:()=>control.signedActivityAccess('activity.derive'),
         });
       }
+      }catch{/* No usable independent derive right: remain READ-ONLY. */}
     }
     need(!closed&&epoch===initialEpoch&&
       context.currentWorkspace.get()===selected,
