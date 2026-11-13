@@ -182,6 +182,13 @@ export async function stageSelectedT3ActivityReview({
       'T3_ACTIVITY_ID_UNAVAILABLE');
     objectId='activity-review:'+globalThis.crypto.randomUUID();
     check();
+    // An authoritative signed preflight AFTER the source's last read
+    // distinguishes a known revoked right from an interrupted Kernel write.
+    // The putObject itself still performs another original T3 JIT check.
+    const finalTarget=await scoped.getWorkspace(targetId);
+    check();
+    need(finalTarget?.workspace_id===targetId&&!finalTarget.deleted_at,
+      'T3_ACTIVITY_TARGET_WORKSPACE_UNAVAILABLE');
     // Once invoked, an interrupted Host may have committed; never retry.
     writeAttempted=true;
     const receipt=await scoped.putObject({
