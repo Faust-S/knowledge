@@ -175,3 +175,57 @@ test('mutating owner-returned candidate after delivery cannot mutate React revie
   owner.structural_candidate[0].object_type='raw_private_source_id';
   assert.equal(JSON.stringify(states.at(-1).review),kept);c.dispose();
 });
+test('optional signed derivation button requires a current accepted review',async()=>{
+  const h=makeHost(),states=[];let writes=0;
+  h.host.stageSelected=async()=>{writes++;return {
+    status:'OWNER_REVIEW_DRAFT',readback:true,export_allowed:false,
+  };};
+  const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
+  assert.deepEqual(await c.stageSelected(),{status:'UNAVAILABLE'});
+  assert.equal(writes,0);
+  await c.readSelected();
+  assert.deepEqual(await c.stageSelected(),{status:'STAGED'});
+  assert.equal(states.at(-1).status,'STAGED');
+  assert.equal(states.at(-1).review,null);
+  assert.equal(writes,1);
+  assert.deepEqual(await c.stageSelected(),{status:'UNAVAILABLE'});
+  assert.equal(writes,1);
+  assert.equal(JSON.stringify(states).includes(secret),false);
+  c.dispose();
+});
+test('derivation result with unknown data never reaches renderer as success',async()=>{
+  const h=makeHost(),states=[];
+  h.host.stageSelected=async()=>({
+    status:'OWNER_REVIEW_DRAFT',readback:true,export_allowed:false,
+    raw_person_id:secret,
+  });
+  const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
+  await c.readSelected();
+  assert.deepEqual(await c.stageSelected(),{status:'HOLD'});
+  assert.equal(states.at(-1).code,'T3_HOST_STAGE_RESULT_UNVERIFIED');
+  assert.equal(JSON.stringify(states).includes(secret),false);
+  c.dispose();
+});
+test('grant invalidation during an in-flight derivation hides late success',async()=>{
+  const h=makeHost(),states=[];
+  let release;
+  h.host.stageSelected=()=>new Promise(resolve=>{release=()=>resolve({
+    status:'OWNER_REVIEW_DRAFT',readback:true,export_allowed:false,
+  });});
+  const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
+  await c.readSelected();
+  const pending=c.stageSelected();
+  assert.equal(states.at(-1).status,'STAGING');
+  h.grantChanged();
+  release();
+  assert.deepEqual(await pending,{status:'INVALIDATED'});
+  assert.deepEqual(states.at(-1),{status:'READY_TO_READ',review:null});
+  c.dispose();
+});
+test('Activity never advertises a stage command without the trusted owner',async()=>{
+  const h=makeHost(),states=[];
+  const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
+  await c.readSelected();
+  assert.deepEqual(await c.stageSelected(),{status:'UNAVAILABLE'});
+  c.dispose();
+});

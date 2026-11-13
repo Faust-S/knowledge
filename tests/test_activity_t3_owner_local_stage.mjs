@@ -6,7 +6,8 @@ import {createHash} from 'node:crypto';
 import {existsSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {stageSelectedT3ActivityReview,T3_ACTIVITY_OWNER_REVIEW_SCHEMA,
+import {stageSelectedT3ActivityReview,createTrustedT3ActivityStagePort,
+  T3_ACTIVITY_OWNER_REVIEW_SCHEMA,
   T3_ACTIVITY_OWNER_REVIEW_DECLARATION} from
   '../modules/activity-base-anonymizer/t3-owner-review-stage.mjs';
 
@@ -266,4 +267,17 @@ test('different Kernel even with same principal cannot become a silent store tra
   await assert.rejects(stageSelectedT3ActivityReview(f.options),
     {code:'T3_ACTIVITY_SAME_ORIGINAL_KERNEL_REQUIRED'});
   assert.equal(f.state.readCalls,0);assert.equal(f.state.writeCalls,0);
+});
+
+test('trusted stage port exposes only a non-exportable three-field result',async()=>{
+  const f=fixture();
+  const stagePort=createTrustedT3ActivityStagePort(f.options);
+  assert.deepEqual(Object.keys(stagePort),['stageSelected']);
+  const receipt=await stagePort.stageSelected();
+  assert.deepEqual(receipt,{
+    status:'OWNER_REVIEW_DRAFT',readback:true,export_allowed:false,
+  });
+  assert.equal('signedAccess' in stagePort,false);
+  assert.equal('kernel' in stagePort,false);
+  assert.equal(f.saved.size,1);
 });
