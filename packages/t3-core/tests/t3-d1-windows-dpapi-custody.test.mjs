@@ -4,6 +4,7 @@ import {spawnSync} from "node:child_process";
 import {mkdtempSync,readFileSync,writeFileSync,rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
+import {fileURLToPath} from "node:url";
 import {createWindowsOriginalVaultCustody} from
   "../src/t3/access/windows-original-vault-custody.mjs";
 import {emptyVault,generateVaultKey} from "../src/t3/access/local-vault.mjs";
@@ -98,10 +99,10 @@ test("DPAPI CurrentUser protects original PERSONAL + two CORP Ed25519 credential
         challenge:"cold-process-challenge-unique"});
       process.stdout.write(proof.keyId);
     `;
-    const base=new URL("../",import.meta.url).pathname;
+    const base=fileURLToPath(new URL("../",import.meta.url));
     const proc=spawnSync(process.execPath,
       ["--input-type=module","-e",script,vaultPath],{
-        cwd:decodeURIComponent(base.replace(/^\\/,"")),
+        cwd:base,
         encoding:"utf8",timeout:60000,windowsHide:true});
     assert.equal(proc.status,0,proc.stderr);
     assert.equal(proc.stdout,"key:south");
