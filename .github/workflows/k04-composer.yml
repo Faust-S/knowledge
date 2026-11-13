@@ -37,13 +37,15 @@ jobs:
           node --check modules/k04-composer/sample/run-complex-meeting.mjs
           node --check modules/k04-composer/sample/run-agent05-document-delivery.mjs
           node --check modules/k04-composer/agent05-file-actions.mjs
+          node --check modules/k04-composer/agent05-delivery-progress.mjs
+          node --check modules/k04-composer/agent05-owner-history-view.mjs
       - name: Execute K04 contract tests
         run: node --test modules/k04-composer/tests/*.test.mjs
       - name: Checkout pinned public K02 peer
         uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 0579febb38e25243ec348af1935d92a80ae2f919
+          ref: ff92d15a732970b7b757f9b2fe2501444b2b7a5c
           path: .k02-peer
           persist-credentials: false
       - name: Verify per-step requests with actual K02 functions
