@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/2026-11-10-t3-t2-activity-projection
+      - work/2026-11-13-t3-d4-two-independent-consumers
       - work/2026-11-13-t3-remove-unauthorized-control-app
       - work/2026-11-13-t3-d1-original-registry-store
       - work/2026-11-13-t3-d1-cold-host-process
