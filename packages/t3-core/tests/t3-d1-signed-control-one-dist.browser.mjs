@@ -1305,12 +1305,42 @@ try{
       'CORPORATE_APP_MUST_DISPLAY_ONLY_SIGNED_WORKSPACE');
     await panel.getByLabel('Workspace для локальной модели').selectOption(ws);
     await panel.getByRole('button',{name:'Использовать выбранный Workspace'}).click();
-    await page.waitForFunction(id=>
-      document.querySelector('[data-testid="t3-local-inference-panel"] strong')
-        ?.textContent?.includes(id),ws,{timeout:30000});
+    // A signed corporate focus change is an asynchronous JIT operation.
+    // A stale <strong> from the previous Host focus is NOT proof of success.
+    try{
+      await page.waitForFunction(id=>{
+        const panel=document.querySelector('[data-testid="t3-local-inference-panel"]');
+        return panel?.querySelector('strong')?.textContent?.includes(id)&&
+          [...panel.querySelectorAll('p[role="status"]')]
+            .some(p=>p.textContent?.includes('Рабочая область выбрана через Host'));
+      },ws,{timeout:30000});
+    }catch(error){
+      console.log('T3_D1_CORPORATE_BLI_FOCUS_DIAGNOSTIC',JSON.stringify({
+        organization:short, workspace:ws, panel:await panel.innerText(),
+      }));
+      throw error;
+    }
     await panel.getByTestId('t3-d5-recover-draft-id').fill(draftId);
-    await panel.getByRole('button',
-      {name:'Прочитать черновик из Kernel по ID'}).click();
+    const readDraft=panel.getByRole('button',
+      {name:'Прочитать черновик из Kernel по ID'});
+    try{
+      await readDraft.waitFor({state:'visible',timeout:5000});
+      await page.waitForFunction(()=>{
+        const button=[...document.querySelectorAll(
+          '[data-testid="t3-local-inference-panel"] button')]
+          .find(el=>el.textContent?.includes('Прочитать черновик из Kernel по ID'));
+        return button&&!button.disabled;
+      },null,{timeout:12000});
+    }catch(error){
+      console.log('T3_D1_CORPORATE_BLI_READ_DISABLED',JSON.stringify({
+        organization:short, workspace:ws,
+        recoverId:await panel.getByTestId('t3-d5-recover-draft-id').inputValue(),
+        panel:await panel.innerText(),
+        html:await readDraft.evaluate(el=>el.outerHTML),
+      }));
+      throw error;
+    }
+    await readDraft.click();
     const view=panel.getByTestId('t3-d5-saved-draft-readback');
     await view.waitFor({state:'visible',timeout:30000});
     assert.ok((await view.innerText()).includes(draftText));
