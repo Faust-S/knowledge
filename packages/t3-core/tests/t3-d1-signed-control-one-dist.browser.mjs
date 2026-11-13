@@ -57,6 +57,9 @@ const mockContext=Object.freeze({
 const mockCreateContext=Object.freeze({
   ...mockContext,grant_id:'grant:d1-create',purpose:'workspace.onboarding',
 });
+const mockWriteContext=Object.freeze({
+  ...mockContext,grant_id:'grant:d1-write',purpose:'workspace.write',
+});
 const server=createServer((req,res)=>{
   const send=(status,body,type='application/json',workspace=false)=>{
     const csp=workspace
@@ -164,18 +167,26 @@ const server=createServer((req,res)=>{
       req.on('end',()=>{
         try{
           const input=JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          if(input?.scope!=='kernel'||
-             !['getWorkspace','createWorkspace'].includes(input.operation))
+          if(input?.scope!=='kernel')
             return send(403,{error:'SYNTHETIC_OWNER_SCOPE_DENIED'});
-          const createAction=input.operation==='createWorkspace';
-          const selected=createAction?mockCreateContext:mockContext;
+          // Fixture-only rights reflect the independent original Control DATA
+          // and ACTION grants. There is no real signer in this public test.
+          const policy={
+            getWorkspace:{context:mockContext,operation:'t1.getWorkspace',action:'workspace.read'},
+            getObject:{context:mockContext,operation:'t1.getObject',action:'workspace.read'},
+            listObjects:{context:mockContext,operation:'t1.listObjects',action:'workspace.read'},
+            createWorkspace:{context:mockCreateContext,operation:'t1.createWorkspace',action:'workspace.create'},
+            putObject:{context:mockWriteContext,operation:'t1.putObject',action:'workspace.write'},
+          }[input.operation];
+          if(!policy)return send(403,{error:'SYNTHETIC_OWNER_SCOPE_DENIED'});
+          const selected=policy.context;
           if(input.verb==='select')
             return send(200,{available:true,contextEpoch:0});
           if(input.verb==='context')return send(200,{context:selected});
           if(input.verb==='action'){
-            if(input.kernelOperation!==(createAction?'t1.createWorkspace':'t1.getWorkspace'))
+            if(input.kernelOperation!==policy.operation)
               return send(403,{error:'SYNTHETIC_OWNER_OPERATION_DENIED'});
-            return send(200,{action:createAction?'workspace.create':'workspace.read'});
+            return send(200,{action:policy.action});
           }
           if(input.verb==='digest')
             return send(200,{digest:hash(Buffer.from(JSON.stringify(input.command)))});
