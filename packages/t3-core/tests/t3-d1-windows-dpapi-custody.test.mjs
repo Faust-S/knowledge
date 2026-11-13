@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
-import {mkdtempSync,readFileSync,writeFileSync,rmSync} from "node:fs";
+import {mkdtempSync,readFileSync,writeFileSync,rmSync,existsSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -137,4 +137,119 @@ test("DPAPI custody refuses non-Windows platforms without fallback",()=>{
   assert.throws(()=>createWindowsOriginalVaultCustody({
     vaultPath:"/tmp/not-a-windows-vault",
   }),{code:"T3_WINDOWS_DPAPI_REQUIRED"});
+});
+
+test("Windows DPAPI enrolls North then South into one original vault across Host processes, preserving PERSONAL",{
+  skip:!isWindows,
+},async()=>{
+  const dir=mkdtempSync(join(tmpdir(),"t3-d1-windows-enrollment-"));
+  const vaultPath=join(dir,"original-vault.json");
+  const now=Date.now(),createdAt=new Date(now-20000).toISOString();
+  try{
+    const vault=emptyVault();
+    const personal=generateVaultKey(vault,{
+      keyId:"key:personal",subjectId:"person:member",createdAt});
+    const issued=emptyVault();
+    const north=generateVaultKey(issued,{
+      keyId:"key:north",subjectId:"person:member",createdAt});
+    const south=generateVaultKey(issued,{
+      keyId:"key:south",subjectId:"person:member",createdAt});
+    const custody=createWindowsOriginalVaultCustody({vaultPath});
+    await custody.provision(vault);
+    const initialRecord=JSON.parse(readFileSync(vaultPath,"utf8"));
+    const toImport=key=>({
+      keyId:key.keyId,subjectId:key.subjectId,
+      privateKeyPem:key.privateKeyPem,
+      expectedPublicKeyPem:key.publicKeyPem,createdAt,
+    });
+    const acceptedNorth=await custody.enrollCredential(toImport(north));
+    assert.equal(acceptedNorth.publicKeyPem,north.publicKeyPem);
+    assert.equal(acceptedNorth.privateKeyPem,undefined);
+    const afterNorth=readFileSync(vaultPath,"utf8");
+    assert.equal(JSON.parse(afterNorth).osCustody.protectedSecret,
+      initialRecord.osCustody.protectedSecret);
+    assert.equal(afterNorth.includes("BEGIN PRIVATE KEY"),false);
+    // Wrong binding must not silently modify already issued keys.
+    await assert.rejects(custody.enrollCredential({
+      ...toImport(south),expectedPublicKeyPem:north.publicKeyPem,
+    }),{code:"PUBLIC_KEY_MISMATCH"});
+    assert.equal(readFileSync(vaultPath,"utf8"),afterNorth);
+    await assert.rejects(custody.enrollCredential(toImport(north)),
+      {code:"KEY_ALREADY_EXISTS"});
+    assert.equal(readFileSync(vaultPath,"utf8"),afterNorth);
+    const lock=vaultPath+".enrollment.lock";
+    writeFileSync(lock,"another-host-is-enrolling");
+    await assert.rejects(custody.enrollCredential(toImport(south)),
+      {code:"T3_WINDOWS_DPAPI_ENROLLMENT_BUSY"});
+    assert.equal(readFileSync(lock,"utf8"),"another-host-is-enrolling");
+    rmSync(lock);
+    assert.equal(readFileSync(vaultPath,"utf8"),afterNorth);
+    // A different Windows Node process imports South through stdin:
+    // no private key in shell arguments, env, repository or diagnostics.
+    const code=`
+      import {createWindowsOriginalVaultCustody} from "./src/t3/access/windows-original-vault-custody.mjs";
+      let input="";
+      for await(const chunk of process.stdin)input+=chunk.toString("utf8");
+      const credential=JSON.parse(input);
+      const custody=createWindowsOriginalVaultCustody({vaultPath:process.argv[1]});
+      const publicKey=await custody.enrollCredential(credential);
+      process.stdout.write(publicKey.keyId);
+    `;
+    const base=fileURLToPath(new URL("../",import.meta.url));
+    const child=spawnSync(process.execPath,
+      ["--input-type=module","-e",code,vaultPath],{
+        cwd:base,input:JSON.stringify(toImport(south)),
+        encoding:"utf8",windowsHide:true,timeout:90000,
+      });
+    assert.equal(child.status,0,child.stderr);
+    assert.equal(child.stdout,"key:south");
+    assert.equal(existsSync(lock),false);
+    const inventory=await custody.inventory();
+    assert.deepEqual(Object.keys(inventory).sort(),
+      ["key:north","key:personal","key:south"]);
+    assert.equal(inventory["key:personal"].publicKeyPem,
+      personal.publicKeyPem);
+    assert.equal(inventory["key:north"].publicKeyPem,north.publicKeyPem);
+    assert.equal(inventory["key:south"].publicKeyPem,south.publicKeyPem);
+    assert.equal(JSON.stringify(inventory).includes("PRIVATE KEY"),false);
+    const context=org=>org===null?{
+      kind:"PERSONAL",actor_id:"person:member",organization_id:null,
+    }:{
+      kind:"CORP",actor_id:"person:member",organization_id:org,
+      principal_id:org,role_id:"role:member",grant_id:"grant:"+org,
+      realm_id:"realm:local",audience:"host:t3",purpose:"purpose:work",
+      workspace_id:"ws:"+org,resource:"ws:"+org,
+    };
+    const request=c=>c.kind==="PERSONAL"
+      ?{actorId:"person:member",principalId:"person:member"}
+      :{actorId:"person:member",principalId:c.principal_id,
+        roleId:c.role_id,grantId:c.grant_id,realmId:c.realm_id,
+        audience:c.audience,resource:c.resource,purpose:c.purpose};
+    for(const [org,key] of [[null,personal],["org:north",north],["org:south",south]]){
+      const ctx=context(org);
+      const signer=createOriginalVaultProofSigner({
+        ...createWindowsOriginalVaultCustody({vaultPath}),
+        organizationId:org,keyId:key.keyId});
+      const proof=await signer({
+        request:request(ctx),context:ctx,credentialKeyId:key.keyId,
+        challenge:"enrollment-test-challenge-"+String(now),
+        asOf:new Date(now).toISOString(),
+      });
+      const policy={environment:"TEST",keys:{[key.keyId]:{
+        subjectId:key.subjectId,environment:"TEST",status:"ACTIVE",
+        uses:["PROOF"],publicKey:key.publicKeyPem,
+        notBefore:createdAt,expiresAt:new Date(now+60000).toISOString(),
+      }}};
+      assert.equal(verifyRecord(proof,policy,now,"PROOF").subjectId,
+        "person:member");
+    }
+    assert.equal(readFileSync(vaultPath,"utf8").includes("PRIVATE KEY"),false);
+    console.log("T3_D1_WINDOWS_SEQUENTIAL_ENROLLMENT_PASS",
+      JSON.stringify({originalVault:1,personal:1,corporate:2,
+        independentlyEnrolledCorporateCredentials:2,
+        preservedPersonal:true,independentHostProcesses:true,
+        noPrivateKeyOnDisk:true,duplicateDenied:true,
+        wrongIssuerPublicKeyDenied:true,busyHostDenied:true,
+        installedWindowsControlAccepted:false}));
+  }finally{rmSync(dir,{recursive:true,force:true});}
 });
