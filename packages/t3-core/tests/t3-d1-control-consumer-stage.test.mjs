@@ -64,6 +64,12 @@ test("staged installed original Control consumes exact public knowledge static U
       "qualification/do-not-copy-private-fixture.json")),false);
     for(const file of [".git/config","interop/.env","interop/notes.log"])
       assert.equal(existsSync(join(f.stage,file)),false);
+    const stagedBridge=join(f.stage,"src/t3/signed-access-host-port.mjs");
+    assert.equal(existsSync(stagedBridge),true);
+    assert.equal(hash(stagedBridge),receipt.installedSignedOwnerBridgeSha256);
+    const bridge=await import(pathToFileURL(stagedBridge).href);
+    assert.equal(typeof bridge.createSignedAccessHostPort,"function");
+    assert.equal(receipt.t3PublicCoreArgument,"STAGED_CONTROL_ROOT");
     const moved=await import(pathToFileURL(
       join(f.stage,"interop/t3-isolated-ui-server.mjs")).href);
     assert.equal(typeof moved.createT3IsolatedUiServer,"function");
@@ -86,6 +92,7 @@ test("production stage omits tests and leaves original issuer code byte-for-byte
     assert.equal(existsSync(join(f.stage,"qualification")),false);
     assert.equal(hash(join(f.stage,"access-control/core.mjs")),before);
     assert.equal(hash(join(f.original,"access-control/core.mjs")),before);
+    assert.equal(existsSync(join(f.stage,"src/t3/signed-access-host-port.mjs")),true);
   }finally{cleanup(f);}
 });
 test("reject mismatched Control importer, overlaps and symlinked code",()=>{

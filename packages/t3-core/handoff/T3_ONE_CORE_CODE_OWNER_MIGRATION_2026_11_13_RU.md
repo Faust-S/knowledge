@@ -47,3 +47,14 @@ IWXA_T3_PUBLIC_CORE_DIR=/path/to/knowledge/packages/t3-core \
 ```
 
 Установленный старый Control при старте получает `--t3-public-core` и `--t3-dist` с собранной из `knowledge` T3 Workspace/оригинальным T2 Kernel. **Стадирование кода не равно Ed25519 приёмке**. Не публиковать содержимое staged Control, токены и журналы в публичных CI artifacts. Граница G4 остаётся закрытой до успешной настоящей квалификации.
+
+## Исполняемый Control без checkout knowledge
+
+В установленную приватную копию оригинального Control дополнительно стадируется **точный** `knowledge/packages/t3-core/src/t3/signed-access-host-port.mjs` по месту `src/t3/signed-access-host-port.mjs`. Оригинальный Control CLI уже поддерживает `--t3-public-core`; теперь в него передаётся **корень собранного Control**, а не рабочий checkout разработчика. Один собранный T3 `dist` продолжает поставляться через имеющийся флаг `--t3-dist`. Никаких новых проверяющих полномочия сервисов нет: подписант остаётся original Control.
+
+Пример параметров после локальной сборки (подлинные контексты и данные передаются исходным Control обычным способом):
+```sh
+node /path/to/ephemeral-installed-control/interop/server.mjs \
+  --product=control --t3-public-core=/path/to/ephemeral-installed-control \
+  --t3-dist=/path/to/assembled-t3-dist
+```

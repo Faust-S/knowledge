@@ -12,6 +12,7 @@ import {fileURLToPath} from "node:url";
 
 const CORE_ROOT=realpathSync(resolve(dirname(fileURLToPath(import.meta.url)),".."));
 const PUBLIC_UI=join(CORE_ROOT,"src/t3/isolated-ui-server.mjs");
+const PUBLIC_SIGNED_OWNER_BRIDGE=join(CORE_ROOT,"src/t3/signed-access-host-port.mjs");
 const PINNED_DIRS=Object.freeze(["interop","access-control","reconciliation"]);
 const QUALIFIER_FILES=Object.freeze([
   "qualification/t3-d1-loopback-owner-local.test.mjs",
@@ -112,6 +113,10 @@ export function stageOriginalControlConsumer({
      !readFileSync(PUBLIC_UI,"utf8").includes(
        "export function createT3IsolatedUiServer("))
     fail("ISOLATED_UI_API_INCOMPATIBLE");
+  const ownerBridge=readFileSync(PUBLIC_SIGNED_OWNER_BRIDGE,"utf8");
+  if(!ownerBridge.includes("export function createSignedAccessHostPort("))
+    fail("ORIGINAL_SIGNED_BRIDGE_API_REQUIRED");
+  const bridgeSha=sha(PUBLIC_SIGNED_OWNER_BRIDGE);
   const before=sha(privateServer),originalUiSha=sha(oldUi),publicSha=sha(PUBLIC_UI);
   const temporary=output+".building-"+randomUUID();
   mkdirSync(dirname(output),{recursive:true});
@@ -123,7 +128,13 @@ export function stageOriginalControlConsumer({
     if(sha(stagedServer)!==before||sha(stagedUi)!==originalUiSha)
       fail("ORIGINAL_STAGE_BYTES_CHANGED");
     writeFileSync(stagedUi,readFileSync(PUBLIC_UI));
-    if(sha(stagedUi)!==publicSha||
+    // The historical Control CLI uses --t3-public-core to load the
+    // original knowledge D1 bridge from src/t3. Stage its exact current
+    // bytes so an installed Control never depends on a live Git checkout.
+    const stagedBridge=join(temporary,"src/t3/signed-access-host-port.mjs");
+    mkdirSync(dirname(stagedBridge),{recursive:true});
+    writeFileSync(stagedBridge,ownerBridge);
+    if(sha(stagedUi)!==publicSha||sha(stagedBridge)!==bridgeSha||
        sha(privateServer)!==before||sha(oldUi)!==originalUiSha)
       fail("SOURCE_MUTATION_OR_UI_MISMATCH");
     if(existsSync(output))fail("OUTPUT_ALREADY_EXISTS");
@@ -133,6 +144,8 @@ export function stageOriginalControlConsumer({
       source:"ORIGINAL_PRIVATE_CONTROL_EXTERNAL",
       uiServerOwner:"Faust-S/knowledge/packages/t3-core",
       installedUiSha256:publicSha,
+      installedSignedOwnerBridgeSha256:bridgeSha,
+      t3PublicCoreArgument:"STAGED_CONTROL_ROOT",
       privateCheckoutUnmodified:true,
       originalSignedOwnerUnmodified:true,
       separateKernelOrStoreCreated:false,
