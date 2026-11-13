@@ -40,6 +40,9 @@ async function launch(){
   // fails (e.g. CSP/asset mismatch). Always dispose it on failed first-run:
   // a discarded iframe alone is not a reliable Control SSE cleanup boundary.
   let closeTrustedPort:(()=>void)|null=null;
+  // Mount may succeed even if the signed invalidation subscription fails.
+  // Tear down the *actual* React root, not just its DOM, on failed startup.
+  let mountedRoot:{unmount():void}|null=null;
   let stage="preflight";
   try{
     if(!TOKEN.test(bearer))throw fail("T3_D1_TRUSTED_CONTROL_SESSION_REQUIRED");
@@ -84,6 +87,7 @@ async function launch(){
       subscribeSignedAccessInvalidation:listener=>
         client.subscribeInvalidation(listener),
     });
+    mountedRoot=root;
     // The original Control's signed revocation channel is the authority
     // boundary. The existing WorkspaceHostRuntimeProvider also invalidates
     // its ModuleContext, but it may still be waiting on an async React
@@ -109,6 +113,10 @@ async function launch(){
       root.unmount();client.close();frame?.remove();
     },{once:true});
   }catch(e){
+    // Stop React subscriptions before removing its host DOM. Otherwise a
+    // partially mounted AppShell can retain the old signed session closure.
+    mountedRoot?.unmount();
+    mountedRoot=null;
     // Close the actual signed channel before detaching the trusted realm.
     // Never leave a live original Control owner stream behind a failed UI.
     closeTrustedPort?.();
