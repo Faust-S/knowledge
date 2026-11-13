@@ -8,6 +8,7 @@ on:
       - work/2026-11-13-t3-d1-cold-host-process
       - work/2026-11-13-t3-d1-personal-signed-appshell
       - work/2026-11-13-t3-d1-corporate-original-access
+      - work/2026-11-13-t3-d1-two-corp-compiled-appshell
       - work/2026-11-13-t3-pwa-integration
       - work/2026-11-13-t3-d1-native-owner-http
     paths:

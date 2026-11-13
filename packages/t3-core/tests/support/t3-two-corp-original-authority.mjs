@@ -52,7 +52,23 @@ export function originalKernelFixture(){
   };
   return {api,calls};
 }
-export function model(){
+// The default preserves existing write-only corporate qualifications.
+// The compiled AppShell case explicitly grants normal Workspace/BLI actions.
+// These test records cannot issue permissions outside the authentic evaluator.
+const ACTIONS=Object.freeze({
+  "t1.getWorkspace":"workspace.read",
+  "t1.createWorkspace":"workspace.create",
+  "t1.listObjects":"object.read",
+  "t1.getObject":"object.read",
+  "t1.listEventsSince":"event.read",
+  "t1.putObject":"object.write",
+});
+export function model({operations=["t1.putObject"]}={}){
+  assert.ok(Array.isArray(operations)&&operations.length>0&&
+    operations.every(op=>Object.hasOwn(ACTIONS,op))&&
+    new Set(operations).size===operations.length);
+  const actions=[...new Set(operations.map(op=>ACTIONS[op]))];
+  const catalog=Object.fromEntries(actions.map(action=>[action,"ACTION"]));
   const signers={},policyKeys={},grants={},statuses={},floors={};
   const all={},descriptors={organizations:[],workspaces:[],memberships:[],grants:[]};
   const profile=schema("PersonalSubjectProfile",{
@@ -71,7 +87,7 @@ export function model(){
     policyKeys[credentialId]=credential.record;
     authorities[authority]={
       principalId:org,issuerKeys:[issuerId],statusKeys:[issuerId],
-      audiences:["host:t3"],resources:[ws],actions:["object.write"],
+      audiences:["host:t3"],resources:[ws],actions,
       purposes:["purpose:work"],roles:["role:member"],
       rightClasses:["ACTION"],membershipEpoch:1,
       maxTtlSeconds:3600,maxDelegationDepth:0,
@@ -81,7 +97,7 @@ export function model(){
       renewalOf:null,parentGrantId:null,authorityId:authority,
       principalId:org,holderId:person,roleId:"role:member",
       rightClass:"ACTION",realmId:realm,environment:"TEST",
-      audience:"host:t3",resources:[ws],actions:["object.write"],
+      audience:"host:t3",resources:[ws],actions,
       purposes:["purpose:work"],issuedAt:issued,notBefore:before,
       expiresAt:until,remainingDepth:0,membershipEpoch:1,
       policyId:"policy:two-org",policyVersion:"v1",
@@ -121,7 +137,7 @@ export function model(){
       organizationId:org,membershipId:membership,grantId:grant.id,
       authorityId:authority,realmId:realm,holderPersonId:person,
       roleId:"role:member",membershipEpoch:1,
-      resources:[ws],actions:["object.write"],purposes:["purpose:work"],
+      resources:[ws],actions,purposes:["purpose:work"],
       notBefore:before,expiresAt:until,signedEnvelopeDigest:digest(envelope),
     }));
     const issuedCredential=schema("AdminIssuedCredential",{
@@ -162,7 +178,7 @@ export function model(){
     realmId:realm,environment:"TEST",statusMode:"OFFLINE_BOUNDED",
     timeAssurance:"LOCAL_BEST_EFFORT",proofMaxAgeSeconds:60,
     snapshotMaxAgeSeconds:3600,offlineMaxAgeSeconds:3600,
-    keys:policyKeys,authorities,actionCatalog:{"object.write":"ACTION"},
+    keys:policyKeys,authorities,actionCatalog:catalog,
     prohibitions:[],confirmations:[],
   };
   return {all,policy,state:{policy,grants,statuses,statusFloor:floors,

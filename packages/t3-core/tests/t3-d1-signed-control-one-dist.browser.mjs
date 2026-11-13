@@ -16,6 +16,13 @@ import {createTemporaryOriginalPersonalAuthority}
   from './support/t3-original-personal-authority.mjs';
 import {createOriginalControlHttpHandler}
   from '../src/t3/original-control-http-handler.mjs';
+import {createOriginalKernelRegistryStatePort,ORIGINAL_REGISTRY_SCHEMA}
+  from '../src/t3/access/original-kernel-registry-state.mjs';
+import {createOrganizationalOperationGate}
+  from '../src/t3/access/organizational-operation.mjs';
+import {createSignedAccessHostPort}
+  from '../src/t3/signed-access-host-port.mjs';
+import {digest,iso,makeProof,signRecord} from '../src/t3/access/core.mjs';
 import {materializeIntegrationHost} from '../scripts/real-kernel-e2e.mjs';
 import {assertQualifiedKernelArtifact}
   from '../src/factory2/products/domain-completion/independent-browser-witness.mjs';
@@ -346,6 +353,18 @@ try{
   host.domain.runtime.runtime_version='0.3.6';
   host.workspaceConfig.host.required_runtime_version='0.3.6';
   host.workspaceConfig.host.required_contract_version='1.3.0';
+  // The already ORIGINAL Kernel Store also persists signed corporate STATUS
+  // through its existing Object/Event journal. No second database, service or
+  // writer is included in the signed one-dist.
+  host.domain.security.allowed_object_classes.push(ORIGINAL_REGISTRY_SCHEMA);
+  host.passport.input_object_types.push(ORIGINAL_REGISTRY_SCHEMA);
+  host.passport.output_object_types.push(ORIGINAL_REGISTRY_SCHEMA);
+  host.passport.schemas[ORIGINAL_REGISTRY_SCHEMA]={
+    schema_version:'1.0.0',preserve_unknown:true,
+    json_schema:{type:'object'},embedded:{},
+  };
+  host.passport.permissions.objects.read.push(ORIGINAL_REGISTRY_SCHEMA);
+  host.passport.permissions.objects.write.push(ORIGINAL_REGISTRY_SCHEMA);
   writeFileSync(join(source,'_iwxa/domain.json'),JSON.stringify(host.domain));
   writeFileSync(join(source,'workspace/workspace.config.json'),
     JSON.stringify(host.workspaceConfig));
@@ -1115,6 +1134,306 @@ try{
     realSignedRevocation:true,compiledAppShellUnmounted:true,
     rawKernelNotExposed:true,syntheticControl:false,
   }));
+
+  // Authentic MULTI-ORG product route, using the same already compiled AppShell,
+  // same existing trusted Control HTTP(S), original Kernel/Store and BLI.
+  // Unlike the earlier simulated corporate fixture, the two issuers below
+  // independently sign enrollment, grants, STATUS and credential proofs.
+  // The public test issues temporary TEST-only authorities near execution.
+  const {model:twoCorporations,NOW:corpNow,time:corpClock}=await import(
+    './support/t3-two-corp-original-authority.mjs');
+  const corpOperations=[
+    't1.getWorkspace','t1.createWorkspace','t1.listObjects','t1.getObject',
+    't1.listEventsSince','t1.putObject',
+  ];
+  const corporate=twoCorporations({operations:corpOperations});
+  const corpRegistryWs='ws:corporate-trusted-access-'+randomUUID();
+  await browser.page.evaluate(async({serviceId,workspaceId})=>{
+    const original=await window.IWXA.connect({service_id:serviceId});
+    await original.t1.createWorkspace({workspace_id:workspaceId,profile:'generic'});
+  },{serviceId,workspaceId:corpRegistryWs});
+  // Only the TRUSTED Control host holds this original KernelPort; the
+  // isolated UI receives no raw T2 session, signer, policy or registry API.
+  const originalRegistryKernel={
+    sessionInfo:{contract_version:'1.3.0',runtime_version:'0.3.6'},
+    hasOperation:op=>[
+      't1.getObject','t1.putObject','t1.listEventsSince',
+    ].includes(op),
+    getObject:(...args)=>browser.page.evaluate(async({serviceId,args})=>{
+      const original=await IWXA.connect({service_id:serviceId});
+      return original.t1.getObject(...args);
+    },{serviceId,args}),
+    putObject:input=>browser.page.evaluate(async({serviceId,input})=>{
+      const original=await IWXA.connect({service_id:serviceId});
+      return original.t1.putObject(input);
+    },{serviceId,input}),
+    listEventsSince:(...args)=>browser.page.evaluate(async({serviceId,args})=>{
+      const original=await IWXA.connect({service_id:serviceId});
+      return original.t1.listEventsSince(...args);
+    },{serviceId,args}),
+  };
+  const corpRegistryOptions={
+    kernel:originalRegistryKernel,workspaceId:corpRegistryWs,
+    trustedPolicy:corporate.policy,clock:corpClock,
+  };
+  let corporateRegistry=createOriginalKernelRegistryStatePort(corpRegistryOptions);
+  assert.equal((await corporateRegistry.commitSignedState(corporate.state)).revision,1);
+  const allowedCorpOps=new Map([
+    ['getWorkspace','workspace.read'],['createWorkspace','workspace.create'],
+    ['listObjects','object.read'],['getObject','object.read'],
+    ['listEventsSince','event.read'],['putObject','object.write'],
+  ]);
+  let selectedCorporation='north';
+  const credentialProofs={north:0,south:0};
+  const corporationFor=context=>{
+    const entry=Object.values(corporate.all).find(item=>
+      item.context.organization_id===context.organization_id);
+    assert.ok(entry,'UNKNOWN_SIGNED_CORPORATE_SELECTION');
+    return entry;
+  };
+  const buildCorporatePort=registry=>createSignedAccessHostPort({
+    currentContext:()=>corporate.all[selectedCorporation].context,
+    actionFor:op=>{
+      const action=allowedCorpOps.get(op.replace(/^t1\./,''));
+      if(!action)throw Error('CORPORATE_KERNEL_OPERATION_UNAVAILABLE');
+      return action;
+    },
+    operationDigest:({operation,input,context})=>digest({operation,input,context}),
+    canonicalDigest:digest,clock:corpClock,
+    corporate:{
+      productId:'IWXA_CONTROL_CENTER',
+      gate:createOrganizationalOperationGate({registry}),
+      inputFor:async context=>{
+        const entry=corporationFor(context);
+        return {profile:entry.profile,selection:entry.selection,
+          descriptors:entry.descriptors,credential:entry.issuedCredential,
+          enrollment:entry.enrollment};
+      },
+      prove:async({request,challenge,credentialKeyId,context,asOf})=>{
+        const entry=corporationFor(context);
+        assert.equal(credentialKeyId,entry.issuedCredential.publicKeyRef);
+        credentialProofs[selectedCorporation]++;
+        return makeProof(request,challenge,Date.parse(asOf),
+          entry.credentialSigner,'TEST');
+      },
+    },
+  });
+  let corporateOwner=buildCorporatePort(corporateRegistry);
+  authenticEpoch++;
+  authenticHandler=createOriginalControlHttpHandler({
+    origin,token,currentEpoch:()=>authenticEpoch,
+    subscribeInvalidation:listener=>{
+      authenticInvalidationListeners.add(listener);
+      return ()=>authenticInvalidationListeners.delete(listener);
+    },
+    ownerFor:({scope,operation})=>
+      scope==='kernel'&&allowedCorpOps.has(operation)?corporateOwner:null,
+  });
+  const switchTo=short=>{
+    assert.ok(Object.hasOwn(corporate.all,short));
+    selectedCorporation=short;
+    authenticEpoch++;
+    // The existing original Control owner uses this very same SSE signal
+    // on voluntary context changes and cryptographic revocation.
+    for(const callback of [...authenticInvalidationListeners])callback();
+  };
+  const openCorporateApp=async()=>{
+    const page=await browser.context.newPage();
+    const pageErrors=[];
+    page.on('pageerror',error=>pageErrors.push(error.message));
+    await page.goto(uiOrigin+'/workspace/isolated-signed-workspace.html#'+token);
+    return {page,pageErrors};
+  };
+  const onboardCorporate=async short=>{
+    const {page,pageErrors}=await openCorporateApp();
+    const gate=page.getByTestId('t3-d1-selected-workspace-message');
+    await gate.waitFor({state:'visible',timeout:45000});
+    assert.match(await gate.innerText(),/выбранного профиля/,
+      'CORP_SIGNED_FIRST_RUN_REQUIRED');
+    assert.equal(new URL(page.url()).hash,'#/overview');
+    assert.equal(await page.evaluate(()=>typeof window.IWXA),'undefined');
+    await page.getByTestId('t3-d1-create-selected-workspace').click();
+    await page.getByTestId('t3-d1-selected-workspace-gate')
+      .waitFor({state:'detached',timeout:45000});
+    const read=await browser.page.evaluate(async({serviceId,ws})=>{
+      const original=await IWXA.connect({service_id:serviceId});
+      return original.t1.getWorkspace(ws);
+    },{serviceId,ws:'ws:'+short});
+    assert.equal(read?.workspace_id,'ws:'+short);
+    assert.equal(read?.profile,'generic');
+    assert.deepEqual(pageErrors,[]);
+    return {page,pageErrors};
+  };
+  const copyDraftInCorporateUI=async(page,short)=>{
+    const ws='ws:'+short,draftId='local-inference:'+randomUUID();
+    const draftText='Original independent '+short+' organization input';
+    const seed=await browser.page.evaluate(async({serviceId,ws,draftId,draftText})=>{
+      const native=await IWXA.connect({service_id:serviceId});
+      return native.t1.putObject({
+        workspace_id:ws,object_id:draftId,
+        schema_id:'iwxa.local-inference.draft',schema_version:'1.0.0',
+        base_revision:0,extensions:{},
+        data:{status:'DRAFT_UNTRUSTED',text:draftText,
+          model_id:'SmolLM2-360M-Instruct-q4f32_1-MLC',
+          engine:'@mlc-ai/web-llm@0.2.87',
+          origin:'BROWSER_LOCAL',source:'USER_EXPLICIT_SAVE',
+          model_integrity:'NOT_ATTESTED'},
+        event:{event_type:'t3.local-inference.draft.saved',
+          payload:{status:'DRAFT_UNTRUSTED',
+            model_id:'SmolLM2-360M-Instruct-q4f32_1-MLC'}},
+      });
+    },{serviceId,ws,draftId,draftText});
+    assert.equal(seed.object.object_id,draftId);
+    const launcher=page.getByTestId('t3-local-inference-launcher');
+    await launcher.waitFor({state:'visible',timeout:30000});
+    await launcher.getByRole('button',{name:'Открыть локальную модель'}).click();
+    const panel=page.getByTestId('t3-local-inference-panel');
+    await panel.waitFor({state:'visible',timeout:30000});
+    assert.equal(await panel.getByRole('button',
+      {name:'Скачать и запустить'}).isDisabled(),true);
+    await panel.getByRole('button',{name:'Найти рабочие области'}).click();
+    const options=await panel.getByLabel('Workspace для локальной модели')
+      .locator('option').evaluateAll(nodes=>nodes.map(node=>node.value));
+    assert.equal(options.includes('ws:'+(short==='north'?'south':'north')),
+      false,'CORPORATE_APP_CANNOT_ENUMERATE_OTHER_WORKSPACE');
+    assert.equal(options.includes(ws),true,
+      'CORPORATE_APP_MUST_DISPLAY_ONLY_SIGNED_WORKSPACE');
+    await panel.getByLabel('Workspace для локальной модели').selectOption(ws);
+    await panel.getByRole('button',{name:'Использовать выбранный Workspace'}).click();
+    await page.waitForFunction(id=>
+      document.querySelector('[data-testid="t3-local-inference-panel"] strong')
+        ?.textContent?.includes(id),ws,{timeout:30000});
+    await panel.getByTestId('t3-d5-recover-draft-id').fill(draftId);
+    await panel.getByRole('button',
+      {name:'Прочитать черновик из Kernel по ID'}).click();
+    const view=panel.getByTestId('t3-d5-saved-draft-readback');
+    await view.waitFor({state:'visible',timeout:30000});
+    assert.ok((await view.innerText()).includes(draftText));
+    await panel.getByRole('button',
+      {name:'Продолжить редактирование как новый черновик'}).click();
+    const copiedText=draftText+'; copied via genuine signed corporate Control';
+    await panel.getByTestId('t3-d5-editable-draft').fill(copiedText);
+    await panel.getByRole('button',{name:'Сохранить черновик через Kernel'}).click();
+    await page.waitForFunction(()=>
+      [...document.querySelectorAll(
+        '[data-testid="t3-local-inference-panel"] p[role="status"]')]
+        .some(p=>p.textContent?.includes('Kernel подтвердил запись и чтение')),
+      null,{timeout:45000});
+    const status=await panel.innerText();
+    const copiedId=[...status.matchAll(/local-inference:[0-9a-f-]{36}/gi)]
+      .map(m=>m[0]).find(id=>id!==draftId);
+    assert.ok(copiedId,'CORPORATE_SIGNED_KERNEL_RECEIPT_REQUIRED');
+    const saved=await browser.page.evaluate(async({serviceId,ws,id})=>{
+      const original=await IWXA.connect({service_id:serviceId});
+      return original.t1.getObject(ws,id);
+    },{serviceId,ws,id:copiedId});
+    assert.equal(saved?.object?.data?.text,copiedText);
+    assert.equal(saved?.object?.revision,1);
+    return {ws,draftId,copiedId,copiedText};
+  };
+
+  // Explicit trusted Control selection: organization A, first-run, signed
+  // BLI read/write; no browser-origin raw original Kernel in the AppShell.
+  const northApp=await onboardCorporate('north');
+  const northCopy=await copyDraftInCorporateUI(northApp.page,'north');
+  assert.ok(credentialProofs.north>=5);
+  assert.deepEqual(northApp.pageErrors,[]);
+  switchTo('south');
+  await northApp.page.getByTestId('t3-signed-control-reconnect')
+    .waitFor({state:'visible',timeout:15000});
+  assert.equal(await northApp.page.evaluate(()=>typeof window.IWXA),'undefined');
+
+  // A second independent organization uses the SAME compiled AppShell and
+  // original runtime; old North operation ports are now stale and detached.
+  const southApp=await onboardCorporate('south');
+  const southCopy=await copyDraftInCorporateUI(southApp.page,'south');
+  assert.ok(credentialProofs.south>=5);
+  assert.notEqual(northCopy.ws,southCopy.ws);
+  assert.notEqual(northCopy.copiedId,southCopy.copiedId);
+  assert.deepEqual(southApp.pageErrors,[]);
+
+  // Signed unilateral withdrawal of NORTH. The other issuer's STATUS
+  // remains sequence 1, and its authorized BLI data remain stored intact.
+  const oldNorth=corporate.all.north.status;
+  const revokedNorth={...oldNorth,sequence:2,issuedAt:iso(corpNow-1000),
+    entries:[{grantId:'grant:north',state:'REVOKED',
+      effectiveAt:iso(corpNow-1500),evidenceRef:'evidence:revoked-north'}]};
+  const revokedState=structuredClone(corporate.state);
+  revokedState.statuses['issuer:north']=signRecord(
+    revokedNorth,corporate.all.north.issuerSigner);
+  revokedState.statusFloor['issuer:north']=2;
+  assert.equal((await corporateRegistry.commitSignedState(revokedState)).revision,2);
+  switchTo('north');
+  await southApp.page.getByTestId('t3-signed-control-reconnect')
+    .waitFor({state:'visible',timeout:15000});
+
+  // Complete browser process cold restart, not merely page reload. Reopen
+  // exactly the original T2 Store and construct a NEW corporate AccessGate
+  // bound to the trusted ORIGINAL persisted policy/status object.
+  await browser.context.close();browser=null;
+  browser=await launch();
+  await browser.page.goto(origin+'/__original_kernel_probe__');
+  await browser.page.waitForFunction(()=>
+    typeof window.IWXA?.connect==='function');
+  corporateRegistry=createOriginalKernelRegistryStatePort(corpRegistryOptions);
+  assert.deepEqual((await corporateRegistry.getStatus()).sequences,{
+    'issuer:north':2,'issuer:south':1,
+  });
+  corporateOwner=buildCorporatePort(corporateRegistry);
+  const revokedApp=await openCorporateApp();
+  const revokedMessage=revokedApp.page.getByTestId(
+    't3-d1-selected-workspace-message');
+  await revokedMessage.waitFor({state:'visible',timeout:45000});
+  assert.match(await revokedMessage.innerText(),/Control не подтвердил/,
+    'REVOKED_CORP_MUST_NOT_RENDER_ITS_WORKSPACE');
+  assert.equal(await revokedApp.page.getByTestId(
+    't3-local-inference-launcher').count(),0);
+  assert.equal(await revokedApp.page.evaluate(()=>typeof window.IWXA),'undefined');
+  assert.deepEqual(revokedApp.pageErrors,[]);
+  switchTo('south');
+  await revokedApp.page.getByTestId('t3-signed-control-reconnect')
+    .waitFor({state:'visible',timeout:15000});
+
+  const recoveredSouth=await openCorporateApp();
+  const readyLauncher=recoveredSouth.page.getByTestId(
+    't3-local-inference-launcher');
+  await readyLauncher.waitFor({state:'visible',timeout:45000});
+  await readyLauncher.getByRole('button',{name:'Открыть локальную модель'}).click();
+  const recoveredPanel=recoveredSouth.page.getByTestId('t3-local-inference-panel');
+  await recoveredPanel.waitFor({state:'visible',timeout:30000});
+  await recoveredPanel.getByRole('button',{name:'Найти рабочие области'}).click();
+  await recoveredPanel.getByLabel('Workspace для локальной модели')
+    .selectOption('ws:south');
+  await recoveredPanel.getByRole('button',
+    {name:'Использовать выбранный Workspace'}).click();
+  await recoveredPanel.getByTestId('t3-d5-recover-draft-id')
+    .fill(southCopy.copiedId);
+  await recoveredPanel.getByRole('button',
+    {name:'Прочитать черновик из Kernel по ID'}).click();
+  const coldRead=recoveredPanel.getByTestId('t3-d5-saved-draft-readback');
+  await coldRead.waitFor({state:'visible',timeout:30000});
+  assert.ok((await coldRead.innerText()).includes(southCopy.copiedText));
+  assert.deepEqual(recoveredSouth.pageErrors,[]);
+  const originalCold=await browser.page.evaluate(async({serviceId,north,south})=>{
+    const original=await IWXA.connect({service_id:serviceId});
+    const n=await original.t1.getObject('ws:north',north);
+    const s=await original.t1.getObject('ws:south',south);
+    return {north:n?.object?.workspace_id,south:s?.object?.workspace_id};
+  },{serviceId,north:northCopy.copiedId,south:southCopy.copiedId});
+  assert.deepEqual(originalCold,{north:'ws:north',south:'ws:south'});
+  console.log('T3_D1_TWO_CORP_COMPILED_APPSHELL_REAL_ED25519_KERNEL_PASS',
+    JSON.stringify({
+      compiledAppShell:true,originalKernel:'0.3.6',
+      independentEd25519Issuers:2,independentSignedEnrollments:2,
+      independentCorporateCredentials:2,realCorporateProofs:credentialProofs,
+      authenticControlHttp:true,syntheticCorporateOwner:false,
+      explicitContextSwitch:true,oldAppDisconnectedOnSwitch:true,
+      crossWorkspaceEnumerationDenied:true,
+      userCreatedTwoWorkspaces:true,originalKernelBliWrites:2,
+      northRevokedAfterSignedStatus:true,
+      southActiveAfterColdRestart:true,originalStoreColdReadback:true,
+      installedWindowsControlAccepted:false,
+    }));
   console.log('T3_D1_ACTUAL_ONE_DIST_ORIGINAL_HTTP_PASS',JSON.stringify({
     originalKernel:'0.3.6',runtimeContract:'1.3.0',
     originalLoaderSha256:assembled.original_loader_sha256,
