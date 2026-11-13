@@ -478,13 +478,28 @@ export function createT3InstalledWindowsSignedControlOwner({
   };
   const selectedContext=subjectSession===null?currentContext:
     subjectSession.currentContext;
-  const originalSignedPort=createSignedAccessHostPort({
-    currentContext:selectedContext,actionFor,operationDigest,
+  const createPort=(resolver)=>createSignedAccessHostPort({
+    currentContext:resolver,actionFor,operationDigest,
     canonicalDigest:digest,personal,corporate,clock,randomUUID,
   });
+  // A pre-switch port must never silently acquire the NEXT organization's
+  // identity after a native context switch. In the browser the original
+  // Control HTTP additionally enforces epoch on each request and SSE.
+  const originalSignedPort=subjectSession===null
+    ?createPort(selectedContext):null;
   return Object.freeze({
-    ownerFor:async ({scope})=>scope==="kernel"&&selectedContext()!==null
-      ?originalSignedPort:null,
+    ownerFor:async ({scope})=>{
+      if(scope!=="kernel"||selectedContext()===null)return null;
+      if(subjectSession===null)return originalSignedPort;
+      const expectedEpoch=subjectSession.currentEpoch();
+      return createPort(()=>{
+        required(subjectSession.currentEpoch()===expectedEpoch,
+          "SUBJECT_SESSION_STALE_OWNER");
+        const context=subjectSession.currentContext();
+        required(context!==null,"SUBJECT_SESSION_NOT_SELECTED");
+        return context;
+      });
+    },
     ...(subjectSession===null?{}:{
       currentEpoch:subjectSession.currentEpoch,
       subscribeInvalidation:subjectSession.subscribeInvalidation,
