@@ -13,6 +13,7 @@ on:
       - work/2026-11-13-t3-pwa-integration
       - work/2026-11-13-t3-d1-native-owner-http
       - work/2026-11-13-t3-d1-windows-dpapi-custody
+      - work/2026-11-13-t3-d1-windows-sequential-enrollment
     paths:
       - packages/t3-core/src/t3/activity/**
       - packages/t3-core/**
