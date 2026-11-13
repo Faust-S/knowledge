@@ -28,7 +28,12 @@ function fixture(){
   put("interop/t3-control-workspace-entry.mjs","export const signed=true;\n");
   put("access-control/core.mjs","export const originalSigner=true;\n");
   put("reconciliation/contracts.mjs","export const originalResult=true;\n");
-  put("qualification/d1.test.mjs","export const publicReference=false;\n");
+  put("qualification/t3-d1-loopback-owner-local.test.mjs",
+    "export const privateSignerQualification=true;\n");
+  put("qualification/t3-d1-cross-owner-integration.mjs",
+    "export const privateCrossOwnerQualification=true;\n");
+  put("qualification/do-not-copy-private-fixture.json",
+    '{"private":"historical simulation data"}');
   put("interop/.env","PRIVATE_SECRET_NOT_FOR_STAGE");
   put("interop/notes.log","PRIVATE_LOG_NOT_FOR_STAGE");
   put(".git/config","REMOTE_PRIVATE_CONFIG_NOT_FOR_STAGE");
@@ -51,7 +56,12 @@ test("staged installed original Control consumes exact public knowledge static U
       readFileSync(f.server,"utf8"));
     assert.equal(readFileSync(join(f.stage,"access-control/core.mjs"),"utf8"),
       "export const originalSigner=true;\n");
-    assert.equal(existsSync(join(f.stage,"qualification/d1.test.mjs")),true);
+    assert.equal(existsSync(join(f.stage,
+      "qualification/t3-d1-loopback-owner-local.test.mjs")),true);
+    assert.equal(existsSync(join(f.stage,
+      "qualification/t3-d1-cross-owner-integration.mjs")),true);
+    assert.equal(existsSync(join(f.stage,
+      "qualification/do-not-copy-private-fixture.json")),false);
     for(const file of [".git/config","interop/.env","interop/notes.log"])
       assert.equal(existsSync(join(f.stage,file)),false);
     const moved=await import(pathToFileURL(

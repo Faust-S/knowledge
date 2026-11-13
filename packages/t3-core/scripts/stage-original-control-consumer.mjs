@@ -13,16 +13,14 @@ import {fileURLToPath} from "node:url";
 const CORE_ROOT=realpathSync(resolve(dirname(fileURLToPath(import.meta.url)),".."));
 const PUBLIC_UI=join(CORE_ROOT,"src/t3/isolated-ui-server.mjs");
 const PINNED_DIRS=Object.freeze(["interop","access-control","reconciliation"]);
-const QUALIFIER="qualification";
+const QUALIFIER_FILES=Object.freeze([
+  "qualification/t3-d1-loopback-owner-local.test.mjs",
+  "qualification/t3-d1-cross-owner-integration.mjs",
+]);
 const SOURCE_EXTENSIONS=new Set([".mjs",".js",".cjs",".json",".html",".css",
   ".svg",".png",".ico",".webp",".woff2",".wasm"]);
 const sha=path=>createHash("sha256").update(readFileSync(path)).digest("hex");
 const fail=code=>{throw Error("T3_D1_CONTROL_STAGE_"+code);};
-const inside=(parent,child)=>{
-  const diff=relative(parent,child);
-  return diff===""||diff===".."||diff.startsWith(".."+sep)||isAbsolute(diff)
-    ?(diff===""||(!diff.startsWith("..")&&!isAbsolute(diff))):true;
-};
 function overlaps(a,b){
   return a===b||a.startsWith(b+sep)||b.startsWith(a+sep);
 }
@@ -34,7 +32,7 @@ function requireRegular(root,rel){
   return path;
 }
 function copySources(source,target,includeQualifications){
-  const dirs=includeQualifications?[...PINNED_DIRS,QUALIFIER]:PINNED_DIRS;
+  const dirs=PINNED_DIRS;
   let count=0,bytes=0;
   for(const dir of dirs){
     const start=join(source,dir);
@@ -59,6 +57,21 @@ function copySources(source,target,includeQualifications){
       }
     };
     scan(start);
+  }
+  if(includeQualifications){
+    // Only the TWO D1 owner qualification entrypoints are needed. The
+    // historical private repository contains unrelated large fixtures,
+    // packaged data and old reports, none of which belong in a Control
+    // installation or a public Actions runner.
+    for(const rel of QUALIFIER_FILES){
+      const file=requireRegular(source,rel);
+      const size=statSync(file).size;
+      if(size>20971520||++count>3500||(bytes+=size)>104857600)
+        fail("SOURCE_BOUND_EXCEEDED");
+      const dest=join(target,rel);
+      mkdirSync(dirname(dest),{recursive:true});
+      cpSync(file,dest,{dereference:false,force:false,errorOnExist:true});
+    }
   }
   if(count<3)fail("SOURCE_INCOMPLETE");
   return count;
