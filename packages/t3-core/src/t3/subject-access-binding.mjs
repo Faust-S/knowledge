@@ -173,20 +173,38 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
       }
       if (method === "importCommit") {
         const plan = command?.plan;
-        if (!plan || typeof plan !== "object" ||
-            !["full","selective","merge"].includes(plan.mode) ||
+        // A normal .iwxa delivery does NOT require the sender and receiver
+        // to have the same workspace ID. The original Kernel maps the ONE
+        // archive-source ID to the signed recipient's selected workspace.
+        // This is not a grant to read the sender's original Workspace.
+        const source = boundImport.sourceWorkspaceId;
+        const foreign = source !== workspace_id;
+        const map = plan?.workspace_id_map;
+        if (!plan || typeof plan !== "object" || Array.isArray(plan) ||
+            !["full","selective","merge","new-workspace"].includes(plan.mode) ||
+            (boundImport.allowedModes &&
+              !boundImport.allowedModes.includes(plan.mode)) ||
             (plan.target_workspace != null && plan.target_workspace !== workspace_id) ||
             (plan.include_workspaces != null &&
               (!Array.isArray(plan.include_workspaces) ||
-                plan.include_workspaces.some(id => id !== workspace_id))) ||
-            (plan.workspace_id_map != null &&
-              (typeof plan.workspace_id_map !== "object" ||
-                Object.entries(plan.workspace_id_map).some(([from,to]) =>
-                  from !== workspace_id || to !== workspace_id))) ||
+                plan.include_workspaces.length !== 1 ||
+                plan.include_workspaces[0] !== source)) ||
+            (map != null &&
+              (typeof map !== "object" || Array.isArray(map) ||
+                Object.keys(map).length !== 1 ||
+                map[source] !== workspace_id)) ||
             (plan.include_objects != null &&
               (!Array.isArray(plan.include_objects) ||
                 plan.include_objects.some(key =>
-                  typeof key !== "string" || !key.startsWith(workspace_id + "/"))))) {
+                  typeof key !== "string" || !key.startsWith(source + "/")))) ||
+            // A foreign-source import can ONLY merge explicitly into the
+            // selected recipient. Unscoped 'full'/'selective' or a map that
+            // creates a new local Workspace would escape the signed scope.
+            (foreign && (plan.mode !== "merge" ||
+              plan.target_workspace !== workspace_id ||
+              !Array.isArray(plan.include_workspaces) ||
+              plan.include_workspaces.length !== 1 ||
+              map != null))) {
           refused("T3_SUBJECT_IMPORT_PLAN_OUT_OF_SCOPE");
         }
       }
@@ -315,14 +333,21 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
     if (method === "importPreview") {
       const imported = result?.preview;
       const ids = imported?.manifest?.workspaces;
-      if (!Array.isArray(ids) || ids.length!==1 || ids[0]!==workspace_id ||
+      const source = Array.isArray(ids) && ids.length === 1 ? ids[0] : null;
+      // The archive's SOURCE Workspace is not the recipient's selected
+      // Workspace. Inspect exactly one source; the original T2 parser and
+      // Kernel remain responsible for package syntax and permissions.
+      if (!id(source) ||
           !Array.isArray(imported?.workspaces) ||
           imported.workspaces.length!==1 ||
-          imported.workspaces[0]?.workspace_id!==workspace_id ||
+          imported.workspaces[0]?.workspace_id!==source ||
           !Array.isArray(imported?.objects) ||
-          imported.objects.some(x => x.workspace_id!==workspace_id) ||
+          imported.objects.some(x => x.workspace_id!==source) ||
           !Array.isArray(imported?.conflicts) ||
-          imported.conflicts.some(x => x.workspace_id!==workspace_id) ||
+          imported.conflicts.some(x => x.workspace_id!==source) ||
+          (source !== workspace_id &&
+            (!Array.isArray(result?.allowed_modes) ||
+              !result.allowed_modes.includes("merge"))) ||
           !id(result?.preview_token) ||
           !HEX.test(result?.package_digest??"") ||
           imported?.package_digest !== result.package_digest ||
@@ -332,15 +357,21 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
       }
     }
     if (method === "importCommit") {
+      const source = boundImport.sourceWorkspaceId;
+      // Check the ORIGINAL Kernel's actual destination mapping after apply.
+      // The source label can be foreign; the destination NEVER can.
       if (result?.package_digest!==command.package_digest ||
           result?.mode!==command.plan.mode ||
           !result?.workspace_id_map ||
           typeof result.workspace_id_map!=="object" ||
-          Object.entries(result.workspace_id_map).some(([from,to])=>
-            from!==workspace_id || to!==workspace_id) ||
+          Array.isArray(result.workspace_id_map) ||
+          Object.keys(result.workspace_id_map).length!==1 ||
+          result.workspace_id_map[source]!==workspace_id ||
           !Array.isArray(result?.skipped_conflicts) ||
           result.skipped_conflicts.some(key =>
-            typeof key!=="string" || !key.startsWith(workspace_id + "/"))) {
+            typeof key!=="string" ||
+            !(key.startsWith(source + "/") ||
+              key.startsWith(workspace_id + "/")))) {
         refused("T3_KERNEL_IMPORT_RECEIPT_SCOPE_MISMATCH");
       }
     }
@@ -396,6 +427,9 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
     if (method === "importPreview") {
       pendingImport = Object.freeze({
         workspace_id,contextIdentity:identity(context),
+        sourceWorkspaceId:result.preview.manifest.workspaces[0],
+        allowedModes:Array.isArray(result.allowed_modes)
+          ?Object.freeze([...result.allowed_modes]):null,
         preview_token:result.preview_token,
         package_digest:result.package_digest,
         expiresAt:Date.parse(result.expires_at),
