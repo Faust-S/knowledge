@@ -46,15 +46,24 @@ function errorCode(error){
     ?code:"T3_D1_CONTROL_OPERATION_DENIED";
 }
 export function createOriginalControlHttpHandler({
-  origin,token,ownerFor,currentEpoch,subscribeInvalidation,
+  origin,token,readToken=null,ownerFor,currentEpoch,subscribeInvalidation,
 }={}){
   requireThat(typeof origin==="string"&&LOCAL.test(origin)&&
     new URL(origin).origin===origin,"T3_D1_CONTROL_ORIGIN_REQUIRED");
   requireThat(typeof token==="string"&&TOKEN.test(token)&&
+    (readToken===null||typeof readToken==="function")&&
     typeof ownerFor==="function"&&typeof currentEpoch==="function"&&
     typeof subscribeInvalidation==="function",
     "T3_D1_CONTROL_TRUSTED_HOST_REQUIRED");
-  const credential=Buffer.from("Bearer "+token);
+  // The original installed Host may rotate its ephemeral bearer whenever
+  // its existing signed subject session changes. This is a transient
+  // transport credential only, NEVER a grant, issuer or AccessRegistry.
+  const credential=()=>{
+    const active=readToken===null?token:readToken();
+    requireThat(typeof active==="string"&&TOKEN.test(active),
+      "T3_D1_CONTROL_SESSION_UNAVAILABLE");
+    return Buffer.from("Bearer "+active);
+  };
   const expectedHost=new URL(origin).host;
   const epochNow=async()=>{
     const value=await currentEpoch();
@@ -65,8 +74,9 @@ export function createOriginalControlHttpHandler({
   const identity=value=>canonical(value);
   const authenticated=req=>{
     const submitted=Buffer.from(req.headers.authorization??"");
-    return submitted.length===credential.length&&
-      timingSafeEqual(submitted,credential);
+    const expected=credential();
+    return submitted.length===expected.length&&
+      timingSafeEqual(submitted,expected);
   };
   return async function handleOriginalControl(req,res){
     let route;
@@ -82,7 +92,11 @@ export function createOriginalControlHttpHandler({
       }
       if(route==="/api/t3/context-epoch"){
         requireThat(req.method==="GET","T3_D1_CONTROL_METHOD_DENIED");
-        reply(res,200,{contextEpoch:await epochNow()});
+        const contextEpoch=await epochNow();
+        // Even a GET that started with the previous bearer cannot return
+        // the new subject's epoch if the Host rotated during its await.
+        requireThat(authenticated(req),"T3_D1_CONTROL_SESSION_ROTATED");
+        reply(res,200,{contextEpoch});
         return true;
       }
       if(route==="/api/t3/owner-events"){
@@ -90,6 +104,7 @@ export function createOriginalControlHttpHandler({
           req.headers.accept?.includes("text/event-stream"),
           "T3_D1_CONTROL_STREAM_REQUIRED");
         const epoch=await epochNow();
+        requireThat(authenticated(req),"T3_D1_CONTROL_SESSION_ROTATED");
         const subscription=subscribeInvalidation(()=>{
           if(!res.destroyed)res.write("event: invalidated\ndata: {}\n\n");
         });
@@ -103,7 +118,7 @@ export function createOriginalControlHttpHandler({
         res.once("close",close);
         // If the original Host changed context between attachment and
         // readiness, revoke immediately. POSTs also check current epoch.
-        if(await epochNow()!==epoch)
+        if(await epochNow()!==epoch||!authenticated(req))
           res.write("event: invalidated\ndata: {}\n\n");
         else res.write("event: ready\ndata: {}\n\n");
         return true;
@@ -115,6 +130,7 @@ export function createOriginalControlHttpHandler({
         "T3_D1_CONTROL_POST_ORIGIN_DENIED");
       const requestEpoch=req.headers["x-iwxa-context-epoch"];
       const before=await epochNow();
+      requireThat(authenticated(req),"T3_D1_CONTROL_SESSION_ROTATED");
       requireThat(typeof requestEpoch==="string"&&
         requestEpoch===String(before),"STALE_CONTEXT_OPERATION");
       const input=await bodyFrom(req);
@@ -127,7 +143,8 @@ export function createOriginalControlHttpHandler({
         if(owner!==null&&owner!==undefined)
           requireThat(OWNER_FIELDS.every(f=>typeof owner[f]==="function"),
             "T3_D1_CONTROL_OWNER_INVALID");
-        requireThat(before===await epochNow(),"STALE_CONTEXT_OPERATION");
+        requireThat(before===await epochNow()&&authenticated(req),
+          "STALE_CONTEXT_OPERATION");
         reply(res,200,{available:!!owner,contextEpoch:before});
         return true;
       }
@@ -166,8 +183,9 @@ export function createOriginalControlHttpHandler({
           "T3_D1_CONTROL_ORIGINAL_BINDING_DENIED");
         result={decision};
       }
-      requireThat(before===await epochNow()&&
-        identity(await owner.currentContext())===selectedIdentity,
+      requireThat(before===await epochNow()&&authenticated(req)&&
+        identity(await owner.currentContext())===selectedIdentity&&
+        authenticated(req),
         "STALE_CONTEXT_OPERATION");
       reply(res,200,result);
       return true;
