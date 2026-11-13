@@ -282,3 +282,76 @@ test("plural reference mapping never silently hides unknown, deleted or invalid 
   source.bindings.objects[1].links[0].many="yes";
   assert.throws(()=>projectActivitySnapshot(source),{code:"INVALID_LINK_BINDING"});
 });
+
+test("qualified Event E2O keeps source revisions, order independence and private payload", () => {
+  const source=options();
+  source.objects.push(obj("requirement:2","d06.requirement",{ secret:"never show" },3));
+  source.events[0].payload={ affected:[
+    {object_id:"requirement:2",revision:2},
+    {object_id:"requirement:1",revision:1},
+  ],customer:"PRIVATE_CUSTOMER" };
+  source.bindings={objects:bindings.objects,events:[{
+    ...bindings.events[0],
+    object_links:[{field:"affected",qualifier:"affected",many:true}],
+  }]};
+  const original=structuredClone(source);
+  const result=projectActivitySnapshot(source);
+  assert.deepEqual(result.events[0].object_ref,{object_id:"order:42",revision:2});
+  assert.deepEqual(result.events[0].object_refs,[
+    {object_id:"order:42",revision:2,qualifier:"primary"},
+    {object_id:"requirement:1",revision:1,qualifier:"affected"},
+    {object_id:"requirement:2",revision:2,qualifier:"affected"},
+  ]);
+  assert.deepEqual(source,original);
+  assert.equal(JSON.stringify(result).includes("PRIVATE_CUSTOMER"),false);
+  assert.equal(JSON.stringify(result).includes("never show"),false);
+  const reversed=structuredClone(source);
+  reversed.events[0].payload.affected.reverse();
+  reversed.objects.reverse();
+  assert.deepEqual(projectActivitySnapshot(reversed),result);
+});
+test("qualified Event E2O cannot silently invent missing, deleted, stale or invalid references",()=>{
+  const source=options();
+  source.objects.push({...obj("requirement:deleted","d06.requirement"),deleted:true});
+  source.events[0].payload={affected:[
+    {object_id:"requirement:1",revision:9},
+    {object_id:"missing:object",revision:1},
+    {object_id:"requirement:deleted",revision:1},
+    {object_id:"requirement:1"},
+    "requirement:1",
+  ]};
+  source.bindings={objects:bindings.objects,events:[{
+    ...bindings.events[0],
+    object_links:[{field:"affected",qualifier:"affected",many:true}],
+  }]};
+  const result=projectActivitySnapshot(source);
+  assert.deepEqual(result.events[0].object_refs,[
+    {object_id:"order:42",revision:2,qualifier:"primary"},
+  ]);
+  assert.deepEqual(result.unresolved.map(x=>x.reason).sort(),[
+    "deleted_ref","invalid_ref","invalid_ref","unknown_ref","unverified_ref",
+  ]);
+  source.events[0].payload.affected=[
+    {object_id:"requirement:1",revision:1},
+    {object_id:"requirement:1",revision:1},
+  ];
+  assert.throws(()=>projectActivitySnapshot(source),{code:"DUPLICATE_EVENT_OBJECT_REF"});
+  source.events[0].payload.affected=[{object_id:"order:42",revision:2}];
+  assert.throws(()=>projectActivitySnapshot(source),{code:"DUPLICATE_EVENT_OBJECT_REF"});
+  source.events[0].payload.affected="requirement:1";
+  assert.deepEqual(projectActivitySnapshot(source).unresolved.map(x=>x.reason),["invalid_ref"]);
+  source.bindings.events[0].object_links[0].many="many";
+  assert.throws(()=>projectActivitySnapshot(source),{code:"INVALID_EVENT_OBJECT_BINDING"});
+});
+test("legacy Event bindings never expose arbitrary Event payload as E2O",()=>{
+  const source=options();
+  source.events[0].payload.affected=[{object_id:"requirement:1",revision:1}];
+  assert.equal(Object.hasOwn(projectActivitySnapshot(source).events[0],"object_refs"),false);
+  source.bindings={objects:bindings.objects,events:[{
+    ...bindings.events[0],object_links:[
+      {field:"affected",qualifier:"supplier",many:true},
+      {field:"affected",qualifier:"consumer",many:true},
+    ],
+  }]};
+  assert.throws(()=>projectActivitySnapshot(source),{code:"DUPLICATE_EVENT_OBJECT_REF"});
+});

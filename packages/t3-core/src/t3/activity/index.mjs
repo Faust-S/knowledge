@@ -88,7 +88,22 @@ function makeBindings(bindings) {
       fail("INVALID_EVENT_BINDING");
     }
     if (eventTypes.has(eventType)) fail("DUPLICATE_EVENT_BINDING");
-    eventTypes.set(eventType, entry.semantic_kind);
+    // Interpret Event payload references only through exact, declared bindings.
+    const objectLinks = entry.object_links ?? [];
+    if (!Array.isArray(objectLinks)) fail("INVALID_EVENT_OBJECT_BINDING");
+    const used = new Set();
+    for (const link of objectLinks) {
+      if (!object(link) ||
+          !/^[A-Za-z][A-Za-z0-9_]*$/.test(link.field ?? "") ||
+          !/^[a-z][a-z0-9_.-]*$/.test(link.qualifier ?? "") ||
+          (link.many !== undefined && typeof link.many !== "boolean")) {
+        fail("INVALID_EVENT_OBJECT_BINDING");
+      }
+      const key = JSON.stringify([link.field, link.qualifier]);
+      if (used.has(key)) fail("DUPLICATE_EVENT_OBJECT_BINDING");
+      used.add(key);
+    }
+    eventTypes.set(eventType, { semantic_kind: entry.semantic_kind, object_links: objectLinks });
   }
   return { schemas, eventTypes, relationKinds };
 }
@@ -227,8 +242,8 @@ export function projectActivitySnapshot({
   for (const row of localEvents) {
     const eventId = nonempty(row.event_id, "INVALID_SOURCE_ID");
     const eventType = nonempty(row.event_type, "INVALID_EVENT_TYPE");
-    const kind = eventTypes.get(eventType);
-    if (!kind) {
+    const binding = eventTypes.get(eventType);
+    if (!binding) {
       unmappedEvents.push(eventId);
       continue;
     }
@@ -249,14 +264,67 @@ export function projectActivitySnapshot({
       }
     }
 
+    // Old bindings keep the exact legacy object_ref shape. A configured
+    // event type may additionally expose source-qualified E2O references.
+    const objectRefs = binding.object_links.length ? [] : null;
+    if (objectRefs && objectRef) {
+      objectRefs.push({ ...objectRef, qualifier: "primary" });
+    }
+    if (objectRefs) {
+      const seen = new Set(objectRefs.map((ref) => ref.object_id));
+      for (const link of binding.object_links) {
+        if (!object(row.payload) || !Object.hasOwn(row.payload, link.field)) continue;
+        const raw = row.payload[link.field];
+        const candidates = link.many === true
+          ? Array.isArray(raw) ? raw : [null] : [raw];
+        for (const candidate of candidates) {
+          if (!object(candidate) || typeof candidate.object_id !== "string" ||
+              !candidate.object_id.trim() ||
+              !Number.isSafeInteger(candidate.revision) || candidate.revision < 1) {
+            unresolved.push({
+              source_id: eventId, relation: "event_object:" + link.qualifier,
+              reason: "invalid_ref",
+            });
+            continue;
+          }
+          // A single event/object relationship has one qualified meaning in
+          // this profile. Never silently select among conflicting qualifiers.
+          if (seen.has(candidate.object_id)) fail("DUPLICATE_EVENT_OBJECT_REF");
+          seen.add(candidate.object_id);
+          const target = known.get(candidate.object_id);
+          if (!target) {
+            unresolved.push({
+              source_id: eventId, relation: "event_object:" + link.qualifier,
+              reason: deletedObjects.has(candidate.object_id) ? "deleted_ref" : "unknown_ref",
+            });
+            continue;
+          }
+          if (candidate.revision > target.row.revision) {
+            unresolved.push({
+              source_id: eventId, relation: "event_object:" + link.qualifier,
+              reason: "unverified_ref",
+            });
+            continue;
+          }
+          objectRefs.push({
+            object_id: candidate.object_id,
+            revision: candidate.revision,
+            qualifier: link.qualifier,
+          });
+        }
+      }
+      objectRefs.sort((a, b) => byId(a.object_id, b.object_id) ||
+        byId(a.qualifier, b.qualifier) || a.revision - b.revision);
+    }
     projectedEvents.push({
       event_id: eventId,
       event_type: eventType,
-      semantic_kind: kind,
+      semantic_kind: binding.semantic_kind,
       occurred_at: occurredAt,
       ...(row.causation_id ? { causation_id: row.causation_id } : {}),
       ...(row.correlation_id ? { correlation_id: row.correlation_id } : {}),
       object_ref: objectRef,
+      ...(objectRefs ? { object_refs: objectRefs } : {}),
     });
   }
 
@@ -267,7 +335,8 @@ export function projectActivitySnapshot({
   ));
   projectedEvents.sort((a, b) => byId(a.event_id, b.event_id));
   unresolved.sort((a, b) => byId(
-    a.source_id + "|" + a.relation, b.source_id + "|" + b.relation,
+    a.source_id + "|" + a.relation + "|" + a.reason,
+    b.source_id + "|" + b.relation + "|" + b.reason,
   ));
   unmappedObjects.sort(byId);
   unmappedEvents.sort(byId);

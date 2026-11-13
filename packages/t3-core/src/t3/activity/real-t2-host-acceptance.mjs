@@ -11,7 +11,8 @@ export const LIVE_T2_BINDINGS = Object.freeze({
   }],
   events: [
     { event_type: "t3.activity.created", semantic_kind: "Event" },
-    { event_type: "t3.activity.updated", semantic_kind: "Event" },
+    { event_type: "t3.activity.updated", semantic_kind: "Event",
+      object_links: [{ field: "affected", qualifier: "related_requirement", many: true }] },
     { event_type: "t3.activity.linked", semantic_kind: "Event" },
   ],
   relations: [{ kind: "depends_on", relation: "depends_on" }],
@@ -68,7 +69,8 @@ export async function createRealT2ActivityFixture(page, {
       base_revision: a.object.revision,
       data: { title: "Synthetic A updated", dependency_ids: ["activity:b"] },
       extensions: {},
-      event: { event_type: "t3.activity.updated", payload: {} },
+      event: { event_type: "t3.activity.updated",
+        payload: { affected: [{ object_id: b.object.object_id, revision: b.object.revision }] } },
     });
     const link = await session.t1.putRelation({
       workspace_id, relation_id: "relation:a-to-b",
@@ -158,6 +160,11 @@ export async function proveRealT2ReadOnlyProjection(page, {
   assert.equal(probe.view.nodes.find(x => x.object_id === "activity:a")?.revision,
     receipts.revisions.a_current);
   assert.equal(probe.view.events.length, receipts.event_ids.length);
+  const updatedEvent=probe.view.events.find(x=>x.event_type==="t3.activity.updated");
+  assert.deepEqual(updatedEvent?.object_refs,[
+    {object_id:"activity:a",revision:receipts.revisions.a_current,qualifier:"primary"},
+    {object_id:"activity:b",revision:receipts.revisions.b_current,qualifier:"related_requirement"},
+  ],"ORIGINAL_KERNEL_D2_QUALIFIED_E2O_NOT_PRESERVED");
   assert.equal(probe.view.relations.length, 2);
   assert.deepEqual(probe.view.relations.find(x=>x.relation==="declared_dependency"),{
     source_id:"activity:a",target_id:"activity:b",
