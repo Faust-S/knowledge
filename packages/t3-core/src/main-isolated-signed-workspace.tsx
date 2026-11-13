@@ -73,7 +73,28 @@ async function launch(){
       subscribeSignedAccessInvalidation:listener=>
         client.subscribeInvalidation(listener),
     });
+    // The original Control's signed revocation channel is the authority
+    // boundary. The existing WorkspaceHostRuntimeProvider also invalidates
+    // its ModuleContext, but it may still be waiting on an async React
+    // transition. Detach the ENTIRE mounted UI here as soon as the original
+    // trusted port closes. No previous view remains interactive or visible.
+    let disconnected=false;
+    let stopEntrySubscription:()=>void=()=>{};
+    stopEntrySubscription=client.subscribeInvalidation(()=>{
+      if(disconnected)return;
+      disconnected=true;
+      stopEntrySubscription();
+      root.unmount();
+      frame?.remove();
+      target!.replaceChildren();
+      target!.setAttribute("data-testid","t3-signed-control-reconnect");
+      target!.setAttribute("role","alert");
+      target!.textContent="Подписанный доступ Control отозван или соединение потеряно. "+
+        "Откройте Workspace повторно из доверенного локального Control.";
+    });
     window.addEventListener("pagehide",()=>{
+      disconnected=true;
+      stopEntrySubscription();
       root.unmount();client.close();frame?.remove();
     },{once:true});
   }catch{
