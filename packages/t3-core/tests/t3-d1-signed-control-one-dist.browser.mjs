@@ -638,6 +638,84 @@ try{
   assert.equal(await bliPanel.getByRole('button',
     {name:'Скачать и запустить'}).isDisabled(),true,
     'D1+D5 model download must require separate consent');
+  // The same public synthetic Control (NOT a private Ed25519 owner)
+  // supplies an actual scoped KernelFacade to the compiled BLI panel.
+  // A fixture draft is inserted ONLY as a previously saved object; all
+  // subsequent user actions, copy-as-new save and readbacks run through
+  // the mounted signed AppShell and the ORIGINAL inherited Kernel.
+  const seededDraftId='local-inference:'+randomUUID();
+  const seededText='Previously saved BLI draft for user continuation';
+  const seed=await browser.page.evaluate(async({serviceId,workspaceId,id,text})=>{
+    const original=await globalThis.IWXA.connect({service_id:serviceId});
+    return original.t1.putObject({
+      workspace_id:workspaceId,object_id:id,
+      schema_id:'iwxa.local-inference.draft',schema_version:'1.0.0',
+      base_revision:0,extensions:{},
+      data:{
+        status:'DRAFT_UNTRUSTED',text,
+        model_id:'SmolLM2-360M-Instruct-q4f32_1-MLC',
+        engine:'@mlc-ai/web-llm@0.2.87',origin:'BROWSER_LOCAL',
+        source:'USER_EXPLICIT_SAVE',model_integrity:'NOT_ATTESTED',
+      },
+      event:{event_type:'t3.local-inference.draft.saved',payload:{
+        status:'DRAFT_UNTRUSTED',model_id:'SmolLM2-360M-Instruct-q4f32_1-MLC',
+      }},
+    });
+  },{serviceId,workspaceId:scopedWorkspace,id:seededDraftId,text:seededText});
+  assert.equal(seed?.object?.object_id,seededDraftId);
+  await bliPanel.getByRole('button',{name:'Найти рабочие области'}).click();
+  await bliPanel.getByLabel('Workspace для локальной модели')
+    .selectOption(scopedWorkspace);
+  await bliPanel.getByRole('button',{name:'Использовать выбранный Workspace'}).click();
+  await isolatedApp.waitForFunction(id=>
+    document.querySelector('[data-testid="t3-local-inference-panel"] strong')
+      ?.textContent?.includes(id),scopedWorkspace,{timeout:30000});
+  await bliPanel.getByTestId('t3-d5-recover-draft-id').fill(seededDraftId);
+  await bliPanel.getByRole('button',
+    {name:'Прочитать черновик из Kernel по ID'}).click();
+  const originalDraftView=bliPanel.getByTestId('t3-d5-saved-draft-readback');
+  await originalDraftView.waitFor({state:'visible',timeout:15000});
+  assert.ok((await originalDraftView.innerText()).includes(seededText));
+  await bliPanel.getByRole('button',
+    {name:'Продолжить редактирование как новый черновик'}).click();
+  const copiedText=seededText+'; continued and approved in the signed Workspace';
+  await bliPanel.getByTestId('t3-d5-editable-draft').fill(copiedText);
+  const copySave=bliPanel.getByRole('button',
+    {name:'Сохранить черновик через Kernel'});
+  assert.equal(await copySave.isEnabled(),true);
+  await copySave.click();
+  await isolatedApp.waitForFunction(()=>
+    [...document.querySelectorAll(
+      '[data-testid="t3-local-inference-panel"] p[role="status"]')]
+      .some(p=>p.textContent?.includes('Kernel подтвердил запись и чтение')),
+    null,{timeout:30000});
+  await originalDraftView.waitFor({state:'visible',timeout:15000});
+  assert.ok((await originalDraftView.innerText()).includes(copiedText),
+    'T3_D1_D5_SIGNED_BLI_NEW_DRAFT_NOT_REOPENED');
+  const copiedStatus=await bliPanel.innerText();
+  const copiedIds=[...copiedStatus.matchAll(/local-inference:[0-9a-f-]{36}/gi)]
+    .map(row=>row[0]).filter(id=>id!==seededDraftId);
+  assert.ok(copiedIds.length>0,'T3_D1_D5_SIGNED_BLI_NEW_RECEIPT_REQUIRED');
+  const copiedDraftId=copiedIds[0];
+  const copied=await browser.page.evaluate(async({serviceId,workspaceId,id})=>{
+    const original=await globalThis.IWXA.connect({service_id:serviceId});
+    return original.t1.getObject(workspaceId,id);
+  },{serviceId,workspaceId:scopedWorkspace,id:copiedDraftId});
+  assert.equal(copied?.object?.data?.text,copiedText);
+  assert.equal(copied?.object?.schema_id,'iwxa.local-inference.draft');
+  assert.equal(copied?.object?.revision,1);
+  const originalUnchanged=await browser.page.evaluate(async({serviceId,workspaceId,id})=>{
+    const original=await globalThis.IWXA.connect({service_id:serviceId});
+    return original.t1.getObject(workspaceId,id);
+  },{serviceId,workspaceId:scopedWorkspace,id:seededDraftId});
+  assert.equal(originalUnchanged?.object?.data?.text,seededText);
+  assert.deepEqual(isolatedAppErrors,[]);
+  console.log('T3_D1_D5_SIGNED_BLI_COPY_SAVE_ORIGINAL_KERNEL_PASS',JSON.stringify({
+    signedUiUserAction:true,originalKernel:'0.3.6',
+    signedPortSave:true,independentOriginalKernelReadback:true,
+    sourceDraftUnchanged:true,secondObjectDistinct:true,
+    syntheticOwnerOnly:true,privateIssuerExecuted:false,
+  }));
   assert.deepEqual(isolatedAppErrors,[]);
   console.log('T3_D1_D5_SIGNED_ISOLATED_BLI_PANEL_PASS',JSON.stringify({
     compiledSignedAppShell:true,originalKernel:'0.3.6',
