@@ -8,7 +8,7 @@ import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,symlinkSync}
   from "node:fs";
 import {tmpdir} from "node:os";
 import {join,dirname} from "node:path";
-import {createT3InstalledOriginalControlHost}
+import {createT3InstalledOriginalControlHost,createT3InstalledSubjectSession}
   from "../src/t3/installed-original-control-host.mjs";
 
 const host="127.0.0.1";
@@ -153,4 +153,54 @@ test("installed Host fails closed without original Control and pinned T2 runtime
     }),/DIST_MISSING_ASSET/);
     // Path lookup may never follow a symlink to a credential in another root.
   }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test("native original Host requires explicitly confirmed PERSONAL choice before issuing signed URL",async()=>{
+  const root=mkdtempSync(join(tmpdir(),"iwxa-t3-native-choice-"));
+  const {kernel,ui}=await ports(),origin="http://127.0.0.1:"+kernel;
+  const session=createT3InstalledSubjectSession({
+    readCandidates:async()=>[{
+      selectionId:"personal",label:"Личный контур",
+      context:{
+        kind:"PERSONAL",context_id:"context:personal",
+        actor_id:"person:local",principal_id:"person:local",
+        role_id:"role:member",grant_id:"grant:personal",
+        realm_id:"realm:iwxa",audience:"host:t3",
+        workspace_id:"ws:personal",resource:"ws:personal",
+        organization_id:null,purpose:"purpose:work",
+      },
+    }],
+    // This test checks the original Host handoff boundary, not issuer truth.
+    validateSelection:async()=>true,
+  });
+  let native;
+  try{
+    dist(root,origin);
+    native=createT3InstalledOriginalControlHost({
+      distRoot:root,kernelOrigin:origin,uiPort:ui,token,
+      subjectSession:session,
+      ownerFor:()=>null,
+      currentEpoch:session.currentEpoch,
+      subscribeInvalidation:session.subscribeInvalidation,
+    });
+    const ready=await native.listen();
+    assert.throws(()=>native.signedWorkspaceLaunchUrl(),
+      {code:"T3_D1_INSTALLED_HOST_SUBJECT_SESSION_NOT_SELECTED"});
+    await session.selectContext({
+      selectionId:"personal",userConfirmed:true,
+    });
+    assert.equal(native.signedWorkspaceLaunchUrl(),
+      ready.uiOrigin+"/workspace/#"+token);
+    session.invalidateSignedState();
+    assert.throws(()=>native.signedWorkspaceLaunchUrl(),
+      {code:"T3_D1_INSTALLED_HOST_SUBJECT_SESSION_NOT_SELECTED"});
+    assert.equal((await fetch(origin+"/api/t3/context-epoch",{
+      headers:{Authorization:"Bearer "+token},
+    }).then(r=>r.json())).contextEpoch,3);
+    console.log("T3_D1_NATIVE_CONTEXT_MENU_HOST_REQUIRES_EXPLICIT_SELECTION_PASS");
+  }finally{
+    await native?.close();
+    session.close();
+    rmSync(root,{recursive:true,force:true});
+  }
 });
