@@ -127,10 +127,19 @@ export function createT3InstalledOriginalControlHost({
   // Only the existing Control transport sees it; the old browser's bearer
   // is invalid after the SAME original Host signed epoch/SSE invalidation.
   let currentBearer=token;
+  // When the original native subject session is present, it MUST own all
+  // three Control transport boundaries together: epoch, invalidation and
+  // bearer rotation. Do not let a separately supplied callback accidentally
+  // report a different subject/epoch while the native UI has switched.
+  const boundEpoch=subjectSession===null?currentEpoch:
+    subjectSession.currentEpoch;
+  const boundInvalidation=subjectSession===null?subscribeInvalidation:
+    subjectSession.subscribeInvalidation;
   const handler=createOriginalControlHttpHandler({
     origin:kernelOrigin,token,
     readToken:subjectSession===null?null:()=>currentBearer,
-    ownerFor,currentEpoch,subscribeInvalidation,
+    ownerFor,currentEpoch:boundEpoch,
+    subscribeInvalidation:boundInvalidation,
   });
   const stopBearerRotation=subjectSession===null?null:
     subjectSession.subscribeInvalidation(()=>{
