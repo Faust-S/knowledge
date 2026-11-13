@@ -62,6 +62,10 @@ export function createSignedAccessHostPort({
   requireThat(hasPersonal || hasCorporate, "T3_OWNER_ACCESS_REQUIRED");
   if (personal != null) requireThat(hasPersonal,"T3_OWNER_PERSONAL_ACCESS_INVALID");
   if (corporate != null) requireThat(hasCorporate,"T3_OWNER_CORPORATE_GATE_INVALID");
+  if (corporate?.confirm !== undefined) {
+    requireThat(typeof corporate.confirm === "function",
+      "T3_OWNER_CORPORATE_CONFIRM_INVALID");
+  }
   // Corporate product IDs are validated by the existing signed enrollment gate.
   // A T3-only invented product ID would make a false claim of compatibility.
   const productId = hasCorporate ? corporate.productId : null;
@@ -141,9 +145,23 @@ export function createSignedAccessHostPort({
       // Re-evaluates the authoritative registry state, signed enrollment,
       // credential, grant ancestry, signed status and exact proof binding.
       // The proof is never generated, weakened or substituted here.
+      // A consequential operation can require a separate ORIGINAL T3
+      // CONFIRMATION by an authorized HUMAN principal. Only the trusted
+      // product Host's existing Human Review/approval signer may supply it.
+      // An agent proof or unverified UI flag is NEVER treated as approval.
+      const confirmations = typeof corporate.confirm === "function"
+        ? await corporate.confirm({
+            request:structuredClone(preview.request),challenge,
+            context:structuredClone(context),asOf:at,
+            operation:structuredClone(operation)
+          })
+        : [];
+      requireThat(Array.isArray(confirmations) && confirmations.length <= 8 &&
+        confirmations.every(item => item && typeof item === "object" &&
+          !Array.isArray(item)), "T3_OWNER_CORPORATE_CONFIRM_INVALID");
       const atJit = nowFrom(clock);
       decision = await corporate.gate.authorize({...input, asOf:atJit},
-        {now:atJit,challenge,proof,timeAssurance:"LOCAL_BEST_EFFORT"});
+        {now:atJit,challenge,proof,confirmations,timeAssurance:"LOCAL_BEST_EFFORT"});
       // The original Access gate intentionally returns a short DENIED or
       // UNRESOLVED decision without success-only binding fields. Treat it as
       // denied, not as a malformed successful decision. No Kernel call follows.
