@@ -40,6 +40,7 @@ function createSigner(name,subject,uses,now){
 export function createTemporaryOriginalPersonalAuthority({
   workspaceId,now=Date.now(),readSignedState=null,clock=()=>now,
   operations=["t1.putObject"],agentActorId=null,
+  purpose="purpose:work",operationActions=null,
 }={}){
   if(typeof workspaceId!=="string"||workspaceId.length<6||
      !Number.isSafeInteger(now)||typeof clock!=="function"||
@@ -47,11 +48,22 @@ export function createTemporaryOriginalPersonalAuthority({
      !Array.isArray(operations)||operations.length===0||
      operations.some(op=>!Object.hasOwn(PERSONAL_ACTIONS,op))||
      new Set(operations).size!==operations.length||
+     !["purpose:work","activity.analysis","activity.derivation"].includes(purpose)||
+     !(operationActions===null||(
+       operationActions&&typeof operationActions==="object"&&
+       !Array.isArray(operationActions)&&
+       Object.keys(operationActions).every(op=>
+         operations.includes(op)&&
+         ["activity.read","activity.derive"].includes(operationActions[op]))))||
      !(agentActorId===null||(typeof agentActorId==="string"&&
        /^agent:[A-Za-z0-9._:/@-]{1,153}$/.test(agentActorId))))
     throw Error("D1_REAL_PERSONAL_TEST_INPUT_REQUIRED");
   const permitted=new Set(operations);
-  const actions=[...new Set(operations.map(op=>PERSONAL_ACTIONS[op]))];
+  // CI may exercise genuine signed Activity read/derive with different
+  // purposes. Only ORIGINAL signed Access policy/proofs decide authority;
+  // this parameter changes test GRANT data, not production IAM defaults.
+  const actionFor=op=>operationActions?.[op]??PERSONAL_ACTIONS[op];
+  const actions=[...new Set(operations.map(actionFor))];
   const catalog=Object.fromEntries(actions.map(action=>[action,"ACTION"]));
   const issuer=createSigner("issuer","issuer:local",["GRANT"],now);
   const status=createSigner("status","issuer:local",["STATUS"],now);
@@ -84,7 +96,7 @@ export function createTemporaryOriginalPersonalAuthority({
     principal_id:"person:local",role_id:"role:member",
     grant_id:agentActorId?"grant:delegated-agent":"grant:personal",
     realm_id:"realm:personal",audience:"host:t3",
-    resource:workspaceId,purpose:"purpose:work",workspace_id:workspaceId,
+    resource:workspaceId,purpose,workspace_id:workspaceId,
     organization_id:null,scope_revision:1,
   });
   const policy={
@@ -100,7 +112,7 @@ export function createTemporaryOriginalPersonalAuthority({
       principalId:"person:local",issuerKeys:["key:issuer"],
       statusKeys:["key:status"],audiences:["host:t3"],
       resources:[workspaceId],actions,
-      purposes:["purpose:work"],roles:["role:member"],
+      purposes:[purpose],roles:["role:member"],
       rightClasses:["ACTION"],membershipEpoch:1,
       maxTtlSeconds:3600,maxDelegationDepth:agentActorId?1:0,
     }},
@@ -113,7 +125,7 @@ export function createTemporaryOriginalPersonalAuthority({
     principalId:"person:local",holderId:"person:local",
     roleId:"role:member",rightClass:"ACTION",
     realmId:"realm:personal",environment:"TEST",audience:"host:t3",
-    resources:[workspaceId],actions,purposes:["purpose:work"],
+    resources:[workspaceId],actions,purposes:[purpose],
     issuedAt:iso(now-30000),notBefore:iso(now-20000),
     expiresAt:iso(now+1200000),remainingDepth:agentActorId?1:0,
     membershipEpoch:1,
@@ -148,7 +160,7 @@ export function createTemporaryOriginalPersonalAuthority({
     currentContext:()=>selected,
     actionFor:operation=>{
       if(!permitted.has(operation))throw Error("D1_OPERATION_DENIED");
-      return PERSONAL_ACTIONS[operation];
+      return actionFor(operation);
     },
     operationDigest:({operation,input,context})=>digest({operation,input,context}),
     canonicalDigest:digest,
