@@ -28,3 +28,14 @@ test('Host surface is an ES module and uses existing React, without a second run
   assert.ok(packageJson.scripts['build:host-surface']);
   assert.ok(tsconfig.include.includes('vite.host.config.ts'));
 });
+
+test('optional signed Activity Derive command is not a raw Kernel or export port',()=>{
+  const surface=file('../desktop/src/host-surface.tsx');
+  const app=file('../desktop/src/App.tsx');
+  assert.match(surface,/const stageKeys = \['readSelected', 'stageSelected', 'subscribeInvalidation'\]/);
+  assert.match(surface,/present === keys\.join\(','\) \|\| present === stageKeys\.join\(','\)/);
+  assert.match(app,/t3Host\?\.stageSelected/);
+  assert.match(app,/t3Controller\.current\.stageSelected\(\)/);
+  assert.match(app,/HOLD · ЭКСПОРТ ЗАКРЫТ/);
+  assert.doesNotMatch(surface,/createSubjectKernelBinding|signedDeriveAccess|putObject|exportPackage/);
+});

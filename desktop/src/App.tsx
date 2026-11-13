@@ -198,6 +198,13 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
     await t3Controller.current.readSelected();
   }
 
+  // This is only offered when the trusted owner supplies a distinct
+  // signed derivation port and an empty same-principal target Workspace.
+  async function stageSelectedT3() {
+    if (busy || !t3Controller.current || !t3Host?.stageSelected) return;
+    await t3Controller.current.stageSelected();
+  }
+
   async function onFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -285,12 +292,27 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
           {t3Review?.status === 'HOLD' ? <div className="error-state" role="alert">
             <strong>Чтение T3 остановлено</strong><span>HOLD: {t3Review.code}</span>
             <p>Изменившееся или неподтверждённое разрешение не используется повторно.</p></div> : null}
-          {!preview && !objectEvidence && !t3Review?.review && !problem && t3Review?.status !== 'HOLD' ? <div className="empty-state"><div className="empty-icon">IX</div>
+          {!preview && !objectEvidence && !t3Review?.review && !problem &&
+            !['HOLD','STAGING','STAGED'].includes(t3Review?.status ?? '') ? <div className="empty-state"><div className="empty-icon">IX</div>
             <strong>Выберите базу для анализа</strong><p>Автоматически появятся обнаруженные процессы, этапы и роли. Для начала доступен встроенный синтетический пример.</p></div> : null}
           {t3Review?.status === 'READING' ? <div className="empty-state" role="status">
             <div className="empty-icon">T3</div><strong>Чтение выбранного Workspace</strong>
             <p>Доступ подтверждается T3 при каждом обращении. Источник не изменяется.</p>
           </div> : null}
+          {t3Review?.status === 'STAGING' ? <div className="empty-state" role="status">
+            <div className="empty-icon">T3</div><strong>Запись внутреннего черновика</strong>
+            <p>Исходные данные повторно проверяются. Отдельное право Activity Derive
+              и запись через оригинальный Kernel обязательны.</p>
+          </div> : null}
+          {t3Review?.status === 'STAGED' ? <section className="verification-panel" role="status">
+            <div className="verification-left">
+              <span className="eyebrow">03 · T3 · ВНУТРЕННИЙ РЕЗУЛЬТАТ</span>
+              <h3>Черновик сохранён для проверки владельцем</h3>
+              <p>Оригинальный T3 Kernel подтвердил запись в отдельную Workspace того же субъекта.
+                Источник не перенесён. Права на публикацию и обезличивание не установлены.</p>
+            </div>
+            <div className="verification-right"><span className="hold-chip">HOLD · ЭКСПОРТ ЗАКРЫТ</span></div>
+          </section> : null}
           {t3Review?.status === 'REVIEW' && t3Review.review ? <>
             <section className="verification-panel" aria-label="T3 D1/D2 · структура выбранной базы">
               <div className="verification-left">
@@ -304,6 +326,17 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
                 <span>Анонимность и независимый импорт .iwxa пока не подтверждены.</span>
               </div>
             </section>
+            {t3Host?.stageSelected ? <div className="verification-panel">
+              <div className="verification-left">
+                <h3>Сохранение для внутренней проверки</h3>
+                <p>Нужна отдельная пустая Workspace того же владельца и подписанное
+                  право Activity Derive. Это не публикация и не экспорт.</p>
+              </div>
+              <div className="verification-right">
+                <button type="button" className="button button-secondary" disabled={busy}
+                  onClick={stageSelectedT3}>Сохранить черновик</button>
+              </div>
+            </div> : null}
             {t3Review.review.structural_candidate?.length
               ? <div className="graph-list">{t3Review.review.structural_candidate.map((view, index) =>
                   <T3ViewCard key={view.object_type} view={view} number={index + 1} />)}</div>
