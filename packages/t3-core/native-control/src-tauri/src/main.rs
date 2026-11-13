@@ -12,7 +12,7 @@ use tauri::{Url, WebviewUrl};
 
 const LAUNCH_SCHEMA: &str = "IWXA_T3_NATIVE_CONTEXT_LAUNCH/1";
 const EVENT_SCHEMA: &str = "IWXA_T3_NATIVE_CONTEXT_EVENT/1";
-const MAX_LAUNCH_BYTES: usize = 32 * 1024;
+const MAX_LAUNCH_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -87,6 +87,7 @@ fn parse_native_launch(raw: &str) -> Option<NativeLaunch> {
     let mut ids = HashSet::new();
     for choice in &envelope.choices {
         if choice.selection_id.is_empty()
+            || choice.selection_id.contains("..")
             || choice.selection_id.len() > 160
             || !choice
                 .selection_id
