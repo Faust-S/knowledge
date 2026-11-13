@@ -71,6 +71,30 @@ async function listening(server) {
   });
   return "http://127.0.0.1:"+server.address().port;
 }
+
+async function profileWitness(page,operation) {
+  // Browser storage scope proof, not a substitute for the separate original
+  // Kernel/Store receipt and cold restart qualification.
+  return page.evaluate(op => new Promise((resolve,reject) => {
+    const request=indexedDB.open("iwxa-t3-pwa-profile-witness",1);
+    request.onupgradeneeded=()=>request.result.createObjectStore("drafts");
+    request.onerror=()=>reject(request.error?.message || "OPEN_FAILED");
+    request.onsuccess=()=>{
+      const db=request.result;
+      const tx=db.transaction("drafts",op==="write"?"readwrite":"readonly");
+      const store=tx.objectStore("drafts");
+      if(op==="write")store.put("same-origin-persistent-result","selected");
+      else {
+        const read=store.get("selected");
+        read.onsuccess=()=>resolve(read.result ?? null);
+        read.onerror=()=>reject(read.error?.message || "READ_FAILED");
+      }
+      tx.oncomplete=()=>{db.close();if(op==="write")resolve("saved");};
+      tx.onerror=()=>reject(tx.error?.message || "TRANSACTION_FAILED");
+    };
+  }),operation);
+}
+
 test("real Chromium: explicit switch, full-site offline, cold restart and persistent opt-out",{
   timeout:180000,
 },async()=>{
@@ -100,6 +124,12 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     assert.equal(appManifest.data.scope,"/");
     assert.ok(appManifest.data.icons.some(icon=>icon.sizes==="192x192"));
     assert.ok(appManifest.data.icons.some(icon=>icon.sizes==="512x512"));
+    const cdp=await context.newCDPSession(page);
+    const chromeManifest=await cdp.send("Page.getAppManifest");
+    assert.equal(chromeManifest.errors?.length,0,
+      "Chromium must accept the install metadata without errors");
+    assert.equal(JSON.parse(chromeManifest.data).display,"standalone");
+    await cdp.detach();
     const installButton=page.locator("#iwxa-t3-install-app");
     await installButton.waitFor();
     assert.equal(await installButton.isVisible(),true,"PWA installation is offered separately from T3 autonomy");
@@ -109,6 +139,13 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     assert.equal(await toggle.isChecked(),false,"normal site is initial default");
     assert.equal(await page.evaluate(()=>navigator.serviceWorker.getRegistrations()
       .then(rows=>rows.length)),0,"T3 does not silently register a worker");
+    let companion=await context.newPage();
+    await companion.goto(base+"/tools/");
+    await companion.locator("#iwxa-t3-domain-switch").waitFor();
+    assert.equal(await companion.locator("#iwxa-t3-domain-switch").isChecked(),false);
+    assert.equal(await profileWitness(page,"write"),"saved");
+    assert.equal(await profileWitness(companion,"read"),"same-origin-persistent-result",
+      "site and separate same-profile window share the original browser storage");
 
     // Rejecting the explicit installation must leave ordinary site unaffected.
     // A checkbox "check()" waits for a permanently checked state, but a
@@ -128,6 +165,17 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
       .hasAttribute("data-iwxa-t3-autonomous"),null,{timeout:60000});
     assert.equal(await toggle.isChecked(),true,"T3 is visibly enabled after full install");
     assert.match(await page.locator("#iwxa-t3-domain-controls").innerText(),/Модель ИИ устанавливается отдельно/);
+    await companion.getByRole("button",{name:"Применить изменения в этом окне"})
+      .waitFor({state:"visible",timeout:15000});
+    await companion.locator("#a").fill("19");
+    assert.equal(await companion.locator("#a").inputValue(),"19",
+      "a concurrent unfinished form is not reloaded by the other window");
+    const companionReload=companion.waitForEvent("load",{timeout:30000});
+    await companion.getByRole("button",{name:"Применить изменения в этом окне"}).click();
+    await companionReload;
+    await companion.waitForFunction(()=>document.documentElement
+      .hasAttribute("data-iwxa-t3-autonomous"),null,{timeout:10000});
+    assert.equal(await profileWitness(companion,"read"),"same-origin-persistent-result");
 
     await context.setOffline(true);
     await page.goto(base+"/tools/");
@@ -155,6 +203,11 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
       .hasAttribute("data-iwxa-t3-autonomous"),null,{timeout:10000});
     assert.equal(await page.locator("#iwxa-t3-domain-switch").isChecked(),true,
       "opt-in survives a browser restart with no network");
+    companion=await context.newPage();
+    await companion.goto(base+"/tools/",{waitUntil:"domcontentloaded",timeout:30000});
+    await companion.locator("#a").fill("123");
+    assert.equal(await profileWitness(companion,"read"),"same-origin-persistent-result",
+      "same-profile IndexedDB survives a cold offline browser restart");
 
     // Installing an updated same-origin site is a separate choice. Checking
     // while offline cannot silently fetch or change the currently working site.
@@ -185,6 +238,16 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     });
     await installUpdate.click();
     await upgradedReload;
+    await companion.getByRole("button",{name:"Применить изменения в этом окне"})
+      .waitFor({state:"visible",timeout:15000});
+    assert.equal(await companion.locator("#a").inputValue(),"123",
+      "a new release never silently discards an unfinished form");
+    const appliedReload=companion.waitForEvent("load",{timeout:30000});
+    await companion.getByRole("button",{name:"Применить изменения в этом окне"}).click();
+    await appliedReload;
+    assert.match(await companion.locator("main h1").textContent(),/обновлён/,
+      "other window opts into the same successfully installed release");
+    assert.equal(await profileWitness(companion,"read"),"same-origin-persistent-result");
     await page.goto(base+"/tools/");
     assert.match(await page.locator("main h1").textContent(),/обновлён/,
       "new version is active only after explicit upgrade");
@@ -203,6 +266,8 @@ test("real Chromium: explicit switch, full-site offline, cold restart and persis
     await page.locator("#b").fill("25");
     await page.locator("#calculate").click();
     assert.equal(await page.locator("#sum").textContent(),"42");
+    assert.equal(await profileWitness(page,"read"),"same-origin-persistent-result",
+      "user data remains readable after two cold offline restarts and a release update");
 
     // Opt-out does not erase user data and remains off after a new process.
     await context.setOffline(false);

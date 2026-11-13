@@ -66,14 +66,20 @@ function createControl() {
   updateInstall.type = "button";
   updateInstall.textContent = "Установить обновление";
   updateInstall.hidden = true;
+  // A second window must not be force-reloaded while the user edits a form.
+  const reloadWindow = document.createElement("button");
+  reloadWindow.type = "button";
+  reloadWindow.id = "iwxa-t3-apply-window-change";
+  reloadWindow.textContent = "Применить изменения в этом окне";
+  reloadWindow.hidden = true;
   const state = document.createElement("p");
   state.setAttribute("role", "status");
   state.setAttribute("aria-live", "polite");
   state.textContent = "Режим не включён.";
-  box.append(label, installApp, installHint, updateCheck, updateInstall, sharedNote, state);
+  box.append(label, installApp, installHint, updateCheck, updateInstall, reloadWindow, sharedNote, state);
   (mount || document.body).append(box);
   style();
-  return {toggle, state, installApp, installHint, updateCheck, updateInstall, pendingUpdate: null};
+  return {toggle, state, installApp, installHint, updateCheck, updateInstall, reloadWindow, pendingUpdate: null};
 }
 function tell(ui, text) { ui.state.textContent = text; }
 async function installApplication(ui) {
@@ -157,12 +163,18 @@ async function status(ui) {
     tell(ui, "Сайт управляется другой службой офлайн-запуска. Сохранение T3 не активировано.");
     return;
   }
-  if (!reg?.active || !isOwn(navigator.serviceWorker.controller)) {
+  if (!reg?.active) {
     render(ui, false);
     return;
   }
+  // The authoritative opt-in lives in the existing SW. A newly opened tab
+  // may not be controlled yet, but it must not misreport that T3 is disabled.
   const answer = await message(reg.active, "T3_STATUS");
   render(ui, answer?.active === true);
+  if (answer?.active === true && !isOwn(navigator.serviceWorker.controller)) {
+    ui.reloadWindow.hidden = false;
+    tell(ui, "Локальная версия установлена. Примените её в этом окне.");
+  }
   if (answer?.active === true && answer.complete !== true) {
     tell(ui, "Офлайн-копия неполная. Выключите режим T3 и установите её снова.");
   }
@@ -193,6 +205,7 @@ async function enable(ui) {
   if (receipt?.type !== "READY" || receipt.version !== manifest.version ||
       receipt.files !== manifest.files.length) throw Error("T3_DOMAIN_INSTALL_NOT_VERIFIED");
   tell(ui, "Офлайн-копия установлена. Переключаю сайт на локальный режим…");
+  ui.notifyChanged?.();
   location.reload();
 }
 async function checkForUpdate(ui) {
@@ -241,6 +254,7 @@ async function applyUpdate(ui) {
     if (receipt?.type !== "READY" || receipt.version !== update.version ||
         receipt.files !== update.files) throw Error("T3_DOMAIN_UPDATE_NOT_VERIFIED");
     tell(ui, "Обновление подтверждено. Открываю новую автономную версию…");
+    ui.notifyChanged?.();
     location.reload();
   } catch (error) {
     tell(ui, "Обновление не установлено: " + (error?.message || String(error)) +
@@ -258,6 +272,7 @@ async function disable(ui) {
     await reg.unregister();
   }
   render(ui, false);
+  ui.notifyChanged?.();
   // The previous document may still be controlled by the old worker.
   location.reload();
 }
@@ -267,11 +282,23 @@ async function main() {
   ui.installApp.addEventListener("click", () => void installApplication(ui));
   const shared = typeof BroadcastChannel === "function" ?
     new BroadcastChannel("iwxa-t3-domain-mode") : null;
+  ui.notifyChanged = () => shared?.postMessage({type:"changed"});
+  ui.reloadWindow.addEventListener("click", () => location.reload());
+  window.addEventListener("pagehide", () => shared?.close(), {once:true});
   shared?.addEventListener("message", event => {
-    if(event.data?.type !== "changed" || ui.toggle.disabled) return;
+    if(event.data?.type !== "changed") return;
+    // Broadcast is a hint, never an authority. Re-read the one SW's state.
+    ui.reloadWindow.hidden = false;
+    if(ui.toggle.disabled) {
+      tell(ui, "T3 изменён в другом окне. Примените изменения после завершения текущего действия.");
+      return;
+    }
     void status(ui).then(()=>{
-      tell(ui, "Режим T3 изменён в другом окне. Обновите страницу для применения.");
-    }).catch(()=>{});
+      ui.reloadWindow.hidden = false;
+      tell(ui, "T3 изменён в другом окне. Примените изменения, когда закончите ввод.");
+    }).catch(()=>{
+      tell(ui, "Не удалось прочитать новый режим. Примените изменения в этом окне.");
+    });
   });
   if (!("serviceWorker" in navigator) || !("caches" in window) ||
       !window.isSecureContext) {
@@ -288,7 +315,6 @@ async function main() {
     try {
       if (ui.toggle.checked) await enable(ui);
       else await disable(ui);
-      shared?.postMessage({type:"changed"});
     } catch (error) {
       const errorText = error?.message || String(error);
       try { await status(ui); } catch { ui.toggle.checked = false; }

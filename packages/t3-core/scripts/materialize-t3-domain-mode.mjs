@@ -84,8 +84,7 @@ export function materializeDomainMode(distRoot, assistantDistRoot = null) {
   }
   const runtimeDir = join(root, "_iwxa/runtime");
   if (!existsSync(runtimeDir) ||
-      !scan(runtimeDir).some(path => path.endsWith("/runtime.js") ||
-        path.endsWith("/runtime.mjs"))) {
+      !scan(runtimeDir).some(path => /[\\/]runtime\.m?js$/.test(path))) {
     fail("ORIGINAL_KERNEL_RUNTIME_MISSING");
   }
   const domain = JSON.parse(readFileSync(join(root, "_iwxa/domain.json"), "utf8"));
