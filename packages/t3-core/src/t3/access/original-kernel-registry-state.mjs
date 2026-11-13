@@ -10,6 +10,12 @@ import {
 
 export const ORIGINAL_REGISTRY_SCHEMA="iwxa.t3.access.signed-registry";
 export const ORIGINAL_REGISTRY_EVENT="t3.access.signed_registry.persisted";
+// A product gate must be bound to the actual pinned original Kernel registry,
+// not to a caller-supplied object pretending to provide readState().
+const originalPorts=new WeakSet();
+export function isOriginalKernelRegistryStatePort(value) {
+  return !!value&&typeof value==="object"&&originalPorts.has(value);
+}
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;
 const no=code=>{const e=new Error(code);e.name="T3OriginalKernelRegistryError";
@@ -190,11 +196,13 @@ export function createOriginalKernelRegistryStatePort({
     return Object.freeze({revision,policy_digest:trustedHash,
       state_digest:digestState,event_id:receipt.event.event_id});
   };
-  return Object.freeze({
+  const port=Object.freeze({
     readState:async()=>copy((await read()).state),
     commitSignedState:commit,
     getStatus:async()=>{const state=(await read()).state;
       return Object.freeze({sequences:copy(state.statusFloor),
         policy_digest:trustedHash});},
   });
+  originalPorts.add(port);
+  return port;
 }

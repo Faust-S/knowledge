@@ -97,7 +97,7 @@ export function createSignedAccessHostPort({
       const input = {...hostInput,operation,asOf:at};
       // The real organizational owner computes a DIFFERENT, enrollment-bound
       // digest of the complete operation. Never substitute the payload digest.
-      const preview = corporate.gate.preview(input);
+      const preview = await corporate.gate.preview(input);
       requireThat(preview?.schema === "IWXA_T3_ORGANIZATION_OPERATION_PREVIEW/1" &&
         preview.authorized === false && preview.subjectType === "ORGANIZATION" &&
         preview.organizationId === context.organization_id &&
@@ -125,7 +125,7 @@ export function createSignedAccessHostPort({
       // credential, grant ancestry, signed status and exact proof binding.
       // The proof is never generated, weakened or substituted here.
       const atJit = nowFrom(clock);
-      decision = corporate.gate.authorize({...input, asOf:atJit},
+      decision = await corporate.gate.authorize({...input, asOf:atJit},
         {now:atJit,challenge,proof,timeAssurance:"LOCAL_BEST_EFFORT"});
       // The original Access gate intentionally returns a short DENIED or
       // UNRESOLVED decision without success-only binding fields. Treat it as
