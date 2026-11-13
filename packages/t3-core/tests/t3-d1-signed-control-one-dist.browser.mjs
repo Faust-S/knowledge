@@ -43,6 +43,7 @@ const safeAssets=path=>path==='/workspace/signed-workspace.html'||
 let origin='',uiOrigin='',installed=false,syntheticOwner=false;
 const scopedWorkspace='t3-d1-selected-'+randomUUID();
 const eventStreams=new Set();
+const eventStreamSources=new Map();
 const mockContext=Object.freeze({
   kind:'CORP',context_id:'context:d1-local',actor_id:'actor:local',
   principal_id:'org:d1-local',role_id:'role:local',grant_id:'grant:d1-read',
@@ -140,7 +141,8 @@ const server=createServer((req,res)=>{
       res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8',
         'Cache-Control':'no-store','Connection':'keep-alive'});
       eventStreams.add(res);
-      res.once('close',()=>eventStreams.delete(res));
+      eventStreamSources.set(res,req.headers.referer??"NO_REFERRER");
+      res.once('close',()=>{eventStreams.delete(res);eventStreamSources.delete(res);});
       res.write('event: ready\\ndata: {}\\n\\n'.replace(/\\n/g,'\n'));
       return;
     }
@@ -538,8 +540,31 @@ try{
   const isolatedAppErrors=[];
   isolatedApp.on('pageerror',error=>isolatedAppErrors.push(error.message));
   await isolatedApp.goto(uiOrigin+'/workspace/isolated-signed-workspace.html#'+token);
-  await isolatedApp.getByTestId('t3-d1-selected-workspace-gate')
-    .waitFor({state:'detached',timeout:60000});
+  // Detached alone is a false positive if React never mounted: prove the
+  // actual inherited AppShell rendered and read its selected original Kernel
+  // Workspace before declaring a compiled two-origin product PASS.
+  const compiledState=()=>isolatedApp.evaluate(()=>({
+    shell:!!document.querySelector('[data-t2-ui="workspace"]'),
+    selectedGate:!!document.querySelector('[data-testid="t3-d1-selected-workspace-gate"]'),
+    reconnect:!!document.querySelector('[data-testid="t3-isolated-control-reconnect"]'),
+    runtimeError:!!document.querySelector('[data-t2-ui="product-error"]'),
+    rootText:document.querySelector('#root')?.textContent?.slice(0,400)??'',
+    iframeCount:document.querySelectorAll('iframe').length,
+  }));
+  try{
+    await isolatedApp.waitForFunction(()=>!!document.querySelector(
+      '[data-t2-ui="workspace"]')&&
+      !document.querySelector('[data-testid="t3-d1-selected-workspace-gate"]')&&
+      !document.querySelector('[data-t2-ui="product-error"]')&&
+      !document.querySelector('[data-testid="t3-isolated-control-reconnect"]'),
+      null,{timeout:60000});
+  }catch(error){
+    console.log('T3_D1_COMPILED_HOST_NOT_READY',JSON.stringify({
+      app:await compiledState(),pageErrors:isolatedAppErrors,
+      activeSse:Array.from(eventStreamSources.values()),
+    }));
+    throw error;
+  }
   assert.equal(new URL(isolatedApp.url()).hash,'',
     'T3_D1_ISOLATED_UI_BEARER_MUST_BE_ERASED');
   assert.equal(await isolatedApp.evaluate(()=>typeof window.IWXA),'undefined',
@@ -560,12 +585,26 @@ try{
   // disconnect the UI's only signed realm port and unmount old module access.
   // No React fallback is permitted through the same-origin raw T2 loader.
   assert.ok(eventStreams.size>=1,'T3_D1_TRUSTED_CONTROL_SSE_REQUIRED');
+  console.log('T3_D1_SSE_BEFORE_REVOCATION',JSON.stringify({
+    app:await compiledState(),activeSse:Array.from(eventStreamSources.values()),
+    sseCount:eventStreams.size,
+  }));
   for(const stream of eventStreams){
     if(!stream.destroyed&&!stream.writableEnded)
       stream.write('event: invalidated\\ndata: {}\\n\\n'.replace(/\\n/g,'\n'));
   }
-  await isolatedApp.getByTestId('t3-signed-control-reconnect')
-    .waitFor({state:'visible',timeout:30000});
+  try{
+    await isolatedApp.getByTestId('t3-signed-control-reconnect')
+      .waitFor({state:'visible',timeout:10000});
+  }catch(error){
+    console.log('T3_D1_SSE_AFTER_REVOCATION',JSON.stringify({
+      app:await compiledState(),
+      pageErrors:isolatedAppErrors,
+      activeSse:Array.from(eventStreamSources.values()),
+      sseCount:eventStreams.size,
+    }));
+    throw error;
+  }
   assert.equal(await isolatedApp.evaluate(()=>typeof window.IWXA),'undefined');
   assert.equal((await isolatedApp.evaluate(async()=>(
     await fetch('/_iwxa/loader.js',{cache:'no-store'})
