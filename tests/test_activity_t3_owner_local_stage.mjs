@@ -425,9 +425,15 @@ test('actual T2 Runtime 1.3.0 service passport declares private-only review data
   const passportSchema=JSON.parse(readFileSync(join(path,'service-passport.schema.json'),'utf8'));
   const declaration=T3_ACTIVITY_OWNER_REVIEW_DECLARATION;
   const passport=T3_ACTIVITY_OWNER_REVIEW_PASSPORT;
-  for(const key of sourceSchema.required) assert.ok(Object.hasOwn(declaration,key),key);
+  for(const key of sourceSchema.required.filter(key=>key!=='schema_id'))
+    assert.ok(Object.hasOwn(declaration,key),key);
+  // The actual original 0.3.6 passport validator (strict Zod) forbids this
+  // key INSIDE the declaration despite the copied JSON contract mismatch.
+  assert.equal(Object.hasOwn(declaration,'schema_id'),false);
   for(const key of passportSchema.required) assert.ok(Object.hasOwn(passport,key),key);
-  assert.equal(declaration.schema_id,T3_ACTIVITY_OWNER_REVIEW_SCHEMA);
+  assert.equal(
+    passport.schemas[T3_ACTIVITY_OWNER_REVIEW_SCHEMA],declaration,
+    'schema_id is the outer passport map key');
   assert.equal(Object.isFrozen(declaration.json_schema.properties.candidate),true);
   assert.equal(Object.isFrozen(passport.permissions),true);
   assert.equal(Object.isFrozen(passport.permissions.packages),true);
@@ -823,8 +829,9 @@ test('original T2 Host build catalog can register review passport without replac
     'iwxa.demo.note',T3_ACTIVITY_OWNER_REVIEW_SCHEMA,
   ]);
   const passport=JSON.parse(ready.passport_bytes);
-  assert.equal(passport.schemas[T3_ACTIVITY_OWNER_REVIEW_SCHEMA].schema_id,
-    T3_ACTIVITY_OWNER_REVIEW_SCHEMA);
+  assert.equal(
+    Object.hasOwn(passport.schemas[T3_ACTIVITY_OWNER_REVIEW_SCHEMA],'schema_id'),
+    false,'original T2 declaration is strict and keyed externally');
   assert.equal(passport.permissions.packages.export,false);
   assert.equal(passport.permissions.packages.import,false);
   assert.deepEqual(passport.permissions.objects.write,[T3_ACTIVITY_OWNER_REVIEW_SCHEMA]);

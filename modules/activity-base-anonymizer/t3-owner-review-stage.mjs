@@ -13,8 +13,11 @@ const frozen=value=>{
   return value;
 };
 export const T3_ACTIVITY_OWNER_REVIEW_SCHEMA = 'iwxa.activity.process-review';
+// Original T2 0.3.6 validates each schema declaration STRICTLY. The
+// schema_id belongs to the KEY in passport.schemas, never to the declaration
+// value. A copied SDK JSON schema incorrectly requiring schema_id would be
+// rejected by the actual original Kernel. Respect the executable source.
 export const T3_ACTIVITY_OWNER_REVIEW_DECLARATION = frozen({
-  schema_id:T3_ACTIVITY_OWNER_REVIEW_SCHEMA,
   schema_version:'1.0.0', preserve_unknown:false,
   json_schema:{
     type:'object',
