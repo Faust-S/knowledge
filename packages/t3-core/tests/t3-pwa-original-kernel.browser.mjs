@@ -112,22 +112,16 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       const confirmation=await original.t2.confirmExport({
         package_digest:archive.package_digest,workspace_ids:[workspace],
       });
-      const preview=await original.t2.importPreview(archive.bytes);
-      const mode=preview.allowed_modes?.includes("full")?"full":"selective";
-      const imported=await original.t2.importCommit({
-        preview_token:preview.preview_token,package_digest:preview.package_digest,
-        plan:{mode,include_workspaces:[workspace],include_history:true,
-          include_assets:true,include_relations:true,conflict:"skip"},
-      });
       return {event:receipt.event.event_id,revision:receipt.object.revision,
         exported:confirmation.package_digest===archive.package_digest,
-        imported:!!imported,importMode:imported?.mode,
-        bytes:archive.bytes?.byteLength};
+        // Transfer the exact original .iwxa bytes to an INDEPENDENT
+        // recipient Store. Reimporting an existing event in the same Store
+        // must fail with IMPORT_EVENT_ID_COLLISION, as designed.
+        archiveBytes:Array.from(archive.bytes)};
     },{SERVICE,workspace,object,title});
     assert.equal(saved.revision,1);
     assert.equal(saved.exported,true);
-    assert.equal(saved.imported,true);
-    assert.ok(saved.bytes>0);
+    assert.ok(saved.archiveBytes.length>0);
     const second=await context.newPage();
     await second.goto(live.origin+"/workspace/");
     await second.waitForFunction(()=>typeof window.IWXA?.connect==="function");
@@ -171,6 +165,34 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
     assert.ok(cold.eventIds.includes(saved.event));
     assert.equal(await site.locator("#iwxa-t3-domain-switch").isChecked(),true);
     assert.equal(sha(join(dist,"_iwxa/runtime/0.3.6/runtime.js")),pinned);
+    // Independent original T2 Exchange consumer. A second browser profile
+    // has a separate original Kernel Store, exactly as a real .iwxa recipient.
+    const recipient=await chromium.launchPersistentContext(join(root,"recipient-profile"),{
+      headless:true,ignoreHTTPSErrors:true,
+      args:["--no-sandbox","--ignore-certificate-errors"],
+    });
+    try{
+      const receiver=recipient.pages()[0]||await recipient.newPage();
+      await receiver.goto(live.origin+"/workspace/");
+      await receiver.waitForFunction(()=>typeof window.IWXA?.connect==="function");
+      const imported=await receiver.evaluate(async({SERVICE,workspace,object,bytes})=>{
+        const original=await window.IWXA.connect({service_id:SERVICE});
+        const archive=Uint8Array.from(bytes);
+        const preview=await original.t2.importPreview(archive);
+        const mode=preview.allowed_modes?.includes("full")?"full":"selective";
+        const receipt=await original.t2.importCommit({
+          preview_token:preview.preview_token,package_digest:preview.package_digest,
+          plan:{mode,include_workspaces:[workspace],include_history:true,
+            include_assets:true,include_relations:true,conflict:"skip"},
+        });
+        const record=await original.t1.getObject(workspace,object);
+        return {imported:!!receipt,title:record?.object?.data?.title,
+          revision:record?.object?.revision};
+      },{SERVICE,workspace,object,bytes:saved.archiveBytes});
+      assert.equal(imported.imported,true);
+      assert.equal(imported.title,title);
+      assert.equal(imported.revision,1);
+    }finally{await recipient.close();}
     console.log("T3_PWA_REAL_ORIGINAL_KERNEL_EXCHANGE_TWO_WINDOW_COLD_PASS",JSON.stringify({
       originalKernel:"0.3.6",sameStore:true,oneServiceWorker:true,
       originalExchangeExport:true,originalExchangeImport:true,
