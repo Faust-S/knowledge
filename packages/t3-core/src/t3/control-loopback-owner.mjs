@@ -211,7 +211,13 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
   return Object.freeze({
     requireSignedOwner:true,
     signedKernelAccess:operation=>select("kernel",operation),
-    signedActivityAccess:()=>select("activity","activity.read"),
+    // The existing signed Control owner decides the selected operation:
+    // Activity Read never implies Activity Derive.
+    signedActivityAccess:operation=>{
+      check(operation===undefined||operation==="activity.read"||
+        operation==="activity.derive","T3_D1_ACTIVITY_OPERATION_UNSUPPORTED");
+      return select("activity",operation??"activity.read");
+    },
     subscribeSignedAccessInvalidation,
   });
 }

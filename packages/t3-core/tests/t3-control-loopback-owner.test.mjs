@@ -9,7 +9,7 @@ const hash=value=>createHash("sha256").update(JSON.stringify(value)).digest("hex
 const now=new Date().toISOString(),until=new Date(Date.now()+3600000).toISOString();
 
 function fixture(){
-  let epoch=1,selected="PERSONAL",revoked=false,decisions=0;
+  let epoch=1,selected="PERSONAL",revoked=false,decisions=0,deriveAllowed=false;
   const writes=[],reads=[],eventControllers=[];
   const context=()=>({
     kind:"CORP",context_id:"corp:"+selected,actor_id:"person:worker",
@@ -40,7 +40,8 @@ function fixture(){
     if(input.verb==="select"){
       return respond({available:selected!=="PERSONAL" &&
         (input.operation==="getWorkspace"||input.operation==="putObject"||
-          input.operation==="activity.read"),contextEpoch:epoch});
+          input.operation==="activity.read"||
+          (input.operation==="activity.derive"&&deriveAllowed)),contextEpoch:epoch});
     }
     if(selected==="PERSONAL")return respond({error:"T3_D1_ACCESS_OWNER_REQUIRED"},400);
     if(input.verb==="context")return respond({context:context()});
@@ -73,6 +74,7 @@ function fixture(){
   };
   return {fetchImpl,kernel,writes,reads,context,
     select:org=>{selected=org;epoch++;},revoke:()=>{revoked=true;},
+    grantDerive:()=>{deriveAllowed=true;},
     decisions:()=>decisions,
     closeEvents:()=>{for(const c of eventControllers)try{c.close();}catch{}}};
 }
@@ -389,4 +391,34 @@ test("an initial operation cannot outrun original Control's ready event",async()
     stop();
     try{control.close();}catch{}
   }
+});
+
+test("original Control selects separately signed Activity Derive, never inferred from Read",async()=>{
+  const f=fixture();
+  const owner=createControlLoopbackOwner({origin,token,fetchImpl:f.fetchImpl});
+  const stop=owner.subscribeSignedAccessInvalidation(()=>
+    assert.fail("no Control revocation during bounded activity selection"));
+  f.select("north");
+  try{
+    const read=await owner.signedActivityAccess();
+    assert.equal((await read.currentContext()).workspace_id,"ws:north");
+    assert.equal(await owner.signedActivityAccess("activity.derive"),null,
+      "Activity Read cannot grant Activity Derive");
+    await assert.rejects(owner.signedActivityAccess("activity.publish"),{
+      code:"T3_D1_ACTIVITY_OPERATION_UNSUPPORTED",
+    });
+    f.grantDerive();
+    const derive=await owner.signedActivityAccess("activity.derive");
+    assert.ok(derive,"only trusted Control owner may provide a separate derive grant");
+    assert.equal((await derive.currentContext()).workspace_id,"ws:north");
+    f.revoke();
+    const bound=createSubjectKernelBinding({kernel:f.kernel,access:derive});
+    await assert.rejects(bound.putObject({
+      workspace_id:"ws:north",object_id:"review:revoked",
+      schema_id:"iwxa.activity.process-review",schema_version:"1.0.0",
+      base_revision:0,data:{status:"OWNER_REVIEW_DRAFT"},
+      event:{event_type:"t3.activity.review.staged",payload:{}},
+    }),{code:"T3_ACCESS_NOT_PERMITTED"});
+    assert.deepEqual(f.writes,[]);
+  }finally{stop();f.closeEvents();}
 });
