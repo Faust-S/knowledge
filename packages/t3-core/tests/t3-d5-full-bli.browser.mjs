@@ -10,8 +10,8 @@ import {tmpdir} from "node:os";
 import {dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {chromium} from "playwright";
-import {LOCAL_INFERENCE_DRAFT_SCHEMA,LOCAL_INFERENCE_DRAFT_DECLARATION}
-  from "../src/t3/local-inference-draft.mjs";
+import {registerT3LocalInferenceService}
+  from "../scripts/register-t3-local-inference.mjs";
 import {materializeIntegrationHost,serveRealKernelHost}
   from "../scripts/real-kernel-e2e.mjs";
 import {materializeDomainMode} from "../scripts/materialize-t3-domain-mode.mjs";
@@ -50,19 +50,8 @@ try {
   host.domain.runtime.runtime_version="0.3.6";
   host.workspaceConfig.host.required_contract_version="1.3.0";
   host.workspaceConfig.host.required_runtime_version="0.3.6";
-  host.workspaceConfig.modules.push({
-    module_id:"iwxa.t3.local-inference",state:"active",ui_mode:"standard",
-    route_base:"/workspace/",slots:["inspector"],required_levels:["T1"],
-    required_operations:["t1.getWorkspace"],
-    object_schemas:[LOCAL_INFERENCE_DRAFT_SCHEMA],
-    dependencies:["iwxa.workspace.base"],
-  });
-  host.domain.security.allowed_object_classes.push(LOCAL_INFERENCE_DRAFT_SCHEMA);
-  host.passport.input_object_types.push(LOCAL_INFERENCE_DRAFT_SCHEMA);
-  host.passport.output_object_types.push(LOCAL_INFERENCE_DRAFT_SCHEMA);
-  host.passport.permissions.objects.read.push(LOCAL_INFERENCE_DRAFT_SCHEMA);
-  host.passport.permissions.objects.write.push(LOCAL_INFERENCE_DRAFT_SCHEMA);
-  host.passport.schemas[LOCAL_INFERENCE_DRAFT_SCHEMA]=LOCAL_INFERENCE_DRAFT_DECLARATION;
+  registerT3LocalInferenceService({domain:host.domain,
+    workspaceConfig:host.workspaceConfig,passport:host.passport});
   writeFileSync(join(root,"_iwxa","domain.json"),JSON.stringify(host.domain));
   writeFileSync(join(root,"workspace","workspace.config.json"),JSON.stringify(host.workspaceConfig));
   const passFile="_iwxa/services/iwxa.workspace.integration.json";

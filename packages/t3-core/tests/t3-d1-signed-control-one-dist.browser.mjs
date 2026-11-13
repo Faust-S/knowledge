@@ -318,6 +318,19 @@ try{
   assert.equal(assembled.original_qualified_artifact,
     'iwxa-kernel-k036-same-store-history-20261019-qualified.1');
   assert.equal(assembled.origin,origin);
+  assert.equal(assembled.local_inference_registered,true,
+    'T3_D1_D5_SIGNED_DIST_MUST_REGISTER_COMPILED_BLI');
+  const installedBli=JSON.parse(readFileSync(
+    join(output,'workspace/workspace.config.json'),'utf8'));
+  assert.equal(installedBli.modules.filter(row=>
+    row.module_id==='iwxa.t3.local-inference'&&row.state==='active').length,1);
+  const assembledPassport=JSON.parse(readFileSync(
+    join(output,'_iwxa/services/'+serviceId+'.json'),'utf8'));
+  assert.ok(assembledPassport.schemas['iwxa.local-inference.draft']);
+  const assembledCatalog=JSON.parse(readFileSync(
+    join(output,'_iwxa/service-catalog.json'),'utf8'));
+  assert.equal(assembledCatalog.entries.find(row=>row.service_id===serviceId).sha256,
+    hash(readFileSync(join(output,'_iwxa/services/'+serviceId+'.json'))));
   assert.equal(hash(readFileSync(join(source,'_iwxa/runtime/0.3.6/runtime.js'))),
     hash(readFileSync(join(output,'_iwxa/runtime/0.3.6/runtime.js'))));
   assert.equal(readFileSync(join(output,'workspace/index.html'),'utf8'),
@@ -588,6 +601,25 @@ try{
     originalKernelLoadedOnlyInTrustedRealm:true,
     selectedWorkspaceReadback:true,bearerErased:true,
     syntheticOwnerOnly:true,privateSignerExecuted:false,
+  }));
+  // Product-level D1+D5: the actually compiled split-origin signed
+  // AppShell must offer the inherited BLI panel before any model download.
+  const bliLauncher=isolatedApp.getByTestId('t3-local-inference-launcher');
+  await bliLauncher.waitFor({state:'visible',timeout:20000});
+  const openBli=bliLauncher.getByRole('button',{name:'Открыть локальную модель'});
+  assert.equal(await openBli.isEnabled(),true);
+  await openBli.click();
+  const bliPanel=isolatedApp.getByTestId('t3-local-inference-panel');
+  await bliPanel.waitFor({state:'visible',timeout:20000});
+  assert.match(await bliPanel.innerText(),/SmolLM2 360M|WebGPU/);
+  assert.equal(await bliPanel.getByRole('button',
+    {name:'Скачать и запустить'}).isDisabled(),true,
+    'D1+D5 model download must require separate consent');
+  assert.deepEqual(isolatedAppErrors,[]);
+  console.log('T3_D1_D5_SIGNED_ISOLATED_BLI_PANEL_PASS',JSON.stringify({
+    compiledSignedAppShell:true,originalKernel:'0.3.6',
+    localInferenceModuleRegistered:true,panelOpenedByUser:true,
+    modelDownloadRequiresConsent:true,privateIssuerExecuted:false,
   }));
   // Genuine browser-level SSE invalidation from the existing Control must
   // disconnect the UI's only signed realm port and unmount old module access.

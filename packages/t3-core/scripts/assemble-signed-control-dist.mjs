@@ -4,10 +4,12 @@
 import {createHash, randomUUID} from 'node:crypto';
 import {cpSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync,
   readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync} from 'node:fs';
-import {dirname, extname, isAbsolute, join, relative, resolve, sep} from 'node:path';
+import {basename, dirname, extname, isAbsolute, join, relative, resolve, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {assertQualifiedKernelArtifact}
   from '../src/factory2/products/domain-completion/independent-browser-witness.mjs';
+import {registerT3LocalInferenceService}
+  from './register-t3-local-inference.mjs';
 
 const allowedAssetExtensions=new Set([
   '.js','.mjs','.css','.json','.wasm','.png','.svg','.webp','.ico','.woff2',
@@ -93,6 +95,35 @@ export function assembleSignedControlDist({
     if(!allowedAssetExtensions.has(extname(path).toLowerCase())||path.endsWith('.map'))
       fail('UNSUPPORTED_SIGNED_ASSET');
   }
+  // A compiled Worker is not an activated Workspace module. Declare BLI
+  // only when the complete source-pinned module + Worker are in this build.
+  // Fail closed on partial builds rather than publishing a dead launcher.
+  const jsBodies=assets.filter(path=>extname(path)==='.js')
+    .map(path=>readFileSync(path,'utf8'));
+  const markers=['iwxa.t3.local-inference.panel',
+    'iwxa.t3.local-inference.launcher','iwxa.t3.local-inference.open'];
+  const marks=markers.map(marker=>jsBodies.some(body=>body.includes(marker)));
+  const workers=assets.filter(path=>
+    /^model-worker-[A-Za-z0-9_-]+\\.js$/.test(basename(path)));
+  const localInference=marks.some(Boolean)||workers.length>0;
+  if(localInference && (workers.length!==1||marks.some(mark=>!mark)||
+      !readFileSync(workers[0],'utf8').includes('IWXA_NETWORK_DENIED_IN_WORKER')))
+    fail('LOCAL_INFERENCE_COMPILED_MODULE_INCOMPLETE');
+  let servicePassport=null,passportPath=null,serviceEntry=null;
+  if(localInference){
+    serviceEntry=catalog.entries.find(row=>
+      row.service_id===config.workspace_service_id);
+    passportPath=serviceEntry?.file;
+    if(typeof passportPath!=='string'||
+       !/^_iwxa\\/services\\/[A-Za-z0-9_.-]+\\.json$/.test(passportPath))
+      fail('ORIGINAL_SERVICE_PASSPORT_PATH');
+    const passportFile=required(source,passportPath);
+    if(serviceEntry.sha256!==hash(passportFile))
+      fail('ORIGINAL_SERVICE_PASSPORT_INTEGRITY');
+    servicePassport=JSON.parse(readFileSync(passportFile,'utf8'));
+    registerT3LocalInferenceService({domain,workspaceConfig:config,
+      passport:servicePassport});
+  }
   const staged=[];
   for(const path of assets){
     const dest=join('workspace','assets',relative(assetRoot,path));
@@ -132,6 +163,17 @@ export function assembleSignedControlDist({
     }
     if(!existsSync(join(temp,'workspace/favicon.ico')))
       copyFileSync(compiledFavicon,join(temp,'workspace/favicon.ico'));
+    if(localInference){
+      // Adjust only assembled configuration/permissions and update the
+      // original service-catalog integrity digest for the new passport.
+      writeFileSync(join(temp,'_iwxa/domain.json'),JSON.stringify(domain));
+      writeFileSync(join(temp,'workspace/workspace.config.json'),JSON.stringify(config));
+      writeFileSync(join(temp,passportPath),JSON.stringify(servicePassport));
+      serviceEntry.sha256=hash(join(temp,passportPath));
+      writeFileSync(join(temp,'_iwxa/service-catalog.json'),JSON.stringify({
+        ...catalog,count:catalog.entries.length,
+      }));
+    }
     if(hash(join(temp,'_iwxa/loader.js'))!==hash(originalLoader)||
        hash(join(temp,'_iwxa/runtime/0.3.6/runtime.js'))!==hash(originalRuntime))
       fail('ORIGINAL_KERNEL_CHANGED');
@@ -140,6 +182,7 @@ export function assembleSignedControlDist({
     return {schema:'iwxa.t3.signed-control-one-dist/1',origin,
       workspace_service_id:config.workspace_service_id,
       signed_assets:staged.length,isolated_realm_entries:true,original_kernel:'0.3.6',
+      local_inference_registered:localInference,
       original_qualified_artifact:qualified?.artifactId??'TEST_ONLY_UNQUALIFIED',
       original_loader_sha256:hash(originalLoader),
       original_runtime_sha256:hash(originalRuntime),
