@@ -16,6 +16,7 @@ on:
       - work/2026-11-13-t3-d1-windows-sequential-enrollment
       - work/2026-11-13-t3-d1-installed-original-host
       - work/2026-11-13-t3-d1-native-control-webview2
+      - work/2026-11-13-t3-d1-installed-windows-signed-owner
     paths:
       - packages/t3-core/src/t3/activity/**
       - packages/t3-core/**
@@ -81,6 +82,8 @@ jobs:
         run: |
           node --check packages/t3-core/src/t3/installed-original-control-host.mjs
           node --test packages/t3-core/tests/t3-d1-installed-original-control-host.test.mjs
+      - name: Validate Windows installed signed owner binding and non-Windows fail-closed behavior
+        run: node --test packages/t3-core/tests/t3-d1-installed-windows-signed-owner.test.mjs
       - name: Verify D1 origin-isolated signed original Kernel carrier
         run: node --test packages/t3-core/tests/t3-d1-origin-isolated-kernel.test.mjs
       - name: Qualify PWA manifest and original one-dist packaging
@@ -227,6 +230,8 @@ jobs:
         run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs
       - name: Windows installed original T3 Host two-origin HTTP and Control route (no native GUI)
         run: node --test packages/t3-core/tests/t3-d1-installed-original-control-host.test.mjs
+      - name: Windows ORIGINAL signed Kernel/AccessRegistry JIT with DPAPI corporate credentials and revocation
+        run: node --test packages/t3-core/tests/t3-d1-installed-windows-signed-owner.test.mjs
 
 
   windows-native-control:
