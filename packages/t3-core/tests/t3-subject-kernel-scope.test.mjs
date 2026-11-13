@@ -435,6 +435,12 @@ test("D1 refuses changed subject before import and foreign source receipt",async
 test("D4 merges one selected foreign-source .iwxa into recipient's signed Workspace",async()=>{
   const f=fixture(),source="ws:sender",dg="c".repeat(64);
   const archive=Uint8Array.from([80,75,3,4,1,2,3]);
+  let signedArchive=null;
+  const digestOperation=f.owner.operationDigest;
+  f.owner.operationDigest=params=>{
+    if(params.operation==="t2.importPreview")signedArchive=params.input;
+    return digestOperation(params);
+  };
   for(const op of ["t2.importPreview","t2.importCommit"])
     f.allowed.add(op);
   f.kernel.importPreview=async bytes=>{
@@ -467,6 +473,10 @@ test("D4 merges one selected foreign-source .iwxa into recipient's signed Worksp
   assert.deepEqual(f.calls.map(x=>x[0]),["importPreview","importCommit"]);
   assert.deepEqual([...f.calls[0][1]],[...archive],
     "existing Kernel receives the exact original archive bytes");
+  assert.deepEqual(signedArchive,{
+    workspace_id:ws,archive_size:archive.byteLength,
+    archive_sha256:createHash("sha256").update(archive).digest("hex"),
+  },"signed Access receives plain byte-bound evidence, not a binary Array");
   assert.equal(f.calls[1][1].plan.target_workspace,ws);
   await assert.rejects(f.bound.importCommit({
     preview_token:preview.preview_token,package_digest:dg,
