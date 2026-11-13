@@ -1,8 +1,8 @@
-// Two INDEPENDENT Node Host processes use one original T2 Kernel/Store and
-// exactly the same persistent Chromium browser profile. The second process
-// restores its actor key from the ORIGINAL encrypted local vault and reads
-// the previously REVOKED signed STATUS from the ORIGINAL T2 Event/Object Store.
-// This is public test-only issuance, not an installed native product issuer.
+// Three INDEPENDENT Node Host processes exercise TWO COLD RESTARTS of the
+// original T2 Kernel/Store with exactly the same persistent Chromium profile.
+// Both restarted processes unlock the ORIGINAL encrypted actor vault and
+// re-read the revoked signed STATUS from the original Object/Event Store.
+// No standalone T3 application. Issuance is CI-only.
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
@@ -216,7 +216,7 @@ async function phase(variant,root,port) {
         pid:process.pid,originalKernel:VERSION,originalWrite:true,
         signedStatusSequence:2,originalStore:true,
       }));
-    }else if(variant==="cold"){
+    }else if(variant==="cold"||variant==="cold2"){
       const trusted=readJson(join(root,"trusted-public.json"));
       const vault=decryptVault(readJson(join(root,"keys.enc.json")),PASSPHRASE);
       assert.deepEqual(Object.keys(vault.keys).sort(),[
@@ -238,7 +238,7 @@ async function phase(variant,root,port) {
       assert.equal(old?.object?.revision,1);
       assert.equal(denied?.object??null,null);
       assert.ok(events.some(e=>e.event_type==="t3.d1.real.host.process"));
-      console.log("T3_D1_HOST_PROCESS_PHASE_TWO",JSON.stringify({
+      console.log(variant==="cold2"?"T3_D1_HOST_PROCESS_PHASE_THREE":"T3_D1_HOST_PROCESS_PHASE_TWO",JSON.stringify({
         pid:process.pid,originalKernel:VERSION,signedActorVaultRecovered:true,
         signedStatusSequence:2,originalKernelColdRead:true,
         originalKernelWriteCountAfterRevoke:0,
@@ -265,8 +265,8 @@ if(process.argv[2]==="--phase"){
   const [, , ,variant,root,p]=process.argv;
   await phase(variant,root,Number(p));
 }else{
-  test("two real Node Host processes recover original Kernel STATUS and encrypted Ed25519 actor vault",{
-    timeout:210000
+  test("two cold original Host restarts recover encrypted Ed25519 actor and revoked STATUS",{
+    timeout:270000
   },async()=>{
     const qualified=process.env.IWXA_T2_QUALIFIED_KERNEL_DIST;
     assert.ok(qualified&&existsSync(join(qualified,
@@ -313,26 +313,36 @@ if(process.argv[2]==="--phase"){
             cwd:process.cwd(),env:{...process.env},
             encoding:"utf8",timeout:90000,maxBuffer:1024*1024,
           });
-        const line=out.trim().split(/\r?\n/).find(s=>
-          s.startsWith("T3_D1_HOST_PROCESS_PHASE_"+(variant==="cold"?"TWO":"ONE")));
+        const phaseName={initialize:"ONE",cold:"TWO",cold2:"THREE"}[variant];
+        const line=out.trim().split(/\r?\n/).find(value=>
+          value.startsWith("T3_D1_HOST_PROCESS_PHASE_"+phaseName));
         assert.ok(line,"MISSING_CHILD_PHASE_EVIDENCE: "+out.slice(-2000));
         return JSON.parse(line.slice(line.indexOf("{")));
       };
-      const first=stage("initialize"),second=stage("cold");
-      assert.notEqual(first.pid,second.pid,
-        "the child Host MUST be a new operating-system process");
+      const first=stage("initialize");
+      const encryptedVaultDigest=sha(readFileSync(join(root,"keys.enc.json")));
+      const second=stage("cold"),third=stage("cold2");
+      assert.equal(new Set([first.pid,second.pid,third.pid]).size,3,
+        "two cold Host startups must use fresh operating-system processes");
       assert.equal(first.originalStore,true);
-      assert.equal(second.signedActorVaultRecovered,true);
-      assert.equal(second.signedStatusSequence,2);
-      assert.equal(second.originalKernelColdRead,true);
+      for(const restored of [second,third]){
+        assert.equal(restored.signedActorVaultRecovered,true);
+        assert.equal(restored.signedStatusSequence,2);
+        assert.equal(restored.originalKernelColdRead,true);
+        assert.equal(restored.originalKernelWriteCountAfterRevoke,0);
+      }
+      assert.equal(sha(readFileSync(join(root,"keys.enc.json"))),
+        encryptedVaultDigest,"cold Host must not rewrite existing encrypted keys");
       assert.equal(sha(readFileSync(join(dist,
         "_iwxa/runtime/0.3.6/runtime.js"))),initialHash);
-      console.log("T3_D1_REAL_NODE_HOST_PROCESS_RESTART_STATUS_PASS",JSON.stringify({
-        separateHostProcesses:true,originalKernel:"0.3.6",
-        oneOriginalKernelStore:true,originalAccessEvaluator:true,
-        localEncryptedVaultRecovered:true,revokedSequenceRecovered:2,
-        rejectedAfterProcessRestart:true,originalKernelReadback:true,
-        installedWindowsAppAccepted:false,corporateEnrollmentsQualified:false,
+      console.log("T3_D1_TWO_COLD_NODE_HOST_PROCESS_RESTART_STATUS_PASS",JSON.stringify({
+        independentHostProcesses:3,coldRestarts:2,originalKernel:"0.3.6",
+        originalRuntimeContract:"1.3.0",oneOriginalKernelStore:true,
+        originalAccessEvaluator:true,unchangedEncryptedVault:true,
+        revokedSequenceRecoveredInBothColdProcesses:2,
+        revokedWriteRejectedAfterBothRestarts:true,
+        originalKernelReadbackAfterBothRestarts:true,
+        syntheticIssuerOnly:true,corporateEnrollmentsInThisTest:false,
       }));
     }finally{rmSync(root,{recursive:true,force:true});}
   });
