@@ -25,6 +25,8 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, "index.html"),
         signedWorkspace: path.resolve(__dirname, "signed-workspace.html"),
+        isolatedSignedWorkspace: path.resolve(__dirname, "isolated-signed-workspace.html"),
+        trustedKernelRealm: path.resolve(__dirname, "trusted-kernel-realm.html"),
         exchange: path.resolve(__dirname, "exchange.html"),
         lifecycle: path.resolve(__dirname, "lifecycle.html"),
         studio: path.resolve(__dirname, "studio.html"),

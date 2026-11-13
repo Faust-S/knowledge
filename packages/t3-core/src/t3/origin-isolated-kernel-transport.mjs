@@ -135,6 +135,7 @@ export function createIsolatedKernelClient({port,isActive=()=>true,timeoutMs=150
   let closed=false,nextId=0;
   const active=()=>{try{return isActive()===true;}catch{return false;}};
   const waiting=new Map();
+  const listeners=new Set();
   const onMessage=ev=>{
     const response=ev.data;
     if(!object(response)||response.schema!==SCHEMA)return;
@@ -158,8 +159,16 @@ export function createIsolatedKernelClient({port,isActive=()=>true,timeoutMs=150
       clearTimeout(timer);reject(fail('T3_D1_ISOLATED_KERNEL_DISCONNECTED'));
     }
     waiting.clear();
+    for(const listener of listeners){try{listener('unavailable');}catch{}}
+    listeners.clear();
   };
   return Object.freeze({
+    subscribeInvalidation(listener){
+      if(typeof listener!=='function')throw fail('T3_D1_INVALIDATION_LISTENER_REQUIRED');
+      if(closed){queueMicrotask(()=>listener('unavailable'));return ()=>{};}
+      listeners.add(listener);
+      return ()=>listeners.delete(listener);
+    },
     invoke(method,...args){
       if(closed||!active())return Promise.reject(fail('T3_D1_ISOLATED_KERNEL_DISCONNECTED'));
       if(!METHODS.has(method))return Promise.reject(fail('T3_D1_ORIGINAL_KERNEL_METHOD_FORBIDDEN'));

@@ -51,6 +51,10 @@ export interface AppProps {
   trustedKernelBootstrap?: KernelBootstrap;
   /** A qualified trusted realm is mandatory. Never load original raw T2 in this UI origin. */
   isolatedKernelRequired?: boolean;
+  /** Context is read inside the original signed Kernel realm only. */
+  trustedSelectedContext?: (operation:string)=>Promise<{
+    kind:"CORP";workspace_id:string;resource:string;
+  }|null>;
 }
 
 /**
@@ -62,6 +66,7 @@ export default function App({
   requireSignedOwner = false, signedKernelAccess, signedActivityAccess,
   subscribeSignedAccessInvalidation,
   trustedKernelBootstrap, isolatedKernelRequired = false,
+  trustedSelectedContext,
 }: AppProps = {}) {
   const host = useHostConfig();
   const [activation, setActivation] = useState<Activation | null>(null);
@@ -113,6 +118,7 @@ export default function App({
       devBootstrap={activation.devBootstrap}
       trustedKernelBootstrap={trustedKernelBootstrap}
       isolatedKernelRequired={isolatedKernelRequired}
+      trustedSelectedContext={trustedSelectedContext}
       requireSignedOwner={requireSignedOwner}
       signedKernelAccess={signedKernelAccess}
       signedActivityAccess={signedActivityAccess}

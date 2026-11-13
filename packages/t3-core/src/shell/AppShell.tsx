@@ -60,6 +60,9 @@ export interface AppShellProps {
   trustedKernelBootstrap?: KernelBootstrap;
   /** If true, no raw same-origin T2 loader fallback is ever permitted. */
   isolatedKernelRequired?: boolean;
+  trustedSelectedContext?: (operation:string)=>Promise<{
+    kind:"CORP";workspace_id:string;resource:string;
+  }|null>;
   /** Trusted entrypoint opts into signed D1 as a non-downgradeable requirement. */
   requireSignedOwner?: boolean;
   /** Trusted, compile-time D1 owner. Never extracted from the page or archive. */
@@ -103,6 +106,7 @@ export function AppShell(props: AppShellProps) {
     devBootstrap,
     trustedKernelBootstrap,
     isolatedKernelRequired = false,
+    trustedSelectedContext,
     requireSignedOwner = false,
     signedKernelAccess,
     signedActivityAccess,
@@ -111,8 +115,13 @@ export function AppShell(props: AppShellProps) {
   // Absence of a required original signed owner is a DENIED state, never an
   // invitation to use an unsigned T2 facade. The binding itself remains the
   // same original D1 Access owner, supplied by the trusted compiled Host.
-  const selectedSignedKernelAccess = signedKernelAccess ??
-    (requireSignedOwner || isolatedKernelRequired ? MISSING_REQUIRED_SIGNED_OWNER : undefined);
+  // The original signed JIT lives behind the isolated RPC port. Never
+  // wrap its already-authorized T2 session with an unsigned UI-side owner.
+  const selectedSignedKernelAccess = isolatedKernelRequired
+    ? undefined : signedKernelAccess ??
+      (requireSignedOwner ? MISSING_REQUIRED_SIGNED_OWNER : undefined);
+  const signedOwnerRequired = requireSignedOwner || isolatedKernelRequired ||
+    selectedSignedKernelAccess !== undefined;
 
   const serviceId = hostWorkspace.workspace_service_id;
   // This explicit trusted-Host flag prevents a failed isolated connection from
@@ -164,8 +173,9 @@ export function AppShell(props: AppShellProps) {
           profileId={profileId}
           profileDefinition={profileDefinition}
           profileFallback={profileFallback}
-          signedOwnerRequired={selectedSignedKernelAccess !== undefined}
+          signedOwnerRequired={signedOwnerRequired}
           signedKernelAccess={selectedSignedKernelAccess}
+          trustedSelectedContext={trustedSelectedContext}
         />
       </AppShellRuntimeBridge>
     </DomainShellProvider>
@@ -184,6 +194,9 @@ interface HostShellContentProps {
   profileFallback: boolean;
   signedOwnerRequired: boolean;
   signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
+  trustedSelectedContext?: (operation:string)=>Promise<{
+    kind:"CORP";workspace_id:string;resource:string;
+  }|null>;
 }
 
 /**
@@ -193,7 +206,7 @@ interface HostShellContentProps {
  * through `useWorkspaceHostRuntimeHandle` — no legacy routing state.
  */
 function HostShellContent(props: HostShellContentProps) {
-  const { host, hostDomain, hostWorkspace, devBootstrap, state, onRetry, profileId, profileDefinition, profileFallback, signedOwnerRequired, signedKernelAccess } = props;
+  const { host, hostDomain, hostWorkspace, devBootstrap, state, onRetry, profileId, profileDefinition, profileFallback, signedOwnerRequired, signedKernelAccess, trustedSelectedContext } = props;
   const runtimeState = useWorkspaceHostRuntime();
   const runtime = runtimeState.status === "ready" ? runtimeState.runtime : null;
   const { terminology, layout, accessibility } = useDomainShell();
@@ -348,7 +361,8 @@ function HostShellContent(props: HostShellContentProps) {
               </div>
             ) : (
               <SignedSelectedWorkspaceGate required={signedOwnerRequired} kernel={kernel}
-                profile={profileId} signedKernelAccess={signedKernelAccess}>
+                profile={profileId} signedKernelAccess={signedKernelAccess}
+                 trustedSelectedContext={trustedSelectedContext}>
                 {productFirst && <HostPanelSurface slot="sidebar" />}
                 <HostDashboardSurface />
                 <ModuleRouteOutlet

@@ -14,12 +14,15 @@ const denied=(code:string)=>Object.assign(new Error(code),{code});
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 
 export function SignedSelectedWorkspaceGate({
-  required,kernel,profile,signedKernelAccess,children,
+  required,kernel,profile,signedKernelAccess,trustedSelectedContext,children,
 }:{
   required:boolean;
   kernel:KernelFacade|null;
   profile?:string;
   signedKernelAccess?:SignedResolver;
+  trustedSelectedContext?: (operation:string)=>Promise<{
+    kind:"CORP";workspace_id:string;resource:string;
+  }|null>;
   children:ReactNode;
 }){
   const [inspection,setInspection]=useState<Inspection>({kernel:null,phase:"checking"});
@@ -52,19 +55,24 @@ export function SignedSelectedWorkspaceGate({
   const phase=kernel&&inspection.kernel===kernel?inspection.phase:"checking";
   const refresh=useCallback(()=>setRetry(n=>n+1),[]);
   const create=useCallback(async()=>{
-    if(!required||!kernel||!signedKernelAccess||running.current||
-       phase!=="missing")return;
+    if(!required||!kernel||(!signedKernelAccess&&!trustedSelectedContext)||
+       running.current||phase!=="missing")return;
     const ticket=generation.current;
     running.current=true;setBusy(true);setCreateError(null);
     try{
       // Authority lives only in the original Control AccessRegistry.
       // Resolving a port does not grant a right; the actual createWorkspace
       // call below still performs JIT through the signed KernelFacade.
-      const port=typeof signedKernelAccess==="function"
-        ? await signedKernelAccess("createWorkspace"):signedKernelAccess;
-      if(!port)throw denied("T3_D1_WORKSPACE_CREATE_GRANT_REQUIRED");
-      const context=await port.currentContext() as
-        {kind?:unknown;workspace_id?:unknown;resource?:unknown}|null;
+      const context=trustedSelectedContext
+        ? await trustedSelectedContext("createWorkspace")
+        : await (async()=>{
+            const port=typeof signedKernelAccess==="function"
+              ? await signedKernelAccess("createWorkspace"):signedKernelAccess;
+            if(!port)return null;
+            return await port.currentContext() as {
+              kind?:unknown;workspace_id?:unknown;resource?:unknown}|null;
+          })();
+      if(!context)throw denied("T3_D1_WORKSPACE_CREATE_GRANT_REQUIRED");
       const selected=context?.workspace_id;
       if(context?.kind!=="CORP"||typeof selected!=="string"||
          !ID.test(selected)||context.resource!==selected)
@@ -105,7 +113,7 @@ export function SignedSelectedWorkspaceGate({
       running.current=false;
       if(ticket===generation.current)setBusy(false);
     }
-  },[required,kernel,signedKernelAccess,profile,phase]);
+  },[required,kernel,signedKernelAccess,trustedSelectedContext,profile,phase]);
 
   if(!required)return <>{children}</>;
   if(phase==="ready")return <>{children}</>;
@@ -124,7 +132,8 @@ export function SignedSelectedWorkspaceGate({
           </p>
           {createError&&<p role="alert" data-testid="t3-d1-create-workspace-error"
             className="text-sm text-amber-300">{createError}</p>}
-          {phase==="missing"&&signedKernelAccess&&kernel?.hasOperation("t1.createWorkspace")&&(
+          {phase==="missing"&&(signedKernelAccess||trustedSelectedContext)&&
+            kernel?.hasOperation("t1.createWorkspace")&&(
             <button type="button" data-testid="t3-d1-create-selected-workspace"
               onClick={()=>void create()} disabled={busy}
               className="rounded border px-3 py-2 text-sm disabled:opacity-50">
