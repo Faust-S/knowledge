@@ -20,6 +20,7 @@ on:
       - work/2026-11-13-t3-d1-three-subject-session
       - work/2026-11-13-t3-d1-native-context-menu
       - work/2026-11-13-t3-d1-control-bearer-rotation
+      - work/2026-11-13-t3-d1-single-control-session-binding
     paths:
       - packages/t3-core/src/t3/activity/**
       - packages/t3-core/**
