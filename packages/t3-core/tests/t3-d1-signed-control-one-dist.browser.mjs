@@ -176,6 +176,8 @@ try{
   assert.match(await signed.getByTestId('t3-signed-control-reconnect').innerText(),
     /Откройте Workspace.*повторно/i);
   assert.deepEqual(pageErrors,[]);
+  assert.equal(await signed.evaluate(()=>typeof globalThis.IWXA),'undefined',
+    'T3_D1_CONTROL_ABSENT_MUST_NOT_BOOT_RAW_T2_KERNEL');
   console.log('T3_D1_ACTUAL_ONE_DIST_ORIGINAL_HTTP_PASS',JSON.stringify({
     originalKernel:'0.3.6',runtimeContract:'1.3.0',
     originalLoaderSha256:assembled.original_loader_sha256,
