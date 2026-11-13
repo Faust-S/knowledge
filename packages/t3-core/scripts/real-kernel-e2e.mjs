@@ -73,7 +73,10 @@ function mime(p) {
   return "application/octet-stream";
 }
 
-export function serveRealKernelHost(root, { independentWitness = false, previewOrigin = false, controlHandler = null } = {}) {
+export function serveRealKernelHost(root, { independentWitness = false, previewOrigin = false,
+  controlHandler = null, listenPort = 0 } = {}) {
+  if (!Number.isSafeInteger(listenPort) || listenPort < 0 || listenPort > 65535)
+    throw new Error("T3_QUALIFIED_HOST_LISTEN_PORT_INVALID");
   const { key, cert } = loadLoopbackTlsMaterial();
   const server = createServer({ key, cert }, async (req, res) => {
     try {
@@ -109,7 +112,7 @@ export function serveRealKernelHost(root, { independentWitness = false, previewO
   });
   return new Promise((resolveListen, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
+    server.listen(listenPort, "127.0.0.1", () => {
       const address = server.address();
       if (!address || typeof address === "string") return reject(new Error("REAL_KERNEL_SERVER_ADDRESS_INVALID"));
       resolveListen({ server, origin: `https://127.0.0.1:${address.port}` });
