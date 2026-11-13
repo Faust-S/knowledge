@@ -72,6 +72,12 @@ const native=prepareAgent05OllamaCandidate({
     local_models:[{name:A.name,digest:A.digest},{name:B.name,digest:B.digest}]},
   trustedInventoryRef:'host:explicit-configured-source',nowMs:108,
 });
+const expectedContextSnapshot={taskId,snapshotId:'CSN-contract-vector',
+  snapshotDigest:'d'.repeat(64),contextBinding:context};
+const contextObservation={taskId,observedAtMs:106,maxAgeMs:1000,
+  status:{snapshot_id:expectedContextSnapshot.snapshotId,
+    snapshot_digest:expectedContextSnapshot.snapshotDigest,state:'FRESH',
+    integrity:[],reasons:[],unverifiable:[]}};
 const owner=prepareAgent05OwnerRequestDraft({
   nativeCandidate:native,trustedScopedPlanDigest:native.scopedPlanPreview.planDigest,
   nativeDescriptor:provider('OLLAMA_LOCAL_V1',B,120),
@@ -83,7 +89,8 @@ const owner=prepareAgent05OwnerRequestDraft({
     operatingSystem:'Windows 11',runtimeVersion:'independent-native-trial-v1',
     passed:9,attempts:10,proofRef:'synthetic:native-observations-not-alias'}],
   step:stages[1].step,environment:{operatingSystem:'Windows 11'},
-  taskId,requirementId:'write',
+  taskId,requirementId:'write',expectedTaskContextSnapshot:expectedContextSnapshot,
+  taskContextObservation:contextObservation,nowMs:108,
 });
 process.stdout.write(JSON.stringify({
   schema:'IWXA.K02.AGENT05_NATIVE_CANDIDATE_VECTOR/0.1.0',

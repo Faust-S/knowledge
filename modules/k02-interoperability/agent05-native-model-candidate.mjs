@@ -172,6 +172,8 @@ export function prepareAgent05OllamaCandidate({
       nativeCapabilityDigest:translated.capabilityDigest,
       nativeBindingDigest:trustedNativeBindingDigest,
       inventoryRef:trustedInventoryRef,
+      contextBinding:{ref:sourceContext.ref,digest:sourceContext.digest,
+        transferred:false},
       originalK02PlanDigest:trustedPlanDigest,
       originalRecommendationDigest:trustedRecommendationDigest,
       scopedPlanPreview:nativePlanPreview,

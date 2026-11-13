@@ -29,6 +29,52 @@ function fixedPlan(plan,trusted){
   const body={...plan};delete body.planDigest;
   if(digest(body)!==trusted)invalid('native_scoped_plan_changed');
 }
+
+// Optional, bounded readback of the ACTUAL Agent K01 context_snapshot_status.
+// This only consumes an existing Core observation; P01 must obtain it under
+// the current Task's saved snapshot list and recheck before an action.
+// A fresh status cannot transfer sources or grant authority.
+function checkTaskContextCurrentness(candidate,taskId,expected,observation,nowMs){
+  if(expected===null&&observation===null)
+    return {ok:true,reason:null,status:'NOT_ATTESTED'};
+  if(!rec(expected)||!rec(observation)||
+     !rec(expected.contextBinding)||!rec(candidate.contextBinding)||
+     !rec(observation.status)||!Number.isSafeInteger(nowMs)||
+     !Number.isSafeInteger(observation.observedAtMs)||
+     observation.observedAtMs<0||
+     !Number.isSafeInteger(observation.maxAgeMs)||
+     observation.maxAgeMs<1||observation.maxAgeMs>10000)
+    return {ok:false,reason:'CONTEXT_CURRENTNESS_BINDING_INCOMPLETE'};
+  if(expected.taskId!==taskId||observation.taskId!==taskId||
+     typeof expected.snapshotId!=='string'||
+     !/^CSN-[A-Za-z0-9_-]+$/.test(expected.snapshotId)||
+     !HEX.test(expected.snapshotDigest??'')||
+     expected.contextBinding.ref!==candidate.contextBinding.ref||
+     expected.contextBinding.digest!==candidate.contextBinding.digest||
+     candidate.contextBinding.transferred!==false)
+    return {ok:false,reason:'CONTEXT_TASK_OR_BINDING_CHANGED'};
+  if(nowMs<observation.observedAtMs||
+     nowMs-observation.observedAtMs>observation.maxAgeMs)
+    return {ok:false,reason:'CONTEXT_OBSERVATION_TOO_OLD'};
+  const core=observation.status;
+  if(core.snapshot_id!==expected.snapshotId||
+     core.snapshot_digest!==expected.snapshotDigest)
+    return {ok:false,reason:'CONTEXT_SNAPSHOT_CHANGED'};
+  if(!Array.isArray(core.integrity)||!Array.isArray(core.reasons)||
+     !Array.isArray(core.unverifiable)||
+     !['FRESH','STALE','INTEGRITY_FAIL','UNVERIFIABLE'].includes(core.state))
+    return {ok:false,reason:'CONTEXT_STATUS_INVALID'};
+  if(core.state==='INTEGRITY_FAIL'||core.integrity.length)
+    return {ok:false,reason:'CONTEXT_INTEGRITY_FAIL'};
+  if(core.state==='STALE'||core.reasons.length)
+    return {ok:false,reason:'CONTEXT_STALE'};
+  if(core.state==='UNVERIFIABLE'||core.unverifiable.length)
+    return {ok:false,reason:'CONTEXT_UNVERIFIABLE'};
+  if(core.state!=='FRESH')
+    return {ok:false,reason:'CONTEXT_STATUS_INVALID'};
+  return {ok:true,reason:null,status:'FRESH_OBSERVED_NOT_OWNER_ATTESTED'};
+}
+
 function safeTrialRows(rows,pin,providerId,profile,step,environment){
   // Do not relabel alias evidence as native evidence. The native provider's
   // independent observation must already exist in the host's evidence feed.
@@ -91,6 +137,7 @@ export function prepareAgent05OwnerRequestDraft({
   step,environment,taskId,requirementId,
   nativeTrialObservation=null,trustedNativeTrialSourceRef=null,
   expectedTrialTaskKey=null,
+  expectedTaskContextSnapshot=null,taskContextObservation=null,nowMs=null,
 }){
   if(!rec(nativeCandidate)||nativeCandidate.schema!==AGENT05_OLLAMA_CANDIDATE_VERSION||
      !TASK.test(taskId??'')||!NAME.test(requirementId??''))
@@ -108,6 +155,9 @@ export function prepareAgent05OwnerRequestDraft({
   if(nativeCandidate.taskId!==taskId||nativeCandidate.requirementId!==requirementId||
      nativeCandidate.nativeProviderId!=='OLLAMA_LOCAL_V1')
     return state('OWNER_REQUEST_HOLD','NATIVE_CANDIDATE_SCOPE_CHANGED');
+  const currentness=checkTaskContextCurrentness(nativeCandidate,taskId,
+    expectedTaskContextSnapshot,taskContextObservation,nowMs);
+  if(!currentness.ok)return state('OWNER_REQUEST_HOLD',currentness.reason);
   fixedPlan(nativeCandidate.scopedPlanPreview,trustedScopedPlanDigest);
   const snapshot=nativeCandidate.scopedPlanPreview;
   if(snapshot.taskId!==taskId||snapshot.steps?.length!==1||
@@ -196,6 +246,7 @@ export function prepareAgent05OwnerRequestDraft({
     taskId,requirementId,nativeProviderId:'OLLAMA_LOCAL_V1',
     selectedModelPin:{...nativeCandidate.modelPin},
     expectedOwnerPlanDigest:trustedScopedPlanDigest,
+    contextCurrentness:currentness.status,
     evidenceBasis:'HOST_SUPPLIED_NATIVE_OBSERVATIONS_NOT_AGENT_ATTESTATION',
     fullTaskPlanUsable:false,
     requiredNextActions:[

@@ -442,3 +442,75 @@ test('trial from another exact Task cannot veto the current Agent 0.5 stage',()=
   });
   assert.equal(noCurrentTaskKey.reason,'NATIVE_TRIAL_SCOPE_NOT_BOUND');
 });
+
+const CURRENT_SNAPSHOT={
+  taskId:TASK_ID,snapshotId:'CSN-k02-context-01',
+  snapshotDigest:'d'.repeat(64),contextBinding:CONTEXT,
+};
+const freshContext=(state='FRESH')=>({
+  taskId:TASK_ID,observedAtMs:NOW+25,maxAgeMs:1000,
+  status:{snapshot_id:CURRENT_SNAPSHOT.snapshotId,
+    snapshot_digest:CURRENT_SNAPSHOT.snapshotDigest,
+    state,
+    integrity:state==='INTEGRITY_FAIL'?[{kind:'snapshot_source_binding_mismatch'}]:[],
+    reasons:state==='STALE'?[{kind:'knowledge_source_changed',ref_id:'source.md'}]:[],
+    unverifiable:state==='UNVERIFIABLE'?[{kind:'web_currentness_not_replayed'}]:[],
+  },
+});
+test('Agent K01 FRESH readback permits only a non-executing K02 owner request draft',()=>{
+  const actual=ownerDraft(undefined,{
+    expectedTaskContextSnapshot:CURRENT_SNAPSHOT,
+    taskContextObservation:freshContext(),
+    nowMs:NOW+30,
+  });
+  assert.equal(actual.status,'OWNER_REQUEST_DRAFT_NOT_EXECUTED');
+  assert.equal(actual.contextCurrentness,'FRESH_OBSERVED_NOT_OWNER_ATTESTED');
+  assert.equal(actual.ownerExecuted,false);
+  assert.equal(actual.ownerReceiptsVerified,false);
+  assert.equal(actual.resultProduced,false);
+  assert.equal(actual.hostAuthorityGranted,false);
+});
+test('stale, unverifiable or corrupt K01 saved context blocks model owner draft',()=>{
+  for(const [state,reason] of [
+    ['STALE','CONTEXT_STALE'],
+    ['UNVERIFIABLE','CONTEXT_UNVERIFIABLE'],
+    ['INTEGRITY_FAIL','CONTEXT_INTEGRITY_FAIL'],
+  ]){
+    const denied=ownerDraft(undefined,{
+      expectedTaskContextSnapshot:CURRENT_SNAPSHOT,
+      taskContextObservation:freshContext(state),nowMs:NOW+30,
+    });
+    assert.equal(denied.reason,reason);
+    assert.equal(denied.status,'OWNER_REQUEST_HOLD');
+    assert.equal(denied.ownerRequest,null);
+  }
+});
+test('stale Core readback cannot be reused and another snapshot/task cannot be laundered',()=>{
+  const updates=[
+    [{taskId:TASK_ID,snapshotId:'CSN-unrelated',
+      snapshotDigest:'d'.repeat(64),contextBinding:CONTEXT},
+      freshContext(),NOW+30,'CONTEXT_SNAPSHOT_CHANGED'],
+    [CURRENT_SNAPSHOT,{...freshContext(),taskId:'TASK-other'},NOW+30,
+      'CONTEXT_TASK_OR_BINDING_CHANGED'],
+    [CURRENT_SNAPSHOT,{...freshContext(),observedAtMs:NOW-1500},NOW+30,
+      'CONTEXT_OBSERVATION_TOO_OLD'],
+    [CURRENT_SNAPSHOT,{...freshContext(),observedAtMs:NOW+100},NOW+30,
+      'CONTEXT_OBSERVATION_TOO_OLD'],
+    [{...CURRENT_SNAPSHOT,contextBinding:{...CONTEXT,digest:'e'.repeat(64)}},
+      freshContext(),NOW+30,'CONTEXT_TASK_OR_BINDING_CHANGED'],
+    [CURRENT_SNAPSHOT,{...freshContext(),status:{
+      ...freshContext().status,snapshot_digest:'e'.repeat(64)}},
+      NOW+30,'CONTEXT_SNAPSHOT_CHANGED'],
+  ];
+  for(const [expected,observation,nowMs,reason] of updates){
+    assert.equal(ownerDraft(undefined,{expectedTaskContextSnapshot:expected,
+      taskContextObservation:observation,nowMs}).reason,reason);
+  }
+});
+test('partial K01 currentness information never silently means FRESH',()=>{
+  assert.equal(ownerDraft(undefined,{expectedTaskContextSnapshot:CURRENT_SNAPSHOT}).reason,
+    'CONTEXT_CURRENTNESS_BINDING_INCOMPLETE');
+  assert.equal(ownerDraft(undefined,{taskContextObservation:freshContext(),
+    nowMs:NOW+30}).reason,'CONTEXT_CURRENTNESS_BINDING_INCOMPLETE');
+  assert.equal(ownerDraft().contextCurrentness,'NOT_ATTESTED');
+});

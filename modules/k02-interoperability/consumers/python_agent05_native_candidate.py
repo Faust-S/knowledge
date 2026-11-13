@@ -47,6 +47,9 @@ def check(data: dict) -> dict:
     assert output["fullTaskPlanUsable"] is False
     assert output["perStepPinConfirmationRequired"] is True
     assert output["globallySelectedModelMatches"] is False
+    assert output["contextBinding"] == {
+        "ref": data["context"]["ref"], "digest": data["context"]["digest"],
+        "transferred": False}
     assert output["nativeOwnerAction"] == "REPLAN_WITH_PINNED_K02_K04_OWNER_CLI"
     assert output["nativeOwnerPreflightRequired"] is True
     native_plan = output["scopedPlanPreview"]
@@ -73,6 +76,7 @@ def check(data: dict) -> dict:
     draft = data["owner"]
     assert draft["schema"] == "IWXA.K02.AGENT05_OWNER_REQUEST_DRAFT/0.1.0"
     assert draft["status"] == "OWNER_REQUEST_DRAFT_NOT_EXECUTED"
+    assert draft["contextCurrentness"] == "FRESH_OBSERVED_NOT_OWNER_ATTESTED"
     assert draft["ownerExecuted"] is False
     assert draft["ownerReceiptsVerified"] is False
     assert draft["hostAuthorityGranted"] is False
