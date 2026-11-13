@@ -2,9 +2,14 @@
 // the Activity review UI. The original Kernel, signed grants, D1 and D2 remain
 // entirely within the owner Host; this module neither issues nor stores rights.
 import {inspectSelectedT3Activity, T3ActivityHold} from './t3-selected-host.mjs';
+import {createTrustedT3ActivityStagePort} from './t3-owner-review-stage.mjs';
 
 const need=(condition,code)=>{if(!condition)throw new T3ActivityHold(code);};
 const callable=(value,keys)=>value && keys.every(key=>typeof value[key]==='function');
+const record=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
+const safeStageError=error=>new T3ActivityHold(
+  error instanceof T3ActivityHold && /^T3_[A-Z0-9_]{2,100}$/.test(error.code??'')
+    ? error.code : 'T3_CONTROL_ACTIVITY_STAGE_REFUSED');
 
 // Run in the existing trusted T3 Host, not in the Tauri/WebView renderer.
 // `control` is the original openMultiOrganizationControl owner; `context` is
@@ -12,14 +17,26 @@ const callable=(value,keys)=>value && keys.every(key=>typeof value[key]==='funct
 // is the existing original T3 factory, not a new authority or issuer.
 export function bindT3ControlActivityReview({
   control, context, bindings, createSignedAccessHostPort,
-  readActivityFromWorkspaceContext,
+  readActivityFromWorkspaceContext,derivation=null,
 }={}) {
   need(callable(control,['snapshot','signedActivityAccess','subscribeInvalidation']) &&
     callable(context?.currentWorkspace,['get','subscribe']) &&
     typeof createSignedAccessHostPort==='function' &&
     typeof readActivityFromWorkspaceContext==='function' && context?.kernel,
     'T3_CONTROL_ORIGINAL_HOST_REQUIRED');
-  let generation=0,closed=false;
+  // Optional derivation is supplied only by a trusted existing T3 Host:
+  // separate source/target grants, one Kernel, no invented Authority.
+  if (derivation!==null) {
+    need(record(derivation) &&
+      callable(derivation.targetContext?.currentWorkspace,['get','subscribe']) &&
+      derivation.targetContext.kernel===context.kernel &&
+      callable(derivation.targetSignedAccess,['currentContext','actionFor',
+        'authorize','verifyDecisionBinding','operationDigest']) &&
+      typeof derivation.createSubjectKernelBinding==='function' &&
+      typeof derivation.subscribeOwnerInvalidation==='function',
+      'T3_CONTROL_DERIVATION_OWNER_REQUIRED');
+  }
+  let generation=0,closed=false,stagePending=false;
   const listeners=new Set();
   const invalidate=()=>{
     generation++;
@@ -27,15 +44,23 @@ export function bindT3ControlActivityReview({
       try{listener();}catch{/* A UI subscriber cannot change T3 authority. */}
     }
   };
-  let stopOwner=null,stopWorkspace=null;
+  let stopOwner=null,stopWorkspace=null,stopDeriveOwner=null,stopTarget=null;
   try {
     stopOwner=control.subscribeInvalidation(invalidate);
     stopWorkspace=context.currentWorkspace.subscribe(invalidate);
     need(typeof stopOwner==='function' && typeof stopWorkspace==='function',
       'T3_CONTROL_OWNER_INVALIDATION_REQUIRED');
+    if(derivation!==null){
+      stopDeriveOwner=derivation.subscribeOwnerInvalidation(invalidate);
+      stopTarget=derivation.targetContext.currentWorkspace.subscribe(invalidate);
+      need(typeof stopDeriveOwner==='function'&&typeof stopTarget==='function',
+        'T3_CONTROL_DERIVATION_INVALIDATION_REQUIRED');
+    }
   } catch {
     try{stopOwner?.();}catch{}
     try{stopWorkspace?.();}catch{}
+    try{stopDeriveOwner?.();}catch{}
+    try{stopTarget?.();}catch{}
     throw new T3ActivityHold('T3_CONTROL_OWNER_INVALIDATION_REQUIRED');
   }
   const snapshot=()=>{
@@ -58,7 +83,7 @@ export function bindT3ControlActivityReview({
       let signed;
       try {
         // Fresh signed DATA Activity Read for *this* selected subject.
-        signed=control.signedActivityAccess(createSignedAccessHostPort);
+        signed=await control.signedActivityAccess(createSignedAccessHostPort);
       } catch {
         throw new T3ActivityHold('T3_CONTROL_ACTIVITY_READ_NOT_GRANTED');
       }
@@ -76,6 +101,46 @@ export function bindT3ControlActivityReview({
         'T3_CONTROL_CONTEXT_CHANGED_DURING_READ');
       return review;
     },
+    ...(derivation!==null ? {
+      async stageSelected() {
+        need(!closed,'T3_CONTROL_HOST_DETACHED');
+        need(!stagePending,'T3_CONTROL_ACTIVITY_STAGE_IN_PROGRESS');
+        stagePending=true;
+        const epoch=generation;
+        const selected=context.currentWorkspace.get();
+        const targetSelected=derivation.targetContext.currentWorkspace.get();
+        let before=null,started=false;
+        try{
+          before=snapshot();
+          const sourceSignedAccess=await control.signedActivityAccess(createSignedAccessHostPort);
+          need(sourceSignedAccess&&!closed&&epoch===generation,
+            'T3_CONTROL_ACTIVITY_READ_NOT_GRANTED');
+          // The trusted owner retains source/target Kernel, signed grants,
+          // context selection, event evidence and possible lost-ack IDs.
+          const ownerStage=createTrustedT3ActivityStagePort({
+            sourceContext:context,sourceSignedAccess,
+            targetContext:derivation.targetContext,
+            targetSignedAccess:derivation.targetSignedAccess,
+            bindings,readActivityFromWorkspaceContext,
+            createSubjectKernelBinding:derivation.createSubjectKernelBinding,
+          });
+          started=true;
+          const receipt=await ownerStage.stageSelected();
+          const after=snapshot();
+          need(!closed&&generation===epoch&&
+            after.contextId===before.contextId&&
+            after.contextEpoch===before.contextEpoch&&
+            context.currentWorkspace.get()===selected&&
+            derivation.targetContext.currentWorkspace.get()===targetSelected,
+            'T3_ACTIVITY_WRITE_MAY_HAVE_COMMITTED');
+          return receipt; // {status,readback,export_allowed}, no identifiers.
+        }catch(error){
+          if(started&&(closed||generation!==epoch))
+            throw new T3ActivityHold('T3_ACTIVITY_WRITE_MAY_HAVE_COMMITTED');
+          throw safeStageError(error);
+        }finally{stagePending=false;}
+      },
+    } : {}),
     subscribeInvalidation(listener){
       need(!closed && typeof listener==='function',
         'T3_CONTROL_OWNER_INVALIDATION_REQUIRED');
@@ -89,6 +154,7 @@ export function bindT3ControlActivityReview({
       if(closed)return;
       closed=true;invalidate();listeners.clear();
       stopOwner();stopWorkspace();
+      stopDeriveOwner?.();stopTarget?.();
     },
   });
 }

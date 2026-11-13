@@ -238,10 +238,19 @@ export function createTrustedT3ActivityStagePort(config) {
   need(good(config),'T3_ACTIVITY_STAGE_OWNER_REQUIRED');
   return Object.freeze({
     async stageSelected() {
-      const receipt=await stageSelectedT3ActivityReview({...config,explicitSave:true});
-      need(receipt.status==='OWNER_REVIEW_DRAFT'&&receipt.readback===true&&
-        receipt.export_allowed===false,'T3_ACTIVITY_ORIGINAL_READBACK_INVALID');
-      return Object.freeze({status:'OWNER_REVIEW_DRAFT',readback:true,export_allowed:false});
+      try{
+        const receipt=await stageSelectedT3ActivityReview({...config,explicitSave:true});
+        need(receipt.status==='OWNER_REVIEW_DRAFT'&&receipt.readback===true&&
+          receipt.export_allowed===false,'T3_ACTIVITY_ORIGINAL_READBACK_INVALID');
+        return Object.freeze({status:'OWNER_REVIEW_DRAFT',readback:true,export_allowed:false});
+      }catch(error){
+        // A lost-ack error can carry an internal object_id; it must never
+        // cross the renderer boundary or become an export identifier.
+        const code=error instanceof T3ActivityHold &&
+          /^T3_[A-Z0-9_]{2,100}$/.test(error.code??'')
+          ? error.code : 'T3_ACTIVITY_STAGE_REFUSED';
+        throw new T3ActivityHold(code);
+      }
     },
   });
 }
