@@ -18,6 +18,7 @@ on:
       - work/2026-11-13-t3-d1-native-control-webview2
       - work/2026-11-13-t3-d1-installed-windows-signed-owner
       - work/2026-11-13-t3-d1-three-subject-session
+      - work/2026-11-13-t3-d1-native-context-menu
     paths:
       - packages/t3-core/src/t3/activity/**
       - packages/t3-core/**
@@ -260,6 +261,7 @@ jobs:
         run: |
           node --check packages/t3-core/src/t3/installed-original-control-host.mjs
           node --test packages/t3-core/tests/t3-d1-installed-original-control-host.test.mjs
+          node --test packages/t3-core/tests/t3-d1-installed-subject-session.test.mjs
       - name: Qualify native WebView2 URL admission and denied fallback in Rust
         run: cargo test --manifest-path packages/t3-core/native-control/src-tauri/Cargo.toml --release
       - name: Compile actual Windows Tauri WebView2 Control executable
