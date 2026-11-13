@@ -15,7 +15,8 @@ import {materializeIntegrationHost,serveRealKernelHost}
   from "../scripts/real-kernel-e2e.mjs";
 import {assertQualifiedKernelArtifact}
   from "../src/factory2/products/domain-completion/independent-browser-witness.mjs";
-import {readStoredZip,createStoredZip} from "../scripts/zip-store.mjs";
+import {createStoredZip} from "../scripts/zip-store.mjs";
+import {execFileSync} from "node:child_process";
 import {createSubjectKernelBinding}
   from "../src/t3/subject-access-binding.mjs";
 import {createTemporaryOriginalPersonalAuthority}
@@ -260,8 +261,18 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       // never a replacement runtime importer or a new package format.
       // The original Kernel must reject unsupported versions and entries
       // escaping the archive root BEFORE exposing any preview/commit token.
-      const originalEntries=[...readStoredZip(Buffer.from(saved.archiveBytes))]
-        .map(([name,bytes])=>({name,bytes}));
+      const archiveFile=join(root,"original-export.iwxa");
+      writeFileSync(archiveFile,Uint8Array.from(saved.archiveBytes));
+      // CI fixture builder only: Ubuntu's existing unzip reads the original
+      // DEFLATE archive. The production parser remains original Kernel 0.3.6.
+      const names=execFileSync("unzip",["-Z1",archiveFile],{
+        encoding:"utf8",timeout:10000,
+      }).trim().split(/\r?\n/).filter(Boolean);
+      const originalEntries=names.map(name=>({
+        name,bytes:execFileSync("unzip",["-p",archiveFile,name],{
+          timeout:10000,maxBuffer:16*1024*1024,
+        }),
+      }));
       const manifestEntry=originalEntries.find(x=>x.name==="manifest.json");
       assert.ok(manifestEntry,"original T2 .iwxa must contain manifest.json");
       const manifest=JSON.parse(manifestEntry.bytes.toString("utf8"));
