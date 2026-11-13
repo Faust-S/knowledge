@@ -71,8 +71,12 @@ export function createT3ReviewController({host, onUpdate} = {}) {
   }
   let generation = 0;
   let detached = false;
+  let currentReview = null;
+  let stagePending = false;
   const invalidate = () => {
     generation += 1;
+    currentReview = null;
+    stagePending = false;
     if (!detached) onUpdate({status: 'READY_TO_READ', review: null});
   };
   let unowner;
@@ -86,11 +90,14 @@ export function createT3ReviewController({host, onUpdate} = {}) {
   return Object.freeze({
     async readSelected() {
       if (detached) return {status: 'DETACHED'};
+      if (stagePending) return {status: 'INVALIDATED'};
+      currentReview = null;
       const id = ++generation;
       onUpdate({status: 'READING', review: null});
       try {
         const review = acceptedReview(await host.readSelected());
         if (detached || id !== generation) return {status: 'INVALIDATED'};
+        currentReview = review;
         onUpdate({status: 'REVIEW', review});
         return {status: 'REVIEW'};
       } catch (error) {
@@ -99,11 +106,41 @@ export function createT3ReviewController({host, onUpdate} = {}) {
         return {status: 'HOLD'};
       }
     },
+    async stageSelected() {
+      if (detached) return {status: 'DETACHED'};
+      if (stagePending || !currentReview ||
+          typeof host.stageSelected !== 'function') return {status: 'UNAVAILABLE'};
+      const id = ++generation;
+      stagePending = true;
+      currentReview = null;
+      onUpdate({status: 'STAGING', review: null});
+      try {
+        const receipt = await host.stageSelected();
+        if (detached || id !== generation) return {status: 'INVALIDATED'};
+        // The UI must never receive source IDs, signed grants, source receipts
+        // or a purported permission to export from the Host.
+        if (!exact(receipt, ['status','readback','export_allowed']) ||
+            receipt.status !== 'OWNER_REVIEW_DRAFT' ||
+            receipt.readback !== true || receipt.export_allowed !== false) {
+          throw new T3ActivityHold('T3_HOST_STAGE_RESULT_UNVERIFIED');
+        }
+        onUpdate({status: 'STAGED', review: null});
+        return {status: 'STAGED'};
+      } catch (error) {
+        if (detached || id !== generation) return {status: 'INVALIDATED'};
+        onUpdate({status: 'HOLD', review: null, code: safeCode(error)});
+        return {status: 'HOLD'};
+      } finally {
+        stagePending = false;
+      }
+    },
     reset() { if (!detached) invalidate(); },
     dispose() {
       if (detached) return;
       detached = true;
       generation += 1;
+      currentReview = null;
+      stagePending = false;
       unowner();
     },
   });
