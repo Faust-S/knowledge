@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {createServer} from "node:http";
+import {createServer,request} from "node:http";
 import {mkdtempSync,mkdirSync,readFileSync,rmSync,writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {dirname,join} from "node:path";
@@ -95,8 +95,15 @@ test("migrated public source serves the same signed AppShell at the inherited ca
       const response=await fetch(ui+path);
       assert.equal(response.status,404,path);
     }
-    const wrongHost=await fetch(ui+"/workspace/",{headers:{Host:"localhost:9999"}});
-    assert.equal(wrongHost.status,403);
+    // undici fetch rewrites Host to the URL authority. A raw Node HTTP
+    // request is required to test the server's actual Host gate.
+    const wrongHost=await new Promise((resolve,reject)=>{
+      const req=request(ui+"/workspace/",{headers:{Host:"localhost:9999"}},res=>{
+        res.resume();resolve(res.statusCode);
+      });
+      req.once("error",reject);req.end();
+    });
+    assert.equal(wrongHost,403);
     assert.equal((await fetch(ui+"/workspace/",{method:"POST"})).status,405);
     await assert.rejects(()=>server.listen(),/ALREADY_STARTED/);
   }finally{
