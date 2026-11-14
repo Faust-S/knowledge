@@ -663,12 +663,18 @@ function originalSignedControlFixture(f,{grantDerive=true}={}){
     close(){try{controller?.close();}catch{}},
   };
 }
+const reviewerKernel=kernel=>Object.freeze({
+  ...kernel,
+  sessionInfo:Object.freeze({...kernel.sessionInfo,
+    service_id:'iwxa.activity.reviewer'}),
+});
 test('installed-shape original Control mounts Activity derive via ONE SSE and ONE selected Workspace',async()=>{
   const f=fixture();
   const c=originalSignedControlFixture(f);
   const bound=await openOriginalT3ActivityReviewHost({
     control:c.control,context:f.options.sourceContext,
     originalKernel:f.options.sourceContext.kernel,
+    reviewerKernel:reviewerKernel(f.options.sourceContext.kernel),
     bindings:f.options.bindings,
     readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
     createSubjectKernelBinding:core.createSubjectKernelBinding,
@@ -772,6 +778,7 @@ test('native T3 module signed facade must not substitute original Kernel for sec
   const bridge=await openOriginalT3ActivityReviewHost({
     control:c.control,context:fakeSourceBound,
     originalKernel:f.options.sourceContext.kernel,
+    reviewerKernel:reviewerKernel(f.options.sourceContext.kernel),
     bindings:f.options.bindings,
     readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
     createSubjectKernelBinding:core.createSubjectKernelBinding,
@@ -934,8 +941,11 @@ test('real T2 1.3.0 service is adapted to existing T3 binding without a second K
       ?f.options.sourceSignedAccess:f.options.targetSignedAccess,
     subscribeSignedAccessInvalidation:fn=>()=>{},
   };
+  const reviewerSession={...session,
+    service:{service_id:'iwxa.activity.reviewer'}};
   const view=await openActivityFromOriginalT2Host({
-    session,control,currentWorkspace:f.options.sourceContext.currentWorkspace,
+    session,reviewerSession,
+    control,currentWorkspace:f.options.sourceContext.currentWorkspace,
     bindings:f.options.bindings,
     readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
     createSubjectKernelBinding:core.createSubjectKernelBinding,
@@ -957,4 +967,66 @@ test('original T2 adapter refuses old runtime and incomplete service rather than
   assert.throws(()=>useOriginalT2ActivityKernelFacade({
     ...bare,runtime_version:'0.3.5',
   }),{code:'T3_ACTIVITY_ORIGINAL_T2_SERVICE_REQUIRED'});
+});
+
+test('source read-only original T2 service mounts Activity without a reviewer or write grant',async()=>{
+  const f=fixture(),raw=f.options.sourceContext.kernel;
+  const readSession={
+    contract_version:'1.3.0',runtime_version:'0.3.6',mode:'read-only',
+    service:{service_id:'iwxa.readonly.source'},
+    granted_operations:['t1.getWorkspace','t1.listObjects','t1.getObject',
+      't1.listEventsSince'],
+    t1:{
+      getWorkspace:id=>raw.getWorkspace(id),
+      listObjects:q=>raw.listObjects(q),
+      getObject:(ws,id)=>raw.getObject(ws,id),
+      listEventsSince:ws=>raw.listEventsSince(ws),
+    },
+  };
+  const facade=useOriginalT2ActivityKernelFacade(readSession);
+  assert.equal(facade.hasOperation('t1.putObject'),false);
+  assert.equal(Object.hasOwn(facade,'putObject'),false);
+  const signed={
+    requireSignedOwner:true,
+    signedActivityAccess:op=>op==='activity.read'
+      ?f.options.sourceSignedAccess:f.options.targetSignedAccess,
+    subscribeSignedAccessInvalidation:()=>()=>{},
+  };
+  const host=await openActivityFromOriginalT2Host({
+    session:readSession,control:signed,
+    currentWorkspace:f.options.sourceContext.currentWorkspace,
+    bindings:f.options.bindings,
+    readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
+    createSubjectKernelBinding:core.createSubjectKernelBinding,
+  });
+  const ui=createT3ReviewController({host:host.port,onUpdate:()=>{}});
+  try{
+    assert.equal((await ui.readSelected()).status,'REVIEW');
+    assert.equal((await ui.stageSelected()).status,'UNAVAILABLE');
+    assert.equal(f.state.writeCalls,0);
+    assert.equal(Object.hasOwn(host.port,'stageSelected'),false);
+  }finally{ui.dispose();host.dispose();}
+});
+
+test('malicious reviewer impersonation cannot convert an Activity read grant into a write',async()=>{
+  const f=fixture(),raw=f.options.sourceContext.kernel;
+  const original={contract_version:'1.3.0',runtime_version:'0.3.6',
+    mode:'full',service:{service_id:'iwxa.workspace.integration'},
+    granted_operations:['t1.getWorkspace','t1.listObjects','t1.getObject',
+      't1.listEventsSince','t1.putObject'],
+    t1:raw,
+  };
+  const invalid=[
+    {...original,service:{service_id:'iwxa.untrusted.writer'}},
+    {...original,service:{service_id:'iwxa.activity.reviewer'},
+      granted_operations:[...original.granted_operations,'t2.exportPackage']},
+    {...original,service:{service_id:'iwxa.activity.reviewer'},
+      granted_operations:[...original.granted_operations,'t1.deleteObject']},
+  ];
+  for(const reviewerSession of invalid){
+    await assert.rejects(openActivityFromOriginalT2Host({
+      session:original,reviewerSession,
+      currentWorkspace:f.options.sourceContext.currentWorkspace,
+    }),{code:'T3_ACTIVITY_REVIEWER_SERVICE_REQUIRED'});
+  }
 });
