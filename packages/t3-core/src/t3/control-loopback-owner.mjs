@@ -93,6 +93,50 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
     if(generation!==null)requireGeneration(generation);
     return body;
   };
+  // Reuse the EXACT existing signed HTTP session/epoch/SSE. D3 never gets
+  // the original Reconciler, signer, Ledger or Kernel in the UI origin.
+  const reconciliationRequest=async(verb,payload={})=>{
+    requireTransport();
+    const generation=selectionGeneration;
+    check(["available","receive","preview","accept","reject",
+      "inspectAcceptedApplication","applyAccepted"].includes(verb)&&
+      validObject(payload),"T3_D3_RECIPIENT_REQUEST_INVALID");
+    let bodyPayload=payload;
+    if(verb==="receive"){
+      const bytes=payload.bytes;
+      check(bytes instanceof Uint8Array&&bytes.byteLength>0&&
+        bytes.byteLength<=16*1024*1024,
+        "T3_D3_ORIGINAL_IWXA_BYTES_REQUIRED");
+      // Base64url is transport encoding only. Original .iwxa bytes are
+      // decoded unchanged by the existing native recipient owner.
+      const chunks=[];
+      for(let i=0;i<bytes.length;i+=8192)
+        chunks.push(String.fromCharCode(...bytes.subarray(i,i+8192)));
+      bodyPayload={archiveBase64url:btoa(chunks.join(""))
+        .replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/,"")};
+    }
+    const epoch=await getEpoch();
+    requireGeneration(generation);
+    const response=await fetchImpl(origin+"/api/t3/reconciliation",{
+      method:"POST",mode:"same-origin",cache:"no-store",credentials:"omit",
+      headers:{...auth,"Content-Type":"application/json",
+        "X-IWXA-Context-Epoch":String(epoch)},
+      body:JSON.stringify({verb,payload:bodyPayload}),
+    });
+    requireTransport();requireGeneration(generation);
+    if(!response.ok){
+      let code="T3_D3_ORIGINAL_RECIPIENT_DENIED";
+      try{const denied=await response.json();
+        if(typeof denied?.error==="string"&&/^[A-Z0-9_]{5,100}$/.test(denied.error))
+          code=denied.error;
+      }catch{/* No fallback, no automatic replay. */}
+      fail(code);
+    }
+    const result=await response.json();
+    requireTransport();requireGeneration(generation);
+    check(Object.hasOwn(result,"result"),"T3_D3_ORIGINAL_RECIPIENT_RESPONSE_INVALID");
+    return result.result;
+  };
   const select=async (scope,operation)=>{
     requireTransport();
     const generation=selectionGeneration;
@@ -219,5 +263,6 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
       return select("activity",operation??"activity.read");
     },
     subscribeSignedAccessInvalidation,
+    reconciliationRequest,
   });
 }
