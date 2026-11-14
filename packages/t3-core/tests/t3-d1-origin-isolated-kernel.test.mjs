@@ -130,3 +130,30 @@ test('trusted isolated realm accepts an exact PERSONAL selection and rejects a d
     }finally{client.close();receiver.close();}
   }
 });
+
+
+test('D3 uses the original native recipient, not the raw signed Kernel facade',async()=>{
+  const ch=new MessageChannel();let nativeCalls=0,signedKernelCalls=0;
+  const receiver=bindSignedOriginalKernelPort({
+    port:ch.port1,isActive:()=>true,
+    createSignedFacade:async()=>{signedKernelCalls++;return Object.freeze({});},
+    reconciliationRequest:async(verb,payload)=>{
+      nativeCalls++;
+      assert.equal(verb,'preview');
+      assert.deepEqual(payload,{packageSha256:'a'.repeat(64)});
+      return {schema:'IWXA_T3_RECONCILIATION_PREVIEW/1'};
+    },
+  });
+  const client=createIsolatedKernelClient({port:ch.port2});
+  try{
+    assert.deepEqual(await client.invoke('reconciliationRequest','preview',
+      {packageSha256:'a'.repeat(64)}),
+      {schema:'IWXA_T3_RECONCILIATION_PREVIEW/1'});
+    assert.equal(nativeCalls,1);
+    assert.equal(signedKernelCalls,0);
+    receiver.invalidate();
+    await assert.rejects(client.invoke('reconciliationRequest','preview',{}),
+      {code:'T3_D1_ISOLATED_KERNEL_DISCONNECTED'});
+    assert.equal(nativeCalls,1);
+  }finally{client.close();receiver.close();}
+});
