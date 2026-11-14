@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   CommandsFacade,
   KernelFacade,
@@ -46,6 +46,7 @@ export function PackagesView({
   const [tab, setTab] = useState<PackagesTab>(() => resolveTab(initialTab));
   const [pwaFileHandle, setPwaFileHandle] = useState<InstalledPwaFileHandle | null>(null);
   const [pwaLaunchError, setPwaLaunchError] = useState<string | null>(null);
+  const osLaunchSeen = useRef(false);
   // Browser File Handling API is optional. Chromium delivers opaque file
   // handles to an installed PWA; nothing is read until the user clicks
   // the canonical ImportView preview. Browsers without it keep the chooser.
@@ -57,6 +58,10 @@ export function PackagesView({
     let mounted = true;
     queue.setConsumer(({files}) => {
       if (!mounted || !Array.isArray(files) || files.length === 0) return;
+      // Chromium may deliver an already-queued OS launch synchronously
+      // during effect registration. The normal initialTab effect must not
+      // reset this explicit file-open action back to Export.
+      osLaunchSeen.current = true;
       setTab("import");
       setPwaFileHandle(null);
       if (files.length !== 1) {
@@ -78,7 +83,7 @@ export function PackagesView({
   }, [canImport]);
 
   useEffect(() => {
-    setTab(resolveTab(initialTab));
+    if (!osLaunchSeen.current) setTab(resolveTab(initialTab));
   }, [initialTab, canExport, canImport]);
 
   return (
