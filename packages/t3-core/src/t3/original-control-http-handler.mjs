@@ -4,6 +4,7 @@
 // The Host supplies the existing signed owner, monotonic context epoch and
 // genuine invalidation subscription. The UI sees only scoped decisions.
 import {timingSafeEqual} from "node:crypto";
+import {readFileSync} from "node:fs";
 import {strictJson} from "./access/strict-json.mjs";
 import {canonical} from "./access/core.mjs";
 
@@ -47,7 +48,7 @@ function errorCode(error){
 }
 export function createOriginalControlHttpHandler({
   origin,token,readToken=null,ownerFor,currentEpoch,subscribeInvalidation,
-  uiOrigin=null,serviceId=null,
+  uiOrigin=null,serviceId=null,assetForPath=null,
 }={}){
   requireThat(typeof origin==="string"&&LOCAL.test(origin)&&
     new URL(origin).origin===origin,"T3_D1_CONTROL_ORIGIN_REQUIRED");
@@ -64,6 +65,8 @@ export function createOriginalControlHttpHandler({
     new URL(uiOrigin).origin===uiOrigin&&uiOrigin!==origin&&
     typeof serviceId==="string"&&/^[A-Za-z0-9][A-Za-z0-9._-]{1,159}$/.test(serviceId),
     "T3_D1_CONTROL_ISOLATED_UI_REQUIRED");
+  requireThat(assetForPath===null||typeof assetForPath==="function",
+    "T3_D1_CONTROL_TRUSTED_ASSET_RESOLVER_REQUIRED");
   // The original installed Host may rotate its ephemeral bearer whenever
   // its existing signed subject session changes. This is a transient
   // transport credential only, NEVER a grant, issuer or AccessRegistry.
@@ -93,13 +96,41 @@ export function createOriginalControlHttpHandler({
     catch{route="/api/t3/invalid";}
     const signedUi=route==="/workspace/t3-signed-ui.json";
     const trustedRealm=route==="/workspace/t3-kernel-realm.json";
-    if(!route.startsWith("/api/t3/")&&!signedUi&&!trustedRealm)return false;
+    const trustedEntry=route==="/workspace/trusted-kernel-realm.html";
+    if(!route.startsWith("/api/t3/")&&!signedUi&&!trustedRealm&&!trustedEntry)
+      return false;
     try{
       requireThat(req.headers.host===expectedHost,
         "T3_D1_CONTROL_ORIGIN_DENIED");
-      if(signedUi||trustedRealm){
+      if(signedUi||trustedRealm||trustedEntry){
         requireThat(splitOrigin,"T3_D1_CONTROL_ISOLATED_UI_REQUIRED");
         requireThat(req.method==="GET","T3_D1_CONTROL_METHOD_DENIED");
+        if(trustedEntry){
+          // The original Host serves its OWN compiled trusted realm. Without
+          // this route, an inherited static host could apply a generic CSP
+          // that blocks the cross-origin frame or accidentally serve T2 UI.
+          requireThat(assetForPath!==null,"T3_D1_CONTROL_TRUSTED_REALM_NOT_INSTALLED");
+          const asset=assetForPath(route);
+          requireThat(asset&&typeof asset.path==="string"&&
+            asset.type?.startsWith("text/html"),
+            "T3_D1_CONTROL_TRUSTED_REALM_NOT_INSTALLED");
+          const html=readFileSync(asset.path);
+          const source=html.toString("utf8");
+          requireThat(source.includes('<base href="/workspace/"')&&
+            /\b(?:src|href)="\/workspace\/assets\/[A-Za-z0-9_.\/-]+"/.test(source),
+            "T3_D1_CONTROL_TRUSTED_REALM_INVALID");
+          res.writeHead(200,{
+            "Content-Type":"text/html; charset=utf-8",
+            "Cache-Control":"no-store",
+            "X-Content-Type-Options":"nosniff",
+            "Referrer-Policy":"no-referrer",
+            "Content-Security-Policy":
+              "default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; "+
+              "connect-src 'self'; base-uri 'none'; frame-ancestors "+uiOrigin,
+          });
+          res.end(html);
+          return true;
+        }
         reply(res,200,signedUi?{
           schema:"IWXA_T3_SIGNED_WORKSPACE_LAUNCH/1",
           kernel_origin:origin,ui_origin:uiOrigin,service_id:serviceId,

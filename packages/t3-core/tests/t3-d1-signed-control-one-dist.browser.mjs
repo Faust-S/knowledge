@@ -95,7 +95,8 @@ const server=createServer((req,res)=>{
     // earlier corporate fixture. No extra issuer/HTTP/Kernel server.
     if((path.startsWith('/api/t3/')||
         path==='/workspace/t3-signed-ui.json'||
-        path==='/workspace/t3-kernel-realm.json')&&authenticHandler){
+        path==='/workspace/t3-kernel-realm.json'||
+        path==='/workspace/trusted-kernel-realm.html')&&authenticHandler){
       void authenticHandler(req,res).catch(()=>{
         if(!res.headersSent)send(503,{error:'AUTHENTIC_OWNER_UNAVAILABLE'});
       });
@@ -992,7 +993,11 @@ try{
   });
   const knownRealOperations=new Set(authenticOperations.map(op=>op.slice(3)));
   authenticHandler=createOriginalControlHttpHandler({
-    origin,token,uiOrigin,serviceId,currentEpoch:()=>authenticEpoch,
+    origin,token,uiOrigin,serviceId,
+    assetForPath:path=>path==='/workspace/trusted-kernel-realm.html'
+      ?{path:join(output,'workspace/trusted-kernel-realm.html'),type:'text/html; charset=utf-8'}
+      :null,
+    currentEpoch:()=>authenticEpoch,
     subscribeInvalidation:callback=>{
       authenticInvalidationListeners.add(callback);
       return ()=>authenticInvalidationListeners.delete(callback);
@@ -1229,7 +1234,11 @@ try{
   let corporateOwner=buildCorporatePort(corporateRegistry);
   authenticEpoch++;
   authenticHandler=createOriginalControlHttpHandler({
-    origin,token,uiOrigin,serviceId,currentEpoch:()=>authenticEpoch,
+    origin,token,uiOrigin,serviceId,
+    assetForPath:path=>path==='/workspace/trusted-kernel-realm.html'
+      ?{path:join(output,'workspace/trusted-kernel-realm.html'),type:'text/html; charset=utf-8'}
+      :null,
+    currentEpoch:()=>authenticEpoch,
     subscribeInvalidation:listener=>{
       authenticInvalidationListeners.add(listener);
       return ()=>authenticInvalidationListeners.delete(listener);
