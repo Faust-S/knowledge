@@ -117,10 +117,16 @@ function authorizedDecision(decision,context,now) {
   }
 }
 
-export function createSubjectKernelBinding({ kernel, access, clock = Date.now } = {}) {
+export function createSubjectKernelBinding({
+  kernel, access, clock = Date.now, commitObjectGraphPrecondition = null,
+} = {}) {
   if (!kernel || typeof kernel.hasOperation !== "function" ||
       !kernel.sessionInfo || kernel.sessionInfo.contract_version !== "1.3.0" ||
       typeof clock !== "function") refused("T3_KERNEL_FACADE_REQUIRED");
+  if (commitObjectGraphPrecondition !== null &&
+      typeof commitObjectGraphPrecondition !== "function") {
+    refused("T3_D3_GRAPH_PRECONDITION_INVALID");
+  }
   for (const method of ["currentContext","actionFor","operationDigest",
      "authorize","verifyDecisionBinding"]) {
     if (typeof access?.[method] !== "function") refused("T3_ACCESS_OWNER_REQUIRED");
@@ -264,6 +270,18 @@ export function createSubjectKernelBinding({ kernel, access, clock = Date.now } 
       refused("T3_SUBJECT_CONTEXT_CHANGED");
     }
     if (!kernel.hasOperation(operation)) refused("T3_KERNEL_OPERATION_NOT_GRANTED");
+    if (method === "commitObjectGraph" && commitObjectGraphPrecondition !== null) {
+      // The original recipient's ledger and independent human APPLY are
+      // checked synchronously AFTER signed D1 JIT, at the final Kernel hop.
+      // A Promise, exception or stale decision is a definite pre-write denial.
+      let current = false;
+      try {
+        current = commitObjectGraphPrecondition(Object.freeze({
+          command: snapshotCommand(command), context, operationDigest,
+        })) === true;
+      } catch { /* fail closed */ }
+      if (!current) refused("T3_D3_ORIGINAL_APPLICATION_PRECONDITION_DENIED");
+    }
     const result = method === "getObject"
       ? await kernel.getObject(workspace_id,command.object_id)
       : method === "getWorkspace"
