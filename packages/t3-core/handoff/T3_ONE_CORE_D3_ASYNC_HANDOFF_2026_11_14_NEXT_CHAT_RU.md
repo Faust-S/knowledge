@@ -1,5 +1,23 @@
 # IWXA T3 One Core. D3, точные подтверждения асинхронного Host, передача 14.11.2026
 
+## Обновление 14.11.2026: D3 transport, verified exact source
+
+**Квалифицированный исполняемый исходник:** `Faust-S/knowledge@work/2026-11-10-t3-t2-activity-projection`, коммит `2cf200ad0f1beb4c783ff89b6ba2a3c2aa5308bb`, TREE `d5d2fa68171e6573efddc11e9e854f27b7c0452b`. [GitHub Actions #43578735999](https://github.com/Faust-S/knowledge/actions/runs/43578735999): **COMPLETED SUCCESS**: `test`, `real-host`, `windows-credential`; `metal-webgpu=SKIPPED`. В `test` подтверждены `668/668` Node product tests, включая три новых сценария границы D3, без FAIL. Следующий документационный коммит не является новым исполняемым кандидатом. Повторно проверить live HEAD/TREE перед продолжением.
+
+**Исправлены действительные ошибки Host, без второго Reconciliation/Store/Engine:**
+- [`3479903`](https://github.com/Faust-S/knowledge/commit/347990349a0a9e713ec9675988c08074369b718d): `site-handoff` больше не отправляет `APPLIED`, если `onReceipt` явно возвратил `false`, отказ или незавершённое состояние. `host-receiver` не разрешает отправку квитанции после отклонённого `onPreview`. Существующие void callbacks сохранены. [Actions #43578629595](https://github.com/Faust-S/knowledge/actions/runs/43578629595) SUCCESS.
+- [`97c2352`](https://github.com/Faust-S/knowledge/commit/97c2352e956c85e127d20eeaffeb3ca9377d6627): входной `validateSource` не может передавать в UI пустой или явно отклонённый candidate. Неизменённый протокол; no release/status claims. [Actions #43578687445](https://github.com/Faust-S/knowledge/actions/runs/43578687445) SUCCESS.
+- [`2cf200a`](https://github.com/Faust-S/knowledge/commit/2cf200ad0f1beb4c783ff89b6ba2a3c2aa5308bb): раздельно обрабатываются ошибка ДО вызова сохранения и ошибка ПОСЛЕ входа в local writer/Kernel readback. Во втором случае статус `WRITE_RECEIPT_APPLICATION_NOT_CONFIRMED`, а не ложное `SOURCE_UNCHANGED`. Регрессия проверяет выброшенную ошибку после уже возможной записи. [Actions #43578735999](https://github.com/Faust-S/knowledge/actions/runs/43578735999) SUCCESS.
+- Для асинхронных `validateSource/onPreview/onCandidate` обновлены существующие `.d.mts` контракты. Нового Task Engine, Approval API, независимого IWXА-формата или специальной T3 программы не создано.
+
+**Граница результата:** это штатный *транспорт* предложений и подтверждений, а не доказательство `D3_END_TO_END`. Сама передача, `preview` и даже успешное `accept` в исходном Reconciliation **не** осуществляют `Apply` в предметный Kernel. Никаких новых product/native PASS.
+
+**Одна следующая зависимость D3:** действующий исторический owner `Faust-S/T3/reconciliation/engine.mjs` уже имеет `OfflinePackageReconciler.receive/preview/accept/inspectApplicationProjection`; его `application-authorization-observer.mjs`, `application-effect-snapshot.mjs`, `application-host-binding.mjs` формируют отдельный application JIT, sealed effect и независимую проверку Human Review. **Не копировать приватные исходники в открытый knowledge и не писать заменяющий Reconciliation.** Связать именно эти штатные владельческие функции с доверенным Host-портом T3, выбранным Result и оригинальным T2 Kernel/Store. Сквозная приёмка: подписанная Task с конкретной revision → selected Result от иного root → explicit Human Review/Accept → отдельное Apply → original Kernel receipt и cold reopen; отказ при wrong recipient/key/role, stale revision и replay. Настоящую установленную интеграцию Agent/Admin выполнять в их owner-среде, не делать T3 Windows Control EXE.
+
+**Статус:** `D3_END_TO_END=NOT_ACCEPTED`, `D4_PUBLIC_TWO_PORTS=PASS`, `D4_PRODUCT_NATIVE=NOT_ACCEPTED`, `T3_READY=false`, `G4=NOT_ACCEPTED`. Результаты старых разделов ниже оставлены как исторические, это обновление имеет приоритет по CI и HEAD.
+
+
+
 ## 1. Обязательное начало следующего чата
 
 Сначала прочитать этот документ, корневой AGENTS.md репозитория knowledge, архитектурную карту 42 репозиториев в Faust-S/T3@work/2026-11-10-t3-t2-upgrade-core/architecture/T3_ONE_CORE_ALL_DOMAINS_SOFTWARE_AI_SOURCE_MAP_2026_11_11_RU.md и план B0/D1-D7/G4 в том же репозитории. Прочитать также предыдущий handoff packages/t3-core/handoff/T3_ONE_CORE_D4_TWO_CONSUMERS_2026_11_13_NEXT_CHAT_RU.md.
