@@ -10,7 +10,7 @@
     },
     {
       "file": "workspace-module/LocalInferencePanel.tsx",
-      "blob": "1cf3e771492a5c387bc9d7981d682ed11ad49ef5",
+      "blob": "20ecb4950a538474ecf61b2d464f17cf6b4e0706",
       "upstream_blob": "57fc92d099755b63c3fbdc5feda44c5aea160ee9"
     },
     {
@@ -20,7 +20,7 @@
     },
     {
       "file": "workspace-module/domain-model-install.d.mts",
-      "blob": "2ee0827e64d313b0cf22e85c708f03f17f17b4c9",
+      "blob": "12d660d5dcce43f37238f67b550762851a9332a3",
       "upstream_blob": "1f87db350f70419496b0d613a20f42654a95f345"
     },
     {
@@ -51,7 +51,7 @@
     },
     {
       "file": "src/domain-model-install.mjs",
-      "blob": "2607479c62ae2eb596b9e714780e46d0c198399e",
+      "blob": "620f563b9c03a251cb18f0704455a2a9eb2e3ce9",
       "upstream_blob": "54edc16dff1fe6a4c34b47feea3b53ef84a59ca1"
     },
     {
@@ -75,5 +75,5 @@
   "executable_owner": "Faust-S/knowledge",
   "purpose": "hash-pinned T3-owned BLI runtime, two curated WebLLM 0.2.87 models and immutable upstream attribution; no secrets, weights or credentials",
   "source_role": "HISTORICAL_BLI1_BASE_WITH_FIRST_PARTY_T3_D5_MODEL_CHOICE",
-  "source_revision": "Faust-S/knowledge@e7c27a0c46175f8fa0ff62e0f81192a9cc320066"
+  "source_revision": "Faust-S/knowledge@c1d720650acd28a9d7510b2068700e59633db205"
 }

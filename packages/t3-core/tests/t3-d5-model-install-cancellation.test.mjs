@@ -1,8 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {MODEL} from "../integration-sources/bli1/catalog.mjs";
-import {beginDomainModelInstallation}
-  from "../integration-sources/bli1/domain-model-install.mjs";
+import {readFileSync} from "node:fs";
+import {requireCatalogModel} from "../integration-sources/bli1/catalog.mjs";
+
+// The public baseline Node suite intentionally does not install WebLLM.
+// Execute the production SW-lease implementation with only the separately
+// pinned upstream model-catalog record injected, not an alternative installer.
+const production=readFileSync(new URL(
+  "../integration-sources/bli1/domain-model-install.mjs",import.meta.url),"utf8");
+const imports=[
+  'import {prebuiltAppConfig} from "@mlc-ai/web-llm";',
+  'import {MODEL,requireCatalogModel} from "./catalog.mjs";',
+];
+for(const line of imports)
+  assert.equal(production.split(line).length,2,"production model install imports changed");
+const source=production.replace(imports[0],"").replace(imports[1],"")
+  .replace("export async function beginDomainModelInstallation",
+    "async function beginDomainModelInstallation");
+const beginDomainModelInstallation=new Function(
+  "MODEL","requireCatalogModel","prebuiltAppConfig",
+  source+"\nreturn beginDomainModelInstallation;",
+)(MODEL,requireCatalogModel,{
+  model_list:[{model_id:MODEL.id,model:MODEL.modelSource,
+    model_lib:"https://example.invalid/pinned-webllm.wasm"}],
+});
 
 // One focused source regression: Stop may arrive while the ORIGINAL
 // Service Worker is preparing installation, before WebLLM Worker exists.
