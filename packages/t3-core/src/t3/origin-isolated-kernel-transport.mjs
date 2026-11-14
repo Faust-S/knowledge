@@ -50,7 +50,8 @@ export function acceptOriginalKernelRealmChannel({event,uiOrigin,parentWindow,
 // The SIGNED KernelFacade is resolved inside the trusted origin on EVERY
 // operation. Never send a raw T2 session, service passport or signer to UI.
 export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
-  describeOriginalSession,validateOriginalObjects,selectedWorkspaceContext}={}){
+  describeOriginalSession,validateOriginalObjects,selectedWorkspaceContext,
+  reconciliationRequest}={}){
   if(!isPort(port)||typeof createSignedFacade!=='function'||
      typeof isActive!=='function')throw fail('T3_D1_TRUSTED_KERNEL_HOST_REQUIRED');
   let closed=false,revoked=false,sequence=0;
