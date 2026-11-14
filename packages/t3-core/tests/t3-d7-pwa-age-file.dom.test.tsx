@@ -84,8 +84,7 @@ describe("D7 installed PWA protected .iwxa.age through original Exchange",()=>{
   });
   it("shows only original Publisher holder when normal T2 data Exchange is not granted",()=>{
     const k=kernel([]);
-    const publisher={preview:vi.fn(),admit:vi.fn(),recover:vi.fn()}
-      as unknown as ReturnType<typeof createTrustedPublisherHandoff>;
+    const publisher={preview:vi.fn(),admit:vi.fn(),recover:vi.fn()} as unknown as ReturnType<typeof createTrustedPublisherHandoff>;
     render(<PackagesView kernel={k} commands={commands} initialTab="export"
       exportScopeId={null} publisherHandoff={publisher}/>);
     expect(screen.getByTestId("t3-publisher-license-panel")).toBeTruthy();
