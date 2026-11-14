@@ -531,14 +531,6 @@ try{
     originalKernelWriteCount:signedKernelWrites,privateControlUsed:false,
     completeControlProductAccepted:false,
   }));
-  // Protected launch: every unsigned compiled entry is denied on the
-  // trusted Kernel origin, including alternate Exchange/Lifecycle/Studio.
-  for(const path of ['/','/workspace/','/workspace/exchange/',
-    '/workspace/lifecycle/','/workspace/studio/',
-    '/workspace/isolated-signed-workspace.html']){
-    const response=await browser.page.request.get(origin+path);
-    assert.equal(response.status(),403,'unsigned signed-origin HTML must be blocked: '+path);
-  }
   // No raw T2 Kernel or React AppShell may mount in that origin.
   const denied=await browser.context.newPage();
   await denied.goto(origin+'/workspace/signed-workspace.html');
@@ -1014,6 +1006,17 @@ try{
       scope==='kernel'&&knownRealOperations.has(operation)
         ?realAuthority.access:null,
   });
+  // Check alternate unsigned HTML entrypoints AFTER installing the real
+  // original Ed25519 signed Host handler. Before that the fixture is just
+  // an unprotected T2 static host (where a 404 is expected).
+  // Protected launch: every unsigned compiled entry is denied on the
+  // trusted Kernel origin, including alternate Exchange/Lifecycle/Studio.
+  for(const path of ['/','/workspace/','/workspace/exchange/',
+    '/workspace/lifecycle/','/workspace/studio/',
+    '/workspace/isolated-signed-workspace.html']){
+    const response=await browser.page.request.get(origin+path);
+    assert.equal(response.status(),403,'unsigned signed-origin HTML must be blocked: '+path);
+  }
   const authenticApp=await browser.context.newPage();
   const authenticErrors=[];
   authenticApp.on('pageerror',error=>authenticErrors.push(error.message));
