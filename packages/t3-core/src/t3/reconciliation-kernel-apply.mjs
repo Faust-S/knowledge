@@ -108,13 +108,14 @@ export function createTrustedReconciliationKernelApply({
     });
     check(approval===true,"T3_D3_SEPARATE_HUMAN_APPLY_REQUIRED");
     await unchanged(c);
-    // Never check original Reconciliation only BEFORE signed Access JIT:
-    // an authority callback could change the accepted ledger during JIT.
-    // The original binding runs synchronously at the signed Kernel final hop.
-    await unchanged(c);
+    // D1 signed authorization is asynchronous. Revocation of the Host or
+    // Reconciliation source during that JIT must prevent original writes.
+    // Distinguish definite pre-dispatch denials from lost post-write ACKs.
+    let kernelWriteEntered=false;
     const signedKernel=createSubjectKernelBinding({
-      kernel,access,
+      kernel,access,isHostActive,
       commitObjectGraphPrecondition:()=>binding.commitPrecondition(ctx),
+      onCommitObjectGraphDispatch:()=>{kernelWriteEntered=true;},
     });
     let receipt;
     try {
@@ -144,10 +145,9 @@ export function createTrustedReconciliationKernelApply({
         externalProductAcceptance:"NOT_ACCEPTED",
       });
     }catch(error){
-      // This original owner denial occurs BEFORE Kernel invocation; only
-      // errors after that boundary can represent an uncertain write.
-      if(error?.code==="T3_D3_ORIGINAL_APPLICATION_PRECONDITION_DENIED")
-        throw error;
+      // A definite denial before the original Kernel call cannot be reported
+      // as a possibly committed write. After dispatch, NEVER auto-retry.
+      if(!kernelWriteEntered)throw error;
       const uncertain=Object.assign(
         new Error("T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"),
         {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED",
