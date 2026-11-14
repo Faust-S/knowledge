@@ -249,9 +249,17 @@ export function createOriginalControlHttpHandler({
           input.payload&&typeof input.payload==="object"&&
           !Array.isArray(input.payload),
           "T3_D3_RECIPIENT_REQUEST_INVALID");
+        // A large incoming .iwxa can be streamed over several awaits.
+        // Old bearer/epoch must be checked BEFORE resolving a new recipient.
+        requireThat(before===await epochNow()&&authenticated(req),
+          "STALE_CONTEXT_OPERATION");
         // The genuine native/product owner decides which original Reconciler
         // belongs to the selected subject and owns all independent reviews.
-        const port=reconciliationPortFor===null?null:await reconciliationPortFor();
+        const port=reconciliationPortFor===null?null:await reconciliationPortFor({
+          contextEpoch:before,
+        });
+        requireThat(before===await epochNow()&&authenticated(req),
+          "STALE_CONTEXT_OPERATION");
         const available=port!==null&&port!==undefined&&
           D3_METHODS.every(method=>typeof port[method]==="function");
         if(input.verb==="available"){
