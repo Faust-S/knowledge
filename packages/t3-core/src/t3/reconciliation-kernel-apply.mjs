@@ -54,7 +54,9 @@ export function createTrustedReconciliationKernelApply({
   async function unchanged(c){
     check(identity(await selected())===identity(c),"T3_D3_APPLY_CONTEXT_CHANGED");
   }
-  async function applyAccepted({acceptanceId,revisionIds,target}={}){
+  // Read and validate the ORIGINAL accepted selection and sealed effect once.
+  // Recovery and first Apply share precisely the same source/recipient binding.
+  async function stagedSelection({acceptanceId,revisionIds,target}={}){
     check(hex(acceptanceId)&&Array.isArray(revisionIds)&&revisionIds.length>0&&
       revisionIds.length<=32&&revisionIds.every(hex)&&
       new Set(revisionIds).size===revisionIds.length&&obj(target),
@@ -112,6 +114,12 @@ export function createTrustedReconciliationKernelApply({
       JSON.stringify([...payload.reconciliation_revision_ids].sort())===
         JSON.stringify([...revisionIds].sort()),
       "T3_D3_ORIGINAL_GRAPH_PROVENANCE_REQUIRED");
+    return {acceptanceId,revisionIds:[...revisionIds],c,chosen,
+      binding,ctx,command,objInput,payload};
+  }
+  async function applyAccepted(input={}) {
+    const {acceptanceId,revisionIds,c,chosen,binding,ctx,command,objInput}=
+      await stagedSelection(input);
     check(kernel.hasOperation("t1.commitObjectGraph")&&
       kernel.hasOperation("t1.getObject"),
       "T3_D3_ORIGINAL_KERNEL_GRANT_REQUIRED");
@@ -172,5 +180,64 @@ export function createTrustedReconciliationKernelApply({
       throw uncertain;
     }
   }
-  return Object.freeze({applyAccepted});
+  // A lost Kernel ACK cannot safely trigger another commitObjectGraph.
+  // Recover by reading the ORIGINAL Object and Event records under the
+  // ORIGINAL signed D1 Access. No new journal, nonce, grant or write is used.
+  // The result is CONFIRMED only if the event proves the exact idempotency
+  // key, accepted revisions, object and original requested data. A mere
+  // same-looking object or an incomplete Event is OUTCOME_UNKNOWN.
+  async function recoverApplied(input={}) {
+    const {acceptanceId,revisionIds,c,binding,command,objInput}=await stagedSelection(input);
+    check(kernel.hasOperation("t1.getObject")&&
+      kernel.hasOperation("t1.listEventsSince"),
+      "T3_D3_ORIGINAL_KERNEL_HISTORY_REQUIRED");
+    await unchanged(c);
+    const signedKernel=createSubjectKernelBinding({
+      kernel,access,isHostActive,
+    });
+    const first=await signedKernel.getObject(c.workspace_id,objInput.object_id);
+    await unchanged(c);
+    const events=await signedKernel.listEventsSince(c.workspace_id);
+    await unchanged(c);
+    const second=await signedKernel.getObject(c.workspace_id,objInput.object_id);
+    await unchanged(c);
+    const expectedRevision=objInput.base_revision+1;
+    const matchObject=value=>value?.object?.workspace_id===c.workspace_id&&
+      value.object.object_id===objInput.object_id&&
+      value.object.schema_id===objInput.schema_id&&
+      value.object.schema_version===objInput.schema_version&&
+      value.object.revision===expectedRevision&&
+      JSON.stringify(value.object.data)===JSON.stringify(objInput.data);
+    const matching=Array.isArray(events)?events.filter(event=>{
+      const provenance=event?.payload;
+      return event?.workspace_id===c.workspace_id&&
+        event.event_type===command.event.event_type&&
+        event.idempotency_key===binding.effectKey&&
+        (event.object_id===undefined||event.object_id===objInput.object_id)&&
+        (event.revision===undefined||event.revision===expectedRevision)&&
+        id(event.event_id)&&obj(provenance)&&
+        provenance.reconciliation_acceptance_id===acceptanceId&&
+        Array.isArray(provenance.reconciliation_revision_ids)&&
+        JSON.stringify([...provenance.reconciliation_revision_ids].sort())===
+          JSON.stringify([...revisionIds].sort());
+    }):[];
+    if(!matchObject(first)||!matchObject(second)||matching.length!==1){
+      return Object.freeze({
+        status:"OUTCOME_UNKNOWN",effectKey:binding.effectKey,
+        kernelWriteReadback:"NOT_CONFIRMED",
+        automaticRetryAllowed:false,
+      });
+    }
+    return Object.freeze({
+      status:"ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED",
+      effectKey:binding.effectKey,
+      originalKernelReadback:copy(second,"T3_D3_KERNEL_READBACK_INVALID"),
+      originalEventReadback:copy(matching[0],"T3_D3_EVENT_READBACK_INVALID"),
+      kernelWriteReadback:"CONFIRMED",
+      reconciliationLedgerSync:"OWNER_FOLLOWUP_REQUIRED",
+      externalProductAcceptance:"NOT_ACCEPTED",
+      automaticRetryAllowed:false,
+    });
+  }
+  return Object.freeze({applyAccepted,recoverApplied});
 }
