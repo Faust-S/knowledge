@@ -24,7 +24,9 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   const binding={
     schema:"IWXA_T3_APPLICATION_HOST_BINDING/1",effectKey:effect,
     operation:{operationId:"effect:"+effect,payloadDigest:"d".repeat(64),
-      resource:"ws:a"},applicationAuthorized:false,writeAllowed:false,
+      resource:"ws:a",productId:"IWXA_ADMIN_CENTER",audience:"host:t3",
+      purpose:"result.apply",action:"object.write"},expectedRevision:0,
+    applicationAuthorized:false,writeAllowed:false,
     hostJitRequired:true,explicitHumanDecisionRequired:true,
     decisionCheckAtCommit:true,externalContextCoreApplied:false,
     commitPrecondition:()=>{preconditionCount++;return sourceCurrent&&signedJitCount>0;},
@@ -72,13 +74,19 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
     access,
     stageFromOriginalOwner:()=>({binding,command,authorizationContext:{
       operationId:"effect:"+effect,payloadDigest:"d".repeat(64),
-      organizationId:"org:a",workspaceId:"ws:a",actorId:"person:a",
-      principalId:"org:a",roleId:"role:admin",grantId:"grant:a",
-      operationDigest:"e".repeat(64)}}),
+      organizationId:"org:a",workspaceId:"ws:a",dataRootId:"root:a",
+      storageScopeDigest:"f".repeat(64),expectedRevision:0,
+      actorId:"person:a",principalId:"org:a",roleId:"role:admin",
+      grantId:"grant:a",operationDigest:"e".repeat(64)}}),
     confirmSeparateApply:()=>approves,isHostActive:()=>active,
   });
   const selection={acceptanceId:accepted,revisionIds:[rev],
-    target:{workspaceId:"ws:a",subjectId:"org:a"}};
+    target:{workspaceId:"ws:a",subjectId:"org:a",dataRootId:"root:a",
+      consumerId:"consumer:a",processId:"process:a",
+      processVersion:"1.0.0",purpose:"result.apply"}};
+  await assert.rejects(port.applyAccepted({...selection,target:{
+    ...selection.target,dataRootId:null}}),
+    {code:"T3_D3_ORIGINAL_APPLICATION_TARGET_INCOMPLETE"});
   await assert.rejects(port.applyAccepted(selection),
     {code:"T3_D3_SEPARATE_HUMAN_APPLY_REQUIRED"});
   assert.equal(commits,0);
