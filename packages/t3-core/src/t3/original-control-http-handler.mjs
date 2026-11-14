@@ -16,7 +16,7 @@ const MAX_BODY=512*1024;
 const MAX_D3_BODY=24*1024*1024;
 const MAX_D3_ARCHIVE=16*1024*1024;
 const D3_VERBS=new Set(["available","receive","preview","receipt","accept","reject",
-  "inspectAcceptedApplication","applyAccepted"]);
+  "inspectAcceptedApplication","applyAccepted","recoverApplied"]);
 const D3_METHODS=["receive","preview","receipt","accept","reject","inspectAcceptedApplication"];
 const SCOPES=new Set(["kernel","activity"]);
 // On the trusted signed Kernel origin, ALL compiled unsigned HTML entries
@@ -266,7 +266,8 @@ export function createOriginalControlHttpHandler({
           requireThat(before===await epochNow()&&authenticated(req),
             "STALE_CONTEXT_OPERATION");
           reply(res,200,{result:{available,applyAvailable:available&&
-            typeof port.applyAccepted==="function"}});
+            typeof port.applyAccepted==="function",
+            recoverAvailable:available&&typeof port.recoverApplied==="function"}});
           return true;
         }
         requireThat(available,"T3_D3_ORIGINAL_RECIPIENT_UNAVAILABLE");
@@ -291,6 +292,10 @@ export function createOriginalControlHttpHandler({
           result=await port[input.verb](payload);
         }else if(input.verb==="inspectAcceptedApplication"){
           result=await port.inspectAcceptedApplication(payload);
+        }else if(input.verb==="recoverApplied"){
+          requireThat(typeof port.recoverApplied==="function",
+            "T3_D3_ORIGINAL_APPLY_RECOVERY_UNAVAILABLE");
+          result=await port.recoverApplied(payload);
         }else{
           requireThat(typeof port.applyAccepted==="function",
             "T3_D3_ORIGINAL_APPLY_OWNER_REQUIRED");
