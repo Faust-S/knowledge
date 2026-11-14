@@ -38,6 +38,10 @@ export function createSubjectKernelBinding(input: {
   kernel: KernelFacade;
   access: T3SignedActivityAccess;
   clock?: () => number;
+  /** D3 original owner check, synchronously after D1 JIT and before Graph commit. */
+  commitObjectGraphPrecondition?: (query: Readonly<{
+    command: unknown; context: unknown; operationDigest: string;
+  }>) => boolean;
 }): Pick<KernelFacade,
   "createWorkspace" | "getWorkspace" | "getObject" | "listObjects" |
   "putObject" | "deleteObject" | "putRelation" | "deleteRelation" |
