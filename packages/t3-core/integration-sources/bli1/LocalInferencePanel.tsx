@@ -181,6 +181,8 @@ export default function LocalInferencePanel() {
         throw Error("T3_D5_MODEL_LOAD_CANCELLED");
     };
     let finishInstall: (() => Promise<void>) | null = null;
+    let loaded = false;
+    let leaseCloseFailed = false;
     try {
       setStatus(networkConsent ? "Скачивание по вашему разрешению…" : "Запуск только из локального кеша…");
       if (networkConsent) {
@@ -199,10 +201,9 @@ export default function LocalInferencePanel() {
             setStatus(p.text ?? "Загрузка модели…");
         }});
       requireCurrent();
-      if (alive.current) {
-        setReady(true);
-        setStatus("Модель доступна в текущем браузере.");
-      }
+      // Ready is published only AFTER the original SW closes its temporary
+      // network exception, not merely after WebLLM finishes loading.
+      loaded = true;
     } catch (e) {
       // Aborting during the Service Worker lease or dynamic import must be
       // exactly as effective as aborting an already running WebLLM Worker.
@@ -220,6 +221,7 @@ export default function LocalInferencePanel() {
       if (finishInstall) {
         try { await finishInstall(); }
         catch (e) {
+          leaseCloseFailed = true;
           engine.current?.dispose();
           if (alive.current) {
             setReady(false);
@@ -227,6 +229,18 @@ export default function LocalInferencePanel() {
               message(e) + ". Закройте страницу; модель остановлена.");
           }
         }
+      }
+      // Stop may arrive while Service Worker is acknowledging END; do not
+      // publish a ready model after the user has already cancelled it.
+      if (controller.signal.aborted || epoch !== focusEpoch.current) {
+        engine.current?.dispose();
+        if (alive.current && !leaseCloseFailed) {
+          setReady(false);
+          setStatus("Загрузка остановлена. Для нового запуска требуется отдельное действие.");
+        }
+      } else if (loaded && !leaseCloseFailed && alive.current) {
+        setReady(true);
+        setStatus("Модель доступна в текущем браузере.");
       }
       if (modelLoadAbort.current === controller) modelLoadAbort.current = null;
       actionBusy.current = false;
