@@ -1,5 +1,7 @@
 # IWXA T3 One Core. D3, точные подтверждения асинхронного Host, передача 14.11.2026
 
+**Фиксация исходника для финального публичного CI:** последняя функциональная правка `ddeb917141393d0745391cd14040df3c7ff22907`. Затем исправлены только инструкции и передача, без изменения исполняемых файлов. Добавлены адресные регрессии D3 carrier и оригинального admission/apply в существующий workflow; заключительный CI должен подтвердить `Node + TypeScript/Vite + real-host + Windows credential` на одном HEAD. До получения его результата оставлять `SOURCE_IMPLEMENTED_PENDING_CI`, не заявлять PASS за новый канал и не запускать лишние промежуточные тесты.
+
 ## Дополнение 14.11.2026: штатный изолированный D3 транспорт к оригинальному native owner
 
 **Исполняемый HEAD до записи этого handoff:** `Faust-S/knowledge@28176aaf6ab90b6fb9e26d2a81ea79a31179c5a2`. Реализован конечный проводник от **изолированного подписанного AppShell** через существующий **MessagePort → доверенный Kernel realm → original Control HTTP → native recipient**. Никакой второй HTTP-сервер, signed carrier, Reconciliation/Store/Kernel/IAM, Windows T3 EXE или копия исходников закрытого `Faust-S/T3/reconciliation` не введены.
