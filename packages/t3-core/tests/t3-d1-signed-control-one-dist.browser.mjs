@@ -78,7 +78,7 @@ const mockCreateContext=Object.freeze({
 const mockWriteContext=Object.freeze({
   ...mockContext,grant_id:'grant:d1-write',purpose:'workspace.write',
 });
-const server=createServer((req,res)=>{
+const server=createServer(async(req,res)=>{
   const send=(status,body,type='application/json',workspace=false)=>{
     const csp=workspace
       ? "default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; worker-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
@@ -93,16 +93,13 @@ const server=createServer((req,res)=>{
     // The trusted Host owns this single endpoint. For the final compiled
     // PERSONAL product route, use REAL Ed25519 Control, not the synthetic
     // earlier corporate fixture. No extra issuer/HTTP/Kernel server.
-    if((path.startsWith('/api/t3/')||
-        path==='/workspace/t3-signed-ui.json'||
-        path==='/workspace/t3-kernel-realm.json'||
-        path==='/workspace/trusted-kernel-realm.html'||
-        path==='/workspace/signed-workspace.html'||
-        path==='/workspace/'||path==='/workspace/index.html')&&authenticHandler){
-      void authenticHandler(req,res).catch(()=>{
-        if(!res.headersSent)send(503,{error:'AUTHENTIC_OWNER_UNAVAILABLE'});
-      });
-      return;
+    if(authenticHandler){
+      // The actual installed Host must dispatch EVERY path to its trusted
+      // Control route before static HTML fallback. The handler itself
+      // decides what it owns; otherwise unsigned Exchange/Lifecycle/Studio
+      // entry points could bypass the isolated signed UI.
+      const handled=await authenticHandler(req,res);
+      if(handled)return;
     }
     // This test-only probe is not part of Control or the installed product.
     if(path==='/__original_kernel_probe__')
@@ -534,7 +531,14 @@ try{
     originalKernelWriteCount:signedKernelWrites,privateControlUsed:false,
     completeControlProductAccepted:false,
   }));
-  // Protected launch: old same-origin entry is a forwarding-only shim.
+  // Protected launch: every unsigned compiled entry is denied on the
+  // trusted Kernel origin, including alternate Exchange/Lifecycle/Studio.
+  for(const path of ['/','/workspace/','/workspace/exchange/',
+    '/workspace/lifecycle/','/workspace/studio/',
+    '/workspace/isolated-signed-workspace.html']){
+    const response=await browser.page.request.get(origin+path);
+    assert.equal(response.status(),403,'unsigned signed-origin HTML must be blocked: '+path);
+  }
   // No raw T2 Kernel or React AppShell may mount in that origin.
   const denied=await browser.context.newPage();
   await denied.goto(origin+'/workspace/signed-workspace.html');
