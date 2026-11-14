@@ -145,6 +145,14 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
           code=denied.error;
       }catch{/* A failed Control connection grants no fallback. */}
       requireCurrentAfterSend();
+      // These owner errors are raised only AFTER the native ledger/Kernel
+      // was invoked. A lost readback does not mean that ACCEPT/APPLY failed.
+      if(mayWrite&&[
+        "T3_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED",
+        "T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED",
+        "T3_D3_PREVIEW_CHANGED_DURING_RECEIVE",
+        "T3_D3_ORIGINAL_RECEIVE_INVALID",
+      ].includes(code))fail("T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN");
       fail(code);
     }
     let result;
