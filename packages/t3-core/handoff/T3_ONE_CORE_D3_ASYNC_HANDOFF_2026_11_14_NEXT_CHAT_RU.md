@@ -1,5 +1,19 @@
 # IWXA T3 One Core. D3, точные подтверждения асинхронного Host, передача 14.11.2026
 
+## Актуализация 14.11.2026: готовый пользовательский импорт D4, без промежуточных подсистем
+
+**Последний исполняемый qualified source:** `Faust-S/knowledge@cb30b30efef44d017878f09857e81b8f746700c1`. [Actions #43585691465](https://github.com/Faust-S/knowledge/actions/runs/43585691465) COMPLETED SUCCESS: `test`, `real-host`, `windows-credential`; `metal-webgpu` SKIPPED. Node product `672/672` PASS, Workspace/DOM `1121/1121` PASS. Документационный коммит после этого не изменяет исполняемый source.
+
+**D1:** `34f8db31bfcf771ac1006b09bac5fa03cb8ba69b` [Actions #43583089313](https://github.com/Faust-S/knowledge/actions/runs/43583089313) SUCCESS: исходный same-origin signed Workspace больше не загружает React или Kernel, доверенный Host перенаправляет в canonical isolated UI; обычные `/workspace/` и `/workspace/index.html` в signed product route закрыты. Полный native Store/issuer acceptance по-прежнему не заявлен, нельзя возвращать старый UI.
+
+**D4:** [`67c74c7`](https://github.com/Faust-S/knowledge/commit/67c74c75c76436bd3ba81de904c41f9339774f95) добавил выбор штатного `merge` при переносе source `.iwxa` из другой Workspace в одну действительно доступную локальную и оригинальный Kernel readback после `importCommit`. [`9364e44`](https://github.com/Faust-S/knowledge/commit/9364e44331f415e6ebec4bee10347fd6e2b3d0da) исправил опасное смешение неполного импорта с неопределённой записью: состояния `incomplete` и `unconfirmed`, сохранение подлинной квитанции даже при конфликте digest, запрет автоматического повтора/«отмены» уже потенциально совершённого импорта. [`cb30b30`](https://github.com/Faust-S/knowledge/commit/cb30b30efef44d017878f09857e81b8f746700c1) поправил устаревшее ожидаемое состояние старого регрессионного теста. Не создавать ещё одну проверочную подсистему; D4 двух разных установленных products остаётся NOT_ACCEPTED.
+
+**Следующий предметный шаг:** оригинальный Reconciliation остаётся внутри закрытого исторического `Faust-S/T3`, именно он выполняет `receive → preview → accept` и готовит отдельный `application-host-binding`. До официального доступа к owner-коду в рабочем T3 нельзя ни копировать private source в открытый `knowledge`, ни писать второй reconciliation engine. Подключить owner как штатную capability доверенного Host, реализовать реальную связку `signed Task → selected Result → Human Review → ACCEPT → отдельно APPLY → original Kernel receipt/cold reopen` без автоматической выдачи полномочий из transport ACK. Не делать ещё один Windows EXE, Store, Exchange или IAM. При невозможности легального доступа к owner коду прогрессировать по другим D1–D7 функциональным дельтам, не тратить время на параллельную имитацию.
+
+**Решения:** `D1_PRODUCT_NATIVE=NOT_ACCEPTED`, `D3_END_TO_END=NOT_ACCEPTED`, `D4_TWO_INSTALLED_PRODUCTS=NOT_ACCEPTED`, `D5_HARDWARE_WEBGPU=NOT_ACCEPTED`, `G4=NOT_ACCEPTED`, `T3_READY=false`.
+
+
+
 ## Ревизия продукта 14.11.2026: изменение приоритета
 
 Результаты полной проверки B0/D1–D7/G4, обнаруженные defects и нормативный конечный план: [T3_PRODUCT_ENGINEERING_AUDIT_2026_11_14_RU.md](../docs/T3_PRODUCT_ENGINEERING_AUDIT_2026_11_14_RU.md).
