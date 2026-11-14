@@ -89,7 +89,7 @@ export const INITIAL_IMPORT_STATE: ImportState = Object.freeze({
 
 export type ImportEvent =
   | { type: "preview-started" }
-  | { type: "preview-succeeded"; handle: ImportPreviewHandle }
+  | { type: "preview-succeeded"; handle: ImportPreviewHandle; preferredTargetWorkspaceId?: string | null }
   | { type: "preview-failed"; error: string }
   | { type: "set-plan"; plan: Partial<ImportPlanForm> }
   | { type: "validate-plan"; localWorkspaceIds?: ReadonlyArray<string> }
@@ -363,8 +363,16 @@ export function importReducer(state: ImportState, event: ImportEvent): ImportSta
         ? event.handle.preview.workspaces.map((w) => w.workspace_id)
         : [];
       const allowedModes = event.handle.allowed_modes;
+      // A foreign .iwxa is transferred into the currently selected LOCAL
+      // Workspace by the ORIGINAL Kernel's merge mode, not by creating
+      // an unrelated workspace or silently using selective source IDs.
+      // The target comes from a real local Kernel listing, never the archive.
+      const target = event.preferredTargetWorkspaceId ?? null;
+      const incomingFromAnotherWorkspace =
+        initialWs.length === 1 && target !== null && initialWs[0] !== target;
       const preferredMode: ImportMode =
-        allowedModes.includes("selective") ? "selective"
+        incomingFromAnotherWorkspace && allowedModes.includes("merge") ? "merge"
+        : allowedModes.includes("selective") ? "selective"
         : allowedModes.includes("merge") ? "merge"
         : allowedModes.includes("full") ? "full"
         : allowedModes[0] ?? "selective";
@@ -381,7 +389,8 @@ export function importReducer(state: ImportState, event: ImportEvent): ImportSta
         status: "preview-ready",
         handle: event.handle,
         plan: { ...INITIAL_PLAN, mode: preferredMode, include_workspaces: initialWs,
-          workspace_id_map: workspaceIdMap },
+          workspace_id_map: workspaceIdMap,
+          target_workspace: preferredMode === "merge" ? target : null },
         receipt: null,
         error: null,
         planValidation: [],

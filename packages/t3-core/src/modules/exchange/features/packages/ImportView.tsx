@@ -212,22 +212,25 @@ export function ImportView({ kernel, commands }: ImportViewProps) {
       };
       activeTokenRef.current = handle.preview_token;
       commitGuardRef.current = false;
-      dispatch({ type: "preview-succeeded", handle });
-      armExpiry(handle);
-
-      // PROMPT 32 §3 — load local workspaces so validation and the merge
-      // target selector can reflect the actual local catalog.
+      // The original signed Kernel lists ONLY its selected Workspace.
+      // Read it before offering a plan: a foreign-source package would
+      // otherwise default to 'selective', which signed importCommit refuses.
+      let available: WorkspaceRecord[] = [];
       if (canListLocal) {
         try {
-          const local = await kernel.listWorkspaces({ include_deleted: false });
-          if (generation !== operationGenerationRef.current) return;
-          setLocalWorkspaces(local.filter((w) => !w.deleted_at));
+          available = (await kernel.listWorkspaces({ include_deleted: false }))
+            .filter((w) => !w.deleted_at);
         } catch {
-          if (generation === operationGenerationRef.current) setLocalWorkspaces([]);
+          // The preview remains readable; user can retry local target selection.
         }
-      } else if (generation === operationGenerationRef.current) {
-        setLocalWorkspaces([]);
       }
+      if (generation !== operationGenerationRef.current) return;
+      setLocalWorkspaces(available);
+      const writable = available.filter((w) => !w.read_only);
+      const preferredTargetWorkspaceId = writable.length === 1
+        ? writable[0].workspace_id : null;
+      dispatch({ type: "preview-succeeded", handle, preferredTargetWorkspaceId });
+      armExpiry(handle);
     } catch (e) {
       if (generation !== operationGenerationRef.current) return;
       const msg = e instanceof PackageCorruptedError || (e as { code?: string })?.code === "package_corrupted"
@@ -272,7 +275,35 @@ export function ImportView({ kernel, commands }: ImportViewProps) {
         clearTimeout(expiryTimerRef.current);
         expiryTimerRef.current = null;
       }
-      const restoreIssues = validateRestorationReceipt(state.handle.preview, state.plan, receipt);
+      const restoreIssues = [...validateRestorationReceipt(
+        state.handle.preview, state.plan, receipt,
+      )];
+      // A Kernel receipt is not a readback. In a signed cross-Workspace merge,
+      // read the destination from the ORIGINAL selected Kernel again before
+      // reporting completion. An uncertain read leaves the committed receipt
+      // visible and must NEVER silently replay the import.
+      if (state.plan.mode === "merge" && state.plan.target_workspace &&
+          !receipt.cancelled && kernel.hasOperation("t1.getWorkspace")) {
+        const target = state.plan.target_workspace;
+        try {
+          const workspace = await kernel.getWorkspace(target);
+          if (!workspace || workspace.workspace_id !== target)
+            throw new Error("DESTINATION_WORKSPACE_READBACK_MISSING");
+          const sample = state.handle.preview.objects[0];
+          if (sample && kernel.hasOperation("t1.getObject")) {
+            const stored = await kernel.getObject(target, sample.object_id);
+            if (!stored || stored.object.workspace_id !== target ||
+                stored.object.object_id !== sample.object_id ||
+                stored.object.schema_id !== sample.schema_id ||
+                stored.object.schema_version !== sample.schema_version)
+              throw new Error("DESTINATION_OBJECT_READBACK_MISMATCH");
+          }
+        } catch {
+          restoreIssues.push("Контрольное чтение получателя не подтвердило " +
+            "сохранённый объект. Не импортируйте файл повторно автоматически.");
+        }
+      }
+      if (generation !== operationGenerationRef.current) return;
       if (restoreIssues.length > 0) {
         // Kernel may already have committed a partial transaction. Retain the
         // real receipt, warn the user, refresh the catalog, and never reuse
@@ -617,6 +648,16 @@ function renderImport(p: RenderProps) {
             </fieldset>
           )}
 
+          {state.plan.mode === "merge" && state.plan.target_workspace &&
+            state.handle.preview.workspaces.length === 1 &&
+            state.handle.preview.workspaces[0].workspace_id !== state.plan.target_workspace && (
+              <p className="text-xs text-sky-200" role="status"
+                data-testid="import-foreign-workspace-target">
+                Перенос из рабочей области «{state.handle.preview.workspaces[0].workspace_id}»
+                {" "}в выбранную локальную «{state.plan.target_workspace}».
+                Запись произойдёт только после вашего подтверждения.
+              </p>
+            )}
           {state.plan.mode === "merge" && (
             <fieldset className="border border-slate-800 rounded p-2 space-y-1" data-testid="import-merge-target">
               <legend className="text-xs px-1 text-slate-400">
