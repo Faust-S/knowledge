@@ -468,7 +468,8 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   };
 
   const openAgeFile = async () => {
-    if (!protectedExchange || !ageFile || ageGuard.current || !canPreview) return;
+    if (!protectedExchange || protectedExchange.canOpen === false ||
+        !ageFile || ageGuard.current || !canPreview) return;
     const encryptedFile=ageFile;
     const launchGeneration=pwaLaunchGeneration.current;
     if(!encryptedFile.name.toLowerCase().endsWith(".iwxa.age") ||
@@ -514,7 +515,8 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     if (!pwaFileHandle || pwaReadGuard.current || pwaUsed === pwaFileHandle ||
         !canPreview || state.status === "previewing" || state.status === "committing") return;
     const protectedPackage = pwaFileHandle.name.toLowerCase().endsWith(".iwxa.age");
-    if (protectedPackage && !protectedExchange) {
+    if (protectedPackage &&
+        (!protectedExchange || protectedExchange.canOpen === false)) {
       setPwaReadError("Для этого защищённого файла не подключён владелец age. Выберите подходящую установленную программу.");
       return;
     }
@@ -647,7 +649,15 @@ function renderImport(p: RenderProps) {
         data-testid="import-file"
         className="text-xs"
       />
-      {protectedExchange && <div className="border border-slate-700 rounded p-3 space-y-2"
+      {protectedExchange && protectedExchange.canOpen === false && (
+        <p role="note" data-testid="import-age-owner-unavailable"
+          className="text-xs text-amber-200">
+          Расшифровка .iwxa.age недоступна: установленный владелец не
+          подтвердил ключ получателя или исходное право чтения.
+        </p>
+      )}
+      {protectedExchange && protectedExchange.canOpen !== false &&
+        <div className="border border-slate-700 rounded p-3 space-y-2"
         data-testid="import-age-protected">
         <p className="text-xs text-slate-300">
           Защищённый пакет .iwxa.age проверяется установленным владельцем age.

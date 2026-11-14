@@ -154,6 +154,26 @@ describe("D7 installed PWA protected .iwxa.age through original Exchange",()=>{
     expect(getFile).not.toHaveBeenCalled();
     expect(k.importPreview).not.toHaveBeenCalled();
   });
+  it("does not offer age decrypt without native recipient or signed Workspace read",async()=>{
+    withQueue();
+    const k=kernel();
+    const getFile=vi.fn(async()=>sealed());
+    const age={canOpen:false,canSeal:false,open:vi.fn()} as unknown as
+      ReturnType<typeof createTrustedAgeExchange>;
+    render(<PackagesView kernel={k} commands={commands}
+      initialTab="import" exportScopeId={null} protectedExchange={age}/>);
+    expect(screen.queryByTestId("import-age-protected")).toBeNull();
+    expect(screen.getByTestId("import-age-owner-unavailable").textContent)
+      .toContain("недоступна");
+    await act(async()=>{captured?.({files:[{
+      kind:"file",name:"workspace.iwxa.age",getFile,
+    }]});});
+    expect(screen.getByTestId("import-pwa-launch-error").textContent)
+      .toContain("не подключена");
+    expect(getFile).not.toHaveBeenCalled();
+    expect(age.open).not.toHaveBeenCalled();
+    expect(k.importPreview).not.toHaveBeenCalled();
+  });
   it("shows only original Publisher holder when normal T2 data Exchange is not granted",()=>{
     const k=kernel([]);
     const publisher={preview:vi.fn(),admit:vi.fn(),recover:vi.fn()} as unknown as ReturnType<typeof createTrustedPublisherHandoff>;
