@@ -24,6 +24,7 @@ export default function LocalInferencePanel() {
   const [modelId, setModelId] = useState(MODEL.id);
   const selectedModel=requireCatalogModel(modelId);
   const [busy, setBusy] = useState(false);
+  const [modelBusy, setModelBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [cached, setCached] = useState(false);
   const [cacheStatus, setCacheStatus] = useState("Проверка локального кеша...");
@@ -47,9 +48,11 @@ export default function LocalInferencePanel() {
   const focusEpoch = useRef(0);
   const sourceSelectionEpoch = useRef(0);
   const actionBusy = useRef(false);
+  const modelLoadAbort = useRef<AbortController | null>(null);
 
   const current = useCallback(() => context.currentWorkspace.get()?.workspace_id ?? "", [context]);
   const invalidate = useCallback(() => {
+    modelLoadAbort.current?.abort();
     focusEpoch.current++;
     sourceSelectionEpoch.current++;
     setWorkspaceId(current());
@@ -75,6 +78,7 @@ export default function LocalInferencePanel() {
     const off = context.currentWorkspace.subscribe(invalidate);
     return () => {
       alive.current = false;
+      modelLoadAbort.current?.abort();
       focusEpoch.current++;
       off();
       engine.current?.dispose();
@@ -167,32 +171,70 @@ export default function LocalInferencePanel() {
       setStatus("Установка модели отменена."); return;
     }
     actionBusy.current = true;
+    const controller = new AbortController();
+    modelLoadAbort.current = controller; // Stop works before WebLLM Worker exists.
     setBusy(true);
+    setModelBusy(true);
     const epoch = focusEpoch.current;
+    const requireCurrent = () => {
+      if (controller.signal.aborted || epoch !== focusEpoch.current)
+        throw Error("T3_D5_MODEL_LOAD_CANCELLED");
+    };
     let finishInstall: (() => Promise<void>) | null = null;
     try {
       setStatus(networkConsent ? "Скачивание по вашему разрешению…" : "Запуск только из локального кеша…");
       if (networkConsent) {
         const { beginDomainModelInstallation } = await import("./domain-model-install.mjs");
-        finishInstall = await beginDomainModelInstallation(selectedModel.id);
+        finishInstall = await beginDomainModelInstallation(selectedModel.id, {
+          signal: controller.signal,
+        });
+        requireCurrent();
       }
-      await (await ensureEngine()).load({ networkConsent, onProgress: (p: {text?: string}) => {
-        if (alive.current) setStatus(p.text ?? "Загрузка модели…");
-      }});
+      const adapter = await ensureEngine();
+      requireCurrent();
+      await adapter.load({networkConsent, signal: controller.signal,
+        onProgress: (p: {text?: string}) => {
+          if (alive.current && !controller.signal.aborted &&
+              epoch === focusEpoch.current)
+            setStatus(p.text ?? "Загрузка модели…");
+        }});
+      requireCurrent();
       if (alive.current) {
         setReady(true);
-        setStatus(epoch === focusEpoch.current
-          ? "Модель доступна в текущем браузере." : "Модель запущена. Контекст Workspace изменён.");
+        setStatus("Модель доступна в текущем браузере.");
       }
-    } catch (e) { if (alive.current) setStatus("Модель не запущена: " + message(e)); }
-    finally {
-      // Close the temporary download exception, regardless of WebLLM result.
+    } catch (e) {
+      // Aborting during the Service Worker lease or dynamic import must be
+      // exactly as effective as aborting an already running WebLLM Worker.
+      if (controller.signal.aborted || epoch !== focusEpoch.current) {
+        engine.current?.dispose();
+        if (alive.current) {
+          setReady(false);
+          setStatus("Загрузка остановлена. Для нового запуска требуется отдельное действие.");
+        }
+      } else if (alive.current) setStatus("Модель не запущена: " + message(e));
+    } finally {
+      // Close the exact model's temporary network exception even if Stop
+      // arrived before Worker initialization. Never claim a ready engine
+      // when the original Service Worker did not confirm lease closure.
       if (finishInstall) {
         try { await finishInstall(); }
-        catch (e) { if (alive.current) setStatus("Не удалось завершить разрешение загрузки: " + message(e)); }
+        catch (e) {
+          engine.current?.dispose();
+          if (alive.current) {
+            setReady(false);
+            setStatus("Не удалось закрыть разрешение загрузки модели: " +
+              message(e) + ". Закройте страницу; модель остановлена.");
+          }
+        }
       }
+      if (modelLoadAbort.current === controller) modelLoadAbort.current = null;
       actionBusy.current = false;
-      if (alive.current) { setBusy(false); void checkCache(); }
+      if (alive.current) {
+        setBusy(false);
+        setModelBusy(false);
+        void checkCache();
+      }
     }
   };
   // Only the existing base Workspace owner can change Host focus. The
@@ -269,6 +311,7 @@ export default function LocalInferencePanel() {
     const epoch = focusEpoch.current;
     actionBusy.current = true;
     setBusy(true);
+    setModelBusy(true);
     setOutput("");
     setDraftReady(false);
     setSaved(false);
@@ -293,7 +336,7 @@ export default function LocalInferencePanel() {
         setDraftReady(false);
         setStatus(message(e));
       }
-    } finally { actionBusy.current = false; if (alive.current) setBusy(false); }
+    } finally { actionBusy.current = false; if (alive.current) { setBusy(false); setModelBusy(false); } }
   };
   const save = async () => {
     if (!draftReady || saved || !workspaceId || !output.trim() || actionBusy.current ||
@@ -427,7 +470,7 @@ export default function LocalInferencePanel() {
       </select>
     </label>
     <p>{selectedModel.label} · {selectedModel.engine}. Запрос выполняется на устройстве. Нет облачного fallback.</p>
-    <label className="flex gap-2 items-start"><input type="checkbox" checked={consent}
+    <label className="flex gap-2 items-start"><input type="checkbox" checked={consent} disabled={busy}
       onChange={e => setConsent(e.target.checked)}/>Разрешаю скачать файлы модели по сети</label>
     <div className="flex flex-wrap gap-2">
       <button type="button" disabled={busy} onClick={() => void checkCache()}>Проверить кеш</button>
@@ -484,7 +527,11 @@ export default function LocalInferencePanel() {
     </label>
     <button type="button" disabled={!ready || busy || !prompt.trim()}
       onClick={() => void run()}>Сгенерировать локально</button>
-    <button type="button" disabled={!busy} onClick={() => engine.current?.cancel()}>Остановить</button>
+    <button type="button" disabled={!modelBusy} onClick={() => {
+      modelLoadAbort.current?.abort();
+      engine.current?.cancel();
+      setStatus("Останавливаю локальную модель и закрываю разрешение загрузки…");
+    }}>Остановить</button>
     <label className="block">Черновик · редактируемый
       <textarea aria-label="Черновик · редактируемый" data-testid="t3-d5-editable-draft"
         className="w-full min-h-28 p-2 rounded text-slate-900" maxLength={64000}

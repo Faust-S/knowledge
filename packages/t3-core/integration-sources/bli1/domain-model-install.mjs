@@ -22,7 +22,13 @@ function send(worker, type, extra = {}) {
   });
 }
 
-export async function beginDomainModelInstallation(modelId=MODEL.id) {
+function cancelled() {
+  return Object.assign(Error("T3_D5_MODEL_LOAD_CANCELLED"),
+    {code:"T3_D5_MODEL_LOAD_CANCELLED"});
+}
+
+export async function beginDomainModelInstallation(modelId=MODEL.id,{signal}={}) {
+  if (signal?.aborted) throw cancelled();
   const chosen=requireCatalogModel(modelId);
   const model=prebuiltAppConfig.model_list.find(row => row.model_id === chosen.id);
   if (!model || model.model!==chosen.modelSource)
@@ -30,6 +36,7 @@ export async function beginDomainModelInstallation(modelId=MODEL.id) {
   if (!document.documentElement.hasAttribute("data-iwxa-t3-autonomous")) {
     return async () => {}; // Ordinary online site, still requires user consent.
   }
+  if (signal?.aborted) throw cancelled();
   const worker = navigator.serviceWorker?.controller;
   if (!worker || new URL(worker.scriptURL).pathname !== "/t3-sw.js") {
     throw Error("T3_D5_AUTONOMOUS_WORKER_REQUIRED");
@@ -40,9 +47,17 @@ export async function beginDomainModelInstallation(modelId=MODEL.id) {
   if (reply?.type !== "MODEL_INSTALL_ALLOWED" ||
       typeof reply.token !== "string") throw Error("T3_D5_MODEL_INSTALL_NOT_ALLOWED");
   let ended = false;
-  return async () => {
+  const finish = async () => {
     if (ended) return;
-    ended = true;
+    // Mark the lease closed only after the original SW acknowledges it.
     await send(worker,"T3_MODEL_INSTALL_END",{token:reply.token});
+    ended = true;
   };
+  if (signal?.aborted) {
+    // Stop may happen while the SW is still granting a lease. Once its
+    // authentic token arrives, revoke it BEFORE exposing a WebLLM Worker.
+    await finish();
+    throw cancelled();
+  }
+  return finish;
 }
