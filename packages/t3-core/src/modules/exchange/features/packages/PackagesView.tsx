@@ -6,7 +6,8 @@ import type {
 import { ExportView } from "./ExportView";
 import { ImportView, type InstalledPwaFileHandle } from "./ImportView";
 import type { PackagesTab } from "../../types";
-import type { createTrustedAgeExchange } from "../../../../t3/index.mjs";
+import type { createTrustedAgeExchange, createTrustedPublisherHandoff } from "../../../../t3/index.mjs";
+import { PublisherLicensePanel } from "./PublisherLicensePanel";
 
 export interface PackagesViewProps {
   kernel: KernelFacade;
@@ -15,6 +16,7 @@ export interface PackagesViewProps {
   initialTab: PackagesTab;
   exportScopeId: string | null;
   protectedExchange?: ReturnType<typeof createTrustedAgeExchange> | null;
+  publisherHandoff?: ReturnType<typeof createTrustedPublisherHandoff> | null;
 }
 
 /**
@@ -29,6 +31,7 @@ export function PackagesView({
   initialTab,
   exportScopeId,
   protectedExchange = null,
+  publisherHandoff = null,
 }: PackagesViewProps) {
   const canExport =
     kernel.hasOperation("t2.exportPreview") || kernel.hasOperation("t2.exportPackage");
@@ -134,6 +137,7 @@ export function PackagesView({
             pwaFileHandle={pwaFileHandle} protectedExchange={protectedExchange} />
         )}
       </div>
+      {publisherHandoff && <PublisherLicensePanel handoff={publisherHandoff} />}
     </div>
   );
 }

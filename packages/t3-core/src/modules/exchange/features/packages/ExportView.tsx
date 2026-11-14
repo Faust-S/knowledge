@@ -85,6 +85,7 @@ export function ExportView({ kernel, scopedWorkspaceId,
   const [protectedBusy,setProtectedBusy] = useState(false);
   const [protectedError,setProtectedError] = useState<string|null>(null);
   const [downloadedName,setDownloadedName] = useState<string|null>(null);
+  const [protectedDownloadedName,setProtectedDownloadedName] = useState<string|null>(null);
   const artifactRef = useRef(state.artifact);
   artifactRef.current = state.artifact;
   const mountedRef = useRef(true);
@@ -102,6 +103,8 @@ export function ExportView({ kernel, scopedWorkspaceId,
       }
     };
   }, []);
+
+  useEffect(()=>{setProtectedDownloadedName(null);},[state.artifact]);
 
   const canPreview = kernel.hasOperation("t2.exportPreview");
   const canPackage = kernel.hasOperation("t2.exportPackage");
@@ -165,7 +168,7 @@ export function ExportView({ kernel, scopedWorkspaceId,
     } finally { busyRef.current = false; }
   };
 
-  const triggerDownload = (raw: Uint8Array, filename: string) => {
+  const triggerDownload = (raw: Uint8Array, filename: string, original: boolean) => {
 
     if (revokeTimerRef.current !== null) {
       window.clearTimeout(revokeTimerRef.current);
@@ -190,8 +193,14 @@ export function ExportView({ kernel, scopedWorkspaceId,
     link.rel = "noopener";
     link.click();
 
-    setDownloadedName(filename);
-    dispatch({ type: "download-initiated" });
+    if (original) {
+      setDownloadedName(filename);
+      dispatch({ type: "download-initiated" });
+    } else {
+      // A protected .iwxa.age is NOT the original ZIP backup. Its download
+      // must never certify the original Kernel confirmExport receipt.
+      setProtectedDownloadedName(filename);
+    }
 
     revokeTimerRef.current = window.setTimeout(() => {
       if (objectUrlRef.current === url) {
@@ -202,7 +211,7 @@ export function ExportView({ kernel, scopedWorkspaceId,
   };
 
   const runDownload = () => {
-    if (state.artifact) triggerDownload(state.artifact.bytes,state.artifact.filename);
+    if (state.artifact) triggerDownload(state.artifact.bytes,state.artifact.filename,true);
   };
   const runProtectedDownload = async () => {
     const artifact=state.artifact;
@@ -218,7 +227,7 @@ export function ExportView({ kernel, scopedWorkspaceId,
       });
       // The source can change during recipient confirmation or native age.
       if(!mountedRef.current || artifactRef.current!==artifact)return;
-      triggerDownload(protectedResult.ciphertext,artifact.filename+".age");
+      triggerDownload(protectedResult.ciphertext,artifact.filename+".age",false);
     } catch(error) {
       if(mountedRef.current&&artifactRef.current===artifact)
         setProtectedError(error instanceof Error?error.message:"T3_D7_AGE_OWNER_UNAVAILABLE");
@@ -247,6 +256,7 @@ export function ExportView({ kernel, scopedWorkspaceId,
     state, canPreview, canPackage, canConfirm,
     runPreview, runPackage, runDownload, runProtectedDownload, runConfirm, dispatch,
     protectedExchange, protectedBusy, protectedError, downloadedName,
+    protectedDownloadedName,
   });
 }
 
@@ -263,6 +273,7 @@ interface RenderProps {
   protectedBusy: boolean;
   protectedError: string | null;
   downloadedName: string | null;
+  protectedDownloadedName: string | null;
   runConfirm: () => void;
   dispatch: React.Dispatch<import("../state/export-machine").ExportEvent>;
 }
@@ -270,7 +281,8 @@ interface RenderProps {
 function renderExport(p: RenderProps) {
   const { state, canPreview, canPackage, canConfirm,
     runPreview, runPackage, runDownload, runProtectedDownload, runConfirm, dispatch,
-    protectedExchange, protectedBusy, protectedError, downloadedName } = p;
+    protectedExchange, protectedBusy, protectedError, downloadedName,
+    protectedDownloadedName } = p;
   const busy = state.status === "previewing" || state.status === "packaging" || state.status === "confirming";
   const previewDisabled = !canPreview || state.selection.workspaces.length === 0 || busy;
   const packageDisabled = !canPackage || !state.preview || !state.ackSensitive || busy;
@@ -363,6 +375,8 @@ function renderExport(p: RenderProps) {
       </div>
 
       {protectedError && <p role="alert" data-testid="export-age-error" className="text-xs text-red-300">Защита не выполнена: {protectedError}</p>}
+      {protectedDownloadedName && <p role="status" data-testid="export-age-download-not-backup"
+        className="text-xs text-slate-400">Браузеру передан {protectedDownloadedName}. Сохранение файла проверьте самостоятельно. Это не квитанция исходного Kernel о резервной копии .iwxa.</p>}
       {state.artifact && ["download-initiated", "confirming", "confirmed"].includes(state.status) && (
         <label className="flex items-start gap-2 text-xs text-slate-300">
           <input type="checkbox" data-testid="export-confirm-saved-file"

@@ -73,3 +73,5 @@ export { createTrustedReconciliationKernelApply } from './reconciliation-kernel-
 export { createTrustedNativeContinuation } from "./native-result-continuation.mjs";
 
 export {createTrustedAgeExchange} from "./age-protected-exchange.mjs";
+
+export {createTrustedPublisherHandoff} from "./publisher-license-handoff.mjs";

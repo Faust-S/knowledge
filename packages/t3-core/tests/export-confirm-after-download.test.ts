@@ -6,6 +6,7 @@ import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import { ExportView } from "@/modules/exchange/features/packages/ExportView";
 import type { KernelFacade } from "@/workspace-contract";
 import type { WorkspaceRecord } from "@/kernel-client";
+import type { createTrustedAgeExchange } from "@/t3/index.mjs";
 
 const preview = {
   workspaces: ["a"],
@@ -145,4 +146,37 @@ describe("Export confirm after download (§5)", () => {
       URL.revokeObjectURL = origRevoke;
     }
   });
+
+  it("protected .iwxa.age download cannot certify original unencrypted Kernel backup",async()=>{
+    const origCreate=URL.createObjectURL,origRevoke=URL.revokeObjectURL;
+    URL.createObjectURL=vi.fn(()=>"blob:protected") as typeof URL.createObjectURL;
+    URL.revokeObjectURL=vi.fn() as typeof URL.revokeObjectURL;
+    try{
+      const kernel=makeKernel();
+      const protectedExchange={
+        seal:vi.fn().mockResolvedValue({
+          status:"AGE_PROTECTED_DOWNLOAD_READY",
+          ciphertext:new Uint8Array([1,2,3,4]),
+          recipientIds:["recipient:A","recipient:B"],
+        }),
+      } as unknown as ReturnType<typeof createTrustedAgeExchange>;
+      render(createElement(ExportView,{kernel,protectedExchange}));
+      await waitForExportState("ready");
+      await act(async()=>{fireEvent.click(await waitForEnabledButton("export-preview"));});
+      await waitForExportState("preview-ready");
+      await act(async()=>{fireEvent.click(screen.getByTestId("export-ack-sensitive"));});
+      await act(async()=>{fireEvent.click(await waitForEnabledButton("export-package"));});
+      await waitForExportState("package-ready");
+      await act(async()=>{fireEvent.click(await waitForEnabledButton("export-age-protected"));});
+      await waitFor(()=>expect(screen.queryByTestId("export-age-download-not-backup")).toBeTruthy());
+      await waitForExportState("package-ready");
+      expect((screen.getByTestId("export-confirm") as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.queryByTestId("export-confirm-saved-file")).toBeNull();
+      expect(kernel.confirmExport).not.toHaveBeenCalled();
+    }finally{
+      URL.createObjectURL=origCreate;
+      URL.revokeObjectURL=origRevoke;
+    }
+  });
+
 });

@@ -18,7 +18,7 @@ import { adapter } from "@/kernel-client/adapter";
 import {
   readActivityFromWorkspaceContext, createTrustedReconciliationAdmission,
   createTrustedReconciliationKernelApply, createTrustedNativeContinuation,
-  createTrustedAgeExchange,
+  createTrustedAgeExchange, createTrustedPublisherHandoff,
 } from "@/t3/index.mjs";
 import {
   AVAILABLE_MODULES,
@@ -58,6 +58,9 @@ export async function createWorkspaceHostRuntime(
     throw new Error("T3_D6_TRUSTED_SIGNED_NATIVE_OWNER_REQUIRED");
   if(input.ageOwner && (!input.confirmAgeRecipients || !input.signedKernelAccess))
     throw new Error("T3_D7_TRUSTED_SIGNED_AGE_OWNER_REQUIRED");
+  if(input.publisherHolder &&
+      (!input.confirmPublisherHandoff || !input.signedKernelAccess))
+    throw new Error("T3_D7_TRUSTED_SIGNED_PUBLISHER_HOLDER_REQUIRED");
   const bindings = activeHostRouteBindings();
   const registry = new RouteRegistry();
   registry.registerMany(bindings);
@@ -259,6 +262,20 @@ export async function createWorkspaceHostRuntime(
         confirmRecipients:input.confirmAgeRecipients,
         isHostActive:()=>!disposed,
       }) : null;
+  // No licence engine lives in T3 Host. The trusted installed product keeps
+  // original Publisher trust, native durable receipts and STATUS floors.
+  const publisherHandoff: WorkspaceHostRuntimeHandle["publisherHandoff"] =
+    input.publisherHolder && input.confirmPublisherHandoff
+      ? createTrustedPublisherHandoff({
+        kernel:activityT2Kernel,
+        accessForRead:async operation=>{
+          const source=input.signedKernelAccess;
+          return typeof source==="function" ? await source(operation) : source ?? null;
+        },
+        nativeHolder:input.publisherHolder,
+        confirmHuman:input.confirmPublisherHandoff,
+        isHostActive:()=>!disposed,
+      }) : null;
   // D3 is executed by one ORIGINAL owner. Installed split-origin products
   // forward to the native recipient over the existing signed Control channel.
   const remoteD3=input.reconciliationPort;
@@ -346,6 +363,7 @@ export async function createWorkspaceHostRuntime(
     reconciliation,
     nativeContinuation,
     protectedExchange,
+    publisherHandoff,
     invalidate,
     dispose,
   };

@@ -34,7 +34,7 @@ export default function ExchangeHomeRoute() {
       </section>
     );
   }
-  const allowed =
+  const allowed = Boolean(runtime?.publisherHandoff) ||
     kernel.hasOperation("t2.exportPreview") ||
     kernel.hasOperation("t2.exportPackage") ||
     kernel.hasOperation("t2.confirmExport") ||
@@ -53,6 +53,7 @@ export default function ExchangeHomeRoute() {
           initialTab="export"
           exportScopeId={null}
           protectedExchange={runtime?.protectedExchange ?? null}
+          publisherHandoff={runtime?.publisherHandoff ?? null}
         />
       ) : (
         <p

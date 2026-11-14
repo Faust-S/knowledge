@@ -23,6 +23,7 @@ import type {
   createTrustedReconciliationAdmission, createTrustedReconciliationKernelApply,
   createTrustedNativeContinuation, T3NativeContinuationOwner,
   createTrustedAgeExchange, T3OriginalAgeOwner,
+  createTrustedPublisherHandoff, T3OriginalPublisherHolder,
 } from "../../t3/index.mjs";
 
 /** Existing private recipient Reconciler, signed Access and owner review.
@@ -79,6 +80,8 @@ export interface WorkspaceHostRuntimeHandle {
   /** Optional D6 continuation into an already-installed signed native owner. */
   readonly nativeContinuation: ReturnType<typeof createTrustedNativeContinuation> | null;
   readonly protectedExchange: ReturnType<typeof createTrustedAgeExchange> | null;
+  /** Existing original Publisher/holder licence-status receipt port. */
+  readonly publisherHandoff: ReturnType<typeof createTrustedPublisherHandoff> | null;
   /** Immediately invalidate signed ModuleContext and Activity access on session loss.
    * Module deactivation still runs later through the original serialized teardown. */
   readonly invalidate: () => void;
@@ -111,6 +114,9 @@ export interface CreateWorkspaceHostRuntimeInput {
   /** Compiled Host only, never a webpage or imported archive. */
   ageOwner?: T3OriginalAgeOwner;
   confirmAgeRecipients?: Parameters<typeof createTrustedAgeExchange>[0]["confirmRecipients"];
+  /** Compiled product only: original holder, original durable local licence state. */
+  publisherHolder?: T3OriginalPublisherHolder;
+  confirmPublisherHandoff?: Parameters<typeof createTrustedPublisherHandoff>[0]["confirmHuman"];
   /** Read-only capability snapshot for module/contribution visibility guards. */
   activeCapabilities?: readonly string[];
   workspaceConfig: { modules: readonly Record<string, unknown>[] };

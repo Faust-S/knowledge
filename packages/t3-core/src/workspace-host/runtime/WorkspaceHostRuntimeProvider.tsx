@@ -49,6 +49,8 @@ interface WorkspaceHostRuntimeProviderProps {
   confirmNativeContinuation?: CreateWorkspaceHostRuntimeInput["confirmNativeContinuation"];
   ageOwner?: CreateWorkspaceHostRuntimeInput["ageOwner"];
   confirmAgeRecipients?: CreateWorkspaceHostRuntimeInput["confirmAgeRecipients"];
+  publisherHolder?: CreateWorkspaceHostRuntimeInput["publisherHolder"];
+  confirmPublisherHandoff?: CreateWorkspaceHostRuntimeInput["confirmPublisherHandoff"];
   /** Reuse the original Control owner's subscribeInvalidation. Context
    * changes, signed STATUS and revocation must immediately detach old UI. */
   subscribeSignedAccessInvalidation?: SignedAccessInvalidationSubscription;
@@ -83,6 +85,7 @@ export function WorkspaceHostRuntimeProvider(
     signedKernelAccess, signedActivityAccess, reconciliationOwner, reconciliationPort,
     nativeContinuationOwner, confirmNativeContinuation,
     ageOwner, confirmAgeRecipients,
+    publisherHolder, confirmPublisherHandoff,
     subscribeSignedAccessInvalidation,
     compileTimeModuleLoaders,
     preferDomainLanding = false,
@@ -213,6 +216,8 @@ export function WorkspaceHostRuntimeProvider(
             confirmNativeContinuation,
             ageOwner,
             confirmAgeRecipients,
+            publisherHolder,
+            confirmPublisherHandoff,
             compileTimeModuleLoaders,
             preferDomainLanding,
           });
@@ -241,7 +246,7 @@ export function WorkspaceHostRuntimeProvider(
       // this generation stale.
     };
     // Restart only on session identity or workspaceConfig identity change.
-  }, [sessionKey, session, workspaceConfig, termResolver, profile, activeCapabilities, signedKernelAccess, signedActivityAccess, reconciliationOwner, reconciliationPort, nativeContinuationOwner, confirmNativeContinuation, ageOwner, confirmAgeRecipients, accessEpoch, compileTimeModuleLoaders, preferDomainLanding]);
+  }, [sessionKey, session, workspaceConfig, termResolver, profile, activeCapabilities, signedKernelAccess, signedActivityAccess, reconciliationOwner, reconciliationPort, nativeContinuationOwner, confirmNativeContinuation, ageOwner, confirmAgeRecipients, publisherHolder, confirmPublisherHandoff, accessEpoch, compileTimeModuleLoaders, preferDomainLanding]);
 
   // Unmount teardown.
   useEffect(() => {

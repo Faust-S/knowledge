@@ -214,3 +214,53 @@ export function createTrustedAgeExchange(options:{
     Promise<T3AgeProtectionReceipt>;
   open(input:{ciphertext:Uint8Array}):Promise<T3AgeOpenReceipt>;
 }>;
+
+/** D7: existing signed Publisher licence/status owner inside an installed
+ * product. Original owner provides pinned publisher trust, durable receipts,
+ * monotonic STATUS floors, tombstones and cold-restart readback. This port
+ * neither issues credentials nor turns entitlements into data access rights. */
+export type T3PublisherHandoffKind = "LICENSE"|"STATUS";
+export interface T3OriginalPublisherHolder {
+  subjectForContext(context:unknown):
+    {holderId:string;recipientId:string;subjectType:"PERSON"|"ORGANIZATION"}|
+    Promise<{holderId:string;recipientId:string;subjectType:"PERSON"|"ORGANIZATION"}>;
+  inspect(input:{kind:T3PublisherHandoffKind;archiveBytes:Uint8Array;
+    packageSha256:string;context:unknown;subject:unknown}):unknown|Promise<unknown>;
+  apply(input:{kind:T3PublisherHandoffKind;archiveBytes:Uint8Array;
+    operationId:string;packageSha256:string;previewDigest:string;
+    subject:unknown;context:unknown}):unknown|Promise<unknown>;
+  receipt(input:{kind:T3PublisherHandoffKind;operationId:string;
+    packageSha256:string;holderId:string;recipientId:string}):unknown|Promise<unknown>;
+  statusReadback(input:{kind:T3PublisherHandoffKind;operationId:string;
+    packageSha256:string;holderId:string;recipientId:string}):unknown|Promise<unknown>;
+}
+export interface T3PublisherHandoffPreview {
+  status:"VERIFIED_PENDING_CONSENT"|"RECOVER_ONLY";
+  kind:T3PublisherHandoffKind;packageSha256:string;previewDigest:string;
+  holderId:string;recipientId:string;operationId:string;
+  issuerAuthorityId:string;publisherId:string;licenseId:string|null;
+  sequence:number|null;targetStatus:string|null;
+  dataAccessAuthorized:false;entitlementActivated:false;
+}
+export interface T3PublisherHandoffResult {
+  status:"USER_CANCELLED"|"OUTCOME_UNKNOWN"|"ORIGINAL_HOLDER_READBACK_CONFIRMED";
+  kind:T3PublisherHandoffKind;operationId?:string;
+  packageSha256?:string;holderId?:string;issuerAuthorityId?:string;
+  licenseId?:string|null;sequence?:number|null;targetStatus?:string|null;
+  entitlementActivated?:false;dataAccessAuthorized?:false;
+}
+export function createTrustedPublisherHandoff(options:{
+  kernel:KernelFacade;
+  accessForRead:(operation:string)=>T3SignedActivityAccess|null|
+    Promise<T3SignedActivityAccess|null>;
+  nativeHolder:T3OriginalPublisherHolder;
+  confirmHuman:(preview:T3PublisherHandoffPreview)=>boolean|Promise<boolean>;
+  isHostActive:()=>boolean;
+}):Readonly<{
+  preview(input:{kind:T3PublisherHandoffKind;archiveBytes:Uint8Array}):
+    Promise<T3PublisherHandoffPreview>;
+  admit(input:{kind:T3PublisherHandoffKind;archiveBytes:Uint8Array;
+    previewDigest:string}):Promise<T3PublisherHandoffResult>;
+  recover(input:{kind:T3PublisherHandoffKind;archiveBytes:Uint8Array}):
+    Promise<T3PublisherHandoffResult>;
+}>;

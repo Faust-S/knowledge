@@ -75,6 +75,8 @@ export interface AppShellProps {
   confirmNativeContinuation?: CreateWorkspaceHostRuntimeInput["confirmNativeContinuation"];
   ageOwner?: CreateWorkspaceHostRuntimeInput["ageOwner"];
   confirmAgeRecipients?: CreateWorkspaceHostRuntimeInput["confirmAgeRecipients"];
+  publisherHolder?: CreateWorkspaceHostRuntimeInput["publisherHolder"];
+  confirmPublisherHandoff?: CreateWorkspaceHostRuntimeInput["confirmPublisherHandoff"];
   subscribeSignedAccessInvalidation?: SignedAccessInvalidationSubscription;
 }
 
@@ -123,6 +125,8 @@ export function AppShell(props: AppShellProps) {
     confirmNativeContinuation,
     ageOwner,
     confirmAgeRecipients,
+    publisherHolder,
+    confirmPublisherHandoff,
     subscribeSignedAccessInvalidation,
   } = props;
   // Absence of a required original signed owner is a DENIED state, never an
@@ -180,6 +184,8 @@ export function AppShell(props: AppShellProps) {
         confirmNativeContinuation={confirmNativeContinuation}
         ageOwner={ageOwner}
         confirmAgeRecipients={confirmAgeRecipients}
+        publisherHolder={publisherHolder}
+        confirmPublisherHandoff={confirmPublisherHandoff}
         subscribeSignedAccessInvalidation={subscribeSignedAccessInvalidation}
       >
         <HostShellContent
@@ -426,6 +432,8 @@ interface RuntimeBridgeProps {
   confirmNativeContinuation?: CreateWorkspaceHostRuntimeInput["confirmNativeContinuation"];
   ageOwner?: CreateWorkspaceHostRuntimeInput["ageOwner"];
   confirmAgeRecipients?: CreateWorkspaceHostRuntimeInput["confirmAgeRecipients"];
+  publisherHolder?: CreateWorkspaceHostRuntimeInput["publisherHolder"];
+  confirmPublisherHandoff?: CreateWorkspaceHostRuntimeInput["confirmPublisherHandoff"];
   subscribeSignedAccessInvalidation?: SignedAccessInvalidationSubscription;
   children: React.ReactNode;
 }
@@ -434,6 +442,7 @@ function AppShellRuntimeBridge({
   session, hostWorkspace, profile, signedKernelAccess, signedActivityAccess,
   reconciliationOwner, reconciliationPort, nativeContinuationOwner,
   confirmNativeContinuation, ageOwner, confirmAgeRecipients,
+  publisherHolder, confirmPublisherHandoff,
   subscribeSignedAccessInvalidation, children,
 }: RuntimeBridgeProps) {
   const { terminology, layout } = useDomainShell();
@@ -475,6 +484,8 @@ function AppShellRuntimeBridge({
       confirmNativeContinuation={confirmNativeContinuation}
       ageOwner={ageOwner}
       confirmAgeRecipients={confirmAgeRecipients}
+      publisherHolder={publisherHolder}
+      confirmPublisherHandoff={confirmPublisherHandoff}
       subscribeSignedAccessInvalidation={subscribeSignedAccessInvalidation}
     >
       <WorkspaceCapabilityWatcher session={session} onChange={receiveCapabilities} />
