@@ -32,7 +32,7 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
     decisionCheckAtCommit:true,externalContextCoreApplied:false,
     commitPrecondition:()=>{preconditionCount++;return sourceCurrent&&signedJitCount>0;},
   };
-  let written=null,lastEvent=null;
+  let written=null,lastEvent=null,loseAckAfterWrite=false;
   const hash=value=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
   const access={
     currentContext:()=>context,
@@ -71,6 +71,7 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
           revision:1,occurred_at:new Date().toISOString(),
           idempotency_key:input.idempotency_key,
           payload:structuredClone(input.event.payload)};
+        if(loseAckAfterWrite)throw new Error("ORIGINAL_KERNEL_ACK_LOST");
         return {
           workspace_id:"ws:a",object:{workspace_id:"ws:a",object_id:"result:one",
             revision:1,schema_id:"iwxa.result.native"},
@@ -153,4 +154,18 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   active=false;
   await assert.rejects(port.applyAccepted(selection),{code:"T3_HOST_DISPOSED"});
   assert.equal(commits,1);
+  // Independent simulated crash-after-write: Kernel persisted the original
+  // object and Event, but the caller did not receive the operation receipt.
+  // Reopening the trusted Host must NOT dispatch a second graph write.
+  active=true;stopHostDuringJit=false;sourceCurrent=true;
+  commits=0;written=null;lastEvent=null;loseAckAfterWrite=true;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"});
+  assert.equal(commits,1);
+  assert.equal(written.idempotency_key,effect);
+  const afterLostAck=await port.recoverApplied(selection);
+  assert.equal(afterLostAck.status,"ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
+  assert.equal(afterLostAck.originalEventReadback.idempotency_key,effect);
+  assert.equal(afterLostAck.automaticRetryAllowed,false);
+  assert.equal(commits,1,"recovery may read but must never repeat APPLY");
 });
