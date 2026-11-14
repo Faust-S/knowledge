@@ -13,6 +13,11 @@ const TOKEN=/^[A-Za-z0-9_-]{40,128}$/;
 const REF=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;
 const MAX_BODY=512*1024;
+const MAX_D3_BODY=24*1024*1024;
+const MAX_D3_ARCHIVE=16*1024*1024;
+const D3_VERBS=new Set(["available","receive","preview","accept","reject",
+  "inspectAcceptedApplication","applyAccepted"]);
+const D3_METHODS=["receive","preview","accept","reject","inspectAcceptedApplication"];
 const SCOPES=new Set(["kernel","activity"]);
 // On the trusted signed Kernel origin, ALL compiled unsigned HTML entries
 // must be blocked, not just the root Workspace page. The normal T2 site
@@ -42,11 +47,12 @@ function reply(res,status,value){
     "Referrer-Policy":"no-referrer"});
   res.end(JSON.stringify(value));
 }
-async function bodyFrom(req){
+async function bodyFrom(req,limit=MAX_BODY){
   const parts=[];let total=0;
   for await(const chunk of req){
     total+=chunk.length;
-    requireThat(total<=MAX_BODY,"T3_D1_CONTROL_BODY_TOO_LARGE");
+    requireThat(total<=limit,limit===MAX_BODY
+      ?"T3_D1_CONTROL_BODY_TOO_LARGE":"T3_D3_CARRIER_TOO_LARGE");
     parts.push(chunk);
   }
   let result;
@@ -64,6 +70,7 @@ function errorCode(error){
 export function createOriginalControlHttpHandler({
   origin,token,readToken=null,ownerFor,currentEpoch,subscribeInvalidation,
   uiOrigin=null,serviceId=null,assetForPath=null,
+  reconciliationPortFor=null,
 }={}){
   requireThat(typeof origin==="string"&&LOCAL.test(origin)&&
     new URL(origin).origin===origin,"T3_D1_CONTROL_ORIGIN_REQUIRED");
@@ -82,6 +89,10 @@ export function createOriginalControlHttpHandler({
     "T3_D1_CONTROL_ISOLATED_UI_REQUIRED");
   requireThat(assetForPath===null||typeof assetForPath==="function",
     "T3_D1_CONTROL_TRUSTED_ASSET_RESOLVER_REQUIRED");
+  // The installed native Host supplies an ORIGINAL recipient-owned D3 port.
+  // Nothing in this HTTP handler constructs a Reconciler or a second Ledger.
+  requireThat(reconciliationPortFor===null||typeof reconciliationPortFor==="function",
+    "T3_D3_ORIGINAL_RECIPIENT_PROVIDER_INVALID");
   // The original installed Host may rotate its ephemeral bearer whenever
   // its existing signed subject session changes. This is a transient
   // transport credential only, NEVER a grant, issuer or AccessRegistry.
@@ -221,7 +232,7 @@ export function createOriginalControlHttpHandler({
         else res.write("event: ready\ndata: {}\n\n");
         return true;
       }
-      requireThat(route==="/api/t3/owner",
+      requireThat(route==="/api/t3/owner"||route==="/api/t3/reconciliation",
         "T3_D1_CONTROL_ROUTE_DENIED");
       requireThat(req.method==="POST"&&req.headers.origin===origin&&
         /^application\/json\b/i.test(req.headers["content-type"]??""),
@@ -231,7 +242,57 @@ export function createOriginalControlHttpHandler({
       requireThat(authenticated(req),"T3_D1_CONTROL_SESSION_ROTATED");
       requireThat(typeof requestEpoch==="string"&&
         requestEpoch===String(before),"STALE_CONTEXT_OPERATION");
-      const input=await bodyFrom(req);
+      const input=await bodyFrom(req,route==="/api/t3/reconciliation"
+        ?MAX_D3_BODY:MAX_BODY);
+      if(route==="/api/t3/reconciliation"){
+        requireThat(D3_VERBS.has(input.verb)&&
+          input.payload&&typeof input.payload==="object"&&
+          !Array.isArray(input.payload),
+          "T3_D3_RECIPIENT_REQUEST_INVALID");
+        // The genuine native/product owner decides which original Reconciler
+        // belongs to the selected subject and owns all independent reviews.
+        const port=reconciliationPortFor===null?null:await reconciliationPortFor();
+        const available=port!==null&&port!==undefined&&
+          D3_METHODS.every(method=>typeof port[method]==="function");
+        if(input.verb==="available"){
+          requireThat(before===await epochNow()&&authenticated(req),
+            "STALE_CONTEXT_OPERATION");
+          reply(res,200,{result:{available,applyAvailable:available&&
+            typeof port.applyAccepted==="function"}});
+          return true;
+        }
+        requireThat(available,"T3_D3_ORIGINAL_RECIPIENT_UNAVAILABLE");
+        const payload=input.payload;
+        let result;
+        if(input.verb==="receive"){
+          const encoded=payload.archiveBase64url;
+          requireThat(typeof encoded==="string"&&
+            encoded.length>0&&encoded.length<=Math.ceil(MAX_D3_ARCHIVE/3)*4&&
+            /^[A-Za-z0-9_-]+$/.test(encoded),
+            "T3_D3_ORIGINAL_IWXA_BYTES_REQUIRED");
+          const bytes=Buffer.from(encoded,"base64url");
+          requireThat(bytes.length>0&&bytes.length<=MAX_D3_ARCHIVE&&
+            bytes.toString("base64url")===encoded,
+            "T3_D3_ORIGINAL_IWXA_BYTES_REQUIRED");
+          result=await port.receive(bytes);
+        }else if(input.verb==="preview"){
+          result=await port.preview(payload.packageSha256);
+        }else if(input.verb==="accept"||input.verb==="reject"){
+          result=await port[input.verb](payload);
+        }else if(input.verb==="inspectAcceptedApplication"){
+          result=await port.inspectAcceptedApplication(payload);
+        }else{
+          requireThat(typeof port.applyAccepted==="function",
+            "T3_D3_ORIGINAL_APPLY_OWNER_REQUIRED");
+          result=await port.applyAccepted(payload);
+        }
+        // A stale response after a native write is UNKNOWN, never proof of
+        // non-application or an invitation to replay the original command.
+        requireThat(before===await epochNow()&&authenticated(req),
+          "T3_D3_OWNER_CONTEXT_CHANGED_OUTCOME_UNKNOWN");
+        reply(res,200,{result});
+        return true;
+      }
       requireThat(SCOPES.has(input.scope)&&
         typeof input.operation==="string"&&REF.test(input.operation)&&
         ["select","context","action","digest","authorize"].includes(input.verb),
@@ -288,7 +349,9 @@ export function createOriginalControlHttpHandler({
       reply(res,200,result);
       return true;
     }catch(error){
-      if(!res.headersSent)reply(res,error?.code==="T3_D1_CONTROL_BODY_TOO_LARGE"?413:403,
+      if(!res.headersSent)reply(res,[
+        "T3_D1_CONTROL_BODY_TOO_LARGE","T3_D3_CARRIER_TOO_LARGE",
+      ].includes(error?.code)?413:403,
         {error:errorCode(error)});
       return true;
     }
