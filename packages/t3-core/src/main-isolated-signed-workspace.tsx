@@ -85,7 +85,12 @@ async function launch(){
         // must continue without another importer or private code in React.
         if(code==="T3_D1_ORIGINAL_KERNEL_METHOD_FORBIDDEN"||
            code==="T3_D3_ORIGINAL_RECIPIENT_UNAVAILABLE"||
-           code==="T3_D1_CONTROL_ROUTE_DENIED")return {available:false};
+           code==="T3_D1_CONTROL_ROUTE_DENIED"||
+           // Previously installed Control Hosts do not route D3 at all.
+           // Absence of this optional feature must not disable the already
+           // authorized T2/T3 Workspace. Revocation and session loss are
+           // deliberately NOT treated as optional/unavailable.
+           code==="CONTROL_OWNER_UNAVAILABLE")return {available:false};
         throw error;
       });
     const requestD3=(verb:string,payload:unknown)=>
