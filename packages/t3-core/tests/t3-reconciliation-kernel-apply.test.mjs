@@ -9,7 +9,8 @@ import {createTrustedReconciliationKernelApply}
 const accepted="a".repeat(64),rev="b".repeat(64),effect="c".repeat(64);
 test("separate original-owner Apply uses the inherited Kernel graph and readback once",async()=>{
   let approves=false,active=true,commits=0;
-  let sourceCurrent=true,revokeDuringJit=false,signedJitCount=0,preconditionCount=0;
+  let sourceCurrent=true,revokeDuringJit=false,stopHostDuringJit=false;
+  let signedJitCount=0,preconditionCount=0;
   const context={kind:"CORP",context_id:"ctx:a",actor_id:"person:a",
     principal_id:"org:a",organization_id:"org:a",role_id:"role:admin",
     grant_id:"grant:a",realm_id:"realm:a",audience:"host:t3",
@@ -37,6 +38,7 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
     authorize:request=>{
       signedJitCount++;
       if(revokeDuringJit&&request.action==="object.write")sourceCurrent=false;
+      if(stopHostDuringJit&&request.action==="object.write")active=false;
       return ({
       schema:"IWXA_T3_ORGANIZATION_OPERATION_DECISION/1",
       allowed:true,outcome:"PERMITTED",evidenceOnly:true,
@@ -94,6 +96,14 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
     {code:"T3_D3_ORIGINAL_APPLICATION_PRECONDITION_DENIED"});
   assert.equal(commits,1);
   assert.ok(preconditionCount>=2);
+  // A signed owner may revoke the Host while authorize() is pending.
+  // This denial occurs BEFORE the original Kernel dispatch, so must not
+  // be mislabeled as a lost post-write acknowledgement.
+  revokeDuringJit=false;
+  sourceCurrent=true;
+  stopHostDuringJit=true;
+  await assert.rejects(port.applyAccepted(selection),{code:"T3_HOST_DISPOSED"});
+  assert.equal(commits,1);
   active=false;
   await assert.rejects(port.applyAccepted(selection),{code:"T3_HOST_DISPOSED"});
   assert.equal(commits,1);
