@@ -29,6 +29,8 @@ async function fixture(){
   origin="http://127.0.0.1:"+server.address().port;
   handle=createOriginalControlHttpHandler({
     origin,token,
+    uiOrigin:"http://127.0.0.1:"+(Number(new URL(origin).port)+1),
+    serviceId:"iwxa.workspace.integration",
     currentEpoch:()=>epoch,
     subscribeInvalidation:listener=>{
       listeners.add(listener);
@@ -93,6 +95,15 @@ test("existing Control HTTP protocol executes original Ed25519 PERSONAL proof an
 test("installed Host Control route denies missing token, forged Origin and stale epoch",async()=>{
   const f=await fixture();
   try{
+    const launch=await fetch(f.origin+"/workspace/t3-signed-ui.json");
+    assert.equal(launch.status,200);
+    const pinned=await launch.json();
+    assert.equal(pinned.schema,"IWXA_T3_SIGNED_WORKSPACE_LAUNCH/1");
+    assert.equal(pinned.kernel_origin,f.origin);
+    assert.notEqual(pinned.ui_origin,f.origin);
+    const trusted=await (await fetch(f.origin+"/workspace/t3-kernel-realm.json")).json();
+    assert.equal(trusted.ui_origin,pinned.ui_origin);
+    assert.equal(trusted.service_id,pinned.service_id);
     const missing=await fetch(f.origin+"/api/t3/context-epoch");
     assert.equal(missing.status,401);
     const bad=await fetch(f.origin+"/api/t3/owner",{

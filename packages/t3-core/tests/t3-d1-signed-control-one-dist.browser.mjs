@@ -93,7 +93,9 @@ const server=createServer((req,res)=>{
     // The trusted Host owns this single endpoint. For the final compiled
     // PERSONAL product route, use REAL Ed25519 Control, not the synthetic
     // earlier corporate fixture. No extra issuer/HTTP/Kernel server.
-    if(path.startsWith('/api/t3/')&&authenticHandler){
+    if((path.startsWith('/api/t3/')||
+        path==='/workspace/t3-signed-ui.json'||
+        path==='/workspace/t3-kernel-realm.json')&&authenticHandler){
       void authenticHandler(req,res).catch(()=>{
         if(!res.headersSent)send(503,{error:'AUTHENTIC_OWNER_UNAVAILABLE'});
       });
@@ -103,6 +105,10 @@ const server=createServer((req,res)=>{
     if(path==='/__original_kernel_probe__')
       return send(200,'<!doctype html><title>Original Kernel probe</title>'+
         '<script src="/_iwxa/loader.js"></script>','text/html',true);
+    // The original Host pins both ends of the signed Workspace launch.
+    if(path==='/workspace/t3-signed-ui.json')
+      return send(200,{schema:'IWXA_T3_SIGNED_WORKSPACE_LAUNCH/1',
+        kernel_origin:origin,ui_origin:uiOrigin,service_id:serviceId});
     // Compiled trusted T3 realm: original Control SSE/JIT and original T2
     // loader execute at the pinned kernel origin, not the domain UI origin.
     if(path==='/workspace/t3-kernel-realm.json')
@@ -525,31 +531,31 @@ try{
     originalKernelWriteCount:signedKernelWrites,privateControlUsed:false,
     completeControlProductAccepted:false,
   }));
-  // Raw T2 original service is deliberately only exercised by the isolated
-  // probe page. It does NOT establish corporate signed authority.
+  // Protected launch: old same-origin entry is a forwarding-only shim.
+  // No raw T2 Kernel or React AppShell may mount in that origin.
   const denied=await browser.context.newPage();
   await denied.goto(origin+'/workspace/signed-workspace.html');
-  await denied.waitForFunction(()=>
-    document.querySelector('#root')?.textContent?.includes('Не удалось подключить'),
-    null,{timeout:25000});
+  await denied.getByTestId('t3-signed-control-reconnect').waitFor({
+    state:'visible',timeout:25000,
+  });
   assert.equal(new URL(denied.url()).hash,'');
+  assert.equal(await denied.evaluate(()=>typeof globalThis.IWXA),'undefined');
+
   const signed=await browser.context.newPage();
   const pageErrors=[];
   signed.on('pageerror',err=>pageErrors.push(err.message));
   await signed.goto(origin+'/workspace/signed-workspace.html#'+token);
-  await signed.getByTestId('t3-signed-control-reconnect').waitFor({
+  await signed.getByTestId('t3-isolated-control-reconnect').waitFor({
     state:'visible',timeout:60000,
   });
-  assert.equal(new URL(signed.url()).hash,'',
-    'signed Control bearer must be erased before any Workspace module imports');
-  assert.match(await signed.getByTestId('t3-signed-control-reconnect').innerText(),
-    /Откройте Workspace.*повторно/i);
+  assert.equal(new URL(signed.url()).origin,uiOrigin);
+  assert.equal(new URL(signed.url()).hash,'#/overview');
   assert.deepEqual(pageErrors,[]);
   assert.equal(await signed.evaluate(()=>typeof globalThis.IWXA),'undefined',
-    'T3_D1_CONTROL_ABSENT_MUST_NOT_BOOT_RAW_T2_KERNEL');
-  // Functional signed onboarding through the compiled SAME React Host and
-  // original T2 Store. This is a test-only synthetic authorization response:
-  // it does NOT qualify the private Ed25519 issuer or enrollment.
+    'failed Control cannot fall back to raw Kernel');
+
+  // The canonical split-origin entry performs the SAME signed onboarding.
+  // This fixture uses synthetic rights only until the later real Ed25519 run.
   syntheticOwner=true;
   const selected=await browser.context.newPage();
   const selectedErrors=[];
@@ -557,14 +563,13 @@ try{
   await selected.goto(origin+'/workspace/signed-workspace.html#'+token);
   const missing=selected.getByTestId('t3-d1-selected-workspace-message');
   await missing.waitFor({state:'visible',timeout:60000});
+  assert.equal(new URL(selected.url()).origin,uiOrigin);
   assert.match(await missing.innerText(),/пока нет рабочей области/,
     'T3_D1_SIGNED_FIRST_RUN_MUST_EXPLAIN_MISSING_ORIGINAL_WORKSPACE');
-  assert.equal(new URL(selected.url()).hash,'');
+  assert.equal(new URL(selected.url()).hash,'#/overview');
   await selected.getByTestId('t3-d1-create-selected-workspace').click();
   await selected.getByTestId('t3-d1-selected-workspace-gate')
     .waitFor({state:'detached',timeout:30000});
-  // Independently read the workspace from the original Kernel on a
-  // separate probe page. That page does NOT create the Workspace.
   const created=await browser.page.evaluate(async({serviceId,workspace_id})=>{
     const kernel=await globalThis.IWXA.connect({service_id:serviceId});
     return kernel.t1.getWorkspace(workspace_id);
@@ -573,46 +578,15 @@ try{
   assert.equal(created?.profile,'generic');
   assert.deepEqual(selectedErrors,[]);
 
-  // Adversarial D1 witness, NOT a permitted Host operation. The original T2
-  // bootstrap is global in the same browser origin as the signed Workspace.
-  // Probe another organization's stored object via RAW window.IWXA.connect,
-  // without touching the signed KernelFacade. Log any bypass as a release
-  // blocker; a green UI regression alone must never imply native enforcement.
-  const boundary=await selected.evaluate(async ({serviceId,workspace,object})=>{
-    const exposed=typeof globalThis.IWXA?.connect==='function';
-    if(!exposed)return {rawConnectExposed:false,foreignReadPossible:false};
-    try{
-      const raw=await globalThis.IWXA.connect({service_id:serviceId});
-      const foreign=await raw.t1.getObject(workspace,object);
-      return {
-        rawConnectExposed:true,
-        foreignReadPossible:foreign?.object?.data?.title==='Real original T2 one-dist',
-        foreignObjectId:foreign?.object?.object_id??null,
-      };
-    }catch{
-      return {rawConnectExposed:true,foreignReadPossible:false};
-    }
-  },{serviceId,workspace,object});
-  if(boundary.foreignReadPossible){
-    assert.equal(boundary.foreignObjectId,object);
-    console.log('T3_D1_RAW_ORIGINAL_KERNEL_BYPASS_CONFIRMED_NOT_ACCEPTED',JSON.stringify({
-      signedHostMounted:true,rawConnectExposed:boundary.rawConnectExposed,
-      foreignSignedWorkspaceReadWithoutGrant:true,
-      nativeStoreBoundaryQualified:false,
-      originalKernelVersion:'0.3.6',
-    }));
-  }else{
-    console.log('T3_D1_RAW_ORIGINAL_KERNEL_BYPASS_NOT_REPRODUCED',JSON.stringify({
-      signedHostMounted:true,rawConnectExposed:boundary.rawConnectExposed,
-      foreignSignedWorkspaceReadWithoutGrant:false,
-      nativeStoreBoundaryQualified:false,
-    }));
-  }
-  console.log('T3_D1_SYNTHETIC_SIGNED_CREATE_WORKSPACE_PASS',JSON.stringify({
-    compiledSignedHost:true,originalKernel:'0.3.6',
-    createdViaSignedKernelFacade:true,independentOriginalKernelReadback:true,
-    missingWorkspaceExplained:true,explicitUserAction:true,
-    syntheticOwnerOnly:true,authenticPrivateSignerExecuted:false,
+  assert.equal(await selected.evaluate(()=>typeof globalThis.IWXA),'undefined',
+    'signed Workspace must NOT inherit raw Kernel from its UI origin');
+  assert.equal((await selected.evaluate(async()=>(
+    await fetch('/_iwxa/loader.js',{cache:'no-store'})
+  ))).status,404);
+  console.log('T3_D1_PROTECTED_SIGNED_LAUNCH_ISOLATED_PASS',JSON.stringify({
+    oldEntryForwardedToCanonicalUi:true,originalKernel:'0.3.6',
+    signedUiHasNoRawKernel:true,signedWorkspaceCreatedAndReadback:true,
+    syntheticOwnerOnly:true,nativeStoreBoundaryQualified:false,
   }));
 
   // Real cross-origin boundary proof, using the SAME original T2 Kernel and
@@ -1018,7 +992,7 @@ try{
   });
   const knownRealOperations=new Set(authenticOperations.map(op=>op.slice(3)));
   authenticHandler=createOriginalControlHttpHandler({
-    origin,token,currentEpoch:()=>authenticEpoch,
+    origin,token,uiOrigin,serviceId,currentEpoch:()=>authenticEpoch,
     subscribeInvalidation:callback=>{
       authenticInvalidationListeners.add(callback);
       return ()=>authenticInvalidationListeners.delete(callback);
@@ -1255,7 +1229,7 @@ try{
   let corporateOwner=buildCorporatePort(corporateRegistry);
   authenticEpoch++;
   authenticHandler=createOriginalControlHttpHandler({
-    origin,token,currentEpoch:()=>authenticEpoch,
+    origin,token,uiOrigin,serviceId,currentEpoch:()=>authenticEpoch,
     subscribeInvalidation:listener=>{
       authenticInvalidationListeners.add(listener);
       return ()=>authenticInvalidationListeners.delete(listener);

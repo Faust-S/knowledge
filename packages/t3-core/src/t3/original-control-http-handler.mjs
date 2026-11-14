@@ -47,6 +47,7 @@ function errorCode(error){
 }
 export function createOriginalControlHttpHandler({
   origin,token,readToken=null,ownerFor,currentEpoch,subscribeInvalidation,
+  uiOrigin=null,serviceId=null,
 }={}){
   requireThat(typeof origin==="string"&&LOCAL.test(origin)&&
     new URL(origin).origin===origin,"T3_D1_CONTROL_ORIGIN_REQUIRED");
@@ -55,6 +56,14 @@ export function createOriginalControlHttpHandler({
     typeof ownerFor==="function"&&typeof currentEpoch==="function"&&
     typeof subscribeInvalidation==="function",
     "T3_D1_CONTROL_TRUSTED_HOST_REQUIRED");
+  // The existing Host owns both loopback origins. Do not serve a signed
+  // Workspace launch without a pinned, separately isolated UI origin.
+  const splitOrigin=uiOrigin!==null||serviceId!==null;
+  if(splitOrigin)requireThat(
+    typeof uiOrigin==="string"&&/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(uiOrigin)&&
+    new URL(uiOrigin).origin===uiOrigin&&uiOrigin!==origin&&
+    typeof serviceId==="string"&&/^[A-Za-z0-9][A-Za-z0-9._-]{1,159}$/.test(serviceId),
+    "T3_D1_CONTROL_ISOLATED_UI_REQUIRED");
   // The original installed Host may rotate its ephemeral bearer whenever
   // its existing signed subject session changes. This is a transient
   // transport credential only, NEVER a grant, issuer or AccessRegistry.
@@ -82,10 +91,24 @@ export function createOriginalControlHttpHandler({
     let route;
     try{route=new URL(req.url,origin).pathname;}
     catch{route="/api/t3/invalid";}
-    if(!route.startsWith("/api/t3/"))return false;
+    const signedUi=route==="/workspace/t3-signed-ui.json";
+    const trustedRealm=route==="/workspace/t3-kernel-realm.json";
+    if(!route.startsWith("/api/t3/")&&!signedUi&&!trustedRealm)return false;
     try{
       requireThat(req.headers.host===expectedHost,
         "T3_D1_CONTROL_ORIGIN_DENIED");
+      if(signedUi||trustedRealm){
+        requireThat(splitOrigin,"T3_D1_CONTROL_ISOLATED_UI_REQUIRED");
+        requireThat(req.method==="GET","T3_D1_CONTROL_METHOD_DENIED");
+        reply(res,200,signedUi?{
+          schema:"IWXA_T3_SIGNED_WORKSPACE_LAUNCH/1",
+          kernel_origin:origin,ui_origin:uiOrigin,service_id:serviceId,
+        }:{
+          schema:"IWXA_T3_TRUSTED_KERNEL_REALM/1",
+          ui_origin:uiOrigin,service_id:serviceId,
+        });
+        return true;
+      }
       if(!authenticated(req)){
         reply(res,401,{error:"T3_D1_CONTROL_SESSION_UNAVAILABLE"});
         return true;
