@@ -45,8 +45,12 @@ export const EXCHANGE_NAVIGATION_INVENTORY: readonly ExchangeNavSpec[] =
 
 export function buildExchangeNavigationContributions(
   hasOperation: (op: OperationId) => boolean,
+  trustedNativePublisher = false,
 ): readonly NavigationContribution[] {
-  if (!REQUIRED_OPS.some(hasOperation)) {
+  // Do not expose an inert data-transfer tab. The Host may publish this
+  // existing navigation only when it actually owns a trusted native
+  // Publisher handoff; all T2 data operations remain unchanged.
+  if (!trustedNativePublisher && !REQUIRED_OPS.some(hasOperation)) {
     return Object.freeze([]);
   }
 

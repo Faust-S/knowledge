@@ -94,4 +94,45 @@ describe("WorkspaceHostRuntime (PROMPT 19)", () => {
       await r2.dispose();
     }
   });
+
+  it("opens original Exchange for native Publisher first licence, without workspace/data grants",async()=>{
+    const session={
+      ...fakeSession(),granted_operations:[],
+    } as unknown as KernelSession;
+    const config={modules:[
+      {module_id:"iwxa.workspace.base",state:"active" as const,dependencies:[]},
+      {module_id:"iwxa.workspace.exchange",state:"active" as const,
+        dependencies:["iwxa.workspace.base"]},
+    ]};
+    // No native owner: original Exchange route must remain inactive when
+    // all T2 data transfer operations are ungranted.
+    const ordinary=await createWorkspaceHostRuntime({
+      session,workspaceConfig:config,termResolver:k=>k,
+    });
+    try {
+      expect(ordinary.publisherHandoff).toBeNull();
+      expect(ordinary.router.registry.isActive(hostRouteRefs.exchange.home)).toBe(false);
+    }finally {await ordinary.dispose();}
+    const holder={
+      currentSubject:async()=>({holderId:"holder:person",
+        recipientId:"recipient:installed",subjectType:"PERSON" as const,
+        bindingEpoch:"epoch:installed"}),
+      inspect:async()=>null,apply:async()=>null,receipt:async()=>null,
+      statusReadback:async()=>null,
+    };
+    const native=await createWorkspaceHostRuntime({
+      session,workspaceConfig:config,termResolver:k=>k,
+      publisherHolder:holder,confirmPublisherHandoff:async()=>true,
+      // No signedKernelAccess and NO selected Workspace here.
+    });
+    try {
+      expect(native.currentWorkspaceStore.get()).toBeNull();
+      expect(native.publisherHandoff).not.toBeNull();
+      expect(native.grantedOperations).toEqual([]);
+      expect(native.router.registry.isActive(hostRouteRefs.exchange.home)).toBe(true);
+      expect(native.hub.getRouteContribution(hostRouteRefs.exchange.home.id)?.moduleId)
+        .toBe("iwxa.workspace.exchange");
+    }finally {await native.dispose();}
+    expect(native.router.registry.isActive(hostRouteRefs.exchange.home)).toBe(false);
+  });
 });

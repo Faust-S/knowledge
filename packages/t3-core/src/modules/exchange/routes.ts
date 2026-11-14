@@ -51,8 +51,12 @@ export const EXCHANGE_ROUTE_INVENTORY: readonly ExchangeRouteSpec[] =
 
 export function buildExchangeRouteContributions(
   hasOperation: (op: OperationId) => boolean,
+  trustedNativePublisher = false,
 ): readonly RouteContribution[] {
-  if (!REQUIRED_OPS.some(hasOperation)) {
+  // The original T2 data routes stay permission-gated. Only the compiled
+  // Host may opt in to the SAME Exchange surface for an original installed
+  // Publisher holder, without manufacturing a Kernel operation or grant.
+  if (!trustedNativePublisher && !REQUIRED_OPS.some(hasOperation)) {
     return Object.freeze([]);
   }
 
