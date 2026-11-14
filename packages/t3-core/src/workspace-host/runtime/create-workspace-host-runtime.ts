@@ -295,8 +295,8 @@ export async function createWorkspaceHostRuntime(
       moduleSnapshot.some(m=>m.moduleId===exchangeModuleId&&m.status==="activated") &&
       !registry.isActive(hostRouteRefs.exchange.home)) {
     const publisherRoute = hub.registerModule(exchangeModuleId, {
-      routes: buildExchangeRouteContributions(()=>false,true),
-      navigation: buildExchangeNavigationContributions(()=>false,true),
+      routes: [...buildExchangeRouteContributions(()=>false,true)],
+      navigation: [...buildExchangeNavigationContributions(()=>false,true)],
     });
     if (!publisherRoute.ok) {
       collectedRegistryDiagnostics.push({
