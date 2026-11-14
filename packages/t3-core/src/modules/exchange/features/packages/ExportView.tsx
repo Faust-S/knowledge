@@ -219,6 +219,10 @@ export function ExportView({ kernel, scopedWorkspaceId,
         !artifact || protectedBusy || busyRef.current ||
         state.selection.workspaces.length!==1 ||
         !isValidPackageArtifact(artifact,state.selection)) return;
+    if(artifact.bytes.byteLength>protectedExchange.maxArchiveBytes){
+      setProtectedError("Размер архива превышает лимит установленного age. Обычный .iwxa доступен отдельно.");
+      return;
+    }
     const workspace_id=state.selection.workspaces[0];
     setProtectedBusy(true);
     setProtectedError(null);
@@ -291,6 +295,8 @@ function renderExport(p: RenderProps) {
   const confirmDisabled =
     !state.artifact || !canConfirm || !state.fileSavedConfirmed ||
     busy || state.status !== "download-initiated";
+  const nativeAgeTooLarge=Boolean(protectedExchange && state.artifact &&
+    state.artifact.bytes.byteLength>protectedExchange.maxArchiveBytes);
 
   return (
     <div className="space-y-4" data-testid="export-view" data-export-state={state.status}>
@@ -364,7 +370,8 @@ function renderExport(p: RenderProps) {
         </button>
         {protectedExchange && protectedExchange.canSeal !== false &&
           <button type="button" onClick={() => void runProtectedDownload()}
-          disabled={downloadDisabled || state.selection.workspaces.length!==1}
+          disabled={downloadDisabled || state.selection.workspaces.length!==1 ||
+            nativeAgeTooLarge}
           data-testid="export-age-protected"
           className="px-3 py-1.5 text-xs rounded bg-indigo-900/70 hover:bg-indigo-900 disabled:opacity-40 min-h-[44px]">
           {protectedBusy ? "Защита…" : "Скачать защищённую .iwxa.age"}
@@ -376,6 +383,12 @@ function renderExport(p: RenderProps) {
         </button>
       </div>
 
+      {nativeAgeTooLarge && protectedExchange && <p role="note"
+        data-testid="export-age-native-limit" className="text-xs text-amber-200">
+        Защищённый перенос ограничен возможностями установленного age
+        ({(protectedExchange.maxArchiveBytes/(1024*1024)).toFixed(1)} МиБ).
+        Обычный экспорт .iwxa остаётся доступен.
+      </p>}
       {protectedError && <p role="alert" data-testid="export-age-error" className="text-xs text-red-300">Защита не выполнена: {protectedError}</p>}
       {protectedDownloadedName && <p role="status" data-testid="export-age-download-not-backup"
         className="text-xs text-slate-400">Браузеру передан {protectedDownloadedName}. Сохранение файла проверьте самостоятельно. Это не квитанция исходного Kernel о резервной копии .iwxa.</p>}

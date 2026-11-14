@@ -187,6 +187,9 @@ export function createTrustedNativeContinuation(options:{
  * and the authenticated current recipient stay in the original product.
  * A receiver-only owner supports recovery BEFORE Workspace creation. */
 export interface T3OriginalAgeOwner {
+  /** Actual size supported by installed native age, not browser Exchange.
+   * Defaults to historical 32 MiB when absent; higher requires native proof. */
+  readonly maxArchiveBytes?:number;
   /** Original installed identity from key custody, never a .iwxa or UI field.
    * bindingEpoch must change when the user/recipient/key authority changes. */
   currentRecipient?():{recipientId:string;bindingEpoch:string}|
@@ -224,6 +227,8 @@ export function createTrustedAgeExchange(options:{
 }):Readonly<{
   readonly canSeal:boolean;
   readonly canOpen:boolean;
+  readonly maxArchiveBytes:number;
+  readonly maxCiphertextBytes:number;
   seal(input:{workspace_id:string;archiveBytes:Uint8Array}):
     Promise<T3AgeProtectionReceipt>;
   open(input:{ciphertext:Uint8Array}):Promise<T3AgeOpenReceipt>;

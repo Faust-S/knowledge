@@ -5,7 +5,7 @@ import {createTrustedAgeExchange} from "../src/t3/age-protected-exchange.mjs";
 
 // Interface-only fixture. This is NOT an age cryptographic implementation
 // or evidence of real issuer keys / two installed recipient products.
-function fixture(){
+function fixture(maxArchiveBytes){
   let active=true,permitted=true,consent=true,revision=1,sealCalls=0;
   const zip=Uint8Array.of(0x50,0x4b,3,4,1,2,3,4,5);
   const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
@@ -33,6 +33,7 @@ function fixture(){
     getWorkspace:async workspace_id=>({workspace_id,deleted_at:null}),
   };
   const ageOwner={
+    ...(maxArchiveBytes===undefined?{}:{maxArchiveBytes}),
     prepareSeal:()=>({status:"READY",format:"age-encryption.org/v1",
       recipientIds:["native:recipient:A","native:recipient:B"]}),
     seal:({archiveBytes,archiveSha256,recipientIds})=>{
@@ -204,4 +205,23 @@ test("D7 does not advertise age capabilities when signed D1 has no original work
   });
   assert.equal(native.canSeal,false);
   assert.equal(native.canOpen,true);
+});
+
+test("D7 native age enforces true archive ceiling before crypto or consent",async()=>{
+  const regular=fixture();
+  assert.equal(regular.port.maxArchiveBytes,32*1024*1024);
+  assert.equal(regular.port.maxCiphertextBytes,33*1024*1024);
+  const restricted=fixture(8); // Synthetic original ZIP length is 9 bytes.
+  assert.equal(restricted.port.maxArchiveBytes,8);
+  assert.equal(restricted.port.maxCiphertextBytes,8+1024*1024);
+  await assert.rejects(
+    restricted.port.seal({workspace_id:"ws:one",archiveBytes:restricted.zip}),
+    {code:"T3_D7_NATIVE_AGE_ARCHIVE_LIMIT_EXCEEDED"});
+  assert.equal(restricted.sealCalls(),0);
+  const ciphertext=Uint8Array.from([
+    ...new TextEncoder().encode("age-encryption.org/v1\n"),1,2,3]);
+  await assert.rejects(restricted.port.open({ciphertext}),
+    {code:"T3_D7_NATIVE_AGE_ARCHIVE_LIMIT_EXCEEDED"});
+  const upgraded=fixture(40*1024*1024);
+  assert.equal(upgraded.port.maxArchiveBytes,40*1024*1024);
 });

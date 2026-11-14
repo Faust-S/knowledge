@@ -102,6 +102,9 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   const [ageBusy,setAgeBusy] = useState(false);
   const [ageError,setAgeError] = useState<string|null>(null);
   const ageGuard = useRef(false);
+  // Native age has its own smaller limit. Original T2 .iwxa stays 200 MiB.
+  const maxAgeCiphertextBytes=protectedExchange?.maxCiphertextBytes ??
+    33*1024*1024;
   useEffect(() => {
     pwaLaunchGeneration.current += 1;
     pwaReadGuard.current = false;
@@ -469,8 +472,9 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     const encryptedFile=ageFile;
     const launchGeneration=pwaLaunchGeneration.current;
     if(!encryptedFile.name.toLowerCase().endsWith(".iwxa.age") ||
-       encryptedFile.size>MAX_PACKAGE_BYTES+1024*1024){
-      setAgeError("Нужен защищённый файл .iwxa.age допустимого размера.");
+       encryptedFile.size===0 || encryptedFile.size>maxAgeCiphertextBytes){
+      setAgeError("Нужен защищённый .iwxa.age в пределах лимита нативного age ("+
+        (maxAgeCiphertextBytes/(1024*1024)).toFixed(1)+" МиБ).");
       return;
     }
     ageGuard.current=true;
@@ -524,8 +528,8 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       if (file.name !== pwaFileHandle.name)
         throw Error("Имя файла изменилось после выбора в системе.");
       if (protectedPackage) {
-        if (file.size === 0 || file.size > MAX_PACKAGE_BYTES + 1024 * 1024)
-          throw Error("Защищённый .iwxa.age превышает допустимый размер.");
+        if (file.size === 0 || file.size > maxAgeCiphertextBytes)
+          throw Error("Защищённый .iwxa.age превышает лимит установленного age.");
         // OS click reads only a File handle. A separate explicit click
         // invokes native age.open; original Kernel importPreview follows
         // decryption, importCommit remains a third human decision.
@@ -648,6 +652,8 @@ function renderImport(p: RenderProps) {
         <p className="text-xs text-slate-300">
           Защищённый пакет .iwxa.age проверяется установленным владельцем age.
           Расшифровка не означает согласие на импорт.
+          Максимальный размер зашифрованного файла:
+          {" "}{((protectedExchange.maxCiphertextBytes??33*1024*1024)/(1024*1024)).toFixed(1)} МиБ.
         </p>
         <input type="file" accept=".iwxa.age" disabled={!canPreview||busy||ageBusy}
           aria-label="Выберите защищённый файл .iwxa.age"

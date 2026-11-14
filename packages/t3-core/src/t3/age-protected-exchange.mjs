@@ -5,8 +5,9 @@ import {createSubjectKernelBinding} from "./subject-access-binding.mjs";
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;
 const TAG=new TextEncoder().encode("age-encryption.org/v1\n");
-const MAX=200*1024*1024;
-const MAX_AGE=MAX+1024*1024;
+const MAX=200*1024*1024; // Original T2 Exchange remains unchanged.
+const DEFAULT_NATIVE_AGE_MAX=32*1024*1024; // Existing original age CLI.
+const AGE_ENVELOPE_ALLOWANCE=1024*1024;
 const id=x=>typeof x==="string"&&ID.test(x);
 function deny(code){throw Object.assign(new Error(code),{code,outcome:"DENIED"});}
 function ensure(v,code){if(!v)deny(code);}
@@ -43,6 +44,13 @@ function sameList(a,b){return Array.isArray(b)&&b.length===a.length&&
  * a real native age implementation. */
 export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
   confirmRecipients,isHostActive}={}){
+  // Historical native age accepts 32 MiB, while original plaintext T2
+  // Exchange continues to accept 200 MiB. A newer trusted installed owner
+  // may explicitly advertise its independently qualified actual capacity.
+  const maxArchiveBytes=ageOwner?.maxArchiveBytes??DEFAULT_NATIVE_AGE_MAX;
+  ensure(Number.isSafeInteger(maxArchiveBytes)&&maxArchiveBytes>=4&&
+    maxArchiveBytes<=MAX,"T3_D7_NATIVE_AGE_LIMIT_INVALID");
+  const maxCiphertextBytes=maxArchiveBytes+AGE_ENVELOPE_ALLOWANCE;
   const signedReader=kernel&&typeof kernel.hasOperation==="function"&&
     typeof accessForRead==="function";
   // A signed port does not itself grant t1.getWorkspace. On fresh native
@@ -93,7 +101,11 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
     live();
     ensure(canSeal,"T3_D7_SIGNED_EXPORT_OWNER_REQUIRED");
     ensure(id(workspace_id),"T3_D7_SELECTED_WORKSPACE_REQUIRED");
-    const original=take(archiveBytes,MAX,"T3_D7_ORIGINAL_IWXA_REQUIRED");
+    ensure(archiveBytes instanceof Uint8Array&&archiveBytes.byteLength>0,
+      "T3_D7_ORIGINAL_IWXA_REQUIRED");
+    ensure(archiveBytes.byteLength<=maxArchiveBytes,
+      "T3_D7_NATIVE_AGE_ARCHIVE_LIMIT_EXCEEDED");
+    const original=take(archiveBytes,maxArchiveBytes,"T3_D7_ORIGINAL_IWXA_REQUIRED");
     ensure(zipHeader(original),"T3_D7_ORIGINAL_IWXA_REQUIRED");
     const access=await selectedWorkspace(workspace_id);
     const archiveSha256=await sha256(original);
@@ -114,7 +126,12 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
     ensure(result?.format==="age-encryption.org/v1"&&
       result.archiveSha256===archiveSha256&&sameList(recipientIds,result.recipientIds),
       "T3_D7_AGE_OWNER_RECEIPT_MISMATCH");
-    const ciphertext=take(result.ciphertext,MAX_AGE,"T3_D7_AGE_CIPHERTEXT_INVALID");
+    ensure(result.ciphertext instanceof Uint8Array,
+      "T3_D7_AGE_CIPHERTEXT_INVALID");
+    ensure(result.ciphertext.byteLength<=maxCiphertextBytes,
+      "T3_D7_NATIVE_AGE_CIPHERTEXT_LIMIT_EXCEEDED");
+    const ciphertext=take(result.ciphertext,maxCiphertextBytes,
+      "T3_D7_AGE_CIPHERTEXT_INVALID");
     ensure(ageHeader(ciphertext),"T3_D7_AGE_CIPHERTEXT_INVALID");
     await access.read();
     return Object.freeze({status:"AGE_PROTECTED_DOWNLOAD_READY",
@@ -124,7 +141,12 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
   async function open({ciphertext}={}){
     live();
     ensure(canOpen,"T3_D7_SIGNED_OWNER_REQUIRED");
-    const encrypted=take(ciphertext,MAX_AGE,"T3_D7_AGE_CIPHERTEXT_INVALID");
+    ensure(ciphertext instanceof Uint8Array&&ciphertext.byteLength>0,
+      "T3_D7_AGE_CIPHERTEXT_INVALID");
+    ensure(ciphertext.byteLength<=maxCiphertextBytes,
+      "T3_D7_NATIVE_AGE_CIPHERTEXT_LIMIT_EXCEEDED");
+    const encrypted=take(ciphertext,maxCiphertextBytes,
+      "T3_D7_AGE_CIPHERTEXT_INVALID");
     ensure(ageHeader(encrypted),"T3_D7_AGE_CIPHERTEXT_INVALID");
     live();
     let nativeInput,unchanged,read;
@@ -179,7 +201,12 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
       (recipientId===null||native.recipientId===recipientId)&&
       HEX.test(native.archiveSha256??""),
       "T3_D7_AGE_RECIPIENT_VERIFICATION_REQUIRED");
-    const archiveBytes=take(native.archiveBytes,MAX,"T3_D7_AGE_PLAINTEXT_INVALID");
+    ensure(native.archiveBytes instanceof Uint8Array,
+      "T3_D7_AGE_PLAINTEXT_INVALID");
+    ensure(native.archiveBytes.byteLength<=maxArchiveBytes,
+      "T3_D7_NATIVE_AGE_ARCHIVE_LIMIT_EXCEEDED");
+    const archiveBytes=take(native.archiveBytes,maxArchiveBytes,
+      "T3_D7_AGE_PLAINTEXT_INVALID");
     ensure(zipHeader(archiveBytes),"T3_D7_AGE_PLAINTEXT_INVALID");
     ensure(await sha256(archiveBytes)===native.archiveSha256,
       "T3_D7_AGE_PLAINTEXT_DIGEST_MISMATCH");
@@ -188,5 +215,5 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
       recipientId:native.recipientId,archiveSha256:native.archiveSha256,
       archiveBytes,kernelPreviewed:false,accepted:false});
   }
-  return Object.freeze({seal,open,canSeal,canOpen});
+  return Object.freeze({seal,open,canSeal,canOpen,maxArchiveBytes,maxCiphertextBytes});
 }
