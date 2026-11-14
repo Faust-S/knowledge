@@ -70,6 +70,7 @@ export interface AppShellProps {
   signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
   /** Original trusted D3 owner, not a module or serialized configuration. */
   reconciliationOwner?: CreateWorkspaceHostRuntimeInput["reconciliationOwner"];
+  reconciliationPort?: CreateWorkspaceHostRuntimeInput["reconciliationPort"];
   subscribeSignedAccessInvalidation?: SignedAccessInvalidationSubscription;
 }
 
@@ -113,6 +114,7 @@ export function AppShell(props: AppShellProps) {
     signedKernelAccess,
     signedActivityAccess,
     reconciliationOwner,
+    reconciliationPort,
     subscribeSignedAccessInvalidation,
   } = props;
   // Absence of a required original signed owner is a DENIED state, never an
@@ -165,6 +167,7 @@ export function AppShell(props: AppShellProps) {
         signedKernelAccess={selectedSignedKernelAccess}
         signedActivityAccess={signedActivityAccess}
         reconciliationOwner={reconciliationOwner}
+        reconciliationPort={reconciliationPort}
         subscribeSignedAccessInvalidation={subscribeSignedAccessInvalidation}
       >
         <HostShellContent
@@ -406,13 +409,14 @@ interface RuntimeBridgeProps {
   signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
   /** Original trusted D3 owner, not a module or serialized configuration. */
   reconciliationOwner?: CreateWorkspaceHostRuntimeInput["reconciliationOwner"];
+  reconciliationPort?: CreateWorkspaceHostRuntimeInput["reconciliationPort"];
   subscribeSignedAccessInvalidation?: SignedAccessInvalidationSubscription;
   children: React.ReactNode;
 }
 
 function AppShellRuntimeBridge({
   session, hostWorkspace, profile, signedKernelAccess, signedActivityAccess,
-  reconciliationOwner, subscribeSignedAccessInvalidation, children,
+  reconciliationOwner, reconciliationPort, subscribeSignedAccessInvalidation, children,
 }: RuntimeBridgeProps) {
   const { terminology, layout } = useDomainShell();
   const [activeCapabilities, setActiveCapabilities] = useState<readonly string[]>([]);
@@ -448,6 +452,7 @@ function AppShellRuntimeBridge({
       signedKernelAccess={signedKernelAccess}
       signedActivityAccess={signedActivityAccess}
       reconciliationOwner={reconciliationOwner}
+      reconciliationPort={reconciliationPort}
       subscribeSignedAccessInvalidation={subscribeSignedAccessInvalidation}
     >
       <WorkspaceCapabilityWatcher session={session} onChange={receiveCapabilities} />
