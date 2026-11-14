@@ -217,8 +217,8 @@ it("D7 installed Publisher can receive a signed licence before Workspace without
   const listWorkspaces=vi.fn(async()=>[]);
   const k={listWorkspaces,
     hasOperation:()=>false} as unknown as KernelFacade;
-  const publisher={preview:vi.fn(),admit:vi.fn(),recover:vi.fn()}
-    as unknown as ReturnType<typeof createTrustedPublisherHandoff>;
+  const publisher={preview:vi.fn(),admit:vi.fn(),recover:vi.fn()} as unknown as
+    ReturnType<typeof createTrustedPublisherHandoff>;
   const commands={has:()=>false,invoke:async()=>undefined} as CommandsFacade;
   render(<SignedSelectedWorkspaceGate required kernel={k} firstRunExchange={{
     kernel:k,commands,publisherHandoff:publisher,protectedExchange:null,
@@ -239,8 +239,8 @@ it("D7 clean-install age restore offers original Kernel preview only if native o
     hasOperation:(op:string)=>op==="t2.importPreview"} as unknown as KernelFacade;
   const commands={has:()=>false,invoke:async()=>undefined} as CommandsFacade;
   const age={canOpen:true,canSeal:false,maxArchiveBytes:32*1024*1024,
-    maxCiphertextBytes:33*1024*1024,open:vi.fn()}
-    as unknown as ReturnType<typeof createTrustedAgeExchange>;
+    maxCiphertextBytes:33*1024*1024,open:vi.fn()} as unknown as
+    ReturnType<typeof createTrustedAgeExchange>;
   const view=render(<SignedSelectedWorkspaceGate required kernel={k}
     firstRunExchange={{kernel:k,commands,publisherHandoff:null,protectedExchange:age}}>
     <p data-testid="unauthorized-workspace">Protected</p>
