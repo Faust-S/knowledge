@@ -20,7 +20,8 @@
     },
     {
       "file": "workspace-module/domain-model-install.d.mts",
-      "blob": "1f87db350f70419496b0d613a20f42654a95f345"
+      "blob": "2ee0827e64d313b0cf22e85c708f03f17f17b4c9",
+      "upstream_blob": "1f87db350f70419496b0d613a20f42654a95f345"
     },
     {
       "file": "workspace-module/engine.d.mts",
