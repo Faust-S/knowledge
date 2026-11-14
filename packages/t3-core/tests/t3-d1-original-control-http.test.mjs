@@ -218,6 +218,11 @@ test("original native D3 recipient uses the existing signed Control HTTP and iso
     },
     accept:async payload=>{
       events.push({kind:"accept",payload});
+      // Original recipient may commit its ACCEPT but lose the subsequent
+      // durable receipt readback; the browser must never replay that write.
+      if(payload.operationId==="review:uncertain")
+        throw Object.assign(new Error("ORIGINAL_ACK_LOST"),{
+          code:"T3_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED"});
       return {acceptanceState:"ACCEPTED",kernelApplication:"NOT_APPLIED"};
     },
     reject:async payload=>{
@@ -258,6 +263,17 @@ test("original native D3 recipient uses the existing signed Control HTTP and iso
     assert.equal(recovered.kernelApplication,
       "NOT_ATTESTED_BY_RECONCILIATION_RECEIPT");
     assert.equal(events.filter(e=>e.kind==="accept").length,1);
+    await assert.rejects(f.browser.reconciliationRequest("accept",{
+      packageSha256:digest,previewDigest:"c".repeat(64),
+      operationId:"review:uncertain",decisionBy:"actor:one",
+    }),{code:"T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN"});
+    const afterLostAck=await f.browser.reconciliationRequest("receipt",{
+      operationId:"review:uncertain",packageSha256:digest,
+    });
+    assert.equal(afterLostAck.found,true);
+    assert.equal(afterLostAck.receipt.operationId,"review:uncertain");
+    assert.equal(events.filter(e=>e.kind==="accept").length,2,
+      "no automatic ACCEPT replay after readback failure");
     const apply=await f.browser.reconciliationRequest("applyAccepted",{
       acceptanceId:"a".repeat(64),revisionIds:[digest],
       target:{workspaceId:"ws:personal"},
