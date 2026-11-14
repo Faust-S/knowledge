@@ -120,6 +120,8 @@ export function createTrustedReconciliationAdmission(options:{
 }):Readonly<{
   receive(bytes:Uint8Array):Promise<unknown>;
   preview(packageSha256:string):Promise<unknown>;
+  /** Original durable recipient receipt after a lost native decision ACK. */
+  receipt(operationId:string):Promise<unknown>;
   accept(input:{packageSha256:string;previewDigest:string;operationId:string;decisionBy:string}):Promise<unknown>;
   reject(input:{packageSha256:string;previewDigest:string;operationId:string;decisionBy:string;reason:string}):Promise<unknown>;
   inspectAcceptedApplication(input:{acceptanceId:string;revisionIds:string[];target:Record<string,unknown>}):Promise<unknown>;
