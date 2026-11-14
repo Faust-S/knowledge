@@ -139,9 +139,13 @@ describe("exchange async completion authority", () => {
     state = importReducer(state, { type: "validate-plan" });
     state = importReducer(state, { type: "commit-started" });
     state = importReducer(state, { type: "commit-succeeded", receipt: { ...importReceipt, package_digest: "other" } });
-    expect(state.status).toBe("error");
-    expect(state.receipt).toBeNull();
-    expect(state.error).toBe("IMPORT_RECEIPT_IDENTITY_MISMATCH");
+    expect(state.status).toBe("unconfirmed");
+    // The underlying Kernel may have written before returning the wrong
+    // digest. Keep the real receipt, consume the preview, prohibit cancel.
+    expect(state.receipt?.package_digest).toBe("other");
+    expect(state.handle).toBeNull();
+    expect(state.error).toContain("IMPORT_RECEIPT_IDENTITY_MISMATCH");
+    expect(importReducer(state, { type: "cancel", reason: "explicit" })).toEqual(state);
   });
 
   it("keeps retryable import lock failures on the same preview but ignores generic late failures", () => {
