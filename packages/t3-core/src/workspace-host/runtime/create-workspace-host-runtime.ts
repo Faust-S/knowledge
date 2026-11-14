@@ -242,7 +242,8 @@ export async function createWorkspaceHostRuntime(
     remoteD3 ? Object.freeze({
       receive:(bytes:Uint8Array)=>remoteCall("receive",()=>remoteD3.receive(bytes)),
       preview:(digest:string)=>remoteCall("preview",()=>remoteD3.preview(digest)),
-      receipt:(operationId:string)=>remoteCall("receipt",()=>remoteD3.receipt(operationId)),
+      receipt:(operationId:string,packageSha256:string)=>remoteCall("receipt",
+        ()=>remoteD3.receipt(operationId,packageSha256)),
       accept:(data:Parameters<T3ReconciliationHostPort["accept"]>[0])=>
         remoteCall("accept",()=>remoteD3.accept(data)),
       reject:(data:Parameters<T3ReconciliationHostPort["reject"]>[0])=>
