@@ -63,6 +63,11 @@ export function createTrustedNativeContinuation({
     typeof confirmHuman==="function"&&typeof isHostActive==="function",
     "T3_D6_TRUSTED_HOST_OWNER_REQUIRED");
 
+  // Native idempotency survives cold opens in the ORIGINAL recipient. These
+  // Host-lifetime guards prevent duplicate human decisions and resends before
+  // the recipient can report an uncertain or lost acknowledgement.
+  const inFlight=new Set();
+  const dispatched=new Set();
   const active=()=>isHostActive()===true;
   async function withSelectedSource(input,run){
     const reference=referenceFrom(input);
@@ -141,7 +146,10 @@ export function createTrustedNativeContinuation({
   async function preview(input){
     return withSelectedSource(input,async state=>{
       const plan=await inspect(state);
-      return Object.freeze({status:plan.status==="READY"?"AVAILABLE":"RECOVER_ONLY",
+      const status=inFlight.has(plan.operationId)?"OPERATION_IN_PROGRESS":
+        plan.status==="READY"&&!dispatched.has(plan.operationId)
+          ?"AVAILABLE":"RECOVER_ONLY";
+      return Object.freeze({status,
         operationId:plan.operationId,recipientId:nativeOwner.recipientId,
         reference:state.reference});
     });
@@ -149,34 +157,44 @@ export function createTrustedNativeContinuation({
   async function continueSelected(input){
     return withSelectedSource(input,async state=>{
       const plan=await inspect(state);
-      if(plan.status==="RECOVER_ONLY")
-        return Object.freeze({status:"OUTCOME_UNKNOWN",operationId:plan.operationId});
-      const approval=await confirmHuman({
-        recipientId:nativeOwner.recipientId,
-        operationId:plan.operationId,reference:copy(state.reference,
-          "T3_D6_REFERENCE_NOT_CLONEABLE"),
-      });
-      await state.unchanged();
-      if(approval!==true)return Object.freeze({status:"USER_CANCELLED"});
-      // The reference may have advanced while a human reviewed the proposal.
-      // Repeat ORIGINAL signed Kernel readback before the only native write.
-      const current=await state.readSource();
-      await state.unchanged();
-      let dispatched=false;
+      const operationId=plan.operationId;
+      if(inFlight.has(operationId))
+        return Object.freeze({status:"OPERATION_IN_PROGRESS",operationId});
+      if(plan.status==="RECOVER_ONLY"||dispatched.has(operationId))
+        return Object.freeze({status:"OUTCOME_UNKNOWN",operationId});
+      // Claim before asynchronous human confirmation, not just before
+      // receive(). Otherwise two clicks can authorize the SAME native write.
+      inFlight.add(operationId);
       try{
-        dispatched=true;
-        await nativeOwner.receive({
-          operationId:plan.operationId,recipientId:nativeOwner.recipientId,
-          reference:copy(state.reference,"T3_D6_REFERENCE_NOT_CLONEABLE"),
-          object:current,
+        const approval=await confirmHuman({
+          recipientId:nativeOwner.recipientId,
+          operationId,reference:copy(state.reference,
+            "T3_D6_REFERENCE_NOT_CLONEABLE"),
         });
-        return await observe(state.reference,plan.operationId,state.readSource);
-      }catch(error){
-        if(!dispatched)throw error;
-        // A lost native ACK may hide a committed write. Never resend here;
-        // a cold-opened Host can call recover() with the same selected ref.
-        return Object.freeze({status:"OUTCOME_UNKNOWN",operationId:plan.operationId,
-          reason:typeof error?.code==="string"?error.code:"UNCONFIRMED"});
+        await state.unchanged();
+        if(approval!==true)return Object.freeze({status:"USER_CANCELLED"});
+        // The reference may have advanced while a human reviewed the proposal.
+        // Repeat ORIGINAL signed Kernel readback before the only native write.
+        const current=await state.readSource();
+        await state.unchanged();
+        // Set before invoking the original native owner: failure may mean
+        // that its durable write committed but the acknowledgement was lost.
+        dispatched.add(operationId);
+        try{
+          await nativeOwner.receive({
+            operationId,recipientId:nativeOwner.recipientId,
+            reference:copy(state.reference,"T3_D6_REFERENCE_NOT_CLONEABLE"),
+            object:current,
+          });
+          return await observe(state.reference,operationId,state.readSource);
+        }catch(error){
+          // No retry: the original owner receipt/readback is the only
+          // authority to recover an uncertain native Result after cold open.
+          return Object.freeze({status:"OUTCOME_UNKNOWN",operationId,
+            reason:typeof error?.code==="string"?error.code:"UNCONFIRMED"});
+        }
+      }finally{
+        inFlight.delete(operationId);
       }
     });
   }

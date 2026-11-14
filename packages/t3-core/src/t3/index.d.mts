@@ -161,7 +161,7 @@ export interface T3NativeContinuationOwner {
   readback(operationId:string):unknown|Promise<unknown>;
 }
 export interface T3NativeContinuationStatus {
-  status:"AVAILABLE"|"RECOVER_ONLY"|"USER_CANCELLED"|"OUTCOME_UNKNOWN"|"OWNER_READBACK_CONFIRMED";
+  status:"AVAILABLE"|"RECOVER_ONLY"|"OPERATION_IN_PROGRESS"|"USER_CANCELLED"|"OUTCOME_UNKNOWN"|"OWNER_READBACK_CONFIRMED";
   operationId?:string;
   recipientId?:string;
   resultRef?:string;

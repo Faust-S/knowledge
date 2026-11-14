@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {createTrustedNativeContinuation} from "../src/t3/native-result-continuation.mjs";
 
 // Public contract fixture only: no real native Atlas/Agent/issuer is present.
-function fixture(){
+function fixture(beforeHuman=async()=>{}){
   let revision=2,approved=true,revoked=false,selected=true,dropAck=false,receives=0;
   const workspace={workspace_id:"ws:personal",deleted_at:null};
   const focus={get:()=>selected?workspace:null,subscribe:()=>()=>{}};
@@ -50,7 +50,7 @@ function fixture(){
   };
   const port=createTrustedNativeContinuation({
     kernel,accessForRead:async()=>access,currentWorkspace:focus,nativeOwner,
-    confirmHuman:async()=>approved,isHostActive:()=>true,
+    confirmHuman:async()=>{await beforeHuman();return approved;},isHostActive:()=>true,
   });
   return {port,ref,commits,changeRevision:n=>revision=n,
     setApproved:v=>approved=v,setRevoked:v=>revoked=v,
@@ -86,6 +86,35 @@ test("D6 denial and lost native ACK never automatically dispatch twice",async()=
   const unknown=await f.port.continueSelected(f.ref);
   assert.equal(unknown.status,"OUTCOME_UNKNOWN");
   assert.equal(f.receives(),1);
+  // The original owner may still report READY after the ACK was lost.
+  // The same Host must not dispatch its operation a second time.
+  assert.equal((await f.port.preview(f.ref)).status,"RECOVER_ONLY");
+  assert.equal((await f.port.continueSelected(f.ref)).status,"OUTCOME_UNKNOWN");
+  assert.equal(f.receives(),1);
   assert.equal((await f.port.recover(f.ref)).status,"OWNER_READBACK_CONFIRMED");
   assert.equal(f.receives(),1);
+});
+
+test("D6 concurrent continuation uses one human decision and one native write",async()=>{
+  let entered,release;
+  const humanEntered=new Promise(resolve=>{entered=resolve;});
+  const approvalGate=new Promise(resolve=>{release=resolve;});
+  let confirmations=0;
+  const f=fixture(async()=>{
+    confirmations++;
+    entered();
+    await approvalGate;
+  });
+  const first=f.port.continueSelected(f.ref);
+  await humanEntered;
+  assert.equal((await f.port.preview(f.ref)).status,"OPERATION_IN_PROGRESS");
+  const repeated=await f.port.continueSelected(f.ref);
+  assert.equal(repeated.status,"OPERATION_IN_PROGRESS");
+  assert.equal(f.receives(),0);
+  assert.equal(confirmations,1);
+  release();
+  assert.equal((await first).status,"OWNER_READBACK_CONFIRMED");
+  assert.equal(f.receives(),1);
+  assert.equal((await f.port.preview(f.ref)).status,"RECOVER_ONLY");
+  assert.equal((await f.port.recover(f.ref)).status,"OWNER_READBACK_CONFIRMED");
 });
