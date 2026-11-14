@@ -44,25 +44,23 @@ export function mountT2SiteHandoffReceiver({hostWindow, expectedSiteOrigin, vali
     const rejected = () => {
       if (!disposed) onStatus('CANDIDATE_REJECTED_NO_WRITE');
     };
+    // The transport does not decide whether a signed Result is trusted.
+    // It must, however, preserve an explicit refusal by the real owner.
+    const refused = value => value === false ||
+      (value && typeof value === 'object' &&
+        (value.allowed === false || value.accepted === false ||
+          value.verified === false || value.ok === false ||
+          (typeof value.status === 'string' &&
+            /(^|_)(BLOCKED|REJECTED|DENIED|FAILED|INVALID|UNTRUSTED|UNVERIFIED|UNKNOWN|UNRESOLVED|EXPIRED|STALE|HOLD|CANCELLED)(_|$)/i
+              .test(value.status))));
     const ready = value => {
       if (disposed) return;
-      // Explicit refusal from the existing source verifier or preview UI
-      // must not unlock sendReceipt. Undefined is legacy preview success.
-      if (value === false || (value && typeof value === 'object' &&
-          (value.allowed === false || value.accepted === false ||
-            ['REJECTED','CANCELLED','FAILED','INVALID','UNTRUSTED']
-              .includes(value.status)))) {
-        rejected();
-        return;
-      }
+      // Legacy void callback can complete a PREVIEW, never an Apply.
+      if (value === null || refused(value)) { rejected(); return; }
       previewAccepted = true;
       onStatus('CANDIDATE_READY_FOR_EXPLICIT_REVIEW');
     };
-    const deniedPreview = value => value == null || value === false ||
-      (value && typeof value === 'object' &&
-        (value.allowed === false || value.accepted === false ||
-          ['REJECTED','CANCELLED','FAILED','INVALID','UNTRUSTED']
-            .includes(value.status)));
+    const deniedPreview = value => value == null || refused(value);
     const present = preview => {
       if (disposed) return;
       // The owner validator must return a real, non-denied candidate before

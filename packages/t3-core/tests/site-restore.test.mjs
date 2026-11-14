@@ -119,3 +119,22 @@ test('restore rejects even when an asynchronous writer throws a non-Error value'
   assert.ok(statuses.includes('T2_RESTORE_CANDIDATE_REJECTED'));
   assert.ok(!statuses.includes('T2_RESTORE_SITE_APPLIED'));
 });
+
+test('restore explicit false, null and contradictory APPLIED remain rejected',async()=>{
+  for(const returned of [false,null,0,{status:'BLOCKED'},
+    {status:'APPLIED',applied:false},{status:'APPLIED',ok:false},
+    Promise.resolve(false),Promise.resolve({status:'HOLD_FOR_EXPLICIT_RECOVERY'})]){
+    const p=pair(),statuses=[];
+    launchT2SiteRestore({siteWindow:p.site,
+      hostUrl:'https://localhost:4173/workspace/',
+      onCandidate:()=>returned,onStatus:s=>statuses.push(s)});
+    const host=mountT2SiteRestoreSender({hostWindow:p.host,
+      expectedSiteOrigin:'https://club.iwxa.ru'});
+    await Promise.resolve();
+    host.send('{"results":[{"object_id":"draft"}]}');
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(host.acknowledgement,'REJECTED',String(returned?.status??returned));
+    assert.ok(statuses.includes('T2_RESTORE_CANDIDATE_REJECTED'));
+    assert.ok(!statuses.includes('T2_RESTORE_SITE_APPLIED'));
+  }
+});

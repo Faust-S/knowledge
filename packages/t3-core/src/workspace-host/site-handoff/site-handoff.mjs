@@ -42,11 +42,11 @@ export function launchT2SiteHandoff({siteWindow, hostUrl, collectRawBackup, onSt
       cleanup();
       // A successful Promise settlement is not the same as an applied Result.
       // Preserve legacy void callbacks while refusing EXPLICIT owner failures.
-      const explicitlyNotApplied = value => value === false ||
-        (value !== null && typeof value === 'object' &&
-          (value.ok === false || value.applied === false ||
-            ['CANCELLED','REJECTED','FAILED','NOT_APPLIED','PENDING',
-              'INCOMPLETE','NO_NEW_RESULTS','UNCHANGED'].includes(value.status)));
+      const explicitlyNotApplied = value => value === null ||
+        (value !== undefined && value !== true &&
+          (typeof value !== 'object' || Array.isArray(value) ||
+            value.ok === false || value.applied === false ||
+            (value.status !== undefined && value.status !== 'APPLIED')));
       const settle = value => {
         if (explicitlyNotApplied(value)) acknowledge('REJECTED', true);
         else acknowledge('APPLIED');

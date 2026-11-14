@@ -314,3 +314,48 @@ test('synchronous writer failure after side effect is unresolved, not SOURCE_UNC
   assert.ok(!siteStatus.includes('WRITE_RECEIPT_REJECTED_SOURCE_UNCHANGED'));
   assert.ok(!siteStatus.includes('WRITE_RECEIPT_APPLIED_TO_LOCAL_SOURCE'));
 });
+
+test('reconciliation HOLD or unknown application status cannot be reported APPLIED',async()=>{
+  for(const value of [{status:'HOLD_FOR_EXPLICIT_RECOVERY'},
+    {status:'UNKNOWN_EVIDENCE'},{status:'COMMITTED'},{status:'BLOCKED'},
+    null,Promise.resolve({status:'NOT_AUTHORIZED'})]){
+    const {siteWindow,hostWindow,cryptoSource}=windowPair();
+    const states=[],acks=[];
+    launchT2SiteHandoff({siteWindow,hostUrl:hostOrigin+'/workspace/',
+      collectRawBackup:()=>'{"source":"accepted-only"}',
+      onReceipt:()=>value,onStatus:s=>states.push(s)});
+    const receiver=mountT2SiteHandoffReceiver({
+      hostWindow,expectedSiteOrigin:siteOrigin,cryptoSource,
+      validateSource:JSON.parse,onPreview:()=>{},
+      onStatus:s=>acks.push(s)});
+    await new Promise(resolve=>queueMicrotask(resolve));
+    receiver.sendReceipt('{"source":"accepted-only"}');
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.ok(acks.includes('WRITE_RECEIPT_SITE_REJECTED'),String(value?.status??value));
+    assert.ok(!acks.includes('WRITE_RECEIPT_SITE_APPLIED'));
+    assert.ok(states.includes('WRITE_RECEIPT_APPLICATION_NOT_CONFIRMED'));
+    assert.ok(!states.includes('WRITE_RECEIPT_APPLIED_TO_LOCAL_SOURCE'));
+  }
+});
+
+test('owner source BLOCKED and preview UNKNOWN cannot authorize receipt',async()=>{
+  for(const mode of ['source-blocked','source-hold','preview-unresolved',
+    'preview-expired','source-verified-false']){
+    const {siteWindow,hostWindow,cryptoSource}=windowPair();
+    const states=[];
+    launchT2SiteHandoff({siteWindow,hostUrl:hostOrigin+'/workspace/',
+      collectRawBackup:()=>'{"source":"candidate"}'});
+    const receiver=mountT2SiteHandoffReceiver({
+      hostWindow,expectedSiteOrigin:siteOrigin,cryptoSource,
+      validateSource:()=>mode==='source-blocked'?{status:'BLOCKED'}:
+        mode==='source-hold'?Promise.resolve({status:'HOLD_FOR_EXPLICIT_RECOVERY'}):
+        mode==='source-verified-false'?{verified:false}:{verified:true},
+      onPreview:()=>mode==='preview-unresolved'?{status:'UNKNOWN_EVIDENCE'}:
+        mode==='preview-expired'?Promise.resolve({status:'EXPIRED'}):undefined,
+      onStatus:s=>states.push(s)});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.ok(states.includes('CANDIDATE_REJECTED_NO_WRITE'),mode);
+    assert.ok(!states.includes('CANDIDATE_READY_FOR_EXPLICIT_REVIEW'),mode);
+    assert.throws(()=>receiver.sendReceipt('{}'),/RECEIPT_NOT_READY/,mode);
+  }
+});

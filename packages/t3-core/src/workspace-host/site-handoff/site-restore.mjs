@@ -31,11 +31,16 @@ export function launchT2SiteRestore({siteWindow,hostUrl,onCandidate,onStatus=()=
         if(failed){
           reason=error instanceof Error&&/^CLUB_T2_[A-Z0-9_]+$/.test(error.message)
             ?error.message:'T2_RESTORE_CANDIDATE_REJECTED';
+        }else if(result&&typeof result==='object'&&
+          (result.ok===false||result.applied===false)){
+          reason='T2_RESTORE_CANDIDATE_REJECTED';
         }else if(result&&typeof result==='object'&&result.status==='CANCELLED')
           status='CANCELLED';
         else if(result&&typeof result==='object'&&result.status==='NO_NEW_RESULTS')
           status='UNCHANGED';
-        else if(!result||result.status==='APPLIED')status='APPLIED';
+        else if(result===undefined ||
+          (result&&typeof result==='object'&&result.status==='APPLIED'))
+          status='APPLIED';
         else reason='T2_RESTORE_CANDIDATE_REJECTED';
         try{
           peer.postMessage({protocol:HANDOFF_PROTOCOL,kind:'restore-status',
