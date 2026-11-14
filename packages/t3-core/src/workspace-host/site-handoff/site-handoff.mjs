@@ -40,6 +40,17 @@ export function launchT2SiteHandoff({siteWindow, hostUrl, collectRawBackup, onSt
     if (!awaitingReady && typeof onReceipt === 'function' &&
         isMessage(event.data, 'write-receipt') && event.data.nonce === receiptNonce) {
       cleanup();
+      // A successful Promise settlement is not the same as an applied Result.
+      // Preserve legacy void callbacks while refusing EXPLICIT owner failures.
+      const explicitlyNotApplied = value => value === false ||
+        (value !== null && typeof value === 'object' &&
+          (value.ok === false || value.applied === false ||
+            ['CANCELLED','REJECTED','FAILED','NOT_APPLIED','PENDING',
+              'INCOMPLETE','NO_NEW_RESULTS','UNCHANGED'].includes(value.status)));
+      const settle = value => {
+        if (explicitlyNotApplied(value)) acknowledge('REJECTED', true);
+        else acknowledge('APPLIED');
+      };
       const acknowledge = (status, asynchronousFailure = false) => {
         try {
           peer.postMessage({protocol: HANDOFF_PROTOCOL, kind: 'write-receipt-status',
@@ -58,9 +69,9 @@ export function launchT2SiteHandoff({siteWindow, hostUrl, collectRawBackup, onSt
         // A Kernel/Store receipt can be asynchronous. Do not acknowledge
         // APPLIED while an owning Host or local readback is still pending.
         if (written && typeof written.then === 'function') {
-          Promise.resolve(written).then(() => acknowledge('APPLIED'),
+          Promise.resolve(written).then(settle,
             () => acknowledge('REJECTED', true));
-        } else acknowledge('APPLIED');
+        } else settle(written);
       } catch {
         acknowledge('REJECTED');
       }

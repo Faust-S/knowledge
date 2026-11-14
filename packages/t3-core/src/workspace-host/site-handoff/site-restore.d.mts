@@ -1,7 +1,8 @@
 export interface SiteRestoreOptions {
   siteWindow: Window;
   hostUrl: string;
-  onCandidate: (raw:string)=>void|{status:"APPLIED"|"NO_NEW_RESULTS"|"CANCELLED"};
+  onCandidate: (raw:string)=>void|{status:"APPLIED"|"NO_NEW_RESULTS"|"CANCELLED"|"REJECTED"}|
+    Promise<void|{status:"APPLIED"|"NO_NEW_RESULTS"|"CANCELLED"|"REJECTED"}>;
   onStatus?: (status:string)=>void;
 }
 export function launchT2SiteRestore(options:SiteRestoreOptions):{

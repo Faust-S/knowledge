@@ -44,8 +44,17 @@ export function mountT2SiteHandoffReceiver({hostWindow, expectedSiteOrigin, vali
     const rejected = () => {
       if (!disposed) onStatus('CANDIDATE_REJECTED_NO_WRITE');
     };
-    const ready = () => {
+    const ready = value => {
       if (disposed) return;
+      // Explicit refusal from the existing source verifier or preview UI
+      // must not unlock sendReceipt. Undefined is legacy preview success.
+      if (value === false || (value && typeof value === 'object' &&
+          (value.allowed === false || value.accepted === false ||
+            ['REJECTED','CANCELLED','FAILED','INVALID','UNTRUSTED']
+              .includes(value.status)))) {
+        rejected();
+        return;
+      }
       previewAccepted = true;
       onStatus('CANDIDATE_READY_FOR_EXPLICIT_REVIEW');
     };
@@ -56,15 +65,19 @@ export function mountT2SiteHandoffReceiver({hostWindow, expectedSiteOrigin, vali
         const shown = onPreview(preview);
         if (shown && typeof shown.then === 'function') {
           Promise.resolve(shown).then(ready, rejected);
-        } else ready();
+        } else ready(shown);
       } catch { rejected(); }
     };
     try {
       const raw = checkCandidateBytes(event.data.raw);
       const preview = validateSource(raw);
       if (preview && typeof preview.then === 'function') {
-        Promise.resolve(preview).then(present, rejected);
-      } else present(preview);
+        Promise.resolve(preview).then(value => {
+          if (value === false) rejected();
+          else present(value);
+        }, rejected);
+      } else if (preview === false) rejected();
+      else present(preview);
     } catch { rejected(); }
   };
   hostWindow.addEventListener('message', onMessage);

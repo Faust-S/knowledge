@@ -236,3 +236,54 @@ test('asynchronously failed receipt never gets APPLIED acknowledgement',async()=
   assert.ok(siteStatus.includes('WRITE_RECEIPT_APPLICATION_NOT_CONFIRMED'));
   assert.ok(!siteStatus.includes('WRITE_RECEIPT_APPLIED_TO_LOCAL_SOURCE'));
 });
+
+test('explicit synchronous and asynchronous owner refusals never produce APPLIED',async()=>{
+  for(const result of [false,{status:'REJECTED'},{applied:false},
+    {status:'PENDING'},Promise.resolve({status:'INCOMPLETE'}),
+    Promise.resolve(false)]){
+    const {siteWindow,hostWindow,cryptoSource}=windowPair();
+    const siteStatus=[],hostStatus=[];
+    launchT2SiteHandoff({siteWindow,hostUrl:hostOrigin+'/workspace/',
+      collectRawBackup:()=>'{"task":"accepted-but-not-applied"}',
+      onReceipt:()=>result,onStatus:s=>siteStatus.push(s),
+    });
+    const receiver=mountT2SiteHandoffReceiver({
+      hostWindow,expectedSiteOrigin:siteOrigin,cryptoSource,
+      validateSource:JSON.parse,onPreview:()=>{},
+      onStatus:s=>hostStatus.push(s),
+    });
+    await new Promise(resolve=>queueMicrotask(resolve));
+    receiver.sendReceipt('{"result":"pending"}');
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.ok(hostStatus.includes('WRITE_RECEIPT_SITE_REJECTED'),
+      'expected rejection for '+JSON.stringify(result));
+    assert.ok(!hostStatus.includes('WRITE_RECEIPT_SITE_APPLIED'));
+    assert.ok(siteStatus.includes('WRITE_RECEIPT_APPLICATION_NOT_CONFIRMED'));
+    assert.ok(!siteStatus.includes('WRITE_RECEIPT_APPLIED_TO_LOCAL_SOURCE'));
+  }
+});
+
+test('explicitly rejected preview, including async refusal, cannot enable sendReceipt',async()=>{
+  for(const mode of ['source-false','source-async-false','preview-false',
+    'preview-async-reject','preview-denied-object']){
+    const {siteWindow,hostWindow,cryptoSource}=windowPair();
+    const observed=[];
+    launchT2SiteHandoff({siteWindow,hostUrl:hostOrigin+'/workspace/',
+      collectRawBackup:()=>'{"result":"untrusted"}'});
+    const receiver=mountT2SiteHandoffReceiver({
+      hostWindow,expectedSiteOrigin:siteOrigin,cryptoSource,
+      validateSource:()=>mode==='source-false'?false:
+        mode==='source-async-false'?Promise.resolve(false):{verified:true},
+      onPreview:()=>mode==='preview-false'?false:
+        mode==='preview-async-reject'?Promise.resolve(false):
+          {allowed:false},
+      onStatus:s=>observed.push(s),
+    });
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(receiver.consumed,true);
+    assert.ok(observed.includes('CANDIDATE_REJECTED_NO_WRITE'),mode);
+    assert.ok(!observed.includes('CANDIDATE_READY_FOR_EXPLICIT_REVIEW'),mode);
+    assert.throws(()=>receiver.sendReceipt('{"revision":2}'),
+      /T2_HANDOFF_RECEIPT_NOT_READY/,mode);
+  }
+});
