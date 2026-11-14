@@ -299,7 +299,9 @@ export function createOriginalControlHttpHandler({
         // A stale response after a native write is UNKNOWN, never proof of
         // non-application or an invitation to replay the original command.
         requireThat(before===await epochNow()&&authenticated(req),
-          "T3_D3_OWNER_CONTEXT_CHANGED_OUTCOME_UNKNOWN");
+          ["receive","accept","reject","applyAccepted"].includes(input.verb)
+            ?"T3_D3_OWNER_CONTEXT_CHANGED_OUTCOME_UNKNOWN"
+            :"STALE_CONTEXT_OPERATION");
         reply(res,200,{result});
         return true;
       }
