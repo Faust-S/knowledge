@@ -201,10 +201,23 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     }, Math.min(ms, 2 ** 31 - 1));
   };
 
-  const onFile = async (file: File) => {
-    // §9, §14 — new file => cancel previous.
-    const cancelledPrevious = await cancelActive("new-file");
-    if (!cancelledPrevious) return;
+  const onFile = async (file: File, options: {
+    protectedRestore?: boolean;
+    alreadyCancelled?: boolean;
+    expectedGeneration?: number;
+  } = {}) => {
+    // The protected flow already cancelled the original preview before
+    // calling native age.open. Do not cancel it a SECOND time after the
+    // credential operation: that can discard a good restored archive.
+    // A changed session/unmount/OS launch invalidates the decrypted result.
+    if (options.expectedGeneration !== undefined &&
+        options.expectedGeneration !== operationGenerationRef.current) return;
+    if (!options.alreadyCancelled) {
+      const cancelledPrevious = await cancelActive("new-file");
+      if (!cancelledPrevious) return;
+    }
+    if (options.expectedGeneration !== undefined &&
+        options.expectedGeneration !== operationGenerationRef.current) return;
     const generation = ++operationGenerationRef.current;
     dispatch({ type: "preview-started" });
 
@@ -248,12 +261,16 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       // Read it before offering a plan: a foreign-source package would
       // otherwise default to 'selective', which signed importCommit refuses.
       let available: WorkspaceRecord[] = [];
+      let catalogReadConfirmed = false;
       if (canListLocal) {
         try {
           available = (await kernel.listWorkspaces({ include_deleted: false }))
             .filter((w) => !w.deleted_at);
+          catalogReadConfirmed = true;
         } catch {
-          // The preview remains readable; user can retry local target selection.
+          // Unknown local inventory is NOT equivalent to an empty Store.
+          // The original preview is still readable; mode selection remains
+          // the canonical T2 behavior until the Kernel confirms inventory.
         }
       }
       if (generation !== operationGenerationRef.current) return;
@@ -261,7 +278,10 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       const writable = available.filter((w) => !w.read_only);
       const preferredTargetWorkspaceId = writable.length === 1
         ? writable[0].workspace_id : null;
-      dispatch({ type: "preview-succeeded", handle, preferredTargetWorkspaceId });
+      dispatch({ type: "preview-succeeded", handle, preferredTargetWorkspaceId,
+        restoringProtectedIntoEmptyCatalog:
+          options.protectedRestore === true && catalogReadConfirmed &&
+          available.length === 0 });
       armExpiry(handle);
     } catch (e) {
       if (generation !== operationGenerationRef.current) return;
@@ -454,7 +474,11 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       const archive=new File([opened.archiveBytes as BlobPart],
         encryptedFile.name.slice(0,-4),{type:"application/octet-stream"});
       setAgeFile(null);
-      await onFile(archive);
+      await onFile(archive, {
+        protectedRestore:true,
+        alreadyCancelled:true,
+        expectedGeneration:ticket,
+      });
     } catch(error) {
       setAgeError("Не удалось проверить или расшифровать защищённый файл: "+
         (error instanceof Error?error.message:"T3_D7_AGE_OPEN_FAILED"));

@@ -70,6 +70,42 @@ describe("D7 installed PWA protected .iwxa.age through original Exchange",()=>{
     expect(k.importCommit).not.toHaveBeenCalled();
     expect(screen.getByTestId("import-preview")).toBeTruthy();
   });
+  it("offers original new-workspace restore on confirmed empty local Kernel after age decryption",async()=>{
+    const freshPreview={...preview,allowed_modes:["selective","new-workspace"]};
+    const k={
+      hasOperation:(op:string)=>[
+        "t1.listWorkspaces","t2.importPreview","t2.importCommit",
+        "t2.importCancel"].includes(op),
+      listWorkspaces:vi.fn(async()=>[]),
+      importPreview:vi.fn(async()=>freshPreview),
+      importCancel:vi.fn(async()=>true),
+      importCommit:vi.fn(async()=>{throw Error("MUST_REQUIRE_HUMAN");}),
+    } as unknown as KernelFacade;
+    const open=vi.fn(async()=>({
+      status:"AGE_OPENED_NOT_IMPORTED",
+      archiveBytes:Uint8Array.of(80,75,3,4,1,2,3,4),
+      archiveSha256:"a".repeat(64),recipientId:"recipient:installed",
+      kernelPreviewed:false,accepted:false,
+    }));
+    const protectedExchange={open,canOpen:true,canSeal:false} as unknown as
+      ReturnType<typeof createTrustedAgeExchange>;
+    render(<PackagesView kernel={k} commands={commands}
+      initialTab="import" exportScopeId={null}
+      protectedExchange={protectedExchange}/>);
+    const fileInput=screen.getByTestId("import-age-file");
+    await act(async()=>{
+      fireEvent.change(fileInput,{target:{files:[sealed()]}});
+    });
+    await act(async()=>{fireEvent.click(screen.getByTestId("import-age-preview"));});
+    await waitFor(()=>expect(k.importPreview).toHaveBeenCalledTimes(1));
+    await waitFor(()=>expect(screen.getByTestId("import-mode")).toHaveProperty(
+      "value","new-workspace"));
+    expect(screen.getByTestId("import-ws-map")).toBeTruthy();
+    expect(screen.queryByTestId("import-receipt")).toBeNull();
+    expect(k.importCommit).not.toHaveBeenCalled();
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(k.listWorkspaces).toHaveBeenCalledTimes(1);
+  });
   it("never even reads OS protected file if native age owner is absent",async()=>{
     withQueue();
     const getFile=vi.fn(async()=>sealed());

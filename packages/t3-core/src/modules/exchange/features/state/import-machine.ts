@@ -90,7 +90,9 @@ export const INITIAL_IMPORT_STATE: ImportState = Object.freeze({
 
 export type ImportEvent =
   | { type: "preview-started" }
-  | { type: "preview-succeeded"; handle: ImportPreviewHandle; preferredTargetWorkspaceId?: string | null }
+  | { type: "preview-succeeded"; handle: ImportPreviewHandle; preferredTargetWorkspaceId?: string | null;
+      /** Original Kernel has confirmed zero active local Workspaces during a protected-backup restore. */
+      restoringProtectedIntoEmptyCatalog?: boolean }
   | { type: "preview-failed"; error: string }
   | { type: "set-plan"; plan: Partial<ImportPlanForm> }
   | { type: "validate-plan"; localWorkspaceIds?: ReadonlyArray<string> }
@@ -386,7 +388,13 @@ export function importReducer(state: ImportState, event: ImportEvent): ImportSta
       const incomingFromAnotherWorkspace =
         initialWs.length === 1 && target !== null && initialWs[0] !== target;
       const preferredMode: ImportMode =
-        incomingFromAnotherWorkspace && allowedModes.includes("merge") ? "merge"
+        // D7 protected recovery into a freshly installed original Kernel:
+        // do not silently default to a source-ID selective import when the
+        // original Kernel explicitly permits new-workspace restoration.
+        // Ordinary .iwxa imports and unknown catalogue states retain T2.
+        event.restoringProtectedIntoEmptyCatalog && initialWs.length>0 &&
+          allowedModes.includes("new-workspace") ? "new-workspace"
+        : incomingFromAnotherWorkspace && allowedModes.includes("merge") ? "merge"
         : allowedModes.includes("selective") ? "selective"
         : allowedModes.includes("merge") ? "merge"
         : allowedModes.includes("full") ? "full"
