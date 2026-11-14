@@ -14,6 +14,21 @@ const REF=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;
 const MAX_BODY=512*1024;
 const SCOPES=new Set(["kernel","activity"]);
+// On the trusted signed Kernel origin, ALL compiled unsigned HTML entries
+// must be blocked, not just the root Workspace page. The normal T2 site
+// does not attach this split-origin Control route and remains unchanged.
+const UNSIGNED_HTML_ENTRIES=new Set([
+  "/","/index.html",
+  "/workspace/","/workspace/index.html",
+  "/workspace/exchange","/workspace/exchange/","/workspace/exchange/index.html",
+  "/workspace/exchange.html",
+  "/workspace/lifecycle","/workspace/lifecycle/","/workspace/lifecycle/index.html",
+  "/workspace/lifecycle.html",
+  "/workspace/studio","/workspace/studio/","/workspace/studio/index.html",
+  "/workspace/studio.html",
+  // This entry belongs ONLY to the independently isolated UI origin.
+  "/workspace/isolated-signed-workspace.html",
+]);
 const OWNER_FIELDS=["currentContext","actionFor","operationDigest",
   "authorize","verifyDecisionBinding"];
 function refused(code){
@@ -98,7 +113,7 @@ export function createOriginalControlHttpHandler({
     const trustedRealm=route==="/workspace/t3-kernel-realm.json";
     const trustedEntry=route==="/workspace/trusted-kernel-realm.html";
     const signedEntry=route==="/workspace/signed-workspace.html";
-    const rawEntry=route==="/workspace/"||route==="/workspace/index.html";
+    const rawEntry=UNSIGNED_HTML_ENTRIES.has(route);
     if(!route.startsWith("/api/t3/")&&!signedUi&&!trustedRealm&&
        !trustedEntry&&!(splitOrigin&&(signedEntry||rawEntry)))
       return false;

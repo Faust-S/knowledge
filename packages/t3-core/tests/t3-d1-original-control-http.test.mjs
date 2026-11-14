@@ -104,6 +104,16 @@ test("installed Host Control route denies missing token, forged Origin and stale
     const trusted=await (await fetch(f.origin+"/workspace/t3-kernel-realm.json")).json();
     assert.equal(trusted.ui_origin,pinned.ui_origin);
     assert.equal(trusted.service_id,pinned.service_id);
+    // Never allow a second unsigned AppShell on the trusted Kernel origin.
+    // Exchange/Lifecycle/Studio are separately built T2 entry points.
+    for(const entry of ["/","/workspace/","/workspace/index.html",
+      "/workspace/exchange/","/workspace/exchange/index.html",
+      "/workspace/lifecycle/","/workspace/studio/",
+      "/workspace/isolated-signed-workspace.html"]){
+      const response=await fetch(f.origin+entry);
+      assert.equal(response.status,403,"must deny raw signed-origin route "+entry);
+      assert.equal((await response.json()).error,"T3_D1_RAW_T2_WORKSPACE_DISABLED");
+    }
     const missing=await fetch(f.origin+"/api/t3/context-epoch");
     assert.equal(missing.status,401);
     const bad=await fetch(f.origin+"/api/t3/owner",{
