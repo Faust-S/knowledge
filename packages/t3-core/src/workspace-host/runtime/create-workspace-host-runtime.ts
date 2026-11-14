@@ -271,6 +271,9 @@ export async function createWorkspaceHostRuntime(
       ...(remoteD3.applyAccepted?{applyAccepted:(data:{
         acceptanceId:string;revisionIds:string[];target:Record<string,unknown>})=>
           remoteCall("applyAccepted",()=>remoteD3.applyAccepted!(data))}:{}),
+      ...(remoteD3.recoverApplied?{recoverApplied:(data:{
+        acceptanceId:string;revisionIds:string[];target:Record<string,unknown>})=>
+          remoteCall("recoverApplied",()=>remoteD3.recoverApplied!(data))}:{}),
     }) : input.reconciliationOwner ? (()=>{
       const original=input.reconciliationOwner;
       const admission=createTrustedReconciliationAdmission({
@@ -287,7 +290,9 @@ export async function createWorkspaceHostRuntime(
         isHostActive:()=>!disposed,
       }):null;
       return Object.freeze({
-        ...admission,...(apply?{applyAccepted:apply.applyAccepted}:{}),
+        ...admission,...(apply?{
+          applyAccepted:apply.applyAccepted,recoverApplied:apply.recoverApplied,
+        }:{}),
       });
     })() : null;
   // Revoke access synchronously, BEFORE the serialized asynchronous module
