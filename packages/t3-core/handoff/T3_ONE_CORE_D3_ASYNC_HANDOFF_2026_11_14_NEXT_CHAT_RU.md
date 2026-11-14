@@ -1,5 +1,17 @@
 # IWXA T3 One Core. D3, точные подтверждения асинхронного Host, передача 14.11.2026
 
+## Дополнение 14.11.2026: D5 выбор локальной модели в едином Host
+
+**Исполняемый исходник:** `Faust-S/knowledge@4cfa43a7ddf1b466374a150428c79d87bcea8539`. [GitHub Actions #43587738425](https://github.com/Faust-S/knowledge/actions/runs/43587738425) = **SUCCESS**: 674/674 Node product tests, 1121/1121 Workspace/DOM, `real-host` и `windows-credential` PASS. `metal-webgpu` SKIPPED: аппаратная WebGPU генерация модели ещё не подтверждена.
+
+Действующий D5 теперь использует **один** pinned upstream WebLLM `0.2.87` и одну модель одновременно. Пользователь может выбрать SmolLM2 360M Instruct q4f32_1 (~580 МБ GPU) либо SmolLM2 1.7B Instruct q4f32_1 (~2693 МБ GPU), явно разрешить и подтвердить скачивание именно выбранной модели, проверить индивидуальный CacheStorage и запустить из кеша без сети. Общий автономный `t3-sw.js` разрешает только точные пары репозиторий весов / совместимая WebGPU WASM в пределах временного consent. Никакой новый Store, inference engine или формат `.iwxa` не создавались. Максимум токенов ответа в UI увеличен с 256 до 1024 (первоначально выбирается 256); Result продолжает сохраняться только отдельным нажатием через ORIGINAL Kernel в статусе `DRAFT_UNTRUSTED`.
+
+Изменение D5 в основном `knowledge` означает, что исходный BLI1 больше нельзя называть source-identical. `integration-sources/bli1/SOURCE_PIN.json` сохраняет оригинальный исторический `Faust-S/T3@680375c9`, все 15 текущих Git blob и для семи изменённых файлов отдельно `upstream_blob`. Компилятор проверяет реальные исполняемые SHA. Промежуточный CI обнаружил устаревший pin и тип функции установки; исправления вошли в коммиты [`d7ffd9f`](https://github.com/Faust-S/knowledge/commit/d7ffd9f31c5554a6722c17ecdb8548a24191e810), [`a4de366`](https://github.com/Faust-S/knowledge/commit/a4de366a233f4e082b78f68ca9bb74e720e2a994), [`4cfa43a`](https://github.com/Faust-S/knowledge/commit/4cfa43a7ddf1b466374a150428c79d87bcea8539). Последний CI SUCCESS, дополнительные тестовые подсистемы не создавались.
+
+**Следующая предметная работа:** сквозной D3 `signed Task → selected Result → Human Review → ACCEPT → отдельный APPLY → original Kernel receipt/cold reopen` с исходным владельцем Reconciliation, который остаётся в закрытом историческом T3. Без разрешения на публикацию его исходника нельзя копировать его в публичный `knowledge`; второй engine запрещён. Альтернативно закрывать следующую реальную функциональную дельту D5/D6/D7. `D3_END_TO_END=NOT_ACCEPTED`, `D5_HARDWARE_WEBGPU=NOT_ACCEPTED`, `G4=NOT_ACCEPTED`, `T3_READY=false`.
+
+
+
 ## Дополнение 14.11.2026: D3 штатный двухсторонний readback без нового Reconciliation
 
 **Исполняемый исходник:** `Faust-S/knowledge@33c1af93fd2eda650269abbd89a4ab162480341f`. Коммиты: [`c761895`](https://github.com/Faust-S/knowledge/commit/c7618950e49766c4c7c905f9dbda5040fe7e44db), [`59f8bc1`](https://github.com/Faust-S/knowledge/commit/59f8bc17e2d196f5e19fe087c801da9c44ebe6f7), [`33c1af9`](https://github.com/Faust-S/knowledge/commit/33c1af93fd2eda650269abbd89a4ab162480341f).
