@@ -93,7 +93,8 @@ async function launch(){
     const reconciliationPort=d3?.available===true?Object.freeze({
       receive:(bytes:Uint8Array)=>requestD3("receive",{bytes}),
       preview:(packageSha256:string)=>requestD3("preview",{packageSha256}),
-      receipt:(operationId:string)=>requestD3("receipt",{operationId}),
+      receipt:(operationId:string,packageSha256:string)=>
+        requestD3("receipt",{operationId,packageSha256}),
       accept:(input:{packageSha256:string;previewDigest:string;
         operationId:string;decisionBy:string})=>requestD3("accept",input),
       reject:(input:{packageSha256:string;previewDigest:string;
