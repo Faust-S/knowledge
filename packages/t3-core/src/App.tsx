@@ -47,6 +47,14 @@ export interface AppProps {
   signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
   signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
   reconciliationPort?: CreateWorkspaceHostRuntimeInput["reconciliationPort"];
+  /** Compiled installed products may inject their ORIGINAL native owners.
+   * They never originate from a URL, imported .iwxa, or domain manifest. */
+  nativeContinuationOwner?: CreateWorkspaceHostRuntimeInput["nativeContinuationOwner"];
+  confirmNativeContinuation?: CreateWorkspaceHostRuntimeInput["confirmNativeContinuation"];
+  ageOwner?: CreateWorkspaceHostRuntimeInput["ageOwner"];
+  confirmAgeRecipients?: CreateWorkspaceHostRuntimeInput["confirmAgeRecipients"];
+  publisherHolder?: CreateWorkspaceHostRuntimeInput["publisherHolder"];
+  confirmPublisherHandoff?: CreateWorkspaceHostRuntimeInput["confirmPublisherHandoff"];
   subscribeSignedAccessInvalidation?: SignedAccessInvalidationSubscription;
   /** Compile-time trusted T2 Kernel origin bootstrap; never derived from a page or package. */
   trustedKernelBootstrap?: KernelBootstrap;
@@ -66,6 +74,9 @@ export interface AppProps {
 export default function App({
   requireSignedOwner = false, signedKernelAccess, signedActivityAccess,
   reconciliationPort,
+  nativeContinuationOwner,confirmNativeContinuation,
+  ageOwner,confirmAgeRecipients,
+  publisherHolder,confirmPublisherHandoff,
   subscribeSignedAccessInvalidation,
   trustedKernelBootstrap, isolatedKernelRequired = false,
   trustedSelectedContext,
@@ -125,6 +136,12 @@ export default function App({
       signedKernelAccess={signedKernelAccess}
       signedActivityAccess={signedActivityAccess}
       reconciliationPort={reconciliationPort}
+      nativeContinuationOwner={nativeContinuationOwner}
+      confirmNativeContinuation={confirmNativeContinuation}
+      ageOwner={ageOwner}
+      confirmAgeRecipients={confirmAgeRecipients}
+      publisherHolder={publisherHolder}
+      confirmPublisherHandoff={confirmPublisherHandoff}
       subscribeSignedAccessInvalidation={subscribeSignedAccessInvalidation}
     />
   );

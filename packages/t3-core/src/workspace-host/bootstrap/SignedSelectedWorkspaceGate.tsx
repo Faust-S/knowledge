@@ -4,17 +4,28 @@
  * Control-selected signed create port can supply its exact Workspace ID.
  */
 import {useCallback,useEffect,useRef,useState,type ReactNode} from "react";
-import type {KernelFacade} from "@/workspace-contract";
+import type {CommandsFacade,KernelFacade} from "@/workspace-contract";
 import type {CreateWorkspaceHostRuntimeInput} from "@/workspace-host/runtime";
+import type {createTrustedAgeExchange,createTrustedPublisherHandoff}
+  from "@/t3/index.mjs";
+import {ImportView} from "@/modules/exchange/features/packages/ImportView";
+import {PublisherLicensePanel} from "@/modules/exchange/features/packages/PublisherLicensePanel";
 
 type SignedResolver=CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
 type Phase="checking"|"ready"|"missing"|"denied";
 interface Inspection {kernel:KernelFacade|null;phase:Phase}
+type FirstRunExchange=Readonly<{
+  kernel:KernelFacade;
+  commands:CommandsFacade;
+  protectedExchange:ReturnType<typeof createTrustedAgeExchange>|null;
+  publisherHandoff:ReturnType<typeof createTrustedPublisherHandoff>|null;
+}>;
 const denied=(code:string)=>Object.assign(new Error(code),{code});
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 
 export function SignedSelectedWorkspaceGate({
-  required,kernel,profile,signedKernelAccess,trustedSelectedContext,children,
+  required,kernel,profile,signedKernelAccess,trustedSelectedContext,
+  firstRunExchange=null,children,
 }:{
   required:boolean;
   kernel:KernelFacade|null;
@@ -24,6 +35,7 @@ export function SignedSelectedWorkspaceGate({
     kind:"CORP"|"PERSONAL";workspace_id:string;resource:string;
     organization_id?:string|null;
   }|null>;
+  firstRunExchange?:FirstRunExchange|null;
   children:ReactNode;
 }){
   const [inspection,setInspection]=useState<Inspection>({kernel:null,phase:"checking"});
@@ -148,6 +160,29 @@ export function SignedSelectedWorkspaceGate({
             className="rounded border px-3 py-2 text-sm disabled:opacity-50">
             Проверить повторно
           </button>
+          {firstRunExchange && (firstRunExchange.publisherHandoff ||
+            (firstRunExchange.protectedExchange?.canOpen === true &&
+              firstRunExchange.kernel.hasOperation("t2.importPreview"))) && (
+            <section data-testid="t3-d7-first-run-exchange"
+              aria-label="Лицензия и восстановление"
+              className="space-y-3 border border-slate-700 rounded p-3">
+              <h3 className="text-sm font-semibold">Лицензия и восстановление</h3>
+              <p className="text-xs text-slate-300">
+                Эти действия выполняются исходными владельцами установленной
+                программы. Они не предоставляют доступ к рабочим данным
+                без отдельного подписанного разрешения.
+              </p>
+              {firstRunExchange.publisherHandoff && (
+                <PublisherLicensePanel handoff={firstRunExchange.publisherHandoff}/>
+              )}
+              {firstRunExchange.protectedExchange?.canOpen === true &&
+                firstRunExchange.kernel.hasOperation("t2.importPreview") && (
+                  <ImportView kernel={firstRunExchange.kernel}
+                    commands={firstRunExchange.commands}
+                    protectedExchange={firstRunExchange.protectedExchange}/>
+                )}
+            </section>
+          )}
         </>
       )}
     </section>

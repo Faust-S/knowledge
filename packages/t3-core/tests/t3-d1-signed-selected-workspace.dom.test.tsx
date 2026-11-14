@@ -3,7 +3,9 @@
 // never provisions or enumerates the unsigned original T2 client.
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import type { KernelFacade } from "@/workspace-contract";
+import type { KernelFacade, CommandsFacade } from "@/workspace-contract";
+import type {createTrustedPublisherHandoff,createTrustedAgeExchange}
+  from "@/t3/index.mjs";
 import type { CreateWorkspaceHostRuntimeInput } from "@/workspace-host/runtime";
 import { SignedSelectedWorkspaceGate } from "@/workspace-host/bootstrap/SignedSelectedWorkspaceGate";
 
@@ -209,4 +211,49 @@ it("PERSONAL spoof with a non-null organization never invokes the original write
   expect(createWorkspace).not.toHaveBeenCalled();
   expect(getWorkspace).not.toHaveBeenCalled();
   expect(screen.queryByTestId("unauthorized-workspace")).toBeNull();
+});
+
+it("D7 installed Publisher can receive a signed licence before Workspace without opening its data",async()=>{
+  const listWorkspaces=vi.fn(async()=>[]);
+  const k={listWorkspaces,
+    hasOperation:()=>false} as unknown as KernelFacade;
+  const publisher={preview:vi.fn(),admit:vi.fn(),recover:vi.fn()}
+    as unknown as ReturnType<typeof createTrustedPublisherHandoff>;
+  const commands={has:()=>false,invoke:async()=>undefined} as CommandsFacade;
+  render(<SignedSelectedWorkspaceGate required kernel={k} firstRunExchange={{
+    kernel:k,commands,publisherHandoff:publisher,protectedExchange:null,
+  }}>
+    <p data-testid="unauthorized-workspace">Do not show Workspace</p>
+  </SignedSelectedWorkspaceGate>);
+  await screen.findByTestId("t3-d1-selected-workspace-message");
+  expect(screen.getByTestId("t3-d7-first-run-exchange")).toBeTruthy();
+  expect(screen.getByTestId("t3-publisher-license-panel")).toBeTruthy();
+  expect(screen.queryByTestId("unauthorized-workspace")).toBeNull();
+  expect(screen.queryByTestId("import-view")).toBeNull();
+  expect(listWorkspaces).toHaveBeenCalledTimes(1);
+  expect(publisher.admit).not.toHaveBeenCalled();
+});
+it("D7 clean-install age restore offers original Kernel preview only if native open exists",async()=>{
+  const importPreview=vi.fn();
+  const k={listWorkspaces:vi.fn(async()=>[]),importPreview,
+    hasOperation:(op:string)=>op==="t2.importPreview"} as unknown as KernelFacade;
+  const commands={has:()=>false,invoke:async()=>undefined} as CommandsFacade;
+  const age={canOpen:true,canSeal:false,maxArchiveBytes:32*1024*1024,
+    maxCiphertextBytes:33*1024*1024,open:vi.fn()}
+    as unknown as ReturnType<typeof createTrustedAgeExchange>;
+  const view=render(<SignedSelectedWorkspaceGate required kernel={k}
+    firstRunExchange={{kernel:k,commands,publisherHandoff:null,protectedExchange:age}}>
+    <p data-testid="unauthorized-workspace">Protected</p>
+  </SignedSelectedWorkspaceGate>);
+  await screen.findByTestId("t3-d1-selected-workspace-message");
+  expect(screen.getByTestId("import-age-protected")).toBeTruthy();
+  expect(screen.queryByTestId("unauthorized-workspace")).toBeNull();
+  expect(importPreview).not.toHaveBeenCalled();
+  view.rerender(<SignedSelectedWorkspaceGate required kernel={k}
+    firstRunExchange={{kernel:k,commands,publisherHandoff:null,
+      protectedExchange:{...age,canOpen:false}}}>
+    <p data-testid="unauthorized-workspace">Protected</p>
+  </SignedSelectedWorkspaceGate>);
+  expect(screen.queryByTestId("import-age-protected")).toBeNull();
+  expect(importPreview).not.toHaveBeenCalled();
 });

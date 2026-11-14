@@ -282,6 +282,23 @@ function HostShellContent(props: HostShellContentProps) {
       : signedOwnerRequired ? null : session ? createKernelFacade({ session }) : null,
     [runtime, session, signedOwnerRequired],
   );
+  // Before the selected Workspace exists, the ORIGINAL installed Publisher
+  // can receive a licence and the ORIGINAL Kernel can preview an encrypted
+  // recovery only when the configured Exchange module is truly activated.
+  // The normal data routes remain gated by SignedSelectedWorkspaceGate.
+  const firstRunExchange = useMemo(() => {
+    if (!runtime || !signedOwnerRequired ||
+        !runtime.moduleSnapshot.some(module =>
+          module.moduleId === "iwxa.workspace.exchange" &&
+          module.status === "activated")) return null;
+    const publisherHandoff=runtime.publisherHandoff;
+    const protectedExchange=runtime.protectedExchange?.canOpen === true
+      ? runtime.protectedExchange : null;
+    if (!publisherHandoff && !protectedExchange) return null;
+    const ctx=runtime.contextProvider.createContext("iwxa.workspace.exchange");
+    return {kernel:ctx.kernel,commands:ctx.commands,
+      publisherHandoff,protectedExchange};
+  },[runtime,signedOwnerRequired]);
 
   const termResolver = useCallback(
     (key: string, fallback?: string) => {
@@ -387,7 +404,8 @@ function HostShellContent(props: HostShellContentProps) {
             ) : (
               <SignedSelectedWorkspaceGate required={signedOwnerRequired} kernel={kernel}
                 profile={profileId} signedKernelAccess={signedKernelAccess}
-                 trustedSelectedContext={trustedSelectedContext}>
+                trustedSelectedContext={trustedSelectedContext}
+                firstRunExchange={firstRunExchange}>
                 {productFirst && <HostPanelSurface slot="sidebar" />}
                 <HostDashboardSurface />
                 <ModuleRouteOutlet
