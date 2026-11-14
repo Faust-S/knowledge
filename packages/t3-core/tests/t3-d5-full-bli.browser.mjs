@@ -1,5 +1,5 @@
 /**
- * Real browser launch of the source-identical BLI Workspace module compiled
+ * Real browser launch of the source-pinned T3-owned BLI Workspace module compiled
  * INTO the inherited T2/T3 Host, with the unchanged qualified Kernel 0.3.6.
  * This is an executable product route, not a mock React panel or WebLLM sample.
  */

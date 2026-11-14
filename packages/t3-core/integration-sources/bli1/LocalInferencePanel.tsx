@@ -3,8 +3,8 @@ import { useWorkspaceModuleRuntime } from "@/workspace-host/rendering/ModuleRend
 import { saveLocalInferenceDraft, listLocalInferenceDrafts, getLocalInferenceDraft } from "../../t3/index.mjs";
 import { MODEL, MODELS, requireCatalogModel } from "./catalog.mjs";
 import { requestPersistence, describeStorage, formatBytes } from "./storage.mjs";
-// Engine and Worker are the unchanged BLI-1 WebLLM implementation, copied
-// from the BLI owner at trusted build time (never loaded from an arbitrary URL).
+// The WebLLM 0.2.87 Worker is retained; T3-owned model selection is pinned at
+// build time. Neither engine nor executable JS loads from arbitrary remote URLs.
 import type { BrowserLocalRuntimeAdapter } from "./engine.mjs";
 
 type Draft = { object_id: string; revision: number; model_id: string; text: string };

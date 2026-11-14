@@ -1,10 +1,10 @@
 /**
- * Compile the ACTUAL original BLI1 Workspace panel, model Worker and
+ * Compile the T3-owned BLI Workspace panel, model Worker and
  * Kernel-dependent draft code inside the inherited T2/T3 Host.
  *
  * Run only in the disposable PUBLIC knowledge Actions checkout. The exact
- * BLI source is published under integration-sources/bli1 and hash-pinned to
- * the original Faust-S/T3 source; it has no credentials or model weights.
+ * original BLI1 source provenance is retained separately from the hash-pinned
+ * first-party T3 changes; it has no credentials or model weights.
  * No second Kernel, Store, inference engine, or remote runtime is created.
  */
 import {cpSync,existsSync,mkdtempSync,mkdirSync,readFileSync,readdirSync,rmSync,writeFileSync} from "node:fs";
@@ -19,7 +19,10 @@ const core=join(dirname(fileURLToPath(import.meta.url)),"..");
 const source=join(core,"integration-sources","bli1");
 const pin=JSON.parse(readFileSync(join(source,"SOURCE_PIN.json"),"utf8"));
 if(pin.source_head!=="680375c9b47fb04b6273a410f7bc8dbb85556778" ||
-   pin.files?.length!==15)throw Error("T3_D5_BLI_SOURCE_PIN_MISSING");
+   pin.files?.length!==15 ||
+   pin.executable_owner!=="Faust-S/knowledge" ||
+   pin.source_role!=="HISTORICAL_BLI1_BASE_WITH_FIRST_PARTY_T3_D5_MODEL_CHOICE")
+  throw Error("T3_D5_BLI_SOURCE_PIN_MISSING");
 const shaGitBlob=bytes=>createHash("sha1")
   .update("blob "+bytes.length+"\0").update(bytes).digest("hex");
 const temp=mkdtempSync(join(tmpdir(),"iwxa-t3-bli1-source-"));
@@ -31,7 +34,11 @@ try {
   for(const file of pin.files){
     const basename=file.file.split("/").at(-1);
     if(!basename || !/^[A-Za-z0-9._-]+$/.test(basename) ||
-       !/^[a-f0-9]{40}$/.test(file.blob))throw Error("T3_D5_BLI_PIN_INVALID");
+       !/^[a-f0-9]{40}$/.test(file.blob) ||
+       (file.upstream_blob!==undefined &&
+        (!/^[a-f0-9]{40}$/.test(file.upstream_blob) ||
+         file.blob===file.upstream_blob)))
+      throw Error("T3_D5_BLI_PIN_INVALID");
     const from=join(source,basename),to=join(candidate,basename);
     if(!existsSync(from))throw Error("T3_D5_BLI_FILE_MISSING:"+basename);
     const bytes=readFileSync(from);
@@ -91,6 +98,8 @@ try {
   if(!index.includes("/workspace/assets/"))throw Error("T3_D5_HOST_ENTRY_MISSING");
   console.log("T3_D5_FULL_ORIGINAL_BLI_HOST_BUILD_PASS",JSON.stringify({
     originalBliSourceHead:pin.source_head,
+    runtimeOwner:"Faust-S/knowledge",runtimeSourcePin:pin.source_revision,
+    firstPartyFiles:pin.files.filter(f=>f.upstream_blob).length,
     compiledModule:"iwxa.t3.local-inference",
     webllm:"0.2.87",
     worker:worker[0],workerBytes:Buffer.byteLength(modelWorker),
