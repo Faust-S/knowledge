@@ -2,11 +2,15 @@ import {checkCandidateBytes,destinationUrl,exactOrigin,isMessage,HANDOFF_PROTOCO
 
 /** Human-initiated Site -> Host read request. The Site cannot read Kernel:
  * only a Host user click may return explicitly selected verified records. */
-export function launchT2SiteRestore({siteWindow,hostUrl,onCandidate,onStatus=()=>{}}){
+export function launchT2SiteRestore({siteWindow,hostUrl,onCandidate,
+  onStatus=()=>{},verifyAppliedAfterRestore=null}){
   if(!siteWindow||typeof siteWindow.open!=='function'||
      typeof siteWindow.addEventListener!=='function'||
      typeof siteWindow.removeEventListener!=='function'||
-     typeof onCandidate!=='function')throw new Error('T2_RESTORE_SITE_INPUT_INVALID');
+     typeof onCandidate!=='function'||
+     (verifyAppliedAfterRestore!==null&&
+      typeof verifyAppliedAfterRestore!=='function'))
+    throw new Error('T2_RESTORE_SITE_INPUT_INVALID');
   const siteOrigin=exactOrigin(siteWindow.location.origin);
   const destination=destinationUrl(hostUrl,siteOrigin);
   const peer=siteWindow.open(destination.href,'_blank');
@@ -26,6 +30,16 @@ export function launchT2SiteRestore({siteWindow,hostUrl,onCandidate,onStatus=()=
     }
     if(requested&&isMessage(event.data,'restore-candidate')&&event.data.nonce===nonce){
       dispose();
+      const acknowledge=(status,reason=null)=>{
+        try{
+          peer.postMessage({protocol:HANDOFF_PROTOCOL,kind:'restore-status',
+            nonce,status},destination.origin);
+        }catch{
+          // A lost reply cannot roll back a completed local write.
+        }
+        if(reason)onStatus(reason);
+        else onStatus('T2_RESTORE_SITE_'+status);
+      };
       const finish=(result,error=null,failed=false)=>{
         let status='REJECTED',reason=null;
         if(failed){
@@ -42,14 +56,22 @@ export function launchT2SiteRestore({siteWindow,hostUrl,onCandidate,onStatus=()=
           (result&&typeof result==='object'&&result.status==='APPLIED'))
           status='APPLIED';
         else reason='T2_RESTORE_CANDIDATE_REJECTED';
-        try{
-          peer.postMessage({protocol:HANDOFF_PROTOCOL,kind:'restore-status',
-            nonce,status},destination.origin);
-        }catch{
-          // A lost reply cannot roll back a completed local write.
+        if(status!=='APPLIED'||verifyAppliedAfterRestore===null){
+          // Inherited T2 status contract. T3 owners must opt in to original
+          // Kernel readback before asserting a restored Result was applied.
+          acknowledge(status,reason);
+          return;
         }
-        if(reason)onStatus(reason);
-        else onStatus('T2_RESTORE_SITE_'+status);
+        try{
+          Promise.resolve(verifyAppliedAfterRestore(event.data.raw,result)).then(
+            verified=>verified===true
+              ?acknowledge('APPLIED')
+              :acknowledge('REJECTED','T2_RESTORE_APPLICATION_NOT_CONFIRMED'),
+            ()=>acknowledge('REJECTED','T2_RESTORE_APPLICATION_NOT_CONFIRMED'),
+          );
+        }catch{
+          acknowledge('REJECTED','T2_RESTORE_APPLICATION_NOT_CONFIRMED');
+        }
       };
       try{
         const result=onCandidate(checkCandidateBytes(event.data.raw));

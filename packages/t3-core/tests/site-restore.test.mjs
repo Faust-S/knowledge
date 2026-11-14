@@ -138,3 +138,44 @@ test('restore explicit false, null and contradictory APPLIED remain rejected',as
     assert.ok(!statuses.includes('T2_RESTORE_SITE_APPLIED'));
   }
 });
+
+test('T3 restore site does not ACK APPLIED before an independent original Kernel readback',async()=>{
+  const p=pair(),statuses=[];
+  let confirm;
+  launchT2SiteRestore({
+    siteWindow:p.site,hostUrl:'https://localhost:4173/workspace/',
+    onCandidate:()=>({status:'APPLIED'}),
+    verifyAppliedAfterRestore:raw=>{
+      assert.match(raw,/selected/);
+      return new Promise(resolve=>{confirm=resolve;});
+    },
+    onStatus:value=>statuses.push(value),
+  });
+  const host=mountT2SiteRestoreSender({hostWindow:p.host,
+    expectedSiteOrigin:'https://club.iwxa.ru'});
+  await Promise.resolve();
+  host.send('{"selected":"signed-result"}');
+  assert.equal(host.acknowledgement,null);
+  confirm(false);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(host.acknowledgement,'REJECTED');
+  assert.ok(statuses.includes('T2_RESTORE_APPLICATION_NOT_CONFIRMED'));
+  assert.ok(!statuses.includes('T2_RESTORE_SITE_APPLIED'));
+
+  const passed=pair(),confirmed=[];
+  let commit;
+  launchT2SiteRestore({siteWindow:passed.site,hostUrl:'https://localhost:4173/workspace/',
+    onCandidate:()=>undefined,
+    verifyAppliedAfterRestore:()=>new Promise(resolve=>{commit=resolve;}),
+    onStatus:s=>confirmed.push(s),
+  });
+  const recipient=mountT2SiteRestoreSender({hostWindow:passed.host,
+    expectedSiteOrigin:'https://club.iwxa.ru'});
+  await Promise.resolve();
+  recipient.send('{"selected":"existing-result"}');
+  assert.equal(recipient.acknowledgement,null);
+  commit(true);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(recipient.acknowledgement,'APPLIED');
+  assert.ok(confirmed.includes('T2_RESTORE_SITE_APPLIED'));
+});

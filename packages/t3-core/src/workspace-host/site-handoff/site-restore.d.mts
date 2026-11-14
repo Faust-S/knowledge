@@ -4,6 +4,8 @@ export interface SiteRestoreOptions {
   onCandidate: (raw:string)=>void|{status:"APPLIED"|"NO_NEW_RESULTS"|"CANCELLED"|"REJECTED"}|
     Promise<void|{status:"APPLIED"|"NO_NEW_RESULTS"|"CANCELLED"|"REJECTED"}>;
   onStatus?: (status:string)=>void;
+  /** Trusted site Kernel owner must re-read the saved exact Result. */
+  verifyAppliedAfterRestore?: (raw:string, result:unknown)=>boolean|Promise<boolean>;
 }
 export function launchT2SiteRestore(options:SiteRestoreOptions):{
  dispose():void;readonly pending:boolean;readonly requested:boolean;
