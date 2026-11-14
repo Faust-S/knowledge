@@ -98,8 +98,8 @@ export function createTrustedReconciliationKernelApply({
       JSON.stringify([...payload.reconciliation_revision_ids].sort())===
         JSON.stringify([...revisionIds].sort()),
       "T3_D3_ORIGINAL_GRAPH_PROVENANCE_REQUIRED");
-    check(signedKernel.hasOperation("t1.commitObjectGraph")&&
-      signedKernel.hasOperation("t1.getObject"),
+    check(kernel.hasOperation("t1.commitObjectGraph")&&
+      kernel.hasOperation("t1.getObject"),
       "T3_D3_ORIGINAL_KERNEL_GRANT_REQUIRED");
     // Independent, explicit APPLY approval is not the earlier ACCEPT.
     const approval=await confirmSeparateApply({
