@@ -215,6 +215,10 @@ test('corporate agent enrolment rejects forged agent, substituted human sponsor 
       payloadDigest:digest({operation:'test-corporate-agent'})},
     asOf:iso(NOW)};
   const valid=await gate.preview(input);
+  assert.equal(valid.responsiblePersonId,'person:operator');
+  assert.equal(valid.actorIdentityKind,'AGENT');
+  assert.equal(valid.agentEnrollmentDigest,digest(north.agentEnrollment));
+  assert.notEqual(valid.responsiblePersonId,valid.request.actorId);
   assert.equal(valid.request.actorId,'agent:analyst');
   assert.equal(valid.request.grantId,'grant:north-agent');
   assert.equal(valid.credentialKeyId,'key:agent-north');

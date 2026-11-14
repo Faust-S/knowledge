@@ -317,6 +317,10 @@ function prepareWithBoundState(untrusted) {
     subjectType:candidate.subjectType,
     organizationId:org.organizationId,workspaceId:workspace.workspaceId,
     dataRootId:org.organizationDataRootId,credentialKeyId,
+    // Signed organization membership assigns accountable human, distinct
+    // from signed agent actor. Never infer from a string prefix or a model.
+    responsiblePersonId:person.personId,actorIdentityKind:agentBinding?'AGENT':'PERSON',
+    agentEnrollmentDigest:agentBinding?.agentEnrollmentDigest??null,
     request,scopeDigest:bindingDigest,contextSelectedByUser:true,
     membershipValidUntil:member.expiresAt,statusObservedUntil:member.statusValidUntil,
     credentialValidUntil,enrollmentValidUntil};
@@ -347,10 +351,16 @@ function authorizeWithBoundState(input,authorization) {
     return {schema:'IWXA_T3_ORGANIZATION_OPERATION_DECISION/1',
       outcome:'PERMITTED',allowed:true,productionActivation:false,evidenceOnly:true,
       organizationId:preview.organizationId,workspaceId:preview.workspaceId,
+      actorId:preview.request.actorId,responsiblePersonId:preview.responsiblePersonId,
+      actorIdentityKind:preview.actorIdentityKind,
+      agentEnrollmentDigest:preview.agentEnrollmentDigest,
       operationDigest:preview.request.operationDigest,requestDigest:decision.requestDigest,
       grantId:preview.request.grantId,statusSequence:decision.statusSequence,
       validUntil:new Date(floor).toISOString(),policyDigest:decision.policyDigest,
-      evidenceDigest:digest({request:preview.request,accessDecision:decision}),
+      evidenceDigest:digest({request:preview.request,accessDecision:decision,
+        responsiblePersonId:preview.responsiblePersonId,
+        actorIdentityKind:preview.actorIdentityKind,
+        agentEnrollmentDigest:preview.agentEnrollmentDigest}),
       doesNotTransferData:true,doesNotAcceptCorporateCopy:true};
   } catch(error) {
     return denied(typeof error?.code==='string'?error.code:'ORG_AUTHORIZATION_INVALID');

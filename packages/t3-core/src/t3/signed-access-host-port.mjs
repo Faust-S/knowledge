@@ -127,6 +127,18 @@ export function createSignedAccessHostPort({
         HEX.test(preview.request?.operationDigest) &&
         preview.scopeDigest === preview.request.operationDigest,
         "T3_OWNER_CORPORATE_PREVIEW_MISMATCH");
+      // Caller-provided actor name is not a staff identity. Only the
+      // original signed organization enrollment can bind an agent to a
+      // separate verified human and a narrowed grant.
+      if(hostInput.agentEnrollment !== undefined) {
+        requireThat(preview.actorIdentityKind === "AGENT" &&
+          typeof preview.responsiblePersonId === "string" &&
+          ID.test(preview.responsiblePersonId) &&
+          preview.responsiblePersonId !== request.actorId &&
+          preview.agentEnrollmentDigest ===
+            digestFrom(canonicalDigest, hostInput.agentEnrollment),
+          "T3_OWNER_CORPORATE_AGENT_ACCOUNTABILITY_UNBOUND");
+      }
       expectedRequestDigest = digestFrom(canonicalDigest, preview.request);
       expectedOperationDigest = preview.request.operationDigest;
       const nonce1 = randomUUID(), nonce2 = randomUUID();
@@ -174,7 +186,12 @@ export function createSignedAccessHostPort({
         decision.operationDigest === expectedOperationDigest &&
         decision.organizationId === context.organization_id &&
         decision.workspaceId === context.workspace_id &&
-        decision.grantId === context.grant_id,
+        decision.grantId === context.grant_id &&
+        (hostInput.agentEnrollment === undefined ||
+          (decision.actorId === request.actorId &&
+           decision.actorIdentityKind === "AGENT" &&
+           decision.responsiblePersonId === preview.responsiblePersonId &&
+           decision.agentEnrollmentDigest === preview.agentEnrollmentDigest)),
         "T3_OWNER_CORPORATE_DECISION_UNBOUND");
     }
     requireThat(decision && typeof decision === "object" && !Array.isArray(decision),
