@@ -144,6 +144,7 @@ export async function readActivityFromT2Host({
   stableRows(events, afterEvents, "event_id", workspaceId);
 
   return projectActivitySnapshot({
-    workspace_id: workspaceId, objects, events, relations, bindings,
+    workspace_id: workspaceId, workspace_record: workspace,
+    objects, events, relations, bindings,
   });
 }

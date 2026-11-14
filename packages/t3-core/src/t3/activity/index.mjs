@@ -152,13 +152,29 @@ function byId(a, b) {
 }
 
 export function projectActivitySnapshot({
-  workspace_id, objects, events, relations: sourceRelations = [], bindings,
+  workspace_id, workspace_record: workspaceRecord = null,
+  objects, events, relations: sourceRelations = [], bindings,
 } = {}) {
   const workspaceId = nonempty(workspace_id, "INVALID_WORKSPACE");
   if (!Array.isArray(objects) || !Array.isArray(events) ||
       !Array.isArray(sourceRelations)) fail("INVALID_SOURCE_COLLECTION");
   const { schemas, eventTypes, relationKinds,
     contextEventTypes, hasExplicitContextEvents } = makeBindings(bindings);
+  // A shape-only event is NOT proof of an original T2 lifecycle write.
+  // The same signed original Kernel read must supply the independently
+  // read, stable Workspace record for any explicit context exclusion.
+  if (contextEventTypes.size && (
+    !object(workspaceRecord) ||
+    workspaceRecord.workspace_id !== workspaceId ||
+    typeof workspaceRecord.created_at !== "string" ||
+    !Number.isFinite(Date.parse(workspaceRecord.created_at)) ||
+    typeof workspaceRecord.profile !== "string" ||
+    !workspaceRecord.profile.trim() ||
+    !Array.isArray(workspaceRecord.capabilities) ||
+    workspaceRecord.capabilities.some(value => typeof value !== "string") ||
+    typeof workspaceRecord.read_only !== "boolean")) {
+    fail("T2_CONTEXT_WORKSPACE_RECORD_REQUIRED");
+  }
 
   const localObjects = dedupe(
     objects.filter((row) => object(row) && row.workspace_id === workspaceId),
@@ -281,11 +297,18 @@ export function projectActivitySnapshot({
           payload.capabilities.some(v => typeof v !== "string") ||
           typeof payload.read_only !== "boolean" ||
           !Object.keys(payload).every(k =>
-            ["profile","capabilities","read_only"].includes(k))) {
+            ["profile","capabilities","read_only"].includes(k)) ||
+          typeof row.service_id !== "string" || !row.service_id.trim() ||
+          row.occurred_at !== workspaceRecord.created_at ||
+          payload.profile !== workspaceRecord.profile ||
+          canonical(payload.capabilities) !==
+            canonical(workspaceRecord.capabilities) ||
+          payload.read_only !== workspaceRecord.read_only ||
+          // An original T2 Workspace is created only once. A second
+          // lifecycle-labelled Event must not disappear into the context.
+          excludedContextEventIds.length !== 0) {
         fail("T2_CONTEXT_EVENT_NOT_VERIFIED");
       }
-      nonempty(row.occurred_at, "INVALID_EVENT_TIME");
-      if (!Number.isFinite(Date.parse(row.occurred_at))) fail("INVALID_EVENT_TIME");
       excludedContextEventIds.push(eventId);
       continue;
     }

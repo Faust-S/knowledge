@@ -23,8 +23,15 @@ const base={objects:[{schema_id:"d05.bracket",schema_version:"1.0.0",
   semantic_kind:"Process"}],events:[{
   event_type:"d05.bracket.created",semantic_kind:"Event",
 }],relations:[]};
-const project=(bindings=base, sourceEvents=events)=>projectActivitySnapshot({
-  workspace_id,objects,events:sourceEvents,bindings,
+const workspace_record={
+  workspace_id,profile:"generic",capabilities:[],read_only:false,
+  created_at:"2026-11-14T08:00:00Z",
+  updated_at:"2026-11-14T09:00:00Z",
+};
+const project=(bindings=base, sourceEvents=events,
+  sourceWorkspace=workspace_record)=>projectActivitySnapshot({
+  workspace_id,workspace_record:sourceWorkspace,
+  objects,events:sourceEvents,bindings,
 });
 
 test("default original D2 still reports unmapped T2 workspace creation for verification",()=>{
@@ -68,4 +75,34 @@ test("object-linked or disguised lifecycle events cannot be suppressed by a cont
       private_field:"NOT_A_REAL_T2_CONTEXT"}},
   ])assert.throws(()=>project(bindings,[modified,...events.slice(1)]),
     {code:"T2_CONTEXT_EVENT_NOT_VERIFIED"});
+});
+
+test("explicit context exclusion requires a signed-source Workspace record, not a plausible event",()=>{
+  const mapping={...base,context_events:["workspace.created"]};
+  for(const malformed of [
+    null,{}, {...workspace_record,workspace_id:"ws:other"},
+    {...workspace_record,created_at:"2026-11-14T07:00:00Z"},
+  ]){
+    assert.throws(()=>project(mapping,events,malformed),{
+      code:"T2_CONTEXT_WORKSPACE_RECORD_REQUIRED",
+    });
+  }
+});
+
+test("forged or duplicate Workspace lifecycle Events cannot be hidden as context",()=>{
+  const mapping={...base,context_events:["workspace.created"]};
+  const original=events[0],tail=events.slice(1);
+  const candidates=[
+    [{...original,occurred_at:"2026-11-14T09:00:00Z"},...tail],
+    [{...original,service_id:""},...tail],
+    [{...original,payload:{...original.payload,profile:"foreign"}},...tail],
+    [{...original,payload:{...original.payload,capabilities:["unknown"]}},...tail],
+    [{...original,payload:{...original.payload,read_only:true}},...tail],
+    [original,{...original,event_id:"forged:second-workspace-created"},...tail],
+  ];
+  for(const sourceEvents of candidates){
+    assert.throws(()=>project(mapping,sourceEvents),{
+      code:"T2_CONTEXT_EVENT_NOT_VERIFIED",
+    });
+  }
 });
