@@ -237,12 +237,17 @@ test("original native D3 recipient uses the existing signed Control HTTP and iso
       events.push({kind:"apply",payload});
       return {kernelWriteReadback:"OWNER_UNCONFIRMED"};
     },
+    recoverApplied:async payload=>{
+      events.push({kind:"recover-apply",payload});
+      return {status:"ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED",
+        kernelWriteReadback:"CONFIRMED",automaticRetryAllowed:false};
+    },
   };
   const f=await fixture({reconciliationPortFor:()=>originalPort});
   const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
   try{
     assert.deepEqual(await f.browser.reconciliationRequest("available"),
-      {available:true,applyAvailable:true});
+      {available:true,applyAvailable:true,recoverAvailable:true});
     const archive=Uint8Array.from([0,1,2,3,251,253,254,255]);
     const incoming=await f.browser.reconciliationRequest("receive",{bytes:archive});
     assert.equal(incoming.acceptanceState,"NOT_ACCEPTED");
@@ -279,6 +284,15 @@ test("original native D3 recipient uses the existing signed Control HTTP and iso
       target:{workspaceId:"ws:personal"},
     });
     assert.equal(apply.kernelWriteReadback,"OWNER_UNCONFIRMED");
+    const recoveredApply=await f.browser.reconciliationRequest("recoverApplied",{
+      acceptanceId:"a".repeat(64),revisionIds:[digest],
+      target:{workspaceId:"ws:personal"},
+    });
+    assert.equal(recoveredApply.status,"ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
+    assert.equal(recoveredApply.automaticRetryAllowed,false);
+    assert.equal(events.filter(e=>e.kind==="apply").length,1,
+      "read-only recovery must not call original APPLY a second time");
+    assert.equal(events.filter(e=>e.kind==="recover-apply").length,1);
     // Ordinary untrusted pages cannot invoke native Reconciliation even
     // with the bearer unless they originate at the pinned Kernel origin.
     const forged=await fetch(f.origin+"/api/t3/reconciliation",{
