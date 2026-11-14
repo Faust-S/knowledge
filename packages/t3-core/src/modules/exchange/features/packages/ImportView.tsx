@@ -799,9 +799,54 @@ function renderImport(p: RenderProps) {
             </section>
           )}
 
+          {state.handle.preview.schemas?.some((schema) =>
+            schema.status === "missing" || schema.status === "invalid" ||
+            schema.status === "conflict") && (
+            <section aria-labelledby="imp-schema-compatibility"
+              data-testid="import-incompatible-schemas">
+              <h5 id="imp-schema-compatibility" className="text-xs font-medium text-rose-300">
+                Несовместимые объявления схем
+              </h5>
+              <ul className="text-xs text-rose-300 list-disc pl-4 break-words">
+                {state.handle.preview.schemas.filter((schema) =>
+                  schema.status === "missing" || schema.status === "invalid" ||
+                  schema.status === "conflict").map((schema) => (
+                    <li key={`${schema.schema_id}@${schema.schema_version}`}>
+                      {schema.schema_id}@{schema.schema_version}:{" "}
+                      {schema.status === "missing" ? "описание отсутствует"
+                        : schema.status === "invalid" ? "описание некорректно"
+                        : "конфликт версий"}
+                    </li>
+                  ))}
+              </ul>
+              <p className="text-xs text-slate-400">
+                Требуется совместимое объявление в исходном сервисе. Kernel не
+                разрешит подтвердить такой импорт с потерей данных.
+              </p>
+            </section>
+          )}
+
           {state.handle.preview.unsupported.length > 0 && (
             <section aria-labelledby="imp-unsupported" data-testid="import-unsupported">
-              <h5 id="imp-unsupported" className="text-xs font-medium text-rose-300">Неподдерживаемые схемы</h5>
+              <h5 id="imp-unsupported" className="text-xs font-medium text-rose-300">
+                Совместимость содержимого
+              </h5>
+              <ul className="text-xs text-rose-300 list-disc pl-4 break-words">
+                {state.handle.preview.unsupported.map((item, i) => (
+                  <li key={i}>
+                    {item.kind === "unknown_schema"
+                      ? `Неизвестная схема ${item.schema_id}@${item.schema_version}: ${item.object_count} объект(ов).`
+                      : item.kind === "forbidden_for_service"
+                        ? `Сервису запрещена запись ${item.schema_id}@${item.schema_version}: ${item.object_count} объект(ов).`
+                        : `Дополнительное поле ${item.path}: требуется проверить поддержку предметной семантики у владельца схемы.`}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-slate-400">
+                Источник сведений: предпросмотр оригинального Kernel, без замены
+                парсера .iwxa. Неподдерживаемые схемы и права блокируют импорт;
+                дополнительные поля показаны для проверки совместимости.
+              </p>
             </section>
           )}
 

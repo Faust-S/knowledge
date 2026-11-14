@@ -18,10 +18,10 @@ const secure: SecureImportPreview = {
   } as unknown as SecureImportPreview["preview"],
 };
 
-function kernel(): KernelFacade {
+function kernel(preview: SecureImportPreview = secure): KernelFacade {
   return {
     hasOperation: () => true,
-    importPreview: vi.fn(async () => secure),
+    importPreview: vi.fn(async () => preview),
     importCommit: vi.fn(),
     importCancel: vi.fn(async () => {}),
     listWorkspaces: vi.fn(async () => []),
@@ -30,8 +30,8 @@ function kernel(): KernelFacade {
 
 const commands: CommandsFacade = { has: () => false, invoke: async () => undefined };
 
-async function primePreview() {
-  const k = kernel();
+async function primePreview(preview: SecureImportPreview = secure) {
+  const k = kernel(preview);
   const { container } = render(<ImportView kernel={k} commands={commands} />);
   const input = container.querySelector('input[type="file"]')!;
   const file = new File([new Uint8Array([1])], "a.iwxa");
@@ -43,6 +43,29 @@ async function primePreview() {
 }
 
 describe("Import UI mode panels (§11)", () => {
+  it("displays the exact original Kernel incompatibilities instead of an empty heading", async () => {
+    const preview = {
+      ...secure,
+      preview: {
+        ...secure.preview,
+        schemas: [{ schema_id: "domain:invoice", schema_version: "1.0.0",
+          object_count: 1, status: "missing" }],
+        unsupported: [
+          { kind: "unknown_schema", schema_id: "unknown:invoice",
+            schema_version: "2.0.0", object_count: 4 },
+          { kind: "extension_field", path: "data.extra", sample: "private-value" },
+        ],
+      },
+    } as SecureImportPreview;
+    await primePreview(preview);
+    const status = screen.getByTestId("import-incompatible-schemas").textContent ?? "";
+    expect(status).toContain("domain:invoice@1.0.0");
+    const unsupported = screen.getByTestId("import-unsupported").textContent ?? "";
+    expect(unsupported).toContain("unknown:invoice@2.0.0");
+    expect(unsupported).toContain("data.extra");
+    expect(unsupported).not.toContain("private-value");
+    expect((screen.getByTestId("import-commit") as HTMLButtonElement).disabled).toBe(true);
+  });
   it("shows merge target panel when merge selected", async () => {
     await primePreview();
     fireEvent.change(screen.getByTestId("import-mode"), { target: { value: "merge" } });

@@ -270,6 +270,18 @@ export function validateImportScope(
   if (preview.unsupported?.some((row) => row.kind !== "extension_field")) {
     issues.push("В пакете есть объекты с неподдерживаемыми схемами или правами.");
   }
+  // The original Kernel can report a broken schema declaration separately
+  // from its unsupported inventory. Missing, invalid and conflicting
+  // declarations must not turn into a seemingly complete import.
+  for (const schema of preview.schemas ?? []) {
+    if (schema.status === "missing") {
+      issues.push(`Схема ${schema.schema_id}@${schema.schema_version}: отсутствует описание.`);
+    } else if (schema.status === "invalid") {
+      issues.push(`Схема ${schema.schema_id}@${schema.schema_version}: описание некорректно.`);
+    } else if (schema.status === "conflict") {
+      issues.push(`Схема ${schema.schema_id}@${schema.schema_version}: конфликт версий.`);
+    }
+  }
   // Include/exclude counters must account for the entire requested archive.
   // Otherwise an apparently clean permission check may conceal missing data.
   for (const [kind, required] of [
