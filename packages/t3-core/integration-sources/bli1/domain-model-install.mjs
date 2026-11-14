@@ -2,10 +2,7 @@
 // Service Worker. Normal autonomous site requests remain cache-only.
 // This is not an inference engine, cache writer, or additional Host.
 import {prebuiltAppConfig} from "@mlc-ai/web-llm";
-import {MODEL} from "./catalog.mjs";
-
-const model = prebuiltAppConfig.model_list.find(row => row.model_id === MODEL.id);
-if (!model) throw Error("T3_D5_MODEL_NOT_IN_WEBLLM_CATALOG");
+import {MODEL,requireCatalogModel} from "./catalog.mjs";
 
 function send(worker, type, extra = {}) {
   return new Promise((resolve, reject) => {
@@ -25,7 +22,11 @@ function send(worker, type, extra = {}) {
   });
 }
 
-export async function beginDomainModelInstallation() {
+export async function beginDomainModelInstallation(modelId=MODEL.id) {
+  const chosen=requireCatalogModel(modelId);
+  const model=prebuiltAppConfig.model_list.find(row => row.model_id === chosen.id);
+  if (!model || model.model!==chosen.modelSource)
+    throw Error("T3_D5_MODEL_NOT_IN_WEBLLM_CATALOG");
   if (!document.documentElement.hasAttribute("data-iwxa-t3-autonomous")) {
     return async () => {}; // Ordinary online site, still requires user consent.
   }

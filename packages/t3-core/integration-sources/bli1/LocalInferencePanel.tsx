@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspaceModuleRuntime } from "@/workspace-host/rendering/ModuleRenderContext";
 import { saveLocalInferenceDraft, listLocalInferenceDrafts, getLocalInferenceDraft } from "../../t3/index.mjs";
-import { MODEL } from "./catalog.mjs";
+import { MODEL, MODELS, requireCatalogModel } from "./catalog.mjs";
 import { requestPersistence, describeStorage, formatBytes } from "./storage.mjs";
 // Engine and Worker are the unchanged BLI-1 WebLLM implementation, copied
 // from the BLI owner at trusted build time (never loaded from an arbitrary URL).
@@ -21,6 +21,8 @@ export default function LocalInferencePanel() {
   const [workspaceChoices, setWorkspaceChoices] = useState<{workspace_id:string;profile:string}[]>([]);
   const [workspaceChoice, setWorkspaceChoice] = useState("");
   const [consent, setConsent] = useState(false);
+  const [modelId, setModelId] = useState(MODEL.id);
+  const selectedModel=requireCatalogModel(modelId);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [cached, setCached] = useState(false);
@@ -28,7 +30,7 @@ export default function LocalInferencePanel() {
   const [storageStatus, setStorageStatus] = useState("Постоянство браузерного кеша ещё не проверялось.");
   const [status, setStatus] = useState("Выберите модель и подтвердите загрузку.");
   const [prompt, setPrompt] = useState("");
-  const [maxTokens, setMaxTokens] = useState(64);
+  const [maxTokens, setMaxTokens] = useState(256);
   const [output, setOutput] = useState("");
   const [draftReady, setDraftReady] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -39,7 +41,8 @@ export default function LocalInferencePanel() {
   const [objects, setObjects] = useState<Source[]>([]);
   const [objectId, setObjectId] = useState("");
   const engine = useRef<Engine | null>(null);
-  const initializingEngine = useRef<Promise<Engine> | null>(null);
+  const initializingEngine = useRef<{modelId:string;promise:Promise<Engine>} | null>(null);
+  const activeModelId = useRef(MODEL.id);
   const alive = useRef(true);
   const focusEpoch = useRef(0);
   const sourceSelectionEpoch = useRef(0);
@@ -79,33 +82,72 @@ export default function LocalInferencePanel() {
   }, [context, invalidate]);
 
   const ensureEngine = async (): Promise<Engine> => {
-    if (engine.current) return engine.current;
-    if (!initializingEngine.current) {
-      initializingEngine.current = import("./engine.mjs")
-        .then(({BrowserLocalRuntimeAdapter}) => {
-          if (!alive.current) throw Error("T3_D5_PANEL_CLOSED");
-          return engine.current ?? (engine.current = new BrowserLocalRuntimeAdapter());
-        })
-        .finally(() => { initializingEngine.current = null; });
+    const targetId=activeModelId.current;
+    if (engine.current?.modelId===targetId)return engine.current;
+    if (engine.current) {
+      engine.current.dispose();engine.current=null;
     }
-    return initializingEngine.current;
+    if (initializingEngine.current?.modelId===targetId)
+      return initializingEngine.current.promise;
+    const promise=import("./engine.mjs")
+      .then(({BrowserLocalRuntimeAdapter})=>{
+        if (!alive.current) throw Error("T3_D5_PANEL_CLOSED");
+        if (activeModelId.current!==targetId)
+          throw Error("T3_D5_MODEL_SELECTION_CHANGED");
+        return engine.current ?? (engine.current =
+          new BrowserLocalRuntimeAdapter({modelId:targetId}));
+      });
+    initializingEngine.current={modelId:targetId,promise};
+    // Clear only this import. An obsolete asynchronous import may complete
+    // after the user chose another model.
+    const clear=()=>{
+      if (initializingEngine.current?.promise===promise)
+        initializingEngine.current=null;
+    };
+    void promise.then(clear,clear);
+    return promise;
   };
   const checkCache = async () => {
+    const targetId=activeModelId.current;
     try {
       const cachedStatus = await (await ensureEngine()).cachedForOffline();
-      if (alive.current) {
+      if (alive.current && activeModelId.current===targetId) {
         setCached(cachedStatus.ready);
         setCacheStatus(cachedStatus.ready
           ? "Модель и WebGPU-ресурсы найдены в локальном кеше."
           : "Для офлайн-запуска не хватает: "+cachedStatus.missing.join(", ")+
             ". Установка требует отдельного разрешения.");
       }
-    } catch (e) { if (alive.current) setCacheStatus(message(e)); }
+    } catch (e) {
+      if (alive.current && activeModelId.current===targetId)
+        setCacheStatus(message(e));
+    }
   };
-  // Cold offline reopens should discover the installed WebLLM model without
-  // another manual cache check. Read-only CacheStorage inspection never starts
-  // inference or downloads model files; actual launch still needs a click.
-  useEffect(() => { void checkCache(); }, []);
+  // A cold browser restart checks only the selected model's upstream cache.
+  // No weights are fetched and no model is started by this read-only check.
+  useEffect(() => { void checkCache(); }, [modelId]);
+  const selectModel = (id:string) => {
+    if (busy || ready || actionBusy.current || !MODELS.some(m=>m.id===id) ||
+        id===activeModelId.current) return;
+    if (draftReady && !saved &&
+        !window.confirm("Несохранённый черновик будет очищен при смене модели. Продолжить?"))
+      return;
+    activeModelId.current=id;
+    engine.current?.dispose();
+    engine.current=null;
+    initializingEngine.current=null;
+    setModelId(id);
+    setConsent(false);
+    setCached(false);
+    setCacheStatus("Проверка локального кеша выбранной модели...");
+    setReady(false);
+    setDraftReady(false);
+    setSaved(false);
+    setOutput("");
+    setOpenedDraft(null);
+    setStatus("Выбрана модель "+requireCatalogModel(id).label+
+      ". Для загрузки потребуется отдельное разрешение.");
+  };
 
   const persist = async () => {
     try {
@@ -119,7 +161,8 @@ export default function LocalInferencePanel() {
   const load = async (networkConsent: boolean) => {
     if (actionBusy.current) return;
     if (networkConsent && !consent) { setStatus("Сначала разрешите получение модели."); return; }
-    if (networkConsent && !window.confirm("Установить " + MODEL.label +
+    if (networkConsent && !window.confirm("Установить " + selectedModel.label +
+      " (около " + selectedModel.expectedVramMB + " МБ GPU-памяти)" +
       " в текущем браузере? Будут загружены веса и WebGPU-ресурсы модели.")) {
       setStatus("Установка модели отменена."); return;
     }
@@ -131,7 +174,7 @@ export default function LocalInferencePanel() {
       setStatus(networkConsent ? "Скачивание по вашему разрешению…" : "Запуск только из локального кеша…");
       if (networkConsent) {
         const { beginDomainModelInstallation } = await import("./domain-model-install.mjs");
-        finishInstall = await beginDomainModelInstallation();
+        finishInstall = await beginDomainModelInstallation(selectedModel.id);
       }
       await (await ensureEngine()).load({ networkConsent, onProgress: (p: {text?: string}) => {
         if (alive.current) setStatus(p.text ?? "Загрузка модели…");
@@ -261,7 +304,7 @@ export default function LocalInferencePanel() {
     try {
       const receipt = await saveLocalInferenceDraft(context, {
         expected_workspace_id: workspaceId,
-        model_id: MODEL.id, engine: MODEL.engine, output,
+        model_id: selectedModel.id, engine: selectedModel.engine, output,
       });
       if (!alive.current || epoch !== focusEpoch.current) return;
       setSaved(true);
@@ -373,7 +416,17 @@ export default function LocalInferencePanel() {
         !context.commands.has("workspace.focus.select")}
         onClick={() => void selectWorkspace()}>Использовать выбранный Workspace</button>
     </div>
-    <p>{MODEL.label} · {MODEL.engine}. Запрос выполняется на устройстве. Нет облачного fallback.</p>
+    <label className="block">Модель для локальной работы
+      <select aria-label="Выбрать локальную модель" data-testid="t3-d5-model-select"
+        className="w-full rounded p-2 text-slate-900" value={modelId}
+        disabled={busy || ready || Boolean(pendingReadbackId)}
+        onChange={e=>selectModel(e.target.value)}>
+        {MODELS.map(model=><option key={model.id} value={model.id}>
+          {model.label} · около {model.expectedVramMB} МБ GPU
+        </option>)}
+      </select>
+    </label>
+    <p>{selectedModel.label} · {selectedModel.engine}. Запрос выполняется на устройстве. Нет облачного fallback.</p>
     <label className="flex gap-2 items-start"><input type="checkbox" checked={consent}
       onChange={e => setConsent(e.target.checked)}/>Разрешаю скачать файлы модели по сети</label>
     <div className="flex flex-wrap gap-2">
@@ -421,12 +474,12 @@ export default function LocalInferencePanel() {
         value={prompt} onChange={e => setPrompt(e.target.value)}/>
     </label>
     <label className="block">Максимум токенов ответа
-      <input type="number" min={1} max={256} step={1}
+      <input type="number" min={1} max={1024} step={1}
         data-testid="t3-d5-max-tokens"
         className="w-24 rounded p-2 text-slate-900"
         value={maxTokens} onChange={e => {
           const n = Number(e.target.value);
-          if (Number.isInteger(n) && n >= 1 && n <= 256) setMaxTokens(n);
+          if (Number.isInteger(n) && n >= 1 && n <= 1024) setMaxTokens(n);
         }}/>
     </label>
     <button type="button" disabled={!ready || busy || !prompt.trim()}
@@ -495,7 +548,7 @@ export default function LocalInferencePanel() {
         · {openedDraft.status} · {openedDraft.model_id}</p>
       <p className="whitespace-pre-wrap break-words">{openedDraft.text}</p>
       <button type="button" disabled={busy || !workspaceId ||
-        openedDraft.model_id !== MODEL.id || openedDraft.engine !== MODEL.engine ||
+        openedDraft.model_id !== selectedModel.id || openedDraft.engine !== selectedModel.engine ||
         !context.kernel.hasOperation("t1.putObject")}
         onClick={() => {
           if (current() !== workspaceId) return;

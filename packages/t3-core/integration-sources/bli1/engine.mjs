@@ -5,20 +5,31 @@ import {
   deleteModelInCache,
   deleteChatConfigInCache,
 } from '@mlc-ai/web-llm';
-import { MODEL, requireCatalogModel } from './catalog.mjs';
+import { MODEL, MODELS, requireCatalogModel } from './catalog.mjs';
 import { BrowserInferenceError, decideLoad, requirePrompt } from './policy.mjs';
 import { inspectWebLlmOfflineCache } from './cache-readiness.mjs';
 
-const modelRecord = prebuiltAppConfig.model_list.find((m) => m.model_id === MODEL.id);
-if (!modelRecord) throw new Error('WEBLLM_MODEL_NOT_PREBUILT');
-// One model only. Cache API is the upstream default; do not duplicate weights in T2 DB8.
+const modelRecords = MODELS.map(({id})=>{
+  const record=prebuiltAppConfig.model_list.find(row=>row.model_id===id);
+  if(!record)throw new Error('WEBLLM_MODEL_NOT_PREBUILT:'+id);
+  return record;
+});
+// Only curated, upstream prebuilt models. The original WebLLM Cache API is
+// the sole weights manager; T2 DB8 is used only for user-saved draft Result.
 const appConfig = {
   ...prebuiltAppConfig,
   cacheBackend: 'cache',
-  model_list: [modelRecord],
+  model_list: modelRecords,
 };
 
 export class BrowserLocalRuntimeAdapter {
+  #modelId;
+  #modelRecord;
+  constructor({modelId=MODEL.id}={}) {
+    this.#modelId=requireCatalogModel(modelId).id;
+    this.#modelRecord=modelRecords.find(row=>row.model_id===this.#modelId);
+  }
+  get modelId() {return this.#modelId;}
   #engine = null;
   #worker = null;
   #loading = false;
@@ -36,14 +47,14 @@ export class BrowserLocalRuntimeAdapter {
     return { gpu: true, cache: true };
   }
 
-  listModels() { return [MODEL]; }
+  listModels() { return [...MODELS]; }
   describeModel(modelId) { return requireCatalogModel(modelId); }
-  async cachedWeights() { return hasModelInCache(MODEL.id, appConfig); }
+  async cachedWeights() { return hasModelInCache(this.#modelId, appConfig); }
   async cachedForOffline(knownWeights) {
     const weightsPresent=typeof knownWeights === 'boolean' ?
       knownWeights : await this.cachedWeights();
     return inspectWebLlmOfflineCache({
-      model:modelRecord, weightsPresent, cacheStorage:globalThis.caches,
+      model:this.#modelRecord, weightsPresent, cacheStorage:globalThis.caches,
     });
   }
   get ready() { return Boolean(this.#engine); }
@@ -93,7 +104,7 @@ export class BrowserLocalRuntimeAdapter {
       signal?.addEventListener('abort', onAbort, { once: true });
       aborted();
       this.#engine = await Promise.race([
-        CreateWebWorkerMLCEngine(this.#worker, MODEL.id, {
+        CreateWebWorkerMLCEngine(this.#worker, this.#modelId, {
           appConfig,
           initProgressCallback: (progress) => onProgress(progress),
         }), interrupted, workerFailed,
@@ -215,8 +226,8 @@ export class BrowserLocalRuntimeAdapter {
 
   async deleteCachedWeights() {
     if (this.#engine || this.#loading || this.#running) throw new BrowserInferenceError('BUSY', 'Сначала освободите память модели.');
-    await deleteModelInCache(MODEL.id, appConfig);
-    await deleteChatConfigInCache(MODEL.id, appConfig);
+    await deleteModelInCache(this.#modelId, appConfig);
+    await deleteChatConfigInCache(this.#modelId, appConfig);
     // Shared WASM may be reused by another model; intentionally retain it.
   }
 }

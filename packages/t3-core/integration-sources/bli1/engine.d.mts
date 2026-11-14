@@ -1,4 +1,6 @@
 export class BrowserLocalRuntimeAdapter {
+  constructor(options?: {modelId?:string});
+  readonly modelId:string;
   readonly ready: boolean;
   cachedWeights(): Promise<boolean>;
   cachedForOffline(knownWeights?: boolean): Promise<{ready:boolean;missing:readonly string[]}>;

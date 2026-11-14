@@ -33,7 +33,17 @@ let installRunning = false;
 // selected model. Normal autonomous browsing and model inference remain
 // cache-only; the original WebLLM cache owns the downloaded files.
 const MODEL_LEASE_MARKER = "/_iwxa/t3-model-install-lease";
-const MODEL_INSTALL_MS = 60 * 60 * 1000; // 207 MB model: tolerate slow but consented downloads
+const MODEL_INSTALL_MS = 60 * 60 * 1000; // Explicit, time-limited consent for one chosen model.
+const PINNED_MODEL_INSTALL_SOURCES = Object.freeze([
+  Object.freeze({
+    model:"https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC",
+    wasm:"https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_87/base/SmolLM2-360M-Instruct-q4f32_1_cs1k-webgpu.wasm",
+  }),
+  Object.freeze({
+    model:"https://huggingface.co/mlc-ai/SmolLM2-1.7B-Instruct-q4f32_1-MLC",
+    wasm:"https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_87/base/SmolLM2-1.7B-Instruct-q4f32_1_cs1k-webgpu.wasm",
+  }),
+]);
 let leaseStarting = false;
 async function modelLease() {
   const cache = await caches.open(MODE_CACHE);
@@ -43,9 +53,9 @@ async function modelLease() {
   try { lease = await saved.json(); } catch { /* Corrupt lease is never an authority. */ }
   if (!lease || typeof lease.owner !== "string" ||
       typeof lease.token !== "string" ||
-      lease.modelPath !== "/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC" ||
-      lease.wasm !==
-        "https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_87/base/SmolLM2-360M-Instruct-q4f32_1_cs1k-webgpu.wasm" ||
+      !PINNED_MODEL_INSTALL_SOURCES.some(source=>
+        lease.modelPath===new URL(source.model).pathname &&
+        lease.wasm===source.wasm) ||
       !Number.isSafeInteger(lease.deadline) || Date.now() >= lease.deadline) {
     await cache.delete(MODEL_LEASE_MARKER);
     return null;
@@ -76,13 +86,11 @@ function modelInstallSources(data) {
     model = new URL(data?.model_url);
     wasm = new URL(data?.wasm_url);
   } catch { throw Error("T3_MODEL_INSTALL_SOURCE_INVALID"); }
-  // Only the exact model and WebGPU library in the pinned WebLLM catalog.
-  if (model.href !==
-      "https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC" ||
-      wasm.href !==
-      "https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_87/base/SmolLM2-360M-Instruct-q4f32_1_cs1k-webgpu.wasm") {
+  // Exact approved pair, not two independently whitelisted origins. The
+  // selected model cannot substitute another model's library or URLs.
+  if (!PINNED_MODEL_INSTALL_SOURCES.some(source=>
+    model.href===source.model && wasm.href===source.wasm))
     throw Error("T3_MODEL_INSTALL_SOURCE_INVALID");
-  }
   return {modelPath:model.pathname,wasm:wasm.href};
 }
 async function modelFetchAllowed(request, url) {
