@@ -581,9 +581,10 @@ try{
 
   assert.equal(await selected.evaluate(()=>typeof globalThis.IWXA),'undefined',
     'signed Workspace must NOT inherit raw Kernel from its UI origin');
-  assert.equal((await selected.evaluate(async()=>(
-    await fetch('/_iwxa/loader.js',{cache:'no-store'})
-  ))).status,404);
+  assert.equal(await selected.evaluate(async()=>{
+    const response=await fetch('/_iwxa/loader.js',{cache:'no-store'});
+    return response.status;
+  }),404);
   console.log('T3_D1_PROTECTED_SIGNED_LAUNCH_ISOLATED_PASS',JSON.stringify({
     oldEntryForwardedToCanonicalUi:true,originalKernel:'0.3.6',
     signedUiHasNoRawKernel:true,signedWorkspaceCreatedAndReadback:true,

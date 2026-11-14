@@ -1,74 +1,52 @@
 // @vitest-environment jsdom
-// No T3 React/Kernel import until the existing Control SSE has answered.
+// The legacy entry is forwarding-only. Real positive signed onboarding is
+// exercised in the existing original-Kernel browser integration scenario.
 import {afterEach,expect,it,vi} from "vitest";
 
-const evidence=vi.hoisted(()=>({
-  imports:[] as {module:string;hash:string}[],
-  mounted:[] as {hash:string;token:string}[],
-  probes:0,closed:0,preflightDenied:false,
-}));
+const evidence=vi.hoisted(()=>({kernelImports:0,reactImports:0}));
 vi.mock("../src/t3/control-loopback-owner.mjs",()=>{
-  evidence.imports.push({module:"owner",hash:location.hash});
-  return {createControlLoopbackOwner:({origin,token}:{
-    origin:string;token:string;
-  })=>{
-    expect(origin).toBe(location.origin);
-    return {
-      requireSignedOwner:true,token,
-      subscribeSignedAccessInvalidation:()=>{
-        evidence.probes++;
-        return ()=>{evidence.closed++;};
-      },
-      signedKernelAccess:async()=>{
-        if(evidence.preflightDenied)throw new Error("CONTROL_OFFLINE");
-        return {currentContext:()=>({workspace_id:"ws:ready"})};
-      },
-    };
-  }};
+  evidence.kernelImports++;
+  return {createControlLoopbackOwner:()=>{throw Error("LEGACY_KERNEL_FORBIDDEN");}};
 });
 vi.mock("../src/mount-t3-app",()=>{
-  evidence.imports.push({module:"app",hash:location.hash});
-  return {mountT3App:(_root:HTMLElement,props:{token:string})=>{
-    evidence.mounted.push({hash:location.hash,token:props.token});
-  }};
+  evidence.reactImports++;
+  return {mountT3App:()=>{throw Error("LEGACY_REACT_FORBIDDEN");}};
 });
 afterEach(()=>{
   vi.resetModules();
-  evidence.imports.length=0;evidence.mounted.length=0;
-  evidence.probes=0;evidence.closed=0;evidence.preflightDenied=false;
+  vi.unstubAllGlobals();
+  evidence.kernelImports=0;
+  evidence.reactImports=0;
   document.body.innerHTML="";
   history.replaceState(null,"",location.pathname+location.search);
 });
 
-it("clears the bearer and confirms Control before evaluating any T3 application module",async()=>{
-  const token="T".repeat(44);
+it("legacy signed entry refuses an unavailable isolated Host without loading Kernel or React",async()=>{
+  const fetchHost=vi.fn();
+  vi.stubGlobal("fetch",fetchHost);
   document.body.innerHTML='<div id="root"></div>';
-  location.hash="#"+token;
-  await import("../src/main-signed-workspace");
-  await vi.waitFor(()=>expect(evidence.mounted).toHaveLength(1));
-  expect(location.hash).toBe("");
-  expect(evidence.imports.map(x=>x.module)).toEqual(["owner","app"]);
-  expect(evidence.imports.every(x=>x.hash==="")).toBe(true);
-  expect(evidence.mounted).toEqual([{hash:"",token}]);
-  expect(evidence.probes).toBe(1);
-  expect(evidence.closed).toBe(1);
-  expect((window as unknown as Record<string,unknown>).signedKernelAccess)
-    .toBeUndefined();
-});
-it("does not load React or original Kernel when Control preflight fails",async()=>{
-  evidence.preflightDenied=true;
-  document.body.innerHTML='<div id="root"></div>';
-  location.hash="#"+("X".repeat(44));
+  location.hash="#"+("T".repeat(44));
   await import("../src/main-signed-workspace");
   await vi.waitFor(()=>expect(document.getElementById("root")?.textContent)
-    .toMatch(/Не удалось подключить локальный подписанный Control/));
+    .toMatch(/изолированную подписанную Workspace/));
   expect(location.hash).toBe("");
-  // vi.resetModules() may retain the hoisted mock factory between tests.
-  // What matters is that the application module was never evaluated.
-  expect(evidence.imports.some(x=>x.module==="app")).toBe(false);
-  expect(evidence.mounted).toHaveLength(0);
-  expect(evidence.probes).toBe(1);
-  expect(evidence.closed).toBe(1);
+  expect(evidence.kernelImports).toBe(0);
+  expect(evidence.reactImports).toBe(0);
   expect(document.getElementById("root")?.getAttribute("data-testid"))
     .toBe("t3-signed-control-reconnect");
+  // The test origin is not a trusted 127.0.0.1 loopback Host.
+  expect(fetchHost).not.toHaveBeenCalled();
+});
+
+it("missing signed bearer cannot initialize any previous same-origin authority",async()=>{
+  const fetchHost=vi.fn();
+  vi.stubGlobal("fetch",fetchHost);
+  document.body.innerHTML='<div id="root"></div>';
+  location.hash="";
+  await import("../src/main-signed-workspace");
+  await vi.waitFor(()=>expect(document.getElementById("root")?.getAttribute("role"))
+    .toBe("alert"));
+  expect(fetchHost).not.toHaveBeenCalled();
+  expect(evidence.kernelImports).toBe(0);
+  expect(evidence.reactImports).toBe(0);
 });
