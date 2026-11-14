@@ -167,3 +167,41 @@ test("D7 native age blocks switched/incorrect recipient before returning plainte
   await assert.rejects(port.open({ciphertext}),
     {code:"T3_D7_ORIGINAL_NATIVE_RECIPIENT_REQUIRED"});
 });
+
+test("D7 does not advertise age capabilities when signed D1 has no original workspace read operation",async()=>{
+  let decryptCalls=0,sealCalls=0;
+  const kernel={hasOperation:()=>false};
+  const ageOwner={
+    prepareSeal:async()=>{sealCalls++;return null;},
+    seal:async()=>{sealCalls++;return null;},
+    open:async()=>{decryptCalls++;return null;},
+  };
+  const signed=createTrustedAgeExchange({
+    kernel,accessForRead:async()=>({currentContext:()=>null}),
+    ageOwner,confirmRecipients:async()=>true,
+    isHostActive:()=>true,
+  });
+  assert.equal(signed.canSeal,false);
+  assert.equal(signed.canOpen,false);
+  await assert.rejects(
+    signed.seal({workspace_id:"ws:absent",archiveBytes:Uint8Array.of(80,75,3,4,1)}),
+    {code:"T3_D7_SIGNED_EXPORT_OWNER_REQUIRED"});
+  const ciphertext=Uint8Array.from([
+    ...new TextEncoder().encode("age-encryption.org/v1\n"),1,2,3,
+  ]);
+  await assert.rejects(signed.open({ciphertext}),
+    {code:"T3_D7_SIGNED_OWNER_REQUIRED"});
+  assert.equal(sealCalls,0);
+  assert.equal(decryptCalls,0);
+  // The SAME no-grant Kernel must not prevent original installed key custody
+  // from opening a locally encrypted backup for separate Kernel importPreview.
+  const native=createTrustedAgeExchange({
+    kernel,accessForRead:async()=>null,
+    ageOwner:{...ageOwner,currentRecipient:async()=>({
+      recipientId:"recipient:os",bindingEpoch:"epoch:one",
+    })},
+    confirmRecipients:async()=>true,isHostActive:()=>true,
+  });
+  assert.equal(native.canSeal,false);
+  assert.equal(native.canOpen,true);
+});

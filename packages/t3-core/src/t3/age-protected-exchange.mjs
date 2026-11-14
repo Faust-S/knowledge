@@ -45,10 +45,18 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
   confirmRecipients,isHostActive}={}){
   const signedReader=kernel&&typeof kernel.hasOperation==="function"&&
     typeof accessForRead==="function";
+  // A signed port does not itself grant t1.getWorkspace. On fresh native
+  // installs or revoked/scoped sessions there may be no original T2 read
+  // capability: do not advertise Export/age seal until it truly exists.
+  // A native recipient may still OPEN and return bytes to an independently
+  // authorized original Kernel importPreview.
+  const signedWorkspaceRead=Boolean(signedReader&&
+    kernel.hasOperation("t1.getWorkspace"));
   const nativeRecipient=typeof ageOwner?.currentRecipient==="function";
-  const canSeal=Boolean(signedReader&&
+  const canSeal=Boolean(signedWorkspaceRead&&
     typeof ageOwner?.prepareSeal==="function"&&
     typeof ageOwner?.seal==="function"&&typeof confirmRecipients==="function");
+  const canOpen=Boolean(nativeRecipient||signedWorkspaceRead);
   ensure(ageOwner&&typeof ageOwner.open==="function"&&
     (nativeRecipient||signedReader)&&typeof isHostActive==="function",
     "T3_D7_TRUSTED_AGE_OWNER_REQUIRED");
@@ -114,6 +122,8 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
       recipientIds,ciphertext,savedToDevice:false,recipientImported:false});
   }
   async function open({ciphertext}={}){
+    live();
+    ensure(canOpen,"T3_D7_SIGNED_OWNER_REQUIRED");
     const encrypted=take(ciphertext,MAX_AGE,"T3_D7_AGE_CIPHERTEXT_INVALID");
     ensure(ageHeader(encrypted),"T3_D7_AGE_CIPHERTEXT_INVALID");
     live();
@@ -178,5 +188,5 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
       recipientId:native.recipientId,archiveSha256:native.archiveSha256,
       archiveBytes,kernelPreviewed:false,accepted:false});
   }
-  return Object.freeze({seal,open,canSeal,canOpen:true});
+  return Object.freeze({seal,open,canSeal,canOpen});
 }
