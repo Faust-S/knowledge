@@ -46,6 +46,8 @@ export function launchT2SiteHandoff({siteWindow, hostUrl, collectRawBackup, onSt
         (value !== undefined && value !== true &&
           (typeof value !== 'object' || Array.isArray(value) ||
             value.ok === false || value.applied === false ||
+            value.accepted === false || value.allowed === false ||
+            value.verified === false ||
             (value.status !== undefined && value.status !== 'APPLIED')));
       const settle = value => {
         if (explicitlyNotApplied(value)) acknowledge('REJECTED', true);

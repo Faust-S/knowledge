@@ -359,3 +359,33 @@ test('owner source BLOCKED and preview UNKNOWN cannot authorize receipt',async()
     assert.throws(()=>receiver.sendReceipt('{}'),/RECEIPT_NOT_READY/,mode);
   }
 });
+
+test('an explicit signed-owner denial is never converted to APPLIED by a receipt callback',async()=>{
+  for(const decision of [
+    {accepted:false},{allowed:false},{verified:false},
+    {ok:false,status:'APPLIED'},
+    {applied:false,status:'APPLIED'},
+    Promise.resolve({accepted:false,status:'APPLIED'}),
+    Promise.resolve({verified:false,status:'APPLIED'}),
+  ]){
+    const {siteWindow,hostWindow,cryptoSource}=windowPair();
+    const statuses=[],ack=[];
+    launchT2SiteHandoff({
+      siteWindow,hostUrl:hostOrigin+'/workspace/',
+      collectRawBackup:()=>'{"task":"selected"}',
+      onReceipt:()=>decision,onStatus:x=>statuses.push(x),
+    });
+    const receiver=mountT2SiteHandoffReceiver({
+      hostWindow,expectedSiteOrigin:siteOrigin,cryptoSource,
+      validateSource:JSON.parse,onPreview:()=>{},
+      onStatus:x=>ack.push(x),
+    });
+    await new Promise(resolve=>queueMicrotask(resolve));
+    receiver.sendReceipt('{"kernel_result":"requires_owner_decision"}');
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.ok(ack.includes('WRITE_RECEIPT_SITE_REJECTED'),JSON.stringify(decision));
+    assert.ok(!ack.includes('WRITE_RECEIPT_SITE_APPLIED'));
+    assert.ok(statuses.includes('WRITE_RECEIPT_APPLICATION_NOT_CONFIRMED'));
+    assert.ok(!statuses.includes('WRITE_RECEIPT_APPLIED_TO_LOCAL_SOURCE'));
+  }
+});
