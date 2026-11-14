@@ -117,8 +117,11 @@ export function materializePwaManifest(root,domainOrigin) {
     writeFileSync(absolute,png(size,theme));
     icons.push({src:path,sizes:size+"x"+size,type:"image/png",purpose:"any"});
   }
-  // The OS may open .iwxa only into the already compiled, enabled Exchange
-  // route. Sites without T2 Exchange never advertise an inert file handler.
+  // The OS may open original .iwxa or its age-protected outer envelope
+  // only into the already compiled, enabled Exchange route. A protected
+  // package still requires an installed native age owner, explicit decrypt
+  // and original Kernel importPreview; no automatic import on OS launch.
+  // Sites without original T2 Exchange never advertise a file handler.
   let iwxaHandlerReady=false;
   const exchangeEntry=join(root,"workspace/exchange/index.html");
   const workspaceConfig=join(root,"workspace/workspace.config.json");
@@ -140,8 +143,8 @@ export function materializePwaManifest(root,domainOrigin) {
     icons,prefer_related_applications:false,
     ...(iwxaHandlerReady?{file_handlers:[{
       action:"/workspace/exchange/",
-      name:"Пакет IWXA",
-      accept:{"application/octet-stream":[".iwxa"]},
+      name:"Пакеты IWXA",
+      accept:{"application/octet-stream":[".iwxa",".iwxa.age"]},
       launch_type:"single-client",
     }]}:{})
   };

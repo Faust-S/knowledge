@@ -95,13 +95,23 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   const [pwaReadError, setPwaReadError] = useState<string | null>(null);
   const [pwaUsed, setPwaUsed] = useState<InstalledPwaFileHandle | null>(null);
   const pwaReadGuard = useRef(false);
+  const pwaLaunchGeneration = useRef(0);
   const [ageFile,setAgeFile] = useState<File|null>(null);
   const [ageBusy,setAgeBusy] = useState(false);
   const [ageError,setAgeError] = useState<string|null>(null);
   const ageGuard = useRef(false);
   useEffect(() => {
+    pwaLaunchGeneration.current += 1;
+    pwaReadGuard.current = false;
+    setPwaReadBusy(false);
     setPwaUsed(null);
     setPwaReadError(null);
+    // A newly delivered OS handle must never retain the last selected
+    // encrypted package from another invocation of the same PWA window.
+    setAgeFile(null);
+    setAgeError(null);
+    ageGuard.current = false;
+    setAgeBusy(false);
   }, [pwaFileHandle]);
   const [localWorkspaces, setLocalWorkspaces] = useState<readonly WorkspaceRecord[]>([]);
   const activeTokenRef = useRef<string | null>(null);
@@ -421,6 +431,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   const openAgeFile = async () => {
     if (!protectedExchange || !ageFile || ageGuard.current || !canPreview) return;
     const encryptedFile=ageFile;
+    const launchGeneration=pwaLaunchGeneration.current;
     if(!encryptedFile.name.toLowerCase().endsWith(".iwxa.age") ||
        encryptedFile.size>MAX_PACKAGE_BYTES+1024*1024){
       setAgeError("Нужен защищённый файл .iwxa.age допустимого размера.");
@@ -433,9 +444,11 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       if(!await cancelActive("new-file"))return;
       const ticket=operationGenerationRef.current;
       const ciphertext=new Uint8Array(await encryptedFile.arrayBuffer());
-      if(ticket!==operationGenerationRef.current)return;
+      if(ticket!==operationGenerationRef.current||
+          launchGeneration!==pwaLaunchGeneration.current)return;
       const opened=await protectedExchange.open({ciphertext});
-      if(ticket!==operationGenerationRef.current)return;
+      if(ticket!==operationGenerationRef.current||
+          launchGeneration!==pwaLaunchGeneration.current)return;
       // The existing T2 ImportView performs original importPreview and
       // separately waits for the human-confirmed Kernel importCommit.
       const archive=new File([opened.archiveBytes as BlobPart],
@@ -445,29 +458,54 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     } catch(error) {
       setAgeError("Не удалось проверить или расшифровать защищённый файл: "+
         (error instanceof Error?error.message:"T3_D7_AGE_OPEN_FAILED"));
-    } finally {ageGuard.current=false;setAgeBusy(false);}
+    } finally {
+      if(launchGeneration===pwaLaunchGeneration.current){
+        ageGuard.current=false;
+        setAgeBusy(false);
+      }
+    }
   };
 
   const openPwaFile = async () => {
     if (!pwaFileHandle || pwaReadGuard.current || pwaUsed === pwaFileHandle ||
         !canPreview || state.status === "previewing" || state.status === "committing") return;
+    const protectedPackage = pwaFileHandle.name.toLowerCase().endsWith(".iwxa.age");
+    if (protectedPackage && !protectedExchange) {
+      setPwaReadError("Для этого защищённого файла не подключён владелец age. Выберите подходящую установленную программу.");
+      return;
+    }
+    const launchGeneration = pwaLaunchGeneration.current;
     pwaReadGuard.current = true;
     setPwaReadBusy(true);
     setPwaReadError(null);
     try {
       const file = await pwaFileHandle.getFile();
+      if (launchGeneration !== pwaLaunchGeneration.current) return;
       if (file.name !== pwaFileHandle.name)
         throw Error("Имя файла изменилось после выбора в системе.");
-      // The canonical ImportView enforces the .iwxa extension, 200 MiB limit,
-      // original Kernel importPreview, exact digest and separate commit.
-      setPwaUsed(pwaFileHandle);
-      await onFile(file);
+      if (protectedPackage) {
+        if (file.size === 0 || file.size > MAX_PACKAGE_BYTES + 1024 * 1024)
+          throw Error("Защищённый .iwxa.age превышает допустимый размер.");
+        // OS click reads only a File handle. A separate explicit click
+        // invokes native age.open; original Kernel importPreview follows
+        // decryption, importCommit remains a third human decision.
+        setAgeError(null);
+        setAgeFile(file);
+        setPwaUsed(pwaFileHandle);
+      } else {
+        // The canonical T2 ImportView alone parses .iwxa and controls commit.
+        setPwaUsed(pwaFileHandle);
+        await onFile(file);
+      }
     } catch (error) {
-      setPwaReadError("Не удалось открыть переданный системой файл: " +
-        (error instanceof Error ? error.message : String(error)));
+      if (launchGeneration === pwaLaunchGeneration.current)
+        setPwaReadError("Не удалось открыть переданный системой файл: " +
+          (error instanceof Error ? error.message : String(error)));
     } finally {
-      pwaReadGuard.current = false;
-      setPwaReadBusy(false);
+      if (launchGeneration === pwaLaunchGeneration.current) {
+        pwaReadGuard.current = false;
+        setPwaReadBusy(false);
+      }
     }
   };
   return renderImport({
@@ -537,8 +575,13 @@ function renderImport(p: RenderProps) {
             onClick={() => void openPwaFile()}
             data-testid="import-pwa-preview"
             className="border rounded px-3 py-2 min-h-11">
-            {pwaUsed === pwaFileHandle ? "Файл передан на предпросмотр"
-              : "Просмотреть переданный файл .iwxa"}
+            {pwaUsed === pwaFileHandle
+              ? pwaFileHandle.name.toLowerCase().endsWith(".iwxa.age")
+                ? "Файл выбран, подтвердите расшифровку ниже"
+                : "Файл передан на предпросмотр"
+              : pwaFileHandle.name.toLowerCase().endsWith(".iwxa.age")
+                ? "Выбрать защищённый файл .iwxa.age"
+                : "Просмотреть переданный файл .iwxa"}
           </button>
           {pwaReadError && <p role="alert" className="text-xs text-red-300">
             {pwaReadError}

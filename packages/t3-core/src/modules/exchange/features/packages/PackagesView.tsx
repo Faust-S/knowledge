@@ -71,26 +71,41 @@ export function PackagesView({
       setTab("import");
       setPwaFileHandle(null);
       if (files.length !== 1) {
-        setPwaLaunchError("Откройте один файл .iwxa за раз.");
+        setPwaLaunchError("Откройте один файл IWXA за раз.");
         return;
       }
       const handle = files[0] as Partial<InstalledPwaFileHandle> | null;
+      const name = typeof handle?.name === "string" ? handle.name.toLowerCase() : "";
+      const protectedPackage = name.endsWith(".iwxa.age");
+      const originalPackage = !protectedPackage && name.endsWith(".iwxa");
       if (!handle || handle.kind !== "file" ||
-          typeof handle.name !== "string" ||
-          !handle.name.toLowerCase().endsWith(".iwxa") ||
+          (!protectedPackage && !originalPackage) ||
           typeof handle.getFile !== "function") {
-        setPwaLaunchError("Система передала файл неподдерживаемого типа. Выберите .iwxa.");
+        setPwaLaunchError("Система передала неподдерживаемый файл. Выберите .iwxa или .iwxa.age.");
+        return;
+      }
+      if (protectedPackage && !protectedExchange) {
+        // Never read an encrypted OS file without a real native age owner.
+        setPwaLaunchError("В этой программе не подключена расшифровка age. Откройте файл в установленном получателе с соответствующим ключом.");
         return;
       }
       setPwaLaunchError(null);
       setPwaFileHandle(handle as InstalledPwaFileHandle);
     });
     return () => {mounted = false;};
-  }, [canImport]);
+  }, [canImport, protectedExchange]);
 
   useEffect(() => {
     if (!osLaunchSeen.current) setTab(resolveTab(initialTab));
   }, [initialTab, canExport, canImport]);
+
+  // An installed Publisher holder can receive signed licences/status even
+  // when the normal T2 data Exchange is intentionally not granted. Do not
+  // display a disabled Export tab or mount a non-authorized export panel.
+  if (!canExport && !canImport && publisherHandoff)
+    return <div data-testid="packages-view">
+      <PublisherLicensePanel handoff={publisherHandoff} />
+    </div>;
 
   return (
     <div className="space-y-4" data-testid="packages-view">

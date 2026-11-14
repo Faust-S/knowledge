@@ -128,8 +128,8 @@ test("T3 installed PWA associates .iwxa only with active original Exchange route
       {module_id:"iwxa.workspace.exchange",state:"active"}]}));
     materializeDomainMode(root);
     assert.deepEqual(manifest(root).file_handlers,[{
-      action:"/workspace/exchange/",name:"Пакет IWXA",
-      accept:{"application/octet-stream":[".iwxa"]},
+      action:"/workspace/exchange/",name:"Пакеты IWXA",
+      accept:{"application/octet-stream":[".iwxa",".iwxa.age"]},
       launch_type:"single-client",
     }]);
     const snapshot=JSON.parse(readFileSync(join(root,"t3-offline-manifest.json"),"utf8"));
