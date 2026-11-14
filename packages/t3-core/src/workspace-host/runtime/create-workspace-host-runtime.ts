@@ -43,6 +43,7 @@ import type {
   CreateWorkspaceHostRuntimeInput,
   WorkspaceHostRuntimeHandle,
   WorkspaceHostRuntimeDiagnostics,
+  type T3ReconciliationHostPort,
 } from "./types";
 
 export async function createWorkspaceHostRuntime(
@@ -221,9 +222,35 @@ export async function createWorkspaceHostRuntime(
       if (disposed) reject("T3_HOST_DISPOSED");
       return result;
     };
-  // D3 mounts on the existing Host, never on ModuleContext or a new Store.
+  // D3 is executed by one ORIGINAL owner. Installed split-origin products
+  // forward to the native recipient over the existing signed Control channel.
+  if(input.reconciliationOwner&&input.reconciliationPort)
+    throw new Error("T3_D3_MULTIPLE_RECIPIENT_OWNERS_FORBIDDEN");
+  const remoteD3=input.reconciliationPort;
+  const remoteCall=async(method:string,call:()=>Promise<unknown>)=>{
+    if(disposed)throw Object.assign(new Error("T3_HOST_DISPOSED"),{code:"T3_HOST_DISPOSED"});
+    const result=await call();
+    if(disposed){
+      const uncertain=["receive","accept","reject","applyAccepted"].includes(method);
+      const code=uncertain?"T3_D3_OWNER_CONTEXT_CHANGED_OUTCOME_UNKNOWN":"T3_HOST_DISPOSED";
+      throw Object.assign(new Error(code),{code});
+    }
+    return result;
+  };
   const reconciliation:WorkspaceHostRuntimeHandle["reconciliation"] =
-    input.reconciliationOwner ? (()=>{
+    remoteD3 ? Object.freeze({
+      receive:(bytes:Uint8Array)=>remoteCall("receive",()=>remoteD3.receive(bytes)),
+      preview:(digest:string)=>remoteCall("preview",()=>remoteD3.preview(digest)),
+      accept:(data:Parameters<T3ReconciliationHostPort["accept"]>[0])=>
+        remoteCall("accept",()=>remoteD3.accept(data)),
+      reject:(data:Parameters<T3ReconciliationHostPort["reject"]>[0])=>
+        remoteCall("reject",()=>remoteD3.reject(data)),
+      inspectAcceptedApplication:(data:Parameters<T3ReconciliationHostPort["inspectAcceptedApplication"]>[0])=>
+        remoteCall("inspectAcceptedApplication",()=>remoteD3.inspectAcceptedApplication(data)),
+      ...(remoteD3.applyAccepted?{applyAccepted:(data:{
+        acceptanceId:string;revisionIds:string[];target:Record<string,unknown>})=>
+          remoteCall("applyAccepted",()=>remoteD3.applyAccepted!(data))}:{}),
+    }) : input.reconciliationOwner ? (()=>{
       const original=input.reconciliationOwner;
       const admission=createTrustedReconciliationAdmission({
         reconciler:original.reconciler,
