@@ -68,3 +68,4 @@ export {
   saveLocalInferenceDraft, listLocalInferenceDrafts, getLocalInferenceDraft,
 } from "./local-inference-draft.mjs";
 export { createTrustedReconciliationAdmission } from './reconciliation-owner-admission.mjs';
+export { createTrustedReconciliationKernelApply } from './reconciliation-kernel-apply.mjs';

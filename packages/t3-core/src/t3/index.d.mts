@@ -114,3 +114,17 @@ export function createTrustedReconciliationAdmission(options:{
   reject(input:{packageSha256:string;previewDigest:string;operationId:string;decisionBy:string;reason:string}):Promise<unknown>;
   inspectAcceptedApplication(input:{acceptanceId:string;revisionIds:string[];target:Record<string,unknown>}):Promise<unknown>;
 }>;
+
+/** D3. Optional trusted recipient-host APPLY only. The owning product must
+ * provide the original sealed application Host binding and a domain-native
+ * graph command; this does NOT implement a new Reconciliation/Result engine. */
+export function createTrustedReconciliationKernelApply(options:{
+  admission:{inspectAcceptedApplication(input:{acceptanceId:string;revisionIds:string[];target:Record<string,unknown>}):Promise<unknown>};
+  signedKernel:Pick<KernelFacade,"hasOperation"|"commitObjectGraph"|"getObject">;
+  currentContext:()=>unknown|Promise<unknown>;
+  stageFromOriginalOwner:(query:unknown)=>unknown|Promise<unknown>;
+  confirmSeparateApply:(query:unknown)=>boolean|Promise<boolean>;
+  isHostActive:()=>boolean;
+}):Readonly<{
+  applyAccepted(input:{acceptanceId:string;revisionIds:string[];target:Record<string,unknown>}):Promise<unknown>;
+}>;
