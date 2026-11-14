@@ -117,24 +117,43 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
     }
     const epoch=await getEpoch();
     requireGeneration(generation);
-    const response=await fetchImpl(origin+"/api/t3/reconciliation",{
-      method:"POST",mode:"same-origin",cache:"no-store",credentials:"omit",
-      headers:{...auth,"Content-Type":"application/json",
-        "X-IWXA-Context-Epoch":String(epoch)},
-      body:JSON.stringify({verb,payload:bodyPayload}),
-    });
-    requireTransport();requireGeneration(generation);
+    const mayWrite=["receive","accept","reject","applyAccepted"].includes(verb);
+    const requireCurrentAfterSend=()=>{
+      // If the session changed after POST was sent, a native write may have
+      // completed. Never surface a stale-subject error that invites replay.
+      if(invalidationLost||generation!==selectionGeneration)
+        fail(mayWrite?"T3_D3_OWNER_CONTEXT_CHANGED_OUTCOME_UNKNOWN":
+          "T3_D1_CONTROL_INVALIDATION_UNAVAILABLE");
+    };
+    let response;
+    try {
+      response=await fetchImpl(origin+"/api/t3/reconciliation",{
+        method:"POST",mode:"same-origin",cache:"no-store",credentials:"omit",
+        headers:{...auth,"Content-Type":"application/json",
+          "X-IWXA-Context-Epoch":String(epoch)},
+        body:JSON.stringify({verb,payload:bodyPayload}),
+      });
+    }catch{
+      fail(mayWrite?"T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN":
+        "T3_D3_ORIGINAL_RECIPIENT_UNAVAILABLE");
+    }
+    requireCurrentAfterSend();
     if(!response.ok){
       let code="T3_D3_ORIGINAL_RECIPIENT_DENIED";
       try{const denied=await response.json();
         if(typeof denied?.error==="string"&&/^[A-Z0-9_]{5,100}$/.test(denied.error))
           code=denied.error;
-      }catch{/* No fallback, no automatic replay. */}
+      }catch{/* A failed Control connection grants no fallback. */}
+      requireCurrentAfterSend();
       fail(code);
     }
-    const result=await response.json();
-    requireTransport();requireGeneration(generation);
-    check(Object.hasOwn(result,"result"),"T3_D3_ORIGINAL_RECIPIENT_RESPONSE_INVALID");
+    let result;
+    try{result=await response.json();}
+    catch{fail(mayWrite?"T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN":
+      "T3_D3_ORIGINAL_RECIPIENT_RESPONSE_INVALID");}
+    requireCurrentAfterSend();
+    check(result&&Object.hasOwn(result,"result"),
+      "T3_D3_ORIGINAL_RECIPIENT_RESPONSE_INVALID");
     return result.result;
   };
   const select=async (scope,operation)=>{
