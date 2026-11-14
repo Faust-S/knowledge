@@ -8,11 +8,12 @@ export type T2ActivityKernelFacade = {
   listObjects(query:unknown):Promise<unknown>;
   getObject(workspaceId:string,objectId:string):Promise<unknown>;
   listEventsSince(workspaceId:string):Promise<unknown>;
-  putObject(input:unknown):Promise<unknown>;
+  putObject?(input:unknown):Promise<unknown>;
 };
 export function useOriginalT2ActivityKernelFacade(session:unknown):T2ActivityKernelFacade;
 export function openActivityFromOriginalT2Host(input:{
   session:unknown;
+  reviewerSession?:unknown;
   control:unknown;
   currentWorkspace:unknown;
   bindings:unknown;

@@ -5,13 +5,11 @@
 import {openOriginalT3ActivityReviewHost} from './t3-control-host-link.mjs';
 import {T3ActivityHold} from './t3-selected-host.mjs';
 
-const OPERATIONS=Object.freeze([
+const READ_OPERATIONS=Object.freeze([
   't1.getWorkspace','t1.listObjects','t1.getObject','t1.listEventsSince',
-  't1.putObject',
 ]);
-const METHODS=Object.freeze([
-  'getWorkspace','listObjects','getObject','listEventsSince','putObject',
-]);
+const OPERATIONS=Object.freeze([...READ_OPERATIONS,'t1.putObject']);
+const METHODS=Object.freeze(['getWorkspace','listObjects','getObject','listEventsSince']);
 const required=(ok,code)=>{if(!ok)throw new T3ActivityHold(code);};
 
 /** Preserve the original IWXA.connect session methods byte-for-byte.
@@ -28,8 +26,9 @@ export function useOriginalT2ActivityKernelFacade(session){
     session.service.service_id.length>0&&
     Array.isArray(grants)&&new Set(grants).size===grants.length&&
     grants.every(op=>typeof op==='string')&&
-    OPERATIONS.every(op=>grants.includes(op))&&
-    t1&&METHODS.every(m=>typeof t1[m]==='function'),
+    READ_OPERATIONS.every(op=>grants.includes(op))&&
+    t1&&METHODS.every(m=>typeof t1[m]==='function')&&
+    (!grants.includes('t1.putObject')||typeof t1.putObject==='function'),
     'T3_ACTIVITY_ORIGINAL_T2_SERVICE_REQUIRED');
   const available=new Set(grants);
   return Object.freeze({
@@ -43,7 +42,8 @@ export function useOriginalT2ActivityKernelFacade(session){
     listObjects:query=>t1.listObjects(query),
     getObject:(ws,id)=>t1.getObject(ws,id),
     listEventsSince:ws=>t1.listEventsSince(ws),
-    putObject:input=>t1.putObject(input),
+    ...(available.has('t1.putObject')
+      ? {putObject:input=>t1.putObject(input)} : {}),
   });
 }
 
@@ -53,7 +53,7 @@ export function useOriginalT2ActivityKernelFacade(session){
  * only return value is the established Activity Host port and dispose.
  */
 export async function openActivityFromOriginalT2Host({
-  session,control,currentWorkspace,bindings,
+  session,reviewerSession=null,control,currentWorkspace,bindings,
   readActivityFromWorkspaceContext,createSubjectKernelBinding,
   subscribeExistingInvalidation=null,
 }={}){
@@ -61,8 +61,22 @@ export async function openActivityFromOriginalT2Host({
     typeof currentWorkspace.subscribe==='function',
     'T3_ACTIVITY_ORIGINAL_WORKSPACE_SELECTION_REQUIRED');
   const originalKernel=useOriginalT2ActivityKernelFacade(session);
+  let reviewerKernel=null;
+  if(reviewerSession!==null){
+    const grants=reviewerSession?.granted_operations;
+    required(reviewerSession?.service?.service_id==='iwxa.activity.reviewer'&&
+      Array.isArray(grants)&&grants.includes('t1.putObject')&&
+      !grants.some(op=>typeof op==='string'&&
+        (/^t2\./.test(op)||[
+          't1.deleteObject','t1.createWorkspace','t1.putRelation',
+          't1.deleteRelation','t1.softDeleteWorkspace','t1.purgeCommit',
+        ].includes(op))),
+      'T3_ACTIVITY_REVIEWER_SERVICE_REQUIRED');
+    // Two ordinary T2 service sessions. Both use ONE original Kernel/Store.
+    reviewerKernel=useOriginalT2ActivityKernelFacade(reviewerSession);
+  }
   return openOriginalT3ActivityReviewHost({
-    control,originalKernel,
+    control,originalKernel,reviewerKernel,
     context:Object.freeze({kernel:originalKernel,currentWorkspace}),
     bindings,readActivityFromWorkspaceContext,createSubjectKernelBinding,
     subscribeExistingInvalidation,

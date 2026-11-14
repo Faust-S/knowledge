@@ -164,6 +164,7 @@ export function bindT3ControlActivityReview({
             targetWorkspaceId:signedTargetOnly?targetSelected:null,
             targetSignedAccess,bindings,readActivityFromWorkspaceContext,
             createSubjectKernelBinding:derivation.createSubjectKernelBinding,
+            targetKernel:signedTargetOnly?derivation.targetKernel??null:null,
           });
           started=true;
           const receipt=await ownerStage.stageSelected();
@@ -213,16 +214,25 @@ export function bindT3ControlActivityReview({
  * it MUST supply subscribeExistingInvalidation. Do not attach twice.
  */
 export async function openOriginalT3ActivityReviewHost({
-  control,context,originalKernel,bindings,readActivityFromWorkspaceContext,
+  control,context,originalKernel,reviewerKernel=null,
+  bindings,readActivityFromWorkspaceContext,
   createSubjectKernelBinding,subscribeExistingInvalidation=null,
 }={}) {
   need(control?.requireSignedOwner===true &&
     callable(control,['signedActivityAccess','subscribeSignedAccessInvalidation']) &&
     callable(context?.currentWorkspace,['get','subscribe']) &&
     callable(originalKernel,['hasOperation','getWorkspace','listObjects',
-      'getObject','listEventsSince','putObject']) &&
+      'getObject','listEventsSince']) &&
     originalKernel.sessionInfo?.contract_version==='1.3.0'&&
     originalKernel.sessionInfo?.runtime_version==='0.3.6'&&
+    (reviewerKernel===null||(
+      reviewerKernel!==originalKernel&&
+      callable(reviewerKernel,['hasOperation','getWorkspace','listObjects',
+        'getObject','putObject'])&&
+      reviewerKernel.sessionInfo?.service_id==='iwxa.activity.reviewer'&&
+      reviewerKernel.sessionInfo?.contract_version==='1.3.0'&&
+      reviewerKernel.sessionInfo?.runtime_version==='0.3.6'&&
+      reviewerKernel.hasOperation('t1.putObject')===true))&&
     typeof readActivityFromWorkspaceContext==='function'&&
     typeof createSubjectKernelBinding==='function'&&
     (subscribeExistingInvalidation===null||
@@ -256,7 +266,10 @@ export async function openOriginalT3ActivityReviewHost({
     const readOwner=await source.currentContext();
     need(record(readOwner)&&readOwner.workspace_id===selected.workspace_id,
       'T3_CONTROL_ACTIVITY_READ_NOT_GRANTED');
-    const target=await control.signedActivityAccess('activity.derive');
+    // A derive grant without the original typed reviewer service is
+    // never sufficient to enable a draft write.
+    const target=reviewerKernel===null?null:
+      await control.signedActivityAccess('activity.derive');
     let derivation=null;
     if(target!==null&&target!==undefined&&
       callable(target,['currentContext','actionFor','authorize',
@@ -281,7 +294,7 @@ export async function openOriginalT3ActivityReviewHost({
         action==='activity.derive'){
         const targetWorkspaceId=signedTarget.workspace_id;
         derivation=Object.freeze({
-          targetWorkspaceId,
+          targetWorkspaceId,targetKernel:reviewerKernel,
           createSubjectKernelBinding,
           // A fresh original Control signed selection is mandatory at
           // every material effect. The old grant is never reused.

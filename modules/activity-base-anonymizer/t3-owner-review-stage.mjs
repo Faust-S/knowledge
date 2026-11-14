@@ -125,14 +125,14 @@ async function stable(context,choice,owner,port,invalidated) {
  */
 export async function stageSelectedT3ActivityReview({
   sourceContext, sourceSignedAccess, targetContext=null, targetWorkspaceId=null,
-  targetSignedAccess, bindings, readActivityFromWorkspaceContext,
+  targetKernel=null,targetSignedAccess, bindings, readActivityFromWorkspaceContext,
   createSubjectKernelBinding, explicitSave=false,
 }={}) {
   need(explicitSave===true,'T3_ACTIVITY_EXPLICIT_SAVE_REQUIRED');
   const sourceChoice=selected(sourceContext);
   const legacyTarget=targetContext!==null;
   const targetChoice=legacyTarget ? selected(targetContext) : null;
-  if(legacyTarget) need(sourceContext.kernel===targetContext.kernel,
+  if(legacyTarget) need(sourceContext.kernel===targetContext.kernel&&targetKernel===null,
     'T3_ACTIVITY_SAME_ORIGINAL_KERNEL_REQUIRED');
   else need(typeof targetWorkspaceId==='string'&&targetWorkspaceId.trim(),
     'T3_ACTIVITY_SIGNED_TARGET_REQUIRED');
@@ -194,8 +194,10 @@ export async function stageSelectedT3ActivityReview({
       'T3_ACTIVITY_SOURCE_REVIEW_UNSUPPORTED');
     // ORIGINAL T3 D1 subject-bound Kernel. The target grant must allow
     // t1.getWorkspace, t1.listObjects, t1.putObject and t1.getObject.
+    // A separate scoped T2 service facade can share the SAME original
+    // Kernel/Store. Derive writes through the ordinary reviewer passport.
     const scoped=createSubjectKernelBinding({
-      kernel:sourceContext.kernel,access:targetSignedAccess,
+      kernel:targetKernel??sourceContext.kernel,access:targetSignedAccess,
     });
     const targetId=dstOwner.workspace_id;
     const ws=await scoped.getWorkspace(targetId);
