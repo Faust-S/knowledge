@@ -10,7 +10,7 @@ import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
 import {planOriginalT2ActivityReviewRegistration} from
   '../modules/activity-base-anonymizer/t3-owner-review-passport-registration.node.mjs';
-import {T3_ACTIVITY_OWNER_REVIEW_SCHEMA,T3_ACTIVITY_OWNER_REVIEW_DECLARATION} from
+import {T3_ACTIVITY_OWNER_REVIEW_SCHEMA} from
   '../modules/activity-base-anonymizer/t3-owner-review-stage.mjs';
 import {T3_SELECTED_VIEW_SCHEMA} from
   '../modules/activity-base-anonymizer/t3-selected-host.mjs';
@@ -79,17 +79,10 @@ try {
   host.domain.runtime.runtime_version=kernel;
   host.workspaceConfig.host.required_runtime_version=kernel;
   host.workspaceConfig.host.required_contract_version=contract;
-  // Trusted ordinary T2 Host service has both source and derived data types;
-  // the independent reviewer passport remains write-only-for-its-own-schema
-  // and explicitly cannot export. No second Kernel/Store/Exchange.
-  host.passport.input_object_types.push(T3_ACTIVITY_OWNER_REVIEW_SCHEMA);
-  host.passport.output_object_types.push(T3_ACTIVITY_OWNER_REVIEW_SCHEMA);
-  host.passport.schemas[T3_ACTIVITY_OWNER_REVIEW_SCHEMA]=
-    T3_ACTIVITY_OWNER_REVIEW_DECLARATION;
-  host.passport.permissions.objects.read.push(T3_ACTIVITY_OWNER_REVIEW_SCHEMA);
-  host.passport.permissions.objects.write.push(T3_ACTIVITY_OWNER_REVIEW_SCHEMA);
+  // Product source service can read/write ONLY its own domain types.
+  // Typed Activity review is an independently registered original T2
+  // service, not an extra power silently grafted onto the writer passport.
   const writerFile='_iwxa/services/'+writer+'.json';
-  writeFileSync(join(dist,writerFile),JSON.stringify(host.passport));
   const writerBytes=readFileSync(join(dist,writerFile));
   const catalog={contract_version:contract,count:1,entries:[{
     service_id:writer,service_version:host.passport.service_version,
@@ -299,6 +292,11 @@ try {
     const {createT3ReviewController}=
       await import('/_activity/t3-review-controller.mjs');
     const session=await globalThis.IWXA.connect({service_id:args.writer});
+    const reviewerSession=await globalThis.IWXA.connect({service_id:args.reviewer});
+    if(reviewerSession.service?.service_id!=='iwxa.activity.reviewer'||
+      reviewerSession.granted_operations.includes('t2.exportPackage')||
+      !reviewerSession.granted_operations.includes('t1.putObject'))
+      throw Error('ORIGINAL_T2_REVIEWER_PRIVILEGE_INVALID');
     const selected=Object.freeze({workspace_id:args.source});
     const selectedListeners=new Set();
     const currentWorkspace=Object.freeze({
@@ -309,7 +307,7 @@ try {
       origin:location.origin,token:args.token,
     });
     const bound=await openActivityFromOriginalT2Host({
-      session,control,currentWorkspace,bindings:{
+      session,reviewerSession,control,currentWorkspace,bindings:{
         objects:[{schema_id:'iwxa.demo.note',schema_version:'1.0.0',
           semantic_kind:'Process'}],
         events:['created','cut','bent','inspected'].map(phase=>({
@@ -348,7 +346,7 @@ try {
       if(staged.status!=='STAGED')
         throw Error('ORIGINAL_T3_SIGNED_DERIVE_'+staged.status+
           '_'+String(updates.at(-1)?.code??''));
-      const targetObjects=await session.t1.listObjects({
+      const targetObjects=await reviewerSession.t1.listObjects({
         workspace_id:args.signedTarget,include_deleted:true,
       });
       if(targetObjects.length!==1||targetObjects[0]?.schema_id!==args.schema||
@@ -356,7 +354,11 @@ try {
         targetObjects[0]?.data?.export_allowed!==false||
         JSON.stringify(targetObjects).includes('PRIVATE_CEHOVOD_CUSTOMER'))
         throw Error('ORIGINAL_T3_SIGNED_DRAFT_NOT_PERSISTED');
-      const events=await session.t1.listEventsSince(args.signedTarget);
+      const sourceCannotRead=await session.t1.getObject(
+        args.signedTarget,targetObjects[0]?.object_id);
+      if(sourceCannotRead?.object!==null&&sourceCannotRead?.object!==undefined)
+        throw Error('ORIGINAL_T2_SOURCE_SERVICE_READS_REVIEW_TYPE');
+      const events=await reviewerSession.t1.listEventsSince(args.signedTarget);
       const stagedEvent=events.find(e=>e.event_type==='t3.activity.review.staged');
       if(!stagedEvent)throw Error('ORIGINAL_T3_SIGNED_EVENT_NOT_PERSISTED');
       return {status:staged.status,source_review:snapshot.status,
@@ -375,7 +377,7 @@ try {
       if(selectedListeners.size!==0)
         throw Error('ORIGINAL_T3_HOST_SELECTION_LISTENER_LEAK');
     }
-  },{source,signedTarget,writer,token,schema:T3_ACTIVITY_OWNER_REVIEW_SCHEMA});
+  },{source,signedTarget,writer,reviewer,token,schema:T3_ACTIVITY_OWNER_REVIEW_SCHEMA});
   assert.equal(signed.status,'STAGED');
   assert.equal(signed.source_review,'STRUCTURE_PRESERVED_REVIEW_REQUIRED');
   assert.equal(signed.observed_step_types,4);
@@ -402,9 +404,9 @@ try {
       args.source,'d05:source-bracket');
     const draft=await targetReviewer.t1.getObject(args.target,args.objectId);
     const targetEvents=await targetReviewer.t1.listEventsSince(args.target);
-    const signedDraft=await sourceWriter.t1.getObject(
+    const signedDraft=await targetReviewer.t1.getObject(
       args.signedTarget,args.signedObjectId);
-    const signedEvents=await sourceWriter.t1.listEventsSince(args.signedTarget);
+    const signedEvents=await targetReviewer.t1.listEventsSince(args.signedTarget);
     return {
       source_title:sourceObject?.object?.data?.title,
       source_revision:sourceObject?.object?.revision,
