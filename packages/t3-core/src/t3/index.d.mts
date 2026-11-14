@@ -237,7 +237,20 @@ export interface T3PublisherStatusEntry {
   readonly effectiveAt:string;readonly evidenceRef:string;
 }
 export interface T3OriginalPublisherHolder {
-  subjectForContext(context:unknown):
+  /** Trusted original installed holder identity, available BEFORE a Workspace
+   * exists. The owner must verify the OS/user holder itself and rotate
+   * bindingEpoch whenever its active subject or authentication changes.
+   * Never derive this identity from a package, form or Publisher licence. */
+  currentSubject?():{
+    holderId:string;recipientId:string;
+    subjectType:"PERSON"|"ORGANIZATION";bindingEpoch:string;
+  }|Promise<{
+    holderId:string;recipientId:string;
+    subjectType:"PERSON"|"ORGANIZATION";bindingEpoch:string;
+  }>;
+  /** Legacy signed D1 Workspace-bound owner. This route remains available
+   * for existing consumers, but MUST NOT be required for first licence. */
+  subjectForContext?(context:unknown):
     {holderId:string;recipientId:string;subjectType:"PERSON"|"ORGANIZATION"}|
     Promise<{holderId:string;recipientId:string;subjectType:"PERSON"|"ORGANIZATION"}>;
   inspect(input:{kind:T3PublisherHandoffKind;archiveBytes:Uint8Array;
@@ -273,8 +286,10 @@ export interface T3PublisherHandoffResult {
   entitlementActivated?:false;dataAccessAuthorized?:false;
 }
 export function createTrustedPublisherHandoff(options:{
-  kernel:KernelFacade;
-  accessForRead:(operation:string)=>T3SignedActivityAccess|null|
+  /** Needed only for legacy subjectForContext; no T2 data grant is required
+   * when trusted nativeHolder.currentSubject identifies the installed user. */
+  kernel?:KernelFacade;
+  accessForRead?:(operation:string)=>T3SignedActivityAccess|null|
     Promise<T3SignedActivityAccess|null>;
   nativeHolder:T3OriginalPublisherHolder;
   confirmHuman:(preview:T3PublisherHandoffPreview)=>boolean|Promise<boolean>;

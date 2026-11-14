@@ -58,9 +58,14 @@ export async function createWorkspaceHostRuntime(
     throw new Error("T3_D6_TRUSTED_SIGNED_NATIVE_OWNER_REQUIRED");
   if(input.ageOwner && (!input.confirmAgeRecipients || !input.signedKernelAccess))
     throw new Error("T3_D7_TRUSTED_SIGNED_AGE_OWNER_REQUIRED");
+  // Original Publisher entitlement is independent of any Workspace. An
+  // installed native currentSubject() owner supports clean install before
+  // signed D1 data grants; legacy subjectForContext still requires D1.
   if(input.publisherHolder &&
-      (!input.confirmPublisherHandoff || !input.signedKernelAccess))
-    throw new Error("T3_D7_TRUSTED_SIGNED_PUBLISHER_HOLDER_REQUIRED");
+      (!input.confirmPublisherHandoff ||
+        (!input.signedKernelAccess &&
+          typeof input.publisherHolder.currentSubject!=="function")))
+    throw new Error("T3_D7_TRUSTED_PUBLISHER_HOLDER_REQUIRED");
   const bindings = activeHostRouteBindings();
   const registry = new RouteRegistry();
   registry.registerMany(bindings);

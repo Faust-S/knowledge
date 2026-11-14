@@ -204,3 +204,63 @@ test("D7 concurrent apply calls for the same receipt cannot dispatch twice",asyn
   assert.equal((await first).status,"ORIGINAL_HOLDER_READBACK_CONFIRMED");
   assert.equal(f.applies(),1);
 });
+
+test("D7 native Publisher licence works before a Workspace or signed D1 data grant exists",async()=>{
+  const f=fixture(),archiveBytes=file();
+  let nativeEpoch="native:epoch:1";
+  // A real compiled product supplies this method from the original
+  // installed holder (not from the UI or the downloaded .iwxa package).
+  f.nativeHolder.subjectForContext=undefined;
+  f.nativeHolder.currentSubject=async()=>({
+    holderId:"holder:os:me",recipientId:"recipient:me",
+    subjectType:"PERSON",bindingEpoch:nativeEpoch,
+  });
+  // Deliberately omit BOTH the Kernel and signed D1 Access. This is the
+  // first-install route, not an alternative right to workspace data.
+  const create=()=>createTrustedPublisherHandoff({
+    nativeHolder:f.nativeHolder,
+    confirmHuman:async()=>true,isHostActive:()=>true,
+  });
+  const port=create();
+  const licence=await port.preview({kind:"LICENSE",archiveBytes});
+  assert.equal(licence.status,"VERIFIED_PENDING_CONSENT");
+  assert.equal(licence.dataAccessAuthorized,false);
+  assert.equal(licence.holderId,"holder:os:me");
+  const applied=await port.admit({kind:"LICENSE",archiveBytes,
+    previewDigest:licence.previewDigest});
+  assert.equal(applied.status,"ORIGINAL_HOLDER_READBACK_CONFIRMED");
+  assert.equal(applied.entitlementActivated,false);
+  assert.equal(f.applies(),1);
+  // A second cold-opened Host recovers the SAME original native receipt.
+  assert.equal((await create().recover({kind:"LICENSE",archiveBytes})).status,
+    "ORIGINAL_HOLDER_READBACK_CONFIRMED");
+  assert.equal(f.applies(),1);
+  nativeEpoch="native:epoch:2";
+  const next=await create().preview({kind:"STATUS",archiveBytes});
+  assert.equal(next.status,"VERIFIED_PENDING_CONSENT");
+});
+
+test("D7 native Publisher refuses changed OS holder during human decision",async()=>{
+  const f=fixture(),archiveBytes=file();
+  let nativeEpoch="native:epoch:1";
+  f.nativeHolder.subjectForContext=undefined;
+  f.nativeHolder.currentSubject=async()=>({
+    holderId:"holder:os:me",recipientId:"recipient:me",
+    subjectType:"ORGANIZATION",bindingEpoch:nativeEpoch,
+  });
+  const port=createTrustedPublisherHandoff({
+    nativeHolder:f.nativeHolder,isHostActive:()=>true,
+    confirmHuman:async()=>{nativeEpoch="native:epoch:2";return true;},
+  });
+  const inspected=await port.preview({kind:"STATUS",archiveBytes});
+  await assert.rejects(port.admit({kind:"STATUS",archiveBytes,
+    previewDigest:inspected.previewDigest}),
+    {code:"T3_D7_ORIGINAL_NATIVE_HOLDER_CHANGED"});
+  assert.equal(f.applies(),0);
+  f.nativeHolder.currentSubject=async()=>({
+    holderId:"holder:os:me",recipientId:"recipient:me",
+    subjectType:"ORGANIZATION",bindingEpoch:"",
+  });
+  await assert.rejects(port.preview({kind:"LICENSE",archiveBytes}),
+    {code:"T3_D7_ORIGINAL_NATIVE_HOLDER_UNBOUND"});
+});

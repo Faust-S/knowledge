@@ -89,14 +89,28 @@ function opKey(row){
  * signed Publisher identity against pinned PUBLIC trust, holder binding and
  * original .iwxa carrier. apply() performs the ORIGINAL durable holder
  * import/admit/status mutation. statusReadback is a FRESH original durable
- * read, not a transport ACK or a React state cache. */
+ * read, not a transport ACK or a React state cache.
+ *
+ * Publisher activation is NOT workspace.read: a freshly installed Agent,
+ * Atlas, etc. must receive its own native licence BEFORE a T2 Workspace or
+ * signed D1 workspace grant exists. Trusted native currentSubject() proves
+ * the already-installed holder independently of data access. A legacy
+ * subjectForContext() owner continues to require original signed T2 reads.
+ * Neither mode can authorize reading data using a Publisher entitlement. */
 export function createTrustedPublisherHandoff({
   kernel,accessForRead,nativeHolder,confirmHuman,isHostActive,
 }={}){
-  requireValue(kernel&&typeof kernel.hasOperation==="function"&&
-    typeof accessForRead==="function"&&nativeHolder&&
-    ["subjectForContext","inspect","apply","receipt","statusReadback"]
+  // Only a compiled, trusted installed Host may inject nativeHolder.
+  // It MUST obtain the current native holder from its existing subject
+  // authority, not from the .iwxa package or a user-controlled form.
+  const nativeSubject=typeof nativeHolder?.currentSubject==="function";
+  const signedSubject=typeof nativeHolder?.subjectForContext==="function"&&
+    kernel&&typeof kernel.hasOperation==="function"&&
+    typeof accessForRead==="function";
+  requireValue(nativeHolder&&
+    ["inspect","apply","receipt","statusReadback"]
       .every(m=>typeof nativeHolder[m]==="function")&&
+    (nativeSubject||signedSubject)&&
     typeof confirmHuman==="function"&&typeof isHostActive==="function",
     "T3_D7_ORIGINAL_HOLDER_REQUIRED");
   const uncertain=new Set(); // volatile no-repeat guard, not a Store
@@ -104,6 +118,36 @@ export function createTrustedPublisherHandoff({
   const active=()=>requireValue(isHostActive()===true,"T3_HOST_DISPOSED");
   async function bind(){
     active();
+    if(nativeSubject){
+      const snapshot=async()=>{
+        active();
+        const value=await nativeHolder.currentSubject();
+        active();
+        requireValue(value&&validId(value.holderId)&&
+          validId(value.recipientId)&&
+          ["PERSON","ORGANIZATION"].includes(value.subjectType)&&
+          validId(value.bindingEpoch),
+          "T3_D7_ORIGINAL_NATIVE_HOLDER_UNBOUND");
+        // Keep only native holder identity and generation, never its private
+        // credential or state, and do not accept a UI-selected subject.
+        return Object.freeze({
+          holderId:value.holderId,recipientId:value.recipientId,
+          subjectType:value.subjectType,bindingEpoch:value.bindingEpoch,
+        });
+      };
+      const subject=await snapshot();
+      const fingerprint=JSON.stringify(subject);
+      const current=async()=>{
+        const latest=await snapshot();
+        requireValue(JSON.stringify(latest)===fingerprint,
+          "T3_D7_ORIGINAL_NATIVE_HOLDER_CHANGED");
+      };
+      await current();
+      // No Kernel data access is needed to install, renew or revoke a
+      // product licence. Only native original durable holder readback can
+      // establish whether the signed Publisher operation took effect.
+      return {context:null,subject,read:current,current};
+    }
     const access=await accessForRead("t1.getWorkspace");
     active();
     requireValue(access&&typeof access.currentContext==="function",
