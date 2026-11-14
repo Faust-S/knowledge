@@ -119,6 +119,7 @@ function authorizedDecision(decision,context,now) {
 
 export function createSubjectKernelBinding({
   kernel, access, clock = Date.now, commitObjectGraphPrecondition = null,
+  isHostActive = () => true, onCommitObjectGraphDispatch = null,
 } = {}) {
   if (!kernel || typeof kernel.hasOperation !== "function" ||
       !kernel.sessionInfo || kernel.sessionInfo.contract_version !== "1.3.0" ||
@@ -127,6 +128,13 @@ export function createSubjectKernelBinding({
       typeof commitObjectGraphPrecondition !== "function") {
     refused("T3_D3_GRAPH_PRECONDITION_INVALID");
   }
+  if (typeof isHostActive !== "function" ||
+      (onCommitObjectGraphDispatch !== null &&
+       typeof onCommitObjectGraphDispatch !== "function")) {
+    refused("T3_D3_ORIGINAL_KERNEL_LIFECYCLE_INVALID");
+  }
+  const active = () => { try { return isHostActive() === true; } catch { return false; } };
+  const requireActive = () => { if (!active()) refused("T3_HOST_DISPOSED"); };
   for (const method of ["currentContext","actionFor","operationDigest",
      "authorize","verifyDecisionBinding"]) {
     if (typeof access?.[method] !== "function") refused("T3_ACCESS_OWNER_REQUIRED");
@@ -142,6 +150,7 @@ export function createSubjectKernelBinding({
     catch { refused("T3_KERNEL_INPUT_NOT_CLONEABLE"); }
   }
   async function invoke(method, input, workspace_id, boundPurge = null, boundImport = null) {
+    requireActive();
     requiredId(workspace_id,"WORKSPACE_ID");
     // Freeze the caller's command BEFORE any asynchronous native-owner call.
     // Otherwise a pending currentContext() could permit a mutated object.
@@ -269,6 +278,7 @@ export function createSubjectKernelBinding({
     if (identity(context) !== identity(await selected(access))) {
       refused("T3_SUBJECT_CONTEXT_CHANGED");
     }
+    requireActive();
     if (!kernel.hasOperation(operation)) refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     if (method === "commitObjectGraph" && commitObjectGraphPrecondition !== null) {
       // The original recipient's ledger and independent human APPLY are
@@ -282,6 +292,10 @@ export function createSubjectKernelBinding({
       } catch { /* fail closed */ }
       if (!current) refused("T3_D3_ORIGINAL_APPLICATION_PRECONDITION_DENIED");
     }
+    requireActive();
+    // This is the exact boundary where the original Kernel operation starts.
+    // Observers may record uncertainty, but cannot issue a second operation.
+    if (method === "commitObjectGraph") onCommitObjectGraphDispatch?.();
     const result = method === "getObject"
       ? await kernel.getObject(workspace_id,command.object_id)
       : method === "getWorkspace"
@@ -473,6 +487,7 @@ export function createSubjectKernelBinding({
     if (identity(context) !== identity(await selected(access))) {
       refused("T3_SUBJECT_RESULT_STALE_AFTER_KERNEL");
     }
+    requireActive();
     if (method === "importPreview") {
       pendingImport = Object.freeze({
         workspace_id,contextIdentity:identity(context),
