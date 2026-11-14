@@ -15,9 +15,9 @@ const HEX=/^[a-f0-9]{64}$/;
 const MAX_BODY=512*1024;
 const MAX_D3_BODY=24*1024*1024;
 const MAX_D3_ARCHIVE=16*1024*1024;
-const D3_VERBS=new Set(["available","receive","preview","accept","reject",
+const D3_VERBS=new Set(["available","receive","preview","receipt","accept","reject",
   "inspectAcceptedApplication","applyAccepted"]);
-const D3_METHODS=["receive","preview","accept","reject","inspectAcceptedApplication"];
+const D3_METHODS=["receive","preview","receipt","accept","reject","inspectAcceptedApplication"];
 const SCOPES=new Set(["kernel","activity"]);
 // On the trusted signed Kernel origin, ALL compiled unsigned HTML entries
 // must be blocked, not just the root Workspace page. The normal T2 site
@@ -285,6 +285,8 @@ export function createOriginalControlHttpHandler({
           result=await port.receive(bytes);
         }else if(input.verb==="preview"){
           result=await port.preview(payload.packageSha256);
+        }else if(input.verb==="receipt"){
+          result=await port.receipt(payload.operationId);
         }else if(input.verb==="accept"||input.verb==="reject"){
           result=await port[input.verb](payload);
         }else if(input.verb==="inspectAcceptedApplication"){
