@@ -2,11 +2,14 @@ import {checkCandidateBytes, destinationUrl, exactOrigin, isMessage, HANDOFF_PRO
 
 /** Trigger synchronously inside the user's click handler. The sensitive backup
  * is collected only after an exact-origin reply from the opened Host window. */
-export function launchT2SiteHandoff({siteWindow, hostUrl, collectRawBackup, onStatus = () => {}, onReceipt = null}) {
+export function launchT2SiteHandoff({siteWindow, hostUrl, collectRawBackup,
+  onStatus = () => {}, onReceipt = null, verifyAppliedReceipt = null}) {
   if (!siteWindow || typeof siteWindow.open !== 'function' ||
       typeof siteWindow.addEventListener !== 'function' ||
       typeof siteWindow.removeEventListener !== 'function' ||
-      typeof collectRawBackup !== 'function') throw new Error('T2_HANDOFF_CLIENT_INPUT_INVALID');
+      typeof collectRawBackup !== 'function' ||
+      (verifyAppliedReceipt !== null && typeof verifyAppliedReceipt !== 'function'))
+    throw new Error('T2_HANDOFF_CLIENT_INPUT_INVALID');
   const siteOrigin = exactOrigin(siteWindow.location.origin);
   const dest = destinationUrl(hostUrl, siteOrigin);
   const peer = siteWindow.open(dest.href, '_blank');
@@ -41,7 +44,8 @@ export function launchT2SiteHandoff({siteWindow, hostUrl, collectRawBackup, onSt
         isMessage(event.data, 'write-receipt') && event.data.nonce === receiptNonce) {
       cleanup();
       // A successful Promise settlement is not the same as an applied Result.
-      // Preserve legacy void callbacks while refusing EXPLICIT owner failures.
+      // Preserve legacy void callbacks; signed T3 must configure the original
+      // Kernel readback verifier before claiming an applied source receipt.
       const explicitlyNotApplied = value => value === null ||
         (value !== undefined && value !== true &&
           (typeof value !== 'object' || Array.isArray(value) ||
@@ -50,8 +54,27 @@ export function launchT2SiteHandoff({siteWindow, hostUrl, collectRawBackup, onSt
             value.verified === false ||
             (value.status !== undefined && value.status !== 'APPLIED')));
       const settle = value => {
-        if (explicitlyNotApplied(value)) acknowledge('REJECTED', true);
-        else acknowledge('APPLIED');
+        if (explicitlyNotApplied(value)) {
+          acknowledge('REJECTED', true);
+          return;
+        }
+        if (verifyAppliedReceipt === null) {
+          // Original T2 legacy callback. This is only a transport ACK.
+          acknowledge('APPLIED');
+          return;
+        }
+        // T3 receives a positive write acknowledgement ONLY after its
+        // original Kernel/Store owner confirms independent local readback.
+        // An omitted value, rejected Promise or exception is not evidence.
+        try {
+          Promise.resolve(verifyAppliedReceipt(receipt, value)).then(
+            verified => acknowledge(verified === true ? 'APPLIED' : 'REJECTED',
+              verified !== true),
+            () => acknowledge('REJECTED', true),
+          );
+        } catch {
+          acknowledge('REJECTED', true);
+        }
       };
       const acknowledge = (status, asynchronousFailure = false) => {
         try {

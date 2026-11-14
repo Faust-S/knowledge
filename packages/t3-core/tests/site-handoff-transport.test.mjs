@@ -389,3 +389,62 @@ test('an explicit signed-owner denial is never converted to APPLIED by a receipt
     assert.ok(!statuses.includes('WRITE_RECEIPT_APPLIED_TO_LOCAL_SOURCE'));
   }
 });
+
+test('T3 owner readback gates BOTH Host receipt delivery and originating Site APPLIED',async()=>{
+  const {siteWindow,hostWindow,cryptoSource}=windowPair();
+  let confirmHost,confirmSite,siteWriterCalls=0,siteVerifierCalls=0;
+  const hostStatus=[],siteStatus=[];
+  launchT2SiteHandoff({siteWindow,hostUrl:hostOrigin+'/workspace/',
+    collectRawBackup:()=>'{"result":"accepted-by-owner"}',
+    onReceipt:raw=>{siteWriterCalls++;assert.match(raw,/kernel-receipt/);},
+    verifyAppliedReceipt:raw=>{
+      siteVerifierCalls++;
+      assert.match(raw,/kernel-receipt/);
+      return new Promise(resolve=>{confirmSite=resolve;});
+    },
+    onStatus:value=>siteStatus.push(value),
+  });
+  const receiver=mountT2SiteHandoffReceiver({
+    hostWindow,expectedSiteOrigin:siteOrigin,cryptoSource,
+    validateSource:JSON.parse,onPreview:()=>{},
+    verifyAppliedBeforeSend:raw=>{
+      assert.match(raw,/kernel-receipt/);
+      return new Promise(resolve=>{confirmHost=resolve;});
+    },
+    onStatus:value=>hostStatus.push(value),
+  });
+  await new Promise(resolve=>queueMicrotask(resolve));
+  const pending=receiver.sendReceipt('{"kernel-receipt":"actual"}');
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(siteWriterCalls,0,'unverified Host must not deliver a receipt');
+  assert.throws(()=>receiver.sendReceipt('{"kernel-receipt":"replay"}'),/NOT_READY/);
+  confirmHost(true);
+  assert.equal(await pending,true);
+  assert.equal(siteWriterCalls,1);
+  assert.equal(siteVerifierCalls,1);
+  assert.ok(!siteStatus.includes('WRITE_RECEIPT_APPLIED_TO_LOCAL_SOURCE'));
+  assert.ok(!hostStatus.includes('WRITE_RECEIPT_SITE_APPLIED'));
+  confirmSite(true);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(siteStatus.includes('WRITE_RECEIPT_APPLIED_TO_LOCAL_SOURCE'));
+  assert.ok(hostStatus.includes('WRITE_RECEIPT_SITE_APPLIED'));
+
+  const denied=windowPair();
+  let received=0;
+  launchT2SiteHandoff({siteWindow:denied.siteWindow,
+    hostUrl:hostOrigin+'/workspace/',
+    collectRawBackup:()=>'{"selected":"result"}',
+    onReceipt:()=>{received++;},
+  });
+  const states=[];
+  const reject=mountT2SiteHandoffReceiver({
+    hostWindow:denied.hostWindow,expectedSiteOrigin:siteOrigin,
+    cryptoSource:denied.cryptoSource,validateSource:JSON.parse,
+    onPreview:()=>{},verifyAppliedBeforeSend:async()=>false,
+    onStatus:s=>states.push(s),
+  });
+  await new Promise(resolve=>queueMicrotask(resolve));
+  assert.equal(await reject.sendReceipt('{"kernel-receipt":"not-applied"}'),false);
+  assert.equal(received,0);
+  assert.ok(states.includes('WRITE_RECEIPT_HOST_APPLICATION_NOT_CONFIRMED'));
+});

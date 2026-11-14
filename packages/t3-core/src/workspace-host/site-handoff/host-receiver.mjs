@@ -2,11 +2,14 @@ import {checkCandidateBytes, exactOrigin, isMessage, HANDOFF_PROTOCOL, nonceFrom
 
 /** Host-owned preview transport. No command invocation, mutation or consent. */
 export function mountT2SiteHandoffReceiver({hostWindow, expectedSiteOrigin, validateSource,
-  onPreview, cryptoSource = hostWindow?.crypto, onStatus = () => {}}) {
+  onPreview, cryptoSource = hostWindow?.crypto, onStatus = () => {},
+  verifyAppliedBeforeSend = null}) {
   if (!hostWindow || typeof hostWindow.addEventListener !== 'function' ||
       typeof hostWindow.removeEventListener !== 'function' ||
       !hostWindow.opener || typeof hostWindow.opener.postMessage !== 'function' ||
-      typeof validateSource !== 'function' || typeof onPreview !== 'function')
+      typeof validateSource !== 'function' || typeof onPreview !== 'function' ||
+      (verifyAppliedBeforeSend !== null &&
+       typeof verifyAppliedBeforeSend !== 'function'))
     throw new Error('T2_HANDOFF_HOST_INPUT_INVALID');
   const hostOrigin = exactOrigin(hostWindow.location.origin);
   const siteOrigin = exactOrigin(expectedSiteOrigin);
@@ -18,6 +21,7 @@ export function mountT2SiteHandoffReceiver({hostWindow, expectedSiteOrigin, vali
   let receiptSent = false;
   let disposed = false;
   let awaitingAck = false;
+  let verifyingReceipt = false;
   const onAck = event => {
     if (!awaitingAck || event.source !== trustedOpener || event.origin !== siteOrigin ||
         !isMessage(event.data, 'write-receipt-status') || event.data.nonce !== nonce ||
@@ -96,28 +100,55 @@ export function mountT2SiteHandoffReceiver({hostWindow, expectedSiteOrigin, vali
     try {trustedOpener.postMessage({protocol: HANDOFF_PROTOCOL, kind: 'ready', nonce}, siteOrigin);}
     catch {dispose();onStatus('CANDIDATE_REJECTED_NO_WRITE');}
   });
+  const dispatchReceipt = bytes => {
+    receiptSent = true;
+    awaitingAck = true;
+    hostWindow.addEventListener('message', onAck);
+    onStatus('WRITE_RECEIPT_SENT_NOT_SITE_ACKNOWLEDGED');
+    try {
+      trustedOpener.postMessage({
+        protocol: HANDOFF_PROTOCOL, kind: 'write-receipt', nonce, raw: bytes,
+      }, siteOrigin);
+    } catch (error) {
+      awaitingAck = false;
+      receiptSent = false;
+      hostWindow.removeEventListener('message', onAck);
+      throw error;
+    }
+  };
   return {
     dispose,
     get consumed() { return consumed; },
-    /** Host must verify its command receipt and independent Kernel readback
-     * before returning this transport-only receipt to the originating site. */
+    /** In a T3 signed owner Host, verifyAppliedBeforeSend MUST independently
+     * read the committed original Kernel Result and check its exact receipt.
+     * The legacy T2 calling convention stays synchronous when no verifier
+     * is configured; it is transport-only and never proves application. */
     sendReceipt(raw) {
-      if (disposed || !previewAccepted || receiptSent) throw new Error('T2_HANDOFF_RECEIPT_NOT_READY');
+      if (disposed || !previewAccepted || receiptSent || verifyingReceipt)
+        throw new Error('T2_HANDOFF_RECEIPT_NOT_READY');
       const bytes = checkCandidateBytes(raw, 64 * 1024);
-      receiptSent = true;
-      awaitingAck = true;
-      hostWindow.addEventListener('message', onAck);
-      onStatus('WRITE_RECEIPT_SENT_NOT_SITE_ACKNOWLEDGED');
-      try {
-        trustedOpener.postMessage({
-          protocol: HANDOFF_PROTOCOL, kind: 'write-receipt', nonce, raw: bytes,
-        }, siteOrigin);
-      } catch (error) {
-        awaitingAck = false;
-        receiptSent = false;
-        hostWindow.removeEventListener('message', onAck);
-        throw error;
+      if (verifyAppliedBeforeSend === null) {
+        dispatchReceipt(bytes);
+        return;
       }
+      verifyingReceipt = true;
+      return (async () => {
+        try {
+          const result = await verifyAppliedBeforeSend(bytes);
+          if (disposed || !previewAccepted || receiptSent) return false;
+          if (result !== true) {
+            onStatus('WRITE_RECEIPT_HOST_APPLICATION_NOT_CONFIRMED');
+            return false;
+          }
+          dispatchReceipt(bytes);
+          return true;
+        } catch {
+          if (!disposed) onStatus('WRITE_RECEIPT_HOST_APPLICATION_NOT_CONFIRMED');
+          return false;
+        } finally {
+          verifyingReceipt = false;
+        }
+      })();
     },
   };
 }

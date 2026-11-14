@@ -13,4 +13,7 @@ export function mountT2SiteHandoffReceiver<T>(options: {
     Promise<void | boolean | { status?: string; allowed?: boolean; accepted?: boolean }>;
   cryptoSource?: Crypto;
   onStatus?: (status: string) => void;
-}): { dispose(): void; readonly consumed: boolean; sendReceipt(raw: string): void };
+  /** Original recipient Kernel receipt + independent readback, not ACCEPT. */
+  verifyAppliedBeforeSend?: (raw: string) => boolean | Promise<boolean>;
+}): { dispose(): void; readonly consumed: boolean;
+  sendReceipt(raw: string): void | Promise<boolean> };
