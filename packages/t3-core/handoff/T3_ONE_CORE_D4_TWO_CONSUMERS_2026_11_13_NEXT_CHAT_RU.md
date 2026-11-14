@@ -1,5 +1,19 @@
 # IWXA T3 One Core — D4, два независимых получателя, передача 13.11.2026
 
+## Дополнение 14.11.2026: предметная совместимость D4, параллельно Admin Center D3
+
+**Владелец:** только исполняемый `Faust-S/knowledge@work/2026-11-10-t3-t2-activity-projection`. Admin Center D3 разрабатывается независимо в `Faust-S/Center`; не переписывать его Review/нативного владельца отсюда. **Точный функциональный T3 HEAD: `01aac43cd0aad5f7d40fc916bfefc0fcd2a420fd`.**
+
+D4 исходного Exchange исправлен в `1650cd2` и `01aac43`:
+- `features/state/import-machine.ts`: несовместимые объявления `preview.schemas` со статусами `missing`, `invalid`, `conflict` теперь дают отдельные причины и блокируют подтверждение оригинального `importCommit`, даже когда `preview.unsupported` не повторяет эту ошибку. Проверка содержимого выполняется **до** раннего выхода из legacy preview без `included/excluded_by_permission`; недостающие счётчики современной scoped preview остаются самостоятельным отказом.
+- `features/packages/ImportView.tsx`: пользователю показаны точные исходные `unknown_schema`, `forbidden_for_service`, а также дополнительные `extension_field` без вывода конфиденциального значения `sample`. Дополнительные поля пока обозначены требующими проверки владельцем схемы, а не ложно «поддерживаемыми».
+- Существующие `import-local-validation-authority.test.ts` и `import-view-mode-panels.dom.test.tsx` дополнены адресными сценариями; нет нового parser, Kernel, Store, формата или отдельного Exchange.
+
+**Отдельное исправление базового T3 Host:** `2c153b` сохраняет работоспособность подписанной Workspace при *отсутствии необязательного D3* у более старого Control (`CONTROL_OWNER_UNAVAILABLE`). Неизвестная/отозванная D1 сессия продолжает блокировать запуск: нет unsigned fallback. Корень найден в ранее красном публичном `real-host` на `ed33ed8`: ожидание `t3-d1-selected-workspace-message` в signed first-run. Не смешивать это с текущей интеграцией Admin Center.
+
+**Проверки:** первый публичный [Actions #43632563213](https://github.com/Faust-S/knowledge/actions/runs/43632563213) выявил точное несовпадение UI-проверки (1122/1123 DOM PASS, кнопка не блокировалась на legacy preview), исправленное `01aac43`. Финальный на момент записи [Actions #43632734602](https://github.com/Faust-S/knowledge/actions/runs/43632734602) для `01aac43` запущен, **результат не подтверждён**. На этой ветке не объявлять `D4_PRODUCT_ACCEPTED` без двух реально установленных потребителей, original parser negative matrix, пользовательского cold readback. `T3_READY=false`; аппаратный WebGPU остаётся отдельно.
+
+
 **Статусы:** `T3_READY=false`, `G4=NOT_ACCEPTED`, `D4_PUBLIC_TWO_PORTS=PASS`, `D4_PRODUCT_NATIVE=NOT_ACCEPTED`, `D4_NEGATIVE_MATRIX=PARTIAL`. T3 — встраиваемый технологический уровень существующих доменов и программ, **не** отдельное приложение.
 
 ## Дополнение 14.11.2026: реальный отказ оригинального T2 на опасных архивах (D4)
