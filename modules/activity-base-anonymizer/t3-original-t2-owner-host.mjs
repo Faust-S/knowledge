@@ -64,13 +64,15 @@ export async function openActivityFromOriginalT2Host({
   let reviewerKernel=null;
   if(reviewerSession!==null){
     const grants=reviewerSession?.granted_operations;
+    // Original Runtime Contract may advertise preview/other capabilities
+    // separately from the service passport's effective permissions. Do not
+    // rebuild IAM by denying every advertised method. A trusted Host must
+    // connect the registered original reviewer passport: it grants a typed
+    // review write and explicitly denies export and import effects.
     required(reviewerSession?.service?.service_id==='iwxa.activity.reviewer'&&
       Array.isArray(grants)&&grants.includes('t1.putObject')&&
-      !grants.some(op=>typeof op==='string'&&
-        (/^t2\./.test(op)||[
-          't1.deleteObject','t1.createWorkspace','t1.putRelation',
-          't1.deleteRelation','t1.softDeleteWorkspace','t1.purgeCommit',
-        ].includes(op))),
+      !grants.includes('t2.exportPackage')&&
+      !grants.includes('t2.importCommit'),
       'T3_ACTIVITY_REVIEWER_SERVICE_REQUIRED');
     // Two ordinary T2 service sessions. Both use ONE original Kernel/Store.
     reviewerKernel=useOriginalT2ActivityKernelFacade(reviewerSession);

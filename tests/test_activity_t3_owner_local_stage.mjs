@@ -1021,7 +1021,7 @@ test('malicious reviewer impersonation cannot convert an Activity read grant int
     {...original,service:{service_id:'iwxa.activity.reviewer'},
       granted_operations:[...original.granted_operations,'t2.exportPackage']},
     {...original,service:{service_id:'iwxa.activity.reviewer'},
-      granted_operations:[...original.granted_operations,'t1.deleteObject']},
+      granted_operations:[...original.granted_operations,'t2.importCommit']},
   ];
   for(const reviewerSession of invalid){
     await assert.rejects(openActivityFromOriginalT2Host({
