@@ -21,7 +21,8 @@ function copy(value,code){
 const TARGET_FIELDS=["consumerId","processId","processVersion","purpose",
   "subjectId","workspaceId","dataRootId"];
 const identity=c=>JSON.stringify(["kind","context_id","actor_id","principal_id",
-  "role_id","grant_id","organization_id","workspace_id","resource","scope_revision"]
+  "role_id","grant_id","organization_id","workspace_id","resource",
+  "realm_id","audience","purpose","scope_revision"]
   .map(field=>c?.[field]));
 
 export function createTrustedReconciliationKernelApply({
