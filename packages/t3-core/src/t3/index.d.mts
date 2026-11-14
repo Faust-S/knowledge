@@ -42,6 +42,10 @@ export function createSubjectKernelBinding(input: {
   commitObjectGraphPrecondition?: (query: Readonly<{
     command: unknown; context: unknown; operationDigest: string;
   }>) => boolean;
+  /** Original Host lifecycle check, including after signed Access JIT. */
+  isHostActive?: () => boolean;
+  /** Notification immediately before the ORIGINAL Graph call (no retry). */
+  onCommitObjectGraphDispatch?: () => void;
 }): Pick<KernelFacade,
   "createWorkspace" | "getWorkspace" | "getObject" | "listObjects" |
   "putObject" | "deleteObject" | "putRelation" | "deleteRelation" |
