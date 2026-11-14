@@ -2,6 +2,16 @@
 
 **Фиксация исходника для финального публичного CI:** последняя функциональная правка `ddeb917141393d0745391cd14040df3c7ff22907`. Затем исправлены только инструкции и передача, без изменения исполняемых файлов. Добавлены адресные регрессии D3 carrier и оригинального admission/apply в существующий workflow; заключительный CI должен подтвердить `Node + TypeScript/Vite + real-host + Windows credential` на одном HEAD. До получения его результата оставлять `SOURCE_IMPLEMENTED_PENDING_CI`, не заявлять PASS за новый канал и не запускать лишние промежуточные тесты.
 
+## Дополнение 14.11.2026: восстановление оригинальной квитанции после разрыва ACK
+
+**Функциональный исходник:** `Faust-S/knowledge@379239785cccf860943b954ec91c22d753cd041f`. К уже подключённой исходной цепочке `AppShell → isolated MessagePort → trusted Kernel realm → original Control HTTP → existing Reconciliation` добавлено чтение сохранённой квитанции **без повторного ACCEPT/REJECT**. Вызов `reconciliation.receipt(operationId, packageSha256)` проверяет подлинный оригинальный ledger, SHA-256 конкретного полученного `.iwxa`, `decisionBy` текущего signed actor и повторно проверяет неизменность субъектного контекста. При отсутствии подходящего результата отвечает `found:false`, не раскрывая чужой квитанции.
+
+В ответе присутствует `kernelApplication:"NOT_ATTESTED_BY_RECONCILIATION_RECEIPT"`. Оригинальный ledger может использовать `applicationState:"APPLIED"` в смысле *применения решения к своему ledger*. **Это не подтверждение записи в T3 Kernel**. Настоящее применение доказывается отдельно штатным `commitObjectGraph` и `getObject` readback.
+
+Изменения внесены в уже существующие `reconciliation-owner-admission.mjs`, `original-control-http-handler.mjs`, `control-loopback-owner.mjs`, `main-isolated-signed-workspace.tsx`, `create-workspace-host-runtime.ts` и штатный type contract. В двух имеющихся адресных тестах предусмотрены чтение квитанции, несовпадение исходного архива и lost-ACK recovery. При ошибке чтения после исходного ACCEPT итог `OUTCOME_UNKNOWN`; нельзя автоматически вызывать `accept` второй раз.
+
+**Граница принятия неизменна:** настоящий `OfflinePackageReconciler` и signer должны быть подключены штатным установленным продуктом; текущий public Host даёт рабочий канал и общий контракт, но не владеет чужим Ledger/ключами. `D3_END_TO_END=NOT_ACCEPTED`, `T3_READY=false` до подтверждённого установленного маршрута и двух cold starts. Новый HEAD ещё не имеет независимо подтверждённого финального CI; прежний #43626131426 относился к `ee22c758`.
+
 ## Дополнение 14.11.2026: штатный изолированный D3 транспорт к оригинальному native owner
 
 **Исполняемый HEAD до записи этого handoff:** `Faust-S/knowledge@28176aaf6ab90b6fb9e26d2a81ea79a31179c5a2`. Реализован конечный проводник от **изолированного подписанного AppShell** через существующий **MessagePort → доверенный Kernel realm → original Control HTTP → native recipient**. Никакой второй HTTP-сервер, signed carrier, Reconciliation/Store/Kernel/IAM, Windows T3 EXE или копия исходников закрытого `Faust-S/T3/reconciliation` не введены.
