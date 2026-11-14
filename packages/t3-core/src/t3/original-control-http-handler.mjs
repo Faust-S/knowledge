@@ -286,7 +286,7 @@ export function createOriginalControlHttpHandler({
         }else if(input.verb==="preview"){
           result=await port.preview(payload.packageSha256);
         }else if(input.verb==="receipt"){
-          result=await port.receipt(payload.operationId);
+          result=await port.receipt(payload.operationId,payload.packageSha256);
         }else if(input.verb==="accept"||input.verb==="reject"){
           result=await port[input.verb](payload);
         }else if(input.verb==="inspectAcceptedApplication"){
