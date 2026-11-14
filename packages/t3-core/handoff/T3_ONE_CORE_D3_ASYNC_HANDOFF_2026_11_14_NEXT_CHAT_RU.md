@@ -1,5 +1,19 @@
 # IWXA T3 One Core. D3, точные подтверждения асинхронного Host, передача 14.11.2026
 
+## Дополнение 14.11.2026: точная граница D3 Apply после signed JIT
+
+**Опубликованный исполняемый HEAD:** `Faust-S/knowledge@8343d16119493b69e39d7b908308a67a210afeaa`. Изменения source после ранее принятого `ee22c758` опубликованы последовательно как `9c54e8e`, `117437e`, `ca5a003` и `8343d16`. Последний подтвержденный опубликованный CI остается **#43626131426 на более старом `ee22c758`**. Новый HEAD имеет адресные Node-тесты, но их успешное исполнение и свежая CI-сборка **не подтверждены в этой передаче**. Не переносить результат старого CI на новый HEAD.
+
+**Исправлено в существующих функциях, без нового IAM, Kernel, Store или Reconciliation:**
+- Оригинальный `application-host-binding.commitPrecondition` теперь проверяется **синхронно после подписанной авторизации D1, непосредственно до оригинального `commitObjectGraph`**. Если владелец отзывает исходную принятую ревизию во время D1 JIT, оригинальная запись не начинается.
+- Жизненный цикл оригинального Host перепроверяется и после асинхронного D1 JIT, и после Kernel-call; retained D3 port не продолжает запись после logout/invalidate. Сигнал начала вызова оригинального Kernel разделяет точный отказ до передачи и неопределенную запись после передачи. После последней никогда нет автоматического повтора.
+- Выбор Apply согласован с исходным private `application-host-binding`: семь идентификаторов `consumerId/processId/processVersion/purpose/subjectId/workspaceId/dataRootId`, `expectedRevision`, `storageScopeDigest`, `dataRootId` и точные `productId/audience/purpose` оригинального bound-effect. Неполная цель не проходит как valid candidate.
+- Human APPLY связан с **полным подписанным контекстом**, включая `realm_id`, `audience` и `purpose`, а не только actor/organization/workspace. В один существующий адресный D3 contract-test включены смена purpose во время Human Review, отзыв источника во время D1 JIT и потеря Host в JIT.
+
+**Реальная интеграционная зависимость:** `Faust-S/Center/src/organization.mjs` в рабочем Admin 0.3 является только подготовительной DRAFT-моделью и прямо запрещает выдавать grants, подписывать transfers или принимать результаты. Ее нельзя передавать как `T3OriginalReconcilerOwner`. Подлинный исторический `OfflinePackageReconciler` принадлежит закрытому T3; не копировать его Node-only исходники и ключи в public `knowledge` или браузерный AppShell. Настоящий получатель должен предоставить подлинный Reconciliation и отдельный Human Review/Apply через существующую **доверенную** границу продукта/Host. Текущая изолированная UI-origin не обладает таким native owner и не может притворяться им.
+
+**Следующая единственная продуктовая задача D3:** в установленном штатном ADMIN/PERSONAL маршруте получить actual issuer/selected Task/Result, штатный .iwxa, оригинальный recipient Reconciler с сохраненным Ledger, независимые Human ACCEPT и APPLY, original Kernel receipt, затем два холодных открытия без повторной записи. При отсутствии owner честно оставить `D3_END_TO_END=NOT_ACCEPTED`, `G4=NOT_ACCEPTED`, `T3_READY=false` и не создавать второй сервис, приложение или фиктивный signer.
+
 ## Дополнение 14.11.2026: D3 встроен в штатный Host, только оригинальный владелец
 
 **Проверенный исполняемый код:** `Faust-S/knowledge@ee22c7587f3c4e5b0d13593d6c16d8b9e9d2e0dd`. Публичный [CI #43626131426](https://github.com/Faust-S/knowledge/actions/runs/43626131426) **SUCCESS**: 678/678 Node, 1121/1121 Workspace/DOM, original Host и windows-credential PASS, metal-webgpu SKIPPED. Ранее [#43625050428](https://github.com/Faust-S/knowledge/actions/runs/43625050428), [#43625444392](https://github.com/Faust-S/knowledge/actions/runs/43625444392), [#43625731006](https://github.com/Faust-S/knowledge/actions/runs/43625731006), [#43625831391](https://github.com/Faust-S/knowledge/actions/runs/43625831391) SUCCESS; промежуточные D3 test FAIL в `3269cd2` и `ddf4bd2` исправлены на `6d65718`.
