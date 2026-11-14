@@ -49,6 +49,9 @@ import type {
 export async function createWorkspaceHostRuntime(
   input: CreateWorkspaceHostRuntimeInput,
 ): Promise<WorkspaceHostRuntimeHandle> {
+  // Reject ambiguous D3 ownership BEFORE activating inherited modules.
+  if(input.reconciliationOwner&&input.reconciliationPort)
+    throw new Error("T3_D3_MULTIPLE_RECIPIENT_OWNERS_FORBIDDEN");
   const bindings = activeHostRouteBindings();
   const registry = new RouteRegistry();
   registry.registerMany(bindings);
@@ -224,8 +227,6 @@ export async function createWorkspaceHostRuntime(
     };
   // D3 is executed by one ORIGINAL owner. Installed split-origin products
   // forward to the native recipient over the existing signed Control channel.
-  if(input.reconciliationOwner&&input.reconciliationPort)
-    throw new Error("T3_D3_MULTIPLE_RECIPIENT_OWNERS_FORBIDDEN");
   const remoteD3=input.reconciliationPort;
   const remoteCall=async(method:string,call:()=>Promise<unknown>)=>{
     if(disposed)throw Object.assign(new Error("T3_HOST_DISPOSED"),{code:"T3_HOST_DISPOSED"});
