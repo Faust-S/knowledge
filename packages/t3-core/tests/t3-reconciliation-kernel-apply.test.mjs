@@ -9,6 +9,7 @@ import {createTrustedReconciliationKernelApply}
 const accepted="a".repeat(64),rev="b".repeat(64),effect="c".repeat(64);
 test("separate original-owner Apply uses the inherited Kernel graph and readback once",async()=>{
   let approves=false,active=true,commits=0;
+  let sourceCurrent=true,revokeDuringJit=false,signedJitCount=0,preconditionCount=0;
   const context={kind:"CORP",context_id:"ctx:a",actor_id:"person:a",
     principal_id:"org:a",organization_id:"org:a",role_id:"role:admin",
     grant_id:"grant:a",realm_id:"realm:a",audience:"host:t3",
@@ -25,7 +26,7 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
       resource:"ws:a"},applicationAuthorized:false,writeAllowed:false,
     hostJitRequired:true,explicitHumanDecisionRequired:true,
     decisionCheckAtCommit:true,externalContextCoreApplied:false,
-    commitPrecondition:()=>true,
+    commitPrecondition:()=>{preconditionCount++;return sourceCurrent&&signedJitCount>0;},
   };
   let written=null;
   const hash=value=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -33,7 +34,10 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
     currentContext:()=>context,
     actionFor:operation=>operation==="t1.commitObjectGraph"?"object.write":"object.read",
     operationDigest:hash,
-    authorize:request=>({
+    authorize:request=>{
+      signedJitCount++;
+      if(revokeDuringJit&&request.action==="object.write")sourceCurrent=false;
+      return ({
       schema:"IWXA_T3_ORGANIZATION_OPERATION_DECISION/1",
       allowed:true,outcome:"PERMITTED",evidenceOnly:true,
       requestDigest:hash(request),policyDigest:hash("policy"),
@@ -42,7 +46,8 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
       doesNotAcceptCorporateCopy:true,organizationId:context.organization_id,
       workspaceId:context.workspace_id,grantId:request.grantId,
       statusSequence:1,validUntil:new Date(Date.now()+60000).toISOString(),
-    }),
+      });
+    },
     verifyDecisionBinding:(request,decision)=>decision.requestDigest===hash(request),
   };
   const port=createTrustedReconciliationKernelApply({
@@ -81,6 +86,14 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   assert.equal(result.externalProductAcceptance,"NOT_ACCEPTED");
   assert.equal(written.idempotency_key,effect);
   assert.equal(commits,1);
+  // Revoke the accepted source DURING the signed authorization callback.
+  // The last original Reconciliation check must reject before Kernel writes.
+  sourceCurrent=true;
+  revokeDuringJit=true;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_ORIGINAL_APPLICATION_PRECONDITION_DENIED"});
+  assert.equal(commits,1);
+  assert.ok(preconditionCount>=2);
   active=false;
   await assert.rejects(port.applyAccepted(selection),{code:"T3_HOST_DISPOSED"});
   assert.equal(commits,1);
