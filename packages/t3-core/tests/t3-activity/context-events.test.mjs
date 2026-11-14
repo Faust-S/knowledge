@@ -81,12 +81,16 @@ test("explicit context exclusion requires a signed-source Workspace record, not 
   const mapping={...base,context_events:["workspace.created"]};
   for(const malformed of [
     null,{}, {...workspace_record,workspace_id:"ws:other"},
-    {...workspace_record,created_at:"2026-11-14T07:00:00Z"},
   ]){
     assert.throws(()=>project(mapping,events,malformed),{
       code:"T2_CONTEXT_WORKSPACE_RECORD_REQUIRED",
     });
   }
+  // A correctly shaped Workspace with a DIFFERENT creation time is not a
+  // missing record: its claimed lifecycle event fails exact provenance.
+  assert.throws(()=>project(mapping,events,{
+    ...workspace_record,created_at:"2026-11-14T07:00:00Z",
+  }),{code:"T2_CONTEXT_EVENT_NOT_VERIFIED"});
 });
 
 test("forged or duplicate Workspace lifecycle Events cannot be hidden as context",()=>{
