@@ -70,12 +70,16 @@ test("D3 trusted original owner receives, reviews and ACCEPTS without Kernel App
   assert.equal(accepted.receipt.appliedScope,"RECONCILIATION_LEDGER_ONLY");
   assert.equal(accepted.kernelApplication,"NOT_APPLIED");
   assert.deepEqual(f.counts(),{accepts:1,applies:0});
-  const recovered=await f.port.receipt("op:one");
+  const recovered=await f.port.receipt("op:one",sha);
   assert.equal(recovered.found,true);
   assert.deepEqual(recovered.receipt,accepted.receipt);
   assert.equal(recovered.kernelApplication,
     "NOT_ATTESTED_BY_RECONCILIATION_RECEIPT");
-  assert.deepEqual(await f.port.receipt("op:missing"),{
+  assert.deepEqual(await f.port.receipt("op:one","f".repeat(64)),{
+    found:false,receipt:null,
+    kernelApplication:"NOT_ATTESTED_BY_RECONCILIATION_RECEIPT",
+  });
+  assert.deepEqual(await f.port.receipt("op:missing",sha),{
     found:false,receipt:null,
     kernelApplication:"NOT_ATTESTED_BY_RECONCILIATION_RECEIPT",
   });
