@@ -61,6 +61,25 @@ export function createTrustedReconciliationAdmission({
     await recheck(initial);
     return snapshot(result,"T3_D3_PREVIEW_NOT_CLONEABLE");
   }
+  // Read-only recovery after a lost ACCEPT/REJECT acknowledgment. The
+  // ORIGINAL durable recipient ledger remains the sole source of truth;
+  // never replay the decision to discover whether it committed.
+  async function receipt(operationId){
+    check(key(operationId),"T3_D3_OPERATION_ID_REQUIRED");
+    const initial=await selected();
+    const saved=await reconciler.receipt(operationId);
+    check(saved===null||saved===undefined||
+      (saved.operationId===operationId&&
+       ["IWXA_T3_ACCEPTANCE_RECEIPT/1",
+        "IWXA_T3_REJECTION_RECEIPT/1"].includes(saved.schema)),
+      "T3_D3_ORIGINAL_RECEIPT_INVALID");
+    await recheck(initial);
+    return Object.freeze({
+      found:saved!==null&&saved!==undefined,
+      receipt:saved==null?null:snapshot(saved,"T3_D3_RECEIPT_NOT_CLONEABLE"),
+      kernelApplication:"NOT_ATTESTED_BY_RECONCILIATION_RECEIPT",
+    });
+  }
   async function receive(bytes){
     check(bytes instanceof Uint8Array&&bytes.byteLength>0&&
       bytes.byteLength<=200*1024*1024,"T3_D3_ORIGINAL_IWXA_BYTES_REQUIRED");
@@ -159,7 +178,7 @@ export function createTrustedReconciliationAdmission({
     return snapshot(candidate,"T3_D3_CANDIDATE_NOT_CLONEABLE");
   }
   return Object.freeze({
-    receive,preview,
+    receive,preview,receipt,
     accept:input=>decide("ACCEPT",input),
     reject:input=>decide("REJECT",input),
     inspectAcceptedApplication,
