@@ -43,7 +43,7 @@ import type {
   CreateWorkspaceHostRuntimeInput,
   WorkspaceHostRuntimeHandle,
   WorkspaceHostRuntimeDiagnostics,
-  type T3ReconciliationHostPort,
+  T3ReconciliationHostPort,
 } from "./types";
 
 export async function createWorkspaceHostRuntime(
