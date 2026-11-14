@@ -1,5 +1,19 @@
 # IWXA T3 One Core. D3, точные подтверждения асинхронного Host, передача 14.11.2026
 
+## Дополнение 14.11.2026: D3 штатный двухсторонний readback без нового Reconciliation
+
+**Исполняемый исходник:** `Faust-S/knowledge@33c1af93fd2eda650269abbd89a4ab162480341f`. Коммиты: [`c761895`](https://github.com/Faust-S/knowledge/commit/c7618950e49766c4c7c905f9dbda5040fe7e44db), [`59f8bc1`](https://github.com/Faust-S/knowledge/commit/59f8bc17e2d196f5e19fe087c801da9c44ebe6f7), [`33c1af9`](https://github.com/Faust-S/knowledge/commit/33c1af93fd2eda650269abbd89a4ab162480341f).
+
+В существующих `site-handoff/host-receiver.mjs`, `site-handoff.mjs`, `site-restore.mjs` появился **обязательный для включившего его T3-владельца** readback original Kernel: `verifyAppliedBeforeSend(raw)`, `verifyAppliedReceipt(raw,ownerResult)`, `verifyAppliedAfterRestore(raw,result)`. Проверка назначается доверенным Host/доменом и может быть асинхронной. Отказ/незавершённая запись/потеря подтверждения не дают положительную квитанцию. Host с активным строгим режимом различает `WRITE_RECEIPT_SITE_APPLIED_VERIFIED` и `WRITE_RECEIPT_SITE_APPLICATION_NOT_CONFIRMED`. Старый T2 `void` callback работает без изменения, но его ACK **не объявляется проверенным применением**. Исходный protocol `IWXA_T2_SITE_HANDOFF/1` и формат `.iwxa` сохранены; добавлено лишь необязательное поле подтверждения на сообщении ACK.
+
+**Квалификация**: [Actions #43586505059](https://github.com/Faust-S/knowledge/actions/runs/43586505059) = SUCCESS; [Actions #43586614456](https://github.com/Faust-S/knowledge/actions/runs/43586614456) = SUCCESS; [Actions #43586755907](https://github.com/Faust-S/knowledge/actions/runs/43586755907) проверяет финальный `33c1af9`. Не приписывать успешный CI последнему коммиту, пока GitHub реально не вернул SUCCESS. Hardware Metal/WebGPU SKIPPED.
+
+**Недостающая продуктовая работа D3:** настоящий приватный owner `Faust-S/T3/reconciliation` предоставляет `OfflinePackageReconciler.receive/preview/accept/inspectApplicationProjection` и `application-host-binding`, но не входит в публичный runtime `knowledge` и не подлежит копированию сюда. Реальный владелец Admin/PERSONAL должен передать проверяемые signed Task/selected Result в текущий Host; подписанное `ACCEPT` не является `APPLY`. Последующее Application проходит отдельно через штатный JIT и оригинальный Kernel `commitObjectGraph`/readback/cold reopen. Колбэки readback из этого изменения позволяют честно подтверждать результат, но **сами не исполняют Reconciliation или Apply**; `D3_END_TO_END=NOT_ACCEPTED`.
+
+**Правило продолжения:** не добавлять тестовых хранилищ, сценариев-посредников или новой universal Windows T3 программы. Следующая инженерная правка только там, где доступен действительный owner и исполняемый Apply; иначе перейти к следующему невыполненному D1–D7 продукту. Базовые T2 и `.iwxa` оставлять без переписывания.
+
+
+
 ## Актуализация 14.11.2026: готовый пользовательский импорт D4, без промежуточных подсистем
 
 **Последний исполняемый qualified source:** `Faust-S/knowledge@cb30b30efef44d017878f09857e81b8f746700c1`. [Actions #43585691465](https://github.com/Faust-S/knowledge/actions/runs/43585691465) COMPLETED SUCCESS: `test`, `real-host`, `windows-credential`; `metal-webgpu` SKIPPED. Node product `672/672` PASS, Workspace/DOM `1121/1121` PASS. Документационный коммит после этого не изменяет исполняемый source.
