@@ -97,14 +97,43 @@ export function createOriginalControlHttpHandler({
     const signedUi=route==="/workspace/t3-signed-ui.json";
     const trustedRealm=route==="/workspace/t3-kernel-realm.json";
     const trustedEntry=route==="/workspace/trusted-kernel-realm.html";
-    if(!route.startsWith("/api/t3/")&&!signedUi&&!trustedRealm&&!trustedEntry)
+    const signedEntry=route==="/workspace/signed-workspace.html";
+    const rawEntry=route==="/workspace/"||route==="/workspace/index.html";
+    if(!route.startsWith("/api/t3/")&&!signedUi&&!trustedRealm&&
+       !trustedEntry&&!(splitOrigin&&(signedEntry||rawEntry)))
       return false;
     try{
       requireThat(req.headers.host===expectedHost,
         "T3_D1_CONTROL_ORIGIN_DENIED");
-      if(signedUi||trustedRealm||trustedEntry){
+      if(signedUi||trustedRealm||trustedEntry||signedEntry||rawEntry){
         requireThat(splitOrigin,"T3_D1_CONTROL_ISOLATED_UI_REQUIRED");
         requireThat(req.method==="GET","T3_D1_CONTROL_METHOD_DENIED");
+        if(rawEntry)
+          refused("T3_D1_RAW_T2_WORKSPACE_DISABLED");
+        if(signedEntry){
+          // A T3-updated product must not expose the inherited unsigned
+          // T2 AppShell on this origin. Serve only the forwarding entry.
+          requireThat(assetForPath!==null,"T3_D1_CONTROL_SIGNED_ENTRY_NOT_INSTALLED");
+          const asset=assetForPath(route);
+          requireThat(asset&&typeof asset.path==="string"&&
+            asset.type?.startsWith("text/html"),
+            "T3_D1_CONTROL_SIGNED_ENTRY_NOT_INSTALLED");
+          const html=readFileSync(asset.path);
+          requireThat(html.toString("utf8").includes('<base href="/workspace/"')&&
+            /\b(?:src|href)="\/workspace\/assets\/[A-Za-z0-9_.\/-]+"/.test(html.toString("utf8")),
+            "T3_D1_CONTROL_SIGNED_ENTRY_INVALID");
+          res.writeHead(200,{
+            "Content-Type":"text/html; charset=utf-8",
+            "Cache-Control":"no-store",
+            "X-Content-Type-Options":"nosniff",
+            "Referrer-Policy":"no-referrer",
+            "Content-Security-Policy":
+              "default-src 'none'; script-src 'self'; connect-src 'self'; "+
+              "base-uri 'self'; frame-ancestors 'none'",
+          });
+          res.end(html);
+          return true;
+        }
         if(trustedEntry){
           // The original Host serves its OWN compiled trusted realm. Without
           // this route, an inherited static host could apply a generic CSP
