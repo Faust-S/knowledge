@@ -46,6 +46,7 @@ export interface AppProps {
   requireSignedOwner?: boolean;
   signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
   signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
+  reconciliationPort?: CreateWorkspaceHostRuntimeInput["reconciliationPort"];
   subscribeSignedAccessInvalidation?: SignedAccessInvalidationSubscription;
   /** Compile-time trusted T2 Kernel origin bootstrap; never derived from a page or package. */
   trustedKernelBootstrap?: KernelBootstrap;
@@ -64,6 +65,7 @@ export interface AppProps {
  */
 export default function App({
   requireSignedOwner = false, signedKernelAccess, signedActivityAccess,
+  reconciliationPort,
   subscribeSignedAccessInvalidation,
   trustedKernelBootstrap, isolatedKernelRequired = false,
   trustedSelectedContext,
@@ -122,6 +124,7 @@ export default function App({
       requireSignedOwner={requireSignedOwner}
       signedKernelAccess={signedKernelAccess}
       signedActivityAccess={signedActivityAccess}
+      reconciliationPort={reconciliationPort}
       subscribeSignedAccessInvalidation={subscribeSignedAccessInvalidation}
     />
   );
