@@ -59,6 +59,10 @@ jobs:
         run: |
           node --check packages/t3-core/src/t3/original-control-http-handler.mjs
           node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs
+      - name: Qualify D3 original Reconciliation and signed native recipient transport
+        run: |
+          node --test packages/t3-core/tests/t3-reconciliation-owner-admission.test.mjs packages/t3-core/tests/t3-reconciliation-kernel-apply.test.mjs
+      
       - name: Qualify two independently signed CORP grant/enrollment proofs over original persisted AccessRegistry
         run: |
           node --check packages/t3-core/src/t3/access/product-contracts.mjs
