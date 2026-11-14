@@ -32,7 +32,6 @@ export function createTrustedReconciliationKernelApply({
   // Always enforce the EXISTING D1 signed Access owner on BOTH original
   // Kernel commitObjectGraph and getObject. Accepting a caller-supplied
   // "signedKernel" object here would permit an accidental raw-Kernel bypass.
-  const signedKernel=createSubjectKernelBinding({kernel,access});
   async function selected(){
     check(isHostActive()===true,"T3_HOST_DISPOSED");
     const c=copy(await access.currentContext(),"T3_D3_APPLY_CONTEXT_INVALID");
@@ -109,15 +108,16 @@ export function createTrustedReconciliationKernelApply({
     });
     check(approval===true,"T3_D3_SEPARATE_HUMAN_APPLY_REQUIRED");
     await unchanged(c);
-    // Historical owner checks fresh ledger projection and its own signed
-    // human approval. This result is a precondition, NOT the Kernel grant.
-    // The original signed KernelFacade performs a second JIT for Graph.
-    check(binding.commitPrecondition(ctx)===true,
-      "T3_D3_ORIGINAL_APPLICATION_PRECONDITION_DENIED");
+    // Never check original Reconciliation only BEFORE signed Access JIT:
+    // an authority callback could change the accepted ledger during JIT.
+    // The original binding runs synchronously at the signed Kernel final hop.
     await unchanged(c);
-    let enteredKernel=false,receipt;
+    const signedKernel=createSubjectKernelBinding({
+      kernel,access,
+      commitObjectGraphPrecondition:()=>binding.commitPrecondition(ctx),
+    });
+    let receipt;
     try {
-      enteredKernel=true;
       receipt=await signedKernel.commitObjectGraph(command);
       const read=await signedKernel.getObject(c.workspace_id,objInput.object_id);
       check(receipt?.workspace_id===c.workspace_id&&
@@ -144,7 +144,10 @@ export function createTrustedReconciliationKernelApply({
         externalProductAcceptance:"NOT_ACCEPTED",
       });
     }catch(error){
-      if(!enteredKernel)throw error;
+      // This original owner denial occurs BEFORE Kernel invocation; only
+      // errors after that boundary can represent an uncertain write.
+      if(error?.code==="T3_D3_ORIGINAL_APPLICATION_PRECONDITION_DENIED")
+        throw error;
       const uncertain=Object.assign(
         new Error("T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"),
         {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED",
