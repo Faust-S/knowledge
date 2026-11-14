@@ -1,5 +1,18 @@
 # IWXA T3 One Core. D3, точные подтверждения асинхронного Host, передача 14.11.2026
 
+## 14.11.2026: восстановление фактического Kernel APPLY после потери ACK (без повтора записи)
+
+**Рабочий исходник:** `src/t3/reconciliation-kernel-apply.mjs` предоставляет второй штатный метод `recoverApplied({acceptanceId,revisionIds,target})` рядом с `applyAccepted`. Они используют **один и тот же** проверенный `stagedSelection` и оригинальный sealed `IWXA_T3_APPLICATION_HOST_BINDING/1`. Восстановление НЕ вызывает повторно `commitObjectGraph`, Human APPLY, ACCEPT, REJECT, не открывает второй Store/Journal/Reconciliation и не возвращает ложный успех по одному похожему объекту.
+
+Под оригинальным signed D1 `createSubjectKernelBinding` исполняются `t1.getObject` → `t1.listEventsSince` → `t1.getObject`. Результат считается `ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED` **только** при совпадении оригинальных Workspace/Object/schema_version/exact revision/data, единственного исходного Event с `idempotency_key=effectKey`, `event_type`, accepted `reconciliation_acceptance_id` и набором `reconciliation_revision_ids`, и неизменного selected context. Если событие/ключ/данные отсутствуют или объект успел измениться, результат `OUTCOME_UNKNOWN`; `automaticRetryAllowed=false`. Невозможность signed read или смена контекста является отказом, а не доказательством отсутствия записи.
+
+Метод подключён к **существующему** local `WorkspaceHostRuntimeHandle.reconciliation` и, при наличии настоящего установленного native owner, к единственному прежнему Control HTTP `/api/t3/reconciliation`, `control-loopback-owner`, origin-bound MessagePort и изолированному AppShell. В `available` добавлен независимый `recoverAvailable`; отсутствие метода оставляет recovery отключённым. Выдача самого signed D3 owner/issuer через WebView запрещена.
+
+**Зависимость принимающего Admin Center:** его оригинальный приватный D3/native owner должен предоставить в этот Host действительные `applicationTargetFor` и `apply/recover` над *тем же* original T2 Kernel, реальным подписанным D1 owner и достаточными grants на `t1.getObject` и `t1.listEventsSince`. Источник после `OUTCOME_UNKNOWN` должен вызывать **только** recovery/query, не вторую выдачу/ACCEPT/APPLY. В текущем публичном Center исходный signed Task и original D3 inbox/receipt имеются, но корпоративный `original_d1_kernel_apply=NOT_CONNECTED` до доказанного installed route; соседний Center код из этого чата не изменяется.
+
+**Квалификация:** контрактный `tests/t3-reconciliation-kernel-apply.test.mjs` проверяет отсутствие Event до записи, подтверждение точного original Event, подделку idempotency key и нулевой повтор commit; `tests/t3-d1-original-control-http.test.mjs` проверяет транспортный read-only recover без второго APPLY. Статус до получения CI на конечном HEAD: `D3_APPLY_RECOVERY=SOURCE_IMPLEMENTED_PENDING_FINAL_CI`, `D3_PRODUCT_NATIVE=NOT_ACCEPTED`, `T3_READY=false`. Отдельная реальная installed Windows квалификация Admin/Agent обязательна; fixture в публичном CI не является private Reconciliation.
+
+
 **Фиксация исходника для финального публичного CI:** последняя функциональная правка `ddeb917141393d0745391cd14040df3c7ff22907`. Затем исправлены только инструкции и передача, без изменения исполняемых файлов. Добавлены адресные регрессии D3 carrier и оригинального admission/apply в существующий workflow; заключительный CI должен подтвердить `Node + TypeScript/Vite + real-host + Windows credential` на одном HEAD. До получения его результата оставлять `SOURCE_IMPLEMENTED_PENDING_CI`, не заявлять PASS за новый канал и не запускать лишние промежуточные тесты.
 
 ## Дополнение 14.11.2026: восстановление оригинальной квитанции после разрыва ACK
