@@ -67,3 +67,4 @@ export {
   LOCAL_INFERENCE_DRAFT_SCHEMA, LOCAL_INFERENCE_DRAFT_DECLARATION,
   saveLocalInferenceDraft, listLocalInferenceDrafts, getLocalInferenceDraft,
 } from "./local-inference-draft.mjs";
+export { createTrustedReconciliationAdmission } from './reconciliation-owner-admission.mjs';

@@ -89,3 +89,28 @@ export const LOCAL_INFERENCE_DRAFT_DECLARATION: {
   readonly json_schema: Record<string, unknown>;
   readonly embedded: Record<string, never>;
 };
+
+/** D3. Trusted owner adapter, NOT a second Reconciliation, signed issuer, UI
+ * callback or Kernel writer. The original recipient owner must be injected
+ * by the installed Host and supply actual signed policy/JIT review. */
+export interface T3OriginalReconcilerOwner {
+  recipientId:string;
+  receive(bytes:Uint8Array):unknown|Promise<unknown>;
+  preview(packageSha256:string):unknown|Promise<unknown>;
+  accept(packageSha256:string,decision:{operationId:string;previewDigest:string;decisionBy:string}):unknown|Promise<unknown>;
+  reject(packageSha256:string,decision:{operationId:string;previewDigest:string;decisionBy:string;reason:string}):unknown|Promise<unknown>;
+  receipt(operationId:string):unknown|Promise<unknown>;
+  inspectApplicationProjection(input:{acceptanceId:string;revisionIds:string[];target:Record<string,unknown>}):unknown|Promise<unknown>;
+}
+export function createTrustedReconciliationAdmission(options:{
+  reconciler:T3OriginalReconcilerOwner;
+  currentContext:()=>unknown|Promise<unknown>;
+  recipientForContext:(context:unknown)=>string|Promise<string>;
+  confirmHumanReview:(request:unknown)=>boolean|Promise<boolean>;
+}):Readonly<{
+  receive(bytes:Uint8Array):Promise<unknown>;
+  preview(packageSha256:string):Promise<unknown>;
+  accept(input:{packageSha256:string;previewDigest:string;operationId:string;decisionBy:string}):Promise<unknown>;
+  reject(input:{packageSha256:string;previewDigest:string;operationId:string;decisionBy:string;reason:string}):Promise<unknown>;
+  inspectAcceptedApplication(input:{acceptanceId:string;revisionIds:string[];target:Record<string,unknown>}):Promise<unknown>;
+}>;
