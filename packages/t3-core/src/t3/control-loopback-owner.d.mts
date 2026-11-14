@@ -12,4 +12,6 @@ export declare function createControlLoopbackOwner(input:{
   signedKernelAccess:(operation:string)=>Promise<T3SignedActivityAccess|null>;
   signedActivityAccess:()=>Promise<T3SignedActivityAccess|null>;
   subscribeSignedAccessInvalidation:SignedAccessInvalidationSubscription;
+  /** Trusted Kernel-realm only. Original D3 is executed in native Control. */
+  reconciliationRequest:(verb:string,payload?:Record<string,unknown>)=>Promise<any>;
 };
