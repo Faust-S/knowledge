@@ -64,19 +64,27 @@ export function createTrustedReconciliationAdmission({
   // Read-only recovery after a lost ACCEPT/REJECT acknowledgment. The
   // ORIGINAL durable recipient ledger remains the sole source of truth;
   // never replay the decision to discover whether it committed.
-  async function receipt(operationId){
-    check(key(operationId),"T3_D3_OPERATION_ID_REQUIRED");
+  async function receipt(operationId,packageSha256){
+    check(key(operationId)&&hex(packageSha256),
+      "T3_D3_DECISION_RECEIPT_QUERY_REQUIRED");
     const initial=await selected();
     const saved=await reconciler.receipt(operationId);
-    check(saved===null||saved===undefined||
-      (saved.operationId===operationId&&
-       ["IWXA_T3_ACCEPTANCE_RECEIPT/1",
-        "IWXA_T3_REJECTION_RECEIPT/1"].includes(saved.schema)),
-      "T3_D3_ORIGINAL_RECEIPT_INVALID");
     await recheck(initial);
+    // An operation ID is selected by the caller, not a secret. Never expose
+    // a different signed principal's receipt or an unrelated archive by ID.
+    const matches=saved!=null&&saved.operationId===operationId&&
+      saved.packageSha256===packageSha256&&
+      saved.decisionBy===initial.context.actor_id;
+    if(!matches)return Object.freeze({
+      found:false,receipt:null,
+      kernelApplication:"NOT_ATTESTED_BY_RECONCILIATION_RECEIPT",
+    });
+    check(["IWXA_T3_ACCEPTANCE_RECEIPT/1",
+      "IWXA_T3_REJECTION_RECEIPT/1"].includes(saved.schema),
+      "T3_D3_ORIGINAL_RECEIPT_INVALID");
     return Object.freeze({
-      found:saved!==null&&saved!==undefined,
-      receipt:saved==null?null:snapshot(saved,"T3_D3_RECEIPT_NOT_CLONEABLE"),
+      found:true,
+      receipt:snapshot(saved,"T3_D3_RECEIPT_NOT_CLONEABLE"),
       kernelApplication:"NOT_ATTESTED_BY_RECONCILIATION_RECEIPT",
     });
   }
