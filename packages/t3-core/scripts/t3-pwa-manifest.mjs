@@ -117,6 +117,18 @@ export function materializePwaManifest(root,domainOrigin) {
     writeFileSync(absolute,png(size,theme));
     icons.push({src:path,sizes:size+"x"+size,type:"image/png",purpose:"any"});
   }
+  // The OS may open .iwxa only into the already compiled, enabled Exchange
+  // route. Sites without T2 Exchange never advertise an inert file handler.
+  let iwxaHandlerReady=false;
+  const exchangeEntry=join(root,"workspace/exchange/index.html");
+  const workspaceConfig=join(root,"workspace/workspace.config.json");
+  if(existsSync(exchangeEntry)&&existsSync(workspaceConfig)) {
+    let config;
+    try {config=JSON.parse(readFileSync(workspaceConfig,"utf8"));}
+    catch {throw Error("T3_PWA_WORKSPACE_CONFIG_INVALID");}
+    iwxaHandlerReady=Array.isArray(config?.modules)&&config.modules.some(
+      module=>module?.module_id==="iwxa.workspace.exchange"&&module?.state==="active");
+  }
   const app={
     id:"/",name:typeof existing.name==="string"&&existing.name.trim()?existing.name:domainName,
     short_name:typeof existing.short_name==="string"&&existing.short_name.trim()?
@@ -125,7 +137,13 @@ export function materializePwaManifest(root,domainOrigin) {
     lang:typeof existing.lang==="string"?existing.lang:"ru",
     start_url:"/",scope:"/",display:"standalone",
     background_color:color(existing.background_color,theme),theme_color:theme,
-    icons,prefer_related_applications:false
+    icons,prefer_related_applications:false,
+    ...(iwxaHandlerReady?{file_handlers:[{
+      action:"/workspace/exchange/",
+      name:"Пакет IWXA",
+      accept:{"application/octet-stream":[".iwxa"]},
+      launch_type:"single-client",
+    }]}:{})
   };
   const file="/t3-app-manifest.json";
   writeFileSync(join(root,file.slice(1)),JSON.stringify(app,null,2)+"\n");

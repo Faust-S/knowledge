@@ -112,3 +112,27 @@ test("T3 install app preserves the domain's existing Apple home-screen icon",()=
       "iOS metadata is stable across domain rebuilds");
   }finally{clean(root);}
 });
+
+test("T3 installed PWA associates .iwxa only with active original Exchange route",()=>{
+  const root=fixture();
+  try {
+    assert.equal(materializeDomainMode(root).original_kernel_unchanged,true);
+    assert.equal(manifest(root).file_handlers,undefined);
+    write(root,"workspace/exchange/index.html",
+      '<html><head><title>Перенос данных</title></head><body><main>Exchange</main></body></html>');
+    write(root,"workspace/workspace.config.json",JSON.stringify({modules:[
+      {module_id:"iwxa.workspace.exchange",state:"planned"}]}));
+    materializeDomainMode(root);
+    assert.equal(manifest(root).file_handlers,undefined);
+    write(root,"workspace/workspace.config.json",JSON.stringify({modules:[
+      {module_id:"iwxa.workspace.exchange",state:"active"}]}));
+    materializeDomainMode(root);
+    assert.deepEqual(manifest(root).file_handlers,[{
+      action:"/workspace/exchange/",name:"Пакет IWXA",
+      accept:{"application/octet-stream":[".iwxa"]},
+      launch_type:"single-client",
+    }]);
+    const snapshot=JSON.parse(readFileSync(join(root,"t3-offline-manifest.json"),"utf8"));
+    assert.equal(snapshot.files.some(file=>file.path==="/workspace/exchange/"),true);
+  }finally{clean(root);}
+});

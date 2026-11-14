@@ -21,9 +21,16 @@ import {
   type ImportPreviewHandle,
 } from "../state/import-machine";
 
+/** OS File Handling passes a handle, never an automatic Kernel write. */
+export type InstalledPwaFileHandle = Readonly<{
+  kind: "file";
+  name: string;
+  getFile: () => Promise<File>;
+}>;
 export interface ImportViewProps {
   kernel: KernelFacade;
   commands: CommandsFacade;
+  pwaFileHandle?: InstalledPwaFileHandle | null;
 }
 
 const MAX_PACKAGE_BYTES = 200 * 1024 * 1024;
@@ -79,8 +86,16 @@ export function classifyImportError(
 /**
  * PROMPT 23 §8–§16, PROMPT 32 — canonical Import state machine surface.
  */
-export function ImportView({ kernel, commands }: ImportViewProps) {
+export function ImportView({ kernel, commands, pwaFileHandle = null }: ImportViewProps) {
   const [state, dispatch] = useReducer(importReducer, INITIAL_IMPORT_STATE);
+  const [pwaReadBusy, setPwaReadBusy] = useState(false);
+  const [pwaReadError, setPwaReadError] = useState<string | null>(null);
+  const [pwaUsed, setPwaUsed] = useState<InstalledPwaFileHandle | null>(null);
+  const pwaReadGuard = useRef(false);
+  useEffect(() => {
+    setPwaUsed(null);
+    setPwaReadError(null);
+  }, [pwaFileHandle]);
   const [localWorkspaces, setLocalWorkspaces] = useState<readonly WorkspaceRecord[]>([]);
   const activeTokenRef = useRef<string | null>(null);
   const commitGuardRef = useRef(false); // §13
@@ -396,9 +411,33 @@ export function ImportView({ kernel, commands }: ImportViewProps) {
     }
   };
 
+  const openPwaFile = async () => {
+    if (!pwaFileHandle || pwaReadGuard.current || pwaUsed === pwaFileHandle ||
+        !canPreview || state.status === "previewing" || state.status === "committing") return;
+    pwaReadGuard.current = true;
+    setPwaReadBusy(true);
+    setPwaReadError(null);
+    try {
+      const file = await pwaFileHandle.getFile();
+      if (file.name !== pwaFileHandle.name)
+        throw Error("Имя файла изменилось после выбора в системе.");
+      // The canonical ImportView enforces the .iwxa extension, 200 MiB limit,
+      // original Kernel importPreview, exact digest and separate commit.
+      setPwaUsed(pwaFileHandle);
+      await onFile(file);
+    } catch (error) {
+      setPwaReadError("Не удалось открыть переданный системой файл: " +
+        (error instanceof Error ? error.message : String(error)));
+    } finally {
+      pwaReadGuard.current = false;
+      setPwaReadBusy(false);
+    }
+  };
   return renderImport({
     state, canPreview, canCommit, canCancel, localWorkspaces,
     onFile, runCommit, cancelActive, dispatch,
+    pwaFileHandle, pwaReadBusy, pwaReadError, pwaUsed,
+    openPwaFile,
   });
 }
 
@@ -412,12 +451,18 @@ interface RenderProps {
   runCommit: () => void;
   cancelActive: (why: "explicit") => Promise<boolean>;
   dispatch: React.Dispatch<import("../state/import-machine").ImportEvent>;
+  pwaFileHandle: InstalledPwaFileHandle | null;
+  pwaReadBusy: boolean;
+  pwaReadError: string | null;
+  pwaUsed: InstalledPwaFileHandle | null;
+  openPwaFile: () => Promise<void>;
 }
 
 function renderImport(p: RenderProps) {
   const {
     state, canPreview, canCommit, canCancel, localWorkspaces,
     onFile, runCommit, cancelActive, dispatch,
+    pwaFileHandle, pwaReadBusy, pwaReadError, pwaUsed, openPwaFile,
   } = p;
   const busy = state.status === "previewing" || state.status === "committing";
   const scopeIssues = state.handle ? validateImportScope(state.handle.preview, state.plan) : [];
@@ -432,6 +477,29 @@ function renderImport(p: RenderProps) {
         (не более {MAX_PACKAGE_BYTES / (1024 * 1024)} МиБ). Байты передаются ядру и
         не сохраняются в оболочке — предпросмотр удерживает только токен и digest'ы.
       </p>
+      {pwaFileHandle && (
+        <div className="rounded border border-sky-800 p-3 space-y-2"
+          data-testid="import-pwa-file">
+          <p className="text-sm break-all">
+            Передан системой файл: <strong>{pwaFileHandle.name}</strong>
+          </p>
+          <p className="text-xs">
+            Данные не прочитаны и не записаны. Сначала просмотрите пакет,
+            затем отдельно подтвердите его применение в выбранную Workspace.
+          </p>
+          <button type="button"
+            disabled={!canPreview || busy || pwaReadBusy || pwaUsed === pwaFileHandle}
+            onClick={() => void openPwaFile()}
+            data-testid="import-pwa-preview"
+            className="border rounded px-3 py-2 min-h-11">
+            {pwaUsed === pwaFileHandle ? "Файл передан на предпросмотр"
+              : "Просмотреть переданный файл .iwxa"}
+          </button>
+          {pwaReadError && <p role="alert" className="text-xs text-red-300">
+            {pwaReadError}
+          </p>}
+        </div>
+      )}
       <input
         type="file"
         accept={ALLOWED_EXTENSION}

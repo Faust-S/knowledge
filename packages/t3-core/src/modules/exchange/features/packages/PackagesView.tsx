@@ -4,7 +4,7 @@ import type {
   KernelFacade,
 } from "@/workspace-contract";
 import { ExportView } from "./ExportView";
-import { ImportView } from "./ImportView";
+import { ImportView, type InstalledPwaFileHandle } from "./ImportView";
 import type { PackagesTab } from "../../types";
 
 export interface PackagesViewProps {
@@ -44,6 +44,38 @@ export function PackagesView({
   };
 
   const [tab, setTab] = useState<PackagesTab>(() => resolveTab(initialTab));
+  const [pwaFileHandle, setPwaFileHandle] = useState<InstalledPwaFileHandle | null>(null);
+  const [pwaLaunchError, setPwaLaunchError] = useState<string | null>(null);
+  // Browser File Handling API is optional. Chromium delivers opaque file
+  // handles to an installed PWA; nothing is read until the user clicks
+  // the canonical ImportView preview. Browsers without it keep the chooser.
+  useEffect(() => {
+    const queue = (window as unknown as {
+      launchQueue?: {setConsumer: (consumer: (params: {files?: readonly unknown[]}) => void) => void}
+    }).launchQueue;
+    if (!queue || !canImport) return;
+    let mounted = true;
+    queue.setConsumer(({files}) => {
+      if (!mounted || !Array.isArray(files) || files.length === 0) return;
+      setTab("import");
+      setPwaFileHandle(null);
+      if (files.length !== 1) {
+        setPwaLaunchError("Откройте один файл .iwxa за раз.");
+        return;
+      }
+      const handle = files[0] as Partial<InstalledPwaFileHandle> | null;
+      if (!handle || handle.kind !== "file" ||
+          typeof handle.name !== "string" ||
+          !handle.name.toLowerCase().endsWith(".iwxa") ||
+          typeof handle.getFile !== "function") {
+        setPwaLaunchError("Система передала файл неподдерживаемого типа. Выберите .iwxa.");
+        return;
+      }
+      setPwaLaunchError(null);
+      setPwaFileHandle(handle as InstalledPwaFileHandle);
+    });
+    return () => {mounted = false;};
+  }, [canImport]);
 
   useEffect(() => {
     setTab(resolveTab(initialTab));
@@ -51,6 +83,10 @@ export function PackagesView({
 
   return (
     <div className="space-y-4" data-testid="packages-view">
+      {pwaLaunchError && <p role="alert"
+        data-testid="import-pwa-launch-error" className="text-sm text-amber-300">
+        {pwaLaunchError}
+      </p>}
       <div role="tablist" aria-label="Перенос данных" className="flex gap-1 border-b border-slate-800">
         {(["export", "import"] as PackagesTab[]).map((t) => {
           const label = t === "export" ? "Экспортировать" : "Импортировать";
@@ -85,7 +121,8 @@ export function PackagesView({
         {tab === "export" ? (
           <ExportView kernel={kernel} scopedWorkspaceId={exportScopeId} />
         ) : (
-          <ImportView kernel={kernel} commands={commands} />
+          <ImportView kernel={kernel} commands={commands}
+            pwaFileHandle={pwaFileHandle} />
         )}
       </div>
     </div>
