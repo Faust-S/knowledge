@@ -1,0 +1,96 @@
+# IWXA T3 One Core: D7 -> G4, передача в следующий чат
+
+**Дата:** 15.11.2026. **Статус:** инженерная передача, НЕ релизная приёмка. **T3_READY=false** до общей G4. Для продолжения прочитать файл полностью и сверить свежие HEAD/TREE/CI, поскольку ветки изменяются параллельно.
+
+## 1. Единый исполняемый T3 и контроль исходника
+
+- Единственный исполняемый T3: **Faust-S/knowledge**, ветка **work/2026-11-10-t3-t2-activity-projection**, каталог **packages/t3-core/**. Это развитие полного T2, а не второй независимый runtime.
+- **Последний точно полностью прошедший source CI на момент подготовки документа:** [commit 4e43369d1a077a61059b4a4438feb3fe25d3a7a4](https://github.com/Faust-S/knowledge/commit/4e43369d1a077a61059b4a4438feb3fe25d3a7a4), TREE **d6484ea32116875ff2a8b792562e5a6109c9bb12**; [source CI #43644675013](https://github.com/Faust-S/knowledge/actions/runs/43644675013) **SUCCESS**: Node **695/695**, Workspace/DOM **1131/1131**, оригинальный real-host **SUCCESS**, Windows Credential **SUCCESS**, аппаратный metal-webgpu **SKIPPED**.
+- **Новое исходное исправление D7 (сверить его CI):** [f87ac33e53d125cac4ecc4c3432b15a4a2d9894e](https://github.com/Faust-S/knowledge/commit/f87ac33e53d125cac4ecc4c3432b15a4a2d9894e), TREE **81f703fe15bd2adacfbbe07d64ebafb368bb845e**. Оно требует оригинальную операцию t1.getWorkspace для появления возможности защищённого экспорта и сохраняет native recipient-only открытие .iwxa.age при чистой установке. Новая квалификация [#43645714499](https://github.com/Faust-S/knowledge/actions/runs/43645714499). **Не присваивать этому коммиту PASS, пока exact CI не завершится SUCCESS**.
+- Нормативный T2: **Faust-S/T2@main** HEAD **9c64951cd78411283e8a416641c36d71e169fc1d**, оригинальный Kernel **0.3.6**, Runtime Contract **1.3.0** и формат **.iwxa**; сверено 15.11.2026.
+- Исторические планы, НЕ второй исполняемый T3: **Faust-S/T3@work/2026-11-10-t3-t2-upgrade-core**, HEAD **9876758c0fa4a3c10a389983ed6e33e876174bba**; [план B0/D1-D7/G4](https://github.com/Faust-S/T3/blob/work/2026-11-10-t3-t2-upgrade-core/planning/T3_DELTA_ACCEPTANCE_RU.md) и [карта 42 репозиториев](https://github.com/Faust-S/T3/blob/work/2026-11-10-t3-t2-upgrade-core/architecture/T3_ONE_CORE_ALL_DOMAINS_SOFTWARE_AI_SOURCE_MAP_2026_11_11_RU.md).
+- До кода читать [AGENTS.md](https://github.com/Faust-S/knowledge/blob/work/2026-11-10-t3-t2-activity-projection/AGENTS.md) и существующие прежние handoff, особенно [D5 -> G4 от 14.11](https://github.com/Faust-S/knowledge/blob/work/2026-11-10-t3-t2-activity-projection/packages/t3-core/handoff/T3_ONE_CORE_D5_TO_G4_2026_11_14_NEXT_CHAT_RU.md). Старые HEAD внутри AGENTS.md и прежних handoff являются **историческими**, не нынешними HEAD.
+
+## 2. Смысл продукта и нерушимые ограничения
+
+- T3 есть **встроенный автономный технологический уровень** и полная следующая версия T2. В обновлённом продукте T3 заменяет T2; два Kernel/Host/Store параллельно внутри одного обновлённого продукта запрещены.
+- Сохранять весь T2: Kernel/Host/Store/Workspace/Object/Event/Result/Factory/Lifecycle/Exchange, действующий ModuleContext и все исходные capabilities. D1 не может превращаться в allowlist-обёртку, сокращающую T2 API.
+- Не создавать второй Kernel, Host, Store, IAM, Exchange, Task Engine, Router, Control EXE, sidecar, отдельный T3 установщик или формат вместо **.iwxa**.
+- Одно изменение = один конкретный дефект или незавершённая функция, адресная проверка только при нужде, одна итоговая source-сборка. Не делать повторные промежуточные тесты ради счётчика.
+- GitHub Actions разрешены **только для открытого knowledge**; запрещены Actions в закрытых репозиториях. Codex — исключительно недоступные операции Windows GUI/производственных владельцев и независимая финальная приёмка; не использовать Chromium/Playwright/Puppeteer через Codex. Параллельный D3 Admin Center не изменять.
+- Работа идёт в рабочей ветке, не трогать main и чужие коммиты. Перед любым коммитом перечитать live HEAD/TREE, сравнить изменённые пути; публиковать без force.
+- Никогда не копировать закрытые signer/key/Publisher/Access/Reconciliation реализации в публичный knowledge. Не называть интерфейсный mock настоящим native acceptance.
+
+## 3. Реализованное и квалифицированное к текущей передаче
+
+**B0:** оригинальный T2 Kernel 0.3.6 и полный Host сохранены; исходные операции, .iwxa, offline state, отдельные readback/cold Host испытания проходят в открытой сборке. Это OWNER_INTEGRATION_PASS на квалифицированном эталоне, не G4.
+
+**D1:** подписанные PERSONAL и две CORP Ed25519, JIT Control, origin-bound signed UI и локальные статусы в исходных Host испытаниях; нативная установка/подписант, полная D1 T2-parity и два действительных продукта ещё НЕ приняты. Отзыв не равен простому UI выключению.
+
+**D2:** read-only T0/T1 Activity-проекция исходных Object/Event/Result, детерминированные refs/revisions/provenance, UNKNOWN для недоказанного. Не объявлять Task/Process реальным по одному Event; доменные profile mappings требуют проверки владельцами.
+
+**D3:** исходные публичные Host порты для original Reconciliation/Review/ACCEPT/REJECT, отдельный Apply и original Kernel receipt/readback; lost ACK = OUTCOME_UNKNOWN, повторной записи нет. **Admin Center 0.3 интегрирует D3 параллельно в другом чате**, не дублировать его и не публиковать закрытый Reconciliation. D3_END_TO_END=NOT_ACCEPTED.
+
+**D4:** original .iwxa, import/export/preview/commit и второй независимый технический consumer, PWA opening .iwxa через OS, signed Control Host, сохранение истории/relations; два **различных установленных** реальных продукта и полный semantic acceptance ещё NOT_ACCEPTED.
+
+**D5:** единый Host с исходным WebLLM 0.2.87 Worker, пользователь выбирает локальную модель, отдельно разрешает загрузку, Stop прерывает установку/Worker с закрытием SW lease, offline cache и DRAFT_UNTRUSTED через original Kernel. Реальная **аппаратная** WebGPU-генерация и **холодная офлайн-повторная генерация** НЕ подтверждены (SwiftShader CI не подходит): D5_HARDWARE=HOLD. Не переписывать WebLLM, Worker, Cache Storage, Kernel.
+
+**D6:** Host-контракты Agent/Atlas/Admin/U01–U05; полный реальный signed web-to-native Task/Project/Document/Result continuation, два cold opens и original owner readback ещё NOT_ACCEPTED. Не создавать новый Task/Project/Document Engine, а подключать владельцев существующих программ.
+
+**D7:** исходный публичный функциональный путь защищённого Exchange и Publisher реализован, но нативные владельцы пока не подключены:
+- [be8d8261](https://github.com/Faust-S/knowledge/commit/be8d8261d865ddfdb6ea1d213194c01da584e309): сохранение оригинальных .iwxa bytes, два доверенных получателя, age-native port и SHA-256, проверенный [CI #43637269591](https://github.com/Faust-S/knowledge/actions/runs/43637269591).
+- [682ed46e](https://github.com/Faust-S/knowledge/commit/682ed46e1ab48c89da294825b362682ee170e81c): Publisher licence/status owner, human consent, original durable receipt, восстановление lost ACK; исправление ложной квитанции резервной копии после скачивания .iwxa.age. [CI #43638342575](https://github.com/Faust-S/knowledge/actions/runs/43638342575) SUCCESS.
+- [7c66016b](https://github.com/Faust-S/knowledge/commit/7c66016b5f0bc112e8f870d07fc5dda42e572cf5): original STATUS/2 FULL_HOLDER_SNAPSHOT, SELECTIVE_DELTA, TOMBSTONE_EVENT, много лицензий, пустой полный снимок, запрет одновременного Apply; [CI #43640067546](https://github.com/Faust-S/knowledge/actions/runs/43640067546) SUCCESS.
+- [bf16cbbb](https://github.com/Faust-S/knowledge/commit/bf16cbbbaba3cd60e76eae9c1a85582fdc3d167d): PWA .iwxa.age → явный age.open → original Kernel.importPreview → отдельный importCommit; [CI #43640875432](https://github.com/Faust-S/knowledge/actions/runs/43640875432), [PWA Win/Linux #43640730384](https://github.com/Faust-S/knowledge/actions/runs/43640730384) SUCCESS. Не считать double-click в Windows принятым без независимой установленной проверки.
+- [dc0e706b](https://github.com/Faust-S/knowledge/commit/dc0e706b5d9b5c62980611810f8cf209ef39a1cc), [7e56e9a0](https://github.com/Faust-S/knowledge/commit/7e56e9a03f16d32a89794675c9c1ecf0612440a1): native Publisher licence/STATUS до Workspace, штатный Exchange route без подмены T2 data grants; [CI #43642163989](https://github.com/Faust-S/knowledge/actions/runs/43642163989) SUCCESS.
+- [466af2a8](https://github.com/Faust-S/knowledge/commit/466af2a840147f4e2a5cd43c798fb2d156d1a40d): receiver-only .iwxa.age age.open до Workspace, с native bindingEpoch и без автоматического import; [CI #43643492625](https://github.com/Faust-S/knowledge/actions/runs/43643492625) SUCCESS.
+- [f489f10c](https://github.com/Faust-S/knowledge/commit/f489f10c8b7f04a4f7a230bfb4893203ed162e65): подтверждённо пустой локальный Kernel + подписанное разрешение new-workspace → восстановление в новую Workspace; [CI #43644411603](https://github.com/Faust-S/knowledge/actions/runs/43644411603) SUCCESS.
+- [4e43369d](https://github.com/Faust-S/knowledge/commit/4e43369d1a077a61059b4a4438feb3fe25d3a7a4): повторный запуск OS file handler с тем же дескриптором больше не сохраняет старый Kernel preview; [CI #43644675013](https://github.com/Faust-S/knowledge/actions/runs/43644675013) SUCCESS.
+- [f87ac33e](https://github.com/Faust-S/knowledge/commit/f87ac33e53d125cac4ecc4c3432b15a4a2d9894e): canSeal/canOpen показывают фактически доступный маршрут; signed Workspace read обязателен для seal, native recipient-only open не требует его. CI #43645714499 сверить и зафиксировать по точному SHA.
+
+**Публичный D7 не содержит нативной реализации age или выдачи реальных Publisher лицензий.** Доступность портов UI/тесты подписанного фикстурного владельца ≠ installed native acceptance.
+
+**G4:** нет одного locked candidate B0+D1–D7 с реальными владельцами и двумя cold opens. **G4=NOT_ACCEPTED / T3_READY=false**.
+
+## 4. Оригинальные нативные владельцы: уже существуют, не изобретать
+
+**Реальная историческая age-реализация есть в закрытом источнике**, а не в новом публичном age port: [Faust-S/T3@work/2026-10-28-iwxa-age-encrypted-exchange](https://github.com/Faust-S/T3/tree/work/2026-10-28-iwxa-age-encrypted-exchange), точный HEAD при сверке **91db0c4de76948ea09b9b06d5681cebd218db927**. Источники для правомерной product-native интеграции владельцем:
+- access-control/iwxa-age-envelope.mjs: исходное шифрование/расшифровка официальным age X25519, envelope validation, exact .iwxa carrier. В нативном модуле MAX_IWXA_BYTES = **32 MiB**, тогда как публичный browser adapter допускает до 200 MiB исходных байтов. **Не заявлять support 200 MiB для исторического native age**; до включения в продукт согласовать явный реальный лимит с owner и честную UI-ошибку. Не изменять оригинальный T2 Exchange ради этого лимита.
+- access-control/age-identity-custody.mjs: отдельный age X25519 recipient key, Windows DPAPI CurrentUser, recovery slot; не использовать Ed25519 подписной ключ как age-key и не отдавать identity в browser.
+- access-control/age-toolchain.mjs: штатный локальный pinned age/age-keygen executable, path/SHA-256; не принимать путь к бинарнику из пакета/HTTP.
+- access-control/age-recovery.mjs и scripts/iwxa-age-recovery.mjs: offline восстановление identity по независимому guardian, не автоматическая замена ключа.
+- [IWXA_AGE_ENCRYPTED_EXCHANGE_RU.md](https://github.com/Faust-S/T3/blob/work/2026-10-28-iwxa-age-encrypted-exchange/access-control/IWXA_AGE_ENCRYPTED_EXCHANGE_RU.md): исходные ограничения, allowlisted профили, status qualification, требование native interoperability. Не запускать приватные Actions.
+
+**Реальный Publisher owner:** [Faust-S/T3@work/2026-11-10-product-license-person-0.5](https://github.com/Faust-S/T3/tree/work/2026-11-10-product-license-person-0.5), HEAD **942232c91150ba586fe508f738e7ce12a72f0099**. Исходники access-control/license-status.mjs, license-package.mjs, original issuer/trust и локальные STATUS receipts. Оригинальная лицензия **не** является D1 разрешением на данные. Исходный STATUS/2 допускает signed full/scope/terminal и возвращает собственные receipt/result, а public T3 owner interface использует нормализованный inspect/apply/receipt/statusReadback. Маппинг этих форматов принадлежит **установленному владельцу**; не копировать private issuer в knowledge. Параллельная Publisher 0.5 ветка **Faust-S/IWXA-Admin-Center@work/2026-11-10-publisher-0.5** (последний увиденный HEAD **c4fa8d611e026684fb2fd6cf27f8311e9ce9cd2c**) выполняется в другом чате. Не перезаписывать её.
+
+**Нужный installed-native port для D7:** Host получает функции original age owner prepareSeal,seal,open,currentRecipient и original Publisher holder currentSubject,inspect,apply,receipt,statusReadback; их проверяемая реализация находится за существующей границей конкретной установленной программы. В public T3 передаются только ID получателя/epoch, исходный .iwxa и verified результаты; приватный age identity и signer не передаются. Для шифрования нужен оригинальный signed D1 Workspace read + согласие на двух получателей; для расшифровки при первой установке нужен native currentRecipient, после чего всегда отдельный original Kernel importPreview/Commit. Publisher статус требует original local durable status floor и независимый readback; потерянный ACK не повторять.
+
+## 5. Конкретная следующая работа и stop rules
+
+1. **Сначала** проверить live knowledge HEAD/TREE, точный CI #43645714499 и наличие параллельных коммитов; если FAIL, устранить только подтверждённый дефект. Не повторять принятый WebLLM/Host/Kernel.
+2. **D7 native owner**: проверить наличие установленного оригинального age/DPAPI key custody и Publisher local status recipient в разрешённой product-сборке. Если владельцев нет в среде этого чата, честно оставить D7_NATIVE=HOLD, не создавать фиктивные ключи/issuer в публичном knowledge. При необходимости передать владельцу Publisher/Agent узкий интерфейс интеграции, но не править их параллельные ветки.
+3. Два **настоящих** независимо установленных получателя, собственные X25519 identity, официальные pinned age CLI, пользовательский consent. Real source .iwxa → age encrypt двум recipients → получатель A decrypt → original Kernel importPreview → отдельный Human commit → независимый Kernel readback после **двух cold reopens**; затем B с собственным root. Точно проверить wrong recipient, tamper, age identity recovery и отсутствие автоматического доступа к корпоративной Workspace. Если нет Windows native/age hardware, не превращать интерфейсный тест в NATIVE_ACCEPTED.
+4. Publisher issuer→PERSON/CORP installed holder: реальный signed LICENSE, renewal, FULL/DELTA/REVOKE STATUS, monotonic sequence/expiry, durable original receipt, cold offline reboot; revoked rights не возрождаются от старых пакетов. Различать статус с недоставленной отзывной записью как UNKNOWN, а не ACTIVE.
+5. Если D7 native физически недоступен, перейти к конкретной независимой **D6** проблеме signed web/native Agent или Atlas Result/WorkRef continuation на исходных owner портах. Не создавать новый Task Engine. D3 Admin Center не дублировать.
+6. **D5 hardware HOLD:** запускать уже существующий аппаратный сценарий лишь на настоящем non-SwiftShader WebGPU: installed model, реальная генерация, DRAFT_UNTRUSTED original Kernel put/get, полный offline cold reopen и новая генерация. Не принимать WebLLM compile как hardware PASS.
+7. **G4 только после настоящих owners:** frozen SHA/TREE + одна версия single dist, B0+D1–D7, реальные issuer/recipients, clean install/repair/update, два cold reopens, LOCAL_ONLY no-egress, независимая финальная Windows приёмка. Статус T3_READY=false до этого.
+
+## 6. Ключевые исполняемые файлы
+
+- packages/t3-core/src/t3/age-protected-exchange.mjs
+- packages/t3-core/src/t3/publisher-license-handoff.mjs
+- packages/t3-core/src/t3/index.d.mts
+- packages/t3-core/src/workspace-host/runtime/create-workspace-host-runtime.ts
+- packages/t3-core/src/modules/exchange/features/packages/{PackagesView,ImportView,ExportView,PublisherLicensePanel}.tsx
+- packages/t3-core/src/modules/exchange/features/state/import-machine.ts
+- packages/t3-core/src/modules/exchange/routes.ts + navigation.ts
+- packages/t3-core/scripts/t3-pwa-manifest.mjs
+- packages/t3-core/tests/t3-d7-{protected-exchange,publisher-handoff}.test.mjs
+- packages/t3-core/tests/t3-d7-pwa-age-file.dom.test.tsx
+
+## 7. Готовый запрос в новый чат
+
+Продолжай самостоятельную инженерную разработку **единого автономного встраиваемого IWXA T3** непосредственно в GitHub. Первым действием полностью прочитай документ:
+https://github.com/Faust-S/knowledge/blob/work/2026-11-10-t3-t2-activity-projection/packages/t3-core/handoff/T3_ONE_CORE_D7_TO_G4_2026_11_15_NEXT_CHAT_RU.md
+
+Затем прочитай AGENTS.md, нормативный Faust-S/T2@main, план B0/D1–D7/G4 и карту 42 репозиториев; получи live HEAD/TREE и точные CI. Исполняемый T3 только Faust-S/knowledge@work/2026-11-10-t3-t2-activity-projection/packages/t3-core. Не переписывай D3 Admin Center, оригинальный T2/Kernel, WebLLM, Store, IAM, Exchange, Task Engine, Router; не делай отдельный Control EXE, sidecar или формат вместо .iwxa. Принятый source baseline 4e43369d / CI #43644675013 SUCCESS; новый source f87ac33e / CI #43645714499 проверить по факту. D5 hardware WebGPU = HOLD; D7 real age/Publisher installed owner и два независимых recipient = NOT_ACCEPTED; до G4 T3_READY=false. Следующая работа: подключение существующего закрытого оригинального age/DPAPI/Publisher owner у штатного продукта, без копирования приватного кода в public knowledge; если native недоступен, конкретная функциональная D6 delta. Меньше промежуточных тестов, один найденный дефект → реальная функция → одна итоговая сборка. GitHub Actions только открытого knowledge, Codex лишь для недоступной native Windows GUI и независимой финальной приёмки. Не перезаписывай чужие коммиты.
