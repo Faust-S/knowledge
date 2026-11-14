@@ -98,6 +98,8 @@ async function attach(event:MessageEvent){
       }),
       validateOriginalObjects:(input:unknown)=>originalSession.t0.validate(
         input as Parameters<typeof originalSession.t0.validate>[0]),
+      reconciliationRequest:(verb:string,payload:Record<string,unknown>={})=>
+        owner.reconciliationRequest(verb,payload),
       selectedWorkspaceContext:async (operation:string)=>{
         if(operation!=="createWorkspace"&&operation!=="getWorkspace")
           throw reject("T3_D1_SELECTED_CONTEXT_OPERATION_DENIED");
