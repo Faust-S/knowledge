@@ -293,6 +293,26 @@ export function createTrustedPublisherHandoff({
           (fresh.statusPayloadDigest===row.statusPayloadDigest&&
             fresh.sequence===row.sequence)),
         "T3_D7_PUBLISHER_PREVIEW_CHANGED");
+      // Cold-opened installed holders may still report READY even when an
+      // earlier native Apply committed but its acknowledgement was lost.
+      // The ORIGINAL durable receipt is authoritative; never dispatch that
+      // same operationId twice, even if a volatile guard was reset.
+      const query={kind:row.kind,operationId:row.operationId,
+        packageSha256:row.packageSha256,
+        holderId:row.holderId,recipientId:row.recipientId};
+      let prior;
+      try{
+        prior=await nativeHolder.receipt(query);
+        await binding.current();
+      }catch{
+        return Object.freeze({status:"OUTCOME_UNKNOWN",
+          kind:row.kind,operationId:row.operationId});
+      }
+      if(prior!==null&&prior!==undefined){
+        try{return await observe(row,binding);}
+        catch{return Object.freeze({status:"OUTCOME_UNKNOWN",
+          kind:row.kind,operationId:row.operationId});}
+      }
       // Lost native ACK may hide committed bytes. Mark before the ONLY write.
       uncertain.add(key);
       try {

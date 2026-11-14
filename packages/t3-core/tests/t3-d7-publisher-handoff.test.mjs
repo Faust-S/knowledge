@@ -16,7 +16,7 @@ function fixture(){
   let permit=true,epoch=1,consent=true,loseAck=false,applies=0,active=true;
   let confirmGate=null,enterConfirm=null;
   let scope=fullScope(),entries=fullEntries(),payloadDigest="c".repeat(64);
-  let floor=7;
+  let floor=7,inspectAlwaysReady=false;
   const records=new Map();
   const ctx=()=>({kind:"PERSONAL",context_id:"local:me",actor_id:"person:owner",
     principal_id:"person:owner",role_id:"role:owner",grant_id:"grant:owner",
@@ -53,7 +53,7 @@ function fixture(){
         scope:structuredClone(scope),entries:structuredClone(entries),
       }:{}),
       publisherSignatureVerified:true,pinnedPublisherTrusted:true,
-      stage:records.has(kind)?"RECOVER_ONLY":"READY",
+      stage:records.has(kind)&&!inspectAlwaysReady?"RECOVER_ONLY":"READY",
     }),
     apply:async input=>{
       applies++;
@@ -85,6 +85,7 @@ function fixture(){
       scope=nextScope;entries=nextEntries;payloadDigest=nextDigest;
     },
     useFloor:n=>{floor=n;},
+    setInspectAlwaysReady:()=>{inspectAlwaysReady=true;},
     pauseConsent:()=>{
       let release,entered;
       const started=new Promise(resolve=>{entered=resolve;});
@@ -117,6 +118,25 @@ test("D7 original LICENSE then multi-entry holder STATUS persist with exact read
     "ORIGINAL_HOLDER_READBACK_CONFIRMED");
   assert.equal(f.applies(),2);
 });
+test("D7 cold restart checks original receipt before applying an already committed licence",async()=>{
+  const f=fixture(),archiveBytes=file();
+  f.loseAck();
+  const first=f.create();
+  const preview=await first.preview({kind:"LICENSE",archiveBytes});
+  assert.equal((await first.admit({kind:"LICENSE",archiveBytes,
+    previewDigest:preview.previewDigest})).status,"OUTCOME_UNKNOWN");
+  assert.equal(f.applies(),1);
+  f.setInspectAlwaysReady();
+  const second=f.create(),fresh=await second.preview({kind:"LICENSE",archiveBytes});
+  assert.equal(fresh.status,"VERIFIED_PENDING_CONSENT");
+  assert.equal((await second.admit({kind:"LICENSE",archiveBytes,
+    previewDigest:fresh.previewDigest})).status,"ORIGINAL_HOLDER_READBACK_CONFIRMED");
+  const third=f.create();
+  assert.equal((await third.admit({kind:"LICENSE",archiveBytes,
+    previewDigest:fresh.previewDigest})).status,"ORIGINAL_HOLDER_READBACK_CONFIRMED");
+  assert.equal(f.applies(),1);
+});
+
 test("D7 scoped selective, tombstone and empty FULL status are not reduced to single license",async()=>{
   for(const [scope,entries] of [
     [fullScope(),[]],
