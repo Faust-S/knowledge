@@ -99,7 +99,7 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
     requireTransport();
     const generation=selectionGeneration;
     check(["available","receive","preview","receipt","accept","reject",
-      "inspectAcceptedApplication","applyAccepted"].includes(verb)&&
+      "inspectAcceptedApplication","applyAccepted","recoverApplied"].includes(verb)&&
       validObject(payload),"T3_D3_RECIPIENT_REQUEST_INVALID");
     let bodyPayload=payload;
     if(verb==="receive"){
