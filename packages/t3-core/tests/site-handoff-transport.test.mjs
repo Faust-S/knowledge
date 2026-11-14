@@ -427,7 +427,7 @@ test('T3 owner readback gates BOTH Host receipt delivery and originating Site AP
   confirmSite(true);
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(siteStatus.includes('WRITE_RECEIPT_APPLIED_TO_LOCAL_SOURCE'));
-  assert.ok(hostStatus.includes('WRITE_RECEIPT_SITE_APPLIED'));
+  assert.ok(hostStatus.includes('WRITE_RECEIPT_SITE_APPLIED_VERIFIED'));
 
   const denied=windowPair();
   let received=0;
@@ -447,4 +447,21 @@ test('T3 owner readback gates BOTH Host receipt delivery and originating Site AP
   assert.equal(await reject.sendReceipt('{"kernel-receipt":"not-applied"}'),false);
   assert.equal(received,0);
   assert.ok(states.includes('WRITE_RECEIPT_HOST_APPLICATION_NOT_CONFIRMED'));
+
+  const legacy=windowPair(),unconfirmed=[];
+  launchT2SiteHandoff({siteWindow:legacy.siteWindow,
+    hostUrl:hostOrigin+'/workspace/',
+    collectRawBackup:()=>'{"task":"legacy-saved"}',
+    onReceipt:()=>undefined, // T2 legacy ACK without Kernel readback evidence.
+  });
+  const strictReceiver=mountT2SiteHandoffReceiver({
+    hostWindow:legacy.hostWindow,expectedSiteOrigin:siteOrigin,
+    cryptoSource:legacy.cryptoSource,validateSource:JSON.parse,
+    onPreview:()=>{},verifyAppliedBeforeSend:async()=>true,
+    onStatus:s=>unconfirmed.push(s),
+  });
+  await new Promise(resolve=>queueMicrotask(resolve));
+  assert.equal(await strictReceiver.sendReceipt('{"kernel-receipt":"verified"}'),true);
+  assert.ok(unconfirmed.includes('WRITE_RECEIPT_SITE_APPLICATION_NOT_CONFIRMED'));
+  assert.ok(!unconfirmed.includes('WRITE_RECEIPT_SITE_APPLIED_VERIFIED'));
 });

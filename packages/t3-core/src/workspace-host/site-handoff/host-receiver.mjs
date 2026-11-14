@@ -28,7 +28,18 @@ export function mountT2SiteHandoffReceiver({hostWindow, expectedSiteOrigin, vali
         !['APPLIED', 'REJECTED'].includes(event.data.status)) return;
     awaitingAck = false;
     hostWindow.removeEventListener('message', onAck);
-    onStatus('WRITE_RECEIPT_SITE_' + event.data.status);
+    // A legacy Site ACK means the callback returned. In signed T3 mode the
+    // origin must additionally assert that its ORIGINAL Kernel was read back.
+    // Preserve old T2 behavior, but never upgrade a legacy ACK to verified.
+    const originalKernelReadback = event.data.status === 'APPLIED' &&
+      event.data.receiptEvidence === 'IWXA_T3_ORIGINAL_KERNEL_READBACK/1';
+    if (verifyAppliedBeforeSend !== null && event.data.status === 'APPLIED') {
+      onStatus(originalKernelReadback
+        ? 'WRITE_RECEIPT_SITE_APPLIED_VERIFIED'
+        : 'WRITE_RECEIPT_SITE_APPLICATION_NOT_CONFIRMED');
+    } else {
+      onStatus('WRITE_RECEIPT_SITE_' + event.data.status);
+    }
   };
   const dispose = () => {
     if (disposed) return;

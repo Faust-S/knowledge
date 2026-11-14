@@ -69,17 +69,21 @@ export function launchT2SiteHandoff({siteWindow, hostUrl, collectRawBackup,
         try {
           Promise.resolve(verifyAppliedReceipt(receipt, value)).then(
             verified => acknowledge(verified === true ? 'APPLIED' : 'REJECTED',
-              verified !== true),
+              verified !== true, verified === true),
             () => acknowledge('REJECTED', true),
           );
         } catch {
           acknowledge('REJECTED', true);
         }
       };
-      const acknowledge = (status, asynchronousFailure = false) => {
+      const acknowledge = (status, asynchronousFailure = false,
+        independentReadback = false) => {
         try {
           peer.postMessage({protocol: HANDOFF_PROTOCOL, kind: 'write-receipt-status',
-            nonce: receiptNonce, status}, dest.origin);
+            nonce: receiptNonce, status,
+            ...(independentReadback === true && status === 'APPLIED'
+              ? {receiptEvidence:'IWXA_T3_ORIGINAL_KERNEL_READBACK/1'} : {}),
+          }, dest.origin);
         } catch {
           // Lost acknowledgement cannot undo an already completed local write.
         }
