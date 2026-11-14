@@ -113,7 +113,7 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
       for(let i=0;i<bytes.length;i+=8192)
         chunks.push(String.fromCharCode(...bytes.subarray(i,i+8192)));
       bodyPayload={archiveBase64url:btoa(chunks.join(""))
-        .replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/,"")};
+        .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"")};
     }
     const epoch=await getEpoch();
     requireGeneration(generation);
