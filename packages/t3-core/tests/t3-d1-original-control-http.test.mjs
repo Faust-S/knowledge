@@ -207,9 +207,9 @@ test("original native D3 recipient uses the existing signed Control HTTP and iso
       events.push({kind:"receive",bytes:[...bytes]});
       return {transportReceipt:{state:"RECEIVED"},acceptanceState:"NOT_ACCEPTED"};
     },
-    receipt:async operationId=>{
-      events.push({kind:"receipt",operationId});
-      return {found:true,receipt:{operationId,acceptanceState:"ACCEPTED"},
+    receipt:async (operationId,packageSha256)=>{
+      events.push({kind:"receipt",operationId,packageSha256});
+      return {found:true,receipt:{operationId,packageSha256,acceptanceState:"ACCEPTED"},
         kernelApplication:"NOT_ATTESTED_BY_RECONCILIATION_RECEIPT"};
     },
     preview:async digest=>{
@@ -252,7 +252,7 @@ test("original native D3 recipient uses the existing signed Control HTTP and iso
     assert.equal(accepted.kernelApplication,"NOT_APPLIED");
     assert.equal(events.filter(e=>e.kind==="apply").length,0);
     const recovered=await f.browser.reconciliationRequest("receipt",{
-      operationId:"review:one",
+      operationId:"review:one",packageSha256:digest,
     });
     assert.equal(recovered.receipt.operationId,"review:one");
     assert.equal(recovered.kernelApplication,
