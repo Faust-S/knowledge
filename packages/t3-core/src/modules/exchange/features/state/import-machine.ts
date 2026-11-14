@@ -316,6 +316,21 @@ export function validateRestorationReceipt(
     issues.push("Kernel отменил импорт; восстановление не выполнено.");
     return issues;
   }
+  // Original Kernel new-workspace receipt contains the actual source->target
+  // map. Success counters alone cannot prove that user-selected destinations
+  // received their data. A mismatch is a committed-but-incomplete outcome:
+  // never automatically replay the original .iwxa import.
+  if (plan.mode === "new-workspace") {
+    if (receipt.applied.workspaces < plan.include_workspaces.length) {
+      issues.push("Квитанция не подтверждает создание всех рабочих областей.");
+    }
+    for (const source of plan.include_workspaces) {
+      const target = plan.workspace_id_map?.[source];
+      if (target && receipt.workspace_id_map?.[source] !== target) {
+        issues.push(`Kernel не подтвердил выбранную цель "${target}" для "${source}".`);
+      }
+    }
+  }
   const writtenObjects = receipt.applied.objects_inserted + receipt.applied.objects_updated;
   const allowed = preview.included;
   if (allowed?.objects && writtenObjects === 0) {

@@ -122,6 +122,24 @@ describe("Exchange scope gating for real Kernel previews", () => {
     })).toEqual(expect.arrayContaining([expect.stringContaining("История восстановлена не полностью")]));
   });
 
+  it("requires the committed new-workspace mapping to match the destination chosen by the user", () => {
+    const chosen = { ...plan, workspace_id_map: { source: "restored:local" } };
+    const receipt = {
+      mode: "new-workspace", workspace_id_map: { source: "other:workspace" },
+      cancelled: false,
+      applied: { workspaces: 1, objects_inserted: 2, objects_updated: 0,
+        objects_skipped: 0, events: 3, relations: 1, assets: 0,
+        schemas_inserted: 2, schemas_reused: 0, schemas_rejected: 0 },
+    } as ImportReceipt;
+    expect(validateRestorationReceipt(makePreview(), chosen, receipt))
+      .toEqual(expect.arrayContaining([
+        expect.stringContaining('Kernel не подтвердил выбранную цель "restored:local"'),
+      ]));
+    expect(validateRestorationReceipt(makePreview(), chosen, {
+      ...receipt, workspace_id_map: { source: "restored:local" },
+    })).toEqual([]);
+  });
+
   it("retains the real receipt and completed writes after an incomplete import", () => {
     const handle: SecureImportPreview = {
       preview_token: "token", package_digest: "digest", semantic_digest: "semantic",

@@ -106,6 +106,53 @@ describe("D7 installed PWA protected .iwxa.age through original Exchange",()=>{
     expect(open).toHaveBeenCalledTimes(1);
     expect(k.listWorkspaces).toHaveBeenCalledTimes(1);
   });
+  it("keeps the real import receipt but refuses success if native restore target is absent",async()=>{
+    const secure={...preview,allowed_modes:["new-workspace"]};
+    let inventoryReads=0;
+    const k={
+      hasOperation:(op:string)=>[
+        "t1.listWorkspaces","t2.importPreview","t2.importCommit",
+        "t2.importCancel"].includes(op),
+      listWorkspaces:vi.fn(async()=>{inventoryReads++;return [];}), // remains empty
+      importPreview:vi.fn(async()=>secure),
+      importCancel:vi.fn(async()=>true),
+      importCommit:vi.fn(async()=>({
+        import_id:"import:verified:one",format:"iwxa.import.receipt",
+        format_version:"1.0",mode:"new-workspace",conflict_policy:"fail",
+        package_digest:"original",semantic_digest:"original-sem",
+        committed_at:"2026-11-15T00:00:00Z",
+        workspace_id_map:{"incoming:one":"incoming:one-imported"},
+        applied:{workspaces:1,objects_inserted:0,objects_updated:0,
+          objects_skipped:0,events:0,relations:0,assets:0,
+          schemas_inserted:0,schemas_reused:0,schemas_rejected:0},
+        skipped_conflicts:[],excluded_by_permission:{},
+      })),
+    } as unknown as KernelFacade;
+    const age={canOpen:true,canSeal:false,maxArchiveBytes:32*1024*1024,
+      maxCiphertextBytes:33*1024*1024,
+      open:vi.fn(async()=>({status:"AGE_OPENED_NOT_IMPORTED",
+        archiveBytes:Uint8Array.of(80,75,3,4,1,2,3),
+        archiveSha256:"a".repeat(64),recipientId:"recipient:installed",
+        kernelPreviewed:false,accepted:false}))} as unknown as
+      ReturnType<typeof createTrustedAgeExchange>;
+    render(<PackagesView kernel={k} commands={commands} initialTab="import"
+      exportScopeId={null} protectedExchange={age}/>);
+    await act(async()=>{fireEvent.change(screen.getByTestId("import-age-file"),{
+      target:{files:[sealed()]},
+    });});
+    await act(async()=>{fireEvent.click(screen.getByTestId("import-age-preview"));});
+    await waitFor(()=>expect(screen.getByTestId("import-mode")).toHaveProperty(
+      "value","new-workspace"));
+    await act(async()=>{fireEvent.click(screen.getByTestId("import-commit"));});
+    await waitFor(()=>expect(screen.getByTestId("import-view").getAttribute(
+      "data-import-state")).toBe("unconfirmed"));
+    expect(screen.getByTestId("import-receipt")).toBeTruthy();
+    expect(screen.getByTestId("import-incomplete-notice").textContent)
+      .toContain("не будет автоматически повторена");
+    expect(k.importCommit).toHaveBeenCalledTimes(1);
+    expect(inventoryReads).toBe(2);
+  });
+
   it("invalidates the old Kernel preview on a second OS launch of the SAME protected handle",async()=>{
     withQueue();
     let release!: (value:typeof preview)=>void;

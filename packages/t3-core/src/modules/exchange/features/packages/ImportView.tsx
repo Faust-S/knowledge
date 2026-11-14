@@ -349,7 +349,48 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       const restoreIssues = [...validateRestorationReceipt(
         state.handle.preview, state.plan, receipt,
       )];
+      // Validate the original receipt identity before treating a successful
+      // Kernel write as restoration of THIS selected file and import plan.
+      if (receipt.package_digest !== state.handle.package_digest ||
+          receipt.semantic_digest !== state.handle.semantic_digest ||
+          receipt.mode !== state.plan.mode) {
+        restoreIssues.push("Квитанция Kernel не соответствует выбранному пакету или плану импорта.");
+      }
       let readbackUnconfirmed = false;
+      // A protected clean-install restore uses original new-workspace import.
+      // When the original catalogue read is granted, verify that the actual
+      // destination(s) now exist. The receipt remains visible if this read
+      // fails, but re-import is NEVER attempted as a recovery shortcut.
+      if (state.plan.mode === "new-workspace" && !receipt.cancelled && canListLocal &&
+          state.plan.include_workspaces.length > 0) {
+        const selectedTargets = state.plan.include_workspaces.map(source =>
+          state.plan.workspace_id_map?.[source]);
+        try {
+          if (selectedTargets.some(target => !target))
+            throw new Error("DESTINATION_WORKSPACE_MAP_MISSING");
+          const actual = await kernel.listWorkspaces({ include_deleted: false });
+          if (selectedTargets.some(target =>
+              !actual.some(workspace => workspace.workspace_id === target &&
+                !workspace.deleted_at)))
+            throw new Error("DESTINATION_WORKSPACE_READBACK_MISSING");
+          const firstSourceObject = state.handle.preview.objects.find(object =>
+            state.plan.include_workspaces.includes(object.workspace_id));
+          if (firstSourceObject && kernel.hasOperation("t1.getObject")) {
+            const destination = state.plan.workspace_id_map?.[firstSourceObject.workspace_id];
+            if (!destination) throw new Error("DESTINATION_OBJECT_MAP_MISSING");
+            const stored = await kernel.getObject(destination, firstSourceObject.object_id);
+            if (!stored || stored.object.workspace_id !== destination ||
+                stored.object.object_id !== firstSourceObject.object_id ||
+                stored.object.schema_id !== firstSourceObject.schema_id ||
+                stored.object.schema_version !== firstSourceObject.schema_version)
+              throw new Error("DESTINATION_OBJECT_READBACK_MISMATCH");
+          }
+        } catch {
+          readbackUnconfirmed = true;
+          restoreIssues.push("Повторное чтение оригинального Kernel не подтвердило " +
+            "целевую рабочую область. Не импортируйте этот пакет повторно автоматически.");
+        }
+      }
       // A Kernel receipt is not a readback. In a signed cross-Workspace merge,
       // read the destination from the ORIGINAL selected Kernel again before
       // reporting completion. An uncertain read leaves the committed receipt
