@@ -19,6 +19,8 @@ interface TrustedRealmServerArgs {
   describeOriginalSession?(): Promise<unknown> | unknown;
   validateOriginalObjects?(value: unknown): Promise<unknown> | unknown;
   selectedWorkspaceContext?(operation: string): Promise<unknown> | unknown;
+  /** Only the native signed Control can execute these D3 operations. */
+  reconciliationRequest?(verb: string,payload?: unknown): Promise<unknown> | unknown;
 }
 export declare function acceptOriginalKernelRealmChannel(input: TrustedRealmServerArgs):
   IsolatedKernelReceiver | null;
