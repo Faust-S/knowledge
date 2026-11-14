@@ -32,7 +32,7 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
     decisionCheckAtCommit:true,externalContextCoreApplied:false,
     commitPrecondition:()=>{preconditionCount++;return sourceCurrent&&signedJitCount>0;},
   };
-  let written=null;
+  let written=null,lastEvent=null;
   const hash=value=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
   const access={
     currentContext:()=>context,
@@ -64,13 +64,23 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
     kernel:{
       sessionInfo:{contract_version:"1.3.0"},
       hasOperation:()=>true,
-      commitObjectGraph:async input=>{commits++;written=input;return {
-        workspace_id:"ws:a",object:{workspace_id:"ws:a",object_id:"result:one",
-          revision:1,schema_id:"iwxa.result.native"},relations_put:[],event:{
-          event_id:"evt:a",workspace_id:"ws:a"}};},
-      getObject:async()=>({object:{workspace_id:"ws:a",object_id:"result:one",
-        revision:1,schema_id:"iwxa.result.native",data:{text:"reviewed"}},
-        relations:{incoming:[],outgoing:[]}}),
+      commitObjectGraph:async input=>{
+        commits++;written=structuredClone(input);
+        lastEvent={event_id:"evt:a",event_type:input.event.event_type,
+          workspace_id:"ws:a",service_id:"iwxa.test",object_id:"result:one",
+          revision:1,occurred_at:new Date().toISOString(),
+          idempotency_key:input.idempotency_key,
+          payload:structuredClone(input.event.payload)};
+        return {
+          workspace_id:"ws:a",object:{workspace_id:"ws:a",object_id:"result:one",
+            revision:1,schema_id:"iwxa.result.native"},
+          relations_put:[],event:structuredClone(lastEvent)};
+      },
+      getObject:async()=>written?{object:{
+        workspace_id:"ws:a",object_id:"result:one",revision:1,
+        schema_id:"iwxa.result.native",schema_version:"1.0.0",
+        data:{text:"reviewed"}},relations:{incoming:[],outgoing:[]}}:null,
+      listEventsSince:async()=>lastEvent?[structuredClone(lastEvent)]:[],
     },
     access,
     stageFromOriginalOwner:()=>({binding,command,authorizationContext:{
@@ -94,12 +104,28 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   await assert.rejects(port.applyAccepted(selection),
     {code:"T3_D3_SEPARATE_HUMAN_APPLY_REQUIRED"});
   assert.equal(commits,0);
+  // A matching object is insufficient if the actual original Event is absent.
+  const notYetApplied=await port.recoverApplied(selection);
+  assert.equal(notYetApplied.status,"OUTCOME_UNKNOWN");
+  assert.equal(notYetApplied.automaticRetryAllowed,false);
   approves=true;
   const result=await port.applyAccepted(selection);
   assert.equal(result.kernelWriteReadback,"CONFIRMED");
   assert.equal(result.externalProductAcceptance,"NOT_ACCEPTED");
   assert.equal(written.idempotency_key,effect);
   assert.equal(commits,1);
+  const recovered=await port.recoverApplied(selection);
+  assert.equal(recovered.status,"ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
+  assert.equal(recovered.kernelWriteReadback,"CONFIRMED");
+  assert.equal(recovered.effectKey,effect);
+  assert.equal(recovered.originalEventReadback.idempotency_key,effect);
+  assert.equal(commits,1,"recover must never repeat original Kernel commit");
+  lastEvent.idempotency_key="f".repeat(64);
+  const forged=await port.recoverApplied(selection);
+  assert.equal(forged.status,"OUTCOME_UNKNOWN");
+  assert.equal(forged.automaticRetryAllowed,false);
+  assert.equal(commits,1);
+  lastEvent.idempotency_key=effect;
   // A human approval is bound to the exact signed purpose/audience/realm,
   // even if the selected organization, actor and Workspace do not change.
   changePurposeDuringHumanApply=true;
