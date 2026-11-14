@@ -171,8 +171,10 @@ export function createIsolatedKernelClient({port,isActive=()=>true,timeoutMs=150
     if(closed)return;closed=true;
     port.removeEventListener?.('message',onMessage);
     port.close();
-    for(const {reject,timer}of waiting.values()){
-      clearTimeout(timer);reject(fail('T3_D1_ISOLATED_KERNEL_DISCONNECTED'));
+    for(const {reject,timer,mayHaveChanged}of waiting.values()){
+      clearTimeout(timer);reject(fail(mayHaveChanged
+        ?'T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN':
+          'T3_D1_ISOLATED_KERNEL_DISCONNECTED'));
     }
     waiting.clear();
     for(const listener of listeners){try{listener('unavailable');}catch{}}
@@ -190,12 +192,19 @@ export function createIsolatedKernelClient({port,isActive=()=>true,timeoutMs=150
       if(!METHODS.has(method))return Promise.reject(fail('T3_D1_ORIGINAL_KERNEL_METHOD_FORBIDDEN'));
       if(args.length>4)return Promise.reject(fail('T3_D1_ISOLATED_KERNEL_ARGUMENTS_INVALID'));
       const id=++nextId;
+      // An original Human ACCEPT/APPLY can remain pending in the installed
+      // native product. Timeout or disconnect AFTER dispatch is UNKNOWN,
+      // never a definite denial or automatic permission to replay a write.
+      const mayHaveChanged=method==='reconciliationRequest'&&
+        ['receive','accept','reject','applyAccepted'].includes(args[0]);
+      const operationTimeout=mayHaveChanged?30*60*1000:timeoutMs;
       return new Promise((resolve,reject)=>{
         const timer=setTimeout(()=>{
           waiting.delete(id);
-          reject(fail('T3_D1_ISOLATED_KERNEL_TIMEOUT'));
-        },timeoutMs);
-        waiting.set(id,{resolve,reject,timer});
+          reject(fail(mayHaveChanged?'T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN':
+            'T3_D1_ISOLATED_KERNEL_TIMEOUT'));
+        },operationTimeout);
+        waiting.set(id,{resolve,reject,timer,mayHaveChanged});
         try{port.postMessage({schema:SCHEMA,kind:'call',id,method,args});}
         catch{waiting.delete(id);clearTimeout(timer);
           reject(fail('T3_D1_ISOLATED_KERNEL_MESSAGE_INVALID'));}
