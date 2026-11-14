@@ -44,6 +44,7 @@ interface WorkspaceHostRuntimeProviderProps {
   signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
   /** Existing original Reconciliation, trusted compile-time Host only. */
   reconciliationOwner?: CreateWorkspaceHostRuntimeInput["reconciliationOwner"];
+  reconciliationPort?: CreateWorkspaceHostRuntimeInput["reconciliationPort"];
   /** Reuse the original Control owner's subscribeInvalidation. Context
    * changes, signed STATUS and revocation must immediately detach old UI. */
   subscribeSignedAccessInvalidation?: SignedAccessInvalidationSubscription;
@@ -75,7 +76,7 @@ export function WorkspaceHostRuntimeProvider(
   const {
     session, workspaceConfig, termResolver, profile,
     activeCapabilities = EMPTY_CAPABILITIES,
-    signedKernelAccess, signedActivityAccess, reconciliationOwner,
+    signedKernelAccess, signedActivityAccess, reconciliationOwner, reconciliationPort,
     subscribeSignedAccessInvalidation,
     compileTimeModuleLoaders,
     preferDomainLanding = false,
@@ -201,6 +202,7 @@ export function WorkspaceHostRuntimeProvider(
             signedKernelAccess,
             signedActivityAccess,
             reconciliationOwner,
+            reconciliationPort,
             compileTimeModuleLoaders,
             preferDomainLanding,
           });
@@ -229,7 +231,7 @@ export function WorkspaceHostRuntimeProvider(
       // this generation stale.
     };
     // Restart only on session identity or workspaceConfig identity change.
-  }, [sessionKey, session, workspaceConfig, termResolver, profile, activeCapabilities, signedKernelAccess, signedActivityAccess, reconciliationOwner, accessEpoch, compileTimeModuleLoaders, preferDomainLanding]);
+  }, [sessionKey, session, workspaceConfig, termResolver, profile, activeCapabilities, signedKernelAccess, signedActivityAccess, reconciliationOwner, reconciliationPort, accessEpoch, compileTimeModuleLoaders, preferDomainLanding]);
 
   // Unmount teardown.
   useEffect(() => {
