@@ -14,6 +14,9 @@ const METHODS=new Set([
   // Metadata and T0 validation do not touch the Store; all T1/T2 operations
   // still require the exact signed original KernelFacade in the trusted realm.
   'describeSession','validateObjects','selectedWorkspaceContext',
+  // The existing native Control HTTP owner executes D3; this is only the
+  // pinned origin-bound carrier, never a browser Reconciliation engine.
+  'reconciliationRequest',
 ]);
 const LOCAL_ORIGIN=/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/;
 const fail=code=>Object.assign(new Error(code),{code});
@@ -27,7 +30,7 @@ export const ALLOWED_ISOLATED_KERNEL_METHODS=Object.freeze([...METHODS]);
 // MessagePorts, but cannot forge the browser's event.origin or source.
 export function acceptOriginalKernelRealmChannel({event,uiOrigin,parentWindow,
   createSignedFacade,isActive,describeOriginalSession,validateOriginalObjects,
-  selectedWorkspaceContext}={}){
+  selectedWorkspaceContext,reconciliationRequest}={}){
   if(!LOCAL_ORIGIN.test(uiOrigin??'')||!object(event?.data)||
      event.data.schema!==SCHEMA||event.data.kind!=='attach'||
      typeof event.data.nonce!=='string'||event.data.nonce.length<16||
@@ -38,7 +41,8 @@ export function acceptOriginalKernelRealmChannel({event,uiOrigin,parentWindow,
     throw fail('T3_D1_TRUSTED_KERNEL_HOST_REQUIRED');
   const port=event.ports[0];
   const receiver=bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
-    describeOriginalSession,validateOriginalObjects,selectedWorkspaceContext});
+    describeOriginalSession,validateOriginalObjects,selectedWorkspaceContext,
+    reconciliationRequest});
   port.postMessage({schema:SCHEMA,kind:'ready',nonce:event.data.nonce});
   return receiver;
 }
@@ -82,6 +86,15 @@ export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
            (info.kind==='PERSONAL'&&info.organization_id!==null)))
           deny('T3_D1_SELECTED_CONTEXT_INVALID');
         port.postMessage({schema:SCHEMA,kind:'result',id,result:info});
+        return;
+      }
+      if(method==='reconciliationRequest'){
+        if(typeof reconciliationRequest!=='function')
+          deny('T3_D3_ORIGINAL_RECIPIENT_UNAVAILABLE');
+        const result=await reconciliationRequest(...args);
+        if(!valid()||captured!==sequence)
+          deny('T3_D3_OWNER_CONTEXT_CHANGED_OUTCOME_UNKNOWN');
+        port.postMessage({schema:SCHEMA,kind:'result',id,result});
         return;
       }
       if(method==='describeSession'||method==='validateObjects'){
