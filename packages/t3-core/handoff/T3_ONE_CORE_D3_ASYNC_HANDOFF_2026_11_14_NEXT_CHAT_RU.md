@@ -1,5 +1,13 @@
 # IWXA T3 One Core. D3, точные подтверждения асинхронного Host, передача 14.11.2026
 
+## Ревизия продукта 14.11.2026: изменение приоритета
+
+Результаты полной проверки B0/D1–D7/G4, обнаруженные defects и нормативный конечный план: [T3_PRODUCT_ENGINEERING_AUDIT_2026_11_14_RU.md](../docs/T3_PRODUCT_ENGINEERING_AUDIT_2026_11_14_RU.md).
+
+**До продолжения D3 обязательно закрыть D1 raw Kernel bypass**: опубликованный browser witness `T3_D1_RAW_ORIGINAL_KERNEL_BYPASS_CONFIRMED_NOT_ACCEPTED` зафиксировал реальное same-origin чтение чужой Workspace через `IWXA.connect` в подписанном режиме. Отдельный изолированный UI origin решает проблему только на поддерживаемом split-origin маршруте. До общей подтверждённой границы и сохранения всех исходных T2 capabilities `D1_PRODUCT_READY=false`, `G4=NOT_ACCEPTED`. Нельзя выдавать успешный CI или тестовую визуальную изоляцию за продуктовую субъектность.
+
+В коммите `5ba9fc469b5c78361c264943cb50f4b713f5edb1` исправлены явные HOLD/BLOCKED/false/null в штатных transport receipt; [CI #43579800166](https://github.com/Faust-S/knowledge/actions/runs/43579800166) = SUCCESS, 671/671 Node product tests, `real-host` и `windows-credential` PASS. Параллельные коммиты D3/D2 после этого коммита проверять по их собственным exact CI. Старый исходник handoff ниже остаётся историческим: обновление имеет приоритет для выбора следующей работы.
+
 ## Обновление 14.11.2026: D3 transport, verified exact source
 
 **Квалифицированный исполняемый исходник:** `Faust-S/knowledge@work/2026-11-10-t3-t2-activity-projection`, коммит `2cf200ad0f1beb4c783ff89b6ba2a3c2aa5308bb`, TREE `d5d2fa68171e6573efddc11e9e854f27b7c0452b`. [GitHub Actions #43578735999](https://github.com/Faust-S/knowledge/actions/runs/43578735999): **COMPLETED SUCCESS**: `test`, `real-host`, `windows-credential`; `metal-webgpu=SKIPPED`. В `test` подтверждены `668/668` Node product tests, включая три новых сценария границы D3, без FAIL. Следующий документационный коммит не является новым исполняемым кандидатом. Повторно проверить live HEAD/TREE перед продолжением.
