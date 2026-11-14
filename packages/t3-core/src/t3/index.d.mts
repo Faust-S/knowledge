@@ -220,6 +220,22 @@ export function createTrustedAgeExchange(options:{
  * monotonic STATUS floors, tombstones and cold-restart readback. This port
  * neither issues credentials nor turns entitlements into data access rights. */
 export type T3PublisherHandoffKind = "LICENSE"|"STATUS";
+/** Signed IWXA_T3_LICENSE_STATUS/2 permits multiple entries per holder and
+ * full snapshots with ZERO entries. Licence renewal uses original lineages. */
+export type T3PublisherStatusMode =
+  "FULL_HOLDER_SNAPSHOT"|"SELECTIVE_DELTA"|"TOMBSTONE_EVENT";
+export type T3PublisherStatusState =
+  "ACTIVE"|"SUSPENDED"|"REVOKED"|"SUPERSEDED";
+export interface T3PublisherStatusScope {
+  readonly mode:T3PublisherStatusMode;
+  readonly lineageId:string|null;
+  readonly licenseIds:readonly string[];
+}
+export interface T3PublisherStatusEntry {
+  readonly licenseId:string;readonly lineageId:string;
+  readonly state:T3PublisherStatusState;
+  readonly effectiveAt:string;readonly evidenceRef:string;
+}
 export interface T3OriginalPublisherHolder {
   subjectForContext(context:unknown):
     {holderId:string;recipientId:string;subjectType:"PERSON"|"ORGANIZATION"}|
@@ -239,14 +255,21 @@ export interface T3PublisherHandoffPreview {
   kind:T3PublisherHandoffKind;packageSha256:string;previewDigest:string;
   holderId:string;recipientId:string;operationId:string;
   issuerAuthorityId:string;publisherId:string;licenseId:string|null;
-  sequence:number|null;targetStatus:string|null;
+  sequence:number|null;
+  statusScope:T3PublisherStatusScope|null;
+  statusEntries:readonly T3PublisherStatusEntry[]|null;
+  statusPayloadDigest:string|null;
   dataAccessAuthorized:false;entitlementActivated:false;
 }
 export interface T3PublisherHandoffResult {
-  status:"USER_CANCELLED"|"OUTCOME_UNKNOWN"|"ORIGINAL_HOLDER_READBACK_CONFIRMED";
+  status:"USER_CANCELLED"|"OUTCOME_UNKNOWN"|"OPERATION_IN_PROGRESS"|
+    "ORIGINAL_HOLDER_READBACK_CONFIRMED";
   kind:T3PublisherHandoffKind;operationId?:string;
   packageSha256?:string;holderId?:string;issuerAuthorityId?:string;
-  licenseId?:string|null;sequence?:number|null;targetStatus?:string|null;
+  licenseId?:string|null;sequence?:number|null;
+  statusScope?:T3PublisherStatusScope|null;
+  statusEntries?:readonly T3PublisherStatusEntry[]|null;
+  statusPayloadDigest?:string|null;
   entitlementActivated?:false;dataAccessAuthorized?:false;
 }
 export function createTrustedPublisherHandoff(options:{

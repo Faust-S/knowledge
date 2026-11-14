@@ -7,6 +7,8 @@ import {createSubjectKernelBinding} from "./subject-access-binding.mjs";
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[0-9a-f]{64}$/;
 const MAX=4*1024*1024;
+const STATUS_MODES=new Set(["FULL_HOLDER_SNAPSHOT","SELECTIVE_DELTA","TOMBSTONE_EVENT"]);
+const STATUS_STATES=new Set(["ACTIVE","SUSPENDED","REVOKED","SUPERSEDED"]);
 const validId=x=>typeof x==="string"&&ID.test(x);
 function deny(code){throw Object.assign(new Error(code),{code,outcome:"DENIED"});}
 function requireValue(ok,code){if(!ok)deny(code);}
@@ -30,6 +32,59 @@ function kindOf(value){
 function matching(v,expected,fields){
   return v&&fields.every(k=>v[k]===expected[k]);
 }
+// This is a display/receipt binding over the ORIGINAL signed /2 status,
+// not a replacement for the original Publisher signature/status validator.
+// The original payload permits 0..4096 changes; a full holder snapshot
+// can carry zero entries and thus close all previous nonterminal entries.
+function checkedStatus(row){
+  const scope=row.scope,entries=row.entries;
+  requireValue(row.statusSchema==="IWXA_T3_LICENSE_STATUS/2"&&
+    HEX.test(row.statusPayloadDigest??"")&&
+    Number.isSafeInteger(row.sequence)&&row.sequence>=1&&
+    scope&&STATUS_MODES.has(scope.mode)&&
+    (scope.lineageId===null||validId(scope.lineageId))&&
+    Array.isArray(scope.licenseIds)&&scope.licenseIds.length<=4096&&
+    scope.licenseIds.every(validId)&&
+    new Set(scope.licenseIds).size===scope.licenseIds.length&&
+    Array.isArray(entries)&&entries.length<=4096,
+    "T3_D7_PUBLISHER_SIGNED_STATUS_REQUIRED");
+  const full=scope.mode==="FULL_HOLDER_SNAPSHOT";
+  requireValue(full
+    ? scope.lineageId===null&&scope.licenseIds.length===0
+    : (scope.lineageId!==null)!==(scope.licenseIds.length>0),
+    "T3_D7_PUBLISHER_STATUS_SCOPE_INVALID");
+  const selected=new Set(scope.licenseIds),seen=new Set();
+  for(const entry of entries){
+    requireValue(entry&&validId(entry.licenseId)&&validId(entry.lineageId)&&
+      validId(entry.evidenceRef)&&STATUS_STATES.has(entry.state)&&
+      typeof entry.effectiveAt==="string"&&
+      !Number.isNaN(Date.parse(entry.effectiveAt))&&
+      !seen.has(entry.licenseId)&&
+      (scope.lineageId===null||entry.lineageId===scope.lineageId)&&
+      (!selected.size||selected.has(entry.licenseId))&&
+      (scope.mode!=="TOMBSTONE_EVENT"||
+        entry.state==="REVOKED"||entry.state==="SUPERSEDED"),
+      "T3_D7_PUBLISHER_STATUS_ENTRY_INVALID");
+    seen.add(entry.licenseId);
+  }
+  if(selected.size)requireValue(seen.size===selected.size,
+    "T3_D7_PUBLISHER_STATUS_SCOPE_INCOMPLETE");
+  // Copy only signed, verified public status descriptors across the UI
+  // boundary; do not expose private key/material or native runtime state.
+  return Object.freeze({
+    statusPayloadDigest:row.statusPayloadDigest,
+    statusScope:Object.freeze({mode:scope.mode,lineageId:scope.lineageId,
+      licenseIds:Object.freeze([...scope.licenseIds])}),
+    statusEntries:Object.freeze(entries.map(e=>Object.freeze({
+      licenseId:e.licenseId,lineageId:e.lineageId,state:e.state,
+      effectiveAt:e.effectiveAt,evidenceRef:e.evidenceRef,
+    }))),
+  });
+}
+function opKey(row){
+  return JSON.stringify([row.kind,row.recipientId,row.holderId,
+    row.operationId,row.packageSha256]);
+}
 /** A Host supplies the existing original native holder, whose preview verifies
  * signed Publisher identity against pinned PUBLIC trust, holder binding and
  * original .iwxa carrier. apply() performs the ORIGINAL durable holder
@@ -45,6 +100,7 @@ export function createTrustedPublisherHandoff({
     typeof confirmHuman==="function"&&typeof isHostActive==="function",
     "T3_D7_ORIGINAL_HOLDER_REQUIRED");
   const uncertain=new Set(); // volatile no-repeat guard, not a Store
+  const inFlight=new Set(); // claim before human confirmation; no parallel APPLY
   const active=()=>requireValue(isHostActive()===true,"T3_HOST_DISPOSED");
   async function bind(){
     active();
@@ -101,16 +157,15 @@ export function createTrustedPublisherHandoff({
       validId(inspected.operationId)&&HEX.test(inspected.previewDigest??"")&&
       ["READY","RECOVER_ONLY"].includes(inspected.stage),
       "T3_D7_PUBLISHER_ORIGINAL_INSPECTION_REQUIRED");
-    if(kind==="LICENSE"){
+    const status=kind==="STATUS"?checkedStatus(inspected):null;
+    if(kind==="LICENSE")
       requireValue(validId(inspected.licenseId),
         "T3_D7_PUBLISHER_LICENSE_REFERENCE_REQUIRED");
-    }else{
-      requireValue(Number.isSafeInteger(inspected.sequence)&&
-        inspected.sequence>=1&&["ACTIVE","SUSPENDED","REVOKED","SUPERSEDED"]
-          .includes(inspected.targetStatus),
-        "T3_D7_PUBLISHER_SIGNED_STATUS_REQUIRED");
-    }
-    return {kind,bytes,inspected:Object.freeze({...inspected})};
+    return {kind,bytes,inspected:Object.freeze({
+      ...inspected, statusScope:status?.statusScope??null,
+      statusEntries:status?.statusEntries??null,
+      statusPayloadDigest:status?.statusPayloadDigest??null,
+    })};
   }
   function summary(row){
     return Object.freeze({
@@ -120,7 +175,8 @@ export function createTrustedPublisherHandoff({
       recipientId:row.recipientId,operationId:row.operationId,
       issuerAuthorityId:row.issuerAuthorityId,publisherId:row.publisherId,
       licenseId:row.licenseId??null,sequence:row.sequence??null,
-      targetStatus:row.targetStatus??null,
+      statusScope:row.statusScope??null,statusEntries:row.statusEntries??null,
+      statusPayloadDigest:row.statusPayloadDigest??null,
       dataAccessAuthorized:false,entitlementActivated:false,
     });
   }
@@ -138,9 +194,13 @@ export function createTrustedPublisherHandoff({
        !validId(current.issuerAuthorityId)||
        current.issuerAuthorityId!==row.issuerAuthorityId||
        (row.kind==="LICENSE"&&current.licenseId!==row.licenseId)||
-       (row.kind==="STATUS"&&(!Number.isSafeInteger(current.sequence)||
-         current.sequence<row.sequence||
-         current.targetStatus!==row.targetStatus)))
+       (row.kind==="STATUS"&&(
+         receipt.sequence!==row.sequence||
+         receipt.statusPayloadDigest!==row.statusPayloadDigest||
+         current.sequence!==row.sequence||
+         current.statusPayloadDigest!==row.statusPayloadDigest||
+         !Number.isSafeInteger(current.statusSequenceFloor)||
+         current.statusSequenceFloor<row.sequence)))
       return Object.freeze({status:"OUTCOME_UNKNOWN",
         kind:row.kind,operationId:row.operationId});
     return Object.freeze({status:"ORIGINAL_HOLDER_READBACK_CONFIRMED",
@@ -148,7 +208,9 @@ export function createTrustedPublisherHandoff({
       packageSha256:row.packageSha256,holderId:row.holderId,
       issuerAuthorityId:row.issuerAuthorityId,
       licenseId:current.licenseId??null,
-      sequence:current.sequence??null,targetStatus:current.targetStatus??null,
+      sequence:current.sequence??null,
+      statusScope:row.statusScope??null,statusEntries:row.statusEntries??null,
+      statusPayloadDigest:row.statusPayloadDigest??null,
       entitlementActivated:false,dataAccessAuthorized:false});
   }
   async function preview(input){
@@ -163,33 +225,46 @@ export function createTrustedPublisherHandoff({
     requireValue(HEX.test(input.previewDigest??"")&&
       row.previewDigest===input.previewDigest,
       "T3_D7_PUBLISHER_PREVIEW_CHANGED");
-    if(row.stage==="RECOVER_ONLY"||uncertain.has(row.operationId))
+    const key=opKey(row);
+    if(row.stage==="RECOVER_ONLY"||uncertain.has(key))
       return Object.freeze({status:"OUTCOME_UNKNOWN",
         kind:row.kind,operationId:row.operationId});
-    const approved=await confirmHuman(summary(row));
-    await binding.current();
-    if(approved!==true)return Object.freeze({status:"USER_CANCELLED",kind:row.kind});
-    // Native receipt may be lost even after the original holder committed.
-    // Never call apply twice. Re-check owner inspection & signed read after
-    // human approval, then mark this operation before the only dispatch.
-    await binding.read();
-    const fresh=(await checkedInspection({kind:row.kind,archiveBytes:bytes},
-      binding)).inspected;
-    requireValue(fresh.operationId===row.operationId&&
-      fresh.previewDigest===row.previewDigest&&fresh.stage==="READY",
-      "T3_D7_PUBLISHER_PREVIEW_CHANGED");
-    uncertain.add(row.operationId);
-    try{
-      await nativeHolder.apply({
-        kind:row.kind,archiveBytes:bytes,
-        operationId:row.operationId,packageSha256:row.packageSha256,
-        previewDigest:row.previewDigest,
-        subject:binding.subject,context:binding.context,
-      });
-      return await observe(row,binding);
-    }catch{
-      return Object.freeze({status:"OUTCOME_UNKNOWN",
+    // A second direct Host call can race while human consent is open.
+    // Do not issue two confirmations or native writes for the same receipt.
+    if(inFlight.has(key))
+      return Object.freeze({status:"OPERATION_IN_PROGRESS",
         kind:row.kind,operationId:row.operationId});
+    inFlight.add(key);
+    try {
+      const approved=await confirmHuman(summary(row));
+      await binding.current();
+      if(approved!==true)
+        return Object.freeze({status:"USER_CANCELLED",kind:row.kind});
+      await binding.read();
+      const fresh=(await checkedInspection({kind:row.kind,archiveBytes:bytes},
+        binding)).inspected;
+      requireValue(fresh.operationId===row.operationId&&
+        fresh.previewDigest===row.previewDigest&&fresh.stage==="READY"&&
+        (row.kind!=="STATUS"||
+          (fresh.statusPayloadDigest===row.statusPayloadDigest&&
+            fresh.sequence===row.sequence)),
+        "T3_D7_PUBLISHER_PREVIEW_CHANGED");
+      // Lost native ACK may hide committed bytes. Mark before the ONLY write.
+      uncertain.add(key);
+      try {
+        await nativeHolder.apply({
+          kind:row.kind,archiveBytes:bytes,
+          operationId:row.operationId,packageSha256:row.packageSha256,
+          previewDigest:row.previewDigest,
+          subject:binding.subject,context:binding.context,
+        });
+        return await observe(row,binding);
+      }catch {
+        return Object.freeze({status:"OUTCOME_UNKNOWN",
+          kind:row.kind,operationId:row.operationId});
+      }
+    }finally {
+      inFlight.delete(key);
     }
   }
   async function recover(input){

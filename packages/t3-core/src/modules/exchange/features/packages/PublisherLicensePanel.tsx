@@ -133,21 +133,66 @@ export function PublisherLicensePanel({handoff}:{handoff:PublisherPort}){
       <dt>Получатель</dt><dd className="text-slate-300 break-all">{preview.holderId}</dd>
       <dt>Операция</dt><dd className="text-slate-300 break-all">{preview.operationId}</dd>
       {preview.licenseId&&<><dt>Лицензия</dt><dd className="text-slate-300">{preview.licenseId}</dd></>}
-      {preview.sequence!==null&&<><dt>Последовательность</dt><dd className="text-slate-300">{preview.sequence}</dd></>}
-      {preview.targetStatus&&<><dt>Подписанный статус</dt><dd className="text-slate-300">{preview.targetStatus}</dd></>}
+      {preview.sequence!==null&&<><dt>Последовательность</dt>
+        <dd className="text-slate-300">{preview.sequence}</dd></>}
+      {preview.statusScope && <><dt>Объём статуса</dt>
+        <dd className="text-slate-300">
+          {preview.statusScope.mode==="FULL_HOLDER_SNAPSHOT"
+            ?"Полный снимок владельца"
+            :preview.statusScope.mode==="SELECTIVE_DELTA"
+              ?"Выборочные изменения":"Отзыв или замена"}
+        </dd>
+        <dt>Лицензий в пакете</dt><dd className="text-slate-300">
+          {preview.statusEntries?.length??0}
+        </dd>
+      </>}
       <dt>Решение</dt><dd className="text-slate-300">
         {preview.status==="RECOVER_ONLY"
           ?"Только восстановление квитанции"
           :"Подпись подтверждена владельцем, ожидается решение пользователя"}
       </dd>
     </dl>}
+    {preview?.statusScope && <div data-testid="publisher-status-scope"
+      className="space-y-2 text-xs text-slate-300">
+      {preview.statusScope.mode==="FULL_HOLDER_SNAPSHOT" && <p
+        role="note" className="text-amber-200">
+        Полный снимок заменяет ранее наблюдавшиеся нетерминальные статусы,
+        которых нет в пакете. {preview.statusEntries?.length===0
+          ?"Пустой подписанный снимок закрывает все такие записи владельца."
+          :"Проверьте состав лицензий до подтверждения."}
+      </p>}
+      {preview.statusScope.mode==="TOMBSTONE_EVENT" && <p className="text-amber-200">
+        Эти события отзыва или замены сохраняются у исходного владельца.
+      </p>}
+      {preview.statusScope.lineageId && <p>
+        Линия лицензий: {preview.statusScope.lineageId}
+      </p>}
+      {(preview.statusEntries?.length??0)>0 && <details>
+        <summary className="cursor-pointer underline underline-offset-2">
+          Посмотреть подписанные статусы ({preview.statusEntries?.length})
+        </summary>
+        <div className="space-y-1 pt-2" data-testid="publisher-status-entries">
+          {(preview.statusEntries??[]).slice(0,50).map(entry=>
+            <p key={entry.licenseId} className="flex flex-wrap gap-2 break-all">
+              <span>{entry.licenseId}</span>
+              <span className="font-semibold text-slate-200">{entry.state}</span>
+            </p>)}
+          {(preview.statusEntries?.length??0)>50 && <p>
+            Показаны первые 50 позиций. Проверка и сохранение включают все
+            подписанные позиции исходного пакета.
+          </p>}
+        </div>
+      </details>}
+    </div>}
     {result&&<p role="status" data-testid="publisher-package-result"
       className="text-xs text-slate-200">
       {result.status==="ORIGINAL_HOLDER_READBACK_CONFIRMED"
         ? "Исходный владелец подтвердил сохранение и повторное чтение. Доступ к данным не предоставлялся."
         :result.status==="USER_CANCELLED"
           ?"Применение отменено."
-          :"Результат применения неизвестен. Повторная запись заблокирована, используйте проверку сохранения."}
+          :result.status==="OPERATION_IN_PROGRESS"
+            ?"Применение уже выполняется. Не отправляйте пакет повторно."
+            :"Результат применения неизвестен. Повторная запись заблокирована, используйте проверку сохранения."}
       {result.operationId&&<span className="block break-all text-slate-400">
         Операция: {result.operationId}
       </span>}
