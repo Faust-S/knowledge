@@ -278,6 +278,7 @@ export function ImportView({ kernel, commands }: ImportViewProps) {
       const restoreIssues = [...validateRestorationReceipt(
         state.handle.preview, state.plan, receipt,
       )];
+      let readbackUnconfirmed = false;
       // A Kernel receipt is not a readback. In a signed cross-Workspace merge,
       // read the destination from the ORIGINAL selected Kernel again before
       // reporting completion. An uncertain read leaves the committed receipt
@@ -299,6 +300,7 @@ export function ImportView({ kernel, commands }: ImportViewProps) {
               throw new Error("DESTINATION_OBJECT_READBACK_MISMATCH");
           }
         } catch {
+          readbackUnconfirmed = true;
           restoreIssues.push("Контрольное чтение получателя не подтвердило " +
             "сохранённый объект. Не импортируйте файл повторно автоматически.");
         }
@@ -308,10 +310,14 @@ export function ImportView({ kernel, commands }: ImportViewProps) {
         // Kernel may already have committed a partial transaction. Retain the
         // real receipt, warn the user, refresh the catalog, and never reuse
         // the consumed preview token or imply that the write was rolled back.
+        const partial = restoreIssues.length > (readbackUnconfirmed ? 1 : 0);
         dispatch({
-          type: "commit-incomplete",
+          type: partial ? "commit-incomplete" : "commit-unconfirmed",
           receipt,
-          error: "Импорт записан в Kernel, но восстановление неполное. " + restoreIssues.join(" "),
+          error: partial
+            ? "Kernel записал данные, но восстановление неполное. " + restoreIssues.join(" ")
+            : "Kernel вернул квитанцию, но повторное чтение ещё не подтвердило результат. " +
+              restoreIssues.join(" "),
         });
       } else {
         dispatch({ type: "commit-succeeded", receipt });
@@ -375,12 +381,17 @@ export function ImportView({ kernel, commands }: ImportViewProps) {
         return;
       }
 
+      // An unclassified failure may have happened AFTER Kernel committed.
+      // Do not reuse a possibly consumed preview token or claim rollback.
+      activeTokenRef.current = null;
+      if (expiryTimerRef.current !== null) {
+        clearTimeout(expiryTimerRef.current);
+        expiryTimerRef.current = null;
+      }
       dispatch({
         type: "commit-failed",
-        error:
-          error instanceof Error
-            ? error.message
-            : String(error),
+        error: "Применение не подтверждено. Проверьте Workspace перед повтором: " +
+          (error instanceof Error ? error.message : String(error)),
       });
     }
   };
@@ -754,7 +765,8 @@ function renderImport(p: RenderProps) {
               Импортировать ({state.plan.include_workspaces.length})
             </button>
             <button type="button" onClick={() => { void cancelActive("explicit"); }}
-              disabled={!canCancel || busy || state.status === "committed"}
+              disabled={!canCancel || busy || !state.handle ||
+                ["committed","incomplete","unconfirmed"].includes(state.status)}
               data-testid="import-cancel"
               className="px-3 py-1.5 text-xs rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 min-h-[44px]">
               Отменить
@@ -772,12 +784,14 @@ function renderImport(p: RenderProps) {
       {state.receipt && (
         <section aria-labelledby="imp-receipt" data-testid="import-receipt">
           <h4 id="imp-receipt" className="text-sm font-medium text-slate-200 mb-1">
-            {state.status === "incomplete" ? "Импорт выполнен не полностью" : "Отчёт"}
+            {state.status === "incomplete" ? "Импорт выполнен не полностью"
+            : state.status === "unconfirmed" ? "Импорт требует проверки" : "Отчёт"}
           </h4>
-          {state.status === "incomplete" && (
+          {["incomplete","unconfirmed"].includes(state.status) && (
             <p role="status" className="text-xs text-amber-300" data-testid="import-incomplete-notice">
-              Часть данных уже записана. Проверьте полученную рабочую область перед повтором;
-              операция не отменена и не может быть отменена этим экраном.
+              Оригинальный Kernel мог записать данные полностью или частично.
+              Проверьте полученную рабочую область перед новым импортом:
+              эта операция не отменена и не будет автоматически повторена.
             </p>
           )}
           <dl className="text-xs text-slate-400 grid grid-cols-2 gap-x-3 gap-y-0.5">

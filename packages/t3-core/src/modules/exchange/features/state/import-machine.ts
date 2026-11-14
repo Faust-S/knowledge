@@ -27,6 +27,7 @@ export type ImportStatus =
   | "committing"
   | "committed"
   | "incomplete"
+  | "unconfirmed"
   | "cancelled"
   | "expired"
   | "error";
@@ -96,6 +97,7 @@ export type ImportEvent =
   | { type: "commit-started" }
   | { type: "commit-succeeded"; receipt: ImportReceipt }
   | { type: "commit-incomplete"; receipt: ImportReceipt; error: string }
+  | { type: "commit-unconfirmed"; receipt: ImportReceipt; error: string }
   | { type: "commit-retryable"; error: string }
   | { type: "commit-invalid"; error: string }
   | { type: "commit-failed"; error: string }
@@ -442,6 +444,7 @@ export function importReducer(state: ImportState, event: ImportEvent): ImportSta
       if (state.planValidation.length > 0) return state;
       return { ...state, status: "committing", error: null };
     case "commit-incomplete":
+    case "commit-unconfirmed":
     case "commit-succeeded":
       if (state.status !== "committing" || !state.handle) return state;
       if (
@@ -450,10 +453,14 @@ export function importReducer(state: ImportState, event: ImportEvent): ImportSta
         event.receipt.mode !== state.plan.mode ||
         event.receipt.conflict_policy !== state.plan.conflict
       ) {
+        // The original Kernel may already have committed. Keep the ACTUAL
+        // receipt and never enable a second attempt with this preview token.
         return {
-          ...INITIAL_IMPORT_STATE,
-          status: "error",
-          error: "IMPORT_RECEIPT_IDENTITY_MISMATCH",
+          ...state,
+          status: "unconfirmed",
+          handle: null,
+          receipt: event.receipt,
+          error: "IMPORT_RECEIPT_IDENTITY_MISMATCH: проверьте Workspace перед новым импортом.",
         };
       }
       // A committed partial import cannot be rolled back by the UI. Preserve
@@ -461,10 +468,11 @@ export function importReducer(state: ImportState, event: ImportEvent): ImportSta
       // the writes instead of accidentally retrying a non-idempotent import.
       return {
         ...state,
-        status: event.type === "commit-incomplete" ? "incomplete" : "committed",
+        status: event.type === "commit-incomplete" ? "incomplete"
+          : event.type === "commit-unconfirmed" ? "unconfirmed" : "committed",
         handle: null,
         receipt: event.receipt,
-        error: event.type === "commit-incomplete" ? event.error : null,
+        error: event.type === "commit-succeeded" ? null : event.error,
       };
     case "commit-retryable":
       if (state.status !== "committing" || !state.handle) return state;
@@ -474,12 +482,16 @@ export function importReducer(state: ImportState, event: ImportEvent): ImportSta
       return { ...INITIAL_IMPORT_STATE, status: "error", error: event.error };
     case "commit-failed":
       if (state.status !== "committing") return state;
-      return { ...state, status: "error", error: event.error };
+      // A thrown exception AFTER entry into original Kernel is not proof
+      // that the write did not happen. Consume the token and require an
+      // explicit fresh inspection; never offer an automatic retry.
+      return { ...state, status: "unconfirmed", handle: null, receipt: null,
+        error: event.error };
     case "cancel":
-      if (state.status === "committed") return state;
+      if (["committed","incomplete","unconfirmed"].includes(state.status)) return state;
       return { ...INITIAL_IMPORT_STATE, status: "cancelled" };
     case "cancel-failed":
-      if (state.status === "committed") return state;
+      if (["committed","incomplete","unconfirmed"].includes(state.status)) return state;
       return { ...state, error: event.error };
     case "expire":
       if (!state.handle || state.status === "committed") return state;
