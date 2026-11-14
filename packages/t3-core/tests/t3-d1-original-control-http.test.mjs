@@ -11,7 +11,7 @@ import {createSubjectKernelBinding}
 import {createTemporaryOriginalPersonalAuthority}
   from "./support/t3-original-personal-authority.mjs";
 
-async function fixture(){
+async function fixture({reconciliationPortFor=null}={}){
   const token=randomBytes(32).toString("base64url");
   let origin=null,handle=null,epoch=1;
   const listeners=new Set(),calls=[];
@@ -38,6 +38,7 @@ async function fixture(){
     },
     ownerFor:({scope,operation})=>
       scope==="kernel"&&operation==="putObject"?authority.access:null,
+    reconciliationPortFor,
   });
   const originFetch=(url,options={})=>fetch(url,{
     ...options,headers:{...options.headers,Origin:origin},
@@ -191,4 +192,83 @@ test("original Control denies an in-flight GET when the signed Host rotates its 
     server.closeAllConnections();
     await new Promise(ok=>server.close(()=>ok()));
   }
+});
+
+
+test("original native D3 recipient uses the existing signed Control HTTP and isolated carrier",{
+  timeout:12000
+},async()=>{
+  // Transport qualification only: a synthetic port verifies wire continuity.
+  // Genuine native OfflinePackageReconciler, Human Review and Kernel are
+  // supplied by the installed product, never by this HTTP regression.
+  const events=[];
+  const originalPort={
+    receive:async bytes=>{
+      events.push({kind:"receive",bytes:[...bytes]});
+      return {transportReceipt:{state:"RECEIVED"},acceptanceState:"NOT_ACCEPTED"};
+    },
+    preview:async digest=>{
+      events.push({kind:"preview",digest});
+      return {packageSha256:digest,allowedAction:"EXPLICIT_ACCEPT_ONLY"};
+    },
+    accept:async payload=>{
+      events.push({kind:"accept",payload});
+      return {acceptanceState:"ACCEPTED",kernelApplication:"NOT_APPLIED"};
+    },
+    reject:async payload=>{
+      events.push({kind:"reject",payload});
+      return {acceptanceState:"REJECTED",kernelApplication:"NOT_APPLIED"};
+    },
+    inspectAcceptedApplication:async payload=>{
+      events.push({kind:"inspect",payload});
+      return {status:"CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION"};
+    },
+    applyAccepted:async payload=>{
+      events.push({kind:"apply",payload});
+      return {kernelWriteReadback:"OWNER_UNCONFIRMED"};
+    },
+  };
+  const f=await fixture({reconciliationPortFor:()=>originalPort});
+  const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
+  try{
+    assert.deepEqual(await f.browser.reconciliationRequest("available"),
+      {available:true,applyAvailable:true});
+    const archive=Uint8Array.from([0,1,2,3,251,253,254,255]);
+    const incoming=await f.browser.reconciliationRequest("receive",{bytes:archive});
+    assert.equal(incoming.acceptanceState,"NOT_ACCEPTED");
+    assert.deepEqual(events[0],{kind:"receive",bytes:[...archive]});
+    const digest="b".repeat(64);
+    assert.equal((await f.browser.reconciliationRequest("preview",
+      {packageSha256:digest})).packageSha256,digest);
+    const accepted=await f.browser.reconciliationRequest("accept",{
+      packageSha256:digest,previewDigest:"c".repeat(64),
+      operationId:"review:one",decisionBy:"actor:one",
+    });
+    assert.equal(accepted.kernelApplication,"NOT_APPLIED");
+    assert.equal(events.filter(e=>e.kind==="apply").length,0);
+    const apply=await f.browser.reconciliationRequest("applyAccepted",{
+      acceptanceId:"a".repeat(64),revisionIds:[digest],
+      target:{workspaceId:"ws:personal"},
+    });
+    assert.equal(apply.kernelWriteReadback,"OWNER_UNCONFIRMED");
+    // Ordinary untrusted pages cannot invoke native Reconciliation even
+    // with the bearer unless they originate at the pinned Kernel origin.
+    const forged=await fetch(f.origin+"/api/t3/reconciliation",{
+      method:"POST",headers:{Authorization:"Bearer "+f.token,
+        Origin:"https://untrusted.example","Content-Type":"application/json",
+        "X-IWXA-Context-Epoch":"1"},
+      body:JSON.stringify({verb:"preview",payload:{packageSha256:digest}}),
+    });
+    assert.equal(forged.status,403);
+    assert.equal(events.filter(e=>e.kind==="preview").length,1);
+    const stale=await fetch(f.origin+"/api/t3/reconciliation",{
+      method:"POST",headers:{Authorization:"Bearer "+f.token,
+        Origin:f.origin,"Content-Type":"application/json",
+        "X-IWXA-Context-Epoch":"0"},
+      body:JSON.stringify({verb:"preview",payload:{packageSha256:digest}}),
+    });
+    assert.equal(stale.status,403);
+    assert.equal(events.filter(e=>e.kind==="preview").length,1);
+    console.log("T3_D3_ORIGINAL_NATIVE_RECIPIENT_CONTROL_CARRIER_PASS");
+  }finally{stop();await f.close();}
 });
