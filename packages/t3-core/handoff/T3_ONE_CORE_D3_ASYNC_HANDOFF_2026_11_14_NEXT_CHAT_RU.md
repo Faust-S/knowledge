@@ -1,5 +1,20 @@
 # IWXA T3 One Core. D3, точные подтверждения асинхронного Host, передача 14.11.2026
 
+## Дополнение 14.11.2026: D3 встроен в штатный Host, только оригинальный владелец
+
+**Проверенный исполняемый код:** `Faust-S/knowledge@ee22c7587f3c4e5b0d13593d6c16d8b9e9d2e0dd`. Публичный [CI #43626131426](https://github.com/Faust-S/knowledge/actions/runs/43626131426) **SUCCESS**: 678/678 Node, 1121/1121 Workspace/DOM, original Host и windows-credential PASS, metal-webgpu SKIPPED. Ранее [#43625050428](https://github.com/Faust-S/knowledge/actions/runs/43625050428), [#43625444392](https://github.com/Faust-S/knowledge/actions/runs/43625444392), [#43625731006](https://github.com/Faust-S/knowledge/actions/runs/43625731006), [#43625831391](https://github.com/Faust-S/knowledge/actions/runs/43625831391) SUCCESS; промежуточные D3 test FAIL в `3269cd2` и `ddf4bd2` исправлены на `6d65718`.
+
+**D3 REUSE/ADAPT (без новой подсистемы):**
+- `src/t3/reconciliation-owner-admission.mjs` + `index.mjs/.d.mts` предоставляют доверенному Host штатные методы `receive/preview/accept/reject/inspectAcceptedApplication` поверх **оригинального** `OfflinePackageReconciler`, не заменяя его. Receipts проходят независимый readback у того же владельца, события доставки не являются ACCEPT, а принятое в Reconciliation `applicationState:APPLIED` означает **только** `appliedScope:RECONCILIATION_LEDGER_ONLY`, не запись в оригинальном Kernel.
+- `src/t3/reconciliation-kernel-apply.mjs` не принимает подменную фасаду `signedKernel`: доверенный продукт поставляет оригинальный KernelFacade и existing signed D1 Access; `createSubjectKernelBinding` обеспечивает JIT на original `commitObjectGraph` и `getObject`. Original `application-host-binding` и доменный owner формируют точные sealed effect/graph; независимое Human APPLY обязательно после Human ACCEPT; курсор и контекст перепроверяются. Запись/холодное восстановление и настоящая квитанция в двух независимых продуктах пока не приняты. После Kernel write с lost ACK автоматический повтор запрещён.
+- `src/workspace-host/runtime/create-workspace-host-runtime.ts`, `types.ts`, `WorkspaceHostRuntimeProvider.tsx`, `src/shell/AppShell.tsx` реально подключают **необязательный** `reconciliationOwner` к существующему Host, не добавляя ключ в `WorkspaceModuleContext`, Store, Router, Node server, отдельное приложение или новое расширение `.iwxa`. Если owner отсутствует, `host.reconciliation===null`; если оригинальный owner предоставлен, доступен приём/Review/Accept, а `applyAccepted` появляется только при original sealed Apply owner. `host.dispose()/invalidate()` прекращает доступ к ранее сохранённым портам.
+
+**Контракт реального владельца для следующей работы** (не подставлять mock в продукт): установленный Host предоставляет `reconciliationOwner={reconciler: originalRecipientReconciler, signedAccess: existingSignedD1Owner, recipientForContext, confirmHumanReview, apply?:{stageFromOriginalOwner, confirmSeparateApply}}`; оригинальные issuer/keys, Ledger, policy и sealed stage принадлежат продукту. Не предоставлять этот объект модулю/странице или переносному пакету. Обязательные предметные проверки владельца: ADMIN и PERSONAL независимые roots, wrong recipient/key/role, stale signed revision и conflict, separate actual Review/Accept→Apply, ORIGINAL Kernel receipt, 2 cold restores без replay и без принятия Draft. Приватный `Faust-S/T3/reconciliation` не копировать в публичный GitHub/Actions.
+
+**Текущий продуктовый статус:** `D3_PUBLIC_HOST_BINDING=SOURCE_PASS`; `D3_END_TO_END=NOT_ACCEPTED`; `G4=NOT_ACCEPTED`; `T3_READY=false`. Наличие опционального Host API не доказывает установленный private Reconciliation или настоящий подписант. Следующая одна зависимость — действительный original recipient owner и Human Review/Apply в принимающем продукте, без изменения T2 main и без нового Control EXE.
+
+
+
 ## Дополнение 14.11.2026: D4 открытие `.iwxa` в установленной PWA и D1 общий входной Host
 
 **Последняя исполняемая ветка**: `Faust-S/knowledge@90bf76b3871cfd7aa7040f1b4d8de82fd5409dac`.
