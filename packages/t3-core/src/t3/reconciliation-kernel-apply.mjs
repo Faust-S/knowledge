@@ -16,6 +16,10 @@ function copy(value,code){
   try{return structuredClone(value);}
   catch{deny(code);}
 }
+// Exact target keys required by the original historical application-host
+// binding; a workspace alias alone is not a complete recipient scope.
+const TARGET_FIELDS=["consumerId","processId","processVersion","purpose",
+  "subjectId","workspaceId","dataRootId"];
 const identity=c=>JSON.stringify(["kind","context_id","actor_id","principal_id",
   "role_id","grant_id","organization_id","workspace_id","resource","scope_revision"]
   .map(field=>c?.[field]));
@@ -39,7 +43,8 @@ export function createTrustedReconciliationKernelApply({
     // operation; PERSONAL never silently borrows a corporate issuer.
     check(obj(c)&&c.kind==="CORP"&&
       ["context_id","actor_id","principal_id","role_id","grant_id",
-        "organization_id","workspace_id","resource"].every(k=>id(c[k]))&&
+        "organization_id","workspace_id","resource","realm_id","audience",
+        "purpose"].every(k=>id(c[k]))&&
       c.resource===c.workspace_id&&c.principal_id===c.organization_id&&
       Number.isSafeInteger(c.scope_revision)&&c.scope_revision>0,
       "T3_D3_ORIGINAL_CORPORATE_CONTEXT_REQUIRED");
@@ -56,6 +61,8 @@ export function createTrustedReconciliationKernelApply({
     const c=await selected(),chosen=copy(target,"T3_D3_APPLICATION_TARGET_INVALID");
     check(chosen.workspaceId===c.workspace_id&&chosen.subjectId===c.organization_id,
       "T3_D3_APPLY_TARGET_OUT_OF_SCOPE");
+    check(TARGET_FIELDS.every(field=>id(chosen[field])),
+      "T3_D3_ORIGINAL_APPLICATION_TARGET_INCOMPLETE");
     // This is the original recipient Reconciliation currentness projection.
     // It is a CANDIDATE, never evidence that ACCEPT has performed a write.
     const candidate=await admission.inspectAcceptedApplication({
@@ -74,6 +81,11 @@ export function createTrustedReconciliationKernelApply({
       hex(binding.effectKey)&&binding.operation?.operationId==="effect:"+binding.effectKey&&
       hex(binding.operation.payloadDigest)&&
       binding.operation.resource===c.workspace_id&&
+      binding.operation.audience===c.audience&&
+      binding.operation.purpose===chosen.purpose&&
+      id(binding.operation.action)&&
+      ["IWXA_ADMIN_CENTER","IWXA_CONTROL_CENTER"].includes(binding.operation.productId)&&
+      Number.isSafeInteger(binding.expectedRevision)&&binding.expectedRevision>=0&&
       binding.applicationAuthorized===false&&binding.writeAllowed===false&&
       binding.hostJitRequired===true&&binding.explicitHumanDecisionRequired===true&&
       binding.decisionCheckAtCommit===true&&
@@ -82,6 +94,8 @@ export function createTrustedReconciliationKernelApply({
       obj(ctx)&&ctx.operationId===binding.operation.operationId&&
       ctx.payloadDigest===binding.operation.payloadDigest&&
       ctx.organizationId===c.organization_id&&ctx.workspaceId===c.workspace_id&&
+      ctx.dataRootId===chosen.dataRootId&&hex(ctx.storageScopeDigest)&&
+      ctx.expectedRevision===binding.expectedRevision&&
       ctx.actorId===c.actor_id&&ctx.principalId===c.principal_id&&
       ctx.roleId===c.role_id&&ctx.grantId===c.grant_id&&hex(ctx.operationDigest),
       "T3_D3_ORIGINAL_SEALED_APPLICATION_REQUIRED");
