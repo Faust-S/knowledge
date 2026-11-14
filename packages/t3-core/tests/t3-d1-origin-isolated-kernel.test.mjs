@@ -157,3 +157,26 @@ test('D3 uses the original native recipient, not the raw signed Kernel facade',a
     assert.equal(nativeCalls,1);
   }finally{client.close();receiver.close();}
 });
+
+
+test('native D3 APPLY losing the isolated port is UNKNOWN and never replayed',async()=>{
+  const ch=new MessageChannel();let started;let calls=0;
+  const entered=new Promise(resolve=>{started=resolve;});
+  const receiver=bindSignedOriginalKernelPort({
+    port:ch.port1,isActive:()=>true,createSignedFacade:()=>Object.freeze({}),
+    reconciliationRequest:async()=>{
+      calls++;started();
+      return new Promise(()=>{}); // Native review is still pending.
+    },
+  });
+  const client=createIsolatedKernelClient({port:ch.port2,timeoutMs:200});
+  try{
+    const pending=client.invoke('reconciliationRequest','applyAccepted',{
+      acceptanceId:'a'.repeat(64),revisionIds:['b'.repeat(64)],target:{},
+    });
+    await entered;
+    client.close(); // A lost ACK cannot imply the original write was denied.
+    await assert.rejects(pending,{code:'T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN'});
+    assert.equal(calls,1);
+  }finally{client.close();receiver.close();}
+});
