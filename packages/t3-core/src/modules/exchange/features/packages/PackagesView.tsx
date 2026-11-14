@@ -51,6 +51,10 @@ export function PackagesView({
 
   const [tab, setTab] = useState<PackagesTab>(() => resolveTab(initialTab));
   const [pwaFileHandle, setPwaFileHandle] = useState<InstalledPwaFileHandle | null>(null);
+  // OS may deliver the exact same FileSystemFileHandle object twice. A
+  // separate launch generation prevents React batching from treating the
+  // second OS open as an unchanged file and reusing a stale Kernel preview.
+  const [pwaLaunchEpoch, setPwaLaunchEpoch] = useState(0);
   const [pwaLaunchError, setPwaLaunchError] = useState<string | null>(null);
   const osLaunchSeen = useRef(false);
   // Browser File Handling API is optional. Chromium delivers opaque file
@@ -69,6 +73,7 @@ export function PackagesView({
       // reset this explicit file-open action back to Export.
       osLaunchSeen.current = true;
       setTab("import");
+      setPwaLaunchEpoch(epoch=>epoch+1);
       setPwaFileHandle(null);
       if (files.length !== 1) {
         setPwaLaunchError("Откройте один файл IWXA за раз.");
@@ -149,7 +154,8 @@ export function PackagesView({
              protectedExchange={protectedExchange} />
         ) : (
           <ImportView kernel={kernel} commands={commands}
-            pwaFileHandle={pwaFileHandle} protectedExchange={protectedExchange} />
+            pwaFileHandle={pwaFileHandle} pwaLaunchEpoch={pwaLaunchEpoch}
+            protectedExchange={protectedExchange} />
         )}
       </div>
       {publisherHandoff && <PublisherLicensePanel handoff={publisherHandoff} />}

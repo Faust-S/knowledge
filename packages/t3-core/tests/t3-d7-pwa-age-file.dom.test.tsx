@@ -106,6 +106,42 @@ describe("D7 installed PWA protected .iwxa.age through original Exchange",()=>{
     expect(open).toHaveBeenCalledTimes(1);
     expect(k.listWorkspaces).toHaveBeenCalledTimes(1);
   });
+  it("invalidates the old Kernel preview on a second OS launch of the SAME protected handle",async()=>{
+    withQueue();
+    let release!: (value:typeof preview)=>void;
+    const pending=new Promise<typeof preview>(resolve=>{release=resolve;});
+    const importPreview=vi.fn(async()=>pending);
+    const importCancel=vi.fn(async()=>true);
+    const k={hasOperation:(op:string)=>[
+      "t2.importPreview","t2.importCommit","t2.importCancel"].includes(op),
+      listWorkspaces:vi.fn(async()=>[]),importPreview,importCancel,
+      importCommit:vi.fn(async()=>{throw Error("NEVER_AUTO_COMMIT");}),
+    } as unknown as KernelFacade;
+    const open=vi.fn(async()=>({
+      status:"AGE_OPENED_NOT_IMPORTED",
+      archiveBytes:Uint8Array.of(80,75,3,4,1,2,3),
+      archiveSha256:"a".repeat(64),recipientId:"recipient:installed",
+      kernelPreviewed:false,accepted:false,
+    }));
+    const protectedExchange={open,canOpen:true,canSeal:false} as unknown as
+      ReturnType<typeof createTrustedAgeExchange>;
+    const sameHandle={kind:"file",name:"workspace.iwxa.age",
+      getFile:vi.fn(async()=>sealed())};
+    render(<PackagesView kernel={k} commands={commands} initialTab="import"
+      exportScopeId={null} protectedExchange={protectedExchange}/>);
+    await act(async()=>{captured?.({files:[sameHandle]});});
+    await act(async()=>{fireEvent.click(screen.getByTestId("import-pwa-preview"));});
+    await waitFor(()=>expect(screen.getByTestId("import-age-preview")).toBeTruthy());
+    await act(async()=>{fireEvent.click(screen.getByTestId("import-age-preview"));});
+    await waitFor(()=>expect(importPreview).toHaveBeenCalledTimes(1));
+    // The OS is allowed to reuse the same native FileSystemFileHandle object.
+    // This launch must invalidate the earlier unresolved Kernel preview.
+    await act(async()=>{captured?.({files:[sameHandle]});});
+    await act(async()=>{release(preview);});
+    await waitFor(()=>expect(importCancel).toHaveBeenCalledWith("tok:age"));
+    expect(screen.queryByTestId("import-preview")).toBeNull();
+    expect(k.importCommit).not.toHaveBeenCalled();
+  });
   it("never even reads OS protected file if native age owner is absent",async()=>{
     withQueue();
     const getFile=vi.fn(async()=>sealed());

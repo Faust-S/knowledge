@@ -32,6 +32,8 @@ export interface ImportViewProps {
   kernel: KernelFacade;
   commands: CommandsFacade;
   pwaFileHandle?: InstalledPwaFileHandle | null;
+  /** Monotonic OS launch counter, even when OS reuses the same file handle. */
+  pwaLaunchEpoch?: number;
   protectedExchange?: ReturnType<typeof createTrustedAgeExchange> | null;
 }
 
@@ -89,7 +91,7 @@ export function classifyImportError(
  * PROMPT 23 §8–§16, PROMPT 32 — canonical Import state machine surface.
  */
 export function ImportView({ kernel, commands, pwaFileHandle = null,
-  protectedExchange = null }: ImportViewProps) {
+  pwaLaunchEpoch = 0, protectedExchange = null }: ImportViewProps) {
   const [state, dispatch] = useReducer(importReducer, INITIAL_IMPORT_STATE);
   const [pwaReadBusy, setPwaReadBusy] = useState(false);
   const [pwaReadError, setPwaReadError] = useState<string | null>(null);
@@ -112,7 +114,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     setAgeError(null);
     ageGuard.current = false;
     setAgeBusy(false);
-  }, [pwaFileHandle]);
+  }, [pwaFileHandle, pwaLaunchEpoch]);
   const [localWorkspaces, setLocalWorkspaces] = useState<readonly WorkspaceRecord[]>([]);
   const activeTokenRef = useRef<string | null>(null);
   const commitGuardRef = useRef(false); // §13
@@ -162,6 +164,20 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       cancelGuardRef.current = false;
     }
   }, [kernel, canCancel]);
+
+  // A second OS launch invalidates an in-flight preview of the FIRST file.
+  // The existing Kernel importCancel is the only cancellation owner. Do not
+  // discard uncertain/partial receipts or a transaction already committing:
+  // the user must explicitly initiate another file after those outcomes.
+  const observedOsEpochRef = useRef(0);
+  useEffect(() => {
+    if (pwaLaunchEpoch === 0 || pwaLaunchEpoch === observedOsEpochRef.current)
+      return;
+    observedOsEpochRef.current = pwaLaunchEpoch;
+    if (["committing","incomplete","unconfirmed"].includes(state.status))
+      return;
+    void cancelActive("new-file");
+  }, [pwaLaunchEpoch, cancelActive, state.status]);
 
   // §14 — cancel on unmount / session change.
   useEffect(() => {
