@@ -21,7 +21,7 @@ import type {
   T3ActivityReadOptions, T3ActivityProjection, T3SignedActivityAccess,
   T3OriginalReconcilerOwner,
   createTrustedReconciliationAdmission, createTrustedReconciliationKernelApply,
-  createTrustedNativeContinuation, type T3NativeContinuationOwner,
+  createTrustedNativeContinuation, T3NativeContinuationOwner,
 } from "../../t3/index.mjs";
 
 /** Existing private recipient Reconciler, signed Access and owner review.
