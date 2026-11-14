@@ -11,7 +11,8 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   let approves=false,active=true,commits=0;
   const context={kind:"CORP",context_id:"ctx:a",actor_id:"person:a",
     principal_id:"org:a",organization_id:"org:a",role_id:"role:admin",
-    grant_id:"grant:a",resource:"ws:a",workspace_id:"ws:a",scope_revision:1};
+    grant_id:"grant:a",realm_id:"realm:a",audience:"host:t3",
+    purpose:"result.apply",resource:"ws:a",workspace_id:"ws:a",scope_revision:1};
   const command={workspace_id:"ws:a",idempotency_key:effect,
     object:{object_id:"result:one",schema_id:"iwxa.result.native",
       schema_version:"1.0.0",base_revision:0,data:{text:"reviewed"}},
