@@ -1,6 +1,16 @@
 # IWXA T3. Аудит реализованного продукта, рисков и конечного плана
 Дата: 14.11.2026. Исходник: `Faust-S/knowledge/packages/t3-core`, рабочая ветка `work/2026-11-10-t3-t2-activity-projection`.
 
+## Подтверждённый итог ревизии на исходнике 14.11.2026
+
+**Последний полностью прошедший исполняемый T3:** `Faust-S/knowledge@ed0252749c1693bd5d86aef6bb5ad0abdb118b64`, TREE `6ffb6293a2ea1fe7c856242cff0c4e2ac9eaa56e`. [Public Actions #43580199444](https://github.com/Faust-S/knowledge/actions/runs/43580199444) **SUCCESS**: `test`, `real-host`, `windows-credential`; `metal-webgpu` **SKIPPED**. Проверены `672/672` Node product tests, `1120/1120` Workspace/DOM Vitest и `21/21` в дополнительном этапе Workspace/Activity, без падений. Эти результаты доказывают перечисленные тестовые маршруты, не общий G4 или настоящее WebGPU-generation.
+
+**Исправленная регрессия D2:** на предыдущем коммите `35d0b12f68ba9677380dc3ce73234fae939d56fb` CI [#43580005227](https://github.com/Faust-S/knowledge/actions/runs/43580005227) вернул FAIL из-за одного неверного `assert.throws`: подставленная Workspace-запись имела корректный формат, но неверное `created_at`. Существующая D2 source projection правильно возвращала `T2_CONTEXT_EVENT_NOT_VERIFIED`, тогда как тест ошибочно ожидал `T2_CONTEXT_WORKSPACE_RECORD_REQUIRED`. В [`ed02527`](https://github.com/Faust-S/knowledge/commit/ed0252749c1693bd5d86aef6bb5ad0abdb118b64) тест различает отсутствие записи и несовпадение подлинного события. Код рабочих проекций не ослаблен; PASS exact CI подтверждён.
+
+**Дополнительное последовательное D3-исправление:** [`75b4955`](https://github.com/Faust-S/knowledge/commit/75b4955eeb53b2ba276a6a1059762aec12bc150a) запрещает `status:APPLIED` при одновременном явном отказе owner; [Actions #43579945454](https://github.com/Faust-S/knowledge/actions/runs/43579945454) SUCCESS. Последующий D2-коммит сохранён, параллельные правки не откатывались.
+
+Всё ещё `D1_NATIVE_ORIGIN_BOUNDARY=NOT_ACCEPTED`, `D3_END_TO_END=NOT_ACCEPTED`, `D5_HARDWARE_WEBGPU=NOT_ACCEPTED`, `G4=NOT_ACCEPTED`, `T3_READY=false`. Зелёная CI не меняет этих решений автоматически.
+
 ## 1. Нормативная граница
 
 T3 является **следующей версией T2**, содержащей все возможности исходного T2 и D1–D7. В обновлённом продукте работает один T3 Kernel/Host/Workspace/Store/Object/Event/Result/Exchange/Lifecycle/Factory; не должно быть отдельного одновременно работающего ядра T2. При поэтапном переходе T2 продолжает существовать только в ещё не обновлённых продуктах. T3 не является самостоятельным Windows EXE, Control UI, sidecar, облаком или единым хранилищем всех доменов.
