@@ -98,6 +98,8 @@ export interface CreateWorkspaceHostRuntimeInput {
     ((operation: string) => T3SignedActivityAccess | null | Promise<T3SignedActivityAccess | null>);
   /** Installed original recipient Reconciler and signed owner, never portable JSON. */
   reconciliationOwner?: T3TrustedReconciliationOwner;
+  /** Already checked native D3 port on the existing isolated Control carrier. */
+  reconciliationPort?: T3ReconciliationHostPort;
   /** Read-only capability snapshot for module/contribution visibility guards. */
   activeCapabilities?: readonly string[];
   workspaceConfig: { modules: readonly Record<string, unknown>[] };
