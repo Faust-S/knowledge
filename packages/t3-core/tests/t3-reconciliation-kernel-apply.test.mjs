@@ -10,6 +10,7 @@ const accepted="a".repeat(64),rev="b".repeat(64),effect="c".repeat(64);
 test("separate original-owner Apply uses the inherited Kernel graph and readback once",async()=>{
   let approves=false,active=true,commits=0;
   let sourceCurrent=true,revokeDuringJit=false,stopHostDuringJit=false;
+  let changePurposeDuringHumanApply=false;
   let signedJitCount=0,preconditionCount=0;
   const context={kind:"CORP",context_id:"ctx:a",actor_id:"person:a",
     principal_id:"org:a",organization_id:"org:a",role_id:"role:admin",
@@ -78,7 +79,10 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
       storageScopeDigest:"f".repeat(64),expectedRevision:0,
       actorId:"person:a",principalId:"org:a",roleId:"role:admin",
       grantId:"grant:a",operationDigest:"e".repeat(64)}}),
-    confirmSeparateApply:()=>approves,isHostActive:()=>active,
+    confirmSeparateApply:()=>{
+      if(changePurposeDuringHumanApply)context.purpose="changed-purpose";
+      return approves;
+    },isHostActive:()=>active,
   });
   const selection={acceptanceId:accepted,revisionIds:[rev],
     target:{workspaceId:"ws:a",subjectId:"org:a",dataRootId:"root:a",
@@ -96,6 +100,14 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   assert.equal(result.externalProductAcceptance,"NOT_ACCEPTED");
   assert.equal(written.idempotency_key,effect);
   assert.equal(commits,1);
+  // A human approval is bound to the exact signed purpose/audience/realm,
+  // even if the selected organization, actor and Workspace do not change.
+  changePurposeDuringHumanApply=true;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_APPLY_CONTEXT_CHANGED"});
+  assert.equal(commits,1);
+  context.purpose="result.apply";
+  changePurposeDuringHumanApply=false;
   // Revoke the accepted source DURING the signed authorization callback.
   // The last original Reconciliation check must reject before Kernel writes.
   sourceCurrent=true;
