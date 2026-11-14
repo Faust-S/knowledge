@@ -69,3 +69,5 @@ export {
 } from "./local-inference-draft.mjs";
 export { createTrustedReconciliationAdmission } from './reconciliation-owner-admission.mjs';
 export { createTrustedReconciliationKernelApply } from './reconciliation-kernel-apply.mjs';
+
+export { createTrustedNativeContinuation } from "./native-result-continuation.mjs";

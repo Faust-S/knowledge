@@ -21,6 +21,7 @@ import type {
   T3ActivityReadOptions, T3ActivityProjection, T3SignedActivityAccess,
   T3OriginalReconcilerOwner,
   createTrustedReconciliationAdmission, createTrustedReconciliationKernelApply,
+  createTrustedNativeContinuation, type T3NativeContinuationOwner,
 } from "../../t3/index.mjs";
 
 /** Existing private recipient Reconciler, signed Access and owner review.
@@ -74,6 +75,8 @@ export interface WorkspaceHostRuntimeHandle {
   readonly readAuthorizedActivity: (options: T3ActivityReadOptions) => Promise<T3ActivityProjection>;
   /** Optional original D3 owner. Null until installed by a trusted product. */
   readonly reconciliation: T3ReconciliationHostPort | null;
+  /** Optional D6 continuation into an already-installed signed native owner. */
+  readonly nativeContinuation: ReturnType<typeof createTrustedNativeContinuation> | null;
   /** Immediately invalidate signed ModuleContext and Activity access on session loss.
    * Module deactivation still runs later through the original serialized teardown. */
   readonly invalidate: () => void;
@@ -100,6 +103,9 @@ export interface CreateWorkspaceHostRuntimeInput {
   reconciliationOwner?: T3TrustedReconciliationOwner;
   /** Already checked native D3 port on the existing isolated Control carrier. */
   reconciliationPort?: T3ReconciliationHostPort;
+  /** Only the trusted installed product may supply these callbacks. */
+  nativeContinuationOwner?: T3NativeContinuationOwner;
+  confirmNativeContinuation?: Parameters<typeof createTrustedNativeContinuation>[0]["confirmHuman"];
   /** Read-only capability snapshot for module/contribution visibility guards. */
   activeCapabilities?: readonly string[];
   workspaceConfig: { modules: readonly Record<string, unknown>[] };

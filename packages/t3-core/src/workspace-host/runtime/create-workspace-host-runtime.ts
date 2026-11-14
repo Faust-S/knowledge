@@ -17,7 +17,7 @@
 import { adapter } from "@/kernel-client/adapter";
 import {
   readActivityFromWorkspaceContext, createTrustedReconciliationAdmission,
-  createTrustedReconciliationKernelApply,
+  createTrustedReconciliationKernelApply, createTrustedNativeContinuation,
 } from "@/t3/index.mjs";
 import {
   AVAILABLE_MODULES,
@@ -52,6 +52,9 @@ export async function createWorkspaceHostRuntime(
   // Reject ambiguous D3 ownership BEFORE activating inherited modules.
   if(input.reconciliationOwner&&input.reconciliationPort)
     throw new Error("T3_D3_MULTIPLE_RECIPIENT_OWNERS_FORBIDDEN");
+  if(input.nativeContinuationOwner &&
+      (!input.confirmNativeContinuation || !input.signedKernelAccess))
+    throw new Error("T3_D6_TRUSTED_SIGNED_NATIVE_OWNER_REQUIRED");
   const bindings = activeHostRouteBindings();
   const registry = new RouteRegistry();
   registry.registerMany(bindings);
@@ -225,6 +228,21 @@ export async function createWorkspaceHostRuntime(
       if (disposed) reject("T3_HOST_DISPOSED");
       return result;
     };
+  // D6 is opt-in: only the installed Host can supply a native owner and the
+  // original signed D1 Access port. The original T2 Kernel performs each read.
+  const nativeContinuation: WorkspaceHostRuntimeHandle["nativeContinuation"] =
+    input.nativeContinuationOwner && input.confirmNativeContinuation
+      ? createTrustedNativeContinuation({
+        kernel:activityT2Kernel,
+        accessForRead:async operation=>{
+          const source=input.signedKernelAccess;
+          return typeof source==="function" ? await source(operation) : source ?? null;
+        },
+        currentWorkspace:currentWorkspaceStore,
+        nativeOwner:input.nativeContinuationOwner,
+        confirmHuman:input.confirmNativeContinuation,
+        isHostActive:()=>!disposed,
+      }) : null;
   // D3 is executed by one ORIGINAL owner. Installed split-origin products
   // forward to the native recipient over the existing signed Control channel.
   const remoteD3=input.reconciliationPort;
@@ -305,6 +323,7 @@ export async function createWorkspaceHostRuntime(
     diagnostics,
     readAuthorizedActivity,
     reconciliation,
+    nativeContinuation,
     invalidate,
     dispose,
   };

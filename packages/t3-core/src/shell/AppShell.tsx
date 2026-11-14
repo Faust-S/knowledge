@@ -71,6 +71,8 @@ export interface AppShellProps {
   /** Original trusted D3 owner, not a module or serialized configuration. */
   reconciliationOwner?: CreateWorkspaceHostRuntimeInput["reconciliationOwner"];
   reconciliationPort?: CreateWorkspaceHostRuntimeInput["reconciliationPort"];
+  nativeContinuationOwner?: CreateWorkspaceHostRuntimeInput["nativeContinuationOwner"];
+  confirmNativeContinuation?: CreateWorkspaceHostRuntimeInput["confirmNativeContinuation"];
   subscribeSignedAccessInvalidation?: SignedAccessInvalidationSubscription;
 }
 
@@ -115,6 +117,8 @@ export function AppShell(props: AppShellProps) {
     signedActivityAccess,
     reconciliationOwner,
     reconciliationPort,
+    nativeContinuationOwner,
+    confirmNativeContinuation,
     subscribeSignedAccessInvalidation,
   } = props;
   // Absence of a required original signed owner is a DENIED state, never an
@@ -168,6 +172,8 @@ export function AppShell(props: AppShellProps) {
         signedActivityAccess={signedActivityAccess}
         reconciliationOwner={reconciliationOwner}
         reconciliationPort={reconciliationPort}
+        nativeContinuationOwner={nativeContinuationOwner}
+        confirmNativeContinuation={confirmNativeContinuation}
         subscribeSignedAccessInvalidation={subscribeSignedAccessInvalidation}
       >
         <HostShellContent
@@ -410,13 +416,16 @@ interface RuntimeBridgeProps {
   /** Original trusted D3 owner, not a module or serialized configuration. */
   reconciliationOwner?: CreateWorkspaceHostRuntimeInput["reconciliationOwner"];
   reconciliationPort?: CreateWorkspaceHostRuntimeInput["reconciliationPort"];
+  nativeContinuationOwner?: CreateWorkspaceHostRuntimeInput["nativeContinuationOwner"];
+  confirmNativeContinuation?: CreateWorkspaceHostRuntimeInput["confirmNativeContinuation"];
   subscribeSignedAccessInvalidation?: SignedAccessInvalidationSubscription;
   children: React.ReactNode;
 }
 
 function AppShellRuntimeBridge({
   session, hostWorkspace, profile, signedKernelAccess, signedActivityAccess,
-  reconciliationOwner, reconciliationPort, subscribeSignedAccessInvalidation, children,
+  reconciliationOwner, reconciliationPort, nativeContinuationOwner,
+  confirmNativeContinuation, subscribeSignedAccessInvalidation, children,
 }: RuntimeBridgeProps) {
   const { terminology, layout } = useDomainShell();
   const [activeCapabilities, setActiveCapabilities] = useState<readonly string[]>([]);
@@ -453,6 +462,8 @@ function AppShellRuntimeBridge({
       signedActivityAccess={signedActivityAccess}
       reconciliationOwner={reconciliationOwner}
       reconciliationPort={reconciliationPort}
+      nativeContinuationOwner={nativeContinuationOwner}
+      confirmNativeContinuation={confirmNativeContinuation}
       subscribeSignedAccessInvalidation={subscribeSignedAccessInvalidation}
     >
       <WorkspaceCapabilityWatcher session={session} onChange={receiveCapabilities} />

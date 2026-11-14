@@ -45,6 +45,8 @@ interface WorkspaceHostRuntimeProviderProps {
   /** Existing original Reconciliation, trusted compile-time Host only. */
   reconciliationOwner?: CreateWorkspaceHostRuntimeInput["reconciliationOwner"];
   reconciliationPort?: CreateWorkspaceHostRuntimeInput["reconciliationPort"];
+  nativeContinuationOwner?: CreateWorkspaceHostRuntimeInput["nativeContinuationOwner"];
+  confirmNativeContinuation?: CreateWorkspaceHostRuntimeInput["confirmNativeContinuation"];
   /** Reuse the original Control owner's subscribeInvalidation. Context
    * changes, signed STATUS and revocation must immediately detach old UI. */
   subscribeSignedAccessInvalidation?: SignedAccessInvalidationSubscription;
@@ -77,6 +79,7 @@ export function WorkspaceHostRuntimeProvider(
     session, workspaceConfig, termResolver, profile,
     activeCapabilities = EMPTY_CAPABILITIES,
     signedKernelAccess, signedActivityAccess, reconciliationOwner, reconciliationPort,
+    nativeContinuationOwner, confirmNativeContinuation,
     subscribeSignedAccessInvalidation,
     compileTimeModuleLoaders,
     preferDomainLanding = false,
@@ -203,6 +206,8 @@ export function WorkspaceHostRuntimeProvider(
             signedActivityAccess,
             reconciliationOwner,
             reconciliationPort,
+            nativeContinuationOwner,
+            confirmNativeContinuation,
             compileTimeModuleLoaders,
             preferDomainLanding,
           });
@@ -231,7 +236,7 @@ export function WorkspaceHostRuntimeProvider(
       // this generation stale.
     };
     // Restart only on session identity or workspaceConfig identity change.
-  }, [sessionKey, session, workspaceConfig, termResolver, profile, activeCapabilities, signedKernelAccess, signedActivityAccess, reconciliationOwner, reconciliationPort, accessEpoch, compileTimeModuleLoaders, preferDomainLanding]);
+  }, [sessionKey, session, workspaceConfig, termResolver, profile, activeCapabilities, signedKernelAccess, signedActivityAccess, reconciliationOwner, reconciliationPort, nativeContinuationOwner, confirmNativeContinuation, accessEpoch, compileTimeModuleLoaders, preferDomainLanding]);
 
   // Unmount teardown.
   useEffect(() => {

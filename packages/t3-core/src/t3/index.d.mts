@@ -142,3 +142,41 @@ export function createTrustedReconciliationKernelApply(options:{
 }):Readonly<{
   applyAccepted(input:{acceptanceId:string;revisionIds:string[];target:Record<string,unknown>}):Promise<unknown>;
 }>;
+
+/** D6: a trusted already-installed product owner handles the selected original
+ * Result/Project/Task/Document object, its own durable operation receipt and
+ * readback. This is not a new transport, Task Engine or recipient Store. */
+export interface T3NativeContinuationReference {
+  workspace_id:string;object_id:string;schema_id:string;revision:number;
+}
+export interface T3NativeContinuationOwner {
+  readonly recipientId:string;
+  inspect(input:{reference:T3NativeContinuationReference;recipientId:string}):
+    unknown|Promise<unknown>;
+  receive(input:{operationId:string;recipientId:string;
+    reference:T3NativeContinuationReference;object:unknown}):unknown|Promise<unknown>;
+  receipt(operationId:string):unknown|Promise<unknown>;
+  readback(operationId:string):unknown|Promise<unknown>;
+}
+export interface T3NativeContinuationStatus {
+  status:"AVAILABLE"|"RECOVER_ONLY"|"USER_CANCELLED"|"OUTCOME_UNKNOWN"|"OWNER_READBACK_CONFIRMED";
+  operationId?:string;
+  recipientId?:string;
+  resultRef?:string;
+  reference?:T3NativeContinuationReference;
+  reason?:string;
+}
+export function createTrustedNativeContinuation(options:{
+  kernel:KernelFacade;
+  accessForRead:(operation:string)=>T3SignedActivityAccess|null|
+    Promise<T3SignedActivityAccess|null>;
+  currentWorkspace:Pick<CurrentWorkspaceFacade,"get"|"subscribe">;
+  nativeOwner:T3NativeContinuationOwner;
+  confirmHuman:(input:{recipientId:string;operationId:string;
+    reference:T3NativeContinuationReference})=>boolean|Promise<boolean>;
+  isHostActive:()=>boolean;
+}):Readonly<{
+  preview(input:T3NativeContinuationReference):Promise<T3NativeContinuationStatus>;
+  continueSelected(input:T3NativeContinuationReference):Promise<T3NativeContinuationStatus>;
+  recover(input:T3NativeContinuationReference):Promise<T3NativeContinuationStatus>;
+}>;

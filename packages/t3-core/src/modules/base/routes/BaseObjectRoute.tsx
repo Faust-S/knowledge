@@ -22,6 +22,7 @@ export default function BaseObjectRoute() {
           viewerRegistry={rt?.hub.viewers} grantedOperations={rt?.grantedOperations} activeCapabilities={rt?.activeCapabilities}
           workspaceId={workspaceId}
           objectId={objectId}
+          nativeContinuation={rt?.nativeContinuation ?? null}
           onBack={() => nav.openWorkspace(workspaceId)}
           onOpenObject={nav.openObject}
         />

@@ -12,7 +12,7 @@
  *   - History failures do NOT hide the object.
  *   - No mutation controls anywhere.
  */
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   ObjectRecord,
   WorkspaceRecord,
@@ -28,12 +28,15 @@ import { LazyJsonDetails } from "./LazyJsonDetails";
 import { UnknownObjectDetail } from "./UnknownObjectDetail";
 import { filterObjectEvents } from "./object-history";
 import { RelationList } from "./relations/RelationList";
+import type { T3NativeContinuationReference, T3NativeContinuationStatus,
+  createTrustedNativeContinuation } from "../../../../t3/index.mjs";
 
 export interface ObjectViewProps {
   kernel: KernelFacade;
   viewerRegistry?:ViewerRegistry; grantedOperations?:readonly OperationId[]; activeCapabilities?:readonly string[];
   workspaceId: string;
   objectId: string;
+  nativeContinuation?: ReturnType<typeof createTrustedNativeContinuation> | null;
   onBack: () => void;
   onOpenObject: (workspaceId: string, objectId: string) => void;
 }
@@ -215,6 +218,7 @@ export function ObjectView(props: ObjectViewProps) {
       workspace={workspace}
       profileDefinition={profile.definition}
       object={detail.object}
+      nativeContinuation={props.nativeContinuation}
       viewerRegistry={props.viewerRegistry} grantedOperations={props.grantedOperations} activeCapabilities={props.activeCapabilities}
       outgoing={detail.relations.outgoing}
       incoming={detail.relations.incoming}
@@ -236,6 +240,7 @@ interface ReadySurfaceProps {
   workspace: WorkspaceRecord;
   profileDefinition: WorkspaceProfileDefinition;
   object: ObjectRecord;
+  nativeContinuation?: ReturnType<typeof createTrustedNativeContinuation> | null;
   viewerRegistry?:ViewerRegistry; grantedOperations?:readonly OperationId[]; activeCapabilities?:readonly string[];
   outgoing: readonly import("../../../../kernel-client").RelationRecord[];
   incoming: readonly import("../../../../kernel-client").RelationRecord[];
@@ -251,6 +256,7 @@ function ReadyObjectSurface(props: ReadySurfaceProps) {
     workspaceId, objectId, workspace, profileDefinition, object,
     outgoing, incoming, eventsStatus, events, eventsError, onOpenObject,
     viewerRegistry, grantedOperations, activeCapabilities,
+    nativeContinuation,
   } = props;
 
   const selected=viewerRegistry?.resolve({profileId:profileDefinition.id,schemaId:object.schema_id,schemaVersion:object.schema_version,surface:"detail"},grantedOperations,activeCapabilities);
@@ -307,6 +313,10 @@ function ReadyObjectSurface(props: ReadySurfaceProps) {
           Объект · <code>{object.object_id}</code>
         </p>
       </header>
+
+      {nativeContinuation && (
+        <NativeContinuationAction continuation={nativeContinuation} object={object}/>
+      )}
 
       {/* --- Renderer body --------------------------------------------- */}
       <section
@@ -437,4 +447,55 @@ function ReadyObjectSurface(props: ReadySurfaceProps) {
       )}
     </div>
   );
+}
+
+/** Only present for an installed signed native owner. Human confirmation is
+ * supplied by that owner; an unconnected program has no misleading button. */
+function NativeContinuationAction({continuation,object}:{
+  continuation:ReturnType<typeof createTrustedNativeContinuation>;
+  object:ObjectRecord;
+}){
+  const [busy,setBusy]=useState(false);
+  const [result,setResult]=useState<T3NativeContinuationStatus|null>(null);
+  const [error,setError]=useState<string|null>(null);
+  const ref:T3NativeContinuationReference={
+    workspace_id:object.workspace_id,object_id:object.object_id,
+    schema_id:object.schema_id,revision:object.revision,
+  };
+  useEffect(()=>{setBusy(false);setResult(null);setError(null);},
+    [object.workspace_id,object.object_id,object.revision]);
+  const run=async(recover:boolean)=>{
+    if(busy)return;
+    setBusy(true);setError(null);
+    try{
+      const next=recover?await continuation.recover(ref)
+        :await continuation.continueSelected(ref);
+      setResult(next);
+    }catch(e){
+      setError(e instanceof Error?e.message:"T3_D6_NATIVE_CONTINUATION_UNAVAILABLE");
+    }finally{setBusy(false);}
+  };
+  return <section aria-label="Продолжение в программе"
+    className="flex flex-wrap items-center gap-2 border border-slate-800 rounded p-3"
+    data-testid="t3-native-continuation">
+    <button type="button" onClick={()=>void run(false)} disabled={busy}
+      className="px-3 py-1.5 text-xs rounded bg-slate-800 hover:bg-slate-700 min-h-[44px] disabled:opacity-50">
+      {busy?"Проверка…":"Продолжить в подключённой программе"}
+    </button>
+    <button type="button" onClick={()=>void run(true)} disabled={busy}
+      className="px-3 py-1.5 text-xs rounded border border-slate-700 min-h-[44px] disabled:opacity-50">
+      Проверить ранее переданный результат
+    </button>
+    {result && <p role="status" className="w-full text-xs text-slate-300">
+      {result.status==="OWNER_READBACK_CONFIRMED"
+        ?"Получатель подтвердил сохранение и повторное чтение результата."
+        :result.status==="OUTCOME_UNKNOWN"
+          ?"Результат неизвестен. Не повторяйте передачу; проверьте квитанцию у получателя."
+          :result.status==="USER_CANCELLED"?"Передача отменена."
+          :"Для продолжения требуется подключённая программа."}
+    </p>}
+    {error && <p role="alert" className="w-full text-xs text-rose-200">
+      Продолжение недоступно: {error}
+    </p>}
+  </section>;
 }
