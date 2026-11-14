@@ -64,8 +64,17 @@ export function launchT2SiteHandoff({siteWindow, hostUrl, collectRawBackup, onSt
           asynchronousFailure ? 'WRITE_RECEIPT_APPLICATION_NOT_CONFIRMED' :
             'WRITE_RECEIPT_REJECTED_SOURCE_UNCHANGED');
       };
+      let receipt;
       try {
-        const written = onReceipt(checkCandidateBytes(event.data.raw, 64 * 1024));
+        receipt = checkCandidateBytes(event.data.raw, 64 * 1024);
+      } catch {
+        // The local writer has not been called; this specific failure leaves
+        // its own source unchanged.
+        acknowledge('REJECTED');
+        return;
+      }
+      try {
+        const written = onReceipt(receipt);
         // A Kernel/Store receipt can be asynchronous. Do not acknowledge
         // APPLIED while an owning Host or local readback is still pending.
         if (written && typeof written.then === 'function') {
@@ -73,7 +82,9 @@ export function launchT2SiteHandoff({siteWindow, hostUrl, collectRawBackup, onSt
             () => acknowledge('REJECTED', true));
         } else settle(written);
       } catch {
-        acknowledge('REJECTED');
+        // The writer could have committed before throwing during readback.
+        // Never claim SOURCE_UNCHANGED after entering the owner callback.
+        acknowledge('REJECTED', true);
       }
     }
   };

@@ -291,3 +291,26 @@ test('explicitly rejected preview, including async refusal, cannot enable sendRe
       /T2_HANDOFF_RECEIPT_NOT_READY/,mode);
   }
 });
+
+test('synchronous writer failure after side effect is unresolved, not SOURCE_UNCHANGED',async()=>{
+  const {siteWindow,hostWindow,cryptoSource}=windowPair();
+  let writeAttempted=0;
+  const siteStatus=[],hostStatus=[];
+  launchT2SiteHandoff({siteWindow,hostUrl:hostOrigin+'/workspace/',
+    collectRawBackup:()=>'{"result":"selected"}',
+    onReceipt:()=>{writeAttempted++;throw new Error('READBACK_AFTER_COMMIT_FAILED');},
+    onStatus:s=>siteStatus.push(s),
+  });
+  const receiver=mountT2SiteHandoffReceiver({
+    hostWindow,expectedSiteOrigin:siteOrigin,cryptoSource,
+    validateSource:JSON.parse,onPreview:()=>{},
+    onStatus:s=>hostStatus.push(s),
+  });
+  await new Promise(resolve=>queueMicrotask(resolve));
+  receiver.sendReceipt('{"revision":6}');
+  assert.equal(writeAttempted,1);
+  assert.ok(hostStatus.includes('WRITE_RECEIPT_SITE_REJECTED'));
+  assert.ok(siteStatus.includes('WRITE_RECEIPT_APPLICATION_NOT_CONFIRMED'));
+  assert.ok(!siteStatus.includes('WRITE_RECEIPT_REJECTED_SOURCE_UNCHANGED'));
+  assert.ok(!siteStatus.includes('WRITE_RECEIPT_APPLIED_TO_LOCAL_SOURCE'));
+});
