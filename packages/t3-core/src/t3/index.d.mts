@@ -120,8 +120,10 @@ export function createTrustedReconciliationAdmission(options:{
  * graph command; this does NOT implement a new Reconciliation/Result engine. */
 export function createTrustedReconciliationKernelApply(options:{
   admission:{inspectAcceptedApplication(input:{acceptanceId:string;revisionIds:string[];target:Record<string,unknown>}):Promise<unknown>};
-  signedKernel:Pick<KernelFacade,"hasOperation"|"commitObjectGraph"|"getObject">;
-  currentContext:()=>unknown|Promise<unknown>;
+  /** ORIGINAL inherited T2 KernelFacade, held only inside the trusted Host. */
+  kernel:KernelFacade;
+  /** The existing signed D1 owner. No raw Kernel path is accepted. */
+  access:T3SignedActivityAccess;
   stageFromOriginalOwner:(query:unknown)=>unknown|Promise<unknown>;
   confirmSeparateApply:(query:unknown)=>boolean|Promise<boolean>;
   isHostActive:()=>boolean;

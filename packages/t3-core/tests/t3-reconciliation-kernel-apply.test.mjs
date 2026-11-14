@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {createHash} from "node:crypto";
 import {createTrustedReconciliationKernelApply}
   from "../src/t3/reconciliation-kernel-apply.mjs";
 
@@ -26,20 +27,41 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
     commitPrecondition:()=>true,
   };
   let written=null;
+  const hash=value=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  const access={
+    currentContext:()=>context,
+    actionFor:operation=>operation==="t1.commitObjectGraph"?"object.write":"object.read",
+    operationDigest:hash,
+    authorize:request=>({
+      schema:"IWXA_T3_ORGANIZATION_OPERATION_DECISION/1",
+      allowed:true,outcome:"PERMITTED",evidenceOnly:true,
+      requestDigest:hash(request),policyDigest:hash("policy"),
+      operationDigest:hash("operation"),evidenceDigest:hash("evidence"),
+      productionActivation:false,doesNotTransferData:true,
+      doesNotAcceptCorporateCopy:true,organizationId:context.organization_id,
+      workspaceId:context.workspace_id,grantId:request.grantId,
+      statusSequence:1,validUntil:new Date(Date.now()+60000).toISOString(),
+    }),
+    verifyDecisionBinding:(request,decision)=>decision.requestDigest===hash(request),
+  };
   const port=createTrustedReconciliationKernelApply({
     admission:{inspectAcceptedApplication:async()=>({
       schema:"IWXA_T3_APPLICATION_PROJECTION_CANDIDATE/1",
       status:"CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION",
       applicationAuthorized:false,
     })},
-    signedKernel:{hasOperation:()=>true,
+    kernel:{
+      sessionInfo:{contract_version:"1.3.0"},
+      hasOperation:()=>true,
       commitObjectGraph:async input=>{commits++;written=input;return {
         workspace_id:"ws:a",object:{workspace_id:"ws:a",object_id:"result:one",
-          revision:1,schema_id:"iwxa.result.native"},event:{
+          revision:1,schema_id:"iwxa.result.native"},relations_put:[],event:{
           event_id:"evt:a",workspace_id:"ws:a"}};},
       getObject:async()=>({object:{workspace_id:"ws:a",object_id:"result:one",
-        revision:1,schema_id:"iwxa.result.native",data:{text:"reviewed"}}})},
-    currentContext:()=>context,
+        revision:1,schema_id:"iwxa.result.native",data:{text:"reviewed"}},
+        relations:{incoming:[],outgoing:[]}}),
+    },
+    access,
     stageFromOriginalOwner:()=>({binding,command,authorizationContext:{
       operationId:"effect:"+effect,payloadDigest:"d".repeat(64),
       organizationId:"org:a",workspaceId:"ws:a",actorId:"person:a",

@@ -2,6 +2,7 @@
 // The original private Reconciliation application-host binding and the domain
 // owner must prepare the staged effect and graph. No second Apply engine,
 // object schema, Store, issuer, authorization evaluator or review UI lives here.
+import {createSubjectKernelBinding} from "./subject-access-binding.mjs";
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;
 const id=x=>typeof x==="string"&&ID.test(x);
@@ -20,21 +21,21 @@ const identity=c=>JSON.stringify(["kind","context_id","actor_id","principal_id",
   .map(field=>c?.[field]));
 
 export function createTrustedReconciliationKernelApply({
-  admission,signedKernel,currentContext,stageFromOriginalOwner,
+  admission,kernel,access,stageFromOriginalOwner,
   confirmSeparateApply,isHostActive,
 }={}){
   check(admission&&typeof admission.inspectAcceptedApplication==="function"&&
-    signedKernel&&typeof signedKernel.hasOperation==="function"&&
-    typeof signedKernel.commitObjectGraph==="function"&&
-    typeof signedKernel.getObject==="function"&&
-    typeof currentContext==="function"&&
     typeof stageFromOriginalOwner==="function"&&
     typeof confirmSeparateApply==="function"&&
     typeof isHostActive==="function",
     "T3_D3_TRUSTED_APPLICATION_HOST_REQUIRED");
+  // Always enforce the EXISTING D1 signed Access owner on BOTH original
+  // Kernel commitObjectGraph and getObject. Accepting a caller-supplied
+  // "signedKernel" object here would permit an accidental raw-Kernel bypass.
+  const signedKernel=createSubjectKernelBinding({kernel,access});
   async function selected(){
     check(isHostActive()===true,"T3_HOST_DISPOSED");
-    const c=copy(await currentContext(),"T3_D3_APPLY_CONTEXT_INVALID");
+    const c=copy(await access.currentContext(),"T3_D3_APPLY_CONTEXT_INVALID");
     // Historical original application-host binding is a corporate product
     // operation; PERSONAL never silently borrows a corporate issuer.
     check(obj(c)&&c.kind==="CORP"&&
