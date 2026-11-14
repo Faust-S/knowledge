@@ -204,15 +204,36 @@ export function validateImportScope(
   // preview includes both according to the canonical ImportPreview contract.
   const allowed = preview.included;
   const denied = preview.excluded_by_permission;
-  // The Runtime 1.3.0 scope_mode requires authoritative included/excluded
-  // counts. Legacy unit fixtures omit both, but a real scoped preview must
-  // never be allowed through without those counters.
-  if (!allowed || !denied) {
-    return preview.scope_mode
-      ? ["Kernel не вернул обязательный состав разрешённых данных для импорта."]
-      : [];
-  }
   const issues: string[] = [];
+  // A permission summary is not a validation report: damaged records or
+  // unsupported schemas must not silently disappear from a backup restore.
+  if (preview.invalid && Object.values(preview.invalid).some((count) => count > 0)) {
+    issues.push("Kernel обнаружил недопустимые записи или зависимости в пакете.");
+  }
+  if (preview.unsupported?.some((row) => row.kind !== "extension_field")) {
+    issues.push("В пакете есть объекты с неподдерживаемыми схемами или правами.");
+  }
+  // The original Kernel can report a broken schema declaration separately
+  // from its unsupported inventory. Missing, invalid and conflicting
+  // declarations must not turn into a seemingly complete import.
+  for (const schema of preview.schemas ?? []) {
+    if (schema.status === "missing") {
+      issues.push(`Схема ${schema.schema_id}@${schema.schema_version}: отсутствует описание.`);
+    } else if (schema.status === "invalid") {
+      issues.push(`Схема ${schema.schema_id}@${schema.schema_version}: описание некорректно.`);
+    } else if (schema.status === "conflict") {
+      issues.push(`Схема ${schema.schema_id}@${schema.schema_version}: конфликт версий.`);
+    }
+  }
+  // Schema compatibility is checked even when a legacy preview does not
+  // expose permission counters. Missing authority counts in a modern scoped
+  // preview are an additional denial, not a way to skip semantic checks.
+  if (!allowed || !denied) {
+    if (preview.scope_mode) {
+      issues.push("Kernel не вернул обязательный состав разрешённых данных для импорта.");
+    }
+    return Object.freeze(issues);
+  }
   // A new/full Workspace is a backup restoration, not a data-only transfer.
   // Silently omitting archived domain events can make valid Results
   // invisible to their editors after import (D06 PD.01 is one example).
@@ -261,26 +282,6 @@ export function validateImportScope(
   }
   if (preview.totals.objects > 0 && allowed.objects === 0) {
     issues.push("Ни один объект из пакета не разрешён для восстановления.");
-  }
-  // A permission summary is not a validation report: damaged records or
-  // unsupported schemas must not silently disappear from a backup restore.
-  if (preview.invalid && Object.values(preview.invalid).some((count) => count > 0)) {
-    issues.push("Kernel обнаружил недопустимые записи или зависимости в пакете.");
-  }
-  if (preview.unsupported?.some((row) => row.kind !== "extension_field")) {
-    issues.push("В пакете есть объекты с неподдерживаемыми схемами или правами.");
-  }
-  // The original Kernel can report a broken schema declaration separately
-  // from its unsupported inventory. Missing, invalid and conflicting
-  // declarations must not turn into a seemingly complete import.
-  for (const schema of preview.schemas ?? []) {
-    if (schema.status === "missing") {
-      issues.push(`Схема ${schema.schema_id}@${schema.schema_version}: отсутствует описание.`);
-    } else if (schema.status === "invalid") {
-      issues.push(`Схема ${schema.schema_id}@${schema.schema_version}: описание некорректно.`);
-    } else if (schema.status === "conflict") {
-      issues.push(`Схема ${schema.schema_id}@${schema.schema_version}: конфликт версий.`);
-    }
   }
   // Include/exclude counters must account for the entire requested archive.
   // Otherwise an apparently clean permission check may conceal missing data.
