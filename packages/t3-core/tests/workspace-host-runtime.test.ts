@@ -135,4 +135,27 @@ describe("WorkspaceHostRuntime (PROMPT 19)", () => {
     }finally {await native.dispose();}
     expect(native.router.registry.isActive(hostRouteRefs.exchange.home)).toBe(false);
   });
+
+  it("makes native recipient-only age import available without signed Workspace rights",async()=>{
+    const ageOwner={
+      currentRecipient:async()=>({recipientId:"recipient:installed",
+        bindingEpoch:"login:initial"}),
+      open:async()=>null,
+      // No prepareSeal, seal or D1 signed Access. Import still passes
+      // through the separately permission-gated original Kernel.
+    };
+    const runtime=await createWorkspaceHostRuntime({
+      session:fakeSession(),workspaceConfig:baseWorkspaceConfig,
+      termResolver:k=>k,ageOwner,
+    });
+    try{
+      expect(runtime.currentWorkspaceStore.get()).toBeNull();
+      expect(runtime.protectedExchange?.canOpen).toBe(true);
+      expect(runtime.protectedExchange?.canSeal).toBe(false);
+      await expect(runtime.protectedExchange!.seal({
+        workspace_id:"ws:missing",archiveBytes:new Uint8Array([80,75,3,4]),
+      })).rejects.toMatchObject({code:"T3_D7_SIGNED_EXPORT_OWNER_REQUIRED"});
+    }finally{await runtime.dispose();}
+  });
+
 });

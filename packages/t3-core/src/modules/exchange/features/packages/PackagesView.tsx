@@ -84,7 +84,7 @@ export function PackagesView({
         setPwaLaunchError("Система передала неподдерживаемый файл. Выберите .iwxa или .iwxa.age.");
         return;
       }
-      if (protectedPackage && !protectedExchange) {
+      if (protectedPackage && (!protectedExchange || protectedExchange.canOpen === false)) {
         // Never read an encrypted OS file without a real native age owner.
         setPwaLaunchError("В этой программе не подключена расшифровка age. Откройте файл в установленном получателе с соответствующим ключом.");
         return;

@@ -215,7 +215,8 @@ export function ExportView({ kernel, scopedWorkspaceId,
   };
   const runProtectedDownload = async () => {
     const artifact=state.artifact;
-    if (!protectedExchange || !artifact || protectedBusy || busyRef.current ||
+    if (!protectedExchange || protectedExchange.canSeal === false ||
+        !artifact || protectedBusy || busyRef.current ||
         state.selection.workspaces.length!==1 ||
         !isValidPackageArtifact(artifact,state.selection)) return;
     const workspace_id=state.selection.workspaces[0];
@@ -361,7 +362,8 @@ function renderExport(p: RenderProps) {
           className="px-3 py-1.5 text-xs rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 min-h-[44px]">
           Скачать .iwxa
         </button>
-        {protectedExchange && <button type="button" onClick={() => void runProtectedDownload()}
+        {protectedExchange && protectedExchange.canSeal !== false &&
+          <button type="button" onClick={() => void runProtectedDownload()}
           disabled={downloadDisabled || state.selection.workspaces.length!==1}
           data-testid="export-age-protected"
           className="px-3 py-1.5 text-xs rounded bg-indigo-900/70 hover:bg-indigo-900 disabled:opacity-40 min-h-[44px]">

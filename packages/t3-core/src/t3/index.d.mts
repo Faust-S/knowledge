@@ -183,14 +183,24 @@ export function createTrustedNativeContinuation(options:{
   recover(input:T3NativeContinuationReference):Promise<T3NativeContinuationStatus>;
 }>;
 
-/** D7: installed native age owner, no private keys or issuer in the web Host. */
+/** D7: existing installed native age owner. Key custody, envelope verification,
+ * and the authenticated current recipient stay in the original product.
+ * A receiver-only owner supports recovery BEFORE Workspace creation. */
 export interface T3OriginalAgeOwner {
-  prepareSeal(input:{workspaceId:string;archiveSha256:string;archiveSize:number}):
+  /** Original installed identity from key custody, never a .iwxa or UI field.
+   * bindingEpoch must change when the user/recipient/key authority changes. */
+  currentRecipient?():{recipientId:string;bindingEpoch:string}|
+    Promise<{recipientId:string;bindingEpoch:string}>;
+  /** Required only for Workspace-signed encryption, not first restore. */
+  prepareSeal?(input:{workspaceId:string;archiveSha256:string;archiveSize:number}):
     {status:string;format:string;recipientIds:string[]}|
     Promise<{status:string;format:string;recipientIds:string[]}>;
-  seal(input:{archiveBytes:Uint8Array;archiveSha256:string;recipientIds:string[];
+  seal?(input:{archiveBytes:Uint8Array;archiveSha256:string;recipientIds:string[];
     workspaceId:string}):unknown|Promise<unknown>;
-  open(input:{ciphertext:Uint8Array;selectedWorkspaceId:string}):unknown|Promise<unknown>;
+  /** Existing native verifier. Original signed mode passes selectedWorkspaceId;
+   * clean-install native mode passes authenticated recipientId instead. */
+  open(input:{ciphertext:Uint8Array;selectedWorkspaceId?:string;
+    recipientId?:string}):unknown|Promise<unknown>;
 }
 export interface T3AgeProtectionReceipt {
   status:"AGE_PROTECTED_DOWNLOAD_READY";format:"age-encryption.org/v1";
@@ -202,14 +212,18 @@ export interface T3AgeOpenReceipt {
   archiveBytes:Uint8Array;kernelPreviewed:false;accepted:false;
 }
 export function createTrustedAgeExchange(options:{
-  kernel:KernelFacade;
-  accessForRead:(operation:string)=>T3SignedActivityAccess|null|
+  /** Original D1 selected Workspace access, required only for encryption
+   * and for legacy age owners without native currentRecipient. */
+  kernel?:KernelFacade;
+  accessForRead?:(operation:string)=>T3SignedActivityAccess|null|
     Promise<T3SignedActivityAccess|null>;
   ageOwner:T3OriginalAgeOwner;
-  confirmRecipients:(input:{workspaceId:string;recipientIds:string[];
+  confirmRecipients?:(input:{workspaceId:string;recipientIds:string[];
     archiveSha256:string;archiveSize:number})=>boolean|Promise<boolean>;
   isHostActive:()=>boolean;
 }):Readonly<{
+  readonly canSeal:boolean;
+  readonly canOpen:boolean;
   seal(input:{workspace_id:string;archiveBytes:Uint8Array}):
     Promise<T3AgeProtectionReceipt>;
   open(input:{ciphertext:Uint8Array}):Promise<T3AgeOpenReceipt>;

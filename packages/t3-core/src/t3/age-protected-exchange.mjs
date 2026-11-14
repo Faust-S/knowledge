@@ -33,19 +33,29 @@ function recipientList(value){
 }
 function sameList(a,b){return Array.isArray(b)&&b.length===a.length&&
   a.every((id,i)=>b[i]===id);}
-/** Only the installed Host supplies native age functions and an original D1
- * owner. The native owner guarantees real encryption, verified decryption and
- * key custody. Synthetic tests of this adapter do not qualify native age. */
+/** Only a trusted installed Host may supply native age functions, original
+ * key custody, and its OS-bound recipient identity. Never obtain a recipient
+ * from the downloaded .iwxa.age or UI. Encryption always requires original
+ * signed D1 Workspace read; opening for a FIRST install may use the verified
+ * native currentRecipient() without any existing Workspace or D1 data grant.
+ * The plaintext still goes through original Kernel importPreview/Commit in
+ * Exchange with separate human action. These adapter tests do not qualify
+ * a real native age implementation. */
 export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
   confirmRecipients,isHostActive}={}){
-  ensure(kernel&&typeof kernel.hasOperation==="function"&&
-    typeof accessForRead==="function"&&
-    ageOwner&&["prepareSeal","seal","open"].every(k=>typeof ageOwner[k]==="function")&&
-    typeof confirmRecipients==="function"&&typeof isHostActive==="function",
+  const signedReader=kernel&&typeof kernel.hasOperation==="function"&&
+    typeof accessForRead==="function";
+  const nativeRecipient=typeof ageOwner?.currentRecipient==="function";
+  const canSeal=Boolean(signedReader&&
+    typeof ageOwner?.prepareSeal==="function"&&
+    typeof ageOwner?.seal==="function"&&typeof confirmRecipients==="function");
+  ensure(ageOwner&&typeof ageOwner.open==="function"&&
+    (nativeRecipient||signedReader)&&typeof isHostActive==="function",
     "T3_D7_TRUSTED_AGE_OWNER_REQUIRED");
   const live=()=>ensure(isHostActive()===true,"T3_HOST_DISPOSED");
   async function selectedWorkspace(workspace_id){
     live();
+    ensure(signedReader,"T3_D7_SIGNED_OWNER_REQUIRED");
     const access=await accessForRead("t1.getWorkspace");
     live();
     ensure(access&&typeof access.currentContext==="function",
@@ -72,6 +82,8 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
     return Object.freeze({unchanged,read});
   }
   async function seal({workspace_id,archiveBytes}={}){
+    live();
+    ensure(canSeal,"T3_D7_SIGNED_EXPORT_OWNER_REQUIRED");
     ensure(id(workspace_id),"T3_D7_SELECTED_WORKSPACE_REQUIRED");
     const original=take(archiveBytes,MAX,"T3_D7_ORIGINAL_IWXA_REQUIRED");
     ensure(zipHeader(original),"T3_D7_ORIGINAL_IWXA_REQUIRED");
@@ -105,29 +117,66 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
     const encrypted=take(ciphertext,MAX_AGE,"T3_D7_AGE_CIPHERTEXT_INVALID");
     ensure(ageHeader(encrypted),"T3_D7_AGE_CIPHERTEXT_INVALID");
     live();
-    const owner=await accessForRead("t1.getWorkspace");
-    live();
-    const context=await owner?.currentContext();
-    ensure(context&&id(context.workspace_id)&&context.resource===context.workspace_id,
-      "T3_D7_SELECTED_WORKSPACE_REQUIRED");
-    const signed=await selectedWorkspace(context.workspace_id);
-    // Decrypt does not grant admission. The exact decrypted ZIP goes to the
-    // original Kernel importPreview, and importCommit needs a separate click.
-    const native=await ageOwner.open({ciphertext:encrypted,
-      selectedWorkspaceId:context.workspace_id});
-    await signed.unchanged();
+    let nativeInput,unchanged,read;
+    let recipientId=null;
+    if(nativeRecipient){
+      // Restore on a clean installation: the ORIGINAL installed native key
+      // owner proves which local recipient is active, independent of a
+      // Workspace or a Publisher licence. Its auth generation is pinned
+      // across the asynchronous private-key operation.
+      const recipient=async()=>{
+        live();
+        const current=await ageOwner.currentRecipient();
+        live();
+        ensure(current&&id(current.recipientId)&&id(current.bindingEpoch),
+          "T3_D7_ORIGINAL_NATIVE_RECIPIENT_REQUIRED");
+        return Object.freeze({
+          recipientId:current.recipientId,bindingEpoch:current.bindingEpoch,
+        });
+      };
+      const original=await recipient();
+      recipientId=original.recipientId;
+      const fingerprint=JSON.stringify(original);
+      unchanged=async()=>{
+        const latest=await recipient();
+        ensure(JSON.stringify(latest)===fingerprint,
+          "T3_D7_ORIGINAL_NATIVE_RECIPIENT_CHANGED");
+      };
+      read=unchanged;
+      nativeInput={ciphertext:encrypted,recipientId};
+    }else{
+      // Preserve the legacy signed Workspace-bound owner unchanged.
+      ensure(signedReader,"T3_D7_SIGNED_OWNER_REQUIRED");
+      const owner=await accessForRead("t1.getWorkspace");
+      live();
+      const context=await owner?.currentContext();
+      ensure(context&&id(context.workspace_id)&&
+        context.resource===context.workspace_id,
+        "T3_D7_SELECTED_WORKSPACE_REQUIRED");
+      const signed=await selectedWorkspace(context.workspace_id);
+      unchanged=signed.unchanged;
+      read=signed.read;
+      nativeInput={ciphertext:encrypted,
+        selectedWorkspaceId:context.workspace_id};
+    }
+    // Decrypt never imports a package or grants data access. The native
+    // owner verifies the real age envelope and controls its private key.
+    const native=await ageOwner.open(nativeInput);
+    await unchanged();
     ensure(native?.format==="age-encryption.org/v1"&&
       native.status==="OPENED_VERIFIED"&&native.verified===true&&
-      id(native.recipientId)&&HEX.test(native.archiveSha256??""),
+      id(native.recipientId)&&
+      (recipientId===null||native.recipientId===recipientId)&&
+      HEX.test(native.archiveSha256??""),
       "T3_D7_AGE_RECIPIENT_VERIFICATION_REQUIRED");
     const archiveBytes=take(native.archiveBytes,MAX,"T3_D7_AGE_PLAINTEXT_INVALID");
     ensure(zipHeader(archiveBytes),"T3_D7_AGE_PLAINTEXT_INVALID");
     ensure(await sha256(archiveBytes)===native.archiveSha256,
       "T3_D7_AGE_PLAINTEXT_DIGEST_MISMATCH");
-    await signed.read();
+    await read();
     return Object.freeze({status:"AGE_OPENED_NOT_IMPORTED",
       recipientId:native.recipientId,archiveSha256:native.archiveSha256,
       archiveBytes,kernelPreviewed:false,accepted:false});
   }
-  return Object.freeze({seal,open});
+  return Object.freeze({seal,open,canSeal,canOpen:true});
 }

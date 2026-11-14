@@ -59,8 +59,13 @@ export async function createWorkspaceHostRuntime(
   if(input.nativeContinuationOwner &&
       (!input.confirmNativeContinuation || !input.signedKernelAccess))
     throw new Error("T3_D6_TRUSTED_SIGNED_NATIVE_OWNER_REQUIRED");
-  if(input.ageOwner && (!input.confirmAgeRecipients || !input.signedKernelAccess))
-    throw new Error("T3_D7_TRUSTED_SIGNED_AGE_OWNER_REQUIRED");
+  // A verified native recipient can decrypt a backup before first Workspace
+  // installation. Signed D1 + consent are STILL mandatory for encryption.
+  if(input.ageOwner &&
+      (typeof input.ageOwner.open!=="function"||
+        (typeof input.ageOwner.currentRecipient!=="function" &&
+          (!input.confirmAgeRecipients||!input.signedKernelAccess))))
+    throw new Error("T3_D7_TRUSTED_AGE_OWNER_REQUIRED");
   // Original Publisher entitlement is independent of any Workspace. An
   // installed native currentSubject() owner supports clean install before
   // signed D1 data grants; legacy subjectForContext still requires D1.
@@ -257,15 +262,17 @@ export async function createWorkspaceHostRuntime(
         confirmHuman:input.confirmNativeContinuation,
         isHostActive:()=>!disposed,
       }) : null;
-  // D7 native age is optional and never changes the original T2 Exchange.
+  // D7 receiver-only native owner is allowed at clean install, even when
+  // the installed application has no selected T2 Workspace or D1 grant.
+  // Original signed D1 readers are never borrowed for Publisher entitlement.
   const protectedExchange: WorkspaceHostRuntimeHandle["protectedExchange"] =
-    input.ageOwner && input.confirmAgeRecipients
+    input.ageOwner
       ? createTrustedAgeExchange({
         kernel:activityT2Kernel,
-        accessForRead:async operation=>{
+        accessForRead:input.signedKernelAccess ? async operation=>{
           const source=input.signedKernelAccess;
           return typeof source==="function" ? await source(operation) : source ?? null;
-        },
+        } : undefined,
         ageOwner:input.ageOwner,
         confirmRecipients:input.confirmAgeRecipients,
         isHostActive:()=>!disposed,

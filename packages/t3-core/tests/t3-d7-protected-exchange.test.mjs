@@ -91,3 +91,79 @@ test("D7 denies revoked rights, changed context, missing consent and unverified 
   await assert.rejects(f.port.seal({workspace_id:"ws:one",archiveBytes:f.zip}),
     {code:"T3_HOST_DISPOSED"});
 });
+
+test("D7 installed recipient restores .iwxa.age BEFORE a Workspace and signed D1 access",async()=>{
+  const zip=Uint8Array.of(80,75,3,4,1,2,3,4,5);
+  const sha=createHash("sha256").update(zip).digest("hex");
+  const ciphertext=Uint8Array.from([
+    ...new TextEncoder().encode("age-encryption.org/v1\n"),1,2,3]);
+  let opens=0;
+  const ageOwner={
+    currentRecipient:async()=>({
+      recipientId:"recipient:installed:A",bindingEpoch:"os-login:1",
+    }),
+    open:async input=>{
+      opens++;
+      assert.equal(input.recipientId,"recipient:installed:A");
+      assert.equal(input.selectedWorkspaceId,undefined);
+      return {format:"age-encryption.org/v1",status:"OPENED_VERIFIED",
+        verified:true,recipientId:"recipient:installed:A",
+        archiveSha256:sha,archiveBytes:zip};
+    },
+  };
+  const create=()=>createTrustedAgeExchange({
+    ageOwner,isHostActive:()=>true,
+    // No original Kernel, selected Workspace, signed access or encryption owner.
+  });
+  const port=create();
+  assert.equal(port.canSeal,false);
+  assert.equal(port.canOpen,true);
+  const opened=await port.open({ciphertext});
+  assert.equal(opened.status,"AGE_OPENED_NOT_IMPORTED");
+  assert.equal(opened.kernelPreviewed,false);
+  assert.equal(opened.accepted,false);
+  assert.deepEqual(opened.archiveBytes,zip);
+  assert.equal(opens,1);
+  await assert.rejects(port.seal({workspace_id:"ws:none",archiveBytes:zip}),
+    {code:"T3_D7_SIGNED_EXPORT_OWNER_REQUIRED"});
+  const cold=create();
+  const recovered=await cold.open({ciphertext});
+  assert.deepEqual(recovered.archiveBytes,zip);
+  assert.equal(opens,2);
+});
+test("D7 native age blocks switched/incorrect recipient before returning plaintext",async()=>{
+  const zip=Uint8Array.of(80,75,3,4,1,2,3,4,5);
+  const sha=createHash("sha256").update(zip).digest("hex");
+  const ciphertext=Uint8Array.from([
+    ...new TextEncoder().encode("age-encryption.org/v1\n"),1,2,3]);
+  let epoch="os-login:1",recipientId="recipient:installed:A";
+  const ageOwner={
+    currentRecipient:async()=>({recipientId,bindingEpoch:epoch}),
+    open:async()=>({
+      format:"age-encryption.org/v1",status:"OPENED_VERIFIED",
+      verified:true,recipientId:"recipient:installed:A",
+      archiveSha256:sha,archiveBytes:zip,
+    }),
+  };
+  const port=createTrustedAgeExchange({ageOwner,isHostActive:()=>true});
+  epoch="os-login:2";
+  // A new call pins the new epoch. Change it WHILE the owner unlocks.
+  ageOwner.open=async()=>{
+    epoch="os-login:3";
+    return {format:"age-encryption.org/v1",status:"OPENED_VERIFIED",
+      verified:true,recipientId:"recipient:installed:A",
+      archiveSha256:sha,archiveBytes:zip};
+  };
+  await assert.rejects(port.open({ciphertext}),
+    {code:"T3_D7_ORIGINAL_NATIVE_RECIPIENT_CHANGED"});
+  ageOwner.open=async()=>({
+    format:"age-encryption.org/v1",status:"OPENED_VERIFIED",
+    verified:true,recipientId:"recipient:installed:B",
+    archiveSha256:sha,archiveBytes:zip,
+  });
+  await assert.rejects(port.open({ciphertext}),
+    {code:"T3_D7_AGE_RECIPIENT_VERIFICATION_REQUIRED"});
+  recipientId=""; 
+  await assert.rejects(port.open({ciphertext}),
+    {code:"T3_D7_ORIGINAL_NATIVE_RECIPIENT_REQUIRED"});
+});
