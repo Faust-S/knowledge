@@ -141,6 +141,8 @@ export function createTrustedReconciliationKernelApply(options:{
   isHostActive:()=>boolean;
 }):Readonly<{
   applyAccepted(input:{acceptanceId:string;revisionIds:string[];target:Record<string,unknown>}):Promise<unknown>;
+  /** Read the original signed Kernel history after uncertain Apply. No replay. */
+  recoverApplied(input:{acceptanceId:string;revisionIds:string[];target:Record<string,unknown>}):Promise<unknown>;
 }>;
 
 /** D6: a trusted already-installed product owner handles the selected original
