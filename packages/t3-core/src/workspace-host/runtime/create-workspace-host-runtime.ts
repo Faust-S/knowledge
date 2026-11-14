@@ -15,7 +15,10 @@
  */
 
 import { adapter } from "@/kernel-client/adapter";
-import { readActivityFromWorkspaceContext } from "@/t3/index.mjs";
+import {
+  readActivityFromWorkspaceContext, createTrustedReconciliationAdmission,
+  createTrustedReconciliationKernelApply,
+} from "@/t3/index.mjs";
 import {
   AVAILABLE_MODULES,
   composeAvailableModules,
@@ -218,6 +221,27 @@ export async function createWorkspaceHostRuntime(
       if (disposed) reject("T3_HOST_DISPOSED");
       return result;
     };
+  // D3 mounts on the existing Host, never on ModuleContext or a new Store.
+  const reconciliation:WorkspaceHostRuntimeHandle["reconciliation"] =
+    input.reconciliationOwner ? (()=>{
+      const original=input.reconciliationOwner;
+      const admission=createTrustedReconciliationAdmission({
+        reconciler:original.reconciler,
+        currentContext:()=>original.signedAccess.currentContext(),
+        recipientForContext:original.recipientForContext,
+        confirmHumanReview:original.confirmHumanReview,
+        isHostActive:()=>!disposed,
+      });
+      const apply=original.apply ? createTrustedReconciliationKernelApply({
+        admission,kernel:activityT2Kernel,access:original.signedAccess,
+        stageFromOriginalOwner:original.apply.stageFromOriginalOwner,
+        confirmSeparateApply:original.apply.confirmSeparateApply,
+        isHostActive:()=>!disposed,
+      }):null;
+      return Object.freeze({
+        ...admission,...(apply?{applyAccepted:apply.applyAccepted}:{}),
+      });
+    })() : null;
   // Revoke access synchronously, BEFORE the serialized asynchronous module
   // shutdown. A retained signed KernelFacade must stop accepting calls on
   // logout, replacement or unmount even if the old module has a slow stop().
@@ -250,6 +274,7 @@ export async function createWorkspaceHostRuntime(
     activeCapabilities,
     diagnostics,
     readAuthorizedActivity,
+    reconciliation,
     invalidate,
     dispose,
   };

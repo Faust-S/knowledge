@@ -17,7 +17,28 @@ import type { ModuleRegistry } from "../modules";
 import type { CurrentWorkspaceStore } from "../context";
 import type { DashboardRefreshState } from "../context/create-dashboard-facade";
 import type { HostPanelsState } from "../context/create-panels-facade";
-import type { T3ActivityReadOptions, T3ActivityProjection, T3SignedActivityAccess } from "../../t3/index.mjs";
+import type {
+  T3ActivityReadOptions, T3ActivityProjection, T3SignedActivityAccess,
+  T3OriginalReconcilerOwner,
+  createTrustedReconciliationAdmission, createTrustedReconciliationKernelApply,
+} from "../../t3/index.mjs";
+
+/** Existing private recipient Reconciler, signed Access and owner review.
+ * This is a Host-only capability, never a second authority or public module. */
+export interface T3TrustedReconciliationOwner {
+  readonly reconciler:T3OriginalReconcilerOwner;
+  readonly signedAccess:T3SignedActivityAccess;
+  readonly recipientForContext:(context:unknown)=>string|Promise<string>;
+  readonly confirmHumanReview:(review:unknown)=>boolean|Promise<boolean>;
+  readonly apply?:Readonly<{
+    stageFromOriginalOwner:(query:unknown)=>unknown|Promise<unknown>;
+    confirmSeparateApply:(decision:unknown)=>boolean|Promise<boolean>;
+  }>;
+}
+export type T3ReconciliationHostPort =
+  ReturnType<typeof createTrustedReconciliationAdmission> &
+  Partial<ReturnType<typeof createTrustedReconciliationKernelApply>>;
+
 
 /** Original Access/Control owner invalidation signal, supplied by the
  * trusted compiled Host. No new authority or polling is implemented here. */
@@ -51,6 +72,8 @@ export interface WorkspaceHostRuntimeHandle {
   readonly diagnostics: WorkspaceHostRuntimeDiagnostics;
   /** Selected Workspace Activity via existing signed D1 owner, not new Store. */
   readonly readAuthorizedActivity: (options: T3ActivityReadOptions) => Promise<T3ActivityProjection>;
+  /** Optional original D3 owner. Null until installed by a trusted product. */
+  readonly reconciliation: T3ReconciliationHostPort | null;
   /** Immediately invalidate signed ModuleContext and Activity access on session loss.
    * Module deactivation still runs later through the original serialized teardown. */
   readonly invalidate: () => void;
@@ -73,6 +96,8 @@ export interface CreateWorkspaceHostRuntimeInput {
    * Explicitly separate from Activity-specific DATA consent. */
   signedKernelAccess?: T3SignedActivityAccess |
     ((operation: string) => T3SignedActivityAccess | null | Promise<T3SignedActivityAccess | null>);
+  /** Installed original recipient Reconciler and signed owner, never portable JSON. */
+  reconciliationOwner?: T3TrustedReconciliationOwner;
   /** Read-only capability snapshot for module/contribution visibility guards. */
   activeCapabilities?: readonly string[];
   workspaceConfig: { modules: readonly Record<string, unknown>[] };
