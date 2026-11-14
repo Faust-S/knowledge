@@ -112,6 +112,10 @@ async function launch(){
         applyAccepted:(input:{acceptanceId:string;revisionIds:string[];
           target:Record<string,unknown>})=>requestD3("applyAccepted",input),
       }:{}),
+      ...(d3.recoverAvailable===true?{
+        recoverApplied:(input:{acceptanceId:string;revisionIds:string[];
+          target:Record<string,unknown>})=>requestD3("recoverApplied",input),
+      }:{}),
     }):undefined;
     // Mount the ORIGINAL AppShell and T2/3 Host. The only authorized kernel
     // facade is physically held by the realm; no second Store or IAM exists.
