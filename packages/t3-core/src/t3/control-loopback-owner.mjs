@@ -98,7 +98,7 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
   const reconciliationRequest=async(verb,payload={})=>{
     requireTransport();
     const generation=selectionGeneration;
-    check(["available","receive","preview","accept","reject",
+    check(["available","receive","preview","receipt","accept","reject",
       "inspectAcceptedApplication","applyAccepted"].includes(verb)&&
       validObject(payload),"T3_D3_RECIPIENT_REQUEST_INVALID");
     let bodyPayload=payload;
