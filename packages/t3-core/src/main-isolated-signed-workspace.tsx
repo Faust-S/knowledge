@@ -76,6 +76,36 @@ async function launch(){
     const bootstrap=createIsolatedOriginalKernelBootstrap({
       client,serviceId:owner.service_id,
     });
+    // D3 availability comes exclusively from the authenticated native
+    // recipient via the original isolated Kernel/Control channel.
+    const d3=await client.invoke("reconciliationRequest","available",{})
+      .catch((error:unknown)=>{
+        const code=(error as {code?:string}|null)?.code;
+        // Older Hosts legitimately have no D3; ordinary signed T2 functions
+        // must continue without another importer or private code in React.
+        if(code==="T3_D1_ORIGINAL_KERNEL_METHOD_FORBIDDEN"||
+           code==="T3_D3_ORIGINAL_RECIPIENT_UNAVAILABLE"||
+           code==="T3_D1_CONTROL_ROUTE_DENIED")return {available:false};
+        throw error;
+      });
+    const requestD3=(verb:string,payload:unknown)=>
+      client.invoke("reconciliationRequest",verb,payload);
+    const reconciliationPort=d3?.available===true?Object.freeze({
+      receive:(bytes:Uint8Array)=>requestD3("receive",{bytes}),
+      preview:(packageSha256:string)=>requestD3("preview",{packageSha256}),
+      accept:(input:{packageSha256:string;previewDigest:string;
+        operationId:string;decisionBy:string})=>requestD3("accept",input),
+      reject:(input:{packageSha256:string;previewDigest:string;
+        operationId:string;decisionBy:string;reason:string})=>
+          requestD3("reject",input),
+      inspectAcceptedApplication:(input:{acceptanceId:string;
+        revisionIds:string[];target:Record<string,unknown>})=>
+          requestD3("inspectAcceptedApplication",input),
+      ...(d3.applyAvailable===true?{
+        applyAccepted:(input:{acceptanceId:string;revisionIds:string[];
+          target:Record<string,unknown>})=>requestD3("applyAccepted",input),
+      }:{}),
+    }):undefined;
     // Mount the ORIGINAL AppShell and T2/3 Host. The only authorized kernel
     // facade is physically held by the realm; no second Store or IAM exists.
     const {mountT3App}=await import("./mount-t3-app");
@@ -84,6 +114,7 @@ async function launch(){
       requireSignedOwner:true,
       isolatedKernelRequired:true,
       trustedKernelBootstrap:bootstrap,
+      reconciliationPort,
       trustedSelectedContext:operation=>client.invoke("selectedWorkspaceContext",operation),
       subscribeSignedAccessInvalidation:listener=>
         client.subscribeInvalidation(listener),
