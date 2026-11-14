@@ -264,8 +264,9 @@ test('explicit synchronous and asynchronous owner refusals never produce APPLIED
 });
 
 test('explicitly rejected preview, including async refusal, cannot enable sendReceipt',async()=>{
-  for(const mode of ['source-false','source-async-false','preview-false',
-    'preview-async-reject','preview-denied-object']){
+  for(const mode of ['source-false','source-async-false',
+    'source-denied-object','source-async-denied','source-missing',
+    'preview-false','preview-async-reject','preview-denied-object']){
     const {siteWindow,hostWindow,cryptoSource}=windowPair();
     const observed=[];
     launchT2SiteHandoff({siteWindow,hostUrl:hostOrigin+'/workspace/',
@@ -273,7 +274,10 @@ test('explicitly rejected preview, including async refusal, cannot enable sendRe
     const receiver=mountT2SiteHandoffReceiver({
       hostWindow,expectedSiteOrigin:siteOrigin,cryptoSource,
       validateSource:()=>mode==='source-false'?false:
-        mode==='source-async-false'?Promise.resolve(false):{verified:true},
+        mode==='source-async-false'?Promise.resolve(false):
+        mode==='source-denied-object'?{allowed:false}:
+        mode==='source-async-denied'?Promise.resolve({status:'UNTRUSTED'}):
+        mode==='source-missing'?undefined:{verified:true},
       onPreview:()=>mode==='preview-false'?false:
         mode==='preview-async-reject'?Promise.resolve(false):
           {allowed:false},

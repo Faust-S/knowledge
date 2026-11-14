@@ -58,8 +58,17 @@ export function mountT2SiteHandoffReceiver({hostWindow, expectedSiteOrigin, vali
       previewAccepted = true;
       onStatus('CANDIDATE_READY_FOR_EXPLICIT_REVIEW');
     };
+    const deniedPreview = value => value == null || value === false ||
+      (value && typeof value === 'object' &&
+        (value.allowed === false || value.accepted === false ||
+          ['REJECTED','CANCELLED','FAILED','INVALID','UNTRUSTED']
+            .includes(value.status)));
     const present = preview => {
       if (disposed) return;
+      // The owner validator must return a real, non-denied candidate before
+      // the UI sees it. A returned refusal is NOT an exception, but still
+      // must never unlock an eventual receipt.
+      if (deniedPreview(preview)) { rejected(); return; }
       try {
         // Preview preparation is not Human Review or application approval.
         const shown = onPreview(preview);
