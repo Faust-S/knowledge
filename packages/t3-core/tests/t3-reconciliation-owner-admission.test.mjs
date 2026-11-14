@@ -7,7 +7,7 @@ import {createTrustedReconciliationAdmission}
 // implementation or evidence of real signed owner/installed product.
 const sha="a".repeat(64),previewDigest="b".repeat(64),acceptanceId="c".repeat(64);
 function fixture(){
-  let human=false,revision=1,allowed=true,accepts=0,applies=0;
+  let human=false,revision=1,allowed=true,accepts=0,applies=0,active=true;
   const stored=new Map();
   const ctx=()=>({
     kind:"PERSONAL",context_id:"personal",actor_id:"person:owner",
@@ -49,9 +49,11 @@ function fixture(){
     reconciler:source,currentContext:ctx,
     recipientForContext:()=>"recipient:owner",
     confirmHumanReview:()=>human,
+    isHostActive:()=>active,
   });
   return {port,setHuman:v=>human=v,setAllowed:v=>allowed=v,
-    changeRevision:()=>revision++,counts:()=>({accepts,applies})};
+    changeRevision:()=>revision++,setActive:v=>active=v,
+    counts:()=>({accepts,applies})};
 }
 test("D3 trusted original owner receives, reviews and ACCEPTS without Kernel Apply",async()=>{
   const f=fixture();
@@ -72,6 +74,9 @@ test("D3 trusted original owner receives, reviews and ACCEPTS without Kernel App
     acceptanceId,revisionIds:[sha],target:{workspaceId:"ws:mine"}
   });
   assert.equal(candidate.applicationAuthorized,false);
+  f.setActive(false);
+  await assert.rejects(f.port.preview(sha),{code:"T3_HOST_DISPOSED"});
+  f.setActive(true);
   await assert.rejects(f.port.inspectAcceptedApplication({
     acceptanceId,revisionIds:[sha],target:{workspaceId:"ws:foreign"}
   }),{code:"T3_D3_APPLICATION_TARGET_OUT_OF_SCOPE"});

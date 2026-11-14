@@ -17,16 +17,19 @@ function same(a,b){return JSON.stringify(a)===JSON.stringify(b);}
 
 export function createTrustedReconciliationAdmission({
   reconciler,currentContext,recipientForContext,confirmHumanReview,
+  isHostActive,
 }={}){
   check(reconciler&&["receive","preview","accept","reject","receipt",
     "inspectApplicationProjection"].every(name=>typeof reconciler[name]==="function")&&
     key(reconciler.recipientId),"T3_D3_ORIGINAL_RECONCILER_REQUIRED");
   check(typeof currentContext==="function"&&
     typeof recipientForContext==="function"&&
-    typeof confirmHumanReview==="function",
+    typeof confirmHumanReview==="function"&&
+    typeof isHostActive==="function",
     "T3_D3_TRUSTED_OWNER_REQUIRED");
 
   async function selected(){
+    check(isHostActive()===true,"T3_HOST_DISPOSED");
     const context=snapshot(await currentContext(),"T3_D3_CONTEXT_NOT_CLONEABLE");
     check(context&&["PERSONAL","CORP"].includes(context.kind)&&
       ["context_id","actor_id","principal_id","role_id","grant_id",
@@ -35,6 +38,7 @@ export function createTrustedReconciliationAdmission({
       Number.isSafeInteger(context.scope_revision)&&context.scope_revision>0,
       "T3_D3_SIGNED_CONTEXT_REQUIRED");
     const recipient=await recipientForContext(snapshot(context,"T3_D3_CONTEXT_NOT_CLONEABLE"));
+    check(isHostActive()===true,"T3_HOST_DISPOSED");
     check(key(recipient)&&recipient===reconciler.recipientId,
       "T3_D3_SELECTED_RECIPIENT_MISMATCH");
     return {context,recipient};

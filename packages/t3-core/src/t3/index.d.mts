@@ -107,6 +107,8 @@ export function createTrustedReconciliationAdmission(options:{
   currentContext:()=>unknown|Promise<unknown>;
   recipientForContext:(context:unknown)=>string|Promise<string>;
   confirmHumanReview:(request:unknown)=>boolean|Promise<boolean>;
+  /** Original Host lifecycle; retained D3 ports are invalid after logout. */
+  isHostActive:()=>boolean;
 }):Readonly<{
   receive(bytes:Uint8Array):Promise<unknown>;
   preview(packageSha256:string):Promise<unknown>;
