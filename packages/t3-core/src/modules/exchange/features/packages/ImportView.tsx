@@ -9,6 +9,7 @@ import type {
   ObjectKey,
 } from "@/kernel-client/contracts/runtime-1.3.0";
 import type { WorkspaceRecord } from "@/kernel-client";
+import type { createTrustedAgeExchange } from "../../../../t3/index.mjs";
 import { PackageCorruptedError } from "@/kernel-client/errors";
 import {
   INITIAL_IMPORT_STATE,
@@ -31,6 +32,7 @@ export interface ImportViewProps {
   kernel: KernelFacade;
   commands: CommandsFacade;
   pwaFileHandle?: InstalledPwaFileHandle | null;
+  protectedExchange?: ReturnType<typeof createTrustedAgeExchange> | null;
 }
 
 const MAX_PACKAGE_BYTES = 200 * 1024 * 1024;
@@ -86,12 +88,17 @@ export function classifyImportError(
 /**
  * PROMPT 23 §8–§16, PROMPT 32 — canonical Import state machine surface.
  */
-export function ImportView({ kernel, commands, pwaFileHandle = null }: ImportViewProps) {
+export function ImportView({ kernel, commands, pwaFileHandle = null,
+  protectedExchange = null }: ImportViewProps) {
   const [state, dispatch] = useReducer(importReducer, INITIAL_IMPORT_STATE);
   const [pwaReadBusy, setPwaReadBusy] = useState(false);
   const [pwaReadError, setPwaReadError] = useState<string | null>(null);
   const [pwaUsed, setPwaUsed] = useState<InstalledPwaFileHandle | null>(null);
   const pwaReadGuard = useRef(false);
+  const [ageFile,setAgeFile] = useState<File|null>(null);
+  const [ageBusy,setAgeBusy] = useState(false);
+  const [ageError,setAgeError] = useState<string|null>(null);
+  const ageGuard = useRef(false);
   useEffect(() => {
     setPwaUsed(null);
     setPwaReadError(null);
@@ -411,6 +418,36 @@ export function ImportView({ kernel, commands, pwaFileHandle = null }: ImportVie
     }
   };
 
+  const openAgeFile = async () => {
+    if (!protectedExchange || !ageFile || ageGuard.current || !canPreview) return;
+    const encryptedFile=ageFile;
+    if(!encryptedFile.name.toLowerCase().endsWith(".iwxa.age") ||
+       encryptedFile.size>MAX_PACKAGE_BYTES+1024*1024){
+      setAgeError("Нужен защищённый файл .iwxa.age допустимого размера.");
+      return;
+    }
+    ageGuard.current=true;
+    setAgeBusy(true);
+    setAgeError(null);
+    try {
+      if(!await cancelActive("new-file"))return;
+      const ticket=operationGenerationRef.current;
+      const ciphertext=new Uint8Array(await encryptedFile.arrayBuffer());
+      if(ticket!==operationGenerationRef.current)return;
+      const opened=await protectedExchange.open({ciphertext});
+      if(ticket!==operationGenerationRef.current)return;
+      // The existing T2 ImportView performs original importPreview and
+      // separately waits for the human-confirmed Kernel importCommit.
+      const archive=new File([opened.archiveBytes as BlobPart],
+        encryptedFile.name.slice(0,-4),{type:"application/octet-stream"});
+      setAgeFile(null);
+      await onFile(archive);
+    } catch(error) {
+      setAgeError("Не удалось проверить или расшифровать защищённый файл: "+
+        (error instanceof Error?error.message:"T3_D7_AGE_OPEN_FAILED"));
+    } finally {ageGuard.current=false;setAgeBusy(false);}
+  };
+
   const openPwaFile = async () => {
     if (!pwaFileHandle || pwaReadGuard.current || pwaUsed === pwaFileHandle ||
         !canPreview || state.status === "previewing" || state.status === "committing") return;
@@ -438,6 +475,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null }: ImportVie
     onFile, runCommit, cancelActive, dispatch,
     pwaFileHandle, pwaReadBusy, pwaReadError, pwaUsed,
     openPwaFile,
+    protectedExchange, ageFile, setAgeFile, ageBusy, ageError, openAgeFile,
   });
 }
 
@@ -456,6 +494,12 @@ interface RenderProps {
   pwaReadError: string | null;
   pwaUsed: InstalledPwaFileHandle | null;
   openPwaFile: () => Promise<void>;
+  protectedExchange: ReturnType<typeof createTrustedAgeExchange> | null;
+  ageFile: File | null;
+  setAgeFile: (file: File | null) => void;
+  ageBusy: boolean;
+  ageError: string | null;
+  openAgeFile: () => Promise<void>;
 }
 
 function renderImport(p: RenderProps) {
@@ -463,6 +507,7 @@ function renderImport(p: RenderProps) {
     state, canPreview, canCommit, canCancel, localWorkspaces,
     onFile, runCommit, cancelActive, dispatch,
     pwaFileHandle, pwaReadBusy, pwaReadError, pwaUsed, openPwaFile,
+    protectedExchange, ageFile, setAgeFile, ageBusy, ageError, openAgeFile,
   } = p;
   const busy = state.status === "previewing" || state.status === "committing";
   const scopeIssues = state.handle ? validateImportScope(state.handle.preview, state.plan) : [];
@@ -515,6 +560,26 @@ function renderImport(p: RenderProps) {
         data-testid="import-file"
         className="text-xs"
       />
+      {protectedExchange && <div className="border border-slate-700 rounded p-3 space-y-2"
+        data-testid="import-age-protected">
+        <p className="text-xs text-slate-300">
+          Защищённый пакет .iwxa.age проверяется установленным владельцем age.
+          Расшифровка не означает согласие на импорт.
+        </p>
+        <input type="file" accept=".iwxa.age" disabled={!canPreview||busy||ageBusy}
+          aria-label="Выберите защищённый файл .iwxa.age"
+          data-testid="import-age-file"
+          onChange={event=>{
+            setAgeFile(event.currentTarget.files?.[0]??null);
+            event.currentTarget.value="";
+          }} className="text-xs"/>
+        {ageFile && <button type="button" disabled={!canPreview||busy||ageBusy}
+          onClick={()=>void openAgeFile()} data-testid="import-age-preview"
+          className="px-3 py-1.5 text-xs rounded bg-slate-800 min-h-[44px] disabled:opacity-40">
+          {ageBusy?"Расшифровка…" :"Расшифровать и показать предпросмотр .iwxa"}
+        </button>}
+        {ageError && <p role="alert" className="text-xs text-red-300">{ageError}</p>}
+      </div>}
       {!canPreview && (
         <p className="text-xs text-slate-500">Предпросмотр импорта не предоставлен ядром.</p>
       )}

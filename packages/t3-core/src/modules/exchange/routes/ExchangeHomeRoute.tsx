@@ -1,5 +1,6 @@
 import { useWorkspaceModuleRuntime } from "../../../workspace-host/rendering/ModuleRenderContext";
 import { PackagesView } from "../features/packages/PackagesView";
+import { useWorkspaceHostRuntimeHandle } from "../../../workspace-host/runtime/WorkspaceHostRuntimeProvider";
 
 /**
  * `exchange.home` route wrapper (PROMPT 25, rewired PROMPT 29 §5, §8,
@@ -10,6 +11,7 @@ import { PackagesView } from "../features/packages/PackagesView";
 export default function ExchangeHomeRoute() {
   const { context } = useWorkspaceModuleRuntime();
   const kernel = context.kernel;
+  const runtime = useWorkspaceHostRuntimeHandle();
 
   if (!kernel) {
     return (
@@ -50,6 +52,7 @@ export default function ExchangeHomeRoute() {
           commands={context.commands}
           initialTab="export"
           exportScopeId={null}
+          protectedExchange={runtime?.protectedExchange ?? null}
         />
       ) : (
         <p

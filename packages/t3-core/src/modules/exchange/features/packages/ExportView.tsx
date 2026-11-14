@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useReducer, useRef } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { KernelFacade } from "@/workspace-contract";
+import type { createTrustedAgeExchange } from "../../../../t3/index.mjs";
 import { CONTRACT_VERSION, type PackageArtifact } from "@/kernel-client/contracts/runtime-1.3.0";
 import {
   INITIAL_EXPORT_STATE,
@@ -56,6 +57,7 @@ function isValidPackageArtifact(
 export interface ExportViewProps {
   kernel: KernelFacade;
   scopedWorkspaceId?: string | null;
+  protectedExchange?: ReturnType<typeof createTrustedAgeExchange> | null;
 }
 
 /**
@@ -74,14 +76,23 @@ export interface ExportViewProps {
  * Confirm receipt (§5, §6): `runConfirm` is a separate user action;
  * `receipt.confirmed_at` and `receipt.package_digest` are surfaced.
  */
-export function ExportView({ kernel, scopedWorkspaceId }: ExportViewProps) {
+export function ExportView({ kernel, scopedWorkspaceId,
+  protectedExchange = null }: ExportViewProps) {
   const [state, dispatch] = useReducer(exportReducer, INITIAL_EXPORT_STATE);
   const busyRef = useRef(false);
   const objectUrlRef = useRef<string | null>(null);
   const revokeTimerRef = useRef<number | null>(null);
+  const [protectedBusy,setProtectedBusy] = useState(false);
+  const [protectedError,setProtectedError] = useState<string|null>(null);
+  const [downloadedName,setDownloadedName] = useState<string|null>(null);
+  const artifactRef = useRef(state.artifact);
+  artifactRef.current = state.artifact;
+  const mountedRef = useRef(true);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       if (revokeTimerRef.current !== null) {
         window.clearTimeout(revokeTimerRef.current);
       }
@@ -154,8 +165,7 @@ export function ExportView({ kernel, scopedWorkspaceId }: ExportViewProps) {
     } finally { busyRef.current = false; }
   };
 
-  const runDownload = () => {
-    if (!state.artifact) return;
+  const triggerDownload = (raw: Uint8Array, filename: string) => {
 
     if (revokeTimerRef.current !== null) {
       window.clearTimeout(revokeTimerRef.current);
@@ -167,7 +177,7 @@ export function ExportView({ kernel, scopedWorkspaceId }: ExportViewProps) {
     }
 
     const blob = new Blob(
-      [state.artifact.bytes as BlobPart],
+      [raw as BlobPart],
       { type: "application/octet-stream" },
     );
 
@@ -176,10 +186,11 @@ export function ExportView({ kernel, scopedWorkspaceId }: ExportViewProps) {
 
     const link = document.createElement("a");
     link.href = url;
-    link.download = state.artifact.filename;
+    link.download = filename;
     link.rel = "noopener";
     link.click();
 
+    setDownloadedName(filename);
     dispatch({ type: "download-initiated" });
 
     revokeTimerRef.current = window.setTimeout(() => {
@@ -190,6 +201,31 @@ export function ExportView({ kernel, scopedWorkspaceId }: ExportViewProps) {
     }, 30_000);
   };
 
+  const runDownload = () => {
+    if (state.artifact) triggerDownload(state.artifact.bytes,state.artifact.filename);
+  };
+  const runProtectedDownload = async () => {
+    const artifact=state.artifact;
+    if (!protectedExchange || !artifact || protectedBusy || busyRef.current ||
+        state.selection.workspaces.length!==1 ||
+        !isValidPackageArtifact(artifact,state.selection)) return;
+    const workspace_id=state.selection.workspaces[0];
+    setProtectedBusy(true);
+    setProtectedError(null);
+    try {
+      const protectedResult=await protectedExchange.seal({
+        workspace_id,archiveBytes:artifact.bytes,
+      });
+      // The source can change during recipient confirmation or native age.
+      if(!mountedRef.current || artifactRef.current!==artifact)return;
+      triggerDownload(protectedResult.ciphertext,artifact.filename+".age");
+    } catch(error) {
+      if(mountedRef.current&&artifactRef.current===artifact)
+        setProtectedError(error instanceof Error?error.message:"T3_D7_AGE_OWNER_UNAVAILABLE");
+    } finally {
+      if(mountedRef.current)setProtectedBusy(false);
+    }
+  };
   const runConfirm = async () => {
     if (state.status !== "download-initiated" || !state.fileSavedConfirmed) return;
     if (!state.artifact) return;
@@ -209,7 +245,8 @@ export function ExportView({ kernel, scopedWorkspaceId }: ExportViewProps) {
 
   return renderExport({
     state, canPreview, canPackage, canConfirm,
-    runPreview, runPackage, runDownload, runConfirm, dispatch,
+    runPreview, runPackage, runDownload, runProtectedDownload, runConfirm, dispatch,
+    protectedExchange, protectedBusy, protectedError, downloadedName,
   });
 }
 
@@ -221,17 +258,23 @@ interface RenderProps {
   runPreview: () => void;
   runPackage: () => void;
   runDownload: () => void;
+  runProtectedDownload: () => Promise<void>;
+  protectedExchange: ReturnType<typeof createTrustedAgeExchange> | null;
+  protectedBusy: boolean;
+  protectedError: string | null;
+  downloadedName: string | null;
   runConfirm: () => void;
   dispatch: React.Dispatch<import("../state/export-machine").ExportEvent>;
 }
 
 function renderExport(p: RenderProps) {
   const { state, canPreview, canPackage, canConfirm,
-    runPreview, runPackage, runDownload, runConfirm, dispatch } = p;
+    runPreview, runPackage, runDownload, runProtectedDownload, runConfirm, dispatch,
+    protectedExchange, protectedBusy, protectedError, downloadedName } = p;
   const busy = state.status === "previewing" || state.status === "packaging" || state.status === "confirming";
   const previewDisabled = !canPreview || state.selection.workspaces.length === 0 || busy;
   const packageDisabled = !canPackage || !state.preview || !state.ackSensitive || busy;
-  const downloadDisabled = !state.artifact || busy;
+  const downloadDisabled = !state.artifact || busy || protectedBusy;
   const confirmDisabled =
     !state.artifact || !canConfirm || !state.fileSavedConfirmed ||
     busy || state.status !== "download-initiated";
@@ -286,7 +329,7 @@ function renderExport(p: RenderProps) {
             onChange={(e) => dispatch({ type: "ack-sensitive", value: e.target.checked })}
             className="mt-0.5" />
           <span>Я проверил состав предпросмотра и понимаю, что экспортируемый
-            архив .iwxa не зашифрован.</span>
+            архив .iwxa не зашифрован. Защищённая копия создаётся отдельно у установленного владельца age.</span>
         </label>
       )}
 
@@ -306,6 +349,12 @@ function renderExport(p: RenderProps) {
           className="px-3 py-1.5 text-xs rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 min-h-[44px]">
           Скачать .iwxa
         </button>
+        {protectedExchange && <button type="button" onClick={() => void runProtectedDownload()}
+          disabled={downloadDisabled || state.selection.workspaces.length!==1}
+          data-testid="export-age-protected"
+          className="px-3 py-1.5 text-xs rounded bg-indigo-900/70 hover:bg-indigo-900 disabled:opacity-40 min-h-[44px]">
+          {protectedBusy ? "Защита…" : "Скачать защищённую .iwxa.age"}
+        </button>}
         <button type="button" onClick={runConfirm} disabled={confirmDisabled}
           data-testid="export-confirm"
           className="px-3 py-1.5 text-xs rounded bg-emerald-900/70 hover:bg-emerald-900 disabled:opacity-40 min-h-[44px]">
@@ -313,6 +362,7 @@ function renderExport(p: RenderProps) {
         </button>
       </div>
 
+      {protectedError && <p role="alert" data-testid="export-age-error" className="text-xs text-red-300">Защита не выполнена: {protectedError}</p>}
       {state.artifact && ["download-initiated", "confirming", "confirmed"].includes(state.status) && (
         <label className="flex items-start gap-2 text-xs text-slate-300">
           <input type="checkbox" data-testid="export-confirm-saved-file"
@@ -320,7 +370,7 @@ function renderExport(p: RenderProps) {
             disabled={state.status !== "download-initiated"}
             onChange={(e) => dispatch({ type: "ack-file-saved", value: e.target.checked })}
             className="mt-0.5" />
-          <span>Я проверил, что файл {state.artifact.filename} действительно сохранён
+          <span>Я проверил, что файл {downloadedName ?? state.artifact.filename} действительно сохранён
             на устройстве. Начало скачивания само по себе не подтверждает наличие копии.</span>
         </label>
       )}

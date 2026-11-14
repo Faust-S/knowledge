@@ -47,6 +47,8 @@ interface WorkspaceHostRuntimeProviderProps {
   reconciliationPort?: CreateWorkspaceHostRuntimeInput["reconciliationPort"];
   nativeContinuationOwner?: CreateWorkspaceHostRuntimeInput["nativeContinuationOwner"];
   confirmNativeContinuation?: CreateWorkspaceHostRuntimeInput["confirmNativeContinuation"];
+  ageOwner?: CreateWorkspaceHostRuntimeInput["ageOwner"];
+  confirmAgeRecipients?: CreateWorkspaceHostRuntimeInput["confirmAgeRecipients"];
   /** Reuse the original Control owner's subscribeInvalidation. Context
    * changes, signed STATUS and revocation must immediately detach old UI. */
   subscribeSignedAccessInvalidation?: SignedAccessInvalidationSubscription;
@@ -80,6 +82,7 @@ export function WorkspaceHostRuntimeProvider(
     activeCapabilities = EMPTY_CAPABILITIES,
     signedKernelAccess, signedActivityAccess, reconciliationOwner, reconciliationPort,
     nativeContinuationOwner, confirmNativeContinuation,
+    ageOwner, confirmAgeRecipients,
     subscribeSignedAccessInvalidation,
     compileTimeModuleLoaders,
     preferDomainLanding = false,
@@ -208,6 +211,8 @@ export function WorkspaceHostRuntimeProvider(
             reconciliationPort,
             nativeContinuationOwner,
             confirmNativeContinuation,
+            ageOwner,
+            confirmAgeRecipients,
             compileTimeModuleLoaders,
             preferDomainLanding,
           });
@@ -236,7 +241,7 @@ export function WorkspaceHostRuntimeProvider(
       // this generation stale.
     };
     // Restart only on session identity or workspaceConfig identity change.
-  }, [sessionKey, session, workspaceConfig, termResolver, profile, activeCapabilities, signedKernelAccess, signedActivityAccess, reconciliationOwner, reconciliationPort, nativeContinuationOwner, confirmNativeContinuation, accessEpoch, compileTimeModuleLoaders, preferDomainLanding]);
+  }, [sessionKey, session, workspaceConfig, termResolver, profile, activeCapabilities, signedKernelAccess, signedActivityAccess, reconciliationOwner, reconciliationPort, nativeContinuationOwner, confirmNativeContinuation, ageOwner, confirmAgeRecipients, accessEpoch, compileTimeModuleLoaders, preferDomainLanding]);
 
   // Unmount teardown.
   useEffect(() => {

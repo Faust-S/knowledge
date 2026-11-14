@@ -6,6 +6,7 @@ import type {
 import { ExportView } from "./ExportView";
 import { ImportView, type InstalledPwaFileHandle } from "./ImportView";
 import type { PackagesTab } from "../../types";
+import type { createTrustedAgeExchange } from "../../../../t3/index.mjs";
 
 export interface PackagesViewProps {
   kernel: KernelFacade;
@@ -13,6 +14,7 @@ export interface PackagesViewProps {
   commands: CommandsFacade;
   initialTab: PackagesTab;
   exportScopeId: string | null;
+  protectedExchange?: ReturnType<typeof createTrustedAgeExchange> | null;
 }
 
 /**
@@ -26,6 +28,7 @@ export function PackagesView({
   commands,
   initialTab,
   exportScopeId,
+  protectedExchange = null,
 }: PackagesViewProps) {
   const canExport =
     kernel.hasOperation("t2.exportPreview") || kernel.hasOperation("t2.exportPackage");
@@ -124,10 +127,11 @@ export function PackagesView({
         aria-labelledby={`packages-tab-${tab}`}
       >
         {tab === "export" ? (
-          <ExportView kernel={kernel} scopedWorkspaceId={exportScopeId} />
+          <ExportView kernel={kernel} scopedWorkspaceId={exportScopeId}
+             protectedExchange={protectedExchange} />
         ) : (
           <ImportView kernel={kernel} commands={commands}
-            pwaFileHandle={pwaFileHandle} />
+            pwaFileHandle={pwaFileHandle} protectedExchange={protectedExchange} />
         )}
       </div>
     </div>

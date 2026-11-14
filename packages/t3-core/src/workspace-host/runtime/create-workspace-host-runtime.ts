@@ -18,6 +18,7 @@ import { adapter } from "@/kernel-client/adapter";
 import {
   readActivityFromWorkspaceContext, createTrustedReconciliationAdmission,
   createTrustedReconciliationKernelApply, createTrustedNativeContinuation,
+  createTrustedAgeExchange,
 } from "@/t3/index.mjs";
 import {
   AVAILABLE_MODULES,
@@ -55,6 +56,8 @@ export async function createWorkspaceHostRuntime(
   if(input.nativeContinuationOwner &&
       (!input.confirmNativeContinuation || !input.signedKernelAccess))
     throw new Error("T3_D6_TRUSTED_SIGNED_NATIVE_OWNER_REQUIRED");
+  if(input.ageOwner && (!input.confirmAgeRecipients || !input.signedKernelAccess))
+    throw new Error("T3_D7_TRUSTED_SIGNED_AGE_OWNER_REQUIRED");
   const bindings = activeHostRouteBindings();
   const registry = new RouteRegistry();
   registry.registerMany(bindings);
@@ -243,6 +246,19 @@ export async function createWorkspaceHostRuntime(
         confirmHuman:input.confirmNativeContinuation,
         isHostActive:()=>!disposed,
       }) : null;
+  // D7 native age is optional and never changes the original T2 Exchange.
+  const protectedExchange: WorkspaceHostRuntimeHandle["protectedExchange"] =
+    input.ageOwner && input.confirmAgeRecipients
+      ? createTrustedAgeExchange({
+        kernel:activityT2Kernel,
+        accessForRead:async operation=>{
+          const source=input.signedKernelAccess;
+          return typeof source==="function" ? await source(operation) : source ?? null;
+        },
+        ageOwner:input.ageOwner,
+        confirmRecipients:input.confirmAgeRecipients,
+        isHostActive:()=>!disposed,
+      }) : null;
   // D3 is executed by one ORIGINAL owner. Installed split-origin products
   // forward to the native recipient over the existing signed Control channel.
   const remoteD3=input.reconciliationPort;
@@ -329,6 +345,7 @@ export async function createWorkspaceHostRuntime(
     readAuthorizedActivity,
     reconciliation,
     nativeContinuation,
+    protectedExchange,
     invalidate,
     dispose,
   };

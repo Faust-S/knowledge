@@ -182,3 +182,35 @@ export function createTrustedNativeContinuation(options:{
   continueSelected(input:T3NativeContinuationReference):Promise<T3NativeContinuationStatus>;
   recover(input:T3NativeContinuationReference):Promise<T3NativeContinuationStatus>;
 }>;
+
+/** D7: installed native age owner, no private keys or issuer in the web Host. */
+export interface T3OriginalAgeOwner {
+  prepareSeal(input:{workspaceId:string;archiveSha256:string;archiveSize:number}):
+    {status:string;format:string;recipientIds:string[]}|
+    Promise<{status:string;format:string;recipientIds:string[]}>;
+  seal(input:{archiveBytes:Uint8Array;archiveSha256:string;recipientIds:string[];
+    workspaceId:string}):unknown|Promise<unknown>;
+  open(input:{ciphertext:Uint8Array;selectedWorkspaceId:string}):unknown|Promise<unknown>;
+}
+export interface T3AgeProtectionReceipt {
+  status:"AGE_PROTECTED_DOWNLOAD_READY";format:"age-encryption.org/v1";
+  archiveSha256:string;recipientIds:readonly string[];ciphertext:Uint8Array;
+  savedToDevice:false;recipientImported:false;
+}
+export interface T3AgeOpenReceipt {
+  status:"AGE_OPENED_NOT_IMPORTED";recipientId:string;archiveSha256:string;
+  archiveBytes:Uint8Array;kernelPreviewed:false;accepted:false;
+}
+export function createTrustedAgeExchange(options:{
+  kernel:KernelFacade;
+  accessForRead:(operation:string)=>T3SignedActivityAccess|null|
+    Promise<T3SignedActivityAccess|null>;
+  ageOwner:T3OriginalAgeOwner;
+  confirmRecipients:(input:{workspaceId:string;recipientIds:string[];
+    archiveSha256:string;archiveSize:number})=>boolean|Promise<boolean>;
+  isHostActive:()=>boolean;
+}):Readonly<{
+  seal(input:{workspace_id:string;archiveBytes:Uint8Array}):
+    Promise<T3AgeProtectionReceipt>;
+  open(input:{ciphertext:Uint8Array}):Promise<T3AgeOpenReceipt>;
+}>;

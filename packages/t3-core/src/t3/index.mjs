@@ -71,3 +71,5 @@ export { createTrustedReconciliationAdmission } from './reconciliation-owner-adm
 export { createTrustedReconciliationKernelApply } from './reconciliation-kernel-apply.mjs';
 
 export { createTrustedNativeContinuation } from "./native-result-continuation.mjs";
+
+export {createTrustedAgeExchange} from "./age-protected-exchange.mjs";
