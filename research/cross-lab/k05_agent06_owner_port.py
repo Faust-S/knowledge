@@ -15,6 +15,7 @@ import re
 from k05_agent06_effectiveness import (
     K05EffectivenessHold, observe_run,
 )
+from k05_agent06_admission import compare_verified_task_runs
 
 CONTRACT = "IWXA_K05_AGENT06_OWNER_READBACK/0.1"
 EXECUTION_CONTRACT = "IWXA_K05_AGENT06_EXECUTION_RECEIPT_OBSERVATION/0.1"
@@ -66,6 +67,10 @@ def read_agent_accepted_task(task_cell, task_id: str) -> dict:
     actual_digest = task_cell.task_digest(row["task_path"])
     _need(_hex(actual_digest) and state.get("task_digest") == actual_digest,
           "TASK_DIGEST_MISMATCH")
+    # Record state identity BEFORE the original Core acceptance readback.
+    # An owner may advance its state chain between these two calls.
+    first_state_digest = state.get("state_digest")
+    _need(_hex(first_state_digest), "TASK_STATE_DIGEST_INVALID")
     _need(state.get("status") == "closed" and
           state.get("accepted_artifact_ref") is not None,
           "TASK_NOT_ACCEPTED")
@@ -88,6 +93,21 @@ def read_agent_accepted_task(task_cell, task_id: str) -> dict:
           accepted.get("result_ref") == result_ref and
           accepted.get("review_ref") == review_ref,
           "ACCEPTED_ARTIFACT_RELATIONS_CHANGED")
+    # Atomicity of two separate owner reads is NOT assumed. Recheck the
+    # original TaskCell state digest and canonical Task record after Core
+    # validated the accepted artifact, with no write or lock bypass.
+    fresh = task_cell.read_task(task_id)
+    _need(type(fresh) is dict and type(fresh.get("state")) is dict
+          and type(fresh.get("task")) is dict
+          and str(fresh.get("task_path")) == str(row["task_path"])
+          and fresh["task"].get("task_id") == task_id
+          and fresh["state"].get("status") == "closed"
+          and fresh["state"].get("state_digest") == first_state_digest
+          and fresh["state"].get("accepted_artifact_ref") == accepted_ref
+          and fresh["state"].get("result_ref") == result_ref
+          and fresh["state"].get("review_ref") == review_ref
+          and task_cell.task_digest(fresh["task_path"]) == actual_digest,
+          "TASK_CHANGED_DURING_OWNER_READBACK")
     return {
         "schema": CONTRACT,
         "status": "HUMAN_ACCEPTED_DRAFT_OWNER_PORT",
@@ -205,6 +225,13 @@ def read_agent_execution_receipts(*, task_cell, task_id: str,
         durations.append(elapsed_us)
         counts[receipt["status"]] += 1
         effects[receipt["external_effect_state"]] += 1
+    final_task = read_agent_accepted_task(task_cell, task_id)
+    _need(final_task["task_sha256"] == accepted["task_sha256"]
+          and final_task["accepted_artifact_sha256"]
+          == accepted["accepted_artifact_sha256"]
+          and final_task["review_record_sha256"]
+          == accepted["review_record_sha256"],
+          "TASK_CHANGED_DURING_RECEIPT_READBACK")
     return {
         "schema": EXECUTION_CONTRACT,
         "status": "OWNER_READBACK_RECEIPTS_LINKED",
@@ -226,4 +253,47 @@ def read_agent_execution_receipts(*, task_cell, task_id: str,
         "end_to_end_duration_ms": None,
         "accepted_business_result": "NOT_VERIFIED",
         "raw_arguments_shared": False,
+    }
+
+
+def compare_two_agent_accepted_task_instances(
+    baseline_run: dict, alternative_run: dict, *,
+    task_cell, baseline_task_id: str, alternative_task_id: str,
+    source_bytes, owner_verify, task_equivalence_evidence: dict | None,
+) -> dict:
+    """One read-only installed Agent consumer path for two original Tasks.
+
+    The installed owner must supply exact, independent Task evidence; K05
+    never creates Tasks, reuses foreign IDs, grants execution or ranks prose.
+    Unlike mock tests, the real TaskCell validates the immutable owner chain.
+    """
+    _need(type(baseline_task_id) is str and type(alternative_task_id) is str
+          and baseline_task_id != alternative_task_id,
+          "TWO_DISTINCT_TASK_IDS_REQUIRED")
+    first = observe_accepted_agent_run(
+        baseline_run, task_cell=task_cell, task_id=baseline_task_id,
+        source_bytes=source_bytes, owner_verify=owner_verify)
+    second = observe_accepted_agent_run(
+        alternative_run, task_cell=task_cell, task_id=alternative_task_id,
+        source_bytes=source_bytes, owner_verify=owner_verify)
+    pair = compare_verified_task_runs(
+        baseline_run, alternative_run, source_bytes=source_bytes,
+        owner_verify=owner_verify,
+        task_equivalence_evidence=task_equivalence_evidence)
+    # Completion and acceptance of each Task have been checked by original
+    # TaskCell, but the equivalence certificate is still owner-attested.
+    return {
+        "schema": "IWXA_K05_AGENT06_TWO_ACCEPTED_TASK_INSTANCES/0.1",
+        "status": (
+            "TWO_ACCEPTED_TASKS_SOURCE_COMPARABLE"
+            if pair["accepted_result_comparison_status"] ==
+            "TWO_HUMAN_OR_DOMAIN_ACCEPTED_RESULTS"
+            else "TWO_ACCEPTED_TASKS_NOT_COMPARABLE"
+        ),
+        "baseline_witness": first["task_witness"],
+        "alternative_witness": second["task_witness"],
+        "comparison": pair,
+        "installed_agent_qualification": "NOT_TESTED_WITH_ORIGINAL_AGENT",
+        "effects_readback": "NOT_VERIFIED",
+        "causal_effect": "NOT_MEASURABLE",
     }

@@ -8,13 +8,14 @@ on:
       - 'research/cross-lab/k05_agent06_effectiveness.py'
       - 'research/cross-lab/k05_agent06_admission.py'
       - 'research/cross-lab/tests/test_k05_agent06_admission.py'
+      - 'research/cross-lab/tests/test_k05_agent06_task_instances.py'
       - 'research/cross-lab/k05_agent06_otlp.py'
       - 'research/cross-lab/k05_agent06_owner_port.py'
       - 'research/cross-lab/k05_agent06_t3_process.mjs'
       - 'research/cross-lab/k05_agent06_atlas_planning.mjs'
       - 'research/cross-lab/tests/test_k05_agent06_atlas_planning.test.mjs'
       - 'research/cross-lab/tests/test_k05_agent06_t3_process.test.mjs'
-      - 'research/cross-lab/tests/test_k05_agent06_owner_port.py'
+      - 'research/cross-lab/tests/test_k05_agent06_owner_port.py research/cross-lab/tests/test_k05_agent06_task_instances.py'
       - 'research/cross-lab/tests/test_k05_agent06_effectiveness.py'
       - '.github/workflows/k05-agent06-effectiveness.yml'
   workflow_dispatch:
@@ -39,6 +40,8 @@ jobs:
         run: python -W error::ResourceWarning -m unittest research/cross-lab/tests/test_k05_agent06_admission.py -v
       - name: Original owner-port readback and forged-receipt negative tests
         run: python -W error::ResourceWarning -m unittest research/cross-lab/tests/test_k05_agent06_owner_port.py -v
+      - name: Independent Agent Task instances and owner-bound equivalence
+        run: python -W error::ResourceWarning -m unittest research/cross-lab/tests/test_k05_agent06_task_instances.py -v
       - name: Full existing K05 Python regression
         run: python -W error::ResourceWarning -m unittest discover -s research/cross-lab/tests -p 'test_*.py' -v
       - name: Existing K05 Agent graph and source gates

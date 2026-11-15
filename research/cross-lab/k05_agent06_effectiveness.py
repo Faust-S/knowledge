@@ -21,6 +21,7 @@ ID = re.compile(r"^[a-zA-Z][a-zA-Z0-9._-]{0,79}$")
 SOURCE_KINDS = frozenset({
     "EXECUTION_USAGE", "TIME_TRACKING", "HUMAN_REVIEW", "DOMAIN_ACCEPTANCE",
     "TOOL_RECEIPT", "ACTIVITY", "DOMAIN_FACT", "ATLAS_PLAN_FACT", "COST_INVOICE",
+    "TASK_EQUIVALENCE",
 })
 ACCEPTANCE_KINDS = frozenset({"HUMAN_REVIEW", "DOMAIN_ACCEPTANCE"})
 METRICS = frozenset({
@@ -28,6 +29,17 @@ METRICS = frozenset({
     "error_count", "intervention_count", "actual_cost_minor",
     "input_tokens", "output_tokens",
 })
+METRIC_SOURCE_KINDS = {
+    "elapsed_ms": frozenset({"EXECUTION_USAGE", "ACTIVITY", "TIME_TRACKING"}),
+    "human_active_ms": frozenset({"TIME_TRACKING"}),
+    "retry_count": frozenset({"ACTIVITY", "EXECUTION_USAGE"}),
+    "return_count": frozenset({"ACTIVITY", "DOMAIN_FACT"}),
+    "error_count": frozenset({"ACTIVITY", "EXECUTION_USAGE"}),
+    "intervention_count": frozenset({"ACTIVITY", "TIME_TRACKING"}),
+    "actual_cost_minor": frozenset({"COST_INVOICE"}),
+    "input_tokens": frozenset({"EXECUTION_USAGE"}),
+    "output_tokens": frozenset({"EXECUTION_USAGE"}),
+}
 MAX_VALUE = 10**15
 MAX_EVIDENCE = 128
 MAX_SOURCE_BYTES = 2_000_000
@@ -104,7 +116,9 @@ def _verified_measurement(name: str, claim: dict, proofs: dict,
     value, ref = claim["value"], claim["source_ref"]
     _need(_integer(value) and ref in proofs, "METRIC_VALUE_OR_SOURCE_INVALID")
     kind, owner = proofs[ref]
-    _need(kind not in ACCEPTANCE_KINDS and kind != "TOOL_RECEIPT",
+    # Never turn a planning projection, task-equivalence certificate,
+    # Human Review or tool control receipt into a measured cost/usage/time.
+    _need(kind in METRIC_SOURCE_KINDS[name],
           "METRIC_SOURCE_KIND_INVALID")
     _need(owner["status"] == "OBSERVED"
           and owner["values"].get(name) == value
@@ -212,10 +226,34 @@ def observe_run(run: dict, *, source_bytes: Mapping[str, bytes],
     }
 
 
-def compare_task_executors(baseline: dict, alternative: dict) -> dict:
-    """Allow different executors; hold on changed task, inputs or cohort.
+def _project_task_pair(baseline: dict, alternative: dict, *, comparable: bool,
+                       status: str) -> dict:
+    """One projection of deltas, reused only after the relevant admission gate.
 
-    This is NOT the strict same-model K05 ablation gate, nor a model ranking.
+    This is NOT itself an authorization or a verifier of task equivalence.
+    """
+    metric_deltas = {}
+    for metric in sorted(METRICS):
+        a, b = baseline["metrics"][metric], alternative["metrics"][metric]
+        metric_deltas[metric] = b - a if comparable and a is not None and b is not None else None
+    return {
+        "schema": PAIR_SCHEMA,
+        "status": status if comparable else "NOT_COMPARABLE",
+        "acceptance": [baseline["acceptance"], alternative["acceptance"]],
+        "executor_sha256": [baseline["executor_sha256"], alternative["executor_sha256"]],
+        "tool_receipts": [baseline["tool_receipts"], alternative["tool_receipts"]],
+        "metric_deltas_alternative_minus_baseline": metric_deltas,
+        "result_quality_ranking": "NOT_MEASURABLE",
+        "causal_benefit": "NOT_MEASURABLE",
+    }
+
+
+def compare_task_executors(baseline: dict, alternative: dict) -> dict:
+    """Compare two observations of the *same exact* Task record.
+
+    Distinct accepted Task instances, even if their objectives look identical,
+    require separately owner-verified Task definition equivalence through K05
+    source replay; never replace one identity digest with another.
     """
     for obj in (baseline, alternative):
         _need(type(obj) is dict and obj.get("schema") == SCHEMA,
@@ -226,22 +264,11 @@ def compare_task_executors(baseline: dict, alternative: dict) -> dict:
         and baseline["cohort_sha256"] == alternative["cohort_sha256"]
         and baseline["currency"] == alternative["currency"]
         and baseline["run_id_sha256"] != alternative["run_id_sha256"]
+        and baseline["phase"] == alternative["phase"] == "RUN"
     )
-    metric_deltas = {}
-    for metric in sorted(METRICS):
-        a, b = baseline["metrics"][metric], alternative["metrics"][metric]
-        metric_deltas[metric] = b - a if comparable and a is not None and b is not None else None
-    return {
-        "schema": PAIR_SCHEMA,
-        "status": "SOURCE_BOUND_COMPARABLE" if comparable else "NOT_COMPARABLE",
-        "acceptance": [baseline["acceptance"], alternative["acceptance"]],
-        "executor_sha256": [baseline["executor_sha256"], alternative["executor_sha256"]],
-        "tool_receipts": [baseline["tool_receipts"], alternative["tool_receipts"]],
-        "metric_deltas_alternative_minus_baseline": metric_deltas,
-        "result_quality_ranking": "NOT_MEASURABLE",
-        "causal_benefit": "NOT_MEASURABLE",
-    }
-
+    return _project_task_pair(
+        baseline, alternative, comparable=comparable,
+        status="SOURCE_BOUND_COMPARABLE")
 
 def _phase(observations: list, phase: str) -> dict:
     accepted = sum(row["acceptance"] == "ACCEPTED" for row in observations)

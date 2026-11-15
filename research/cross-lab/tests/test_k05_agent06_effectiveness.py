@@ -176,6 +176,42 @@ class EffectivenessContractTests(unittest.TestCase):
             compare_process_phases([a],[b],investment=None,
                                    source_bytes={},owner_verify=lambda *args:None)
 
+    def test_planned_values_cannot_be_claimed_as_observed_time_or_usage(self):
+        for label, metric, kind in (
+            ("PlanElapsed", "elapsed_ms", "ATLAS_PLAN_FACT"),
+            ("EquivalenceTime", "human_active_ms", "TASK_EQUIVALENCE"),
+            ("WrongTime", "human_active_ms", "EXECUTION_USAGE"),
+            ("UsageFromActivity", "input_tokens", "ACTIVITY"),
+            ("PlanCost", "actual_cost_minor", "ATLAS_PLAN_FACT"),
+        ):
+            with self.subTest(label=label):
+                run, source, verifier, proofs = fixture(label)
+                if metric == "input_tokens":
+                    ref = run["measurements"]["elapsed_ms"]["source_ref"]
+                    run["measurements"]["input_tokens"] = {
+                        "value": 12, "source_ref": ref,
+                    }
+                    proofs[ref]["values"]["input_tokens"] = 12
+                else:
+                    ref = run["measurements"][metric]["source_ref"]
+                    proofs[ref]["kind"] = kind
+                    for pin in run["evidence"]:
+                        if pin["ref"] == ref:
+                            pin["kind"] = kind
+                with self.assertRaisesRegex(
+                    K05EffectivenessHold, "METRIC_SOURCE_KIND_INVALID"
+                ):
+                    observe_run(run, source_bytes=source,
+                                owner_verify=verifier)
+
+    def test_task_pair_different_phase_is_not_same_execution_experiment(self):
+        a = observed(fixture("PairRun", phase="RUN"))
+        b = observed(fixture("PairPostchange", phase="AFTER"))
+        compared = compare_task_executors(a, b)
+        self.assertEqual(compared["status"], "NOT_COMPARABLE")
+        self.assertIsNone(
+            compared["metric_deltas_alternative_minus_baseline"]["elapsed_ms"])
+
     def test_otlp_only_technical_and_opt_in(self):
         row=observed(fixture("Gamma"))
         self.assertEqual(project_otlp_json(row)["status"],"DISABLED")

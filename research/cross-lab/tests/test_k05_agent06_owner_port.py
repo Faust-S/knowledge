@@ -35,6 +35,7 @@ class FakeTaskCell:
         self.task = {"task_id": "TASK-K05"}
         self.state = {
             "task_id": "TASK-K05", "task_digest": TASK, "status": "closed",
+            "state_digest": hashlib.sha256(b"immutable closed State").hexdigest(),
             "result_ref": typed("result", "RES-K05", RESULT),
             "review_ref": typed("review", "REV-K05", REVIEW),
             "accepted_artifact_ref": typed("accepted_artifact", "ACC-K05", ACC),
@@ -105,7 +106,8 @@ class K05OwnerAdapterTests(unittest.TestCase):
         self.assertEqual(witness["result_record_sha256"], RESULT)
         self.assertEqual(witness["status"], "HUMAN_ACCEPTED_DRAFT_OWNER_PORT")
         self.assertEqual(witness["external_effect_status"], "NOT_VERIFIED")
-        self.assertEqual(fake.calls, ["read_task", "task_digest", "accepted_artifact"])
+        self.assertEqual(fake.calls, ["read_task", "task_digest", "accepted_artifact",
+                                      "read_task", "task_digest"])
         encoded = json.dumps(witness)
         self.assertNotIn("TASK-K05", encoded)
         self.assertNotIn("RES-K05", encoded)
@@ -224,6 +226,32 @@ class K05OwnerAdapterTests(unittest.TestCase):
             read_agent_accepted_task(object(), "TASK-K05")
         with self.assertRaisesRegex(K05EffectivenessHold,"TASK_ID_INVALID"):
             read_agent_accepted_task(FakeTaskCell(), "../TASK-K05")
+
+    def test_owner_state_advances_during_acceptance_readback_hold(self):
+        class RacyTaskCell(FakeTaskCell):
+            def accepted_artifact(self, task_id):
+                accepted = super().accepted_artifact(task_id)
+                self.state = {
+                    **self.state,
+                    "state_digest": hashlib.sha256(b"changed State").hexdigest(),
+                }
+                return accepted
+        with self.assertRaisesRegex(
+            K05EffectivenessHold, "TASK_CHANGED_DURING_OWNER_READBACK"
+        ):
+            read_agent_accepted_task(RacyTaskCell(), "TASK-K05")
+
+    def test_owner_task_payload_changes_during_readback_hold(self):
+        class MutatedTaskCell(FakeTaskCell):
+            def task_digest(self, path):
+                self.calls.append("task_digest")
+                if self.calls.count("task_digest") > 1:
+                    return hashlib.sha256(b"mutated Task record").hexdigest()
+                return TASK
+        with self.assertRaisesRegex(
+            K05EffectivenessHold, "TASK_CHANGED_DURING_OWNER_READBACK"
+        ):
+            read_agent_accepted_task(MutatedTaskCell(), "TASK-K05")
 
     def test_idempotency_collision_is_not_claimed_as_an_execution_retry(self):
         class ReplayedReceipt(FakeToolRuntime):

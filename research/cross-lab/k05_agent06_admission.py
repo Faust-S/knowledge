@@ -16,7 +16,7 @@ from typing import Mapping
 
 from k05_agent06_effectiveness import (
     K05EffectivenessHold, OwnerVerify, _need, _proofs, _sha,
-    compare_process_phases, compare_task_executors, observe_run,
+    _project_task_pair, compare_process_phases, compare_task_executors, observe_run,
 )
 
 CONTRACT = "IWXA_K05_SOURCE_REPLAY_COMPARISON/0.1"
@@ -45,6 +45,46 @@ def _instant(value: object) -> datetime:
     _need(parsed.tzinfo is not None and parsed.utcoffset() is not None,
           "POPULATION_TIME_INVALID")
     return parsed.astimezone(timezone.utc)
+
+
+def _admit_task_equivalence(
+    evidence: dict, baseline: dict, alternative: dict,
+    *, source_bytes: Mapping[str, bytes], owner_verify: OwnerVerify,
+) -> dict:
+    """Ask original Task owner to attest equality of *source Task definitions*.
+
+    No hash substitution: the two original canonical Task record digests
+    remain different. The owner verifies comparable source/revision, goal,
+    acceptance criteria, constraints and permissions from both real Tasks.
+    """
+    _need(type(evidence) is dict and set(evidence) == {
+        "ref", "kind", "sha256",
+    } and evidence["kind"] == "TASK_EQUIVALENCE",
+          "TASK_EQUIVALENCE_PIN_REQUIRED")
+    proofs = _proofs([evidence], source_bytes, owner_verify)
+    proof = proofs[evidence["ref"]][1]
+    values = proof["values"]
+    _need(proof["status"] == "OBSERVED"
+          and proof.get("task_sha256") is None
+          and proof.get("result_sha256") is None
+          and values.get("purpose") == "EXECUTOR_TASK_INSTANCE_COMPARISON"
+          and values.get("owner_contract") == "PA.CONTRACT.TASK/1.0.0"
+          and values.get("baseline_task_sha256") == baseline["task_sha256"]
+          and values.get("alternative_task_sha256") == alternative["task_sha256"]
+          and values.get("input_sha256") == baseline["input_sha256"]
+          and values.get("cohort_sha256") == baseline["cohort_sha256"]
+          and values.get("original_task_readback") is True
+          and all(values.get(k) is True for k in (
+              "equal_goal", "equal_expected_result",
+              "equal_acceptance_criteria", "equal_constraints",
+              "equal_execution_permissions", "equal_source_revision",
+          )), "TASK_EQUIVALENCE_NOT_OWNER_VERIFIED")
+    return {
+        "status": "SOURCE_OWNER_REPORTED_TASK_DEFINITION_EQUIVALENCE",
+        "evidence_sha256": evidence["sha256"],
+        "original_record_digests_preserved": True,
+        "independent_acceptance": "NOT_ATTESTED_BY_K05",
+    }
 
 
 def _admit_population(
@@ -102,22 +142,63 @@ def _admit_population(
 def compare_verified_task_runs(
     baseline_run: dict, alternative_run: dict, *,
     source_bytes: Mapping[str, bytes], owner_verify: OwnerVerify,
+    task_equivalence_evidence: dict | None = None,
 ) -> dict:
-    """Re-evaluate source bytes for two executors; never trust projections."""
+    """Compare two independently accepted Task instances without fake IDs.
+
+    Exact same original Task digest uses the existing K05 comparison. Two
+    distinct canonical Task records need a source-bound, original Task-owner
+    equivalence attestation; identical prose or hash prefixes do not suffice.
+    """
     a = observe_run(baseline_run, source_bytes=source_bytes,
                     owner_verify=owner_verify)
     b = observe_run(alternative_run, source_bytes=source_bytes,
                     owner_verify=owner_verify)
-    result = compare_task_executors(a, b)
+    if a["task_sha256"] == b["task_sha256"]:
+        _need(task_equivalence_evidence is None,
+              "UNNECESSARY_TASK_EQUIVALENCE")
+        result = compare_task_executors(a, b)
+        equivalence = {
+            "status": "SAME_EXACT_TASK_RECORD",
+            "original_record_digests_preserved": True,
+        }
+    else:
+        # The original two Task records must NEVER be relabelled as equal.
+        compatible = (
+            a["input_sha256"] == b["input_sha256"]
+            and a["cohort_sha256"] == b["cohort_sha256"]
+            and a["currency"] == b["currency"]
+            and a["phase"] == b["phase"] == "RUN"
+            and a["run_id_sha256"] != b["run_id_sha256"]
+            and a["executor_sha256"] != b["executor_sha256"]
+        )
+        if task_equivalence_evidence is None:
+            equivalence = {"status": "UNKNOWN", "original_record_digests_preserved": True}
+        elif not compatible:
+            # No owner-provided statement can override mismatched inputs,
+            # cohort, units, phase or duplicate execution identifiers.
+            raise K05EffectivenessHold("K05_EFFECTIVENESS_TASK_PAIR_INPUT_MISMATCH")
+        else:
+            equivalence = _admit_task_equivalence(
+                task_equivalence_evidence, a, b,
+                source_bytes=source_bytes, owner_verify=owner_verify)
+        admitted = compatible and equivalence["status"] == (
+            "SOURCE_OWNER_REPORTED_TASK_DEFINITION_EQUIVALENCE")
+        result = _project_task_pair(
+            a, b, comparable=admitted,
+            status="SOURCE_BOUND_EQUIVALENT_DISTINCT_TASKS")
+    accepted = result["status"] in {
+        "SOURCE_BOUND_COMPARABLE", "SOURCE_BOUND_EQUIVALENT_DISTINCT_TASKS",
+    } and result["acceptance"] == ["ACCEPTED", "ACCEPTED"]
     return {
-        "schema": CONTRACT, "kind": "EXECUTOR_PAIR",
+        "schema": CONTRACT,
+        "kind": "EXECUTOR_PAIR",
         "source_replayed": True,
+        "task_identity_comparison": equivalence,
         "comparison": result,
         "accepted_result_comparison_status": (
             "TWO_HUMAN_OR_DOMAIN_ACCEPTED_RESULTS"
-            if result["status"] == "SOURCE_BOUND_COMPARABLE"
-            and result["acceptance"] == ["ACCEPTED", "ACCEPTED"]
-            else "NOT_MEASURABLE"
+            if accepted else "NOT_MEASURABLE"
         ),
         "causal_effect": "NOT_MEASURABLE",
     }
