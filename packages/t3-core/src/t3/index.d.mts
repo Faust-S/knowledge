@@ -415,11 +415,16 @@ export interface T3ExternalLinkStatus {
 }
 export function createTrustedExternalProcessLink(options:{
   kernel:KernelFacade;
-  accessForWrite:(operation:"t1.putObject")=>T3SignedActivityAccess|null|
+  /** Existing signed D1 owner; required only for link/refresh. */
+  accessForWrite?:(operation:"t1.putObject")=>T3SignedActivityAccess|null|
+    Promise<T3SignedActivityAccess|null>;
+  /** Signed D1 read-only owner for recover/prepareContinuation; at least
+   * one of accessForRead/accessForWrite must be provided. */
+  accessForRead?:(operation:"t1.getObject")=>T3SignedActivityAccess|null|
     Promise<T3SignedActivityAccess|null>;
   currentWorkspace:Pick<CurrentWorkspaceFacade,"get"|"subscribe">;
   externalOwner:T3ExternalRecordOwner;
-  confirmHuman:(input:{workspace_id:string;object_id:string;
+  confirmHuman?:(input:{workspace_id:string;object_id:string;
     source_owner:string;record_kind:string;record_id:string;
     source_revision:string;previous_source_revision?:string;
     expected_t3_revision?:number;epistemic_status:"reported"})=>boolean|Promise<boolean>;

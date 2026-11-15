@@ -120,22 +120,29 @@ function matches(object, workspaceId, objectId, data) {
  * The normal T2 service passport must explicitly declare the link schema.
  */
 export function createTrustedExternalProcessLink({
-  kernel, accessForWrite, currentWorkspace, externalOwner, confirmHuman, isHostActive,
+  kernel, accessForWrite, accessForRead, currentWorkspace, externalOwner,
+  confirmHuman, isHostActive,
 } = {}) {
   if (kernel?.sessionInfo?.contract_version !== '1.3.0' ||
       typeof kernel.hasOperation !== 'function' ||
-      !['t1.getWorkspace','t1.getObject','t1.putObject'].every(op=>kernel.hasOperation(op)) ||
-      typeof accessForWrite !== 'function' ||
+      !['t1.getWorkspace','t1.getObject'].every(op=>kernel.hasOperation(op)) ||
+      (typeof accessForWrite !== 'function' && typeof accessForRead !== 'function') ||
+      (accessForWrite !== undefined && typeof accessForWrite !== 'function') ||
+      (accessForRead !== undefined && typeof accessForRead !== 'function') ||
       typeof currentWorkspace?.get !== 'function' ||
       typeof currentWorkspace?.subscribe !== 'function' ||
       !externalOwner || !ID.test(externalOwner.ownerId || '') ||
       typeof externalOwner.readExact !== 'function' ||
-      typeof confirmHuman !== 'function' || typeof isHostActive !== 'function')
+      (typeof accessForWrite === 'function' && typeof confirmHuman !== 'function') ||
+      typeof isHostActive !== 'function')
     deny('T3_EXT_TRUSTED_HOST_REQUIRED');
 
   const pending = new Set();
-  async function withSelected(input, callback) {
+  async function withSelected(input, callback, write = false) {
     const reference = normalizeReference(input);
+    if (write && (typeof accessForWrite !== 'function' ||
+        !kernel.hasOperation('t1.putObject')))
+      deny('T3_EXT_WRITE_NOT_GRANTED');
     if (isHostActive() !== true) deny('T3_HOST_DISPOSED');
     const choice = currentWorkspace.get();
     if (!choice || choice.workspace_id !== reference.expected_workspace_id || choice.deleted_at)
@@ -149,7 +156,11 @@ export function createTrustedExternalProcessLink({
     };
     try {
       live();
-      const access = await accessForWrite('t1.putObject');
+      // Readback must NOT demand a write grant. D1 still signs every
+      // original getWorkspace/getObject. The read-only owner can be a
+      // separate personal/corporate grant from the write owner.
+      const provider = write ? accessForWrite : (accessForRead ?? accessForWrite);
+      const access = await provider(write ? 't1.putObject' : 't1.getObject');
       live();
       if (typeof access?.currentContext !== 'function')
         deny('T3_EXT_SIGNED_OWNER_REQUIRED');
@@ -265,7 +276,7 @@ export function createTrustedExternalProcessLink({
         if (await ctx.readLink()) deny('T3_EXT_CONCURRENT_LINK_CONFLICT');
         return await writeWithOriginalKernel(ctx, source, 0);
       } finally { pending.delete(ctx.objectId); }
-    });
+    }, true);
   }
 
   async function refresh(input) {
@@ -308,7 +319,7 @@ export function createTrustedExternalProcessLink({
         if (!equal(currentLink,old)) deny('T3_EXT_CONCURRENT_LINK_CONFLICT');
         return await writeWithOriginalKernel(ctx,source,old.revision);
       } finally {pending.delete(ctx.objectId);}
-    });
+    }, true);
   }
   async function recover(input) {
     return withSelected(input,async ctx => {

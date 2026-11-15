@@ -275,6 +275,28 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
       {code:'T3_ACCESS_NOT_PERMITTED'});
     assert.equal((await port.recover(externalRef)).revision,3);
 
+    // New independent ORIGINAL Ed25519 read-only grant, never a write
+    // capability. Recovery and D6 source preparation must remain available
+    // even after the unrelated writing grant has been revoked.
+    const reader=createTemporaryOriginalPersonalAuthority({
+      workspaceId:ws,now:Date.now(),clock:Date.now(),
+      operations:['t1.getWorkspace','t1.getObject']});
+    let wronglyUsedWriteOwner=0;
+    const readonlyPort=createTrustedExternalProcessLink({
+      kernel:liveKernel,currentWorkspace,externalOwner,
+      accessForRead:async operation=>{
+        assert.equal(operation,'t1.getObject');return reader.access;},
+      isHostActive:()=>true,
+    });
+    assert.equal((await readonlyPort.recover(externalRef)).status,'LINK_PERSISTED');
+    assert.equal((await readonlyPort.prepareContinuation(externalRef)).revision,3);
+    assert.ok(reader.proofCount>=4);
+    await assert.rejects(readonlyPort.link(externalRef),
+      {code:'T3_EXT_WRITE_NOT_GRANTED'});
+    await assert.rejects(readonlyPort.refresh(externalRef),
+      {code:'T3_EXT_WRITE_NOT_GRANTED'});
+    assert.equal(wronglyUsedWriteOwner,0);
+
     // Original D2 must label the registered external events as *reported*.
     // It must never copy original ERP identity or customer payload into view.
     const activitySigned=createSubjectKernelBinding({

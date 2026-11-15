@@ -204,3 +204,38 @@ test('fresh ERP source -> original D6: HTTP ACK never means durable external Res
   const updated=await f.newHost().refresh(f.ref);
   assert.equal((await f.newHost().prepareContinuation(f.ref)).revision,updated.revision);
 });
+
+test('revoked write owner cannot recover, but independent signed read-only owner can',async()=>{
+  const f=fixture();
+  const linked=await f.newHost().link(f.ref);
+  assert.equal(linked.status,'LINK_PERSISTED');
+  f.setAllowed(false);
+  await assert.rejects(f.newHost().recover(f.ref),{code:'T3_ACCESS_NOT_PERMITTED'});
+  let reads=0,writeAccessInvoked=0;
+  const readOwner={...f.access,authorize:()=>({
+    schema:'IWXA_T3_AUTHORIZATION_DECISION/1',allowed:true,
+    outcome:'PERMITTED',evidenceOnly:true,
+    requestDigest:'b'.repeat(64),policyDigest:'c'.repeat(64),
+    statusSequence:1,validUntil:new Date(Date.now()+60000).toISOString(),
+    statusObservedAt:new Date(Date.now()-1000).toISOString(),
+    evaluatedAt:new Date(Date.now()-1000).toISOString(),
+    authorityPath:[{grantId:'grant:1'}],
+  })};
+  const original=f.kernel.getObject;
+  const kernel={...f.kernel,getObject:async (...args)=>{
+    reads++;return original(...args);}};
+  const readonly=createTrustedExternalProcessLink({
+    kernel,currentWorkspace:f.currentWorkspace,externalOwner:f.externalOwner,
+    accessForRead:async operation=>{
+      assert.equal(operation,'t1.getObject');return readOwner;},
+    confirmHuman:async()=>{throw Error('READBACK_CANNOT_REQUEST_WRITE_CONSENT')},
+    isHostActive:()=>true,
+  });
+  assert.equal((await readonly.recover(f.ref)).status,'LINK_PERSISTED');
+  assert.equal((await readonly.prepareContinuation(f.ref)).revision,linked.revision);
+  assert.ok(reads>=2);
+  assert.equal(writeAccessInvoked,0);
+  await assert.rejects(readonly.link(f.ref),{code:'T3_EXT_WRITE_NOT_GRANTED'});
+  await assert.rejects(readonly.refresh(f.ref),{code:'T3_EXT_WRITE_NOT_GRANTED'});
+  assert.equal(f.writeCount(),1);
+});
