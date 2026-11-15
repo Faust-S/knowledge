@@ -89,7 +89,7 @@ test('installed Admin D3 records use the original T2 passport and unchanged Kern
     const path='_iwxa/services/test.original.json';
     const passport={
       service_id:'test.original',supported_levels:['T0','T1','T2'],
-      permissions:{workspace:{read:true},
+      permissions:{workspace:{read:true,create:false},
         objects:{read:['existing.object'],write:['existing.object']}},
       input_object_types:['existing.object'],
       output_object_types:['existing.object'],
@@ -115,6 +115,10 @@ test('installed Admin D3 records use the original T2 passport and unchanged Kern
     assert.equal(result.original_admin_d3_schema_registered,true);
     assert.equal(result.original_runtime_unchanged,true);
     const installed=JSON.parse(readFileSync(join(f.out,path),'utf8'));
+    assert.equal(installed.permissions.workspace.create,true,
+      'installed original Admin exposes the existing T2 create operation');
+    assert.equal(passport.permissions.workspace.create,false,
+      'the source and ordinary T2 services are not widened');
     const domain=JSON.parse(readFileSync(join(f.out,'_iwxa/domain.json'),'utf8'));
     const catalog=JSON.parse(readFileSync(join(f.out,'_iwxa/service-catalog.json'),'utf8'));
     for(const row of [installed.permissions.objects.write,

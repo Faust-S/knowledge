@@ -39,6 +39,7 @@ function registerInstalledAdminAppliedResult({domain,config,passport}){
      passport?.service_id!==config.workspace_service_id||
      !passport?.supported_levels?.includes("T1")||
      passport.permissions?.workspace?.read!==true||
+     typeof passport.permissions?.workspace?.create!=="boolean"||
      !passport.schemas||typeof passport.schemas!=="object"||
      Array.isArray(passport.schemas))
     fail("ORIGINAL_ADMIN_D3_SERVICE_REQUIRED");
@@ -55,6 +56,11 @@ function registerInstalledAdminAppliedResult({domain,config,passport}){
     if(!row.includes(ADMIN_APPLIED_SCHEMA))row.push(ADMIN_APPLIED_SCHEMA);
   if(existing===undefined)
     passport.schemas[ADMIN_APPLIED_SCHEMA]=ADMIN_APPLIED_DECLARATION;
+  // Installed Admin is not yet writable on a clean original T2 Store.
+  // Enable the inherited service-level operation ONLY in this product's
+  // assembled passport. A separate original signed workspace.create ACTION
+  // and user click must still authorize the actual Kernel call.
+  passport.permissions.workspace.create=true;
 }
 
 const allowedAssetExtensions=new Set([
