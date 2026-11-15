@@ -171,7 +171,7 @@ export interface T3OriginalDomainResultOwner {
     sourceReference:T3NativeContinuationReference}):unknown|Promise<unknown>;
 }
 export interface T3NativeContinuationStatus {
-  status:"AVAILABLE"|"RECOVER_ONLY"|"OPERATION_IN_PROGRESS"|"USER_CANCELLED"|"OUTCOME_UNKNOWN"|"OWNER_READBACK_CONFIRMED"|"DOMAIN_RESULT_UNVERIFIED"|"DOMAIN_RESULT_READBACK_CONFIRMED";
+  status:"AVAILABLE"|"SOURCE_ACCOUNT_REQUIRED"|"RECOVER_ONLY"|"OPERATION_IN_PROGRESS"|"USER_CANCELLED"|"OUTCOME_UNKNOWN"|"OWNER_READBACK_CONFIRMED"|"DOMAIN_RESULT_UNVERIFIED"|"DOMAIN_RESULT_READBACK_CONFIRMED";
   operationId?:string;
   recipientId?:string;
   resultRef?:string;

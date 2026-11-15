@@ -317,6 +317,32 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
     assert.equal(JSON.stringify(activity).includes('private_customer'),false);
     assert.ok(humanCount>=3);
 
+    // An installed Host with an unconnected ERP account cannot offer
+    // execution of the locally saved external-process-link. Its original
+    // signed Kernel read remains available, but no Human Review/dispatch.
+    let missingAccountSends=0,missingAccountApprovals=0;
+    const offlineRecipient={recipientId:'agent:missing-erp',
+      inspect:({reference,recipientId})=>({
+        status:'READY',operationId:'erpnext:account-not-connected',
+        recipientId,reference}),
+      receive:async()=>{missingAccountSends++;},
+      receipt:async()=>null,readback:async()=>null,
+    };
+    const offlineContinuation=createTrustedNativeContinuation({
+      kernel:liveKernel,accessForRead:async()=>signed.access,
+      currentWorkspace,nativeOwner:offlineRecipient,
+      confirmHuman:async()=>{missingAccountApprovals++;return true;},
+      isHostActive:()=>true,
+    });
+    assert.equal((await offlineContinuation.preview(currentD6Ref)).status,
+      'SOURCE_ACCOUNT_REQUIRED');
+    assert.equal((await offlineContinuation.continueSelected(currentD6Ref)).status,
+      'SOURCE_ACCOUNT_REQUIRED');
+    assert.equal(missingAccountSends,0);
+    assert.equal(missingAccountApprovals,0);
+    console.log('T3_AGENT06_EXTERNAL_SOURCE_ACCOUNT_REQUIRED_PASS',
+      JSON.stringify({originalKernel:true,accountConnected:false,
+        sends:missingAccountSends,humanApprovals:missingAccountApprovals}));
     // A live ERP revision can change during Human Review even while the
     // signed original T2 Object stays at the same revision. Refuse BEFORE
     // native dispatch, using the existing external-process-link currentness.

@@ -185,6 +185,7 @@ test('fresh ERP source -> original D6: HTTP ACK never means durable external Res
   const open=()=>createTrustedNativeContinuation({
     kernel:f.kernel,accessForRead:async()=>f.access,
     currentWorkspace:f.currentWorkspace,nativeOwner,
+    sourceCurrent:async()=>f.newHost().prepareContinuation(f.ref),
     confirmHuman:async()=>true,isHostActive:()=>true,
   });
   assert.equal((await open().continueSelected(ref)).status,'OUTCOME_UNKNOWN');
@@ -312,6 +313,7 @@ test('D6 requires independent original CehoVod Result readback after workflow CO
   const host=()=>createTrustedNativeContinuation({
     kernel:f.kernel,accessForRead:async()=>f.access,
     currentWorkspace:f.currentWorkspace,nativeOwner,resultOwner,
+    sourceCurrent:async()=>f.newHost().prepareContinuation(f.ref),
     confirmHuman:async()=>true,isHostActive:()=>true,
   });
   // Transport ACK is not a native or domain commit; no domain verification.
@@ -361,6 +363,7 @@ test('D6 refuses mismatched production order, revision or source after receipt',
   const host=()=>createTrustedNativeContinuation({
     kernel:f.kernel,accessForRead:async()=>f.access,
     currentWorkspace:f.currentWorkspace,nativeOwner,resultOwner,
+    sourceCurrent:async()=>f.newHost().prepareContinuation(f.ref),
     confirmHuman:async()=>true,isHostActive:()=>true,
   });
   assert.equal((await host().recover(ref)).status,'DOMAIN_RESULT_UNVERIFIED');
@@ -442,4 +445,38 @@ test('D6 rejects forged or offline source-current evidence without sending',asyn
   await assert.rejects(open().continueSelected(reference),
     {code:'T3_D6_EXTERNAL_SOURCE_NOT_CURRENT'});
   assert.equal(sends,0);assert.equal(f.writeCount(),1);
+});
+
+test('External ERP link without current account is not executable, but can recover native receipt',async()=>{
+  const f=fixture();
+  await f.newHost().link(f.ref);
+  const ref=await f.newHost().prepareContinuation(f.ref);
+  let sends=0,approvals=0,receipt=null;
+  const nativeOwner={recipientId:'agent:n8n',
+    inspect:({reference,recipientId})=>({
+      status:'READY',operationId:'n8n:missing-erp-account',recipientId,reference}),
+    receive:async()=>{sends++;},
+    receipt:async()=>receipt,
+    readback:async()=>receipt?{...receipt,state:'PERSISTED'}:null,
+  };
+  const open=()=>createTrustedNativeContinuation({
+    kernel:f.kernel,accessForRead:async()=>f.access,
+    currentWorkspace:f.currentWorkspace,nativeOwner,
+    confirmHuman:async()=>{approvals++;return true;},isHostActive:()=>true,
+  });
+  assert.equal((await open().preview(ref)).status,'SOURCE_ACCOUNT_REQUIRED');
+  const blocked=await open().continueSelected(ref);
+  assert.equal(blocked.status,'SOURCE_ACCOUNT_REQUIRED');
+  assert.equal(blocked.reason,'CONNECT_EXTERNAL_SOURCE_ACCOUNT');
+  assert.equal(blocked.can_retry,false);
+  assert.equal(sends,0);
+  assert.equal(approvals,0);
+  // Native owner may have completed a prior operation. Its independent
+  // receipt can still be read without a connected ERP account.
+  receipt={operationId:'n8n:missing-erp-account',
+    recipientId:'agent:n8n',reference:ref,state:'COMMITTED',
+    resultRef:'cehovod:pf:42'};
+  assert.equal((await open().recover(ref)).status,'OWNER_READBACK_CONFIRMED');
+  assert.equal((await open().preview(ref)).status,'RECOVER_ONLY');
+  assert.equal(sends,0);
 });

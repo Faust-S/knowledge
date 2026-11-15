@@ -2,6 +2,7 @@
 // an already-installed native product owner. No Task Engine, Store, protocol,
 // signer or second Kernel is created. The recipient owns durable idempotency.
 import {createSubjectKernelBinding} from "./subject-access-binding.mjs";
+import {EXTERNAL_PROCESS_LINK_SCHEMA} from "./external-process-link.mjs";
 
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const validId=value=>typeof value==="string"&&ID.test(value);
@@ -213,7 +214,12 @@ export function createTrustedNativeContinuation({
     }
   }
   async function preflightExternalSource(state){
-    if(sourceCurrent===null)return;
+    // A mutable external order cannot silently omit its ORIGINAL owner.
+    if(sourceCurrent===null){
+      check(state.reference.schema_id!==EXTERNAL_PROCESS_LINK_SCHEMA,
+        "T3_D6_EXTERNAL_SOURCE_OWNER_REQUIRED");
+      return;
+    }
     // Reuse existing external-process-link.prepareContinuation(). It does
     // fresh ERP readExact and signed ORIGINAL Kernel readback; cached
     // readSaved is never authority to dispatch a native action.
@@ -242,7 +248,9 @@ export function createTrustedNativeContinuation({
       const prior=await probePrior(state,plan.operationId);
       const status=inFlight.has(plan.operationId)?"OPERATION_IN_PROGRESS":
         prior!==null||plan.status==="RECOVER_ONLY"||
-        dispatched.has(plan.operationId)?"RECOVER_ONLY":"AVAILABLE";
+        dispatched.has(plan.operationId)?"RECOVER_ONLY":
+        state.reference.schema_id===EXTERNAL_PROCESS_LINK_SCHEMA&&
+        sourceCurrent===null?"SOURCE_ACCOUNT_REQUIRED":"AVAILABLE";
       return Object.freeze({status,
         operationId:plan.operationId,recipientId:nativeOwner.recipientId,
         reference:state.reference});
@@ -262,6 +270,14 @@ export function createTrustedNativeContinuation({
       try{
         const prior=await probePrior(state,operationId);
         if(prior!==null)return prior;
+        // A locally saved original T2 link is not an active ERP account.
+        // Do not ask the human to approve an operation that cannot dispatch.
+        if(state.reference.schema_id===EXTERNAL_PROCESS_LINK_SCHEMA&&
+          sourceCurrent===null)
+          return Object.freeze({status:"SOURCE_ACCOUNT_REQUIRED",
+            operationId,recipientId:nativeOwner.recipientId,
+            reference:copy(state.reference,"T3_D6_REFERENCE_NOT_CLONEABLE"),
+            can_retry:false,reason:"CONNECT_EXTERNAL_SOURCE_ACCOUNT"});
         const approval=await confirmHuman({
           recipientId:nativeOwner.recipientId,
           operationId,reference:copy(state.reference,
