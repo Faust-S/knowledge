@@ -106,6 +106,66 @@ describe("D7 installed PWA protected .iwxa.age through original Exchange",()=>{
     expect(commitNative).not.toHaveBeenCalled();
   });
 
+  it("never accepts an unrelated UI Kernel catalogue as native import proof",async()=>{
+    const secure={...preview,allowed_modes:["new-workspace"]};
+    const browserCatalogue=vi.fn(async()=>[
+      {workspace_id:"incoming:one-imported",deleted_at:null,read_only:false},
+    ]);
+    const browserObject=vi.fn(async()=>({
+      object:{workspace_id:"incoming:one-imported",object_id:"fake"},
+    }));
+    const k={
+      hasOperation:(op:string)=>[
+        "t1.listWorkspaces","t1.getObject","t2.importPreview",
+        "t2.importCommit","t2.importCancel"].includes(op),
+      listWorkspaces:browserCatalogue,
+      getObject:browserObject,
+      importPreview:vi.fn(async()=>{throw Error("WRONG_KERNEL_PREVIEW");}),
+      importCommit:vi.fn(async()=>{throw Error("WRONG_KERNEL_COMMIT");}),
+      importCancel:vi.fn(async()=>{throw Error("WRONG_KERNEL_CANCEL");}),
+    } as unknown as KernelFacade;
+    const nativeCommit=vi.fn(async()=>({
+      import_id:"import:native:verified",format:"iwxa.import.receipt",
+      format_version:"1.0",mode:"new-workspace",conflict_policy:"fail",
+      package_digest:"original",semantic_digest:"original-sem",
+      committed_at:"2026-11-15T00:00:00Z",
+      workspace_id_map:{"incoming:one":"incoming:one-imported"},
+      applied:{workspaces:1,objects_inserted:0,objects_updated:0,
+        objects_skipped:0,events:0,relations:0,assets:0,
+        schemas_inserted:0,schemas_reused:0,schemas_rejected:0},
+      skipped_conflicts:[],excluded_by_permission:{},
+    }));
+    const age={
+      canOpen:true,canSeal:false,canNativeKernelPreview:true,
+      maxCiphertextBytes:33*1024*1024,
+      previewInOriginalKernel:vi.fn(async()=>({
+        status:"KERNEL_PREVIEW_READY",recipientId:"recipient:installed",
+        archiveSha256:"a".repeat(64),handle:secure,
+      })),
+      commitInOriginalKernel:nativeCommit,
+      cancelInOriginalKernel:vi.fn(async()=>true),
+    } as unknown as ReturnType<typeof createTrustedAgeExchange>;
+    render(<PackagesView kernel={k} commands={commands}
+      initialTab="import" exportScopeId={null} protectedExchange={age}/>);
+    await act(async()=>{fireEvent.change(screen.getByTestId("import-age-file"),{
+      target:{files:[sealed()]},
+    });});
+    await act(async()=>{fireEvent.click(screen.getByTestId("import-age-preview"));});
+    await waitFor(()=>expect(screen.getByTestId("import-preview")).toBeTruthy());
+    expect(screen.getByTestId("import-mode")).toHaveProperty("value","new-workspace");
+    expect(browserCatalogue).not.toHaveBeenCalled();
+    await act(async()=>{fireEvent.click(screen.getByTestId("import-commit"));});
+    await waitFor(()=>expect(screen.getByTestId("import-view").getAttribute(
+      "data-import-state")).toBe("unconfirmed"));
+    expect(screen.getByTestId("import-receipt")).toBeTruthy();
+    expect(screen.getByTestId("import-incomplete-notice").textContent)
+      .toContain("не будет автоматически повторена");
+    expect(nativeCommit).toHaveBeenCalledTimes(1);
+    expect(k.importCommit).not.toHaveBeenCalled();
+    expect(browserCatalogue).not.toHaveBeenCalled();
+    expect(browserObject).not.toHaveBeenCalled();
+  });
+
   it("keeps OS file opaque until user selects it, then separate age.open and original Kernel preview",async()=>{
     withQueue();
     const k=kernel();

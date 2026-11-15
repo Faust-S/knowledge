@@ -317,7 +317,11 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       // otherwise default to 'selective', which signed importCommit refuses.
       let available: WorkspaceRecord[] = [];
       let catalogReadConfirmed = false;
-      if (canListLocal) {
+      // Native preview belongs to a DIFFERENT original installed Kernel.
+      // A browser facade catalog is not evidence of that recipient's Store.
+      // In particular it must not choose a merge target or attest an empty
+      // native Store for protected restoration.
+      if (canListLocal && !alreadyPreviewed) {
         try {
           available = (await kernel.listWorkspaces({ include_deleted: false }))
             .filter((w) => !w.deleted_at);
@@ -396,20 +400,22 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
         restoreIssues.push("Квитанция Kernel не соответствует выбранному пакету или плану импорта.");
       }
       let readbackUnconfirmed = false;
-      if(nativeCommit && !canListLocal){
-        // A trusted native Kernel receipt is not proof that another UI
-        // facade has read the persisted Store. Preserve the receipt but
-        // NEVER claim native restoration is verified without original
-        // destination readback (including after a clean install).
+      if(nativeCommit){
+        // A browser Kernel facade may be backed by another Store even when
+        // its workspaces have the same names. Only the ORIGINAL installed
+        // recipient can independently verify the native import after commit
+        // or a cold restart. Never upgrade its receipt to "restored" from
+        // this UI Kernel's catalogue or matching object IDs.
         readbackUnconfirmed=true;
-        restoreIssues.push("Нативный Kernel подтвердил запись, но чтение сохранённых данных "+
-          "ещё недоступно. Повторный импорт не запускается автоматически.");
+        restoreIssues.push("Нативный Kernel вернул квитанцию, но независимое чтение "+
+          "данных у оригинального установленного получателя ещё не подтверждено. "+
+          "Повторный импорт не запускается автоматически.");
       }
       // A protected clean-install restore uses original new-workspace import.
       // When the original catalogue read is granted, verify that the actual
       // destination(s) now exist. The receipt remains visible if this read
       // fails, but re-import is NEVER attempted as a recovery shortcut.
-      if (state.plan.mode === "new-workspace" && !receipt.cancelled && canListLocal &&
+      if (!nativeCommit && state.plan.mode === "new-workspace" && !receipt.cancelled && canListLocal &&
           state.plan.include_workspaces.length > 0) {
         const selectedTargets = state.plan.include_workspaces.map(source =>
           state.plan.workspace_id_map?.[source]);
@@ -443,7 +449,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       // read the destination from the ORIGINAL selected Kernel again before
       // reporting completion. An uncertain read leaves the committed receipt
       // visible and must NEVER silently replay the import.
-      if (state.plan.mode === "merge" && state.plan.target_workspace &&
+      if (!nativeCommit && state.plan.mode === "merge" && state.plan.target_workspace &&
           !receipt.cancelled && kernel.hasOperation("t1.getWorkspace")) {
         const target = state.plan.target_workspace;
         try {
