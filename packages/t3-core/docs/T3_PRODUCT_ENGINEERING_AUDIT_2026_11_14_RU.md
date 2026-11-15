@@ -1,5 +1,13 @@
 # IWXA T3. Аудит реализованного продукта, рисков и конечного плана
 
+## Исходное исправление D3 и следующий продуктовый рубеж, 15.11.2026
+
+- **Последний завершённый original Host:** `Faust-S/knowledge@13d6b8c0e22097c1daf8f52bcb4ab6cee730a1e7`, TREE `1bdf54d3078aadbd814a3470ca68b46b0811b666`. [Проверка #43712743170](https://github.com/Faust-S/knowledge/actions/runs/43712743170): test / original real-host / Windows Credential **SUCCESS**, Node 713/713, Workspace/DOM 1141/1141; `metal-webgpu` SKIPPED.
+- **Устранённый дефект:** два параллельных `accept/reject` одного operationId либо `applyAccepted` одного принятого результата/целевой Workspace ранее могли независимо пройти через пересоздаваемые установленные D3-порты. У существующего Host теперь один in-flight/attempted guard; после потерянного ответа нет повторной записи, только чтение `receipt` или `recoverApplied`. Источник [13d6b8c0](https://github.com/Faust-S/knowledge/commit/13d6b8c0e22097c1daf8f52bcb4ab6cee730a1e7), без нового Reconciler, Store, Kernel, журнала или Windows T3 EXE.
+- **Первый следующий product milestone:** поставить **оригинального** подписанного владельца `Faust-S/T3` в существующий Admin Center 0.3 и связывать с **реальным** Personal Agent 0.5 (не 0.4) по имеющейся Task/Result. Доказать один процесс: signed ADMIN Task → Agent Task → original Result в .iwxa → Human Review/ACCEPT → отдельно Human APPLY → original T2 Kernel Object/Event → два холодных чтения; lost-ACK recovery должен НЕ вызывать повторный Apply. В публичный `knowledge` не переносить приватные подписанты/ключи и не начинать private Actions; продуктовая приёмка отдельна.
+- Статусы после исходной проверки: `D3_HOST_DUPLICATE_DISPATCH=SOURCE_PASS`; `D3_INSTALLED_ADMIN_AGENT=HOLD`; `D5_GPU=HOLD`; `D7_NATIVE=HOLD`; `G4=NOT_ACCEPTED`; `T3_READY=false`.
+
+
 ## Проверка фактов и исправление ошибочного аудита, 15.11.2026
 
 Этот раздел имеет приоритет над историческими сведениями ниже. Нормативные архитектурные требования B0/D1–D7/G4 остаются прежними. Текущую версию продукта определяют **release/tag и точная версия установленного артефакта**, затем проверенная рабочая ветка и CI, а НЕ `active_branch` из датированного реестра репозиториев.
