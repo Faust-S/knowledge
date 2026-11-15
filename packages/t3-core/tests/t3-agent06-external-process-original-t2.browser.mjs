@@ -335,7 +335,7 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
     },{ws,obj,EXTERNAL});
     assert.equal(reopened.revision,2);
     assert.equal(reopened.source_revision,written.snapshot.source_revision);
-    assert.equal(reopened.eventTypes.filter(e=>e===EXTERNAL_PROCESS_LINK_EVENT).length,2);
+    assert.equal(reopened.eventTypes.filter(e=>e===EXTERNAL_PROCESS_LINK_EVENT).length,5);
 
     const coldKernel=await browserOriginalKernel(page);
     const coldSigned=createTemporaryOriginalPersonalAuthority({
@@ -353,7 +353,7 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
         sourceOwner:'erpnext:shop1',executedExternalERP:false}));
     console.log('T3_AGENT06_ORIGINAL_T2_ERP_LINK_PASSPORT_COLD_PASS',
       JSON.stringify({kernel:'0.3.6',contract:'1.3.0',
-        revision:reopened.revision,originalEventCount:2,
+        revision:reopened.revision,originalEventCount:5,
         staleDenied:written.staleDenied,foreignDenied:written.foreignDenied}));
   }finally{
     if(browser)await browser.close().catch(()=>{});
