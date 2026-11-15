@@ -595,6 +595,11 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
       write_date:'2026-11-15 16:08:00',
       state:'sale',amount_total:2400,order_line:[71,72],
       partner_id:[900,'Confidential Odoo customer']}];
+    const odooLines=[71,72].map(id=>({
+      id,order_id:[42,'S00042'],write_date:'2026-11-15 16:08:00',
+      sequence:id,display_type:false,product_uom_qty:1,price_unit:1200,
+      discount:0,tax_ids:[1],price_subtotal:1200,price_total:1200,
+    }));
     const odooRef={expected_workspace_id:ws,
       record_kind:'sale.order',record_id:'42'};
     const odooOwner={
@@ -604,7 +609,7 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
         assert.equal(record_id,'42');
         return normalizeOdooSaleOrderRead({
           ownerId:'odoo:shop1:database1',expectedRecordId:record_id,
-          response:odooRows,
+          response:odooRows,linesResponse:odooLines,
         });
       },
     };
@@ -624,7 +629,13 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
     assert.equal(beforeOdoo.object.data.source_receipt,null);
     assert.equal(JSON.stringify(beforeOdoo.object).includes(
       'Confidential Odoo customer'),false);
+    // Same Odoo header and same line IDs, changed child quantity.
+    odooLines[0].product_uom_qty=3;
+    assert.equal((await odooPort.previewRefresh(odooRef)).status,
+      'SOURCE_REVISION_INCONSISTENT');
+    odooLines[0].product_uom_qty=1;
     odooRows[0].order_line=[71,73];
+    odooLines[1].id=73;
     const odooConflict=await odooPort.previewRefresh(odooRef);
     assert.equal(odooConflict.status,'SOURCE_REVISION_INCONSISTENT');
     await assert.rejects(odooPort.refresh(odooRef),
