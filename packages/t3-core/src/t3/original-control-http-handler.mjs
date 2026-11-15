@@ -172,6 +172,11 @@ export function createOriginalControlHttpHandler({
   // remains the durable idempotency and STATUS-floor authority.
   const nativePublisherInFlight=new Set();
   const nativePublisherDispatched=new Set();
+  // D6 ports may be reconstructed by installed products for each HTTP call.
+  // This Host-lifetime claim prevents concurrent native writes and a second
+  // dispatch after a lost reply, without replacing native durable receipts.
+  const nativeD6InFlight=new Set();
+  const nativeD6Attempted=new Set();
   // The original installed Host may rotate its ephemeral bearer whenever
   // its existing signed subject session changes. This is a transient
   // transport credential only, NEVER a grant, issuer or AccessRegistry.
@@ -344,14 +349,37 @@ export function createOriginalControlHttpHandler({
         }
         requireThat(ready,"T3_D6_ORIGINAL_NATIVE_OWNER_UNAVAILABLE");
         const reference=d6Reference(input.payload);
+        const nativeWrite=input.verb==="continueSelected";
+        const key=JSON.stringify([before,reference.workspace_id,
+          reference.object_id,reference.schema_id,reference.revision]);
+        if(nativeWrite){
+          if(nativeD6InFlight.has(key)){
+            reply(res,200,{result:{status:"OPERATION_IN_PROGRESS"}});
+            return true;
+          }
+          if(nativeD6Attempted.has(key)){
+            reply(res,200,{result:{status:"OUTCOME_UNKNOWN"}});
+            return true;
+          }
+          // Claim before any await inside the original Human/Kernel owner.
+          nativeD6InFlight.add(key);
+          nativeD6Attempted.add(key);
+        }
         let observed;
-        try{observed=await port[input.verb](reference);}
-        catch(error){
+        try{
+          observed=await port[input.verb](reference);
+          // A declined Human review is not a native write, so retrying
+          // with fresh consent remains possible. All uncertain outcomes
+          // require the independent original recover() path.
+          if(nativeWrite&&observed?.status==="USER_CANCELLED")
+            nativeD6Attempted.delete(key);
+        }catch(error){
           // After dispatch a lost ACK may hide a persisted native Result.
           // The next action must be explicit recover(), never another send.
-          if(input.verb==="continueSelected")
-            refused("T3_D6_NATIVE_OUTCOME_UNKNOWN");
+          if(nativeWrite)refused("T3_D6_NATIVE_OUTCOME_UNKNOWN");
           throw error;
+        }finally{
+          if(nativeWrite)nativeD6InFlight.delete(key);
         }
         requireThat(before===await epochNow()&&authenticated(req),
           input.verb==="continueSelected"?"T3_D6_NATIVE_OUTCOME_UNKNOWN":

@@ -580,9 +580,19 @@ test("D6 original Control connects installed signed Result port without sending 
     assert.equal(writes,1);
     assert.equal((await f.browser.nativeD6Request("recover",{reference})).status,
       "OWNER_READBACK_CONFIRMED");
-    await assert.rejects(f.browser.nativeD6Request("continueSelected",{
+    // A second direct HTTP call must NOT dispatch a second native write,
+    // even if the installed factory reconstructs a fresh D6 port each time.
+    const second=await f.browser.nativeD6Request("continueSelected",{reference});
+    assert.equal(second.status,"OUTCOME_UNKNOWN");
+    assert.equal(writes,1);
+    await assert.rejects(f.browser.nativeD6Request("preview",{
       reference:{...reference,revision:0},
     }),{code:"T3_D6_SELECTED_REFERENCE_INVALID"});
+    // The mutating verb conservatively maps even a validation failure to
+    // UNKNOWN; it never tells the browser to replay a possible native write.
+    await assert.rejects(f.browser.nativeD6Request("continueSelected",{
+      reference:{...reference,revision:0},
+    }),{code:"T3_D6_NATIVE_OUTCOME_UNKNOWN"});
     assert.equal(writes,1);
     const forged=await fetch(f.origin+"/api/t3/native-d6",{
       method:"POST",headers:{Authorization:"Bearer "+f.token,
