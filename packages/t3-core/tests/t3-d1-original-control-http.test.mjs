@@ -14,7 +14,7 @@ import {createTemporaryOriginalPersonalAuthority}
   from "./support/t3-original-personal-authority.mjs";
 
 async function fixture({reconciliationPortFor=null,nativeD7PortFor=null,
-  nativeD6PortFor=null}={}){
+  nativeD6PortFor=null,originalKernelRelayFor=null}={}){
   const token=randomBytes(32).toString("base64url");
   let origin=null,handle=null,epoch=1;
   const listeners=new Set(),calls=[];
@@ -42,6 +42,7 @@ async function fixture({reconciliationPortFor=null,nativeD7PortFor=null,
     ownerFor:({scope,operation})=>
       scope==="kernel"&&operation==="putObject"?authority.access:null,
     reconciliationPortFor,nativeD7PortFor,nativeD6PortFor,
+    originalKernelRelayFor,
   });
   const originFetch=(url,options={})=>fetch(url,{
     ...options,headers:{...options.headers,Origin:origin},
@@ -152,6 +153,51 @@ test("original D3 Kernel relay is session-bound and never replays an unknown gra
   assert.equal(relay.attached,false);
   assert.equal(detached,2);
   relay.close();
+});
+test("original D3 Kernel relay uses the SAME authenticated Control route, not another server",{
+  timeout:12000,
+},async()=>{
+  let attached=0,proxy=null;
+  const relay=createOriginalKernelNativeRelay({
+    currentEpoch:()=>1,
+    onAttach:kernel=>{attached++;proxy=kernel;return true;},
+    timeoutMs:1000,
+  });
+  const f=await fixture({originalKernelRelayFor:()=>relay});
+  const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
+  try{
+    const info={contract_version:"1.3.0",runtime_version:"0.3.6",
+      service_id:"iwxa.workspace.relay",mode:"ready",
+      granted_operations:["t1.commitObjectGraph","t1.getObject",
+        "t1.listEventsSince"]};
+    const session=await f.browser.originalKernelRelay("attach",{
+      sessionInfo:info});
+    assert.match(session.sessionId,/^[A-Za-z0-9_-]{40,128}$/);
+    assert.equal(attached,1);
+    // An ordinary UI origin cannot use the signer’s Control bearer even
+    // if it knows the port, because the actual POST Origin must match
+    // the pinned trusted T2 Kernel realm.
+    const forged=await fetch(f.origin+"/api/t3/original-kernel",{
+      method:"POST",
+      headers:{"Origin":"http://127.0.0.1:12001",
+        "Authorization":"Bearer "+f.token,
+        "Content-Type":"application/json","X-IWXA-Context-Epoch":"1"},
+      body:JSON.stringify({verb:"next",payload:{sessionId:session.sessionId}}),
+    });
+    assert.equal(forged.status,403);
+    const read=proxy.getObject("workspace:relay","result:relay");
+    const command=await f.browser.originalKernelRelay("next",{
+      sessionId:session.sessionId});
+    assert.deepEqual({method:command.method,args:command.args},{
+      method:"getObject",args:["workspace:relay","result:relay"]});
+    await f.browser.originalKernelRelay("result",{
+      sessionId:session.sessionId,id:command.id,ok:true,
+      result:{object:{object_id:"result:relay"}}});
+    assert.equal((await read).object.object_id,"result:relay");
+    await f.browser.originalKernelRelay("detach",{
+      sessionId:session.sessionId});
+    assert.equal(relay.attached,false);
+  }finally{stop();relay.close();await f.close();}
 });
 test("D3 original Control selects KernelFacade names while independent signed D1 application JIT remains authoritative",{
   timeout:12000,
