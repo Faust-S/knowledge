@@ -1,0 +1,142 @@
+// D3: ephemeral transport between the ONE installed signed native owner and
+// the ORIGINAL T2 KernelFacade in the existing trusted browser realm.
+// It does not implement Kernel/Store, sign, authorize, persist, retry, or
+// create a second Host. Native Reconciliation/SubjectBinding decides what to
+// dispatch; this link carries only the already-authorized exact command.
+import {randomBytes} from "node:crypto";
+const METHODS=Object.freeze({
+  commitObjectGraph:"t1.commitObjectGraph",
+  getObject:"t1.getObject",
+  listEventsSince:"t1.listEventsSince",
+});
+const CODE=/^[A-Z][A-Z0-9_]{4,99}$/;
+const NONCE=/^[A-Za-z0-9_-]{40,128}$/;
+const fail=code=>{throw Object.assign(Error(code),{code});};
+const check=(ok,code)=>{if(!ok)fail(code);};
+const clone=value=>structuredClone(value);
+const validSession=s=>s&&typeof s==="object"&&!Array.isArray(s)&&
+  s.contract_version==="1.3.0"&&
+  typeof s.runtime_version==="string"&&s.runtime_version.length<80&&
+  typeof s.service_id==="string"&&s.service_id.length<160&&
+  Array.isArray(s.granted_operations)&&s.granted_operations.length<128&&
+  s.granted_operations.every(x=>typeof x==="string"&&x.length<128);
+
+export function createOriginalKernelNativeRelay({
+  currentEpoch,onAttach,onDetach=()=>{},timeoutMs=20000,
+}={}){
+  check(typeof currentEpoch==="function"&&typeof onAttach==="function"&&
+    typeof onDetach==="function"&&Number.isSafeInteger(timeoutMs)&&
+    timeoutMs>=1000&&timeoutMs<=60000,
+    "T3_D3_ORIGINAL_KERNEL_RELAY_HOST_REQUIRED");
+  let live=null,pending=null,closed=false,nextId=1;
+  const detach=reason=>{
+    const prior=live;
+    live=null;
+    if(pending){
+      const call=pending;pending=null;
+      clearTimeout(call.timer);
+      call.reject(Object.assign(Error(reason),{code:reason}));
+    }
+    if(prior){try{onDetach();}catch{/* never restore a stale Host */}}
+  };
+  const same=(token,epoch)=>{
+    check(!closed&&live&&token===live.sessionId&&epoch===live.epoch,
+      "T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+  };
+  const kernelFor=(epoch,grants)=>Object.freeze({
+    sessionInfo:Object.freeze({
+      contract_version:"1.3.0",runtime_version:grants.runtime_version,
+      service_id:grants.service_id,mode:grants.mode??"unknown",
+    }),
+    hasOperation:id=>Object.values(METHODS).includes(id)&&
+      grants.granted_operations.includes(id),
+    commitObjectGraph:input=>dispatch("commitObjectGraph",[input],epoch),
+    getObject:(ws,obj)=>dispatch("getObject",[ws,obj],epoch),
+    listEventsSince:(ws,since)=>dispatch("listEventsSince",[ws,since],epoch),
+  });
+  const dispatch=(method,args,epoch)=>{
+    check(!closed&&live&&live.epoch===epoch&&
+      live.grants.granted_operations.includes(METHODS[method]),
+      "T3_D3_ORIGINAL_KERNEL_NOT_CONNECTED");
+    check(pending===null,"T3_D3_ORIGINAL_KERNEL_OPERATION_IN_PROGRESS");
+    const id=nextId++;
+    return new Promise((resolve,reject)=>{
+      const timer=setTimeout(()=>{
+        if(pending?.id!==id)return;
+        // After a lost response, the original T2 graph may already have
+        // committed. Never retry the command or reuse this uncertain realm.
+        detach("T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN");
+      },timeoutMs);
+      timer.unref?.();
+      pending={id,method,args:clone(args),issued:false,timer,resolve,reject};
+    });
+  };
+  return Object.freeze({
+    get attached(){return !closed&&live!==null;},
+    get nativeKernel(){return live?.kernel??null;},
+    invalidate(){detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");},
+    close(){closed=true;detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");},
+    async exchange({verb,payload}={},requestEpoch){
+      check(!closed&&Number.isSafeInteger(requestEpoch)&&
+        requestEpoch>=0,"T3_D3_ORIGINAL_KERNEL_EPOCH_INVALID");
+      if(await currentEpoch()!==requestEpoch){
+        detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+        fail("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+      }
+      if(verb==="attach"){
+        check(!live&&validSession(payload?.sessionInfo),
+          "T3_D3_ORIGINAL_KERNEL_SESSION_INVALID");
+        const grants=clone(payload.sessionInfo);
+        check(["commitObjectGraph","getObject","listEventsSince"].every(
+          name=>grants.granted_operations.includes(METHODS[name])),
+          "T3_D3_ORIGINAL_KERNEL_OPERATIONS_REQUIRED");
+        const epoch=requestEpoch,sessionId=randomBytes(32).toString("base64url");
+        const kernel=kernelFor(epoch,grants);
+        const state={epoch,sessionId,grants,kernel};
+        live=state;
+        try{check(await onAttach(kernel)===true,
+          "T3_D3_ORIGINAL_KERNEL_OWNER_ATTACH_FAILED");}
+        catch(error){
+          detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+          throw error;
+        }
+        if(await currentEpoch()!==epoch||live!==state){
+          detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+          fail("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+        }
+        return {sessionId,contextEpoch:epoch};
+      }
+      same(payload?.sessionId,requestEpoch);
+      if(verb==="next"){
+        if(!pending||pending.issued)return {kind:"IDLE"};
+        pending.issued=true;
+        return {kind:"COMMAND",id:pending.id,method:pending.method,
+          args:clone(pending.args)};
+      }
+      if(verb==="result"){
+        check(pending&&pending.issued&&
+          payload?.id===pending.id&&
+          (payload.ok===true||payload.ok===false),
+          "T3_D3_ORIGINAL_KERNEL_RESULT_UNEXPECTED");
+        const call=pending;pending=null;
+        clearTimeout(call.timer);
+        if(payload.ok===true){
+          try{call.resolve(clone(payload.result));}
+          catch{call.reject(Object.assign(
+            Error("T3_D3_ORIGINAL_KERNEL_RESULT_INVALID"),
+            {code:"T3_D3_ORIGINAL_KERNEL_RESULT_INVALID"}));}
+        }else{
+          const code=CODE.test(payload?.code??"")?payload.code:
+            "T3_D3_ORIGINAL_KERNEL_RESULT_DENIED";
+          call.reject(Object.assign(Error(code),{code}));
+        }
+        return {accepted:true};
+      }
+      if(verb==="detach"){
+        detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+        return {detached:true};
+      }
+      fail("T3_D3_ORIGINAL_KERNEL_RELAY_VERB_INVALID");
+    },
+  });
+}
