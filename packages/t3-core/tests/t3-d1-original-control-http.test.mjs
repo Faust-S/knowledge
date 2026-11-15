@@ -627,7 +627,9 @@ test("D7 installed age verifies and previews original Kernel without returning d
         recipientId:"recipient:installed",archiveSha256,
         archiveBytes:Uint8Array.of(80,75,3,4),
         privateKey:"NOT_FOR_UI",
-        handle:{preview_token:"tok:native:one",package_digest:"digest:one",
+        handle:{preview_token:opened===1?"tok:native:one":
+          opened===2?"tok:native:unused":"tok:native:cancel-first",
+          package_digest:"digest:one",
           semantic_digest:"sem:one",expires_at:"2099-01-01T00:00:00Z",
           allowed_modes:["new-workspace"],
           preview:{workspaces:[],objects:[],warnings:[]},
@@ -676,6 +678,21 @@ test("D7 installed age verifies and previews original Kernel without returning d
     const plan={mode:"new-workspace",include_workspaces:[]};
     const request={preview_token:result.handle.preview_token,
       package_digest:result.handle.package_digest,plan};
+    // The native Control must not commit or cancel original Kernel tokens
+    // that were never issued through its verified age preview.
+    await assert.rejects(f.browser.nativeD7Request("age.commitImport",{
+      ...request,preview_token:"tok:plain:foreign",
+    }),{code:"T3_D7_NATIVE_OUTCOME_UNKNOWN"});
+    await assert.rejects(f.browser.nativeD7Request("age.cancelImport",{
+      preview_token:"tok:plain:foreign",
+    }),{code:"T3_D7_NATIVE_OUTCOME_UNKNOWN"});
+    await assert.rejects(f.browser.nativeD7Request("age.commitImport",{
+      ...request,package_digest:"digest:tampered",
+    }),{code:"T3_D7_NATIVE_OUTCOME_UNKNOWN"});
+    await assert.rejects(f.browser.nativeD7Request("age.commitImport",{
+      ...request,plan:{...plan,mode:"merge"},
+    }),{code:"T3_D7_NATIVE_OUTCOME_UNKNOWN"});
+    assert.equal(imports,0);
     const first=f.browser.nativeD7Request("age.commitImport",request);
     await commitStarted;
     // Even when the installed product reconstructs its native owner for
@@ -698,15 +715,23 @@ test("D7 installed age verifies and previews original Kernel without returning d
     await assert.rejects(f.browser.nativeD7Request("age.commitImport",request),
       {code:"T3_D7_NATIVE_OUTCOME_UNKNOWN"});
     assert.equal(imports,1);
+    const unused=await f.browser.nativeD7Request("age.previewImport",{
+      ciphertext:cipher,
+    });
+    assert.equal(unused.handle.preview_token,"tok:native:unused");
     const cancelled=await f.browser.nativeD7Request("age.cancelImport",{
-      preview_token:"tok:native:unused",
+      preview_token:unused.handle.preview_token,
     });
     assert.equal(cancelled.cancelled,true);
     // Cancellation started FIRST must exclude a racing native commit.
     // Otherwise the original Kernel can cancel and then import the same
     // preview during the first cancellation's pending acknowledgement.
+    const pending=await f.browser.nativeD7Request("age.previewImport",{
+      ciphertext:cipher,
+    });
+    assert.equal(pending.handle.preview_token,"tok:native:cancel-first");
     const cancelFirst=f.browser.nativeD7Request("age.cancelImport",{
-      preview_token:"tok:native:cancel-first",
+      preview_token:pending.handle.preview_token,
     });
     await cancelStarted;
     const afterCancelRequest={...request,preview_token:"tok:native:cancel-first"};
@@ -725,7 +750,7 @@ test("D7 installed age verifies and previews original Kernel without returning d
     assert.equal(Object.hasOwn(result,"archiveBytes"),false);
     assert.equal(Object.hasOwn(result,"privateKey"),false);
     assert.equal(Object.hasOwn(result.handle,"originalPrivateArchive"),false);
-    assert.equal(opened,1);
+    assert.equal(opened,3);
   }finally{stop();await f.close();}
 });
 

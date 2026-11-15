@@ -178,6 +178,31 @@ export function createOriginalControlHttpHandler({
   // duplicate claim only; durable recovery remains the original owner's job.
   const nativeAgeImportInFlight=new Set();
   const nativeAgeImportDispatched=new Set();
+  // A native import/cancel must consume a preview issued by THIS Control
+  // after the ORIGINAL installed age recipient verified the encrypted file.
+  // This is only an ephemeral, bounded binding. Original Kernel/recipient
+  // remains the only persistence and recovery authority.
+  const nativeAgePreviewClaims=new Map();
+  const agePreviewClaim=key=>{
+    const claim=nativeAgePreviewClaims.get(key);
+    if(claim&&claim.expiresAt<=Date.now()){
+      nativeAgePreviewClaims.delete(key);
+      return null;
+    }
+    return claim??null;
+  };
+  const rememberAgePreview=(key,handle)=>{
+    for(const [oldKey,claim] of nativeAgePreviewClaims)
+      if(claim.expiresAt<=Date.now())nativeAgePreviewClaims.delete(oldKey);
+    requireThat(!nativeAgeImportDispatched.has(key)&&
+      !nativeAgePreviewClaims.has(key)&&nativeAgePreviewClaims.size<256,
+      "T3_D7_NATIVE_PREVIEW_BINDING_INVALID");
+    nativeAgePreviewClaims.set(key,Object.freeze({
+      packageDigest:handle.package_digest,
+      allowedModes:Object.freeze([...handle.allowed_modes]),
+      expiresAt:Date.parse(handle.expires_at),
+    }));
+  };
   // D6 ports may be reconstructed by installed products for each HTTP call.
   // This Host-lifetime claim prevents concurrent native writes and a second
   // dispatch after a lost reply, without replacing native durable receipts.
@@ -551,8 +576,17 @@ export function createOriginalControlHttpHandler({
               Array.isArray(handle.allowed_modes)&&
               handle.allowed_modes.length>0&&
               handle.preview&&typeof handle.preview==="object"&&
-              !Array.isArray(handle.preview),
+              !Array.isArray(handle.preview)&&
+              Date.parse(handle.expires_at)>Date.now(),
               "T3_D7_ORIGINAL_KERNEL_PREVIEW_INVALID");
+            // Only the ORIGINAL Kernel token returned after native decrypt is
+            // eligible for Human importCommit or importCancel. Bind digest,
+            // allowed modes and local recipient epoch before returning it.
+            requireThat(before===await epochNow()&&authenticated(req),
+              "STALE_CONTEXT_OPERATION");
+            const previewKey=JSON.stringify([recipient.recipientId,
+              recipient.bindingEpoch,handle.preview_token]);
+            rememberAgePreview(previewKey,handle);
             result={status:"KERNEL_PREVIEW_READY",
               recipientId:recipient.recipientId,
               archiveSha256:opened.archiveSha256,
@@ -572,8 +606,12 @@ export function createOriginalControlHttpHandler({
             const recipient=await d7Recipient(age);
             const key=JSON.stringify([recipient.recipientId,recipient.bindingEpoch,
               payload.preview_token]);
-            // A reconstituted nativeD7PortFor() object must not bypass the
-            // same Host's one-dispatch rule for an original preview token.
+            // A reconstructed native owner must not authorize arbitrary
+            // original Kernel tokens, altered digests or unoffered modes.
+            const claim=agePreviewClaim(key);
+            requireThat(claim&&claim.packageDigest===payload.package_digest&&
+              claim.allowedModes.includes(payload.plan.mode),
+              "T3_D7_NATIVE_PREVIEW_BINDING_INVALID");
             requireThat(!nativeAgeImportInFlight.has(key)&&
               !nativeAgeImportDispatched.has(key),
               "T3_D7_NATIVE_OUTCOME_UNKNOWN");
@@ -591,6 +629,7 @@ export function createOriginalControlHttpHandler({
                 "T3_D7_NATIVE_OUTCOME_UNKNOWN");
               // Record the possibility of a write BEFORE invoking original
               // Kernel. Never release this claim on lost ACK or bad readback.
+              nativeAgePreviewClaims.delete(key);
               nativeAgeImportDispatched.add(key);
               let nativeReceipt;
               try{
@@ -623,6 +662,10 @@ export function createOriginalControlHttpHandler({
             const recipient=await d7Recipient(age);
             const key=JSON.stringify([recipient.recipientId,recipient.bindingEpoch,
               payload.preview_token]);
+            // A caller may cancel only its own native age preview, never an
+            // arbitrary token issued by an unrelated original Kernel caller.
+            requireThat(agePreviewClaim(key),
+              "T3_D7_NATIVE_PREVIEW_BINDING_INVALID");
             // Cancel while the original Kernel could be writing is not a
             // verified rollback and must not be reported as successful.
             requireThat(!nativeAgeImportInFlight.has(key)&&
@@ -634,6 +677,7 @@ export function createOriginalControlHttpHandler({
               // acknowledgement reaches Control. Claim its dispatch under
               // the SAME token lock as importCommit, so a racing commit can
               // never write after an uncertain cancellation.
+              nativeAgePreviewClaims.delete(key);
               nativeAgeImportDispatched.add(key);
               let cancelled;
               try{
