@@ -111,6 +111,11 @@ export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
         return;
       }
       if(method==='nativeD7Request'){
+        // The installed native age owner may return a full decrypted ZIP
+        // to its trusted OS caller, but not to the untrusted UI origin.
+        // Only age.previewImport may return the original Kernel token.
+        if(args[0]==='age.open')
+          deny('T3_D7_NATIVE_PLAINTEXT_PRIVATE');
         if(typeof nativeD7Request!=='function')
           deny('T3_D7_ORIGINAL_NATIVE_OWNER_UNAVAILABLE');
         const result=await nativeD7Request(...args);

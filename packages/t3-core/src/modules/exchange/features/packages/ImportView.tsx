@@ -220,7 +220,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     }, Math.min(ms, 2 ** 31 - 1));
   };
 
-  const onFile = async (file: File, options: {
+  const onFile = async (file: File | ImportPreviewHandle, options: {
     protectedRestore?: boolean;
     alreadyCancelled?: boolean;
     expectedGeneration?: number;
@@ -240,19 +240,26 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     const generation = ++operationGenerationRef.current;
     dispatch({ type: "preview-started" });
 
-    if (!file.name.toLowerCase().endsWith(ALLOWED_EXTENSION)) {
+    const alreadyPreviewed="preview_token" in file;
+    if (!alreadyPreviewed && !file.name.toLowerCase().endsWith(ALLOWED_EXTENSION)) {
       dispatch({ type: "preview-failed", error: `Принимаются только пакеты ${ALLOWED_EXTENSION}.` });
       return;
     }
-    if (file.size > MAX_PACKAGE_BYTES) {
+    if (!alreadyPreviewed && file.size > MAX_PACKAGE_BYTES) {
       dispatch({ type: "preview-failed", error:
         `Размер пакета ${file.size} байт превышает предельные ${MAX_PACKAGE_BYTES} байт. Файл не был передан ядру.` });
       return;
     }
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer()); // §9 — bytes live only until kernel returns
-      if (generation !== operationGenerationRef.current) return;
-      const secure = await kernel.importPreview(bytes);
+      // Native installed owner has already called the SAME original Kernel
+      // importPreview without exposing decrypted .iwxa bytes to this WebView.
+      // Ordinary .iwxa continues through the unchanged T2 Kernel method.
+      const secure = alreadyPreviewed ? file : await (async () => {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if(generation!==operationGenerationRef.current)return null;
+        return kernel.importPreview(bytes);
+      })();
+      if(!secure)return;
       if (generation !== operationGenerationRef.current) {
         if (secure?.preview_token) {
           let cancelled = false;
@@ -528,19 +535,39 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       const ciphertext=new Uint8Array(await encryptedFile.arrayBuffer());
       if(ticket!==operationGenerationRef.current||
           launchGeneration!==pwaLaunchGeneration.current)return;
-      const opened=await protectedExchange.open({ciphertext});
-      if(ticket!==operationGenerationRef.current||
-          launchGeneration!==pwaLaunchGeneration.current)return;
-      // The existing T2 ImportView performs original importPreview and
-      // separately waits for the human-confirmed Kernel importCommit.
-      const archive=new File([opened.archiveBytes as BlobPart],
-        encryptedFile.name.slice(0,-4),{type:"application/octet-stream"});
-      setAgeFile(null);
-      await onFile(archive, {
-        protectedRestore:true,
-        alreadyCancelled:true,
-        expectedGeneration:ticket,
-      });
+      if(protectedExchange.canNativeKernelPreview){
+        const native=await protectedExchange.previewInOriginalKernel({ciphertext});
+        // The owner has created an ORIGINAL Kernel preview token. On stale
+        // launch, release it via that SAME Kernel instead of accepting it.
+        if(ticket!==operationGenerationRef.current||
+            launchGeneration!==pwaLaunchGeneration.current){
+          let cancelled=false;
+          if(canCancel)try{
+            cancelled=(await kernel.importCancel(native.handle.preview_token))===true;
+          }catch{}
+          if(!cancelled)
+            setAgeError("IMPORT_STALE_PREVIEW_CANCEL_NOT_CONFIRMED");
+          return;
+        }
+        setAgeFile(null);
+        await onFile(native.handle,{
+          protectedRestore:true,alreadyCancelled:true,
+          expectedGeneration:ticket,
+        });
+      }else{
+        // Legacy browser-only age owners retain their existing T2 path.
+        // Installed OS owners do not expose open() over the UI-origin port.
+        const opened=await protectedExchange.open({ciphertext});
+        if(ticket!==operationGenerationRef.current||
+            launchGeneration!==pwaLaunchGeneration.current)return;
+        const archive=new File([opened.archiveBytes as BlobPart],
+          encryptedFile.name.slice(0,-4),{type:"application/octet-stream"});
+        setAgeFile(null);
+        await onFile(archive,{
+          protectedRestore:true,alreadyCancelled:true,
+          expectedGeneration:ticket,
+        });
+      }
     } catch(error) {
       setAgeError("Не удалось проверить или расшифровать защищённый файл: "+
         (error instanceof Error?error.message:"T3_D7_AGE_OPEN_FAILED"));

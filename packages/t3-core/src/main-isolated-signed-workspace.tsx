@@ -151,13 +151,19 @@ async function launch(){
       });
     const requestD7=(verb:string,payload:unknown={})=>
       client.invoke("nativeD7Request",verb,payload);
-    const ageOwner=nativeD7?.ageOpen===true?Object.freeze({
+    const ageOwner=(nativeD7?.ageNativeImport===true||
+      nativeD7?.ageSeal===true)?Object.freeze({
       maxArchiveBytes:nativeD7.maxArchiveBytes??32*1024*1024,
       currentRecipient:()=>requestD7("age.currentRecipient"),
       // Existing signed Control-selected source; no raw Kernel/issuer in UI.
       trustedSelectedWorkspace:()=>client.invoke(
         "selectedWorkspaceContext","getWorkspace"),
-      open:(input:unknown)=>requestD7("age.open",input),
+      // Native owner parses/decrypts and runs ORIGINAL Kernel.importPreview
+      // before returning the signed preview token; no plaintext in WebView.
+      ...(nativeD7.ageNativeImport===true?{
+        previewInOriginalKernel:(input:unknown)=>
+          requestD7("age.previewImport",input),
+      }:{}),
       ...(nativeD7.ageSeal===true?{
         prepareSeal:(input:unknown)=>requestD7("age.prepareSeal",input),
         seal:(input:unknown)=>requestD7("age.seal",input),

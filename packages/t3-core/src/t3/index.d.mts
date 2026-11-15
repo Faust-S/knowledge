@@ -213,8 +213,13 @@ export interface T3OriginalAgeOwner {
     workspaceId:string}):unknown|Promise<unknown>;
   /** Existing native verifier. Original signed mode passes selectedWorkspaceId;
    * clean-install native mode passes authenticated recipientId instead. */
-  open(input:{ciphertext:Uint8Array;selectedWorkspaceId?:string;
+  open?(input:{ciphertext:Uint8Array;selectedWorkspaceId?:string;
     recipientId?:string}):unknown|Promise<unknown>;
+  /** Native original age owner performs authenticated decrypt and calls
+   * ORIGINAL Kernel.importPreview without returning any plaintext to WebView.
+   * Returned token must be usable by that SAME original Kernel.importCommit. */
+  previewInOriginalKernel?(input:{ciphertext:Uint8Array;recipientId:string}):
+    unknown|Promise<unknown>;
 }
 export interface T3AgeProtectionReceipt {
   status:"AGE_PROTECTED_DOWNLOAD_READY";format:"age-encryption.org/v1";
@@ -243,6 +248,12 @@ export function createTrustedAgeExchange(options:{
   seal(input:{workspace_id:string;archiveBytes:Uint8Array}):
     Promise<T3AgeProtectionReceipt>;
   open(input:{ciphertext:Uint8Array}):Promise<T3AgeOpenReceipt>;
+  /** Source ZIP never crosses the installed product's WebView boundary. */
+  readonly canNativeKernelPreview:boolean;
+  previewInOriginalKernel(input:{ciphertext:Uint8Array}):Promise<{
+    status:"KERNEL_PREVIEW_READY";recipientId:string;archiveSha256:string;
+    handle:Awaited<ReturnType<KernelFacade["importPreview"]>>;
+  }>;
 }>;
 
 /** D7: existing signed Publisher licence/status owner inside an installed

@@ -42,6 +42,35 @@ const sealed=()=>new File([Uint8Array.of(97,103,101,45,98,121,116,101,115)],
   "workspace.iwxa.age",{type:"application/octet-stream"});
 
 describe("D7 installed PWA protected .iwxa.age through original Exchange",()=>{
+  it("uses the original native Kernel preview token without revealing the archive to WebView",async()=>{
+    withQueue();
+    const k=kernel();
+    const nativePreview=vi.fn(async()=>({
+      status:"KERNEL_PREVIEW_READY" as const,recipientId:"recipient:installed",
+      archiveSha256:"a".repeat(64),handle:preview,
+    }));
+    const noRawOpen=vi.fn();
+    const installed={
+      canOpen:true,canNativeKernelPreview:true,
+      previewInOriginalKernel:nativePreview,open:noRawOpen,
+      maxCiphertextBytes:33*1024*1024,
+    } as unknown as ReturnType<typeof createTrustedAgeExchange>;
+    const getFile=vi.fn(async()=>sealed());
+    render(<PackagesView kernel={k} commands={commands} initialTab="export"
+      exportScopeId={null} protectedExchange={installed}/>);
+    await act(async()=>{
+      captured?.({files:[{kind:"file",name:"workspace.iwxa.age",getFile}]});
+    });
+    await act(async()=>{fireEvent.click(screen.getByTestId("import-pwa-preview"));});
+    await waitFor(()=>expect(screen.getByTestId("import-age-preview")).toBeTruthy());
+    await act(async()=>{fireEvent.click(screen.getByTestId("import-age-preview"));});
+    await waitFor(()=>expect(screen.getByTestId("import-preview")).toBeTruthy());
+    expect(nativePreview).toHaveBeenCalledTimes(1);
+    expect(noRawOpen).not.toHaveBeenCalled();
+    expect(k.importPreview).not.toHaveBeenCalled();
+    expect(k.importCommit).not.toHaveBeenCalled();
+  });
+
   it("keeps OS file opaque until user selects it, then separate age.open and original Kernel preview",async()=>{
     withQueue();
     const k=kernel();

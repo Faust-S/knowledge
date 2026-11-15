@@ -72,9 +72,12 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
   const canSeal=Boolean(signedWorkspaceRead&&
     typeof ageOwner?.prepareSeal==="function"&&
     typeof ageOwner?.seal==="function"&&typeof confirmRecipients==="function");
-  const canOpen=Boolean(nativeRecipient||
-    (signedReader&&kernel.hasOperation("t1.getWorkspace")));
-  ensure(ageOwner&&typeof ageOwner.open==="function"&&
+  const canOpen=Boolean(nativeKernelPreview||
+    (rawOpen&&(nativeRecipient||
+      (signedReader&&kernel.hasOperation("t1.getWorkspace")))));
+  ensure(ageOwner&&(rawOpen||nativeKernelPreview||
+    (typeof ageOwner.prepareSeal==="function"&&
+      typeof ageOwner.seal==="function"))&&
     (nativeRecipient||signedReader)&&typeof isHostActive==="function",
     "T3_D7_TRUSTED_AGE_OWNER_REQUIRED");
   const live=()=>ensure(isHostActive()===true,"T3_HOST_DISPOSED");
@@ -179,7 +182,48 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
       format:"age-encryption.org/v1",archiveSha256,
       recipientIds,ciphertext,savedToDevice:false,recipientImported:false});
   }
+  // A native owner can decrypt and call the ORIGINAL Kernel.importPreview
+  // behind its installed trust boundary; only the canonical preview token
+  // may leave this boundary. Its token is subsequently used by the normal
+  // human-confirmed T2 Exchange importCommit/importCancel.
+  async function previewInOriginalKernel({ciphertext}={}){
+    live();
+    ensure(nativeKernelPreview,"T3_D7_NATIVE_KERNEL_PREVIEW_UNAVAILABLE");
+    const encrypted=take(ciphertext,maxCiphertextBytes,"T3_D7_AGE_CIPHERTEXT_INVALID");
+    ensure(ageHeader(encrypted),"T3_D7_AGE_CIPHERTEXT_INVALID");
+    const current=async()=>{
+      live();
+      const r=await ageOwner.currentRecipient();
+      live();
+      ensure(r&&id(r.recipientId)&&id(r.bindingEpoch),
+        "T3_D7_ORIGINAL_NATIVE_RECIPIENT_REQUIRED");
+      return {recipientId:r.recipientId,bindingEpoch:r.bindingEpoch};
+    };
+    const recipient=await current();
+    const result=await ageOwner.previewInOriginalKernel({
+      ciphertext:encrypted,recipientId:recipient.recipientId,
+    });
+    ensure(JSON.stringify(await current())===JSON.stringify(recipient),
+      "T3_D7_ORIGINAL_NATIVE_RECIPIENT_CHANGED");
+    const h=result?.handle;
+    ensure(result?.status==="KERNEL_PREVIEW_READY"&&
+      result.recipientId===recipient.recipientId&&
+      HEX.test(result.archiveSha256??"")&&h&&id(h.preview_token)&&
+      typeof h.package_digest==="string"&&
+      typeof h.semantic_digest==="string"&&
+      typeof h.expires_at==="string"&&Array.isArray(h.allowed_modes)&&
+      h.preview&&typeof h.preview==="object"&&!Array.isArray(h.preview),
+      "T3_D7_ORIGINAL_KERNEL_PREVIEW_INVALID");
+    const handle=Object.freeze(Object.fromEntries([
+      "preview_token","package_digest","semantic_digest",
+      "expires_at","allowed_modes","preview"
+    ].map(key=>[key,h[key]])));
+    return Object.freeze({status:"KERNEL_PREVIEW_READY",
+      recipientId:recipient.recipientId,archiveSha256:result.archiveSha256,
+      handle});
+  }
   async function open({ciphertext}={}){
+    ensure(rawOpen,"T3_D7_NATIVE_PLAINTEXT_PRIVATE");
     live();
     ensure(canOpen,"T3_D7_SIGNED_OWNER_REQUIRED");
     ensure(ciphertext instanceof Uint8Array&&ciphertext.byteLength>0,
@@ -256,5 +300,7 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
       recipientId:native.recipientId,archiveSha256:native.archiveSha256,
       archiveBytes,kernelPreviewed:false,accepted:false});
   }
-  return Object.freeze({seal,open,canSeal,canOpen,maxArchiveBytes,maxCiphertextBytes});
+  return Object.freeze({seal,open,previewInOriginalKernel,
+    canSeal,canOpen,canNativeKernelPreview:Boolean(nativeKernelPreview),
+    maxArchiveBytes,maxCiphertextBytes});
 }

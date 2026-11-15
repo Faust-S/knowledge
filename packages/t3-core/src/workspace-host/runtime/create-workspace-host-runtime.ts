@@ -69,7 +69,9 @@ export async function createWorkspaceHostRuntime(
   // A verified native recipient can decrypt a backup before first Workspace
   // installation. Signed D1 + consent are STILL mandatory for encryption.
   if(input.ageOwner &&
-      (typeof input.ageOwner.open!=="function"||
+      (typeof input.ageOwner.open!=="function"&&
+       typeof input.ageOwner.previewInOriginalKernel!=="function"&&
+       !(input.ageOwner.prepareSeal&&input.ageOwner.seal&&input.confirmAgeRecipients)||
         (typeof input.ageOwner.currentRecipient!=="function" &&
           (!input.confirmAgeRecipients||!input.signedKernelAccess))))
     throw new Error("T3_D7_TRUSTED_AGE_OWNER_REQUIRED");

@@ -418,8 +418,8 @@ test("D7 signed native age/Publisher roundtrip stays on original Control and nev
   const unsubscribe=f.browser.subscribeSignedAccessInvalidation(()=>{});
   try{
     const available=await f.browser.nativeD7Request("available");
-    assert.deepEqual(available,{ageOpen:true,ageSeal:true,publisher:true,
-      maxArchiveBytes:32*1024*1024});
+    assert.deepEqual(available,{ageOpen:true,ageSeal:true,
+      ageNativeImport:false,publisher:true,maxArchiveBytes:32*1024*1024});
     const recipient=await f.browser.nativeD7Request("age.currentRecipient");
     assert.deepEqual(recipient,{recipientId:"recipient:installed",
       bindingEpoch:"epoch:installed:one"});
@@ -601,5 +601,46 @@ test("D6 original Control connects installed signed Result port without sending 
       body:JSON.stringify({verb:"preview",payload:{reference}}),
     });
     assert.equal(forged.status,403);
+  }finally{stop();await f.close();}
+});
+
+test("D7 installed age verifies and previews original Kernel without returning decrypted .iwxa to WebView",async()=>{
+  const cipher=Uint8Array.from([
+    ...new TextEncoder().encode("age-encryption.org/v1\n"),1,2,3,4]);
+  const archiveSha256="c".repeat(64);
+  let opened=0;
+  const nativeD7PortFor=async()=>({ageOwner:{
+    currentRecipient:async()=>({recipientId:"recipient:installed",
+      bindingEpoch:"epoch:installed:one",privateKey:"NEVER_TO_WEB"}),
+    open:async()=>{throw Error("SHOULD_NOT_FALLBACK_TO_RAW_OPEN");},
+    previewInOriginalKernel:async input=>{
+      opened++;
+      assert.equal(input.recipientId,"recipient:installed");
+      assert.deepEqual([...input.ciphertext],[...cipher]);
+      return {status:"KERNEL_PREVIEW_READY",
+        recipientId:"recipient:installed",archiveSha256,
+        archiveBytes:Uint8Array.of(80,75,3,4),
+        privateKey:"NOT_FOR_UI",
+        handle:{preview_token:"tok:native:one",package_digest:"digest:one",
+          semantic_digest:"sem:one",expires_at:"2099-01-01T00:00:00Z",
+          allowed_modes:["new-workspace"],
+          preview:{workspaces:[],objects:[],warnings:[]},
+          originalPrivateArchive:"NOT_FOR_UI"},
+      };
+    },
+  }});
+  const f=await fixture({nativeD7PortFor});
+  const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
+  try{
+    const availability=await f.browser.nativeD7Request("available");
+    assert.equal(availability.ageNativeImport,true);
+    const result=await f.browser.nativeD7Request("age.previewImport",{ciphertext:cipher});
+    assert.equal(result.status,"KERNEL_PREVIEW_READY");
+    assert.equal(result.handle.preview_token,"tok:native:one");
+    assert.equal(result.archiveSha256,archiveSha256);
+    assert.equal(Object.hasOwn(result,"archiveBytes"),false);
+    assert.equal(Object.hasOwn(result,"privateKey"),false);
+    assert.equal(Object.hasOwn(result.handle,"originalPrivateArchive"),false);
+    assert.equal(opened,1);
   }finally{stop();await f.close();}
 });

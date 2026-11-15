@@ -41,7 +41,7 @@ function d6Reference(input){
     schema_id:ref.schema_id,revision:ref.revision});
 }
 const D7_VERBS=new Set(["available","age.currentRecipient","age.prepareSeal",
-  "age.seal","age.open","publisher.currentSubject","publisher.inspect",
+  "age.seal","age.open","age.previewImport","publisher.currentSubject","publisher.inspect",
   "publisher.apply","publisher.receipt","publisher.statusReadback"]);
 const D7_AGE=["currentRecipient","open"];
 const D7_PUBLISHER=["currentSubject","inspect","apply","receipt","statusReadback"];
@@ -415,6 +415,8 @@ export function createOriginalControlHttpHandler({
           "STALE_CONTEXT_OPERATION");
         const age=owner?.ageOwner,publisher=owner?.publisherHolder;
         const ageOpen=D7_AGE.every(m=>typeof age?.[m]==="function");
+        const ageNativeImport=ageOpen&&
+          typeof age?.previewInOriginalKernel==="function";
         const ageSeal=ageOpen&&typeof age?.prepareSeal==="function"&&
           typeof age?.seal==="function"&&
           typeof owner?.authorizeAgeSeal==="function";
@@ -423,7 +425,8 @@ export function createOriginalControlHttpHandler({
         const maxArchiveBytes=ageOpen&&Number.isSafeInteger(age?.maxArchiveBytes)
           ?Math.min(age.maxArchiveBytes,D7_ARCHIVE):D7_ARCHIVE;
         if(input.verb==="available"){
-          reply(res,200,{result:{ageOpen,ageSeal,publisher:publisherReady,
+          reply(res,200,{result:{ageOpen,ageSeal,
+            ageNativeImport,publisher:publisherReady,
             maxArchiveBytes:ageOpen?maxArchiveBytes:null}});
           return true;
         }
@@ -496,6 +499,41 @@ export function createOriginalControlHttpHandler({
               "T3_D7_NATIVE_AGE_CIPHERTEXT_INVALID");
             result={...d7Public(sealed,["format","archiveSha256","recipientIds"]),
               ciphertextBase64url:Buffer.from(sealed.ciphertext).toString("base64url")};
+          }else if(verb==="previewImport"){
+            // The installed native owner decrypts and calls the SAME original
+            // Kernel.importPreview used later by Exchange.importCommit.
+            // Only the original preview handle crosses Control, NEVER the
+            // decrypted ZIP or the private age identity.
+            requireThat(ageNativeImport,"T3_D7_NATIVE_KERNEL_PREVIEW_UNAVAILABLE");
+            const ciphertext=d7Bytes(payload.ciphertextBase64url,D7_CIPHER);
+            const recipient=await d7Recipient(age);
+            const opened=await age.previewInOriginalKernel({
+              ciphertext,recipientId:recipient.recipientId,
+            });
+            requireThat(d7Same(recipient,await d7Recipient(age)),
+              "T3_D7_ORIGINAL_NATIVE_RECIPIENT_CHANGED");
+            const handle=opened?.handle;
+            requireThat(opened?.status==="KERNEL_PREVIEW_READY"&&
+              opened.recipientId===recipient.recipientId&&
+              HEX.test(opened.archiveSha256??"")&&
+              handle&&typeof handle==="object"&&!Array.isArray(handle)&&
+              REF.test(handle.preview_token??"")&&
+              typeof handle.package_digest==="string"&&
+              handle.package_digest.length>0&&
+              typeof handle.semantic_digest==="string"&&
+              handle.semantic_digest.length>0&&
+              typeof handle.expires_at==="string"&&
+              Number.isFinite(Date.parse(handle.expires_at))&&
+              Array.isArray(handle.allowed_modes)&&
+              handle.allowed_modes.length>0&&
+              handle.preview&&typeof handle.preview==="object"&&
+              !Array.isArray(handle.preview),
+              "T3_D7_ORIGINAL_KERNEL_PREVIEW_INVALID");
+            result={status:"KERNEL_PREVIEW_READY",
+              recipientId:recipient.recipientId,
+              archiveSha256:opened.archiveSha256,
+              handle:d7Public(handle,["preview_token","package_digest",
+                "semantic_digest","expires_at","allowed_modes","preview"])};
           }else if(verb==="open"){
             const ciphertext=d7Bytes(payload.ciphertextBase64url,D7_CIPHER);
             const recipient=await d7Recipient(age);

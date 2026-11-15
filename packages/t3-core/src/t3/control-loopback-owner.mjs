@@ -7,13 +7,15 @@ const TOKEN=/^[A-Za-z0-9_-]{40,128}$/;
 const KINDS=new Set(["kernel","activity"]);
 const D6_VERBS=new Set(["available","preview","continueSelected","recover"]);
 const D7_VERBS=new Set(["available","age.currentRecipient","age.prepareSeal",
-  "age.seal","age.open","publisher.currentSubject","publisher.inspect",
+  "age.seal","age.open","age.previewImport","publisher.currentSubject","publisher.inspect",
   "publisher.apply","publisher.receipt","publisher.statusReadback"]);
 const D7_LIMIT=Object.freeze({"age.seal":32*1024*1024,
-  "age.open":33*1024*1024,"publisher.inspect":4*1024*1024,
+  "age.open":33*1024*1024,"age.previewImport":33*1024*1024,
+  "publisher.inspect":4*1024*1024,
   "publisher.apply":4*1024*1024});
 const D7_FIELD=Object.freeze({"age.seal":"archiveBytes",
-  "age.open":"ciphertext","publisher.inspect":"archiveBytes",
+  "age.open":"ciphertext","age.previewImport":"ciphertext",
+  "publisher.inspect":"archiveBytes",
   "publisher.apply":"archiveBytes"});
 function b64(bytes){
   const segments=[];
