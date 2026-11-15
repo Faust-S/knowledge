@@ -316,6 +316,32 @@ test("original native D3 recipient uses the existing signed Control HTTP and iso
 });
 
 
+test("original D3 accepts a real-size carrier above the former 16 MiB limit",{
+  timeout:45000,
+},async()=>{
+  const bytes=Buffer.alloc(16*1024*1024+1,0x5a);
+  let received=0;
+  const port={
+    receive:async raw=>{
+      received=raw.byteLength;
+      assert.equal(createHash("sha256").update(raw).digest("hex"),
+        createHash("sha256").update(bytes).digest("hex"));
+      return {transportReceipt:{packageSha256:sha(raw)},
+        acceptanceState:"NOT_ACCEPTED",kernelApplication:"NOT_APPLIED"};
+    },
+    preview:async()=>null,receipt:async()=>null,
+    accept:async()=>null,reject:async()=>null,
+    inspectAcceptedApplication:async()=>null,
+  };
+  const f=await fixture({reconciliationPortFor:()=>port});
+  const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
+  try{
+    const answer=await f.browser.reconciliationRequest("receive",{bytes});
+    assert.equal(answer.transportReceipt.packageSha256,sha(bytes));
+    assert.equal(received,bytes.byteLength);
+  }finally{stop();await f.close();}
+});
+
 test("D7 signed native age/Publisher roundtrip stays on original Control and never exposes custody",{
   timeout:12000,
 },async()=>{
