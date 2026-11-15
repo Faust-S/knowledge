@@ -11,6 +11,51 @@ import {assertQualifiedKernelArtifact}
 import {registerT3LocalInferenceService}
   from './register-t3-local-inference.mjs';
 
+// The original D3 recipient writes this exact Object through T2
+// commitObjectGraph. Register only in an installed original Admin D3 dist.
+// This is the inherited service passport, NOT another Kernel or Store.
+const ADMIN_APPLIED_SCHEMA="iwxa.admin.applied-results";
+const ADMIN_RESULT_FIELDS=["taskId","taskRevisionId","resultRevisionId",
+  "organizationId","workspaceId","executorId","result","acceptanceId"];
+const ADMIN_APPLIED_DECLARATION=Object.freeze({
+  schema_version:"1.0.0",preserve_unknown:false,
+  json_schema:{
+    type:"object",
+    properties:{
+      schema:{const:"IWXA_T3_ADMIN_APPLIED_RESULTS/1"},
+      records:{type:"array",minItems:1,items:{
+        type:"object",
+        properties:Object.fromEntries(ADMIN_RESULT_FIELDS.map(field=>
+          [field,{type:"string",minLength:1}])),
+        required:ADMIN_RESULT_FIELDS,additionalProperties:false,
+      }},
+    },
+    required:["schema","records"],additionalProperties:false,
+  },embedded:{},
+});
+function registerInstalledAdminAppliedResult({domain,config,passport}){
+  if(config?.base_path!=="/workspace/"||
+     passport?.service_id!==config.workspace_service_id||
+     !passport?.supported_levels?.includes("T1")||
+     passport.permissions?.workspace?.read!==true||
+     !passport.schemas||typeof passport.schemas!=="object"||
+     Array.isArray(passport.schemas))
+    fail("ORIGINAL_ADMIN_D3_SERVICE_REQUIRED");
+  const rows=[domain?.security?.allowed_object_classes,
+    passport.input_object_types,passport.output_object_types,
+    passport.permissions?.objects?.read,passport.permissions?.objects?.write];
+  if(rows.some(row=>!Array.isArray(row)))
+    fail("ORIGINAL_ADMIN_D3_SCHEMA_PERMISSIONS_REQUIRED");
+  const existing=passport.schemas[ADMIN_APPLIED_SCHEMA];
+  if(existing!==undefined&&
+     JSON.stringify(existing)!==JSON.stringify(ADMIN_APPLIED_DECLARATION))
+    fail("ORIGINAL_ADMIN_D3_SCHEMA_CONFLICT");
+  for(const row of rows)
+    if(!row.includes(ADMIN_APPLIED_SCHEMA))row.push(ADMIN_APPLIED_SCHEMA);
+  if(existing===undefined)
+    passport.schemas[ADMIN_APPLIED_SCHEMA]=ADMIN_APPLIED_DECLARATION;
+}
+
 const allowedAssetExtensions=new Set([
   '.js','.mjs','.css','.json','.wasm','.png','.svg','.webp','.ico','.woff2',
 ]);
@@ -45,7 +90,10 @@ function required(root,path){
 }
 export function assembleSignedControlDist({
   t2Dist,t3Build,outputDir,testOnlyUnqualifiedFixture=false,
+  installedOriginalAdminD3=false,
 }={}){
+  if(typeof installedOriginalAdminD3!=="boolean")
+    fail("INSTALLED_ADMIN_D3_FLAG_INVALID");
   if(![t2Dist,t3Build,outputDir].every(x=>typeof x==='string'&&x.trim()))
     fail('THREE_PATHS_REQUIRED');
   const source=realpathSync(resolve(t2Dist));
@@ -110,7 +158,7 @@ export function assembleSignedControlDist({
       !readFileSync(workers[0],'utf8').includes('IWXA_NETWORK_DENIED_IN_WORKER')))
     fail('LOCAL_INFERENCE_COMPILED_MODULE_INCOMPLETE');
   let servicePassport=null,passportPath=null,serviceEntry=null;
-  if(localInference){
+  if(localInference||installedOriginalAdminD3){
     serviceEntry=catalog.entries.find(row=>
       row.service_id===config.workspace_service_id);
     passportPath=serviceEntry?.file;
@@ -121,8 +169,11 @@ export function assembleSignedControlDist({
     if(serviceEntry.sha256!==hash(passportFile))
       fail('ORIGINAL_SERVICE_PASSPORT_INTEGRITY');
     servicePassport=JSON.parse(readFileSync(passportFile,'utf8'));
-    registerT3LocalInferenceService({domain,workspaceConfig:config,
-      passport:servicePassport});
+    if(localInference)
+      registerT3LocalInferenceService({domain,workspaceConfig:config,
+        passport:servicePassport});
+    if(installedOriginalAdminD3)
+      registerInstalledAdminAppliedResult({domain,config,passport:servicePassport});
   }
   const staged=[];
   for(const path of assets){
@@ -163,7 +214,7 @@ export function assembleSignedControlDist({
     }
     if(!existsSync(join(temp,'workspace/favicon.ico')))
       copyFileSync(compiledFavicon,join(temp,'workspace/favicon.ico'));
-    if(localInference){
+    if(localInference||installedOriginalAdminD3){
       // Adjust only assembled configuration/permissions and update the
       // original service-catalog integrity digest for the new passport.
       writeFileSync(join(temp,'_iwxa/domain.json'),JSON.stringify(domain));
@@ -183,6 +234,7 @@ export function assembleSignedControlDist({
       workspace_service_id:config.workspace_service_id,
       signed_assets:staged.length,isolated_realm_entries:true,original_kernel:'0.3.6',
       local_inference_registered:localInference,
+      original_admin_d3_schema_registered:installedOriginalAdminD3,
       original_qualified_artifact:qualified?.artifactId??'TEST_ONLY_UNQUALIFIED',
       original_loader_sha256:hash(originalLoader),
       original_runtime_sha256:hash(originalRuntime),
@@ -190,8 +242,11 @@ export function assembleSignedControlDist({
   }catch(error){rmSync(temp,{recursive:true,force:true});throw error;}
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
-  if(process.argv.length!==5)fail('USAGE_T2_DIST_T3_BUILD_OUTPUT');
+  if(process.argv.length!==5&&
+      !(process.argv.length===6&&process.argv[5]==='--installed-admin-d3'))
+    fail('USAGE_T2_DIST_T3_BUILD_OUTPUT');
   console.log(JSON.stringify(assembleSignedControlDist({
     t2Dist:process.argv[2],t3Build:process.argv[3],outputDir:process.argv[4],
+    installedOriginalAdminD3:process.argv[5]==='--installed-admin-d3',
   })));
 }

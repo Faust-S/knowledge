@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,readFileSync,rmSync,writeFileSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,dirname} from 'node:path';
+import {createHash} from 'node:crypto';
 import {assembleSignedControlDist} from '../scripts/assemble-signed-control-dist.mjs';
 
 function fixture(){
@@ -77,6 +78,64 @@ test('production assembly rejects a fabricated Kernel even when its files are se
     assert.throws(()=>assembleSignedControlDist({
       t2Dist:f.t2,t3Build:f.t3,outputDir:f.out,
     }),/FACTORY2_WITNESS_KERNEL_ARTIFACT_MISMATCH/);
+    assert.equal(existsSync(f.out),false);
+  }finally{rmSync(f.dir,{recursive:true,force:true});}
+});
+
+test('installed Admin D3 records use the original T2 passport and unchanged Kernel',()=>{
+  const f=fixture();
+  try{
+    const schema='iwxa.admin.applied-results';
+    const path='_iwxa/services/test.original.json';
+    const passport={
+      service_id:'test.original',supported_levels:['T0','T1','T2'],
+      permissions:{workspace:{read:true},
+        objects:{read:['existing.object'],write:['existing.object']}},
+      input_object_types:['existing.object'],
+      output_object_types:['existing.object'],
+      schemas:{'existing.object':{schema_version:'1.0.0'}},
+    };
+    const source=JSON.stringify(passport);
+    f.put(f.t2,path,source);
+    f.put(f.t2,'_iwxa/service-catalog.json',JSON.stringify({
+      count:1,entries:[{service_id:'test.original',file:path,
+        sha256:createHash('sha256').update(source).digest('hex')}],
+    }));
+    f.put(f.t2,'_iwxa/domain.json',JSON.stringify({
+      origin:'http://127.0.0.1:18883',
+      security:{allowed_object_classes:['existing.object']},
+    }));
+    f.put(f.t2,'workspace/workspace.config.json',JSON.stringify({
+      base_path:'/workspace/',workspace_service_id:'test.original',
+    }));
+    const result=assembleSignedControlDist({
+      t2Dist:f.t2,t3Build:f.t3,outputDir:f.out,
+      testOnlyUnqualifiedFixture:true,installedOriginalAdminD3:true,
+    });
+    assert.equal(result.original_admin_d3_schema_registered,true);
+    assert.equal(result.original_runtime_unchanged,true);
+    const installed=JSON.parse(readFileSync(join(f.out,path),'utf8'));
+    const domain=JSON.parse(readFileSync(join(f.out,'_iwxa/domain.json'),'utf8'));
+    const catalog=JSON.parse(readFileSync(join(f.out,'_iwxa/service-catalog.json'),'utf8'));
+    for(const row of [installed.permissions.objects.write,
+      installed.permissions.objects.read,installed.input_object_types,
+      installed.output_object_types,domain.security.allowed_object_classes])
+      assert.deepEqual(row,['existing.object',schema]);
+    assert.equal(installed.schemas[schema].schema_version,'1.0.0');
+    assert.deepEqual(installed.schemas[schema].json_schema.required,['schema','records']);
+    assert.equal(catalog.entries[0].sha256,
+      createHash('sha256').update(readFileSync(join(f.out,path))).digest('hex'));
+    assert.equal(readFileSync(join(f.t2,path),'utf8'),source,
+      'original qualified passport remains unmodified');
+  }finally{rmSync(f.dir,{recursive:true,force:true});}
+});
+test('installed Admin D3 requires an original service passport',()=>{
+  const f=fixture();
+  try{
+    assert.throws(()=>assembleSignedControlDist({
+      t2Dist:f.t2,t3Build:f.t3,outputDir:f.out,
+      testOnlyUnqualifiedFixture:true,installedOriginalAdminD3:true,
+    }),/T3_D1_DIST_ORIGINAL_SERVICE_PASSPORT_PATH/);
     assert.equal(existsSync(f.out),false);
   }finally{rmSync(f.dir,{recursive:true,force:true});}
 });
