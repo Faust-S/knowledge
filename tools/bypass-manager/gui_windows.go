@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -501,6 +502,11 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 	return r
 }
 func guiMain() int {
+	// Win32 windows and GetMessage/PostQuitMessage belong to one OS thread.
+	// Without this, Go may move the goroutine between Win32 thread queues,
+	// leaving a window visible but ignoring or delaying WM_CLOSE.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	// Request UAC only to manage the WinDivert process; do not modify firewall or other adapters.
 	relaunched, err := maybeRelaunchElevated()
 	if err != nil {
