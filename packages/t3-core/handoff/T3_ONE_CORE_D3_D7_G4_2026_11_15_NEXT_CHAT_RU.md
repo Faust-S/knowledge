@@ -1,5 +1,23 @@
 # IWXA T3 One Core: передача D3/D7 -> G4 в новый чат
 
+## D4: source Exchange positive and negative qualification (16.11.2026)
+
+Status: D4_PUBLIC_TWO_ORIGINAL_CONSUMERS=PASS; D4_PUBLIC_NEGATIVE_MATRIX=PASS.
+Exact source SHA: Faust-S/knowledge@ffe06d834c2e8186b04f26316b0046fbd2307fa7.
+Source CI: https://github.com/Faust-S/knowledge/actions/runs/43775225935 TERMINAL SUCCESS; test, real-host, windows-credential SUCCESS, metal-webgpu SKIPPED. The real WebGPU D5 passed separately on unchanged executable source in CI #43772762981.
+
+Original T2 Kernel 0.3.6 / Contract 1.3.0 exported one unchanged .iwxa archive with TWO related objects, ONE relation, future extensions and original Event IDs. TWO independent original Kernel recipient Stores imported the same bytes: signed T3 selected Workspace and direct T2 Exchange. Second Store confirmed persistence after cold browser restart.
+
+Real original parser negative evidence:
+- Different package format field -> INVALID_MANIFEST.
+- Unsupported format_version -> UNSUPPORTED_FORMAT.
+- ZIP path traversal content/../../escape.json -> VERIFY_FAILED.
+- Unsupported future schema iwxa.unsupported.future@9.0.0 with valid file/package/semantic SHA-256 -> original importPreview explicitly reported schemas.status=missing and unsupported.kind=unknown_schema; one excluded object, importCancel instead of commit, recipient Store unchanged.
+- Truncated ZIP -> original parser refusal.
+
+Boundary: D4_TWO_INSTALLED_PRODUCT_CONSUMERS=HOLD. Original recipients were independent technical Host/Store, NOT two installed commercial products. D4_PRODUCT_ACCEPTED and G4 stay NOT_ACCEPTED; T3_READY=false.
+Executable G4 source remains 99f3c533: subsequent commits changed only CI, evidence handoff and addressable browser test, not Kernel/Host/Exchange runtime. Do not reopen D4 microtests without a new confirmed defect.
+
 ## G4: проверенный набор байтов для независимых получателей, 16.11.2026
 
 **Артефакт интеграции (НЕ установленная G4-сборка):** [скачать точный ZIP #14185062962](https://github.com/Faust-S/knowledge/actions/runs/43773900893/artifacts/14185062962), файл `iwxa-t3-owner-input-2b818eb1863724c73d7dd19bce0f96f73de9c7c2.zip`. SHA-256 ZIP `ce44a53616cfec8122c50d3860b592d79c2eb5e2aada730e8af70278926c6fa8`; размер 4 907 746 байт. **[Source CI #43773900893](https://github.com/Faust-S/knowledge/actions/runs/43773900893): test/real-host/windows-credential SUCCESS**, metal-webgpu SKIPPED именно в этом запуске, так как исполняемый код не менялся. Аппаратный D5 отдельно полностью прошёл на идентичном исполняемом исходнике `99f3c533`, [CI #43772762981](https://github.com/Faust-S/knowledge/actions/runs/43772762981).
