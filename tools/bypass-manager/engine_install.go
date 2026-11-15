@@ -1,8 +1,6 @@
 package main
 
 import (
-	"archive/zip"
-	"bytes"
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
@@ -16,11 +14,10 @@ import (
 	"time"
 )
 
-// Official upstream repository, pinned to a known immutable Git commit. The
-// executable fetches files directly from GitHub only after explicit consent.
-// Download is optional; no engine binary is repackaged by this project.
+// The original Windows driver and Lua files are retrieved from one immutable
+// upstream commit; this application neither patches nor redistributes them.
 const upstreamCommit = "6b4375fa04f6bd7017eec379e16e462d3ea8df66"
-const upstreamURL = "https://codeload.github.com/bol-van/zapret-win-bundle/zip/" + upstreamCommit
+const upstreamRawBase = "https://raw.githubusercontent.com/bol-van/zapret-win-bundle/" + upstreamCommit + "/zapret-winws/"
 
 var upstreamBlobs = map[string]string{
 	"winws2.exe":             "44f7d2400bdf9fbfb3b66d860fd11e8d9a1c9690",
@@ -39,118 +36,101 @@ func githubBlobHash(data []byte) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 func enginePresent(root string) bool {
-	for name := range upstreamBlobs {
-		if st, err := os.Stat(filepath.Join(root, filepath.FromSlash(name))); err != nil || st.IsDir() || st.Size() == 0 {
+	for name, expected := range upstreamBlobs {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		st, err := os.Stat(path)
+		if err != nil || st.IsDir() || st.Size() == 0 || st.Size() > 10<<20 {
+			return false
+		}
+		data, err := os.ReadFile(path)
+		if err != nil || githubBlobHash(data) != expected {
 			return false
 		}
 	}
 	return true
 }
-func selectedUpstreamArchive(body []byte) (map[string][]byte, error) {
-	zr, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
-	if err != nil {
-		return nil, err
-	}
-	entries := map[string][]byte{}
-	for _, f := range zr.File {
-		if f.FileInfo().IsDir() {
-			continue
+
+// One file at a time avoids the huge source bundle. Every file is verified
+// before a single file can be promoted into the live engine directory.
+func fetchPinnedFiles(ctx context.Context, client *http.Client, base string, expected map[string]string) (map[string][]byte, error) {
+	out := make(map[string][]byte, len(expected))
+	for path, sha := range expected {
+		if strings.HasPrefix(path, "/") || strings.Contains(path, "\\") || strings.Contains(path, "..") || !strings.HasPrefix(base, "https://") && !strings.HasPrefix(base, "http://127.0.0.1:") {
+			return nil, errors.New("invalid pinned source/path")
 		}
-		marker := "/zapret-winws/"
-		i := strings.Index(f.Name, marker)
-		if i < 0 {
-			continue
-		}
-		suffix := f.Name[i+len(marker):]
-		want, ok := upstreamBlobs[suffix]
-		if !ok {
-			continue
-		}
-		if f.UncompressedSize64 > 10<<20 {
-			return nil, fmt.Errorf("размер %s превышает ожидаемый", suffix)
-		}
-		r, err := f.Open()
+		req, err := http.NewRequestWithContext(ctx, "GET", base+path, nil)
 		if err != nil {
 			return nil, err
 		}
-		data, err := io.ReadAll(io.LimitReader(r, 10<<20))
-		r.Close()
+		resp, err := client.Do(req)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("official source %s: %w", path, err)
 		}
-		if githubBlobHash(data) != want {
-			return nil, fmt.Errorf("файл %s не совпал с SHA-1 Git blob в закреплённом upstream commit", suffix)
+		if resp.StatusCode != 200 {
+			resp.Body.Close()
+			return nil, fmt.Errorf("original file %s: HTTP %d", path, resp.StatusCode)
 		}
-		if _, exists := entries[suffix]; exists {
-			return nil, fmt.Errorf("дубликат %s", suffix)
+		if resp.ContentLength > 10<<20 {
+			resp.Body.Close()
+			return nil, fmt.Errorf("original file %s exceeds limit", path)
 		}
-		entries[suffix] = data
+		data, readErr := io.ReadAll(io.LimitReader(resp.Body, (10<<20)+1))
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if len(data) == 0 || len(data) > 10<<20 {
+			return nil, fmt.Errorf("unexpected file size: %s", path)
+		}
+		if githubBlobHash(data) != sha {
+			return nil, fmt.Errorf("original file %s did not match pinned Git blob SHA-1", path)
+		}
+		out[path] = data
 	}
-	if len(entries) != len(upstreamBlobs) {
-		return nil, fmt.Errorf("неполный официальный архив: получено %d из %d необходимых файлов", len(entries), len(upstreamBlobs))
-	}
-	return entries, nil
+	return out, nil
 }
+
 func installUpstream(ctx context.Context, target string, ask func(string) (string, error), out io.Writer) error {
 	if enginePresent(target) {
 		return nil
 	}
 	if _, err := os.Stat(target); err == nil {
-		return fmt.Errorf("каталог %q существует, но неполон; автоматическое вмешательство в имеющиеся файлы запрещено", target)
+		return fmt.Errorf("engine path %q exists but is incomplete; user action required", target)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	choice, err := ask("Отсутствует оригинальный winws2. Скачать с GitHub закреплённую официальную сборку и локально установить только 7 необходимых файлов? [д/н]")
+	choice, err := ask("Оригинальный winws2 отсутствует. Скачать только семь необходимых файлов из официального закреплённого коммита с проверкой контрольных сумм? [д/н]")
 	if err != nil {
 		return err
 	}
 	if choice != "д" && strings.ToLower(choice) != "y" {
-		return errors.New("пользователь отклонил загрузку официального движка")
+		return errors.New("official download declined")
 	}
-	fmt.Fprintln(out, "Загружаю исходный Windows-bundle bol-van из GitHub на закреплённом commit", upstreamCommit[:12])
-	client := &http.Client{Timeout: 85 * time.Second, CheckRedirect: func(req *http.Request, prev []*http.Request) error {
+	fmt.Fprintln(out, "Загружаю 7 файлов из оригинального репозитория. Коммит:", upstreamCommit[:12])
+	client := &http.Client{Timeout: 35 * time.Second, CheckRedirect: func(req *http.Request, previous []*http.Request) error {
 		if req.URL.Scheme != "https" {
-			return errors.New("небезопасное перенаправление")
+			return errors.New("insecure redirect refused")
 		}
-		if len(prev) > 4 {
-			return errors.New("слишком много перенаправлений")
+		if len(previous) > 4 {
+			return errors.New("too many redirects")
 		}
 		return nil
 	}}
-	req, err := http.NewRequestWithContext(ctx, "GET", upstreamURL, nil)
+	files, err := fetchPinnedFiles(ctx, client, upstreamRawBase, upstreamBlobs)
 	if err != nil {
-		return err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("официальная загрузка недоступна (%w); скачайте bundle заранее по README", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("GitHub вернул HTTP %d; ручная установка доступна по README", resp.StatusCode)
-	}
-	if resp.ContentLength > 40<<20 {
-		return errors.New("неожиданно большой архив; загрузка отменена")
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 40<<20))
-	if err != nil {
-		return err
-	}
-	selected, err := selectedUpstreamArchive(body)
-	if err != nil {
-		return err
+		return fmt.Errorf("official source unavailable: %w", err)
 	}
 	parent := filepath.Dir(target)
 	if err = os.MkdirAll(parent, 0700); err != nil {
 		return err
 	}
-	dir, err := os.MkdirTemp(parent, ".zapret-pinned-*")
+	tmp, err := os.MkdirTemp(parent, ".bypass-pinned-*")
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(dir)
-	for filename, data := range selected {
-		dest := filepath.Join(dir, filepath.FromSlash(filename))
+	defer os.RemoveAll(tmp)
+	for name, data := range files {
+		dest := filepath.Join(tmp, filepath.FromSlash(name))
 		if err = os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
 			return err
 		}
@@ -158,13 +138,13 @@ func installUpstream(ctx context.Context, target string, ask func(string) (strin
 			return err
 		}
 	}
-	note := "Original files from: https://github.com/bol-van/zapret-win-bundle\nCommit: " + upstreamCommit + "\nFiles verified by Git blob SHA-1. No service installed.\n"
-	if err = os.WriteFile(filepath.Join(dir, "UPSTREAM-ORIGIN.txt"), []byte(note), 0600); err != nil {
+	note := "Source: https://github.com/bol-van/zapret-win-bundle\nCommit: " + upstreamCommit + "\nEach original file verified with Git blob SHA-1. No Windows service installed.\n"
+	if err = os.WriteFile(filepath.Join(tmp, "UPSTREAM-ORIGIN.txt"), []byte(note), 0600); err != nil {
 		return err
 	}
-	if err = os.Rename(dir, target); err != nil {
+	if err = os.Rename(tmp, target); err != nil {
 		return err
 	}
-	fmt.Fprintln(out, "Официальные компоненты установлены и проверены:", target)
+	fmt.Fprintln(out, "Оригинальные компоненты проверены и установлены:", target)
 	return nil
 }
