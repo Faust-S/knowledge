@@ -1,5 +1,7 @@
 # K05 / Agent 0.6: исходный TaskCell и ToolRuntime без второго ядра
 
+> **Актуализация 15.11.2026:** `retry_receipt_count` заменён на `same_idempotency_key_additional_receipts`; реальное количество retry остаётся `UNKNOWN`. ROI теперь рассчитывает только source-replay admission из `K05_AGENT06_SOURCE_REPLAY_ROI_2026_11_15_RU.md`, а не `compare_process_phases` напрямую.
+
 Дата 15.11.2026. Public development branch: \`work/2026-11-15-agent06-effectiveness-evaluation\`. Следующая интеграция в Agent 0.6 **ещё НЕ выполнена**; этот модуль является необязательным read-only adapter, который загружается только внутри доверенного установленного владельца Agent. Общая ветка Agent 0.6 не затронута.
 
 ## Почему потребовался отдельный owner readback
@@ -53,7 +55,7 @@ accepted_observation = k05_agent06_owner_port.observe_accepted_agent_run(
 )
 \`\`\`
 
-Граничные данные остаются owner-local. Для сравнения действительных исполнителей вызывается существующая \`compare_task_executors\` над двумя такими проверенными наблюдениями. ROI проходит через \`compare_process_phases\` только при сопоставимых case definition, объёмах, полном spend и доказанном инвестиционном платеже. Отсутствующие входы остаются \`UNKNOWN/NOT_MEASURABLE\`.
+Граничные данные остаются owner-local. Для сравнения действительных исполнителей вызывается существующая \`compare_task_executors\` над двумя такими проверенными наблюдениями. ROI проходит только через \`compare_verified_process_runs\` с повторной проверкой исходных источников, независимой verified population, полном spend и доказанным инвестиционным платежом. Отсутствующие входы остаются \`UNKNOWN/NOT_MEASURABLE\`.
 
 ## Испытания
 

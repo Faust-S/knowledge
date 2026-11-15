@@ -108,8 +108,8 @@ def _verified_measurement(name: str, claim: dict, proofs: dict,
           "METRIC_SOURCE_KIND_INVALID")
     _need(owner["status"] == "OBSERVED"
           and owner["values"].get(name) == value
-          and (owner.get("task_sha256") in (None, task_sha256))
-          and (owner.get("result_sha256") in (None, result_sha256)),
+          and owner.get("task_sha256") == task_sha256
+          and owner.get("result_sha256") == result_sha256,
           "METRIC_NOT_OWNER_BOUND")
     if name == "actual_cost_minor":
         _need(kind == "COST_INVOICE" and owner.get("currency") == currency,
@@ -265,7 +265,8 @@ def _phase(observations: list, phase: str) -> dict:
 
 
 def _investment(evidence: dict | None, *, source_bytes: Mapping[str, bytes],
-                owner_verify: OwnerVerify, currency: str) -> int | None:
+                owner_verify: OwnerVerify, currency: str,
+                cohort_sha256: str) -> int | None:
     if evidence is None:
         return None
     _need(type(evidence) is dict and set(evidence) == {
@@ -280,7 +281,10 @@ def _investment(evidence: dict | None, *, source_bytes: Mapping[str, bytes],
     }], source_bytes, owner_verify)
     p = verified[evidence["ref"]][1]
     _need(p["status"] == "OBSERVED" and p["values"].get("investment_minor")
-          == evidence["value_minor"] and p.get("currency") == currency,
+          == evidence["value_minor"] and p.get("currency") == currency
+          and p["values"].get("cohort_sha256") == cohort_sha256
+          and p["values"].get("purpose") == "IWXA_IMPLEMENTATION"
+          and p["values"].get("payment_status") == "PAID",
           "INVESTMENT_NOT_OWNER_BOUND")
     return evidence["value_minor"]
 
@@ -310,7 +314,8 @@ def compare_process_phases(
     currency = rows[0]["currency"]
     old, new = _phase(before, "BEFORE"), _phase(after, "AFTER")
     paid_investment = _investment(investment, source_bytes=source_bytes,
-                                  owner_verify=owner_verify, currency=currency)
+                                  owner_verify=owner_verify, currency=currency,
+                                  cohort_sha256=rows[0]["cohort_sha256"])
     deltas = {
         k: (new["totals"][k] - old["totals"][k]
             if new["totals"][k] is not None and old["totals"][k] is not None
@@ -326,25 +331,25 @@ def compare_process_phases(
     )
     known_spend = old["totals"]["actual_cost_minor"] is not None and (
         new["totals"]["actual_cost_minor"] is not None)
-    # This percentage is an observed accounting comparison ONLY. A change
-    # caused by IWXA cannot be established without a controlled attribution.
+    # A list of caller-supplied projections can be forged; NEVER calculate
+    # a source-bound ROI from it. compare_verified_process_runs replays original
+    # bytes through the owner and checks population comparability before ROI.
     roi = None
     net = None
-    if comparable and known_spend and paid_investment is not None and paid_investment > 0:
-        net = (old["totals"]["actual_cost_minor"] -
-               new["totals"]["actual_cost_minor"] - paid_investment)
-        roi = str((Decimal(100) * Decimal(net) / Decimal(paid_investment)).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_UP))
     return {
         "schema": PROCESS_SCHEMA,
-        "status": "SOURCE_BOUND_ACCOUNTING_COMPARISON",
+        "status": "PROJECTION_ONLY_NOT_INDEPENDENTLY_SOURCE_REPLAYED",
         "currency": currency,
         "before": old, "after": new,
         "deltas_after_minus_before": deltas,
         "investment_minor": paid_investment,
         "observed_accounting_net_minor": net,
         "observed_accounting_roi_percent": roi,
-        "roi_status": "OBSERVATIONAL_ONLY" if roi is not None else "NOT_MEASURABLE",
+        "roi_status": "NOT_MEASURABLE",
+        "roi_missing_requirements": [
+            "REPLAY_ORIGINAL_SOURCE_RUNS",
+            "OWNER_VERIFIED_POPULATION_COMPARABILITY",
+        ],
         "roi_attributable_to_iwxa": "NOT_MEASURABLE",
         "comparability": {
             "same_process_case_definition": same_cohort,

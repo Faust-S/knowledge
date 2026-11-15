@@ -168,6 +168,9 @@ class K05OwnerAdapterTests(unittest.TestCase):
         self.assertEqual(data["sum_receipt_duration_us"], 1501333)
         self.assertEqual(data["sum_receipt_duration_ms"], "1501.333")
         self.assertEqual(data["accepted_business_result"], "NOT_VERIFIED")
+        self.assertIsNone(data["retry_count"])
+        self.assertEqual(data["retry_status"],
+                         "UNKNOWN_WITHOUT_ORIGINAL_ATTEMPT_EVIDENCE")
         self.assertEqual(tool.calls, ["receipt", "plan"])
 
     def test_receipt_foreign_task_or_plan_or_provenance_rejected(self):
@@ -221,6 +224,21 @@ class K05OwnerAdapterTests(unittest.TestCase):
             read_agent_accepted_task(object(), "TASK-K05")
         with self.assertRaisesRegex(K05EffectivenessHold,"TASK_ID_INVALID"):
             read_agent_accepted_task(FakeTaskCell(), "../TASK-K05")
+
+    def test_idempotency_collision_is_not_claimed_as_an_execution_retry(self):
+        class ReplayedReceipt(FakeToolRuntime):
+            def read_execution_receipt(self, rid):
+                self.calls.append("receipt")
+                return {**self.receipt, "receipt_id": rid}
+        tool = ReplayedReceipt()
+        data = read_agent_execution_receipts(
+            task_cell=FakeTaskCell(), task_id="TASK-K05", tool_runtime=tool,
+            receipt_ids=["TXR-k05", "TXR-k05b"])
+        self.assertEqual(data["receipt_count"], 2)
+        self.assertEqual(data["same_idempotency_key_additional_receipts"], 1)
+        self.assertIsNone(data["retry_count"])
+        self.assertEqual(data["retry_status"],
+                         "UNKNOWN_WITHOUT_ORIGINAL_ATTEMPT_EVIDENCE")
 
 
 if __name__ == "__main__":

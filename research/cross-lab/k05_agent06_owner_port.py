@@ -215,7 +215,12 @@ def read_agent_execution_receipts(*, task_cell, task_id: str,
         "effect_acknowledged": effects["ACKNOWLEDGED"],
         "effect_none": effects["NONE"],
         "effect_unknown": effects["UNKNOWN"],
-        "retry_receipt_count": len(receipt_ids) - len(idempotency_keys),
+        # Same idempotency key is an identity correlation, not proof of an
+        # actual extra execution. A retry requires original attempt evidence.
+        "same_idempotency_key_additional_receipts": (
+            len(receipt_ids) - len(idempotency_keys)),
+        "retry_count": None,
+        "retry_status": "UNKNOWN_WITHOUT_ORIGINAL_ATTEMPT_EVIDENCE",
         "sum_receipt_duration_us": sum(durations),
         "sum_receipt_duration_ms": str(Decimal(sum(durations)) / Decimal(1000)),
         "end_to_end_duration_ms": None,

@@ -95,7 +95,9 @@ class EffectivenessContractTests(unittest.TestCase):
         source[ref]=raw
         proof={"verified":True, "kind":"COST_INVOICE",
                "source_sha256":digest(raw), "epistemic_status":"OBSERVED",
-               "status":"OBSERVED","values":{"investment_minor":200},
+               "status":"OBSERVED","values":{"investment_minor":200,
+                   "cohort_sha256":COHORT,"purpose":"IWXA_IMPLEMENTATION",
+                   "payment_status":"PAID"},
                "currency":"USD","task_sha256":None,"result_sha256":None}
         def verifier(ref_arg,kind,raw_arg):
             self.assertEqual((ref_arg,kind,raw_arg),(ref,"COST_INVOICE",raw))
@@ -106,8 +108,11 @@ class EffectivenessContractTests(unittest.TestCase):
             owner_verify=verifier)
         self.assertEqual(r["before"]["cost_per_accepted_result_minor"],"2000.00")
         self.assertEqual(r["deltas_after_minus_before"]["return_count"],-2)
-        self.assertEqual(r["observed_accounting_net_minor"],600)
-        self.assertEqual(r["observed_accounting_roi_percent"],"300.00")
+        # Projection summaries are not an independently verified population.
+        # The source-replay admission computes ROI only after owner coverage.
+        self.assertIsNone(r["observed_accounting_net_minor"])
+        self.assertIsNone(r["observed_accounting_roi_percent"])
+        self.assertEqual(r["roi_status"],"NOT_MEASURABLE")
         self.assertEqual(r["roi_attributable_to_iwxa"],"NOT_MEASURABLE")
         self.assertFalse(r["forecasts_used"])
 
