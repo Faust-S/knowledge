@@ -5,6 +5,11 @@
 import {digestExternalOwnerSnapshot} from './external-owner-snapshot.mjs';
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const REVISION=/^[A-Za-z0-9][A-Za-z0-9 ._:/@+-]{0,159}$/;
+function denied(code){throw Object.assign(new Error(code),{code});}
+function textField(value,pattern,code){
+  if(typeof value!=='string'||!pattern.test(value))denied(code);
+  return value;
+}
 /** Convert a single, named Frappe v1 REST GET response:
  *   GET /api/resource/Sales%20Order/{encoded exact name}
  * to the readExact source snapshot expected by external-process-link.
