@@ -126,7 +126,7 @@ test('external owner revision changing during human consent prevents refresh wri
 });
 test('lost ACK after original refresh is only recovered by signed Kernel read',async()=>{
   const f=fixture();await f.newHost().link(f.ref);f.setRevision('v2');
-  f.setDropAck(true);
+  f.setLostAck(true);
   assert.equal((await f.newHost().refresh(f.ref)).status,'OUTCOME_UNKNOWN');
   assert.equal((await f.newHost().recover(f.ref)).status,'LINK_PERSISTED');
   assert.equal((await f.newHost().refresh(f.ref)).status,'ALREADY_LINKED');
