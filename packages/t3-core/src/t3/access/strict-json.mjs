@@ -2,8 +2,15 @@
 // No independent Kernel/Store/Access issuer, no committed real keys.
 // JSON.parse silently collapses duplicate keys. Signed/package/vault boundaries
 // reject those ambiguous encodings before parsing the value.
-export function strictJson(text){
-  if(typeof text!=='string'||text.length>32*1024*1024)throw new Error('JSON_SIZE_INVALID');
+export function strictJson(text,{maxLength=32*1024*1024}={}){
+  // Existing signed/credential JSON callers keep their original 32 MiB
+  // ceiling. Only an explicitly bounded original Control carrier may pass
+  // its larger base64url envelope limit; duplicate-key validation is unchanged.
+  if(!Number.isSafeInteger(maxLength)||maxLength<1||
+     maxLength>Math.ceil(32*1024*1024/3)*4+16*1024)
+    throw new Error('JSON_SIZE_LIMIT_INVALID');
+  if(typeof text!=='string'||text.length>maxLength)
+    throw new Error('JSON_SIZE_INVALID');
   let p=0,nodes=0;const invalid=()=>{throw new Error('JSON_ENCODING_INVALID');};
   const ws=()=>{while(/[ \t\r\n]/.test(text[p]??'!'))p++;};
   function string(){const re=/"(?:[^"\\\u0000-\u001f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/y;re.lastIndex=p;const m=re.exec(text);if(!m)invalid();p=re.lastIndex;return JSON.parse(m[0]);}
