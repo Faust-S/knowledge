@@ -32,7 +32,20 @@ function kernelOk(): KernelFacade {
     importCommit: vi.fn(async () => ({
       import_id: "i1", mode: "selective", conflict_policy: "fail",
       committed_at: "2026-07-25T00:00:00Z", package_digest: "d", semantic_digest: "sd",
-      applied: { objects_inserted: 0, objects_updated: 0, objects_skipped: 0, events: 0 },
+      // Original T2 ImportReceipt has ten counters. The earlier reduced
+      // fixture passed before D7 readback validation and incorrectly masked
+      // missing writes with NaN; use a real contract-shaped receipt here.
+      format: "iwxa.import.receipt", format_version: "1.0",
+      applied: {
+        workspaces: 0, objects_inserted: 0, objects_updated: 0,
+        objects_skipped: 0, events: 0, relations: 0, assets: 0,
+        schemas_inserted: 0, schemas_reused: 0, schemas_rejected: 0,
+      },
+      workspace_id_map: {}, skipped_conflicts: [],
+      excluded_by_permission: {
+        workspaces: 0, objects: 0, events: 0,
+        relations: 0, assets: 0,
+      },
     })),
     importCancel: vi.fn(async () => undefined),
     listWorkspaces: vi.fn(async () => []),
