@@ -1,5 +1,13 @@
 # IWXA T3. Аудит реализованного продукта, рисков и конечного плана
 
+## D3: оригинальный Kernel readback после lost ACK, 15.11.2026
+
+- Код [`knowledge@07030fd8`](https://github.com/Faust-S/knowledge/commit/07030fd8cca256442fcc2fb61da9726630a6e927), TREE `e2be3d0e4f396d8c74d3bb309b434c51a6648232`. [CI #43719345103](https://github.com/Faust-S/knowledge/actions/runs/43719345103) **SUCCESS**: Node 714/714, Workspace/DOM 1141/1141, original real-host и Windows Credential PASS, аппаратный WebGPU SKIPPED.
+- Исправлен рабочий сценарий восстановления: после утраты ACK настоящий T2 Kernel может выдать `OBJECT_NOT_FOUND` / `WORKSPACE_NOT_FOUND` при независимом `getObject`. В существующем `reconciliation-kernel-apply.mjs` такой результат теперь означает `OUTCOME_UNKNOWN` с `automaticRetryAllowed=false`, а не необработанную ошибку. Отзыв/денial и все прочие ошибки оригинального Kernel остаются отказами. Kernel `commitObjectGraph` во время recovery не вызывается. Новый Store или журнал не создан.
+- **Оригинальная native граница:** `Faust-S/T3@work/2026-11-11-t3-d1-signed-activity-owner` HEAD `436938915af33817f6438bc1c661ff4382da8b26`; `interop/native-admin-d3.mjs` предоставляет `attachOriginalKernel` и реальный signed source, `Faust-S/Center@work/2026-11-11-admin-center-age-exchange` уже имеет installed native Host и отдельные Human controls. Но `runInstalledOriginalAdminD3Host` пока не вызывает `attachOriginalKernel` для настоящего браузерного T2 session: `d3ApplyAvailable=false`. Внешний sign-off/Result просмотр не эквивалентен Kernel Apply. Доработать привязку внутри **одного исходного Host**, не создавать второй Kernel/Store/Control, затем два независимых холодных readback. Именно это главный следующий product milestone, не очередная source имитация.
+- Продуктовые статусы: `D3_SOURCE_RECOVERY=PASS`, `D3_INSTALLED_ADMIN_AGENT=HOLD`, `D5_GPU=HOLD`, `G4=NOT_ACCEPTED`, `T3_READY=false`. Частные исполняемые файлы, ключи, лицензии и данные пользователя не переносились в публичный T3; private Actions не запускались.
+
+
 ## Проверенный T3 D3 native-control и Agent 0.6 source build, 15.11.2026
 
 - Исполняемый `Faust-S/knowledge@ecbfcd67280c82fdef95a25e4ca030fe0bac16b9`, TREE `cd74800c7fe7b8dfd7d5e41e2f7563401925a754`. [GitHub Actions #43717560964](https://github.com/Faust-S/knowledge/actions/runs/43717560964) терминальный **SUCCESS**: Node 714/714, Workspace/DOM 1141/1141, original T2 real-host и Windows Credential PASS, WebGPU SKIPPED.
