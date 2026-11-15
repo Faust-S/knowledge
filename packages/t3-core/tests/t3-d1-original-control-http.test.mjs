@@ -463,13 +463,17 @@ test("installed Admin D3 Browser Control is read-only even if native Kernel Appl
       operationId:"d3:browser-reject",packageSha256:"b".repeat(64),
       previewDigest:"c".repeat(64),reason:"Browser cannot be a native review",
     }),{code:"T3_D3_NATIVE_HUMAN_REVIEW_REQUIRED"});
+    const exactTarget={consumerId:"IWXA_ADMIN_CENTER",
+      processId:"process:one",processVersion:"1.0.0",
+      purpose:"result.apply",subjectId:"org:one",
+      workspaceId:"ws:personal",dataRootId:"root:one"};
     await assert.rejects(f.browser.reconciliationRequest("applyAccepted",{
       acceptanceId:"a".repeat(64),revisionIds:["b".repeat(64)],
-      target:{consumerId:"IWXA_ADMIN_CENTER"},
+      target:exactTarget,
     }),{code:"T3_D3_ORIGINAL_APPLY_OWNER_REQUIRED"});
     await assert.rejects(f.browser.reconciliationRequest("recoverApplied",{
       acceptanceId:"a".repeat(64),revisionIds:["b".repeat(64)],
-      target:{consumerId:"IWXA_ADMIN_CENTER"},
+      target:exactTarget,
     }),{code:"T3_D3_ORIGINAL_APPLY_RECOVERY_UNAVAILABLE"});
     assert.equal(nativeDispatch,0,
       "only a separate installed Center native action can dispatch APPLY");
