@@ -69,6 +69,9 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
   const signedWorkspaceRead=Boolean((signedReader||isolatedReader)&&
     kernel.hasOperation("t1.getWorkspace"));
   const nativeRecipient=typeof ageOwner?.currentRecipient==="function";
+  const nativeKernelPreview=nativeRecipient&&
+    typeof ageOwner?.previewInOriginalKernel==="function";
+  const rawOpen=typeof ageOwner?.open==="function";
   const canSeal=Boolean(signedWorkspaceRead&&
     typeof ageOwner?.prepareSeal==="function"&&
     typeof ageOwner?.seal==="function"&&typeof confirmRecipients==="function");
