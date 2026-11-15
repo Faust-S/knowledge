@@ -22,21 +22,26 @@ const validSession=s=>s&&typeof s==="object"&&!Array.isArray(s)&&
 
 export function createOriginalKernelNativeRelay({
   currentEpoch,onAttach,onDetach=()=>{},timeoutMs=20000,
+  idleLeaseMs=30000,
 }={}){
   check(typeof currentEpoch==="function"&&typeof onAttach==="function"&&
     typeof onDetach==="function"&&Number.isSafeInteger(timeoutMs)&&
-    timeoutMs>=1000&&timeoutMs<=60000,
+    timeoutMs>=1000&&timeoutMs<=60000&&
+    Number.isSafeInteger(idleLeaseMs)&&idleLeaseMs>=1000&&idleLeaseMs<=120000,
     "T3_D3_ORIGINAL_KERNEL_RELAY_HOST_REQUIRED");
   let live=null,pending=null,closed=false,nextId=1,attaching=null;
   // Exactly one pending HTTP long-poll on the original Control. The signed
   // native owner can wake it immediately instead of waiting for hidden
   // WebView timer callbacks (which Windows/WebView2 may throttle).
-  let idlePoll=null;
+  let idlePoll=null,idleLeaseTimer=null;
   const wakePoll=()=>{
     const wake=idlePoll;idlePoll=null;
     wake?.();
   };
   const detach=reason=>{
+    if(idleLeaseTimer!==null){
+      clearTimeout(idleLeaseTimer);idleLeaseTimer=null;
+    }
     const prior=live;
     live=null;
     wakePoll();
@@ -46,6 +51,22 @@ export function createOriginalKernelNativeRelay({
       call.reject(Object.assign(Error(reason),{code:reason}));
     }
     if(prior){try{onDetach();}catch{/* never restore a stale Host */}}
+  };
+  // The existing browser "next" long-poll renews this native session lease.
+  // Pagehide/SSE may be lost when WebView2 terminates unexpectedly; without
+  // a bounded idle lifetime Center could advertise an absent APPLY owner.
+  const renewIdleLease=()=>{
+    if(idleLeaseTimer!==null)clearTimeout(idleLeaseTimer);
+    idleLeaseTimer=setTimeout(()=>{
+      idleLeaseTimer=null;
+      if(!live||closed)return;
+      // After original graph dispatch a write may have committed, even if
+      // the browser vanished before returning the original receipt.
+      detach(pending?.issued&&pending.method==="commitObjectGraph"
+        ?"T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN"
+        :"T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+    },idleLeaseMs);
+    idleLeaseTimer.unref?.();
   };
   const same=(token,epoch)=>{
     check(!closed&&live&&token===live.sessionId&&epoch===live.epoch,
@@ -115,6 +136,7 @@ export function createOriginalKernelNativeRelay({
             "T3_D3_ORIGINAL_KERNEL_OWNER_ATTACH_FAILED");
           if(await currentEpoch()!==epoch||live!==state)
             fail("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+          renewIdleLease();
           return {sessionId,contextEpoch:epoch};
         }catch(error){
           if(live===state)detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
@@ -131,6 +153,7 @@ export function createOriginalKernelNativeRelay({
       }
       same(payload?.sessionId,requestEpoch);
       if(verb==="next"){
+        renewIdleLease();
         // A single bounded pending request replaces 200-ms browser polling.
         // HTTP requestTimeout is 15s in the existing original Control Host;
         // this wait is 5s and never outlives its session.
@@ -176,6 +199,7 @@ export function createOriginalKernelNativeRelay({
             "T3_D3_ORIGINAL_KERNEL_RESULT_DENIED";
           call.reject(Object.assign(Error(code),{code}));
         }
+        renewIdleLease();
         return {accepted:true};
       }
       if(verb==="detach"){

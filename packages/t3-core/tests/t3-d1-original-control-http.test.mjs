@@ -237,6 +237,33 @@ test("original D3 relay closes a native binding completed after its session was 
   assert.equal(attached,false);
   relay.close();
 });
+test("D3 native Kernel owner loses APPLY availability after browser vanishes",{
+  timeout:8000,
+},async()=>{
+  let nativeAttached=false,detached=0;
+  const relay=createOriginalKernelNativeRelay({
+    currentEpoch:()=>71,
+    onAttach:()=>{nativeAttached=true;return true;},
+    onDetach:()=>{nativeAttached=false;detached++;},
+    timeoutMs:4000,idleLeaseMs:1000,
+  });
+  const sessionInfo={contract_version:"1.3.0",runtime_version:"0.3.6",
+    service_id:"iwxa.workspace.relay",mode:"ready",
+    granted_operations:["t1.commitObjectGraph","t1.getObject",
+      "t1.listEventsSince"]};
+  const {sessionId}=await relay.exchange({
+    verb:"attach",payload:{sessionInfo}},71);
+  assert.equal(nativeAttached,true);
+  assert.equal(relay.attached,true);
+  await new Promise(resolve=>setTimeout(resolve,1250));
+  assert.equal(relay.attached,false);
+  assert.equal(nativeAttached,false);
+  assert.equal(detached,1);
+  await assert.rejects(relay.exchange({
+    verb:"next",payload:{sessionId}},71),
+  {code:"T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED"});
+  relay.close();
+});
 test("original D3 Kernel relay uses the SAME authenticated Control route, not another server",{
   timeout:12000,
 },async()=>{
