@@ -382,6 +382,17 @@ export function createTrustedPublisherHandoff(options:{
  * A trusted Host supplies the existing original signed D1 owner + Kernel. */
 export const EXTERNAL_PROCESS_LINK_SCHEMA: "iwxa.agent06.external-process-link";
 export const EXTERNAL_PROCESS_LINK_EVENT: "t3.external-process.record.reported";
+/** Normal original T2 Host service passport; not an IAM grant. */
+export const EXTERNAL_PROCESS_LINK_PASSPORT: Readonly<{
+  service_id:"iwxa.agent06.external-process";
+  service_version:"1.0.0";
+  base_path:"/workspace/external-process/";
+  supported_levels:readonly ["T1","T2"];
+  input_object_types:readonly [];
+  output_object_types:readonly ["iwxa.agent06.external-process-link"];
+  schemas:Record<string,unknown>;
+  permissions:Record<string,unknown>;
+}>;
 export const EXTERNAL_PROCESS_LINK_DECLARATION: Readonly<{
   schema_version:"1.0.0";preserve_unknown:false;
   json_schema:Record<string,unknown>;embedded:Record<string,never>;

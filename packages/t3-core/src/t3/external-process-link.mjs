@@ -24,6 +24,28 @@ export const EXTERNAL_PROCESS_LINK_DECLARATION = Object.freeze({
   }, embedded: {},
 });
 
+/** Installed via the ORIGINAL T2 Host service catalog, never registered by
+ * the renderer. This passport confines the integration writer to one type.
+ * Signed D1 Access still independently checks every original Kernel call. */
+export const EXTERNAL_PROCESS_LINK_PASSPORT = Object.freeze({
+  service_id:'iwxa.agent06.external-process',
+  service_version:'1.0.0',
+  base_path:'/workspace/external-process/',
+  supported_levels:['T1','T2'],
+  input_object_types:[],
+  output_object_types:[EXTERNAL_PROCESS_LINK_SCHEMA],
+  schemas:{[EXTERNAL_PROCESS_LINK_SCHEMA]:EXTERNAL_PROCESS_LINK_DECLARATION},
+  permissions:{
+    workspace:{list:false,read:true,create:false,soft_delete:false,
+      restore:false,purge:false},
+    objects:{read:[EXTERNAL_PROCESS_LINK_SCHEMA],
+      write:[EXTERNAL_PROCESS_LINK_SCHEMA],delete:[]},
+    events:{read_scope:'service'},
+    packages:{export:false,import:false,
+      export_scope:'readable_objects',import_scope:'writable_objects'},
+  },
+});
+
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const DIGEST = /^[a-f0-9]{64}$/;
 // ERPNext uses names such as 'Sales Order'; these are provider type labels,

@@ -79,5 +79,6 @@ export {createTrustedPublisherHandoff} from "./publisher-license-handoff.mjs";
 // External process/ERP evidence: the original signed Host and Kernel own every write.
 export {
   EXTERNAL_PROCESS_LINK_SCHEMA, EXTERNAL_PROCESS_LINK_EVENT,
-  EXTERNAL_PROCESS_LINK_DECLARATION, createTrustedExternalProcessLink,
+  EXTERNAL_PROCESS_LINK_DECLARATION, EXTERNAL_PROCESS_LINK_PASSPORT,
+  createTrustedExternalProcessLink,
 } from './external-process-link.mjs';
