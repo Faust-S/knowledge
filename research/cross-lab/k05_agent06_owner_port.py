@@ -160,6 +160,39 @@ def _date(value):
     return parsed
 
 
+def _human_accepted_candidate_keys(task_cell, task_id, witness):
+    """Original TaskCell verifies AcceptedArtifact + accepted action refs.
+
+    ToolRuntime._accepted_candidate performs the same admission before
+    execution. K05 must enforce it again on historical read-only evidence:
+    a foreign or unaccepted candidate must not count toward Task efficiency.
+    Do not export candidate IDs, names, arguments or raw source records.
+    """
+    accepted = task_cell.accepted_artifact(task_id)
+    _need(type(accepted) is dict
+          and accepted.get("acceptance_kind") == "HUMAN_ACCEPTED_DRAFT"
+          and accepted.get("artifact_digest") == witness["accepted_artifact_sha256"]
+          and type(accepted.get("accepted_artifact_id")) is str
+          and sha256(accepted["accepted_artifact_id"].encode()).hexdigest()
+              == witness["accepted_artifact_id_sha256"]
+          and type(accepted.get("action_candidate_refs")) is list,
+          "HUMAN_ACCEPTED_CANDIDATE_OWNER_REQUIRED")
+    keys = set()
+    for candidate in accepted["action_candidate_refs"]:
+        _ref(candidate, "action_candidate")
+        identity = (candidate["ref_id"], candidate["digest_sha256"])
+        _need(identity not in keys, "DUPLICATE_HUMAN_ACCEPTED_CANDIDATE")
+        keys.add(identity)
+    return keys
+
+
+def _require_accepted_execution_candidate(plan, accepted_keys):
+    candidate = plan.get("candidate_ref")
+    _ref(candidate, "action_candidate")
+    _need((candidate["ref_id"], candidate["digest_sha256"]) in accepted_keys,
+          "EXECUTION_CANDIDATE_NOT_HUMAN_ACCEPTED")
+
+
 def _original_receipt_plan(tool_runtime, receipt_id: str) -> tuple[dict, dict]:
     """Require original Agent ToolExecution V1, never legacy TXR 0.12.
 
@@ -226,6 +259,7 @@ def read_agent_execution_receipts(*, task_cell, task_id: str,
     TRR read receipts are not admitted as task-bound execution receipts.
     """
     accepted = read_agent_accepted_task(task_cell, task_id)
+    allowed_candidates = _human_accepted_candidate_keys(task_cell, task_id, accepted)
     _need(all(callable(getattr(tool_runtime, m, None)) for m in (
         "read_execution_receipt", "read_execution_plan",
     )), "TOOL_RUNTIME_PORT_REQUIRED")
@@ -242,6 +276,7 @@ def read_agent_execution_receipts(*, task_cell, task_id: str,
     durations_us = []
     for rid in receipt_ids:
         receipt, plan = _original_receipt_plan(tool_runtime, rid)
+        _require_accepted_execution_candidate(plan, allowed_candidates)
         _ref(plan.get("task_ref"), "task", accepted["task_sha256"])
         _need(plan["task_ref"]["ref_id"] == task_id,
               "EXECUTION_TASK_ID_MISMATCH")
@@ -389,6 +424,7 @@ def read_agent_task_execution_history(*, task_cell, task_id: str,
     _need(type(require_historical_approval) is bool,
           "HISTORICAL_APPROVAL_FLAG_INVALID")
     accepted = read_agent_accepted_task(task_cell, task_id)
+    allowed_candidates = _human_accepted_candidate_keys(task_cell, task_id, accepted)
     _need(all(callable(getattr(tool_runtime, method, None)) for method in (
         "task_execution_history", "execution_states_for_plans",
         "read_execution_receipt", "read_execution_plan",
@@ -402,6 +438,7 @@ def read_agent_task_execution_history(*, task_cell, task_id: str,
     plan_ids = set()
     for plan in plans:
         plan_id = plan["plan_id"]
+        _require_accepted_execution_candidate(plan, allowed_candidates)
         _need(re.fullmatch(r"TPLAN-[A-Za-z0-9_-]{1,100}", plan_id) is not None,
               "TASK_HISTORY_PLAN_ID_INVALID")
         _need(plan.get("plan_contract") == "PA.CONTRACT.TOOL_PLANNING@1.0.0"

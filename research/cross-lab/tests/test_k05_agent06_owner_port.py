@@ -46,6 +46,10 @@ class FakeTaskCell:
             "task_ref": typed("task", "TASK-K05", TASK),
             "result_ref": self.state["result_ref"],
             "review_ref": self.state["review_ref"],
+            "action_candidate_refs": [
+                typed("action_candidate", "AC-k05",
+                      digest(b"human accepted candidate")),
+            ],
         }
 
     def read_task(self, task_id):
@@ -71,6 +75,8 @@ class FakeToolRuntime:
             "plan_contract": "PA.CONTRACT.TOOL_PLANNING@1.0.0",
             "task_ref": typed("task", "TASK-K05", TASK),
             "accepted_artifact_ref": typed("accepted_artifact", "ACC-K05", ACC),
+            "candidate_ref": typed("action_candidate", "AC-k05",
+                                   digest(b"human accepted candidate")),
             "tool_id": "builtin.file_write", "tool_descriptor_digest": "a"*64,
             "provider_slot": "test", "provider_id": "owner", "provider_binding_digest": "b"*64,
             "idempotency_key": "IWXA-TIDK-" + "c"*40,
@@ -566,6 +572,66 @@ class K05OwnerAdapterTests(unittest.TestCase):
                 tool_runtime=ChangingDecisions(),
                 require_historical_approval=True,
             )
+
+    def test_history_rejects_action_not_accepted_by_human(self):
+        task = FakeTaskCell()
+        tool = FakeToolRuntime()
+        tool.plan["candidate_ref"] = typed(
+            "action_candidate", "AC-not-accepted",
+            digest(b"human accepted candidate"))
+        with self.assertRaisesRegex(
+            K05EffectivenessHold, "EXECUTION_CANDIDATE_NOT_HUMAN_ACCEPTED"
+        ):
+            read_agent_task_execution_history(
+                task_cell=task, task_id="TASK-K05", tool_runtime=tool)
+
+    def test_receipt_rejects_candidate_digest_other_than_accepted(self):
+        tool = FakeToolRuntime()
+        tool.plan["candidate_ref"] = typed(
+            "action_candidate", "AC-k05", "e" * 64)
+        with self.assertRaisesRegex(
+            K05EffectivenessHold, "EXECUTION_CANDIDATE_NOT_HUMAN_ACCEPTED"
+        ):
+            read_agent_execution_receipts(
+                task_cell=FakeTaskCell(), task_id="TASK-K05",
+                tool_runtime=tool, receipt_ids=["TXR-k05"])
+
+    def test_accepted_action_list_owner_absent_does_not_authorize_a_tool(self):
+        task = FakeTaskCell()
+        task.accepted["action_candidate_refs"] = []
+        with self.assertRaisesRegex(
+            K05EffectivenessHold, "EXECUTION_CANDIDATE_NOT_HUMAN_ACCEPTED"
+        ):
+            read_agent_execution_receipts(
+                task_cell=task, task_id="TASK-K05",
+                tool_runtime=FakeToolRuntime(), receipt_ids=["TXR-k05"])
+
+    def test_duplicate_accepted_candidate_refs_fail_closed(self):
+        task = FakeTaskCell()
+        task.accepted["action_candidate_refs"].append(
+            task.accepted["action_candidate_refs"][0])
+        with self.assertRaisesRegex(
+            K05EffectivenessHold, "DUPLICATE_HUMAN_ACCEPTED_CANDIDATE"
+        ):
+            read_agent_task_execution_history(
+                task_cell=task, task_id="TASK-K05",
+                tool_runtime=FakeToolRuntime())
+
+    def test_human_accepted_task_without_action_has_no_tool_effect(self):
+        task = FakeTaskCell()
+        task.accepted["action_candidate_refs"] = []
+        class EmptyOwner(FakeToolRuntime):
+            def task_execution_history(self, task_id, task_digest):
+                self.calls.append("history")
+                return ([], [])
+            def execution_states_for_plans(self, plans):
+                self.calls.append("states")
+                return {}
+        result = read_agent_task_execution_history(
+            task_cell=task, task_id="TASK-K05", tool_runtime=EmptyOwner())
+        self.assertEqual(result["plan_count"], 0)
+        self.assertEqual(result["execution_receipts"]["receipt_count"], 0)
+        self.assertFalse(result["business_effect_verified"])
 
     def test_late_rejection_is_reported_without_new_permission(self):
         class HistoricallyRejectedLater(FakeToolRuntime):
