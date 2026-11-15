@@ -282,6 +282,7 @@ test("D7 direct installed Host binds native preview tokens and blocks duplicate 
     ...new TextEncoder().encode("age-encryption.org/v1\n"),1,2,3,
   ]);
   let previews=0,commits=0,cancels=0,releaseCommit,signalStarted;
+  let nativeCommittedPlan=null;
   const started=new Promise(resolve=>{signalStarted=resolve;});
   const finish=new Promise(resolve=>{releaseCommit=resolve;});
   const recipient={recipientId:"recipient:original",bindingEpoch:"epoch:one"};
@@ -299,6 +300,7 @@ test("D7 direct installed Host binds native preview tokens and blocks duplicate 
       commits++;
       signalStarted();
       await finish;
+      nativeCommittedPlan=structuredClone(input.plan);
       return {format:"iwxa.import.receipt",import_id:"import:direct:one",
         package_digest:input.package_digest,
         semantic_digest:"semantic:direct",mode:input.plan.mode};
@@ -331,8 +333,17 @@ test("D7 direct installed Host binds native preview tokens and blocks duplicate 
   await assert.rejects(host.cancelInOriginalKernel({
     preview_token:input.preview_token,
   }),{code:"T3_D7_NATIVE_PREVIEW_BINDING_INVALID"});
+  // A form can change while the original Kernel call awaits a native reply.
+  // It must receive the snapshot confirmed at click time, not the new form.
+  plan.mode="merge";
+  plan.include_workspaces.push("ws:unexpected");
   releaseCommit();
-  assert.equal((await pending).import_id,"import:direct:one");
+  const finished=await pending;
+  assert.equal(finished.import_id,"import:direct:one");
+  assert.equal(finished.mode,"new-workspace");
+  assert.deepEqual(nativeCommittedPlan,{mode:"new-workspace",include_workspaces:[]});
+  plan.mode="new-workspace";
+  plan.include_workspaces.length=0;
   await assert.rejects(host.commitInOriginalKernel(input),
     {code:"T3_D7_NATIVE_PREVIEW_BINDING_INVALID"});
   assert.equal(commits,1);

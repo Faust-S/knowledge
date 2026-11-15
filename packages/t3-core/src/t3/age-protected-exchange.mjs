@@ -266,11 +266,21 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
       package_digest.length>0&&plan&&typeof plan==="object"&&
       !Array.isArray(plan)&&typeof plan.mode==="string",
       "T3_D7_NATIVE_KERNEL_COMMIT_REQUEST_INVALID");
+    // Capture the exact user-selected import plan BEFORE the first async
+    // recipient check. The UI must not be able to change import scope/mode
+    // while its original Kernel commit is pending.
+    let submittedPlan;
+    try{submittedPlan=structuredClone(plan);}
+    catch{deny("T3_D7_NATIVE_KERNEL_COMMIT_REQUEST_INVALID");}
+    ensure(submittedPlan&&typeof submittedPlan==="object"&&
+      !Array.isArray(submittedPlan)&&typeof submittedPlan.mode==="string",
+      "T3_D7_NATIVE_KERNEL_COMMIT_REQUEST_INVALID");
+    const submittedMode=submittedPlan.mode;
     const recipient=await currentNativeRecipient();
     const key=previewKey(recipient,preview_token);
     const claim=claimFor(key);
     ensure(claim&&claim.packageDigest===package_digest&&
-      claim.allowedModes.includes(plan.mode),"T3_D7_NATIVE_PREVIEW_BINDING_INVALID");
+      claim.allowedModes.includes(submittedMode),"T3_D7_NATIVE_PREVIEW_BINDING_INVALID");
     ensure(!nativeInFlight.has(key)&&!nativeDispatched.has(key),
       "T3_D7_NATIVE_OUTCOME_UNKNOWN");
     nativeInFlight.add(key);
@@ -283,7 +293,8 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
       let receipt;
       try{
         receipt=await ageOwner.commitInOriginalKernel({
-          preview_token,package_digest,plan,recipientId:recipient.recipientId,
+          preview_token,package_digest,plan:submittedPlan,
+          recipientId:recipient.recipientId,
         });
       }catch{deny("T3_D7_NATIVE_OUTCOME_UNKNOWN");}
       try{
@@ -291,7 +302,7 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
           receipt?.format==="iwxa.import.receipt"&&
           receipt.package_digest===package_digest&&
           receipt.semantic_digest===claim.semanticDigest&&
-          receipt.mode===plan.mode,
+          receipt.mode===submittedMode,
           "T3_D7_NATIVE_OUTCOME_UNKNOWN");
       }catch{deny("T3_D7_NATIVE_OUTCOME_UNKNOWN");}
       return receipt;
