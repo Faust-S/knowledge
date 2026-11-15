@@ -247,6 +247,10 @@ test("original native D3 recipient uses the existing signed Control HTTP and iso
   const f=await fixture({reconciliationPortFor:()=>originalPort});
   const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
   try{
+    // A real native D3-only reviewer has separate ACCEPTANCE authority.
+    // No implicit signed Workspace READ is issued, but its authenticated
+    // Reconciliation port must remain available in the same trusted session.
+    assert.equal(await f.browser.signedKernelAccess("getWorkspace"),null);
     assert.deepEqual(await f.browser.reconciliationRequest("available"),
       {available:true,applyAvailable:true,recoverAvailable:true});
     const archive=Uint8Array.from([0,1,2,3,251,253,254,255]);
