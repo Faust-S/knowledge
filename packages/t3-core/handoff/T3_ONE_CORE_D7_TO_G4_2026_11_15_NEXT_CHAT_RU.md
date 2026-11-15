@@ -1,6 +1,20 @@
 # IWXA T3 One Core: D7 -> G4, передача в следующий чат
 
 
+## Исправление критической ошибки сборки D3, 15.11.2026
+
+**Актуальный исполняемый T3**: `Faust-S/knowledge@e2a84c0a424917da66904380d239ea367744f51a`, TREE `60cfc0de6a3d613e545eef9d13660911321e9208`; [CI #43736283595](https://github.com/Faust-S/knowledge/actions/runs/43736283595) **SUCCESS**: test, original T2 real-host и Windows Credential. Metal/WebGPU SKIPPED. В исходном Control HTTP согласована возможность повторного *отдельного* Human APPLY только после доказанного отказа `getWorkspace` **до** Kernel write; потерянный ACK и вероятная запись не повторяются.
+
+**Важная отмена ранее указанной приватной ревизии `2ab8aaeb`**: при добавлении установки Service Passport в `scripts/build-admin-center-d3-owner.ps1` повреждены исходные строки PowerShell (оборвана SHA-256 проверка и заголовок `CoreImport`, 903 строки вместо 350). Скомпонованный Windows Setup Core из `2ab8aaeb` считать **BLOCKED** независимо от публичных CI.
+
+**Исправлено:** приватный оригинальный владелец `Faust-S/T3@c3e2f0be2c5b463298c9faca42d79ca0a9af5a19`, TREE `2bc2b13ab65a0415bc03920a6ec928ef476eabda`. Сборщик восстановлен из предшествующей целой ревизии `08406fbc` и дополнен только 33 строками проверки фактически установленного Service Passport: SHA-256, original T2, `workspace.read`, `workspace.create`, `t1.commitObjectGraph`. Объём 383 строки, неизменённые 350 исходных строк, проверка обоих оригинальных Kernel SHA-256 и `CoreImport` сохранены. Приватные Actions не запускались; реальное выполнение `pwsh`/Setup Core на Windows ещё не подтверждено.
+
+**Admin Center:** `Faust-S/Center@work/2026-11-15-t3-d3-native-preapply-refusal`, HEAD `1eec2b1d61d8b00b1c84b5f5b28a3c30eb62f3b3`, [PR #1](https://github.com/Faust-S/Center/pull/1), [CI #43731151848](https://github.com/Faust-S/Center/actions/runs/43731151848) SUCCESS. Общая ветка Center/Agent не изменена.
+
+**Следующая реальная операция:** собрать и установить именно `knowledge@e2a84c0a` + private `T3@c3e2f0be` + `Center PR #1@1eec2b1d`; выполнить first-run Workspace → подписанная Task → Agent Result → .iwxa → Human ACCEPT → отдельный APPLY → два холодных чтения Object/Event. Только после реальной Windows квалификации присваивать D3 installed acceptance. `T3_READY=false`, D5 hardware HOLD, G4 NOT_ACCEPTED.
+
+---
+
 ## Актуальное дополнение 15.11.2026: установленный D3, исходный T2 и Windows-пакет
 
 **Исполняемый T3**: `Faust-S/knowledge@344a4b8d7fb7c7a7a29cc697cd592989b0f6e64e`, TREE `5c32a7e2e37ca1c6c4ee2b61212c3656ce8b3430`, [публичный CI #43734174070](https://github.com/Faust-S/knowledge/actions/runs/43734174070) **SUCCESS**: test, original T2 real-host и Windows Credential PASS; metal-WebGPU SKIPPED. Нормативный `Faust-S/T2@main` HEAD `9c64951cd78411283e8a416641c36d71e169fc1d` не изменён.
