@@ -7,7 +7,7 @@ for (const path of paths) {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(15000), redirect: 'follow', headers: { 'user-agent': 'IWXA-Club-qualification/1.0' } });
     const body = await response.text();
-    const expected = path === '/' ? /<html[\\s>]/i.test(body) && /<body[\\s>]/i.test(body) : response.ok;
+    const expected = path === '/' ? body.toLowerCase().includes('<html') && body.toLowerCase().includes('<body') : response.ok;
     results.push({ path, status: response.status, ok: response.ok && expected, bytes: Buffer.byteLength(body), finalUrl: response.url });
   } catch (error) {
     results.push({ path, ok: false, error: String(error) });
