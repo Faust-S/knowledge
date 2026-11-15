@@ -561,7 +561,22 @@ try{
   selected.on('pageerror',err=>selectedErrors.push(err.message));
   await selected.goto(origin+'/workspace/signed-workspace.html#'+token);
   const missing=selected.getByTestId('t3-d1-selected-workspace-message');
-  await missing.waitFor({state:'visible',timeout:60000});
+  try{
+    await missing.waitFor({state:'visible',timeout:60000});
+  }catch(error){
+    // Diagnose the actual original browser Host instead of interpreting a
+    // UI selector timeout as a Kernel failure. No screenshot, secret token
+    // or signed archive is captured or published.
+    const pageText=await selected.locator('body').innerText().catch(()=>null);
+    console.error('T3_D1_SIGNED_UI_DIAGNOSTIC',JSON.stringify({
+      pageErrors:selectedErrors,
+      frameOrigins:selected.frames().map(frame=>{
+        try{return new URL(frame.url()).origin;}catch{return 'UNKNOWN';}
+      }),
+      visibleText:pageText?.slice(0,1500)??'NOT_RENDERED',
+    }));
+    throw error;
+  }
   assert.equal(new URL(selected.url()).origin,uiOrigin);
   assert.match(await missing.innerText(),/пока нет рабочей области/,
     'T3_D1_SIGNED_FIRST_RUN_MUST_EXPLAIN_MISSING_ORIGINAL_WORKSPACE');
