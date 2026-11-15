@@ -64,3 +64,14 @@ accepted_observation = k05_agent06_owner_port.observe_accepted_agent_run(
 \`python -W error::ResourceWarning -m unittest research/cross-lab/tests/test_k05_agent05_observations.py -v\`
 
 В публичном Actions нет приватного checkout, PAT, EXE, пользовательских данных, workflow в закрытом Agent, реальной внешней отправки OTLP и вызовов моделей. Следующий пользовательский этап: owner-local фактическая Task→Human Review→accepted Result→verified TXR→cold readback, затем независимая сопоставимая пара; статус \`AGENT06_EFFECTIVENESS_ACTUAL_DATA=NOT_TESTED\` до такого эксперимента.
+
+
+## Следующий этап: реальные функции T3 Process Intelligence без дублирования
+
+Код: \`research/cross-lab/k05_agent06_t3_process.mjs\`. Тест: \`tests/test_k05_agent06_t3_process.test.mjs\`. K05 вызывает **оригинальный** \`deriveProcessIntelligence\` из \`Faust-S/knowledge/packages/t3-core/src/modules/base/features/project-process/process-intelligence.mjs\`, а не переписывает алгоритмы. Публичный CI получает зафиксированный оригинальный T3 HEAD \`43e9448621f11ac5ee35d9da53eaf5576a8ce5a8b\` read-only через \`actions/checkout@v4\`, без токенов к приватным репозиториям.
+
+Контракт K05 \`IWXA_K05_T3_PROCESS_DERIVED_METRICS/0.1\` сохраняет \`sourceTruth=false\`, \`operationalTruth=false\` и \`original_owner_evidence_readback=NOT_VERIFIED\`. Точное \`sum_activity_time_nanoseconds\` из T3 означает **сумму длительностей операций**, не elapsed времени процесса: параллельные операции могут перекрываться. \`process_cycle_time_ms\`, \`accepted_result_count\`, \`actual_cost_minor\` и \`actual_roi_status\` остаются \`null/NOT_MEASURABLE\`. Неполное покрытие времён, неизвестные исходные Activity, неверные denominators и пропущенные event.evidenceRefs запрещают повышение статуса. Вычисленные metrics без readback original Event не становятся наблюдаемыми фактами.
+
+Публичная интеграционная проверка использует искусственные записи, но **исполняет настоящий T3 Process Intelligence** на зафиксированном owner коде. Этим подтверждается совместимость адаптера, а не реальная эффективность организации.
+
+После прикладной интеграции Agent должен прочитать конкретный original T3 Task/Result/Activity/Events с разрешением владельца, получить незамаскированные provenance только внутри доверенного Host, проверить бизнес-статусы в доменном owner и фактический Atlas plan/fact. ТОЛЬКО после этого K05 вправе строить источник-связанные сравнения и экономику, не допуская синтетические записи к продуктовой приёмке.

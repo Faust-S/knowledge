@@ -8,6 +8,8 @@ on:
       - 'research/cross-lab/k05_agent06_effectiveness.py'
       - 'research/cross-lab/k05_agent06_otlp.py'
       - 'research/cross-lab/k05_agent06_owner_port.py'
+      - 'research/cross-lab/k05_agent06_t3_process.mjs'
+      - 'research/cross-lab/tests/test_k05_agent06_t3_process.test.mjs'
       - 'research/cross-lab/tests/test_k05_agent06_owner_port.py'
       - 'research/cross-lab/tests/test_k05_agent06_effectiveness.py'
       - '.github/workflows/k05-agent06-effectiveness.yml'
@@ -36,6 +38,20 @@ jobs:
           python -W error::ResourceWarning -m unittest research/cross-lab/tests/test_k05_agent05_final_result_binding.py -v
           python -W error::ResourceWarning -m unittest research/cross-lab/tests/test_k05_agent05_graph_readback.py -v
           python -W error::ResourceWarning -m unittest research/cross-lab/tests/test_k05_agent05_observations.py -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Checkout exact public T3 Process Intelligence owner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 43e9448621f11ac5ee35d9da53eaf5576a8ce5a8b
+          path: .t3-owner
+          persist-credentials: false
+      - name: K05 read-only projection from actual original T3 code
+        env:
+          K05_T3_OWNER_ROOT: .t3-owner/packages/t3-core
+        run: node --test research/cross-lab/tests/test_k05_agent06_t3_process.test.mjs
       - name: No private input or external services
         run: |
           python - <<'PY'
