@@ -4,6 +4,7 @@ const routes = ['/', '/profile/', '/tools/personal-economy/', '/tools/additional
 const results = [];
 const errors = [];
 const assetUrls = new Set();
+const internalLinks = new Set();
 for (const path of routes) {
   const url = new URL(path, base).href;
   try {
@@ -27,6 +28,7 @@ for (const path of routes) {
     errors.push(entry);
   }
 }
+const untestedLinks = [...internalLinks].filter(path => !routes.includes(path));
 const assets = [];
 for (const url of [...assetUrls].slice(0, 100)) {
   try {
@@ -39,7 +41,7 @@ for (const url of [...assetUrls].slice(0, 100)) {
     errors.push({ url, reason: String(error) });
   }
 }
-const report = { target: base, mode: 'PUBLIC_HTTP_ROUTE_QUALIFICATION', sourceCodeAccess: false, browserInteraction: false, privateTokens: false, coverage: { expectedAvailableServiceRoutes: 8, checkedAvailableServiceRoutes: 8, routeCount: routes.length, checkedJsCssAssets: assets.length, functionalInteractions: 0 }, results, assets, errors, pass: errors.length === 0 };
+const report = { target: base, mode: 'PUBLIC_HTTP_ROUTE_QUALIFICATION', sourceCodeAccess: false, browserInteraction: false, privateTokens: false, coverage: { expectedAvailableServiceRoutes: 8, checkedAvailableServiceRoutes: 8, routeCount: routes.length, checkedJsCssAssets: assets.length, functionalInteractions: 0 }, results, assets, untestedLinks, coverageGaps: ['No browser JavaScript execution', 'No form submission', 'No calculations', 'No session persistence', ...(assets.length === 0 ? ['No external JS/CSS assets discovered: asset check has zero coverage'] : [])], errors, pass: errors.length === 0 };
 writeFileSync('qualification/club/report.json', JSON.stringify(report, null, 2) + String.fromCharCode(10));
 console.log(JSON.stringify(report, null, 2));
 if (!report.pass) process.exitCode = 1;
