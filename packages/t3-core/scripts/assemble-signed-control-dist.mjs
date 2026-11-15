@@ -38,6 +38,7 @@ function registerInstalledAdminAppliedResult({domain,config,passport}){
   if(config?.base_path!=="/workspace/"||
      passport?.service_id!==config.workspace_service_id||
      !passport?.supported_levels?.includes("T1")||
+     !passport?.supported_levels?.includes("T2")||
      passport.permissions?.workspace?.read!==true||
      typeof passport.permissions?.workspace?.create!=="boolean"||
      !passport.schemas||typeof passport.schemas!=="object"||
@@ -56,10 +57,19 @@ function registerInstalledAdminAppliedResult({domain,config,passport}){
     if(!row.includes(ADMIN_APPLIED_SCHEMA))row.push(ADMIN_APPLIED_SCHEMA);
   if(existing===undefined)
     passport.schemas[ADMIN_APPLIED_SCHEMA]=ADMIN_APPLIED_DECLARATION;
-  // Installed Admin is not yet writable on a clean original T2 Store.
-  // Enable the inherited service-level operation ONLY in this product's
-  // assembled passport. A separate original signed workspace.create ACTION
-  // and user click must still authorize the actual Kernel call.
+  // Original T2 refuses commitObjectGraph without this exact service
+  // permission. Register its INHERITED atomic operation in the assembled
+  // Admin passport only; do not modify the normative T2 or other domains.
+  // Private signed application.apply and separate Human approval remain
+  // mandatory before any graph write.
+  const originalOps=passport.permissions.operations;
+  if(originalOps!==undefined&&(!Array.isArray(originalOps)||
+      originalOps.length>1||
+      originalOps.some(op=>op!=="t1.commitObjectGraph")))
+    fail("ORIGINAL_ADMIN_D3_ATOMIC_OPERATION_CONFLICT");
+  passport.permissions.operations=["t1.commitObjectGraph"];
+  // First-run Workspace creation remains a separate signed ACTION. There
+  // is no automatic Workspace creation on ACCEPT or during APPLY.
   passport.permissions.workspace.create=true;
 }
 

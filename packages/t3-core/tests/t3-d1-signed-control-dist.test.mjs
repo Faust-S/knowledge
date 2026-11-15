@@ -117,6 +117,10 @@ test('installed Admin D3 records use the original T2 passport and unchanged Kern
     const installed=JSON.parse(readFileSync(join(f.out,path),'utf8'));
     assert.equal(installed.permissions.workspace.create,true,
       'installed original Admin exposes the existing T2 create operation');
+    assert.deepEqual(installed.permissions.operations,["t1.commitObjectGraph"],
+      'installed Admin advertises the genuine T2 atomic operation');
+    assert.equal(passport.permissions.operations,undefined,
+      'normative original T2 passport has not been widened');
     assert.equal(passport.permissions.workspace.create,false,
       'the source and ordinary T2 services are not widened');
     const domain=JSON.parse(readFileSync(join(f.out,'_iwxa/domain.json'),'utf8'));
