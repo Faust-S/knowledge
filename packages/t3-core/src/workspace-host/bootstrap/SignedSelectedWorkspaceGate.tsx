@@ -49,9 +49,29 @@ export function SignedSelectedWorkspaceGate({
     if(!required||!kernel)return;
     setInspection({kernel,phase:"checking"});
     setCreateError(null);
-    // The signed facade never enumerates all original T2 workspaces.
-    // It executes signed getWorkspace JIT for the selected subject alone.
-    void kernel.listWorkspaces({include_deleted:false}).then(rows=>{
+    // The installed original Control has no generic listWorkspaces grant.
+    // Its signed getWorkspace context selects ONE exact Workspace ID.
+    // Do not enumerate other organizations as a first-run prerequisite.
+    void (async()=>{
+      if(trustedSelectedContext){
+        const context=await trustedSelectedContext("getWorkspace");
+        const selected=context?.workspace_id;
+        if(!["CORP","PERSONAL"].includes(String(context?.kind))||
+           (context?.kind==="PERSONAL"&&context.organization_id!==null)||
+           typeof selected!=="string"||!ID.test(selected)||
+           context.resource!==selected)
+          throw denied("T3_D1_SELECTED_CONTEXT_NOT_TRUSTED");
+        const original=await kernel.getWorkspace(selected);
+        if(ticket!==generation.current)return;
+        if(original&&(original.workspace_id!==selected||
+            original.deleted_at||Boolean(profile&&original.profile!==profile))){
+          setInspection({kernel,phase:"denied"});return;
+        }
+        setInspection({kernel,phase:original?"ready":"missing"});
+        return;
+      }
+      // Other existing signed Hosts keep their original bounded discovery.
+      const rows=await kernel.listWorkspaces({include_deleted:false});
       if(ticket!==generation.current)return;
       if(!Array.isArray(rows)||rows.length>1||
          rows.some(row=>!row||typeof row.workspace_id!=="string")){
@@ -59,11 +79,11 @@ export function SignedSelectedWorkspaceGate({
       }
       setInspection({kernel,phase:rows.length===1&&!rows[0].deleted_at
         ? "ready":"missing"});
-    }).catch(()=>{
+    })().catch(()=>{
       if(ticket===generation.current)setInspection({kernel,phase:"denied"});
     });
     return ()=>{generation.current++;};
-  },[required,kernel,retry]);
+  },[required,kernel,retry,trustedSelectedContext,profile]);
 
   const phase=kernel&&inspection.kernel===kernel?inspection.phase:"checking";
   const refresh=useCallback(()=>setRetry(n=>n+1),[]);

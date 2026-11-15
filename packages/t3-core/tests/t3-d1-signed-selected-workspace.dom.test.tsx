@@ -29,6 +29,40 @@ it("a ready signed Workspace is visible only after exact authorized Kernel read"
   expect(owner.listWorkspaces).toHaveBeenCalledWith({ include_deleted:false });
   expect(owner.createWorkspace).not.toHaveBeenCalled();
 });
+it("installed Admin inspects only the original Control-selected Workspace, not listWorkspaces",async()=>{
+  let current:{workspace_id:string;profile:string}|null=null;
+  const listWorkspaces=vi.fn(async()=>{throw new Error("UNSIGNED_LIST_DENIED");});
+  const getWorkspace=vi.fn(async(id:string)=>{
+    expect(id).toBe("ws:admin-original");
+    return current;
+  });
+  const createWorkspace=vi.fn(async (command:{workspace_id:string;profile:string})=>{
+    current=command;return command;
+  });
+  const owner={
+    listWorkspaces,getWorkspace,createWorkspace,
+    hasOperation:(op:string)=>op==="t1.createWorkspace",
+  } as unknown as KernelFacade;
+  const trustedSelectedContext=vi.fn(async(operation:string)=>{
+    expect(["getWorkspace","createWorkspace"]).toContain(operation);
+    return {kind:"CORP" as const,workspace_id:"ws:admin-original",
+      resource:"ws:admin-original",organization_id:"org:admin"};
+  });
+  render(<SignedSelectedWorkspaceGate required kernel={owner}
+    profile="generic" trustedSelectedContext={trustedSelectedContext}>
+    <p data-testid="signed-admin-original-ready">Оригинальная Workspace</p>
+  </SignedSelectedWorkspaceGate>);
+  await screen.findByTestId("t3-d1-selected-workspace-message");
+  expect(screen.queryByTestId("signed-admin-original-ready")).toBeNull();
+  expect(listWorkspaces).not.toHaveBeenCalled();
+  expect(getWorkspace).toHaveBeenCalledWith("ws:admin-original");
+  fireEvent.click(screen.getByTestId("t3-d1-create-selected-workspace"));
+  await screen.findByTestId("signed-admin-original-ready");
+  expect(createWorkspace).toHaveBeenCalledExactlyOnceWith({
+    workspace_id:"ws:admin-original",profile:"generic",
+  });
+  expect(listWorkspaces).not.toHaveBeenCalled();
+});
 it("missing selected Workspace displays concrete preparation step, never unsigned creation", async () => {
   const owner = kernel([]);
   render(<SignedSelectedWorkspaceGate required kernel={owner.value}>
