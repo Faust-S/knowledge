@@ -131,12 +131,16 @@ export function createTrustedNativeContinuation({
     return normalizeInspect(report,reference,nativeOwner.recipientId);
   }
   async function observe(reference,operationId,readSource){
-    const receipt=await nativeOwner.receipt(operationId);
-    const readback=await nativeOwner.readback(operationId);
-    // A native transport ACK is not evidence of persisted Result. Re-check
-    // the ORIGINAL signed source after the native owner readback as well.
+    let receipt,readback,nativeReadUnavailable=false;
+    try{
+      receipt=await nativeOwner.receipt(operationId);
+      readback=await nativeOwner.readback(operationId);
+    }catch{nativeReadUnavailable=true;}
+    // Native receipt outages mean UNKNOWN; revocation of the ORIGINAL
+    // signed source is a separate denial and must never be swallowed.
     await readSource();
-    if(!confirmedOwnerReadback(receipt,readback,reference,nativeOwner.recipientId,operationId)){
+    if(nativeReadUnavailable||
+       !confirmedOwnerReadback(receipt,readback,reference,nativeOwner.recipientId,operationId)){
       return Object.freeze({status:"OUTCOME_UNKNOWN",operationId});
     }
     return Object.freeze({status:"OWNER_READBACK_CONFIRMED",operationId,
@@ -147,19 +151,19 @@ export function createTrustedNativeContinuation({
   // was already committed. Inspect may still say READY after a lost ACK or
   // cold restart; its durable receipt is the final answer, not UI memory.
   async function probePrior(state,operationId){
-    try{
+    await state.unchanged();
+    let receipt;
+    try{receipt=await nativeOwner.receipt(operationId);}
+    catch{
+      // Only an unavailable native receipt is an uncertain native outcome.
+      // A changed Workspace or denied original D1 read must still reject.
       await state.unchanged();
-      const receipt=await nativeOwner.receipt(operationId);
-      await state.unchanged();
-      if(receipt===null||receipt===undefined)return null;
-      // A receipt with mismatched reference/recipient or missing readback is
-      // not permission to dispatch again. Treat it as an unknown outcome.
-      return await observe(state.reference,operationId,state.readSource);
-    }catch{
-      // Unable to determine whether the ORIGINAL native write committed.
-      // Returning OUTCOME_UNKNOWN prevents an accidental retry.
       return Object.freeze({status:"OUTCOME_UNKNOWN",operationId});
     }
+    await state.unchanged();
+    if(receipt===null||receipt===undefined)return null;
+    // An invalid receipt/readback is not permission to dispatch again.
+    return observe(state.reference,operationId,state.readSource);
   }
   async function preview(input){
     return withSelectedSource(input,async state=>{
@@ -227,11 +231,7 @@ export function createTrustedNativeContinuation({
   async function recover(input){
     return withSelectedSource(input,async state=>{
       const plan=await inspect(state);
-      try{
-        return await observe(state.reference,plan.operationId,state.readSource);
-      }catch{
-        return Object.freeze({status:"OUTCOME_UNKNOWN",operationId:plan.operationId});
-      }
+      return observe(state.reference,plan.operationId,state.readSource);
     });
   }
   return Object.freeze({preview,continueSelected,recover});
