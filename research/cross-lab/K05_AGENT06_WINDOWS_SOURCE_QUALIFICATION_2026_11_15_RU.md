@@ -136,3 +136,14 @@ Next practical owner workflow:
 - Новый установленный Windows-run [#43759235790](https://github.com/Faust-S/Center/actions/runs/43759235790) поставлен на выполнение c точным Agent SHA `763583b306ca4a7896609a1c42e535e64b855c33`. Его очередь не отменяет предыдущий [#43757865586](https://github.com/Faust-S/Center/actions/runs/43757865586), использующий старый Agent SHA; это сохраняет независимое сравнение и диагностику.
 - `cancel-in-progress: false` установлен только в public Center installed-workflow. Запуск закрытых Actions, публикация EXE, приватных пакетов, полных логов или данных модели не выполнялись.
 - По состоянию на момент фиксации `K03_INSTALLED_SCHEDULER_FIX=NOT_YET_ACCEPTED`, `K05_GUI_NEGATIVE=NOT_YET_ACCEPTED`, `PRODUCT_ACCEPTED=false`; исходные Windows 74/74, отдельный scheduler 12/12, пакет 18/18, cold Core 1/1 PASS. Эффективность двух разных реальных моделей и экономический результат не доказаны.
+
+
+## Обновление 16.11: два установленных Windows FAIL и безопасная диагностика планировщика
+
+Проверены завершившиеся оригинальные Windows CI:
+- [Center #43757865586](https://github.com/Faust-S/Center/actions/runs/43757865586), private Agent SHA `12d8c504`: real Tauri/package/Setup Core and local installation PASS, K03 original Task accepted, execution FAIL (`k03_task_model_execution_stopped`).
+- [Center #43759235790](https://github.com/Faust-S/Center/actions/runs/43759235790), private Agent SHA `763583b3` с scheduler claim fix: те же install/build PASS, тот же Task-after-acceptance FAIL. Следовательно фикс claim ещё не доказывает исправление installed K03.
+
+Для следующей проверки изменён только одноразовый installed witness: private Agent [`0780a02d`](https://github.com/Faust-S/iwxa-personal-agent/commit/0780a02d147cdc21b4f94b49f34734b0af265159) берёт из исходного `interactive_submission_status` при STOP/TIMEOUT только заранее разрешённые `state`, `task_status`, `error_code` или `OTHER_REDACTED`, через приватный sidecar. Двойной PowerShell allowlist. Исходные Tasks, scheduler, модели и критерии K05 не изменялись. Добавлены регрессионные тесты. Публичный Center workflow [`aead2271`](https://github.com/Faust-S/Center/commit/aead2271b29e70ef2631127bc35fbe49cf54b571) закреплён на этом SHA. Два промежуточных CI запуска `240b6063`/`26652795` не создали jobs из-за ошибки YAML и не подтверждают отказ продукта; синтаксис в `aead2271` восстановлен. Новые прогоны: [installed #43772246827](https://github.com/Faust-S/Center/actions/runs/43772246827), [source #43772246817](https://github.com/Faust-S/Center/actions/runs/43772246817), на момент записи запущены, их PASS не утверждается.
+
+Итог: `K03_INSTALLED=FAIL_AT_PREVIOUS_SHA`, `K03_SCHEDULER_ROOT_CAUSE=UNKNOWN`, `K05_INSTALLED_GUI=NOT_ACCEPTED`, `REAL_EFFECTIVENESS=NOT_MEASURABLE`, `PRODUCT_ACCEPTED=false`. Private Actions не использовались. В публичный Center не публиковались приватные исходники, пакеты, пользовательские данные или модельные ответы.
