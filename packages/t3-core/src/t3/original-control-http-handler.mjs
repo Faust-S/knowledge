@@ -13,8 +13,10 @@ const TOKEN=/^[A-Za-z0-9_-]{40,128}$/;
 const REF=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;
 const MAX_BODY=512*1024;
-const MAX_D3_BODY=24*1024*1024;
-const MAX_D3_ARCHIVE=16*1024*1024;
+// The original private D3 recipient and Center native picker both admit 32 MiB.
+// Base64url JSON overhead must fit the SAME signed Control route.
+const MAX_D3_ARCHIVE=32*1024*1024;
+const MAX_D3_BODY=Math.ceil(MAX_D3_ARCHIVE/3)*4+16*1024;
 const D3_VERBS=new Set(["available","receive","preview","receipt","accept","reject",
   "inspectAcceptedApplication","applyAccepted","recoverApplied"]);
 const D3_METHODS=["receive","preview","receipt","accept","reject","inspectAcceptedApplication"];
