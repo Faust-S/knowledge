@@ -160,11 +160,27 @@ export interface T3NativeContinuationOwner {
   receipt(operationId:string):unknown|Promise<unknown>;
   readback(operationId:string):unknown|Promise<unknown>;
 }
+/** Optional original domain owner. For CehoVod it MUST independently read
+ * saved Kernel Result rows and run the canonical verifyStoredFinalPlanFact;
+ * an n8n/native owner receipt alone cannot assert this verification. */
+export interface T3OriginalDomainResultOwner {
+  ownerId:string;
+  resultType:string;
+  orderRef:string;
+  verifySaved(input:{resultRef:string;operationId:string;recipientId:string;
+    sourceReference:T3NativeContinuationReference}):unknown|Promise<unknown>;
+}
 export interface T3NativeContinuationStatus {
-  status:"AVAILABLE"|"RECOVER_ONLY"|"OPERATION_IN_PROGRESS"|"USER_CANCELLED"|"OUTCOME_UNKNOWN"|"OWNER_READBACK_CONFIRMED";
+  status:"AVAILABLE"|"RECOVER_ONLY"|"OPERATION_IN_PROGRESS"|"USER_CANCELLED"|"OUTCOME_UNKNOWN"|"OWNER_READBACK_CONFIRMED"|"DOMAIN_RESULT_UNVERIFIED"|"DOMAIN_RESULT_READBACK_CONFIRMED";
   operationId?:string;
   recipientId?:string;
   resultRef?:string;
+  resultOwnerId?:string;
+  orderRef?:string;
+  resultRevision?:number;
+  owner_action_confirmed?:boolean;
+  domain_result_confirmed?:boolean;
+  can_retry?:boolean;
   reference?:T3NativeContinuationReference;
   reason?:string;
 }
@@ -174,6 +190,9 @@ export function createTrustedNativeContinuation(options:{
     Promise<T3SignedActivityAccess|null>;
   currentWorkspace:Pick<CurrentWorkspaceFacade,"get"|"subscribe">;
   nativeOwner:T3NativeContinuationOwner;
+  /** Optional STRICT second owner verification, provided by the trusted Host,
+   * never by a browser field or a transport ACK. */
+  resultOwner?:T3OriginalDomainResultOwner|null;
   confirmHuman:(input:{recipientId:string;operationId:string;
     reference:T3NativeContinuationReference})=>boolean|Promise<boolean>;
   isHostActive:()=>boolean;

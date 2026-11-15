@@ -285,3 +285,101 @@ test('readSaved rejects corrupted local record instead of displaying false evide
   await assert.rejects(offline.readSaved(f.ref),{code:'T3_EXT_SAVED_LINK_INVALID'});
   assert.equal(f.writeCount(),1);
 });
+
+test('D6 requires independent original CehoVod Result readback after workflow COMMITTED',async()=>{
+  const f=fixture();const persisted=await f.newHost().link(f.ref);
+  const sourceRef=await f.newHost().prepareContinuation(f.ref);
+  let sends=0,proofReads=0,receipt=null,domainSaved=false;
+  const nativeOwner={recipientId:'agent:n8n',
+    inspect:({reference,recipientId})=>({status:sends?'RECOVER_ONLY':'READY',
+      operationId:'n8n:cehovod:42',recipientId,reference}),
+    async receive(){sends++;return {external_effect_state:'ACKNOWLEDGED'};},
+    receipt:async()=>receipt,
+    readback:async()=>receipt?{...receipt,state:'PERSISTED'}:null,
+  };
+  const resultOwner={ownerId:'cehovod:shop1',
+    resultType:'plan-fact-analysis',orderRef:'po:42',
+    verifySaved:async({resultRef,operationId,recipientId,sourceReference})=>{
+      proofReads++;
+      if(!domainSaved)return null;
+      return {status:'ORIGINAL_DOMAIN_RESULT_VERIFIED',
+        ownerId:'cehovod:shop1',resultType:'plan-fact-analysis',
+        orderRef:'po:42',resultRef,operationId,recipientId,
+        workspaceId:f.ref.expected_workspace_id,sourceReference,
+        stage:'final',canonicalVerified:true,resultRevision:4};
+    },
+  };
+  const host=()=>createTrustedNativeContinuation({
+    kernel:f.kernel,accessForRead:async()=>f.access,
+    currentWorkspace:f.currentWorkspace,nativeOwner,resultOwner,
+    confirmHuman:async()=>true,isHostActive:()=>true,
+  });
+  // Transport ACK is not a native or domain commit; no domain verification.
+  assert.equal((await host().continueSelected(sourceRef)).status,'OUTCOME_UNKNOWN');
+  assert.equal(sends,1);assert.equal(proofReads,0);
+  receipt={operationId:'n8n:cehovod:42',recipientId:'agent:n8n',
+    reference:sourceRef,state:'COMMITTED',resultRef:'cehovod:pf:42'};
+  const missing=await host().recover(sourceRef);
+  assert.equal(missing.status,'DOMAIN_RESULT_UNVERIFIED');
+  assert.equal(missing.owner_action_confirmed,true);
+  assert.equal(missing.domain_result_confirmed,false);
+  assert.equal(missing.can_retry,false);
+  assert.equal(sends,1);
+  // A cold owner must never resend while canonical Result is pending.
+  assert.equal((await host().continueSelected(sourceRef)).status,'OUTCOME_UNKNOWN');
+  // Native inspect announces RECOVER_ONLY; read-only recover is authoritative.
+  domainSaved=true;
+  const completed=await host().recover(sourceRef);
+  assert.equal(completed.status,'DOMAIN_RESULT_READBACK_CONFIRMED');
+  assert.equal(completed.resultRef,'cehovod:pf:42');
+  assert.equal(completed.orderRef,'po:42');
+  assert.equal(completed.resultRevision,4);
+  assert.equal(completed.domain_result_confirmed,true);
+  assert.equal(sends,1);
+  assert.equal(persisted.revision,1);
+});
+test('D6 refuses mismatched production order, revision or source after receipt',async()=>{
+  const f=fixture();await f.newHost().link(f.ref);
+  const ref=await f.newHost().prepareContinuation(f.ref);
+  const nativeOwner={recipientId:'agent:n8n',
+    inspect:({reference,recipientId})=>({status:'RECOVER_ONLY',
+      operationId:'n8n:42',recipientId,reference}),
+    receive:async()=>{throw Error('MUST_NOT_INVOKE');},
+    receipt:async()=>({state:'COMMITTED',operationId:'n8n:42',
+      recipientId:'agent:n8n',reference:ref,resultRef:'cehovod:pf:42'}),
+    readback:async()=>({state:'PERSISTED',operationId:'n8n:42',
+      recipientId:'agent:n8n',reference:ref,resultRef:'cehovod:pf:42'}),
+  };
+  const resultOwner={ownerId:'cehovod:shop1',orderRef:'po:42',
+    resultType:'plan-fact-analysis',
+    verifySaved:async()=>({status:'ORIGINAL_DOMAIN_RESULT_VERIFIED',
+      ownerId:'cehovod:shop1',orderRef:'po:wrong',
+      resultType:'plan-fact-analysis',resultRef:'cehovod:pf:42',
+      operationId:'n8n:42',recipientId:'agent:n8n',
+      workspaceId:'ws:cehovod',resultRevision:1,stage:'final',
+      sourceReference:ref,canonicalVerified:true})};
+  const host=()=>createTrustedNativeContinuation({
+    kernel:f.kernel,accessForRead:async()=>f.access,
+    currentWorkspace:f.currentWorkspace,nativeOwner,resultOwner,
+    confirmHuman:async()=>true,isHostActive:()=>true,
+  });
+  assert.equal((await host().recover(ref)).status,'DOMAIN_RESULT_UNVERIFIED');
+  resultOwner.verifySaved=async()=>({...await (async()=>({
+    status:'ORIGINAL_DOMAIN_RESULT_VERIFIED',ownerId:'cehovod:shop1',
+    orderRef:'po:42',resultType:'plan-fact-analysis',
+    resultRef:'cehovod:pf:42',operationId:'n8n:42',
+    recipientId:'agent:n8n',workspaceId:'ws:cehovod',
+    sourceReference:ref,canonicalVerified:true,stage:'final',
+  }))(),resultRevision:0});
+  assert.equal((await host().recover(ref)).status,'DOMAIN_RESULT_UNVERIFIED');
+  resultOwner.verifySaved=async()=>({
+    status:'ORIGINAL_DOMAIN_RESULT_VERIFIED',ownerId:'cehovod:shop1',
+    orderRef:'po:42',resultType:'plan-fact-analysis',resultRef:'cehovod:pf:42',
+    operationId:'n8n:42',recipientId:'agent:n8n',
+    workspaceId:'ws:cehovod',sourceReference:{...ref,revision:ref.revision+1},
+    canonicalVerified:true,stage:'final',resultRevision:2});
+  assert.equal((await host().recover(ref)).status,'DOMAIN_RESULT_UNVERIFIED');
+  f.setRevision('external-change');
+  await assert.rejects(f.newHost().prepareContinuation(f.ref),
+    {code:'T3_EXT_CONTINUATION_NOT_CURRENT'});
+});

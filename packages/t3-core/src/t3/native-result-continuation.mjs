@@ -36,6 +36,19 @@ function normalizeInspect(value,reference,recipientId){
     "T3_D6_NATIVE_OWNER_NOT_READY");
   return Object.freeze({operationId:value.operationId,status:value.status});
 }
+function verifiedDomainProof(proof,owner,reference,operationId,recipientId,resultRef){
+  // This predicate validates source/recipient/order identities. The ORIGINAL
+  // installed domain owner MUST itself call its canonical Result validator
+  // after independent signed Kernel readback; T3 never reimplements it.
+  return !!proof&&proof.status==="ORIGINAL_DOMAIN_RESULT_VERIFIED"&&
+    proof.ownerId===owner.ownerId&&proof.resultType===owner.resultType&&
+    proof.orderRef===owner.orderRef&&proof.resultRef===resultRef&&
+    proof.workspaceId===reference.workspace_id&&
+    proof.operationId===operationId&&proof.recipientId===recipientId&&
+    proof.stage==="final"&&proof.canonicalVerified===true&&
+    Number.isSafeInteger(proof.resultRevision)&&proof.resultRevision>0&&
+    sameReference(reference,proof.sourceReference);
+}
 function confirmedOwnerReadback(receipt,readback,reference,recipientId,operationId){
   const matches=value=>value&&value.operationId===operationId&&
     value.recipientId===recipientId&&sameReference(reference,value.reference)&&
@@ -51,7 +64,7 @@ function confirmedOwnerReadback(receipt,readback,reference,recipientId,operation
  * operationId before acknowledging. The UI cannot supply this native owner. */
 export function createTrustedNativeContinuation({
   kernel,accessForRead,currentWorkspace,nativeOwner,confirmHuman,
-  isHostActive,
+  resultOwner=null,isHostActive,
 }={}){
   check(kernel&&typeof kernel.hasOperation==="function"&&
     typeof accessForRead==="function"&&
@@ -60,7 +73,11 @@ export function createTrustedNativeContinuation({
     nativeOwner&&validId(nativeOwner.recipientId)&&
     ["inspect","receive","receipt","readback"]
       .every(method=>typeof nativeOwner[method]==="function")&&
-    typeof confirmHuman==="function"&&typeof isHostActive==="function",
+    typeof confirmHuman==="function"&&typeof isHostActive==="function"&&
+    (resultOwner===null||
+      (validId(resultOwner.ownerId)&&validId(resultOwner.resultType)&&
+       validId(resultOwner.orderRef)&&
+       typeof resultOwner.verifySaved==="function")),
     "T3_D6_TRUSTED_HOST_OWNER_REQUIRED");
 
   // Native idempotency survives cold opens in the ORIGINAL recipient. These
@@ -138,6 +155,39 @@ export function createTrustedNativeContinuation({
     await readSource();
     if(!confirmedOwnerReadback(receipt,readback,reference,nativeOwner.recipientId,operationId)){
       return Object.freeze({status:"OUTCOME_UNKNOWN",operationId});
+    }
+    if(resultOwner!==null){
+      // The native workflow/ERP owner only confirms its OWN durable action.
+      // For CehoVod, the independent original domain owner must read its
+      // saved plan-fact-analysis and call verifyStoredFinalPlanFact. Do not
+      // promote an n8n/HTTP ACK or an unverified resultRef to a domain Result.
+      let proof=null;
+      try{
+        proof=await resultOwner.verifySaved({
+          resultRef:receipt.resultRef,operationId,
+          recipientId:nativeOwner.recipientId,
+          sourceReference:copy(reference,"T3_D6_REFERENCE_NOT_CLONEABLE"),
+        });
+      }catch{
+        // A missing/unavailable domain owner is never a reason to retry
+        // the already-confirmed EXTERNAL native action.
+      }
+      // Independent signed Kernel readback also detects revisions changing
+      // while the domain owner verified the referenced Result.
+      await readSource();
+      if(!verifiedDomainProof(proof,resultOwner,reference,operationId,
+          nativeOwner.recipientId,receipt.resultRef)){
+        return Object.freeze({status:"DOMAIN_RESULT_UNVERIFIED",operationId,
+          recipientId:nativeOwner.recipientId,resultRef:receipt.resultRef,
+          owner_action_confirmed:true,domain_result_confirmed:false,
+          can_retry:false,reason:"CANONICAL_DOMAIN_READBACK_REQUIRED"});
+      }
+      return Object.freeze({status:"DOMAIN_RESULT_READBACK_CONFIRMED",operationId,
+        recipientId:nativeOwner.recipientId,resultRef:receipt.resultRef,
+        resultOwnerId:resultOwner.ownerId,orderRef:resultOwner.orderRef,
+        resultRevision:proof.resultRevision,owner_action_confirmed:true,
+        domain_result_confirmed:true,
+        reference:copy(reference,"T3_D6_REFERENCE_NOT_CLONEABLE")});
     }
     return Object.freeze({status:"OWNER_READBACK_CONFIRMED",operationId,
       recipientId:nativeOwner.recipientId,resultRef:receipt.resultRef,
