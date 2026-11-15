@@ -1335,9 +1335,22 @@ try{
   // command reaches the actual original browser Kernel and back.
   const nativeRelay=createOriginalKernelNativeRelay({
     currentEpoch:()=>authenticEpoch,onAttach:()=>true,
-    timeoutMs:20000,idleLeaseMs:60000,
+    timeoutMs:8000,idleLeaseMs:60000,
   });
   nativeRelayForTest=nativeRelay;
+  // Model a real lost native ACK AFTER the original browser Kernel has
+  // successfully committed: suppress one exact successful result envelope,
+  // not the actual T2 write. The genuine relay must expire and refuse replay.
+  let suppressGraphAckFor=null,suppressedGraphAckCount=0;
+  const nativeRelayEndpoint=Object.freeze({exchange:async(input,epoch)=>{
+    if(input?.verb==='result'&&input.payload?.ok===true&&
+      input.payload?.result?.event?.idempotency_key===suppressGraphAckFor){
+      suppressedGraphAckCount++;
+      suppressGraphAckFor=null;
+      return {accepted:true};
+    }
+    return nativeRelay.exchange(input,epoch);
+  }});
   const currentNativeKernel=async()=>{
     for(let attempt=0;attempt<100;attempt++){
       if(nativeRelay.attached&&nativeRelay.nativeKernel)
@@ -1359,7 +1372,7 @@ try{
     },
     ownerFor:({scope,operation})=>
       scope==='kernel'&&allowedCorpOps.has(operation)?corporateOwner:null,
-    originalKernelRelayFor:()=>nativeRelay,
+    originalKernelRelayFor:()=>nativeRelayEndpoint,
   });
   const switchTo=short=>{
     assert.ok(Object.hasOwn(corporate.all,short));
@@ -1681,6 +1694,60 @@ try{
     return {north:n?.object?.workspace_id,south:s?.object?.workspace_id};
   },{serviceId,north:northCopy.copiedId,south:southCopy.copiedId});
   assert.deepEqual(originalCold,{north:'ws:north',south:'ws:south'});
+  // Final production-like failure injection, after genuine signed corporate
+  // user actions: native APPLY enters original Kernel, actual graph persists,
+  // but its HTTP result is lost before native owner receives it. The
+  // 8-second native timeout is TEST-ONLY; production uses its own budget.
+  const lostAckEffect='f'.repeat(64),lostAckKernel=await currentNativeKernel();
+  const lostAckGraph={...relayGraph,idempotency_key:lostAckEffect,
+    object:{...relayGraph.object,object_id:'result:applied:'+lostAckEffect},
+  };
+  suppressGraphAckFor=lostAckEffect;
+  await assert.rejects(
+    lostAckKernel.commitObjectGraph(lostAckGraph),
+    {code:'T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN'},
+    'a real committed graph with lost HTTP ACK must be UNKNOWN, not replayed');
+  assert.equal(suppressedGraphAckCount,1,
+    'exactly one real T2 Kernel result envelope must have been lost');
+  assert.equal(nativeRelay.attached,false,
+    'the uncertain native session cannot accept another graph command');
+  const readLostGraph=()=>browser.page.evaluate(async({serviceId,graph})=>{
+    const original=await window.IWXA.connect({service_id:serviceId});
+    const row=await original.t1.getObject(graph.workspace_id,
+      graph.object.object_id);
+    const history=await original.t1.listEventsSince(graph.workspace_id);
+    return {object:row?.object??null,matching:history.filter(e=>
+      e.idempotency_key===graph.idempotency_key&&
+      e.event_type===graph.event.event_type&&
+      e.payload?.reconciliation_acceptance_id===
+        graph.event.payload.reconciliation_acceptance_id)};
+  },{serviceId,graph:lostAckGraph});
+  const lostWarm=await readLostGraph();
+  assert.deepEqual(lostWarm.object?.data,lostAckGraph.object.data);
+  assert.equal(lostWarm.object?.revision,1);
+  assert.equal(lostWarm.matching.length,1);
+  // Two entirely new browser processes/read-only original T2 sessions.
+  // The original native Kernel dispatch above is never invoked again.
+  for(let coldIndex=1;coldIndex<=2;coldIndex++){
+    await browser.context.close();browser=null;
+    browser=await launch();
+    await browser.page.goto(origin+'/__original_kernel_probe__');
+    await browser.page.waitForFunction(()=>
+      typeof window.IWXA?.connect==='function');
+    const recovered=await readLostGraph();
+    assert.equal(recovered.object?.revision,1,
+      'cold original Object revision changed after lost ACK');
+    assert.deepEqual(recovered.object?.data,lostAckGraph.object.data);
+    assert.deepEqual(recovered.matching,lostWarm.matching,
+      'the original Event must be exactly stable after cold open');
+  }
+  console.log('T3_D3_ORIGINAL_KERNEL_LOST_ACK_TWO_COLD_RECOVERY_PASS',JSON.stringify({
+    originalT2:'0.3.6',oneOriginalGraphDispatch:true,
+    droppedHttpResultAfterRealCommit:true,originalNativeOutcome:'OUTCOME_UNKNOWN',
+    automaticKernelRetry:false,readOnlyColdOpens:2,
+    originalObjectEventPreserved:true,privateSignedOwnerExecuted:false,
+    installedWindowsAccepted:false,
+  }));
   console.log('T3_D1_TWO_CORP_COMPILED_APPSHELL_REAL_ED25519_KERNEL_PASS',
     JSON.stringify({
       compiledAppShell:true,originalKernel:'0.3.6',
