@@ -426,6 +426,9 @@ test("D7 signed native age/Publisher roundtrip stays on original Control and nev
     assert.equal(readback.persisted,true);
     assert.equal(Object.hasOwn(readback,"privateStatusVault"),false);
     assert.equal(applyCount,1);
+    await assert.rejects(f.browser.nativeD7Request("publisher.receipt",{
+      ...query,holderId:"holder:someone-else",
+    }),{code:"T3_D7_ORIGINAL_NATIVE_HOLDER_CHANGED"});
     // Untrusted windows have neither the kernel-origin Origin nor the SSE
     // session, even if an attacker knows the public local HTTP address.
     const forged=await fetch(f.origin+"/api/t3/native-d7",{
@@ -443,4 +446,30 @@ test("D7 signed native age/Publisher roundtrip stays on original Control and nev
     });
     assert.equal(stale.status,403);
   }finally{unsubscribe();await f.close();}
+});
+
+test("D7 native age refuses decrypted bytes if installed recipient changes mid-open",async()=>{
+  const ciphertext=Uint8Array.from([
+    ...new TextEncoder().encode("age-encryption.org/v1\n"),1,2,3,4]);
+  let identityEpoch="epoch:first";
+  const owner=()=>({ageOwner:{
+    currentRecipient:async()=>({
+      recipientId:"recipient:installed",bindingEpoch:identityEpoch}),
+    open:async()=>{identityEpoch="epoch:changed";
+      return {format:"age-encryption.org/v1",status:"OPENED_VERIFIED",
+        verified:true,recipientId:"recipient:installed",
+        archiveSha256:"a".repeat(64),
+        archiveBytes:Uint8Array.of(80,75,3,4,1,2,3,4)};
+    },
+  }});
+  const f=await fixture({nativeD7PortFor:owner});
+  const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
+  try{
+    const available=await f.browser.nativeD7Request("available");
+    assert.equal(available.ageOpen,true);
+    assert.equal(available.publisher,false);
+    await assert.rejects(f.browser.nativeD7Request("age.open",{
+      ciphertext,recipientId:"recipient:installed",
+    }),{code:"T3_D7_ORIGINAL_NATIVE_RECIPIENT_CHANGED"});
+  }finally{stop();await f.close();}
 });

@@ -47,6 +47,22 @@ function d7Bytes(encoded,limit){
   return result;
 }
 const d7Digest=bytes=>createHash("sha256").update(bytes).digest("hex");
+async function d7Recipient(age){
+  const current=d7Public(await age.currentRecipient(),["recipientId","bindingEpoch"]);
+  requireThat(REF.test(current.recipientId??"")&&REF.test(current.bindingEpoch??""),
+    "T3_D7_ORIGINAL_NATIVE_RECIPIENT_REQUIRED");
+  return current;
+}
+async function d7Subject(publisher){
+  const current=d7Public(await publisher.currentSubject(),
+    ["holderId","recipientId","subjectType","bindingEpoch"]);
+  requireThat(REF.test(current.holderId??"")&&REF.test(current.recipientId??"")&&
+    REF.test(current.bindingEpoch??"")&&
+    ["PERSON","ORGANIZATION"].includes(current.subjectType),
+    "T3_D7_ORIGINAL_NATIVE_HOLDER_UNBOUND");
+  return current;
+}
+const d7Same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const SCOPES=new Set(["kernel","activity"]);
 // On the trusted signed Kernel origin, ALL compiled unsigned HTML entries
 // must be blocked, not just the root Workspace page. The normal T2 site
@@ -311,8 +327,7 @@ export function createOriginalControlHttpHandler({
           requireThat(ageOpen,"T3_D7_NATIVE_AGE_UNAVAILABLE");
           const verb=input.verb.slice(4);
           if(verb==="currentRecipient"){
-            result=d7Public(await age.currentRecipient(),
-              ["recipientId","bindingEpoch"]);
+            result=await d7Recipient(age);
           }else if(verb==="prepareSeal"){
             requireThat(ageSeal,"T3_D7_NATIVE_SIGNED_EXPORT_REQUIRED");
             requireThat(REF.test(payload.workspaceId??"")&&
@@ -358,9 +373,15 @@ export function createOriginalControlHttpHandler({
               ciphertextBase64url:Buffer.from(sealed.ciphertext).toString("base64url")};
           }else if(verb==="open"){
             const ciphertext=d7Bytes(payload.ciphertextBase64url,D7_CIPHER);
-            requireThat(REF.test(payload.recipientId??""),
+            const recipient=await d7Recipient(age);
+            requireThat(recipient.recipientId===payload.recipientId,
               "T3_D7_NATIVE_RECIPIENT_INVALID");
             const opened=await age.open({ciphertext,recipientId:payload.recipientId});
+            // A native OS user/key change need not rotate the browser Control
+            // context epoch. Never return plaintext decrypted by a different
+            // local holder, even to the same authenticated browser session.
+            requireThat(d7Same(recipient,await d7Recipient(age)),
+              "T3_D7_ORIGINAL_NATIVE_RECIPIENT_CHANGED");
             requireThat(Buffer.isBuffer(opened?.archiveBytes)||
               opened?.archiveBytes instanceof Uint8Array,
               "T3_D7_NATIVE_AGE_PLAINTEXT_INVALID");
@@ -375,19 +396,17 @@ export function createOriginalControlHttpHandler({
           requireThat(publisherReady,"T3_D7_NATIVE_PUBLISHER_UNAVAILABLE");
           const verb=input.verb.slice(10);
           if(verb==="currentSubject"){
-            result=d7Public(await publisher.currentSubject(),
-              ["holderId","recipientId","subjectType","bindingEpoch"]);
+            result=await d7Subject(publisher);
           }else if(verb==="inspect"||verb==="apply"){
             const bytes=d7Bytes(payload.archiveBytesBase64url,D7_LICENSE);
             requireThat(["LICENSE","STATUS"].includes(payload.kind)&&
               HEX.test(payload.packageSha256??"")&&
               payload.packageSha256===d7Digest(bytes),
               "T3_D7_NATIVE_PUBLISHER_PACKAGE_INVALID");
-            const nativeSubject=await publisher.currentSubject();
-            requireThat(REF.test(nativeSubject?.holderId??"")&&
-              REF.test(nativeSubject?.recipientId??"")&&
-              nativeSubject.holderId===payload.subject?.holderId&&
-              nativeSubject.recipientId===payload.subject?.recipientId,
+            const nativeSubject=await d7Subject(publisher);
+            requireThat(nativeSubject.holderId===payload.subject?.holderId&&
+              nativeSubject.recipientId===payload.subject?.recipientId&&
+              nativeSubject.bindingEpoch===payload.subject?.bindingEpoch,
               "T3_D7_ORIGINAL_NATIVE_HOLDER_CHANGED");
             if(verb==="inspect"){
               result=d7Public(await publisher.inspect({
@@ -419,6 +438,9 @@ export function createOriginalControlHttpHandler({
               // and durable statusReadback are mandatory on the next call.
               result={acknowledged:true};
             }
+            requireThat(d7Same(nativeSubject,await d7Subject(publisher)),
+              verb==="apply"?"T3_D7_NATIVE_OUTCOME_UNKNOWN":
+                "T3_D7_ORIGINAL_NATIVE_HOLDER_CHANGED");
           }else{
             const query=d7Public(payload,["kind","operationId",
               "packageSha256","holderId","recipientId"]);
@@ -427,7 +449,13 @@ export function createOriginalControlHttpHandler({
               HEX.test(query.packageSha256??"")&&
               REF.test(query.holderId??"")&&REF.test(query.recipientId??""),
               "T3_D7_NATIVE_PUBLISHER_RECEIPT_REQUEST_INVALID");
+            const nativeSubject=await d7Subject(publisher);
+            requireThat(query.holderId===nativeSubject.holderId&&
+              query.recipientId===nativeSubject.recipientId,
+              "T3_D7_ORIGINAL_NATIVE_HOLDER_CHANGED");
             const observed=await publisher[verb](query);
+            requireThat(d7Same(nativeSubject,await d7Subject(publisher)),
+              "T3_D7_ORIGINAL_NATIVE_HOLDER_CHANGED");
             result=observed===null||observed===undefined?null:
               d7Public(observed,D7_RECEIPT_FIELDS);
           }
