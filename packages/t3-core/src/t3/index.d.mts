@@ -552,3 +552,22 @@ export function normalizeErpNextSalesOrderRead(input:{
   ownerId:string;expectedRecordId:string;
   response:{data:Record<string,unknown>};
 }):Promise<T3ErpNextSalesOrderSource>;
+
+/** Odoo 19+/20+ JSON-2 sale.order/read source, not an execution receipt.
+ * Requires a single exact numeric Odoo record id in the response array;
+ * the installed Agent supplies the bearer credentials / database context. */
+export interface T3OdooSaleOrderSource {
+  readonly source_owner:string;
+  readonly record_kind:"sale.order";
+  readonly record_id:string;
+  readonly source_revision:string;
+  readonly source_digest:string;
+  readonly source_receipt:null;
+  readonly source_state:string;
+  readonly epistemic_status:"reported";
+  readonly record_authority:"EXTERNAL_OWNER";
+}
+export function normalizeOdooSaleOrderRead(input:{
+  ownerId:string;expectedRecordId:string;
+  response:readonly Record<string,unknown>[];
+}):Promise<T3OdooSaleOrderSource>;

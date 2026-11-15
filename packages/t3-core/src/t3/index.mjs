@@ -89,3 +89,6 @@ export { inspectExternalBpmn2Model, compareExternalBpmn2ToProcessDefinition }
 
 // ERPNext REST response is normalized, never executed or stored here.
 export {normalizeErpNextSalesOrderRead} from './external-erpnext-source.mjs';
+
+// Odoo JSON-2 source admission is only a read-only data normalizer.
+export {normalizeOdooSaleOrderRead} from './external-odoo-source.mjs';

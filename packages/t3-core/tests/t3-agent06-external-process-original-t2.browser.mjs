@@ -25,6 +25,8 @@ import {createTrustedNativeContinuation}
   from '../src/t3/native-result-continuation.mjs';
 import {normalizeErpNextSalesOrderRead}
   from '../src/t3/external-erpnext-source.mjs';
+import {normalizeOdooSaleOrderRead}
+  from '../src/t3/external-odoo-source.mjs';
 
 const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const ARTIFACT='iwxa-kernel-k036-same-store-history-20261019-qualified.1';
@@ -586,6 +588,64 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
       JSON.stringify({kernel:'0.3.6',signedD1:true,
         sourceOwner:'erpnext:shop1',revision:2,
         customerPersisted:false,liveErpNext:false}));
+    // Real Odoo 19+ JSON-2 read() response shape, controlled external
+    // data, admitted to the actual signed ORIGINAL T2/IndexedDB Host.
+    // This does NOT exercise a live Odoo account or native write action.
+    const odooRows=[{id:42,name:'S00042',
+      write_date:'2026-11-15 16:08:00',
+      state:'sale',amount_total:2400,order_line:[71,72],
+      partner_id:[900,'Confidential Odoo customer']}];
+    const odooRef={expected_workspace_id:ws,
+      record_kind:'sale.order',record_id:'42'};
+    const odooOwner={
+      ownerId:'odoo:shop1:database1',
+      readExact:async({record_kind,record_id})=>{
+        assert.equal(record_kind,'sale.order');
+        assert.equal(record_id,'42');
+        return normalizeOdooSaleOrderRead({
+          ownerId:'odoo:shop1:database1',expectedRecordId:record_id,
+          response:odooRows,
+        });
+      },
+    };
+    const odooPort=createTrustedExternalProcessLink({
+      kernel:coldKernel,currentWorkspace,externalOwner:odooOwner,
+      accessForWrite:async()=>coldSigned.access,
+      accessForRead:async()=>coldSigned.access,
+      confirmHuman:async()=>true,isHostActive:()=>true,
+    });
+    const odooLink=await odooPort.link(odooRef);
+    assert.equal(odooLink.status,'LINK_PERSISTED');
+    const beforeOdoo=await coldKernel.getObject(ws,odooLink.object_id);
+    assert.equal(beforeOdoo.object.data.record_id,'42');
+    assert.equal(beforeOdoo.object.data.record_kind,'sale.order');
+    assert.equal(beforeOdoo.object.data.source_state,'sale');
+    assert.equal(beforeOdoo.object.data.epistemic_status,'reported');
+    assert.equal(beforeOdoo.object.data.source_receipt,null);
+    assert.equal(JSON.stringify(beforeOdoo.object).includes(
+      'Confidential Odoo customer'),false);
+    odooRows[0].order_line=[71,73];
+    const odooConflict=await odooPort.previewRefresh(odooRef);
+    assert.equal(odooConflict.status,'SOURCE_REVISION_INCONSISTENT');
+    await assert.rejects(odooPort.refresh(odooRef),
+      {code:'T3_EXT_SOURCE_REVISION_NOT_STABLE'});
+    assert.equal((await coldKernel.getObject(ws,odooLink.object_id))
+      .object.revision,1);
+    odooRows[0].write_date='2026-11-15 16:09:00';
+    const odooNew=await odooPort.previewRefresh(odooRef);
+    assert.equal(odooNew.status,'SOURCE_REVISION_CHANGED');
+    assert.equal(odooNew.requires_review,true);
+    const odooUpdated=await odooPort.refresh(odooRef);
+    assert.equal(odooUpdated.status,'LINK_PERSISTED');
+    assert.equal(odooUpdated.revision,2);
+    const afterOdoo=await coldKernel.getObject(ws,odooLink.object_id);
+    assert.notEqual(afterOdoo.object.data.source_digest,
+      beforeOdoo.object.data.source_digest);
+    assert.equal((await odooPort.prepareContinuation(odooRef)).revision,2);
+    console.log('T3_AGENT06_ODOO_JSON2_ORIGINAL_KERNEL_PASS',
+      JSON.stringify({signedD1:true,kernel:'0.3.6',
+        recordId:'42',revision:2,
+        customerPersisted:false,liveOdoo:false}));
     console.log('T3_AGENT06_ORIGINAL_T2_ERP_LINK_PASSPORT_COLD_PASS',
       JSON.stringify({kernel:'0.3.6',contract:'1.3.0',
         revision:reopened.revision,originalEventCount:5,
