@@ -220,3 +220,24 @@ UI-подсказка Agent/CehoVod: «Сохранена ссылка на за
 4. после холодного browser Host reopen / новой D1 подписи повторный независимый readback возвращает тот же статус, `n8n` dispatch остаётся единственным.
 
 Важное ограничение: в этом публичном CI `resultOwner.verifySaved` - **контрактный double**, поскольку канонический `Faust-S/cehovod` приватный и не переносится в публичную `knowledge`. `syntheticDomainOwner=true` в CI логе. Никакой демонстрационный Result не объявлять настоящим; только отдельная подключенная установка CehoVod с его исходным `verifyStoredFinalPlanFact` может закрыть `CEHOVOD_RESULT`.
+
+## Финальная квалификация двух владельцев, исходный CI от 15.11.2026
+
+**Исполняемый HEAD `c3da0efa8cb998e8e0d0b3a2f9db25b5d9027a9d`, TREE `1dccae00ea28d6dd65732db4f7127866e015b902`.** Публичный оригинальный [CI #43727539506](https://github.com/Faust-S/knowledge/actions/runs/43727539506) = `SUCCESS`: `test=SUCCESS`, `real-host=SUCCESS`, `windows-credential=SUCCESS`, hardware `metal-webgpu=SKIPPED`. В полном product source qualifier Node `741/741 PASS`, Workspace/DOM `1141/1141 PASS`, исходный T2 Kernel 0.3.6/Runtime Contract 1.3.0 PASS. Это второй успешный прогон после первого [CI #43727308430](https://github.com/Faust-S/knowledge/actions/runs/43727308430), который уже подтвердил новый runtime-контракт D6 до расширения real-host теста.
+
+Из точного исходного real-host лога:
+`T3_AGENT06_D6_TWO_OWNER_CONTRACT_PASS` → `originalKernel=true`, `signedD1=true`, `syntheticDomainOwner=true`, `externalDispatches=1`, `domainProofs=2`, `domainResultInCehoVod=false`.
+`T3_AGENT06_SIGNED_D1_REAL_KERNEL_PROCESS_PASS` → `signedProofs=55`, `originalActivityEvents=5`, `revision=3`, `lostAckNoReplay=true`.
+`T3_AGENT06_SIGNED_D1_COLD_RECOVERY_PASS` → `revision=3`, `signedProofs=13`, `executedExternalERP=false`.
+
+**Что подключает оригинальный Agent/CehoVod владелец, без создания движка:**
+
+- Выбрать конкретный `ProductionOrderRecord.object_id` из настоящей CehoVod Workspace; ERP-ссылка `sourceReference` из `prepareContinuation` и `orderRef` должны быть согласованы у доверенного владельца, а не взяты из редактируемого поля UI.
+- Штатный `Agent ToolRuntime`/n8n остаётся исполнителем разрешённой операции, его durable `operationId` и `receipt/readback` даются в существующий D6 `nativeOwner`; HTTP ACK и локальная квитанция отправки не становятся COMMITTED.
+- Доменный `resultOwner.verifySaved` внутри штатного CehoVod Host получает `resultRef` от `nativeOwner`; читает **оригинальным авторизованным T2 Kernel** конкретный saved `plan-fact-analysis`, `production-order`, `production-execution`, append-only `production-actuals`, результаты контроля, дефекты и другие обязательные источники.
+- Вызвать **существующий** `verifyStoredFinalPlanFact(rows,saved,orderId)` из `Faust-S/cehovod/src/lib/kernel-plan-fact.ts`. Только `true` по оригинальному readback допускает нормализованный `ORIGINAL_DOMAIN_RESULT_VERIFIED` с точными `resultRef,orderRef,resultType,workspaceId,sourceReference,operationId,recipientId,stage=final,resultRevision>0,canonicalVerified=true`.
+- Выполнить как минимум две независимые холодные проверки D1/D6/Result, включая `RECOVER_ONLY` при lost ACK, чужой `orderRef`, конфликт source revision, неполный QC/actuals и отзыв подписанного read grant. **Не** вызывать `receive()` повторно, если native owner уже подтвердил действие.
+- После полученного подтверждения отдельно сверить оригинальную Activity: пять `reported` T3 ERP events **не равны** ни одной реально произведённой операции. Производственные `observed` events допускаются только по исходным CehoVod фактам, с WorkRef и evidence в его собственном подписанном Host.
+- Только затем `LIVE_ERP_EXECUTION` и `CEHOVOD_RESULT` можно переводить из `NOT_ACCEPTED`; сейчас source-порт `PASS`, `ORIGINAL_T2_SIGNED_ROUTE=PASS_TEST_HOST`, `LIVE_ERP_EXECUTION=NOT_ACCEPTED`, `CEHOVOD_RESULT=NOT_ACCEPTED`, `T3_READY=false`.
+
+**Существенная граница квалификации:** public CI проверял оригинальный T2 Kernel/D1/D6 и подписанные чтения источника, но CehoVod owner и n8n/ERPNext были *контрактными тестовыми портами*. Приватные исходники CehoVod и Agent не копировались в публичный репозиторий, Actions приватных репозиториев не запускались; настоящая корпоративная ERP, реальные документы, физические факты и canonical `plan-fact-analysis` НЕ выполнялись и НЕ объявлены принятыми.
