@@ -6,6 +6,8 @@ import {createOriginalControlHttpHandler}
   from "../src/t3/original-control-http-handler.mjs";
 import {createControlLoopbackOwner}
   from "../src/t3/control-loopback-owner.mjs";
+import {createOriginalKernelNativeRelay}
+  from "../src/t3/original-kernel-native-relay.mjs";
 import {createSubjectKernelBinding}
   from "../src/t3/subject-access-binding.mjs";
 import {createTemporaryOriginalPersonalAuthority}
@@ -93,6 +95,63 @@ test("existing Control HTTP protocol executes original Ed25519 PERSONAL proof an
     await assert.rejects(port.currentContext(),{code:"STALE_CONTEXT_OPERATION"});
     assert.equal(f.calls.length,1);
   }finally{stop();await f.close();}
+});
+test("original D3 Kernel relay is session-bound and never replays an unknown graph write",{
+  timeout:8000,
+},async()=>{
+  let hostEpoch=73,connected=0,detached=0,originalKernel=null;
+  const relay=createOriginalKernelNativeRelay({
+    currentEpoch:()=>hostEpoch,
+    onAttach:kernel=>{originalKernel=kernel;connected++;return true;},
+    onDetach:()=>{detached++;},
+    timeoutMs:1000,
+  });
+  const info={contract_version:"1.3.0",runtime_version:"0.3.6",
+    service_id:"iwxa.workspace.relay",mode:"ready",
+    granted_operations:["t1.getObject","t1.listEventsSince",
+      "t1.commitObjectGraph"]};
+  const {sessionId}=await relay.exchange({
+    verb:"attach",payload:{sessionInfo:info}},hostEpoch);
+  assert.equal(connected,1);
+  assert.equal(originalKernel.sessionInfo.contract_version,"1.3.0");
+  assert.equal(originalKernel.hasOperation("t1.commitObjectGraph"),true);
+  const read=originalKernel.getObject("workspace:one","result:one");
+  const task=await relay.exchange({verb:"next",payload:{sessionId}},hostEpoch);
+  assert.equal(task.kind,"COMMAND");
+  assert.equal(task.method,"getObject");
+  assert.deepEqual(task.args,["workspace:one","result:one"]);
+  assert.deepEqual(await relay.exchange({
+    verb:"next",payload:{sessionId}},hostEpoch),{kind:"IDLE"},
+    "an in-flight original Kernel command cannot be dispatched twice");
+  await assert.rejects(relay.exchange({
+    verb:"result",payload:{sessionId:"foreign",id:task.id,ok:true,result:{}}},
+    hostEpoch),{code:"T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED"});
+  await relay.exchange({verb:"result",payload:{
+    sessionId,id:task.id,ok:true,result:{object:{object_id:"result:one"}}}},
+  hostEpoch);
+  assert.deepEqual(await read,{object:{object_id:"result:one"}});
+  const previous=originalKernel;
+  const graph=previous.commitObjectGraph({
+    workspace_id:"workspace:one",idempotency_key:"a".repeat(64)});
+  const next=await relay.exchange({verb:"next",payload:{sessionId}},hostEpoch);
+  assert.equal(next.method,"commitObjectGraph");
+  // The browser may have committed before it lost its reply. A detached
+  // session MUST NOT dispatch a second graph write, even at the same epoch.
+  await relay.exchange({verb:"detach",payload:{sessionId}},hostEpoch);
+  await assert.rejects(graph,{code:"T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED"});
+  const newer=await relay.exchange({verb:"attach",payload:{
+    sessionInfo:info}},hostEpoch);
+  assert.notEqual(newer.sessionId,sessionId);
+  assert.throws(()=>previous.getObject("workspace:one","result:one"),
+    {code:"T3_D3_ORIGINAL_KERNEL_NOT_CONNECTED"},
+    "old Kernel port must not bind to new session with unchanged Host epoch");
+  hostEpoch++;
+  await assert.rejects(relay.exchange({
+    verb:"next",payload:{sessionId:newer.sessionId}},hostEpoch-1),
+    {code:"T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED"});
+  assert.equal(relay.attached,false);
+  assert.equal(detached,2);
+  relay.close();
 });
 test("D3 original Control selects KernelFacade names while independent signed D1 application JIT remains authoritative",{
   timeout:12000,
