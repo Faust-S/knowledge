@@ -435,6 +435,22 @@ test("D7 signed native age/Publisher roundtrip stays on original Control and nev
     assert.equal(readback.persisted,true);
     assert.equal(Object.hasOwn(readback,"privateStatusVault"),false);
     assert.equal(applyCount,1);
+    // A duplicated native HTTP request or cold-open retry cannot apply
+    // the same original operationId again, even after the UI is replaced.
+    const duplicate=await f.browser.nativeD7Request("publisher.apply",{
+      kind:"LICENSE",archiveBytes:archive,packageSha256:sha(archive),
+      previewDigest:"a".repeat(64),operationId:"op:license",
+      subject:nativeSubject,
+    });
+    assert.equal(duplicate.acknowledged,true);
+    assert.equal(duplicate.recovered,true);
+    assert.equal(applyCount,1);
+    await assert.rejects(f.browser.nativeD7Request("publisher.apply",{
+      kind:"LICENSE",archiveBytes:archive,packageSha256:sha(archive),
+      previewDigest:"b".repeat(64),operationId:"op:license",
+      subject:nativeSubject,
+    }),{code:"T3_D7_NATIVE_OUTCOME_UNKNOWN"});
+    assert.equal(applyCount,1);
     await assert.rejects(f.browser.nativeD7Request("publisher.receipt",{
       ...query,holderId:"holder:someone-else",
     }),{code:"T3_D7_ORIGINAL_NATIVE_HOLDER_CHANGED"});

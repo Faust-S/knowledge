@@ -145,6 +145,10 @@ export function createOriginalControlHttpHandler({
   // read + native Human confirmation via authorizeAgeSeal.
   requireThat(nativeD7PortFor===null||typeof nativeD7PortFor==="function",
     "T3_D7_ORIGINAL_NATIVE_OWNER_PROVIDER_INVALID");
+  // Only an in-process duplicate guard. The ORIGINAL installed Publisher
+  // remains the durable idempotency and STATUS-floor authority.
+  const nativePublisherInFlight=new Set();
+  const nativePublisherDispatched=new Set();
   // The original installed Host may rotate its ephemeral bearer whenever
   // its existing signed subject session changes. This is a transient
   // transport credential only, NEVER a grant, issuer or AccessRegistry.
@@ -419,25 +423,91 @@ export function createOriginalControlHttpHandler({
               requireThat(REF.test(payload.operationId??"")&&
                 HEX.test(payload.previewDigest??""),
                 "T3_D7_NATIVE_PUBLISHER_REQUEST_INVALID");
-              requireThat(await owner.confirmPublisherApply({
-                contextEpoch:before,kind:payload.kind,
-                operationId:payload.operationId,
-                packageSha256:payload.packageSha256,
-                previewDigest:payload.previewDigest,
-                holderId:nativeSubject.holderId,
-              })===true,"T3_D7_NATIVE_HUMAN_CONFIRMATION_REQUIRED");
-              requireThat(before===await epochNow()&&authenticated(req),
+              const key=JSON.stringify([payload.kind,payload.packageSha256,
+                payload.operationId,nativeSubject.holderId,
+                nativeSubject.recipientId]);
+              // Two independent signed requests can bypass the React
+              // inFlight guard. Claim on the EXISTING Control handler before
+              // any native await or Human confirmation.
+              requireThat(!nativePublisherInFlight.has(key),
                 "T3_D7_NATIVE_OUTCOME_UNKNOWN");
-              await publisher.apply({
-                kind:payload.kind,archiveBytes:bytes,
-                operationId:payload.operationId,
-                packageSha256:payload.packageSha256,
-                previewDigest:payload.previewDigest,
-                subject:nativeSubject,context:null,
-              });
-              // Result is NEVER proof of persistence: original receipt
-              // and durable statusReadback are mandatory on the next call.
-              result={acknowledged:true};
+              nativePublisherInFlight.add(key);
+              try{
+                const fields=["kind","packageSha256","operationId",
+                  "holderId","recipientId"];
+                const query={kind:payload.kind,operationId:payload.operationId,
+                  packageSha256:payload.packageSha256,
+                  holderId:nativeSubject.holderId,
+                  recipientId:nativeSubject.recipientId};
+                const inspection=await publisher.inspect({
+                  kind:payload.kind,archiveBytes:bytes,
+                  packageSha256:payload.packageSha256,
+                  context:null,subject:nativeSubject,
+                });
+                requireThat(inspection&&
+                  fields.every(field=>inspection[field]===query[field])&&
+                  inspection.previewDigest===payload.previewDigest&&
+                  inspection.publisherSignatureVerified===true&&
+                  inspection.pinnedPublisherTrusted===true&&
+                  ["READY","RECOVER_ONLY"].includes(inspection.stage),
+                  "T3_D7_NATIVE_PUBLISHER_PREVIEW_CHANGED");
+                requireThat(d7Same(nativeSubject,await d7Subject(publisher))&&
+                  before===await epochNow()&&authenticated(req),
+                  "T3_D7_ORIGINAL_NATIVE_HOLDER_CHANGED");
+                // A persisted receipt is authoritative after a cold restart,
+                // including when the original inspect still says READY.
+                // Never use a transport ACK as proof of installed status.
+                const previous=await publisher.receipt(query);
+                if(previous!==null&&previous!==undefined){
+                  const current=await publisher.statusReadback(query);
+                  requireThat(fields.every(field=>
+                    previous[field]===query[field]&&current?.[field]===query[field])&&
+                    previous.state==="COMMITTED"&&current.persisted===true&&
+                    current.issuerAuthorityId===inspection.issuerAuthorityId&&
+                    (payload.kind!=="LICENSE"||
+                      current.licenseId===inspection.licenseId)&&
+                    (payload.kind!=="STATUS"||(
+                      previous.sequence===inspection.sequence&&
+                      current.sequence===inspection.sequence&&
+                      previous.statusPayloadDigest===inspection.statusPayloadDigest&&
+                      current.statusPayloadDigest===inspection.statusPayloadDigest&&
+                      Number.isSafeInteger(current.statusSequenceFloor)&&
+                      current.statusSequenceFloor>=inspection.sequence)),
+                    "T3_D7_NATIVE_OUTCOME_UNKNOWN");
+                  requireThat(d7Same(nativeSubject,await d7Subject(publisher)),
+                    "T3_D7_ORIGINAL_NATIVE_HOLDER_CHANGED");
+                  result={acknowledged:true,recovered:true};
+                }else{
+                  // If any native Apply was attempted in THIS Host lifetime,
+                  // absence of receipt is UNKNOWN, never permission to replay.
+                  requireThat(!nativePublisherDispatched.has(key)&&
+                    inspection.stage==="READY",
+                    "T3_D7_NATIVE_OUTCOME_UNKNOWN");
+                  requireThat(await owner.confirmPublisherApply({
+                    contextEpoch:before,kind:payload.kind,
+                    operationId:payload.operationId,
+                    packageSha256:payload.packageSha256,
+                    previewDigest:payload.previewDigest,
+                    holderId:nativeSubject.holderId,
+                  })===true,"T3_D7_NATIVE_HUMAN_CONFIRMATION_REQUIRED");
+                  requireThat(d7Same(nativeSubject,await d7Subject(publisher))&&
+                    before===await epochNow()&&authenticated(req),
+                    "T3_D7_NATIVE_OUTCOME_UNKNOWN");
+                  // The original recipient owns the durable receipt. This
+                  // volatile guard is only to stop a same-session redispatch.
+                  nativePublisherDispatched.add(key);
+                  await publisher.apply({
+                    kind:payload.kind,archiveBytes:bytes,
+                    operationId:payload.operationId,
+                    packageSha256:payload.packageSha256,
+                    previewDigest:payload.previewDigest,
+                    subject:nativeSubject,context:null,
+                  });
+                  result={acknowledged:true,recovered:false};
+                }
+              }finally{
+                nativePublisherInFlight.delete(key);
+              }
             }
             requireThat(d7Same(nativeSubject,await d7Subject(publisher)),
               verb==="apply"?"T3_D7_NATIVE_OUTCOME_UNKNOWN":
