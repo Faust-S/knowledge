@@ -66,3 +66,17 @@ Next practical owner workflow:
 Найден и исправлен дефект original `OperationalSkillRuntime.route`: совпадение одного stopword с trigger example (например, `the` или `and`) случайно активировало Skill в обычной задаче. После source fix single stopword не выбирает Skill; явные trigger terms и значимые совпадения сохранены. Для задач с **настоящим** Skill activation создан owner-verified semantic admission digest: original activation receipt (ID, digest, query), descriptor и точный instruction body по-прежнему валидируются, но случайный receipt ID/время не объявляются изменением содержательной ревизии. При отсутствии исходного activation receipt: `HOLD`. Все 13/13 адресных интеграционных проверок PASS.
 
 Уровни доказательства не повышены: в синтетических сравнениях `prompt_digest_equal=False`, что допускается лишь при owner-verified равенстве канонических условий Task и источников, но не означает идентичные provider prompts. Платёжная стоимость, human active time, real LLM quality и business effect остаются `UNKNOWN/NOT_MEASURABLE`. Нет установленного Tauri GUI и независимого реального A/B; `PRODUCT_ACCEPTED=false`. Код K05, T3, Activity и общая ветка Agent в этом этапе не менялись.
+
+## Дополнение: подтверждена поставка K05 в продуктовый ZIP и холодный Python Core
+
+Это новые данные после предыдущих 56/56, а не замена исходной матрицы.
+
+- PRIVATE Agent exact code SHA `4317f19e5795ee9b4a78dbd12a7d3b6cbb5d0376`, TREE `162c07b281f8f294cf5ed6a4f3b1216daeb0db53`, изолированная ветка `work/2026-11-15-agent06-k05-installed-package`.
+- PUBLIC K05 exact source pin `b2de1d6cd8dd1e660183c16febd18da9ac3b94a7` сохранён.
+- PUBLIC Center runner `81b6e046c45564a1aab076bc385801b3f1b92c0e`, [Windows Actions #43742812935](https://github.com/Faust-S/Center/actions/runs/43742812935): **SUCCESS**, original owner Python 62/62, source UI Node tests 4 PASS, TypeScript/Vite PASS, ZIP/source receipt tests 7/7, **cold product Core test 1/1 PASS, 0 SKIP**.
+- Последний test распаковал продуктовый ZIP, затем независимый Python процесс без внешнего `PYTHONPATH` создал/принял две синтетические Task, восстановил исходный Core и вызвал сравнение из **упакованного** K05. Подтверждён результат `TWO_ACCEPTED_TASKS_SOURCE_COMPARABLE` без нового inference.
+- Найденный функциональный разрыв исправлен: прежний Setup builder не включал owner K05, хотя source tests проходили. Новый build-time source receipt и оригинальный package manifest связывают K05 с exact public source SHA; внутренний Python runtime остаётся исходным, K05 не становится обязательной фоновой службой.
+- UI: выбранные человеком принятые Task, отдельные исходные ID при одинаковых названиях, корректный lifecycle React StrictMode, SOURCE_COMPARABLE только при исходной проверке.
+- Приватность: публичный Center временно использовал разрешённый read-only доступ к точной приватной ревизии; public artifacts 0, private GitHub Actions 0; приватные логи, исходники, модельные ответы и пользовательские файлы не опубликованы.
+
+**Границы приёмки:** `AGENT06_K05_PACKAGE_COLD_PYTHON=PASS`; `AGENT06_K05_INSTALLED_TAURI_GUI=NOT_TESTED`; `TWO_REAL_LLM_EXECUTORS=NOT_TESTED`; `ACTUAL_BUSINESS_ROI=NOT_MEASURABLE`; `PRODUCT_ACCEPTED=false`. Это источник и упаковка, а не установленный GUI и не доказанный экономический выигрыш. Следующий этап: установленный Setup Core/Windows GUI, две реальные модели, независимое качество и фактические invoices/domain receipts.
