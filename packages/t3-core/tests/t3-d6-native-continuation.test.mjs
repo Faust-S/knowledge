@@ -48,11 +48,18 @@ function fixture(beforeHuman=async()=>{}){
       return row?{...row,state:"PERSISTED"}:null;
     },
   };
-  const port=createTrustedNativeContinuation({
+  let confirmations=0;
+  const makePort=()=>createTrustedNativeContinuation({
     kernel,accessForRead:async()=>access,currentWorkspace:focus,nativeOwner,
-    confirmHuman:async()=>{await beforeHuman();return approved;},isHostActive:()=>true,
+    confirmHuman:async()=>{
+      confirmations++;
+      await beforeHuman();
+      return approved;
+    },isHostActive:()=>true,
   });
-  return {port,ref,commits,changeRevision:n=>revision=n,
+  const port=makePort();
+  return {port,makePort,confirmations:()=>confirmations,
+    ref,commits,changeRevision:n=>revision=n,
     setApproved:v=>approved=v,setRevoked:v=>revoked=v,
     setSelected:v=>selected=v,setDropAck:v=>dropAck=v,receives:()=>receives};
 }
@@ -117,4 +124,37 @@ test("D6 concurrent continuation uses one human decision and one native write",a
   assert.equal(f.receives(),1);
   assert.equal((await f.port.preview(f.ref)).status,"RECOVER_ONLY");
   assert.equal((await f.port.recover(f.ref)).status,"OWNER_READBACK_CONFIRMED");
+});
+
+test("D6 two cold Host opens recover original native Result despite stale READY inspect",async()=>{
+  const f=fixture();
+  f.setDropAck(true);
+  const first=await f.port.continueSelected(f.ref);
+  assert.equal(first.status,"OUTCOME_UNKNOWN");
+  assert.equal(f.receives(),1);
+  const confirms=f.confirmations();
+  // The original installed owner still reports READY; receipt is durable.
+  const coldA=f.makePort();
+  assert.equal((await coldA.preview(f.ref)).status,"RECOVER_ONLY");
+  assert.equal((await coldA.continueSelected(f.ref)).status,
+    "OWNER_READBACK_CONFIRMED");
+  const coldB=f.makePort();
+  assert.equal((await coldB.preview(f.ref)).status,"RECOVER_ONLY");
+  assert.equal((await coldB.continueSelected(f.ref)).status,
+    "OWNER_READBACK_CONFIRMED");
+  assert.equal(f.receives(),1);
+  assert.equal(f.confirmations(),confirms);
+});
+test("D6 incomplete native receipt stays UNKNOWN after cold restart, never redelivered",async()=>{
+  const f=fixture();
+  f.commits.set("op:stable:001",{state:"COMMITTED",
+    operationId:"op:stable:001",recipientId:"native:atlas",
+    reference:f.ref,resultRef:"atlas:work:001"});
+  const old=f.commits.get("op:stable:001");
+  f.commits.set("op:stable:001",{...old,state:"UNCONFIRMED"});
+  const cold=f.makePort();
+  assert.equal((await cold.preview(f.ref)).status,"RECOVER_ONLY");
+  assert.equal((await cold.continueSelected(f.ref)).status,"OUTCOME_UNKNOWN");
+  assert.equal(f.receives(),0);
+  assert.equal(f.confirmations(),0);
 });

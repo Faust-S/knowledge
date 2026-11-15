@@ -143,12 +143,31 @@ export function createTrustedNativeContinuation({
       recipientId:nativeOwner.recipientId,resultRef:receipt.resultRef,
       reference:copy(reference,"T3_D6_REFERENCE_NOT_CLONEABLE")});
   }
+  // Only the ORIGINAL installed recipient knows whether a native Result
+  // was already committed. Inspect may still say READY after a lost ACK or
+  // cold restart; its durable receipt is the final answer, not UI memory.
+  async function probePrior(state,operationId){
+    try{
+      await state.unchanged();
+      const receipt=await nativeOwner.receipt(operationId);
+      await state.unchanged();
+      if(receipt===null||receipt===undefined)return null;
+      // A receipt with mismatched reference/recipient or missing readback is
+      // not permission to dispatch again. Treat it as an unknown outcome.
+      return await observe(state.reference,operationId,state.readSource);
+    }catch{
+      // Unable to determine whether the ORIGINAL native write committed.
+      // Returning OUTCOME_UNKNOWN prevents an accidental retry.
+      return Object.freeze({status:"OUTCOME_UNKNOWN",operationId});
+    }
+  }
   async function preview(input){
     return withSelectedSource(input,async state=>{
       const plan=await inspect(state);
+      const prior=await probePrior(state,plan.operationId);
       const status=inFlight.has(plan.operationId)?"OPERATION_IN_PROGRESS":
-        plan.status==="READY"&&!dispatched.has(plan.operationId)
-          ?"AVAILABLE":"RECOVER_ONLY";
+        prior!==null||plan.status==="RECOVER_ONLY"||
+        dispatched.has(plan.operationId)?"RECOVER_ONLY":"AVAILABLE";
       return Object.freeze({status,
         operationId:plan.operationId,recipientId:nativeOwner.recipientId,
         reference:state.reference});
@@ -166,6 +185,8 @@ export function createTrustedNativeContinuation({
       // receive(). Otherwise two clicks can authorize the SAME native write.
       inFlight.add(operationId);
       try{
+        const prior=await probePrior(state,operationId);
+        if(prior!==null)return prior;
         const approval=await confirmHuman({
           recipientId:nativeOwner.recipientId,
           operationId,reference:copy(state.reference,
@@ -177,6 +198,11 @@ export function createTrustedNativeContinuation({
         // Repeat ORIGINAL signed Kernel readback before the only native write.
         const current=await state.readSource();
         await state.unchanged();
+        // An independent native process could have committed during Human
+        // confirmation. One final durable read before dispatch protects the
+        // installed product even when this Host has never seen the Result.
+        const committedDuringConsent=await probePrior(state,operationId);
+        if(committedDuringConsent!==null)return committedDuringConsent;
         // Set before invoking the original native owner: failure may mean
         // that its durable write committed but the acknowledgement was lost.
         dispatched.add(operationId);
