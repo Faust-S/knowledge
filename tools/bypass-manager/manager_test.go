@@ -291,3 +291,16 @@ func TestEngineInstallHappensOnlyForRequiredProfile(t *testing.T) {
 		t.Fatal("existing engine was installed again")
 	}
 }
+
+func TestSensitiveFreeTextIsNotExported(t *testing.T) {
+	text := `Windows error C:\Users\Example Name\AppData\Local\vpn.conf, user@example.net, public 8.8.8.8`
+	safe := redactText(text)
+	if strings.Contains(safe, "Example Name") || strings.Contains(safe, "user@example.net") || strings.Contains(safe, "8.8.8.8") {
+		t.Fatalf("unredacted private details %q", safe)
+	}
+	route := Probe{Reason: "нужна точная идентификация адаптера: adapter account-private-label unavailable"}
+	safeReason := redactProbe(route).Reason
+	if safeReason != "ADAPTER_DISCOVERY_UNVERIFIED" {
+		t.Fatalf("private adapter detail: %s", safeReason)
+	}
+}

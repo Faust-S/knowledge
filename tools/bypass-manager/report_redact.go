@@ -1,6 +1,9 @@
 package main
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
 // Operational settings (endpoint and selected adapter) never enter public reports.
 // Each report is copied before redaction; the live measurements remain usable
@@ -44,7 +47,7 @@ func redactEgress(in EgressResult) EgressResult {
 }
 func redactProbe(in Probe) Probe {
 	in.EndpointRoute = nil
-	in.Reason = redactText(in.Reason)
+	in.Reason = redactProbeReason(in.Reason)
 	in.Egress = redactEgress(in.Egress)
 	if in.EgressIPv6 != nil {
 		ipv6 := redactEgress(*in.EgressIPv6)
@@ -70,5 +73,22 @@ func redactAdapter(in *AdapterStats) *AdapterStats {
 }
 
 var reportIPv4 = regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`)
+var reportEmail = regexp.MustCompile(`(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b`)
+var reportWindowsPath = regexp.MustCompile(`(?i)\b[a-z]:\\[^\r\n\t ]+`)
+var reportUserPath = regexp.MustCompile(`(?:/home/|/Users/)[^\s]+`)
 
-func redactText(s string) string { return reportIPv4.ReplaceAllString(s, "[IP]") }
+func redactProbeReason(s string) string {
+	// Discovery errors can include user-chosen adapter names and PowerShell
+	// diagnostics. Keep the evidence class, not these private free-text details.
+	if strings.HasPrefix(s, "нужна точная идентификация адаптера:") {
+		return "ADAPTER_DISCOVERY_UNVERIFIED"
+	}
+	return redactText(s)
+}
+
+func redactText(s string) string {
+	s = reportWindowsPath.ReplaceAllString(s, "[PATH]")
+	s = reportUserPath.ReplaceAllString(s, "[PATH]")
+	s = reportEmail.ReplaceAllString(s, "[EMAIL]")
+	return reportIPv4.ReplaceAllString(s, "[IP]")
+}
