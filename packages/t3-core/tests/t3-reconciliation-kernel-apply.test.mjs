@@ -175,6 +175,7 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   assert.equal(afterLostAck.originalEventReadback.idempotency_key,effect);
   assert.equal(afterLostAck.automaticRetryAllowed,false);
   assert.equal(commits,1,"recovery may read but must never repeat APPLY");
+  loseAckAfterWrite=false; // NOW exercise forged receipts, not the earlier ACK-loss flag
   // In the original T2 graph a returned object or event ID alone is not
   // proof of the accepted Result. A forged ACK, missing independent Event,
   // or duplicate matching Event must never produce CONFIRMED. Every one of
