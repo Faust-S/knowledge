@@ -85,7 +85,7 @@ test('Original T3 owner rejects missing provenance before K05 can project', () =
   assert.throws(
     () => projectT3ProcessFromOriginalOwner(
       deriveProcessIntelligence, fixture({provenance:false})),
-    error => error?.code === 'MISSING_PROCESS_INTELLIGENCE_PROVENANCE',
+    error => error?.code === 'INVALID_PROJECT_PROCESS_FIELD',
   );
 });
 
