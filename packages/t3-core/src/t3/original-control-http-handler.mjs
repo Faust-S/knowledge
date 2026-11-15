@@ -104,7 +104,8 @@ async function bodyFrom(req,limit=MAX_BODY){
     parts.push(chunk);
   }
   let result;
-  try{result=strictJson(Buffer.concat(parts).toString("utf8"));}
+  try{result=strictJson(Buffer.concat(parts).toString("utf8"),
+    {maxLength:limit===MAX_D3_BODY?MAX_D3_BODY:32*1024*1024});}
   catch{refused("T3_D1_CONTROL_JSON_INVALID");}
   requireThat(result&&typeof result==="object"&&!Array.isArray(result),
     "T3_D1_CONTROL_REQUEST_INVALID");
