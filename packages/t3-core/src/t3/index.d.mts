@@ -375,3 +375,44 @@ export function createTrustedPublisherHandoff(options:{
   recover(input:{kind:T3PublisherHandoffKind;archiveBytes:Uint8Array}):
     Promise<T3PublisherHandoffResult>;
 }>;
+
+/** Agent 0.6: reference an external ERP/BPM/workflow source without transferring
+ * ERP ownership, credentials, process execution, or making reported steps observed.
+ * The original T2 service passport must declare the schema and authorize writes.
+ * A trusted Host supplies the existing original signed D1 owner + Kernel. */
+export const EXTERNAL_PROCESS_LINK_SCHEMA: "iwxa.agent06.external-process-link";
+export const EXTERNAL_PROCESS_LINK_EVENT: "t3.external-process.record.reported";
+export const EXTERNAL_PROCESS_LINK_DECLARATION: Readonly<{
+  schema_version:"1.0.0";preserve_unknown:false;
+  json_schema:Record<string,unknown>;embedded:Record<string,never>;
+}>;
+export interface T3ExternalRecordReference {
+  expected_workspace_id:string;record_kind:string;record_id:string;
+}
+export interface T3ExternalRecordOwner {
+  readonly ownerId:string;
+  /** Exact revision/digest/owner receipt verified by the external owner; no raw
+   * customer data or credentials are persisted by the T3 link. */
+  readExact(input:{record_kind:string;record_id:string}):unknown|Promise<unknown>;
+}
+export interface T3ExternalLinkStatus {
+  status:"LINK_PERSISTED"|"ALREADY_LINKED"|"NOT_FOUND"|"REVISION_CONFLICT"|
+    "OUTCOME_UNKNOWN"|"USER_CANCELLED";
+  workspace_id?:string;object_id?:string;revision?:number;
+  event_id?:string;source_revision?:string;epistemic_status?:"reported";
+  cause_code?:string;saved_revision?:number;
+}
+export function createTrustedExternalProcessLink(options:{
+  kernel:KernelFacade;
+  accessForWrite:(operation:"t1.putObject")=>T3SignedActivityAccess|null|
+    Promise<T3SignedActivityAccess|null>;
+  currentWorkspace:Pick<CurrentWorkspaceFacade,"get"|"subscribe">;
+  externalOwner:T3ExternalRecordOwner;
+  confirmHuman:(input:{workspace_id:string;object_id:string;
+    source_owner:string;record_kind:string;record_id:string;
+    source_revision:string;epistemic_status:"reported"})=>boolean|Promise<boolean>;
+  isHostActive:()=>boolean;
+}):Readonly<{
+  link(input:T3ExternalRecordReference):Promise<T3ExternalLinkStatus>;
+  recover(input:T3ExternalRecordReference):Promise<T3ExternalLinkStatus>;
+}>;
