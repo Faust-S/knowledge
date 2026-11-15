@@ -73,6 +73,8 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
     typeof ageOwner?.previewInOriginalKernel==="function"&&
     typeof ageOwner?.commitInOriginalKernel==="function"&&
     typeof ageOwner?.cancelInOriginalKernel==="function";
+  const nativeKernelReadback=Boolean(nativeKernelPreview&&
+    typeof ageOwner?.readbackInOriginalKernel==="function");
   const rawOpen=typeof ageOwner?.open==="function";
   const canSeal=Boolean(signedWorkspaceRead&&
     typeof ageOwner?.prepareSeal==="function"&&
@@ -323,6 +325,44 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
       nativeInFlight.delete(key);
     }
   }
+  // Independent read-only recovery, including after a cold Host restart.
+  // NO preview claim or new importCommit is required here: the trusted
+  // installed recipient must resolve an ORIGINAL persisted Kernel receipt
+  // and independently read its own Store. The public port never fabricates
+  // a receipt when that native evidence is absent.
+  async function readbackInOriginalKernel({preview_token,package_digest,
+    semantic_digest,mode}={}){
+    live();
+    ensure(nativeKernelReadback,"T3_D7_NATIVE_KERNEL_READBACK_UNAVAILABLE");
+    ensure(id(preview_token)&&id(package_digest)&&id(semantic_digest)&&
+      ["full","selective","merge","new-workspace","cancel"].includes(mode),
+      "T3_D7_NATIVE_READBACK_REQUEST_INVALID");
+    const recipient=await currentNativeRecipient();
+    const observed=await ageOwner.readbackInOriginalKernel({
+      recipientId:recipient.recipientId,
+      preview_token,package_digest,semantic_digest,mode,
+    });
+    ensure(JSON.stringify(await currentNativeRecipient())===
+      JSON.stringify(recipient),"T3_D7_ORIGINAL_NATIVE_RECIPIENT_CHANGED");
+    if(observed===null||observed===undefined||
+       observed.status==="OUTCOME_UNKNOWN")
+      return Object.freeze({status:"OUTCOME_UNKNOWN"});
+    const receipt=observed.receipt;
+    ensure(observed.status==="OWNER_READBACK_CONFIRMED"&&
+      observed.readbackVerified===true&&
+      observed.recipientId===recipient.recipientId&&
+      receipt?.format==="iwxa.import.receipt"&&
+      id(receipt.import_id)&&
+      receipt.package_digest===package_digest&&
+      receipt.semantic_digest===semantic_digest&&
+      receipt.mode===mode&&receipt.cancelled!==true&&
+      receipt.applied&&typeof receipt.applied==="object"&&
+      !Array.isArray(receipt.applied),
+      "T3_D7_NATIVE_KERNEL_READBACK_INVALID");
+    return Object.freeze({status:"OWNER_READBACK_CONFIRMED",
+      recipientId:recipient.recipientId,
+      receipt});
+  }
   async function open({ciphertext}={}){
     ensure(rawOpen,"T3_D7_NATIVE_PLAINTEXT_PRIVATE");
     live();
@@ -402,7 +442,8 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
       archiveBytes,kernelPreviewed:false,accepted:false});
   }
   return Object.freeze({seal,open,previewInOriginalKernel,
-    commitInOriginalKernel,cancelInOriginalKernel,
+    commitInOriginalKernel,cancelInOriginalKernel,readbackInOriginalKernel,
     canSeal,canOpen,canNativeKernelPreview:Boolean(nativeKernelPreview),
+    canNativeKernelReadback:nativeKernelReadback,
     maxArchiveBytes,maxCiphertextBytes});
 }

@@ -350,3 +350,37 @@ test("D7 direct installed Host binds native preview tokens and blocks duplicate 
     {code:"T3_D7_NATIVE_PREVIEW_BINDING_INVALID"});
   assert.equal(commits,1);
 });
+
+test("D7 direct installed recipient can read original Kernel after cold restart without retrying commit",async()=>{
+  let readbacks=0,commits=0;
+  const original={status:"OWNER_READBACK_CONFIRMED",readbackVerified:true,
+    recipientId:"recipient:direct",
+    receipt:{format:"iwxa.import.receipt",import_id:"import:readback",
+      package_digest:"digest:direct",semantic_digest:"semantic:direct",
+      mode:"new-workspace",applied:{workspaces:1}},
+  };
+  const native={
+    currentRecipient:async()=>({recipientId:"recipient:direct",bindingEpoch:"epoch:one"}),
+    previewInOriginalKernel:async()=>{throw Error("NO_ZIP");},
+    commitInOriginalKernel:async()=>{commits++;throw Error("NO_REPLAY");},
+    cancelInOriginalKernel:async()=>true,
+    readbackInOriginalKernel:async()=>{readbacks++;return original;},
+  };
+  const create=()=>createTrustedAgeExchange({ageOwner:native,isHostActive:()=>true});
+  const query={preview_token:"tok:direct",package_digest:"digest:direct",
+    semantic_digest:"semantic:direct",mode:"new-workspace"};
+  const cold=create();
+  assert.equal(cold.canNativeKernelReadback,true);
+  const read=await cold.readbackInOriginalKernel(query);
+  assert.equal(read.status,"OWNER_READBACK_CONFIRMED");
+  assert.equal(read.receipt.import_id,"import:readback");
+  assert.equal(readbacks,1);
+  assert.equal(commits,0);
+  native.readbackInOriginalKernel=async()=>({status:"OUTCOME_UNKNOWN"});
+  assert.equal((await create().readbackInOriginalKernel(query)).status,"OUTCOME_UNKNOWN");
+  native.readbackInOriginalKernel=async()=>({...original,
+    receipt:{...original.receipt,semantic_digest:"semantic:unrelated"}});
+  await assert.rejects(create().readbackInOriginalKernel(query),
+    {code:"T3_D7_NATIVE_KERNEL_READBACK_INVALID"});
+  assert.equal(commits,0);
+});

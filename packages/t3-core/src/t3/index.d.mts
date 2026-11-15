@@ -226,6 +226,15 @@ export interface T3OriginalAgeOwner {
     {recipientId:string}):ReturnType<KernelFacade["importCommit"]>;
   cancelInOriginalKernel?(input:{preview_token:string;recipientId:string}):
     boolean|Promise<boolean>;
+  /** Optional installed ORIGINAL recipient's independent, read-only recovery.
+   * Must resolve its own persisted Kernel receipt and verify stored data with
+   * ORIGINAL signed Kernel reads, not echo a UI receipt or replay importCommit.
+   * Works after cold launch WITHOUT Control's volatile preview token claims. */
+  readbackInOriginalKernel?(input:{
+    preview_token:string;package_digest:string;semantic_digest:string;
+    mode:"full"|"selective"|"merge"|"new-workspace"|"cancel";
+    recipientId:string;
+  }):unknown|Promise<unknown>;
 }
 export interface T3AgeProtectionReceipt {
   status:"AGE_PROTECTED_DOWNLOAD_READY";format:"age-encryption.org/v1";
@@ -256,6 +265,9 @@ export function createTrustedAgeExchange(options:{
   open(input:{ciphertext:Uint8Array}):Promise<T3AgeOpenReceipt>;
   /** Source ZIP never crosses the installed product's WebView boundary. */
   readonly canNativeKernelPreview:boolean;
+  /** Only true for a native owner that independently reads its original
+   * Kernel Store and authentic persisted receipt. Does not imply G4 PASS. */
+  readonly canNativeKernelReadback:boolean;
   previewInOriginalKernel(input:{ciphertext:Uint8Array}):Promise<{
     status:"KERNEL_PREVIEW_READY";recipientId:string;archiveSha256:string;
     handle:Awaited<ReturnType<KernelFacade["importPreview"]>>;
@@ -264,6 +276,14 @@ export function createTrustedAgeExchange(options:{
     ReturnType<KernelFacade["importCommit"]>;
   cancelInOriginalKernel(input:{preview_token:string}):
     Promise<boolean>;
+  readbackInOriginalKernel(input:{
+    preview_token:string;package_digest:string;semantic_digest:string;
+    mode:"full"|"selective"|"merge"|"new-workspace"|"cancel";
+  }):Promise<{
+    status:"OUTCOME_UNKNOWN"|"OWNER_READBACK_CONFIRMED";
+    recipientId?:string;
+    receipt?:Awaited<ReturnType<KernelFacade["importCommit"]>>;
+  }>;
 }>;
 
 /** D7: existing signed Publisher licence/status owner inside an installed

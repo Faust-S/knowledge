@@ -8,7 +8,8 @@ const KINDS=new Set(["kernel","activity"]);
 const D6_VERBS=new Set(["available","preview","continueSelected","recover"]);
 const D7_VERBS=new Set(["available","age.currentRecipient","age.prepareSeal",
   "age.seal","age.open","age.previewImport","age.commitImport",
-  "age.cancelImport","publisher.currentSubject","publisher.inspect",
+  "age.cancelImport","age.readbackImport","publisher.currentSubject",
+  "publisher.inspect",
   "publisher.apply","publisher.receipt","publisher.statusReadback"]);
 const D7_LIMIT=Object.freeze({"age.seal":32*1024*1024,
   "age.open":33*1024*1024,"age.previewImport":33*1024*1024,

@@ -42,6 +42,7 @@ function d6Reference(input){
 }
 const D7_VERBS=new Set(["available","age.currentRecipient","age.prepareSeal",
   "age.seal","age.open","age.previewImport","age.commitImport","age.cancelImport",
+  "age.readbackImport",
   "publisher.currentSubject","publisher.inspect",
   "publisher.apply","publisher.receipt","publisher.statusReadback"]);
 const D7_AGE=["currentRecipient"];
@@ -50,6 +51,10 @@ const D7_INSPECT_FIELDS=["kind","packageSha256","previewDigest","holderId",
   "recipientId","publisherId","issuerAuthorityId","operationId","licenseId",
   "sequence","statusSchema","statusPayloadDigest","scope","entries",
   "publisherSignatureVerified","pinnedPublisherTrusted","stage"];
+const D7_IMPORT_RECEIPT_FIELDS=["import_id","format","format_version",
+  "package_digest","semantic_digest","mode","conflict_policy",
+  "committed_at","applied","skipped_conflicts","workspace_id_map",
+  "excluded_by_permission","cancelled"];
 const D7_RECEIPT_FIELDS=["kind","operationId","packageSha256","holderId",
   "recipientId","issuerAuthorityId","state","licenseId","sequence",
   "statusPayloadDigest","persisted","statusSequenceFloor"];
@@ -456,6 +461,8 @@ export function createOriginalControlHttpHandler({
           typeof age?.commitInOriginalKernel==="function"&&
           typeof age?.cancelInOriginalKernel==="function"&&
           typeof owner?.authorizeAgeImportCommit==="function";
+        const ageNativeReadback=ageNativeImport&&
+          typeof age?.readbackInOriginalKernel==="function";
         const ageOpen=agePlainOpen||ageNativeImport;
         const ageSeal=ageRecipientReady&&
           typeof age?.prepareSeal==="function"&&
@@ -467,7 +474,7 @@ export function createOriginalControlHttpHandler({
           ?Math.min(age.maxArchiveBytes,D7_ARCHIVE):D7_ARCHIVE;
         if(input.verb==="available"){
           reply(res,200,{result:{ageOpen,ageSeal,
-            ageNativeImport,publisher:publisherReady,
+            ageNativeImport,ageNativeReadback,publisher:publisherReady,
             maxArchiveBytes:ageRecipientReady?maxArchiveBytes:null}});
           return true;
         }
@@ -693,6 +700,47 @@ export function createOriginalControlHttpHandler({
               result={cancelled:cancelled===true};
             }finally{
               nativeAgeImportInFlight.delete(key);
+            }
+          }else if(verb==="readbackImport"){
+            // Read-only recovery is independent of Control's volatile
+            // preview claims: the ORIGINAL recipient must read its persisted
+            // receipt AND actual Kernel Store, including after cold restart.
+            requireThat(ageNativeReadback,"T3_D7_NATIVE_KERNEL_READBACK_UNAVAILABLE");
+            requireThat(REF.test(payload.preview_token??"")&&
+              REF.test(payload.package_digest??"")&&
+              REF.test(payload.semantic_digest??"")&&
+              ["full","selective","merge","new-workspace","cancel"]
+                .includes(payload.mode),
+              "T3_D7_NATIVE_READBACK_REQUEST_INVALID");
+            const recipient=await d7Recipient(age);
+            const observed=await age.readbackInOriginalKernel({
+              recipientId:recipient.recipientId,
+              preview_token:payload.preview_token,
+              package_digest:payload.package_digest,
+              semantic_digest:payload.semantic_digest,mode:payload.mode,
+            });
+            requireThat(d7Same(recipient,await d7Recipient(age))&&
+              before===await epochNow()&&authenticated(req),
+              "T3_D7_ORIGINAL_NATIVE_RECIPIENT_CHANGED");
+            if(observed===null||observed===undefined||
+              observed.status==="OUTCOME_UNKNOWN"){
+              result={status:"OUTCOME_UNKNOWN"};
+            }else{
+              const receipt=observed.receipt;
+              requireThat(observed.status==="OWNER_READBACK_CONFIRMED"&&
+                observed.readbackVerified===true&&
+                observed.recipientId===recipient.recipientId&&
+                receipt?.format==="iwxa.import.receipt"&&
+                REF.test(receipt.import_id??"")&&
+                receipt.package_digest===payload.package_digest&&
+                receipt.semantic_digest===payload.semantic_digest&&
+                receipt.mode===payload.mode&&receipt.cancelled!==true&&
+                receipt.applied&&typeof receipt.applied==="object"&&
+                !Array.isArray(receipt.applied),
+                "T3_D7_NATIVE_KERNEL_READBACK_INVALID");
+              result={status:"OWNER_READBACK_CONFIRMED",
+                recipientId:recipient.recipientId,
+                receipt:d7Public(receipt,D7_IMPORT_RECEIPT_FIELDS)};
             }
           }else if(verb==="open"){
             // No automatic fallback from opaque native Kernel import into

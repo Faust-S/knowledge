@@ -419,7 +419,8 @@ test("D7 signed native age/Publisher roundtrip stays on original Control and nev
   try{
     const available=await f.browser.nativeD7Request("available");
     assert.deepEqual(available,{ageOpen:true,ageSeal:true,
-      ageNativeImport:false,publisher:true,maxArchiveBytes:32*1024*1024});
+      ageNativeImport:false,ageNativeReadback:false,
+      publisher:true,maxArchiveBytes:32*1024*1024});
     const recipient=await f.browser.nativeD7Request("age.currentRecipient");
     assert.deepEqual(recipient,{recipientId:"recipient:installed",
       bindingEpoch:"epoch:installed:one"});
@@ -668,6 +669,7 @@ test("D7 installed age verifies and previews original Kernel without returning d
   try{
     const availability=await f.browser.nativeD7Request("available");
     assert.equal(availability.ageNativeImport,true);
+    assert.equal(availability.ageNativeReadback,false);
     assert.equal(availability.ageOpen,true,"native import available without raw open");
     await assert.rejects(f.browser.nativeD7Request("age.open",{
       ciphertext:cipher,recipientId:"recipient:installed",
@@ -805,4 +807,61 @@ test("D7 installed native age preview accepts bounded >32 MiB encrypted carrier"
     assert.equal(result.handle.preview_token,"tok:large:one");
     assert.equal(previewCalls,1);
   }finally{stop();await f.close();}
+});
+
+test("D7 independent installed Kernel readback resolves lost import ACK without another ZIP or commit",async()=>{
+  let reads=0,commits=0,epoch="epoch:installed:one";
+  const receipt={
+    import_id:"import:native:persisted",format:"iwxa.import.receipt",
+    format_version:"1.0",package_digest:"digest:persisted",
+    semantic_digest:"semantic:persisted",mode:"new-workspace",
+    conflict_policy:"fail",committed_at:"2026-11-15T00:00:00Z",
+    applied:{workspaces:1,objects_inserted:1,objects_updated:0,
+      objects_skipped:0,events:0,relations:0,assets:0,
+      schemas_inserted:0,schemas_reused:0,schemas_rejected:0},
+    workspace_id_map:{"ws:source":"ws:restored"},
+    skipped_conflicts:[],excluded_by_permission:{},
+  };
+  const nativeD7PortFor=async()=>({ageOwner:{
+    currentRecipient:async()=>({recipientId:"recipient:installed",
+      bindingEpoch:epoch}),
+    previewInOriginalKernel:async()=>{throw Error("ZIP_NOT_REQUESTED");},
+    commitInOriginalKernel:async()=>{commits++;throw Error("NO_REIMPORT");},
+    cancelInOriginalKernel:async()=>true,
+    readbackInOriginalKernel:async input=>{
+      reads++;
+      assert.equal(input.recipientId,"recipient:installed");
+      if(input.preview_token!=="tok:persisted"||
+        input.package_digest!==receipt.package_digest||
+        input.semantic_digest!==receipt.semantic_digest)return {status:"OUTCOME_UNKNOWN"};
+      return {status:"OWNER_READBACK_CONFIRMED",readbackVerified:true,
+        recipientId:"recipient:installed",receipt,
+        sensitiveCredential:"NEVER_TO_WEB"};
+    },
+  },authorizeAgeImportCommit:async()=>false});
+  const create=()=>fixture({nativeD7PortFor});
+  const query={preview_token:"tok:persisted",
+    package_digest:receipt.package_digest,
+    semantic_digest:receipt.semantic_digest,mode:"new-workspace"};
+  const f=await create();const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
+  try{
+    assert.equal((await f.browser.nativeD7Request("available")).ageNativeReadback,true);
+    const found=await f.browser.nativeD7Request("age.readbackImport",query);
+    assert.equal(found.status,"OWNER_READBACK_CONFIRMED");
+    assert.equal(found.receipt.import_id,receipt.import_id);
+    assert.equal(Object.hasOwn(found,"sensitiveCredential"),false);
+    assert.equal((await f.browser.nativeD7Request("age.readbackImport",{
+      ...query,semantic_digest:"semantic:unknown",
+    })).status,"OUTCOME_UNKNOWN");
+    assert.equal(reads,2);assert.equal(commits,0);
+  }finally{stop();await f.close();}
+  // New Control process has NO preview claim. The original installed
+  // recipient still resolves persisted evidence without importCommit.
+  const cold=await create();const stopCold=cold.browser.subscribeSignedAccessInvalidation(()=>{});
+  try{
+    const result=await cold.browser.nativeD7Request("age.readbackImport",query);
+    assert.equal(result.status,"OWNER_READBACK_CONFIRMED");
+    assert.equal(result.receipt.package_digest,receipt.package_digest);
+    assert.equal(reads,3);assert.equal(commits,0);
+  }finally{stopCold();await cold.close();}
 });
