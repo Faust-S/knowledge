@@ -26,6 +26,75 @@ const SERVICE="iwxa.workspace.integration";
 const RUNTIME="0.3.6";
 const ARTIFACT="iwxa-kernel-k036-same-store-history-20261019-qualified.1";
 const sha=p=>createHash("sha256").update(readFileSync(p)).digest("hex");
+
+/**
+ * Test-only canonical construction of original T2 1.0 package semantics.
+ * A future-schema archive must pass BOTH integrity digests, otherwise an
+ * integrity rejection would mask the required real semantic warning.
+ * This is never used by runtime Exchange, Kernel or product import.
+ */
+const d4Digest=bytes=>createHash("sha256").update(bytes).digest("hex");
+function d4Canonical(value){
+  return JSON.stringify(value,(_key,part)=>{
+    if(!part||typeof part!=="object"||Array.isArray(part))return part;
+    return Object.fromEntries(Object.keys(part).sort()
+      .filter(key=>part[key]!==undefined).map(key=>[key,part[key]]));
+  });
+}
+function d4SemanticDigest(entries,options){
+  const index=new Map(entries.map(e=>[e.name,Buffer.from(e.bytes)]));
+  const read=name=>(index.get(name)?.toString("utf8")??"").split(/\r?\n/)
+    .filter(Boolean).map(line=>JSON.parse(line));
+  const lex=field=>(a,b)=>a[field].localeCompare(b[field]);
+  const workspaces=read("content/workspaces.ndjson").sort(lex("workspace_id"))
+    .map(w=>({workspace_id:w.workspace_id,profile:w.profile,
+      capabilities:[...w.capabilities].sort(),read_only:w.read_only??false}));
+  const objects=read("content/objects.ndjson").sort((a,b)=>
+    a.workspace_id.localeCompare(b.workspace_id)||
+    a.object_id.localeCompare(b.object_id)).map(o=>({
+      workspace_id:o.workspace_id,object_id:o.object_id,
+      schema_id:o.schema_id,schema_version:o.schema_version,
+      created_by_service:o.created_by_service,
+      updated_by_service:o.updated_by_service,
+      revision:o.revision,deleted:o.deleted??false,
+      data:o.data,extensions:o.extensions??{},
+    }));
+  const events=options.include_history?read("content/events.ndjson")
+    .filter(e=>e.event_type!=="iwxa.import.applied").sort((a,b)=>
+      a.workspace_id.localeCompare(b.workspace_id)||
+      a.occurred_at.localeCompare(b.occurred_at)||
+      a.event_id.localeCompare(b.event_id)).map(e=>({
+        event_id:e.event_id,event_type:e.event_type,
+        workspace_id:e.workspace_id,service_id:e.service_id,
+        object_id:e.object_id??null,revision:e.revision??null,
+        occurred_at:e.occurred_at,idempotency_key:e.idempotency_key??null,
+        payload:e.payload,
+      })): [];
+  const relations=options.include_relations?read("content/relations.ndjson")
+    .sort(lex("relation_id")).map(r=>({
+      relation_id:r.relation_id,workspace_id:r.workspace_id,
+      from_object_id:r.from_object_id,to_object_id:r.to_object_id,
+      kind:r.kind,
+    })): [];
+  const assets=options.include_assets?read("content/assets.ndjson")
+    .sort(lex("asset_id")).map(a=>({
+      asset_id:a.asset_id,workspace_id:a.workspace_id,
+      service_id:a.service_id,object_id:a.object_id??null,
+      mime:a.mime,size:a.size,
+      ...(a.sha256?{sha256:a.sha256}:{}),
+    })): [];
+  const schemas=options.include_schemas?[...index.keys()]
+    .filter(name=>/^schemas\/[^/]+\.json$/.test(name))
+    .map(name=>JSON.parse(index.get(name).toString("utf8")))
+    .sort((a,b)=>a.schema_id.localeCompare(b.schema_id)||
+      a.schema_version.localeCompare(b.schema_version))
+    .map(sc=>({schema_id:sc.schema_id,schema_version:sc.schema_version,
+      canonical_sha256:sc.canonical_sha256})): [];
+  return d4Digest(Buffer.from(d4Canonical({
+    workspaces,objects,events,relations,assets,schemas,
+  })));
+}
+
 function put(root,path,value){
   const full=join(root,path);
   mkdirSync(join(full,".."),{recursive:true});
@@ -327,6 +396,40 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       assert.ok(manifestEntry,"original T2 .iwxa must contain manifest.json");
       const manifest=JSON.parse(manifestEntry.bytes.toString("utf8"));
       assert.equal(manifest.format_version,"1.0");
+      // Unsupported but well-formed semantic data must reach the ORIGINAL
+      // schema analysis: never mask it with a mismatching ZIP/SHA digest.
+      assert.equal(d4SemanticDigest(originalEntries,manifest.options),
+        manifest.semantic_digest,"original semantic-digest fixture parity");
+      const unknownId="iwxa.unsupported.future";
+      const futureEntries=originalEntries.map(entry=>{
+        if(entry.name!=="content/objects.ndjson")return entry;
+        const rows=entry.bytes.toString("utf8").split(/\r?\n/)
+          .filter(Boolean).map(line=>JSON.parse(line));
+        rows[0].schema_id=unknownId;rows[0].schema_version="9.0.0";
+        return {name:entry.name,
+          bytes:Buffer.from(rows.map(d4Canonical).join("\n")+"\n")};
+      });
+      const futureMap=new Map(futureEntries.map(e=>[e.name,e.bytes]));
+      const fileRows=manifest.files.map(row=>{
+        const bytes=futureMap.get(row.path);
+        assert.ok(bytes,"original archive manifest lists an absent entry");
+        return {...row,size:bytes.byteLength,sha256:d4Digest(bytes)};
+      });
+      const futureManifest={...manifest,files:fileRows,
+        package_digest:d4Digest(Buffer.from(fileRows
+          .map(row=>row.path+"\t"+row.sha256+"\n").join(""))),
+        semantic_digest:d4SemanticDigest(futureEntries,manifest.options),
+      };
+      const futureSemantic=createStoredZip(futureEntries.map(entry=>
+        entry.name!=="manifest.json"?entry:{
+          name:entry.name,bytes:Buffer.from(JSON.stringify(futureManifest)),
+        }));
+      const unsupportedFormat=createStoredZip(originalEntries.map(entry=>
+        entry.name!=="manifest.json"?entry:{
+          name:entry.name,bytes:Buffer.from(JSON.stringify({
+            ...manifest,format:"iwxa.unsupported.future",
+          })),
+        }));
       const unsupportedVersion=createStoredZip(originalEntries.map(entry=>
         entry.name!=="manifest.json"?entry:{
           name:entry.name,bytes:Buffer.from(JSON.stringify({
@@ -338,6 +441,7 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
         bytes:Buffer.from('{"untrusted":true}',"utf8"),
       }]);
       const negativeCandidates=[
+        {kind:"unsupported-package-profile",bytes:[...unsupportedFormat]},
         {kind:"unsupported-version",bytes:[...unsupportedVersion]},
         {kind:"zip-path-traversal",bytes:[...traversal]},
       ];
@@ -370,6 +474,33 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       console.log("T3_D4_ORIGINAL_T2_UNSUPPORTED_VERSION_AND_TRAVERSAL_PASS",
         JSON.stringify({originalParser:true,negative:negative.outcomes,
           recipientStoreUnchanged:true}));
+      const semantic=await independent.evaluate(async({
+        SERVICE,workspace,object,bytes,unknownId,
+      })=>{
+        const original=await IWXA.connect({service_id:SERVICE});
+        const preview=await original.t2.importPreview(Uint8Array.from(bytes));
+        const missing=preview.preview.schemas?.some(row=>
+          row.schema_id===unknownId&&row.status==="missing");
+        const unsupported=preview.preview.unsupported?.some(row=>
+          row.kind==="unknown_schema"&&row.schema_id===unknownId);
+        const excluded=preview.preview.excluded_by_permission?.objects??0;
+        // Never commit an unsupported source object: the original parser
+        // explicitly reports the missing schema for Human Review/refusal.
+        await original.t2.importCancel(preview.preview_token);
+        const stored=await original.t1.getObject(workspace,object);
+        return {missing,unsupported,excluded,unchanged:stored==null};
+      },{SERVICE,workspace,object,bytes:[...futureSemantic],unknownId});
+      assert.equal(semantic.missing,true,
+        "the original Kernel must report missing future schema");
+      assert.equal(semantic.unsupported,true,
+        "unsupported semantic objects cannot be accepted silently");
+      assert.ok(semantic.excluded>=1,
+        "the original Kernel must exclude the unsupported source object");
+      assert.equal(semantic.unchanged,true,
+        "the recipient must remain untouched until a supported import");
+      console.log("T3_D4_ORIGINAL_T2_UNSUPPORTED_SEMANTIC_PREVIEW_PASS",
+        JSON.stringify({...semantic,originalKernel:"0.3.6",
+          independentRecipientStore:true,commitSkipped:true}));
       const raw=await independent.evaluate(async({SERVICE,workspace,object,
         linkedObject,bytes})=>{
         const original=await window.IWXA.connect({service_id:SERVICE});
