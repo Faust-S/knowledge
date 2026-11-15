@@ -11,6 +11,8 @@ on:
       - 'research/cross-lab/k05_agent06_otlp.py'
       - 'research/cross-lab/k05_agent06_owner_port.py'
       - 'research/cross-lab/k05_agent06_t3_process.mjs'
+      - 'research/cross-lab/k05_agent06_atlas_planning.mjs'
+      - 'research/cross-lab/tests/test_k05_agent06_atlas_planning.test.mjs'
       - 'research/cross-lab/tests/test_k05_agent06_t3_process.test.mjs'
       - 'research/cross-lab/tests/test_k05_agent06_owner_port.py'
       - 'research/cross-lab/tests/test_k05_agent06_effectiveness.py'
@@ -63,6 +65,22 @@ jobs:
         env:
           K05_T3_OWNER_ROOT: .t3-owner/packages/t3-core
         run: node --test research/cross-lab/tests/test_k05_agent06_t3_process.test.mjs
+      - name: Checkout public original Atlas planning owner, read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Atlas
+          ref: work/2026-11-14-atlas-0-8
+          path: .atlas-owner
+          persist-credentials: false
+      - name: Record actual original Atlas HEAD and TREE
+        run: |
+          test -f .atlas-owner/src/planning.mjs
+          echo "K05_ATLAS_OWNER_HEAD=$(git -C .atlas-owner rev-parse HEAD)"
+          echo "K05_ATLAS_OWNER_TREE=$(git -C .atlas-owner rev-parse 'HEAD^{tree}')"
+      - name: Atlas plan does not become actual ROI
+        env:
+          K05_ATLAS_OWNER_ROOT: .atlas-owner
+        run: node --test research/cross-lab/tests/test_k05_agent06_atlas_planning.test.mjs
       - name: No private input or external services
         run: |
           python - <<'PY'
