@@ -29,6 +29,9 @@ const DIGEST = /^[a-f0-9]{64}$/;
 // ERPNext uses names such as 'Sales Order'; these are provider type labels,
 // not signed T3 object identifiers. Whitespace is allowed here only.
 const KIND = /^[A-Za-z][A-Za-z0-9 _.-]{0,159}$/;
+// ERP revisions (e.g. Frappe modified) and status names contain spaces.
+// Unlike Workspace IDs they are data labels, never trusted scope selectors.
+const SOURCE_VALUE = /^[A-Za-z0-9][A-Za-z0-9 ._:/@+-]{0,159}$/;
 function deny(code, context) {
   throw Object.assign(new Error(code), {code, ...(context || {})});
 }
@@ -38,6 +41,10 @@ function requireId(value, code) {
 }
 function requireKind(value) {
   if (typeof value !== 'string' || !KIND.test(value)) deny('T3_EXT_KIND_INVALID');
+  return value;
+}
+function requireSourceValue(value, code) {
+  if (typeof value !== 'string' || !SOURCE_VALUE.test(value)) deny(code);
   return value;
 }
 function requireDigest(value) {
@@ -59,10 +66,10 @@ function normalizeSource(ownerId, reference, value) {
       value.record_id !== reference.record_id) deny('T3_EXT_SOURCE_IDENTITY_MISMATCH');
   return Object.freeze({
     source_owner: ownerId, record_kind: reference.record_kind, record_id: reference.record_id,
-    source_revision: requireId(value.source_revision, 'T3_EXT_SOURCE_REVISION_REQUIRED'),
+    source_revision: requireSourceValue(value.source_revision, 'T3_EXT_SOURCE_REVISION_REQUIRED'),
     source_digest: requireDigest(value.source_digest),
     source_receipt: requireId(value.source_receipt, 'T3_EXT_OWNER_RECEIPT_REQUIRED'),
-    source_state: requireId(value.source_state, 'T3_EXT_SOURCE_STATE_REQUIRED'),
+    source_state: requireSourceValue(value.source_state, 'T3_EXT_SOURCE_STATE_REQUIRED'),
     epistemic_status: 'reported', record_authority: 'EXTERNAL_OWNER',
   });
 }
