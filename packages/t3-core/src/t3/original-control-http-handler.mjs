@@ -141,6 +141,7 @@ export function createOriginalControlHttpHandler({
   origin,token,readToken=null,ownerFor,currentEpoch,subscribeInvalidation,
   uiOrigin=null,serviceId=null,assetForPath=null,
   reconciliationPortFor=null,nativeD7PortFor=null,nativeD6PortFor=null,
+  originalKernelRelayFor=null,
 }={}){
   requireThat(typeof origin==="string"&&LOCAL.test(origin)&&
     new URL(origin).origin===origin,"T3_D1_CONTROL_ORIGIN_REQUIRED");
@@ -163,6 +164,12 @@ export function createOriginalControlHttpHandler({
   // Nothing in this HTTP handler constructs a Reconciler or a second Ledger.
   requireThat(reconciliationPortFor===null||typeof reconciliationPortFor==="function",
     "T3_D3_ORIGINAL_RECIPIENT_PROVIDER_INVALID");
+  // Optional ORIGINAL Kernel realm relay for the SAME signed native D3
+  // owner. It transports already-authorized commands, not a browser grant,
+  // second Kernel, Store, Reconciler or independent HTTP listener.
+  requireThat(originalKernelRelayFor===null||
+    typeof originalKernelRelayFor==="function",
+    "T3_D3_ORIGINAL_KERNEL_RELAY_PROVIDER_INVALID");
   // The installed product injects its already-existing original native
   // owners. No public key custody, issuer, decision engine or OS API is built
   // here. A native age seal must independently obtain original signed D1
@@ -402,7 +409,8 @@ export function createOriginalControlHttpHandler({
         return true;
       }
       requireThat(route==="/api/t3/owner"||route==="/api/t3/reconciliation"||
-        route==="/api/t3/native-d7"||route==="/api/t3/native-d6",
+        route==="/api/t3/native-d7"||route==="/api/t3/native-d6"||
+        route==="/api/t3/original-kernel",
         "T3_D1_CONTROL_ROUTE_DENIED");
       requireThat(req.method==="POST"&&req.headers.origin===origin&&
         /^application\/json\b/i.test(req.headers["content-type"]??""),
@@ -412,8 +420,30 @@ export function createOriginalControlHttpHandler({
       requireThat(authenticated(req),"T3_D1_CONTROL_SESSION_ROTATED");
       requireThat(typeof requestEpoch==="string"&&
         requestEpoch===String(before),"STALE_CONTEXT_OPERATION");
-      const input=await bodyFrom(req,route==="/api/t3/reconciliation"
+      const input=await bodyFrom(req,
+        route==="/api/t3/reconciliation"||
+          route==="/api/t3/original-kernel"
         ?MAX_D3_BODY:route==="/api/t3/native-d7"?MAX_D7_BODY:MAX_BODY);
+      if(route==="/api/t3/original-kernel"){
+        // The compiled trusted Kernel realm is the ONLY client of this
+        // endpoint. Original Control epoch, signed bearer and exact Origin
+        // are checked before AND after dispatch; native owns the queue.
+        requireThat(originalKernelRelayFor!==null&&
+          ["attach","next","result","detach"].includes(input.verb)&&
+          input.payload&&typeof input.payload==="object"&&
+          !Array.isArray(input.payload),
+          "T3_D3_ORIGINAL_KERNEL_RELAY_NOT_AVAILABLE");
+        const relay=await originalKernelRelayFor({contextEpoch:before});
+        requireThat(relay&&typeof relay.exchange==="function",
+          "T3_D3_ORIGINAL_KERNEL_RELAY_NOT_AVAILABLE");
+        requireThat(before===await epochNow()&&authenticated(req),
+          "T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+        const result=await relay.exchange(input,before);
+        requireThat(before===await epochNow()&&authenticated(req),
+          "T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+        reply(res,200,{result});
+        return true;
+      }
       if(route==="/api/t3/native-d6"){
         requireThat(D6_VERBS.has(input.verb)&&input.payload&&
           typeof input.payload==="object"&&!Array.isArray(input.payload),
