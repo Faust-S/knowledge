@@ -130,7 +130,7 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
     if(verb==="receive"){
       const bytes=payload.bytes;
       check(bytes instanceof Uint8Array&&bytes.byteLength>0&&
-        bytes.byteLength<=16*1024*1024,
+        bytes.byteLength<=32*1024*1024,
         "T3_D3_ORIGINAL_IWXA_BYTES_REQUIRED");
       // Base64url is transport encoding only. Original .iwxa bytes are
       // decoded unchanged by the existing native recipient owner.
