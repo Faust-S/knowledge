@@ -436,3 +436,36 @@ export function createTrustedExternalProcessLink(options:{
   /** Read-only handoff to existing D6, never a new workflow or permission. */
   prepareContinuation(input:T3ExternalRecordReference):Promise<T3NativeContinuationReference>;
 }>;
+
+/** BPMN files are *proposed models*, never executed process observations. */
+export interface T3ExternalBpmnCandidate {
+  schema:"IWXA_T3_BPMN2_MODEL_CANDIDATE_V1";
+  status:"UNTRUSTED_MODEL_NOT_EXECUTED";
+  sourceTruth:false;derived:true;observed:false;requiresOwnerReview:true;
+  bpmnNamespace:string;processId:string;processName:string;
+  bpmnExecutableFlag:boolean;workspaceId:string|null;
+  activityIds:readonly string[];
+  tasks:readonly Readonly<{id:string;name:string;bpmn_type:string;
+    execution_status:"NOT_OBSERVED"}>[];
+  flowNodes:readonly Readonly<{id:string;bpmn_type:string}>[];
+  sequenceFlows:readonly Readonly<{id:string;from:string;to:string;
+    has_condition:boolean}>[];
+  flowOrderAuthority:"MODEL_ONLY_NOT_OBSERVED";
+}
+export function inspectExternalBpmn2Model(options:{
+  xml:string;processId?:string|null;workspaceId?:string|null;
+  DOMParser?:new()=>{parseFromString(input:string,type:string):Document};
+}):T3ExternalBpmnCandidate;
+export function compareExternalBpmn2ToProcessDefinition(input:{
+  candidate:T3ExternalBpmnCandidate;
+  definition:{schema:"IWXA_T2_PROCESS_DEFINITION_V1";objectKind:"processDefinition";
+    workspaceId:string;definitionId:string;versionId:string;
+    sourceTruth:true;activityIds:readonly string[]};
+}):Readonly<{
+  schema:"IWXA_T3_BPMN2_MODEL_MATCH_V1";
+  candidate_status:"UNTRUSTED_MODEL_NOT_EXECUTED";
+  processDefinitionId:string;processDefinitionVersion:string;bpmnProcessId:string;
+  status:"TASK_IDS_MATCH"|"REVIEW_MAPPING";
+  missingTaskIds:readonly string[];extraTaskIds:readonly string[];
+  executionObserved:false;conformance:"NOT_EVALUATED";
+}>;

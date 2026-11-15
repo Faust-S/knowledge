@@ -82,3 +82,7 @@ export {
   EXTERNAL_PROCESS_LINK_DECLARATION, EXTERNAL_PROCESS_LINK_PASSPORT,
   createTrustedExternalProcessLink,
 } from './external-process-link.mjs';
+
+// BPMN 2.0 is inspected as a NONEXECUTABLE untrusted model only.
+export { inspectExternalBpmn2Model, compareExternalBpmn2ToProcessDefinition }
+  from './external-bpmn-model.mjs';
