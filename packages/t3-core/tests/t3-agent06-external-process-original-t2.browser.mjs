@@ -279,7 +279,7 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
     // capability. Recovery and D6 source preparation must remain available
     // even after the unrelated writing grant has been revoked.
     const reader=createTemporaryOriginalPersonalAuthority({
-      workspaceId:ws,now:Date.now(),clock:Date.now(),
+      workspaceId:ws,now:Date.now(),clock:Date.now,
       operations:['t1.getWorkspace','t1.getObject']});
     let wronglyUsedWriteOwner=0;
     const readonlyPort=createTrustedExternalProcessLink({
