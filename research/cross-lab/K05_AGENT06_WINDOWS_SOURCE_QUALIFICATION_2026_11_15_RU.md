@@ -80,3 +80,15 @@ Next practical owner workflow:
 - Приватность: публичный Center временно использовал разрешённый read-only доступ к точной приватной ревизии; public artifacts 0, private GitHub Actions 0; приватные логи, исходники, модельные ответы и пользовательские файлы не опубликованы.
 
 **Границы приёмки:** `AGENT06_K05_PACKAGE_COLD_PYTHON=PASS`; `AGENT06_K05_INSTALLED_TAURI_GUI=NOT_TESTED`; `TWO_REAL_LLM_EXECUTORS=NOT_TESTED`; `ACTUAL_BUSINESS_ROI=NOT_MEASURABLE`; `PRODUCT_ACCEPTED=false`. Это источник и упаковка, а не установленный GUI и не доказанный экономический выигрыш. Следующий этап: установленный Setup Core/Windows GUI, две реальные модели, независимое качество и фактические invoices/domain receipts.
+
+## Дополнение: Native UIA и Center Setup Core без вспомогательного установщика
+
+- Private Agent исходный CODE SHA `5a9f264a91a30cdbf870acf5a139ebf94f0d9bc8`; отдельная ветка `work/2026-11-15-agent06-k05-installed-package`.
+- [Public Center source Windows CI #43744525342](https://github.com/Faust-S/Center/actions/runs/43744525342) **SUCCESS**: 62/62 original-owner Python, UI Node-tests PASS, TypeScript/Vite PASS, K05 product ZIP tests 7/7 PASS, cold extracted-core 1/1 PASS, 0 SKIP. Windows PowerShell parser принял исходный native UIA сценарий и оба штатных сценария сборки.
+- Исправлена граница Workspace в Interaction Surface: исходное сравнение двух принятых Task, если пользователь сменил Workspace, выдаёт `INVALID_QUERY` / 409, без оригинального Task ID в публичной ошибке.
+- В исходный `tools/qualify_setup_core_native_gui.ps1` добавлен UIA-mode `k05-compare`. Он предусмотрен для явного выбора исходных двух Task и readback результата из Tauri; **сам режим ещё не исполнялся в установленном GUI**.
+- Для конечного Center Setup Core добавлен режим `-ProductPackageOnly` в штатном нативном сборщике: не компилируется вспомогательный Setup stub, финальный Setup Core получает оригинальный ZIP с K05.
+- Новый public Windows installed workflow [#43744525450](https://github.com/Faust-S/Center/actions/runs/43744525450) отправлен для настоящей компиляции Tauri, Setup Core и установленной квалификации, но **на момент записи результата ещё нет**. Этот прогон нельзя засчитывать как PASS.
+- Public source CI artifacts = **0**; private Actions на кодовом SHA = **0**; прочие приватные файлы, полные логи и исполняемые артефакты в общедоступные материалы не публиковались.
+
+**Статус:** `K05_SOURCE_WINDOWS=PASS`; `K05_PACKAGE_COLD_CORE=PASS`; `K05_NATIVE_SETUP_CORE=IN_PROGRESS_NOT_ACCEPTED`; `K05_INSTALLED_UI_PAIR=NOT_TESTED`; `REAL_MODEL_CAUSAL_EFFECT=NOT_MEASURABLE`; `PRODUCT_ACCEPTED=false`.
