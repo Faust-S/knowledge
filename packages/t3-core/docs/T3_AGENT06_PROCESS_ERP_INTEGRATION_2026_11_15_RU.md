@@ -209,3 +209,14 @@ UI-подсказка Agent/CehoVod: «Сохранена ссылка на за
 При отсутствующем/ошибочном доменном readback результат **`DOMAIN_RESULT_UNVERIFIED`**, `owner_action_confirmed=true`, `domain_result_confirmed=false`, `can_retry=false`; это не команда повторить n8n/ERP и не успешный CehoVod Result. Только после совпадения двух независимых владельцев возвращается `DOMAIN_RESULT_READBACK_CONFIRMED`. Отсутствие самого native receipt остаётся `OUTCOME_UNKNOWN`. Статус `DOMAIN_RESULT_READBACK_CONFIRMED` подтверждает договор доверенных read-only owner ports, а не установленный production ERPNext; до реального CehoVod Host и пользователя `CEHOVOD_RESULT=NOT_ACCEPTED`.
 
 В тестовом source-fixture callback `verifySaved` эмулирует контракт настоящего CehoVod verifier, поэтому квалификация новых правил **не** является испытанием настоящего доменного Result. Позднее отдельный Agent/CehoVod integrator должен подать оригинальные сохранённые `KernelPlanFactRow[]` в `verifyStoredFinalPlanFact`, передать в D6 только нормализованный proof и выполнить readback после двух cold opens, включая дубли и ошибочную ревизию. Никакой новый Store/Task Engine/Process Engine, IAM или private Action не создаётся.
+
+## Оригинальный T2 Host: проверка двух владельцев на источнике D6
+
+Адресный тест `tests/t3-agent06-external-process-original-t2.browser.mjs` дополнительно выполнит следующую цепочку на оригинальном T2 Kernel 0.3.6 с настоящими подписанными D1 reads:
+
+1. n8n `ACKNOWLEDGED` без durable receipt → `OUTCOME_UNKNOWN`, `verifySaved` не вызывается;
+2. после появления native `receipt(COMMITTED)/readback(PERSISTED)`, но до доказательства CehoVod Result → `DOMAIN_RESULT_UNVERIFIED` + `can_retry=false`;
+3. при тестовом `verifySaved`, дополнительно читающем актуальный original T2 source Object через signed D1, → `DOMAIN_RESULT_READBACK_CONFIRMED`;
+4. после холодного browser Host reopen / новой D1 подписи повторный независимый readback возвращает тот же статус, `n8n` dispatch остаётся единственным.
+
+Важное ограничение: в этом публичном CI `resultOwner.verifySaved` - **контрактный double**, поскольку канонический `Faust-S/cehovod` приватный и не переносится в публичную `knowledge`. `syntheticDomainOwner=true` в CI логе. Никакой демонстрационный Result не объявлять настоящим; только отдельная подключенная установка CehoVod с его исходным `verifyStoredFinalPlanFact` может закрыть `CEHOVOD_RESULT`.

@@ -364,13 +364,14 @@ test('D6 refuses mismatched production order, revision or source after receipt',
     confirmHuman:async()=>true,isHostActive:()=>true,
   });
   assert.equal((await host().recover(ref)).status,'DOMAIN_RESULT_UNVERIFIED');
-  resultOwner.verifySaved=async()=>({...await (async()=>({
+  resultOwner.verifySaved=async()=>({
     status:'ORIGINAL_DOMAIN_RESULT_VERIFIED',ownerId:'cehovod:shop1',
     orderRef:'po:42',resultType:'plan-fact-analysis',
     resultRef:'cehovod:pf:42',operationId:'n8n:42',
     recipientId:'agent:n8n',workspaceId:'ws:cehovod',
     sourceReference:ref,canonicalVerified:true,stage:'final',
-  }))(),resultRevision:0});
+    resultRevision:0,
+  });
   assert.equal((await host().recover(ref)).status,'DOMAIN_RESULT_UNVERIFIED');
   resultOwner.verifySaved=async()=>({
     status:'ORIGINAL_DOMAIN_RESULT_VERIFIED',ownerId:'cehovod:shop1',

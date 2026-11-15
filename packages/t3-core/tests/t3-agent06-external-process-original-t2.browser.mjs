@@ -319,7 +319,8 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
 
     // Existing D6, no workflow engine: HTTP ACK cannot become a native
     // durable result; a new Host can only recover via the native owner.
-    let sends=0;
+    let sends=0,nativeReceipt=null,canonicalResultAvailable=false;
+    let canonicalReads=0,resultKernel=liveKernel,resultAccess=signed.access;
     const nativeOwner={
       recipientId:'agent:n8n',
       inspect:({reference,recipientId})=>({
@@ -327,16 +328,55 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
         operationId:'n8n:SO-0042',recipientId,reference}),
       receive:async()=>{sends++;return {
         external_effect_state:'ACKNOWLEDGED',request_id:'transport:ack-only'};},
-      receipt:async()=>null,readback:async()=>null,
+      receipt:async()=>nativeReceipt,
+      readback:async()=>nativeReceipt?{...nativeReceipt,state:'PERSISTED'}:null,
+    };
+    // Synthetic CehoVod recipient boundary used ONLY to qualify D6 with
+    // the ACTUAL original T2 signed source. No real CehoVod Result is issued.
+    const resultOwner={
+      ownerId:'cehovod:shop1',resultType:'plan-fact-analysis',
+      orderRef:'po:fixture-42',
+      async verifySaved({resultRef,operationId,recipientId,sourceReference}){
+        canonicalReads++;
+        const verifiedRead=createSubjectKernelBinding({
+          kernel:resultKernel,access:resultAccess});
+        const saved=await verifiedRead.getObject(ws,sourceReference.object_id);
+        assert.equal(saved.object.revision,sourceReference.revision);
+        if(!canonicalResultAvailable)return null;
+        return {status:'ORIGINAL_DOMAIN_RESULT_VERIFIED',
+          ownerId:'cehovod:shop1',resultType:'plan-fact-analysis',
+          orderRef:'po:fixture-42',resultRef,operationId,recipientId,
+          workspaceId:ws,sourceReference,stage:'final',
+          canonicalVerified:true,resultRevision:1};
+      },
     };
     const d6=()=>createTrustedNativeContinuation({
       kernel:liveKernel,accessForRead:async()=>signed.access,
-      currentWorkspace,nativeOwner,confirmHuman:async()=>true,
+      currentWorkspace,nativeOwner,resultOwner,confirmHuman:async()=>true,
       isHostActive:()=>true,
     });
     assert.equal((await d6().continueSelected(currentD6Ref)).status,'OUTCOME_UNKNOWN');
     assert.equal((await d6().continueSelected(currentD6Ref)).status,'OUTCOME_UNKNOWN');
     assert.equal(sends,1);
+    assert.equal(canonicalReads,0);
+    nativeReceipt={operationId:'n8n:SO-0042',recipientId:'agent:n8n',
+      reference:currentD6Ref,state:'COMMITTED',resultRef:'cehovod:pf:fixture-42'};
+    const pendingDomain=await d6().recover(currentD6Ref);
+    assert.equal(pendingDomain.status,'DOMAIN_RESULT_UNVERIFIED');
+    assert.equal(pendingDomain.owner_action_confirmed,true);
+    assert.equal(pendingDomain.domain_result_confirmed,false);
+    assert.equal(pendingDomain.can_retry,false);
+    canonicalResultAvailable=true;
+    const domainProof=await d6().recover(currentD6Ref);
+    assert.equal(domainProof.status,'DOMAIN_RESULT_READBACK_CONFIRMED');
+    assert.equal(domainProof.resultRef,'cehovod:pf:fixture-42');
+    assert.equal(domainProof.orderRef,'po:fixture-42');
+    assert.equal(domainProof.resultRevision,1);
+    assert.equal(sends,1);
+    console.log('T3_AGENT06_D6_TWO_OWNER_CONTRACT_PASS',
+      JSON.stringify({originalKernel:true,signedD1:true,
+        syntheticDomainOwner:true,externalDispatches:sends,
+        domainProofs:canonicalReads,domainResultInCehoVod:false}));
     console.log('T3_AGENT06_SIGNED_D1_REAL_KERNEL_PROCESS_PASS',
       JSON.stringify({contract:'1.3.0',kernel:'0.3.6',
         signedProofs:signed.proofCount,
@@ -362,6 +402,16 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
     const coldKernel=await browserOriginalKernel(page);
     const coldSigned=createTemporaryOriginalPersonalAuthority({
       workspaceId:ws,now:Date.now(),clock:Date.now,operations:ops});
+    resultKernel=coldKernel;resultAccess=coldSigned.access;
+    const afterCold=createTrustedNativeContinuation({
+      kernel:coldKernel,accessForRead:async()=>coldSigned.access,
+      currentWorkspace,nativeOwner,resultOwner,confirmHuman:async()=>true,
+      isHostActive:()=>true,
+    });
+    const coldDomainProof=await afterCold.recover(currentD6Ref);
+    assert.equal(coldDomainProof.status,'DOMAIN_RESULT_READBACK_CONFIRMED');
+    assert.equal(coldDomainProof.resultRef,'cehovod:pf:fixture-42');
+    assert.equal(sends,1);
     const coldPort=makePort(coldKernel,coldSigned.access);
     const coldRecovered=await coldPort.recover(externalRef);
     assert.equal(coldRecovered.status,'LINK_PERSISTED');
