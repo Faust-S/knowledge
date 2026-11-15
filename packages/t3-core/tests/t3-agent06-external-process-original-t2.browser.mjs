@@ -23,6 +23,8 @@ import {readActivityFromT2Host}
   from '../src/t3/activity/kernel-reader.mjs';
 import {createTrustedNativeContinuation}
   from '../src/t3/native-result-continuation.mjs';
+import {normalizeErpNextSalesOrderRead}
+  from '../src/t3/external-erpnext-source.mjs';
 
 const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const ARTIFACT='iwxa-kernel-k036-same-store-history-20261019-qualified.1';
@@ -506,6 +508,64 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
       JSON.stringify({revision:coldRecovered.revision,
         signedProofs:coldSigned.proofCount,
         sourceOwner:'erpnext:shop1',executedExternalERP:false}));
+    // Exercise the REAL source normalizer against the ORIGINAL signed T2
+    // Kernel. The HTTP response is a controlled Frappe-shaped fixture:
+    // this is contract qualification, NOT a live ERPNext account operation.
+    const erpResponse={data:{
+      doctype:'Sales Order',name:'SO-0043',
+      modified:'2026-11-15 13:20:00.1000',
+      status:'To Deliver and Bill',docstatus:1,
+      customer:'Confidential ERPNext customer',
+      items:[{item_code:'SKU-001',qty:2,rate:1200}],
+    }};
+    const erpRef={expected_workspace_id:ws,record_kind:'Sales Order',
+      record_id:'SO-0043'};
+    const erpOwner={
+      ownerId:'erpnext:shop1',
+      readExact:async({record_kind,record_id})=>{
+        assert.equal(record_kind,'Sales Order');
+        return normalizeErpNextSalesOrderRead({
+          ownerId:'erpnext:shop1',expectedRecordId:record_id,
+          response:erpResponse,
+        });
+      },
+    };
+    const erpPort=createTrustedExternalProcessLink({
+      kernel:coldKernel,currentWorkspace,externalOwner:erpOwner,
+      accessForWrite:async()=>coldSigned.access,
+      accessForRead:async()=>coldSigned.access,
+      confirmHuman:async()=>true,isHostActive:()=>true,
+    });
+    const erpLinked=await erpPort.link(erpRef);
+    assert.equal(erpLinked.status,'LINK_PERSISTED');
+    assert.equal(erpLinked.revision,1);
+    const storedErp=await coldKernel.getObject(ws,erpLinked.object_id);
+    assert.equal(storedErp.object.data.record_id,'SO-0043');
+    assert.equal(storedErp.object.data.source_receipt,null);
+    assert.equal(storedErp.object.data.epistemic_status,'reported');
+    assert.equal(JSON.stringify(storedErp.object).includes(
+      'Confidential ERPNext customer'),false);
+    assert.equal(JSON.stringify(storedErp.object).includes('SKU-001'),false);
+    const digestBefore=storedErp.object.data.source_digest;
+    // Same Frappe modified, but changed item: do not allow unstable source.
+    erpResponse.data.items[0].qty=3;
+    await assert.rejects(erpPort.refresh(erpRef),
+      {code:'T3_EXT_SOURCE_REVISION_NOT_STABLE'});
+    // Original owner now provides a newer exact revision. User consent and
+    // ORIGINAL Kernel CAS keep the linked source conservative.
+    erpResponse.data.modified='2026-11-15 13:21:00.2000';
+    const erpUpdated=await erpPort.refresh(erpRef);
+    assert.equal(erpUpdated.status,'LINK_PERSISTED');
+    assert.equal(erpUpdated.revision,2);
+    const finalErp=await coldKernel.getObject(ws,erpLinked.object_id);
+    assert.notEqual(finalErp.object.data.source_digest,digestBefore);
+    assert.equal(finalErp.object.data.source_revision,
+      '2026-11-15 13:21:00.2000');
+    assert.equal((await erpPort.prepareContinuation(erpRef)).revision,2);
+    console.log('T3_AGENT06_ERPNext_REST_ORIGINAL_KERNEL_PASS',
+      JSON.stringify({kernel:'0.3.6',signedD1:true,
+        sourceOwner:'erpnext:shop1',revision:2,
+        customerPersisted:false,liveErpNext:false}));
     console.log('T3_AGENT06_ORIGINAL_T2_ERP_LINK_PASSPORT_COLD_PASS',
       JSON.stringify({kernel:'0.3.6',contract:'1.3.0',
         revision:reopened.revision,originalEventCount:5,
