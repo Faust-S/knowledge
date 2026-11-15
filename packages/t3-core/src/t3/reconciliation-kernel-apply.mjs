@@ -125,16 +125,8 @@ export function createTrustedReconciliationKernelApply({
       kernel.hasOperation("t1.getObject")&&
       kernel.hasOperation("t1.listEventsSince"),
       "T3_D3_ORIGINAL_KERNEL_GRANT_REQUIRED");
-    // Independent, explicit APPLY approval is not the earlier ACCEPT.
-    const approval=await confirmSeparateApply({
-      acceptanceId,revisionIds:[...revisionIds],target:copy(chosen,"T3_D3_APPLICATION_TARGET_INVALID"),
-      effectKey:binding.effectKey,operation:copy(binding.operation,"T3_D3_OPERATION_NOT_CLONEABLE"),
-      context:copy(c,"T3_D3_APPLY_CONTEXT_INVALID"),
-    });
-    check(approval===true,"T3_D3_SEPARATE_HUMAN_APPLY_REQUIRED");
-    await unchanged(c);
     // D1 signed authorization is asynchronous. Revocation of the Host or
-    // Reconciliation source during that JIT must prevent original writes.
+    // Reconciliation source during JIT must prevent original writes.
     // Distinguish definite pre-dispatch denials from lost post-write ACKs.
     let kernelWriteEntered=false;
     const signedKernel=createSubjectKernelBinding({
@@ -143,13 +135,28 @@ export function createTrustedReconciliationKernelApply({
       onCommitObjectGraphDispatch:()=>{kernelWriteEntered=true;},
     });
     // The original T2 graph cannot create its destination Workspace.
-    // Check the exact signed Workspace before the irreversible Kernel call:
-    // a missing first-install target is a definite prerequisite failure,
-    // NOT an uncertain commit and NEVER grounds an automatic retry.
-    const workspace=await signedKernel.getWorkspace(c.workspace_id);
+    // Check it BEFORE consuming the separate Human APPLY decision. On a
+    // fresh install, a missing Workspace must prompt its independent
+    // signed creation, not consume a decision or issue a graph write.
+    let workspace;
+    try { workspace=await signedKernel.getWorkspace(c.workspace_id); }
+    catch(error){
+      if(error?.code==="WORKSPACE_NOT_FOUND")
+        deny("T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED");
+      throw error; // Revocation/permission denial is not missing storage.
+    }
     check(workspace!==null,"T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED");
     check(!workspace.deleted_at,"T3_D3_ORIGINAL_WORKSPACE_DELETED");
     check(workspace.read_only!==true,"T3_D3_ORIGINAL_WORKSPACE_READ_ONLY");
+    await unchanged(c);
+    // Independent, explicit APPLY approval is NOT the preceding ACCEPT.
+    // Read-only preflight cannot authorize the original Kernel graph write.
+    const approval=await confirmSeparateApply({
+      acceptanceId,revisionIds:[...revisionIds],target:copy(chosen,"T3_D3_APPLICATION_TARGET_INVALID"),
+      effectKey:binding.effectKey,operation:copy(binding.operation,"T3_D3_OPERATION_NOT_CLONEABLE"),
+      context:copy(c,"T3_D3_APPLY_CONTEXT_INVALID"),
+    });
+    check(approval===true,"T3_D3_SEPARATE_HUMAN_APPLY_REQUIRED");
     await unchanged(c);
     let receipt;
     try {

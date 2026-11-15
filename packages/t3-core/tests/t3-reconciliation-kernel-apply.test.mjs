@@ -12,6 +12,7 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   let sourceCurrent=true,revokeDuringJit=false,stopHostDuringJit=false;
   let changePurposeDuringHumanApply=false;
   let signedJitCount=0,preconditionCount=0,workspaceReady=true;
+  let workspaceReadError=null,applyPrompts=0;
   const context={kind:"CORP",context_id:"ctx:a",actor_id:"person:a",
     principal_id:"org:a",organization_id:"org:a",role_id:"role:admin",
     grant_id:"grant:a",realm_id:"realm:a",audience:"host:t3",
@@ -66,7 +67,11 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
     kernel:{
       sessionInfo:{contract_version:"1.3.0"},
       hasOperation:()=>true,
-      getWorkspace:async ws=>workspaceReady?{workspace_id:ws,read_only:false}:null,
+      getWorkspace:async ws=>{
+        if(workspaceReadError)throw Object.assign(
+          Error(workspaceReadError),{code:workspaceReadError});
+        return workspaceReady?{workspace_id:ws,read_only:false}:null;
+      },
       commitObjectGraph:async input=>{
         commits++;written=structuredClone(input);
         lastEvent={event_id:"evt:a",event_type:input.event.event_type,
@@ -106,6 +111,7 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
       actorId:"person:a",principalId:"org:a",roleId:"role:admin",
       grantId:"grant:a",operationDigest:"e".repeat(64)}}),
     confirmSeparateApply:()=>{
+      applyPrompts++;
       if(changePurposeDuringHumanApply)context.purpose="changed-purpose";
       return approves;
     },isHostActive:()=>active,
@@ -141,9 +147,22 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   getObjectErrorCode=null;
   approves=true;
   workspaceReady=false;
+  const beforeMissing=applyPrompts;
   await assert.rejects(port.applyAccepted(selection),
     {code:"T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED"});
+  assert.equal(applyPrompts,beforeMissing,
+    "no Human APPLY decision is consumed before Workspace provisioning");
+  workspaceReadError="WORKSPACE_NOT_FOUND";
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED"});
+  assert.equal(applyPrompts,beforeMissing,
+    "typed original missing Workspace also precedes Human APPLY");
+  workspaceReadError="PERMISSION_DENIED";
+  await assert.rejects(port.applyAccepted(selection),{code:"PERMISSION_DENIED"});
+  assert.equal(applyPrompts,beforeMissing,
+    "signed authorization denial cannot become a Human APPLY decision");
   assert.equal(commits,0,"missing original Workspace must never dispatch Apply");
+  workspaceReadError=null;
   workspaceReady=true;
   const result=await port.applyAccepted(selection);
   assert.equal(result.kernelWriteReadback,"CONFIRMED");
