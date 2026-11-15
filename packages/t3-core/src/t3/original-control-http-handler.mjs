@@ -345,9 +345,10 @@ export function createOriginalControlHttpHandler({
             requireThat(REF.test(payload.workspaceId??"")&&
               HEX.test(payload.archiveSha256??"")&&
               payload.archiveSha256===d7Digest(bytes)&&
-              Array.isArray(payload.recipientIds)&&payload.recipientIds.length===2&&
+              Array.isArray(payload.recipientIds)&&
+              payload.recipientIds.length>=2&&payload.recipientIds.length<=16&&
               payload.recipientIds.every(x=>typeof x==="string"&&REF.test(x))&&
-              payload.recipientIds[0]!==payload.recipientIds[1],
+              new Set(payload.recipientIds).size===payload.recipientIds.length,
               "T3_D7_NATIVE_EXPORT_REQUEST_INVALID");
             // This is the ORIGINAL native Host's signed D1 JIT and Human
             // confirmation, not a web-provided allow flag.

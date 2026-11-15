@@ -398,6 +398,15 @@ test("D7 signed native age/Publisher roundtrip stays on original Control and nev
     assert.deepEqual([...encrypted.ciphertext],[...originalAge]);
     assert.equal(exportApprovals,1);
     assert.equal(ageSealCount,1);
+    // Original native age and the existing D7 port both support 2..16
+    // distinct trusted recipients, not just the two qualification roots.
+    const multi=await f.browser.nativeD7Request("age.seal",{
+      archiveBytes:archive,archiveSha256:sha(archive),
+      recipientIds:["recipient:installed","recipient:independent",
+        "recipient:third"],workspaceId:"ws:personal",
+    });
+    assert.equal(multi.recipientIds.length,3);
+    assert.equal(ageSealCount,2);
     const opened=await f.browser.nativeD7Request("age.open",{
       ciphertext:originalAge,recipientId:"recipient:installed",
     });
