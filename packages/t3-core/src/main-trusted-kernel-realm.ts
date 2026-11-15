@@ -61,7 +61,10 @@ async function attachOriginalNativeKernelRelay(
     runtime_version:session.runtime_version,
     service_id:session.service?.service_id??"",
     mode:session.mode??"unknown",
-    granted_operations:[...(session.granted_operations??[])],
+    // The original T2 runtime can declare an operation but lack its real
+    // method. The inherited KernelFacade negotiates both before exposing it:
+    // never advertise native APPLY for a grant-only declaration.
+    granted_operations:[...plain.grantedOperations],
   };
   let connected:{sessionId:string;contextEpoch:number}|null=null;
   try{
