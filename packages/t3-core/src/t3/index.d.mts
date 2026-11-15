@@ -512,3 +512,23 @@ export function compareExternalBpmn2ToProcessDefinition(input:{
   missingTaskIds:readonly string[];extraTaskIds:readonly string[];
   executionObserved:false;conformance:"NOT_EVALUATED";
 }>;
+
+/** Trust-boundary input for Frappe v1:
+ * GET /api/resource/Sales%20Order/{encoded exact record name}.
+ * Transport, credentials, write authorization and remote CAS remain owned
+ * by the installed Agent/ERPNext account, not by this source normalizer. */
+export interface T3ErpNextSalesOrderSource {
+  readonly source_owner:string;
+  readonly record_kind:"Sales Order";
+  readonly record_id:string;
+  readonly source_revision:string;
+  readonly source_digest:string;
+  readonly source_receipt:null;
+  readonly source_state:string;
+  readonly epistemic_status:"reported";
+  readonly record_authority:"EXTERNAL_OWNER";
+}
+export function normalizeErpNextSalesOrderRead(input:{
+  ownerId:string;expectedRecordId:string;
+  response:{data:Record<string,unknown>};
+}):Promise<T3ErpNextSalesOrderSource>;

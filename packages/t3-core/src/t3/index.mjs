@@ -86,3 +86,6 @@ export {
 // BPMN 2.0 is inspected as a NONEXECUTABLE untrusted model only.
 export { inspectExternalBpmn2Model, compareExternalBpmn2ToProcessDefinition }
   from './external-bpmn-model.mjs';
+
+// ERPNext REST response is normalized, never executed or stored here.
+export {normalizeErpNextSalesOrderRead} from './external-erpnext-source.mjs';
