@@ -214,6 +214,48 @@ export function createOriginalControlHttpHandler({
   // dispatch after a lost reply, without replacing native durable receipts.
   const nativeD6InFlight=new Set();
   const nativeD6Attempted=new Set();
+  // D3 may reconstruct the ORIGINAL recipient port for each HTTP request.
+  // Protect the SAME Host lifetime against racing decisions and Apply writes
+  // (including lost ACK). Durable receipts remain ONLY with the original
+  // Reconciler/Kernel, accessible via receipt() and recoverApplied().
+  const nativeD3InFlight=new Set();
+  const nativeD3Attempted=new Set();
+  const d3WriteKey=(verb,payload,epoch)=>{
+    if(verb==="accept"||verb==="reject"){
+      requireThat(REF.test(payload.operationId??"")&&
+        HEX.test(payload.packageSha256??""),
+        "T3_D3_RECIPIENT_REQUEST_INVALID");
+      // ACCEPT and REJECT must not race for the SAME original decision ID.
+      return JSON.stringify([epoch,"decision",payload.operationId]);
+    }
+    if(verb!=="applyAccepted")return null;
+    const revisions=payload.revisionIds;
+    const target=payload.target;
+    requireThat(HEX.test(payload.acceptanceId??"")&&
+      Array.isArray(revisions)&&revisions.length>0&&revisions.length<=32&&
+      revisions.every(x=>HEX.test(x))&&
+      new Set(revisions).size===revisions.length&&
+      target&&typeof target==="object"&&!Array.isArray(target)&&
+      ["consumerId","processId","processVersion","purpose","subjectId",
+        "workspaceId","dataRootId"].every(x=>REF.test(target[x]??"")),
+      "T3_D3_APPLICATION_SELECTION_REQUIRED");
+    // The ORIGINAL owner binds these to its sealed effect key. The public
+    // claim merely prevents a duplicate dispatch of the same selection.
+    return JSON.stringify([epoch,"apply",payload.acceptanceId,
+      [...revisions].sort(),["consumerId","processId","processVersion",
+        "purpose","subjectId","workspaceId","dataRootId"].map(x=>target[x])]);
+  };
+  const d3DefinitelyNotDispatched=(verb,code)=>
+    (verb==="accept"||verb==="reject")
+      ?["T3_D3_HUMAN_REVIEW_REQUIRED","T3_D3_PREVIEW_STALE",
+        "T3_D3_ORIGINAL_ACCEPTANCE_NOT_ELIGIBLE",
+        "T3_D3_DECISION_ACTOR_MISMATCH","T3_D3_EXPLICIT_DECISION_REQUIRED"]
+          .includes(code)
+      :verb==="applyAccepted"&&
+        ["T3_D3_SEPARATE_HUMAN_APPLY_REQUIRED",
+         "T3_D3_ORIGINAL_SEALED_APPLICATION_REQUIRED",
+         "T3_D3_ORIGINAL_GRAPH_PROVENANCE_REQUIRED",
+         "T3_D3_ORIGINAL_APPLICATION_TARGET_INCOMPLETE"].includes(code);
   // The original installed Host may rotate its ephemeral bearer whenever
   // its existing signed subject session changes. This is a transient
   // transport credential only, NEVER a grant, issuer or AccessRegistry.
@@ -935,7 +977,17 @@ export function createOriginalControlHttpHandler({
         }
         requireThat(available,"T3_D3_ORIGINAL_RECIPIENT_UNAVAILABLE");
         const payload=input.payload;
+        const d3Key=d3WriteKey(input.verb,payload,before);
+        if(d3Key!==null){
+          requireThat(!nativeD3InFlight.has(d3Key)&&
+            !nativeD3Attempted.has(d3Key),
+            "T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN");
+          // Claim before the first asynchronous Human/owner/Kernel call.
+          nativeD3InFlight.add(d3Key);
+          nativeD3Attempted.add(d3Key);
+        }
         let result;
+        try{
         if(input.verb==="receive"){
           const encoded=payload.archiveBase64url;
           requireThat(typeof encoded==="string"&&
@@ -963,6 +1015,17 @@ export function createOriginalControlHttpHandler({
           requireThat(typeof port.applyAccepted==="function",
             "T3_D3_ORIGINAL_APPLY_OWNER_REQUIRED");
           result=await port.applyAccepted(payload);
+        }
+        }catch(error){
+          // Only documented failures BEFORE original ledger/Kernel dispatch
+          // can release the same-session attempt. Any lost confirmation,
+          // owner fault or signed-context change is recovery-only.
+          if(d3Key!==null&&
+            d3DefinitelyNotDispatched(input.verb,error?.code))
+            nativeD3Attempted.delete(d3Key);
+          throw error;
+        }finally{
+          if(d3Key!==null)nativeD3InFlight.delete(d3Key);
         }
         // A stale response after a native write is UNKNOWN, never proof of
         // non-application or an invitation to replay the original command.

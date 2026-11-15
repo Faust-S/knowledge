@@ -273,6 +273,18 @@ test("original native D3 recipient uses the existing signed Control HTTP and iso
     assert.equal(recovered.kernelApplication,
       "NOT_ATTESTED_BY_RECONCILIATION_RECEIPT");
     assert.equal(events.filter(e=>e.kind==="accept").length,1);
+    // The Control, not only a React button, blocks a second original
+    // Reconciliation dispatch for the same decision operation ID.
+    await assert.rejects(f.browser.reconciliationRequest("accept",{
+      packageSha256:digest,previewDigest:"c".repeat(64),
+      operationId:"review:one",decisionBy:"actor:one",
+    }),{code:"T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN"});
+    await assert.rejects(f.browser.reconciliationRequest("reject",{
+      packageSha256:digest,previewDigest:"c".repeat(64),
+      operationId:"review:one",decisionBy:"actor:one",
+    }),{code:"T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN"});
+    assert.equal(events.filter(e=>e.kind==="accept").length,1);
+    assert.equal(events.filter(e=>e.kind==="reject").length,0);
     await assert.rejects(f.browser.reconciliationRequest("accept",{
       packageSha256:digest,previewDigest:"c".repeat(64),
       operationId:"review:uncertain",decisionBy:"actor:one",
@@ -284,19 +296,30 @@ test("original native D3 recipient uses the existing signed Control HTTP and iso
     assert.equal(afterLostAck.receipt.operationId,"review:uncertain");
     assert.equal(events.filter(e=>e.kind==="accept").length,2,
       "no automatic ACCEPT replay after readback failure");
+    await assert.rejects(f.browser.reconciliationRequest("accept",{
+      packageSha256:digest,previewDigest:"c".repeat(64),
+      operationId:"review:uncertain",decisionBy:"actor:one",
+    }),{code:"T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN"});
+    assert.equal(events.filter(e=>e.kind==="accept").length,2);
+    const d3Target={consumerId:"IWXA_ADMIN_CENTER",
+      processId:"process:one",processVersion:"1.0.0",
+      purpose:"result.apply",subjectId:"org:one",
+      workspaceId:"ws:personal",dataRootId:"root:one"};
     const apply=await f.browser.reconciliationRequest("applyAccepted",{
-      acceptanceId:"a".repeat(64),revisionIds:[digest],
-      target:{workspaceId:"ws:personal"},
+      acceptanceId:"a".repeat(64),revisionIds:[digest],target:d3Target,
     });
     assert.equal(apply.kernelWriteReadback,"OWNER_UNCONFIRMED");
     const recoveredApply=await f.browser.reconciliationRequest("recoverApplied",{
-      acceptanceId:"a".repeat(64),revisionIds:[digest],
-      target:{workspaceId:"ws:personal"},
+      acceptanceId:"a".repeat(64),revisionIds:[digest],target:d3Target,
     });
     assert.equal(recoveredApply.status,"ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
     assert.equal(recoveredApply.automaticRetryAllowed,false);
     assert.equal(events.filter(e=>e.kind==="apply").length,1,
       "read-only recovery must not call original APPLY a second time");
+    await assert.rejects(f.browser.reconciliationRequest("applyAccepted",{
+      acceptanceId:"a".repeat(64),revisionIds:[digest],target:d3Target,
+    }),{code:"T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN"});
+    assert.equal(events.filter(e=>e.kind==="apply").length,1);
     assert.equal(events.filter(e=>e.kind==="recover-apply").length,1);
     // Ordinary untrusted pages cannot invoke native Reconciliation even
     // with the bearer unless they originate at the pinned Kernel origin.
@@ -865,4 +888,44 @@ test("D7 independent installed Kernel readback resolves lost import ACK without 
     assert.equal(result.receipt.package_digest,receipt.package_digest);
     assert.equal(reads,3);assert.equal(commits,0);
   }finally{stopCold();await cold.close();}
+});
+
+test("D3 two racing original Apply calls cannot dispatch twice when native port is reconstructed",{
+  timeout:12000,
+},async()=>{
+  let entered=0,finish,signal;
+  const ready=new Promise(resolve=>{signal=resolve;});
+  const release=new Promise(resolve=>{finish=resolve;});
+  const portFor=()=>({
+    receive:async()=>({}),preview:async()=>({}),receipt:async()=>({}),
+    accept:async()=>({}),reject:async()=>({}),
+    inspectAcceptedApplication:async()=>({}),
+    applyAccepted:async()=>{
+      entered++;signal();
+      await release;
+      return {kernelWriteReadback:"CONFIRMED"};
+    },
+    recoverApplied:async()=>({status:"OUTCOME_UNKNOWN",automaticRetryAllowed:false}),
+  });
+  const f=await fixture({reconciliationPortFor:portFor});
+  const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
+  const payload={acceptanceId:"a".repeat(64),revisionIds:["b".repeat(64)],
+    target:{consumerId:"IWXA_ADMIN_CENTER",processId:"process:one",
+      processVersion:"1.0.0",purpose:"result.apply",
+      subjectId:"org:one",workspaceId:"ws:one",dataRootId:"root:one"}};
+  try{
+    const first=f.browser.reconciliationRequest("applyAccepted",payload);
+    await ready;
+    await assert.rejects(f.browser.reconciliationRequest("applyAccepted",payload),
+      {code:"T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN"});
+    assert.equal(entered,1,"only one original native Kernel Apply dispatched");
+    finish();
+    assert.equal((await first).kernelWriteReadback,"CONFIRMED");
+    await assert.rejects(f.browser.reconciliationRequest("applyAccepted",payload),
+      {code:"T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN"});
+    assert.equal(entered,1);
+    assert.equal((await f.browser.reconciliationRequest("recoverApplied",payload))
+      .status,"OUTCOME_UNKNOWN","recovery remains an independent read-only owner call");
+    assert.equal(entered,1);
+  }finally{finish();stop();await f.close();}
 });
