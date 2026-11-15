@@ -317,6 +317,22 @@ export function validateRestorationReceipt(
     issues.push("Kernel отменил импорт; восстановление не выполнено.");
     return issues;
   }
+  // A native owner may return a partial or corrupted receipt even when its
+  // status says READBACK_CONFIRMED. Missing numbers are undefined in JS:
+  // comparisons with NaN silently return false and previously allowed the
+  // UI to announce a complete restoration without evidence of any writes.
+  // All original T2 ImportReceipt counters must be finite nonnegative ints.
+  const requiredAppliedCounters = [
+    "workspaces", "objects_inserted", "objects_updated", "objects_skipped",
+    "events", "relations", "assets", "schemas_inserted",
+    "schemas_reused", "schemas_rejected",
+  ] as const;
+  if (!receipt.applied || requiredAppliedCounters.some(key =>
+    !Number.isSafeInteger(receipt.applied[key]) || receipt.applied[key] < 0
+  )) {
+    issues.push("Квитанция Kernel содержит неполные или некорректные счётчики записи.");
+    return Object.freeze(issues);
+  }
   // Original Kernel new-workspace receipt contains the actual source->target
   // map. Success counters alone cannot prove that user-selected destinations
   // received their data. A mismatch is a committed-but-incomplete outcome:

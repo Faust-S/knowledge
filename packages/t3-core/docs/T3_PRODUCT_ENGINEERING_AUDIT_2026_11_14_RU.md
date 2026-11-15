@@ -1,4 +1,69 @@
 # IWXA T3. Аудит реализованного продукта, рисков и конечного плана
+
+## Актуализация 15.11.2026: инженерная оценка T3 и программа до выпуска
+
+> Этот раздел обновляет статус и план, приведённые ниже как историческое наблюдение 14.11. Никакая публикация в GitHub не меняет автоматически OWNER/NATIVE/G4 acceptance.
+
+**Исполняемый source baseline перед текущим исправлением:** `Faust-S/knowledge@f255e43ba2a7f8564cfb1c9cb0d46b7c9ba5f35c`, TREE `fb0ec639a8270e9e78000b8019d8ff37c68ec1af`. Точный [GitHub Actions #43709601795](https://github.com/Faust-S/knowledge/actions/runs/43709601795): `test`, `real-host`, `windows-credential` = **SUCCESS**; **712/712 Node**, **1141/1141 Workspace/DOM**, real original T2 Host и Windows Credential PASS; `metal-webgpu` **SKIPPED**. Логи прямо помечают SwiftShader `inferenceSkipped=true`. Этот snapshot не заявляет аппаратную WebGPU-генерацию. Актуальный HEAD после изменения получать live; `Faust-S/T2@main=9c64951cd78411283e8a416641c36d71e169fc1d`, Kernel 0.3.6, Contract 1.3.0, не менялся.
+
+### A. Доказанный продуктовый срез
+
+| Этап | Реально реализовано на исходнике | Не покрыто итоговой приёмкой |
+|---|---|---|
+| B0 | Исходный T2 Kernel/Host/Workspace/Store/Exchange/Factory/Lifecycle; .iwxa roundtrip, данные/события/relations и два холодных чтения на эталонном real Host | Паритет **во всех** обновлённых продуктов и активных субъектах D1 |
+| D1 | Подписанные Ed25519 PERSONAL/две CORP и отзыв, Control, раздельный UI/Kernel origin, оригинальный Kernel readback и cold Host в CI | Завершённый установленный продукт с production authority, native key custody и полным T2 API под активным D1 |
+| D2 | Read-only Object/Event/Result→T0/T1 Activity, source refs/revisions/provenance и UNKNOWN; real T2 Host evidence | Реальные версионированные mappings всех доменов, Activity source acceptance |
+| D3 | Исходные Reconciliation/Review/Accept/Apply и native Control порты, lost ACK не приравнивается к подтверждению | Один установленный Admin→Agent Result→отдельный Apply→original Kernel→два cold reads |
+| D4 | Один исходный .iwxa, стандартный T2 parser/Exchange, две изолированные Store в source tests, PWA file handoff по действию пользователя | Два **разных установленных** потребителя; конкретные semantic/profile validations с data-preserving import |
+| D5 | WebLLM 0.2.87 Worker/Host, выбор модели и разрешение на загрузку, cache-only offline, DRAFT_UNTRUSTED и Kernel readback | Реальная WebGPU-генерация на аппаратном GPU, холодная офлайн-повторная генерация; квалифицированный native inference consumer |
+| D6 | Trusted continuation для WorkRef/Result и source ports U01–U05/Agent/Atlas | Конкретный web→native owner с сохранением Project/Task/Document/Result после перезапуска |
+| D7 | Оригинальный age/Publisher интерфейс, preview→human commit, защита повторов/чужих токенов, `age.readbackImport` по точному preview_token+digest без повторного ZIP/Commit; Exchange UI для восстановления lost ACK | Реальный установленный native age/DPAPI и Publisher, прочитанная ORIGINAL квитанция/Store после двух cold restarts у двух получателей |
+| G4 | Исходный single-dist с работающим оригинальным T2 и несколькими доказанными новыми маршрутами | Нет единого frozen candidate с оригинальными владельцами, аппаратной приёмкой и G4 владельца |
+
+**Контроль D7:** публичный `age.readbackImport` **не** является реализацией durable receipt source. У оригинального Kernel 1.3.0 нет публичного lookup по `import_id`. Доверенный *установленный* владелец должен восстанавливать привязку исходного `preview_token` к подлинной квитанции в уже принадлежащем ему постоянном состоянии и независимо читать настоящий Store. При отсутствии этой способности статус **OUTCOME_UNKNOWN** и никакого replay. Не добавлять новый журнал в публичный T3. Экран Exchange держит recovery-query в текущей сессии; после закрытия окна её должен предоставлять оригинальный native owner, не браузерный session state.
+
+**Выявленный source defect:** исходный `validateRestorationReceipt` сравнивал отсутствующие счётчики `applied` как `undefined`, давая `NaN` и возможность ложного `committed` после native readback. Текущее адресное исправление требует десять целочисленных неотрицательных original ImportReceipt counters перед подтверждением восстановления; тест адресно проверяет сначала неполную квитанцию, затем подлинную, без повторного Commit. До новой итоговой CI не присваивать ему PASS.
+
+### B. Проверка окружения и разделения владельцев
+
+Проверены live HEAD основных рабочих веток 15.11; они **не слиты автоматически** в `knowledge`:
+
+| Владелец / источник | Проверенный live HEAD | Что должно произойти у самого владельца |
+|---|---|---|
+| T3 private PERSON/Publisher `work/2026-11-10-product-license-person-0.5` | `eb6be380a1b7b` | Применение реальных signed LICENSE/STATUS, отзыв/renewal, installed consumer receipt/cold readback |
+| T3 private D1 `work/2026-11-11-t3-d1-signed-activity-owner` | `2d1424129e61` | Оригинальный process owner связывает подписанные права, Review/Apply и Kernel одного продукта |
+| T3 private age `work/2026-10-28-iwxa-age-encrypted-exchange` | `91db0c4de769` | Официальный pinned age CLI, DPAPI key custody и два разных получателя |
+| T3 BLI `work/2026-11-03-browser-local-inference-bli1` | `680375c9b47f` | Не создавать второй Worker, квалифицировать реальный GPU и native inference |
+| Admin public `Faust-S/Center@work/2026-11-11-admin-center-age-exchange` | `ae432e8bdb5b` | Установленный ADMIN owner Reconciliation → Human Apply → original Kernel |
+| Publisher public `Faust-S/Center@work/2026-11-10-publisher-0.5` | `d257da5bca4e` | Результаты реальных PERSON выдачи/доставки и revoke на установленном потребителе |
+| Agent 0.4 `Faust-S/iwxa-personal-agent@work/2026-11-10-agent-0-4-setup-core-adoption` | `2a2fdebf905b` | Настоящий Task/Result/Graph/ToolRuntime и U owner, не подменять их T3 Core |
+| Atlas 0.6 `Faust-S/Atlas@work/2026-11-10-atlas-0-6` | `0a3d4bbaac1a` | WorkRef/Project нативного владельца и независимый readback |
+| Activity `Faust-S/knowledge@work/2026-11-10-activity-base-anonymizer` | `2383c58f8890` | Разрешённое только для чтения доказуемое исходное T3 snapshot→обезличивание→отдельное решение |
+| U01–U04 `Faust-S/Br-test@work/2026-11-02-agent-obscura-headless` | `7a2adee477249` | Подключение внешних программ без новых SDK/routers |
+| Фундамент `Faust-S/T0` / `Faust-S/T1` foundation-authority | `3a1d2e36bea15` / `30f0e0621eac7` | Не дублировать частицы, процессы, Task Engine или authority |
+
+**12 доменов:** применять существующий `Faust-S/iwxa/domains/DOMAIN_REGISTRY.json` и `coordination/DOMAIN_IMPLEMENTATION_BINDINGS.json`, а не создавать новый перечень или массово переносить сайты в knowledge. Сохранять пару owner logic repo и site repo (одно конечное `dist/`), русский интерфейс эталон при локализации. D12 — главный портал, не отдельная коммерческая субъектная база. Отдельные доменные PRODUCT_ACCEPTED не означают T3_ADOPTED.
+
+### C. Очередность развития (исполняемые выходы, не новый фреймворк)
+
+| Приоритет | Работа в существующем владельце | Готовность следующего шага |
+|---|---|---|
+| **P0 / D1+B0** | Установить **один настоящий** T3 Host в доступном продукте с исходным Kernel и полной T2 capability parity; подключить production signed owner. Проверить PERSONAL и CORP без чужого read | Один рабочий installed root, настоящая запись/чтение/отзыв и два cold opens; нет второго T2 writer |
+| **P1 / D3** | Admin Center оригинальный Reconciliation/Review/Accept, отдельный Apply через подписанный D1 → Agent Result/Task | Task→Result→отдельное Human Apply→оригинальный Kernel readback в двух продуктах |
+| **P2 / D4+D7** | Завершить `readbackInOriginalKernel` у штатного установленного age owner через его существующую durable state+Kernel; подлинные два X25519 recipient и Publisher signed STATUS; без private code в public | Два получателя открывают точные .iwxa и независимо читают результат после двух cold restarts; revoke после restart не превращается в ACTIVE |
+| **P3 / D6** | Связать один живой Agent Task/Result с Atlas Project/WorkRef через действующие U01–U05 | Один пользовательский web↔native маршрут с сохранением Project/Task/Document/Result и повторным чтением |
+| **P4 / D5** | На реально доступном GPU: выбор модели, явная загрузка, генерация, DRAFT_UNTRUSTED, оригинальный Kernel и offline cold retry. Native inference использовать существующий Agent provider | Доказанная модельная генерация, а не Worker build или SwiftShader |
+| **P5 / G4** | Один frozen SHA/TREE и штатный single dist + real installed consumers; clean install/repair/update via существующий Setup Core; LOCAL_ONLY, 2 cold reopens | Единое решение владельца `G4=ACCEPTED`, только затем `T3_READY=true` |
+| **P6 / domains** | Тиражировать принятый T3 по **одному** сайту за раз. Первый пилот: D02 Club как ранее принятый предметный продукт, затем домены по подтверждённой готовности и ценности кейсов. Activity подключать только с отдельным согласованным snapshot | Исходные предметные функции работают как прежде, T3 записи/экспорт/restart доказаны, итоговый `dist/` один |
+
+**Правило оптимизации:** не продолжать расширять публичные D7-фасады синтетическими методами, пока не заработал хотя бы один реальный installed native recipient. Один продуктовый маршрут → конкретная ошибка → короткое исправление → одна итоговая сборка. Codex только для недоступной GUI/Windows native и независимой финальной приёмки. **Private Actions запрещены**, публичный knowledge CI не получает приватные ключи, credentials, исходники или пользовательские файлы. Использовать существующий публичный Center только в пределах отдельно разрешённых узких испытаний.
+
+**Итоговая архитектура:** автономный встраиваемый единый T3 (полное наследование T2) в каждом обновлённом продукте. Данные, права, UI и предметный код остаются у своих владельцев. T0/T1 предоставляют семантические основы, D2 сохраняет проверяемую проекцию, Activity отдельно обрабатывает разрешённые snapshots; внешние модели/программы подключаются, но не обязательны. Ни облака, ни отдельной T3 Windows программы, ни второго Store/Kernel/Exchange, ни другого архивного формата.
+
+**Текущее решение:** `T3_READY=false`; исходная сборка работоспособна, но `D1_NATIVE=HOLD`, `D3_PRODUCT=HOLD`, `D5_HARDWARE=HOLD`, `D7_NATIVE=HOLD`, `G4=NOT_ACCEPTED`.
+
+---
+
 Дата: 14.11.2026. Исходник: `Faust-S/knowledge/packages/t3-core`, рабочая ветка `work/2026-11-10-t3-t2-activity-projection`.
 
 ## Подтверждённый итог ревизии на исходнике 14.11.2026

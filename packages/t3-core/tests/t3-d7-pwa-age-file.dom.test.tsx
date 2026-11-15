@@ -125,7 +125,14 @@ describe("D7 installed PWA protected .iwxa.age through original Exchange",()=>{
     const nativeReadback=vi.fn(async()=>({
       status:"OWNER_READBACK_CONFIRMED" as const,
       recipientId:"recipient:installed",receipt:originalReceipt,
-    }));
+    })).mockResolvedValueOnce({
+      status:"OWNER_READBACK_CONFIRMED",
+      recipientId:"recipient:installed",
+      receipt:{...originalReceipt,applied:{
+        ...originalReceipt.applied,
+        objects_inserted:undefined as unknown as number,
+      }},
+    });
     const installed={
       canOpen:true,canNativeKernelPreview:true,canNativeKernelReadback:true,
       maxCiphertextBytes:33*1024*1024,
@@ -151,12 +158,20 @@ describe("D7 installed PWA protected .iwxa.age through original Exchange",()=>{
     expect(screen.queryByTestId("import-receipt")).toBeNull();
     const button=screen.getByTestId("import-native-readback");
     await act(async()=>{fireEvent.click(button);});
+    expect(screen.getByTestId("import-view").getAttribute("data-import-state"))
+      .toBe("unconfirmed");
+    expect(screen.getByTestId("import-native-readback-status").textContent)
+      .toContain("неполные или некорректные счётчики");
+    // A genuine complete original receipt may be read again. No ZIP or
+    // importCommit is sent during either lookup.
+    await act(async()=>{fireEvent.click(button);});
     await waitFor(()=>expect(screen.getByTestId("import-view").getAttribute(
       "data-import-state")).toBe("committed"));
     expect(screen.getByTestId("import-receipt")).toBeTruthy();
     expect(screen.getByTestId("import-native-readback-status").textContent)
       .toContain("независимым");
-    expect(nativeReadback).toHaveBeenCalledExactlyOnceWith({
+    expect(nativeReadback).toHaveBeenCalledTimes(2);
+    expect(nativeReadback).toHaveBeenLastCalledWith({
       preview_token:"tok:age",package_digest:"original",
       semantic_digest:"original-sem",mode:"new-workspace",
     });
