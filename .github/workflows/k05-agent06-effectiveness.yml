@@ -1,0 +1,41 @@
+name: K05 Agent 0.6 effectiveness source qualification
+
+on:
+  push:
+    branches:
+      - work/2026-11-15-agent06-effectiveness-evaluation
+    paths:
+      - 'research/cross-lab/k05_agent06_effectiveness.py'
+      - 'research/cross-lab/k05_agent06_otlp.py'
+      - 'research/cross-lab/tests/test_k05_agent06_effectiveness.py'
+      - '.github/workflows/k05-agent06-effectiveness.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: New source-bound measurement and negative tests
+        run: python -W error::ResourceWarning -m unittest research/cross-lab/tests/test_k05_agent06_effectiveness.py -v
+      - name: Existing K05 Agent graph and source gates
+        run: |
+          python -W error::ResourceWarning -m unittest research/cross-lab/tests/test_k05_agent05_final_result_binding.py -v
+          python -W error::ResourceWarning -m unittest research/cross-lab/tests/test_k05_agent05_graph_readback.py -v
+          python -W error::ResourceWarning -m unittest research/cross-lab/tests/test_k05_agent05_observations.py -v
+      - name: No private input or external services
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          source=Path('research/cross-lab/k05_agent06_otlp.py').read_text()
+          assert 'requests' not in source and 'urllib' not in source
+          assert 'http.client' not in source and 'socket' not in source
+          print('K05_AGENT06_PUBLIC_CONTRACT_ONLY_NO_PRIVATE_CHECKOUT')
+          PY
