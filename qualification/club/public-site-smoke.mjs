@@ -17,7 +17,9 @@ for (const path of routes) {
     const ok = response.ok && isHtml && hasDocument && isSameOrigin;
     for (const match of html.matchAll(/(?:src|href)=["']([^"']+)["']/gi)) {
       const candidate = new URL(match[1], url);
-      if (candidate.origin === new URL(base).origin && /\\.(?:js|css)(?:$|\\?)/i.test(candidate.pathname)) assetUrls.add(candidate.href);
+      if (candidate.origin !== new URL(base).origin) continue;
+      if (candidate.pathname.endsWith('.js') || candidate.pathname.endsWith('.css')) assetUrls.add(candidate.href);
+      else if (match[0].toLowerCase().startsWith('href=') && !candidate.hash && !candidate.search && !candidate.pathname.includes('.')) internalLinks.add(candidate.pathname);
     }
     const entry = { path, status: response.status, ok, isHtml, hasDocument, hasMain, isSameOrigin, bytes: Buffer.byteLength(html), finalUrl: response.url, forms: html.toLowerCase().split('<form').length - 1, buttons: html.toLowerCase().split('<button').length - 1 };
     results.push(entry);
