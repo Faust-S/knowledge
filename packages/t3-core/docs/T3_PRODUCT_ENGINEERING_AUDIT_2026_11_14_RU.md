@@ -37,7 +37,7 @@
 | Admin public `Faust-S/Center@work/2026-11-11-admin-center-age-exchange` | `ae432e8bdb5b` | Установленный ADMIN owner Reconciliation → Human Apply → original Kernel |
 | Publisher public `Faust-S/Center@work/2026-11-10-publisher-0.5` | `d257da5bca4e` | Результаты реальных PERSON выдачи/доставки и revoke на установленном потребителе |
 | Agent 0.4 `Faust-S/iwxa-personal-agent@work/2026-11-10-agent-0-4-setup-core-adoption` | `2a2fdebf905b` | Настоящий Task/Result/Graph/ToolRuntime и U owner, не подменять их T3 Core |
-| Atlas 0.6 `Faust-S/Atlas@work/2026-11-10-atlas-0-6` | `0a3d4bbaac1a` | WorkRef/Project нативного владельца и независимый readback |
+| Atlas 0.8 `Faust-S/Atlas@release/0.8` | `6ef7b8fa1ad58f159508aaa6413d5e0d9cf35dbb` | `v0.8.0` опубликован 15.11; точная Windows acceptance #43708483434 SUCCESS на candidate `94d009a9`, publish #43709263509 SUCCESS. Этот релиз использовать для D6, но интеграция T3 WorkRef/Result ещё не принята |
 | Activity `Faust-S/knowledge@work/2026-11-10-activity-base-anonymizer` | `2383c58f8890` | Разрешённое только для чтения доказуемое исходное T3 snapshot→обезличивание→отдельное решение |
 | U01–U04 `Faust-S/Br-test@work/2026-11-02-agent-obscura-headless` | `7a2adee477249` | Подключение внешних программ без новых SDK/routers |
 | Фундамент `Faust-S/T0` / `Faust-S/T1` foundation-authority | `3a1d2e36bea15` / `30f0e0621eac7` | Не дублировать частицы, процессы, Task Engine или authority |
