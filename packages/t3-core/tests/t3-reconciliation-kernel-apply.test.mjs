@@ -267,6 +267,12 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   assert.equal(forged.automaticRetryAllowed,false);
   assert.equal(commits,1);
   lastEvent.idempotency_key=effect;
+  // The inherited T2 graph Event ALWAYS binds object_id and revision.
+  // An incomplete Event must never attest a different Object as applied.
+  const boundObjectId=lastEvent.object_id,boundRevision=lastEvent.revision;
+  delete lastEvent.object_id;delete lastEvent.revision;
+  assert.equal((await port.recoverApplied(selection)).status,"OUTCOME_UNKNOWN");
+  lastEvent.object_id=boundObjectId;lastEvent.revision=boundRevision;
   // Independent mock operation: after a lost original Kernel ACK this
   // direct Host port must only allow read-only recovery, never a retry.
   active=true;stopHostDuringJit=false;sourceCurrent=true;

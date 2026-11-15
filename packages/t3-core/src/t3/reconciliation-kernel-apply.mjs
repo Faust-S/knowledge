@@ -212,8 +212,8 @@ export function createTrustedReconciliationKernelApply({
       const sameEvent=event=>event?.workspace_id===c.workspace_id&&
         id(event.event_id)&&event.event_type===command.event.event_type&&
         event.idempotency_key===binding.effectKey&&
-        (event.object_id==null||event.object_id===objInput.object_id)&&
-        (event.revision==null||event.revision===expectedRevision)&&
+        event.object_id===objInput.object_id&&
+        event.revision===expectedRevision&&
         obj(event.payload)&&
         event.payload.reconciliation_acceptance_id===acceptanceId&&
         sameRevisions(event.payload.reconciliation_revision_ids);
@@ -320,8 +320,8 @@ export function createTrustedReconciliationKernelApply({
       return event?.workspace_id===c.workspace_id&&
         event.event_type===command.event.event_type&&
         event.idempotency_key===binding.effectKey&&
-        (event.object_id===undefined||event.object_id===objInput.object_id)&&
-        (event.revision===undefined||event.revision===expectedRevision)&&
+        event.object_id===objInput.object_id&&
+        event.revision===expectedRevision&&
         id(event.event_id)&&obj(provenance)&&
         provenance.reconciliation_acceptance_id===acceptanceId&&
         Array.isArray(provenance.reconciliation_revision_ids)&&
