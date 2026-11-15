@@ -48,6 +48,7 @@ const (
 	idStart            = 2002
 	idStop             = 2003
 	idReport           = 2004
+	idPrepare          = 2005
 )
 
 type winClassEx struct {
@@ -135,17 +136,18 @@ var ipv4InLog = regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`)
 func cleanLog(s string) string { return ipv4InLog.ReplaceAllString(s, "[IP скрыт]") }
 
 type managerUI struct {
-	hwnd                                                  uintptr
-	home                                                  string
-	cfg                                                   Config
-	endpoint, port, adapter, engine, transport, preferred uintptr
-	logs, status, startButton, stopButton, saveButton     uintptr
-	mu                                                    sync.Mutex
-	queue                                                 []string
-	cancel                                                context.CancelFunc
-	running                                               bool
-	closing                                               bool
-	stopError                                             string
+	hwnd                                                             uintptr
+	home                                                             string
+	cfg                                                              Config
+	endpoint, port, adapter, engine, transport, preferred            uintptr
+	logs, status, startButton, stopButton, saveButton, prepareButton uintptr
+	mu                                                               sync.Mutex
+	queue                                                            []string
+	cancel                                                           context.CancelFunc
+	running                                                          bool
+	preparing                                                        bool
+	closing                                                          bool
+	stopError                                                        string
 }
 
 var activeUI *managerUI // one window, one manager process, no resident daemon
@@ -196,6 +198,7 @@ func (ui *managerUI) toggleRun(r bool) {
 	}
 	procEnable.Call(ui.startButton, value)
 	procEnable.Call(ui.saveButton, value)
+	procEnable.Call(ui.prepareButton, value)
 	if r {
 		procEnable.Call(ui.stopButton, 1)
 	} else {
@@ -301,11 +304,47 @@ func (ui *managerUI) start() {
 		post(ui.hwnd, wmAppDone)
 	}()
 }
+
+// Allows the owner to prepare the verified upstream files before knowing a
+// specific VPN endpoint. It never launches the VPN client or a packet filter.
+func (ui *managerUI) prepareEngine() {
+	if ui.running {
+		return
+	}
+	root := strings.TrimSpace(winText(ui.engine))
+	if root == "" || !filepath.IsAbs(root) {
+		winMessageBox(ui.hwnd, "Укажите полный путь к папке движка.", "Проверка пути", 0x30)
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	ui.cancel = cancel
+	ui.preparing = true
+	ui.toggleRun(true)
+	ui.setStatus("Подготовка оригинального winws2 без запуска DPI...")
+	ui.write("Проверка файлов движка. VPN-клиент не используется.\n")
+	go func() {
+		defer post(ui.hwnd, wmAppDone)
+		if enginePresent(root) {
+			ui.write("Оригинальный движок уже подготовлен и проверен. Можно работать без загрузки.\n")
+			return
+		}
+		if err := installUpstream(ctx, root, ui.ask, uiWriter{ui}); err != nil {
+			ui.write("Подготовка движка не завершена: " + err.Error() + "\n")
+			return
+		}
+		ui.write("Движок подготовлен. Отдельная установка Zapret не требуется.\n")
+	}()
+}
+
 func (ui *managerUI) stop() {
 	if ui.cancel != nil {
 		ui.cancel()
 	}
-	ui.setStatus("Завершение и остановка собственного winws2...")
+	if ui.preparing {
+		ui.setStatus("Отмена подготовки движка...")
+	} else {
+		ui.setStatus("Завершение и остановка собственного winws2...")
+	}
 }
 
 func ctrl(parent uintptr, class, name string, style uint32, id int, x, y, w, h int32) uintptr {
@@ -343,7 +382,8 @@ func (ui *managerUI) initControls() {
 	ctrl(ui.hwnd, "STATIC", "VPN-адаптер", 0, 0, 426, 127, 130, 22)
 	ui.adapter = ctrl(ui.hwnd, "EDIT", ui.cfg.AdapterName, wsBorder|wsTabStop|esAutoHScroll, 104, 560, 122, 260, 27)
 	ctrl(ui.hwnd, "STATIC", "Папка winws2", 0, 0, 20, 171, 130, 22)
-	ui.engine = ctrl(ui.hwnd, "EDIT", ui.cfg.BundleRoot, wsBorder|wsTabStop|esAutoHScroll, 105, 160, 166, 660, 27)
+	ui.engine = ctrl(ui.hwnd, "EDIT", ui.cfg.BundleRoot, wsBorder|wsTabStop|esAutoHScroll, 105, 160, 166, 510, 27)
+	ui.prepareButton = ctrl(ui.hwnd, "BUTTON", "Подготовить движок", wsTabStop, idPrepare, 685, 166, 140, 27)
 	ctrl(ui.hwnd, "STATIC", "Приоритет", 0, 0, 20, 216, 130, 22)
 	ui.preferred = ctrl(ui.hwnd, "COMBOBOX", "", wsTabStop|wsVScroll|cbDropdownList, 106, 160, 210, 235, 250)
 	names := []string{"Автоматически", "NONE", "UDP-FAKE", "UDP-REPEAT", "TLS-SPLIT", "TLS-DISORDER", "TLS-FAKESEQ", "TLS-FAKETTL"}
@@ -373,7 +413,8 @@ func (ui *managerUI) layout() {
 	if w < 680 || h < 490 {
 		return
 	}
-	procMove.Call(ui.engine, 160, 166, uintptr(w-185), 27, 1)
+	procMove.Call(ui.engine, 160, 166, uintptr(w-340), 27, 1)
+	procMove.Call(ui.prepareButton, uintptr(w-165), 166, 140, 27, 1)
 	procMove.Call(ui.logs, 20, 338, uintptr(w-45), uintptr(h-355), 1)
 }
 func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
@@ -406,6 +447,10 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 			if ui.running {
 				ui.stop()
 			}
+		case idPrepare:
+			if !ui.running {
+				ui.prepareEngine()
+			}
 		case idReport:
 			file := filepath.Join(ui.home, "results", "latest-session.json")
 			if _, err := os.Stat(file); err != nil {
@@ -427,6 +472,7 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 	case wmAppDone:
 		ui.flush()
 		ui.toggleRun(false)
+		ui.preparing = false
 		ui.cancel = nil
 		ui.mu.Lock()
 		stopErr := ui.stopError
