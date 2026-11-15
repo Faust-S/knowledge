@@ -1050,8 +1050,13 @@ test("D3 two racing original Apply calls cannot dispatch twice when native port 
         ...options,headers:{...options.headers,Origin:f.origin},
       }),
     });
-    await assert.rejects(fresh.reconciliationRequest("applyAccepted",payload),
-      {code:"T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN"});
-    assert.equal(entered,1,"epoch rotation cannot redispatch the same Apply");
+    // Original T3 forbids even a READ before the fresh trusted client has
+    // attached to its invalidation SSE. Qualify the actual new Host generation.
+    const stopFresh=fresh.subscribeSignedAccessInvalidation(()=>{});
+    try{
+      await assert.rejects(fresh.reconciliationRequest("applyAccepted",payload),
+        {code:"T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN"});
+      assert.equal(entered,1,"epoch rotation cannot redispatch the same Apply");
+    }finally{stopFresh();}
   }finally{finish();stop();await f.close();}
 });
