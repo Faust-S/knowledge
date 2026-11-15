@@ -117,6 +117,37 @@ async function launch(){
           target:Record<string,unknown>})=>requestD3("recoverApplied",input),
       }:{}),
     }):undefined;
+    // D7 uses the SAME pinned signed Control channel as D1, but an original
+    // installed owner must explicitly exist. The browser never holds a native
+    // X25519 identity, Publisher signer, credential vault or status floor.
+    const nativeD7=await client.invoke("nativeD7Request","available",{})
+      .catch((error:unknown)=>{
+        const code=(error as {code?:string}|null)?.code;
+        if(code==="T3_D1_ORIGINAL_KERNEL_METHOD_FORBIDDEN"||
+           code==="T3_D7_ORIGINAL_NATIVE_OWNER_UNAVAILABLE"||
+           code==="T3_D1_CONTROL_ROUTE_DENIED"||
+           code==="CONTROL_OWNER_UNAVAILABLE")
+          return {ageOpen:false,ageSeal:false,publisher:false};
+        throw error;
+      });
+    const requestD7=(verb:string,payload:unknown={})=>
+      client.invoke("nativeD7Request",verb,payload);
+    const ageOwner=nativeD7?.ageOpen===true?Object.freeze({
+      maxArchiveBytes:nativeD7.maxArchiveBytes??32*1024*1024,
+      currentRecipient:()=>requestD7("age.currentRecipient"),
+      open:(input:unknown)=>requestD7("age.open",input),
+      ...(nativeD7.ageSeal===true?{
+        prepareSeal:(input:unknown)=>requestD7("age.prepareSeal",input),
+        seal:(input:unknown)=>requestD7("age.seal",input),
+      }:{}),
+    }):undefined;
+    const publisherHolder=nativeD7?.publisher===true?Object.freeze({
+      currentSubject:()=>requestD7("publisher.currentSubject"),
+      inspect:(input:unknown)=>requestD7("publisher.inspect",input),
+      apply:(input:unknown)=>requestD7("publisher.apply",input),
+      receipt:(input:unknown)=>requestD7("publisher.receipt",input),
+      statusReadback:(input:unknown)=>requestD7("publisher.statusReadback",input),
+    }):undefined;
     // Mount the ORIGINAL AppShell and T2/3 Host. The only authorized kernel
     // facade is physically held by the realm; no second Store or IAM exists.
     const {mountT3App}=await import("./mount-t3-app");
@@ -126,6 +157,19 @@ async function launch(){
       isolatedKernelRequired:true,
       trustedKernelBootstrap:bootstrap,
       reconciliationPort,
+      ageOwner,
+      confirmAgeRecipients:ageOwner&&nativeD7?.ageSeal===true?
+        async selection=>window.confirm(
+          "Защитить .iwxa для получателей: "+selection.recipientIds.join(", ")+
+          "? Используются только проверенные ключи установленной программы."
+        ):undefined,
+      publisherHolder,
+      confirmPublisherHandoff:publisherHolder?
+        async preview=>window.confirm(
+          preview.kind==="STATUS"
+            ?"Применить подписанный статус Publisher, включая возможный отзыв?"
+            :"Принять подписанную лицензию Publisher для этого устройства?"
+        ):undefined,
       trustedSelectedContext:operation=>client.invoke("selectedWorkspaceContext",operation),
       subscribeSignedAccessInvalidation:listener=>
         client.subscribeInvalidation(listener),

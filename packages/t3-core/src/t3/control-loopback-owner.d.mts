@@ -14,4 +14,6 @@ export declare function createControlLoopbackOwner(input:{
   subscribeSignedAccessInvalidation:SignedAccessInvalidationSubscription;
   /** Trusted Kernel-realm only. Original D3 is executed in native Control. */
   reconciliationRequest:(verb:string,payload?:Record<string,unknown>)=>Promise<any>;
+  /** Native age/Publisher is resolved inside the installed Control process. */
+  nativeD7Request:(verb:string,payload?:Record<string,unknown>)=>Promise<any>;
 };

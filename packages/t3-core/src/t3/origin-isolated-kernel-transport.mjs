@@ -16,7 +16,7 @@ const METHODS=new Set([
   'describeSession','validateObjects','selectedWorkspaceContext',
   // The existing native Control HTTP owner executes D3; this is only the
   // pinned origin-bound carrier, never a browser Reconciliation engine.
-  'reconciliationRequest',
+  'reconciliationRequest','nativeD7Request',
 ]);
 const LOCAL_ORIGIN=/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/;
 const fail=code=>Object.assign(new Error(code),{code});
@@ -30,7 +30,7 @@ export const ALLOWED_ISOLATED_KERNEL_METHODS=Object.freeze([...METHODS]);
 // MessagePorts, but cannot forge the browser's event.origin or source.
 export function acceptOriginalKernelRealmChannel({event,uiOrigin,parentWindow,
   createSignedFacade,isActive,describeOriginalSession,validateOriginalObjects,
-  selectedWorkspaceContext,reconciliationRequest}={}){
+  selectedWorkspaceContext,reconciliationRequest,nativeD7Request}={}){
   if(!LOCAL_ORIGIN.test(uiOrigin??'')||!object(event?.data)||
      event.data.schema!==SCHEMA||event.data.kind!=='attach'||
      typeof event.data.nonce!=='string'||event.data.nonce.length<16||
@@ -42,7 +42,7 @@ export function acceptOriginalKernelRealmChannel({event,uiOrigin,parentWindow,
   const port=event.ports[0];
   const receiver=bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
     describeOriginalSession,validateOriginalObjects,selectedWorkspaceContext,
-    reconciliationRequest});
+    reconciliationRequest,nativeD7Request});
   port.postMessage({schema:SCHEMA,kind:'ready',nonce:event.data.nonce});
   return receiver;
 }
@@ -51,7 +51,7 @@ export function acceptOriginalKernelRealmChannel({event,uiOrigin,parentWindow,
 // operation. Never send a raw T2 session, service passport or signer to UI.
 export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
   describeOriginalSession,validateOriginalObjects,selectedWorkspaceContext,
-  reconciliationRequest}={}){
+  reconciliationRequest,nativeD7Request}={}){
   if(!isPort(port)||typeof createSignedFacade!=='function'||
      typeof isActive!=='function')throw fail('T3_D1_TRUSTED_KERNEL_HOST_REQUIRED');
   let closed=false,revoked=false,sequence=0;
@@ -95,6 +95,16 @@ export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
         const result=await reconciliationRequest(...args);
         if(!valid()||captured!==sequence)
           deny('T3_D3_OWNER_CONTEXT_CHANGED_OUTCOME_UNKNOWN');
+        port.postMessage({schema:SCHEMA,kind:'result',id,result});
+        return;
+      }
+      if(method==='nativeD7Request'){
+        if(typeof nativeD7Request!=='function')
+          deny('T3_D7_ORIGINAL_NATIVE_OWNER_UNAVAILABLE');
+        const result=await nativeD7Request(...args);
+        if(!valid()||captured!==sequence)
+          deny(args[0]==='publisher.apply'?
+            'T3_D7_NATIVE_OUTCOME_UNKNOWN':'T3_D1_ORIGINAL_KERNEL_CONTEXT_CHANGED');
         port.postMessage({schema:SCHEMA,kind:'result',id,result});
         return;
       }
@@ -171,10 +181,9 @@ export function createIsolatedKernelClient({port,isActive=()=>true,timeoutMs=150
     if(closed)return;closed=true;
     port.removeEventListener?.('message',onMessage);
     port.close();
-    for(const {reject,timer,mayHaveChanged}of waiting.values()){
-      clearTimeout(timer);reject(fail(mayHaveChanged
-        ?'T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN':
-          'T3_D1_ISOLATED_KERNEL_DISCONNECTED'));
+    for(const {reject,timer,uncertainCode}of waiting.values()){
+      clearTimeout(timer);reject(fail(uncertainCode??
+        'T3_D1_ISOLATED_KERNEL_DISCONNECTED'));
     }
     waiting.clear();
     for(const listener of listeners){try{listener('unavailable');}catch{}}
@@ -195,16 +204,21 @@ export function createIsolatedKernelClient({port,isActive=()=>true,timeoutMs=150
       // An original Human ACCEPT/APPLY can remain pending in the installed
       // native product. Timeout or disconnect AFTER dispatch is UNKNOWN,
       // never a definite denial or automatic permission to replay a write.
-      const mayHaveChanged=method==='reconciliationRequest'&&
-        ['receive','accept','reject','applyAccepted'].includes(args[0]);
-      const operationTimeout=mayHaveChanged?30*60*1000:timeoutMs;
+      const uncertainCode=method==='nativeD7Request'&&args[0]==='publisher.apply'
+        ?'T3_D7_NATIVE_OUTCOME_UNKNOWN':method==='reconciliationRequest'&&
+        ['receive','accept','reject','applyAccepted'].includes(args[0])
+          ?'T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN':null;
+      // The native age CLI may legitimately run longer than the ordinary
+      // 15-second Kernel read. This only affects the signed native D7 port.
+      const operationTimeout=uncertainCode?30*60*1000:
+        method==='nativeD7Request'?120000:timeoutMs;
       return new Promise((resolve,reject)=>{
         const timer=setTimeout(()=>{
           waiting.delete(id);
-          reject(fail(mayHaveChanged?'T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN':
+          reject(fail(uncertainCode??
             'T3_D1_ISOLATED_KERNEL_TIMEOUT'));
         },operationTimeout);
-        waiting.set(id,{resolve,reject,timer,mayHaveChanged});
+        waiting.set(id,{resolve,reject,timer,uncertainCode});
         try{port.postMessage({schema:SCHEMA,kind:'call',id,method,args});}
         catch{waiting.delete(id);clearTimeout(timer);
           reject(fail('T3_D1_ISOLATED_KERNEL_MESSAGE_INVALID'));}

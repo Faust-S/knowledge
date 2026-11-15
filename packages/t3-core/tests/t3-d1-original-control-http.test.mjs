@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createServer} from "node:http";
-import {randomBytes} from "node:crypto";
+import {randomBytes,createHash} from "node:crypto";
 import {createOriginalControlHttpHandler}
   from "../src/t3/original-control-http-handler.mjs";
 import {createControlLoopbackOwner}
@@ -11,7 +11,7 @@ import {createSubjectKernelBinding}
 import {createTemporaryOriginalPersonalAuthority}
   from "./support/t3-original-personal-authority.mjs";
 
-async function fixture({reconciliationPortFor=null}={}){
+async function fixture({reconciliationPortFor=null,nativeD7PortFor=null}={}){
   const token=randomBytes(32).toString("base64url");
   let origin=null,handle=null,epoch=1;
   const listeners=new Set(),calls=[];
@@ -38,7 +38,7 @@ async function fixture({reconciliationPortFor=null}={}){
     },
     ownerFor:({scope,operation})=>
       scope==="kernel"&&operation==="putObject"?authority.access:null,
-    reconciliationPortFor,
+    reconciliationPortFor,nativeD7PortFor,
   });
   const originFetch=(url,options={})=>fetch(url,{
     ...options,headers:{...options.headers,Origin:origin},
@@ -313,4 +313,134 @@ test("original native D3 recipient uses the existing signed Control HTTP and iso
     assert.equal(events.filter(e=>e.kind==="preview").length,1);
     console.log("T3_D3_ORIGINAL_NATIVE_RECIPIENT_CONTROL_CARRIER_PASS");
   }finally{stop();await f.close();}
+});
+
+
+test("D7 signed native age/Publisher roundtrip stays on original Control and never exposes custody",{
+  timeout:12000,
+},async()=>{
+  const archive=Uint8Array.from([80,75,3,4,1,2,3,4,5,6]);
+  const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
+  const originalAge=Uint8Array.from([
+    ...new TextEncoder().encode("age-encryption.org/v1\n"),9,8,7,6,
+  ]);
+  const subject={holderId:"holder:installed",recipientId:"recipient:installed",
+    subjectType:"PERSON",bindingEpoch:"epoch:installed:one"};
+  let ageSealCount=0,ageOpenCount=0,applyCount=0,exportApprovals=0;
+  const saved=new Map();
+  const nativeD7PortFor=async()=>({
+    ageOwner:{
+      maxArchiveBytes:32*1024*1024,
+      currentRecipient:async()=>({recipientId:"recipient:installed",
+        bindingEpoch:"epoch:installed:one",privateKey:"NEVER_TO_WEB"}),
+      prepareSeal:async input=>({
+        format:"age-encryption.org/v1",status:"READY",
+        recipientIds:["recipient:installed","recipient:independent"],
+        suppliedWorkspace:input.workspaceId,
+      }),
+      seal:async input=>{ageSealCount++;
+        assert.deepEqual([...input.archiveBytes],[...archive]);
+        return {format:"age-encryption.org/v1",archiveSha256:sha(archive),
+          recipientIds:input.recipientIds,ciphertext:originalAge};},
+      open:async input=>{ageOpenCount++;
+        assert.deepEqual([...input.ciphertext],[...originalAge]);
+        assert.equal(input.recipientId,"recipient:installed");
+        return {format:"age-encryption.org/v1",status:"OPENED_VERIFIED",
+          verified:true,recipientId:input.recipientId,
+          archiveSha256:sha(archive),archiveBytes:archive,
+          nativeIdentity:"NEVER_TO_WEB"};},
+    },
+    authorizeAgeSeal:async args=>{
+      exportApprovals++;
+      assert.equal(args.workspaceId,"ws:personal");
+      assert.equal(args.archiveSha256,sha(archive));
+      return true;
+    },
+    publisherHolder:{
+      currentSubject:async()=>({...subject,privateCredential:"NEVER_TO_WEB"}),
+      inspect:async input=>({
+        kind:input.kind,packageSha256:input.packageSha256,
+        previewDigest:"a".repeat(64),holderId:subject.holderId,
+        recipientId:subject.recipientId,
+        publisherId:"publisher:original",issuerAuthorityId:"issuer:original",
+        operationId:"op:license",licenseId:"license:one",stage:"READY",
+        publisherSignatureVerified:true,pinnedPublisherTrusted:true,
+        secretSigner:"NEVER_TO_WEB",
+      }),
+      apply:async input=>{applyCount++;
+        saved.set(input.operationId,{kind:input.kind,
+          operationId:input.operationId,packageSha256:input.packageSha256,
+          holderId:subject.holderId,recipientId:subject.recipientId,
+          issuerAuthorityId:"issuer:original",licenseId:"license:one",
+          state:"COMMITTED"});},
+      receipt:async query=>saved.get(query.operationId)??null,
+      statusReadback:async query=>{
+        const record=saved.get(query.operationId);
+        return record?{...record,persisted:true,statusSequenceFloor:7,
+          privateStatusVault:"NEVER_TO_WEB"}:null;},
+    },
+    confirmPublisherApply:async()=>true,
+  });
+  const f=await fixture({nativeD7PortFor});
+  const unsubscribe=f.browser.subscribeSignedAccessInvalidation(()=>{});
+  try{
+    const available=await f.browser.nativeD7Request("available");
+    assert.deepEqual(available,{ageOpen:true,ageSeal:true,publisher:true,
+      maxArchiveBytes:32*1024*1024});
+    const recipient=await f.browser.nativeD7Request("age.currentRecipient");
+    assert.deepEqual(recipient,{recipientId:"recipient:installed",
+      bindingEpoch:"epoch:installed:one"});
+    const encrypted=await f.browser.nativeD7Request("age.seal",{
+      archiveBytes:archive,archiveSha256:sha(archive),
+      recipientIds:["recipient:installed","recipient:independent"],
+      workspaceId:"ws:personal",
+    });
+    assert.deepEqual([...encrypted.ciphertext],[...originalAge]);
+    assert.equal(exportApprovals,1);
+    assert.equal(ageSealCount,1);
+    const opened=await f.browser.nativeD7Request("age.open",{
+      ciphertext:originalAge,recipientId:"recipient:installed",
+    });
+    assert.deepEqual([...opened.archiveBytes],[...archive]);
+    assert.equal(ageOpenCount,1);
+    assert.equal(Object.hasOwn(opened,"nativeIdentity"),false);
+    const nativeSubject=await f.browser.nativeD7Request("publisher.currentSubject");
+    assert.deepEqual(nativeSubject,subject);
+    const inspected=await f.browser.nativeD7Request("publisher.inspect",{
+      kind:"LICENSE",archiveBytes:archive,packageSha256:sha(archive),
+      subject:nativeSubject,
+    });
+    assert.equal(inspected.publisherSignatureVerified,true);
+    assert.equal(Object.hasOwn(inspected,"secretSigner"),false);
+    await f.browser.nativeD7Request("publisher.apply",{
+      kind:"LICENSE",archiveBytes:archive,packageSha256:sha(archive),
+      previewDigest:"a".repeat(64),operationId:"op:license",
+      subject:nativeSubject,
+    });
+    const query={kind:"LICENSE",operationId:"op:license",
+      packageSha256:sha(archive),holderId:subject.holderId,
+      recipientId:subject.recipientId};
+    const receipt=await f.browser.nativeD7Request("publisher.receipt",query);
+    const readback=await f.browser.nativeD7Request("publisher.statusReadback",query);
+    assert.equal(receipt.state,"COMMITTED");
+    assert.equal(readback.persisted,true);
+    assert.equal(Object.hasOwn(readback,"privateStatusVault"),false);
+    assert.equal(applyCount,1);
+    // Untrusted windows have neither the kernel-origin Origin nor the SSE
+    // session, even if an attacker knows the public local HTTP address.
+    const forged=await fetch(f.origin+"/api/t3/native-d7",{
+      method:"POST",headers:{Authorization:"Bearer "+f.token,
+        Origin:"http://127.0.0.1:3333","Content-Type":"application/json",
+        "X-IWXA-Context-Epoch":"1"},
+      body:JSON.stringify({verb:"publisher.currentSubject",payload:{}}),
+    });
+    assert.equal(forged.status,403);
+    const stale=await fetch(f.origin+"/api/t3/native-d7",{
+      method:"POST",headers:{Authorization:"Bearer "+f.token,
+        Origin:f.origin,"Content-Type":"application/json",
+        "X-IWXA-Context-Epoch":"0"},
+      body:JSON.stringify({verb:"publisher.currentSubject",payload:{}}),
+    });
+    assert.equal(stale.status,403);
+  }finally{unsubscribe();await f.close();}
 });

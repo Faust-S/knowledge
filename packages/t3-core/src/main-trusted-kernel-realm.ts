@@ -67,11 +67,22 @@ async function attach(event:MessageEvent){
       live=false;
       receiver?.invalidate();
     });
-    // Before loading any Kernel code require a live Control invalidation
-    // stream and a separately signed read right for this organization.
+    // Signed data access is required for Workspace operations, but a genuine
+    // installed native D7 recipient can install Publisher entitlements BEFORE
+    // any Workspace exists. In that case mount only the same signed Kernel
+    // facade; its JIT still refuses every unauthorized data operation.
     const reader=await owner.signedKernelAccess("getWorkspace");
-    if(!reader||!live)
-      throw reject("T3_D1_SIGNED_WORKSPACE_READ_REQUIRED");
+    if(!reader){
+      const native=await owner.nativeD7Request("available",{}).catch((error:unknown)=>{
+        const code=(error as {code?:string}|null)?.code;
+        if(code==="T3_D1_CONTROL_ROUTE_DENIED"||
+           code==="T3_D7_ORIGINAL_NATIVE_OWNER_UNAVAILABLE")return null;
+        throw error;
+      });
+      if(native?.ageOpen!==true&&native?.publisher!==true)
+        throw reject("T3_D1_SIGNED_WORKSPACE_READ_REQUIRED");
+    }
+    if(!live)throw reject("T3_D1_SIGNED_WORKSPACE_READ_REQUIRED");
     const kernel=await connectKernel({serviceId:cfg.service_id});
     if(!live||!["ready","limited","read-only"].includes(kernel.status)||
        !("session" in kernel))
@@ -100,6 +111,8 @@ async function attach(event:MessageEvent){
         input as Parameters<typeof originalSession.t0.validate>[0]),
       reconciliationRequest:(verb:string,payload:Record<string,unknown>={})=>
         owner.reconciliationRequest(verb,payload),
+      nativeD7Request:(verb:string,payload:Record<string,unknown>={})=>
+        owner.nativeD7Request(verb,payload),
       selectedWorkspaceContext:async (operation:string)=>{
         if(operation!=="createWorkspace"&&operation!=="getWorkspace")
           throw reject("T3_D1_SELECTED_CONTEXT_OPERATION_DENIED");

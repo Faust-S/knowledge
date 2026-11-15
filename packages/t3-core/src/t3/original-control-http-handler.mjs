@@ -3,7 +3,7 @@
 // IAM, signer, Store, license authority, or alternate Kernel transport.
 // The Host supplies the existing signed owner, monotonic context epoch and
 // genuine invalidation subscription. The UI sees only scoped decisions.
-import {timingSafeEqual} from "node:crypto";
+import {timingSafeEqual,createHash} from "node:crypto";
 import {readFileSync} from "node:fs";
 import {strictJson} from "./access/strict-json.mjs";
 import {canonical} from "./access/core.mjs";
@@ -18,6 +18,35 @@ const MAX_D3_ARCHIVE=16*1024*1024;
 const D3_VERBS=new Set(["available","receive","preview","receipt","accept","reject",
   "inspectAcceptedApplication","applyAccepted","recoverApplied"]);
 const D3_METHODS=["receive","preview","receipt","accept","reject","inspectAcceptedApplication"];
+// The SAME local Control/SSE/epoch serves optional original D7 product owners.
+// No private age identity, Publisher signer, licence state or credentials cross
+// this route. These historical native owners support 32 MiB / 4 MiB respectively.
+const D7_ARCHIVE=32*1024*1024,D7_CIPHER=33*1024*1024,D7_LICENSE=4*1024*1024;
+const MAX_D7_BODY=Math.ceil(D7_CIPHER*4/3)+16*1024;
+const D7_VERBS=new Set(["available","age.currentRecipient","age.prepareSeal",
+  "age.seal","age.open","publisher.currentSubject","publisher.inspect",
+  "publisher.apply","publisher.receipt","publisher.statusReadback"]);
+const D7_AGE=["currentRecipient","open"];
+const D7_PUBLISHER=["currentSubject","inspect","apply","receipt","statusReadback"];
+const D7_INSPECT_FIELDS=["kind","packageSha256","previewDigest","holderId",
+  "recipientId","publisherId","issuerAuthorityId","operationId","licenseId",
+  "sequence","statusSchema","statusPayloadDigest","scope","entries",
+  "publisherSignatureVerified","pinnedPublisherTrusted","stage"];
+const D7_RECEIPT_FIELDS=["kind","operationId","packageSha256","holderId",
+  "recipientId","issuerAuthorityId","state","licenseId","sequence",
+  "statusPayloadDigest","persisted","statusSequenceFloor"];
+const d7Public=(raw,fields)=>Object.fromEntries(fields.filter(k=>
+  Object.hasOwn(raw??{},k)).map(k=>[k,raw[k]]));
+function d7Bytes(encoded,limit){
+  requireThat(typeof encoded==="string"&&encoded.length>0&&
+    encoded.length<=Math.ceil(limit/3)*4+4&&
+    /^[A-Za-z0-9_-]+$/.test(encoded),"T3_D7_NATIVE_BYTES_INVALID");
+  const result=Buffer.from(encoded,"base64url");
+  requireThat(result.length>0&&result.length<=limit&&
+    result.toString("base64url")===encoded,"T3_D7_NATIVE_BYTES_INVALID");
+  return result;
+}
+const d7Digest=bytes=>createHash("sha256").update(bytes).digest("hex");
 const SCOPES=new Set(["kernel","activity"]);
 // On the trusted signed Kernel origin, ALL compiled unsigned HTML entries
 // must be blocked, not just the root Workspace page. The normal T2 site
@@ -52,7 +81,8 @@ async function bodyFrom(req,limit=MAX_BODY){
   for await(const chunk of req){
     total+=chunk.length;
     requireThat(total<=limit,limit===MAX_BODY
-      ?"T3_D1_CONTROL_BODY_TOO_LARGE":"T3_D3_CARRIER_TOO_LARGE");
+      ?"T3_D1_CONTROL_BODY_TOO_LARGE":limit===MAX_D7_BODY
+        ?"T3_D7_NATIVE_CARRIER_TOO_LARGE":"T3_D3_CARRIER_TOO_LARGE");
     parts.push(chunk);
   }
   let result;
@@ -70,7 +100,7 @@ function errorCode(error){
 export function createOriginalControlHttpHandler({
   origin,token,readToken=null,ownerFor,currentEpoch,subscribeInvalidation,
   uiOrigin=null,serviceId=null,assetForPath=null,
-  reconciliationPortFor=null,
+  reconciliationPortFor=null,nativeD7PortFor=null,
 }={}){
   requireThat(typeof origin==="string"&&LOCAL.test(origin)&&
     new URL(origin).origin===origin,"T3_D1_CONTROL_ORIGIN_REQUIRED");
@@ -93,6 +123,12 @@ export function createOriginalControlHttpHandler({
   // Nothing in this HTTP handler constructs a Reconciler or a second Ledger.
   requireThat(reconciliationPortFor===null||typeof reconciliationPortFor==="function",
     "T3_D3_ORIGINAL_RECIPIENT_PROVIDER_INVALID");
+  // The installed product injects its already-existing original native
+  // owners. No public key custody, issuer, decision engine or OS API is built
+  // here. A native age seal must independently obtain original signed D1
+  // read + native Human confirmation via authorizeAgeSeal.
+  requireThat(nativeD7PortFor===null||typeof nativeD7PortFor==="function",
+    "T3_D7_ORIGINAL_NATIVE_OWNER_PROVIDER_INVALID");
   // The original installed Host may rotate its ephemeral bearer whenever
   // its existing signed subject session changes. This is a transient
   // transport credential only, NEVER a grant, issuer or AccessRegistry.
@@ -232,8 +268,8 @@ export function createOriginalControlHttpHandler({
         else res.write("event: ready\ndata: {}\n\n");
         return true;
       }
-      requireThat(route==="/api/t3/owner"||route==="/api/t3/reconciliation",
-        "T3_D1_CONTROL_ROUTE_DENIED");
+      requireThat(route==="/api/t3/owner"||route==="/api/t3/reconciliation"||
+        route==="/api/t3/native-d7","T3_D1_CONTROL_ROUTE_DENIED");
       requireThat(req.method==="POST"&&req.headers.origin===origin&&
         /^application\/json\b/i.test(req.headers["content-type"]??""),
         "T3_D1_CONTROL_POST_ORIGIN_DENIED");
@@ -243,7 +279,165 @@ export function createOriginalControlHttpHandler({
       requireThat(typeof requestEpoch==="string"&&
         requestEpoch===String(before),"STALE_CONTEXT_OPERATION");
       const input=await bodyFrom(req,route==="/api/t3/reconciliation"
-        ?MAX_D3_BODY:MAX_BODY);
+        ?MAX_D3_BODY:route==="/api/t3/native-d7"?MAX_D7_BODY:MAX_BODY);
+      if(route==="/api/t3/native-d7"){
+        requireThat(D7_VERBS.has(input.verb)&&input.payload&&
+          typeof input.payload==="object"&&!Array.isArray(input.payload),
+          "T3_D7_NATIVE_REQUEST_INVALID");
+        requireThat(before===await epochNow()&&authenticated(req),
+          "STALE_CONTEXT_OPERATION");
+        const owner=nativeD7PortFor===null?null:await nativeD7PortFor({
+          contextEpoch:before,
+        });
+        requireThat(before===await epochNow()&&authenticated(req),
+          "STALE_CONTEXT_OPERATION");
+        const age=owner?.ageOwner,publisher=owner?.publisherHolder;
+        const ageOpen=D7_AGE.every(m=>typeof age?.[m]==="function");
+        const ageSeal=ageOpen&&typeof age?.prepareSeal==="function"&&
+          typeof age?.seal==="function"&&
+          typeof owner?.authorizeAgeSeal==="function";
+        const publisherReady=D7_PUBLISHER.every(m=>typeof publisher?.[m]==="function")&&
+          typeof owner?.confirmPublisherApply==="function";
+        const maxArchiveBytes=ageOpen&&Number.isSafeInteger(age?.maxArchiveBytes)
+          ?Math.min(age.maxArchiveBytes,D7_ARCHIVE):D7_ARCHIVE;
+        if(input.verb==="available"){
+          reply(res,200,{result:{ageOpen,ageSeal,publisher:publisherReady,
+            maxArchiveBytes:ageOpen?maxArchiveBytes:null}});
+          return true;
+        }
+        const payload=input.payload;
+        let result;
+        if(input.verb.startsWith("age.")){
+          requireThat(ageOpen,"T3_D7_NATIVE_AGE_UNAVAILABLE");
+          const verb=input.verb.slice(4);
+          if(verb==="currentRecipient"){
+            result=d7Public(await age.currentRecipient(),
+              ["recipientId","bindingEpoch"]);
+          }else if(verb==="prepareSeal"){
+            requireThat(ageSeal,"T3_D7_NATIVE_SIGNED_EXPORT_REQUIRED");
+            requireThat(REF.test(payload.workspaceId??"")&&
+              HEX.test(payload.archiveSha256??"")&&
+              Number.isSafeInteger(payload.archiveSize)&&
+              payload.archiveSize>0&&payload.archiveSize<=maxArchiveBytes,
+              "T3_D7_NATIVE_EXPORT_REQUEST_INVALID");
+            result=d7Public(await age.prepareSeal({
+              workspaceId:payload.workspaceId,archiveSha256:payload.archiveSha256,
+              archiveSize:payload.archiveSize,
+            }),["format","status","recipientIds"]);
+          }else if(verb==="seal"){
+            requireThat(ageSeal,"T3_D7_NATIVE_SIGNED_EXPORT_REQUIRED");
+            const bytes=d7Bytes(payload.archiveBytesBase64url,maxArchiveBytes);
+            requireThat(REF.test(payload.workspaceId??"")&&
+              HEX.test(payload.archiveSha256??"")&&
+              payload.archiveSha256===d7Digest(bytes)&&
+              Array.isArray(payload.recipientIds)&&payload.recipientIds.length===2&&
+              payload.recipientIds.every(x=>typeof x==="string"&&REF.test(x))&&
+              payload.recipientIds[0]!==payload.recipientIds[1],
+              "T3_D7_NATIVE_EXPORT_REQUEST_INVALID");
+            // This is the ORIGINAL native Host's signed D1 JIT and Human
+            // confirmation, not a web-provided allow flag.
+            requireThat(await owner.authorizeAgeSeal({
+              contextEpoch:before,workspaceId:payload.workspaceId,
+              archiveSha256:payload.archiveSha256,archiveSize:bytes.length,
+              recipientIds:[...payload.recipientIds],
+            })===true,"T3_D7_NATIVE_SIGNED_EXPORT_DENIED");
+            requireThat(before===await epochNow()&&authenticated(req),
+              "STALE_CONTEXT_OPERATION");
+            const sealed=await age.seal({
+              archiveBytes:bytes,archiveSha256:payload.archiveSha256,
+              recipientIds:[...payload.recipientIds],
+              workspaceId:payload.workspaceId,
+            });
+            requireThat(Buffer.isBuffer(sealed?.ciphertext)||
+              sealed?.ciphertext instanceof Uint8Array,
+              "T3_D7_NATIVE_AGE_CIPHERTEXT_INVALID");
+            requireThat(sealed.ciphertext.length>0&&
+              sealed.ciphertext.length<=D7_CIPHER,
+              "T3_D7_NATIVE_AGE_CIPHERTEXT_INVALID");
+            result={...d7Public(sealed,["format","archiveSha256","recipientIds"]),
+              ciphertextBase64url:Buffer.from(sealed.ciphertext).toString("base64url")};
+          }else if(verb==="open"){
+            const ciphertext=d7Bytes(payload.ciphertextBase64url,D7_CIPHER);
+            requireThat(REF.test(payload.recipientId??""),
+              "T3_D7_NATIVE_RECIPIENT_INVALID");
+            const opened=await age.open({ciphertext,recipientId:payload.recipientId});
+            requireThat(Buffer.isBuffer(opened?.archiveBytes)||
+              opened?.archiveBytes instanceof Uint8Array,
+              "T3_D7_NATIVE_AGE_PLAINTEXT_INVALID");
+            requireThat(opened.archiveBytes.length>0&&
+              opened.archiveBytes.length<=maxArchiveBytes,
+              "T3_D7_NATIVE_AGE_PLAINTEXT_INVALID");
+            result={...d7Public(opened,["format","status","verified",
+              "recipientId","archiveSha256"]),
+              archiveBytesBase64url:Buffer.from(opened.archiveBytes).toString("base64url")};
+          }
+        }else{
+          requireThat(publisherReady,"T3_D7_NATIVE_PUBLISHER_UNAVAILABLE");
+          const verb=input.verb.slice(10);
+          if(verb==="currentSubject"){
+            result=d7Public(await publisher.currentSubject(),
+              ["holderId","recipientId","subjectType","bindingEpoch"]);
+          }else if(verb==="inspect"||verb==="apply"){
+            const bytes=d7Bytes(payload.archiveBytesBase64url,D7_LICENSE);
+            requireThat(["LICENSE","STATUS"].includes(payload.kind)&&
+              HEX.test(payload.packageSha256??"")&&
+              payload.packageSha256===d7Digest(bytes),
+              "T3_D7_NATIVE_PUBLISHER_PACKAGE_INVALID");
+            const nativeSubject=await publisher.currentSubject();
+            requireThat(REF.test(nativeSubject?.holderId??"")&&
+              REF.test(nativeSubject?.recipientId??"")&&
+              nativeSubject.holderId===payload.subject?.holderId&&
+              nativeSubject.recipientId===payload.subject?.recipientId,
+              "T3_D7_ORIGINAL_NATIVE_HOLDER_CHANGED");
+            if(verb==="inspect"){
+              result=d7Public(await publisher.inspect({
+                kind:payload.kind,archiveBytes:bytes,
+                packageSha256:payload.packageSha256,
+                context:null,subject:nativeSubject,
+              }),D7_INSPECT_FIELDS);
+            }else{
+              requireThat(REF.test(payload.operationId??"")&&
+                HEX.test(payload.previewDigest??""),
+                "T3_D7_NATIVE_PUBLISHER_REQUEST_INVALID");
+              requireThat(await owner.confirmPublisherApply({
+                contextEpoch:before,kind:payload.kind,
+                operationId:payload.operationId,
+                packageSha256:payload.packageSha256,
+                previewDigest:payload.previewDigest,
+                holderId:nativeSubject.holderId,
+              })===true,"T3_D7_NATIVE_HUMAN_CONFIRMATION_REQUIRED");
+              requireThat(before===await epochNow()&&authenticated(req),
+                "T3_D7_NATIVE_OUTCOME_UNKNOWN");
+              await publisher.apply({
+                kind:payload.kind,archiveBytes:bytes,
+                operationId:payload.operationId,
+                packageSha256:payload.packageSha256,
+                previewDigest:payload.previewDigest,
+                subject:nativeSubject,context:null,
+              });
+              // Result is NEVER proof of persistence: original receipt
+              // and durable statusReadback are mandatory on the next call.
+              result={acknowledged:true};
+            }
+          }else{
+            const query=d7Public(payload,["kind","operationId",
+              "packageSha256","holderId","recipientId"]);
+            requireThat(["LICENSE","STATUS"].includes(query.kind)&&
+              REF.test(query.operationId??"")&&
+              HEX.test(query.packageSha256??"")&&
+              REF.test(query.holderId??"")&&REF.test(query.recipientId??""),
+              "T3_D7_NATIVE_PUBLISHER_RECEIPT_REQUEST_INVALID");
+            const observed=await publisher[verb](query);
+            result=observed===null||observed===undefined?null:
+              d7Public(observed,D7_RECEIPT_FIELDS);
+          }
+        }
+        requireThat(before===await epochNow()&&authenticated(req),
+          input.verb==="publisher.apply"?"T3_D7_NATIVE_OUTCOME_UNKNOWN":
+            "STALE_CONTEXT_OPERATION");
+        reply(res,200,{result});
+        return true;
+      }
       if(route==="/api/t3/reconciliation"){
         requireThat(D3_VERBS.has(input.verb)&&
           input.payload&&typeof input.payload==="object"&&
@@ -368,6 +562,7 @@ export function createOriginalControlHttpHandler({
     }catch(error){
       if(!res.headersSent)reply(res,[
         "T3_D1_CONTROL_BODY_TOO_LARGE","T3_D3_CARRIER_TOO_LARGE",
+        "T3_D7_NATIVE_CARRIER_TOO_LARGE",
       ].includes(error?.code)?413:403,
         {error:errorCode(error)});
       return true;

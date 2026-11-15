@@ -5,6 +5,31 @@
 const LOCAL=/^https?:\/\/127\.0\.0\.1:[0-9]{1,5}$/;
 const TOKEN=/^[A-Za-z0-9_-]{40,128}$/;
 const KINDS=new Set(["kernel","activity"]);
+const D7_VERBS=new Set(["available","age.currentRecipient","age.prepareSeal",
+  "age.seal","age.open","publisher.currentSubject","publisher.inspect",
+  "publisher.apply","publisher.receipt","publisher.statusReadback"]);
+const D7_LIMIT=Object.freeze({"age.seal":32*1024*1024,
+  "age.open":33*1024*1024,"publisher.inspect":4*1024*1024,
+  "publisher.apply":4*1024*1024});
+const D7_FIELD=Object.freeze({"age.seal":"archiveBytes",
+  "age.open":"ciphertext","publisher.inspect":"archiveBytes",
+  "publisher.apply":"archiveBytes"});
+function b64(bytes){
+  const segments=[];
+  for(let i=0;i<bytes.length;i+=8192)
+    segments.push(String.fromCharCode(...bytes.subarray(i,i+8192)));
+  return btoa(segments.join("")).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+function unb64(encoded,limit){
+  check(typeof encoded==="string"&&encoded.length>0&&
+    encoded.length<=Math.ceil(limit/3)*4+4&&
+    /^[A-Za-z0-9_-]+$/.test(encoded),"T3_D7_NATIVE_BYTES_INVALID");
+  const raw=atob(encoded.replace(/-/g,"+").replace(/_/g,"/"));
+  const result=Uint8Array.from(raw,c=>c.charCodeAt(0));
+  check(result.byteLength>0&&result.byteLength<=limit&&b64(result)===encoded,
+    "T3_D7_NATIVE_BYTES_INVALID");
+  return result;
+}
 const fail=code=>{const error=new Error(code);error.code=code;throw error;};
 const check=(condition,code)=>{if(!condition)fail(code);};
 const validObject=value=>value!==null&&typeof value==="object"&&!Array.isArray(value);
@@ -164,6 +189,71 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
       "T3_D3_ORIGINAL_RECIPIENT_RESPONSE_INVALID");
     return result.result;
   };
+  // Signed installed-native D7 uses the SAME local bearer, SSE and epoch
+  // as the original D1 Control. No private owner or key enters the UI realm.
+  const nativeD7Request=async(verb,payload={})=>{
+    requireTransport();
+    const generation=selectionGeneration;
+    check(D7_VERBS.has(verb)&&validObject(payload),
+      "T3_D7_NATIVE_REQUEST_INVALID");
+    let wire=payload;
+    const field=D7_FIELD[verb];
+    if(field){
+      const bytes=payload[field];
+      check(bytes instanceof Uint8Array&&bytes.byteLength>0&&
+        bytes.byteLength<=D7_LIMIT[verb],"T3_D7_NATIVE_BYTES_INVALID");
+      wire={...payload,[field+"Base64url"]:b64(bytes)};
+      delete wire[field];
+    }
+    const epoch=await getEpoch();
+    requireGeneration(generation);
+    const write=verb==="publisher.apply";
+    const validAfter=()=>{
+      if(invalidationLost||generation!==selectionGeneration)
+        fail(write?"T3_D7_NATIVE_OUTCOME_UNKNOWN":
+          "T3_D1_CONTROL_INVALIDATION_UNAVAILABLE");
+    };
+    let response;
+    try{response=await fetchImpl(origin+"/api/t3/native-d7",{
+      method:"POST",mode:"same-origin",cache:"no-store",credentials:"omit",
+      headers:{...auth,"Content-Type":"application/json",
+        "X-IWXA-Context-Epoch":String(epoch)},
+      body:JSON.stringify({verb,payload:wire}),
+    });}
+    catch{fail(write?"T3_D7_NATIVE_OUTCOME_UNKNOWN":
+      "T3_D7_ORIGINAL_NATIVE_OWNER_UNAVAILABLE");}
+    validAfter();
+    if(!response.ok){
+      let code="T3_D7_ORIGINAL_NATIVE_OWNER_UNAVAILABLE";
+      try{
+        const denied=await response.json();
+        if(typeof denied?.error==="string"&&/^[A-Z0-9_]{5,100}$/.test(denied.error))
+          code=denied.error;
+      }catch{}
+      validAfter();
+      fail(write&&code==="T3_D7_NATIVE_OUTCOME_UNKNOWN"?code:
+        write?"T3_D7_NATIVE_OUTCOME_UNKNOWN":code);
+    }
+    let answer;
+    try{answer=await response.json();}
+    catch{fail(write?"T3_D7_NATIVE_OUTCOME_UNKNOWN":
+      "T3_D7_ORIGINAL_NATIVE_RESPONSE_INVALID");}
+    validAfter();
+    check(answer&&Object.hasOwn(answer,"result"),
+      "T3_D7_ORIGINAL_NATIVE_RESPONSE_INVALID");
+    const result=answer.result;
+    if(verb==="age.seal"){
+      check(validObject(result),"T3_D7_ORIGINAL_NATIVE_RESPONSE_INVALID");
+      const {ciphertextBase64url,...meta}=result;
+      return {...meta,ciphertext:unb64(ciphertextBase64url,33*1024*1024)};
+    }
+    if(verb==="age.open"){
+      check(validObject(result),"T3_D7_ORIGINAL_NATIVE_RESPONSE_INVALID");
+      const {archiveBytesBase64url,...meta}=result;
+      return {...meta,archiveBytes:unb64(archiveBytesBase64url,32*1024*1024)};
+    }
+    return result;
+  };
   const select=async (scope,operation)=>{
     requireTransport();
     const generation=selectionGeneration;
@@ -291,5 +381,6 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
     },
     subscribeSignedAccessInvalidation,
     reconciliationRequest,
+    nativeD7Request,
   });
 }
