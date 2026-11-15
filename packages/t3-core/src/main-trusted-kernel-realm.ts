@@ -67,19 +67,28 @@ async function attach(event:MessageEvent){
       live=false;
       receiver?.invalidate();
     });
-    // Signed data access is required for Workspace operations, but a genuine
-    // installed native D7 recipient can install Publisher entitlements BEFORE
-    // any Workspace exists. In that case mount only the same signed Kernel
-    // facade; its JIT still refuses every unauthorized data operation.
+    // A genuinely installed D3 recipient must be able to open the signed
+    // Review/ACCEPT screen before it owns a Workspace READ grant. Human
+    // ACCEPT is not Kernel APPLY and cannot create implicit read/write rights.
+    // D7 has the same independent native-owner prerequisite for an empty
+    // Workspace. For either owner the original KernelFacade still performs
+    // signed D1 JIT separately on every T2 Object/Event operation.
     const reader=await owner.signedKernelAccess("getWorkspace");
     if(!reader){
+      const d3=await owner.reconciliationRequest("available",{}).catch((error:unknown)=>{
+        const code=(error as {code?:string}|null)?.code;
+        if(code==="T3_D1_CONTROL_ROUTE_DENIED"||
+           code==="T3_D3_ORIGINAL_RECIPIENT_UNAVAILABLE"||
+           code==="T3_D1_ORIGINAL_KERNEL_METHOD_FORBIDDEN")return null;
+        throw error;
+      });
       const native=await owner.nativeD7Request("available",{}).catch((error:unknown)=>{
         const code=(error as {code?:string}|null)?.code;
         if(code==="T3_D1_CONTROL_ROUTE_DENIED"||
            code==="T3_D7_ORIGINAL_NATIVE_OWNER_UNAVAILABLE")return null;
         throw error;
       });
-      if(native?.ageOpen!==true&&native?.publisher!==true)
+      if(d3?.available!==true&&native?.ageOpen!==true&&native?.publisher!==true)
         throw reject("T3_D1_SIGNED_WORKSPACE_READ_REQUIRED");
     }
     if(!live)throw reject("T3_D1_SIGNED_WORKSPACE_READ_REQUIRED");
