@@ -547,13 +547,28 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
       'Confidential ERPNext customer'),false);
     assert.equal(JSON.stringify(storedErp.object).includes('SKU-001'),false);
     const digestBefore=storedErp.object.data.source_digest;
+    const matchingPreview=await erpPort.previewRefresh(erpRef);
+    assert.equal(matchingPreview.status,'MATCHED_AT_READ');
+    assert.equal(matchingPreview.original_revision,1);
+    assert.equal(matchingPreview.owner_match_at_read,true);
+    assert.equal(matchingPreview.can_execute,false);
     // Same Frappe modified, but changed item: do not allow unstable source.
     erpResponse.data.items[0].qty=3;
+    const inconsistent=await erpPort.previewRefresh(erpRef);
+    assert.equal(inconsistent.status,'SOURCE_REVISION_INCONSISTENT');
+    assert.equal(inconsistent.requires_review,false);
+    assert.equal(inconsistent.saved_source_revision,inconsistent.current_source_revision);
     await assert.rejects(erpPort.refresh(erpRef),
       {code:'T3_EXT_SOURCE_REVISION_NOT_STABLE'});
     // Original owner now provides a newer exact revision. User consent and
     // ORIGINAL Kernel CAS keep the linked source conservative.
     erpResponse.data.modified='2026-11-15 13:21:00.2000';
+    const beforeUpdate=await erpPort.previewRefresh(erpRef);
+    assert.equal(beforeUpdate.status,'SOURCE_REVISION_CHANGED');
+    assert.equal(beforeUpdate.requires_review,true);
+    assert.equal(beforeUpdate.original_revision,1);
+    assert.equal((await coldKernel.getObject(ws,erpLinked.object_id))
+      .object.revision,1); // Preview never wrote.
     const erpUpdated=await erpPort.refresh(erpRef);
     assert.equal(erpUpdated.status,'LINK_PERSISTED');
     assert.equal(erpUpdated.revision,2);
@@ -562,6 +577,11 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
     assert.equal(finalErp.object.data.source_revision,
       '2026-11-15 13:21:00.2000');
     assert.equal((await erpPort.prepareContinuation(erpRef)).revision,2);
+    assert.equal((await erpPort.previewRefresh(erpRef)).status,'MATCHED_AT_READ');
+    console.log('T3_AGENT06_ORIGINAL_T2_ERP_REFRESH_PREVIEW_PASS',
+      JSON.stringify({originalKernel:true,signedD1:true,
+        matchedAtRead:true,inconsistentRevisionBlocked:true,
+        humanReviewBeforeWrite:true,finalRevision:2,realErp:false}));
     console.log('T3_AGENT06_ERPNext_REST_ORIGINAL_KERNEL_PASS',
       JSON.stringify({kernel:'0.3.6',signedD1:true,
         sourceOwner:'erpnext:shop1',revision:2,

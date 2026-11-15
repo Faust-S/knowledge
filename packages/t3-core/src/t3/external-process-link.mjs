@@ -326,6 +326,52 @@ export function createTrustedExternalProcessLink({
       } finally {pending.delete(ctx.objectId);}
     }, true);
   }
+  async function previewRefresh(input) {
+    // A read-only comparison for the existing Agent/CehoVod UI. It is NOT a
+    // continuation ticket: D6 must independently run prepareContinuation
+    // immediately before any native execution.
+    return withSelected(input,async ctx=>{
+      const original=await ctx.readLink();
+      if(!original)return Object.freeze({
+        status:'NOT_FOUND',workspace_id:ctx.workspaceId,
+        object_id:ctx.objectId,can_execute:false,requires_review:false,
+      });
+      let saved;
+      try{
+        saved=normalizeSource(externalOwner.ownerId,ctx.reference,original.data);
+      }catch{
+        deny('T3_EXT_SAVED_LINK_INVALID');
+      }
+      if(!matches(original,ctx.workspaceId,ctx.objectId,saved))
+        deny('T3_EXT_SAVED_LINK_INVALID');
+      const current=await ctx.readExternal();
+      // An external GET can be slow; neither a concurrent original T2
+      // refresh nor a changed D1/selected Workspace may be overlooked.
+      const stillSaved=await ctx.readLink();
+      if(!equal(stillSaved,original))
+        deny('T3_EXT_CONCURRENT_LINK_CONFLICT');
+      const matched=equal(current,saved);
+      const sameRevision=current.source_revision===saved.source_revision;
+      const status=matched?'MATCHED_AT_READ':sameRevision?
+        'SOURCE_REVISION_INCONSISTENT':'SOURCE_REVISION_CHANGED';
+      return Object.freeze({
+        status,workspace_id:ctx.workspaceId,object_id:ctx.objectId,
+        original_revision:original.revision,
+        source_owner:saved.source_owner,record_kind:saved.record_kind,
+        record_id:saved.record_id,
+        saved_source_revision:saved.source_revision,
+        saved_source_state:saved.source_state,
+        saved_source_digest:saved.source_digest,
+        current_source_revision:current.source_revision,
+        current_source_state:current.source_state,
+        current_source_digest:current.source_digest,
+        epistemic_status:'reported',
+        owner_match_at_read:matched,
+        requires_review:status==='SOURCE_REVISION_CHANGED',
+        can_execute:false,
+      });
+    });
+  }
   async function readSaved(input) {
     // Local-first display path. No ERP API calls and no new receipt or Store.
     // A saved, even freshly written, snapshot cannot prove CURRENT ERP truth.
@@ -379,5 +425,5 @@ export function createTrustedExternalProcessLink({
       object_id:result.object_id,schema_id:EXTERNAL_PROCESS_LINK_SCHEMA,
       revision:result.revision});
   }
-  return Object.freeze({link,refresh,readSaved,recover,prepareContinuation});
+  return Object.freeze({link,refresh,previewRefresh,readSaved,recover,prepareContinuation});
 }

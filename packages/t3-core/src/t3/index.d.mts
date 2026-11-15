@@ -454,6 +454,23 @@ export interface T3ExternalSavedLink {
   source_revision?:string;source_state?:string;source_digest?:string;
   epistemic_status?:"reported";owner_current:false;can_execute:false;
 }
+/** Read-only, signed original Kernel + exact external owner comparison.
+ * Not a D6 source-current ticket, authorization or execution receipt. */
+export interface T3ExternalRefreshPreview {
+  status:"NOT_FOUND"|"MATCHED_AT_READ"|"SOURCE_REVISION_CHANGED"|
+    "SOURCE_REVISION_INCONSISTENT";
+  workspace_id:string;object_id:string;
+  original_revision?:number;
+  source_owner?:string;record_kind?:string;record_id?:string;
+  saved_source_revision?:string;saved_source_state?:string;
+  saved_source_digest?:string;
+  current_source_revision?:string;current_source_state?:string;
+  current_source_digest?:string;
+  epistemic_status?:"reported";
+  owner_match_at_read?:boolean;
+  requires_review:boolean;
+  can_execute:false;
+}
 export function createTrustedExternalProcessLink(options:{
   kernel:KernelFacade;
   /** Existing signed D1 owner; required only for link/refresh. */
@@ -473,6 +490,9 @@ export function createTrustedExternalProcessLink(options:{
 }):Readonly<{
   link(input:T3ExternalRecordReference):Promise<T3ExternalLinkStatus>;
   refresh(input:T3ExternalRecordReference):Promise<T3ExternalLinkStatus>;
+  /** Compare saved and remote revisions before showing the user an optional
+   * separately approved refresh. It never modifies original T2 state. */
+  previewRefresh(input:T3ExternalRecordReference):Promise<T3ExternalRefreshPreview>;
   /** Signed original Kernel snapshot, never claims the ERP is current. */
   readSaved(input:T3ExternalRecordReference):Promise<T3ExternalSavedLink>;
   recover(input:T3ExternalRecordReference):Promise<T3ExternalLinkStatus>;

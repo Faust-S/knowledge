@@ -505,3 +505,85 @@ test('External ERP link without current account is not executable, but can recov
   assert.equal((await open().preview(ref)).status,'RECOVER_ONLY');
   assert.equal(sends,0);
 });
+
+test('read-only previewRefresh shows exact ERP changes before Human Review or signed write',async()=>{
+  const f=fixture();
+  const noLink=await f.newHost().previewRefresh(f.ref);
+  assert.equal(noLink.status,'NOT_FOUND');
+  assert.equal(noLink.can_execute,false);
+  assert.equal(f.writeCount(),0);
+  const linked=await f.newHost().link(f.ref);
+  const same=await f.newHost().previewRefresh(f.ref);
+  assert.equal(same.status,'MATCHED_AT_READ');
+  assert.equal(same.owner_match_at_read,true);
+  assert.equal(same.requires_review,false);
+  assert.equal(same.original_revision,linked.revision);
+  assert.equal(same.saved_source_state,'Submitted');
+  assert.equal(same.current_source_state,'Submitted');
+  assert.equal(same.can_execute,false);
+  f.setRevision('v2');
+  const newRevision=await f.newHost().previewRefresh(f.ref);
+  assert.equal(newRevision.status,'SOURCE_REVISION_CHANGED');
+  assert.equal(newRevision.saved_source_revision,'v1');
+  assert.equal(newRevision.current_source_revision,'v2');
+  assert.equal(newRevision.requires_review,true);
+  assert.equal(newRevision.owner_match_at_read,false);
+  assert.equal(f.writeCount(),1);
+  await f.newHost().refresh(f.ref); // the ONLY write, with separate consent
+  assert.equal((await f.newHost().previewRefresh(f.ref)).status,'MATCHED_AT_READ');
+  assert.equal(f.writeCount(),2);
+});
+test('read-only previewRefresh detects unstable same-revision source, never proposes refresh',async()=>{
+  const f=fixture();await f.newHost().link(f.ref);
+  const original=f.externalOwner.readExact;
+  f.externalOwner.readExact=async (...args)=>({
+    ...await original(...args),source_state:'Cancelled'});
+  const view=await f.newHost().previewRefresh(f.ref);
+  assert.equal(view.status,'SOURCE_REVISION_INCONSISTENT');
+  assert.equal(view.saved_source_revision,view.current_source_revision);
+  assert.equal(view.saved_source_state,'Submitted');
+  assert.equal(view.current_source_state,'Cancelled');
+  assert.equal(view.requires_review,false);
+  assert.equal(view.can_execute,false);
+  assert.equal(f.writeCount(),1);
+  await assert.rejects(f.newHost().refresh(f.ref),
+    {code:'T3_EXT_SOURCE_REVISION_NOT_STABLE'});
+});
+test('previewRefresh is signed-read only and unavailable ERP falls back to readSaved',async()=>{
+  const f=fixture();const linked=await f.newHost().link(f.ref);
+  const readonlyKernel={...f.kernel,
+    hasOperation:op=>op!=='t1.putObject'&&f.kernel.hasOperation(op),
+    putObject:()=>{throw Error('PREVIEW_MUST_NOT_WRITE');}};
+  const online=createTrustedExternalProcessLink({
+    kernel:readonlyKernel,currentWorkspace:f.currentWorkspace,
+    externalOwner:f.externalOwner,
+    accessForRead:async op=>{assert.equal(op,'t1.getObject');return f.access;},
+    isHostActive:()=>true,
+  });
+  assert.equal((await online.previewRefresh(f.ref)).status,'MATCHED_AT_READ');
+  await assert.rejects(online.refresh(f.ref),{code:'T3_EXT_WRITE_NOT_GRANTED'});
+  const offline=createTrustedExternalProcessLink({
+    kernel:readonlyKernel,currentWorkspace:f.currentWorkspace,
+    externalOwner:{ownerId:f.externalOwner.ownerId},
+    accessForRead:async()=>f.access,isHostActive:()=>true,
+  });
+  await assert.rejects(offline.previewRefresh(f.ref),
+    {code:'T3_EXT_OWNER_ONLINE_REQUIRED'});
+  const stored=await offline.readSaved(f.ref);
+  assert.equal(stored.revision,linked.revision);
+  assert.equal(stored.owner_current,false);
+  assert.equal(f.writeCount(),1);
+});
+test('previewRefresh detects original Kernel revision moving during ERP GET',async()=>{
+  const f=fixture();const created=await f.newHost().link(f.ref);
+  const original=f.externalOwner.readExact;
+  f.externalOwner.readExact=async (...args)=>{
+    // Concurrent original Kernel writer refreshed source while GET pending.
+    const previous=f.stored.get(created.object_id);
+    f.stored.set(created.object_id,{...previous,revision:previous.revision+1});
+    return original(...args);
+  };
+  await assert.rejects(f.newHost().previewRefresh(f.ref),
+    {code:'T3_EXT_CONCURRENT_LINK_CONFLICT'});
+  assert.equal(f.writeCount(),1);
+});
