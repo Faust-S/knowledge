@@ -26,7 +26,7 @@ import {createTrustedNativeContinuation}
 import {normalizeErpNextSalesOrderRead}
   from '../src/t3/external-erpnext-source.mjs';
 import {createTrustedAgentErpOrderOwner}
-  from '../src/t3/external-agent-erp-owner.mjs';
+  from '../src/t3/index.mjs';
 
 const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const ARTIFACT='iwxa-kernel-k036-same-store-history-20261019-qualified.1';

@@ -570,4 +570,46 @@ export interface T3OdooSaleOrderSource {
 export function normalizeOdooSaleOrderRead(input:{
   ownerId:string;expectedRecordId:string;
   response:readonly Record<string,unknown>[];
+  /** Exact Odoo sale.order.line/read rows; missing child data is a failure. */
+  linesResponse:readonly Record<string,unknown>[];
 }):Promise<T3OdooSaleOrderSource>;
+
+/** Selected by the trusted installed Agent Account owner, never by a renderer.
+ * The binding digest and source owner must identify the current ERP account. */
+export interface T3AgentErpAccountBinding {
+  readonly sourceFormat:"ERPNEXT_REST_V1"|"ODOO_JSON2_V1";
+  readonly providerId:string;
+  readonly providerBindingDigest:string;
+  readonly ownerId:string;
+}
+/** A selected Agent 0.6 ToolRuntime.read response is reported evidence,
+ * NOT an ERP-native execution receipt. */
+export interface T3AgentErpReadResult {
+  readonly profile:"IWXA_PERSONAL_TOOL_PROVIDER_0.12";
+  readonly input_required:false;
+  readonly receipt:Readonly<{
+    status:"SUCCEEDED";tool_id:"erp.order.read";
+    provider_slot:"erp_orders";provider_id:string;
+    provider_binding_digest:string;
+    receipt_id:string;output_digest:string;
+  }>;
+  readonly data:Readonly<{
+    source_format:"ERPNEXT_REST_V1"|"ODOO_JSON2_V1";
+    source_owner:string;record_kind:"Sales Order"|"sale.order";
+    record_id:string;
+    response:unknown;linesResponse?:unknown;
+  }>;
+}
+/** Install only in the original trusted Host. No credentials or HTTP flow
+ * are created in T3; Agent ToolRuntime owns the actual read and TRR. */
+export function createTrustedAgentErpOrderOwner(options:{
+  selectedAccount:T3AgentErpAccountBinding;
+  readTool:(tool_id:"erp.order.read",arguments:{readonly record_id:string})=>
+    Promise<T3AgentErpReadResult>;
+  isHostActive:()=>boolean;
+}):Readonly<{
+  ownerId:string;
+  readExact(input:{record_kind:string;record_id:string}):
+    Promise<T3ErpNextSalesOrderSource|T3OdooSaleOrderSource>;
+}>;
+

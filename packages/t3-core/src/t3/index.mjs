@@ -92,3 +92,7 @@ export {normalizeErpNextSalesOrderRead} from './external-erpnext-source.mjs';
 
 // Odoo JSON-2 source admission is only a read-only data normalizer.
 export {normalizeOdooSaleOrderRead} from './external-odoo-source.mjs';
+
+// Trusted installed-Agent Account/ToolRuntime → original externalOwner.
+// The caller must be the original Host, not an untrusted renderer.
+export {createTrustedAgentErpOrderOwner} from './external-agent-erp-owner.mjs';

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {normalizeOdooSaleOrderRead}
   from '../src/t3/external-odoo-source.mjs';
 import {createTrustedAgentErpOrderOwner}
-  from '../src/t3/external-agent-erp-owner.mjs';
+  from '../src/t3/index.mjs';
 
 const ownerId='odoo:shop1:database1';
 function linesFor(response){
