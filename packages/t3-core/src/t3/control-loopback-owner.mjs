@@ -194,6 +194,46 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
       "T3_D3_ORIGINAL_RECIPIENT_RESPONSE_INVALID");
     return result.result;
   };
+  // Trusted Kernel realm only: the SAME authenticated original Control
+  // carries native-signed commands to the ORIGINAL T2 Kernel. This method
+  // is deliberately NOT exposed through the UI MessagePort allowlist.
+  const originalKernelRelay=async(verb,payload={})=>{
+    requireTransport();
+    const generation=selectionGeneration;
+    check(["attach","next","result","detach"].includes(verb)&&
+      validObject(payload),"T3_D3_ORIGINAL_KERNEL_RELAY_REQUEST_INVALID");
+    const epoch=await getEpoch();
+    requireGeneration(generation);
+    let response;
+    try{
+      response=await fetchImpl(origin+"/api/t3/original-kernel",{
+        method:"POST",mode:"same-origin",cache:"no-store",credentials:"omit",
+        headers:{...auth,"Content-Type":"application/json",
+          "X-IWXA-Context-Epoch":String(epoch)},
+        body:JSON.stringify({verb,payload}),
+      });
+    }catch{
+      fail("T3_D3_ORIGINAL_KERNEL_RELAY_TRANSPORT_LOST");
+    }
+    requireTransport();requireGeneration(generation);
+    if(!response.ok){
+      let code="T3_D3_ORIGINAL_KERNEL_RELAY_DENIED";
+      try{
+        const error=await response.json();
+        if(typeof error?.error==="string"&&/^[A-Z0-9_]{5,100}$/.test(error.error))
+          code=error.error;
+      }catch{/* authenticated Control never has an unsigned fallback */}
+      requireTransport();requireGeneration(generation);
+      fail(code);
+    }
+    let body;
+    try{body=await response.json();}
+    catch{fail("T3_D3_ORIGINAL_KERNEL_RELAY_RESPONSE_INVALID");}
+    requireTransport();requireGeneration(generation);
+    check(body&&Object.hasOwn(body,"result"),
+      "T3_D3_ORIGINAL_KERNEL_RELAY_RESPONSE_INVALID");
+    return body.result;
+  };
   // Signed installed-native D7 uses the SAME local bearer, SSE and epoch
   // as the original D1 Control. No private owner or key enters the UI realm.
   const nativeD6Request=async(verb,payload={})=>{
@@ -433,6 +473,7 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
     },
     subscribeSignedAccessInvalidation,
     reconciliationRequest,
+    originalKernelRelay,
     nativeD6Request,
     nativeD7Request,
   });
