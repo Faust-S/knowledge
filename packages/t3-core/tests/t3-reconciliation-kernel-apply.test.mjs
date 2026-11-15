@@ -134,31 +134,6 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   assert.equal(forged.automaticRetryAllowed,false);
   assert.equal(commits,1);
   lastEvent.idempotency_key=effect;
-  // In the original T2 graph a returned object or event ID alone is not
-  // proof of the accepted Result. A forged ACK, missing independent Event,
-  // or duplicate matching Event must never produce CONFIRMED. Every one of
-  // these failures is POST-dispatch and cannot authorize a replay.
-  const beforeUncertain=commits;
-  tamperInitialEvent=true;
-  await assert.rejects(port.applyAccepted(selection),
-    {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"});
-  assert.equal(commits,beforeUncertain+1);
-  tamperInitialEvent=false;
-  hideOriginalEvent=true;
-  await assert.rejects(port.applyAccepted(selection),
-    {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"});
-  assert.equal(commits,beforeUncertain+2);
-  hideOriginalEvent=false;
-  duplicateEvent=true;
-  await assert.rejects(port.applyAccepted(selection),
-    {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"});
-  assert.equal(commits,beforeUncertain+3);
-  duplicateEvent=false;
-  const independentlyRecovered=await port.recoverApplied(selection);
-  assert.equal(independentlyRecovered.status,
-    "ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
-  assert.equal(commits,beforeUncertain+3,
-    "read-only recovery cannot reissue any uncertain original Kernel write");
   // A human approval is bound to the exact signed purpose/audience/realm,
   // even if the selected organization, actor and Workspace do not change.
   changePurposeDuringHumanApply=true;
@@ -200,4 +175,29 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   assert.equal(afterLostAck.originalEventReadback.idempotency_key,effect);
   assert.equal(afterLostAck.automaticRetryAllowed,false);
   assert.equal(commits,1,"recovery may read but must never repeat APPLY");
+  // In the original T2 graph a returned object or event ID alone is not
+  // proof of the accepted Result. A forged ACK, missing independent Event,
+  // or duplicate matching Event must never produce CONFIRMED. Every one of
+  // these failures is POST-dispatch and cannot authorize a replay.
+  const beforeUncertain=commits;
+  tamperInitialEvent=true;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"});
+  assert.equal(commits,beforeUncertain+1);
+  tamperInitialEvent=false;
+  hideOriginalEvent=true;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"});
+  assert.equal(commits,beforeUncertain+2);
+  hideOriginalEvent=false;
+  duplicateEvent=true;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"});
+  assert.equal(commits,beforeUncertain+3);
+  duplicateEvent=false;
+  const independentlyRecovered=await port.recoverApplied(selection);
+  assert.equal(independentlyRecovered.status,
+    "ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
+  assert.equal(commits,beforeUncertain+3,
+    "read-only recovery cannot reissue any uncertain original Kernel write");
 });
