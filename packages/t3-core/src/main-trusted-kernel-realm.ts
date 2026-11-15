@@ -80,11 +80,22 @@ async function attachOriginalNativeKernelRelay(
   }
   if(!connected||typeof connected.sessionId!=="string"||
       connected.contextEpoch<0)throw reject("T3_D3_ORIGINAL_KERNEL_RELAY_INVALID");
+  // SSE/Host invalidation may have happened while native onAttach was
+  // pending. Never leave a late native Apply binding active without its
+  // live original T2 realm.
+  if(!live){
+    await owner.originalKernelRelay("detach",{
+      sessionId:connected.sessionId,
+    }).catch(()=>{});
+    return;
+  }
   let active=true;
   const selected=connected;
   stopNativeRelay=()=>{
     active=false;
-    if(live)void owner.originalKernelRelay("detach",{
+    // Even if SSE has already failed, attempt to close the original owner
+    // binding. Its own epoch/session guard remains authoritative.
+    void owner.originalKernelRelay("detach",{
       sessionId:selected.sessionId}).catch(()=>{});
   };
   const invokeOriginal=async(method:string,args:unknown[])=>{
@@ -128,7 +139,10 @@ async function attachOriginalNativeKernelRelay(
       });
     }
   })().catch(()=>{
-    // Invalidated/stale original Control must make this realm unavailable.
+    // Failed native relay must close its old owner binding as well as the
+    // browser's MessagePort. This can be a lost write ACK: never retry.
+    stopNativeRelay?.();
+    stopNativeRelay=null;
     active=false;live=false;receiver?.invalidate();
   });
 }
@@ -156,6 +170,10 @@ async function attach(event:MessageEvent){
     });
     live=true;
     stop=owner.subscribeSignedAccessInvalidation(()=>{
+      // SSE revocation can arrive while the native owner is still attached.
+      // Do not leave d3ApplyAvailable true with no live original T2 realm.
+      stopNativeRelay?.();
+      stopNativeRelay=null;
       live=false;
       receiver?.invalidate();
     });
