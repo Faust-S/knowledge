@@ -404,7 +404,9 @@ export interface T3ExternalRecordOwner {
   readonly ownerId:string;
   /** Exact revision/digest/owner receipt verified by the external owner; no raw
    * customer data or credentials are persisted by the T3 link. */
-  readExact(input:{record_kind:string;record_id:string}):unknown|Promise<unknown>;
+  /** Optional until an external account is available. readSaved() needs
+   * only the trusted ownerId; online link/refresh/recover still need readExact. */
+  readExact?(input:{record_kind:string;record_id:string}):unknown|Promise<unknown>;
 }
 export interface T3ExternalLinkStatus {
   status:"LINK_PERSISTED"|"ALREADY_LINKED"|"NOT_FOUND"|"REVISION_CONFLICT"|
@@ -412,6 +414,13 @@ export interface T3ExternalLinkStatus {
   workspace_id?:string;object_id?:string;revision?:number;
   event_id?:string;source_revision?:string;epistemic_status?:"reported";
   cause_code?:string;saved_revision?:number;
+}
+export interface T3ExternalSavedLink {
+  status:"SAVED_UNVERIFIED"|"NOT_FOUND";
+  workspace_id:string;object_id:string;revision?:number;
+  source_owner?:string;record_kind?:string;record_id?:string;
+  source_revision?:string;source_state?:string;source_digest?:string;
+  epistemic_status?:"reported";owner_current:false;can_execute:false;
 }
 export function createTrustedExternalProcessLink(options:{
   kernel:KernelFacade;
@@ -432,6 +441,8 @@ export function createTrustedExternalProcessLink(options:{
 }):Readonly<{
   link(input:T3ExternalRecordReference):Promise<T3ExternalLinkStatus>;
   refresh(input:T3ExternalRecordReference):Promise<T3ExternalLinkStatus>;
+  /** Signed original Kernel snapshot, never claims the ERP is current. */
+  readSaved(input:T3ExternalRecordReference):Promise<T3ExternalSavedLink>;
   recover(input:T3ExternalRecordReference):Promise<T3ExternalLinkStatus>;
   /** Read-only handoff to existing D6, never a new workflow or permission. */
   prepareContinuation(input:T3ExternalRecordReference):Promise<T3NativeContinuationReference>;

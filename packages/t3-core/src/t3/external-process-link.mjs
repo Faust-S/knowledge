@@ -132,7 +132,8 @@ export function createTrustedExternalProcessLink({
       typeof currentWorkspace?.get !== 'function' ||
       typeof currentWorkspace?.subscribe !== 'function' ||
       !externalOwner || !ID.test(externalOwner.ownerId || '') ||
-      typeof externalOwner.readExact !== 'function' ||
+      (externalOwner.readExact !== undefined &&
+        typeof externalOwner.readExact !== 'function') ||
       (typeof accessForWrite === 'function' && typeof confirmHuman !== 'function') ||
       typeof isHostActive !== 'function')
     deny('T3_EXT_TRUSTED_HOST_REQUIRED');
@@ -192,6 +193,10 @@ export function createTrustedExternalProcessLink({
         return detail?.object ?? null;
       };
       const readExternal = async () => {
+        // Offline or not-yet-connected accounts can still inspect the LAST
+        // signed Kernel snapshot, but never claim fresh ERP provenance.
+        if (typeof externalOwner.readExact !== 'function')
+          deny('T3_EXT_OWNER_ONLINE_REQUIRED');
         await check();
         // Do not persist raw ERP data, invoices, contact details or credentials.
         const actual = normalizeSource(externalOwner.ownerId, reference,
@@ -321,6 +326,33 @@ export function createTrustedExternalProcessLink({
       } finally {pending.delete(ctx.objectId);}
     }, true);
   }
+  async function readSaved(input) {
+    // Local-first display path. No ERP API calls and no new receipt or Store.
+    // A saved, even freshly written, snapshot cannot prove CURRENT ERP truth.
+    return withSelected(input,async ctx=>{
+      const persisted=await ctx.readLink();
+      if (!persisted) return Object.freeze({
+        status:'NOT_FOUND',workspace_id:ctx.workspaceId,object_id:ctx.objectId,
+        owner_current:false,can_execute:false,
+      });
+      let saved;
+      try {
+        saved=normalizeSource(externalOwner.ownerId,ctx.reference,persisted.data);
+      } catch {
+        deny('T3_EXT_SAVED_LINK_INVALID');
+      }
+      if (!matches(persisted,ctx.workspaceId,ctx.objectId,saved))
+        deny('T3_EXT_SAVED_LINK_INVALID');
+      return Object.freeze({
+        status:'SAVED_UNVERIFIED',workspace_id:ctx.workspaceId,
+        object_id:ctx.objectId,revision:persisted.revision,
+        source_owner:saved.source_owner,record_kind:saved.record_kind,
+        record_id:saved.record_id,source_revision:saved.source_revision,
+        source_state:saved.source_state,source_digest:saved.source_digest,
+        epistemic_status:'reported',owner_current:false,can_execute:false,
+      });
+    });
+  }
   async function recover(input) {
     return withSelected(input,async ctx => {
       const source = await ctx.readExternal();
@@ -347,5 +379,5 @@ export function createTrustedExternalProcessLink({
       object_id:result.object_id,schema_id:EXTERNAL_PROCESS_LINK_SCHEMA,
       revision:result.revision});
   }
-  return Object.freeze({link,refresh,recover,prepareContinuation});
+  return Object.freeze({link,refresh,readSaved,recover,prepareContinuation});
 }

@@ -239,3 +239,49 @@ test('revoked write owner cannot recover, but independent signed read-only owner
   await assert.rejects(readonly.refresh(f.ref),{code:'T3_EXT_WRITE_NOT_GRANTED'});
   assert.equal(f.writeCount(),1);
 });
+
+test('offline readSaved uses only signed ORIGINAL read and cannot dispatch or promote ERP status',async()=>{
+  const f=fixture();
+  const created=await f.newHost().link(f.ref);
+  const readOnlyKernel={...f.kernel,
+    hasOperation:op=>op!=='t1.putObject'&&f.kernel.hasOperation(op),
+    putObject:()=>{throw Error('READ_ONLY_MUST_NOT_WRITE')},
+  };
+  const offline=()=>createTrustedExternalProcessLink({
+    kernel:readOnlyKernel,currentWorkspace:f.currentWorkspace,
+    externalOwner:{ownerId:f.externalOwner.ownerId},
+    accessForRead:async()=>f.access,
+    isHostActive:()=>true,
+  });
+  const saved=await offline().readSaved(f.ref);
+  assert.deepEqual(saved,{
+    status:'SAVED_UNVERIFIED',workspace_id:f.ref.expected_workspace_id,
+    object_id:created.object_id,revision:1,source_owner:'erpnext:shop1',
+    record_kind:'Sales Order',record_id:'SO-0042',
+    source_revision:'v1',source_state:'Submitted',
+    source_digest:'a'.repeat(64),epistemic_status:'reported',
+    owner_current:false,can_execute:false,
+  });
+  assert.equal(f.writeCount(),1);
+  await assert.rejects(offline().recover(f.ref),{code:'T3_EXT_OWNER_ONLINE_REQUIRED'});
+  await assert.rejects(offline().prepareContinuation(f.ref),
+    {code:'T3_EXT_OWNER_ONLINE_REQUIRED'});
+  await assert.rejects(offline().link(f.ref),{code:'T3_EXT_WRITE_NOT_GRANTED'});
+  await assert.rejects(offline().refresh(f.ref),{code:'T3_EXT_WRITE_NOT_GRANTED'});
+  assert.equal(f.writeCount(),1);
+});
+
+test('readSaved rejects corrupted local record instead of displaying false evidence',async()=>{
+  const f=fixture();const linked=await f.newHost().link(f.ref);
+  const previous=f.stored.get(linked.object_id);
+  f.stored.set(linked.object_id,{
+    ...previous,data:{...previous.data,private_customer:'not an authorized schema field'},
+  });
+  const offline=createTrustedExternalProcessLink({
+    kernel:f.kernel,currentWorkspace:f.currentWorkspace,
+    externalOwner:{ownerId:f.externalOwner.ownerId},
+    accessForRead:async()=>f.access,isHostActive:()=>true,
+  });
+  await assert.rejects(offline.readSaved(f.ref),{code:'T3_EXT_SAVED_LINK_INVALID'});
+  assert.equal(f.writeCount(),1);
+});

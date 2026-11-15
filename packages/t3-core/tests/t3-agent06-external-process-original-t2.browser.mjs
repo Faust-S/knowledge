@@ -367,6 +367,33 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
     assert.equal(coldRecovered.status,'LINK_PERSISTED');
     assert.equal(coldRecovered.revision,3);
     assert.equal((await coldPort.prepareContinuation(externalRef)).revision,3);
+    // A cold original Host must show last saved ERP link even without any
+    // external account/network. Do NOT label it current or allow dispatch.
+    const offlineKernel={...coldKernel,
+      hasOperation:op=>op!=='t1.putObject'&&coldKernel.hasOperation(op),
+      putObject:()=>{throw Error('OFFLINE_READ_NEVER_WRITES');},
+    };
+    const savedOnly=createTrustedExternalProcessLink({
+      kernel:offlineKernel,currentWorkspace,
+      externalOwner:{ownerId:'erpnext:shop1'},
+      accessForRead:async operation=>{
+        assert.equal(operation,'t1.getObject');return coldSigned.access;},
+      isHostActive:()=>true,
+    });
+    const cached=await savedOnly.readSaved(externalRef);
+    assert.equal(cached.status,'SAVED_UNVERIFIED');
+    assert.equal(cached.revision,3);
+    assert.equal(cached.source_revision,sourceRevision);
+    assert.equal(cached.epistemic_status,'reported');
+    assert.equal(cached.owner_current,false);
+    assert.equal(cached.can_execute,false);
+    await assert.rejects(savedOnly.prepareContinuation(externalRef),
+      {code:'T3_EXT_OWNER_ONLINE_REQUIRED'});
+    await assert.rejects(savedOnly.refresh(externalRef),
+      {code:'T3_EXT_WRITE_NOT_GRANTED'});
+    console.log('T3_AGENT06_ORIGINAL_T2_OFFLINE_ERP_SNAPSHOT_PASS',
+      JSON.stringify({revision:cached.revision,readOnly:true,
+        ownerCurrent:false,canExecute:false}));
     assert.equal((await coldPort.link(externalRef)).status,'ALREADY_LINKED');
     assert.ok(coldSigned.proofCount>0);
     console.log('T3_AGENT06_SIGNED_D1_COLD_RECOVERY_PASS',
