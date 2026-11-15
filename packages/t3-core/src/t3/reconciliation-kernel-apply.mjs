@@ -117,9 +117,23 @@ export function createTrustedReconciliationKernelApply({
     return {acceptanceId,revisionIds:[...revisionIds],c,chosen,
       binding,ctx,command,objInput,payload};
   }
+  // Original Kernel and Reconciliation own durable state. These Host-lifetime
+  // guards prevent concurrent direct callers and another dispatch of an
+  // already-entered original graph write. Recovery stays strictly read-only.
+  const appliesInFlight=new Set(),appliesDispatched=new Set();
   async function applyAccepted(input={}) {
-    const {acceptanceId,revisionIds,c,chosen,binding,ctx,command,objInput}=
-      await stagedSelection(input);
+    const prepared=await stagedSelection(input);
+    const effectKey=prepared.binding.effectKey;
+    check(!appliesInFlight.has(effectKey),"T3_D3_APPLY_IN_PROGRESS");
+    check(!appliesDispatched.has(effectKey),
+      "T3_D3_APPLY_ALREADY_DISPATCHED_USE_RECOVERY");
+    appliesInFlight.add(effectKey);
+    try{return await applyStaged(prepared);}
+    finally{appliesInFlight.delete(effectKey);}
+  }
+  async function applyStaged({
+    acceptanceId,revisionIds,c,chosen,binding,ctx,command,objInput,
+  }) {
     check(kernel.hasOperation("t1.commitObjectGraph")&&
       kernel.hasOperation("t1.getWorkspace")&&
       kernel.hasOperation("t1.getObject")&&
@@ -132,7 +146,10 @@ export function createTrustedReconciliationKernelApply({
     const signedKernel=createSubjectKernelBinding({
       kernel,access,isHostActive,
       commitObjectGraphPrecondition:()=>binding.commitPrecondition(ctx),
-      onCommitObjectGraphDispatch:()=>{kernelWriteEntered=true;},
+      onCommitObjectGraphDispatch:()=>{
+        kernelWriteEntered=true;
+        appliesDispatched.add(binding.effectKey);
+      },
     });
     // The original T2 graph cannot create its destination Workspace.
     // Check it BEFORE consuming the separate Human APPLY decision. On a

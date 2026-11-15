@@ -13,6 +13,7 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   let changePurposeDuringHumanApply=false;
   let signedJitCount=0,preconditionCount=0,workspaceReady=true;
   let workspaceReadError=null,applyPrompts=0;
+  let holdApply=null,enterApply=null;
   const context={kind:"CORP",context_id:"ctx:a",actor_id:"person:a",
     principal_id:"org:a",organization_id:"org:a",role_id:"role:admin",
     grant_id:"grant:a",realm_id:"realm:a",audience:"host:t3",
@@ -58,7 +59,7 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
     },
     verifyDecisionBinding:(request,decision)=>decision.requestDigest===hash(request),
   };
-  const port=createTrustedReconciliationKernelApply({
+  const makePort=()=>createTrustedReconciliationKernelApply({
     admission:{inspectAcceptedApplication:async()=>({
       schema:"IWXA_T3_APPLICATION_PROJECTION_CANDIDATE/1",
       status:"CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION",
@@ -110,12 +111,14 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
       storageScopeDigest:"f".repeat(64),expectedRevision:0,
       actorId:"person:a",principalId:"org:a",roleId:"role:admin",
       grantId:"grant:a",operationDigest:"e".repeat(64)}}),
-    confirmSeparateApply:()=>{
+    confirmSeparateApply:async()=>{
       applyPrompts++;
+      if(holdApply!==null){enterApply();await holdApply;}
       if(changePurposeDuringHumanApply)context.purpose="changed-purpose";
       return approves;
     },isHostActive:()=>active,
   });
+  let port=makePort();
   const selection={acceptanceId:accepted,revisionIds:[rev],
     target:{workspaceId:"ws:a",subjectId:"org:a",dataRootId:"root:a",
       consumerId:"consumer:a",processId:"process:a",
@@ -164,13 +167,56 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   assert.equal(commits,0,"missing original Workspace must never dispatch Apply");
   workspaceReadError=null;
   workspaceReady=true;
-  const result=await port.applyAccepted(selection);
+  // A human approval is bound to the exact signed purpose/audience/realm,
+  // even if the selected organization, actor and Workspace do not change.
+  changePurposeDuringHumanApply=true;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_APPLY_CONTEXT_CHANGED"});
+  assert.equal(commits,0);
+  context.purpose="result.apply";
+  changePurposeDuringHumanApply=false;
+  // Revoke the accepted source DURING the signed authorization callback.
+  // The last original Reconciliation check must reject before Kernel writes.
+  sourceCurrent=true;
+  revokeDuringJit=true;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_ORIGINAL_APPLICATION_PRECONDITION_DENIED"});
+  assert.equal(commits,0);
+  assert.ok(preconditionCount>=1);
+  // A signed owner may revoke the Host while authorize() is pending.
+  // This denial occurs BEFORE the original Kernel dispatch, so must not
+  // be mislabeled as a lost post-write acknowledgement.
+  revokeDuringJit=false;
+  sourceCurrent=true;
+  stopHostDuringJit=true;
+  await assert.rejects(port.applyAccepted(selection),{code:"T3_HOST_DISPOSED"});
+  assert.equal(commits,0);
+  active=false;
+  await assert.rejects(port.applyAccepted(selection),{code:"T3_HOST_DISPOSED"});
+  assert.equal(commits,0);
+  active=true;stopHostDuringJit=false;sourceCurrent=true;
+  let signalApply,resumeApply;
+  const enteredApply=new Promise(resolve=>{signalApply=resolve;});
+  const pendingApproval=new Promise(resolve=>{resumeApply=resolve;});
+  holdApply=pendingApproval;enterApply=signalApply;
+  const pending=port.applyAccepted(selection);
+  await enteredApply;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_APPLY_IN_PROGRESS"});
+  assert.equal(commits,0,"concurrent APPLY must not reach Kernel");
+  resumeApply();holdApply=null;enterApply=null;
+  const result=await pending;
   assert.equal(result.kernelWriteReadback,"CONFIRMED");
   assert.equal(result.originalEventReadback.idempotency_key,effect);
   assert.equal(result.originalEventReadback.payload.reconciliation_acceptance_id,accepted);
   assert.equal(result.externalProductAcceptance,"NOT_ACCEPTED");
   assert.equal(written.idempotency_key,effect);
   assert.equal(commits,1);
+  const promptsAfterCommit=applyPrompts;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_APPLY_ALREADY_DISPATCHED_USE_RECOVERY"});
+  assert.equal(commits,1);
+  assert.equal(applyPrompts,promptsAfterCommit);
   const recovered=await port.recoverApplied(selection);
   assert.equal(recovered.status,"ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
   assert.equal(recovered.kernelWriteReadback,"CONFIRMED");
@@ -192,37 +238,10 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   assert.equal(forged.automaticRetryAllowed,false);
   assert.equal(commits,1);
   lastEvent.idempotency_key=effect;
-  // A human approval is bound to the exact signed purpose/audience/realm,
-  // even if the selected organization, actor and Workspace do not change.
-  changePurposeDuringHumanApply=true;
-  await assert.rejects(port.applyAccepted(selection),
-    {code:"T3_D3_APPLY_CONTEXT_CHANGED"});
-  assert.equal(commits,1);
-  context.purpose="result.apply";
-  changePurposeDuringHumanApply=false;
-  // Revoke the accepted source DURING the signed authorization callback.
-  // The last original Reconciliation check must reject before Kernel writes.
-  sourceCurrent=true;
-  revokeDuringJit=true;
-  await assert.rejects(port.applyAccepted(selection),
-    {code:"T3_D3_ORIGINAL_APPLICATION_PRECONDITION_DENIED"});
-  assert.equal(commits,1);
-  assert.ok(preconditionCount>=2);
-  // A signed owner may revoke the Host while authorize() is pending.
-  // This denial occurs BEFORE the original Kernel dispatch, so must not
-  // be mislabeled as a lost post-write acknowledgement.
-  revokeDuringJit=false;
-  sourceCurrent=true;
-  stopHostDuringJit=true;
-  await assert.rejects(port.applyAccepted(selection),{code:"T3_HOST_DISPOSED"});
-  assert.equal(commits,1);
-  active=false;
-  await assert.rejects(port.applyAccepted(selection),{code:"T3_HOST_DISPOSED"});
-  assert.equal(commits,1);
-  // Independent simulated crash-after-write: Kernel persisted the original
-  // object and Event, but the caller did not receive the operation receipt.
-  // Reopening the trusted Host must NOT dispatch a second graph write.
+  // Independent mock operation: after a lost original Kernel ACK this
+  // direct Host port must only allow read-only recovery, never a retry.
   active=true;stopHostDuringJit=false;sourceCurrent=true;
+  port=makePort();
   commits=0;written=null;lastEvent=null;loseAckAfterWrite=true;
   await assert.rejects(port.applyAccepted(selection),
     {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"});
@@ -233,22 +252,28 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   assert.equal(afterLostAck.originalEventReadback.idempotency_key,effect);
   assert.equal(afterLostAck.automaticRetryAllowed,false);
   assert.equal(commits,1,"recovery may read but must never repeat APPLY");
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_APPLY_ALREADY_DISPATCHED_USE_RECOVERY"});
+  assert.equal(commits,1,"lost ACK cannot be followed by another direct Apply");
   loseAckAfterWrite=false; // NOW exercise forged receipts, not the earlier ACK-loss flag
   // In the original T2 graph a returned object or event ID alone is not
   // proof of the accepted Result. A forged ACK, missing independent Event,
   // or duplicate matching Event must never produce CONFIRMED. Every one of
   // these failures is POST-dispatch and cannot authorize a replay.
   const beforeUncertain=commits;
+  port=makePort();written=null;lastEvent=null;
   tamperInitialEvent=true;
   await assert.rejects(port.applyAccepted(selection),
     {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"});
   assert.equal(commits,beforeUncertain+1);
   tamperInitialEvent=false;
+  port=makePort();written=null;lastEvent=null;
   hideOriginalEvent=true;
   await assert.rejects(port.applyAccepted(selection),
     {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"});
   assert.equal(commits,beforeUncertain+2);
   hideOriginalEvent=false;
+  port=makePort();written=null;lastEvent=null;
   duplicateEvent=true;
   await assert.rejects(port.applyAccepted(selection),
     {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"});
