@@ -108,7 +108,8 @@ export function createTrustedReconciliationKernelApply({
       command.idempotency_key===binding.effectKey&&
       obj(objInput)&&id(objInput.object_id)&&id(objInput.schema_id)&&
       id(objInput.schema_version)&&
-      Number.isSafeInteger(objInput.base_revision)&&objInput.base_revision>=0&&
+      Number.isSafeInteger(objInput.base_revision)&&
+      objInput.base_revision===binding.expectedRevision&&
       obj(payload)&&payload.reconciliation_acceptance_id===acceptanceId&&
       Array.isArray(payload.reconciliation_revision_ids)&&
       JSON.stringify([...payload.reconciliation_revision_ids].sort())===

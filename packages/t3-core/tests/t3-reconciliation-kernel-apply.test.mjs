@@ -123,6 +123,15 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
     target:{workspaceId:"ws:a",subjectId:"org:a",dataRootId:"root:a",
       consumerId:"consumer:a",processId:"process:a",
       processVersion:"1.0.0",purpose:"result.apply"}};
+  // The domain graph MUST apply to the same original revision sealed by
+  // the accepted application owner. A shifted base revision must fail
+  // before Human APPLY and before any original Kernel write.
+  command.object.base_revision=1;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_ORIGINAL_GRAPH_PROVENANCE_REQUIRED"});
+  assert.equal(applyPrompts,0);
+  assert.equal(commits,0);
+  command.object.base_revision=0;
   await assert.rejects(port.applyAccepted({...selection,target:{
     ...selection.target,dataRootId:null}}),
     {code:"T3_D3_ORIGINAL_APPLICATION_TARGET_INCOMPLETE"});
