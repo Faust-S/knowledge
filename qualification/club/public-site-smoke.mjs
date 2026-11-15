@@ -23,6 +23,6 @@ for (const path of routes) {
   }
 }
 const report = { target: base, mode: 'PUBLIC_HTTP_ROUTE_QUALIFICATION', sourceCodeAccess: false, browserInteraction: false, privateTokens: false, coverage: { expectedAvailableServiceRoutes: 8, checkedAvailableServiceRoutes: 8, routeCount: routes.length, functionalInteractions: 0 }, results, errors, pass: errors.length === 0 };
-writeFileSync('qualification/club/report.json', JSON.stringify(report, null, 2) + '\\n');
+writeFileSync('qualification/club/report.json', JSON.stringify(report, null, 2) + String.fromCharCode(10));
 console.log(JSON.stringify(report, null, 2));
 if (!report.pass) process.exitCode = 1;
