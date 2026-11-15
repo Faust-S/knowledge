@@ -121,6 +121,7 @@ export function createTrustedReconciliationKernelApply({
     const {acceptanceId,revisionIds,c,chosen,binding,ctx,command,objInput}=
       await stagedSelection(input);
     check(kernel.hasOperation("t1.commitObjectGraph")&&
+      kernel.hasOperation("t1.getWorkspace")&&
       kernel.hasOperation("t1.getObject")&&
       kernel.hasOperation("t1.listEventsSince"),
       "T3_D3_ORIGINAL_KERNEL_GRANT_REQUIRED");
@@ -141,6 +142,15 @@ export function createTrustedReconciliationKernelApply({
       commitObjectGraphPrecondition:()=>binding.commitPrecondition(ctx),
       onCommitObjectGraphDispatch:()=>{kernelWriteEntered=true;},
     });
+    // The original T2 graph cannot create its destination Workspace.
+    // Check the exact signed Workspace before the irreversible Kernel call:
+    // a missing first-install target is a definite prerequisite failure,
+    // NOT an uncertain commit and NEVER grounds an automatic retry.
+    const workspace=await signedKernel.getWorkspace(c.workspace_id);
+    check(workspace!==null,"T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED");
+    check(!workspace.deleted_at,"T3_D3_ORIGINAL_WORKSPACE_DELETED");
+    check(workspace.read_only!==true,"T3_D3_ORIGINAL_WORKSPACE_READ_ONLY");
+    await unchanged(c);
     let receipt;
     try {
       receipt=await signedKernel.commitObjectGraph(command);

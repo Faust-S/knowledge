@@ -5,6 +5,7 @@
 // dispatch; this link carries only the already-authorized exact command.
 import {randomBytes} from "node:crypto";
 const METHODS=Object.freeze({
+  getWorkspace:"t1.getWorkspace",
   commitObjectGraph:"t1.commitObjectGraph",
   getObject:"t1.getObject",
   listEventsSince:"t1.listEventsSince",
@@ -80,6 +81,7 @@ export function createOriginalKernelNativeRelay({
     hasOperation:id=>Object.values(METHODS).includes(id)&&
       grants.granted_operations.includes(id),
     commitObjectGraph:input=>dispatch("commitObjectGraph",[input],epoch,sessionId),
+    getWorkspace:ws=>dispatch("getWorkspace",[ws],epoch,sessionId),
     getObject:(ws,obj)=>dispatch("getObject",[ws,obj],epoch,sessionId),
     listEventsSince:(ws,since)=>dispatch("listEventsSince",[ws,since],epoch,sessionId),
   });

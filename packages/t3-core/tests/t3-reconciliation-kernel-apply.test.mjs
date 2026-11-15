@@ -11,7 +11,7 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   let approves=false,active=true,commits=0;
   let sourceCurrent=true,revokeDuringJit=false,stopHostDuringJit=false;
   let changePurposeDuringHumanApply=false;
-  let signedJitCount=0,preconditionCount=0;
+  let signedJitCount=0,preconditionCount=0,workspaceReady=true;
   const context={kind:"CORP",context_id:"ctx:a",actor_id:"person:a",
     principal_id:"org:a",organization_id:"org:a",role_id:"role:admin",
     grant_id:"grant:a",realm_id:"realm:a",audience:"host:t3",
@@ -66,6 +66,7 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
     kernel:{
       sessionInfo:{contract_version:"1.3.0"},
       hasOperation:()=>true,
+      getWorkspace:async ws=>workspaceReady?{workspace_id:ws,read_only:false}:null,
       commitObjectGraph:async input=>{
         commits++;written=structuredClone(input);
         lastEvent={event_id:"evt:a",event_type:input.event.event_type,
@@ -139,6 +140,11 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
     "a revoked or denied original owner must NOT become a false readback");
   getObjectErrorCode=null;
   approves=true;
+  workspaceReady=false;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED"});
+  assert.equal(commits,0,"missing original Workspace must never dispatch Apply");
+  workspaceReady=true;
   const result=await port.applyAccepted(selection);
   assert.equal(result.kernelWriteReadback,"CONFIRMED");
   assert.equal(result.originalEventReadback.idempotency_key,effect);

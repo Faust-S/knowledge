@@ -122,6 +122,10 @@ test('installed Admin D3 records use the original T2 passport and unchanged Kern
       installed.output_object_types,domain.security.allowed_object_classes])
       assert.deepEqual(row,['existing.object',schema]);
     assert.equal(installed.schemas[schema].schema_version,'1.0.0');
+    assert.deepEqual(
+      installed.schemas[schema].json_schema.properties.records.items.properties.result,
+      {type:'string'},
+      'the original signed recipient accepts an empty Result');
     assert.deepEqual(installed.schemas[schema].json_schema.required,['schema','records']);
     assert.equal(catalog.entries[0].sha256,
       createHash('sha256').update(readFileSync(join(f.out,path))).digest('hex'));

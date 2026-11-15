@@ -278,8 +278,8 @@ test("original D3 Kernel relay uses the SAME authenticated Control route, not an
   try{
     const info={contract_version:"1.3.0",runtime_version:"0.3.6",
       service_id:"iwxa.workspace.relay",mode:"ready",
-      granted_operations:["t1.commitObjectGraph","t1.getObject",
-        "t1.listEventsSince"]};
+      granted_operations:["t1.commitObjectGraph","t1.getWorkspace",
+        "t1.getObject","t1.listEventsSince"]};
     const session=await f.browser.originalKernelRelay("attach",{
       sessionInfo:info});
     assert.match(session.sessionId,/^[A-Za-z0-9_-]{40,128}$/);
@@ -295,6 +295,15 @@ test("original D3 Kernel relay uses the SAME authenticated Control route, not an
       body:JSON.stringify({verb:"next",payload:{sessionId:session.sessionId}}),
     });
     assert.equal(forged.status,403);
+    const workspaceRead=proxy.getWorkspace("workspace:relay");
+    const workspaceCommand=await f.browser.originalKernelRelay("next",{
+      sessionId:session.sessionId});
+    assert.equal(workspaceCommand.method,"getWorkspace");
+    assert.deepEqual(workspaceCommand.args,["workspace:relay"]);
+    await f.browser.originalKernelRelay("result",{
+      sessionId:session.sessionId,id:workspaceCommand.id,ok:true,
+      result:{workspace_id:"workspace:relay"}});
+    assert.deepEqual(await workspaceRead,{workspace_id:"workspace:relay"});
     const read=proxy.getObject("workspace:relay","result:relay");
     const command=await f.browser.originalKernelRelay("next",{
       sessionId:session.sessionId});

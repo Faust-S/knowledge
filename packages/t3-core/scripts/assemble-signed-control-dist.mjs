@@ -26,7 +26,8 @@ const ADMIN_APPLIED_DECLARATION=Object.freeze({
       records:{type:"array",minItems:1,items:{
         type:"object",
         properties:Object.fromEntries(ADMIN_RESULT_FIELDS.map(field=>
-          [field,{type:"string",minLength:1}])),
+          [field,field==="result"?{type:"string"}:
+            {type:"string",minLength:1}])),
         required:ADMIN_RESULT_FIELDS,additionalProperties:false,
       }},
     },
