@@ -11,9 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from k05_agent06_effectiveness import K05EffectivenessHold
 from k05_agent06_owner_port import (
     read_agent_accepted_task, read_agent_execution_receipts,
-    observe_accepted_agent_run,
+    read_agent_task_execution_history, observe_accepted_agent_run,
 )
-from test_k05_agent06_effectiveness import fixture, TASK, RESULT
+from test_k05_agent06_effectiveness import fixture, TASK, RESULT, digest
 
 REVIEW = hashlib.sha256(b"owner canonical JSON review").hexdigest()
 ACC = hashlib.sha256(b"owner canonical JSON accepted").hexdigest()
@@ -67,6 +67,8 @@ class FakeToolRuntime:
         self.calls = []
         self.plan = {
             "plan_id": "TPLAN-k05", "plan_digest": PLAN,
+            "schema_version": "1.0.0",
+            "plan_contract": "PA.CONTRACT.TOOL_PLANNING@1.0.0",
             "task_ref": typed("task", "TASK-K05", TASK),
             "accepted_artifact_ref": typed("accepted_artifact", "ACC-K05", ACC),
             "tool_id": "builtin.file_write", "tool_descriptor_digest": "a"*64,
@@ -74,8 +76,14 @@ class FakeToolRuntime:
             "idempotency_key": "IWXA-TIDK-" + "c"*40,
         }
         self.receipt = {
-            "receipt_id": "TXR-k05", "plan_id": "TPLAN-k05",
-            "plan_digest": PLAN, "status": "SUCCEEDED",
+            "schema_version": "1.0.0",
+            "execution_contract": "PA.CONTRACT.TOOL_EXECUTION@1.0.0",
+            "receipt_id": "TXR-k05",
+            "plan_ref": {"kind": "tool_execution_plan",
+                         "ref_id": "TPLAN-k05", "digest_sha256": PLAN},
+            "approval_ref": typed("approval", "TEAPR-k05", digest(b"approval")),
+            "receipt_digest": digest(b"receipt"),
+            "status": "SUCCEEDED", "contract_state": "SUCCEEDED",
             "external_effect_state": "ACKNOWLEDGED",
             "started_at": "2026-11-15T10:30:00.123456+00:00",
             "finished_at": "2026-11-15T10:30:01.624789+00:00",
@@ -91,6 +99,14 @@ class FakeToolRuntime:
     def read_execution_plan(self, planid):
         self.calls.append("plan")
         return self.plan
+
+    def task_execution_history(self, task_id, task_digest):
+        self.calls.append("history")
+        return ([self.plan], [self.receipt])
+
+    def execution_states_for_plans(self, plans):
+        self.calls.append("states")
+        return {"TPLAN-k05": {"state": "SUCCEEDED", "receipt_id": "TXR-k05"}}
 
     def execute(self, *_args, **_kwargs):
         raise AssertionError("No execute in K05")
@@ -203,6 +219,7 @@ class K05OwnerAdapterTests(unittest.TestCase):
         tool = FakeToolRuntime()
         tool.receipt["status"] = "INPUT_REQUIRED"
         tool.receipt["external_effect_state"] = "UNKNOWN"
+        tool.receipt["contract_state"] = "UNKNOWN_RECONCILIATION_REQUIRED"
         data = read_agent_execution_receipts(task_cell=FakeTaskCell(), task_id="TASK-K05", tool_runtime=tool,
                                              receipt_ids=["TXR-k05"])
         self.assertEqual(data["succeeded"], 0)
@@ -267,6 +284,113 @@ class K05OwnerAdapterTests(unittest.TestCase):
         self.assertIsNone(data["retry_count"])
         self.assertEqual(data["retry_status"],
                          "UNKNOWN_WITHOUT_ORIGINAL_ATTEMPT_EVIDENCE")
+
+
+    def test_original_v1_receipt_plan_ref_and_contract_states(self):
+        tool = FakeToolRuntime()
+        result = read_agent_execution_receipts(
+            task_cell=FakeTaskCell(), task_id="TASK-K05",
+            tool_runtime=tool, receipt_ids=["TXR-k05"])
+        self.assertEqual(result["contract_succeeded"], 1)
+        self.assertEqual(result["contract_outcome_unknown"], 0)
+        self.assertEqual(result["receipt_list_completeness"],
+                         "NOT_ATTESTED_USE_TASK_EXECUTION_HISTORY")
+        self.assertEqual(result["sum_receipt_duration_us"], 1501333)
+
+    def test_legacy_receipt_format_cannot_masquerade_as_original_v1(self):
+        tool = FakeToolRuntime()
+        tool.receipt.pop("plan_ref")
+        tool.receipt["plan_id"] = "TPLAN-k05"
+        tool.receipt["plan_digest"] = PLAN
+        tool.receipt["schema_version"] = "0.12"
+        with self.assertRaisesRegex(K05EffectivenessHold,
+                                    "EXECUTION_RECEIPT_INVALID"):
+            read_agent_execution_receipts(
+                task_cell=FakeTaskCell(), task_id="TASK-K05",
+                tool_runtime=tool, receipt_ids=["TXR-k05"])
+
+    def test_receipt_plan_ref_tamper_and_contract_state_hold(self):
+        for change, expected in (
+            (lambda t: t.receipt["plan_ref"].update(digest_sha256="f"*64),
+             "EXECUTION_PLAN_DIGEST_MISMATCH"),
+            (lambda t: t.receipt["plan_ref"].update(kind="other"),
+             "EXECUTION_PLAN_REF_INVALID"),
+            (lambda t: t.receipt.update(contract_state="FAILED_KNOWN"),
+             "EXECUTION_STATE_INCONSISTENT"),
+            (lambda t: t.receipt.pop("approval_ref"),
+             "TYPED_REF_INVALID"),
+        ):
+            with self.subTest(expected=expected):
+                tool=FakeToolRuntime()
+                change(tool)
+                with self.assertRaisesRegex(K05EffectivenessHold,expected):
+                    read_agent_execution_receipts(
+                        task_cell=FakeTaskCell(), task_id="TASK-K05",
+                        tool_runtime=tool, receipt_ids=["TXR-k05"])
+
+    def test_history_uses_original_owner_without_manual_receipt_ids(self):
+        tool=FakeToolRuntime()
+        row=read_agent_task_execution_history(
+            task_cell=FakeTaskCell(), task_id="TASK-K05",
+            tool_runtime=tool)
+        self.assertEqual(row["plan_count"],1)
+        self.assertEqual(row["execution_receipts"]["receipt_count"],1)
+        self.assertEqual(row["plan_states"]["succeeded"],1)
+        self.assertEqual(row["uncertain_execution_plan_count"],0)
+        self.assertEqual(row["receipt_list_completeness"],
+                         "FULL_OWNER_TASK_HISTORY_SNAPSHOT")
+        self.assertEqual(row["status"],
+                         "OWNER_HISTORY_STABLE_READBACK_NOT_COLD_VERIFIED")
+        self.assertIn("history",tool.calls)
+        self.assertIn("states",tool.calls)
+
+    def test_no_receipt_with_unresolved_intent_is_not_no_attempt(self):
+        class OrphanIntent(FakeToolRuntime):
+            def task_execution_history(self, tid, digest_value):
+                self.calls.append("history")
+                return ([self.plan], [])
+            def execution_states_for_plans(self, plans):
+                self.calls.append("states")
+                return {"TPLAN-k05": {"state":"OUTCOME_UNKNOWN","receipt_id":None}}
+        result=read_agent_task_execution_history(
+            task_cell=FakeTaskCell(),task_id="TASK-K05",
+            tool_runtime=OrphanIntent())
+        self.assertEqual(result["execution_receipts"]["receipt_count"],0)
+        self.assertEqual(result["uncertain_execution_plan_count"],1)
+        self.assertFalse(result["business_effect_verified"])
+
+    def test_foreign_receipt_in_task_history_is_rejected(self):
+        class ForeignReceipt(FakeToolRuntime):
+            def task_execution_history(self,tid,digest_value):
+                self.calls.append("history")
+                return ([self.plan],[{
+                    **self.receipt,
+                    "plan_ref":{"kind":"tool_execution_plan",
+                                "ref_id":"TPLAN-foreign",
+                                "digest_sha256":PLAN},
+                }])
+        with self.assertRaisesRegex(
+            K05EffectivenessHold,"TASK_HISTORY_RECEIPT_FOREIGN_PLAN"):
+            read_agent_task_execution_history(
+                task_cell=FakeTaskCell(),task_id="TASK-K05",
+                tool_runtime=ForeignReceipt())
+
+    def test_history_changed_mid_scan_holds(self):
+        class RacingTool(FakeToolRuntime):
+            def task_execution_history(self,tid,digest_value):
+                self.calls.append("history")
+                if self.calls.count("history")>1:
+                    other={**self.receipt,
+                           "receipt_id":"TXR-new",
+                           "receipt_digest":digest(b"new receipt")}
+                    return ([self.plan],[self.receipt,other])
+                return ([self.plan],[self.receipt])
+        with self.assertRaisesRegex(
+            K05EffectivenessHold,"TASK_EXECUTION_HISTORY_CHANGED_DURING_READBACK"):
+            read_agent_task_execution_history(
+                task_cell=FakeTaskCell(),task_id="TASK-K05",
+                tool_runtime=RacingTool())
+
 
 
 if __name__ == "__main__":

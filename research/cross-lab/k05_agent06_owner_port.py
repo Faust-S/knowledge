@@ -160,78 +160,113 @@ def _date(value):
     return parsed
 
 
+def _original_receipt_plan(tool_runtime, receipt_id: str) -> tuple[dict, dict]:
+    """Require original Agent ToolExecution V1, never legacy TXR 0.12.
+
+    The original ToolRuntime.read_execution_receipt validates receipt schema
+    and digest; read_execution_plan validates original plan schema and digest.
+    K05 only checks cross-record identity and owner-reported classification.
+    """
+    receipt = tool_runtime.read_execution_receipt(receipt_id)
+    _need(type(receipt) is dict and receipt.get("receipt_id") == receipt_id
+          and receipt.get("schema_version") == "1.0.0"
+          and receipt.get("execution_contract") == "PA.CONTRACT.TOOL_EXECUTION@1.0.0"
+          and _hex(receipt.get("receipt_digest")),
+          "EXECUTION_RECEIPT_INVALID")
+    plan_ref = receipt.get("plan_ref")
+    _need(type(plan_ref) is dict and set(plan_ref) == {
+        "kind", "ref_id", "digest_sha256",
+    } and plan_ref.get("kind") == "tool_execution_plan"
+          and type(plan_ref.get("ref_id")) is str
+          and re.fullmatch(r"TPLAN-[A-Za-z0-9_-]{1,100}",
+                           plan_ref["ref_id"]) is not None
+          and _hex(plan_ref.get("digest_sha256")),
+          "EXECUTION_PLAN_REF_INVALID")
+    plan = tool_runtime.read_execution_plan(plan_ref["ref_id"])
+    _need(type(plan) is dict and plan.get("plan_id") == plan_ref["ref_id"]
+          and plan.get("schema_version") == "1.0.0"
+          and plan.get("plan_contract") == "PA.CONTRACT.TOOL_PLANNING@1.0.0"
+          and _hex(plan.get("plan_digest"))
+          and plan_ref["digest_sha256"] == plan["plan_digest"],
+          "EXECUTION_PLAN_DIGEST_MISMATCH")
+    _ref(receipt.get("approval_ref"), "approval")
+    for key in ("tool_id", "tool_descriptor_digest", "provider_slot",
+                "provider_id", "provider_binding_digest", "idempotency_key"):
+        _need(plan.get(key) == receipt.get(key),
+              "EXECUTION_PLAN_RECEIPT_MISMATCH")
+    _need(type(receipt.get("idempotency_key")) is str
+          and re.fullmatch(r"IWXA-TIDK-[0-9a-f]{40}",
+                           receipt["idempotency_key"]) is not None,
+          "RECEIPT_IDEMPOTENCY_INVALID")
+    status, effect, contract_state = (
+        receipt.get("status"), receipt.get("external_effect_state"),
+        receipt.get("contract_state"),
+    )
+    _need(status in {"SUCCEEDED", "FAILED", "INPUT_REQUIRED"}
+          and effect in {"ACKNOWLEDGED", "NONE", "UNKNOWN"}
+          and contract_state in {
+              "SUCCEEDED", "FAILED_KNOWN",
+              "UNKNOWN_RECONCILIATION_REQUIRED",
+          }, "EXECUTION_RECEIPT_INVALID")
+    expected_state = (
+        "UNKNOWN_RECONCILIATION_REQUIRED" if effect == "UNKNOWN" else
+        "FAILED_KNOWN" if status == "FAILED" else "SUCCEEDED"
+    )
+    _need(contract_state == expected_state,
+          "EXECUTION_STATE_INCONSISTENT")
+    return receipt, plan
+
+
 def read_agent_execution_receipts(*, task_cell, task_id: str,
                                   tool_runtime, receipt_ids: list) -> dict:
-    """Read original TXR/plan by ID; bind to same accepted Task and artifact.
+    """Read original ToolExecution V1 receipt/plan by exact durable ID.
 
-    ToolRuntime.read_execution_receipt and read_execution_plan MUST be
-    original validating owner methods. TRR has no Task binding and is not
-    admitted here. No status proves the final business result was achieved.
+    This compatibility gate does not claim receipt_ids contain the *complete*
+    Task history. Prefer read_agent_task_execution_history() for monitoring.
+    TRR read receipts are not admitted as task-bound execution receipts.
     """
     accepted = read_agent_accepted_task(task_cell, task_id)
-    _need(type(accepted) is dict and accepted.get("schema") == CONTRACT and
-          accepted.get("status") == "HUMAN_ACCEPTED_DRAFT_OWNER_PORT" and
-          _hex(accepted.get("task_sha256")) and
-          _hex(accepted.get("accepted_artifact_sha256")),
-          "ACCEPTED_OWNER_WITNESS_REQUIRED")
-    _need(all(callable(getattr(tool_runtime, method, None)) for method in (
-        "read_execution_receipt", "read_execution_plan"
+    _need(all(callable(getattr(tool_runtime, m, None)) for m in (
+        "read_execution_receipt", "read_execution_plan",
     )), "TOOL_RUNTIME_PORT_REQUIRED")
-    _need(type(receipt_ids) is list and len(receipt_ids) <= 128 and
-          all(type(x) is str and EXEC_RECEIPT.fullmatch(x) for x in receipt_ids) and
-          len(receipt_ids) == len(set(receipt_ids)),
+    _need(type(receipt_ids) is list and len(receipt_ids) <= 128
+          and all(type(x) is str and EXEC_RECEIPT.fullmatch(x)
+                  for x in receipt_ids)
+          and len(receipt_ids) == len(set(receipt_ids)),
           "RECEIPT_IDS_INVALID")
     counts = {"SUCCEEDED": 0, "FAILED": 0, "INPUT_REQUIRED": 0}
     effects = {"ACKNOWLEDGED": 0, "NONE": 0, "UNKNOWN": 0}
-    idempotency_keys = set()
-    durations = []
-    for receipt_id in receipt_ids:
-        receipt = tool_runtime.read_execution_receipt(receipt_id)
-        _need(type(receipt) is dict and
-              receipt.get("receipt_id") == receipt_id and
-              receipt.get("status") in counts and
-              receipt.get("external_effect_state") in effects,
-              "EXECUTION_RECEIPT_INVALID")
-        plan_id = receipt.get("plan_id")
-        _need(type(plan_id) is str and
-              re.fullmatch(r"TPLAN-[A-Za-z0-9_-]{1,100}", plan_id) is not None,
-              "EXECUTION_PLAN_ID_INVALID")
-        plan = tool_runtime.read_execution_plan(plan_id)
-        _need(type(plan) is dict and plan.get("plan_id") == plan_id and
-              _hex(plan.get("plan_digest")) and
-              plan["plan_digest"] == receipt.get("plan_digest"),
-              "EXECUTION_PLAN_DIGEST_MISMATCH")
+    contract_states = {"SUCCEEDED": 0, "FAILED_KNOWN": 0,
+                       "UNKNOWN_RECONCILIATION_REQUIRED": 0}
+    keys = set()
+    durations_us = []
+    for rid in receipt_ids:
+        receipt, plan = _original_receipt_plan(tool_runtime, rid)
         _ref(plan.get("task_ref"), "task", accepted["task_sha256"])
-        _need(plan["task_ref"]["ref_id"] == task_id, "EXECUTION_TASK_ID_MISMATCH")
+        _need(plan["task_ref"]["ref_id"] == task_id,
+              "EXECUTION_TASK_ID_MISMATCH")
         _ref(plan.get("accepted_artifact_ref"), "accepted_artifact",
              accepted["accepted_artifact_sha256"])
         _need(sha256(plan["accepted_artifact_ref"]["ref_id"].encode()).hexdigest()
               == accepted["accepted_artifact_id_sha256"],
               "EXECUTION_ACCEPTED_ID_MISMATCH")
-        for field in (
-            "tool_id", "tool_descriptor_digest", "provider_slot",
-            "provider_id", "provider_binding_digest", "idempotency_key",
-        ):
-            _need(plan.get(field) == receipt.get(field),
-                  "EXECUTION_PLAN_RECEIPT_MISMATCH")
-        _need(type(receipt.get("idempotency_key")) is str and
-              bool(receipt["idempotency_key"]),
-              "RECEIPT_IDEMPOTENCY_INVALID")
-        idempotency_keys.add(receipt["idempotency_key"])
-        start, end = _date(receipt.get("started_at")), _date(receipt.get("finished_at"))
+        start, end = _date(receipt.get("started_at")), _date(
+            receipt.get("finished_at"))
         delta = end - start
-        elapsed_us = delta.days * 86400000000 + delta.seconds * 1000000 + delta.microseconds
-        _need(0 <= elapsed_us <= 86400000000, "RECEIPT_TIME_ORDER_INVALID")
-        durations.append(elapsed_us)
+        elapsed_us = (delta.days * 86400000000 +
+                      delta.seconds * 1000000 + delta.microseconds)
+        _need(0 <= elapsed_us <= 86400000000,
+              "RECEIPT_TIME_ORDER_INVALID")
+        durations_us.append(elapsed_us)
         counts[receipt["status"]] += 1
         effects[receipt["external_effect_state"]] += 1
+        contract_states[receipt["contract_state"]] += 1
+        keys.add(receipt["idempotency_key"])
     final_task = read_agent_accepted_task(task_cell, task_id)
-    _need(final_task["task_sha256"] == accepted["task_sha256"]
-          and final_task["accepted_artifact_sha256"]
-          == accepted["accepted_artifact_sha256"]
-          and final_task["review_record_sha256"]
-          == accepted["review_record_sha256"],
-          "TASK_CHANGED_DURING_RECEIPT_READBACK")
+    _need(all(final_task[key] == accepted[key] for key in (
+        "task_sha256", "result_record_sha256", "review_record_sha256",
+        "accepted_artifact_sha256", "accepted_artifact_id_sha256",
+    )), "TASK_CHANGED_DURING_RECEIPT_READBACK")
     return {
         "schema": EXECUTION_CONTRACT,
         "status": "OWNER_READBACK_RECEIPTS_LINKED",
@@ -242,17 +277,135 @@ def read_agent_execution_receipts(*, task_cell, task_id: str,
         "effect_acknowledged": effects["ACKNOWLEDGED"],
         "effect_none": effects["NONE"],
         "effect_unknown": effects["UNKNOWN"],
-        # Same idempotency key is an identity correlation, not proof of an
-        # actual extra execution. A retry requires original attempt evidence.
+        "contract_succeeded": contract_states["SUCCEEDED"],
+        "contract_failed_known": contract_states["FAILED_KNOWN"],
+        "contract_outcome_unknown": contract_states["UNKNOWN_RECONCILIATION_REQUIRED"],
+        # Repeated idempotency keys are not proof of a repeated invocation.
         "same_idempotency_key_additional_receipts": (
-            len(receipt_ids) - len(idempotency_keys)),
+            len(receipt_ids) - len(keys)),
         "retry_count": None,
         "retry_status": "UNKNOWN_WITHOUT_ORIGINAL_ATTEMPT_EVIDENCE",
-        "sum_receipt_duration_us": sum(durations),
-        "sum_receipt_duration_ms": str(Decimal(sum(durations)) / Decimal(1000)),
+        "sum_receipt_duration_us": sum(durations_us),
+        "sum_receipt_duration_ms": str(
+            Decimal(sum(durations_us)) / Decimal(1000)),
         "end_to_end_duration_ms": None,
         "accepted_business_result": "NOT_VERIFIED",
         "raw_arguments_shared": False,
+        "receipt_list_completeness": "NOT_ATTESTED_USE_TASK_EXECUTION_HISTORY",
+    }
+
+
+HISTORY_CONTRACT = "IWXA_K05_AGENT06_TASK_TOOL_EXECUTION_HISTORY/0.1"
+
+
+def _history_identity(plans: list, receipts: list) -> tuple[tuple, tuple]:
+    """Check owner snapshots for duplicate IDs and stable identity/digests."""
+    _need(type(plans) is list and type(receipts) is list
+          and len(plans) <= 128 and len(receipts) <= 128,
+          "TASK_EXECUTION_HISTORY_SIZE_INVALID")
+    for row, identity, digest in (
+        (plans, "plan_id", "plan_digest"),
+        (receipts, "receipt_id", "receipt_digest"),
+    ):
+        _need(all(type(p) is dict and type(p.get(identity)) is str
+                  and _hex(p.get(digest)) for p in row)
+              and len({p[identity] for p in row}) == len(row),
+              "TASK_EXECUTION_HISTORY_IDENTITY_INVALID")
+    return (
+        tuple(sorted((p["plan_id"], p["plan_digest"]) for p in plans)),
+        tuple(sorted((r["receipt_id"], r["receipt_digest"]) for r in receipts)),
+    )
+
+
+def read_agent_task_execution_history(*, task_cell, task_id: str,
+                                      tool_runtime) -> dict:
+    """Use original Agent ToolRuntime.task_execution_history (no manual TXR IDs).
+
+    Original history owner searches the whole Task history rather than a
+    recent N-row global list. Original execution_states_for_plans detects
+    durable orphan intents/outcome uncertainty where no TXR was returned.
+    K05 performs two readbacks and holds on change, without writing anything.
+    """
+    accepted = read_agent_accepted_task(task_cell, task_id)
+    _need(all(callable(getattr(tool_runtime, method, None)) for method in (
+        "task_execution_history", "execution_states_for_plans",
+        "read_execution_receipt", "read_execution_plan",
+    )), "TOOL_HISTORY_OWNER_PORT_REQUIRED")
+    initial = tool_runtime.task_execution_history(task_id,
+                                                   accepted["task_sha256"])
+    _need(type(initial) is tuple and len(initial) == 2,
+          "TASK_EXECUTION_HISTORY_SHAPE_INVALID")
+    plans, receipts = initial
+    initial_key = _history_identity(plans, receipts)
+    plan_ids = set()
+    for plan in plans:
+        plan_id = plan["plan_id"]
+        _need(re.fullmatch(r"TPLAN-[A-Za-z0-9_-]{1,100}", plan_id) is not None,
+              "TASK_HISTORY_PLAN_ID_INVALID")
+        _need(plan.get("plan_contract") == "PA.CONTRACT.TOOL_PLANNING@1.0.0"
+              and plan.get("schema_version") == "1.0.0",
+              "TASK_HISTORY_PLAN_CONTRACT_INVALID")
+        _ref(plan.get("task_ref"), "task", accepted["task_sha256"])
+        _need(plan["task_ref"]["ref_id"] == task_id,
+              "TASK_HISTORY_PLAN_FOREIGN_TASK")
+        _ref(plan.get("accepted_artifact_ref"), "accepted_artifact",
+             accepted["accepted_artifact_sha256"])
+        _need(sha256(plan["accepted_artifact_ref"]["ref_id"].encode()).hexdigest()
+              == accepted["accepted_artifact_id_sha256"],
+              "TASK_HISTORY_PLAN_FOREIGN_ACCEPTED_ARTIFACT")
+        current = tool_runtime.read_execution_plan(plan_id)
+        _need(current == plan, "TASK_EXECUTION_PLAN_CHANGED_DURING_READBACK")
+        plan_ids.add(plan_id)
+    for receipt in receipts:
+        pref = receipt.get("plan_ref")
+        _need(type(pref) is dict and pref.get("kind") == "tool_execution_plan"
+              and pref.get("ref_id") in plan_ids,
+              "TASK_HISTORY_RECEIPT_FOREIGN_PLAN")
+        current = tool_runtime.read_execution_receipt(receipt["receipt_id"])
+        _need(current == receipt,
+              "TASK_EXECUTION_RECEIPT_CHANGED_DURING_READBACK")
+    receipt_projection = read_agent_execution_receipts(
+        task_cell=task_cell, task_id=task_id,
+        tool_runtime=tool_runtime,
+        receipt_ids=[r["receipt_id"] for r in receipts])
+    states = tool_runtime.execution_states_for_plans(plans)
+    _need(type(states) is dict and set(states) == plan_ids,
+          "TASK_HISTORY_STATES_MISSING")
+    counts = {"SUCCEEDED": 0, "ATTEMPTED": 0,
+              "OUTCOME_UNKNOWN": 0, "NOT_STARTED": 0}
+    known_receipt_ids = {r["receipt_id"] for r in receipts}
+    for pid, status in states.items():
+        _need(type(status) is dict
+              and status.get("state") in counts
+              and (status.get("receipt_id") is None
+                   or status["receipt_id"] in known_receipt_ids),
+              "TASK_HISTORY_STATE_INVALID")
+        # When the owner knows an uncertain effect even without a receipt,
+        # never relabel it as NOT_STARTED or successful business completion.
+        counts[status["state"]] += 1
+    later = tool_runtime.task_execution_history(task_id,
+                                                 accepted["task_sha256"])
+    _need(type(later) is tuple and len(later) == 2
+          and _history_identity(*later) == initial_key,
+          "TASK_EXECUTION_HISTORY_CHANGED_DURING_READBACK")
+    stable = read_agent_accepted_task(task_cell, task_id)
+    _need(all(stable[key] == accepted[key] for key in (
+        "task_sha256", "result_record_sha256", "review_record_sha256",
+        "accepted_artifact_sha256", "accepted_artifact_id_sha256",
+    )), "TASK_CHANGED_DURING_HISTORY_READBACK")
+    return {
+        "schema": HISTORY_CONTRACT,
+        "status": "OWNER_HISTORY_STABLE_READBACK_NOT_COLD_VERIFIED",
+        "plan_count": len(plans),
+        "execution_receipts": receipt_projection,
+        "plan_states": {k.lower(): v for k, v in counts.items()},
+        "uncertain_execution_plan_count": counts["OUTCOME_UNKNOWN"],
+        "receipt_list_completeness": "FULL_OWNER_TASK_HISTORY_SNAPSHOT",
+        "snapshot_atomicity": "NOT_ATTESTED",
+        "cold_restart_readback": "NOT_TESTED",
+        "human_accepted_draft": True,
+        "business_effect_verified": False,
+        "read_only": True,
     }
 
 
