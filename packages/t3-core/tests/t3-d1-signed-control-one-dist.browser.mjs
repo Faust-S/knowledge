@@ -997,11 +997,29 @@ try{
     };
     let {page:hardwarePage,panel:hardwarePanel}=await openPanel();
     const gpu=await hardwarePage.evaluate(async()=>{
-      const adapter=await navigator.gpu?.requestAdapter({powerPreference:'high-performance'});
-      return adapter?.info??null;
+      const supported=typeof navigator.gpu?.requestAdapter==='function';
+      const adapter=supported
+        ? await navigator.gpu.requestAdapter({powerPreference:'high-performance'})
+        : null;
+      const info=adapter?.info??{};
+      // WebGPU vendor fields can be privacy-redacted. A real WebGPU adapter
+      // and non-software GPU provenance are BOTH mandatory for hardware PASS.
+      const gl=document.createElement('canvas')
+        .getContext('webgl2',{powerPreference:'high-performance'});
+      const ext=gl?.getExtension('WEBGL_debug_renderer_info');
+      return {supported,adapterPresent:Boolean(adapter),
+        vendor:info.vendor??'',architecture:info.architecture??'',
+        device:info.device??'',description:info.description??'',
+        webglVendor:ext?String(gl.getParameter(ext.UNMASKED_VENDOR_WEBGL)):'',
+        webglRenderer:ext?String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)):'',
+      };
     });
-    assert.match([gpu?.vendor,gpu?.device,gpu?.description].join(' '),
-      /apple/i,'SIGNED_BLI_REAL_APPLE_GPU_REQUIRED');
+    console.log('T3_D1_D5_METAL_ADAPTER_PROBE',JSON.stringify(gpu));
+    const hardwareDetails=[gpu.vendor,gpu.architecture,gpu.device,
+      gpu.description,gpu.webglVendor,gpu.webglRenderer].join(' ');
+    assert.ok(gpu.adapterPresent&&/apple/i.test(hardwareDetails)&&
+      !/swiftshader|software|llvmpipe|google/i.test(hardwareDetails),
+      'SIGNED_BLI_REAL_APPLE_GPU_REQUIRED: '+JSON.stringify(gpu));
     assert.equal(await hardwarePanel.getByRole('button',
       {name:'Скачать и запустить'}).isDisabled(),true);
     await hardwarePanel.getByRole('checkbox',

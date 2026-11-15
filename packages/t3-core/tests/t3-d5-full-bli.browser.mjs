@@ -177,14 +177,21 @@ try {
       const adapter=await navigator.gpu.requestAdapter({powerPreference:"high-performance"});
       if(!adapter)return {supported:false,reason:"WEBGPU_ADAPTER_UNAVAILABLE"};
       const info=adapter.info||{};
+      const gl=document.createElement("canvas")
+        .getContext("webgl2",{powerPreference:"high-performance"});
+      const ext=gl?.getExtension("WEBGL_debug_renderer_info");
       return {supported:true,reason:"ADAPTER_PRESENT",vendor:info.vendor||"",
         device:info.device||"",architecture:info.architecture||"",
-        description:info.description||""};
+        description:info.description||"",
+        webglVendor:ext?String(gl.getParameter(ext.UNMASKED_VENDOR_WEBGL)):"",
+        webglRenderer:ext?String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)):""};
     }catch(e){return {supported:false,reason:String(e)};}
   });
-  const hardwareVendor=[gpu.vendor,gpu.device,gpu.description].join(" ");
+  const hardwareVendor=[gpu.vendor,gpu.architecture,gpu.device,
+    gpu.description,gpu.webglVendor,gpu.webglRenderer].join(" ");
   const realGpu=gpu.supported && /apple|nvidia|amd|intel/i.test(hardwareVendor) &&
     !/swiftshader|software|llvmpipe|google/i.test(hardwareVendor);
+  console.log("T3_D5_HARDWARE_ADAPTER_PROBE",JSON.stringify(gpu));
   if(hardwareRequired && !realGpu) {
     throw Error("T3_D5_HARDWARE_WEBGPU_NOT_AVAILABLE: "+JSON.stringify(gpu));
   }
