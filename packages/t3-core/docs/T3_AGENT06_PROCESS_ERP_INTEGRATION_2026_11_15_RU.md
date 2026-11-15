@@ -1,0 +1,416 @@
+# Agent 0.6: T3 / Activity / внешние ERP и процессы
+
+Дата: 2026-11-15. Ветка: work/2026-11-15-agent06-process-erp-integration.
+Статус: SOURCE_CONTRACT_IMPLEMENTED, INSTALLED_ERP=NOT_ACCEPTED, REAL_PROCESS=NOT_ACCEPTED, T3_READY=false.
+
+## Владельцы
+
+- ORIGINAL T3 Host / inherited T2 Kernel 0.3.6 / Access D1 / D2 Activity / original .iwxa Exchange: `packages/t3-core`.
+- Activity: отдельный подписанный read-only источник `modules/activity-base-anonymizer`; её OWNER_REVIEW_DRAFT не доказывает анонимность и не публикуется автоматически.
+- Agent 0.6: ToolRuntime, n8n, аккаунты/автоматизации, Human Review, Task/Result, обработка HTTP/API. **Никаких ERP токенов, n8n ToolRuntime или исполнительного workflow внутри public T3.**
+- ERP / BPMN / workflow provider: собственный durable state, API, авторизация, native operation receipt и восстановление после lost ACK.
+- CehoVod: канонические order, operation-execution, production-actuals, quality-check, defect, plan-fact contracts в приватном `Faust-S/cehovod`; не менять статусы напрямую.
+
+## Реализованная узкая функция
+
+`src/t3/external-process-link.mjs`, экспорт через существующий `src/t3/index.mjs`:
+
+`createTrustedExternalProcessLink({kernel,accessForWrite,currentWorkspace,externalOwner,confirmHuman,isHostActive})`
+
+`externalOwner.readExact({record_kind,record_id})` вызывается за доверенной границей Host. Его ответ **должен быть проверен самим владельцем API**: `source_owner`, `record_kind`, `record_id`, `source_revision`, `source_digest` (SHA-256 exact canonical source snapshot), `source_receipt` (owner-native evidence), `source_state`. Клиент не вычисляет digest по неподтверждённому JSON. Credentials/secrets и raw customer fields в T3 не сохраняются.
+
+Ввод Host: `{expected_workspace_id,record_kind,record_id}`. Host фиксирует выбранную Workspace и исходный signed D1 контекст. После двойного чтения ERP source и отдельного Human consent делается **один** оригинальный `t1.putObject`, `base_revision=0`, с предварительным D1 JIT через `createSubjectKernelBinding`. Контракт объекта: `iwxa.agent06.external-process-link@1.0.0`; event: `t3.external-process.record.reported`; D2 mapping всегда `semantic_kind=Evidence`, `epistemic_status=reported` (НЕ observed business activity). Существующий service passport T2 **обязан** объявить эту схему; без штатной декларации оригинальный Kernel должен отказать.
+
+Ссылка имеет детерминированный ID по owner/type/source ID; одинаковая revision → `ALREADY_LINKED`, другая → `T3_EXT_REVISION_OR_SOURCE_CONFLICT` и read-only `REVISION_CONFLICT`. После неопределённого write ACK запрещён replay; `recover()` повторно читает реальный ORIGINAL Kernel + ERP owner. Успешное локальное восстановление НЕ является подтверждением исполнения ERP-операции.
+
+Значение `LINK_PERSISTED` обозначает только существование и совпадение исходной ссылочной записи T3. Для реального внешнего действия использовать **имеющийся** `createTrustedNativeContinuation` D6 или Agent ToolRuntime, где `inspect → receive → receipt → readback` выполняются у исходного владельца. Требовать durable operationId, exact external source revision, original Result readback после cold reopen. Не создавать ещё один receipt store.
+
+### Важные ограничения первого исходника
+
+- В public T3 нет сетевого ERP-клиента, BPMN XML parser/renderer, n8n ToolRuntime или приватного CehoVod domain-mapper.
+- Переход `reported → observed` **не выполняется** этим API. Подтверждённый объект Activity потребует отдельного доменного фактического Event и evidence refs от владельца.
+- Текущий `readExact` является доверенным портом, а не криптографическим доказательством достоверности API-ответа. Продуктовый owner должен сверять TLS, ревизии и права; HTTP GET сам по себе не является owner receipt.
+- При двух отдельных Host, пишущих один external-link ID, решающий конфликтом остаётся оригинальный Kernel base_revision. Volatile pending предотвращает лишь повтор одного Host.
+- Запрет записи зависит от **оригинального** сервисного паспорта, signed D1 Access и Kernel. Не считать UI-подтверждение или Publisher licence правом `t1.putObject`.
+- Модуль не подключён автоматически к приложениям, пока Agent/ERP owner и CehoVod производственный сервис не согласованы.
+
+## Внешние программы: варианты подключения
+
+| Система | Канал | Принадлежность записи | Кандидат |
+|---|---|---|---|
+| ERPNext / Frappe | `GET /api/resource/Sales%20Order/{name}`, собственный API token пользователя | ERPNext; использовать `modified` плюс самостоятельный digest и native receipt | Первый |
+| Odoo Community | модель `sale.order`, версия-специфичный RPC / JSON-2, права конкретного развертывания | Odoo; `write_date`, `id`, company/DB scoping, явная повторная сверка | Второй |
+| Dolibarr | REST `/api/index.php/orders/{id}`, DOLAPIKEY на владельце Agent | Dolibarr; ID/row_version или иной поддерживаемый контроль конфликта | Третий |
+| n8n | существующий Agent ToolRuntime, webhook/execution ID, проверяемый outcome | n8n | Сохранить |
+| Node-RED | HTTP In/HTTP Response с явным flow/job ID и пользовательским credentials | Node-RED | Альтернатива |
+| Activepieces | официальный webhook/flow runs API с документированными permission/license limits | Activepieces | Альтернатива |
+| Flowable / Operaton | BPMN engine deployments, runtime instances, job/task/incident APIs | Внешний BPM engine | Дополнительные исполнители |
+
+Проверять версии и условия лицензий отдельно по официальным источникам до включения пакета. Odoo 19 JSON-2 API, например, документирован для оплачиваемых планов Odoo Online; это не доказательство доступности того же API у каждой Community installation. Не импортировать XML BPMN как исполненное событие: импорт проверяет структуру/версии/профиль, а реальность устанавливают original owner events.
+
+## Первый предметный маршрут D05 CehoVod
+
+1. Agent через выбранный пользовательский ERPNext аккаунт делает `readExact(Sales Order, SO-0042)`, проверяет API права, статус и snapshot digest; полученный документ остаётся у ERPNext.
+2. Человек подтверждает привязку к уже выбранной CehoVod Workspace. ORIGINAL подписанный T3 Kernel пишет `iwxa.agent06.external-process-link`; D2 отображает `reported` Evidence, не физическую операцию.
+3. CehoVod собственными исходными функциями создаёт/связывает production-order, operation-execution и их независимые факты, если это разрешено. Нельзя переводить заказ прямой записью `status`.
+4. Agent через старый ToolRuntime выполняет ровно один согласованный owner-native ERP/workflow action. Для получателя требуется D6 operationId + original owner `receipt/readback`; lost ACK = `OUTCOME_UNKNOWN`, только чтение восстановления.
+5. CehoVod сохраняет отдельные production-actuals, defect, quality result, plan-fact и доменный Result; Activity D2 получает только реально наблюдаемые события с точными revision/provenance.
+6. После перезапуска Agent/Host читает оригинальный T3 объект, исходный owner operation receipt, доменный Result; сравнивает ревизии и не повторяет внешнюю операцию.
+
+## Минимум квалификации до PRODUCT_ACCEPTED
+
+- Original T3 Host (не изолированный stub) с подписанным D1, одним Kernel 0.3.6 и реальным зарегистрированным сервисным паспортом, T3 D2, Activity.
+- Настоящий ERPNext owner с разрешениями; `modified`/digest/receipt, version conflict, дубль webhook, потеря ответа, HTTP/permission отказ.
+- Реальный CehoVod заказ со штатной функцией переходов, факт, отклонение, дефект и Result.
+- Статус внешнего workflow от исполнительного owner, подтверждённое действие, no replay, readback после двух cold opens.
+- Оригинальный `.iwxa` и восстановление в новом получателе только при соответствующем подписанном grant.
+- Тесты приёмки run в **открытом knowledge**, без приватных Actions. Не маркировать source fixtures как native acceptance.
+
+## Подключение Agent 0.6 (отдельный интеграционный шаг)
+
+1. В приватном Agent 0.6 сохранить его штатные n8n/ToolRuntime/ERP credentials. Никакие ключи не отправлять в public T3, JSON Event или .iwxa.
+2. В **доверенном** Host установить `externalOwner.readExact` поверх существующего Agent аккаунта; утверждать только узкий документированный snapshot. Текущий renderer не выбирает `ownerId` и не может выдать подписанный D1 контекст.
+3. Штатно зарегистрировать `EXTERNAL_PROCESS_LINK_DECLARATION` в разрешённом оригинальном T2 сервисном паспорте и D2 version-pinned binding. Только затем дать человеку команду link/recover.
+4. Для действия у ERP использовать уже существующий Agent ToolRuntime с отдельным Human Review; связывать owner operationId с D6/оригинальным Result и выполнить cold readback.
+5. Испытать с собственным реальным CehoVod доменным владельцем, затем независимо согласовать перенос в Agent 0.6. Central branches в этой работе не изменены.
+
+Источники исходников: `packages/t3-core/src/t3/{subject-access-binding,native-result-continuation}.mjs`, `src/t3/activity/{index,kernel-reader}.mjs`, `src/modules/base/features/project-process/{project-process,process-intelligence}.mjs`, `Faust-S/cehovod/src/lib/{production-order,operation-execution,production-lifecycle}.ts`.
+
+## Подтверждённые upstream источники API и условия поставки
+
+- ERPNext/Frappe: https://docs.frappe.io/framework/user/en/api/rest (DocType REST, `Authorization: token api_key:api_secret`, /api/resource/..., операции от имени существующего пользователя); исходная лицензия ERPNext GPL-3.0-or-later: https://github.com/frappe/erpnext/blob/develop/license.txt . В Frappe `modified` имеет вид `2019-06-03 14:19:00.281026`; новый T3 source_revision принимает такие строки как данные, но НЕ как signed T3 IDs.
+- Odoo 19 JSON-2: https://www.odoo.com/documentation/19.0/developer/reference/external_api.html . Документация Odoo Online прямо ограничивает внешний JSON-2 API планом Custom. Для локальной Odoo Community применять API только после проверки конкретной версии, установленных модулей и лицензии, а не автоматически обещать JSON-2 на любой инсталляции.
+- Dolibarr: https://wiki.dolibarr.org/index.php/Module_Web_Services_REST (REST /api/index.php/..., `DOLAPIKEY`, optional multicompany `DOLAPIENTITY`), версия API и нужная операция в целевой инсталляции требуют проверки.
+- Flowable BPMN: https://www.flowable.com/open-source/docs/bpmn/ch14-REST (runtime/process-instances, runtime/tasks и HTTP 409 conflict). Open-source engine Apache-2.0: https://github.com/flowable/flowable-engine/blob/main/LICENSE .
+- Node-RED: open-source Apache-2.0 https://github.com/node-red/node-red/blob/main/LICENSE . HTTP endpoints требуют явной настройки flow/auth и штатного хранения результатов у владельца.
+- Activepieces: core MIT, enterprise/commercial отдельная лицензия: https://github.com/activepieces/activepieces/blob/main/docs/about/license.mdx . Нельзя обещать enterprise API в Community по названию продукта.
+- Operaton, n8n: до включения в сборку надо отдельно зафиксировать точную версию, API и реально применимые ограничения лицензии. Ни один из этих продуктов не встроен и не запускается данным исходным T3 контрактом.
+
+Лицензия стороннего сервера и лицензия связывающего IWXA кода оцениваются раздельно. Использование стороннего REST API само по себе не даёт прав на перенос его исходников/коммерческих модулей.
+
+## 15.11: original T2 Compare-and-Swap для ERP -> T3
+
+После `link` доступен `refresh({expected_workspace_id,record_kind,record_id})`: пользователь согласует обновление внешнего source revision. Перед оригинальным `t1.putObject` проверяются неизменность source и исходной T3 ревизии; запись выполняется с `base_revision=old.revision` через существующий подписанный D1 + ORIGINAL Kernel. Повторная отправка после `OUTCOME_UNKNOWN` запрещена: `recover()` читает настоящую запись после холодного запуска. Если у внешнего владельца `source_revision` не меняется при изменении digest/state, `refresh` отказывает. Обновление ссылки всегда `reported`, даже при ERP состоянии Submitted или Completed.
+
+`source_receipt` допускает null: чтение стандартного Frappe DocType REST не выдаёт durable operation receipt. Отсутствующую квитанцию нельзя выдумывать из HTTP 200. Для **настоящего действия** в ERP или workflow требуется существующий Agent ToolRuntime, D6 `createTrustedNativeContinuation` с durable operationId, `receipt/readback` от ERP owner, и отдельный доменный CehoVod Result. Это не вторая система процессов.
+
+Публичный исходный CI baseline до изменения refresh: https://github.com/Faust-S/knowledge/actions/runs/43718835358 SUCCESS (test, original real-host, Windows credential); аппаратный WebGPU SKIPPED. Новый источник нуждается в квалификации на точном коммите; installed ERP/Agent/CehoVod E2E не принят.
+
+## Agent 0.6 → D6: конкретное условие подтверждения внешней операции
+
+`prepareContinuation({expected_workspace_id,record_kind,record_id})` допускается только после свежего `recover` со статусом `LINK_PERSISTED`, выдает exact `{workspace_id,object_id,schema_id,revision}` и сам НЕ выполняет внешнее действие. Это вход в **существующий** `createTrustedNativeContinuation`. D6 отдельно перечитывает исходный объект с original signed D1 и проверяет owner-native `operationId`, `receipt(COMMITTED)`, `readback(PERSISTED)`.
+
+Подтверждено по исходному private Agent 0.6: `adapters/n8n_workflow_v1.py` передаёт `X-IWXA-Idempotency-Key`; HTTP 2xx возвращает `external_effect_state='ACKNOWLEDGED'` и необязательный `request_id`. Это **транспортный ответ**, а не подтверждение исполнения заказа в ERP. `runtime/tool_runtime.py` объявляет `n8n.workflow` как `WRITE/high/approval_required/PROVIDER_KEY`. Локальная ToolExecutionCell подтверждает собственное выполнение Agent, но не заменяет независимую durable-квитанцию n8n/ERP-владельца. При lost ACK владелец Agent должен сохранять `RECOVER_ONLY` в уже имеющемся durable ToolExecutionCell, не создавать второй журнал. Последующий независимый owner `receipt/readback` и исходный доменный Result CehoVod - отдельный интеграционный шаг.
+
+Добавлен адресный публичный тест: `tests/t3-agent06-external-process-link.test.mjs`, scenario `fresh ERP source -> original D6`: ACK → OUTCOME_UNKNOWN, холодный Host не повторяет dispatch при RECOVER_ONLY, полученный позже настоящий по форме owner receipt → OWNER_READBACK_CONFIRMED. В тесте original T3 Kernel и n8n owner представлены контролируемыми double; это SOURCE_CONTRACT, не установленная ERPNext/n8n квалификация. Main T3, Activity и private Agent не изменены.
+
+## Оригинальный T2 сервисный паспорт: закрытие схемного разрыва
+
+Ранее `link/refresh` были исходными портами, но без сервисного паспорта оригинальный T2 Kernel справедливо отказывал в записи `iwxa.agent06.external-process-link`. Теперь `EXTERNAL_PROCESS_LINK_PASSPORT` декларирует *только* эту схему у `iwxa.agent06.external-process` и разрешает ограниченные `workspace.read`, `object.read/write`, `events.read_scope=service`. Запрещены Workspace create/list/delete/purge, object.delete, import/export .iwxa и любые чужие типы объектов. Подписанные права D1, гранты, owner account и Human Review это не заменяет.
+
+`planOriginalT2ExternalProcessRegistration({domain,catalog,controlPlane})` находится в `src/t3/external-process-passport-registration.node.mjs`. Это **чистая build-time функция штатного оригинального Host**, не новая служба, IAM, registry, администратор или исполнитель процессов. Она возвращает нормальные `_iwxa/domain.json`, `_iwxa/service-catalog.json`, `_iwxa/security/capability-control-plane.json`, bytes штатного паспорта `_iwxa/services/iwxa.agent06.external-process.json` и его SHA-256. Повтор идемпотентен, подмена существующего паспорта и пересечение маршрутов отклоняются. Владельцем установки остается исходный Host compiler.
+
+Тест `tests/t3-agent06-external-process-original-t2.browser.mjs` используется **только** в публичном real-host CI с точным исходным квалифицированным T2 Kernel 0.3.6/Runtime Contract 1.3.0, одним оригинальным IndexedDB Store: обычная регистрация, создание Workspace штатным writer, ограниченный ERP-link writer, сохранение 1→2 через `base_revision`, отказ чужой схемы и stale revision, затем холодный Browser Host restart с `getObject` и `listEventsSince`. Эти данные синтетические и не являются корпоративными. Этот тест не создает новой платформы, T2 Store, второго Control и не удостоверяет реальный подписанный установленный Agent. Продолжение D1 и native CehoVod/ERPNext требует настоящего owner.
+
+В новой ветке подключено тестирование существующим публичным `t3-core-source-qualification`. Не запускать приватные Actions и не повышать `T3_READY` до полного G4.
+
+## Испытание непосредственно подписанного link -> original Host (следующая ревизия)
+
+`tests/t3-agent06-external-process-original-t2.browser.mjs` теперь не ограничивается записью через `link.t1.putObject`: внутри публичного теста исходный `createTrustedExternalProcessLink` из `src/t3/external-process-link.mjs` вызывается на реальном `IWXA.connect({service_id:'iwxa.agent06.external-process'})` через строго тестовый Node→browser facade. Данный facade не содержит Store: каждый вызов `getWorkspace/getObject/putObject/listObjects/listEventsSince` передаёт в настоящий T2 Kernel 0.3.6 / IndexedDB. **D1 не имитируется**: `createTemporaryOriginalPersonalAuthority` создаёт тестовый Ed25519-подписанный Access на Node Host с проверяемыми currentContext, proof и STATUS. Продуктовые ключи и installed IAM не задействованы.
+
+Проверяется цепочка: USER_CANCELLED → разрешённый link (revision=1) → повтор=ALREADY_LINKED → конфликт ERP source → согласованное refresh (revision=2) → отказ D6 принимать устаревший source Object → lost ACK после оригинального putObject (revision=3) → signed recover без повторной записи → отзыв персонального гранта (запрет нового вызова) → исходная D2 Activity с `epistemic_status=reported` и без ERP customer text → D6 native owner без durable receipt возвращает только OUTCOME_UNKNOWN, не создает Result → cold Host reopen → новая Ed25519 Access с подписанной проверкой original Object revision=3. Это реальный ORIGINAL Kernel и исходные D1/D2/D6 исходники, но **ERP-владелец и native n8n recipient в этом тесте остаются контролируемыми внешними портами**. Не выдавать этот тест за реальную операцию CehoVod или ERPNext.
+
+Приёмка этого нового маршрута = PENDING до проверки точного HEAD в публичном CI; ранее на `c87b35cf` публичный `#43720094913` SUCCESS, но он проверял только оригинальный Kernel напрямую. При сбое ревизии исправить тест/код в этой ветке, не менять T3/Activity/Agent main branches.
+
+## Фактическая приёмка signed source link на ORIGINAL T2, 15.11.2026
+
+Исполняемый source HEAD `213159efaefc863715a3e3252504f17ac22457f3`, TREE `c6f4d8688f7521c4af787f616807fe3bdd160005`.
+
+Публичный оригинальный [GitHub Actions #43721311039](https://github.com/Faust-S/knowledge/actions/runs/43721311039) завершён **SUCCESS на точном source HEAD**:
+- `test=SUCCESS`, `real-host=SUCCESS`, `windows-credential=SUCCESS`; `metal-webgpu=SKIPPED`.
+- T3 product-core Node `730/730 PASS`; T3 product Workspace/DOM `1141/1141 PASS`.
+- **Реальный ORIGINAL T2 0.3.6/Contract 1.3.0**, один IndexedDB Store, штатный сервисный паспорт, signed T3 D1 через временного Ed25519 TEST владельца и существующий `createTrustedExternalProcessLink`: `T3_AGENT06_SIGNED_D1_REAL_KERNEL_PROCESS_PASS`. Подтверждены `signedProofs=47`, `revision=3`, `originalActivityEvents=5`, `lostAckNoReplay=true`, `d6HttpAckRemainsUnknown=true`.
+- Два последовательных исходных сеанса T2 browser Host: `T3_AGENT06_SIGNED_D1_COLD_RECOVERY_PASS` с новым временным Ed25519 владельцем, `revision=3`, `signedProofs=6`.
+- Отказ `foreign schema`, `stale base_revision`, отмена Human Review, conflict external revision, D1 revoke, устаревшая D6 ссылка, невозможность повышения нативного HTTP ACK до `OWNER_READBACK_CONFIRMED` без настоящего owner receipt.
+- Первый прогон #43721113055 доходил до подписанной исходной операции, но падал на устаревшем тестовом ожидании двух Event после добавления трёх новых; код исправлен `213159ef`, новый прогон полностью PASS.
+
+**Не подменять статус:** подпись действительно построена оригинальным T3 Ed25519 Test Access с временными ключами на публичном CI; установленный продакшн T3 Host и его native signer НЕ запускались. Снимок внешней записи предоставляет контролируемый test `readExact` со значением `source_owner=erpnext:shop1`, реального ERPNext API, аккаунта, перехода CehoVod, подтверждённого native n8n `receipt/readback` и конечного доменного Result пока нет. `SOURCE_QUALIFICATION=PASS`, `ORIGINAL_T2_SIGNED_ROUTE=PASS_TEST_HOST`, `LIVE_ERP_EXECUTION=NOT_ACCEPTED`, `CEHOVOD_RESULT=NOT_ACCEPTED`, `T3_READY=false`.
+
+Следующий интеграционный шаг, требующий владельца Agent: отдельный подписанный реальный `ERPNext.readExact` с API current revision + digest; использование текущего `adapters/n8n_workflow_v1.py` исключительно через Agent ToolRuntime и существующий журнал ToolExecutionCell. Только после настоящего durable owner `operationId, receipt, readback` допускать D6 `OWNER_READBACK_CONFIRMED`; CehoVod канонически выполняет `production-order → operation-execution → production-actuals / quality / defect → plan-fact Result`, не прямыми изменениями поля status. Проверить обрыв ACK, webhook duplicate, изменение записи внешним пользователем, отзыв подписанного гранта, холодный readback обоих owners и отдельную штатную .iwxa передачу. Не копировать приватный Agent в public T3.
+
+## Дополнение: восстановление по самостоятельному подписанному read-only Access
+
+Ранее `recover()/prepareContinuation()` требовали `accessForWrite('t1.putObject')`, хотя обе операции только читают original Kernel. Исправлено в рамках исходного `createTrustedExternalProcessLink`: необязательный `accessForRead('t1.getObject')` применяется к `getWorkspace/getObject`, независимо от grants на изменение. При отсутствии write provider read-only Host может вызвать `recover()/prepareContinuation()`, но `link()/refresh()` возвращают `T3_EXT_WRITE_NOT_GRANTED` **до** внешнего ERP чтения или Human Review. Write-owner по-прежнему проверяется штатным D1 при каждом original `t1.putObject`. Если оба порта отсутствуют, Host отказывает. Предыдущее подключение без отдельного read owner продолжает использовать write owner для чтения, пока установленный Agent не передаст независимый правомерный read Access.
+
+Адресный исходный браузерный тест добавляет вторую подписанную PERSONAL authority с **только** `t1.getWorkspace/t1.getObject`; проверяет readback того же original T2 Object после отзыва write-гранта другого владельца и невозможность любой записи. Этот test signer является проверяемым ORIGINAL D1 в disposable Host, не продуктовой лицензией.
+
+## BPMN 2.0: сопоставление модели с Process Intelligence без имитации факта
+
+Добавлен ограниченный read-only import `inspectExternalBpmn2Model({xml,processId,workspaceId,DOMParser})` и `compareExternalBpmn2ToProcessDefinition({candidate,definition})` в исходный `src/t3/external-bpmn-model.mjs`. Это **не новый движок процессов** и не Flowable/Operaton workflow executor: стандартный браузерный DOMParser только извлекает BPMN namespace `http://www.omg.org/spec/BPMN/20100524/MODEL`, процесс, task IDs, gateways и sequenceFlows, без выполнения/деплоя/записи. XML ограничен 256 KiB, DTD и ENTITY запрещены; неоднозначный выбор нескольких процессов, неизвестные flow references, вложенные подпроцессы и сложные flow constructs отвергаются, не интерпретируются молча. Поддерживается только простая top-level task/sequenceFlow схема (включая Flowable namespace metadata, которое не исполняется). Версии и права внешнего процесса продолжают принадлежать BPM engine.
+
+Любой результат имеет `status=UNTRUSTED_MODEL_NOT_EXECUTED`, `sourceTruth=false`, `observed=false`, даже если в XML `isExecutable=true`. Сопоставление с ORIGINAL нормализованным `IWXA_T2_PROCESS_DEFINITION_V1` только по **точным идентификаторам задач**, а не по хронологии/изображению BPMN. Результат `TASK_IDS_MATCH` или `REVIEW_MAPPING` и `conformance=NOT_EVALUATED`; это не Execution receipt, не фактическая Activity и не доменный Result. Только независимые события исходного owner с `evidenceRefs`, привязкой к Workspace/WorkRef и временной провенансом могут поступить в существующий `deriveProcessIntelligence`. Подключение Flowable/Operaton остается за Agent 0.6, без его ToolRuntime и секретов в T3.
+
+Исходный `tests/t3-agent06-bpmn2-model.test.mjs` проверяет Flowable XML и опасные структуры. Реальный Flowable/Operaton engine и прямой импорт BPMN в предметные IWXA объекты **не квалифицирован**.
+
+## Приёмка схем BPMN и независимого D1 чтения, 15.11.2026
+
+**Точный исполняемый HEAD `f4708bea116c605bdd270815643c604acf395194`, TREE `32b2f895f23bba0315e73028e01590f57c612ba2`.** Публичный [GitHub Actions #43725567410](https://github.com/Faust-S/knowledge/actions/runs/43725567410) завершился `SUCCESS`: `test/real-host/windows-credential=SUCCESS`, `metal-webgpu=SKIPPED`. Node product core `737/737 PASS`, Workspace/DOM `1141/1141 PASS`; исходный T2 0.3.6 real-host с signed D1, Activity/D6 и раздельным read-only D1 grant `PASS`. В реальном Host логе: `T3_AGENT06_SIGNED_D1_REAL_KERNEL_PROCESS_PASS`, 47 подписанных proof, 5 Original Activity Event, revision 3, native ACK не равен Result; `T3_AGENT06_SIGNED_D1_COLD_RECOVERY_PASS`, 6 proof новой сессии и revision 3. BPMN модели прошли шесть адресных Node-проверок. Ранее чтение D1 было отдельно квалифицировано на `20d8d441` в [CI #43725296243](https://github.com/Faust-S/knowledge/actions/runs/43725296243).
+
+### Проверенные BPMN владельцы и API для последующей интеграции Agent
+
+**Flowable OSS:** [официальный REST API](https://www.flowable.com/open-source/docs/bpmn/ch14-REST) определяет `GET repository/process-definitions/{processDefinitionId}` (id, version, key, deploymentId, resource) и `GET repository/process-definitions/{processDefinitionId}/resourcedata` (исходный развернутый BPMN 2.0 XML). Вызывать Agent-пользовательским аккаунтом, закрепляя точный `processDefinitionId` и `version`. Возвращённый XML необходимо передавать в `inspectExternalBpmn2Model` **только для сопоставления**, не для исполнения.
+
+**Operaton:** [официальный API и гарантии совместимости](https://docs.operaton.org/docs/documentation/introduction/public-api/), [процессные key/version](https://docs.operaton.org/docs/documentation/user-guide/process-engine/process-versioning/), [лицензия Apache 2.0](https://operaton.org/faq/). Отличать `processDefinition.key` внутри BPMN XML от ID развернутой версии, не выбирать незаметно newest/latest вместо версии заказа. Точный REST URL XML подтверждать по закреплённой версии Operaton при непосредственном подключении, а не переносить endpoint Flowable механически.
+
+### Agent 0.6, точный следующий шаг без публичного копирования приватного кода
+
+1. В штатном Agent Account Setup добавить выбранный пользователем ERPNext/Flowable/Operaton аккаунт и adapter `externalOwner.readExact` через действующие Account/ToolRuntime-порты; не создавать новый Token Store. `source_revision` и `source_digest` сверить с original provider response; HTTP GET не является долговременным receipt.
+2. Для CehoVod сохранить точную связь `ERP sales order ID+sourceRevision+digest` → подписанная `Workspace` → канонический `production-order` / `operation-execution`, используя только исходные функции переходов CehoVod. Настоящий `WorkRef`/доменный `Result` допускается только после чтения его у оригинального владельца; `reported` ERP-событие не назначает статус `observed`.
+3. Любое изменение ERP/n8n осуществлять штатным `Agent ToolRuntime` с отдельным Human Review; D6 `OWNER_READBACK_CONFIRMED` разрешать только после durable `operationId,receipt(COMMITTED),readback(PERSISTED)` с той же original reference/revision. `ACKNOWLEDGED`, timeout и transport 2xx остаются `OUTCOME_UNKNOWN`, без автоматического retry.
+4. Через original T3/Activity проверить дубли событий, конфликт двух версий, отмену, потерю ответа, запрет записи и два cold opens; затем получить подлинный CehoVod Result и его независимый original Kernel readback. Только после этого `LIVE_ERP_EXECUTION` и `CEHOVOD_RESULT` могут стать PASS.
+
+**Границы:** в текущей работе только `Faust-S/knowledge`, отдельная `work/2026-11-15-agent06-process-erp-integration`. Ветки T3/Activity/Agent и исходный T2 не менялись, приватные Actions не запускались. `LIVE_ERP_EXECUTION=NOT_ACCEPTED`, `CEHOVOD_RESULT=NOT_ACCEPTED`, `BPMN_MODEL_INSPECTION=SOURCE_PASS`, `T3_READY=false`.
+
+## Offline-first: подписанное чтение сохранённой ERP-ссылки без подключения аккаунта
+
+При отключённом интернете, недоступной ERP или после холодного перезапуска пользователь должен видеть свою сохранённую ссылку, но **не** подменять её последней подтверждённой ревизией ERP. В существующем `createTrustedExternalProcessLink` реализован `readSaved({expected_workspace_id,record_kind,record_id})`. Он использует ORIGINAL T2 `getWorkspace/getObject` с подписанным D1 Access; не вызывает внешние API, не выдаёт HTTP-запрос, не создаёт Task/Store/Result и не изменяет состояния. Доверенный Host передаёт зафиксированный `externalOwner.ownerId` (без `readExact`), чтобы определить тот же deterministic object_id. Сохранённое тело повторно валидируется по канонической схеме; чужая/удалённая запись и несоответствие данных не показываются как допустимая ссылка.
+
+Ответ имеет `status=SAVED_UNVERIFIED`, original `workspace_id/object_id/revision`, последнее сохранённое `source_revision`, `source_state` и digest; обязательные флаги `owner_current=false`, `can_execute=false`, `epistemic_status=reported`. Это не T3 факт выполненного заказа и не независимая квитанция ERP. `recover()/prepareContinuation()` по-прежнему **требуют** онлайн `externalOwner.readExact` и запрещены без него (`T3_EXT_OWNER_ONLINE_REQUIRED`). `link()/refresh()` требуют подписанного write Access, без него `T3_EXT_WRITE_NOT_GRANTED` ещё до внешнего API.
+
+UI-подсказка Agent/CehoVod: «Сохранена ссылка на заказ ERP. Данные ERP сейчас не проверены. Обновить сведения» и отдельное действие обновления только с явным разрешением пользователя. Не выдавать кэш за статус «Исполнено». В публичной оригинальной Host-квалификации добавлен read-only browser cold-reopen с физически отсутствующим `readExact`: original T2 объект доступен, D6 недоступен, новые записи не происходят.
+
+## 15.11.2026: исходная автономность внешнего заказа, фактический результат CI
+
+**Исполняемый коммит `53f408a94e154630bb8223c0ab2902dd656327d9`, TREE `b32ffa451f6a8afc1572e86a2ae30edbac8dcab7`.** Публичный [GitHub Actions #43726587459](https://github.com/Faust-S/knowledge/actions/runs/43726587459) = `SUCCESS`: Node `739/739 PASS`, Workspace/DOM `1141/1141 PASS`, `real-host`/original T2 0.3.6 и Windows Credential `SUCCESS`, hardware WebGPU `SKIPPED`. В оригинальном Kernel при холодном открытии: `T3_AGENT06_ORIGINAL_T2_OFFLINE_ERP_SNAPSHOT_PASS` с `revision=3,readOnly=true,ownerCurrent=false,canExecute=false`. Дополнительная D1-подпись на новом сеансе подтверждена: `T3_AGENT06_SIGNED_D1_COLD_RECOVERY_PASS`, `signedProofs=9`. Операция ERP отсутствует, и этот тест намеренно не имитирует исполненный Result.
+
+**Новый интерфейс владельца:**
+
+- `externalOwner:{ownerId}` с корректным ID достаточно для `readSaved()` в доверенном Host при отключённой сети; `readExact` для этого метода не требуется.
+- `readSaved(reference)` возвращает только подписанное сохранённое состояние с `SAVED_UNVERIFIED`, `owner_current=false`, `can_execute=false`, `epistemic_status=reported`. Перед возвратом заново проверяются schema/version, identity, original T2 revision, имена полей и отсутствие неизвестных данных. Никакой нативный write, ToolRuntime, ERP GET и Result при этом не выполняются.
+- `recover()` и `prepareContinuation()` требуют `readExact` (внешняя проверка) и без него строго отказывают `T3_EXT_OWNER_ONLINE_REQUIRED`. `link()/refresh()` требуют подписанного write Access, иначе `T3_EXT_WRITE_NOT_GRANTED`. Утраченные ERP credentials не позволяют создавать фиктивное состояние `LINK_PERSISTED`.
+
+**Инструкция первому Agent/CehoVod владельцу, по фактически прочитанным исходникам:**
+
+1. Зафиксировать в штатном аккаунте Agent только public account descriptor `ownerId=erpnext:<instance>`, а секреты оставить в существующем Account/ToolRuntime. Его trusted `readExact` получает ERPNext Sales Order с точным `name,modified` и вычисляемым digest однозначного снимка. При offline Account он передаёт тот же ownerId без readExact и получает сохранённую ссылку через `readSaved`. Не менять исходное правило `epistemic_status=reported`.
+2. Оригинальный `Faust-S/cehovod@074dd31fa447870b9c876f3d45e65aace77e8df7` (предметная логика) создаёт immutable `production-order` только через `createProductionOrderFromDraft` и утверждённый draft; `production-lifecycle.ts` меняет фазу только `transitionProductionOrder`. Не строить `production-order` из статуса ERP и не менять статус прямым присваиванием.
+3. Истинное производство: `createProductionExecution`, отдельные append-only `createProductionActuals` с `sequence`, сохранённые `quality-check-result` через `recordControlPointResult`, `defect-record` через `recordDefect`, все со строгими `production_order_ref` / `production_execution_ref`. Вендорный HTTP ACK не создаёт эти факты.
+4. Последнее вычисление `assembleKernelPlanFact(rows,{orderId,executionId,final,actualsCompleteAcknowledged})` из `src/lib/kernel-plan-fact.ts` принимает только **уже авторизованные сохранённые T2 Kernel readbacks**: проверяет immutable план, единственную execution, последовательные append-only факты, наличие и качество источников. Свой `plan-fact-analysis` как отдельный доменный Result сохраняет оригинальный CehoVod owner; T3 не заменяет доменный алгоритм.
+5. `D6 OWNER_READBACK_CONFIRMED` допустим только при исходном durable `operationId` + original owner `receipt(COMMITTED)` и `readback(PERSISTED)` с тем же `reference,revision,resultRef`; отдельно сверить `resultRef` с сохранённым у CehoVod `plan-fact-analysis`. При потере ACK только чтение; повтор n8n webhook/ERP действие запрещён. После холодного открытия читать тот же оригинальный Result и оригинальную Activity; не считать журнал `sessionStorage` самостоятельным подтверждением T2. Текущий потребитель T2 — `Faust-S/cehovod.ru@work/2026-10-23-t2-site-only`, на момент проверки HEAD `9148b46c40efbf0c5d679b360c9a4f608c128634`.
+6. Отдельно проверить (а) дубль события, (б) конфликт ERP modified/revision, (в) потерянный ответ внешнего workflow, (г) отказ подписанной записи, (д) независимый импорт original `.iwxa` в новый получатель. До этого `LIVE_ERP_EXECUTION=NOT_ACCEPTED`, `CEHOVOD_RESULT=NOT_ACCEPTED`, `T3_READY=false`.
+
+**Границы:** этот поток меняет только отдельную ветку `Faust-S/knowledge@work/2026-11-15-agent06-process-erp-integration`, не изменяет Agent 0.6/Activity/T3 main и не запускает private Actions. Встраивание в приватный Agent и реальное исполнение ERP требуют отдельного штатного интеграционного шага на стороне владельца Agent, а не переноса секретов/ToolRuntime в публичный T3.
+
+## 15.11: второй независимый owner для проверки канонического CehoVod Result
+
+После самостоятельного аудита D6 выявлено: `OWNER_READBACK_CONFIRMED` проверяет только durable `nativeOwner.receipt/readback` и `resultRef`, но НЕ гарантирует существование и полноту предметного Result CehoVod. Реализована **необязательная** read-only проверка через оригинальный установленный доменный владелец: `createTrustedNativeContinuation({...,resultOwner:{ownerId,resultType,orderRef,verifySaved}})`. Старые получатели без `resultOwner` сохраняют прежний статус `OWNER_READBACK_CONFIRMED`, но он не означает предметной приёмки.
+
+`resultOwner.verifySaved({resultRef,operationId,recipientId,sourceReference})` разрешено вызывать **только после** совпадения исходных native `receipt(COMMITTED)/readback(PERSISTED)`, с теми же OperationId, RecipientId, ResultRef и подписанной T2 source Object revision. Вызов выполняется через доверенный Host, не из UI, и не вызывает внешнее действие. Для CehoVod владелец обязан вызвать существующий **`verifyStoredFinalPlanFact(rows,saved,orderId)`** из `Faust-S/cehovod/src/lib/kernel-plan-fact.ts` на своих независимо прочитанных оригинальных Kernel rows. Т3 не дублирует этот алгоритм и не сохраняет его данные. Возвращаемый владельцем нормализованный proof должен совпадать по `resultRef`, `ownerId`, `resultType`, `orderRef`, `workspaceId`, `operationId`, `recipientId`, `sourceReference`, `stage=final`, `resultRevision>0` и `canonicalVerified=true`; T3 повторно читает подписанный источник после этой проверки.
+
+При отсутствующем/ошибочном доменном readback результат **`DOMAIN_RESULT_UNVERIFIED`**, `owner_action_confirmed=true`, `domain_result_confirmed=false`, `can_retry=false`; это не команда повторить n8n/ERP и не успешный CehoVod Result. Только после совпадения двух независимых владельцев возвращается `DOMAIN_RESULT_READBACK_CONFIRMED`. Отсутствие самого native receipt остаётся `OUTCOME_UNKNOWN`. Статус `DOMAIN_RESULT_READBACK_CONFIRMED` подтверждает договор доверенных read-only owner ports, а не установленный production ERPNext; до реального CehoVod Host и пользователя `CEHOVOD_RESULT=NOT_ACCEPTED`.
+
+В тестовом source-fixture callback `verifySaved` эмулирует контракт настоящего CehoVod verifier, поэтому квалификация новых правил **не** является испытанием настоящего доменного Result. Позднее отдельный Agent/CehoVod integrator должен подать оригинальные сохранённые `KernelPlanFactRow[]` в `verifyStoredFinalPlanFact`, передать в D6 только нормализованный proof и выполнить readback после двух cold opens, включая дубли и ошибочную ревизию. Никакой новый Store/Task Engine/Process Engine, IAM или private Action не создаётся.
+
+## Оригинальный T2 Host: проверка двух владельцев на источнике D6
+
+Адресный тест `tests/t3-agent06-external-process-original-t2.browser.mjs` дополнительно выполнит следующую цепочку на оригинальном T2 Kernel 0.3.6 с настоящими подписанными D1 reads:
+
+1. n8n `ACKNOWLEDGED` без durable receipt → `OUTCOME_UNKNOWN`, `verifySaved` не вызывается;
+2. после появления native `receipt(COMMITTED)/readback(PERSISTED)`, но до доказательства CehoVod Result → `DOMAIN_RESULT_UNVERIFIED` + `can_retry=false`;
+3. при тестовом `verifySaved`, дополнительно читающем актуальный original T2 source Object через signed D1, → `DOMAIN_RESULT_READBACK_CONFIRMED`;
+4. после холодного browser Host reopen / новой D1 подписи повторный независимый readback возвращает тот же статус, `n8n` dispatch остаётся единственным.
+
+Важное ограничение: в этом публичном CI `resultOwner.verifySaved` - **контрактный double**, поскольку канонический `Faust-S/cehovod` приватный и не переносится в публичную `knowledge`. `syntheticDomainOwner=true` в CI логе. Никакой демонстрационный Result не объявлять настоящим; только отдельная подключенная установка CehoVod с его исходным `verifyStoredFinalPlanFact` может закрыть `CEHOVOD_RESULT`.
+
+## Финальная квалификация двух владельцев, исходный CI от 15.11.2026
+
+**Исполняемый HEAD `c3da0efa8cb998e8e0d0b3a2f9db25b5d9027a9d`, TREE `1dccae00ea28d6dd65732db4f7127866e015b902`.** Публичный оригинальный [CI #43727539506](https://github.com/Faust-S/knowledge/actions/runs/43727539506) = `SUCCESS`: `test=SUCCESS`, `real-host=SUCCESS`, `windows-credential=SUCCESS`, hardware `metal-webgpu=SKIPPED`. В полном product source qualifier Node `741/741 PASS`, Workspace/DOM `1141/1141 PASS`, исходный T2 Kernel 0.3.6/Runtime Contract 1.3.0 PASS. Это второй успешный прогон после первого [CI #43727308430](https://github.com/Faust-S/knowledge/actions/runs/43727308430), который уже подтвердил новый runtime-контракт D6 до расширения real-host теста.
+
+Из точного исходного real-host лога:
+`T3_AGENT06_D6_TWO_OWNER_CONTRACT_PASS` → `originalKernel=true`, `signedD1=true`, `syntheticDomainOwner=true`, `externalDispatches=1`, `domainProofs=2`, `domainResultInCehoVod=false`.
+`T3_AGENT06_SIGNED_D1_REAL_KERNEL_PROCESS_PASS` → `signedProofs=55`, `originalActivityEvents=5`, `revision=3`, `lostAckNoReplay=true`.
+`T3_AGENT06_SIGNED_D1_COLD_RECOVERY_PASS` → `revision=3`, `signedProofs=13`, `executedExternalERP=false`.
+
+**Что подключает оригинальный Agent/CehoVod владелец, без создания движка:**
+
+- Выбрать конкретный `ProductionOrderRecord.object_id` из настоящей CehoVod Workspace; ERP-ссылка `sourceReference` из `prepareContinuation` и `orderRef` должны быть согласованы у доверенного владельца, а не взяты из редактируемого поля UI.
+- Штатный `Agent ToolRuntime`/n8n остаётся исполнителем разрешённой операции, его durable `operationId` и `receipt/readback` даются в существующий D6 `nativeOwner`; HTTP ACK и локальная квитанция отправки не становятся COMMITTED.
+- Доменный `resultOwner.verifySaved` внутри штатного CehoVod Host получает `resultRef` от `nativeOwner`; читает **оригинальным авторизованным T2 Kernel** конкретный saved `plan-fact-analysis`, `production-order`, `production-execution`, append-only `production-actuals`, результаты контроля, дефекты и другие обязательные источники.
+- Вызвать **существующий** `verifyStoredFinalPlanFact(rows,saved,orderId)` из `Faust-S/cehovod/src/lib/kernel-plan-fact.ts`. Только `true` по оригинальному readback допускает нормализованный `ORIGINAL_DOMAIN_RESULT_VERIFIED` с точными `resultRef,orderRef,resultType,workspaceId,sourceReference,operationId,recipientId,stage=final,resultRevision>0,canonicalVerified=true`.
+- Выполнить как минимум две независимые холодные проверки D1/D6/Result, включая `RECOVER_ONLY` при lost ACK, чужой `orderRef`, конфликт source revision, неполный QC/actuals и отзыв подписанного read grant. **Не** вызывать `receive()` повторно, если native owner уже подтвердил действие.
+- После полученного подтверждения отдельно сверить оригинальную Activity: пять `reported` T3 ERP events **не равны** ни одной реально произведённой операции. Производственные `observed` events допускаются только по исходным CehoVod фактам, с WorkRef и evidence в его собственном подписанном Host.
+- Только затем `LIVE_ERP_EXECUTION` и `CEHOVOD_RESULT` можно переводить из `NOT_ACCEPTED`; сейчас source-порт `PASS`, `ORIGINAL_T2_SIGNED_ROUTE=PASS_TEST_HOST`, `LIVE_ERP_EXECUTION=NOT_ACCEPTED`, `CEHOVOD_RESULT=NOT_ACCEPTED`, `T3_READY=false`.
+
+**Существенная граница квалификации:** public CI проверял оригинальный T2 Kernel/D1/D6 и подписанные чтения источника, но CehoVod owner и n8n/ERPNext были *контрактными тестовыми портами*. Приватные исходники CehoVod и Agent не копировались в публичный репозиторий, Actions приватных репозиториев не запускались; настоящая корпоративная ERP, реальные документы, физические факты и canonical `plan-fact-analysis` НЕ выполнялись и НЕ объявлены принятыми.
+
+## D6: предотвращение отправки устаревшего заказа после Human Review
+
+Обнаружен реальный функциональный разрыв: `external-process-link.prepareContinuation` проверяет source revision/digest в момент открытия задачи, но заказ ERP может быть изменён другим оператором пока пользователь подтверждает действие. Исходный D6 уже перепроверял оригинальный T2 Object, но это **не** означает, что заказ всё ещё актуален в ERP. При установленном доверенном портe `sourceCurrent(reference)` D6 **после Human Review** и **после последнего поиска owner-native receipt**, но **до единственного native `receive()`** повторно вызывает уже существующий `external-process-link.prepareContinuation({expected_workspace_id,record_kind,record_id})`. Это повторно проверяет настоящий `externalOwner.readExact`, digest, identity и подписанное original T2 readback. D6 сравнивает ровно четыре поля ORIGINAL `workspace_id/object_id/schema_id/revision`; `readSaved` со статусом `SAVED_UNVERIFIED` никогда не является разрешением записи.
+
+При изменении ERP, отсутствии аккаунта, сбое/отзыве подписанного чтения или чужой source reference D6 возвращает `T3_D6_EXTERNAL_SOURCE_NOT_CURRENT` **без вызова receive, без добавления dispatched и без признания UNKNOWN результата**. Для новой попытки пользователь сначала отдельно согласует `refresh` исходной ERP-ссылки в штатном T3. Если действие уже могло уйти, этот callback нельзя применять к восстановлению: `D6.recover()` по-прежнему получает оригинальную квитанцию/readback даже если ERP изменилась после предыдущего исполнения; автоматически повторять нельзя.
+
+Это опциональный read-only callback исходного **trusted Agent Host**, не новый аккаунт, клиент ERP, Process Engine, ToolRuntime или IAM. Для любого внешнего write Agent 0.6 должен подключить штатный `sourceCurrent`; остальные D6 потребители (например Atlas) могут его не использовать. ERP owner должен повторно проверять свою CAS-ревизию уже на стороне native `receive` из-за неатомарности remote preflight + mutation.
+
+Проверки: Node-тесты об изменении ERP **во время** Human Review, offline owner, подмене fresh Reference / stale local T2 revision и original T2 0.3.6 signed Host-тест. `SOURCE_QUALIFICATION=PENDING` до результата публичного CI на точном исполняемом HEAD. Реального ERPNext аккаунта этот тест не эмулирует.
+
+## D6 ERP revision race: точный результат квалификации 15.11.2026
+
+**Исполняемый HEAD `9310a9a09bf361e29f95f8b913e75fec76be8963`, TREE `74738f4a4a96f9d841f623346921044858751abf`.** Публичный [GitHub Actions #43729354592](https://github.com/Faust-S/knowledge/actions/runs/43729354592) полностью `SUCCESS`: product-core Node **743/743 PASS**, Workspace/DOM **1141/1141 PASS**, original real-host и Windows Credential **SUCCESS**, аппаратный WebGPU **SKIPPED**. Предшествующее `SOURCE_QUALIFICATION=PENDING` теперь заменено точным подтверждением `SOURCE_QUALIFICATION=PASS` на этом исполняемом SHA.
+
+Адресный original signed Host-тест прошёл с запретом отправки после изменения ERP `source_revision` **между Human Review и native dispatch**, затем успешной независимой проверкой того же source через существующий `sourceCurrent -> external-process-link.prepareContinuation`. Оригинальный Kernel 0.3.6/Contract 1.3.0: `T3_AGENT06_SIGNED_D1_REAL_KERNEL_PROCESS_PASS`, `signedProofs=62`, `revision=3`, `originalActivityEvents=5`, `lostAckNoReplay=true`. После холодного открытия: `T3_AGENT06_SIGNED_D1_COLD_RECOVERY_PASS`, `signedProofs=13`, `revision=3`. Отдельный `T3_AGENT06_D6_TWO_OWNER_CONTRACT_PASS`: `externalDispatches=1`, `domainProofs=2`, **`syntheticDomainOwner=true`**, `domainResultInCehoVod=false`.
+
+**Конкретная стыковка в Agent 0.6, не изменяя общую ветку:**
+`sourceCurrent: async ref => trustedExternalLink.prepareContinuation({expected_workspace_id: ref.workspace_id,record_kind: selectedOriginalRecordKind,record_id: selectedOriginalRecordId})`, где тип/ID берутся из выбранной исходной привязки trusted Host (а не из произвольного renderer). В обычном workflow это обязательный порт; без него исходный generic D6 сохраняет обратную совместимость для иных получателей (Atlas). После `T3_D6_EXTERNAL_SOURCE_NOT_CURRENT` показать пользователю «Заказ изменился в ERP, обновите ссылку перед выполнением», дать только согласованный `refresh`. При native `OUTCOME_UNKNOWN` показывать восстановление у владельца, не повторную отправку.
+
+**Не принимать source test за реальную ERPNext:** test `readExact` и n8n/CehoVod recipients являются управляемыми тестовыми портами, несмотря на настоящий оригинальный T2 Kernel/D1. `LIVE_ERP_EXECUTION=NOT_ACCEPTED`, `CEHOVOD_RESULT=NOT_ACCEPTED`, `T3_READY=false`. Пользовательское подключение ERP/производственные факты/WorkRef и независимый canonical `verifyStoredFinalPlanFact` остаются обязательным следующим интеграционным шагом у установленных Agent/CehoVod владельцев.
+
+## Внешний заказ: отсутствие sourceCurrent блокирует отправку по умолчанию
+
+Аудит показал: после исправления гонки ERP `sourceCurrent` всё ещё можно было случайно не подключить для `schema_id=iwxa.agent06.external-process-link`. Устраняется **fail-open в штатном D6**: для точного типа `EXTERNAL_PROCESS_LINK_SCHEMA` отсутствие доверенного `sourceCurrent` даёт `SOURCE_ACCOUNT_REQUIRED` и причину `CONNECT_EXTERNAL_SOURCE_ACCOUNT`, причём `preview` не выдаёт `AVAILABLE`, а `continueSelected` не просит Human Review, не вызывает `receive` и не помечает операцию как dispatched. В UI Agent пользователь увидит «Подключите аккаунт ERP для проверки заказа перед выполнением»; кнопка выполнения недоступна, пока trusted Host не подключит original readExact.
+
+При этом `recover` не требует живой ERP и **не теряет** независимую native receipt/readback о прежнем действии. `preview` в таком случае возвращает `RECOVER_ONLY`. Эта проверка действует лишь для исходного типа ERP-ссылки; Atlas и прочие D6-контракты остаются без принудительной ERP-интеграции. Исходный владелец должен проверять CAS непосредственно при native `receive` независимо от этого шага.
+
+Обновлены существующие адресные тесты D6 на полноценный `sourceCurrent -> external-process-link.prepareContinuation` и добавлен тест недоступного ERP-аккаунта/холодного readback. `T3_READY=false`, `LIVE_ERP_EXECUTION=NOT_ACCEPTED`, `CEHOVOD_RESULT=NOT_ACCEPTED` до реальной установки.
+
+## Итог публичной квалификации отсутствующего внешнего аккаунта, 15.11.2026
+
+**Исполняемый HEAD `ffc114ed6af3eccacf3db75e5490918d1fc77750`, TREE `099956d2cdb620748d06e792fa173521b3c5de42`.** [GitHub Actions #43730746653](https://github.com/Faust-S/knowledge/actions/runs/43730746653): **SUCCESS**. T3 product Node `744/744 PASS`, Workspace/DOM `1141/1141 PASS`, Windows Credential `SUCCESS`, original T2 0.3.6 / D1 / D2 / D6 real-host `SUCCESS`, аппаратный WebGPU `SKIPPED`.
+
+Оригинальный signed Host подтвердил:
+- `T3_AGENT06_EXTERNAL_SOURCE_ACCOUNT_REQUIRED_PASS`: `originalKernel=true,accountConnected=false,sends=0,humanApprovals=0`; сохранённая ERP-ссылка сама по себе не разрешает исполнение.
+- `T3_AGENT06_D6_TWO_OWNER_CONTRACT_PASS`: один внешний dispatch, два контрольных readback; **`syntheticDomainOwner=true`**, `domainResultInCehoVod=false`.
+- `T3_AGENT06_SIGNED_D1_REAL_KERNEL_PROCESS_PASS`: `signedProofs=64`, `revision=3`, `originalActivityEvents=5`, `lostAckNoReplay=true`, `d6HttpAckRemainsUnknown=true`.
+- `T3_AGENT06_SIGNED_D1_COLD_RECOVERY_PASS`: новая подписанная сессия, `signedProofs=13`, `revision=3`, `executedExternalERP=false`.
+
+**Блокер WorkRef**, подтверждённый актуальными исходниками: `src/modules/base/owners/project-process-source-owner.mjs` по-прежнему устанавливает `PROJECT_PROCESS_SOURCE_ACTIVATION.writesAuthorized=false` и `QUALIFICATION_AND_D4_PENDING`. Поэтому этот поток не имеет права писать новый project/work/processRun для ERP-заказа или выдавать имитированный `WorkRef` за оригинальный объект. CehoVod `production-order` и `production-execution` остаются доменными объектами своего владельца. До активации штатного Project/Process source owner и оригинального CehoVod readback допускается только проверенная source-link → Activity(reported) → D6 native receipt, без утверждения `observed` производственной работы.
+
+**Подключение Agent 0.6:** trusted Host должен передавать `sourceCurrent` именно из существующего `externalLink.prepareContinuation`, а private Agent Account/ToolRuntime остаётся владельцем ERP credentials и исполнения. Если аккаунт не подключён, UI показывает `SOURCE_ACCOUNT_REQUIRED`; кнопка выполнения отключается без Human Review. При нативной квитанции от ранее отправленного действия UI предлагает `RECOVER_ONLY` даже без ERP аккаунта. Когда внешний источник восстановлен, пользователь отдельно согласует refresh, и только затем может дать новый Human Review; во внешнем `receive` всё равно требуется owner-native revision CAS.
+
+**Готовность:** `SOURCE_QUALIFICATION=PASS` на указанном SHA; `ORIGINAL_T2_SIGNED_ROUTE=PASS_TEST_HOST`; `LIVE_ERP_EXECUTION=NOT_ACCEPTED`; `CEHOVOD_RESULT=NOT_ACCEPTED`; `WORKREF_OWNER_ADOPTION=HOLD`; `T3_READY=false`. Все центральные T3/Activity/Agent ветки и private Actions не затрагивались.
+
+## Уточнение доменной работы CehoVod: orderRef + executionRef вместо поддельного WorkRef
+
+Существующий исходный `Faust-S/cehovod/src/lib/kernel-plan-fact.ts` проверен: `verifyStoredFinalPlanFact(rows,saved,orderId)` находит **`body.production_execution_ref`**, требует точную пару `production_order_ref` + `production_execution_ref`, ссылки `belongs_to` и `evidence_for`, `analysis_stage=final`, подтверждённые append-only факты и заново вызывает штатный `assembleKernelPlanFact`. Старый D6 сопоставлял только `orderRef` и `resultRef`, поэтому ошибочно сконфигурированный доверенный доменный порт мог объявить Result **другого исполнения того же заказа** подходящим.
+
+Теперь при `resultOwner.resultType='plan-fact-analysis'` обязательно задаётся точный `executionRef` уже сохранённого `production-execution` из original CehoVod owner; отсутствие ID отказывается на этапе создания D6 как `T3_D6_TRUSTED_HOST_OWNER_REQUIRED`. `verifySaved` получает `orderRef` и `executionRef` от trusted Host, а его доказательство `ORIGINAL_DOMAIN_RESULT_VERIFIED` должно подтвердить **оба**. Несовпадение `executionRef` даже при `canonicalVerified=true` даёт только `DOMAIN_RESULT_UNVERIFIED` и `can_retry=false`. Успешный `DOMAIN_RESULT_READBACK_CONFIRMED` включает `executionRef` рядом с `orderRef`. Проверки выполняются в уже существующем D6, без нового Store, WorkRef engine, владельца записи или формата. Для иных resultType поле остаётся опциональным, чтобы не нарушить Atlas и другие потребители.
+
+**Не смешивать два контракта:** `executionRef` означает исходный `ProductionExecutionRecord.object_id` CehoVod; это НЕ `IWXA_T2_WORK_V1.workId`. Пока `PROJECT_PROCESS_SOURCE_ACTIVATION.writesAuthorized=false`, этот поток не создаёт и не заявляет настоящий Project/Process WorkRef. Для полного производственного Result настоящий CehoVod Host должен самостоятельно прочитать `production-order`, `production-execution`, финальный `plan-fact-analysis`, передать их в оригинальный `verifyStoredFinalPlanFact` и проверить точные `production_order_ref` и `production_execution_ref`. Публичный тест остаётся контролируемым double CehoVod и не является установленным продуктом.
+
+## Адаптер входного ERPNext Sales Order: реальный Frappe REST JSON → текущий readExact
+
+Официальный Frappe REST v1: [`GET /api/resource/{doctype}/{name}`](https://docs.frappe.io/framework/user/en/guides/integration/rest_api) возвращает объект `data` с точным `name`, `doctype`, `modified`, `docstatus` и `status`. Подготовлен **чистый transport-free** модуль `src/t3/external-erpnext-source.mjs` с `normalizeErpNextSalesOrderRead({ownerId,expectedRecordId,response})`. Он сверяет `doctype='Sales Order'`, точный выбранный `record_id`, `modified`, числовой `docstatus` 0/1/2, статус и ограниченный допустимый размер JSON. Снимок всех полей `data` сериализуется в каноническом порядке ключей и хешируется WebCrypto SHA-256 без сохранения покупателей, line items, финансов или секретов. `source_revision=modified` остаётся точным исходным значением (без перевода часового пояса), `source_digest` отличает даже изменение строк заказа при том же modified; `source_receipt=null` (HTTP GET не является квитанцией исполнения), `epistemic_status=reported`.
+
+Предназначено **только** для передачи результата уже существующего доверенного `Agent Account/ToolRuntime` в `externalOwner.readExact`. **Не** создаются `fetch`, HTTP клиент, Token Store, ERPNext connector runtime, Process Engine или новый Store в T3. При неверном имени, чужом DocType, ошибочном JSON, DTD/вредных ключах объекта, рекурсии и объёме более 2 МиБ функция отказывает. `status='Cancelled'`/docstatus 2 допускается как *сообщённое* состояние для просмотра, **не** как право выполнения операции. Установленный внешний владелец и ToolRuntime обязаны применить свою бизнес-политику и CAS при `receive`.
+
+Реальный путь подключения в Agent 0.6: выбрать учётную запись ERPNext → авторизованным исходным U02/Account-коннектором выполнить точный GET Sales Order → из ответа вызвать `normalizeErpNextSalesOrderRead` → передать в существующий `externalProcessLink`; непосредственно перед записью D6 повторно проверит `prepareContinuation`, сохранив блокировку при неверной ревизии. Оригинальный CehoVod production-order/execution и Result после этого формируются лишь штатным предметным владельцем. Доступ к реальному аккаунту и внешний Result по-прежнему `NOT_ACCEPTED`.
+
+## Проверка Frappe source → ORIGINAL signed T2 Kernel (дополнительный реальный Host-сценарий)
+
+После [публичного CI #43732218365](https://github.com/Faust-S/knowledge/actions/runs/43732218365) нормализация Frappe Sales Order v1 на `71320f1cd21cd8fd3dee1fbc540c8ddd96c6c3af` имеет `749/749` Node PASS, `1141/1141` Workspace/DOM PASS, original real-host + Windows Credential PASS. Этот этап подтверждает контракт входного JSON без установленной ERPNext.
+
+В `tests/t3-agent06-external-process-original-t2.browser.mjs` добавлен отдельный заказ `SO-0043` с контролируемым Frappe-like ответом `{data:{doctype,name,modified,docstatus,status,customer,items}}`, который проходит через **тот же** `normalizeErpNextSalesOrderRead` → `createTrustedExternalProcessLink.link()` → подписанный ORIGINAL T2 0.3.6 `getObject`. Проверяется отсутствие `customer` и `items` в оригинальном Object, отказ при изменении item qty с тем же `modified` (`T3_EXT_SOURCE_REVISION_NOT_STABLE`), последующий разрешённый `refresh` только после нового original modified и source revision 2. Это механика уже существующего сервиса, не новый ERPNext клиент. Исходные контролируемые Frappe-данные в тесте не означают реальную клиентскую ERP запись, `LIVE_ERP_EXECUTION=NOT_ACCEPTED`.
+
+## Итог независимой квалификации Frappe REST → оригинальный T2 Host, 15.11.2026
+
+**Исполняемый HEAD `f36f3e68c515544e799dbdebcaeff37bcb7e64c1`, TREE `8640b016f6a93286502005b9e1b48950644c6be9`.** Публичный [GitHub Actions #43732477632](https://github.com/Faust-S/knowledge/actions/runs/43732477632) полностью `SUCCESS`: Node `749/749 PASS`, Workspace/DOM `1141/1141 PASS`, Windows Credential `SUCCESS`, оригинальный T2 Kernel 0.3.6/Contract 1.3.0 real-host `SUCCESS`, hardware WebGPU `SKIPPED`.
+
+Адресные real-host свидетельства: `T3_AGENT06_ERPNext_REST_ORIGINAL_KERNEL_PASS` с `signedD1=true, sourceOwner=erpnext:shop1, revision=2, customerPersisted=false, liveErpNext=false`. На отдельной `SO-0043` от Frappe-подобного контролируемого ответа проверены исходный signed D1/Kernal put/get, обновление только после повышения исходного `modified`, запрет `T3_EXT_SOURCE_REVISION_NOT_STABLE` при изменении позиции при том же `modified`. Остальные доказательства регрессий сохранены: `T3_AGENT06_D6_TWO_OWNER_CONTRACT_PASS` с `syntheticDomainOwner=true` и `T3_AGENT06_SIGNED_D1_COLD_RECOVERY_PASS` с original revision 3 (другой тестовый заказ).
+
+**Не подменять границы:** ERPNext server, пользовательские реквизиты и HTTP readExact штатного Agent **не подключены**. Сверен текущий private Agent HEAD `6d6bbef57e33d5768bd9b4f4821af84d760ace8b`: в `adapters/` есть `n8n_workflow_v1.py`, но **нет специализированного ERPNext read adapter**. Его авторизованный GET + выбор аккаунта должен подключить отдельный владелец Agent 0.6 в согласованном интеграционном шаге, без изменения этого потока или запуска private Actions. `normalizeErpNextSalesOrderRead` не делает HTTP и не хранит токены. Для поступившей ERP-ревизии и конкретного `ProductionExecutionRecord.object_id` доменный `verifyStoredFinalPlanFact` остаётся обязательным после независимого original readback CehoVod; WorkRef source owner до сих пор `writesAuthorized=false`.
+
+Итог: `SOURCE_QUALIFICATION=PASS`, `ORIGINAL_T2_SIGNED_ROUTE=PASS_TEST_HOST`, `ERPNext_READ_JSON_ADAPTER=SOURCE_PASS`, `LIVE_ERP_EXECUTION=NOT_ACCEPTED`, `CEHOVOD_RESULT=NOT_ACCEPTED`, `WORKREF_OWNER_ADOPTION=HOLD`, `T3_READY=false`. Центральные ветки T3/Activity, private Agent и original T2/Store/Exchange не изменялись.
+
+## Read-only предпросмотр изменений ERP перед разрешённым обновлением
+
+`external-process-link` получил `previewRefresh(reference)` на **том же** подписанном оригинальном T2 Kernel и внешнем `externalOwner.readExact`. Это продуктовый read-only маршрут для Agent 0.6: пользователь может понять, почему текущий заказ отличается от сохранённой ссылки, **до** Human Review, подписанной T2 записи и workflow dispatch. Никаких новых Store, ERP клиента или процессного движка не создаётся.
+
+`previewRefresh` берёт только точную выбранную Workspace, валидирует сохранённый original Object `iwxa.agent06.external-process-link`, читает внешнего владельца и повторно читает original Kernel после медленного HTTP GET. При изменении локальной ревизии во время внешнего чтения возвращается ошибка `T3_EXT_CONCURRENT_LINK_CONFLICT` без изменения данных. Результат:
+- `NOT_FOUND`: ссылки пока нет; внешний GET не требуется.
+- `MATCHED_AT_READ`: при проверке ревизия, digest и состояние совпали; это **не** разрешение исполнения.
+- `SOURCE_REVISION_CHANGED`: внешняя ревизия изменилась, включая состояние и/или digest. `requires_review=true`, но обновление допускается только отдельным `refresh` с оригинальным Human Review + D1 write.
+- `SOURCE_REVISION_INCONSISTENT`: сохранённая и внешняя записи отличаются **при одинаковом source_revision**. Предлагать `refresh` нельзя: внешний источник должен выдать согласованную ревизию, иначе original `refresh` отвергнет `T3_EXT_SOURCE_REVISION_NOT_STABLE`.
+
+Все ответы `can_execute=false`, `epistemic_status=reported`; возвращаются только разрешённые `record_id`, `source_revision`, `source_state`, `source_digest` и `original_revision`, **не** raw ERP-поля, имя клиента или суммы. При недоступном внешнем аккаунте `previewRefresh` отказывает `T3_EXT_OWNER_ONLINE_REQUIRED`, а прежний `readSaved` продолжает читать подписанную сохранённую ссылку offline (`SAVED_UNVERIFIED`). Этот preview не замещает `prepareContinuation`: D6 всё равно заново проверяет текущую ERP непосредственно перед операцией и требует native owner CAS.
+
+Рекомендуемый пользовательский маршрут Agent: открыть сохранённый заказ → по запросу пользователя проверить ERP (`previewRefresh`) → показать «Данные совпадают» либо «ERP изменилась, требуется согласованное обновление» либо «Состояние ERP нестабильно, обновление запрещено» → после отдельного Human Review выполнить штатный `refresh`; лишь затем открыть D6 Task. Обязательно отображать `SOURCE_ACCOUNT_REQUIRED` при отсутствии Account. Не представлять `MATCHED_AT_READ` как квитанцию ERP или производственный Result CehoVod.
+
+Адресные проверки: `tests/t3-agent06-external-process-link.test.mjs` (read-only D1, offline, неизменная/новая/нестабильная ревизия, конкурентная оригинальная запись), `tests/t3-agent06-external-process-original-t2.browser.mjs` (Frappe `SO-0043` через оригинальный T2 0.3.6 с подписанным D1, промежуточные состояния перед реальным `refresh`). `LIVE_ERP_EXECUTION=NOT_ACCEPTED` и `CEHOVOD_RESULT=NOT_ACCEPTED` до настоящего владельца и доменных доказательств.
+
+## 15.11.2026, квалификация read-only предпросмотра ревизий ERP
+
+**Точный исполняемый HEAD `c6b848cab9047bf284f3bc12cb5b50842ce67cf5`, TREE `e2758df8ccd229c9a521b977b8bc354e8761b084`.** Публичный [GitHub Actions №43736167446](https://github.com/Faust-S/knowledge/actions/runs/43736167446) завершился **SUCCESS** на этом SHA: `test=SUCCESS`, `real-host=SUCCESS`, `windows-credential=SUCCESS`, `metal-webgpu=SKIPPED`; продуктовые Node-тесты **753/753 PASS**, Workspace/DOM **1141/1141 PASS**.
+
+Из реального signed Host: `T3_AGENT06_ORIGINAL_T2_ERP_REFRESH_PREVIEW_PASS` → `originalKernel=true,signedD1=true,matchedAtRead=true,inconsistentRevisionBlocked=true,humanReviewBeforeWrite=true,finalRevision=2,realErp=false`. Исходный `T3_AGENT06_ERPNext_REST_ORIGINAL_KERNEL_PASS` сохранён: ERPNext/Frappe-подобный документ не записал покупателя в original T2 Object. `T3_AGENT06_SIGNED_D1_COLD_RECOVERY_PASS` остался успешным. Адресные Node-тесты проверили отсутствие записей при `previewRefresh`, ревизию оригинального Kernel во время GET, недоступную ERP и отдельный `readSaved`, а также `SOURCE_REVISION_INCONSISTENT` при неизменном `modified`.
+
+**Инструкция подключения к оригинальному Agent 0.6:** используйте `previewRefresh(reference)` из доверенного T3 Host для кнопки «Проверить заказ в ERP»; не вызывайте `refresh()` автоматически. При `SOURCE_REVISION_CHANGED` покажите точный ID/ревизию/статус и только потом запросите Human Review для `refresh()`. При `SOURCE_REVISION_INCONSISTENT` обновление заблокировано, пользователь должен устранить несогласованный источник. При отсутствии аккаунта показывайте подписанное `readSaved` как `SAVED_UNVERIFIED`. Для D6 по-прежнему нужен отдельный свежий `prepareContinuation` прямо перед `nativeOwner.receive`, а внешнее изменение обязано проходить CAS на стороне ERP owner. Этот поток не менял `Faust-S/iwxa-personal-agent`, `Faust-S/cehovod`, центральный T3/Activity или T2, приватные Actions не запускал.
+
+**Границы приёмки:** `SOURCE_QUALIFICATION=PASS`, `ORIGINAL_T2_SIGNED_ROUTE=PASS_TEST_HOST`, `ERPNext_READ_JSON_ADAPTER=SOURCE_PASS`, `ERPNext_PREVIEW_REFRESH=PASS_TEST_HOST`; `LIVE_ERP_EXECUTION=NOT_ACCEPTED`, `CEHOVOD_RESULT=NOT_ACCEPTED`, `WORKREF_OWNER_ADOPTION=HOLD`, `T3_READY=false`. Никакая тестовая квитанция или контролируемый Frappe JSON не объявляется реально исполненным заказом.
+
+## 15.11: Odoo 19+/20+ Community, внешний JSON-2 `sale.order/read` через исходный T3
+
+**Результат:** добавлен `src/t3/external-odoo-source.mjs` с `normalizeOdooSaleOrderRead({ownerId,expectedRecordId,response})`. Единственный назначенный владелец коммерческих документов - удалённая Odoo. Модуль НЕ содержит HTTP, bearer API key, account cache, новых Store, транзакций или Process Engine. Встроенный Agent 0.6 должен вызвать собственный авторизованный HTTP owner `POST /json/2/sale.order/read` с точным `ids:[numericRecordId]` и подходящим контекстом базы данных `X-Odoo-Database` (когда необходимо), а затем передать JSON-ответ **массив из одной записи** в чистый нормализатор. Внешний `ownerId` должен быть привязан к конкретным instance + database + account в доверенном Agent; пользовательская строка не может выбирать чужую ERP.
+
+**Важное различие:** `record_id` есть **числовой ID из Odoo ORM** `sale.order.id`, а не видимый номер `sale.order.name` вроде `S00042`. Нормализатор требует `id` и точное совпадение с выбранным числовым `expectedRecordId`, `write_date` как исходную ревизию, `state`, `name`, конечную сумму `amount_total` и список `order_line` ID (минимальная проверка полноты ответа `read`, а не реальный контроль содержимого каждой строки). Подозрительные, множественные, частичные, рекурсивные, oversized (>2 MiB) и небезопасные JSON-объекты отвергаются; общая каноническая SHA-256 функция `external-owner-snapshot.mjs` использована также действующим ERPNext адаптером без изменения его output.
+
+**На выходе** только `source_owner,record_kind='sale.order',record_id,source_revision=write_date,source_digest,source_receipt=null,source_state=state,epistemic_status=reported,record_authority=EXTERNAL_OWNER`. Никогда не сохранять имя покупателя, `partner_id`, детали сделок, `order_line`, денежные суммы, bearer-ключи, конфигурацию БД или сырое содержимое Odoo в T3 Object/Event. Digest касается **только реально прочитанных полей ответа**. Список `order_line` включает ID, но не доказывает неизменность количества или цен дочерних строк, если Odoo не обновила `write_date` заказа. Поэтому `prepareContinuation`/D6 повторно читают исходный owner, а реальный native Odoo/CehoVod владелец обязан enforce cross-record CAS на момент выполнения; T3 не объявляет из одного JSON статус `observed` или исполненный Result.
+
+**Версии/API:** [официальная документация Odoo 19 JSON-2](https://www.odoo.com/documentation/19.0/developer/reference/external_api.html) требует `POST /json/2/<model>/<method>` и `Authorization: bearer`; внешние XML-RPC/JSON-RPC помечены deprecated в 19, с планом удаления в 22. Проверять доступность API в конкретном установленном продукте и плане: Odoo Online ограничивает External API платным Custom, самоуправляемая Community отличается по развёртыванию. [Odoo Community LGPLv3](https://www.odoo.com/documentation/20.0/legal/licenses/licenses.html); лицензия Odoo на сервер не требует копировать их исходники в T3. Это вход только для Odoo 19+, не обещание JSON-2 у Odoo 18.
+
+**Dolibarr:** [официальный REST API](https://wiki.dolibarr.org/index.php/Module_Web_Services_REST) использует `DOLAPIKEY` и `/api/index.php`; [лицензия GPLv3+](https://github.com/Dolibarr/dolibarr/blob/develop/README.md). Пока не подтверждён для выбранной установки точный immutable revision/CAS заказа и независимый readback, не объявлять Dolibarr `readExact` поддержанным владельцем исполнения. Его подключение возможно через тот же T3 внешний контракт после квалификации source owner, без механического использования Odoo JSON-2 или ERPNext протоколов.
+
+**Исходная проверка:** `tests/t3-agent06-odoo-json2-read.test.mjs` покрывает точный числовой ID, 1-строчный ответ, canonical digest, изменение строк при неизменном `write_date`, cancellation как `reported`, неполный/опасный JSON и отсутствие коммерческих данных в T3 source. Исходный `t3-agent06-external-process-original-t2.browser.mjs` связывает контролируемый Odoo JSON-2 source через **оригинальный подписанный T2 Kernel/IndexedDB**, проверяет конфликт same revision/different digest, согласованный `refresh` с исходным Human Review и revision 2. Это не живой Odoo endpoint, не реальная ERPNext, не принятый CehoVod `plan-fact-analysis` и не WorkRef. До реального штатного Agent Account/ToolRuntime + CehoVod `LIVE_ERP_EXECUTION=NOT_ACCEPTED`, `CEHOVOD_RESULT=NOT_ACCEPTED`, `T3_READY=false`.
+
+## Квалификация Odoo JSON-2 на оригинальном T2, 15.11.2026
+
+**Точный исполняемый HEAD `e0050b920b92e8c667f06cf7d680e98be549e966`, TREE `3ae00947a0a954a466036b4e1de37aa4d197c75a`.** [Публичный CI №43738291522](https://github.com/Faust-S/knowledge/actions/runs/43738291522) завершён **SUCCESS**: Node product **759/759 PASS**, Workspace/DOM **1141/1141 PASS**, оригинальный T2 0.3.6/Contract 1.3.0 real-host **SUCCESS**, Windows Credential **SUCCESS**, аппаратный WebGPU **SKIPPED**.
+
+Исполняемый original signed Host подтвердил:
+- `T3_AGENT06_ODOO_JSON2_ORIGINAL_KERNEL_PASS`: `signedD1=true`, `kernel=0.3.6`, `recordId=42`, `revision=2`, `customerPersisted=false`, **`liveOdoo=false`**;
+- `T3_AGENT06_ERPNext_REST_ORIGINAL_KERNEL_PASS`: `kernel=0.3.6`, `sourceOwner=erpnext:shop1`, `revision=2`, `customerPersisted=false`, **`liveErpNext=false`**. Это подтверждает отсутствие регрессии исходного ERPNext нормализатора после вынесения общего canonical hash;
+- `T3_AGENT06_SIGNED_D1_COLD_RECOVERY_PASS`: новая подписанная сессия, `signedProofs=13`, `revision=3`, `executedExternalERP=false`;
+- `T3_AGENT06_D6_TWO_OWNER_CONTRACT_PASS`: `externalDispatches=1`, `domainProofs=2`, **`syntheticDomainOwner=true`**, `domainResultInCehoVod=false`.
+
+Промежуточный [CI №43738258736](https://github.com/Faust-S/knowledge/actions/runs/43738258736) **FAIL** на предшествующем `97477861`: после рефакторинга SHA helper в ERPNext source отсутствовала локальная `textField`. В `e0050b92` функция и `denied` возвращены, затем полный CI завершился SUCCESS. **Принимать только `e0050b92` или потомка**, не ссылаться на старый FAIL как на принятый исполняемый код.
+
+### Точный Agent 0.6 Host binding
+
+Владельцем остаётся Odoo. Доверенный Agent Account/ToolRuntime выбирает конкретную пару instance+database и числовой `sale.order.id`, выполняет `POST /json/2/sale.order/read` (JSON-2 в Odoo 19+; проверить доступность и API-план на выбранной установке), читает массив **одной** записи и вызывает `normalizeOdooSaleOrderRead({ownerId,expectedRecordId,response})`. Затем **имеющийся** `externalOwner.readExact({record_kind:'sale.order',record_id:'42'})` возвращает нормализованный `source_revision/source_digest/source_state` и `source_receipt:null` в старый `createTrustedExternalProcessLink`. Только original signed `link/refresh` с Human Review пишет ссылку. UI читает `readSaved` офлайн и `previewRefresh` онлайн; `SOURCE_REVISION_INCONSISTENT` с одинаковым `write_date`, но иным digest блокирует обновление.
+
+Штатный D6 перед внешним изменением обязан использовать `sourceCurrent -> prepareContinuation`, а установленный Odoo native recipient проверяет **внутри собственного действия** нужные дочерние `order_line` поля, CAS и полномочия владельца. T3 не утверждает транзакционную атомарность нескольких Odoo calls. Отдельный штатный CehoVod owner связывает заказ с **конкретными** `production-order`/`production-execution`, выполняет original `verifyStoredFinalPlanFact` и возвращает точный `orderRef + executionRef` только по оригинальному Kernel readback. Для подтверждения WorkRef необходим отдельный активированный Project/Process source owner; `writesAuthorized=false` пока остаётся ограничением.
+
+**Состояние:** `ERPNext_JSON_SOURCE=PASS`, `ODOO_JSON2_SOURCE=PASS`, `ORIGINAL_T2_SIGNED_ROUTE=PASS_TEST_HOST`, `LIVE_ERP_EXECUTION=NOT_ACCEPTED`, `CEHOVOD_RESULT=NOT_ACCEPTED`, `WORKREF_OWNER_ADOPTION=HOLD`, `T3_READY=false`. В центральных T3/Activity, Agent, CehoVod, T2 изменений не выполнялось; приватные GitHub Actions не запускались.
+
+
+## 15.11: Полный read-only снимок строк Odoo, перед выполнением CehoVod
+
+Исполняемая правка [`32dd3f390ddee193856eb0deada01154cafbb0b0`](https://github.com/Faust-S/knowledge/commit/32dd3f390ddee193856eb0deada01154cafbb0b0) устраняет разрыв между `sale.order.order_line` (только IDs) и фактическими строками заказа. Начиная с этой правки `normalizeOdooSaleOrderRead({ownerId,expectedRecordId,response,linesResponse})` требует два ответа штатного **авторизованного Agent owner**, а не выполняет HTTP самостоятельно:
+
+1. `POST /json/2/sale.order/read`, точный числовой `ids:[42]`, поля `id,write_date,state,name,amount_total,order_line`. Ответ `response` - массив ровно одного заказа.
+2. `POST /json/2/sale.order.line/read` с точным списком IDs из `order_line`. Ответ `linesResponse` - массив всех строк; запрашиваются `id,order_id,write_date,sequence,display_type,product_uom_qty,price_unit,discount,tax_ids,price_subtotal,price_total`. Пропущенные/дублированные/чужие строки, отсутствующие денежные поля, невалидная дочерняя ревизия отвергаются.
+
+Digest теперь вычисляется из **order + всех точных дочерних lines**. Порядок строк в JSON-2 ответе не влияет на digest. Изменение quantity, unit price, discount, taxes, subtotal/total при прежнем `sale.order.write_date` обнаруживается как `SOURCE_REVISION_INCONSISTENT`, а не ошибочно `MATCHED_AT_READ`. При этом как и раньше в оригинальный T2 Object/Event передаются только identity, revision, state и SHA-256, без покупателя, позиций, коммерческих сумм и ключей.
+
+**Граница:** два JSON-2 чтения не атомарны. Источник получает `reported`, `source_receipt=null`; ни единый digest, ни успешный original signed Kernel не гарантируют native CAS или исполнение заказа. Штатный установленный Odoo owner должен повторно проверить parent + все child lines внутри разрешённого внешнего действия, сформировать собственную квитанцию и выполнить independent readback. Только CehoVod owner связывает исходное исполнение с оригинальным сохранённым `plan-fact-analysis`.
+
+Адресные тесты дополнены: `tests/t3-agent06-odoo-json2-read.test.mjs` (количество/цена, чужие/потерянные строки, canonical digest, неполный ответ), `tests/t3-agent06-external-process-original-t2.browser.mjs` (тот же исходный signed Kernel, конфликт по количеству строки до Human Review). Локальная независимая проверка целевого алгоритма: 11/11 PASS. Публичный CI [№43741884909](https://github.com/Faust-S/knowledge/actions/runs/43741884909) запущен на исполняемом `32dd3f39`; его заключение нужно отдельно проверить. До завершения CI `SOURCE_QUALIFICATION=IN_PROGRESS`; `LIVE_ERP_EXECUTION=NOT_ACCEPTED`, `CEHOVOD_RESULT=NOT_ACCEPTED`, `T3_READY=false`. Центральные T3/Activity и приватные Agent/CehoVod не менялись.
+
+
+## 15.11: Agent 0.6 Account/ToolRuntime → T3 signed externalOwner, квалификация
+
+**Исполняемый T3**: [`f805eed2a83e4c4172186a2f923e515f909d593b`](https://github.com/Faust-S/knowledge/commit/f805eed2a83e4c4172186a2f923e515f909d593b), TREE `f9ab863e9182fceff4cba40248d18b115ff6acc6`. Публичный CI [№43743138775](https://github.com/Faust-S/knowledge/actions/runs/43743138775) **SUCCESS** на именно этом SHA: Node product **765/765 PASS**, Workspace/DOM **1141/1141 PASS**, `real-host=SUCCESS`, `windows-credential=SUCCESS`, аппаратный `metal-webgpu=SKIPPED`.
+
+Добавлен тонкий адаптер `src/t3/external-agent-erp-owner.mjs` (`createTrustedAgentErpOrderOwner`), вызываемый только доверенным T3 Host. Он принимает заранее выбранный Agent account binding (тип, `providerId`, `providerBindingDigest`, `ownerId`), использует только исходный `ToolRuntime.read('erp.order.read',{record_id})`, проверяет успешную ToolRuntime read-квитанцию `TRR-...` и совпадение её provider/binding со штатным аккаунтом. Затем делегирует исходным `normalizeErpNextSalesOrderRead` или `normalizeOdooSaleOrderRead`; возвращает существующему `externalOwner.readExact` только `source_owner,source_revision,source_digest,source_state` и статус `reported` (`source_receipt=null`). Ни HTTP, ни ключи ERP, ни второй Process Engine или Store в T3 не добавлены.
+
+В оригинальном T2 0.3.6/Contract 1.3.0 тест подписанного D1 + IndexedDB подтвердил Odoo `sale.order.id=42`, ревизию 2, отсутствие покупателя в Object и источник через **контролируемый ответ ToolRuntime**: `T3_AGENT06_ODOO_JSON2_ORIGINAL_KERNEL_PASS`, `simulatedAgentToolRuntimeReceipt=true`, `liveOdoo=false`. ERPNext original signed kernel/новая холодная сессия не регрессировали. Проверки провайдера/поддельной квитанции и исходных нормализаторов включены в 765 Node PASS. **Это не запуск частного установленного Agent и не живая ERP.**
+
+**Отдельный закрытый Agent 0.6, не общая ветка**: `Faust-S/iwxa-personal-agent@work/2026-11-15-agent06-erp-source-account`, коммиты `d13c3a6b9c87b038124e6df93ae1b7df3640ef49` (ERPNext/Odoo read-only через исходные Account, ToolRuntime, Windows DPAPI) и `a851cb359f6ff91b4442cef90cee2ddb5dd0f59e` (новый необязательный `erp_orders` слот, сохранение прежних provider binding/history). В Agent встроены только исходный HTTP transport, read ToolRuntime и пользовательский выбор аккаунта; `erp_orders` выключен по умолчанию. Изолированная локальная HTTP-фикстура проверена (16/16), но **полный private Agent Core/Tauri/Windows-installed E2E, новая регрессия сохранённых bindings и настоящий ERP аккаунт не квалифицированы**. Private GitHub Actions не запускались, приватные исходники/ключи/EXE/логи в публичный CI не выгружались.
+
+**Нельзя повышать acceptance только по публичным источникам:** `T3_AGENT06_SOURCE=PASS_TEST_HOST`, `AGENT06_PRIVATE_SOURCE=IMPLEMENTED_UNQUALIFIED`, `LIVE_ERP_READ=NOT_ACCEPTED`, `LIVE_ERP_EXECUTION=NOT_ACCEPTED`, `CEHOVOD_RESULT=NOT_ACCEPTED`, `T3_READY=false`. Следующий продуктовый маршрут: установленный Agent выбирает подлинный ERP-аккаунт → реальный ToolRuntime TRR/readback → оригинальный `previewRefresh` → отдельный Human Review `refresh` → `prepareContinuation` и полномочия ERP native owner → реальная оригинальная квитанция внешнего действия → сохранённый CehoVod `production-execution` и независимый оригинальный `verifyStoredFinalPlanFact` для точных `orderRef/executionRef`. Пары чтений Odoo не атомарны, нативный owner обязан обеспечивать актуальность дочерних строк и CAS на момент действия.
+
+
+## 15.11: закрытый Agent 0.6 ERP прошёл Windows SOURCE, живая ERP ещё нет
+
+Квалифицированный закрытый потребитель: `Faust-S/iwxa-personal-agent@work/2026-11-15-agent06-erp-source-account` исполняемый `e7d3921f531ee3e54f29b95e6d7f458556ba04c8`, TREE `23754c80a9e1412af6a0b6a573f26d4268a21f00`. Публичный [Center CI №43746003561](https://github.com/Faust-S/Center/actions/runs/43746003561) завершился **SUCCESS**, проверив только точный закрытый SHA через ранее разрешённый read-only приватный checkout на транзитном Windows-runner. Публичны только маркеры PASS: адресные ERP HTTP, оригинальный `ToolRuntime.read`, provider bindings, пользовательские подключения, ToolRuntime regressions, provider settings, Desktop TSX и Vite build. Приватный код, EXE, секреты и содержательные логи в публичные материалы не выгружались; приватных Actions нет. Это не установленный пользовательский Agent, не Odoo SaaS test и не CehoVod execution.
+
+Исправлена существенная интеграция `erp.order.read`: операция зарегистрирована в оригинальном `PRODUCT_APPROVED` ToolPolicy с классом `READ_ONLY`, а не только в списке инструментов; до исправления реальный ToolRuntime отказывал. Исходная граница локального T3 сохранена: при `t3_enabled=true` внешний ERP read закономерно блокируется; после отдельного явного пользовательского `update_ui_preferences(t3_enabled=false)` сквозной источник/квитанция проходят. Desktop UI объясняет режим и не переключает T3 автоматически. Смена выбранного URL/database/API key требует повторной активации и нового provider binding digest. Старые сохранённые привязки без нового `erp_orders` мигрируют с сохранением прежних hash-chain events и добавлением только отключённого нового слота.
+
+Исполняемый T3 owner bridge остаётся `f805eed2a83e4c4172186a2f923e515f909d593b` с публичным CI [№43743138775](https://github.com/Faust-S/knowledge/actions/runs/43743138775) SUCCESS, оригинальным signed D1/T2 0.3.6 и контролируемой (неживой) Agent TRR. **Статусы:** `AGENT06_PRIVATE_WINDOWS_SOURCE=PASS`; `T3_ORIGINAL_KERNEL_TEST_HOST=PASS`; `INSTALLED_AGENT_NATIVE=NOT_RUN`; `LIVE_ERP_READ=NOT_ACCEPTED`; `LIVE_ERP_EXECUTION=NOT_ACCEPTED`; `CEHOVOD_RESULT=NOT_ACCEPTED`; `T3_READY=false`. Следующий реальный маршрут остаётся `authorized account -> ToolRuntime TRR -> signed T3 previewRefresh/refresh -> consent -> native CAS/receipt -> original CehoVod plan-fact readback`. Ни одна контролируемая квитанция не доказывает реальный ERP CAS.

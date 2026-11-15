@@ -2,6 +2,7 @@
 // an already-installed native product owner. No Task Engine, Store, protocol,
 // signer or second Kernel is created. The recipient owns durable idempotency.
 import {createSubjectKernelBinding} from "./subject-access-binding.mjs";
+import {EXTERNAL_PROCESS_LINK_SCHEMA} from "./external-process-link.mjs";
 
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const validId=value=>typeof value==="string"&&ID.test(value);
@@ -36,6 +37,24 @@ function normalizeInspect(value,reference,recipientId){
     "T3_D6_NATIVE_OWNER_NOT_READY");
   return Object.freeze({operationId:value.operationId,status:value.status});
 }
+function verifiedDomainProof(proof,owner,reference,operationId,recipientId,resultRef){
+  // This predicate validates source/recipient/order identities. The ORIGINAL
+  // installed domain owner MUST itself call its canonical Result validator
+  // after independent signed Kernel readback; T3 never reimplements it.
+  return !!proof&&proof.status==="ORIGINAL_DOMAIN_RESULT_VERIFIED"&&
+    proof.ownerId===owner.ownerId&&proof.resultType===owner.resultType&&
+    proof.orderRef===owner.orderRef&&
+    // CehoVod final plan-fact is bound to one specific production-execution,
+    // not merely to its order. Never let another execution's Result close it.
+    (owner.executionRef===undefined||
+      (validId(owner.executionRef)&&proof.executionRef===owner.executionRef))&&
+    proof.resultRef===resultRef&&
+    proof.workspaceId===reference.workspace_id&&
+    proof.operationId===operationId&&proof.recipientId===recipientId&&
+    proof.stage==="final"&&proof.canonicalVerified===true&&
+    Number.isSafeInteger(proof.resultRevision)&&proof.resultRevision>0&&
+    sameReference(reference,proof.sourceReference);
+}
 function confirmedOwnerReadback(receipt,readback,reference,recipientId,operationId){
   const matches=value=>value&&value.operationId===operationId&&
     value.recipientId===recipientId&&sameReference(reference,value.reference)&&
@@ -51,7 +70,7 @@ function confirmedOwnerReadback(receipt,readback,reference,recipientId,operation
  * operationId before acknowledging. The UI cannot supply this native owner. */
 export function createTrustedNativeContinuation({
   kernel,accessForRead,currentWorkspace,nativeOwner,confirmHuman,
-  isHostActive,
+  resultOwner=null,sourceCurrent=null,isHostActive,
 }={}){
   check(kernel&&typeof kernel.hasOperation==="function"&&
     typeof accessForRead==="function"&&
@@ -60,7 +79,16 @@ export function createTrustedNativeContinuation({
     nativeOwner&&validId(nativeOwner.recipientId)&&
     ["inspect","receive","receipt","readback"]
       .every(method=>typeof nativeOwner[method]==="function")&&
-    typeof confirmHuman==="function"&&typeof isHostActive==="function",
+    typeof confirmHuman==="function"&&typeof isHostActive==="function"&&
+    (sourceCurrent===null||typeof sourceCurrent==="function")&&
+    (resultOwner===null||
+      (validId(resultOwner.ownerId)&&validId(resultOwner.resultType)&&
+       validId(resultOwner.orderRef)&&
+       (resultOwner.resultType==="plan-fact-analysis"?
+          validId(resultOwner.executionRef):
+          (resultOwner.executionRef===undefined||
+           validId(resultOwner.executionRef)))&&
+       typeof resultOwner.verifySaved==="function")),
     "T3_D6_TRUSTED_HOST_OWNER_REQUIRED");
 
   // Native idempotency survives cold opens in the ORIGINAL recipient. These
@@ -139,6 +167,44 @@ export function createTrustedNativeContinuation({
     if(!confirmedOwnerReadback(receipt,readback,reference,nativeOwner.recipientId,operationId)){
       return Object.freeze({status:"OUTCOME_UNKNOWN",operationId});
     }
+    if(resultOwner!==null){
+      // The native workflow/ERP owner only confirms its OWN durable action.
+      // For CehoVod, the independent original domain owner must read its
+      // saved plan-fact-analysis and call verifyStoredFinalPlanFact. Do not
+      // promote an n8n/HTTP ACK or an unverified resultRef to a domain Result.
+      let proof=null;
+      try{
+        proof=await resultOwner.verifySaved({
+          resultRef:receipt.resultRef,operationId,
+          recipientId:nativeOwner.recipientId,
+          orderRef:resultOwner.orderRef,
+          ...(resultOwner.executionRef===undefined?{}:
+            {executionRef:resultOwner.executionRef}),
+          sourceReference:copy(reference,"T3_D6_REFERENCE_NOT_CLONEABLE"),
+        });
+      }catch{
+        // A missing/unavailable domain owner is never a reason to retry
+        // the already-confirmed EXTERNAL native action.
+      }
+      // Independent signed Kernel readback also detects revisions changing
+      // while the domain owner verified the referenced Result.
+      await readSource();
+      if(!verifiedDomainProof(proof,resultOwner,reference,operationId,
+          nativeOwner.recipientId,receipt.resultRef)){
+        return Object.freeze({status:"DOMAIN_RESULT_UNVERIFIED",operationId,
+          recipientId:nativeOwner.recipientId,resultRef:receipt.resultRef,
+          owner_action_confirmed:true,domain_result_confirmed:false,
+          can_retry:false,reason:"CANONICAL_DOMAIN_READBACK_REQUIRED"});
+      }
+      return Object.freeze({status:"DOMAIN_RESULT_READBACK_CONFIRMED",operationId,
+        recipientId:nativeOwner.recipientId,resultRef:receipt.resultRef,
+        resultOwnerId:resultOwner.ownerId,orderRef:resultOwner.orderRef,
+        ...(resultOwner.executionRef===undefined?{}:
+          {executionRef:resultOwner.executionRef}),
+        resultRevision:proof.resultRevision,owner_action_confirmed:true,
+        domain_result_confirmed:true,
+        reference:copy(reference,"T3_D6_REFERENCE_NOT_CLONEABLE")});
+    }
     return Object.freeze({status:"OWNER_READBACK_CONFIRMED",operationId,
       recipientId:nativeOwner.recipientId,resultRef:receipt.resultRef,
       reference:copy(reference,"T3_D6_REFERENCE_NOT_CLONEABLE")});
@@ -161,13 +227,44 @@ export function createTrustedNativeContinuation({
       return Object.freeze({status:"OUTCOME_UNKNOWN",operationId});
     }
   }
+  async function preflightExternalSource(state){
+    // A mutable external order cannot silently omit its ORIGINAL owner.
+    if(sourceCurrent===null){
+      check(state.reference.schema_id!==EXTERNAL_PROCESS_LINK_SCHEMA,
+        "T3_D6_EXTERNAL_SOURCE_OWNER_REQUIRED");
+      return;
+    }
+    // Reuse existing external-process-link.prepareContinuation(). It does
+    // fresh ERP readExact and signed ORIGINAL Kernel readback; cached
+    // readSaved is never authority to dispatch a native action.
+    await state.unchanged();
+    let fresh=null;
+    try{
+      fresh=await sourceCurrent(copy(state.reference,
+        "T3_D6_REFERENCE_NOT_CLONEABLE"));
+    }catch{
+      // An unavailable ERP account or a changed source is a pre-dispatch
+      // refusal, never OUTCOME_UNKNOWN and never a reason to retry a write.
+      deny("T3_D6_EXTERNAL_SOURCE_NOT_CURRENT");
+    }
+    await state.unchanged();
+    check(sameReference(state.reference,fresh)&&
+      fresh!==null&&typeof fresh==="object"&&!Array.isArray(fresh)&&
+      Object.keys(fresh).length===4&&
+      ["workspace_id","object_id","schema_id","revision"]
+        .every(key=>Object.hasOwn(fresh,key)),
+      "T3_D6_EXTERNAL_SOURCE_NOT_CURRENT");
+    await state.readSource();
+  }
   async function preview(input){
     return withSelectedSource(input,async state=>{
       const plan=await inspect(state);
       const prior=await probePrior(state,plan.operationId);
       const status=inFlight.has(plan.operationId)?"OPERATION_IN_PROGRESS":
         prior!==null||plan.status==="RECOVER_ONLY"||
-        dispatched.has(plan.operationId)?"RECOVER_ONLY":"AVAILABLE";
+        dispatched.has(plan.operationId)?"RECOVER_ONLY":
+        state.reference.schema_id===EXTERNAL_PROCESS_LINK_SCHEMA&&
+        sourceCurrent===null?"SOURCE_ACCOUNT_REQUIRED":"AVAILABLE";
       return Object.freeze({status,
         operationId:plan.operationId,recipientId:nativeOwner.recipientId,
         reference:state.reference});
@@ -187,6 +284,14 @@ export function createTrustedNativeContinuation({
       try{
         const prior=await probePrior(state,operationId);
         if(prior!==null)return prior;
+        // A locally saved original T2 link is not an active ERP account.
+        // Do not ask the human to approve an operation that cannot dispatch.
+        if(state.reference.schema_id===EXTERNAL_PROCESS_LINK_SCHEMA&&
+          sourceCurrent===null)
+          return Object.freeze({status:"SOURCE_ACCOUNT_REQUIRED",
+            operationId,recipientId:nativeOwner.recipientId,
+            reference:copy(state.reference,"T3_D6_REFERENCE_NOT_CLONEABLE"),
+            can_retry:false,reason:"CONNECT_EXTERNAL_SOURCE_ACCOUNT"});
         const approval=await confirmHuman({
           recipientId:nativeOwner.recipientId,
           operationId,reference:copy(state.reference,
@@ -203,6 +308,9 @@ export function createTrustedNativeContinuation({
         // installed product even when this Host has never seen the Result.
         const committedDuringConsent=await probePrior(state,operationId);
         if(committedDuringConsent!==null)return committedDuringConsent;
+        // ERP source may change DURING Human Review, while T2 revision is
+        // unchanged. Reconfirm before the only external native dispatch.
+        await preflightExternalSource(state);
         // Set before invoking the original native owner: failure may mean
         // that its durable write committed but the acknowledgement was lost.
         dispatched.add(operationId);

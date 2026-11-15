@@ -75,3 +75,24 @@ export { createTrustedNativeContinuation } from "./native-result-continuation.mj
 export {createTrustedAgeExchange} from "./age-protected-exchange.mjs";
 
 export {createTrustedPublisherHandoff} from "./publisher-license-handoff.mjs";
+
+// External process/ERP evidence: the original signed Host and Kernel own every write.
+export {
+  EXTERNAL_PROCESS_LINK_SCHEMA, EXTERNAL_PROCESS_LINK_EVENT,
+  EXTERNAL_PROCESS_LINK_DECLARATION, EXTERNAL_PROCESS_LINK_PASSPORT,
+  createTrustedExternalProcessLink,
+} from './external-process-link.mjs';
+
+// BPMN 2.0 is inspected as a NONEXECUTABLE untrusted model only.
+export { inspectExternalBpmn2Model, compareExternalBpmn2ToProcessDefinition }
+  from './external-bpmn-model.mjs';
+
+// ERPNext REST response is normalized, never executed or stored here.
+export {normalizeErpNextSalesOrderRead} from './external-erpnext-source.mjs';
+
+// Odoo JSON-2 source admission is only a read-only data normalizer.
+export {normalizeOdooSaleOrderRead} from './external-odoo-source.mjs';
+
+// Trusted installed-Agent Account/ToolRuntime → original externalOwner.
+// The caller must be the original Host, not an untrusted renderer.
+export {createTrustedAgentErpOrderOwner} from './external-agent-erp-owner.mjs';
