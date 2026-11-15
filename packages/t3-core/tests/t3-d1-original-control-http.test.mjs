@@ -97,6 +97,46 @@ test("existing Control HTTP protocol executes original Ed25519 PERSONAL proof an
     assert.equal(f.calls.length,1);
   }finally{stop();await f.close();}
 });
+test("native D3 command immediately wakes one hidden trusted Kernel long-poll",{
+  timeout:7000,
+},async()=>{
+  let epoch=33,dispatched=0;
+  const relay=createOriginalKernelNativeRelay({
+    currentEpoch:()=>epoch,onAttach:()=>true,timeoutMs:3000,
+  });
+  const info={contract_version:"1.3.0",runtime_version:"0.3.6",
+    service_id:"iwxa.workspace.relay",mode:"ready",
+    granted_operations:["t1.commitObjectGraph","t1.getObject",
+      "t1.listEventsSince"]};
+  const {sessionId}=await relay.exchange({
+    verb:"attach",payload:{sessionInfo:info}},epoch);
+  const waiting=relay.exchange({verb:"next",payload:{sessionId}},epoch);
+  // Native Control admits at most one outstanding waiter, not a growing
+  // poll queue that could duplicate a signed graph call.
+  await new Promise(resolve=>setTimeout(resolve,20));
+  await assert.rejects(relay.exchange({
+    verb:"next",payload:{sessionId}},epoch),
+  {code:"T3_D3_ORIGINAL_KERNEL_POLL_IN_PROGRESS"});
+  const answer=relay.nativeKernel.getObject("ws:wakeup","object:wakeup");
+  const command=await Promise.race([waiting,new Promise((_,reject)=>
+    setTimeout(()=>reject(Error("D3_NATIVE_RELAY_WAKE_TIMEOUT")),1000))]);
+  dispatched++;
+  assert.equal(command.kind,"COMMAND");
+  assert.equal(command.method,"getObject");
+  assert.deepEqual(command.args,["ws:wakeup","object:wakeup"]);
+  await relay.exchange({verb:"result",payload:{
+    sessionId,id:command.id,ok:true,
+    result:{object:{object_id:"object:wakeup"}}}},epoch);
+  assert.equal((await answer).object.object_id,"object:wakeup");
+  assert.equal(dispatched,1);
+  const pending=relay.exchange({verb:"next",payload:{sessionId}},epoch);
+  await new Promise(resolve=>setTimeout(resolve,20));
+  epoch++;
+  relay.invalidate();
+  await assert.rejects(pending,{code:"T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED"});
+  assert.equal(relay.attached,false);
+  relay.close();
+});
 test("original D3 Kernel relay is session-bound and never replays an unknown graph write",{
   timeout:8000,
 },async()=>{
