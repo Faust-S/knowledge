@@ -6,6 +6,13 @@
 **Квалификация источника:** [CI #43753112597](https://github.com/Faust-S/knowledge/actions/runs/43753112597), завершена **SUCCESS** на точном `2e18da0a`: `test`, original T2 `real-host`, `windows-credential` PASS. Включает адресный D3, полный product Node/Workspace, TypeScript/build/preflight, signed Control, реальные browser Kernel readbacks. Metal-WebGPU SKIPPED. Это публичный SOURCE/REAL-HOST PASS, не установленная private D3 или hardware D5 приёмка.
 **Готовность:** `T3_READY=false`, `D3_INSTALLED=HOLD`, `D5_HARDWARE=HOLD`, `G4=NOT_ACCEPTED`.
 
+
+## Дополнение 16.11.2026: единый G4 source candidate и запрос настоящего D5 GPU
+
+- **Кандидат исходного кода:** `Faust-S/knowledge@295f3ca0e74bfaf08f9830c9b8fbb56b84ea7873`, TREE `c17ab3d44bfcbbccc03a28afbb40e7bd1178eaa3`, [Source CI #43771872332](https://github.com/Faust-S/knowledge/actions/runs/43771872332) **SUCCESS** (`test`, `real-host`, `windows-credential`; `metal-webgpu` SKIPPED). Нормативный `Faust-S/T2@9c64951c`, Kernel 0.3.6/Runtime 1.3.0, WebLLM 0.2.87. Данный текст не меняет исполняемые файлы, а фиксирует один исходный кандидат вместо бесконечных промежуточных исправлений.
+- **Текущая операция:** запустить уже существующий публичный `metal-webgpu` job посредством разрешённой GitHub Actions метки `[t3-metal]` в коммите этой редакции. Он должен выполнить два настоящих сценария: `T3_D1_D5_REQUIRE_HARDWARE_GPU=1` и `T3_D5_REQUIRE_HARDWARE_GPU=1`. Успех требует **реальный аппаратный GPU**, генерацию WebLLM, ручное сохранение черновика через original Kernel, холодное открытие и новую генерацию офлайн без сети. SwiftShader/mock/собранный Worker не равны hardware PASS. Если Mac runner не выделен или не предоставляет реальный GPU, зафиксировать именно `D5_HARDWARE=HOLD`, не делать дополнительных фиктивных обходов.
+- **Релизный стоп-критерий:** `G4=NOT_ACCEPTED`, `T3_READY=false`, даже при успешном hardware D5, пока нет полной независимой installed/owner приёмки D1/D3, D4/D6 получателей и D7 age/Publisher с двумя холодными открытиями на единой ревизии. Не задерживать общую кодовую базу мелкими изменениями ради дополнительного количества PASS.
+
 ## 1. Первые действия в новом чате
 
 1. **Полностью прочитать этот документ**, затем `Faust-S/knowledge/AGENTS.md`, действующие T3 product audit/handoff, normative `Faust-S/T2@main` и исходную карту 42 репозиториев в `Faust-S/T3@work/2026-11-10-t3-t2-upgrade-core`.
