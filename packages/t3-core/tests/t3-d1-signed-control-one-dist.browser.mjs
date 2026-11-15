@@ -390,10 +390,16 @@ try{
     '<!doctype html><title>Original T2 Workspace source</title>');
   cpSync(join(core,'public/favicon.ico'),join(source,'workspace/favicon.ico'));
 
+  // Qualify the actual Admin D3 installed passport in the SAME original
+  // T2 0.3.6 runtime. This is still public test authority, not a private
+  // signer or installed Windows acceptance.
   const assembled=assembleSignedControlDist({
     t2Dist:source,t3Build:join(core,'dist'),outputDir:output,
+    installedOriginalAdminD3:true,
   });
   assert.equal(assembled.original_runtime_unchanged,true);
+  assert.equal(assembled.original_admin_d3_schema_registered,true,
+    'D3 installed original T2 service must admit the exact applied Result schema');
   assert.equal(assembled.original_qualified_artifact,
     'iwxa-kernel-k036-same-store-history-20261019-qualified.1');
   assert.equal(assembled.origin,origin);
@@ -406,6 +412,9 @@ try{
   const assembledPassport=JSON.parse(readFileSync(
     join(output,'_iwxa/services/'+serviceId+'.json'),'utf8'));
   assert.ok(assembledPassport.schemas['iwxa.local-inference.draft']);
+  assert.ok(assembledPassport.schemas['iwxa.admin.applied-results']);
+  assert.deepEqual(assembledPassport.permissions.operations,['t1.commitObjectGraph']);
+  assert.equal(assembledPassport.permissions.workspace.create,true);
   const assembledCatalog=JSON.parse(readFileSync(
     join(output,'_iwxa/service-catalog.json'),'utf8'));
   assert.equal(assembledCatalog.entries.find(row=>row.service_id===serviceId).sha256,
@@ -437,6 +446,61 @@ try{
   assert.equal(first.secure,true);
   assert.equal(first.revision,1);
   assert.ok(first.event);
+  // Exercise one REAL original T2 atomic Object/Event write under the
+  // installed Admin D3 schema and operation permission. No private
+  // Reconciliation or synthetic "CONFIRMED" callback is substituted.
+  const acceptedD3='a'.repeat(64),revisionD3='b'.repeat(64);
+  const effectD3='c'.repeat(64);
+  const graphD3={
+    workspace_id:workspace,idempotency_key:effectD3,
+    object:{object_id:'result:applied:'+effectD3,
+      schema_id:'iwxa.admin.applied-results',schema_version:'1.0.0',
+      base_revision:0,data:{
+        schema:'IWXA_T3_ADMIN_APPLIED_RESULTS/1',
+        records:[{taskId:'task:public-kernel-test',
+          taskRevisionId:'d'.repeat(64),resultRevisionId:revisionD3,
+          organizationId:'org:public-kernel-test',workspaceId:workspace,
+          executorId:'person:test',result:'PUBLIC_T2_ONLY',acceptanceId:acceptedD3}],
+      }},
+    event:{event_type:'iwxa.admin.result.applied',payload:{
+      reconciliation_acceptance_id:acceptedD3,
+      reconciliation_revision_ids:[revisionD3]}},
+  };
+  const d3Receipt=await browser.page.evaluate(async({serviceId,graph})=>{
+    const kernel=await window.IWXA.connect({service_id:serviceId});
+    if(!kernel.granted_operations.includes('t1.commitObjectGraph'))
+      throw Error('T3_D3_REAL_KERNEL_GRAPH_GRANT_MISSING');
+    const receipt=await kernel.t1.commitObjectGraph(graph);
+    return {revision:receipt.object?.revision,
+      eventId:receipt.event?.event_id,
+      idempotencyKey:receipt.event?.idempotency_key,
+      objectId:receipt.object?.object_id};
+  },{serviceId,graph:graphD3});
+  assert.equal(d3Receipt.revision,1);
+  assert.equal(d3Receipt.objectId,graphD3.object.object_id);
+  assert.equal(d3Receipt.idempotencyKey,effectD3);
+  assert.ok(d3Receipt.eventId,'original Kernel must return an actual event');
+  // This is the only graph dispatch; both cold checks below are read-only.
+  const independentD3Readback=()=>browser.page.evaluate(async({
+    serviceId,graph,receipt,acceptanceId,revisionId,
+  })=>{
+    const kernel=await window.IWXA.connect({service_id:serviceId});
+    const object=await kernel.t1.getObject(graph.workspace_id,
+      graph.object.object_id);
+    const events=await kernel.t1.listEventsSince(graph.workspace_id);
+    const matching=events.filter(event=>
+      event.event_id===receipt.eventId&&
+      event.event_type===graph.event.event_type&&
+      event.idempotency_key===graph.idempotency_key&&
+      event.payload?.reconciliation_acceptance_id===acceptanceId&&
+      JSON.stringify(event.payload?.reconciliation_revision_ids)==
+        JSON.stringify([revisionId]));
+    return {
+      object:object?.object??null,matching:matching.length,
+      matchingEventId:matching[0]?.event_id??null,
+    };
+  },{serviceId,graph:graphD3,receipt:d3Receipt,
+    acceptanceId:acceptedD3,revisionId:revisionD3});
   await browser.context.close();browser=null;
 
   browser=await launch();
@@ -453,6 +517,11 @@ try{
   assert.equal(cold.title,'Real original T2 one-dist');
   assert.equal(cold.revision,1);
   assert.ok(cold.events.includes(first.event));
+  const coldD3One=await independentD3Readback();
+  assert.equal(coldD3One.object?.revision,1);
+  assert.deepEqual(coldD3One.object?.data,graphD3.object.data);
+  assert.equal(coldD3One.matching,1);
+  assert.equal(coldD3One.matchingEventId,d3Receipt.eventId);
   // Real Ed25519 PERSONAL permission, authentic original T3 Access evaluator,
   // AND original T2 0.3.6 Kernel/Store in the same public CI. No second IAM,
   // no fake successful decision, no Control checkout or other repo. The
@@ -1455,6 +1524,17 @@ try{
   await browser.page.waitForFunction(()=>
     typeof window.IWXA?.connect==='function');
   corporateRegistry=createOriginalKernelRegistryStatePort(corpRegistryOptions);
+  const coldD3Two=await independentD3Readback();
+  assert.equal(coldD3Two.object?.revision,1);
+  assert.deepEqual(coldD3Two.object?.data,graphD3.object.data);
+  assert.equal(coldD3Two.matching,1);
+  assert.equal(coldD3Two.matchingEventId,d3Receipt.eventId);
+  console.log('T3_D3_PUBLIC_ORIGINAL_KERNEL_TWO_COLD_READBACK_PASS',JSON.stringify({
+    originalRuntime:'0.3.6',installedAdminPassport:true,
+    oneAtomicGraphDispatch:true,readOnlyColdOpens:2,
+    originalObjectAndEvent:true,privateSignerUsed:false,
+    installedWindowsAccepted:false,
+  }));
   // Reconstruct proof functions from the ENCRYPTED vault bytes as well;
   // no stale in-memory KeyObject survives cold browser and Access restart.
   credentialProvers=newCredentialProvers();
