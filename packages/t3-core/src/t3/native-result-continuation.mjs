@@ -216,13 +216,15 @@ export function createTrustedNativeContinuation({
             reference:copy(state.reference,"T3_D6_REFERENCE_NOT_CLONEABLE"),
             object:current,
           });
-          return await observe(state.reference,operationId,state.readSource);
         }catch(error){
-          // No retry: the original owner receipt/readback is the only
-          // authority to recover an uncertain native Result after cold open.
+          // An attempted native write can have committed without its ACK.
+          // Do not resend it; the installed recipient owns cold recovery.
           return Object.freeze({status:"OUTCOME_UNKNOWN",operationId,
             reason:typeof error?.code==="string"?error.code:"UNCONFIRMED"});
         }
+        // Native readback does not authorize the original signed source.
+        // Keep D1 denials outside the uncertain native-write catch above.
+        return observe(state.reference,operationId,state.readSource);
       }finally{
         inFlight.delete(operationId);
       }

@@ -5,7 +5,7 @@ import {createTrustedNativeContinuation} from "../src/t3/native-result-continuat
 // Public contract fixture only: no real native Atlas/Agent/issuer is present.
 function fixture(beforeHuman=async()=>{}){
   let revision=2,approved=true,revoked=false,selected=true,dropAck=false,receives=0;
-  let receiptHook=null;
+  let receiptHook=null,readbackHook=null;
   const workspace={workspace_id:"ws:personal",deleted_at:null};
   const focus={get:()=>selected?workspace:null,subscribe:()=>()=>{}};
   const ref={workspace_id:"ws:personal",object_id:"result:001",
@@ -48,6 +48,7 @@ function fixture(beforeHuman=async()=>{}){
       return commits.get(operationId)??null;
     },
     readback:async operationId=>{
+      if(readbackHook!==null)await readbackHook();
       const row=commits.get(operationId);
       return row?{...row,state:"PERSISTED"}:null;
     },
@@ -66,7 +67,8 @@ function fixture(beforeHuman=async()=>{}){
     ref,commits,changeRevision:n=>revision=n,
     setApproved:v=>approved=v,setRevoked:v=>revoked=v,
     setSelected:v=>selected=v,setDropAck:v=>dropAck=v,
-    setReceiptHook:fn=>receiptHook=fn,receives:()=>receives};
+    setReceiptHook:fn=>receiptHook=fn,
+    setReadbackHook:fn=>readbackHook=fn,receives:()=>receives};
 }
 test("D6 selected signed Result continues to an installed owner with independent readback",async()=>{
   const f=fixture();
@@ -185,4 +187,21 @@ test("D6 keeps original signed denial distinct from unavailable native receipt",
   assert.equal((await f.port.continueSelected(f.ref)).status,"OUTCOME_UNKNOWN");
   assert.equal((await f.port.recover(f.ref)).status,"OUTCOME_UNKNOWN");
   assert.equal(f.receives(),0);
+});
+
+test("D6 signed denial AFTER native write is not downgraded to unknown",async()=>{
+  const f=fixture();
+  // The installed recipient persists one result, but source access is
+  // revoked while its durable readback is being checked.
+  f.setReadbackHook(()=>f.setRevoked(true));
+  await assert.rejects(f.port.continueSelected(f.ref),
+    {code:"T3_ACCESS_NOT_PERMITTED"});
+  assert.equal(f.receives(),1);
+  // Do not resend after denial; only the installed durable receipt may
+  // confirm the previous write when original source access returns.
+  f.setRevoked(false);
+  f.setReadbackHook(null);
+  assert.equal((await f.port.continueSelected(f.ref)).status,"OUTCOME_UNKNOWN");
+  assert.equal((await f.port.recover(f.ref)).status,"OWNER_READBACK_CONFIRMED");
+  assert.equal(f.receives(),1);
 });

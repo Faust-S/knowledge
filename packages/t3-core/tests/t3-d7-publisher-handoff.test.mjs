@@ -340,3 +340,23 @@ test("D7 Publisher refuses signed context changes, not native recovery uncertain
     "OUTCOME_UNKNOWN");
   assert.equal(unavailable.applies(),1);
 });
+
+test("D7 signed denial AFTER original holder APPLY is not unknown",async()=>{
+  const f=fixture(),archiveBytes=file(),port=f.create();
+  const preview=await port.preview({kind:"LICENSE",archiveBytes});
+  const original=f.nativeHolder.statusReadback;
+  f.nativeHolder.statusReadback=async query=>{
+    const saved=await original(query);
+    f.switchContext();
+    return saved;
+  };
+  await assert.rejects(port.admit({kind:"LICENSE",archiveBytes,
+    previewDigest:preview.previewDigest}),
+    {code:"T3_D7_SIGNED_CONTEXT_CHANGED"});
+  assert.equal(f.applies(),1);
+  f.nativeHolder.statusReadback=original;
+  // Cold recovery reads the already-persisted LICENSE; it does not Apply.
+  assert.equal((await f.create().recover({kind:"LICENSE",archiveBytes})).status,
+    "ORIGINAL_HOLDER_READBACK_CONFIRMED");
+  assert.equal(f.applies(),1);
+});

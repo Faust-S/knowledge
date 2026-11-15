@@ -353,11 +353,14 @@ export function createTrustedPublisherHandoff({
           previewDigest:row.previewDigest,
           subject:binding.subject,context:binding.context,
         });
-        return await observe(row,binding);
       }catch {
         return Object.freeze({status:"OUTCOME_UNKNOWN",
           kind:row.kind,operationId:row.operationId});
       }
+      // The original holder may have persisted successfully while signed
+      // access changed. A D1 denial during readback must remain a denial,
+      // not masquerade as an ambiguous native APPLY acknowledgement.
+      return observe(row,binding);
     }finally {
       inFlight.delete(key);
     }
