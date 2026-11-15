@@ -28,9 +28,18 @@ export function createOriginalKernelNativeRelay({
     timeoutMs>=1000&&timeoutMs<=60000,
     "T3_D3_ORIGINAL_KERNEL_RELAY_HOST_REQUIRED");
   let live=null,pending=null,closed=false,nextId=1,attaching=null;
+  // Exactly one pending HTTP long-poll on the original Control. The signed
+  // native owner can wake it immediately instead of waiting for hidden
+  // WebView timer callbacks (which Windows/WebView2 may throttle).
+  let idlePoll=null;
+  const wakePoll=()=>{
+    const wake=idlePoll;idlePoll=null;
+    wake?.();
+  };
   const detach=reason=>{
     const prior=live;
     live=null;
+    wakePoll();
     if(pending){
       const call=pending;pending=null;
       clearTimeout(call.timer);
@@ -68,6 +77,7 @@ export function createOriginalKernelNativeRelay({
       },timeoutMs);
       timer.unref?.();
       pending={id,method,args:clone(args),issued:false,timer,resolve,reject};
+      wakePoll();
     });
   };
   return Object.freeze({
@@ -121,6 +131,29 @@ export function createOriginalKernelNativeRelay({
       }
       same(payload?.sessionId,requestEpoch);
       if(verb==="next"){
+        // A single bounded pending request replaces 200-ms browser polling.
+        // HTTP requestTimeout is 15s in the existing original Control Host;
+        // this wait is 5s and never outlives its session.
+        if(!pending){
+          check(idlePoll===null,
+            "T3_D3_ORIGINAL_KERNEL_POLL_IN_PROGRESS");
+          await new Promise(resolve=>{
+            const done=()=>{
+              clearTimeout(timer);resolve();
+            };
+            const timer=setTimeout(()=>{
+              if(idlePoll===done)idlePoll=null;
+              done();
+            },5000);
+            timer.unref?.();
+            idlePoll=done;
+          });
+          same(payload?.sessionId,requestEpoch);
+          if(await currentEpoch()!==requestEpoch){
+            detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+            fail("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+          }
+        }
         if(!pending||pending.issued)return {kind:"IDLE"};
         pending.issued=true;
         return {kind:"COMMAND",id:pending.id,method:pending.method,
