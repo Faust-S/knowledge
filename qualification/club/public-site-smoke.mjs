@@ -3,6 +3,7 @@ const base = process.env.CLUB_BASE_URL || 'https://club.iwxa.ru';
 const routes = ['/', '/profile/', '/tools/personal-economy/', '/tools/additional-income/', '/tools/resources-and-skills/', '/roles/', '/projects/', '/tools/action-route/', '/workspace/'];
 const results = [];
 const errors = [];
+const assetUrls = new Set();
 for (const path of routes) {
   const url = new URL(path, base).href;
   try {
@@ -13,6 +14,10 @@ for (const path of routes) {
     const hasMain = html.toLowerCase().includes('<main');
     const isSameOrigin = new URL(response.url).origin === new URL(base).origin;
     const ok = response.ok && isHtml && hasDocument && isSameOrigin;
+    for (const match of html.matchAll(/(?:src|href)=["']([^"']+)["']/gi)) {
+      const candidate = new URL(match[1], url);
+      if (candidate.origin === new URL(base).origin && /\\.(?:js|css)(?:$|\\?)/i.test(candidate.pathname)) assetUrls.add(candidate.href);
+    }
     const entry = { path, status: response.status, ok, isHtml, hasDocument, hasMain, isSameOrigin, bytes: Buffer.byteLength(html), finalUrl: response.url, forms: html.toLowerCase().split('<form').length - 1, buttons: html.toLowerCase().split('<button').length - 1 };
     results.push(entry);
     if (!ok) errors.push({ path, reason: 'HTTP, HTML document or origin check failed', entry });
@@ -22,7 +27,19 @@ for (const path of routes) {
     errors.push(entry);
   }
 }
-const report = { target: base, mode: 'PUBLIC_HTTP_ROUTE_QUALIFICATION', sourceCodeAccess: false, browserInteraction: false, privateTokens: false, coverage: { expectedAvailableServiceRoutes: 8, checkedAvailableServiceRoutes: 8, routeCount: routes.length, functionalInteractions: 0 }, results, errors, pass: errors.length === 0 };
+const assets = [];
+for (const url of [...assetUrls].slice(0, 100)) {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
+    const entry = { url, status: response.status, ok: response.ok, type: response.headers.get('content-type') };
+    assets.push(entry);
+    if (!entry.ok) errors.push({ url, reason: 'Referenced JS/CSS asset unavailable' });
+  } catch (error) {
+    assets.push({ url, ok: false, error: String(error) });
+    errors.push({ url, reason: String(error) });
+  }
+}
+const report = { target: base, mode: 'PUBLIC_HTTP_ROUTE_QUALIFICATION', sourceCodeAccess: false, browserInteraction: false, privateTokens: false, coverage: { expectedAvailableServiceRoutes: 8, checkedAvailableServiceRoutes: 8, routeCount: routes.length, checkedJsCssAssets: assets.length, functionalInteractions: 0 }, results, assets, errors, pass: errors.length === 0 };
 writeFileSync('qualification/club/report.json', JSON.stringify(report, null, 2) + String.fromCharCode(10));
 console.log(JSON.stringify(report, null, 2));
 if (!report.pass) process.exitCode = 1;
