@@ -129,3 +129,10 @@ Next practical owner workflow:
 - [Public Center installed Windows #43757865586](https://github.com/Faust-S/Center/actions/runs/43757865586) относится к предыдущему Agent SHA `12d8c5040e192fd21003d8152974ef3440cda406`, а не к перенесённому scheduler fix. На момент этой записи он ещё исполнял установленный сценарий, поэтому не является продуктовой приёмкой нового исправления.
 
 **Итог:** `K05_SOURCE_WINDOWS=PASS`, `K05_PACKAGE_COLD_CORE=PASS`; `K03_INSTALLED_SCHEDULER_FIX=NOT_YET_QUALIFIED`; `K05_INSTALLED_GUI=NOT_ACCEPTED`; `REAL_EFFECTIVENESS=NOT_MEASURABLE`; `PRODUCT_ACCEPTED=false`. Нельзя делать вывод об экономической выгоде по source/CI-тестам и нельзя объявлять одинаковыми разные исходные Task без оригинальной owner-проверки.
+
+## Дополнение: независимая installed-квалификация исправленного scheduler claim
+
+- Public Center workflow HEAD: `545aa1fe3b52e66b3c29fe8ea13ecfdf8c85475e`.
+- Новый установленный Windows-run [#43759235790](https://github.com/Faust-S/Center/actions/runs/43759235790) поставлен на выполнение c точным Agent SHA `763583b306ca4a7896609a1c42e535e64b855c33`. Его очередь не отменяет предыдущий [#43757865586](https://github.com/Faust-S/Center/actions/runs/43757865586), использующий старый Agent SHA; это сохраняет независимое сравнение и диагностику.
+- `cancel-in-progress: false` установлен только в public Center installed-workflow. Запуск закрытых Actions, публикация EXE, приватных пакетов, полных логов или данных модели не выполнялись.
+- По состоянию на момент фиксации `K03_INSTALLED_SCHEDULER_FIX=NOT_YET_ACCEPTED`, `K05_GUI_NEGATIVE=NOT_YET_ACCEPTED`, `PRODUCT_ACCEPTED=false`; исходные Windows 74/74, отдельный scheduler 12/12, пакет 18/18, cold Core 1/1 PASS. Эффективность двух разных реальных моделей и экономический результат не доказаны.
