@@ -90,20 +90,23 @@ type EndpointRoute struct {
 	Destination string `json:"destination"`
 }
 type Probe struct {
-	TimeUTC            string           `json:"time_utc"`
-	EndpointRoute      *EndpointRoute   `json:"endpoint_route,omitempty"`
-	RouteLoopSuspected bool             `json:"route_loop_suspected"`
-	Egress             EgressResult     `json:"egress"`
-	EgressIPv6         *EgressResult    `json:"egress_ipv6,omitempty"`
-	IPv6LeakSuspected  bool             `json:"ipv6_leak_suspected"`
-	PrivacyNote        string           `json:"privacy_note,omitempty"`
-	Downloads          []DownloadResult `json:"downloads"`
-	AdapterBefore      *AdapterStats    `json:"adapter_before,omitempty"`
-	AdapterAfter       *AdapterStats    `json:"adapter_after,omitempty"`
-	AdapterFlow        bool             `json:"adapter_flow"`
-	EgressChanged      bool             `json:"egress_changed"`
-	Success            bool             `json:"success"`
-	Reason             string           `json:"reason"`
+	TimeUTC              string           `json:"time_utc"`
+	EndpointRoute        *EndpointRoute   `json:"endpoint_route,omitempty"`
+	RouteLoopSuspected   bool             `json:"route_loop_suspected"`
+	DNSExposure          *DNSExposure     `json:"dns_exposure,omitempty"`
+	DNSExposureSuspected bool             `json:"dns_exposure_suspected"`
+	DNSPrivacyNote       string           `json:"dns_privacy_note,omitempty"`
+	Egress               EgressResult     `json:"egress"`
+	EgressIPv6           *EgressResult    `json:"egress_ipv6,omitempty"`
+	IPv6LeakSuspected    bool             `json:"ipv6_leak_suspected"`
+	PrivacyNote          string           `json:"privacy_note,omitempty"`
+	Downloads            []DownloadResult `json:"downloads"`
+	AdapterBefore        *AdapterStats    `json:"adapter_before,omitempty"`
+	AdapterAfter         *AdapterStats    `json:"adapter_after,omitempty"`
+	AdapterFlow          bool             `json:"adapter_flow"`
+	EgressChanged        bool             `json:"egress_changed"`
+	Success              bool             `json:"success"`
+	Reason               string           `json:"reason"`
 }
 
 type Trial struct {
@@ -293,7 +296,7 @@ func (m *Manager) prompt(text string) (string, error) {
 	return strings.TrimSpace(s), nil
 }
 func (m *Manager) ensureRuntime() error {
-	for _, name := range []string{"Scripts/Common.psm1", "Scripts/Start-Profile.ps1", "Scripts/Get-AdapterStats.ps1", "Scripts/Find-VpnAdapter.ps1", "Scripts/Get-EndpointRoute.ps1", "Profiles/profiles.json"} {
+	for _, name := range []string{"Scripts/Common.psm1", "Scripts/Start-Profile.ps1", "Scripts/Get-AdapterStats.ps1", "Scripts/Find-VpnAdapter.ps1", "Scripts/Get-EndpointRoute.ps1", "Scripts/Get-DnsExposure.ps1", "Profiles/profiles.json"} {
 		source := "runtime/" + name
 		data, err := embedded.ReadFile(source)
 		if err != nil {
@@ -385,10 +388,13 @@ func httpClient(timeout time.Duration) *http.Client {
 	return httpClientFamily(timeout, "tcp4")
 }
 
-func httpClientFamily(timeout time.Duration, network string) *http.Client {
+func httpClientFamily(timeout time.Duration, family string) *http.Client {
+	if family != "tcp4" && family != "tcp6" {
+		panic("network family must be tcp4 or tcp6")
+	}
 	dialer := &net.Dialer{Timeout: 6 * time.Second, KeepAlive: -1}
-	trans := &http.Transport{Proxy: nil, DisableKeepAlives: true, ForceAttemptHTTP2: false, MaxIdleConns: 0, TLSHandshakeTimeout: 6 * time.Second, ResponseHeaderTimeout: 8 * time.Second, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-		return dialer.DialContext(ctx, network, address)
+	trans := &http.Transport{Proxy: nil, DisableKeepAlives: true, ForceAttemptHTTP2: false, MaxIdleConns: 0, TLSHandshakeTimeout: 6 * time.Second, ResponseHeaderTimeout: 8 * time.Second, DialContext: func(ctx context.Context, _ string, address string) (net.Conn, error) {
+		return dialer.DialContext(ctx, family, address)
 	}}
 	return &http.Client{Transport: trans, Timeout: timeout, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) > 2 {
@@ -544,6 +550,20 @@ func (m *Manager) endpointRoute(ctx context.Context) *EndpointRoute {
 	return &r
 }
 
+func (m *Manager) dnsExposure(ctx context.Context) *DNSExposure {
+	queryCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+	text, err := m.powerShell(queryCtx, "Get-DnsExposure.ps1", "-VpnAdapterName", m.cfg.AdapterName)
+	if err != nil {
+		return nil
+	}
+	var summary DNSExposure
+	if json.Unmarshal([]byte(text), &summary) != nil || !summary.Checked {
+		return nil
+	}
+	return &summary
+}
+
 func (m *Manager) probe(ctx context.Context, baseline EgressResult) Probe {
 	return m.probeWithSizes(ctx, baseline, []int64{131072, 1048576})
 }
@@ -570,6 +590,8 @@ func (m *Manager) probeWithSizes(ctx context.Context, baseline EgressResult, siz
 	if err == nil {
 		p.AdapterBefore = before
 	}
+	p.DNSExposure = m.dnsExposure(ctx)
+	p.DNSExposureSuspected, p.DNSPrivacyNote = assessDNSExposure(p.DNSExposure)
 	p.Egress = m.egress(ctx)
 	connectedIPv6 := m.egressIPv6(ctx)
 	p.EgressIPv6 = &connectedIPv6
@@ -653,6 +675,9 @@ func (m *Manager) attempt(ctx context.Context, profile string, baseline EgressRe
 			if p.IPv6LeakSuspected {
 				m.println("ВНИМАНИЕ: исходный IPv6-выход остался прежним при работающем IPv4 VPN; возможен обход туннеля.")
 			}
+			if p.DNSExposureSuspected {
+				m.println("ВНИМАНИЕ: в Windows настроены DNS-маршруты вне VPN. Это риск, а не наблюдавшаяся утечка DNS.")
+			}
 		} else {
 			m.printf("Проба %d не подтверждена: %s\n", i+1, p.Reason)
 		}
@@ -705,7 +730,11 @@ func (m *Manager) monitor(ctx context.Context, baseline EgressResult) bool {
 		m.report.Monitoring = appendBoundedMonitoring(m.report.Monitoring, p)
 		if p.IPv6LeakSuspected {
 			m.report.Status = "DATA_PATH_OBSERVED_IPV6_LEAK_SUSPECTED"
-			m.println("ВНИМАНИЕ: возможна утечка IPv6 вне VPN; проверка DNS и других каналов не выполняется.")
+			m.println("ВНИМАНИЕ: возможна утечка IPv6 вне VPN.")
+		}
+		if p.DNSExposureSuspected {
+			m.report.Status = "DATA_PATH_OBSERVED_DNS_EXPOSURE_SUSPECTED"
+			m.println("ВНИМАНИЕ: DNS-серверы имеют маршруты вне VPN; это пассивная оценка, не доказанная утечка.")
 		}
 		m.persist()
 		if p.Success {
@@ -722,7 +751,7 @@ func (m *Manager) monitor(ctx context.Context, baseline EgressResult) bool {
 }
 
 func (m *Manager) run(ctx context.Context) error {
-	m.report = Report{Version: version, StartedUTC: utc(), Port: m.cfg.Port, Transport: m.cfg.Transport, Status: "NOT_ACCEPTED", Caveat: "IPv4 data-path only. Native VPN handshake, DNS leaks, IPv6 leaks, WebRTC, browser fingerprinting, anonymity, long-term filtering, and field acceptance are NOT verified."}
+	m.report = Report{Version: version, StartedUTC: utc(), Port: m.cfg.Port, Transport: m.cfg.Transport, Status: "NOT_ACCEPTED", Caveat: "IPv4 data-path only. IPv6 egress comparison and passive OS DNS-route inspection cannot prove DNS leak freedom, WebRTC or browser anonymity. Native VPN handshake, long-term filtering and field acceptance are NOT verified."}
 	if err := m.ensureRuntime(); err != nil {
 		return err
 	}
@@ -803,6 +832,9 @@ func (m *Manager) run(ctx context.Context) error {
 		m.report.Status = "DATA_PATH_OBSERVED_NOT_FIELD_ACCEPTED"
 		if anyIPv6LeakSuspected(trial.Attempts) {
 			m.report.Status = "DATA_PATH_OBSERVED_IPV6_LEAK_SUSPECTED"
+		}
+		if anyDNSExposureSuspected(trial.Attempts) {
+			m.report.Status = "DATA_PATH_OBSERVED_DNS_EXPOSURE_SUSPECTED"
 		}
 		m.persist()
 		if name != "NONE" {

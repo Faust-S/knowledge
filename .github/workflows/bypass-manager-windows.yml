@@ -35,6 +35,7 @@ jobs:
         shell: powershell
         run: |
           .\Tests\Verify-Windows.ps1
+          .\Tests\Test-DnsExposure.ps1
           $p=Start-Process -FilePath .\Bypass-Manager.exe -ArgumentList '--status' -PassThru -Wait
           if($p.ExitCode -ne 0) { throw "CLI status failed $($p.ExitCode)" }
       - name: Smoke-test native Win32 window lifecycle

@@ -50,6 +50,7 @@ const (
 	idStop             = 2003
 	idReport           = 2004
 	idPrepare          = 2005
+	idDNS              = 2006
 )
 
 type winClassEx struct {
@@ -137,18 +138,19 @@ var ipv4InLog = regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`)
 func cleanLog(s string) string { return ipv4InLog.ReplaceAllString(s, "[IP скрыт]") }
 
 type managerUI struct {
-	hwnd                                                             uintptr
-	home                                                             string
-	cfg                                                              Config
-	endpoint, port, adapter, engine, transport, preferred            uintptr
-	logs, status, startButton, stopButton, saveButton, prepareButton uintptr
-	mu                                                               sync.Mutex
-	queue                                                            []string
-	cancel                                                           context.CancelFunc
-	running                                                          bool
-	preparing                                                        bool
-	closing                                                          bool
-	stopError                                                        string
+	hwnd                                                                        uintptr
+	home                                                                        string
+	cfg                                                                         Config
+	endpoint, port, adapter, engine, transport, preferred                       uintptr
+	logs, status, startButton, stopButton, saveButton, prepareButton, dnsButton uintptr
+	mu                                                                          sync.Mutex
+	queue                                                                       []string
+	cancel                                                                      context.CancelFunc
+	running                                                                     bool
+	preparing                                                                   bool
+	inspectingDNS                                                               bool
+	closing                                                                     bool
+	stopError                                                                   string
 }
 
 var activeUI *managerUI // one window, one manager process, no resident daemon
@@ -200,6 +202,7 @@ func (ui *managerUI) toggleRun(r bool) {
 	procEnable.Call(ui.startButton, value)
 	procEnable.Call(ui.saveButton, value)
 	procEnable.Call(ui.prepareButton, value)
+	procEnable.Call(ui.dnsButton, value)
 	if r {
 		procEnable.Call(ui.stopButton, 1)
 	} else {
@@ -337,11 +340,58 @@ func (ui *managerUI) prepareEngine() {
 	}()
 }
 
+// Passive DNS diagnostics are intentionally separate from the DPI trial.
+// The action requires only an already-connected adapter name; it does not
+// prompt for or change VPN profiles, routes, DNS, firewall or proxy settings.
+func (ui *managerUI) inspectDNS() {
+	if ui.running {
+		return
+	}
+	adapter := strings.TrimSpace(winText(ui.adapter))
+	if adapter == "" {
+		winMessageBox(ui.hwnd, "Подключите VPN самостоятельно и укажите точное имя активного VPN-адаптера.", "Диагностика DNS", 0x30)
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	ui.cancel = cancel
+	ui.inspectingDNS = true
+	ui.toggleRun(true)
+	ui.setStatus("Пассивная проверка маршрутов DNS без изменения настроек...")
+	ui.write("Проверка DNS-маршрутов Windows. Реальные DNS-запросы не отправляются.\n")
+	go func() {
+		defer post(ui.hwnd, wmAppDone)
+		m := &Manager{cfg: Config{AdapterName: adapter}, home: ui.home,
+			runtimeRoot: filepath.Join(ui.home, "runtime"), output: uiWriter{ui}}
+		if err := m.ensureRuntime(); err != nil {
+			ui.write("Ошибка подготовки DNS-диагностики. Проверьте доступ к папке приложения.\n")
+			return
+		}
+		snapshot := m.dnsExposure(ctx)
+		risk, note := assessDNSExposure(snapshot)
+		if ctx.Err() != nil {
+			ui.write("Проверка DNS отменена.\n")
+			return
+		}
+		if snapshot == nil {
+			ui.write("DNS: маршрут проверить не удалось, статус приватности НЕИЗВЕСТЕН.\n")
+			return
+		}
+		ui.write("DNS: серверов VPN " + strconv.Itoa(snapshot.VPNDNSCount) + ", других " + strconv.Itoa(snapshot.OtherDNSCount) +
+			", маршрутов вне VPN " + strconv.Itoa(snapshot.OutsideVPNRoutes) + ", неизвестных " + strconv.Itoa(snapshot.UnknownRoutes) + ".\n")
+		if risk {
+			ui.write("ВНИМАНИЕ: возможен выход DNS вне VPN. Реальная утечка не подтверждена.\n")
+		}
+		ui.write("Итог: " + note + ". Браузерный DoH, WebRTC и фактические DNS-запросы не проверены.\n")
+	}()
+}
+
 func (ui *managerUI) stop() {
 	if ui.cancel != nil {
 		ui.cancel()
 	}
-	if ui.preparing {
+	if ui.inspectingDNS {
+		ui.setStatus("Отмена диагностики DNS...")
+	} else if ui.preparing {
 		ui.setStatus("Отмена подготовки движка...")
 	} else {
 		ui.setStatus("Завершение и остановка собственного winws2...")
@@ -401,7 +451,8 @@ func (ui *managerUI) initControls() {
 	ui.saveButton = ctrl(ui.hwnd, "BUTTON", "Сохранить", wsTabStop, idSave, 20, 255, 137, 37)
 	ui.startButton = ctrl(ui.hwnd, "BUTTON", "Автоподбор", wsTabStop, idStart, 168, 255, 161, 37)
 	ui.stopButton = ctrl(ui.hwnd, "BUTTON", "Остановить", wsTabStop, idStop, 339, 255, 145, 37)
-	ctrl(ui.hwnd, "BUTTON", "Открыть отчёт", wsTabStop, idReport, 497, 255, 160, 37)
+	ctrl(ui.hwnd, "BUTTON", "Открыть отчёт", wsTabStop, idReport, 497, 255, 158, 37)
+	ui.dnsButton = ctrl(ui.hwnd, "BUTTON", "Проверить DNS", wsTabStop, idDNS, 663, 255, 160, 37)
 	ui.status = ctrl(ui.hwnd, "STATIC", "Ожидание. Проверки не выполнены.", 0, 0, 20, 304, 800, 22)
 	ui.logs = ctrl(ui.hwnd, "EDIT", "Bypass Manager 0.3 Alpha\r\nПодключение VPN проверяется по внешнему IP, скачанным данным и счётчикам адаптера.\r\nНастройки хранятся только на компьютере.\r\n", wsBorder|wsVScroll|esMultiline|esAutoVScroll|esReadOnly, 110, 20, 338, 800, 280)
 	procEnable.Call(ui.stopButton, 0)
@@ -452,6 +503,10 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 			if !ui.running {
 				ui.prepareEngine()
 			}
+		case idDNS:
+			if !ui.running {
+				ui.inspectDNS()
+			}
 		case idReport:
 			file := filepath.Join(ui.home, "results", "latest-session.json")
 			if _, err := os.Stat(file); err != nil {
@@ -474,6 +529,7 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 		ui.flush()
 		ui.toggleRun(false)
 		ui.preparing = false
+		ui.inspectingDNS = false
 		ui.cancel = nil
 		ui.mu.Lock()
 		stopErr := ui.stopError

@@ -48,6 +48,7 @@ func redactEgress(in EgressResult) EgressResult {
 func redactProbe(in Probe) Probe {
 	in.EndpointRoute = nil
 	in.Reason = redactProbeReason(in.Reason)
+	in.DNSPrivacyNote = redactText(in.DNSPrivacyNote)
 	in.Egress = redactEgress(in.Egress)
 	if in.EgressIPv6 != nil {
 		ipv6 := redactEgress(*in.EgressIPv6)
@@ -58,7 +59,9 @@ func redactProbe(in Probe) Probe {
 	downloads := make([]DownloadResult, len(in.Downloads))
 	copy(downloads, in.Downloads)
 	for i := range downloads {
-		downloads[i].Error = redactText(downloads[i].Error)
+		if downloads[i].Error != "" {
+			downloads[i].Error = "NETWORK_ERROR_REDACTED"
+		}
 	}
 	in.Downloads = downloads
 	return in

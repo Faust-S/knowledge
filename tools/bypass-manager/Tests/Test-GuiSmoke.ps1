@@ -30,7 +30,9 @@ for($round=1;$round -le 3;$round++) {
     $handle=[IntPtr]$proc.MainWindowHandle
     $prepare=[BypassGuiSmokeNative]::FindWindowEx($handle,[IntPtr]::Zero,'Button','Подготовить движок')
     if($prepare -eq [IntPtr]::Zero) { throw "Offline preparation button missing on iteration $round" }
-    Write-Host "PASS GUI $round/3: window and engine preparation control found; PID=$($proc.Id)"
+    $dns=[BypassGuiSmokeNative]::FindWindowEx($handle,[IntPtr]::Zero,'Button','Проверить DNS')
+    if($dns -eq [IntPtr]::Zero) { throw "Passive DNS diagnostics button missing on iteration $round" }
+    Write-Host "PASS GUI $round/3: window, engine preparation and passive DNS buttons found; PID=$($proc.Id)"
     if(-not $proc.CloseMainWindow()) {throw "GUI refused WM_CLOSE on iteration $round"}
     if(-not $proc.WaitForExit(6000)) {throw "GUI did not close after WM_CLOSE on iteration $round"}
     if($proc.ExitCode -ne 0) {throw "GUI returned $($proc.ExitCode) on iteration $round"}
