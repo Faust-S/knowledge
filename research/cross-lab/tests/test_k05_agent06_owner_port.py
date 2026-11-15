@@ -468,6 +468,7 @@ class K05OwnerAdapterTests(unittest.TestCase):
                     "approval_id": self.receipt["approval_ref"]["ref_id"],
                     "approval_digest": self.receipt["approval_ref"]["digest_sha256"],
                     "revoked_after_execution": True,
+                    "rejected_after_execution": False,
                     "historically_valid": True,
                     "current_execution_authority": False,
                     "provider_invoked": False,
@@ -481,6 +482,7 @@ class K05OwnerAdapterTests(unittest.TestCase):
         self.assertEqual(proof["status"], "OWNER_HISTORICAL_APPROVALS_VERIFIED")
         self.assertEqual(proof["owner_verified_receipts"], 1)
         self.assertEqual(proof["revoked_after_execution_count"], 1)
+        self.assertEqual(proof["rejected_after_execution_count"], 0)
         self.assertFalse(proof["historical_approval_current_authority"])
         self.assertIn("historical_approval", tool.calls)
         rendered = json.dumps(row)
@@ -501,6 +503,7 @@ class K05OwnerAdapterTests(unittest.TestCase):
                     "approval_id": self.receipt["approval_ref"]["ref_id"],
                     "approval_digest": self.receipt["approval_ref"]["digest_sha256"],
                     "revoked_after_execution": False,
+                    "rejected_after_execution": False,
                     "historically_valid": True,
                     "current_execution_authority": False,
                     "provider_invoked": False,
@@ -519,6 +522,7 @@ class K05OwnerAdapterTests(unittest.TestCase):
             {"read_only": False},
             {"status": "NO_APPROVAL"},
             {"revoked_after_execution": None},
+            {"rejected_after_execution": None},
         ):
             with self.subTest(change=change):
                 tool = ForgedOwner()
@@ -529,6 +533,66 @@ class K05OwnerAdapterTests(unittest.TestCase):
                     read_agent_task_execution_history(
                         task_cell=FakeTaskCell(), task_id="TASK-K05",
                         tool_runtime=tool, require_historical_approval=True)
+
+
+
+    def test_owner_historical_decision_change_mid_read_holds(self):
+        class ChangingDecisions(FakeToolRuntime):
+            checks = 0
+            def read_historical_execution_approval(self, receipt_id):
+                self.checks += 1
+                return {
+                    "contract": "PA.K05.HISTORICAL_EXECUTION_APPROVAL/0.1.0",
+                    "status": "HISTORICAL_APPROVAL_BOUND",
+                    "receipt_id": receipt_id,
+                    "receipt_digest": self.receipt["receipt_digest"],
+                    "plan_id": self.plan["plan_id"],
+                    "plan_digest": self.plan["plan_digest"],
+                    "approval_id": self.receipt["approval_ref"]["ref_id"],
+                    "approval_digest": self.receipt["approval_ref"]["digest_sha256"],
+                    "revoked_after_execution": False,
+                    "rejected_after_execution": self.checks > 1,
+                    "historically_valid": True,
+                    "current_execution_authority": False,
+                    "provider_invoked": False,
+                    "read_only": True,
+                }
+        with self.assertRaisesRegex(
+            K05EffectivenessHold,
+            "HISTORICAL_APPROVAL_CHANGED_DURING_READBACK",
+        ):
+            read_agent_task_execution_history(
+                task_cell=FakeTaskCell(), task_id="TASK-K05",
+                tool_runtime=ChangingDecisions(),
+                require_historical_approval=True,
+            )
+
+    def test_late_rejection_is_reported_without_new_permission(self):
+        class HistoricallyRejectedLater(FakeToolRuntime):
+            def read_historical_execution_approval(self, receipt_id):
+                return {
+                    "contract": "PA.K05.HISTORICAL_EXECUTION_APPROVAL/0.1.0",
+                    "status": "HISTORICAL_APPROVAL_BOUND",
+                    "receipt_id": receipt_id,
+                    "receipt_digest": self.receipt["receipt_digest"],
+                    "plan_id": self.plan["plan_id"],
+                    "plan_digest": self.plan["plan_digest"],
+                    "approval_id": self.receipt["approval_ref"]["ref_id"],
+                    "approval_digest": self.receipt["approval_ref"]["digest_sha256"],
+                    "revoked_after_execution": False,
+                    "rejected_after_execution": True,
+                    "historically_valid": True,
+                    "current_execution_authority": False,
+                    "provider_invoked": False,
+                    "read_only": True,
+                }
+        row = read_agent_task_execution_history(
+            task_cell=FakeTaskCell(), task_id="TASK-K05",
+            tool_runtime=HistoricallyRejectedLater(),
+            require_historical_approval=True,
+        )
+        self.assertEqual(row["historical_approvals"]["rejected_after_execution_count"], 1)
+        self.assertFalse(row["historical_approvals"]["historical_approval_current_authority"])
 
 
 if __name__ == "__main__":

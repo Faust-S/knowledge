@@ -319,6 +319,7 @@ def _historical_execution_approvals(tool_runtime, receipts: list,
         }
     verified = 0
     revoked_later = 0
+    rejected_later = 0
     for receipt in receipts:
         original = owner(receipt["receipt_id"])
         pref = receipt["plan_ref"]
@@ -336,15 +337,18 @@ def _historical_execution_approvals(tool_runtime, receipts: list,
               original.get("current_execution_authority") is False and
               original.get("provider_invoked") is False and
               original.get("read_only") is True and
-              type(original.get("revoked_after_execution")) is bool,
+              type(original.get("revoked_after_execution")) is bool and
+              type(original.get("rejected_after_execution")) is bool,
               "HISTORICAL_APPROVAL_OWNER_PROOF_MISMATCH")
         verified += 1
         revoked_later += int(original["revoked_after_execution"])
+        rejected_later += int(original["rejected_after_execution"])
     return {
         "status": ("OWNER_HISTORICAL_APPROVALS_VERIFIED" if receipts
                    else "NO_EXECUTION_RECEIPTS"),
         "owner_verified_receipts": verified,
         "revoked_after_execution_count": revoked_later,
+        "rejected_after_execution_count": rejected_later,
         "historical_approval_current_authority": False,
         "no_provider_reinvocation": True,
     }
@@ -463,6 +467,12 @@ def read_agent_task_execution_history(*, task_cell, task_id: str,
           "TASK_EXECUTION_HISTORY_CHANGED_DURING_READBACK")
     final_states = tool_runtime.execution_states_for_plans(later[0])
     _need(final_states == states, "TASK_EXECUTION_INTENT_STATE_CHANGED")
+    # Historical decisions and revocations may change independently of TXR
+    # history. Recheck the original owner projection before returning.
+    confirmed_again = _historical_execution_approvals(
+        tool_runtime, later[1], require_owner=require_historical_approval)
+    _need(confirmed_again == historical_approval,
+          "HISTORICAL_APPROVAL_CHANGED_DURING_READBACK")
     stable = read_agent_accepted_task(task_cell, task_id)
     _need(all(stable[key] == accepted[key] for key in (
         "task_sha256", "result_record_sha256", "review_record_sha256",
