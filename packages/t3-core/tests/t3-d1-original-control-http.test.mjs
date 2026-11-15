@@ -612,7 +612,8 @@ test("D7 installed age verifies and previews original Kernel without returning d
   const nativeD7PortFor=async()=>({ageOwner:{
     currentRecipient:async()=>({recipientId:"recipient:installed",
       bindingEpoch:"epoch:installed:one",privateKey:"NEVER_TO_WEB"}),
-    open:async()=>{throw Error("SHOULD_NOT_FALLBACK_TO_RAW_OPEN");},
+    // A real installed native owner keeps the decrypted .iwxa behind its
+    // original Kernel; there is NO raw open() API in the public port.
     previewInOriginalKernel:async input=>{
       opened++;
       assert.equal(input.recipientId,"recipient:installed");
@@ -647,6 +648,10 @@ test("D7 installed age verifies and previews original Kernel without returning d
   try{
     const availability=await f.browser.nativeD7Request("available");
     assert.equal(availability.ageNativeImport,true);
+    assert.equal(availability.ageOpen,true,"native import available without raw open");
+    await assert.rejects(f.browser.nativeD7Request("age.open",{
+      ciphertext:cipher,recipientId:"recipient:installed",
+    }),{code:"T3_D7_NATIVE_PLAINTEXT_PRIVATE"});
     const result=await f.browser.nativeD7Request("age.previewImport",{ciphertext:cipher});
     assert.equal(result.status,"KERNEL_PREVIEW_READY");
     assert.equal(result.handle.preview_token,"tok:native:one");
