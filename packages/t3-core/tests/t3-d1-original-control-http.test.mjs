@@ -99,13 +99,19 @@ test("D3 original Control selects KernelFacade names while independent signed D1
 },async()=>{
   const token=randomBytes(32).toString("base64url");
   let epoch=901,applicationRevision=41,handler=null,reads=0,proofs=0;
+  let selectedEpoch=null,selectedRevision=null;
   const invalidators=new Set();
   const owner=({scope,operation})=>{
     // Exactly the installed Admin selector, NOT an incoming raw t1.* grant.
     if(scope!=="kernel"||
       !["getObject","listEventsSince","commitObjectGraph"].includes(operation))
       return null;
-    const captured=applicationRevision;
+    // Original installed D1 owner is pinned to its Control epoch across
+    // distinct HTTP requests, not silently re-created on every POST.
+    if(selectedEpoch!==epoch){
+      selectedEpoch=epoch;selectedRevision=applicationRevision;
+    }
+    const captured=selectedRevision;
     const current=()=> {
       if(captured!==applicationRevision)
         throw Object.assign(Error("T3_D3_SIGNED_KERNEL_OWNER_OR_CONTEXT_CHANGED"),
