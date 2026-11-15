@@ -53,24 +53,65 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
   const maxCiphertextBytes=maxArchiveBytes+AGE_ENVELOPE_ALLOWANCE;
   const signedReader=kernel&&typeof kernel.hasOperation==="function"&&
     typeof accessForRead==="function";
+  // The installed split-origin AppShell already owns a SIGNED original
+  // KernelFacade in its separate trusted realm. It cannot and must not
+  // expose the native D1 Access proof to the UI. Instead, the same pinned
+  // realm supplies its already-existing selectedWorkspaceContext and JIT
+  // Kernel.getWorkspace. This does not authorize unsigned T2 reads.
+  const isolatedReader=kernel&&typeof kernel.hasOperation==="function"&&
+    typeof kernel.getWorkspace==="function"&&
+    typeof ageOwner?.trustedSelectedWorkspace==="function";
   // A signed port does not itself grant t1.getWorkspace. On fresh native
   // installs or revoked/scoped sessions there may be no original T2 read
   // capability: do not advertise Export/age seal until it truly exists.
   // A native recipient may still OPEN and return bytes to an independently
   // authorized original Kernel importPreview.
-  const signedWorkspaceRead=Boolean(signedReader&&
+  const signedWorkspaceRead=Boolean((signedReader||isolatedReader)&&
     kernel.hasOperation("t1.getWorkspace"));
   const nativeRecipient=typeof ageOwner?.currentRecipient==="function";
   const canSeal=Boolean(signedWorkspaceRead&&
     typeof ageOwner?.prepareSeal==="function"&&
     typeof ageOwner?.seal==="function"&&typeof confirmRecipients==="function");
-  const canOpen=Boolean(nativeRecipient||signedWorkspaceRead);
+  const canOpen=Boolean(nativeRecipient||
+    (signedReader&&kernel.hasOperation("t1.getWorkspace")));
   ensure(ageOwner&&typeof ageOwner.open==="function"&&
     (nativeRecipient||signedReader)&&typeof isHostActive==="function",
     "T3_D7_TRUSTED_AGE_OWNER_REQUIRED");
   const live=()=>ensure(isHostActive()===true,"T3_HOST_DISPOSED");
   async function selectedWorkspace(workspace_id){
     live();
+    if(isolatedReader&&!signedReader){
+      // Every read is executed by the ORIGINAL signed Kernel facade over
+      // the pinned MessagePort, not by a new authorization proxy.
+      const selection=async()=>{
+        live();
+        const context=await ageOwner.trustedSelectedWorkspace();
+        live();
+        ensure(context&&["CORP","PERSONAL"].includes(context.kind)&&
+          id(context.workspace_id)&&context.resource===context.workspace_id&&
+          (context.kind!=="PERSONAL"||context.organization_id===null),
+          "T3_D7_SELECTED_WORKSPACE_MISMATCH");
+        return context;
+      };
+      const selected=await selection();
+      ensure(selected.workspace_id===workspace_id,
+        "T3_D7_SELECTED_WORKSPACE_MISMATCH");
+      const identity=JSON.stringify(selected);
+      const unchanged=async()=>{
+        ensure(identity===JSON.stringify(await selection()),
+          "T3_D7_SIGNED_CONTEXT_CHANGED");
+        live();
+      };
+      const read=async()=>{
+        await unchanged();
+        const workspace=await kernel.getWorkspace(workspace_id);
+        await unchanged();
+        ensure(workspace&&workspace.workspace_id===workspace_id&&
+          !workspace.deleted_at,"T3_D7_WORKSPACE_UNAVAILABLE");
+      };
+      await read();
+      return Object.freeze({unchanged,read});
+    }
     ensure(signedReader,"T3_D7_SIGNED_OWNER_REQUIRED");
     const access=await accessForRead("t1.getWorkspace");
     live();

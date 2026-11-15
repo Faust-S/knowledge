@@ -225,3 +225,52 @@ test("D7 native age enforces true archive ceiling before crypto or consent",asyn
   const upgraded=fixture(40*1024*1024);
   assert.equal(upgraded.port.maxArchiveBytes,40*1024*1024);
 });
+
+test("D7 installed signed isolated Kernel realm can seal for two recipients without exporting D1 Access to UI",async()=>{
+  const original=Uint8Array.of(80,75,3,4,1,2,3,4,5);
+  const cipher=Uint8Array.from([
+    ...new TextEncoder().encode("age-encryption.org/v1\n"),1,2,3]);
+  let selected="ws:one",reads=0,seals=0;
+  const kernel={
+    hasOperation:op=>op==="t1.getWorkspace",
+    async getWorkspace(id){
+      reads++;
+      if(id!==selected)throw Error("ORIGINAL_SIGNED_KERNEL_DENIED");
+      return {workspace_id:id,deleted_at:null};
+    },
+  };
+  const ageOwner={
+    currentRecipient:async()=>({recipientId:"recipient:installed",
+      bindingEpoch:"native:one"}),
+    trustedSelectedWorkspace:async()=>({
+      kind:"PERSONAL",organization_id:null,
+      workspace_id:selected,resource:selected,
+    }),
+    prepareSeal:async()=>({format:"age-encryption.org/v1",status:"READY",
+      recipientIds:["recipient:installed","recipient:independent"]}),
+    seal:async({archiveSha256,recipientIds})=>{
+      seals++;return {format:"age-encryption.org/v1",
+        archiveSha256,recipientIds,ciphertext:cipher};},
+    open:async()=>null,
+  };
+  const port=createTrustedAgeExchange({kernel,ageOwner,
+    confirmRecipients:async()=>true,isHostActive:()=>true});
+  assert.equal(port.canSeal,true);
+  assert.equal(port.canOpen,true);
+  const sealed=await port.seal({workspace_id:"ws:one",archiveBytes:original});
+  assert.equal(sealed.status,"AGE_PROTECTED_DOWNLOAD_READY");
+  assert.equal(seals,1);
+  assert.ok(reads>=3,"every original signed Kernel read must be checked");
+  selected="ws:other";
+  await assert.rejects(port.seal({workspace_id:"ws:one",archiveBytes:original}),
+    {code:"T3_D7_SELECTED_WORKSPACE_MISMATCH"});
+  assert.equal(seals,1);
+  const noSignedData=createTrustedAgeExchange({
+    kernel:{...kernel,hasOperation:()=>false},
+    ageOwner,confirmRecipients:async()=>true,isHostActive:()=>true,
+  });
+  assert.equal(noSignedData.canSeal,false);
+  await assert.rejects(noSignedData.seal({
+    workspace_id:"ws:other",archiveBytes:original,
+  }),{code:"T3_D7_SIGNED_EXPORT_OWNER_REQUIRED"});
+});

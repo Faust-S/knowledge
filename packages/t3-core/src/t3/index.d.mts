@@ -190,6 +190,17 @@ export interface T3OriginalAgeOwner {
   /** Actual size supported by installed native age, not browser Exchange.
    * Defaults to historical 32 MiB when absent; higher requires native proof. */
   readonly maxArchiveBytes?:number;
+  /** The existing pinned split-origin signed Kernel realm returns its own
+   * selected Workspace identity. The UI never supplies a subject or signer;
+   * kernel.getWorkspace itself still executes ORIGINAL D1 JIT on every read.
+   * This optional callback is compiled into the trusted installed AppShell. */
+  trustedSelectedWorkspace?():{
+    kind:"CORP"|"PERSONAL";workspace_id:string;resource:string;
+    organization_id?:string|null;
+  }|Promise<{
+    kind:"CORP"|"PERSONAL";workspace_id:string;resource:string;
+    organization_id?:string|null;
+  }|null>|null;
   /** Original installed identity from key custody, never a .iwxa or UI field.
    * bindingEpoch must change when the user/recipient/key authority changes. */
   currentRecipient?():{recipientId:string;bindingEpoch:string}|

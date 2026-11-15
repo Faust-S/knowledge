@@ -135,6 +135,9 @@ async function launch(){
     const ageOwner=nativeD7?.ageOpen===true?Object.freeze({
       maxArchiveBytes:nativeD7.maxArchiveBytes??32*1024*1024,
       currentRecipient:()=>requestD7("age.currentRecipient"),
+      // Existing signed Control-selected source; no raw Kernel/issuer in UI.
+      trustedSelectedWorkspace:()=>client.invoke(
+        "selectedWorkspaceContext","getWorkspace"),
       open:(input:unknown)=>requestD7("age.open",input),
       ...(nativeD7.ageSeal===true?{
         prepareSeal:(input:unknown)=>requestD7("age.prepareSeal",input),
