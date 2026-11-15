@@ -222,11 +222,29 @@ export function createTrustedReconciliationKernelApply({
     const signedKernel=createSubjectKernelBinding({
       kernel,access,isHostActive,
     });
-    const first=await signedKernel.getObject(c.workspace_id,objInput.object_id);
+    // The inherited T2 Kernel reports an absent Object/Workspace through
+    // OBJECT_NOT_FOUND / WORKSPACE_NOT_FOUND. After a lost write ACK this is
+    // an unconfirmed outcome, not a transport failure and not proof of a
+    // safe retry. Denied access, revoked credentials and any other Kernel
+    // error MUST still propagate unchanged.
+    const missingOriginal=async()=>{
+      try{return await signedKernel.getObject(c.workspace_id,objInput.object_id);}
+      catch(error){
+        if(error?.code==="OBJECT_NOT_FOUND"||
+           error?.code==="WORKSPACE_NOT_FOUND")return null;
+        throw error;
+      }
+    };
+    const unknown=()=>Object.freeze({
+      status:"OUTCOME_UNKNOWN",effectKey:binding.effectKey,
+      kernelWriteReadback:"NOT_CONFIRMED",automaticRetryAllowed:false,
+    });
+    const first=await missingOriginal();
     await unchanged(c);
+    if(first===null)return unknown();
     const events=await signedKernel.listEventsSince(c.workspace_id);
     await unchanged(c);
-    const second=await signedKernel.getObject(c.workspace_id,objInput.object_id);
+    const second=await missingOriginal();
     await unchanged(c);
     const expectedRevision=objInput.base_revision+1;
     const matchObject=value=>value?.object?.workspace_id===c.workspace_id&&
@@ -248,13 +266,8 @@ export function createTrustedReconciliationKernelApply({
         JSON.stringify([...provenance.reconciliation_revision_ids].sort())===
           JSON.stringify([...revisionIds].sort());
     }):[];
-    if(!matchObject(first)||!matchObject(second)||matching.length!==1){
-      return Object.freeze({
-        status:"OUTCOME_UNKNOWN",effectKey:binding.effectKey,
-        kernelWriteReadback:"NOT_CONFIRMED",
-        automaticRetryAllowed:false,
-      });
-    }
+    if(!matchObject(first)||!matchObject(second)||matching.length!==1)
+      return unknown();
     return Object.freeze({
       status:"ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED",
       effectKey:binding.effectKey,

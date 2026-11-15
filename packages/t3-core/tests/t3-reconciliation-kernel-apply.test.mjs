@@ -34,6 +34,7 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   };
   let written=null,lastEvent=null,loseAckAfterWrite=false;
   let tamperInitialEvent=false,hideOriginalEvent=false,duplicateEvent=false;
+  let getObjectErrorCode=null;
   const hash=value=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
   const access={
     currentContext:()=>context,
@@ -80,10 +81,14 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
             revision:1,schema_id:"iwxa.result.native"},
           relations_put:[],event:confirmedEvent};
       },
-      getObject:async()=>written?{object:{
-        workspace_id:"ws:a",object_id:"result:one",revision:1,
-        schema_id:"iwxa.result.native",schema_version:"1.0.0",
-        data:{text:"reviewed"}},relations:{incoming:[],outgoing:[]}}:null,
+      getObject:async()=>{
+        if(getObjectErrorCode)throw Object.assign(Error(getObjectErrorCode),
+          {code:getObjectErrorCode});
+        return written?{object:{
+          workspace_id:"ws:a",object_id:"result:one",revision:1,
+          schema_id:"iwxa.result.native",schema_version:"1.0.0",
+          data:{text:"reviewed"}},relations:{incoming:[],outgoing:[]}}:null;
+      },
       listEventsSince:async()=>!lastEvent||hideOriginalEvent?[]:
         duplicateEvent?[structuredClone(lastEvent),structuredClone(lastEvent)]:
         [structuredClone(lastEvent)],
@@ -114,6 +119,21 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   const notYetApplied=await port.recoverApplied(selection);
   assert.equal(notYetApplied.status,"OUTCOME_UNKNOWN");
   assert.equal(notYetApplied.automaticRetryAllowed,false);
+  // Real T2 returns a typed NOT_FOUND error when the first original read
+  // sees no persisted Object after a lost reply, rather than a null result.
+  for(const code of ["OBJECT_NOT_FOUND","WORKSPACE_NOT_FOUND"]){
+    getObjectErrorCode=code;
+    const missing=await port.recoverApplied(selection);
+    assert.equal(missing.status,"OUTCOME_UNKNOWN");
+    assert.equal(missing.kernelWriteReadback,"NOT_CONFIRMED");
+    assert.equal(missing.automaticRetryAllowed,false);
+    assert.equal(commits,0,"read-only recovery cannot write missing graph");
+  }
+  getObjectErrorCode="PERMISSION_DENIED";
+  await assert.rejects(port.recoverApplied(selection),
+    {code:"PERMISSION_DENIED"},
+    "a revoked or denied original owner must NOT become a false readback");
+  getObjectErrorCode=null;
   approves=true;
   const result=await port.applyAccepted(selection);
   assert.equal(result.kernelWriteReadback,"CONFIRMED");
