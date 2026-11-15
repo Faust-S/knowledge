@@ -434,5 +434,102 @@ class K05OwnerAdapterTests(unittest.TestCase):
                 tool_runtime=RacingIntents())
 
 
+
+    def test_old_agent_without_approval_readback_reports_unknown_not_authorized(self):
+        row = read_agent_task_execution_history(
+            task_cell=FakeTaskCell(), task_id="TASK-K05",
+            tool_runtime=FakeToolRuntime())
+        self.assertEqual(
+            row["historical_approvals"]["status"],
+            "NOT_VERIFIED_OWNER_PORT_UNAVAILABLE")
+        self.assertEqual(row["historical_approvals"]["owner_verified_receipts"], 0)
+        self.assertFalse(
+            row["historical_approvals"]["historical_approval_current_authority"])
+
+    def test_strict_approval_verification_fails_on_old_owner(self):
+        with self.assertRaisesRegex(
+            K05EffectivenessHold, "HISTORICAL_APPROVAL_OWNER_PORT_REQUIRED"):
+            read_agent_task_execution_history(
+                task_cell=FakeTaskCell(), task_id="TASK-K05",
+                tool_runtime=FakeToolRuntime(),
+                require_historical_approval=True)
+
+    def test_new_owner_historical_approval_confirmed_without_provider(self):
+        class HistoricalOwner(FakeToolRuntime):
+            def read_historical_execution_approval(self, receipt_id):
+                self.calls.append("historical_approval")
+                return {
+                    "contract": "PA.K05.HISTORICAL_EXECUTION_APPROVAL/0.1.0",
+                    "status": "HISTORICAL_APPROVAL_BOUND",
+                    "receipt_id": receipt_id,
+                    "receipt_digest": self.receipt["receipt_digest"],
+                    "plan_id": self.plan["plan_id"],
+                    "plan_digest": self.plan["plan_digest"],
+                    "approval_id": self.receipt["approval_ref"]["ref_id"],
+                    "approval_digest": self.receipt["approval_ref"]["digest_sha256"],
+                    "revoked_after_execution": True,
+                    "historically_valid": True,
+                    "current_execution_authority": False,
+                    "provider_invoked": False,
+                    "read_only": True,
+                }
+        tool = HistoricalOwner()
+        row = read_agent_task_execution_history(
+            task_cell=FakeTaskCell(), task_id="TASK-K05",
+            tool_runtime=tool, require_historical_approval=True)
+        proof = row["historical_approvals"]
+        self.assertEqual(proof["status"], "OWNER_HISTORICAL_APPROVALS_VERIFIED")
+        self.assertEqual(proof["owner_verified_receipts"], 1)
+        self.assertEqual(proof["revoked_after_execution_count"], 1)
+        self.assertFalse(proof["historical_approval_current_authority"])
+        self.assertIn("historical_approval", tool.calls)
+        rendered = json.dumps(row)
+        self.assertNotIn("TEAPR-k05", rendered)
+        self.assertNotIn("TPLAN-k05", rendered)
+
+    def test_forged_or_authorizing_historical_proof_is_rejected(self):
+        class ForgedOwner(FakeToolRuntime):
+            change = None
+            def read_historical_execution_approval(self, receipt_id):
+                row = {
+                    "contract": "PA.K05.HISTORICAL_EXECUTION_APPROVAL/0.1.0",
+                    "status": "HISTORICAL_APPROVAL_BOUND",
+                    "receipt_id": receipt_id,
+                    "receipt_digest": self.receipt["receipt_digest"],
+                    "plan_id": self.plan["plan_id"],
+                    "plan_digest": self.plan["plan_digest"],
+                    "approval_id": self.receipt["approval_ref"]["ref_id"],
+                    "approval_digest": self.receipt["approval_ref"]["digest_sha256"],
+                    "revoked_after_execution": False,
+                    "historically_valid": True,
+                    "current_execution_authority": False,
+                    "provider_invoked": False,
+                    "read_only": True,
+                }
+                row.update(self.change)
+                return row
+        for change in (
+            {"receipt_digest": "f"*64},
+            {"approval_digest": "f"*64},
+            {"plan_digest": "f"*64},
+            {"approval_id": "TEAPR-another"},
+            {"historically_valid": False},
+            {"current_execution_authority": True},
+            {"provider_invoked": True},
+            {"read_only": False},
+            {"status": "NO_APPROVAL"},
+            {"revoked_after_execution": None},
+        ):
+            with self.subTest(change=change):
+                tool = ForgedOwner()
+                tool.change = change
+                with self.assertRaisesRegex(
+                    K05EffectivenessHold,
+                    "HISTORICAL_APPROVAL_OWNER_PROOF_MISMATCH"):
+                    read_agent_task_execution_history(
+                        task_cell=FakeTaskCell(), task_id="TASK-K05",
+                        tool_runtime=tool, require_historical_approval=True)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -50,3 +50,40 @@ view = read_agent_task_execution_history(
 Проверки: V1 receipt принимается, legacy 0.12 receipt отклоняется; forged plan_ref/plan_digest, неподходящий contract_state, отсутствующий approval_ref — HOLD; полная история без ручных IDs; сохраняемый intent с UNKNOWN и отсутствующим receipt; посторонний план, дубликаты и изменение history между чтениями — HOLD. Нет разрешения на повторный вызов provider или сбор личных фактов.
 
 Следующее действие после source-contract PASS: провести owner-local установленный тест Agent 0.6 Task→Review→Result→TXR→cold restart→\`task_execution_history\`, затем разрешённое фактическое сравнение двух Task. Не включать пустые или частично известные квитанции в ROI.
+
+
+## Историческое человеческое разрешение на каждую ToolExecution TXR
+
+Дополнение 15.11.2026, отдельная приватная интеграционная ветка Agent:
+\`Faust-S/iwxa-personal-agent@work/2026-11-15-agent06-k05-owner-readback\`.
+
+Исходная \`ToolRuntime.read_execution_receipt\` проверяет схему и digest записи, но
+**не перечитывает по её \`approval_ref\` оригинальное решение человека**. Нельзя
+принимать любой видимый \`SUCCEEDED\` как подтверждённое авторизованное действие.
+При этом прямой вызов \`ApprovalCell.validate\` для старого действия неверен:
+после выполнения approval мог законно истечь или быть отозван.
+
+В исходный ToolRuntime Agent (ТОЛЬКО независимая рабочая ветка, без общего
+Agent 0.6 и приватных Actions) добавлен read-only метод
+\`read_historical_execution_approval(receipt_id)\`. Он использует существующие
+\`read_execution_receipt\`, \`read_execution_plan\`, \`ApprovalCell._load\`,
+\`ApprovalCell._revocation_for\` и оригинальную \`cells.approval._scope_digest\`;
+сверяет Plan/Approval/Receipt, время старта относительно срока утверждения и
+плана, и дату отзыва полномочия. Никогда не вызывает provider и не выдаёт
+новое разрешение. Поздний отзыв не отменяет исторический факт разрешения;
+отзыв до запуска или отклонение/подмена scope вызывают HOLD.
+
+Публичный K05 вызывает этот исходный порт, только если он доступен:
+\`read_agent_task_execution_history(..., require_historical_approval=True)\`.
+Для старого Agent без нового порта — строгий отказ
+\`HISTORICAL_APPROVAL_OWNER_PORT_REQUIRED\`. В совместимом нестрогом режиме
+возвращается \`NOT_VERIFIED_OWNER_PORT_UNAVAILABLE\`, а не вымышленное
+подтверждение. При наличии порта K05 проверяет совпадение digest/ID исходных
+Plan/Receipt/Approval и отсутствие новых полномочий; наружу выдаёт только
+статус и счётчики, без сырых записей и персональных данных.
+
+**Статус испытаний**: публичные моковые тесты K05 выполняются в открытом
+CI. Исходный приватный Agent с реальным \`ApprovalCell\` снабжён адресными
+pytest-тестами на отдельной ветке, но приватные Actions запрещены; их запуск
+в установленном Windows Agent и cold restart остаётся \`NOT_TESTED\`.
+Ни один public mock PASS не означает подтверждённую пользу реального Agent.

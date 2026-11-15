@@ -295,6 +295,61 @@ def read_agent_execution_receipts(*, task_cell, task_id: str,
     }
 
 
+
+APPROVAL_CONTRACT = "PA.K05.HISTORICAL_EXECUTION_APPROVAL/0.1.0"
+
+
+def _historical_execution_approvals(tool_runtime, receipts: list,
+                                    *, require_owner: bool) -> dict:
+    """Original Agent owner extension, not a new K05 approval system.
+
+    The installed ToolRuntime must re-read immutable ApprovalCell records and
+    compare scope, plan, revocation timing, and receipt's execution start.
+    An absent owner extension stays UNKNOWN. No current execution authority
+    is ever inferred from historical approval validity.
+    """
+    owner = getattr(tool_runtime, "read_historical_execution_approval", None)
+    if owner is None or not callable(owner):
+        _need(not require_owner, "HISTORICAL_APPROVAL_OWNER_PORT_REQUIRED")
+        return {
+            "status": "NOT_VERIFIED_OWNER_PORT_UNAVAILABLE",
+            "owner_verified_receipts": 0,
+            "historical_approval_current_authority": False,
+            "no_provider_reinvocation": True,
+        }
+    verified = 0
+    revoked_later = 0
+    for receipt in receipts:
+        original = owner(receipt["receipt_id"])
+        pref = receipt["plan_ref"]
+        aref = receipt["approval_ref"]
+        _need(type(original) is dict and
+              original.get("contract") == APPROVAL_CONTRACT and
+              original.get("status") == "HISTORICAL_APPROVAL_BOUND" and
+              original.get("receipt_id") == receipt["receipt_id"] and
+              original.get("receipt_digest") == receipt["receipt_digest"] and
+              original.get("plan_id") == pref["ref_id"] and
+              original.get("plan_digest") == pref["digest_sha256"] and
+              original.get("approval_id") == aref["ref_id"] and
+              original.get("approval_digest") == aref["digest_sha256"] and
+              original.get("historically_valid") is True and
+              original.get("current_execution_authority") is False and
+              original.get("provider_invoked") is False and
+              original.get("read_only") is True and
+              type(original.get("revoked_after_execution")) is bool,
+              "HISTORICAL_APPROVAL_OWNER_PROOF_MISMATCH")
+        verified += 1
+        revoked_later += int(original["revoked_after_execution"])
+    return {
+        "status": ("OWNER_HISTORICAL_APPROVALS_VERIFIED" if receipts
+                   else "NO_EXECUTION_RECEIPTS"),
+        "owner_verified_receipts": verified,
+        "revoked_after_execution_count": revoked_later,
+        "historical_approval_current_authority": False,
+        "no_provider_reinvocation": True,
+    }
+
+
 HISTORY_CONTRACT = "IWXA_K05_AGENT06_TASK_TOOL_EXECUTION_HISTORY/0.1"
 
 
@@ -318,7 +373,8 @@ def _history_identity(plans: list, receipts: list) -> tuple[tuple, tuple]:
 
 
 def read_agent_task_execution_history(*, task_cell, task_id: str,
-                                      tool_runtime) -> dict:
+                                      tool_runtime,
+                                      require_historical_approval: bool = False) -> dict:
     """Use original Agent ToolRuntime.task_execution_history (no manual TXR IDs).
 
     Original history owner searches the whole Task history rather than a
@@ -326,6 +382,8 @@ def read_agent_task_execution_history(*, task_cell, task_id: str,
     durable orphan intents/outcome uncertainty where no TXR was returned.
     K05 performs two readbacks and holds on change, without writing anything.
     """
+    _need(type(require_historical_approval) is bool,
+          "HISTORICAL_APPROVAL_FLAG_INVALID")
     accepted = read_agent_accepted_task(task_cell, task_id)
     _need(all(callable(getattr(tool_runtime, method, None)) for method in (
         "task_execution_history", "execution_states_for_plans",
@@ -368,6 +426,8 @@ def read_agent_task_execution_history(*, task_cell, task_id: str,
         task_cell=task_cell, task_id=task_id,
         tool_runtime=tool_runtime,
         receipt_ids=[r["receipt_id"] for r in receipts])
+    historical_approval = _historical_execution_approvals(
+        tool_runtime, receipts, require_owner=require_historical_approval)
     states = tool_runtime.execution_states_for_plans(plans)
     _need(type(states) is dict and set(states) == plan_ids,
           "TASK_HISTORY_STATES_MISSING")
@@ -413,6 +473,7 @@ def read_agent_task_execution_history(*, task_cell, task_id: str,
         "status": "OWNER_HISTORY_STABLE_READBACK_NOT_COLD_VERIFIED",
         "plan_count": len(plans),
         "execution_receipts": receipt_projection,
+        "historical_approvals": historical_approval,
         "plan_states": {k.lower(): v for k, v in counts.items()},
         "uncertain_execution_plan_count": counts["OUTCOME_UNKNOWN"],
         "receipt_list_completeness": "FULL_OWNER_TASK_HISTORY_SNAPSHOT",
