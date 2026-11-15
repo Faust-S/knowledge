@@ -7,7 +7,11 @@ export function strictJson(text,{maxLength=32*1024*1024}={}){
   // ceiling. Only an explicitly bounded original Control carrier may pass
   // its larger base64url envelope limit; duplicate-key validation is unchanged.
   if(!Number.isSafeInteger(maxLength)||maxLength<1||
-     maxLength>Math.ceil(32*1024*1024/3)*4+16*1024)
+     // The installed age owner accepts a 33 MiB encrypted carrier. Its
+     // base64url JSON envelope is larger than the 32 MiB plaintext D3 limit;
+     // keep the caller-specific bound explicit rather than silently capping
+     // valid native .iwxa.age imports at the 32 MiB JSON default.
+     maxLength>Math.ceil(33*1024*1024/3)*4+16*1024)
     throw new Error('JSON_SIZE_LIMIT_INVALID');
   if(typeof text!=='string'||text.length>maxLength)
     throw new Error('JSON_SIZE_INVALID');

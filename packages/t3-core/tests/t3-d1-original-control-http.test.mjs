@@ -728,3 +728,41 @@ test("D7 installed age verifies and previews original Kernel without returning d
     assert.equal(opened,1);
   }finally{stop();await f.close();}
 });
+
+// The encrypted age carrier can be larger than the 32 MiB original ZIP.
+// Its base64url POST exceeds both the default strictJson 32 MiB and the
+// D3 plaintext carrier budget. Confirm that the ORIGINAL installed owner
+// actually receives it, not merely that HTTP accepts the content length.
+test("D7 installed native age preview accepts bounded >32 MiB encrypted carrier",async()=>{
+  const largeCipher=new Uint8Array(32*1024*1024+64*1024);
+  largeCipher.set(new TextEncoder().encode("age-encryption.org/v1\n"));
+  let previewCalls=0;
+  const nativeD7PortFor=async()=>({ageOwner:{
+    currentRecipient:async()=>({recipientId:"recipient:installed",
+      bindingEpoch:"epoch:installed:one"}),
+    previewInOriginalKernel:async({ciphertext,recipientId})=>{
+      previewCalls++;
+      assert.equal(recipientId,"recipient:installed");
+      assert.equal(ciphertext.length,largeCipher.length);
+      return {status:"KERNEL_PREVIEW_READY",recipientId,
+        archiveSha256:"a".repeat(64),
+        handle:{preview_token:"tok:large:one",package_digest:"digest:large",
+          semantic_digest:"sem:large",expires_at:"2099-01-01T00:00:00Z",
+          allowed_modes:["new-workspace"],preview:{workspaces:[],objects:[],
+            warnings:[]}},
+      };
+    },
+    commitInOriginalKernel:async()=>{throw Error("NEVER_COMMIT");},
+    cancelInOriginalKernel:async()=>true,
+  },authorizeAgeImportCommit:async()=>false});
+  const f=await fixture({nativeD7PortFor});
+  const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
+  try{
+    const result=await f.browser.nativeD7Request("age.previewImport",{
+      ciphertext:largeCipher,
+    });
+    assert.equal(result.status,"KERNEL_PREVIEW_READY");
+    assert.equal(result.handle.preview_token,"tok:large:one");
+    assert.equal(previewCalls,1);
+  }finally{stop();await f.close();}
+});
