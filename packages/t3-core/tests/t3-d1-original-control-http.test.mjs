@@ -94,6 +94,114 @@ test("existing Control HTTP protocol executes original Ed25519 PERSONAL proof an
     assert.equal(f.calls.length,1);
   }finally{stop();await f.close();}
 });
+test("D3 original Control selects KernelFacade names while independent signed D1 application JIT remains authoritative",{
+  timeout:12000,
+},async()=>{
+  const token=randomBytes(32).toString("base64url");
+  let epoch=901,applicationRevision=41,handler=null,reads=0,proofs=0;
+  const invalidators=new Set();
+  const owner=({scope,operation})=>{
+    // Exactly the installed Admin selector, NOT an incoming raw t1.* grant.
+    if(scope!=="kernel"||
+      !["getObject","listEventsSince","commitObjectGraph"].includes(operation))
+      return null;
+    const captured=applicationRevision;
+    const current=()=> {
+      if(captured!==applicationRevision)
+        throw Object.assign(Error("T3_D3_SIGNED_KERNEL_OWNER_OR_CONTEXT_CHANGED"),
+          {code:"T3_D3_SIGNED_KERNEL_OWNER_OR_CONTEXT_CHANGED"});
+      return {kind:"CORP",context_id:"admin-application:one",
+        actor_id:"person:reviewer",principal_id:"org:one",role_id:"role:reviewer",
+        grant_id:"grant:application",organization_id:"org:one",
+        workspace_id:"workspace:one",resource:"workspace:one",
+        realm_id:"realm:one",audience:"audience:one",
+        purpose:"application",scope_revision:captured};
+    };
+    let last=null;
+    return {
+      async currentContext(){reads++;return current();},
+      async actionFor(method){
+        current();
+        if(!["t1.commitObjectGraph","t1.getObject","t1.listEventsSince"]
+          .includes(method))
+          throw Object.assign(Error("T3_D3_KERNEL_OPERATION_NOT_GRANTED"),
+            {code:"T3_D3_KERNEL_OPERATION_NOT_GRANTED"});
+        return "application.apply";
+      },
+      async operationDigest({operation:method,input,context}){
+        current();
+        return createHash("sha256")
+          .update(JSON.stringify({method,input,context})).digest("hex");
+      },
+      async authorize(request){
+        current();proofs++;
+        last={request,decision:{allowed:true,action:"application.apply"}};
+        return last.decision;
+      },
+      verifyDecisionBinding(request,decision){
+        current();
+        return last?.request===request&&last?.decision===decision;
+      },
+    };
+  };
+  const server=createServer((req,res)=>{void handler(req,res);});
+  await new Promise((ok,bad)=>{
+    server.once("error",bad);server.listen(0,"127.0.0.1",ok);
+  });
+  const origin="http://127.0.0.1:"+server.address().port;
+  handler=createOriginalControlHttpHandler({
+    origin,token,currentEpoch:()=>epoch,
+    subscribeInvalidation:cb=>{
+      invalidators.add(cb);return ()=>invalidators.delete(cb);
+    },
+    ownerFor:owner,
+  });
+  const client=createControlLoopbackOwner({origin,token,
+    fetchImpl:(url,opts={})=>fetch(url,{
+      ...opts,headers:{...opts.headers,Origin:origin},
+    }),
+  });
+  const stop=client.subscribeSignedAccessInvalidation(()=>{});
+  try{
+    assert.equal(await client.signedKernelAccess("t1.getObject"),null,
+      "HTTP must not resolve raw t1.* as a KernelFacade selector");
+    assert.equal(await client.signedKernelAccess("putObject"),null,
+      "ACCEPT never implies generic Object write");
+    const read=await client.signedKernelAccess("getObject");
+    const commit=await client.signedKernelAccess("commitObjectGraph");
+    assert.ok(read&&commit);
+    const context=await read.currentContext();
+    assert.equal(context.grant_id,"grant:application");
+    assert.equal(context.scope_revision,41);
+    assert.notEqual(epoch,context.scope_revision,
+      "actual Host epoch and signed application scope remain independent");
+    assert.equal(await read.actionFor("t1.getObject"),"application.apply");
+    assert.equal(await commit.actionFor("t1.commitObjectGraph"),"application.apply");
+    await assert.rejects(read.actionFor("t1.putObject"),
+      {code:"T3_D3_KERNEL_OPERATION_NOT_GRANTED"});
+    const request={action:"application.apply",grantId:"grant:application",
+      resource:"workspace:one"};
+    const digest=await read.operationDigest({
+      operation:"t1.getObject",input:{workspace_id:"workspace:one"},context,
+    });
+    assert.match(digest,/^[a-f0-9]{64}$/);
+    const decision=await read.authorize(request);
+    assert.equal(read.verifyDecisionBinding(request,decision),true);
+    assert.equal(proofs,1);
+    assert.ok(reads>=1);
+    // A private signed Task changes its ORIGINAL scope while the Control
+    // transport epoch is unchanged. The old JIT owner must fail closed.
+    applicationRevision++;
+    await assert.rejects(read.currentContext(),
+      {code:"T3_D3_SIGNED_KERNEL_OWNER_OR_CONTEXT_CHANGED"});
+    // A separate Host invalidation revokes all previously selected ports.
+    epoch++;
+    for(const invalidate of invalidators)invalidate();
+    await assert.rejects(read.actionFor("t1.getObject"),
+      {code:"STALE_CONTEXT_OPERATION"});
+  }finally{stop();server.closeAllConnections();
+    await new Promise(ok=>server.close(ok));}
+});
 test("installed Host Control route denies missing token, forged Origin and stale epoch",async()=>{
   const f=await fixture();
   try{
