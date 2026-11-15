@@ -11,8 +11,18 @@ import {join,resolve,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {planOriginalT2ExternalProcessRegistration}
   from '../src/t3/external-process-passport-registration.node.mjs';
-import {EXTERNAL_PROCESS_LINK_SCHEMA,EXTERNAL_PROCESS_LINK_EVENT}
-  from '../src/t3/external-process-link.mjs';
+import {
+  EXTERNAL_PROCESS_LINK_SCHEMA,EXTERNAL_PROCESS_LINK_EVENT,
+  createTrustedExternalProcessLink,
+} from '../src/t3/external-process-link.mjs';
+import {createTemporaryOriginalPersonalAuthority}
+  from './support/t3-original-personal-authority.mjs';
+import {createSubjectKernelBinding}
+  from '../src/t3/subject-access-binding.mjs';
+import {readActivityFromT2Host}
+  from '../src/t3/activity/kernel-reader.mjs';
+import {createTrustedNativeContinuation}
+  from '../src/t3/native-result-continuation.mjs';
 
 const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const ARTIFACT='iwxa-kernel-k036-same-store-history-20261019-qualified.1';
@@ -20,6 +30,32 @@ const DIGEST='7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68';
 const ORIGINAL='iwxa.workspace.integration';
 const EXTERNAL='iwxa.agent06.external-process';
 const sha=x=>createHash('sha256').update(x).digest('hex');
+
+/** Test-only RPC to the ACTUAL browser T2 Kernel. Ed25519 D1 signing and
+ * source admission run in the Node Host; storage is only the original
+ * browser's single real IndexedDB Kernel/Store, never a mock or second Store.
+ * No credentials or owner state are passed to the renderer. */
+async function browserOriginalKernel(page){
+  const session=await page.evaluate(async serviceId=>{
+    globalThis.__t3ExternalKernel=await globalThis.IWXA.connect({service_id:serviceId});
+    return {contract_version:globalThis.__t3ExternalKernel.contract_version,
+      runtime_version:globalThis.__t3ExternalKernel.runtime_version,
+      granted_operations:globalThis.__t3ExternalKernel.granted_operations};
+  },EXTERNAL);
+  assert.equal(session.contract_version,'1.3.0');
+  assert.equal(session.runtime_version,'0.3.6');
+  const methods=['getWorkspace','getObject','putObject','listObjects','listEventsSince'];
+  const facade={
+    sessionInfo:Object.freeze({contract_version:session.contract_version,
+      runtime_version:session.runtime_version,service_id:EXTERNAL}),
+    hasOperation:operation=>session.granted_operations.includes(operation),
+  };
+  for(const method of methods){
+    facade[method]=(...args)=>page.evaluate(async({method,args})=>
+      globalThis.__t3ExternalKernel.t1[method](...args),{method,args});
+  }
+  return Object.freeze(facade);
+}
 
 test('original T2 service enforces narrow ERP-link schema, revision CAS and cold readback',async()=>{
   const qualified=process.env.IWXA_T2_QUALIFIED_KERNEL_DIST;
@@ -138,6 +174,155 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
     assert.equal(written.staleDenied,true);
     assert.equal(written.foreignDenied,true);
     assert.equal(written.canExport,false);
+
+    // Prove that the new external-process-link itself (not a manually
+    // assembled putObject) passes through the ORIGINAL signed D1 binding,
+    // original T2 Kernel/Store and the narrowly registered service passport.
+    const externalRef={expected_workspace_id:ws,record_kind:'Sales Order',
+      record_id:'SO-0042'};
+    const selected=Object.freeze({workspace_id:ws,deleted_at:null});
+    let selection=selected,humanApproval=false,humanCount=0;
+    const listeners=new Set();
+    const currentWorkspace={
+      get:()=>selection,
+      subscribe:fn=>{listeners.add(fn);return ()=>listeners.delete(fn);},
+    };
+    const liveKernel=await browserOriginalKernel(page);
+    const ops=['t1.getWorkspace','t1.getObject','t1.listObjects',
+      't1.listEventsSince','t1.putObject'];
+    for(const op of ops)assert.equal(liveKernel.hasOperation(op),true);
+    const signed=createTemporaryOriginalPersonalAuthority({
+      workspaceId:ws,now:Date.now(),clock:Date.now,operations:ops,
+    });
+    let sourceRevision='2026-11-15 13:03:00.1000',sourceDigest='a'.repeat(64);
+    const externalOwner={
+      ownerId:'erpnext:shop1',
+      readExact:async()=>({
+        source_owner:'erpnext:shop1',record_kind:'Sales Order',
+        record_id:'SO-0042',source_revision:sourceRevision,
+        source_digest:sourceDigest,source_receipt:null,
+        source_state:'Submitted',
+        private_customer:'never persist this ERP customer field',
+      }),
+    };
+    const makePort=(kernel=liveKernel,access=signed.access)=>
+      createTrustedExternalProcessLink({
+        kernel,accessForWrite:async()=>access,currentWorkspace,externalOwner,
+        confirmHuman:async()=>{humanCount++;return humanApproval;},
+        isHostActive:()=>true,
+      });
+    const port=makePort();
+    assert.equal((await port.link(externalRef)).status,'USER_CANCELLED');
+    humanApproval=true;
+    const originalSigned=await port.link(externalRef);
+    assert.equal(originalSigned.status,'LINK_PERSISTED');
+    assert.equal(originalSigned.revision,1);
+    assert.equal((await port.link(externalRef)).status,'ALREADY_LINKED');
+    assert.equal((await port.recover(externalRef)).status,'LINK_PERSISTED');
+    const firstD6Ref=await port.prepareContinuation(externalRef);
+    assert.deepEqual(firstD6Ref,{
+      workspace_id:ws,object_id:originalSigned.object_id,
+      schema_id:EXTERNAL_PROCESS_LINK_SCHEMA,revision:1,
+    });
+    const saved=await liveKernel.getObject(ws,originalSigned.object_id);
+    assert.equal(saved.object.data.source_receipt,null);
+    assert.equal(saved.object.data.private_customer,undefined);
+    assert.equal(saved.object.data.epistemic_status,'reported');
+    assert.ok(signed.proofCount>=3,'ACTUAL_SIGNED_ED25519_PROOFS_REQUIRED');
+
+    sourceRevision='2026-11-15 13:04:00.2000';
+    sourceDigest='b'.repeat(64);
+    await assert.rejects(port.link(externalRef),
+      {code:'T3_EXT_REVISION_OR_SOURCE_CONFLICT'});
+    const refreshed=await port.refresh(externalRef);
+    assert.equal(refreshed.status,'LINK_PERSISTED');
+    assert.equal(refreshed.revision,2);
+    assert.equal((await port.refresh(externalRef)).status,'ALREADY_LINKED');
+    await assert.rejects(
+      createTrustedNativeContinuation({
+        kernel:liveKernel,accessForRead:async()=>signed.access,
+        currentWorkspace,nativeOwner:{
+          recipientId:'agent:n8n',
+          inspect:()=>({status:'READY',operationId:'n8n:old',
+            recipientId:'agent:n8n',reference:firstD6Ref}),
+          receive:async()=>{},receipt:async()=>null,readback:async()=>null,
+        },confirmHuman:async()=>true,isHostActive:()=>true,
+      }).preview(firstD6Ref),
+      {code:'T3_D6_STALE_OR_MISSING_REFERENCE'});
+
+    // A reply can vanish AFTER the ORIGINAL T2 Kernel has committed.
+    // Recovery must use signed readback, not a second putObject.
+    sourceRevision='2026-11-15 13:05:00.3000';
+    sourceDigest='c'.repeat(64);
+    let realWritesWithLostAck=0;
+    const lossyKernel={...liveKernel,async putObject(command){
+      realWritesWithLostAck++;
+      await liveKernel.putObject(command);
+      throw Object.assign(new Error('SIMULATED_ACK_LOST_AFTER_ORIGINAL_COMMIT'),
+        {code:'T3_EXT_TEST_ACK_LOST'});
+    }};
+    const uncertain=await makePort(lossyKernel).refresh(externalRef);
+    assert.equal(uncertain.status,'OUTCOME_UNKNOWN');
+    assert.equal(realWritesWithLostAck,1);
+    assert.equal((await port.recover(externalRef)).status,'LINK_PERSISTED');
+    assert.equal((await port.refresh(externalRef)).status,'ALREADY_LINKED');
+    const currentD6Ref=await port.prepareContinuation(externalRef);
+    assert.equal(currentD6Ref.revision,3);
+    const rejected=createTemporaryOriginalPersonalAuthority({
+      workspaceId:ws,now:Date.now(),clock:Date.now,operations:ops});
+    rejected.revoke();
+    await assert.rejects(makePort(liveKernel,rejected.access).refresh(externalRef),
+      {code:'T3_ACCESS_NOT_PERMITTED'});
+    assert.equal((await port.recover(externalRef)).revision,3);
+
+    // Original D2 must label the registered external events as *reported*.
+    // It must never copy original ERP identity or customer payload into view.
+    const activitySigned=createSubjectKernelBinding({
+      kernel:liveKernel,access:signed.access});
+    const activity=await readActivityFromT2Host({
+      kernel:liveKernel,authorizedRead:activitySigned,workspace_id:ws,
+      bindings:{
+        objects:[{schema_id:EXTERNAL_PROCESS_LINK_SCHEMA,
+          schema_version:'1.0.0',semantic_kind:'Evidence'}],
+        events:[{event_type:EXTERNAL_PROCESS_LINK_EVENT,
+          semantic_kind:'Event',epistemic_status:'reported'}],
+      },
+    });
+    assert.equal(activity.nodes.some(x=>x.object_id===currentD6Ref.object_id),true);
+    assert.equal(activity.events.filter(x=>x.epistemic_status==='reported').length,5);
+    assert.equal(activity.events.some(x=>x.epistemic_status==='observed'),false);
+    assert.equal(JSON.stringify(activity).includes('SO-0042'),false);
+    assert.equal(JSON.stringify(activity).includes('private_customer'),false);
+    assert.ok(humanCount>=3);
+
+    // Existing D6, no workflow engine: HTTP ACK cannot become a native
+    // durable result; a new Host can only recover via the native owner.
+    let sends=0;
+    const nativeOwner={
+      recipientId:'agent:n8n',
+      inspect:({reference,recipientId})=>({
+        status:sends>0?'RECOVER_ONLY':'READY',
+        operationId:'n8n:SO-0042',recipientId,reference}),
+      receive:async()=>{sends++;return {
+        external_effect_state:'ACKNOWLEDGED',request_id:'transport:ack-only'};},
+      receipt:async()=>null,readback:async()=>null,
+    };
+    const d6=()=>createTrustedNativeContinuation({
+      kernel:liveKernel,accessForRead:async()=>signed.access,
+      currentWorkspace,nativeOwner,confirmHuman:async()=>true,
+      isHostActive:()=>true,
+    });
+    assert.equal((await d6().continueSelected(currentD6Ref)).status,'OUTCOME_UNKNOWN');
+    assert.equal((await d6().continueSelected(currentD6Ref)).status,'OUTCOME_UNKNOWN');
+    assert.equal(sends,1);
+    console.log('T3_AGENT06_SIGNED_D1_REAL_KERNEL_PROCESS_PASS',
+      JSON.stringify({contract:'1.3.0',kernel:'0.3.6',
+        signedProofs:signed.proofCount,
+        sourceRevision,revision:currentD6Ref.revision,
+        originalActivityEvents:activity.events.length,
+        signedReadback:true,lostAckNoReplay:realWritesWithLostAck===1,
+        d6HttpAckRemainsUnknown:true}));
+
     await browser.close();browser=null;
     page=await open();
     const reopened=await page.evaluate(async({ws,obj,EXTERNAL})=>{
@@ -151,6 +336,21 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
     assert.equal(reopened.revision,2);
     assert.equal(reopened.source_revision,written.snapshot.source_revision);
     assert.equal(reopened.eventTypes.filter(e=>e===EXTERNAL_PROCESS_LINK_EVENT).length,2);
+
+    const coldKernel=await browserOriginalKernel(page);
+    const coldSigned=createTemporaryOriginalPersonalAuthority({
+      workspaceId:ws,now:Date.now(),clock:Date.now,operations:ops});
+    const coldPort=makePort(coldKernel,coldSigned.access);
+    const coldRecovered=await coldPort.recover(externalRef);
+    assert.equal(coldRecovered.status,'LINK_PERSISTED');
+    assert.equal(coldRecovered.revision,3);
+    assert.equal((await coldPort.prepareContinuation(externalRef)).revision,3);
+    assert.equal((await coldPort.link(externalRef)).status,'ALREADY_LINKED');
+    assert.ok(coldSigned.proofCount>0);
+    console.log('T3_AGENT06_SIGNED_D1_COLD_RECOVERY_PASS',
+      JSON.stringify({revision:coldRecovered.revision,
+        signedProofs:coldSigned.proofCount,
+        sourceOwner:'erpnext:shop1',executedExternalERP:false}));
     console.log('T3_AGENT06_ORIGINAL_T2_ERP_LINK_PASSPORT_COLD_PASS',
       JSON.stringify({kernel:'0.3.6',contract:'1.3.0',
         revision:reopened.revision,originalEventCount:2,
