@@ -169,7 +169,8 @@ class EffectivenessContractTests(unittest.TestCase):
                                       source_bytes={},owner_verify=lambda *args:None)
         self.assertFalse(result["comparability"]["equal_run_and_accepted_counts"])
         pair=compare_task_executors(a,b)
-        self.assertEqual(pair["status"],"SOURCE_BOUND_COMPARABLE")
+        # BEFORE/AFTER belongs to the process gate, not an executor RUN pair.
+        self.assertEqual(pair["status"],"NOT_COMPARABLE")
         b=dict(b,cohort_sha256="f"*64)
         self.assertEqual(compare_task_executors(a,b)["status"],"NOT_COMPARABLE")
         with self.assertRaisesRegex(K05EffectivenessHold,"INCOMPARABLE_PROCESS_OR_CURRENCY"):
