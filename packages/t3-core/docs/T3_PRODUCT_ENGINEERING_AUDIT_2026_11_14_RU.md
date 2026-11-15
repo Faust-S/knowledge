@@ -1,5 +1,15 @@
 # IWXA T3. Аудит реализованного продукта, рисков и конечного плана
 
+## D3: оригинальный Personal Agent Result → штатный T3 employee draft, 15.11.2026
+
+Реальный продуктовый шаг выполнен в **приватной** ветке `Faust-S/iwxa-personal-agent@work/2026-11-15-agent-0-6-development` HEAD `978b28d6690aeee7f17cc263a563ec1a5d025cbe` (коммиты `187720cd`, `4228888a`, `d9eb90ce`). На базе стабильного Agent 0.5 **повторно использован его же прежний проверенный модуль** `runtime/t3_result_projection.py` из 03.11: оригинальный Python Core проверяет сохранённую Task/Result/Human Review/Accepted, исходные ссылки и активную Work Area. В штатном UI Agent 0.6 при включённом пользователем T3 выбираются только требуемые summary/claims/uncertainties/drafts и отдельное включение ссылок; подготовленный текст можно вручную перенести в **существующую** форму оригинального T3 для подписанного организационного поручения. Ни нового .iwxa, ни копии Reconciliation/Kernel/Store/issuer, ни автоматической отправки нет.
+
+**Проверка:** изолированный локальный Python probe исходного Git blob `998fda35255ba045a1708ea472e9ce0304a28756` 10/10 PASS; этот текст принят без изменения **оригинальным** частным T3 employee importer `interop/pa-result-import.js` blob `854c895489aac2395ce74f43c2f34351a30ea2ac`; отсутствие автоматической подмены несохранённого черновика и ложной подписи подтверждено. Оба файла локально побайтно совпали с GitHub blob hash. Но это **не** сборка полного Agent, Windows GUI и не независимая установленная приёмка.
+
+**Следующий один продуктовый маршрут:** Core-approved Agent Result после холодного запуска → выбранная проекция → оригинальный действующий подписанный T3 organizational Task/revision → штатный `prepare/previewExport/exportResult` → `.iwxa` → установленный Admin Center Human Review/ACCEPT → отдельный Kernel APPLY → два оригинальных cold readback. Никаких новых переходных подсистем. `AGENT06_T3_SELECTED_RESULT=SOURCE_PROBE_PASS`, `D3_PRODUCT_E2E=HOLD`, `G4=NOT_ACCEPTED`, `T3_READY=false`. Приватные GitHub Actions не запускались, исходники Agent и ключи не публиковались в knowledge. Исторические сообщения о том, что Agent 0.6 содержит только документы, теперь устарели.
+
+
+
 ## Исходное исправление D3 и следующий продуктовый рубеж, 15.11.2026
 
 - **Последний завершённый original Host:** `Faust-S/knowledge@13d6b8c0e22097c1daf8f52bcb4ab6cee730a1e7`, TREE `1bdf54d3078aadbd814a3470ca68b46b0811b666`. [Проверка #43712743170](https://github.com/Faust-S/knowledge/actions/runs/43712743170): test / original real-host / Windows Credential **SUCCESS**, Node 713/713, Workspace/DOM 1141/1141; `metal-webgpu` SKIPPED.
