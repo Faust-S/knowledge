@@ -75,3 +75,15 @@
 5. Испытать с собственным реальным CehoVod доменным владельцем, затем независимо согласовать перенос в Agent 0.6. Central branches в этой работе не изменены.
 
 Источники исходников: `packages/t3-core/src/t3/{subject-access-binding,native-result-continuation}.mjs`, `src/t3/activity/{index,kernel-reader}.mjs`, `src/modules/base/features/project-process/{project-process,process-intelligence}.mjs`, `Faust-S/cehovod/src/lib/{production-order,operation-execution,production-lifecycle}.ts`.
+
+## Подтверждённые upstream источники API и условия поставки
+
+- ERPNext/Frappe: https://docs.frappe.io/framework/user/en/api/rest (DocType REST, `Authorization: token api_key:api_secret`, /api/resource/..., операции от имени существующего пользователя); исходная лицензия ERPNext GPL-3.0-or-later: https://github.com/frappe/erpnext/blob/develop/license.txt . В Frappe `modified` имеет вид `2019-06-03 14:19:00.281026`; новый T3 source_revision принимает такие строки как данные, но НЕ как signed T3 IDs.
+- Odoo 19 JSON-2: https://www.odoo.com/documentation/19.0/developer/reference/external_api.html . Документация Odoo Online прямо ограничивает внешний JSON-2 API планом Custom. Для локальной Odoo Community применять API только после проверки конкретной версии, установленных модулей и лицензии, а не автоматически обещать JSON-2 на любой инсталляции.
+- Dolibarr: https://wiki.dolibarr.org/index.php/Module_Web_Services_REST (REST /api/index.php/..., `DOLAPIKEY`, optional multicompany `DOLAPIENTITY`), версия API и нужная операция в целевой инсталляции требуют проверки.
+- Flowable BPMN: https://www.flowable.com/open-source/docs/bpmn/ch14-REST (runtime/process-instances, runtime/tasks и HTTP 409 conflict). Open-source engine Apache-2.0: https://github.com/flowable/flowable-engine/blob/main/LICENSE .
+- Node-RED: open-source Apache-2.0 https://github.com/node-red/node-red/blob/main/LICENSE . HTTP endpoints требуют явной настройки flow/auth и штатного хранения результатов у владельца.
+- Activepieces: core MIT, enterprise/commercial отдельная лицензия: https://github.com/activepieces/activepieces/blob/main/docs/about/license.mdx . Нельзя обещать enterprise API в Community по названию продукта.
+- Operaton, n8n: до включения в сборку надо отдельно зафиксировать точную версию, API и реально применимые ограничения лицензии. Ни один из этих продуктов не встроен и не запускается данным исходным T3 контрактом.
+
+Лицензия стороннего сервера и лицензия связывающего IWXA кода оцениваются раздельно. Использование стороннего REST API само по себе не даёт прав на перенос его исходников/коммерческих модулей.
