@@ -359,8 +359,9 @@ test("D7 direct installed recipient can read original Kernel after cold restart 
       package_digest:"digest:direct",semantic_digest:"semantic:direct",
       mode:"new-workspace",applied:{workspaces:1}},
   };
+  const recipient={recipientId:"recipient:direct",bindingEpoch:"epoch:one"};
   const native={
-    currentRecipient:async()=>({recipientId:"recipient:direct",bindingEpoch:"epoch:one"}),
+    currentRecipient:async()=>({...recipient}),
     previewInOriginalKernel:async()=>{throw Error("NO_ZIP");},
     commitInOriginalKernel:async()=>{commits++;throw Error("NO_REPLAY");},
     cancelInOriginalKernel:async()=>true,
@@ -386,5 +387,34 @@ test("D7 direct installed recipient can read original Kernel after cold restart 
     receipt:{...original.receipt,semantic_digest:"semantic:unrelated"}});
   await assert.rejects(create().readbackInOriginalKernel(query),
     {code:"T3_D7_NATIVE_KERNEL_READBACK_INVALID"});
+  // Lost read-only reply after a cold open is UNKNOWN, not a new commit.
+  native.readbackInOriginalKernel=async()=>{throw Error("NATIVE_READBACK_OFFLINE");};
+  assert.equal((await create().readbackInOriginalKernel(query)).status,"OUTCOME_UNKNOWN");
+  native.readbackInOriginalKernel=async()=>original;
+  assert.equal((await create().readbackInOriginalKernel(query)).status,"OWNER_READBACK_CONFIRMED");
+  native.readbackInOriginalKernel=async()=>{
+    recipient.bindingEpoch="epoch:two";
+    throw Error("RECIPIENT_SWITCHED_DURING_READBACK");
+  };
+  await assert.rejects(create().readbackInOriginalKernel(query),
+    {code:"T3_D7_ORIGINAL_NATIVE_RECIPIENT_CHANGED"});
+  recipient.bindingEpoch="epoch:one";
+  native.readbackInOriginalKernel=async()=>{throw Object.assign(
+    Error("signed original owner denied"),{code:"PERMISSION_DENIED"});};
+  await assert.rejects(create().readbackInOriginalKernel(query),
+    {code:"PERMISSION_DENIED"});
   assert.equal(commits,0);
+});
+
+test("D7 native Kernel preview is not misadvertised as plaintext open",async()=>{
+  const port=createTrustedAgeExchange({ageOwner:{
+    currentRecipient:async()=>({recipientId:"recipient:direct",bindingEpoch:"epoch:one"}),
+    previewInOriginalKernel:async()=>({status:"OUTCOME_UNKNOWN"}),
+    commitInOriginalKernel:async()=>{throw Error("NO_COMMIT");},
+    cancelInOriginalKernel:async()=>false,
+  },isHostActive:()=>true});
+  assert.equal(port.canNativeKernelPreview,true);
+  assert.equal(port.canOpen,false);
+  await assert.rejects(port.open({ciphertext:new Uint8Array([1])}),
+    {code:"T3_D7_NATIVE_PLAINTEXT_PRIVATE"});
 });

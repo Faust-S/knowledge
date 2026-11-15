@@ -64,6 +64,8 @@ jobs:
           node --test packages/t3-core/tests/t3-reconciliation-owner-admission.test.mjs packages/t3-core/tests/t3-reconciliation-kernel-apply.test.mjs
       - name: Qualify D6 native Result continuation with original signed recovery
         run: node --test packages/t3-core/tests/t3-d6-native-continuation.test.mjs
+      - name: Qualify D7 original age recipient recovery and Exchange capability reporting
+        run: node --test packages/t3-core/tests/t3-d7-protected-exchange.test.mjs
       
       - name: Qualify two independently signed CORP grant/enrollment proofs over original persisted AccessRegistry
         run: |

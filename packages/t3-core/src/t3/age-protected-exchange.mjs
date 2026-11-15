@@ -79,9 +79,10 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
   const canSeal=Boolean(signedWorkspaceRead&&
     typeof ageOwner?.prepareSeal==="function"&&
     typeof ageOwner?.seal==="function"&&typeof confirmRecipients==="function");
-  const canOpen=Boolean(nativeKernelPreview||
-    (rawOpen&&(nativeRecipient||
-      (signedReader&&kernel.hasOperation("t1.getWorkspace")))));
+  // A native preview-capable recipient does not necessarily expose
+  // plaintext open(). Advertise only operations that this port can invoke.
+  const canOpen=Boolean(rawOpen&&(nativeRecipient||
+    (signedReader&&kernel.hasOperation("t1.getWorkspace"))));
   ensure(ageOwner&&(rawOpen||nativeKernelPreview||
     (typeof ageOwner.prepareSeal==="function"&&
       typeof ageOwner.seal==="function"))&&
@@ -338,10 +339,22 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
       ["full","selective","merge","new-workspace","cancel"].includes(mode),
       "T3_D7_NATIVE_READBACK_REQUEST_INVALID");
     const recipient=await currentNativeRecipient();
-    const observed=await ageOwner.readbackInOriginalKernel({
-      recipientId:recipient.recipientId,
-      preview_token,package_digest,semantic_digest,mode,
-    });
+    let observed;
+    try {
+      observed=await ageOwner.readbackInOriginalKernel({
+        recipientId:recipient.recipientId,
+        preview_token,package_digest,semantic_digest,mode,
+      });
+    } catch (error) {
+      // This is read-only recovery after a possibly committed native import.
+      // A temporary recipient readback outage is UNKNOWN, never permission
+      // to repeat original importCommit. Definite access denial is not UNKNOWN.
+      ensure(JSON.stringify(await currentNativeRecipient())===
+        JSON.stringify(recipient),"T3_D7_ORIGINAL_NATIVE_RECIPIENT_CHANGED");
+      if(["PERMISSION_DENIED","CAPABILITY_DENIED","T3_ACCESS_NOT_PERMITTED"]
+        .includes(error?.code))throw error;
+      return Object.freeze({status:"OUTCOME_UNKNOWN"});
+    }
     ensure(JSON.stringify(await currentNativeRecipient())===
       JSON.stringify(recipient),"T3_D7_ORIGINAL_NATIVE_RECIPIENT_CHANGED");
     if(observed===null||observed===undefined||
