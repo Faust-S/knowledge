@@ -103,6 +103,7 @@ export type ImportEvent =
   | { type: "commit-retryable"; error: string }
   | { type: "commit-invalid"; error: string }
   | { type: "commit-failed"; error: string }
+  | { type: "native-readback-verified"; receipt: ImportReceipt }
   | { type: "cancel"; reason: "explicit" | "new-file" | "unmount" | "session-change" }
   | { type: "cancel-failed"; error: string }
   | { type: "expire" }
@@ -523,6 +524,16 @@ export function importReducer(state: ImportState, event: ImportEvent): ImportSta
       // explicit fresh inspection; never offer an automatic retry.
       return { ...state, status: "unconfirmed", handle: null, receipt: null,
         error: event.error };
+    case "native-readback-verified":
+      if(state.status!=="unconfirmed")return state;
+      if(state.receipt&&(
+        state.receipt.import_id!==event.receipt.import_id||
+        state.receipt.package_digest!==event.receipt.package_digest||
+        state.receipt.semantic_digest!==event.receipt.semantic_digest||
+        state.receipt.mode!==event.receipt.mode||
+        state.receipt.conflict_policy!==event.receipt.conflict_policy))
+        return state;
+      return {...state,status:"committed",receipt:event.receipt,error:null};
     case "cancel":
       if (["committed","incomplete","unconfirmed"].includes(state.status)) return state;
       return { ...INITIAL_IMPORT_STATE, status: "cancelled" };

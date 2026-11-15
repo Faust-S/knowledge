@@ -106,6 +106,65 @@ describe("D7 installed PWA protected .iwxa.age through original Exchange",()=>{
     expect(commitNative).not.toHaveBeenCalled();
   });
 
+
+  it("recovers native lost-ACK import with original recipient readback and never recommits",async()=>{
+    const k=kernel([]);
+    const secure={...preview,allowed_modes:["new-workspace"]};
+    const originalReceipt={
+      import_id:"import:native:readback",format:"iwxa.import.receipt",
+      format_version:"1.0",mode:"new-workspace",conflict_policy:"fail",
+      package_digest:"original",semantic_digest:"original-sem",
+      committed_at:"2026-11-15T00:00:00Z",
+      workspace_id_map:{"incoming:one":"incoming:one-imported"},
+      applied:{workspaces:1,objects_inserted:0,objects_updated:0,
+        objects_skipped:0,events:0,relations:0,assets:0,
+        schemas_inserted:0,schemas_reused:0,schemas_rejected:0},
+      skipped_conflicts:[],excluded_by_permission:{},
+    };
+    const nativeCommit=vi.fn(async()=>{throw Error("ORIGINAL_ACK_LOST");});
+    const nativeReadback=vi.fn(async()=>({
+      status:"OWNER_READBACK_CONFIRMED" as const,
+      recipientId:"recipient:installed",receipt:originalReceipt,
+    }));
+    const installed={
+      canOpen:true,canNativeKernelPreview:true,canNativeKernelReadback:true,
+      maxCiphertextBytes:33*1024*1024,
+      previewInOriginalKernel:vi.fn(async()=>({
+        status:"KERNEL_PREVIEW_READY",recipientId:"recipient:installed",
+        archiveSha256:"a".repeat(64),handle:secure,
+      })),
+      commitInOriginalKernel:nativeCommit,
+      cancelInOriginalKernel:vi.fn(async()=>true),
+      readbackInOriginalKernel:nativeReadback,
+    } as unknown as ReturnType<typeof createTrustedAgeExchange>;
+    render(<PackagesView kernel={k} commands={commands} initialTab="import"
+      exportScopeId={null} protectedExchange={installed}/>);
+    await act(async()=>{fireEvent.change(screen.getByTestId("import-age-file"),{
+      target:{files:[sealed()]},
+    });});
+    await act(async()=>{fireEvent.click(screen.getByTestId("import-age-preview"));});
+    await waitFor(()=>expect(screen.getByTestId("import-preview")).toBeTruthy());
+    expect(screen.getByTestId("import-mode")).toHaveProperty("value","new-workspace");
+    await act(async()=>{fireEvent.click(screen.getByTestId("import-commit"));});
+    await waitFor(()=>expect(screen.getByTestId("import-view").getAttribute(
+      "data-import-state")).toBe("unconfirmed"));
+    expect(screen.queryByTestId("import-receipt")).toBeNull();
+    const button=screen.getByTestId("import-native-readback");
+    await act(async()=>{fireEvent.click(button);});
+    await waitFor(()=>expect(screen.getByTestId("import-view").getAttribute(
+      "data-import-state")).toBe("committed"));
+    expect(screen.getByTestId("import-receipt")).toBeTruthy();
+    expect(screen.getByTestId("import-native-readback-status").textContent)
+      .toContain("независимым");
+    expect(nativeReadback).toHaveBeenCalledExactlyOnceWith({
+      preview_token:"tok:age",package_digest:"original",
+      semantic_digest:"original-sem",mode:"new-workspace",
+    });
+    expect(nativeCommit).toHaveBeenCalledTimes(1);
+    expect(k.importCommit).not.toHaveBeenCalled();
+    expect(k.listWorkspaces).not.toHaveBeenCalled();
+  });
+
   it("never accepts an unrelated UI Kernel catalogue as native import proof",async()=>{
     const secure={...preview,allowed_modes:["new-workspace"]};
     const browserCatalogue=vi.fn(async()=>[

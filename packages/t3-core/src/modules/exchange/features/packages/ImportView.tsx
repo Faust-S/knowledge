@@ -6,6 +6,7 @@ import type {
 import type {
   ConflictPolicy,
   ImportMode,
+  ImportReceipt,
   ObjectKey,
 } from "@/kernel-client/contracts/runtime-1.3.0";
 import type { WorkspaceRecord } from "@/kernel-client";
@@ -19,8 +20,16 @@ import {
   validateImportScope,
   validateRestorationReceipt,
   type ImportState,
+  type ImportPlanForm,
   type ImportPreviewHandle,
 } from "../state/import-machine";
+
+type NativeRecoveryContext = Readonly<{
+  query:{preview_token:string;package_digest:string;semantic_digest:string;mode:ImportMode};
+  handle:ImportPreviewHandle;
+  plan:ImportPlanForm;
+  receipt:ImportReceipt|null;
+}>;
 
 /** OS File Handling passes a handle, never an automatic Kernel write. */
 export type InstalledPwaFileHandle = Readonly<{
@@ -126,6 +135,13 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   const expiryTimerRef = useRef<number | null>(null);
   const operationGenerationRef = useRef(0);
   const cancelGuardRef = useRef(false);
+  // Only original preview identifiers and the user's plan are held in memory,
+  // never the decrypted ZIP. This allows read-only lost-ACK recovery in this
+  // Exchange session; cold-process discovery belongs to the installed owner.
+  const nativeRecoveryRef = useRef<NativeRecoveryContext|null>(null);
+  const nativeReadbackGuard = useRef(false);
+  const [nativeReadbackBusy,setNativeReadbackBusy] = useState(false);
+  const [nativeReadbackMessage,setNativeReadbackMessage] = useState<string|null>(null);
 
   const nativeImport=protectedExchange?.canNativeKernelPreview === true;
   const canPreview = kernel.hasOperation("t2.importPreview") || nativeImport;
@@ -262,6 +278,8 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     if (options.expectedGeneration !== undefined &&
         options.expectedGeneration !== operationGenerationRef.current) return;
     const generation = ++operationGenerationRef.current;
+    nativeRecoveryRef.current = null;
+    setNativeReadbackMessage(null);
     dispatch({ type: "preview-started" });
 
     const alreadyPreviewed="preview_token" in file;
@@ -379,10 +397,20 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
         package_digest:state.handle.package_digest,
         plan:toKernelImportPlan(state.plan)};
       const nativeCommit=nativePreviewTokenRef.current===state.handle.preview_token;
+      nativeRecoveryRef.current=nativeCommit
+        ? {query:{preview_token:state.handle.preview_token,
+            package_digest:state.handle.package_digest,
+            semantic_digest:state.handle.semantic_digest,mode:state.plan.mode},
+          handle:state.handle,plan:state.plan,receipt:null}
+        : null;
+      setNativeReadbackMessage(null);
       const receipt=nativeCommit
         ? await protectedExchange!.commitInOriginalKernel(request)
         : await kernel.importCommit(request);
       if (generation !== operationGenerationRef.current) return;
+      if(nativeCommit&&nativeRecoveryRef.current?.query.preview_token===
+        state.handle.preview_token)
+        nativeRecoveryRef.current={...nativeRecoveryRef.current,receipt};
       activeTokenRef.current = null;
       nativePreviewTokenRef.current = null;
       if (expiryTimerRef.current !== null) {
@@ -563,6 +591,57 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     }
   };
 
+  const verifyNativeImportReadback = async () => {
+    const snapshot=nativeRecoveryRef.current;
+    if(!snapshot||state.status!=="unconfirmed"||
+        !protectedExchange?.canNativeKernelReadback||nativeReadbackGuard.current)return;
+    nativeReadbackGuard.current=true;
+    setNativeReadbackBusy(true);
+    setNativeReadbackMessage(null);
+    const generation=operationGenerationRef.current;
+    try{
+      // A read-only original Kernel lookup. No archive, new preview or
+      // second importCommit can occur on this user action.
+      const observed=await protectedExchange.readbackInOriginalKernel(snapshot.query);
+      if(generation!==operationGenerationRef.current)return;
+      if(observed.status!=="OWNER_READBACK_CONFIRMED"||!observed.receipt){
+        setNativeReadbackMessage("Получатель пока не подтвердил сохранённый импорт. "+
+          "Повторная запись не выполнялась.");
+        return;
+      }
+      const receipt=observed.receipt;
+      const wrongIdentity=receipt.format!=="iwxa.import.receipt"||
+        receipt.cancelled===true||
+        receipt.package_digest!==snapshot.query.package_digest||
+        receipt.semantic_digest!==snapshot.query.semantic_digest||
+        receipt.mode!==snapshot.query.mode||
+        receipt.conflict_policy!==snapshot.plan.conflict||
+        (snapshot.receipt!==null&&(
+          snapshot.receipt.import_id!==receipt.import_id||
+          JSON.stringify(snapshot.receipt.applied)!==JSON.stringify(receipt.applied)||
+          JSON.stringify(snapshot.receipt.workspace_id_map)!==
+            JSON.stringify(receipt.workspace_id_map)));
+      const issues=wrongIdentity?["Квитанция получателя не совпадает с исходным импортом."]:
+        validateRestorationReceipt(snapshot.handle.preview,snapshot.plan,receipt);
+      if(issues.length>0){
+        setNativeReadbackMessage("Чтение оригинального Kernel не подтвердило "+
+          "полное восстановление. "+issues.join(" "));
+        return;
+      }
+      dispatch({type:"native-readback-verified",receipt});
+      setNativeReadbackMessage("Сохранённый результат подтверждён независимым "+
+        "чтением оригинального установленного получателя.");
+    }catch(error){
+      if(generation!==operationGenerationRef.current)return;
+      setNativeReadbackMessage("Чтение результата недоступно: "+
+        (error instanceof Error?error.message:String(error))+
+        ". Импорт автоматически не повторяется.");
+    }finally{
+      nativeReadbackGuard.current=false;
+      if(generation===operationGenerationRef.current)setNativeReadbackBusy(false);
+    }
+  };
+
   const openAgeFile = async () => {
     if (!protectedExchange || protectedExchange.canOpen === false ||
         !ageFile || ageGuard.current || !canPreview) return;
@@ -684,6 +763,10 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     pwaFileHandle, pwaReadBusy, pwaReadError, pwaUsed,
     openPwaFile,
     protectedExchange, ageFile, setAgeFile, ageBusy, ageError, openAgeFile,
+    nativeReadbackAvailable:protectedExchange?.canNativeKernelReadback===true&&
+      nativeRecoveryRef.current!==null,
+    nativeReadbackBusy,nativeReadbackMessage,
+    verifyNativeImportReadback,
   });
 }
 
@@ -709,6 +792,10 @@ interface RenderProps {
   ageBusy: boolean;
   ageError: string | null;
   openAgeFile: () => Promise<void>;
+  nativeReadbackAvailable:boolean;
+  nativeReadbackBusy:boolean;
+  nativeReadbackMessage:string|null;
+  verifyNativeImportReadback:()=>Promise<void>;
 }
 
 function renderImport(p: RenderProps) {
@@ -717,6 +804,8 @@ function renderImport(p: RenderProps) {
     onFile, runCommit, cancelActive, dispatch,
     pwaFileHandle, pwaReadBusy, pwaReadError, pwaUsed, openPwaFile,
     protectedExchange, ageFile, setAgeFile, ageBusy, ageError, openAgeFile,
+    nativeReadbackAvailable,nativeReadbackBusy,nativeReadbackMessage,
+    verifyNativeImportReadback,
   } = p;
   const busy = state.status === "previewing" || state.status === "committing";
   const scopeIssues = state.handle ? validateImportScope(state.handle.preview, state.plan) : [];
@@ -1185,6 +1274,19 @@ function renderImport(p: RenderProps) {
         </p>
       )}
 
+      {state.status==="unconfirmed" && nativeReadbackAvailable && (
+        <button type="button" onClick={()=>void verifyNativeImportReadback()}
+          disabled={nativeReadbackBusy}
+          data-testid="import-native-readback"
+          className="border rounded px-3 py-2 min-h-11 disabled:opacity-40">
+          {nativeReadbackBusy?"Проверка результата…":
+            "Проверить результат в установленном Kernel"}
+        </button>
+      )}
+      {nativeReadbackMessage && (
+        <p role="status" data-testid="import-native-readback-status"
+          className="text-xs text-slate-300">{nativeReadbackMessage}</p>
+      )}
       {state.receipt && (
         <section aria-labelledby="imp-receipt" data-testid="import-receipt">
           <h4 id="imp-receipt" className="text-sm font-medium text-slate-200 mb-1">
