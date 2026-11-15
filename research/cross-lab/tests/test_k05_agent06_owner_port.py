@@ -393,5 +393,46 @@ class K05OwnerAdapterTests(unittest.TestCase):
 
 
 
+    def test_history_states_cannot_claim_not_started_with_receipt(self):
+        class WrongNoAttempt(FakeToolRuntime):
+            def execution_states_for_plans(self, plans):
+                self.calls.append("states")
+                return {"TPLAN-k05": {"state":"NOT_STARTED", "receipt_id":None}}
+        with self.assertRaisesRegex(
+            K05EffectivenessHold, "TASK_HISTORY_STATE_CONTRADICTS_RECEIPTS"):
+            read_agent_task_execution_history(
+                task_cell=FakeTaskCell(), task_id="TASK-K05",
+                tool_runtime=WrongNoAttempt())
+
+    def test_history_states_cannot_claim_success_without_txr(self):
+        class WrongSuccess(FakeToolRuntime):
+            def task_execution_history(self, tid, task_digest):
+                self.calls.append("history")
+                return ([self.plan], [])
+            def execution_states_for_plans(self, plans):
+                self.calls.append("states")
+                return {"TPLAN-k05": {"state":"SUCCEEDED", "receipt_id":None}}
+        with self.assertRaisesRegex(
+            K05EffectivenessHold, "TASK_HISTORY_STATE_CONTRADICTS_RECEIPTS"):
+            read_agent_task_execution_history(
+                task_cell=FakeTaskCell(), task_id="TASK-K05",
+                tool_runtime=WrongSuccess())
+
+    def test_execution_intent_state_change_with_stable_history_hold(self):
+        class RacingIntents(FakeToolRuntime):
+            def execution_states_for_plans(self, plans):
+                self.calls.append("states")
+                if self.calls.count("states") == 1:
+                    return {"TPLAN-k05": {
+                        "state":"SUCCEEDED", "receipt_id":"TXR-k05"}}
+                return {"TPLAN-k05": {
+                    "state":"OUTCOME_UNKNOWN", "receipt_id":"TXR-k05"}}
+        with self.assertRaisesRegex(
+            K05EffectivenessHold, "TASK_EXECUTION_INTENT_STATE_CHANGED"):
+            read_agent_task_execution_history(
+                task_cell=FakeTaskCell(), task_id="TASK-K05",
+                tool_runtime=RacingIntents())
+
+
 if __name__ == "__main__":
     unittest.main()

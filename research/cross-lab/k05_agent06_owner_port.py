@@ -373,21 +373,36 @@ def read_agent_task_execution_history(*, task_cell, task_id: str,
           "TASK_HISTORY_STATES_MISSING")
     counts = {"SUCCEEDED": 0, "ATTEMPTED": 0,
               "OUTCOME_UNKNOWN": 0, "NOT_STARTED": 0}
-    known_receipt_ids = {r["receipt_id"] for r in receipts}
+    by_id = {r["receipt_id"]: r for r in receipts}
+    by_plan = {p["plan_id"]: p for p in plans}
     for pid, status in states.items():
         _need(type(status) is dict
               and status.get("state") in counts
               and (status.get("receipt_id") is None
-                   or status["receipt_id"] in known_receipt_ids),
+                   or status["receipt_id"] in by_id),
               "TASK_HISTORY_STATE_INVALID")
-        # When the owner knows an uncertain effect even without a receipt,
-        # never relabel it as NOT_STARTED or successful business completion.
-        counts[status["state"]] += 1
+        state = status["state"]
+        plan = by_plan[pid]
+        same_key = [r for r in receipts
+                    if r.get("idempotency_key") == plan["idempotency_key"]]
+        selected = status.get("receipt_id")
+        _need(selected is None or
+              by_id[selected].get("idempotency_key") == plan["idempotency_key"],
+              "TASK_HISTORY_STATE_FOREIGN_RECEIPT")
+        _need(not (state == "NOT_STARTED" and same_key)
+              and not (state == "ATTEMPTED" and not same_key)
+              and not (state == "SUCCEEDED" and not any(
+                  r.get("status") == "SUCCEEDED" for r in same_key)),
+              "TASK_HISTORY_STATE_CONTRADICTS_RECEIPTS")
+        # Unknown state may have no receipt when durable intent exists.
+        counts[state] += 1
     later = tool_runtime.task_execution_history(task_id,
                                                  accepted["task_sha256"])
     _need(type(later) is tuple and len(later) == 2
           and _history_identity(*later) == initial_key,
           "TASK_EXECUTION_HISTORY_CHANGED_DURING_READBACK")
+    final_states = tool_runtime.execution_states_for_plans(later[0])
+    _need(final_states == states, "TASK_EXECUTION_INTENT_STATE_CHANGED")
     stable = read_agent_accepted_task(task_cell, task_id)
     _need(all(stable[key] == accepted[key] for key in (
         "task_sha256", "result_record_sha256", "review_record_sha256",
