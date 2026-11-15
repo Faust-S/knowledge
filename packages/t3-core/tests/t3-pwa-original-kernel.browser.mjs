@@ -44,6 +44,9 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
   const workspace="t3-pwa-"+randomUUID();
   const object="draft:pwa:1";
   const title="IWXA PWA original Kernel preserved document";
+  const linkedObject="draft:pwa:linked";
+  const linkedTitle="IWXA linked historical document";
+  const relationId="t3-pwa-linked-relation";
   try {
     cpSync(join(qualified,"_iwxa"),join(dist,"_iwxa"),{recursive:true});
     assertQualifiedKernelArtifact(dist,{kernel:RUNTIME,contract:"1.3.0",artifactId:ARTIFACT});
@@ -101,7 +104,8 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
     assert.equal(manifest.scope,"/");
     assert.equal(await site.evaluate(()=>navigator.serviceWorker.getRegistrations()
       .then(regs=>regs.length)),0,"PWA install metadata must not register autonomy");
-    const saved=await site.evaluate(async({SERVICE,workspace,object,title})=>{
+    const saved=await site.evaluate(async({SERVICE,workspace,object,title,
+      linkedObject,linkedTitle,relationId})=>{
       const original=await window.IWXA.connect({service_id:SERVICE});
       if(original.contract_version!=="1.3.0" ||
          original.runtime_version!=="0.3.6")throw Error("NOT_ORIGINAL_KERNEL");
@@ -109,22 +113,36 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       const receipt=await original.t1.putObject({
         workspace_id:workspace,object_id:object,
         schema_id:"iwxa.demo.note",schema_version:"1.0.0",
-        base_revision:0,data:{title},extensions:{},
+        base_revision:0,data:{title},
+        extensions:{future:{preserve:"cross-consumer"}},
         event:{event_type:"t3.pwa.document.saved",payload:{}},
       });
+      const second=await original.t1.putObject({workspace_id:workspace,
+        object_id:linkedObject,schema_id:"iwxa.demo.note",schema_version:"1.0.0",
+        base_revision:0,data:{title:linkedTitle},
+        extensions:{future:{preserve:"linked-ref"}},
+        event:{event_type:"t3.pwa.linked.saved",payload:{}},
+      });
+      await original.t1.putRelation({workspace_id:workspace,
+        relation_id:relationId,from_object_id:object,to_object_id:linkedObject,
+        kind:"related",event:{event_type:"t3.pwa.relation.saved",payload:{}}});
       const options={workspaces:[workspace],include_history:true,
         include_assets:true,include_relations:true,include_schemas:true};
+      const inventory=await original.t2.exportPreview(options);
+      if(inventory.counts.objects!==2||inventory.counts.relations!==1)
+        throw Error("D4_LINKED_SOURCE_INVENTORY_INCOMPLETE");
       const archive=await original.t2.exportPackage(options);
       const confirmation=await original.t2.confirmExport({
         package_digest:archive.package_digest,workspace_ids:[workspace],
       });
       return {event:receipt.event.event_id,revision:receipt.object.revision,
+        linkedEvent:second.event.event_id,
         exported:confirmation.package_digest===archive.package_digest,
         // Transfer the exact original .iwxa bytes to an INDEPENDENT
         // recipient Store. Reimporting an existing event in the same Store
         // must fail with IMPORT_EVENT_ID_COLLISION, as designed.
         archiveBytes:Array.from(archive.bytes)};
-    },{SERVICE,workspace,object,title});
+    },{SERVICE,workspace,object,title,linkedObject,linkedTitle,relationId});
     assert.equal(saved.revision,1);
     assert.equal(saved.exported,true);
     assert.ok(saved.archiveBytes.length>0);
@@ -242,6 +260,20 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       const received=await scoped.getObject(destination,object);
       assert.equal(received?.object?.data?.title,title);
       assert.equal(received?.object?.revision,1);
+      assert.equal(received?.object?.extensions?.future?.preserve,
+        "cross-consumer");
+      const linkedReceived=await scoped.getObject(destination,linkedObject);
+      assert.equal(linkedReceived?.object?.data?.title,linkedTitle);
+      assert.equal(linkedReceived?.object?.extensions?.future?.preserve,
+        "linked-ref");
+      const signedInventory=await receiver.evaluate(async({SERVICE,destination})=>{
+        const original=await IWXA.connect({service_id:SERVICE});
+        return original.t2.exportPreview({workspaces:[destination],
+          include_history:true,include_relations:true,
+          include_assets:true,include_schemas:true});
+      },{SERVICE,destination});
+      assert.equal(signedInventory.counts.objects,2);
+      assert.equal(signedInventory.counts.relations,1);
       assert.ok(originalOwner.proofCount>=3,
         "original signed Access must recheck preview, commit and readback");
       // Revoke the HUMAN parent after successful recipient import. The
@@ -338,7 +370,8 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       console.log("T3_D4_ORIGINAL_T2_UNSUPPORTED_VERSION_AND_TRAVERSAL_PASS",
         JSON.stringify({originalParser:true,negative:negative.outcomes,
           recipientStoreUnchanged:true}));
-      const raw=await independent.evaluate(async({SERVICE,workspace,object,bytes})=>{
+      const raw=await independent.evaluate(async({SERVICE,workspace,object,
+        linkedObject,bytes})=>{
         const original=await window.IWXA.connect({service_id:SERVICE});
         if(original.contract_version!=="1.3.0"||
            original.runtime_version!=="0.3.6")throw Error("NOT_ORIGINAL_T2");
@@ -359,13 +392,21 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
             include_assets:true,include_relations:true,conflict:"fail"},
         });
         const record=await original.t1.getObject(workspace,object);
+        const linked=await original.t1.getObject(workspace,linkedObject);
+        const inventory=await original.t2.exportPreview({workspaces:[workspace],
+          include_history:true,include_relations:true,
+          include_assets:true,include_schemas:true});
         const events=await original.t1.listEventsSince(workspace);
         return {beforeAbsent:before===null||before===undefined,
+          linkedTitle:linked?.object?.data?.title,
+          linkedExtension:linked?.object?.extensions?.future?.preserve,
+          originalExtension:record?.object?.extensions?.future?.preserve,
+          objects:inventory.counts.objects,relations:inventory.counts.relations,
           truncatedZipDenied,mode,source:preview.preview.manifest.workspaces[0],
           receiptMode:receipt.mode,receiptSource:receipt.workspace_id_map?.[workspace],
           title:record?.object?.data?.title,revision:record?.object?.revision,
           eventIds:events.map(e=>e.event_id)};
-      },{SERVICE,workspace,object,bytes:saved.archiveBytes});
+      },{SERVICE,workspace,object,linkedObject,bytes:saved.archiveBytes});
       assert.equal(raw.beforeAbsent,true,
         "the independent T2 recipient must have its own empty original Store");
       assert.equal(raw.truncatedZipDenied,true,
@@ -379,6 +420,11 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
         assert.equal(raw.receiptSource,workspace);
       assert.equal(raw.title,title);
       assert.equal(raw.revision,saved.revision);
+      assert.equal(raw.objects,2);
+      assert.equal(raw.relations,1);
+      assert.equal(raw.linkedTitle,linkedTitle);
+      assert.equal(raw.originalExtension,"cross-consumer");
+      assert.equal(raw.linkedExtension,"linked-ref");
       assert.ok(raw.eventIds.includes(saved.event),
         "original event provenance must survive in the second recipient");
       await t2Recipient.close();t2Recipient=null;
@@ -396,6 +442,7 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
         consumerPorts:["signed-selected-T3","original-T2-Exchange"],
         independentlyPersistedRecipientStores:2,
         exactOriginalArchiveBytes:true,originalEventProvenanceRecovered:true,
+        linkedObjectsPreserved:2,relationsPreserved:1,unknownExtensionsPreserved:true,
         corruptZipRejectedByOriginalParser:true,
         secondConsumerColdRestartReadback:true,
         twoDifferentInstalledProductsAccepted:false,
