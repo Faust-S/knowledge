@@ -154,6 +154,49 @@ test("original D3 Kernel relay is session-bound and never replays an unknown gra
   assert.equal(detached,2);
   relay.close();
 });
+test("original D3 relay closes a native binding completed after its session was revoked",{
+  timeout:8000,
+},async()=>{
+  let nativeReady,releaseNative,attached=false,detaches=0,attempt=0;
+  const entered=new Promise(resolve=>{nativeReady=resolve;});
+  const gate=new Promise(resolve=>{releaseNative=resolve;});
+  const relay=createOriginalKernelNativeRelay({
+    currentEpoch:()=>7,
+    onAttach:async()=>{
+      attempt++;
+      if(attempt===1){nativeReady();await gate;}
+      // The native owner can finish AFTER the browser session was detached.
+      attached=true;
+      return true;
+    },
+    onDetach:()=>{attached=false;detaches++;},
+    timeoutMs:1000,
+  });
+  const sessionInfo={contract_version:"1.3.0",runtime_version:"0.3.6",
+    service_id:"iwxa.workspace.relay",mode:"ready",
+    granted_operations:["t1.commitObjectGraph","t1.getObject",
+      "t1.listEventsSince"]};
+  const first=relay.exchange({verb:"attach",payload:{sessionInfo}},7);
+  await entered;
+  assert.equal(relay.attached,false,"an unfinished native bind is not live");
+  assert.equal(relay.nativeKernel,null);
+  relay.invalidate();
+  await assert.rejects(relay.exchange({
+    verb:"attach",payload:{sessionInfo}},7),
+  {code:"T3_D3_ORIGINAL_KERNEL_ATTACH_IN_PROGRESS"},
+  "a fresh session must not race an older native onAttach");
+  releaseNative();
+  await assert.rejects(first,{code:"T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED"});
+  assert.equal(attached,false,
+    "a native owner that attached after revocation must be detached again");
+  assert.ok(detaches>=2,"cleanup occurs both on revoke and after late attach");
+  const second=await relay.exchange({verb:"attach",payload:{sessionInfo}},7);
+  assert.equal(relay.attached,true);
+  assert.equal(attached,true);
+  await relay.exchange({verb:"detach",payload:{sessionId:second.sessionId}},7);
+  assert.equal(attached,false);
+  relay.close();
+});
 test("original D3 Kernel relay uses the SAME authenticated Control route, not another server",{
   timeout:12000,
 },async()=>{

@@ -27,7 +27,7 @@ export function createOriginalKernelNativeRelay({
     typeof onDetach==="function"&&Number.isSafeInteger(timeoutMs)&&
     timeoutMs>=1000&&timeoutMs<=60000,
     "T3_D3_ORIGINAL_KERNEL_RELAY_HOST_REQUIRED");
-  let live=null,pending=null,closed=false,nextId=1;
+  let live=null,pending=null,closed=false,nextId=1,attaching=null;
   const detach=reason=>{
     const prior=live;
     live=null;
@@ -71,8 +71,10 @@ export function createOriginalKernelNativeRelay({
     });
   };
   return Object.freeze({
-    get attached(){return !closed&&live!==null;},
-    get nativeKernel(){return live?.kernel??null;},
+    // An uncompleted native attach must never advertise an APPLY-capable
+    // Kernel to the installed owner, even before its epoch is rechecked.
+    get attached(){return !closed&&live!==null&&attaching!==live;},
+    get nativeKernel(){return !closed&&live&&attaching!==live?live.kernel:null;},
     invalidate(){detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");},
     close(){closed=true;detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");},
     async exchange({verb,payload}={},requestEpoch){
@@ -83,6 +85,10 @@ export function createOriginalKernelNativeRelay({
         fail("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
       }
       if(verb==="attach"){
+        // The old onAttach may still be completing after a detach. Do not let
+        // a new session race the native owner while its previous binding is
+        // being installed or torn down.
+        check(attaching===null,"T3_D3_ORIGINAL_KERNEL_ATTACH_IN_PROGRESS");
         check(!live&&validSession(payload?.sessionInfo),
           "T3_D3_ORIGINAL_KERNEL_SESSION_INVALID");
         const grants=clone(payload.sessionInfo);
@@ -93,17 +99,25 @@ export function createOriginalKernelNativeRelay({
         const kernel=kernelFor(epoch,grants,sessionId);
         const state={epoch,sessionId,grants,kernel};
         live=state;
-        try{check(await onAttach(kernel)===true,
-          "T3_D3_ORIGINAL_KERNEL_OWNER_ATTACH_FAILED");}
-        catch(error){
-          detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+        attaching=state;
+        try{
+          check(await onAttach(kernel)===true,
+            "T3_D3_ORIGINAL_KERNEL_OWNER_ATTACH_FAILED");
+          if(await currentEpoch()!==epoch||live!==state)
+            fail("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+          return {sessionId,contextEpoch:epoch};
+        }catch(error){
+          if(live===state)detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+          else{
+            // A detach while onAttach was pending may have run BEFORE the
+            // original native owner finished installing its binding. Close
+            // that late binding now, before a replacement can be admitted.
+            try{onDetach();}catch{/* never restore a stale Host */}
+          }
           throw error;
+        }finally{
+          if(attaching===state)attaching=null;
         }
-        if(await currentEpoch()!==epoch||live!==state){
-          detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
-          fail("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
-        }
-        return {sessionId,contextEpoch:epoch};
       }
       same(payload?.sessionId,requestEpoch);
       if(verb==="next"){
