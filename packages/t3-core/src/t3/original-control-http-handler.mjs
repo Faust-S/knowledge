@@ -173,6 +173,11 @@ export function createOriginalControlHttpHandler({
   // remains the durable idempotency and STATUS-floor authority.
   const nativePublisherInFlight=new Set();
   const nativePublisherDispatched=new Set();
+  // Import preview tokens belong to the ORIGINAL installed Kernel. A lost
+  // reply cannot authorize a second native import. This is an in-process
+  // duplicate claim only; durable recovery remains the original owner's job.
+  const nativeAgeImportInFlight=new Set();
+  const nativeAgeImportDispatched=new Set();
   // D6 ports may be reconstructed by installed products for each HTTP call.
   // This Host-lifetime claim prevents concurrent native writes and a second
   // dispatch after a lost reply, without replacing native durable receipts.
@@ -565,44 +570,64 @@ export function createOriginalControlHttpHandler({
                 .includes(payload.plan.mode),
               "T3_D7_NATIVE_KERNEL_COMMIT_REQUEST_INVALID");
             const recipient=await d7Recipient(age);
-            const inputCommit={preview_token:payload.preview_token,
-              package_digest:payload.package_digest,plan:payload.plan};
-            requireThat(await owner.authorizeAgeImportCommit({
-              contextEpoch:before,recipientId:recipient.recipientId,
-              previewToken:payload.preview_token,
-              packageDigest:payload.package_digest,plan:payload.plan,
-            })===true,"T3_D7_NATIVE_KERNEL_COMMIT_DENIED");
-            requireThat(d7Same(recipient,await d7Recipient(age))&&
-              before===await epochNow()&&authenticated(req),
+            const key=JSON.stringify([recipient.recipientId,recipient.bindingEpoch,
+              payload.preview_token]);
+            // A reconstituted nativeD7PortFor() object must not bypass the
+            // same Host's one-dispatch rule for an original preview token.
+            requireThat(!nativeAgeImportInFlight.has(key)&&
+              !nativeAgeImportDispatched.has(key),
               "T3_D7_NATIVE_OUTCOME_UNKNOWN");
-            // No retry: a lost reply from ORIGINAL Kernel.importCommit
-            // means its outcome is unknown until original readback.
-            let nativeReceipt;
+            nativeAgeImportInFlight.add(key);
             try{
-              nativeReceipt=await age.commitInOriginalKernel({
-                ...inputCommit,recipientId:recipient.recipientId,
-              });
-            }catch{refused("T3_D7_NATIVE_OUTCOME_UNKNOWN");}
-            requireThat(d7Same(recipient,await d7Recipient(age))&&
-              before===await epochNow()&&authenticated(req),
-              "T3_D7_NATIVE_OUTCOME_UNKNOWN");
-            requireThat(nativeReceipt?.format==="iwxa.import.receipt"&&
-              typeof nativeReceipt.import_id==="string"&&
-              nativeReceipt.package_digest===payload.package_digest&&
-              typeof nativeReceipt.semantic_digest==="string"&&
-              nativeReceipt.mode===payload.plan.mode&&
-              nativeReceipt.applied&&typeof nativeReceipt.applied==="object",
-              "T3_D7_NATIVE_OUTCOME_UNKNOWN");
-            result=d7Public(nativeReceipt,[
-              "import_id","format","format_version","package_digest",
-              "semantic_digest","mode","conflict_policy","committed_at",
-              "applied","skipped_conflicts","workspace_id_map",
-              "excluded_by_permission","cancelled"]);
+              const inputCommit={preview_token:payload.preview_token,
+                package_digest:payload.package_digest,plan:payload.plan};
+              requireThat(await owner.authorizeAgeImportCommit({
+                contextEpoch:before,recipientId:recipient.recipientId,
+                previewToken:payload.preview_token,
+                packageDigest:payload.package_digest,plan:payload.plan,
+              })===true,"T3_D7_NATIVE_KERNEL_COMMIT_DENIED");
+              requireThat(d7Same(recipient,await d7Recipient(age))&&
+                before===await epochNow()&&authenticated(req),
+                "T3_D7_NATIVE_OUTCOME_UNKNOWN");
+              // Record the possibility of a write BEFORE invoking original
+              // Kernel. Never release this claim on lost ACK or bad readback.
+              nativeAgeImportDispatched.add(key);
+              let nativeReceipt;
+              try{
+                nativeReceipt=await age.commitInOriginalKernel({
+                  ...inputCommit,recipientId:recipient.recipientId,
+                });
+              }catch{refused("T3_D7_NATIVE_OUTCOME_UNKNOWN");}
+              requireThat(d7Same(recipient,await d7Recipient(age))&&
+                before===await epochNow()&&authenticated(req),
+                "T3_D7_NATIVE_OUTCOME_UNKNOWN");
+              requireThat(nativeReceipt?.format==="iwxa.import.receipt"&&
+                typeof nativeReceipt.import_id==="string"&&
+                nativeReceipt.package_digest===payload.package_digest&&
+                typeof nativeReceipt.semantic_digest==="string"&&
+                nativeReceipt.mode===payload.plan.mode&&
+                nativeReceipt.applied&&typeof nativeReceipt.applied==="object",
+                "T3_D7_NATIVE_OUTCOME_UNKNOWN");
+              result=d7Public(nativeReceipt,[
+                "import_id","format","format_version","package_digest",
+                "semantic_digest","mode","conflict_policy","committed_at",
+                "applied","skipped_conflicts","workspace_id_map",
+                "excluded_by_permission","cancelled"]);
+            }finally{
+              nativeAgeImportInFlight.delete(key);
+            }
           }else if(verb==="cancelImport"){
             requireThat(ageNativeImport,"T3_D7_NATIVE_KERNEL_CANCEL_UNAVAILABLE");
             requireThat(REF.test(payload.preview_token??""),
               "T3_D7_NATIVE_KERNEL_CANCEL_REQUEST_INVALID");
             const recipient=await d7Recipient(age);
+            const key=JSON.stringify([recipient.recipientId,recipient.bindingEpoch,
+              payload.preview_token]);
+            // Cancel while the original Kernel could be writing is not a
+            // verified rollback and must not be reported as successful.
+            requireThat(!nativeAgeImportInFlight.has(key)&&
+              !nativeAgeImportDispatched.has(key),
+              "T3_D7_NATIVE_OUTCOME_UNKNOWN");
             const cancelled=await age.cancelInOriginalKernel({
               preview_token:payload.preview_token,
               recipientId:recipient.recipientId,
@@ -769,8 +794,8 @@ export function createOriginalControlHttpHandler({
           }
         }
         requireThat(before===await epochNow()&&authenticated(req),
-          input.verb==="publisher.apply"?"T3_D7_NATIVE_OUTCOME_UNKNOWN":
-            "STALE_CONTEXT_OPERATION");
+          ["publisher.apply","age.commitImport"].includes(input.verb)
+            ?"T3_D7_NATIVE_OUTCOME_UNKNOWN":"STALE_CONTEXT_OPERATION");
         reply(res,200,{result});
         return true;
       }

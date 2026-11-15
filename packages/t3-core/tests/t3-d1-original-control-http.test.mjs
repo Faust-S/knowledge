@@ -608,7 +608,10 @@ test("D7 installed age verifies and previews original Kernel without returning d
   const cipher=Uint8Array.from([
     ...new TextEncoder().encode("age-encryption.org/v1\n"),1,2,3,4]);
   const archiveSha256="c".repeat(64);
-  let opened=0;
+  let opened=0,imports=0;
+  let signalCommitStarted,releaseCommit;
+  const commitStarted=new Promise(resolve=>{signalCommitStarted=resolve;});
+  const commitMayFinish=new Promise(resolve=>{releaseCommit=resolve;});
   const nativeD7PortFor=async()=>({ageOwner:{
     currentRecipient:async()=>({recipientId:"recipient:installed",
       bindingEpoch:"epoch:installed:one",privateKey:"NEVER_TO_WEB"}),
@@ -629,7 +632,11 @@ test("D7 installed age verifies and previews original Kernel without returning d
           originalPrivateArchive:"NOT_FOR_UI"},
       };
     },
-    commitInOriginalKernel:async input=>({
+    commitInOriginalKernel:async input=>{
+      imports++;
+      signalCommitStarted();
+      await commitMayFinish;
+      return {
       import_id:"import:native:one",format:"iwxa.import.receipt",
       format_version:"1.0",package_digest:input.package_digest,
       semantic_digest:"sem:one",mode:input.plan.mode,
@@ -640,7 +647,8 @@ test("D7 installed age verifies and previews original Kernel without returning d
       skipped_conflicts:[],workspace_id_map:{},
       excluded_by_permission:{workspaces:0,objects:0,events:0,
         relations:0,assets:0},
-    }),
+      };
+    },
     cancelInOriginalKernel:async()=>true,
   },authorizeAgeImportCommit:async()=>true});
   const f=await fixture({nativeD7PortFor});
@@ -657,15 +665,32 @@ test("D7 installed age verifies and previews original Kernel without returning d
     assert.equal(result.handle.preview_token,"tok:native:one");
     assert.equal(result.archiveSha256,archiveSha256);
     const plan={mode:"new-workspace",include_workspaces:[]};
-    const committed=await f.browser.nativeD7Request("age.commitImport",{
+    const request={preview_token:result.handle.preview_token,
+      package_digest:result.handle.package_digest,plan};
+    const first=f.browser.nativeD7Request("age.commitImport",request);
+    await commitStarted;
+    // Even when the installed product reconstructs its native owner for
+    // every HTTP request, a second native write and a racing cancel cannot
+    // pass while the first original Kernel commit is pending.
+    await assert.rejects(f.browser.nativeD7Request("age.commitImport",request),
+      {code:"T3_D7_NATIVE_OUTCOME_UNKNOWN"});
+    await assert.rejects(f.browser.nativeD7Request("age.cancelImport",{
       preview_token:result.handle.preview_token,
-      package_digest:result.handle.package_digest,plan,
-    });
+    }),{code:"T3_D7_NATIVE_OUTCOME_UNKNOWN"});
+    assert.equal(imports,1);
+    releaseCommit();
+    const committed=await first;
     assert.equal(committed.format,"iwxa.import.receipt");
     assert.equal(committed.import_id,"import:native:one");
     assert.equal(committed.package_digest,"digest:one");
+    // A lost ACK would otherwise permit a second write. After original
+    // commit, only an independent original Kernel readback can establish
+    // the outcome; this Control never re-dispatches that preview token.
+    await assert.rejects(f.browser.nativeD7Request("age.commitImport",request),
+      {code:"T3_D7_NATIVE_OUTCOME_UNKNOWN"});
+    assert.equal(imports,1);
     const cancelled=await f.browser.nativeD7Request("age.cancelImport",{
-      preview_token:"tok:native:one",
+      preview_token:"tok:native:unused",
     });
     assert.equal(cancelled.cancelled,true);
     assert.equal(Object.hasOwn(result,"archiveBytes"),false);
