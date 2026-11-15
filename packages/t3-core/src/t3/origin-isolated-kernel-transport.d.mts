@@ -21,6 +21,8 @@ interface TrustedRealmServerArgs {
   selectedWorkspaceContext?(operation: string): Promise<unknown> | unknown;
   /** Only the native signed Control can execute these D3 operations. */
   reconciliationRequest?(verb: string,payload?: unknown): Promise<unknown> | unknown;
+  /** An installed original D6 signed Result port through Control/SSE. */
+  nativeD6Request?(verb: string,payload?: unknown): Promise<unknown> | unknown;
   /** Original installed age/Publisher owner through the same Control/SSE. */
   nativeD7Request?(verb: string,payload?: unknown): Promise<unknown> | unknown;
 }

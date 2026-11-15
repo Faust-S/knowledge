@@ -25,6 +25,21 @@ const D3_METHODS=["receive","preview","receipt","accept","reject","inspectAccept
 // this route. These historical native owners support 32 MiB / 4 MiB respectively.
 const D7_ARCHIVE=32*1024*1024,D7_CIPHER=33*1024*1024,D7_LICENSE=4*1024*1024;
 const MAX_D7_BODY=Math.ceil(D7_CIPHER*4/3)+16*1024;
+// An installed D6 owner supplies the existing signed native Result port.
+// Only references and original receipts cross Control; source Objects do not.
+const D6_VERBS=new Set(["available","preview","continueSelected","recover"]);
+const D6_STATUSES=new Set(["AVAILABLE","RECOVER_ONLY","OPERATION_IN_PROGRESS",
+  "USER_CANCELLED","OUTCOME_UNKNOWN","OWNER_READBACK_CONFIRMED"]);
+const D6_FIELDS=["status","operationId","recipientId","resultRef","reference","reason"];
+function d6Reference(input){
+  const ref=input?.reference;
+  requireThat(ref&&typeof ref==="object"&&!Array.isArray(ref)&&
+    REF.test(ref.workspace_id??"")&&REF.test(ref.object_id??"")&&
+    REF.test(ref.schema_id??"")&&Number.isSafeInteger(ref.revision)&&
+    ref.revision>0,"T3_D6_SELECTED_REFERENCE_INVALID");
+  return Object.freeze({workspace_id:ref.workspace_id,object_id:ref.object_id,
+    schema_id:ref.schema_id,revision:ref.revision});
+}
 const D7_VERBS=new Set(["available","age.currentRecipient","age.prepareSeal",
   "age.seal","age.open","publisher.currentSubject","publisher.inspect",
   "publisher.apply","publisher.receipt","publisher.statusReadback"]);
@@ -119,7 +134,7 @@ function errorCode(error){
 export function createOriginalControlHttpHandler({
   origin,token,readToken=null,ownerFor,currentEpoch,subscribeInvalidation,
   uiOrigin=null,serviceId=null,assetForPath=null,
-  reconciliationPortFor=null,nativeD7PortFor=null,
+  reconciliationPortFor=null,nativeD7PortFor=null,nativeD6PortFor=null,
 }={}){
   requireThat(typeof origin==="string"&&LOCAL.test(origin)&&
     new URL(origin).origin===origin,"T3_D1_CONTROL_ORIGIN_REQUIRED");
@@ -148,6 +163,11 @@ export function createOriginalControlHttpHandler({
   // read + native Human confirmation via authorizeAgeSeal.
   requireThat(nativeD7PortFor===null||typeof nativeD7PortFor==="function",
     "T3_D7_ORIGINAL_NATIVE_OWNER_PROVIDER_INVALID");
+  // The installed product must bind its existing signed D6 continuation
+  // to the ORIGINAL Kernel/owner before supplying this port. We never accept
+  // an untrusted browser-selected owner or raw Object for native delivery.
+  requireThat(nativeD6PortFor===null||typeof nativeD6PortFor==="function",
+    "T3_D6_ORIGINAL_NATIVE_OWNER_PROVIDER_INVALID");
   // Only an in-process duplicate guard. The ORIGINAL installed Publisher
   // remains the durable idempotency and STATUS-floor authority.
   const nativePublisherInFlight=new Set();
@@ -292,7 +312,8 @@ export function createOriginalControlHttpHandler({
         return true;
       }
       requireThat(route==="/api/t3/owner"||route==="/api/t3/reconciliation"||
-        route==="/api/t3/native-d7","T3_D1_CONTROL_ROUTE_DENIED");
+        route==="/api/t3/native-d7"||route==="/api/t3/native-d6",
+        "T3_D1_CONTROL_ROUTE_DENIED");
       requireThat(req.method==="POST"&&req.headers.origin===origin&&
         /^application\/json\b/i.test(req.headers["content-type"]??""),
         "T3_D1_CONTROL_POST_ORIGIN_DENIED");
@@ -303,6 +324,56 @@ export function createOriginalControlHttpHandler({
         requestEpoch===String(before),"STALE_CONTEXT_OPERATION");
       const input=await bodyFrom(req,route==="/api/t3/reconciliation"
         ?MAX_D3_BODY:route==="/api/t3/native-d7"?MAX_D7_BODY:MAX_BODY);
+      if(route==="/api/t3/native-d6"){
+        requireThat(D6_VERBS.has(input.verb)&&input.payload&&
+          typeof input.payload==="object"&&!Array.isArray(input.payload),
+          "T3_D6_NATIVE_REQUEST_INVALID");
+        requireThat(before===await epochNow()&&authenticated(req),
+          "STALE_CONTEXT_OPERATION");
+        const port=nativeD6PortFor===null?null:await nativeD6PortFor({
+          contextEpoch:before,
+        });
+        requireThat(before===await epochNow()&&authenticated(req),
+          "STALE_CONTEXT_OPERATION");
+        const ready=port&&typeof port.preview==="function"&&
+          typeof port.continueSelected==="function"&&
+          typeof port.recover==="function";
+        if(input.verb==="available"){
+          reply(res,200,{result:{available:!!ready}});
+          return true;
+        }
+        requireThat(ready,"T3_D6_ORIGINAL_NATIVE_OWNER_UNAVAILABLE");
+        const reference=d6Reference(input.payload);
+        let observed;
+        try{observed=await port[input.verb](reference);}
+        catch(error){
+          // After dispatch a lost ACK may hide a persisted native Result.
+          // The next action must be explicit recover(), never another send.
+          if(input.verb==="continueSelected")
+            refused("T3_D6_NATIVE_OUTCOME_UNKNOWN");
+          throw error;
+        }
+        requireThat(before===await epochNow()&&authenticated(req),
+          input.verb==="continueSelected"?"T3_D6_NATIVE_OUTCOME_UNKNOWN":
+            "STALE_CONTEXT_OPERATION");
+        requireThat(observed&&D6_STATUSES.has(observed.status)&&
+          (observed.operationId===undefined||REF.test(observed.operationId))&&
+          (observed.recipientId===undefined||REF.test(observed.recipientId))&&
+          (observed.resultRef===undefined||REF.test(observed.resultRef))&&
+          (observed.reason===undefined||typeof observed.reason==="string")&&
+          (!observed.reference||(
+            observed.reference.workspace_id===reference.workspace_id&&
+            observed.reference.object_id===reference.object_id&&
+            observed.reference.schema_id===reference.schema_id&&
+            observed.reference.revision===reference.revision)),
+          "T3_D6_ORIGINAL_NATIVE_RECEIPT_INVALID");
+        // No Object bytes, owner secrets, Kernel session, or signed Access
+        // proof can be returned by this transport.
+        const result=Object.fromEntries(D6_FIELDS.filter(k=>
+          Object.hasOwn(observed,k)).map(k=>[k,observed[k]]));
+        reply(res,200,{result});
+        return true;
+      }
       if(route==="/api/t3/native-d7"){
         requireThat(D7_VERBS.has(input.verb)&&input.payload&&
           typeof input.payload==="object"&&!Array.isArray(input.payload),

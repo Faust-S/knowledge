@@ -11,7 +11,8 @@ import {createSubjectKernelBinding}
 import {createTemporaryOriginalPersonalAuthority}
   from "./support/t3-original-personal-authority.mjs";
 
-async function fixture({reconciliationPortFor=null,nativeD7PortFor=null}={}){
+async function fixture({reconciliationPortFor=null,nativeD7PortFor=null,
+  nativeD6PortFor=null}={}){
   const token=randomBytes(32).toString("base64url");
   let origin=null,handle=null,epoch=1;
   const listeners=new Set(),calls=[];
@@ -38,7 +39,7 @@ async function fixture({reconciliationPortFor=null,nativeD7PortFor=null}={}){
     },
     ownerFor:({scope,operation})=>
       scope==="kernel"&&operation==="putObject"?authority.access:null,
-    reconciliationPortFor,nativeD7PortFor,
+    reconciliationPortFor,nativeD7PortFor,nativeD6PortFor,
   });
   const originFetch=(url,options={})=>fetch(url,{
     ...options,headers:{...options.headers,Origin:origin},
@@ -535,5 +536,56 @@ test("D7 native age refuses decrypted bytes if installed recipient changes mid-o
     await assert.rejects(f.browser.nativeD7Request("age.open",{
       ciphertext,recipientId:"recipient:installed",
     }),{code:"T3_D7_ORIGINAL_NATIVE_RECIPIENT_CHANGED"});
+  }finally{stop();await f.close();}
+});
+
+test("D6 original Control connects installed signed Result port without sending source Object",async()=>{
+  const reference={workspace_id:"ws:personal",object_id:"result:001",
+    schema_id:"original-result",revision:3};
+  let writes=0;
+  let recorded=false;
+  // Transport-only fixture: the real installed product must supply a port
+  // built with createTrustedNativeContinuation and original signed Kernel.
+  const nativeD6PortFor=async()=>({
+    preview:async input=>({status:recorded?"RECOVER_ONLY":"AVAILABLE",
+      operationId:"op:native:one",recipientId:"recipient:atlas",reference:input}),
+    continueSelected:async input=>{
+      writes++;
+      recorded=true;
+      return {status:"OWNER_READBACK_CONFIRMED",operationId:"op:native:one",
+        recipientId:"recipient:atlas",resultRef:"result:atlas:one",reference:input,
+        internalCredential:"NEVER_TO_UI",sourceObject:{secret:"NEVER_TO_UI"}};
+    },
+    recover:async input=>({status:recorded?"OWNER_READBACK_CONFIRMED":"OUTCOME_UNKNOWN",
+      operationId:"op:native:one",recipientId:"recipient:atlas",
+      resultRef:recorded?"result:atlas:one":undefined,reference:input}),
+  });
+  const f=await fixture({nativeD6PortFor});
+  const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
+  try{
+    assert.deepEqual(await f.browser.nativeD6Request("available",{}),
+      {available:true});
+    const preview=await f.browser.nativeD6Request("preview",{reference});
+    assert.equal(preview.status,"AVAILABLE");
+    assert.deepEqual(preview.reference,reference);
+    const delivered=await f.browser.nativeD6Request("continueSelected",{reference});
+    assert.equal(delivered.status,"OWNER_READBACK_CONFIRMED");
+    assert.equal(delivered.resultRef,"result:atlas:one");
+    assert.equal(Object.hasOwn(delivered,"internalCredential"),false);
+    assert.equal(Object.hasOwn(delivered,"sourceObject"),false);
+    assert.equal(writes,1);
+    assert.equal((await f.browser.nativeD6Request("recover",{reference})).status,
+      "OWNER_READBACK_CONFIRMED");
+    await assert.rejects(f.browser.nativeD6Request("continueSelected",{
+      reference:{...reference,revision:0},
+    }),{code:"T3_D6_SELECTED_REFERENCE_INVALID"});
+    assert.equal(writes,1);
+    const forged=await fetch(f.origin+"/api/t3/native-d6",{
+      method:"POST",headers:{Authorization:"Bearer "+f.token,
+        Origin:"http://127.0.0.1:3000","Content-Type":"application/json",
+        "X-IWXA-Context-Epoch":"1"},
+      body:JSON.stringify({verb:"preview",payload:{reference}}),
+    });
+    assert.equal(forged.status,403);
   }finally{stop();await f.close();}
 });

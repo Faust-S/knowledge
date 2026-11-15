@@ -5,6 +5,7 @@
 const LOCAL=/^https?:\/\/127\.0\.0\.1:[0-9]{1,5}$/;
 const TOKEN=/^[A-Za-z0-9_-]{40,128}$/;
 const KINDS=new Set(["kernel","activity"]);
+const D6_VERBS=new Set(["available","preview","continueSelected","recover"]);
 const D7_VERBS=new Set(["available","age.currentRecipient","age.prepareSeal",
   "age.seal","age.open","publisher.currentSubject","publisher.inspect",
   "publisher.apply","publisher.receipt","publisher.statusReadback"]);
@@ -191,6 +192,49 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
   };
   // Signed installed-native D7 uses the SAME local bearer, SSE and epoch
   // as the original D1 Control. No private owner or key enters the UI realm.
+  const nativeD6Request=async(verb,payload={})=>{
+    requireTransport();
+    const generation=selectionGeneration;
+    check(D6_VERBS.has(verb)&&validObject(payload),
+      "T3_D6_NATIVE_REQUEST_INVALID");
+    const epoch=await getEpoch();
+    requireGeneration(generation);
+    const mayCommit=verb==="continueSelected";
+    const codeOnLoss=mayCommit?"T3_D6_NATIVE_OUTCOME_UNKNOWN":
+      "T3_D6_ORIGINAL_NATIVE_OWNER_UNAVAILABLE";
+    const assertLive=()=>{
+      if(invalidationLost||generation!==selectionGeneration)
+        fail(mayCommit?"T3_D6_NATIVE_OUTCOME_UNKNOWN":
+          "T3_D1_CONTROL_INVALIDATION_UNAVAILABLE");
+    };
+    let response;
+    try{response=await fetchImpl(origin+"/api/t3/native-d6",{
+      method:"POST",mode:"same-origin",cache:"no-store",credentials:"omit",
+      headers:{...auth,"Content-Type":"application/json",
+        "X-IWXA-Context-Epoch":String(epoch)},
+      body:JSON.stringify({verb,payload}),
+    });}
+    catch{fail(codeOnLoss);}
+    assertLive();
+    if(!response.ok){
+      let code=codeOnLoss;
+      try{
+        const error=await response.json();
+        if(typeof error?.error==="string"&&/^[A-Z0-9_]{5,100}$/.test(error.error))
+          code=error.error;
+      }catch{}
+      assertLive();
+      fail(mayCommit?"T3_D6_NATIVE_OUTCOME_UNKNOWN":code);
+    }
+    let body;
+    try{body=await response.json();}
+    catch{fail(mayCommit?"T3_D6_NATIVE_OUTCOME_UNKNOWN":
+      "T3_D6_ORIGINAL_NATIVE_RESPONSE_INVALID");}
+    assertLive();
+    check(body&&Object.hasOwn(body,"result")&&validObject(body.result),
+      "T3_D6_ORIGINAL_NATIVE_RESPONSE_INVALID");
+    return body.result;
+  };
   const nativeD7Request=async(verb,payload={})=>{
     requireTransport();
     const generation=selectionGeneration;
@@ -381,6 +425,7 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
     },
     subscribeSignedAccessInvalidation,
     reconciliationRequest,
+    nativeD6Request,
     nativeD7Request,
   });
 }

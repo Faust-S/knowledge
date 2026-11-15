@@ -50,6 +50,7 @@ export interface AppProps {
   /** Compiled installed products may inject their ORIGINAL native owners.
    * They never originate from a URL, imported .iwxa, or domain manifest. */
   nativeContinuationOwner?: CreateWorkspaceHostRuntimeInput["nativeContinuationOwner"];
+  nativeContinuationPort?: CreateWorkspaceHostRuntimeInput["nativeContinuationPort"];
   confirmNativeContinuation?: CreateWorkspaceHostRuntimeInput["confirmNativeContinuation"];
   ageOwner?: CreateWorkspaceHostRuntimeInput["ageOwner"];
   confirmAgeRecipients?: CreateWorkspaceHostRuntimeInput["confirmAgeRecipients"];
@@ -74,7 +75,7 @@ export interface AppProps {
 export default function App({
   requireSignedOwner = false, signedKernelAccess, signedActivityAccess,
   reconciliationPort,
-  nativeContinuationOwner,confirmNativeContinuation,
+  nativeContinuationOwner,nativeContinuationPort,confirmNativeContinuation,
   ageOwner,confirmAgeRecipients,
   publisherHolder,confirmPublisherHandoff,
   subscribeSignedAccessInvalidation,
@@ -137,6 +138,7 @@ export default function App({
       signedActivityAccess={signedActivityAccess}
       reconciliationPort={reconciliationPort}
       nativeContinuationOwner={nativeContinuationOwner}
+      nativeContinuationPort={nativeContinuationPort}
       confirmNativeContinuation={confirmNativeContinuation}
       ageOwner={ageOwner}
       confirmAgeRecipients={confirmAgeRecipients}

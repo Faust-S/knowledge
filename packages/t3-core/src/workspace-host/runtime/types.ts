@@ -110,6 +110,9 @@ export interface CreateWorkspaceHostRuntimeInput {
   reconciliationPort?: T3ReconciliationHostPort;
   /** Only the trusted installed product may supply these callbacks. */
   nativeContinuationOwner?: T3NativeContinuationOwner;
+  /** Existing signed native D6 port resolved by installed Control. No
+   * unsigned UI-side owner/Access may be used with this port. */
+  nativeContinuationPort?: ReturnType<typeof createTrustedNativeContinuation>;
   confirmNativeContinuation?: Parameters<typeof createTrustedNativeContinuation>[0]["confirmHuman"];
   /** Compiled Host only, never a webpage or imported archive. */
   ageOwner?: T3OriginalAgeOwner;

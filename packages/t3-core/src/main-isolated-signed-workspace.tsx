@@ -117,6 +117,25 @@ async function launch(){
           target:Record<string,unknown>})=>requestD3("recoverApplied",input),
       }:{}),
     }):undefined;
+    // D6 continuation uses the ORIGINAL signed native owner in Control.
+    // Only selected Object refs and original Result receipts cross the port.
+    // The native owner performs the signed Kernel read and Human Review.
+    const d6=await client.invoke("nativeD6Request","available",{})
+      .catch((error:unknown)=>{
+        const code=(error as {code?:string}|null)?.code;
+        if(code==="T3_D1_ORIGINAL_KERNEL_METHOD_FORBIDDEN"||
+           code==="T3_D6_ORIGINAL_NATIVE_OWNER_UNAVAILABLE"||
+           code==="T3_D1_CONTROL_ROUTE_DENIED"||
+           code==="CONTROL_OWNER_UNAVAILABLE")return {available:false};
+        throw error;
+      });
+    const requestD6=(verb:string,reference:unknown)=>
+      client.invoke("nativeD6Request",verb,{reference});
+    const nativeContinuationPort=d6?.available===true?Object.freeze({
+      preview:(reference:unknown)=>requestD6("preview",reference),
+      continueSelected:(reference:unknown)=>requestD6("continueSelected",reference),
+      recover:(reference:unknown)=>requestD6("recover",reference),
+    }):undefined;
     // D7 uses the SAME pinned signed Control channel as D1, but an original
     // installed owner must explicitly exist. The browser never holds a native
     // X25519 identity, Publisher signer, credential vault or status floor.
@@ -160,6 +179,7 @@ async function launch(){
       isolatedKernelRequired:true,
       trustedKernelBootstrap:bootstrap,
       reconciliationPort,
+      nativeContinuationPort,
       ageOwner,
       confirmAgeRecipients:ageOwner&&nativeD7?.ageSeal===true?
         async selection=>window.confirm(

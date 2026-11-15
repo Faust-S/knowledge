@@ -120,6 +120,8 @@ async function attach(event:MessageEvent){
         input as Parameters<typeof originalSession.t0.validate>[0]),
       reconciliationRequest:(verb:string,payload:Record<string,unknown>={})=>
         owner.reconciliationRequest(verb,payload),
+      nativeD6Request:(verb:string,payload:Record<string,unknown>={})=>
+        owner.nativeD6Request(verb,payload),
       nativeD7Request:(verb:string,payload:Record<string,unknown>={})=>
         owner.nativeD7Request(verb,payload),
       selectedWorkspaceContext:async (operation:string)=>{

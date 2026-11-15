@@ -72,6 +72,7 @@ export interface AppShellProps {
   reconciliationOwner?: CreateWorkspaceHostRuntimeInput["reconciliationOwner"];
   reconciliationPort?: CreateWorkspaceHostRuntimeInput["reconciliationPort"];
   nativeContinuationOwner?: CreateWorkspaceHostRuntimeInput["nativeContinuationOwner"];
+  nativeContinuationPort?: CreateWorkspaceHostRuntimeInput["nativeContinuationPort"];
   confirmNativeContinuation?: CreateWorkspaceHostRuntimeInput["confirmNativeContinuation"];
   ageOwner?: CreateWorkspaceHostRuntimeInput["ageOwner"];
   confirmAgeRecipients?: CreateWorkspaceHostRuntimeInput["confirmAgeRecipients"];
@@ -122,6 +123,7 @@ export function AppShell(props: AppShellProps) {
     reconciliationOwner,
     reconciliationPort,
     nativeContinuationOwner,
+    nativeContinuationPort,
     confirmNativeContinuation,
     ageOwner,
     confirmAgeRecipients,
@@ -181,6 +183,7 @@ export function AppShell(props: AppShellProps) {
         reconciliationOwner={reconciliationOwner}
         reconciliationPort={reconciliationPort}
         nativeContinuationOwner={nativeContinuationOwner}
+        nativeContinuationPort={nativeContinuationPort}
         confirmNativeContinuation={confirmNativeContinuation}
         ageOwner={ageOwner}
         confirmAgeRecipients={confirmAgeRecipients}
@@ -447,6 +450,7 @@ interface RuntimeBridgeProps {
   reconciliationOwner?: CreateWorkspaceHostRuntimeInput["reconciliationOwner"];
   reconciliationPort?: CreateWorkspaceHostRuntimeInput["reconciliationPort"];
   nativeContinuationOwner?: CreateWorkspaceHostRuntimeInput["nativeContinuationOwner"];
+  nativeContinuationPort?: CreateWorkspaceHostRuntimeInput["nativeContinuationPort"];
   confirmNativeContinuation?: CreateWorkspaceHostRuntimeInput["confirmNativeContinuation"];
   ageOwner?: CreateWorkspaceHostRuntimeInput["ageOwner"];
   confirmAgeRecipients?: CreateWorkspaceHostRuntimeInput["confirmAgeRecipients"];
@@ -459,7 +463,7 @@ interface RuntimeBridgeProps {
 function AppShellRuntimeBridge({
   session, hostWorkspace, profile, signedKernelAccess, signedActivityAccess,
   reconciliationOwner, reconciliationPort, nativeContinuationOwner,
-  confirmNativeContinuation, ageOwner, confirmAgeRecipients,
+  nativeContinuationPort, confirmNativeContinuation, ageOwner, confirmAgeRecipients,
   publisherHolder, confirmPublisherHandoff,
   subscribeSignedAccessInvalidation, children,
 }: RuntimeBridgeProps) {
@@ -499,6 +503,7 @@ function AppShellRuntimeBridge({
       reconciliationOwner={reconciliationOwner}
       reconciliationPort={reconciliationPort}
       nativeContinuationOwner={nativeContinuationOwner}
+      nativeContinuationPort={nativeContinuationPort}
       confirmNativeContinuation={confirmNativeContinuation}
       ageOwner={ageOwner}
       confirmAgeRecipients={confirmAgeRecipients}
