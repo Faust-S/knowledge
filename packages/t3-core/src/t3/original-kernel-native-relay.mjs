@@ -10,7 +10,6 @@ const METHODS=Object.freeze({
   listEventsSince:"t1.listEventsSince",
 });
 const CODE=/^[A-Z][A-Z0-9_]{4,99}$/;
-const NONCE=/^[A-Za-z0-9_-]{40,128}$/;
 const fail=code=>{throw Object.assign(Error(code),{code});};
 const check=(ok,code)=>{if(!ok)fail(code);};
 const clone=value=>structuredClone(value);
@@ -43,19 +42,19 @@ export function createOriginalKernelNativeRelay({
     check(!closed&&live&&token===live.sessionId&&epoch===live.epoch,
       "T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
   };
-  const kernelFor=(epoch,grants)=>Object.freeze({
+  const kernelFor=(epoch,grants,sessionId)=>Object.freeze({
     sessionInfo:Object.freeze({
       contract_version:"1.3.0",runtime_version:grants.runtime_version,
       service_id:grants.service_id,mode:grants.mode??"unknown",
     }),
     hasOperation:id=>Object.values(METHODS).includes(id)&&
       grants.granted_operations.includes(id),
-    commitObjectGraph:input=>dispatch("commitObjectGraph",[input],epoch),
-    getObject:(ws,obj)=>dispatch("getObject",[ws,obj],epoch),
-    listEventsSince:(ws,since)=>dispatch("listEventsSince",[ws,since],epoch),
+    commitObjectGraph:input=>dispatch("commitObjectGraph",[input],epoch,sessionId),
+    getObject:(ws,obj)=>dispatch("getObject",[ws,obj],epoch,sessionId),
+    listEventsSince:(ws,since)=>dispatch("listEventsSince",[ws,since],epoch,sessionId),
   });
-  const dispatch=(method,args,epoch)=>{
-    check(!closed&&live&&live.epoch===epoch&&
+  const dispatch=(method,args,epoch,sessionId)=>{
+    check(!closed&&live&&live.epoch===epoch&&live.sessionId===sessionId&&
       live.grants.granted_operations.includes(METHODS[method]),
       "T3_D3_ORIGINAL_KERNEL_NOT_CONNECTED");
     check(pending===null,"T3_D3_ORIGINAL_KERNEL_OPERATION_IN_PROGRESS");
@@ -91,7 +90,7 @@ export function createOriginalKernelNativeRelay({
           name=>grants.granted_operations.includes(METHODS[name])),
           "T3_D3_ORIGINAL_KERNEL_OPERATIONS_REQUIRED");
         const epoch=requestEpoch,sessionId=randomBytes(32).toString("base64url");
-        const kernel=kernelFor(epoch,grants);
+        const kernel=kernelFor(epoch,grants,sessionId);
         const state={epoch,sessionId,grants,kernel};
         live=state;
         try{check(await onAttach(kernel)===true,
