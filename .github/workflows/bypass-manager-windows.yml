@@ -1,0 +1,64 @@
+name: Bypass Manager Windows qualification
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - work/2026-11-15-bypass-manager-0-3-alpha
+    paths:
+      - tools/bypass-manager/**
+      - .github/workflows/bypass-manager-windows.yml
+permissions:
+  contents: read
+jobs:
+  windows-native:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: tools/bypass-manager
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Run native Go tests
+        shell: pwsh
+        run: go test -count=1 ./...
+      - name: Vet and build GUI executable
+        shell: pwsh
+        run: |
+          go vet ./...
+          go build -trimpath -ldflags='-H windowsgui -s -w' -o Bypass-Manager.exe .
+          Get-FileHash Bypass-Manager.exe -Algorithm SHA256
+      - name: Validate PowerShell scripts and native CLI state
+        shell: powershell
+        run: |
+          .\Tests\Verify-Windows.ps1
+          $p=Start-Process -FilePath .\Bypass-Manager.exe -ArgumentList '--status' -PassThru -Wait
+          if($p.ExitCode -ne 0) { throw "CLI status failed $($p.ExitCode)" }
+      - name: Download fixed official upstream (test only)
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $sha='6b4375fa04f6bd7017eec379e16e462d3ea8df66'
+          $archive=Join-Path $env:RUNNER_TEMP 'upstream.zip'
+          $dest=Join-Path $env:RUNNER_TEMP 'upstream'
+          Invoke-WebRequest -Uri "https://codeload.github.com/bol-van/zapret-win-bundle/zip/$sha" -OutFile $archive -UseBasicParsing
+          Expand-Archive -LiteralPath $archive -DestinationPath $dest
+          $engine=Join-Path $dest "zapret-win-bundle-$sha\zapret-winws"
+          if(-not (Test-Path (Join-Path $engine 'winws2.exe'))) { throw 'Original winws2 not found in pinned upstream ZIP' }
+          Set-Content -Path (Join-Path $env:RUNNER_TEMP 'engine-path.txt') -Value $engine
+      - name: Validate original Lua and exact WinDivert filters (no traffic)
+        shell: powershell
+        run: |
+          $engine=Get-Content (Join-Path $env:RUNNER_TEMP 'engine-path.txt')
+          .\Tests\Verify-Windows.ps1 -WithUpstream -BundleRoot $engine
+      - name: Upload unsigned Windows build and test assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: bypass-manager-0-3-alpha-win64-unsigned
+          path: |
+            tools/bypass-manager/Bypass-Manager.exe
+            tools/bypass-manager/README-RU.md
+          if-no-files-found: error

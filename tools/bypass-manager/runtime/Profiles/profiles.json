@@ -1,0 +1,46 @@
+{
+  "schema": "bypass-manager-profiles-v1",
+  "profiles": {
+    "NONE": {
+      "transport": "ANY",
+      "experimental": false,
+      "why": "No packet manipulation: required control."
+    },
+    "TLS-SPLIT": {
+      "transport": "TCP",
+      "experimental": true,
+      "why": "Split outbound TLS ClientHello; does not repair blocked IP or later data-plane throttling.",
+      "desync": "multisplit:pos=1:seqovl=5:seqovl_pattern=0x1603030000"
+    },
+    "TLS-FAKESEQ": {
+      "transport": "TCP",
+      "experimental": true,
+      "why": "False TLS packet with TCP MD5 + sequence offset.",
+      "desync": "fake:blob=fake_default_tls:tcp_md5:tcp_seq=-10000:repeats=3"
+    },
+    "TLS-FAKETTL": {
+      "transport": "TCP",
+      "experimental": true,
+      "why": "False TLS packet with auto-TTL. Requires observing inbound packets.",
+      "desync": "fake:blob=fake_default_tls:ip_autottl=-1,3-20:tcp_md5"
+    },
+    "TLS-DISORDER": {
+      "transport": "TCP",
+      "experimental": true,
+      "why": "Out-of-order segmentation of TLS ClientHello.",
+      "desync": "multidisorder:pos=1,midsld"
+    },
+    "UDP-FAKE": {
+      "transport": "UDP",
+      "experimental": true,
+      "why": "Unclassified outbound UDP fake with bounded first datagrams; not a specific AWG 3.1 signature.",
+      "desync": "fake:blob=0x00000000000000000000000000000000:repeats=2:ip_autottl=-1,3-20"
+    },
+    "UDP-REPEAT": {
+      "transport": "UDP",
+      "experimental": true,
+      "why": "Repeat first outgoing AWG-UDP datagrams with original upstream zapret2 repeater; not a confirmed remedy for AWG 3.1 or IP blocks.",
+      "desync": "repeater:instances=2:repeats=2"
+    }
+  }
+}
