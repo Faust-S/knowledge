@@ -7,7 +7,8 @@ const TOKEN=/^[A-Za-z0-9_-]{40,128}$/;
 const KINDS=new Set(["kernel","activity"]);
 const D6_VERBS=new Set(["available","preview","continueSelected","recover"]);
 const D7_VERBS=new Set(["available","age.currentRecipient","age.prepareSeal",
-  "age.seal","age.open","age.previewImport","publisher.currentSubject","publisher.inspect",
+  "age.seal","age.open","age.previewImport","age.commitImport",
+  "age.cancelImport","publisher.currentSubject","publisher.inspect",
   "publisher.apply","publisher.receipt","publisher.statusReadback"]);
 const D7_LIMIT=Object.freeze({"age.seal":32*1024*1024,
   "age.open":33*1024*1024,"age.previewImport":33*1024*1024,
@@ -253,7 +254,7 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
     }
     const epoch=await getEpoch();
     requireGeneration(generation);
-    const write=verb==="publisher.apply";
+    const write=verb==="publisher.apply"||verb==="age.commitImport";
     const validAfter=()=>{
       if(invalidationLost||generation!==selectionGeneration)
         fail(write?"T3_D7_NATIVE_OUTCOME_UNKNOWN":

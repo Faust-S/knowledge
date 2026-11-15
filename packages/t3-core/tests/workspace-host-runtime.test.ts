@@ -136,6 +136,37 @@ describe("WorkspaceHostRuntime (PROMPT 19)", () => {
     expect(native.router.registry.isActive(hostRouteRefs.exchange.home)).toBe(false);
   });
 
+  it("opens original Exchange for complete native age preview/commit/cancel on clean install",async()=>{
+    const session={...fakeSession(),granted_operations:[]} as unknown as KernelSession;
+    const config={modules:[
+      {module_id:"iwxa.workspace.base",state:"active" as const,dependencies:[]},
+      {module_id:"iwxa.workspace.exchange",state:"active" as const,
+        dependencies:["iwxa.workspace.base"]},
+    ]};
+    // Native installed owner already contains the ORIGINAL signed Kernel.
+    // No Publisher, no local Workspace, no invented T2 data operation.
+    const ageOwner={
+      currentRecipient:async()=>({recipientId:"recipient:installed",
+        bindingEpoch:"epoch:one"}),
+      previewInOriginalKernel:async()=>{throw Error("ONLY_AFTER_FILE_OPEN");},
+      commitInOriginalKernel:async()=>{throw Error("ONLY_AFTER_HUMAN_CONFIRM");},
+      cancelInOriginalKernel:async()=>true,
+    };
+    const runtime=await createWorkspaceHostRuntime({
+      session,workspaceConfig:config,termResolver:k=>k,ageOwner,
+    });
+    try{
+      expect(runtime.currentWorkspaceStore.get()).toBeNull();
+      expect(runtime.publisherHandoff).toBeNull();
+      expect(runtime.grantedOperations).toEqual([]);
+      expect(runtime.protectedExchange?.canNativeKernelPreview).toBe(true);
+      expect(runtime.protectedExchange?.canOpen).toBe(true);
+      expect(runtime.protectedExchange?.canSeal).toBe(false);
+      expect(runtime.router.registry.isActive(hostRouteRefs.exchange.home)).toBe(true);
+    }finally{await runtime.dispose();}
+    expect(runtime.router.registry.isActive(hostRouteRefs.exchange.home)).toBe(false);
+  });
+
   it("makes native recipient-only age import available without signed Workspace rights",async()=>{
     const ageOwner={
       currentRecipient:async()=>({recipientId:"recipient:installed",

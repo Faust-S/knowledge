@@ -70,7 +70,9 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
     kernel.hasOperation("t1.getWorkspace"));
   const nativeRecipient=typeof ageOwner?.currentRecipient==="function";
   const nativeKernelPreview=nativeRecipient&&
-    typeof ageOwner?.previewInOriginalKernel==="function";
+    typeof ageOwner?.previewInOriginalKernel==="function"&&
+    typeof ageOwner?.commitInOriginalKernel==="function"&&
+    typeof ageOwner?.cancelInOriginalKernel==="function";
   const rawOpen=typeof ageOwner?.open==="function";
   const canSeal=Boolean(signedWorkspaceRead&&
     typeof ageOwner?.prepareSeal==="function"&&
@@ -225,6 +227,50 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
       recipientId:recipient.recipientId,archiveSha256:result.archiveSha256,
       handle});
   }
+  // Native age preview tokens belong to the ORIGINAL installed Kernel.
+  // Commit/cancel MUST use that same owner, not an unrelated UI Kernel.
+  async function commitInOriginalKernel({preview_token,package_digest,plan}={}){
+    live();
+    ensure(nativeKernelPreview,"T3_D7_NATIVE_KERNEL_COMMIT_UNAVAILABLE");
+    ensure(id(preview_token)&&typeof package_digest==="string"&&
+      package_digest.length>0&&plan&&typeof plan==="object"&&
+      !Array.isArray(plan),"T3_D7_NATIVE_KERNEL_COMMIT_REQUEST_INVALID");
+    const before=await ageOwner.currentRecipient();
+    live();
+    ensure(before&&id(before.recipientId)&&id(before.bindingEpoch),
+      "T3_D7_ORIGINAL_NATIVE_RECIPIENT_REQUIRED");
+    let receipt;
+    try{
+      receipt=await ageOwner.commitInOriginalKernel({
+        preview_token,package_digest,plan,recipientId:before.recipientId,
+      });
+    }catch{deny("T3_D7_NATIVE_OUTCOME_UNKNOWN");}
+    live();
+    const after=await ageOwner.currentRecipient();
+    ensure(JSON.stringify(before)===JSON.stringify(after)&&
+      receipt?.format==="iwxa.import.receipt"&&
+      receipt.package_digest===package_digest&&
+      receipt.mode===plan.mode,
+      "T3_D7_NATIVE_OUTCOME_UNKNOWN");
+    return receipt;
+  }
+  async function cancelInOriginalKernel({preview_token}={}){
+    live();
+    ensure(nativeKernelPreview,"T3_D7_NATIVE_KERNEL_CANCEL_UNAVAILABLE");
+    ensure(id(preview_token),"T3_D7_NATIVE_KERNEL_CANCEL_REQUEST_INVALID");
+    const before=await ageOwner.currentRecipient();
+    live();
+    ensure(before&&id(before.recipientId)&&id(before.bindingEpoch),
+      "T3_D7_ORIGINAL_NATIVE_RECIPIENT_REQUIRED");
+    const cancelled=await ageOwner.cancelInOriginalKernel({
+      preview_token,recipientId:before.recipientId,
+    });
+    live();
+    ensure(JSON.stringify(before)===
+      JSON.stringify(await ageOwner.currentRecipient()),
+      "T3_D7_ORIGINAL_NATIVE_RECIPIENT_CHANGED");
+    return cancelled===true;
+  }
   async function open({ciphertext}={}){
     ensure(rawOpen,"T3_D7_NATIVE_PLAINTEXT_PRIVATE");
     live();
@@ -304,6 +350,7 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
       archiveBytes,kernelPreviewed:false,accepted:false});
   }
   return Object.freeze({seal,open,previewInOriginalKernel,
+    commitInOriginalKernel,cancelInOriginalKernel,
     canSeal,canOpen,canNativeKernelPreview:Boolean(nativeKernelPreview),
     maxArchiveBytes,maxCiphertextBytes});
 }

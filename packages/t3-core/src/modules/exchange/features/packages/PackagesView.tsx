@@ -36,7 +36,8 @@ export function PackagesView({
   const canExport =
     kernel.hasOperation("t2.exportPreview") || kernel.hasOperation("t2.exportPackage");
   const canImport =
-    kernel.hasOperation("t2.importPreview") || kernel.hasOperation("t2.importCommit");
+    kernel.hasOperation("t2.importPreview") || kernel.hasOperation("t2.importCommit") ||
+    protectedExchange?.canNativeKernelPreview === true;
 
   const resolveTab = (hint: PackagesTab): PackagesTab => {
     if (hint === "export") {

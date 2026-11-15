@@ -223,7 +223,8 @@ export function createIsolatedKernelClient({port,isActive=()=>true,timeoutMs=150
       // never a definite denial or automatic permission to replay a write.
       const uncertainCode=method==='nativeD6Request'&&args[0]==='continueSelected'
         ?'T3_D6_NATIVE_OUTCOME_UNKNOWN':
-        method==='nativeD7Request'&&args[0]==='publisher.apply'
+        method==='nativeD7Request'&&
+          ['publisher.apply','age.commitImport'].includes(args[0])
           ?'T3_D7_NATIVE_OUTCOME_UNKNOWN':method==='reconciliationRequest'&&
         ['receive','accept','reject','applyAccepted'].includes(args[0])
           ?'T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN':null;

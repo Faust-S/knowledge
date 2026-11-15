@@ -628,7 +628,20 @@ test("D7 installed age verifies and previews original Kernel without returning d
           originalPrivateArchive:"NOT_FOR_UI"},
       };
     },
-  }});
+    commitInOriginalKernel:async input=>({
+      import_id:"import:native:one",format:"iwxa.import.receipt",
+      format_version:"1.0",package_digest:input.package_digest,
+      semantic_digest:"sem:one",mode:input.plan.mode,
+      conflict_policy:"fail",committed_at:"2026-11-15T00:00:00Z",
+      applied:{workspaces:1,objects_inserted:0,objects_updated:0,
+        objects_skipped:0,events:0,relations:0,assets:0,
+        schemas_inserted:0,schemas_reused:0,schemas_rejected:0},
+      skipped_conflicts:[],workspace_id_map:{},
+      excluded_by_permission:{workspaces:0,objects:0,events:0,
+        relations:0,assets:0},
+    }),
+    cancelInOriginalKernel:async()=>true,
+  },authorizeAgeImportCommit:async()=>true});
   const f=await fixture({nativeD7PortFor});
   const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
   try{
@@ -638,6 +651,18 @@ test("D7 installed age verifies and previews original Kernel without returning d
     assert.equal(result.status,"KERNEL_PREVIEW_READY");
     assert.equal(result.handle.preview_token,"tok:native:one");
     assert.equal(result.archiveSha256,archiveSha256);
+    const plan={mode:"new-workspace",include_workspaces:[]};
+    const committed=await f.browser.nativeD7Request("age.commitImport",{
+      preview_token:result.handle.preview_token,
+      package_digest:result.handle.package_digest,plan,
+    });
+    assert.equal(committed.format,"iwxa.import.receipt");
+    assert.equal(committed.import_id,"import:native:one");
+    assert.equal(committed.package_digest,"digest:one");
+    const cancelled=await f.browser.nativeD7Request("age.cancelImport",{
+      preview_token:"tok:native:one",
+    });
+    assert.equal(cancelled.cancelled,true);
     assert.equal(Object.hasOwn(result,"archiveBytes"),false);
     assert.equal(Object.hasOwn(result,"privateKey"),false);
     assert.equal(Object.hasOwn(result.handle,"originalPrivateArchive"),false);

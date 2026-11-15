@@ -220,6 +220,12 @@ export interface T3OriginalAgeOwner {
    * Returned token must be usable by that SAME original Kernel.importCommit. */
   previewInOriginalKernel?(input:{ciphertext:Uint8Array;recipientId:string}):
     unknown|Promise<unknown>;
+  /** Must be bound to the SAME ORIGINAL Kernel which made the preview.
+   * Its own signed JIT policy and existing importCommit are authoritative. */
+  commitInOriginalKernel?(input:Parameters<KernelFacade["importCommit"]>[0]&
+    {recipientId:string}):ReturnType<KernelFacade["importCommit"]>;
+  cancelInOriginalKernel?(input:{preview_token:string;recipientId:string}):
+    boolean|Promise<boolean>;
 }
 export interface T3AgeProtectionReceipt {
   status:"AGE_PROTECTED_DOWNLOAD_READY";format:"age-encryption.org/v1";
@@ -254,6 +260,10 @@ export function createTrustedAgeExchange(options:{
     status:"KERNEL_PREVIEW_READY";recipientId:string;archiveSha256:string;
     handle:Awaited<ReturnType<KernelFacade["importPreview"]>>;
   }>;
+  commitInOriginalKernel(input:Parameters<KernelFacade["importCommit"]>[0]):
+    ReturnType<KernelFacade["importCommit"]>;
+  cancelInOriginalKernel(input:{preview_token:string}):
+    Promise<boolean>;
 }>;
 
 /** D7: existing signed Publisher licence/status owner inside an installed

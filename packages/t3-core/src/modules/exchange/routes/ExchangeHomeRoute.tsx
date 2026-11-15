@@ -35,6 +35,7 @@ export default function ExchangeHomeRoute() {
     );
   }
   const allowed = Boolean(runtime?.publisherHandoff) ||
+    runtime?.protectedExchange?.canNativeKernelPreview === true ||
     kernel.hasOperation("t2.exportPreview") ||
     kernel.hasOperation("t2.exportPackage") ||
     kernel.hasOperation("t2.confirmExport") ||

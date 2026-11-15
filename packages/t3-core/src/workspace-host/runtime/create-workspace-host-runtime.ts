@@ -301,14 +301,15 @@ export async function createWorkspaceHostRuntime(
         confirmHuman:input.confirmPublisherHandoff,
         isHostActive:()=>!disposed,
       }) : null;
-  // The normal Exchange module gates its route/navigation on original T2
-  // data operations. On clean native install none may exist yet. Publish
-  // the SAME Host-bound Exchange route ONLY when the compiled native
-  // Publisher holder is available and the Exchange module is configured
-  // and activated. Do not mint a fake Kernel operation or bypass a disabled
-  // module; without Publisher the original T2 route gate is unchanged.
+  // The normal Exchange module keeps its original T2 operation gate.
+  // A clean installed receiver may have NO Workspace yet, but may possess
+  // an original native age+Kernel preview/commit/cancel owner. In that case
+  // expose the SAME Exchange route for first restore, or for a Publisher
+  // holder, without creating grants, an alternative Kernel or another route.
+  const nativeExchangeReady=Boolean(publisherHandoff||
+    protectedExchange?.canNativeKernelPreview);
   const exchangeModuleId = "iwxa.workspace.exchange";
-  if (publisherHandoff &&
+  if (nativeExchangeReady &&
       moduleSnapshot.some(m=>m.moduleId===exchangeModuleId&&m.status==="activated") &&
       !registry.isActive(hostRouteRefs.exchange.home)) {
     const publisherRoute = hub.registerModule(exchangeModuleId, {
@@ -317,7 +318,7 @@ export async function createWorkspaceHostRuntime(
     });
     if (!publisherRoute.ok) {
       collectedRegistryDiagnostics.push({
-        code: "t3-d7-publisher-route-unavailable",
+        code: "t3-d7-native-exchange-route-unavailable",
         moduleId: exchangeModuleId,
         message: publisherRoute.diagnostics.map(d=>d.message).join("; "),
       });

@@ -120,14 +120,29 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   }, [pwaFileHandle, pwaLaunchEpoch]);
   const [localWorkspaces, setLocalWorkspaces] = useState<readonly WorkspaceRecord[]>([]);
   const activeTokenRef = useRef<string | null>(null);
+  // Native age previews remain owned by the SAME original installed Kernel.
+  const nativePreviewTokenRef = useRef<string | null>(null);
   const commitGuardRef = useRef(false); // §13
   const expiryTimerRef = useRef<number | null>(null);
   const operationGenerationRef = useRef(0);
   const cancelGuardRef = useRef(false);
 
-  const canPreview = kernel.hasOperation("t2.importPreview");
-  const canCommit = kernel.hasOperation("t2.importCommit");
-  const canCancel = kernel.hasOperation("t2.importCancel");
+  const nativeImport=protectedExchange?.canNativeKernelPreview === true;
+  const canPreview = kernel.hasOperation("t2.importPreview") || nativeImport;
+  const canCommit = kernel.hasOperation("t2.importCommit") || nativeImport;
+  const canCancel = kernel.hasOperation("t2.importCancel") || nativeImport;
+  const cancelImportToken=useCallback(async(token:string):Promise<boolean>=>{
+    if(nativePreviewTokenRef.current===token){
+      if(!protectedExchange?.canNativeKernelPreview)return false;
+      const cancelled=await protectedExchange.cancelInOriginalKernel({
+        preview_token:token,
+      });
+      if(cancelled)nativePreviewTokenRef.current=null;
+      return cancelled;
+    }
+    if(!kernel.hasOperation("t2.importCancel"))return false;
+    return (await kernel.importCancel(token))===true;
+  },[kernel,protectedExchange]);
   const canListLocal = kernel.hasOperation("t1.listWorkspaces");
 
   const cancelActive = useCallback(async (
@@ -145,7 +160,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
         }
         let cancelled = false;
         try {
-          cancelled = (await kernel.importCancel(tok)) === true;
+          cancelled = await cancelImportToken(tok);
         } catch {
           cancelled = false;
         }
@@ -166,7 +181,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     } finally {
       cancelGuardRef.current = false;
     }
-  }, [kernel, canCancel]);
+  }, [cancelImportToken, canCancel]);
 
   // A second OS launch invalidates an in-flight preview of the FIRST file.
   // The existing Kernel importCancel is the only cancellation owner. Do not
@@ -186,7 +201,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   useEffect(() => {
     const onUnload = () => {
       const tok = activeTokenRef.current;
-      if (tok && canCancel) void kernel.importCancel(tok);
+      if (tok && canCancel) void cancelImportToken(tok).catch(()=>{});
     };
     window.addEventListener("beforeunload", onUnload);
     return () => {
@@ -196,9 +211,9 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       const tok = activeTokenRef.current;
       activeTokenRef.current = null;
       if (expiryTimerRef.current !== null) clearTimeout(expiryTimerRef.current);
-      if (tok && canCancel) void kernel.importCancel(tok);
+      if (tok && canCancel) void cancelImportToken(tok).catch(()=>{});
     };
-  }, [kernel, canCancel]);
+  }, [cancelImportToken, canCancel]);
 
   const armExpiry = (handle: ImportPreviewHandle) => {
     if (expiryTimerRef.current !== null) clearTimeout(expiryTimerRef.current);
@@ -207,7 +222,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       const token = activeTokenRef.current;
       activeTokenRef.current = null;
       dispatch({ type: "expire" });
-      if (token && canCancel) void kernel.importCancel(token);
+      if (token && canCancel) void cancelImportToken(token).catch(()=>{});
       return;
     }
     expiryTimerRef.current = window.setTimeout(() => {
@@ -215,7 +230,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       activeTokenRef.current = null;
       dispatch({ type: "expire" });
       if (token && canCancel) {
-        void kernel.importCancel(token);
+        void cancelImportToken(token).catch(()=>{});
       }
     }, Math.min(ms, 2 ** 31 - 1));
   };
@@ -241,6 +256,10 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     dispatch({ type: "preview-started" });
 
     const alreadyPreviewed="preview_token" in file;
+    if (!alreadyPreviewed && !kernel.hasOperation("t2.importPreview")) {
+      dispatch({type:"preview-failed",error:"IMPORT_PREVIEW_NOT_AVAILABLE"});
+      return;
+    }
     if (!alreadyPreviewed && !file.name.toLowerCase().endsWith(ALLOWED_EXTENSION)) {
       dispatch({ type: "preview-failed", error: `Принимаются только пакеты ${ALLOWED_EXTENSION}.` });
       return;
@@ -260,11 +279,12 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
         return kernel.importPreview(bytes);
       })();
       if(!secure)return;
+      if(alreadyPreviewed)nativePreviewTokenRef.current=secure.preview_token;
       if (generation !== operationGenerationRef.current) {
         if (secure?.preview_token) {
           let cancelled = false;
           if (canCancel) {
-            try { cancelled = (await kernel.importCancel(secure.preview_token)) === true; } catch { cancelled = false; }
+            try { cancelled = await cancelImportToken(secure.preview_token); } catch { cancelled = false; }
           }
           if (!cancelled) {
             operationGenerationRef.current += 1;
@@ -342,13 +362,16 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     const generation = operationGenerationRef.current;
     dispatch({ type: "commit-started" });
     try {
-      const receipt = await kernel.importCommit({
-        preview_token: state.handle.preview_token,
-        package_digest: state.handle.package_digest,
-        plan: toKernelImportPlan(state.plan),
-      });
+      const request={preview_token:state.handle.preview_token,
+        package_digest:state.handle.package_digest,
+        plan:toKernelImportPlan(state.plan)};
+      const nativeCommit=nativePreviewTokenRef.current===state.handle.preview_token;
+      const receipt=nativeCommit
+        ? await protectedExchange!.commitInOriginalKernel(request)
+        : await kernel.importCommit(request);
       if (generation !== operationGenerationRef.current) return;
       activeTokenRef.current = null;
+      nativePreviewTokenRef.current = null;
       if (expiryTimerRef.current !== null) {
         clearTimeout(expiryTimerRef.current);
         expiryTimerRef.current = null;
@@ -364,6 +387,15 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
         restoreIssues.push("Квитанция Kernel не соответствует выбранному пакету или плану импорта.");
       }
       let readbackUnconfirmed = false;
+      if(nativeCommit && !canListLocal){
+        // A trusted native Kernel receipt is not proof that another UI
+        // facade has read the persisted Store. Preserve the receipt but
+        // NEVER claim native restoration is verified without original
+        // destination readback (including after a clean install).
+        readbackUnconfirmed=true;
+        restoreIssues.push("Нативный Kernel подтвердил запись, но чтение сохранённых данных "+
+          "ещё недоступно. Повторный импорт не запускается автоматически.");
+      }
       // A protected clean-install restore uses original new-workspace import.
       // When the original catalogue read is granted, verify that the actual
       // destination(s) now exist. The receipt remains visible if this read
@@ -472,7 +504,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
           clearTimeout(expiryTimerRef.current);
           expiryTimerRef.current = null;
         }
-        if (token && canCancel) void kernel.importCancel(token);
+        if (token && canCancel) void cancelImportToken(token).catch(()=>{});
         if (errorClass === "expired") {
           dispatch({ type: "expire" });
         } else {
@@ -503,6 +535,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       // An unclassified failure may have happened AFTER Kernel committed.
       // Do not reuse a possibly consumed preview token or claim rollback.
       activeTokenRef.current = null;
+      nativePreviewTokenRef.current = null;
       if (expiryTimerRef.current !== null) {
         clearTimeout(expiryTimerRef.current);
         expiryTimerRef.current = null;
@@ -543,7 +576,8 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
             launchGeneration!==pwaLaunchGeneration.current){
           let cancelled=false;
           if(canCancel)try{
-            cancelled=(await kernel.importCancel(native.handle.preview_token))===true;
+            nativePreviewTokenRef.current=native.handle.preview_token;
+            cancelled=await cancelImportToken(native.handle.preview_token);
           }catch{}
           if(!cancelled)
             setAgeError("IMPORT_STALE_PREVIEW_CANCEL_NOT_CONFIRMED");
@@ -705,7 +739,7 @@ function renderImport(p: RenderProps) {
       <input
         type="file"
         accept={ALLOWED_EXTENSION}
-        disabled={!canPreview || busy}
+        disabled={!kernel.hasOperation("t2.importPreview") || busy}
         onChange={(event) => {
           const file = event.currentTarget.files?.[0];
           // Reset the native chooser synchronously so choosing this same

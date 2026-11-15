@@ -163,6 +163,12 @@ async function launch(){
       ...(nativeD7.ageNativeImport===true?{
         previewInOriginalKernel:(input:unknown)=>
           requestD7("age.previewImport",input),
+        commitInOriginalKernel:(input:unknown)=>
+          requestD7("age.commitImport",input),
+        cancelInOriginalKernel:async(input:unknown)=>{
+          const receipt=await requestD7("age.cancelImport",input);
+          return receipt?.cancelled===true;
+        },
       }:{}),
       ...(nativeD7.ageSeal===true?{
         prepareSeal:(input:unknown)=>requestD7("age.prepareSeal",input),

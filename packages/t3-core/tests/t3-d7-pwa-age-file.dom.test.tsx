@@ -50,10 +50,14 @@ describe("D7 installed PWA protected .iwxa.age through original Exchange",()=>{
       archiveSha256:"a".repeat(64),handle:preview,
     }));
     const noRawOpen=vi.fn();
+    const cancelNative=vi.fn(async()=>true);
+    const commitNative=vi.fn(async()=>{throw Error("NOT_CONFIRMED_BY_HUMAN");});
     const installed={
       canOpen:true,canNativeKernelPreview:true,
-      previewInOriginalKernel:nativePreview,open:noRawOpen,
-      maxCiphertextBytes:33*1024*1024,
+      previewInOriginalKernel:nativePreview,
+      commitInOriginalKernel:commitNative,
+      cancelInOriginalKernel:cancelNative,
+      open:noRawOpen,maxCiphertextBytes:33*1024*1024,
     } as unknown as ReturnType<typeof createTrustedAgeExchange>;
     const getFile=vi.fn(async()=>sealed());
     render(<PackagesView kernel={k} commands={commands} initialTab="export"
@@ -69,6 +73,10 @@ describe("D7 installed PWA protected .iwxa.age through original Exchange",()=>{
     expect(noRawOpen).not.toHaveBeenCalled();
     expect(k.importPreview).not.toHaveBeenCalled();
     expect(k.importCommit).not.toHaveBeenCalled();
+    await act(async()=>{fireEvent.click(screen.getByTestId("import-cancel"));});
+    await waitFor(()=>expect(cancelNative).toHaveBeenCalledTimes(1));
+    expect(k.importCancel).not.toHaveBeenCalled();
+    expect(commitNative).not.toHaveBeenCalled();
   });
 
   it("keeps OS file opaque until user selects it, then separate age.open and original Kernel preview",async()=>{
