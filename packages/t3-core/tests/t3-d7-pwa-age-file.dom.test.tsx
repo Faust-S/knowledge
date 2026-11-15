@@ -42,6 +42,33 @@ const sealed=()=>new File([Uint8Array.of(97,103,101,45,98,121,116,101,115)],
   "workspace.iwxa.age",{type:"application/octet-stream"});
 
 describe("D7 installed PWA protected .iwxa.age through original Exchange",()=>{
+  it("does not extend ordinary T2 commit/cancel grants to plain .iwxa tokens",async()=>{
+    const k=kernel(["t2.importPreview"]);
+    const nativeCommit=vi.fn(async()=>{throw Error("NATIVE_COMMIT_NOT_FOR_PLAIN_TOKEN");});
+    const nativeCancel=vi.fn(async()=>true);
+    const installed={
+      canOpen:true,canNativeKernelPreview:true,
+      previewInOriginalKernel:vi.fn(),
+      commitInOriginalKernel:nativeCommit,
+      cancelInOriginalKernel:nativeCancel,
+    } as unknown as ReturnType<typeof createTrustedAgeExchange>;
+    render(<PackagesView kernel={k} commands={commands} initialTab="import"
+      exportScopeId={null} protectedExchange={installed}/>);
+    const file=new File([Uint8Array.of(80,75,3,4,1)],"plain.iwxa");
+    await act(async()=>{fireEvent.change(screen.getByTestId("import-file"),{
+      target:{files:[file]},
+    });});
+    await waitFor(()=>expect(screen.getByTestId("import-preview")).toBeTruthy());
+    expect((screen.getByTestId("import-commit") as HTMLButtonElement).disabled)
+      .toBe(true);
+    expect((screen.getByTestId("import-cancel") as HTMLButtonElement).disabled)
+      .toBe(true);
+    fireEvent.click(screen.getByTestId("import-commit"));
+    expect(k.importCommit).not.toHaveBeenCalled();
+    expect(nativeCommit).not.toHaveBeenCalled();
+    expect(nativeCancel).not.toHaveBeenCalled();
+  });
+
   it("uses the original native Kernel preview token without revealing the archive to WebView",async()=>{
     withQueue();
     const k=kernel();

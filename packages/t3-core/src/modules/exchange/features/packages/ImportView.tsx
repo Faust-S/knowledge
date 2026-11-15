@@ -131,6 +131,15 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   const canPreview = kernel.hasOperation("t2.importPreview") || nativeImport;
   const canCommit = kernel.hasOperation("t2.importCommit") || nativeImport;
   const canCancel = kernel.hasOperation("t2.importCancel") || nativeImport;
+  // A native port is not a grant to commit or cancel a plain T2 preview.
+  const canCommitToken=useCallback((token:string)=>{
+    return nativePreviewTokenRef.current===token ? nativeImport :
+      kernel.hasOperation("t2.importCommit");
+  },[kernel,nativeImport]);
+  const canCancelToken=useCallback((token:string)=>{
+    return nativePreviewTokenRef.current===token ? nativeImport :
+      kernel.hasOperation("t2.importCancel");
+  },[kernel,nativeImport]);
   const cancelImportToken=useCallback(async(token:string):Promise<boolean>=>{
     if(nativePreviewTokenRef.current===token){
       if(!protectedExchange?.canNativeKernelPreview)return false;
@@ -154,7 +163,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     const tok = activeTokenRef.current;
     try {
       if (tok) {
-        if (!canCancel) {
+        if (!canCancelToken(tok)) {
           dispatch({ type: "cancel-failed", error: "IMPORT_CANCEL_NOT_AVAILABLE" });
           return false;
         }
@@ -181,7 +190,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     } finally {
       cancelGuardRef.current = false;
     }
-  }, [cancelImportToken, canCancel]);
+  }, [cancelImportToken, canCancelToken]);
 
   // A second OS launch invalidates an in-flight preview of the FIRST file.
   // The existing Kernel importCancel is the only cancellation owner. Do not
@@ -357,7 +366,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       localWorkspaceIds,
     );
     if (validation.length > 0 || validateImportScope(state.handle.preview, state.plan).length > 0) return;
-    if (!canCommit) return;
+    if (!canCommitToken(state.handle.preview_token)) return;
     commitGuardRef.current = true;
     const generation = operationGenerationRef.current;
     dispatch({ type: "commit-started" });
@@ -617,6 +626,10 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     if (!pwaFileHandle || pwaReadGuard.current || pwaUsed === pwaFileHandle ||
         !canPreview || state.status === "previewing" || state.status === "committing") return;
     const protectedPackage = pwaFileHandle.name.toLowerCase().endsWith(".iwxa.age");
+    if(!protectedPackage && !kernel.hasOperation("t2.importPreview")){
+      setPwaReadError("Обычный .iwxa требует разрешения предпросмотра оригинального Kernel.");
+      return;
+    }
     if (protectedPackage &&
         (!protectedExchange || protectedExchange.canOpen === false)) {
       setPwaReadError("Для этого защищённого файла не подключён владелец age. Выберите подходящую установленную программу.");
@@ -657,7 +670,9 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     }
   };
   return renderImport({
-    state, canPreview, canCommit, canCancel,
+    state, canPreview,
+    canCommit:state.handle?canCommitToken(state.handle.preview_token):canCommit,
+    canCancel:state.handle?canCancelToken(state.handle.preview_token):canCancel,
     canPlainPreview:kernel.hasOperation("t2.importPreview"),localWorkspaces,
     onFile, runCommit, cancelActive, dispatch,
     pwaFileHandle, pwaReadBusy, pwaReadError, pwaUsed,
@@ -721,7 +736,9 @@ function renderImport(p: RenderProps) {
             затем отдельно подтвердите его применение в выбранную Workspace.
           </p>
           <button type="button"
-            disabled={!canPreview || busy || pwaReadBusy || pwaUsed === pwaFileHandle}
+            disabled={!canPreview || busy || pwaReadBusy || pwaUsed === pwaFileHandle ||
+              (!pwaFileHandle.name.toLowerCase().endsWith(".iwxa.age") &&
+                !canPlainPreview)}
             onClick={() => void openPwaFile()}
             data-testid="import-pwa-preview"
             className="border rounded px-3 py-2 min-h-11">
