@@ -112,7 +112,8 @@ async function attachOriginalNativeKernelRelay(
         sessionId:selected.sessionId});
       if(!active||!live)return;
       if(selectedCommand?.kind==="IDLE"){
-        await new Promise(resolve=>setTimeout(resolve,200));
+        // The original Control long-poll already waited for a native D3
+        // command. Do not depend on throttled hidden-iframe timers.
         continue;
       }
       if(selectedCommand?.kind!=="COMMAND"||
