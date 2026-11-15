@@ -1,5 +1,48 @@
 # IWXA T3. Аудит реализованного продукта, рисков и конечного плана
 
+## Проверка фактов и исправление ошибочного аудита, 15.11.2026
+
+Этот раздел имеет приоритет над историческими сведениями ниже. Нормативные архитектурные требования B0/D1–D7/G4 остаются прежними. Текущую версию продукта определяют **release/tag и точная версия установленного артефакта**, затем проверенная рабочая ветка и CI, а НЕ `active_branch` из датированного реестра репозиториев.
+
+### Исправления фактических ошибок
+
+| Ранее заявлено | Что реально установлено при повторной сверке | Исправленная оценка |
+|---|---|---|
+| «Текущий Personal Agent 0.4» | [Agent 0.5 owner branch](https://github.com/Faust-S/iwxa-personal-agent/tree/work/2026-11-14-agent05-real-install-fix): HEAD `b76cba52c6e47c714ee8c491692a867bd5839108`, TREE `4063575864c4b57bd4dab6a802d3769457a15af1`; [Agent 0.6 development](https://github.com/Faust-S/iwxa-personal-agent/tree/work/2026-11-15-agent-0-6-development): HEAD `650d21ff2f041f11fabefd5f19c6d3ed51b45608` | **Версия 0.5 является актуальной зафиксированной исходной базой, по заявлению владельца — стабильной. 0.6 уже начата.** 0.4 — исторический выпуск, не текущий продукт |
+| «Agent 0.5 ещё нет и native Task не проверен» (подразумеваемое исключение из анализа) | Реальные Windows Agent 0.5 [#43636726299](https://github.com/Faust-S/Center/actions/runs/43636726299) и [#43642367619](https://github.com/Faust-S/Center/actions/runs/43642367619) SUCCESS: Setup/Core, Task→Result→Human Review, cold readback; [#43649103289](https://github.com/Faust-S/Center/actions/runs/43649103289) FAIL в полном повторе на `TASK_STOPPED / TASK_POLL` при PASS установки и сохранения старых папок. [Смежный old-data workflow #43649103231](https://github.com/Faust-S/Center/actions/runs/43649103231) SUCCESS | **Функциональность Agent 0.5 реальна.** Нельзя объявлять всю повторную Windows-квалификацию PASS и нельзя переносить остаточный дефект Task в утверждение «Agent 0.4» |
+| «Agent 0.6 — установленный выпуск» | Сравнение `b76cba5..650d21f` показало **ровно 5 коммитов и только 2 новых Markdown-плана**, без изменений кода Agent | `0.6=ACTIVE_PLANNING`; фактический baseline исполняемой части — 0.5, не подтверждённый 0.6 release |
+| «Опубликованный Agent 0.5 GitHub Release подтверждён» | `releases/tags/v0.5.0` и `git/ref/tags/v0.5.0` возвращают 404; найден официальный GitHub Release `v0.4.0`. В источнике 0.6 прямо указано, что финальная пользовательская приёмка 0.5 не документирована | Разделять **стабильную 0.5 по решению владельца**, **Windows PASS отдельных сценариев**, **GitHub Release 0.5 не найден** и **T3 installed E2E ещё не принят**. Отсутствующий тег не отменяет существование 0.5 |
+| «Актуален Atlas 0.6» | [Atlas v0.8.0](https://github.com/Faust-S/Atlas/releases/tag/v0.8.0) опубликован 15.11; [Windows #43708483434](https://github.com/Faust-S/Atlas/actions/runs/43708483434) SUCCESS, [публикация #43709263509](https://github.com/Faust-S/Atlas/actions/runs/43709263509) SUCCESS | Для D6 брать **Atlas 0.8.0**; старую ошибку GUI версии 0.6 не переносить на новый релиз |
+| «Последний Publisher source прошёл CI» | `Faust-S/Center@work/2026-11-10-publisher-0.5`: HEAD `2bd8ee3e7f01dafe13c2458205b3ae48a07bb29a`, [CI #43711356339](https://github.com/Faust-S/Center/actions/runs/43711356339) на момент сверки выполняется. Прежний [#43709673003](https://github.com/Faust-S/Center/actions/runs/43709673003) SUCCESS относится к предыдущему HEAD | Не приписывать свежему коммиту прежний PASS; установленный issuer/consumer D7 отдельно HOLD |
+| «Карта 42 репозиториев показывает последние версии» | `Faust-S/iwxa/coordination/repositories.json`, snapshot 10.11, содержит Agent 0.4, Atlas 0.6, старые Center/T3/knowledge ветки. **Все 42 записи и их исторические refs сверены; карта — реестр расположения кода**, не release authority | При каждом аудите сначала точный GitHub Release/tag/HEAD и product qualification, затем owners по реестру; исторические репозитории не переписывать ради косметического соответствия |
+| «У T3 есть единый G4 PASS по зелёной Actions» | Самый свежий на дату этой сверки исполняемый HEAD `169664633949489ed4f989b079b52ceba4afb2f7`: [Actions #43711561979](https://github.com/Faust-S/knowledge/actions/runs/43711561979) SUCCESS: **712/712 Node**, **1141/1141 Workspace/DOM**, original real-host и Windows Credential PASS, `metal-webgpu=SKIPPED` | `B0/SOURCE` работает; **G4=NOT_ACCEPTED, T3_READY=false**. Нет аппаратной генерации и завершённого установленного D1/D3/D7 владельца |
+
+### Исправленная инвентаризация окружения
+
+| Продукт / собственник | Источник, подтверждённый при сверке | Фактическая граница |
+|---|---|---|
+| **Personal Agent 0.5 / разработка 0.6** | Приватный Agent 0.5 `b76cba5`; 0.6 `650d21f`, пока Markdown-планы. Штатный Tauri/React + Python Core, P01–P04, ModelProvider, Task/Graph/Result | Реальный native Task/Result есть; последний полный Windows повтор Agent 0.5 имеет FAIL. D3 T3 между установленными Agent/Admin не доказан. T3 не копирует Agent Graph/Task Engine |
+| **Atlas 0.8.0** | `Faust-S/Atlas@release/0.8` HEAD `6ef7b8fa1ad58f159508aaa6413d5e0d9cf35dbb`, GitHub Release и успешный installed Windows candidate | Статус стабильного Atlas не равен подтверждённой D6-связи T3 Result/WorkRef |
+| **Admin Center 0.3** | `Faust-S/Center@work/2026-11-11-admin-center-age-exchange` HEAD `ae432e8bdb5b27af5d611e534e4fac9b123fac21`, [#43709728566](https://github.com/Faust-S/Center/actions/runs/43709728566) SUCCESS; приватная owner-ветка `Faust-S/T3@work/2026-11-11-t3-d1-signed-activity-owner` HEAD `2d1424129e6183015d01c69f0485ddb583097993` | Код и signed owner подготовлены; полный установленный ADMIN↔PERSONAL D3+Kernel Apply пока HOLD |
+| **Publisher 0.5** | Публичная Center-ветка `2bd8ee3`; private PERSON signer `Faust-S/T3@work/2026-11-10-product-license-person-0.5` HEAD `eb6be380a1b7bb3bd488d49a4e72d6fa5f3d8f47` | Не подменять реализацию issuer/consumer публичной адаптерной моделью; native revocation/renewal G4 ещё не доказаны |
+| **IWXA Activity** | `Faust-S/knowledge@work/2026-11-10-activity-base-anonymizer` HEAD `2383c58f88901f16aa2a5fa780de447dba3d4750`; [#43580713592](https://github.com/Faust-S/knowledge/actions/runs/43580713592) SUCCESS | Activity отдельное приложение с собственной обработкой, T3 — только authorized read-only source; полный реальный источник/анонимизация/получатель ещё требует приёмки |
+| **T3 local model / Browser** | Private BLI source `Faust-S/T3@work/2026-11-03-browser-local-inference-bli1` HEAD `680375c9b47fb04b6273a410f7bc8dbb85556778`; public Host с WebLLM Worker | Source build и браузерная панель есть; SwiftShader в CI не доказывает аппаратный inference. Obscura/U01–U04 принадлежат Br-test/Agent, не T3 |
+| **42 репозитория / 12 доменов** | Исторические реестры `repositories.json`, `DOMAIN_IMPLEMENTATION_BINDINGS.json`, индивидуальные owner/site ветки | 11 предметных доменов + D12 информационный портал; ни один старый Product/T2 PASS автоматически не означает T3_ADOPTED. Один домен за раз, без копирования сайтов в knowledge |
+
+### Исправленная очередность работ
+
+1. **Сохранить Agent 0.5** как доступную пользовательскую базу и закончить в его собственном 0.6-A только конкретный `TASK_STOPPED/TASK_POLL` на установленном исходнике, не перестраивать Agent. При этом отдельная интеграция D3 T3 должна использовать существующую Task/Result и signed owner, а не ждать полного выпуска 0.6.
+2. **Закрыть D1/D3 с оригинальными подписантами** в Admin 0.3 и Agent 0.5: подписанная Task → исполнение → selected Result → отдельный Human Review/ACCEPT → отдельный Kernel Apply → два cold reads. Право применения и лицензия — разные свойства.
+3. **D4/D7**: оригинальный native age/DPAPI получатель, долговременная квитанция из original Kernel+Store, два независимых установленных recipients и оригинальный Publisher. Публичный `age.readbackImport` является портом, **не** реализованным durable Store и не может объявлять recovery COMPLETE без оригинального owner.
+4. **D6**: привязать Agent Task/Result к стабильному Atlas **0.8.0** Project/WorkRef через существующие U01–U05; signed continuation, сохранение и повторный readback.
+5. **D5**: на настоящем GPU выполнить модель, пользовательский consent, офлайн cold reopen и повторную генерацию; native model использовать исходный Agent provider. Hardware gate нельзя заменить синтетической генерацией.
+6. **G4**: заморозить один T3 исходник/одну поставку, B0+D1–D7 на ней, оригинальные owners, installer/repair/update, two cold opens, no-egress. Только затем `T3_READY=true`, далее внедрять последовательно в D01–D12.
+
+**Предотвращение повторной ошибки:** перед любым статусом продукта проверять `release`/точный tag, активный source branch, verified HEAD/TREE, терминальный CI **на этом SHA**, installed/user acceptance. Отдельно фиксировать: `SOURCE_PASS`, `OWNER_INTEGRATION_PASS`, `NATIVE_ACCEPTED`, `T3_READY`. Если release отсутствует, не писать «не существует версии»; если owner сообщил стабильную версию, не подменять её старой веткой из снимка 10.11. Новые Registry/Core/Store/EXE/Actions в закрытых репозиториях не создавать.
+
+---
+
+
 ## Актуализация 15.11.2026: инженерная оценка T3 и программа до выпуска
 
 > Этот раздел обновляет статус и план, приведённые ниже как историческое наблюдение 14.11. Никакая публикация в GitHub не меняет автоматически OWNER/NATIVE/G4 acceptance.
@@ -35,8 +78,8 @@
 | T3 private age `work/2026-10-28-iwxa-age-encrypted-exchange` | `91db0c4de769` | Официальный pinned age CLI, DPAPI key custody и два разных получателя |
 | T3 BLI `work/2026-11-03-browser-local-inference-bli1` | `680375c9b47f` | Не создавать второй Worker, квалифицировать реальный GPU и native inference |
 | Admin public `Faust-S/Center@work/2026-11-11-admin-center-age-exchange` | `ae432e8bdb5b` | Установленный ADMIN owner Reconciliation → Human Apply → original Kernel |
-| Publisher public `Faust-S/Center@work/2026-11-10-publisher-0.5` | `d257da5bca4e` | Результаты реальных PERSON выдачи/доставки и revoke на установленном потребителе |
-| Agent 0.4 `Faust-S/iwxa-personal-agent@work/2026-11-10-agent-0-4-setup-core-adoption` | `2a2fdebf905b` | Настоящий Task/Result/Graph/ToolRuntime и U owner, не подменять их T3 Core |
+| Publisher public `Faust-S/Center@work/2026-11-10-publisher-0.5` | `2bd8ee3e7f01` | На момент повторной сверки свежий #43711356339 выполняется, предыдущий #43709673003 SUCCESS не квалифицирует новый HEAD |
+| Agent 0.5 `Faust-S/iwxa-personal-agent@work/2026-11-14-agent05-real-install-fix` / 0.6 planning | `b76cba52c6e4` / `650d21ff2f04` | Native Agent Task/Result/Qwen/Review cold readback доказан в PASS-прогонах 0.5; последний полный Windows повтор имеет TASK_STOPPED FAIL, а 0.6 пока только планы. T3 native D3 отдельно HOLD |
 | Atlas 0.8 `Faust-S/Atlas@release/0.8` | `6ef7b8fa1ad58f159508aaa6413d5e0d9cf35dbb` | `v0.8.0` опубликован 15.11; точная Windows acceptance #43708483434 SUCCESS на candidate `94d009a9`, publish #43709263509 SUCCESS. Этот релиз использовать для D6, но интеграция T3 WorkRef/Result ещё не принята |
 | Activity `Faust-S/knowledge@work/2026-11-10-activity-base-anonymizer` | `2383c58f8890` | Разрешённое только для чтения доказуемое исходное T3 snapshot→обезличивание→отдельное решение |
 | U01–U04 `Faust-S/Br-test@work/2026-11-02-agent-obscura-headless` | `7a2adee477249` | Подключение внешних программ без новых SDK/routers |
