@@ -317,6 +317,30 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
     assert.equal(JSON.stringify(activity).includes('private_customer'),false);
     assert.ok(humanCount>=3);
 
+    // A live ERP revision can change during Human Review even while the
+    // signed original T2 Object stays at the same revision. Refuse BEFORE
+    // native dispatch, using the existing external-process-link currentness.
+    let staleDispatches=0;
+    const staleOwner={recipientId:'agent:stale-preflight',
+      inspect:({reference,recipientId})=>({
+        status:'READY',operationId:'erpnext:stale-preflight',
+        recipientId,reference}),
+      receive:async()=>{staleDispatches++;},
+      receipt:async()=>null,readback:async()=>null,
+    };
+    const staleD6=createTrustedNativeContinuation({
+      kernel:liveKernel,accessForRead:async()=>signed.access,
+      currentWorkspace,nativeOwner:staleOwner,
+      sourceCurrent:()=>port.prepareContinuation(externalRef),
+      confirmHuman:async()=>{
+        sourceRevision='2026-11-15 13:06:00.4000';
+        return true;
+      },isHostActive:()=>true,
+    });
+    await assert.rejects(staleD6.continueSelected(currentD6Ref),
+      {code:'T3_D6_EXTERNAL_SOURCE_NOT_CURRENT'});
+    assert.equal(staleDispatches,0);
+    sourceRevision='2026-11-15 13:05:00.3000';
     // Existing D6, no workflow engine: HTTP ACK cannot become a native
     // durable result; a new Host can only recover via the native owner.
     let sends=0,nativeReceipt=null,canonicalResultAvailable=false;
@@ -352,8 +376,9 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
     };
     const d6=()=>createTrustedNativeContinuation({
       kernel:liveKernel,accessForRead:async()=>signed.access,
-      currentWorkspace,nativeOwner,resultOwner,confirmHuman:async()=>true,
-      isHostActive:()=>true,
+      currentWorkspace,nativeOwner,resultOwner,
+      sourceCurrent:()=>port.prepareContinuation(externalRef),
+      confirmHuman:async()=>true,isHostActive:()=>true,
     });
     assert.equal((await d6().continueSelected(currentD6Ref)).status,'OUTCOME_UNKNOWN');
     assert.equal((await d6().continueSelected(currentD6Ref)).status,'OUTCOME_UNKNOWN');

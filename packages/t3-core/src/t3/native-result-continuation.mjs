@@ -64,7 +64,7 @@ function confirmedOwnerReadback(receipt,readback,reference,recipientId,operation
  * operationId before acknowledging. The UI cannot supply this native owner. */
 export function createTrustedNativeContinuation({
   kernel,accessForRead,currentWorkspace,nativeOwner,confirmHuman,
-  resultOwner=null,isHostActive,
+  resultOwner=null,sourceCurrent=null,isHostActive,
 }={}){
   check(kernel&&typeof kernel.hasOperation==="function"&&
     typeof accessForRead==="function"&&
@@ -74,6 +74,7 @@ export function createTrustedNativeContinuation({
     ["inspect","receive","receipt","readback"]
       .every(method=>typeof nativeOwner[method]==="function")&&
     typeof confirmHuman==="function"&&typeof isHostActive==="function"&&
+    (sourceCurrent===null||typeof sourceCurrent==="function")&&
     (resultOwner===null||
       (validId(resultOwner.ownerId)&&validId(resultOwner.resultType)&&
        validId(resultOwner.orderRef)&&
@@ -211,6 +212,30 @@ export function createTrustedNativeContinuation({
       return Object.freeze({status:"OUTCOME_UNKNOWN",operationId});
     }
   }
+  async function preflightExternalSource(state){
+    if(sourceCurrent===null)return;
+    // Reuse existing external-process-link.prepareContinuation(). It does
+    // fresh ERP readExact and signed ORIGINAL Kernel readback; cached
+    // readSaved is never authority to dispatch a native action.
+    await state.unchanged();
+    let fresh=null;
+    try{
+      fresh=await sourceCurrent(copy(state.reference,
+        "T3_D6_REFERENCE_NOT_CLONEABLE"));
+    }catch{
+      // An unavailable ERP account or a changed source is a pre-dispatch
+      // refusal, never OUTCOME_UNKNOWN and never a reason to retry a write.
+      deny("T3_D6_EXTERNAL_SOURCE_NOT_CURRENT");
+    }
+    await state.unchanged();
+    check(sameReference(state.reference,fresh)&&
+      fresh!==null&&typeof fresh==="object"&&!Array.isArray(fresh)&&
+      Object.keys(fresh).length===4&&
+      ["workspace_id","object_id","schema_id","revision"]
+        .every(key=>Object.hasOwn(fresh,key)),
+      "T3_D6_EXTERNAL_SOURCE_NOT_CURRENT");
+    await state.readSource();
+  }
   async function preview(input){
     return withSelectedSource(input,async state=>{
       const plan=await inspect(state);
@@ -253,6 +278,9 @@ export function createTrustedNativeContinuation({
         // installed product even when this Host has never seen the Result.
         const committedDuringConsent=await probePrior(state,operationId);
         if(committedDuringConsent!==null)return committedDuringConsent;
+        // ERP source may change DURING Human Review, while T2 revision is
+        // unchanged. Reconfirm before the only external native dispatch.
+        await preflightExternalSource(state);
         // Set before invoking the original native owner: failure may mean
         // that its durable write committed but the acknowledgement was lost.
         dispatched.add(operationId);

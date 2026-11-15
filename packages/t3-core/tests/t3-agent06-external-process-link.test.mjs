@@ -384,3 +384,62 @@ test('D6 refuses mismatched production order, revision or source after receipt',
   await assert.rejects(f.newHost().prepareContinuation(f.ref),
     {code:'T3_EXT_CONTINUATION_NOT_CURRENT'});
 });
+
+test('D6 refuses native ERP dispatch when source changes during Human Review',async()=>{
+  const f=fixture();await f.newHost().link(f.ref);
+  const original=await f.newHost().prepareContinuation(f.ref);
+  let sends=0,approvals=0;
+  const nativeOwner={recipientId:'agent:erpnext',
+    inspect:({reference,recipientId})=>({
+      status:'READY',operationId:'erpnext:so-0042',recipientId,reference}),
+    receive:async()=>{sends++;return {external_effect_state:'ACKNOWLEDGED'};},
+    receipt:async()=>null,readback:async()=>null,
+  };
+  const open=beforeApproval=>createTrustedNativeContinuation({
+    kernel:f.kernel,accessForRead:async()=>f.access,
+    currentWorkspace:f.currentWorkspace,nativeOwner,
+    sourceCurrent:async()=>f.newHost().prepareContinuation(f.ref),
+    confirmHuman:async()=>{
+      approvals++;await beforeApproval();return true;},
+    isHostActive:()=>true,
+  });
+  await assert.rejects(
+    open(async()=>f.setRevision('v2')).continueSelected(original),
+    {code:'T3_D6_EXTERNAL_SOURCE_NOT_CURRENT'});
+  assert.equal(approvals,1);
+  assert.equal(sends,0);
+  assert.equal(f.writeCount(),1);
+  // Different ERP revision requires its own original signed link refresh.
+  const update=await f.newHost().refresh(f.ref);
+  assert.equal(update.revision,2);
+  const current=await f.newHost().prepareContinuation(f.ref);
+  assert.equal((await open(async()=>{}).continueSelected(current)).status,
+    'OUTCOME_UNKNOWN'); // HTTP ACK alone never proves execution.
+  assert.equal(sends,1);
+});
+test('D6 rejects forged or offline source-current evidence without sending',async()=>{
+  const f=fixture();await f.newHost().link(f.ref);
+  const reference=await f.newHost().prepareContinuation(f.ref);
+  let sends=0,current=async()=>({...reference,revision:reference.revision+1});
+  const nativeOwner={recipientId:'agent:erpnext',
+    inspect:({reference,recipientId})=>({
+      status:'READY',operationId:'erpnext:so-0042',recipientId,reference}),
+    receive:async()=>{sends++;},
+    receipt:async()=>null,readback:async()=>null,
+  };
+  const open=()=>createTrustedNativeContinuation({
+    kernel:f.kernel,accessForRead:async()=>f.access,
+    currentWorkspace:f.currentWorkspace,nativeOwner,
+    sourceCurrent:async()=>current(),
+    confirmHuman:async()=>true,isHostActive:()=>true,
+  });
+  await assert.rejects(open().continueSelected(reference),
+    {code:'T3_D6_EXTERNAL_SOURCE_NOT_CURRENT'});
+  current=async()=>({status:'SAVED_UNVERIFIED',...reference});
+  await assert.rejects(open().continueSelected(reference),
+    {code:'T3_D6_EXTERNAL_SOURCE_NOT_CURRENT'});
+  current=async()=>{throw Error('ERP_OFFLINE')};
+  await assert.rejects(open().continueSelected(reference),
+    {code:'T3_D6_EXTERNAL_SOURCE_NOT_CURRENT'});
+  assert.equal(sends,0);assert.equal(f.writeCount(),1);
+});

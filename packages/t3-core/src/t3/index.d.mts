@@ -193,6 +193,13 @@ export function createTrustedNativeContinuation(options:{
   /** Optional STRICT second owner verification, provided by the trusted Host,
    * never by a browser field or a transport ACK. */
   resultOwner?:T3OriginalDomainResultOwner|null;
+  /** Trusted Host uses the ORIGINAL external-process-link.prepareContinuation
+   * immediately before dispatch, after consent. Its current signed reference
+   * must equal the selected T2 revision. Offline cached read is insufficient;
+   * original native owner still enforces its own external revision on receive.
+   * Other native continuations can omit this port. */
+  sourceCurrent?:(reference:T3NativeContinuationReference)=>
+    T3NativeContinuationReference|Promise<T3NativeContinuationReference>;
   confirmHuman:(input:{recipientId:string;operationId:string;
     reference:T3NativeContinuationReference})=>boolean|Promise<boolean>;
   isHostActive:()=>boolean;
