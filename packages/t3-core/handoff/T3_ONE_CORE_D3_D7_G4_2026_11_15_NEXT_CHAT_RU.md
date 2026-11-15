@@ -3,7 +3,7 @@
 **Дата:** 15.11.2026. **Назначение:** исполняемая инженерная передача, не акт выпуска.
 **Базовый исходный T3:** `Faust-S/knowledge@2e18da0ab46be9e3d7c443aac531eaf02d63b41d`, TREE `7b434b4a83e8049cc47ad63e643b4b0d3d29ce0a`.
 **Рабочая ветка:** `work/2026-11-10-t3-t2-activity-projection`, основной каталог `packages/t3-core/`.
-**Квалификация источника:** [CI #43753112597](https://github.com/Faust-S/knowledge/actions/runs/43753112597), запущена на точном `2e18da0a`. На момент создания передачи подтверждены D3 адресные Node-тесты, TypeScript/build/preflight/product-core и Windows Credential; полный итог CI проверять по ссылке, не предполагать автоматически SUCCESS. Metal-WebGPU SKIPPED.
+**Квалификация источника:** [CI #43753112597](https://github.com/Faust-S/knowledge/actions/runs/43753112597), завершена **SUCCESS** на точном `2e18da0a`: `test`, original T2 `real-host`, `windows-credential` PASS. Включает адресный D3, полный product Node/Workspace, TypeScript/build/preflight, signed Control, реальные browser Kernel readbacks. Metal-WebGPU SKIPPED. Это публичный SOURCE/REAL-HOST PASS, не установленная private D3 или hardware D5 приёмка.
 **Готовность:** `T3_READY=false`, `D3_INSTALLED=HOLD`, `D5_HARDWARE=HOLD`, `G4=NOT_ACCEPTED`.
 
 ## 1. Первые действия в новом чате
