@@ -6,8 +6,8 @@ import {createTrustedReconciliationAdmission}
 // This is a public interface-only test, NOT a second reconciliation
 // implementation or evidence of real signed owner/installed product.
 const sha="a".repeat(64),previewDigest="b".repeat(64),acceptanceId="c".repeat(64);
-function fixture(){
-  let human=false,revision=1,allowed=true,accepts=0,applies=0,active=true;
+function fixture(reviewOverride=null){
+  let human=false,revision=1,allowed=true,accepts=0,applies=0,active=true,reviews=0;
   const stored=new Map();
   const ctx=()=>({
     kind:"PERSONAL",context_id:"personal",actor_id:"person:owner",
@@ -45,15 +45,19 @@ function fixture(){
       target,
     }),
   };
-  const port=createTrustedReconciliationAdmission({
+  const makePort=()=>createTrustedReconciliationAdmission({
     reconciler:source,currentContext:ctx,
     recipientForContext:()=>"recipient:owner",
-    confirmHumanReview:()=>human,
+    confirmHumanReview:async input=>{
+      reviews++;
+      return reviewOverride?reviewOverride(input):human;
+    },
     isHostActive:()=>active,
   });
-  return {port,setHuman:v=>human=v,setAllowed:v=>allowed=v,
+  const port=makePort();
+  return {port,source,makePort,setHuman:v=>human=v,setAllowed:v=>allowed=v,
     changeRevision:()=>revision++,setActive:v=>active=v,
-    counts:()=>({accepts,applies})};
+    reviews:()=>reviews,counts:()=>({accepts,applies})};
 }
 test("D3 trusted original owner receives, reviews and ACCEPTS without Kernel Apply",async()=>{
   const f=fixture();
@@ -105,5 +109,69 @@ test("D3 refuses stale preview, wrong actor, changed context and ineligible orig
   await assert.rejects(f.port.accept({packageSha256:sha,previewDigest,
     operationId:"op:two",decisionBy:"person:owner"}),
     {code:"T3_D3_ORIGINAL_ACCEPTANCE_NOT_ELIGIBLE"});
+  assert.deepEqual(f.counts(),{accepts:0,applies:0});
+});
+
+test("D3 direct Host prevents another ACCEPT after original cold receipt",async()=>{
+  const f=fixture();f.setHuman(true);
+  const input={packageSha256:sha,previewDigest,operationId:"op:cold",
+    decisionBy:"person:owner"};
+  const accepted=await f.port.accept(input);
+  assert.equal(accepted.acceptanceState,"ACCEPTED");
+  const priorReviews=f.reviews();
+  await assert.rejects(f.port.accept(input),
+    {code:"T3_D3_DECISION_OUTCOME_UNKNOWN_USE_RECEIPT"});
+  await assert.rejects(f.makePort().accept(input),
+    {code:"T3_D3_DECISION_RECORDED_USE_RECEIPT"});
+  assert.equal(f.reviews(),priorReviews);
+  assert.deepEqual(f.counts(),{accepts:1,applies:0});
+  assert.equal((await f.makePort().receipt("op:cold",sha)).found,true);
+});
+
+test("D3 concurrent Human ACCEPT has one review and one original write",async()=>{
+  let enter,release;
+  const started=new Promise(resolve=>{enter=resolve;});
+  const gate=new Promise(resolve=>{release=resolve;});
+  const f=fixture(async()=>{enter();await gate;return true;});
+  const input={packageSha256:sha,previewDigest,operationId:"op:race",
+    decisionBy:"person:owner"};
+  const first=f.port.accept(input);
+  await started;
+  await assert.rejects(f.port.accept(input),
+    {code:"T3_D3_DECISION_IN_PROGRESS"});
+  assert.equal(f.reviews(),1);
+  assert.deepEqual(f.counts(),{accepts:0,applies:0});
+  release();
+  assert.equal((await first).acceptanceState,"ACCEPTED");
+  assert.deepEqual(f.counts(),{accepts:1,applies:0});
+});
+
+test("D3 lost ACCEPT ACK recovers original receipt without another owner call",async()=>{
+  const f=fixture();f.setHuman(true);
+  const original=f.source.accept;
+  f.source.accept=(...args)=>{
+    original(...args);
+    throw Object.assign(new Error("lost reply"),{code:"ACK_LOST"});
+  };
+  const input={packageSha256:sha,previewDigest,operationId:"op:lost",
+    decisionBy:"person:owner"};
+  await assert.rejects(f.port.accept(input),{code:"ACK_LOST"});
+  assert.equal((await f.port.receipt("op:lost",sha)).found,true);
+  const reviews=f.reviews();
+  await assert.rejects(f.port.accept(input),
+    {code:"T3_D3_DECISION_OUTCOME_UNKNOWN_USE_RECEIPT"});
+  await assert.rejects(f.makePort().accept(input),
+    {code:"T3_D3_DECISION_RECORDED_USE_RECEIPT"});
+  assert.deepEqual(f.counts(),{accepts:1,applies:0});
+  assert.equal(f.reviews(),reviews);
+});
+
+test("D3 original receipt refusal is not a permit for new ACCEPT",async()=>{
+  const f=fixture();f.setHuman(true);
+  f.source.receipt=()=>{throw Object.assign(
+    new Error("owner permission"),{code:"PERMISSION_DENIED"});};
+  await assert.rejects(f.port.accept({packageSha256:sha,previewDigest,
+    operationId:"op:denied",decisionBy:"person:owner"}),{code:"PERMISSION_DENIED"});
+  assert.equal(f.reviews(),0);
   assert.deepEqual(f.counts(),{accepts:0,applies:0});
 });

@@ -27,6 +27,8 @@ export function createTrustedReconciliationAdmission({
     typeof confirmHumanReview==="function"&&
     typeof isHostActive==="function",
     "T3_D3_TRUSTED_OWNER_REQUIRED");
+  // Host-lifetime guards only; original Reconciliation holds durable receipts.
+  const decisionsInFlight=new Set(),decisionsDispatched=new Set();
 
   async function selected(){
     check(isHostActive()===true,"T3_HOST_DISPOSED");
@@ -115,52 +117,69 @@ export function createTrustedReconciliationAdmission({
       key(decisionBy)&&(kind!=="REJECT"||
         (typeof reason==="string"&&reason.trim().length>0&&reason.length<=1000)),
       "T3_D3_EXPLICIT_DECISION_REQUIRED");
-    const initial=await selected();
-    check(initial.context.actor_id===decisionBy,"T3_D3_DECISION_ACTOR_MISMATCH");
-    const latest=checkedPreview(await reconciler.preview(packageSha256),packageSha256);
-    check(latest.previewDigest===previewDigest,
-      "T3_D3_PREVIEW_STALE");
-    if(kind==="ACCEPT")check(latest.allowedAction==="EXPLICIT_ACCEPT_ONLY",
-      "T3_D3_ORIGINAL_ACCEPTANCE_NOT_ELIGIBLE");
-    // The trusted product's HUMAN reviewer must independently approve this
-    // exact choice. Incoming carrier fields and transport ACKs do not count.
-    const reviewed=await confirmHumanReview(Object.freeze({
-      decision:kind,packageSha256,previewDigest,operationId,decisionBy,
-      ...(kind==="REJECT"?{reason}:{}),
-      context:snapshot(initial.context,"T3_D3_CONTEXT_NOT_CLONEABLE"),
-      preview:snapshot(latest,"T3_D3_PREVIEW_NOT_CLONEABLE"),
-    }));
-    check(reviewed===true,"T3_D3_HUMAN_REVIEW_REQUIRED");
-    await recheck(initial);
-    // The original owner re-evaluates signed source status, revision,
-    // acceptance grant and its own locked ledger at the decision JIT.
-    const receipt=kind==="ACCEPT"
-      ?await reconciler.accept(packageSha256,{operationId,previewDigest,decisionBy})
-      :await reconciler.reject(packageSha256,{operationId,previewDigest,decisionBy,reason});
-    // After entering the owner this decision MAY already be committed.
-    // Never retry automatically on an exception or an uncertain readback.
-    const freshReceipt=await reconciler.receipt(operationId);
-    check(receipt&&freshReceipt&&same(receipt,freshReceipt)&&
-      receipt.packageSha256===packageSha256&&receipt.operationId===operationId&&
-      receipt.decisionBy===decisionBy,
-      "T3_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED");
-    if(kind==="ACCEPT"){
-      check(receipt.schema==="IWXA_T3_ACCEPTANCE_RECEIPT/1"&&
-        receipt.acceptanceState==="ACCEPTED"&&
-        receipt.appliedScope==="RECONCILIATION_LEDGER_ONLY"&&
-        receipt.externalContextCoreApplied===false,
-        "T3_D3_ACCEPTED_NOT_ORIGINAL_KERNEL_APPLICATION");
-    }else check(receipt.schema==="IWXA_T3_REJECTION_RECEIPT/1"&&
-      receipt.acceptanceState==="REJECTED"&&
-      receipt.applicationState==="NOT_APPLIED",
-      "T3_D3_REJECTION_RECEIPT_INVALID");
-    await recheck(initial);
-    return Object.freeze({
-      receipt:snapshot(freshReceipt,"T3_D3_ORIGINAL_RECEIPT_NOT_CLONEABLE"),
-      acceptanceState:kind==="ACCEPT"?"ACCEPTED":"REJECTED",
-      kernelApplication:"NOT_APPLIED",
-      requiresSeparateApply:kind==="ACCEPT",
-    });
+    check(!decisionsInFlight.has(operationId),"T3_D3_DECISION_IN_PROGRESS");
+    check(!decisionsDispatched.has(operationId),
+      "T3_D3_DECISION_OUTCOME_UNKNOWN_USE_RECEIPT");
+    decisionsInFlight.add(operationId);
+    try{
+      const initial=await selected();
+      check(initial.context.actor_id===decisionBy,"T3_D3_DECISION_ACTOR_MISMATCH");
+      // A previous durable decision must not trigger a second Human Review.
+      const previous=await reconciler.receipt(operationId);
+      await recheck(initial);
+      check(previous==null,"T3_D3_DECISION_RECORDED_USE_RECEIPT");
+      const latest=checkedPreview(await reconciler.preview(packageSha256),packageSha256);
+      check(latest.previewDigest===previewDigest,
+        "T3_D3_PREVIEW_STALE");
+      if(kind==="ACCEPT")check(latest.allowedAction==="EXPLICIT_ACCEPT_ONLY",
+        "T3_D3_ORIGINAL_ACCEPTANCE_NOT_ELIGIBLE");
+      // The trusted product's HUMAN reviewer must independently approve this
+      // exact choice. Incoming carrier fields and transport ACKs do not count.
+      const reviewed=await confirmHumanReview(Object.freeze({
+        decision:kind,packageSha256,previewDigest,operationId,decisionBy,
+        ...(kind==="REJECT"?{reason}:{}),
+        context:snapshot(initial.context,"T3_D3_CONTEXT_NOT_CLONEABLE"),
+        preview:snapshot(latest,"T3_D3_PREVIEW_NOT_CLONEABLE"),
+      }));
+      check(reviewed===true,"T3_D3_HUMAN_REVIEW_REQUIRED");
+      await recheck(initial);
+      // Another original owner can commit during the independent Human Review.
+      const beforeDispatch=await reconciler.receipt(operationId);
+      await recheck(initial);
+      check(beforeDispatch==null,"T3_D3_DECISION_RECORDED_USE_RECEIPT");
+      // The original owner re-evaluates signed source status, revision,
+      // acceptance grant and its own locked ledger at the decision JIT.
+      decisionsDispatched.add(operationId);
+      const receipt=kind==="ACCEPT"
+        ?await reconciler.accept(packageSha256,{operationId,previewDigest,decisionBy})
+        :await reconciler.reject(packageSha256,{operationId,previewDigest,decisionBy,reason});
+      // After entering the owner this decision MAY already be committed.
+      // Never retry automatically on an exception or an uncertain readback.
+      const freshReceipt=await reconciler.receipt(operationId);
+      check(receipt&&freshReceipt&&same(receipt,freshReceipt)&&
+        receipt.packageSha256===packageSha256&&receipt.operationId===operationId&&
+        receipt.decisionBy===decisionBy,
+        "T3_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED");
+      if(kind==="ACCEPT"){
+        check(receipt.schema==="IWXA_T3_ACCEPTANCE_RECEIPT/1"&&
+          receipt.acceptanceState==="ACCEPTED"&&
+          receipt.appliedScope==="RECONCILIATION_LEDGER_ONLY"&&
+          receipt.externalContextCoreApplied===false,
+          "T3_D3_ACCEPTED_NOT_ORIGINAL_KERNEL_APPLICATION");
+      }else check(receipt.schema==="IWXA_T3_REJECTION_RECEIPT/1"&&
+        receipt.acceptanceState==="REJECTED"&&
+        receipt.applicationState==="NOT_APPLIED",
+        "T3_D3_REJECTION_RECEIPT_INVALID");
+      await recheck(initial);
+      return Object.freeze({
+        receipt:snapshot(freshReceipt,"T3_D3_ORIGINAL_RECEIPT_NOT_CLONEABLE"),
+        acceptanceState:kind==="ACCEPT"?"ACCEPTED":"REJECTED",
+        kernelApplication:"NOT_APPLIED",
+        requiresSeparateApply:kind==="ACCEPT",
+      });
+    }finally{
+      decisionsInFlight.delete(operationId);
+    }
   }
   async function inspectAcceptedApplication({acceptanceId,revisionIds,target}={}){
     check(hex(acceptanceId)&&Array.isArray(revisionIds)&&
