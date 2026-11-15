@@ -72,7 +72,10 @@ async function attachOriginalNativeKernelRelay(
     // empty local Workspace still function without a native relay.
     if(["T3_D3_ORIGINAL_KERNEL_RELAY_NOT_AVAILABLE",
       "T3_D1_CONTROL_ROUTE_DENIED",
-      "T3_D3_ORIGINAL_KERNEL_OPERATIONS_REQUIRED"].includes(code??""))return;
+      "T3_D3_ORIGINAL_KERNEL_OPERATIONS_REQUIRED",
+      "T3_D3_ORIGINAL_KERNEL_OWNER_ATTACH_FAILED",
+      "T3_D3_SIGNED_APPLICATION_GRANT_REQUIRED",
+      "T3_D3_SIGNED_APPLICATION_STATUS_REQUIRED"].includes(code??""))return;
     throw error;
   }
   if(!connected||typeof connected.sessionId!=="string"||
