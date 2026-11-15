@@ -125,7 +125,11 @@ export function createOriginalKernelNativeRelay({
         check(!live&&validSession(payload?.sessionInfo),
           "T3_D3_ORIGINAL_KERNEL_SESSION_INVALID");
         const grants=clone(payload.sessionInfo);
-        check(["commitObjectGraph","getObject","listEventsSince"].every(
+        // Read-only Workspace preflight is part of the SAME native D3
+        // apply transaction. Never advertise an APPLY-capable binding that
+        // cannot prove its target exists before independent Human consent.
+        check(["commitObjectGraph","getWorkspace","getObject",
+          "listEventsSince"].every(
           name=>grants.granted_operations.includes(METHODS[name])),
           "T3_D3_ORIGINAL_KERNEL_OPERATIONS_REQUIRED");
         const epoch=requestEpoch,sessionId=randomBytes(32).toString("base64url");

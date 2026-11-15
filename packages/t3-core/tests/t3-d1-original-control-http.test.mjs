@@ -97,6 +97,23 @@ test("existing Control HTTP protocol executes original Ed25519 PERSONAL proof an
     assert.equal(f.calls.length,1);
   }finally{stop();await f.close();}
 });
+test("native D3 refuses APPLY relay without original Workspace preflight",async()=>{
+  let attached=0;
+  const relay=createOriginalKernelNativeRelay({
+    currentEpoch:()=>9,onAttach:()=>{attached++;return true;},
+  });
+  try{
+    await assert.rejects(relay.exchange({verb:"attach",payload:{sessionInfo:{
+      contract_version:"1.3.0",runtime_version:"0.3.6",
+      service_id:"iwxa.workspace.relay",mode:"ready",
+      granted_operations:["t1.commitObjectGraph","t1.getObject",
+        "t1.listEventsSince"],
+    }}},9),{code:"T3_D3_ORIGINAL_KERNEL_OPERATIONS_REQUIRED"});
+    assert.equal(attached,0);
+    assert.equal(relay.attached,false);
+    assert.equal(relay.nativeKernel,null);
+  }finally{relay.close();}
+});
 test("native D3 command immediately wakes one hidden trusted Kernel long-poll",{
   timeout:7000,
 },async()=>{
@@ -106,8 +123,8 @@ test("native D3 command immediately wakes one hidden trusted Kernel long-poll",{
   });
   const info={contract_version:"1.3.0",runtime_version:"0.3.6",
     service_id:"iwxa.workspace.relay",mode:"ready",
-    granted_operations:["t1.commitObjectGraph","t1.getObject",
-      "t1.listEventsSince"]};
+    granted_operations:["t1.commitObjectGraph","t1.getWorkspace",
+      "t1.getObject","t1.listEventsSince"]};
   const {sessionId}=await relay.exchange({
     verb:"attach",payload:{sessionInfo:info}},epoch);
   const waiting=relay.exchange({verb:"next",payload:{sessionId}},epoch);
@@ -149,8 +166,8 @@ test("original D3 Kernel relay is session-bound and never replays an unknown gra
   });
   const info={contract_version:"1.3.0",runtime_version:"0.3.6",
     service_id:"iwxa.workspace.relay",mode:"ready",
-    granted_operations:["t1.getObject","t1.listEventsSince",
-      "t1.commitObjectGraph"]};
+    granted_operations:["t1.getWorkspace","t1.getObject",
+      "t1.listEventsSince","t1.commitObjectGraph"]};
   const {sessionId}=await relay.exchange({
     verb:"attach",payload:{sessionInfo:info}},hostEpoch);
   assert.equal(connected,1);
@@ -214,8 +231,8 @@ test("original D3 relay closes a native binding completed after its session was 
   });
   const sessionInfo={contract_version:"1.3.0",runtime_version:"0.3.6",
     service_id:"iwxa.workspace.relay",mode:"ready",
-    granted_operations:["t1.commitObjectGraph","t1.getObject",
-      "t1.listEventsSince"]};
+    granted_operations:["t1.commitObjectGraph","t1.getWorkspace",
+      "t1.getObject","t1.listEventsSince"]};
   const first=relay.exchange({verb:"attach",payload:{sessionInfo}},7);
   await entered;
   assert.equal(relay.attached,false,"an unfinished native bind is not live");
@@ -249,8 +266,8 @@ test("D3 native Kernel owner loses APPLY availability after browser vanishes",{
   });
   const sessionInfo={contract_version:"1.3.0",runtime_version:"0.3.6",
     service_id:"iwxa.workspace.relay",mode:"ready",
-    granted_operations:["t1.commitObjectGraph","t1.getObject",
-      "t1.listEventsSince"]};
+    granted_operations:["t1.commitObjectGraph","t1.getWorkspace",
+      "t1.getObject","t1.listEventsSince"]};
   const {sessionId}=await relay.exchange({
     verb:"attach",payload:{sessionInfo}},71);
   assert.equal(nativeAttached,true);
