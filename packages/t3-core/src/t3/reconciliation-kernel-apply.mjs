@@ -242,7 +242,15 @@ export function createTrustedReconciliationKernelApply({
     const first=await missingOriginal();
     await unchanged(c);
     if(first===null)return unknown();
-    const events=await signedKernel.listEventsSince(c.workspace_id);
+    // If the Workspace disappears between the first Object read and its
+    // original Event history read, the lost write remains UNKNOWN. A missing
+    // history is never proof that the earlier commit did not happen.
+    let events;
+    try{events=await signedKernel.listEventsSince(c.workspace_id);}
+    catch(error){
+      if(error?.code==="WORKSPACE_NOT_FOUND")return unknown();
+      throw error; // Revoked signed owner, permission denial, and other faults.
+    }
     await unchanged(c);
     const second=await missingOriginal();
     await unchanged(c);

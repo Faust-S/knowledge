@@ -34,7 +34,7 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   };
   let written=null,lastEvent=null,loseAckAfterWrite=false;
   let tamperInitialEvent=false,hideOriginalEvent=false,duplicateEvent=false;
-  let getObjectErrorCode=null;
+  let getObjectErrorCode=null,eventsErrorCode=null;
   const hash=value=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
   const access={
     currentContext:()=>context,
@@ -89,9 +89,13 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
           schema_id:"iwxa.result.native",schema_version:"1.0.0",
           data:{text:"reviewed"}},relations:{incoming:[],outgoing:[]}}:null;
       },
-      listEventsSince:async()=>!lastEvent||hideOriginalEvent?[]:
-        duplicateEvent?[structuredClone(lastEvent),structuredClone(lastEvent)]:
-        [structuredClone(lastEvent)],
+      listEventsSince:async()=>{
+        if(eventsErrorCode)throw Object.assign(Error(eventsErrorCode),
+          {code:eventsErrorCode});
+        return !lastEvent||hideOriginalEvent?[]:
+          duplicateEvent?[structuredClone(lastEvent),structuredClone(lastEvent)]:
+          [structuredClone(lastEvent)];
+      },
     },
     access,
     stageFromOriginalOwner:()=>({binding,command,authorizationContext:{
@@ -148,6 +152,15 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   assert.equal(recovered.effectKey,effect);
   assert.equal(recovered.originalEventReadback.idempotency_key,effect);
   assert.equal(commits,1,"recover must never repeat original Kernel commit");
+  eventsErrorCode="WORKSPACE_NOT_FOUND";
+  const missingHistory=await port.recoverApplied(selection);
+  assert.equal(missingHistory.status,"OUTCOME_UNKNOWN");
+  assert.equal(missingHistory.automaticRetryAllowed,false);
+  assert.equal(commits,1,"lost Event history never replays Kernel APPLY");
+  eventsErrorCode="PERMISSION_DENIED";
+  await assert.rejects(port.recoverApplied(selection),{code:"PERMISSION_DENIED"},
+    "revoked Event access must not be hidden as uncertain write");
+  eventsErrorCode=null;
   lastEvent.idempotency_key="f".repeat(64);
   const forged=await port.recoverApplied(selection);
   assert.equal(forged.status,"OUTCOME_UNKNOWN");
