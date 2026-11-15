@@ -254,7 +254,11 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
     }
     const epoch=await getEpoch();
     requireGeneration(generation);
-    const write=verb==="publisher.apply"||verb==="age.commitImport";
+    // A native cancel can consume the ORIGINAL Kernel preview even when its
+    // ACK is lost. Treat this as a write with an UNKNOWN outcome, exactly as
+    // commitImport; never suggest that it is safe to replay the operation.
+    const write=["publisher.apply","age.commitImport","age.cancelImport"]
+      .includes(verb);
     const validAfter=()=>{
       if(invalidationLost||generation!==selectionGeneration)
         fail(write?"T3_D7_NATIVE_OUTCOME_UNKNOWN":

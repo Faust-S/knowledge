@@ -422,3 +422,26 @@ test("original Control selects separately signed Activity Derive, never inferred
     assert.deepEqual(f.writes,[]);
   }finally{stop();f.closeEvents();}
 });
+
+test("D7 native cancel with a lost response is OUTCOME_UNKNOWN, never safe to replay",async()=>{
+  const f=fixture();
+  const fetchImpl=async(url,options)=>{
+    if(url.endsWith("/api/t3/native-d7"))
+      throw Error("SIMULATED_CANCEL_ACK_LOST");
+    return f.fetchImpl(url,options);
+  };
+  const owner=createControlLoopbackOwner({origin,token,fetchImpl});
+  const stop=owner.subscribeSignedAccessInvalidation(()=>{});
+  try{
+    await assert.rejects(owner.nativeD7Request("age.cancelImport",{
+      preview_token:"tok:cancel:one",
+    }),{code:"T3_D7_NATIVE_OUTCOME_UNKNOWN"});
+    await assert.rejects(owner.nativeD7Request("age.commitImport",{
+      preview_token:"tok:cancel:one",package_digest:"digest:one",
+      plan:{mode:"new-workspace"},
+    }),{code:"T3_D7_NATIVE_OUTCOME_UNKNOWN"});
+    await assert.rejects(owner.nativeD7Request("age.currentRecipient"),{
+      code:"T3_D7_ORIGINAL_NATIVE_OWNER_UNAVAILABLE",
+    });
+  }finally{stop();f.closeEvents();}
+});
