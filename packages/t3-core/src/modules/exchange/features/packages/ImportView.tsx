@@ -657,7 +657,8 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     }
   };
   return renderImport({
-    state, canPreview, canCommit, canCancel, localWorkspaces,
+    state, canPreview, canCommit, canCancel,
+    canPlainPreview:kernel.hasOperation("t2.importPreview"),localWorkspaces,
     onFile, runCommit, cancelActive, dispatch,
     pwaFileHandle, pwaReadBusy, pwaReadError, pwaUsed,
     openPwaFile,
@@ -668,6 +669,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
 interface RenderProps {
   state: ImportState;
   canPreview: boolean;
+  canPlainPreview: boolean;
   canCommit: boolean;
   canCancel: boolean;
   localWorkspaces: readonly WorkspaceRecord[];
@@ -690,7 +692,7 @@ interface RenderProps {
 
 function renderImport(p: RenderProps) {
   const {
-    state, canPreview, canCommit, canCancel, localWorkspaces,
+    state, canPreview, canCommit, canCancel, canPlainPreview, localWorkspaces,
     onFile, runCommit, cancelActive, dispatch,
     pwaFileHandle, pwaReadBusy, pwaReadError, pwaUsed, openPwaFile,
     protectedExchange, ageFile, setAgeFile, ageBusy, ageError, openAgeFile,
@@ -739,7 +741,7 @@ function renderImport(p: RenderProps) {
       <input
         type="file"
         accept={ALLOWED_EXTENSION}
-        disabled={!kernel.hasOperation("t2.importPreview") || busy}
+        disabled={!canPlainPreview || busy}
         onChange={(event) => {
           const file = event.currentTarget.files?.[0];
           // Reset the native chooser synchronously so choosing this same
