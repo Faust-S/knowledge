@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {normalizeOdooSaleOrderRead}
   from '../src/t3/external-odoo-source.mjs';
+import {createTrustedAgentErpOrderOwner}
+  from '../src/t3/external-agent-erp-owner.mjs';
 
 const ownerId='odoo:shop1:database1';
 function linesFor(response){
@@ -150,4 +152,94 @@ test('Odoo rejects dangerous oversized child JSON; zero-line draft is valid',asy
     {code:'T3_ERP_SNAPSHOT_UNSAFE_KEY'});
   const empty=source();empty[0].order_line=[];
   assert.equal((await read(empty,'42',[])).source_receipt,null);
+});
+
+const agentBridgeSelection=Object.freeze({
+  sourceFormat:'ODOO_JSON2_V1',providerId:'ODOO_JSON2_SALES_V1',
+  ownerId:'odoo:'+'c'.repeat(64),providerBindingDigest:'d'.repeat(64),
+});
+function agentReceipt(data,sourceFormat='ODOO_JSON2_V1'){
+  return {profile:'IWXA_PERSONAL_TOOL_PROVIDER_0.12',
+    input_required:false,
+    receipt:{status:'SUCCEEDED',tool_id:'erp.order.read',
+      provider_slot:'erp_orders',provider_id:'ODOO_JSON2_SALES_V1',
+      provider_binding_digest:'d'.repeat(64),
+      receipt_id:'TRR-'+'a'.repeat(18),output_digest:'e'.repeat(64)},
+    data:{source_format:sourceFormat,source_owner:agentBridgeSelection.ownerId,
+      record_kind:'sale.order',record_id:'42',response:source(),
+      linesResponse:linesFor(source()),...data},
+  };
+}
+test('trusted Agent ToolRuntime receipt -> original T3 reported Odoo source',async()=>{
+  let calls=0,result=agentReceipt();
+  const readTool=async(operation,args)=>{
+    assert.equal(operation,'erp.order.read');assert.deepEqual(args,{record_id:'42'});
+    calls++;return result;
+  };
+  const owner=createTrustedAgentErpOrderOwner({
+    selectedAccount:agentBridgeSelection,readTool,isHostActive:()=>true,
+  });
+  const first=await owner.readExact({record_kind:'sale.order',record_id:'42'});
+  assert.equal(first.source_owner,agentBridgeSelection.ownerId);
+  assert.equal(first.source_receipt,null);
+  assert.equal(first.epistemic_status,'reported');
+  assert.equal(JSON.stringify(first).includes('Confidential customer'),false);
+  assert.equal(JSON.stringify(first).includes('Private line data'),false);
+  const changed=linesFor(source());changed[0].product_uom_qty=3;
+  result=agentReceipt({linesResponse:changed});
+  const updated=await owner.readExact({record_kind:'sale.order',record_id:'42'});
+  assert.equal(first.source_revision,updated.source_revision);
+  assert.notEqual(first.source_digest,updated.source_digest);
+  assert.equal(calls,2);
+});
+test('trusted Agent bridge rejects receipt/account mismatch and inactive Host',async()=>{
+  let active=true;
+  let result=agentReceipt();
+  const owner=createTrustedAgentErpOrderOwner({
+    selectedAccount:agentBridgeSelection,readTool:async()=>result,
+    isHostActive:()=>active,
+  });
+  const reference={record_kind:'sale.order',record_id:'42'};
+  result={...agentReceipt(),receipt:{...agentReceipt().receipt,
+    provider_binding_digest:'f'.repeat(64)}};
+  await assert.rejects(owner.readExact(reference),
+    {code:'T3_AGENT_ERP_RECEIPT_OR_ACCOUNT_MISMATCH'});
+  result={...agentReceipt(),data:{...agentReceipt().data,
+    source_owner:'odoo:'+'f'.repeat(64)}};
+  await assert.rejects(owner.readExact(reference),
+    {code:'T3_AGENT_ERP_RECEIPT_OR_ACCOUNT_MISMATCH'});
+  result=agentReceipt();active=false;
+  await assert.rejects(owner.readExact(reference),{code:'T3_HOST_DISPOSED'});
+  active=true;
+  await assert.rejects(owner.readExact({record_kind:'sale.order',record_id:'43'}),
+    {code:'T3_AGENT_ERP_RECEIPT_OR_ACCOUNT_MISMATCH'});
+  await assert.rejects(owner.readExact({record_kind:'Sales Order',record_id:'42'}),
+    {code:'T3_AGENT_ERP_REFERENCE_INVALID'});
+});
+test('trusted Agent bridge maps ERPNext through original pure source converter',async()=>{
+  const ownerId='erpnext:'+'e'.repeat(64);
+  const selection={sourceFormat:'ERPNEXT_REST_V1',
+    providerId:'ERPNEXT_ACCOUNT_2',ownerId,providerBindingDigest:'d'.repeat(64)};
+  const owner=createTrustedAgentErpOrderOwner({
+    selectedAccount:selection,isHostActive:()=>true,
+    readTool:async()=>({
+      profile:'IWXA_PERSONAL_TOOL_PROVIDER_0.12',input_required:false,
+      receipt:{status:'SUCCEEDED',tool_id:'erp.order.read',
+        provider_slot:'erp_orders',provider_id:'ERPNEXT_ACCOUNT_2',
+        provider_binding_digest:'d'.repeat(64),
+        receipt_id:'TRR-'+'b'.repeat(18),output_digest:'f'.repeat(64)},
+      data:{source_format:'ERPNEXT_REST_V1',source_owner:ownerId,
+        record_kind:'Sales Order',record_id:'SO-0042',
+        response:{data:{doctype:'Sales Order',name:'SO-0042',
+          modified:'2026-11-15 16:10:00',status:'Submitted',docstatus:1,
+          customer:'Private buyer',items:[{qty:3,rate:55}]}}},
+    }),
+  });
+  const mapped=await owner.readExact({record_kind:'Sales Order',record_id:'SO-0042'});
+  assert.equal(mapped.source_owner,ownerId);
+  assert.equal(mapped.record_kind,'Sales Order');
+  assert.equal(mapped.source_state,'Submitted');
+  assert.equal(mapped.epistemic_status,'reported');
+  assert.equal(mapped.source_receipt,null);
+  assert.equal(JSON.stringify(mapped).includes('Private buyer'),false);
 });

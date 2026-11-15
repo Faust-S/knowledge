@@ -25,8 +25,8 @@ import {createTrustedNativeContinuation}
   from '../src/t3/native-result-continuation.mjs';
 import {normalizeErpNextSalesOrderRead}
   from '../src/t3/external-erpnext-source.mjs';
-import {normalizeOdooSaleOrderRead}
-  from '../src/t3/external-odoo-source.mjs';
+import {createTrustedAgentErpOrderOwner}
+  from '../src/t3/external-agent-erp-owner.mjs';
 
 const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const ARTIFACT='iwxa-kernel-k036-same-store-history-20261019-qualified.1';
@@ -602,17 +602,29 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
     }));
     const odooRef={expected_workspace_id:ws,
       record_kind:'sale.order',record_id:'42'};
-    const odooOwner={
-      ownerId:'odoo:shop1:database1',
-      readExact:async({record_kind,record_id})=>{
-        assert.equal(record_kind,'sale.order');
-        assert.equal(record_id,'42');
-        return normalizeOdooSaleOrderRead({
-          ownerId:'odoo:shop1:database1',expectedRecordId:record_id,
-          response:odooRows,linesResponse:odooLines,
-        });
+    // Controlled Agent ToolRuntime.read data and TRR-shaped receipt.
+    // Original T2/IndexedDB and D1 are real; Agent HTTP/account is simulated.
+    const odooOwnerId='odoo:'+'a'.repeat(64);
+    const odooOwner=createTrustedAgentErpOrderOwner({
+      selectedAccount:{sourceFormat:'ODOO_JSON2_V1',
+        providerId:'ODOO_JSON2_SALES_V1',ownerId:odooOwnerId,
+        providerBindingDigest:'b'.repeat(64)},
+      readTool:async(tool,args)=>{
+        assert.equal(tool,'erp.order.read');
+        assert.deepEqual(args,{record_id:'42'});
+        return {profile:'IWXA_PERSONAL_TOOL_PROVIDER_0.12',
+          input_required:false,
+          receipt:{status:'SUCCEEDED',tool_id:'erp.order.read',
+            provider_slot:'erp_orders',provider_id:'ODOO_JSON2_SALES_V1',
+            provider_binding_digest:'b'.repeat(64),
+            receipt_id:'TRR-'+'c'.repeat(18),
+            output_digest:'d'.repeat(64)},
+          data:{source_format:'ODOO_JSON2_V1',source_owner:odooOwnerId,
+            record_kind:'sale.order',record_id:'42',
+            response:odooRows,linesResponse:odooLines}};
       },
-    };
+      isHostActive:()=>true,
+    });
     const odooPort=createTrustedExternalProcessLink({
       kernel:coldKernel,currentWorkspace,externalOwner:odooOwner,
       accessForWrite:async()=>coldSigned.access,
@@ -656,7 +668,8 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
     console.log('T3_AGENT06_ODOO_JSON2_ORIGINAL_KERNEL_PASS',
       JSON.stringify({signedD1:true,kernel:'0.3.6',
         recordId:'42',revision:2,
-        customerPersisted:false,liveOdoo:false}));
+        customerPersisted:false,liveOdoo:false,
+        simulatedAgentToolRuntimeReceipt:true}));
     console.log('T3_AGENT06_ORIGINAL_T2_ERP_LINK_PASSPORT_COLD_PASS',
       JSON.stringify({kernel:'0.3.6',contract:'1.3.0',
         revision:reopened.revision,originalEventCount:5,
