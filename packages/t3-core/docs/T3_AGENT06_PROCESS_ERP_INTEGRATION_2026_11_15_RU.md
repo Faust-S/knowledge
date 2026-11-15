@@ -270,3 +270,19 @@ UI-подсказка Agent/CehoVod: «Сохранена ссылка на за
 При этом `recover` не требует живой ERP и **не теряет** независимую native receipt/readback о прежнем действии. `preview` в таком случае возвращает `RECOVER_ONLY`. Эта проверка действует лишь для исходного типа ERP-ссылки; Atlas и прочие D6-контракты остаются без принудительной ERP-интеграции. Исходный владелец должен проверять CAS непосредственно при native `receive` независимо от этого шага.
 
 Обновлены существующие адресные тесты D6 на полноценный `sourceCurrent -> external-process-link.prepareContinuation` и добавлен тест недоступного ERP-аккаунта/холодного readback. `T3_READY=false`, `LIVE_ERP_EXECUTION=NOT_ACCEPTED`, `CEHOVOD_RESULT=NOT_ACCEPTED` до реальной установки.
+
+## Итог публичной квалификации отсутствующего внешнего аккаунта, 15.11.2026
+
+**Исполняемый HEAD `ffc114ed6af3eccacf3db75e5490918d1fc77750`, TREE `099956d2cdb620748d06e792fa173521b3c5de42`.** [GitHub Actions #43730746653](https://github.com/Faust-S/knowledge/actions/runs/43730746653): **SUCCESS**. T3 product Node `744/744 PASS`, Workspace/DOM `1141/1141 PASS`, Windows Credential `SUCCESS`, original T2 0.3.6 / D1 / D2 / D6 real-host `SUCCESS`, аппаратный WebGPU `SKIPPED`.
+
+Оригинальный signed Host подтвердил:
+- `T3_AGENT06_EXTERNAL_SOURCE_ACCOUNT_REQUIRED_PASS`: `originalKernel=true,accountConnected=false,sends=0,humanApprovals=0`; сохранённая ERP-ссылка сама по себе не разрешает исполнение.
+- `T3_AGENT06_D6_TWO_OWNER_CONTRACT_PASS`: один внешний dispatch, два контрольных readback; **`syntheticDomainOwner=true`**, `domainResultInCehoVod=false`.
+- `T3_AGENT06_SIGNED_D1_REAL_KERNEL_PROCESS_PASS`: `signedProofs=64`, `revision=3`, `originalActivityEvents=5`, `lostAckNoReplay=true`, `d6HttpAckRemainsUnknown=true`.
+- `T3_AGENT06_SIGNED_D1_COLD_RECOVERY_PASS`: новая подписанная сессия, `signedProofs=13`, `revision=3`, `executedExternalERP=false`.
+
+**Блокер WorkRef**, подтверждённый актуальными исходниками: `src/modules/base/owners/project-process-source-owner.mjs` по-прежнему устанавливает `PROJECT_PROCESS_SOURCE_ACTIVATION.writesAuthorized=false` и `QUALIFICATION_AND_D4_PENDING`. Поэтому этот поток не имеет права писать новый project/work/processRun для ERP-заказа или выдавать имитированный `WorkRef` за оригинальный объект. CehoVod `production-order` и `production-execution` остаются доменными объектами своего владельца. До активации штатного Project/Process source owner и оригинального CehoVod readback допускается только проверенная source-link → Activity(reported) → D6 native receipt, без утверждения `observed` производственной работы.
+
+**Подключение Agent 0.6:** trusted Host должен передавать `sourceCurrent` именно из существующего `externalLink.prepareContinuation`, а private Agent Account/ToolRuntime остаётся владельцем ERP credentials и исполнения. Если аккаунт не подключён, UI показывает `SOURCE_ACCOUNT_REQUIRED`; кнопка выполнения отключается без Human Review. При нативной квитанции от ранее отправленного действия UI предлагает `RECOVER_ONLY` даже без ERP аккаунта. Когда внешний источник восстановлен, пользователь отдельно согласует refresh, и только затем может дать новый Human Review; во внешнем `receive` всё равно требуется owner-native revision CAS.
+
+**Готовность:** `SOURCE_QUALIFICATION=PASS` на указанном SHA; `ORIGINAL_T2_SIGNED_ROUTE=PASS_TEST_HOST`; `LIVE_ERP_EXECUTION=NOT_ACCEPTED`; `CEHOVOD_RESULT=NOT_ACCEPTED`; `WORKREF_OWNER_ADOPTION=HOLD`; `T3_READY=false`. Все центральные T3/Activity/Agent ветки и private Actions не затрагивались.
