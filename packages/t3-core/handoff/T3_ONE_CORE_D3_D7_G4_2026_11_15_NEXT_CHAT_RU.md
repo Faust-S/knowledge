@@ -1,5 +1,19 @@
 # IWXA T3 One Core: передача D3/D7 -> G4 в новый чат
 
+## Актуальная квалификация G4 source candidate, 16.11.2026
+
+**ИСПОЛНЯЕМЫЙ ИСХОДНИК ЗАФИКСИРОВАН:** `Faust-S/knowledge@99f3c5337016ada41cb4be860d4561451e46dd8e`, TREE `e029f3d767993b680e148324b823a6ab8476e1a2`. Проверять именно этот SHA как аппаратно квалифицированный baseline до новых подтверждённых функциональных дефектов. Нормативный `T2@9c64951c`, Kernel 0.3.6/Contract 1.3.0; source-pinned WebLLM 0.2.87, SmolLM2-360M. Этот документ является evidence index, не новым runtime, вторым Host, release или требованием изменить исполняемый код.
+
+**[GitHub Actions #43772762981](https://github.com/Faust-S/knowledge/actions/runs/43772762981) TERMINAL SUCCESS на точном SHA:** `test` / `real-host` / `windows-credential` / **`metal-webgpu`** все SUCCESS. На macOS с действующим Apple WebGPU/ANGLE Metal Paravirtual выполнены **оба** настоящих аппаратных сценария `T3_D1_D5_REQUIRE_HARDWARE_GPU=1` и `T3_D5_REQUIRE_HARDWARE_GPU=1`. Без SwiftShader/mock: WebLLM выдал текст, original T2 Kernel сохранил DRAFT_UNTRUSTED и вернул подтверждённый Object. После полного закрытия и открытия браузера: внешних запросов 0 в подписанном сценарии, модель загрузилась из Cache Storage, прошла **новая** офлайн-генерация и второе отдельное сохранение/readback. В доменном D5 тесте также подтверждены два независимых объекта, сохранившийся первый Result и отключённая сеть при повторной генерации.
+
+**D5_PUBLIC_HARDWARE_WEBGPU=PASS**; прекращать повторять этот тест без нового дефекта. **G4=NOT_ACCEPTED; T3_READY=false**, потому что source/hardware CI не доказывает установленные независимые private owner-маршруты:
+- `D1_D3_INSTALLED_OWNER=HOLD`: настоящий подписант/Agent Result, Reconciliation ACCEPT, отдельный APPLY и два холодных original Object/Event readback в установленном ПО.
+- `D4_TWO_INSTALLED_CONSUMERS=HOLD`, `D6_NATIVE_CONTINUATION=HOLD`: два независимых установленых получателя оригинального `.iwxa`/Result.
+- `D7_NATIVE_AGE_PUBLISHER=HOLD`: оригинальные X25519 recipient roots, штатные holder licence/status, холодный приём у реальных владельцев.
+- `D5_NATIVE_SUPPORTED_PATH=HOLD`, если требуется по плану G3, отдельно от доказанного browser/WebGPU.
+
+**Стоп-правило для основного T3-чата:** не возвращаться к циклу микрофиксов D3/D6/D7 ради числа PASS; Core source/hardware candidate уже квалифицирован. Сверять новые продуктовые owner reports в их собственных чатах, собирать только необходимые исправления общих контрактов и после реальной installed приёмки принимать G4 на одном locked наборе версий. D12 не изменять. Приватные Actions запрещены.
+
 **Дата:** 15.11.2026. **Назначение:** исполняемая инженерная передача, не акт выпуска.
 **Базовый исходный T3:** `Faust-S/knowledge@2e18da0ab46be9e3d7c443aac531eaf02d63b41d`, TREE `7b434b4a83e8049cc47ad63e643b4b0d3d29ce0a`.
 **Рабочая ветка:** `work/2026-11-10-t3-t2-activity-projection`, основной каталог `packages/t3-core/`.
