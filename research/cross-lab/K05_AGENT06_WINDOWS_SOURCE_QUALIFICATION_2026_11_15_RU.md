@@ -92,3 +92,19 @@ Next practical owner workflow:
 - Public source CI artifacts = **0**; private Actions на кодовом SHA = **0**; прочие приватные файлы, полные логи и исполняемые артефакты в общедоступные материалы не публиковались.
 
 **Статус:** `K05_SOURCE_WINDOWS=PASS`; `K05_PACKAGE_COLD_CORE=PASS`; `K05_NATIVE_SETUP_CORE=IN_PROGRESS_NOT_ACCEPTED`; `K05_INSTALLED_UI_PAIR=NOT_TESTED`; `REAL_MODEL_CAUSAL_EFFECT=NOT_MEASURABLE`; `PRODUCT_ACCEPTED=false`.
+
+## Дополнение 15.11: реальная установленная Qwen Task и квалификация K05 UIA
+
+Точный исходный код новой специализированной Agent-ветки:
+`Faust-S/iwxa-personal-agent@8d902270b678eab5d6ec918165cec74ec2d22118`.
+Общая Agent 0.6, T3 и нормативный K05-owner не изменены.
+
+- [Center installed #43749502166](https://github.com/Faust-S/Center/actions/runs/43749502166): в установленном Setup Core прошли `IDENTITY`, `PREFLIGHT`, `INSTALL`, `VERIFY`, `LOCATIONS`. Реальная Qwen выполнила inference, Task, Human Review, экспорт и inspect `.iwxa`; последняя operation `EXCHANGE_INSPECT`, checkpoint `AGENT_REAL_QWEN_IWXA_EXPORT_INSPECT_PASS`. Итог всей установленной приёмки FAIL: witness проверял старый общий каталог реестра, а действующий Original Agent хранит полномочия в `IWXA/PersonalAgent/`.
+- [Center installed #43750828997](https://github.com/Faust-S/Center/actions/runs/43750828997): после исправления всех пяти путей в `qualify_setup_core_runtime.ps1` установленная проверка продвинулась до `K03_TASK_EXECUTE`; статус FAIL. Это подтверждает устранение прежнего блокера Qwen witness, но не подтверждает приёмку K03, K05 GUI или всей установки.
+- На точном исходном SHA выше [source Windows #43753287399](https://github.com/Faust-S/Center/actions/runs/43753287399) **SUCCESS**: original Agent Python 62 PASS, product/package tests 15/15 PASS, cold product Core 1/1 PASS без SKIP, TypeScript/Vite PASS, UI и Windows PowerShell parser PASS.
+- В существующем установленном UIA `k05-compare` добавлен режим отрицательной сверки двух настоящих Human-accepted Task с разными условиями. Критерий PASS теперь включает не только видимую отметку NOT_COMPARABLE, но и независимую read-only сверку оригинального Core, неизменность обоих Task/Result и `provider_invocations_during_comparison=0`, `task_mutations=0`. Нативное исполнение этого нового критерия пока **NOT_RUN**.
+- В установленном K03 owner witness сохранение конечного кодового семейства, последнего checkpoint и HTTP reason добавлено без выхода за допустимые публичные значения. [Center installed #43753145325](https://github.com/Faust-S/Center/actions/runs/43753145325) на момент фиксации продолжал исполнять Windows job; результат не объявлять PASS.
+
+**Статусы:** `K05_SOURCE_WINDOWS=PASS`; `K05_PACKAGE_COLD_PYTHON=PASS`; `QWEN_REAL_INSTALLED_TASK_EXCHANGE=PARTIAL_PASS` (до export inspect, без полной приёмки); `K03_INSTALLED=FAIL` на предыдущем прогоне; `K05_NATIVE_UIA=NOT_ACCEPTED`; `TWO_REAL_EXECUTOR_QUALITY=NOT_MEASURABLE`; `PRODUCT_ACCEPTED=false`.
+
+**Приватность:** единственный разрешённый исполнитель закрытого кода — временный public `Faust-S/Center` Windows runner с read-only secret. В source CI артефакты не выгружались; приватные Actions не запускались. Информация в публичном CI ограничена безопасными статусами SHA, receipt и конечными кодами, без публикуемых EXE, исходников, полных логов, ответов модели и пользовательских данных.
