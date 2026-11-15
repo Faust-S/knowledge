@@ -71,7 +71,9 @@ function fixture(beforeHuman=async()=>{}){
     setApproved:v=>approved=v,setRevoked:v=>revoked=v,
     setSelected:v=>selected=v,setDropAck:v=>dropAck=v,
     setReceiptHook:fn=>receiptHook=fn,
-    setReadbackHook:fn=>readbackHook=fn,receives:()=>receives};
+    setReadbackHook:fn=>readbackHook=fn,
+    setRecipientId:id=>{nativeOwner.recipientId=id;},
+    receives:()=>receives};
 }
 test("D6 selected signed Result continues to an installed owner with independent readback",async()=>{
   const f=fixture();
@@ -224,4 +226,20 @@ test("D6 never continues an original T2 Object marked only deleted_at",async()=>
   assert.equal((await f.port.continueSelected(f.ref)).status,
     "OWNER_READBACK_CONFIRMED");
   assert.equal(f.receives(),1);
+});
+
+test("D6 pins installed recipient through Human Review and cold readback",async()=>{
+  let first;
+  first=fixture(async()=>first.setRecipientId("native:other"));
+  await assert.rejects(first.port.continueSelected(first.ref),
+    {code:"T3_D6_NATIVE_RECIPIENT_CHANGED"});
+  assert.equal(first.receives(),0,"switch must not retarget an approved Result");
+
+  const cold=fixture();
+  assert.equal((await cold.port.continueSelected(cold.ref)).status,
+    "OWNER_READBACK_CONFIRMED");
+  cold.setReadbackHook(()=>cold.setRecipientId("native:other"));
+  await assert.rejects(cold.port.recover(cold.ref),
+    {code:"T3_D6_NATIVE_RECIPIENT_CHANGED"});
+  assert.equal(cold.receives(),1,"no replay after recipient switch");
 });

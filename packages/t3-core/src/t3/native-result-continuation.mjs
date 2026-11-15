@@ -68,6 +68,11 @@ export function createTrustedNativeContinuation({
   // the recipient can report an uncertain or lost acknowledgement.
   const inFlight=new Set();
   const dispatched=new Set();
+  // A trusted port is bound to ONE installed recipient. Switching account
+  // while Human Review or native readback awaits cannot retarget a Result.
+  const recipientId=nativeOwner.recipientId;
+  const recipientUnchanged=()=>check(nativeOwner.recipientId===recipientId,
+    "T3_D6_NATIVE_RECIPIENT_CHANGED");
   const active=()=>isHostActive()===true;
   async function withSelectedSource(input,run){
     const reference=referenceFrom(input);
@@ -80,6 +85,7 @@ export function createTrustedNativeContinuation({
     try{
       const live=()=>{
         check(active(),"T3_HOST_DISPOSED");
+        recipientUnchanged();
         check(!selectionChanged&&currentWorkspace.get()===selected,
           "T3_D6_WORKSPACE_CHANGED");
       };
@@ -127,9 +133,9 @@ export function createTrustedNativeContinuation({
     const {reference,unchanged}=nativeOwnerInput;
     await unchanged();
     const report=await nativeOwner.inspect({reference:copy(reference,
-      "T3_D6_REFERENCE_NOT_CLONEABLE"),recipientId:nativeOwner.recipientId});
+      "T3_D6_REFERENCE_NOT_CLONEABLE"),recipientId:recipientId});
     await unchanged();
-    return normalizeInspect(report,reference,nativeOwner.recipientId);
+    return normalizeInspect(report,reference,recipientId);
   }
   async function observe(reference,operationId,readSource){
     let receipt,readback,nativeReadUnavailable=false;
@@ -141,11 +147,11 @@ export function createTrustedNativeContinuation({
     // signed source is a separate denial and must never be swallowed.
     await readSource();
     if(nativeReadUnavailable||
-       !confirmedOwnerReadback(receipt,readback,reference,nativeOwner.recipientId,operationId)){
+       !confirmedOwnerReadback(receipt,readback,reference,recipientId,operationId)){
       return Object.freeze({status:"OUTCOME_UNKNOWN",operationId});
     }
     return Object.freeze({status:"OWNER_READBACK_CONFIRMED",operationId,
-      recipientId:nativeOwner.recipientId,resultRef:receipt.resultRef,
+      recipientId:recipientId,resultRef:receipt.resultRef,
       reference:copy(reference,"T3_D6_REFERENCE_NOT_CLONEABLE")});
   }
   // Only the ORIGINAL installed recipient knows whether a native Result
@@ -174,7 +180,7 @@ export function createTrustedNativeContinuation({
         prior!==null||plan.status==="RECOVER_ONLY"||
         dispatched.has(plan.operationId)?"RECOVER_ONLY":"AVAILABLE";
       return Object.freeze({status,
-        operationId:plan.operationId,recipientId:nativeOwner.recipientId,
+        operationId:plan.operationId,recipientId:recipientId,
         reference:state.reference});
     });
   }
@@ -193,7 +199,7 @@ export function createTrustedNativeContinuation({
         const prior=await probePrior(state,operationId);
         if(prior!==null)return prior;
         const approval=await confirmHuman({
-          recipientId:nativeOwner.recipientId,
+          recipientId:recipientId,
           operationId,reference:copy(state.reference,
             "T3_D6_REFERENCE_NOT_CLONEABLE"),
         });
@@ -213,11 +219,14 @@ export function createTrustedNativeContinuation({
         dispatched.add(operationId);
         try{
           await nativeOwner.receive({
-            operationId,recipientId:nativeOwner.recipientId,
+            operationId,recipientId:recipientId,
             reference:copy(state.reference,"T3_D6_REFERENCE_NOT_CLONEABLE"),
             object:current,
           });
         }catch(error){
+          // Recipient switches are definite binding refusals, not native ACK
+          // loss. The prior attempted write is still never resent.
+          recipientUnchanged();
           // An attempted native write can have committed without its ACK.
           // Do not resend it; the installed recipient owns cold recovery.
           return Object.freeze({status:"OUTCOME_UNKNOWN",operationId,
