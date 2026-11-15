@@ -608,10 +608,12 @@ test("D7 installed age verifies and previews original Kernel without returning d
   const cipher=Uint8Array.from([
     ...new TextEncoder().encode("age-encryption.org/v1\n"),1,2,3,4]);
   const archiveSha256="c".repeat(64);
-  let opened=0,imports=0;
-  let signalCommitStarted,releaseCommit;
+  let opened=0,imports=0,cancels=0;
+  let signalCommitStarted,releaseCommit,signalCancelStarted,releaseCancel;
   const commitStarted=new Promise(resolve=>{signalCommitStarted=resolve;});
   const commitMayFinish=new Promise(resolve=>{releaseCommit=resolve;});
+  const cancelStarted=new Promise(resolve=>{signalCancelStarted=resolve;});
+  const cancelMayFinish=new Promise(resolve=>{releaseCancel=resolve;});
   const nativeD7PortFor=async()=>({ageOwner:{
     currentRecipient:async()=>({recipientId:"recipient:installed",
       bindingEpoch:"epoch:installed:one",privateKey:"NEVER_TO_WEB"}),
@@ -649,7 +651,14 @@ test("D7 installed age verifies and previews original Kernel without returning d
         relations:0,assets:0},
       };
     },
-    cancelInOriginalKernel:async()=>true,
+    cancelInOriginalKernel:async input=>{
+      if(input.preview_token==="tok:native:cancel-first"){
+        cancels++;
+        signalCancelStarted();
+        await cancelMayFinish;
+      }
+      return true;
+    },
   },authorizeAgeImportCommit:async()=>true});
   const f=await fixture({nativeD7PortFor});
   const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
@@ -693,6 +702,26 @@ test("D7 installed age verifies and previews original Kernel without returning d
       preview_token:"tok:native:unused",
     });
     assert.equal(cancelled.cancelled,true);
+    // Cancellation started FIRST must exclude a racing native commit.
+    // Otherwise the original Kernel can cancel and then import the same
+    // preview during the first cancellation's pending acknowledgement.
+    const cancelFirst=f.browser.nativeD7Request("age.cancelImport",{
+      preview_token:"tok:native:cancel-first",
+    });
+    await cancelStarted;
+    const afterCancelRequest={...request,preview_token:"tok:native:cancel-first"};
+    await assert.rejects(f.browser.nativeD7Request("age.commitImport",
+      afterCancelRequest),{code:"T3_D7_NATIVE_OUTCOME_UNKNOWN"});
+    assert.equal(imports,1);
+    releaseCancel();
+    assert.deepEqual(await cancelFirst,{cancelled:true});
+    assert.equal(cancels,1);
+    await assert.rejects(f.browser.nativeD7Request("age.commitImport",
+      afterCancelRequest),{code:"T3_D7_NATIVE_OUTCOME_UNKNOWN"});
+    await assert.rejects(f.browser.nativeD7Request("age.cancelImport",{
+      preview_token:"tok:native:cancel-first",
+    }),{code:"T3_D7_NATIVE_OUTCOME_UNKNOWN"});
+    assert.equal(imports,1);
     assert.equal(Object.hasOwn(result,"archiveBytes"),false);
     assert.equal(Object.hasOwn(result,"privateKey"),false);
     assert.equal(Object.hasOwn(result.handle,"originalPrivateArchive"),false);

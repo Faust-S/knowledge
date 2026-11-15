@@ -628,13 +628,27 @@ export function createOriginalControlHttpHandler({
             requireThat(!nativeAgeImportInFlight.has(key)&&
               !nativeAgeImportDispatched.has(key),
               "T3_D7_NATIVE_OUTCOME_UNKNOWN");
-            const cancelled=await age.cancelInOriginalKernel({
-              preview_token:payload.preview_token,
-              recipientId:recipient.recipientId,
-            });
-            requireThat(d7Same(recipient,await d7Recipient(age)),
-              "T3_D7_ORIGINAL_NATIVE_RECIPIENT_CHANGED");
-            result={cancelled:cancelled===true};
+            nativeAgeImportInFlight.add(key);
+            try{
+              // A cancellation can consume the ORIGINAL preview before its
+              // acknowledgement reaches Control. Claim its dispatch under
+              // the SAME token lock as importCommit, so a racing commit can
+              // never write after an uncertain cancellation.
+              nativeAgeImportDispatched.add(key);
+              let cancelled;
+              try{
+                cancelled=await age.cancelInOriginalKernel({
+                  preview_token:payload.preview_token,
+                  recipientId:recipient.recipientId,
+                });
+              }catch{refused("T3_D7_NATIVE_OUTCOME_UNKNOWN");}
+              requireThat(d7Same(recipient,await d7Recipient(age))&&
+                before===await epochNow()&&authenticated(req),
+                "T3_D7_NATIVE_OUTCOME_UNKNOWN");
+              result={cancelled:cancelled===true};
+            }finally{
+              nativeAgeImportInFlight.delete(key);
+            }
           }else if(verb==="open"){
             // No automatic fallback from opaque native Kernel import into
             // browser-readable plaintext when the installed owner omits open.
@@ -794,7 +808,7 @@ export function createOriginalControlHttpHandler({
           }
         }
         requireThat(before===await epochNow()&&authenticated(req),
-          ["publisher.apply","age.commitImport"].includes(input.verb)
+          ["publisher.apply","age.commitImport","age.cancelImport"].includes(input.verb)
             ?"T3_D7_NATIVE_OUTCOME_UNKNOWN":"STALE_CONTEXT_OPERATION");
         reply(res,200,{result});
         return true;
