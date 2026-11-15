@@ -67,7 +67,7 @@ view = read_agent_task_execution_history(
 Agent 0.6 и приватных Actions) добавлен read-only метод
 \`read_historical_execution_approval(receipt_id)\`. Он использует существующие
 \`read_execution_receipt\`, \`read_execution_plan\`, \`ApprovalCell._load\`,
-\`ApprovalCell._revocation_for\` и оригинальную \`cells.approval._scope_digest\`;
+\`ApprovalCell.read_historical_revocations / ApprovalCell.read_historical_plan_decisions\` и оригинальную \`cells.approval._scope_digest\`;
 сверяет Plan/Approval/Receipt, время старта относительно срока утверждения и
 плана, и дату отзыва полномочия. Никогда не вызывает provider и не выдаёт
 новое разрешение. Поздний отзыв не отменяет исторический факт разрешения;
@@ -93,7 +93,7 @@ pytest-тестами на отдельной ветке, но приватны�
 
 Интеграционный Agent owner-port на независимой приватной ветке
 \`work/2026-11-15-agent06-k05-owner-readback\` (HEAD
-\`cc474a01dff1d55f8e000947bcdcef6d1735c79f\`) теперь
+\`4d1b0fbefd0ebee88fbbd5026495a174efe85cf2\`) теперь
 использует два **новых только читающих метода существующего ApprovalCell**:
 \`read_historical_revocations\` и \`read_historical_plan_decisions\`.
 
@@ -112,3 +112,6 @@ pytest-тестами на отдельной ветке, но приватны�
 настоящие Task/Result и холодный Windows-перезапуск остаются
 \`NOT_TESTED\`. Нельзя приписывать бизнес-пользу или ROI без исходных
 owner receipts и сопоставимых фактических данных.
+
+
+Дополнение для ревизии 4d1b0fbe: исходные Approval/Revocation records теперь проверяются по схеме и digest до фильтрации по plan_ref/approval_ref. Повреждённый идентификатор не может скрыть раннее решение. Приватные адресные тесты подготовлены, но NOT_RUN.
