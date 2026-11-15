@@ -17,6 +17,7 @@ function fixture(){
   let confirmGate=null,enterConfirm=null,confirmCount=0;
   let scope=fullScope(),entries=fullEntries(),payloadDigest="c".repeat(64);
   let floor=7,inspectAlwaysReady=false;
+  let receiptHook=null,readbackHook=null;
   const records=new Map();
   const ctx=()=>({kind:"PERSONAL",context_id:"local:me",actor_id:"person:owner",
     principal_id:"person:owner",role_id:"role:owner",grant_id:"grant:owner",
@@ -67,8 +68,12 @@ function fixture(){
       });
       if(loseAck)throw Error("ACK_LOST");
     },
-    receipt:async q=>records.get(q.kind)??null,
+    receipt:async q=>{
+      if(receiptHook!==null)await receiptHook();
+      return records.get(q.kind)??null;
+    },
     statusReadback:async q=>{
+      if(readbackHook!==null)await readbackHook();
       const row=records.get(q.kind);
       return row?{...row,persisted:true,statusSequenceFloor:floor}:null;
     },
@@ -86,6 +91,8 @@ function fixture(){
     },
     useFloor:n=>{floor=n;},
     setInspectAlwaysReady:()=>{inspectAlwaysReady=true;},
+    onReceipt:fn=>{receiptHook=fn;},
+    onReadback:fn=>{readbackHook=fn;},
     pauseConsent:()=>{
       let release,entered;
       const started=new Promise(resolve=>{entered=resolve;});
@@ -290,4 +297,46 @@ test("D7 native Publisher refuses changed OS holder during human decision",async
   });
   await assert.rejects(port.preview({kind:"LICENSE",archiveBytes}),
     {code:"T3_D7_ORIGINAL_NATIVE_HOLDER_UNBOUND"});
+});
+
+test("D7 Publisher refuses signed context changes, not native recovery uncertainty",async()=>{
+  const archiveBytes=file();
+  // Change in the signed D1 context during the first original receipt probe.
+  const pre=fixture(),port=pre.create();
+  const preview=await port.preview({kind:"LICENSE",archiveBytes});
+  pre.onReceipt(()=>pre.switchContext());
+  await assert.rejects(port.admit({kind:"LICENSE",archiveBytes,
+    previewDigest:preview.previewDigest}),{code:"T3_D7_SIGNED_CONTEXT_CHANGED"});
+  assert.equal(pre.applies(),0);
+
+  // The second probe runs AFTER explicit Human consent and fresh inspection.
+  const post=fixture(),other=post.create();
+  const next=await other.preview({kind:"LICENSE",archiveBytes});
+  let probes=0;
+  post.onReceipt(()=>{if(++probes===2)post.switchContext();});
+  await assert.rejects(other.admit({kind:"LICENSE",archiveBytes,
+    previewDigest:next.previewDigest}),{code:"T3_D7_SIGNED_CONTEXT_CHANGED"});
+  assert.equal(post.applies(),0);
+
+  // Installed holder already committed; cold read-only recovery must not
+  // swallow a signed context change, even if native receipt becomes unavailable.
+  const cold=fixture(),owner=cold.create();
+  const p=await owner.preview({kind:"LICENSE",archiveBytes});
+  assert.equal((await owner.admit({kind:"LICENSE",archiveBytes,
+    previewDigest:p.previewDigest})).status,"ORIGINAL_HOLDER_READBACK_CONFIRMED");
+  cold.onReceipt(()=>{cold.switchContext();throw Error("NATIVE_RECEIPT_OFFLINE");});
+  await assert.rejects(cold.create().recover({kind:"LICENSE",archiveBytes}),
+    {code:"T3_D7_SIGNED_CONTEXT_CHANGED"});
+  assert.equal(cold.applies(),1);
+
+  // With original access unchanged, an offline native readback is UNKNOWN;
+  // it never sends another LICENSE/STATUS mutation.
+  const unavailable=fixture(),first=unavailable.create();
+  const one=await first.preview({kind:"LICENSE",archiveBytes});
+  assert.equal((await first.admit({kind:"LICENSE",archiveBytes,
+    previewDigest:one.previewDigest})).status,"ORIGINAL_HOLDER_READBACK_CONFIRMED");
+  unavailable.onReadback(()=>{throw Error("NATIVE_STATUS_READBACK_OFFLINE");});
+  assert.equal((await unavailable.create().recover({kind:"LICENSE",archiveBytes})).status,
+    "OUTCOME_UNKNOWN");
+  assert.equal(unavailable.applies(),1);
 });
