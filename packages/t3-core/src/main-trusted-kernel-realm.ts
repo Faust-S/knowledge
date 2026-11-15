@@ -238,8 +238,18 @@ async function attach(event:MessageEvent){
     // The trusted browser owns the ONLY genuine T2 IndexedDB Kernel. The
     // native signer and sealed application must remain in the ONE installed
     // D3 Host; relay execution is strictly behind its authorization.
-    await attachOriginalNativeKernelRelay(
-      owner,createKernelFacade({session:originalSession}),originalSession);
+    // D3 native APPLY is OPTIONAL; it must not make opening the existing
+    // signed T2 Workspace wait for a separate native bridge handshake. The
+    // original MessagePort above is already ready, and remains the only
+    // UI-facing T2 interface even when this independent binding is absent.
+    void attachOriginalNativeKernelRelay(
+      owner,createKernelFacade({session:originalSession}),originalSession,
+    ).catch(()=>{
+      // No false APPLY availability: native relay clears an incomplete
+      // binding itself and never replays a possibly written graph.
+      stopNativeRelay?.();
+      stopNativeRelay=null;
+    });
   }catch(error){
     live=false;
     receiver?.close();
