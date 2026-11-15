@@ -319,6 +319,7 @@ test("original native D3 recipient uses the existing signed Control HTTP and iso
 test("original D3 accepts a real-size carrier above the former 16 MiB limit",{
   timeout:45000,
 },async()=>{
+  const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
   const bytes=Buffer.alloc(16*1024*1024+1,0x5a);
   let received=0;
   const port={
