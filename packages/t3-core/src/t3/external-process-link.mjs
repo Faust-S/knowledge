@@ -303,5 +303,16 @@ export function createTrustedExternalProcessLink({
         source_revision:source.source_revision,epistemic_status:'reported'});
     });
   }
-  return Object.freeze({link,refresh,recover});
+  async function prepareContinuation(input) {
+    // D6 accepts only the currently verified ORIGINAL signed T2 reference.
+    // This does not dispatch any workflow or infer domain execution rights.
+    const result = await recover(input);
+    if (result.status !== 'LINK_PERSISTED' ||
+        !Number.isSafeInteger(result.revision) || result.revision < 1)
+      deny('T3_EXT_CONTINUATION_NOT_CURRENT');
+    return Object.freeze({workspace_id:result.workspace_id,
+      object_id:result.object_id,schema_id:EXTERNAL_PROCESS_LINK_SCHEMA,
+      revision:result.revision});
+  }
+  return Object.freeze({link,refresh,recover,prepareContinuation});
 }

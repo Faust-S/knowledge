@@ -417,4 +417,6 @@ export function createTrustedExternalProcessLink(options:{
   link(input:T3ExternalRecordReference):Promise<T3ExternalLinkStatus>;
   refresh(input:T3ExternalRecordReference):Promise<T3ExternalLinkStatus>;
   recover(input:T3ExternalRecordReference):Promise<T3ExternalLinkStatus>;
+  /** Read-only handoff to existing D6, never a new workflow or permission. */
+  prepareContinuation(input:T3ExternalRecordReference):Promise<T3NativeContinuationReference>;
 }>;
