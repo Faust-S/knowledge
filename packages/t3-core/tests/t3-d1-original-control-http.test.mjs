@@ -608,7 +608,7 @@ test("D7 installed age verifies and previews original Kernel without returning d
   const cipher=Uint8Array.from([
     ...new TextEncoder().encode("age-encryption.org/v1\n"),1,2,3,4]);
   const archiveSha256="c".repeat(64);
-  let opened=0,imports=0,cancels=0;
+  let opened=0,imports=0,cancels=0,receiptSemantic="sem:one";
   let signalCommitStarted,releaseCommit,signalCancelStarted,releaseCancel;
   const commitStarted=new Promise(resolve=>{signalCommitStarted=resolve;});
   const commitMayFinish=new Promise(resolve=>{releaseCommit=resolve;});
@@ -628,7 +628,8 @@ test("D7 installed age verifies and previews original Kernel without returning d
         archiveBytes:Uint8Array.of(80,75,3,4),
         privateKey:"NOT_FOR_UI",
         handle:{preview_token:opened===1?"tok:native:one":
-          opened===2?"tok:native:unused":"tok:native:cancel-first",
+          opened===2?"tok:native:unused":
+          opened===3?"tok:native:cancel-first":"tok:native:semantic:wrong",
           package_digest:"digest:one",
           semantic_digest:"sem:one",expires_at:"2099-01-01T00:00:00Z",
           allowed_modes:["new-workspace"],
@@ -643,7 +644,7 @@ test("D7 installed age verifies and previews original Kernel without returning d
       return {
       import_id:"import:native:one",format:"iwxa.import.receipt",
       format_version:"1.0",package_digest:input.package_digest,
-      semantic_digest:"sem:one",mode:input.plan.mode,
+      semantic_digest:receiptSemantic,mode:input.plan.mode,
       conflict_policy:"fail",committed_at:"2026-11-15T00:00:00Z",
       applied:{workspaces:1,objects_inserted:0,objects_updated:0,
         objects_skipped:0,events:0,relations:0,assets:0,
@@ -747,10 +748,24 @@ test("D7 installed age verifies and previews original Kernel without returning d
       preview_token:"tok:native:cancel-first",
     }),{code:"T3_D7_NATIVE_OUTCOME_UNKNOWN"});
     assert.equal(imports,1);
+    // A native receipt with the right package digest but the WRONG semantic
+    // digest is not confirmation of the originally verified age preview.
+    const semanticPreview=await f.browser.nativeD7Request("age.previewImport",{
+      ciphertext:cipher,
+    });
+    assert.equal(semanticPreview.handle.preview_token,"tok:native:semantic:wrong");
+    receiptSemantic="sem:unrelated";
+    const semanticRequest={...request,
+      preview_token:semanticPreview.handle.preview_token};
+    await assert.rejects(f.browser.nativeD7Request("age.commitImport",
+      semanticRequest),{code:"T3_D7_NATIVE_OUTCOME_UNKNOWN"});
+    await assert.rejects(f.browser.nativeD7Request("age.commitImport",
+      semanticRequest),{code:"T3_D7_NATIVE_OUTCOME_UNKNOWN"});
+    assert.equal(imports,2,"only one original Kernel call per native token");
     assert.equal(Object.hasOwn(result,"archiveBytes"),false);
     assert.equal(Object.hasOwn(result,"privateKey"),false);
     assert.equal(Object.hasOwn(result.handle,"originalPrivateArchive"),false);
-    assert.equal(opened,3);
+    assert.equal(opened,4);
   }finally{stop();await f.close();}
 });
 

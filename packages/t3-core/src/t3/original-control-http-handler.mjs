@@ -199,6 +199,7 @@ export function createOriginalControlHttpHandler({
       "T3_D7_NATIVE_PREVIEW_BINDING_INVALID");
     nativeAgePreviewClaims.set(key,Object.freeze({
       packageDigest:handle.package_digest,
+      semanticDigest:handle.semantic_digest,
       allowedModes:Object.freeze([...handle.allowed_modes]),
       expiresAt:Date.parse(handle.expires_at),
     }));
@@ -643,7 +644,7 @@ export function createOriginalControlHttpHandler({
               requireThat(nativeReceipt?.format==="iwxa.import.receipt"&&
                 typeof nativeReceipt.import_id==="string"&&
                 nativeReceipt.package_digest===payload.package_digest&&
-                typeof nativeReceipt.semantic_digest==="string"&&
+                nativeReceipt.semantic_digest===claim.semanticDigest&&
                 nativeReceipt.mode===payload.plan.mode&&
                 nativeReceipt.applied&&typeof nativeReceipt.applied==="object",
                 "T3_D7_NATIVE_OUTCOME_UNKNOWN");
