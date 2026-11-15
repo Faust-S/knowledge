@@ -204,8 +204,19 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   await assert.rejects(port.applyAccepted(selection),
     {code:"T3_D3_APPLY_IN_PROGRESS"});
   assert.equal(commits,0,"concurrent APPLY must not reach Kernel");
-  resumeApply();holdApply=null;enterApply=null;
-  const result=await pending;
+  // The first trusted Host is still waiting on the manager's Human APPLY.
+  // A second independent Host can commit the same original effect. When the
+  // first manager confirms, it must see that Event and never write again.
+  holdApply=null;enterApply=null;
+  const competingHost=makePort();
+  const result=await competingHost.applyAccepted(selection);
+  assert.equal(commits,1,"independent Host committed one original graph");
+  resumeApply();
+  await assert.rejects(pending,
+    {code:"T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY"});
+  assert.equal(commits,1,"stale Human APPLY cannot dispatch a second graph");
+  // Retain the successful Host for the existing same-process no-replay test.
+  port=competingHost;
   assert.equal(result.kernelWriteReadback,"CONFIRMED");
   assert.equal(result.originalEventReadback.idempotency_key,effect);
   assert.equal(result.originalEventReadback.payload.reconciliation_acceptance_id,accepted);

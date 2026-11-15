@@ -183,6 +183,17 @@ export function createTrustedReconciliationKernelApply({
     });
     check(approval===true,"T3_D3_SEPARATE_HUMAN_APPLY_REQUIRED");
     await unchanged(c);
+    // Another original Host can apply this exact sealed effect while the
+    // manager reviews the Human APPLY prompt. Re-read durable T2 Event
+    // history AFTER consent, not just before it. This is not an alternate
+    // journal; the original Kernel remains the sole durable authority.
+    const afterConsent=await signedKernel.listEventsSince(c.workspace_id);
+    check(Array.isArray(afterConsent),"T3_D3_ORIGINAL_EVENT_HISTORY_UNAVAILABLE");
+    check(!afterConsent.some(event=>event?.idempotency_key===binding.effectKey),
+      "T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY");
+    await unchanged(c);
+    // Kernel's own revision/idempotency semantics remain authoritative for
+    // any race after this read and before the final signed JIT dispatch.
     let receipt;
     try {
       receipt=await signedKernel.commitObjectGraph(command);
