@@ -16,6 +16,8 @@ import {createTemporaryOriginalPersonalAuthority}
   from './support/t3-original-personal-authority.mjs';
 import {createOriginalControlHttpHandler}
   from '../src/t3/original-control-http-handler.mjs';
+import {createOriginalKernelNativeRelay}
+  from '../src/t3/original-kernel-native-relay.mjs';
 import {createOriginalKernelRegistryStatePort,ORIGINAL_REGISTRY_SCHEMA}
   from '../src/t3/access/original-kernel-registry-state.mjs';
 import {createOrganizationalOperationGate}
@@ -339,7 +341,7 @@ const uiServer=createServer((req,res)=>{
   }
   res.writeHead(404,{'Content-Type':'text/plain'});res.end('NOT_FOUND');
 });
-let browser=null;
+let browser=null,nativeRelayForTest=null;
 const launch=async()=>{
   const context=await chromium.launchPersistentContext(profile,{
     headless:true,serviceWorkers:'block',
@@ -1328,6 +1330,22 @@ try{
   });
   let corporateOwner=buildCorporatePort(corporateRegistry);
   authenticEpoch++;
+  // PUBLIC TEST caller for the SAME existing Control HTTP relay. This does
+  // not grant a private D3 ACCEPT/APPLY; only proves that a native-initiated
+  // command reaches the actual original browser Kernel and back.
+  const nativeRelay=createOriginalKernelNativeRelay({
+    currentEpoch:()=>authenticEpoch,onAttach:()=>true,
+    timeoutMs:20000,idleLeaseMs:60000,
+  });
+  nativeRelayForTest=nativeRelay;
+  const currentNativeKernel=async()=>{
+    for(let attempt=0;attempt<100;attempt++){
+      if(nativeRelay.attached&&nativeRelay.nativeKernel)
+        return nativeRelay.nativeKernel;
+      await new Promise(resolve=>setTimeout(resolve,100));
+    }
+    throw Error('T3_D3_NATIVE_RELAY_ORIGINAL_BROWSER_ATTACH_MISSING');
+  };
   authenticHandler=createOriginalControlHttpHandler({
     origin,token,uiOrigin,serviceId,
     assetForPath:path=>(
@@ -1341,11 +1359,15 @@ try{
     },
     ownerFor:({scope,operation})=>
       scope==='kernel'&&allowedCorpOps.has(operation)?corporateOwner:null,
+    originalKernelRelayFor:()=>nativeRelay,
   });
   const switchTo=short=>{
     assert.ok(Object.hasOwn(corporate.all,short));
     selectedCorporation=short;
     authenticEpoch++;
+    // Exactly as the installed T3 native owner does on a signed Context
+    // change, revoke the prior browser Kernel relay before new attach.
+    nativeRelay.invalidate();
     // The existing original Control owner uses this very same SSE signal
     // on voluntary context changes and cryptographic revocation.
     for(const callback of [...authenticInvalidationListeners])callback();
@@ -1496,6 +1518,38 @@ try{
   const southApp=await onboardCorporate('south');
   const southCopy=await copyDraftInCorporateUI(southApp.page,'south');
   assert.ok(credentialProofs.south>=5);
+  // The original signed corporate UI cannot call raw graph operations.
+  // A separate native TEST caller initiates the exact original T2
+  // commitObjectGraph command over the SAME bearer/epoch Control HTTP
+  // relay, and independently gets Object/Event through that same relay.
+  const relayKernel=await currentNativeKernel();
+  assert.equal(relayKernel.hasOperation('t1.commitObjectGraph'),true);
+  assert.equal((await relayKernel.getWorkspace('ws:south'))?.workspace_id,
+    'ws:south');
+  const relayEffect='e'.repeat(64);
+  const relayGraph={...graphD3,workspace_id:'ws:south',
+    idempotency_key:relayEffect,
+    object:{...graphD3.object,object_id:'result:applied:'+relayEffect,
+      data:{...graphD3.object.data,records:[
+        {...graphD3.object.data.records[0],
+          workspaceId:'ws:south',
+          organizationId:corporate.all.south.context.organization_id},
+      ]}},
+  };
+  const originalRelayReceipt=await relayKernel.commitObjectGraph(relayGraph);
+  assert.equal(originalRelayReceipt.object?.revision,1);
+  assert.equal(originalRelayReceipt.object?.object_id,
+    relayGraph.object.object_id);
+  assert.equal(originalRelayReceipt.event?.idempotency_key,relayEffect);
+  const relayRead=await relayKernel.getObject('ws:south',
+    relayGraph.object.object_id);
+  const relayEvents=await relayKernel.listEventsSince('ws:south');
+  assert.deepEqual(relayRead?.object?.data,relayGraph.object.data);
+  assert.equal(relayEvents.filter(row=>row.event_id===
+    originalRelayReceipt.event.event_id&&row.idempotency_key===relayEffect
+  ).length,1);
+  assert.equal(await southApp.page.evaluate(()=>typeof window.IWXA),
+    'undefined','signed Admin UI must never gain raw T2 graph access');
   assert.notEqual(northCopy.ws,southCopy.ws);
   assert.notEqual(northCopy.copiedId,southCopy.copiedId);
   assert.deepEqual(southApp.pageErrors,[]);
@@ -1534,6 +1588,31 @@ try{
     oneAtomicGraphDispatch:true,readOnlyColdOpens:2,
     originalObjectAndEvent:true,privateSignerUsed:false,
     installedWindowsAccepted:false,
+  }));
+  // Real original Kernel, second cold browser open, no native redispatch:
+  // the exact committed graph and event must remain in the same T2 Store.
+  const relayCold=await browser.page.evaluate(async({
+    serviceId,graph,eventId,
+  })=>{
+    const original=await IWXA.connect({service_id:serviceId});
+    const read=await original.t1.getObject(graph.workspace_id,
+      graph.object.object_id);
+    const events=await original.t1.listEventsSince(graph.workspace_id);
+    return {object:read?.object??null,matching:events.filter(event=>
+      event.event_id===eventId&&
+      event.idempotency_key===graph.idempotency_key&&
+      event.payload?.reconciliation_acceptance_id===
+        graph.event.payload.reconciliation_acceptance_id).length};
+  },{serviceId,graph:relayGraph,eventId:originalRelayReceipt.event.event_id});
+  assert.equal(relayCold.object?.revision,1);
+  assert.deepEqual(relayCold.object?.data,relayGraph.object.data);
+  assert.equal(relayCold.matching,1);
+  console.log('T3_D3_PUBLIC_ORIGINAL_NATIVE_RELAY_REAL_T2_PASS',JSON.stringify({
+    originalT2:'0.3.6',actualControlHttp:true,
+    realBrowserKernelCommands:['getWorkspace','commitObjectGraph',
+      'getObject','listEventsSince'],
+    originalObjectEventReadback:true,coldReadOnlyRecovery:true,
+    nativePrivateSignerUsed:false,installedProductAccepted:false,
   }));
   // Reconstruct proof functions from the ENCRYPTED vault bytes as well;
   // no stale in-memory KeyObject survives cold browser and Access restart.
@@ -1627,6 +1706,7 @@ try{
     authenticPrivateIssuerExecuted:false,
   }));
 }finally{
+  nativeRelayForTest?.close();
   if(browser)await browser.context.close().catch(()=>{});
   uiServer.closeAllConnections();
   if(uiServer.listening)await new Promise(resolve=>uiServer.close(()=>resolve()));
