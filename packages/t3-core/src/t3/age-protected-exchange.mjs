@@ -86,6 +86,26 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
     (nativeRecipient||signedReader)&&typeof isHostActive==="function",
     "T3_D7_TRUSTED_AGE_OWNER_REQUIRED");
   const live=()=>ensure(isHostActive()===true,"T3_HOST_DISPOSED");
+  // Direct installed Host usage must have the SAME one-dispatch guarantees
+  // as signed Control HTTP. These bounded claims die with the Host; they are
+  // NOT a new Kernel journal or a substitute for recipient cold readback.
+  const nativePreviewClaims=new Map(),nativeInFlight=new Set(),nativeDispatched=new Set();
+  const previewKey=(r,token)=>JSON.stringify([r.recipientId,r.bindingEpoch,token]);
+  const claimFor=key=>{
+    const claim=nativePreviewClaims.get(key);
+    if(claim&&claim.expiresAt<=Date.now()){
+      nativePreviewClaims.delete(key);return null;
+    }
+    return claim??null;
+  };
+  async function currentNativeRecipient(){
+    live();
+    const r=await ageOwner.currentRecipient();
+    live();
+    ensure(r&&id(r.recipientId)&&id(r.bindingEpoch),
+      "T3_D7_ORIGINAL_NATIVE_RECIPIENT_REQUIRED");
+    return {recipientId:r.recipientId,bindingEpoch:r.bindingEpoch};
+  }
   async function selectedWorkspace(workspace_id){
     live();
     if(isolatedReader&&!signedReader){
@@ -196,19 +216,11 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
     ensure(nativeKernelPreview,"T3_D7_NATIVE_KERNEL_PREVIEW_UNAVAILABLE");
     const encrypted=take(ciphertext,maxCiphertextBytes,"T3_D7_AGE_CIPHERTEXT_INVALID");
     ensure(ageHeader(encrypted),"T3_D7_AGE_CIPHERTEXT_INVALID");
-    const current=async()=>{
-      live();
-      const r=await ageOwner.currentRecipient();
-      live();
-      ensure(r&&id(r.recipientId)&&id(r.bindingEpoch),
-        "T3_D7_ORIGINAL_NATIVE_RECIPIENT_REQUIRED");
-      return {recipientId:r.recipientId,bindingEpoch:r.bindingEpoch};
-    };
-    const recipient=await current();
+    const recipient=await currentNativeRecipient();
     const result=await ageOwner.previewInOriginalKernel({
       ciphertext:encrypted,recipientId:recipient.recipientId,
     });
-    ensure(JSON.stringify(await current())===JSON.stringify(recipient),
+    ensure(JSON.stringify(await currentNativeRecipient())===JSON.stringify(recipient),
       "T3_D7_ORIGINAL_NATIVE_RECIPIENT_CHANGED");
     const h=result?.handle;
     ensure(result?.status==="KERNEL_PREVIEW_READY"&&
@@ -216,9 +228,21 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
       HEX.test(result.archiveSha256??"")&&h&&id(h.preview_token)&&
       typeof h.package_digest==="string"&&
       typeof h.semantic_digest==="string"&&
-      typeof h.expires_at==="string"&&Array.isArray(h.allowed_modes)&&
+      typeof h.expires_at==="string"&&
+      Number.isFinite(Date.parse(h.expires_at))&&Date.parse(h.expires_at)>Date.now()&&
+      Array.isArray(h.allowed_modes)&&h.allowed_modes.length>0&&
       h.preview&&typeof h.preview==="object"&&!Array.isArray(h.preview),
       "T3_D7_ORIGINAL_KERNEL_PREVIEW_INVALID");
+    for(const [key,claim] of nativePreviewClaims)
+      if(claim.expiresAt<=Date.now())nativePreviewClaims.delete(key);
+    const key=previewKey(recipient,h.preview_token);
+    ensure(!nativePreviewClaims.has(key)&&!nativeDispatched.has(key)&&
+      nativePreviewClaims.size<256,"T3_D7_NATIVE_PREVIEW_BINDING_INVALID");
+    nativePreviewClaims.set(key,Object.freeze({
+      packageDigest:h.package_digest,semanticDigest:h.semantic_digest,
+      allowedModes:Object.freeze([...h.allowed_modes]),
+      expiresAt:Date.parse(h.expires_at),
+    }));
     const handle=Object.freeze(Object.fromEntries([
       "preview_token","package_digest","semantic_digest",
       "expires_at","allowed_modes","preview"
@@ -234,42 +258,70 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
     ensure(nativeKernelPreview,"T3_D7_NATIVE_KERNEL_COMMIT_UNAVAILABLE");
     ensure(id(preview_token)&&typeof package_digest==="string"&&
       package_digest.length>0&&plan&&typeof plan==="object"&&
-      !Array.isArray(plan),"T3_D7_NATIVE_KERNEL_COMMIT_REQUEST_INVALID");
-    const before=await ageOwner.currentRecipient();
-    live();
-    ensure(before&&id(before.recipientId)&&id(before.bindingEpoch),
-      "T3_D7_ORIGINAL_NATIVE_RECIPIENT_REQUIRED");
-    let receipt;
-    try{
-      receipt=await ageOwner.commitInOriginalKernel({
-        preview_token,package_digest,plan,recipientId:before.recipientId,
-      });
-    }catch{deny("T3_D7_NATIVE_OUTCOME_UNKNOWN");}
-    live();
-    const after=await ageOwner.currentRecipient();
-    ensure(JSON.stringify(before)===JSON.stringify(after)&&
-      receipt?.format==="iwxa.import.receipt"&&
-      receipt.package_digest===package_digest&&
-      receipt.mode===plan.mode,
+      !Array.isArray(plan)&&typeof plan.mode==="string",
+      "T3_D7_NATIVE_KERNEL_COMMIT_REQUEST_INVALID");
+    const recipient=await currentNativeRecipient();
+    const key=previewKey(recipient,preview_token);
+    const claim=claimFor(key);
+    ensure(claim&&claim.packageDigest===package_digest&&
+      claim.allowedModes.includes(plan.mode),"T3_D7_NATIVE_PREVIEW_BINDING_INVALID");
+    ensure(!nativeInFlight.has(key)&&!nativeDispatched.has(key),
       "T3_D7_NATIVE_OUTCOME_UNKNOWN");
-    return receipt;
+    nativeInFlight.add(key);
+    try{
+      ensure(JSON.stringify(await currentNativeRecipient())===JSON.stringify(recipient),
+        "T3_D7_NATIVE_OUTCOME_UNKNOWN");
+      // A failed ACK cannot authorize the same original Kernel write again.
+      nativePreviewClaims.delete(key);
+      nativeDispatched.add(key);
+      let receipt;
+      try{
+        receipt=await ageOwner.commitInOriginalKernel({
+          preview_token,package_digest,plan,recipientId:recipient.recipientId,
+        });
+      }catch{deny("T3_D7_NATIVE_OUTCOME_UNKNOWN");}
+      try{
+        ensure(JSON.stringify(await currentNativeRecipient())===JSON.stringify(recipient)&&
+          receipt?.format==="iwxa.import.receipt"&&
+          receipt.package_digest===package_digest&&
+          receipt.semantic_digest===claim.semanticDigest&&
+          receipt.mode===plan.mode,
+          "T3_D7_NATIVE_OUTCOME_UNKNOWN");
+      }catch{deny("T3_D7_NATIVE_OUTCOME_UNKNOWN");}
+      return receipt;
+    }finally{
+      nativeInFlight.delete(key);
+    }
   }
   async function cancelInOriginalKernel({preview_token}={}){
     live();
     ensure(nativeKernelPreview,"T3_D7_NATIVE_KERNEL_CANCEL_UNAVAILABLE");
     ensure(id(preview_token),"T3_D7_NATIVE_KERNEL_CANCEL_REQUEST_INVALID");
-    const before=await ageOwner.currentRecipient();
-    live();
-    ensure(before&&id(before.recipientId)&&id(before.bindingEpoch),
-      "T3_D7_ORIGINAL_NATIVE_RECIPIENT_REQUIRED");
-    const cancelled=await ageOwner.cancelInOriginalKernel({
-      preview_token,recipientId:before.recipientId,
-    });
-    live();
-    ensure(JSON.stringify(before)===
-      JSON.stringify(await ageOwner.currentRecipient()),
-      "T3_D7_ORIGINAL_NATIVE_RECIPIENT_CHANGED");
-    return cancelled===true;
+    const recipient=await currentNativeRecipient();
+    const key=previewKey(recipient,preview_token);
+    ensure(claimFor(key),"T3_D7_NATIVE_PREVIEW_BINDING_INVALID");
+    ensure(!nativeInFlight.has(key)&&!nativeDispatched.has(key),
+      "T3_D7_NATIVE_OUTCOME_UNKNOWN");
+    nativeInFlight.add(key);
+    try{
+      ensure(JSON.stringify(await currentNativeRecipient())===JSON.stringify(recipient),
+        "T3_D7_NATIVE_OUTCOME_UNKNOWN");
+      nativePreviewClaims.delete(key);
+      nativeDispatched.add(key);
+      let cancelled;
+      try{
+        cancelled=await ageOwner.cancelInOriginalKernel({
+          preview_token,recipientId:recipient.recipientId,
+        });
+      }catch{deny("T3_D7_NATIVE_OUTCOME_UNKNOWN");}
+      try{
+        ensure(JSON.stringify(await currentNativeRecipient())===JSON.stringify(recipient),
+          "T3_D7_NATIVE_OUTCOME_UNKNOWN");
+      }catch{deny("T3_D7_NATIVE_OUTCOME_UNKNOWN");}
+      return cancelled===true;
+    }finally{
+      nativeInFlight.delete(key);
+    }
   }
   async function open({ciphertext}={}){
     ensure(rawOpen,"T3_D7_NATIVE_PLAINTEXT_PRIVATE");

@@ -274,3 +274,79 @@ test("D7 installed signed isolated Kernel realm can seal for two recipients with
     workspace_id:"ws:other",archiveBytes:original,
   }),{code:"T3_D7_SIGNED_EXPORT_OWNER_REQUIRED"});
 });
+
+test("D7 direct installed Host binds native preview tokens and blocks duplicate Kernel writes",{
+  timeout:8000,
+},async()=>{
+  const ciphertext=Uint8Array.from([
+    ...new TextEncoder().encode("age-encryption.org/v1\n"),1,2,3,
+  ]);
+  let previews=0,commits=0,cancels=0,releaseCommit,signalStarted;
+  const started=new Promise(resolve=>{signalStarted=resolve;});
+  const finish=new Promise(resolve=>{releaseCommit=resolve;});
+  const recipient={recipientId:"recipient:original",bindingEpoch:"epoch:one"};
+  const ageOwner={
+    currentRecipient:async()=>({...recipient}),
+    previewInOriginalKernel:async()=>({
+      status:"KERNEL_PREVIEW_READY",recipientId:recipient.recipientId,
+      archiveSha256:"a".repeat(64),
+      handle:{preview_token:"tok:direct:"+(++previews),
+        package_digest:"digest:direct",semantic_digest:"semantic:direct",
+        expires_at:"2099-01-01T00:00:00Z",
+        allowed_modes:["new-workspace"],preview:{workspaces:[],objects:[]}},
+    }),
+    commitInOriginalKernel:async input=>{
+      commits++;
+      signalStarted();
+      await finish;
+      return {format:"iwxa.import.receipt",import_id:"import:direct:one",
+        package_digest:input.package_digest,
+        semantic_digest:"semantic:direct",mode:input.plan.mode};
+    },
+    cancelInOriginalKernel:async()=>{cancels++;return true;},
+  };
+  const create=()=>createTrustedAgeExchange({
+    ageOwner,isHostActive:()=>true,
+  });
+  const host=create();
+  const plan={mode:"new-workspace",include_workspaces:[]};
+  const input={preview_token:"tok:direct:1",
+    package_digest:"digest:direct",plan};
+  assert.equal(host.canNativeKernelPreview,true);
+  await assert.rejects(host.commitInOriginalKernel(input),
+    {code:"T3_D7_NATIVE_PREVIEW_BINDING_INVALID"});
+  await assert.rejects(host.cancelInOriginalKernel({
+    preview_token:input.preview_token,
+  }),{code:"T3_D7_NATIVE_PREVIEW_BINDING_INVALID"});
+  const firstPreview=await host.previewInOriginalKernel({ciphertext});
+  assert.equal(firstPreview.handle.preview_token,input.preview_token);
+  await assert.rejects(host.commitInOriginalKernel({
+    ...input,package_digest:"digest:tampered",
+  }),{code:"T3_D7_NATIVE_PREVIEW_BINDING_INVALID"});
+  await assert.rejects(host.commitInOriginalKernel({
+    ...input,plan:{mode:"merge"},
+  }),{code:"T3_D7_NATIVE_PREVIEW_BINDING_INVALID"});
+  const pending=host.commitInOriginalKernel(input);
+  await started;
+  await assert.rejects(host.cancelInOriginalKernel({
+    preview_token:input.preview_token,
+  }),{code:"T3_D7_NATIVE_PREVIEW_BINDING_INVALID"});
+  releaseCommit();
+  assert.equal((await pending).import_id,"import:direct:one");
+  await assert.rejects(host.commitInOriginalKernel(input),
+    {code:"T3_D7_NATIVE_PREVIEW_BINDING_INVALID"});
+  assert.equal(commits,1);
+  const cancelPreview=await host.previewInOriginalKernel({ciphertext});
+  assert.equal(await host.cancelInOriginalKernel({
+    preview_token:cancelPreview.handle.preview_token,
+  }),true);
+  await assert.rejects(host.commitInOriginalKernel({
+    ...input,preview_token:cancelPreview.handle.preview_token,
+  }),{code:"T3_D7_NATIVE_PREVIEW_BINDING_INVALID"});
+  assert.equal(cancels,1);
+  // Reconstructed Host after a cold open cannot replay a pre-restart token.
+  const cold=create();
+  await assert.rejects(cold.commitInOriginalKernel(input),
+    {code:"T3_D7_NATIVE_PREVIEW_BINDING_INVALID"});
+  assert.equal(commits,1);
+});
