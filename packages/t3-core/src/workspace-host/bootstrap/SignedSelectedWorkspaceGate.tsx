@@ -59,7 +59,7 @@ export function SignedSelectedWorkspaceGate({
         if(!["CORP","PERSONAL"].includes(String(context?.kind))||
            (context?.kind==="PERSONAL"&&context.organization_id!==null)||
            typeof selected!=="string"||!ID.test(selected)||
-           context.resource!==selected)
+           context?.resource!==selected)
           throw denied("T3_D1_SELECTED_CONTEXT_NOT_TRUSTED");
         const original=await kernel.getWorkspace(selected);
         if(ticket!==generation.current)return;

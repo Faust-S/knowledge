@@ -58,7 +58,8 @@ it("installed Admin inspects only the original Control-selected Workspace, not l
   expect(getWorkspace).toHaveBeenCalledWith("ws:admin-original");
   fireEvent.click(screen.getByTestId("t3-d1-create-selected-workspace"));
   await screen.findByTestId("signed-admin-original-ready");
-  expect(createWorkspace).toHaveBeenCalledExactlyOnceWith({
+  expect(createWorkspace).toHaveBeenCalledTimes(1);
+  expect(createWorkspace).toHaveBeenCalledWith({
     workspace_id:"ws:admin-original",profile:"generic",
   });
   expect(listWorkspaces).not.toHaveBeenCalled();
