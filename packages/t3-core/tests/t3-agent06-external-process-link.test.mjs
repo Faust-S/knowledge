@@ -6,6 +6,7 @@ import {projectActivitySnapshot} from '../src/t3/activity/index.mjs';
 
 function fixture() {
   let revision='v1',allowed=true,loseAck=false,consent=true,writes=0;
+  let onConfirm=async()=>{};
   const stored=new Map(),events=[];
   const ws={workspace_id:'ws:cehovod',deleted_at:null},currentWorkspace={
     get:()=>ws,subscribe:()=>()=>{}};
@@ -37,24 +38,25 @@ function fixture() {
       {object:value,relations:{incoming:[],outgoing:[]}}:null;},
     async putObject(command){
       writes++;
-      assert.equal(command.base_revision,0);
-      if(stored.has(command.object_id))throw Error('REVISION_CONFLICT');
+      const old=stored.get(command.object_id);
+      if(command.base_revision !== (old?.revision??0))
+        throw Object.assign(new Error('REVISION_CONFLICT'),{code:'T2_REVISION_CONFLICT'});
       const obj={workspace_id:command.workspace_id,object_id:command.object_id,
-        revision:1,schema_id:command.schema_id,schema_version:command.schema_version,
+        revision:(old?.revision??0)+1,schema_id:command.schema_id,schema_version:command.schema_version,
         data:command.data,extensions:command.extensions};
       stored.set(obj.object_id,obj);
-      const event={event_id:'ev:1',workspace_id:ws.workspace_id,
+      const event={event_id:'ev:'+writes,workspace_id:ws.workspace_id,
         event_type:command.event.event_type,occurred_at:'2026-11-15T10:00:00Z',
-        object_id:obj.object_id,revision:1,payload:command.event.payload};
+        object_id:obj.object_id,revision:obj.revision,payload:command.event.payload};
       events.push(event);
       if(loseAck)throw Error('ACK_LOST');
       return {object:obj,event};
     }};
   const newHost=()=>createTrustedExternalProcessLink({kernel,accessForWrite:async()=>access,
-    currentWorkspace,externalOwner,confirmHuman:async()=>consent,isHostActive:()=>true});
-  return {ref,stored,events,newHost,writeCount:()=>writes,
+    currentWorkspace,externalOwner,confirmHuman:async()=>{await onConfirm();return consent;},isHostActive:()=>true});
+  return {ref,stored,events,externalOwner,newHost,writeCount:()=>writes,
     setRevision:v=>revision=v,setAllowed:v=>allowed=v,setLostAck:v=>loseAck=v,
-    setConsent:v=>consent=v};
+    setConsent:v=>consent=v,setOnConfirm:v=>onConfirm=v};
 }
 
 test('exact ERP owner revision persists as reported link and survives cold Host reopen',async()=>{
@@ -101,4 +103,54 @@ test('D1 refusal and human refusal cannot create T3 evidence',async()=>{
   f.setConsent(true);f.setAllowed(false);
   await assert.rejects(f.newHost().link(f.ref),{code:'T3_ACCESS_NOT_PERMITTED'});
   assert.equal(f.writeCount(),0);
+});
+
+test('ERP refresh explicitly increments ORIGINAL T2 revision with no replay',async()=>{
+  const f=fixture();const created=await f.newHost().link(f.ref);
+  assert.equal(created.revision,1);
+  f.setRevision('v2');
+  const updated=await f.newHost().refresh(f.ref);
+  assert.equal(updated.status,'LINK_PERSISTED');
+  assert.equal(updated.revision,2);
+  assert.equal(updated.source_revision,'v2');
+  assert.equal((await f.newHost().refresh(f.ref)).status,'ALREADY_LINKED');
+  assert.equal((await f.newHost().recover(f.ref)).revision,2);
+  assert.equal(f.writeCount(),2);
+  assert.deepEqual(f.events.map(e=>e.event_id),['ev:1','ev:2']);
+});
+test('external owner revision changing during human consent prevents refresh write',async()=>{
+  const f=fixture();await f.newHost().link(f.ref);f.setRevision('v2');
+  f.setOnConfirm(()=>f.setRevision('v3'));
+  await assert.rejects(f.newHost().refresh(f.ref),{code:'T3_EXT_SOURCE_CHANGED_BEFORE_WRITE'});
+  assert.equal(f.writeCount(),1);
+});
+test('lost ACK after original refresh is only recovered by signed Kernel read',async()=>{
+  const f=fixture();await f.newHost().link(f.ref);f.setRevision('v2');
+  f.setDropAck(true);
+  assert.equal((await f.newHost().refresh(f.ref)).status,'OUTCOME_UNKNOWN');
+  assert.equal((await f.newHost().recover(f.ref)).status,'LINK_PERSISTED');
+  assert.equal((await f.newHost().refresh(f.ref)).status,'ALREADY_LINKED');
+  assert.equal(f.writeCount(),2);
+});
+test('same external revision with changing state is not accepted as coherent source',async()=>{
+  const f=fixture();await f.newHost().link(f.ref);
+  const original=f.externalOwner.readExact;
+  f.externalOwner.readExact=async (...args)=>({...await original(...args),source_state:'Cancelled'});
+  await assert.rejects(f.newHost().refresh(f.ref),{code:'T3_EXT_SOURCE_REVISION_NOT_STABLE'});
+  assert.equal(f.writeCount(),1);
+});
+test('ordinary read-only ERP GET without receipt is reported, not executed',async()=>{
+  const f=fixture();const original=f.externalOwner.readExact;
+  f.externalOwner.readExact=async (...args)=>({...await original(...args),source_receipt:null});
+  const result=await f.newHost().link(f.ref);
+  assert.equal(result.status,'LINK_PERSISTED');
+  assert.equal(f.stored.get(result.object_id).data.source_receipt,null);
+  assert.equal(f.stored.get(result.object_id).data.epistemic_status,'reported');
+});
+test('refresh requires existing link and original signed permission',async()=>{
+  const f=fixture();
+  assert.equal((await f.newHost().refresh(f.ref)).status,'NOT_FOUND');
+  await f.newHost().link(f.ref);f.setRevision('v2');f.setAllowed(false);
+  await assert.rejects(f.newHost().refresh(f.ref),{code:'T3_ACCESS_NOT_PERMITTED'});
+  assert.equal(f.writeCount(),1);
 });

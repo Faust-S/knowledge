@@ -16,7 +16,7 @@ export const EXTERNAL_PROCESS_LINK_DECLARATION = Object.freeze({
       record_id: {type: 'string', minLength: 1, maxLength: 160},
       source_revision: {type: 'string', minLength: 1, maxLength: 160},
       source_digest: {type: 'string', pattern: '^[a-f0-9]{64}$'},
-      source_receipt: {type: 'string', minLength: 1, maxLength: 160},
+      source_receipt: {type: ['string','null'], minLength: 1, maxLength: 160},
       source_state: {type: 'string', minLength: 1, maxLength: 160},
       epistemic_status: {const: 'reported'},
       record_authority: {const: 'EXTERNAL_OWNER'},
@@ -68,7 +68,8 @@ function normalizeSource(ownerId, reference, value) {
     source_owner: ownerId, record_kind: reference.record_kind, record_id: reference.record_id,
     source_revision: requireSourceValue(value.source_revision, 'T3_EXT_SOURCE_REVISION_REQUIRED'),
     source_digest: requireDigest(value.source_digest),
-    source_receipt: requireId(value.source_receipt, 'T3_EXT_OWNER_RECEIPT_REQUIRED'),
+    source_receipt: value.source_receipt == null ? null :
+      requireId(value.source_receipt, 'T3_EXT_OWNER_RECEIPT_INVALID'),
     source_state: requireSourceValue(value.source_state, 'T3_EXT_SOURCE_STATE_REQUIRED'),
     epistemic_status: 'reported', record_authority: 'EXTERNAL_OWNER',
   });
@@ -173,6 +174,47 @@ export function createTrustedExternalProcessLink({
     }
   }
 
+
+  async function writeWithOriginalKernel(ctx, source, baseRevision) {
+    // The original T2 service passport and Kernel remain the ONLY owners
+    // of schema validation, optimistic revisions and durable writes.
+    const command = {
+      workspace_id:ctx.workspaceId, object_id:ctx.objectId,
+      schema_id:EXTERNAL_PROCESS_LINK_SCHEMA, schema_version:'1.0.0',
+      base_revision:baseRevision, data:source, extensions:{},
+      event:{event_type:EXTERNAL_PROCESS_LINK_EVENT,payload:{
+        source_owner:source.source_owner, record_kind:source.record_kind,
+        record_id:source.record_id, source_revision:source.source_revision,
+        epistemic_status:'reported',
+      }},
+    };
+    try {
+      // No retry: the Kernel may commit before the native acknowledgement
+      // is delivered. Recover by original signed read, not by writing again.
+      const receipt = await ctx.signed.putObject(command);
+      await ctx.check();
+      const persisted = await ctx.readLink();
+      if (!matches(persisted,ctx.workspaceId,ctx.objectId,source) ||
+          persisted.revision !== baseRevision + 1 ||
+          receipt?.object?.revision !== persisted.revision ||
+          receipt?.object?.object_id !== ctx.objectId ||
+          typeof receipt?.event?.event_id !== 'string')
+        deny('T3_EXT_KERNEL_READBACK_MISMATCH');
+      return Object.freeze({status:'LINK_PERSISTED',workspace_id:ctx.workspaceId,
+        object_id:ctx.objectId,revision:persisted.revision,
+        event_id:receipt.event.event_id,source_revision:source.source_revision,
+        epistemic_status:'reported'});
+    } catch (error) {
+      // These specific original D1 denials occur before the actual write.
+      if (['T3_ACCESS_NOT_PERMITTED','T3_ACCESS_DECISION_BINDING_INVALID',
+          'T3_SUBJECT_CONTEXT_UNAVAILABLE','T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE',
+          'T3_KERNEL_OPERATION_NOT_GRANTED','T3_KERNEL_INPUT_SCOPE_MISMATCH']
+          .includes(error?.code)) throw error;
+      return Object.freeze({status:'OUTCOME_UNKNOWN',
+        workspace_id:ctx.workspaceId,object_id:ctx.objectId,
+        cause_code:error?.code || 'WRITE_ACK_OR_READBACK_LOST'});
+    }
+  }
   async function link(input) {
     return withSelected(input, async ctx => {
       if (pending.has(ctx.objectId)) deny('T3_EXT_LINK_IN_PROGRESS');
@@ -199,46 +241,51 @@ export function createTrustedExternalProcessLink({
         // Avoid overwriting a concurrent link. The original Kernel enforces
         // base_revision=0; a conflict MUST NOT be retried here.
         if (await ctx.readLink()) deny('T3_EXT_CONCURRENT_LINK_CONFLICT');
-        const command = {
-          workspace_id:ctx.workspaceId, object_id:ctx.objectId,
-          schema_id:EXTERNAL_PROCESS_LINK_SCHEMA, schema_version:'1.0.0',
-          base_revision:0, data:source, extensions:{},
-          event:{event_type:EXTERNAL_PROCESS_LINK_EVENT,payload:{
-            source_owner:source.source_owner, record_kind:source.record_kind,
-            record_id:source.record_id, source_revision:source.source_revision,
-            epistemic_status:'reported',
-          }},
-        };
-        // Set uncertain status before calling the ORIGINAL Kernel. Never
-        // automatically replay a lost write or a revision conflict.
-        let dispatched = false;
-        try {
-          dispatched = true;
-          const receipt = await ctx.signed.putObject(command);
-          await ctx.check();
-          const persisted = await ctx.readLink();
-          if (!matches(persisted,ctx.workspaceId,ctx.objectId,source) ||
-              receipt?.object?.revision !== persisted.revision ||
-              receipt?.object?.object_id !== ctx.objectId ||
-              typeof receipt?.event?.event_id !== 'string')
-            deny('T3_EXT_KERNEL_READBACK_MISMATCH');
-          return Object.freeze({status:'LINK_PERSISTED',workspace_id:ctx.workspaceId,
-            object_id:ctx.objectId,revision:persisted.revision,
-            event_id:receipt.event.event_id,source_revision:source.source_revision,
-            epistemic_status:'reported'});
-        } catch (error) {
-          // These original D1 denials are conclusively pre-dispatch. Keep
-          // the real authorization error instead of disguising it as a write.
-          if (['T3_ACCESS_NOT_PERMITTED','T3_ACCESS_DECISION_BINDING_INVALID',
-              'T3_SUBJECT_CONTEXT_UNAVAILABLE','T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE',
-              'T3_KERNEL_OPERATION_NOT_GRANTED','T3_KERNEL_INPUT_SCOPE_MISMATCH']
-              .includes(error?.code)) throw error;
-          if (dispatched) return Object.freeze({status:'OUTCOME_UNKNOWN',
-            workspace_id:ctx.workspaceId,object_id:ctx.objectId,
-            cause_code:error?.code || 'WRITE_ACK_OR_READBACK_LOST'});
-          throw error;
-        }
+        return await writeWithOriginalKernel(ctx, source, 0);
       } finally { pending.delete(ctx.objectId); }
+    });
+  }
+
+  async function refresh(input) {
+    return withSelected(input, async ctx => {
+      if (pending.has(ctx.objectId)) deny('T3_EXT_LINK_IN_PROGRESS');
+      pending.add(ctx.objectId);
+      try {
+        const old = await ctx.readLink();
+        if (!old) return Object.freeze({status:'NOT_FOUND',
+          workspace_id:ctx.workspaceId,object_id:ctx.objectId});
+        const oldData = old.data;
+        if (old.schema_id !== EXTERNAL_PROCESS_LINK_SCHEMA ||
+            old.schema_version !== '1.0.0' || old.deleted || old.deleted_at ||
+            !Number.isSafeInteger(old.revision) || old.revision < 1 ||
+            old.workspace_id !== ctx.workspaceId || old.object_id !== ctx.objectId ||
+            oldData?.source_owner !== externalOwner.ownerId ||
+            oldData?.record_kind !== ctx.reference.record_kind ||
+            oldData?.record_id !== ctx.reference.record_id)
+          deny('T3_EXT_EXISTING_LINK_INVALID');
+        const source = await ctx.readExternal();
+        if (matches(old,ctx.workspaceId,ctx.objectId,source))
+          return Object.freeze({status:'ALREADY_LINKED',workspace_id:ctx.workspaceId,
+            object_id:ctx.objectId,revision:old.revision,source_revision:source.source_revision});
+        // Same owner revision with different data is not a stable snapshot.
+        if (source.source_revision === oldData.source_revision &&
+            !equal(source,oldData))
+          deny('T3_EXT_SOURCE_REVISION_NOT_STABLE');
+        const approved = await confirmHuman(Object.freeze({
+          workspace_id:ctx.workspaceId,object_id:ctx.objectId,
+          source_owner:source.source_owner,record_kind:source.record_kind,
+          record_id:source.record_id,source_revision:source.source_revision,
+          previous_source_revision:oldData.source_revision,
+          expected_t3_revision:old.revision,epistemic_status:'reported',
+        }));
+        await ctx.check();
+        if (approved !== true) return Object.freeze({status:'USER_CANCELLED'});
+        const currentSource = await ctx.readExternal();
+        if (!equal(source,currentSource)) deny('T3_EXT_SOURCE_CHANGED_BEFORE_WRITE');
+        const currentLink = await ctx.readLink();
+        if (!equal(currentLink,old)) deny('T3_EXT_CONCURRENT_LINK_CONFLICT');
+        return await writeWithOriginalKernel(ctx,source,old.revision);
+      } finally {pending.delete(ctx.objectId);}
     });
   }
   async function recover(input) {
@@ -256,5 +303,5 @@ export function createTrustedExternalProcessLink({
         source_revision:source.source_revision,epistemic_status:'reported'});
     });
   }
-  return Object.freeze({link,recover});
+  return Object.freeze({link,refresh,recover});
 }

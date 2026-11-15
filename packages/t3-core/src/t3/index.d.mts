@@ -410,9 +410,11 @@ export function createTrustedExternalProcessLink(options:{
   externalOwner:T3ExternalRecordOwner;
   confirmHuman:(input:{workspace_id:string;object_id:string;
     source_owner:string;record_kind:string;record_id:string;
-    source_revision:string;epistemic_status:"reported"})=>boolean|Promise<boolean>;
+    source_revision:string;previous_source_revision?:string;
+    expected_t3_revision?:number;epistemic_status:"reported"})=>boolean|Promise<boolean>;
   isHostActive:()=>boolean;
 }):Readonly<{
   link(input:T3ExternalRecordReference):Promise<T3ExternalLinkStatus>;
+  refresh(input:T3ExternalRecordReference):Promise<T3ExternalLinkStatus>;
   recover(input:T3ExternalRecordReference):Promise<T3ExternalLinkStatus>;
 }>;

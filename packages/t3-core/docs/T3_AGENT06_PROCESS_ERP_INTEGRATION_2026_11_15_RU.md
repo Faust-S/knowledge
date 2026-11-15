@@ -87,3 +87,11 @@
 - Operaton, n8n: до включения в сборку надо отдельно зафиксировать точную версию, API и реально применимые ограничения лицензии. Ни один из этих продуктов не встроен и не запускается данным исходным T3 контрактом.
 
 Лицензия стороннего сервера и лицензия связывающего IWXA кода оцениваются раздельно. Использование стороннего REST API само по себе не даёт прав на перенос его исходников/коммерческих модулей.
+
+## 15.11: original T2 Compare-and-Swap для ERP -> T3
+
+После `link` доступен `refresh({expected_workspace_id,record_kind,record_id})`: пользователь согласует обновление внешнего source revision. Перед оригинальным `t1.putObject` проверяются неизменность source и исходной T3 ревизии; запись выполняется с `base_revision=old.revision` через существующий подписанный D1 + ORIGINAL Kernel. Повторная отправка после `OUTCOME_UNKNOWN` запрещена: `recover()` читает настоящую запись после холодного запуска. Если у внешнего владельца `source_revision` не меняется при изменении digest/state, `refresh` отказывает. Обновление ссылки всегда `reported`, даже при ERP состоянии Submitted или Completed.
+
+`source_receipt` допускает null: чтение стандартного Frappe DocType REST не выдаёт durable operation receipt. Отсутствующую квитанцию нельзя выдумывать из HTTP 200. Для **настоящего действия** в ERP или workflow требуется существующий Agent ToolRuntime, D6 `createTrustedNativeContinuation` с durable operationId, `receipt/readback` от ERP owner, и отдельный доменный CehoVod Result. Это не вторая система процессов.
+
+Публичный исходный CI baseline до изменения refresh: https://github.com/Faust-S/knowledge/actions/runs/43718835358 SUCCESS (test, original real-host, Windows credential); аппаратный WebGPU SKIPPED. Новый источник нуждается в квалификации на точном коммите; installed ERP/Agent/CehoVod E2E не принят.
