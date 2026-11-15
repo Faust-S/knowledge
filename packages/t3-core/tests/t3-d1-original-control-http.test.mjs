@@ -354,6 +354,7 @@ test("D7 signed native age/Publisher roundtrip stays on original Control and nev
   const subject={holderId:"holder:installed",recipientId:"recipient:installed",
     subjectType:"PERSON",bindingEpoch:"epoch:installed:one"};
   let ageSealCount=0,ageOpenCount=0,applyCount=0,exportApprovals=0;
+  let actualRecipients=["recipient:installed","recipient:independent"];
   const saved=new Map();
   const nativeD7PortFor=async()=>({
     ageOwner:{
@@ -362,7 +363,7 @@ test("D7 signed native age/Publisher roundtrip stays on original Control and nev
         bindingEpoch:"epoch:installed:one",privateKey:"NEVER_TO_WEB"}),
       prepareSeal:async input=>({
         format:"age-encryption.org/v1",status:"READY",
-        recipientIds:["recipient:installed","recipient:independent"],
+        recipientIds:[...actualRecipients],
         suppliedWorkspace:input.workspaceId,
       }),
       seal:async input=>{ageSealCount++;
@@ -427,6 +428,8 @@ test("D7 signed native age/Publisher roundtrip stays on original Control and nev
     assert.equal(ageSealCount,1);
     // Original native age and the existing D7 port both support 2..16
     // distinct trusted recipients, not just the two qualification roots.
+    actualRecipients=["recipient:installed","recipient:independent",
+      "recipient:third"];
     const multi=await f.browser.nativeD7Request("age.seal",{
       archiveBytes:archive,archiveSha256:sha(archive),
       recipientIds:["recipient:installed","recipient:independent",
@@ -434,6 +437,15 @@ test("D7 signed native age/Publisher roundtrip stays on original Control and nev
     });
     assert.equal(multi.recipientIds.length,3);
     assert.equal(ageSealCount,2);
+    // A client cannot silently substitute an older or different recipient
+    // list even when its source Workspace grant is valid.
+    await assert.rejects(f.browser.nativeD7Request("age.seal",{
+      archiveBytes:archive,archiveSha256:sha(archive),
+      recipientIds:["recipient:installed","recipient:independent"],
+      workspaceId:"ws:personal",
+    }),{code:"T3_D7_NATIVE_RECIPIENT_PLAN_CHANGED"});
+    assert.equal(ageSealCount,2);
+    assert.equal(exportApprovals,2);
     const opened=await f.browser.nativeD7Request("age.open",{
       ciphertext:originalAge,recipientId:"recipient:installed",
     });

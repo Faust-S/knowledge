@@ -356,6 +356,24 @@ export function createOriginalControlHttpHandler({
               payload.recipientIds.every(x=>typeof x==="string"&&REF.test(x))&&
               new Set(payload.recipientIds).size===payload.recipientIds.length,
               "T3_D7_NATIVE_EXPORT_REQUEST_INVALID");
+            // The ORIGINAL installed age owner, not the web request, is
+            // authoritative for the chosen recipients at encryption time.
+            // Re-plan before Human confirmation to reject a substituted or
+            // stale recipient list, while preserving age's native 2-16 range.
+            const currentPlan=await age.prepareSeal({
+              workspaceId:payload.workspaceId,
+              archiveSha256:payload.archiveSha256,
+              archiveSize:bytes.length,
+            });
+            requireThat(currentPlan?.format==="age-encryption.org/v1"&&
+              currentPlan.status==="READY"&&
+              Array.isArray(currentPlan.recipientIds)&&
+              currentPlan.recipientIds.length===payload.recipientIds.length&&
+              currentPlan.recipientIds.every((recipient,index)=>
+                recipient===payload.recipientIds[index]),
+              "T3_D7_NATIVE_RECIPIENT_PLAN_CHANGED");
+            requireThat(before===await epochNow()&&authenticated(req),
+              "STALE_CONTEXT_OPERATION");
             // This is the ORIGINAL native Host's signed D1 JIT and Human
             // confirmation, not a web-provided allow flag.
             requireThat(await owner.authorizeAgeSeal({
