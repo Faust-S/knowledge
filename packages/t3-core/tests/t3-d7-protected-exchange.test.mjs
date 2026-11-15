@@ -406,7 +406,7 @@ test("D7 direct installed recipient can read original Kernel after cold restart 
   assert.equal(commits,0);
 });
 
-test("D7 native Kernel preview is not misadvertised as plaintext open",async()=>{
+test("D7 native Kernel preview keeps original Exchange route without plaintext access",async()=>{
   const port=createTrustedAgeExchange({ageOwner:{
     currentRecipient:async()=>({recipientId:"recipient:direct",bindingEpoch:"epoch:one"}),
     previewInOriginalKernel:async()=>({status:"OUTCOME_UNKNOWN"}),
@@ -414,7 +414,8 @@ test("D7 native Kernel preview is not misadvertised as plaintext open",async()=>
     cancelInOriginalKernel:async()=>false,
   },isHostActive:()=>true});
   assert.equal(port.canNativeKernelPreview,true);
-  assert.equal(port.canOpen,false);
+  assert.equal(port.canOpen,true,"first-install encrypted Exchange route stays active");
+  assert.equal(port.canPlaintextOpen,false);
   await assert.rejects(port.open({ciphertext:new Uint8Array([1])}),
     {code:"T3_D7_NATIVE_PLAINTEXT_PRIVATE"});
 });

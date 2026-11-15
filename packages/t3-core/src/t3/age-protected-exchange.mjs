@@ -79,10 +79,13 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
   const canSeal=Boolean(signedWorkspaceRead&&
     typeof ageOwner?.prepareSeal==="function"&&
     typeof ageOwner?.seal==="function"&&typeof confirmRecipients==="function");
-  // A native preview-capable recipient does not necessarily expose
-  // plaintext open(). Advertise only operations that this port can invoke.
-  const canOpen=Boolean(rawOpen&&(nativeRecipient||
+  // Existing canOpen means the ENCRYPTED Exchange import route is usable,
+  // including original native Kernel preview on a clean first install.
+  // Plaintext open() is a narrower optional ability; never advertise it
+  // merely because the installed recipient owns a native preview handle.
+  const canPlaintextOpen=Boolean(rawOpen&&(nativeRecipient||
     (signedReader&&kernel.hasOperation("t1.getWorkspace"))));
+  const canOpen=Boolean(nativeKernelPreview||canPlaintextOpen);
   ensure(ageOwner&&(rawOpen||nativeKernelPreview||
     (typeof ageOwner.prepareSeal==="function"&&
       typeof ageOwner.seal==="function"))&&
@@ -465,7 +468,8 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
   }
   return Object.freeze({seal,open,previewInOriginalKernel,
     commitInOriginalKernel,cancelInOriginalKernel,readbackInOriginalKernel,
-    canSeal,canOpen,canNativeKernelPreview:Boolean(nativeKernelPreview),
+    canSeal,canOpen,canPlaintextOpen,
+    canNativeKernelPreview:Boolean(nativeKernelPreview),
     canNativeKernelReadback:nativeKernelReadback,
     maxArchiveBytes,maxCiphertextBytes});
 }
