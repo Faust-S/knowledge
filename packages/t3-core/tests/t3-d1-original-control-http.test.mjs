@@ -327,6 +327,49 @@ test("original Control denies an in-flight GET when the signed Host rotates its 
 });
 
 
+test("installed Admin D3 Browser Control is read-only even if native Kernel Apply becomes available",{
+  timeout:12000,
+},async()=>{
+  // The private Admin owner gives Control a narrow projection of the
+  // SAME Reconciliation. It never grants browser Accept/Reject or APPLY.
+  let signedReceipts=0,nativeDispatch=0;
+  const denied=code=>Object.assign(Error(code),{code});
+  const browserPort=Object.freeze({
+    receive:async()=>({status:"RECEIVED_NOT_APPLIED"}),
+    preview:async()=>({status:"VERIFIED"}),
+    receipt:async()=>{signedReceipts++;return {found:false};},
+    inspectAcceptedApplication:async()=>({status:"CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION"}),
+    accept:async()=>{throw denied("T3_D3_NATIVE_HUMAN_REVIEW_REQUIRED");},
+    reject:async()=>{throw denied("T3_D3_NATIVE_HUMAN_REVIEW_REQUIRED");},
+  });
+  const f=await fixture({reconciliationPortFor:()=>browserPort});
+  const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
+  try{
+    assert.deepEqual(await f.browser.reconciliationRequest("available"),
+      {available:true,applyAvailable:false,recoverAvailable:false});
+    const token={operationId:"d3:test",packageSha256:"a".repeat(64)};
+    assert.equal((await f.browser.reconciliationRequest("receipt",token)).found,false);
+    assert.equal(signedReceipts,1);
+    await assert.rejects(f.browser.reconciliationRequest("accept",{
+      operationId:"d3:browser-attempt",packageSha256:"b".repeat(64),
+      previewDigest:"c".repeat(64),
+    }),{code:"T3_D3_NATIVE_HUMAN_REVIEW_REQUIRED"});
+    await assert.rejects(f.browser.reconciliationRequest("reject",{
+      operationId:"d3:browser-reject",packageSha256:"b".repeat(64),
+      previewDigest:"c".repeat(64),reason:"Browser cannot be a native review",
+    }),{code:"T3_D3_NATIVE_HUMAN_REVIEW_REQUIRED"});
+    await assert.rejects(f.browser.reconciliationRequest("applyAccepted",{
+      acceptanceId:"a".repeat(64),revisionIds:["b".repeat(64)],
+      target:{consumerId:"IWXA_ADMIN_CENTER"},
+    }),{code:"T3_D3_ORIGINAL_APPLY_OWNER_REQUIRED"});
+    await assert.rejects(f.browser.reconciliationRequest("recoverApplied",{
+      acceptanceId:"a".repeat(64),revisionIds:["b".repeat(64)],
+      target:{consumerId:"IWXA_ADMIN_CENTER"},
+    }),{code:"T3_D3_ORIGINAL_APPLY_RECOVERY_UNAVAILABLE"});
+    assert.equal(nativeDispatch,0,
+      "only a separate installed Center native action can dispatch APPLY");
+  }finally{stop();await f.close();}
+});
 test("original native D3 recipient uses the existing signed Control HTTP and isolated carrier",{
   timeout:12000
 },async()=>{
