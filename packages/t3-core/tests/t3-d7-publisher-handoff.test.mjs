@@ -14,7 +14,7 @@ const fullScope=()=>({mode:"FULL_HOLDER_SNAPSHOT",lineageId:null,licenseIds:[]})
 const file=()=>Uint8Array.of(0x50,0x4b,3,4,1,2,3,4);
 function fixture(){
   let permit=true,epoch=1,consent=true,loseAck=false,applies=0,active=true;
-  let confirmGate=null,enterConfirm=null;
+  let confirmGate=null,enterConfirm=null,confirmCount=0;
   let scope=fullScope(),entries=fullEntries(),payloadDigest="c".repeat(64);
   let floor=7,inspectAlwaysReady=false;
   const records=new Map();
@@ -75,9 +75,9 @@ function fixture(){
   };
   const create=()=>createTrustedPublisherHandoff({
     kernel,accessForRead:async()=>access,nativeHolder,
-    confirmHuman:async()=>{enterConfirm?.();if(confirmGate)await confirmGate;return consent;},
+    confirmHuman:async()=>{confirmCount++;enterConfirm?.();if(confirmGate)await confirmGate;return consent;},
     isHostActive:()=>active});
-  return {create,nativeHolder,applies:()=>applies,previewDigest,
+  return {create,nativeHolder,applies:()=>applies,confirmations:()=>confirmCount,previewDigest,
     deny:()=>{permit=false;},switchContext:()=>{epoch++;},
     loseAck:()=>{loseAck=true;},cancel:()=>{consent=false;},
     dispose:()=>{active=false;},
@@ -126,15 +126,17 @@ test("D7 cold restart checks original receipt before applying an already committ
   assert.equal((await first.admit({kind:"LICENSE",archiveBytes,
     previewDigest:preview.previewDigest})).status,"OUTCOME_UNKNOWN");
   assert.equal(f.applies(),1);
+  const approvedCount=f.confirmations();
   f.setInspectAlwaysReady();
   const second=f.create(),fresh=await second.preview({kind:"LICENSE",archiveBytes});
-  assert.equal(fresh.status,"VERIFIED_PENDING_CONSENT");
+  assert.equal(fresh.status,"RECOVER_ONLY");
   assert.equal((await second.admit({kind:"LICENSE",archiveBytes,
     previewDigest:fresh.previewDigest})).status,"ORIGINAL_HOLDER_READBACK_CONFIRMED");
   const third=f.create();
   assert.equal((await third.admit({kind:"LICENSE",archiveBytes,
     previewDigest:fresh.previewDigest})).status,"ORIGINAL_HOLDER_READBACK_CONFIRMED");
   assert.equal(f.applies(),1);
+  assert.equal(f.confirmations(),approvedCount);
 });
 
 test("D7 scoped selective, tombstone and empty FULL status are not reduced to single license",async()=>{
@@ -200,6 +202,9 @@ test("D7 Publisher denial, changed context and lost ACK block automatic replay",
   assert.equal((await lp.admit({kind:"LICENSE",archiveBytes,
     previewDigest:pro.previewDigest})).status,"OUTCOME_UNKNOWN");
   assert.equal(l.applies(),1);
+  l.setInspectAlwaysReady();
+  assert.equal((await lp.preview({kind:"LICENSE",archiveBytes})).status,
+    "RECOVER_ONLY");
   assert.equal((await lp.admit({kind:"LICENSE",archiveBytes,
     previewDigest:pro.previewDigest})).status,"OUTCOME_UNKNOWN");
   assert.equal(l.applies(),1);
@@ -216,6 +221,8 @@ test("D7 concurrent apply calls for the same receipt cannot dispatch twice",asyn
   const first=port.admit({kind:"STATUS",archiveBytes,
     previewDigest:preview.previewDigest});
   await gate.started;
+  assert.equal((await port.preview({kind:"STATUS",archiveBytes})).status,
+    "OPERATION_IN_PROGRESS");
   const second=await port.admit({kind:"STATUS",archiveBytes,
     previewDigest:preview.previewDigest});
   assert.equal(second.status,"OPERATION_IN_PROGRESS");

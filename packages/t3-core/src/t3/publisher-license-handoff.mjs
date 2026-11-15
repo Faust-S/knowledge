@@ -261,6 +261,23 @@ export function createTrustedPublisherHandoff({
     const binding=await bind();
     const {inspected}=await checkedInspection(input,binding);
     await binding.read();
+    const key=opKey(inspected);
+    // A lost native ACK may leave the original holder reporting READY.
+    // Show recovery or in-progress, never another Human APPLY.
+    const describe=status=>Object.freeze({...summary(inspected),status});
+    if(inFlight.has(key))return describe("OPERATION_IN_PROGRESS");
+    if(uncertain.has(key)||inspected.stage==="RECOVER_ONLY")
+      return describe("RECOVER_ONLY");
+    const query={kind:inspected.kind,operationId:inspected.operationId,
+      packageSha256:inspected.packageSha256,holderId:inspected.holderId,
+      recipientId:inspected.recipientId};
+    let prior,unavailable=false;
+    try{prior=await nativeHolder.receipt(query);}
+    catch{unavailable=true;}
+    // Signed context change is a denial, not a native receipt outage.
+    await binding.current();
+    if(unavailable||(prior!==null&&prior!==undefined))
+      return describe("RECOVER_ONLY");
     return summary(inspected);
   }
   async function admit(input){
@@ -278,8 +295,26 @@ export function createTrustedPublisherHandoff({
     if(inFlight.has(key))
       return Object.freeze({status:"OPERATION_IN_PROGRESS",
         kind:row.kind,operationId:row.operationId});
+    const query={kind:row.kind,operationId:row.operationId,
+      packageSha256:row.packageSha256,
+      holderId:row.holderId,recipientId:row.recipientId};
     inFlight.add(key);
     try {
+      // Cold Host memory may be empty while the recipient already committed.
+      // Ask the original durable owner BEFORE showing Human consent again.
+      let earlier;
+      try{
+        earlier=await nativeHolder.receipt(query);
+        await binding.current();
+      }catch{
+        return Object.freeze({status:"OUTCOME_UNKNOWN",
+          kind:row.kind,operationId:row.operationId});
+      }
+      if(earlier!==null&&earlier!==undefined){
+        try{return await observe(row,binding);}
+        catch{return Object.freeze({status:"OUTCOME_UNKNOWN",
+          kind:row.kind,operationId:row.operationId});}
+      }
       const approved=await confirmHuman(summary(row));
       await binding.current();
       if(approved!==true)
@@ -297,9 +332,6 @@ export function createTrustedPublisherHandoff({
       // earlier native Apply committed but its acknowledgement was lost.
       // The ORIGINAL durable receipt is authoritative; never dispatch that
       // same operationId twice, even if a volatile guard was reset.
-      const query={kind:row.kind,operationId:row.operationId,
-        packageSha256:row.packageSha256,
-        holderId:row.holderId,recipientId:row.recipientId};
       let prior;
       try{
         prior=await nativeHolder.receipt(query);
