@@ -223,6 +223,15 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   assert.equal(recovered.effectKey,effect);
   assert.equal(recovered.originalEventReadback.idempotency_key,effect);
   assert.equal(commits,1,"recover must never repeat original Kernel commit");
+  // The next instance has NO volatile in-flight/dispatched flags, but the
+  // original durable Kernel Event still rejects a second Human APPLY.
+  port=makePort();
+  const beforeColdPrompt=applyPrompts;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY"});
+  assert.equal(applyPrompts,beforeColdPrompt,
+    "cold trusted Host must not request a second Human APPLY");
+  assert.equal(commits,1,"cold trusted Host must not replay original Kernel");
   eventsErrorCode="WORKSPACE_NOT_FOUND";
   const missingHistory=await port.recoverApplied(selection);
   assert.equal(missingHistory.status,"OUTCOME_UNKNOWN");
@@ -255,6 +264,12 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   await assert.rejects(port.applyAccepted(selection),
     {code:"T3_D3_APPLY_ALREADY_DISPATCHED_USE_RECOVERY"});
   assert.equal(commits,1,"lost ACK cannot be followed by another direct Apply");
+  port=makePort();
+  const beforeColdLostAckPrompt=applyPrompts;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY"});
+  assert.equal(commits,1,"reopened Host cannot replay lost-ACK Kernel write");
+  assert.equal(applyPrompts,beforeColdLostAckPrompt);
   loseAckAfterWrite=false; // NOW exercise forged receipts, not the earlier ACK-loss flag
   // In the original T2 graph a returned object or event ID alone is not
   // proof of the accepted Result. A forged ACK, missing independent Event,

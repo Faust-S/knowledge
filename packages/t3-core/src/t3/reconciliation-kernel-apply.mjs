@@ -165,6 +165,14 @@ export function createTrustedReconciliationKernelApply({
     check(workspace!==null,"T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED");
     check(!workspace.deleted_at,"T3_D3_ORIGINAL_WORKSPACE_DELETED");
     check(workspace.read_only!==true,"T3_D3_ORIGINAL_WORKSPACE_READ_ONLY");
+    // On a new Host the volatile no-replay guard is empty. Consult the
+    // ORIGINAL durable Kernel Event history BEFORE asking for Human APPLY.
+    // A previous effect with this sealed idempotency key must be recovered,
+    // not submitted again. An unavailable history cannot be treated as empty.
+    const history=await signedKernel.listEventsSince(c.workspace_id);
+    check(Array.isArray(history),"T3_D3_ORIGINAL_EVENT_HISTORY_UNAVAILABLE");
+    check(!history.some(event=>event?.idempotency_key===binding.effectKey),
+      "T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY");
     await unchanged(c);
     // Independent, explicit APPLY approval is NOT the preceding ACCEPT.
     // Read-only preflight cannot authorize the original Kernel graph write.
