@@ -122,6 +122,37 @@ jobs:
       - name: Compile full BLI1 Workspace panel + WebLLM Worker in inherited T3 Host
         working-directory: packages/t3-core
         run: node scripts/qualify-bli-inherited-host.mjs
+      # This is an owner INTEGRATION input, not a G4 release or an installed
+      # product. The original Kernel and compiled Workspace are assembled by
+      # each product's EXISTING Host for its actual origin and signed owner.
+      - name: Record exact G4 candidate source and compiled byte hashes
+        working-directory: packages/t3-core
+        run: |
+          set -eu
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum > g4-integration.sha256
+          sha256sum qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip >> g4-integration.sha256
+          {
+            printf 'KIND=COMPILED_OWNER_INTEGRATION_INPUT_NOT_G4_ACCEPTANCE\n'
+            printf 'SOURCE_COMMIT=%s\n' "$GITHUB_SHA"
+            printf 'ORIGINAL_KERNEL=0.3.6\n'
+            printf 'ORIGINAL_CONTRACT=1.3.0\n'
+            printf 'MODEL_ENGINE=WebLLM-0.2.87\n'
+            printf 'PRIVATE_SIGNER_INCLUDED=false\n'
+            printf 'MODEL_WEIGHTS_INCLUDED=false\n'
+          } > g4-integration.txt
+      - name: Retain compiled T3 and qualified original Kernel for independent owners
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-t3-owner-input-${{ github.sha }}
+          path: |
+            packages/t3-core/dist/
+            packages/t3-core/qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip
+            packages/t3-core/integration-sources/bli1/SOURCE_PIN.json
+            packages/t3-core/package-lock.json
+            packages/t3-core/g4-integration.sha256
+            packages/t3-core/g4-integration.txt
+          if-no-files-found: error
+          retention-days: 14
       # Nonportable archival metadata checks are retained for explicit forensic runs.
       # A regular successor product push must not burn time on expected T2-only layout.
       - name: Original T2 archival Node diagnostics (nonportable T2 metadata)
