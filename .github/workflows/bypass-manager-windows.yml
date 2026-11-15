@@ -37,6 +37,9 @@ jobs:
           .\Tests\Verify-Windows.ps1
           $p=Start-Process -FilePath .\Bypass-Manager.exe -ArgumentList '--status' -PassThru -Wait
           if($p.ExitCode -ne 0) { throw "CLI status failed $($p.ExitCode)" }
+      - name: Smoke-test native Win32 window lifecycle
+        shell: powershell
+        run: .\Tests\Test-GuiSmoke.ps1
       - name: Download seven fixed official upstream files (test only)
         shell: powershell
         run: |
