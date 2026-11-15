@@ -100,17 +100,21 @@ test("D3 original Control selects KernelFacade names while independent signed D1
   const token=randomBytes(32).toString("base64url");
   let epoch=901,applicationRevision=41,handler=null,reads=0,proofs=0;
   let selectedEpoch=null,selectedRevision=null;
+  const issuedDigests=new Map();
   const invalidators=new Set();
   const owner=({scope,operation})=>{
     // Exactly the installed Admin selector, NOT an incoming raw t1.* grant.
-    if(scope!=="kernel"||
-      !["getObject","listEventsSince","commitObjectGraph"].includes(operation))
+    if(scope!=="kernel"||!["getObject","listEventsSince"].includes(operation))
       return null;
     // Original installed D1 owner is pinned to its Control epoch across
     // distinct HTTP requests, not silently re-created on every POST.
     if(selectedEpoch!==epoch){
       selectedEpoch=epoch;selectedRevision=applicationRevision;
+      issuedDigests.clear();
     }
+    const exactMethod="t1."+operation;
+    const digests=issuedDigests.get(operation)??new Set();
+    issuedDigests.set(operation,digests);
     const captured=selectedRevision;
     const current=()=> {
       if(captured!==applicationRevision)
@@ -128,19 +132,28 @@ test("D3 original Control selects KernelFacade names while independent signed D1
       async currentContext(){reads++;return current();},
       async actionFor(method){
         current();
-        if(!["t1.commitObjectGraph","t1.getObject","t1.listEventsSince"]
-          .includes(method))
+        if(method!==exactMethod)
           throw Object.assign(Error("T3_D3_KERNEL_OPERATION_NOT_GRANTED"),
             {code:"T3_D3_KERNEL_OPERATION_NOT_GRANTED"});
         return "application.apply";
       },
       async operationDigest({operation:method,input,context}){
         current();
-        return createHash("sha256")
+        if(method!==exactMethod)
+          throw Object.assign(Error("T3_D3_CONTROL_READ_ONLY_OPERATION_REQUIRED"),
+            {code:"T3_D3_CONTROL_READ_ONLY_OPERATION_REQUIRED"});
+        const digest=createHash("sha256")
           .update(JSON.stringify({method,input,context})).digest("hex");
+        digests.add(digest);
+        return digest;
       },
       async authorize(request){
-        current();proofs++;
+        current();
+        if(!digests.has(request?.operationDigest))
+          throw Object.assign(Error("T3_D3_CONTROL_READ_ONLY_AUTHORIZATION_REQUIRED"),
+            {code:"T3_D3_CONTROL_READ_ONLY_AUTHORIZATION_REQUIRED"});
+        digests.delete(request.operationDigest);
+        proofs++;
         last={request,decision:{allowed:true,action:"application.apply"}};
         return last.decision;
       },
@@ -174,23 +187,27 @@ test("D3 original Control selects KernelFacade names while independent signed D1
     assert.equal(await client.signedKernelAccess("putObject"),null,
       "ACCEPT never implies generic Object write");
     const read=await client.signedKernelAccess("getObject");
-    const commit=await client.signedKernelAccess("commitObjectGraph");
-    assert.ok(read&&commit);
+    const history=await client.signedKernelAccess("listEventsSince");
+    assert.ok(read&&history);
+    assert.equal(await client.signedKernelAccess("commitObjectGraph"),null,
+      "raw browser commit must never bypass separate Human APPLY");
     const context=await read.currentContext();
     assert.equal(context.grant_id,"grant:application");
     assert.equal(context.scope_revision,41);
     assert.notEqual(epoch,context.scope_revision,
       "actual Host epoch and signed application scope remain independent");
     assert.equal(await read.actionFor("t1.getObject"),"application.apply");
-    assert.equal(await commit.actionFor("t1.commitObjectGraph"),"application.apply");
+    assert.equal(await history.actionFor("t1.listEventsSince"),"application.apply");
+    await assert.rejects(read.actionFor("t1.commitObjectGraph"),
+      {code:"T3_D3_KERNEL_OPERATION_NOT_GRANTED"});
     await assert.rejects(read.actionFor("t1.putObject"),
       {code:"T3_D3_KERNEL_OPERATION_NOT_GRANTED"});
-    const request={action:"application.apply",grantId:"grant:application",
-      resource:"workspace:one"};
     const digest=await read.operationDigest({
       operation:"t1.getObject",input:{workspace_id:"workspace:one"},context,
     });
     assert.match(digest,/^[a-f0-9]{64}$/);
+    const request={action:"application.apply",grantId:"grant:application",
+      resource:"workspace:one",operationDigest:digest};
     const decision=await read.authorize(request);
     assert.equal(read.verifyDecisionBinding(request,decision),true);
     assert.equal(proofs,1);
