@@ -7,6 +7,8 @@ on:
     paths:
       - 'research/cross-lab/k05_agent06_effectiveness.py'
       - 'research/cross-lab/k05_agent06_otlp.py'
+      - 'research/cross-lab/k05_agent06_owner_port.py'
+      - 'research/cross-lab/tests/test_k05_agent06_owner_port.py'
       - 'research/cross-lab/tests/test_k05_agent06_effectiveness.py'
       - '.github/workflows/k05-agent06-effectiveness.yml'
   workflow_dispatch:
@@ -24,9 +26,11 @@ jobs:
         with:
           python-version: '3.13'
       - name: Python syntax validation
-        run: python -m compileall -q research/cross-lab/k05_agent06_effectiveness.py research/cross-lab/k05_agent06_otlp.py research/cross-lab/tests/test_k05_agent06_effectiveness.py
+        run: python -m compileall -q research/cross-lab/k05_agent06_effectiveness.py research/cross-lab/k05_agent06_otlp.py research/cross-lab/k05_agent06_owner_port.py research/cross-lab/tests/test_k05_agent06_effectiveness.py research/cross-lab/tests/test_k05_agent06_owner_port.py
       - name: New source-bound measurement and negative tests
         run: python -W error::ResourceWarning -m unittest research/cross-lab/tests/test_k05_agent06_effectiveness.py -v
+      - name: Original owner-port readback and forged-receipt negative tests
+        run: python -W error::ResourceWarning -m unittest research/cross-lab/tests/test_k05_agent06_owner_port.py -v
       - name: Existing K05 Agent graph and source gates
         run: |
           python -W error::ResourceWarning -m unittest research/cross-lab/tests/test_k05_agent05_final_result_binding.py -v

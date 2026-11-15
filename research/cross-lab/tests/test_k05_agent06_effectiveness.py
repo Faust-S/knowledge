@@ -174,14 +174,38 @@ class EffectivenessContractTests(unittest.TestCase):
     def test_otlp_only_technical_and_opt_in(self):
         row=observed(fixture("Gamma"))
         self.assertEqual(project_otlp_json(row)["status"],"DISABLED")
-        export=project_otlp_json(row,enabled=True)
+        self.assertEqual(project_otlp_json(row,enabled=True)["status"],
+                         "MEASUREMENT_WINDOW_REQUIRED")
+        export=project_otlp_json(
+            row, enabled=True, start_time_unix_nano=1794736800000000000,
+            time_unix_nano=1794736803000000000)
         self.assertEqual(export["status"],"READY_FOR_OWNER_APPROVED_EXPORT")
         data=json.dumps(export)
         self.assertNotIn(RESULT,data)
         self.assertNotIn("actual_cost_minor",data)
         self.assertNotIn("Gamma",data)
         self.assertIn("iwxa.agent.execution.duration",data)
-        self.assertEqual(len(export["otlp"]["resourceMetrics"][0]["scopeMetrics"][0]["metrics"]),2)
+        points=export["otlp"]["resourceMetrics"][0]["scopeMetrics"][0]["metrics"]
+        self.assertEqual(len(points),2)
+        duration=next(x for x in points if x["name"]=="iwxa.agent.execution.duration")
+        self.assertEqual(duration["gauge"]["dataPoints"][0]["asInt"],"2000")
+        self.assertEqual(duration["gauge"]["dataPoints"][0]["startTimeUnixNano"],
+                         "1794736800000000000")
+        returns=next(x for x in points if x["name"]=="iwxa.task.retries")
+        self.assertIs(returns["sum"]["isMonotonic"],True)
+        self.assertEqual(returns["sum"]["aggregationTemporality"],1)
+
+    def test_otlp_rejects_forged_source_status_and_time(self):
+        row=observed(fixture("Gamma"))
+        invalid=dict(row,metrics={**row["metrics"],"input_tokens":100})
+        with self.assertRaisesRegex(K05EffectivenessHold,"OTLP_METRIC_STATUS_INVALID"):
+            project_otlp_json(invalid,enabled=True,
+                              start_time_unix_nano=1794736800000000000,
+                              time_unix_nano=1794736803000000000)
+        self.assertEqual(project_otlp_json(
+            row,enabled=True,start_time_unix_nano=1794736803000000000,
+            time_unix_nano=1794736800000000000)["status"],
+            "MEASUREMENT_WINDOW_REQUIRED")
 
 if __name__ == "__main__":
     unittest.main()
