@@ -309,7 +309,7 @@ export default function LocalInferencePanel() {
           sourceEpoch !== sourceSelectionEpoch.current || current() !== workspaceId) return;
       if (!result?.object || result.object.workspace_id !== workspaceId ||
           result.object.object_id !== objectId || result.object.revision !== chosen.revision ||
-          result.object.deleted_at != null) {
+          result.object.deleted === true || result.object.deleted_at != null) {
         throw Error("T3_D5_SOURCE_CHANGED");
       }
       const data = JSON.stringify(result.object.data);
