@@ -23,6 +23,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Python syntax validation
+        run: python -m compileall -q research/cross-lab/k05_agent06_effectiveness.py research/cross-lab/k05_agent06_otlp.py research/cross-lab/tests/test_k05_agent06_effectiveness.py
       - name: New source-bound measurement and negative tests
         run: python -W error::ResourceWarning -m unittest research/cross-lab/tests/test_k05_agent06_effectiveness.py -v
       - name: Existing K05 Agent graph and source gates
