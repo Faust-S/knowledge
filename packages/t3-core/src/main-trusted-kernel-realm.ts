@@ -40,7 +40,96 @@ const configPromise=trustedConfig();
 let attempted=false;
 let receiver:IsolatedKernelReceiver|null=null;
 let stop: (()=>void)|null=null;
+let stopNativeRelay:(()=>void)|null=null;
 let live=false;
+// Transport-only execution: native D3 has already verified the signed D1
+// grant, original sealed effect and separate Human APPLY precondition.
+// This private closure invokes ONLY the original T2 KernelFacade, never a
+// second implementation or a method chosen by the untrusted UI origin.
+async function attachOriginalNativeKernelRelay(
+  owner:ReturnType<typeof createControlLoopbackOwner>,
+  plain:ReturnType<typeof createKernelFacade>,
+  session:{contract_version:string;runtime_version:string;
+    service?:{service_id?:string};mode?:string;
+    granted_operations?:readonly string[]},
+):Promise<void>{
+  const originalMethods=new Set([
+    "commitObjectGraph","getObject","listEventsSince",
+  ]);
+  const info={
+    contract_version:session.contract_version,
+    runtime_version:session.runtime_version,
+    service_id:session.service?.service_id??"",
+    mode:session.mode??"unknown",
+    granted_operations:[...(session.granted_operations??[])],
+  };
+  let connected:{sessionId:string;contextEpoch:number}|null=null;
+  try{
+    connected=await owner.originalKernelRelay("attach",{sessionInfo:info});
+  }catch(error){
+    const code=(error as {code?:string}|null)?.code;
+    // The ORIGINAL D3 owner is optional. Older signed D1 Hosts and an
+    // empty local Workspace still function without a native relay.
+    if(["T3_D3_ORIGINAL_KERNEL_RELAY_NOT_AVAILABLE",
+      "T3_D1_CONTROL_ROUTE_DENIED",
+      "T3_D3_ORIGINAL_KERNEL_OPERATIONS_REQUIRED"].includes(code??""))return;
+    throw error;
+  }
+  if(!connected||typeof connected.sessionId!=="string"||
+      connected.contextEpoch<0)throw reject("T3_D3_ORIGINAL_KERNEL_RELAY_INVALID");
+  let active=true;
+  const selected=connected;
+  stopNativeRelay=()=>{
+    active=false;
+    if(live)void owner.originalKernelRelay("detach",{
+      sessionId:selected.sessionId}).catch(()=>{});
+  };
+  const invokeOriginal=async(method:string,args:unknown[])=>{
+    if(!originalMethods.has(method)||!Array.isArray(args))
+      throw reject("T3_D3_ORIGINAL_KERNEL_METHOD_DENIED");
+    const fn=(plain as unknown as Record<string,unknown>)[method];
+    if(typeof fn!=="function")
+      throw reject("T3_D3_ORIGINAL_KERNEL_METHOD_DENIED");
+    return (fn as (...args:unknown[])=>Promise<unknown>)(...args);
+  };
+  void (async()=>{
+    while(active&&live){
+      const selectedCommand=await owner.originalKernelRelay("next",{
+        sessionId:selected.sessionId});
+      if(!active||!live)return;
+      if(selectedCommand?.kind==="IDLE"){
+        await new Promise(resolve=>setTimeout(resolve,200));
+        continue;
+      }
+      if(selectedCommand?.kind!=="COMMAND"||
+        !Number.isSafeInteger(selectedCommand.id)||
+        !originalMethods.has(selectedCommand.method)||
+        !Array.isArray(selectedCommand.args))
+        throw reject("T3_D3_ORIGINAL_KERNEL_RELAY_COMMAND_INVALID");
+      let result:unknown,code:string|null=null;
+      try{
+        result=await invokeOriginal(
+          selectedCommand.method,selectedCommand.args);
+      }catch(error){
+        const source=(error as {code?:string}|null)?.code;
+        code=typeof source==="string"&&
+          /^[A-Z][A-Z0-9_]{4,99}$/.test(source)
+          ?source:"T3_D3_ORIGINAL_KERNEL_RESULT_DENIED";
+      }
+      // Only native D3's exact queued request may receive this reply. If
+      // acknowledgement is lost AFTER a graph commit, native factory must
+      // report OUTCOME_UNKNOWN, never repeat commitObjectGraph.
+      await owner.originalKernelRelay("result",{
+        sessionId:selected.sessionId,id:selectedCommand.id,
+        ...(code===null?{ok:true,result}:{ok:false,code}),
+      });
+    }
+  })().catch(()=>{
+    // Invalidated/stale original Control must make this realm unavailable.
+    active=false;live=false;receiver?.invalidate();
+  });
+}
+
 
 async function attach(event:MessageEvent){
   const cfg=await configPromise.catch(()=>null);
@@ -143,9 +232,15 @@ async function attach(event:MessageEvent){
       },
     });
     if(!receiver||!live)throw reject("T3_D1_TRUSTED_REALM_ATTACH_FAILED");
+    // The trusted browser owns the ONLY genuine T2 IndexedDB Kernel. The
+    // native signer and sealed application must remain in the ONE installed
+    // D3 Host; relay execution is strictly behind its authorization.
+    await attachOriginalNativeKernelRelay(
+      owner,createKernelFacade({session:originalSession}),originalSession);
   }catch(error){
     live=false;
     receiver?.close();
+    stopNativeRelay?.();
     stop?.();
     const code=error&&typeof error==="object"&&"code" in error&&
       typeof error.code==="string"&&/^[A-Z0-9_]{5,100}$/.test(error.code)
@@ -155,5 +250,6 @@ async function attach(event:MessageEvent){
 }
 window.addEventListener("message",event=>{void attach(event);});
 window.addEventListener("pagehide",()=>{
+  stopNativeRelay?.();
   live=false;receiver?.invalidate();receiver?.close();stop?.();
 });
