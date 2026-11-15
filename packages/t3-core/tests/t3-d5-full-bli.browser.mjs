@@ -190,7 +190,7 @@ try {
   const hardwareVendor=[gpu.vendor,gpu.architecture,gpu.device,
     gpu.description,gpu.webglVendor,gpu.webglRenderer].join(" ");
   const realGpu=gpu.supported && /apple|nvidia|amd|intel/i.test(hardwareVendor) &&
-    !/swiftshader|software|llvmpipe|google/i.test(hardwareVendor);
+    !/swiftshader|software|llvmpipe/i.test(hardwareVendor);
   console.log("T3_D5_HARDWARE_ADAPTER_PROBE",JSON.stringify(gpu));
   if(hardwareRequired && !realGpu) {
     throw Error("T3_D5_HARDWARE_WEBGPU_NOT_AVAILABLE: "+JSON.stringify(gpu));

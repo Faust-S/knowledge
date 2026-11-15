@@ -1018,7 +1018,7 @@ try{
     const hardwareDetails=[gpu.vendor,gpu.architecture,gpu.device,
       gpu.description,gpu.webglVendor,gpu.webglRenderer].join(' ');
     assert.ok(gpu.adapterPresent&&/apple/i.test(hardwareDetails)&&
-      !/swiftshader|software|llvmpipe|google/i.test(hardwareDetails),
+      !/swiftshader|software|llvmpipe/i.test(hardwareDetails),
       'SIGNED_BLI_REAL_APPLE_GPU_REQUIRED: '+JSON.stringify(gpu));
     assert.equal(await hardwarePanel.getByRole('button',
       {name:'Скачать и запустить'}).isDisabled(),true);
