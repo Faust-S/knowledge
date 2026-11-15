@@ -8,12 +8,12 @@ for (const path of routes) {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(20000), redirect: 'follow', headers: { 'user-agent': 'IWXA-Club-site-qualification/1.1' } });
     const html = await response.text();
-    const isHtml = /text\\/html/i.test(response.headers.get('content-type') || '');
+    const isHtml = (response.headers.get('content-type') || '').toLowerCase().includes('text/html');
     const hasDocument = html.toLowerCase().includes('<html') && html.toLowerCase().includes('<body');
-    const hasMain = /<main(?:\\s|>)/i.test(html);
+    const hasMain = html.toLowerCase().includes('<main');
     const isSameOrigin = new URL(response.url).origin === new URL(base).origin;
     const ok = response.ok && isHtml && hasDocument && isSameOrigin;
-    const entry = { path, status: response.status, ok, isHtml, hasDocument, hasMain, isSameOrigin, bytes: Buffer.byteLength(html), finalUrl: response.url, forms: (html.match(/<form(?:\\s|>)/gi) || []).length, buttons: (html.match(/<button(?:\\s|>)/gi) || []).length };
+    const entry = { path, status: response.status, ok, isHtml, hasDocument, hasMain, isSameOrigin, bytes: Buffer.byteLength(html), finalUrl: response.url, forms: html.toLowerCase().split('<form').length - 1, buttons: html.toLowerCase().split('<button').length - 1 };
     results.push(entry);
     if (!ok) errors.push({ path, reason: 'HTTP, HTML document or origin check failed', entry });
   } catch (error) {
