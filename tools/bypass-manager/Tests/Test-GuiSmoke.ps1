@@ -1,4 +1,4 @@
-# Windows-only smoke: create the native Win32 window and close it normally.
+﻿# Windows-only smoke: create the native Win32 window and close it normally.
 # Never clicks Autoselect and never opens a WinDivert driver handle.
 [CmdletBinding()]
 param()
@@ -28,7 +28,8 @@ public static class BypassGuiSmokeNative {
 }
 "@
     Add-Type -TypeDefinition $cs -ErrorAction Stop
-    $prepare=[BypassGuiSmokeNative]::FindWindowEx([IntPtr]$proc.MainWindowHandle,[IntPtr]::Zero,'Button','Подготовить движок')
+    $windowHandle=[IntPtr]$proc.MainWindowHandle
+    $prepare=[BypassGuiSmokeNative]::FindWindowEx($windowHandle,[IntPtr]::Zero,'Button','Подготовить движок')
     if ([IntPtr]$prepare -eq [IntPtr]::Zero) {throw 'GUI offline engine preparation control is missing'}
     Write-Host 'PASS GUI offline engine preparation control present (no click; no network access)'
     if(-not $proc.CloseMainWindow()) {throw 'GUI window refused normal close request'}
