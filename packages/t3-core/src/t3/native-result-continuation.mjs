@@ -112,7 +112,8 @@ export function createTrustedNativeContinuation({
         check(object?.workspace_id===reference.workspace_id&&
           object.object_id===reference.object_id&&
           object.schema_id===reference.schema_id&&
-          object.revision===reference.revision&&!object.deleted,
+          object.revision===reference.revision&&
+          !object.deleted&&object.deleted_at==null,
           "T3_D6_STALE_OR_MISSING_REFERENCE");
         return copy(object,"T3_D6_ORIGINAL_OBJECT_NOT_CLONEABLE");
       };

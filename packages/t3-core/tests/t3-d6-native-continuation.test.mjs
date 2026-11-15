@@ -5,6 +5,7 @@ import {createTrustedNativeContinuation} from "../src/t3/native-result-continuat
 // Public contract fixture only: no real native Atlas/Agent/issuer is present.
 function fixture(beforeHuman=async()=>{}){
   let revision=2,approved=true,revoked=false,selected=true,dropAck=false,receives=0;
+  let deletedAt=null;
   let receiptHook=null,readbackHook=null;
   const workspace={workspace_id:"ws:personal",deleted_at:null};
   const focus={get:()=>selected?workspace:null,subscribe:()=>()=>{}};
@@ -29,7 +30,8 @@ function fixture(beforeHuman=async()=>{}){
     hasOperation:operation=>operation==="t1.getObject",
     async getObject(ws,id){
       return {object:{...ref,workspace_id:ws,object_id:id,revision,
-        schema_id:ref.schema_id,data:{value:42},deleted:false},
+        schema_id:ref.schema_id,data:{value:42},deleted:false,
+        ...(deletedAt===null?{}:{deleted_at:deletedAt})},
         relations:{incoming:[],outgoing:[]}};
     }};
   const commits=new Map();
@@ -65,6 +67,7 @@ function fixture(beforeHuman=async()=>{}){
   const port=makePort();
   return {port,makePort,confirmations:()=>confirmations,
     ref,commits,changeRevision:n=>revision=n,
+    setDeletedAt:v=>deletedAt=v,
     setApproved:v=>approved=v,setRevoked:v=>revoked=v,
     setSelected:v=>selected=v,setDropAck:v=>dropAck=v,
     setReceiptHook:fn=>receiptHook=fn,
@@ -203,5 +206,22 @@ test("D6 signed denial AFTER native write is not downgraded to unknown",async()=
   f.setReadbackHook(null);
   assert.equal((await f.port.continueSelected(f.ref)).status,"OUTCOME_UNKNOWN");
   assert.equal((await f.port.recover(f.ref)).status,"OWNER_READBACK_CONFIRMED");
+  assert.equal(f.receives(),1);
+});
+
+test("D6 never continues an original T2 Object marked only deleted_at",async()=>{
+  const f=fixture();
+  f.setDeletedAt("2026-11-16T00:00:00.000Z");
+  await assert.rejects(f.port.preview(f.ref),
+    {code:"T3_D6_STALE_OR_MISSING_REFERENCE"});
+  await assert.rejects(f.port.continueSelected(f.ref),
+    {code:"T3_D6_STALE_OR_MISSING_REFERENCE"});
+  await assert.rejects(f.port.recover(f.ref),
+    {code:"T3_D6_STALE_OR_MISSING_REFERENCE"});
+  assert.equal(f.receives(),0);
+  // The original T2 Object may become live only by an original owner action.
+  f.setDeletedAt(null);
+  assert.equal((await f.port.continueSelected(f.ref)).status,
+    "OWNER_READBACK_CONFIRMED");
   assert.equal(f.receives(),1);
 });
