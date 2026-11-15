@@ -1309,6 +1309,65 @@ test("D7 independent installed Kernel readback resolves lost import ACK without 
   }finally{stopCold();await cold.close();}
 });
 
+test("D3 Control releases only proven pre-Apply Workspace refusals, not lost Kernel ACK",{
+  timeout:12000,
+},async()=>{
+  // The original owner supplies these exact definite pre-dispatch codes.
+  // Control must release its in-memory attempt as Center/native owner do;
+  // an uncertain write still forbids replay in the SAME signed Host.
+  const seen=new Map();
+  const beforeWrite=["T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED",
+    "T3_D3_ORIGINAL_WORKSPACE_DELETED",
+    "T3_D3_ORIGINAL_WORKSPACE_READ_ONLY"];
+  const port=()=>({
+    receive:async()=>({}),preview:async()=>({}),receipt:async()=>({}),
+    accept:async()=>({}),reject:async()=>({}),
+    inspectAcceptedApplication:async()=>({}),
+    applyAccepted:async ({acceptanceId})=>{
+      const count=(seen.get(acceptanceId)??0)+1;
+      seen.set(acceptanceId,count);
+      const code=acceptanceId==="a".repeat(64)?beforeWrite[count-1]:
+        acceptanceId==="b".repeat(64)?"WORKSPACE_NOT_FOUND":
+        acceptanceId==="c".repeat(64)?"T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN":
+        "PERMISSION_DENIED";
+      if(code)throw Object.assign(Error(code),{code});
+      return {kernelWriteReadback:"OWNER_UNCONFIRMED"};
+    },
+    recoverApplied:async()=>({status:"OUTCOME_UNKNOWN",automaticRetryAllowed:false}),
+  });
+  const f=await fixture({reconciliationPortFor:port});
+  const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
+  const target={consumerId:"IWXA_ADMIN_CENTER",processId:"process:one",
+    processVersion:"1.0.0",purpose:"result.apply",
+    subjectId:"org:one",workspaceId:"ws:one",dataRootId:"root:one"};
+  const payload=acceptanceId=>({acceptanceId,revisionIds:["e".repeat(64)],target});
+  try{
+    const safe=payload("a".repeat(64));
+    for(const code of beforeWrite)
+      await assert.rejects(f.browser.reconciliationRequest("applyAccepted",safe),
+        {code});
+    assert.equal(seen.get(safe.acceptanceId),3,
+      "each proven pre-commit refusal permits one new explicit attempt");
+    assert.equal((await f.browser.reconciliationRequest("applyAccepted",safe))
+      .kernelWriteReadback,"OWNER_UNCONFIRMED");
+    await assert.rejects(f.browser.reconciliationRequest("applyAccepted",safe),
+      {code:"T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN"});
+    assert.equal(seen.get(safe.acceptanceId),4,
+      "a successful owner dispatch is never automatically replayed");
+    for(const [id,code] of [["b","WORKSPACE_NOT_FOUND"],
+      ["c","T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN"],
+      ["d","PERMISSION_DENIED"]]){
+      const uncertain=payload(id.repeat(64));
+      await assert.rejects(f.browser.reconciliationRequest(
+        "applyAccepted",uncertain),{code});
+      await assert.rejects(f.browser.reconciliationRequest(
+        "applyAccepted",uncertain),
+      {code:"T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN"});
+      assert.equal(seen.get(uncertain.acceptanceId),1,
+        "original owner must not be re-entered after an unproven refusal");
+    }
+  }finally{stop();await f.close();}
+});
 test("D3 two racing original Apply calls cannot dispatch twice when native port is reconstructed",{
   timeout:12000,
 },async()=>{

@@ -268,7 +268,15 @@ export function createOriginalControlHttpHandler({
         ["T3_D3_SEPARATE_HUMAN_APPLY_REQUIRED",
          "T3_D3_ORIGINAL_SEALED_APPLICATION_REQUIRED",
          "T3_D3_ORIGINAL_GRAPH_PROVENANCE_REQUIRED",
-         "T3_D3_ORIGINAL_APPLICATION_TARGET_INCOMPLETE"].includes(code);
+         "T3_D3_ORIGINAL_APPLICATION_TARGET_INCOMPLETE",
+         // The original D3 owner now checks the signed T2 Workspace before
+         // Human APPLY and commitObjectGraph. Only these exact pre-dispatch
+         // refusals are safe to release from the Control's no-replay claim,
+         // so the manager can repair the SAME Workspace and approve anew.
+         // WORKSPACE_NOT_FOUND after a possible write is never safe.
+         "T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED",
+         "T3_D3_ORIGINAL_WORKSPACE_DELETED",
+         "T3_D3_ORIGINAL_WORKSPACE_READ_ONLY"].includes(code);
   // The original installed Host may rotate its ephemeral bearer whenever
   // its existing signed subject session changes. This is a transient
   // transport credential only, NEVER a grant, issuer or AccessRegistry.
