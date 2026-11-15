@@ -34,6 +34,35 @@ function Assert-ExternalIPv4 {
     return $Address
 }
 
+# PowerShell 5.1 Start-Process joins -ArgumentList entries with spaces without
+# preserving argument boundaries. Quote the COMPLETE command line ourselves.
+# Backslashes preceding quotes or the final closing quote must be doubled,
+# otherwise --lua-init=@C:\Users\Some Name\... is parsed as multiple arguments.
+function Format-NativeArgumentList {
+    param([Parameter(Mandatory=$true)][string[]]$Arguments)
+    $quoted = @(
+        foreach ($arg in $Arguments) {
+            if ($arg.Length -gt 0 -and $arg -notmatch '[\s"]') { $arg; continue }
+            $result = '"'
+            $slashes = 0
+            foreach ($char in $arg.ToCharArray()) {
+                if ($char -eq '\') { $slashes++; continue }
+                if ($char -eq '"') {
+                    $result += ('\' * (2 * $slashes + 1)) + '"'
+                    $slashes = 0
+                    continue
+                }
+                if ($slashes -gt 0) { $result += ('\' * $slashes); $slashes = 0 }
+                $result += [string]$char
+            }
+            if ($slashes -gt 0) { $result += ('\' * (2 * $slashes)) }
+            $result += '"'
+            $result
+        }
+    )
+    return ($quoted -join ' ')
+}
+
 function Get-ExactWinDivertFilter {
     param([Parameter(Mandatory=$true)][string]$EndpointIPv4,
           [Parameter(Mandatory=$true)][ValidateRange(1,65535)][int]$Port,
@@ -245,4 +274,4 @@ function Save-Json {
     $Object | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
-Export-ModuleMember -Function Assert-IPv4,Assert-ExternalIPv4,Get-ExactWinDivertFilter,Assert-LoopbackProxy,Get-CurlPath,Invoke-CurlText,Get-ProxyArgs,Get-PublicEgress,Test-EndpointTcp,Get-AdapterCounters,Get-EndpointRoute,Get-AwgNative,Invoke-DownloadProbe,Test-IcmpProbe,Save-Json
+Export-ModuleMember -Function Format-NativeArgumentList,Assert-IPv4,Assert-ExternalIPv4,Get-ExactWinDivertFilter,Assert-LoopbackProxy,Get-CurlPath,Invoke-CurlText,Get-ProxyArgs,Get-PublicEgress,Test-EndpointTcp,Get-AdapterCounters,Get-EndpointRoute,Get-AwgNative,Invoke-DownloadProbe,Test-IcmpProbe,Save-Json

@@ -20,6 +20,7 @@ if ($WithUpstream) {
   if (-not $BundleRoot) {throw 'WithUpstream requires BundleRoot'}
   & (Join-Path $PSScriptRoot 'Test-WinDivertFilter.ps1') -BundleRoot $BundleRoot -EndpointIPv4 '198.51.100.17' -Port 443 -Transport TCP
   & (Join-Path $PSScriptRoot 'Test-WinDivertFilter.ps1') -BundleRoot $BundleRoot -EndpointIPv4 '198.51.100.17' -Port 51820 -Transport UDP
+  & (Join-Path $PSScriptRoot 'Test-NativeArgumentQuoting.ps1') -BundleRoot $BundleRoot
   foreach ($item in @(@('TLS-SPLIT','TCP',443),@('TLS-DISORDER','TCP',443),@('TLS-FAKESEQ','TCP',443),@('TLS-FAKETTL','TCP',443),@('UDP-FAKE','UDP',51820),@('UDP-REPEAT','UDP',51820))) {
     & (Join-Path $runtime 'Scripts\Start-Profile.ps1') -Action Start -EndpointIPv4 '198.51.100.17' -Port $item[2] -Transport $item[1] -Profile $item[0] -BundleRoot $BundleRoot -StateFolder (Join-Path $env:TEMP 'bypass-ci-inert') -DryRun
     if ($LASTEXITCODE -ne 0) {throw "Engine dry-run failed: $($item[0])"}

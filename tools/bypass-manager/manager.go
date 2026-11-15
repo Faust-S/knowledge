@@ -854,7 +854,7 @@ func realMain() int {
 		c.BundleRoot = bundle
 	}
 	if c.BundleRoot == "" {
-		c.BundleRoot = `C:\BypassManager\engine`
+		c.BundleRoot = preferredEngineRoot(home)
 	}
 	if c.Transport == "" {
 		c.Transport = "AWG-UDP"

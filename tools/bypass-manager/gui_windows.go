@@ -469,7 +469,7 @@ func guiMain() int {
 	home := defaultRoot()
 	cfg, _ := loadConfig(filepath.Join(home, "settings.json"))
 	if cfg.BundleRoot == "" {
-		cfg.BundleRoot = `C:\BypassManager\engine`
+		cfg.BundleRoot = preferredEngineRoot(home)
 	}
 	if cfg.Transport == "" {
 		cfg.Transport = "AWG-UDP"

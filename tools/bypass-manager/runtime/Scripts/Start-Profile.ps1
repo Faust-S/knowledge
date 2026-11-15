@@ -6,7 +6,7 @@ param(
   [ValidateRange(1,65535)][int]$Port=443,
   [ValidateSet('TCP','UDP')][string]$Transport='TCP',
   [ValidateSet('TLS-SPLIT','TLS-FAKESEQ','TLS-FAKETTL','TLS-DISORDER','UDP-FAKE','UDP-REPEAT')][string]$Profile='TLS-SPLIT',
-  [string]$BundleRoot='C:\BypassManager\engine',
+  [string]$BundleRoot=(Join-Path $env:LOCALAPPDATA 'BypassManager\engine'),
   [string]$StateFolder=(Join-Path $PSScriptRoot '..\Results\active'),
   [switch]$DryRun
 )
@@ -49,7 +49,6 @@ if ($Action -eq 'Status' -or $Action -eq 'Stop') {
 [void](Assert-IPv4 $EndpointIPv4)
 if (($Transport -eq 'UDP') -ne ($Profile -in @('UDP-FAKE','UDP-REPEAT'))) { throw 'UDP requires UDP profile, TCP requires one TLS profile.' }
 $root=[System.IO.Path]::GetFullPath($BundleRoot)
-if ($root -match '\s') { throw 'Place official winws2 bundle in a path with no whitespace (PowerShell 5.1 native argument limitation).' }
 $exe=Join-Path $root 'winws2.exe'
 $luaLib=Join-Path $root 'lua\zapret-lib.lua'
 $luaDpi=Join-Path $root 'lua\zapret-antidpi.lua'
@@ -95,7 +94,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 New-Item -ItemType Directory -Path $stateFolder -Force | Out-Null
 $stdout=Join-Path $stateFolder 'winws2.stdout.log'
 $stderr=Join-Path $stateFolder 'winws2.stderr.log'
-$p=Start-Process -FilePath $exe -WorkingDirectory $root -ArgumentList $argsList -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+$p=Start-Process -FilePath $exe -WorkingDirectory $root -ArgumentList (Format-NativeArgumentList -Arguments $argsList) -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
 Start-Sleep -Milliseconds 1200
 $p.Refresh()
 if ($p.HasExited) { throw "winws2 exited immediately ($($p.ExitCode)). Check $stderr and $stdout; WinDivert or arguments may be invalid." }
