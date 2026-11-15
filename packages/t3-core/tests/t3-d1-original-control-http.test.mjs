@@ -1041,5 +1041,17 @@ test("D3 two racing original Apply calls cannot dispatch twice when native port 
     assert.equal((await f.browser.reconciliationRequest("recoverApplied",payload))
       .status,"OUTCOME_UNKNOWN","recovery remains an independent read-only owner call");
     assert.equal(entered,1);
+    // A fresh signed context/HTTP client on the SAME Host must not turn
+    // the earlier Apply into a second original Kernel dispatch.
+    f.invalidate();
+    const fresh=createControlLoopbackOwner({
+      origin:f.origin,token:f.token,
+      fetchImpl:(url,options={})=>fetch(url,{
+        ...options,headers:{...options.headers,Origin:f.origin},
+      }),
+    });
+    await assert.rejects(fresh.reconciliationRequest("applyAccepted",payload),
+      {code:"T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN"});
+    assert.equal(entered,1,"epoch rotation cannot redispatch the same Apply");
   }finally{finish();stop();await f.close();}
 });

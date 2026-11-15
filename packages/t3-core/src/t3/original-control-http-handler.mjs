@@ -220,13 +220,17 @@ export function createOriginalControlHttpHandler({
   // Reconciler/Kernel, accessible via receipt() and recoverApplied().
   const nativeD3InFlight=new Set();
   const nativeD3Attempted=new Set();
-  const d3WriteKey=(verb,payload,epoch)=>{
+  const d3WriteKey=(verb,payload)=>{
     if(verb==="accept"||verb==="reject"){
       requireThat(REF.test(payload.operationId??"")&&
         HEX.test(payload.packageSha256??""),
         "T3_D3_RECIPIENT_REQUEST_INVALID");
-      // ACCEPT and REJECT must not race for the SAME original decision ID.
-      return JSON.stringify([epoch,"decision",payload.operationId]);
+      // Same signed package+decision may not be sent a second time after
+      // the signed subject's contextEpoch rotates inside this Host.
+      // Exact SHA separates two independent original recipients; the
+      // original Reconciler still decides whether an ID is admissible.
+      return JSON.stringify(["decision",payload.operationId,
+        payload.packageSha256]);
     }
     if(verb!=="applyAccepted")return null;
     const revisions=payload.revisionIds;
@@ -239,9 +243,11 @@ export function createOriginalControlHttpHandler({
       ["consumerId","processId","processVersion","purpose","subjectId",
         "workspaceId","dataRootId"].every(x=>REF.test(target[x]??"")),
       "T3_D3_APPLICATION_SELECTION_REQUIRED");
-    // The ORIGINAL owner binds these to its sealed effect key. The public
-    // claim merely prevents a duplicate dispatch of the same selection.
-    return JSON.stringify([epoch,"apply",payload.acceptanceId,
+    // The ORIGINAL owner binds these to its sealed effect key. Epoch is
+    // deliberately excluded: a signed-role switch must not reopen the
+    // same already-dispatched selected Apply within this Host lifetime.
+    // This volatile claim never substitutes for original durable readback.
+    return JSON.stringify(["apply",payload.acceptanceId,
       [...revisions].sort(),["consumerId","processId","processVersion",
         "purpose","subjectId","workspaceId","dataRootId"].map(x=>target[x])]);
   };
@@ -977,7 +983,7 @@ export function createOriginalControlHttpHandler({
         }
         requireThat(available,"T3_D3_ORIGINAL_RECIPIENT_UNAVAILABLE");
         const payload=input.payload;
-        const d3Key=d3WriteKey(input.verb,payload,before);
+        const d3Key=d3WriteKey(input.verb,payload);
         if(d3Key!==null){
           requireThat(!nativeD3InFlight.has(d3Key)&&
             !nativeD3Attempted.has(d3Key),
