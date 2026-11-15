@@ -13,7 +13,28 @@ export function strictJson(text,{maxLength=32*1024*1024}={}){
     throw new Error('JSON_SIZE_INVALID');
   let p=0,nodes=0;const invalid=()=>{throw new Error('JSON_ENCODING_INVALID');};
   const ws=()=>{while(/[ \t\r\n]/.test(text[p]??'!'))p++;};
-  function string(){const re=/"(?:[^"\\\u0000-\u001f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/y;re.lastIndex=p;const m=re.exec(text);if(!m)invalid();p=re.lastIndex;return JSON.parse(m[0]);}
+  function string(){
+    // A 32 MiB .iwxa is ~44.8 MiB after base64url JSON encoding.
+    // V8's repeated-regexp group can overflow its stack on one huge
+    // string. Scan successive quote positions iteratively instead;
+    // JSON.parse still validates ALL escapes, control characters and UTF-8
+    // decoded JSON semantics before we accept the resulting value.
+    if(text[p]!=='"')invalid();
+    const start=p;
+    let offset=p+1;
+    while(true){
+      const end=text.indexOf('"',offset);
+      if(end<0)invalid();
+      let escapes=0;
+      for(let i=end-1;i>start&&text[i]==='\\';i--)escapes++;
+      if(escapes%2===0){
+        p=end+1;
+        try{return JSON.parse(text.slice(start,p));}
+        catch{invalid();}
+      }
+      offset=end+1;
+    }
+  }
   function value(depth){if(depth>64||++nodes>200000)invalid();ws();const c=text[p];
     if(c==='"'){string();return;}
     if(c==='{'){p++;ws();const keys=new Set();if(text[p]==='}'){p++;return;}while(true){ws();const key=string();if(keys.has(key))throw new Error('JSON_DUPLICATE_KEY');keys.add(key);ws();if(text[p++]!==':')invalid();value(depth+1);ws();if(text[p]==='}'){p++;return;}if(text[p++]!==',')invalid();}}
