@@ -33,6 +33,7 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
     commitPrecondition:()=>{preconditionCount++;return sourceCurrent&&signedJitCount>0;},
   };
   let written=null,lastEvent=null,loseAckAfterWrite=false;
+  let tamperInitialEvent=false,hideOriginalEvent=false,duplicateEvent=false;
   const hash=value=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
   const access={
     currentContext:()=>context,
@@ -72,16 +73,20 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
           idempotency_key:input.idempotency_key,
           payload:structuredClone(input.event.payload)};
         if(loseAckAfterWrite)throw new Error("ORIGINAL_KERNEL_ACK_LOST");
+        const confirmedEvent=structuredClone(lastEvent);
+        if(tamperInitialEvent)confirmedEvent.idempotency_key="f".repeat(64);
         return {
           workspace_id:"ws:a",object:{workspace_id:"ws:a",object_id:"result:one",
             revision:1,schema_id:"iwxa.result.native"},
-          relations_put:[],event:structuredClone(lastEvent)};
+          relations_put:[],event:confirmedEvent};
       },
       getObject:async()=>written?{object:{
         workspace_id:"ws:a",object_id:"result:one",revision:1,
         schema_id:"iwxa.result.native",schema_version:"1.0.0",
         data:{text:"reviewed"}},relations:{incoming:[],outgoing:[]}}:null,
-      listEventsSince:async()=>lastEvent?[structuredClone(lastEvent)]:[],
+      listEventsSince:async()=>!lastEvent||hideOriginalEvent?[]:
+        duplicateEvent?[structuredClone(lastEvent),structuredClone(lastEvent)]:
+        [structuredClone(lastEvent)],
     },
     access,
     stageFromOriginalOwner:()=>({binding,command,authorizationContext:{
@@ -112,6 +117,8 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   approves=true;
   const result=await port.applyAccepted(selection);
   assert.equal(result.kernelWriteReadback,"CONFIRMED");
+  assert.equal(result.originalEventReadback.idempotency_key,effect);
+  assert.equal(result.originalEventReadback.payload.reconciliation_acceptance_id,accepted);
   assert.equal(result.externalProductAcceptance,"NOT_ACCEPTED");
   assert.equal(written.idempotency_key,effect);
   assert.equal(commits,1);
@@ -127,6 +134,31 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   assert.equal(forged.automaticRetryAllowed,false);
   assert.equal(commits,1);
   lastEvent.idempotency_key=effect;
+  // In the original T2 graph a returned object or event ID alone is not
+  // proof of the accepted Result. A forged ACK, missing independent Event,
+  // or duplicate matching Event must never produce CONFIRMED. Every one of
+  // these failures is POST-dispatch and cannot authorize a replay.
+  const beforeUncertain=commits;
+  tamperInitialEvent=true;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"});
+  assert.equal(commits,beforeUncertain+1);
+  tamperInitialEvent=false;
+  hideOriginalEvent=true;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"});
+  assert.equal(commits,beforeUncertain+2);
+  hideOriginalEvent=false;
+  duplicateEvent=true;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"});
+  assert.equal(commits,beforeUncertain+3);
+  duplicateEvent=false;
+  const independentlyRecovered=await port.recoverApplied(selection);
+  assert.equal(independentlyRecovered.status,
+    "ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
+  assert.equal(commits,beforeUncertain+3,
+    "read-only recovery cannot reissue any uncertain original Kernel write");
   // A human approval is bound to the exact signed purpose/audience/realm,
   // even if the selected organization, actor and Workspace do not change.
   changePurposeDuringHumanApply=true;

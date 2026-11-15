@@ -121,7 +121,8 @@ export function createTrustedReconciliationKernelApply({
     const {acceptanceId,revisionIds,c,chosen,binding,ctx,command,objInput}=
       await stagedSelection(input);
     check(kernel.hasOperation("t1.commitObjectGraph")&&
-      kernel.hasOperation("t1.getObject"),
+      kernel.hasOperation("t1.getObject")&&
+      kernel.hasOperation("t1.listEventsSince"),
       "T3_D3_ORIGINAL_KERNEL_GRANT_REQUIRED");
     // Independent, explicit APPLY approval is not the earlier ACCEPT.
     const approval=await confirmSeparateApply({
@@ -143,16 +144,41 @@ export function createTrustedReconciliationKernelApply({
     let receipt;
     try {
       receipt=await signedKernel.commitObjectGraph(command);
+      // A commit receipt alone is not an independent Event readback.
+      // Verify BOTH original T2 Object and Event under fresh signed D1 JIT.
+      // Anything missing AFTER dispatch is UNKNOWN, never permission to
+      // issue the same commitObjectGraph again.
       const read=await signedKernel.getObject(c.workspace_id,objInput.object_id);
+      const events=await signedKernel.listEventsSince(c.workspace_id);
+      const expectedRevision=objInput.base_revision+1;
+      const sameRevisions=values=>Array.isArray(values)&&
+        values.length===revisionIds.length&&values.every(hex)&&
+        JSON.stringify([...values].sort())===
+          JSON.stringify([...revisionIds].sort());
+      const sameEvent=event=>event?.workspace_id===c.workspace_id&&
+        id(event.event_id)&&event.event_type===command.event.event_type&&
+        event.idempotency_key===binding.effectKey&&
+        (event.object_id==null||event.object_id===objInput.object_id)&&
+        (event.revision==null||event.revision===expectedRevision)&&
+        obj(event.payload)&&
+        event.payload.reconciliation_acceptance_id===acceptanceId&&
+        sameRevisions(event.payload.reconciliation_revision_ids);
+      const verifiedEvents=Array.isArray(events)?
+        events.filter(sameEvent):[];
       check(receipt?.workspace_id===c.workspace_id&&
         receipt.object?.workspace_id===c.workspace_id&&
         receipt.object?.object_id===objInput.object_id&&
-        id(receipt.event?.event_id)&&receipt.event.workspace_id===c.workspace_id&&
+        receipt.object.revision===expectedRevision&&
+        receipt.object.schema_id===objInput.schema_id&&
+        sameEvent(receipt.event)&&
         read?.object?.workspace_id===c.workspace_id&&
         read.object.object_id===objInput.object_id&&
-        read.object.revision===receipt.object.revision&&
+        read.object.revision===expectedRevision&&
         read.object.schema_id===objInput.schema_id&&
-        JSON.stringify(read.object.data)===JSON.stringify(objInput.data),
+        read.object.schema_version===objInput.schema_version&&
+        JSON.stringify(read.object.data)===JSON.stringify(objInput.data)&&
+        verifiedEvents.length===1&&
+        verifiedEvents[0].event_id===receipt.event.event_id,
         "T3_D3_ORIGINAL_KERNEL_READBACK_MISMATCH");
       // Recheck accepted source and current authority. Failure AFTER commit
       // remains uncertain, not a reason to retry a non-idempotent command.
@@ -163,6 +189,7 @@ export function createTrustedReconciliationKernelApply({
       return Object.freeze({
         originalKernelReceipt:copy(receipt,"T3_D3_KERNEL_RECEIPT_INVALID"),
         originalKernelReadback:copy(read,"T3_D3_KERNEL_READBACK_INVALID"),
+        originalEventReadback:copy(verifiedEvents[0],"T3_D3_EVENT_READBACK_INVALID"),
         kernelWriteReadback:"CONFIRMED",
         reconciliationLedgerSync:"OWNER_FOLLOWUP_REQUIRED",
         externalProductAcceptance:"NOT_ACCEPTED",
