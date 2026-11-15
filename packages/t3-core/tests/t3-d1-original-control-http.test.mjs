@@ -835,6 +835,7 @@ test("D7 independent installed Kernel readback resolves lost import ACK without 
         input.package_digest!==receipt.package_digest||
         input.semantic_digest!==receipt.semantic_digest)return {status:"OUTCOME_UNKNOWN"};
       return {status:"OWNER_READBACK_CONFIRMED",readbackVerified:true,
+        preview_token:input.preview_token,
         recipientId:"recipient:installed",receipt,
         sensitiveCredential:"NEVER_TO_WEB"};
     },

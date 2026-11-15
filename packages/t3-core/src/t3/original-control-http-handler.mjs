@@ -729,6 +729,7 @@ export function createOriginalControlHttpHandler({
               const receipt=observed.receipt;
               requireThat(observed.status==="OWNER_READBACK_CONFIRMED"&&
                 observed.readbackVerified===true&&
+                observed.preview_token===payload.preview_token&&
                 observed.recipientId===recipient.recipientId&&
                 receipt?.format==="iwxa.import.receipt"&&
                 REF.test(receipt.import_id??"")&&

@@ -350,6 +350,10 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
     const receipt=observed.receipt;
     ensure(observed.status==="OWNER_READBACK_CONFIRMED"&&
       observed.readbackVerified===true&&
+      // Repeated imports of identical .iwxa may share both digests.
+      // A readback is evidence for THIS lost-ACK operation only when
+      // the installed recipient binds it to the exact original preview.
+      observed.preview_token===preview_token&&
       observed.recipientId===recipient.recipientId&&
       receipt?.format==="iwxa.import.receipt"&&
       id(receipt.import_id)&&
@@ -359,9 +363,14 @@ export function createTrustedAgeExchange({kernel,accessForRead,ageOwner,
       receipt.applied&&typeof receipt.applied==="object"&&
       !Array.isArray(receipt.applied),
       "T3_D7_NATIVE_KERNEL_READBACK_INVALID");
+    const fields=["import_id","format","format_version","package_digest",
+      "semantic_digest","mode","conflict_policy","committed_at","applied",
+      "skipped_conflicts","workspace_id_map","excluded_by_permission","cancelled"];
+    const safe=Object.fromEntries(fields.filter(key=>Object.hasOwn(receipt,key))
+      .map(key=>[key,receipt[key]]));
     return Object.freeze({status:"OWNER_READBACK_CONFIRMED",
       recipientId:recipient.recipientId,
-      receipt});
+      receipt:Object.freeze(safe)});
   }
   async function open({ciphertext}={}){
     ensure(rawOpen,"T3_D7_NATIVE_PLAINTEXT_PRIVATE");

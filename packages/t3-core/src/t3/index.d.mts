@@ -229,7 +229,9 @@ export interface T3OriginalAgeOwner {
   /** Optional installed ORIGINAL recipient's independent, read-only recovery.
    * Must resolve its own persisted Kernel receipt and verify stored data with
    * ORIGINAL signed Kernel reads, not echo a UI receipt or replay importCommit.
-   * Works after cold launch WITHOUT Control's volatile preview token claims. */
+   * Works after cold launch WITHOUT Control's volatile preview token claims.
+   * Confirmed responses must also attest the EXACT preview_token, because
+   * multiple genuine imports can have identical package/semantic digests. */
   readbackInOriginalKernel?(input:{
     preview_token:string;package_digest:string;semantic_digest:string;
     mode:"full"|"selective"|"merge"|"new-workspace"|"cancel";

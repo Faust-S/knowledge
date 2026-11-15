@@ -354,7 +354,7 @@ test("D7 direct installed Host binds native preview tokens and blocks duplicate 
 test("D7 direct installed recipient can read original Kernel after cold restart without retrying commit",async()=>{
   let readbacks=0,commits=0;
   const original={status:"OWNER_READBACK_CONFIRMED",readbackVerified:true,
-    recipientId:"recipient:direct",
+    preview_token:"tok:direct",recipientId:"recipient:direct",
     receipt:{format:"iwxa.import.receipt",import_id:"import:readback",
       package_digest:"digest:direct",semantic_digest:"semantic:direct",
       mode:"new-workspace",applied:{workspaces:1}},
@@ -378,6 +378,10 @@ test("D7 direct installed recipient can read original Kernel after cold restart 
   assert.equal(commits,0);
   native.readbackInOriginalKernel=async()=>({status:"OUTCOME_UNKNOWN"});
   assert.equal((await create().readbackInOriginalKernel(query)).status,"OUTCOME_UNKNOWN");
+  native.readbackInOriginalKernel=async()=>({...original,
+    preview_token:"tok:other"});
+  await assert.rejects(create().readbackInOriginalKernel(query),
+    {code:"T3_D7_NATIVE_KERNEL_READBACK_INVALID"});
   native.readbackInOriginalKernel=async()=>({...original,
     receipt:{...original.receipt,semantic_digest:"semantic:unrelated"}});
   await assert.rejects(create().readbackInOriginalKernel(query),
