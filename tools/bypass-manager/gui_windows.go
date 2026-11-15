@@ -359,7 +359,7 @@ func ctrl(parent uintptr, class, name string, style uint32, id int, x, y, w, h i
 }
 func (ui *managerUI) initControls() {
 	ctrl(ui.hwnd, "STATIC", "Bypass Manager 0.3 Alpha", 0, 0, 20, 15, 740, 30)
-	ctrl(ui.hwnd, "STATIC", "Управление DPI-стратегиями. VPN-клиент запускается отдельно.", 0, 0, 20, 47, 750, 22)
+	ctrl(ui.hwnd, "STATIC", "VPN запускается отдельно. Измерения IPv4 не доказывают анонимность или защиту DNS/IPv6.", 0, 0, 20, 47, 820, 22)
 	ctrl(ui.hwnd, "STATIC", "Внешний IPv4", 0, 0, 20, 84, 130, 22)
 	ui.endpoint = ctrl(ui.hwnd, "EDIT", ui.cfg.EndpointIPv4, wsBorder|wsTabStop|esAutoHScroll, 101, 160, 80, 235, 26)
 	ctrl(ui.hwnd, "STATIC", "Порт", 0, 0, 426, 84, 70, 22)

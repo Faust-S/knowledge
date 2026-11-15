@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -115,7 +116,7 @@ func TestRedactReportDoesNotModifyEvidence(t *testing.T) {
 
 func TestAssessDataPathFailClosed(t *testing.T) {
 	baseline := EgressResult{IP: "1.1.1.1", Agreement: true}
-	p := Probe{Egress: EgressResult{IP: "9.9.9.9", Agreement: true}, AdapterFlow: true, Downloads: []DownloadResult{{OK: true, Bytes: 131072, ExpectedBytes: 131072}}}
+	p := Probe{EndpointRoute: &EndpointRoute{Name: "Ethernet", Index: 7, Destination: "0.0.0.0/0"}, Egress: EgressResult{IP: "9.9.9.9", Agreement: true}, AdapterFlow: true, Downloads: []DownloadResult{{OK: true, Bytes: 131072, ExpectedBytes: 131072}}}
 	if ok, _ := assessDataPath(p, baseline, 1); !ok {
 		t.Fatal("valid synthetic data path rejected")
 	}
@@ -137,5 +138,156 @@ func TestAssessDataPathFailClosed(t *testing.T) {
 	p.RouteLoopSuspected = true
 	if ok, _ := assessDataPath(p, baseline, 1); ok {
 		t.Fatal("accepted endpoint route loop")
+	}
+}
+
+func TestRouteMustBeObservedToConfirmDataPath(t *testing.T) {
+	base := EgressResult{IP: "1.1.1.1", Agreement: true}
+	p := Probe{Egress: EgressResult{IP: "9.9.9.9", Agreement: true}, AdapterFlow: true,
+		Downloads: []DownloadResult{{OK: true, Bytes: 131072, ExpectedBytes: 131072}}}
+	if ok, _ := assessDataPath(p, base, 1); ok {
+		t.Fatal("accepted an unknown route")
+	}
+	p.EndpointRoute = &EndpointRoute{Name: "Ethernet", Index: 12, Destination: "0.0.0.0/0"}
+	if ok, _ := assessDataPath(p, base, 1); !ok {
+		t.Fatal("rejected observed route")
+	}
+	p.EndpointRoute.Index = 0
+	if ok, _ := assessDataPath(p, base, 1); ok {
+		t.Fatal("accepted route with unknown interface index")
+	}
+}
+
+func TestMandatoryControlNeedsNoEngine(t *testing.T) {
+	if requiresDPIEngine("NONE") {
+		t.Fatal("NONE must work without a DPI engine")
+	}
+	for _, profile := range []string{"UDP-FAKE", "UDP-REPEAT", "TLS-SPLIT", "TLS-FAKESEQ"} {
+		if !requiresDPIEngine(profile) {
+			t.Errorf("missing engine requirement for %s", profile)
+		}
+	}
+}
+
+func TestMonitoringTailIsBounded(t *testing.T) {
+	var history []Probe
+	for i := 0; i < maxMonitoringSamples*3; i++ {
+		history = appendBoundedMonitoring(history, Probe{Reason: fmt.Sprintf("sample-%d", i)})
+	}
+	if len(history) != maxMonitoringSamples {
+		t.Fatalf("got %d", len(history))
+	}
+	if history[0].Reason != fmt.Sprintf("sample-%d", maxMonitoringSamples*2) {
+		t.Fatalf("oldest retained item %q", history[0].Reason)
+	}
+	if history[len(history)-1].Reason != fmt.Sprintf("sample-%d", maxMonitoringSamples*3-1) {
+		t.Fatalf("last retained item %q", history[len(history)-1].Reason)
+	}
+}
+
+func TestIPv6RiskClassificationNeverClaimsAnonymity(t *testing.T) {
+	a := EgressResult{IP: "2606:4700:4700::1111", Agreement: true}
+	same, note := assessIPv6Exposure(a, a)
+	if !same || !strings.Contains(note, "POSSIBLE_IPV6_BYPASS") {
+		t.Fatal("same public IPv6 must warn")
+	}
+	different := EgressResult{IP: "2606:4700:4700::1001", Agreement: true}
+	risk, note := assessIPv6Exposure(a, different)
+	if risk || !strings.Contains(note, "unverified") {
+		t.Fatal("different IPv6 is not anonymity proof")
+	}
+	risk, note = assessIPv6Exposure(a, EgressResult{})
+	if risk || !strings.Contains(note, "unknown") {
+		t.Fatal("missing measurement cannot prove privacy")
+	}
+	for _, invalid := range []string{"2001:db8::1", "fd00::1", "fe80::1", "::1", "1.1.1.1"} {
+		if validIPv6(invalid) {
+			t.Errorf("nonpublic IPv6 accepted %s", invalid)
+		}
+	}
+	if !validIPv6("2606:4700:4700::1111") {
+		t.Fatal("public IPv6 rejected")
+	}
+}
+
+func TestIPv6NeverExposedInExport(t *testing.T) {
+	b := EgressResult{IP: "2606:4700:4700::1111", Agreement: true, Samples: []EgressSample{{IP: "2606:4700:4700::1111"}}}
+	a := EgressResult{IP: "2606:4700:4700::1001", Agreement: true}
+	r := Report{BaselineIPv6: &b, Trials: []Trial{{Attempts: []Probe{{EgressIPv6: &a, PrivacyNote: "IPv6 different"}}}}}
+	safe := redactedReport(r)
+	if safe.BaselineIPv6 == nil || safe.Trials[0].Attempts[0].EgressIPv6 == nil {
+		t.Fatal("lost privacy evidence classification")
+	}
+	if safe.BaselineIPv6.IP != "" || safe.BaselineIPv6.Samples[0].IP != "" || safe.Trials[0].Attempts[0].EgressIPv6.IP != "" {
+		t.Fatal("IPv6 address leaked to JSON")
+	}
+	if r.BaselineIPv6.IP == "" || r.Trials[0].Attempts[0].EgressIPv6.IP == "" {
+		t.Fatal("redaction mutated live evidence")
+	}
+}
+
+func TestEgressConsensusIsNotFirstResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/a":
+			io.WriteString(w, "8.8.8.8\n")
+		case "/b", "/c":
+			io.WriteString(w, "9.9.9.9\n")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	urls := []string{server.URL + "/a", server.URL + "/b", server.URL + "/c"}
+	got := collectEgress(context.Background(), urls, httpClient(time.Second), validIPv4)
+	if !got.Agreement || got.IP != "9.9.9.9" || len(got.Samples) != 3 {
+		t.Fatalf("bad consensus %+v", got)
+	}
+	got = collectEgress(context.Background(), urls[:1], httpClient(time.Second), validIPv4)
+	if got.Agreement {
+		t.Fatalf("one independent provider accepted %+v", got)
+	}
+}
+
+func TestIPv6EgressConsensusRequiresTwoValidAnswers(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/a", "/b":
+			io.WriteString(w, "2606:4700:4700::1111\n")
+		case "/c":
+			io.WriteString(w, "2001:db8::1\n") // Documentation prefix.
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	urls := []string{server.URL + "/a", server.URL + "/b", server.URL + "/c"}
+	got := collectEgress(context.Background(), urls, httpClient(time.Second), validIPv6)
+	if !got.Agreement || got.IP != "2606:4700:4700::1111" || got.Samples[2].Status != "ERROR" {
+		t.Fatalf("IPv6 consensus accepted invalid sample or failed: %+v", got)
+	}
+}
+
+func TestEngineInstallHappensOnlyForRequiredProfile(t *testing.T) {
+	checks, installs := 0, 0
+	available := func() bool { checks++; return false }
+	install := func() error { installs++; return nil }
+	if err := ensureEngineForProfile("NONE", available, install); err != nil {
+		t.Fatal(err)
+	}
+	if checks != 0 || installs != 0 {
+		t.Fatal("control touched DPI engine")
+	}
+	if err := ensureEngineForProfile("UDP-FAKE", available, install); err != nil {
+		t.Fatal(err)
+	}
+	if checks != 1 || installs != 1 {
+		t.Fatal("DPI profile did not install missing engine")
+	}
+	if err := ensureEngineForProfile("UDP-REPEAT", func() bool { return true }, install); err != nil {
+		t.Fatal(err)
+	}
+	if installs != 1 {
+		t.Fatal("existing engine was installed again")
 	}
 }

@@ -94,6 +94,9 @@ type Probe struct {
 	EndpointRoute      *EndpointRoute   `json:"endpoint_route,omitempty"`
 	RouteLoopSuspected bool             `json:"route_loop_suspected"`
 	Egress             EgressResult     `json:"egress"`
+	EgressIPv6         *EgressResult    `json:"egress_ipv6,omitempty"`
+	IPv6LeakSuspected  bool             `json:"ipv6_leak_suspected"`
+	PrivacyNote        string           `json:"privacy_note,omitempty"`
 	Downloads          []DownloadResult `json:"downloads"`
 	AdapterBefore      *AdapterStats    `json:"adapter_before,omitempty"`
 	AdapterAfter       *AdapterStats    `json:"adapter_after,omitempty"`
@@ -114,19 +117,20 @@ type Trial struct {
 }
 
 type Report struct {
-	Version       string       `json:"version"`
-	StartedUTC    string       `json:"started_utc"`
-	EndedUTC      string       `json:"ended_utc,omitempty"`
-	EndpointIPv4  string       `json:"endpoint_ipv4,omitempty"`
-	Port          int          `json:"port"`
-	Transport     string       `json:"transport"`
-	AdapterName   string       `json:"adapter_name,omitempty"`
-	Baseline      EgressResult `json:"baseline"`
-	Trials        []Trial      `json:"trials"`
-	Monitoring    []Probe      `json:"monitoring,omitempty"`
-	ChosenProfile string       `json:"chosen_profile,omitempty"`
-	Status        string       `json:"status"`
-	Caveat        string       `json:"caveat"`
+	Version       string        `json:"version"`
+	StartedUTC    string        `json:"started_utc"`
+	EndedUTC      string        `json:"ended_utc,omitempty"`
+	EndpointIPv4  string        `json:"endpoint_ipv4,omitempty"`
+	Port          int           `json:"port"`
+	Transport     string        `json:"transport"`
+	AdapterName   string        `json:"adapter_name,omitempty"`
+	Baseline      EgressResult  `json:"baseline"`
+	BaselineIPv6  *EgressResult `json:"baseline_ipv6,omitempty"`
+	Trials        []Trial       `json:"trials"`
+	Monitoring    []Probe       `json:"monitoring,omitempty"`
+	ChosenProfile string        `json:"chosen_profile,omitempty"`
+	Status        string        `json:"status"`
+	Caveat        string        `json:"caveat"`
 }
 
 type Manager struct {
@@ -373,10 +377,18 @@ func (m *Manager) startFilter(profile string) error {
 
 var egressURLs = []string{"https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com/"}
 
+// Forcing tcp6 is essential. A dual-stack echo service could otherwise
+// return an IPv4 result and falsely declare that IPv6 was tested.
+var ipv6EgressURLs = []string{"https://api6.ipify.org", "https://ipv6.icanhazip.com", "https://ifconfig.co/ip"}
+
 func httpClient(timeout time.Duration) *http.Client {
+	return httpClientFamily(timeout, "tcp4")
+}
+
+func httpClientFamily(timeout time.Duration, network string) *http.Client {
 	dialer := &net.Dialer{Timeout: 6 * time.Second, KeepAlive: -1}
 	trans := &http.Transport{Proxy: nil, DisableKeepAlives: true, ForceAttemptHTTP2: false, MaxIdleConns: 0, TLSHandshakeTimeout: 6 * time.Second, ResponseHeaderTimeout: 8 * time.Second, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-		return dialer.DialContext(ctx, "tcp4", address)
+		return dialer.DialContext(ctx, network, address)
 	}}
 	return &http.Client{Transport: trans, Timeout: timeout, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) > 2 {
@@ -389,15 +401,22 @@ func httpClient(timeout time.Duration) *http.Client {
 	}}
 }
 func (m *Manager) egress(ctx context.Context) EgressResult {
-	c := httpClient(10 * time.Second)
+	return collectEgress(ctx, egressURLs, httpClient(10*time.Second), validIPv4)
+}
+
+func (m *Manager) egressIPv6(ctx context.Context) EgressResult {
+	return collectEgress(ctx, ipv6EgressURLs, httpClientFamily(10*time.Second, "tcp6"), validIPv6)
+}
+
+func collectEgress(ctx context.Context, urls []string, c *http.Client, valid func(string) bool) EgressResult {
 	res := EgressResult{}
 	votes := map[string]int{}
 	type sample struct {
 		idx   int
 		value EgressSample
 	}
-	ch := make(chan sample, len(egressURLs))
-	for i, url := range egressURLs {
+	ch := make(chan sample, len(urls))
+	for i, url := range urls {
 		go func(i int, url string) {
 			start := time.Now()
 			r := EgressSample{Provider: url, Status: "ERROR"}
@@ -408,7 +427,7 @@ func (m *Manager) egress(ctx context.Context) EgressResult {
 				if resp.StatusCode == 200 {
 					data, e := io.ReadAll(io.LimitReader(resp.Body, 128))
 					ip := strings.TrimSpace(string(data))
-					if e == nil && validIPv4(ip) {
+					if e == nil && valid(ip) {
 						r.IP = ip
 						r.Status = "OK"
 					}
@@ -419,7 +438,7 @@ func (m *Manager) egress(ctx context.Context) EgressResult {
 			ch <- sample{i, r}
 		}(i, url)
 	}
-	results := make([]EgressSample, len(egressURLs))
+	results := make([]EgressSample, len(urls))
 	for range results {
 		r := <-ch
 		results[r.idx] = r.value
@@ -537,7 +556,11 @@ func (m *Manager) probeWithSizes(ctx context.Context, baseline EgressResult, siz
 		}
 	}
 	p.EndpointRoute = m.endpointRoute(ctx)
-	if p.EndpointRoute != nil && strings.EqualFold(p.EndpointRoute.Name, m.cfg.AdapterName) {
+	if !endpointRouteObserved(p.EndpointRoute) {
+		p.Reason = "маршрут к внешнему IP VPN не подтверждён; передачу данных нельзя считать проверенной"
+		return p
+	}
+	if strings.EqualFold(p.EndpointRoute.Name, m.cfg.AdapterName) {
 		p.RouteLoopSuspected = true
 		p.Reason = "внешний IP VPN направлен обратно через VPN-адаптер; цикл маршрутизации"
 		return p
@@ -548,6 +571,13 @@ func (m *Manager) probeWithSizes(ctx context.Context, baseline EgressResult, siz
 		p.AdapterBefore = before
 	}
 	p.Egress = m.egress(ctx)
+	connectedIPv6 := m.egressIPv6(ctx)
+	p.EgressIPv6 = &connectedIPv6
+	if m.report.BaselineIPv6 != nil {
+		p.IPv6LeakSuspected, p.PrivacyNote = assessIPv6Exposure(*m.report.BaselineIPv6, connectedIPv6)
+	} else {
+		p.PrivacyNote = "IPv6 baseline not measured; privacy unverified"
+	}
 	if p.Egress.Agreement && baseline.Agreement && p.Egress.IP != baseline.IP {
 		p.EgressChanged = true
 	}
@@ -600,6 +630,14 @@ func (m *Manager) attempt(ctx context.Context, profile string, baseline EgressRe
 	}
 	if _, err := m.prompt("Теперь ПОДКЛЮЧИТЕ Amnezia самостоятельно. Если она показывает ошибку, тоже нажмите Enter. Нажмите Enter после попытки подключения:"); err != nil {
 		trial.Error = err.Error()
+		trial.Status = "INTERRUPTED"
+		trial.CompletedUTC = utc()
+		return trial, false
+	}
+	if err := ctx.Err(); err != nil {
+		trial.Status = "INTERRUPTED"
+		trial.Error = err.Error()
+		trial.CompletedUTC = utc()
 		return trial, false
 	}
 	m.println("Проверяю фактическую передачу через VPN...")
@@ -611,7 +649,10 @@ func (m *Manager) attempt(ctx context.Context, profile string, baseline EgressRe
 		p := m.probe(ctx, baseline)
 		trial.Attempts = append(trial.Attempts, p)
 		if p.Success {
-			m.printf("Подтверждён путь данных, проба %d. Выходной IP: %s\n", i+1, p.Egress.IP)
+			m.printf("Подтверждён IPv4-путь данных, проба %d. Выходной IP: %s\n", i+1, p.Egress.IP)
+			if p.IPv6LeakSuspected {
+				m.println("ВНИМАНИЕ: исходный IPv6-выход остался прежним при работающем IPv4 VPN; возможен обход туннеля.")
+			}
 		} else {
 			m.printf("Проба %d не подтверждена: %s\n", i+1, p.Reason)
 		}
@@ -661,7 +702,11 @@ func (m *Manager) monitor(ctx context.Context, baseline EgressResult) bool {
 			sizes = []int64{131072, 1048576}
 		}
 		p := m.probeWithSizes(ctx, baseline, sizes)
-		m.report.Monitoring = append(m.report.Monitoring, p)
+		m.report.Monitoring = appendBoundedMonitoring(m.report.Monitoring, p)
+		if p.IPv6LeakSuspected {
+			m.report.Status = "DATA_PATH_OBSERVED_IPV6_LEAK_SUSPECTED"
+			m.println("ВНИМАНИЕ: возможна утечка IPv6 вне VPN; проверка DNS и других каналов не выполняется.")
+		}
 		m.persist()
 		if p.Success {
 			failures = 0
@@ -677,17 +722,12 @@ func (m *Manager) monitor(ctx context.Context, baseline EgressResult) bool {
 }
 
 func (m *Manager) run(ctx context.Context) error {
-	m.report = Report{Version: version, StartedUTC: utc(), Port: m.cfg.Port, Transport: m.cfg.Transport, Status: "NOT_ACCEPTED", Caveat: "Observed data-path is not native handshake proof, not an assurance of stable filtering, and not field acceptance."}
+	m.report = Report{Version: version, StartedUTC: utc(), Port: m.cfg.Port, Transport: m.cfg.Transport, Status: "NOT_ACCEPTED", Caveat: "IPv4 data-path only. Native VPN handshake, DNS leaks, IPv6 leaks, WebRTC, browser fingerprinting, anonymity, long-term filtering, and field acceptance are NOT verified."}
 	if err := m.ensureRuntime(); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(m.logDir, 0700); err != nil {
 		return err
-	}
-	if !enginePresent(m.cfg.BundleRoot) {
-		if err := installUpstream(ctx, m.cfg.BundleRoot, m.prompt, m.output); err != nil {
-			return err
-		}
 	}
 	if m.ownStateExists() {
 		m.println("Найдено сохранённое состояние нашего winws2 с прошлого запуска.")
@@ -713,6 +753,8 @@ func (m *Manager) run(ctx context.Context) error {
 	}
 	baseline := m.egress(ctx)
 	m.report.Baseline = baseline
+	baselineIPv6 := m.egressIPv6(ctx)
+	m.report.BaselineIPv6 = &baselineIPv6
 	m.persist()
 	if !baseline.Agreement {
 		return errors.New("нет согласованного исходного публичного IP (2 источника из 3). Не подбираем профиль по недостоверным данным")
@@ -740,6 +782,16 @@ func (m *Manager) run(ctx context.Context) error {
 			}
 		}
 		m.printf("\n========== Вариант %d/%d: %s ==========\n", idx+1, len(order), name)
+		// No DPI engine is needed for the mandatory NONE control. If the
+		// standalone VPN works unchanged, avoid all upstream downloads.
+		// A corrupt or incomplete engine is never silently repaired.
+		if err := ensureEngineForProfile(name,
+			func() bool { return enginePresent(m.cfg.BundleRoot) },
+			func() error { return installUpstream(ctx, m.cfg.BundleRoot, m.prompt, m.output) }); err != nil {
+			m.report.Status = "ENGINE_UNAVAILABLE"
+			m.persist()
+			return fmt.Errorf("не удалось подготовить оригинальный DPI-движок: %w", err)
+		}
 		trial, ok := m.attempt(ctx, name, baseline)
 		m.report.Trials = append(m.report.Trials, trial)
 		m.persist()
@@ -749,6 +801,9 @@ func (m *Manager) run(ctx context.Context) error {
 		}
 		m.report.ChosenProfile = name
 		m.report.Status = "DATA_PATH_OBSERVED_NOT_FIELD_ACCEPTED"
+		if anyIPv6LeakSuspected(trial.Attempts) {
+			m.report.Status = "DATA_PATH_OBSERVED_IPV6_LEAK_SUSPECTED"
+		}
 		m.persist()
 		if name != "NONE" {
 			m.cfg.LastConfirmedProfile = name
@@ -774,7 +829,9 @@ func (m *Manager) run(ctx context.Context) error {
 		}
 		return nil
 	}
-	m.report.Status = "ALL_CANDIDATES_UNVERIFIED"
+	if m.report.Status != "DEGRADED_FALLBACK_REQUIRED" {
+		m.report.Status = "ALL_CANDIDATES_UNVERIFIED"
+	}
 	return nil
 }
 

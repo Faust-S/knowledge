@@ -11,6 +11,10 @@ func redactedReport(in Report) Report {
 	out.AdapterName = ""
 	out.Caveat = redactText(out.Caveat)
 	out.Baseline = redactEgress(in.Baseline)
+	if in.BaselineIPv6 != nil {
+		base6 := redactEgress(*in.BaselineIPv6)
+		out.BaselineIPv6 = &base6
+	}
 	out.Trials = make([]Trial, len(in.Trials))
 	for i, t := range in.Trials {
 		out.Trials[i] = t
@@ -42,6 +46,10 @@ func redactProbe(in Probe) Probe {
 	in.EndpointRoute = nil
 	in.Reason = redactText(in.Reason)
 	in.Egress = redactEgress(in.Egress)
+	if in.EgressIPv6 != nil {
+		ipv6 := redactEgress(*in.EgressIPv6)
+		in.EgressIPv6 = &ipv6
+	}
 	in.AdapterBefore = redactAdapter(in.AdapterBefore)
 	in.AdapterAfter = redactAdapter(in.AdapterAfter)
 	downloads := make([]DownloadResult, len(in.Downloads))
