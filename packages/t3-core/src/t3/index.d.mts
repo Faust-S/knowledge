@@ -167,7 +167,12 @@ export interface T3OriginalDomainResultOwner {
   ownerId:string;
   resultType:string;
   orderRef:string;
+  /** REQUIRED for CehoVod plan-fact-analysis. From the trusted original
+   * CehoVod production-execution object, NOT a pending Project/Process
+   * WorkRef and not an editable renderer field. */
+  executionRef?:string;
   verifySaved(input:{resultRef:string;operationId:string;recipientId:string;
+    orderRef:string;executionRef?:string;
     sourceReference:T3NativeContinuationReference}):unknown|Promise<unknown>;
 }
 export interface T3NativeContinuationStatus {
@@ -177,6 +182,7 @@ export interface T3NativeContinuationStatus {
   resultRef?:string;
   resultOwnerId?:string;
   orderRef?:string;
+  executionRef?:string;
   resultRevision?:number;
   owner_action_confirmed?:boolean;
   domain_result_confirmed?:boolean;

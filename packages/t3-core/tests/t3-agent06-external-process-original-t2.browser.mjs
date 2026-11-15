@@ -385,8 +385,11 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
     // the ACTUAL original T2 signed source. No real CehoVod Result is issued.
     const resultOwner={
       ownerId:'cehovod:shop1',resultType:'plan-fact-analysis',
-      orderRef:'po:fixture-42',
-      async verifySaved({resultRef,operationId,recipientId,sourceReference}){
+      orderRef:'po:fixture-42',executionRef:'pex:fixture-42',
+      async verifySaved({resultRef,operationId,recipientId,sourceReference,
+        orderRef,executionRef}){
+        assert.equal(orderRef,'po:fixture-42');
+        assert.equal(executionRef,'pex:fixture-42');
         canonicalReads++;
         const verifiedRead=createSubjectKernelBinding({
           kernel:resultKernel,access:resultAccess});
@@ -395,7 +398,8 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
         if(!canonicalResultAvailable)return null;
         return {status:'ORIGINAL_DOMAIN_RESULT_VERIFIED',
           ownerId:'cehovod:shop1',resultType:'plan-fact-analysis',
-          orderRef:'po:fixture-42',resultRef,operationId,recipientId,
+          orderRef:'po:fixture-42',executionRef:'pex:fixture-42',
+          resultRef,operationId,recipientId,
           workspaceId:ws,sourceReference,stage:'final',
           canonicalVerified:true,resultRevision:1};
       },
@@ -422,6 +426,7 @@ test('original T2 service enforces narrow ERP-link schema, revision CAS and cold
     assert.equal(domainProof.status,'DOMAIN_RESULT_READBACK_CONFIRMED');
     assert.equal(domainProof.resultRef,'cehovod:pf:fixture-42');
     assert.equal(domainProof.orderRef,'po:fixture-42');
+    assert.equal(domainProof.executionRef,'pex:fixture-42');
     assert.equal(domainProof.resultRevision,1);
     assert.equal(sends,1);
     console.log('T3_AGENT06_D6_TWO_OWNER_CONTRACT_PASS',

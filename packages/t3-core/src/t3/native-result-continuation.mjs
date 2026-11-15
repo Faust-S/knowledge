@@ -43,7 +43,12 @@ function verifiedDomainProof(proof,owner,reference,operationId,recipientId,resul
   // after independent signed Kernel readback; T3 never reimplements it.
   return !!proof&&proof.status==="ORIGINAL_DOMAIN_RESULT_VERIFIED"&&
     proof.ownerId===owner.ownerId&&proof.resultType===owner.resultType&&
-    proof.orderRef===owner.orderRef&&proof.resultRef===resultRef&&
+    proof.orderRef===owner.orderRef&&
+    // CehoVod final plan-fact is bound to one specific production-execution,
+    // not merely to its order. Never let another execution's Result close it.
+    (owner.executionRef===undefined||
+      (validId(owner.executionRef)&&proof.executionRef===owner.executionRef))&&
+    proof.resultRef===resultRef&&
     proof.workspaceId===reference.workspace_id&&
     proof.operationId===operationId&&proof.recipientId===recipientId&&
     proof.stage==="final"&&proof.canonicalVerified===true&&
@@ -79,6 +84,10 @@ export function createTrustedNativeContinuation({
     (resultOwner===null||
       (validId(resultOwner.ownerId)&&validId(resultOwner.resultType)&&
        validId(resultOwner.orderRef)&&
+       (resultOwner.resultType==="plan-fact-analysis"?
+          validId(resultOwner.executionRef):
+          (resultOwner.executionRef===undefined||
+           validId(resultOwner.executionRef)))&&
        typeof resultOwner.verifySaved==="function")),
     "T3_D6_TRUSTED_HOST_OWNER_REQUIRED");
 
@@ -168,6 +177,9 @@ export function createTrustedNativeContinuation({
         proof=await resultOwner.verifySaved({
           resultRef:receipt.resultRef,operationId,
           recipientId:nativeOwner.recipientId,
+          orderRef:resultOwner.orderRef,
+          ...(resultOwner.executionRef===undefined?{}:
+            {executionRef:resultOwner.executionRef}),
           sourceReference:copy(reference,"T3_D6_REFERENCE_NOT_CLONEABLE"),
         });
       }catch{
@@ -187,6 +199,8 @@ export function createTrustedNativeContinuation({
       return Object.freeze({status:"DOMAIN_RESULT_READBACK_CONFIRMED",operationId,
         recipientId:nativeOwner.recipientId,resultRef:receipt.resultRef,
         resultOwnerId:resultOwner.ownerId,orderRef:resultOwner.orderRef,
+        ...(resultOwner.executionRef===undefined?{}:
+          {executionRef:resultOwner.executionRef}),
         resultRevision:proof.resultRevision,owner_action_confirmed:true,
         domain_result_confirmed:true,
         reference:copy(reference,"T3_D6_REFERENCE_NOT_CLONEABLE")});

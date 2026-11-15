@@ -300,12 +300,14 @@ test('D6 requires independent original CehoVod Result readback after workflow CO
   };
   const resultOwner={ownerId:'cehovod:shop1',
     resultType:'plan-fact-analysis',orderRef:'po:42',
+    executionRef:'pex:42',
     verifySaved:async({resultRef,operationId,recipientId,sourceReference})=>{
       proofReads++;
       if(!domainSaved)return null;
       return {status:'ORIGINAL_DOMAIN_RESULT_VERIFIED',
         ownerId:'cehovod:shop1',resultType:'plan-fact-analysis',
-        orderRef:'po:42',resultRef,operationId,recipientId,
+        orderRef:'po:42',executionRef:'pex:42',
+        resultRef,operationId,recipientId,
         workspaceId:f.ref.expected_workspace_id,sourceReference,
         stage:'final',canonicalVerified:true,resultRevision:4};
     },
@@ -335,6 +337,7 @@ test('D6 requires independent original CehoVod Result readback after workflow CO
   assert.equal(completed.status,'DOMAIN_RESULT_READBACK_CONFIRMED');
   assert.equal(completed.resultRef,'cehovod:pf:42');
   assert.equal(completed.orderRef,'po:42');
+  assert.equal(completed.executionRef,'pex:42');
   assert.equal(completed.resultRevision,4);
   assert.equal(completed.domain_result_confirmed,true);
   assert.equal(sends,1);
@@ -353,7 +356,7 @@ test('D6 refuses mismatched production order, revision or source after receipt',
       recipientId:'agent:n8n',reference:ref,resultRef:'cehovod:pf:42'}),
   };
   const resultOwner={ownerId:'cehovod:shop1',orderRef:'po:42',
-    resultType:'plan-fact-analysis',
+    resultType:'plan-fact-analysis',executionRef:'pex:42',
     verifySaved:async()=>({status:'ORIGINAL_DOMAIN_RESULT_VERIFIED',
       ownerId:'cehovod:shop1',orderRef:'po:wrong',
       resultType:'plan-fact-analysis',resultRef:'cehovod:pf:42',
@@ -369,7 +372,7 @@ test('D6 refuses mismatched production order, revision or source after receipt',
   assert.equal((await host().recover(ref)).status,'DOMAIN_RESULT_UNVERIFIED');
   resultOwner.verifySaved=async()=>({
     status:'ORIGINAL_DOMAIN_RESULT_VERIFIED',ownerId:'cehovod:shop1',
-    orderRef:'po:42',resultType:'plan-fact-analysis',
+    orderRef:'po:42',executionRef:'pex:42',resultType:'plan-fact-analysis',
     resultRef:'cehovod:pf:42',operationId:'n8n:42',
     recipientId:'agent:n8n',workspaceId:'ws:cehovod',
     sourceReference:ref,canonicalVerified:true,stage:'final',
@@ -378,11 +381,33 @@ test('D6 refuses mismatched production order, revision or source after receipt',
   assert.equal((await host().recover(ref)).status,'DOMAIN_RESULT_UNVERIFIED');
   resultOwner.verifySaved=async()=>({
     status:'ORIGINAL_DOMAIN_RESULT_VERIFIED',ownerId:'cehovod:shop1',
-    orderRef:'po:42',resultType:'plan-fact-analysis',resultRef:'cehovod:pf:42',
+    orderRef:'po:42',executionRef:'pex:42',
+    resultType:'plan-fact-analysis',resultRef:'cehovod:pf:42',
     operationId:'n8n:42',recipientId:'agent:n8n',
     workspaceId:'ws:cehovod',sourceReference:{...ref,revision:ref.revision+1},
     canonicalVerified:true,stage:'final',resultRevision:2});
   assert.equal((await host().recover(ref)).status,'DOMAIN_RESULT_UNVERIFIED');
+  // Even with exact order, operationId, recipientId and a positive canonical
+  // flag, another execution's plan/fact can never satisfy this one.
+  resultOwner.verifySaved=async()=>({
+    status:'ORIGINAL_DOMAIN_RESULT_VERIFIED',ownerId:'cehovod:shop1',
+    orderRef:'po:42',executionRef:'pex:other',
+    resultType:'plan-fact-analysis',resultRef:'cehovod:pf:42',
+    operationId:'n8n:42',recipientId:'agent:n8n',
+    workspaceId:'ws:cehovod',sourceReference:ref,
+    canonicalVerified:true,stage:'final',resultRevision:3});
+  const wrongExecution=await host().recover(ref);
+  assert.equal(wrongExecution.status,'DOMAIN_RESULT_UNVERIFIED');
+  assert.equal(wrongExecution.owner_action_confirmed,true);
+  assert.equal(wrongExecution.can_retry,false);
+  resultOwner.verifySaved=async()=>({
+    status:'ORIGINAL_DOMAIN_RESULT_VERIFIED',ownerId:'cehovod:shop1',
+    orderRef:'po:42',executionRef:'pex:42',
+    resultType:'plan-fact-analysis',resultRef:'cehovod:pf:42',
+    operationId:'n8n:42',recipientId:'agent:n8n',
+    workspaceId:'ws:cehovod',sourceReference:ref,
+    canonicalVerified:true,stage:'final',resultRevision:3});
+  assert.equal((await host().recover(ref)).executionRef,'pex:42');
   f.setRevision('external-change');
   await assert.rejects(f.newHost().prepareContinuation(f.ref),
     {code:'T3_EXT_CONTINUATION_NOT_CURRENT'});
