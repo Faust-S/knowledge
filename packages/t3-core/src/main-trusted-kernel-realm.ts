@@ -82,14 +82,16 @@ async function attach(event:MessageEvent){
            code==="T3_D1_ORIGINAL_KERNEL_METHOD_FORBIDDEN")return null;
         throw error;
       });
-      const native=await owner.nativeD7Request("available",{}).catch((error:unknown)=>{
-        const code=(error as {code?:string}|null)?.code;
-        if(code==="T3_D1_CONTROL_ROUTE_DENIED"||
-           code==="T3_D7_ORIGINAL_NATIVE_OWNER_UNAVAILABLE")return null;
-        throw error;
-      });
-      if(d3?.available!==true&&native?.ageOpen!==true&&native?.publisher!==true)
-        throw reject("T3_D1_SIGNED_WORKSPACE_READ_REQUIRED");
+      if(d3?.available!==true){
+        const native=await owner.nativeD7Request("available",{}).catch((error:unknown)=>{
+          const code=(error as {code?:string}|null)?.code;
+          if(code==="T3_D1_CONTROL_ROUTE_DENIED"||
+             code==="T3_D7_ORIGINAL_NATIVE_OWNER_UNAVAILABLE")return null;
+          throw error;
+        });
+        if(native?.ageOpen!==true&&native?.publisher!==true)
+          throw reject("T3_D1_SIGNED_WORKSPACE_READ_REQUIRED");
+      }
     }
     if(!live)throw reject("T3_D1_SIGNED_WORKSPACE_READ_REQUIRED");
     const kernel=await connectKernel({serviceId:cfg.service_id});
