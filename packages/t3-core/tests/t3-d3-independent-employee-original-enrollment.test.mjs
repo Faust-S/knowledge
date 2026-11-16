@@ -330,3 +330,48 @@ test('proof-key admission refuses unauthorized manager, wrong employee key and c
   assert.equal(s.kernel.calls.length,1);
  }
 });
+
+
+test('original proof-key trust refuses a second manager credential even with a valid signature',async()=>{
+ const s=setup({pretrustEmployees:false});await s.init();
+ const twin=employee('key:operator-double','person:operator');
+ const args=trustProof(s,{employee:twin,proofSigner:twin.signer});
+ await assert.rejects(s.registry.admitProofCredential(args),
+  {code:'T3_ACCESS_PROOF_KEY_EMPLOYEE_MUST_BE_INDEPENDENT'});
+ assert.equal(s.kernel.calls.length,1);
+});
+test('lost ACK after signed credential trust writes exactly one original Kernel event',async()=>{
+ const s=setup({pretrustEmployees:false});await s.init();
+ const args=trustProof(s);s.loseNext();
+ await assert.rejects(s.registry.admitProofCredential(args),
+  /SIMULATED_LOST_ACK_AFTER_KERNEL_COMMIT/);
+ const recovered=await s.registry.readProofCredential({
+  authorityId:args.authorityId,credentialKeyId:args.credentialKeyId,
+  employeePersonId:'person:alice'});
+ assert.equal(recovered.state,'ORIGINAL_PROOF_CREDENTIAL_ADMITTED');
+ assert.equal(recovered.safeToRetry,false);
+ assert.equal(s.kernel.calls.length,2);
+ await assert.rejects(s.registry.admitProofCredential(args),
+  {code:'T3_ACCESS_PROOF_KEY_ALREADY_PRESENT'});
+ assert.equal(s.kernel.calls.length,2);
+});
+test('unsigned proof-key injection into Kernel Object/Event cannot update initial trusted issuer policy',async()=>{
+ const s=setup({pretrustEmployees:false});await s.init();
+ const {api}=s.kernel;
+ const prior=(await api.getObject('ws:host-registry','t3.access.signed-registry')).object;
+ const poisoned=structuredClone(prior.data);
+ poisoned.policy.keys['key:rogue-employee']=s.alice.record;
+ poisoned.policy.keys['key:rogue-employee'].subjectId='person:rogue';
+ const revised=prior.revision+1;
+ await api.putObject({workspace_id:'ws:host-registry',
+  object_id:'t3.access.signed-registry',
+  schema_id:'iwxa.t3.access.signed-registry',schema_version:'1.0.0',
+  base_revision:prior.revision,data:poisoned,extensions:{},
+  event:{event_type:'t3.access.signed_registry.persisted',payload:{
+    object_id:'t3.access.signed-registry',revision:revised,
+    policy_digest:digest(poisoned.policy),
+    state_digest:digest(poisoned),status_sequences:poisoned.statusFloor
+  }}});
+ await assert.rejects(s.registry.readState(),
+  {code:'T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT'});
+});
