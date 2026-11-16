@@ -38,12 +38,6 @@ func (ui *managerUI) startGuide() {
 	go func() { defer cancel(); defer post(ui.hwnd, wmAppDone); ui.runGuide(ctx, cfg) }()
 }
 
-func (ui *managerUI) guideAsk(message string) bool {
-	ui.guideInstruction(message)
-	_, err := ui.ask(message)
-	return err == nil
-}
-
 func (ui *managerUI) guideObserve(ctx context.Context, m *Manager, wait time.Duration, notify func(string)) (VPNState, bool) {
 	deadline := time.Now().Add(wait)
 	previous := ""
@@ -123,7 +117,14 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 		report.Events = append(report.Events, GuideEvent{UTC: utc(), Protocol: v.Protocol, DPIProfile: v.Profile, Stage: stage, Code: code, SecondsSinceStart: int64(time.Since(started).Seconds())})
 		persist()
 	}
-	m := &Manager{cfg: config, home: ui.home, runtimeRoot: filepath.Join(ui.home, "runtime"), stateFolder: filepath.Join(ui.home, "active"), logDir: filepath.Join(ui.home, "results"), output: uiWriter{ui}, ask: ui.ask}
+	m := &Manager{cfg: config, home: ui.home, runtimeRoot: filepath.Join(ui.home, "runtime"), stateFolder: filepath.Join(ui.home, "active"), logDir: filepath.Join(ui.home, "results"), output: uiWriter{ui}, ask: func(message string) (string, error) {
+		// Engine-install consent uses the same cancellable, in-window prompt.
+		// Do not reintroduce an owned modal MessageBox from a worker thread.
+		if ui.guideAsk(ctx, message) {
+			return "д", nil
+		}
+		return "н", nil
+	}}
 	// Collect passive interface topology before and after network experiments.
 	// Reports contain only allowlisted numeric counters and category codes.
 	var previousNetwork *NetworkHealth
@@ -157,11 +158,7 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 				ui.write("Не удалось подтвердить отключение собственного DPI. Используйте «Восстановить сеть».\n")
 			}
 		}
-		if ctx.Err() != nil && report.State == "IN_PROGRESS" {
-			report.State = "CANCELLED"
-			report.AdviceCode = "USER_CANCELLED"
-		}
-		report.CompletedUTC = utc()
+		finalizeGuideReport(&report, ctx.Err() != nil, utc())
 		persist()
 		ui.write("Подробный отчёт: results/latest-guide.json (события, протоколы, профили, измерения, причины).\n")
 	}()
@@ -219,13 +216,13 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 			if lastProtocol != "" {
 				// No standard, verified Amnezia Premium API to switch protocols.
 				// The human operates the external application once per protocol.
-				if !ui.guideAsk("AmneziaWG не дал подтверждённого результата. В окне Amnezia отключите VPN, выберите VLESS и снова нажмите «Подключить». Нажмите OK после переключения; дальнейшие проверки автоматические.") {
+				if !ui.guideAsk(ctx,"AmneziaWG не дал подтверждённого результата. В окне Amnezia отключите VPN, выберите VLESS и снова нажмите «Подключить». Нажмите OK после переключения; дальнейшие проверки автоматические.") {
 					finish("CANCELLED", "PROTOCOL_SWITCH_NOT_CONFIRMED")
 					return
 				}
 				record(v, "USER_ACTION", "VLESS_SELECTION_CONFIRMED_BY_USER")
 			} else {
-				if !ui.guideAsk("В Amnezia выберите AmneziaWG (не VLESS) и нажмите «Подключить», если ещё не подключено. Нажмите OK после выбора протокола. Далее мастер сам проверит соединение.") {
+				if !ui.guideAsk(ctx,"В Amnezia выберите AmneziaWG (не VLESS) и нажмите «Подключить», если ещё не подключено. Нажмите OK после выбора протокола. Далее мастер сам проверит соединение.") {
 					finish("CANCELLED", "INITIAL_PROTOCOL_NOT_CONFIRMED")
 					return
 				}
@@ -247,7 +244,7 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 				continue
 			}
 			if !endpointConfirmed[v.Protocol] {
-				if !ui.guideAsk("Для DPI необходим точный внешний IP и порт текущего " + v.Protocol + "-сервера в Amnezia. Проверьте данные в её официальных настройках. Подтвердите OK, только если значения в «Параметрах DPI» соответствуют текущему подключению. Отмена пропустит экспериментальные DPI-стратегии.") {
+				if !ui.guideAsk(ctx,"Для DPI необходим точный внешний IP и порт текущего " + v.Protocol + "-сервера в Amnezia. Проверьте данные в её официальных настройках. Подтвердите OK, только если значения в «Параметрах DPI» соответствуют текущему подключению. Отмена пропустит экспериментальные DPI-стратегии.") {
 					record(v, "USER_ACTION", "ENDPOINT_NOT_CONFIRMED")
 					// A refusal to confirm applies to all remaining filtered candidates.
 					endpointRejected[v.Protocol] = true
@@ -256,7 +253,7 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 				}
 				endpointConfirmed[v.Protocol] = true
 			}
-			if !ui.guideAsk("Чтобы безопасно применить " + v.Profile + ", отключите соединение в Amnezia (приложение оставьте открытым). Нажмите OK после отключения. Затем менеджер включит только свой локальный DPI-фильтр и предложит снова подключить VPN.") {
+			if !ui.guideAsk(ctx,"Чтобы безопасно применить " + v.Profile + ", отключите соединение в Amnezia (приложение оставьте открытым). Нажмите OK после отключения. Затем менеджер включит только свой локальный DPI-фильтр и предложит снова подключить VPN.") {
 				finish("CANCELLED", "DISCONNECT_NOT_CONFIRMED")
 				return
 			}
@@ -292,7 +289,7 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 			record(v, "FILTER", "OWN_DPI_STARTED")
 			// This guard prevents an unbounded test with an active packet filter.
 			watchdog := startTrialWatchdog(ctx, trialFilterMaxWait, func() { _ = m.stopFilter() })
-			if !ui.guideAsk("DPI " + v.Profile + " включён. Теперь нажмите «Подключить» в Amnezia для выбранного протокола. Нажмите OK только после попытки подключения; дальше программа сама измерит результат.") {
+			if !ui.guideAsk(ctx,"DPI " + v.Profile + " включён. Теперь нажмите «Подключить» в Amnezia для выбранного протокола. Нажмите OK только после попытки подключения; дальше программа сама измерит результат.") {
 				watchdog.Stop()
 				finish("CANCELLED", "RECONNECT_CANCELLED")
 				return

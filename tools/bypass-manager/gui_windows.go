@@ -34,6 +34,7 @@ const (
 	wmAppInternet      = 0x8006
 	wmAppGuideStep     = 0x8007
 	wmAppLive          = 0x8008
+	wmAppGuidePrompt   = 0x8009
 	wsOverlappedWindow = 0x00CF0000
 	wsVisible          = 0x10000000
 	wsChild            = 0x40000000
@@ -72,6 +73,8 @@ const (
 	idRiskLine         = 2020
 	idApplications     = 2021
 	idMTUTrial         = 2022
+	idGuideConfirm     = 2023
+	idGuideSkip        = 2024
 )
 
 type winClassEx struct {
@@ -176,6 +179,8 @@ type managerUI struct {
 	liveView                                                                                                                                                 PublicView
 	liveAudit                                                                                                                                                LiveAudit
 	guideStep                                                                                                                                                string
+	guidePrompt                                                                                                                                              chan bool
+	guideConfirm, guideSkip                                                                                                                                  uintptr
 	refreshing, recovering                                                                                                                                   bool
 	stopError                                                                                                                                                string
 	lastSnapshot                                                                                                                                             VPNState
@@ -638,7 +643,13 @@ func (ui *managerUI) initControls() {
 	ui.guideButton = ctrl(ui.hwnd, "BUTTON", "Автоподбор VPN и видео", wsTabStop, idGuide, 20, 170, 285, 37)
 	ui.liveButton = ctrl(ui.hwnd, "BUTTON", "Выход / скорость", wsTabStop, idLive, 315, 170, 235, 37)
 	ui.stabilityButton = ctrl(ui.hwnd, "BUTTON", "Тест видео: 15 мин", wsTabStop, idStability, 565, 170, 270, 37)
-	ui.guideLine = ctrl(ui.hwnd, "STATIC", "Шаг 1. Нажмите «Автоподбор VPN и видео». Программа сама выбирает следующий тест.", 0, idGuideInstruction, 20, 210, 820, 42)
+	ui.guideLine = ctrl(ui.hwnd, "STATIC", "Шаг 1. Нажмите «Автоподбор VPN и видео». Программа сама выбирает следующий тест.", 0, idGuideInstruction, 20, 210, 610, 42)
+	// Explicit actions live in the main window. Unlike an owned MessageBox,
+	// they never disable the Stop button or block the window message loop.
+	ui.guideConfirm = ctrl(ui.hwnd, "BUTTON", "Готово", wsTabStop, idGuideConfirm, 639, 215, 95, 32)
+	ui.guideSkip = ctrl(ui.hwnd, "BUTTON", "Нет / пропустить", wsTabStop, idGuideSkip, 743, 215, 130, 32)
+	procShow.Call(ui.guideConfirm, 0)
+	procShow.Call(ui.guideSkip, 0)
 	ui.publicLine = ctrl(ui.hwnd, "STATIC", "Публичный IPv4: нажмите «Проверить выход и скорость»", 0, 2017, 20, 249, 820, 23)
 	ui.geoLine = ctrl(ui.hwnd, "STATIC", "Регион IP: неизвестен (определяется только по согласию)", 0, 2018, 20, 273, 820, 23)
 	ui.speedLine = ctrl(ui.hwnd, "STATIC", "Скорость: не измерена, можно перепроверить в любой момент", 0, 2019, 20, 297, 820, 23)
@@ -755,8 +766,14 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 	case wmAppGuideStep:
 		ui.mu.Lock()
 		step := ui.guideStep
+		pending := ui.guidePrompt != nil
 		ui.mu.Unlock()
-		winSetText(ui.guideLine, step)
+		if !pending {
+			winSetText(ui.guideLine, step)
+		}
+		return 0
+	case wmAppGuidePrompt:
+		ui.refreshGuidePromptControls()
 		return 0
 	case wmAppInternet:
 		ui.mu.Lock()
@@ -774,6 +791,10 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 		switch loword(w) {
 		case idGuide:
 			ui.startGuide()
+		case idGuideConfirm:
+			ui.answerGuidePrompt(true)
+		case idGuideSkip:
+			ui.answerGuidePrompt(false)
 		case idLive:
 			ui.checkLive()
 		case idStability:
@@ -849,6 +870,7 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 		ui.flush()
 		return 0
 	case wmAppDone:
+		ui.answerGuidePrompt(false)
 		ui.flush()
 		ui.toggleRun(false)
 		ui.preparing = false

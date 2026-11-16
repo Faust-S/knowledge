@@ -87,3 +87,56 @@ jobs:
             tools/bypass-manager/Bypass-Manager.exe
             tools/bypass-manager/README-RU.md
           if-no-files-found: error
+
+  publish-pinned-guidefix:
+    name: Publish directly downloadable Alpha after Windows PASS
+    needs: windows-native
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-alpha]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: bypass-manager-0-3-alpha-win64-unsigned
+          path: release/raw
+      - name: Package exact Windows CI executable and corresponding sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s release/raw/Bypass-Manager.exe
+          test -s release/raw/README-RU.md
+          mkdir -p release/windows
+          cp release/raw/Bypass-Manager.exe release/windows/
+          cp release/raw/README-RU.md release/windows/
+          cp tools/bypass-manager/MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md release/windows/
+          (cd release/windows && zip -q -9 ../Bypass-Manager-0.3-Alpha-GuideFix-Windows-x64.zip Bypass-Manager.exe README-RU.md MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md)
+          git archive --format zip --prefix=bypass-manager-0.3-guidefix-source/ -o release/Bypass-Manager-0.3-Alpha-GuideFix-Source.zip HEAD:tools/bypass-manager
+          cp tools/bypass-manager/MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md release/
+          (cd release && sha256sum Bypass-Manager-0.3-Alpha-GuideFix-Windows-x64.zip Bypass-Manager-0.3-Alpha-GuideFix-Source.zip MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md > SHA256SUMS.txt)
+      - name: Create immutable prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=bypass-manager-0.3-alpha-guidefix-2026-11-16
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists, refusing to replace files"
+            exit 1
+          fi
+          gh release create "$TAG" \
+            release/Bypass-Manager-0.3-Alpha-GuideFix-Windows-x64.zip \
+            release/Bypass-Manager-0.3-Alpha-GuideFix-Source.zip \
+            release/MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md \
+            release/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Bypass Manager 0.3 Alpha | guide cancellation fix | Windows CI" \
+            --notes "Windows Go/PowerShell/GUI qualification passed. In-window cancellable human prompts, 3-minute timeout, terminal guide report on early return. Unsigned executable. Amnezia Premium not included. REAL_NETWORK_NOT_ACCEPTED: native VPN handshake, independent app egress, and long video playback unverified." \
+            --prerelease
