@@ -5,7 +5,7 @@
 // Access decisions continue to use the canonical IWXA T3 evaluate() algorithm.
 import {
   canonical,digest,snapshot,copy,validatePolicy,validateGrant,verifyRecord,
-  validateStatusSnapshot,assertStatusTransitionHistory,iso
+  validateStatusSnapshot,assertStatusTransitionHistory,iso,signRecord,evaluate,timestamp
 } from "./core.mjs";
 
 export const ORIGINAL_REGISTRY_SCHEMA="iwxa.t3.access.signed-registry";
@@ -28,6 +28,59 @@ function assertNames(value,code) {
   check(dictionary(value),code);
   for(const id of Object.keys(value))check(ID.test(id),code);
 }
+// The pinned original trust root is never replaced by caller-provided keys.
+export const ORIGINAL_PROOF_KEY_ADMISSION="IWXA_T3_ORIGINAL_PROOF_KEY_ADMISSION/1";
+function addProofOnlyKey(policy,keyId,record){
+  check(ID.test(keyId) && !own(policy.keys,keyId),
+    "T3_ACCESS_PROOF_KEY_ALREADY_PRESENT");
+  check(dictionary(record)&&Object.keys(record).sort().join()===
+    ["subjectId","environment","publicKey","status","uses","notBefore","expiresAt"].sort().join()&&
+    ID.test(record.subjectId)&&record.environment===policy.environment&&
+    record.status==="ACTIVE"&&Array.isArray(record.uses)&&
+    record.uses.length===1&&record.uses[0]==="PROOF"&&
+    !Object.values(policy.keys).some(other=>other.publicKey===record.publicKey),
+    "T3_ACCESS_PROOF_KEY_SCOPE_INVALID");
+  const next=copy(policy);next.keys[keyId]=copy(record);
+  try{validatePolicy(next);}catch{no("T3_ACCESS_PROOF_KEY_METADATA_INVALID");}
+  return next;
+}
+const admissionDigest=trust=>digest({
+  old_policy_digest:trust.old_policy_digest,
+  key_id:trust.key_id,key_record:trust.key_record,
+  manager_decision_digest:trust.manager_decision_digest,
+  employee_proof_digest:trust.employee_proof_digest,
+  authority_id:trust.authority_id,
+});
+const signedAdmissionStatusId=trust=>"status:proof-key:"+admissionDigest(trust);
+function verifyProofKeyAdmission(trust,current,event){
+  check(dictionary(trust)&&trust.schema===ORIGINAL_PROOF_KEY_ADMISSION&&
+    typeof trust.old_policy_digest==="string"&&HEX.test(trust.old_policy_digest)&&
+    typeof trust.manager_decision_digest==="string"&&HEX.test(trust.manager_decision_digest)&&
+    typeof trust.employee_proof_digest==="string"&&HEX.test(trust.employee_proof_digest)&&
+    trust.old_policy_digest===digest(current)&&
+    ID.test(trust.authority_id??"")&&ID.test(trust.key_id??""),
+    "T3_ACCESS_PROOF_KEY_ADMISSION_INVALID");
+  const authority=current.authorities[trust.authority_id];
+  check(authority&&authority.principalId!==trust.key_record?.subjectId,
+    "T3_ACCESS_PROOF_KEY_ISSUER_CONFLICT");
+  const next=addProofOnlyKey(current,trust.key_id,trust.key_record);
+  check(digest(next)===event.payload.policy_digest,
+    "T3_ACCESS_PROOF_KEY_POLICY_DIGEST_INVALID");
+  const statement=trust.signed_status;
+  const at=Date.parse(statement?.payload?.issuedAt??"");
+  check(Number.isSafeInteger(at)&&at>0&&
+    statement.payload.id===signedAdmissionStatusId(trust)&&
+    statement.payload.authorityId===trust.authority_id&&
+    statement.payload.realmId===current.realmId&&
+    statement.payload.membershipEpoch===authority.membershipEpoch&&
+    statement.payload.sequence===event.payload.status_sequences[trust.authority_id]&&
+    authority.statusKeys.includes(statement.keyId),
+    "T3_ACCESS_PROOF_KEY_SIGNED_STATUS_INVALID");
+  try{verifyRecord(statement,current,at,"STATUS");}
+  catch{no("T3_ACCESS_PROOF_KEY_ISSUER_SIGNATURE_INVALID");}
+  return next;
+}
+
 function validClock(clock){
   const value=clock();
   check(Number.isSafeInteger(value)&&value>0,"T3_ACCESS_REGISTRY_CLOCK_INVALID");
@@ -135,7 +188,6 @@ export function createOriginalKernelRegistryStatePort({
       record.schema_version==="1.0.0" &&
       Number.isSafeInteger(record.revision)&&record.revision>0,
       "T3_ACCESS_REGISTRY_ORIGINAL_RECEIPT_INVALID");
-    const state=stateAt(record.data,pinned,now);
     const events=await kernel.listEventsSince(workspaceId);
     check(Array.isArray(events),"T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_UNAVAILABLE");
     const journal=events.filter(e=>e?.event_type===ORIGINAL_REGISTRY_EVENT &&
@@ -144,24 +196,55 @@ export function createOriginalKernelRegistryStatePort({
     // The ORIGINAL T2 event journal is the monotonic evidence. A caller
     // cannot silently replay an earlier signed STATUS by rewriting only the
     // latest Object revision while its higher-sequence event remains.
+    // Historical original Kernel Events are the signed policy progression.
+    // An admitted employee proof key cannot become a new issuer or admin.
+    let observedPolicy=copy(pinned),currentHash=trustedHash;
+    let priorFloors=null,expectedRevision=0;
     for(const event of journal){
+      expectedRevision++;
       check(event.workspace_id===workspaceId &&
-        event.payload.policy_digest===trustedHash &&
+        event.payload?.object_id===objectId&&
+        event.payload.revision===expectedRevision &&
         dictionary(event.payload.status_sequences) &&
         Object.keys(event.payload.status_sequences).length===
           Object.keys(pinned.authorities).length,
         "T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT");
+      const trust=event.payload.proof_credential_admission;
+      if(trust!==undefined){
+        check(expectedRevision>1&&priorFloors,
+          "T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH");
+        observedPolicy=verifyProofKeyAdmission(trust,observedPolicy,event);
+        currentHash=digest(observedPolicy);
+        for(const authorityId of Object.keys(pinned.authorities)){
+          const delta=authorityId===trust.authority_id?1:0;
+          check(event.payload.status_sequences[authorityId]===
+            priorFloors[authorityId]+delta,
+            "T3_ACCESS_PROOF_KEY_STATUS_SEQUENCE_INVALID");
+        }
+      }else{
+        check(event.payload.policy_digest===currentHash,
+          expectedRevision===1?"T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH":
+            "T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT");
+      }
       for(const authorityId of Object.keys(pinned.authorities)){
         const observed=event.payload.status_sequences[authorityId];
-        check(Number.isSafeInteger(observed)&&observed>=0 &&
-          observed<=state.statusFloor[authorityId],
+        check(Number.isSafeInteger(observed)&&observed>=0&&
+          (priorFloors===null||observed>=priorFloors[authorityId]),
           "T3_ACCESS_REGISTRY_ORIGINAL_SEQUENCE_ROLLBACK");
       }
+      priorFloors=event.payload.status_sequences;
+    }
+    check(same(observedPolicy,record.data?.policy),
+      "T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH");
+    const state=stateAt(record.data,observedPolicy,now);
+    for(const authorityId of Object.keys(pinned.authorities)){
+      check(priorFloors[authorityId]===state.statusFloor[authorityId],
+        "T3_ACCESS_REGISTRY_ORIGINAL_SEQUENCE_ROLLBACK");
     }
     const last=journal.at(-1);
     check(last.workspace_id===workspaceId &&
       last.payload.revision===record.revision &&
-      last.payload.policy_digest===trustedHash &&
+      last.payload.policy_digest===digest(state.policy) &&
       last.payload.state_digest===digest(state),
       "T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT");
     return Object.freeze({revision:record.revision,state:copy(state)});
@@ -171,7 +254,7 @@ export function createOriginalKernelRegistryStatePort({
     const now=validClock(clock);
     const draft=copy(signedState);
     draft.lastObservedAt=iso(now);
-    const next=stateAt(draft,pinned,now);
+    const next=stateAt(draft,before?.state.policy??pinned,now);
     if(before) assertForward(before.state,next);
     const revision=(before?.revision??0)+1;
     const digestState=digest(next);
@@ -180,7 +263,7 @@ export function createOriginalKernelRegistryStatePort({
       schema_id:ORIGINAL_REGISTRY_SCHEMA,schema_version:"1.0.0",
       base_revision:before?.revision??0,data:next,extensions:{},
       event:{event_type:ORIGINAL_REGISTRY_EVENT,payload:{
-        object_id:objectId,revision,policy_digest:trustedHash,
+        object_id:objectId,revision,policy_digest:digest(next.policy),
         state_digest:digestState,status_sequences:copy(next.statusFloor),
       }},
     });
@@ -193,15 +276,152 @@ export function createOriginalKernelRegistryStatePort({
     const committed=await read();
     check(committed.revision===revision&&same(committed.state,next),
       "T3_ACCESS_REGISTRY_READBACK_MISMATCH");
-    return Object.freeze({revision,policy_digest:trustedHash,
+    return Object.freeze({revision,policy_digest:digest(next.policy),
       state_digest:digestState,event_id:receipt.event.event_id});
+  };
+  // Only a trusted issuer Host holding the existing original signer can
+  // authorize a proof-only key. Both human manager and independent employee
+  // sign bound original Access proofs BEFORE the original Kernel commits.
+  const admitProofCredential=async({
+    authorityId,organizationId,employeeWorkspaceId,credentialKeyId,keyRecord,
+    issuerSigner,managerRequest,managerChallenge,managerProof,
+    employeeRequest,employeeChallenge,employeeProof
+  }={})=>{
+    const before=await read(),now=validClock(clock);
+    const state=before.state,auth=state.policy.authorities[authorityId];
+    check(auth&&auth.principalId===organizationId&&
+      state.policy.realmId===managerRequest?.realmId&&
+      ID.test(employeeWorkspaceId??"")&&auth.resources.includes(employeeWorkspaceId)&&
+      issuerSigner&&auth.issuerKeys.includes(issuerSigner.keyId)&&
+      auth.statusKeys.includes(issuerSigner.keyId),
+      "T3_ACCESS_PROOF_KEY_TRUSTED_ISSUER_REQUIRED");
+    check(ID.test(credentialKeyId??"")&&ID.test(keyRecord?.subjectId??"")&&
+      keyRecord.subjectId!==organizationId &&
+      timestamp(keyRecord.notBefore)<=now&&now<timestamp(keyRecord.expiresAt),
+      "T3_ACCESS_PROOF_KEY_PERSON_INVALID");
+    const newPolicy=addProofOnlyKey(state.policy,credentialKeyId,keyRecord);
+    const operationDigest=digest({schema:ORIGINAL_PROOF_KEY_ADMISSION,
+      authorityId,organizationId,employeeWorkspaceId,credentialKeyId,keyRecord});
+    check(managerRequest?.principalId===organizationId&&
+      managerRequest.action==="grant.issue"&&
+      managerRequest.resource==="authority:"+authorityId&&
+      managerRequest.purpose==="access-administration"&&
+      managerRequest.operationDigest===operationDigest&&
+      typeof managerChallenge==="string"&&managerChallenge.length>=16,
+      "T3_ACCESS_PROOF_KEY_MANAGER_SCOPE_INVALID");
+    const decision=evaluate(managerRequest,state,{
+      now:iso(now),challenge:managerChallenge,proof:managerProof,
+      timeAssurance:"LOCAL_BEST_EFFORT"});
+    check(decision.outcome==="PERMITTED"&&decision.allowed===true,
+      "T3_ACCESS_PROOF_KEY_MANAGER_NOT_AUTHORIZED");
+    // Admitting a second proof key for an existing administrator could make
+    // an employee appear as that manager under previously issued grants.
+    check(keyRecord.subjectId!==managerRequest.actorId&&
+      !Object.values(state.grants).some(env=>
+        env.payload.holderId===keyRecord.subjectId&&
+        env.payload.rightClass==="ADMINISTRATION"),
+      "T3_ACCESS_PROOF_KEY_EMPLOYEE_MUST_BE_INDEPENDENT");
+    check(employeeRequest?.actorId===keyRecord.subjectId&&
+      employeeRequest.principalId===organizationId&&
+      employeeRequest.realmId===state.policy.realmId&&
+      employeeRequest.resource===employeeWorkspaceId&&
+      employeeRequest.action==="work.prepare"&&
+      employeeRequest.operationDigest===operationDigest&&
+      typeof employeeChallenge==="string"&&employeeChallenge.length>=16&&
+      employeeProof?.keyId===credentialKeyId,
+      "T3_ACCESS_PROOF_KEY_EMPLOYEE_BINDING_INVALID");
+    try {verifyRecord(employeeProof,newPolicy,now,"PROOF");}
+    catch {no("T3_ACCESS_PROOF_KEY_EMPLOYEE_SIGNATURE_INVALID");}
+    const p=employeeProof.payload;
+    check(p.challenge===employeeChallenge&&
+      p.requestDigest===digest(employeeRequest)&&
+      timestamp(p.issuedAt)<=now&&now<timestamp(p.expiresAt)&&
+      now-timestamp(p.issuedAt)<state.policy.proofMaxAgeSeconds*1000&&
+      timestamp(p.expiresAt)-timestamp(p.issuedAt)<=
+        state.policy.proofMaxAgeSeconds*1000,
+      "T3_ACCESS_PROOF_KEY_EMPLOYEE_PROOF_INVALID");
+    const next=copy(state);
+    next.policy=newPolicy;
+    const previous=state.statuses[authorityId].payload;
+    const keyExpires=timestamp(state.policy.keys[issuerSigner.keyId].expiresAt);
+    const validUntil=Math.min(now+state.policy.offlineMaxAgeSeconds*1000,
+      keyExpires,timestamp(keyRecord.expiresAt));
+    check(validUntil>now,"T3_ACCESS_PROOF_KEY_STATUS_WINDOW_INVALID");
+    const trust={schema:ORIGINAL_PROOF_KEY_ADMISSION,
+      old_policy_digest:digest(state.policy),key_id:credentialKeyId,
+      key_record:copy(keyRecord),authority_id:authorityId,
+      manager_decision_digest:digest(decision),
+      employee_proof_digest:digest(employeeProof)};
+    const nextStatus=signRecord({...previous,
+      id:signedAdmissionStatusId(trust),
+      sequence:previous.sequence+1,issuedAt:iso(now),validUntil:iso(validUntil)
+    },issuerSigner);
+    try{verifyRecord(nextStatus,state.policy,now,"STATUS");}
+    catch{no("T3_ACCESS_PROOF_KEY_SIGNER_REJECTED");}
+    next.statuses[authorityId]=nextStatus;
+    next.statusFloor[authorityId]=previous.sequence+1;
+    trust.signed_status=copy(nextStatus);
+    next.lastObservedAt=iso(now);
+    const checked=stateAt(next,next.policy,now);
+    const expectedRevision=before.revision+1;
+    const receipt=await kernel.putObject({
+      workspace_id:workspaceId,object_id:objectId,
+      schema_id:ORIGINAL_REGISTRY_SCHEMA,schema_version:"1.0.0",
+      base_revision:before.revision,data:checked,extensions:{},
+      event:{event_type:ORIGINAL_REGISTRY_EVENT,payload:{
+        object_id:objectId,revision:expectedRevision,
+        policy_digest:digest(checked.policy),state_digest:digest(checked),
+        status_sequences:copy(checked.statusFloor),
+        proof_credential_admission:trust,
+      }}
+    });
+    check(receipt?.object?.revision===expectedRevision&&
+      receipt.event?.workspace_id===workspaceId,
+      "T3_ACCESS_PROOF_KEY_ORIGINAL_KERNEL_RECEIPT_INVALID");
+    const verified=await read();
+    check(verified.revision===expectedRevision&&
+      same(verified.state,checked),
+      "T3_ACCESS_PROOF_KEY_ORIGINAL_READBACK_UNKNOWN");
+    return Object.freeze({schema:ORIGINAL_PROOF_KEY_ADMISSION,
+      state:"ORIGINAL_PROOF_CREDENTIAL_ADMITTED",
+      organizationId,authorityId,credentialKeyId,
+      employeePersonId:keyRecord.subjectId,
+      policyDigest:digest(checked.policy),
+      rootPolicyDigest:trustedHash,statusSequence:checked.statusFloor[authorityId],
+      kernelRevision:expectedRevision,originalKernelEventId:receipt.event.event_id,
+      exactReadback:true,signatureVerified:true,productionActivation:false});
+  };
+  const readProofCredential=async({credentialKeyId,employeePersonId,authorityId}={})=>{
+    check(ID.test(credentialKeyId??"")&&ID.test(employeePersonId??"")&&
+      ID.test(authorityId??""),
+      "T3_ACCESS_PROOF_CREDENTIAL_READ_ARGUMENT_INVALID");
+    const latest=await read(),state=latest.state;
+    const policyKey=state.policy.keys[credentialKeyId];
+    if(!policyKey)return Object.freeze({state:"ORIGINAL_PROOF_CREDENTIAL_ABSENT",
+      credentialKeyId,employeePersonId,originalReadback:true,safeToRetry:false});
+    check(policyKey.subjectId===employeePersonId&&
+      state.policy.authorities[authorityId]&&
+      policyKey.uses.length===1&&policyKey.uses[0]==="PROOF",
+      "T3_ACCESS_PROOF_CREDENTIAL_SUBJECT_MISMATCH");
+    const journal=await kernel.listEventsSince(workspaceId);
+    const event=journal.find(x=>
+      x.event_type===ORIGINAL_REGISTRY_EVENT&&
+      x.payload?.proof_credential_admission?.key_id===credentialKeyId&&
+      x.payload.proof_credential_admission.authority_id===authorityId);
+    check(event,"T3_ACCESS_PROOF_CREDENTIAL_ADMISSION_NOT_AUTHENTICATED");
+    return Object.freeze({state:"ORIGINAL_PROOF_CREDENTIAL_ADMITTED",
+      credentialKeyId,employeePersonId,authorityId,
+      policyDigest:digest(state.policy),originalReadback:true,
+      signedStatusDigest:digest(event.payload.proof_credential_admission.signed_status),
+      safeToRetry:false});
   };
   const port=Object.freeze({
     readState:async()=>copy((await read()).state),
     commitSignedState:commit,
+    admitProofCredential,readProofCredential,
     getStatus:async()=>{const state=(await read()).state;
       return Object.freeze({sequences:copy(state.statusFloor),
-        policy_digest:trustedHash});},
+        policy_digest:digest(state.policy),root_policy_digest:trustedHash});},
   });
   originalPorts.add(port);
   return port;
