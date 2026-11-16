@@ -102,7 +102,10 @@ export function createOriginalEmployeeEnrollmentOwner({
       'T3_EMPLOYEE_ISSUER_NOT_ACTIVE');
     const credential=state.policy.keys[credentialKeyId];
     check(credential&&credential.subjectId===employeePersonId&&
-      credential.status==='ACTIVE'&&credential.uses.includes('PROOF')&&
+      credential.status==='ACTIVE'&&
+      credential.uses.length===1&&credential.uses[0]==='PROOF'&&
+      !auth.issuerKeys.includes(credentialKeyId)&&
+      !auth.statusKeys.includes(credentialKeyId)&&
       credential.environment===state.policy.environment&&
       timestamp(credential.notBefore)<=at&&at<timestamp(credential.expiresAt),
       'T3_EMPLOYEE_CREDENTIAL_NOT_PRETRUSTED');
