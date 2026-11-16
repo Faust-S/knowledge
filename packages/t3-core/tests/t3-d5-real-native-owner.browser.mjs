@@ -30,7 +30,7 @@ function nativeGeneration(request) {
     '<|im_end|>\n<|im_start|>user\n'+request+
     '\n<|im_end|>\n<|im_start|>assistant\n';
   const result=spawnSync(cli,['-m',model,'-p',prompt,'-n','96','-t','4',
-    '--temp','0','--no-display-prompt','--no-conversation',
+    '--temp','0','--no-display-prompt',
     '--single-turn','--log-disable'],{
     encoding:'utf8',timeout:180000,maxBuffer:2*1024*1024,
     env:{...process.env,HF_HUB_OFFLINE:'1',TRANSFORMERS_OFFLINE:'1',
