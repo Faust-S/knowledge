@@ -26,8 +26,9 @@ const operationId="agent:t3:atlas:"+createHash("sha256").update(
 function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
   lostFinalize=false,consent=true,permitted=true,
   unverifiedExchange=false,corruptKernelRead=false,
-  competingReservation=false}={}){
- const rows=new Map(),objects=new Map(),events=[];
+  competingReservation=false,workspaceReady=true,
+  selectedSignedPorts=false,missingSignedWrite=false}={}){
+ const rows=new Map(),objects=new Map(),events=[],signedSelections=[];
  let commits=0,exports=0,reserves=0,finalizations=0,consents=0;
  let grant=permitted;
  const context={kind:"CORP",context_id:"context:1",actor_id:"employee:1",
@@ -52,7 +53,10 @@ function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
  };
  const kernel={
    sessionInfo:{contract_version:"1.3.0"},
-   hasOperation:op=>["t1.getObject","t1.listEventsSince","t1.commitObjectGraph"].includes(op),
+   hasOperation:op=>["t1.getWorkspace","t1.getObject",
+     "t1.listEventsSince","t1.commitObjectGraph"].includes(op),
+   getWorkspace:async ws=>workspaceReady
+     ?{workspace_id:ws,deleted_at:null,read_only:false}:null,
    getObject:async(_ws,id)=>({object:corruptKernelRead&&objects.has(id)
      ?{...objects.get(id),data:{...objects.get(id).data,
        acceptedDigest:"0".repeat(64)}}:objects.get(id)??null,
@@ -158,9 +162,16 @@ function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
    originalEmployee,prepareOriginalGraph,
    confirmDisclosure:async()=>{consents++;return consent;},
    isHostActive:()=>true,
+   trustedSignedKernelForOperation:selectedSignedPorts
+     ?method=>{
+       signedSelections.push(method);
+       if(method==="commitObjectGraph"&&missingSignedWrite)return null;
+       // Boundary-only stand-in; installed T3 separately proves JIT grants.
+       return {[method]:(...args)=>kernel[method](...args)};
+     }:null,
  });
  return {create,rows,get counts(){return {commits,exports,reserves,finalizations,consents};},
-   revoke:()=>{grant=false;},binding,operationId};
+   revoke:()=>{grant=false;},binding,operationId,signedSelections};
 }
 test("native T3 source publisher binds accepted Agent source to original Kernel and Exchange",async()=>{
  const f=fixture(),owner=f.create();
@@ -268,4 +279,32 @@ test("a competing original reservation cannot authorize another Kernel/Exchange 
  assert.equal((await f.create().read_publication(f.operationId,
    f.binding)).status,"PREPARED");
  assert.equal(f.counts.commits,0);
+});
+
+test("missing original Workspace refuses before reserving the original ledger",async()=>{
+ const f=fixture({workspaceReady:false});
+ await assert.rejects(f.create().publish_accepted({
+   ...f.binding,operationId:f.operationId
+ }),{code:"T3_D6_ORIGINAL_WORKSPACE_NOT_WRITABLE"});
+ assert.equal(f.counts.reserves,0);
+ assert.equal(f.counts.commits,0);
+ assert.equal(f.counts.exports,0);
+});
+test("original D1 READ and WRITE signed ports are selected independently",async()=>{
+ const f=fixture({selectedSignedPorts:true});
+ const result=await f.create().publish_accepted({
+   ...f.binding,operationId:f.operationId
+ });
+ assert.equal(result.status,"COMMITTED");
+ for(const method of ["getWorkspace","getObject","listEventsSince",
+   "commitObjectGraph"])assert.ok(f.signedSelections.includes(method));
+});
+test("missing original signed write grant cannot reach Kernel commit",async()=>{
+ const f=fixture({selectedSignedPorts:true,missingSignedWrite:true});
+ const result=await f.create().publish_accepted({
+   ...f.binding,operationId:f.operationId
+ });
+ assert.equal(result.status,"OUTCOME_UNKNOWN");
+ assert.equal(f.counts.commits,0);
+ assert.equal(f.counts.exports,0);
 });
