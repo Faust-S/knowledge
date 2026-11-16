@@ -284,6 +284,24 @@ export function createOriginalEmployeeEnrollmentOwner({
       signed:false,member:false
     });
   }
+  // Cancelling an unsubmitted challenge does not touch the original T2
+  // Kernel, signed STATUS or the employee's credential. In contrast,
+  // once complete() has been entered its ACK may be lost and cancellation
+  // must never unlock issuance of another signed grant pair.
+  function cancelPending({enrollmentId,employeePersonId}={}){
+    check(pending&&!pending.attempted&&!operationAttempted&&
+      enrollmentId===pending.enrollmentId&&
+      employeePersonId===pending.input.employeePersonId,
+      'T3_EMPLOYEE_CANCEL_NOT_SAFE_AFTER_ATTEMPT');
+    const id=pending.enrollmentId;
+    pending=null;
+    return Object.freeze({
+      state:'UNSUBMITTED_EMPLOYEE_CHALLENGE_CANCELLED',
+      enrollmentId:id,employeePersonId,
+      originalKernelWriteAttempted:false,
+      safeToRequestNewChallenge:true
+    });
+  }
   async function complete({enrollmentId,employeeProof}={}){
     const p=pending,at=now();
     check(p&&!p.attempted&&p.enrollmentId===enrollmentId&&
@@ -427,5 +445,5 @@ export function createOriginalEmployeeEnrollmentOwner({
       statusSequence:restored.statusSequence});
   }
 
-  return Object.freeze({begin,complete,readEnrollment});
+  return Object.freeze({begin,complete,readEnrollment,cancelPending});
 }

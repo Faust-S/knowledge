@@ -450,3 +450,32 @@ test('original installed Admin graph-only Kernel admits two independently signed
  assert.equal(new Set(s.graphCalls.map(row=>row.idempotency_key)).size,5);
  assert.equal((await s.registry.readState()).statusFloor['issuer:north'],5);
 });
+
+test('original employee challenge can be cancelled only before any signed Kernel write',async()=>{
+ const s=setup();await s.init();
+ const first=await s.owner.begin(s.input(s.alice));
+ const initialWrites=s.kernel.calls.length;
+ const cancelled=s.owner.cancelPending({
+  enrollmentId:first.enrollmentId,
+  employeePersonId:'person:alice'
+ });
+ assert.equal(cancelled.state,'UNSUBMITTED_EMPLOYEE_CHALLENGE_CANCELLED');
+ assert.equal(cancelled.originalKernelWriteAttempted,false);
+ assert.equal(s.kernel.calls.length,initialWrites);
+ await assert.rejects(
+  s.owner.complete({enrollmentId:first.enrollmentId,
+   employeeProof:makeProof(first.request,first.challenge,NOW,s.alice.signer,'TEST')}),
+  {code:'T3_EMPLOYEE_ENROLLMENT_CHALLENGE_STALE'}
+ );
+ const second=await s.owner.begin(s.input(s.alice));
+ assert.notEqual(first.enrollmentId,second.enrollmentId);
+ const enrolled=await s.owner.complete({
+  enrollmentId:second.enrollmentId,
+  employeeProof:makeProof(second.request,second.challenge,NOW,s.alice.signer,'TEST')
+ });
+ assert.equal(enrolled.originalSigned,true);
+ assert.equal(s.kernel.calls.length,initialWrites+1);
+ assert.throws(()=>s.owner.cancelPending({
+  enrollmentId:second.enrollmentId,employeePersonId:'person:alice'
+ }),{code:'T3_EMPLOYEE_CANCEL_NOT_SAFE_AFTER_ATTEMPT'});
+});
