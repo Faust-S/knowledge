@@ -269,6 +269,27 @@ export function createTrustedAgentAtlasSourcePublisher({
           ref.schema_id===obj.schema_id&&ref.revision===1&&
           id(written?.event?.event_id),
           "T3_D6_ORIGINAL_KERNEL_WRITE_UNVERIFIED");
+        // The original Kernel receipt is only an ACK. Check the committed
+        // Object/Event before asking the original Exchange to sign or export.
+        const observed=await signed.getObject(ref.workspace_id,ref.object_id);
+        const history=await signed.listEventsSince(ref.workspace_id);
+        check(same(observed?.object,ref,REF)&&
+          observed.object.deleted!==true&&observed.object.deleted_at==null&&
+          observed.object.data.taskId===binding.taskId&&
+          observed.object.data.resultId===binding.resultId&&
+          observed.object.data.acceptedDigest===binding.acceptedDigest&&
+          observed.object.data.signedTaskId===binding.signedTaskId&&
+          observed.object.data.signedTaskRevisionId===binding.signedTaskRevisionId&&
+          observed.object.data.signedTaskPackageSha256===binding.signedTaskPackageSha256&&
+          observed.object.data.contextDigest===binding.contextDigest&&
+          same(observed.object.data.workRef,binding.workRef,WORK)&&
+          Array.isArray(history)&&history.filter(event=>
+            event?.event_id===written.event.event_id&&
+            event.idempotency_key===key&&
+            event.workspace_id===ref.workspace_id&&
+            event.object_id===ref.object_id&&event.revision===ref.revision
+          ).length===1,
+          "T3_D6_ORIGINAL_KERNEL_WRITE_UNVERIFIED");
         const exported=await originalExchange.publishSelectedResult({
           operationId,binding:copy(binding),sourceObjectRef:copy(ref),
           // The original Exchange must use the original signed .iwxa
