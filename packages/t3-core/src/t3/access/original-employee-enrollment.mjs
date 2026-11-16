@@ -16,17 +16,15 @@ import {PRODUCT_CONTRACT_IDS,validateProductContract} from './product-contracts.
 const refuse=code=>{const e=new Error(code);e.name='T3OriginalEmployeeEnrollmentError';e.code=code;throw e;};
 const check=(ok,code)=>{if(!ok)refuse(code);};
 const id=value=>{try{return identifier(value);}catch{refuse('T3_EMPLOYEE_ID_INVALID');}};
-const hex=/^[a-f0-9]{64}$/;
 const original=(kind,data)=>validateProductContract(kind,
   {kind,schema:PRODUCT_CONTRACT_IDS[kind],...data});
-const receiptFields=['work','export'];
-const prefix='T3_EMPLOYEE_ENROLLMENT_';
 const audienceResource=({organizationId,workspaceId})=>[
   'workspace:'+workspaceId,'subject:'+organizationId,
   'recipient:'+organizationId,'field:result','operation:UPSERT'
 ];
 const coreGrant=(state,{id:grantId,organization,employeePersonId,roleId,
-  resources,actions,purposes,rightClass,ttlSeconds,enrollmentId,now})=>{
+  resources,actions,purposes,rightClass,ttlSeconds,enrollmentId,
+  credentialKeyId,employeeProofDigest,now})=>{
   const authority=state.policy.authorities[organization.issuerAuthorityId];
   const grant={
     kind:'GRANT',id:grantId,lineageId:grantId,renewalOf:null,
@@ -38,7 +36,11 @@ const coreGrant=(state,{id:grantId,organization,employeePersonId,roleId,
     expiresAt:iso(now+ttlSeconds*1000),remainingDepth:0,
     membershipEpoch:organization.membershipEpoch,policyId:state.policy.id,
     policyVersion:state.policy.version,
-    evidenceRefs:['employee-enrollment:'+enrollmentId]
+    // Both original signed grants must retain the exact proof credential and
+    // employee actor proof digest for cold reconstruction after a lost ACK.
+    evidenceRefs:['employee-enrollment:'+enrollmentId,
+      'employee-credential:'+credentialKeyId,
+      'employee-proof-sha256:'+employeeProofDigest]
   };
   try{validateGrant(grant);checkCeiling(grant,authority,state.policy);}
   catch{refuse('T3_EMPLOYEE_GRANT_OUTSIDE_SIGNED_AUTHORITY');}
@@ -214,12 +216,14 @@ export function createOriginalEmployeeEnrollmentOwner({
       timeAssurance:'LOCAL_BEST_EFFORT'});
     check(decision.allowed===true&&decision.outcome==='PERMITTED',
       'T3_EMPLOYEE_MANAGER_NOT_AUTHORIZED');
+    const evidence={credentialKeyId:p.input.credentialKeyId,
+      employeeProofDigest:digest(employeeProof)};
     const ttl=p.input.ttlSeconds,work=coreGrant(before,{
       id:p.grantIds.work,organization,employeePersonId:p.input.employeePersonId,
-      roleId:'worker',ttlSeconds:ttl,enrollmentId,now:at,...required[0]});
+      roleId:'worker',ttlSeconds:ttl,enrollmentId,now:at,...evidence,...required[0]});
     const exportGrant=coreGrant(before,{
       id:p.grantIds.export,organization,employeePersonId:p.input.employeePersonId,
-      roleId:'worker',ttlSeconds:ttl,enrollmentId,now:at,...required[1]});
+      roleId:'worker',ttlSeconds:ttl,enrollmentId,now:at,...evidence,...required[1]});
     const workSigned=signRecord(work,issuerSigner);
     const exportSigned=signRecord(exportGrant,issuerSigner);
     try{
