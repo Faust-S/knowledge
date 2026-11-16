@@ -1,5 +1,17 @@
 # IWXA T3 One Core: передача D3/D7 -> G4 в новый чат
 
+## D5: browser and native source paths on the ONE original Kernel, 16.11.2026
+
+**Public acceptance:**
+- D5_BROWSER_REAL_WEBGPU_COLD=PASS: Apple Metal/WebGPU, WebLLM 0.2.87, real generation before and after cold offline restart, original T2 0.3.6 Kernel Object/Event. Source SHA 99f3c5337016ada41cb4be860d4561451e46dd8e; https://github.com/Faust-S/knowledge/actions/runs/43772762981 all four jobs SUCCESS including metal-webgpu.
+- D5_NATIVE_EXTERNAL_MODEL_ORIGINAL_KERNEL_SOURCE=PASS: exact source SHA 8fb3bbfefa512688521c09eee07e13857b94c902; https://github.com/Faust-S/knowledge/actions/runs/43778137539 TERMINAL SUCCESS, jobs native-model/test/real-host/windows-credential SUCCESS, metal-webgpu SKIPPED because separately qualified above.
+
+**Real native evidence:** public temporary Ubuntu owner executed external llama.cpp b12244 Qwen3-0.6B-Q4_0 twice (the first and second generations were real, not replay or a demo provider). Binary release SHA-256 c1d7e7f31b5c43f3e5d44f667b4d57104217be3e5f2060320cd3735651238849; model GGUF SHA-256 da2572f16c06133561ce56accaa822216f2391ef4d37fba427801cd6736417d4. Both hashes PASS in the native-model job. The binary and weights were staged in GitHub runner TEMP and are NOT in the T3 dist or published owner artifact. Native execution used an existing external model runtime, not a new T3 engine.
+**Original Kernel readbacks:** temporary Host ran the exact qualified T2 0.3.6/Runtime 1.3.0. Two different generated outputs were saved with status DRAFT_UNTRUSTED and explicit save provenance in the test-only iwxa.demo.note class. Browser closed, reopened with network offline, first Object recovered; second native Qwen3 generation saved a second Object; both original Event IDs appeared in original listEventsSince. Witness marker: T3_D5_NATIVE_QWEN3_ORIGINAL_KERNEL_COLD_PASS. Browser was offline on cold recovery; native binary uses a predownloaded local GGUF with proxies disabled, but network firewall isolation of the native process was not asserted.
+
+**Boundary (DO NOT UPGRADE STATUS):** D5_NATIVE_INSTALLED_AGENT=HOLD. Public technical test does not qualify actual installed Windows Agent, production model provider, user-facing model consent, private signer, or an accepted Task/Result; test-only iwxa.demo.note is NOT a new production draft schema. Native installed product owner must use its existing model provider (Ollama/Basic GGUF etc.), existing Task/Human Review/Result, and original T3/Kernel integration. No copying Agent code into knowledge. G4=NOT_ACCEPTED and T3_READY=false until independent installed owner acceptance.
+**Stop rule:** do not rerun the two D5 technical full tests absent a demonstrated new defect. Keep executable T3 source candidate 99f3c533 fixed: later revisions to this handoff/CI/test do not change the runtime. Continue installed native G4 owner integration in its own product chat.
+
 ## D4: source Exchange positive and negative qualification (16.11.2026)
 
 Status: D4_PUBLIC_TWO_ORIGINAL_CONSUMERS=PASS; D4_PUBLIC_NEGATIVE_MATRIX=PASS.
