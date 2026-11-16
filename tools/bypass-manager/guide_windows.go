@@ -231,9 +231,11 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 			}
 			lastProtocol = v.Protocol
 		}
-		// The endpoint used by WinDivert must be current, compatible with this
-		// exact protocol and explicitly confirmed by the user. Never reuse an AWG
-		// endpoint for VLESS or attempt to reverse-engineer private VPN profiles.
+		// A selected outer peer can change when Amnezia reconnects. Keep the
+		// original observation per trial, then revalidate after new route appears.
+		autoEndpoint := false
+		var endpointAtStart OuterEndpoint
+		// The endpoint used by WinDivert must be current and protocol-compatible.
 		if v.RequiresEndpoint {
 			// Every filtered attempt requires fresh process/socket evidence.
 			// Never cache the AmneziaWG remote peer into the VLESS phase or
@@ -250,6 +252,8 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 				autoCode = code
 				record(v, "ENDPOINT", automaticEndpointCode(autoCode))
 				if code == "OBSERVED" {
+					autoEndpoint = true
+					endpointAtStart = observed
 					m.cfg.EndpointIPv4 = observed.IPv4
 					m.cfg.Port = observed.Port
 					m.cfg.Transport = observed.Transport
@@ -349,6 +353,28 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 		report.Rounds[idx].RouteObserved = true
 		m.cfg.AdapterName = state.AdapterName
 		record(v, "VPN_ROUTE", "ROUTE_OBSERVED_HANDSHAKE_UNVERIFIED")
+		if filterStarted && autoEndpoint {
+			// Reconnect can rotate the Premium server. An old exact WinDivert
+			// destination must not be interpreted as the current VPN peer.
+			recheckCtx, recheckCancel := context.WithTimeout(ctx, 16*time.Second)
+			fresh, freshCode := m.observeOuterEndpoint(recheckCtx, v.Protocol)
+			recheckCancel()
+			if freshCode != "OBSERVED" || !sameOuterEndpoint(endpointAtStart, fresh) {
+				record(v, "ENDPOINT_POST_RECONNECT", "AUTO_ENDPOINT_CHANGED_OR_UNVERIFIED")
+				finish("FAILED", "OUTER_ENDPOINT_CHANGED_OR_UNVERIFIED")
+				ui.guideInstruction("После переподключения не удалось повторно подтвердить тот же внешний сервер VPN. Останавливаю свой DPI, результат испытания недостоверен; IP и порт не экспортируются.")
+				if err := m.stopFilter(); err != nil {
+					report.State = "DPI_STOP_ERROR"
+					report.AdviceCode = "OWNED_DPI_STOP_FAILED"
+					record(v, "FILTER", "OWN_DPI_STOP_ERROR")
+					return
+				}
+				filterStarted = false
+				record(v, "FILTER", "OWN_DPI_STOPPED")
+				continue
+			}
+			record(v, "ENDPOINT_POST_RECONNECT", "AUTO_ENDPOINT_RECHECK_MATCHED")
+		}
 		testCtx, testCancel := context.WithTimeout(ctx, 125*time.Second)
 		before, _ := m.adapterStats(testCtx)
 		eg := m.egress(testCtx)

@@ -60,3 +60,22 @@ func TestOuterEndpointNotInGuideReport(t *testing.T) {
         t.Fatal("private endpoint leaked")
     }
 }
+
+func TestReconnectedOuterEndpointIdentity(t *testing.T) {
+    initial:=outerFixture(guideAWG)
+    identical:=initial
+    if !sameOuterEndpoint(initial, identical) { t.Fatal("same endpoint must match") }
+    cases:=[]struct{name string; mutate func(*OuterEndpoint)}{
+        {"rotated-IP",func(s *OuterEndpoint){s.IPv4="1.1.1.1"}},
+        {"rotated-port",func(s *OuterEndpoint){s.Port=8443}},
+        {"protocol-switched",func(s *OuterEndpoint){s.Protocol=guideVLESS}},
+        {"transport-changed",func(s *OuterEndpoint){s.Transport="REALITY-TCP"}},
+        {"route-lost",func(s *OuterEndpoint){s.PhysicalRoute=false}},
+        {"unverified",func(s *OuterEndpoint){s.Status="AMBIGUOUS"}},
+    }
+    for _,tc:=range cases {t.Run(tc.name,func(t *testing.T){
+        cur:=initial
+        tc.mutate(&cur)
+        if sameOuterEndpoint(initial,cur) {t.Fatalf("stale or changed VPN peer treated as verified: %s",tc.name)}
+    })}
+}

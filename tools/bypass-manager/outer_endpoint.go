@@ -64,3 +64,11 @@ func automaticEndpointCode(code string) string {
     default: return "AUTO_ENDPOINT_UNVERIFIED"
     }
 }
+
+func sameOuterEndpoint(original, current OuterEndpoint) bool {
+    return original.Status == "OBSERVED" && current.Status == "OBSERVED" &&
+        original.Protocol == current.Protocol &&
+        original.IPv4 != "" && original.IPv4 == current.IPv4 &&
+        original.Port > 0 && original.Port == current.Port &&
+        original.Transport == current.Transport && current.PhysicalRoute
+}
