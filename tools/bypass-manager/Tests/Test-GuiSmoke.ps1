@@ -28,7 +28,7 @@ for($round=1;$round -le 3;$round++) {
     }
     if(-not $found) { throw "GUI window not observed on iteration $round" }
     $handle=[IntPtr]$proc.MainWindowHandle
-    foreach($id in @(2005,2006,2007,2008,2009,2010)) {
+    foreach($id in @(2005,2006,2007,2008,2009,2010,2011,2012)) {
       $control=[BypassGuiSmokeNative]::GetDlgItem($handle,$id)
       if($control -eq [IntPtr]::Zero -or -not [BypassGuiSmokeNative]::IsWindowVisible($control)) {
         throw "Required visible main button missing: ID=$id, iteration=$round"

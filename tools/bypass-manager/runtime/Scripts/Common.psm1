@@ -274,4 +274,14 @@ function Save-Json {
     $Object | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
-Export-ModuleMember -Function Format-NativeArgumentList,Assert-IPv4,Assert-ExternalIPv4,Get-ExactWinDivertFilter,Assert-LoopbackProxy,Get-CurlPath,Invoke-CurlText,Get-ProxyArgs,Get-PublicEgress,Test-EndpointTcp,Get-AdapterCounters,Get-EndpointRoute,Get-AwgNative,Invoke-DownloadProbe,Test-IcmpProbe,Save-Json
+
+# Full IPv4 tunnel may use one /0 or two /1 routes. A lone half-route
+# must never be mistaken for an operational full-tunnel VPN.
+function Test-BMFullIPv4Route {
+    param([string[]]$Prefixes)
+    $all=@($Prefixes)
+    if ($all -contains '0.0.0.0/0') { return $true }
+    return (($all -contains '0.0.0.0/1') -and ($all -contains '128.0.0.0/1'))
+}
+
+Export-ModuleMember -Function Test-BMFullIPv4Route,Format-NativeArgumentList,Assert-IPv4,Assert-ExternalIPv4,Get-ExactWinDivertFilter,Assert-LoopbackProxy,Get-CurlPath,Invoke-CurlText,Get-ProxyArgs,Get-PublicEgress,Test-EndpointTcp,Get-AdapterCounters,Get-EndpointRoute,Get-AwgNative,Invoke-DownloadProbe,Test-IcmpProbe,Save-Json

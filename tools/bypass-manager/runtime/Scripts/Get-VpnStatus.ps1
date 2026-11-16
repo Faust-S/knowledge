@@ -5,6 +5,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 try {
+    Import-Module (Join-Path $PSScriptRoot 'Common.psm1') -Force
     $all = @(Get-NetAdapter -ErrorAction Stop)
     $candidates = @($all | Where-Object {
         $_.Name -match '(?i)amnezia|wireguard|wintun|awg|tun|tap' -or
@@ -21,8 +22,8 @@ try {
             Where-Object { $_.AddressState -eq 'Preferred' -and $_.IPAddress -notlike '169.254.*' })
         $address = ($ip.Count -gt 0)
         $routes = @(Get-NetRoute -InterfaceIndex $selected.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-            Where-Object { $_.DestinationPrefix -eq '0.0.0.0/0' })
-        $route = ($routes.Count -gt 0)
+            ForEach-Object { [string]$_.DestinationPrefix })
+        $route = [bool](Test-BMFullIPv4Route -Prefixes $routes)
     }
     $app = @(Get-Process -Name 'AmneziaVPN','AmneziaWG' -ErrorAction SilentlyContinue)
     [pscustomobject]@{
