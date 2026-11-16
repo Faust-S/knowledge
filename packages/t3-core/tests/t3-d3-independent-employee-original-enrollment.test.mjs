@@ -10,7 +10,7 @@ import {createOriginalEmployeeEnrollmentOwner}
   from '../src/t3/access/original-employee-enrollment.mjs';
 import {createOriginalKernelRegistryStatePort}
   from '../src/t3/access/original-kernel-registry-state.mjs';
-import {verifyOrganizationEnrollment}
+import {verifyOrganizationEnrollment,createOrganizationalOperationGate}
   from '../src/t3/access/organizational-operation.mjs';
 import {NOW,model,originalKernelFixture}
   from './support/t3-two-corp-original-authority.mjs';
@@ -162,6 +162,11 @@ test('original Kernel committed but ACK lost: readback finds it and issuance doe
   employeePersonId:'person:alice',enrollmentId:start.enrollmentId});
  assert.equal(read.state,'ORIGINAL_GRANTS_ACTIVE');
  assert.equal(read.safeToReissue,false);
+ assert.equal(read.originalSigned,true);
+ assert.equal(read.credential.publicKeyRef,s.alice.signer.keyId);
+ assert.equal(read.membership.personId,'person:alice');
+ assert.equal(read.originalEnrollment.payload.membershipId,
+   'member:'+start.enrollmentId);
  assert.equal(s.kernel.calls.length,2);
  await assert.rejects(s.owner.begin(s.input(s.alice)),
   {code:'T3_EMPLOYEE_ALREADY_ENROLLED_READBACK_REQUIRED'});
@@ -193,4 +198,52 @@ test('signed employee grant revocation survives original Kernel readback',async(
  assert.equal(current.state,'ORIGINAL_GRANTS_REVOKED_OR_EXPIRED');
  assert.equal(current.safeToReissue,false);
  assert.equal((await s.registry.readState()).statusFloor[authorityId],old.sequence+1);
+});
+
+
+test('independent employee uses ORIGINAL signed organization JIT gate as Personal Agent',async()=>{
+ const s=setup();await s.init();
+ const started=await s.owner.begin(s.input(s.alice));
+ const issued=await s.owner.complete({enrollmentId:started.enrollmentId,
+   employeeProof:makeProof(started.request,started.challenge,NOW,s.alice.signer,'TEST')});
+ const cold=await s.owner.readEnrollment({organizationId:'org:north',
+   employeePersonId:'person:alice',enrollmentId:started.enrollmentId});
+ assert.equal(digest(cold.originalEnrollment),digest(issued.enrollment));
+ const workspace=s.north.descriptors.workspaces.find(w=>w.workspaceId==='ws:north');
+ const organization=s.north.descriptors.organizations.find(o=>o.organizationId==='org:north');
+ const profile={...s.north.profile,
+  personId:'person:alice',personalDataRootId:'root:personal:alice',
+  personalPublicKeyRefs:['key:personal-alice']};
+ const selection={...s.north.selection,
+  personId:'person:alice',selectionId:'selection:alice',
+  membershipId:issued.membership.membershipId,grantId:issued.grantIds.work,
+  selectedAt:iso(NOW-1000)};
+ const descriptors={organizations:[organization],workspaces:[workspace],
+  memberships:[cold.membership],grants:[cold.binding]};
+ const gate=createOrganizationalOperationGate({registry:s.registry});
+ const inputs={profile,selection,descriptors,
+  credential:cold.credential,enrollment:cold.originalEnrollment,
+  operation:{operationId:'task:alice:work',
+   productId:'IWXA_PERSONAL_AGENT',audience:'host:t3',
+   resource:'ws:north',action:'work.prepare',purpose:'work',
+   payloadDigest:'a'.repeat(64)},asOf:iso(NOW)};
+ const preview=await gate.preview(inputs);
+ assert.equal(preview.credentialKeyId,s.alice.signer.keyId);
+ const challenge='real-original-enrollment-actor-challenge';
+ const auth={now:iso(NOW),challenge,
+  proof:makeProof(preview.request,challenge,NOW,s.alice.signer,'TEST')};
+ const accepted=await gate.authorize(inputs,auth);
+ assert.equal(accepted.outcome,'PERMITTED');
+ assert.equal(accepted.actorId,'person:alice');
+ assert.equal(accepted.grantId,issued.grantIds.work);
+ assert.equal(accepted.organizationId,'org:north');
+ const replaced=await gate.authorize(inputs,{...auth,
+  proof:makeProof(preview.request,challenge,NOW,s.bob.signer,'TEST')});
+ assert.equal(replaced.allowed,false);
+ assert.equal(replaced.outcome,'DENIED');
+ // A signed work right cannot silently turn into export or administration.
+ const escalation={...inputs,operation:{...inputs.operation,action:'grant.issue'}};
+ const refused=await gate.authorize(escalation,auth);
+ assert.equal(refused.allowed,false);
+ assert.equal(s.kernel.calls.length,2);
 });
