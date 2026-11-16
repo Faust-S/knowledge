@@ -239,7 +239,10 @@ export function createTrustedAgentAtlasSourcePublisher({
       const key=operationId.slice("agent:t3:atlas:".length);
       check(command?.workspace_id===c.workspace_id&&
         command.idempotency_key===key&&
-        object(obj)&&obj.workspace_id===c.workspace_id&&
+        // Original T2 commitObjectGraph scopes the command by its TOP
+        // LEVEL workspace_id. Its object input need not repeat that key.
+        object(obj)&&
+        (obj.workspace_id===undefined||obj.workspace_id===c.workspace_id)&&
         id(obj.object_id)&&id(obj.schema_id)&&id(obj.schema_version)&&
         Number.isSafeInteger(obj.base_revision)&&obj.base_revision===0&&
         object(obj.data)&&
