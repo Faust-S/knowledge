@@ -97,9 +97,15 @@ function publicationResponse(row,binding){
 export function createTrustedAgentAtlasSourcePublisher({
   kernel,access,originalLedger,originalExchange,acceptedSource,
   originalEmployee,prepareOriginalGraph,confirmDisclosure,isHostActive,
+  trustedSignedKernelForOperation=null,
 }={}){
   check(kernel?.hasOperation&&kernel?.sessionInfo?.contract_version==="1.3.0"&&
-    access?.currentContext&&typeof isHostActive==="function"&&
+    ["t1.getWorkspace","t1.getObject","t1.listEventsSince",
+      "t1.commitObjectGraph"].every(k=>kernel.hasOperation(k)===true)&&
+    access?.currentContext&&
+    (trustedSignedKernelForOperation===null||
+      typeof trustedSignedKernelForOperation==="function")&&
+    typeof isHostActive==="function"&&
     typeof confirmDisclosure==="function"&&
     typeof prepareOriginalGraph==="function"&&
     ["read","reserve","finalize","findByObject","findByWork","findLatestWork"]
@@ -126,7 +132,20 @@ export function createTrustedAgentAtlasSourcePublisher({
   }
   async function signedFor(binding){
     const c=await current(binding);
-    const signed=createSubjectKernelBinding({kernel,access,isHostActive});
+    // Original T3 employee signs READ and WRITE under distinct grants.
+    // Installed native Host owns the selector and provides ORIGINAL signed
+    // D1 ports per operation. Never turn a read grant into object.write.
+    const signed=trustedSignedKernelForOperation===null
+      ?createSubjectKernelBinding({kernel,access,isHostActive})
+      :Object.freeze(Object.fromEntries([
+        "getWorkspace","getObject","listEventsSince","commitObjectGraph"
+      ].map(method=>[method,(...args)=>{
+        active();
+        const port=trustedSignedKernelForOperation(method);
+        check(typeof port?.[method]==="function",
+          "T3_D6_ORIGINAL_SIGNED_KERNEL_PORT_MISSING");
+        return port[method](...args);
+      }])));
     return {c,signed};
   }
   async function verifyCommitted(row,binding){
@@ -207,6 +226,13 @@ export function createTrustedAgentAtlasSourcePublisher({
       // JIT employee rights must name the Atlas recipient. A corporate
       // organization export grant is NOT automatically transferable.
       const {c,signed}=await signedFor(binding);
+      // Preflight original T2 Workspace with its own signed READ grant.
+      // Missing/locked/deleted Workspace is a definite pre-dispatch refusal,
+      // not a permanently stranded PREPARED reservation.
+      const workspace=await signed.getWorkspace(c.workspace_id);
+      check(workspace&&workspace.workspace_id===c.workspace_id&&
+        workspace.deleted_at==null&&workspace.read_only!==true,
+        "T3_D6_ORIGINAL_WORKSPACE_NOT_WRITABLE");
       check(await originalEmployee.authorizeAtlasExport(copy(binding),copy(c))===true,
         "T3_D6_ATLAS_EXPORT_NOT_AUTHORIZED");
       const accepted=await acceptedSource.readAccepted(copy(binding));
