@@ -74,8 +74,8 @@ test('native installed Qwen3 via llama.cpp -> original Kernel Event -> cold offl
       base_path:host.passport.base_path,supported_levels:host.passport.supported_levels,
       file:passport,sha256:digest(passportBytes),
     }]}));
-    put(dist,'index.html','<!doctype html><title>T3</title><script src="/_iwxa/loader.js"></script>');
-    put(dist,'workspace/index.html','<!doctype html><title>T3 Workspace</title><script src="/_iwxa/loader.js"></script>');
+    put(dist,'index.html','<!doctype html><html lang="ru"><head><title>T3</title></head><body><main>IWXA T3</main><script src="/_iwxa/loader.js"></script></body></html>');
+    put(dist,'workspace/index.html','<!doctype html><html lang="ru"><head><title>T3 Workspace</title></head><body><main>IWXA Workspace</main><script src="/_iwxa/loader.js"></script></body></html>');
     assert.equal(materializeDomainMode(dist).original_kernel_unchanged,true);
     const launch=()=>chromium.launchPersistentContext(profile,{headless:true,
       ignoreHTTPSErrors:true,args:['--no-sandbox','--ignore-certificate-errors']});
