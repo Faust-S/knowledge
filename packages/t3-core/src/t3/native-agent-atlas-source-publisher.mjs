@@ -277,6 +277,22 @@ export function createTrustedAgentAtlasSourcePublisher({
         check(exported?.recipientId==="iwxa.atlas"&&
           hex(exported.archiveSha256),
           "T3_D6_ORIGINAL_EXCHANGE_EXPORT_UNVERIFIED");
+        // The old organization-addressed interop.result.v2 is NOT a
+        // verified Atlas transfer. Check actual stored bytes, signature and
+        // recipient against the original owner BEFORE finalizing the ledger.
+        const archiveProof=await originalExchange.verifySelectedResult({
+          operationId,binding:copy(binding),sourceObjectRef:copy(ref),
+          archiveSha256:exported.archiveSha256,
+        });
+        check(archiveProof?.status==="VERIFIED"&&
+          archiveProof.recipientId==="iwxa.atlas"&&
+          archiveProof.archiveSha256===exported.archiveSha256&&
+          archiveProof.taskId===binding.taskId&&
+          archiveProof.resultId===binding.resultId&&
+          same(archiveProof.sourceObjectRef,ref,REF)&&
+          archiveProof.originalSignatureVerified===true&&
+          archiveProof.archiveBytesVerified===true,
+          "T3_D6_ORIGINAL_EXCHANGE_EXPORT_UNVERIFIED");
         await originalLedger.finalize({
           operationId,binding:copy(binding),sourceObjectRef:ref,
           archiveSha256:exported.archiveSha256,
