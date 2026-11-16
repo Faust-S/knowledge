@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
@@ -295,8 +296,14 @@ func (m *Manager) prompt(text string) (string, error) {
 	}
 	return strings.TrimSpace(s), nil
 }
+
+// Do not rewrite scripts while another local diagnostic is starting.
+var runtimeWriteMu sync.Mutex
+
 func (m *Manager) ensureRuntime() error {
-	for _, name := range []string{"Scripts/Common.psm1", "Scripts/Start-Profile.ps1", "Scripts/Get-AdapterStats.ps1", "Scripts/Find-VpnAdapter.ps1", "Scripts/Get-EndpointRoute.ps1", "Scripts/Get-DnsExposure.ps1", "Profiles/profiles.json"} {
+	runtimeWriteMu.Lock()
+	defer runtimeWriteMu.Unlock()
+	for _, name := range []string{"Scripts/Common.psm1", "Scripts/Start-Profile.ps1", "Scripts/Get-AdapterStats.ps1", "Scripts/Find-VpnAdapter.ps1", "Scripts/Get-EndpointRoute.ps1", "Scripts/Get-DnsExposure.ps1", "Scripts/Get-VpnStatus.ps1", "Profiles/profiles.json"} {
 		source := "runtime/" + name
 		data, err := embedded.ReadFile(source)
 		if err != nil {
@@ -306,7 +313,11 @@ func (m *Manager) ensureRuntime() error {
 		if err = os.MkdirAll(filepath.Dir(target), 0700); err != nil {
 			return err
 		}
-		// Runtime files are overwritten from the EXE on each launch, never run arbitrary modified scripts.
+		// Skip identical files: refresh and DPI activities may overlap.
+		// Changed scripts are always restored from the signed-in-binary embed.
+		if existing, readErr := os.ReadFile(target); readErr == nil && bytes.Equal(existing, data) {
+			continue
+		}
 		if err = os.WriteFile(target, data, 0600); err != nil {
 			return err
 		}
@@ -550,6 +561,14 @@ func (m *Manager) endpointRoute(ctx context.Context) *EndpointRoute {
 	return &r
 }
 
+func (m *Manager) vpnState(ctx context.Context) (VPNState, error) {
+	text, err := m.powerShell(ctx, "Get-VpnStatus.ps1")
+	if err != nil {
+		return VPNState{}, err
+	}
+	return parseVPNState([]byte(text))
+}
+
 func (m *Manager) dnsExposure(ctx context.Context) *DNSExposure {
 	queryCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
@@ -650,9 +669,24 @@ func (m *Manager) attempt(ctx context.Context, profile string, baseline EgressRe
 		trial.CompletedUTC = utc()
 		return trial, false
 	}
+	var watchdog *trialWatchdog
+	if profile != "NONE" {
+		watchdog = startTrialWatchdog(ctx, trialFilterMaxWait, func() {
+			m.println("DPI trial expired or was cancelled; restoring only our owned filter")
+			if err := m.stopFilter(); err != nil {
+				m.println("DPI restoration failed:", redactText(err.Error()))
+			}
+		})
+		defer watchdog.Stop()
+	}
 	if _, err := m.prompt("Теперь ПОДКЛЮЧИТЕ Amnezia самостоятельно. Если она показывает ошибку, тоже нажмите Enter. Нажмите Enter после попытки подключения:"); err != nil {
 		trial.Error = err.Error()
 		trial.Status = "INTERRUPTED"
+		trial.CompletedUTC = utc()
+		return trial, false
+	}
+	if watchdog.Expired() {
+		trial.Status = "PROFILE_TIMEOUT"
 		trial.CompletedUTC = utc()
 		return trial, false
 	}
@@ -664,11 +698,19 @@ func (m *Manager) attempt(ctx context.Context, profile string, baseline EgressRe
 	}
 	m.println("Проверяю фактическую передачу через VPN...")
 	for i := 0; i < 3; i++ {
+		if watchdog.Expired() {
+			trial.Status = "PROFILE_TIMEOUT"
+			break
+		}
 		if ctx.Err() != nil {
 			trial.Status = "INTERRUPTED"
 			break
 		}
 		p := m.probe(ctx, baseline)
+		if watchdog.Expired() {
+			trial.Status = "PROFILE_TIMEOUT"
+			break
+		}
 		trial.Attempts = append(trial.Attempts, p)
 		if p.Success {
 			m.printf("Подтверждён IPv4-путь данных, проба %d. Выходной IP: %s\n", i+1, p.Egress.IP)

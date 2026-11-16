@@ -9,12 +9,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -29,6 +29,10 @@ const (
 	wmSetFont          = 0x0030
 	wmAppLog           = 0x8001
 	wmAppDone          = 0x8002
+	wmAppBoot          = 0x8003
+	wmAppRefresh       = 0x8004
+	wmAppVPNState      = 0x8005
+	wmAppInternet      = 0x8006
 	wsOverlappedWindow = 0x00CF0000
 	wsVisible          = 0x10000000
 	wsChild            = 0x40000000
@@ -51,6 +55,10 @@ const (
 	idReport           = 2004
 	idPrepare          = 2005
 	idDNS              = 2006
+	idRefresh          = 2007
+	idInternet         = 2008
+	idRecover          = 2009
+	idAdvanced         = 2010
 )
 
 type winClassEx struct {
@@ -132,10 +140,8 @@ func winMessageBox(parent uintptr, message, title string, flags uintptr) int {
 	return int(r)
 }
 
-// Keep public-facing logs free of endpoint addresses and other identifying IPs.
-var ipv4InLog = regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`)
-
-func cleanLog(s string) string { return ipv4InLog.ReplaceAllString(s, "[IP скрыт]") }
+// GUI diagnostics have the same privacy rules as exported reports.
+func cleanLog(s string) string { return redactText(s) }
 
 type managerUI struct {
 	hwnd                                                                        uintptr
@@ -143,14 +149,23 @@ type managerUI struct {
 	cfg                                                                         Config
 	endpoint, port, adapter, engine, transport, preferred                       uintptr
 	logs, status, startButton, stopButton, saveButton, prepareButton, dnsButton uintptr
+	refreshButton, internetButton, recoverButton, advancedButton                uintptr
+	vpnLine, netLine, dpiLine                                                   uintptr
+	advancedControls                                                            []uintptr
+	advanced                                                                    bool
+	autoAdapter                                                                 string
 	mu                                                                          sync.Mutex
 	queue                                                                       []string
 	cancel                                                                      context.CancelFunc
-	running                                                                     bool
-	preparing                                                                   bool
-	inspectingDNS                                                               bool
-	closing                                                                     bool
+	running, preparing, inspectingDNS, closing                                  bool
+	refreshing, recovering                                                      bool
 	stopError                                                                   string
+	lastSnapshot                                                                VPNState
+	snapshotError                                                               bool
+	lastOnline                                                                  bool
+	pollStop                                                                    chan struct{}
+	lifetimeCtx                                                                 context.Context
+	lifetimeCancel                                                              context.CancelFunc
 }
 
 var activeUI *managerUI // one window, one manager process, no resident daemon
@@ -182,8 +197,9 @@ func (ui *managerUI) flush() {
 	// Cap GUI memory without touching retained local JSON reports.
 	if n, _, _ := procGetTextLen.Call(ui.logs); n > 48000 {
 		existing := winText(ui.logs)
-		if len(existing) > 28000 {
-			winSetText(ui.logs, existing[len(existing)-23000:])
+		runes := []rune(existing)
+		if len(runes) > 23000 {
+			winSetText(ui.logs, string(runes[len(runes)-20000:]))
 		}
 	}
 }
@@ -203,6 +219,10 @@ func (ui *managerUI) toggleRun(r bool) {
 	procEnable.Call(ui.saveButton, value)
 	procEnable.Call(ui.prepareButton, value)
 	procEnable.Call(ui.dnsButton, value)
+	procEnable.Call(ui.refreshButton, value)
+	procEnable.Call(ui.internetButton, value)
+	procEnable.Call(ui.recoverButton, value)
+	procEnable.Call(ui.advancedButton, value)
 	if r {
 		procEnable.Call(ui.stopButton, 1)
 	} else {
@@ -276,6 +296,13 @@ func (ui *managerUI) ask(text string) (string, error) {
 	return "", errors.New("пользователь отменил испытание")
 }
 func (ui *managerUI) start() {
+	if strings.TrimSpace(winText(ui.endpoint)) == "" || strings.TrimSpace(winText(ui.port)) == "" {
+		winMessageBox(ui.hwnd, "No verified server and port from Amnezia Premium. This advanced mode will not guess or intercept packets. First use Check internet.", "Bypass Manager", 0x30)
+		return
+	}
+	if winMessageBox(ui.hwnd, "Confirm that this external VPN server IP and port are current. A wrong endpoint could interrupt access. Continue?", "Bypass Manager: DPI", 0x24) != 6 {
+		return
+	}
 	c, err := ui.save()
 	if err != nil {
 		winMessageBox(ui.hwnd, err.Error(), "Ошибка настроек", 0x30)
@@ -349,7 +376,8 @@ func (ui *managerUI) inspectDNS() {
 	}
 	adapter := strings.TrimSpace(winText(ui.adapter))
 	if adapter == "" {
-		winMessageBox(ui.hwnd, "Подключите VPN самостоятельно и укажите точное имя активного VPN-адаптера.", "Диагностика DNS", 0x30)
+		ui.refreshVPN()
+		winMessageBox(ui.hwnd, "VPN-адаптер пока не обнаружен автоматически. Подключите Amnezia и нажмите Обновить.", "Диагностика DNS", 0x30)
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -398,6 +426,173 @@ func (ui *managerUI) stop() {
 	}
 }
 
+// Startup and refresh only read Windows interfaces. No VPN profile/keys are read,
+// no WinDivert filter is installed, and there are no external requests.
+func (ui *managerUI) refreshVPN() {
+	if ui.running || ui.refreshing || ui.closing {
+		return
+	}
+	ui.refreshing = true
+	go func() {
+		ctx, cancel := context.WithTimeout(ui.lifetimeCtx, 12*time.Second)
+		defer cancel()
+		m := &Manager{home: ui.home, runtimeRoot: filepath.Join(ui.home, "runtime"), output: uiWriter{ui}}
+		err := m.ensureRuntime()
+		var s VPNState
+		if err == nil {
+			s, err = m.vpnState(ctx)
+		}
+		ui.mu.Lock()
+		ui.lastSnapshot, ui.snapshotError = s, err != nil
+		ui.mu.Unlock()
+		post(ui.hwnd, wmAppVPNState)
+	}()
+}
+
+func (ui *managerUI) applyVPNStatus() {
+	ui.mu.Lock()
+	s, failed := ui.lastSnapshot, ui.snapshotError
+	ui.mu.Unlock()
+	ui.refreshing = false
+	if failed {
+		winSetText(ui.vpnLine, "VPN: \u0434\u0438\u0430\u0433\u043d\u043e\u0441\u0442\u0438\u043a\u0430 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430")
+		return
+	}
+	if name, ok := detectedAdapter(s); ok {
+		// Do not overwrite a manually edited adapter field.
+		old := strings.TrimSpace(winText(ui.adapter))
+		if old == "" || (ui.autoAdapter != "" && old == ui.autoAdapter) {
+			winSetText(ui.adapter, name)
+			ui.autoAdapter = name
+		}
+	} else if ui.autoAdapter != "" && strings.TrimSpace(winText(ui.adapter)) == ui.autoAdapter {
+		winSetText(ui.adapter, "")
+		ui.autoAdapter = ""
+	}
+	switch vpnStateCode(s) {
+	case "ROUTE_OBSERVED":
+		winSetText(ui.vpnLine, "VPN: \u0430\u0434\u0430\u043f\u0442\u0435\u0440 \u0438 \u043c\u0430\u0440\u0448\u0440\u0443\u0442 \u043e\u0431\u043d\u0430\u0440\u0443\u0436\u0435\u043d\u044b; \u0434\u043e\u0441\u0442\u0443\u043f \u0432 \u0441\u0435\u0442\u044c \u043d\u0435 \u0434\u043e\u043a\u0430\u0437\u0430\u043d")
+	case "ADAPTER_OBSERVED":
+		winSetText(ui.vpnLine, "VPN: \u0430\u0434\u0430\u043f\u0442\u0435\u0440 \u043e\u0431\u043d\u0430\u0440\u0443\u0436\u0435\u043d, \u0441\u043e\u0435\u0434\u0438\u043d\u0435\u043d\u0438\u0435 \u043d\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u043e")
+	case "AMBIGUOUS":
+		winSetText(ui.vpnLine, "VPN: \u043d\u0430\u0439\u0434\u0435\u043d\u043e \u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0430\u0434\u0430\u043f\u0442\u0435\u0440\u043e\u0432; \u0430\u0432\u0442\u043e\u0432\u044b\u0431\u043e\u0440 \u043d\u0435\u0432\u043e\u0437\u043c\u043e\u0436\u0435\u043d")
+	case "ADAPTER_NOT_ACTIVE":
+		winSetText(ui.vpnLine, "VPN: \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0439 \u0430\u0434\u0430\u043f\u0442\u0435\u0440 \u043d\u0435 \u043e\u0431\u043d\u0430\u0440\u0443\u0436\u0435\u043d")
+	default:
+		winSetText(ui.vpnLine, "VPN: \u0441\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u043d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u043e")
+	}
+	ui.updateOwnedState()
+}
+
+func (ui *managerUI) updateOwnedState() {
+	owned := (&Manager{stateFolder: filepath.Join(ui.home, "active")}).ownStateExists()
+	if owned {
+		winSetText(ui.dpiLine, "DPI: \u0435\u0441\u0442\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0439 \u043f\u0440\u043e\u0446\u0435\u0441\u0441; \u043c\u043e\u0436\u043d\u043e \u043d\u0430\u0436\u0430\u0442\u044c \u00ab\u0412\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c \u0441\u0435\u0442\u044c\u00bb")
+	} else {
+		winSetText(ui.dpiLine, "DPI: \u0441\u043e\u0431\u0441\u0442\u0432\u0435\u043d\u043d\u044b\u0439 \u043f\u0440\u043e\u0446\u0435\u0441\u0441 \u043d\u0435 \u0437\u0430\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u043e\u0432\u0430\u043d")
+	}
+}
+
+// Terminate only the instance recorded by this manager, with PID, path and
+// start time verified by Start-Profile.ps1. No Amnezia or Windows route changes.
+func (ui *managerUI) restoreNetwork() {
+	if ui.running {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	ui.cancel = cancel
+	ui.recovering = true
+	ui.toggleRun(true)
+	ui.setStatus("\u041e\u0441\u0442\u0430\u043d\u0430\u0432\u043b\u0438\u0432\u0430\u044e \u0442\u043e\u043b\u044c\u043a\u043e \u0441\u0432\u043e\u0439 winws2...")
+	go func() {
+		defer post(ui.hwnd, wmAppDone)
+		m := &Manager{home: ui.home, runtimeRoot: filepath.Join(ui.home, "runtime"), stateFolder: filepath.Join(ui.home, "active"), output: uiWriter{ui}}
+		if err := m.ensureRuntime(); err != nil {
+			ui.write("\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u043e\u0434\u0433\u043e\u0442\u043e\u0432\u0438\u0442\u044c \u0434\u0438\u0430\u0433\u043d\u043e\u0441\u0442\u0438\u043a\u0443.\n")
+			return
+		}
+		if err := m.stopFilter(); err != nil {
+			ui.mu.Lock()
+			ui.stopError = err.Error()
+			ui.mu.Unlock()
+			ui.write("\u041e\u0448\u0438\u0431\u043a\u0430 \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043a\u0438 \u0441\u0432\u043e\u0435\u0433\u043e winws2.\n")
+			return
+		}
+		ui.write("\u0421\u0432\u043e\u0439 DPI-\u043f\u0440\u043e\u0446\u0435\u0441\u0441 \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d (\u0435\u0441\u043b\u0438 \u0431\u044b\u043b). Amnezia \u043d\u0435 \u0437\u0430\u0442\u0440\u043e\u043d\u0443\u0442\u0430.\n")
+	}()
+	_ = ctx // Cancel is only used to preserve existing UI stop semantics.
+}
+
+func (ui *managerUI) checkInternet() {
+	if ui.running {
+		return
+	}
+	if winMessageBox(ui.hwnd, "\u041f\u0440\u043e\u0432\u0435\u0440\u043a\u0430 \u0441\u0435\u0442\u0438 \u043e\u0431\u0440\u0430\u0449\u0430\u0435\u0442\u0441\u044f \u043a \u0432\u043d\u0435\u0448\u043d\u0438\u043c HTTPS-\u0441\u0435\u0440\u0432\u0438\u0441\u0430\u043c. \u041e\u043d\u0438 \u0443\u0432\u0438\u0434\u044f\u0442 \u0438\u0441\u0445\u043e\u0434\u044f\u0449\u0438\u0439 IP. \u041f\u0440\u043e\u0434\u043e\u043b\u0436\u0438\u0442\u044c?", "Bypass Manager", 0x24) != 6 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 14*time.Second)
+	ui.cancel = cancel
+	ui.toggleRun(true)
+	winSetText(ui.netLine, "\u0421\u0435\u0442\u044c: \u0438\u0434\u0451\u0442 \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0430...")
+	go func() {
+		defer post(ui.hwnd, wmAppDone)
+		defer cancel()
+		m := &Manager{}
+		result := m.egress(ctx)
+		ui.mu.Lock()
+		ui.lastOnline = result.Agreement
+		ui.mu.Unlock()
+		post(ui.hwnd, wmAppInternet)
+	}()
+}
+
+func (ui *managerUI) startUIBoot() {
+	ui.updateOwnedState()
+	// The previous app could have crashed while its owned WinDivert process
+	// remained active. Reconcile it before performing further diagnostics.
+	if (&Manager{stateFolder: filepath.Join(ui.home, "active")}).ownStateExists() {
+		ui.write("\u041f\u043e\u0441\u043b\u0435 \u043f\u0440\u043e\u0448\u043b\u043e\u0433\u043e \u0437\u0430\u043f\u0443\u0441\u043a\u0430 \u043e\u0441\u0442\u0430\u043b\u0430\u0441\u044c \u0437\u0430\u043f\u0438\u0441\u044c DPI. \u041f\u0440\u043e\u0432\u0435\u0440\u044f\u044e \u0438 \u043e\u0441\u0442\u0430\u043d\u0430\u0432\u043b\u0438\u0432\u0430\u044e \u0442\u043e\u043b\u044c\u043a\u043e \u0441\u0432\u043e\u0439 \u043f\u0440\u043e\u0446\u0435\u0441\u0441.\n")
+		ui.restoreNetwork()
+	} else {
+		ui.refreshVPN()
+	}
+	ui.pollStop = make(chan struct{})
+	stop := ui.pollStop
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				post(ui.hwnd, wmAppRefresh)
+			}
+		}
+	}()
+}
+
+func (ui *managerUI) advancedCtrl(parent uintptr, class, name string, style uint32, id int, x, y, w, h int32) uintptr {
+	handle := ctrl(parent, class, name, style, id, x, y, w, h)
+	ui.advancedControls = append(ui.advancedControls, handle)
+	return handle
+}
+func (ui *managerUI) applyAdvanced() {
+	show := uintptr(0)
+	if ui.advanced {
+		show = 5
+	}
+	for _, handle := range ui.advancedControls {
+		procShow.Call(handle, show)
+	}
+	if ui.advanced {
+		winSetText(ui.advancedButton, "\u0421\u043a\u0440\u044b\u0442\u044c \u043f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b")
+	} else {
+		winSetText(ui.advancedButton, "\u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b DPI")
+	}
+	ui.layout()
+}
+
 func ctrl(parent uintptr, class, name string, style uint32, id int, x, y, w, h int32) uintptr {
 	instance, _, _ := procGetModule.Call(0)
 	handle, _, _ := procCreate.Call(0, uintptr(unsafe.Pointer(wstr(class))), uintptr(unsafe.Pointer(wstr(name))), uintptr(style|wsChild|wsVisible), uintptr(x), uintptr(y), uintptr(w), uintptr(h), parent, uintptr(id), instance, 0)
@@ -408,67 +603,90 @@ func ctrl(parent uintptr, class, name string, style uint32, id int, x, y, w, h i
 	return handle
 }
 func (ui *managerUI) initControls() {
-	ctrl(ui.hwnd, "STATIC", "Bypass Manager 0.3 Alpha", 0, 0, 20, 15, 740, 30)
-	ctrl(ui.hwnd, "STATIC", "VPN запускается отдельно. Измерения IPv4 не доказывают анонимность или защиту DNS/IPv6.", 0, 0, 20, 47, 820, 22)
-	ctrl(ui.hwnd, "STATIC", "Внешний IPv4", 0, 0, 20, 84, 130, 22)
-	ui.endpoint = ctrl(ui.hwnd, "EDIT", ui.cfg.EndpointIPv4, wsBorder|wsTabStop|esAutoHScroll, 101, 160, 80, 235, 26)
-	ctrl(ui.hwnd, "STATIC", "Порт", 0, 0, 426, 84, 70, 22)
+	ctrl(ui.hwnd, "STATIC", "Bypass Manager 0.3 Alpha", 0, 0, 20, 16, 820, 26)
+	ctrl(ui.hwnd, "STATIC", "\u0410\u0432\u0442\u043e\u0434\u0438\u0430\u0433\u043d\u043e\u0441\u0442\u0438\u043a\u0430 \u0431\u0435\u0437 \u0441\u0435\u0442\u0435\u0432\u044b\u0445 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439. Amnezia \u0443\u043f\u0440\u0430\u0432\u043b\u044f\u0435\u0442\u0441\u044f \u043e\u0442\u0434\u0435\u043b\u044c\u043d\u043e.", 0, 0, 20, 46, 820, 24)
+	ui.vpnLine = ctrl(ui.hwnd, "STATIC", "VPN: \u043f\u043e\u0438\u0441\u043a \u0430\u0434\u0430\u043f\u0442\u0435\u0440\u0430...", 0, 0, 20, 80, 820, 24)
+	ui.netLine = ctrl(ui.hwnd, "STATIC", "\u0421\u0435\u0442\u044c: \u043d\u0435 \u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u0430", 0, 0, 20, 107, 820, 24)
+	ui.dpiLine = ctrl(ui.hwnd, "STATIC", "DPI: \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0430...", 0, 0, 20, 134, 820, 24)
+	ui.refreshButton = ctrl(ui.hwnd, "BUTTON", "\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c", wsTabStop, idRefresh, 20, 174, 150, 32)
+	ui.internetButton = ctrl(ui.hwnd, "BUTTON", "\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u0438\u043d\u0442\u0435\u0440\u043d\u0435\u0442", wsTabStop, idInternet, 180, 174, 175, 32)
+	ui.recoverButton = ctrl(ui.hwnd, "BUTTON", "\u0412\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c \u0441\u0435\u0442\u044c", wsTabStop, idRecover, 365, 174, 195, 32)
+	ctrl(ui.hwnd, "BUTTON", "\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u043e\u0442\u0447\u0451\u0442", wsTabStop, idReport, 571, 174, 130, 32)
+	ui.advancedButton = ctrl(ui.hwnd, "BUTTON", "\u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b DPI", wsTabStop, idAdvanced, 713, 174, 140, 32)
+	ui.prepareButton = ctrl(ui.hwnd, "BUTTON", "\u041f\u043e\u0434\u0433\u043e\u0442\u043e\u0432\u0438\u0442\u044c \u0434\u0432\u0438\u0436\u043e\u043a", wsTabStop, idPrepare, 20, 215, 200, 32)
+	ui.dnsButton = ctrl(ui.hwnd, "BUTTON", "\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c DNS", wsTabStop, idDNS, 230, 215, 160, 32)
+	ui.stopButton = ctrl(ui.hwnd, "BUTTON", "\u041e\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c", wsTabStop, idStop, 400, 215, 145, 32)
+	ui.status = ctrl(ui.hwnd, "STATIC", "\u041e\u0436\u0438\u0434\u0430\u043d\u0438\u0435. \u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 VPN \u043d\u0435 \u043c\u0435\u043d\u044f\u044e\u0442\u0441\u044f.", 0, 0, 20, 262, 820, 22)
+	// Advanced transport/endpoint fields are hidden until expressly requested.
+	ui.advancedCtrl(ui.hwnd, "STATIC", "\u0412\u043d\u0435\u0448\u043d\u0438\u0439 IPv4", 0, 0, 20, 302, 130, 22)
+	ui.endpoint = ui.advancedCtrl(ui.hwnd, "EDIT", ui.cfg.EndpointIPv4, wsBorder|wsTabStop|esAutoHScroll, 101, 160, 296, 235, 26)
+	ui.advancedCtrl(ui.hwnd, "STATIC", "\u041f\u043e\u0440\u0442", 0, 0, 422, 302, 60, 22)
 	port := strconv.Itoa(ui.cfg.Port)
 	if ui.cfg.Port == 0 {
 		port = ""
 	}
-	ui.port = ctrl(ui.hwnd, "EDIT", port, wsBorder|wsTabStop|esAutoHScroll, 102, 510, 80, 100, 26)
-	ctrl(ui.hwnd, "STATIC", "Транспорт", 0, 0, 20, 127, 130, 22)
-	ui.transport = ctrl(ui.hwnd, "COMBOBOX", "", wsTabStop|wsVScroll|cbDropdownList, 103, 160, 122, 235, 320)
-	for _, s := range []string{"AWG-UDP", "REALITY-TCP", "XHTTP-TCP"} {
-		send(ui.transport, cbAddString, 0, uintptr(unsafe.Pointer(wstr(s))))
+	ui.port = ui.advancedCtrl(ui.hwnd, "EDIT", port, wsBorder|wsTabStop|esAutoHScroll, 102, 494, 296, 92, 26)
+	ui.advancedCtrl(ui.hwnd, "STATIC", "\u0422\u0440\u0430\u043d\u0441\u043f\u043e\u0440\u0442", 0, 0, 606, 302, 90, 22)
+	ui.transport = ui.advancedCtrl(ui.hwnd, "COMBOBOX", "", wsTabStop|wsVScroll|cbDropdownList, 103, 703, 296, 132, 320)
+	for _, name := range []string{"AWG-UDP", "REALITY-TCP", "XHTTP-TCP"} {
+		send(ui.transport, cbAddString, 0, uintptr(unsafe.Pointer(wstr(name))))
 	}
-	i := uintptr(0)
+	sel := uintptr(0)
 	if ui.cfg.Transport == "REALITY-TCP" {
-		i = 1
+		sel = 1
 	} else if ui.cfg.Transport == "XHTTP-TCP" {
-		i = 2
+		sel = 2
 	}
-	send(ui.transport, cbSetCurSel, i, 0)
-	ctrl(ui.hwnd, "STATIC", "VPN-адаптер", 0, 0, 426, 127, 130, 22)
-	ui.adapter = ctrl(ui.hwnd, "EDIT", ui.cfg.AdapterName, wsBorder|wsTabStop|esAutoHScroll, 104, 560, 122, 260, 27)
-	ctrl(ui.hwnd, "STATIC", "Папка winws2", 0, 0, 20, 171, 130, 22)
-	ui.engine = ctrl(ui.hwnd, "EDIT", ui.cfg.BundleRoot, wsBorder|wsTabStop|esAutoHScroll, 105, 160, 166, 510, 27)
-	ui.prepareButton = ctrl(ui.hwnd, "BUTTON", "Подготовить движок", wsTabStop, idPrepare, 685, 166, 140, 27)
-	ctrl(ui.hwnd, "STATIC", "Приоритет", 0, 0, 20, 216, 130, 22)
-	ui.preferred = ctrl(ui.hwnd, "COMBOBOX", "", wsTabStop|wsVScroll|cbDropdownList, 106, 160, 210, 235, 250)
-	names := []string{"Автоматически", "NONE", "UDP-FAKE", "UDP-REPEAT", "TLS-SPLIT", "TLS-DISORDER", "TLS-FAKESEQ", "TLS-FAKETTL"}
-	selection := uintptr(0)
+	send(ui.transport, cbSetCurSel, sel, 0)
+	ui.advancedCtrl(ui.hwnd, "STATIC", "VPN-\u0430\u0434\u0430\u043f\u0442\u0435\u0440", 0, 0, 20, 341, 135, 22)
+	ui.adapter = ui.advancedCtrl(ui.hwnd, "EDIT", ui.cfg.AdapterName, wsBorder|wsTabStop|esAutoHScroll, 104, 160, 336, 245, 27)
+	ui.advancedCtrl(ui.hwnd, "STATIC", "\u041f\u0440\u0438\u043e\u0440\u0438\u0442\u0435\u0442", 0, 0, 430, 341, 95, 22)
+	ui.preferred = ui.advancedCtrl(ui.hwnd, "COMBOBOX", "", wsTabStop|wsVScroll|cbDropdownList, 106, 533, 336, 290, 250)
+	names := []string{"\u0410\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438", "NONE", "UDP-FAKE", "UDP-REPEAT", "TLS-SPLIT", "TLS-DISORDER", "TLS-FAKESEQ", "TLS-FAKETTL"}
+	preferred := uintptr(0)
 	for i, name := range names {
 		send(ui.preferred, cbAddString, 0, uintptr(unsafe.Pointer(wstr(name))))
 		if name == ui.cfg.PreferredProfile {
-			selection = uintptr(i)
+			preferred = uintptr(i)
 		}
 	}
-	send(ui.preferred, cbSetCurSel, selection, 0)
-	ctrl(ui.hwnd, "STATIC", "После NONE; при неудаче пробует другие", 0, 0, 426, 216, 390, 22)
-
-	ui.saveButton = ctrl(ui.hwnd, "BUTTON", "Сохранить", wsTabStop, idSave, 20, 255, 137, 37)
-	ui.startButton = ctrl(ui.hwnd, "BUTTON", "Автоподбор", wsTabStop, idStart, 168, 255, 161, 37)
-	ui.stopButton = ctrl(ui.hwnd, "BUTTON", "Остановить", wsTabStop, idStop, 339, 255, 145, 37)
-	ctrl(ui.hwnd, "BUTTON", "Открыть отчёт", wsTabStop, idReport, 497, 255, 158, 37)
-	ui.dnsButton = ctrl(ui.hwnd, "BUTTON", "Проверить DNS", wsTabStop, idDNS, 663, 255, 160, 37)
-	ui.status = ctrl(ui.hwnd, "STATIC", "Ожидание. Проверки не выполнены.", 0, 0, 20, 304, 800, 22)
-	ui.logs = ctrl(ui.hwnd, "EDIT", "Bypass Manager 0.3 Alpha\r\nПодключение VPN проверяется по внешнему IP, скачанным данным и счётчикам адаптера.\r\nНастройки хранятся только на компьютере.\r\n", wsBorder|wsVScroll|esMultiline|esAutoVScroll|esReadOnly, 110, 20, 338, 800, 280)
+	send(ui.preferred, cbSetCurSel, preferred, 0)
+	ui.advancedCtrl(ui.hwnd, "STATIC", "\u041f\u0430\u043f\u043a\u0430 winws2", 0, 0, 20, 384, 135, 22)
+	ui.engine = ui.advancedCtrl(ui.hwnd, "EDIT", ui.cfg.BundleRoot, wsBorder|wsTabStop|esAutoHScroll, 105, 160, 377, 655, 27)
+	ui.saveButton = ui.advancedCtrl(ui.hwnd, "BUTTON", "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c DPI-\u043f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b", wsTabStop, idSave, 20, 414, 240, 35)
+	ui.startButton = ui.advancedCtrl(ui.hwnd, "BUTTON", "\u0410\u0432\u0442\u043e\u043f\u043e\u0434\u0431\u043e\u0440 DPI", wsTabStop, idStart, 272, 414, 195, 35)
+	ui.logs = ctrl(ui.hwnd, "EDIT", "Bypass Manager 0.3 Alpha\r\n\u0414\u043b\u044f \u043d\u0430\u0447\u0430\u043b\u0430 \u043d\u0430\u0436\u043c\u0438\u0442\u0435 \u00ab\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c\u00bb \u0438\u043b\u0438 \u00ab\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u0438\u043d\u0442\u0435\u0440\u043d\u0435\u0442\u00bb.\r\n", wsBorder|wsVScroll|esMultiline|esAutoVScroll|esReadOnly, 110, 20, 290, 820, 360)
 	procEnable.Call(ui.stopButton, 0)
+	ui.applyAdvanced()
 }
+
 func (ui *managerUI) layout() {
-	var rc winRect
-	procClientRect.Call(ui.hwnd, uintptr(unsafe.Pointer(&rc)))
-	w := rc.R - rc.L
-	h := rc.B - rc.T
-	if w < 680 || h < 490 {
+	if ui.logs == 0 {
 		return
 	}
-	procMove.Call(ui.engine, 160, 166, uintptr(w-340), 27, 1)
-	procMove.Call(ui.prepareButton, uintptr(w-165), 166, 140, 27, 1)
-	procMove.Call(ui.logs, 20, 338, uintptr(w-45), uintptr(h-355), 1)
+	var rc winRect
+	procClientRect.Call(ui.hwnd, uintptr(unsafe.Pointer(&rc)))
+	w, h := rc.R-rc.L, rc.B-rc.T
+	if w < 730 || h < 510 {
+		return
+	}
+	for i, handle := range []uintptr{ui.vpnLine, ui.netLine, ui.dpiLine} {
+		if handle != 0 {
+			procMove.Call(handle, 20, uintptr(80+27*i), uintptr(w-40), 24, 1)
+		}
+	}
+	procMove.Call(ui.status, 20, 262, uintptr(w-40), 22, 1)
+	bottom := int32(290)
+	if ui.advanced {
+		bottom = 466
+		procMove.Call(ui.engine, 160, 377, uintptr(w-200), 27, 1)
+	}
+	if h-bottom < 100 {
+		bottom = h - 110
+	}
+	procMove.Call(ui.logs, 20, uintptr(bottom), uintptr(w-45), uintptr(h-bottom-22), 1)
 }
+
 func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 	ui := activeUI
 	if ui == nil {
@@ -483,8 +701,38 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 	case wmSize:
 		ui.layout()
 		return 0
+	case wmAppBoot:
+		ui.startUIBoot()
+		return 0
+	case wmAppRefresh:
+		ui.refreshVPN()
+		return 0
+	case wmAppVPNState:
+		ui.applyVPNStatus()
+		return 0
+	case wmAppInternet:
+		ui.mu.Lock()
+		online := ui.lastOnline
+		ui.mu.Unlock()
+		if online {
+			winSetText(ui.netLine, "Сеть: доступ IPv4 подтверждён (VPN не доказан)")
+			ui.write("HTTPS: IPv4 observed.\n")
+		} else {
+			winSetText(ui.netLine, "Сеть: доступ IPv4 не подтверждён")
+			ui.write("IPv4 connection not confirmed; inspect Amnezia Kill Switch.\n")
+		}
+		return 0
 	case wmCommand:
 		switch loword(w) {
+		case idRefresh:
+			ui.refreshVPN()
+		case idInternet:
+			ui.checkInternet()
+		case idRecover:
+			ui.restoreNetwork()
+		case idAdvanced:
+			ui.advanced = !ui.advanced
+			ui.applyAdvanced()
 		case idSave:
 			if _, err := ui.save(); err != nil {
 				winMessageBox(hwnd, err.Error(), "Ошибка", 0x30)
@@ -531,6 +779,11 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 		ui.preparing = false
 		ui.inspectingDNS = false
 		ui.cancel = nil
+		ui.recovering = false
+		ui.updateOwnedState()
+		if !ui.closing {
+			post(ui.hwnd, wmAppRefresh)
+		}
 		ui.mu.Lock()
 		stopErr := ui.stopError
 		ui.stopError = ""
@@ -551,6 +804,13 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 		procDestroy.Call(hwnd)
 		return 0
 	case wmDestroy:
+		if ui.pollStop != nil {
+			close(ui.pollStop)
+			ui.pollStop = nil
+		}
+		if ui.lifetimeCancel != nil {
+			ui.lifetimeCancel()
+		}
 		procPostQuit.Call(0)
 		return 0
 	}
@@ -582,7 +842,8 @@ func guiMain() int {
 	if cfg.Transport == "" {
 		cfg.Transport = "AWG-UDP"
 	}
-	ui := &managerUI{home: home, cfg: cfg}
+	lifetimeCtx, lifetimeCancel := context.WithCancel(context.Background())
+	ui := &managerUI{home: home, cfg: cfg, autoAdapter: cfg.AdapterName, lifetimeCtx: lifetimeCtx, lifetimeCancel: lifetimeCancel}
 	activeUI = ui
 	instance, _, _ := procGetModule.Call(0)
 	cursor, _, _ := procLoadCursor.Call(0, 32512)
@@ -593,13 +854,14 @@ func guiMain() int {
 		winMessageBox(0, "Не удалось зарегистрировать окно.", "Bypass Manager", 0x10)
 		return 2
 	}
-	hwnd, _, _ := procCreate.Call(0, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(wstr("Bypass Manager 0.3 Alpha"))), wsOverlappedWindow|wsVisible, 200, 150, 870, 715, 0, 0, instance, 0)
+	hwnd, _, _ := procCreate.Call(0, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(wstr("Bypass Manager 0.3 Alpha"))), wsOverlappedWindow|wsVisible, 180, 100, 990, 760, 0, 0, instance, 0)
 	if hwnd == 0 {
 		winMessageBox(0, "Не удалось создать главное окно.", "Bypass Manager", 0x10)
 		return 2
 	}
 	procShow.Call(hwnd, 5)
 	procUpdate.Call(hwnd)
+	post(hwnd, wmAppBoot)
 	var msg winMessage
 	for {
 		r, _, _ := procGetMessage.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)

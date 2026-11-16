@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 # Repeatedly create, inspect and close a real Win32 window; no network or driver use.
 [CmdletBinding()]
 param()
@@ -30,6 +30,10 @@ for($round=1;$round -le 3;$round++) {
     $handle=[IntPtr]$proc.MainWindowHandle
     $prepare=[BypassGuiSmokeNative]::FindWindowEx($handle,[IntPtr]::Zero,'Button','Подготовить движок')
     if($prepare -eq [IntPtr]::Zero) { throw "Offline preparation button missing on iteration $round" }
+    $refresh=[BypassGuiSmokeNative]::FindWindowEx($handle,[IntPtr]::Zero,'Button','Обновить')
+    $recover=[BypassGuiSmokeNative]::FindWindowEx($handle,[IntPtr]::Zero,'Button','Восстановить сеть')
+    $internet=[BypassGuiSmokeNative]::FindWindowEx($handle,[IntPtr]::Zero,'Button','Проверить интернет')
+    if($refresh -eq [IntPtr]::Zero -or $recover -eq [IntPtr]::Zero -or $internet -eq [IntPtr]::Zero) {throw 'Automatic status or recovery controls missing'}
     $dns=[BypassGuiSmokeNative]::FindWindowEx($handle,[IntPtr]::Zero,'Button','Проверить DNS')
     if($dns -eq [IntPtr]::Zero) { throw "Passive DNS diagnostics button missing on iteration $round" }
     Write-Host "PASS GUI $round/3: window, engine preparation and passive DNS buttons found; PID=$($proc.Id)"
