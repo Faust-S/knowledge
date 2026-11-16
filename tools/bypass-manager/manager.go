@@ -331,6 +331,11 @@ func (m *Manager) powerShell(ctx context.Context, script string, args ...string)
 	all := []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(m.runtimeRoot, "Scripts", script)}
 	all = append(all, args...)
 	cmd := exec.CommandContext(ctx, "powershell.exe", all...)
+	// A launched child (for example, the original winws2) may inherit stdout
+	// handles after PowerShell exits or is killed. Without WaitDelay,
+	// CombinedOutput can wait indefinitely for those inherited pipes to close,
+	// despite the caller's context deadline. Bound this wait as well.
+	cmd.WaitDelay = 3 * time.Second
 	// Win32 GUI applications must not show a PowerShell console on every poll.
 	hideChildConsole(cmd)
 	cmd.Dir = m.runtimeRoot
@@ -384,6 +389,7 @@ func (m *Manager) startFilter(profile string) error {
 		return fmt.Errorf("исходные winws2/Lua не приняли профиль: %w", err)
 	}
 	m.println("Проверка аргументов и Lua:", limit(out, 450))
+	m.println("Пробный запуск завершён, начинаю запуск собственного DPI. Ожидание ограничено 40 секундами плюс завершение каналов вывода.")
 	args = args[:len(args)-1] // remove -DryRun
 	out, err = m.powerShell(ctx, "Start-Profile.ps1", args...)
 	if err != nil {

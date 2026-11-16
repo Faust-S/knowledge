@@ -125,7 +125,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG=bypass-manager-0.3-alpha-guidefix-2026-11-16
+          TAG=bypass-manager-0.3-alpha-guidefix-hardstop-2026-11-16
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release already exists, refusing to replace files"
             exit 1

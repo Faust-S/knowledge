@@ -280,9 +280,12 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 					continue
 				}
 			}
+			record(v, "FILTER", "CHECKING_LUA_AND_STARTING_OWN_DPI")
+			ui.guideInstruction("Проверяю Lua оригинального winws2 и запускаю только свой DPI. Если запуск не удастся, этап завершится ошибкой, а не бесконечным ожиданием.")
 			if err := m.startFilter(v.Profile); err != nil {
 				finish("FAILED", "DPI_START_FAILED")
 				record(v, "FILTER", guideErrorCode(err))
+				ui.guideInstruction("DPI не запущен: " + guideErrorCode(err) + ". Продолжаю без неподтверждённого фильтра; подробности есть в отчёте.")
 				continue
 			}
 			filterStarted = true
