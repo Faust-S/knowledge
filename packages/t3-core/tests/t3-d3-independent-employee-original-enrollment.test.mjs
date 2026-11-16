@@ -128,6 +128,63 @@ test('independent employee grants have genuine Ed25519 proof and one original Ke
  assert.equal(current.statusFloor['issuer:north'],3);
  assert.equal(current.statusFloor['issuer:south'],1);
 });
+test('unsigned employee challenge can be cancelled without Kernel writes or grant issuance',async()=>{
+ const s=setup();await s.init();
+ const first=await s.owner.begin(s.input(s.alice));
+ const initialCalls=s.kernel.calls.length;
+ assert.equal(typeof s.owner.cancelPending,'function');
+ assert.throws(()=>s.owner.cancelPending({
+  enrollmentId:first.enrollmentId,employeePersonId:'person:bob'}),
+  {code:'T3_EMPLOYEE_CANCEL_AFTER_DISPATCH_FORBIDDEN'});
+ assert.throws(()=>s.owner.cancelPending({
+  enrollmentId:'different-enrollment',employeePersonId:'person:alice'}),
+  {code:'T3_EMPLOYEE_CANCEL_AFTER_DISPATCH_FORBIDDEN'});
+ const cancelled=s.owner.cancelPending({
+  enrollmentId:first.enrollmentId,employeePersonId:'person:alice'});
+ assert.equal(cancelled.state,'UNSUBMITTED_EMPLOYEE_CHALLENGE_CANCELLED');
+ assert.equal(cancelled.enrollmentId,first.enrollmentId);
+ assert.equal(cancelled.employeePersonId,'person:alice');
+ assert.equal(cancelled.originalKernelWriteAttempted,false);
+ assert.equal(s.kernel.calls.length,initialCalls);
+ assert.throws(()=>s.owner.cancelPending({
+  enrollmentId:first.enrollmentId,employeePersonId:'person:alice'}),
+  {code:'T3_EMPLOYEE_CANCEL_AFTER_DISPATCH_FORBIDDEN'});
+ await assert.rejects(s.owner.complete({
+  enrollmentId:first.enrollmentId,
+  employeeProof:makeProof(first.request,first.challenge,NOW,s.alice.signer,'TEST')
+ }),{code:'T3_EMPLOYEE_ENROLLMENT_CHALLENGE_STALE'});
+ const state=await s.registry.readState();
+ assert.equal(Object.keys(state.grants).length,
+  Object.keys(s.fixture.state.grants).length);
+ const second=await s.owner.begin(s.input(s.alice));
+ assert.notEqual(second.enrollmentId,first.enrollmentId);
+ const issued=await s.owner.complete({
+  enrollmentId:second.enrollmentId,
+  employeeProof:makeProof(second.request,second.challenge,NOW,s.alice.signer,'TEST')});
+ assert.equal(issued.state,'SIGNED_EMPLOYEE_ENROLLED_NOT_DELIVERED');
+ assert.equal(s.kernel.calls.length,initialCalls+1);
+});
+test('original employee proof challenge cannot be cancelled after failed dispatch or lost ACK',async()=>{
+ const s=setup({lostAck:true});await s.init();
+ const first=await s.owner.begin(s.input(s.alice));
+ s.loseNext();
+ await assert.rejects(s.owner.complete({
+  enrollmentId:first.enrollmentId,
+  employeeProof:makeProof(first.request,first.challenge,NOW,s.alice.signer,'TEST')
+ }),/SIMULATED_LOST_ACK_AFTER_KERNEL_COMMIT/);
+ assert.throws(()=>s.owner.cancelPending({
+  enrollmentId:first.enrollmentId,employeePersonId:'person:alice'
+ }),{code:'T3_EMPLOYEE_CANCEL_AFTER_DISPATCH_FORBIDDEN'});
+ const restored=await s.owner.readEnrollment({
+  organizationId:'org:north',employeePersonId:'person:alice',
+  enrollmentId:first.enrollmentId});
+ assert.equal(restored.state,'ORIGINAL_GRANTS_ACTIVE');
+ assert.equal(restored.safeToReissue,false);
+ assert.equal(s.kernel.calls.length,2);
+ assert.throws(()=>s.owner.cancelPending({
+  enrollmentId:first.enrollmentId,employeePersonId:'person:alice'
+ }),{code:'T3_EMPLOYEE_CANCEL_AFTER_DISPATCH_FORBIDDEN'});
+});
 test('independent signer cannot be substituted by another employee, unknown trust is denied',async()=>{
  const s=setup();await s.init();
  const start=await s.owner.begin(s.input(s.alice));
