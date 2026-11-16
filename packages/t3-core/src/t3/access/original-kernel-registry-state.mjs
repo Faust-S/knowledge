@@ -314,6 +314,13 @@ export function createOriginalKernelRegistryStatePort({
       timeAssurance:"LOCAL_BEST_EFFORT"});
     check(decision.outcome==="PERMITTED"&&decision.allowed===true,
       "T3_ACCESS_PROOF_KEY_MANAGER_NOT_AUTHORIZED");
+    // Admitting a second proof key for an existing administrator could make
+    // an employee appear as that manager under previously issued grants.
+    check(keyRecord.subjectId!==managerRequest.actorId&&
+      !Object.values(state.grants).some(env=>
+        env.payload.holderId===keyRecord.subjectId&&
+        env.payload.rightClass==="ADMINISTRATION"),
+      "T3_ACCESS_PROOF_KEY_EMPLOYEE_MUST_BE_INDEPENDENT");
     check(employeeRequest?.actorId===keyRecord.subjectId&&
       employeeRequest.principalId===organizationId&&
       employeeRequest.realmId===state.policy.realmId&&
