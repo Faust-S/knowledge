@@ -358,6 +358,8 @@ jobs:
         run: node --test packages/t3-core/tests/t3-d1-original-vault.test.mjs
       - name: Windows two genuinely signed CORP enrollments on original AccessRegistry
         run: node --test packages/t3-core/tests/t3-d1-two-corporate-original-access.test.mjs
+      - name: Windows independent employee trust, signed grants and cold original Kernel readback
+        run: node --test packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs
       - name: Windows original signed Control HTTP transport (Node host only)
         run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs
   metal-webgpu:
