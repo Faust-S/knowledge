@@ -49,14 +49,49 @@ More than one independent employee can be enrolled successively using the same
 original authority, each with a separate credential and grants. Distinct
 organizations remain separately scoped.
 
+## Original key admission implemented
+
+The original Kernel-backed registry now offers a bounded
+`admitProofCredential({authorityId,organizationId,employeeWorkspaceId,
+credentialKeyId,keyRecord,issuerSigner,managerRequest,managerChallenge,
+managerProof,employeeRequest,employeeChallenge,employeeProof})`.
+It accepts a **previously unknown, proof-only Ed25519 key**, but only if:
+
+- The manager's original signed grant permits `grant.issue`, verified via
+  the existing T3 `evaluate()` and fresh challenge.
+- The independent employee signs the exact operation digest with the new
+  key, verified by the existing original `verifyRecord(PROOF)`.
+- Key use is exactly `PROOF`, never `GRANT`, `STATUS` or an issuer key;
+  the employee is not the manager and does not already hold ADMINISTRATION.
+- Scope belongs to the originally pinned organization and employee Workspace;
+  the key cannot silently alter audiences, grant ceilings or data roots.
+- Original issuer signs a new `STATUS` carrying the digest of the proof-only
+  policy addition and both evidence digests.
+- Only the already inherited T2 Kernel persists the next signed Access
+  Object/Event. A cold registry reconstructs every policy addition from the
+  **initial pinned trust root** and verifies each original issuer signature.
+  An unsigned policy/key insertion is rejected.
+- `readProofCredential()` allows authoritative recovery after a lost ACK,
+  without repeating the admission.
+
+This is the original Access owner, not a second IAM, Vault, Kernel, Journal,
+Exchange, enrollment issuer or alternate package format. The same employee
+may then call `begin()`/`complete()` to receive separate signed work and
+export grants. Original Organization Operation JIT now recognizes
+`IWXA_PERSONAL_AGENT` as a consumer and does not grant it ADMINISTRATION.
+
+After grant issuance the exact signed `OrganizationEnrollment` can be
+reconstructed from the original Kernel after a cold restart, including the
+same original employee key binding and unchanged signed claims. Signed
+recovery never mints replacement grants or signs a second Task/Result.
+
 ## Concrete remaining production boundaries
 
-1. A second Windows employee's public credential must first be admitted to
-   the **original trusted issuer policy** by its own authorized, auditable
-   trust-reissue ceremony. The current original Kernel Registry intentionally
-   requires an immutable pinned policy and refuses arbitrary new keys:
-   `T3_EMPLOYEE_CREDENTIAL_NOT_PRETRUSTED`. Never promote an incoming file's
-   self-declared public key into trust.
+1. The installed **original T3 Host** must mount these existing bounded
+   operations, run the employee's independent local encrypted original Vault
+   proof under that Windows user's profile, and deliver authenticated signed
+   invitation and STATUS evidence. The Node qualification is not a second
+   user account or installed native credential ceremony.
 2. The original installed Host must mount this trusted Node-only operation and
    route the employee-held proof from a genuinely separate OS user, then bind
    its existing Exchange to the original invitation carrier. This library
