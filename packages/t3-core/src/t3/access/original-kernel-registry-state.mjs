@@ -5,7 +5,7 @@
 // Access decisions continue to use the canonical IWXA T3 evaluate() algorithm.
 import {
   canonical,digest,snapshot,copy,validatePolicy,validateGrant,verifyRecord,
-  validateStatusSnapshot,assertStatusTransitionHistory,iso
+  validateStatusSnapshot,assertStatusTransitionHistory,iso,signRecord,evaluate,timestamp
 } from "./core.mjs";
 
 export const ORIGINAL_REGISTRY_SCHEMA="iwxa.t3.access.signed-registry";
@@ -28,6 +28,59 @@ function assertNames(value,code) {
   check(dictionary(value),code);
   for(const id of Object.keys(value))check(ID.test(id),code);
 }
+// The pinned original trust root is never replaced by caller-provided keys.
+export const ORIGINAL_PROOF_KEY_ADMISSION="IWXA_T3_ORIGINAL_PROOF_KEY_ADMISSION/1";
+function addProofOnlyKey(policy,keyId,record){
+  check(ID.test(keyId) && !own(policy.keys,keyId),
+    "T3_ACCESS_PROOF_KEY_ALREADY_PRESENT");
+  check(dictionary(record)&&Object.keys(record).sort().join()===
+    ["subjectId","environment","publicKey","status","uses","notBefore","expiresAt"].sort().join()&&
+    ID.test(record.subjectId)&&record.environment===policy.environment&&
+    record.status==="ACTIVE"&&Array.isArray(record.uses)&&
+    record.uses.length===1&&record.uses[0]==="PROOF"&&
+    !Object.values(policy.keys).some(other=>other.publicKey===record.publicKey),
+    "T3_ACCESS_PROOF_KEY_SCOPE_INVALID");
+  const next=copy(policy);next.keys[keyId]=copy(record);
+  try{validatePolicy(next);}catch{no("T3_ACCESS_PROOF_KEY_METADATA_INVALID");}
+  return next;
+}
+const admissionDigest=trust=>digest({
+  old_policy_digest:trust.old_policy_digest,
+  key_id:trust.key_id,key_record:trust.key_record,
+  manager_decision_digest:trust.manager_decision_digest,
+  employee_proof_digest:trust.employee_proof_digest,
+  authority_id:trust.authority_id,
+});
+const signedAdmissionStatusId=trust=>"status:proof-key:"+admissionDigest(trust);
+function verifyProofKeyAdmission(trust,current,event){
+  check(dictionary(trust)&&trust.schema===ORIGINAL_PROOF_KEY_ADMISSION&&
+    typeof trust.old_policy_digest==="string"&&HEX.test(trust.old_policy_digest)&&
+    typeof trust.manager_decision_digest==="string"&&HEX.test(trust.manager_decision_digest)&&
+    typeof trust.employee_proof_digest==="string"&&HEX.test(trust.employee_proof_digest)&&
+    trust.old_policy_digest===digest(current)&&
+    ID.test(trust.authority_id??"")&&ID.test(trust.key_id??""),
+    "T3_ACCESS_PROOF_KEY_ADMISSION_INVALID");
+  const authority=current.authorities[trust.authority_id];
+  check(authority&&authority.principalId!==trust.key_record?.subjectId,
+    "T3_ACCESS_PROOF_KEY_ISSUER_CONFLICT");
+  const next=addProofOnlyKey(current,trust.key_id,trust.key_record);
+  check(digest(next)===event.payload.policy_digest,
+    "T3_ACCESS_PROOF_KEY_POLICY_DIGEST_INVALID");
+  const statement=trust.signed_status;
+  const at=Date.parse(statement?.payload?.issuedAt??"");
+  check(Number.isSafeInteger(at)&&at>0&&
+    statement.payload.id===signedAdmissionStatusId(trust)&&
+    statement.payload.authorityId===trust.authority_id&&
+    statement.payload.realmId===current.realmId&&
+    statement.payload.membershipEpoch===authority.membershipEpoch&&
+    statement.payload.sequence===event.payload.status_sequences[trust.authority_id]&&
+    authority.statusKeys.includes(statement.keyId),
+    "T3_ACCESS_PROOF_KEY_SIGNED_STATUS_INVALID");
+  try{verifyRecord(statement,current,at,"STATUS");}
+  catch{no("T3_ACCESS_PROOF_KEY_ISSUER_SIGNATURE_INVALID");}
+  return next;
+}
+
 function validClock(clock){
   const value=clock();
   check(Number.isSafeInteger(value)&&value>0,"T3_ACCESS_REGISTRY_CLOCK_INVALID");
