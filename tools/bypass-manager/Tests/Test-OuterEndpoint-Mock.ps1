@@ -21,9 +21,9 @@ function global:Get-CimInstance {
 function global:Get-NetTCPConnection {
   [CmdletBinding()]param()
   $remote=$(if($script:fixture -eq 'PRIVATE_REMOTE'){'10.1.1.1'}else{'9.9.9.9'})
-  $pid=$(if($script:fixture -eq 'WRONG_OWNER') {4201}else{4200})
+  $ownerPid=$(if($script:fixture -eq 'WRONG_OWNER') {4201}else{4200})
   $state=$(if($script:fixture -eq 'SYN_SENT'){'SynSent'}else{'Established'})
-  [pscustomobject]@{State=$state;OwningProcess=$pid;RemoteAddress=$remote;RemotePort=8443}
+  [pscustomobject]@{State=$state;OwningProcess=$ownerPid;RemoteAddress=$remote;RemotePort=8443}
   if($script:fixture -eq 'AMBIGUOUS') {
     [pscustomobject]@{State='SynSent';OwningProcess=4200;RemoteAddress='1.1.1.1';RemotePort=8443}
   }
