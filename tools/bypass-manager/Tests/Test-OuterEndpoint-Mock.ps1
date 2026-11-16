@@ -8,7 +8,11 @@ $script:fixture='VLESS_OK'
 function global:Get-CimInstance {
   [CmdletBinding()]param([string]$ClassName)
   if($script:fixture -eq 'NO_PROCESS') { return }
-  if($script:fixture -eq 'AWG_OK') {
+  if($script:fixture -eq 'UNTRUSTED_PROCESS') {
+    [pscustomobject]@{Name='xray.exe';ExecutablePath='C:\Portable\xray.exe';ProcessId=4200}
+    return
+  }
+  if($script:fixture -in @('AWG_OK','STALE_WFP','ONE_WFP')) {
     [pscustomobject]@{Name='AmneziaVPN-service.exe';ExecutablePath='C:\Program Files\AmneziaVPN\AmneziaVPN-service.exe';ProcessId=4200}
     return
   }
@@ -16,7 +20,10 @@ function global:Get-CimInstance {
 }
 function global:Get-NetTCPConnection {
   [CmdletBinding()]param()
-  [pscustomobject]@{State='Established';OwningProcess=4200;RemoteAddress='9.9.9.9';RemotePort=8443}
+  $remote=$(if($script:fixture -eq 'PRIVATE_REMOTE'){'10.1.1.1'}else{'9.9.9.9'})
+  $pid=$(if($script:fixture -eq 'WRONG_OWNER') {4201}else{4200})
+  $state=$(if($script:fixture -eq 'SYN_SENT'){'SynSent'}else{'Established'})
+  [pscustomobject]@{State=$state;OwningProcess=$pid;RemoteAddress=$remote;RemotePort=8443}
   if($script:fixture -eq 'AMBIGUOUS') {
     [pscustomobject]@{State='SynSent';OwningProcess=4200;RemoteAddress='1.1.1.1';RemotePort=8443}
   }
@@ -33,10 +40,12 @@ function global:Get-NetAdapter {
 }
 function global:Get-WinEvent {
   [CmdletBinding()]param([hashtable]$FilterHashtable,[int]$MaxEvents)
-  if($script:fixture -ne 'AWG_OK') { throw 'WFP disabled (simulated)' }
+  if($script:fixture -notin @('AWG_OK','STALE_WFP','ONE_WFP')) { throw 'WFP disabled (simulated)' }
   $out=@()
-  foreach($i in @(1,2)) {
-    $ev=[pscustomobject]@{TimeCreated=(Get-Date).AddSeconds(-$i)}
+  $amount=$(if($script:fixture -eq 'ONE_WFP'){@(1)}else{@(1,2)})
+  foreach($i in $amount) {
+    $age=$(if($script:fixture -eq 'STALE_WFP'){-180}else{-$i})
+    $ev=[pscustomobject]@{TimeCreated=(Get-Date).AddSeconds($age)}
     $ev | Add-Member -MemberType ScriptMethod -Name ToXml -Value {
       return '<Event><EventData><Data Name="Protocol">17</Data><Data Name="ProcessID">4200</Data><Data Name="DestAddress">9.9.9.9</Data><Data Name="DestPort">51820</Data></EventData></Event>'
     }
@@ -62,3 +71,10 @@ Assert-BMFixture 'AWG_OK' 'AMNEZIAWG' 'OBSERVED'
 Assert-BMFixture 'AMBIGUOUS' 'VLESS' 'AMBIGUOUS'
 Assert-BMFixture 'NO_PROCESS' 'AMNEZIAWG' 'NO_TRUSTED_PROCESS'
 Assert-BMFixture 'NO_ROUTE' 'VLESS' 'NO_OUTER_TRANSPORT'
+
+Assert-BMFixture 'SYN_SENT' 'VLESS' 'OBSERVED'
+Assert-BMFixture 'UNTRUSTED_PROCESS' 'VLESS' 'NO_TRUSTED_PROCESS'
+Assert-BMFixture 'WRONG_OWNER' 'VLESS' 'NO_OUTER_TRANSPORT'
+Assert-BMFixture 'PRIVATE_REMOTE' 'VLESS' 'NO_OUTER_TRANSPORT'
+Assert-BMFixture 'ONE_WFP' 'AMNEZIAWG' 'INSUFFICIENT_SIGNALS'
+Assert-BMFixture 'STALE_WFP' 'AMNEZIAWG' 'NO_OUTER_TRANSPORT'

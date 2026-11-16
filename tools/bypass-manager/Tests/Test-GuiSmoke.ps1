@@ -34,6 +34,11 @@ for($round=1;$round -le 3;$round++) {
         throw "Required visible main button missing: ID=$id, iteration=$round"
       }
     }
+    foreach($promptId in @(2023,2024)) {
+      $prompt=[BypassGuiSmokeNative]::GetDlgItem($handle,$promptId)
+      if($prompt -eq [IntPtr]::Zero) { throw "Missing cancellable guide control $promptId" }
+      if([BypassGuiSmokeNative]::IsWindowVisible($prompt)) { throw "Guide prompt visible before starting $promptId" }
+    }
     $advancedField=[BypassGuiSmokeNative]::GetDlgItem($handle,101)
     $advancedToggle=[BypassGuiSmokeNative]::GetDlgItem($handle,2010)
     if($advancedField -eq [IntPtr]::Zero) {throw 'Advanced endpoint input missing'}

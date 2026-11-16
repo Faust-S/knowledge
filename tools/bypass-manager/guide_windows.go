@@ -195,6 +195,7 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 
 	lastProtocol := ""
 	endpointConfirmed := map[string]bool{}
+	manualEndpoint := config // Optional advanced entry, not a prerequisite for Premium.
 	endpointRejected := map[string]bool{}
 	for i, v := range plan {
 		if ctx.Err() != nil {
@@ -234,17 +235,39 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 		// exact protocol and explicitly confirmed by the user. Never reuse an AWG
 		// endpoint for VLESS or attempt to reverse-engineer private VPN profiles.
 		if v.RequiresEndpoint {
+			// Every filtered attempt requires fresh process/socket evidence.
+			// Never cache the AmneziaWG remote peer into the VLESS phase or
+			// use stale advanced fields as "automatic" discovery.
+			m.cfg.EndpointIPv4 = manualEndpoint.EndpointIPv4
+			m.cfg.Port = manualEndpoint.Port
+			m.cfg.Transport = manualEndpoint.Transport
+			endpointConfirmed[v.Protocol] = false
+			autoCode := "PROBE_ERROR"
+			if !endpointRejected[v.Protocol] {
+				observeCtx, observeCancel := context.WithTimeout(ctx, 16*time.Second)
+				observed, code := m.observeOuterEndpoint(observeCtx, v.Protocol)
+				observeCancel()
+				autoCode = code
+				record(v, "ENDPOINT", automaticEndpointCode(autoCode))
+				if code == "OBSERVED" {
+					m.cfg.EndpointIPv4 = observed.IPv4
+					m.cfg.Port = observed.Port
+					m.cfg.Transport = observed.Transport
+					endpointConfirmed[v.Protocol] = true
+					ui.guideInstruction("Внешний транспорт VPN обнаружен автоматически по процессам и физическому маршруту Windows. Адрес и порт не экспортируются и не сохраняются; native handshake ещё не подтверждён.")
+				}
+			}
 			if endpointRejected[v.Protocol] {
 				finish("SKIPPED", "ENDPOINT_NOT_CONFIRMED")
 				continue
 			}
 			if !guideEndpointApplicable(m.cfg, v.Protocol) {
 				finish("SKIPPED", "NO_MATCHING_VERIFIED_ENDPOINT")
-				ui.guideInstruction("DPI " + v.Profile + " пропущен: нет подтверждённого адреса и порта внешнего сервера для " + v.Protocol + ". Случайные IP/порт не подставляю. Перехват пакетов не запускался.")
+				ui.guideInstruction("DPI " + v.Profile + " пропущен: Windows не подтвердила внешний транспорт " + v.Protocol + " (" + automaticEndpointCode(autoCode) + "). Вводить IP вручную не требуется. Подстановка случайного адреса и перехват пакетов запрещены.")
 				continue
 			}
 			if !endpointConfirmed[v.Protocol] {
-				if !ui.guideAsk(ctx,"Для DPI необходим точный внешний IP и порт текущего " + v.Protocol + "-сервера в Amnezia. Проверьте данные в её официальных настройках. Подтвердите OK, только если значения в «Параметрах DPI» соответствуют текущему подключению. Отмена пропустит экспериментальные DPI-стратегии.") {
+				if !ui.guideAsk(ctx,"Windows не обнаружила однозначный внешний узел VPN. Если вы ранее самостоятельно настроили реальный IP и порт текущего " + v.Protocol + ", подтвердите их актуальность. Иначе выберите «Нет / пропустить»: вводить адрес из Amnezia не требуется.") {
 					record(v, "USER_ACTION", "ENDPOINT_NOT_CONFIRMED")
 					// A refusal to confirm applies to all remaining filtered candidates.
 					endpointRejected[v.Protocol] = true
