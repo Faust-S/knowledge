@@ -25,7 +25,8 @@ const operationId="agent:t3:atlas:"+createHash("sha256").update(
       k=>[k,binding.workRef[k]])):binding[key]])))).digest("hex");
 function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
   lostFinalize=false,consent=true,permitted=true,
-  unverifiedExchange=false,corruptKernelRead=false}={}){
+  unverifiedExchange=false,corruptKernelRead=false,
+  competingReservation=false}={}){
  const rows=new Map(),objects=new Map(),events=[];
  let commits=0,exports=0,reserves=0,finalizations=0,consents=0;
  let grant=permitted;
@@ -82,11 +83,13 @@ function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
    },
    reserve:async(op,body)=>{
      reserves++;
+     const prior=rows.get(op);
+     if(prior)return {...prior,newReservation:false};
      const row={operationId:op,...body,status:"PREPARED",retrySafe:false,
        originalReceiptVerified:false};
      rows.set(op,row);
      if(lostReserve)throw Error("reserve ACK lost");
-     return {...row};
+     return {...row,newReservation:!competingReservation};
    },
    finalize:async input=>{
      finalizations++;
@@ -251,4 +254,18 @@ test("original Kernel object readback must precede signed Exchange export",async
  assert.equal(f.counts.finalizations,0);
  assert.equal((await f.create().read_publication(f.operationId,
    f.binding)).status,"PREPARED");
+});
+
+test("a competing original reservation cannot authorize another Kernel/Exchange dispatch",async()=>{
+ const f=fixture({competingReservation:true});
+ const answer=await f.create().publish_accepted({...f.binding,
+   operationId:f.operationId});
+ assert.equal(answer.status,"OUTCOME_UNKNOWN");
+ assert.equal(answer.retrySafe,false);
+ assert.deepEqual(f.counts,{
+   commits:0,exports:0,reserves:1,finalizations:0,consents:1
+ });
+ assert.equal((await f.create().read_publication(f.operationId,
+   f.binding)).status,"PREPARED");
+ assert.equal(f.counts.commits,0);
 });
