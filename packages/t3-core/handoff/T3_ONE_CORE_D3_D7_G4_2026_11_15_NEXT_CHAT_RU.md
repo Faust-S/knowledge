@@ -1,5 +1,20 @@
 # IWXA T3 One Core: передача D3/D7 -> G4 в новый чат
 
+## G4 readiness after common D7 original native refusal fix, 16.11.2026
+
+**Answer for owner: common T3 is ready for source/Host integration, NOT yet G4-released.** Current exact T3 executable HEAD `5141942de0254ab97b97fcbfdef3317d67740d61` (parent `36387bb0`), T2 normative `9c64951cd78411283e8a416641c36d71e169fc1d`, inherited Kernel 0.3.6 / Runtime 1.3.0.
+
+**Verified full source/Host CI:** https://github.com/Faust-S/knowledge/actions/runs/43851597400, exact `5141942d`, TERMINAL **SUCCESS**: `test`, `real-host`, `windows-credential`. The existing D7 Publisher qualification confirmed that original signed owner read-only `PERMISSION_DENIED` / `PERSON_STATUS_ROLLBACK_DENIED` now propagate as true refusal rather than falsely becoming `OUTCOME_UNKNOWN`. Unavailable receipt remains `OUTCOME_UNKNOWN`, and no retry of original Apply is added. Only `src/t3/publisher-license-handoff.mjs` and its precise existing test were changed in this commit. `metal-webgpu`, `native-model`, `native-age` SKIPPED in this run: their separate hardware/native source proofs remain at the exact earlier SHAs recorded below. Source comparison `99f3c533..5141942d` confirms unchanged D5/BLI, Kernel, Host and Exchange executable sources; the only runtime delta is this D7 holder refusal correction.
+
+**What is still NOT technically/independently accepted:**
+- **D1/D3 installed**: actual original private corporate signer and separate Admin signed Human REVIEW -> ACCEPT -> separate APPLY -> original Object/Event -> two native cold readbacks; public Center CI alone does not provide this evidence.
+- **D4/D6 installed**: at least two independent installed products and actual original Agent signed accepted Task/Result `.iwxa` into the current native Atlas recipient. The public Atlas native `atlas_open/atlas_commit` binding is source-qualified; external accepted Agent owner remains pending.
+- **D7 installed**: actual original private Publisher licence + signed status (including known revoke/renewal), native holder/recipient trust roots and independent cold persistence. Real upstream `age` and two public technical recipients PASS, but they are not installed issuance/holder acceptance.
+- **G4 release package**: final one agreed source/owner version set, clean product installation, LOCAL_ONLY evidence, original Kernel/Exchange in a single owner `dist`, two cold starts and cross-product readbacks. The existing compiled owner-input ZIP is NOT an installed production product.
+
+**Architectural stop:** Do not create another Kernel/Host/Store/Exchange, new T3 Windows EXE, new signer, another model engine, redundant synthetic test matrix, or a new packaging framework. The installed Owner chats finish their product bindings independently; the main T3 chat only fixes demonstrated common-contract defects, then integrates exact acceptance evidence on the same pinned G4 candidate. `G4=NOT_ACCEPTED`, `T3_READY=false` until that final native acceptance.
+
+
 ## D7: real native age X25519 two-recipient original Exchange, 16.11.2026
 
 **D7_PUBLIC_REAL_AGE_TWO_RECIPIENTS=PASS** at exact public source `Faust-S/knowledge@1ba2554e13103522645a384a2f26206b4666e068`.
