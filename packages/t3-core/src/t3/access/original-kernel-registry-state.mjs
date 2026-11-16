@@ -283,7 +283,7 @@ export function createOriginalKernelRegistryStatePort({
   // authorize a proof-only key. Both human manager and independent employee
   // sign bound original Access proofs BEFORE the original Kernel commits.
   const admitProofCredential=async({
-    authorityId,organizationId,workspaceId,credentialKeyId,keyRecord,
+    authorityId,organizationId,employeeWorkspaceId,credentialKeyId,keyRecord,
     issuerSigner,managerRequest,managerChallenge,managerProof,
     employeeRequest,employeeChallenge,employeeProof
   }={})=>{
@@ -291,7 +291,7 @@ export function createOriginalKernelRegistryStatePort({
     const state=before.state,auth=state.policy.authorities[authorityId];
     check(auth&&auth.principalId===organizationId&&
       state.policy.realmId===managerRequest?.realmId&&
-      ID.test(workspaceId??"")&&auth.resources.includes(workspaceId)&&
+      ID.test(employeeWorkspaceId??"")&&auth.resources.includes(employeeWorkspaceId)&&
       issuerSigner&&auth.issuerKeys.includes(issuerSigner.keyId)&&
       auth.statusKeys.includes(issuerSigner.keyId),
       "T3_ACCESS_PROOF_KEY_TRUSTED_ISSUER_REQUIRED");
@@ -301,7 +301,7 @@ export function createOriginalKernelRegistryStatePort({
       "T3_ACCESS_PROOF_KEY_PERSON_INVALID");
     const newPolicy=addProofOnlyKey(state.policy,credentialKeyId,keyRecord);
     const operationDigest=digest({schema:ORIGINAL_PROOF_KEY_ADMISSION,
-      authorityId,organizationId,workspaceId,credentialKeyId,keyRecord});
+      authorityId,organizationId,employeeWorkspaceId,credentialKeyId,keyRecord});
     check(managerRequest?.principalId===organizationId&&
       managerRequest.action==="grant.issue"&&
       managerRequest.resource==="authority:"+authorityId&&
@@ -317,7 +317,7 @@ export function createOriginalKernelRegistryStatePort({
     check(employeeRequest?.actorId===keyRecord.subjectId&&
       employeeRequest.principalId===organizationId&&
       employeeRequest.realmId===state.policy.realmId&&
-      employeeRequest.resource===workspaceId&&
+      employeeRequest.resource===employeeWorkspaceId&&
       employeeRequest.action==="work.prepare"&&
       employeeRequest.operationDigest===operationDigest&&
       typeof employeeChallenge==="string"&&employeeChallenge.length>=16&&
