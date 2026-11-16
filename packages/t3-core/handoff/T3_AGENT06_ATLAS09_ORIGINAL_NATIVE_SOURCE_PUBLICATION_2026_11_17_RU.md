@@ -53,3 +53,35 @@ Tests cover successful source publication, original owner readback, human refusa
 ## Privacy boundary
 
 This branch runs only in public Faust-S/knowledge Linux Actions with public source. No private Actions, no temporary private checkout, no private artifact uploads, no signer, secrets or real account output. A successful public adapter test is not a claim of installed product acceptance.
+
+## Update: 2026-11-17 private original Reconciliation owner
+
+Private original owner integration now exists on
+`Faust-S/T3@work/2026-11-17-t3-original-agent-atlas-d6-publication-ledger`,
+with `reconciliation/atlas-source-publication-ledger.mjs` plus
+`openInterop(...).originalAgentAtlasPublicationLedger()` bound to the original
+Control employee's signed Task, corporate context epoch and owner lifetime.
+It reuses **exactly the original ReconciliationLedger store**, generation chain,
+atomic HEAD and writer.lock; no second ledger or signer is created.
+
+Public source update `0d1cd46` verifies original Kernel Object/Event
+**before signing** the recipient-specific Atlas Exchange, and original signed
+archive bytes, recipient and source **before durable COMMITTED**.
+Public CI #43968414777 SUCCESS. The existing D6 signed continuation tests
+also passed.
+
+Private new ledger tests have NOT been executed against the original private
+Reconciliation runtime. Do not call them Windows/native PASS. Original private
+corporate `interop.result.v2` is organization-addressed by its validator:
+a distinct signed employee grant and original recipient-specific
+`iwxa.atlas` Exchange carrier remain necessary. Do not weaken that validator
+or relabel an organization archive.
+
+Native product composition (signed issuer, trusted Agent accepted source,
+original T2 Kernel and original T3 Exchange) is still not installed or
+qualified. The Node-only sender module must be packaged for the original
+**native Host**, not emitted into publicly served browser assets. Atlas's
+native Store and two cold readbacks are still required.
+
+Status: `PRIVATE_ORIGINAL_LEDGER_SOURCE_IMPLEMENTED`,
+`PUBLIC_SENDER_CI=PASS`, `D6_INSTALLED=NOT_ACCEPTED`.
