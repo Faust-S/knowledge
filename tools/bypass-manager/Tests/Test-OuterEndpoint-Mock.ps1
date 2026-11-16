@@ -4,15 +4,15 @@
 param()
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
-$script:fixture='VLESS_OK'
+$global:BMFixture='VLESS_OK'
 function global:Get-CimInstance {
   [CmdletBinding()]param([string]$ClassName)
-  if($script:fixture -eq 'NO_PROCESS') { return }
-  if($script:fixture -eq 'UNTRUSTED_PROCESS') {
+  if($global:BMFixture -eq 'NO_PROCESS') { return }
+  if($global:BMFixture -eq 'UNTRUSTED_PROCESS') {
     [pscustomobject]@{Name='xray.exe';ExecutablePath='C:\Portable\xray.exe';ProcessId=4200}
     return
   }
-  if($script:fixture -in @('AWG_OK','STALE_WFP','ONE_WFP')) {
+  if($global:BMFixture -in @('AWG_OK','STALE_WFP','ONE_WFP')) {
     [pscustomobject]@{Name='AmneziaVPN-service.exe';ExecutablePath='C:\Program Files\AmneziaVPN\AmneziaVPN-service.exe';ProcessId=4200}
     return
   }
@@ -20,11 +20,11 @@ function global:Get-CimInstance {
 }
 function global:Get-NetTCPConnection {
   [CmdletBinding()]param()
-  $remote=$(if($script:fixture -eq 'PRIVATE_REMOTE'){'10.1.1.1'}else{'9.9.9.9'})
-  $ownerPid=$(if($script:fixture -eq 'WRONG_OWNER') {4201}else{4200})
-  $state=$(if($script:fixture -eq 'SYN_SENT'){'SynSent'}else{'Established'})
+  $remote=$(if($global:BMFixture -eq 'PRIVATE_REMOTE'){'10.1.1.1'}else{'9.9.9.9'})
+  $ownerPid=$(if($global:BMFixture -eq 'WRONG_OWNER') {4201}else{4200})
+  $state=$(if($global:BMFixture -eq 'SYN_SENT'){'SynSent'}else{'Established'})
   [pscustomobject]@{State=$state;OwningProcess=$ownerPid;RemoteAddress=$remote;RemotePort=8443}
-  if($script:fixture -eq 'AMBIGUOUS') {
+  if($global:BMFixture -eq 'AMBIGUOUS') {
     [pscustomobject]@{State='SynSent';OwningProcess=4200;RemoteAddress='1.1.1.1';RemotePort=8443}
   }
 }
@@ -34,17 +34,17 @@ function global:Find-NetRoute {
 }
 function global:Get-NetAdapter {
   [CmdletBinding()]param([switch]$Physical)
-  if($script:fixture -ne 'NO_ROUTE') {
+  if($global:BMFixture -ne 'NO_ROUTE') {
     [pscustomobject]@{ifIndex=10;Status='Up'}
   }
 }
 function global:Get-WinEvent {
   [CmdletBinding()]param([hashtable]$FilterHashtable,[int]$MaxEvents)
-  if($script:fixture -notin @('AWG_OK','STALE_WFP','ONE_WFP')) { throw 'WFP disabled (simulated)' }
+  if($global:BMFixture -notin @('AWG_OK','STALE_WFP','ONE_WFP')) { throw 'WFP disabled (simulated)' }
   $out=@()
-  $amount=$(if($script:fixture -eq 'ONE_WFP'){@(1)}else{@(1,2)})
+  $amount=$(if($global:BMFixture -eq 'ONE_WFP'){@(1)}else{@(1,2)})
   foreach($i in $amount) {
-    $age=$(if($script:fixture -eq 'STALE_WFP'){-180}else{-$i})
+    $age=$(if($global:BMFixture -eq 'STALE_WFP'){-180}else{-$i})
     $ev=[pscustomobject]@{TimeCreated=(Get-Date).AddSeconds($age)}
     $ev | Add-Member -MemberType ScriptMethod -Name ToXml -Value {
       return '<Event><EventData><Data Name="Protocol">17</Data><Data Name="ProcessID">4200</Data><Data Name="DestAddress">9.9.9.9</Data><Data Name="DestPort">51820</Data></EventData></Event>'
@@ -54,7 +54,7 @@ function global:Get-WinEvent {
   return $out
 }
 function Assert-BMFixture([string]$Scenario,[string]$Protocol,[string]$Expected) {
-  $script:fixture=$Scenario
+  $global:BMFixture=$Scenario
   $raw=@(& (Join-Path $root 'runtime\Scripts\Get-OuterEndpoint.ps1') -Protocol $Protocol)
   if($raw.Count -ne 1) { throw "expected one JSON object: $Scenario" }
   $r=$raw[0] | ConvertFrom-Json
