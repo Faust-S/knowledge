@@ -1,0 +1,74 @@
+name: Bypass Manager - adversarial scenario matrix
+
+on:
+  push:
+    branches:
+      - work/2026-11-15-bypass-manager-0-3-alpha
+    paths:
+      - tools/bypass-manager/**
+      - .github/workflows/bypass-manager-scenarios.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-go-race-and-stress:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: tools/bypass-manager
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: All native Linux Go tests, including malformed evidence
+        run: go test -count=1 ./...
+      - name: Race detector
+        run: go test -race -count=1 ./...
+      - name: Go vet
+        run: go vet ./...
+      - name: Stress endpoint and cancellation tests 25 times
+        run: go test -count=25 -run 'TestOuterEndpoint|TestWaitGuideResponse|TestFinalizeGuideReport' ./...
+      - name: Cross-compile Windows native GUI
+        run: GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-H windowsgui -s -w" -o Bypass-Manager-Sanity.exe .
+
+  windows-native-scenarios:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: tools/bypass-manager
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Windows Go tests, build, vet
+        shell: pwsh
+        run: |
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw "Go tests failed" }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw "Go vet failed" }
+          go build -trimpath -ldflags='-H windowsgui -s -w' -o Bypass-Manager.exe .
+          if ($LASTEXITCODE -ne 0) { throw "Windows native build failed" }
+      - name: PowerShell 5.1 native scripts and mocked remote endpoints
+        shell: powershell
+        run: |
+          .\Tests\Verify-Windows.ps1
+          .\Tests\Test-OuterEndpoint-Mock.ps1
+          .\Tests\Test-MTU-Rollback-Mock.ps1
+          .\Tests\Test-EndpointRoute.ps1
+          .\Tests\Test-OwnRecovery.ps1
+      - name: Native Win32 lifetime and optional controls
+        shell: powershell
+        run: .\Tests\Test-GuiSmoke.ps1
