@@ -49,3 +49,35 @@ func TestStrictReportRejectsInjectedUserFields(t *testing.T) {
 		t.Fatal("unknown identity field included")
 	}
 }
+
+func TestSupportBundleAppsAndMTUAvoidProcessIdentity(t *testing.T) {
+	dir := t.TempDir()
+	app := AppAudit{SchemaVersion: "0.3.4", State: "OBSERVED_NOT_VERIFIED", ProcessCount: 3, PhysicalBound: 2, Findings: []string{"PHYSICAL_BINDING_OBSERVED"}, Caveat: appAuditCaveat}
+	mtu := MTUTrialReport{SchemaVersion: "0.3.4", State: "NO_REPRODUCIBLE_GAIN_REVERTED", BeforeMTU: 1500, TrialMTU: 1420, RollbackStatus: "RESTORED", Caveat: mtuTrialCaveat}
+	if err := saveJSON(filepath.Join(dir, "latest-apps.json"), app); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveJSON(filepath.Join(dir, "latest-mtu-trial.json"), mtu); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveJSON(filepath.Join(dir, "app-details-local.json"), map[string]string{"process": "veryPrivateApp.exe", "endpoint": "9.9.9.9"}); err != nil {
+		t.Fatal(err)
+	}
+	_, got, err := saveSupport(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Apps == nil || got.MTU == nil || got.Available != 2 {
+		t.Fatalf("subreports missing %+v", got)
+	}
+	blob, _ := json.Marshal(got)
+	if bytes.Contains(blob, []byte("veryPrivateApp")) || bytes.Contains(blob, []byte("9.9.9.9")) {
+		t.Fatal("privacy boundary breached")
+	}
+	// Unknown fields in the shareable app schema are rejected, including the local process name.
+	os.WriteFile(filepath.Join(dir, "latest-apps.json"), []byte(`{"schema_version":"0.3.4","process_count":1,"name":"AliceApp"}`), 0600)
+	got = buildSupportReport(dir, time.Now())
+	if got.Apps != nil {
+		t.Fatal("raw local process name accepted by exported report")
+	}
+}

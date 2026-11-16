@@ -24,6 +24,8 @@ type SupportReport struct {
 	Path          *PathReport        `json:"path,omitempty"`
 	Live          *LiveAudit         `json:"live,omitempty"`
 	Stability     *StabilityReport   `json:"stability,omitempty"`
+	Apps          *AppAudit          `json:"apps,omitempty"`
+	MTU           *MTUTrialReport    `json:"mtu_trial,omitempty"`
 	Guide         *GuideReport       `json:"guide,omitempty"`
 	Caveat        string             `json:"caveat"`
 }
@@ -51,7 +53,7 @@ func readStrictJSON(path string, out any) error {
 	return nil
 }
 func buildSupportReport(folder string, now time.Time) SupportReport {
-	s := SupportReport{SchemaVersion: "0.3.3", GeneratedUTC: now.UTC().Format(time.RFC3339), Summary: "READ_ONLY_RECONSTRUCTION", Sources: []SupportSource{}, Caveat: "This export is limited to whitelist-only numeric and status evidence. It contains no raw IP, country, city, ISP, SSID, gateway, local paths, usernames or VPN keys. Results cannot independently prove a native VPN handshake or end-to-end video playback."}
+	s := SupportReport{SchemaVersion: "0.3.4", GeneratedUTC: now.UTC().Format(time.RFC3339), Summary: "READ_ONLY_RECONSTRUCTION", Sources: []SupportSource{}, Caveat: "This export is limited to whitelist-only numeric and status evidence. It contains no raw IP, country, city, ISP, SSID, gateway, local paths, usernames or VPN keys. Results cannot independently prove a native VPN handshake or end-to-end video playback."}
 	// Exact constant names; never accept a user-supplied path or arbitrary glob.
 	sources := []struct {
 		name   string
@@ -62,6 +64,8 @@ func buildSupportReport(folder string, now time.Time) SupportReport {
 		{"latest-path.json", &PathReport{}},
 		{"latest-speed.json", &LiveAudit{}},
 		{"latest-stability.json", &StabilityReport{}},
+		{"latest-apps.json", &AppAudit{}},
+		{"latest-mtu-trial.json", &MTUTrialReport{}},
 	}
 	for _, entry := range sources {
 		path := filepath.Join(folder, entry.name)
@@ -89,6 +93,10 @@ func buildSupportReport(folder string, now time.Time) SupportReport {
 					s.Live = v
 				case *StabilityReport:
 					s.Stability = v
+				case *AppAudit:
+					s.Apps = v
+				case *MTUTrialReport:
+					s.MTU = v
 				}
 				s.Available++
 			} else {

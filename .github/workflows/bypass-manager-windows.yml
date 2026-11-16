@@ -39,6 +39,8 @@ jobs:
           .\Tests\Test-VpnStatus.ps1
           .\Tests\Test-NetworkHealth.ps1
           .\Tests\Test-PathEvidence.ps1
+          .\Tests\Test-AppSockets.ps1
+          .\Tests\Test-TemporaryMTU.ps1
           .\Tests\Test-EndpointRoute.ps1
           .\Tests\Test-OwnRecovery.ps1
           $p=Start-Process -FilePath .\Bypass-Manager.exe -ArgumentList '--status' -PassThru -Wait

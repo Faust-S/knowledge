@@ -70,6 +70,8 @@ const (
 	idGeoLine          = 2018
 	idSpeedLine        = 2019
 	idRiskLine         = 2020
+	idApplications     = 2021
+	idMTUTrial         = 2022
 )
 
 type winClassEx struct {
@@ -155,33 +157,33 @@ func winMessageBox(parent uintptr, message, title string, flags uintptr) int {
 func cleanLog(s string) string { return redactText(s) }
 
 type managerUI struct {
-	hwnd                                                                                                                              uintptr
-	home                                                                                                                              string
-	cfg                                                                                                                               Config
-	endpoint, port, adapter, engine, transport, preferred                                                                             uintptr
-	logs, status, startButton, stopButton, saveButton, prepareButton, dnsButton                                                       uintptr
-	refreshButton, internetButton, recoverButton, advancedButton, guideButton, networkButton, liveButton, pathButton, stabilityButton uintptr
-	vpnLine, netLine, dpiLine, guideLine, publicLine, geoLine, speedLine, riskLine                                                    uintptr
-	advancedControls                                                                                                                  []uintptr
-	advanced                                                                                                                          bool
-	autoAdapter                                                                                                                       string
-	mu                                                                                                                                sync.Mutex
-	queue                                                                                                                             []string
-	cancel                                                                                                                            context.CancelFunc
-	running, preparing, inspectingDNS, closing                                                                                        bool
-	guiding                                                                                                                           bool
-	liveBusy                                                                                                                          bool
-	liveView                                                                                                                          PublicView
-	liveAudit                                                                                                                         LiveAudit
-	guideStep                                                                                                                         string
-	refreshing, recovering                                                                                                            bool
-	stopError                                                                                                                         string
-	lastSnapshot                                                                                                                      VPNState
-	snapshotError                                                                                                                     bool
-	lastOnline                                                                                                                        bool
-	pollStop                                                                                                                          chan struct{}
-	lifetimeCtx                                                                                                                       context.Context
-	lifetimeCancel                                                                                                                    context.CancelFunc
+	hwnd                                                                                                                                                     uintptr
+	home                                                                                                                                                     string
+	cfg                                                                                                                                                      Config
+	endpoint, port, adapter, engine, transport, preferred                                                                                                    uintptr
+	logs, status, startButton, stopButton, saveButton, prepareButton, dnsButton                                                                              uintptr
+	refreshButton, internetButton, recoverButton, advancedButton, guideButton, networkButton, liveButton, pathButton, stabilityButton, appsButton, mtuButton uintptr
+	vpnLine, netLine, dpiLine, guideLine, publicLine, geoLine, speedLine, riskLine                                                                           uintptr
+	advancedControls                                                                                                                                         []uintptr
+	advanced                                                                                                                                                 bool
+	autoAdapter                                                                                                                                              string
+	mu                                                                                                                                                       sync.Mutex
+	queue                                                                                                                                                    []string
+	cancel                                                                                                                                                   context.CancelFunc
+	running, preparing, inspectingDNS, closing                                                                                                               bool
+	guiding                                                                                                                                                  bool
+	liveBusy                                                                                                                                                 bool
+	liveView                                                                                                                                                 PublicView
+	liveAudit                                                                                                                                                LiveAudit
+	guideStep                                                                                                                                                string
+	refreshing, recovering                                                                                                                                   bool
+	stopError                                                                                                                                                string
+	lastSnapshot                                                                                                                                             VPNState
+	snapshotError                                                                                                                                            bool
+	lastOnline                                                                                                                                               bool
+	pollStop                                                                                                                                                 chan struct{}
+	lifetimeCtx                                                                                                                                              context.Context
+	lifetimeCancel                                                                                                                                           context.CancelFunc
 }
 
 var activeUI *managerUI // one window, one manager process, no resident daemon
@@ -242,6 +244,8 @@ func (ui *managerUI) toggleRun(r bool) {
 	procEnable.Call(ui.guideButton, value)
 	procEnable.Call(ui.networkButton, value)
 	procEnable.Call(ui.pathButton, value)
+	procEnable.Call(ui.appsButton, value)
+	procEnable.Call(ui.mtuButton, value)
 	procEnable.Call(ui.stabilityButton, value)
 	// The independent speed check is available even while a DPI wizard is running.
 	if r {
@@ -648,19 +652,21 @@ func (ui *managerUI) initControls() {
 	ui.dnsButton = ctrl(ui.hwnd, "BUTTON", "\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c DNS", wsTabStop, idDNS, 230, 400, 160, 32)
 	ui.networkButton = ctrl(ui.hwnd, "BUTTON", "Диагностика сети", wsTabStop, idNetworkHealth, 540, 400, 145, 32)
 	ui.pathButton = ctrl(ui.hwnd, "BUTTON", "Задержка / MTU", wsTabStop, idPath, 693, 400, 155, 32)
+	ui.appsButton = ctrl(ui.hwnd, "BUTTON", "Программы / соединения", wsTabStop, idApplications, 20, 440, 200, 32)
+	ui.mtuButton = ctrl(ui.hwnd, "BUTTON", "Проба MTU с откатом", wsTabStop, idMTUTrial, 230, 440, 215, 32)
 	ui.stopButton = ctrl(ui.hwnd, "BUTTON", "\u041e\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c", wsTabStop, idStop, 400, 400, 130, 32)
-	ui.status = ctrl(ui.hwnd, "STATIC", "\u041e\u0436\u0438\u0434\u0430\u043d\u0438\u0435. \u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 VPN \u043d\u0435 \u043c\u0435\u043d\u044f\u044e\u0442\u0441\u044f.", 0, 0, 20, 449, 820, 22)
+	ui.status = ctrl(ui.hwnd, "STATIC", "\u041e\u0436\u0438\u0434\u0430\u043d\u0438\u0435. \u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 VPN \u043d\u0435 \u043c\u0435\u043d\u044f\u044e\u0442\u0441\u044f.", 0, 0, 20, 483, 820, 22)
 	// Advanced transport/endpoint fields are hidden until expressly requested.
-	ui.advancedCtrl(ui.hwnd, "STATIC", "IP VPN-\u0441\u0435\u0440\u0432\u0435\u0440\u0430", 0, 0, 20, 489, 130, 22)
-	ui.endpoint = ui.advancedCtrl(ui.hwnd, "EDIT", ui.cfg.EndpointIPv4, wsBorder|wsTabStop|esAutoHScroll, 101, 160, 483, 235, 26)
-	ui.advancedCtrl(ui.hwnd, "STATIC", "\u041f\u043e\u0440\u0442", 0, 0, 422, 489, 60, 22)
+	ui.advancedCtrl(ui.hwnd, "STATIC", "IP VPN-\u0441\u0435\u0440\u0432\u0435\u0440\u0430", 0, 0, 20, 523, 130, 22)
+	ui.endpoint = ui.advancedCtrl(ui.hwnd, "EDIT", ui.cfg.EndpointIPv4, wsBorder|wsTabStop|esAutoHScroll, 101, 160, 517, 235, 26)
+	ui.advancedCtrl(ui.hwnd, "STATIC", "\u041f\u043e\u0440\u0442", 0, 0, 422, 523, 60, 22)
 	port := strconv.Itoa(ui.cfg.Port)
 	if ui.cfg.Port == 0 {
 		port = ""
 	}
-	ui.port = ui.advancedCtrl(ui.hwnd, "EDIT", port, wsBorder|wsTabStop|esAutoHScroll, 102, 494, 483, 92, 26)
-	ui.advancedCtrl(ui.hwnd, "STATIC", "\u0422\u0440\u0430\u043d\u0441\u043f\u043e\u0440\u0442", 0, 0, 606, 489, 90, 22)
-	ui.transport = ui.advancedCtrl(ui.hwnd, "COMBOBOX", "", wsTabStop|wsVScroll|cbDropdownList, 103, 703, 483, 132, 320)
+	ui.port = ui.advancedCtrl(ui.hwnd, "EDIT", port, wsBorder|wsTabStop|esAutoHScroll, 102, 494, 517, 92, 26)
+	ui.advancedCtrl(ui.hwnd, "STATIC", "\u0422\u0440\u0430\u043d\u0441\u043f\u043e\u0440\u0442", 0, 0, 606, 523, 90, 22)
+	ui.transport = ui.advancedCtrl(ui.hwnd, "COMBOBOX", "", wsTabStop|wsVScroll|cbDropdownList, 103, 703, 517, 132, 320)
 	for _, name := range []string{"AWG-UDP", "REALITY-TCP", "XHTTP-TCP"} {
 		send(ui.transport, cbAddString, 0, uintptr(unsafe.Pointer(wstr(name))))
 	}
@@ -671,10 +677,10 @@ func (ui *managerUI) initControls() {
 		sel = 2
 	}
 	send(ui.transport, cbSetCurSel, sel, 0)
-	ui.advancedCtrl(ui.hwnd, "STATIC", "VPN-\u0430\u0434\u0430\u043f\u0442\u0435\u0440", 0, 0, 20, 528, 135, 22)
-	ui.adapter = ui.advancedCtrl(ui.hwnd, "EDIT", ui.cfg.AdapterName, wsBorder|wsTabStop|esAutoHScroll, 104, 160, 523, 245, 27)
-	ui.advancedCtrl(ui.hwnd, "STATIC", "\u041f\u0440\u0438\u043e\u0440\u0438\u0442\u0435\u0442", 0, 0, 430, 528, 95, 22)
-	ui.preferred = ui.advancedCtrl(ui.hwnd, "COMBOBOX", "", wsTabStop|wsVScroll|cbDropdownList, 106, 533, 523, 290, 250)
+	ui.advancedCtrl(ui.hwnd, "STATIC", "VPN-\u0430\u0434\u0430\u043f\u0442\u0435\u0440", 0, 0, 20, 562, 135, 22)
+	ui.adapter = ui.advancedCtrl(ui.hwnd, "EDIT", ui.cfg.AdapterName, wsBorder|wsTabStop|esAutoHScroll, 104, 160, 557, 245, 27)
+	ui.advancedCtrl(ui.hwnd, "STATIC", "\u041f\u0440\u0438\u043e\u0440\u0438\u0442\u0435\u0442", 0, 0, 430, 562, 95, 22)
+	ui.preferred = ui.advancedCtrl(ui.hwnd, "COMBOBOX", "", wsTabStop|wsVScroll|cbDropdownList, 106, 533, 557, 290, 250)
 	names := []string{"\u0410\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438", "NONE", "UDP-FAKE", "UDP-REPEAT", "TLS-SPLIT", "TLS-DISORDER", "TLS-FAKESEQ", "TLS-FAKETTL"}
 	preferred := uintptr(0)
 	for i, name := range names {
@@ -684,11 +690,11 @@ func (ui *managerUI) initControls() {
 		}
 	}
 	send(ui.preferred, cbSetCurSel, preferred, 0)
-	ui.advancedCtrl(ui.hwnd, "STATIC", "\u041f\u0430\u043f\u043a\u0430 winws2", 0, 0, 20, 571, 135, 22)
-	ui.engine = ui.advancedCtrl(ui.hwnd, "EDIT", ui.cfg.BundleRoot, wsBorder|wsTabStop|esAutoHScroll, 105, 160, 564, 655, 27)
-	ui.saveButton = ui.advancedCtrl(ui.hwnd, "BUTTON", "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c DPI-\u043f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b", wsTabStop, idSave, 20, 601, 240, 35)
-	ui.startButton = ui.advancedCtrl(ui.hwnd, "BUTTON", "\u0410\u0432\u0442\u043e\u043f\u043e\u0434\u0431\u043e\u0440 DPI", wsTabStop, idStart, 272, 601, 195, 35)
-	ui.logs = ctrl(ui.hwnd, "EDIT", "Bypass Manager 0.3 Alpha\r\n\u0414\u043b\u044f \u043d\u0430\u0447\u0430\u043b\u0430 \u043d\u0430\u0436\u043c\u0438\u0442\u0435 \u00ab\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c\u00bb \u0438\u043b\u0438 \u00ab\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u0438\u043d\u0442\u0435\u0440\u043d\u0435\u0442\u00bb.\r\n", wsBorder|wsVScroll|esMultiline|esAutoVScroll|esReadOnly, 110, 20, 479, 820, 360)
+	ui.advancedCtrl(ui.hwnd, "STATIC", "\u041f\u0430\u043f\u043a\u0430 winws2", 0, 0, 20, 605, 135, 22)
+	ui.engine = ui.advancedCtrl(ui.hwnd, "EDIT", ui.cfg.BundleRoot, wsBorder|wsTabStop|esAutoHScroll, 105, 160, 598, 655, 27)
+	ui.saveButton = ui.advancedCtrl(ui.hwnd, "BUTTON", "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c DPI-\u043f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b", wsTabStop, idSave, 20, 635, 240, 35)
+	ui.startButton = ui.advancedCtrl(ui.hwnd, "BUTTON", "\u0410\u0432\u0442\u043e\u043f\u043e\u0434\u0431\u043e\u0440 DPI", wsTabStop, idStart, 272, 635, 195, 35)
+	ui.logs = ctrl(ui.hwnd, "EDIT", "Bypass Manager 0.3 Alpha\r\n\u0414\u043b\u044f \u043d\u0430\u0447\u0430\u043b\u0430 \u043d\u0430\u0436\u043c\u0438\u0442\u0435 \u00ab\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c\u00bb \u0438\u043b\u0438 \u00ab\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u0438\u043d\u0442\u0435\u0440\u043d\u0435\u0442\u00bb.\r\n", wsBorder|wsVScroll|esMultiline|esAutoVScroll|esReadOnly, 110, 20, 513, 820, 326)
 	procEnable.Call(ui.stopButton, 0)
 	ui.applyAdvanced()
 }
@@ -708,11 +714,11 @@ func (ui *managerUI) layout() {
 			procMove.Call(handle, 20, uintptr(80+27*i), uintptr(w-40), 24, 1)
 		}
 	}
-	procMove.Call(ui.status, 20, 449, uintptr(w-40), 22, 1)
-	bottom := int32(479)
+	procMove.Call(ui.status, 20, 483, uintptr(w-40), 22, 1)
+	bottom := int32(513)
 	if ui.advanced {
-		bottom = 649
-		procMove.Call(ui.engine, 160, 564, uintptr(w-200), 27, 1)
+		bottom = 683
+		procMove.Call(ui.engine, 160, 598, uintptr(w-200), 27, 1)
 	}
 	if h-bottom < 100 {
 		bottom = h - 110
@@ -811,6 +817,14 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 		case idNetworkHealth:
 			if !ui.running {
 				ui.inspectNetwork()
+			}
+		case idApplications:
+			if !ui.running {
+				ui.inspectApps()
+			}
+		case idMTUTrial:
+			if !ui.running {
+				ui.trialMTU()
 			}
 		case idPath:
 			if !ui.running {

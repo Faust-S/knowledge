@@ -59,6 +59,22 @@ func tuningSuggestions(s SupportReport) []TuningSuggestion {
 			add("REMOTE_ICMP_UNKNOWN", "UNKNOWN", "Remote echo requests did not return", "Use HTTPS/TLS timings instead of treating ICMP silence as a blockage", "Compare DNS/TCP/TLS/TTFB by provider", "No network change")
 		}
 	}
+	if s.Apps != nil {
+		if s.Apps.PhysicalBound > 0 {
+			add("APPLICATION_SOURCE_BINDING_REVIEW", "OBSERVED_NOT_VERIFIED", "Some applications have active TCP sockets bound to a physical-interface address", "Inspect selected applications for built-in proxy, VPN extensions and split-tunnel rules; test egress inside the actual application", "Compare each application's own external address, not only the manager's HTTPS probe", "Restore the original application proxy and split-tunnel policy")
+		}
+		if s.Apps.UDPBound > 0 {
+			add("UDP_APPLICATION_PATH_UNKNOWN", "UNKNOWN", "UDP sockets observed but their remote destinations and effective egress are unknown", "Use an application-specific test; do not infer UDP routing from bound sockets", "Compare actual app connectivity during VPN on/off while avoiding DNS/IP leaks", "No system setting changed")
+		}
+	}
+	if s.MTU != nil {
+		if s.MTU.State == "MEASURABLE_IMPROVEMENT_REVERTED" && s.MTU.RollbackStatus == "RESTORED" {
+			add("MTU_TEMPORARY_GAIN_REVIEW", "ONE_SAMPLE_ONLY", "A short MTU ActiveStore A/B sample improved but was rolled back", "Re-test with longer real video and packet-loss measurements; do not persist this MTU automatically", "Compare several independent complete downloads without packet drops", "Temporary setting already restored")
+		}
+		if s.MTU.RollbackStatus == "ROLLBACK_UNVERIFIED_WATCHDOG_PENDING" {
+			add("MTU_ROLLBACK_UNVERIFIED", "HIGH_RISK", "The local temporary MTU restoration was not confirmed", "Allow the independent watchdog to expire, then inspect the active physical interface MTU", "Compare to the original numeric MTU recorded in the private local journal", "Restore original MTU using elevated Windows tools if watchdog also fails")
+		}
+	}
 	if s.Live != nil {
 		if s.Live.EgressConsensus && s.Live.BaselineState == "IP_UNCHANGED_POSSIBLE_DIRECT_EGRESS" {
 			add("POSSIBLE_DIRECT_EGRESS", "HIGH_RISK", "Program public IP matches the fresh VPN-off baseline", "Check full VPN route and per-application proxy/split tunnel", "Require a changed external IP before claiming IP masking", "Restore original VPN routing after any authorized trial")
