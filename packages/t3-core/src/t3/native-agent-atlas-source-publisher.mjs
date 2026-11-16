@@ -170,6 +170,7 @@ export function createTrustedAgentAtlasSourcePublisher({
       same(read.object.data.workRef,binding.workRef,WORK)&&
       Array.isArray(events)&&events.filter(e=>
         e?.idempotency_key===effectKey&&
+        e?.event_type==="iwxa.agent.result.published"&&
         e?.event_id===row.originalEventId&&
         e?.object_id===ref.object_id&&
         e?.revision===ref.revision&&
@@ -280,7 +281,8 @@ export function createTrustedAgentAtlasSourcePublisher({
         obj.data.signedTaskPackageSha256===binding.signedTaskPackageSha256&&
         obj.data.contextDigest===binding.contextDigest&&
         same(obj.data.workRef,binding.workRef,WORK)&&
-        object(command.event)&&id(command.event.event_type),
+        object(command.event)&&
+        command.event.event_type==="iwxa.agent.result.published",
         "T3_D6_ORIGINAL_GRAPH_PROVENANCE_INVALID");
       // Reserve in the ORIGINAL durable ledger before ANY Kernel write.
       // If this reservation's ACK is lost, never dispatch or retry.
@@ -321,6 +323,7 @@ export function createTrustedAgentAtlasSourcePublisher({
           same(observed.object.data.workRef,binding.workRef,WORK)&&
           Array.isArray(history)&&history.filter(event=>
             event?.event_id===written.event.event_id&&
+            event.event_type==="iwxa.agent.result.published"&&
             event.idempotency_key===key&&
             event.workspace_id===ref.workspace_id&&
             event.object_id===ref.object_id&&event.revision===ref.revision
