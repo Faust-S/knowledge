@@ -37,7 +37,7 @@ jobs:
         run: GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-H windowsgui -s -w" -o Bypass-Manager-Sanity.exe .
 
       - name: Archive exactly tested sources for independent recheck
-        run: git archive --format=zip --prefix=bypass-manager-source/ -o bypass-manager-source.zip HEAD:tools/bypass-manager
+        run: git -C "$GITHUB_WORKSPACE" archive --format=zip --prefix=bypass-manager-source/ --output="$GITHUB_WORKSPACE/tools/bypass-manager/bypass-manager-source.zip" HEAD tools/bypass-manager
       - uses: actions/upload-artifact@v4
         with:
           name: bypass-manager-scenario-source
