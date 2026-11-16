@@ -165,7 +165,8 @@ export function createOriginalEmployeeEnrollmentOwner({
       const g=env.payload;
       return g.principalId===organization.organizationId&&
         g.authorityId===organization.issuerAuthorityId&&
-        g.holderId===employeePersonId&&g.resources.includes(workspaceId)&&
+        g.holderId===employeePersonId&&
+        (g.resources.includes(workspaceId)||g.resources.includes('workspace:'+workspaceId))&&
         g.evidenceRefs.includes('employee-enrollment:'+enrollmentId);
     });
     check(rows.length===2,'T3_EMPLOYEE_ORIGINAL_GRANT_PAIR_REQUIRED');
@@ -383,7 +384,8 @@ export function createOriginalEmployeeEnrollmentOwner({
       env.payload.principalId===organizationId&&
       env.payload.authorityId===pinnedOrganization.issuerAuthorityId&&
       env.payload.holderId===employeePersonId&&
-      env.payload.resources.includes(trustedWorkspaceId)&&
+      (env.payload.resources.includes(trustedWorkspaceId)||
+       env.payload.resources.includes('workspace:'+trustedWorkspaceId))&&
       env.payload.evidenceRefs.includes('employee-enrollment:'+enrollmentId));
     check(rows.length===2,'T3_EMPLOYEE_ENROLLMENT_READBACK_NOT_FOUND');
     let authorityState='ORIGINAL_GRANTS_ACTIVE';
