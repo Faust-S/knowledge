@@ -188,7 +188,6 @@ export function createOriginalKernelRegistryStatePort({
       record.schema_version==="1.0.0" &&
       Number.isSafeInteger(record.revision)&&record.revision>0,
       "T3_ACCESS_REGISTRY_ORIGINAL_RECEIPT_INVALID");
-    const state=stateAt(record.data,pinned,now);
     const events=await kernel.listEventsSince(workspaceId);
     check(Array.isArray(events),"T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_UNAVAILABLE");
     const journal=events.filter(e=>e?.event_type===ORIGINAL_REGISTRY_EVENT &&
@@ -197,24 +196,55 @@ export function createOriginalKernelRegistryStatePort({
     // The ORIGINAL T2 event journal is the monotonic evidence. A caller
     // cannot silently replay an earlier signed STATUS by rewriting only the
     // latest Object revision while its higher-sequence event remains.
+    // Historical original Kernel Events are the signed policy progression.
+    // An admitted employee proof key cannot become a new issuer or admin.
+    let observedPolicy=copy(pinned),currentHash=trustedHash;
+    let priorFloors=null,expectedRevision=0;
     for(const event of journal){
+      expectedRevision++;
       check(event.workspace_id===workspaceId &&
-        event.payload.policy_digest===trustedHash &&
+        event.payload?.object_id===objectId&&
+        event.payload.revision===expectedRevision &&
         dictionary(event.payload.status_sequences) &&
         Object.keys(event.payload.status_sequences).length===
           Object.keys(pinned.authorities).length,
         "T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT");
+      const trust=event.payload.proof_credential_admission;
+      if(trust!==undefined){
+        check(expectedRevision>1&&priorFloors,
+          "T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH");
+        observedPolicy=verifyProofKeyAdmission(trust,observedPolicy,event);
+        currentHash=digest(observedPolicy);
+        for(const authorityId of Object.keys(pinned.authorities)){
+          const delta=authorityId===trust.authority_id?1:0;
+          check(event.payload.status_sequences[authorityId]===
+            priorFloors[authorityId]+delta,
+            "T3_ACCESS_PROOF_KEY_STATUS_SEQUENCE_INVALID");
+        }
+      }else{
+        check(event.payload.policy_digest===currentHash,
+          expectedRevision===1?"T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH":
+            "T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT");
+      }
       for(const authorityId of Object.keys(pinned.authorities)){
         const observed=event.payload.status_sequences[authorityId];
-        check(Number.isSafeInteger(observed)&&observed>=0 &&
-          observed<=state.statusFloor[authorityId],
+        check(Number.isSafeInteger(observed)&&observed>=0&&
+          (priorFloors===null||observed>=priorFloors[authorityId]),
           "T3_ACCESS_REGISTRY_ORIGINAL_SEQUENCE_ROLLBACK");
       }
+      priorFloors=event.payload.status_sequences;
+    }
+    check(same(observedPolicy,record.data?.policy),
+      "T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH");
+    const state=stateAt(record.data,observedPolicy,now);
+    for(const authorityId of Object.keys(pinned.authorities)){
+      check(priorFloors[authorityId]===state.statusFloor[authorityId],
+        "T3_ACCESS_REGISTRY_ORIGINAL_SEQUENCE_ROLLBACK");
     }
     const last=journal.at(-1);
     check(last.workspace_id===workspaceId &&
       last.payload.revision===record.revision &&
-      last.payload.policy_digest===trustedHash &&
+      last.payload.policy_digest===digest(state.policy) &&
       last.payload.state_digest===digest(state),
       "T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT");
     return Object.freeze({revision:record.revision,state:copy(state)});
@@ -224,7 +254,7 @@ export function createOriginalKernelRegistryStatePort({
     const now=validClock(clock);
     const draft=copy(signedState);
     draft.lastObservedAt=iso(now);
-    const next=stateAt(draft,pinned,now);
+    const next=stateAt(draft,before?.state.policy??pinned,now);
     if(before) assertForward(before.state,next);
     const revision=(before?.revision??0)+1;
     const digestState=digest(next);
@@ -233,7 +263,7 @@ export function createOriginalKernelRegistryStatePort({
       schema_id:ORIGINAL_REGISTRY_SCHEMA,schema_version:"1.0.0",
       base_revision:before?.revision??0,data:next,extensions:{},
       event:{event_type:ORIGINAL_REGISTRY_EVENT,payload:{
-        object_id:objectId,revision,policy_digest:trustedHash,
+        object_id:objectId,revision,policy_digest:digest(next.policy),
         state_digest:digestState,status_sequences:copy(next.statusFloor),
       }},
     });
@@ -246,7 +276,7 @@ export function createOriginalKernelRegistryStatePort({
     const committed=await read();
     check(committed.revision===revision&&same(committed.state,next),
       "T3_ACCESS_REGISTRY_READBACK_MISMATCH");
-    return Object.freeze({revision,policy_digest:trustedHash,
+    return Object.freeze({revision,policy_digest:digest(next.policy),
       state_digest:digestState,event_id:receipt.event.event_id});
   };
   const port=Object.freeze({
@@ -254,7 +284,7 @@ export function createOriginalKernelRegistryStatePort({
     commitSignedState:commit,
     getStatus:async()=>{const state=(await read()).state;
       return Object.freeze({sequences:copy(state.statusFloor),
-        policy_digest:trustedHash});},
+        policy_digest:digest(state.policy),root_policy_digest:trustedHash});},
   });
   originalPorts.add(port);
   return port;
