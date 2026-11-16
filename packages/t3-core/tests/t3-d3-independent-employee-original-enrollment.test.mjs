@@ -8,7 +8,7 @@ import {keyObjectSigner,makeProof,signRecord,iso,digest}
   from '../src/t3/access/core.mjs';
 import {createOriginalEmployeeEnrollmentOwner}
   from '../src/t3/access/original-employee-enrollment.mjs';
-import {createOriginalKernelRegistryStatePort}
+import {createOriginalKernelRegistryStatePort,ORIGINAL_PROOF_KEY_ADMISSION}
   from '../src/t3/access/original-kernel-registry-state.mjs';
 import {verifyOrganizationEnrollment,createOrganizationalOperationGate}
   from '../src/t3/access/organizational-operation.mjs';
@@ -25,13 +25,15 @@ const employee=(id,person)=>{
   expiresAt:iso(NOW+3600000)
  }};
 };
-function setup({wrongManager=false,lostAck=false}={}){
+function setup({wrongManager=false,lostAck=false,pretrustEmployees=true}={}){
  const fixture=model(),north=fixture.all.north,
    auth=fixture.policy.authorities['issuer:north'];
  const alice=employee('key:buyer-alice','person:alice'),
    bob=employee('key:buyer-bob','person:bob');
- fixture.policy.keys[alice.signer.keyId]=alice.record;
- fixture.policy.keys[bob.signer.keyId]=bob.record;
+ if(pretrustEmployees){
+  fixture.policy.keys[alice.signer.keyId]=alice.record;
+  fixture.policy.keys[bob.signer.keyId]=bob.record;
+ }
  auth.roles.push('worker','role:manager');
  auth.rightClasses.push('ADMINISTRATION','DATA');
  auth.resources.push('authority:issuer:north','workspace:ws:north',
@@ -246,4 +248,85 @@ test('independent employee uses ORIGINAL signed organization JIT gate as Persona
  const refused=await gate.authorize(escalation,auth);
  assert.equal(refused.allowed,false);
  assert.equal(s.kernel.calls.length,2);
+});
+
+
+function trustProof(s,{employee=s.alice,manager=s.north.credentialSigner,
+  proofSigner=employee.signer}={}){
+ const authorityId='issuer:north',organizationId='org:north',
+  employeeWorkspaceId='ws:north',credentialKeyId=employee.signer.keyId,
+  keyRecord=employee.record;
+ const operationDigest=digest({schema:ORIGINAL_PROOF_KEY_ADMISSION,
+  authorityId,organizationId,employeeWorkspaceId,credentialKeyId,keyRecord});
+ const managerRequest={id:'proof-key:manager',actorId:'person:operator',
+  principalId:organizationId,roleId:'role:manager',grantId:'grant:admin-north',
+  audience:'host:t3',resource:'authority:'+authorityId,
+  action:'grant.issue',purpose:'access-administration',
+  realmId:'realm:iwxa',operationDigest};
+ const employeeRequest={id:'proof-key:employee',actorId:employee.record.subjectId,
+  principalId:organizationId,roleId:'worker',grantId:'proof-key:prospective',
+  audience:'t3.employee.enrollment',resource:employeeWorkspaceId,
+  action:'work.prepare',purpose:'work',
+  realmId:'realm:iwxa',operationDigest};
+ const managerChallenge='manager-original-admission-challenge';
+ const employeeChallenge='employee-original-proof-challenge';
+ return {authorityId,organizationId,employeeWorkspaceId,
+  credentialKeyId,keyRecord,issuerSigner:s.north.issuerSigner,
+  managerRequest,managerChallenge,
+  managerProof:makeProof(managerRequest,managerChallenge,NOW,manager,'TEST'),
+  employeeRequest,employeeChallenge,
+  employeeProof:makeProof(employeeRequest,employeeChallenge,NOW,proofSigner,'TEST')};
+}
+test('new independent employee proof credential is admitted by original signed STATUS with one Kernel Object/Event',async()=>{
+ const s=setup({pretrustEmployees:false});await s.init();
+ await assert.rejects(s.owner.begin(s.input(s.alice)),
+  {code:'T3_EMPLOYEE_CREDENTIAL_NOT_PRETRUSTED'});
+ const args=trustProof(s);
+ const admitted=await s.registry.admitProofCredential(args);
+ assert.equal(admitted.state,'ORIGINAL_PROOF_CREDENTIAL_ADMITTED');
+ assert.equal(admitted.kernelRevision,2);
+ assert.equal(admitted.statusSequence,2);
+ assert.equal(s.kernel.calls.length,2);
+ const observed=await s.registry.readProofCredential({
+  credentialKeyId:args.credentialKeyId,
+  employeePersonId:'person:alice',authorityId:'issuer:north'});
+ assert.equal(observed.state,'ORIGINAL_PROOF_CREDENTIAL_ADMITTED');
+ assert.equal(observed.safeToRetry,false);
+ const cold=createOriginalKernelRegistryStatePort({
+  kernel:s.kernel.api,workspaceId:'ws:host-registry',
+  trustedPolicy:s.fixture.policy,clock:time
+ });
+ const newState=await cold.readState();
+ assert.equal(newState.policy.keys[args.credentialKeyId].subjectId,'person:alice');
+ assert.equal(newState.statusFloor['issuer:north'],2);
+ assert.equal(digest(newState.policy),admitted.policyDigest);
+ await assert.rejects(cold.admitProofCredential(args),
+  {code:'T3_ACCESS_PROOF_KEY_ALREADY_PRESENT'});
+ const started=await s.owner.begin(s.input(s.alice));
+ const issued=await s.owner.complete({enrollmentId:started.enrollmentId,
+  employeeProof:makeProof(started.request,started.challenge,NOW,s.alice.signer,'TEST')});
+ assert.equal(issued.employeePersonId,'person:alice');
+ assert.equal(issued.statusSequence,3);
+ assert.equal(s.kernel.calls.length,3);
+ const restored=await cold.readState();
+ assert.equal(restored.grants[issued.grantIds.work].payload.holderId,'person:alice');
+ assert.equal(restored.statusFloor['issuer:north'],3);
+});
+test('proof-key admission refuses unauthorized manager, wrong employee key and cross-scope change before Kernel commit',async()=>{
+ for(const variant of ['manager','employee','organization']){
+  const s=setup({pretrustEmployees:false});await s.init();
+  const args=trustProof(s);
+  if(variant==='manager')
+   args.managerProof=makeProof(args.managerRequest,args.managerChallenge,NOW,
+     s.bob.signer,'TEST');
+  if(variant==='employee')
+   args.employeeProof=makeProof(args.employeeRequest,args.employeeChallenge,NOW,
+     s.bob.signer,'TEST');
+  if(variant==='organization')args.organizationId='org:south';
+  const old=await s.registry.readState();
+  await assert.rejects(s.registry.admitProofCredential(args));
+  const after=await s.registry.readState();
+  assert.equal(digest(after),digest(old));
+  assert.equal(s.kernel.calls.length,1);
+ }
 });
