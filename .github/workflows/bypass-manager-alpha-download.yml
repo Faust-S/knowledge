@@ -1,0 +1,130 @@
+name: Publish pinned Bypass Manager 0.3 Alpha downloads
+
+on:
+  push:
+    branches:
+      - work/2026-11-15-bypass-manager-0-3-alpha
+    paths:
+      - .github/workflows/bypass-manager-alpha-download.yml
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: bypass-manager-alpha-download-2026-11-16
+  cancel-in-progress: false
+
+jobs:
+  publish-verified-alpha:
+    if: github.repository == 'Faust-S/knowledge' && github.ref == 'refs/heads/work/2026-11-15-bypass-manager-0-3-alpha'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact source corresponding to passed Windows CI
+        uses: actions/checkout@v4
+        with:
+          ref: 4dd66500c2a9c4f23bf9d39f14a04f10a98441b6
+          persist-credentials: false
+
+      - name: Retrieve and verify exact passing Windows artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/bypass-alpha-artifact"
+          gh run download 43932578241 \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name bypass-manager-0-3-alpha-win64-unsigned \
+            --dir "${RUNNER_TEMP}/bypass-alpha-artifact"
+          test -s "${RUNNER_TEMP}/bypass-alpha-artifact/Bypass-Manager.exe"
+          test -s "${RUNNER_TEMP}/bypass-alpha-artifact/README-RU.md"
+          printf '%s  %s\n' \
+            a720490ec26f85b85a1ac6bc7fba3a33021403a569078d6d3d53ad8b5c2d5434 \
+            "${RUNNER_TEMP}/bypass-alpha-artifact/Bypass-Manager.exe" | sha256sum -c -
+
+      - name: Package Windows, sources and original migration handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release/windows
+          cp "${RUNNER_TEMP}/bypass-alpha-artifact/Bypass-Manager.exe" release/windows/
+          cp "${RUNNER_TEMP}/bypass-alpha-artifact/README-RU.md" release/windows/
+          cp tools/bypass-manager/MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md release/windows/
+          (
+            cd release/windows
+            zip -q -9 ../Bypass-Manager-0.3-Alpha-Windows-x64.zip \
+              Bypass-Manager.exe README-RU.md \
+              MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md
+          )
+          git archive \
+            --format=zip \
+            --prefix=bypass-manager-0.3-alpha-source/ \
+            -o release/Bypass-Manager-0.3-Alpha-Source.zip \
+            HEAD:tools/bypass-manager
+          cp tools/bypass-manager/MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md release/
+          (
+            cd release
+            sha256sum \
+              Bypass-Manager-0.3-Alpha-Windows-x64.zip \
+              Bypass-Manager-0.3-Alpha-Source.zip \
+              MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md \
+              > SHA256SUMS.txt
+          )
+          unzip -p release/Bypass-Manager-0.3-Alpha-Windows-x64.zip Bypass-Manager.exe \
+            | sha256sum \
+            | grep -F a720490ec26f85b85a1ac6bc7fba3a33021403a569078d6d3d53ad8b5c2d5434
+
+      - name: Write release notes with precise qualification limits
+        shell: bash
+        run: |
+          cat > release-notes.md <<'NOTE'
+          # Bypass Manager 0.3 Alpha (unsigned Windows x64)
+
+          Source commit: `4dd66500c2a9c4f23bf9d39f14a04f10a98441b6`.
+
+          Windows qualification: [GitHub Actions #43932578241](https://github.com/Faust-S/knowledge/actions/runs/43932578241), PASS. The executable in this release is the exact artifact from that run (SHA-256 `a720490ec26f85b85a1ac6bc7fba3a33021403a569078d6d3d53ad8b5c2d5434`).
+
+          **REAL_NETWORK_NOT_ACCEPTED**. This Alpha is not proof that real AmneziaWG/VLESS connections, independent application egress, changed MTU on a user PC, video playback or actual anti-DPI performance work. The EXE is unsigned. Do not treat this as PRODUCT_ACCEPTED.
+
+          Downloads:
+          - `Bypass-Manager-0.3-Alpha-Windows-x64.zip`: Windows executable, Russian README and migration handoff.
+          - `Bypass-Manager-0.3-Alpha-Source.zip`: product source folder at the pinned commit.
+          - `MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md`: migration instructions.
+          - `SHA256SUMS.txt`: checksums.
+
+          Amnezia Premium is a separate product and is not included. Required external components are not bundled into this EXE.
+          NOTE
+
+      - name: Publish GitHub prerelease with permanent download URLs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=bypass-manager-0.3-alpha-2026-11-16
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists; refusing to replace assets" >&2
+            exit 1
+          fi
+          gh release create "${TAG}" \
+            release/Bypass-Manager-0.3-Alpha-Windows-x64.zip \
+            release/Bypass-Manager-0.3-Alpha-Source.zip \
+            release/MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md \
+            release/SHA256SUMS.txt \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target 4dd66500c2a9c4f23bf9d39f14a04f10a98441b6 \
+            --title "Bypass Manager 0.3 Alpha | Windows x64 | CI PASS" \
+            --notes-file release-notes.md \
+            --prerelease
+
+      - name: Verify published release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view bypass-manager-0.3-alpha-2026-11-16 \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json url,tagName,isPrerelease,assets
