@@ -1,0 +1,150 @@
+// Genuine original Ed25519 issuer, actor proofs, STATUS, inherited T2 Kernel
+// Object/Event persistence. This is not the installed independent Windows
+// employee credential ceremony or full Admin -> Agent -> Admin D3 acceptance.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {generateKeyPairSync} from 'node:crypto';
+import {keyObjectSigner,makeProof,signRecord,iso,digest}
+  from '../src/t3/access/core.mjs';
+import {createOriginalEmployeeEnrollmentOwner}
+  from '../src/t3/access/original-employee-enrollment.mjs';
+import {createOriginalKernelRegistryStatePort}
+  from '../src/t3/access/original-kernel-registry-state.mjs';
+import {verifyOrganizationEnrollment}
+  from '../src/t3/access/organizational-operation.mjs';
+import {NOW,model,originalKernelFixture}
+  from './support/t3-two-corp-original-authority.mjs';
+
+const time=()=>NOW;
+const employee=(id,person)=>{
+ const {privateKey,publicKey}=generateKeyPairSync('ed25519');
+ return {signer:keyObjectSigner(id,privateKey),record:{
+  subjectId:person,environment:'TEST',
+  publicKey:publicKey.export({type:'spki',format:'pem'}).toString(),
+  status:'ACTIVE',uses:['PROOF'],notBefore:iso(NOW-3600000),
+  expiresAt:iso(NOW+3600000)
+ }};
+};
+function setup({wrongManager=false,lostAck=false}={}){
+ const fixture=model(),north=fixture.all.north,
+   auth=fixture.policy.authorities['issuer:north'];
+ const alice=employee('key:buyer-alice','person:alice'),
+   bob=employee('key:buyer-bob','person:bob');
+ fixture.policy.keys[alice.signer.keyId]=alice.record;
+ fixture.policy.keys[bob.signer.keyId]=bob.record;
+ auth.roles.push('worker','role:manager');
+ auth.rightClasses.push('ADMINISTRATION','DATA');
+ auth.resources.push('authority:issuer:north','workspace:ws:north',
+  'subject:org:north','recipient:org:north','field:result','operation:UPSERT');
+ auth.actions.push('grant.issue','work.prepare','package.export');
+ auth.purposes.push('access-administration','work','handoff');
+ Object.assign(fixture.policy.actionCatalog,{
+  'grant.issue':'ADMINISTRATION','work.prepare':'ACTION','package.export':'DATA'
+ });
+ const admin={...fixture.state.grants['grant:north'].payload,
+  id:'grant:admin-north',lineageId:'grant:admin-north',
+  roleId:'role:manager',rightClass:'ADMINISTRATION',
+  resources:['authority:issuer:north'],actions:['grant.issue'],
+  purposes:['access-administration'],evidenceRefs:['evidence:manager-custody']
+ };
+ fixture.state.grants[admin.id]=signRecord(admin,north.issuerSigner);
+ const old=fixture.state.statuses['issuer:north'].payload;
+ fixture.state.statuses['issuer:north']=signRecord({...old,
+  entries:[...old.entries,{grantId:admin.id,state:'ACTIVE',
+    effectiveAt:iso(NOW-2500),evidenceRef:'evidence:manager-custody'}]},
+  north.issuerSigner);
+ const kernel=originalKernelFixture(),original=kernel.api;
+ let dropNext=false;
+ const wrapped={...original,async putObject(cmd){
+  const saved=await original.putObject(cmd);
+  if(dropNext){dropNext=false;throw Error('SIMULATED_LOST_ACK_AFTER_KERNEL_COMMIT');}
+  return saved;
+ }};
+ const opts={kernel:wrapped,workspaceId:'ws:host-registry',
+  trustedPolicy:fixture.policy,clock:time};
+ const registry=createOriginalKernelRegistryStatePort(opts);
+ const managerSigner=wrongManager?bob.signer:north.credentialSigner;
+ const owner=createOriginalEmployeeEnrollmentOwner({
+  registry,issuerSigner:north.issuerSigner,clock:time,
+  proveManager:async({request,challenge})=>
+   makeProof(request,challenge,NOW,managerSigner,'TEST')
+ });
+ const input=target=>({
+  organization:north.descriptors.organizations[0],
+  workspaceId:'ws:north',employeePersonId:target.record.subjectId,
+  credentialKeyId:target.signer.keyId,
+  managerPersonId:'person:operator',
+  managerGrantId:admin.id,ttlSeconds:600
+ });
+ return {fixture,north,alice,bob,registry,kernel,owner,input,
+  init:()=>registry.commitSignedState(fixture.state),
+  loseNext:()=>{dropNext=true;}};
+}
+test('independent employee grants have genuine Ed25519 proof and one original Kernel commit',async()=>{
+ const s=setup();await s.init();
+ const started=await s.owner.begin(s.input(s.alice));
+ assert.equal(started.signed,false);
+ const proof=makeProof(started.request,started.challenge,NOW,s.alice.signer,'TEST');
+ const issued=await s.owner.complete({enrollmentId:started.enrollmentId,
+  employeeProof:proof});
+ assert.equal(issued.state,'SIGNED_EMPLOYEE_ENROLLED_NOT_DELIVERED');
+ assert.equal(issued.originalSigned,true);
+ assert.equal(issued.invitationDelivered,false);
+ assert.equal(issued.credential.holderPersonId,'person:alice');
+ assert.equal(issued.credential.publicKeyRef,s.alice.signer.keyId);
+ assert.notEqual(issued.credential.holderPersonId,'person:operator');
+ assert.equal(issued.grantIds.work!==issued.grantIds.export,true);
+ assert.deepEqual(issued.workGrant.payload.actions,['work.prepare']);
+ assert.deepEqual(issued.exportGrant.payload.actions,['package.export']);
+ assert.deepEqual(issued.exportGrant.payload.resources,[
+  'workspace:ws:north','subject:org:north','recipient:org:north',
+  'field:result','operation:UPSERT'
+ ]);
+ assert.equal(s.kernel.calls.length,2);
+ const signed=await s.registry.readState();
+ assert.equal(signed.statusFloor['issuer:north'],2);
+ assert.equal(signed.statusFloor['issuer:south'],1);
+ assert.equal(verifyOrganizationEnrollment(issued.enrollment,signed,
+  s.input(s.alice).organization,NOW).personId,'person:alice');
+ const recovered=await s.owner.readEnrollment({
+  organizationId:'org:north',employeePersonId:'person:alice',
+  enrollmentId:started.enrollmentId});
+ assert.equal(recovered.state,'ORIGINAL_GRANTS_ACTIVE');
+ assert.equal(recovered.safeToReissue,false);
+ await assert.rejects(s.owner.begin(s.input(s.alice)),
+  {code:'T3_EMPLOYEE_PENDING_OR_OUTCOME_UNKNOWN'});
+});
+test('independent signer cannot be substituted by another employee, unknown trust is denied',async()=>{
+ const s=setup();await s.init();
+ const start=await s.owner.begin(s.input(s.alice));
+ await assert.rejects(s.owner.complete({enrollmentId:start.enrollmentId,
+  employeeProof:makeProof(start.request,start.challenge,NOW,s.bob.signer,'TEST')}),
+ {code:'T3_EMPLOYEE_PROOF_WRONG_CREDENTIAL'});
+ assert.equal(s.kernel.calls.length,1);
+ const t=setup();await t.init();
+ await assert.rejects(t.owner.begin({...t.input(t.alice),
+  credentialKeyId:'key:untrusted'}),{code:'T3_EMPLOYEE_CREDENTIAL_NOT_PRETRUSTED'});
+});
+test('manager without original signed administration proof cannot add a worker',async()=>{
+ const s=setup({wrongManager:true});await s.init();
+ const start=await s.owner.begin(s.input(s.alice));
+ await assert.rejects(s.owner.complete({enrollmentId:start.enrollmentId,
+  employeeProof:makeProof(start.request,start.challenge,NOW,s.alice.signer,'TEST')}),
+ {code:'T3_EMPLOYEE_MANAGER_NOT_AUTHORIZED'});
+ assert.equal(s.kernel.calls.length,1);
+});
+test('original Kernel committed but ACK lost: readback finds it and issuance does not replay',async()=>{
+ const s=setup();await s.init();
+ const start=await s.owner.begin(s.input(s.alice));
+ s.loseNext();
+ await assert.rejects(s.owner.complete({enrollmentId:start.enrollmentId,
+  employeeProof:makeProof(start.request,start.challenge,NOW,s.alice.signer,'TEST')}),
+  /SIMULATED_LOST_ACK_AFTER_KERNEL_COMMIT/);
+ const read=await s.owner.readEnrollment({organizationId:'org:north',
+  employeePersonId:'person:alice',enrollmentId:start.enrollmentId});
+ assert.equal(read.state,'ORIGINAL_GRANTS_ACTIVE');
+ assert.equal(read.safeToReissue,false);
+ assert.equal(s.kernel.calls.length,2);
+ await assert.rejects(s.owner.begin(s.input(s.bob)),
+  {code:'T3_EMPLOYEE_PENDING_OR_OUTCOME_UNKNOWN'});
+});
