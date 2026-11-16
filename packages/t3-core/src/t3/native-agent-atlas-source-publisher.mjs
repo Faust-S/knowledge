@@ -263,7 +263,11 @@ export function createTrustedAgentAtlasSourcePublisher({
       try{reserved=await originalLedger.reserve(operationId,copy(binding));}
       catch{return {status:"OUTCOME_UNKNOWN",operationId,retrySafe:false};}
       ownerRow(reserved,binding,operationId);
-      if(reserved.status!=="PREPARED")
+      // A PREPARED row may have been reserved by ANOTHER Host between
+      // our first read and reserve. The original atomic Reconciliation
+      // explicitly reports whether THIS call created the generation.
+      // Without a positive fresh-reservation ACK no Kernel/Exchange write.
+      if(reserved.status!=="PREPARED"||reserved.newReservation!==true)
         return {status:"OUTCOME_UNKNOWN",operationId,retrySafe:false};
       // All post-reservation exceptions are outcome-unknown: Kernel may
       // have committed, or original Exchange may have exported the archive.
