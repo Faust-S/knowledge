@@ -1031,11 +1031,11 @@ test("D6 original Control connects installed signed Result port without sending 
     await assert.rejects(f.browser.nativeD6Request("preview",{
       reference:{...reference,revision:0},
     }),{code:"T3_D6_SELECTED_REFERENCE_INVALID"});
-    // The mutating verb conservatively maps even a validation failure to
-    // UNKNOWN; it never tells the browser to replay a possible native write.
+    // Native dispatch never began: authenticated original validation
+    // refuses the bad revision without pretending a native ACK was lost.
     await assert.rejects(f.browser.nativeD6Request("continueSelected",{
       reference:{...reference,revision:0},
-    }),{code:"T3_D6_NATIVE_OUTCOME_UNKNOWN"});
+    }),{code:"T3_D6_SELECTED_REFERENCE_INVALID",outcome:"DENIED"});
     assert.equal(writes,1);
     const forged=await fetch(f.origin+"/api/t3/native-d6",{
       method:"POST",headers:{Authorization:"Bearer "+f.token,
@@ -1045,6 +1045,52 @@ test("D6 original Control connects installed signed Result port without sending 
     });
     assert.equal(forged.status,403);
   }finally{stop();await f.close();}
+});
+
+test("D6 original Control preserves owner DENIED without granting native replay",async()=>{
+  const reference={workspace_id:"ws:personal",object_id:"result:denied",
+    schema_id:"original-result",revision:3};
+  let writes=0;
+  const denied=(code)=>Object.assign(new Error(code),{code,outcome:"DENIED"});
+  const f=await fixture({nativeD6PortFor:async()=>({
+    preview:async input=>({status:"AVAILABLE",recipientId:"recipient:atlas",
+      operationId:"op:native:denied",reference:input}),
+    continueSelected:async()=>{writes++;
+      throw denied("ATLAS_T3_PROJECT_WRITE_NOT_AUTHORIZED");},
+    recover:async()=>{throw denied("ATLAS_T3_PROJECT_READ_NOT_AUTHORIZED");},
+  })});
+  const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
+  try{
+    await assert.rejects(f.browser.nativeD6Request("continueSelected",{reference}),
+      {code:"ATLAS_T3_PROJECT_WRITE_NOT_AUTHORIZED",outcome:"DENIED"});
+    assert.equal(writes,1);
+    // An authenticated DENIED is not permission to send again: a write may
+    // already be durable while its readback is forbidden by native owner.
+    assert.equal((await f.browser.nativeD6Request("continueSelected",{reference}))
+      .status,"OUTCOME_UNKNOWN");
+    assert.equal(writes,1);
+    await assert.rejects(f.browser.nativeD6Request("recover",{reference}),
+      {code:"ATLAS_T3_PROJECT_READ_NOT_AUTHORIZED",outcome:"DENIED"});
+  }finally{stop();await f.close();}
+
+  let unknownWrites=0;
+  const unknown=await fixture({nativeD6PortFor:async()=>({
+    preview:async input=>({status:"AVAILABLE",recipientId:"recipient:atlas",
+      operationId:"op:native:unknown",reference:input}),
+    continueSelected:async()=>{unknownWrites++;
+      throw Object.assign(new Error("unclassified native IPC failure"),
+        {code:"ATLAS_T3_IPC_UNAVAILABLE"});},
+    recover:async()=>({status:"OUTCOME_UNKNOWN"}),
+  })});
+  const close=unknown.browser.subscribeSignedAccessInvalidation(()=>{});
+  try{
+    await assert.rejects(unknown.browser.nativeD6Request("continueSelected",{reference}),
+      {code:"T3_D6_NATIVE_OUTCOME_UNKNOWN"});
+    assert.equal(unknownWrites,1);
+    assert.equal((await unknown.browser.nativeD6Request("continueSelected",{reference}))
+      .status,"OUTCOME_UNKNOWN");
+    assert.equal(unknownWrites,1);
+  }finally{close();await unknown.close();}
 });
 
 test("D7 installed age verifies and previews original Kernel without returning decrypted .iwxa to WebView",async()=>{

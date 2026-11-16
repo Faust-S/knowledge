@@ -36,6 +36,9 @@ function unb64(encoded,limit){
   return result;
 }
 const fail=code=>{const error=new Error(code);error.code=code;throw error;};
+const failNativeDenied=code=>{
+  const error=new Error(code);error.code=code;error.outcome="DENIED";throw error;
+};
 const check=(condition,code)=>{if(!condition)fail(code);};
 const validObject=value=>value!==null&&typeof value==="object"&&!Array.isArray(value);
 
@@ -261,13 +264,19 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
     catch{fail(codeOnLoss);}
     assertLive();
     if(!response.ok){
-      let code=codeOnLoss;
+      let code=codeOnLoss,definiteDenial=false;
       try{
         const error=await response.json();
-        if(typeof error?.error==="string"&&/^[A-Z0-9_]{5,100}$/.test(error.error))
+        if(typeof error?.error==="string"&&/^[A-Z0-9_]{5,100}$/.test(error.error)){
           code=error.error;
+          definiteDenial=error.outcome==="DENIED"&&
+            code!=="T3_D6_NATIVE_OUTCOME_UNKNOWN";
+        }
       }catch{}
+      // A changed signed session overrides even a previously definite
+      // refusal: the browser cannot know the outcome of a sent native write.
       assertLive();
+      if(definiteDenial)failNativeDenied(code);
       fail(mayCommit?"T3_D6_NATIVE_OUTCOME_UNKNOWN":code);
     }
     let body;

@@ -497,9 +497,14 @@ export function createOriginalControlHttpHandler({
           if(nativeWrite&&observed?.status==="USER_CANCELLED")
             nativeD6Attempted.delete(key);
         }catch(error){
-          // After dispatch a lost ACK may hide a persisted native Result.
-          // The next action must be explicit recover(), never another send.
-          if(nativeWrite)refused("T3_D6_NATIVE_OUTCOME_UNKNOWN");
+          // An original installed owner may explicitly DENY a native action,
+          // including a JIT Atlas permission check or signed readback.
+          // Preserve that verified refusal; a transport error or unclassified
+          // native exception after dispatch remains outcome-unknown.
+          // The attempt guard is NEVER cleared by a refusal: DENIED does not
+          // prove that an earlier native write could not have committed.
+          if(nativeWrite&&error?.outcome!=="DENIED")
+            refused("T3_D6_NATIVE_OUTCOME_UNKNOWN");
           throw error;
         }finally{
           if(nativeWrite)nativeD6InFlight.delete(key);
@@ -1136,11 +1141,17 @@ export function createOriginalControlHttpHandler({
       reply(res,200,result);
       return true;
     }catch(error){
+      // Only the authenticated original native D6 endpoint may attest a
+      // definite owner refusal. A guessed error code, timeout or post-write
+      // lost ACK does not carry the DENIED outcome across HTTP.
+      const code=errorCode(error);
+      const originalD6Denial=route==="/api/t3/native-d6"&&
+        error?.outcome==="DENIED"&&code!=="T3_D6_NATIVE_OUTCOME_UNKNOWN";
       if(!res.headersSent)reply(res,[
         "T3_D1_CONTROL_BODY_TOO_LARGE","T3_D3_CARRIER_TOO_LARGE",
         "T3_D7_NATIVE_CARRIER_TOO_LARGE",
       ].includes(error?.code)?413:403,
-        {error:errorCode(error)});
+        originalD6Denial?{error:code,outcome:"DENIED"}:{error:code});
       return true;
     }
   };
