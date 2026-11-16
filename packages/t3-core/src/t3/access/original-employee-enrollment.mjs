@@ -284,6 +284,25 @@ export function createOriginalEmployeeEnrollmentOwner({
       signed:false,member:false
     });
   }
+  // This is exclusively a process-local UNSUBMITTED challenge. No Kernel
+  // Object/Event, signed grant or STATUS exists until complete() dispatches.
+  // Even a failed complete() may have committed before losing its ACK, so
+  // cancellation MUST refuse after the first attempt without using readback
+  // to guess whether the write happened.
+  function cancelPending({enrollmentId,employeePersonId}={}){
+    const p=pending;
+    check(p&&!p.attempted&&!operationAttempted&&
+      p.enrollmentId===enrollmentId&&
+      p.input.employeePersonId===employeePersonId,
+      'T3_EMPLOYEE_CANCEL_AFTER_DISPATCH_FORBIDDEN');
+    pending=null;
+    return Object.freeze({
+      schema:'IWXA_T3_ORIGINAL_EMPLOYEE_CHALLENGE_CANCEL/1',
+      state:'UNSUBMITTED_EMPLOYEE_CHALLENGE_CANCELLED',
+      enrollmentId,employeePersonId,
+      originalKernelWriteAttempted:false
+    });
+  }
   async function complete({enrollmentId,employeeProof}={}){
     const p=pending,at=now();
     check(p&&!p.attempted&&p.enrollmentId===enrollmentId&&
@@ -427,5 +446,5 @@ export function createOriginalEmployeeEnrollmentOwner({
       statusSequence:restored.statusSequence});
   }
 
-  return Object.freeze({begin,complete,readEnrollment});
+  return Object.freeze({begin,complete,readEnrollment,cancelPending});
 }
