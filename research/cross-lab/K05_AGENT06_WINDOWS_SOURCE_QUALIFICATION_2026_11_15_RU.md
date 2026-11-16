@@ -147,3 +147,23 @@ Next practical owner workflow:
 Для следующей проверки изменён только одноразовый installed witness: private Agent [`0780a02d`](https://github.com/Faust-S/iwxa-personal-agent/commit/0780a02d147cdc21b4f94b49f34734b0af265159) берёт из исходного `interactive_submission_status` при STOP/TIMEOUT только заранее разрешённые `state`, `task_status`, `error_code` или `OTHER_REDACTED`, через приватный sidecar. Двойной PowerShell allowlist. Исходные Tasks, scheduler, модели и критерии K05 не изменялись. Добавлены регрессионные тесты. Публичный Center workflow [`aead2271`](https://github.com/Faust-S/Center/commit/aead2271b29e70ef2631127bc35fbe49cf54b571) закреплён на этом SHA. Два промежуточных CI запуска `240b6063`/`26652795` не создали jobs из-за ошибки YAML и не подтверждают отказ продукта; синтаксис в `aead2271` восстановлен. Новые прогоны: [installed #43772246827](https://github.com/Faust-S/Center/actions/runs/43772246827), [source #43772246817](https://github.com/Faust-S/Center/actions/runs/43772246817), на момент записи запущены, их PASS не утверждается.
 
 Итог: `K03_INSTALLED=FAIL_AT_PREVIOUS_SHA`, `K03_SCHEDULER_ROOT_CAUSE=UNKNOWN`, `K05_INSTALLED_GUI=NOT_ACCEPTED`, `REAL_EFFECTIVENESS=NOT_MEASURABLE`, `PRODUCT_ACCEPTED=false`. Private Actions не использовались. В публичный Center не публиковались приватные исходники, пакеты, пользовательские данные или модельные ответы.
+
+
+## 16.11: K03 прошёл установленный маршрут, K05 остановился на выборе Task в WebView2
+
+Проверены оригинальные публичные Windows-квитанции [Center installed #43772246827](https://github.com/Faust-S/Center/actions/runs/43772246827) для private Agent `0780a02d147cdc21b4f94b49f34734b0af265159`:
+
+- Собраны Tauri, product ZIP и оригинальный Center Setup Core. Локальные `IDENTITY/PREFLIGHT/INSTALL/VERIFY/LOCATIONS` PASS.
+- Проверка впервые достигла `K05_GUI_NONCOMPARABLE`; это возможно только после исполнения K03 -> Human Review -> холодного Core readback по штатному `qualify_setup_core_runtime.ps1`.
+- Конечный отказ `K05_NATIVE_UIA_STAGE=TASK_SELECTION`, `K05_NATIVE_UIA_REASON=UNKNOWN`. Нельзя объявлять `K05_NATIVE_UIA=PASS`.
+- Независимый source Windows [#43772246817](https://github.com/Faust-S/Center/actions/runs/43772246817) завершился SUCCESS на ранее закреплённом Agent `763583b3`: 74/74 owner Python, 18/18 packaging, 1/1 cold Core, UI TypeScript/Vite PASS. Это не source evidence для следующего нового Agent SHA.
+
+Анализ выявил конкретную хрупкость UIA: при поиске исходной K03 Task свидетель сравнивал SHA имени WebView2-кнопки с SHA оригинальной многострочной objective. Accessibility Name может нормализовать переносы строк и совпасть с названием другой Task. Обновлён private Agent [`6b9be470`](https://github.com/Faust-S/iwxa-personal-agent/commit/6b9be4704c5e3d7a79fc0561cb7df830ce71576e):
+- Выбор первой Task через точный `AutomationId='saved-task-'+originalTaskId` (никакого выбора по одинаковым названиям для K05).
+- После открытия UIA требует отдельный идентификатор `accepted-task-objective-` + exact TaskId, который React выводит только после оригинального принятого Core Task readback.
+- В диагностике появились конечные коды отсутствия списка, целевой кнопки, отказа click или неподтверждённого принятого Task. Не выдаются модельные ответы, документы, UIA dump, токены или пути.
+- Добавлен адресный регрессионный тест. Механика модели, Core, Task/Result, сравнительный K05 owner и защита источников не изменены.
+
+Новая опубликованная ревизия разрешённого public Center Windows runner [`3d68932e`](https://github.com/Faust-S/Center/commit/3d68932e308bba2f940fcdfcc6f482ba477b9ddf) закрепляет этот SHA, в том числе в source workflow. Первоначальный Center `29ba4cf7` не создал installed job из-за ошибки генерации YAML; восстановлено из последнего валидного файла с проверкой ограниченного блока. Новые [installed #43779612658](https://github.com/Faust-S/Center/actions/runs/43779612658) и [source #43779612651](https://github.com/Faust-S/Center/actions/runs/43779612651) запущены; результат зафиксировать только по завершении.
+
+**Статус:** `K03_INSTALLED_COLD_READBACK=PASS_ON_0780`; `K05_NATIVE_UIA=FAIL_TASK_SELECTION_ON_0780`, новый SHA `NOT_YET_ACCEPTED`; `TWO_REAL_EXECUTORS=NOT_MEASURED`; `PRODUCT_ACCEPTED=false`. Приватные GitHub Actions не запускались. Публичный Center содержит только статусы/allowlisted коды и exact SHA, не приватные архивы или содержимое Result.
