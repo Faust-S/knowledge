@@ -66,6 +66,8 @@ function setup({wrongManager=false,lostAck=false}={}){
  const managerSigner=wrongManager?bob.signer:north.credentialSigner;
  const owner=createOriginalEmployeeEnrollmentOwner({
   registry,issuerSigner:north.issuerSigner,clock:time,
+  trustedOrganization:north.descriptors.organizations[0],
+  trustedWorkspaceId:'ws:north',
   proveManager:async({request,challenge})=>
    makeProof(request,challenge,NOW,managerSigner,'TEST')
  });
@@ -134,6 +136,12 @@ test('independent signer cannot be substituted by another employee, unknown trus
  const t=setup();await t.init();
  await assert.rejects(t.owner.begin({...t.input(t.alice),
   credentialKeyId:'key:untrusted'}),{code:'T3_EMPLOYEE_CREDENTIAL_NOT_PRETRUSTED'});
+ await assert.rejects(t.owner.begin({...t.input(t.alice),
+  workspaceId:'ws:south'}),
+  {code:'T3_EMPLOYEE_TRUSTED_ORGANIZATION_CONTEXT_CHANGED'});
+ await assert.rejects(t.owner.begin({...t.input(t.alice),
+  organization:t.fixture.all.south.descriptors.organizations[0]}),
+  {code:'T3_EMPLOYEE_TRUSTED_ORGANIZATION_CONTEXT_CHANGED'});
 });
 test('manager without original signed administration proof cannot add a worker',async()=>{
  const s=setup({wrongManager:true});await s.init();
