@@ -52,3 +52,21 @@ func TestGuideFallbackDistinguishesCDNFailure(t *testing.T) {
 		t.Fatal("missing source diagnostic")
 	}
 }
+
+func TestGuideMirrorRetainsTimingOnIncompleteRange(t *testing.T) {
+	const size int64 = 1024 * 1024
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(30 * time.Millisecond)
+		w.Header().Set("Content-Range", "bytes 0-1048575/104857600")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("truncated"))
+	}))
+	defer server.Close()
+	r := guideRangeDownload(context.Background(), size, server.URL)
+	if r.OK || r.HTTPStatus != http.StatusPartialContent || r.Bytes == size {
+		t.Fatalf("truncated download should be refused: %+v", r)
+	}
+	if r.Timings.TTFBMs < 15 {
+		t.Fatalf("response timing disappeared on failed range: %+v", r.Timings)
+	}
+}

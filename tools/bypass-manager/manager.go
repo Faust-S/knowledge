@@ -491,10 +491,14 @@ func download(ctx context.Context, size int64) DownloadResult {
 	url := fmt.Sprintf("https://speed.cloudflare.com/__down?bytes=%d", size)
 	return downloadFrom(ctx, size, url)
 }
-func downloadFrom(ctx context.Context, size int64, url string) DownloadResult {
-	r := DownloadResult{URL: url, ExpectedBytes: size}
+func downloadFrom(ctx context.Context, size int64, url string) (r DownloadResult) {
+	r = DownloadResult{URL: url, ExpectedBytes: size}
 	c := httpClient(20 * time.Second)
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		r.Error = "REQUEST_ERROR"
+		return r
+	}
 	req.Header.Set("Accept-Encoding", "identity")
 	req, timings := tracedRequest(req)
 	defer func() { r.Timings = timings() }()

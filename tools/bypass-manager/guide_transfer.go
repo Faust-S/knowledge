@@ -16,8 +16,8 @@ const guideMirrorURL = "https://fsn1-speed.hetzner.com/100MB.bin"
 // Never silently download 100 MB when the server ignores Range. Providers
 // have independent failure modes, so failure of one must not be mistaken for
 // evidence of a broken VPN.
-func guideRangeDownload(ctx context.Context, size int64, url string) DownloadResult {
-	out := DownloadResult{ExpectedBytes: size}
+func guideRangeDownload(ctx context.Context, size int64, url string) (out DownloadResult) {
+	out = DownloadResult{ExpectedBytes: size}
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		out.Error = "REQUEST_ERROR"
