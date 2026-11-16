@@ -10,6 +10,19 @@ const MAX=4*1024*1024;
 const STATUS_MODES=new Set(["FULL_HOLDER_SNAPSHOT","SELECTIVE_DELTA","TOMBSTONE_EVENT"]);
 const STATUS_STATES=new Set(["ACTIVE","SUSPENDED","REVOKED","SUPERSEDED"]);
 const validId=x=>typeof x==="string"&&ID.test(x);
+// A signed native holder's definite refusal is NOT a lost read-only ACK.
+// Keep this limited to original owner denial codes, never infer successful
+// application from a transport response or use the error as retry permission.
+const ORIGINAL_HOLDER_DENIALS=new Set([
+  "PERMISSION_DENIED","CAPABILITY_DENIED","T3_ACCESS_NOT_PERMITTED",
+  "PERSON_OWNER_ACTION_DENIED","PRODUCT_OWNER_HOST_ACTION_DENIED",
+  "PERSON_STATUS_ROLLBACK_DENIED","PERSON_STATUS_REVOKE_RESURRECTION_DENIED",
+  "PERSON_STATUS_EQUIVOCATION_DENIED",
+]);
+function rethrowOriginalHolderRefusal(error){
+  if(error?.outcome==="DENIED"||ORIGINAL_HOLDER_DENIALS.has(error?.code))
+    throw error;
+}
 function deny(code){throw Object.assign(new Error(code),{code,outcome:"DENIED"});}
 function requireValue(ok,code){if(!ok)deny(code);}
 function zip(raw){return raw[0]===0x50&&raw[1]===0x4b&&raw[2]===3&&raw[3]===4;}
@@ -232,7 +245,11 @@ export function createTrustedPublisherHandoff({
     try{
       receipt=await nativeHolder.receipt(query);
       current=await nativeHolder.statusReadback(query);
-    }catch{nativeUnavailable=true;}
+    }catch(error){
+      await binding.current();
+      rethrowOriginalHolderRefusal(error);
+      nativeUnavailable=true;
+    }
     // A missing ORIGINAL holder readback is uncertain, but original signed
     // authorization failures must still reach the caller as denials.
     await binding.read();
@@ -278,7 +295,11 @@ export function createTrustedPublisherHandoff({
       recipientId:inspected.recipientId};
     let prior,unavailable=false;
     try{prior=await nativeHolder.receipt(query);}
-    catch{unavailable=true;}
+    catch(error){
+      await binding.current();
+      rethrowOriginalHolderRefusal(error);
+      unavailable=true;
+    }
     // Signed context change is a denial, not a native receipt outage.
     await binding.current();
     if(unavailable||(prior!==null&&prior!==undefined))
@@ -309,8 +330,9 @@ export function createTrustedPublisherHandoff({
       // Ask the original durable owner BEFORE showing Human consent again.
       let earlier;
       try{earlier=await nativeHolder.receipt(query);}
-      catch{
+      catch(error){
         await binding.current();
+        rethrowOriginalHolderRefusal(error);
         return Object.freeze({status:"OUTCOME_UNKNOWN",
           kind:row.kind,operationId:row.operationId});
       }
@@ -336,8 +358,9 @@ export function createTrustedPublisherHandoff({
       // same operationId twice, even if a volatile guard was reset.
       let prior;
       try{prior=await nativeHolder.receipt(query);}
-      catch{
+      catch(error){
         await binding.current();
+        rethrowOriginalHolderRefusal(error);
         return Object.freeze({status:"OUTCOME_UNKNOWN",
           kind:row.kind,operationId:row.operationId});
       }

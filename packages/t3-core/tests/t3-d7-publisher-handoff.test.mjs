@@ -360,3 +360,35 @@ test("D7 signed denial AFTER original holder APPLY is not unknown",async()=>{
     "ORIGINAL_HOLDER_READBACK_CONFIRMED");
   assert.equal(f.applies(),1);
 });
+
+test("D7 original native issuer refusal stays DENIED, not lost-readback UNKNOWN",async()=>{
+  const archiveBytes=file();
+  const revoked=fixture(),port=revoked.create();
+  const preview=await port.preview({kind:"LICENSE",archiveBytes});
+  revoked.onReceipt(()=>{
+    throw Object.assign(Error("native issuer refused read"),{
+      code:"PERMISSION_DENIED",outcome:"DENIED",
+    });
+  });
+  await assert.rejects(port.admit({kind:"LICENSE",archiveBytes,
+    previewDigest:preview.previewDigest}),{
+      code:"PERMISSION_DENIED",outcome:"DENIED",
+  });
+  assert.equal(revoked.applies(),0);
+  assert.equal(revoked.confirmations(),0);
+
+  const status=fixture(),owner=status.create();
+  const planned=await owner.preview({kind:"STATUS",archiveBytes});
+  const saved=await owner.admit({kind:"STATUS",archiveBytes,
+    previewDigest:planned.previewDigest});
+  assert.equal(saved.status,"ORIGINAL_HOLDER_READBACK_CONFIRMED");
+  status.onReadback(()=>{
+    throw Object.assign(Error("original signed status rollback"),{
+      code:"PERSON_STATUS_ROLLBACK_DENIED",
+    });
+  });
+  await assert.rejects(status.create().recover({kind:"STATUS",archiveBytes}),{
+    code:"PERSON_STATUS_ROLLBACK_DENIED",
+  });
+  assert.equal(status.applies(),1);
+});
