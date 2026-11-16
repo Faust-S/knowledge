@@ -290,6 +290,55 @@ jobs:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
         run: node --test tests/t3-d5-real-native-owner.browser.mjs
 
+  native-age:
+    # Opt-in real X25519 two-recipient .iwxa qualification through upstream
+    # native age and original Kernel/Exchange. Keys exist ONLY in runner temp.
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[t3-age]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install original Host dependencies
+        run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+      - name: Verify and stage original T2 Kernel 0.3.6
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+        run: |
+          set -eu
+          archive=qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip
+          echo "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68  $archive" | sha256sum -c -
+          mkdir -p "$IWXA_T2_QUALIFIED_KERNEL_DIST"
+          unzip -q "$archive" -d "$IWXA_T2_QUALIFIED_KERNEL_DIST"
+          node --input-type=module -e 'import {assertQualifiedKernelArtifact} from "./src/factory2/products/domain-completion/independent-browser-witness.mjs"; assertQualifiedKernelArtifact(process.env.IWXA_T2_QUALIFIED_KERNEL_DIST,{kernel:"0.3.6",contract:"1.3.0",artifactId:"iwxa-kernel-k036-same-store-history-20261019-qualified.1"});'
+      - name: Install Chromium for independent original T2 recipients
+        working-directory: packages/t3-core
+        run: npx --no-install playwright install chromium
+      - name: Install exact original age CLI 1.3.1
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/t3-age"
+          curl --fail --location --retry 3 --max-time 180 \
+            "https://github.com/FiloSottile/age/releases/download/v1.3.1/age-v1.3.1-linux-amd64.tar.gz" \
+            -o "$RUNNER_TEMP/t3-age/age.tar.gz"
+          echo "bdc69c09cbdd6cf8b1f333d372a1f58247b3a33146406333e30c0f26e8f51377  $RUNNER_TEMP/t3-age/age.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/t3-age/age.tar.gz" -C "$RUNNER_TEMP/t3-age"
+          age_bin=$(find "$RUNNER_TEMP/t3-age" -type f -name age | head -n1)
+          age_keygen=$(find "$RUNNER_TEMP/t3-age" -type f -name age-keygen | head -n1)
+          test -n "$age_bin" && test -n "$age_keygen"
+          chmod +x "$age_bin" "$age_keygen"
+          "$age_bin" --version
+          echo "T3_D7_REAL_AGE_BINARY=$age_bin" >> "$GITHUB_ENV"
+          echo "T3_D7_REAL_AGE_KEYGEN=$age_keygen" >> "$GITHUB_ENV"
+      - name: Real age two recipients, original .iwxa and independent cold Kernel readback
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+        run: node --test tests/t3-pwa-original-kernel.browser.mjs
+
   windows-credential:
     # Qualify shared Ed25519 encrypted vault and original corporate D1 API
     # on Windows Node. No standalone T3 GUI, second Host or dedicated EXE.

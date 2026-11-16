@@ -95,6 +95,58 @@ function d4SemanticDigest(entries,options){
   })));
 }
 
+
+/** Optional real age CLI qualification: no key material or plaintext in
+ * artifacts; only original T2 Kernel/Exchange admits the recovered .iwxa.
+ * This test does not impersonate an installed publisher or native owner. */
+function nativeAgeRecipients(root,bytes){
+  const age=process.env.T3_D7_REAL_AGE_BINARY;
+  const keygen=process.env.T3_D7_REAL_AGE_KEYGEN;
+  assert.ok(age&&existsSync(age)&&keygen&&existsSync(keygen),
+    "T3_D7_REAL_NATIVE_AGE_REQUIRED");
+  const source=join(root,"age-original.iwxa");
+  const cipher=join(root,"age-protected.iwxa.age");
+  const identities=["a","b","unlisted"].map(name=>{
+    const key=join(root,"age-"+name+".key");
+    execFileSync(keygen,["-o",key],{timeout:15000,stdio:"pipe"});
+    const publicKey=execFileSync(keygen,["-y",key],{
+      timeout:15000,encoding:"utf8",stdio:"pipe"}).trim();
+    assert.ok(publicKey.startsWith("age1")&&publicKey.length>50,
+      "T3_D7_REAL_X25519_KEY_REQUIRED");
+    return {key,publicKey};
+  });
+  writeFileSync(source,bytes);
+  execFileSync(age,["-r",identities[0].publicKey,
+    "-r",identities[1].publicKey,"-o",cipher,source],{
+    timeout:30000,stdio:"pipe"});
+  const encrypted=readFileSync(cipher);
+  assert.ok(encrypted.toString("utf8",0,24).startsWith(
+    "age-encryption.org/v1\n"),"T3_D7_ORIGINAL_AGE_HEADER_REQUIRED");
+  assert.notEqual(d4Digest(encrypted),d4Digest(bytes));
+  const opened=identities.slice(0,2).map((identity,index)=>{
+    const out=join(root,"opened-"+index+".iwxa");
+    execFileSync(age,["-d","-i",identity.key,"-o",out,cipher],{
+      timeout:30000,stdio:"pipe"});
+    const plaintext=readFileSync(out);
+    assert.deepEqual(plaintext,bytes,"original .iwxa bytes changed by age");
+    return plaintext;
+  });
+  const refused=(input,key)=>{
+    try{execFileSync(age,["-d","-i",key,"-o",
+      join(root,"refused-"+randomUUID()),input],{
+        timeout:30000,stdio:"pipe"});return false;}catch{return true;}
+  };
+  assert.ok(refused(cipher,identities[2].key),
+    "unlisted recipient unexpectedly decrypted archive");
+  const tampered=Buffer.from(encrypted);
+  tampered[tampered.length-1]^=1;
+  const damaged=join(root,"tampered.iwxa.age");
+  writeFileSync(damaged,tampered);
+  assert.ok(identities.slice(0,2).every(x=>refused(damaged,x.key)),
+    "tampered age ciphertext was accepted");
+  return {opened,encrypted,sourceDigest:d4Digest(bytes)};
+}
+
 function put(root,path,value){
   const full=join(root,path);
   mkdirSync(join(full,".."),{recursive:true});
@@ -215,6 +267,10 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
     assert.equal(saved.revision,1);
     assert.equal(saved.exported,true);
     assert.ok(saved.archiveBytes.length>0);
+    const sealed=process.env.T3_D7_REAL_AGE_BINARY
+      ? nativeAgeRecipients(root,Buffer.from(saved.archiveBytes)) : null;
+    const deliveryA=sealed?.opened[0]??Uint8Array.from(saved.archiveBytes);
+    const deliveryB=sealed?.opened[1]??Uint8Array.from(saved.archiveBytes);
     const second=await context.newPage();
     await second.goto(live.origin+"/workspace/");
     await second.waitForFunction(()=>typeof window.IWXA?.connect==="function");
@@ -312,7 +368,7 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       const scoped=createSubjectKernelBinding({
         kernel:receiverKernel,access:originalOwner.access,clock:Date.now,
       });
-      const preview=await scoped.importPreview(Uint8Array.from(saved.archiveBytes));
+      const preview=await scoped.importPreview(Uint8Array.from(deliveryA));
       assert.deepEqual(preview.preview.manifest.workspaces,[workspace]);
       assert.notEqual(workspace,destination);
       assert.ok(preview.allowed_modes.includes("merge"),
@@ -381,7 +437,7 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       // The original Kernel must reject unsupported versions and entries
       // escaping the archive root BEFORE exposing any preview/commit token.
       const archiveFile=join(root,"original-export.iwxa");
-      writeFileSync(archiveFile,Uint8Array.from(saved.archiveBytes));
+      writeFileSync(archiveFile,Uint8Array.from(deliveryB));
       // CI fixture builder only: Ubuntu's existing unzip reads the original
       // DEFLATE archive. The production parser remains original Kernel 0.3.6.
       const names=execFileSync("unzip",["-Z1",archiveFile],{
@@ -537,7 +593,7 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
           receiptMode:receipt.mode,receiptSource:receipt.workspace_id_map?.[workspace],
           title:record?.object?.data?.title,revision:record?.object?.revision,
           eventIds:events.map(e=>e.event_id)};
-      },{SERVICE,workspace,object,linkedObject,bytes:saved.archiveBytes});
+      },{SERVICE,workspace,object,linkedObject,bytes:[...deliveryB]});
       assert.equal(raw.beforeAbsent,true,
         "the independent T2 recipient must have its own empty original Store");
       assert.equal(raw.truncatedZipDenied,true,
@@ -568,6 +624,25 @@ test("single PWA Domain Mode preserves real original Kernel write, two windows, 
       assert.equal(recovered.revision,saved.revision);
       assert.ok(recovered.eventIds.includes(saved.event),
         "second original T2 consumer must preserve history after cold restart");
+      if(sealed) {
+        const rejected=await independent.evaluate(async({SERVICE,bytes})=>{
+          const original=await IWXA.connect({service_id:SERVICE});
+          try{
+            const preview=await original.t2.importPreview(Uint8Array.from(bytes));
+            if(preview?.preview_token)await original.t2.importCancel(preview.preview_token);
+            return false;
+          }catch{return true;}
+        },{SERVICE,bytes:[...sealed.encrypted]});
+        assert.equal(rejected,true,"encrypted envelope is not an original .iwxa");
+        console.log("T3_D7_REAL_AGE_TWO_RECIPIENTS_ORIGINAL_EXCHANGE_PASS",
+          JSON.stringify({age:"1.3.1",originalKernel:"0.3.6",
+            originalArchiveSha256:sealed.sourceDigest,
+            recipients:2,sourceObjects:2,sourceRelations:1,
+            twoIndependentKernelStores:true,coldRecipientReadback:true,
+            encryptedDirectImportDenied:true,
+            wrongRecipientDenied:true,tamperDenied:true,
+            installedNativeIssuerAccepted:false}));
+      }
       console.log("T3_D4_TWO_INDEPENDENT_CONSUMERS_ORIGINAL_IWXA_PASS",JSON.stringify({
         originalKernel:"0.3.6",contract:"1.3.0",
         consumerPorts:["signed-selected-T3","original-T2-Exchange"],
