@@ -112,7 +112,17 @@ test('independent employee grants have genuine Ed25519 proof and one original Ke
  assert.equal(recovered.state,'ORIGINAL_GRANTS_ACTIVE');
  assert.equal(recovered.safeToReissue,false);
  await assert.rejects(s.owner.begin(s.input(s.alice)),
-  {code:'T3_EMPLOYEE_PENDING_OR_OUTCOME_UNKNOWN'});
+  {code:'T3_EMPLOYEE_ALREADY_ENROLLED_READBACK_REQUIRED'});
+ const second=await s.owner.begin(s.input(s.bob));
+ const proof2=makeProof(second.request,second.challenge,NOW,s.bob.signer,'TEST');
+ const issued2=await s.owner.complete({enrollmentId:second.enrollmentId,
+   employeeProof:proof2});
+ assert.equal(issued2.employeePersonId,'person:bob');
+ assert.equal(issued2.statusSequence,3);
+ assert.equal(s.kernel.calls.length,3);
+ const current=await s.registry.readState();
+ assert.equal(current.statusFloor['issuer:north'],3);
+ assert.equal(current.statusFloor['issuer:south'],1);
 });
 test('independent signer cannot be substituted by another employee, unknown trust is denied',async()=>{
  const s=setup();await s.init();
@@ -145,6 +155,10 @@ test('original Kernel committed but ACK lost: readback finds it and issuance doe
  assert.equal(read.state,'ORIGINAL_GRANTS_ACTIVE');
  assert.equal(read.safeToReissue,false);
  assert.equal(s.kernel.calls.length,2);
- await assert.rejects(s.owner.begin(s.input(s.bob)),
-  {code:'T3_EMPLOYEE_PENDING_OR_OUTCOME_UNKNOWN'});
+ await assert.rejects(s.owner.begin(s.input(s.alice)),
+  {code:'T3_EMPLOYEE_ALREADY_ENROLLED_READBACK_REQUIRED'});
+ // Only a different employee may begin once original committed state has
+ // been explicitly reconciled. The lost enrollment is never re-issued.
+ const second=await s.owner.begin(s.input(s.bob));
+ assert.equal(second.signed,false);
 });
