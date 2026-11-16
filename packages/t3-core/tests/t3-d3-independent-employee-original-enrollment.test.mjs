@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync} from 'node:crypto';
-import {keyObjectSigner,makeProof,signRecord,iso,digest}
+import {keyObjectSigner,makeProof,signRecord,iso,digest,evaluate}
   from '../src/t3/access/core.mjs';
 import {createOriginalEmployeeEnrollmentOwner}
   from '../src/t3/access/original-employee-enrollment.mjs';
@@ -239,6 +239,28 @@ test('independent employee uses ORIGINAL signed organization JIT gate as Persona
  assert.equal(accepted.actorId,'person:alice');
  assert.equal(accepted.grantId,issued.grantIds.work);
  assert.equal(accepted.organizationId,'org:north');
+ // A separate DATA grant is evaluated by the SAME original T3 Access owner,
+ // not inferred from work membership or silently promoted from ACTION.
+ const exportRequest={id:'operation:alice:export',
+  actorId:'person:alice',principalId:'org:north',roleId:'worker',
+  grantId:issued.grantIds.export,audience:'host:t3',
+  resource:'workspace:ws:north',action:'package.export',purpose:'handoff',
+  realmId:'realm:iwxa',operationDigest:'b'.repeat(64)};
+ const exportChallenge='real-original-employee-export-challenge';
+ const exportedRight=evaluate(exportRequest,await s.registry.readState(),{
+  now:iso(NOW),challenge:exportChallenge,
+  proof:makeProof(exportRequest,exportChallenge,NOW,s.alice.signer,'TEST'),
+  timeAssurance:'LOCAL_BEST_EFFORT'});
+ assert.equal(exportedRight.allowed,true);
+ assert.equal(exportedRight.statusSequence,2);
+ const forbiddenExport=evaluate({...exportRequest,resource:'workspace:ws:south'},
+  await s.registry.readState(),{
+   now:iso(NOW),challenge:exportChallenge,
+   proof:makeProof({...exportRequest,resource:'workspace:ws:south'},
+     exportChallenge,NOW,s.alice.signer,'TEST'),
+   timeAssurance:'LOCAL_BEST_EFFORT'});
+ assert.equal(forbiddenExport.allowed,false);
+
  const replaced=await gate.authorize(inputs,{...auth,
   proof:makeProof(preview.request,challenge,NOW,s.bob.signer,'TEST')});
  assert.equal(replaced.allowed,false);
