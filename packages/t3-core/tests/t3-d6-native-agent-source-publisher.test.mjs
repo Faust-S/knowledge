@@ -24,7 +24,8 @@ const operationId="agent:t3:atlas:"+createHash("sha256").update(
     Object.fromEntries(Object.keys(binding.workRef).sort().map(
       k=>[k,binding.workRef[k]])):binding[key]])))).digest("hex");
 function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
-  lostFinalize=false,consent=true,permitted=true}={}){
+  lostFinalize=false,consent=true,permitted=true,
+  isolatedDisclosure=true}={}){
  const rows=new Map(),objects=new Map(),events=[];
  let commits=0,exports=0,reserves=0,finalizations=0,consents=0;
  let grant=permitted;
@@ -106,15 +107,26 @@ function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
      return row?{operationId,binding,...row}:null;},
  };
  const originalExchange={
+   inspectSelectedDisclosure:async({operationId:op,sourceObjectRef})=>({
+     status:isolatedDisclosure?"ORIGINAL_RESULT_ONLY":"UNVERIFIED_SCOPE",
+     recipientId:"iwxa.atlas",operationId:op,
+     selectedSourceObjectRef:sourceObjectRef,
+     originalRecipientGrantVerified:true,
+     workspaceDisclosureIsolated:isolatedDisclosure,
+   }),
    publishSelectedResult:async({sourceObjectRef})=>{
      exports++;
      if(lostExchange)throw Error("exchange ACK lost");
-     return {recipientId:"iwxa.atlas",archiveSha256:sha(sourceObjectRef)};
+     return {recipientId:"iwxa.atlas",archiveSha256:sha(sourceObjectRef),
+       disclosureScope:"ORIGINAL_RESULT_ONLY",
+       selectedSourceObjectRef:sourceObjectRef};
    },
    verifySelectedResult:async({sourceObjectRef,archiveSha256})=>({
      status:"VERIFIED",recipientId:"iwxa.atlas",
      archiveSha256,taskId:binding.taskId,resultId:binding.resultId,
      sourceObjectRef,originalSignatureVerified:true,archiveBytesVerified:true,
+     originalManifestVerified:true,disclosureScope:"ORIGINAL_RESULT_ONLY",
+     selectedSourceObjectRef:sourceObjectRef,
    }),
  };
  const acceptedSource={readAccepted:async()=>({
@@ -208,6 +220,16 @@ test("lost finalization ACK can be independently recovered from original receipt
    "COMMITTED");
  assert.equal(f.counts.commits,1);
  assert.equal(f.counts.exports,1);
+});
+test("original Exchange rejects unintended Agent disclosure before native Kernel",async()=>{
+ const f=fixture({isolatedDisclosure:false});
+ await assert.rejects(f.create().publish_accepted({...f.binding,
+   operationId:f.operationId}),{
+   code:"T3_D6_ORIGINAL_EXCHANGE_DISCLOSURE_NOT_ISOLATED",
+   outcome:"DENIED"});
+ assert.equal(f.counts.reserves,0);
+ assert.equal(f.counts.commits,0);
+ assert.equal(f.counts.exports,0);
 });
 test("wrong operation, unauthorized export and mismatched recipient fail closed",async()=>{
  const f=fixture();

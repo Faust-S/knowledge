@@ -86,8 +86,10 @@ function publicationResponse(row,binding){
  * originalLedger is the already-installed T3 Reconciliation authority:
  * read, reserve, finalize, findByObject, findByWork, findLatestWork.
  * originalExchange is the existing signed T2 Exchange/recipient authority:
- * publishSelectedResult, verifySelectedResult (checks the stored archive
- * bytes, original signature, original source Object and exact iwxa.atlas).
+ * inspectSelectedDisclosure, publishSelectedResult, verifySelectedResult.
+ * Its original archive/parser must prove ONLY the selected accepted Result
+ * is disclosed. T2 exportPackage cannot select a single arbitrary Object
+ * from a mixed Workspace; no unrelated Agent Task/memory is permitted.
  * acceptedSource reads accepted Result through the *installed* Agent Core;
  * prepareOriginalGraph prepares the existing Kernel's registered schema.
  *
@@ -104,7 +106,7 @@ export function createTrustedAgentAtlasSourcePublisher({
     typeof prepareOriginalGraph==="function"&&
     ["read","reserve","finalize","findByObject","findByWork","findLatestWork"]
       .every(m=>typeof originalLedger?.[m]==="function")&&
-    ["publishSelectedResult","verifySelectedResult"]
+    ["inspectSelectedDisclosure","publishSelectedResult","verifySelectedResult"]
       .every(m=>typeof originalExchange?.[m]==="function")&&
     typeof acceptedSource?.readAccepted==="function"&&
     ["verifySignedTask","authorizeAtlasExport"]
@@ -166,7 +168,10 @@ export function createTrustedAgentAtlasSourcePublisher({
       archive.taskId===binding.taskId&&archive.resultId===binding.resultId&&
       same(archive.sourceObjectRef,ref,REF)&&
       archive.originalSignatureVerified===true&&
-      archive.archiveBytesVerified===true,
+      archive.archiveBytesVerified===true&&
+      archive.originalManifestVerified===true&&
+      archive.disclosureScope==="ORIGINAL_RESULT_ONLY"&&
+      same(archive.selectedSourceObjectRef,ref,REF),
       "T3_D6_ORIGINAL_EXCHANGE_READBACK_MISMATCH");
     await current(binding);
     return {ref,archive};
@@ -253,6 +258,22 @@ export function createTrustedAgentAtlasSourcePublisher({
         same(obj.data.workRef,binding.workRef,WORK)&&
         object(command.event)&&id(command.event.event_type),
         "T3_D6_ORIGINAL_GRAPH_PROVENANCE_INVALID");
+      // The existing original T2 exporter is Workspace/schema scoped.
+      // Obtain recipient-owned evidence of selected-Result-only disclosure
+      // BEFORE writing or sending anything. This is not a browser assertion.
+      const plannedRef={workspace_id:c.workspace_id,
+        object_id:obj.object_id,schema_id:obj.schema_id,revision:1};
+      const disclosure=await originalExchange.inspectSelectedDisclosure({
+        operationId,binding:copy(binding),sourceObjectRef:copy(plannedRef),
+        recipientId:"iwxa.atlas",
+      });
+      check(disclosure?.status==="ORIGINAL_RESULT_ONLY"&&
+        disclosure.recipientId==="iwxa.atlas"&&
+        disclosure.operationId===operationId&&
+        same(disclosure.selectedSourceObjectRef,plannedRef,REF)&&
+        disclosure.originalRecipientGrantVerified===true&&
+        disclosure.workspaceDisclosureIsolated===true,
+        "T3_D6_ORIGINAL_EXCHANGE_DISCLOSURE_NOT_ISOLATED");
       // Reserve in the ORIGINAL durable ledger before ANY Kernel write.
       // If this reservation's ACK is lost, never dispatch or retry.
       attempted.add(operationId);
@@ -278,7 +299,9 @@ export function createTrustedAgentAtlasSourcePublisher({
           // and its exact recipient grant, never serialize Agent preview.
         });
         check(exported?.recipientId==="iwxa.atlas"&&
-          hex(exported.archiveSha256),
+          hex(exported.archiveSha256)&&
+          exported.disclosureScope==="ORIGINAL_RESULT_ONLY"&&
+          same(exported.selectedSourceObjectRef,ref,REF),
           "T3_D6_ORIGINAL_EXCHANGE_EXPORT_UNVERIFIED");
         await originalLedger.finalize({
           operationId,binding:copy(binding),sourceObjectRef:ref,
