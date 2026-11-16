@@ -236,7 +236,7 @@ test("wrong operation, unauthorized export and mismatched recipient fail closed"
    {code:"T3_D6_ORIGINAL_OPERATION_ID_INVALID"});
  f.revoke();
  await assert.rejects(f.create().publish_accepted({...f.binding,
-   operationId:f.operationId}),{code:"T3_D6_ATLAS_EXPORT_NOT_AUTHORIZED"});
+   operationId:f.operationId}),{code:"T3_ACCESS_NOT_PERMITTED"});
  assert.equal(f.counts.commits,0);
  const bad={...f.binding,recipientId:"org:1"};
  await assert.rejects(f.create().publish_accepted({...bad,
@@ -307,4 +307,14 @@ test("missing original signed write grant cannot reach Kernel commit",async()=>{
  assert.equal(result.status,"OUTCOME_UNKNOWN");
  assert.equal(f.counts.commits,0);
  assert.equal(f.counts.exports,0);
+});
+
+test("explicit Atlas export grant denial is independent from signed Workspace READ",async()=>{
+ const f=fixture({selectedSignedPorts:true});
+ f.revoke();
+ await assert.rejects(f.create().publish_accepted({
+   ...f.binding,operationId:f.operationId
+ }),{code:"T3_D6_ATLAS_EXPORT_NOT_AUTHORIZED"});
+ assert.equal(f.counts.reserves,0);
+ assert.equal(f.counts.commits,0);
 });
