@@ -164,8 +164,12 @@ test("native T3 source publisher binds accepted Agent source to original Kernel 
  assert.equal(done.sourceObjectRef.object_id,"result:1");
  assert.equal((await owner.read_published(done.sourceObjectRef)).status,"VERIFIED");
  assert.equal((await owner.read_published_for(f.binding.workRef,f.binding,{})).status,"VERIFIED");
- assert.equal((await owner.read_receipt(done.sourceObjectRef,f.binding.taskId,
-   f.binding.resultId,done.archiveSha256,"iwxa.atlas")).status,"VERIFIED");
+ const originalReceipt=await owner.read_receipt(done.sourceObjectRef,
+   f.binding.taskId,f.binding.resultId,done.archiveSha256,"iwxa.atlas");
+ assert.equal(originalReceipt.status,"VERIFIED");
+ assert.equal(originalReceipt.originalSignatureVerified,true);
+ assert.equal(originalReceipt.archiveBytesVerified,true);
+ assert.deepEqual(originalReceipt.sourceObjectRef,done.sourceObjectRef);
  assert.equal((await owner.read_latest_for_work("project:1","work:1")).revision,"2");
  assert.equal((await owner.publish_accepted({...f.binding,operationId:f.operationId})).status,
   "COMMITTED");

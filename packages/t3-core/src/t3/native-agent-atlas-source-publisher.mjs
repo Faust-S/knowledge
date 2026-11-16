@@ -180,8 +180,11 @@ export function createTrustedAgentAtlasSourcePublisher({
     // possibly committed, and committed-with-original-receipts.
     const row=ownerRow(await originalLedger.read(operationId,copy(input)),
       input,operationId);
-    if(row.status==="COMMITTED")await verifyCommitted(row,input);
-    return {row,binding:input};
+    // Keep the genuine signed Exchange readback in the trusted native Host.
+    // Returning a reconstructed {status:"VERIFIED"} is not an original receipt.
+    const original=row.status==="COMMITTED"
+      ?await verifyCommitted(row,input):null;
+    return {row,binding:input,original};
   }
   async function read_publication(operationId,binding){
     const r=await readRow(operationId,binding);
@@ -323,12 +326,23 @@ export function createTrustedAgentAtlasSourcePublisher({
     recipientId){
     check(recipientId==="iwxa.atlas"&&hex(archiveSha256),
       "T3_D6_ORIGINAL_EXCHANGE_REQUEST_INVALID");
-    const row=await read_published(sourceObjectRef);
-    check(row.taskId===taskId&&row.resultId===resultId&&
-      row.archiveSha256===archiveSha256,
+    const ref=refOf(sourceObjectRef);
+    const verified=await verifiedByRow(
+      await originalLedger.findByObject(copy(ref)));
+    check(same(verified.row.sourceObjectRef,ref,REF)&&
+      verified.binding.taskId===taskId&&
+      verified.binding.resultId===resultId&&
+      verified.row.archiveSha256===archiveSha256,
       "T3_D6_ORIGINAL_EXCHANGE_RECEIPT_MISMATCH");
-    return Object.freeze({status:"VERIFIED",recipientId:"iwxa.atlas",
-      taskId,resultId,archiveSha256});
+    // verifyCommitted already checked original signature, exact archive
+    // bytes/digest and recipient against the saved original Kernel Event.
+    // Return THAT verified owner's receipt, not a locally fabricated status.
+    const original=verified.original?.archive;
+    check(original?.status==="VERIFIED"&&
+      original.originalSignatureVerified===true&&
+      original.archiveBytesVerified===true,
+      "T3_D6_ORIGINAL_EXCHANGE_RECEIPT_MISSING");
+    return Object.freeze(copy(original));
   }
   async function read_latest_for_work(projectId,workId){
     check(id(projectId)&&id(workId),
