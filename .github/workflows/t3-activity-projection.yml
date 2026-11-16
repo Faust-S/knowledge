@@ -14,6 +14,7 @@ on:
       - work/2026-11-13-t3-pwa-integration
       - work/2026-11-13-t3-d1-native-owner-http
       - work/2026-11-16-t3-d3-independent-employee
+      - work/2026-11-16-admin03-independent-employee-original-graph
     paths:
       - packages/t3-core/src/t3/activity/**
       - packages/t3-core/**
