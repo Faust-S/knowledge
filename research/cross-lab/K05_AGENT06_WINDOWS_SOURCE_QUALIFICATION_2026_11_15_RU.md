@@ -167,3 +167,12 @@ Next practical owner workflow:
 Новая опубликованная ревизия разрешённого public Center Windows runner [`3d68932e`](https://github.com/Faust-S/Center/commit/3d68932e308bba2f940fcdfcc6f482ba477b9ddf) закрепляет этот SHA, в том числе в source workflow. Первоначальный Center `29ba4cf7` не создал installed job из-за ошибки генерации YAML; восстановлено из последнего валидного файла с проверкой ограниченного блока. Новые [installed #43779612658](https://github.com/Faust-S/Center/actions/runs/43779612658) и [source #43779612651](https://github.com/Faust-S/Center/actions/runs/43779612651) запущены; результат зафиксировать только по завершении.
 
 **Статус:** `K03_INSTALLED_COLD_READBACK=PASS_ON_0780`; `K05_NATIVE_UIA=FAIL_TASK_SELECTION_ON_0780`, новый SHA `NOT_YET_ACCEPTED`; `TWO_REAL_EXECUTORS=NOT_MEASURED`; `PRODUCT_ACCEPTED=false`. Приватные GitHub Actions не запускались. Публичный Center содержит только статусы/allowlisted коды и exact SHA, не приватные архивы или содержимое Result.
+
+
+### Source Windows acceptance for exact UIA-id correction
+
+[Center source #43779612651](https://github.com/Faust-S/Center/actions/runs/43779612651) завершился `SUCCESS` на exact Agent `6b9be4704c5e3d7a79fc0561cb7df830ce71576e`. Публичный bounded job log: **74/74 original-owner Python**, **21/21 packaging + regression** (0 errors), **1/1 packaged cold Core** (0 errors, **0 SKIP**), `NATIVE_UIA_SYNTAX_PASS`, `DESKTOP_TYPESCRIPT_BUILD_PASS`, UI source tests PASS. Этот PASS относится к source/package и не подменяет installed K05.
+
+[Center installed #43779612658](https://github.com/Faust-S/Center/actions/runs/43779612658) на этом exact SHA уже прошёл checkout и исходную проверку владельцев; установленное исполнение и K05 GUI на момент данной записи `IN_PROGRESS`. Артефакты публичного source CI, нового installed CI и предыдущего #43772246827 проверены через Actions API: **0 uploaded artifacts** в каждом. Приватные workflows не запускались.
+
+`K05_SOURCE_WINDOWS=PASS`, `K05_PACKAGE_COLD_CORE=PASS`, `K05_INSTALLED_EXACT_TASK_UIA=IN_PROGRESS`, `REAL_EFFICIENCY=NOT_MEASURABLE`, `PRODUCT_ACCEPTED=false`.
