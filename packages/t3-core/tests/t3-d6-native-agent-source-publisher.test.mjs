@@ -24,7 +24,8 @@ const operationId="agent:t3:atlas:"+createHash("sha256").update(
     Object.fromEntries(Object.keys(binding.workRef).sort().map(
       k=>[k,binding.workRef[k]])):binding[key]])))).digest("hex");
 function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
-  lostFinalize=false,consent=true,permitted=true}={}){
+  lostFinalize=false,consent=true,permitted=true,
+  unverifiedExchange=false,corruptKernelRead=false}={}){
  const rows=new Map(),objects=new Map(),events=[];
  let commits=0,exports=0,reserves=0,finalizations=0,consents=0;
  let grant=permitted;
@@ -51,7 +52,9 @@ function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
  const kernel={
    sessionInfo:{contract_version:"1.3.0"},
    hasOperation:op=>["t1.getObject","t1.listEventsSince","t1.commitObjectGraph"].includes(op),
-   getObject:async(_ws,id)=>({object:objects.get(id)??null,
+   getObject:async(_ws,id)=>({object:corruptKernelRead&&objects.has(id)
+     ?{...objects.get(id),data:{...objects.get(id).data,
+       acceptedDigest:"0".repeat(64)}}:objects.get(id)??null,
      relations:{incoming:[],outgoing:[]}}),
    listEventsSince:async()=>[...events],
    commitObjectGraph:async command=>{
@@ -112,7 +115,7 @@ function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
      return {recipientId:"iwxa.atlas",archiveSha256:sha(sourceObjectRef)};
    },
    verifySelectedResult:async({sourceObjectRef,archiveSha256})=>({
-     status:"VERIFIED",recipientId:"iwxa.atlas",
+     status:unverifiedExchange?"UNVERIFIED":"VERIFIED",recipientId:"iwxa.atlas",
      archiveSha256,taskId:binding.taskId,resultId:binding.resultId,
      sourceObjectRef,originalSignatureVerified:true,archiveBytesVerified:true,
    }),
@@ -216,4 +219,28 @@ test("wrong operation, unauthorized export and mismatched recipient fail closed"
  const bad={...f.binding,recipientId:"org:1"};
  await assert.rejects(f.create().publish_accepted({...bad,
    operationId:f.operationId}),{code:"T3_D6_ATLAS_ORIGINAL_BINDING_INVALID"});
+});
+
+test("unverified original Exchange bytes never finalize the corporate Atlas publication",async()=>{
+ const f=fixture({unverifiedExchange:true});
+ const answer=await f.create().publish_accepted({...f.binding,
+   operationId:f.operationId});
+ assert.equal(answer.status,"OUTCOME_UNKNOWN");
+ assert.equal(f.counts.commits,1);
+ assert.equal(f.counts.exports,1);
+ assert.equal(f.counts.finalizations,0,
+   "Unverified signed archive is not COMMITTED");
+ assert.equal((await f.create().read_publication(f.operationId,
+   f.binding)).status,"PREPARED");
+});
+test("original Kernel object readback must precede signed Exchange export",async()=>{
+ const f=fixture({corruptKernelRead:true});
+ const answer=await f.create().publish_accepted({...f.binding,
+   operationId:f.operationId});
+ assert.equal(answer.status,"OUTCOME_UNKNOWN");
+ assert.equal(f.counts.commits,1);
+ assert.equal(f.counts.exports,0);
+ assert.equal(f.counts.finalizations,0);
+ assert.equal((await f.create().read_publication(f.operationId,
+   f.binding)).status,"PREPARED");
 });
