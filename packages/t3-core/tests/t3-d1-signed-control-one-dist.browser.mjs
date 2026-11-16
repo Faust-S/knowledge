@@ -1282,18 +1282,22 @@ try{
   },{serviceId,workspaceId:corpRegistryWs});
   // Only the TRUSTED Control host holds this original KernelPort; the
   // isolated UI receives no raw T2 session, signer, policy or registry API.
+  // The installed Admin D3 exposes the ORIGINAL T2 atomic graph, not
+  // t1.putObject. Qualify the actual inherited browser Kernel and original
+  // signed policy history through commitObjectGraph, including cold reads.
+  // This same original service passport is what the private Setup Core ships.
   const originalRegistryKernel={
     sessionInfo:{contract_version:'1.3.0',runtime_version:'0.3.6'},
     hasOperation:op=>[
-      't1.getObject','t1.putObject','t1.listEventsSince',
+      't1.getObject','t1.commitObjectGraph','t1.listEventsSince',
     ].includes(op),
     getObject:(...args)=>browser.page.evaluate(async({serviceId,args})=>{
       const original=await IWXA.connect({service_id:serviceId});
       return original.t1.getObject(...args);
     },{serviceId,args}),
-    putObject:input=>browser.page.evaluate(async({serviceId,input})=>{
+    commitObjectGraph:input=>browser.page.evaluate(async({serviceId,input})=>{
       const original=await IWXA.connect({service_id:serviceId});
-      return original.t1.putObject(input);
+      return original.t1.commitObjectGraph(input);
     },{serviceId,input}),
     listEventsSince:(...args)=>browser.page.evaluate(async({serviceId,args})=>{
       const original=await IWXA.connect({service_id:serviceId});
