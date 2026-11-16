@@ -5,14 +5,14 @@ package main
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
 
-// This assistant is deliberately separate from the experimental DPI sampler.
-// It observes Amnezia, waits for an actual interface/route, and measures an
-// ordinary encrypted HTTPS data path. It never guesses a server IP or port,
-// reads subscription/keys, or starts an unverified WinDivert filter.
+// The original VPN client owns protocol changes. We only control our own
+// verified DPI filter. Every test is bound to a protocol/profile combination
+// and its observed result; route presence is not a native VPN handshake.
 func (ui *managerUI) guideInstruction(message string) {
 	ui.mu.Lock()
 	ui.guideStep = message
@@ -25,62 +25,31 @@ func (ui *managerUI) startGuide() {
 	if ui.running {
 		return
 	}
-	if winMessageBox(ui.hwnd,
-		"Мастер сам проверит VPN-адаптер и дождётся подключения Amnezia. Затем скачает до 8 МиБ тестовых данных по HTTPS для оценки видео. Внешние тестовые сервисы увидят исходящий IP. Продолжить?",
-		"Проверка соединения и видео", 0x24) != 6 {
+	if winMessageBox(ui.hwnd, "Мастер проверит AmneziaWG, затем при неудаче VLESS; для подтверждённых серверов предложит автоматический подбор DPI. Протокол и подключение в Amnezia меняете только вы по инструкции. Проверка скачает тестовые HTTPS-данные, сервисы увидят ваш выходной IP. Продолжить?", "Последовательный подбор", 0x24) != 6 {
 		return
 	}
 	ctx, cancel := context.WithCancel(ui.lifetimeCtx)
 	ui.cancel = cancel
 	ui.guiding = true
 	ui.toggleRun(true)
-	ui.setStatus("Мастер подключения. Можно отменить кнопкой Остановить.")
-	ui.guideInstruction("Шаг 1/3. Проверяю состояние Amnezia, ключи и конфигурации не читаю...")
-	go func() {
-		defer cancel()
-		defer post(ui.hwnd, wmAppDone)
-		ui.runGuide(ctx)
-	}()
+	ui.setStatus("Автоподбор по этапам: AmneziaWG -> VLESS. Остановить можно в любой момент.")
+	ui.guideInstruction("Начинаю последовательную диагностику. Amnezia управляется отдельно; реальные VPN-ключи не читаю.")
+	cfg := ui.guideCurrentConfig()
+	go func() { defer cancel(); defer post(ui.hwnd, wmAppDone); ui.runGuide(ctx, cfg) }()
 }
 
-func (ui *managerUI) runGuide(ctx context.Context) {
-	report := GuideReport{StartedUTC: utc(), State: "NOT_VERIFIED", Caveat: "Short HTTPS video-capacity samples are not a guarantee of smooth streaming; adapter and route observations do not prove a VPN handshake. No DPI packet interception occurs in this assistant."}
-	defer func() {
-		report.CompletedUTC = utc()
-		if err := saveJSON(filepath.Join(ui.home, "results", "latest-guide.json"), report); err != nil {
-			ui.write("Итоговый отчёт мастера не удалось сохранить локально.\n")
-		}
-	}()
-	m := &Manager{home: ui.home, runtimeRoot: filepath.Join(ui.home, "runtime"), stateFolder: filepath.Join(ui.home, "active"), output: uiWriter{ui}}
-	if err := m.ensureRuntime(); err != nil {
-		report.AdviceCode = "RUNTIME_ERROR"
-		ui.guideInstruction("Не удалось подготовить средства чтения Windows. Проверьте доступ к папке приложения.")
-		return
-	}
-	if m.ownStateExists() {
-		ui.guideInstruction("С прошлого испытания осталась запись собственного DPI-фильтра. Прежде чем подключать VPN, восстанавливаю только его состояние...")
-		if err := m.stopFilter(); err != nil {
-			report.AdviceCode = "OWNED_DPI_RECOVERY_REQUIRED"
-			ui.guideInstruction("Собственный DPI-процесс не удалось остановить. Проверьте кнопку «Восстановить сеть»; новые фильтры включаться не будут.")
-			return
-		}
-	}
+func (ui *managerUI) guideAsk(message string) bool {
+	ui.guideInstruction(message)
+	_, err := ui.ask(message)
+	return err == nil
+}
 
-	// When disconnected, this baseline helps to distinguish VPN egress from
-	// ordinary direct internet; lack of a baseline must never block guidance.
-	var baseline EgressResult
-	snapshot, err := m.vpnState(ctx)
-	if err == nil && connectionGuideAction(snapshot) != "MEASURE_CONNECTION" {
-		beforeCtx, cancel := context.WithTimeout(ctx, 11*time.Second)
-		baseline = m.egress(beforeCtx)
-		cancel()
-	}
-	start := time.Now()
-	lastAdvice := ""
+func (ui *managerUI) guideObserve(ctx context.Context, m *Manager, wait time.Duration, notify func(string)) (VPNState, bool) {
+	deadline := time.Now().Add(wait)
+	previous := ""
 	for {
 		if ctx.Err() != nil {
-			report.AdviceCode = "CANCELLED"
-			return
+			return VPNState{}, false
 		}
 		sampleCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		state, err := m.vpnState(sampleCtx)
@@ -90,110 +59,403 @@ func (ui *managerUI) runGuide(ctx context.Context) {
 			action = connectionGuideAction(state)
 		}
 		if action == "MEASURE_CONNECTION" {
-			report.VPNRouteObserved = true
-			ui.guideInstruction("Шаг 2/3. VPN-адаптер и маршрут обнаружены. Проверяю HTTPS-доступ и реальную передачу данных...")
-			break
+			return state, true
 		}
-		advice := ""
-		switch action {
-		case "OPEN_AMNEZIA":
-			advice = "Шаг 1/3. Откройте AmneziaVPN и один раз нажмите «Подключить» для AmneziaWG. Ничего вводить в Bypass Manager не нужно: жду соединения автоматически."
-		case "MULTIPLE_ADAPTERS":
-			advice = "Найдено несколько активных VPN-адаптеров. Оставьте включённым только нужное подключение Amnezia. Автовыбор сейчас небезопасен."
-		case "CONNECT_AMNEZIA":
-			advice = "Шаг 1/3. Amnezia обнаружена. Нажмите «Подключить» в её окне. Мастер сам продолжит после появления маршрута."
-		default:
-			advice = "Не удаётся прочитать состояние VPN-адаптера Windows. Проверьте, что AmneziaVPN установлена и запущена."
+		if action != previous {
+			notify(action)
+			previous = action
 		}
-		if time.Since(start) > 65*time.Second && action == "CONNECT_AMNEZIA" {
-			advice = "Amnezia не сформировала рабочий маршрут. В Amnezia откройте локацию → настройки (⚙) → Reload API config → Continue, затем нажмите «Подключить». Мастер продолжает ждать автоматически."
-		}
-		if advice != lastAdvice {
-			ui.guideInstruction(advice)
-			lastAdvice = advice
-		}
-		if time.Since(start) > 4*time.Minute {
-			report.AdviceCode = "VPN_NOT_READY"
-			ui.guideInstruction("Подключение за 4 минуты не подтверждено. Закройте мастер, обновите API-конфигурацию Amnezia и проверьте состояние подписки/соединения. DPI не запускался.")
-			return
+		if time.Now().After(deadline) {
+			return state, false
 		}
 		if waitGuide(ctx, 5*time.Second) != nil {
-			report.AdviceCode = "CANCELLED"
-			return
+			return state, false
 		}
 	}
-	onlineCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	selected, err := m.vpnState(onlineCtx)
-	if err != nil || connectionGuideAction(selected) != "MEASURE_CONNECTION" {
-		cancel()
-		report.AdviceCode = "VPN_ROUTE_LOST"
-		ui.guideInstruction("Во время проверки пропал VPN-маршрут. Дождитесь состояния подключения Amnezia и повторите проверку.")
-		return
+}
+
+func guideSourceSummary(results []GuideTransfer) string {
+	failed := 0
+	for _, s := range results {
+		if !s.OK {
+			failed++
+		}
 	}
-	// We always know a single name from the validated snapshot. No local key
-	// or server endpoint is read from Amnezia.
-	m.cfg.AdapterName = selected.AdapterName
-	before, _ := m.adapterStats(onlineCtx)
-	eg := m.egress(onlineCtx)
-	cancel()
-	report.EgressObserved = eg.Agreement
-	report.EgressChanged = baseline.Agreement && eg.Agreement && baseline.IP != eg.IP
-	if !eg.Agreement {
-		ui.guideInstruction("Шаг 3/3. Проверочные IP-сервисы не согласовали результат. Всё равно проверю загрузку видео-данных: HTTP-доступ может работать независимо от IP-эхо.")
+	return formatInt(len(results)) + " обращений, неуспешных: " + formatInt(failed)
+}
+
+// Read advanced settings once on the Win32 UI thread. They remain optional:
+// the NONE controls work without server IP/port and no settings are persisted.
+func (ui *managerUI) guideCurrentConfig() Config {
+	c := ui.cfg
+	c.EndpointIPv4 = strings.TrimSpace(winText(ui.endpoint))
+	if port, err := strconv.Atoi(strings.TrimSpace(winText(ui.port))); err == nil {
+		c.Port = port
 	} else {
-		ui.guideInstruction("Шаг 3/3. HTTPS отвечает. Проверяю четыре полные загрузки и провалы скорости для видео (до 8 МиБ)...")
+		c.Port = 0
 	}
-	videoCtx, stop := context.WithTimeout(ctx, 110*time.Second)
-	_, quality := checkVideoQuality(videoCtx, download, waitGuide)
-	stop()
-	report.Video = quality
-	afterCtx, afterCancel := context.WithTimeout(ctx, 8*time.Second)
-	after, _ := m.adapterStats(afterCtx)
-	afterCancel()
-	if before != nil && after != nil {
-		report.AdapterFlowObserved = strings.EqualFold(before.Name, after.Name) &&
-			strings.EqualFold(after.Status, "Up") && after.ReceivedBytes > before.ReceivedBytes && after.SentBytes > before.SentBytes
-	}
-	if ctx.Err() != nil {
-		report.AdviceCode = "CANCELLED"
-		return
-	}
-	if !report.EgressObserved {
-		report.State = "VIDEO_MEASURED_IP_UNVERIFIED"
-		report.AdviceCode = "IP_CHECK_INCONCLUSIVE"
-		ui.guideInstruction("Скорость измерена (минимум " + formatMbps(quality.MinMbps) + " Мбит/с), но сервисы определения выходного IP не подтвердили адрес. Интернет может работать, однако VPN-путь остаётся НЕПОДТВЕРЖДЁННЫМ.")
-		return
-	}
-	if baseline.Agreement && !report.EgressChanged {
-		report.State = "VIDEO_MEASURED_VPN_UNVERIFIED"
-		report.AdviceCode = "VPN_EGRESS_NOT_CHANGED"
-		ui.guideInstruction("HTTPS работает, но выходной IPv4 остался прежним. Скорость интернета измерена (минимум " + formatMbps(quality.MinMbps) + " Мбит/с), однако VPN-путь не подтверждён. Проверьте, что в Amnezia отключено раздельное туннелирование, и повторите проверку.")
-		ui.write("Отчёт мастера: VIDEO_MEASURED_VPN_UNVERIFIED. Прямой интернет не следует принимать за успешный VPN.\n")
-		return
-	}
-	// The video test remains useful for network usability even when adapter
-	// counters are not readable, but it must never be called a proven VPN path.
-	pathNote := " VPN подтверждён только по интерфейсу/маршруту; нативный handshake не доказан."
-	if report.AdapterFlowObserved {
-		pathNote = " Трафик VPN-адаптера наблюдался; нативный handshake всё ещё не доказан."
-	}
-	switch quality.Grade {
-	case "HD_1080P_CANDIDATE":
-		report.State = "VIDEO_1080P_CANDIDATE"
-		report.AdviceCode = "MONITOR_STREAM"
-		ui.guideInstruction("Видео: предварительно хватает для 1080p. Минимальная скорость тестов " + formatMbps(quality.MinMbps) + " Мбит/с. Проверьте настоящее видео 10–15 минут без пауз." + pathNote)
-	case "HD_720P_CANDIDATE":
-		report.State = "VIDEO_720P_CANDIDATE"
-		report.AdviceCode = "LOWER_QUALITY_OR_CHANGE_LOCATION"
-		ui.guideInstruction("Видео: предварительно достаточно для 720p, но запас для 1080p мал (минимум " + formatMbps(quality.MinMbps) + " Мбит/с). Попробуйте 720p или другую доступную локацию Amnezia." + pathNote)
-	case "SLOW_FOR_VIDEO":
-		report.State = "VIDEO_TOO_SLOW"
-		report.AdviceCode = "CHANGE_AVAILABLE_LOCATION"
-		ui.guideInstruction("Видео может останавливаться: минимальная скорость " + formatMbps(quality.MinMbps) + " Мбит/с. Выберите другую доступную локацию в Amnezia и повторите проверку. Автоперебор чужих IP не применяется." + pathNote)
+	switch send(ui.transport, cbGetCurSel, 0, 0) {
+	case 0:
+		c.Transport = "AWG-UDP"
+	case 1:
+		c.Transport = "REALITY-TCP"
+	case 2:
+		c.Transport = "XHTTP-TCP"
 	default:
-		report.State = "VIDEO_UNVERIFIED"
-		report.AdviceCode = "HTTPS_TRANSFER_UNSTABLE"
-		ui.guideInstruction("Видео-тест не прошёл: одна или несколько полных HTTPS-загрузок не выполнены. Проверьте состояние подключения Amnezia и обновите API-конфигурацию локации. DPI-профили не включались.")
+		c.Transport = ""
 	}
-	ui.write("Оценка: " + report.Video.Grade + "; полностью скачано: " + formatInt(quality.Successful) + "/" + formatInt(quality.Total) + ". Отчёт в results/latest-guide.json (без IP и ключей).\n")
+	c.BundleRoot = strings.TrimSpace(winText(ui.engine))
+	return c
+}
+
+func (ui *managerUI) runGuide(ctx context.Context, config Config) {
+	started := time.Now()
+	plan := guidePlan()
+	report := GuideReport{
+		SchemaVersion: "0.3.1", StartedUTC: utc(), State: "IN_PROGRESS", PlannedVariants: len(plan),
+		Caveat: "Protocol in Amnezia is user-selected and not independently verified. Route and traffic observations are not a native handshake. Video results are short tests, not guaranteed streaming. No IPs, keys, hostnames or local paths are exported.",
+	}
+	persist := func() { _ = saveJSON(filepath.Join(ui.home, "results", "latest-guide.json"), report) }
+	record := func(v GuideVariant, stage, code string) {
+		if len(report.Events) >= 256 {
+			report.Events = report.Events[1:]
+		}
+		report.Events = append(report.Events, GuideEvent{UTC: utc(), Protocol: v.Protocol, DPIProfile: v.Profile, Stage: stage, Code: code, SecondsSinceStart: int64(time.Since(started).Seconds())})
+		persist()
+	}
+	m := &Manager{cfg: config, home: ui.home, runtimeRoot: filepath.Join(ui.home, "runtime"), stateFolder: filepath.Join(ui.home, "active"), logDir: filepath.Join(ui.home, "results"), output: uiWriter{ui}, ask: ui.ask}
+	filterStarted := false
+	defer func() {
+		if filterStarted || m.ownStateExists() {
+			if err := m.stopFilter(); err != nil {
+				report.State = "DPI_STOP_ERROR"
+				report.AdviceCode = "OWN_FILTER_RECOVERY_REQUIRED"
+				ui.write("Не удалось подтвердить отключение собственного DPI. Используйте «Восстановить сеть».\n")
+			}
+		}
+		if ctx.Err() != nil && report.State == "IN_PROGRESS" {
+			report.State = "CANCELLED"
+			report.AdviceCode = "USER_CANCELLED"
+		}
+		report.CompletedUTC = utc()
+		persist()
+		ui.write("Подробный отчёт: results/latest-guide.json (события, протоколы, профили, измерения, причины).\n")
+	}()
+	if err := m.ensureRuntime(); err != nil {
+		report.State = "RUNTIME_UNAVAILABLE"
+		report.AdviceCode = "CANNOT_INSPECT_WINDOWS"
+		record(GuideVariant{}, "SETUP", guideErrorCode(err))
+		return
+	}
+	if m.ownStateExists() {
+		if err := m.stopFilter(); err != nil {
+			report.State = "OWN_FILTER_RECOVERY_REQUIRED"
+			report.AdviceCode = "OWNED_DPI_STOP_FAILED"
+			record(GuideVariant{}, "RECOVERY", guideErrorCode(err))
+			return
+		}
+		record(GuideVariant{}, "RECOVERY", "OWNED_DPI_STOPPED")
+	}
+	// Baseline can be collected only while the VPN route is inactive. A missing
+	// baseline is diagnostic uncertainty, not proof that a VPN is broken.
+	var baseline EgressResult
+	baselineCtx, baselineCancel := context.WithTimeout(ctx, 12*time.Second)
+	initial, err := m.vpnState(baselineCtx)
+	if err == nil && connectionGuideAction(initial) != "MEASURE_CONNECTION" {
+		baseline = m.egress(baselineCtx)
+	}
+	baselineCancel()
+	if baseline.Agreement {
+		record(GuideVariant{}, "BASELINE", "BASELINE_IPV4_CONFIRMED")
+	} else {
+		record(GuideVariant{}, "BASELINE", "BASELINE_UNAVAILABLE")
+	}
+
+	lastProtocol := ""
+	endpointConfirmed := map[string]bool{}
+	endpointRejected := map[string]bool{}
+	for i, v := range plan {
+		if ctx.Err() != nil {
+			return
+		}
+		round := GuideRound{Protocol: v.Protocol, DPIProfile: v.Profile, StartedUTC: utc(), State: "NOT_VERIFIED", BaselineKnown: baseline.Agreement}
+		report.Rounds = append(report.Rounds, round)
+		idx := len(report.Rounds) - 1
+		finish := func(state, reason string) {
+			report.Rounds[idx].State = state
+			report.Rounds[idx].FailureCode = reason
+			report.Rounds[idx].CompletedUTC = utc()
+			record(v, "ROUND_END", state)
+		}
+		record(v, "ROUND_START", "CANDIDATE_SELECTED")
+		ui.guideInstruction("Вариант " + formatInt(i+1) + "/" + formatInt(len(plan)) + ": " + v.Protocol + " / " + v.Profile)
+		if v.Protocol != lastProtocol {
+			if lastProtocol != "" {
+				// No standard, verified Amnezia Premium API to switch protocols.
+				// The human operates the external application once per protocol.
+				if !ui.guideAsk("AmneziaWG не дал подтверждённого результата. В окне Amnezia отключите VPN, выберите VLESS и снова нажмите «Подключить». Нажмите OK после переключения; дальнейшие проверки автоматические.") {
+					finish("CANCELLED", "PROTOCOL_SWITCH_NOT_CONFIRMED")
+					return
+				}
+				record(v, "USER_ACTION", "VLESS_SELECTION_CONFIRMED_BY_USER")
+			} else {
+				ui.guideInstruction("В окне Amnezia выберите AmneziaWG и нажмите «Подключить», если ещё не подключено. Состояние проверяю автоматически каждые 5 секунд.")
+				record(v, "USER_ACTION", "AWG_SELECTION_ASSUMED_NOT_VERIFIED")
+			}
+			lastProtocol = v.Protocol
+		}
+		// The endpoint used by WinDivert must be current, compatible with this
+		// exact protocol and explicitly confirmed by the user. Never reuse an AWG
+		// endpoint for VLESS or attempt to reverse-engineer private VPN profiles.
+		if v.RequiresEndpoint {
+			if endpointRejected[v.Protocol] {
+				finish("SKIPPED", "ENDPOINT_NOT_CONFIRMED")
+				continue
+			}
+			if !guideEndpointApplicable(m.cfg, v.Protocol) {
+				finish("SKIPPED", "NO_MATCHING_VERIFIED_ENDPOINT")
+				ui.guideInstruction("DPI " + v.Profile + " пропущен: нет подтверждённого адреса и порта внешнего сервера для " + v.Protocol + ". Случайные IP/порт не подставляю. Перехват пакетов не запускался.")
+				continue
+			}
+			if !endpointConfirmed[v.Protocol] {
+				if !ui.guideAsk("Для DPI необходим точный внешний IP и порт текущего " + v.Protocol + "-сервера в Amnezia. Проверьте данные в её официальных настройках. Подтвердите OK, только если значения в «Параметрах DPI» соответствуют текущему подключению. Отмена пропустит экспериментальные DPI-стратегии.") {
+					record(v, "USER_ACTION", "ENDPOINT_NOT_CONFIRMED")
+					// A refusal to confirm applies to all remaining filtered candidates.
+					endpointRejected[v.Protocol] = true
+					finish("SKIPPED", "ENDPOINT_NOT_CONFIRMED")
+					continue
+				}
+				endpointConfirmed[v.Protocol] = true
+			}
+			if !ui.guideAsk("Чтобы безопасно применить " + v.Profile + ", отключите соединение в Amnezia (приложение оставьте открытым). Нажмите OK после отключения. Затем менеджер включит только свой локальный DPI-фильтр и предложит снова подключить VPN.") {
+				finish("CANCELLED", "DISCONNECT_NOT_CONFIRMED")
+				return
+			}
+			// Never install WinDivert while the VPN route is still confirmed active.
+			offCtx, offCancel := context.WithTimeout(ctx, 12*time.Second)
+			st, offErr := m.vpnState(offCtx)
+			offCancel()
+			if offErr != nil || connectionGuideAction(st) == "MEASURE_CONNECTION" {
+				finish("SKIPPED", "VPN_STILL_ROUTED")
+				ui.guideInstruction("Маршрут VPN ещё виден. Не включаю DPI: сначала отключите подключение в Amnezia.")
+				continue
+			}
+			routeCtx, routeCancel := context.WithTimeout(ctx, 9*time.Second)
+			route := m.endpointRoute(routeCtx)
+			routeCancel()
+			if !endpointRouteObserved(route) || (route != nil && strings.EqualFold(route.Name, m.cfg.AdapterName)) {
+				finish("SKIPPED", "OUTER_ENDPOINT_ROUTE_NOT_CONFIRMED")
+				ui.guideInstruction("Невозможно подтвердить физический маршрут к внешнему VPN-серверу без туннельного цикла. Не включаю WinDivert; сначала нужна подтверждённая конфигурация/состояние сети.")
+				continue
+			}
+			if !enginePresent(m.cfg.BundleRoot) {
+				if err := installUpstream(ctx, m.cfg.BundleRoot, m.prompt, m.output); err != nil {
+					finish("SKIPPED", "ENGINE_UNAVAILABLE")
+					continue
+				}
+			}
+			if err := m.startFilter(v.Profile); err != nil {
+				finish("FAILED", "DPI_START_FAILED")
+				record(v, "FILTER", guideErrorCode(err))
+				continue
+			}
+			filterStarted = true
+			record(v, "FILTER", "OWN_DPI_STARTED")
+			// This guard prevents an unbounded test with an active packet filter.
+			watchdog := startTrialWatchdog(ctx, trialFilterMaxWait, func() { _ = m.stopFilter() })
+			if !ui.guideAsk("DPI " + v.Profile + " включён. Теперь нажмите «Подключить» в Amnezia для выбранного протокола. Нажмите OK только после попытки подключения; дальше программа сама измерит результат.") {
+				watchdog.Stop()
+				finish("CANCELLED", "RECONNECT_CANCELLED")
+				return
+			}
+			if watchdog.Expired() {
+				watchdog.Stop()
+				filterStarted = false
+				finish("FAILED", "DPI_WATCHDOG_TIMEOUT")
+				continue
+			}
+			watchdog.Stop()
+		}
+		ui.guideInstruction("Ожидаю VPN-маршрут, затем автоматически выполню HTTPS-тесты и измерю передачу по адаптеру.")
+		state, up := ui.guideObserve(ctx, m, 65*time.Second, func(action string) { record(v, "VPN_WAIT", action) })
+		if !up {
+			finish("FAILED", "VPN_ROUTE_NOT_READY")
+			ui.guideInstruction("Маршрут не сформирован. Следующий вариант будет предложен автоматически; чужие процессы не останавливаю.")
+			if filterStarted {
+				if err := m.stopFilter(); err != nil {
+					report.State = "DPI_STOP_ERROR"
+					report.AdviceCode = "OWNED_DPI_STOP_FAILED"
+					record(v, "FILTER", "OWN_DPI_STOP_ERROR")
+					return
+				}
+				filterStarted = false
+				record(v, "FILTER", "OWN_DPI_STOPPED")
+			}
+			continue
+		}
+		report.VPNRouteObserved = true
+		report.Rounds[idx].RouteObserved = true
+		m.cfg.AdapterName = state.AdapterName
+		record(v, "VPN_ROUTE", "ROUTE_OBSERVED_HANDSHAKE_UNVERIFIED")
+		testCtx, testCancel := context.WithTimeout(ctx, 125*time.Second)
+		before, _ := m.adapterStats(testCtx)
+		eg := m.egress(testCtx)
+		report.Rounds[idx].EgressObserved = eg.Agreement
+		report.Rounds[idx].EgressChanged = baseline.Agreement && eg.Agreement && eg.IP != baseline.IP
+		report.Rounds[idx].EgressSamples = guideIPObservations(eg)
+		report.EgressObserved = eg.Agreement
+		report.EgressChanged = report.Rounds[idx].EgressChanged
+		record(v, "IP_CHECK", func() string {
+			if eg.Agreement {
+				return "CONSENSUS"
+			}
+			return "INCONCLUSIVE"
+		}())
+		ui.guideInstruction("Измеряю четыре полные HTTPS-загрузки, с резервным тестовым сервером при отказе первого. Это не тест нативного VPN-handshake.")
+		_, transfers, quality := checkGuideVideo(testCtx, guideVideoFetch, waitGuide)
+		testCancel()
+		report.Rounds[idx].Video = quality
+		report.Rounds[idx].Transfers = transfers
+		report.Video = quality
+		afterCtx, afterCancel := context.WithTimeout(ctx, 8*time.Second)
+		after, _ := m.adapterStats(afterCtx)
+		afterCancel()
+		flow := before != nil && after != nil && strings.EqualFold(before.Name, after.Name) && strings.EqualFold(after.Status, "Up") && after.SentBytes > before.SentBytes && after.ReceivedBytes > before.ReceivedBytes
+		report.Rounds[idx].AdapterFlow = flow
+		report.AdapterFlowObserved = flow
+		record(v, "VIDEO", quality.Grade)
+		speedNote := "скорость НЕ ИЗМЕРЕНА"
+		if quality.Grade != "INCOMPLETE" && quality.Grade != "NOT_VERIFIED" {
+			speedNote = "минимум " + formatMbps(quality.MinMbps) + " Мбит/с"
+		}
+		ui.guideInstruction("Видео-данные: " + quality.Grade + "; полных загрузок " + formatInt(quality.Successful) + "/" + formatInt(quality.Total) + ", " + speedNote + "; " + guideSourceSummary(transfers))
+		if ctx.Err() != nil {
+			finish("CANCELLED", "USER_CANCELLED")
+			return
+		}
+		outcome := guideOutcome(baseline.Agreement, report.Rounds[idx].EgressChanged, flow, quality)
+		if outcome == "VIDEO_USABLE_EGRESS_UNCHANGED" {
+			report.State = outcome
+			report.AdviceCode = "VPN_EGRESS_UNCHANGED_DO_NOT_SWITCH_DPI"
+			finish(outcome, "IP_UNCHANGED_WITH_WORKING_HTTPS")
+			ui.guideInstruction("Тестовые загрузки работают, но исходный IPv4 не изменился. Сохраните рабочий интернет: не переключаю DPI вслепую. Проверьте маршрутизацию/раздельное туннелирование в Amnezia.")
+			return
+		}
+		usable := quality.Grade == "HD_1080P_CANDIDATE" || quality.Grade == "HD_720P_CANDIDATE"
+		if usable && flow && (!baseline.Agreement || report.Rounds[idx].EgressChanged) {
+			// If the baseline was unavailable, report data-path usability but never
+			// claim the VPN identity/handshake is verified.
+			if baseline.Agreement {
+				report.State = "VIDEO_CANDIDATE_VPN_PATH_OBSERVED"
+				report.AdviceCode = "VERIFY_REAL_VIDEO_15_MIN"
+				finish("VIDEO_CANDIDATE", "VPN_DATA_PATH_OBSERVED_NOT_NATIVE_HANDSHAKE")
+			} else {
+				report.State = "VIDEO_CANDIDATE_EGRESS_UNVERIFIED"
+				report.AdviceCode = "VERIFY_VPN_IDENTITY_AND_REAL_VIDEO"
+				finish("VIDEO_CANDIDATE", "NO_BASELINE_FOR_EGRESS_COMPARISON")
+			}
+			ui.guideInstruction("Есть кандидат для видео. Проверьте реальное воспроизведение 15 минут. VPN-handshake нативно не доказан; активная DPI-стратегия будет работать только пока открыт менеджер.")
+			if filterStarted {
+				if ui.guideMonitor(ctx, m, &report, v, record, persist) && ctx.Err() == nil {
+					if err := m.stopFilter(); err == nil {
+						filterStarted = false
+						record(v, "FILTER", "OWN_DPI_STOPPED")
+					} else {
+						report.State = "DPI_STOP_ERROR"
+						report.AdviceCode = "OWNED_DPI_STOP_FAILED"
+						record(v, "FILTER", "OWN_DPI_STOP_ERROR")
+						return
+					}
+					report.State = "IN_PROGRESS"
+					continue
+				}
+				return
+			}
+			// A working unmodified VPN stays untouched. We watch its route and
+			// short data transfers until the user stops the guide or repeated
+			// failures justify the next (explicitly confirmed) strategy.
+			if ui.guideMonitor(ctx, m, &report, v, record, persist) && ctx.Err() == nil {
+				report.State = "IN_PROGRESS"
+				continue
+			}
+			return
+		}
+		if usable && !flow {
+			report.State = "WEB_USABLE_VPN_UNVERIFIED"
+			report.AdviceCode = "CHECK_VPN_ROUTE_AND_APP"
+			finish("WEB_USABLE_VPN_UNVERIFIED", "ADAPTER_COUNTERS_NOT_CONFIRMED")
+			ui.guideInstruction("HTTPS-загрузка подходит для видео, но VPN-адаптер не подтвердил поток. Не буду ломать доступ перебором DPI: сначала нужно проверить маршрут и раздельное туннелирование.")
+			return
+		}
+		if !eg.Agreement && quality.Grade == "INCOMPLETE" && flow {
+			report.State = "DIAGNOSTIC_SERVICES_UNAVAILABLE"
+			report.AdviceCode = "CHECK_REAL_VIDEO_MANUALLY"
+			finish("INCONCLUSIVE", "TEST_SERVICES_UNAVAILABLE_WITH_ADAPTER_FLOW")
+			ui.guideInstruction("Тестовые HTTPS-сервисы недоступны, хотя счётчики VPN-адаптера изменились. Скорость НЕ ИЗМЕРЕНА. Не буду переключать рабочий канал без оснований: проверьте реальное видео вручную и пришлите подробный отчёт.")
+			return
+		}
+		if !eg.Agreement && quality.Grade == "INCOMPLETE" {
+			finish("FAILED", "NETWORK_TEST_SERVICES_INCONCLUSIVE")
+		} else if quality.Grade == "INCOMPLETE" {
+			finish("FAILED", "HTTPS_TRANSFER_INCOMPLETE")
+		} else if quality.Grade == "SLOW_FOR_VIDEO" {
+			finish("FAILED", "VIDEO_BANDWIDTH_BELOW_TARGET")
+		} else {
+			finish("FAILED", "VPN_DATA_PATH_NOT_CONFIRMED")
+		}
+		if filterStarted {
+			if err := m.stopFilter(); err != nil {
+				report.State = "DPI_STOP_ERROR"
+				report.AdviceCode = "OWNED_DPI_STOP_FAILED"
+				record(v, "FILTER", "OWN_DPI_STOP_ERROR")
+				return
+			} else {
+				filterStarted = false
+				record(v, "FILTER", "OWN_DPI_STOPPED")
+			}
+		}
+	}
+	report.State = "ALL_PROTOCOLS_UNVERIFIED"
+	report.AdviceCode = "NO_COMPATIBLE_VERIFIED_ROUTE"
+	ui.guideInstruction("Испытания завершены: работающий VPN-путь для видео не подтверждён. Подробный отчёт содержит все восемь вариантов и причины пропуска. Нужен совместимый сервер либо поддерживаемый интерфейс Amnezia Premium; чужие IP не перебираю.")
+}
+
+func (ui *managerUI) guideMonitor(ctx context.Context, m *Manager, report *GuideReport, v GuideVariant, record func(GuideVariant, string, string), persist func()) bool {
+	ui.guideInstruction("Наблюдаю устойчивость. Для остановки нажмите «Остановить»; собственный DPI будет выключен. Amnezia останется без изменений.")
+	misses := 0
+	for ctx.Err() == nil {
+		if waitGuide(ctx, 45*time.Second) != nil {
+			return false
+		}
+		testCtx, cancel := context.WithTimeout(ctx, 28*time.Second)
+		state, err := m.vpnState(testCtx)
+		source := "TEST_CDN_A"
+		trial := guideVideoFetch(testCtx, 131072, 0)
+		if !trial.OK && testCtx.Err() == nil {
+			source = "TEST_CDN_B"
+			trial = guideVideoFetch(testCtx, 131072, 1)
+		}
+		cancel()
+		healthy := err == nil && connectionGuideAction(state) == "MEASURE_CONNECTION" && trial.OK
+		if healthy {
+			misses = 0
+			record(v, "MONITOR", "PATH_OK")
+		} else {
+			misses++
+			record(v, "MONITOR", "PATH_NOT_CONFIRMED")
+		}
+		sample := GuideMonitorSample{UTC: utc(), Protocol: v.Protocol, DPIProfile: v.Profile, RouteObserved: err == nil && connectionGuideAction(state) == "MEASURE_CONNECTION", TransferOK: trial.OK, TestSource: source, Bytes: trial.Bytes, Mbps: trial.Mbps, ConsecutiveFailures: misses}
+		report.MonitorSamples = append(report.MonitorSamples, sample)
+		if len(report.MonitorSamples) > 256 {
+			report.MonitorSamples = report.MonitorSamples[1:]
+		}
+		persist()
+		if misses >= 3 {
+			report.State = "CONNECTION_DEGRADED"
+			report.AdviceCode = "AUTO_TRY_NEXT_CANDIDATE"
+			ui.guideInstruction("Три последовательные проверки не подтвердили путь. Останавливаю собственный DPI и перехожу к следующему совместимому варианту, при необходимости запросив переподключение Amnezia.")
+			return true
+		}
+	}
+	return false
 }

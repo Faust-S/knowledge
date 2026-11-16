@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"sort"
+	"strconv"
 	"time"
 )
 
@@ -101,7 +102,65 @@ func waitGuide(ctx context.Context, d time.Duration) error {
 	}
 }
 
+// All diagnostic fields are intentionally whitelist-only. Never copy URLs,
+// IP addresses, adapter names, local paths, usernames or raw error text into
+// a shareable guide report. Every decision can nevertheless be reconstructed.
+type GuideEvent struct {
+	UTC               string `json:"utc"`
+	Protocol          string `json:"protocol,omitempty"`
+	DPIProfile        string `json:"dpi_profile,omitempty"`
+	Stage             string `json:"stage"`
+	Code              string `json:"code"`
+	SecondsSinceStart int64  `json:"elapsed_s"`
+}
+
+type GuideIPSample struct {
+	Source     string `json:"source"`
+	Status     string `json:"status"`
+	DurationMs int64  `json:"duration_ms"`
+}
+
+type GuideTransfer struct {
+	Source        string  `json:"source"`
+	OK            bool    `json:"ok"`
+	Bytes         int64   `json:"bytes"`
+	ExpectedBytes int64   `json:"expected_bytes"`
+	Seconds       float64 `json:"seconds"`
+	Mbps          float64 `json:"mbps"`
+	FailureCode   string  `json:"failure_code,omitempty"`
+}
+
+type GuideRound struct {
+	Protocol       string          `json:"protocol"`
+	DPIProfile     string          `json:"dpi_profile"`
+	StartedUTC     string          `json:"started_utc"`
+	CompletedUTC   string          `json:"completed_utc,omitempty"`
+	State          string          `json:"state"`
+	FailureCode    string          `json:"failure_code,omitempty"`
+	RouteObserved  bool            `json:"route_observed"`
+	AdapterFlow    bool            `json:"adapter_flow_observed"`
+	EgressObserved bool            `json:"egress_observed"`
+	EgressChanged  bool            `json:"egress_changed"`
+	BaselineKnown  bool            `json:"baseline_known"`
+	EgressSamples  []GuideIPSample `json:"egress_sources,omitempty"`
+	Video          VideoAssessment `json:"video"`
+	Transfers      []GuideTransfer `json:"transfers,omitempty"`
+}
+
+type GuideMonitorSample struct {
+	UTC                 string  `json:"utc"`
+	Protocol            string  `json:"protocol"`
+	DPIProfile          string  `json:"dpi_profile"`
+	RouteObserved       bool    `json:"route_observed"`
+	TransferOK          bool    `json:"transfer_ok"`
+	TestSource          string  `json:"test_source"`
+	Bytes               int64   `json:"bytes"`
+	Mbps                float64 `json:"mbps"`
+	ConsecutiveFailures int     `json:"consecutive_failures"`
+}
+
 type GuideReport struct {
+	SchemaVersion       string          `json:"schema_version"`
 	StartedUTC          string          `json:"started_utc"`
 	CompletedUTC        string          `json:"completed_utc,omitempty"`
 	State               string          `json:"state"`
@@ -111,6 +170,40 @@ type GuideReport struct {
 	AdapterFlowObserved bool            `json:"adapter_flow_observed"`
 	Video               VideoAssessment `json:"video"`
 	AdviceCode          string          `json:"advice_code"`
-	// No IPs, adapter identifiers, secret configs or arbitrary error strings.
-	Caveat string `json:"caveat"`
+	// User-selected protocol is not verified by the adapter name. Never claim
+	// evidence of a native handshake without client-side proof.
+	NativeHandshakeVerified bool                 `json:"native_handshake_verified"`
+	PlannedVariants         int                  `json:"planned_variants"`
+	Rounds                  []GuideRound         `json:"rounds"`
+	Events                  []GuideEvent         `json:"events"`
+	MonitorSamples          []GuideMonitorSample `json:"monitor_samples,omitempty"`
+	Caveat                  string               `json:"caveat"`
+}
+
+func guideIPObservations(r EgressResult) []GuideIPSample {
+	samples := make([]GuideIPSample, 0, len(r.Samples))
+	for i, s := range r.Samples {
+		// Use a stable ordinal rather than storing hostnames or IPs.
+		samples = append(samples, GuideIPSample{Source: "IP_CHECK_" + strconv.Itoa(i+1), Status: normalizedIPStatus(s.Status), DurationMs: s.Milliseconds})
+	}
+	return samples
+}
+
+func normalizedIPStatus(s string) string {
+	if s == "OK" {
+		return "OK"
+	}
+	return "ERROR"
+}
+
+func guideTransfers(rs []DownloadResult) []GuideTransfer {
+	transfers := make([]GuideTransfer, 0, len(rs))
+	for _, r := range rs {
+		code := ""
+		if !r.OK {
+			code = "HTTPS_TRANSFER_INCOMPLETE"
+		}
+		transfers = append(transfers, GuideTransfer{Source: "HTTPS_VIDEO_SAMPLE", OK: r.OK, Bytes: r.Bytes, ExpectedBytes: r.ExpectedBytes, Seconds: r.DurationSeconds, Mbps: r.Mbps, FailureCode: code})
+	}
+	return transfers
 }
