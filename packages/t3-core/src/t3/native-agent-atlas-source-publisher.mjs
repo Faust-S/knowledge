@@ -166,7 +166,10 @@ export function createTrustedAgentAtlasSourcePublisher({
       archive.taskId===binding.taskId&&archive.resultId===binding.resultId&&
       same(archive.sourceObjectRef,ref,REF)&&
       archive.originalSignatureVerified===true&&
-      archive.archiveBytesVerified===true,
+      archive.archiveBytesVerified===true&&
+      archive.originalManifestVerified===true&&
+      archive.disclosureScope==="ORIGINAL_RESULT_ONLY"&&
+      same(archive.selectedSourceObjectRef,ref,REF),
       "T3_D6_ORIGINAL_EXCHANGE_READBACK_MISMATCH");
     await current(binding);
     return {ref,archive};
@@ -312,7 +315,10 @@ export function createTrustedAgentAtlasSourcePublisher({
           archiveProof.resultId===binding.resultId&&
           same(archiveProof.sourceObjectRef,ref,REF)&&
           archiveProof.originalSignatureVerified===true&&
-          archiveProof.archiveBytesVerified===true,
+          archiveProof.archiveBytesVerified===true&&
+          archiveProof.originalManifestVerified===true&&
+          archiveProof.disclosureScope==="ORIGINAL_RESULT_ONLY"&&
+          same(archiveProof.selectedSourceObjectRef,ref,REF),
           "T3_D6_ORIGINAL_EXCHANGE_EXPORT_UNVERIFIED");
         await originalLedger.finalize({
           operationId,binding:copy(binding),sourceObjectRef:ref,
@@ -360,12 +366,34 @@ export function createTrustedAgentAtlasSourcePublisher({
     recipientId){
     check(recipientId==="iwxa.atlas"&&hex(archiveSha256),
       "T3_D6_ORIGINAL_EXCHANGE_REQUEST_INVALID");
-    const row=await read_published(sourceObjectRef);
-    check(row.taskId===taskId&&row.resultId===resultId&&
-      row.archiveSha256===archiveSha256,
+    const ref=refOf(sourceObjectRef);
+    const r=await verifiedByRow(await originalLedger.findByObject(copy(ref)));
+    check(same(r.row.sourceObjectRef,ref,REF)&&
+      r.binding.taskId===taskId&&r.binding.resultId===resultId&&
+      r.row.archiveSha256===archiveSha256,
       "T3_D6_ORIGINAL_EXCHANGE_RECEIPT_MISMATCH");
+    // Return an ORIGINAL signed Exchange attestation, not a synthetic
+    // VERIFIED flag manufactured by this public wrapper.
+    const original=await originalExchange.verifySelectedResult({
+      operationId:r.row.operationId,binding:copy(r.binding),
+      sourceObjectRef:copy(ref),archiveSha256,
+    });
+    check(original?.status==="VERIFIED"&&
+      original.recipientId==="iwxa.atlas"&&
+      original.archiveSha256===archiveSha256&&
+      original.taskId===taskId&&original.resultId===resultId&&
+      same(original.sourceObjectRef,ref,REF)&&
+      same(original.selectedSourceObjectRef,ref,REF)&&
+      original.originalSignatureVerified===true&&
+      original.archiveBytesVerified===true&&
+      original.originalManifestVerified===true&&
+      original.disclosureScope==="ORIGINAL_RESULT_ONLY",
+      "T3_D6_ORIGINAL_EXCHANGE_RECEIPT_UNVERIFIED");
     return Object.freeze({status:"VERIFIED",recipientId:"iwxa.atlas",
-      taskId,resultId,archiveSha256});
+      taskId,resultId,archiveSha256,
+      selectedSourceObjectRef:refOf(ref),
+      originalSignatureVerified:true,archiveBytesVerified:true,
+      originalManifestVerified:true,disclosureScope:"ORIGINAL_RESULT_ONLY"});
   }
   async function read_latest_for_work(projectId,workId){
     check(id(projectId)&&id(workId),
