@@ -36,6 +36,14 @@ jobs:
       - name: Cross-compile Windows native GUI
         run: GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-H windowsgui -s -w" -o Bypass-Manager-Sanity.exe .
 
+      - name: Archive exactly tested sources for independent recheck
+        run: git archive --format=zip --prefix=bypass-manager-source/ -o bypass-manager-source.zip HEAD:tools/bypass-manager
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bypass-manager-scenario-source
+          path: tools/bypass-manager/bypass-manager-source.zip
+          if-no-files-found: error
+
   windows-native-scenarios:
     strategy:
       fail-fast: false
