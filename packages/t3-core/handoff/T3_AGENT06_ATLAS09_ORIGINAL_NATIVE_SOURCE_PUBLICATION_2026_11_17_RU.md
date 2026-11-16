@@ -85,3 +85,42 @@ native Store and two cold readbacks are still required.
 
 Status: `PRIVATE_ORIGINAL_LEDGER_SOURCE_IMPLEMENTED`,
 `PUBLIC_SENDER_CI=PASS`, `D6_INSTALLED=NOT_ACCEPTED`.
+
+
+## 2026-11-17: separate original Atlas issuer and native Host composition
+
+The original private T3 branch has advanced beyond its earlier missing-grant state:
+\`Faust-S/T3@work/2026-11-17-t3-original-agent-atlas-d6-publication-ledger\`.
+
+Original employer issuer can now **optionally** issue a separately signed DATA
+\`package.export\` grant to \`recipient:iwxa.atlas\` using
+\`admin.invite({workspaceRead:true,workspaceWrite:true,atlasResultExport:true})\`.
+The default is false. Employee import verifies enrollment and original signed
+grant. The original issuer can revoke the Atlas grant independently. Existing
+organization-only interop.result.v2 export remains unchanged.
+
+Native private T3 has an Atlas recipient-specific Ed25519 .iwxa Exchange over
+its **existing** Reconciliation quarantine and original transfer ledger. It
+signs only the accepted source reference, digest and Task/Work provenance;
+original signature, archived bytes, manifest, recipient and original Kernel
+Object/Event must all be reverified. The original private native Host
+composition factory now connects original employee authority, original T2
+Kernel/signed D1 Access, original Reconciliation, original Exchange and the
+public sender factory as existing product ports.
+
+Public sender revision \`6fd1bdb1\` passed public source CI
+[№43976818522](https://github.com/Faust-S/knowledge/actions/runs/43976818522),
+including native T2 graph input shape and original Exchange receipt evidence.
+
+**Private T3 qualification remains blocked:** public Center CI
+[№43976161978](https://github.com/Faust-S/Center/actions/runs/43976161978)
+could not checkout private T3 (HTTP 403, read-grant unavailable for that repo).
+This is not a test failure. Private Actions were not run, and no private
+artifacts were uploaded. The Center workflow's SHA is the previous private
+snapshot; update its exact pin only after authorized T3 read access exists.
+
+Next required product work: mount the composition factory inside the genuinely
+installed original T3 Host, connect its sourceOwner to Agent
+InstalledOriginalAgentResultOwner through the existing native bridge, qualify
+private issuer and real signed .iwxa, and run Atlas's native Store with two
+cold readbacks. D6_END_TO_END remains NOT_ACCEPTED.
