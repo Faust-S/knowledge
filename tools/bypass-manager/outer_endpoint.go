@@ -36,13 +36,15 @@ func parseOuterEndpointEvidence(raw []byte, protocol string) (OuterEndpoint, str
         }
         return OuterEndpoint{}, "EVIDENCE_INVALID"
     }
+    minSignals := 2
+    if protocol == guideAWG && s.Source == "AWG_NATIVE" { minSignals = 1 }
     if !validIPv4(s.IPv4) || s.Port < 1 || s.Port > 65535 || !s.PhysicalRoute ||
-        s.Signals < 2 || s.Signals > 600 || s.AgeSeconds < 0 || s.AgeSeconds > 90 {
+        s.Signals < minSignals || s.Signals > 600 || s.AgeSeconds < 0 || s.AgeSeconds > 90 {
         return OuterEndpoint{}, "EVIDENCE_INVALID"
     }
     switch protocol {
     case guideAWG:
-        if s.Transport != "AWG-UDP" || s.Source != "WFP_UDP" { return OuterEndpoint{}, "EVIDENCE_INVALID" }
+        if s.Transport != "AWG-UDP" || (s.Source != "WFP_UDP" && s.Source != "AWG_NATIVE") { return OuterEndpoint{}, "EVIDENCE_INVALID" }
     case guideVLESS:
         if s.Transport != "REALITY-TCP" || (s.Source != "XRAY_TCP" && s.Source != "WFP_TCP") {
             return OuterEndpoint{}, "EVIDENCE_INVALID"

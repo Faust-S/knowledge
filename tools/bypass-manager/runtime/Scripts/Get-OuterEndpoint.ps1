@@ -1,7 +1,8 @@
 # Passive Windows transport discovery. Never read Amnezia keys, profiles,
 # subscription URLs, command lines, logs or secrets. Never change audit settings.
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][ValidateSet('AMNEZIAWG','VLESS')][string]$Protocol)
+param([Parameter(Mandatory=$true)][ValidateSet('AMNEZIAWG','VLESS')][string]$Protocol,
+      [string]$AdapterName='')
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)
@@ -79,6 +80,28 @@ try {
   $owners=BM-TrustedOwners $Protocol
   if($owners.Count -eq 0) { BM-Emit 'NO_TRUSTED_PROCESS'; return }
   $signals=New-Object System.Collections.ArrayList
+  if($Protocol -eq 'AMNEZIAWG' -and -not [string]::IsNullOrWhiteSpace($AdapterName)) {
+    # Optional native interface query for the official standalone AWG client.
+    # The command exposes public peer identifiers, but they are discarded in
+    # memory; no private configuration or keys are read and no raw log saved.
+    $roots=@([Environment]::GetFolderPath('ProgramFiles'),
+             [Environment]::GetFolderPath('ProgramFilesX86'))
+    foreach($root in $roots) {
+      if([string]::IsNullOrWhiteSpace($root)) { continue }
+      foreach($dir in @('AmneziaWG','AmneziaVPN')) {
+        $exe=Join-Path (Join-Path $root $dir) 'awg.exe'
+        if(-not (Test-Path -LiteralPath $exe -PathType Leaf)) { continue }
+        try {
+          $lines=@(& $exe show all endpoints 2>$null)
+          if($LASTEXITCODE -ne 0) { continue }
+          $peers=@(Get-BMAwgEndpointMetadata -Lines $lines -InterfaceName $AdapterName)
+          foreach($peer in $peers) {
+            BM-Add $signals ([string]$peer.IPv4) ([int]$peer.Port) 'AWG_NATIVE' 0
+          }
+        } catch {}
+      }
+    }
+  }
   if($Protocol -eq 'VLESS') {
     # Two passive snapshots are required. Server port is not assumed to be 443.
     for($i=0;$i -lt 2;$i++) {
@@ -113,9 +136,11 @@ try {
   $groups=@($signals | Group-Object -Property { $_.ip + ':' + [string]$_.port })
   if($groups.Count -ne 1) { BM-Emit 'AMBIGUOUS'; return }
   $observed=@($groups[0].Group)
-  if($observed.Count -lt 2) { BM-Emit 'INSUFFICIENT_SIGNALS'; return }
+  if($observed.Count -lt 2 -and @($observed | Where-Object {$_.source -eq 'AWG_NATIVE'}).Count -eq 0) {
+    BM-Emit 'INSUFFICIENT_SIGNALS'; return
+  }
   $youngest=[int](($observed | Sort-Object age | Select-Object -First 1).age)
-  $source=$(if(@($observed | Where-Object {$_.source -eq 'XRAY_TCP'}).Count -ge 2){'XRAY_TCP'}else{[string]$observed[0].source})
+  $source=$(if(@($observed | Where-Object {$_.source -eq 'AWG_NATIVE'}).Count -gt 0){'AWG_NATIVE'}elseif(@($observed | Where-Object {$_.source -eq 'XRAY_TCP'}).Count -ge 2){'XRAY_TCP'}else{[string]$observed[0].source})
   BM-Emit 'OBSERVED' ([string]$observed[0].ip) ([int]$observed[0].port) $source $observed.Count $youngest
 } catch {
   BM-Emit 'PROBE_ERROR'

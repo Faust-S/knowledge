@@ -16,6 +16,8 @@ func outerFixture(protocol string) OuterEndpoint {
 func TestOuterEndpointEvidenceMatrix(t *testing.T) {
     cases:=[]struct{name string;protocol string;change func(*OuterEndpoint);ok bool}{
         {"awg",guideAWG,func(*OuterEndpoint){},true},
+        {"awg-native-one-fresh-peer",guideAWG,func(s *OuterEndpoint){s.Source="AWG_NATIVE";s.Signals=1},true},
+        {"awg-native-no-route",guideAWG,func(s *OuterEndpoint){s.Source="AWG_NATIVE";s.Signals=1;s.PhysicalRoute=false},false},
         {"vless",guideVLESS,func(*OuterEndpoint){},true},
         {"vless-wfp",guideVLESS,func(s *OuterEndpoint){s.Source="WFP_TCP"},true},
         {"private-ip",guideAWG,func(s *OuterEndpoint){s.IPv4="10.0.0.1"},false},

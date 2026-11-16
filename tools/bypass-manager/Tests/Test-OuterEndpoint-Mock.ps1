@@ -78,3 +78,20 @@ Assert-BMFixture 'WRONG_OWNER' 'VLESS' 'NO_OUTER_TRANSPORT'
 Assert-BMFixture 'PRIVATE_REMOTE' 'VLESS' 'NO_OUTER_TRANSPORT'
 Assert-BMFixture 'ONE_WFP' 'AMNEZIAWG' 'INSUFFICIENT_SIGNALS'
 Assert-BMFixture 'STALE_WFP' 'AMNEZIAWG' 'NO_OUTER_TRANSPORT'
+
+# The native parser never exposes a peer public identifier to the output.
+Import-Module (Join-Path $root 'runtime\Scripts\Common.psm1') -Force
+$nativeSample=@(
+  'Tunnel-A peer-public-identifier 9.9.9.9:51820',
+  'Tunnel-B other-public-identifier 1.1.1.1:443',
+  'Tunnel-A peer-without-endpoint (none)',
+  'Tunnel-A malformed-endpoint 192.0.2.2:0'
+)
+$native=@(Get-BMAwgEndpointMetadata -Lines $nativeSample -InterfaceName 'Tunnel-A')
+if($native.Count -ne 1 -or $native[0].IPv4 -ne '9.9.9.9' -or $native[0].Port -ne 51820) {
+  throw 'Native awg CLI endpoint parser failed the isolated peer fixture'
+}
+if(($native | ConvertTo-Json -Compress) -match 'peer-') {
+  throw 'Native awg CLI parser exposed peer identifier'
+}
+Write-Host 'PASS native AWG endpoint parsing: matching interface, public peer identifier discarded'
