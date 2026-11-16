@@ -58,7 +58,7 @@ function Assert-BMFixture([string]$Scenario,[string]$Protocol,[string]$Expected)
   $raw=@(& (Join-Path $root 'runtime\Scripts\Get-OuterEndpoint.ps1') -Protocol $Protocol)
   if($raw.Count -ne 1) { throw "expected one JSON object: $Scenario" }
   $r=$raw[0] | ConvertFrom-Json
-  if($r.status -ne $Expected) { throw "failed $Scenario/$Protocol: got $($r.status), expected $Expected" }
+  if($r.status -ne $Expected) { throw "failed $Scenario/${Protocol}: got $($r.status), expected $Expected" }
   if($Expected -eq 'OBSERVED') {
     if($r.port -lt 1 -or !$r.physical_route_confirmed) { throw "invalid observed route: $Scenario" }
   } else {
