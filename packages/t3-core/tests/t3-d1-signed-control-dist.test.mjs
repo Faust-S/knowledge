@@ -132,8 +132,9 @@ test('installed Admin D3 records use the original T2 passport and unchanged Kern
       assert.deepEqual(row,['existing.object',schema,accessSchema]);
     assert.equal(installed.schemas[schema].schema_version,'1.0.0');
     assert.equal(installed.schemas[accessSchema].schema_version,'1.0.0');
-    assert.deepEqual(installed.schemas[accessSchema].json_schema.required,
-      ['policy','grants','statuses','statusFloor','tombstones','lastObservedAt']);
+    assert.equal(installed.schemas[accessSchema].preserve_unknown,true);
+    assert.deepEqual(installed.schemas[accessSchema].json_schema,
+      {type:'object'},'original signed AccessRegistry validates status and history');
     assert.deepEqual(
       installed.schemas[schema].json_schema.properties.records.items.properties.result,
       {type:'string'},

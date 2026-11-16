@@ -19,17 +19,11 @@ const ADMIN_ACCESS_SCHEMA="iwxa.t3.access.signed-registry";
 // Only the INSTALLED Admin D3 service receives this ORIGINAL signed
 // AccessRegistry Object/Event schema, never normative T2 or other domains.
 const ADMIN_ACCESS_DECLARATION=Object.freeze({
-  schema_version:"1.0.0",preserve_unknown:false,
-  json_schema:{
-    type:"object",properties:{
-      policy:{type:"object"},grants:{type:"object"},
-      statuses:{type:"object"},statusFloor:{type:"object"},
-      tombstones:{type:"object"},lastObservedAt:{type:"string"},
-    },
-    required:["policy","grants","statuses","statusFloor","tombstones",
-      "lastObservedAt"],
-    additionalProperties:false,
-  },embedded:{},
+  // Reuse the ORIGINAL signed-state schema already declared by the
+  // inherited T2 host. Its AccessRegistry verifies signed policy/grant/
+  // STATUS and Kernel Event history; JSON Schema is only serialization.
+  schema_version:"1.0.0",preserve_unknown:true,
+  json_schema:{type:"object"},embedded:{},
 });
 const ADMIN_RESULT_FIELDS=["taskId","taskRevisionId","resultRevisionId",
   "organizationId","workspaceId","executorId","result","acceptanceId"];
