@@ -13,6 +13,7 @@ on:
       - work/2026-11-13-t3-d1-corp-existing-vault
       - work/2026-11-13-t3-pwa-integration
       - work/2026-11-13-t3-d1-native-owner-http
+      - work/2026-11-16-t3-d3-independent-employee
     paths:
       - packages/t3-core/src/t3/activity/**
       - packages/t3-core/**
@@ -78,6 +79,10 @@ jobs:
         run: |
           node --check packages/t3-core/src/t3/access/original-kernel-registry-state.mjs
           node --test packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs
+      - name: Qualify D3 independent employee issuer proof, original signed grants and lost ACK
+        run: |
+          node --check packages/t3-core/src/t3/access/original-employee-enrollment.mjs
+          node --test packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs
       - name: Qualify existing offline Ed25519 encrypted local key vault
         run: node --test packages/t3-core/tests/t3-d1-original-vault.test.mjs
       - name: Test BLI declaration in the original signed one-dist
