@@ -155,6 +155,115 @@ export function createOriginalEmployeeEnrollmentOwner({
         input,enrollmentId})
     };
   }
+  // Rebuild the EXACT same signed issuer enrollment from original persisted
+  // grants after a cold restart. Never mint new IDs or a replacement grant.
+  function reconstruct({saved,employeePersonId,enrollmentId,at}){
+    const organization=pinnedOrganization,workspaceId=trustedWorkspaceId;
+    check(organization.organizationId&&employeePersonId&&enrollmentId,
+      'T3_EMPLOYEE_RECOVERY_INPUT_REQUIRED');
+    const rows=Object.values(saved.grants).filter(env=>{
+      const g=env.payload;
+      return g.principalId===organization.organizationId&&
+        g.authorityId===organization.issuerAuthorityId&&
+        g.holderId===employeePersonId&&g.resources.includes(workspaceId)&&
+        g.evidenceRefs.includes('employee-enrollment:'+enrollmentId);
+    });
+    check(rows.length===2,'T3_EMPLOYEE_ORIGINAL_GRANT_PAIR_REQUIRED');
+    const workRecord=rows.find(x=>x.payload.rightClass==='ACTION'&&
+      x.payload.actions.length===1&&x.payload.actions[0]==='work.prepare');
+    const exportRecord=rows.find(x=>x.payload.rightClass==='DATA'&&
+      x.payload.actions.length===1&&x.payload.actions[0]==='package.export');
+    check(workRecord&&exportRecord&&workRecord!==exportRecord,
+      'T3_EMPLOYEE_ORIGINAL_GRANT_PAIR_INVALID');
+    const work=workRecord.payload,exportGrant=exportRecord.payload;
+    const fields=['issuedAt','notBefore','expiresAt','roleId','realmId',
+      'environment','membershipEpoch','audience','principalId','holderId',
+      'authorityId'];
+    check(fields.every(k=>work[k]===exportGrant[k])&&
+      work.roleId==='worker'&&work.resources.length===1&&
+      work.resources[0]===workspaceId&&work.purposes.length===1&&
+      work.purposes[0]==='work'&&
+      exportGrant.purposes.length===1&&
+      exportGrant.purposes[0]==='handoff'&&
+      JSON.stringify(exportGrant.resources)===JSON.stringify(
+        audienceResource({organizationId:organization.organizationId,workspaceId})),
+      'T3_EMPLOYEE_RECOVERY_GRANT_SCOPE_CHANGED');
+    check(workRecord.keyId===issuerSigner.keyId&&
+      exportRecord.keyId===issuerSigner.keyId,
+      'T3_EMPLOYEE_RECOVERY_ORIGINAL_SIGNER_REQUIRED');
+    for(const env of rows){
+      verifyRecord(env,saved.policy,at,'GRANT');
+      verifiedChain(env.payload.id,saved,at);
+    }
+    const proofEvidence=(record,prefix)=>record.payload.evidenceRefs
+      .filter(x=>x.startsWith(prefix));
+    const keyRefs=proofEvidence(workRecord,'employee-credential:');
+    const digestRefs=proofEvidence(workRecord,'employee-proof-sha256:');
+    check(keyRefs.length===1&&digestRefs.length===1&&
+      exportRecord.payload.evidenceRefs.includes(keyRefs[0])&&
+      exportRecord.payload.evidenceRefs.includes(digestRefs[0]),
+      'T3_EMPLOYEE_RECOVERY_PROOF_EVIDENCE_CHANGED');
+    const credentialKeyId=keyRefs[0].slice('employee-credential:'.length);
+    const proofDigest=digestRefs[0].slice('employee-proof-sha256:'.length);
+    check(/^[a-f0-9]{64}$/.test(proofDigest)&&
+      saved.policy.keys[credentialKeyId]?.subjectId===employeePersonId&&
+      saved.policy.keys[credentialKeyId]?.status==='ACTIVE'&&
+      saved.policy.keys[credentialKeyId]?.uses.includes('PROOF'),
+      'T3_EMPLOYEE_RECOVERY_CREDENTIAL_UNTRUSTED');
+    const status=validateStatusSnapshot(organization.issuerAuthorityId,saved,at);
+    check(rows.every(x=>status.entries.some(entry=>
+      entry.grantId===x.payload.id&&entry.state==='ACTIVE')&&
+      !hasRecordedTombstone(saved,x.payload.id)),
+      'T3_EMPLOYEE_RECOVERY_AUTHORITY_NOT_ACTIVE');
+    const membershipId='member:'+enrollmentId;
+    const credential=original('AdminIssuedCredential',{
+      credentialId:'credential:'+credentialKeyId,
+      organizationId:organization.organizationId,membershipId,
+      issuerAuthorityId:organization.issuerAuthorityId,
+      holderPersonId:employeePersonId,publicKeyRef:credentialKeyId,
+      custody:'HOLDER_ORG_SCOPED',personalKeySource:false,
+      notBefore:work.notBefore,expiresAt:work.expiresAt,status:'ACTIVE'
+    });
+    const membership=original('StaffMembership',{
+      membershipId,organizationId:organization.organizationId,
+      personId:employeePersonId,workspaceId,roleId:'worker',
+      grantId:work.id,issuerAuthorityId:organization.issuerAuthorityId,
+      membershipEpoch:organization.membershipEpoch,
+      notBefore:work.notBefore,expiresAt:work.expiresAt,
+      status:'ACTIVE',statusObservedAt:status.issuedAt,
+      statusValidUntil:status.validUntil
+    });
+    const binding=original('OrganizationGrant',{
+      organizationId:organization.organizationId,membershipId,
+      grantId:work.id,authorityId:organization.issuerAuthorityId,
+      realmId:organization.realmId,holderPersonId:employeePersonId,
+      roleId:'worker',membershipEpoch:organization.membershipEpoch,
+      resources:work.resources,actions:work.actions,purposes:work.purposes,
+      notBefore:work.notBefore,expiresAt:work.expiresAt,
+      signedEnvelopeDigest:digest(workRecord)
+    });
+    const enrollment=signOrganizationEnrollment({
+      schema:'IWXA_T3_ORGANIZATION_ENROLLMENT_CLAIMS/1',
+      organizationId:organization.organizationId,
+      realmId:organization.realmId,
+      issuerAuthorityId:organization.issuerAuthorityId,
+      personId:employeePersonId,workspaceId,membershipId,
+      credentialId:credential.credentialId,credentialPublicKeyRef:credentialKeyId,
+      grantId:work.id,signedGrantDigest:digest(workRecord),
+      organizationDataRootId:organization.organizationDataRootId,
+      membershipEpoch:organization.membershipEpoch,
+      issuedAt:work.issuedAt,notBefore:work.notBefore,expiresAt:work.expiresAt
+    },issuerSigner);
+    verifyOrganizationEnrollment(enrollment,saved,organization,at);
+    return Object.freeze({state:'SIGNED_EMPLOYEE_ENROLLED_NOT_DELIVERED',
+      enrollmentId,organizationId:organization.organizationId,
+      employeePersonId,workspaceId,credentialPublicKeyRef:credentialKeyId,
+      grantIds:{work:work.id,export:exportGrant.id},
+      statusSequence:status.sequence,membership,credential,binding,enrollment,
+      exportGrant:exportRecord,workGrant:workRecord,
+      originalSigned:true,invitationDelivered:false,automaticTransfer:false,
+      productionActivation:false});
+  }
   async function begin(input){
     check(!pending&&!operationAttempted,'T3_EMPLOYEE_PENDING_OR_OUTCOME_UNKNOWN');
     const at=now(),signed=await state();
@@ -256,94 +365,62 @@ export function createOriginalEmployeeEnrollmentOwner({
       digest(readback.grants[work.id])===digest(workSigned)&&
       digest(readback.grants[exportGrant.id])===digest(exportSigned),
       'T3_EMPLOYEE_ORIGINAL_COMMIT_READBACK_HOLD');
-    const membershipId='member:'+enrollmentId;
-    const credential=original('AdminIssuedCredential',{
-      credentialId:'credential:'+p.input.credentialKeyId,
-      organizationId:organization.organizationId,membershipId,
-      issuerAuthorityId:authorityId,holderPersonId:p.input.employeePersonId,
-      publicKeyRef:p.input.credentialKeyId,custody:'HOLDER_ORG_SCOPED',
-      personalKeySource:false,notBefore:work.notBefore,expiresAt:work.expiresAt,
-      status:'ACTIVE'});
-    const membership=original('StaffMembership',{
-      membershipId,organizationId:organization.organizationId,
-      personId:p.input.employeePersonId,workspaceId:p.input.workspaceId,
-      roleId:'worker',grantId:work.id,issuerAuthorityId:authorityId,
-      membershipEpoch:organization.membershipEpoch,
-      notBefore:work.notBefore,expiresAt:work.expiresAt,
-      status:'ACTIVE',statusObservedAt:issuedAt,statusValidUntil:iso(expiry)});
-    const binding=original('OrganizationGrant',{
-      organizationId:organization.organizationId,membershipId,
-      grantId:work.id,authorityId,realmId:organization.realmId,
-      holderPersonId:p.input.employeePersonId,roleId:'worker',
-      membershipEpoch:organization.membershipEpoch,
-      resources:work.resources,actions:work.actions,purposes:work.purposes,
-      notBefore:work.notBefore,expiresAt:work.expiresAt,
-      signedEnvelopeDigest:digest(workSigned)});
-    const enrollment=signOrganizationEnrollment({
-      schema:'IWXA_T3_ORGANIZATION_ENROLLMENT_CLAIMS/1',
-      organizationId:organization.organizationId,realmId:organization.realmId,
-      issuerAuthorityId:authorityId,personId:p.input.employeePersonId,
-      workspaceId:p.input.workspaceId,membershipId,
-      credentialId:credential.credentialId,
-      credentialPublicKeyRef:p.input.credentialKeyId,
-      grantId:work.id,signedGrantDigest:digest(workSigned),
-      organizationDataRootId:organization.organizationDataRootId,
-      membershipEpoch:organization.membershipEpoch,
-      issuedAt,notBefore:work.notBefore,expiresAt:work.expiresAt,
-    },issuerSigner);
-    verifyOrganizationEnrollment(enrollment,readback,organization,at);
+    const finalized=reconstruct({saved:readback,employeePersonId:p.input.employeePersonId,
+      enrollmentId,at});
+    check(finalized.statusSequence===sequence&&
+      finalized.grantIds.work===work.id&&finalized.grantIds.export===exportGrant.id,
+      'T3_EMPLOYEE_ORIGINAL_READBACK_BINDING_CHANGED');
     pending=null;
-    operationAttempted=false; // A verified original commit permits enrolling another person.
-    return Object.freeze({
-      state:'SIGNED_EMPLOYEE_ENROLLED_NOT_DELIVERED',
-      enrollmentId,organizationId:organization.organizationId,
-      employeePersonId:p.input.employeePersonId,workspaceId:p.input.workspaceId,
-      credentialPublicKeyRef:p.input.credentialKeyId,
-      grantIds:{...p.grantIds},statusSequence:sequence,
-      membership,credential,binding,enrollment,
-      exportGrant:exportSigned,workGrant:workSigned,
-      kernelReceipt:saved,
-      originalSigned:true,invitationDelivered:false,
-      automaticTransfer:false,productionActivation:false
-    });
+    operationAttempted=false;
+    return Object.freeze({...finalized,kernelReceipt:saved});
   }
   async function readEnrollment({organizationId,employeePersonId,enrollmentId}={}){
     id(organizationId);id(employeePersonId);id(enrollmentId);
-    const at=now(),saved=await state(),matches=Object.entries(saved.grants)
-      .filter(([,entry])=>entry.payload.authorityId &&
-        entry.payload.principalId===organizationId&&
-        entry.payload.holderId===employeePersonId&&
-        entry.payload.evidenceRefs.includes('employee-enrollment:'+enrollmentId));
-    check(matches.length===2,'T3_EMPLOYEE_ENROLLMENT_READBACK_NOT_FOUND');
-    for(const [,record] of matches)
-      verifyRecord(record,saved.policy,at,'GRANT');
+    check(organizationId===pinnedOrganization.organizationId,
+      'T3_EMPLOYEE_TRUSTED_ORGANIZATION_CONTEXT_CHANGED');
+    const at=now(),saved=await state();
+    const rows=Object.values(saved.grants).filter(env=>
+      env.payload.principalId===organizationId&&
+      env.payload.authorityId===pinnedOrganization.issuerAuthorityId&&
+      env.payload.holderId===employeePersonId&&
+      env.payload.resources.includes(trustedWorkspaceId)&&
+      env.payload.evidenceRefs.includes('employee-enrollment:'+enrollmentId));
+    check(rows.length===2,'T3_EMPLOYEE_ENROLLMENT_READBACK_NOT_FOUND');
     let authorityState='ORIGINAL_GRANTS_ACTIVE';
-    for(const [grantId,entry] of matches){
-      const g=entry.payload;
-      if(hasRecordedTombstone(saved,grantId)||
-         timestamp(g.expiresAt)<=at||timestamp(g.notBefore)>at){
-        authorityState='ORIGINAL_GRANTS_REVOKED_OR_EXPIRED';continue;
-      }
+    for(const env of rows){
+      const g=env.payload;
       try {
-        verifiedChain(grantId,saved,at);
+        verifyRecord(env,saved.policy,at,'GRANT');
+        if(hasRecordedTombstone(saved,g.id)||
+           timestamp(g.expiresAt)<=at||timestamp(g.notBefore)>at){
+          authorityState='ORIGINAL_GRANTS_REVOKED_OR_EXPIRED';continue;
+        }
+        verifiedChain(g.id,saved,at);
         const status=validateStatusSnapshot(g.authorityId,saved,at);
-        const row=status.entries.find(x=>x.grantId===grantId);
+        const row=status.entries.find(x=>x.grantId===g.id);
         if(!row||row.state!=='ACTIVE')
           authorityState='ORIGINAL_GRANTS_REVOKED_OR_EXPIRED';
       }catch{
-        // A stale status is not equivalent to a known terminal revocation.
         authorityState='ORIGINAL_STATUS_UNKNOWN_HOLD';
       }
     }
-    // Explicit authoritative readback resolves a lost ACK; it does not retry
-    // the signed issuance or create a new employee/grant identifier.
+    // Once original Kernel readback establishes a non-replayed outcome, a
+    // different employee can be admitted. The same employee cannot be reissued.
     if(pending?.enrollmentId===enrollmentId){
       pending=null;operationAttempted=false;
     }
-    return {state:authorityState,
-      enrollmentId,organizationId,employeePersonId,
-      grants:matches.map(([grantId])=>grantId).sort(),originalReadback:true,
-      safeToReissue:false,invitationDelivered:false};
+    const base={state:authorityState,enrollmentId,organizationId,
+      employeePersonId,grants:rows.map(x=>x.payload.id).sort(),
+      originalReadback:true,safeToReissue:false,invitationDelivered:false};
+    if(authorityState!=='ORIGINAL_GRANTS_ACTIVE')return Object.freeze(base);
+    const restored=reconstruct({saved,employeePersonId,enrollmentId,at});
+    return Object.freeze({...base,originalSigned:true,
+      originalEnrollment:restored.enrollment,
+      membership:restored.membership,credential:restored.credential,
+      binding:restored.binding,workGrant:restored.workGrant,
+      exportGrant:restored.exportGrant,
+      statusSequence:restored.statusSequence});
   }
+
   return Object.freeze({begin,complete,readEnrollment});
 }
