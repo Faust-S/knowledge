@@ -60,8 +60,8 @@ func tuningSuggestions(s SupportReport) []TuningSuggestion {
 		}
 	}
 	if s.Apps != nil {
-		if s.Apps.PhysicalBound > 0 {
-			add("APPLICATION_SOURCE_BINDING_REVIEW", "OBSERVED_NOT_VERIFIED", "Some applications have active TCP sockets bound to a physical-interface address", "Inspect selected applications for built-in proxy, VPN extensions and split-tunnel rules; test egress inside the actual application", "Compare each application's own external address, not only the manager's HTTPS probe", "Restore the original application proxy and split-tunnel policy")
+		if s.Apps.PhysicalClassificationComplete && s.Apps.NonVPNPhysicalBound > 0 {
+			add("APPLICATION_SOURCE_BINDING_REVIEW", "OBSERVED_NOT_VERIFIED", "Non-VPN applications have TCP sockets bound to a physical-interface address; this does not prove their internet egress", "Inspect selected applications for built-in proxy, VPN extensions and split-tunnel rules; test egress inside the actual application", "Compare each application's own external address, not only the manager's HTTPS probe", "Restore the original application proxy and split-tunnel policy")
 		}
 		if s.Apps.UDPBound > 0 {
 			add("UDP_APPLICATION_PATH_UNKNOWN", "UNKNOWN", "UDP sockets observed but their remote destinations and effective egress are unknown", "Use an application-specific test; do not infer UDP routing from bound sockets", "Compare actual app connectivity during VPN on/off while avoiding DNS/IP leaks", "No system setting changed")

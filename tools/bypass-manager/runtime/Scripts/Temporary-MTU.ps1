@@ -100,6 +100,9 @@ if ($Mode -eq 'Preview') {
     exit 0
 }
 # Mode Start. Privileged trial is opt-in from an explicit GUI confirmation.
+# If the independent watchdog fails BEFORE a network change is attempted,
+# remove the pending journal immediately; no rollback helper exists yet.
+$networkChangeAttempted=$false
 try {
     New-Item -ItemType Directory -Path $root -Force | Out-Null
     if (Test-Path -LiteralPath $statePath) { Write-BMResult 'PENDING_ROLLBACK' 0 0;exit 1 }
@@ -122,12 +125,18 @@ try {
         Start-Sleep -Milliseconds 100
     }
     if (-not $ready) { Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue; Write-BMResult 'WATCHDOG_NOT_READY' 0 0;exit 1 }
+    $networkChangeAttempted=$true
     Set-NetIPInterface -InterfaceIndex ([int]$target.index) -AddressFamily IPv4 -PolicyStore ActiveStore -NlMtuBytes ([uint32]$target.candidate) -ErrorAction Stop
     $actual=Get-NetIPInterface -InterfaceIndex ([int]$target.index) -AddressFamily IPv4 -PolicyStore ActiveStore -ErrorAction Stop | Select-Object -First 1
     if ([int]$actual.NlMtu -ne [int]$target.candidate) { throw 'Trial value not confirmed' }
     Write-BMResult 'TRIAL_STARTED' ([int]$target.original) ([int]$target.candidate)
 } catch {
-    # Even if interrupted here, the independent watchdog attempts restoration.
+    # A failed watchdog launch must not strand an unused pending journal.
+    # Once MTU modification has been attempted, keep the journal for recovery.
+    if (-not $networkChangeAttempted) {
+        Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $readyPath -Force -ErrorAction SilentlyContinue
+    }
     Write-BMResult 'TRIAL_NOT_CONFIRMED' 0 0
     exit 1
 }

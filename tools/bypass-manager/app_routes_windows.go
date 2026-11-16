@@ -42,7 +42,7 @@ func (ui *managerUI) inspectApps() {
 			ui.write("Не удалось сохранить обезличенный отчёт о приложениях.\n")
 			return
 		}
-		ui.write("Приложения: " + itoa(audit.ProcessCount) + ", TCP через VPN-IP " + itoa(audit.VPNBound) + ", TCP через физический IP " + itoa(audit.PhysicalBound) + ", неизвестных " + itoa(audit.Uncertain) + ", UDP-сокетов " + itoa(audit.UDPBound) + ".\n")
+		ui.write("Приложения: " + itoa(audit.ProcessCount) + ", TCP через VPN-IP " + itoa(audit.VPNBound) + ", через физический IP (обычные программы) " + itoa(audit.NonVPNPhysicalBound) + ", физический транспорт VPN-клиента " + itoa(audit.VPNClientPhysicalBound) + ", неизвестных " + itoa(audit.Uncertain) + ", UDP-сокетов " + itoa(audit.UDPBound) + ".\n")
 		for _, line := range appSocketLocalLines(local) {
 			ui.write(line + "\n")
 		}

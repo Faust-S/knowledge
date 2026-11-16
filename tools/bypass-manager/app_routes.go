@@ -26,11 +26,14 @@ type AppSocketLocal struct {
 }
 
 type AppSocketCapture struct {
-	SchemaVersion string           `json:"schema_version"`
-	Checked       bool             `json:"checked"`
-	TCPChecked    bool             `json:"tcp_checked"`
-	UDPChecked    bool             `json:"udp_checked"`
-	Programs      []AppSocketLocal `json:"programs"`
+	SchemaVersion                  string           `json:"schema_version"`
+	PhysicalClassificationComplete bool             `json:"physical_classification_complete"`
+	NonVPNPhysicalBound            int              `json:"non_vpn_physical_bound"`
+	VPNClientPhysicalBound         int              `json:"vpn_client_physical_bound"`
+	Checked                        bool             `json:"checked"`
+	TCPChecked                     bool             `json:"tcp_checked"`
+	UDPChecked                     bool             `json:"udp_checked"`
+	Programs                       []AppSocketLocal `json:"programs"`
 	// Count fields include all observed processes, including beyond the local
 	// display list; no process identifier or remote IP is ever exported.
 	ProcessCount  int `json:"process_count"`
@@ -51,20 +54,23 @@ type AppCategoryCount struct {
 }
 
 type AppAudit struct {
-	SchemaVersion string             `json:"schema_version"`
-	CompletedUTC  string             `json:"completed_utc"`
-	State         string             `json:"state"`
-	TCPChecked    bool               `json:"tcp_checked"`
-	UDPChecked    bool               `json:"udp_checked"`
-	ProcessCount  int                `json:"process_count"`
-	VPNBound      int                `json:"vpn_bound"`
-	PhysicalBound int                `json:"physical_bound"`
-	Loopback      int                `json:"loopback"`
-	Uncertain     int                `json:"uncertain"`
-	UDPBound      int                `json:"udp_bound"`
-	Categories    []AppCategoryCount `json:"categories"`
-	Findings      []string           `json:"findings"`
-	Caveat        string             `json:"caveat"`
+	SchemaVersion                  string             `json:"schema_version"`
+	PhysicalClassificationComplete bool               `json:"physical_classification_complete"`
+	NonVPNPhysicalBound            int                `json:"non_vpn_physical_bound"`
+	VPNClientPhysicalBound         int                `json:"vpn_client_physical_bound"`
+	CompletedUTC                   string             `json:"completed_utc"`
+	State                          string             `json:"state"`
+	TCPChecked                     bool               `json:"tcp_checked"`
+	UDPChecked                     bool               `json:"udp_checked"`
+	ProcessCount                   int                `json:"process_count"`
+	VPNBound                       int                `json:"vpn_bound"`
+	PhysicalBound                  int                `json:"physical_bound"`
+	Loopback                       int                `json:"loopback"`
+	Uncertain                      int                `json:"uncertain"`
+	UDPBound                       int                `json:"udp_bound"`
+	Categories                     []AppCategoryCount `json:"categories"`
+	Findings                       []string           `json:"findings"`
+	Caveat                         string             `json:"caveat"`
 }
 
 const appAuditCaveat = "Active TCP local binding only, not per-app public IP or VPN tunnel proof. UDP endpoint inventory does not expose remote destination. Proxy, browser extension, local relay and split tunneling may change effective egress. Read-only; process names and addresses are never exported."
@@ -89,6 +95,14 @@ func parseAppSocketCapture(b []byte) (AppSocketCapture, error) {
 		if n < 0 || n > 100000 {
 			return AppSocketCapture{}, errors.New("invalid app inventory total")
 		}
+	}
+	// The full set of observed processes must be classified, not just the first
+	// 50 shown locally. Reject contradictory totals before deriving a finding.
+	if c.NonVPNPhysicalBound < 0 || c.VPNClientPhysicalBound < 0 || c.NonVPNPhysicalBound > c.PhysicalBound || c.VPNClientPhysicalBound > c.PhysicalBound {
+		return AppSocketCapture{}, errors.New("invalid physical binding classification")
+	}
+	if c.PhysicalClassificationComplete && c.NonVPNPhysicalBound+c.VPNClientPhysicalBound != c.PhysicalBound {
+		return AppSocketCapture{}, errors.New("inconsistent physical binding totals")
 	}
 	if len(c.Programs) > c.ProcessCount {
 		return AppSocketCapture{}, errors.New("invalid program count")
@@ -115,8 +129,18 @@ func summarizeAppSockets(c AppSocketCapture, now time.Time) AppAudit {
 	if !c.UDPChecked {
 		a.Findings = append(a.Findings, "UDP_INVENTORY_UNAVAILABLE")
 	}
+	a.PhysicalClassificationComplete = c.PhysicalClassificationComplete
+	a.NonVPNPhysicalBound = c.NonVPNPhysicalBound
+	a.VPNClientPhysicalBound = c.VPNClientPhysicalBound
 	if c.PhysicalBound > 0 {
-		a.Findings = append(a.Findings, "PHYSICAL_BINDING_OBSERVED")
+		switch {
+		case !c.PhysicalClassificationComplete:
+			a.Findings = append(a.Findings, "PHYSICAL_BINDING_CLASSIFICATION_UNKNOWN")
+		case c.NonVPNPhysicalBound > 0:
+			a.Findings = append(a.Findings, "NON_VPN_APP_PHYSICAL_BINDING_OBSERVED_NOT_EGRESS_PROOF")
+		default:
+			a.Findings = append(a.Findings, "VPN_CLIENT_PHYSICAL_TRANSPORT_EXPECTED")
+		}
 	}
 	if c.VPNBound > 0 {
 		a.Findings = append(a.Findings, "VPN_BINDING_OBSERVED_NOT_PROOF")

@@ -66,9 +66,12 @@ try {
     $all = @($rows.Values)
     $top = @($all | Sort-Object -Property name | Select-Object -First 50)
     $totalVpn = 0; $totalPhysical = 0; $totalLoopback = 0; $totalUnknown = 0; $totalUdp = 0
+    $nonVpnPhysical = 0; $vpnClientPhysical = 0
     foreach ($r in $all) {
         $totalVpn += [int]$r.vpn_bound
         $totalPhysical += [int]$r.physical_bound
+        if ($r.category -eq 'VPN_CLIENT') { $vpnClientPhysical += [int]$r.physical_bound }
+        else { $nonVpnPhysical += [int]$r.physical_bound }
         $totalLoopback += [int]$r.loopback
         $totalUnknown += [int]$r.uncertain
         $totalUdp += [int]$r.udp_bound
@@ -76,6 +79,7 @@ try {
     [pscustomobject]@{
         schema_version='0.3.4'; checked=$true; tcp_checked=$true; udp_checked=[bool]$udpChecked;
         process_count=[int]$all.Count; programs=$top; vpn_bound=[int]$totalVpn;
+        physical_classification_complete=$true; non_vpn_physical_bound=[int]$nonVpnPhysical; vpn_client_physical_bound=[int]$vpnClientPhysical;
         physical_bound=[int]$totalPhysical; loopback=[int]$totalLoopback;
         uncertain=[int]$totalUnknown; udp_bound=[int]$totalUdp
     } | ConvertTo-Json -Depth 5 -Compress
