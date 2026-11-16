@@ -278,6 +278,7 @@ export function createOriginalEmployeeEnrollmentOwner({
     },issuerSigner);
     verifyOrganizationEnrollment(enrollment,readback,organization,at);
     pending=null;
+    operationAttempted=false; // A verified original commit permits enrolling another person.
     return Object.freeze({
       state:'SIGNED_EMPLOYEE_ENROLLED_NOT_DELIVERED',
       enrollmentId,organizationId:organization.organizationId,
@@ -306,6 +307,11 @@ export function createOriginalEmployeeEnrollmentOwner({
       return status.entries.some(x=>x.grantId===grantId&&x.state==='ACTIVE')&&
         !hasRecordedTombstone(saved,grantId);
     });
+    // Explicit authoritative readback resolves a lost ACK; it does not retry
+    // the signed issuance or create a new employee/grant identifier.
+    if(pending?.enrollmentId===enrollmentId){
+      pending=null;operationAttempted=false;
+    }
     return {state:active?'ORIGINAL_GRANTS_ACTIVE':'ORIGINAL_GRANTS_REVOKED_OR_EXPIRED',
       enrollmentId,organizationId,employeePersonId,
       grants:matches.map(([grantId])=>grantId).sort(),originalReadback:true,
