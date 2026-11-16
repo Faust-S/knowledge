@@ -279,9 +279,139 @@ export function createOriginalKernelRegistryStatePort({
     return Object.freeze({revision,policy_digest:digest(next.policy),
       state_digest:digestState,event_id:receipt.event.event_id});
   };
+  // Only a trusted issuer Host holding the existing original signer can
+  // authorize a proof-only key. Both human manager and independent employee
+  // sign bound original Access proofs BEFORE the original Kernel commits.
+  const admitProofCredential=async({
+    authorityId,organizationId,workspaceId,credentialKeyId,keyRecord,
+    issuerSigner,managerRequest,managerChallenge,managerProof,
+    employeeRequest,employeeChallenge,employeeProof
+  }={})=>{
+    const before=await read(),now=validClock(clock);
+    const state=before.state,auth=state.policy.authorities[authorityId];
+    check(auth&&auth.principalId===organizationId&&
+      state.policy.realmId===managerRequest?.realmId&&
+      ID.test(workspaceId??"")&&auth.resources.includes(workspaceId)&&
+      issuerSigner&&auth.issuerKeys.includes(issuerSigner.keyId)&&
+      auth.statusKeys.includes(issuerSigner.keyId),
+      "T3_ACCESS_PROOF_KEY_TRUSTED_ISSUER_REQUIRED");
+    check(ID.test(credentialKeyId??"")&&ID.test(keyRecord?.subjectId??"")&&
+      keyRecord.subjectId!==organizationId &&
+      timestamp(keyRecord.notBefore)<=now&&now<timestamp(keyRecord.expiresAt),
+      "T3_ACCESS_PROOF_KEY_PERSON_INVALID");
+    const newPolicy=addProofOnlyKey(state.policy,credentialKeyId,keyRecord);
+    const operationDigest=digest({schema:ORIGINAL_PROOF_KEY_ADMISSION,
+      authorityId,organizationId,workspaceId,credentialKeyId,keyRecord});
+    check(managerRequest?.principalId===organizationId&&
+      managerRequest.action==="grant.issue"&&
+      managerRequest.resource==="authority:"+authorityId&&
+      managerRequest.purpose==="access-administration"&&
+      managerRequest.operationDigest===operationDigest&&
+      typeof managerChallenge==="string"&&managerChallenge.length>=16,
+      "T3_ACCESS_PROOF_KEY_MANAGER_SCOPE_INVALID");
+    const decision=evaluate(managerRequest,state,{
+      now:iso(now),challenge:managerChallenge,proof:managerProof,
+      timeAssurance:"LOCAL_BEST_EFFORT"});
+    check(decision.outcome==="PERMITTED"&&decision.allowed===true,
+      "T3_ACCESS_PROOF_KEY_MANAGER_NOT_AUTHORIZED");
+    check(employeeRequest?.actorId===keyRecord.subjectId&&
+      employeeRequest.principalId===organizationId&&
+      employeeRequest.realmId===state.policy.realmId&&
+      employeeRequest.resource===workspaceId&&
+      employeeRequest.action==="work.prepare"&&
+      employeeRequest.operationDigest===operationDigest&&
+      typeof employeeChallenge==="string"&&employeeChallenge.length>=16&&
+      employeeProof?.keyId===credentialKeyId,
+      "T3_ACCESS_PROOF_KEY_EMPLOYEE_BINDING_INVALID");
+    try {verifyRecord(employeeProof,newPolicy,now,"PROOF");}
+    catch {no("T3_ACCESS_PROOF_KEY_EMPLOYEE_SIGNATURE_INVALID");}
+    const p=employeeProof.payload;
+    check(p.challenge===employeeChallenge&&
+      p.requestDigest===digest(employeeRequest)&&
+      timestamp(p.issuedAt)<=now&&now<timestamp(p.expiresAt)&&
+      now-timestamp(p.issuedAt)<state.policy.proofMaxAgeSeconds*1000&&
+      timestamp(p.expiresAt)-timestamp(p.issuedAt)<=
+        state.policy.proofMaxAgeSeconds*1000,
+      "T3_ACCESS_PROOF_KEY_EMPLOYEE_PROOF_INVALID");
+    const next=copy(state);
+    next.policy=newPolicy;
+    const previous=state.statuses[authorityId].payload;
+    const keyExpires=timestamp(state.policy.keys[issuerSigner.keyId].expiresAt);
+    const validUntil=Math.min(now+state.policy.offlineMaxAgeSeconds*1000,
+      keyExpires,timestamp(keyRecord.expiresAt));
+    check(validUntil>now,"T3_ACCESS_PROOF_KEY_STATUS_WINDOW_INVALID");
+    const trust={schema:ORIGINAL_PROOF_KEY_ADMISSION,
+      old_policy_digest:digest(state.policy),key_id:credentialKeyId,
+      key_record:copy(keyRecord),authority_id:authorityId,
+      manager_decision_digest:digest(decision),
+      employee_proof_digest:digest(employeeProof)};
+    const nextStatus=signRecord({...previous,
+      id:signedAdmissionStatusId(trust),
+      sequence:previous.sequence+1,issuedAt:iso(now),validUntil:iso(validUntil)
+    },issuerSigner);
+    try{verifyRecord(nextStatus,state.policy,now,"STATUS");}
+    catch{no("T3_ACCESS_PROOF_KEY_SIGNER_REJECTED");}
+    next.statuses[authorityId]=nextStatus;
+    next.statusFloor[authorityId]=previous.sequence+1;
+    trust.signed_status=copy(nextStatus);
+    next.lastObservedAt=iso(now);
+    const checked=stateAt(next,next.policy,now);
+    const expectedRevision=before.revision+1;
+    const receipt=await kernel.putObject({
+      workspace_id:workspaceId,object_id:objectId,
+      schema_id:ORIGINAL_REGISTRY_SCHEMA,schema_version:"1.0.0",
+      base_revision:before.revision,data:checked,extensions:{},
+      event:{event_type:ORIGINAL_REGISTRY_EVENT,payload:{
+        object_id:objectId,revision:expectedRevision,
+        policy_digest:digest(checked.policy),state_digest:digest(checked),
+        status_sequences:copy(checked.statusFloor),
+        proof_credential_admission:trust,
+      }}
+    });
+    check(receipt?.object?.revision===expectedRevision&&
+      receipt.event?.workspace_id===workspaceId,
+      "T3_ACCESS_PROOF_KEY_ORIGINAL_KERNEL_RECEIPT_INVALID");
+    const verified=await read();
+    check(verified.revision===expectedRevision&&
+      same(verified.state,checked),
+      "T3_ACCESS_PROOF_KEY_ORIGINAL_READBACK_UNKNOWN");
+    return Object.freeze({schema:ORIGINAL_PROOF_KEY_ADMISSION,
+      state:"ORIGINAL_PROOF_CREDENTIAL_ADMITTED",
+      organizationId,authorityId,credentialKeyId,
+      employeePersonId:keyRecord.subjectId,
+      policyDigest:digest(checked.policy),
+      rootPolicyDigest:trustedHash,statusSequence:checked.statusFloor[authorityId],
+      kernelRevision:expectedRevision,originalKernelEventId:receipt.event.event_id,
+      exactReadback:true,signatureVerified:true,productionActivation:false});
+  };
+  const readProofCredential=async({credentialKeyId,employeePersonId,authorityId}={})=>{
+    check(ID.test(credentialKeyId??"")&&ID.test(employeePersonId??"")&&
+      ID.test(authorityId??""),
+      "T3_ACCESS_PROOF_CREDENTIAL_READ_ARGUMENT_INVALID");
+    const latest=await read(),state=latest.state;
+    const policyKey=state.policy.keys[credentialKeyId];
+    if(!policyKey)return Object.freeze({state:"ORIGINAL_PROOF_CREDENTIAL_ABSENT",
+      credentialKeyId,employeePersonId,originalReadback:true,safeToRetry:false});
+    check(policyKey.subjectId===employeePersonId&&
+      state.policy.authorities[authorityId]&&
+      policyKey.uses.length===1&&policyKey.uses[0]==="PROOF",
+      "T3_ACCESS_PROOF_CREDENTIAL_SUBJECT_MISMATCH");
+    const journal=await kernel.listEventsSince(workspaceId);
+    const event=journal.find(x=>
+      x.event_type===ORIGINAL_REGISTRY_EVENT&&
+      x.payload?.proof_credential_admission?.key_id===credentialKeyId&&
+      x.payload.proof_credential_admission.authority_id===authorityId);
+    check(event,"T3_ACCESS_PROOF_CREDENTIAL_ADMISSION_NOT_AUTHENTICATED");
+    return Object.freeze({state:"ORIGINAL_PROOF_CREDENTIAL_ADMITTED",
+      credentialKeyId,employeePersonId,authorityId,
+      policyDigest:digest(state.policy),originalReadback:true,
+      signedStatusDigest:digest(event.payload.proof_credential_admission.signed_status),
+      safeToRetry:false});
+  };
   const port=Object.freeze({
     readState:async()=>copy((await read()).state),
     commitSignedState:commit,
+    admitProofCredential,readProofCredential,
     getStatus:async()=>{const state=(await read()).state;
       return Object.freeze({sequences:copy(state.statusFloor),
         policy_digest:digest(state.policy),root_policy_digest:trustedHash});},
