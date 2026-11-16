@@ -65,10 +65,10 @@ jobs:
           node --test packages/t3-core/tests/t3-reconciliation-owner-admission.test.mjs packages/t3-core/tests/t3-reconciliation-kernel-apply.test.mjs
       - name: Qualify D6 native Result continuation with original signed recovery
         run: node --test packages/t3-core/tests/t3-d6-native-continuation.test.mjs
-      - name: Qualify original Agent Result publication through T2 Kernel and native Exchange owner
+      - name: Qualify original Agent to Atlas D6 sender via existing native publisher and original ledger
         run: |
-          node --check packages/t3-core/src/t3/original-agent-result-publication.mjs
-          node --test packages/t3-core/tests/t3-original-agent-result-publication.test.mjs
+          node --check packages/t3-core/src/t3/native-agent-atlas-source-publisher.mjs
+          node --test packages/t3-core/tests/t3-d6-native-agent-source-publisher.test.mjs
       - name: Qualify D7 original age recipient recovery and Exchange capability reporting
         run: node --test packages/t3-core/tests/t3-d7-protected-exchange.test.mjs
       - name: Qualify D7 original Publisher recipient readback and signed status
