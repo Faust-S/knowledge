@@ -89,6 +89,7 @@ type EndpointRoute struct {
 	Name        string `json:"name"`
 	Index       int    `json:"index"`
 	Destination string `json:"destination"`
+	Status      string `json:"status,omitempty"`
 }
 type Probe struct {
 	TimeUTC              string           `json:"time_utc"`
@@ -328,6 +329,8 @@ func (m *Manager) powerShell(ctx context.Context, script string, args ...string)
 	all := []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(m.runtimeRoot, "Scripts", script)}
 	all = append(all, args...)
 	cmd := exec.CommandContext(ctx, "powershell.exe", all...)
+	// Win32 GUI applications must not show a PowerShell console on every poll.
+	hideChildConsole(cmd)
 	cmd.Dir = m.runtimeRoot
 	b, err := cmd.CombinedOutput()
 	text := strings.TrimSpace(string(b))
@@ -596,7 +599,7 @@ func (m *Manager) probeWithSizes(ctx context.Context, baseline EgressResult, siz
 	}
 	p.EndpointRoute = m.endpointRoute(ctx)
 	if !endpointRouteObserved(p.EndpointRoute) {
-		p.Reason = "маршрут к внешнему IP VPN не подтверждён; передачу данных нельзя считать проверенной"
+		p.Reason = routePreflightReason(p.EndpointRoute)
 		return p
 	}
 	if strings.EqualFold(p.EndpointRoute.Name, m.cfg.AdapterName) {
@@ -712,6 +715,14 @@ func (m *Manager) attempt(ctx context.Context, profile string, baseline EgressRe
 			break
 		}
 		trial.Attempts = append(trial.Attempts, p)
+		// A missing/looped OS route is a broken prerequisite, not evidence
+		// that another desynchronization strategy should be tried.
+		if routePreflightBlocked(p) {
+			trial.Status = "ROUTE_PRECHECK_BLOCKED"
+			trial.Error = p.Reason
+			trial.CompletedUTC = utc()
+			return trial, false
+		}
 		if p.Success {
 			m.printf("Подтверждён IPv4-путь данных, проба %d. Выходной IP: %s\n", i+1, p.Egress.IP)
 			if p.IPv6LeakSuspected {
@@ -813,7 +824,9 @@ func (m *Manager) run(ctx context.Context) error {
 	// Conflicting filters invalidate unmodified control and cannot be silently killed.
 	ctxC, cancel := context.WithTimeout(ctx, 9*time.Second)
 	ps := `$a=@(Get-Process -Name 'winws2','winws','goodbyedpi','byedpi' -ErrorAction SilentlyContinue|Select-Object -ExpandProperty ProcessName);$a -join ','`
-	b, _ := exec.CommandContext(ctxC, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps).CombinedOutput()
+	process := exec.CommandContext(ctxC, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps)
+	hideChildConsole(process)
+	b, _ := process.CombinedOutput()
 	cancel()
 	if v := strings.TrimSpace(string(b)); v != "" {
 		return fmt.Errorf("найдены сторонние DPI-процессы (%s); для чистого сравнения остановите их самостоятельно", v)
@@ -868,6 +881,11 @@ func (m *Manager) run(ctx context.Context) error {
 		m.persist()
 		if !ok {
 			m.println("Вариант не подтверждён. Причина:", trial.Status, trial.Error)
+			if trial.Status == "ROUTE_PRECHECK_BLOCKED" {
+				m.report.Status = "ROUTE_PRECHECK_BLOCKED"
+				m.persist()
+				return errors.New("DPI не включён: сначала восстановите маршрут внешнего VPN-узла или проверьте фактический адрес подключения")
+			}
 			continue
 		}
 		m.report.ChosenProfile = name

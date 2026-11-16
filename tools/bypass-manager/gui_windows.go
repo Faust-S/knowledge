@@ -618,7 +618,7 @@ func (ui *managerUI) initControls() {
 	ui.stopButton = ctrl(ui.hwnd, "BUTTON", "\u041e\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c", wsTabStop, idStop, 400, 215, 145, 32)
 	ui.status = ctrl(ui.hwnd, "STATIC", "\u041e\u0436\u0438\u0434\u0430\u043d\u0438\u0435. \u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 VPN \u043d\u0435 \u043c\u0435\u043d\u044f\u044e\u0442\u0441\u044f.", 0, 0, 20, 262, 820, 22)
 	// Advanced transport/endpoint fields are hidden until expressly requested.
-	ui.advancedCtrl(ui.hwnd, "STATIC", "\u0412\u043d\u0435\u0448\u043d\u0438\u0439 IPv4", 0, 0, 20, 302, 130, 22)
+	ui.advancedCtrl(ui.hwnd, "STATIC", "IP VPN-\u0441\u0435\u0440\u0432\u0435\u0440\u0430", 0, 0, 20, 302, 130, 22)
 	ui.endpoint = ui.advancedCtrl(ui.hwnd, "EDIT", ui.cfg.EndpointIPv4, wsBorder|wsTabStop|esAutoHScroll, 101, 160, 296, 235, 26)
 	ui.advancedCtrl(ui.hwnd, "STATIC", "\u041f\u043e\u0440\u0442", 0, 0, 422, 302, 60, 22)
 	port := strconv.Itoa(ui.cfg.Port)
@@ -733,6 +733,9 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 		case idAdvanced:
 			ui.advanced = !ui.advanced
 			ui.applyAdvanced()
+			if ui.advanced {
+				ui.write("IP VPN-\u0441\u0435\u0440\u0432\u0435\u0440\u0430 \u2014 \u044d\u0442\u043e \u043d\u0435 \u0432\u044b\u0445\u043e\u0434\u043d\u043e\u0439 IP \u0434\u043b\u044f \u0441\u0430\u0439\u0442\u043e\u0432. \u0423\u043a\u0430\u0436\u0438\u0442\u0435 \u0440\u0435\u0430\u043b\u044c\u043d\u044b\u0439 \u0442\u0435\u043a\u0443\u0449\u0438\u0439 \u0430\u0434\u0440\u0435\u0441 \u0438 \u043f\u043e\u0440\u0442 Amnezia; \u043d\u0435 \u043f\u043e\u0434\u0441\u0442\u0430\u0432\u043b\u044f\u0439\u0442\u0435 \u0441\u043b\u0443\u0447\u0430\u0439\u043d\u044b\u0435 IP.\n")
+			}
 		case idSave:
 			if _, err := ui.save(); err != nil {
 				winMessageBox(hwnd, err.Error(), "Ошибка", 0x30)

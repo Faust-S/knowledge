@@ -13,30 +13,41 @@ import (
 const trialFilterMaxWait = 90 * time.Second
 
 type trialWatchdog struct {
-	quit     chan struct{}
-	finished chan struct{}
-	once     sync.Once
-	expired  atomic.Bool
+	quit        chan struct{}
+	finished    chan struct{}
+	once        sync.Once
+	restoreOnce sync.Once
+	expired     atomic.Bool
+	ctx         context.Context
+	stopOwned   func()
 }
 
 func startTrialWatchdog(ctx context.Context, timeout time.Duration, stopOwned func()) *trialWatchdog {
-	w := &trialWatchdog{quit: make(chan struct{}), finished: make(chan struct{})}
+	w := &trialWatchdog{quit: make(chan struct{}), finished: make(chan struct{}), ctx: ctx, stopOwned: stopOwned}
 	go func() {
 		defer close(w.finished)
 		timer := time.NewTimer(timeout)
 		defer timer.Stop()
 		select {
 		case <-w.quit:
+			if ctx.Err() != nil {
+				w.restoreOwned()
+			}
 			return
 		case <-ctx.Done():
-			w.expired.Store(true)
-			stopOwned()
+			w.restoreOwned()
 		case <-timer.C:
-			w.expired.Store(true)
-			stopOwned()
+			w.restoreOwned()
 		}
 	}()
 	return w
+}
+
+func (w *trialWatchdog) restoreOwned() {
+	w.restoreOnce.Do(func() {
+		w.expired.Store(true)
+		w.stopOwned()
+	})
 }
 
 func (w *trialWatchdog) Stop() {
@@ -45,5 +56,10 @@ func (w *trialWatchdog) Stop() {
 	}
 	w.once.Do(func() { close(w.quit) })
 	<-w.finished
+	// Closing quit can race with ctx cancellation. A cancelled trial must
+	// always restore its owned filter even if the quit case won the select.
+	if w.ctx.Err() != nil {
+		w.restoreOwned()
+	}
 }
 func (w *trialWatchdog) Expired() bool { return w != nil && w.expired.Load() }

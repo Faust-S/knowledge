@@ -36,7 +36,7 @@ func assessDataPath(p Probe, baseline EgressResult, expectedDownloads int) (bool
 // the tunnel or a different interface. Never upgrade a partial observation
 // to a verified path when Windows route lookup failed.
 func endpointRouteObserved(r *EndpointRoute) bool {
-	return r != nil && strings.TrimSpace(r.Name) != "" && r.Index > 0 && strings.TrimSpace(r.Destination) != ""
+	return r != nil && (r.Status == "" || r.Status == "ROUTE_FOUND") && strings.TrimSpace(r.Name) != "" && r.Index > 0 && strings.TrimSpace(r.Destination) != ""
 }
 
 func requiresDPIEngine(profile string) bool { return profile != "NONE" }
@@ -103,4 +103,24 @@ func ensureEngineForProfile(profile string, available func() bool, install func(
 		return nil
 	}
 	return install()
+}
+
+// A failed route lookup must halt the trial instead of falling through to a
+// live DPI profile. This distinction was found in a real field report.
+func routePreflightBlocked(p Probe) bool {
+	return !endpointRouteObserved(p.EndpointRoute) || p.RouteLoopSuspected
+}
+
+func routePreflightReason(r *EndpointRoute) string {
+	if r == nil {
+		return "Windows не вернула сведения о маршруте к VPN-узлу; DPI не будет включён"
+	}
+	switch r.Status {
+	case "NO_ROUTE":
+		return "Windows не нашла маршрут к VPN-узлу: проверьте сеть, Kill Switch и фактический адрес сервера"
+	case "LOOKUP_ERROR":
+		return "Сбой чтения маршрутов Windows; DPI не будет включён до исправления диагностики"
+	default:
+		return "Не удалось подтвердить исходящий маршрут VPN-узла; DPI не будет включён"
+	}
 }

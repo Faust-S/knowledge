@@ -94,7 +94,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 New-Item -ItemType Directory -Path $stateFolder -Force | Out-Null
 $stdout=Join-Path $stateFolder 'winws2.stdout.log'
 $stderr=Join-Path $stateFolder 'winws2.stderr.log'
-$p=Start-Process -FilePath $exe -WorkingDirectory $root -ArgumentList (Format-NativeArgumentList -Arguments $argsList) -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+$p=Start-Process -FilePath $exe -WorkingDirectory $root -ArgumentList (Format-NativeArgumentList -Arguments $argsList) -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
 Start-Sleep -Milliseconds 1200
 $p.Refresh()
 if ($p.HasExited) { throw "winws2 exited immediately ($($p.ExitCode)). Check $stderr and $stdout; WinDivert or arguments may be invalid." }
