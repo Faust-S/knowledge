@@ -144,6 +144,10 @@ export function createTrustedAgentAtlasSourcePublisher({
       read.object.data.taskId===binding.taskId&&
       read.object.data.resultId===binding.resultId&&
       read.object.data.acceptedDigest===binding.acceptedDigest&&
+      read.object.data.signedTaskId===binding.signedTaskId&&
+      read.object.data.signedTaskRevisionId===binding.signedTaskRevisionId&&
+      read.object.data.signedTaskPackageSha256===binding.signedTaskPackageSha256&&
+      read.object.data.contextDigest===binding.contextDigest&&
       same(read.object.data.workRef,binding.workRef,WORK)&&
       Array.isArray(events)&&events.filter(e=>
         e?.idempotency_key===effectKey&&
@@ -239,6 +243,10 @@ export function createTrustedAgentAtlasSourcePublisher({
         obj.data.taskId===binding.taskId&&
         obj.data.resultId===binding.resultId&&
         obj.data.acceptedDigest===binding.acceptedDigest&&
+        obj.data.signedTaskId===binding.signedTaskId&&
+        obj.data.signedTaskRevisionId===binding.signedTaskRevisionId&&
+        obj.data.signedTaskPackageSha256===binding.signedTaskPackageSha256&&
+        obj.data.contextDigest===binding.contextDigest&&
         same(obj.data.workRef,binding.workRef,WORK)&&
         object(command.event)&&id(command.event.event_type),
         "T3_D6_ORIGINAL_GRAPH_PROVENANCE_INVALID");
