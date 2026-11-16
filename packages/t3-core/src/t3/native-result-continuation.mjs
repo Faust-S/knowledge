@@ -227,6 +227,13 @@ export function createTrustedNativeContinuation({
           // Recipient switches are definite binding refusals, not native ACK
           // loss. The prior attempted write is still never resent.
           recipientUnchanged();
+          // A trusted installed owner can report an explicit, definite
+          // refusal (for example, JIT project authorization before its write).
+          // Do not disguise that refusal as lost ACK. An arbitrary error code
+          // or transport failure is NOT proof that a write did not happen.
+          // Keep dispatched set even for DENIED: only original durable owner
+          // readback may permit a later independent attempt after cold open.
+          if(error?.outcome==="DENIED")throw error;
           // An attempted native write can have committed without its ACK.
           // Do not resend it; the installed recipient owns cold recovery.
           return Object.freeze({status:"OUTCOME_UNKNOWN",operationId,

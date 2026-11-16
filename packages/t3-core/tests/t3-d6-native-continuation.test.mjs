@@ -6,7 +6,7 @@ import {createTrustedNativeContinuation} from "../src/t3/native-result-continuat
 function fixture(beforeHuman=async()=>{}){
   let revision=2,approved=true,revoked=false,selected=true,dropAck=false,receives=0;
   let deletedAt=null;
-  let receiptHook=null,readbackHook=null;
+  let receiptHook=null,readbackHook=null,receiveHook=null;
   const workspace={workspace_id:"ws:personal",deleted_at:null};
   const focus={get:()=>selected?workspace:null,subscribe:()=>()=>{}};
   const ref={workspace_id:"ws:personal",object_id:"result:001",
@@ -41,6 +41,7 @@ function fixture(beforeHuman=async()=>{}){
       recipientId:"native:atlas",reference}),
     receive:async({operationId,reference})=>{
       receives++;
+      if(receiveHook!==null)await receiveHook();
       commits.set(operationId,{state:"COMMITTED",operationId,
         recipientId:"native:atlas",reference,resultRef:"atlas:work:001"});
       if(dropAck)throw new Error("native reply lost");
@@ -72,6 +73,7 @@ function fixture(beforeHuman=async()=>{}){
     setSelected:v=>selected=v,setDropAck:v=>dropAck=v,
     setReceiptHook:fn=>receiptHook=fn,
     setReadbackHook:fn=>readbackHook=fn,
+    setReceiveHook:fn=>receiveHook=fn,
     setRecipientId:id=>{nativeOwner.recipientId=id;},
     receives:()=>receives};
 }
@@ -111,6 +113,21 @@ test("D6 denial and lost native ACK never automatically dispatch twice",async()=
   assert.equal((await f.port.continueSelected(f.ref)).status,"OUTCOME_UNKNOWN");
   assert.equal(f.receives(),1);
   assert.equal((await f.port.recover(f.ref)).status,"OWNER_READBACK_CONFIRMED");
+  assert.equal(f.receives(),1);
+});
+
+test("D6 reports definite original recipient refusal without treating it as lost ACK",async()=>{
+  const f=fixture();
+  const refusal=Object.assign(new Error("native project authorization refused"),{
+    code:"ATLAS_T3_PROJECT_WRITE_NOT_AUTHORIZED",outcome:"DENIED"});
+  f.setReceiveHook(()=>{throw refusal;});
+  await assert.rejects(f.port.continueSelected(f.ref),{
+    code:"ATLAS_T3_PROJECT_WRITE_NOT_AUTHORIZED",outcome:"DENIED"});
+  assert.equal(f.receives(),1);
+  assert.equal(f.commits.size,0);
+  // Even a definite native refusal does not authorize an automatic replay
+  // from the same Host. Next step is a new authorized owner decision.
+  assert.equal((await f.port.continueSelected(f.ref)).status,"OUTCOME_UNKNOWN");
   assert.equal(f.receives(),1);
 });
 
