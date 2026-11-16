@@ -116,28 +116,31 @@ jobs:
           cp release/raw/Bypass-Manager.exe release/windows/
           cp release/raw/README-RU.md release/windows/
           cp tools/bypass-manager/MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md release/windows/
-          (cd release/windows && zip -q -9 ../Bypass-Manager-0.3-Alpha-GuideFix-Windows-x64.zip Bypass-Manager.exe README-RU.md MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md)
-          git archive --format zip --prefix=bypass-manager-0.3-guidefix-source/ -o release/Bypass-Manager-0.3-Alpha-GuideFix-Source.zip HEAD:tools/bypass-manager
+          cp tools/bypass-manager/VALIDATION-MATRIX-2026-11-16-RU.md release/windows/
+          (cd release/windows && zip -q -9 ../Bypass-Manager-0.3-Alpha-AutoEndpoint-Windows-x64.zip Bypass-Manager.exe README-RU.md MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md VALIDATION-MATRIX-2026-11-16-RU.md)
+          git archive --format zip --prefix=bypass-manager-0.3-autoendpoint-source/ -o release/Bypass-Manager-0.3-Alpha-AutoEndpoint-Source.zip HEAD:tools/bypass-manager
           cp tools/bypass-manager/MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md release/
-          (cd release && sha256sum Bypass-Manager-0.3-Alpha-GuideFix-Windows-x64.zip Bypass-Manager-0.3-Alpha-GuideFix-Source.zip MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md > SHA256SUMS.txt)
+          cp tools/bypass-manager/VALIDATION-MATRIX-2026-11-16-RU.md release/
+          (cd release && sha256sum Bypass-Manager-0.3-Alpha-AutoEndpoint-Windows-x64.zip Bypass-Manager-0.3-Alpha-AutoEndpoint-Source.zip MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md > SHA256SUMS.txt)
       - name: Create immutable prerelease
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG=bypass-manager-0.3-alpha-guidefix-hardstop-2026-11-16
+          TAG=bypass-manager-0.3-alpha-autoendpoint-2026-11-16
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release already exists, refusing to replace files"
             exit 1
           fi
           gh release create "$TAG" \
-            release/Bypass-Manager-0.3-Alpha-GuideFix-Windows-x64.zip \
-            release/Bypass-Manager-0.3-Alpha-GuideFix-Source.zip \
+            release/Bypass-Manager-0.3-Alpha-AutoEndpoint-Windows-x64.zip \
+            release/Bypass-Manager-0.3-Alpha-AutoEndpoint-Source.zip \
             release/MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md \
+            release/VALIDATION-MATRIX-2026-11-16-RU.md \
             release/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Bypass Manager 0.3 Alpha | guide cancellation fix | Windows CI" \
-            --notes "Windows Go/PowerShell/GUI qualification passed. In-window cancellable human prompts, 3-minute timeout, terminal guide report on early return. Unsigned executable. Amnezia Premium not included. REAL_NETWORK_NOT_ACCEPTED: native VPN handshake, independent app egress, and long video playback unverified." \
+            --title "Bypass Manager 0.3 Alpha | automatic Amnezia endpoint discovery | Windows CI" \
+            --notes "Unsigned Alpha built on matching Windows CI commit: Go, PowerShell, native Win32 GUI, pinned original winws2 dry-run/Lua. Passive real-session AmneziaWG endpoint from optional native awg.exe/WFP, VLESS from trusted XRay TCP/WFP when available. Two-pass physical route checks and post-reconnect server identity recheck. No manual server IP required for the normal guide. Independent Linux race/stress and Windows 2022/2025 scenario matrix available in Actions. Includes error matrix and migration handoff. Amnezia Premium not included. REAL_NETWORK_NOT_ACCEPTED: no real user VPN handshake, per-app public egress, or 15-minute video validated." \
             --prerelease
