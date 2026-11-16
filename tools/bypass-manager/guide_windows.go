@@ -112,8 +112,8 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 	started := time.Now()
 	plan := guidePlan()
 	report := GuideReport{
-		SchemaVersion: "0.3.1", StartedUTC: utc(), State: "IN_PROGRESS", PlannedVariants: len(plan),
-		Caveat: "Protocol in Amnezia is user-selected and not independently verified. Route and traffic observations are not a native handshake. Video results are short tests, not guaranteed streaming. No IPs, keys, hostnames or local paths are exported.",
+		SchemaVersion: "0.3.2", StartedUTC: utc(), State: "IN_PROGRESS", PlannedVariants: len(plan),
+		Caveat: "Protocol in Amnezia is user-selected and not independently verified. Route and traffic observations are not a native handshake. Video results are short tests, not guaranteed streaming. A passive local network inventory is captured before and after attempts. No IPs, SSIDs, gateways, keys, hostnames or local paths are exported.",
 	}
 	persist := func() { _ = saveJSON(filepath.Join(ui.home, "results", "latest-guide.json"), report) }
 	record := func(v GuideVariant, stage, code string) {
@@ -124,6 +124,30 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 		persist()
 	}
 	m := &Manager{cfg: config, home: ui.home, runtimeRoot: filepath.Join(ui.home, "runtime"), stateFolder: filepath.Join(ui.home, "active"), logDir: filepath.Join(ui.home, "results"), output: uiWriter{ui}, ask: ui.ask}
+	// Collect passive interface topology before and after network experiments.
+	// Reports contain only allowlisted numeric counters and category codes.
+	var previousNetwork *NetworkHealth
+	captureNetwork := func(phase string, v GuideVariant) {
+		sampleCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		entry := GuideNetworkDiagnostic{UTC: utc(), Phase: phase, Protocol: v.Protocol, DPIProfile: v.Profile, State: "UNAVAILABLE"}
+		snapshot, err := m.networkHealth(sampleCtx)
+		if err == nil {
+			entry.State = "PASSIVE_SNAPSHOT"
+			entry.Snapshot = &snapshot
+			entry.Findings = assessNetworkHealth(snapshot)
+			if previousNetwork != nil {
+				entry.Findings = append(entry.Findings, compareNetworkHealth(*previousNetwork, snapshot)...)
+			}
+			previousNetwork = &snapshot
+			ui.write(networkAuditSummary(NetworkAudit{State: entry.State, Snapshot: snapshot, Findings: entry.Findings}) + "\n")
+		}
+		if len(report.NetworkDiagnostics) >= 40 {
+			report.NetworkDiagnostics = report.NetworkDiagnostics[1:]
+		}
+		report.NetworkDiagnostics = append(report.NetworkDiagnostics, entry)
+		record(v, "NETWORK_"+phase, entry.State)
+	}
 	filterStarted := false
 	defer func() {
 		if filterStarted || m.ownStateExists() {
@@ -156,6 +180,7 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 		}
 		record(GuideVariant{}, "RECOVERY", "OWNED_DPI_STOPPED")
 	}
+	captureNetwork("BASELINE", GuideVariant{})
 	// Baseline can be collected only while the VPN route is inactive. A missing
 	// baseline is diagnostic uncertainty, not proof that a VPN is broken.
 	var baseline EgressResult
@@ -188,6 +213,7 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 			record(v, "ROUND_END", state)
 		}
 		record(v, "ROUND_START", "CANDIDATE_SELECTED")
+		captureNetwork("ROUND_START", v)
 		ui.guideInstruction("Вариант " + formatInt(i+1) + "/" + formatInt(len(plan)) + ": " + v.Protocol + " / " + v.Profile)
 		if v.Protocol != lastProtocol {
 			if lastProtocol != "" {
@@ -326,6 +352,7 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 		flow := before != nil && after != nil && strings.EqualFold(before.Name, after.Name) && strings.EqualFold(after.Status, "Up") && after.SentBytes > before.SentBytes && after.ReceivedBytes > before.ReceivedBytes
 		report.Rounds[idx].AdapterFlow = flow
 		report.AdapterFlowObserved = flow
+		captureNetwork("AFTER_TRANSFER", v)
 		record(v, "VIDEO", quality.Grade)
 		speedNote := "скорость НЕ ИЗМЕРЕНА"
 		if quality.Grade != "INCOMPLETE" && quality.Grade != "NOT_VERIFIED" {

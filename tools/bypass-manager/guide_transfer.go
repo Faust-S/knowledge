@@ -25,6 +25,8 @@ func guideRangeDownload(ctx context.Context, size int64, url string) DownloadRes
 	}
 	req.Header.Set("Range", fmt.Sprintf("bytes=0-%d", size-1))
 	req.Header.Set("Accept-Encoding", "identity")
+	req, timings := tracedRequest(req)
+	defer func() { out.Timings = timings() }()
 	start := time.Now()
 	resp, err := httpClient(20 * time.Second).Do(req)
 	if err != nil {
@@ -32,6 +34,7 @@ func guideRangeDownload(ctx context.Context, size int64, url string) DownloadRes
 		return out
 	}
 	defer resp.Body.Close()
+	out.HTTPStatus = resp.StatusCode
 	if resp.StatusCode != http.StatusPartialContent || !strings.HasPrefix(resp.Header.Get("Content-Range"), fmt.Sprintf("bytes 0-%d/", size-1)) {
 		out.Error = "RANGE_NOT_SUPPORTED"
 		return out
@@ -79,7 +82,7 @@ func checkGuideVideo(ctx context.Context,
 
 func toGuideTransfer(r DownloadResult, source string) GuideTransfer {
 	code := safeGuideDownloadFailure(r)
-	return GuideTransfer{Source: source, OK: r.OK, Bytes: r.Bytes, ExpectedBytes: r.ExpectedBytes, Seconds: r.DurationSeconds, Mbps: r.Mbps, FailureCode: code}
+	return GuideTransfer{Source: source, OK: r.OK, Bytes: r.Bytes, ExpectedBytes: r.ExpectedBytes, Seconds: r.DurationSeconds, Mbps: r.Mbps, FailureCode: code, Timings: r.Timings, HTTPStatus: r.HTTPStatus}
 }
 
 func guideVideoFetch(ctx context.Context, size int64, provider int) DownloadResult {

@@ -76,13 +76,15 @@ type AdapterStats struct {
 }
 
 type DownloadResult struct {
-	URL             string  `json:"url"`
-	Bytes           int64   `json:"bytes"`
-	ExpectedBytes   int64   `json:"expected_bytes"`
-	DurationSeconds float64 `json:"duration_seconds"`
-	Mbps            float64 `json:"mbps"`
-	OK              bool    `json:"ok"`
-	Error           string  `json:"error,omitempty"`
+	Timings         TransferTimings `json:"timings"`
+	HTTPStatus      int             `json:"http_status,omitempty"`
+	URL             string          `json:"url"`
+	Bytes           int64           `json:"bytes"`
+	ExpectedBytes   int64           `json:"expected_bytes"`
+	DurationSeconds float64         `json:"duration_seconds"`
+	Mbps            float64         `json:"mbps"`
+	OK              bool            `json:"ok"`
+	Error           string          `json:"error,omitempty"`
 }
 
 type EndpointRoute struct {
@@ -488,6 +490,8 @@ func downloadFrom(ctx context.Context, size int64, url string) DownloadResult {
 	c := httpClient(20 * time.Second)
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	req.Header.Set("Accept-Encoding", "identity")
+	req, timings := tracedRequest(req)
+	defer func() { r.Timings = timings() }()
 	start := time.Now()
 	resp, err := c.Do(req)
 	if err != nil {
@@ -495,6 +499,7 @@ func downloadFrom(ctx context.Context, size int64, url string) DownloadResult {
 		return r
 	}
 	defer resp.Body.Close()
+	r.HTTPStatus = resp.StatusCode
 	if resp.StatusCode != 200 {
 		r.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
 		return r

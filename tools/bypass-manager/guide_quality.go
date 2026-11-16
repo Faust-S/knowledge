@@ -121,13 +121,15 @@ type GuideIPSample struct {
 }
 
 type GuideTransfer struct {
-	Source        string  `json:"source"`
-	OK            bool    `json:"ok"`
-	Bytes         int64   `json:"bytes"`
-	ExpectedBytes int64   `json:"expected_bytes"`
-	Seconds       float64 `json:"seconds"`
-	Mbps          float64 `json:"mbps"`
-	FailureCode   string  `json:"failure_code,omitempty"`
+	Timings       TransferTimings `json:"timings"`
+	HTTPStatus    int             `json:"http_status,omitempty"`
+	Source        string          `json:"source"`
+	OK            bool            `json:"ok"`
+	Bytes         int64           `json:"bytes"`
+	ExpectedBytes int64           `json:"expected_bytes"`
+	Seconds       float64         `json:"seconds"`
+	Mbps          float64         `json:"mbps"`
+	FailureCode   string          `json:"failure_code,omitempty"`
 }
 
 type GuideRound struct {
@@ -159,17 +161,28 @@ type GuideMonitorSample struct {
 	ConsecutiveFailures int     `json:"consecutive_failures"`
 }
 
+type GuideNetworkDiagnostic struct {
+	UTC        string           `json:"utc"`
+	Phase      string           `json:"phase"`
+	Protocol   string           `json:"protocol,omitempty"`
+	DPIProfile string           `json:"dpi_profile,omitempty"`
+	State      string           `json:"state"`
+	Snapshot   *NetworkHealth   `json:"snapshot,omitempty"`
+	Findings   []NetworkFinding `json:"findings,omitempty"`
+}
+
 type GuideReport struct {
-	SchemaVersion       string          `json:"schema_version"`
-	StartedUTC          string          `json:"started_utc"`
-	CompletedUTC        string          `json:"completed_utc,omitempty"`
-	State               string          `json:"state"`
-	VPNRouteObserved    bool            `json:"vpn_route_observed"`
-	EgressObserved      bool            `json:"egress_observed"`
-	EgressChanged       bool            `json:"egress_changed"`
-	AdapterFlowObserved bool            `json:"adapter_flow_observed"`
-	Video               VideoAssessment `json:"video"`
-	AdviceCode          string          `json:"advice_code"`
+	SchemaVersion       string                   `json:"schema_version"`
+	NetworkDiagnostics  []GuideNetworkDiagnostic `json:"network_diagnostics,omitempty"`
+	StartedUTC          string                   `json:"started_utc"`
+	CompletedUTC        string                   `json:"completed_utc,omitempty"`
+	State               string                   `json:"state"`
+	VPNRouteObserved    bool                     `json:"vpn_route_observed"`
+	EgressObserved      bool                     `json:"egress_observed"`
+	EgressChanged       bool                     `json:"egress_changed"`
+	AdapterFlowObserved bool                     `json:"adapter_flow_observed"`
+	Video               VideoAssessment          `json:"video"`
+	AdviceCode          string                   `json:"advice_code"`
 	// User-selected protocol is not verified by the adapter name. Never claim
 	// evidence of a native handshake without client-side proof.
 	NativeHandshakeVerified bool                 `json:"native_handshake_verified"`

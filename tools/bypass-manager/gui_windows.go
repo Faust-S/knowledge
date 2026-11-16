@@ -62,6 +62,7 @@ const (
 	idAdvanced         = 2010
 	idGuide            = 2011
 	idGuideInstruction = 2012
+	idNetworkHealth    = 2013
 )
 
 type winClassEx struct {
@@ -147,30 +148,30 @@ func winMessageBox(parent uintptr, message, title string, flags uintptr) int {
 func cleanLog(s string) string { return redactText(s) }
 
 type managerUI struct {
-	hwnd                                                                        uintptr
-	home                                                                        string
-	cfg                                                                         Config
-	endpoint, port, adapter, engine, transport, preferred                       uintptr
-	logs, status, startButton, stopButton, saveButton, prepareButton, dnsButton uintptr
-	refreshButton, internetButton, recoverButton, advancedButton, guideButton   uintptr
-	vpnLine, netLine, dpiLine, guideLine                                        uintptr
-	advancedControls                                                            []uintptr
-	advanced                                                                    bool
-	autoAdapter                                                                 string
-	mu                                                                          sync.Mutex
-	queue                                                                       []string
-	cancel                                                                      context.CancelFunc
-	running, preparing, inspectingDNS, closing                                  bool
-	guiding                                                                     bool
-	guideStep                                                                   string
-	refreshing, recovering                                                      bool
-	stopError                                                                   string
-	lastSnapshot                                                                VPNState
-	snapshotError                                                               bool
-	lastOnline                                                                  bool
-	pollStop                                                                    chan struct{}
-	lifetimeCtx                                                                 context.Context
-	lifetimeCancel                                                              context.CancelFunc
+	hwnd                                                                                     uintptr
+	home                                                                                     string
+	cfg                                                                                      Config
+	endpoint, port, adapter, engine, transport, preferred                                    uintptr
+	logs, status, startButton, stopButton, saveButton, prepareButton, dnsButton              uintptr
+	refreshButton, internetButton, recoverButton, advancedButton, guideButton, networkButton uintptr
+	vpnLine, netLine, dpiLine, guideLine                                                     uintptr
+	advancedControls                                                                         []uintptr
+	advanced                                                                                 bool
+	autoAdapter                                                                              string
+	mu                                                                                       sync.Mutex
+	queue                                                                                    []string
+	cancel                                                                                   context.CancelFunc
+	running, preparing, inspectingDNS, closing                                               bool
+	guiding                                                                                  bool
+	guideStep                                                                                string
+	refreshing, recovering                                                                   bool
+	stopError                                                                                string
+	lastSnapshot                                                                             VPNState
+	snapshotError                                                                            bool
+	lastOnline                                                                               bool
+	pollStop                                                                                 chan struct{}
+	lifetimeCtx                                                                              context.Context
+	lifetimeCancel                                                                           context.CancelFunc
 }
 
 var activeUI *managerUI // one window, one manager process, no resident daemon
@@ -229,6 +230,7 @@ func (ui *managerUI) toggleRun(r bool) {
 	procEnable.Call(ui.recoverButton, value)
 	procEnable.Call(ui.advancedButton, value)
 	procEnable.Call(ui.guideButton, value)
+	procEnable.Call(ui.networkButton, value)
 	if r {
 		procEnable.Call(ui.stopButton, 1)
 	} else {
@@ -625,6 +627,7 @@ func (ui *managerUI) initControls() {
 	ui.advancedButton = ctrl(ui.hwnd, "BUTTON", "\u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b DPI", wsTabStop, idAdvanced, 713, 263, 140, 32)
 	ui.prepareButton = ctrl(ui.hwnd, "BUTTON", "\u041f\u043e\u0434\u0433\u043e\u0442\u043e\u0432\u0438\u0442\u044c \u0434\u0432\u0438\u0436\u043e\u043a", wsTabStop, idPrepare, 20, 304, 200, 32)
 	ui.dnsButton = ctrl(ui.hwnd, "BUTTON", "\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c DNS", wsTabStop, idDNS, 230, 304, 160, 32)
+	ui.networkButton = ctrl(ui.hwnd, "BUTTON", "Диагностика сети", wsTabStop, idNetworkHealth, 565, 304, 180, 32)
 	ui.stopButton = ctrl(ui.hwnd, "BUTTON", "\u041e\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c", wsTabStop, idStop, 400, 304, 145, 32)
 	ui.status = ctrl(ui.hwnd, "STATIC", "\u041e\u0436\u0438\u0434\u0430\u043d\u0438\u0435. \u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 VPN \u043d\u0435 \u043c\u0435\u043d\u044f\u044e\u0442\u0441\u044f.", 0, 0, 20, 353, 820, 22)
 	// Advanced transport/endpoint fields are hidden until expressly requested.
@@ -776,10 +779,19 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 			if !ui.running {
 				ui.inspectDNS()
 			}
+		case idNetworkHealth:
+			if !ui.running {
+				ui.inspectNetwork()
+			}
 		case idReport:
 			file := filepath.Join(ui.home, "results", "latest-guide.json")
-			if _, err := os.Stat(file); err != nil {
-				file = filepath.Join(ui.home, "results", "latest-session.json")
+			var latest time.Time
+			for _, name := range []string{"latest-guide.json", "latest-network.json", "latest-session.json"} {
+				candidate := filepath.Join(ui.home, "results", name)
+				if stat, err := os.Stat(candidate); err == nil && stat.ModTime().After(latest) {
+					file = candidate
+					latest = stat.ModTime()
+				}
 			}
 			if _, err := os.Stat(file); err != nil {
 				winMessageBox(hwnd, "Отчёт пока отсутствует.", "Bypass Manager", 0x40)
