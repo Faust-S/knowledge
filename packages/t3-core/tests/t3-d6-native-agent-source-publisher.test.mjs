@@ -137,7 +137,12 @@ function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
      schema_id:"iwxa.agent.accepted-result",schema_version:"1.0.0",
      base_revision:0,
      data:{taskId:original.taskId,resultId:original.resultId,
-       acceptedDigest:original.acceptedDigest,workRef:{...original.workRef}}},
+       acceptedDigest:original.acceptedDigest,
+       signedTaskId:original.signedTaskId,
+       signedTaskRevisionId:original.signedTaskRevisionId,
+       signedTaskPackageSha256:original.signedTaskPackageSha256,
+       contextDigest:original.contextDigest,
+       workRef:{...original.workRef}}},
    event:{event_type:"iwxa.agent.result.published",payload:{}},
  });
  const create=()=>createTrustedAgentAtlasSourcePublisher({
