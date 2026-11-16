@@ -53,3 +53,19 @@ Tests cover successful source publication, original owner readback, human refusa
 ## Privacy boundary
 
 This branch runs only in public Faust-S/knowledge Linux Actions with public source. No private Actions, no temporary private checkout, no private artifact uploads, no signer, secrets or real account output. A successful public adapter test is not a claim of installed product acceptance.
+
+## Общий T3 One Core: интеграция native publisher и подтверждение 17.11.2026
+
+Итоговая исходная ветка `Faust-S/knowledge@work/2026-11-10-t3-t2-activity-projection`, исполняемый SHA `3618a9b3ceeed9b67d4b04072c77b7cd69bf1e46`.
+Реализация `native-agent-atlas-source-publisher.mjs` объединена через двухродительский merge `a5e2b292`; только она остается источником sender-side композиции (без второй T3 подсистемы).
+Чтение исходной signed Exchange-квитанции, а не синтетической `VERIFIED`: `b15b5c5b`; `3618a9b3` добавил original `inspectSelectedDisclosure` на получателя `iwxa.atlas`, точную ссылку Result и отдельный DATA grant.
+
+Три обязательных шага native original Exchange:
+- `inspectSelectedDisclosure({operationId,binding,sourceObjectRef,recipientId:"iwxa.atlas"})` проверяет исходные подписанные права и возможность отдельного `ORIGINAL_RESULT_ONLY` архива до резервирования операции или Kernel write. Возвращает `originalRecipientGrantVerified:true`, `workspaceDisclosureIsolated:true`, точную `selectedSourceObjectRef`; иные значения блокируют.
+- `publishSelectedResult` передаёт реальные оригинальные `.iwxa` байты с `disclosureScope:"ORIGINAL_RESULT_ONLY"` и точным `selectedSourceObjectRef`.
+- `verifySelectedResult` после холодного открытия подтверждает оригинальный ZIP manifest, байты, подпись, адресата, sourceObjectRef, `disclosureScope:"ORIGINAL_RESULT_ONLY"`, а не реконструированный JS статус.
+
+Не выдавать T2 `exportPackage` полной корпоративной Workspace за пакет одного Agent Result: обычная T2 операция не умеет выбрать один произвольный объект из смешанной Workspace. Только исходный допустимый паспорт/разрешённая изолированная публикационная Workspace либо исходный доказанный селективный scope допустимы; не разрабатывать новый packager или формат.
+
+Публичный CI `#43968382746` на `3618a9b3`: `test`, `real-host`, `windows-credential` SUCCESS; проверка нежелательного раскрытия отвергает действие до Reconciliation reserve и Kernel write.
+В PRIVATE T3 пока есть только независимое подтверждение корпоративного экспортного журнала (адресат организации), установленное `iwxa.atlas` native E2E остаётся HOLD. Продолжать исключительно интеграцию оригинального установленного владельца и собственные продуктовые приёмки.

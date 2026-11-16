@@ -1,5 +1,23 @@
 # IWXA T3 One Core: передача D3/D7 -> G4 в новый чат
 
+## Актуализация 17.11.2026: единый D6 Agent → T3 → Atlas и исходные квитанции
+
+**Последний квалифицированный исполняемый коммит T3:** `3618a9b3ceeed9b67d4b04072c77b7cd69bf1e46` в `Faust-S/knowledge@work/2026-11-10-t3-t2-activity-projection`.
+**Публичный CI №43968382746: SUCCESS**, задания `test`, `real-host`, `windows-credential`: https://github.com/Faust-S/knowledge/actions/runs/43968382746. Нативные age / аппаратный WebGPU / внешний inference в данном запуске не повторялись; соответствующий исполняемый код не изменялся.
+
+В единую ветку без потери D1/D3/D7 включён *один* существующий D6 sender-side контракт `src/t3/native-agent-atlas-source-publisher.mjs` из `work/2026-11-17-t3-agent06-native-source-publication`: merge `a5e2b292` (две родительские ветки), CI №43967756064 SUCCESS. Дублирующий временный `original-agent-result-publication.mjs` удалён из актуального дерева и не является исполняемым владельцем. Отдельный `read_receipt` теперь возвращает исходную `originalExchange.verifySelectedResult` квитанцию с независимой проверкой подписи и байтов, коммит `b15b5c5b`, CI №43967949173 SUCCESS.
+
+Слой `3618a9b3` добавил обязательный original Exchange port `inspectSelectedDisclosure` и проверку `ORIGINAL_RESULT_ONLY` **до native Reconciliation reserve / оригинального Kernel commit**. Аттестация привязана к operationId, источнику, `recipientId="iwxa.atlas"`, подписанному DATA grant и факту изоляции раскрываемой Workspace. После исходной отправки должны совпадать объект и `disclosureScope`; при холодном чтении `verifySelectedResult` проверяются оригинальная подпись, архивные байты, исходный manifest и `ORIGINAL_RESULT_ONLY`. При отсутствии доказательства публикация отклоняется до записи: обычный T2 `exportPackage` не поддерживает выбор произвольного одиночного Object из смешанной Workspace.
+
+**Функциональный маршрут исходной композиции:** `Agent Human-accepted Result` → исходный отдельный Employee `package.export` в `iwxa.atlas` → независимое Human consent → original Reconciliation `read/reserve/finalize` → оригинальный T2 `commitObjectGraph`/Object/Event → original signed `.iwxa` Exchange → native readback квитанций → Atlas U05 Decision/D6 и два холодных чтения. Нельзя считать успешным по синтетическим исходным портам.
+
+**Оставшаяся установленная зависимость:** PRIVATE original T3/Agent Host должен подключить реальные `originalLedger.read/reserve/finalize/findByObject/findByWork/findLatestWork`; действительный `originalEmployee.verifySignedTask/authorizeAtlasExport`; установленный Agent `acceptedSource.readAccepted`; оригинальные `originalExchange.inspectSelectedDisclosure/publishSelectedResult/verifySelectedResult` с signed recipient и точным ZIP manifest; исходный T2 `KernelFacade` и отдельное согласие пользователя. Все эти порты подключаются в уже существующий native Host через `InstalledOriginalAgentResultOwner(original_t3_source_owner=...)`, **без** нового Control EXE, Task Engine, IAM, Store, подписанта, HTTP-сервиса или формата `.iwxa`. Node-only D6 sender не импортировать в браузерный Vite/WebView `dist` (использует `node:crypto`); он принадлежит доверенному установленному Host.
+
+Приватный `Faust-S/T3@work/2026-11-16-t3-agent06-original-export-ledger-readback` подтверждает код чтения корпоративного Reconciliation `EXPORTED` и `interop.result.v2` **адресату организации**, но это не подписанная отдельная публикация в `iwxa.atlas`. Private Actions запрещены; private CI/installed E2E не засчитаны. Текущие квалификации source (knowledge, Atlas) не заменяют установленный `Agent → T3 → signed iwxa.atlas → Atlas → два холодных readback`.
+
+**Итог:** `B0/D1–D7=SOURCE_INTEGRATION_CANDIDATE`, `D6_ORIGINAL_SOURCE_PUBLICATION=SOURCE_PASS`, `INSTALLED_AGENT_ATLAS=HOLD`, `INSTALLED_D1_D3=HOLD`, `INSTALLED_D7_PUBLISHER=HOLD`, `G4=NOT_ACCEPTED`, `T3_READY=false`.
+
+---
 ## Актуальный единый исполняемый T3: независимый D1/D3 + D6, 16.11.2026
 
 **Единый исполняемый candidate:** `Faust-S/knowledge@96ec34c298624bc88f443ab8bb5fd8f99c75a63b`,
