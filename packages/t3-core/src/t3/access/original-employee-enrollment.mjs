@@ -6,7 +6,7 @@ import {randomUUID} from 'node:crypto';
 import {
   copy,digest,evaluate,iso,identifier,makeProof,signRecord,timestamp,
   validateGrant,validateStatusSnapshot,verifyRecord,checkCeiling,
-  hasRecordedTombstone
+  hasRecordedTombstone,verifiedChain
 } from './core.mjs';
 import {isOriginalKernelRegistryStatePort} from './original-kernel-registry-state.mjs';
 import {signOrganizationEnrollment,verifyOrganizationEnrollment}
@@ -313,17 +313,30 @@ export function createOriginalEmployeeEnrollmentOwner({
     check(matches.length===2,'T3_EMPLOYEE_ENROLLMENT_READBACK_NOT_FOUND');
     for(const [,record] of matches)
       verifyRecord(record,saved.policy,at,'GRANT');
-    const active=matches.every(([grantId,entry])=>{
-      const status=validateStatusSnapshot(entry.payload.authorityId,saved,at);
-      return status.entries.some(x=>x.grantId===grantId&&x.state==='ACTIVE')&&
-        !hasRecordedTombstone(saved,grantId);
-    });
+    let authorityState='ORIGINAL_GRANTS_ACTIVE';
+    for(const [grantId,entry] of matches){
+      const g=entry.payload;
+      if(hasRecordedTombstone(saved,grantId)||
+         timestamp(g.expiresAt)<=at||timestamp(g.notBefore)>at){
+        authorityState='ORIGINAL_GRANTS_REVOKED_OR_EXPIRED';continue;
+      }
+      try {
+        verifiedChain(grantId,saved,at);
+        const status=validateStatusSnapshot(g.authorityId,saved,at);
+        const row=status.entries.find(x=>x.grantId===grantId);
+        if(!row||row.state!=='ACTIVE')
+          authorityState='ORIGINAL_GRANTS_REVOKED_OR_EXPIRED';
+      }catch{
+        // A stale status is not equivalent to a known terminal revocation.
+        authorityState='ORIGINAL_STATUS_UNKNOWN_HOLD';
+      }
+    }
     // Explicit authoritative readback resolves a lost ACK; it does not retry
     // the signed issuance or create a new employee/grant identifier.
     if(pending?.enrollmentId===enrollmentId){
       pending=null;operationAttempted=false;
     }
-    return {state:active?'ORIGINAL_GRANTS_ACTIVE':'ORIGINAL_GRANTS_REVOKED_OR_EXPIRED',
+    return {state:authorityState,
       enrollmentId,organizationId,employeePersonId,
       grants:matches.map(([grantId])=>grantId).sort(),originalReadback:true,
       safeToReissue:false,invitationDelivered:false};
