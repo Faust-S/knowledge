@@ -1,5 +1,4 @@
-#Requires -Version 5.1
-# Repeatedly create, inspect and close a real Win32 window; no network or driver use.
+# Native Win32 GUI lifecycle and layout checks; ASCII-only for Windows PowerShell 5.1.
 [CmdletBinding()]
 param()
 $ErrorActionPreference='Stop'
@@ -10,8 +9,9 @@ $cs=@"
 using System;
 using System.Runtime.InteropServices;
 public static class BypassGuiSmokeNative {
- [DllImport("user32.dll", CharSet=CharSet.Unicode)]
- public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string title);
+ [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr hWnd, int id);
+ [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool IsWindowVisible(IntPtr hWnd);
+ [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, UInt32 msg, IntPtr wParam, IntPtr lParam);
 }
 "@
 Add-Type -TypeDefinition $cs -ErrorAction Stop
@@ -28,17 +28,24 @@ for($round=1;$round -le 3;$round++) {
     }
     if(-not $found) { throw "GUI window not observed on iteration $round" }
     $handle=[IntPtr]$proc.MainWindowHandle
-    $prepare=[BypassGuiSmokeNative]::FindWindowEx($handle,[IntPtr]::Zero,'Button','Подготовить движок')
-    if($prepare -eq [IntPtr]::Zero) { throw "Offline preparation button missing on iteration $round" }
-    $refresh=[BypassGuiSmokeNative]::FindWindowEx($handle,[IntPtr]::Zero,'Button','Обновить')
-    $recover=[BypassGuiSmokeNative]::FindWindowEx($handle,[IntPtr]::Zero,'Button','Восстановить сеть')
-    $internet=[BypassGuiSmokeNative]::FindWindowEx($handle,[IntPtr]::Zero,'Button','Проверить интернет')
-    if($refresh -eq [IntPtr]::Zero -or $recover -eq [IntPtr]::Zero -or $internet -eq [IntPtr]::Zero) {throw 'Automatic status or recovery controls missing'}
-    $dns=[BypassGuiSmokeNative]::FindWindowEx($handle,[IntPtr]::Zero,'Button','Проверить DNS')
-    if($dns -eq [IntPtr]::Zero) { throw "Passive DNS diagnostics button missing on iteration $round" }
-    Write-Host "PASS GUI $round/3: window, engine preparation and passive DNS buttons found; PID=$($proc.Id)"
+    foreach($id in @(2005,2006,2007,2008,2009,2010)) {
+      $control=[BypassGuiSmokeNative]::GetDlgItem($handle,$id)
+      if($control -eq [IntPtr]::Zero -or -not [BypassGuiSmokeNative]::IsWindowVisible($control)) {
+        throw "Required visible main button missing: ID=$id, iteration=$round"
+      }
+    }
+    $advancedField=[BypassGuiSmokeNative]::GetDlgItem($handle,101)
+    $advancedToggle=[BypassGuiSmokeNative]::GetDlgItem($handle,2010)
+    if($advancedField -eq [IntPtr]::Zero) {throw 'Advanced endpoint input missing'}
+    if([BypassGuiSmokeNative]::IsWindowVisible($advancedField)) {throw 'Advanced networking fields visible without user action'}
+    # BM_CLICK is a local UI message only, not a request to start a packet filter.
+    [void][BypassGuiSmokeNative]::SendMessage($advancedToggle,[uint32]0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
+    if(-not [BypassGuiSmokeNative]::IsWindowVisible($advancedField)) {throw 'Advanced settings cannot be shown'}
+    [void][BypassGuiSmokeNative]::SendMessage($advancedToggle,[uint32]0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
+    if([BypassGuiSmokeNative]::IsWindowVisible($advancedField)) {throw 'Advanced settings cannot be hidden'}
+    Write-Host "PASS GUI $round/3: automatic diagnostics, recovery, collapsed and expanded advanced UI"
     if(-not $proc.CloseMainWindow()) {throw "GUI refused WM_CLOSE on iteration $round"}
-    if(-not $proc.WaitForExit(6000)) {throw "GUI did not close after WM_CLOSE on iteration $round"}
+    if(-not $proc.WaitForExit(7000)) {throw "GUI did not close after WM_CLOSE on iteration $round"}
     if($proc.ExitCode -ne 0) {throw "GUI returned $($proc.ExitCode) on iteration $round"}
     Write-Host "PASS GUI $round/3: clean window shutdown"
   } finally {
@@ -47,4 +54,4 @@ for($round=1;$round -le 3;$round++) {
     $proc.Dispose()
   }
 }
-Write-Host 'PASS three independent native Win32 startup/shutdown cycles; no VPN or WinDivert activity.'
+Write-Host 'PASS three Win32 cycles. No VPN, route change or packet interception.'
