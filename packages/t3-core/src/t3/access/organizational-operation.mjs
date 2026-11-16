@@ -166,7 +166,7 @@ function prepareWithBoundState(untrusted) {
   for(const k of ['operationId','productId','audience','resource','action','purpose'])
     identifier(op[k]);
   insist(hex(op.payloadDigest),'ORG_OPERATION_PAYLOAD_DIGEST_INVALID');
-  insist(['IWXA_CONTROL_CENTER','IWXA_ADMIN_CENTER'].includes(op.productId),
+  insist(['IWXA_CONTROL_CENTER','IWXA_ADMIN_CENTER','IWXA_PERSONAL_AGENT'].includes(op.productId),
     'ORG_PRODUCT_UNKNOWN');
   const now=timestamp(input.asOf);
   const candidate=selectContextCandidate(person,choice,input.descriptors,input.asOf);
