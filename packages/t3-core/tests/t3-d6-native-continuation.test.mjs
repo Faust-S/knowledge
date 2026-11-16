@@ -211,6 +211,36 @@ test("D6 keeps original signed denial distinct from unavailable native receipt",
   assert.equal(f.receives(),0);
 });
 
+test("D6 keeps original native holder receipt and readback refusal as DENIED",async()=>{
+  const f=fixture();
+  const error=Object.assign(new Error("installed Atlas project right revoked"),{
+    code:"ATLAS_T3_PROJECT_WRITE_NOT_AUTHORIZED",outcome:"DENIED"});
+  f.setReceiptHook(()=>{throw error;});
+  for(const invoke of [
+    ()=>f.port.preview(f.ref),
+    ()=>f.port.continueSelected(f.ref),
+    ()=>f.port.recover(f.ref)
+  ])await assert.rejects(invoke(),{
+    code:"ATLAS_T3_PROJECT_WRITE_NOT_AUTHORIZED",outcome:"DENIED"});
+  assert.equal(f.receives(),0);
+
+  f.setReceiptHook(null);
+  assert.equal((await f.port.continueSelected(f.ref)).status,
+    "OWNER_READBACK_CONFIRMED");
+  assert.equal(f.receives(),1);
+  f.setReadbackHook(()=>{throw error;});
+  await assert.rejects(f.port.recover(f.ref),{
+    code:"ATLAS_T3_PROJECT_WRITE_NOT_AUTHORIZED",outcome:"DENIED"});
+  assert.equal(f.receives(),1);
+  f.setReadbackHook(()=>{throw new Error("NATIVE_ACK_UNAVAILABLE");});
+  assert.equal((await f.port.recover(f.ref)).status,"OUTCOME_UNKNOWN");
+  assert.equal(f.receives(),1);
+  f.setReadbackHook(null);
+  assert.equal((await f.port.recover(f.ref)).status,
+    "OWNER_READBACK_CONFIRMED");
+  assert.equal(f.receives(),1);
+});
+
 test("D6 signed denial AFTER native write is not downgraded to unknown",async()=>{
   const f=fixture();
   // The installed recipient persists one result, but source access is

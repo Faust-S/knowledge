@@ -14,6 +14,12 @@ function copy(value,code){
   try{return structuredClone(value);}
   catch{deny(code);}
 }
+// A native recipient's explicit DENIED is a definite owner decision, not a
+// lost receipt. Unclassified transport failures remain OUTCOME_UNKNOWN.
+// The installed recipient, not the browser, must establish this outcome.
+function rethrowDefiniteNativeRefusal(error){
+  if(error?.outcome==="DENIED")throw error;
+}
 function referenceFrom(input){
   check(input&&typeof input==="object"&&!Array.isArray(input)&&
     validId(input.workspace_id)&&validId(input.object_id)&&
@@ -142,7 +148,10 @@ export function createTrustedNativeContinuation({
     try{
       receipt=await nativeOwner.receipt(operationId);
       readback=await nativeOwner.readback(operationId);
-    }catch{nativeReadUnavailable=true;}
+    }catch(error){
+      rethrowDefiniteNativeRefusal(error);
+      nativeReadUnavailable=true;
+    }
     // Native receipt outages mean UNKNOWN; revocation of the ORIGINAL
     // signed source is a separate denial and must never be swallowed.
     await readSource();
@@ -161,7 +170,8 @@ export function createTrustedNativeContinuation({
     await state.unchanged();
     let receipt;
     try{receipt=await nativeOwner.receipt(operationId);}
-    catch{
+    catch(error){
+      rethrowDefiniteNativeRefusal(error);
       // Only an unavailable native receipt is an uncertain native outcome.
       // A changed Workspace or denied original D1 read must still reject.
       await state.unchanged();
@@ -233,7 +243,7 @@ export function createTrustedNativeContinuation({
           // or transport failure is NOT proof that a write did not happen.
           // Keep dispatched set even for DENIED: only original durable owner
           // readback may permit a later independent attempt after cold open.
-          if(error?.outcome==="DENIED")throw error;
+          rethrowDefiniteNativeRefusal(error);
           // An attempted native write can have committed without its ACK.
           // Do not resend it; the installed recipient owns cold recovery.
           return Object.freeze({status:"OUTCOME_UNKNOWN",operationId,
