@@ -170,3 +170,27 @@ test('original Kernel committed but ACK lost: readback finds it and issuance doe
  const second=await s.owner.begin(s.input(s.bob));
  assert.equal(second.signed,false);
 });
+
+test('signed employee grant revocation survives original Kernel readback',async()=>{
+ const s=setup();await s.init();
+ const started=await s.owner.begin(s.input(s.alice));
+ const issued=await s.owner.complete({enrollmentId:started.enrollmentId,
+  employeeProof:makeProof(started.request,started.challenge,NOW,s.alice.signer,'TEST')});
+ const before=await s.registry.readState(),grantId=issued.grantIds.export;
+ const authorityId='issuer:north',old=before.statuses[authorityId].payload;
+ const next=structuredClone(before);
+ next.tombstones[grantId]={effectiveAt:iso(NOW),reason:'intent:employee-revoke'};
+ next.statuses[authorityId]=signRecord({...old,
+  id:'status:employee-revoked',sequence:old.sequence+1,
+  issuedAt:iso(NOW),entries:old.entries.map(row=>
+    row.grantId===grantId?{...row,state:'REVOKED',effectiveAt:iso(NOW)}:row)
+ },s.north.issuerSigner);
+ next.statusFloor[authorityId]=old.sequence+1;
+ await s.registry.commitSignedState(next);
+ const current=await s.owner.readEnrollment({
+  organizationId:'org:north',employeePersonId:'person:alice',
+  enrollmentId:started.enrollmentId});
+ assert.equal(current.state,'ORIGINAL_GRANTS_REVOKED_OR_EXPIRED');
+ assert.equal(current.safeToReissue,false);
+ assert.equal((await s.registry.readState()).statusFloor[authorityId],old.sequence+1);
+});
