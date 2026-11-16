@@ -78,7 +78,7 @@ function BM-Emit([string]$State, [string]$IP='', [int]$Port=0,
 }
 try {
   $owners=BM-TrustedOwners $Protocol
-  if($owners.Count -eq 0) { BM-Emit 'NO_TRUSTED_PROCESS'; return }
+  if($owners.Count -eq 0 -and $Protocol -eq 'VLESS') { BM-Emit 'NO_TRUSTED_PROCESS'; return }
   $signals=New-Object System.Collections.ArrayList
   if($Protocol -eq 'AMNEZIAWG' -and -not [string]::IsNullOrWhiteSpace($AdapterName)) {
     # Optional native interface query for the official standalone AWG client.
@@ -132,7 +132,10 @@ try {
       BM-Add $signals ([string]$d['DestAddress']) $port $(if($Protocol -eq 'AMNEZIAWG'){'WFP_UDP'}else{'WFP_TCP'}) $age
     }
   } catch {}
-  if($signals.Count -eq 0) { BM-Emit 'NO_OUTER_TRANSPORT'; return }
+  if($signals.Count -eq 0) {
+    BM-Emit $(if($owners.Count -eq 0){'NO_TRUSTED_PROCESS'}else{'NO_OUTER_TRANSPORT'})
+    return
+  }
   $groups=@($signals | Group-Object -Property { $_.ip + ':' + [string]$_.port })
   if($groups.Count -ne 1) { BM-Emit 'AMBIGUOUS'; return }
   $observed=@($groups[0].Group)
