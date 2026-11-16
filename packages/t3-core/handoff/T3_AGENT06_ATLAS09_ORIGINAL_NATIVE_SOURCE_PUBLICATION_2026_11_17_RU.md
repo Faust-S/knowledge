@@ -124,3 +124,42 @@ installed original T3 Host, connect its sourceOwner to Agent
 InstalledOriginalAgentResultOwner through the existing native bridge, qualify
 private issuer and real signed .iwxa, and run Atlas's native Store with two
 cold readbacks. D6_END_TO_END remains NOT_ACCEPTED.
+
+
+## 2026-11-17 native continuation: concurrency and separate original D1 grants
+
+The existing private original T3 Reconciliation owner now returns
+\`newReservation:true\` only from the fresh atomic PREPARED commit. A raced or
+cold existing PREPARED returns false. Public source sender REQUIRES true
+before starting original Kernel commitObjectGraph. A successful PREPARED
+response without this fresh proof is OUTCOME_UNKNOWN and recovery-only.
+
+The public sender now accepts an optional trusted, native-only
+\`trustedSignedKernelForOperation(operation)\` selector, never a UI-provided
+grant. Installed private T3 composition uses its **existing**
+\`signedKernelAccess(originalKernelAccessPortFactory)\` to independently
+enforce read authorization for original getWorkspace/getObject/listEventsSince
+and write authorization for original commitObjectGraph. A valid writable
+T2 Workspace is checked BEFORE reservation. The original source Event type
+is pinned to \`iwxa.agent.result.published\` in source and private Exchange.
+
+The original private Exchange gained READ-ONLY \`readRecordedTransfer\` for
+recovery of an already signed archive after a lost ACK. The private trusted
+Host gained explicit native maintenance method
+\`reconcileRecordedPublication\`: only positively verified original signed
+archive bytes, transfer, recipient and exact Kernel Object/Event may cause
+the EXISTING Reconciliation ledger to finalize. This does NOT repeat Kernel
+writes, re-sign a package or change Agent's read-only publication readback.
+The existing prepared-only/unknown cases remain held.
+
+Evidence: public source CI
+[#43980356992](https://github.com/Faust-S/knowledge/actions/runs/43980356992)
+SUCCESS on \`47d93a05\`; public CI
+[#43979867539](https://github.com/Faust-S/knowledge/actions/runs/43979867539)
+SUCCESS on \`72b0be6c\`. Four private composition tests also passed a
+bounded V8 test-double execution, which does NOT replace the genuine
+private Node/Ed25519 tests or actual installed Windows E2E.
+Private original signer tests remain NOT_RUN due existing Center read
+token failure (HTTP 403 for Faust-S/T3).
+
+D6_INSTALLED=NOT_ACCEPTED; T3_READY=false.
