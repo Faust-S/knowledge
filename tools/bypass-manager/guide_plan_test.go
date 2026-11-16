@@ -39,3 +39,15 @@ func TestGuideErrorCodesDoNotLeakPathsOrAddresses(t *testing.T) {
 		t.Fatal("nil")
 	}
 }
+
+func TestGuideBaselineDoesNotUseAmbiguousConnectedAdapter(t *testing.T) {
+	if guideCanMeasureDirectBaseline(VPNState{Checked: true, ActiveCount: 1, RoutePresent: false}) {
+		t.Fatal("adapter is still active")
+	}
+	if guideCanMeasureDirectBaseline(VPNState{Checked: false}) {
+		t.Fatal("unknown interface state")
+	}
+	if !guideCanMeasureDirectBaseline(VPNState{Checked: true, ActiveCount: 0}) {
+		t.Fatal("clean disconnected observation")
+	}
+}

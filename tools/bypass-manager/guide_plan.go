@@ -72,3 +72,9 @@ func nextGuideVariant(plan []GuideVariant, index int) (GuideVariant, bool) {
 	}
 	return plan[index], true
 }
+
+// An active adapter without a verified full route is not a clean direct
+// baseline. Do not use it to claim that the VPN egress later changed.
+func guideCanMeasureDirectBaseline(s VPNState) bool {
+	return s.Checked && s.ActiveCount == 0
+}

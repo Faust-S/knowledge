@@ -161,7 +161,7 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 	var baseline EgressResult
 	baselineCtx, baselineCancel := context.WithTimeout(ctx, 12*time.Second)
 	initial, err := m.vpnState(baselineCtx)
-	if err == nil && connectionGuideAction(initial) != "MEASURE_CONNECTION" {
+	if err == nil && guideCanMeasureDirectBaseline(initial) {
 		baseline = m.egress(baselineCtx)
 	}
 	baselineCancel()
@@ -199,8 +199,11 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 				}
 				record(v, "USER_ACTION", "VLESS_SELECTION_CONFIRMED_BY_USER")
 			} else {
-				ui.guideInstruction("В окне Amnezia выберите AmneziaWG и нажмите «Подключить», если ещё не подключено. Состояние проверяю автоматически каждые 5 секунд.")
-				record(v, "USER_ACTION", "AWG_SELECTION_ASSUMED_NOT_VERIFIED")
+				if !ui.guideAsk("В Amnezia выберите AmneziaWG (не VLESS) и нажмите «Подключить», если ещё не подключено. Нажмите OK после выбора протокола. Далее мастер сам проверит соединение.") {
+					finish("CANCELLED", "INITIAL_PROTOCOL_NOT_CONFIRMED")
+					return
+				}
+				record(v, "USER_ACTION", "AWG_SELECTION_CONFIRMED_BY_USER_NOT_API")
 			}
 			lastProtocol = v.Protocol
 		}
