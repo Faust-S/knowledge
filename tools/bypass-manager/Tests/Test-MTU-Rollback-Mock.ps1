@@ -72,4 +72,9 @@ try {
     $env:LOCALAPPDATA=$savedLocalAppData
     Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Variable -Scope Global -Name BM_Mock_MTU, BM_Mock_Changes, BM_Mock_WatchdogFail -ErrorAction SilentlyContinue
+    # Expected negative script paths use `exit 1`, which sets LASTEXITCODE
+    # even though the test verified them successfully. Prevent a stale
+    # expected status from failing the whole GitHub Actions PowerShell step.
+    # A real thrown assertion still propagates to the caller as a failure.
+    $global:LASTEXITCODE=0
 }
