@@ -509,6 +509,17 @@ export function createOriginalControlHttpHandler({
         }finally{
           if(nativeWrite)nativeD6InFlight.delete(key);
         }
+        // The original recipient port can be reconstructed on each HTTP
+        // request and may still advertise AVAILABLE after its ACK was lost.
+        // Retain the one signed Control session's attempted/in-flight state
+        // in preview, so the UI cannot offer a second native dispatch.
+        // Call original preview first: a new D1/recipient DENIED still wins.
+        if(input.verb==="preview"&&observed?.status==="AVAILABLE"){
+          if(nativeD6InFlight.has(key))
+            observed={...observed,status:"OPERATION_IN_PROGRESS"};
+          else if(nativeD6Attempted.has(key))
+            observed={...observed,status:"RECOVER_ONLY"};
+        }
         requireThat(before===await epochNow()&&authenticated(req),
           input.verb==="continueSelected"?"T3_D6_NATIVE_OUTCOME_UNKNOWN":
             "STALE_CONTEXT_OPERATION");

@@ -1064,6 +1064,8 @@ test("D6 original Control preserves owner DENIED without granting native replay"
     await assert.rejects(f.browser.nativeD6Request("continueSelected",{reference}),
       {code:"ATLAS_T3_PROJECT_WRITE_NOT_AUTHORIZED",outcome:"DENIED"});
     assert.equal(writes,1);
+    assert.equal((await f.browser.nativeD6Request("preview",{reference}))
+      .status,"RECOVER_ONLY","even a rebuilt READY native port cannot reopen dispatch");
     // An authenticated DENIED is not permission to send again: a write may
     // already be durable while its readback is forbidden by native owner.
     assert.equal((await f.browser.nativeD6Request("continueSelected",{reference}))
@@ -1087,6 +1089,8 @@ test("D6 original Control preserves owner DENIED without granting native replay"
     await assert.rejects(unknown.browser.nativeD6Request("continueSelected",{reference}),
       {code:"T3_D6_NATIVE_OUTCOME_UNKNOWN"});
     assert.equal(unknownWrites,1);
+    assert.equal((await unknown.browser.nativeD6Request("preview",{reference}))
+      .status,"RECOVER_ONLY");
     assert.equal((await unknown.browser.nativeD6Request("continueSelected",{reference}))
       .status,"OUTCOME_UNKNOWN");
     assert.equal(unknownWrites,1);
