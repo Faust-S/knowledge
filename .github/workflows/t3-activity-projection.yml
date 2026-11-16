@@ -238,6 +238,58 @@ jobs:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
         run: node tests/t3-d5-full-bli.browser.mjs
 
+  native-model:
+    # Opt-in genuine native external model owner. No inference engine or model
+    # weights are bundled with T3 and no private Agent is run on public CI.
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[t3-native]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install source-pinned original Host dependencies
+        run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+      - name: Verify and stage original T2 Kernel 0.3.6
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+        run: |
+          set -eu
+          archive=qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip
+          echo "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68  $archive" | sha256sum -c -
+          mkdir -p "$IWXA_T2_QUALIFIED_KERNEL_DIST"
+          unzip -q "$archive" -d "$IWXA_T2_QUALIFIED_KERNEL_DIST"
+          node --input-type=module -e 'import {assertQualifiedKernelArtifact} from "./src/factory2/products/domain-completion/independent-browser-witness.mjs"; assertQualifiedKernelArtifact(process.env.IWXA_T2_QUALIFIED_KERNEL_DIST,{kernel:"0.3.6",contract:"1.3.0",artifactId:"iwxa-kernel-k036-same-store-history-20261019-qualified.1"});'
+      - name: Install browser for original Kernel cold readback
+        working-directory: packages/t3-core
+        run: npx --no-install playwright install chromium
+      - name: Download exact external llama.cpp binary and local Qwen3 weights
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/t3-native/exec"
+          curl --fail --location --retry 3 --max-time 240 \
+            "https://github.com/ggml-org/llama.cpp/releases/download/b12244/llama-b12244-bin-ubuntu-x64.tar.gz" \
+            -o "$RUNNER_TEMP/t3-native/llama-bin.tar.gz"
+          echo "c1d7e7f31b5c43f3e5d44f667b4d57104217be3e5f2060320cd3735651238849  $RUNNER_TEMP/t3-native/llama-bin.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/t3-native/llama-bin.tar.gz" -C "$RUNNER_TEMP/t3-native/exec"
+          cli=$(find "$RUNNER_TEMP/t3-native/exec" -type f -name llama-cli | head -n 1)
+          test -n "$cli"
+          chmod +x "$cli"
+          "$cli" --version
+          curl --fail --location --retry 3 --max-time 480 \
+            "https://huggingface.co/ggml-org/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_0.gguf" \
+            -o "$RUNNER_TEMP/t3-native/Qwen3-0.6B-Q4_0.gguf"
+          echo "da2572f16c06133561ce56accaa822216f2391ef4d37fba427801cd6736417d4  $RUNNER_TEMP/t3-native/Qwen3-0.6B-Q4_0.gguf" | sha256sum -c -
+          echo "T3_D5_NATIVE_LLAMA_CLI=$cli" >> "$GITHUB_ENV"
+          echo "T3_D5_NATIVE_GGUF=$RUNNER_TEMP/t3-native/Qwen3-0.6B-Q4_0.gguf" >> "$GITHUB_ENV"
+      - name: Real native Qwen3 -> original Kernel -> two cold local drafts
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+        run: node --test tests/t3-d5-real-native-owner.browser.mjs
+
   windows-credential:
     # Qualify shared Ed25519 encrypted vault and original corporate D1 API
     # on Windows Node. No standalone T3 GUI, second Host or dedicated EXE.
