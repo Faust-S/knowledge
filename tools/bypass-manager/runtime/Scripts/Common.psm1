@@ -295,8 +295,7 @@ function Get-BMAwgEndpointMetadata {
         $parts=@(([string]$line).Trim() -split '\s+')
         if($parts.Count -ne 3) { continue }
         if(-not [string]::Equals($parts[0],$InterfaceName,[StringComparison]::OrdinalIgnoreCase)) { continue }
-        if($parts[2] -notmatch '^([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]{1,5})Test-BMFullIPv4Route,Format-NativeArgumentList,Assert-IPv4,Assert-ExternalIPv4,Get-ExactWinDivertFilter,Assert-LoopbackProxy,Get-CurlPath,Invoke-CurlText,Get-ProxyArgs,Get-PublicEgress,Test-EndpointTcp,Get-AdapterCounters,Get-EndpointRoute,Get-AwgNative,Invoke-DownloadProbe,Test-IcmpProbe,Save-Json
-) { continue }
+        if($parts[2] -notmatch '^([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]{1,5})$') { continue }
         $port=[int]$Matches[2]
         if($port -le 0 -or $port -gt 65535) { continue }
         $result+= [pscustomobject]@{IPv4=[string]$Matches[1];Port=$port}
