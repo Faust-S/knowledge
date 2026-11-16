@@ -1,5 +1,79 @@
 # IWXA T3 One Core: передача D3/D7 -> G4 в новый чат
 
+## Актуальный единый исполняемый T3: независимый D1/D3 + D6, 16.11.2026
+
+**Единый исполняемый candidate:** `Faust-S/knowledge@96ec34c298624bc88f443ab8bb5fd8f99c75a63b`,
+TREE `5aaccf83a4010afd74805c611b8caa5a3a8209d5`,
+ветка `work/2026-11-10-t3-t2-activity-projection`.
+Исходный нормативный `Faust-S/T2@main` остаётся
+`9c64951cd78411283e8a416641c36d71e169fc1d`,
+оригинальный Kernel 0.3.6 / Runtime Contract 1.3.0.
+
+Объединение выполнено двумя настоящими родителями Git, без отката или
+перезаписи параллельной работы:
+
+- D6 parent [dfc76090](https://github.com/Faust-S/knowledge/commit/dfc7609026f33ce8b6206c56f22e14b7e48ae5ac)
+  [source CI #43939559900](https://github.com/Faust-S/knowledge/actions/runs/43939559900)
+  **SUCCESS**: исходный trusted native `receive/receipt/readback` и
+  подписанный Control HTTP сохраняют достоверный `outcome=DENIED`;
+  неопределённая запись остаётся `OUTCOME_UNKNOWN`, без автоматического
+  повтора. Исходный `preview` предлагает `RECOVER_ONLY` после попытки,
+  даже когда заново созданный owner сообщает `AVAILABLE`.
+- D1/D3 employee parent [e990a9e9](https://github.com/Faust-S/knowledge/commit/e990a9e961f49928e363458d29a18ae2100b918b)
+  [source CI #43920521677](https://github.com/Faust-S/knowledge/actions/runs/43920521677)
+  **SUCCESS**: независимая оригинальная Ed25519 proof-identity сотрудника,
+  original signed Kernel AccessRegistry proof-key admission, отдельные
+  ACTION `work.prepare` и DATA `package.export` гранты,
+  issuer-signed STATUS, cold reconstruct/readback.
+- **Совместная точная интеграция**: [GitHub Actions #43940113584](https://github.com/Faust-S/knowledge/actions/runs/43940113584).
+  Итог именно этого запуска обязателен; PASS родителей **не заменяет**
+  финальный PASS merged HEAD. Изменённые файлы D3 и D6 не пересекались,
+  исходный T2/Kernel/Store не менялись.
+
+**Продуктовые границы** (не путать source PASS с установленной приёмкой):
+
+1. Admin Center 0.3 должен смонтировать этот trusted original employee
+   enrollment с настоящим issuer/manager и *другим* сотрудником Windows:
+   `createOriginalKernelRegistryStatePort` /
+   `admitProofCredential` /
+   `createOriginalEmployeeEnrollmentOwner.begin/complete/readEnrollment`.
+   Сам исходный Node Source не доставляет приглашение и не заменяет
+   реальный подписанный Task/Result; отдельный Human ACCEPT и APPLY
+   остаются у оригинального D3 владельца.
+2. Agent 0.6 в собственной ветке
+   `work/2026-11-16-agent06-original-t3-result-owner-d6`
+   уже предоставляет исходные
+   `currentContext/findTask/issueTask/readTask/selectAcceptedForWork/readAccepted`
+   и `publishAcceptedForWork/recoverPublicationForWork`, но
+   установленный оригинальный T3 `original_t3_source_owner` пока
+   не доказан: требуются `read_publication`, `publish_accepted`,
+   `read_published_for`, `read_published`,
+   `read_receipt`, `read_latest_for_work` с настоящим
+   signed Kernel Object/Event и оригинальным Exchange.
+   **DATA grant сотрудника для организации НЕ разрешает автоматически**
+   `package.export` в `iwxa.atlas`. Для Atlas требуется отдельное
+   оригинальное подписанное разрешение и согласие.
+3. Atlas 0.9 имеет существующий `iwxa.atlas` нативный D6 recipient
+   и оригинальный U05 `atlas_open/atlas_commit`, но installed
+   Agent → signed T3 → `.iwxa` → Atlas и два cold readback
+   остаются независимым продуктовым HOLD.
+4. Publisher 0.5: original issuer, installed recipient, signed
+   LICENSE/STATUS, renewal/revocation и cold-status readback
+   всё ещё нуждаются в отдельной installed product acceptance.
+5. После действительных installed owners один frozen исходный T3,
+   реальное локальное ПО, `LOCAL_ONLY`, original `.iwxa`,
+   два холодных запуска и общая G4-приёмка. Запрещены второй
+   Kernel/Host/Store/IAM/Exchange, отдельный T3 Control EXE,
+   подмена подписанта тестовым issuer и private Actions.
+
+`D1_D3_INDEPENDENT_EMPLOYEE_SOURCE=INTEGRATED`,
+`D6_CONTROL_NATIVE_DENIAL=SOURCE_PASS`,
+`D3_INSTALLED=HOLD`, `D6_INSTALLED_AGENT_ATLAS=HOLD`,
+`G4=NOT_ACCEPTED`, `T3_READY=false`.
+Исторические HEAD и статусы ниже сохраняются только для контекста.
+
+---
+
 ## G4 readiness after common D7 original native refusal fix, 16.11.2026
 
 **Answer for owner: common T3 is ready for source/Host integration, NOT yet G4-released.** Current exact T3 executable HEAD `5141942de0254ab97b97fcbfdef3317d67740d61` (parent `36387bb0`), T2 normative `9c64951cd78411283e8a416641c36d71e169fc1d`, inherited Kernel 0.3.6 / Runtime 1.3.0.
