@@ -140,7 +140,7 @@ test('independent signer cannot be substituted by another employee, unknown trus
   workspaceId:'ws:south'}),
   {code:'T3_EMPLOYEE_TRUSTED_ORGANIZATION_CONTEXT_CHANGED'});
  await assert.rejects(t.owner.begin({...t.input(t.alice),
-  organization:t.fixture.all.south.descriptors.organizations[0]}),
+  organization:t.fixture.all.south.descriptors.organizations.find(x=>x.organizationId==='org:south')}),
   {code:'T3_EMPLOYEE_TRUSTED_ORGANIZATION_CONTEXT_CHANGED'});
 });
 test('manager without original signed administration proof cannot add a worker',async()=>{
