@@ -1,5 +1,19 @@
 # IWXA T3 One Core: передача D3/D7 -> G4 в новый чат
 
+## D7: real native age X25519 two-recipient original Exchange, 16.11.2026
+
+**D7_PUBLIC_REAL_AGE_TWO_RECIPIENTS=PASS** at exact public source `Faust-S/knowledge@1ba2554e13103522645a384a2f26206b4666e068`.
+Evidence: https://github.com/Faust-S/knowledge/actions/runs/43779675582, job `native-age` **SUCCESS** (see log `T3_D7_REAL_AGE_TWO_RECIPIENTS_ORIGINAL_EXCHANGE_PASS`). The source test and workflow were extended; no runtime Kernel, Store, Exchange, cryptography or product code changed. `metal-webgpu` and `native-model` are SKIPPED on this SHA, as separately qualified at their own exact source revisions.
+
+- Original T2 Kernel 0.3.6 / Contract 1.3.0 produced one real `.iwxa` through its own `t2.exportPackage`, containing two objects, one relation, historical Event IDs and preserved unknown extensions.
+- Genuine upstream `FiloSottile/age v1.3.1` (release binary archive SHA-256 `bdc69c09cbdd6cf8b1f333d372a1f58247b3a33146406333e30c0f26e8f51377`, verified by runner) generated two independent native X25519 recipients. Both recipients recovered the *byte-identical* original T2 `.iwxa`. Original archive SHA-256 in this run: `98898c1105721d657ce50c90f23a377b49a2761fae8244af330c0ca6bbf821df`.
+- Each independently opened plaintext passed the ORIGINAL `t2.importPreview` / `t2.importCommit`, first through signed T3 selected Workspace import, second through the plain original T2 Exchange. Both own their separate Kernel Stores; second consumer confirmed history after cold browser restart.
+- An unrelated third X25519 key failed to decrypt; tampered age ciphertext failed authenticated decrypt for both valid recipients; original `t2.importPreview` refused direct encrypted envelope. No private keys, plaintext, archive or new runtime included in published Actions artifacts. The test-only keys are ephemeral under runner temp.
+
+**Truthful installed boundary:** `D7_INSTALLED_NATIVE_AGE_OWNER=HOLD`, `D7_INSTALLED_PUBLISHER_ISSUER_LICENSE_STATUS=HOLD`, `D7_NATIVE_TWO_INSTALLED_RECIPIENTS=HOLD`, `G4=NOT_ACCEPTED`, `T3_READY=false`. This was genuine *CLI* age and original T2 Exchange, NOT a production connected `createTrustedAgeExchange` native age-owner implementation, real OS recipient custody, signed Publisher licence/status renewal/revocation, or two installed products. Do not infer original Publisher rights from the ability to decrypt `.iwxa`. The private installed owner must attach the existing age/Publisher ports with its actual signer and independent cold readbacks; do not copy keys, proprietary code or add a new cryptosystem into T3.
+
+**Execution priority:** keep previously-qualified public B0/D1–D7 runtime unchanged; independently qualify the real installed signed owners and two consumers using pinned `G4` owner inputs. Ask owners for their exact installed evidence and only repair the common Core if an evidenced cross-product contract fails. No additional synthetic age tests without an actual defect.
+
 ## D5: browser and native source paths on the ONE original Kernel, 16.11.2026
 
 **Public acceptance:**
