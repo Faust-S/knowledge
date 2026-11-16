@@ -1,0 +1,29 @@
+name: T3 Agent Atlas original publisher qualification
+on:
+  push:
+    branches:
+      - work/2026-11-17-t3-agent06-native-source-publication
+    paths:
+      - packages/t3-core/src/t3/native-agent-atlas-source-publisher.mjs
+      - packages/t3-core/tests/t3-d6-native-agent-source-publisher.test.mjs
+      - .github/workflows/t3-agent-atlas-original-publisher.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Original source publisher syntax
+        run: |
+          node --check packages/t3-core/src/t3/native-agent-atlas-source-publisher.mjs
+          node --check packages/t3-core/tests/t3-d6-native-agent-source-publisher.test.mjs
+      - name: Original source publisher source and uncertain recovery
+        run: node --test packages/t3-core/tests/t3-d6-native-agent-source-publisher.test.mjs
+      - name: Existing original D6 continuation
+        run: node --test packages/t3-core/tests/t3-d6-native-continuation.test.mjs
