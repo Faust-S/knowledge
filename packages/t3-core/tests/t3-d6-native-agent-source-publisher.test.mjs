@@ -138,7 +138,7 @@ function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
  const prepareOriginalGraph=async({binding:original})=>({
    workspace_id:"ws:org",
    idempotency_key:operationId.slice("agent:t3:atlas:".length),
-   object:{workspace_id:"ws:org",object_id:"result:1",
+   object:{object_id:"result:1",
      schema_id:"iwxa.agent.accepted-result",schema_version:"1.0.0",
      base_revision:0,
      data:{taskId:original.taskId,resultId:original.resultId,
