@@ -52,13 +52,21 @@ const coreGrant=(state,{id:grantId,organization,employeePersonId,roleId,
  * The pending challenge is process-local: a cold start cannot replay it.
  */
 export function createOriginalEmployeeEnrollmentOwner({
-  registry,issuerSigner,proveManager,clock=Date.now
+  registry,issuerSigner,proveManager,trustedOrganization,
+  trustedWorkspaceId,clock=Date.now
 }={}){
   check(isOriginalKernelRegistryStatePort(registry)&&
     issuerSigner&&typeof issuerSigner.sign==='function'&&
     typeof issuerSigner.keyId==='string'&&typeof proveManager==='function'&&
     typeof clock==='function',
     'T3_EMPLOYEE_ORIGINAL_OWNER_REQUIRED');
+  // Organizational identity and Workspace are chosen by the trusted Host,
+  // NEVER inferred from a caller-provided invitation or arbitrary UI input.
+  let pinnedOrganization;
+  try{pinnedOrganization=validateProductContract(
+    'OrganizationIdentity',trustedOrganization);
+    identifier(trustedWorkspaceId);
+  }catch{refuse('T3_EMPLOYEE_TRUSTED_HOST_CONTEXT_REQUIRED');}
   let pending=null,operationAttempted=false;
   const now=()=>{const t=clock();check(Number.isSafeInteger(t)&&t>0,'T3_EMPLOYEE_CLOCK_INVALID');return t;};
   const state=()=>registry.readState();
@@ -71,6 +79,9 @@ export function createOriginalEmployeeEnrollmentOwner({
     const {organization,credentialKeyId,employeePersonId,managerPersonId,
       managerGrantId,workspaceId,ttlSeconds}=input;
     const org=validateProductContract('OrganizationIdentity',organization);
+    check(digest(org)===digest(pinnedOrganization)&&
+      workspaceId===trustedWorkspaceId,
+      'T3_EMPLOYEE_TRUSTED_ORGANIZATION_CONTEXT_CHANGED');
     id(employeePersonId);id(managerPersonId);id(credentialKeyId);
     id(managerGrantId);id(workspaceId);
     check(employeePersonId!==managerPersonId,
