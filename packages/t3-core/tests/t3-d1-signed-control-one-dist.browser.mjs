@@ -415,6 +415,7 @@ try{
     join(output,'_iwxa/services/'+serviceId+'.json'),'utf8'));
   assert.ok(assembledPassport.schemas['iwxa.local-inference.draft']);
   assert.ok(assembledPassport.schemas['iwxa.admin.applied-results']);
+  assert.ok(assembledPassport.schemas['iwxa.t3.access.signed-registry']);
   assert.deepEqual(assembledPassport.permissions.operations,['t1.commitObjectGraph']);
   assert.equal(assembledPassport.permissions.workspace.create,true);
   const assembledCatalog=JSON.parse(readFileSync(

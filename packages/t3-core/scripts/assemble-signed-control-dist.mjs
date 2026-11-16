@@ -15,6 +15,22 @@ import {registerT3LocalInferenceService}
 // commitObjectGraph. Register only in an installed original Admin D3 dist.
 // This is the inherited service passport, NOT another Kernel or Store.
 const ADMIN_APPLIED_SCHEMA="iwxa.admin.applied-results";
+const ADMIN_ACCESS_SCHEMA="iwxa.t3.access.signed-registry";
+// Only the INSTALLED Admin D3 service receives this ORIGINAL signed
+// AccessRegistry Object/Event schema, never normative T2 or other domains.
+const ADMIN_ACCESS_DECLARATION=Object.freeze({
+  schema_version:"1.0.0",preserve_unknown:false,
+  json_schema:{
+    type:"object",properties:{
+      policy:{type:"object"},grants:{type:"object"},
+      statuses:{type:"object"},statusFloor:{type:"object"},
+      tombstones:{type:"object"},lastObservedAt:{type:"string"},
+    },
+    required:["policy","grants","statuses","statusFloor","tombstones",
+      "lastObservedAt"],
+    additionalProperties:false,
+  },embedded:{},
+});
 const ADMIN_RESULT_FIELDS=["taskId","taskRevisionId","resultRevisionId",
   "organizationId","workspaceId","executorId","result","acceptanceId"];
 const ADMIN_APPLIED_DECLARATION=Object.freeze({
@@ -49,14 +65,16 @@ function registerInstalledAdminAppliedResult({domain,config,passport}){
     passport.permissions?.objects?.read,passport.permissions?.objects?.write];
   if(rows.some(row=>!Array.isArray(row)))
     fail("ORIGINAL_ADMIN_D3_SCHEMA_PERMISSIONS_REQUIRED");
-  const existing=passport.schemas[ADMIN_APPLIED_SCHEMA];
-  if(existing!==undefined&&
-     JSON.stringify(existing)!==JSON.stringify(ADMIN_APPLIED_DECLARATION))
-    fail("ORIGINAL_ADMIN_D3_SCHEMA_CONFLICT");
-  for(const row of rows)
-    if(!row.includes(ADMIN_APPLIED_SCHEMA))row.push(ADMIN_APPLIED_SCHEMA);
-  if(existing===undefined)
-    passport.schemas[ADMIN_APPLIED_SCHEMA]=ADMIN_APPLIED_DECLARATION;
+  for(const [schema,declaration] of [
+    [ADMIN_APPLIED_SCHEMA,ADMIN_APPLIED_DECLARATION],
+    [ADMIN_ACCESS_SCHEMA,ADMIN_ACCESS_DECLARATION]]){
+    const existing=passport.schemas[schema];
+    if(existing!==undefined&&
+       JSON.stringify(existing)!==JSON.stringify(declaration))
+      fail("ORIGINAL_ADMIN_D3_SCHEMA_CONFLICT");
+    for(const row of rows)if(!row.includes(schema))row.push(schema);
+    if(existing===undefined)passport.schemas[schema]=declaration;
+  }
   // Original T2 refuses commitObjectGraph without this exact service
   // permission. Register its INHERITED atomic operation in the assembled
   // Admin passport only; do not modify the normative T2 or other domains.

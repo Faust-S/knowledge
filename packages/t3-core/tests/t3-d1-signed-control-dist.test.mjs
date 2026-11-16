@@ -86,6 +86,7 @@ test('installed Admin D3 records use the original T2 passport and unchanged Kern
   const f=fixture();
   try{
     const schema='iwxa.admin.applied-results';
+    const accessSchema='iwxa.t3.access.signed-registry';
     const path='_iwxa/services/test.original.json';
     const passport={
       service_id:'test.original',supported_levels:['T0','T1','T2'],
@@ -128,8 +129,11 @@ test('installed Admin D3 records use the original T2 passport and unchanged Kern
     for(const row of [installed.permissions.objects.write,
       installed.permissions.objects.read,installed.input_object_types,
       installed.output_object_types,domain.security.allowed_object_classes])
-      assert.deepEqual(row,['existing.object',schema]);
+      assert.deepEqual(row,['existing.object',schema,accessSchema]);
     assert.equal(installed.schemas[schema].schema_version,'1.0.0');
+    assert.equal(installed.schemas[accessSchema].schema_version,'1.0.0');
+    assert.deepEqual(installed.schemas[accessSchema].json_schema.required,
+      ['policy','grants','statuses','statusFloor','tombstones','lastObservedAt']);
     assert.deepEqual(
       installed.schemas[schema].json_schema.properties.records.items.properties.result,
       {type:'string'},
