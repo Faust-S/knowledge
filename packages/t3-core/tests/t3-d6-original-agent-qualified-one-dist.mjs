@@ -3,10 +3,14 @@
 // Reuse the established materializeIntegrationHost, not a second Kernel.
 // No original private issuer or fake signed receipt is used in this test.
 import assert from 'node:assert/strict';
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
+import {createServer} from 'node:http';
+import {chromium} from 'playwright';
 import {cpSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join,resolve} from 'node:path';
+import {join,resolve,extname,sep} from 'node:path';
+import {prepareOriginalAgentAtlasGraph}
+  from '../src/t3/native-agent-atlas-source-publisher.mjs';
 import {assembleSignedControlDist} from '../scripts/assemble-signed-control-dist.mjs';
 import {materializeIntegrationHost} from '../scripts/real-kernel-e2e.mjs';
 import {assertQualifiedKernelArtifact}
@@ -20,7 +24,43 @@ const source=join(dir,'qualified-integration-host'),output=join(dir,'agent-one-d
 const base=resolve('.');
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 const artifactId='iwxa-kernel-k036-same-store-history-20261019-qualified.1';
+let origin='',browser=null;
+const server=createServer((req,res)=>{
+  const send=(status,body,type='text/plain')=>{
+    res.writeHead(status,{'content-type':type,'cache-control':'no-store',
+      'x-content-type-options':'nosniff',
+      'content-security-policy':"default-src 'none'; script-src 'self' 'unsafe-eval'; connect-src 'self';"});
+    res.end(body);
+  };
+  if(req.headers.host!==new URL(origin).host)
+    return send(403,'ORIGINAL_HOST_DENIED');
+  let url;
+  try{url=new URL(req.url,origin);}catch{return send(404,'INVALID_URL');}
+  if(url.pathname==='/__original_agent_d6_kernel_probe__')
+    return send(200,'<!doctype html><title>Original T2 Agent D6</title>'+
+      '<script src="/_iwxa/loader.js"></script>','text/html');
+  if(!/^\/(?:_iwxa|workspace)\/[A-Za-z0-9_.\/-]+$/.test(url.pathname))
+    return send(404,'ORIGINAL_ROUTE_REQUIRED');
+  const file=resolve(output,'.'+url.pathname);
+  if(!file.startsWith(resolve(output)+sep))
+    return send(403,'ORIGINAL_PATH_DENIED');
+  try{
+    const mime={'.js':'text/javascript','.mjs':'text/javascript',
+      '.json':'application/json','.html':'text/html','.wasm':'application/wasm',
+      '.css':'text/css','.ico':'image/x-icon'};
+    return send(200,readFileSync(file),
+      mime[extname(file)]??'application/octet-stream');
+  }catch{return send(404,'ORIGINAL_RESOURCE_MISSING');}
+});
+const launch=()=>chromium.launchPersistentContext(join(dir,'browser-profile'),{
+  headless:true,serviceWorkers:'block',
+});
 try{
+  await new Promise((ok,bad)=>{
+    server.once('error',bad);
+    server.listen(0,'127.0.0.1',ok);
+  });
+  origin='http://127.0.0.1:'+server.address().port;
   mkdirSync(join(source,'workspace/assets'),{recursive:true});
   cpSync(join(qualified,'_iwxa'),join(source,'_iwxa'),{recursive:true});
   assertQualifiedKernelArtifact(source,{
@@ -28,7 +68,7 @@ try{
   });
   // The same original integration Host materializer is already exercised
   // by t3-d1-signed-control-one-dist.browser.mjs on the real T2 Kernel.
-  const host=materializeIntegrationHost(source,'http://127.0.0.1:18883');
+  const host=materializeIntegrationHost(source,origin);
   host.domain.runtime.kernel_release='0.3.6';
   host.domain.runtime.runtime_version='0.3.6';
   host.workspaceConfig.host.required_runtime_version='0.3.6';
@@ -94,7 +134,96 @@ try{
   }
   assert.equal(sha(readFileSync(join(source,'_iwxa/runtime/0.3.6/runtime.js'))),
     sha(originalRuntime),'qualified original Kernel source mutated');
+  // Actual original T2 Kernel 1.3.0 Object+Event, using the canonical
+  // existing T3 D6 graph builder and installed Agent-only schema. This is
+  // NOT an original private employee signer or Atlas recipient qualification.
+  const workspace='agent-d6-original-'+randomUUID();
+  const binding={
+    schema:'IWXA_AGENT_T3_ORIGINAL_ATLAS_PUBLICATION/1',
+    recipientId:'iwxa.atlas',
+    signedTaskId:'task:public-graph-test',
+    signedTaskRevisionId:'rev:1',
+    signedTaskPackageSha256:'a'.repeat(64),
+    taskId:'TASK-CHAT-'+'1'.repeat(24),
+    resultId:'RES-public-accepted',
+    acceptedDigest:'b'.repeat(64),
+    workRef:{projectId:'project:public',workId:'work:source',revision:'3'},
+    contextDigest:'c'.repeat(64),
+  };
+  const canonical=value=>Array.isArray(value)
+    ?'['+value.map(canonical).join(',')+']'
+    :value!==null&&typeof value==='object'
+      ?'{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+
+        canonical(value[k])).join(',')+'}'
+      :JSON.stringify(value);
+  const operationId='agent:t3:atlas:'+createHash('sha256')
+    .update(canonical(binding)).digest('hex');
+  const accepted={
+    acceptanceKind:'HUMAN_ACCEPTED_DRAFT',readOnly:true,
+    taskId:binding.taskId,resultId:binding.resultId,
+    acceptedDigest:binding.acceptedDigest,
+    signedTaskId:binding.signedTaskId,
+    signedTaskRevisionId:binding.signedTaskRevisionId,
+    signedTaskPackageSha256:binding.signedTaskPackageSha256,
+    workRef:structuredClone(binding.workRef),
+  };
+  const graph=prepareOriginalAgentAtlasGraph({
+    operationId,binding,accepted,workspace_id:workspace,
+  });
+  const probe=origin+'/__original_agent_d6_kernel_probe__';
+  const ready=async()=>{
+    browser=await launch();
+    const page=browser.pages()[0]||await browser.newPage();
+    await page.goto(probe);
+    await page.waitForFunction(()=>typeof window.IWXA?.connect==='function');
+    return page;
+  };
+  const page=await ready();
+  const written=await page.evaluate(async({serviceId,workspace,graph})=>{
+    const kernel=await window.IWXA.connect({service_id:serviceId});
+    if(kernel.contract_version!=='1.3.0'||
+       !kernel.granted_operations.includes('t1.commitObjectGraph'))
+      throw Error('T3_AGENT_D6_ORIGINAL_KERNEL_GRAPH_NOT_GRANTED');
+    await kernel.t1.createWorkspace({
+      workspace_id:workspace,profile:'generic',
+    });
+    const receipt=await kernel.t1.commitObjectGraph(graph);
+    return {revision:receipt.object?.revision,
+      eventId:receipt.event?.event_id,
+      objectId:receipt.object?.object_id,
+      idempotencyKey:receipt.event?.idempotency_key};
+  },{serviceId,workspace,graph});
+  assert.equal(written.revision,1);
+  assert.equal(written.objectId,graph.object.object_id);
+  assert.equal(written.idempotencyKey,graph.idempotency_key);
+  assert.ok(written.eventId,
+    'the real inherited Kernel must persist an original Event');
+
+  // Completely close the browser process between independent Kernel reads.
+  // Do not call commitObjectGraph again, and do not fake either receipt.
+  for(let coldIndex=1;coldIndex<=2;coldIndex++){
+    await browser.close();browser=null;
+    const coldPage=await ready();
+    const observed=await coldPage.evaluate(async({serviceId,graph,written})=>{
+      const kernel=await window.IWXA.connect({service_id:serviceId});
+      const raw=await kernel.t1.getObject(
+        graph.workspace_id,graph.object.object_id);
+      const events=await kernel.t1.listEventsSince(graph.workspace_id);
+      return {object:raw?.object??null,matched:events.filter(e=>
+        e.event_id===written.eventId&&
+        e.event_type===graph.event.event_type&&
+        e.idempotency_key===graph.idempotency_key)};
+    },{serviceId,graph,written});
+    assert.equal(observed.object?.revision,1);
+    assert.deepEqual(observed.object.data,graph.object.data);
+    assert.equal(observed.matched.length,1,
+      'each cold original T2 read must see the same one Event');
+  }
+  console.log('AGENT_D6_ORIGINAL_KERNEL_OBJECT_EVENT_TWO_COLD_READS_PASS');
   console.log('AGENT_D6_ORIGINAL_QUALIFIED_ONE_DIST_PROFILE_PASS');
 }finally{
+  if(browser)await browser.close().catch(()=>{});
+  server.closeAllConnections();
+  if(server.listening)await new Promise(ok=>server.close(()=>ok()));
   rmSync(dir,{recursive:true,force:true});
 }
