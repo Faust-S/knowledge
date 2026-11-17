@@ -22,11 +22,11 @@
     "one_core": {
       "repository": "Faust-S/knowledge",
       "branch": "work/2026-11-10-t3-t2-activity-projection",
-      "observed_head": "d600b698a54888d02889ac0382ca6fe9d89ec55f",
+      "observed_head": "40dc328172ea1403ca43ced53e4c539832f34d47",
       "qualification": {
-        "run_id": 44166726477,
+        "run_id": 44171450736,
         "conclusion": "SUCCESS",
-        "source_pin": "d600b698a54888d02889ac0382ca6fe9d89ec55f",
+        "source_pin": "40dc328172ea1403ca43ced53e4c539832f34d47",
         "jobs": {
           "test": "PASS",
           "real_host": "PASS",
@@ -35,7 +35,7 @@
           "native_model": "SKIPPED",
           "metal_webgpu": "SKIPPED"
         },
-        "scope": "Real inherited T2 Kernel 0.3.6 / Runtime 1.3.0 original product-owned Agent One Dist and CLI on Linux browser, real D1 Windows signed access, exact Git blob BLI1/WebLLM compiler on Windows and Linux with CRLF conversion only; no installed native signed private employee or independent Atlas D6."
+        "scope": "Same original T2 Kernel 0.3.6 Runtime 1.3.0 qualified with TWO distinct builds: desktop Agent signed Control with no WebGPU model worker, browser WebLLM BLI complete Worker. Real browser original Kernel and Windows signed D1 PASS. Private employee and independent Atlas NOT_RUN."
       },
       "level": "CORE_SOURCE_PASS",
       "notes": "One inherited T2 0.3.6 Runtime Contract 1.3.0; D1/D3/D6/D7 source; Agent-only qualified original T2 One Dist passport with original signed D1 AccessRegistry, original accepted-result schema/Kernel Object/Event and two process-cold source readbacks. This is not an installed independent Agent-to-Atlas signed transfer."
@@ -57,7 +57,7 @@
     "personal_agent": {
       "repository": "Faust-S/iwxa-personal-agent",
       "central_branch": "work/2026-11-15-agent-0-6-development",
-      "central_head": "e4089dacb1edd94f9168599c66c1cae5910c348b",
+      "central_head": "a55efb59ad688bbe52deb0c16dc7078238d809bf",
       "d6_branch": "work/2026-11-16-agent06-original-t3-result-owner-d6",
       "d6_head": "34d8f1a10b552f1d0c4108e012414648e71ce0a0",
       "level": "SOURCE_CANDIDATE",
@@ -69,21 +69,18 @@
       "installed_d6": "NOT_ACCEPTED",
       "release_version_mismatch": "FIXED_IN_AGENT06_DEV_SOURCE: npm, lock, Tauri, Cargo and Cargo.lock all 0.6.0 at 0b0461a5; installed setup version confirmation is pending native qualification; stable Agent 0.5 untouched",
       "latest_source_check": {
-        "run_id": 44169279841,
+        "run_id": 44172017172,
         "conclusion": "SUCCESS",
-        "source_pin": "09e74db666397b7476b7986602a5fc511b6a4c51",
-        "scope": "Public Center source on exact Agent model-free original signed Control candidate, original Result/D6 and One Dist admission, no private original T3 issuer and no independently installed Atlas"
+        "source_pin": "369ae2e03e2fc8ba0b34c00abebc22b69a9d7de2",
+        "scope": "Public Center exact pinned Core 40dc + Agent source 369ae, D6 and signed Control-only checks; subsequent Setup 0.6 version fix not qualified at this run."
       },
       "next_candidate": {
-        "head": "e4089dacb1edd94f9168599c66c1cae5910c348b",
-        "prior_source_run_id": 44169279841,
-        "prior_source_conclusion": "SUCCESS_AT_09E74",
-        "prior_native_run_id": 44167212079,
-        "prior_native_conclusion": "SUCCESS_AT_12EEC",
-        "native_model_free_run_id": 44169279872,
-        "native_model_free_result": "IN_PROGRESS_AT_OBSERVATION",
-        "latest_hardening_result": "NOT_RUN_AT_E4089DAC",
-        "scope": "Original product-owned T2 One Dist installed in actual Agent Tauri proven on 12eec BLI-enabled predecessor; 09e74 model-free desktop signed Control build source qualified; e408 strict no-embedded-WebLLM build/admission/runtime source not qualified. Native private signed employee/Atlas independent U05 E2E NOT_RUN."
+        "head": "a55efb59ad688bbe52deb0c16dc7078238d809bf",
+        "source_run_id": 44172017172,
+        "source_run_conclusion": "SUCCESS_AT_369AE",
+        "installed_run_id": 44172017268,
+        "installed_run_result": "IN_PROGRESS_AT_OBSERVATION",
+        "scope": "Desktop-only original T2 Agent signed One Dist and actual native Windows installation. Private signed employee and independently installed Atlas D6 NOT_RUN. Agent a55 corrected Setup Core final version 0.5.0 -> 0.6.0 but not verified installed."
       }
     },
     "admin_center": {
@@ -134,28 +131,24 @@
     },
     "original_one_dist_setup": {
       "repository": "Faust-S/iwxa-personal-agent",
-      "source_commit": "e4089dacb1edd94f9168599c66c1cae5910c348b",
-      "source_status": "INSTALLED_ORIGINAL_T2_PRODUCT_PASS_PRIOR_BUILD_MODEL_FREE_NATIVE_PENDING",
-      "scope": "Windows CI 44167212079 SUCCESS on Agent 12eec and One Core d600: real qualified original T2 Agent profile assembled to signed One Dist, installed in the same Tauri GUI and cold reopened with original package manifest/readback, public source and real Kernel but no private issuer. Next Agent 09e74/Center 4d09199f installs desktop-only signed Control without WebLLM BLI Worker; Agent e408 enforces local_inference_registered=false at both package admission and installed runtime. Private signing and independent Atlas absent.",
+      "source_commit": "a55efb59ad688bbe52deb0c16dc7078238d809bf",
+      "source_status": "MODEL_FREE_ONE_CORE_SOURCE_PASS_AGENT_NATIVE_PENDING",
+      "scope": "One Core 40dc CI #44171450736 SUCCESS signed desktop Control NO WebGPU Worker plus fully qualified browser WebLLM. Agent 369ae Source CI #44172017172 SUCCESS. Agent native #44172017268 pending. Older Agent BLI-enabled native installation #44167212079 SUCCESS proves original T2/Explorer only, not model-free G4 or Setup Core 0.6 EXE. Agent a55 corrected stale Setup version expectation 0.5.0 to 0.6.0 in active branch.",
       "qualification": {
-        "original_core_source_run_id": 44166726477,
-        "original_core_source_result": "SUCCESS_AT_D600B698",
-        "original_agent_installed_run_id": 44167212079,
-        "original_agent_installed_result": "SUCCESS_AT_12EEC_BLI_ENABLED_NOT_PRIVATE_SIGNED",
-        "original_agent_source_run_id": 44167212073,
-        "original_agent_source_result": "SUCCESS_AT_12EEC",
-        "desktop_no_bli_source_run_id": 44169279841,
-        "desktop_no_bli_source_result": "SUCCESS_AT_09E74",
-        "desktop_no_bli_native_run_id": 44169279872,
-        "desktop_no_bli_native_result": "IN_PROGRESS_AT_OBSERVATION",
-        "strict_model_free_admission_commit": "e4089dacb1edd94f9168599c66c1cae5910c348b",
-        "strict_model_free_admission_result": "NOT_RUN",
-        "actual_qualified_t2_agent_one_dist_browser": "PASS",
-        "actual_installed_t2_agent_one_dist": "PASS_AT_12EEC_WITHOUT_PRIVATE_SIGNER",
-        "installed_private_employee_signed_object_event": "NOT_RUN",
-        "independent_atlas_tauri_u05_cold_reads": "NOT_RUN"
+        "core_source_run_id": 44171450736,
+        "core_source_result": "SUCCESS_AT_40DC3281",
+        "agent_source_run_id": 44172017172,
+        "agent_source_result": "SUCCESS_AT_369AE2",
+        "agent_model_free_native_run_id": 44172017268,
+        "agent_model_free_native_result": "IN_PROGRESS_AT_OBSERVATION",
+        "older_native_run_id": 44167212079,
+        "older_native_result": "SUCCESS_BLI_PREDECESSOR",
+        "setup_core_06_version_fix_sha": "a55efb59ad688bbe52deb0c16dc7078238d809bf",
+        "original_setup_core_06_executable": "NOT_BUILT_QUALIFIED",
+        "private_signed_original_employee": "NOT_RUN",
+        "native_atlas_independent_cold_reads": "NOT_RUN"
       },
-      "note": "Do not infer original D6 signed recipient from an installed Tauri GUI alone. 44167212079 proves actual qualified T2/One Core installed in Agent and native cold GUI readback. 44169279872 tests model-free T3 desktop Control; 09e74 source PASS; e408 admission/runtime hardening still awaiting exact CI. Standalone Atlas default entry mounts <AtlasWorkspace/> without trusted D6 host; original signed private owner and independent Atlas remain G4 HOLD."
+      "note": "Separate an actual Agent Explorer-installed product One Dist from a genuine Setup Core 0.6 release executable. Do not claim installed original private signed Agent/Atlas from public native Windows, or full selected Result content from signed reference carrier."
     },
     "ecosystem_review": {
       "assessment_date": "2026-11-17",
@@ -227,11 +220,12 @@
     "D6_double_cold_qualified_T2_object_event": "CORE_SOURCE_PASS_NOT_INSTALLED_ATLAS",
     "D6_original_signed_atlas_file_save": "SOURCE_IMPLEMENTED_UNQUALIFIED",
     "D6_original_nested_kernel_csp": "CORE_SOURCE_PASS_NOT_INSTALLED",
-    "D6_original_one_dist_setup_materialization": "INSTALLED_T2_AGENT_PRODUCT_PASS_NO_PRIVATE_SIGNED_D6",
+    "D6_original_one_dist_setup_materialization": "MODEL_FREE_CORE_PASS_AGENT_INSTALLED_PENDING",
     "D6_original_product_identity_guard": "INSTALLED_SOURCE_PASS_PRIOR_MODEL_FREE_CANDIDATE",
     "G4_portable_selected_result_data": "NOT_PROVEN_REFERENCE_ONLY",
     "D6_original_atlas_ui_kernel_gate": "SOURCE_COMMITTED_NOT_G4_INSTALLED",
-    "D6_original_native_model_free_control": "SOURCE_PASS_WINDOWS_PENDING"
+    "D6_original_native_model_free_control": "CORE_SOURCE_PASS_AGENT_WINDOWS_PENDING",
+    "D6_original_setup_core_06_native_executable": "NOT_BUILT_QUALIFIED"
   },
   "next_critical_path": [
     "Confirm model-free Agent installed Windows CI 44169279872; pin exact Agent+One Core SHAs in both public Center workflows and verify current admission requires local_inference_registered=false without private Actions.",
