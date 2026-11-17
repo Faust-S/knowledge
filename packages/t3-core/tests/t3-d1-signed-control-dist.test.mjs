@@ -156,3 +156,115 @@ test('installed Admin D3 requires an original service passport',()=>{
     assert.equal(existsSync(f.out),false);
   }finally{rmSync(f.dir,{recursive:true,force:true});}
 });
+
+test('installed Agent D6 registers the existing accepted-result schema only in its T2 passport',()=>{
+  const f=fixture();
+  try{
+    const resultSchema='iwxa.agent.accepted-result';
+    const path='_iwxa/services/test.original.json';
+    const original={
+      service_id:'test.original',supported_levels:['T0','T1','T2'],
+      permissions:{workspace:{read:true,create:false},
+        objects:{read:['existing.object'],write:['existing.object']}},
+      input_object_types:['existing.object'],
+      output_object_types:['existing.object'],
+      schemas:{'existing.object':{schema_version:'1.0.0'}},
+    };
+    const source=JSON.stringify(original);
+    f.put(f.t2,path,source);
+    f.put(f.t2,'_iwxa/service-catalog.json',JSON.stringify({
+      count:1,entries:[{service_id:'test.original',file:path,
+        sha256:createHash('sha256').update(source).digest('hex')}],
+    }));
+    f.put(f.t2,'_iwxa/domain.json',JSON.stringify({
+      origin:'http://127.0.0.1:18883',
+      security:{allowed_object_classes:['existing.object']},
+    }));
+    f.put(f.t2,'workspace/workspace.config.json',JSON.stringify({
+      base_path:'/workspace/',workspace_service_id:'test.original',
+    }));
+    const compiled=assembleSignedControlDist({
+      t2Dist:f.t2,t3Build:f.t3,outputDir:f.out,
+      testOnlyUnqualifiedFixture:true,installedOriginalAgentD6:true,
+    });
+    assert.equal(compiled.original_agent_d6_schema_registered,true);
+    assert.equal(compiled.original_admin_d3_schema_registered,false);
+    assert.equal(compiled.original_runtime_unchanged,true);
+    const passport=JSON.parse(readFileSync(join(f.out,path),'utf8'));
+    assert.equal(passport.permissions.workspace.create,false,
+      'source Result publication must not create a Workspace');
+    assert.deepEqual(passport.permissions.operations,['t1.commitObjectGraph'],
+      'reuse the original inherited T2 graph command');
+    for(const row of [passport.permissions.objects.read,
+      passport.permissions.objects.write,passport.input_object_types,
+      passport.output_object_types]){
+      assert.deepEqual(row,['existing.object',resultSchema]);
+    }
+    const domain=JSON.parse(readFileSync(join(f.out,'_iwxa/domain.json'),'utf8'));
+    assert.deepEqual(domain.security.allowed_object_classes,
+      ['existing.object',resultSchema]);
+    assert.equal(passport.schemas['iwxa.admin.applied-results'],undefined,
+      'Agent D6 may not inherit unrelated Admin D3 object permissions');
+    const declaration=passport.schemas[resultSchema];
+    assert.equal(declaration.schema_version,'1.0.0');
+    assert.equal(declaration.preserve_unknown,false);
+    const expected=['taskId','resultId','acceptedDigest','signedTaskId',
+      'signedTaskRevisionId','signedTaskPackageSha256','contextDigest','workRef'];
+    assert.deepEqual(declaration.json_schema.required,expected);
+    assert.deepEqual(Object.keys(declaration.json_schema.properties),expected);
+    assert.deepEqual(declaration.json_schema.properties.workRef.required,
+      ['projectId','workId','revision']);
+    assert.equal(declaration.json_schema.properties.workRef.additionalProperties,false);
+    assert.equal(readFileSync(join(f.t2,path),'utf8'),source,
+      'qualified original source passport must remain unchanged');
+    assert.equal(readFileSync(join(f.out,'_iwxa/runtime/0.3.6/runtime.js'),'utf8'),
+      'original Kernel 0.3.6');
+    const catalog=JSON.parse(readFileSync(join(f.out,'_iwxa/service-catalog.json'),'utf8'));
+    assert.equal(catalog.entries[0].sha256,
+      createHash('sha256').update(readFileSync(join(f.out,path))).digest('hex'));
+  }finally{rmSync(f.dir,{recursive:true,force:true});}
+});
+
+test('Agent D6 profile fails closed on missing or conflicting original authority',()=>{
+  const f=fixture();
+  try{
+    assert.throws(()=>assembleSignedControlDist({
+      t2Dist:f.t2,t3Build:f.t3,outputDir:f.out,
+      testOnlyUnqualifiedFixture:true,
+      installedOriginalAgentD6:true,installedOriginalAdminD3:true,
+    }),/T3_D1_DIST_INSTALLED_OWNER_PROFILES_MUST_BE_SEPARATE/);
+    assert.throws(()=>assembleSignedControlDist({
+      t2Dist:f.t2,t3Build:f.t3,outputDir:f.out,
+      testOnlyUnqualifiedFixture:true,installedOriginalAgentD6:true,
+    }),/T3_D1_DIST_ORIGINAL_SERVICE_PASSPORT_PATH/);
+    assert.equal(existsSync(f.out),false);
+    const path='_iwxa/services/test.original.json';
+    const passport={
+      service_id:'test.original',supported_levels:['T1','T2'],
+      permissions:{workspace:{read:true,create:false},
+        objects:{read:[],write:[]}},
+      input_object_types:[],output_object_types:[],
+      schemas:{'iwxa.agent.accepted-result':{schema_version:'0.0.0'}},
+    };
+    const bytes=JSON.stringify(passport);
+    f.put(f.t2,path,bytes);
+    f.put(f.t2,'_iwxa/service-catalog.json',JSON.stringify({
+      count:1,entries:[{service_id:'test.original',file:path,
+        sha256:createHash('sha256').update(bytes).digest('hex')}],
+    }));
+    f.put(f.t2,'_iwxa/domain.json',JSON.stringify({
+      origin:'http://127.0.0.1:18883',
+      security:{allowed_object_classes:[]},
+    }));
+    f.put(f.t2,'workspace/workspace.config.json',JSON.stringify({
+      base_path:'/workspace/',workspace_service_id:'test.original',
+    }));
+    assert.throws(()=>assembleSignedControlDist({
+      t2Dist:f.t2,t3Build:f.t3,outputDir:f.out,
+      testOnlyUnqualifiedFixture:true,installedOriginalAgentD6:true,
+    }),/T3_D1_DIST_ORIGINAL_AGENT_D6_SCHEMA_CONFLICT/);
+    assert.equal(existsSync(f.out),false);
+    assert.equal(readFileSync(join(f.t2,path),'utf8'),bytes,
+      'original service passport must stay intact on failed assembly');
+  }finally{rmSync(f.dir,{recursive:true,force:true});}
+});
