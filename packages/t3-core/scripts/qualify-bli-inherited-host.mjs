@@ -49,9 +49,21 @@ try {
       throw Error("T3_D5_BLI_PIN_INVALID");
     const from=join(source,basename),to=join(candidate,basename);
     if(!existsSync(from))throw Error("T3_D5_BLI_FILE_MISSING:"+basename);
-    const bytes=readFileSync(from);
-    if(shaGitBlob(bytes)!==file.blob)throw Error("T3_D5_BLI_SOURCE_CHANGED:"+basename);
-    cpSync(from,to);
+    const worktreeBytes=readFileSync(from);
+    let exactBytes=worktreeBytes;
+    if(shaGitBlob(worktreeBytes)!==file.blob){
+      // Windows checkout may expand LF to CRLF. Recover ONLY the pinned
+      // original Git object, and accept the local file as equivalent only
+      // after a strict line-ending comparison. Any semantic edit still fails.
+      const pinned=execFileSync("git",["cat-file","blob",file.blob],
+        {cwd:core,encoding:"buffer"});
+      const normalized=Buffer.from(worktreeBytes.toString("utf8")
+        .replaceAll(String.fromCharCode(13,10),String.fromCharCode(10)),"utf8");
+      if(shaGitBlob(pinned)!==file.blob||!normalized.equals(pinned))
+        throw Error("T3_D5_BLI_SOURCE_CHANGED:"+basename);
+      exactBytes=pinned;
+    }
+    writeFileSync(to,exactBytes);
   }
   stageT2ExternalModule({
     stageRoot:core,sourceDir:candidate,
