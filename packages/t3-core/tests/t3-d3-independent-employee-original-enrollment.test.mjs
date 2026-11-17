@@ -473,7 +473,8 @@ test('manager receives only original signed DATA export for independently enroll
  assert.equal(s.kernel.calls.length,4);
 });
 test('lost Kernel ACK for manager Task DATA grant is read-only recoverable, never reissued',async()=>{
- const s=setup({pretrustEmployees:false});await s.init();
+ // Installed Admin uses original T2 commitObjectGraph, not direct putObject.
+ const s=setup({pretrustEmployees:false,graphKernel:true});await s.init();
  await s.registry.admitProofCredential(trustProof(s));
  const enrollment=await s.owner.begin(s.input(s.alice));
  await s.owner.complete({enrollmentId:enrollment.enrollmentId,
@@ -490,6 +491,8 @@ test('lost Kernel ACK for manager Task DATA grant is read-only recoverable, neve
  assert.equal(recovered.originalReadback,true);
  assert.equal(recovered.safeToReissue,false);
  assert.equal(s.kernel.calls.length,4);
+ assert.equal(s.graphCalls.length,4);
+ assert.equal(new Set(s.graphCalls.map(x=>x.idempotency_key)).size,4);
  await assert.rejects(s.owner.issueTaskGrant(args),
   {code:'T3_EMPLOYEE_TASK_GRANT_OUTCOME_UNKNOWN_READBACK'});
 });
