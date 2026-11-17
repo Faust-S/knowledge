@@ -50,6 +50,9 @@ func TestGuideBaselineDoesNotUseAmbiguousConnectedAdapter(t *testing.T) {
 	if !guideCanMeasureDirectBaseline(VPNState{Checked: true, ActiveCount: 0}) {
 		t.Fatal("clean disconnected observation")
 	}
+	if guideCanMeasureDirectBaseline(VPNState{Checked: true, AppRunning: true, ActiveCount: 0}) {
+		t.Fatal("Amnezia may still provide local proxy egress without a TUN adapter")
+	}
 }
 
 func TestGuideRespectsAlreadyConnectedVLESS(t *testing.T) {

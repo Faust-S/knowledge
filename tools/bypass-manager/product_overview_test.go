@@ -64,7 +64,7 @@ func TestPossibleAvailabilityChangeWhenControlCDNFails(t *testing.T) {
 		SchemaVersion:"0.3.2",State:"ALL_PROTOCOLS_UNVERIFIED",CompletedUTC:"done",
 		Events:[]GuideEvent{{Stage:"FILTER",Code:"OWN_DPI_STARTED",Protocol:guideVLESS,DPIProfile:"TLS-SPLIT"}},
 		Rounds:[]GuideRound{
-			{Protocol:guideVLESS,DPIProfile:"NONE",State:"INCONCLUSIVE",CompletedUTC:"t0",RouteObserved:true,AdapterFlow:true,
+			{Protocol:guideVLESS,DPIProfile:"NONE",State:"INCONCLUSIVE",CompletedUTC:"t0",RouteObserved:true,AdapterFlow:true,Video:VideoAssessment{Grade:"INCOMPLETE"},
 			 Transfers:[]GuideTransfer{{Source:"TEST_CDN_A",ExpectedBytes:2097152,FailureCode:"TIMEOUT",OK:false}}},
 			{Protocol:guideVLESS,DPIProfile:"TLS-SPLIT",State:"VIDEO_CANDIDATE",CompletedUTC:"t1",RouteObserved:true,AdapterFlow:true,
 			 Transfers:successfulGuideTransfers("TEST_CDN_A",12)},

@@ -80,3 +80,32 @@ jobs:
       - name: Native Win32 lifetime and optional controls
         shell: powershell
         run: .\Tests\Test-GuiSmoke.ps1
+
+  loopback-network-models:
+    name: 36 actual-code field models / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, windows-2025]
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: tools/bypass-manager
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Model real loopback HTTP/TLS failures and production decisions
+        env:
+          BYPASS_SIM_REPORT: ${{ runner.temp }}/bypass-field-model.json
+        run: go test -count=1 -run '^TestBypassFieldSimulation$' -v .
+      - name: Upload evidence matrix (contains no real public IP or VPN keys)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bypass-field-model-${{ matrix.os }}
+          path: ${{ runner.temp }}/bypass-field-model.json
+          if-no-files-found: error

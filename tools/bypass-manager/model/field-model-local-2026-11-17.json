@@ -1,0 +1,436 @@
+{
+  "schema_version": "0.3.6-model-1",
+  "environment": "loopback HTTP/TLS + deterministic state scenarios",
+  "model_only": true,
+  "total": 36,
+  "passed": 36,
+  "failed": 0,
+  "known_field_gaps": 34,
+  "cases": [
+    {
+      "id": "S01",
+      "area": "protocol",
+      "result": "VLESS_FIRST",
+      "expected": "VLESS_FIRST",
+      "status": "PASS",
+      "evidence": [
+        "5 variants",
+        "starts NONE"
+      ]
+    },
+    {
+      "id": "S02",
+      "area": "protocol",
+      "result": "AWG_CONTROL",
+      "expected": "AWG_CONTROL",
+      "status": "PASS",
+      "evidence": [
+        "8 variants",
+        "starts NONE"
+      ]
+    },
+    {
+      "id": "S03",
+      "area": "vpn",
+      "result": "VIDEO_CANDIDATE_VPN_PATH_OBSERVED",
+      "expected": "VIDEO_CANDIDATE_VPN_PATH_OBSERVED",
+      "status": "PASS",
+      "evidence": [
+        "control IP changed",
+        "adapter flow",
+        "4 complete modeled downloads"
+      ],
+      "field_gap": "Native handshake and user video remain unverified"
+    },
+    {
+      "id": "S04",
+      "area": "vpn",
+      "result": "VIDEO_USABLE_EGRESS_UNCHANGED",
+      "expected": "VIDEO_USABLE_EGRESS_UNCHANGED",
+      "status": "PASS",
+      "evidence": [
+        "same public IP",
+        "adapter counters can still change"
+      ],
+      "field_gap": "Split tunnel or direct egress requires independent inspection"
+    },
+    {
+      "id": "S05",
+      "area": "vpn",
+      "result": "WEB_USABLE_VPN_UNVERIFIED",
+      "expected": "WEB_USABLE_VPN_UNVERIFIED",
+      "status": "PASS",
+      "evidence": [
+        "HTTPS works",
+        "no adapter flow"
+      ],
+      "field_gap": "Browser/app egress is not separately observed"
+    },
+    {
+      "id": "S06",
+      "area": "vpn",
+      "result": "VIDEO_CANDIDATE_EGRESS_UNVERIFIED",
+      "expected": "VIDEO_CANDIDATE_EGRESS_UNVERIFIED",
+      "status": "PASS",
+      "evidence": [
+        "route observed",
+        "baseline absent"
+      ],
+      "field_gap": "No disconnected baseline"
+    },
+    {
+      "id": "S07",
+      "area": "vpn",
+      "result": "CONNECT_AMNEZIA",
+      "expected": "CONNECT_AMNEZIA",
+      "status": "PASS",
+      "evidence": [
+        "VLESS client up",
+        "no TUN adapter",
+        "known product gap"
+      ],
+      "field_gap": "Proxy-only VLESS without TUN cannot currently be qualified by the adapter-first guide"
+    },
+    {
+      "id": "S08",
+      "area": "fallback",
+      "result": "HD_1080P_CANDIDATE",
+      "expected": "HD_1080P_CANDIDATE",
+      "status": "PASS",
+      "evidence": [
+        "4 CDN A HTTP 403",
+        "4 CDN B full success"
+      ],
+      "field_gap": "Does not prove native VPN route"
+    },
+    {
+      "id": "S09",
+      "area": "fallback",
+      "result": "INCOMPLETE",
+      "expected": "INCOMPLETE",
+      "status": "PASS",
+      "evidence": [
+        "attempts=2",
+        "no Mbps measurement"
+      ],
+      "field_gap": "Both independent CDN failed"
+    },
+    {
+      "id": "S10",
+      "area": "http",
+      "result": "HTTP_403",
+      "expected": "HTTP_403",
+      "status": "PASS",
+      "evidence": [
+        "actual HTTP response",
+        "status 403",
+        "0 bytes"
+      ],
+      "field_gap": "Real loopback HTTP, not an external CDN"
+    },
+    {
+      "id": "S11",
+      "area": "http",
+      "result": "PARTIAL_TRANSFER",
+      "expected": "PARTIAL_TRANSFER",
+      "status": "PASS",
+      "evidence": [
+        "bytes=65536/2097152",
+        "HTTP 200 truncated"
+      ],
+      "field_gap": "Real loopback HTTP"
+    },
+    {
+      "id": "S12",
+      "area": "http",
+      "result": "TLS_CERTIFICATE_ERROR",
+      "expected": "TLS_CERTIFICATE_ERROR",
+      "status": "PASS",
+      "evidence": [
+        "untrusted x509 certificate",
+        "no VPN involved"
+      ],
+      "field_gap": "Self-signed loopback TLS, no external site"
+    },
+    {
+      "id": "S13",
+      "area": "http",
+      "result": "TIMEOUT",
+      "expected": "TIMEOUT",
+      "status": "PASS",
+      "evidence": [
+        "request deadline 20ms",
+        "delayed response"
+      ],
+      "field_gap": "Short synthetic deadline on real loopback HTTP"
+    },
+    {
+      "id": "S14",
+      "area": "http",
+      "result": "RANGE_NOT_SUPPORTED",
+      "expected": "RANGE_NOT_SUPPORTED",
+      "status": "PASS",
+      "evidence": [
+        "range ignored",
+        "200 instead of 206"
+      ],
+      "field_gap": "Real loopback HTTP"
+    },
+    {
+      "id": "S15",
+      "area": "http",
+      "result": "RANGE_OK",
+      "expected": "RANGE_OK",
+      "status": "PASS",
+      "evidence": [
+        "206 exact 2 MiB"
+      ],
+      "field_gap": "Real loopback HTTP"
+    },
+    {
+      "id": "S16",
+      "area": "speed",
+      "result": "SLOW_FOR_VIDEO",
+      "expected": "SLOW_FOR_VIDEO",
+      "status": "PASS",
+      "evidence": [
+        "4 full transfers",
+        "minimum 2.8 Mbps"
+      ],
+      "field_gap": "Four throughput values modeled, not real user bandwidth"
+    },
+    {
+      "id": "S17",
+      "area": "speed",
+      "result": "SPEED_NOT_VERIFIED",
+      "expected": "SPEED_NOT_VERIFIED",
+      "status": "PASS",
+      "evidence": [
+        "both CDNs blocked",
+        "not zero Mbps"
+      ],
+      "field_gap": "No successful benchmark completion"
+    },
+    {
+      "id": "S18",
+      "area": "dpi",
+      "result": "NOT_TESTED",
+      "expected": "NOT_TESTED",
+      "status": "PASS",
+      "evidence": [
+        "filter not started"
+      ],
+      "field_gap": "No owned filter was started"
+    },
+    {
+      "id": "S19",
+      "area": "dpi",
+      "result": "POSSIBLE_AVAILABILITY_IMPROVEMENT",
+      "expected": "POSSIBLE_AVAILABILITY_IMPROVEMENT",
+      "status": "PASS",
+      "evidence": [
+        "control failures=1",
+        "post-filter full=2"
+      ],
+      "field_gap": "CDN may recover independently; causality not established"
+    },
+    {
+      "id": "S20",
+      "area": "dpi",
+      "result": "NOT_COMPARABLE",
+      "expected": "NOT_COMPARABLE",
+      "status": "PASS",
+      "evidence": [
+        "CDN A 403 in NONE",
+        "CDN B full success in NONE",
+        "CDN A later recovered"
+      ],
+      "field_gap": "Fallback CDN already provided working video in control"
+    },
+    {
+      "id": "S21",
+      "area": "dpi",
+      "result": "POSSIBLE_IMPROVEMENT",
+      "expected": "POSSIBLE_IMPROVEMENT",
+      "status": "PASS",
+      "evidence": [
+        "before=4.1 Mbps",
+        "after=12.2 Mbps"
+      ],
+      "field_gap": "Matched throughput alone does not prove DPI caused gain"
+    },
+    {
+      "id": "S22",
+      "area": "dpi",
+      "result": "NOT_COMPARABLE",
+      "expected": "NOT_COMPARABLE",
+      "status": "PASS",
+      "evidence": [
+        "CDN_A vs CDN_B"
+      ],
+      "field_gap": "Different CDN payload not comparable"
+    },
+    {
+      "id": "S23",
+      "area": "dpi",
+      "result": "NOT_COMPARABLE",
+      "expected": "NOT_COMPARABLE",
+      "status": "PASS",
+      "evidence": [
+        "post-filter adapter counters absent"
+      ],
+      "field_gap": "Adapter traffic lost after DPI"
+    },
+    {
+      "id": "S24",
+      "area": "endpoint",
+      "result": "CHANGED",
+      "expected": "CHANGED",
+      "status": "PASS",
+      "evidence": [
+        "physical route still valid",
+        "outer IP rotated"
+      ],
+      "field_gap": "Real server rotation not performed"
+    },
+    {
+      "id": "S25",
+      "area": "endpoint",
+      "result": "AMBIGUOUS",
+      "expected": "AMBIGUOUS",
+      "status": "PASS",
+      "evidence": [
+        "multiple candidate peers"
+      ],
+      "field_gap": "Windows WFP signals emulated"
+    },
+    {
+      "id": "S26",
+      "area": "route",
+      "result": "BLOCKED",
+      "expected": "BLOCKED",
+      "status": "PASS",
+      "evidence": [
+        "outer endpoint loops through VPN adapter"
+      ],
+      "field_gap": "Windows route table not changed"
+    },
+    {
+      "id": "S27",
+      "area": "cancel",
+      "result": "CANCELLED",
+      "expected": "CANCELLED",
+      "status": "PASS",
+      "evidence": [
+        "user stopped confirmation"
+      ],
+      "field_gap": "No owned process ever started"
+    },
+    {
+      "id": "S28",
+      "area": "report",
+      "result": "GUIDE_INCOMPLETE",
+      "expected": "GUIDE_INCOMPLETE",
+      "status": "PASS",
+      "evidence": [
+        "open round terminal",
+        "CompletedUTC populated"
+      ],
+      "field_gap": "Synthetic prematurely closed guide"
+    },
+    {
+      "id": "S29",
+      "area": "freshness",
+      "result": "STALE",
+      "expected": "STALE",
+      "status": "PASS",
+      "evidence": [
+        "90 min old",
+        "freshness limit 15 min"
+      ],
+      "field_gap": "No recent speed should be shown as live"
+    },
+    {
+      "id": "S30",
+      "area": "apps",
+      "result": "NOT_PER_APP_EGRESS_PROOF",
+      "expected": "NOT_PER_APP_EGRESS_PROOF",
+      "status": "PASS",
+      "evidence": [
+        "NON_VPN_APP_PHYSICAL_BINDING_OBSERVED_NOT_EGRESS_PROOF"
+      ],
+      "field_gap": "Per-application public IP not observed"
+    },
+    {
+      "id": "S31",
+      "area": "streaming",
+      "result": "PLAYBACK_NOT_CONFIRMED_SMOOTH",
+      "expected": "PLAYBACK_NOT_CONFIRMED_SMOOTH",
+      "status": "PASS",
+      "evidence": [
+        "no actual user video confirmation"
+      ],
+      "field_gap": "15-minute elapsed time modeled, not observed"
+    },
+    {
+      "id": "S32",
+      "area": "streaming",
+      "result": "VPN_PATH_NOT_CONFIRMED",
+      "expected": "VPN_PATH_NOT_CONFIRMED",
+      "status": "PASS",
+      "evidence": [
+        "browser route cannot be inferred from local HTTPS"
+      ],
+      "field_gap": "15-minute playback modeled, route exit still unproven"
+    },
+    {
+      "id": "S33",
+      "area": "egress",
+      "result": "IP_UNCHANGED_POSSIBLE_DIRECT_EGRESS",
+      "expected": "IP_UNCHANGED_POSSIBLE_DIRECT_EGRESS",
+      "status": "PASS",
+      "evidence": [
+        "VPN adapter up",
+        "external IPv4 same as direct"
+      ],
+      "field_gap": "Public IP source is modeled"
+    },
+    {
+      "id": "S34",
+      "area": "egress",
+      "result": "STALE_DIRECT_BASELINE",
+      "expected": "STALE_DIRECT_BASELINE",
+      "status": "PASS",
+      "evidence": [
+        "old direct baseline",
+        "new public IP cannot prove tunnel"
+      ],
+      "field_gap": "Baseline older than 6 hours"
+    },
+    {
+      "id": "S35",
+      "area": "route",
+      "result": "DIAGNOSTICS_UNAVAILABLE",
+      "expected": "DIAGNOSTICS_UNAVAILABLE",
+      "status": "PASS",
+      "evidence": [
+        "no route snapshot",
+        "must not claim VPN failed"
+      ],
+      "field_gap": "Windows snapshot not available"
+    },
+    {
+      "id": "S36",
+      "area": "baseline",
+      "result": "BASELINE_UNAVAILABLE",
+      "expected": "BASELINE_UNAVAILABLE",
+      "status": "PASS",
+      "evidence": [
+        "client running",
+        "no TUN",
+        "cannot assume VPN disconnected"
+      ],
+      "field_gap": "Amnezia may serve VLESS local proxy with no TUN; no disconnected direct evidence"
+    }
+  ]
+}

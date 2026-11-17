@@ -57,6 +57,9 @@ func guideRoundSpeeds(r GuideRound) map[string][]float64 {
 // failed to retrieve the exact same CDN payload, there is no baseline speed;
 // report only a POSSIBLE change in availability, never a Mbps improvement.
 func guideAvailabilityCandidate(control, filtered GuideRound) (int, int) {
+ // A CDN failing alone while the fallback provided all four complete
+ // control transfers is not evidence of a broken VPN data-path.
+ if control.Video.Grade != "INCOMPLETE" && control.Video.Grade != "NOT_VERIFIED" { return 0, 0 }
  if !control.RouteObserved || !filtered.RouteObserved || !control.AdapterFlow || !filtered.AdapterFlow {
   return 0, 0
  }

@@ -89,8 +89,11 @@ func nextGuideVariant(plan []GuideVariant, index int) (GuideVariant, bool) {
 	return plan[index], true
 }
 
-// An active adapter without a verified full route is not a clean direct
-// baseline. Do not use it to claim that the VPN egress later changed.
+// A missing TUN adapter alone does not prove that Amnezia is disconnected:
+// VLESS may still route selected programs through a local proxy. Accept a
+// direct baseline only when the diagnostic snapshot has no active adapter
+// and the Amnezia client process is not running. This conservatively rejects
+// disconnected clients still open, rather than inventing a "VPN-off" baseline.
 func guideCanMeasureDirectBaseline(s VPNState) bool {
-	return s.Checked && s.ActiveCount == 0
+	return s.Checked && s.ActiveCount == 0 && !s.AppRunning
 }
