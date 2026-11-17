@@ -286,6 +286,19 @@ export function createTrustedAgentAtlasSourcePublisher({
       check(await originalEmployee.authorizeAtlasExport(copy(binding),copy(c))===true,
         "T3_D6_ATLAS_EXPORT_NOT_AUTHORIZED");
       const accepted=await acceptedSource.readAccepted(copy(binding));
+      // The installed ORIGINAL Exchange may authenticate one substantive,
+      // human-reviewed summary inside the same .iwxa carrier. A source-only
+      // fixture without that capability remains reference-only.
+      const portable=originalExchange.supportsPortableAcceptedSummary===true;
+      if(portable){
+        const summary=accepted?.selectedAcceptedSummary;
+        check(typeof summary==="string"&&summary.trim().length>0&&
+          Buffer.byteLength(summary,"utf8")<=65536&&
+          hex(accepted?.selectedSummarySha256)&&
+          createHash("sha256").update(summary,"utf8").digest("hex")===
+            accepted.selectedSummarySha256,
+          "T3_D6_ORIGINAL_PORTABLE_SUMMARY_UNVERIFIED");
+      }
       check(accepted?.acceptanceKind==="HUMAN_ACCEPTED_DRAFT"&&
         accepted.readOnly===true&&
         same(accepted,binding,["taskId","resultId","acceptedDigest",
@@ -296,6 +309,8 @@ export function createTrustedAgentAtlasSourcePublisher({
         recipientId:"iwxa.atlas",operationId,workRef:copy(binding.workRef),
         taskId:binding.taskId,resultId:binding.resultId,
         acceptedDigest:binding.acceptedDigest,
+        ...(portable?{selectedSummarySha256:accepted.selectedSummarySha256,
+          selectedSummaryBytes:Buffer.byteLength(accepted.selectedAcceptedSummary,"utf8")}:{}),
       });
       check(human===true,"T3_D6_ORIGINAL_HUMAN_DISCLOSURE_REQUIRED");
       await current(binding);
@@ -341,13 +356,19 @@ export function createTrustedAgentAtlasSourcePublisher({
       const disclosure=await originalExchange.inspectSelectedDisclosure({
         operationId,binding:copy(binding),sourceObjectRef:copy(plannedRef),
         recipientId:"iwxa.atlas",
+        ...(portable?{
+          selectedAcceptedSummary:accepted.selectedAcceptedSummary,
+          selectedSummarySha256:accepted.selectedSummarySha256,
+        }:{}),
       });
       check(disclosure?.status==="ORIGINAL_RESULT_ONLY"&&
         disclosure.recipientId==="iwxa.atlas"&&
         disclosure.operationId===operationId&&
         same(disclosure.selectedSourceObjectRef,plannedRef,REF)&&
         disclosure.originalRecipientGrantVerified===true&&
-        disclosure.workspaceDisclosureIsolated===true,
+        disclosure.workspaceDisclosureIsolated===true&&
+        (!portable||(disclosure.portableSelectedSummary===true&&
+          disclosure.selectedSummarySha256===accepted.selectedSummarySha256)),
         "T3_D6_ORIGINAL_EXCHANGE_DISCLOSURE_NOT_ISOLATED");
       // Reserve in the ORIGINAL durable ledger before ANY Kernel write.
       // If this reservation's ACK is lost, never dispatch or retry.
@@ -396,8 +417,12 @@ export function createTrustedAgentAtlasSourcePublisher({
           "T3_D6_ORIGINAL_KERNEL_WRITE_UNVERIFIED");
         const exported=await originalExchange.publishSelectedResult({
           operationId,binding:copy(binding),sourceObjectRef:copy(ref),
-          // The original Exchange must use the original signed .iwxa
-          // and its exact recipient grant, never serialize Agent preview.
+          // The original Exchange signs the selected accepted Core content,
+          // never an untrusted browser preview or whole Agent Workspace.
+          ...(portable?{
+            selectedAcceptedSummary:accepted.selectedAcceptedSummary,
+            selectedSummarySha256:accepted.selectedSummarySha256,
+          }:{}),
         });
         check(exported?.recipientId==="iwxa.atlas"&&
           hex(exported.archiveSha256)&&
@@ -421,7 +446,10 @@ export function createTrustedAgentAtlasSourcePublisher({
           archiveProof.archiveBytesVerified===true&&
           archiveProof.originalManifestVerified===true&&
           archiveProof.disclosureScope==="ORIGINAL_RESULT_ONLY"&&
-          same(archiveProof.selectedSourceObjectRef,ref,REF),
+          same(archiveProof.selectedSourceObjectRef,ref,REF)&&
+          (!portable||(archiveProof.portableSelectedSummary===true&&
+            archiveProof.selectedAcceptedSummary===accepted.selectedAcceptedSummary&&
+            archiveProof.selectedSummarySha256===accepted.selectedSummarySha256)),
           "T3_D6_ORIGINAL_EXCHANGE_EXPORT_UNVERIFIED");
         await originalLedger.finalize({
           operationId,binding:copy(binding),sourceObjectRef:ref,
