@@ -240,6 +240,16 @@ jobs:
         env:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
         run: node --test tests/t3-pwa-original-kernel.browser.mjs
+      # Desktop Agent carries signed T2 Control only; WebLLM is for browser
+      # domain T3. Exercise the exact ordinary Vite build BEFORE the separate
+      # browser-BLI stage modifies the disposable checkout.
+      - name: Qualify desktop Agent signed original T2 Control without WebLLM worker
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+        run: |
+          npm run build
+          node tests/t3-d6-original-agent-product-materialization.mjs
       # Compile the inherited Host only once. Qualify D1 first so its
       # browser first-run failures surface before the slower WebGPU timeout.
       - name: Compile complete inherited T3 Host with BLI Worker for browser qualification
