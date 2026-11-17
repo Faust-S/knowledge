@@ -197,3 +197,8 @@ D6_END_TO_END=NOT_ACCEPTED; T3_READY=false.
 ## 17.11.2026: merged One Core qualification candidate
 
 Native D6 publisher merged into main with every existing D1/D3 change preserved. Existing main inspectSelectedDisclosure result-only preflight, signed original receipt and archive manifest/scope checks were retained. D6 fixes added: independent READ/WRITE ports, Workspace preflight, atomic newReservation proof, normative T2 ObjectGraph Workspace, canonical Event and original Kernel Object/Event readback before signed Exchange. Original native T3 must supply inspectSelectedDisclosure before installed sign-off. Source and installed-product gates remain distinct.
+
+
+## Native T2 graph-builder merge, 17.11.2026
+
+The default `prepareOriginalAgentAtlasGraph` is now part of the **same** One Core public D6 module. Its generated `commitObjectGraph` uses top-level `workspace_id`, the original registered `iwxa.agent.accepted-result` schema, deterministic idempotency key, exact original signed Task/Result/WorkRef, and `iwxa.agent.result.published` Event. No new schema, Graph, Kernel or alternate serializer was introduced. The original native Host need not inject its own prepared-graph mapper; it must still provide original signed T2 Kernel grants, original Reconciliation, the accepted Agent Result and original native Exchange. This is source integration, not installed G4 acceptance.

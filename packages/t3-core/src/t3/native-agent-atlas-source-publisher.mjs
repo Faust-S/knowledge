@@ -41,6 +41,50 @@ function verifyBinding(raw){
   return copy(raw);
 }
 function operationFor(binding){return "agent:t3:atlas:"+digest(binding);}
+/**
+ * Exact T2 Runtime 1.3.0 commitObjectGraph input for the EXISTING
+ * iwxa.agent.accepted-result schema. This does not create a new schema,
+ * Kernel or Task and never embeds private Agent text in the Object/Event.
+ * The installed original T2 Kernel must already register that schema.
+ */
+export function prepareOriginalAgentAtlasGraph({
+  operationId,binding:raw,accepted,workspace_id,
+}={}){
+  const binding=verifyBinding(raw);
+  check(operationId===operationFor(binding)&&id(workspace_id),
+    "T3_D6_ORIGINAL_GRAPH_OPERATION_INVALID");
+  check(object(accepted)&&accepted.acceptanceKind==="HUMAN_ACCEPTED_DRAFT"&&
+    accepted.readOnly===true&&
+    same(accepted,binding,["taskId","resultId","acceptedDigest",
+      "signedTaskId","signedTaskRevisionId","signedTaskPackageSha256"])&&
+    same(accepted.workRef,binding.workRef,WORK),
+    "T3_D6_ORIGINAL_GRAPH_ACCEPTED_SOURCE_REQUIRED");
+  const key=operationId.slice("agent:t3:atlas:".length);
+  return Object.freeze({
+    workspace_id,idempotency_key:key,
+    object:{
+      object_id:"agent-atlas-result:"+key,
+      schema_id:"iwxa.agent.accepted-result",schema_version:"1.0.0",
+      base_revision:0,
+      // The signed original source may expose ONLY the accepted Result ID,
+      // its source digest, and the signed Task/Work binding, not Agent memory.
+      data:{
+        taskId:binding.taskId,resultId:binding.resultId,
+        acceptedDigest:binding.acceptedDigest,
+        signedTaskId:binding.signedTaskId,
+        signedTaskRevisionId:binding.signedTaskRevisionId,
+        signedTaskPackageSha256:binding.signedTaskPackageSha256,
+        contextDigest:binding.contextDigest,
+        workRef:copy(binding.workRef),
+      },
+    },
+    relation_puts:[],relation_deletes:[],
+    event:{
+      event_type:"iwxa.agent.result.published",
+      payload:{operationId,recipientId:"iwxa.atlas"},
+    },
+  });
+}
 function refOf(input){
   check(object(input)&&REF.slice(0,3).every(k=>id(input[k]))&&
     Number.isSafeInteger(input.revision)&&input.revision>0,
@@ -98,8 +142,8 @@ function publicationResponse(row,binding){
  */
 export function createTrustedAgentAtlasSourcePublisher({
   kernel,access,originalLedger,originalExchange,acceptedSource,
-  originalEmployee,prepareOriginalGraph,confirmDisclosure,isHostActive,
-  trustedSignedKernelForOperation=null,
+  originalEmployee,prepareOriginalGraph=prepareOriginalAgentAtlasGraph,
+  confirmDisclosure,isHostActive,trustedSignedKernelForOperation=null,
 }={}){
   check(kernel?.hasOperation&&kernel?.sessionInfo?.contract_version==="1.3.0"&&
     ["t1.getWorkspace","t1.getObject","t1.listEventsSince",
