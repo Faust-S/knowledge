@@ -246,6 +246,11 @@ jobs:
         env:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
         run: node tests/t3-d1-signed-control-one-dist.browser.mjs
+      - name: Build Agent D6 schema in the original qualified T2 One Core without changed Kernel
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+        run: node tests/t3-d6-original-agent-qualified-one-dist.mjs
       - name: Run actual compiled BLI panel in Chromium with qualified original Kernel
         working-directory: packages/t3-core
         env:
