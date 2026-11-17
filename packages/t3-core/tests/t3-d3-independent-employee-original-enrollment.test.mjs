@@ -25,7 +25,8 @@ const employee=(id,person)=>{
   expiresAt:iso(NOW+3600000)
  }};
 };
-function setup({wrongManager=false,lostAck=false,pretrustEmployees=true}={}){
+function setup({wrongManager=false,lostAck=false,pretrustEmployees=true,
+ graphKernel=false}={}){
  const fixture=model(),north=fixture.all.north,
    auth=fixture.policy.authorities['issuer:north'];
  const alice=employee('key:buyer-alice','person:alice'),
@@ -57,11 +58,25 @@ function setup({wrongManager=false,lostAck=false,pretrustEmployees=true}={}){
   north.issuerSigner);
  const kernel=originalKernelFixture(),original=kernel.api;
  let dropNext=false;
- const wrapped={...original,async putObject(cmd){
+ const graphCalls=[];
+ const persist=async cmd=>{
   const saved=await original.putObject(cmd);
   if(dropNext){dropNext=false;throw Error('SIMULATED_LOST_ACK_AFTER_KERNEL_COMMIT');}
   return saved;
- }};
+ };
+ const wrapped=graphKernel?{
+  sessionInfo:original.sessionInfo,
+  hasOperation:id=>['t1.getObject','t1.listEventsSince','t1.commitObjectGraph'].includes(id),
+  getObject:original.getObject,listEventsSince:original.listEventsSince,
+  async commitObjectGraph(cmd){
+   assert.equal(cmd.workspace_id,'ws:host-registry');
+   assert.match(cmd.idempotency_key,/^[a-f0-9]{64}$/);
+   assert.equal(cmd.object.schema_id,'iwxa.t3.access.signed-registry');
+   assert.equal(cmd.event.event_type,'t3.access.signed_registry.persisted');
+   graphCalls.push(structuredClone(cmd));
+   return persist({...cmd.object,workspace_id:cmd.workspace_id,event:cmd.event});
+  },
+ }:{...original,putObject:persist};
  const opts={kernel:wrapped,workspaceId:'ws:host-registry',
   trustedPolicy:fixture.policy,clock:time};
  const registry=createOriginalKernelRegistryStatePort(opts);
@@ -80,7 +95,7 @@ function setup({wrongManager=false,lostAck=false,pretrustEmployees=true}={}){
   managerPersonId:'person:operator',
   managerGrantId:admin.id,ttlSeconds:600
  });
- return {fixture,north,alice,bob,registry,kernel,owner,input,
+ return {fixture,north,alice,bob,registry,kernel,graphCalls,owner,input,
   init:()=>registry.commitSignedState(fixture.state),
   loseNext:()=>{dropNext=true;}};
 }
@@ -541,3 +556,42 @@ test('unsigned proof-key injection into Kernel Object/Event cannot update initia
  await assert.rejects(s.registry.readState(),
   {code:'T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT'});
 });
+
+test('original installed Admin graph-only Kernel admits two independently signed employees and recovers from cold readback',async()=>{
+ const s=setup({graphKernel:true,pretrustEmployees:false});await s.init();
+ for(const who of [s.alice,s.bob]){
+   const params=trustProof(s,{employee:who,proofSigner:who.signer});
+   const admitted=await s.registry.admitProofCredential(params);
+   assert.equal(admitted.exactReadback,true);
+   const challenge=await s.owner.begin(s.input(who));
+   const originalSigned=await s.owner.complete({
+     enrollmentId:challenge.enrollmentId,
+     employeeProof:makeProof(challenge.request,challenge.challenge,NOW,who.signer,'TEST')
+   });
+   assert.equal(originalSigned.state,'SIGNED_EMPLOYEE_ENROLLED_NOT_DELIVERED');
+   const cold=createOriginalKernelRegistryStatePort({
+     kernel:{
+       sessionInfo:{contract_version:'1.3.0'},
+       hasOperation:op=>['t1.commitObjectGraph','t1.getObject','t1.listEventsSince'].includes(op),
+       commitObjectGraph:async()=>{throw Error('COLD_RECOVERY_MUST_BE_READ_ONLY');},
+       getObject:s.kernel.api.getObject,
+       listEventsSince:s.kernel.api.listEventsSince,
+     },
+     workspaceId:'ws:host-registry',trustedPolicy:s.fixture.policy,clock:time
+   });
+   const state=await cold.readState();
+   assert.equal(state.grants[originalSigned.grantIds.work].payload.holderId,
+     who.record.subjectId);
+   const recovery=await s.owner.readEnrollment({
+     organizationId:'org:north',employeePersonId:who.record.subjectId,
+     enrollmentId:challenge.enrollmentId
+   });
+   assert.equal(recovery.state,'ORIGINAL_GRANTS_ACTIVE');
+   assert.equal(digest(recovery.originalEnrollment),digest(originalSigned.enrollment));
+ }
+ assert.equal(s.graphCalls.length,5);
+ assert.equal(s.kernel.calls.length,5);
+ assert.equal(new Set(s.graphCalls.map(row=>row.idempotency_key)).size,5);
+ assert.equal((await s.registry.readState()).statusFloor['issuer:north'],5);
+});
+
