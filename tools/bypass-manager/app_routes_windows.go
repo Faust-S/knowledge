@@ -42,10 +42,10 @@ func (ui *managerUI) inspectApps() {
 			ui.write("Не удалось сохранить обезличенный отчёт о приложениях.\n")
 			return
 		}
-		ui.write("Приложения: " + itoa(audit.ProcessCount) + ", TCP через VPN-IP " + itoa(audit.VPNBound) + ", через физический IP (обычные программы) " + itoa(audit.NonVPNPhysicalBound) + ", физический транспорт VPN-клиента " + itoa(audit.VPNClientPhysicalBound) + ", неизвестных " + itoa(audit.Uncertain) + ", UDP-сокетов " + itoa(audit.UDPBound) + ".\n")
+		ui.write("Приложения: " + itoa(audit.ProcessCount) + ", TCP через VPN-IP " + itoa(audit.VPNBound) + ", через физический IP (обычные программы) " + itoa(audit.NonVPNPhysicalBound) + ", физический транспорт VPN-клиента " + itoa(audit.VPNClientPhysicalBound) + ", неизвестных " + itoa(audit.Uncertain) + ", клиентов локального прокси Amnezia " + itoa(audit.ProxyBound) + ", UDP-сокетов " + itoa(audit.UDPBound) + ".\n")
 		for _, line := range appSocketLocalLines(local) {
 			ui.write(line + "\n")
 		}
-		ui.write("Это только локальные адреса привязки TCP. У UDP неизвестен удалённый маршрут. Внешний IP конкретной программы НЕ подтверждён. Файл latest-apps.json не содержит имён процессов.\n")
+		ui.write("Это только локальные адреса привязки TCP. У UDP неизвестен удалённый маршрут. Сокет до локального прокси — признак настроенного приложения, но НЕ доказательство внешнего IP или работы всех его запросов. Файл latest-apps.json не содержит имён процессов.\n")
 	}()
 }

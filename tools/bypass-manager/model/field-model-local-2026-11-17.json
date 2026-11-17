@@ -1,11 +1,11 @@
 {
-  "schema_version": "0.3.6-model-1",
+  "schema_version": "0.3.7-model-2",
   "environment": "loopback HTTP/TLS + deterministic state scenarios",
   "model_only": true,
-  "total": 36,
-  "passed": 36,
+  "total": 53,
+  "passed": 53,
   "failed": 0,
-  "known_field_gaps": 34,
+  "known_field_gaps": 51,
   "cases": [
     {
       "id": "S01",
@@ -431,6 +431,216 @@
         "cannot assume VPN disconnected"
       ],
       "field_gap": "Amnezia may serve VLESS local proxy with no TUN; no disconnected direct evidence"
+    },
+    {
+      "id": "S37",
+      "area": "proxy",
+      "result": "CANDIDATES",
+      "expected": "CANDIDATES",
+      "status": "PASS",
+      "evidence": [
+        "loopback only",
+        "dynamic local port",
+        "local-only observation"
+      ],
+      "field_gap": "Installed Amnezia listener not examined on this runner"
+    },
+    {
+      "id": "S38",
+      "area": "proxy",
+      "result": "REJECTED",
+      "expected": "REJECTED",
+      "status": "PASS",
+      "evidence": [
+        "forbidden process command line",
+        "closed schema"
+      ],
+      "field_gap": "Actual client listener ownership is not verified"
+    },
+    {
+      "id": "S39",
+      "area": "proxy",
+      "result": "UNAVAILABLE",
+      "expected": "UNAVAILABLE",
+      "status": "PASS",
+      "evidence": [
+        "cancelled probe",
+        "no direct internet fallback"
+      ],
+      "field_gap": "The real service might be blocked or absent"
+    },
+    {
+      "id": "S40",
+      "area": "proxy",
+      "result": "HTTP_CONNECT_PASS",
+      "expected": "HTTP_CONNECT_PASS",
+      "status": "PASS",
+      "evidence": [
+        "real local TCP CONNECT",
+        "TLS verification via test-only CA",
+        "three matching HTTPS replies"
+      ],
+      "field_gap": "Actual Premium Local Proxy not exercised"
+    },
+    {
+      "id": "S41",
+      "area": "proxy",
+      "result": "SOCKS5_PASS",
+      "expected": "SOCKS5_PASS",
+      "status": "PASS",
+      "evidence": [
+        "real loopback SOCKS5 negotiation",
+        "encrypted HTTPS via the tunnel",
+        "three matching responses"
+      ],
+      "field_gap": "Actual Premium SOCKS5 server not exercised"
+    },
+    {
+      "id": "S42",
+      "area": "apps",
+      "result": "SOCKET_NOT_EGRESS_PROOF",
+      "expected": "SOCKET_NOT_EGRESS_PROOF",
+      "status": "PASS",
+      "evidence": [
+        "private process name omitted",
+        "only socket to Amnezia local proxy"
+      ],
+      "field_gap": "Browser application egress IP not measured"
+    },
+    {
+      "id": "S43",
+      "area": "apps",
+      "result": "REJECTED",
+      "expected": "REJECTED",
+      "status": "PASS",
+      "evidence": [
+        "no trustworthy owner inventory",
+        "no app proxy inference"
+      ],
+      "field_gap": "Foreign loopback socket must not claim Amnezia ownership"
+    },
+    {
+      "id": "S44",
+      "area": "aba",
+      "result": "ABA_POSSIBLE_SPEED_REVERSAL",
+      "expected": "ABA_POSSIBLE_SPEED_REVERSAL",
+      "status": "PASS",
+      "evidence": [
+        "A=4 Mbps",
+        "B=12 Mbps",
+        "A'=4 Mbps",
+        "owner stopped filter"
+      ],
+      "field_gap": "Real ISP variability and filter traffic not exercised"
+    },
+    {
+      "id": "S45",
+      "area": "aba",
+      "result": "ABA_NOT_REPRODUCED",
+      "expected": "ABA_NOT_REPRODUCED",
+      "status": "PASS",
+      "evidence": [
+        "A'=12 Mbps",
+        "improvement remained after DPI off"
+      ],
+      "field_gap": "CDN may recover independently"
+    },
+    {
+      "id": "S46",
+      "area": "aba",
+      "result": "ABA_INCONCLUSIVE",
+      "expected": "ABA_INCONCLUSIVE",
+      "status": "PASS",
+      "evidence": [
+        "public egress changed during A'",
+        "no DPI causality"
+      ],
+      "field_gap": "Real VPN route could rotate"
+    },
+    {
+      "id": "S47",
+      "area": "aba",
+      "result": "ABA_POSSIBLE_AVAILABILITY_REVERSAL",
+      "expected": "ABA_POSSIBLE_AVAILABILITY_REVERSAL",
+      "status": "PASS",
+      "evidence": [
+        "A failed CDN_A",
+        "B 2x complete CDN_A",
+        "A' twice failed CDN_A"
+      ],
+      "field_gap": "Actual video playback and real filter not exercised"
+    },
+    {
+      "id": "S48",
+      "area": "aba",
+      "result": "ABA_NOT_REPRODUCED",
+      "expected": "ABA_NOT_REPRODUCED",
+      "status": "PASS",
+      "evidence": [
+        "A failed",
+        "B worked",
+        "A' worked without DPI"
+      ],
+      "field_gap": "Potential independent CDN recovery"
+    },
+    {
+      "id": "S49",
+      "area": "aba",
+      "result": "ABA_INCONCLUSIVE",
+      "expected": "ABA_INCONCLUSIVE",
+      "status": "PASS",
+      "evidence": [
+        "post off tested unrelated CDN",
+        "strict same source/bytes"
+      ],
+      "field_gap": "Unrelated CDN restores cannot be credited"
+    },
+    {
+      "id": "S50",
+      "area": "aba",
+      "result": "TWO_MATCHED_REQUESTS",
+      "expected": "TWO_MATCHED_REQUESTS",
+      "status": "PASS",
+      "evidence": [
+        "same CDN and payload",
+        "no silent server switch"
+      ],
+      "field_gap": "Real network pacing differs from loopback"
+    },
+    {
+      "id": "S51",
+      "area": "aba",
+      "result": "CANCELLED",
+      "expected": "CANCELLED",
+      "status": "PASS",
+      "evidence": [
+        "no HTTP after cancellation"
+      ],
+      "field_gap": "Actual user stopping DPI not exercised"
+    },
+    {
+      "id": "S52",
+      "area": "baseline",
+      "result": "NO_DIRECT_BASELINE",
+      "expected": "NO_DIRECT_BASELINE",
+      "status": "PASS",
+      "evidence": [
+        "local proxy may remain active",
+        "no TUN is not VPN-off proof"
+      ],
+      "field_gap": "Real Windows Premium local proxy not exercised"
+    },
+    {
+      "id": "S53",
+      "area": "baseline",
+      "result": "LOCAL_PROXY_POSSIBLE_NOT_TESTED",
+      "expected": "LOCAL_PROXY_POSSIBLE_NOT_TESTED",
+      "status": "PASS",
+      "evidence": [
+        "speed test cannot call missing TUN VPN-off",
+        "local proxy needs separate HTTPS route proof"
+      ],
+      "field_gap": "Real Amnezia Premium proxy mode not present in CI"
     }
   ]
 }

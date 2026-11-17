@@ -95,6 +95,11 @@ func runSpeedSamples(ctx context.Context) ([]GuideTransfer, string, float64, flo
 // Compare only a recent baseline observed with the VPN interface DOWN.
 // This comparison is informative; a new physical connection can invalidate it.
 func classifyBaseline(now time.Time, ip string, baseline PrivateBaseline, vpn VPNState) string {
+	if vpn.Checked && vpn.AppRunning && vpn.ActiveCount == 0 {
+		// A client may be using Amnezia Premium Local Proxy while TUN is down.
+		// This is not a verified direct baseline or a verified system VPN.
+		return "LOCAL_PROXY_POSSIBLE_NOT_TESTED"
+	}
 	if !vpn.Checked || vpn.ActiveCount != 1 || !vpn.RoutePresent {
 		return "VPN_ROUTE_UNVERIFIED"
 	}

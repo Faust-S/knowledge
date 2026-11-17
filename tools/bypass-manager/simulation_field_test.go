@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -310,8 +311,136 @@ func TestBypassFieldSimulation(t *testing.T) {
 			}
 			return "FALSE_DIRECT_BASELINE", nil
 		}},
+
+		{"S37", "proxy", "CANDIDATES", "Installed Amnezia listener not examined on this runner", func(t *testing.T) (string, []string) {
+			ports := ProxyPorts{SchemaVersion: "0.3.7", Status: "CANDIDATES", Ports: []int{10808, 10809}}
+			raw, _ := json.Marshal(ports)
+			detected, err := parseProxyPorts(raw)
+			if err == nil && len(detected.Ports) == 2 {
+				return "CANDIDATES", []string{"loopback only", "dynamic local port", "local-only observation"}
+			}
+			return "INVALID", nil
+		}},
+		{"S38", "proxy", "REJECTED", "Actual client listener ownership is not verified", func(t *testing.T) (string, []string) {
+			bad := []byte(`{"schema_version":"0.3.7","status":"CANDIDATES","ports":[10808],"command_line":"secret"}`)
+			if _, err := parseProxyPorts(bad); err != nil {
+				return "REJECTED", []string{"forbidden process command line", "closed schema"}
+			}
+			return "LEAK", nil
+		}},
+		{"S39", "proxy", "UNAVAILABLE", "The real service might be blocked or absent", func(t *testing.T) (string, []string) {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			if v := probeProxyPorts(ctx, []int{10808}, []string{"https://api.ipify.org"}); v.State == "UNAVAILABLE" {
+				return "UNAVAILABLE", []string{"cancelled probe", "no direct internet fallback"}
+			}
+			return "WRONG_ROUTE", nil
+		}},
+		{"S40", "proxy", "HTTP_CONNECT_PASS", "Actual Premium Local Proxy not exercised", func(t *testing.T) (string, []string) {
+			TestLocalProxyProbeViaActualLoopbackHTTPConnect(t)
+			return "HTTP_CONNECT_PASS", []string{"real local TCP CONNECT", "TLS verification via test-only CA", "three matching HTTPS replies"}
+		}},
+		{"S41", "proxy", "SOCKS5_PASS", "Actual Premium SOCKS5 server not exercised", func(t *testing.T) (string, []string) {
+			TestLocalProxyProbeViaActualLoopbackSOCKS5(t)
+			return "SOCKS5_PASS", []string{"real loopback SOCKS5 negotiation", "encrypted HTTPS via the tunnel", "three matching responses"}
+		}},
+		{"S42", "apps", "SOCKET_NOT_EGRESS_PROOF", "Browser application egress IP not measured", func(t *testing.T) (string, []string) {
+			c := AppSocketCapture{SchemaVersion: "0.3.4", Checked: true, TCPChecked: true, ProcessCount: 1, ProxyChecked: true, ProxyBound: 1, Loopback: 1,
+				Programs: []AppSocketLocal{{Name: "secretBrowserThing", Category: "BROWSER", Loopback: 1, ProxyBound: 1}}}
+			raw, _ := json.Marshal(c)
+			parsed, err := parseAppSocketCapture(raw)
+			if err != nil {
+				return "INVALID", nil
+			}
+			a := summarizeAppSockets(parsed, now)
+			jsonReport, _ := json.Marshal(a)
+			if a.ProxyBound != 1 || strings.Contains(string(jsonReport), "secretBrowserThing") {
+				return "LEAK", nil
+			}
+			return "SOCKET_NOT_EGRESS_PROOF", []string{"private process name omitted", "only socket to Amnezia local proxy"}
+		}},
+		{"S43", "apps", "REJECTED", "Foreign loopback socket must not claim Amnezia ownership", func(t *testing.T) (string, []string) {
+			c := AppSocketCapture{SchemaVersion: "0.3.4", Checked: true, TCPChecked: true, ProxyChecked: false, ProxyBound: 1, Loopback: 1}
+			b, _ := json.Marshal(c)
+			if _, err := parseAppSocketCapture(b); err != nil {
+				return "REJECTED", []string{"no trustworthy owner inventory", "no app proxy inference"}
+			}
+			return "FALSE_PROXY", nil
+		}},
+		{"S44", "aba", "ABA_POSSIBLE_SPEED_REVERSAL", "Real ISP variability and filter traffic not exercised", func(t *testing.T) (string, []string) {
+			return assessDPIEffect(validABAWithSpeed()).State, []string{"A=4 Mbps", "B=12 Mbps", "A'=4 Mbps", "owner stopped filter"}
+		}},
+		{"S45", "aba", "ABA_NOT_REPRODUCED", "CDN may recover independently", func(t *testing.T) (string, []string) {
+			r := validABAWithSpeed()
+			r.Rounds[1].PostOffTransfers = modelFull("TEST_CDN_A", 2097152, 12)
+			return assessDPIEffect(r).State, []string{"A'=12 Mbps", "improvement remained after DPI off"}
+		}},
+		{"S46", "aba", "ABA_INCONCLUSIVE", "Real VPN route could rotate", func(t *testing.T) (string, []string) {
+			r := validABAWithSpeed()
+			r.Rounds[1].PostOffEgressMatch = false
+			return assessDPIEffect(r).State, []string{"public egress changed during A'", "no DPI causality"}
+		}},
+		{"S47", "aba", "ABA_POSSIBLE_AVAILABILITY_REVERSAL", "Actual video playback and real filter not exercised", func(t *testing.T) (string, []string) {
+			r := modelAvailability()
+			f := &r.Rounds[1]
+			f.PostOffAttempted = true
+			f.PostOffStopped = true
+			f.PostOffRoute = true
+			f.PostOffAdapterFlow = true
+			f.PostOffEgressMatch = true
+			f.PostOffTransfers = []GuideTransfer{{Source: "TEST_CDN_A", ExpectedBytes: 2097152, FailureCode: "TIMEOUT"}, {Source: "TEST_CDN_A", ExpectedBytes: 2097152, FailureCode: "TIMEOUT"}}
+			return assessDPIEffect(r).State, []string{"A failed CDN_A", "B 2x complete CDN_A", "A' twice failed CDN_A"}
+		}},
+		{"S48", "aba", "ABA_NOT_REPRODUCED", "Potential independent CDN recovery", func(t *testing.T) (string, []string) {
+			r := modelAvailability()
+			f := &r.Rounds[1]
+			f.PostOffAttempted = true
+			f.PostOffStopped = true
+			f.PostOffRoute = true
+			f.PostOffAdapterFlow = true
+			f.PostOffEgressMatch = true
+			f.PostOffTransfers = modelFull("TEST_CDN_A", 2097152, 12)
+			return assessDPIEffect(r).State, []string{"A failed", "B worked", "A' worked without DPI"}
+		}},
+		{"S49", "aba", "ABA_INCONCLUSIVE", "Unrelated CDN restores cannot be credited", func(t *testing.T) (string, []string) {
+			r := validABAWithSpeed()
+			r.Rounds[1].PostOffTransfers = modelFull("TEST_CDN_B", 2097152, 4)
+			return assessDPIEffect(r).State, []string{"post off tested unrelated CDN", "strict same source/bytes"}
+		}},
+		{"S50", "aba", "TWO_MATCHED_REQUESTS", "Real network pacing differs from loopback", func(t *testing.T) (string, []string) {
+			seen := []int{}
+			fetch := func(_ context.Context, n int64, provider int) DownloadResult {
+				seen = append(seen, provider)
+				return DownloadResult{OK: true, ExpectedBytes: n, Bytes: n, DurationSeconds: 1, Mbps: 9}
+			}
+			samples := collectPostOffTransfers(context.Background(), 2097152, 1, fetch, func(context.Context, time.Duration) error { return nil })
+			if len(samples) == 2 && len(seen) == 2 && seen[0] == 1 && seen[1] == 1 && samples[0].Source == "TEST_CDN_B" {
+				return "TWO_MATCHED_REQUESTS", []string{"same CDN and payload", "no silent server switch"}
+			}
+			return "BAD_COMPARE", nil
+		}},
+		{"S51", "aba", "CANCELLED", "Actual user stopping DPI not exercised", func(t *testing.T) (string, []string) {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			results := collectPostOffTransfers(ctx, 2097152, 0, func(context.Context, int64, int) DownloadResult { return goodVideo(99) }, func(context.Context, time.Duration) error { return nil })
+			if len(results) == 0 {
+				return "CANCELLED", []string{"no HTTP after cancellation"}
+			}
+			return "UNSAFE", nil
+		}},
+		{"S52", "baseline", "NO_DIRECT_BASELINE", "Real Windows Premium local proxy not exercised", func(t *testing.T) (string, []string) {
+			s := VPNState{Checked: true, ActiveCount: 0, AppRunning: true}
+			if !guideCanMeasureDirectBaseline(s) {
+				return "NO_DIRECT_BASELINE", []string{"local proxy may remain active", "no TUN is not VPN-off proof"}
+			}
+			return "FALSE_DIRECT", nil
+		}},
+		{"S53", "baseline", "LOCAL_PROXY_POSSIBLE_NOT_TESTED", "Real Amnezia Premium proxy mode not present in CI", func(t *testing.T) (string, []string) {
+			state := VPNState{Checked: true, AppRunning: true, ActiveCount: 0}
+			return classifyBaseline(now, "9.9.9.9", PrivateBaseline{}, state), []string{"speed test cannot call missing TUN VPN-off", "local proxy needs separate HTTPS route proof"}
+		}},
 	}
-	output := modeledMatrix{Schema: "0.3.6-model-1", Commit: os.Getenv("GITHUB_SHA"), Environment: "loopback HTTP/TLS + deterministic state scenarios", ModelOnly: true, Total: len(definitions), Cases: make([]modeledCase, 0, len(definitions))}
+	output := modeledMatrix{Schema: "0.3.7-model-2", Commit: os.Getenv("GITHUB_SHA"), Environment: "loopback HTTP/TLS + deterministic state scenarios", ModelOnly: true, Total: len(definitions), Cases: make([]modeledCase, 0, len(definitions))}
 	for _, scenario := range definitions {
 		var actual string
 		var evidence []string

@@ -50,7 +50,7 @@ func (ui *managerUI) checkLive() {
 		audit.GeoMatched = view.GeoMatched
 		audit.VPNRouteObserved = state.Checked && state.ActiveCount == 1 && state.AddressPresent && state.RoutePresent
 		baselineFile := filepath.Join(ui.home, "private-direct-baseline.json")
-		if state.Checked && state.ActiveCount == 0 && view.Consensus {
+		if guideCanMeasureDirectBaseline(state) && view.Consensus {
 			saved := PrivateBaseline{IP: view.IP, CheckedUTC: time.Now().UTC(), State: "VPN_DOWN"}
 			if err := saveJSON(baselineFile, saved); err == nil {
 				audit.BaselineState = "DIRECT_BASELINE_CAPTURED"
@@ -90,7 +90,7 @@ func (ui *managerUI) applyLive() {
 	view, audit := ui.liveView, ui.liveAudit
 	ui.mu.Unlock()
 	procEnable.Call(ui.liveButton, 1)
-	age,_:=howOld(view.CheckedUTC,time.Now())
+	age, _ := howOld(view.CheckedUTC, time.Now())
 	if view.Consensus {
 		winSetText(ui.publicLine, "Как видят HTTPS-сервисы ("+age+"), IPv4: "+view.IP+" (несколько источников)")
 	} else {
@@ -129,6 +129,8 @@ func (ui *managerUI) applyLive() {
 		comparison = "Исходный IP устарел. Нужна новая контрольная проба без VPN"
 	case "VPN_ROUTE_UNVERIFIED":
 		comparison = "VPN-маршрут не подтверждён. Скорость может быть обычным интернетом"
+	case "LOCAL_PROXY_POSSIBLE_NOT_TESTED":
+		comparison = "TUN не обнаружен, Amnezia запущена: возможен Local Proxy. Этот тест не проверял путь прокси или приложений"
 	}
 	winSetText(ui.riskLine, comparison)
 	switch audit.BaselineState {

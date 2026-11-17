@@ -133,20 +133,29 @@ type GuideTransfer struct {
 }
 
 type GuideRound struct {
-	Protocol       string          `json:"protocol"`
-	DPIProfile     string          `json:"dpi_profile"`
-	StartedUTC     string          `json:"started_utc"`
-	CompletedUTC   string          `json:"completed_utc,omitempty"`
-	State          string          `json:"state"`
-	FailureCode    string          `json:"failure_code,omitempty"`
-	RouteObserved  bool            `json:"route_observed"`
-	AdapterFlow    bool            `json:"adapter_flow_observed"`
-	EgressObserved bool            `json:"egress_observed"`
-	EgressChanged  bool            `json:"egress_changed"`
-	BaselineKnown  bool            `json:"baseline_known"`
-	EgressSamples  []GuideIPSample `json:"egress_sources,omitempty"`
-	Video          VideoAssessment `json:"video"`
-	Transfers      []GuideTransfer `json:"transfers,omitempty"`
+	PostOffAttempted    bool            `json:"post_off_attempted,omitempty"`
+	PostOffStopped      bool            `json:"post_off_stopped,omitempty"`
+	PostOffRoute        bool            `json:"post_off_route_observed,omitempty"`
+	PostOffAdapterFlow  bool            `json:"post_off_adapter_flow_observed,omitempty"`
+	PostOffEgressMatch  bool            `json:"post_off_egress_match,omitempty"`
+	PostOffTransfers    []GuideTransfer `json:"post_off_transfers,omitempty"`
+	PostOffCompletedUTC string          `json:"post_off_completed_utc,omitempty"`
+	ProxyStatus         string          `json:"local_proxy_status,omitempty"`
+	ProxySources        int             `json:"local_proxy_sources,omitempty"`
+	Protocol            string          `json:"protocol"`
+	DPIProfile          string          `json:"dpi_profile"`
+	StartedUTC          string          `json:"started_utc"`
+	CompletedUTC        string          `json:"completed_utc,omitempty"`
+	State               string          `json:"state"`
+	FailureCode         string          `json:"failure_code,omitempty"`
+	RouteObserved       bool            `json:"route_observed"`
+	AdapterFlow         bool            `json:"adapter_flow_observed"`
+	EgressObserved      bool            `json:"egress_observed"`
+	EgressChanged       bool            `json:"egress_changed"`
+	BaselineKnown       bool            `json:"baseline_known"`
+	EgressSamples       []GuideIPSample `json:"egress_sources,omitempty"`
+	Video               VideoAssessment `json:"video"`
+	Transfers           []GuideTransfer `json:"transfers,omitempty"`
 }
 
 type GuideMonitorSample struct {

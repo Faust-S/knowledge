@@ -1,80 +1,118 @@
-# Bypass Manager 0.3 Alpha: результаты инженерного моделирования
+# Bypass Manager 0.3 Alpha: инженерное моделирование, 17.11.2026
 
-**Дата:** 17.11.2026. **Источник:** `simulation_field_test.go`, реальные loopback HTTP/TLS-передачи и детерминированные состояния.
+**Статус:** 53/53 PASS в локальных тестах, 0 FAIL. Отдельные полевые ограничения указаны для 51 сценария.
 
-**Результат локального прогона:** 36/36 PASS; 0 FAIL. **Отдельные ограничения полевой применимости:** 34 сценариев.
+> PASS подтверждает работу тестируемых функций на описанном входе, не подтверждает реальный VPN, подписку, системный DPI, обход блокировок или видео на ПК пользователя.
 
-**Важно:** PASS относится только к проверенным инвариантам симуляции. Это не проверка Amnezia Premium, провайдера, фактического bypass DPI, реального браузера или 15-минутного видео. Внешние VPN-ключи и трафик пользователя не используются.
+## Что изменилось в реализованном продукте
 
-## Обнаруженные и исправленные дефекты
+1. VLESS/Amnezia Premium без TUN теперь имеет отдельную диагностику Local Proxy. Windows ищет локальные слушающие сокеты процесса, установленного в каталоге AmneziaVPN; Bypass Manager проверяет HTTP CONNECT или SOCKS5, делает собственный HTTPS IP-консенсус и хранит порт/IP только в памяти. Успех означает HTTPS через настроенный прокси **самого Bypass Manager**, а не VPN-handshake или выход всех приложений.
+2. Для сторонних приложений Windows инвентаризует подключения к такому локальному прокси (число сокетов, по категориям). Имя процесса видно только на собственном экране; в экспорт попадают только счётчики и коды. Это наблюдение соединения до прокси, **не** внешний IP приложения.
+3. После испытания профиля DPI он выключается и выполняется третья серия A/B/A: A без DPI, B с DPI, A' снова без DPI. Сопоставляются HTTPS-источник, размер файла, не менее двух завершённых загрузок B и A', внешний IP, VPN-маршрут и двусторонний поток адаптера. Постоянное улучшение после выключения DPI помечается как `ABA_NOT_REPRODUCED`, возврат прежнего результата как `ABA_POSSIBLE_*_REVERSAL`. Причинность не доказана.
+4. Быстрый замер больше не записывает подтверждённый прямой IPv4 только по отсутствию TUN, если Amnezia работает. В этом случае статус `LOCAL_PROXY_POSSIBLE_NOT_TESTED`.
+5. Оригинальные Amnezia Premium, T2/T3/IWXA и формат .iwxa не меняются; никаких VPN-ключей, подписок, конфигураций, аппаратных фильтров или сетевых настроек модель не касается.
 
-1. **Ложный эффект DPI при отказе одного CDN.** Контрольный HTTPS мог успешно загрузить все четыре файла с резервного CDN, однако восстановление первого CDN позже могло классифицироваться как `POSSIBLE_AVAILABILITY_IMPROVEMENT`. Добавлен запрет: контроль `Video.Grade` должен быть `INCOMPLETE` или `NOT_VERIFIED`, иначе никакое улучшение доступности не заявляется. Сценарий **S20**.
-2. **Ложная прямая точка отсчёта для VLESS без TUN.** Запущенная Amnezia с нулём VPN-адаптеров могла ошибочно считаться отключённой. Теперь `guideCanMeasureDirectBaseline` дополнительно требует `!AppRunning`. Этот защитный признак консервативен: если Amnezia запущена, но фактически отключена, базовая точка остаётся неподтверждённой до независимой проверки. Сценарий **S36**.
+## Происхождение результатов и границы
 
-## Реальная механика стенда
+- Исполняемый тест: `simulation_field_test.go`, использует штатные `assessDPIEffect`, `classifyBaseline`, `guidePlanFor`, `parseProxyPorts`, `probeProxyPortsWithClient`, `collectPostOffTransfers`, `summarizeAppSockets`, `checkGuideVideo`, `downloadFrom`, `guideRangeDownload` и другие функции продукта.
+- Реальные локальные TCP/HTTP/HTTPS соединения: `httptest.NewServer`, `httptest.NewTLSServer`, локальный HTTP CONNECT и SOCKS5. TLS в тесте проходит с **тестовым** сертификатом из изолированного `httptest`, в продукте проверка TLS не отключается.
+- Windows PowerShell сценарии: `Tests/Test-LocalProxy-Mock.ps1` и `Tests/Test-AppProxy-Sockets-Mock.ps1` с инертными Get-CimInstance / Get-NetTCPConnection / Get-NetAdapter фикстурами. Они не обращаются к реальной Amnezia на runner.
+- Официальная документация подтверждает, что локальный прокси Amnezia Premium работает на `127.0.0.1`, его порт может меняться, а одновременная работа системного VPN и Local Proxy не поддерживается: https://docs.amnezia.org/ru/documentation/instructions/local-proxy/
+- Публичная и полная Windows-приёмка является отдельной проверкой после публикации коммита. Список сценариев ниже содержит **локально подтверждённый** исход; CI отчёты прикладываются отдельно.
 
-- `httptest.NewServer` выполняет TCP/HTTP-запросы через настоящий локальный сокет и штатную `downloadFrom`, включая HTTP 403, неполное тело, ожидание, 206 Range и отклонение Range.
-- `httptest.NewTLSServer` воспроизводит отказ проверки сертификата на реальном локальном TLS-handshake.
-- `checkGuideVideo`, `assessVideoDownloads`, `testSpeed`, `guideOutcome`, `classifyBaseline`, `assessDPIEffect`, `guidePlanFor`, `parseOuterEndpointEvidence`, `sameOuterEndpoint`, `routePreflightBlocked`, `waitGuideResponse`, `finalizeGuideReport`, `summarizeAppSockets` и `assessStability` вызываются напрямую, без параллельной реализации оценщика.
-- Транспорт VPN, Windows-адаптеры, поведение внешних CDN, отчёты пользователя и временная шкала в остальных сценариях смоделированы детерминированно. Ни один тест не включает WinDivert и не меняет маршруты, DNS, MTU или профиль Amnezia.
+## Матрица всех 53 случаев
 
-## Матрица 36 сценариев
-
-| ID | Категория | Проверяемый вывод | Итог |
+| ID | Область | Проверяемый результат | Локальный исход |
 |---|---|---|---|
-| S01 | protocol | `VLESS_FIRST` | PASS |
-| S02 | protocol | `AWG_CONTROL` | PASS |
-| S03 | vpn | `VIDEO_CANDIDATE_VPN_PATH_OBSERVED` | PASS |
-| S04 | vpn | `VIDEO_USABLE_EGRESS_UNCHANGED` | PASS |
-| S05 | vpn | `WEB_USABLE_VPN_UNVERIFIED` | PASS |
-| S06 | vpn | `VIDEO_CANDIDATE_EGRESS_UNVERIFIED` | PASS |
-| S07 | vpn | `CONNECT_AMNEZIA` | PASS |
-| S08 | fallback | `HD_1080P_CANDIDATE` | PASS |
-| S09 | fallback | `INCOMPLETE` | PASS |
-| S10 | http | `HTTP_403` | PASS |
-| S11 | http | `PARTIAL_TRANSFER` | PASS |
-| S12 | http | `TLS_CERTIFICATE_ERROR` | PASS |
-| S13 | http | `TIMEOUT` | PASS |
-| S14 | http | `RANGE_NOT_SUPPORTED` | PASS |
-| S15 | http | `RANGE_OK` | PASS |
-| S16 | speed | `SLOW_FOR_VIDEO` | PASS |
-| S17 | speed | `SPEED_NOT_VERIFIED` | PASS |
-| S18 | dpi | `NOT_TESTED` | PASS |
-| S19 | dpi | `POSSIBLE_AVAILABILITY_IMPROVEMENT` | PASS |
-| S20 | dpi | `NOT_COMPARABLE` | PASS |
-| S21 | dpi | `POSSIBLE_IMPROVEMENT` | PASS |
-| S22 | dpi | `NOT_COMPARABLE` | PASS |
-| S23 | dpi | `NOT_COMPARABLE` | PASS |
-| S24 | endpoint | `CHANGED` | PASS |
-| S25 | endpoint | `AMBIGUOUS` | PASS |
-| S26 | route | `BLOCKED` | PASS |
-| S27 | cancel | `CANCELLED` | PASS |
-| S28 | report | `GUIDE_INCOMPLETE` | PASS |
-| S29 | freshness | `STALE` | PASS |
-| S30 | apps | `NOT_PER_APP_EGRESS_PROOF` | PASS |
-| S31 | streaming | `PLAYBACK_NOT_CONFIRMED_SMOOTH` | PASS |
-| S32 | streaming | `VPN_PATH_NOT_CONFIRMED` | PASS |
-| S33 | egress | `IP_UNCHANGED_POSSIBLE_DIRECT_EGRESS` | PASS |
-| S34 | egress | `STALE_DIRECT_BASELINE` | PASS |
-| S35 | route | `DIAGNOSTICS_UNAVAILABLE` | PASS |
-| S36 | baseline | `BASELINE_UNAVAILABLE` | PASS |
+| S01 | Последовательность AWG/VLESS | `VLESS_FIRST` | PASS |
+| S02 | Последовательность AWG/VLESS | `AWG_CONTROL` | PASS |
+| S03 | VPN, маршрут и исходный IP | `VIDEO_CANDIDATE_VPN_PATH_OBSERVED` | PASS |
+| S04 | VPN, маршрут и исходный IP | `VIDEO_USABLE_EGRESS_UNCHANGED` | PASS |
+| S05 | VPN, маршрут и исходный IP | `WEB_USABLE_VPN_UNVERIFIED` | PASS |
+| S06 | VPN, маршрут и исходный IP | `VIDEO_CANDIDATE_EGRESS_UNVERIFIED` | PASS |
+| S07 | VPN, маршрут и исходный IP | `CONNECT_AMNEZIA` | PASS |
+| S08 | Резервный CDN | `HD_1080P_CANDIDATE` | PASS |
+| S09 | Резервный CDN | `INCOMPLETE` | PASS |
+| S10 | Реальный локальный HTTP/TLS | `HTTP_403` | PASS |
+| S11 | Реальный локальный HTTP/TLS | `PARTIAL_TRANSFER` | PASS |
+| S12 | Реальный локальный HTTP/TLS | `TLS_CERTIFICATE_ERROR` | PASS |
+| S13 | Реальный локальный HTTP/TLS | `TIMEOUT` | PASS |
+| S14 | Реальный локальный HTTP/TLS | `RANGE_NOT_SUPPORTED` | PASS |
+| S15 | Реальный локальный HTTP/TLS | `RANGE_OK` | PASS |
+| S16 | Скорость и оценка видео | `SLOW_FOR_VIDEO` | PASS |
+| S17 | Скорость и оценка видео | `SPEED_NOT_VERIFIED` | PASS |
+| S18 | Применение DPI | `NOT_TESTED` | PASS |
+| S19 | Применение DPI | `POSSIBLE_AVAILABILITY_IMPROVEMENT` | PASS |
+| S20 | Применение DPI | `NOT_COMPARABLE` | PASS |
+| S21 | Применение DPI | `POSSIBLE_IMPROVEMENT` | PASS |
+| S22 | Применение DPI | `NOT_COMPARABLE` | PASS |
+| S23 | Применение DPI | `NOT_COMPARABLE` | PASS |
+| S24 | Внешний VPN-сервер | `CHANGED` | PASS |
+| S25 | Внешний VPN-сервер | `AMBIGUOUS` | PASS |
+| S26 | Маршрут к серверу | `BLOCKED` | PASS |
+| S27 | Остановка/отмена | `CANCELLED` | PASS |
+| S28 | Сохранение отчёта | `GUIDE_INCOMPLETE` | PASS |
+| S29 | Устаревание измерений | `STALE` | PASS |
+| S30 | Отдельные приложения | `NOT_PER_APP_EGRESS_PROOF` | PASS |
+| S31 | Мониторинг видео | `PLAYBACK_NOT_CONFIRMED_SMOOTH` | PASS |
+| S32 | Мониторинг видео | `VPN_PATH_NOT_CONFIRMED` | PASS |
+| S33 | Внешний IP | `IP_UNCHANGED_POSSIBLE_DIRECT_EGRESS` | PASS |
+| S34 | Внешний IP | `STALE_DIRECT_BASELINE` | PASS |
+| S35 | Маршрут к серверу | `DIAGNOSTICS_UNAVAILABLE` | PASS |
+| S36 | Контроль без VPN | `BASELINE_UNAVAILABLE` | PASS |
+| S37 | Локальный прокси Amnezia | `CANDIDATES` | PASS |
+| S38 | Локальный прокси Amnezia | `REJECTED` | PASS |
+| S39 | Локальный прокси Amnezia | `UNAVAILABLE` | PASS |
+| S40 | Локальный прокси Amnezia | `HTTP_CONNECT_PASS` | PASS |
+| S41 | Локальный прокси Amnezia | `SOCKS5_PASS` | PASS |
+| S42 | Отдельные приложения | `SOCKET_NOT_EGRESS_PROOF` | PASS |
+| S43 | Отдельные приложения | `REJECTED` | PASS |
+| S44 | Трёхфазное A/B/A | `ABA_POSSIBLE_SPEED_REVERSAL` | PASS |
+| S45 | Трёхфазное A/B/A | `ABA_NOT_REPRODUCED` | PASS |
+| S46 | Трёхфазное A/B/A | `ABA_INCONCLUSIVE` | PASS |
+| S47 | Трёхфазное A/B/A | `ABA_POSSIBLE_AVAILABILITY_REVERSAL` | PASS |
+| S48 | Трёхфазное A/B/A | `ABA_NOT_REPRODUCED` | PASS |
+| S49 | Трёхфазное A/B/A | `ABA_INCONCLUSIVE` | PASS |
+| S50 | Трёхфазное A/B/A | `TWO_MATCHED_REQUESTS` | PASS |
+| S51 | Трёхфазное A/B/A | `CANCELLED` | PASS |
+| S52 | Контроль без VPN | `NO_DIRECT_BASELINE` | PASS |
+| S53 | Контроль без VPN | `LOCAL_PROXY_POSSIBLE_NOT_TESTED` | PASS |
 
-## Не закрытые полевые пробелы
+## Распределение
 
-- **VLESS в режиме локального прокси без TUN:** штатный `connectionGuideAction` по-прежнему ориентирован на VPN-адаптер и возвращает `CONNECT_AMNEZIA` при его отсутствии (S07). Это не доказательство отсутствия соединения. Требуется отдельная идентификация прокси-выхода XRay и сверка трафика конкретного приложения.
-- **Криптографический handshake AWG/VLESS** не доказан сетевым маршрутом, счётчиками адаптера или HTTP 200. Нужен официальный клиентский статус/событие.
-- **Автоматическое определение AWG endpoint** зависит от доступной нативной CLI либо WFP-событий. В отсутствие надёжных наблюдений не подставлять IP.
-- **Причинность DPI:** даже две успешные загрузки после запуска фильтра не исключают независимое восстановление CDN, провайдера или смену маршрута. Сообщать лишь о возможной корреляции.
-- **Браузер и системные приложения:** per-app публичный IPv4, WebRTC/QUIC/локальные прокси и split tunneling требуют отдельного полевого теста; счётчики сокетов не равны egress proof.
-- **Видео 15 минут:** штатные короткие HTTPS-пробы не проверяют DRM/стриминг. Факт реального воспроизведения требует отдельной пользовательской или браузерной квитанции.
+- Трёхфазное A/B/A: 8 сценариев
+- Отдельные приложения: 3 сценариев
+- Контроль без VPN: 3 сценариев
+- Остановка/отмена: 1 сценариев
+- Применение DPI: 6 сценариев
+- Внешний IP: 2 сценариев
+- Внешний VPN-сервер: 2 сценариев
+- Резервный CDN: 2 сценариев
+- Устаревание измерений: 1 сценариев
+- Реальный локальный HTTP/TLS: 6 сценариев
+- Последовательность AWG/VLESS: 2 сценариев
+- Локальный прокси Amnezia: 5 сценариев
+- Сохранение отчёта: 1 сценариев
+- Маршрут к серверу: 2 сценариев
+- Скорость и оценка видео: 2 сценариев
+- Мониторинг видео: 2 сценариев
+- VPN, маршрут и исходный IP: 5 сценариев
 
-## Запуск и артефакты
+## Полевые критерии до реального выпуска
+
+1. На пользовательском Windows ПК подтвердить наличие Amnezia Premium и определить, какой режим активен: полноценный VPN (TUN) или Local Proxy. Клиент может изменять локальный порт автоматически; в Bypass Manager вручную порт не вводится.
+2. Для Local Proxy проверить два независимых HTTPS IP-источника через локальный процесс Amnezia и затем проверить конкретные приложения. Сокет к прокси **не равен** доказательству egress; тест egress должен выполняться самим целевым приложением.
+3. Для каждого включённого DPI профиля (в пределах текущего внешнего подтверждённого endpoint) выполнить A/B/A, проверить настоящие выключение собственного `winws2`, неизменность VPN-маршрута и IP, одинаковые CDN и размеры. После прерывания и сбоя фильтра не присваивать результату статус улучшения.
+4. Проверить системные программы, браузер, WebRTC/QUIC, split tunneling и 15 минут настоящего воспроизведения. Короткие HTTPS-загрузки не заменяют это испытание.
+5. Обязательно сохранить обезличенный `latest-support.json` без VPN-конфигураций и адресов. **`REAL_NETWORK_NOT_ACCEPTED`** остаётся до выполнения полевой приёмки.
+
+## Воспроизведение
 
 ```bash
 cd tools/bypass-manager
-BYPASS_SIM_REPORT=./field-model.json go test -count=1 -run TestBypassFieldSimulation -v .
+BYPASS_SIM_REPORT=field-model.json go test -count=1 -run ^TestBypassFieldSimulation$ -v .
 go test -race -count=1 ./...
 go vet ./...
 ```
 
-В GitHub Actions тест запускается на Linux, Windows Server 2022 и Windows Server 2025 и прикладывает машинный `field-model.json` к соответствующему CI. Исторический эталон результата: `model/field-model-local-2026-11-17.json`. Все отчёты с кодами и агрегатами, без IP и персональных конфигураций.
+Машинный эталон в репозитории: `model/field-model-local-2026-11-17.json`. В Actions каждый OS-run публикует отдельный JSON artifact.

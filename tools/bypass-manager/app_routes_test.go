@@ -106,3 +106,34 @@ func TestMixedPhysicalAndVPNBindingStillWarnsForOtherApps(t *testing.T) {
 		t.Fatalf("wrong plan: %+v", plan)
 	}
 }
+
+func TestAppLocalProxyBindingRequiresOwnedListenerEvidence(t *testing.T) {
+	c := AppSocketCapture{SchemaVersion: "0.3.4", Checked: true, TCPChecked: true, ProcessCount: 2, ProxyChecked: true, ProxyBound: 1, Loopback: 2,
+		Programs: []AppSocketLocal{{Name: "secretBrowserThing", Category: "BROWSER", Loopback: 1, ProxyBound: 1}, {Name: "secretXrayProcess", Category: "VPN_CLIENT", Loopback: 1}}}
+	b, _ := json.Marshal(c)
+	parsed, err := parseAppSocketCapture(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit := summarizeAppSockets(parsed, time.Now())
+	if audit.ProxyBound != 1 || !audit.ProxyChecked || !strings.Contains(strings.Join(audit.Findings, ","), "APP_TO_OWNED_LOCAL_PROXY_SOCKET_OBSERVED_NOT_PUBLIC_EGRESS_PROOF") {
+		t.Fatalf("missing local proxy evidence: %+v", audit)
+	}
+	encoded, _ := json.Marshal(audit)
+	for _, private := range []string{"secretBrowserThing", "secretXrayProcess", "127.0.0.1", "10808"} {
+		if strings.Contains(string(encoded), private) {
+			t.Fatal("private process info leaked")
+		}
+	}
+	c.ProxyChecked = false
+	b, _ = json.Marshal(c)
+	if _, err := parseAppSocketCapture(b); err == nil {
+		t.Fatal("unsupported proxy binding without inventory accepted")
+	}
+	c.ProxyChecked = true
+	c.ProxyBound = 3
+	b, _ = json.Marshal(c)
+	if _, err := parseAppSocketCapture(b); err == nil {
+		t.Fatal("proxy count exceeds loopback socket total")
+	}
+}

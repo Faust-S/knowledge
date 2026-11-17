@@ -74,6 +74,8 @@ jobs:
         run: |
           .\Tests\Verify-Windows.ps1
           .\Tests\Test-OuterEndpoint-Mock.ps1
+          .\Tests\Test-LocalProxy-Mock.ps1
+          .\Tests\Test-AppProxy-Sockets-Mock.ps1
           .\Tests\Test-MTU-Rollback-Mock.ps1
           .\Tests\Test-EndpointRoute.ps1
           .\Tests\Test-OwnRecovery.ps1
@@ -82,7 +84,7 @@ jobs:
         run: .\Tests\Test-GuiSmoke.ps1
 
   loopback-network-models:
-    name: 36 actual-code field models / ${{ matrix.os }}
+    name: 53 actual-code field models / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

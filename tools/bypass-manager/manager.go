@@ -306,7 +306,7 @@ var runtimeWriteMu sync.Mutex
 func (m *Manager) ensureRuntime() error {
 	runtimeWriteMu.Lock()
 	defer runtimeWriteMu.Unlock()
-	for _, name := range []string{"Scripts/Common.psm1", "Scripts/Start-Profile.ps1", "Scripts/Get-AdapterStats.ps1", "Scripts/Find-VpnAdapter.ps1", "Scripts/Get-EndpointRoute.ps1", "Scripts/Get-DnsExposure.ps1", "Scripts/Get-VpnStatus.ps1", "Scripts/Get-PathEvidence.ps1", "Scripts/Get-AppSockets.ps1", "Scripts/Get-OuterEndpoint.ps1", "Scripts/Temporary-MTU.ps1", "Profiles/profiles.json"} {
+	for _, name := range []string{"Scripts/Common.psm1", "Scripts/Start-Profile.ps1", "Scripts/Get-AdapterStats.ps1", "Scripts/Find-VpnAdapter.ps1", "Scripts/Get-EndpointRoute.ps1", "Scripts/Get-DnsExposure.ps1", "Scripts/Get-VpnStatus.ps1", "Scripts/Get-PathEvidence.ps1", "Scripts/Get-AppSockets.ps1", "Scripts/Get-LocalProxyPorts.ps1", "Scripts/Get-OuterEndpoint.ps1", "Scripts/Temporary-MTU.ps1", "Profiles/profiles.json"} {
 		source := "runtime/" + name
 		data, err := embedded.ReadFile(source)
 		if err != nil {

@@ -49,3 +49,14 @@ func TestBaselineRequiresDownSnapshotAndRecentComparison(t *testing.T) {
 		t.Fatal("no VPN route")
 	}
 }
+
+func TestLiveSpeedDoesNotTreatLocalProxyAsDisconnectedDirectBaseline(t *testing.T) {
+	now := time.Now()
+	s := VPNState{Checked: true, AppRunning: true, ActiveCount: 0}
+	if guideCanMeasureDirectBaseline(s) {
+		t.Fatal("client-running no TUN classified as disconnected")
+	}
+	if got := classifyBaseline(now, "9.9.9.9", PrivateBaseline{}, s); got != "LOCAL_PROXY_POSSIBLE_NOT_TESTED" {
+		t.Fatal(got)
+	}
+}
