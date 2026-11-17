@@ -43,7 +43,7 @@
     "private_original_d6": {
       "repository": "Faust-S/T3",
       "branch": "work/2026-11-17-t3-original-agent-atlas-d6-publication-ledger",
-      "observed_head": "3fadce0f63c94d455cdf4d27ed3a71f3768f3ebc",
+      "observed_head": "1d836e39dc60fe11da7cf52c3057cc461d8f9a7c",
       "level": "SOURCE_CANDIDATE",
       "native_test_status": "NOT_RUN_AS_INSTALLED_PRIVATE_ORIGINAL_T3",
       "blocker": "Original private Node/Ed25519/ledger native test checkout via public Center encountered 403; private Actions forbidden",
@@ -56,13 +56,14 @@
       "current_content_change": {
         "commit": "3fadce0f63c94d455cdf4d27ed3a71f3768f3ebc",
         "scope": "Original signed selected Result carrier includes exact accepted summary SHA-256 and text using existing .iwxa Reconciliation profile; installed publisher refuses old reference-only Exchange",
-        "test_status": "PRIVATE_NODE_TEST_NOT_RUN; PRIVATE_ACTIONS_PROHIBITED"
+        "test_status": "PRIVATE_NODE_TEST_NOT_RUN; PRIVATE_ACTIONS_PROHIBITED",
+        "code_commit": "3fadce0f63c94d455cdf4d27ed3a71f3768f3ebc"
       }
     },
     "personal_agent": {
       "repository": "Faust-S/iwxa-personal-agent",
       "central_branch": "work/2026-11-15-agent-0-6-development",
-      "central_head": "ec6c9f3f4e0230957b8113619eff8dedbb9ea177",
+      "central_head": "a0dc9b3423c3388f111194a7bedd1af37077f096",
       "d6_branch": "work/2026-11-16-agent06-original-t3-result-owner-d6",
       "d6_head": "34d8f1a10b552f1d0c4108e012414648e71ce0a0",
       "level": "SOURCE_CANDIDATE",
@@ -88,9 +89,11 @@
         "scope": "Desktop-only original T2 Agent signed One Dist and actual native Windows installation. Private signed employee and independently installed Atlas D6 NOT_RUN. Agent a55 corrected Setup Core final version 0.5.0 -> 0.6.0 but not verified installed."
       },
       "current_content_change": {
-        "commit": "ec6c9f3f4e0230957b8113619eff8dedbb9ea177",
+        "commit": "a0dc9b3423c3388f111194a7bedd1af37077f096",
         "scope": "Original Core-verified Human-accepted selected summary <=64 KiB and SHA-256 for native original T3; Agent UI displays exact summary for separate permission, states that signing is not encryption",
-        "test_status": "PRIVATE_SOURCE_TEST_NOT_RUN; PUBLIC_CENTER_AGENT06_INSTALLED_RUN_AT_OLDER_AGENT_SHA"
+        "test_status": "PUBLIC_CENTER_AGENT_SOURCE_RUN_44178292113_IN_PROGRESS_AT_OBSERVATION; PUBLIC_CENTER_AGENT_INSTALLED_RUN_44178292091_IN_PROGRESS_AT_OBSERVATION; PRIVATE_T3_ED25519_NOT_RUN",
+        "code_commit": "ec6c9f3f4e0230957b8113619eff8dedbb9ea177",
+        "public_one_core_pin": "3f91b60c56e34a21ea919a4a2004e31bb5071c60"
       }
     },
     "admin_center": {
@@ -221,8 +224,8 @@
       "date": "2026-11-17",
       "gate": "SOURCE_QUALIFIED_PUBLIC_ONLY__PRIVATE_NATIVE_SIGNED_INSTALL_NOT_ACCEPTED",
       "ownership": {
-        "agent": "ec6c9f3f4e0230957b8113619eff8dedbb9ea177",
-        "original_private_t3": "3fadce0f63c94d455cdf4d27ed3a71f3768f3ebc",
+        "agent": "a0dc9b3423c3388f111194a7bedd1af37077f096",
+        "original_private_t3": "1d836e39dc60fe11da7cf52c3057cc461d8f9a7c",
         "one_core": "3f91b60c56e34a21ea919a4a2004e31bb5071c60",
         "atlas": "7454661a166d7e52a821a8369fc37f33f13d14b1"
       },
@@ -245,7 +248,22 @@
       },
       "supported": "A single existing signed .iwxa with original accepted summary+SHA256, independent recipient checks, and U05 native Decision persistence/source cold readback",
       "limits": "Private original Ed25519 source suite not run; installed original T3 and independent Atlas standalone source owner NOT connected. Selected accepted summary is plaintext in a signed (not encrypted) original .iwxa. Old link-only signed archives remain readable but cannot be claimed to contain text.",
-      "do_not_accept": "Do not infer independent installed signed file verification, two physical Atlas cold process opens, native PERSON D7 or G4 acceptance from public source tests"
+      "do_not_accept": "Do not infer independent installed signed file verification, two physical Atlas cold process opens, native PERSON D7 or G4 acceptance from public source tests",
+      "center_cross_product_source_ci": {
+        "run_id": 44178292113,
+        "status": "IN_PROGRESS_AT_OBSERVATION",
+        "head_sha": "439c805fbc2c4a362335fcb8585d4fe7dcc0c290"
+      },
+      "center_agent_installed_native_ci": {
+        "run_id": 44178292091,
+        "status": "IN_PROGRESS_AT_OBSERVATION",
+        "head_sha": "439c805fbc2c4a362335fcb8585d4fe7dcc0c290"
+      },
+      "windows_atlas_native_ci": {
+        "run_id": 44177677078,
+        "status": "IN_PROGRESS_AT_OBSERVATION",
+        "sha": "7454661a166d7e52a821a8369fc37f33f13d14b1"
+      }
     }
   },
   "accepted_gates": {
