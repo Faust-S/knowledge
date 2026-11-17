@@ -24,12 +24,13 @@ const audienceResource=({organizationId,workspaceId})=>[
 ];
 const coreGrant=(state,{id:grantId,organization,employeePersonId,roleId,
   resources,actions,purposes,rightClass,ttlSeconds,enrollmentId,
-  credentialKeyId,employeeProofDigest,now})=>{
+  credentialKeyId,employeeProofDigest,now,
+  holderId=employeePersonId,evidenceRefs=null})=>{
   const authority=state.policy.authorities[organization.issuerAuthorityId];
   const grant={
     kind:'GRANT',id:grantId,lineageId:grantId,renewalOf:null,
     parentGrantId:null,authorityId:organization.issuerAuthorityId,
-    principalId:organization.organizationId,holderId:employeePersonId,
+    principalId:organization.organizationId,holderId,
     roleId,rightClass,realmId:organization.realmId,
     environment:state.policy.environment,audience:authority.audiences[0],
     resources,actions,purposes,issuedAt:iso(now),notBefore:iso(now),
@@ -38,7 +39,7 @@ const coreGrant=(state,{id:grantId,organization,employeePersonId,roleId,
     policyVersion:state.policy.version,
     // Both original signed grants must retain the exact proof credential and
     // employee actor proof digest for cold reconstruction after a lost ACK.
-    evidenceRefs:['employee-enrollment:'+enrollmentId,
+    evidenceRefs:evidenceRefs??['employee-enrollment:'+enrollmentId,
       'employee-credential:'+credentialKeyId,
       'employee-proof-sha256:'+employeeProofDigest]
   };
@@ -446,5 +447,168 @@ export function createOriginalEmployeeEnrollmentOwner({
       statusSequence:restored.statusSequence});
   }
 
-  return Object.freeze({begin,complete,readEnrollment,cancelPending});
+  // A manager needs a DIFFERENT signed DATA right before exporting a Task
+  // to an independently enrolled colleague. Worker ACTION/DATA grants alone
+  // never authorize the manager to export to that recipient.
+  const taskRecipientResources=(org,personId)=>[
+    'workspace:'+trustedWorkspaceId,
+    'subject:'+org.organizationId,
+    'recipient:'+personId,'field:task','operation:UPSERT'
+  ];
+  const relatedTaskGrants=(saved,{enrollmentId,employeePersonId,
+    managerPersonId})=>Object.values(saved.grants).filter(env=>
+    env?.payload?.holderId===managerPersonId&&
+    env.payload.evidenceRefs?.includes('employee-enrollment:'+enrollmentId)&&
+    env.payload.evidenceRefs?.includes('task-recipient:'+employeePersonId));
+  async function readTaskGrant({organizationId,employeePersonId,enrollmentId,
+    managerPersonId}={}){
+    id(organizationId);id(employeePersonId);id(enrollmentId);id(managerPersonId);
+    check(organizationId===pinnedOrganization.organizationId&&
+      employeePersonId!==managerPersonId,
+      'T3_EMPLOYEE_TASK_GRANT_TRUSTED_SCOPE_REQUIRED');
+    const at=now(),saved=await state();
+    // Verifies both original employee grants, their STATUS and the signed
+    // enrollment. A revoked worker must not retain newly issued Task rights.
+    reconstruct({saved,employeePersonId,enrollmentId,at});
+    const rows=relatedTaskGrants(saved,{enrollmentId,employeePersonId,
+      managerPersonId});
+    check(rows.length<=1,'T3_EMPLOYEE_TASK_GRANT_CONFLICT');
+    const base={schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_READBACK/1',
+      organizationId,workspaceId:trustedWorkspaceId,
+      employeePersonId,recipientId:employeePersonId,enrollmentId,
+      managerPersonId,originalReadback:true,safeToReissue:false};
+    if(!rows.length)return Object.freeze({...base,
+      state:'ORIGINAL_MANAGER_TASK_DATA_NOT_FOUND'});
+    const env=rows[0],g=env.payload;
+    const exact=taskRecipientResources(pinnedOrganization,employeePersonId);
+    check(g.principalId===organizationId&&
+      g.authorityId===pinnedOrganization.issuerAuthorityId&&
+      g.roleId==='assigner'&&g.rightClass==='DATA'&&
+      g.actions.length===1&&g.actions[0]==='package.export'&&
+      g.purposes.length===1&&g.purposes[0]==='assignment'&&
+      JSON.stringify(g.resources)===JSON.stringify(exact)&&
+      env.keyId===issuerSigner.keyId,
+      'T3_EMPLOYEE_TASK_GRANT_SIGNED_SCOPE_CHANGED');
+    try{
+      verifyRecord(env,saved.policy,at,'GRANT');
+      verifiedChain(g.id,saved,at);
+      const status=validateStatusSnapshot(g.authorityId,saved,at);
+      const active=status.entries.some(x=>x.grantId===g.id&&x.state==='ACTIVE');
+      return Object.freeze({...base,grantId:g.id,grant:copy(env),
+        statusSequence:status.sequence,
+        state:active&&!hasRecordedTombstone(saved,g.id)
+          ?'ORIGINAL_MANAGER_TASK_DATA_ACTIVE'
+          :'ORIGINAL_MANAGER_TASK_DATA_REVOKED_OR_EXPIRED'});
+    }catch{
+      return Object.freeze({...base,grantId:g.id,
+        state:'ORIGINAL_MANAGER_TASK_DATA_STATUS_UNKNOWN_HOLD'});
+    }
+  }
+  let taskGrantAttempted=false;
+  async function issueTaskGrant({organizationId,employeePersonId,enrollmentId,
+    managerPersonId,managerGrantId}={}){
+    check(!taskGrantAttempted,'T3_EMPLOYEE_TASK_GRANT_OUTCOME_UNKNOWN_READBACK');
+    id(organizationId);id(employeePersonId);id(enrollmentId);
+    id(managerPersonId);id(managerGrantId);
+    check(organizationId===pinnedOrganization.organizationId&&
+      employeePersonId!==managerPersonId,
+      'T3_EMPLOYEE_TASK_GRANT_TRUSTED_SCOPE_REQUIRED');
+    const at=now(),saved=await state(),org=pinnedOrganization;
+    const enrolled=reconstruct({saved,employeePersonId,enrollmentId,at});
+    const previous=relatedTaskGrants(saved,{enrollmentId,employeePersonId,
+      managerPersonId});
+    check(previous.length===0,'T3_EMPLOYEE_TASK_GRANT_EXISTS_USE_READBACK');
+    const authority=saved.policy.authorities[org.issuerAuthorityId];
+    const resources=taskRecipientResources(org,employeePersonId);
+    check(authority&&authority.principalId===organizationId&&
+      resources.every(x=>authority.resources.includes(x))&&
+      authority.roles.includes('assigner')&&
+      authority.rightClasses.includes('DATA')&&
+      authority.actions.includes('package.export')&&
+      authority.purposes.includes('assignment')&&
+      saved.policy.actionCatalog['package.export']==='DATA',
+      'T3_EMPLOYEE_TASK_GRANT_SIGNED_CEILING_REQUIRED');
+    const manager=saved.grants[managerGrantId]?.payload;
+    check(manager?.holderId===managerPersonId&&
+      manager.principalId===organizationId&&
+      manager.authorityId===org.issuerAuthorityId&&
+      manager.rightClass==='ADMINISTRATION'&&
+      manager.actions.includes('grant.issue')&&
+      manager.resources.includes('authority:'+org.issuerAuthorityId),
+      'T3_EMPLOYEE_TASK_MANAGER_GRANT_REQUIRED');
+    const issuerKey=saved.policy.keys[issuerSigner.keyId];
+    check(issuerKey?.status==='ACTIVE'&&
+      timestamp(issuerKey.notBefore)<=at&&at<timestamp(issuerKey.expiresAt),
+      'T3_EMPLOYEE_TASK_ISSUER_NOT_ACTIVE');
+    const managerRequest={
+      id:'employee-task-grant:'+randomUUID(),
+      actorId:managerPersonId,principalId:organizationId,
+      roleId:manager.roleId,grantId:managerGrantId,
+      audience:manager.audience,
+      resource:'authority:'+org.issuerAuthorityId,
+      action:'grant.issue',purpose:'access-administration',
+      realmId:org.realmId,
+      operationDigest:digest({schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_INTENT/1',
+        organizationId,employeePersonId,enrollmentId,managerPersonId,
+        managerGrantId,workGrantId:enrolled.grantIds.work,
+        resources})
+    };
+    const challenge=randomUUID()+randomUUID();
+    const managerProof=await proveManager({
+      request:copy(managerRequest),challenge,asOf:iso(at),
+      managerPersonId,organizationId
+    });
+    const decision=evaluate(managerRequest,saved,{now:iso(at),
+      challenge,proof:managerProof,timeAssurance:'LOCAL_BEST_EFFORT'});
+    check(decision.allowed===true&&decision.outcome==='PERMITTED',
+      'T3_EMPLOYEE_TASK_MANAGER_NOT_AUTHORIZED');
+    const ttlSeconds=Math.min(authority.maxTtlSeconds,86400,
+      Math.floor((timestamp(enrolled.workGrant.payload.expiresAt)-at)/1000),
+      Math.floor((timestamp(manager.expiresAt)-at)/1000),
+      Math.floor((timestamp(issuerKey.expiresAt)-at)/1000));
+    check(ttlSeconds>0,'T3_EMPLOYEE_TASK_GRANT_EXPIRY');
+    const grantId='grant:'+randomUUID();
+    const grant=coreGrant(saved,{id:grantId,organization:org,
+      employeePersonId,holderId:managerPersonId,roleId:'assigner',
+      rightClass:'DATA',resources,actions:['package.export'],
+      purposes:['assignment'],ttlSeconds,enrollmentId,now:at,
+      credentialKeyId:enrolled.credentialPublicKeyRef,
+      employeeProofDigest:'task-grant-manager-proof',
+      evidenceRefs:['employee-enrollment:'+enrollmentId,
+        'task-recipient:'+employeePersonId,
+        'employee-credential:'+enrolled.credentialPublicKeyRef,
+        'manager-approval:'+digest(decision)]});
+    const signed=signRecord(grant,issuerSigner);
+    try{verifyRecord(signed,saved.policy,at,'GRANT');}
+    catch{refuse('T3_EMPLOYEE_TASK_GRANT_ISSUER_SIGNATURE_INVALID');}
+    const next=copy(saved),authorityId=org.issuerAuthorityId;
+    next.grants[grant.id]=signed;
+    const prior=next.statuses[authorityId].payload;
+    const sequence=prior.sequence+1;
+    const validUntil=Math.min(at+saved.policy.offlineMaxAgeSeconds*1000,
+      timestamp(issuerKey.expiresAt));
+    check(validUntil>at,'T3_EMPLOYEE_TASK_STATUS_WINDOW_INVALID');
+    next.statuses[authorityId]=signRecord({...prior,
+      id:'status:'+randomUUID(),sequence,issuedAt:iso(at),
+      validUntil:iso(validUntil),
+      entries:[...prior.entries,{grantId:grant.id,state:'ACTIVE',
+        effectiveAt:iso(at),evidenceRef:'employee-enrollment:'+enrollmentId}]
+        .sort((a,b)=>a.grantId.localeCompare(b.grantId))
+    },issuerSigner);
+    next.statusFloor[authorityId]=sequence;
+    // From this point a lost response can follow the original Kernel write.
+    // NEVER automatically issue a replacement under another grant ID.
+    taskGrantAttempted=true;
+    const kernelReceipt=await registry.commitSignedState(next);
+    const readback=await readTaskGrant({
+      organizationId,employeePersonId,enrollmentId,managerPersonId});
+    check(readback.state==='ORIGINAL_MANAGER_TASK_DATA_ACTIVE'&&
+      readback.grantId===grantId&&readback.statusSequence===sequence,
+      'T3_EMPLOYEE_TASK_GRANT_ORIGINAL_READBACK_UNKNOWN');
+    return Object.freeze({...readback,kernelReceipt,
+      taskSigned:false,taskDelivered:false});
+  }
+
+  return Object.freeze({begin,complete,readEnrollment,cancelPending,
+    issueTaskGrant,readTaskGrant});
 }
