@@ -182,17 +182,44 @@ export function createOriginalKernelRegistryStatePort({
   kernel,workspaceId,objectId="t3.access.signed-registry",
   trustedPolicy,clock=Date.now
 }={}){
+  const direct=typeof kernel?.putObject==="function"&&
+    kernel.hasOperation?.("t1.putObject")===true;
+  const graph=typeof kernel?.commitObjectGraph==="function"&&
+    kernel.hasOperation?.("t1.commitObjectGraph")===true;
   check(ID.test(workspaceId??"")&&ID.test(objectId??"") &&
     kernel?.sessionInfo?.contract_version==="1.3.0" &&
-    ["getObject","putObject","listEventsSince"].every(k=>
-      typeof kernel?.[k]==="function") && typeof kernel.hasOperation==="function" &&
-    ["t1.getObject","t1.putObject","t1.listEventsSince"].every(op=>
-      kernel.hasOperation(op)) && typeof clock==="function",
+    ["getObject","listEventsSince"].every(k=>
+      typeof kernel?.[k]==="function") &&
+    typeof kernel.hasOperation==="function"&&(direct||graph)&&
+    ["t1.getObject","t1.listEventsSince"].every(op=>
+      kernel.hasOperation(op))&&typeof clock==="function",
     "T3_ACCESS_REGISTRY_ORIGINAL_KERNEL_REQUIRED");
   let pinned;
   try{pinned=snapshot(trustedPolicy);validatePolicy(pinned);}
   catch{no("T3_ACCESS_REGISTRY_TRUST_ANCHOR_REQUIRED");}
   const trustedHash=digest(pinned);
+  // Installed original Admin D3 exposes the original atomic T2 graph,
+  // while prior original Host contracts expose putObject. Both preserve
+  // the same signed registry Object/Event and readback. No second Store.
+  const persistOriginal=async command=>{
+    if(direct)return kernel.putObject(command);
+    return kernel.commitObjectGraph({
+      workspace_id:command.workspace_id,
+      idempotency_key:digest({
+        schema:"IWXA_T3_SIGNED_REGISTRY_ORIGINAL_GRAPH_COMMIT/1",
+        workspaceId:command.workspace_id,objectId:command.object_id,
+        baseRevision:command.base_revision,record:command.data,
+        event:command.event,
+      }),
+      object:{
+        object_id:command.object_id,schema_id:command.schema_id,
+        schema_version:command.schema_version,
+        base_revision:command.base_revision,data:command.data,
+        extensions:command.extensions??{},
+      },
+      event:command.event,
+    });
+  };
   const read=async({allowAbsent=false}={})=>{
     const now=validClock(clock);
     const result=await kernel.getObject(workspaceId,objectId);
@@ -277,7 +304,7 @@ export function createOriginalKernelRegistryStatePort({
     if(before) assertForward(before.state,next);
     const revision=(before?.revision??0)+1;
     const digestState=digest(next);
-    const receipt=await kernel.putObject({
+    const receipt=await persistOriginal({
       workspace_id:workspaceId,object_id:objectId,
       schema_id:ORIGINAL_REGISTRY_SCHEMA,schema_version:"1.0.0",
       base_revision:before?.revision??0,data:next,extensions:{},
@@ -386,7 +413,7 @@ export function createOriginalKernelRegistryStatePort({
     next.lastObservedAt=iso(now);
     const checked=stateAt(next,next.policy,now);
     const expectedRevision=before.revision+1;
-    const receipt=await kernel.putObject({
+    const receipt=await persistOriginal({
       workspace_id:workspaceId,object_id:objectId,
       schema_id:ORIGINAL_REGISTRY_SCHEMA,schema_version:"1.0.0",
       base_revision:before.revision,data:checked,extensions:{},
