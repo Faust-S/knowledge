@@ -79,6 +79,8 @@ try{
   const installed=JSON.parse(assembledPassport);
   assert.equal(installed.schemas['iwxa.agent.accepted-result']?.schema_version,'1.0.0');
   assert.equal(installed.schemas['iwxa.t3.access.signed-registry']?.schema_version,'1.0.0');
+  assert.deepEqual(installed.schemas['iwxa.t3.access.signed-registry'].json_schema,
+    {type:'object'},'the original signed D1 policy is not reimplemented by Agent');
   assert.equal(installed.schemas['iwxa.admin.applied-results'],undefined);
   assert.deepEqual(installed.permissions.operations,['t1.commitObjectGraph']);
   assert.equal(installed.permissions.workspace.create,
