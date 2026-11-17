@@ -247,6 +247,7 @@ jobs:
         working-directory: packages/t3-core
         env:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+          IWXA_T3_AGENT_BUILD_PROFILE: DESKTOP_SIGNED_ONLY
         run: |
           npm run build
           node tests/t3-d6-original-agent-product-materialization.mjs

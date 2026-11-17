@@ -210,6 +210,7 @@ export async function materializeOriginalAgentT2Product({
  */
 export async function buildOriginalAgentOneDistFromQualifiedKernel({
   qualifiedKernelDist,agentProfile,t3Build,outputDir,receiptPath,
+  desktopAgentControlOnly=false,
 }={}){
   const staged=mkdtempSync(join(tmpdir(),'iwxa-agent-original-t2-'));
   try{
@@ -217,7 +218,8 @@ export async function buildOriginalAgentOneDistFromQualifiedKernel({
     const product=await materializeOriginalAgentT2Product({
       qualifiedKernelDist,agentProfile,outputRoot:source});
     const built=buildOriginalAgentOneDist({
-      t2Dist:source,t3Build,outputDir,receiptPath});
+      t2Dist:source,t3Build,outputDir,receiptPath,
+      desktopAgentControlOnly});
     return Object.freeze({...built,origin:product.origin,
       originalProductId:product.productId,verifiedOriginalT2:true});
   }finally{rmSync(staged,{recursive:true,force:true});}
@@ -226,7 +228,11 @@ export async function buildOriginalAgentOneDistFromQualifiedKernel({
 /** Use only the original qualified assembler and return its native receipt.
  * A new recipient never gets implied rights from these build-time bytes.
  */
-export function buildOriginalAgentOneDist({t2Dist,t3Build,outputDir,receiptPath}={}){
+export function buildOriginalAgentOneDist({
+  t2Dist,t3Build,outputDir,receiptPath,desktopAgentControlOnly=false,
+}={}){
+  if(typeof desktopAgentControlOnly!=="boolean")
+    fail("DESKTOP_AGENT_CONTROL_FLAG_INVALID");
   if(![t2Dist,t3Build,outputDir,receiptPath].every(
      x=>typeof x==='string'&&x.trim()))fail('FOUR_PATHS_REQUIRED');
   const source=resolve(t2Dist),compiled=resolve(t3Build);
@@ -241,7 +247,8 @@ export function buildOriginalAgentOneDist({t2Dist,t3Build,outputDir,receiptPath}
   // qualified digest, service passport and compiled source are checked by
   // the existing assembler, and the original Agent D6 schema is registered.
   const original=assembleSignedControlDist({t2Dist:source,t3Build:compiled,
-    outputDir:output,installedOriginalAgentD6:true});
+    outputDir:output,installedOriginalAgentD6:true,
+    desktopAgentControlOnly});
   if(original.original_runtime_unchanged!==true||
      original.original_agent_d6_schema_registered!==true||
      original.workspace_service_id!==
@@ -267,6 +274,8 @@ export function buildOriginalAgentOneDist({t2Dist,t3Build,outputDir,receiptPath}
 
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   const args=process.argv.slice(2);
+  const desktopAgentControlOnly=args.at(-1)==='--desktop-agent-control';
+  if(desktopAgentControlOnly)args.pop();
   const valid=['--t2-dist','--t3-build','--output','--receipt',
     '--qualified-kernel-dist','--agent-profile'];
   if(![8,10].includes(args.length)||
@@ -282,7 +291,8 @@ if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
      !['--t3-build','--output','--receipt'].every(k=>Object.hasOwn(opts,k)))
     fail('PRODUCT_INPUT_MODE_INVALID');
   const argsCommon={t3Build:opts['--t3-build'],
-    outputDir:opts['--output'],receiptPath:opts['--receipt']};
+    outputDir:opts['--output'],receiptPath:opts['--receipt'],
+    desktopAgentControlOnly};
   const result=qualified
     ?await buildOriginalAgentOneDistFromQualifiedKernel({
       ...argsCommon,qualifiedKernelDist:opts['--qualified-kernel-dist'],

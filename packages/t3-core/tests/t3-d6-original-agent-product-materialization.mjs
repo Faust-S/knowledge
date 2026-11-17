@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {createServer} from 'node:http';
 import {spawnSync} from 'node:child_process';
-import {mkdtempSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
+import {mkdtempSync,readFileSync,writeFileSync,rmSync,readdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve,relative,sep,extname} from 'node:path';
 import {chromium} from 'playwright';
@@ -26,6 +26,8 @@ const stage=join(dir,'original-t2-agent'),dist=join(dir,'original-one-dist');
 const receipt=join(dir,'one-dist-receipt.json');
 const origin='http://127.0.0.1:18883';
 const serviceId='iwxa.personal-agent.workspace';
+const desktopAgentControlOnly=process.env.IWXA_T3_AGENT_BUILD_PROFILE===
+  'DESKTOP_SIGNED_ONLY';
 const profile={
   schema:'IWXA_AGENT_ORIGINAL_T2_PRODUCT_PROFILE/1',
   productId:'iwxa.personal-agent',serviceId,configVersion:'0.6.0',
@@ -52,7 +54,7 @@ try{
     kernel:'0.3.6',contract:'1.3.0',artifactId});
   const release=await buildOriginalAgentOneDistFromQualifiedKernel({
     qualifiedKernelDist:qualified,agentProfile:input,t3Build:resolve('dist'),
-    outputDir:dist,receiptPath:receipt});
+    outputDir:dist,receiptPath:receipt,desktopAgentControlOnly});
   assert.equal(release.productId,'iwxa.personal-agent');
   assert.equal(release.original_qualified_artifact,artifactId);
   assert.equal(release.original_agent_d6_schema_registered,true);
@@ -60,6 +62,12 @@ try{
   assert.equal(originalReceipt.original_runtime_unchanged,true);
   assert.equal(originalReceipt.original_agent_d6_schema_registered,true);
   assert.equal(originalReceipt.original_qualified_artifact,artifactId);
+  assert.equal(originalReceipt.local_inference_registered,
+    !desktopAgentControlOnly);
+  if(desktopAgentControlOnly){
+    assert.equal(readdirSync(join(dist,'workspace/assets')).some(name=>
+      /^model-worker-[A-Za-z0-9_-]+\.js$/.test(name)),false);
+  }
   assert.equal(originalReceipt.output,dist);
   // Exercise the EXACT build-time CLI consumed by Windows Setup Core,
   // not only a direct in-process function call.
@@ -68,12 +76,15 @@ try{
     resolve('scripts/build-original-agent-one-dist.mjs'),
     '--qualified-kernel-dist',qualified,'--agent-profile',input,
     '--t3-build',resolve('dist'),'--output',cliDist,'--receipt',cliReceipt,
+    ...(desktopAgentControlOnly?['--desktop-agent-control']:[]),
   ],{encoding:'utf8',timeout:45000});
   assert.equal(cli.status,0,
     'Original T2 product builder CLI failed: '+String(cli.stderr).slice(0,350));
   const installed=JSON.parse(cli.stdout);
   assert.equal(installed.original_qualified_artifact,artifactId);
   assert.equal(installed.original_agent_d6_schema_registered,true);
+  assert.equal(JSON.parse(readFileSync(cliReceipt,'utf8'))
+    .local_inference_registered,!desktopAgentControlOnly);
   assert.equal(JSON.parse(readFileSync(cliReceipt,'utf8')).output,cliDist);
   const domain=JSON.parse(readFileSync(join(dist,'_iwxa/domain.json'),'utf8'));
   const config=JSON.parse(readFileSync(

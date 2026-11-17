@@ -188,7 +188,17 @@ function required(root,path){
 export function assembleSignedControlDist({
   t2Dist,t3Build,outputDir,testOnlyUnqualifiedFixture=false,
   installedOriginalAdminD3=false,installedOriginalAgentD6=false,
+  desktopAgentControlOnly=false,
 }={}){
+  // A signed desktop Agent hosts T3 D1/D6 but owns native model execution
+  // independently. An inert optional BLI marker is not permission to ship
+  // a partially compiled WebGPU Worker. This explicit Agent-only profile
+  // remains separate from the standard fail-closed browser BLI profile.
+  if(typeof desktopAgentControlOnly!=="boolean"||
+      (desktopAgentControlOnly&&
+        (!installedOriginalAgentD6||installedOriginalAdminD3||
+         testOnlyUnqualifiedFixture)))
+    fail("DESKTOP_AGENT_SIGNED_CONTROL_PROFILE_INVALID");
   if(typeof installedOriginalAdminD3!=="boolean")
     fail("INSTALLED_ADMIN_D3_FLAG_INVALID");
   if(typeof installedOriginalAgentD6!=="boolean")
@@ -254,7 +264,10 @@ export function assembleSignedControlDist({
   const marks=markers.map(marker=>jsBodies.some(body=>body.includes(marker)));
   const workers=assets.filter(path=>
     /^model-worker-[A-Za-z0-9_-]+\.js$/.test(basename(path)));
-  const localInference=marks.some(Boolean)||workers.length>0;
+  if(desktopAgentControlOnly&&workers.length!==0)
+    fail("DESKTOP_AGENT_WEBGPU_WORKER_FORBIDDEN");
+  const localInference=desktopAgentControlOnly?false:
+    marks.some(Boolean)||workers.length>0;
   if(localInference && (workers.length!==1||marks.some(mark=>!mark)||
       !readFileSync(workers[0],'utf8').includes('IWXA_NETWORK_DENIED_IN_WORKER')))
     fail('LOCAL_INFERENCE_COMPILED_MODULE_INCOMPLETE');
