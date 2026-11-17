@@ -63,7 +63,7 @@
     "personal_agent": {
       "repository": "Faust-S/iwxa-personal-agent",
       "central_branch": "work/2026-11-15-agent-0-6-development",
-      "central_head": "474066b0eaf4c9e92cb55a0e0d09669caf87b083",
+      "central_head": "d4169c0f889f18825a0b33742d2fc87b87a227dc",
       "d6_branch": "work/2026-11-16-agent06-original-t3-result-owner-d6",
       "d6_head": "34d8f1a10b552f1d0c4108e012414648e71ce0a0",
       "level": "SOURCE_CANDIDATE",
@@ -89,10 +89,10 @@
         "scope": "Public Windows installed Explorer/Agent GUI, original T2 One Dist, corporate UI. Real private Ed25519 D6 signed archive/independent Atlas D6 NOT_RUN."
       },
       "current_content_change": {
-        "commit": "474066b0eaf4c9e92cb55a0e0d09669caf87b083",
-        "code_commit": "8e62601096d61e81dc81e9cac19f1db99acfd2a1",
-        "scope": "Original Core selected summary digest and bytes bound to separate D6 Human consent, exact original Exchange content receipt checked before signed .iwxa file save; additional normalized path and distinct portable file proof.",
-        "test_status": "AGENT_SELECTED_SUMMARY_NODE_TEST_SOURCE_CI_44184974066_SUCCESS_AT_592EFE; LATEST_PATH_ADAPTER_474066_SOURCE_CI_PENDING; NATIVE_44184974111_RUNNING_ON_592EFE; ORIGINAL_PRIVATE_ED25519_TO_INDEPENDENT_ATLAS_NOT_RUN",
+        "commit": "d4169c0f889f18825a0b33742d2fc87b87a227dc",
+        "code_commit": "7904df1d96c90f1dcc70a74fdc831a65c424ca9f",
+        "scope": "Exact original Human-accepted Core D6 preview displayed in local Agent UI, one-shot SHA selected consent, native current-Core rereread before original signer, no fallback to Task UI text; content-bearing signed .iwxa save guarded by original signature and bytes",
+        "test_status": "CENTER_SOURCE_44187887843_SUCCESS_EXACT_AGENT_D4169C; INSTALLED_WINDOWS_44187887793_IN_PROGRESS; ORIGINAL_PRIVATE_ED25519_INDEPENDENT_ATLAS_NOT_RUN",
         "public_one_core_pin": "3f91b60c56e34a21ea919a4a2004e31bb5071c60"
       }
     },
@@ -250,7 +250,7 @@
       "date": "2026-11-18",
       "gate": "SOURCE_QUALIFIED_PUBLIC_ONLY__PRIVATE_NATIVE_SIGNED_INSTALL_NOT_ACCEPTED",
       "ownership": {
-        "agent": "474066b0eaf4c9e92cb55a0e0d09669caf87b083",
+        "agent": "d4169c0f889f18825a0b33742d2fc87b87a227dc",
         "original_private_t3": "8bbce1e6fd5bee6832e3933b723ea2a2826e94e0",
         "one_core": "3f91b60c56e34a21ea919a4a2004e31bb5071c60",
         "atlas": "3f84891cdb8e43521d674f3ed930081e0512b27d"
@@ -293,11 +293,11 @@
         "sha": "3f84891cdb8e43521d674f3ed930081e0512b27d"
       },
       "content_consent_and_export_guard": {
-        "status": "AGENT_SELECTED_SUMMARY_SOURCE_QUALIFIED_SIGNED_NATIVE_PRIVATE_HOLD",
+        "status": "SOURCE_QUALIFIED_EXACT_HUMAN_PREVIEW_SHA_NATIVE_INSTALLED_PENDING",
         "original_t3_preflight_fix": "8bbce1e6fd5bee6832e3933b723ea2a2826e94e0",
         "original_t3_scope": "One original recipient-scoped Exchange preflight now evaluates exactly the content-bearing selected-result body that subsequent original signer will sign; PRIVATE source suite NOT_RUN (no private Actions)",
         "agent_consent_and_proof_commit": "592efe4df60f7a65548cfe12e51f054028d759d3",
-        "agent_current_head": "474066b0eaf4c9e92cb55a0e0d09669caf87b083",
+        "agent_current_head": "d4169c0f889f18825a0b33742d2fc87b87a227dc",
         "signed_content_contract": "Installed Agent native worker first reads original Core human-accepted summary SHA+UTF8 length and binds one-shot disclosure to same digest; original Exchange re-verifies signed contents and accepted Core before writing local .iwxa; reference-only historical archive is readable but is NOT passed off as portable content.",
         "agent_source_ci": {
           "id": 44184974066,
@@ -317,7 +317,23 @@
           "center_sha": "61d4958f98de9de6b61bed25e85f1df6641908fe",
           "agent_sha": "592efe4df60f7a65548cfe12e51f054028d759d3"
         },
-        "independent_signed_atlas_result": "NOT_RUN"
+        "independent_signed_atlas_result": "NOT_RUN",
+        "user_visible_original_core_preview": "Exactly source-backed Human-accepted Agent Core summary is displayed for Atlas publication, with SHA-256 and UTF8 length. No Task-card summary substitute. Consent binds selected digest inside original worker before any original Kernel/Exchange write.",
+        "native_prewrite_stale_digest": "DENIED__T3_AGENT_ATLAS_CONSENT_CONTENT_STALE",
+        "source_ci": {
+          "run_id": 44187887843,
+          "conclusion": "SUCCESS",
+          "center_sha": "cf3c868fc06946b70f49780be717bae33379a76e",
+          "agent_sha": "d4169c0f889f18825a0b33742d2fc87b87a227dc",
+          "scope": "Original Agent Human-accepted Core preview, SHA-bound one-shot consent, unchanged Task+WorkRef, signed receipt save and normalized file path; focused Python/Node/TS+Vite source tests. Private issuer test NOT_RUN"
+        },
+        "native_installed_ci": {
+          "run_id": 44187887793,
+          "status": "IN_PROGRESS_AT_OBSERVATION",
+          "center_sha": "cf3c868fc06946b70f49780be717bae33379a76e",
+          "agent_sha": "d4169c0f889f18825a0b33742d2fc87b87a227dc"
+        },
+        "original_private_signed_exchange_ci": "NOT_RUN_NO_PRIVATE_ACTIONS"
       }
     }
   },
@@ -341,12 +357,13 @@
     "D6_original_nested_kernel_csp": "CORE_SOURCE_PASS_NOT_INSTALLED",
     "D6_original_one_dist_setup_materialization": "AGENT_NATIVE_ONE_DIST_44178292091_PASS_SIGNED_PRIVATE_E2E_HOLD",
     "D6_original_product_identity_guard": "INSTALLED_SOURCE_PASS_PRIOR_MODEL_FREE_CANDIDATE",
-    "G4_portable_selected_result_data": "ORIGINAL_SIGNED_CONTENT_SOURCE_STRICT_PASS_PUBLIC_AGENT_TEST_PRIVATE_NATIVE_HOLD",
+    "G4_portable_selected_result_data": "AGENT_EXACT_HUMAN_PREVIEW_SOURCE_44187887843_PASS_PRIVATE_NATIVE_SIGNED_D6_HOLD",
     "D6_original_atlas_ui_kernel_gate": "SOURCE_COMMITTED_NOT_G4_INSTALLED",
     "D6_original_native_model_free_control": "AGENT_NATIVE_GUI_44178292091_PASS_SIGNED_PRIVATE_E2E_HOLD",
     "D6_original_setup_core_06_native_executable": "NOT_BUILT_QUALIFIED"
   },
   "next_critical_path": [
+    "Complete exact pinned Agent D6 installed native Windows #44187887793 and distinguish installed GUI/One Dist from real signed original employee/Atlas handoff.",
     "Atlas 0.9 independent native product installation and its own U05 Store: Windows #44181242347 SUCCESS at 3f84891c. Do NOT count these two product-store cold reopens as independent signed Agent D6 Result acceptance.",
     "Installed Agent 0.6 source a0dc + One Core 3f91 are qualified for native original T2 One Dist via public Center #44178292091. Separately provision REAL original private Ed25519 employee grants, explicitly create original signed T2 Workspace with authorized D1 write and bind ORIGINAL Agent accepted-source/issuer Host, never test-only Kernel.",
     "Send one real Human-accepted Agent Result selected summary -> exact signed original Kernel Object/Event -> original recipient-scoped signed .iwxa using the already existing Exchange and ledger. Prove selected content/hash and one disclosure, original signed receipts, lost-ACK read-only recovery.",
