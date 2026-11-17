@@ -379,6 +379,16 @@ test('new independent employee proof credential is admitted by original signed S
  assert.equal(newState.policy.keys[args.credentialKeyId].subjectId,'person:alice');
  assert.equal(newState.statusFloor['issuer:north'],2);
  assert.equal(digest(newState.policy),admitted.policyDigest);
+ // An authenticated original Kernel Event may add only this single proven
+ // independent employee as a task recipient; never a wildcard or coworker.
+ const resources=newState.policy.authorities['issuer:north'].resources;
+ assert.equal(admitted.recipientResource,'recipient:person:alice');
+ assert.equal(resources.includes('recipient:person:alice'),true);
+ assert.equal(resources.includes('recipient:person:bob'),false);
+ assert.equal(resources.includes('recipient:*'),false);
+ assert.equal(newState.policy.keys[args.credentialKeyId].uses.join(),'PROOF');
+ assert.equal(s.fixture.policy.authorities['issuer:north'].resources
+   .includes('recipient:person:alice'),false);
  await assert.rejects(cold.admitProofCredential(args),
   {code:'T3_ACCESS_PROOF_KEY_ALREADY_PRESENT'});
  const started=await s.owner.begin(s.input(s.alice));
