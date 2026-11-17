@@ -63,7 +63,7 @@
     "personal_agent": {
       "repository": "Faust-S/iwxa-personal-agent",
       "central_branch": "work/2026-11-15-agent-0-6-development",
-      "central_head": "9ab35b584fe9b0ff50c96c7a52b043e28c67d623",
+      "central_head": "94ea62078aa9822bf94e6f64cbeb443077b130ba",
       "d6_branch": "work/2026-11-16-agent06-original-t3-result-owner-d6",
       "d6_head": "34d8f1a10b552f1d0c4108e012414648e71ce0a0",
       "level": "SOURCE_CANDIDATE",
@@ -94,6 +94,30 @@
         "scope": "Exact Core human-accepted preview and one-shot SHA consent; native signed content, normalized file-save receipt. The installed GUI test now waits up to 8s for actual user-typed React UIA ValuePattern rather than rejecting fixed 700ms; no rerender/data changes or surrogate Task writes.",
         "test_status": "EXACT_AGENT_D416_SOURCE_44187887843_PASS; D416_NATIVE_44187887793_FAIL_DRAFT_READBACK; AGENT_9AB_SOURCE_44189399499_IN_PROGRESS_AND_NATIVE_44189399520_IN_PROGRESS; REAL_PRIVATE_ORIGINAL_ED25519_AND_INDEPENDENT_ATLAS_SIGNED_D6_HOLD",
         "public_one_core_pin": "3f91b60c56e34a21ea919a4a2004e31bb5071c60"
+      },
+      "agent06_native_gui_draft_requalification": {
+        "observed_date": "2026-11-18",
+        "agent_code_commit": "1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58",
+        "agent_current_docs_head": "94ea62078aa9822bf94e6f64cbeb443077b130ba",
+        "authorized_public_center_commit": "1134d0176e8b75a763f4584f36cbcd118b2ea4a2",
+        "previous_installed_failure": {
+          "run_id": 44189399520,
+          "status": "FAIL_AFTER_REAL_TAURI_AND_ORIGINAL_ONE_DIST_BUILD",
+          "details": "Native GUI launched, Task field visible/editable, Core draft read-only query CORE_READBACK_NOT_AVAILABLE before cold restart; exact cause not identified; no model task claimed"
+        },
+        "correction": "Only bounded repeated read-only Core draft observation (never retries save), fixed closed-set diagnostic of auth/HTTP/partial autosave with no private text or token in public CI; original Core save/Task/Store unchanged.",
+        "private_source_ci": {
+          "run_id": 44192654811,
+          "status": "SUCCESS",
+          "sha": "1134d0176e8b75a763f4584f36cbcd118b2ea4a2",
+          "details": "Original Task/Result and D6 owner source, independent read-only Core draft tests, TypeScript and Vite, no private uploaded artifacts"
+        },
+        "native_ci": {
+          "run_id": 44192654772,
+          "status": "IN_PROGRESS_AT_OBSERVATION",
+          "sha": "1134d0176e8b75a763f4584f36cbcd118b2ea4a2"
+        },
+        "qualification_boundary": "SOURCE_PASS_ONLY_UNTIL_INSTALLED_NATIVE_COLD_READBACK_AND_REAL_LOCAL_MODEL_RESULT"
       }
     },
     "admin_center": {
@@ -256,7 +280,7 @@
       "date": "2026-11-18",
       "gate": "SOURCE_QUALIFIED_PUBLIC_ONLY__PRIVATE_NATIVE_SIGNED_INSTALL_NOT_ACCEPTED",
       "ownership": {
-        "agent": "9ab35b584fe9b0ff50c96c7a52b043e28c67d623",
+        "agent": "94ea62078aa9822bf94e6f64cbeb443077b130ba",
         "original_private_t3": "8122bba733a4187ee65ce665f7b3d7886a961eae",
         "one_core": "3f91b60c56e34a21ea919a4a2004e31bb5071c60",
         "atlas": "87dc59abe98e85b9fd1f5b606a7d1d31f9f58977"
@@ -349,6 +373,18 @@
           "native_run": 44189399520,
           "status": "IN_PROGRESS_AT_OBSERVATION",
           "detail": "Legacy Agent 0.2 installed GUI witness originally observed draft text only after fixed 700 ms; now observes real already-typed WebView2 UIA value up to 8s without retyping, and public Center reports only fixed failure subcode. GUI validation not waived."
+        },
+        "latest_agent_source_ci": {
+          "run_id": 44192654811,
+          "conclusion": "SUCCESS",
+          "center_sha": "1134d0176e8b75a763f4584f36cbcd118b2ea4a2",
+          "agent_code_sha": "1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58"
+        },
+        "latest_agent_native_ci": {
+          "run_id": 44192654772,
+          "status": "IN_PROGRESS_AT_OBSERVATION",
+          "center_sha": "1134d0176e8b75a763f4584f36cbcd118b2ea4a2",
+          "agent_code_sha": "1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58"
         }
       },
       "independent_signed_file_recipient": {
@@ -371,7 +407,7 @@
         "atlas_windows_ci": {
           "run_id": 44189985500,
           "sha": "87dc59abe98e85b9fd1f5b606a7d1d31f9f58977",
-          "status": "IN_PROGRESS_AT_OBSERVATION"
+          "status": "SUCCESS_INSTALLED_ATLAS_PRODUCT_WITH_ONE_DIST_NO_INDEPENDENT_ED25519_E2E"
         },
         "blocked": "STANDALONE_ORIGINAL_RECIPIENT_NOT_INSTALLED. NO installed original T3 public key/grant/STATUS binding to separate Atlas; no native file-picker UX signed Result fully deployed; no independent signed .iwxa E2E verified; G4 NOT_ACCEPTED.",
         "distinction": "Signed archive verifies original Ed25519 provenance. Without sender Kernel on recipient computer it correctly says originalKernelEventVerified=false. Does not claim original sender T2 event readback.",
