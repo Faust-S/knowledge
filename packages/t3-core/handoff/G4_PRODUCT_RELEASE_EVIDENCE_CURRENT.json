@@ -22,11 +22,11 @@
     "one_core": {
       "repository": "Faust-S/knowledge",
       "branch": "work/2026-11-10-t3-t2-activity-projection",
-      "observed_head": "c171bf8d2a7d7a4ffa068092bd629d059e1f4857",
+      "observed_head": "a73e615a4f67294c4b8b482316e502ac7fa027b5",
       "qualification": {
-        "run_id": 44155065963,
+        "run_id": 44164588690,
         "conclusion": "SUCCESS",
-        "source_pin": "f952f3675559d7a35d9f83b624e33cdefd59a9da",
+        "source_pin": "a73e615a4f67294c4b8b482316e502ac7fa027b5",
         "jobs": {
           "test": "PASS",
           "real_host": "PASS",
@@ -35,7 +35,7 @@
           "native_model": "SKIPPED",
           "metal_webgpu": "SKIPPED"
         },
-        "scope": "Full shared source, original T2 real-host, real signed D1 Windows credential, original product-owned One Dist builder syntax+test-host rejection; no production Agent-qualified One Dist installed with original private signer or Atlas native E2E."
+        "scope": "One inherited T2 0.3.6/1.3.0, real owned Agent T2 product materialization, original One Dist receipt and exact ten-argument CLI, genuine Linux browser Kernel attachment/cold checks; cross-platform Windows BLI npm invocation fixed. Not installed private signer, Agent/Atlas signed E2E, hardware WebGPU."
       },
       "level": "CORE_SOURCE_PASS",
       "notes": "One inherited T2 0.3.6 Runtime Contract 1.3.0; D1/D3/D6/D7 source; Agent-only qualified original T2 One Dist passport with original signed D1 AccessRegistry, original accepted-result schema/Kernel Object/Event and two process-cold source readbacks. This is not an installed independent Agent-to-Atlas signed transfer."
@@ -57,7 +57,7 @@
     "personal_agent": {
       "repository": "Faust-S/iwxa-personal-agent",
       "central_branch": "work/2026-11-15-agent-0-6-development",
-      "central_head": "f44ebe3cc12457740b03a68abe0f08be4fb8b3ce",
+      "central_head": "493d02b20d69c1491f08a9f11130c39be4d5c661",
       "d6_branch": "work/2026-11-16-agent06-original-t3-result-owner-d6",
       "d6_head": "34d8f1a10b552f1d0c4108e012414648e71ce0a0",
       "level": "SOURCE_CANDIDATE",
@@ -69,20 +69,20 @@
       "installed_d6": "NOT_ACCEPTED",
       "release_version_mismatch": "FIXED_IN_AGENT06_DEV_SOURCE: npm, lock, Tauri, Cargo and Cargo.lock all 0.6.0 at 0b0461a5; installed setup version confirmation is pending native qualification; stable Agent 0.5 untouched",
       "latest_source_check": {
-        "run_id": 44156510664,
+        "run_id": 44165213160,
         "conclusion": "SUCCESS",
-        "source_pin": "f44ebe3cc12457740b03a68abe0f08be4fb8b3ce",
-        "scope": "Read-only public Center pinned private Agent source: original Task/Result, D6 proof/recovery/one-dist identity, exact current Core package builder and current UI signed Result reference requiring true attached original Kernel; installed original native T3/independent Atlas NOT_RUN."
+        "source_pin": "493d02b20d69c1491f08a9f11130c39be4d5c661",
+        "scope": "Public Center Windows source read-only Agent source and public Core/Atlas contract tests, original D6 retained, strict original T2 product rights/identity, updated setup scripts and source lock; no installed signed private employee or independent Atlas U05."
       },
       "next_candidate": {
-        "head": "f44ebe3cc12457740b03a68abe0f08be4fb8b3ce",
-        "source_run_id": 44156510664,
+        "head": "493d02b20d69c1491f08a9f11130c39be4d5c661",
+        "source_run_id": 44165213160,
         "source_run_status": "completed",
         "source_run_conclusion": "success",
-        "installed_run_id": 44156510700,
+        "installed_run_id": 44165213093,
         "installed_run_status": "in_progress",
         "installed_run_conclusion": null,
-        "scope": "Exact current Agent: build genuine product-owned One Dist automatically from qualified T2 and compiled signed UI, truthful signed reference-only Atlas UX, native Atlas actions hidden until actual original T2 Kernel attached; source+native Windows CI do not include installed private signer and independent Atlas recipient."
+        "scope": "Latest installed Windows gate builds full genuine original T2 product One Dist from pinned qualified artifact, compiled original T3 BLI and native Agent, then installs same Agent and checks product files. It does not execute original private T3 signer or independently installed Atlas."
       }
     },
     "admin_center": {
@@ -133,25 +133,24 @@
     },
     "original_one_dist_setup": {
       "repository": "Faust-S/iwxa-personal-agent",
-      "source_commit": "f44ebe3cc12457740b03a68abe0f08be4fb8b3ce",
-      "source_status": "ORIGINAL_ONE_CORE_BUILDER_SOURCE_PASS_AGENT_INSTALL_SOURCE_IN_PROGRESS_NOT_G4_INSTALLED",
-      "scope": "Pinned public original One Core f952 builder source CI SUCCESS; private Agent original Setup Core can invoke that existing original qualified assembler from actual product T2 Dist and compiled T3 UI, then package original One Dist and receipt. A user-visible Atlas signed .iwxa is truthfully reference/provenance-only until separate genuine recipient data semantics exist. Corporate signed invitation cannot expose Atlas D6 actions without original native Kernel attached.",
+      "source_commit": "493d02b20d69c1491f08a9f11130c39be4d5c661",
+      "source_status": "GENUINE_ORIGINAL_T2_PRODUCT_BROWSER_QUALIFIED_NATIVE_WINDOWS_IN_PROGRESS",
+      "scope": "Original qualified T2 Kernel 0.3.6 (artifact iwxa-kernel-k036-same-store-history-20261019-qualified.1), Agent-owned iwxa.personal-agent Workspace/service exact product identity and signed T3 compiled UI assembled with the existing original T2/One Core assembler into one dist. Built via exact CLI with original receipt and unchanged Kernel/loader hashes. Browser qualification and CI real-host PASS #44164588690. Existing Agent Setup Core now supports -RequireOriginalT3 and the native acceptance installs same one-dist with original package manifest hashes. Python original T2 product identity and rights guards rechecked before native signed Kernel mount; previous native build failed Windows npm shim, corrected in qualified One Core a73. Installed current native #44165213093 pending.",
       "qualification": {
-        "knowledge_source_run_id": 44155065963,
-        "knowledge_result": "SUCCESS_AT_F952F367",
-        "agent_prior_source_run_id": 44156095377,
-        "agent_prior_source_result": "SUCCESS_AT_AE7E03A9",
-        "agent_prior_windows_run_id": 44154074362,
-        "agent_prior_windows_result": "SUCCESS_AT_D403BDF0_NOT_ORIGINAL_T3",
-        "agent_latest_source_run_id": 44156510664,
-        "agent_latest_source_result": "SUCCESS_AT_F44EBE3C",
-        "agent_latest_native_run_id": 44156510700,
-        "agent_latest_native_result": "IN_PROGRESS_AT_OBSERVATION",
-        "actual_product_qualified_original_t2_input": "NOT_PRODUCED",
-        "actual_original_t3_agent_setup": "NOT_BUILT_INSTALLED",
-        "actual_signed_original_agent_atlas": "NOT_RUN"
+        "knowledge_source_run_id": 44164588690,
+        "knowledge_result": "SUCCESS_AT_A73E615A",
+        "agent_source_run_id": 44165213160,
+        "agent_source_result": "SUCCESS_AT_493D02B2",
+        "previous_windows_real_one_dist_run_id": 44163282899,
+        "previous_windows_real_one_dist_result": "FAIL_ORIGINAL_BLI_WINDOWS_NPM_EXEC",
+        "current_windows_real_one_dist_run_id": 44165213093,
+        "current_windows_real_one_dist_result": "IN_PROGRESS_AT_LAST_OBSERVATION",
+        "actual_qualified_t2_agent_one_dist_browser": "PASS",
+        "actual_original_t3_agent_setup": "PENDING_NATIVE",
+        "actual_signed_original_agent_atlas": "NOT_RUN",
+        "independent_original_atlas_native_cold": "NOT_RUN"
       },
-      "note": "Qualified original One Core builder #44155065963 SUCCESS; final exact private Agent source #44156510664 SUCCESS. General native Windows Agent #44156510700 pending and does not include private original issuer, original product-qualified Agent One Dist or independent installed Atlas. T3_READY=false."
+      "note": "Full source and original T2 real-browser product One Dist test passed. Native Windows will establish whether exact One Dist files reach installed Agent. Corporate original private signer and Atlas independent native U05 remain unqualified. A real .iwxa signed reference/provenance alone does not carry full selected Result text offline."
     },
     "ecosystem_review": {
       "assessment_date": "2026-11-17",
@@ -223,17 +222,17 @@
     "D6_double_cold_qualified_T2_object_event": "CORE_SOURCE_PASS_NOT_INSTALLED_ATLAS",
     "D6_original_signed_atlas_file_save": "SOURCE_IMPLEMENTED_UNQUALIFIED",
     "D6_original_nested_kernel_csp": "CORE_SOURCE_PASS_NOT_INSTALLED",
-    "D6_original_one_dist_setup_materialization": "ONE_CORE_SOURCE_PASS_AGENT_INSTALLED_PRODUCTION_HOLD",
-    "D6_original_product_identity_guard": "SOURCE_PASS_NOT_INSTALLED",
+    "D6_original_one_dist_setup_materialization": "ORIGINAL_PRODUCT_CORE_BROWSER_PASS_NATIVE_WINDOWS_PENDING",
+    "D6_original_product_identity_guard": "SOURCE_PASS_NATIVE_PENDING",
     "G4_portable_selected_result_data": "NOT_PROVEN_REFERENCE_ONLY",
     "D6_original_atlas_ui_kernel_gate": "SOURCE_COMMITTED_NOT_G4_INSTALLED"
   },
   "next_critical_path": [
-    "Materialize genuine, qualified, product-owned original T2 domain One Dist input for iwxa.personal-agent using the accepted T2 factory, not integration.workspace.iwxa.test, then compile current original signed T3 UI from pinned One Core f952.",
-    "Run existing Agent Setup with -RequireOriginalT3 and native input pair, verify generated One Dist original materializer receipt, immutable T2 Kernel and installed source hashes in a genuine Windows installation.",
-    "Attach genuine original corporate employee D1 READ/WRITE and native Ed25519 D6 publisher, Human-accept a real Agent Result, sign existing selective .iwxa and read back original Kernel Object/Event and Exchange receipt.",
-    "Define and implement legitimate separate recipient semantics: currently signed .iwxa is a reference/provenance carrier, not portable selected Result data; independently installed Atlas 0.9 must verify existing original signed Exchange, use its own U05 Tauri CAS, and cold read twice, or feature must remain reference-only.",
-    "Then qualify installed Admin D3 ACCEPT then distinct APPLY, separate Publisher PERSON D7 STATUS/revoke, hardware WebGPU D5 offline/cold, one consistent G4 snapshot; no private Actions."
+    "Complete current same-revision native Windows #44165213093: original qualified Kernel archive -> Agent-owned product One Dist and genuine original receipt -> installed native Agent 0.6 with signed Host bytes, no private issuer; identify any installation error.",
+    "Provision original T2 corporate Workspace using separate explicit signed D1 createWorkspace ACTION before original D6 preflight; original publisher deliberately refuses absent workspace, never auto-creates under a read grant.",
+    "Install/attach actual private original T3 employee signer and confirm signed D1 READ/WRITE + real Human-accepted Agent Result -> original Kernel Object/Event -> original signed iwxa.atlas .iwxa and durable Exchange/ledger receipt without replay on lost ACK.",
+    "Have separately installed Atlas 0.9 verify original signed recipient bytes and persist through Atlas own native U05 with two independent cold reads; signed reference-only profile is not a portable full selected-result transfer.",
+    "Then separately qualify installed Admin Center D3 independent employee ACCEPT/APPLY, Publisher PERSON D7 STATUS/revoke, D5 hardware WebGPU cold offline, joint G4. Never private Actions."
   ],
   "transport_profile_rules": {
     "original_T2_Workspace_iwxa": "Normal T2 Exchange importPreview/importCommit with original T2 Workspace/Package manifest",
