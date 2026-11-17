@@ -1,5 +1,19 @@
 # IWXA T3 G4: единая миграция разработки в новый чат
 
+## Актуальный инкремент G4: оригинальный T2 Agent без браузерного WebLLM (17.11.2026)
+
+**Результат One Core:** `Faust-S/knowledge@40dc328172ea1403ca43ced53e4c539832f34d47`, [CI №44171450736](https://github.com/Faust-S/knowledge/actions/runs/44171450736) **SUCCESS**. Один наследуемый original T2 Kernel 0.3.6 / Runtime Contract 1.3.0 проверен в двух продуктах: подписанный Agent 0.6 Control-only без `model-worker-*`, и отдельно полный браузерный T3 WebLLM/BLI D5. Исполняемый Kernel/Host/Store остаётся один. Опция `--desktop-agent-control` допустима только в оригинальном Agent D6; исходный browser assembler продолжает отказ при неполной BLI-сборке.
+
+**Подключение Agent:** `Faust-S/iwxa-personal-agent@369ae2e03e2fc8ba0b34c00abebc22b69a9d7de2` исходно квалифицирован [публичным CI №44172017172](https://github.com/Faust-S/Center/actions/runs/44172017172) SUCCESS, а [native Windows №44172017268](https://github.com/Faust-S/Center/actions/runs/44172017268) оставался IN_PROGRESS при фиксации. Сборщик Agent и public Center используют один SHA One Core. Последний Agent HEAD `a55efb59ad688bbe52deb0c16dc7078238d809bf` содержит более поздний источник Setup Core, пока не квалифицирован как установленный.
+
+**Найден и устранён выпускной блокер версии:** `tools/build_setup_core_windows_candidate.ps1` ошибочно требовал `0.5.0` в конце квалификации Agent 0.6. Теперь финальная сверка `desktop/package.json`, Tauri и Cargo требует одну `0.6.0` (Agent `a55efb59`). Исторические приёмки стабильной 0.5 не изменены.
+
+**Различать доказательства:** [native Windows №44167212079](https://github.com/Faust-S/Center/actions/runs/44167212079) SUCCESS на *предыдущем* Agent с BLI доказал оригинальный T2 One Dist внутри установленного Explorer/Tauri и холодный GUI; это **не доказательство нового model-free пакета и не квалификация отдельного Setup Core 0.6 EXE**. Предыдущее #44169279872 FAIL именно по `T3_D1_DIST_LOCAL_INFERENCE_COMPILED_MODULE_INCOMPLETE`. One Core `40dc` устранил это без ослабления браузерного D5.
+
+**Следующая реальная функция:** после завершения Native #44172017268 собрать и квалифицировать настоящий Setup Core 0.6 EXE из **того же** package с model-free original One Dist; не публиковать приватный Agent EXE/логи/токены. Затем отдельно установленный корпоративный оригинальный T3 сотрудник с действительными D1 READ/WRITE и отдельным Human-approved `createWorkspace` должен выполнить Agent Task → Human-accepted Result → оригинальный T2 Object/Event → подписанный `.iwxa` → отдельно установленный Atlas 0.9 с собственным Tauri U05 CAS и двумя холодными чтениями. Reference-only `.iwxa` не выдавать за перенос содержимого Result.
+
+**Релизные статусы:** `T3_READY=false`, `G4=NOT_ACCEPTED`; приватные GitHub Actions запрещены; стабильные версии не изменять; Codex исключительно для недоступной установленной GUI-проверки и независимой финальной приёмки.
+
 ## Актуальный исполняемый этап: оригинальный продуктовый Agent One Dist
 
 **Это текущая точка работы, все ранние SHA ниже исторические.** Единственный общий T3: `Faust-S/knowledge/packages/t3-core`; наследуемый T2 `Faust-S/T2@main` Kernel 0.3.6 / Runtime Contract 1.3.0; закрытый `Faust-S/T3` лишь original signed employee/Exchange, не второй Core. `T3_READY=false`, `G4=NOT_ACCEPTED`.
