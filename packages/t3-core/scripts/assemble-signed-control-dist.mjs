@@ -130,14 +130,19 @@ function registerInstalledAgentAcceptedResult({domain,config,passport}){
     passport.permissions?.objects?.read,passport.permissions?.objects?.write];
   if(rows.some(row=>!Array.isArray(row)))
     fail('ORIGINAL_AGENT_D6_SCHEMA_PERMISSIONS_REQUIRED');
-  const existing=passport.schemas[AGENT_D6_RESULT_SCHEMA];
-  if(existing!==undefined&&
-     JSON.stringify(existing)!==JSON.stringify(AGENT_D6_RESULT_DECLARATION))
-    fail('ORIGINAL_AGENT_D6_SCHEMA_CONFLICT');
-  for(const row of rows)if(!row.includes(AGENT_D6_RESULT_SCHEMA))
-    row.push(AGENT_D6_RESULT_SCHEMA);
-  if(existing===undefined)
-    passport.schemas[AGENT_D6_RESULT_SCHEMA]=AGENT_D6_RESULT_DECLARATION;
+  // Reuse the ONE original D1 signed AccessRegistry schema already used
+  // by installed Admin D3, not a second IAM/registry implementation.
+  for(const [schema,declaration] of [
+    [AGENT_D6_RESULT_SCHEMA,AGENT_D6_RESULT_DECLARATION],
+    [ADMIN_ACCESS_SCHEMA,ADMIN_ACCESS_DECLARATION],
+  ]){
+    const existing=passport.schemas[schema];
+    if(existing!==undefined&&
+       JSON.stringify(existing)!==JSON.stringify(declaration))
+      fail('ORIGINAL_AGENT_D6_SCHEMA_CONFLICT');
+    for(const row of rows)if(!row.includes(schema))row.push(schema);
+    if(existing===undefined)passport.schemas[schema]=declaration;
+  }
   const operations=passport.permissions.operations;
   if(operations!==undefined&&(!Array.isArray(operations)||
       operations.length>1||
