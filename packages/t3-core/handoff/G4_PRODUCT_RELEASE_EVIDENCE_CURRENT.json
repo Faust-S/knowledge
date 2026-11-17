@@ -246,12 +246,23 @@
       "note": "Public Center Windows #44178292091 SUCCESS builds true original T2 One Dist alongside Agent native GUI but does not independently exercise the private original signed issuer or install a separate full Setup Core 0.6 release executable.",
       "setup_exe_g4": {
         "source_branch": "Faust-S/Center@work/2026-11-17-agent06-d6-signed-receipt-source-ci",
-        "center_sha": "4e1c0fa4d1ddc5b1845656dd459d6eabc5f255ec",
+        "center_sha": "d52b7e853a0d0ce746d80c16b6cabc82b39665f3",
         "agent_sha": "1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58",
         "run_id": 44197772534,
-        "status": "IN_PROGRESS_AT_OBSERVATION",
+        "status": "GENUINE_SETUP_CORE_EXE_BUILD_PASS_SILENT_INSTALL_REQUALIFICATION_PENDING",
         "scope": "From SAME installed Agent QA package (qualified original T2 0.3.6 One Dist): compile existing native C# Setup Core GUI EXE, bind exact package SHA/version/source, invoke actual --install-silent with distinct isolated roots/qualification registry, verify installed original One Dist and native EXE byte SHA. Never upload private artifacts.",
-        "claim_boundary": "Full Setup Core native EXE result PENDING. Even PASS does NOT imply Repair/Rollback or private signer E2E."
+        "claim_boundary": "Full Setup Core native EXE result PENDING. Even PASS does NOT imply Repair/Rollback or private signer E2E.",
+        "initial_build_run": {
+          "run_id": 44197772534,
+          "conclusion": "FAILURE",
+          "stage": "GENUINE_SETUP_CORE_EXE_COMPILED_PASS__SILENT_QUALIFICATION_INSTALL_FAILED",
+          "admissibility": "NOT_ACCEPTED_FULL_SETUP"
+        },
+        "current_run": {
+          "run_id": 44198894362,
+          "status": "IN_PROGRESS_AT_OBSERVATION",
+          "scope": "Repeat compiled Setup Core + exact One Dist native installation, isolate all extracted temp under QA, report only fixed finite private failure stage; if verified, actual EXE install PASS but Repair/Rollback not run."
+        }
       }
     },
     "ecosystem_review": {
@@ -503,7 +514,7 @@
     "G4_portable_selected_result_data": "ATLAS_NATIVE_STANDALONE_AND_SIGNED_UI_744_SOURCE_PASS_PRIVATE_SIGNED_E2E_HOLD",
     "D6_original_atlas_ui_kernel_gate": "SIGNED_FILE_UI_SOURCE_744_PASS_NATIVE_ATLAS_PRODUCT_PASS_ORIGINAL_SIGNED_RECIPIENT_HOLD",
     "D6_original_native_model_free_control": "AGENT_NATIVE_GUI_44178292091_PASS_SIGNED_PRIVATE_E2E_HOLD",
-    "D6_original_setup_core_06_native_executable": "NATIVE_SETUP_EXE_INSTALL_44197772534_RUNNING_EXACT_ONE_DIST"
+    "D6_original_setup_core_06_native_executable": "REAL_EXE_BUILD_PASS_NATIVE_SILENT_INSTALL_44197772534_FAIL_RECHECK_44198894362_RUNNING"
   },
   "next_critical_path": [
     "After failed installed Agent #44187887793 DRAFT_READBACK, qualify exact original Agent 9ab35b GUI witness with bounded observation #44189399520, while #44189399499 verifies source; no silent PASS.",
