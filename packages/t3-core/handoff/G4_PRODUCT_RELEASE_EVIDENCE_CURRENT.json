@@ -1,8 +1,8 @@
 {
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
-  "snapshot_date": "2026-11-17",
+  "snapshot_date": "2026-11-18",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
-  "currentness": "SNAPSHOT_2026_11_17__ALWAYS_RECHECK_LIVE_SHA_AND_CI",
+  "currentness": "SNAPSHOT_2026_11_18__CHECK_EXACT_CI_AND_LIVE_SHA",
   "policy": {
     "t3_one_core": "Faust-S/knowledge/packages/t3-core",
     "t2_normative": "Faust-S/T2@main",
@@ -75,7 +75,7 @@
     "personal_agent": {
       "repository": "Faust-S/iwxa-personal-agent",
       "central_branch": "work/2026-11-15-agent-0-6-development",
-      "central_head": "94ea62078aa9822bf94e6f64cbeb443077b130ba",
+      "central_head": "1bf0847ed069c86fe6a11380537535f0ce6c0b8e",
       "d6_branch": "work/2026-11-16-agent06-original-t3-result-owner-d6",
       "d6_head": "34d8f1a10b552f1d0c4108e012414648e71ce0a0",
       "level": "SOURCE_CANDIDATE",
@@ -132,6 +132,44 @@
           "scope": "True installed Tauri Agent, original qualified T2 One Dist, GUI interaction/draft save, actual Core readback and cold reopen PASS; no original private signed issuer or Atlas result E2E"
         },
         "qualification_boundary": "SOURCE_PASS_ONLY_UNTIL_INSTALLED_NATIVE_COLD_READBACK_AND_REAL_LOCAL_MODEL_RESULT"
+      },
+      "setup_core_06_native_receipt_path_fix": {
+        "status": "SOURCE_CI_PASS_REAL_SETUP_INSTALL_NOT_QUALIFIED",
+        "source_sha": "1bf0847ed069c86fe6a11380537535f0ce6c0b8e",
+        "ci_source": {
+          "run_id": 44202756377,
+          "conclusion": "SUCCESS",
+          "center_sha": "cbbf2fbc6343cc029758bd3d91cf4dec1f9a77c3"
+        },
+        "product_corrections": [
+          "Program.cs existing native C# WINEXE assembly/version metadata 0.4.0 changed to Agent product 0.6.0, preserving original product owner",
+          "Existing native C# InstalledRuntimeExecutable now reads exact valid Windows 3-part managed-runtime/CPYTHON/python.exe receipt path from original Python stage_capsule_bytes, plus old qualified version/profile 5-part path",
+          "Malformed length, traversal, absolute paths, root escape and reparse-point paths remain denied; source guard and compiled PE version check added in Center"
+        ],
+        "previous_native_setup_failures": [
+          {
+            "run_id": 44198894362,
+            "conclusion": "FAILURE",
+            "stage": "NATIVE_SETUP_PACKAGE_INSTALL"
+          },
+          {
+            "run_id": 44200117095,
+            "conclusion": "FAILURE",
+            "stage": "NATIVE_SETUP_PACKAGE_INSTALL"
+          },
+          {
+            "run_id": 44201616599,
+            "conclusion": "FAILURE_BEFORE_SETUP",
+            "stage": "WINDOWS_GUI_UIA_UNAVAILABLE"
+          }
+        ],
+        "current_native": {
+          "run_id": 44202756369,
+          "status": "IN_PROGRESS_AT_OBSERVATION",
+          "center_sha": "cbbf2fbc6343cc029758bd3d91cf4dec1f9a77c3",
+          "agent_sha": "1bf0847ed069c86fe6a11380537535f0ce6c0b8e"
+        },
+        "release_boundary": "Do not claim installed separate 0.6 Setup Core EXE/Repair/Rollback until exact native CI SUCCESS. Existing installed Agent/Atlas independent product CI PASS does not substitute original Ed25519 Agent->Atlas signed D6."
       }
     },
     "admin_center": {
@@ -246,10 +284,10 @@
       "note": "Public Center Windows #44178292091 SUCCESS builds true original T2 One Dist alongside Agent native GUI but does not independently exercise the private original signed issuer or install a separate full Setup Core 0.6 release executable.",
       "setup_exe_g4": {
         "source_branch": "Faust-S/Center@work/2026-11-17-agent06-d6-signed-receipt-source-ci",
-        "center_sha": "d52b7e853a0d0ce746d80c16b6cabc82b39665f3",
-        "agent_sha": "1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58",
-        "run_id": 44197772534,
-        "status": "GENUINE_SETUP_CORE_EXE_BUILD_PASS_SILENT_INSTALL_REQUALIFICATION_PENDING",
+        "center_sha": "cbbf2fbc6343cc029758bd3d91cf4dec1f9a77c3",
+        "agent_sha": "1bf0847ed069c86fe6a11380537535f0ce6c0b8e",
+        "run_id": 44202756369,
+        "status": "IN_PROGRESS_AT_OBSERVATION_EXACT_SOURCE_FIXES",
         "scope": "From SAME installed Agent QA package (qualified original T2 0.3.6 One Dist): compile existing native C# Setup Core GUI EXE, bind exact package SHA/version/source, invoke actual --install-silent with distinct isolated roots/qualification registry, verify installed original One Dist and native EXE byte SHA. Never upload private artifacts.",
         "claim_boundary": "Full Setup Core native EXE result PENDING. Even PASS does NOT imply Repair/Rollback or private signer E2E.",
         "initial_build_run": {
@@ -262,7 +300,13 @@
           "run_id": 44198894362,
           "status": "IN_PROGRESS_AT_OBSERVATION",
           "scope": "Repeat compiled Setup Core + exact One Dist native installation, isolate all extracted temp under QA, report only fixed finite private failure stage; if verified, actual EXE install PASS but Repair/Rollback not run."
-        }
+        },
+        "source_ci": {
+          "id": 44202756377,
+          "conclusion": "SUCCESS",
+          "head_sha": "cbbf2fbc6343cc029758bd3d91cf4dec1f9a77c3"
+        },
+        "previous_stages": "Tauri Agent and One Dist PASS; standalone Setup C# WINEXE build PASS; original native .NET installed Python receipt shape mismatch under investigation, shortened 3-segment path fixed at Agent source 1bf0847ed069c86fe6a11380537535f0ce6c0b8e"
       }
     },
     "ecosystem_review": {
