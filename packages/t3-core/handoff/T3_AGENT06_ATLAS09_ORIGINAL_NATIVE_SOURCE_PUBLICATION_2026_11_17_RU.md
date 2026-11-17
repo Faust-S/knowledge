@@ -163,3 +163,32 @@ Private original signer tests remain NOT_RUN due existing Center read
 token failure (HTTP 403 for Faust-S/T3).
 
 D6_INSTALLED=NOT_ACCEPTED; T3_READY=false.
+
+
+## 17.11.2026: Agent accepted-result consumer and desktop controls
+
+The private Agent source owner consumer now verifies all ORIGINAL
+recipient-specific Exchange evidence, including signer, bytes, manifest,
+disclosureScope and selectedSourceObjectRef; its UI exposes an explicit
+original Atlas WorkRef publication consent plus READ-ONLY recovery through
+the EXISTING InteractionSurface. No second Kernel/Task/Exchange, no Agent
+signer, no user-supplied native receipts. Original T3 signed source must
+still be injected by its installed trusted owner.
+
+Source-qualified exact private Agent:
+\`Faust-S/iwxa-personal-agent@3e353ba7a4394c45dc0d1b1c2ea560d54cae9fe1\`.
+Public temporary Windows Center source CI
+[#43985596193](https://github.com/Faust-S/Center/actions/runs/43985596193)
+SUCCESS (original Core Task/Result; signed Exchange evidence; DENIED vs
+unknown IPC; Agent desktop Atlas UI InteractionSurface; React TypeScript/Vite).
+Public Center native installed Tauri GUI workflow
+[#43985856212](https://github.com/Faust-S/Center/actions/runs/43985856212)
+was started on the same private Agent code. Its result must be checked
+separately; no native qualification is asserted by the source CI.
+Temporary private runner checkouts and logs are removed; no artifacts.
+
+Native ORIGINAL T3 signed issuer Exchange tests remain NOT_RUN because
+public Center read token cannot check out private T3 (HTTP 403). The
+existing private original Host composition is not yet installed in the
+Agent and native Atlas's two cold readbacks are not qualified.
+D6_END_TO_END=NOT_ACCEPTED; T3_READY=false.
