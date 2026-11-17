@@ -128,30 +128,30 @@ jobs:
           cp release/raw/README-RU.md release/windows/
           cp tools/bypass-manager/MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md release/windows/
           cp tools/bypass-manager/VALIDATION-MATRIX-2026-11-16-RU.md release/windows/
-          (cd release/windows && zip -q -9 ../Bypass-Manager-0.3-Alpha-UX2-Windows-x64.zip Bypass-Manager.exe README-RU.md MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md VALIDATION-MATRIX-2026-11-16-RU.md)
-          git archive --format zip --prefix=bypass-manager-0.3-ux2-source/ -o release/Bypass-Manager-0.3-Alpha-UX2-Source.zip HEAD:tools/bypass-manager
+          (cd release/windows && zip -q -9 ../Bypass-Manager-0.3-Alpha-DPI-Evidence-Windows-x64.zip Bypass-Manager.exe README-RU.md MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md VALIDATION-MATRIX-2026-11-16-RU.md)
+          git archive --format zip --prefix=bypass-manager-0.3-dpi-evidence-source/ -o release/Bypass-Manager-0.3-Alpha-DPI-Evidence-Source.zip HEAD:tools/bypass-manager
           cp tools/bypass-manager/MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md release/
           cp tools/bypass-manager/VALIDATION-MATRIX-2026-11-16-RU.md release/
-          (cd release && sha256sum Bypass-Manager-0.3-Alpha-UX2-Windows-x64.zip Bypass-Manager-0.3-Alpha-UX2-Source.zip MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md VALIDATION-MATRIX-2026-11-16-RU.md > SHA256SUMS.txt)
+          (cd release && sha256sum Bypass-Manager-0.3-Alpha-DPI-Evidence-Windows-x64.zip Bypass-Manager-0.3-Alpha-DPI-Evidence-Source.zip MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md VALIDATION-MATRIX-2026-11-16-RU.md > SHA256SUMS.txt)
       - name: Create immutable prerelease
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG=bypass-manager-0.3-alpha-ux2-2026-11-17
+          TAG=bypass-manager-0.3-alpha-dpi-evidence-2026-11-17
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release already exists, refusing to replace files"
             exit 1
           fi
           gh release create "$TAG" \
-            release/Bypass-Manager-0.3-Alpha-UX2-Windows-x64.zip \
-            release/Bypass-Manager-0.3-Alpha-UX2-Source.zip \
+            release/Bypass-Manager-0.3-Alpha-DPI-Evidence-Windows-x64.zip \
+            release/Bypass-Manager-0.3-Alpha-DPI-Evidence-Source.zip \
             release/MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md \
             release/VALIDATION-MATRIX-2026-11-16-RU.md \
             release/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Bypass Manager 0.3 Alpha | responsive product UX | Windows CI" \
-            --notes "Unsigned Alpha from the exact matching Windows CI: simplified main screen, direct current AmneziaWG/VLESS choice, cancellable prompts, last tested DPI profile and cautiously matched before/after impact, stale speed/IP invalidation, historical-only support bundles. Engineering diagnostics remain under Details and Manual settings. Original winws2 Lua/WinDivert is dry-run qualified; Linux race and Windows 2022/2025 matrix run separately. Amnezia Premium is external and not included. REAL_NETWORK_NOT_ACCEPTED: actual VPN handshake, per-application public egress and 15-minute real video still require field qualification." \
+            --title "Bypass Manager 0.3 Alpha | live DPI evidence and consented recovery | Windows CI" \
+            --notes "Unsigned Windows Alpha built and checked on the exact CI commit. Live Win32 guide status after every recorded event; explicit consent to continue if external HTTPS services fail while VPN adapter traffic is seen; provisional availability comparison requires matching CDN and payload size, actual OWN_DPI_STARTED event, observed VPN route/adapter flow and two complete DPI downloads. The default UI is simplified and protocol selection is separate for VLESS and AmneziaWG. Windows 2022/2025 GUI and original winws2 Lua/WinDivert dry-run, Linux race/stress and regression tests run in Actions. This does not prove the filter caused the change, actual VPN handshake, per-application egress, or 15-minute real streaming. Amnezia Premium is external and not included. REAL_NETWORK_NOT_ACCEPTED." \
             --prerelease
