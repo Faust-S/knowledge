@@ -41,11 +41,17 @@
     "private_original_d6": {
       "repository": "Faust-S/T3",
       "branch": "work/2026-11-17-t3-original-agent-atlas-d6-publication-ledger",
-      "observed_head": "2e36d696d689513ade5c5e1f0438eda5451072a7",
+      "observed_head": "19746616c0ba78bd6d483142a5ed4aa1986601c1",
       "level": "SOURCE_CANDIDATE",
-      "native_test_status": "NOT_RUN_AS_PART_OF_FULL_INSTALLED_G4",
+      "native_test_status": "NOT_RUN_LOCAL_CHECKOUT_UNAVAILABLE",
       "blocker": "Original private Node/Ed25519/ledger native test checkout via public Center encountered 403; private Actions forbidden",
-      "scope": "Existing issuer, Reconciliation ledger, signed selected Atlas Exchange, pre-dispatch original disclosure port"
+      "scope": "Existing original signer/Reconciliation/Exchange and source Control multi-organization D6 native owner-port delegation (selected original membership, context epoch fence); no installed Kernel mount",
+      "last_change": {
+        "commit": "19746616c0ba78bd6d483142a5ed4aa1986601c1",
+        "functional_commit": "c961bf2f58b37bfb1066fe1ca355dde5f980a881",
+        "scope": "Bind original Atlas publication ledger, signed employee authority and Exchange to selected original multi-organization Control; stale native ports denied after context switch",
+        "qualification": "SOURCE_CHANGE_UNEXECUTED; private Actions prohibited; container GitHub checkout inaccessible"
+      }
     },
     "personal_agent": {
       "repository": "Faust-S/iwxa-personal-agent",
