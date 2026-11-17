@@ -1,5 +1,24 @@
 # IWXA T3 G4: единая миграция разработки в новый чат
 
+## Системный аудит и продуктивная доработка 17.11.2026 (приоритетная сводка)
+
+**Релизная реальность:** One Core `Faust-S/knowledge/packages/t3-core` остаётся единственным исполняемым общим T3. Нормативный `Faust-S/T2@main` неизменен. Privileged original employee/Ed25519/Exchange остаются у закрытого владельца, без приватных Actions. Agent 0.6, Admin 0.3, Atlas 0.9, Publisher 0.5 сохраняют собственные модели и нативный Store; Activity и сайты развиваются отдельными предметными потоками. `G4=NOT_ACCEPTED`, `T3_READY=false`.
+
+**Верифицированные исправления продукта:**
+
+1. `Faust-S/iwxa-personal-agent@d403bdf009b21e3b62c13910be2f1d5c71dd8c7b`: исходный квалифицированный T2 One Dist не может быть подменён реальным, но **испытательным** `integration.workspace.iwxa.test`; требуются `domain_id=iwxa.personal-agent`, согласованные service/passport, Runtime 0.3.6/Contract 1.3.0. Релизный флаг `-RequireOriginalT3` в штатном Windows Setup Core отклоняет G4-сборку без трёх исходных проверяемых inputs. Источник: [Center source CI №44154074283](https://github.com/Faust-S/Center/actions/runs/44154074283) **SUCCESS** на точном Agent HEAD. [Native Windows №44154074362](https://github.com/Faust-S/Center/actions/runs/44154074362) **SUCCESS** на той же ревизии, но это обычная нативная сборка, НЕ запуск установленного Original T3 D6.
+2. `Faust-S/knowledge`: новый `packages/t3-core/scripts/build-original-agent-one-dist.mjs` вызывает **существующий** `assembleSignedControlDist` с original T2 qualified artifact и `installedOriginalAgentD6`, фиксирует исходную квитанцию и не допускает тестовый Host. Входы: `--t2-dist <original-qualified-agent-product-dist> --t3-build <compiled-t3-ui> --output <new-one-dist-outside-repos> --receipt <new-receipt-outside-repos>`. Этот маршрут пока **SOURCE CANDIDATE**; source CI на новый код необходимо проверить по live SHA. Он НЕ изготовляет квалифицированный T2 product input из фиктивных данных.
+3. `knowledge/AGENTS.md` больше не закрепляет устаревший SHA как действующую вершину: читает live release ledger и текущие CI. На `Faust-S/iwxa@main` реестр `coordination/repositories.json` содержит 9 записей; полная карта 42 — в отдельной `knowledge/2026-10-02-system-atlas`. Не брать неполный `main` за актуальную полную архитектуру и не менять его без отдельной синхронизации владельца.
+
+**Нерешённая архитектурная проблема, не заменять тестами:** публичный D6 sender и оригинальный signed carrier переносят в основном *ссылку, происхождение и квитанцию* выбранного Result. Это ещё НЕ доказывает автономную передачу **содержимого выбранной части Result** в независимо установленный Atlas после отключения исходного Agent. Для сценария «перенести данные» нужен оригинальный scoped recipient import/verify выбранной проекции, без новой подписи и без нового формата `.iwxa`; для сценария «передать только ссылку» интерфейс и статус обязаны называть его ссылкой. Atlas standalone пока не доказал независимый signed native receive; его отдельный native U05 CAS нельзя осуществлять из Agent Tauri.
+
+**Релизный путь:**
+- Получить реальный product-owned `iwxa.personal-agent` T2 Dist из существующей нормативной Factory, затем собрать его штатным `build-original-agent-one-dist.mjs`, передать dist/receipt в существующий Agent Setup Core с `-RequireOriginalT3`. Никакого тестового integration Host.
+- Установить Agent и оригинального private employee/issuer, подтвердить T2 Kernel WebView2 relay, оригинальные signed D1 DATA + ACTION и реальный Human-accepted Result.
+- Передать оригинальный подписанный `.iwxa` на **отдельно установленный Atlas 0.9**: определить и квалифицировать фактическую содержательную семантику передаваемого Result, отдельный original recipient verification и `atlas_open/atlas_commit` только из Atlas Tauri; два независимых холодных readback.
+- Только после нативного D6 закрыть Admin D3, Publisher D7, аппаратный D5 offline/cold и общий G4. Домены последовательно, один сайт/домен за раз. Исходные CI =/= product/G4.
+
+
 Дата: **17.11.2026**. Статус **SOURCE_G4_CANDIDATE, INSTALLED_G4_NOT_ACCEPTED, T3_READY=false**.
 
 ## Актуальный инкремент установленного D6: original Kernel origin + One Dist Setup (17.11.2026)
