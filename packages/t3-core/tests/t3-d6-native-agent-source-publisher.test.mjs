@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {createTrustedAgentAtlasSourcePublisher}
+import {createTrustedAgentAtlasSourcePublisher,prepareOriginalAgentAtlasGraph}
   from "../src/t3/native-agent-atlas-source-publisher.mjs";
 
 // Host ports in this test stand in for the ORIGINAL installed owners.
@@ -27,7 +27,7 @@ function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
   lostFinalize=false,consent=true,permitted=true,
   unverifiedExchange=false,corruptKernelRead=false,
   competingReservation=false,workspaceReady=true,
-  selectedSignedPorts=false,missingSignedWrite=false}={}){
+  selectedSignedPorts=false,missingSignedWrite=false,useDefaultGraph=false}={}){
  const rows=new Map(),objects=new Map(),events=[],signedSelections=[];
  let commits=0,exports=0,reserves=0,finalizations=0,consents=0;
  let grant=permitted;
@@ -159,7 +159,8 @@ function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
  });
  const create=()=>createTrustedAgentAtlasSourcePublisher({
    kernel,access,originalLedger,originalExchange,acceptedSource,
-   originalEmployee,prepareOriginalGraph,
+   originalEmployee,
+   ...(useDefaultGraph?{}:{prepareOriginalGraph}),
    confirmDisclosure:async()=>{consents++;return consent;},
    isHostActive:()=>true,
    trustedSignedKernelForOperation:selectedSignedPorts
@@ -195,6 +196,50 @@ test("native T3 source publisher binds accepted Agent source to original Kernel 
  assert.equal((await owner.publish_accepted({...f.binding,operationId:f.operationId})).status,
   "COMMITTED");
  assert.deepEqual(f.counts,{commits:1,exports:1,reserves:1,finalizations:1,consents:1});
+});
+test("native original T2 graph command is deterministic, minimized and bound to accepted Agent Result",()=>{
+ const accepted={...binding,acceptanceKind:"HUMAN_ACCEPTED_DRAFT",readOnly:true};
+ const args={operationId,binding,accepted,workspace_id:"ws:org"};
+ const first=prepareOriginalAgentAtlasGraph(args);
+ const second=prepareOriginalAgentAtlasGraph(structuredClone(args));
+ assert.deepEqual(first,second);
+ assert.equal(first.workspace_id,"ws:org");
+ assert.equal(first.idempotency_key,operationId.slice("agent:t3:atlas:".length));
+ assert.equal(first.object.object_id,
+   "agent-atlas-result:"+first.idempotency_key);
+ assert.equal(first.object.schema_id,"iwxa.agent.accepted-result");
+ assert.equal(first.object.base_revision,0);
+ assert.equal(first.event.event_type,"iwxa.agent.result.published");
+ assert.deepEqual(first.relation_puts,[]);
+ assert.deepEqual(first.relation_deletes,[]);
+ assert.equal(first.object.data.acceptedDigest,binding.acceptedDigest);
+ assert.deepEqual(first.object.data.workRef,binding.workRef);
+ assert.equal(JSON.stringify(first).includes("model_response_text"),false);
+ for(const altered of [
+   {...accepted,acceptedDigest:"0".repeat(64)},
+   {...accepted,readOnly:false},
+   {...accepted,acceptanceKind:"NOT_HUMAN_ACCEPTED"},
+   {...accepted,workRef:{...binding.workRef,revision:"3"}},
+ ]){
+   assert.throws(()=>prepareOriginalAgentAtlasGraph({
+     ...args,accepted:altered,
+   }),{code:"T3_D6_ORIGINAL_GRAPH_ACCEPTED_SOURCE_REQUIRED"});
+ }
+ assert.throws(()=>prepareOriginalAgentAtlasGraph({
+   ...args,operationId:"agent:t3:atlas:"+"0".repeat(64),
+ }),{code:"T3_D6_ORIGINAL_GRAPH_OPERATION_INVALID"});
+});
+test("installed original source uses the existing T2 graph builder without a new Host factory",async()=>{
+ const f=fixture({useDefaultGraph:true});
+ const owner=f.create();
+ const result=await owner.publish_accepted({...f.binding,operationId:f.operationId});
+ assert.equal(result.status,"COMMITTED");
+ assert.equal(result.sourceObjectRef.object_id,
+   "agent-atlas-result:"+f.operationId.slice("agent:t3:atlas:".length));
+ assert.deepEqual(f.counts,{commits:1,exports:1,reserves:1,
+   finalizations:1,consents:1});
+ assert.equal((await owner.read_publication(f.operationId,f.binding)).status,
+   "COMMITTED");
 });
 test("separate human denial never reaches original ledger, Kernel or Exchange",async()=>{
  const f=fixture({consent:false});
