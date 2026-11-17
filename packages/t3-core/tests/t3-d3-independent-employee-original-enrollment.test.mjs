@@ -588,10 +588,29 @@ test('original installed Admin graph-only Kernel admits two independently signed
    });
    assert.equal(recovery.state,'ORIGINAL_GRANTS_ACTIVE');
    assert.equal(digest(recovery.originalEnrollment),digest(originalSigned.enrollment));
+   // The REAL installed Admin Kernel is graph-only. Grant a distinct
+   // manager-held DATA export for this same independently proved worker
+   // using its signed STATUS and original atomic graph, then cold-read it.
+   const grantArgs={organizationId:'org:north',
+     employeePersonId:who.record.subjectId,enrollmentId:challenge.enrollmentId,
+     managerPersonId:'person:operator',managerGrantId:'grant:admin-north'};
+   const data=await s.owner.issueTaskGrant(grantArgs);
+   assert.equal(data.state,'ORIGINAL_MANAGER_TASK_DATA_ACTIVE');
+   assert.equal(data.originalReadback,true);
+   assert.equal(data.recipientId,who.record.subjectId);
+   assert.deepEqual(data.grant.payload.resources,[
+     'workspace:ws:north','subject:org:north',
+     'recipient:'+who.record.subjectId,'field:task','operation:UPSERT']);
+   const readAfterGraph=await cold.readState();
+   assert.equal(readAfterGraph.grants[data.grantId].payload.holderId,'person:operator');
+   const same=await s.owner.readTaskGrant(grantArgs);
+   assert.equal(same.grantId,data.grantId);
+   await assert.rejects(s.owner.issueTaskGrant(grantArgs),
+     {code:'T3_EMPLOYEE_TASK_GRANT_EXISTS_USE_READBACK'});
  }
- assert.equal(s.graphCalls.length,5);
- assert.equal(s.kernel.calls.length,5);
- assert.equal(new Set(s.graphCalls.map(row=>row.idempotency_key)).size,5);
- assert.equal((await s.registry.readState()).statusFloor['issuer:north'],5);
+ assert.equal(s.graphCalls.length,7);
+ assert.equal(s.kernel.calls.length,7);
+ assert.equal(new Set(s.graphCalls.map(row=>row.idempotency_key)).size,7);
+ assert.equal((await s.registry.readState()).statusFloor['issuer:north'],7);
 });
 
