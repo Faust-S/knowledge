@@ -91,7 +91,7 @@
       "current_content_change": {
         "commit": "a0dc9b3423c3388f111194a7bedd1af37077f096",
         "scope": "Original Core-verified Human-accepted selected summary <=64 KiB and SHA-256 for native original T3; Agent UI displays exact summary for separate permission, states that signing is not encryption",
-        "test_status": "PUBLIC_CENTER_AGENT_SOURCE_RUN_44178292113_IN_PROGRESS_AT_OBSERVATION; PUBLIC_CENTER_AGENT_INSTALLED_RUN_44178292091_IN_PROGRESS_AT_OBSERVATION; PRIVATE_T3_ED25519_NOT_RUN",
+        "test_status": "PUBLIC_CENTER_SOURCE_CI_44178292113_SUCCESS_AT_AGENT_A0DC_AND_CORE_3F91; AGENT_NATIVE_44178292091_PENDING_AT_OBSERVATION; ORIGINAL_PRIVATE_SIGNED_ED25519_NOT_RUN",
         "code_commit": "ec6c9f3f4e0230957b8113619eff8dedbb9ea177",
         "public_one_core_pin": "3f91b60c56e34a21ea919a4a2004e31bb5071c60"
       }
@@ -251,8 +251,9 @@
       "do_not_accept": "Do not infer independent installed signed file verification, two physical Atlas cold process opens, native PERSON D7 or G4 acceptance from public source tests",
       "center_cross_product_source_ci": {
         "run_id": 44178292113,
-        "status": "IN_PROGRESS_AT_OBSERVATION",
-        "head_sha": "439c805fbc2c4a362335fcb8585d4fe7dcc0c290"
+        "status": "SUCCESS",
+        "head_sha": "439c805fbc2c4a362335fcb8585d4fe7dcc0c290",
+        "scope": "Pinned Agent a0dc + One Core 3f91 + Atlas 7454: private Agent original Task/Result and D6 source regression PASS; original public T3+Atlas contract PASS; PowerShell Setup parse, Source lock and Agent corporate TypeScript/Vite PASS. Private original T3 issuer and independent installed Atlas NOT_RUN."
       },
       "center_agent_installed_native_ci": {
         "run_id": 44178292091,
