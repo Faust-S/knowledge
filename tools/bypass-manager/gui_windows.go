@@ -522,7 +522,10 @@ func (ui *managerUI) applyVPNStatus() {
 		winSetText(ui.vpnLine, "VPN: \u0441\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u043d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u043e")
 	}
 	ui.updateOwnedState()
-	if !ui.running { ui.updateProductSummary() }
+	ui.mu.Lock()
+        measuring := ui.liveBusy
+        ui.mu.Unlock()
+        if !ui.running && !measuring {ui.updateProductSummary()}
 	ui.invalidateOldPublicView(s)
 }
 
