@@ -385,6 +385,11 @@ jobs:
         run: node --test packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs
       - name: Windows original signed Control HTTP transport (Node host only)
         run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs
+      - name: Compile original inherited BLI/WebLLM Host on Windows before native Agent install
+        working-directory: packages/t3-core
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          node scripts/qualify-bli-inherited-host.mjs
   metal-webgpu:
     # A macOS runner was not allocated at all in #43233365753 (0 steps,
     # runner_id=0; cancelled after 15 min). Keep Linux product CI reliable.
