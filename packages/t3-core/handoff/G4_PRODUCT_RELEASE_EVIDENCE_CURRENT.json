@@ -22,9 +22,9 @@
     "one_core": {
       "repository": "Faust-S/knowledge",
       "branch": "work/2026-11-10-t3-t2-activity-projection",
-      "observed_head": "b9c087c159c44024c3b9d4496d107a94134ac3e4",
+      "observed_head": "19d0fa975ef1ed69473ae95ddeaa6b21354dda98",
       "qualification": {
-        "run_id": 44089282076,
+        "run_id": 44091249718,
         "conclusion": "SUCCESS",
         "jobs": {
           "test": "PASS",
@@ -36,7 +36,7 @@
         }
       },
       "level": "CORE_SOURCE_PASS",
-      "notes": "Main D1/D3 retained; native D6 merged with original disclosure, atomic fresh reservation, READ/WRITE operation selection and original readback"
+      "notes": "Main D1/D3 retained; native D6 merged with original disclosure, atomic fresh reservation, READ/WRITE operation selection and original readback; original deterministic T2 accepted Result graph builder is now the default, no second graph mapper"
     },
     "private_original_d6": {
       "repository": "Faust-S/T3",
@@ -113,7 +113,9 @@
     "installed_employee_d1_d3": "HOLD",
     "installed_agent_atlas_d6": "HOLD",
     "installed_publisher_d7": "HOLD",
-    "cross_product_G4": "NOT_ACCEPTED"
+    "cross_product_G4": "NOT_ACCEPTED",
+    "D6_original_T2_graph_command": "CORE_SOURCE_PASS",
+    "installed_original_accepted_result_schema": "HOLD"
   },
   "next_critical_path": [
     "Run authorized original private T3 signed issuer/Exchange/Reconciliation native tests; DO NOT run private Actions",
@@ -121,5 +123,12 @@
     "Installed Admin independent employee Task -> signed Agent Result -> original T3 Exchange to iwxa.atlas -> Atlas own U05 Store -> two cold readbacks",
     "Native Publisher issuer/license/status/revoke readbacks and independent installed consumer",
     "Only then evaluate G4 gate; never interpret 403 or source-only CI as product defect"
-  ]
+  ],
+  "transport_profile_rules": {
+    "original_T2_Workspace_iwxa": "Normal T2 Exchange importPreview/importCommit with original T2 Workspace/Package manifest",
+    "original_T3_signed_Reconciliation_iwxa": "Original private Reconciliation/inspectReconciliationIwxa technical/reconciliation/envelope.json; requires recipient-specific signed owner; NOT an implicit standard T2 importCommit",
+    "age_wrapped_iwxa": "Native age envelope decrypted by an authorized recipient before handing original inner .iwxa to its owning importer",
+    "Atlas_D6_iwxa": "Original T3 signed selected Result profile addressed to iwxa.atlas; verifySelectedResult + native Atlas Store CAS, not standard T2 importCommit",
+    "single_extension": "One existing .iwxa transport, different verified profiles; never create a second .iwxa codec"
+  }
 }

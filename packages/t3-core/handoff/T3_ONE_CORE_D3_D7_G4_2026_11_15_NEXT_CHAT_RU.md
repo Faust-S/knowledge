@@ -1,5 +1,11 @@
 # IWXA T3 One Core: передача D3/D7 -> G4 в новый чат
 
+## Последний кодовый рубеж D6, 17.11.2026
+
+Единый One Core `19d0fa975ef1ed69473ae95ddeaa6b21354dda98`, CI [№44091249718](https://github.com/Faust-S/knowledge/actions/runs/44091249718) **SUCCESS**: test, real-host, windows-credential. Второй двухродительский merge дополнил ранее объединенный D6 встроенным `prepareOriginalAgentAtlasGraph` с original T2 Runtime 1.3.0 `commitObjectGraph`, exact Result/Task/WorkRef, `iwxa.agent.result.published`. Сохранились original pre-dispatch inspection, atomic fresh reservation, separate native READ/WRITE grants, signed original read_receipt; D1/D3 untouched. Private original T3 Exchange `f13ff6f5` реализует signed `inspectSelectedDisclosure`, но native private tests и установленная установка не приняты. Следующий эффект должен быть на установленном одном Host, не в новом Core/сервисе. См. `G4_PRODUCT_RELEASE_EVIDENCE_CURRENT.json` и `T3_IWXA_CARRIER_PROFILE_ROUTING_2026_11_17_RU.md`.
+
+---
+
 ## Актуализация 17.11.2026 — сквозной релизный реестр и интегрированная D6
 
 Главный источник точного наблюдённого состояния: `G4_PRODUCT_RELEASE_EVIDENCE_CURRENT.json`. Исполняемый T3 `b9c087c1` объединил D6 с D1/D3, CI №44089282076 SUCCESS (Node/real-host/Windows credential; аппаратный D5 и age в этом прогоне не повторялись). В приватном оригинальном D6 `f13ff6f5` реализована native `inspectSelectedDisclosure` до какого-либо резервирования/подписания, с проверкой отдельного подписанного recipient `iwxa.atlas` и изолированного профиля; private native tests NOT_RUN, установленный продукт HOLD. Приоритет G4: живой подписанный Employee Task→Agent accepted Result→original T3→Atlas 0.9 native Store→две холодные проверки. Не делать второй Kernel, signer, Store, Exchange или отдельный T3 EXE. Раздельные границы CORE_SOURCE_PASS, NATIVE_OWNER_PASS, INSTALLED_PRODUCT_PASS, CROSS_PRODUCT_G4_PASS не подменяют друг друга.
