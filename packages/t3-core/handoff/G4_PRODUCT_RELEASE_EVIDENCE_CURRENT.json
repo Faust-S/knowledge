@@ -56,7 +56,7 @@
     "personal_agent": {
       "repository": "Faust-S/iwxa-personal-agent",
       "central_branch": "work/2026-11-15-agent-0-6-development",
-      "central_head": "2d4ece9aa5b11bf5e1cbd4b60fcb85c6d3d03d6f",
+      "central_head": "c2fe4f07e1de5238823dc6dca7d52d418205ab4b",
       "d6_branch": "work/2026-11-16-agent06-original-t3-result-owner-d6",
       "d6_head": "34d8f1a10b552f1d0c4108e012414648e71ce0a0",
       "level": "SOURCE_CANDIDATE",
@@ -68,16 +68,16 @@
       "installed_d6": "NOT_ACCEPTED",
       "release_version_mismatch": "FIXED_IN_AGENT06_DEV_SOURCE: npm, lock, Tauri, Cargo and Cargo.lock all 0.6.0 at 0b0461a5; installed setup version confirmation is pending native qualification; stable Agent 0.5 untouched",
       "latest_source_check": {
-        "run_id": 44148670398,
+        "run_id": 44151060269,
         "conclusion": "SUCCESS",
-        "source_pin": "4a6324af8a158093fa804a47ca8ee822dc4d565c",
-        "scope": "Existing read-only private Agent checkout on public Center runner; Python Result, source package and original one-dist origin test at previous Agent source. No private signer or bytes uploaded."
+        "source_pin": "6164e43c96d8985e56b7c010506dc1f11222e974",
+        "scope": "Ephemeral read-only private Agent on public Center: original D6 Task/Result/Exchange/ACK tests; installed pinned T2 manifest origin and qualified One Dist payload source tests, native Agent GUI not part of this source run."
       },
       "next_candidate": {
-        "head": "2d4ece9aa5b11bf5e1cbd4b60fcb85c6d3d03d6f",
-        "source_run_id": 44149805261,
-        "installed_run_id": 44149805360,
-        "scope": "Current exact Agent 0.6 (native original one-dist packager + qualified T2 witness + Setup Core propagation), source/native Windows CI running at observation; runtime G4 original private signer mounted E2E NOT_RUN."
+        "head": "c2fe4f07e1de5238823dc6dca7d52d418205ab4b",
+        "source_run_id": null,
+        "installed_run_id": null,
+        "scope": "Unqualified later fixes: exact original T2 qualified artifact identity; clean pinned One Core git tree; receipt SHA-256 verification in staged Setup Core; current Windows source/native CI not yet run on this SHA."
       }
     },
     "admin_center": {
@@ -128,19 +128,21 @@
     },
     "original_one_dist_setup": {
       "repository": "Faust-S/iwxa-personal-agent",
-      "source_commit": "2d4ece9aa5b11bf5e1cbd4b60fcb85c6d3d03d6f",
-      "source_status": "IMPLEMENTED_UNQUALIFIED",
-      "scope": "Existing Agent Setup Core package can optionally carry original publicly qualified One Core and Agent-enabled one inherited T2 dist via three explicit build inputs; materializer receipt with original loader and Runtime 0.3.6 SHA-256 is mandatory; original private signer and employee credentials never bundled; runtime auto-discovers only package-owned qualified sources and uses inherited dist-pinned Kernel origin with precise nested CSP.",
+      "source_commit": "c2fe4f07e1de5238823dc6dca7d52d418205ab4b",
+      "source_status": "IMPLEMENTED_SOURCE_AWAITING_CURRENT_CI_AND_REAL_INSTALL",
+      "scope": "Existing Agent Windows Setup Core optional build input trio: pinned public One Core checkout plus original T2 Agent-enabled one dist and original One Core materializer witness; verifies source Git clean, exact original qualified artifactId, unchanged original T2 Kernel 0.3.6/loader SHA-256, selected corporate schema and receipt-backed stage file hashes; runtime derives original Kernel origin from inherited dist manifest rather than Agent port. No private T3 signer packaged.",
       "qualification": {
         "knowledge_source_run_id": 44146898558,
         "knowledge_result": "SUCCESS",
-        "agent_source_run_id": 44149805261,
-        "agent_installed_baseline_run_id": 44149805360,
-        "agent_current_result": "PENDING",
+        "agent_source_run_id": 44151060269,
+        "agent_source_result": "SUCCESS_AT_6164E43C_BEFORE_STRICT_ARTIFACT_AND_STAGE_HASH",
+        "agent_installed_baseline_run_id": 44145398792,
+        "agent_baseline_result": "SUCCESS_PREVIOUS_SOURCE",
+        "agent_current_source_result": "NOT_RUN_AT_C2FE4F07",
         "actual_qualified_t2_agent_one_dist_package": "NOT_BUILT_INSTALLED",
         "independent_original_atlas_e2e": "NOT_RUN"
       },
-      "note": "Optional build inputs currently do not prove that the native Setup Core candidate was built with them. G4 remains HOLD until an installed package manifest records t3_original_one_dist_included=true and the original signed Agent->T2->Atlas route is verified."
+      "note": "Strictly optional Setup build arguments must be actually supplied with real qualified original T2 materializer receipt; absent inputs do NOT materialize T3. Existing Windows baseline CI lacks private signer and original real installed Atlas D6; G4 remains HOLD."
     }
   },
   "accepted_gates": {
