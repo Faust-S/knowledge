@@ -605,6 +605,9 @@ export function createOriginalEmployeeEnrollmentOwner({
     check(readback.state==='ORIGINAL_MANAGER_TASK_DATA_ACTIVE'&&
       readback.grantId===grantId&&readback.statusSequence===sequence,
       'T3_EMPLOYEE_TASK_GRANT_ORIGINAL_READBACK_UNKNOWN');
+    // Another DIFFERENT employee can now be served by this same Host.
+    // The same enrollment is still protected by original saved grant history.
+    taskGrantAttempted=false;
     return Object.freeze({...readback,kernelReceipt,
       taskSigned:false,taskDelivered:false});
   }
