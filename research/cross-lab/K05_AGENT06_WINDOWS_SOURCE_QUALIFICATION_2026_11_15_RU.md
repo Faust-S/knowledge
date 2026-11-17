@@ -176,3 +176,17 @@ Next practical owner workflow:
 [Center installed #43779612658](https://github.com/Faust-S/Center/actions/runs/43779612658) на этом exact SHA уже прошёл checkout и исходную проверку владельцев; установленное исполнение и K05 GUI на момент данной записи `IN_PROGRESS`. Артефакты публичного source CI, нового installed CI и предыдущего #43772246827 проверены через Actions API: **0 uploaded artifacts** в каждом. Приватные workflows не запускались.
 
 `K05_SOURCE_WINDOWS=PASS`, `K05_PACKAGE_COLD_CORE=PASS`, `K05_INSTALLED_EXACT_TASK_UIA=IN_PROGRESS`, `REAL_EFFICIENCY=NOT_MEASURABLE`, `PRODUCT_ACCEPTED=false`.
+
+## 17.11: installed K03 flake подтверждён, уточнение ModelProviderPort и интеграционный барьер
+
+Последний установленный прогон до текущих исправлений, [Center #43779612658](https://github.com/Faust-S/Center/actions/runs/43779612658), private Agent `6b9be470`: Tauri, ZIP, original Setup Core и локальная установка PASS, но K03 после исходного `TASK_ACCEPTED` дал `K03_TASK_EXECUTE=FAIL`; первоначально сохранённый original scheduler state=`PAUSED`, Task=`awaiting_result`, `error_code=OTHER_REDACTED`. Это не K05 GUI ошибка и не разрешение безусловно повторять Task.
+
+Сверка исходных ModelProviderPort и existing `BasicGGUF` показала, что многие их штатные, не содержащие данных коды отсутствовали в K03 allowlist (`PORT_UNAVAILABLE`, `PORT_PROTOCOL_ERROR`, `basic_runtime_timeout`, `basic_runtime_generation_failed`, `warm_engine_generation_failed` и т.д.). Без сырого stderr и содержимого модели опубликован диагностический Agent [`22d36bb`](https://github.com/Faust-S/iwxa-personal-agent/commit/22d36bb2060d05afe9653f4703fe0af723f9da7d): расширены только source-reviewed имена отказов и перечисление `error_family`. Никаких повторных model invocations, изменений Task/Review/Result, прав или K05 comparator. Public Center native + source закреплены на exact SHA в [`b66dacff`](https://github.com/Faust-S/Center/commit/b66dacff7ae3d8f4e633ab6907a09364a275a1a6).
+
+Новый исходный Windows [#44105022007](https://github.com/Faust-S/Center/actions/runs/44105022007): SUCCESS, Python Agent/K05 74/74, packaging 21/21, packaged cold Core 1/1 (0 SKIP), UI/TypeScript/Vite и Windows native UIA syntax PASS. Exact installed [#44105022163](https://github.com/Faust-S/Center/actions/runs/44105022163) запущен; финальный native K03/K05 статус не заявлен.
+
+Дополнительная проверка `Faust-S/iwxa-personal-agent@work/2026-11-16-agent06-original-t3-result-owner-d6`: эта центральная ветка и K05 diverged (в K05 ahead 69 / behind 109 на момент проверки), source bridge `runtime/public_k05/agent06_effectiveness_bridge.py` и K05 экран в центральном D6 отсутствуют. Запрещено merge всей K05 ветки, только адресная портировка изменений без регресса D3/D6/T3.
+
+Для точной передачи опубликован публичный [K05_AGENT06_INTEGRATION_GATE_2026_11_17_RU.md](https://github.com/Faust-S/knowledge/blob/work/2026-11-15-agent06-effectiveness-evaluation/research/cross-lab/K05_AGENT06_INTEGRATION_GATE_2026_11_17_RU.md) с порогами source/installed, no-wholesale-merge и настоящей оценкой двух разных исполнителей.
+
+Статус: `K05_SOURCE_INTEGRATION_CANDIDATE=true`, `K05_INSTALLED_STABLE=false`, `REAL_EFFECTIVENESS=NOT_MEASURABLE`, `PRODUCT_ACCEPTED=false`.
