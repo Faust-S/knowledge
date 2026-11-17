@@ -28,8 +28,16 @@ const shaGitBlob=bytes=>createHash("sha1")
 const temp=mkdtempSync(join(tmpdir(),"iwxa-t3-bli1-source-"));
 const candidate=join(temp,"source");
 mkdirSync(candidate);
-const safeRun=(args)=>execFileSync("npm",args,{cwd:core,stdio:"inherit",
-  env:{...process.env,CI:"true"}});
+// Windows cannot reliably exec a .cmd shim as a native executable with
+// execFileSync. Use the existing OS command interpreter only for this fixed,
+// first-party npm build argv; Linux keeps its direct npm execution. Nothing
+// here executes an imported package, signed archive or user-provided command.
+const safeRun=args=>{
+  const win=process.platform==="win32";
+  return execFileSync(win?"cmd.exe":"npm",
+    win?["/d","/s","/c","npm",...args]:args,
+    {cwd:core,stdio:"inherit",env:{...process.env,CI:"true"}});
+};
 try {
   for(const file of pin.files){
     const basename=file.file.split("/").at(-1);
