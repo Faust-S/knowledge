@@ -452,7 +452,7 @@ test('manager receives only original signed DATA export for independently enroll
   timeAssurance:'LOCAL_BEST_EFFORT'});
  assert.equal(forbidden.allowed,false);
  await assert.rejects(s.owner.issueTaskGrant(grantArgs),
-  {code:'T3_EMPLOYEE_TASK_GRANT_OUTCOME_UNKNOWN_READBACK'});
+  {code:'T3_EMPLOYEE_TASK_GRANT_EXISTS_USE_READBACK'});
  await assert.rejects(s.owner.readTaskGrant({...grantArgs,
    employeePersonId:'person:bob'}));
  assert.equal(s.kernel.calls.length,4);
