@@ -30,6 +30,22 @@ func guidePlan() []GuideVariant {
 	}
 }
 
+// The user may already be connected via VLESS; never force an AWG pass first
+// or pretend the selected protocol was independently read from Amnezia.
+func guidePlanFor(selected string) []GuideVariant {
+ all:=guidePlan()
+ switch selected {
+ case guideAWG:
+  return all // AWG control first; VLESS is a separately confirmed fallback
+ case guideVLESS:
+  result:=make([]GuideVariant,0,5)
+  for _,v:=range all {if v.Protocol==guideVLESS {result=append(result,v)}}
+  return result
+ default:
+  return nil
+ }
+}
+
 // A field from an old Amnezia session is NOT evidence for a current endpoint.
 // It must match the selected transport and receive a separate human confirmation.
 func guideEndpointApplicable(c Config, protocol string) bool {

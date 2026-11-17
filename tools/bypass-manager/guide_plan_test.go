@@ -51,3 +51,11 @@ func TestGuideBaselineDoesNotUseAmbiguousConnectedAdapter(t *testing.T) {
 		t.Fatal("clean disconnected observation")
 	}
 }
+
+func TestGuideRespectsAlreadyConnectedVLESS(t *testing.T) {
+ p:=guidePlanFor(guideVLESS)
+ if len(p)!=5 || p[0].Protocol!=guideVLESS || p[0].Profile!="NONE" {t.Fatalf("VLESS first: %+v",p)}
+ for _,variant:=range p {if variant.Protocol!=guideVLESS {t.Fatal("AWG injected into VLESS-only plan")}}
+ if p:=guidePlanFor(guideAWG);len(p)!=8 || p[0].Protocol!=guideAWG {t.Fatal(p)}
+ if p:=guidePlanFor("OTHER");len(p)!=0 {t.Fatal("unknown protocol accepted")}
+}

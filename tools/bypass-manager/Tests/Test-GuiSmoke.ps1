@@ -66,6 +66,28 @@ for($round=1;$round -le 3;$round++) {
     if([BypassGuiSmokeNative]::IsWindowVisible($advancedField) -or -not [BypassGuiSmokeNative]::IsWindowVisible($log)) {throw 'Manual settings did not close'}
     [void][BypassGuiSmokeNative]::SendMessage($details,[uint32]0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
     if([BypassGuiSmokeNative]::IsWindowVisible($log) -or [BypassGuiSmokeNative]::IsWindowVisible($diag)) {throw 'Details did not collapse'}
+    # Primary action waits for a protocol choice; no modal dialog or
+    # network/WinDivert operation is needed before the user chooses.
+    $guideButton=[BypassGuiSmokeNative]::GetDlgItem($handle,2011)
+    $stopButton=[BypassGuiSmokeNative]::GetDlgItem($handle,2003)
+    $awgButton=[BypassGuiSmokeNative]::GetDlgItem($handle,2023)
+    $vlessButton=[BypassGuiSmokeNative]::GetDlgItem($handle,2024)
+    [void][BypassGuiSmokeNative]::SendMessage($guideButton,[uint32]0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
+    $shown=$false
+    $deadline=(Get-Date).AddSeconds(10)
+    while((Get-Date) -lt $deadline) {
+      if([BypassGuiSmokeNative]::IsWindowVisible($awgButton) -and [BypassGuiSmokeNative]::IsWindowVisible($vlessButton) -and [BypassGuiSmokeNative]::IsWindowVisible($stopButton)) {$shown=$true;break}
+      Start-Sleep -Milliseconds 100
+    }
+    if(-not $shown) {throw 'Protocol chooser did not appear in the main window'}
+    [void][BypassGuiSmokeNative]::SendMessage($stopButton,[uint32]0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
+    $released=$false
+    $stopDeadline=(Get-Date).AddSeconds(10)
+    while((Get-Date) -lt $stopDeadline) {
+      if(-not [BypassGuiSmokeNative]::IsWindowVisible($awgButton) -and -not [BypassGuiSmokeNative]::IsWindowVisible($vlessButton) -and -not [BypassGuiSmokeNative]::IsWindowVisible($stopButton)) {$released=$true;break}
+      Start-Sleep -Milliseconds 100
+    }
+    if(-not $released) {throw 'Stop failed to release protocol chooser'}
     Write-Host "PASS GUI $round/3: product summary, hidden diagnostics, manual fields and restored history"
     if(-not $proc.CloseMainWindow()) {throw "GUI refused WM_CLOSE on iteration $round"}
     if(-not $proc.WaitForExit(7000)) {throw "GUI did not close after WM_CLOSE on iteration $round"}

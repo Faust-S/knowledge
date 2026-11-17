@@ -11,6 +11,36 @@ import (
 // The only way to continue is an explicit click in the main window.
 const guideUserActionTimeout = 3 * time.Minute
 
+// Both answer buttons select the currently active Amnezia protocol. A user
+// choice is not native proof; the program never reads a private VPN profile.
+func (ui *managerUI) guideChooseProtocol(ctx context.Context) string {
+ ui.guideInstruction("Проверка загрузит данные с внешних HTTPS-сервисов, которые увидят ваш IP. Выберите текущий протокол Amnezia Premium: AmneziaWG или VLESS. Настройки и ключи VPN не читаются.")
+ response:=make(chan bool,1)
+ ui.mu.Lock()
+ if ui.guidePrompt!=nil {ui.mu.Unlock();return ""}
+ ui.guidePrompt=response
+ ui.guidePromptMode="PROTOCOL"
+ ui.mu.Unlock()
+ post(ui.hwnd,wmAppGuidePrompt)
+ outcome:=waitGuideResponse(ctx,response,guideUserActionTimeout)
+ ui.mu.Lock()
+ if ui.guidePrompt==response {ui.guidePrompt=nil}
+ ui.guidePromptMode=""
+ ui.mu.Unlock()
+ post(ui.hwnd,wmAppGuidePrompt)
+ switch outcome {
+ case guidePromptConfirmed:
+  ui.guideInstruction("Пользователь выбрал AmneziaWG; протокол не проверен через API.")
+  return guideAWG
+ case guidePromptDeclined:
+  ui.guideInstruction("Пользователь выбрал VLESS; начну с текущего протокола, не переключая AmneziaWG.")
+  return guideVLESS
+ default:
+  ui.guideInstruction("Выбор протокола отменён; испытания не запускались.")
+  return ""
+ }
+}
+
 func (ui *managerUI) guideAsk(ctx context.Context, message string) bool {
 	ui.guideInstruction(message)
 	response := make(chan bool, 1)
@@ -21,6 +51,7 @@ func (ui *managerUI) guideAsk(ctx context.Context, message string) bool {
 		return false
 	}
 	ui.guidePrompt = response
+	ui.guidePromptMode = "CONFIRM"
 	ui.mu.Unlock()
 	post(ui.hwnd, wmAppGuidePrompt)
 	outcome := waitGuideResponse(ctx, response, guideUserActionTimeout)
@@ -28,6 +59,7 @@ func (ui *managerUI) guideAsk(ctx context.Context, message string) bool {
 	if ui.guidePrompt == response {
 		ui.guidePrompt = nil
 	}
+	ui.guidePromptMode = ""
 	ui.mu.Unlock()
 	post(ui.hwnd, wmAppGuidePrompt)
 	switch outcome {
@@ -65,6 +97,7 @@ func (ui *managerUI) answerGuidePrompt(accept bool) {
 func (ui *managerUI) refreshGuidePromptControls() {
 	ui.mu.Lock()
 	pending := ui.guidePrompt != nil
+	mode := ui.guidePromptMode
 	step := ui.guideStep
 	ui.mu.Unlock()
 	visibility := uintptr(0)
@@ -74,9 +107,19 @@ func (ui *managerUI) refreshGuidePromptControls() {
 	procShow.Call(ui.guideConfirm, visibility)
 	procShow.Call(ui.guideSkip, visibility)
 	if visibility != 0 {
-		winSetText(ui.guideLine, "Сделайте действие в Amnezia по инструкции в журнале, затем нажмите «Готово».")
+        if mode == "PROTOCOL" {
+            winSetText(ui.guideConfirm,"AmneziaWG")
+            winSetText(ui.guideSkip,"VLESS")
+            winSetText(ui.guideLine,"Выберите протокол, который сейчас включён в Amnezia Premium.")
+        } else {
+            winSetText(ui.guideConfirm,"Готово")
+            winSetText(ui.guideSkip,"Нет / пропустить")
+            winSetText(ui.guideLine,"Выполните указанное действие в Amnezia, затем подтвердите его здесь.")
+        }
 		ui.setStatus("Ожидаю подтверждения в этом окне (не более 3 минут). «Остановить» доступно.")
 	} else {
+        winSetText(ui.guideConfirm,"Готово")
+        winSetText(ui.guideSkip,"Нет / пропустить")
 		winSetText(ui.guideLine, step)
 		if ui.guiding && ui.running && !ui.closing {
 			ui.setStatus("Мастер выполняет проверки. Остановить можно в любой момент.")

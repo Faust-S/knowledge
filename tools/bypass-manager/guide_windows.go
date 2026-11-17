@@ -25,17 +25,26 @@ func (ui *managerUI) startGuide() {
 	if ui.running {
 		return
 	}
-	if winMessageBox(ui.hwnd, "Мастер проверит AmneziaWG, затем при неудаче VLESS; для подтверждённых серверов предложит автоматический подбор DPI. Протокол и подключение в Amnezia меняете только вы по инструкции. Проверка скачает тестовые HTTPS-данные, сервисы увидят ваш выходной IP. Продолжить?", "Последовательный подбор", 0x24) != 6 {
-		return
-	}
+
 	ctx, cancel := context.WithCancel(ui.lifetimeCtx)
 	ui.cancel = cancel
 	ui.guiding = true
 	ui.toggleRun(true)
-	ui.setStatus("Автоподбор по этапам: AmneziaWG -> VLESS. Остановить можно в любой момент.")
+	ui.setStatus("Выберите используемый протокол. Остановить можно в любой момент.")
 	ui.guideInstruction("Начинаю последовательную диагностику. Amnezia управляется отдельно; реальные VPN-ключи не читаю.")
 	cfg := ui.guideCurrentConfig()
-	go func() { defer cancel(); defer post(ui.hwnd, wmAppDone); ui.runGuide(ctx, cfg) }()
+	go func() {
+ defer cancel()
+ defer post(ui.hwnd,wmAppDone)
+ selected:=ui.guideChooseProtocol(ctx)
+ if selected=="" {
+  _=saveJSON(filepath.Join(ui.home,"results","latest-guide.json"),GuideReport{
+   SchemaVersion:"0.3.2",StartedUTC:utc(),CompletedUTC:utc(),
+   State:"CANCELLED",AdviceCode:"NO_PROTOCOL_SELECTED"})
+  return
+ }
+ ui.runGuide(ctx,cfg,selected)
+}()
 }
 
 func (ui *managerUI) guideObserve(ctx context.Context, m *Manager, wait time.Duration, notify func(string)) (VPNState, bool) {
@@ -102,9 +111,9 @@ func (ui *managerUI) guideCurrentConfig() Config {
 	return c
 }
 
-func (ui *managerUI) runGuide(ctx context.Context, config Config) {
+func (ui *managerUI) runGuide(ctx context.Context, config Config, selected string) {
 	started := time.Now()
-	plan := guidePlan()
+	plan := guidePlanFor(selected)
 	report := GuideReport{
 		SchemaVersion: "0.3.2", StartedUTC: utc(), State: "IN_PROGRESS", PlannedVariants: len(plan),
 		Caveat: "Protocol in Amnezia is user-selected and not independently verified. Route and traffic observations are not a native handshake. Video results are short tests, not guaranteed streaming. A passive local network inventory is captured before and after attempts. No IPs, SSIDs, gateways, keys, hostnames or local paths are exported.",
@@ -215,26 +224,21 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config) {
 		ui.guideInstruction("Вариант " + formatInt(i+1) + "/" + formatInt(len(plan)) + ": " + v.Protocol + " / " + v.Profile)
 		if v.Protocol != lastProtocol {
 			if lastProtocol != "" {
-				// No standard, verified Amnezia Premium API to switch protocols.
-				// The human operates the external application once per protocol.
-				if !ui.guideAsk(ctx,"AmneziaWG не дал подтверждённого результата. В окне Amnezia отключите VPN, выберите VLESS и снова нажмите «Подключить». Нажмите OK после переключения; дальнейшие проверки автоматические.") {
-					finish("CANCELLED", "PROTOCOL_SWITCH_NOT_CONFIRMED")
+				if !ui.guideAsk(ctx,"Первый протокол не дал подтверждённого результата. В Amnezia отключите VPN, выберите VLESS и снова подключите. Нажмите «Готово» после переключения.") {
+					finish("CANCELLED","PROTOCOL_SWITCH_NOT_CONFIRMED")
 					return
 				}
-				record(v, "USER_ACTION", "VLESS_SELECTION_CONFIRMED_BY_USER")
+				record(v,"USER_ACTION","VLESS_SELECTION_CONFIRMED_BY_USER")
 			} else {
-				if !ui.guideAsk(ctx,"В Amnezia выберите AmneziaWG (не VLESS) и нажмите «Подключить», если ещё не подключено. Нажмите OK после выбора протокола. Далее мастер сам проверит соединение.") {
-					finish("CANCELLED", "INITIAL_PROTOCOL_NOT_CONFIRMED")
-					return
-				}
-				record(v, "USER_ACTION", "AWG_SELECTION_CONFIRMED_BY_USER_NOT_API")
+				record(v,"USER_ACTION","PROTOCOL_SELECTED_BY_USER_NOT_API")
+				ui.guideInstruction("Проверяю выбранный "+v.Protocol+". Если он ещё не подключён в Amnezia, нажмите «Подключить» там. Далее проверка автоматическая.")
 			}
-			lastProtocol = v.Protocol
+			lastProtocol=v.Protocol
 		}
-		// A selected outer peer can change when Amnezia reconnects. Keep the
-		// original observation per trial, then revalidate after new route appears.
-		autoEndpoint := false
-		var endpointAtStart OuterEndpoint
+        // Revalidate the exact per-trial outer peer after reconnect.
+        autoEndpoint:=false
+        var endpointAtStart OuterEndpoint
+
 		// The endpoint used by WinDivert must be current and protocol-compatible.
 		if v.RequiresEndpoint {
 			// Every filtered attempt requires fresh process/socket evidence.

@@ -184,6 +184,7 @@ type managerUI struct {
 	liveAudit                                                                                                                                                LiveAudit
 	guideStep                                                                                                                                                string
 	guidePrompt                                                                                                                                              chan bool
+	guidePromptMode string
 	guideConfirm, guideSkip                                                                                                                                  uintptr
 	refreshing, recovering                                                                                                                                   bool
 	stopError                                                                                                                                                string
