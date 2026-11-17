@@ -31,22 +31,35 @@ jobs:
           go vet ./...
           go build -trimpath -ldflags='-H windowsgui -s -w' -o Bypass-Manager.exe .
           Get-FileHash Bypass-Manager.exe -Algorithm SHA256
-      - name: Validate PowerShell scripts and native CLI state
+      - name: Validate isolated PowerShell 5.1 scripts, native CLI and recovery
         shell: powershell
         run: |
-          .\Tests\Verify-Windows.ps1
-          .\Tests\Test-DnsExposure.ps1
-          .\Tests\Test-VpnStatus.ps1
-          .\Tests\Test-NetworkHealth.ps1
-          .\Tests\Test-PathEvidence.ps1
-          .\Tests\Test-AppSockets.ps1
-          .\Tests\Test-LocalProxy-Mock.ps1
-          .\Tests\Test-AppProxy-Sockets-Mock.ps1
-          .\Tests\Test-TemporaryMTU.ps1
-          .\Tests\Test-MTU-Rollback-Mock.ps1
-          .\Tests\Test-OuterEndpoint-Mock.ps1
-          .\Tests\Test-EndpointRoute.ps1
-          .\Tests\Test-OwnRecovery.ps1
+          # Fixture scripts override global Get-Process/Get-NetTCPConnection.
+          # Never let one mock process contaminate another native Windows test.
+          $ErrorActionPreference='Stop'
+          $scripts=@(
+            'Verify-Windows.ps1',
+            'Test-DnsExposure.ps1',
+            'Test-VpnStatus.ps1',
+            'Test-NetworkHealth.ps1',
+            'Test-PathEvidence.ps1',
+            'Test-AppSockets.ps1',
+            'Test-LocalProxy-Mock.ps1',
+            'Test-AppProxy-Sockets-Mock.ps1',
+            'Test-TemporaryMTU.ps1',
+            'Test-MTU-Rollback-Mock.ps1',
+            'Test-OuterEndpoint-Mock.ps1',
+            'Test-EndpointRoute.ps1',
+            'Test-OwnRecovery.ps1'
+          )
+          foreach($name in $scripts) {
+            $test=Join-Path '.\Tests' $name
+            & "$PSHOME\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test
+            if($LASTEXITCODE -ne 0) { throw "Isolated PowerShell test FAILED: $name" }
+            if((Get-Command Get-Process).CommandType -ne 'Cmdlet') {
+              throw "Unexpected process mock persisted in Windows qualification host"
+            }
+          }
           $p=Start-Process -FilePath .\Bypass-Manager.exe -ArgumentList '--status' -PassThru -Wait
           if($p.ExitCode -ne 0) { throw "CLI status failed $($p.ExitCode)" }
       - name: Smoke-test native Win32 window lifecycle

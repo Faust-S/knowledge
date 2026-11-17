@@ -69,16 +69,27 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Go vet failed" }
           go build -trimpath -ldflags='-H windowsgui -s -w' -o Bypass-Manager.exe .
           if ($LASTEXITCODE -ne 0) { throw "Windows native build failed" }
-      - name: PowerShell 5.1 native scripts and mocked remote endpoints
+      - name: Isolated PowerShell 5.1 mocks and owned recovery
         shell: powershell
         run: |
-          .\Tests\Verify-Windows.ps1
-          .\Tests\Test-OuterEndpoint-Mock.ps1
-          .\Tests\Test-LocalProxy-Mock.ps1
-          .\Tests\Test-AppProxy-Sockets-Mock.ps1
-          .\Tests\Test-MTU-Rollback-Mock.ps1
-          .\Tests\Test-EndpointRoute.ps1
-          .\Tests\Test-OwnRecovery.ps1
+          $ErrorActionPreference='Stop'
+          foreach($name in @(
+            'Verify-Windows.ps1',
+            'Test-OuterEndpoint-Mock.ps1',
+            'Test-LocalProxy-Mock.ps1',
+            'Test-AppProxy-Sockets-Mock.ps1',
+            'Test-MTU-Rollback-Mock.ps1',
+            'Test-EndpointRoute.ps1',
+            'Test-OwnRecovery.ps1'
+          )) {
+            # New Windows PowerShell host per test: global mocks must not leak.
+            $test=Join-Path '.\Tests' $name
+            & "$PSHOME\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test
+            if($LASTEXITCODE -ne 0) {throw "Isolated PowerShell test FAILED: $name"}
+            if((Get-Command Get-Process).CommandType -ne 'Cmdlet') {
+              throw "Global Get-Process mock leaked beyond isolated test: $name"
+            }
+          }
       - name: Native Win32 lifetime and optional controls
         shell: powershell
         run: .\Tests\Test-GuiSmoke.ps1
