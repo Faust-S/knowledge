@@ -41,22 +41,27 @@
     "private_original_d6": {
       "repository": "Faust-S/T3",
       "branch": "work/2026-11-17-t3-original-agent-atlas-d6-publication-ledger",
-      "observed_head": "19746616c0ba78bd6d483142a5ed4aa1986601c1",
+      "observed_head": "e30c86f1feb44512a852c384061da23a3d77c908",
       "level": "SOURCE_CANDIDATE",
-      "native_test_status": "NOT_RUN_LOCAL_CHECKOUT_UNAVAILABLE",
+      "native_test_status": "NOT_RUN_AS_INSTALLED_PRIVATE_ORIGINAL_T3",
       "blocker": "Original private Node/Ed25519/ledger native test checkout via public Center encountered 403; private Actions forbidden",
-      "scope": "Existing original signer/Reconciliation/Exchange and source Control multi-organization D6 native owner-port delegation (selected original membership, context epoch fence); no installed Kernel mount",
+      "scope": "Original employee signed D1/Kernel Control Host and multi-organization ports, independent iwxa.atlas DATA invitation, original Ed25519 Reconciliation .iwxa read-only signed bytes extraction from existing Exchange; installed private signer+native Kernel+Atlas E2E not yet accepted",
       "last_change": {
-        "commit": "19746616c0ba78bd6d483142a5ed4aa1986601c1",
-        "functional_commit": "c961bf2f58b37bfb1066fe1ca355dde5f980a881",
-        "scope": "Bind original Atlas publication ledger, signed employee authority and Exchange to selected original multi-organization Control; stale native ports denied after context switch",
-        "qualification": "SOURCE_CHANGE_UNEXECUTED; private Actions prohibited; container GitHub checkout inaccessible"
+        "commit": "e30c86f1feb44512a852c384061da23a3d77c908",
+        "functional_commits": [
+          "2a8a9380179de5baf2c333a25bd654475b61939a",
+          "171dbaa63561dba258d45020ddb4789b79e5e6fd",
+          "97864727a86e00292b4ed8a8fa03ac59fb4f8a46",
+          "0095512ea84440beed8ef4dd52dbf341bdf5c013"
+        ],
+        "scope": "Mounted original Kernel relay, real scoped Atlas recipient grant, read-only exact previously signed .iwxa carrier and original post-cold signer test; no further private CI or installed E2E claimed",
+        "qualification": "SOURCE_SYNTAX_PASS; NATIVE_ORIGINAL_SIGNED_SUITE_NOT_RUN; private Actions prohibited"
       }
     },
     "personal_agent": {
       "repository": "Faust-S/iwxa-personal-agent",
       "central_branch": "work/2026-11-15-agent-0-6-development",
-      "central_head": "34d8f1a10b552f1d0c4108e012414648e71ce0a0",
+      "central_head": "186a2bd0763a514e85722db29e8f1bf12d933fac",
       "d6_branch": "work/2026-11-16-agent06-original-t3-result-owner-d6",
       "d6_head": "34d8f1a10b552f1d0c4108e012414648e71ce0a0",
       "level": "SOURCE_CANDIDATE",
@@ -66,7 +71,19 @@
         "scope": "Agent 0.6 installed Windows Tauri/Setup/Core/UI baseline; not real installed private signer plus Atlas 0.9 native U05 result transfer"
       },
       "installed_d6": "NOT_ACCEPTED",
-      "release_version_mismatch": "Agent development npm/Tauri/Cargo manifests still say 0.5.0; coordinate 0.6-dev release version before publishing an installer; do not change stable 0.5"
+      "release_version_mismatch": "FIXED_IN_AGENT06_DEV_SOURCE: npm, lock, Tauri, Cargo and Cargo.lock all 0.6.0 at 0b0461a5; installed setup version confirmation is pending native qualification; stable Agent 0.5 untouched",
+      "latest_source_check": {
+        "run_id": 44144055828,
+        "conclusion": "SUCCESS",
+        "source_pin": "f1b6407aa8333d8308d5b87914db30ea60e359ad",
+        "scope": "Existing public Center ephemeral read-only Agent source. Before native .iwxa file-save additions."
+      },
+      "next_candidate": {
+        "head": "186a2bd0763a514e85722db29e8f1bf12d933fac",
+        "source_run_id": 44145398778,
+        "installed_run_id": 44145398792,
+        "scope": "Agent original T2 browser realm mounting, native original signed file save, aligned 0.6.0 version; status PENDING at observation, not proof of installed D6."
+      }
     },
     "admin_center": {
       "repository": "Faust-S/Center",
@@ -130,14 +147,15 @@
     "D6_original_T2_graph_command": "CORE_SOURCE_PASS",
     "installed_original_accepted_result_schema": "CORE_SOURCE_PASS_NOT_INSTALLED",
     "D6_real_original_T2_Agent_profile": "CORE_SOURCE_PASS",
-    "D6_double_cold_qualified_T2_object_event": "CORE_SOURCE_PASS_NOT_INSTALLED_ATLAS"
+    "D6_double_cold_qualified_T2_object_event": "CORE_SOURCE_PASS_NOT_INSTALLED_ATLAS",
+    "D6_original_signed_atlas_file_save": "SOURCE_IMPLEMENTED_UNQUALIFIED"
   },
   "next_critical_path": [
-    "Build real installed original Agent T2 KernelFacade Runtime 1.3.0 + signed D1 READ/WRITE binding inside the existing Host; no JSON or fake hasOperation",
-    "Mount existing private T3 createInstalledOriginalAgentAtlasPublisher with genuine Agent Core readAcceptedForPublication and original signed Exchange/ledger, without second Host",
-    "Atlas 0.9 as independent original D6 recipient with its OWN Tauri AppHandle/U05 Store, signed .iwxa, double cold saved Decision readback and no duplicate after lost ACK",
-    "Independently qualify Admin Center signed Task -> D3 ACCEPT -> separate APPLY -> two cold Kernel reads, then Publisher PERSON LICENSE/STATUS/REVOKE D7",
-    "Before release align Agent 0.6 npm/Tauri/Cargo/Setup version; hardware D5 WebGPU and cold offline replay; no private Actions"
+    "Complete installed original T3 employee signed Host mounting from real T2 One Dist and source, verify ORIGINAL T2 KernelFacade 1.3.0 WebView2 relay, original signed D1 READ/WRITE and real native original Ed25519 publisher without fake ports",
+    "Qualify exact Agent Human-accepted selected Result -> original T2 Object/Event -> original signed .iwxa -> native signed archive save after Kernel/Exchange durable COMMITTED, including cold source and lost ACK",
+    "Mount original signed .iwxa in independently installed Atlas 0.9 using original verified Exchange and genuine U05 CAS from Atlas OWN Tauri AppHandle/native Store; two independent cold readbacks",
+    "Independently qualify Admin Center signed employee D1/D3 ACCEPT/then APPLY and Publisher D7 PERSON licence STATUS/revoke",
+    "Verify installed WebGPU D5 hardware offline two cold model generations; unified G4 evidence, no private Actions"
   ],
   "transport_profile_rules": {
     "original_T2_Workspace_iwxa": "Normal T2 Exchange importPreview/importCommit with original T2 Workspace/Package manifest",
@@ -176,7 +194,7 @@
     }
   },
   "release_candidate": {
-    "label": "IWXA_T3_G4_SOURCE_CANDIDATE_2026_11_17",
+    "label": "IWXA_T3_G4_SOURCE_CANDIDATE_2026_11_17_D6_NATIVE_MOUNT_UNQUALIFIED",
     "production_ready": false,
     "t3_ready": false,
     "one_core": "CORE_SOURCE_PASS",
@@ -187,13 +205,11 @@
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "NOT_REPEATED_IN_CI",
     "strict_order": [
-      "Real installed Agent original T2 Kernel/D1 Host mount",
-      "Private original signed T3 Result/Exchange D6 in that Host",
-      "Original Agent and Atlas own U05 receive with two cold readbacks",
-      "Independent installed Admin D3",
-      "Independent installed Publisher PERSON D7",
-      "Complete D5 hardware offline acceptance",
-      "Unified G4 release candidate"
+      "Complete installed original T3 employee signed Host mounting from real T2 One Dist and source, verify ORIGINAL T2 KernelFacade 1.3.0 WebView2 relay, original signed D1 READ/WRITE and real native original Ed25519 publisher without fake ports",
+      "Qualify exact Agent Human-accepted selected Result -> original T2 Object/Event -> original signed .iwxa -> native signed archive save after Kernel/Exchange durable COMMITTED, including cold source and lost ACK",
+      "Mount original signed .iwxa in independently installed Atlas 0.9 using original verified Exchange and genuine U05 CAS from Atlas OWN Tauri AppHandle/native Store; two independent cold readbacks",
+      "Independently qualify Admin Center signed employee D1/D3 ACCEPT/then APPLY and Publisher D7 PERSON licence STATUS/revoke",
+      "Verify installed WebGPU D5 hardware offline two cold model generations; unified G4 evidence, no private Actions"
     ]
   }
 }
