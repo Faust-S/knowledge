@@ -69,13 +69,16 @@ func (ui *managerUI) layoutProduct() {
  }
  procMove.Call(ui.status,20,474,full,24,1)
  procMove.Call(ui.productManual,20,500,200,32,1)
+ // Compact the third diagnostics row before positioning the journal.
+ // At 1040x744 the old log lift to h-90 obscured these native buttons.
+ diagTop,diagStep:=int32(540),int32(40)
+ if h<820 {diagTop,diagStep=525,34}
  for i,c:=range ui.productDetailControls() {
   if c==0 {continue}
-  y:=int32(540+40*(i/4))
-  if i>=8 {y=620}
+  y:=diagTop+diagStep*int32(i/4)
   col:=int32(i%4)
   width:=(span-24)/4
-  procMove.Call(c,uintptr(20+col*(width+8)),uintptr(y),uintptr(width),32,1)
+  procMove.Call(c,uintptr(20+col*(width+8)),uintptr(y),uintptr(width),30,1)
  }
  if ui.details && ui.advanced {
   for i,c:=range ui.advancedControls {
@@ -90,9 +93,15 @@ func (ui *managerUI) layoutProduct() {
   }
   return
  }
- top:=int32(660)
- if h-top<72 {top=h-90}
+ // Never move the journal upward across diagnostic actions.
+ top:=int32(668)
+ if h<820 {top=638}
+ if h-top-22 < 32 {
+  procShow.Call(ui.logs,0)
+  return
+ }
  procMove.Call(ui.logs,20,uintptr(top),full,uintptr(h-top-22),1)
+ if ui.details && !ui.advanced {procShow.Call(ui.logs,5)}
 }
 func (ui *managerUI) updateProductSummary() {
  var guide GuideReport;var speed LiveAudit

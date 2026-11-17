@@ -12,6 +12,10 @@ public static class BypassGuiSmokeNative {
  [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr hWnd, int id);
  [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool IsWindowVisible(IntPtr hWnd);
  [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, UInt32 msg, IntPtr wParam, IntPtr lParam);
+ [StructLayout(LayoutKind.Sequential)]
+ public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+ [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
+ public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
 }
 "@
 Add-Type -TypeDefinition $cs -ErrorAction Stop
@@ -57,6 +61,22 @@ for($round=1;$round -le 3;$round++) {
     [void][BypassGuiSmokeNative]::SendMessage($details,[uint32]0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
     if(-not [BypassGuiSmokeNative]::IsWindowVisible($manual) -or -not [BypassGuiSmokeNative]::IsWindowVisible($diag) -or -not [BypassGuiSmokeNative]::IsWindowVisible($log)) {
       throw 'Details failed to reveal native diagnostic controls'
+    }
+    # The last diagnostic row must not be obscured by the native journal.
+    $journalRect=[BypassGuiSmokeNative+RECT]::new()
+    if(-not [BypassGuiSmokeNative]::GetWindowRect($log,[ref]$journalRect)) {throw 'Journal RECT unavailable'}
+    foreach($id in @(2004,2005,2006,2007,2008,2009,2013,2015,2016,2021,2022)) {
+      $button=[BypassGuiSmokeNative]::GetDlgItem($handle,$id)
+      if($button -eq [IntPtr]::Zero -or -not [BypassGuiSmokeNative]::IsWindowVisible($button)) {
+        throw "Missing visible diagnostic button $id"
+      }
+      $rect=[BypassGuiSmokeNative+RECT]::new()
+      if(-not [BypassGuiSmokeNative]::GetWindowRect($button,[ref]$rect)) {
+        throw "Diagnostic RECT unavailable $id"
+      }
+      if($rect.Bottom -gt $journalRect.Top -and $rect.Top -lt $journalRect.Bottom) {
+        throw "Diagnostic button $id overlaps journal ($($rect.Bottom) > $($journalRect.Top))"
+      }
     }
     if([BypassGuiSmokeNative]::IsWindowVisible($advancedField)) {throw 'Manual config shown before request'}
     [void][BypassGuiSmokeNative]::SendMessage($manual,[uint32]0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
