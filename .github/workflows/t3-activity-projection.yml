@@ -124,6 +124,11 @@ jobs:
         if: always()
         working-directory: packages/t3-core
         run: npm run test:product:core
+      - name: Qualify installed Agent D6 against the original T2 passport
+        run: |
+          node --check packages/t3-core/scripts/assemble-signed-control-dist.mjs
+          node --test packages/t3-core/tests/t3-d1-signed-control-dist.test.mjs
+          node --test packages/t3-core/tests/t3-d6-native-agent-source-publisher.test.mjs
       - name: T3 product Workspace and DOM regressions
         if: always()
         working-directory: packages/t3-core
