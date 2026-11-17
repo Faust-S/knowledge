@@ -392,3 +392,55 @@ test("D7 original native issuer refusal stays DENIED, not lost-readback UNKNOWN"
   });
   assert.equal(status.applies(),1);
 });
+
+test("D7 keeps PERSON product STATUS/2 separate from scoped status and persists original native receipt",async()=>{
+  const f=fixture(),original=f.nativeHolder.inspect;
+  f.nativeHolder.inspect=params=>{
+    const raw=original(params);
+    if(params.kind!=="STATUS")return raw;
+    const {scope,entries,...verified}=raw;
+    return {...verified,statusSchema:"IWXA_T3_PRODUCT_LICENSE_STATUS/2",
+      personId:"holder:os:me",productId:"IWXA_ATLAS",
+      statusState:"REVOKED",
+      statusValidUntil:"2026-11-18T00:00:00.000Z"};
+  };
+  const port=f.create(),archiveBytes=file();
+  const preview=await port.preview({kind:"STATUS",archiveBytes});
+  assert.equal(preview.statusFamily,"PERSON_PRODUCT_STATUS/2");
+  assert.equal(preview.productId,"IWXA_ATLAS");
+  assert.equal(preview.statusState,"REVOKED");
+  assert.equal(preview.statusScope,null);
+  assert.equal(preview.statusEntries,null);
+  assert.equal(preview.dataAccessAuthorized,false);
+  const saved=await port.admit({kind:"STATUS",archiveBytes,
+    previewDigest:preview.previewDigest});
+  assert.equal(saved.status,"ORIGINAL_HOLDER_READBACK_CONFIRMED");
+  assert.equal(saved.statusFamily,"PERSON_PRODUCT_STATUS/2");
+  assert.equal(saved.sequence,7);
+  assert.equal(saved.entitlementActivated,false);
+  assert.equal((await f.create().recover({kind:"STATUS",archiveBytes})).status,
+    "ORIGINAL_HOLDER_READBACK_CONFIRMED");
+  assert.equal(f.applies(),1);
+});
+test("D7 signed PERSON STATUS refuses alien holder, product, invented scope and unsigned state",async()=>{
+  for(const change of [
+    {personId:"person:alien"},{productId:"IWXA_ADMIN_CENTER"},
+    {statusState:"SUPERSEDED"},{statusPayloadDigest:"wrong"},
+    {scope:fullScope()}
+  ]){
+    const f=fixture(),original=f.nativeHolder.inspect;
+    f.nativeHolder.inspect=params=>{
+      const raw=original(params);
+      if(params.kind!=="STATUS")return raw;
+      const {scope,entries,...verified}=raw;
+      return {...verified,statusSchema:"IWXA_T3_PRODUCT_LICENSE_STATUS/2",
+        personId:"holder:os:me",productId:"IWXA_ATLAS",
+        statusState:"ACTIVE",
+        statusValidUntil:"2026-11-18T00:00:00.000Z",
+        ...change};
+    };
+    await assert.rejects(f.create().preview({kind:"STATUS",archiveBytes:file()}),
+      {code:"T3_D7_PERSON_ORIGINAL_SIGNED_STATUS_REQUIRED"});
+    assert.equal(f.applies(),0);
+  }
+});
