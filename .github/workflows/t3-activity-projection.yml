@@ -255,6 +255,11 @@ jobs:
         env:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
         run: node tests/t3-d6-original-agent-qualified-one-dist.mjs
+      - name: Materialize original T2 product-owned Agent Host, verify signed One Dist and real browser Runtime
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+        run: node tests/t3-d6-original-agent-product-materialization.mjs
       - name: Run actual compiled BLI panel in Chromium with qualified original Kernel
         working-directory: packages/t3-core
         env:
