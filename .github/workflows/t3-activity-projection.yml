@@ -65,6 +65,10 @@ jobs:
           node --test packages/t3-core/tests/t3-reconciliation-owner-admission.test.mjs packages/t3-core/tests/t3-reconciliation-kernel-apply.test.mjs
       - name: Qualify D6 native Result continuation with original signed recovery
         run: node --test packages/t3-core/tests/t3-d6-native-continuation.test.mjs
+      - name: Qualify original Agent product-owned One Dist builder, never test Host
+        run: |
+          node --check packages/t3-core/scripts/build-original-agent-one-dist.mjs
+          node --test packages/t3-core/tests/t3-d6-agent-one-dist-builder.test.mjs
       - name: Qualify original Agent to Atlas D6 sender via existing native publisher and original ledger
         run: |
           node --check packages/t3-core/src/t3/native-agent-atlas-source-publisher.mjs
