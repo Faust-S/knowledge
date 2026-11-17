@@ -40,6 +40,18 @@
 - D6: оригинальный Agent accepted-result T2 профиль, реальный inherited Kernel Object/Event, source-cold readbacks, native sender и Atlas recipient source-контракты.
 - D7: оригинальные age/Publisher порты и STATUS-контракты; PERSON installed signed issuer/consumer всё ещё HOLD.
 
+## Инкремент D6 после передачи (17.11.2026)
+
+В оригинальном приватном T3 `Faust-S/T3@work/2026-11-17-t3-original-agent-atlas-d6-publication-ledger` опубликованы адресные изменения:
+
+- [`c961bf2f`](https://github.com/Faust-S/T3/commit/c961bf2f58b37bfb1066fe1ca355dde5f980a881): существующий `openMultiOrganizationControl` теперь делегирует исходные `originalAgentAtlasPublicationLedger`, `originalAgentAtlasEmployeeAuthority` и `originalAgentAtlasExchange` только действительной выбранной корпоративной membership, с фиксацией выбора/эпохи. Никаких новых issuer, signer, ledger, Exchange, Kernel или Host.
+- [`19746616`](https://github.com/Faust-S/T3/commit/19746616c0ba78bd6d483142a5ed4aa1986601c1): адресная регрессия на отказ старых D6 ledger/authority/Exchange портов после переключения организации и в PERSONAL.
+- **Доказательство:** исходники и два коммита зафиксированы; регрессия пока `NOT_RUN` (локальный checkout приватного GitHub из доступного контейнера недоступен). Private Actions не запускались. Это не нативная или установленная D6 приёмка.
+
+Обнаружена следующая исполняемая граница: `Agent runtime/t3_original_employee_worker.mjs` использует `openInterop` как отдельный оригинальный employee owner и уже содержит обратный read-only callback `readAcceptedForPublication`. Он не получает оригинальный Kernel из доверенного browser realm, не вызывает `createInstalledOriginalAgentAtlasPublisher` и не предоставляет исходный `sourceOwner` Agent Core. У оригинального `interop/server.mjs` есть служба исходного подписанного Control и isolated T3 UI, но она пока не подключает `originalKernelNativeRelay` и D6 фабрику в установленном Agent. Нельзя объявлять работающую интеграцию, лишь смонтировав новые делегаты.
+
+**Следующая правка кода**: внутри единственного штатного installed original T3 Host связать существующий trusted Kernel realm с `createOriginalKernelNativeRelay`, а затем с подписанной D1 original фабрикой и `createInstalledOriginalAgentAtlasPublisher`; передать полученный native-only `sourceOwner` в действующий Agent Core. Не создавать второй Control/HTTP server или отдельный Kernel. После этого провести настоящий Atlas U05 native CAS и два отдельных cold-read. До этого `T3_READY=false`, `G4=NOT_ACCEPTED`.
+
 ## Главный функциональный блокер
 
 Текущий `runtime/daily_driver_engine.py` в Agent 0.6 создаёт `InstalledOriginalAgentResultOwner` с `original_t3_source_owner=None` по умолчанию. Это правильно для личного Task. Однако штатный `runtime/t3_original_employee_worker.mjs` уже читает original signed Task и Control owner, **но не содержит настоящую установленную T2 KernelFacade Runtime 1.3.0**, не соединён с доверенным WebView2 original Kernel realm и не монтирует приватный `interop/atlas-result-host-composition.mjs#createInstalledOriginalAgentAtlasPublisher`. Это **не исправляется** моковым Kernel.
