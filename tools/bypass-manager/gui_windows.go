@@ -35,6 +35,7 @@ const (
 	wmAppGuideStep     = 0x8007
 	wmAppLive          = 0x8008
 	wmAppGuidePrompt   = 0x8009
+    wmAppProductRefresh = 0x800A
 	wsOverlappedWindow = 0x00CF0000
 	wsVisible          = 0x10000000
 	wsChild            = 0x40000000
@@ -775,8 +776,12 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 		}
 		return 0
 	case wmAppGuidePrompt:
-		ui.refreshGuidePromptControls()
-		return 0
+        ui.refreshGuidePromptControls()
+        return 0
+    case wmAppProductRefresh:
+        ui.updateOwnedState()
+        ui.updateProductSummary()
+        return 0
 	case wmAppInternet:
 		ui.mu.Lock()
 		online := ui.lastOnline

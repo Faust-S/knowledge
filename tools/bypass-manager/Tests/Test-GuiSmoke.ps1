@@ -12,6 +12,7 @@ public static class BypassGuiSmokeNative {
  [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr hWnd, int id);
  [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool IsWindowVisible(IntPtr hWnd);
  [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, UInt32 msg, IntPtr wParam, IntPtr lParam);
+ [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int maxChars);
  [StructLayout(LayoutKind.Sequential)]
  public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
  [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
@@ -100,6 +101,13 @@ for($round=1;$round -le 3;$round++) {
       Start-Sleep -Milliseconds 100
     }
     if(-not $shown) {throw 'Protocol chooser did not appear in the main window'}
+    $awgCaption=New-Object System.Text.StringBuilder 80
+    $vlessCaption=New-Object System.Text.StringBuilder 80
+    [void][BypassGuiSmokeNative]::GetWindowText($awgButton,$awgCaption,80)
+    [void][BypassGuiSmokeNative]::GetWindowText($vlessButton,$vlessCaption,80)
+    if($awgCaption.ToString() -ne 'AmneziaWG' -or $vlessCaption.ToString() -ne 'VLESS') {
+      throw "Wrong protocol labels: $($awgCaption.ToString()) / $($vlessCaption.ToString())"
+    }
     [void][BypassGuiSmokeNative]::SendMessage($stopButton,[uint32]0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
     $released=$false
     $stopDeadline=(Get-Date).AddSeconds(10)

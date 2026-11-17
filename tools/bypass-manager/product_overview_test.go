@@ -58,3 +58,37 @@ func TestPublicIPInvalidationOnRouteChangeOrAge(t *testing.T) {
  state.Checked=false
  if publicViewOutdated(v,a,state,now) {t.Fatal("unknown route fabricated a change")}
 }
+
+func TestPossibleAvailabilityChangeWhenControlCDNFails(t *testing.T) {
+	r:=&GuideReport{
+		SchemaVersion:"0.3.2",State:"ALL_PROTOCOLS_UNVERIFIED",CompletedUTC:"done",
+		Events:[]GuideEvent{{Stage:"FILTER",Code:"OWN_DPI_STARTED",Protocol:guideVLESS,DPIProfile:"TLS-SPLIT"}},
+		Rounds:[]GuideRound{
+			{Protocol:guideVLESS,DPIProfile:"NONE",State:"INCONCLUSIVE",CompletedUTC:"t0",RouteObserved:true,AdapterFlow:true,
+			 Transfers:[]GuideTransfer{{Source:"TEST_CDN_A",ExpectedBytes:2097152,FailureCode:"TIMEOUT",OK:false}}},
+			{Protocol:guideVLESS,DPIProfile:"TLS-SPLIT",State:"VIDEO_CANDIDATE",CompletedUTC:"t1",RouteObserved:true,AdapterFlow:true,
+			 Transfers:successfulGuideTransfers("TEST_CDN_A",12)},
+		},
+	}
+	x:=assessDPIEffect(r)
+	if x.State!="POSSIBLE_AVAILABILITY_IMPROVEMENT" || x.ControlFailures!=1 || x.FilteredSuccesses!=2 ||
+	   x.ControlMbps!=0 || x.ProfileMbps!=0 {t.Fatalf("unexpected availability evidence: %+v",x)}
+	s:=productOverview(r,nil,time.Now())
+	if !strings.Contains(s.Effect,"возможно доступнее") || !strings.Contains(s.Effect,"не доказана") {t.Fatalf("causality overstated: %+v",s)}
+	r.Rounds[1].Transfers=successfulGuideTransfers("TEST_CDN_B",12)
+	if x:=assessDPIEffect(r);x.State!="NOT_COMPARABLE" {t.Fatalf("different CDN passed: %+v",x)}
+	r.Rounds[1].Transfers=successfulGuideTransfers("TEST_CDN_A",12)
+	r.Rounds[1].AdapterFlow=false
+	if x:=assessDPIEffect(r);x.State!="NOT_COMPARABLE" {t.Fatalf("no VPN adapter flow accepted: %+v",x)}
+	r.Rounds[1].AdapterFlow=true
+	r.Rounds[1].Transfers=r.Rounds[1].Transfers[:1]
+	if x:=assessDPIEffect(r);x.State!="NOT_COMPARABLE" {t.Fatalf("one successful sample accepted: %+v",x)}
+}
+
+func TestInProgressNeverClaimsDPIImpact(t *testing.T) {
+	r:=&GuideReport{State:"IN_PROGRESS",StartedUTC:time.Now().UTC().Format(time.RFC3339),Events:[]GuideEvent{{Stage:"FILTER",Code:"OWN_DPI_STARTED",Protocol:guideVLESS,DPIProfile:"TLS-SPLIT"}}}
+	x:=assessDPIEffect(r)
+	if x.State!="NOT_COMPARABLE" {t.Fatal(x)}
+	s:=productOverview(r,nil,time.Now())
+	if !strings.Contains(s.Effect,"проверяется") || !strings.Contains(s.Reason,"продолжает") {t.Fatal(s)}
+}

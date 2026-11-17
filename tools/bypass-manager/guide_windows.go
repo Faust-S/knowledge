@@ -118,7 +118,10 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config, selected strin
 		SchemaVersion: "0.3.2", StartedUTC: utc(), State: "IN_PROGRESS", PlannedVariants: len(plan),
 		Caveat: "Protocol in Amnezia is user-selected and not independently verified. Route and traffic observations are not a native handshake. Video results are short tests, not guaranteed streaming. A passive local network inventory is captured before and after attempts. No IPs, SSIDs, gateways, keys, hostnames or local paths are exported.",
 	}
-	persist := func() { _ = saveJSON(filepath.Join(ui.home, "results", "latest-guide.json"), report) }
+	persist := func() {
+        _ = saveJSON(filepath.Join(ui.home, "results", "latest-guide.json"), report)
+        post(ui.hwnd, wmAppProductRefresh)
+    }
 	record := func(v GuideVariant, stage, code string) {
 		if len(report.Events) >= 256 {
 			report.Events = report.Events[1:]
@@ -471,12 +474,29 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config, selected strin
 			return
 		}
 		if !eg.Agreement && quality.Grade == "INCOMPLETE" && flow {
-			report.State = "DIAGNOSTIC_SERVICES_UNAVAILABLE"
-			report.AdviceCode = "CHECK_REAL_VIDEO_MANUALLY"
-			finish("INCONCLUSIVE", "TEST_SERVICES_UNAVAILABLE_WITH_ADAPTER_FLOW")
-			ui.guideInstruction("Тестовые HTTPS-сервисы недоступны, хотя счётчики VPN-адаптера изменились. Скорость НЕ ИЗМЕРЕНА. Не буду переключать рабочий канал без оснований: проверьте реальное видео вручную и пришлите подробный отчёт.")
-			return
-		}
+            report.State = "DIAGNOSTIC_SERVICES_UNAVAILABLE"
+            report.AdviceCode = "CHECK_REAL_VIDEO_MANUALLY"
+            finish("INCONCLUSIVE", "TEST_SERVICES_UNAVAILABLE_WITH_ADAPTER_FLOW")
+            ui.guideInstruction("Тестовые HTTPS-сервисы недоступны, но счётчики VPN-адаптера изменились. Это не доказывает отказ Amnezia и не измеряет скорость.")
+            // Previously the guide always exited here, making every DPI
+            // alternative unreachable on a network where the benchmark CDN
+            // itself was blocked. The user may explicitly authorize additional
+            // experiments, without calling a failed CDN a VPN failure.
+            if v.Profile=="NONE" && i+1<len(plan) && ctx.Err()==nil {
+                if ui.guideAsk(ctx,"Сервисы проверки недоступны. Работоспособность VPN не установлена. Попробовать остальные протоколы и собственные DPI-профили? Каждый запуск потребует явного подтверждения переключения Amnezia; результат будет только диагностическим.") {
+                    report.State="IN_PROGRESS"
+                    report.AdviceCode=""
+                    record(v,"USER_ACTION","CONTINUE_AFTER_DIAGNOSTIC_OUTAGE")
+                    continue
+                }
+            }
+            if ctx.Err()!=nil {
+                report.State="CANCELLED"
+                report.AdviceCode="USER_CANCELLED"
+            }
+            ui.guideInstruction("Дополнительные DPI-опыты не выполнялись без разрешения. Можно проверить настоящее видео самостоятельно либо повторить замер позже.")
+            return
+        }
 		if !eg.Agreement && quality.Grade == "INCOMPLETE" {
 			finish("FAILED", "NETWORK_TEST_SERVICES_INCONCLUSIVE")
 		} else if quality.Grade == "INCOMPLETE" {
@@ -500,7 +520,7 @@ func (ui *managerUI) runGuide(ctx context.Context, config Config, selected strin
 	}
 	report.State = "ALL_PROTOCOLS_UNVERIFIED"
 	report.AdviceCode = "NO_COMPATIBLE_VERIFIED_ROUTE"
-	ui.guideInstruction("Испытания завершены: работающий VPN-путь для видео не подтверждён. Подробный отчёт содержит все восемь вариантов и причины пропуска. Нужен совместимый сервер либо поддерживаемый интерфейс Amnezia Premium; чужие IP не перебираю.")
+	ui.guideInstruction("Испытания завершены: пригодный VPN-путь для видео не подтверждён. Отчёт содержит результаты и пропуски по " + formatInt(len(plan)) + " запланированным вариантам. Поддерживаемый сервер Amnezia не угадываю.")
 }
 
 func (ui *managerUI) guideMonitor(ctx context.Context, m *Manager, report *GuideReport, v GuideVariant, record func(GuideVariant, string, string), persist func()) bool {

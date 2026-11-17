@@ -25,6 +25,8 @@ type DPIEffect struct {
  ControlMbps float64 `json:"control_mbps,omitempty"`
  ProfileMbps float64 `json:"profile_mbps,omitempty"`
  MatchedSamples int `json:"matched_samples,omitempty"`
+ ControlFailures int `json:"control_failures,omitempty"`
+ FilteredSuccesses int `json:"filtered_successes,omitempty"`
 }
 
 func observedDPIEvent(report *GuideReport) (bool,string,string) {
@@ -50,6 +52,32 @@ func guideRoundSpeeds(r GuideRound) map[string][]float64 {
  return out
 }
 
+
+// Availability evidence and throughput are different outcomes. If the control
+// failed to retrieve the exact same CDN payload, there is no baseline speed;
+// report only a POSSIBLE change in availability, never a Mbps improvement.
+func guideAvailabilityCandidate(control, filtered GuideRound) (int, int) {
+ if !control.RouteObserved || !filtered.RouteObserved || !control.AdapterFlow || !filtered.AdapterFlow {
+  return 0, 0
+ }
+ type requestKey struct {source string; size int64}
+ failures:=map[requestKey]int{}
+ successes:=map[requestKey]int{}
+ for _,sample:=range control.Transfers {
+  if sample.Source=="" || sample.ExpectedBytes < 1024*1024 || sample.OK || sample.FailureCode=="" {continue}
+  failures[requestKey{sample.Source,sample.ExpectedBytes}]++
+ }
+ for _,sample:=range filtered.Transfers {
+  if !sample.OK || sample.Source=="" || sample.ExpectedBytes < 1024*1024 ||
+     sample.Bytes != sample.ExpectedBytes || sample.Seconds<=0 {continue}
+  successes[requestKey{sample.Source,sample.ExpectedBytes}]++
+ }
+ for key,n:=range failures {
+  if successes[key]>=2 {return n,successes[key]}
+ }
+ return 0,0
+}
+
 // A valid comparison requires the same protocol, source and byte count,
 // a confirmed direct baseline, two full matched downloads on each side and
 // observations of actual adapter traffic. Any gain is only a candidate.
@@ -59,17 +87,24 @@ func assessDPIEffect(r *GuideReport) DPIEffect {
  if !ever {return result}
  result.State="NOT_COMPARABLE"
  if r==nil || r.CompletedUTC=="" || r.State=="IN_PROGRESS" {return result}
- for _,filtered:=range r.Rounds {
+ for filteredIndex,filtered:=range r.Rounds {
   if filtered.DPIProfile=="NONE" || filtered.CompletedUTC=="" ||
-   !filtered.RouteObserved || !filtered.AdapterFlow || !filtered.EgressChanged || !filtered.BaselineKnown {continue}
+   !filtered.RouteObserved || !filtered.AdapterFlow {continue}
   started:=false
   for _,e:=range r.Events {
    if e.Stage=="FILTER" && e.Code=="OWN_DPI_STARTED" && e.Protocol==filtered.Protocol && e.DPIProfile==filtered.DPIProfile {started=true;break}
   }
   if !started {continue}
-  for _,control:=range r.Rounds {
-   if control.Protocol!=filtered.Protocol || control.DPIProfile!="NONE" || control.CompletedUTC=="" ||
-    !control.RouteObserved || !control.AdapterFlow || !control.EgressChanged || !control.BaselineKnown {continue}
+  for controlIndex,control:=range r.Rounds {
+   if controlIndex>=filteredIndex || control.Protocol!=filtered.Protocol || control.DPIProfile!="NONE" ||
+     control.CompletedUTC=="" || !control.RouteObserved || !control.AdapterFlow {continue}
+   failures,successes:=guideAvailabilityCandidate(control,filtered)
+   if failures>0 {
+    return DPIEffect{State:"POSSIBLE_AVAILABILITY_IMPROVEMENT",Protocol:filtered.Protocol,Profile:filtered.DPIProfile,ControlFailures:failures,FilteredSuccesses:successes}
+   }
+   // The higher confidence throughput comparison still requires independent
+   // direct IPv4 baseline and observed egress change in BOTH rounds.
+   if !control.EgressChanged || !control.BaselineKnown || !filtered.EgressChanged || !filtered.BaselineKnown {continue}
    a,b:=guideRoundSpeeds(control),guideRoundSpeeds(filtered)
    for key,base:=range a {
     changed:=b[key]
@@ -114,12 +149,21 @@ func productOverview(guide *GuideReport,live *LiveAudit,now time.Time) ProductOv
   effect:=assessDPIEffect(guide)
   switch effect.State {
   case "POSSIBLE_IMPROVEMENT":out.Effect=fmt.Sprintf("Эффект DPI: возможно лучше %.1f → %.1f Мбит/с",effect.ControlMbps,effect.ProfileMbps)
+  case "POSSIBLE_AVAILABILITY_IMPROVEMENT":out.Effect=fmt.Sprintf("Эффект DPI: возможно доступнее (%d ошибок без DPI, %d полных загрузок с DPI), причина ещё не доказана",effect.ControlFailures,effect.FilteredSuccesses)
   case "POSSIBLE_REGRESSION":out.Effect=fmt.Sprintf("Эффект DPI: возможно хуже %.1f → %.1f Мбит/с",effect.ControlMbps,effect.ProfileMbps)
   case "NO_CLEAR_GAIN":out.Effect="Эффект DPI: заметное улучшение не подтверждено"
   case "NOT_COMPARABLE":out.Effect="Эффект DPI: сравнение до/после не состоялось"
   default:out.Effect="Эффект DPI: не измерен (испытаний с DPI не было)"
   }
   switch guide.State {
+  case "IN_PROGRESS":
+   if started {
+    out.DPI="DPI: профиль "+profile+" ("+protocol+") запускался в текущем опыте"
+    out.Effect="Эффект DPI: проверяется, вывод пока не готов"
+    out.Reason="Мастер продолжает испытание. Нельзя оценивать результат до его завершения."
+   } else {
+    out.Reason="Идёт проверка выбранного VPN без DPI либо подготовка следующего варианта."
+   }
   case "DIAGNOSTIC_SERVICES_UNAVAILABLE":out.Reason="HTTPS-тесты в мастере не завершились. Это не доказывает неисправность Amnezia."
   case "CANCELLED","GUIDE_INCOMPLETE":out.Reason="Испытание прервано, результат не подтверждён."
   case "DPI_STOP_ERROR","OWN_FILTER_RECOVERY_REQUIRED":out.Reason="Требуется проверить остановку собственного DPI-процесса."
