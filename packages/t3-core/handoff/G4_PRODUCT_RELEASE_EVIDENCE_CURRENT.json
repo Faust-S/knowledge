@@ -22,9 +22,9 @@
     "one_core": {
       "repository": "Faust-S/knowledge",
       "branch": "work/2026-11-10-t3-t2-activity-projection",
-      "observed_head": "cf03944c9fb87b392bcf52d5c2a3cfb22c7e0d16",
+      "observed_head": "2d6079132e768437854c4663b9e452119af98dcd",
       "qualification": {
-        "run_id": 44124552421,
+        "run_id": 44146898558,
         "conclusion": "SUCCESS",
         "jobs": {
           "test": "PASS",
@@ -33,7 +33,8 @@
           "native-age": "SKIPPED",
           "native-model": "SKIPPED",
           "metal-webgpu": "SKIPPED"
-        }
+        },
+        "scope": "Full original T2/One Core source suite plus exact nested original Kernel frame-ancestors regression; no installed private T3 Agent Atlas native E2E"
       },
       "level": "CORE_SOURCE_PASS",
       "notes": "One inherited T2 0.3.6 Runtime Contract 1.3.0; D1/D3/D6/D7 source; Agent-only qualified original T2 One Dist passport with original signed D1 AccessRegistry, original accepted-result schema/Kernel Object/Event and two process-cold source readbacks. This is not an installed independent Agent-to-Atlas signed transfer."
@@ -41,27 +42,21 @@
     "private_original_d6": {
       "repository": "Faust-S/T3",
       "branch": "work/2026-11-17-t3-original-agent-atlas-d6-publication-ledger",
-      "observed_head": "e30c86f1feb44512a852c384061da23a3d77c908",
+      "observed_head": "b8cd77d802e5a4f03292aa58b36bd524e9671ca2",
       "level": "SOURCE_CANDIDATE",
       "native_test_status": "NOT_RUN_AS_INSTALLED_PRIVATE_ORIGINAL_T3",
       "blocker": "Original private Node/Ed25519/ledger native test checkout via public Center encountered 403; private Actions forbidden",
       "scope": "Original employee signed D1/Kernel Control Host and multi-organization ports, independent iwxa.atlas DATA invitation, original Ed25519 Reconciliation .iwxa read-only signed bytes extraction from existing Exchange; installed private signer+native Kernel+Atlas E2E not yet accepted",
       "last_change": {
-        "commit": "e30c86f1feb44512a852c384061da23a3d77c908",
-        "functional_commits": [
-          "2a8a9380179de5baf2c333a25bd654475b61939a",
-          "171dbaa63561dba258d45020ddb4789b79e5e6fd",
-          "97864727a86e00292b4ed8a8fa03ac59fb4f8a46",
-          "0095512ea84440beed8ef4dd52dbf341bdf5c013"
-        ],
-        "scope": "Mounted original Kernel relay, real scoped Atlas recipient grant, read-only exact previously signed .iwxa carrier and original post-cold signer test; no further private CI or installed E2E claimed",
-        "qualification": "SOURCE_SYNTAX_PASS; NATIVE_ORIGINAL_SIGNED_SUITE_NOT_RUN; private Actions prohibited"
+        "commit": "b8cd77d802e5a4f03292aa58b36bd524e9671ca2",
+        "scope": "Original signed Control Host now forwards exact pinned installed Agent origin to same original Kernel grandchild; private native installed Agent Atlas route remains unqualified",
+        "qualification": "SOURCE_COMMITTED; PRIVATE_ACTIONS_PROHIBITED; INSTALLED_ORIGINAL_D6_NOT_RUN"
       }
     },
     "personal_agent": {
       "repository": "Faust-S/iwxa-personal-agent",
       "central_branch": "work/2026-11-15-agent-0-6-development",
-      "central_head": "186a2bd0763a514e85722db29e8f1bf12d933fac",
+      "central_head": "2d4ece9aa5b11bf5e1cbd4b60fcb85c6d3d03d6f",
       "d6_branch": "work/2026-11-16-agent06-original-t3-result-owner-d6",
       "d6_head": "34d8f1a10b552f1d0c4108e012414648e71ce0a0",
       "level": "SOURCE_CANDIDATE",
@@ -73,16 +68,16 @@
       "installed_d6": "NOT_ACCEPTED",
       "release_version_mismatch": "FIXED_IN_AGENT06_DEV_SOURCE: npm, lock, Tauri, Cargo and Cargo.lock all 0.6.0 at 0b0461a5; installed setup version confirmation is pending native qualification; stable Agent 0.5 untouched",
       "latest_source_check": {
-        "run_id": 44144055828,
+        "run_id": 44148670398,
         "conclusion": "SUCCESS",
-        "source_pin": "f1b6407aa8333d8308d5b87914db30ea60e359ad",
-        "scope": "Existing public Center ephemeral read-only Agent source. Before native .iwxa file-save additions."
+        "source_pin": "4a6324af8a158093fa804a47ca8ee822dc4d565c",
+        "scope": "Existing read-only private Agent checkout on public Center runner; Python Result, source package and original one-dist origin test at previous Agent source. No private signer or bytes uploaded."
       },
       "next_candidate": {
-        "head": "186a2bd0763a514e85722db29e8f1bf12d933fac",
-        "source_run_id": 44145398778,
-        "installed_run_id": 44145398792,
-        "scope": "Agent original T2 browser realm mounting, native original signed file save, aligned 0.6.0 version; status PENDING at observation, not proof of installed D6."
+        "head": "2d4ece9aa5b11bf5e1cbd4b60fcb85c6d3d03d6f",
+        "source_run_id": 44149805261,
+        "installed_run_id": 44149805360,
+        "scope": "Current exact Agent 0.6 (native original one-dist packager + qualified T2 witness + Setup Core propagation), source/native Windows CI running at observation; runtime G4 original private signer mounted E2E NOT_RUN."
       }
     },
     "admin_center": {
@@ -130,6 +125,22 @@
       "observed_head": "868bf42f0462268ae82da6db62443b90606e77fe",
       "level": "SOURCE_CANDIDATE",
       "t3_offline_real_product": "NOT_ACCEPTED"
+    },
+    "original_one_dist_setup": {
+      "repository": "Faust-S/iwxa-personal-agent",
+      "source_commit": "2d4ece9aa5b11bf5e1cbd4b60fcb85c6d3d03d6f",
+      "source_status": "IMPLEMENTED_UNQUALIFIED",
+      "scope": "Existing Agent Setup Core package can optionally carry original publicly qualified One Core and Agent-enabled one inherited T2 dist via three explicit build inputs; materializer receipt with original loader and Runtime 0.3.6 SHA-256 is mandatory; original private signer and employee credentials never bundled; runtime auto-discovers only package-owned qualified sources and uses inherited dist-pinned Kernel origin with precise nested CSP.",
+      "qualification": {
+        "knowledge_source_run_id": 44146898558,
+        "knowledge_result": "SUCCESS",
+        "agent_source_run_id": 44149805261,
+        "agent_installed_baseline_run_id": 44149805360,
+        "agent_current_result": "PENDING",
+        "actual_qualified_t2_agent_one_dist_package": "NOT_BUILT_INSTALLED",
+        "independent_original_atlas_e2e": "NOT_RUN"
+      },
+      "note": "Optional build inputs currently do not prove that the native Setup Core candidate was built with them. G4 remains HOLD until an installed package manifest records t3_original_one_dist_included=true and the original signed Agent->T2->Atlas route is verified."
     }
   },
   "accepted_gates": {
@@ -148,7 +159,9 @@
     "installed_original_accepted_result_schema": "CORE_SOURCE_PASS_NOT_INSTALLED",
     "D6_real_original_T2_Agent_profile": "CORE_SOURCE_PASS",
     "D6_double_cold_qualified_T2_object_event": "CORE_SOURCE_PASS_NOT_INSTALLED_ATLAS",
-    "D6_original_signed_atlas_file_save": "SOURCE_IMPLEMENTED_UNQUALIFIED"
+    "D6_original_signed_atlas_file_save": "SOURCE_IMPLEMENTED_UNQUALIFIED",
+    "D6_original_nested_kernel_csp": "CORE_SOURCE_PASS_NOT_INSTALLED",
+    "D6_original_one_dist_setup_materialization": "SOURCE_IMPLEMENTED_NOT_INSTALLED"
   },
   "next_critical_path": [
     "Complete installed original T3 employee signed Host mounting from real T2 One Dist and source, verify ORIGINAL T2 KernelFacade 1.3.0 WebView2 relay, original signed D1 READ/WRITE and real native original Ed25519 publisher without fake ports",
