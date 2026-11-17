@@ -52,7 +52,7 @@ try {
             } finally { $graphics.Dispose() }
             $path=Join-Path $outDir $Name
             $bmp.Save($path,[System.Drawing.Imaging.ImageFormat]::Png)
-            Write-Host "CAPTURED $Name: $w x $h, $((Get-Item $path).Length) bytes"
+            Write-Host "CAPTURED ${Name}: $w x $h, $((Get-Item $path).Length) bytes"
         } finally {$bmp.Dispose()}
     }
     Save-ProductFrame 'main-collapsed.png'
