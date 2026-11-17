@@ -81,12 +81,12 @@
         "scope": "Public Center exact pinned Core 40dc + Agent source 369ae, D6 and signed Control-only checks; subsequent Setup 0.6 version fix not qualified at this run."
       },
       "next_candidate": {
-        "head": "a55efb59ad688bbe52deb0c16dc7078238d809bf",
-        "source_run_id": 44172017172,
-        "source_run_conclusion": "SUCCESS_AT_369AE",
-        "installed_run_id": 44172017268,
-        "installed_run_result": "IN_PROGRESS_AT_OBSERVATION",
-        "scope": "Desktop-only original T2 Agent signed One Dist and actual native Windows installation. Private signed employee and independently installed Atlas D6 NOT_RUN. Agent a55 corrected Setup Core final version 0.5.0 -> 0.6.0 but not verified installed."
+        "head": "a0dc9b3423c3388f111194a7bedd1af37077f096",
+        "source_run_id": 44178292113,
+        "source_run_conclusion": "SUCCESS_AT_A0DC",
+        "installed_run_id": 44178292091,
+        "installed_run_result": "SUCCESS_AT_A0DC_AND_ONE_CORE_3F91",
+        "scope": "Public Windows installed Explorer/Agent GUI, original T2 One Dist, corporate UI. Real private Ed25519 D6 signed archive/independent Atlas D6 NOT_RUN."
       },
       "current_content_change": {
         "commit": "a0dc9b3423c3388f111194a7bedd1af37077f096",
@@ -125,6 +125,17 @@
         "conclusion": "SUCCESS",
         "source_pin": "7454661a166d7e52a821a8369fc37f33f13d14b1",
         "scope": "Atlas Node + desktop source/build; native U05 Decision stores original Exchange-verified selected Result text with two source cold-read tests and legacy reference-only compatibility; installed independent signed recipient not qualified"
+      },
+      "windows_candidate": {
+        "head": "3f84891cdb8e43521d674f3ed930081e0512b27d",
+        "baseline_failure_run": 44177677078,
+        "baseline_failure": "INITIAL_SAVE_TEST_READ_HEAD_FILE_NOT_FOUND_AFTER_0MS__NO_PROOF_OF_ACTUAL_NATIVE_SAVE_FAILURE",
+        "correction_commit": "8833f6427f5716e46255b3552463c41455560240",
+        "correction_scope": "Installed Windows test waits for head.json on initial native commit; previously saved head disappearance still fails immediately",
+        "exact_windows_rerun_id": 44181242347,
+        "rerun_result": "IN_PROGRESS_AT_OBSERVATION",
+        "exact_source_run_id": 44181212002,
+        "source_result": "SUCCESS_AT_8833"
       }
     },
     "publisher": {
@@ -150,16 +161,16 @@
     },
     "original_one_dist_setup": {
       "repository": "Faust-S/iwxa-personal-agent",
-      "source_commit": "a55efb59ad688bbe52deb0c16dc7078238d809bf",
-      "source_status": "MODEL_FREE_ONE_CORE_SOURCE_PASS_AGENT_NATIVE_PENDING",
+      "source_commit": "a0dc9b3423c3388f111194a7bedd1af37077f096",
+      "source_status": "AGENT_NATIVE_ONE_DIST_PASS_PRIVATE_SIGNED_NATIVE_D6_HOLD_SETUP_CORE_RELEASE_HOLD",
       "scope": "One Core 40dc CI #44171450736 SUCCESS signed desktop Control NO WebGPU Worker plus fully qualified browser WebLLM. Agent 369ae Source CI #44172017172 SUCCESS. Agent native #44172017268 pending. Older Agent BLI-enabled native installation #44167212079 SUCCESS proves original T2/Explorer only, not model-free G4 or Setup Core 0.6 EXE. Agent a55 corrected stale Setup version expectation 0.5.0 to 0.6.0 in active branch.",
       "qualification": {
-        "core_source_run_id": 44171450736,
-        "core_source_result": "SUCCESS_AT_40DC3281",
-        "agent_source_run_id": 44172017172,
-        "agent_source_result": "SUCCESS_AT_369AE2",
-        "agent_model_free_native_run_id": 44172017268,
-        "agent_model_free_native_result": "IN_PROGRESS_AT_OBSERVATION",
+        "core_source_run_id": 44175911638,
+        "core_source_result": "SUCCESS_AT_3F91B60C",
+        "agent_source_run_id": 44178292113,
+        "agent_source_result": "SUCCESS_AT_A0DC9B",
+        "agent_model_free_native_run_id": 44178292091,
+        "agent_model_free_native_result": "SUCCESS_AT_A0DC9B",
         "older_native_run_id": 44167212079,
         "older_native_result": "SUCCESS_BLI_PREDECESSOR",
         "setup_core_06_version_fix_sha": "a55efb59ad688bbe52deb0c16dc7078238d809bf",
@@ -167,46 +178,46 @@
         "private_signed_original_employee": "NOT_RUN",
         "native_atlas_independent_cold_reads": "NOT_RUN"
       },
-      "note": "Separate an actual Agent Explorer-installed product One Dist from a genuine Setup Core 0.6 release executable. Do not claim installed original private signed Agent/Atlas from public native Windows, or full selected Result content from signed reference carrier."
+      "note": "Public Center Windows #44178292091 SUCCESS builds true original T2 One Dist alongside Agent native GUI but does not independently exercise the private original signed issuer or install a separate full Setup Core 0.6 release executable."
     },
     "ecosystem_review": {
-      "assessment_date": "2026-11-17",
-      "scope": "One T2/One Core, original signed owner, Agent, Admin, Atlas, Publisher, Activity, D02 domain pilot; other domain products retain independent T2 status and are not assumed T3-ready.",
+      "assessment_date": "2026-11-18",
+      "scope": "Verified live normative T2, One Core, private original signed owner, Agent, Atlas, Admin, Publisher, Activity, D02 pilot, plus 42-repository development-locator map (not 42 installed T3 products).",
       "architectural_baseline": "REUSE_FIRST_CORRECT_ONE_T2_KERNEL_ONE_CORE_ONE_EXISTING_IWXA_FORMAT",
       "major_findings": [
         {
           "code": "G4-REL-01",
-          "status": "SOURCE_FIXED_INSTALLED_HOLD",
+          "status": "AGENT_NATIVE_ONE_DIST_PASS_SETUP_CORE_RELEASE_HOLD",
           "cause": "Agent Setup optional original T3 could produce successful native baseline without original T2 One Dist",
-          "correction": "Product-owned original T2 One Dist assembler + auto materialization into existing Agent Setup; -RequireOriginalT3 gate; production T2 input still not materialized",
+          "correction": "Public Center Windows #44178292091 SUCCESS on exact pinned Agent a0dc/One Core 3f91: built actual Agent native EXE and original T2 One Dist for same GUI. This does not prove private Ed25519 installed D6 nor a qualified Setup Core 0.6 release installer.",
           "owner": "Faust-S/iwxa-personal-agent"
         },
         {
           "code": "G4-REL-02",
-          "status": "SOURCE_FIXED_INSTALLED_HOLD",
+          "status": "EXACT_OWNER_PROFILE_SOURCE_PASS_SIGNED_OWNER_HOLD",
           "cause": "A correctly hashed original test integration domain was not distinguished from a real product-owned Agent Host",
-          "correction": "Require exact product-owned domain, original Host runtime/contract and service passport",
+          "correction": "Use product-owned original T2 Agent Host identity and qualified One Dist only. Real original private signed D1 employee/Kernel still requires installed proof.",
           "owner": "Faust-S/iwxa-personal-agent"
         },
         {
           "code": "G4-XFER-03",
-          "status": "OPEN_PRODUCT_GAP",
-          "cause": "Current selected-result signed carrier is a reference/provenance handoff; independent offline receipt of substantive selected Result and the Atlas recipient binding is not demonstrated",
-          "correction": "Use existing original Exchange recipient verification and explicit scoped disclosure; deliver verified selected Result or explicitly limit feature to references. No new codec or signer.",
+          "status": "CONTENT_SOURCE_IMPLEMENTED_SIGNED_NATIVE_HOLD",
+          "cause": "Source now supports selected HUMAN_ACCEPTED_DRAFT text <=64KiB and SHA-256 in the original signed .iwxa, plus native Atlas U05 content Decision; previous reference-only claim is stale. Private native signer/independent recipient not demonstrated.",
+          "correction": "Qualify actual private Ed25519 original Exchange, authorized recipient grants and independent native Atlas file verification. Historic reference-only carrier remains link-only. New signed content is not encrypted by signature.",
           "owner": "Faust-S/T3 + Faust-S/Atlas"
         },
         {
           "code": "G4-BND-04",
           "status": "CONFIRMED_STANDALONE_NATIVE_GAP",
           "cause": "Atlas 0.9 has source-wired trusted T3 native recipient and U05 CAS, but standalone.tsx mounts AtlasWorkspace with no original signed Host, and independent signed .iwxa file recipient has not been activated. Agent's Tauri cannot persist Atlas data.",
-          "correction": "Installed Atlas native owner import/receive with original issuer trust and two process-independent cold readbacks; never let Agent write Atlas Store",
+          "correction": "Atlas standalone.tsx mounts AtlasWorkspace without original signed owner. Dist manifests include optional host bundle but do not connect it. Install ORIGINAL recipient verifier trust and own U05 AppHandle; no Agent-owned Atlas writes, no new signer or secondary Store.",
           "owner": "Faust-S/Atlas"
         },
         {
           "code": "G4-OPS-05",
-          "status": "DOC_POINTER_FIXED_ORIGIN_DIVERGENCE_OPEN",
-          "cause": "Main iwxa repository registry has 9 entries while knowledge coordination branch has 42; historical AGENTS SHA hardcodes obsolete revisions",
-          "correction": "knowledge/AGENTS now points to live G4 ledger; 42-repo inventory remains branch-specific and must be explicitly promoted by its owner",
+          "status": "42_LOCATORS_VERIFIED_LIVE_RELEASE_LEDGER_SEPARATE",
+          "cause": "The current Faust-S/iwxa@knowledge/2026-10-02-system-atlas coordination/repositories.json schema 2.1 contains exactly 42 development locators (verified live 2026-11-18); older statement 'iwxa has 9 while knowledge has 42' was incorrect. Registry snapshot date remains 2026-11-10.",
+          "correction": "Use one live G4 evidence file for exact pinned release checks. The 42 entries are development provenance, NOT 42 ready T3-integrated programs; do not mass-migrate domains.",
           "owner": "Faust-S/knowledge + Faust-S/iwxa"
         },
         {
@@ -215,10 +226,16 @@
           "cause": "Native employee Admin D3, PERSON Publisher D7, hardware offline WebGPU D5 and domain pilots are individually incomplete",
           "correction": "Qualify separately against same installed release candidate; never infer from core source or unrelated Windows CI",
           "owner": "respective original product owners"
+        },
+        {
+          "code": "G4-WIN-07",
+          "status": "REPRODUCED_TEST_WAITER_FIXED_NATIVE_RERUN_PENDING",
+          "cause": "Atlas 0.9 Windows #44177677078 failed after initial Save because the installed witness read absent head.json immediately on a clean profile and raised FileNotFoundError, without waiting for first commit. Setup Core reported expected standard DataRoot; an earlier claim that the registered folder differed was not supported.",
+          "correction": "Existing visual waiter now tolerates missing head.json ONLY before initial commit, waits 45 seconds, fails on prior saved-head loss, and CI trigger covers actual witness file changes. Atlas source tests #44181212002 SUCCESS, native Windows #44181242347 in progress at observation."
         }
       ],
       "release_floor": "SOURCE_G4_CANDIDATE_NOT_INSTALLED",
-      "next_executable": "Confirm model-free native Agent CI #44169279872 and requalify e408 admission/runtime; then provision actual private original employee and signed D1 createWorkspace then Task -> Human Review -> original Kernel Object/Event -> original .iwxa; independently installed Atlas 0.9 standalone requires its own trusted original signed recipient, native U05 CAS and two process-independent cold reads; keep reference-only semantics distinct."
+      "next_executable": "Close exact Atlas 0.9 native Windows #44181242347 (NO source-only promotion); qualify private original signed D6 Agent sender, independently installed Atlas original .iwxa recipient and two actual process cold reads; then Admin signed D3, Publisher PERSON D7, D5 hardware offline, and one release G4."
     },
     "signed_selected_result_portability": {
       "date": "2026-11-17",
@@ -257,8 +274,9 @@
       },
       "center_agent_installed_native_ci": {
         "run_id": 44178292091,
-        "status": "IN_PROGRESS_AT_OBSERVATION",
-        "head_sha": "439c805fbc2c4a362335fcb8585d4fe7dcc0c290"
+        "status": "SUCCESS",
+        "head_sha": "439c805fbc2c4a362335fcb8585d4fe7dcc0c290",
+        "scope": "Public Center native Agent Tauri build + real original T2 One Dist + installed GUI only; no private original signed Ed25519 archive or independent Atlas original recipient"
       },
       "windows_atlas_native_ci": {
         "run_id": 44177677078,
@@ -285,19 +303,20 @@
     "D6_double_cold_qualified_T2_object_event": "CORE_SOURCE_PASS_NOT_INSTALLED_ATLAS",
     "D6_original_signed_atlas_file_save": "SOURCE_IMPLEMENTED_UNQUALIFIED",
     "D6_original_nested_kernel_csp": "CORE_SOURCE_PASS_NOT_INSTALLED",
-    "D6_original_one_dist_setup_materialization": "MODEL_FREE_CORE_PASS_AGENT_INSTALLED_PENDING",
+    "D6_original_one_dist_setup_materialization": "AGENT_NATIVE_ONE_DIST_44178292091_PASS_SIGNED_PRIVATE_E2E_HOLD",
     "D6_original_product_identity_guard": "INSTALLED_SOURCE_PASS_PRIOR_MODEL_FREE_CANDIDATE",
     "G4_portable_selected_result_data": "SOURCE_IMPLEMENTED_PUBLIC_CI_PASS_PRIVATE_SIGNED_NATIVE_HOLD",
     "D6_original_atlas_ui_kernel_gate": "SOURCE_COMMITTED_NOT_G4_INSTALLED",
-    "D6_original_native_model_free_control": "CORE_SOURCE_PASS_AGENT_WINDOWS_PENDING",
+    "D6_original_native_model_free_control": "AGENT_NATIVE_GUI_44178292091_PASS_SIGNED_PRIVATE_E2E_HOLD",
     "D6_original_setup_core_06_native_executable": "NOT_BUILT_QUALIFIED"
   },
   "next_critical_path": [
-    "Confirm model-free Agent installed Windows CI 44169279872; pin exact Agent+One Core SHAs in both public Center workflows and verify current admission requires local_inference_registered=false without private Actions.",
-    "Provision real original installed corporate employee D1 READ/WRITE and explicitly create original T2 Workspace in signed Control with Human approval; do not auto-create Workspace under read authority.",
-    "Complete original Agent Task -> real Human-accepted Result -> original signed T2 Object/Event -> existing signed iwxa.atlas .iwxa and durable original Exchange/ledger receipt with no blind retry on lost ACK.",
-    "Close independently installed Atlas 0.9 native recipient: standalone currently has no trusted original T3 owner; mount original issuer trust and read real signed .iwxa without inventing second Kernel/Store/IAM/Exchange, persist with Atlas own Tauri U05 CAS and verify two cold readbacks; do not call signed reference portable content.",
-    "Then installed Admin D3 employee ACCEPT vs APPLY, Publisher D7 PERSON STATUS/revoke, hardware D5 WebGPU offline cold, common G4 acceptance."
+    "Close current Atlas Windows native #44181242347 on exact commit 3f84891c; distinguish fixed test-race from genuine first-Save failure. Public source #44181212002 PASS does not replace Windows.",
+    "Installed Agent 0.6 source a0dc + One Core 3f91 are qualified for native original T2 One Dist via public Center #44178292091. Separately provision REAL original private Ed25519 employee grants, explicitly create original signed T2 Workspace with authorized D1 write and bind ORIGINAL Agent accepted-source/issuer Host, never test-only Kernel.",
+    "Send one real Human-accepted Agent Result selected summary -> exact signed original Kernel Object/Event -> original recipient-scoped signed .iwxa using the already existing Exchange and ledger. Prove selected content/hash and one disclosure, original signed receipts, lost-ACK read-only recovery.",
+    "Installed standalone Atlas 0.9 must mount trusted ORIGINAL recipient verifier for independently received signed .iwxa; currently mountAtlasSurface exists only as optional shipped export, not as standalone connection. Use its own Tauri AppHandle U05 CAS and two physically independent cold process readbacks.",
+    "After native D6, independently qualify signed Admin D3 Human ACCEPT then Kernel APPLY, Publisher PERSON D7 issue/renew/STATUS/revoke and hardware WebGPU offline D5 cold restart in same pinned G4 candidate. Domain migration sequential, not part of the core technical release.",
+    "Never enable private GitHub Actions, mint a second Kernel/Store/signer/Exchange or label source/GUI PASS as G4 ACCEPTED."
   ],
   "transport_profile_rules": {
     "original_T2_Workspace_iwxa": "Normal T2 Exchange importPreview/importCommit with original T2 Workspace/Package manifest",
