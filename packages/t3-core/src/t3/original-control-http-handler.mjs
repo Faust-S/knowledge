@@ -140,6 +140,10 @@ function errorCode(error){
 export function createOriginalControlHttpHandler({
   origin,token,readToken=null,ownerFor,currentEpoch,subscribeInvalidation,
   uiOrigin=null,serviceId=null,assetForPath=null,
+  // The original installed native Agent may embed the isolated UI as a
+  // grandparent of this Kernel frame. Only its pinned exact loopback origin
+  // is eligible; ordinary domain routes always remain parent-less.
+  installedParentOrigin=null,
   reconciliationPortFor=null,nativeD7PortFor=null,nativeD6PortFor=null,
   originalKernelRelayFor=null,
 }={}){
@@ -158,6 +162,12 @@ export function createOriginalControlHttpHandler({
     new URL(uiOrigin).origin===uiOrigin&&uiOrigin!==origin&&
     typeof serviceId==="string"&&/^[A-Za-z0-9][A-Za-z0-9._-]{1,159}$/.test(serviceId),
     "T3_D1_CONTROL_ISOLATED_UI_REQUIRED");
+  requireThat(installedParentOrigin===null||(
+    splitOrigin&&typeof installedParentOrigin==="string"&&
+    /^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(installedParentOrigin)&&
+    new URL(installedParentOrigin).origin===installedParentOrigin&&
+    installedParentOrigin!==origin&&installedParentOrigin!==uiOrigin
+  ),"T3_D6_INSTALLED_PARENT_ORIGIN_INVALID");
   requireThat(assetForPath===null||typeof assetForPath==="function",
     "T3_D1_CONTROL_TRUSTED_ASSET_RESOLVER_REQUIRED");
   // The installed native Host supplies an ORIGINAL recipient-owned D3 port.
@@ -365,7 +375,8 @@ export function createOriginalControlHttpHandler({
             "Referrer-Policy":"no-referrer",
             "Content-Security-Policy":
               "default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; "+
-              "connect-src 'self'; base-uri 'none'; frame-ancestors "+uiOrigin,
+              "connect-src 'self'; base-uri 'none'; frame-ancestors "+uiOrigin+
+                (installedParentOrigin===null?"":" "+installedParentOrigin),
           });
           res.end(html);
           return true;
