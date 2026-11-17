@@ -69,16 +69,16 @@
       "installed_d6": "NOT_ACCEPTED",
       "release_version_mismatch": "FIXED_IN_AGENT06_DEV_SOURCE: npm, lock, Tauri, Cargo and Cargo.lock all 0.6.0 at 0b0461a5; installed setup version confirmation is pending native qualification; stable Agent 0.5 untouched",
       "latest_source_check": {
-        "run_id": 44154074283,
+        "run_id": 44156510664,
         "conclusion": "SUCCESS",
-        "source_pin": "d403bdf009b21e3b62c13910be2f1d5c71dd8c7b",
-        "scope": "Read-only source qualification and desktop build at previous Agent SHA, preceding new automatic materialization and signed-reference UX changes. Exact latest Agent is being checked separately."
+        "source_pin": "f44ebe3cc12457740b03a68abe0f08be4fb8b3ce",
+        "scope": "Read-only public Center pinned private Agent source: original Task/Result, D6 proof/recovery/one-dist identity, exact current Core package builder and current UI signed Result reference requiring true attached original Kernel; installed original native T3/independent Atlas NOT_RUN."
       },
       "next_candidate": {
         "head": "f44ebe3cc12457740b03a68abe0f08be4fb8b3ce",
         "source_run_id": 44156510664,
-        "source_run_status": "in_progress",
-        "source_run_conclusion": null,
+        "source_run_status": "completed",
+        "source_run_conclusion": "success",
         "installed_run_id": 44156510700,
         "installed_run_status": "in_progress",
         "installed_run_conclusion": null,
@@ -144,14 +144,14 @@
         "agent_prior_windows_run_id": 44154074362,
         "agent_prior_windows_result": "SUCCESS_AT_D403BDF0_NOT_ORIGINAL_T3",
         "agent_latest_source_run_id": 44156510664,
-        "agent_latest_source_result": "in_progress",
+        "agent_latest_source_result": "SUCCESS_AT_F44EBE3C",
         "agent_latest_native_run_id": 44156510700,
-        "agent_latest_native_result": "in_progress",
+        "agent_latest_native_result": "IN_PROGRESS_AT_OBSERVATION",
         "actual_product_qualified_original_t2_input": "NOT_PRODUCED",
         "actual_original_t3_agent_setup": "NOT_BUILT_INSTALLED",
         "actual_signed_original_agent_atlas": "NOT_RUN"
       },
-      "note": "A tested product-specific assembler and an Agent Setup call path now exist. The genuine product-owned original T2 Dist input does not yet exist; an ordinary installed Agent is not a G4 installed T3. Real private original D1/D6 and independent Atlas native U05 + cold reads remain HOLD."
+      "note": "Qualified original One Core builder #44155065963 SUCCESS; final exact private Agent source #44156510664 SUCCESS. General native Windows Agent #44156510700 pending and does not include private original issuer, original product-qualified Agent One Dist or independent installed Atlas. T3_READY=false."
     },
     "ecosystem_review": {
       "assessment_date": "2026-11-17",
