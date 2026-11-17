@@ -34,12 +34,12 @@ function setup({wrongManager=false,lostAck=false,pretrustEmployees=true}={}){
   fixture.policy.keys[alice.signer.keyId]=alice.record;
   fixture.policy.keys[bob.signer.keyId]=bob.record;
  }
- auth.roles.push('worker','role:manager');
+ auth.roles.push('worker','role:manager','assigner');
  auth.rightClasses.push('ADMINISTRATION','DATA');
  auth.resources.push('authority:issuer:north','workspace:ws:north',
-  'subject:org:north','recipient:org:north','field:result','operation:UPSERT');
+  'subject:org:north','recipient:org:north','field:result','field:task','operation:UPSERT');
  auth.actions.push('grant.issue','work.prepare','package.export');
- auth.purposes.push('access-administration','work','handoff');
+ auth.purposes.push('access-administration','work','handoff','assignment');
  Object.assign(fixture.policy.actionCatalog,{
   'grant.issue':'ADMINISTRATION','work.prepare':'ACTION','package.export':'DATA'
  });
@@ -400,6 +400,83 @@ test('new independent employee proof credential is admitted by original signed S
  const restored=await cold.readState();
  assert.equal(restored.grants[issued.grantIds.work].payload.holderId,'person:alice');
  assert.equal(restored.statusFloor['issuer:north'],3);
+});
+test('manager receives only original signed DATA export for independently enrolled Task recipient',async()=>{
+ const s=setup({pretrustEmployees:false});await s.init();
+ await s.registry.admitProofCredential(trustProof(s));
+ const enrollment=await s.owner.begin(s.input(s.alice));
+ const issued=await s.owner.complete({enrollmentId:enrollment.enrollmentId,
+  employeeProof:makeProof(enrollment.request,enrollment.challenge,NOW,
+   s.alice.signer,'TEST')});
+ assert.equal(issued.state,'SIGNED_EMPLOYEE_ENROLLED_NOT_DELIVERED');
+ const grantArgs={organizationId:'org:north',
+  employeePersonId:'person:alice',enrollmentId:enrollment.enrollmentId,
+  managerPersonId:'person:operator',managerGrantId:'grant:admin-north'};
+ const signed=await s.owner.issueTaskGrant(grantArgs);
+ assert.equal(signed.state,'ORIGINAL_MANAGER_TASK_DATA_ACTIVE');
+ assert.equal(signed.recipientId,'person:alice');
+ assert.equal(signed.taskSigned,false);
+ assert.equal(signed.taskDelivered,false);
+ assert.equal(signed.originalReadback,true);
+ assert.equal(signed.safeToReissue,false);
+ assert.equal(signed.grant.keyId,s.north.issuerSigner.keyId);
+ assert.deepEqual(signed.grant.payload.resources,[
+   'workspace:ws:north','subject:org:north','recipient:person:alice',
+   'field:task','operation:UPSERT']);
+ assert.deepEqual(signed.grant.payload.actions,['package.export']);
+ assert.deepEqual(signed.grant.payload.purposes,['assignment']);
+ assert.equal(signed.grant.payload.holderId,'person:operator');
+ assert.equal(signed.grant.payload.roleId,'assigner');
+ assert.equal(s.kernel.calls.length,4);
+ const cold=createOriginalKernelRegistryStatePort({
+  kernel:s.kernel.api,workspaceId:'ws:host-registry',
+  trustedPolicy:s.fixture.policy,clock:time});
+ const same=await s.owner.readTaskGrant(grantArgs);
+ assert.equal(same.grantId,signed.grantId);
+ assert.equal(same.statusSequence,signed.statusSequence);
+ const req={id:'task:manager-signed-export',actorId:'person:operator',
+  principalId:'org:north',roleId:'assigner',grantId:signed.grantId,
+  audience:'host:t3',resource:'recipient:person:alice',
+  action:'package.export',purpose:'assignment',realmId:'realm:iwxa',
+  operationDigest:'f'.repeat(64)};
+ const challenge='exact-independent-employee-task-export-proof';
+ const authority=evaluate(req,await cold.readState(),{
+  now:iso(NOW),challenge,
+  proof:makeProof(req,challenge,NOW,s.north.credentialSigner,'TEST'),
+  timeAssurance:'LOCAL_BEST_EFFORT'});
+ assert.equal(authority.allowed,true);
+ const other={...req,resource:'recipient:person:bob'};
+ const forbidden=evaluate(other,await cold.readState(),{
+  now:iso(NOW),challenge,
+  proof:makeProof(other,challenge,NOW,s.north.credentialSigner,'TEST'),
+  timeAssurance:'LOCAL_BEST_EFFORT'});
+ assert.equal(forbidden.allowed,false);
+ await assert.rejects(s.owner.issueTaskGrant(grantArgs),
+  {code:'T3_EMPLOYEE_TASK_GRANT_OUTCOME_UNKNOWN_READBACK'});
+ await assert.rejects(s.owner.readTaskGrant({...grantArgs,
+   employeePersonId:'person:bob'}));
+ assert.equal(s.kernel.calls.length,4);
+});
+test('lost Kernel ACK for manager Task DATA grant is read-only recoverable, never reissued',async()=>{
+ const s=setup({pretrustEmployees:false});await s.init();
+ await s.registry.admitProofCredential(trustProof(s));
+ const enrollment=await s.owner.begin(s.input(s.alice));
+ await s.owner.complete({enrollmentId:enrollment.enrollmentId,
+  employeeProof:makeProof(enrollment.request,enrollment.challenge,NOW,
+   s.alice.signer,'TEST')});
+ const args={organizationId:'org:north',employeePersonId:'person:alice',
+  enrollmentId:enrollment.enrollmentId,managerPersonId:'person:operator',
+  managerGrantId:'grant:admin-north'};
+ s.loseNext();
+ await assert.rejects(s.owner.issueTaskGrant(args),
+  /SIMULATED_LOST_ACK_AFTER_KERNEL_COMMIT/);
+ const recovered=await s.owner.readTaskGrant(args);
+ assert.equal(recovered.state,'ORIGINAL_MANAGER_TASK_DATA_ACTIVE');
+ assert.equal(recovered.originalReadback,true);
+ assert.equal(recovered.safeToReissue,false);
+ assert.equal(s.kernel.calls.length,4);
+ await assert.rejects(s.owner.issueTaskGrant(args),
+  {code:'T3_EMPLOYEE_TASK_GRANT_OUTCOME_UNKNOWN_READBACK'});
 });
 test('proof-key admission refuses unauthorized manager, wrong employee key and cross-scope change before Kernel commit',async()=>{
  for(const variant of ['manager','employee','organization']){
