@@ -200,13 +200,16 @@ test('installed Agent D6 registers the existing accepted-result schema only in i
     for(const row of [passport.permissions.objects.read,
       passport.permissions.objects.write,passport.input_object_types,
       passport.output_object_types]){
-      assert.deepEqual(row,['existing.object',resultSchema]);
+      assert.deepEqual(row,['existing.object',resultSchema,
+        'iwxa.t3.access.signed-registry']);
     }
     const domain=JSON.parse(readFileSync(join(f.out,'_iwxa/domain.json'),'utf8'));
     assert.deepEqual(domain.security.allowed_object_classes,
-      ['existing.object',resultSchema]);
+      ['existing.object',resultSchema,'iwxa.t3.access.signed-registry']);
     assert.equal(passport.schemas['iwxa.admin.applied-results'],undefined,
       'Agent D6 may not inherit unrelated Admin D3 object permissions');
+    assert.equal(passport.schemas['iwxa.t3.access.signed-registry'].schema_version,'1.0.0',
+      'reuse the original D1 signed AccessRegistry serialization');
     const declaration=passport.schemas[resultSchema];
     assert.equal(declaration.schema_version,'1.0.0');
     assert.equal(declaration.preserve_unknown,false);
