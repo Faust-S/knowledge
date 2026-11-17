@@ -22,7 +22,7 @@
     "one_core": {
       "repository": "Faust-S/knowledge",
       "branch": "work/2026-11-10-t3-t2-activity-projection",
-      "observed_head": "638e944d35f2b32bea4cc55065bbf4d2d1eb7c42",
+      "observed_head": "c171bf8d2a7d7a4ffa068092bd629d059e1f4857",
       "qualification": {
         "run_id": 44155065963,
         "conclusion": "SUCCESS",
@@ -57,7 +57,7 @@
     "personal_agent": {
       "repository": "Faust-S/iwxa-personal-agent",
       "central_branch": "work/2026-11-15-agent-0-6-development",
-      "central_head": "ae7e03a972724569f886f64bf71514619e01b597",
+      "central_head": "f44ebe3cc12457740b03a68abe0f08be4fb8b3ce",
       "d6_branch": "work/2026-11-16-agent06-original-t3-result-owner-d6",
       "d6_head": "34d8f1a10b552f1d0c4108e012414648e71ce0a0",
       "level": "SOURCE_CANDIDATE",
@@ -75,10 +75,14 @@
         "scope": "Read-only source qualification and desktop build at previous Agent SHA, preceding new automatic materialization and signed-reference UX changes. Exact latest Agent is being checked separately."
       },
       "next_candidate": {
-        "head": "ae7e03a972724569f886f64bf71514619e01b597",
-        "source_run_id": 44156095377,
-        "installed_run_id": 44156095319,
-        "scope": "Agent original product One Dist auto-build integration, pin to newly qualified public One Core f952, and UI truthfully describes signed-reference-only .iwxa. Source and Windows CI pending at evidence observation. Neither normal Agent Windows installation nor signed-source test proves real installed recipient."
+        "head": "f44ebe3cc12457740b03a68abe0f08be4fb8b3ce",
+        "source_run_id": 44156510664,
+        "source_run_status": "in_progress",
+        "source_run_conclusion": null,
+        "installed_run_id": 44156510700,
+        "installed_run_status": "in_progress",
+        "installed_run_conclusion": null,
+        "scope": "Exact current Agent: build genuine product-owned One Dist automatically from qualified T2 and compiled signed UI, truthful signed reference-only Atlas UX, native Atlas actions hidden until actual original T2 Kernel attached; source+native Windows CI do not include installed private signer and independent Atlas recipient."
       }
     },
     "admin_center": {
@@ -129,20 +133,20 @@
     },
     "original_one_dist_setup": {
       "repository": "Faust-S/iwxa-personal-agent",
-      "source_commit": "ae7e03a972724569f886f64bf71514619e01b597",
-      "source_status": "PRODUCT_OWNED_BUILDER_CORE_QUALIFIED_AGENT_INTEGRATION_PENDING",
-      "scope": "Public original One Core f952 qualifies build-original-agent-one-dist.mjs: reuses original T2 0.3.6 qualified assembler, bans integration test Host, returns real original assembly receipt. Private Agent existing Setup Core can now build it from product-qualified T2 domain input + compiled signed T3 UI automatically, then checks pinned public Core, service passport, runtime, manifest and installed hashes; normal Agent without original T3 remains allowed but G4 -RequireOriginalT3 fails closed if missing. UI labels .iwxa as a signed reference, not full Result content.",
+      "source_commit": "f44ebe3cc12457740b03a68abe0f08be4fb8b3ce",
+      "source_status": "ORIGINAL_ONE_CORE_BUILDER_SOURCE_PASS_AGENT_INSTALL_SOURCE_IN_PROGRESS_NOT_G4_INSTALLED",
+      "scope": "Pinned public original One Core f952 builder source CI SUCCESS; private Agent original Setup Core can invoke that existing original qualified assembler from actual product T2 Dist and compiled T3 UI, then package original One Dist and receipt. A user-visible Atlas signed .iwxa is truthfully reference/provenance-only until separate genuine recipient data semantics exist. Corporate signed invitation cannot expose Atlas D6 actions without original native Kernel attached.",
       "qualification": {
         "knowledge_source_run_id": 44155065963,
         "knowledge_result": "SUCCESS_AT_F952F367",
-        "agent_prior_source_run_id": 44154074283,
-        "agent_prior_source_result": "SUCCESS_AT_D403BDF0",
+        "agent_prior_source_run_id": 44156095377,
+        "agent_prior_source_result": "SUCCESS_AT_AE7E03A9",
         "agent_prior_windows_run_id": 44154074362,
         "agent_prior_windows_result": "SUCCESS_AT_D403BDF0_NOT_ORIGINAL_T3",
-        "agent_latest_source_run_id": 44156095377,
-        "agent_latest_source_result": "IN_PROGRESS_AT_OBSERVATION",
-        "agent_latest_native_run_id": 44156095319,
-        "agent_latest_native_result": "PENDING_AT_OBSERVATION",
+        "agent_latest_source_run_id": 44156510664,
+        "agent_latest_source_result": "in_progress",
+        "agent_latest_native_run_id": 44156510700,
+        "agent_latest_native_result": "in_progress",
         "actual_product_qualified_original_t2_input": "NOT_PRODUCED",
         "actual_original_t3_agent_setup": "NOT_BUILT_INSTALLED",
         "actual_signed_original_agent_atlas": "NOT_RUN"
@@ -198,7 +202,7 @@
         }
       ],
       "release_floor": "SOURCE_G4_CANDIDATE_NOT_INSTALLED",
-      "next_executable": "Materialize genuine real iwxa.personal-agent original T2 domain through accepted T2 Product Completion (not test integration fixture), build One Dist with qualified shared One Core builder f952, install Agent with -RequireOriginalT3, attach original private employee/signature, then separately deliver/verify selected signed Result in Atlas own native store and perform two cold readbacks."
+      "next_executable": "Materialize genuine non-test, qualified original T2 Agent domain; run existing Agent Setup with -RequireOriginalT3 and auto-assembler, verify installed original signed D1+Kernel and private selected Result; implement independent Atlas original signed receipt and actual selected-result data semantics or limit D6 to links, and cold-read Atlas U05 twice."
     }
   },
   "accepted_gates": {
@@ -219,9 +223,10 @@
     "D6_double_cold_qualified_T2_object_event": "CORE_SOURCE_PASS_NOT_INSTALLED_ATLAS",
     "D6_original_signed_atlas_file_save": "SOURCE_IMPLEMENTED_UNQUALIFIED",
     "D6_original_nested_kernel_csp": "CORE_SOURCE_PASS_NOT_INSTALLED",
-    "D6_original_one_dist_setup_materialization": "BUILDER_CORE_SOURCE_PASS_AGENT_SOURCE_PENDING_NOT_INSTALLED",
+    "D6_original_one_dist_setup_materialization": "ONE_CORE_SOURCE_PASS_AGENT_INSTALLED_PRODUCTION_HOLD",
     "D6_original_product_identity_guard": "SOURCE_PASS_NOT_INSTALLED",
-    "G4_portable_selected_result_data": "NOT_PROVEN_REFERENCE_ONLY"
+    "G4_portable_selected_result_data": "NOT_PROVEN_REFERENCE_ONLY",
+    "D6_original_atlas_ui_kernel_gate": "SOURCE_COMMITTED_NOT_G4_INSTALLED"
   },
   "next_critical_path": [
     "Materialize genuine, qualified, product-owned original T2 domain One Dist input for iwxa.personal-agent using the accepted T2 factory, not integration.workspace.iwxa.test, then compile current original signed T3 UI from pinned One Core f952.",
