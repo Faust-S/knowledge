@@ -43,7 +43,7 @@
     "private_original_d6": {
       "repository": "Faust-S/T3",
       "branch": "work/2026-11-17-t3-original-agent-atlas-d6-publication-ledger",
-      "observed_head": "8bbce1e6fd5bee6832e3933b723ea2a2826e94e0",
+      "observed_head": "8122bba733a4187ee65ce665f7b3d7886a961eae",
       "level": "SOURCE_CANDIDATE",
       "native_test_status": "NOT_RUN_AS_INSTALLED_PRIVATE_ORIGINAL_T3",
       "blocker": "Original private Node/Ed25519/ledger native test checkout via public Center encountered 403; private Actions forbidden",
@@ -111,7 +111,7 @@
     "atlas": {
       "repository": "Faust-S/Atlas",
       "branch": "work/2026-11-16-atlas-0-9-t3",
-      "observed_head": "3f84891cdb8e43521d674f3ed930081e0512b27d",
+      "observed_head": "de040fab2950080f6889e99f9c56fc760258454f",
       "baseline_release": "release/0.8",
       "windows_ci": {
         "run_id": 44181242347,
@@ -217,9 +217,9 @@
         },
         {
           "code": "G4-BND-04",
-          "status": "CONFIRMED_STANDALONE_NATIVE_GAP",
+          "status": "ORIGINAL_SIGNED_FILE_RECONCILIATION_SOURCE_QUALIFIED_STANDALONE_INSTALL_HOLD",
           "cause": "Atlas 0.9 has source-wired trusted T3 native recipient and U05 CAS, but standalone.tsx mounts AtlasWorkspace with no original signed Host, and independent signed .iwxa file recipient has not been activated. Agent's Tauri cannot persist Atlas data.",
-          "correction": "Atlas standalone.tsx mounts AtlasWorkspace without original signed owner. Dist manifests include optional host bundle but do not connect it. Install ORIGINAL recipient verifier trust and own U05 AppHandle; no Agent-owned Atlas writes, no new signer or secondary Store.",
+          "correction": "Atlas exact source CI #44189209843 PASS at de040fab with 742/742 tests and signed-file recipient U05 CAS via original immutable T3 Reconciliation quarantine, no Agent runtime on recipient. Original private T3 Ed25519 source tests NOT_RUN (public Center read access 403); installed standalone still does not mount original recipient from user trust, separate physical Agent->signed .iwxa->Atlas import not proved. Do not accept G4.",
           "owner": "Faust-S/Atlas"
         },
         {
@@ -251,9 +251,9 @@
       "gate": "SOURCE_QUALIFIED_PUBLIC_ONLY__PRIVATE_NATIVE_SIGNED_INSTALL_NOT_ACCEPTED",
       "ownership": {
         "agent": "d4169c0f889f18825a0b33742d2fc87b87a227dc",
-        "original_private_t3": "8bbce1e6fd5bee6832e3933b723ea2a2826e94e0",
+        "original_private_t3": "8122bba733a4187ee65ce665f7b3d7886a961eae",
         "one_core": "3f91b60c56e34a21ea919a4a2004e31bb5071c60",
-        "atlas": "3f84891cdb8e43521d674f3ed930081e0512b27d"
+        "atlas": "de040fab2950080f6889e99f9c56fc760258454f"
       },
       "verified_ci": {
         "one_core": {
@@ -334,7 +334,33 @@
           "agent_sha": "d4169c0f889f18825a0b33742d2fc87b87a227dc"
         },
         "original_private_signed_exchange_ci": "NOT_RUN_NO_PRIVATE_ACTIONS"
-      }
+      },
+      "independent_signed_file_recipient": {
+        "state": "SOURCE_QUALIFIED_NATIVE_INSTALL_ORIGINAL_TRUST_HOLD",
+        "original_private_t3_head": "8122bba733a4187ee65ce665f7b3d7886a961eae",
+        "original_ed25519_inspector": "interop/atlas-result-exchange.mjs inspectOriginalAtlasSignedRecipientArchive + createOriginalAtlasSignedFileRecipientPort",
+        "original_reconciliation": "Uses existing ReconciliationLedger quarantine, existing inspectReconciliationIwxa signature and content verification. NO new Exchange, issuer, Kernel, or Store.",
+        "original_private_test": "tests/original-agent-atlas-signed-exchange.test.mjs: sender closed; original recipient existing Reconciliation Store; cold reopen, grant revocation, bad public key, corrupted bytes. SOURCE_CODE_PRESENT; PRIVATE_T3_TEST_NOT_RUN since Center original T3 read grant previously 403 and private Actions forbidden.",
+        "atlas_head": "de040fab2950080f6889e99f9c56fc760258454f",
+        "atlas_original_native_adapter": "desktop/src/atlas-t3-installed-host.mjs createInstalledAtlasT3SignedFileRecipient; same Atlas AppHandle atlas_open/atlas_commit and original U05 native CAS",
+        "atlas_source_test": "tests/atlas09-signed-file-recipient.test.mjs: one U05 CAS, two SOURCE-level cold native reader instances, explicit confirmation, lost ACK readback, revoked original trust, refuses fake sender Kernel event; uses original signed-verification witness, not actual original Ed25519",
+        "atlas_ci": {
+          "run_id": 44189209843,
+          "sha": "de040fab2950080f6889e99f9c56fc760258454f",
+          "conclusion": "SUCCESS",
+          "node_test_count": 742,
+          "node_failed": 0,
+          "dist": "ATLAS09_ONE_DIST_SIGNED_HOST_PASS"
+        },
+        "atlas_windows_ci": {
+          "run_id": 44189209886,
+          "sha": "de040fab2950080f6889e99f9c56fc760258454f",
+          "status": "IN_PROGRESS_AT_OBSERVATION"
+        },
+        "blocked": "STANDALONE_ORIGINAL_RECIPIENT_NOT_INSTALLED. NO installed original T3 public key/grant/STATUS binding to separate Atlas; no native file-picker UX signed Result fully deployed; no independent signed .iwxa E2E verified; G4 NOT_ACCEPTED.",
+        "distinction": "Signed archive verifies original Ed25519 provenance. Without sender Kernel on recipient computer it correctly says originalKernelEventVerified=false. Does not claim original sender T2 event readback."
+      },
+      "independent_signed_atlas_result": "NOT_RUN_INSTALLED_ORIGINAL_ED25519_END_TO_END"
     }
   },
   "accepted_gates": {
