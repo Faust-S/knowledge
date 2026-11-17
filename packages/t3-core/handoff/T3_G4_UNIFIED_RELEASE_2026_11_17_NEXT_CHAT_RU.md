@@ -1,5 +1,12 @@
 # IWXA T3 G4: единая миграция разработки в новый чат
 
+## Дальнейшее внедрение D6: граница оригинального Kernel и итоговая UX-семантика
+
+- Agent 0.6 `Faust-S/iwxa-personal-agent@f44ebe3cc12457740b03a68abe0f08be4fb8b3ce`: экран Atlas D6 доступен только при действительном `originalD6HostState=ORIGINAL_KERNEL_ATTACHED`, а не по одному корпоративному приглашению. Предыдущий коммит `ae7e03a9` исправил RU/EN язык: подписанный `.iwxa` в этом профиле несёт только ссылку на принятый Result и его происхождение, не содержимое Result. Это правило не заменяет native Atlas U05 и не даёт прав адресату автоматически.
+- [Публичный адресный исходный CI №44156510664](https://github.com/Faust-S/Center/actions/runs/44156510664) **SUCCESS**, точный pinned Agent `f44ebe3c`, только source. [Windows native CI №44156510700](https://github.com/Faust-S/Center/actions/runs/44156510700) при последней проверке выполнялся; он не включает private original issuer и не завершает независимый Atlas G4.
+- [Нормативный T2/One Core CI №44155065963](https://github.com/Faust-S/knowledge/actions/runs/44155065963) **SUCCESS** на квалифицированном исходном builder `f952f367`. Genuine product-owned `iwxa.personal-agent` T2 вход из Factory пока **не материализован**, а установленный native signed D6 ещё не проверен.
+- Следующая работа только в существующих владельцах: реальный Agent T2 Product Completion -> original signed compiled One Dist -> `Agent -RequireOriginalT3` -> genuine original private D1/D6 owner -> native `Atlas 0.9` recipient/own U05 -> cold native readbacks. Реальный перенос выбранных данных нельзя выдавать за ссылку: передаём либо явно ссылку, либо под контролем original Exchange отдельную утверждённую выборку с правом получателя. Не создавать второй Kernel, signer, Store, Task Engine или формат.
+
 ## Системный аудит и продуктивная доработка 17.11.2026 (приоритетная сводка)
 
 **Релизная реальность:** One Core `Faust-S/knowledge/packages/t3-core` остаётся единственным исполняемым общим T3. Нормативный `Faust-S/T2@main` неизменен. Privileged original employee/Ed25519/Exchange остаются у закрытого владельца, без приватных Actions. Agent 0.6, Admin 0.3, Atlas 0.9, Publisher 0.5 сохраняют собственные модели и нативный Store; Activity и сайты развиваются отдельными предметными потоками. `G4=NOT_ACCEPTED`, `T3_READY=false`.
