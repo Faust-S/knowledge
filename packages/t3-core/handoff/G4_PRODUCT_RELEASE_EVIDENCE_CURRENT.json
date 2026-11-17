@@ -2,7 +2,7 @@
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
   "snapshot_date": "2026-11-17",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
-  "currentness": "FETCH_LIVE_HEAD_AND_ACTION_CONCLUSION_BEFORE_USE",
+  "currentness": "SNAPSHOT_2026_11_17__ALWAYS_RECHECK_LIVE_SHA_AND_CI",
   "policy": {
     "t3_one_core": "Faust-S/knowledge/packages/t3-core",
     "t2_normative": "Faust-S/T2@main",
@@ -22,50 +22,57 @@
     "one_core": {
       "repository": "Faust-S/knowledge",
       "branch": "work/2026-11-10-t3-t2-activity-projection",
-      "observed_head": "19d0fa975ef1ed69473ae95ddeaa6b21354dda98",
+      "observed_head": "cf03944c9fb87b392bcf52d5c2a3cfb22c7e0d16",
       "qualification": {
-        "run_id": 44091249718,
+        "run_id": 44124552421,
         "conclusion": "SUCCESS",
         "jobs": {
           "test": "PASS",
           "real-host": "PASS",
           "windows-credential": "PASS",
-          "metal-webgpu": "SKIPPED",
           "native-age": "SKIPPED",
-          "native-model": "SKIPPED"
+          "native-model": "SKIPPED",
+          "metal-webgpu": "SKIPPED"
         }
       },
       "level": "CORE_SOURCE_PASS",
-      "notes": "Main D1/D3 retained; native D6 merged with original disclosure, atomic fresh reservation, READ/WRITE operation selection and original readback; original deterministic T2 accepted Result graph builder is now the default, no second graph mapper"
+      "notes": "One inherited T2 0.3.6 Runtime Contract 1.3.0; D1/D3/D6/D7 source; Agent-only qualified original T2 One Dist passport with original signed D1 AccessRegistry, original accepted-result schema/Kernel Object/Event and two process-cold source readbacks. This is not an installed independent Agent-to-Atlas signed transfer."
     },
     "private_original_d6": {
       "repository": "Faust-S/T3",
       "branch": "work/2026-11-17-t3-original-agent-atlas-d6-publication-ledger",
-      "observed_head": "f13ff6f58402cc8d2303561e2961f822aeaa085b",
+      "observed_head": "2e36d696d689513ade5c5e1f0438eda5451072a7",
       "level": "SOURCE_CANDIDATE",
-      "native_test_status": "NOT_RUN",
+      "native_test_status": "NOT_RUN_AS_PART_OF_FULL_INSTALLED_G4",
       "blocker": "Original private Node/Ed25519/ledger native test checkout via public Center encountered 403; private Actions forbidden",
       "scope": "Existing issuer, Reconciliation ledger, signed selected Atlas Exchange, pre-dispatch original disclosure port"
     },
     "personal_agent": {
       "repository": "Faust-S/iwxa-personal-agent",
       "central_branch": "work/2026-11-15-agent-0-6-development",
-      "central_head": "cd861584c622002af4c3edd55767a5ddde1cc6f5",
+      "central_head": "34d8f1a10b552f1d0c4108e012414648e71ce0a0",
       "d6_branch": "work/2026-11-16-agent06-original-t3-result-owner-d6",
-      "d6_head": "a2454db7caa3252adc8c04d6e5a8fd34821fd4f7",
+      "d6_head": "34d8f1a10b552f1d0c4108e012414648e71ce0a0",
       "level": "SOURCE_CANDIDATE",
       "existing_native_windows_evidence": {
-        "run_id": 43940608014,
-        "scope": "Baseline installed Tauri/GUI native package, not signed Atlas D6"
+        "run_id": 44125527869,
+        "conclusion": "SUCCESS",
+        "scope": "Agent 0.6 installed Windows Tauri/Setup/Core/UI baseline; not real installed private signer plus Atlas 0.9 native U05 result transfer"
       },
-      "installed_d6": "NOT_ACCEPTED"
+      "installed_d6": "NOT_ACCEPTED",
+      "release_version_mismatch": "Agent development npm/Tauri/Cargo manifests still say 0.5.0; coordinate 0.6-dev release version before publishing an installer; do not change stable 0.5"
     },
     "admin_center": {
       "repository": "Faust-S/Center",
-      "branch": "work/2026-11-16-admin03-independent-employee",
-      "observed_head": "31b0283efb5d36531122c14a8b16e98b9451c7d1",
+      "branch": "work/2026-11-15-t3-d3-native-preapply-refusal",
+      "observed_head": "2b9fc0fed7ccc3f06ab212bee654e90db2e865dc",
       "level": "SOURCE_CANDIDATE",
-      "installed_employee_d3": "NOT_ACCEPTED"
+      "installed_employee_d3": "NOT_ACCEPTED",
+      "source_ci": {
+        "run_id": 44124983894,
+        "conclusion": "SUCCESS",
+        "scope": "Center source/installed Windows baseline with single React root fix; not original independent private signer end-to-end"
+      }
     },
     "atlas": {
       "repository": "Faust-S/Atlas",
@@ -115,14 +122,16 @@
     "installed_publisher_d7": "HOLD",
     "cross_product_G4": "NOT_ACCEPTED",
     "D6_original_T2_graph_command": "CORE_SOURCE_PASS",
-    "installed_original_accepted_result_schema": "HOLD"
+    "installed_original_accepted_result_schema": "CORE_SOURCE_PASS_NOT_INSTALLED",
+    "D6_real_original_T2_Agent_profile": "CORE_SOURCE_PASS",
+    "D6_double_cold_qualified_T2_object_event": "CORE_SOURCE_PASS_NOT_INSTALLED_ATLAS"
   },
   "next_critical_path": [
-    "Run authorized original private T3 signed issuer/Exchange/Reconciliation native tests; DO NOT run private Actions",
-    "Mount original native Host createInstalledOriginalAgentAtlasPublisher and Agent accepted Result in existing Core",
-    "Installed Admin independent employee Task -> signed Agent Result -> original T3 Exchange to iwxa.atlas -> Atlas own U05 Store -> two cold readbacks",
-    "Native Publisher issuer/license/status/revoke readbacks and independent installed consumer",
-    "Only then evaluate G4 gate; never interpret 403 or source-only CI as product defect"
+    "Build real installed original Agent T2 KernelFacade Runtime 1.3.0 + signed D1 READ/WRITE binding inside the existing Host; no JSON or fake hasOperation",
+    "Mount existing private T3 createInstalledOriginalAgentAtlasPublisher with genuine Agent Core readAcceptedForPublication and original signed Exchange/ledger, without second Host",
+    "Atlas 0.9 as independent original D6 recipient with its OWN Tauri AppHandle/U05 Store, signed .iwxa, double cold saved Decision readback and no duplicate after lost ACK",
+    "Independently qualify Admin Center signed Task -> D3 ACCEPT -> separate APPLY -> two cold Kernel reads, then Publisher PERSON LICENSE/STATUS/REVOKE D7",
+    "Before release align Agent 0.6 npm/Tauri/Cargo/Setup version; hardware D5 WebGPU and cold offline replay; no private Actions"
   ],
   "transport_profile_rules": {
     "original_T2_Workspace_iwxa": "Normal T2 Exchange importPreview/importCommit with original T2 Workspace/Package manifest",
@@ -130,5 +139,55 @@
     "age_wrapped_iwxa": "Native age envelope decrypted by an authorized recipient before handing original inner .iwxa to its owning importer",
     "Atlas_D6_iwxa": "Original T3 signed selected Result profile addressed to iwxa.atlas; verifySelectedResult + native Atlas Store CAS, not standard T2 importCommit",
     "single_extension": "One existing .iwxa transport, different verified profiles; never create a second .iwxa codec"
+  },
+  "cross_product_source_evidence": {
+    "repo": "Faust-S/Center",
+    "branch": "work/2026-11-17-agent06-d6-signed-receipt-source-ci",
+    "source_ci_run_id": 44125528014,
+    "conclusion": "SUCCESS",
+    "workflow_sha": "9f923d47966767df5b33a9ebbe0886b1768cde59",
+    "test_pins": {
+      "personal_agent": "8f4a130e3d38d0e6710fd43cd9f799aa14491b8f",
+      "one_core": "8a161538cb041d023dcdb0527893cd0bcebad549",
+      "atlas": "dbb6606667cf0b2f6189ebb6f2fd1f70da197db6"
+    },
+    "changes_since_pinned_set": "Agent central has only three later documentation/test commits to 34d8f1a; One Core has later source-only tests to cf03944; Atlas code unchanged.",
+    "scope": "Original T3 public D6 sender + Atlas 0.9 exact contract + native-recipient source fixtures + private Agent original Task/Result/IPC/signed read-only recovery; no installed private T3 signer",
+    "source_only": true,
+    "installed_cross_app": false,
+    "public_artifacts": 0,
+    "separate_windows_installed_agent": {
+      "run_id": 44125527869,
+      "conclusion": "SUCCESS"
+    },
+    "separate_windows_center": {
+      "run_id": 44124983894,
+      "conclusion": "SUCCESS"
+    },
+    "separate_windows_atlas": {
+      "run_id": 43979032675,
+      "conclusion": "SUCCESS"
+    }
+  },
+  "release_candidate": {
+    "label": "IWXA_T3_G4_SOURCE_CANDIDATE_2026_11_17",
+    "production_ready": false,
+    "t3_ready": false,
+    "one_core": "CORE_SOURCE_PASS",
+    "cross_product_source": "CORE_SOURCE_PASS",
+    "original_private_native_signer": "NOT_QUALIFIED",
+    "independent_installed_d3": "HOLD",
+    "independent_installed_d6": "HOLD",
+    "independent_installed_person_license_d7": "HOLD",
+    "hardware_offline_d5_latest": "NOT_REPEATED_IN_CI",
+    "strict_order": [
+      "Real installed Agent original T2 Kernel/D1 Host mount",
+      "Private original signed T3 Result/Exchange D6 in that Host",
+      "Original Agent and Atlas own U05 receive with two cold readbacks",
+      "Independent installed Admin D3",
+      "Independent installed Publisher PERSON D7",
+      "Complete D5 hardware offline acceptance",
+      "Unified G4 release candidate"
+    ]
   }
 }
