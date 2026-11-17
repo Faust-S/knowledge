@@ -111,14 +111,15 @@
     "atlas": {
       "repository": "Faust-S/Atlas",
       "branch": "work/2026-11-16-atlas-0-9-t3",
-      "observed_head": "7454661a166d7e52a821a8369fc37f33f13d14b1",
+      "observed_head": "3f84891cdb8e43521d674f3ed930081e0512b27d",
       "baseline_release": "release/0.8",
       "windows_ci": {
-        "run_id": 43979032675,
+        "run_id": 44181242347,
         "conclusion": "SUCCESS",
-        "scope": "Independent Atlas Windows/Store, not Agent T3 signed recipient"
+        "source_pin": "3f84891cdb8e43521d674f3ed930081e0512b27d",
+        "scope": "Genuine Atlas 0.9.0-dev.1 installed via original Setup Core on Windows; original Rust native Store PASS; large real .iwxa project imported through WebView2 UI; native first Save + cold restart PASS; 2 sequential work edits Save/cold PASS; long-title viewport PASS; two additional physical installed process cold Store readbacks PASS. Signed original Agent D6 importer NOT_RUN."
       },
-      "level": "INSTALLED_PRODUCT_PASS",
+      "level": "INSTALLED_ATLAS09_PRODUCT_PASS_D6_SIGNED_RECIPIENT_HOLD",
       "installed_agent_t3_atlas": "NOT_ACCEPTED",
       "portable_result_source_ci": {
         "run_id": 44177677145,
@@ -133,9 +134,17 @@
         "correction_commit": "8833f6427f5716e46255b3552463c41455560240",
         "correction_scope": "Installed Windows test waits for head.json on initial native commit; previously saved head disappearance still fails immediately",
         "exact_windows_rerun_id": 44181242347,
-        "rerun_result": "IN_PROGRESS_AT_OBSERVATION",
+        "rerun_result": "SUCCESS",
         "exact_source_run_id": 44181212002,
-        "source_result": "SUCCESS_AT_8833"
+        "source_result": "SUCCESS_AT_8833",
+        "proofs": [
+          "ATLAS08_CLEAN_SETUP_IMPORT_COLD_RESTART_PASS",
+          "ATLAS08_INSTALLED_CUMULATIVE_CORRECTIONS_SAVE_RESTART_PASS",
+          "ATLAS08_INSTALLED_LONG_TITLE_WRAP_PASS",
+          "ATLAS09_INSTALLED_PRODUCT_VERSION_PASS",
+          "ATLAS09_STANDALONE_NO_FAKE_T3_OWNER_PASS",
+          "ATLAS09_TWO_COLD_INSTALLED_STORE_READBACK_PASS"
+        ]
       }
     },
     "publisher": {
@@ -229,13 +238,13 @@
         },
         {
           "code": "G4-WIN-07",
-          "status": "REPRODUCED_TEST_WAITER_FIXED_NATIVE_RERUN_PENDING",
+          "status": "FIX_VERIFIED_ATLAS09_INSTALLED_WINDOWS_PASS",
           "cause": "Atlas 0.9 Windows #44177677078 failed after initial Save because the installed witness read absent head.json immediately on a clean profile and raised FileNotFoundError, without waiting for first commit. Setup Core reported expected standard DataRoot; an earlier claim that the registered folder differed was not supported.",
-          "correction": "Existing visual waiter now tolerates missing head.json ONLY before initial commit, waits 45 seconds, fails on prior saved-head loss, and CI trigger covers actual witness file changes. Atlas source tests #44181212002 SUCCESS, native Windows #44181242347 in progress at observation."
+          "correction": "Existing first Save waiter patched at Atlas 8833f642, native Windows #44181242347 SUCCESS at exact 3f84891c. Genuine installed Setup Core, U05 Rust, real UI first .iwxa import Save+cold, two successive work changes+cold, long title and two more physical installed cold readbacks PASS. This is not original Agent signed .iwxa receipt."
         }
       ],
       "release_floor": "SOURCE_G4_CANDIDATE_NOT_INSTALLED",
-      "next_executable": "Close exact Atlas 0.9 native Windows #44181242347 (NO source-only promotion); qualify private original signed D6 Agent sender, independently installed Atlas original .iwxa recipient and two actual process cold reads; then Admin signed D3, Publisher PERSON D7, D5 hardware offline, and one release G4."
+      "next_executable": "Atlas 0.9 independently installed U05 and native UI now PASS (#44181242347). Next do the real original private D1 signed employee -> Human-accepted Agent Result -> original T2 Kernel Object/Event -> original private signed one-Result .iwxa -> independently installed Atlas trusted recipient U05 CAS -> two signed result cold readbacks; then Admin D3, Publisher D7, hardware D5 in same G4 candidate."
     },
     "signed_selected_result_portability": {
       "date": "2026-11-17",
@@ -259,9 +268,9 @@
         }
       },
       "native_windows_atlas": {
-        "id": 44177677078,
-        "status": "IN_PROGRESS_AT_OBSERVATION",
-        "sha": "7454661a166d7e52a821a8369fc37f33f13d14b1"
+        "id": 44181242347,
+        "status": "SUCCESS_INSTALLED_ATLAS_PRODUCT_NO_SIGNED_D6",
+        "sha": "3f84891cdb8e43521d674f3ed930081e0512b27d"
       },
       "supported": "A single existing signed .iwxa with original accepted summary+SHA256, independent recipient checks, and U05 native Decision persistence/source cold readback",
       "limits": "Private original Ed25519 source suite not run; installed original T3 and independent Atlas standalone source owner NOT connected. Selected accepted summary is plaintext in a signed (not encrypted) original .iwxa. Old link-only signed archives remain readable but cannot be claimed to contain text.",
@@ -279,9 +288,9 @@
         "scope": "Public Center native Agent Tauri build + real original T2 One Dist + installed GUI only; no private original signed Ed25519 archive or independent Atlas original recipient"
       },
       "windows_atlas_native_ci": {
-        "run_id": 44177677078,
-        "status": "IN_PROGRESS_AT_OBSERVATION",
-        "sha": "7454661a166d7e52a821a8369fc37f33f13d14b1"
+        "run_id": 44181242347,
+        "status": "SUCCESS_PRODUCT_GUI_ONLY_SIGNED_AGENT_D6_NOT_RUN",
+        "sha": "3f84891cdb8e43521d674f3ed930081e0512b27d"
       }
     }
   },
@@ -311,7 +320,7 @@
     "D6_original_setup_core_06_native_executable": "NOT_BUILT_QUALIFIED"
   },
   "next_critical_path": [
-    "Close current Atlas Windows native #44181242347 on exact commit 3f84891c; distinguish fixed test-race from genuine first-Save failure. Public source #44181212002 PASS does not replace Windows.",
+    "Atlas 0.9 independent native product installation and its own U05 Store: Windows #44181242347 SUCCESS at 3f84891c. Do NOT count these two product-store cold reopens as independent signed Agent D6 Result acceptance.",
     "Installed Agent 0.6 source a0dc + One Core 3f91 are qualified for native original T2 One Dist via public Center #44178292091. Separately provision REAL original private Ed25519 employee grants, explicitly create original signed T2 Workspace with authorized D1 write and bind ORIGINAL Agent accepted-source/issuer Host, never test-only Kernel.",
     "Send one real Human-accepted Agent Result selected summary -> exact signed original Kernel Object/Event -> original recipient-scoped signed .iwxa using the already existing Exchange and ledger. Prove selected content/hash and one disclosure, original signed receipts, lost-ACK read-only recovery.",
     "Installed standalone Atlas 0.9 must mount trusted ORIGINAL recipient verifier for independently received signed .iwxa; currently mountAtlasSurface exists only as optional shipped export, not as standalone connection. Use its own Tauri AppHandle U05 CAS and two physically independent cold process readbacks.",
