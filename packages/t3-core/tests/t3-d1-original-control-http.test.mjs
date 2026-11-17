@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createServer} from "node:http";
+import {mkdtempSync,writeFileSync,rmSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
 import {randomBytes,createHash} from "node:crypto";
 import {createOriginalControlHttpHandler}
   from "../src/t3/original-control-http-handler.mjs";
@@ -14,7 +17,8 @@ import {createTemporaryOriginalPersonalAuthority}
   from "./support/t3-original-personal-authority.mjs";
 
 async function fixture({reconciliationPortFor=null,nativeD7PortFor=null,
-  nativeD6PortFor=null,originalKernelRelayFor=null}={}){
+  nativeD6PortFor=null,originalKernelRelayFor=null,
+  installedParentOrigin=null,assetForPath=null}={}){
   const token=randomBytes(32).toString("base64url");
   let origin=null,handle=null,epoch=1;
   const listeners=new Set(),calls=[];
@@ -42,7 +46,7 @@ async function fixture({reconciliationPortFor=null,nativeD7PortFor=null,
     ownerFor:({scope,operation})=>
       scope==="kernel"&&operation==="putObject"?authority.access:null,
     reconciliationPortFor,nativeD7PortFor,nativeD6PortFor,
-    originalKernelRelayFor,
+    originalKernelRelayFor,installedParentOrigin,assetForPath,
   });
   const originFetch=(url,options={})=>fetch(url,{
     ...options,headers:{...options.headers,Origin:origin},
@@ -1473,4 +1477,30 @@ test("D3 two racing original Apply calls cannot dispatch twice when native port 
       assert.equal(entered,1,"epoch rotation cannot redispatch the same Apply");
     }finally{stopFresh();}
   }finally{finish();stop();await f.close();}
+});
+
+
+test("original nested Kernel allows only exact installed Agent grandparent",async()=>{
+  const root=mkdtempSync(join(tmpdir(),"iwxa-native-kernel-parent-"));
+  const page=join(root,"trusted-kernel-realm.html");
+  const parent="http://127.0.0.1:18765";
+  writeFileSync(page,'<base href="/workspace/"><script type="module" src="/workspace/assets/trusted-123.js"></script>');
+  let f;
+  try{
+    f=await fixture({
+      installedParentOrigin:parent,
+      assetForPath:()=>({path:page,type:"text/html; charset=utf-8"}),
+    });
+    const response=await fetch(f.origin+"/workspace/trusted-kernel-realm.html");
+    assert.equal(response.status,200);
+    const uiOrigin="http://127.0.0.1:"+(Number(new URL(f.origin).port)+1);
+    assert.ok(response.headers.get("content-security-policy")?.includes(
+      "frame-ancestors "+uiOrigin+" "+parent));
+    assert.equal(response.headers.get("x-frame-options"),null);
+    assert.equal(await response.text(),
+      '<base href="/workspace/"><script type="module" src="/workspace/assets/trusted-123.js"></script>');
+  }finally{
+    await f?.close();
+    rmSync(root,{recursive:true,force:true});
+  }
 });
