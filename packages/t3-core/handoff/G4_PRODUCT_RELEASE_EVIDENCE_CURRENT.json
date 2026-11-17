@@ -1,0 +1,125 @@
+{
+  "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
+  "snapshot_date": "2026-11-17",
+  "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
+  "currentness": "FETCH_LIVE_HEAD_AND_ACTION_CONCLUSION_BEFORE_USE",
+  "policy": {
+    "t3_one_core": "Faust-S/knowledge/packages/t3-core",
+    "t2_normative": "Faust-S/T2@main",
+    "private_original_owner": "Faust-S/T3",
+    "allow_private_actions": false,
+    "allow_extra_kernel_store_iam_exchange": false,
+    "source_ci_never_equals_installed_product": true,
+    "status_levels": [
+      "SOURCE_CANDIDATE",
+      "CORE_SOURCE_PASS",
+      "NATIVE_OWNER_PASS",
+      "INSTALLED_PRODUCT_PASS",
+      "CROSS_PRODUCT_G4_PASS"
+    ]
+  },
+  "observations": {
+    "one_core": {
+      "repository": "Faust-S/knowledge",
+      "branch": "work/2026-11-10-t3-t2-activity-projection",
+      "observed_head": "b9c087c159c44024c3b9d4496d107a94134ac3e4",
+      "qualification": {
+        "run_id": 44089282076,
+        "conclusion": "SUCCESS",
+        "jobs": {
+          "test": "PASS",
+          "real-host": "PASS",
+          "windows-credential": "PASS",
+          "metal-webgpu": "SKIPPED",
+          "native-age": "SKIPPED",
+          "native-model": "SKIPPED"
+        }
+      },
+      "level": "CORE_SOURCE_PASS",
+      "notes": "Main D1/D3 retained; native D6 merged with original disclosure, atomic fresh reservation, READ/WRITE operation selection and original readback"
+    },
+    "private_original_d6": {
+      "repository": "Faust-S/T3",
+      "branch": "work/2026-11-17-t3-original-agent-atlas-d6-publication-ledger",
+      "observed_head": "f13ff6f58402cc8d2303561e2961f822aeaa085b",
+      "level": "SOURCE_CANDIDATE",
+      "native_test_status": "NOT_RUN",
+      "blocker": "Original private Node/Ed25519/ledger native test checkout via public Center encountered 403; private Actions forbidden",
+      "scope": "Existing issuer, Reconciliation ledger, signed selected Atlas Exchange, pre-dispatch original disclosure port"
+    },
+    "personal_agent": {
+      "repository": "Faust-S/iwxa-personal-agent",
+      "central_branch": "work/2026-11-15-agent-0-6-development",
+      "central_head": "cd861584c622002af4c3edd55767a5ddde1cc6f5",
+      "d6_branch": "work/2026-11-16-agent06-original-t3-result-owner-d6",
+      "d6_head": "a2454db7caa3252adc8c04d6e5a8fd34821fd4f7",
+      "level": "SOURCE_CANDIDATE",
+      "existing_native_windows_evidence": {
+        "run_id": 43940608014,
+        "scope": "Baseline installed Tauri/GUI native package, not signed Atlas D6"
+      },
+      "installed_d6": "NOT_ACCEPTED"
+    },
+    "admin_center": {
+      "repository": "Faust-S/Center",
+      "branch": "work/2026-11-16-admin03-independent-employee",
+      "observed_head": "31b0283efb5d36531122c14a8b16e98b9451c7d1",
+      "level": "SOURCE_CANDIDATE",
+      "installed_employee_d3": "NOT_ACCEPTED"
+    },
+    "atlas": {
+      "repository": "Faust-S/Atlas",
+      "branch": "work/2026-11-16-atlas-0-9-t3",
+      "observed_head": "dbb6606667cf0b2f6189ebb6f2fd1f70da197db6",
+      "baseline_release": "release/0.8",
+      "windows_ci": {
+        "run_id": 43979032675,
+        "conclusion": "SUCCESS",
+        "scope": "Independent Atlas Windows/Store, not Agent T3 signed recipient"
+      },
+      "level": "INSTALLED_PRODUCT_PASS",
+      "installed_agent_t3_atlas": "NOT_ACCEPTED"
+    },
+    "publisher": {
+      "repository": "Faust-S/Center",
+      "branch": "work/2026-11-10-publisher-0.5",
+      "observed_head": "3397d4d7e599760a07662e766ed3e4cf6ecc2a23",
+      "level": "SOURCE_CANDIDATE",
+      "installed_person_license_status_and_revoke": "NOT_ACCEPTED"
+    },
+    "activity": {
+      "repository": "Faust-S/knowledge",
+      "branch": "work/2026-11-10-activity-base-anonymizer",
+      "observed_head": "2383c58f88901f16aa2a5fa780de447dba3d4750",
+      "level": "SOURCE_CANDIDATE",
+      "t3_signed_derived_production": "NOT_ACCEPTED"
+    },
+    "domain_pilot": {
+      "repository": "Faust-S/club.iwxa.ru",
+      "branch": "work/2026-11-11-d02-t3-domain-autonomy",
+      "observed_head": "868bf42f0462268ae82da6db62443b90606e77fe",
+      "level": "SOURCE_CANDIDATE",
+      "t3_offline_real_product": "NOT_ACCEPTED"
+    }
+  },
+  "accepted_gates": {
+    "B0_T2_source": "PASS",
+    "D1_D3_public_contract": "SOURCE_PASS",
+    "D4_technical_two_recipients": "PASS",
+    "D5_hardware_prior": "PASS_NOT_REPEATED_IN_LATEST_CI",
+    "D6_main_native_sender": "CORE_SOURCE_PASS",
+    "D7_native_age_prior": "PASS_NOT_REPEATED_IN_LATEST_CI",
+    "installed_original_private_d6": "HOLD",
+    "installed_employee_d1_d3": "HOLD",
+    "installed_agent_atlas_d6": "HOLD",
+    "installed_publisher_d7": "HOLD",
+    "cross_product_G4": "NOT_ACCEPTED"
+  },
+  "next_critical_path": [
+    "Run authorized original private T3 signed issuer/Exchange/Reconciliation native tests; DO NOT run private Actions",
+    "Mount original native Host createInstalledOriginalAgentAtlasPublisher and Agent accepted Result in existing Core",
+    "Installed Admin independent employee Task -> signed Agent Result -> original T3 Exchange to iwxa.atlas -> Atlas own U05 Store -> two cold readbacks",
+    "Native Publisher issuer/license/status/revoke readbacks and independent installed consumer",
+    "Only then evaluate G4 gate; never interpret 403 or source-only CI as product defect"
+  ]
+}

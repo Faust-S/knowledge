@@ -1,5 +1,11 @@
 # IWXA T3 One Core: передача D3/D7 -> G4 в новый чат
 
+## Актуализация 17.11.2026 — сквозной релизный реестр и интегрированная D6
+
+Главный источник точного наблюдённого состояния: `G4_PRODUCT_RELEASE_EVIDENCE_CURRENT.json`. Исполняемый T3 `b9c087c1` объединил D6 с D1/D3, CI №44089282076 SUCCESS (Node/real-host/Windows credential; аппаратный D5 и age в этом прогоне не повторялись). В приватном оригинальном D6 `f13ff6f5` реализована native `inspectSelectedDisclosure` до какого-либо резервирования/подписания, с проверкой отдельного подписанного recipient `iwxa.atlas` и изолированного профиля; private native tests NOT_RUN, установленный продукт HOLD. Приоритет G4: живой подписанный Employee Task→Agent accepted Result→original T3→Atlas 0.9 native Store→две холодные проверки. Не делать второй Kernel, signer, Store, Exchange или отдельный T3 EXE. Раздельные границы CORE_SOURCE_PASS, NATIVE_OWNER_PASS, INSTALLED_PRODUCT_PASS, CROSS_PRODUCT_G4_PASS не подменяют друг друга.
+
+---
+
 ## Актуализация 17.11.2026: единый D6 Agent → T3 → Atlas и исходные квитанции
 
 **Последний квалифицированный исполняемый коммит T3:** `3618a9b3ceeed9b67d4b04072c77b7cd69bf1e46` в `Faust-S/knowledge@work/2026-11-10-t3-t2-activity-projection`.
