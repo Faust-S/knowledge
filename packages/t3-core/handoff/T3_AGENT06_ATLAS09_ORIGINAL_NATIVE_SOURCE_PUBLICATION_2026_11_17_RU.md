@@ -192,3 +192,52 @@ public Center read token cannot check out private T3 (HTTP 403). The
 existing private original Host composition is not yet installed in the
 Agent and native Atlas's two cold readbacks are not qualified.
 D6_END_TO_END=NOT_ACCEPTED; T3_READY=false.
+
+
+## 17.11.2026: штатная оригинальная T2 Graph-команда
+
+В общем \`packages/t3-core/src/t3/native-agent-atlas-source-publisher.mjs\`
+реализован \`prepareOriginalAgentAtlasGraph()\`: детерминированная
+\`t1.commitObjectGraph\` команда Runtime Contract 1.3.0 с уже
+используемой схемой \`iwxa.agent.accepted-result\`, исходным
+идентификатором \`agent-atlas-result:<operationSha256>\`,
+предусловием \`base_revision=0\`, оригинальным Event
+\`iwxa.agent.result.published\`, оригинальными Task/Result/WorkRef
+и SHA принятого Result. Содержимое ответа модели, память Agent,
+произвольные вложения и неразрешённые данные не копируются.
+Схема должна быть зарегистрирована в существующем T2 Kernel;
+никакой новый Kernel, Store или Task Engine не создаётся.
+
+\`createTrustedAgentAtlasSourcePublisher()\` использует этот
+исходный генератор по умолчанию. Оригинальная приватная композиция
+Host теперь может обходиться без альтернативного
+\`prepareOriginalGraph\` и не дублировать реализацию модели графа.
+Перед записью остаются обязательными подписанная Task,
+отдельный human disclosure, два оригинальных JIT-grant порта и
+атомарная исходная Reconciliation reservation.
+
+Публичный CI
+[#44089473791](https://github.com/Faust-S/knowledge/actions/runs/44089473791)
+**SUCCESS** на \`6c34abe58e04850d02f69d75b63e42eda7d8926a\`.
+Также #44089290870 SUCCESS при первичной компиляции.
+В тестах проверены точный исходный Object/Event, отказы при
+изменении acceptedDigest, человеческого принятия, WorkRef и
+operationId и полный исходный publisher на оригинальном
+тестовом T2 порте. Реальный установленный T2/Ed25519/Atlas E2E
+этими тестами не подтверждён.
+
+В приватном оригинальном T3 \`readRecordedTransfer\` научился
+искать единственный уже подписанный \`.iwxa\` и оригинальный
+Kernel ObjectRef самостоятельно, когда запись PREPARED осталась
+без ACK. Исходная нативная композиция завершает старую запись
+только после проверки подписанного архива и оригинального
+Kernel Event. Шесть адресных тестов композиции с тестовыми
+портами прошли; настоящие приватные Ed25519/Node-тесты по-прежнему
+NOT_RUN из-за недоступности T3 для Center token.
+
+**Следующая реальная точка подключения**: установить оригинальный
+T3 Host с живым Runtime 1.3.0 и signed D1 READ/WRITE портами
+в той же установленной композиции Agent; передать
+\`sourceOwner\` действующему \`original_t3_source_owner\`, затем
+проверить Atlas 0.9 native Store и два холодных чтения.
+До этого \`D6_END_TO_END=NOT_ACCEPTED\`.
