@@ -99,9 +99,15 @@ function publicationResponse(row,binding){
 export function createTrustedAgentAtlasSourcePublisher({
   kernel,access,originalLedger,originalExchange,acceptedSource,
   originalEmployee,prepareOriginalGraph,confirmDisclosure,isHostActive,
+  trustedSignedKernelForOperation=null,
 }={}){
   check(kernel?.hasOperation&&kernel?.sessionInfo?.contract_version==="1.3.0"&&
-    access?.currentContext&&typeof isHostActive==="function"&&
+    ["t1.getWorkspace","t1.getObject","t1.listEventsSince",
+      "t1.commitObjectGraph"].every(k=>kernel.hasOperation(k)===true)&&
+    access?.currentContext&&
+    (trustedSignedKernelForOperation===null||
+      typeof trustedSignedKernelForOperation==="function")&&
+    typeof isHostActive==="function"&&
     typeof confirmDisclosure==="function"&&
     typeof prepareOriginalGraph==="function"&&
     ["read","reserve","finalize","findByObject","findByWork","findLatestWork"]
@@ -128,7 +134,20 @@ export function createTrustedAgentAtlasSourcePublisher({
   }
   async function signedFor(binding){
     const c=await current(binding);
-    const signed=createSubjectKernelBinding({kernel,access,isHostActive});
+    // Original T3 employee signs READ and WRITE under distinct grants.
+    // Installed native Host owns the selector and provides ORIGINAL signed
+    // D1 ports per operation. Never turn a read grant into object.write.
+    const signed=trustedSignedKernelForOperation===null
+      ?createSubjectKernelBinding({kernel,access,isHostActive})
+      :Object.freeze(Object.fromEntries([
+        "getWorkspace","getObject","listEventsSince","commitObjectGraph"
+      ].map(method=>[method,(...args)=>{
+        active();
+        const port=trustedSignedKernelForOperation(method);
+        check(typeof port?.[method]==="function",
+          "T3_D6_ORIGINAL_SIGNED_KERNEL_PORT_MISSING");
+        return port[method](...args);
+      }])));
     return {c,signed};
   }
   async function verifyCommitted(row,binding){
@@ -153,6 +172,7 @@ export function createTrustedAgentAtlasSourcePublisher({
       same(read.object.data.workRef,binding.workRef,WORK)&&
       Array.isArray(events)&&events.filter(e=>
         e?.idempotency_key===effectKey&&
+        e?.event_type==="iwxa.agent.result.published"&&
         e?.event_id===row.originalEventId&&
         e?.object_id===ref.object_id&&
         e?.revision===ref.revision&&
@@ -212,6 +232,13 @@ export function createTrustedAgentAtlasSourcePublisher({
       // JIT employee rights must name the Atlas recipient. A corporate
       // organization export grant is NOT automatically transferable.
       const {c,signed}=await signedFor(binding);
+      // Preflight original T2 Workspace with its own signed READ grant.
+      // Missing/locked/deleted Workspace is a definite pre-dispatch refusal,
+      // not a permanently stranded PREPARED reservation.
+      const workspace=await signed.getWorkspace(c.workspace_id);
+      check(workspace&&workspace.workspace_id===c.workspace_id&&
+        workspace.deleted_at==null&&workspace.read_only!==true,
+        "T3_D6_ORIGINAL_WORKSPACE_NOT_WRITABLE");
       check(await originalEmployee.authorizeAtlasExport(copy(binding),copy(c))===true,
         "T3_D6_ATLAS_EXPORT_NOT_AUTHORIZED");
       const accepted=await acceptedSource.readAccepted(copy(binding));
@@ -244,7 +271,10 @@ export function createTrustedAgentAtlasSourcePublisher({
       const key=operationId.slice("agent:t3:atlas:".length);
       check(command?.workspace_id===c.workspace_id&&
         command.idempotency_key===key&&
-        object(obj)&&obj.workspace_id===c.workspace_id&&
+        // Original T2 commitObjectGraph scopes the command by its TOP
+        // LEVEL workspace_id. Its object input need not repeat that key.
+        object(obj)&&
+        (obj.workspace_id===undefined||obj.workspace_id===c.workspace_id)&&
         id(obj.object_id)&&id(obj.schema_id)&&id(obj.schema_version)&&
         Number.isSafeInteger(obj.base_revision)&&obj.base_revision===0&&
         object(obj.data)&&
@@ -256,7 +286,8 @@ export function createTrustedAgentAtlasSourcePublisher({
         obj.data.signedTaskPackageSha256===binding.signedTaskPackageSha256&&
         obj.data.contextDigest===binding.contextDigest&&
         same(obj.data.workRef,binding.workRef,WORK)&&
-        object(command.event)&&id(command.event.event_type),
+        object(command.event)&&
+        command.event.event_type==="iwxa.agent.result.published",
         "T3_D6_ORIGINAL_GRAPH_PROVENANCE_INVALID");
       // The existing original T2 exporter is Workspace/schema scoped.
       // Obtain recipient-owned evidence of selected-Result-only disclosure
@@ -281,7 +312,11 @@ export function createTrustedAgentAtlasSourcePublisher({
       try{reserved=await originalLedger.reserve(operationId,copy(binding));}
       catch{return {status:"OUTCOME_UNKNOWN",operationId,retrySafe:false};}
       ownerRow(reserved,binding,operationId);
-      if(reserved.status!=="PREPARED")
+      // A PREPARED row may have been reserved by ANOTHER Host between
+      // our first read and reserve. The original atomic Reconciliation
+      // explicitly reports whether THIS call created the generation.
+      // Without a positive fresh-reservation ACK no Kernel/Exchange write.
+      if(reserved.status!=="PREPARED"||reserved.newReservation!==true)
         return {status:"OUTCOME_UNKNOWN",operationId,retrySafe:false};
       // All post-reservation exceptions are outcome-unknown: Kernel may
       // have committed, or original Exchange may have exported the archive.
@@ -293,6 +328,28 @@ export function createTrustedAgentAtlasSourcePublisher({
           ref.schema_id===obj.schema_id&&ref.revision===1&&
           id(written?.event?.event_id),
           "T3_D6_ORIGINAL_KERNEL_WRITE_UNVERIFIED");
+        // The original Kernel receipt is only an ACK. Check the committed
+        // Object/Event before asking the original Exchange to sign or export.
+        const observed=await signed.getObject(ref.workspace_id,ref.object_id);
+        const history=await signed.listEventsSince(ref.workspace_id);
+        check(same(observed?.object,ref,REF)&&
+          observed.object.deleted!==true&&observed.object.deleted_at==null&&
+          observed.object.data.taskId===binding.taskId&&
+          observed.object.data.resultId===binding.resultId&&
+          observed.object.data.acceptedDigest===binding.acceptedDigest&&
+          observed.object.data.signedTaskId===binding.signedTaskId&&
+          observed.object.data.signedTaskRevisionId===binding.signedTaskRevisionId&&
+          observed.object.data.signedTaskPackageSha256===binding.signedTaskPackageSha256&&
+          observed.object.data.contextDigest===binding.contextDigest&&
+          same(observed.object.data.workRef,binding.workRef,WORK)&&
+          Array.isArray(history)&&history.filter(event=>
+            event?.event_id===written.event.event_id&&
+            event.event_type==="iwxa.agent.result.published"&&
+            event.idempotency_key===key&&
+            event.workspace_id===ref.workspace_id&&
+            event.object_id===ref.object_id&&event.revision===ref.revision
+          ).length===1,
+          "T3_D6_ORIGINAL_KERNEL_WRITE_UNVERIFIED");
         const exported=await originalExchange.publishSelectedResult({
           operationId,binding:copy(binding),sourceObjectRef:copy(ref),
           // The original Exchange must use the original signed .iwxa
@@ -302,6 +359,25 @@ export function createTrustedAgentAtlasSourcePublisher({
           hex(exported.archiveSha256)&&
           exported.disclosureScope==="ORIGINAL_RESULT_ONLY"&&
           same(exported.selectedSourceObjectRef,ref,REF),
+          "T3_D6_ORIGINAL_EXCHANGE_EXPORT_UNVERIFIED");
+        // The old organization-addressed interop.result.v2 is NOT a
+        // verified Atlas transfer. Check actual stored bytes, signature and
+        // recipient against the original owner BEFORE finalizing the ledger.
+        const archiveProof=await originalExchange.verifySelectedResult({
+          operationId,binding:copy(binding),sourceObjectRef:copy(ref),
+          archiveSha256:exported.archiveSha256,
+        });
+        check(archiveProof?.status==="VERIFIED"&&
+          archiveProof.recipientId==="iwxa.atlas"&&
+          archiveProof.archiveSha256===exported.archiveSha256&&
+          archiveProof.taskId===binding.taskId&&
+          archiveProof.resultId===binding.resultId&&
+          same(archiveProof.sourceObjectRef,ref,REF)&&
+          archiveProof.originalSignatureVerified===true&&
+          archiveProof.archiveBytesVerified===true&&
+          archiveProof.originalManifestVerified===true&&
+          archiveProof.disclosureScope==="ORIGINAL_RESULT_ONLY"&&
+          same(archiveProof.selectedSourceObjectRef,ref,REF),
           "T3_D6_ORIGINAL_EXCHANGE_EXPORT_UNVERIFIED");
         await originalLedger.finalize({
           operationId,binding:copy(binding),sourceObjectRef:ref,
@@ -362,8 +438,15 @@ export function createTrustedAgentAtlasSourcePublisher({
     // Return THAT verified owner's receipt, not a locally fabricated status.
     const original=verified.original?.archive;
     check(original?.status==="VERIFIED"&&
+      original.recipientId==="iwxa.atlas"&&
+      original.archiveSha256===archiveSha256&&
+      original.taskId===taskId&&original.resultId===resultId&&
+      same(original.sourceObjectRef,ref,REF)&&
+      same(original.selectedSourceObjectRef,ref,REF)&&
       original.originalSignatureVerified===true&&
-      original.archiveBytesVerified===true,
+      original.archiveBytesVerified===true&&
+      original.originalManifestVerified===true&&
+      original.disclosureScope==="ORIGINAL_RESULT_ONLY",
       "T3_D6_ORIGINAL_EXCHANGE_RECEIPT_MISSING");
     return Object.freeze(copy(original));
   }

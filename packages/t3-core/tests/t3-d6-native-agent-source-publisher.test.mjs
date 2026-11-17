@@ -24,9 +24,11 @@ const operationId="agent:t3:atlas:"+createHash("sha256").update(
     Object.fromEntries(Object.keys(binding.workRef).sort().map(
       k=>[k,binding.workRef[k]])):binding[key]])))).digest("hex");
 function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
-  lostFinalize=false,consent=true,permitted=true,
-  isolatedDisclosure=true}={}){
- const rows=new Map(),objects=new Map(),events=[];
+  lostFinalize=false,consent=true,permitted=true,isolatedDisclosure=true,
+  unverifiedExchange=false,corruptKernelRead=false,
+  competingReservation=false,workspaceReady=true,
+  selectedSignedPorts=false,missingSignedWrite=false}={}){
+ const rows=new Map(),objects=new Map(),events=[],signedSelections=[];
  let commits=0,exports=0,reserves=0,finalizations=0,consents=0;
  let grant=permitted;
  const context={kind:"CORP",context_id:"context:1",actor_id:"employee:1",
@@ -51,8 +53,13 @@ function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
  };
  const kernel={
    sessionInfo:{contract_version:"1.3.0"},
-   hasOperation:op=>["t1.getObject","t1.listEventsSince","t1.commitObjectGraph"].includes(op),
-   getObject:async(_ws,id)=>({object:objects.get(id)??null,
+   hasOperation:op=>["t1.getWorkspace","t1.getObject",
+     "t1.listEventsSince","t1.commitObjectGraph"].includes(op),
+   getWorkspace:async ws=>workspaceReady
+     ?{workspace_id:ws,deleted_at:null,read_only:false}:null,
+   getObject:async(_ws,id)=>({object:corruptKernelRead&&objects.has(id)
+     ?{...objects.get(id),data:{...objects.get(id).data,
+       acceptedDigest:"0".repeat(64)}}:objects.get(id)??null,
      relations:{incoming:[],outgoing:[]}}),
    listEventsSince:async()=>[...events],
    commitObjectGraph:async command=>{
@@ -80,11 +87,13 @@ function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
    },
    reserve:async(op,body)=>{
      reserves++;
+     const prior=rows.get(op);
+     if(prior)return {...prior,newReservation:false};
      const row={operationId:op,...body,status:"PREPARED",retrySafe:false,
        originalReceiptVerified:false};
      rows.set(op,row);
      if(lostReserve)throw Error("reserve ACK lost");
-     return {...row};
+     return {...row,newReservation:!competingReservation};
    },
    finalize:async input=>{
      finalizations++;
@@ -118,15 +127,14 @@ function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
      exports++;
      if(lostExchange)throw Error("exchange ACK lost");
      return {recipientId:"iwxa.atlas",archiveSha256:sha(sourceObjectRef),
-       disclosureScope:"ORIGINAL_RESULT_ONLY",
-       selectedSourceObjectRef:sourceObjectRef};
+       disclosureScope:"ORIGINAL_RESULT_ONLY",selectedSourceObjectRef:sourceObjectRef};
    },
    verifySelectedResult:async({sourceObjectRef,archiveSha256})=>({
-     status:"VERIFIED",recipientId:"iwxa.atlas",
+     status:unverifiedExchange?"UNVERIFIED":"VERIFIED",recipientId:"iwxa.atlas",
      archiveSha256,taskId:binding.taskId,resultId:binding.resultId,
-     sourceObjectRef,originalSignatureVerified:true,archiveBytesVerified:true,
+     sourceObjectRef,selectedSourceObjectRef:sourceObjectRef,
+     originalSignatureVerified:true,archiveBytesVerified:true,
      originalManifestVerified:true,disclosureScope:"ORIGINAL_RESULT_ONLY",
-     selectedSourceObjectRef:sourceObjectRef,
    }),
  };
  const acceptedSource={readAccepted:async()=>({
@@ -145,7 +153,7 @@ function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
  const prepareOriginalGraph=async({binding:original})=>({
    workspace_id:"ws:org",
    idempotency_key:operationId.slice("agent:t3:atlas:".length),
-   object:{workspace_id:"ws:org",object_id:"result:1",
+   object:{object_id:"result:1",
      schema_id:"iwxa.agent.accepted-result",schema_version:"1.0.0",
      base_revision:0,
      data:{taskId:original.taskId,resultId:original.resultId,
@@ -162,9 +170,16 @@ function fixture({lostReserve=false,lostKernel=false,lostExchange=false,
    originalEmployee,prepareOriginalGraph,
    confirmDisclosure:async()=>{consents++;return consent;},
    isHostActive:()=>true,
+   trustedSignedKernelForOperation:selectedSignedPorts
+     ?method=>{
+       signedSelections.push(method);
+       if(method==="commitObjectGraph"&&missingSignedWrite)return null;
+       // Boundary-only stand-in; installed T3 separately proves JIT grants.
+       return {[method]:(...args)=>kernel[method](...args)};
+     }:null,
  });
  return {create,rows,get counts(){return {commits,exports,reserves,finalizations,consents};},
-   revoke:()=>{grant=false;},binding,operationId};
+   revoke:()=>{grant=false;},binding,operationId,signedSelections};
 }
 test("native T3 source publisher binds accepted Agent source to original Kernel and Exchange",async()=>{
  const f=fixture(),owner=f.create();
@@ -176,12 +191,15 @@ test("native T3 source publisher binds accepted Agent source to original Kernel 
  assert.equal(done.sourceObjectRef.object_id,"result:1");
  assert.equal((await owner.read_published(done.sourceObjectRef)).status,"VERIFIED");
  assert.equal((await owner.read_published_for(f.binding.workRef,f.binding,{})).status,"VERIFIED");
- const originalReceipt=await owner.read_receipt(done.sourceObjectRef,
+ const signedReceipt=await owner.read_receipt(done.sourceObjectRef,
    f.binding.taskId,f.binding.resultId,done.archiveSha256,"iwxa.atlas");
- assert.equal(originalReceipt.status,"VERIFIED");
- assert.equal(originalReceipt.originalSignatureVerified,true);
- assert.equal(originalReceipt.archiveBytesVerified,true);
- assert.deepEqual(originalReceipt.sourceObjectRef,done.sourceObjectRef);
+ assert.equal(signedReceipt.status,"VERIFIED");
+ assert.deepEqual(signedReceipt.sourceObjectRef,done.sourceObjectRef);
+ assert.equal(signedReceipt.originalSignatureVerified,true);
+ assert.equal(signedReceipt.archiveBytesVerified,true);
+ assert.equal(signedReceipt.originalManifestVerified,true);
+ assert.equal(signedReceipt.disclosureScope,"ORIGINAL_RESULT_ONLY");
+ assert.deepEqual(signedReceipt.selectedSourceObjectRef,done.sourceObjectRef);
  assert.equal((await owner.read_latest_for_work("project:1","work:1")).revision,"2");
  assert.equal((await owner.publish_accepted({...f.binding,operationId:f.operationId})).status,
   "COMMITTED");
@@ -237,9 +255,85 @@ test("wrong operation, unauthorized export and mismatched recipient fail closed"
    {code:"T3_D6_ORIGINAL_OPERATION_ID_INVALID"});
  f.revoke();
  await assert.rejects(f.create().publish_accepted({...f.binding,
-   operationId:f.operationId}),{code:"T3_D6_ATLAS_EXPORT_NOT_AUTHORIZED"});
+   operationId:f.operationId}),{code:"T3_ACCESS_NOT_PERMITTED"});
  assert.equal(f.counts.commits,0);
  const bad={...f.binding,recipientId:"org:1"};
  await assert.rejects(f.create().publish_accepted({...bad,
    operationId:f.operationId}),{code:"T3_D6_ATLAS_ORIGINAL_BINDING_INVALID"});
+});
+
+test("unverified original Exchange bytes never finalize the corporate Atlas publication",async()=>{
+ const f=fixture({unverifiedExchange:true});
+ const answer=await f.create().publish_accepted({...f.binding,
+   operationId:f.operationId});
+ assert.equal(answer.status,"OUTCOME_UNKNOWN");
+ assert.equal(f.counts.commits,1);
+ assert.equal(f.counts.exports,1);
+ assert.equal(f.counts.finalizations,0,
+   "Unverified signed archive is not COMMITTED");
+ assert.equal((await f.create().read_publication(f.operationId,
+   f.binding)).status,"PREPARED");
+});
+test("original Kernel object readback must precede signed Exchange export",async()=>{
+ const f=fixture({corruptKernelRead:true});
+ const answer=await f.create().publish_accepted({...f.binding,
+   operationId:f.operationId});
+ assert.equal(answer.status,"OUTCOME_UNKNOWN");
+ assert.equal(f.counts.commits,1);
+ assert.equal(f.counts.exports,0);
+ assert.equal(f.counts.finalizations,0);
+ assert.equal((await f.create().read_publication(f.operationId,
+   f.binding)).status,"PREPARED");
+});
+
+test("a competing original reservation cannot authorize another Kernel/Exchange dispatch",async()=>{
+ const f=fixture({competingReservation:true});
+ const answer=await f.create().publish_accepted({...f.binding,
+   operationId:f.operationId});
+ assert.equal(answer.status,"OUTCOME_UNKNOWN");
+ assert.equal(answer.retrySafe,false);
+ assert.deepEqual(f.counts,{
+   commits:0,exports:0,reserves:1,finalizations:0,consents:1
+ });
+ assert.equal((await f.create().read_publication(f.operationId,
+   f.binding)).status,"PREPARED");
+ assert.equal(f.counts.commits,0);
+});
+
+test("missing original Workspace refuses before reserving the original ledger",async()=>{
+ const f=fixture({workspaceReady:false});
+ await assert.rejects(f.create().publish_accepted({
+   ...f.binding,operationId:f.operationId
+ }),{code:"T3_D6_ORIGINAL_WORKSPACE_NOT_WRITABLE"});
+ assert.equal(f.counts.reserves,0);
+ assert.equal(f.counts.commits,0);
+ assert.equal(f.counts.exports,0);
+});
+test("original D1 READ and WRITE signed ports are selected independently",async()=>{
+ const f=fixture({selectedSignedPorts:true});
+ const result=await f.create().publish_accepted({
+   ...f.binding,operationId:f.operationId
+ });
+ assert.equal(result.status,"COMMITTED");
+ for(const method of ["getWorkspace","getObject","listEventsSince",
+   "commitObjectGraph"])assert.ok(f.signedSelections.includes(method));
+});
+test("missing original signed write grant cannot reach Kernel commit",async()=>{
+ const f=fixture({selectedSignedPorts:true,missingSignedWrite:true});
+ const result=await f.create().publish_accepted({
+   ...f.binding,operationId:f.operationId
+ });
+ assert.equal(result.status,"OUTCOME_UNKNOWN");
+ assert.equal(f.counts.commits,0);
+ assert.equal(f.counts.exports,0);
+});
+
+test("explicit Atlas export grant denial is independent from signed Workspace READ",async()=>{
+ const f=fixture({selectedSignedPorts:true});
+ f.revoke();
+ await assert.rejects(f.create().publish_accepted({
+   ...f.binding,operationId:f.operationId
+ }),{code:"T3_D6_ATLAS_EXPORT_NOT_AUTHORIZED"});
+ assert.equal(f.counts.reserves,0);
+ assert.equal(f.counts.commits,0);
 });

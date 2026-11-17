@@ -54,18 +54,146 @@ Tests cover successful source publication, original owner readback, human refusa
 
 This branch runs only in public Faust-S/knowledge Linux Actions with public source. No private Actions, no temporary private checkout, no private artifact uploads, no signer, secrets or real account output. A successful public adapter test is not a claim of installed product acceptance.
 
-## Общий T3 One Core: интеграция native publisher и подтверждение 17.11.2026
+## Update: 2026-11-17 private original Reconciliation owner
 
-Итоговая исходная ветка `Faust-S/knowledge@work/2026-11-10-t3-t2-activity-projection`, исполняемый SHA `3618a9b3ceeed9b67d4b04072c77b7cd69bf1e46`.
-Реализация `native-agent-atlas-source-publisher.mjs` объединена через двухродительский merge `a5e2b292`; только она остается источником sender-side композиции (без второй T3 подсистемы).
-Чтение исходной signed Exchange-квитанции, а не синтетической `VERIFIED`: `b15b5c5b`; `3618a9b3` добавил original `inspectSelectedDisclosure` на получателя `iwxa.atlas`, точную ссылку Result и отдельный DATA grant.
+Private original owner integration now exists on
+`Faust-S/T3@work/2026-11-17-t3-original-agent-atlas-d6-publication-ledger`,
+with `reconciliation/atlas-source-publication-ledger.mjs` plus
+`openInterop(...).originalAgentAtlasPublicationLedger()` bound to the original
+Control employee's signed Task, corporate context epoch and owner lifetime.
+It reuses **exactly the original ReconciliationLedger store**, generation chain,
+atomic HEAD and writer.lock; no second ledger or signer is created.
 
-Три обязательных шага native original Exchange:
-- `inspectSelectedDisclosure({operationId,binding,sourceObjectRef,recipientId:"iwxa.atlas"})` проверяет исходные подписанные права и возможность отдельного `ORIGINAL_RESULT_ONLY` архива до резервирования операции или Kernel write. Возвращает `originalRecipientGrantVerified:true`, `workspaceDisclosureIsolated:true`, точную `selectedSourceObjectRef`; иные значения блокируют.
-- `publishSelectedResult` передаёт реальные оригинальные `.iwxa` байты с `disclosureScope:"ORIGINAL_RESULT_ONLY"` и точным `selectedSourceObjectRef`.
-- `verifySelectedResult` после холодного открытия подтверждает оригинальный ZIP manifest, байты, подпись, адресата, sourceObjectRef, `disclosureScope:"ORIGINAL_RESULT_ONLY"`, а не реконструированный JS статус.
+Public source update `0d1cd46` verifies original Kernel Object/Event
+**before signing** the recipient-specific Atlas Exchange, and original signed
+archive bytes, recipient and source **before durable COMMITTED**.
+Public CI #43968414777 SUCCESS. The existing D6 signed continuation tests
+also passed.
 
-Не выдавать T2 `exportPackage` полной корпоративной Workspace за пакет одного Agent Result: обычная T2 операция не умеет выбрать один произвольный объект из смешанной Workspace. Только исходный допустимый паспорт/разрешённая изолированная публикационная Workspace либо исходный доказанный селективный scope допустимы; не разрабатывать новый packager или формат.
+Private new ledger tests have NOT been executed against the original private
+Reconciliation runtime. Do not call them Windows/native PASS. Original private
+corporate `interop.result.v2` is organization-addressed by its validator:
+a distinct signed employee grant and original recipient-specific
+`iwxa.atlas` Exchange carrier remain necessary. Do not weaken that validator
+or relabel an organization archive.
 
-Публичный CI `#43968382746` на `3618a9b3`: `test`, `real-host`, `windows-credential` SUCCESS; проверка нежелательного раскрытия отвергает действие до Reconciliation reserve и Kernel write.
-В PRIVATE T3 пока есть только независимое подтверждение корпоративного экспортного журнала (адресат организации), установленное `iwxa.atlas` native E2E остаётся HOLD. Продолжать исключительно интеграцию оригинального установленного владельца и собственные продуктовые приёмки.
+Native product composition (signed issuer, trusted Agent accepted source,
+original T2 Kernel and original T3 Exchange) is still not installed or
+qualified. The Node-only sender module must be packaged for the original
+**native Host**, not emitted into publicly served browser assets. Atlas's
+native Store and two cold readbacks are still required.
+
+Status: `PRIVATE_ORIGINAL_LEDGER_SOURCE_IMPLEMENTED`,
+`PUBLIC_SENDER_CI=PASS`, `D6_INSTALLED=NOT_ACCEPTED`.
+
+
+## 2026-11-17: separate original Atlas issuer and native Host composition
+
+The original private T3 branch has advanced beyond its earlier missing-grant state:
+\`Faust-S/T3@work/2026-11-17-t3-original-agent-atlas-d6-publication-ledger\`.
+
+Original employer issuer can now **optionally** issue a separately signed DATA
+\`package.export\` grant to \`recipient:iwxa.atlas\` using
+\`admin.invite({workspaceRead:true,workspaceWrite:true,atlasResultExport:true})\`.
+The default is false. Employee import verifies enrollment and original signed
+grant. The original issuer can revoke the Atlas grant independently. Existing
+organization-only interop.result.v2 export remains unchanged.
+
+Native private T3 has an Atlas recipient-specific Ed25519 .iwxa Exchange over
+its **existing** Reconciliation quarantine and original transfer ledger. It
+signs only the accepted source reference, digest and Task/Work provenance;
+original signature, archived bytes, manifest, recipient and original Kernel
+Object/Event must all be reverified. The original private native Host
+composition factory now connects original employee authority, original T2
+Kernel/signed D1 Access, original Reconciliation, original Exchange and the
+public sender factory as existing product ports.
+
+Public sender revision \`6fd1bdb1\` passed public source CI
+[№43976818522](https://github.com/Faust-S/knowledge/actions/runs/43976818522),
+including native T2 graph input shape and original Exchange receipt evidence.
+
+**Private T3 qualification remains blocked:** public Center CI
+[№43976161978](https://github.com/Faust-S/Center/actions/runs/43976161978)
+could not checkout private T3 (HTTP 403, read-grant unavailable for that repo).
+This is not a test failure. Private Actions were not run, and no private
+artifacts were uploaded. The Center workflow's SHA is the previous private
+snapshot; update its exact pin only after authorized T3 read access exists.
+
+Next required product work: mount the composition factory inside the genuinely
+installed original T3 Host, connect its sourceOwner to Agent
+InstalledOriginalAgentResultOwner through the existing native bridge, qualify
+private issuer and real signed .iwxa, and run Atlas's native Store with two
+cold readbacks. D6_END_TO_END remains NOT_ACCEPTED.
+
+
+## 2026-11-17 native continuation: concurrency and separate original D1 grants
+
+The existing private original T3 Reconciliation owner now returns
+\`newReservation:true\` only from the fresh atomic PREPARED commit. A raced or
+cold existing PREPARED returns false. Public source sender REQUIRES true
+before starting original Kernel commitObjectGraph. A successful PREPARED
+response without this fresh proof is OUTCOME_UNKNOWN and recovery-only.
+
+The public sender now accepts an optional trusted, native-only
+\`trustedSignedKernelForOperation(operation)\` selector, never a UI-provided
+grant. Installed private T3 composition uses its **existing**
+\`signedKernelAccess(originalKernelAccessPortFactory)\` to independently
+enforce read authorization for original getWorkspace/getObject/listEventsSince
+and write authorization for original commitObjectGraph. A valid writable
+T2 Workspace is checked BEFORE reservation. The original source Event type
+is pinned to \`iwxa.agent.result.published\` in source and private Exchange.
+
+The original private Exchange gained READ-ONLY \`readRecordedTransfer\` for
+recovery of an already signed archive after a lost ACK. The private trusted
+Host gained explicit native maintenance method
+\`reconcileRecordedPublication\`: only positively verified original signed
+archive bytes, transfer, recipient and exact Kernel Object/Event may cause
+the EXISTING Reconciliation ledger to finalize. This does NOT repeat Kernel
+writes, re-sign a package or change Agent's read-only publication readback.
+The existing prepared-only/unknown cases remain held.
+
+Evidence: public source CI
+[#43980356992](https://github.com/Faust-S/knowledge/actions/runs/43980356992)
+SUCCESS on \`47d93a05\`; public CI
+[#43979867539](https://github.com/Faust-S/knowledge/actions/runs/43979867539)
+SUCCESS on \`72b0be6c\`. Four private composition tests also passed a
+bounded V8 test-double execution, which does NOT replace the genuine
+private Node/Ed25519 tests or actual installed Windows E2E.
+Private original signer tests remain NOT_RUN due existing Center read
+token failure (HTTP 403 for Faust-S/T3).
+
+D6_INSTALLED=NOT_ACCEPTED; T3_READY=false.
+
+
+## 17.11.2026: Agent accepted-result consumer and desktop controls
+
+The private Agent source owner consumer now verifies all ORIGINAL
+recipient-specific Exchange evidence, including signer, bytes, manifest,
+disclosureScope and selectedSourceObjectRef; its UI exposes an explicit
+original Atlas WorkRef publication consent plus READ-ONLY recovery through
+the EXISTING InteractionSurface. No second Kernel/Task/Exchange, no Agent
+signer, no user-supplied native receipts. Original T3 signed source must
+still be injected by its installed trusted owner.
+
+Source-qualified exact private Agent:
+\`Faust-S/iwxa-personal-agent@3e353ba7a4394c45dc0d1b1c2ea560d54cae9fe1\`.
+Public temporary Windows Center source CI
+[#43985596193](https://github.com/Faust-S/Center/actions/runs/43985596193)
+SUCCESS (original Core Task/Result; signed Exchange evidence; DENIED vs
+unknown IPC; Agent desktop Atlas UI InteractionSurface; React TypeScript/Vite).
+Public Center native installed Tauri GUI workflow
+[#43985856212](https://github.com/Faust-S/Center/actions/runs/43985856212)
+was started on the same private Agent code. Its result must be checked
+separately; no native qualification is asserted by the source CI.
+Temporary private runner checkouts and logs are removed; no artifacts.
+
+Native ORIGINAL T3 signed issuer Exchange tests remain NOT_RUN because
+public Center read token cannot check out private T3 (HTTP 403). The
+existing private original Host composition is not yet installed in the
+Agent and native Atlas's two cold readbacks are not qualified.
+D6_END_TO_END=NOT_ACCEPTED; T3_READY=false.
+
+
+## 17.11.2026: merged One Core qualification candidate
+
+Native D6 publisher merged into main with every existing D1/D3 change preserved. Existing main inspectSelectedDisclosure result-only preflight, signed original receipt and archive manifest/scope checks were retained. D6 fixes added: independent READ/WRITE ports, Workspace preflight, atomic newReservation proof, normative T2 ObjectGraph Workspace, canonical Event and original Kernel Object/Event readback before signed Exchange. Original native T3 must supply inspectSelectedDisclosure before installed sign-off. Source and installed-product gates remain distinct.
