@@ -49,7 +49,26 @@ function matching(v,expected,fields){
 // not a replacement for the original Publisher signature/status validator.
 // The original payload permits 0..4096 changes; a full holder snapshot
 // can carry zero entries and thus close all previous nonterminal entries.
-function checkedStatus(row){
+function checkedStatus(row,subject){
+  if(row.statusSchema==="IWXA_T3_PRODUCT_LICENSE_STATUS/2"){
+    // The ORIGINAL PERSON issuer signs a different /2 payload than the
+    // holder-wide status contract. Keep the families distinct, not renamed.
+    requireValue(subject?.subjectType==="PERSON"&&
+      row.personId===subject.holderId&&validId(row.personId)&&
+      validId(row.licenseId)&&
+      ["IWXA_ATLAS","IWXA_PERSONAL_AGENT"].includes(row.productId)&&
+      ["ACTIVE","SUSPENDED","REVOKED"].includes(row.statusState)&&
+      Number.isSafeInteger(row.sequence)&&row.sequence>=1&&
+      HEX.test(row.statusPayloadDigest??"")&&
+      typeof row.statusValidUntil==="string"&&
+      Number.isFinite(Date.parse(row.statusValidUntil))&&
+      row.scope===undefined&&row.entries===undefined,
+      "T3_D7_PERSON_ORIGINAL_SIGNED_STATUS_REQUIRED");
+    return Object.freeze({statusPayloadDigest:row.statusPayloadDigest,
+      statusScope:null,statusEntries:null,
+      statusFamily:"PERSON_PRODUCT_STATUS/2",
+      productId:row.productId,statusState:row.statusState});
+  }
   const scope=row.scope,entries=row.entries;
   requireValue(row.statusSchema==="IWXA_T3_LICENSE_STATUS/2"&&
     HEX.test(row.statusPayloadDigest??"")&&
@@ -214,7 +233,7 @@ export function createTrustedPublisherHandoff({
       validId(inspected.operationId)&&HEX.test(inspected.previewDigest??"")&&
       ["READY","RECOVER_ONLY"].includes(inspected.stage),
       "T3_D7_PUBLISHER_ORIGINAL_INSPECTION_REQUIRED");
-    const status=kind==="STATUS"?checkedStatus(inspected):null;
+    const status=kind==="STATUS"?checkedStatus(inspected,binding.subject):null;
     if(kind==="LICENSE")
       requireValue(validId(inspected.licenseId),
         "T3_D7_PUBLISHER_LICENSE_REFERENCE_REQUIRED");
@@ -222,6 +241,8 @@ export function createTrustedPublisherHandoff({
       ...inspected, statusScope:status?.statusScope??null,
       statusEntries:status?.statusEntries??null,
       statusPayloadDigest:status?.statusPayloadDigest??null,
+      ...(status?.statusFamily?{statusFamily:status.statusFamily,
+        productId:status.productId,statusState:status.statusState}:{}),
     })};
   }
   function summary(row){
@@ -234,6 +255,8 @@ export function createTrustedPublisherHandoff({
       licenseId:row.licenseId??null,sequence:row.sequence??null,
       statusScope:row.statusScope??null,statusEntries:row.statusEntries??null,
       statusPayloadDigest:row.statusPayloadDigest??null,
+      ...(row.statusFamily?{statusFamily:row.statusFamily,
+        productId:row.productId,statusState:row.statusState}:{}),
       dataAccessAuthorized:false,entitlementActivated:false,
     });
   }
@@ -277,6 +300,8 @@ export function createTrustedPublisherHandoff({
       sequence:current.sequence??null,
       statusScope:row.statusScope??null,statusEntries:row.statusEntries??null,
       statusPayloadDigest:row.statusPayloadDigest??null,
+      ...(row.statusFamily?{statusFamily:row.statusFamily,
+        productId:row.productId,statusState:row.statusState}:{}),
       entitlementActivated:false,dataAccessAuthorized:false});
   }
   async function preview(input){
