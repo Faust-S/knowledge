@@ -131,8 +131,8 @@ export async function materializeOriginalAgentT2Product({
   shell.origin=profile.origin;
   shell.brand={name:'IWXA Personal Agent',short_name:'IWXA',
     descriptor:'Original signed personal Task and Result Workspace',
-    home_path:'/workspace/',logo_path:'/favicon.ico',
-    favicon_path:'/favicon.ico'};
+    home_path:'/workspace/',logo_path:'/workspace/favicon.ico',
+    favicon_path:'/workspace/favicon.ico'};
   config.config_version=profile.configVersion;
   config.domain_id=profile.productId;
   config.workspace_service_id=profile.serviceId;
@@ -269,7 +269,7 @@ if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   const args=process.argv.slice(2);
   const valid=['--t2-dist','--t3-build','--output','--receipt',
     '--qualified-kernel-dist','--agent-profile'];
-  if(![8,12].includes(args.length)||
+  if(![8,10].includes(args.length)||
      args.some((v,i)=>i%2===0&&!valid.includes(v))||
      new Set(args.filter((_,i)=>i%2===0)).size!==args.length/2)
     fail('USAGE_T2_DIST_OR_QUALIFIED_KERNEL_WITH_AGENT_PROFILE');

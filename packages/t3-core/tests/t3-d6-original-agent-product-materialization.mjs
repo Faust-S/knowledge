@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {createServer} from 'node:http';
+import {spawnSync} from 'node:child_process';
 import {mkdtempSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve,relative,sep,extname} from 'node:path';
@@ -60,6 +61,20 @@ try{
   assert.equal(originalReceipt.original_agent_d6_schema_registered,true);
   assert.equal(originalReceipt.original_qualified_artifact,artifactId);
   assert.equal(originalReceipt.output,dist);
+  // Exercise the EXACT build-time CLI consumed by Windows Setup Core,
+  // not only a direct in-process function call.
+  const cliDist=join(dir,'cli-one-dist'),cliReceipt=join(dir,'cli-one-dist-receipt.json');
+  const cli=spawnSync(process.execPath,[
+    resolve('scripts/build-original-agent-one-dist.mjs'),
+    '--qualified-kernel-dist',qualified,'--agent-profile',input,
+    '--t3-build',resolve('dist'),'--output',cliDist,'--receipt',cliReceipt,
+  ],{encoding:'utf8',timeout:45000});
+  assert.equal(cli.status,0,
+    'Original T2 product builder CLI failed: '+String(cli.stderr).slice(0,350));
+  const installed=JSON.parse(cli.stdout);
+  assert.equal(installed.original_qualified_artifact,artifactId);
+  assert.equal(installed.original_agent_d6_schema_registered,true);
+  assert.equal(JSON.parse(readFileSync(cliReceipt,'utf8')).output,cliDist);
   const domain=JSON.parse(readFileSync(join(dist,'_iwxa/domain.json'),'utf8'));
   const config=JSON.parse(readFileSync(
     join(dist,'workspace/workspace.config.json'),'utf8'));
