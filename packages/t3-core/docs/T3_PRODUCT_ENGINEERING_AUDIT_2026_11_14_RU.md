@@ -1,5 +1,45 @@
 # IWXA T3. Аудит реализованного продукта, рисков и конечного плана
 
+## Актуальная инженерная проверка 18.11.2026: продуктовая готовность и остаток G4
+
+**Решение:** \`T3_READY=false\`, \`G4=NOT_ACCEPTED\`. Основная архитектура T3 соответствует цели «T3 как развитие полного исходного T2, а не отдельная платформа». Но источник, работающее установленное приложение и независимая передача между двумя владельцами не тождественны друг другу. Текущая каноническая матрица и точные актуальные pinned SHA находятся в [G4_PRODUCT_RELEASE_EVIDENCE_CURRENT.json](../handoff/G4_PRODUCT_RELEASE_EVIDENCE_CURRENT.json). Приведённые ниже SHA — проверенный срез, не вечные HEAD.
+
+| Составная часть | Доказано | Не доказано, поэтому не ACCEPTED |
+|---|---|---|
+| **Норматив T2 / B0** | \`Faust-S/T2@main\` = \`9c64951c\`, оригинальные Kernel 0.3.6 / Runtime 1.3.0; T3 One Core в \`Faust-S/knowledge/packages/t3-core\`, источник \`3f91b60c\` [CI #44175911638](https://github.com/Faust-S/knowledge/actions/runs/44175911638) SUCCESS | Полная installed/G4 матрица на едином точном комплекте |
+| **Original signed D1 / D3** | Подписанный source Access/Reconciliation и раздельные ACCEPT, Kernel APPLY, unknown-ACK fencing; Admin Center 0.3 \`2b9fc0fe\`, [source CI #44124983894](https://github.com/Faust-S/Center/actions/runs/44124983894) SUCCESS | Реальный независимый корпоративный сотрудник в установленном Admin, original signed Kernel APPLY, двойное холодное чтение |
+| **Original D4/D6 selected Result** | Agent \`a0dc9b34\`, новый Human-accepted summary, SHA-256, текст в исходном подписанном \`.iwxa\`, исходный T3 private \`1d836e39\`; public One Core \`3f91b60c\`; [pinned source #44178292113](https://github.com/Faust-S/Center/actions/runs/44178292113) SUCCESS | Original private Ed25519 signer/Exchange tested against real installed T2/Agent; recipient-signed file independently verified by Atlas standalone |
+| **Agent 0.6** | Pinned native Agent + genuine product One Dist [Center #44178292091](https://github.com/Faust-S/Center/actions/runs/44178292091) SUCCESS | Полный original private installed corporate signer D1/D6 и продуктовый Setup Core 0.6 installer/Repair/Rollback на том же кандидате |
+| **Atlas 0.9** | Native Store+React source tests [#44181212002](https://github.com/Faust-S/Atlas/actions/runs/44181212002) SUCCESS; signed selected text сохраняется через native U05 Decision в source-контрактах; предыдущий release 0.8 остаётся отдельным стабильным базисом | Новый Windows #44177677078 FAIL в GUI witness после первого Save: тест сразу считал отсутствующий head.json; [фикс ожидания \`8833f642\`](https://github.com/Faust-S/Atlas/commit/8833f6427f5716e46255b3552463c41455560240), перезапуск #44181242347 был в работе при данном срезе. Ни этот прогон, ни предыдущая установленная версия не доказывают принятие signed D6 |
+| **Publisher 0.5 / D7** | UI, contracts, native source [CI #44087416943](https://github.com/Faust-S/Center/actions/runs/44087416943) SUCCESS; original age-проверки уже выполнялись отдельно | PERSON issuance + настоящий consumer + STATUS/revoke/renew, installed signed roundtrip и отдельная native приёмка |
+| **D5** | В One Core исходные BLI / WebLLM / WebGPU, локальная модель по согласию, офлайн-слои, прежние hardware probes | Реальное WebGPU поколение и холодный офлайн-перезапуск в одном итоговом G4 Host на физическом устройстве |
+| **Activity / сайты** | Отдельные владельцы Activity и доменов, D02 T3 браузерный пилот на исходниках | Native Activity derived signed production и независимые offline T3 пользовательские сценарии в каждом переходящем домене |
+
+**Выявленная и исправленная ошибка анализа:** карта \`Faust-S/iwxa@knowledge/2026-10-02-system-atlas/coordination/repositories.json\` уже содержит **42** записи схемы 2.1. Прежний тезис «в iwxa девять, в knowledge сорок два» неверен. Эти 42 записи — адреса репозиториев для разработки, **не** 42 интегрированных T3 продукта. Сведения самой карты датированы 10.11 и не заменяют проверку live HEAD каждого владельца.
+
+### Дефекты, системные ограничения и принятое решение
+
+1. **Слишком раннее «PASS» по source CI:** реальная подпись исходного private T3, историческая лицензия PERSON, сохранение UI и новый kernel-объект — четыре разных owner-доказательства. В G4 оставлять HOLD, пока они не объединены в установленном подписанном сценарии. Для этого не создавать новых тестовых владельцев.
+2. **Разрыв native Atlas:** \`desktop/src/standalone.tsx\` вызывает \`<AtlasWorkspace/>\` **без original T3 Host**. Bundle проверки лишь доказывают, что необязательный Host находится в dist; они не подключают доверенный издательский ключ и не обрабатывают подписанный файл в самостоятельном получателе. Это главный следующий D6 product code path.
+3. **Сильное ограничение существующей передачи:** исходный отобранный Human-accepted summary в новом \`.iwxa\` подписан и хеширован, **но подпись не шифрует содержимое**. В Agent согласие стало явным и UI сообщает о читаемости файла. Для конфиденциального обмена использовать уже существующее age/D7, не подменять криптографические гарантии маркетинговым заявлением. Политика получения STATUS/revoke у автономного офлайн-получателя остаётся отдельным условием.
+4. **Atlas Windows первым Save:** Setup Core доказал стандартный каталог. Прежнее предположение о неверном пути было неточным; прямой \`FileNotFoundError\` возник в проверке, не дождавшейся первого \`head.json\`. Программа могла успешно записать данные позже, но до точного повторного Windows PASS это не доказано. Исправлен только существующий runner; производственный Store не менялся.
+5. **Предметная самостоятельность:** отдельные Agent Task/Result, Atlas Work/Store, Admin Review/Apply, Publisher licence, Activity derived snapshot, предметные домены. Ни D6 Result, ни D7 лицензия не обязаны проходить через друг друга. T3 предоставляет исходный совместимый runtime, а не заменяет владельцев предметной логики.
+6. **G4 нельзя закрывать массовой миграцией доменов:** после одного рабочего оригинального E2E-кандидата обновлять по одному домену, с локальной моделью и явным переключателем T3 только где они действительно нужны. T4 — отдельный сетевой уровень, не скрытая зависимость автономного T3.
+
+### Конечный порядок исправлений (не новые проекты)
+
+**P0: Довести реальный D6.** Закрыть текущий Windows сценарий Atlas, затем использовать **настоящего приватного оригинального владельца** D1/Agent Human Review/Kernel/Exchange: один selected Result, original signed \`.iwxa\`, независимый доверенный native recipient Atlas, собственный U05 AppHandle commit, два реальных процесса/холодных чтения, проверка утраченного ACK без повторного действия. Установленный Agent Windows PASS — важный независимый фундамент, но не подмена этой цепочки.
+
+**P1: Довести D3 и D7** независимо через имеющиеся исходные Admin/Publisher owner ports. D3: signed Task → Agent Result → отдельный ACCEPT → отдельный original Kernel APPLY → два cold readbacks. D7: PERSON issue/consume/STATUS/revoke/renew и при необходимости исходный age envelope. Не требовать Publisher как посредника при передаче Result в Atlas.
+
+**P2: D5 и G4.** WebGPU настоящей моделью, offline restart и no-egress в итоговом Host; один набор точных версий T2/T3/Agent/Atlas/Admin/Publisher, установки и откаты, отсутствие побочных duplicate actions, понятный UX. После этого релизный реестр может перевести \`T3_READY=true\`, но не раньше.
+
+**Общий вывод:** переход от фундаментальной разработки к продуктовой интеграции правильный. Сейчас стоимость дальнейшего расширения отдельных функций выше пользы: закончить один реальный выбранный результат между существующими владельцами, затем фиксировать общий релиз. Сохранять один Kernel, один исходный \`.iwxa\`, один конечный \`dist/\`, один предметный владелец каждой записи. Не запускать private Actions.
+
+---
+
+
+
 ## D3: оригинальный Kernel readback после lost ACK, 15.11.2026
 
 - Код [`knowledge@07030fd8`](https://github.com/Faust-S/knowledge/commit/07030fd8cca256442fcc2fb61da9726630a6e927), TREE `e2be3d0e4f396d8c74d3bb309b434c51a6648232`. [CI #43719345103](https://github.com/Faust-S/knowledge/actions/runs/43719345103) **SUCCESS**: Node 714/714, Workspace/DOM 1141/1141, original real-host и Windows Credential PASS, аппаратный WebGPU SKIPPED.
