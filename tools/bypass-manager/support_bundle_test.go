@@ -81,3 +81,18 @@ func TestSupportBundleAppsAndMTUAvoidProcessIdentity(t *testing.T) {
 		t.Fatal("raw local process name accepted by exported report")
 	}
 }
+
+func TestSupportBundleClearlyMarksOldEvidenceAndEffect(t *testing.T) {
+ dir:=t.TempDir()
+ now:=time.Date(2026,11,17,15,0,0,0,time.UTC)
+ report:=GuideReport{SchemaVersion:"0.3.2",State:"DIAGNOSTIC_SERVICES_UNAVAILABLE",CompletedUTC:now.Add(-time.Hour).Format(time.RFC3339),Rounds:[]GuideRound{{Protocol:guideAWG,DPIProfile:"NONE",State:"INCONCLUSIVE"}}}
+ file:=filepath.Join(dir,"latest-guide.json")
+ if err:=saveJSON(file,report);err!=nil {t.Fatal(err)}
+ earlier:=now.Add(-time.Hour)
+ if err:=os.Chtimes(file,earlier,earlier);err!=nil {t.Fatal(err)}
+ out:=buildSupportReport(dir,now)
+ if out.Summary!="HISTORICAL_ONLY" || out.Sources[0].Status!="STALE_INCLUDED" || out.Effect==nil || out.Effect.State!="NOT_TESTED" {t.Fatalf("wrong freshness/effect: %+v",out)}
+ if err:=os.Chtimes(file,now,now);err!=nil {t.Fatal(err)}
+ out=buildSupportReport(dir,now)
+ if out.Sources[0].Status!="INCLUDED" || out.Summary!="READ_ONLY_RECONSTRUCTION" {t.Fatalf("fresh report not included: %+v",out)}
+}

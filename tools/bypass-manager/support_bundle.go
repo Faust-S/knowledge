@@ -27,6 +27,7 @@ type SupportReport struct {
 	Apps          *AppAudit          `json:"apps,omitempty"`
 	MTU           *MTUTrialReport    `json:"mtu_trial,omitempty"`
 	Guide         *GuideReport       `json:"guide,omitempty"`
+	Effect        *DPIEffect         `json:"dpi_effect,omitempty"`
 	Caveat        string             `json:"caveat"`
 }
 type SupportSource struct {
@@ -79,12 +80,14 @@ func buildSupportReport(folder string, now time.Time) SupportReport {
 			source.AgeSeconds = int64(age.Seconds())
 			if err := readStrictJSON(path, entry.target); err == nil {
 				source.Status = "INCLUDED"
-				if age > 72*time.Hour {
+				if age > 15*time.Minute {
 					source.Status = "STALE_INCLUDED"
 				}
 				switch v := entry.target.(type) {
 				case *GuideReport:
 					s.Guide = v
+					verdict := assessDPIEffect(v)
+					s.Effect = &verdict
 				case *NetworkAudit:
 					s.Network = v
 				case *PathReport:
@@ -106,8 +109,14 @@ func buildSupportReport(folder string, now time.Time) SupportReport {
 		s.Sources = append(s.Sources, source)
 	}
 	if s.Available == 0 {
-		s.Summary = "NO_VALID_REPORTS"
-	}
+        s.Summary = "NO_VALID_REPORTS"
+    } else {
+        recent := false
+        for _, source := range s.Sources {
+            if source.Status == "INCLUDED" { recent = true; break }
+        }
+        if !recent {s.Summary = "HISTORICAL_ONLY"}
+    }
 	s.Tuning = tuningSuggestions(s)
 	return s
 }

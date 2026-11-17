@@ -75,6 +75,10 @@ const (
 	idMTUTrial         = 2022
 	idGuideConfirm     = 2023
 	idGuideSkip        = 2024
+	idProductManual    = 2025
+	idProductEffect    = 2026
+	idProductReason    = 2027
+	idProductAge       = 2028
 )
 
 type winClassEx struct {
@@ -166,9 +170,9 @@ type managerUI struct {
 	endpoint, port, adapter, engine, transport, preferred                                                                                                    uintptr
 	logs, status, startButton, stopButton, saveButton, prepareButton, dnsButton                                                                              uintptr
 	refreshButton, internetButton, recoverButton, advancedButton, guideButton, networkButton, liveButton, pathButton, stabilityButton, appsButton, mtuButton uintptr
-	vpnLine, netLine, dpiLine, guideLine, publicLine, geoLine, speedLine, riskLine                                                                           uintptr
+	vpnLine, netLine, dpiLine, guideLine, publicLine, geoLine, speedLine, riskLine, productEffect, productReason, productAge, productManual                                                                           uintptr
 	advancedControls                                                                                                                                         []uintptr
-	advanced                                                                                                                                                 bool
+	advanced, details                                                                                                                                                 bool
 	autoAdapter                                                                                                                                              string
 	mu                                                                                                                                                       sync.Mutex
 	queue                                                                                                                                                    []string
@@ -245,7 +249,8 @@ func (ui *managerUI) toggleRun(r bool) {
 	procEnable.Call(ui.refreshButton, value)
 	procEnable.Call(ui.internetButton, value)
 	procEnable.Call(ui.recoverButton, value)
-	procEnable.Call(ui.advancedButton, value)
+	procEnable.Call(ui.advancedButton, 1) // Read-only details remain available during tests
+	procEnable.Call(ui.productManual, value)
 	procEnable.Call(ui.guideButton, value)
 	procEnable.Call(ui.networkButton, value)
 	procEnable.Call(ui.pathButton, value)
@@ -255,8 +260,10 @@ func (ui *managerUI) toggleRun(r bool) {
 	// The independent speed check is available even while a DPI wizard is running.
 	if r {
 		procEnable.Call(ui.stopButton, 1)
+		procShow.Call(ui.stopButton, 5)
 	} else {
 		procEnable.Call(ui.stopButton, 0)
+		procShow.Call(ui.stopButton, 0)
 	}
 }
 func (ui *managerUI) capture() (Config, error) {
@@ -519,9 +526,9 @@ func (ui *managerUI) applyVPNStatus() {
 func (ui *managerUI) updateOwnedState() {
 	owned := (&Manager{stateFolder: filepath.Join(ui.home, "active")}).ownStateExists()
 	if owned {
-		winSetText(ui.dpiLine, "DPI: \u0435\u0441\u0442\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0439 \u043f\u0440\u043e\u0446\u0435\u0441\u0441; \u043c\u043e\u0436\u043d\u043e \u043d\u0430\u0436\u0430\u0442\u044c \u00ab\u0412\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c \u0441\u0435\u0442\u044c\u00bb")
+		winSetText(ui.dpiLine, "DPI сейчас: есть запись собственного процесса. Проверьте остановку в подробностях.")
 	} else {
-		winSetText(ui.dpiLine, "DPI: \u0441\u043e\u0431\u0441\u0442\u0432\u0435\u043d\u043d\u044b\u0439 \u043f\u0440\u043e\u0446\u0435\u0441\u0441 \u043d\u0435 \u0437\u0430\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u043e\u0432\u0430\u043d")
+		winSetText(ui.dpiLine, "DPI сейчас: свой процесс не зарегистрирован (обработка выключена).")
 	}
 }
 
@@ -580,6 +587,7 @@ func (ui *managerUI) checkInternet() {
 
 func (ui *managerUI) startUIBoot() {
 	ui.updateOwnedState()
+	ui.updateProductSummary()
 	// The previous app could have crashed while its owned WinDivert process
 	// remained active. Reconcile it before performing further diagnostics.
 	if (&Manager{stateFolder: filepath.Join(ui.home, "active")}).ownStateExists() {
@@ -609,21 +617,7 @@ func (ui *managerUI) advancedCtrl(parent uintptr, class, name string, style uint
 	ui.advancedControls = append(ui.advancedControls, handle)
 	return handle
 }
-func (ui *managerUI) applyAdvanced() {
-	show := uintptr(0)
-	if ui.advanced {
-		show = 5
-	}
-	for _, handle := range ui.advancedControls {
-		procShow.Call(handle, show)
-	}
-	if ui.advanced {
-		winSetText(ui.advancedButton, "\u0421\u043a\u0440\u044b\u0442\u044c \u043f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b")
-	} else {
-		winSetText(ui.advancedButton, "\u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b DPI")
-	}
-	ui.layout()
-}
+func (ui *managerUI) applyAdvanced() { ui.applyProductDetails() }
 
 func ctrl(parent uintptr, class, name string, style uint32, id int, x, y, w, h int32) uintptr {
 	instance, _, _ := procGetModule.Call(0)
@@ -707,7 +701,7 @@ func (ui *managerUI) initControls() {
 	ui.startButton = ui.advancedCtrl(ui.hwnd, "BUTTON", "\u0410\u0432\u0442\u043e\u043f\u043e\u0434\u0431\u043e\u0440 DPI", wsTabStop, idStart, 272, 635, 195, 35)
 	ui.logs = ctrl(ui.hwnd, "EDIT", "Bypass Manager 0.3 Alpha\r\n\u0414\u043b\u044f \u043d\u0430\u0447\u0430\u043b\u0430 \u043d\u0430\u0436\u043c\u0438\u0442\u0435 \u00ab\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c\u00bb \u0438\u043b\u0438 \u00ab\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u0438\u043d\u0442\u0435\u0440\u043d\u0435\u0442\u00bb.\r\n", wsBorder|wsVScroll|esMultiline|esAutoVScroll|esReadOnly, 110, 20, 513, 820, 326)
 	procEnable.Call(ui.stopButton, 0)
-	ui.applyAdvanced()
+	ui.initProductUI()
 }
 
 func (ui *managerUI) layout() {
@@ -735,6 +729,7 @@ func (ui *managerUI) layout() {
 		bottom = h - 110
 	}
 	procMove.Call(ui.logs, 20, uintptr(bottom), uintptr(w-45), uintptr(h-bottom-22), 1)
+	ui.layoutProduct()
 }
 
 func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
@@ -762,6 +757,7 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 		return 0
 	case wmAppLive:
 		ui.applyLive()
+		ui.updateProductSummary()
 		return 0
 	case wmAppGuideStep:
 		ui.mu.Lock()
@@ -808,10 +804,13 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 		case idRecover:
 			ui.restoreNetwork()
 		case idAdvanced:
-			ui.advanced = !ui.advanced
+			ui.details = !ui.details
+			if !ui.details {ui.advanced = false}
 			ui.applyAdvanced()
-			if ui.advanced {
-				ui.write("IP VPN-\u0441\u0435\u0440\u0432\u0435\u0440\u0430 \u2014 \u044d\u0442\u043e \u043d\u0435 \u0432\u044b\u0445\u043e\u0434\u043d\u043e\u0439 IP \u0434\u043b\u044f \u0441\u0430\u0439\u0442\u043e\u0432. \u0423\u043a\u0430\u0436\u0438\u0442\u0435 \u0440\u0435\u0430\u043b\u044c\u043d\u044b\u0439 \u0442\u0435\u043a\u0443\u0449\u0438\u0439 \u0430\u0434\u0440\u0435\u0441 \u0438 \u043f\u043e\u0440\u0442 Amnezia; \u043d\u0435 \u043f\u043e\u0434\u0441\u0442\u0430\u0432\u043b\u044f\u0439\u0442\u0435 \u0441\u043b\u0443\u0447\u0430\u0439\u043d\u044b\u0435 IP.\n")
+		case idProductManual:
+			if ui.details && !ui.running {
+				ui.advanced = !ui.advanced
+				ui.applyAdvanced()
 			}
 		case idSave:
 			if _, err := ui.save(); err != nil {
@@ -879,6 +878,7 @@ func windowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 		ui.cancel = nil
 		ui.recovering = false
 		ui.updateOwnedState()
+		ui.updateProductSummary()
 		if !ui.closing {
 			post(ui.hwnd, wmAppRefresh)
 		}
