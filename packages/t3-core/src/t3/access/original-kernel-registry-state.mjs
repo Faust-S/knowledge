@@ -44,11 +44,26 @@ function addProofOnlyKey(policy,keyId,record){
   try{validatePolicy(next);}catch{no("T3_ACCESS_PROOF_KEY_METADATA_INVALID");}
   return next;
 }
+// Add exactly one independently proven employee recipient to the pinned
+// organizational authority ceiling. This is evidenced by the original
+// manager+employee PROOF admission and replay-verified Kernel Event, not
+// a wildcard, unsigned browser input or a new policy owner.
+function scopedEmployeeRecipientPolicy(policy,authorityId,employeePersonId){
+  const next=copy(policy),resource="recipient:"+employeePersonId;
+  check(next.authorities[authorityId]&&ID.test(employeePersonId),
+    "T3_ACCESS_PROOF_RECIPIENT_AUTHORITY_INVALID");
+  const resources=next.authorities[authorityId].resources;
+  if(!resources.includes(resource))resources.push(resource);
+  try{validatePolicy(next);}
+  catch{no("T3_ACCESS_PROOF_RECIPIENT_SCOPE_INVALID");}
+  return next;
+}
 const admissionDigest=trust=>digest({
   old_policy_digest:trust.old_policy_digest,
   key_id:trust.key_id,key_record:trust.key_record,
   manager_decision_digest:trust.manager_decision_digest,
   employee_proof_digest:trust.employee_proof_digest,
+  recipient_resource:trust.recipient_resource,
   authority_id:trust.authority_id,
 });
 const signedAdmissionStatusId=trust=>"status:proof-key:"+admissionDigest(trust);
@@ -63,7 +78,11 @@ function verifyProofKeyAdmission(trust,current,event){
   const authority=current.authorities[trust.authority_id];
   check(authority&&authority.principalId!==trust.key_record?.subjectId,
     "T3_ACCESS_PROOF_KEY_ISSUER_CONFLICT");
-  const next=addProofOnlyKey(current,trust.key_id,trust.key_record);
+  check(trust.recipient_resource==="recipient:"+trust.key_record?.subjectId,
+    "T3_ACCESS_PROOF_RECIPIENT_SCOPE_INVALID");
+  const next=scopedEmployeeRecipientPolicy(
+    addProofOnlyKey(current,trust.key_id,trust.key_record),
+    trust.authority_id,trust.key_record.subjectId);
   check(digest(next)===event.payload.policy_digest,
     "T3_ACCESS_PROOF_KEY_POLICY_DIGEST_INVALID");
   const statement=trust.signed_status;
@@ -299,7 +318,9 @@ export function createOriginalKernelRegistryStatePort({
       keyRecord.subjectId!==organizationId &&
       timestamp(keyRecord.notBefore)<=now&&now<timestamp(keyRecord.expiresAt),
       "T3_ACCESS_PROOF_KEY_PERSON_INVALID");
-    const newPolicy=addProofOnlyKey(state.policy,credentialKeyId,keyRecord);
+    const newPolicy=scopedEmployeeRecipientPolicy(
+      addProofOnlyKey(state.policy,credentialKeyId,keyRecord),
+      authorityId,keyRecord.subjectId);
     const operationDigest=digest({schema:ORIGINAL_PROOF_KEY_ADMISSION,
       authorityId,organizationId,employeeWorkspaceId,credentialKeyId,keyRecord});
     check(managerRequest?.principalId===organizationId&&
@@ -351,7 +372,8 @@ export function createOriginalKernelRegistryStatePort({
       old_policy_digest:digest(state.policy),key_id:credentialKeyId,
       key_record:copy(keyRecord),authority_id:authorityId,
       manager_decision_digest:digest(decision),
-      employee_proof_digest:digest(employeeProof)};
+      employee_proof_digest:digest(employeeProof),
+      recipient_resource:"recipient:"+keyRecord.subjectId};
     const nextStatus=signRecord({...previous,
       id:signedAdmissionStatusId(trust),
       sequence:previous.sequence+1,issuedAt:iso(now),validUntil:iso(validUntil)
@@ -386,6 +408,7 @@ export function createOriginalKernelRegistryStatePort({
       state:"ORIGINAL_PROOF_CREDENTIAL_ADMITTED",
       organizationId,authorityId,credentialKeyId,
       employeePersonId:keyRecord.subjectId,
+      recipientResource:"recipient:"+keyRecord.subjectId,
       policyDigest:digest(checked.policy),
       rootPolicyDigest:trustedHash,statusSequence:checked.statusFloor[authorityId],
       kernelRevision:expectedRevision,originalKernelEventId:receipt.event.event_id,
