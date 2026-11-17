@@ -143,3 +143,14 @@ func productOverview(guide *GuideReport,live *LiveAudit,now time.Time) ProductOv
  }
  return out
 }
+
+// This program's observed IP describes one moment only. An old or differently
+// routed measurement must never be displayed as the user's current egress.
+func publicViewOutdated(view PublicView, audit LiveAudit, state VPNState, now time.Time) bool {
+ if view.CheckedUTC=="" {return false}
+ _,stale:=howOld(view.CheckedUTC,now)
+ if stale {return true}
+ if !state.Checked {return false} // unknown routing is not a confirmed change
+ nowViaVPN:=state.ActiveCount==1 && state.AddressPresent && state.RoutePresent
+ return nowViaVPN!=audit.VPNRouteObserved
+}

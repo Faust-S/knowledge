@@ -90,8 +90,9 @@ func (ui *managerUI) applyLive() {
 	view, audit := ui.liveView, ui.liveAudit
 	ui.mu.Unlock()
 	procEnable.Call(ui.liveButton, 1)
+	age,_:=howOld(view.CheckedUTC,time.Now())
 	if view.Consensus {
-		winSetText(ui.publicLine, "Как видят HTTPS-сервисы, IPv4: "+view.IP+" (согласие нескольких источников)")
+		winSetText(ui.publicLine, "Как видят HTTPS-сервисы ("+age+"), IPv4: "+view.IP+" (несколько источников)")
 	} else {
 		winSetText(ui.publicLine, "Внешний IPv4: НЕ ПОДТВЕРЖДЁН независимыми HTTPS-сервисами")
 	}
@@ -107,7 +108,7 @@ func (ui *managerUI) applyLive() {
 		if view.ASN != "" {
 			extra = " · " + view.ASN
 		}
-		winSetText(ui.geoLine, "Предположительный регион IP: "+location+extra)
+		winSetText(ui.geoLine, "Предположительный регион IP ("+age+"): "+location+extra)
 	} else {
 		winSetText(ui.geoLine, "Регион IP: не подтверждён (геосервисы недоступны или вернули другой адрес)")
 	}

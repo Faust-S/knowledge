@@ -44,3 +44,17 @@ func TestStaleMeasurementAge(t *testing.T) {
  for _,c:=range cases {_,old:=howOld(now.Add(-c.age).Format(time.RFC3339),now);if old!=c.stale {t.Fatalf("%v: %v",c.age,old)}}
  if _,stale:=howOld("garbled",now);!stale {t.Fatal("accepted unknown time")}
 }
+
+func TestPublicIPInvalidationOnRouteChangeOrAge(t *testing.T) {
+ now:=time.Date(2026,11,17,15,0,0,0,time.UTC)
+ v:=PublicView{CheckedUTC:now.Add(-2*time.Minute).Format(time.RFC3339),IP:"9.9.9.9",Consensus:true}
+ a:=LiveAudit{VPNRouteObserved:true}
+ state:=VPNState{Checked:true,ActiveCount:1,AddressPresent:true,RoutePresent:true}
+ if publicViewOutdated(v,a,state,now) {t.Fatal("fresh matching route wrongly invalidated")}
+ state.RoutePresent=false
+ if !publicViewOutdated(v,a,state,now) {t.Fatal("lost VPN route kept old IP as current")}
+ state.RoutePresent=true
+ if !publicViewOutdated(v,a,state,now.Add(16*time.Minute)) {t.Fatal("stale IP kept as current")}
+ state.Checked=false
+ if publicViewOutdated(v,a,state,now) {t.Fatal("unknown route fabricated a change")}
+}

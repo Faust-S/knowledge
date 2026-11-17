@@ -104,5 +104,16 @@ func (ui *managerUI) updateProductSummary() {
  winSetText(ui.productReason,summary.Reason)
  winSetText(ui.productAge,summary.When)
  if sp!=nil {winSetText(ui.speedLine,summary.Speed)}
- if !ui.running {winSetText(ui.guideLine,"Проверка сравнивает работу без DPI и с DPI, когда хватает данных.")}
+ 
+}
+
+func (ui *managerUI) invalidateOldPublicView(vpn VPNState) {
+ ui.mu.Lock()
+ view,audit:=ui.liveView,ui.liveAudit
+ ui.mu.Unlock()
+ if publicViewOutdated(view,audit,vpn,time.Now()) {
+  winSetText(ui.publicLine,"Публичный IPv4: прежняя проба устарела или изменился VPN-маршрут. Повторите замер.")
+  winSetText(ui.geoLine,"Регион IP: прежние сведения не относятся к подтверждённому текущему маршруту.")
+  winSetText(ui.riskLine,"Выход через VPN требуется перепроверить после изменения маршрута.")
+ }
 }
