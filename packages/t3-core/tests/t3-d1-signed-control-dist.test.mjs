@@ -37,6 +37,8 @@ test('assemble installed Control one-dist from original Kernel, preserving every
     const result=f.run();
     assert.equal(result.origin,'http://127.0.0.1:18883');
     assert.equal(result.original_runtime_unchanged,true);
+    assert.equal(result.original_agent_d6_schema_registered,false,
+      'ordinary T2/T3 products do not receive Agent D6 permissions');
     assert.equal(result.signed_assets,2);
     assert.equal(result.isolated_realm_entries,true);
     assert.equal(readFileSync(join(f.out,'workspace/isolated-signed-workspace.html'),'utf8'),
