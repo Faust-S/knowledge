@@ -6,7 +6,7 @@ import {readFileSync,writeFileSync,existsSync,mkdirSync,rmSync,
   mkdtempSync,lstatSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
-import {dirname,resolve,relative,isAbsolute} from 'node:path';
+import {dirname,resolve,relative,isAbsolute,join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {assembleSignedControlDist} from './assemble-signed-control-dist.mjs';
 import {assertQualifiedKernelArtifact}
