@@ -117,6 +117,22 @@ jobs:
           $pushLog = Join-Path $env:RUNNER_TEMP "d06-format-push-private.txt"
           & git -c ("http.extraheader=AUTHORIZATION: basic " + $header) push origin ("HEAD:refs/heads/" + $env:D06_SOURCE_BRANCH) *> $pushLog
           if ($LASTEXITCODE -ne 0) {
+            # Never echo push stderr: its remote URL may contain credentials.
+            $reason = Get-Content -LiteralPath $pushLog -Raw
+            $cause = if ($reason -match "403|write access|permission denied|denied to|not allowed to push") {
+              "AUTHORIZATION"
+            } elseif ($reason -match "non-fast-forward|fetch first|stale info") {
+              "NON_FAST_FORWARD"
+            } elseif ($reason -match "protected branch|GH006|GH013|repository rule") {
+              "PROTECTION"
+            } elseif ($reason -match "401|Authentication failed|Invalid username or password") {
+              "AUTHENTICATION"
+            } elseif ($reason -match "could not resolve|Connection timed out|failed to connect") {
+              "NETWORK"
+            } else {
+              "OTHER"
+            }
+            Write-Host ("D06_FORMAT_PRIVATE_PUSH_REASON=" + $cause)
             Write-Host "D06_FORMAT_PRIVATE_PUSH=DENIED_OR_CONCURRENT"
             exit 1
           }
