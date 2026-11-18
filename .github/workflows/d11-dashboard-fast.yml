@@ -32,6 +32,7 @@ jobs:
       - name: Parse React project search and Windows Linux browser acceptance
         run: |
           node --check scripts/d11-live-t2-kernel-exchange-acceptance.mjs
+          node --check scripts/d11-live-browser-acceptance.mjs
           node_modules/.bin/esbuild src/lib/logistics/operational-services.ts --bundle --platform=browser --format=esm --outfile=/tmp/d11-operational-services-bundle.mjs
           node_modules/.bin/esbuild runtime/d11-module/D11WorkspaceOverview.tsx --format=esm --outfile=/tmp/d11-dashboard-ui-check.mjs
           node_modules/.bin/esbuild runtime/d11-module/D11WorkspaceCard.tsx --format=esm --outfile=/tmp/d11-result-list-ui-check.mjs
