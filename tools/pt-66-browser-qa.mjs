@@ -37,8 +37,16 @@ async function visit(path, wait = true) {
 }
 try {
   for (const preset of [
+    { name: "mobile_320_dark", width: 320, height: 568, theme: "dark" },
+    { name: "mobile_320_light", width: 320, height: 568, theme: "light" },
     { name: "mobile_dark", width: 375, height: 812, theme: "dark" },
     { name: "mobile_light", width: 375, height: 812, theme: "light" },
+    { name: "mobile_390_dark", width: 390, height: 844, theme: "dark" },
+    { name: "mobile_390_light", width: 390, height: 844, theme: "light" },
+    { name: "tablet_768_dark", width: 768, height: 1024, theme: "dark" },
+    { name: "tablet_768_light", width: 768, height: 1024, theme: "light" },
+    { name: "desktop_1024_dark", width: 1024, height: 768, theme: "dark" },
+    { name: "desktop_1024_light", width: 1024, height: 768, theme: "light" },
     { name: "desktop_dark", width: 1440, height: 900, theme: "dark" },
     { name: "desktop_light", width: 1440, height: 900, theme: "light" },
   ]) {
@@ -173,7 +181,7 @@ try {
   }
 
   // F02: physical browser geometry after real controls and in both themes.
-  for (const viewport of [375, 478, 820, 1440]) {
+  for (const viewport of [320, 360, 375, 390, 412, 478, 768, 820, 900, 1024, 1440, 1920]) {
     await page.setViewport({ width: viewport, height: 900 });
     for (const theme of ["dark", "light"]) {
       await visit("/pt/");
@@ -248,6 +256,8 @@ try {
     if (collapsed !== "false") fail("UX", "/pt/", "MOBILE_MENU_ESCAPE_FAILED");
   }
 
+  console.log("PT_BQA_VIEWPORT_THEME_PRESETS=12");
+  console.log("PT_BQA_ORBIT_VIEWPORTS=12");
   console.log("PT_BQA_VISITS=" + rows.length);
   console.log("PT_BQA_FAILURE_COUNT=" + errors.length);
   for (const [pass, route, code, detail] of errors) console.error(["PT_BQA_FAIL", pass, route, code, detail].join(" | "));
