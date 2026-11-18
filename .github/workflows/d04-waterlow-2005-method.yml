@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed
-          ref: e9de4e60208af51216c898e9b077f52f75532485
+          ref: 9aa68471001d30c07bcd6dfaf20c7a1b65b51df2
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
           persist-credentials: false
@@ -40,10 +40,11 @@ jobs:
         working-directory: d04-private/model
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "e9de4e60208af51216c898e9b077f52f75532485"
+          test "$(git rev-parse HEAD)" = "9aa68471001d30c07bcd6dfaf20c7a1b65b51df2"
           node --check docs/life-os/WATERLOW_REVISED_2005_SCORING_V1.mjs
           node --check docs/life-os/tests/waterlow-revised-2005.test.mjs
-          if node --test docs/life-os/tests/waterlow-revised-2005.test.mjs \
+          node --check docs/life-os/tests/waterlow-full-admission.test.mjs
+          if node --test docs/life-os/tests/waterlow-revised-2005.test.mjs docs/life-os/tests/waterlow-full-admission.test.mjs \
             >"$RUNNER_TEMP/d04-waterlow-test.log" 2>&1; then
             grep -E '^# (tests|pass|fail|skipped|cancelled) ' "$RUNNER_TEMP/d04-waterlow-test.log" | tail -5 || true
             echo "D04_WATERLOW_2005_CANONICAL_METHOD=PASS"
