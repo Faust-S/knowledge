@@ -690,19 +690,26 @@ jobs:
                   # Only the native tab key path: do not inject into the React
                   # DOM or replace the original T2 file import machinery.
                   for($tabSteps=1;$tabSteps -le 7 -and !$fileDialog;$tabSteps++){
-                    # React recreates the tab element when active content changes.
-                    # The earlier UIA handle can be stale/non-focusable.
+                    # The activated Import tab can disappear from Edge's
+                    # UIA tree while the tabpanel is rendered. Keep the native
+                    # keyboard path; absence of a second tab handle is not
+                    # evidence that the original T2 UI is unavailable.
                     $freshTab=FindNative 'Импортировать' $null
-                    if(!$freshTab){throw 'D07_NATIVE_IWXA_IMPORT_TAB_LOST'}
-                    try {
-                      $freshTab.SetFocus()
-                    }catch {
-                      ActivateNative $freshTab
-                    }
-                    for($tab=0;$tab -lt $tabSteps;$tab++){
+                    if($freshTab){
+                      try{$freshTab.SetFocus()}catch{try{ActivateNative $freshTab}catch{}}
+                      for($tab=0;$tab -lt $tabSteps;$tab++){
+                        [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+                      }
+                    }else{
+                      # Move one tabstop from the *current* browser focus.
+                      # On the first pass this follows the just-activated tab.
                       [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
                     }
-                    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                    if($tabSteps % 2 -eq 0){
+                      [System.Windows.Forms.SendKeys]::SendWait('{SPACE}')
+                    }else{
+                      [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                    }
                     for($check=0;$check -lt 12;$check++){
                       $fileDialog=FindOpenDialog
                       if($fileDialog){break}
