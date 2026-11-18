@@ -164,35 +164,19 @@ jobs:
           $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
           foreach($line in @(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
             $value=$line.Trim()
-            if($value -match '^D08_T2_[A-Z0-9_]+=(PASS|NOT_RUN|[A-Z0-9_]+)){
+            if($value -match '^D08_T2_[A-Z0-9_]+=(PASS|NOT_RUN|[A-Z0-9_]+)$'){
               Write-Host $value
             }
           }
           if($code -ne 0){throw 'D08_T2_CROSSCASE_GUI_FAILED'}
           Write-Host 'D08_T2_CASE005_007_GUI_AND_KERNEL=PASS'
-      - name: Mark precise limit of static build qualification
+      - name: Mark privacy boundary and automated GUI qualification
         if: always()
         run: |
           Write-Host 'D08_PRIVATE_SOURCE_PUBLISHED=NO'
           Write-Host 'D08_DIST_PUBLISHED=NO'
           Write-Host 'D08_ARTIFACT_UPLOADS=0'
-          Write-Host 'D08_WINDOWS_INTERACTIVE_GUI=NOT_RUN'
-          Write-Host 'D08_T2_SCOPED_RECEIPT=NOT_RUN'
-          Write-Host 'D08_T2_RESTART_READBACK=NOT_RUN'
-          Write-Host 'D08_IWXA_EXPORT_IMPORT=NOT_RUN'
-){
-              Write-Host $value
-            }
-          }
-          if($code -ne 0){throw 'D08_T2_CROSSCASE_GUI_FAILED'}
-          Write-Host 'D08_T2_CASE005_007_GUI_AND_KERNEL=PASS'
-      - name: Mark precise limit of static build qualification
-        if: always()
-        run: |
-          Write-Host 'D08_PRIVATE_SOURCE_PUBLISHED=NO'
-          Write-Host 'D08_DIST_PUBLISHED=NO'
-          Write-Host 'D08_ARTIFACT_UPLOADS=0'
-          Write-Host 'D08_WINDOWS_INTERACTIVE_GUI=NOT_RUN'
-          Write-Host 'D08_T2_SCOPED_RECEIPT=NOT_RUN'
-          Write-Host 'D08_T2_RESTART_READBACK=NOT_RUN'
+          Write-Host 'D08_WINDOWS_INTERACTIVE_GUI=CI_AUTOMATED'
+          Write-Host 'D08_T2_SCOPED_RECEIPT=CHECK_TEST_SIGNALS'
+          Write-Host 'D08_T2_RESTART_READBACK=CHECK_TEST_SIGNALS'
           Write-Host 'D08_IWXA_EXPORT_IMPORT=NOT_RUN'
