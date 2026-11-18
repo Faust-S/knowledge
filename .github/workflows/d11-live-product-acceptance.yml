@@ -150,4 +150,16 @@ jobs:
             throw "D11_LIVE_ACCEPTANCE_INCOMPLETE"
           }
           Write-Output "D11_LIVE_FULL_ACCEPTANCE=PASS"
-      # No upload-artifact, cache, dist publishing, or source disclosure.
+      # Only four pixel screenshots of preloaded synthetic test Workspaces.
+      # No private source, dist, JSON proposals or credentials leave the runner.
+      - name: Capture tested desktop and mobile D11 interfaces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d11-visual-acceptance-${{ matrix.os }}
+          path: ${{ runner.temp }}/d11-visual/*.png
+          if-no-files-found: ignore
+          retention-days: 3
+          compression-level: 6
+      # No source, dist or raw project data published.
+
