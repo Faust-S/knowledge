@@ -223,16 +223,36 @@
         "scope": "Center source/installed Windows baseline with single React root fix; not original independent private signer end-to-end"
       },
       "optional_atlas_task_fix": {
-        "branch": "work/2026-11-18-t3-generic-task-without-atlas",
+        "branch": "work/2026-11-18-admin03-atlas09-native",
         "base_sha": "30a8639fd1d4eaef5e1ae142a82d362de2fbecb1",
         "commit": "450ef27ff5ee92b890c96b834d20fec5f7d9d55e",
         "scope": "CEN02 optional AtlasRef branch; normal corporate Task signing works without Atlas, exact linked WorkRef still verified, source guard for original recipient; separate branch to preserve parallel Admin Center dev",
         "ci": {
-          "run_id": 44293506542,
-          "status": "IN_PROGRESS_AT_OBSERVATION",
-          "conclusion": null
+          "run_id": 44295669017,
+          "status": "COMPLETED",
+          "conclusion": "SUCCESS",
+          "head_sha": "0558393fc3b7d417c9e6d3a874ea5573257ee49e",
+          "scope": "Public Center model Windows/Ubuntu/macOS PASS, interface PASS, installed Windows Center Setup Core GUI PASS, original pinned Atlas Store CAS process cold PASS, original installed Atlas 0.9 CEN05 read-back and stale WorkRef DENY PASS; real original private signed D3 was NOT executed.",
+          "isolation": "CEN02 module import from filesystem with NO Atlas package, genuine runtime fixture Task creation PASS; actual original private corporate issuer not installed.",
+          "skipped_jobs": [
+            "windows-webview2-probe",
+            "windows-legacy-preview"
+          ]
         },
-        "installed_private_d3": "NOT_ACCEPTED"
+        "installed_private_d3": "NOT_ACCEPTED",
+        "feature_branch": "work/2026-11-18-t3-generic-task-without-atlas",
+        "source_head": "0558393fc3b7d417c9e6d3a874ea5573257ee49e",
+        "merged": {
+          "pr": 2,
+          "merge_sha": "81eff021cf058fdbcd82c2b57002bfe02544a35d",
+          "merge_tree_sha": "25b32a67f7103560609218aba8ae410292ae6907",
+          "qualified_feature_tree_sha": "25b32a67f7103560609218aba8ae410292ae6907",
+          "tree_identical": true,
+          "branch": "work/2026-11-18-admin03-atlas09-native",
+          "base_parent": "30a8639fd1d4eaef5e1ae142a82d362de2fbecb1",
+          "qualified_parent": "0558393fc3b7d417c9e6d3a874ea5573257ee49e"
+        },
+        "product_status": "SOURCE_AND_INSTALLED_CENTER_CEN02_REGRESSION_PASS_PRIVATE_D3_HOLD"
       }
     },
     "atlas": {
@@ -711,13 +731,13 @@
   },
   "accepted_gates": {
     "B0_T2_source": "PASS",
-    "D1_D3_public_contract": "SOURCE_PASS",
+    "D1_D3_public_contract": "CEN02_NO_ATLAS_SOURCE_AND_INSTALLED_CENTER_REGRESSION_44295669017_PASS_PRIVATE_ORIGINAL_EMPLOYEE_D3_HOLD",
     "D4_technical_two_recipients": "PASS",
     "D5_hardware_prior": "PASS_NOT_REPEATED_IN_LATEST_CI",
     "D6_main_native_sender": "CORE_SOURCE_PASS",
     "D7_native_age_prior": "PASS_NOT_REPEATED_IN_LATEST_CI",
     "installed_original_private_d6": "HOLD",
-    "installed_employee_d1_d3": "HOLD",
+    "installed_employee_d1_d3": "HOLD_ORIGINAL_INDEPENDENT_PRIVATE_ED25519_AGENT_RESULT_ACCEPT_SEPARATE_APPLY_NOT_RUN",
     "installed_agent_atlas_d6": "HOLD",
     "installed_publisher_d7": "HOLD",
     "cross_product_G4": "NOT_ACCEPTED",
