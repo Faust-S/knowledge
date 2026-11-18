@@ -152,27 +152,18 @@ jobs:
           Write-Host 'D08_WORKSPACE_EXCHANGE_LIFECYCLE=3/3'
           Write-Host 'D08_QUALIFIED_RUNTIME_HASH=PASS'
           Write-Host 'D08_EPHEMERAL_INTEGRATED_DIST=PASS'
-      - name: Use the original integrated T2 and Chromium system browser for automatic CASE-006 Kernel persistence probe
+      - name: CASE-006 T2 Kernel GUI and cold restart readback in ephemeral Windows browser
         working-directory: private/site
         timeout-minutes: 20
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/private/t2
         run: |
-          $log=Join-Path $env:RUNNER_TEMP 'd08-native-gui-private.log'
+          $log=Join-Path $env:RUNNER_TEMP 'd08-native-gui.private.log'
           & node tests/marketops-native-t2-windows-e2e.mjs *> $log
           $code=$LASTEXITCODE
           $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
-          foreach($line in ($raw -split "`r?`n")){
-            if($line -match '^D08_NATIVE_[A-Z0-9_]+=(PASS|FAIL|TRUE|[A-Z0-9_]+)        if: always()
-        run: |
-          Write-Host 'D08_PRIVATE_SOURCE_PUBLISHED=NO'
-          Write-Host 'D08_DIST_PUBLISHED=NO'
-          Write-Host 'D08_ARTIFACT_UPLOADS=0'
-          Write-Host 'D08_WINDOWS_INTERACTIVE_GUI=NOT_RUN'
-          Write-Host 'D08_T2_SCOPED_RECEIPT=NOT_RUN'
-          Write-Host 'D08_T2_RESTART_READBACK=NOT_RUN'
-          Write-Host 'D08_IWXA_EXPORT_IMPORT=NOT_RUN'
-){
+          foreach($line in ($raw -split '\\r?\\n')){
+            if($line -match '^D08_NATIVE_[A-Z0-9_]+=(PASS|FAIL|TRUE|[A-Z0-9_]+)$'){
               Write-Host $line
             }
           }
