@@ -1,0 +1,81 @@
+name: D08 MarketOps P1 current site types and route regression
+on:
+  push:
+    branches: [work/2026-11-18-d08-marketops-windows-qualification]
+    paths: [.github/workflows/d08-business-route-windows.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  SITE_SHA: 076255f257ca53d4575570eb25dd49be7be57ab6
+  PUPPETEER_SKIP_DOWNLOAD: '1'
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+  CI: 'true'
+jobs:
+  site-workspace-entry:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Validate read access to private D08 site only
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'D08_SITE_DOMEN_UNAVAILABLE'}
+          & gh api 'repos/Faust-S/market-ops.ru' --jq '.id' *> $null
+          if($LASTEXITCODE -ne 0){throw 'D08_SITE_PERMISSION_DENIED'}
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install exact private site dependencies
+        working-directory: private/site
+        run: |
+          if((& git rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D08_P1_SITE_SHA_MISMATCH'}
+          & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'd08-p1-site-install.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D08_P1_SITE_INSTALL_FAILED'}
+          Write-Host 'D08_P1_SITE_INSTALL=PASS'
+      - name: Generate business route, check TypeScript and lint
+        working-directory: private/site
+        run: |
+          foreach($name in @('check:types','lint')){
+            $log=Join-Path $env:RUNNER_TEMP ('d08-p1-'+$name.Replace(':','-')+'.private.log')
+            & npm run $name *> $log
+            if($LASTEXITCODE -ne 0){
+              if($name -eq 'check:types'){
+                $diagnostics=@(Get-Content -LiteralPath $log | Where-Object {$_ -match 'error TS[0-9]+'})
+                Write-Host ('D08_P1_TS_ERROR_COUNT='+$diagnostics.Count)
+                foreach($diagnostic in @($diagnostics | Select-Object -First 15)){
+                  if($diagnostic -match '^(.*)\(([0-9]+),([0-9]+)\): error (TS[0-9]+):'){
+                    Write-Host ('D08_P1_TS_DIAGNOSTIC='+$Matches[4]+' FILE='+([IO.Path]::GetFileName($Matches[1]))+' LINE='+$Matches[2])
+                  }
+                }
+              }
+              throw ('D08_P1_'+$name+'_FAILED')
+            }
+          }
+          Write-Host 'D08_P1_TYPES_AND_LINT=PASS'
+      - name: Run entire existing T2 adapters plus business route tests
+        working-directory: private/site
+        run: |
+          foreach($script in @('check:t2:entry','test:d08:adapters')){
+            $log=Join-Path $env:RUNNER_TEMP ('d08-p1-'+$script.Replace(':','-')+'.private.log')
+            & npm run $script *> $log
+            if($LASTEXITCODE -ne 0){throw ('D08_P1_'+$script+'_FAILED')}
+          }
+          Write-Host 'D08_P1_ORIGINAL_ADAPTERS_AND_NEW_ROUTE=PASS'
+      - name: Respect restricted release scope
+        if: always()
+        run: |
+          Write-Host 'D08_P1_SITE_SOURCE_PUBLISHED=NO'
+          Write-Host 'D08_P1_LOGS_PUBLISHED=NO'
+          Write-Host 'D08_P1_DIST_RELEASED=NO'
+          Write-Host 'D08_P1_ARTIFACTS_UPLOADED=0'
