@@ -35,6 +35,12 @@ def verify(port, expected):
     assert isinstance(actual["task"], str) and actual["task"], (
         "G4_AGENT_ORIGINAL_EMPLOYEE_SIGNED_TEXT_REQUIRED"
     )
+    # The existing Agent's deterministic submission binding must survive
+    # process-cold reopening. This is NOT a new Task ID or a second registry.
+    submission = port.submission_id(actual)
+    assert isinstance(submission, str) and re.fullmatch(r"[a-f0-9]{32}", submission), (
+        "G4_AGENT_ORIGINAL_TASK_SUBMISSION_BINDING_INVALID"
+    )
     return True
 
 
