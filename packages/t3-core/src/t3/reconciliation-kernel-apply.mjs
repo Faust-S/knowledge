@@ -245,7 +245,7 @@ export function createTrustedReconciliationKernelApply({
         read.object.revision===expectedRevision&&
         read.object.schema_id===objInput.schema_id&&
         read.object.schema_version===objInput.schema_version&&
-        JSON.stringify(read.object.data)===JSON.stringify(objInput.data)&&
+        sameJson(read.object.data,objInput.data)&&
         verifiedEvents.length===1&&
         verifiedEvents[0].event_id===receipt.event.event_id,
         "T3_D3_ORIGINAL_KERNEL_READBACK_MISMATCH");
@@ -329,7 +329,7 @@ export function createTrustedReconciliationKernelApply({
       value.object.schema_id===objInput.schema_id&&
       value.object.schema_version===objInput.schema_version&&
       value.object.revision===expectedRevision&&
-      JSON.stringify(value.object.data)===JSON.stringify(objInput.data);
+      sameJson(value.object.data,objInput.data);
     const matching=Array.isArray(events)?events.filter(event=>{
       const provenance=event?.payload;
       return event?.workspace_id===c.workspace_id&&
