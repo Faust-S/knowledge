@@ -88,8 +88,8 @@ jobs:
           Write-Output "D11_UI_ONE_DIST=PASS"
       # Test the real export entry point rather than an arbitrary form save.
       # Protect every source payload; only status codes appear in public logs.
-      # Both browser drivers copy the verified release into a local-candidate
-      # temp directory and bind exact loopback origins (T2 Domain Keys 2.0).
+      # Preserve verified production dist bytes; only the two Host-origin
+      # config responses are overlaid in-memory for exact-origin loopback QA.
       - name: Real browser E2E for ten cases (desktop and mobile)
         id: ui
         continue-on-error: true
