@@ -667,6 +667,10 @@ jobs:
                   Write-Output 'D07_NATIVE_IWXA_DIALOG_UIA_ROOT_NOT_FOCUSABLE=TRUE'
                 }
                 Set-Clipboard -Value $archive.FullName
+                # GitHub Windows runner uses en-US. Alt+N targets the actual
+                # native Open dialog's "File name" box, not Explorer search.
+                [System.Windows.Forms.SendKeys]::SendWait('%n')
+                [System.Windows.Forms.SendKeys]::SendWait('^a')
                 [System.Windows.Forms.SendKeys]::SendWait('^v')
                 Start-Sleep -Milliseconds 300
                 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
