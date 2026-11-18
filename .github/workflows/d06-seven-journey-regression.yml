@@ -1,0 +1,103 @@
+name: d06-seven-journey-regression
+
+# Qualify the seven independently failing long-route E2E specs from D06.
+# Private source, dist, browser traces and reports never leave the runner.
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-seven-journey-regression.yml
+permissions:
+  contents: read
+jobs:
+  independent-journeys:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: ab163d083e04e8f8937593b0ce37575240ef811d
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install, assemble and prepare browser privately
+        working-directory: private/site
+        shell: pwsh
+        timeout-minutes: 24
+        run: |
+          $ErrorActionPreference = "Continue"
+          $log = Join-Path $env:RUNNER_TEMP "d06-seven-prepare.private.log"
+          & npm ci --no-audit --no-fund *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_SEVEN_NPM=FAIL"; exit 1 }
+          Write-Host "D06_SEVEN_NPM=PASS"
+          & npm run build:static *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_SEVEN_BUILD=FAIL"; exit 1 }
+          Write-Host "D06_SEVEN_BUILD=PASS"
+          & npm run setup:browser *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_SEVEN_BROWSER=FAIL"; exit 1 }
+          Write-Host "D06_SEVEN_BROWSER=PASS"
+      - name: Independently reproduce each existing user journey
+        working-directory: private/site
+        shell: pwsh
+        timeout-minutes: 48
+        run: |
+          $ErrorActionPreference = "Continue"
+          $paths = @(
+            "case-040-procurement-workspace",
+            "case-043-pd04-pd06",
+            "d06-pd15-pd16-manual-save",
+            "d06-wf-pd02-automated",
+            "d06-wf-pd03-full-route",
+            "d06-wf-pd03-short-branch",
+            "task-entry"
+          )
+          $failed = 0
+          for ($idx = 0; $idx -lt $paths.Count; $idx++) {
+            $ordinal = $idx + 1
+            $json = Join-Path $env:RUNNER_TEMP ("d06-seven-" + $ordinal + ".private.json")
+            $log = Join-Path $env:RUNNER_TEMP ("d06-seven-" + $ordinal + ".private.log")
+            $env:PLAYWRIGHT_JSON_OUTPUT_FILE = $json
+            & npm run test:e2e -- ("tests/e2e/" + $paths[$idx] + ".spec.ts") --reporter=json *> $log
+            $ok = $LASTEXITCODE -eq 0
+            Write-Host ("D06_SEVEN_SPEC_" + $ordinal + "=" + $(if ($ok) { "PASS" } else { "FAIL" }))
+            if (-not $ok) {
+              $failed++
+              if (Test-Path -LiteralPath $json) {
+                $script = @'
+const fs=require("node:fs");
+let json;
+try{json=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));}catch{process.exit(2)}
+let line="0",kind="UNKNOWN";
+const stack=[...(json.suites||[])];
+while(stack.length){
+ const suite=stack.pop();
+ stack.push(...(suite.suites||[]));
+ for(const spec of suite.specs||[])for(const test of spec.tests||[])for(const res of test.results||[]){
+  if(!["failed","timedOut","interrupted"].includes(res.status))continue;
+  kind=res.status.toUpperCase();
+  const trace=[...(res.errors||[]),res.error].filter(Boolean).map(e=>String(e.stack||e.message||"")).join(" ");
+  line=trace.match(/\.spec\.ts:(\d+):/)?.[1]||"0";
+ }
+}
+console.log("D06_SEVEN_FAILURE_LINE="+line);
+console.log("D06_SEVEN_FAILURE_CLASS="+kind);
+'@
+                & node -e $script $json
+                if ($LASTEXITCODE -ne 0) { Write-Host "D06_SEVEN_REPORT=INVALID" }
+              } else { Write-Host "D06_SEVEN_REPORT=MISSING" }
+            }
+          }
+          Write-Host ("D06_SEVEN_FAILURES=" + $failed)
+          if ($failed -gt 0) { exit 1 }
+      - name: Assert no disclosure
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_SEVEN_PRIVATE_SOURCE_PUBLICATION=0"
+          Write-Host "D06_SEVEN_PRIVATE_REPORT_PUBLICATION=0"
+          Write-Host "D06_SEVEN_PRIVATE_DIST_PUBLICATION=0"
