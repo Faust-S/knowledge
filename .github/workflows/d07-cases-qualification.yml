@@ -8,7 +8,7 @@ permissions:
   contents: read
 concurrency:
   group: d07-ci-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   qualify:
     runs-on: ${{ matrix.os }}
