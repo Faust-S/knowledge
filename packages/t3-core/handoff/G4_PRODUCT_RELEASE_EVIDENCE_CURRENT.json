@@ -26,25 +26,25 @@
     "one_core": {
       "repository": "Faust-S/knowledge",
       "branch": "work/2026-11-10-t3-t2-activity-projection",
-      "observed_head": "30d9364e30b1e91ae469a8ec08a339f00f9eded0",
+      "observed_head": "a24b575ecaa35e0f2b786c1a061f3a782bd7eb34",
       "qualification": {
-        "run_id": 44318043133,
+        "run_id": 44321733973,
         "conclusion": "SUCCESS",
-        "source_pin": "30d9364e30b1e91ae469a8ec08a339f00f9eded0",
+        "source_pin": "a24b575ecaa35e0f2b786c1a061f3a782bd7eb34",
         "jobs": {
           "test": "PASS",
           "real_host": "PASS",
           "windows_credential": "PASS",
           "native_age": "SKIPPED",
           "native_model": "SKIPPED",
-          "metal_webgpu": "SKIPPED"
+          "metal_webgpu": "PASS"
         },
         "node_tests": {
           "total": 784,
           "pass": 784,
           "fail": 0
         },
-        "scope": "ONE inherited normative T2 Kernel 0.3.6 Host + Windows credential + D1/D3 original trusted adapter public tests. Cold original ACCEPT/REJECT receipt canonical key reorder PASS, mutated fields and false external Kernel Apply DENY. Private installed Admin/Agent original D3 NOT_RUN; hardware D5 NOT_RUN in this exact CI."
+        "scope": "Public unified original T2 0.3.6 / T3 source; original signed one-dist Mac Apple Metal real WebLLM generation and cold offline regeneration, D3 corporate signed Context revoke/cold recovery and original T2 readback, independent domain/PWA D5 two cold offline generations and Kernel readbacks, real-host and windows-credential PASS. Private independent installed issuer/Agent signer and native D3/D6/D7 NOT_RUN."
       },
       "level": "CORE_SOURCE_PASS",
       "notes": "One inherited T2 0.3.6 Runtime Contract 1.3.0; D1/D3/D6/D7 source; Agent-only qualified original T2 One Dist passport with original signed D1 AccessRegistry, original accepted-result schema/Kernel Object/Event and two process-cold source readbacks. This is not an installed independent Agent-to-Atlas signed transfer.",
@@ -135,7 +135,7 @@
         "authority_limit": "SOURCE_CONTRACT_AND_ORIGINAL_T2_REAL_HOST_ONLY_NO_PRIVATE_ADMIN_AGENT_SIGNED_E2E"
       },
       "d5_apple_metal_signed_source_2026_11_18": {
-        "status": "REAL_APPLE_WEBGPU_SOURCE_SCENARIO_PASS__COMPLETE_WORKFLOW_FAILURE_OTHER_D1_D3_STAGE",
+        "status": "REAL_APPLE_WEBGPU_SOURCE_SIGNED_AND_DOMAIN_COMPLETE_WORKFLOW_SUCCESS_44321733973__PRIVATE_INSTALLED_HOLD",
         "evidence": [
           {
             "run_id": 44304276180,
@@ -160,6 +160,19 @@
             "original_t2_kernel": "0.3.6",
             "original_kernel_readback": true,
             "failed_later": "D1 CORP first-run gate showed Control refusal; no D5-full domain step"
+          },
+          {
+            "run_id": 44321733973,
+            "exact_source_sha": "a24b575ecaa35e0f2b786c1a061f3a782bd7eb34",
+            "workflow_conclusion": "success",
+            "gpu": "Apple Paravirtual ANGLE Metal WebGPU",
+            "signed_one_dist_generation_chars": 23,
+            "offline_cold_generation_chars": 47,
+            "network_requests_during_cold": 0,
+            "original_t2_kernel": "0.3.6",
+            "original_kernel_readback": true,
+            "corporate_cold_workspace_recovery": "PASS_AT_THIS_REVISION_AFTER_PREVIOUS_INTERMITTENT_FAILURE",
+            "private_signer_executed": false
           }
         ],
         "boundary": "Genuine browser WebLLM WebGPU model generated local output on allocated macOS Apple Metal adapter in compiled split-origin T3 Host. Persistent browser profile, cold browser-process restart and offline second generation verified. Test-only signed owner in hardware generation scenario; NOT an independently installed private corporate signer, NOT full domain-level D5 PWA qualification and NOT universal G4 release.",
@@ -208,7 +221,45 @@
             "explicit_user_save_twice": true
           }
         ],
-        "boundary": "This is a TRUE source-compiled ORIGINAL T2/T3 Host real browser domain/PWA WebGPU hardware and cold-offline qualification on macOS CI, no second Kernel or Store. NOT original private installed employee/issuer, NOT universal G4, and whole CI still FAILURE due separate signed corporate D1 cold-read UI regression."
+        "boundary": "This is a TRUE source-compiled ORIGINAL T2/T3 Host real browser domain/PWA WebGPU hardware and cold-offline qualification on macOS CI, no second Kernel or Store. NOT original private installed employee/issuer, NOT universal G4, and whole CI still FAILURE due separate signed corporate D1 cold-read UI regression.",
+        "latest_qualified": {
+          "source_sha": "a24b575ecaa35e0f2b786c1a061f3a782bd7eb34",
+          "run_id": 44321733973,
+          "workflow_conclusion": "SUCCESS",
+          "jobs": {
+            "test": "SUCCESS",
+            "real_host": "SUCCESS",
+            "windows_credential": "SUCCESS",
+            "metal_webgpu": "SUCCESS",
+            "native_age": "SKIPPED",
+            "native_model": "SKIPPED"
+          },
+          "metal_steps": [
+            {
+              "name": "D1+D5 real Metal in compiled split-origin signed Workspace and original Kernel",
+              "result": "SUCCESS",
+              "signed_generated_characters": 23,
+              "signed_offline_cold_regen_characters": 47,
+              "offline_external_requests": 0,
+              "original_kernel_readback": true,
+              "corporate_revoked_north_independent_south_cold_recover": "PASS"
+            },
+            {
+              "name": "D5 inherited domain real Metal generation and cold offline restart",
+              "result": "SUCCESS",
+              "model": "SmolLM2-360M-Instruct-q4f32_1-MLC",
+              "first_generated_characters": 47,
+              "offline_second_generated_characters": 48,
+              "offline_browser_process_cold_restart": true,
+              "network_disabled": true,
+              "original_t2_kernel": "0.3.6",
+              "first_readback": true,
+              "second_readback": true,
+              "distinct_saved_objects": true
+            }
+          ],
+          "boundary": "One public macOS Apple Metal hardware CI PASS of the original T2/T3 source-compiled Host and signed test-only owner, not an installed native private corporate issuer, employee Agent, signed D3 ACCEPT/APPLY, generic recipient D6, native D7 or full G4. Prior D3 corporate cold UI failure may be intermittent; this run does not prove its root cause is fixed."
+        }
       },
       "historical_qualification_pre_2026_11_18_d3_receipt": {
         "run_id": 44175911638,
@@ -253,6 +304,14 @@
           }
         },
         "boundary": "PUBLIC original T3 Host adapter and qualified original T2 Host; real private independent corporate signer and installed Agent D3 E2E remain HOLD"
+      },
+      "d5_cold_signed_workspace_diagnostic_2026_11_18": {
+        "source_sha": "a24b575ecaa35e0f2b786c1a061f3a782bd7eb34",
+        "run_id": 44321733973,
+        "change": "Diagnostic-only fail-path robustness: independent original T2 workspace/object probes cannot swallow signed AppShell's primary cold-readback error; bounds diagnostic wait to six seconds; no replay, grant change or alternative Store.",
+        "exact_file": "packages/t3-core/tests/t3-d1-signed-control-one-dist.browser.mjs",
+        "result": "SOURCE_CI_AND_APPLE_METAL_HARDWARE_SUCCESS",
+        "followup": "Run second hardware repetition if diagnosing possible prior intermittent corporate UI failure; do not classify one green CI as deterministic D3 resolution."
       }
     },
     "private_original_d6": {
@@ -959,7 +1018,7 @@
     "T3_ATLAS_SIGNED_FILE_OPTIONAL": "SOURCE_SIGNED_RECIPIENT_AND_INSTALLED_ATLAS_PRODUCT_PASS_PRIVATE_SIGNED_E2E_NOT_ACCEPTED_OPTIONAL_PROFILE",
     "T3_UNIVERSAL_RELEASE": "NOT_ACCEPTED_INDEPENDENT_INSTALLED_D1_D3_GENERIC_D6_D7_AND_NATIVE_OWNER_D5_HOLD",
     "D3_original_kernel_full_event_parity": "SOURCE_OBJECT_AND_FULL_EVENT_CANONICAL_READBACK_PASS_44299826868__ORIGINAL_PRIVATE_NATIVE_D3_HOLD",
-    "D5_hardware_current": "SOURCE_ORIGINAL_HOST_SIGNED_AND_DOMAIN_PWA_APPLE_METAL_COLD_OFFLINE_PASS_44310606553__NATIVE_PRIVATE_NOT_ACCEPTED",
+    "D5_hardware_current": "SOURCE_ONE_DIST_SIGNED_AND_DOMAIN_APPLE_METAL_COLD_OFFLINE_PASS_FULL_CI_44321733973__PRIVATE_INSTALLED_NOT_ACCEPTED",
     "ADMIN_CENTER_03_D3_GENERIC_UI": "INSTALLED_CENTER_PUBLIC_WINDOWS_SUCCESS_44301852914_AT_565572a9_MERGED_5ff8947d_NO_PRIVATE_SIGNED_D3",
     "T3_D3_ORIGINAL_ACCEPT_RECEIPT": "CORE_SOURCE_CANONICAL_RECEIPT_AND_COLD_DECISION_VALIDATION_PASS_44318043133__PRIVATE_INSTALLED_D3_HOLD"
   },
@@ -1020,7 +1079,7 @@
     "independent_installed_d3": "HOLD",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
-    "hardware_offline_d5_latest": "SOURCE_APPLE_METAL_SIGNED_AND_DOMAIN_PWA_TWO_GENERATIONS_COLD_OFFLINE_PASS_IN_44310606553__WHOLE_RUN_FAILED_LATER_CORPORATE_D3__INSTALLED_PRIVATE_D5_HOLD",
+    "hardware_offline_d5_latest": "SOURCE_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_SECOND_GENERATION_AND_ORIGINAL_KERNEL_READBACK_SUCCESS_WHOLE_CI_44321733973__PRIVATE_INSTALLED_D5_HOLD",
     "strict_order": [
       "B0: verify exact complete normative T2 successor in ONE executable T3 One Dist and original Host/Kernel/Store/Exchange/Workspace/Lifecycle, with no second runtime or Atlas dependency",
       "D1 + D3: prove installed independent manager and employee Agent signed grants / Task, Human ACCEPT then separately consented original Kernel APPLY and two cold original receipts; NO Atlas WorkRef for normal Task",
@@ -1080,7 +1139,7 @@
       "offline_cold_restart": "NOT_RUN",
       "note": "macos-15 GitHub public runner never allocated; test and real-host and windows-credential PASS do not qualify hardware D5. Do not retry macOS indiscriminately or promote D5. Use a genuinely hardware-enabled system to collect exact original Host/browser cold offline two-generation evidence."
     },
-    "source_integrity_latest": "T3_NODE_784_OF_784_REAL_T2_HOST_AND_WINDOWS_CREDENTIAL_SUCCESS_44318043133",
-    "latest_verified_code_sha": "30d9364e30b1e91ae469a8ec08a339f00f9eded0"
+    "source_integrity_latest": "SOURCE_784_OF_784_REAL_T2_HOST_WINDOWS_CREDENTIAL_AND_APPLE_METAL_GPU_SUCCESS_44321733973",
+    "latest_verified_code_sha": "a24b575ecaa35e0f2b786c1a061f3a782bd7eb34"
   }
 }

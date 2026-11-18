@@ -1,5 +1,15 @@
 # IWXA T3 G4: единая миграция разработки в новый чат
 
+## 18.11.2026: единый исходный T3 + аппаратный Apple Metal D5, полный CI SUCCESS
+
+**Подтверждённый исполняемый источник:** `Faust-S/knowledge@a24b575ecaa35e0f2b786c1a061f3a782bd7eb34`, [GitHub Actions №44321733973](https://github.com/Faust-S/knowledge/actions/runs/44321733973) **SUCCESS** на точном SHA. `test` (Node **784/784**), `real-host`, `windows-credential`, `metal-webgpu` **PASS**; `native-age`, `native-model` **SKIPPED**.
+
+В `metal-webgpu` на Apple Metal/WebGPU успешно прошли оба *разных* исходных маршрута. Подписанный собранный One Dist: настоящая WebLLM генерация (**23** символа), холодный перезапуск браузерного процесса, офлайн-повтор (**47** символов, **0** внешних запросов), исходный Kernel 0.3.6 readback; после отзыва полномочий организации North независимая South сохранила и прочитала свой черновик и исходные D3 Object/Event. Доменный/PWA маршрут: модель `SmolLM2-360M-Instruct-q4f32_1-MLC`, первая генерация **47** символов, офлайн-повтор **48**, два разных сохранения в оригинальный Kernel и независимые readback после холодного запуска.
+
+Коммит `a24b575e` **не исправлял D3-протокол**: изменена только диагностика прежнего нестабильного корпоративного cold-readback. При ошибке самостоятельная диагностическая попытка прочитать Kernel не сможет скрыть первичную ошибку интерфейса. Один успешный прогон после предыдущих FAIL не доказывает устранение причины нестабильности; повторить квалификацию при необходимости. Никакого ослабления JIT Access, выбора Workspace, независимости организаций или повторной Kernel-записи не было.
+
+**Строгая граница:** аппаратный D5 подтверждён в *публичном собранном исходном Host* с тестовым signed owner. Это не аппаратная приёмка действительно установленного приватного issuer/Agent/домена, и не установленный D3 ACCEPT → отдельный Kernel APPLY. Универсальные установленные D1/D3, generic D6, PERSON D7 и нативный D5 owner остаются **HOLD**. Atlas не является универсальным gate. `T3_READY=false`, `G4=NOT_ACCEPTED`.
+
 ## 18.11.2026: универсальный D3 ACCEPT readback, 784/784 PASS
 
 **Точная исполняемая ревизия единого T3**: `Faust-S/knowledge@30d9364e30b1e91ae469a8ec08a339f00f9eded0`, [GitHub Actions №44318043133](https://github.com/Faust-S/knowledge/actions/runs/44318043133) **SUCCESS**. Node **784/784**, `test`, `real-host`, `windows-credential` PASS. Metal/WebGPU, model native и age native в этом прогоне SKIPPED. Реальный установленный приватный Admin→Agent D3 **NOT_RUN**, `G4=NOT_ACCEPTED`, `T3_READY=false`.
