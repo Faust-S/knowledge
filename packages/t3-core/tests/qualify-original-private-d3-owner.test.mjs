@@ -40,6 +40,7 @@ test('fetches only transitive original test modules without cloning or credentia
   };
   const requested=[];
   const response=await runOriginalPrivateOwnerSourceCheck({token:'not-real-token',assets:[],
+    testFiles:['tests/admin-original-host-port.test.mjs'],
     fetchFile:async path=>{
       requested.push(path);
       if(!(path in files))throw Error('UNEXPECTED_PRIVATE_MODULE_REQUEST');
