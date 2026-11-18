@@ -10,7 +10,7 @@ import {getExactFile,originalImportPaths,originalImportTarget}
   from './qualify-original-private-d3-owner.mjs';
 import {AGENT_ORIGINAL_PIN} from './qualify-original-agent-d3-port.mjs';
 
-const T3_PIN='cfa3b1c9b1609e0c9126a156db148c2636ed45cb';
+const T3_PIN='ceac8051116b75c01efefdeba986fc9849f73ccc';
 const T3_SEEDS=Object.freeze([
   'interop/provision.mjs','interop/runtime.mjs',
   'interop/native-admin-d3.mjs','interop/native-employee-d3.mjs',
@@ -73,6 +73,23 @@ export async function qualifyNativeOriginalEmployee({
     const t3=join(root,'original-t3'),agent=join(root,'employee-agent');
     const t3Count=await stageOriginal(t3,t3Token,fetchT3);
     const agentCount=await stageAgent(agent,agentToken,fetchAgent);
+    // Fail early on a damaged original private source before credential
+    // issuance. Only fixed machine codes leave this public Windows job.
+    // The original code and syntax diagnostics never enter the CI output.
+    for(const [base,relative] of [
+      [t3,'interop/native-employee-d3.mjs'],
+      [t3,'interop/native-admin-d3.mjs'],
+      [agent,'runtime/t3_original_employee_worker.mjs']
+    ]){
+      const syntax=spawnSync(process.execPath,['--check',join(base,...relative.split('/'))],{
+        encoding:'utf8',windowsHide:true,timeout:15000,maxBuffer:128*1024,
+        env:{PATH:process.env.PATH??'',SystemRoot:process.env.SystemRoot??'',
+          WINDIR:process.env.WINDIR??''},
+      });
+      if(syntax.status!==0)
+        throw Error('G4_NATIVE_PRIVATE_OWNER_SYNTAX_PRECHECK_FAILED');
+    }
+
     // Separate child receives ONLY directory paths and a synthetic project
     // root. Neither PAT nor an original private source is printed.
     const env={
