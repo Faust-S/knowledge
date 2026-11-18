@@ -1,0 +1,70 @@
+name: d06-pd16-schema-qualification
+
+# Public control plane, private D06 source stays only on the Windows runner.
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-pd16-schema-qualification.yml
+
+permissions:
+  contents: read
+
+jobs:
+  pd16-schema-windows:
+    runs-on: windows-latest
+    timeout-minutes: 22
+    steps:
+      - name: Checkout exact private D06 revision, without retaining credentials
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: 8241d001e4d40593aa185d5bce4274b3f8e7dcd5
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install site dependencies with private logs
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-schema-npm-ci-private.log"
+          & cmd.exe /d /c ("npm ci --no-audit --no-fund > """ + $log + """ 2>&1")
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "D06_PD16_INSTALL=FAIL"
+            exit 1
+          }
+          Write-Host "D06_PD16_INSTALL=PASS"
+      - name: Validate PD16 Result schema and complete existing source gate
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $ErrorActionPreference = "Continue"
+          $failures = 0
+          foreach ($test in @("test:workflow:delivery", "check:schemas", "check")) {
+            $key = $test.Replace(":", "-")
+            $log = Join-Path $env:RUNNER_TEMP ("d06-pd16-" + $key + "-private.log")
+            & cmd.exe /d /c ("npm run " + $test + " > """ + $log + """ 2>&1")
+            $passed = $LASTEXITCODE -eq 0
+            Write-Host ("D06_PD16_" + $key + "=" + $(if ($passed) {"PASS"} else {"FAIL"}))
+            if (-not $passed) {
+              $failures += 1
+              # Only error classes and counts; no source, stack or Result text.
+              $privateText = Get-Content -LiteralPath $log -Raw
+              $ts = ([regex]::Matches($privateText, "error TS[0-9]+:")).Count
+              $fmt = ([regex]::Matches($privateText, "prettier/prettier")).Count
+              Write-Host ("D06_PD16_" + $key + "_TS_COUNT=" + $ts)
+              Write-Host ("D06_PD16_" + $key + "_FORMAT_COUNT=" + $fmt)
+            }
+          }
+          if ($failures -gt 0) { exit 1 }
+      - name: Confirm public privacy boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_PRIVATE_SOURCES=RUNNER_LOCAL_ONLY"
+          Write-Host "D06_PUBLIC_ARTIFACT_UPLOADS=0"
