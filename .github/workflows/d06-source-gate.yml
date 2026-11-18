@@ -30,7 +30,7 @@ jobs:
         run: |
           $failed = $false
           foreach ($task in @("ci", "run check", "run test:native", "run test:case040:procurement", "run test")) {
-            $code = $task.Replace(" ","-")
+            $code = $task.Replace(" ","-").Replace(":","-")
             $log = Join-Path $env:RUNNER_TEMP ("d06-" + $code + "-private.log")
             & cmd.exe /d /c ("npm " + $task + " > """ + $log + """ 2>&1")
             $passed = $LASTEXITCODE -eq 0
