@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/t3-native-original-employee.yml
       - packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs
+      - packages/t3-core/scripts/qualify-original-agent-d3-port.mjs
       - packages/t3-core/tests/g4-original-agent-native-windows.mjs
       - packages/t3-core/tests/g4-original-agent-native-driver.py
   workflow_dispatch:
