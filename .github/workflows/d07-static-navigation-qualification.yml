@@ -88,9 +88,9 @@ jobs:
           let reviewedLinks=0;
           let orphanLinks=0;
           for (const page of all){
-            const file="dist/"+page.replace(/^\\/+|\\/+$/g,"")+"/index.html";
+            const file="dist/"+page.split("/").filter(Boolean).join("/")+"/index.html";
             const html=readFileSync(file,"utf8");
-            for (const anchor of html.matchAll(/<a\\b[^>]*\\bhref=["']([^"']+)["'][^>]*>/g)){
+            for (const anchor of html.matchAll(/href="(\/uslugi\/[^"]+)"/g)){
               const href=anchor[1];
               if(!href.startsWith("/uslugi/")) continue;
               reviewedLinks++;
