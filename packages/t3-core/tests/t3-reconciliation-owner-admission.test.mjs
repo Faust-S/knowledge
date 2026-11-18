@@ -204,6 +204,60 @@ test("D3 accepts original receipt and signed context after canonical JSON key re
   assert.deepEqual(f.counts(),{accepts:1,applies:0});
 });
 
+test("D3 ACCEPT preserves a complete 5000-row original receipt after JSON key reordering",async()=>{
+  const f=fixture(null,{reverseContextOrder:true});
+  f.setHuman(true);
+  const originalAccept=f.source.accept;
+  const witnesses=Array.from({length:5000},(_,index)=>({index,valid:true}));
+  f.source.accept=(...args)=>{
+    const received=originalAccept(...args);
+    received.ownerEvidence={witnesses};
+    return received;
+  };
+  const originalRead=f.source.receipt;
+  f.source.receipt=operationId=>{
+    const record=originalRead(operationId);
+    return record?Object.fromEntries(Object.entries(record).reverse()):record;
+  };
+  const accepted=await f.port.accept({packageSha256:sha,previewDigest,
+    operationId:"op:large-receipt",decisionBy:"person:owner"});
+  assert.equal(accepted.acceptanceState,"ACCEPTED");
+  assert.equal(accepted.kernelApplication,"NOT_APPLIED");
+  assert.equal(accepted.receipt.ownerEvidence.witnesses.length,5000);
+  assert.deepEqual(f.counts(),{accepts:1,applies:0});
+  assert.equal((await f.makePort().receipt("op:large-receipt",sha)).found,true);
+});
+
+test("D3 detects a changed final witness after native ACCEPT without repeating it",async()=>{
+  const f=fixture();
+  f.setHuman(true);
+  let dispatched=false;
+  const witnesses=Array.from({length:5000},(_,index)=>({index,valid:true}));
+  const originalAccept=f.source.accept;
+  f.source.accept=(...args)=>{
+    const receipt=originalAccept(...args);
+    receipt.ownerEvidence={witnesses};
+    dispatched=true;
+    return receipt;
+  };
+  const originalRead=f.source.receipt;
+  f.source.receipt=operationId=>{
+    const saved=originalRead(operationId);
+    if(!dispatched||!saved)return saved;
+    const modified=[...saved.ownerEvidence.witnesses];
+    modified[4999]={index:4999,valid:false};
+    return {...saved,ownerEvidence:{witnesses:modified}};
+  };
+  const input={packageSha256:sha,previewDigest,
+    operationId:"op:changed-last-witness",decisionBy:"person:owner"};
+  await assert.rejects(f.port.accept(input),
+    {code:"T3_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED"});
+  assert.deepEqual(f.counts(),{accepts:1,applies:0});
+  await assert.rejects(f.port.accept(input),
+    {code:"T3_D3_DECISION_OUTCOME_UNKNOWN_USE_RECEIPT"});
+  assert.deepEqual(f.counts(),{accepts:1,applies:0});
+});
+
 test("D3 refuses changed original receipt even when the owner reuses a mutable object",async()=>{
   const f=fixture();
   f.setHuman(true);

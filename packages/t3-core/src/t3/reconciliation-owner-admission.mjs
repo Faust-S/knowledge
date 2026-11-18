@@ -16,26 +16,40 @@ function snapshot(value,code){
 // Original T2 and the recipient ledger may return the same JSON record
 // with canonically reordered object keys. Compare its full structure instead
 // of insertion order; changing ANY value/field or array order still refuses.
-function same(a,b,depth=0){
-  if(depth>32)return false;
-  if(a===b)return true;
-  if(a===null||b===null||typeof a!=="object"||typeof b!=="object")
-    return false;
-  if(Array.isArray(a)||Array.isArray(b)){
-    if(!Array.isArray(a)||!Array.isArray(b)||a.length!==b.length||
-       a.length>4096)return false;
-    for(let i=0;i<a.length;i++){
-      if(!Object.hasOwn(a,i)||!Object.hasOwn(b,i)||
-         !same(a[i],b[i],depth+1))return false;
+function same(a,b,activeA=new WeakSet(),activeB=new WeakSet()){
+  // Keep the same complete JSON semantics as original T2 Kernel APPLY.
+  // Sparse arrays, nonfinite values and cycles are not JSON receipts.
+  // The recipient ledger, not this Host, owns legitimate data size/depth.
+  if(a===null||b===null)return a===b;
+  if(typeof a!==typeof b)return false;
+  if(typeof a==="string"||typeof a==="boolean")return a===b;
+  if(typeof a==="number")
+    return Number.isFinite(a)&&Number.isFinite(b)&&a===b;
+  if(typeof a!=="object")return false;
+  if(activeA.has(a)||activeB.has(b))return false;
+  activeA.add(a);
+  activeB.add(b);
+  try{
+    if(Array.isArray(a)||Array.isArray(b)){
+      if(!Array.isArray(a)||!Array.isArray(b)||a.length!==b.length)
+        return false;
+      for(let i=0;i<a.length;i++){
+        if(!Object.hasOwn(a,i)||!Object.hasOwn(b,i)||
+           !same(a[i],b[i],activeA,activeB))return false;
+      }
+      return true;
     }
-    return true;
+    const plain=x=>Object.getPrototypeOf(x)===Object.prototype||
+      Object.getPrototypeOf(x)===null;
+    if(!plain(a)||!plain(b))return false;
+    const keys=Object.keys(a);
+    return keys.length===Object.keys(b).length&&
+      keys.every(key=>Object.hasOwn(b,key)&&
+        same(a[key],b[key],activeA,activeB));
+  }finally{
+    activeA.delete(a);
+    activeB.delete(b);
   }
-  const plain=x=>Object.getPrototypeOf(x)===Object.prototype||
-    Object.getPrototypeOf(x)===null;
-  if(!plain(a)||!plain(b))return false;
-  const keys=Object.keys(a);
-  return keys.length===Object.keys(b).length&&
-    keys.every(key=>Object.hasOwn(b,key)&&same(a[key],b[key],depth+1));
 }
 
 export function createTrustedReconciliationAdmission({
