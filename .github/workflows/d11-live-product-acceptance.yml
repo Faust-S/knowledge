@@ -98,6 +98,8 @@ jobs:
           & node scripts/d11-live-browser-acceptance.mjs
           if ($LASTEXITCODE -ne 0) { throw "D11_LIVE_TEN_CASES_FAILED" }
           Write-Output "D11_LIVE_BROWSER=PASS"
+      # Use the sanctioned original T2 #/workspaces first-run flow on HTTP
+      # loopback, then the explicit D11 consent/Kernel/Exchange user route.
       - name: Original T2 Kernel UI receipts and Exchange roundtrip
         id: kernel
         continue-on-error: true
