@@ -1,8 +1,8 @@
 {
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
-  "snapshot_date": "2026-11-18",
+  "snapshot_date": "2026-11-19",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
-  "currentness": "SNAPSHOT_2026_11_18_PRODUCT_NEUTRAL_SCOPE_CHECK_EXACT_CI_AND_LIVE_SHA",
+  "currentness": "G4_SOURCE_REAL_T2_EMPLOYEE_D3_20_OF_20_EXACT_PIN_2026_11_19_NATIVE_ONE_SHOT_BRIDGE_COMPILES_NOT_INSTALLED",
   "policy": {
     "t3_one_core": "Faust-S/knowledge/packages/t3-core",
     "t2_normative": "Faust-S/T2@main",
@@ -1648,6 +1648,44 @@
       "production_activation": false,
       "g4_accepted": false,
       "t3_ready": false
+    },
+    "original_installed_native_one_shot_human_bridge_2026_11_19": {
+      "private_original_T3": {
+        "repository": "Faust-S/T3",
+        "branch": "work/2026-11-16-admin03-independent-employee-owner",
+        "sha": "d0d8ba2f791050a8c190f7cab305b5bb89365ae3"
+      },
+      "one_core": {
+        "repository": "Faust-S/knowledge",
+        "branch": "work/2026-11-10-t3-t2-activity-projection",
+        "qualification_source_sha": "1ecb84d14769460c4f38dcef50c9407bc67549d7",
+        "windows_ci_run_id": 44406073956,
+        "conclusion": "SUCCESS",
+        "source_gates_passed": 20
+      },
+      "native_center_reviewed": {
+        "repository": "Faust-S/Center",
+        "branch": "work/2026-11-18-admin03-generic-d3-lazy-atlas",
+        "observed_head": "565572a9b2a249296e5c27ba77fd60ac2be830aa",
+        "source_file": "src-tauri/src/cen03_native.rs",
+        "evidence": "Real rfd Windows MessageDialog is called for ACCEPT/REJECT and separately for APPLY before native corporate action, with signed binding rechecked before child IPC."
+      },
+      "correction": [
+        "Installed original native Host now attaches one-shot Human REVIEW acknowledgment to the same already confirmed Windows Rust command; silent d3Decide on old private CLI still denied",
+        "Installed APPLY has a separately armed one-shot acknowledgment, not unconditional true; exact original signed grant:application and own D1 context must differ from D3 ACCEPTANCE context",
+        "The one-shot native latch is cleared after any successful or failed child stdin action; does not grant a new permission or create an alternative Host/Kernel/IAM",
+        "Public Windows original T3 source syntax, private stage, real qualified T2 Kernel, signed employee Result, separate Human ACCEPT and APPLY, two independent cold browser reads remained 20/20 successful on this exact pin"
+      ],
+      "limits": [
+        "Native installed one-shot Host path was code-reviewed and syntax-checked; its REAL Windows Tauri Rust dialog round-trip with two Windows users remains NOT_RUN",
+        "20/20 SOURCE CI exercises explicit simulated user consent in source test and original Kernel, not an installed Tauri GUI user interaction",
+        "Source result test output is deterministic user-selected content, not independently confirmed installed model inference",
+        "Generic D6/D7 and installed D5 G4 release still unqualified"
+      ],
+      "level": "NATIVE_OWNER_SOURCE_PASS_NOT_INSTALLED_PRODUCT",
+      "t3_ready": false,
+      "production_ready": false,
+      "release_accepted": false
     }
   },
   "accepted_gates": {
@@ -1741,8 +1779,8 @@
     "t3_ready": false,
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
-    "original_private_native_signer": "SOURCE_WINDOWS_PRODUCTION_EMPLOYEE_REAL_T2_KERNEL_HUMAN_ACCEPT_AND_SEPARATE_APPLY_20_OF_20_SUCCESS_44404574878__TWO_OS_USERS_INSTALLED_GUI_HOLD",
-    "independent_installed_d3": "HOLD_SOURCE_REAL_T2_SIGNED_EMPLOYEE_RESULT_SEPARATE_APPLY_TWO_COLD_BROWSERS_20_OF_20_44404574878__NATIVE_INSTALLED_GUI_NOT_RUN",
+    "original_private_native_signer": "CURRENT_SOURCE_PIN_d0d8ba2f_NATIVE_ONE_SHOT_WINDOWS_BRIDGE_REQUALIFIED_20_OF_20_44406073956__INSTALLED_UI_HOLD",
+    "independent_installed_d3": "HOLD_20_OF_20_REAL_T2_KERNEL_HUMAN_ACCEPT_APPLY_TWO_COLD_BROWSER_44406073956__DIFFERENT_WINDOWS_LOGONS_AND_NATIVE_GUI_NOT_RUN",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
