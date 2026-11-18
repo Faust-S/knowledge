@@ -221,11 +221,11 @@ jobs:
             const t=fs.readFileSync(process.env.RUNNER_TEMP+"/d05-article-browser.log","utf8");
             const codes=[...new Set(t.match(/CASE003_[A-Z0-9_]+/g)||[])];
             console.log("D05_CASE003_FAILURE_CODES="+codes.join(","));
-            const frames=[...new Set([...t.matchAll(/check-functional-ui\\.ts:(\\d+):(\\d+)/g)].map(m=>m[1]))];
+            const frames=[...new Set([...t.matchAll(/check-functional-ui\.ts:(\d+):(\d+)/g)].map(m=>m[1]))];
             console.log("D05_CASE003_FAILURE_LINE="+frames.slice(0,10).join(","));
             const kinds=["TimeoutError","AssertionError","ProtocolError","TypeError","SyntaxError","Error: Navigation","waiting for selector","waiting for function"];
             console.log("D05_CASE003_FAILURE_CLASS="+kinds.filter(k=>t.includes(k)).join(","));
-            const markers=t.split(/\\r?\\n/).filter(s=>s.includes("check-functional-ui: OK"));
+            const markers=t.split(/\r?\n/).filter(s=>s.includes("check-functional-ui: OK"));
             console.log("D05_CASE003_LAST_COMPLETED_GATE="+markers.slice(-1).map(m=>m.replace(/[^A-Za-z0-9:/_ .-]/g,"").slice(0,110)).join(","));
             '
             exit 1
