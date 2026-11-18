@@ -145,9 +145,19 @@ jobs:
             }
             Write-Host 'G4_INSTALLED_ORIGINAL_SIGNED_OWNER_CENTER_SETUP_BUILT_PASS'
           }catch{
-            # Logs may contain private TypeScript/Rust source diagnostics.
-            # Never print them in the public workflow.
-            Write-Host 'G4_INSTALLED_ORIGINAL_PRIVATE_BUILD_HOLD'
+            # Print only bounded canonical machine codes: NEVER print private
+            # source excerpts, local paths, Rust errors or the raw build log.
+            $codes=@()
+            if(Test-Path -LiteralPath $log){
+              foreach($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
+                foreach($hit in [regex]::Matches([string]$line,
+                    '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
+                  $codes+=([string]$hit.Value)
+                }
+              }
+            }
+            $last=if($codes.Count){$codes[-1]}else{'UNCLASSIFIED'}
+            Write-Host "G4_INSTALLED_PRIVATE_BUILD_FAILURE_CODE $last"
             throw 'G4_INSTALLED_ORIGINAL_PRIVATE_BUILD_HOLD'
           }
       - name: Install original signed Owner and One Dist via Setup Core and check real Windows GUI
