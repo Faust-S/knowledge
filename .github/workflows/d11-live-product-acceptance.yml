@@ -99,7 +99,7 @@ jobs:
         run: |
           $domainTests=@(Get-ChildItem ../domain/tests -File -Filter "*.test.mjs" | ForEach-Object { $_.FullName })
           $siteTests=@(Get-ChildItem tests -File -Filter "*.test.mjs" | ForEach-Object { $_.FullName })
-          if ($domainTests.Count -ne 14 -or $siteTests.Count -lt 20) { throw "D11_OPERATIONAL_SERVICE_TESTS_MISSING" }
+          if ($domainTests.Count -ne 14 -or $siteTests.Count -lt 21) { throw "D11_OPERATIONAL_SERVICE_TESTS_MISSING" }
           & node --experimental-strip-types --test @domainTests
           if ($LASTEXITCODE -ne 0) { throw "D11_CANONICAL_MODELS_REGRESSION_FAILED" }
           & node --experimental-strip-types --test @siteTests
