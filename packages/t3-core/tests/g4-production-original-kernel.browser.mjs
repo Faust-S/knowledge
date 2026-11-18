@@ -279,6 +279,7 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
     const currentRegistry=await action('d3EmployeeRegistryReadback');
     assert.equal(currentRegistry.state,'ORIGINAL_KERNEL_REGISTRY_CONFIRMED');
     assert.equal(currentRegistry.originalReadback,true);
+    assert.equal(currentRegistry.statusSequence,4);
     const taskPath=join(workRoot,'original-production-signed-task.iwxa');
     onPhase('ORIGINAL_PRODUCTION_EMPLOYEE_KERNEL_TASK_EXPORT');
     const exported=await action('d3EmployeeExportTask',{
