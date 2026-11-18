@@ -53,7 +53,14 @@ jobs:
           echo "PT_ORBIT_GEOMETRY=PASS"
           node scripts/check-portuguese-atlas-complete.mjs > "$RUNNER_TEMP/pt-atlas-source.log" 2>&1 || { echo "PT_ATLAS_SOURCE=FAIL"; tail -n 6 "$RUNNER_TEMP/pt-atlas-source.log"; exit 1; }
           echo "PT_ATLAS_SOURCE=PASS"
-          node scripts/check-portuguese-source.mjs > "$RUNNER_TEMP/pt-aggregate.log" 2>&1 || { echo "PT_AGGREGATE=FAIL"; grep "^FAIL " "$RUNNER_TEMP/pt-aggregate.log" | tail -n 10; exit 1; }
+          node scripts/check-portuguese-source.mjs > "$RUNNER_TEMP/pt-aggregate.log" 2>&1 || {
+            echo "PT_AGGREGATE=FAIL"
+            grep "^FAIL " "$RUNNER_TEMP/pt-aggregate.log" | sed -E 's/: .*$/: <diagnostic suppressed>/' | tail -n 12 || true
+            grep -E 'Error:|ERR_|ENOENT|SyntaxError|Unexpected|Failed' "$RUNNER_TEMP/pt-aggregate.log" | tail -n 4 |
+              sed -E 's#(/home/runner/)[^ ]+#<private-path>#g' || true
+            echo "PT_AGGREGATE_LOG_LINES=$(wc -l < "$RUNNER_TEMP/pt-aggregate.log")"
+            exit 1
+          }
           echo "PT_AGGREGATE=PASS"
           bun run typecheck > "$RUNNER_TEMP/pt-typecheck.log" 2>&1 || { echo "PT_TYPECHECK=FAIL"; tail -n 8 "$RUNNER_TEMP/pt-typecheck.log"; exit 1; }
           echo "PT_TYPECHECK=PASS"
