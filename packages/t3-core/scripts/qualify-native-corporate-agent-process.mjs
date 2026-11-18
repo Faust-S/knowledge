@@ -10,10 +10,10 @@ import {getExactFile,originalImportPaths,originalImportTarget}
   from './qualify-original-private-d3-owner.mjs';
 import {AGENT_ORIGINAL_PIN} from './qualify-original-agent-d3-port.mjs';
 
-const T3_PIN='19be10c557618f5c8b476a739c8fc4ca0fa2ac7f';
+const T3_PIN='f0d4d98e7b22cba40a9ff3663f5008e714038bfa';
 const T3_SEEDS=Object.freeze([
   'interop/provision.mjs','interop/runtime.mjs',
-  'interop/native-admin-d3.mjs',
+  'interop/native-admin-d3.mjs','interop/native-employee-d3.mjs',
   'reconciliation/contracts.mjs','interop/task-revisions.mjs',
   'interop/result-contract.mjs','access-control/windows-credential.mjs',
   'access-control/domain-registry.json',
@@ -99,6 +99,7 @@ export async function qualifyNativeOriginalEmployee({
       'G4_ORIGINAL_NATIVE_ADMIN_ACCEPTED_READBACK_PASS',
       'G4_ORIGINAL_NATIVE_EMPLOYEE_COLD_NO_REEXPORT_PASS',
       'G4_ORIGINAL_PRODUCTION_OWNER_COLD_READBACK_PASS',
+      'G4_ORIGINAL_PRODUCTION_INDEPENDENT_EMPLOYEE_CREDENTIAL_COLD_PASS',
     ];
     const passed=run.status===0&&markers.every(x=>output.includes(x));
     console.log('G4_NATIVE_ORIGINAL_T3_FILES_READ',t3Count);
