@@ -361,6 +361,45 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
       'G4_PRODUCTION_AGENT_ORIGINAL_IPC_MARKER_MISSING');
     assert.ok(existsSync(resultPath)&&readFileSync(resultPath).length>64);
     console.log('G4_ORIGINAL_PRODUCTION_EMPLOYEE_REAL_T2_AGENT_RESULT_PASS');
+    // The SAME production Admin D3 owner now receives its employee's
+    // original signed Result. The trusted native Human-ACCEPT step is
+    // simulated explicitly in this Windows source qualification; this is
+    // NOT an installed UI click or permission to APPLY to Kernel.
+    onPhase('ORIGINAL_PRODUCTION_EMPLOYEE_ADMIN_RESULT_RECEIVE');
+    const resultDigest=createHash('sha256').update(
+      readFileSync(resultPath)).digest('hex');
+    const intake=await action('d3Receive',{},resultPath);
+    assert.equal(intake.transportReceipt?.packageSha256,resultDigest);
+    assert.equal(intake.acceptanceState,'NOT_ACCEPTED');
+    assert.equal(intake.kernelApplication,'NOT_APPLIED');
+    const preview=intake.preview;
+    assert.equal(preview.packageSha256,resultDigest);
+    assert.equal(preview.resultInspection?.taskCatalogVerified,true);
+    assert.equal(preview.resultInspection?.executorId,candidate.employeePersonId);
+    assert.equal(preview.resultInspection?.taskId,taskId);
+    assert.equal(preview.resultInspection?.taskRevisionId,created.taskRevisionId);
+    assert.equal(preview.allowedAction,'EXPLICIT_ACCEPT_ONLY');
+    console.log('G4_ORIGINAL_PRODUCTION_EMPLOYEE_ADMIN_RESULT_RECEIVE_PASS');
+    onPhase('ORIGINAL_PRODUCTION_EMPLOYEE_ADMIN_HUMAN_ACCEPT');
+    const reviewId='review:g4-'+randomUUID();
+    const accepted=await action('d3Decide',{
+      operationId:reviewId,packageSha256:resultDigest,
+      previewDigest:preview.previewDigest,decision:'ACCEPT',
+    });
+    assert.equal(accepted.acceptanceState,'ACCEPTED');
+    assert.equal(accepted.kernelApplication,'NOT_APPLIED');
+    assert.equal(accepted.requiresSeparateApply,true);
+    const receipt=await action('d3Receipt',{
+      operationId:reviewId,packageSha256:resultDigest,
+    });
+    assert.equal(receipt.found,true);
+    assert.equal(receipt.receipt?.acceptanceState,'ACCEPTED');
+    assert.equal(receipt.receipt?.acceptanceId,accepted.receipt?.acceptanceId);
+    const afterAcceptance=await facade.getObject(productionWs,
+      't3.access.signed-registry');
+    assert.equal(afterAcceptance.object.revision,latest.object.revision);
+    console.log('G4_ORIGINAL_PRODUCTION_EMPLOYEE_ADMIN_HUMAN_ACCEPT_PASS');
+
 
     // First source-only qualification ends at real Kernel grants; installed
     // native Human ACCEPT / separate Human APPLY is a distinct next gate.
