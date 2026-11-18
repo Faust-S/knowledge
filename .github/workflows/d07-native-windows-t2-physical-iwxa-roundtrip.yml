@@ -602,25 +602,48 @@ jobs:
                 Write-Output ('D07_NATIVE_IWXA_IMPORT_PANEL_VISIBLE='+$importPanelVisible)
                 if(!$importPanelVisible){throw 'D07_NATIVE_IWXA_IMPORT_PANEL_NOT_SELECTED'}
                 Write-Output 'D07_NATIVE_IWXA_IMPORT_TAB=PASS'
+                # Native Edge exposes input[type=file] differently across
+                # Windows runner versions. Locate a real chooser or navigate
+                # from the accessible tab using actual keyboard focus.
+                function FindOpenDialog {
+                  $roots=[System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+                    [System.Windows.Automation.TreeScope]::Children,
+                    [System.Windows.Automation.PropertyCondition]::new(
+                      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                      [System.Windows.Automation.ControlType]::Window))
+                  for($i=0;$i -lt $roots.Count;$i++){
+                    $win=$roots.Item($i)
+                    try {
+                      if($win.Current.ClassName -eq '#32770' -or
+                         $win.Current.Name -match '(?i)^(Open|Открыть|Открытие|Select file|Choose file to upload|Выберите файл)$'){
+                        return $win
+                      }
+                    }catch{}
+                  }
+                  return $null
+                }
+                $fileDialog=$null
                 $upload=FindNative 'Выберите файл .iwxa' $null
                 if(!$upload){
-                  # Windows Edge can expose the native file chooser button as
-                  # "Choose File"/"Browse", even though the HTML input is
-                  # labelled in Russian. Reject unrelated controls.
                   foreach($proc in @(Get-Process msedge -ErrorAction SilentlyContinue |
                     Where-Object {$_.MainWindowHandle -ne 0})){
                     $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$proc.MainWindowHandle)
                     if(!$window){continue}
-                    $buttons=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-                      [System.Windows.Automation.PropertyCondition]::new(
-                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                        [System.Windows.Automation.ControlType]::Button))
-                    for($n=0;$n -lt $buttons.Count;$n++){
-                      $candidate=$buttons.Item($n)
-                      if($candidate.Current.IsEnabled -and
-                        $candidate.Current.Name -match '(?i)(choose file|browse|выбрать файл|обзор|выберите файл[.]iwxa)'){
-                        $upload=$candidate;break
+                    foreach($type in @(
+                      [System.Windows.Automation.ControlType]::Button,
+                      [System.Windows.Automation.ControlType]::Edit,
+                      [System.Windows.Automation.ControlType]::Custom)){
+                      $controls=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                        [System.Windows.Automation.PropertyCondition]::new(
+                          [System.Windows.Automation.AutomationElement]::ControlTypeProperty,$type))
+                      for($n=0;$n -lt $controls.Count;$n++){
+                        $candidate=$controls.Item($n)
+                        if($candidate.Current.IsEnabled -and
+                           $candidate.Current.Name -match '(?i)(choose file|browse|выбрать файл|обзор|выберите файл[.]iwxa)'){
+                          $upload=$candidate;break
+                        }
                       }
+                      if($upload){break}
                     }
                     if($upload){break}
                   }
@@ -628,52 +651,101 @@ jobs:
                 if($upload){
                   Write-Output 'D07_NATIVE_IWXA_FILE_CHOOSER_UIA=PASS'
                   ActivateNative $upload
+                  for($check=0;$check -lt 25;$check++){
+                    $fileDialog=FindOpenDialog
+                    if($fileDialog){break}
+                    Start-Sleep -Milliseconds 250
+                  }
                 }else{
                   Write-Output 'D07_NATIVE_IWXA_FILE_CHOOSER_UIA=UNAVAILABLE'
-                  # Keyboard is the native HTML input[type=file] activation
-                  # fallback. The import tab is the last tabstop before input.
-                  $importTab.SetFocus()
-                  [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
-                  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
                 }
-                $fileDialog=$null
-                for($check=0;$check -lt 30;$check++){
-                  $windows=[System.Windows.Automation.AutomationElement]::RootElement.FindAll(
-                    [System.Windows.Automation.TreeScope]::Children,
-                    [System.Windows.Automation.PropertyCondition]::new(
-                      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                      [System.Windows.Automation.ControlType]::Window))
-                  for($w=0;$w -lt $windows.Count;$w++){
-                    $win=$windows.Item($w)
-                    if($win.Current.ClassName -eq '#32770' -or
-                       $win.Current.Name -match '(?i)^(Open|Открыть|Открытие|Select file|Выберите файл)$'){
-                      $fileDialog=$win
-                      break
+                if(!$fileDialog){
+                  # Only the native tab key path: do not inject into the React
+                  # DOM or replace the original T2 file import machinery.
+                  for($tabSteps=1;$tabSteps -le 7 -and !$fileDialog;$tabSteps++){
+                    $importTab.SetFocus()
+                    for($tab=0;$tab -lt $tabSteps;$tab++){
+                      [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+                    }
+                    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                    for($check=0;$check -lt 12;$check++){
+                      $fileDialog=FindOpenDialog
+                      if($fileDialog){break}
+                      Start-Sleep -Milliseconds 250
+                    }
+                    if($fileDialog){
+                      Write-Output ('D07_NATIVE_IWXA_DIALOG_TAB_DEPTH='+$tabSteps)
                     }
                   }
-                  if($fileDialog){break}
-                  Start-Sleep -Milliseconds 250
                 }
                 if(!$fileDialog){throw 'D07_NATIVE_IWXA_WINDOWS_FILE_DIALOG_NOT_OPENED'}
                 Write-Output 'D07_NATIVE_IWXA_WINDOWS_FILE_DIALOG=PASS'
-                # This path stays on the private Windows runner, never in logs.
-                # The real Windows file dialog is already foreground and
-                # modal. UIA often reports its root Window as not focusable,
-                # even though its file-name child has keyboard focus.
-                try {
-                  $fileDialog.SetFocus()
-                  Write-Output 'D07_NATIVE_IWXA_DIALOG_UIA_FOCUS=PASS'
-                } catch {
-                  Write-Output 'D07_NATIVE_IWXA_DIALOG_UIA_ROOT_NOT_FOCUSABLE=TRUE'
+                # Target the native File name edit, not the non-focusable
+                # Windows dialog root. The exact local path never enters CI
+                # console logs or uploaded artifacts.
+                $fileNameEdit=$null
+                $editControls=$fileDialog.FindAll(
+                  [System.Windows.Automation.TreeScope]::Descendants,
+                  [System.Windows.Automation.PropertyCondition]::new(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::Edit))
+                for($n=0;$n -lt $editControls.Count;$n++){
+                  $candidate=$editControls.Item($n)
+                  if(!$candidate.Current.IsEnabled){continue}
+                  if($candidate.Current.AutomationId -eq '1148' -or
+                     $candidate.Current.Name -match '(?i)(file name|имя файла)'){
+                    $fileNameEdit=$candidate;break
+                  }
                 }
-                Set-Clipboard -Value $archive.FullName
-                # GitHub Windows runner uses en-US. Alt+N targets the actual
-                # native Open dialog's "File name" box, not Explorer search.
-                [System.Windows.Forms.SendKeys]::SendWait('%n')
-                [System.Windows.Forms.SendKeys]::SendWait('^a')
-                [System.Windows.Forms.SendKeys]::SendWait('^v')
-                Start-Sleep -Milliseconds 300
-                [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                if(!$fileNameEdit -and $editControls.Count -eq 1){
+                  $fileNameEdit=$editControls.Item(0)
+                }
+                $nativeValueSet=$false
+                if($fileNameEdit){
+                  $valuePattern=$null
+                  try {
+                    if($fileNameEdit.TryGetCurrentPattern(
+                      [System.Windows.Automation.ValuePattern]::Pattern,
+                      [ref]$valuePattern)){
+                      ([System.Windows.Automation.ValuePattern]$valuePattern).SetValue($archive.FullName)
+                      $nativeValueSet=$true
+                      Write-Output 'D07_NATIVE_IWXA_FILE_NAME_VALUE_PATTERN=PASS'
+                    }
+                  }catch{}
+                }
+                if(!$nativeValueSet){
+                  # Windows en-US common dialog supports Alt+N to focus the
+                  # File name edit. Only the ephemeral runner receives bytes.
+                  if($fileNameEdit){
+                    try{$fileNameEdit.SetFocus()}catch{}
+                  }else{
+                    [System.Windows.Forms.SendKeys]::SendWait('%n')
+                  }
+                  Set-Clipboard -Value $archive.FullName
+                  [System.Windows.Forms.SendKeys]::SendWait('^a')
+                  [System.Windows.Forms.SendKeys]::SendWait('^v')
+                  Write-Output 'D07_NATIVE_IWXA_FILE_NAME_KEYBOARD=PASS'
+                }
+                $openButton=$null
+                $buttons=$fileDialog.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                  [System.Windows.Automation.PropertyCondition]::new(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::Button))
+                for($n=0;$n -lt $buttons.Count;$n++){
+                  $candidate=$buttons.Item($n)
+                  if($candidate.Current.IsEnabled -and
+                     ($candidate.Current.AutomationId -eq '1' -or
+                      $candidate.Current.Name -match '(?i)^(&?Open|Открыть|Open\(&O\))$')){
+                    $openButton=$candidate;break
+                  }
+                }
+                if($openButton){
+                  ActivateNative $openButton
+                  Write-Output 'D07_NATIVE_IWXA_DIALOG_OPEN_BUTTON=PASS'
+                }else{
+                  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                  Write-Output 'D07_NATIVE_IWXA_DIALOG_OPEN_KEYBOARD=PASS'
+                }
                 Write-Output 'D07_NATIVE_IWXA_FILE_PATH_SUBMITTED=PASS'
                 $null=WaitNative 'Режим импорта (allowed_modes)' $null
                 Write-Output 'D07_NATIVE_IWXA_PHYSICAL_FILE_IMPORT_PREVIEW=PASS'
