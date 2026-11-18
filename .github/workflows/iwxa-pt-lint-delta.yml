@@ -1,0 +1,63 @@
+name: IWXA PT change-scope ESLint delta
+on:
+  push:
+    branches: [work/2026-11-18-pt-66-qualification]
+    paths: [.github/workflows/iwxa-pt-lint-delta.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  delta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Private access check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          test -n "$GH_TOKEN" || exit 1
+          gh api repos/Faust-S/iwxa-ru-1 >/dev/null 2>&1 || exit 1
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: 2f3f0f20b17655d5ed2c0bfe0954ea9186878b96
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: old-site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: 929cb920dca78a16266dccb57fe715a66179194d
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: new-site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.2"
+      - name: Scope-preserving comparison
+        shell: bash
+        run: |
+          files=(src/routes/pt.index.tsx src/i18n/pt-orbit-position.ts src/atlas/atlas-translate-pt.ts scripts/check-portuguese-source.mjs scripts/check-portuguese-orbit-caption.mjs)
+          for kind in old new; do
+            (
+              cd "$kind-site"
+              bun install --frozen-lockfile > "$RUNNER_TEMP/pt-lint-install-$kind.log" 2>&1 || exit 1
+              ./node_modules/.bin/eslint -f json "${files[@]}" > "$RUNNER_TEMP/pt-lint-$kind.json" 2> "$RUNNER_TEMP/pt-lint-err-$kind.log" || :
+            ) || { echo "PT_LINT_SETUP_$kind=FAIL"; exit 1; }
+          done
+          node - "$RUNNER_TEMP/pt-lint-old.json" "$RUNNER_TEMP/pt-lint-new.json" <<'JS'
+          const fs=require('fs');
+          const totals=p=>{const r=JSON.parse(fs.readFileSync(p,"utf8")),t={};for(const f of r)for(const m of f.messages||[])if(m.severity===2)t[m.ruleId||"parser-error"]=(t[m.ruleId||"parser-error"]||0)+1;return t;};
+          const a=totals(process.argv[2]),b=totals(process.argv[3]);let increase=0;
+          for(const key of [...new Set([...Object.keys(a),...Object.keys(b)])].sort()){
+            const previous=a[key]||0,current=b[key]||0,diff=current-previous;
+            console.log("PT_LINT_"+key.replace(/[^a-zA-Z0-9]+/g,"_")+"="+previous+"->"+current+" DELTA="+diff);
+            if(diff>0)increase+=diff;
+          }
+          console.log("PT_LINT_NEW_ERROR_DELTA="+increase);
+          if(increase)process.exitCode=1;
+          JS
