@@ -10,7 +10,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 0a85e2a9a06c461569d74b710eaf7a7710853d18
+      SITE_SHA: 9985de20940f2bc91e0be01273940320393e7044
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -315,6 +315,29 @@ jobs:
                 $returnPattern.Invoke()
                 $null=WaitNative 'Рабочая область для сохранения' $null
                 Write-Output 'D07_NATIVE_T2_RETURN_TO_ORDERS=PASS'
+                # T2 catalog navigation does not implicitly select the area for
+                # D07. Select the new personal Workspace explicitly as a user.
+                Add-Type -AssemblyName System.Windows.Forms
+                $workspaceSelector=$null
+                foreach($process in @(Get-Process msedge -ErrorAction SilentlyContinue |
+                  Where-Object {$_.MainWindowHandle -ne 0})){
+                  $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$process.MainWindowHandle)
+                  if(!$window){continue}
+                  $comboItems=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                    [System.Windows.Automation.PropertyCondition]::new(
+                      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                      [System.Windows.Automation.ControlType]::ComboBox))
+                  if($comboItems.Count -ge 2){
+                    $workspaceSelector=$comboItems.Item(0);break
+                  }
+                }
+                if(-not $workspaceSelector){throw 'D07_NATIVE_T2_WORKSPACE_SELECTOR_UNAVAILABLE'}
+                $workspaceSelector.SetFocus()
+                [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+                [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+                [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                $null=WaitNative 'Рабочая область выбрана' $null
+                Write-Output 'D07_NATIVE_T2_PERSONAL_WORKSPACE_FOCUSED=PASS'
                 # The browser draft was created on the same real Edge origin.
                 # Select it through the accessible HTML combobox.
                 $combo=FindNative 'Черновики заказов в браузере' ([System.Windows.Automation.ControlType]::ComboBox)
@@ -339,6 +362,13 @@ jobs:
                 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
                 $null=WaitNative 'Документы этого заказа: 9' $null
                 Write-Output 'D07_NATIVE_T2_DRAFT_NINE_DOCUMENTS=PASS'
+                $verify=FindAction 'Проверить заказ через Kernel'
+                if($verify){
+                  $verifyPattern=[System.Windows.Automation.InvokePattern]$verify.GetCurrentPattern(
+                    [System.Windows.Automation.InvokePattern]::Pattern)
+                  $verifyPattern.Invoke()
+                  Write-Output 'D07_NATIVE_T2_MANUAL_KERNEL_PREFLIGHT_INVOKED=PASS'
+                }
                 $consent=WaitNative 'Я проверил заказ и разрешаю сохранить его в выбранную рабочую область T2. Это не принятие работ исполнителя.' ([System.Windows.Automation.ControlType]::CheckBox)
                 $toggle=[System.Windows.Automation.TogglePattern]$consent.GetCurrentPattern(
                   [System.Windows.Automation.TogglePattern]::Pattern)
