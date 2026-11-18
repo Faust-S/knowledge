@@ -378,7 +378,7 @@ try{
       'g4-production-original-kernel.browser.mjs')).href);
   const kernelEvidence=await qualifyOriginalProductionEmployeeRealKernel({
     t3Root,prodRoot,workRoot,employeeCandidateRoot,employeeProcess,
-    productionOrg,productionWs,candidate,
+    agentRoot,pythonDriver,productionOrg,productionWs,candidate,
     onPhase:next=>{phase=next;},
   });
   assert.equal(kernelEvidence.registryRevision,4);
