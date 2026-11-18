@@ -98,7 +98,36 @@
           },
           "scope": "public original T2/Host tests; private original signed Admin ACCEPT/APPLY installed E2E NOT_RUN"
         },
-        "acceptance": "CORE_SOURCE_PASS_NOT_INSTALLED_PRIVATE_D3"
+        "acceptance": "CORE_SOURCE_PASS_NOT_INSTALLED_PRIVATE_D3",
+        "advanced_in": "e22d8f8b1329ecc74e94267a562924fed0890109"
+      },
+      "d3_object_event_canonical_readback_2026_11_18": {
+        "source_head": "e22d8f8b1329ecc74e94267a562924fed0890109",
+        "normative_t2": "Faust-S/T2@main",
+        "scope": "Independent exact original T2 Object AND full Event payload semantic equality across JSON key reordering on direct D3 Kernel Apply and cold read-only recover. Mutated nested Result data or provenance stays OUTCOME_UNKNOWN, no Kernel re-dispatch.",
+        "verified_files": [
+          "packages/t3-core/src/t3/reconciliation-kernel-apply.mjs",
+          "packages/t3-core/tests/t3-reconciliation-kernel-apply.test.mjs"
+        ],
+        "ci": {
+          "id": 44299826868,
+          "sha": "e22d8f8b1329ecc74e94267a562924fed0890109",
+          "conclusion": "SUCCESS",
+          "jobs": {
+            "test": "SUCCESS",
+            "real_host": "SUCCESS",
+            "windows_credential": "SUCCESS",
+            "metal_webgpu": "SKIPPED",
+            "native_model": "SKIPPED",
+            "native_age": "SKIPPED"
+          },
+          "node": {
+            "tests": 778,
+            "pass": 778,
+            "fail": 0
+          }
+        },
+        "authority_limit": "SOURCE_CONTRACT_AND_ORIGINAL_T2_REAL_HOST_ONLY_NO_PRIVATE_ADMIN_AGENT_SIGNED_E2E"
       }
     },
     "private_original_d6": {
@@ -785,7 +814,7 @@
     "T3_ATLAS_CONNECTED_PROGRAM": "AGENT_ATLAS_FILE_WORKREF_ONLY_NO_U04_NATIVE_ATLAS_NOT_ACCEPTED__CENTER_CEN05_SEPARATE",
     "T3_ATLAS_SIGNED_FILE_OPTIONAL": "SOURCE_SIGNED_RECIPIENT_AND_INSTALLED_ATLAS_PRODUCT_PASS_PRIVATE_SIGNED_E2E_NOT_ACCEPTED_OPTIONAL_PROFILE",
     "T3_UNIVERSAL_RELEASE": "NOT_ACCEPTED_D1_D3_D5_D6_GENERIC_D7_HOLD",
-    "D3_original_kernel_full_event_parity": "CORE_SOURCE_PASS_44298427228__PRIVATE_INSTALLED_ADMIN_AGENT_D3_HOLD"
+    "D3_original_kernel_full_event_parity": "SOURCE_OBJECT_AND_FULL_EVENT_CANONICAL_READBACK_PASS_44299826868__ORIGINAL_PRIVATE_NATIVE_D3_HOLD"
   },
   "next_critical_path": [
     "Release scope is PRODUCT_NEUTRAL_T3. Keep normative original T2 Kernel/Host/Workspace/Exchange/Lifecycle integrated in ONE T3. Use current exact public One Core CI + installed Agent test; never interpret source PASS as installed owner.",
@@ -895,7 +924,9 @@
         "t3-d1-signed-control-one-dist.browser.mjs",
         "t3-d5-full-bli.browser.mjs"
       ],
-      "status": "REQUESTED_NOT_YET_QUALIFIED"
-    }
+      "status": "QUEUED_MACOS_RUNNER_AT_LAST_OBSERVATION_NOT_HARDWARE_PASS",
+      "run_id": 44298912120
+    },
+    "source_integrity_latest": "T3_NODE_778_OF_778_REAL_HOST_WINDOWS_CREDENTIAL_SUCCESS_44299826868"
   }
 }
