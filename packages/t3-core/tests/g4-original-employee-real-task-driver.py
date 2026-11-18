@@ -2,7 +2,8 @@
 
 Public Windows qualification only; original private code remains staged and
 deleted on the public CI runner. No second interpreter of .iwxa is implemented.
-No Agent engine submission or artificial Result is performed here.
+The original Agent already imported once and exported Result in its existing
+IPC driver; this only independently cold-reads the exact same signed Task.
 """
 import json
 import os
@@ -57,18 +58,7 @@ def main():
         )
         connected = port.call("connect", {"root": str(root)})
         assert connected["context"] == "PERSONAL"
-        if mode == "IMPORT_RECEIVE":
-            invite = os.environ["G4_AGENT_ORIGINAL_INVITATION_PATH"]
-            task = os.environ["G4_AGENT_ORIGINAL_TASK_PATH"]
-            port.call("import_invite", {"path": invite}, consequential=True)
-            switched = port.call("select", {"context": "ORGANIZATION"})
-            assert switched["context"] == "ORGANIZATION", (
-                "G4_AGENT_ORIGINAL_ORG_SELECTION_REQUIRED"
-            )
-            received = port.call("receive_task", {"path": task}, consequential=True)
-            assert received["state"] == "TASK_RECEIVED"
-            assert verify(port, expected)
-        elif mode == "COLD_READBACK":
+        if mode == "COLD_READBACK":
             switched = port.call("select", {"context": "ORGANIZATION"})
             assert switched["context"] == "ORGANIZATION"
             selected = port.call(
