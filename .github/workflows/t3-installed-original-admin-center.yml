@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/t3-installed-original-admin-center.yml
       - packages/t3-core/tests/g4-installed-original-center-smoke.ps1
+      - packages/t3-core/tests/g4-installed-original-one-dist-preflight.mjs
   workflow_dispatch:
 
 permissions:
@@ -121,6 +122,11 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'G4_INSTALLED_CENTER_NPM_FAILED'}
           } finally{Pop-Location}
           Write-Host 'G4_INSTALLED_ONE_CORE_AND_CENTER_DEPS_PASS'
+      - name: Inspect exact public signed T2 and compiled T3 One Dist before private owner
+        shell: pwsh
+        run: |
+          node packages/t3-core/tests/g4-installed-original-one-dist-preflight.mjs
+          if($LASTEXITCODE -ne 0){throw 'G4_INSTALLED_PUBLIC_ONE_DIST_PREFLIGHT_FAILED'}
       - name: Check original native builder syntax and clean exact source trees
         shell: pwsh
         run: |
