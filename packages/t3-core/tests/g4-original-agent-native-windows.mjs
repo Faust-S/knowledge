@@ -233,7 +233,7 @@ try{
     {code:'T3_EMPLOYEE_WINDOWS_CANDIDATE_EXISTS_READBACK'});
   phase='ORIGINAL_PRODUCTION_EMPLOYEE_COLD_PROOF';
   const {randomUUID,verify,createPublicKey}=await import('node:crypto');
-  const {canonical,digest}=await import(pathToFileURL(
+  const {canonical,digest:originalDigest}=await import(pathToFileURL(
     join(t3Root,'access-control','core.mjs')).href);
   const challenge=randomBytes(32).toString('hex');
   const request={
@@ -280,7 +280,7 @@ try{
   assert.equal(proof.payload.environment,'PRODUCTION');
   assert.equal(proof.payload.kind,'PROOF');
   assert.equal(proof.payload.challenge,challenge);
-  assert.equal(proof.payload.requestDigest,digest(request));
+  assert.equal(proof.payload.requestDigest,originalDigest(request));
   assert.ok(verify(null,proofMessage,
     createPublicKey(candidate.employeeProofKeyRecord.publicKey),
     Buffer.from(proof.signature,'base64url')));
