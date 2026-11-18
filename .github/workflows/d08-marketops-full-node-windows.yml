@@ -1,0 +1,110 @@
+name: D08 MarketOps Windows exact sources full Node and TypeScript
+
+on:
+  push:
+    branches: [work/2026-11-18-d08-marketops-windows-qualification]
+    paths: [.github/workflows/d08-marketops-full-node-windows.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d08-exact-source-node-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOMAIN_SHA: e915f54177573d5b9db6e3d10f4836fe2a462af2
+  SITE_SHA: ce66086adb4c8b3150c3d9a3123bc0eab564fa18
+  CI: 'true'
+  PUPPETEER_SKIP_DOWNLOAD: '1'
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+jobs:
+  full-windows-node:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Ensure secret authorizes exact private repositories
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'D08_DOMEN_MISSING'}
+          git config --global core.autocrlf false
+          foreach($repo in @('Faust-S/market-ops','Faust-S/market-ops.ru')){
+            & gh api ('repos/'+$repo) --jq '.id' *> $null
+            if($LASTEXITCODE -ne 0){throw 'D08_PRIVATE_REPO_NOT_ACCESSIBLE'}
+          }
+          Write-Host 'D08_FULL_NODE_PRIVATE_ACCESS=PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops
+          ref: ${{ env.DOMAIN_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/domain
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify exact pinned Git revisions and ownership rules
+        run: |
+          if((& git -C private/domain rev-parse HEAD).Trim() -ne $env:DOMAIN_SHA){throw 'D08_DOMAIN_SHA_DIFF'}
+          if((& git -C private/site rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D08_SITE_SHA_DIFF'}
+          if(!(Test-Path -LiteralPath 'private/domain/AGENTS.md')){throw 'D08_DOMAIN_RULES_MISSING'}
+          if(!(Test-Path -LiteralPath 'private/site/AGENTS.md')){throw 'D08_SITE_RULES_MISSING'}
+          Write-Host 'D08_FULL_NODE_EXACT_SOURCES=PASS'
+      - name: Execute canonical CASE001 to CASE007 and registry tests
+        working-directory: private/domain
+        timeout-minutes: 9
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd08-domain-node.private.log'
+          & npm run test:cases *> $log
+          if($LASTEXITCODE -ne 0){throw 'D08_DOMAIN_CASE_TESTS_FAILED'}
+          Write-Host 'D08_DOMAIN_CASES_AND_REGISTER=PASS'
+      - name: Install exact site dependencies without public logs
+        working-directory: private/site
+        timeout-minutes: 10
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd08-site-install.private.log'
+          & npm ci --no-audit --no-fund *> $log
+          if($LASTEXITCODE -ne 0){throw 'D08_SITE_NPM_CI_FAILED'}
+          Write-Host 'D08_SITE_NPM_CI=PASS'
+      - name: TypeScript and static checking
+        working-directory: private/site
+        timeout-minutes: 8
+        run: |
+          foreach($item in @(
+            @{name='TYPES';cmd='check:types'},
+            @{name='LINT';cmd='lint'},
+            @{name='T2_ENTRY';cmd='check:t2:entry'})){
+            $log=Join-Path $env:RUNNER_TEMP ('d08-site-'+$item.name+'.private.log')
+            & npm run $item.cmd *> $log
+            if($LASTEXITCODE -ne 0){throw ('D08_SITE_'+$item.name+'_FAILED')}
+            Write-Host ('D08_SITE_'+$item.name+'=PASS')
+          }
+      - name: Complete site and T2 adapter suite
+        working-directory: private/site
+        timeout-minutes: 12
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd08-site-adapters.private.log'
+          & npm run test:d08:adapters *> $log
+          if($LASTEXITCODE -ne 0){throw 'D08_SITE_ADAPTERS_FAILED'}
+          Write-Host 'D08_SITE_ADAPTERS=PASS'
+      - name: Confirm runner-only privacy and accurate scope
+        if: always()
+        run: |
+          Write-Host 'D08_PRIVATE_LOGS_PUBLISHED=NO'
+          Write-Host 'D08_PRIVATE_SOURCE_PUBLISHED=NO'
+          Write-Host 'D08_ARTIFACT_UPLOADS=0'
+          Write-Host 'D08_RELEASE_DIST=NOT_BUILT'
+          Write-Host 'D08_ORIGINAL_T2_KERNEL_IN_THIS_JOB=NOT_RUN'
