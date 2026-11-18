@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: cda7ee3f13d9068f67a3b35e386abee1bc208192
+          ref: dffe605cf586c49037ef573e5cdea681d06d5ff5
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -62,7 +62,7 @@ jobs:
       - name: Verify immutable source identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "cda7ee3f13d9068f67a3b35e386abee1bc208192"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "dffe605cf586c49037ef573e5cdea681d06d5ff5"
           test "$(git -C d04-private/model rev-parse HEAD)" = "a148d0386a73fc0131f971075ce3743e7010e995"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           echo "D04_RECOVERY_EXACT_SOURCE=PASS"
@@ -165,7 +165,7 @@ jobs:
           set -e
           if [ "$code" -ne 0 ]; then
             echo "D04_NUMERIC_BROWSER_E2E=FAIL"
-            grep -Eo 'D04_NUMERIC_[A-Z0-9_]+' "$RUNNER_TEMP/d04-numeric-13-browser.log" | sort -u | tail -12 || true
+            grep -Eo 'D04_NUMERIC_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-numeric-13-browser.log" | sort -u | tail -12 || true
             python3 "$GITHUB_WORKSPACE/tools/ci/d04_recovery_safe_diagnostics.py" "$RUNNER_TEMP/d04-numeric-13-browser.log" || true
             exit "$code"
           fi
