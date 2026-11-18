@@ -80,9 +80,19 @@ jobs:
         timeout-minutes: 15
         run: |
           $log = Join-Path $env:RUNNER_TEMP "d06-item-e2e-private.txt"
-          & npm run test:e2e -- tests/e2e/d06-item-context.spec.ts tests/e2e/d06-pd20-pd21-manual-save.spec.ts *> $log
+          $env:PLAYWRIGHT_JSON_OUTPUT_FILE = Join-Path $env:RUNNER_TEMP "d06-item-e2e-report.private.json"
+          & npm run test:e2e -- tests/e2e/d06-item-context.spec.ts tests/e2e/d06-pd20-pd21-manual-save.spec.ts --reporter=json *> $log
           if ($LASTEXITCODE -ne 0) {
             Write-Host "D06_ITEM_E2E=FAIL"
+            if (Test-Path -LiteralPath $env:PLAYWRIGHT_JSON_OUTPUT_FILE) {
+              $js = 'const fs=require("node:fs");const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const bad=new Set(["failed","timedOut","interrupted"]);function scan(s){for(const x of s.suites||[])scan(x);for(const sp of s.specs||[])for(const t of sp.tests||[])for(const z of t.results||[]){if(!bad.has(z.status))continue;const filename=String(sp.file||sp.location?.file||s.file||"");const which=filename.includes("d06-item-context")?1:filename.includes("d06-pd20-pd21-manual-save")?2:0;const trace=[...(z.errors||[]),z.error].filter(Boolean).map(e=>String(e.stack||e.message||"")).join(" ");const matches=[...trace.matchAll(/d06-(?:item-context|pd20-pd21-manual-save)\.spec\.ts:(\d+):/g)];console.log("D06_ITEM_E2E_FAIL_SPEC="+which);console.log("D06_ITEM_E2E_FAIL_LINE="+(matches.length?matches[0][1]:0));console.log("D06_ITEM_E2E_FAIL_STATUS="+z.status);}}for(const x of r.suites||[])scan(x);'
+              & node -e $js $env:PLAYWRIGHT_JSON_OUTPUT_FILE
+              if ($LASTEXITCODE -ne 0) {
+                Write-Host "D06_ITEM_E2E_JSON_DIAGNOSTICS=FAIL"
+              }
+            } else {
+              Write-Host "D06_ITEM_E2E_JSON_DIAGNOSTICS=ABSENT"
+            }
             $txt = Get-Content -LiteralPath $log -Raw
             Write-Host ("D06_ITEM_E2E_TIMEOUT_CLASS=" + [int]($txt -match "TimeoutError|Timeout [0-9]+ms exceeded"))
             Write-Host ("D06_ITEM_E2E_ASSERTION_CLASS=" + [int]($txt -match "AssertionError|expect\\(.*\\)\\.to"))
