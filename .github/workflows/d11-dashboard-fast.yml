@@ -34,9 +34,10 @@ jobs:
           node_modules/.bin/esbuild src/lib/logistics/operational-services.ts --bundle --platform=browser --format=esm --outfile=/tmp/d11-operational-services-bundle.mjs
           node_modules/.bin/esbuild runtime/d11-module/D11WorkspaceOverview.tsx --format=esm --outfile=/tmp/d11-dashboard-ui-check.mjs
           node_modules/.bin/esbuild runtime/d11-module/D11WorkspaceCard.tsx --format=esm --outfile=/tmp/d11-result-list-ui-check.mjs
+          node_modules/.bin/esbuild runtime/d11-module/D11ProposalViewer.tsx --format=esm --outfile=/tmp/d11-result-viewer-ui-check.mjs
           node_modules/.bin/esbuild src/routes/index.tsx --format=esm --outfile=/tmp/d11-home-ui-check.mjs
           node_modules/.bin/esbuild src/components/tools/D11WorkspaceEntry.tsx --format=esm --outfile=/tmp/d11-workspace-link-check.mjs
-          for name in depot-maintenance-supply distribution-network-expansion cold-chain-control inbound-yard-crossdock returnable-transport-packaging carrier-sla-invoices multimodal-container-control warehouse-peak-shifts logistics-order-execution; do
+          for name in delivery-network-planner depot-maintenance-supply distribution-network-expansion cold-chain-control inbound-yard-crossdock returnable-transport-packaging carrier-sla-invoices multimodal-container-control warehouse-peak-shifts logistics-order-execution; do
             node_modules/.bin/esbuild "src/routes/tools.$name.tsx" --format=esm --outfile="/tmp/d11-$name-parser.mjs"
           done
           grep -Fq "/workspace/#/overview" src/routes/index.tsx
