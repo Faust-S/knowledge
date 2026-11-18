@@ -42,11 +42,12 @@ try{
   console.log('G4_INSTALLED_PUBLIC_ADMIN_PRODUCT_T2_STAGE_PASS_TEST_PROFILE_ONLY');
   const result=assembleSignedControlDist({
     t2Dist:source,t3Build:compiled,outputDir:output,
-    installedOriginalAdminD3:true,
+    installedOriginalAdminD3:true,desktopAdminControlOnly:true,
   });
   if(result.schema!=='iwxa.t3.signed-control-one-dist/1'||
       result.original_admin_d3_schema_registered!==true||
       result.original_runtime_unchanged!==true||
+      result.local_inference_registered!==false||
       result.original_kernel!=='0.3.6')
     throw Error('G4_INSTALLED_ONE_DIST_RESULT_INCOMPLETE');
   console.log('G4_INSTALLED_ORIGINAL_ONE_DIST_PUBLIC_PREFLIGHT_PASS');
