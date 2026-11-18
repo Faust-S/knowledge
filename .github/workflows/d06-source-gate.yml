@@ -45,7 +45,7 @@ jobs:
               $ts = ([regex]::Matches($logText, "error TS[0-9]+:")).Count
               Write-Host ("D06_SOURCE_" + $code.ToUpperInvariant() + "_TS_COUNT=" + $ts)
               Write-Host ("D06_SOURCE_" + $code.ToUpperInvariant() + "_PRETTIER_COUNT=" + $prettier)
-              if ($task -eq "run test" -or $task -eq "run test:native") {
+              if ($task -eq "run test" -or $task -eq "run test:native" -or $task -eq "run test:case040:procurement") {
                 $failureCount = ([regex]::Matches($logText, "(?m)^\s*not ok\s")).Count
                 Write-Host ("D06_SOURCE_TEST_FAILED_COUNT=" + $failureCount)
                 $testCodes = [regex]::Matches($logText, "D06_(?:PD18|WORKFLOW|RESULT)_[A-Z0-9_]+") | ForEach-Object { $_.Value } | Select-Object -Unique -First 14
@@ -55,6 +55,13 @@ jobs:
                   if ($logText.Contains($kind)) { $types += $kind }
                 }
                 Write-Host ("D06_SOURCE_TEST_FAILURE_CLASSES=" + ($types -join ","))
+                if ($task -eq "run test:case040:procurement") {
+                  # Only source line numbers. Never expose private error text,
+                  # stack paths, observations or test fixture data.
+                  $positions = [regex]::Matches($logText, "test-d06-case040-procurement-continuity\.ts:(\d+):(\d+)") |
+                    ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique -First 4
+                  Write-Host ("D06_CASE040_FAILURE_LINE_NUMBERS=" + ($positions -join ","))
+                }
                 # Script identifiers are non-secret, unlike the private
                 # assertion text. This identifies the failed unit stage.
                 $stage = $null
