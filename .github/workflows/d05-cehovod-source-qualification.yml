@@ -142,7 +142,7 @@ jobs:
               echo "D05_VITEST_RERUN=FAIL"
             fi
             if [ -f "$RUNNER_TEMP/d05-vitest-results.json" ]; then
-              node - <<'NODE'
+              node -e '
             const fs=require("node:fs");const path=require("node:path");
             const report=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/d05-vitest-results.json","utf8"));
             const bad=[];
@@ -155,7 +155,7 @@ jobs:
             }
             console.log("D05_FAILED_TEST_LOCATIONS="+bad.map(x=>x.file+":"+x.indexes.join(".")+(x.loadError?"L":"")).join(","));
             console.log("D05_FAILED_TEST_FILE_COUNT="+bad.length);
-            NODE
+              '
             else
               echo "D05_VITEST_REPORT=UNAVAILABLE"
             fi
