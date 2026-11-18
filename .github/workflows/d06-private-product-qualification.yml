@@ -129,22 +129,59 @@ jobs:
           $status = if ($LASTEXITCODE -eq 0) { "PASS" } else { "FAIL" }
           Write-Host "D06_BUILD_STATIC=$status"
           if ($status -ne "PASS") { exit 1 }
-      - name: Check the actual built static site
+      - name: Diagnose every static check against the already built site
         shell: pwsh
         working-directory: private/site
-        timeout-minutes: 15
+        timeout-minutes: 30
         run: |
-          $log = Join-Path $env:RUNNER_TEMP "d06-check-static-private.txt"
-          & npm run check:static *> $log
-          $status = if ($LASTEXITCODE -eq 0) { "PASS" } else { "FAIL" }
-          Write-Host "D06_CHECK_STATIC=$status"
-          if ($status -ne "PASS") {
-            $private = Get-Content -LiteralPath $log -Raw
-            $codes = [regex]::Matches($private, "(?:D06|IWXA|T2)_[A-Z0-9_]+") |
-              ForEach-Object { $_.Value } | Select-Object -Unique -First 12
-            Write-Host ("D06_STATIC_CHECK_CODES=" + ($codes -join ","))
-            exit 1
+          $ErrorActionPreference = "Continue"
+          $checks = @(
+            "check:readability",
+            "check:hydration",
+            "check:runtime",
+            "check:no-localhost",
+            "check:assets",
+            "check:external-assets",
+            "check:links",
+            "check:seo",
+            "check:htaccess",
+            "check:404",
+            "check:preview-no-spa-fallback"
+          )
+          $fail = 0
+          foreach ($check in $checks) {
+            $safe = $check.Replace(":", "-")
+            $log = Join-Path $env:RUNNER_TEMP ("d06-static-" + $safe + ".private.txt")
+            & npm run $check *> $log
+            $exitCode = $LASTEXITCODE
+            $status = if ($exitCode -eq 0) { "PASS" } else { "FAIL" }
+            Write-Host ("D06_" + $safe + "=" + $status)
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value (
+              "| " + $check + " | " + $status + " |"
+            )
+            if ($exitCode -ne 0) {
+              $fail += 1
+              $private = Get-Content -LiteralPath $log -Raw
+              $classes = [ordered]@{
+                "HYDRATION" = "hydration:fail|body text shrank|root container empty"
+                "RUNTIME_CONSOLE" = "runtime:fail|console\.error|pageerror|CRITICAL"
+                "CHROME_BROWSER" = "BROWSER_NOT_FOUND|Failed to launch|ERR_BLOCKED_BY_ADMINISTRATOR"
+                "TIMEOUT" = "TimeoutError|Timeout [0-9]+ms exceeded"
+                "HTTP_STATUS" = "HTTP (?:4|5)[0-9][0-9]|status (?:4|5)[0-9][0-9]"
+                "MISSING_ASSET" = "missing asset|failed assets|ENOENT|not found"
+                "CONTENT" = "missing h1|no <h1>|unmatched|mismatch"
+                "ASSERTION" = "AssertionError|ERR_ASSERTION"
+              }
+              $categories = @($classes.Keys | Where-Object { $private -match $classes[$_] })
+              if ($categories.Count -eq 0) { $categories = @("UNCLASSIFIED") }
+              Write-Host ("D06_" + $safe + "_FAILURE_CLASSES=" + ($categories -join ","))
+              $hydrationFailures = ([regex]::Matches($private, "\[hydration:fail\]")).Count
+              $runtimeFailures = ([regex]::Matches($private, "\[runtime:fail\]")).Count
+              Write-Host ("D06_" + $safe + "_HYDRATION_FAILURE_COUNT=" + $hydrationFailures)
+              Write-Host ("D06_" + $safe + "_RUNTIME_FAILURE_COUNT=" + $runtimeFailures)
+            }
           }
+          if ($fail -gt 0) { exit 1 }
       - name: Run original end-to-end browser suite against the built site
         shell: pwsh
         working-directory: private/site
