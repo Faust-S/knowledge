@@ -48,6 +48,11 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'D07_LOCK_REGENERATION_FAILED'}
           $paths=@(& git diff --name-only)
           if($paths.Count -ne 1 -or $paths[0] -ne 'bun.lock'){throw 'D07_UNEXPECTED_CHANGED_SOURCE'}
+          $stats=@(& git diff --numstat -- bun.lock)
+          if($stats.Count -eq 1 -and $stats[0] -match '^(\d+)\s+(\d+)'){
+            Write-Host "D07_PRIVATE_LOCK_ADDED_LINES=$($Matches[1])"
+            Write-Host "D07_PRIVATE_LOCK_REMOVED_LINES=$($Matches[2])"
+          }
           $log=Join-Path $env:RUNNER_TEMP 'd07-bun-frozen-private.log'
           & bun install --frozen-lockfile *> $log
           if($LASTEXITCODE -ne 0){throw 'D07_REGENERATED_FROZEN_INSTALL_FAILED'}
@@ -72,7 +77,17 @@ jobs:
           [IO.File]::WriteAllText($request,$payload)
           $out=Join-Path $env:RUNNER_TEMP 'd07-private-lock-response.json'
           & gh api -X PUT repos/Faust-S/uslugovod.ru/contents/bun.lock --input $request *> $out
-          if($LASTEXITCODE -ne 0){throw 'D07_PRIVATE_LOCK_WRITE_DENIED'}
+          if($LASTEXITCODE -ne 0){
+            $response=Get-Content $out -Raw -ErrorAction SilentlyContinue
+            $classification='UNKNOWN'
+            if($response -match 'HTTP 403|403 Forbidden|Resource not accessible'){$classification='WRITE_SCOPE_DENIED'}
+            elseif($response -match 'HTTP 401|401 Unauthorized'){$classification='AUTHENTICATION'}
+            elseif($response -match 'HTTP 404|404 Not Found'){$classification='PRIVATE_ENDPOINT_NOT_FOUND'}
+            elseif($response -match 'HTTP 409|409 Conflict'){$classification='CONCURRENT_CHANGE'}
+            elseif($response -match 'HTTP 422|422 Unprocessable'){$classification='VALIDATION'}
+            Write-Host "D07_PRIVATE_WRITE_CLASS=$classification"
+            throw 'D07_PRIVATE_LOCK_WRITE_DENIED'
+          }
           $result=Get-Content $out -Raw | ConvertFrom-Json
           if(-not $result.commit.sha){throw 'D07_PRIVATE_LOCK_COMMIT_UNCONFIRMED'}
           Write-Host "D07_PRIVATE_SITE_NEW_HEAD=$($result.commit.sha)"
