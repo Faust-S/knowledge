@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: 1bc595284d7cebb2ee98215f479f119f34a11e37
+          ref: d59616f49c2534e3ac3b42220351ea4b54731959
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi
-          ref: 514507e1878e9ad41ff28679b2592b38dbc78c2e
+          ref: 9cd33764ff6ef10f48449ca5c0694711183c00b0
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -107,6 +107,20 @@ jobs:
             echo "D10_BROWSER_TARGETED=PASS"
           else
             echo "::error::D10_BROWSER_TARGETED=FAIL exit=$result"
+          fi
+          exit "$result"
+      - name: Real browser delayed attribution and native payback case
+        shell: bash
+        run: |
+          set +e
+          cd site
+          node scripts/tests/d10-case005-browser-smoke.mjs > "$RUNNER_TEMP/d10-case005-browser.log" 2>&1
+          result=$?
+          grep -E '^D10_CASE005_' "$RUNNER_TEMP/d10-case005-browser.log" || true
+          if [ "$result" -eq 0 ]; then
+            echo "D10_CASE005_BROWSER=PASS"
+          else
+            echo "::error::D10_CASE005_BROWSER=FAIL exit=$result"
           fi
           exit "$result"
       - name: Inspect artifact without publishing private bytes
