@@ -131,6 +131,9 @@ jobs:
             throw "D11_TYPECHECK_FAILED:$code"
           }
           Write-Output "D11_TYPECHECK=PASS"
+      # Formatting debt is measured separately from correctness lint;
+      # see D11 diagnostic workflow. Do not rewrite canonical mirrored source
+      # to satisfy historical Prettier differences during a release gate.
       - name: Lint check
         id: lint
         continue-on-error: true
