@@ -200,6 +200,15 @@
           "agent_sha": "1bf0847ed069c86fe6a11380537535f0ce6c0b8e"
         },
         "release_boundary": "Do not claim installed separate 0.6 Setup Core EXE/Repair/Rollback until exact native CI SUCCESS. Existing installed Agent/Atlas independent product CI PASS does not substitute original Ed25519 Agent->Atlas signed D6."
+      },
+      "atlas_connected_program_current": {
+        "status": "NOT_QUALIFIED_PROGRAM_CONNECTION",
+        "source_commit": "1bf0847ed069c86fe6a11380537535f0ce6c0b8e",
+        "file_picker": "desktop/src/atlas-work-context.tsx uses selected .iwxa file for Atlas WorkRef only",
+        "u04_agent": "desktop/src/u04-native-host.ts plus desktop/src-tauri/src/u04_windows_host.rs are restricted to previously recognized Obsidian; not Atlas native launcher",
+        "admin_existing": "Center CEN05 supports its own Atlas native U01/U04 integration independently, not evidence of Agent connection",
+        "required": "Qualify approved installed Atlas discovery and native window binding from Agent, then optional actual owner command via Atlas AppHandle, without spawning arbitrary exe, direct cross-Tauri invoke or alternative IPC/Store",
+        "impact_on_generic_t3": "NONE"
       }
     },
     "admin_center": {
@@ -726,7 +735,7 @@
     "D6_original_setup_core_06_native_executable": "TRUE_EXE_NATIVE_INSTALL_AND_CORRUPTED_ORIGINAL_T2_REPAIR_PASS_44282434511_POSTWRITE_ROLLBACK_HOLD",
     "T3_PRODUCT_NEUTRAL_CORE": "ONE_CORE_SOURCE_AND_REAL_HOST_SUCCESS_44293606966_INDEPENDENT_D3_D5_GENERIC_NATIVE_D6_D7_HOLD",
     "T3_GENERIC_D6": "SOURCE_GENERIC_NATIVE_DOMAIN_CONTRACT_PASS_44293606966_INSTALLED_INDEPENDENT_RECIPIENT_NOT_ACCEPTED",
-    "T3_ATLAS_CONNECTED_PROGRAM": "U01_U04_AND_OWNER_COMMAND_PROFILE_SEPARATE_ACCEPTANCE_NOT_GENERIC_T3",
+    "T3_ATLAS_CONNECTED_PROGRAM": "AGENT_ATLAS_FILE_WORKREF_ONLY_NO_U04_NATIVE_ATLAS_NOT_ACCEPTED__CENTER_CEN05_SEPARATE",
     "T3_ATLAS_SIGNED_FILE_OPTIONAL": "SOURCE_SIGNED_RECIPIENT_AND_INSTALLED_ATLAS_PRODUCT_PASS_PRIVATE_SIGNED_E2E_NOT_ACCEPTED_OPTIONAL_PROFILE",
     "T3_UNIVERSAL_RELEASE": "NOT_ACCEPTED_D1_D3_D5_D6_GENERIC_D7_HOLD"
   },
