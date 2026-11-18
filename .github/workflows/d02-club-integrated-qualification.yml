@@ -131,7 +131,7 @@ jobs:
         shell: pwsh
         run: |
           $suite = (Get-Content package.json -Raw | ConvertFrom-Json).scripts.test
-          $commands = @([regex]::Split($suite, '\\s+&&\\s+'))
+          $commands = @([regex]::Split($suite, '\s+&&\s+'))
           if ($commands.Count -lt 35) { throw 'D02_SITE_SUITE_LIST_INCOMPLETE' }
           $failed = [System.Collections.Generic.List[string]]::new()
           $count = 0
