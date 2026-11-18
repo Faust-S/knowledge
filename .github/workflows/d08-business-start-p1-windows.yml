@@ -11,8 +11,8 @@ concurrency:
   group: d08-business-start-p1
   cancel-in-progress: true
 env:
-  DOMAIN_SHA: d257dd067c9f693df088bba12a5975c6d03f0329
-  SITE_SHA: eb44afa46fa5a6374f1481adbbf7ac147ff8f0f5
+  DOMAIN_SHA: dcab0fa2d7fbcbfb8cd9ccdede7137ed0c65c4e5
+  SITE_SHA: 89a0c87424272e7f998841cfecf8a2571c1f2ee6
   CI: 'true'
   PUPPETEER_SKIP_DOWNLOAD: '1'
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -56,7 +56,7 @@ jobs:
         run: |
           if((& git -C private/domain rev-parse HEAD).Trim() -ne $env:DOMAIN_SHA){throw 'D08_P1_DOMAIN_SHA_MISMATCH'}
           if((& git -C private/site rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D08_P1_SITE_SHA_MISMATCH'}
-          foreach($f in @('business-start-overview.mjs','business-start-overview.d.mts','iwxa-domain-boundaries.mjs','iwxa-domain-boundaries.d.mts','affordable-loss-gate.mjs','affordable-loss-gate.d.mts','business-project.mjs','business-project.d.mts')){
+          foreach($f in @('business-start-overview.mjs','business-start-overview.d.mts','iwxa-domain-boundaries.mjs','iwxa-domain-boundaries.d.mts','affordable-loss-gate.mjs','affordable-loss-gate.d.mts','business-project.mjs','business-project.d.mts','business-edit-intent.mjs','business-edit-intent.d.mts')){
             $domain=(Get-FileHash -LiteralPath ('private/domain/model/'+$f) -Algorithm SHA256).Hash
             $site=(Get-FileHash -LiteralPath ('private/site/src/lib/'+$f) -Algorithm SHA256).Hash
             if($domain -ne $site){throw 'D08_P1_CANONICAL_DRIFT'}
@@ -105,7 +105,7 @@ jobs:
               throw ('D08_P1_'+$name+'_FAILED')
             }
           }
-          & node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs tests/business-project.test.mjs *> (Join-Path $env:RUNNER_TEMP 'd08-p1-site-cases.private.log')
+          & node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs tests/business-project.test.mjs tests/business-edit-intent.test.mjs *> (Join-Path $env:RUNNER_TEMP 'd08-p1-site-cases.private.log')
           if($LASTEXITCODE -ne 0){throw 'D08_P1_SITE_MODEL_FAILED'}
           Write-Host 'D08_P1_SITE_TYPES_LINT_AND_MODEL=PASS'
       - name: Full existing site adapters and T2 entry regressions
