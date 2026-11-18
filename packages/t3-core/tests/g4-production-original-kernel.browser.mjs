@@ -161,15 +161,38 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
       pendingHumanReview=null;
       return true;
     };
+    // A SECOND independent prearmed source-only Human APPLY. A successful
+    // ACCEPT does not populate this selection. The trusted original owner
+    // calls it only after authorized D1 and original Kernel preflight.
+    let pendingHumanApply=null;
+    let applyConsentCount=0;
+    const confirmNativeApply=async challenge=>{
+      const selected=pendingHumanApply;
+      if(!selected||challenge?.acceptanceId!==selected.acceptanceId||
+        !Array.isArray(challenge.revisionIds)||
+        JSON.stringify([...challenge.revisionIds].sort())!==
+          JSON.stringify([...selected.revisionIds].sort())||
+        challenge.target?.workspaceId!==productionWs||
+        challenge.target?.subjectId!==productionOrg||
+        challenge.context?.workspace_id!==productionWs||
+        challenge.context?.organization_id!==productionOrg||
+        typeof challenge.effectKey!=='string'||
+        challenge.operation?.operationId!=='effect:'+challenge.effectKey)
+        return false;
+      pendingHumanApply=null;
+      applyConsentCount++;
+      return true;
+    };
     const args={
       root:prodRoot,organizationId:productionOrg,kernel:facade,
       createSignedAccessHostPort,createTrustedReconciliationKernelApply,
       createOriginalKernelRegistryStatePort,createOriginalEmployeeEnrollmentOwner,
-      confirmHumanReview:confirmNativeReview,confirmSeparateApply:async()=>false,
+      confirmHumanReview:confirmNativeReview,confirmSeparateApply:confirmNativeApply,
       isHostActive:()=>true,currentHostEpoch:()=>1,
     };
     // An unarmed review MUST NOT be approved, even in this opt-in source CI.
     assert.equal(await confirmNativeReview({decision:'ACCEPT'}),false);
+    assert.equal(await confirmNativeApply({acceptanceId:'unarmed'}),false);
     // The historical one-shot CLI has no native Human confirmation channel.
     // It MUST NOT accept or reject on behalf of the organization, even if a
     // caller supplies a syntactically valid command with signed-looking IDs.
@@ -307,7 +330,7 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
       createTrustedReconciliationKernelApply,
       createOriginalKernelRegistryStatePort,
       createOriginalEmployeeEnrollmentOwner,
-      confirmSeparateApply:async()=>false,
+      confirmSeparateApply:confirmNativeApply,
     });
     const fresh=owner.nativeState().view.snapshot;
     binding={organizationId:productionOrg,workspaceId:productionWs,
