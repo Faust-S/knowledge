@@ -56,8 +56,8 @@ jobs:
             fi
             echo "D05_REVISION_${destination}=PASS"
           }
-          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "2d64fe58b1920718bad631765592a64426ff24da" "site"
-          fetch_private "cehovod" "main" "074dd31fa447870b9c876f3d45e65aace77e8df7" "domain"
+          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "a113814c8e45022f8c98feeaf7d4d32eba6e0ed1" "site"
+          fetch_private "cehovod" "main" "ecdf6b9680b5030673c2e97fdd248c721a9f7814" "domain"
           unset header DOMEN
       - name: Install Node 22
         uses: actions/setup-node@v4
