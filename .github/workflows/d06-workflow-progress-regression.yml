@@ -49,6 +49,23 @@ jobs:
             & cmd.exe /d /c ("npm run " + $test + " > """ + $log + """ 2>&1")
             $passed = $LASTEXITCODE -eq 0
             Write-Host ("D06_" + $key + "=" + $(if ($passed) {"PASS"} else {"FAIL"}))
+            if (-not $passed -and $test -eq "test:workflow-progress") {
+              # Print ordinals only. Private check labels and Result data
+              # are never written to the public Actions log.
+              $good = [string][char]0x2713
+              $bad = [string][char]0x2717
+              $ordinal = 0
+              $failedAt = @()
+              foreach ($line in (Get-Content -LiteralPath $log -Encoding utf8)) {
+                $trimmed = $line.TrimStart()
+                if ($trimmed.StartsWith($good) -or $trimmed.StartsWith($bad)) {
+                  $ordinal += 1
+                  if ($trimmed.StartsWith($bad)) { $failedAt += $ordinal }
+                }
+              }
+              Write-Host ("D06_PROGRESS_CHECK_TOTAL=" + $ordinal)
+              Write-Host ("D06_PROGRESS_FAILED_ORDINALS=" + ($failedAt -join ","))
+            }
             if (-not $passed) { $errors += 1 }
           }
           if ($errors -gt 0) { exit 1 }
