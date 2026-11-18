@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      SITE_SHA: 9c7c157246b488d149b1151d219456b28aeff14b
+      SITE_SHA: fcccc0cf52c6b2b3678c823c5a5847268eca7a01
     steps:
       - name: Checkout exact private candidate without logging or publishing content
         uses: actions/checkout@v4
@@ -62,7 +62,8 @@ jobs:
             'test:club-resource-project-handoff',
             'test:club-workspace-service-links',
             'test:club-author-voice',
-            'test:club-project-delete-integrity'
+            'test:club-project-delete-integrity',
+            'test:club-multi-project-restore'
           )
           $fail=0
           foreach($name in $names) {
