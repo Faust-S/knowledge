@@ -1,0 +1,46 @@
+name: T3 Windows native original corporate employee process
+on:
+  push:
+    branches:
+      - work/2026-11-10-t3-t2-activity-projection
+    paths:
+      - .github/workflows/t3-native-original-employee.yml
+      - packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs
+      - packages/t3-core/tests/g4-original-agent-native-windows.mjs
+      - packages/t3-core/tests/g4-original-agent-native-driver.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: t3-native-original-employee-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  signed-native-source-process:
+    # One explicit G4 qualification. The original owner/Agent source is
+    # intentionally NOT fetched for ordinary public source/test commits.
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-native-d3]') }}
+    runs-on: windows-2022
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify public runner and driver source
+        shell: pwsh
+        run: |
+          node --check packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs
+          node --check packages/t3-core/tests/g4-original-agent-native-windows.mjs
+          python -m py_compile packages/t3-core/tests/g4-original-agent-native-driver.py
+      - name: Separate original owner / Agent Node-Python Windows process
+        env:
+          T3_READ_TOKEN: ${{ secrets.T3 }}
+          AGENT_READ_TOKEN: ${{ secrets.AGENT }}
+        shell: pwsh
+        run: node packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs
