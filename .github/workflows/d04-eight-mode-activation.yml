@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: a60480b7f2228e87554f55a5b2ec9c947ae34d3c
+          ref: b50e3ea92af5be7cf216ccb2cdcf4fc11e164950
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -62,7 +62,7 @@ jobs:
       - name: Verify immutable source identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "a60480b7f2228e87554f55a5b2ec9c947ae34d3c"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "b50e3ea92af5be7cf216ccb2cdcf4fc11e164950"
           test "$(git -C d04-private/model rev-parse HEAD)" = "a148d0386a73fc0131f971075ce3743e7010e995"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           echo "D04_RECOVERY_EXACT_SOURCE=PASS"
@@ -98,7 +98,8 @@ jobs:
           fi
       - name: Generate new isolated witness challenge
         run: |
-          echo "IWXA_T2_PRODUCT_CHALLENGE=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          umask 077
+          openssl rand -hex 32 > "$RUNNER_TEMP/d04-eight-mode-challenge"
           echo "D04_FRESH_WITNESS_CHALLENGE=SET"
       - name: Build exact T2 and BazMed with qualification-only read-only auditor
         working-directory: d04-private/site
@@ -107,6 +108,7 @@ jobs:
         run: |
           set -uo pipefail
           set +e
+          export IWXA_T2_PRODUCT_CHALLENGE="$(cat "$RUNNER_TEMP/d04-eight-mode-challenge")"
           npm run build:t2:site >"$RUNNER_TEMP/d04-recovery-build.log" 2>&1
           code=$?
           set -e
@@ -124,6 +126,7 @@ jobs:
         run: |
           set -uo pipefail
           set +e
+          export IWXA_T2_PRODUCT_CHALLENGE="$(cat "$RUNNER_TEMP/d04-eight-mode-challenge")"
           node --input-type=module >"$RUNNER_TEMP/d04-eight-mode-e2e.log" 2>&1 <<'NODE'
           import {createRequire} from 'node:module';
           import {resolve,join} from 'node:path';
@@ -160,6 +163,7 @@ jobs:
           set -e
           if [ "$code" -ne 0 ]; then
             echo "D04_EIGHT_MODE_NATIVE_E2E=FAIL"
+            grep -Eo 'D04_MODE_(STAGE|CAUSE_CLASS)_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-eight-mode-e2e.log" | sort -u | tail -8 || true
             python3 "$GITHUB_WORKSPACE/tools/ci/d04_recovery_safe_diagnostics.py" "$RUNNER_TEMP/d04-eight-mode-e2e.log" || true
             exit "$code"
           fi
