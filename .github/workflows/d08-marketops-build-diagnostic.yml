@@ -1,0 +1,112 @@
+name: D08 MarketOps Windows static-build stage diagnosis
+
+on:
+  push:
+    branches: [work/2026-11-18-d08-marketops-windows-qualification]
+    paths: [.github/workflows/d08-marketops-build-diagnostic.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d08-private-static-diagnosis-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnose-windows-build:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      D08_SITE_SHA: 8b46007adf462c45b86712e81265781e2437a251
+      CI: 'true'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - name: Verify private repository access before using DOMEN
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'D08_DOMEN_SECRET_UNAVAILABLE'}
+          & gh api 'repos/Faust-S/market-ops.ru' --jq '.id' *> $null
+          if($LASTEXITCODE -ne 0){throw 'D08_SITE_ACCESS_DENIED'}
+          git config --global core.autocrlf false
+          Write-Host 'D08_DIAGNOSTIC_SITE_ACCESS=PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: ${{ env.D08_SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Prepare exact site packages in isolated directory
+        working-directory: private/site
+        run: |
+          $actual=(& git rev-parse HEAD).Trim()
+          if($actual -ne $env:D08_SITE_SHA){throw 'D08_DIAGNOSTIC_SITE_PIN_MISMATCH'}
+          $log=Join-Path $env:RUNNER_TEMP 'd08-diagnostic-install.private.log'
+          & npm ci --no-audit --no-fund *> $log
+          if($LASTEXITCODE -ne 0){throw 'D08_DIAGNOSTIC_NPM_CI_FAILED'}
+          Write-Host 'D08_DIAGNOSTIC_NPM_CI=PASS'
+      - name: Split original static-build phases to identify the first failing operation
+        working-directory: private/site
+        timeout-minutes: 35
+        run: |
+          $stages=@(
+            @('PARTNERS_INDEX','tsx','scripts/build-partners-index.ts'),
+            @('SITEMAP','tsx','scripts/generate-sitemap.ts'),
+            @('VITE','vite','build'),
+            @('PRERENDER','tsx','scripts/prerender.ts')
+          )
+          foreach($stage in $stages){
+            $label=$stage[0]
+            $log=Join-Path $env:RUNNER_TEMP ("d08-phase-"+$label+".private.log")
+            & npx --no-install $stage[1] $stage[2] *> $log
+            $code=$LASTEXITCODE
+            if($code -eq 0){
+              Write-Host ("D08_PHASE_"+$label+"=PASS")
+              continue
+            }
+            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            Write-Host ("D08_PHASE_"+$label+"=FAIL")
+            $codes=[regex]::Matches($raw,'(?:MARKETOPS|IWXA|T2)_[A-Z0-9_]+|TS\d{4}|ERR_[A-Z0-9_]+') |
+              ForEach-Object {$_.Value} | Sort-Object -Unique | Select-Object -First 15
+            Write-Host ('D08_PHASE_ERROR_CODES='+($codes -join ','))
+            $classes=[ordered]@{
+              FILE_NOT_FOUND='ENOENT|Cannot find module|MODULE_NOT_FOUND|ERR_MODULE_NOT_FOUND'
+              GIT_ACCESS='Permission denied|repository not found|fatal: could not'
+              WINDOWS_PERMISSIONS='EACCES|EPERM|Access is denied|operation not permitted'
+              NODE_PROCESS='ERR_CHILD_PROCESS|ERR_WORKER|ERR_UNKNOWN'
+              IMPORT_RESOLUTION='Failed to resolve import|Could not resolve|Cannot find package'
+              TS_COMPILATION='TS\d{4}|SyntaxError|Parse error'
+              REACT_RENDER='Hydration|React error|renderToString|Invalid hook call'
+              PRERENDER='prerender|Prerender'
+              VITE_BUNDLER='RollupError|esbuild|Vite|vite'
+              HEAP='heap out of memory|allocation failed'
+              NETWORK='ECONNRESET|ETIMEDOUT|EAI_AGAIN|CERT_'
+            }
+            $found=@($classes.Keys | Where-Object {$raw -match $classes[$_]})
+            if($found.Count -eq 0){$found=@('UNCLASSIFIED')}
+            Write-Host ('D08_PHASE_FAILURE_CLASSES='+($found -join ','))
+            Write-Host ('D08_PRIVATE_ERROR_LOG_BYTES='+$raw.Length)
+            throw ('D08_FIRST_FAILED_STAGE='+$label)
+          }
+          foreach($name in @(
+            'dist/index.html','dist/tools/launch-map/index.html',
+            'dist/tools/fbo-fbs-selector/index.html','dist/tools/unit-economy/index.html',
+            'dist/tools/ad-load/index.html'
+          )){
+            if(-not(Test-Path $name)){throw 'D08_STATIC_OUTPUT_MISSING'}
+          }
+          Write-Host 'D08_STATIC_BUILD_STAGES=PASS'
+      - name: Never publish private source, logs or static dist
+        if: always()
+        run: |
+          Write-Host 'D08_DIAGNOSTIC_PUBLIC_ARTIFACTS=0'
+          Write-Host 'D08_PRIVATE_SOURCE_PUBLISHED=NO'
+          Write-Host 'D08_PRIVATE_BUILD_OUTPUT_PUBLISHED=NO'
