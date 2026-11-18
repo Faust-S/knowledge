@@ -322,5 +322,47 @@ try{
     {code:'T3_EMPLOYEE_ORIGINAL_CHALLENGE_SCOPE_CHANGED'});
   console.log('G4_ORIGINAL_PRODUCTION_INDEPENDENT_EMPLOYEE_CREDENTIAL_COLD_PASS');
   console.log('G4_ORIGINAL_PRODUCTION_INDEPENDENT_AGENT_IPC_FIRST_USE_PASS');
+  // Original manager D3 issues a second, distinct employee membership
+  // challenge AFTER the Kernel credential admission. Confirm the employee's
+  // same original DPAPI key can sign precisely this alternate request shape.
+  // This checks the signature only, NOT a Kernel membership grant.
+  phase='ORIGINAL_PRODUCTION_EMPLOYEE_MEMBER_PROOF';
+  const enrollmentId=randomUUID();
+  const membershipRequest={
+    ...request,id:'employee-proof:'+enrollmentId,
+    grantId:'enrollment:'+enrollmentId,
+    operationDigest:createHash('sha256').update(
+      'g4-original-employee-membership-intent').digest('hex'),
+  };
+  const membershipChallenge=randomUUID()+randomUUID();
+  const membershipRequestPath=join(dir,
+    'production-employee-public-membership-request.json');
+  writeFileSync(membershipRequestPath,JSON.stringify(membershipRequest),
+    {flag:'wx'});
+  const secondEmployee=employeeProcess('COLD_PROOF',{
+    G4_EMPLOYEE_PUBLIC_REQUEST_PATH:membershipRequestPath,
+    G4_EMPLOYEE_ORIGINAL_CHALLENGE:membershipChallenge,
+  });
+  assert.deepEqual(secondEmployee.candidate,candidate);
+  const membershipProof=secondEmployee.proof;
+  assert.equal(membershipProof.keyId,candidate.credentialKeyId);
+  assert.equal(membershipProof.payload.kind,'PROOF');
+  assert.equal(membershipProof.payload.environment,'PRODUCTION');
+  assert.equal(membershipProof.payload.challenge,membershipChallenge);
+  assert.equal(membershipProof.payload.requestDigest,originalDigest(
+    membershipRequest));
+  const memberBytes=Buffer.from('IWXA-T3-ACCESS-SIGNED-V1\0'+canonical({
+    schema:membershipProof.schema,keyId:membershipProof.keyId,
+    payload:membershipProof.payload,
+  }));
+  assert.ok(verify(null,memberBytes,
+    createPublicKey(candidate.employeeProofKeyRecord.publicKey),
+    Buffer.from(membershipProof.signature,'base64url')));
+  assert.throws(()=>proveOriginalWindowsEmployeeChallenge(
+    employeeCandidateRoot,
+    {...membershipRequest,grantId:'proof-key:prospective'},
+    membershipChallenge),
+    {code:'T3_EMPLOYEE_ORIGINAL_CHALLENGE_SCOPE_CHANGED'});
+  console.log('G4_ORIGINAL_PRODUCTION_AGENT_MEMBERSHIP_CHALLENGE_PASS');
 }catch(error){phaseFail(phase,error)}
 finally{try{admin?.close()}catch{}}
