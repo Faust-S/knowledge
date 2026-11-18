@@ -26,25 +26,25 @@
     "one_core": {
       "repository": "Faust-S/knowledge",
       "branch": "work/2026-11-10-t3-t2-activity-projection",
-      "observed_head": "35ed15dcc819be67c4779dc24439911c5ab4f98d",
+      "observed_head": "8d3c0344f6152636b3ae4f9b1c67cff6be14690a",
       "qualification": {
-        "run_id": 44325927593,
+        "run_id": 44327463174,
         "conclusion": "SUCCESS",
-        "source_pin": "35ed15dcc819be67c4779dc24439911c5ab4f98d",
+        "source_pin": "8d3c0344f6152636b3ae4f9b1c67cff6be14690a",
         "jobs": {
           "test": "PASS",
           "real_host": "PASS",
           "windows_credential": "PASS",
+          "metal_webgpu": "SKIPPED",
           "native_age": "SKIPPED",
-          "native_model": "SKIPPED",
-          "metal_webgpu": "SKIPPED"
+          "native_model": "SKIPPED"
         },
         "node_tests": {
           "total": 786,
           "pass": 786,
           "fail": 0
         },
-        "scope": "Single original T2 0.3.6/contract 1.3.0 T3 source; repaired product-neutral D6 canonical signed-context comparison, D3 dense plain JSON Object/Event readback, original Host and Windows Credentials. Actual native private D3/employee/recipient/PERSON still NOT_RUN. Metal not exercised at this exact commit."
+        "scope": "Public original T2 0.3.6/Runtime 1.3.0 successor T3 source; D1/D3 signed native adapter and D6 generic recipient source; deep original T2 Object/Event parity with dense large arrays, no duplicate Apply; real-host/Windows credentials qualified. Real installed corporate issuer and independent Agent/recipient/PERSON D7 NOT_RUN. Hardware GPU not re-executed on this exact source."
       },
       "level": "CORE_SOURCE_PASS",
       "notes": "One inherited T2 0.3.6 Runtime Contract 1.3.0; D1/D3/D6/D7 source; Agent-only qualified original T2 One Dist passport with original signed D1 AccessRegistry, original accepted-result schema/Kernel Object/Event and two process-cold source readbacks. This is not an installed independent Agent-to-Atlas signed transfer.",
@@ -334,15 +334,15 @@
         "installed_generic_recipient": "NOT_RUN"
       },
       "d3_dense_original_event_readback_2026_11_18": {
-        "source_commit": "35ed15dcc819be67c4779dc24439911c5ab4f98d",
+        "source_commit": "8d3c0344f6152636b3ae4f9b1c67cff6be14690a",
         "component": "packages/t3-core/src/t3/reconciliation-kernel-apply.mjs",
         "tests": "packages/t3-core/tests/t3-reconciliation-kernel-apply.test.mjs",
         "root_cause": "Array.every() skips sparse holes and previously allowed an incomplete original T2 Event array to compare equal to a sealed explicit JSON value during cold APPLY recovery.",
-        "correction": "Strict bounded deep JSON equality on dense arrays and plain objects, preserving order of arrays and ignoring only order of object keys; reject holes, non-finite numbers and invalid non-JSON values. Mismatched Event yields OUTCOME_UNKNOWN, automaticRetryAllowed=false, and no second commitObjectGraph.",
+        "correction": "Strict deep JSON equality on dense arrays and plain objects with cycle refusal, preserving exact nested values and array order while tolerating canonical object-key ordering. Original T2 owns legitimate size/depth; no arbitrary 4096-element or 32-depth Host cap. Sparse, nonfinite or altered nested Event returns OUTCOME_UNKNOWN without re-dispatch.",
         "qualification": {
-          "run_id": 44325927593,
+          "run_id": 44327463174,
           "conclusion": "SUCCESS",
-          "head_sha": "35ed15dcc819be67c4779dc24439911c5ab4f98d",
+          "head_sha": "8d3c0344f6152636b3ae4f9b1c67cff6be14690a",
           "jobs": {
             "test": "SUCCESS",
             "real_host": "SUCCESS",
@@ -353,9 +353,28 @@
             "total": 786,
             "pass": 786,
             "fail": 0
-          }
+          },
+          "cases": [
+            "sparse Event array differs from explicit null in cold recovery",
+            "5000 complete original T2 Event witnesses preserved",
+            "single changed last witness rejects cold recovery",
+            "no second commitObjectGraph on unknown outcome"
+          ]
         },
         "installed_private_apply": "NOT_RUN"
+      },
+      "d3_large_event_no_artificial_cap_2026_11_18": {
+        "source_commit": "8d3c0344f6152636b3ae4f9b1c67cff6be14690a",
+        "run_id": 44327463174,
+        "conclusion": "SUCCESS",
+        "parent_fix": "35ed15dcc819be67c4779dc24439911c5ab4f98d",
+        "purpose": "Correct the initial bounded comparison's unintended rejection of legitimate original T2 deep/large JSON; leave payload limits entirely with normative original T2.",
+        "tested_event_array_entries": 5000,
+        "matching_valid_json": "CONFIRMED",
+        "mutated_last_value": "OUTCOME_UNKNOWN",
+        "sparse_or_cyclic_input": "DENY_AS_NON_JSON",
+        "replayed_writes": 0,
+        "installed_private_corporate_app": "NOT_RUN"
       }
     },
     "private_original_d6": {
@@ -1061,7 +1080,7 @@
     "T3_ATLAS_CONNECTED_PROGRAM": "AGENT_ATLAS_FILE_WORKREF_ONLY_NO_U04_NATIVE_ATLAS_NOT_ACCEPTED__CENTER_CEN05_SEPARATE",
     "T3_ATLAS_SIGNED_FILE_OPTIONAL": "SOURCE_SIGNED_RECIPIENT_AND_INSTALLED_ATLAS_PRODUCT_PASS_PRIVATE_SIGNED_E2E_NOT_ACCEPTED_OPTIONAL_PROFILE",
     "T3_UNIVERSAL_RELEASE": "NOT_ACCEPTED_INSTALLED_INDEPENDENT_ADMIN_AGENT_D3_GENERIC_D6_PERSON_D7_AND_NATIVE_OWNER_D5_HOLD",
-    "D3_original_kernel_full_event_parity": "SOURCE_CANONICAL_DENSE_JSON_OBJECT_AND_EVENT_RECOVERY_PASS_44325927593__NATIVE_INSTALLED_PRIVATE_D3_HOLD",
+    "D3_original_kernel_full_event_parity": "SOURCE_DENSE_LARGE_5000_JSON_OBJECT_EVENT_RECOVERY_PASS_44327463174__PRIVATE_INSTALLED_D3_HOLD",
     "D5_hardware_current": "SOURCE_ONE_DIST_SIGNED_AND_DOMAIN_APPLE_METAL_COLD_OFFLINE_PASS_FULL_CI_44321733973__PRIVATE_INSTALLED_NOT_ACCEPTED",
     "ADMIN_CENTER_03_D3_GENERIC_UI": "INSTALLED_CENTER_PUBLIC_WINDOWS_SUCCESS_44301852914_AT_565572a9_MERGED_5ff8947d_NO_PRIVATE_SIGNED_D3",
     "T3_D3_ORIGINAL_ACCEPT_RECEIPT": "CORE_SOURCE_CANONICAL_RECEIPT_AND_COLD_DECISION_VALIDATION_PASS_44318043133__PRIVATE_INSTALLED_D3_HOLD"
@@ -1123,7 +1142,7 @@
     "independent_installed_d3": "HOLD",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
-    "hardware_offline_d5_latest": "SOURCE_APPLE_METAL_SIGNED_AND_DOMAIN_PWA_COLD_OFFLINE_PASS_FULL_CI_44321733973_AT_a24b575e__NOT_REPEATED_AT_35ed15dc__PRIVATE_INSTALLED_D5_HOLD",
+    "hardware_offline_d5_latest": "SOURCE_APPLE_METAL_FULL_SIGNED_DOMAIN_AND_COLD_OFFLINE_PASS_44321733973_AT_a24b575e__HARDWARE_NOT_REPEATED_AT_8d3c0344__PRIVATE_INSTALLED_D5_HOLD",
     "strict_order": [
       "B0: verify exact complete normative T2 successor in ONE executable T3 One Dist and original Host/Kernel/Store/Exchange/Workspace/Lifecycle, with no second runtime or Atlas dependency",
       "D1 + D3: prove installed independent manager and employee Agent signed grants / Task, Human ACCEPT then separately consented original Kernel APPLY and two cold original receipts; NO Atlas WorkRef for normal Task",
@@ -1183,7 +1202,7 @@
       "offline_cold_restart": "NOT_RUN",
       "note": "macos-15 GitHub public runner never allocated; test and real-host and windows-credential PASS do not qualify hardware D5. Do not retry macOS indiscriminately or promote D5. Use a genuinely hardware-enabled system to collect exact original Host/browser cold offline two-generation evidence."
     },
-    "source_integrity_latest": "NODE_786_OF_786_REAL_ORIGINAL_T2_HOST_AND_WINDOWS_CREDENTIAL_SUCCESS_44325927593_GPU_SKIPPED_THIS_REVISION",
-    "latest_verified_code_sha": "35ed15dcc819be67c4779dc24439911c5ab4f98d"
+    "source_integrity_latest": "NODE_786_OF_786_REAL_HOST_AND_WINDOWS_CREDENTIAL_SUCCESS_44327463174__METAL_SKIPPED_EXACT_SHA",
+    "latest_verified_code_sha": "8d3c0344f6152636b3ae4f9b1c67cff6be14690a"
   }
 }

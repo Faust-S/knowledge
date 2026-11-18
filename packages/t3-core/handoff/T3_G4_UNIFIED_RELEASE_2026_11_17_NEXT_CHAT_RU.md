@@ -1,5 +1,13 @@
 # IWXA T3 G4: единая миграция разработки в новый чат
 
+## 18.11.2026: D3 complete large JSON, final exact source CI
+
+**Code:** `Faust-S/knowledge@8d3c0344f6152636b3ae4f9b1c67cff6be14690a`, [GitHub Actions №44327463174](https://github.com/Faust-S/knowledge/actions/runs/44327463174) **SUCCESS**: original T3 Node **786/786**, Host, Windows credentials PASS; Metal and native age/model SKIPPED. This supersedes the preceding code `35ed15dc` but not its source evidence.
+
+**Correction of an unintended restriction in previous D3 fix:** [`8d3c0344`](https://github.com/Faust-S/knowledge/commit/8d3c0344f6152636b3ae4f9b1c67cff6be14690a) retains exact complete original Kernel Object/Event readback and sparse-array refusal without introducing a second `4096`-element/`32`-depth payload ceiling. Explicit 5000-element realistic Event is CONFIRMED when complete, changed final element is OUTCOME_UNKNOWN; no repeat Kernel Apply. Existing T2 still sets data contract/size authority; cyclic/non-JSON input is not valid evidence.
+
+**Previously full hardware D5**: [CI №44321733973](https://github.com/Faust-S/knowledge/actions/runs/44321733973) SUCCESS on `a24b575e`. Optional same-stream repeat [№44326855603](https://github.com/Faust-S/knowledge/actions/runs/44326855603) was queued on earlier `c2f21d03` at recording; do not count queued GPU or infer hardware re-run on `8d3c0344`. Installed private owner/D3/D6/D7 remains unqualified; `T3_READY=false`, `G4=NOT_ACCEPTED`.
+
 ## 18.11.2026: D3/D6 source corrections before installed owners
 
 **Code pin** `Faust-S/knowledge@35ed15dcc819be67c4779dc24439911c5ab4f98d`; [full source CI №44325927593](https://github.com/Faust-S/knowledge/actions/runs/44325927593) **SUCCESS**: Node **786/786**, `test`, `real-host`, `windows-credential` PASS, GPU/native-age/native-model SKIPPED. Do not imply new hardware D5 on this exact SHA; prior full Apple Metal pass was [№44321733973](https://github.com/Faust-S/knowledge/actions/runs/44321733973) on `a24b575e`.
