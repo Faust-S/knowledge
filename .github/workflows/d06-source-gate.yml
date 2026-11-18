@@ -29,7 +29,7 @@ jobs:
         working-directory: private/site
         run: |
           $failed = $false
-          foreach ($task in @("ci", "run check", "run test")) {
+          foreach ($task in @("ci", "run check", "run test:native", "run test")) {
             $code = $task.Replace(" ","-")
             $log = Join-Path $env:RUNNER_TEMP ("d06-" + $code + "-private.log")
             & cmd.exe /d /c ("npm " + $task + " > """ + $log + """ 2>&1")
@@ -45,7 +45,7 @@ jobs:
               $ts = ([regex]::Matches($logText, "error TS[0-9]+:")).Count
               Write-Host ("D06_SOURCE_" + $code.ToUpperInvariant() + "_TS_COUNT=" + $ts)
               Write-Host ("D06_SOURCE_" + $code.ToUpperInvariant() + "_PRETTIER_COUNT=" + $prettier)
-              if ($task -eq "run test") {
+              if ($task -eq "run test" -or $task -eq "run test:native") {
                 $failureCount = ([regex]::Matches($logText, "(?m)^\s*not ok\s")).Count
                 Write-Host ("D06_SOURCE_TEST_FAILED_COUNT=" + $failureCount)
                 $testCodes = [regex]::Matches($logText, "D06_(?:PD18|WORKFLOW|RESULT)_[A-Z0-9_]+") | ForEach-Object { $_.Value } | Select-Object -Unique -First 14
