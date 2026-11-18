@@ -309,7 +309,7 @@ jobs:
                   }
                   throw 'D07_NATIVE_GUI_REQUIRED_ELEMENT_MISSING'
                 }
-                $return=WaitNative 'Мои заказы' ([System.Windows.Automation.ControlType]::Hyperlink)
+                $return=WaitNative 'Мои услуги' ([System.Windows.Automation.ControlType]::Hyperlink)
                 $returnPattern=[System.Windows.Automation.InvokePattern]$return.GetCurrentPattern(
                   [System.Windows.Automation.InvokePattern]::Pattern)
                 $returnPattern.Invoke()
