@@ -1679,8 +1679,26 @@ try{
   const recoveredPanel=recoveredSouth.page.getByTestId('t3-local-inference-panel');
   await recoveredPanel.waitFor({state:'visible',timeout:30000});
   await recoveredPanel.getByRole('button',{name:'Найти рабочие области'}).click();
-  await recoveredPanel.getByLabel('Workspace для локальной модели')
-    .selectOption('ws:south');
+  // After a genuine cold browser restart this is an asynchronous signed
+  // ORIGINAL Kernel getWorkspace, not a synchronous DOM list. Require the
+  // selected South option to exist before asking the native select to change.
+  // An empty/denied enumeration is a real failure: never substitute a
+  // caller-invented Workspace or skip this signed corporate re-selection.
+  const coldWorkspaceSelect=recoveredPanel.getByLabel('Workspace для локальной модели');
+  try{
+    await coldWorkspaceSelect.locator('option[value="ws:south"]')
+      .waitFor({state:'attached',timeout:30000});
+    await coldWorkspaceSelect.selectOption('ws:south');
+  }catch(error){
+    console.log('T3_D1_CORPORATE_COLD_WORKSPACE_DISCOVERY_DIAGNOSTIC',
+      JSON.stringify({
+        panel:await recoveredPanel.innerText(),
+        options:await coldWorkspaceSelect.locator('option').evaluateAll(
+          nodes=>nodes.map(node=>({value:node.value,text:node.textContent}))),
+        pageErrors:recoveredSouth.pageErrors,
+      }));
+    throw error;
+  }
   await recoveredPanel.getByRole('button',
     {name:'Использовать выбранный Workspace'}).click();
   // The cold original Kernel and corporate JIT focus command both execute
