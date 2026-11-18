@@ -130,8 +130,8 @@ jobs:
             console.log("D05_FAILURE_CLASSES="+failureClasses.join(","));
             const testFileSummary=t.split(/\r?\n/).filter(line=>/(?:Test Files|Tests  |Test Suites)/.test(line)).slice(-2);
             console.log("D05_VITEST_HAS_SUMMARY="+(testFileSummary.length>0));
-            const plain=t.replace(/\\x1B\\[[0-9;]*[A-Za-z]/g,"").replace(/\\r/g,"");
-            const rawMatches=[...plain.matchAll(/(?:^|\\n)\\s*(?:FAIL|❯|✗|×)\\s+((?:src|scripts)\\/[A-Za-z0-9_./$-]+\\.test\\.[cm]?[jt]sx?)/gm)];
+            const plain=t.replace(/\x1B\[[0-9;]*[A-Za-z]/g,"").replace(/\r/g,"");
+            const rawMatches=[...plain.matchAll(/(?:^|\n)\s*(?:FAIL|❯|✗|×)\s+((?:src|scripts)\/[A-Za-z0-9_./$-]+\.test\.[cm]?[jt]sx?)/gm)];
             console.log("D05_VITEST_FAILURE_PATHS="+[...new Set(rawMatches.map(m=>m[1]))].slice(0,20).join(","));
             '
             # JSON reporter isolates failing file and test ordinal without copying
@@ -147,8 +147,8 @@ jobs:
             const report=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/d05-vitest-results.json","utf8"));
             const bad=[];
             for(const file of report.testResults||[]){
-              const rel=path.relative(process.cwd(),file.name||"").replace(/\\\\/g,"/");
-              const safe=/^(src|scripts)\\/[A-Za-z0-9_./$-]+\\.test\\.[cm]?[jt]sx?$/.test(rel)?rel:"UNCLASSIFIED";
+              const rel=path.relative(process.cwd(),file.name||"").replace(/\\/g,"/");
+              const safe=/^(src|scripts)\/[A-Za-z0-9_./$-]+\.test\.[cm]?[jt]sx?$/.test(rel)?rel:"UNCLASSIFIED";
               const cases=file.assertionResults||[];
               const indexes=cases.flatMap((a,i)=>a.status==="failed"?[i+1]:[]);
               if(indexes.length||file.status==="failed")bad.push({file:safe,indexes,loadError:!indexes.length});
