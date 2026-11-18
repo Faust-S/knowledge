@@ -5,7 +5,7 @@ import pathlib
 import re
 import sys
 
-if len(sys.argv) != 3 or sys.argv[1] not in ("research", "types", "lint"):
+if len(sys.argv) != 3 or sys.argv[1] not in ("research", "types", "lint", "lint-semantic"):
     raise SystemExit("D04_DIAGNOSTIC_ARGUMENTS_INVALID")
 stage = sys.argv[1]
 data = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8", errors="replace")
@@ -55,6 +55,10 @@ else:
         if match and re.fullmatch(r"[A-Za-z0-9_./$-]+", current):
             row, col, rule = match.groups()
             errors.append((current, rule))
+    if stage == "lint-semantic":
+        for filename, rule in errors[:15]:
+            # File paths and lint rule IDs only; no diagnostic message or source.
+            emit("D04_SEMANTIC_LINT_FILE=" + filename + ":rule=" + rule)
     emit("D04_LINT_PARSED_ERRORS=" + str(len(errors)))
     for filename, count in Counter(p for p, _ in errors).most_common(15):
         emit(f"D04_LINT_FILE={filename}:errors={count}")
