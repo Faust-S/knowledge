@@ -21,7 +21,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: 2e85f911ac06326f359290dd6bd71d9cbbfc967a
+      SITE_SHA: 74a210cfd00ceca4909e43685caa86cd44bd841a
       PUPPETEER_SKIP_DOWNLOAD: '1'
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       CI: 'true'
