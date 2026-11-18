@@ -28,7 +28,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Exact private owner source was accepted on pin 19be10c5 (15/15).
+  # Avoid exhausting the owner's GitHub API quota on ordinary harness pushes.
+  # An explicit trusted commit marker or manual dispatch reruns private source.
   original-private-d3-source:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-original-d3]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
