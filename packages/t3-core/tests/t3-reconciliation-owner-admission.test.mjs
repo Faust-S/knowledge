@@ -223,3 +223,35 @@ test("D3 refuses changed original receipt even when the owner reuses a mutable o
     {code:"T3_D3_DECISION_OUTCOME_UNKNOWN_USE_RECEIPT"});
   assert.deepEqual(f.counts(),{accepts:1,applies:0});
 });
+
+test("D3 cold original ACCEPT receipt cannot claim an external Kernel APPLY",async()=>{
+  const f=fixture();f.setHuman(true);
+  const input={packageSha256:sha,previewDigest,
+    operationId:"op:receipt-state",decisionBy:"person:owner"};
+  assert.equal((await f.port.accept(input)).requiresSeparateApply,true);
+  const original=f.source.receipt;
+  f.source.receipt=op=>{
+    const saved=original(op);
+    return saved?{...saved,externalContextCoreApplied:true}:saved;
+  };
+  await assert.rejects(f.makePort().receipt(input.operationId,sha),
+    {code:"T3_D3_ORIGINAL_RECEIPT_STATE_INVALID"});
+  assert.deepEqual(f.counts(),{accepts:1,applies:0},
+    "a corrupted cold readback does not authorize another ACCEPT or Apply");
+});
+
+test("D3 cold original REJECT receipt must remain not applied",async()=>{
+  const f=fixture();f.setHuman(true);
+  const input={packageSha256:sha,previewDigest,
+    operationId:"op:rejected-state",decisionBy:"person:owner",
+    reason:"Rejected by the recipient owner"};
+  assert.equal((await f.port.reject(input)).acceptanceState,"REJECTED");
+  const original=f.source.receipt;
+  f.source.receipt=op=>{
+    const saved=original(op);
+    return saved?{...saved,applicationState:"APPLIED"}:saved;
+  };
+  await assert.rejects(f.makePort().receipt(input.operationId,sha),
+    {code:"T3_D3_ORIGINAL_RECEIPT_STATE_INVALID"});
+  assert.deepEqual(f.counts(),{accepts:0,applies:0});
+});
