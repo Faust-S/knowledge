@@ -10,7 +10,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: ea523b0969a2dba556f23dfca11005eb82d5a745
+      SITE_SHA: 2f65d9c58581847e6dcb4d4017663dcf5336eb13
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -532,6 +532,10 @@ jobs:
                   }
                   Start-Sleep -Milliseconds 350
                 }
+                $sourceWitness=NativeText
+                if($sourceWitness -match '(?i)Object\s*ID\s*:\s*(d07:order:[a-f0-9]{64})'){
+                  $originalObjectId=$Matches[1]
+                }else{throw 'D07_NATIVE_IWXA_SOURCE_OBJECT_ID_NOT_FOUND'}
                 $transfer=WaitNative 'Сохранить или перенести копию' ([System.Windows.Automation.ControlType]::Hyperlink)
                 ActivateNative $transfer
                 $null=WaitNative 'Перенос данных' $null
@@ -735,6 +739,81 @@ jobs:
                 }
                 Write-Output 'D07_NATIVE_IWXA_SAME_FILE_SHA256_AFTER_IMPORT=PASS'
                 Write-Output 'D07_NATIVE_IWXA_NEW_WORKSPACE_IMPORT_OBJECT_HISTORY=PASS'
+                # An import receipt proves a commit, not user-accessible readback.
+                # Return to the ORIGINAL T2 Host and open the order in the
+                # newly created Workspace. Newer D07 UI exposes the exact
+                # selected workspace ID rather than an ambiguous ordinal.
+                $returnToService=WaitNative 'Мои услуги' ([System.Windows.Automation.ControlType]::Hyperlink)
+                ActivateNative $returnToService
+                $null=WaitNative 'Рабочая область для сохранения' $null
+                $refreshAreas=FindNative 'Обновить' ([System.Windows.Automation.ControlType]::Button)
+                if($refreshAreas){ActivateNative $refreshAreas}
+                $workspaceSelector=$null
+                for($attempt=0;$attempt -lt 40 -and !$workspaceSelector;$attempt++){
+                  foreach($proc in @(Get-Process msedge -ErrorAction SilentlyContinue |
+                    Where-Object {$_.MainWindowHandle -ne 0})){
+                    $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$proc.MainWindowHandle)
+                    if(!$window){continue}
+                    $combos=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                      [System.Windows.Automation.PropertyCondition]::new(
+                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                        [System.Windows.Automation.ControlType]::ComboBox))
+                    if($combos.Count -ge 2){$workspaceSelector=$combos.Item(0);break}
+                  }
+                  if(!$workspaceSelector){Start-Sleep -Milliseconds 400}
+                }
+                if(!$workspaceSelector){throw 'D07_NATIVE_IWXA_RESTORED_HOST_PICKER_MISSING'}
+                $workspaceSelector.SetFocus()
+                [System.Windows.Forms.SendKeys]::SendWait('{END}')
+                [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                $restoredSelected=$false
+                for($attempt=0;$attempt -lt 45;$attempt++){
+                  Start-Sleep -Milliseconds 400
+                  $visible=NativeText
+                  if($visible -match [regex]::Escape('Идентификатор выбранной области: '+$restoredName)){
+                    $restoredSelected=$true;break
+                  }
+                }
+                if(!$restoredSelected){throw 'D07_NATIVE_IWXA_RESTORED_WORKSPACE_NOT_SELECTED'}
+                Write-Output 'D07_NATIVE_IWXA_RESTORED_HOST_WORKSPACE_ID=PASS'
+                $savedRestored=$null
+                for($attempt=0;$attempt -lt 65 -and !$savedRestored;$attempt++){
+                  foreach($proc in @(Get-Process msedge -ErrorAction SilentlyContinue |
+                    Where-Object {$_.MainWindowHandle -ne 0})){
+                    $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$proc.MainWindowHandle)
+                    if(!$window){continue}
+                    $buttons=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                      [System.Windows.Automation.PropertyCondition]::new(
+                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                        [System.Windows.Automation.ControlType]::Button))
+                    for($n=0;$n -lt $buttons.Count;$n++){
+                      $candidate=$buttons.Item($n)
+                      if($candidate.Current.IsEnabled -and $candidate.Current.Name -match 'Редакция\s+1\s*·'){
+                        $savedRestored=$candidate;break
+                      }
+                    }
+                    if($savedRestored){break}
+                  }
+                  if(!$savedRestored){Start-Sleep -Milliseconds 400}
+                }
+                if(!$savedRestored){throw 'D07_NATIVE_IWXA_RESTORED_ORDER_NOT_LISTED'}
+                ActivateNative $savedRestored
+                $null=WaitNative 'Документы этого заказа: 9' $null
+                $readback=NativeText
+                if(!$readback.Contains($originalObjectId) -or
+                   $readback -notmatch 'редакция\s*:\s*1'){
+                  throw 'D07_NATIVE_IWXA_RESTORED_OBJECT_REVISION_MISMATCH'
+                }
+                Write-Output 'D07_NATIVE_IWXA_RESTORED_HOST_OBJECT_DOCUMENTS=PASS'
+                $importedHistory=$false
+                for($attempt=0;$attempt -lt 50;$attempt++){
+                  Start-Sleep -Milliseconds 400
+                  if((NativeText) -match 'История Kernel: [1-9][0-9]* событий заказа'){
+                    $importedHistory=$true;break
+                  }
+                }
+                if(!$importedHistory){throw 'D07_NATIVE_IWXA_RESTORED_KERNEL_HISTORY_NOT_VISIBLE'}
+                Write-Output 'D07_NATIVE_IWXA_RESTORED_HOST_KERNEL_HISTORY=PASS'
                 Write-Output 'D07_NATIVE_IWXA_PHYSICAL_ROUNDTRIP=PASS'
 
               }
