@@ -25,11 +25,21 @@ try{
     throw Error('G4_INSTALLED_ONE_DIST_RESULT_INCOMPLETE');
   console.log('G4_INSTALLED_ORIGINAL_ONE_DIST_PUBLIC_PREFLIGHT_PASS');
 }catch(error){
-  const value=String(error?.code??error?.message??'');
-  // Never print arbitrary exception text: controlled machine code only.
-  const code=/^(?:T3_D1_DIST|G4_INSTALLED|FACTORY2|T2)_[A-Z0-9_./-]{5,150}$/.test(value)
-    ?value:'G4_INSTALLED_ONE_DIST_UNCLASSIFIED';
+  const value=String(error?.message??error?.code??'');
+  // The inherited qualified T2 witness reports an exact missing/altered
+  // PUBLIC artifact path after a colon. Never print raw exception messages
+  // or absolute paths; show a constrained relative public path only.
+  const mismatch=value.match(
+    /^FACTORY2_WITNESS_KERNEL_ARTIFACT_MISMATCH:([A-Za-z0-9_.\\/-]{1,150})$/);
+  const code=mismatch
+    ?'FACTORY2_WITNESS_KERNEL_ARTIFACT_MISMATCH'
+    :/^(?:T3_D1_DIST|G4_INSTALLED|FACTORY2_WITNESS|T2)_[A-Z0-9_./-]{4,150}$/.test(value)
+      ?value:'G4_INSTALLED_ONE_DIST_UNCLASSIFIED';
   console.error('G4_INSTALLED_PUBLIC_ASSEMBLER_FAILURE_CODE',code);
+  if(mismatch)console.error('G4_INSTALLED_QUALIFIED_PUBLIC_RELATIVE_FILE',mismatch[1]);
+  const kind=String(error?.code??'');
+  if(/^(ENOENT|EACCES|ENOTDIR|EEXIST|EPERM)$/.test(kind))
+    console.error('G4_INSTALLED_PUBLIC_ASSEMBLER_FS_CODE',kind);
   process.exitCode=1;
 }finally{
   rmSync(output,{recursive:true,force:true,maxRetries:3});
