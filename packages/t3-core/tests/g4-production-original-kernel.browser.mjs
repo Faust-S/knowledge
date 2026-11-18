@@ -3,6 +3,7 @@
 // browser Kernel/Store. Not installed Tauri GUI, and Human decisions simulated.
 // Only public test code is committed; original private sources are ephemeral.
 import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
 import {createHash,randomUUID} from 'node:crypto';
 import {cpSync,existsSync,mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
@@ -36,6 +37,7 @@ const no=code=>{throw Object.assign(Error(code),{code});};
 
 export async function qualifyOriginalProductionEmployeeRealKernel({
   t3Root,prodRoot,workRoot,employeeCandidateRoot,employeeProcess,
+  agentRoot,pythonDriver,
   productionOrg,productionWs,candidate,onPhase=()=>{},
 }={}){
   const qualified=process.env.G4_ORIGINAL_QUALIFIED_T2_DIST;
@@ -311,6 +313,54 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
       't3.access.signed-registry');
     assert.equal(latest.object.revision,4);
     console.log('G4_ORIGINAL_PRODUCTION_EMPLOYEE_REAL_T2_TASK_ISSUED_PASS');
+
+    // Independent employee receives the EXACT production task bytes and
+    // the ORIGINAL issuer invitation through the EXISTING Agent Python/Node
+    // IPC. Manager DPAPI vault and Kernel facade never enter this process.
+    onPhase('ORIGINAL_PRODUCTION_EMPLOYEE_AGENT_SIGNED_RESULT');
+    assert.ok(typeof agentRoot==='string'&&typeof pythonDriver==='string',
+      'G4_AGENT_EXISTING_IPC_REQUIRED');
+    const resultPath=join(workRoot,'original-production-employee-result.iwxa');
+    const employeeEnvironment={
+      PATH:process.env.PATH??'',SystemRoot:process.env.SystemRoot??'',
+      WINDIR:process.env.WINDIR??'',USERPROFILE:process.env.USERPROFILE??'',
+      APPDATA:process.env.APPDATA??'',LOCALAPPDATA:process.env.LOCALAPPDATA??'',
+      HOMEDRIVE:process.env.HOMEDRIVE??'',HOMEPATH:process.env.HOMEPATH??'',
+      PSModulePath:process.env.PSModulePath??'',
+      ComSpec:process.env.ComSpec??'',ProgramData:process.env.ProgramData??'',
+      PATHEXT:process.env.PATHEXT??'',TEMP:process.env.TEMP??'',
+      TMP:process.env.TMP??'',PYTHONPATH:agentRoot,
+      PYTHONDONTWRITEBYTECODE:'1',PYTHONNOUSERSITE:'1',
+      IWXA_T3_ORIGINAL_OWNER_DIR:t3Root,
+      G4_CONTROL_ROOT:employeeCandidateRoot,
+      G4_INVITE_PATH:invitePath,G4_TASK_PATH:taskPath,
+      G4_RESULT_PATH:resultPath,
+    };
+    const subprocess=spawnSync(process.env.PYTHON_COMMAND??'python',
+      [pythonDriver],{
+        cwd:workRoot,env:employeeEnvironment,encoding:'utf8',
+        windowsHide:true,timeout:150000,maxBuffer:256*1024,
+      });
+    const employeeOutput=(subprocess.stdout??'')+'\\n'+(subprocess.stderr??'');
+    if(subprocess.status!==0){
+      const phase=employeeOutput.match(
+        /G4_NATIVE_FAILURE_PHASE\\s+([A-Z_]{3,80})/);
+      const code=employeeOutput.match(
+        /G4_NATIVE_FAILURE_CODE\\s+([A-Z0-9_]{3,119})/);
+      console.log('G4_PRODUCTION_AGENT_FAILURE_PHASE',
+        phase?.[1]??'UNCLASSIFIED');
+      console.log('G4_PRODUCTION_AGENT_FAILURE_CODE',
+        code?.[1]??'UNCLASSIFIED');
+      no('G4_PRODUCTION_AGENT_ORIGINAL_IPC_NOT_ACCEPTED');
+    }
+    for(const marker of [
+      'G4_ORIGINAL_NATIVE_EMPLOYEE_SIGNED_TASK_PASS',
+      'G4_ORIGINAL_NATIVE_EMPLOYEE_SIGNED_RESULT_PASS',
+      'G4_ORIGINAL_NATIVE_EMPLOYEE_COLD_NO_REEXPORT_PASS',
+    ])assert.ok(employeeOutput.includes(marker),
+      'G4_PRODUCTION_AGENT_ORIGINAL_IPC_MARKER_MISSING');
+    assert.ok(existsSync(resultPath)&&readFileSync(resultPath).length>64);
+    console.log('G4_ORIGINAL_PRODUCTION_EMPLOYEE_REAL_T2_AGENT_RESULT_PASS');
 
     // First source-only qualification ends at real Kernel grants; installed
     // native Human ACCEPT / separate Human APPLY is a distinct next gate.
