@@ -36,6 +36,10 @@ try{
     :/^(?:T3_D1_DIST|G4_INSTALLED|FACTORY2_WITNESS|T2)_[A-Z0-9_./-]{4,150}$/.test(value)
       ?value:'G4_INSTALLED_ONE_DIST_UNCLASSIFIED';
   console.error('G4_INSTALLED_PUBLIC_ASSEMBLER_FAILURE_CODE',code);
+  // This preflight job checks out PUBLIC knowledge only, with NO private
+  // T3/Center sources or secrets. Its local assembler error is safe to
+  // diagnose directly, unlike the later private Bun/Rust build.
+  console.error('G4_INSTALLED_PUBLIC_ASSEMBLER_ERROR',value.slice(0,500));
   if(mismatch)console.error('G4_INSTALLED_QUALIFIED_PUBLIC_RELATIVE_FILE',mismatch[1]);
   const kind=String(error?.code??'');
   if(/^(ENOENT|EACCES|ENOTDIR|EEXIST|EPERM)$/.test(kind))
