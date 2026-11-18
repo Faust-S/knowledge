@@ -142,6 +142,8 @@ try{
   ClickButton 'Планы Atlas'
   TypeText 'Название рабочей области' 'G4CorporateWorkspace'
   ClickButton 'Добавить'
+  Check (HasText 'G4CorporateWorkspace') 'G4_INSTALLED_WORKSPACE_WITHOUT_ATLAS_NOT_CREATED'
+  Write-Host 'G4_INSTALLED_ORDINARY_WORKSPACE_WITHOUT_ATLAS_PASS'
   # Persist the real manager draft before the cold installed reopen.
   # The signed owner and the ordinary Center organization remain
   # distinct; neither silently reconstructs the other's storage.
