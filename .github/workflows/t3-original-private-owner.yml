@@ -44,7 +44,8 @@ jobs:
         # Owner has allowed read-only testing from public knowledge, not whole
         # checkout. T3 is the direct scoped secret; DOMEN is a legacy fallback.
         env:
-          T3_READ_TOKEN: ${{ secrets.T3 || secrets.DOMEN }}
+          T3_READ_TOKEN: ${{ secrets.T3 }}
+          DOMEN_PRIVATE_READ_TOKEN: ${{ secrets.DOMEN }}
         run: node packages/t3-core/scripts/qualify-original-private-d3-owner.mjs
 
   # Agent is a separately private product. Its own read grant has not been
