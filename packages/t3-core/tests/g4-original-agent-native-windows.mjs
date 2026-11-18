@@ -138,5 +138,67 @@ try{
     assert.ok(checked);
     console.log('G4_ORIGINAL_NATIVE_ADMIN_ACCEPTED_READBACK_PASS');
   }finally{reopened.close();}
+
+  // The previous signed employee exchange used an explicit TEST issuer.
+  // Qualify the separately existing ORIGINAL production Admin enrollment
+  // under genuine Windows DPAPI CurrentUser, with a NEW cold Node process.
+  // This does not create a new signer, Kernel, Store or employee credential.
+  phase='ORIGINAL_PRODUCTION_OWNER_ENROLL';
+  const {runNativeAdminD3}=await import(pathToFileURL(
+    join(t3Root,'interop','native-admin-d3.mjs')).href);
+  const prodRoot=join(workRoot,'production-owner');
+  const productionOrg='org:g4:original-windows-probe';
+  const productionWs='workspace:g4:original-windows-probe';
+  const requestPath=join(dir,'production-owner-command.json');
+  writeFileSync(requestPath,JSON.stringify({
+    organizationId:productionOrg,
+    workspaceId:productionWs,
+    organizationName:'IWXA G4 Native Owner Qualification',
+  }),{flag:'wx'});
+  const enrolled=runNativeAdminD3([
+    'd3-enroll',prodRoot,productionOrg,requestPath,
+  ]);
+  assert.equal(enrolled?.schema,'IWXA_T3_ADMIN_D3_NATIVE/1');
+  assert.equal(enrolled.organizationId,productionOrg);
+  assert.equal(enrolled.operation,'D3_ENROLLED');
+  assert.equal(enrolled.ownerMode,'ORIGINAL_SIGNED_CORPORATE_D3');
+  assert.equal(enrolled.view?.status,'D3_OWNER_READY');
+  // Production owner is not the whole T3 G4 product; it deliberately reports
+  // productionActivation=false and T3_READY=false in public native status.
+  assert.equal(enrolled.productionActivation,false);
+  assert.equal(enrolled.T3_READY,false);
+  phase='ORIGINAL_PRODUCTION_OWNER_COLD_READBACK';
+  const originalModule=join(t3Root,'interop','native-admin-d3.mjs');
+  const source=[
+    "import{pathToFileURL}from'node:url';",
+    "const [modulePath,root,organization,workspace]=process.argv.slice(1);",
+    "const {runNativeAdminD3}=await import(pathToFileURL(modulePath).href);",
+    "const state=runNativeAdminD3(['d3-state',root,organization]);",
+    "if(state?.schema!=='IWXA_T3_ADMIN_D3_NATIVE/1'||",
+    "state.ownerMode!=='ORIGINAL_SIGNED_CORPORATE_D3'||",
+    "state.organizationId!==organization||",
+    "state.view?.status!=='D3_OWNER_READY'||",
+    "state.view?.snapshot?.workspaceId!==workspace||",
+    "state.view?.snapshot?.d3RecipientAvailable!==true||",
+    "state.productionActivation!==false||state.T3_READY!==false)",
+    "throw Error('G4_ORIGINAL_PRODUCTION_OWNER_COLD_READBACK_FAILED');",
+    "console.log('G4_ORIGINAL_PRODUCTION_OWNER_COLD_READBACK_PASS');",
+  ].join('');
+  const coldProd=spawnSync(process.execPath,
+    ['--input-type=module','-e',source,originalModule,prodRoot,
+      productionOrg,productionWs],
+    {cwd:workRoot,env:{
+      PATH:process.env.PATH??'',SystemRoot:process.env.SystemRoot??'',
+      WINDIR:process.env.WINDIR??'',USERPROFILE:process.env.USERPROFILE??'',
+      APPDATA:process.env.APPDATA??'',LOCALAPPDATA:process.env.LOCALAPPDATA??'',
+      HOMEDRIVE:process.env.HOMEDRIVE??'',HOMEPATH:process.env.HOMEPATH??'',
+      PSModulePath:process.env.PSModulePath??'',
+      TEMP:process.env.TEMP??'',TMP:process.env.TMP??'',
+    },encoding:'utf8',windowsHide:true,timeout:45000,maxBuffer:128*1024});
+  assert.equal(coldProd.status,0,
+    'G4_ORIGINAL_PRODUCTION_OWNER_COLD_READBACK_FAILED');
+  assert.ok((coldProd.stdout??'').includes(
+    'G4_ORIGINAL_PRODUCTION_OWNER_COLD_READBACK_PASS'));
+  console.log('G4_ORIGINAL_PRODUCTION_OWNER_COLD_READBACK_PASS');
 }catch(error){phaseFail(phase,error)}
 finally{try{admin?.close()}catch{}}
