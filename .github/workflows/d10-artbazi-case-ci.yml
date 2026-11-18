@@ -162,9 +162,21 @@ jobs:
           exit "$result"
       - name: Mounted T2 Workspace commercial review scoping
         shell: bash
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          ARTBAZI_LOCAL_PREVIEW_ORIGIN: http://127.0.0.1:4342
         run: |
+          # Previous step already verified the standard integrated dist.
+          # Make a separate disposable loopback qualification build; do not publish it.
           set +e
           cd site
+          npm run build:t2:site > "$RUNNER_TEMP/d10-review-preview-build.log" 2>&1
+          build_result=$?
+          if [ "$build_result" -ne 0 ]; then
+            echo "::error::D10_REVIEW_LOCAL_PREVIEW_BUILD=FAIL"
+            exit "$build_result"
+          fi
+          echo "D10_REVIEW_LOCAL_PREVIEW_BUILD=PASS"
           node scripts/tests/d10-commercial-review-browser-smoke.mjs > "$RUNNER_TEMP/d10-review-browser.log" 2>&1
           result=$?
           grep -E '^D10_REVIEW_' "$RUNNER_TEMP/d10-review-browser.log" || true
