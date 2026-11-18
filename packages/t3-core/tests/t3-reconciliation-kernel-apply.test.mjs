@@ -368,4 +368,19 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   assert.equal((await makePort().recoverApplied(selection)).status,
     "ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
   assert.equal(commits,beforeUncertain+4);
+  // Original T2 persists only dense JSON arrays. A sparse readback must
+  // NEVER validate against a genuine explicit null in a sealed Event, even
+  // though Array.every() silently skips the hole. No new Kernel dispatch.
+  command.event.payload.reviewWitnesses=[null];
+  lastEvent.payload.reviewWitnesses=new Array(1);
+  const incompleteProvenance=await makePort().recoverApplied(selection);
+  assert.equal(incompleteProvenance.status,"OUTCOME_UNKNOWN");
+  assert.equal(incompleteProvenance.automaticRetryAllowed,false);
+  assert.equal(commits,beforeUncertain+4);
+  lastEvent.payload.reviewWitnesses=[null];
+  assert.equal((await makePort().recoverApplied(selection)).status,
+    "ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
+  assert.equal(commits,beforeUncertain+4);
+  delete command.event.payload.reviewWitnesses;
+  delete lastEvent.payload.reviewWitnesses;
 });

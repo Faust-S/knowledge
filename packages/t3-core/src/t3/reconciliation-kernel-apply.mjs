@@ -20,15 +20,32 @@ function copy(value,code){
 // payload. Its canonical storage may reorder object keys, so byte-for-byte
 // JSON.stringify is not a valid equality check. Extra/mutated provenance
 // fields must never be accepted as the original signed application Event.
-function sameJson(a,b){
-  if(a===b)return true;
-  if(!a||!b||typeof a!=="object"||typeof b!=="object")return false;
-  if(Array.isArray(a)||Array.isArray(b))
-    return Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&
-      a.every((value,i)=>sameJson(value,b[i]));
+function sameJson(a,b,depth=0){
+  // A sparse array may compare equal with .every() even though the original
+  // T2 persisted a different JSON value. Require dense, plain JSON at every
+  // level for Object/Event readback, never just matching top-level provenance.
+  if(depth>32)return false;
+  if(a===null||b===null)return a===b;
+  if(typeof a!==typeof b)return false;
+  if(typeof a==="string"||typeof a==="boolean")return a===b;
+  if(typeof a==="number")
+    return Number.isFinite(a)&&Number.isFinite(b)&&a===b;
+  if(typeof a!=="object")return false;
+  if(Array.isArray(a)||Array.isArray(b)){
+    if(!Array.isArray(a)||!Array.isArray(b)||a.length!==b.length||
+       a.length>4096)return false;
+    for(let i=0;i<a.length;i++){
+      if(!Object.hasOwn(a,i)||!Object.hasOwn(b,i)||
+         !sameJson(a[i],b[i],depth+1))return false;
+    }
+    return true;
+  }
+  const plain=value=>Object.getPrototypeOf(value)===Object.prototype||
+    Object.getPrototypeOf(value)===null;
+  if(!plain(a)||!plain(b))return false;
   const keys=Object.keys(a);
   return keys.length===Object.keys(b).length&&
-    keys.every(key=>Object.hasOwn(b,key)&&sameJson(a[key],b[key]));
+    keys.every(key=>Object.hasOwn(b,key)&&sameJson(a[key],b[key],depth+1));
 }
 // Exact target keys required by the original historical application-host
 // binding; a workspace alias alone is not a complete recipient scope.
