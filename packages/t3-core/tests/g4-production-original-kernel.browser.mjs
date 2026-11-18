@@ -402,22 +402,33 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
     const reviewId='review:g4-'+randomUUID();
     pendingHumanReview={operationId:reviewId,
       packageSha256:resultDigest,previewDigest:preview.previewDigest};
-    const accepted=await action('d3Decide',{
+    onPhase('ORIGINAL_PRODUCTION_ADMIN_ACCEPT_DISPATCH');
+    const accepted=await action('d3Decide',{ 
       operationId:reviewId,packageSha256:resultDigest,
       previewDigest:preview.previewDigest,decision:'ACCEPT',
     });
+    onPhase('ORIGINAL_PRODUCTION_ADMIN_ACCEPT_CONSENT_CHECK');
     assert.equal(pendingHumanReview,null);
+    onPhase('ORIGINAL_PRODUCTION_ADMIN_ACCEPT_STATE_CHECK');
     assert.equal(accepted.acceptanceState,'ACCEPTED');
+    onPhase('ORIGINAL_PRODUCTION_ADMIN_ACCEPT_KERNEL_SEPARATION');
     assert.equal(accepted.kernelApplication,'NOT_APPLIED');
+    onPhase('ORIGINAL_PRODUCTION_ADMIN_ACCEPT_SEPARATE_APPLY_CHECK');
     assert.equal(accepted.requiresSeparateApply,true);
-    const receipt=await action('d3Receipt',{
+    onPhase('ORIGINAL_PRODUCTION_ADMIN_ACCEPT_RECEIPT_READ');
+    const receipt=await action('d3Receipt',{ 
       operationId:reviewId,packageSha256:resultDigest,
     });
+    onPhase('ORIGINAL_PRODUCTION_ADMIN_ACCEPT_RECEIPT_FOUND');
     assert.equal(receipt.found,true);
+    onPhase('ORIGINAL_PRODUCTION_ADMIN_ACCEPT_RECEIPT_STATE');
     assert.equal(receipt.receipt?.acceptanceState,'ACCEPTED');
+    onPhase('ORIGINAL_PRODUCTION_ADMIN_ACCEPT_RECEIPT_BINDING');
     assert.equal(receipt.receipt?.acceptanceId,accepted.receipt?.acceptanceId);
+    onPhase('ORIGINAL_PRODUCTION_ADMIN_ACCEPT_KERNEL_READ');
     const afterAcceptance=await facade.getObject(productionWs,
       't3.access.signed-registry');
+    onPhase('ORIGINAL_PRODUCTION_ADMIN_ACCEPT_KERNEL_REVISION');
     assert.equal(afterAcceptance.object.revision,latest.object.revision);
     console.log('G4_ORIGINAL_PRODUCTION_EMPLOYEE_ADMIN_HUMAN_ACCEPT_PASS');
 
