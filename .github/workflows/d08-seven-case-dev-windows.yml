@@ -14,14 +14,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  case006-dev-ui:
+  cases001-007-dev-ui:
     runs-on: windows-latest
     timeout-minutes: 15
     defaults:
       run:
         shell: pwsh
     env:
-      SITE_SHA: 5038045f465f3d5eea803a0189fc32abb26ef274
+      SITE_SHA: 2e85f911ac06326f359290dd6bd71d9cbbfc967a
       PUPPETEER_SKIP_DOWNLOAD: '1'
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       CI: 'true'
@@ -31,8 +31,13 @@ jobs:
           GH_TOKEN: ${{ secrets.DOMEN }}
         run: |
           if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'D08_DOMEN_UNAVAILABLE'}
-          & gh api 'repos/Faust-S/market-ops.ru' --jq '.id' *> $null
-          if($LASTEXITCODE -ne 0){throw 'D08_SITE_ACCESS_DENIED'}
+          $available=$false
+          for($attempt=1;$attempt -le 3;$attempt++){
+            & gh api 'repos/Faust-S/market-ops.ru' --jq '.id' *> $null
+            if($LASTEXITCODE -eq 0){$available=$true;break}
+            Start-Sleep -Seconds (2*$attempt)
+          }
+          if(-not $available){throw 'D08_SITE_ACCESS_DENIED_AFTER_RETRIES'}
           git config --global core.autocrlf false
           Write-Host 'D08_FAST_SITE_ACCESS=PASS'
       - uses: actions/checkout@v4
@@ -61,7 +66,7 @@ jobs:
           if($found.Count -eq 0){throw 'D08_FAST_BROWSER_MISSING'}
           Add-Content -LiteralPath $env:GITHUB_ENV -Value ('PUPPETEER_EXECUTABLE_PATH='+$found[0])
           Write-Host 'D08_FAST_NPM_AND_SYSTEM_BROWSER=PASS'
-      - name: Verify case006 actual React and session handoff (not original Host)
+      - name: Verify CASE001 to CASE007 actual interactive UI and responsive layouts
         working-directory: private/site
         timeout-minutes: 7
         run: |
