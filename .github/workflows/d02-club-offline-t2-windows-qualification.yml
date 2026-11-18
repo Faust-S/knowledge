@@ -113,8 +113,8 @@ jobs:
             foreach($code in @('ENOTCACHED','EACCES','ENOENT','EPERM','E404','ERR_MODULE_NOT_FOUND','CLUB_T2_OFFLINE_CACHE_NOT_PREPARED','CLUB_T2_QUALIFIED_KERNEL_RELEASE_MISMATCH','CLUB_T2_PRODUCTION_CONFIG_INVALID','CLUB_T2_BUILD_MARKER_INVALID')){
               if($body.Contains($code)) { Write-Output ("D02_OFFLINE_FAILURE_CODE=" + $code) }
             }
-            if($body -match 'npm-cli\\.js ci') { Write-Output 'D02_OFFLINE_FAILURE_EXEC=NODE_NPM_CI' }
-            if($body -match 'npm-cli\\.js run build') { Write-Output 'D02_OFFLINE_FAILURE_EXEC=NODE_NPM_BUILD' }
+            if($body.Contains('npm-cli.js ci')) { Write-Output 'D02_OFFLINE_FAILURE_EXEC=NODE_NPM_CI' }
+            if($body.Contains('npm-cli.js run build')) { Write-Output 'D02_OFFLINE_FAILURE_EXEC=NODE_NPM_BUILD' }
             if($body -match 'Error: Command failed') { Write-Output 'D02_OFFLINE_FAILURE_CLASS=CHILD_COMMAND_FAILED' }
             if($body -match 'Error: (CLUB_[A-Z0-9_]+)') { Write-Output ("D02_OFFLINE_FAILURE_CLASS=" + $Matches[1]) }
             if($body -match '(?m)^npm error code ([A-Z0-9_]+)') { Write-Output ("D02_OFFLINE_NPM_CODE=" + $Matches[1]) }
