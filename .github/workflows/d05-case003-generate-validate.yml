@@ -112,7 +112,7 @@ jobs:
             "src/site-routes.ts",
             "src/site-routes.test.ts",
           ];
-          const format = (c) => /[\\s,;]/u.test(c);
+          const format = (c) => /[\s,;]/u.test(c);
           function separate(s) {
             const chars = [], gaps = [];
             let run = "";
