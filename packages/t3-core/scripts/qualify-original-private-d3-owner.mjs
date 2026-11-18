@@ -8,7 +8,7 @@ import {spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 
 const REPO='Faust-S/T3';
-const PIN='8d66ace6ef9b34bf68ed33f15542009df12fee80';
+const PIN='19be10c557618f5c8b476a739c8fc4ca0fa2ac7f';
 const TEST='tests/admin-original-host-port.test.mjs';
 const EXPECT='native D3 compares every signed field independent of original JSON key order';
 const ROOTS=new Set(['interop','reconciliation','access-control','tests']);
