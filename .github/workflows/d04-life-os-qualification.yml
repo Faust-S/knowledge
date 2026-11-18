@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 421425acd89b4213b531ecfa01c7fead18930cea
+          ref: a60480b7f2228e87554f55a5b2ec9c947ae34d3c
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -70,8 +70,8 @@ jobs:
       - name: Verify immutable site / subject / T2 revisions
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "421425acd89b4213b531ecfa01c7fead18930cea"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "dab612d193b869e74f87e6bd88f3cc94845e8d70"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "a60480b7f2228e87554f55a5b2ec9c947ae34d3c"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "d6539cbdc1a73418d84f46501fa7565edfeaa977"
           test "$(git -C d04-private/model rev-parse HEAD)" = "a148d0386a73fc0131f971075ce3743e7010e995"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           for path in d04-private/site d04-private/model d04-private/t2; do
