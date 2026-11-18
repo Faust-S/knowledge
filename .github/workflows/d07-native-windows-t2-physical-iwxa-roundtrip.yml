@@ -706,7 +706,7 @@ jobs:
                       [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
                     }
                     if($tabSteps % 2 -eq 0){
-                      [System.Windows.Forms.SendKeys]::SendWait('{SPACE}')
+                      [System.Windows.Forms.SendKeys]::SendWait(' ')
                     }else{
                       [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
                     }
