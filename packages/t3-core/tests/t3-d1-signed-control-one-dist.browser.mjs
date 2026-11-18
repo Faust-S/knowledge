@@ -1418,7 +1418,23 @@ try{
   const onboardCorporate=async short=>{
     const {page,pageErrors}=await openCorporateApp();
     const gate=page.getByTestId('t3-d1-selected-workspace-message');
-    await gate.waitFor({state:'visible',timeout:45000});
+    // A visible alert alone can be a transient signed JIT refusal while
+    // the original Control epoch is being rebound. The actual first-run
+    // capability is the independently authorized create action. Do not
+    // click an untrusted ID or treat a Control denial as a missing Workspace.
+    try{
+      await page.getByTestId('t3-d1-create-selected-workspace')
+        .waitFor({state:'visible',timeout:45000});
+    }catch(error){
+      console.log('T3_D1_CORPORATE_FIRST_RUN_ORIGINAL_OWNER_DIAGNOSTIC',
+        JSON.stringify({
+          organization:short,
+          alert:await gate.innerText().catch(()=>null),
+          root:await page.locator('#root').innerText().then(x=>x.slice(0,1700)).catch(()=>null),
+          pageErrors,
+        }));
+      throw error;
+    }
     assert.match(await gate.innerText(),/выбранного профиля/,
       'CORP_SIGNED_FIRST_RUN_REQUIRED');
     assert.equal(new URL(page.url()).hash,'#/overview');
