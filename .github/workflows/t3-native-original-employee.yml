@@ -40,7 +40,7 @@ jobs:
           python -m py_compile packages/t3-core/tests/g4-original-agent-native-driver.py
       - name: Separate original owner / Agent Node-Python Windows process
         env:
-          T3_READ_TOKEN: ${{ secrets.T3 }}
-          AGENT_READ_TOKEN: ${{ secrets.AGENT }}
+          T3_READ_TOKEN: ${{ secrets.T3 || secrets.DOMEN }}
+          AGENT_READ_TOKEN: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
         shell: pwsh
         run: node packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs
