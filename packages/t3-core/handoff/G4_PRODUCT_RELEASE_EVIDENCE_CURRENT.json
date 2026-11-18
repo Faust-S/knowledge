@@ -1459,6 +1459,35 @@
       "g4_accepted": false,
       "original_kernel_apply": "NOT_RUN",
       "privacy": "temporary private-source read-only material on public knowledge Windows runner; no private Actions; no private artifacts, source, keys or payload content emitted; ephemeral files removed"
+    },
+    "original_production_employee_real_kernel_2026_11_18": {
+      "source_repository": "Faust-S/knowledge",
+      "source_pin": "c3bf22ee93d52b80cc35c8c0f58f77995442ab71",
+      "windows_run_id": 44399566882,
+      "windows_result": "SUCCESS",
+      "exact_pass_count": 10,
+      "exact_required_count": 10,
+      "original_t2_artifact": "iwxa-kernel-k036-same-store-history-20261019-qualified.1",
+      "original_runtime": "0.3.6",
+      "original_contract": "1.3.0",
+      "real_t2_kernel_object": "iwxa.t3.access.signed-registry",
+      "real_t2_commit": "t1.commitObjectGraph",
+      "real_t2_original_events": 3,
+      "result": "PRODUCTION_WINDOWS_ADMIN_DPAPI_AND_INDEPENDENT_AGENT_EMPLOYEE_ENROLLED_IN_REAL_T2_KERNEL",
+      "original_private_t3_sha": "0aa8b602af7c59a0eca1ee7fb1bd45fd4159ab73",
+      "original_agent_sha": "5638684ab952dffa545d8a374507f494a1a5ef2a",
+      "boundaries": [
+        "A single hosted Windows CI account with independent person/vault records, not two installed OS accounts",
+        "Original T2 real browser Kernel signed employee registry / actions / event readback only",
+        "Signed employee addressed Task+Result through production Agent still NOT_ACCEPTED",
+        "Independent installed GUI Human ACCEPT and separately authorized original Kernel APPLY NOT_RUN",
+        "D6 generic and D7 person installed acceptance NOT_RUN"
+      ],
+      "all_private_source_ephemeral": true,
+      "private_actions_run": false,
+      "t3_ready": false,
+      "g4_accepted": false,
+      "production_activation": false
     }
   },
   "accepted_gates": {
@@ -1552,8 +1581,8 @@
     "t3_ready": false,
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
-    "original_private_native_signer": "ORIGINAL_WINDOWS_PRODUCTION_ADMIN_DPAPI_AND_INDEPENDENT_EMPLOYEE_FIRST_USE_AGENT_IPC_7_OF_7_PASS_44396018427__KERNEL_MEMBERSHIP_INSTALLED_HOLD",
-    "independent_installed_d3": "HOLD_ORIGINAL_PRODUCTION_OWNER_AND_INDEPENDENT_EMPLOYEE_FIRST_USE_IPC_PASS_44396018427__ORIGINAL_T2_KERNEL_GRANT_TASK_APPLY_AND_GUI_NOT_RUN",
+    "original_private_native_signer": "ORIGINAL_PRODUCTION_ADMIN_INDEPENDENT_EMPLOYEE_REAL_T2_KERNEL_10_OF_10_SUCCESS_44399566882__SIGNED_TASK_RESULT_APPLY_GUI_HOLD",
+    "independent_installed_d3": "HOLD_REAL_T2_SIGNED_EMPLOYEE_KERNEL_ENROLMENT_10_OF_10__SIGNED_TASK_RESULT_NATIVE_APPLY_INSTALLED_GUI_NOT_RUN",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
