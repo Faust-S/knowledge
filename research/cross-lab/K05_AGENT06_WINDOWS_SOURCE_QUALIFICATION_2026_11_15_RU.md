@@ -322,3 +322,13 @@ Public Center pinned [`2d798a6f`](https://github.com/Faust-S/Center/commit/2d798
 Public Center c21d7e886cbb1b81e22c312f335a8e605ff74f76 закреплён на exact Agent SHA. [Source Windows #44402508002](https://github.com/Faust-S/Center/actions/runs/44402508002) запущен. До завершённой installed Windows проверки на исправленном SHA: K05_NATIVE_ACCEPTED=false, PRODUCT_ACCEPTED=false, REAL_EFFECTIVENESS=NOT_MEASURABLE, READY_FOR_AGENT_INTEGRATION=false.
 
 Основной Agent, Office, T3 D3/D6, main не изменены. Private Actions не запускались; публичный runner лишь временно читает exact private SHA; приватные EXE, модельные ответы и полные журналы не опубликованы.
+
+### 19.11: повторная source-квалификация исправленного UIA, 121/121 PASS
+
+[Public Center source #44402912572](https://github.com/Faust-S/Center/actions/runs/44402912572) SUCCESS: original Agent exact private SHA 4f2fe6e7fefe48db6c8a148ab2e85018f37a2d67, Center 0cc1c2d31f42a9b960e179ab0c0bb1b35f7ae12f. Original Python owner 121/121 PASS; comparison 19/19 PASS; llama.cpp output 32/32 PASS; observed tokens 15/15 PASS; original packaging 29/29 PASS (0 errors), packaged cold Core PASS, Windows PowerShell native UIA syntax PASS, TypeScript/Vite/Desktop UI PASS. No public private artifacts (0).
+
+Причина предшествующего source FAIL #44402508002 установлена адресно: stale test_agent06_k05_package_delivery.py ожидал удалённый ACCEPTED_BADGE_NOT_VISIBLE и старую ветку elseif. Исправлен исходный packaging test по новым строгим причинам и неизменной проверке Task ID; критерии приёмки не смягчались.
+
+Current installed native [Center #44402911987](https://github.com/Faust-S/Center/actions/runs/44402911987) pinned на той же Agent SHA, окончательный приёмочный результат на момент записи не получен. Идущий более ранний run #44402775963 использует старую исходную ревизию и не подменяет новую приёмку.
+
+Статус: SOURCE=PASS; INSTALLED=NOT_ACCEPTED; REAL_TWO_EXECUTORS=NOT_MEASURED; READY_FOR_AGENT_INTEGRATION=false. Никаких private Actions, опубликованных исходников Agent/EXE/model output.
