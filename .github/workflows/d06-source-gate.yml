@@ -32,9 +32,11 @@ jobs:
       - name: Verify canonical item rule matches site implementation
         shell: pwsh
         run: |
-          $canon = Get-FileHash -LiteralPath "private/domain/src/rules/item-result-binding.ts" -Algorithm SHA256
-          $site = Get-FileHash -LiteralPath "private/site/src/rules/item-result-binding.ts" -Algorithm SHA256
-          if ($canon.Hash -ne $site.Hash) {
+          # Git blob identity compares the exact canonical source,
+          # unaffected by repository-specific Windows CRLF checkout settings.
+          $canon = (& git -C private/domain rev-parse "HEAD:src/rules/item-result-binding.ts").Trim()
+          $site = (& git -C private/site rev-parse "HEAD:src/rules/item-result-binding.ts").Trim()
+          if ($LASTEXITCODE -ne 0 -or $canon -ne $site) {
             Write-Host "D06_ITEM_BINDING_CANONICAL_SYNC=FAIL"
             exit 1
           }
