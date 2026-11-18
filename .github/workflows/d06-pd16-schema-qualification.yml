@@ -73,6 +73,28 @@ jobs:
             Write-Host ("D06_PD16_" + $target.key + "_FORMAT=" + $formatStatus)
             if ($formatStatus -ne "PASS") { $failures += 1 }
           }
+          # Diagnose the FIRST formatting disagreement by line number only.
+          # Neither original nor formatted private source is printed.
+          $probe = @'
+          const fs = require("node:fs");
+          const prettier = require("prettier");
+          (async () => {
+            const file = "scripts/test-workflow-deliver-and-accept.ts";
+            const source = fs.readFileSync(file, "utf8");
+            const format = await prettier.format(source, {
+              ...(await prettier.resolveConfig(file)), filepath: file,
+            });
+            const before = source.split(/\\r?\\n/);
+            const after = format.split(/\\r?\\n/);
+            let first = 0;
+            while (first < before.length && first < after.length &&
+                   before[first] === after[first]) first++;
+            console.log("D06_PD16_FIRST_FORMAT_DIFF_LINE=" + (first + 1));
+            console.log("D06_PD16_ORIGINAL_LINES=" + before.length);
+            console.log("D06_PD16_EXPECTED_LINES=" + after.length);
+          })().catch(() => { console.log("D06_PD16_FORMAT_PROBE=FAIL"); process.exit(1); });
+          '@
+          $probe | node -
           if ($failures -gt 0) { exit 1 }
       - name: Confirm public privacy boundary
         if: always()
