@@ -657,7 +657,15 @@ jobs:
                 if(!$fileDialog){throw 'D07_NATIVE_IWXA_WINDOWS_FILE_DIALOG_NOT_OPENED'}
                 Write-Output 'D07_NATIVE_IWXA_WINDOWS_FILE_DIALOG=PASS'
                 # This path stays on the private Windows runner, never in logs.
-                $fileDialog.SetFocus()
+                # The real Windows file dialog is already foreground and
+                # modal. UIA often reports its root Window as not focusable,
+                # even though its file-name child has keyboard focus.
+                try {
+                  $fileDialog.SetFocus()
+                  Write-Output 'D07_NATIVE_IWXA_DIALOG_UIA_FOCUS=PASS'
+                } catch {
+                  Write-Output 'D07_NATIVE_IWXA_DIALOG_UIA_ROOT_NOT_FOCUSABLE=TRUE'
+                }
                 Set-Clipboard -Value $archive.FullName
                 [System.Windows.Forms.SendKeys]::SendWait('^v')
                 Start-Sleep -Milliseconds 300
