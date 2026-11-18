@@ -105,7 +105,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "D11_CANONICAL_MODELS_REGRESSION_FAILED" }
           & node --experimental-strip-types --test @siteTests
           if ($LASTEXITCODE -ne 0) { throw "D11_SITE_SOURCE_REGRESSION_FAILED" }
-          Write-Output "D11_ALL_SOURCE_REGRESSIONS=PASS"
+          & npx --no-install tsc --noEmit --project tsconfig.json *> (Join-Path $env:RUNNER_TEMP "d11-types.log")
+          if ($LASTEXITCODE -ne 0) { throw "D11_SITE_TYPES_FAILED" }
+          Write-Output "D11_ALL_SOURCE_REGRESSIONS_AND_TYPES=PASS"
       - name: Verify all nine integrated static product checks
         id: hygiene
         continue-on-error: true
