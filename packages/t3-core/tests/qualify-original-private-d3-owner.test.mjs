@@ -39,7 +39,7 @@ test('fetches only transitive original test modules without cloning or credentia
     'interop/tiny.mjs': 'export const proof=42;',
   };
   const requested=[];
-  const response=await runOriginalPrivateOwnerSourceCheck({token:'not-real-token',
+  const response=await runOriginalPrivateOwnerSourceCheck({token:'not-real-token',assets:[],
     fetchFile:async path=>{
       requested.push(path);
       if(!(path in files))throw Error('UNEXPECTED_PRIVATE_MODULE_REQUEST');

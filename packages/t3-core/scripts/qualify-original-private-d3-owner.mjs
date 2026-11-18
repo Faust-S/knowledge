@@ -59,10 +59,12 @@ async function getExactFile(path,token){
   return bytes;
 }
 
-export async function runOriginalPrivateOwnerSourceCheck({token,fetchFile=getExactFile}={}){
+export async function runOriginalPrivateOwnerSourceCheck({token,fetchFile=getExactFile,assets=['access-control/domain-registry.json']}={}){
   if(typeof token!=='string'||!token.trim())throw Error('T3_KNOWLEDGE_READ_TOKEN_NOT_AVAILABLE');
   const root=mkdtempSync(join(tmpdir(),'iwxa-t3-original-d3-'),{mode:0o700});
-  const visited=new Set(),pending=[TEST];
+  // Original AccessRegistry loads this packaged policy with readFileSync,
+  // not an ESM import. Read exactly this verified runtime asset as well.
+  const visited=new Set(),pending=[TEST,...assets];
   let count=0,totalBytes=0;
   try{
     while(pending.length){
