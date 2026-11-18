@@ -52,6 +52,19 @@ jobs:
           node - "$RUNNER_TEMP/pt-lint-old.json" "$RUNNER_TEMP/pt-lint-new.json" <<'JS'
           const fs=require('fs');
           const totals=p=>{const r=JSON.parse(fs.readFileSync(p,"utf8")),t={};for(const f of r)for(const m of f.messages||[])if(m.severity===2)t[m.ruleId||"parser-error"]=(t[m.ruleId||"parser-error"]||0)+1;return t;};
+          const files=(p)=>new Map(JSON.parse(fs.readFileSync(p,"utf8")).map(f=>[
+            f.filePath.replace(/\\/g,"/").split("/").slice(-3).join("/"),
+            {count:(f.messages||[]).filter(m=>m.severity===2).length,
+             lines:(f.messages||[]).filter(m=>m.ruleId==="prettier/prettier").map(m=>m.line)}
+          ]));
+          const oldFiles=files(process.argv[2]),newFiles=files(process.argv[3]);
+          for(const [path,v] of newFiles) {
+            const old=oldFiles.get(path);
+            const from=old?.count??0;
+            const delta=v.count-from;
+            console.log("PT_LINT_FILE="+path+" "+from+"->"+v.count+" DELTA="+delta);
+            if(delta>0)console.log("PT_LINT_NEW_LINES="+path+":"+v.lines.slice(-60).join(","));
+          }
           const a=totals(process.argv[2]),b=totals(process.argv[3]);let increase=0;
           for(const key of [...new Set([...Object.keys(a),...Object.keys(b)])].sort()){
             const previous=a[key]||0,current=b[key]||0,diff=current-previous;
