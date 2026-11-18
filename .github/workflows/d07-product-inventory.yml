@@ -1,0 +1,91 @@
+name: D07 private-source product breadth inventory (counts only)
+on:
+  push:
+    branches: [work/2026-11-18-d07-case10-qualification]
+    paths: [.github/workflows/d07-product-inventory.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      SITE_SHA: 9985de20940f2bc91e0be01273940320393e7044
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+    steps:
+      - name: Confirm narrow private access
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          gh api repos/Faust-S/uslugovod.ru --jq '.id' >/dev/null
+          echo "D07_SOURCE_ACCESS=PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - name: Execute source-authoritative inventory without publishing inputs
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SITE_SHA"
+          bun install --frozen-lockfile >/dev/null
+          cat > .d07-inventory-audit.mjs <<'AUDIT'
+          import { categories } from "./src/data/categories.ts";
+          import { serviceStubs } from "./src/data/serviceMeta.ts";
+          import { services } from "./src/data/services.ts";
+          import { plannedServices } from "./src/data/plannedServices.ts";
+          import { getAllServices, getPublishedServices, getSearchIndex } from "./src/data/registry.ts";
+          import { isSlugEditoriallyApproved } from "./src/data/editorialApproval.ts";
+          import { getServicesForTool } from "./src/lib/servicePublication.ts";
+          import { situations } from "./src/data/situations.ts";
+          import { tools } from "./src/data/tools.ts";
+          import { siteRoutes, qualificationRoutes } from "./src/site-routes.ts";
+
+          const counts = {
+            categories: categories.length,
+            detailed_service_models: services.length,
+            metadata_rows: serviceStubs.length,
+            planned_service_rows: plannedServices.length,
+            registry_unique: getAllServices().length,
+            published_registry: getPublishedServices().length,
+            review_registry: getAllServices().filter(x=>x.status==="review").length,
+            draft_registry: getAllServices().filter(x=>x.status==="draft").length,
+            editorial_approved_published: getPublishedServices().filter(x=>isSlugEditoriallyApproved(x.slug)).length,
+            search_index: getSearchIndex().length,
+            situations: situations.length,
+            tools: tools.length,
+            public_routes: siteRoutes.length,
+            case_qualification_routes: qualificationRoutes.length,
+            brief_public_available: getServicesForTool("brief").length,
+            proposal_public_available: getServicesForTool("proposalCheck").length,
+            risk_public_available: getServicesForTool("riskMeter").length,
+            acceptance_public_available: getServicesForTool("acceptance").length,
+            detailed_full_brief: services.filter(x=>(x.briefFields?.length??0)>=3).length,
+            detailed_full_proposal: services.filter(x=>(x.proposalCheck?.length??0)>=6).length,
+            detailed_full_risk: services.filter(x=>(x.riskFactors?.length??0)>=5).length,
+            detailed_full_acceptance: services.filter(x=>(x.acceptanceChecklist?.length??x.acceptance?.length??0)>=7).length,
+          };
+          for (const [key,value] of Object.entries(counts)){
+            if(!Number.isSafeInteger(value)||value<0) throw Error("D07_INVENTORY_BAD_COUNT");
+            console.log("D07_INVENTORY_"+key.toUpperCase()+"="+value);
+          }
+          console.log("D07_INVENTORY=PASS");
+          AUDIT
+          node --import tsx .d07-inventory-audit.mjs
+          rm -f .d07-inventory-audit.mjs
+          # Never upload source, archives, dist, raw logs or secrets.
