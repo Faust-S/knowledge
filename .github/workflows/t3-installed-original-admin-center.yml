@@ -18,7 +18,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  public-one-dist:
+    # Fail BEFORE accessing either private repository when the qualified
+    # inherited T2 + publicly built One Core cannot form installed Admin D3.
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-installed-d3]') }}
+    runs-on: windows-2022
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Assemble qualified original T2 and exact signed Admin One Dist
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund *> $null
+          if($LASTEXITCODE -ne 0){throw 'G4_INSTALLED_PUBLIC_T3_DEPENDENCIES_FAILED'}
+          & npm run build --prefix packages/t3-core *> $null
+          if($LASTEXITCODE -ne 0){throw 'G4_INSTALLED_PUBLIC_T3_BUILD_FAILED'}
+          $q=Join-Path $env:RUNNER_TEMP 'g4-original-qualified-t2-public'
+          New-Item -ItemType Directory -Path $q -Force | Out-Null
+          Expand-Archive -LiteralPath 'packages/t3-core/qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip' -DestinationPath $q -Force
+          $env:G4_INSTALLED_QUALIFIED_T2_DIST=$q
+          node packages/t3-core/tests/g4-installed-original-one-dist-preflight.mjs
+          if($LASTEXITCODE -ne 0){throw 'G4_INSTALLED_PUBLIC_ONE_DIST_PREFLIGHT_FAILED'}
   installed-original-admin:
+    needs: public-one-dist
     # Exact source owners are read-only, checkout is SPARSE, no private
     # material or EXE is uploaded as a public workflow artifact.
     if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-installed-d3]') }}
