@@ -44,3 +44,23 @@
 **Релизные флаги:** `K05_SOURCE_PASS=true`, `K05_NATIVE_ACCEPTED=false`, `READY_FOR_AGENT_INTEGRATION=false`, `PRODUCT_ACCEPTED=false`, `REAL_EFFECTIVENESS=NOT_MEASURABLE`.
 
 **Приватность:** только разрешённый public `Faust-S/Center` Windows runner с временным read-only доступом private Agent; никаких private Actions, исходных архивов, EXE, пользовательских данных или модельных ответов в публичных артефактах.
+
+## Дополнительная сверка владельцев, 18.11 (после новых K05 Windows)
+
+Свежие SHA из **существующих**, независимо развиваемых Agent 0.6 owner-веток:
+- Центральная `work/2026-11-15-agent-0-6-development`: `1bf0847ed069c86fe6a11380537535f0ce6c0b8e`.
+- Office `work/2026-11-15-agent06-office-document-integration`: **`8c73fcda52cfb3dba8501a19203778e1bb916c19`**, позднее первоначальной сверки; original Task projection теперь проверяет 100-row contract для OCR. Нельзя переносить старый Workbench/Task readback из K05 поверх Office.
+- T3 D3 `work/2026-11-16-agent06-corporate-t3-d3-current`: `16a5062eac537224cde22273c99e758ea5849a91`.
+- T3 D6 `work/2026-11-16-agent06-original-t3-result-owner-d6`: `34d8f1a10b552f1d0c4108e012414648e71ce0a0`.
+- Изолированный K05 `work/2026-11-15-agent06-k05-installed-package`: `9c8a0eee06f9fc9bda326c37f577e5cead923ec3`. Только он включает новый UIA идентификатор принятого результата; основной Agent его ещё не получил.
+
+Актуальный GitHub compare (base = owner, head = K05), **точные числа по графу, не процент готовности**:
+
+| Base owner | K05 ahead | K05 behind |
+| --- | ---: | ---: |
+| Agent main 0.6 | 81 | 232 |
+| Agent Office | 81 | 249 |
+| T3 D3 | 81 | 24 |
+| T3 D6 | 81 | 124 |
+
+Итог: источник K05 должен оставаться независимым до полной installed product qualification. Разница в истории достаточна для запрета на полный merge `workbench.tsx`, `daily_driver_engine.py`, `interaction_surface.py` и `approval.py`. Нативный CI [#44372957899](https://github.com/Faust-S/Center/actions/runs/44372957899) ещё выполняется. Источники [#44372957951](https://github.com/Faust-S/Center/actions/runs/44372957951) `SUCCESS` на `9c8a0eee` (117/117 Python, 26/26 package, cold Core 1/1). Статусы `READY_FOR_AGENT_INTEGRATION=false`, `PRODUCT_ACCEPTED=false` не меняются.
