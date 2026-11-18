@@ -88,8 +88,9 @@ jobs:
           Write-Output "D11_UI_ONE_DIST=PASS"
       # Test the real export entry point rather than an arbitrary form save.
       # Protect every source payload; only status codes appear in public logs.
-      # Preserve verified production dist bytes; only the two Host-origin
-      # config responses are overlaid in-memory for exact-origin loopback QA.
+      # Preserve verified production dist bytes; only two Host-origin config
+      # responses are overlaid in-memory. Diagnose initial T2 route mount,
+      # browser exceptions and missing Host resources without leaking payloads.
       - name: Real browser E2E for ten cases (desktop and mobile)
         id: ui
         continue-on-error: true
