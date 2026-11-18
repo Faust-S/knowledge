@@ -27,18 +27,30 @@ try{
     join(t3Root,'interop','provision.mjs')).href);
   const {openInterop}=await import(pathToFileURL(
     join(t3Root,'interop','runtime.mjs')).href);
-  const {windowsVaultSecret}=await import(pathToFileURL(
-    join(t3Root,'access-control','windows-credential.mjs')).href);
+  const {windowsIdentity,dpapiProtect,dpapiUnprotect,windowsVaultSecret}=
+    await import(pathToFileURL(
+      join(t3Root,'access-control','windows-credential.mjs')).href);
 
   const adminRoot=join(workRoot,'admin');
   const employeeRoot=join(workRoot,'employee');
   const dir=join(workRoot,'transfer');
   mkdirSync(employeeRoot,{recursive:true});
   mkdirSync(dir,{recursive:true});
-  phase='ORIGINAL_DPAPI_PROVISION';
+  phase='ORIGINAL_WINDOWS_IDENTITY';
+  const identity=windowsIdentity();
+  assert.ok(identity.sid&&identity.deviceId);
+  phase='ORIGINAL_WINDOWS_DPAPI_PROTECT';
+  const diagnostic=Buffer.from('g4-private-provider-warmup');
+  const entropy=Buffer.from('iwxa-g4-native-source-fixture');
+  const cipher=dpapiProtect(diagnostic,entropy);
+  assert.ok(cipher.length>0);
+  phase='ORIGINAL_WINDOWS_DPAPI_UNPROTECT';
+  assert.deepEqual(dpapiUnprotect(cipher,entropy),diagnostic);
+  phase='ORIGINAL_WINDOWS_MASTER_SECRET';
   const password=windowsVaultSecret(employeeRoot,{create:true});
   // Original signed TEST ceremony. The credential is NEVER passed to Agent
   // or its Python process; only the original DPAPI owner can recover it.
+  phase='ORIGINAL_SIGNED_FIXTURE_PROVISION';
   provision({adminRoot,controlRoot:employeeRoot,passphrase:password,
     identity:I,now:Date.now(),environment:'TEST'});
   admin=openInterop({root:adminRoot,product:'admin',passphrase:password});
