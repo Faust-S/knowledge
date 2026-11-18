@@ -1,0 +1,189 @@
+name: D11 CASE-001..010 qualification
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d11-cases-qualification.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d11-qualification-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  qualify:
+    name: D11 ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify permission for each protected source
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { throw "D11_DOMEN_SECRET_NOT_AVAILABLE" }
+          foreach ($repo in @("Faust-S/advice-logistics","Faust-S/advice-logistics.ru","Faust-S/T2")) {
+            $null = gh api "repos/$repo" --jq ".id" 2>$null
+            if ($LASTEXITCODE -ne 0) { throw "D11_REPOSITORY_ACCESS_UNAVAILABLE:$repo" }
+          }
+          Write-Output "D11_AUTHORIZED_REPOSITORY_ACCESS=PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/advice-logistics
+          ref: work/2026-11-12-case001-logistics-engineering
+          token: ${{ secrets.DOMEN }}
+          path: d11-domain
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/advice-logistics.ru
+          ref: work/2026-11-12-case001-logistics-engineering
+          token: ${{ secrets.DOMEN }}
+          path: d11-site
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          path: t2-source
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pin exact source and verify canonical mirror
+        run: |
+          $shaCore=(git -C d11-domain rev-parse HEAD).Trim()
+          $shaSite=(git -C d11-site rev-parse HEAD).Trim()
+          $shaT2=(git -C t2-source rev-parse HEAD).Trim()
+          Write-Output "D11_CORE_HEAD=$shaCore"
+          Write-Output "D11_SITE_HEAD=$shaSite"
+          if ($shaT2 -ne "e70de29b72b83e2546f7ab74b17572685a728c17") { throw "D11_T2_REVISION_MISMATCH" }
+          $files=@(Get-ChildItem d11-domain/model/logistics -File -Filter "*.ts")
+          if ($files.Count -lt 24) { throw "D11_CANONICAL_MODULE_COUNT_INVALID" }
+          foreach ($file in $files) {
+            $pair=Join-Path "d11-site/src/lib/logistics" $file.Name
+            if (-not (Test-Path $pair)) { throw "D11_CANONICAL_MIRROR_MISSING" }
+            if ((Get-FileHash $file.FullName -Algorithm SHA256).Hash -ne
+                (Get-FileHash $pair -Algorithm SHA256).Hash) { throw "D11_CANONICAL_MIRROR_MISMATCH" }
+          }
+          Write-Output "D11_CANONICAL_MIRROR=$($files.Count)/$($files.Count)"
+      - name: Full domain CASE tests (private log)
+        working-directory: d11-domain
+        run: |
+          $tests=@(Get-ChildItem ./tests -File -Filter "case*.test.mjs" | ForEach-Object {$_.FullName})
+          if ($tests.Count -lt 10) { throw "D11_CASE_SUITES_MISSING" }
+          $log=Join-Path $env:RUNNER_TEMP "d11-domain-tests.log"
+          & node --experimental-strip-types --test --test-reporter=tap @tests *> $log
+          $code=$LASTEXITCODE
+          Get-Content $log | Select-String -Pattern '^# (tests|pass|fail|skipped)\s+\d+$' | ForEach-Object {$_.Line}
+          if ($code -ne 0) { throw "D11_DOMAIN_TESTS_FAILED:$code" }
+          Write-Output "D11_DOMAIN_TESTS=PASS"
+      - name: Install site dependencies privately
+        working-directory: d11-site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP "d11-install.log"
+          & npm ci --no-audit --no-fund *> $log
+          if ($LASTEXITCODE -ne 0) { throw "D11_NPM_INSTALL_FAILED" }
+          Write-Output "D11_NPM_INSTALL=PASS"
+      - name: Site, handoff and case contract tests (private logs)
+        working-directory: d11-site
+        run: |
+          foreach ($script in @("test:d11-site","test:d11-handoff")) {
+            $log=Join-Path $env:RUNNER_TEMP ("d11-"+($script -replace "[:/]","-")+".log")
+            & npm run $script *> $log
+            $code=$LASTEXITCODE
+            Get-Content $log | Select-String -Pattern '^# (tests|pass|fail|skipped)\s+\d+$' | ForEach-Object {$_.Line}
+            if ($code -ne 0) { throw "D11_SITE_TEST_FAILED:$script" }
+          }
+          $cases=@(Get-ChildItem ./tests -File -Filter "d11-case*.test.mjs" | ForEach-Object {$_.FullName})
+          if ($cases.Count -lt 8) { throw "D11_CONTRACT_FILES_MISSING" }
+          $log=Join-Path $env:RUNNER_TEMP "d11-contracts.log"
+          & node --experimental-strip-types --test --test-reporter=tap @cases *> $log
+          $code=$LASTEXITCODE
+          Get-Content $log | Select-String -Pattern '^# (tests|pass|fail|skipped)\s+\d+$' | ForEach-Object {$_.Line}
+          if ($code -ne 0) { throw "D11_CONTRACT_TESTS_FAILED:$code" }
+          Write-Output "D11_SITE_CONTRACTS=PASS"
+      - name: TypeScript check
+        id: types
+        continue-on-error: true
+        working-directory: d11-site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP "d11-tsc.log"
+          & npx tsc --noEmit --pretty false *> $log
+          $code=$LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content $log | Select-String -Pattern 'error TS[0-9]+' | Select-Object -First 30 | ForEach-Object {
+              if ($_.Line -match '^(.+)\((\d+),(\d+)\): error (TS\d+):') {
+                Write-Output "D11_TYPE_ERROR=$($Matches[4]) $($Matches[1]):$($Matches[2]):$($Matches[3])"
+              }
+            }
+            throw "D11_TYPECHECK_FAILED:$code"
+          }
+          Write-Output "D11_TYPECHECK=PASS"
+      - name: Lint check
+        id: lint
+        continue-on-error: true
+        working-directory: d11-site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP "d11-lint.log"
+          & npm run lint *> $log
+          $code=$LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content $log | Select-String -Pattern '\s+error\s+' | Select-Object -First 35 | ForEach-Object {
+              if ($_.Line -match '([0-9]+):([0-9]+)\s+error\s+.*?\s+([\w@/-]+)$') {
+                Write-Output "D11_LINT_ERROR=line:$($Matches[1]):$($Matches[2]) rule:$($Matches[3])"
+              }
+            }
+            throw "D11_LINT_FAILED:$code"
+          }
+          Write-Output "D11_LINT=PASS"
+      - name: Integrated original T2 Kernel and site build
+        id: integrated
+        continue-on-error: true
+        working-directory: d11-site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2-source
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP "d11-integrated.log"
+          & npm run build:t2:site *> $log
+          $code=$LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content $log | Select-String -Pattern 'D11_[A-Z0-9_]+|ERR_[A-Z0-9_]+' |
+              Select-Object -Last 10 | ForEach-Object {
+                foreach ($m in [regex]::Matches($_.Line,'D11_[A-Z0-9_]+|ERR_[A-Z0-9_]+')) {
+                  Write-Output "D11_BUILD_CODE=$($m.Value)"
+                }
+              }
+            throw "D11_INTEGRATED_BUILD_FAILED:$code"
+          }
+          $cases=@("delivery-network-planner","depot-maintenance-supply",
+            "distribution-network-expansion","cold-chain-control","inbound-yard-crossdock",
+            "returnable-transport-packaging","carrier-sla-invoices",
+            "multimodal-container-control","warehouse-peak-shifts","logistics-order-execution")
+          foreach ($name in $cases) {
+            if (-not (Test-Path "dist/tools/$name/index.html")) { throw "D11_CASE_HTML_MISSING" }
+          }
+          foreach ($path in @("dist/workspace/index.html","dist/workspace/exchange/index.html",
+            "dist/workspace/lifecycle/index.html","dist/_iwxa/runtime/0.3.6/runtime.js")) {
+            if (-not (Test-Path $path)) { throw "D11_T2_DIST_INCOMPLETE" }
+          }
+          Write-Output "D11_INTEGRATED_BUILD=PASS"
+          Write-Output "D11_CASE_HTML=10/10"
+          Write-Output "D11_T2_DIST=PASS"
+          # Private dist and raw logs intentionally never uploaded.
+      - name: Enforce all qualifications
+        if: always()
+        run: |
+          if ("${{ steps.types.outcome }}" -ne "success" -or
+              "${{ steps.lint.outcome }}" -ne "success" -or
+              "${{ steps.integrated.outcome }}" -ne "success") { throw "D11_QUALIFICATION_INCOMPLETE" }
+          Write-Output "D11_SOURCE_QUALIFICATION=PASS"
