@@ -126,10 +126,11 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $builder=(Resolve-Path '.private/t3/scripts/build-admin-center-d3-owner.ps1').Path
-          $errors=$null
+          $tokens=[System.Management.Automation.Language.Token[]]@()
+          $parseErrors=[System.Management.Automation.Language.ParseError[]]@()
           $null=[System.Management.Automation.Language.Parser]::ParseFile(
-            $builder,[ref]$null,[ref]$errors)
-          if(@($errors).Count -ne 0){throw 'G4_ORIGINAL_PRIVATE_BUILDER_PARSE_INVALID'}
+            $builder,[ref]$tokens,[ref]$parseErrors)
+          if($parseErrors.Length -ne 0){throw 'G4_ORIGINAL_PRIVATE_BUILDER_PARSE_INVALID'}
           Write-Host 'G4_PRIVATE_BUILDER_PARSER_PASS'
           $public=@(& git status --porcelain)
           $original=@(& git -C .private/t3 status --porcelain)
