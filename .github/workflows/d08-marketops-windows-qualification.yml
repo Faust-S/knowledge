@@ -1,6 +1,7 @@
 name: D08 MarketOps private Windows source and original T2 qualification
 
 # Public workflow, private source remains exclusively on ephemeral runners.
+# Triggered by push to this isolated qualification branch.
 # No release, artifact upload, PR, or private stdout is permitted.
 on:
   push:
@@ -93,14 +94,14 @@ jobs:
             $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
             if($name -eq 'DOMAIN' -or $name -eq 'ADAPTERS' -or $name -eq 'T2_ENTRY'){
               foreach($metric in @('tests','pass','fail')){
-                $hit=[regex]::Matches($raw, "(?m)^# $metric\\s+(\\d+)\\s*$")
+                $hit=[regex]::Matches($raw, "(?m)^# $metric\s+(\d+)\s*$")
                 if($hit.Count -gt 0){
                   Write-Host ("D08_"+$name+"_"+$metric.ToUpperInvariant()+"="+$hit[$hit.Count-1].Groups[1].Value)
                 }
               }
             }
             if($name -eq 'TYPES' -and $code -ne 0){
-              $codes=[regex]::Matches($raw, "TS\\d{4}") |
+              $codes=[regex]::Matches($raw, "TS\d{4}") |
                 ForEach-Object {$_.Value} | Sort-Object -Unique
               Write-Host ('D08_TYPES_CODES='+($codes -join ','))
             }
@@ -202,7 +203,7 @@ jobs:
               NPM_TARBALL='TAR_BAD_ARCHIVE|TAR_ENTRY_ERROR|tarball|EINTEGRITY'
               NETWORK='ECONNRESET|ETIMEDOUT|EAI_AGAIN|CERT_HAS_EXPIRED'
               MODULE='ERR_MODULE_NOT_FOUND|Cannot find module|MODULE_NOT_FOUND'
-              TYPES='TS\\d{4}|SyntaxError'
+              TYPES='TS\d{4}|SyntaxError'
               PERMISSIONS='EPERM|EACCES|Access is denied'
               BUILD='Build failed|failed to build|RollupError'
             }
