@@ -54,6 +54,26 @@ jobs:
             echo "D05_SITE_NPM_CI=FAIL"
             exit 1
           fi
+      - name: Check new D05 witness source with exact eslint rules
+        run: |
+          set -euo pipefail
+          cd site
+          if npx --no-install eslint scripts/d05-first-use-real-kernel-witness.mjs --format json > "$RUNNER_TEMP/d05-witness-eslint.json" 2> "$RUNNER_TEMP/d05-witness-eslint-error.log"; then
+            echo "D05_FIRST_USE_LINT=PASS"
+          else
+            echo "D05_FIRST_USE_LINT=FAIL"
+            node - <<'NODE'
+          const fs=require("node:fs");
+          try {
+            const data=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/d05-witness-eslint.json","utf8"));
+            const mistakes=data.flatMap(f=>(f.messages||[]).filter(m=>m.severity===2).map(m=>(m.ruleId||"PARSER")+":"+(m.line||0)+":"+(m.column||0)));
+            console.log("D05_FIRST_USE_LINT_RULE_LINES="+mistakes.slice(0,24).join(","));
+          } catch {
+            console.log("D05_FIRST_USE_LINT_REPORT_UNAVAILABLE=true");
+          }
+          NODE
+            exit 1
+          fi
       - name: Verify the exact accepted T2 Kernel archive and stage
         run: |
           set -euo pipefail
