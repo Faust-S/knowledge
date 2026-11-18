@@ -21,9 +21,13 @@
    **однократное** подтверждение только в процессе исполнения ровно этой
    native-команды, сопоставляя `operationId`, `previewDigest`,
    `packageSha256`, `decision` или точные
-   `acceptanceId/revisionIds/target`, а также подписанный
-   `actorId/contextId/contextEpoch`. Состояние очищается и после
-   успешной команды, и после любого отказа; никакой повторной авторизации.
+   `acceptanceId/revisionIds/target`. Для ACCEPT совпадают подписанный
+   D3 `actorId/contextId/contextEpoch`; для APPLY проверяются та же
+   организация, руководитель и Workspace, но **другой** подписанный
+   `grant:application`, `purpose: application` и собственный
+   `scope_revision`. Эти два contextId не обязаны совпадать.
+   Состояние очищается и после успешной команды, и после любого отказа;
+   никакой повторной авторизации.
 4. Уже существующий `port.accept/port.reject` проверяет Human Review,
    подлинный Result, исходный Task, подписанный грант и Reconciliation,
    затем возвращает настоящую квитанцию ACCEPT/REJECT. Исторический
