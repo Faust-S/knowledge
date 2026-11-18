@@ -258,8 +258,10 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
       enrollmentId:started.enrollmentId,
     });
     onPhase('ORIGINAL_PRODUCTION_TASK_ISSUE_RETURNED');
+    onPhase('ORIGINAL_PRODUCTION_TASK_RETURN_ASSERT');
     assert.equal(created.state,'SIGNED_TASK_CREATED_NOT_DELIVERED');
     assert.equal(created.recipientId,candidate.employeePersonId);
+    onPhase('ORIGINAL_PRODUCTION_TASK_REATTACH');
     // Original signed Task increments the epoch and detaches the old Kernel.
     // Reattach the SAME qualified T2 facade with a fresh exact context,
     // without another signer, Store, or extra Kernel process.
@@ -279,7 +281,9 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
     // must first reconstruct signed employee rights READ-ONLY, not replay
     // registry initialization, a grant, or the Task's signature.
     onPhase('ORIGINAL_PRODUCTION_TASK_REBIND_READBACK');
+    onPhase('ORIGINAL_PRODUCTION_TASK_REGISTRY_RECOVERY');
     const currentRegistry=await action('d3EmployeeRegistryReadback');
+    onPhase('ORIGINAL_PRODUCTION_TASK_REGISTRY_ASSERT');
     assert.equal(currentRegistry.state,'ORIGINAL_KERNEL_REGISTRY_CONFIRMED');
     assert.equal(currentRegistry.originalReadback,true);
     onPhase('ORIGINAL_PRODUCTION_TASK_REBIND_STATUS_SEQUENCE');
