@@ -1,0 +1,130 @@
+name: d06-private-verified-format-repair
+
+# Public CI control plane only. No private source, logs, dist or artifacts.
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-private-verified-format-repair.yml
+
+permissions:
+  contents: read
+
+jobs:
+  format-verify-private:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      D06_SOURCE_SHA: c8a5c165f96eb7198538ca7758abaa5f89dd662c
+      D06_SOURCE_BRANCH: work/2026-11-11-case-driven-entry-and-drill
+    steps:
+      - name: Read exact private D06 source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: c8a5c165f96eb7198538ca7758abaa5f89dd662c
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install dependencies privately
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-format-npm-ci-private.txt"
+          & cmd.exe /d /c ('npm ci --no-audit --no-fund > "' + $log + '" 2>&1')
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FORMAT_INSTALL=FAIL"; exit 1 }
+          Write-Host "D06_FORMAT_INSTALL=PASS"
+      - name: Apply existing Prettier fixes to tracked files only
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          if (git status --porcelain) { Write-Host "D06_FORMAT_TREE=DIRTY"; exit 1 }
+          $log = Join-Path $env:RUNNER_TEMP "d06-format-apply-private.txt"
+          & cmd.exe /d /c ('npm run format:lint:apply > "' + $log + '" 2>&1')
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FORMAT_APPLY=FAIL"; exit 1 }
+          $paths = @(git diff --name-only)
+          $count = @($paths | Where-Object { $_ }).Count
+          if ($count -lt 1 -or $count -gt 300) {
+            Write-Host "D06_FORMAT_CHANGE_LIMIT=FAIL"
+            exit 1
+          }
+          $changedLines = 0
+          foreach ($line in @(git diff --numstat)) {
+            $cols = $line -split "\s+"
+            if ($cols.Length -ge 2) {
+              if ($cols[0] -match "^\d+$") { $changedLines += [int]$cols[0] }
+              if ($cols[1] -match "^\d+$") { $changedLines += [int]$cols[1] }
+            }
+          }
+          if ($changedLines -gt 20000) { Write-Host "D06_FORMAT_CHANGE_LIMIT=FAIL"; exit 1 }
+          & git diff --check *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FORMAT_DIFF_CHECK=FAIL"; exit 1 }
+          $paths | Set-Content -LiteralPath (
+            Join-Path $env:RUNNER_TEMP "d06-format-private-file-list.txt"
+          )
+          Write-Host "D06_FORMAT_APPLY=PASS"
+          Write-Host "D06_FORMAT_CHANGES_VERIFIED=PASS"
+      - name: Re-run all source checks and tests before publishing
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $failed = $false
+          foreach ($name in @("check:lint", "check", "test")) {
+            $safe = $name.Replace(":", "-")
+            $log = Join-Path $env:RUNNER_TEMP ("d06-format-" + $safe + "-private.txt")
+            & cmd.exe /d /c ('npm run ' + $name + ' > "' + $log + '" 2>&1')
+            $pass = $LASTEXITCODE -eq 0
+            Write-Host ("D06_FORMAT_" + $safe + "=" + $(if ($pass) {"PASS"} else {"FAIL"}))
+            if (-not $pass) { $failed = $true }
+          }
+          if ($failed) { exit 1 }
+      - name: Commit only verified formatting to the private working branch
+        shell: pwsh
+        working-directory: private/site
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          if (-not $env:DOMEN) { Write-Host "D06_FORMAT_PUSH=NO_AUTH"; exit 1 }
+          $listPath = Join-Path $env:RUNNER_TEMP "d06-format-private-file-list.txt"
+          $expected = @(Get-Content -LiteralPath $listPath)
+          $actual = @(git diff --name-only)
+          if (@(Compare-Object $expected $actual).Count -ne 0) {
+            Write-Host "D06_FORMAT_SCOPE_CHANGED=FAIL"
+            exit 1
+          }
+          $header = [Convert]::ToBase64String(
+            [System.Text.Encoding]::UTF8.GetBytes("x-access-token:" + $env:DOMEN)
+          )
+          $remoteLog = Join-Path $env:RUNNER_TEMP "d06-format-remote-private.txt"
+          & git -c ("http.extraheader=AUTHORIZATION: basic " + $header) ls-remote origin ("refs/heads/" + $env:D06_SOURCE_BRANCH) *> $remoteLog
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FORMAT_REMOTE_ACCESS=FAIL"; exit 1 }
+          $text = Get-Content -LiteralPath $remoteLog -Raw
+          $remoteSha = [regex]::Match($text, "^[a-f0-9]{40}").Value
+          if ($remoteSha -ne $env:D06_SOURCE_SHA) {
+            Write-Host "D06_FORMAT_CONCURRENT_CHANGE=FAIL"
+            exit 1
+          }
+          & git config user.name "IWXA D06 Qualification"
+          & git config user.email "d06-qualification@users.noreply.github.com"
+          & git add --update
+          $commitLog = Join-Path $env:RUNNER_TEMP "d06-format-commit-private.txt"
+          & git commit -m "style(d06): satisfy existing Prettier rules after Windows qualification" *> $commitLog
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FORMAT_PRIVATE_COMMIT=FAIL"; exit 1 }
+          $pushLog = Join-Path $env:RUNNER_TEMP "d06-format-push-private.txt"
+          & git -c ("http.extraheader=AUTHORIZATION: basic " + $header) push origin ("HEAD:refs/heads/" + $env:D06_SOURCE_BRANCH) *> $pushLog
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "D06_FORMAT_PRIVATE_PUSH=DENIED_OR_CONCURRENT"
+            exit 1
+          }
+          Write-Host "D06_FORMAT_PRIVATE_PUSH=PASS"
+      - name: Privacy boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_PRIVATE_SOURCES=RUNNER_LOCAL_ONLY"
+          Write-Host "D06_PRIVATE_LOGS=RUNNER_LOCAL_ONLY"
+          Write-Host "D06_PUBLIC_ARTIFACT_UPLOADS=0"
