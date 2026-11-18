@@ -108,6 +108,16 @@ export async function qualifyNativeOriginalEmployee({
       console.log('G4_NATIVE_FAILURE_PHASE',step?.[1]??'UNCLASSIFIED');
       const code=output.match(/G4_NATIVE_FAILURE_CODE\s+([A-Z_]{3,120})/);
       console.log('G4_NATIVE_FAILURE_CODE',code?.[1]??'REDACTED');
+      const employeeStage=output.match(
+        /G4_NATIVE_EMPLOYEE_FAILURE_PHASE\s+([A-Z_]{3,80})/);
+      const employeeReason=output.match(
+        /G4_NATIVE_EMPLOYEE_FAILURE_CODE\s+([A-Z_]{3,120})/);
+      if(employeeStage||employeeReason){
+        console.log('G4_NATIVE_EMPLOYEE_FAILURE_PHASE',
+          employeeStage?.[1]??'UNCLASSIFIED');
+        console.log('G4_NATIVE_EMPLOYEE_FAILURE_CODE',
+          employeeReason?.[1]??'UNCLASSIFIED');
+      }
       throw Error('G4_NATIVE_ORIGINAL_EMPLOYEE_SOURCE_PROCESS_NOT_ACCEPTED');
     }
     console.log('G4_NATIVE_PROCESS_SOURCE_PASS_NOT_INSTALLED_GUI');
