@@ -27,6 +27,7 @@ jobs:
         run: node --experimental-strip-types --test tests/d11-operational-services.test.mjs tests/d11-dashboard-projection.test.mjs
       - name: Parse actual desktop and mobile React entry components
         run: |
+          node_modules/.bin/esbuild src/lib/logistics/operational-services.ts --bundle --platform=browser --format=esm --outfile=/tmp/d11-operational-services-bundle.mjs
           node_modules/.bin/esbuild runtime/d11-module/D11WorkspaceOverview.tsx --format=esm --outfile=/tmp/d11-dashboard-ui-check.mjs
           node_modules/.bin/esbuild runtime/d11-module/D11WorkspaceCard.tsx --format=esm --outfile=/tmp/d11-result-list-ui-check.mjs
           node_modules/.bin/esbuild src/routes/index.tsx --format=esm --outfile=/tmp/d11-home-ui-check.mjs
