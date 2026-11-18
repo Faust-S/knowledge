@@ -277,7 +277,7 @@
         "older_native_run_id": 44167212079,
         "older_native_result": "SUCCESS_BLI_PREDECESSOR",
         "setup_core_06_version_fix_sha": "a55efb59ad688bbe52deb0c16dc7078238d809bf",
-        "original_setup_core_06_executable": "INSTALLED_NATIVE_AND_SAME_VERSION_REPAIR_PASS_44280512290_CROSS_VERSION_ROLLBACK_HOLD",
+        "original_setup_core_06_executable": "INSTALLED_NATIVE_TRUE_MANAGED_T2_REPAIR_PASS_44282434511_POSTWRITE_ROLLBACK_HOLD",
         "private_signed_original_employee": "NOT_RUN",
         "native_atlas_independent_cold_reads": "NOT_RUN"
       },
@@ -287,9 +287,9 @@
         "center_sha": "cbbf2fbc6343cc029758bd3d91cf4dec1f9a77c3",
         "agent_sha": "1bf0847ed069c86fe6a11380537535f0ce6c0b8e",
         "run_id": 44202756369,
-        "status": "NATIVE_EXE_INSTALL_AND_SAME_VERSION_REPAIR_PASS_EXACT_WINDOWS_44280512290",
+        "status": "NATIVE_EXE_INSTALL_AND_GENUINE_MANAGED_FILE_REPAIR_SUCCESS_AT_44282434511",
         "scope": "From SAME installed Agent QA package (qualified original T2 0.3.6 One Dist): compile existing native C# Setup Core GUI EXE, bind exact package SHA/version/source, invoke actual --install-silent with distinct isolated roots/qualification registry, verify installed original One Dist and native EXE byte SHA. Never upload private artifacts.",
-        "claim_boundary": "Same-version genuine installed Repair and invalid-root rejection PASS on exact Center 08f10fb; cross-version Upgrade or post-write Rollback NOT_RUN. Private original Ed25519 sender and standalone installed Atlas receiver NOT_RUN.",
+        "claim_boundary": "Genuine original T2 One Dist MANAGED FILE CORRUPTION + SAME Setup 0.6 physical repair + preserved User Data + negative root preflight PASS. This is NOT cross-version upgrade/post-write rollback; original private Ed25519 sender to standalone independently installed Atlas recipient is still NOT_ACCEPTED.",
         "initial_build_run": {
           "run_id": 44197772534,
           "conclusion": "FAILURE",
@@ -337,10 +337,22 @@
         },
         "real_managed_file_repair_run": {
           "id": 44282434511,
-          "status": "IN_PROGRESS_AT_OBSERVATION",
-          "center_sha": "7c00ced13ecebbcb4f3d32d184074a887bc0269e",
-          "scope": "Installed original T2 One Dist _iwxa/domain.json is intentionally corrupted in disposable native Windows install, then SAME native Setup EXE must restore exact pre-damage managed manifest SHA and preserve separate user marker. Invalid nested root refusal must match specific native validation message.",
-          "not_yet_qualified": true
+          "status": "SUCCESS",
+          "conclusion": "SUCCESS",
+          "head_sha": "7c00ced13ecebbcb4f3d32d184074a887bc0269e",
+          "agent_sha": "1bf0847ed069c86fe6a11380537535f0ce6c0b8e",
+          "one_core_sha": "3f91b60c56e34a21ea919a4a2004e31bb5071c60",
+          "scope": "Installed same 0.6 genuine native Setup EXE, intentionally damaged package-managed t3-one-dist/_iwxa/domain.json, restored exact managed manifest SHA and original installed Tauri SHA by repair, preserved independent user-data marker, failed explicitly on invalid nested DataRoot without changing installed bytes.",
+          "witness": [
+            "AGENT06_G4_NATIVE_SETUP_CORE_EXE_INSTALLED_PASS",
+            "AGENT06_G4_REPAIR_GENUINE_T2_MANAGED_FILE_DAMAGE_PREPARED",
+            "AGENT06_G4_NATIVE_SETUP_06_SAME_VERSION_REPAIR_USER_DATA_PASS",
+            "AGENT06_G4_NATIVE_SETUP_06_INVALID_ROOT_FAIL_CLOSED_PASS",
+            "AGENT06_G4_NATIVE_SETUP_06_POST_WRITE_ROLLBACK_NOT_RUN"
+          ],
+          "original_private_signer": "NOT_RUN",
+          "independent_native_atlas": "NOT_RUN",
+          "post_write_rollback": "NOT_RUN"
         },
         "post_write_rollback_gap": {
           "status": "NOT_RUN_OR_IMPLEMENTED_IN_G4_AGENT_SILENT_INSTALL",
@@ -349,6 +361,13 @@
           "not_rollback": "Existing runtime/explorer_windows_release_switch.py plus tools/apply_explorer_windows_release_switch.ps1 is an intentionally forward-only governed update and deletes the previous binary tree. Do NOT misreport that mechanism as rollback.",
           "qualified_prior_independent_mechanism": "Faust-S/Center/installer/windows/SetupCore.Switch.cs contains an original owned-releases backup/rollback mechanism but is NOT the same Agent 0.6 Setup EXE path. Do not claim its standalone tests qualify Agent G4.",
           "next_gate": "Use existing native owned-release rollback if proven compatible with Agent's actual package and data authority; otherwise keep native post-write rollback HOLD until true disposable 0.5 -> 0.6 upgrade/failure/recovery readback passes. Never invent second updater."
+        },
+        "exact_ci_2026_11_18": {
+          "source_center": 44282434583,
+          "source_d6": 44282434531,
+          "native_setup_repair": 44282434511,
+          "head_sha": "7c00ced13ecebbcb4f3d32d184074a887bc0269e",
+          "results": "ALL_SUCCESS"
         }
       }
     },
@@ -596,12 +615,12 @@
     "D6_double_cold_qualified_T2_object_event": "CORE_SOURCE_PASS_NOT_INSTALLED_ATLAS",
     "D6_original_signed_atlas_file_save": "SOURCE_IMPLEMENTED_UNQUALIFIED",
     "D6_original_nested_kernel_csp": "CORE_SOURCE_PASS_NOT_INSTALLED",
-    "D6_original_one_dist_setup_materialization": "ORIGINAL_T2_AGENT_NATIVE_ONE_DIST_SETUP_06_INSTALLED_REPAIR_PASS_44280512290",
+    "D6_original_one_dist_setup_materialization": "ORIGINAL_T2_AGENT_NATIVE_ONE_DIST_AND_INSTALLED_SETUP_TRUE_REPAIR_PASS_44282434511",
     "D6_original_product_identity_guard": "INSTALLED_SOURCE_PASS_PRIOR_MODEL_FREE_CANDIDATE",
     "G4_portable_selected_result_data": "ATLAS_NATIVE_STANDALONE_AND_SIGNED_UI_744_SOURCE_PASS_PRIVATE_SIGNED_E2E_HOLD",
     "D6_original_atlas_ui_kernel_gate": "SIGNED_FILE_UI_SOURCE_744_PASS_NATIVE_ATLAS_PRODUCT_PASS_ORIGINAL_SIGNED_RECIPIENT_HOLD",
     "D6_original_native_model_free_control": "AGENT_NATIVE_GUI_44178292091_PASS_SIGNED_PRIVATE_E2E_HOLD",
-    "D6_original_setup_core_06_native_executable": "TRUE_EXE_INSTALLED_SAME_VERSION_REPAIR_AND_INVALID_ROOT_PASS_44280512290_POSTWRITE_ROLLBACK_HOLD"
+    "D6_original_setup_core_06_native_executable": "TRUE_EXE_NATIVE_INSTALL_AND_CORRUPTED_ORIGINAL_T2_REPAIR_PASS_44282434511_POSTWRITE_ROLLBACK_HOLD"
   },
   "next_critical_path": [
     "After failed installed Agent #44187887793 DRAFT_READBACK, qualify exact original Agent 9ab35b GUI witness with bounded observation #44189399520, while #44189399499 verifies source; no silent PASS.",
