@@ -83,8 +83,17 @@ try{
   const subprocess=spawnSync(python,[pythonDriver],{
     cwd:workRoot,env,encoding:'utf8',timeout:150000,maxBuffer:512*1024});
   const employeeOutput=(subprocess.stdout??'')+'\n'+(subprocess.stderr??'');
-  assert.equal(subprocess.status,0,
-    'G4_NATIVE_EMPLOYEE_IPC_ORIGINAL_FAIL');
+  if(subprocess.status!==0){
+    // Only the existing, declassified phase and machine code may appear
+    // outside the original private Agent employee process.
+    const step=employeeOutput.match(/G4_NATIVE_FAILURE_PHASE\s+([A-Z_]{3,80})/);
+    const code=employeeOutput.match(/G4_NATIVE_FAILURE_CODE\s+([A-Z_]{3,120})/);
+    console.log('G4_NATIVE_EMPLOYEE_FAILURE_PHASE',
+      step?.[1]??'UNCLASSIFIED');
+    console.log('G4_NATIVE_EMPLOYEE_FAILURE_CODE',
+      code?.[1]??'UNCLASSIFIED');
+    throw Error('G4_NATIVE_EMPLOYEE_IPC_ORIGINAL_FAIL');
+  }
   assert.ok(employeeOutput.includes('G4_ORIGINAL_NATIVE_EMPLOYEE_SIGNED_TASK_PASS'));
   assert.ok(employeeOutput.includes('G4_ORIGINAL_NATIVE_EMPLOYEE_SIGNED_RESULT_PASS'));
   assert.ok(employeeOutput.includes('G4_ORIGINAL_NATIVE_EMPLOYEE_COLD_NO_REEXPORT_PASS'));
