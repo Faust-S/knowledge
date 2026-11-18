@@ -31,6 +31,9 @@ jobs:
           node_modules/.bin/esbuild runtime/d11-module/D11WorkspaceCard.tsx --format=esm --outfile=/tmp/d11-result-list-ui-check.mjs
           node_modules/.bin/esbuild src/routes/index.tsx --format=esm --outfile=/tmp/d11-home-ui-check.mjs
           node_modules/.bin/esbuild src/components/tools/D11WorkspaceEntry.tsx --format=esm --outfile=/tmp/d11-workspace-link-check.mjs
+          for name in depot-maintenance-supply distribution-network-expansion cold-chain-control inbound-yard-crossdock returnable-transport-packaging carrier-sla-invoices multimodal-container-control warehouse-peak-shifts logistics-order-execution; do
+            node_modules/.bin/esbuild "src/routes/tools.$name.tsx" --format=esm --outfile="/tmp/d11-$name-parser.mjs"
+          done
           grep -Fq "/workspace/#/overview" src/routes/index.tsx
           echo D11_DASHBOARD_SOURCE_CHECK=PASS
       # No artifact export: source and private build stay on the ephemeral runner.
