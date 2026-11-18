@@ -16,7 +16,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     env:
       DOMAIN_SHA: 920db57193ebd6f9f0545629e75df3aa3fe22ba6
-      SITE_SHA: 1765bf22b99590ed1ec499be8fc711f317e7ef11
+      SITE_SHA: 9bb57347ed777a842be767b7a10a865e98f0015a
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
