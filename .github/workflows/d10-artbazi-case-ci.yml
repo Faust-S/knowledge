@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: 1cee03dcab84e7e14e51114dd1bf1c4223ce3d86
+          ref: 984ec6bf35ade6103353d66e6a0e56f0e875d5dc
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -169,7 +169,18 @@ jobs:
           # Previous step already verified the standard integrated dist.
           # Make a separate disposable loopback qualification build; do not publish it.
           set +e
-          cd site
+          preview_dir="$RUNNER_TEMP/d10-host-loopback"
+          expected_head="$(git -C site rev-parse HEAD)"
+          # Separate clean worktree: the first integrated builder generates
+          # site-side build outputs; never weaken its checkout-clean gate.
+          git -C site worktree add --detach "$preview_dir" "$expected_head" > "$RUNNER_TEMP/d10-worktree.log" 2>&1
+          worktree_result=$?
+          if [ "$worktree_result" -ne 0 ]; then
+            echo "::error::D10_REVIEW_CLEAN_WORKTREE=FAIL"
+            exit "$worktree_result"
+          fi
+          ln -s "$GITHUB_WORKSPACE/site/node_modules" "$preview_dir/node_modules"
+          cd "$preview_dir"
           npm run build:t2:site > "$RUNNER_TEMP/d10-review-preview-build.log" 2>&1
           build_result=$?
           if [ "$build_result" -ne 0 ]; then
