@@ -141,6 +141,19 @@ export async function runOriginalPrivateOwnerSourceCheck({token,fetchFile=getExa
         if(relative)console.log('T3_PRIVATE_D3_MISSING_RUNTIME_FINGERPRINT',hash(relative));
       }
     }
+    const failedTests=[...stdout.matchAll(/^not ok (\d+) - [^\n]*$/gm)].map(hit=>{
+      const begin=hit.index+hit[0].length;
+      const after=stdout.slice(begin);
+      const end=after.search(/^\s*(?:not ok|ok|# Subtest:) /m);
+      const block=end>=0?after.slice(0,end):after;
+      const error=block.match(/^\s*error: ['"]([^'"\n]+)['"]/m)?.[1]??'';
+      const code=/^[A-Z][A-Z0-9_]{3,119}$/.test(error)?error:
+        /Expected values to be strictly equal|deepStrictEqual|AssertionError/.test(block)
+          ?'ASSERTION_MISMATCH':'REDACTED_NON_CODE_FAILURE';
+      return [Number(hit[1]),code];
+    });
+    if(failedTests.length)console.log('T3_PRIVATE_D3_FAILED_TEST_ORDINALS_AND_CODES',
+      JSON.stringify(failedTests));
     console.log('T3_PRIVATE_D3_SOURCE_MODULES_READ',count);
     console.log('T3_PRIVATE_D3_ORIGINAL_SUITE',
       `tests=${tests??'unknown'} pass=${passed??'unknown'} fail=${failed??'unknown'}`);
