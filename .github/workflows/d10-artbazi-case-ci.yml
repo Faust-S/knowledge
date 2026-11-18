@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: 7fb3970384755f48a3abf191701eee15e08b523e
+          ref: e2540014d5e24dde4654e3f66eb99c57e74cc963
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -230,7 +230,7 @@ jobs:
             grep -E '^(Error|AssertionError|TimeoutError|TypeError):' "$RUNNER_TEMP/d10-revops-live.log" | head -n 4 || true
           fi
           exit "$result"
-      - name: Real public diagnostic Result to original T2 Kernel with receipt and scoped reload
+      - name: Real public Result and independent native Exchange archive import into clean T2 profile
         shell: bash
         run: |
           set +e
