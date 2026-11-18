@@ -224,3 +224,21 @@ Public Center [#44350970764](https://github.com/Faust-S/Center/actions/runs/4435
 Измерение токенов в `adapters/iwxa_llm_warm_session.py` принимает **только реальные** `prompt_tokens` и `completion_tokens` из provider `usage`, отклоняет булевы, строки, отрицательные, нецелые, слишком большие и несовместимые `total_tokens`; никакого восстановления по `requested_output_tokens`. K05 UI показывает `second − first` по времени, токенам и доступной стоимости только для `SOURCE_BOUND_EQUIVALENT_DISTINCT_TASKS`; отдельный Node-тест исполняет скомпилированную TSX projection. На этом этапе это измерительный **путь**, но не доказательство real effectiveness между двумя настоящими исполнителями.
 
 Нативный installed [#44348330057](https://github.com/Faust-S/Center/actions/runs/44348330057) использует прежний exact Agent `cbeb33d344f1fc6f1f52b9e0fbe35dab2ea1eff0` и ещё выполняется, не отменён source-only изменениями. На него не распространяется новый source PASS. `READY_FOR_AGENT_INTEGRATION=false`, `PRODUCT_ACCEPTED=false`, `REAL_TWO_EXECUTOR_EFFECTIVENESS=NOT_MEASURABLE`.
+
+## 18.11: installed K03 прошёл, обнаружен точный блокер WebView2 accepted Result
+
+Завершился original installed [Center #44348330057](https://github.com/Faust-S/Center/actions/runs/44348330057) на private Agent `cbeb33d344f1fc6f1f52b9e0fbe35dab2ea1eff0`, `FAIL`. Подтверждены original Tauri/product ZIP/Setup Core и локальное `IDENTITY/PREFLIGHT/INSTALL/VERIFY/LOCATIONS=PASS`. K03 перестал быть текущей точкой остановки: native дошёл до `K05_GUI_NONCOMPARABLE`. Первое `TaskId` выбрано (этап `TASK_SELECTION` пройден), конечная стадия `K05_NATIVE_UIA_STAGE=ACCEPTED_RESULT`, `K05_NATIVE_UIA_REASON=UNKNOWN`. Не утверждаем, какая конкретная подоперация внутри `ACCEPTED_RESULT` выбросила исключение, пока нет bounded owner reason.
+
+Исходный K05 native UIA после правильного ID-based выбора выполнял дополнительный `Assert-ResultAccepted`, который требовал `SHA256(WebView2 accessible Name)==SHA256(original K03 objective)`. WebView2 может нормализовать переносы многострочного текста, поэтому этот критерий не является корректным доказательством совпадения исходного Task. Адресный код [Agent `3a8b579f`](https://github.com/Faust-S/iwxa-personal-agent/commit/3a8b579f575130e3b9fb0edb6dc4a5407c073459) только в `k05-compare`:
+- Сначала по-прежнему проверяется точный `saved-task-<TaskId>`.
+- Отдельно проверяется id `accepted-task-objective-<TaskId>`, появляющийся в React только после `accepted && detailFresh && detail.task_id===selected`.
+- Одновременно подтверждается настоящий видимый UIA статус `Result accepted` / `Результат принят`; без двух совпадающих сигналов выдаётся FAIL.
+- Для остальных `result`, `review`, `graph-k02` оставлен прежний строгий SHA UIA названия.
+- Добавлены bounded причины `ACCEPTED_BADGE_NOT_VISIBLE` и `ACCEPTED_READBACK_NOT_COINCIDENT`. Private Task/objective, prompt, model output и UIA dump не сериализуются.
+- Исходный Core readback до и после K05, включая полный Task/Result/source-digest и запрет повторного model call, остаётся обязательным.
+
+Public Center закреплён на exact Agent SHA в [`8e3353f6`](https://github.com/Faust-S/Center/commit/8e3353f616c75e1f5d37c84c322a13df402f2156). Source Windows [#44359264302](https://github.com/Faust-S/Center/actions/runs/44359264302) завершился `SUCCESS`: original Python/K05 `104/104 PASS`, packaging `24/24 PASS`, packaged cold Core `1/1 PASS` (0 SKIP), TS/Vite/UI и Windows UIA PowerShell parser PASS. Installed [#44359264074](https://github.com/Faust-S/Center/actions/runs/44359264074) запущен, его final K05 native status на момент записи ещё не получен.
+
+По требованию учитывать основной Agent 0.6: сверены main `1bf0847e`, D6 `34d8f1a1`, D3 `16a5062e`, Office `0f577736`. K05 base diverged на 75 ahead / 232 behind центрального Agent; его `approval.py` содержит дополнительные read-only historical owner методы, отсутствующие в центральном. Полный анализ и запрет механического переноса: `K05_AGENT06_MAIN_COMPATIBILITY_2026_11_18_RU.md` в этой же публичной ветке.
+
+Итог: `K05_SOURCE_WINDOWS=PASS`, `K05_INSTALLED=NOT_ACCEPTED`, `AGENT_INTEGRATION=FORBIDDEN_UNTIL_PRODUCT_ACCEPTANCE`, `REAL_EFFECTIVENESS=NOT_MEASURABLE`, `PRODUCT_ACCEPTED=false`. Приватные Actions не запускались; публичные workflow не публиковали private исходники, EXE или QA-артефакты.
