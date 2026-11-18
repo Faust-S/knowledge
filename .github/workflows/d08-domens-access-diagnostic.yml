@@ -41,6 +41,35 @@ jobs:
               $response=Invoke-WebRequest -Uri ('https://api.github.com/repos/'+$entry.Value) -Headers $headers -TimeoutSec 20 -SkipHttpErrorCheck
               $code=[int]$response.StatusCode
               Write-Host ('D08_ACCESS_'+$entry.Key+'='+$code)
+              if($code -eq 403){
+                $remaining=[string]($response.Headers['X-RateLimit-Remaining'] | Select-Object -First 1)
+                $limitClass='OTHER_FORBIDDEN'
+                try{
+                  $parsed=$response.Content | ConvertFrom-Json -ErrorAction Stop
+                  $message=[string]$parsed.message
+                  if($message -match '(?i)secondary rate limit'){ $limitClass='SECONDARY_RATE_LIMIT' }
+                  elseif($message -match '(?i)rate limit'){ $limitClass='PRIMARY_RATE_LIMIT' }
+                  elseif($message -match '(?i)resource not accessible|insufficient permission'){ $limitClass='SCOPE_DENIED' }
+                }catch{}
+                Write-Host ('D08_403_CLASS='+$limitClass)
+                if($remaining -match '^\\d{1,7}
+            }catch{
+              Write-Host ('D08_ACCESS_'+$entry.Key+'=NETWORK_ERROR')
+              $all=$false
+            }
+          }
+          if(-not $all){throw 'D08_DOMEN_PRIVATE_ACCESS_UNAVAILABLE'}
+          Write-Host 'D08_DOMEN_PRIVATE_ACCESS=PASS'
+      - name: Confirm no private artifacts are published
+        if: always()
+        run: |
+          echo "D08_PRIVATE_FILES_CLONED=NO"
+          echo "D08_PRIVATE_LOGS_PUBLISHED=NO"
+          echo "D08_ARTIFACT_UPLOADS=0"
+){Write-Host ('D08_403_REMAINING='+$remaining)}
+                $all=$false
+                break
+              }
               if($entry.Key -in @('DOMAIN','SITE') -and $code -ne 200){$all=$false}
             }catch{
               Write-Host ('D08_ACCESS_'+$entry.Key+'=NETWORK_ERROR')
