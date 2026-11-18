@@ -1,0 +1,103 @@
+name: IWXA PT Windows native browser qualification - private source
+on:
+  push:
+    branches: [work/2026-11-18-pt-66-qualification]
+    paths:
+      - .github/workflows/iwxa-pt-66-windows.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-pt-windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - name: Check permission to exact private PT site
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if (-not $env:GH_TOKEN) { throw "PT_DOMEN_SECRET_UNAVAILABLE" }
+          gh api repos/Faust-S/iwxa-ru-1 | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "PT_PRIVATE_ACCESS_NOT_AUTHORIZED" }
+          "PT_WINDOWS_PRIVATE_ACCESS=PASS"
+      - uses: actions/checkout@v4
+        with:
+          path: qa-scripts
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: 8702a04f8723b9a745778eb2451f351cbcf2a1c4
+          token: ${{ secrets.DOMEN }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: pt-site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - name: Frozen dependencies, source guard and native Windows SSR build
+        shell: pwsh
+        working-directory: pt-site
+        run: |
+          if ((git rev-parse HEAD).Trim() -ne '8702a04f8723b9a745778eb2451f351cbcf2a1c4') {
+            throw "PT_WINDOWS_SOURCE_SHA_MISMATCH"
+          }
+          bun install --frozen-lockfile *> "$env:RUNNER_TEMP/pt-win-install.log"
+          if ($LASTEXITCODE -ne 0) { throw "PT_WINDOWS_FROZEN_INSTALL_FAILED" }
+          "PT_WINDOWS_FROZEN_INSTALL=PASS"
+          node scripts/check-portuguese-competency-graph-source.mjs *> "$env:RUNNER_TEMP/pt-win-graph.log"
+          if ($LASTEXITCODE -ne 0) { throw "PT_WINDOWS_GRAPH_GUARD_FAILED" }
+          node scripts/check-portuguese-source.mjs *> "$env:RUNNER_TEMP/pt-win-source.log"
+          if ($LASTEXITCODE -ne 0) { throw "PT_WINDOWS_AGGREGATE_GUARD_FAILED" }
+          "PT_WINDOWS_SOURCE_GUARDS=PASS"
+          $env:LOVABLE_BUILD_TARGET = "static"
+          $env:NITRO_PRESET = "node-server"
+          $env:SERVER_PRESET = "node-server"
+          bun run build *> "$env:RUNNER_TEMP/pt-win-build.log"
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content "$env:RUNNER_TEMP/pt-win-build.log" -Tail 30
+            throw "PT_WINDOWS_NATIVE_BUILD_FAILED"
+          }
+          if (-not (Test-Path '.output/server/index.mjs')) { throw "PT_WINDOWS_SSR_ENTRY_MISSING" }
+          "PT_WINDOWS_NATIVE_SSR_BUILD=PASS"
+      - name: Installed Windows Chrome, 264 PT views, F01 and F02
+        shell: pwsh
+        run: |
+          $chromeCandidates = @(
+            'C:\Program Files\Google\Chrome\Application\chrome.exe',
+            'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
+            'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
+          )
+          $chrome = $chromeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $chrome) { throw "PT_WINDOWS_CHROME_NOT_INSTALLED" }
+          $env:PUPPETEER_EXECUTABLE_PATH = $chrome
+          $env:PT_SITE_DIR = Join-Path $env:GITHUB_WORKSPACE 'pt-site'
+          $env:PT_BASE = "http://127.0.0.1:4387/"
+          $env:PORT = "4387"
+          $env:HOST = "127.0.0.1"
+          $env:NODE_ENV = "production"
+          $proc = Start-Process -FilePath (Get-Command node).Source -ArgumentList @('pt-site/.output/server/index.mjs') -WorkingDirectory $env:GITHUB_WORKSPACE -PassThru -NoNewWindow -RedirectStandardOutput "$env:RUNNER_TEMP/pt-win-server-out.log" -RedirectStandardError "$env:RUNNER_TEMP/pt-win-server-err.log"
+          try {
+            $ready = $false
+            foreach ($i in 1..60) {
+              try {
+                $response = Invoke-WebRequest -Uri "http://127.0.0.1:4387/" -TimeoutSec 2
+                if ($response.StatusCode -eq 200) { $ready = $true; break }
+              } catch {}
+              Start-Sleep -Seconds 1
+            }
+            if (-not $ready) { throw "PT_WINDOWS_SSR_NOT_READY" }
+            "PT_WINDOWS_SSR_SERVER=PASS"
+            & node qa-scripts/tools/pt-66-browser-qa.mjs 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/pt-win-browser.log"
+            if ($LASTEXITCODE -ne 0) { throw "PT_WINDOWS_BROWSER_66_F02_FAILED" }
+            "PT_WINDOWS_BROWSER_66_F02=PASS"
+          } finally {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          }
