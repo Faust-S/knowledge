@@ -190,3 +190,15 @@ Next practical owner workflow:
 Для точной передачи опубликован публичный [K05_AGENT06_INTEGRATION_GATE_2026_11_17_RU.md](https://github.com/Faust-S/knowledge/blob/work/2026-11-15-agent06-effectiveness-evaluation/research/cross-lab/K05_AGENT06_INTEGRATION_GATE_2026_11_17_RU.md) с порогами source/installed, no-wholesale-merge и настоящей оценкой двух разных исполнителей.
 
 Статус: `K05_SOURCE_INTEGRATION_CANDIDATE=true`, `K05_INSTALLED_STABLE=false`, `REAL_EFFECTIVENESS=NOT_MEASURABLE`, `PRODUCT_ACCEPTED=false`.
+
+## 18.11: воспроизводимая конечная ошибка локального модельного вывода и отдельная протокольная диагностика
+
+Завершившийся original installed Windows [Center №44105022163](https://github.com/Faust-S/Center/actions/runs/44105022163) на private Agent `22d36bb2060d05afe9653f4703fe0af723f9da7d`: `Build ZIP/Tauri/Setup Core=PASS`, `INSTALL/VERIFY/LOCATIONS=PASS`, `K03_TASK_ACCEPTED=PASS`, `K03_TASK_EXECUTE=FAIL`; exact owner scheduler: `PAUSED`, `awaiting_result`, `basic_runtime_output_invalid`, family `BASIC_RUNTIME`. Следовательно предыдущая гипотеза об ошибке scheduler claim недостаточна. Модельный путь не представил принятый Result. Не следует называть FAIL «временной проблемой UIA».
+
+Разбор оригинального `adapters/iwxa_basic_model_provider.py` выявил диагностическое смешение разных случаев: некорректный/изменённый префикс `User→Assistant`, отсутствие или недоступность временного `-o` файла, незакрытый `<think>`, ошибочный формат reasoning и фактическое отсутствие финального ответа. Все они ранее выдавали общий `basic_runtime_output_invalid`; предположение о том, какой из случаев произошёл в установленном прогоне, **НЕ ДОКАЗАНО**.
+
+В изолированной ветке K05 опубликован private Agent [`cbeb33d3`](https://github.com/Faust-S/iwxa-personal-agent/commit/cbeb33d344f1fc6f1f52b9e0fbe35dab2ea1eff0): настоящий llama-cli output admission сохраняет точную проверку начала `User: + actual prompt + Assistant:`, нормализуя только UTF-8 BOM и транспортные CRLF, и выдаёт отдельные заранее известные коды отказа. Незакрытые рассуждения, reasoning-only, неверный префикс и пустой результат **НЕ превращаются** в Result. Коды пропускаются через три одноразовых allowlist, но не передаются raw output, source bytes или пользовательские пути. Добавлены параметризованные тесты CRLF/BOM, полного исходного многострочного prompt, разных недопустимых reasoning-маркеров и двойной проверки безопасности публичной квитанции.
+
+Изменение внесено строго в K05 isolated branch, не в центральную Agent 0.6. Public Center [`b6559ce6`](https://github.com/Faust-S/Center/commit/b6559ce6ebd685b16468da2a9da9fb81d172ddf9) закреплён на exact SHA, Windows [source №44348329999](https://github.com/Faust-S/Center/actions/runs/44348329999) и [installed №44348330057](https://github.com/Faust-S/Center/actions/runs/44348330057) запущены. Их результаты можно присвоить только после проверки final job conclusion. Ни T3/D3/D6, ни модельная маршрутизация/Task/Review/Result, ни критерии K05 здесь не изменены.
+
+`PRODUCT_ACCEPTED=false`, `INSTALLED_K03_RELIABLE=false`, `K05_NATIVE=NOT_ACCEPTED`, `REAL_TWO_EXECUTOR_EFFECTIVENESS=NOT_MEASURABLE`.
