@@ -1,5 +1,17 @@
 # IWXA T3 G4: единая миграция разработки в новый чат
 
+## 18.11.2026: D3 large original receipt and D6 complete signed context, 792-source PASS
+
+Latest verified unified executable: Faust-S/knowledge@dee7ecba2c2ed2716812d412366d137bf184815f. GitHub Actions #44339359842 SUCCESS: Node 792/792, real-host SUCCESS, windows-credential SUCCESS; hardware Metal SKIPPED and native age/model SKIPPED. Keep source proof distinct from installed original signer/recipient acceptance.
+
+D3 original Human ACCEPT [76aae9ee]: reconciliation-owner-admission now compares complete original JSON receipts with no artificial size/depth ceiling. Regression accepted an actual owner contract fixture with 5000 signed result witness rows reordered by persisted JSON keys, then rejected a changed final witness after a native ACCEPT without repeating the decision or claiming Kernel APPLY. Exact source CI #44338888023 SUCCESS, Node 788/788.
+
+D6 generic Result [dee7ecba]: native-result-continuation previously pinned only 13 known D1 signed context fields and silently ignored any additional original signed properties after owner schema evolution. It now compares the entire original JSON context canonically, preserving nested owner proof and additions, ignoring only object key order, refusing unsupported non-JSON context. Four regressions: unchanged nested context succeeds to a generic non-Atlas recipient, changed extra property/grant proof during Human Review denies before native receive, undefined extra field denies. Local pure comparator 12/12; exact full source #44339359842 PASS 792/792.
+
+NO NEW INSTALLED G4: private original issuer/employee owner 75c8188e remains unqualified due public Center temporary PAT checkout 403, #44334094866 stopped before private tests. D3 native manager+Agent Human ACCEPT and separate Kernel APPLY, generic D6 installed recipient, native D7 PERSON, private installed D5 all remain HOLD. Last actual complete source Apple Metal PASS #44321733973 was on a24b575e; retry #44326855603 was CANCELLED before the Metal first step, not a GPU failure. The next documentation-only commit requests one final source-hardware opt-in [t3-metal] and MUST be read as pending until actual GPU steps succeed.
+
+One original T2 successor, only packages/t3-core, no alternative Host/Kernel/Store/Exchange/IAM, no mandatory Atlas. Keep T3_READY=false, G4=NOT_ACCEPTED. Resume by verifying latest macOS GPU result and restoring scoped source read in public Center for genuine private owner regression, then native installed D3/D6/D7 qualification.
+
 ## 18.11.2026: private original D3 native context fix, CI checkout blocked
 
 Original private T3 Owner code: Faust-S/T3@75c8188e28cf3fc2df2f253b1705006fe172c138.

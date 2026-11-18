@@ -26,11 +26,11 @@
     "one_core": {
       "repository": "Faust-S/knowledge",
       "branch": "work/2026-11-10-t3-t2-activity-projection",
-      "observed_head": "8d3c0344f6152636b3ae4f9b1c67cff6be14690a",
+      "observed_head": "dee7ecba2c2ed2716812d412366d137bf184815f",
       "qualification": {
-        "run_id": 44327463174,
+        "source_pin": "dee7ecba2c2ed2716812d412366d137bf184815f",
+        "run_id": 44339359842,
         "conclusion": "SUCCESS",
-        "source_pin": "8d3c0344f6152636b3ae4f9b1c67cff6be14690a",
         "jobs": {
           "test": "PASS",
           "real_host": "PASS",
@@ -40,11 +40,11 @@
           "native_model": "SKIPPED"
         },
         "node_tests": {
-          "total": 786,
-          "pass": 786,
+          "total": 792,
+          "pass": 792,
           "fail": 0
         },
-        "scope": "Public original T2 0.3.6/Runtime 1.3.0 successor T3 source; D1/D3 signed native adapter and D6 generic recipient source; deep original T2 Object/Event parity with dense large arrays, no duplicate Apply; real-host/Windows credentials qualified. Real installed corporate issuer and independent Agent/recipient/PERSON D7 NOT_RUN. Hardware GPU not re-executed on this exact source."
+        "scope": "Exact source code has D3 complete original Human ACCEPT receipt readback and D6 full original D1 signed-context comparison; 792 Node regressions, original T2 Host, Windows Credentials PASS; Metal, native-age and native-model SKIPPED. Original private corporate issuer + independent installed Agent employee, recipient D6 and PERSON D7 NOT_RUN."
       },
       "level": "CORE_SOURCE_PASS",
       "notes": "One inherited T2 0.3.6 Runtime Contract 1.3.0; D1/D3/D6/D7 source; Agent-only qualified original T2 One Dist passport with original signed D1 AccessRegistry, original accepted-result schema/Kernel Object/Event and two process-cold source readbacks. This is not an installed independent Agent-to-Atlas signed transfer.",
@@ -393,6 +393,51 @@
           "conclusion": "SUCCESS"
         },
         "no_inferred_gpu_failure": true
+      },
+      "d3_large_original_accept_receipt_2026_11_18": {
+        "code_sha": "76aae9ee9320495717e2ea0b0f4d9597a3d63d56",
+        "component": "packages/t3-core/src/t3/reconciliation-owner-admission.mjs",
+        "tests": "packages/t3-core/tests/t3-reconciliation-owner-admission.test.mjs",
+        "correction": "Use complete exact original JSON receipt equality without an independent 4096-row or depth-32 Host limit; tolerate object key reorder, reject nonfinite and sparse or cyclic non-JSON data. Keep Human ACCEPT receipt separate from Kernel APPLY.",
+        "scope": "SOURCE",
+        "run_id": 44338888023,
+        "ci": "SUCCESS",
+        "node_tests": {
+          "total": 788,
+          "pass": 788,
+          "fail": 0
+        },
+        "cases": [
+          "5000-row independent original receipt readback accepted after property order reorder",
+          "changed last row after ACCEPT refused with no duplicate ACCEPT nor Kernel APPLY"
+        ],
+        "installed_production_owner": "NOT_RUN"
+      },
+      "d6_complete_original_context_2026_11_18": {
+        "code_sha": "dee7ecba2c2ed2716812d412366d137bf184815f",
+        "component": "packages/t3-core/src/t3/native-result-continuation.mjs",
+        "tests": "packages/t3-core/tests/t3-d6-native-continuation.test.mjs",
+        "correction": "Original full signed D1 context including additional and nested signed fields is canonicalized by JSON object keys. Previous fixed list of 13 fields could ignore an added or changed signed owner field during Human Review.",
+        "scope": "SOURCE",
+        "run_id": 44339359842,
+        "ci": "SUCCESS",
+        "node_tests": {
+          "total": 792,
+          "pass": 792,
+          "fail": 0
+        },
+        "additional_regressions": 4,
+        "cases": [
+          "extra signed metadata unchanged and reordered -> generic non-Atlas Result continuation succeeds",
+          "extra original signed field changed during Human Review -> deny before native write",
+          "nested signed grant provenance changed before delivery -> deny",
+          "non-JSON additional scope field -> deny"
+        ],
+        "local_pure_comparator": {
+          "pass": 12,
+          "total": 12
+        },
+        "installed_generic_recipient": "NOT_RUN"
       }
     },
     "private_original_d6": {
@@ -1125,20 +1170,21 @@
     "D6_original_native_model_free_control": "AGENT_NATIVE_GUI_44178292091_PASS_SIGNED_PRIVATE_E2E_HOLD",
     "D6_original_setup_core_06_native_executable": "TRUE_EXE_NATIVE_INSTALL_AND_CORRUPTED_ORIGINAL_T2_REPAIR_PASS_44282434511_POSTWRITE_ROLLBACK_HOLD",
     "T3_PRODUCT_NEUTRAL_CORE": "ORIGINAL_T2_ONE_CORE_SOURCE_784_OF_784_REAL_HOST_WINDOWS_CREDENTIAL_SUCCESS_44318043133__INSTALLED_D1_D3_D6_D7_HOLD",
-    "T3_GENERIC_D6": "CORE_SOURCE_SIGNED_CONTEXT_CANONICAL_KEY_REORDER_AND_CHANGED_GRANT_DENIAL_PASS_44325369907__NATIVE_RECIPIENT_NOT_ACCEPTED",
+    "T3_GENERIC_D6": "SOURCE_FULL_CANONICAL_SIGNED_CONTEXT_COMPLETE_FIELDS_792_PASS_44339359842__NATIVE_RECIPIENT_NOT_ACCEPTED",
     "T3_ATLAS_CONNECTED_PROGRAM": "AGENT_ATLAS_FILE_WORKREF_ONLY_NO_U04_NATIVE_ATLAS_NOT_ACCEPTED__CENTER_CEN05_SEPARATE",
     "T3_ATLAS_SIGNED_FILE_OPTIONAL": "SOURCE_SIGNED_RECIPIENT_AND_INSTALLED_ATLAS_PRODUCT_PASS_PRIVATE_SIGNED_E2E_NOT_ACCEPTED_OPTIONAL_PROFILE",
-    "T3_UNIVERSAL_RELEASE": "NOT_ACCEPTED_INSTALLED_INDEPENDENT_ADMIN_AGENT_D3_GENERIC_D6_PERSON_D7_AND_NATIVE_OWNER_D5_HOLD",
+    "T3_UNIVERSAL_RELEASE": "NOT_ACCEPTED_INSTALLED_ORIGINAL_ADMIN_AGENT_D3_GENERIC_D6_PERSON_D7_AND_NATIVE_OWNER_D5_HOLD",
     "D3_original_kernel_full_event_parity": "SOURCE_DENSE_LARGE_5000_JSON_OBJECT_EVENT_RECOVERY_PASS_44327463174__PRIVATE_INSTALLED_D3_HOLD",
     "D5_hardware_current": "SOURCE_ONE_DIST_SIGNED_AND_DOMAIN_APPLE_METAL_COLD_OFFLINE_PASS_FULL_CI_44321733973__PRIVATE_INSTALLED_NOT_ACCEPTED",
     "ADMIN_CENTER_03_D3_GENERIC_UI": "INSTALLED_CENTER_PUBLIC_WINDOWS_SUCCESS_44301852914_AT_565572a9_MERGED_5ff8947d_NO_PRIVATE_SIGNED_D3",
-    "T3_D3_ORIGINAL_ACCEPT_RECEIPT": "CORE_SOURCE_CANONICAL_RECEIPT_AND_COLD_DECISION_VALIDATION_PASS_44318043133__PRIVATE_INSTALLED_D3_HOLD"
+    "T3_D3_ORIGINAL_ACCEPT_RECEIPT": "CORE_SOURCE_CANONICAL_RECEIPT_AND_COLD_DECISION_VALIDATION_PASS_44318043133__PRIVATE_INSTALLED_D3_HOLD",
+    "D3_original_human_accept_receipt": "SOURCE_COMPLETE_5000_ROW_ORIGINAL_ACCEPT_RECEIPT_PASS_44338888023__INSTALLED_NATIVE_OWNER_HOLD"
   },
   "next_critical_path": [
     "Release scope is PRODUCT_NEUTRAL_T3. Keep normative original T2 Kernel/Host/Workspace/Exchange/Lifecycle integrated in ONE T3. Use current exact public One Core CI + installed Agent test; never interpret source PASS as installed owner.",
     "Priority 1 D1/D3 without Atlas: private original T3 native D3 signer owner updated at 75c8188e. Public Center CI 44334094866 failed BEFORE original private checkout tests (HTTP 403 despite token being set). Restore scoped GitHub read access to Faust-S/T3 in the existing public Center secret, run original owner suite, then qualify genuinely installed independent manager+Agent employee signed Task/accepted Result/Human ACCEPT/separate Kernel APPLY and two cold reads. No private Actions or private code publication.",
-    "Priority 2 D5: compiled source-Host Apple Metal WebLLM generation, zero-network cold restart, independent domain PWA second generation and original Kernel readback PASS in complete public CI #44321733973 at a24b575e. Not automatically inherited by later SHA, and not installed original private signer/Agent Host; repeat hardware on final integrated candidate. Do not merge D3 failure status with D5 hardware evidence.",
-    "Priority 3 D6 GENERIC: prove one real accepted Result from original Agent or domain and one authorized recipient OTHER THAN OR WITHOUT Atlas, actual native owner receipt and read-only recovery; signed offline .iwxa only when independent exchange required.",
+    "Priority 2 D5: prior real source compiled Apple Metal signed Workspace + domain PWA cold offline generation PASS #44321733973 at a24b575e. Later recheck #44326855603 CANCELLED zero Metal steps, not a failed generation. Current improved G4 source dee7ecba #44339359842 792/792 source PASS, GPU SKIPPED; one opt-in hardware attempt requested on the documentation-only next commit. Do not infer installed native private D5 or inherit GPU PASS across revisions.",
+    "Priority 3 D6 GENERIC: completed public full original D1 signed-context canonicalization incl. nested+new fields, Node source 792/792 PASS #44339359842. Still need genuine accepted Result from installed independent Agent/domain -> explicitly authorized recipient without mandatory Atlas, original native owner durable readback/lost-ACK recovery. A public contract fixture is not native E2E.",
     "Priority 4 D7: original Publisher PERSON issue/renew/status/revoke with installed consumer and cold readback, independent of Atlas.",
     "Close Agent Setup Core 0.6 cross-version post-write Rollback separately; existing same-version managed-byte Repair native Windows #44282434511 SUCCESS is NOT cross-version rollback.",
     "Parallel optional product integration: Atlas as one program of Agent/Admin; qualify U01 discovery and U04 opening/activation, then actual native owner command only if a trusted OS/IPC owner port exists. U04 alone does NOT select work or provide an Atlas AppHandle.",
@@ -1191,7 +1237,7 @@
     "independent_installed_d3": "HOLD_PRIVATE_NATIVE_D3_SOURCE_PATCH_75c8188e__PUBLIC_CENTER_44334094866_PRETEST_CHECKOUT_403__INSTALLED_CORPORATE_SIGNER_AGENT_NOT_RUN",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
-    "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_HOST_PASS_44321733973_AT_a24b575e__RERUN_44326855603_AT_c2f21d03_CANCELLED_ZERO_HARDWARE_STEPS__LATEST_SOURCE_8d3c0344_GPU_NOT_RUN",
+    "hardware_offline_d5_latest": "SOURCE_APPLE_METAL_REAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44321733973_AT_a24b575e__CURRENT_DEE7ECBA_GPU_NOT_RUN__LATEST_44326855603_CANCELLED_ZERO_STEPS",
     "strict_order": [
       "B0: verify exact complete normative T2 successor in ONE executable T3 One Dist and original Host/Kernel/Store/Exchange/Workspace/Lifecycle, with no second runtime or Atlas dependency",
       "D1 + D3: prove installed independent manager and employee Agent signed grants / Task, Human ACCEPT then separately consented original Kernel APPLY and two cold original receipts; NO Atlas WorkRef for normal Task",
@@ -1251,7 +1297,7 @@
       "offline_cold_restart": "NOT_RUN",
       "note": "macos-15 GitHub public runner never allocated; test and real-host and windows-credential PASS do not qualify hardware D5. Do not retry macOS indiscriminately or promote D5. Use a genuinely hardware-enabled system to collect exact original Host/browser cold offline two-generation evidence."
     },
-    "source_integrity_latest": "NODE_786_OF_786_REAL_HOST_AND_WINDOWS_CREDENTIAL_SUCCESS_44327463174__METAL_SKIPPED_EXACT_SHA",
-    "latest_verified_code_sha": "8d3c0344f6152636b3ae4f9b1c67cff6be14690a"
+    "source_integrity_latest": "SOURCE_792_OF_792_REAL_T2_HOST_WINDOWS_CREDENTIAL_SUCCESS_44339359842__GPU_SKIPPED_EXACT_SHA",
+    "latest_verified_code_sha": "dee7ecba2c2ed2716812d412366d137bf184815f"
   }
 }
