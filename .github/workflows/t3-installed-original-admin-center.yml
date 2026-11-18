@@ -1,0 +1,174 @@
+name: T3 G4 installed original Admin Center Windows (opt-in)
+
+on:
+  push:
+    branches:
+      - work/2026-11-10-t3-t2-activity-projection
+    paths:
+      - .github/workflows/t3-installed-original-admin-center.yml
+      - packages/t3-core/tests/g4-installed-original-center-smoke.ps1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: t3-g4-installed-original-admin-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installed-original-admin:
+    # Exact source owners are read-only, checkout is SPARSE, no private
+    # material or EXE is uploaded as a public workflow artifact.
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-installed-d3]') }}
+    runs-on: windows-2022
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Stage selected original T3 owner code at exact private revision
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: d0d8ba2f791050a8c190f7cab305b5bb89365ae3
+          token: ${{ secrets.T3 || secrets.DOMEN }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            access-control
+            interop
+            reconciliation
+            scripts
+            package.json
+          path: .private/t3
+      - name: Stage selected original Center application at exact private revision
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: 565572a9b2a249296e5c27ba77fd60ac2be830aa
+          token: ${{ secrets.CENTER || secrets.DOMEN }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            src-tauri
+            src
+            native
+            installer
+            runtime
+            scripts
+            tests
+            index.html
+            package.json
+            package-lock.json
+            tsconfig.json
+            vite.config.ts
+          path: .private/center
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Atlas
+          ref: c225e1b8d35e87e5de55dbb9c0c8dbe564d8fb08
+          persist-credentials: false
+          path: .private/center/vendor/atlas
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Br-test
+          ref: 07df66ab6bd3e1b87036c33b90e49d228d5ab820
+          persist-credentials: false
+          path: .private/center/vendor/brtest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.0'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify exact sources and original qualified T2
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
+          $center=(& git -C .private/center rev-parse HEAD).Trim()
+          if($t3 -ne 'd0d8ba2f791050a8c190f7cab305b5bb89365ae3' -or
+             $center -ne '565572a9b2a249296e5c27ba77fd60ac2be830aa'){
+            throw 'G4_ORIGINAL_INSTALLED_PRIVATE_SOURCE_PIN_MISMATCH'
+          }
+          $q=Join-Path $env:RUNNER_TEMP 'g4-installed-original-k036'
+          New-Item -ItemType Directory -Force -Path $q | Out-Null
+          $zip='packages/t3-core/qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip'
+          Expand-Archive -LiteralPath $zip -DestinationPath $q -Force
+          if(!(Test-Path -LiteralPath (Join-Path $q '_iwxa/runtime/0.3.6/runtime.js'))){
+            throw 'G4_ORIGINAL_INSTALLED_T2_DIST_MISSING'
+          }
+          "G4_INSTALLED_QUALIFIED_T2_DIST=$q" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host 'G4_INSTALLED_EXACT_SPARSE_SOURCE_AND_NORMATIVE_T2_PASS'
+      - name: Build existing One Core and private Center dependencies
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $ErrorActionPreference='Stop'
+          & npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+          if($LASTEXITCODE -ne 0){throw 'G4_INSTALLED_ONE_CORE_NPM_FAILED'}
+          & npm run build --prefix packages/t3-core
+          if($LASTEXITCODE -ne 0){throw 'G4_INSTALLED_ONE_CORE_BUILD_FAILED'}
+          Push-Location .private/center
+          try{
+            $log=Join-Path $env:RUNNER_TEMP 'g4-center-npm-private.log'
+            & npm install --no-audit --no-fund *> $log
+            if($LASTEXITCODE -ne 0){throw 'G4_INSTALLED_CENTER_NPM_FAILED'}
+          } finally{Pop-Location}
+          Write-Host 'G4_INSTALLED_ONE_CORE_AND_CENTER_DEPS_PASS'
+      - name: Build genuine original T3 signed owner, Center and Setup Core
+        shell: pwsh
+        timeout-minutes: 40
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'g4-private-owner-build.log'
+          try{
+            & ./.private/t3/scripts/build-admin-center-d3-owner.ps1 `
+              -CenterRoot '.private/center' `
+              -OneCoreRoot '.' `
+              -QualifiedT2Dist $env:G4_INSTALLED_QUALIFIED_T2_DIST `
+              -BunCommand bun -BuildCenter *> $log
+            if($LASTEXITCODE -ne 0){throw 'G4_INSTALLED_ORIGINAL_PRIVATE_OWNER_BUILD_FAILED'}
+            $required=@('ORIGINAL_T3_D3_ONE_DIST_ASSEMBLED',
+              'ORIGINAL_T3_D3_OWNER_BUILD_DONE',
+              'CENTER_PRIVATE_T3_D3_SETUP_CORE_READY')
+            $lines=@(Get-Content -LiteralPath $log -ErrorAction Stop)
+            foreach($marker in $required){
+              if(!($lines | Where-Object {$_ -match "^$marker(?:\s|$)"})){
+                throw 'G4_INSTALLED_PRIVATE_BUILD_RECEIPT_MISSING'
+              }
+            }
+            Write-Host 'G4_INSTALLED_ORIGINAL_SIGNED_OWNER_CENTER_SETUP_BUILT_PASS'
+          }catch{
+            # Logs may contain private TypeScript/Rust source diagnostics.
+            # Never print them in the public workflow.
+            Write-Host 'G4_INSTALLED_ORIGINAL_PRIVATE_BUILD_HOLD'
+            throw 'G4_INSTALLED_ORIGINAL_PRIVATE_BUILD_HOLD'
+          }
+      - name: Install original signed Owner and One Dist via Setup Core and check real Windows GUI
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 `
+            -CenterRoot '.private/center' -OriginalT3Root '.private/t3' `
+            -ExpectedCenterSha '565572a9b2a249296e5c27ba77fd60ac2be830aa' `
+            -ExpectedT3Sha 'd0d8ba2f791050a8c190f7cab305b5bb89365ae3'
+      - name: Destroy private source, native binaries and build logs
+        if: always()
+        shell: pwsh
+        run: |
+          $targets=@('.private',
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-k036'),
+            (Join-Path $env:RUNNER_TEMP 'g4-center-npm-private.log'),
+            (Join-Path $env:RUNNER_TEMP 'g4-private-owner-build.log'))
+          foreach($path in $targets){
+            if(Test-Path -LiteralPath $path){
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Host 'G4_INSTALLED_PRIVATE_SOURCE_AND_BINARIES_NOT_PUBLISHED'
