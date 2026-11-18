@@ -100,18 +100,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Clean npm install and TypeScript
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.2"
+      - name: Frozen Bun install and TypeScript
         shell: bash
         working-directory: pt-site
         run: |
           test "$(git rev-parse HEAD)" = "9d0194208818426c437b747b79099ea6b363312f" || exit 1
-          if npm ci --no-audit --no-fund > "$RUNNER_TEMP/iwxa-pt-install.log" 2>&1; then
-            echo "PT_NPM_CI=PASS"
+          if bun install --frozen-lockfile > "$RUNNER_TEMP/iwxa-pt-install.log" 2>&1; then
+            echo "PT_BUN_FROZEN_INSTALL=PASS"
           else
-            echo "PT_NPM_CI=FAIL"
+            echo "PT_BUN_FROZEN_INSTALL=FAIL"
             exit 1
           fi
-          if npm run typecheck > "$RUNNER_TEMP/iwxa-pt-types.log" 2>&1; then
+          if bun run typecheck > "$RUNNER_TEMP/iwxa-pt-types.log" 2>&1; then
             echo "PT_TYPECHECK=PASS"
           else
             echo "PT_TYPECHECK=FAIL"
