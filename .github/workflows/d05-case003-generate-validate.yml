@@ -27,7 +27,7 @@ jobs:
             echo "D05_SITE_READ=FAIL"
             exit 1
           fi
-          if [ "$(git -C site rev-parse HEAD)" != "0eddbb19176784cf3b1c9ee602e91f4e2eb592fa" ]; then
+          if [ "$(git -C site rev-parse HEAD)" != "1b3c86ab6517dfd51e02f97d988b01a009690e9e" ]; then
             echo "D05_SITE_PIN=FAIL"
             exit 1
           fi
@@ -194,3 +194,39 @@ jobs:
             exit 1
           fi
           echo "D05_CASE003_SOURCE_GATE=PASS"
+      - name: Diagnose native CASE-003 UI in disposable static preview
+        env:
+          IWXA_CEHOVOD_HOST_ORIGIN: https://127.0.0.1:8443
+        run: |
+          set -euo pipefail
+          cd site
+          if npm run prerender -- --diagnostic-ssr-only > "$RUNNER_TEMP/d05-article-ssr.log" 2>&1; then
+            echo "D05_CASE003_SSR_ONLY=PASS"
+          else
+            echo "D05_CASE003_SSR_ONLY=FAIL"
+            exit 1
+          fi
+          chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
+          if [ -z "$chrome" ]; then
+            echo "D05_CASE003_BROWSER_NOT_AVAILABLE=TRUE"
+            exit 1
+          fi
+          export PUPPETEER_EXECUTABLE_PATH="$chrome"
+          if npm run check:functional-ui > "$RUNNER_TEMP/d05-article-browser.log" 2>&1; then
+            echo "D05_CASE003_NATIVE_BROWSER=PASS"
+          else
+            echo "D05_CASE003_NATIVE_BROWSER=FAIL"
+            node -e '
+            const fs=require("node:fs");
+            const t=fs.readFileSync(process.env.RUNNER_TEMP+"/d05-article-browser.log","utf8");
+            const codes=[...new Set(t.match(/CASE003_[A-Z0-9_]+/g)||[])];
+            console.log("D05_CASE003_FAILURE_CODES="+codes.join(","));
+            const frames=[...new Set([...t.matchAll(/check-functional-ui\\.ts:(\\d+):(\\d+)/g)].map(m=>m[1]))];
+            console.log("D05_CASE003_FAILURE_LINE="+frames.slice(0,10).join(","));
+            const kinds=["TimeoutError","AssertionError","ProtocolError","TypeError","SyntaxError","Error: Navigation","waiting for selector","waiting for function"];
+            console.log("D05_CASE003_FAILURE_CLASS="+kinds.filter(k=>t.includes(k)).join(","));
+            const markers=t.split(/\\r?\\n/).filter(s=>s.includes("check-functional-ui: OK"));
+            console.log("D05_CASE003_LAST_COMPLETED_GATE="+markers.slice(-1).map(m=>m.replace(/[^A-Za-z0-9:/_ .-]/g,"").slice(0,110)).join(","));
+            '
+            exit 1
+          fi
