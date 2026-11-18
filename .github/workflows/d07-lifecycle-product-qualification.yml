@@ -85,7 +85,18 @@ jobs:
             try {
               $privateLog=Join-Path $env:RUNNER_TEMP ("d07-lifecycle-"+$name+".private.log")
               & $exe @commandArgs *> $privateLog
-              if($LASTEXITCODE -ne 0){Write-Output ("D07_LIFECYCLE_"+$name+"=FAIL");throw 'D07_LIFECYCLE_GATE_FAILED'}
+              if($LASTEXITCODE -ne 0){
+                Write-Output ("D07_LIFECYCLE_"+$name+"=FAIL")
+                if($name -eq 'TYPES'){
+                  $found=@(Get-Content $privateLog | Where-Object {$_ -match 'error TS[0-9]{4}'} | ForEach-Object {
+                    if($_ -match '[/\\]([^/\\:(]+)[(:](\\d+)[,:].*?error (TS[0-9]{4})'){
+                      "$($Matches[1]):$($Matches[2]):$($Matches[3])"
+                    }elseif($_ -match '(TS[0-9]{4})'){"CODE:$($Matches[1])"}
+                  })
+                  foreach($item in $found|Select-Object -Unique){Write-Output ("D07_LIFECYCLE_TYPE_LOC="+$item)}
+                }
+                throw 'D07_LIFECYCLE_GATE_FAILED'
+              }
               Write-Output ("D07_LIFECYCLE_"+$name+"=PASS")
             }finally{Pop-Location}
           }
