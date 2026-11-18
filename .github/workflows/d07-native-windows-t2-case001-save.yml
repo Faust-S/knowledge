@@ -390,11 +390,12 @@ jobs:
                         [System.Windows.Automation.ControlType]::Text))
                     for($n=0;$n -lt $texts.Count;$n++){
                       $name=$texts.Item($n).Current.Name
-                      if($name -match '^Заказ сохранён и повторно прочитан\. Редакция 1\. Событие: (.+)\.$' -and
-                        -not [string]::IsNullOrWhiteSpace($Matches[1])){
+                      if($name -match '^Заказ сохранён и повторно прочитан' -and
+                          $name -match 'Редакция\s+1' -and
+                          $name -match 'Событие:\s*(\S+)'){
                         $sawReceipt=$true
                       }
-                      if($name -match 'Object ID:\s*d07:order:[0-9a-f]{64}'){$sawObject=$true}
+                      if($name -match '(?i)Object\s*ID\s*:\s*d07:order:[0-9a-f]{64}'){$sawObject=$true}
                     }
                   }
                   if($sawReceipt -and $sawObject){break}
@@ -433,6 +434,31 @@ jobs:
                       }
                     }
                   }
+                  # Structural flags only: no private text, event IDs or object IDs.
+                  $struct=[System.Collections.Generic.HashSet[string]]::new()
+                  foreach($process in @(Get-Process msedge -ErrorAction SilentlyContinue | Where-Object {$_.MainWindowHandle -ne 0})){
+                    $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$process.MainWindowHandle)
+                    if(!$window){continue}
+                    $nodes=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                      [System.Windows.Automation.PropertyCondition]::new(
+                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                        [System.Windows.Automation.ControlType]::Text))
+                    for($n=0;$n -lt $nodes.Count;$n++){
+                      $s=$nodes.Item($n).Current.Name
+                      if($s -match '^Заказ сохранён и повторно прочитан'){
+                        $null=$struct.Add('RECEIPT_PREFIX')
+                        if($s -match 'Редакция\s+1'){$null=$struct.Add('REVISION_1')}
+                        if($s -match 'Событие\s*:'){$null=$struct.Add('EVENT_LABEL')}
+                        if($s -match 'Событие\s*:\s*\S'){$null=$struct.Add('EVENT_NONEMPTY')}
+                        if($s -match '\.$'){$null=$struct.Add('ENDS_PERIOD')}
+                      }
+                      if($s -match '(?i)Object\s*ID\s*:'){$null=$struct.Add('OBJECT_LABEL')}
+                      if($s -match 'd07:order:'){$null=$struct.Add('OBJECT_PREFIX')}
+                      if($s -match 'd07:order:[a-f0-9]{64}'){$null=$struct.Add('OBJECT_ID_64_HEX')}
+                    }
+                  }
+                  if($struct.Count -eq 0){Write-Output 'D07_NATIVE_UI_STRUCTURE=NO_MATCH'}
+                  else{foreach($flag in @($struct | Sort-Object)){Write-Output ('D07_NATIVE_UI_STRUCTURE='+$flag)}}
                   if($signals.Count -eq 0){Write-Output 'D07_NATIVE_UI_SAVE_OUTCOME=NO_RECOGNIZED_STATUS'}
                   else{foreach($signal in @($signals | Sort-Object)){Write-Output ('D07_NATIVE_UI_SAVE_OUTCOME='+$signal)}}
                   Write-Output ('D07_NATIVE_UI_RECEIPT_MATCH='+$sawReceipt)
