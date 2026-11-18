@@ -1,0 +1,64 @@
+name: d06-unit-matrix-qualification
+
+# Independent private-source diagnostics; public output contains only
+# registered npm script IDs and their PASS/FAIL results.
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-unit-matrix-qualification.yml
+permissions:
+  contents: read
+jobs:
+  unit-matrix:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact private site on ephemeral runner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: afd3435f298ab026f3c2f981792de2fa5b7ab4aa
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Check each registered unit stage independently
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 20
+        run: |
+          $installLog = Join-Path $env:RUNNER_TEMP "d06-unit-npm-ci-private.txt"
+          & npm ci --no-audit --no-fund *> $installLog
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_UNIT_INSTALL=FAIL"; exit 1 }
+          Write-Host "D06_UNIT_INSTALL=PASS"
+          $package = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
+          $value = $package.scripts.PSObject.Properties["test:unit"].Value
+          $names = @($value -split ' && ' | ForEach-Object {
+            if ($_ -match '^npm run (test:[a-z0-9:.-]+)$') { $Matches[1] }
+          })
+          if ($names.Count -lt 30 -or $names.Count -gt 100) {
+            Write-Host "D06_UNIT_SCRIPT_REGISTRY=FAIL"
+            exit 1
+          }
+          Write-Host ("D06_UNIT_SCRIPT_COUNT=" + $names.Count)
+          $failed = @()
+          foreach ($name in $names) {
+            $safe = $name.Replace(":", "-")
+            $log = Join-Path $env:RUNNER_TEMP ("d06-unit-" + $safe + "-private.txt")
+            & cmd.exe /d /c ("npm run " + $name + " > """ + $log + """ 2>&1")
+            $pass = $LASTEXITCODE -eq 0
+            Write-Host ("D06_UNIT_" + $safe + "=" + $(if ($pass) { "PASS" } else { "FAIL" }))
+            if (-not $pass) { $failed += $name }
+          }
+          Write-Host ("D06_UNIT_FAILURE_COUNT=" + $failed.Count)
+          if ($failed.Count -ne 0) { exit 1 }
+      - name: Privacy boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_PRIVATE_SOURCE_UPLOADS=0"
+          Write-Host "D06_PRIVATE_LOG_UPLOADS=0"
