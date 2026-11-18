@@ -101,7 +101,28 @@ jobs:
             if($code -ne 0){
               $script:failed.Add($name)
               Write-Host "D07_$name=FAIL exit=$code"
-              if($name -eq 'TYPES'){
+              if($name -eq 'INSTALL'){
+                $installLog=Get-Content $log -Raw -ErrorAction SilentlyContinue
+                $reason='UNKNOWN'
+                if($installLog -match '(?i)lockfile.{0,100}(frozen|changed|update)|frozen.{0,100}lockfile'){$reason='FROZEN_LOCK'}
+                elseif($installLog -match '(?i)postinstall|generate-d07-route-tree|D07_GENERATED'){$reason='POSTINSTALL'}
+                elseif($installLog -match '(?i)not found|command not found|is not recognized'){$reason='EXECUTABLE_NOT_FOUND'}
+                elseif($installLog -match '(?i)could not resolve|failed to resolve|package not found'){$reason='RESOLUTION'}
+                elseif($installLog -match '(?i)network|tls|certificate'){$reason='NETWORK'}
+                Write-Host "D07_INSTALL_CLASS=$reason"
+                Write-Host "D07_INSTALL_LOG_BYTES=$($installLog.Length)"
+                Push-Location site
+                try{
+                  $repairLog=Join-Path $env:RUNNER_TEMP 'd07-lock-diagnostic-private.log'
+                  & bun install --lockfile-only --ignore-scripts *> $repairLog
+                  $repairCode=$LASTEXITCODE
+                  Write-Host "D07_UNFROZEN_LOCK_DIAG_EXIT=$repairCode"
+                  if($repairCode -eq 0){
+                    $change=(& git status --porcelain -- bun.lock)
+                    Write-Host "D07_LOCKFILE_NEEDS_REGENERATION=$([bool]$change)"
+                  }
+                }finally{Pop-Location}
+              }elseif($name -eq 'TYPES'){
                 Get-Content $log | Select-String -AllMatches 'TS[0-9]{4}' |
                   ForEach-Object {$_.Matches.Value} | Group-Object | Sort-Object Name |
                   ForEach-Object {Write-Host "D07_TYPE_CODE=$($_.Name) count=$($_.Count)"}
