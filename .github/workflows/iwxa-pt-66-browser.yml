@@ -33,9 +33,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: de592dbf7e98a8d950198448adc93de1626bb7c9
+          ref: 8702a04f8723b9a745778eb2451f351cbcf2a1c4
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
+          fetch-depth: 0
           path: pt-site
       - uses: actions/setup-node@v4
         with:
@@ -47,12 +48,19 @@ jobs:
         shell: bash
         working-directory: pt-site
         run: |
-          test "$(git rev-parse HEAD)" = de592dbf7e98a8d950198448adc93de1626bb7c9 ||
+          test "$(git rev-parse HEAD)" = 8702a04f8723b9a745778eb2451f351cbcf2a1c4 ||
             { echo "PT_SOURCE_SHA_CHANGED"; exit 1; }
           if bun install --frozen-lockfile > "$RUNNER_TEMP/pt-browser-install.log" 2>&1; then
             echo "PT_BROWSER_BUN_INSTALL=PASS"
           else
             echo "PT_BROWSER_BUN_INSTALL=FAIL"; exit 1
+          fi
+          if node scripts/check-portuguese-competency-graph-source.mjs > "$RUNNER_TEMP/pt-browser-graph-guard.log" 2>&1 && node scripts/check-portuguese-source.mjs > "$RUNNER_TEMP/pt-browser-aggregate-guard.log" 2>&1; then
+            echo "PT_GRAPH_AND_AGGREGATE_GUARDS=PASS"
+          else
+            echo "PT_GRAPH_AND_AGGREGATE_GUARDS=FAIL"
+            grep "^FAIL " "$RUNNER_TEMP/pt-browser-aggregate-guard.log" 2>/dev/null | sed -E "s/^FAIL (.*): .*/FAILED_CHECK: \1/" | head -n 20 || true
+            exit 1
           fi
           export LOVABLE_BUILD_TARGET=static NITRO_PRESET=node-server SERVER_PRESET=node-server
           if bun run build > "$RUNNER_TEMP/pt-browser-build.log" 2>&1; then
