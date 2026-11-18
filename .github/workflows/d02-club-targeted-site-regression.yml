@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      SITE_SHA: 8e69d9ab371b805765535fb0098740569640a614
+      SITE_SHA: b8127c08fa52c5dea03d959e5a2f965efbc05499
     steps:
       - name: Checkout exact private candidate without logging or publishing content
         uses: actions/checkout@v4
@@ -66,6 +66,8 @@ jobs:
             'test:club-project-delete-integrity',
             'test:club-multi-project-restore',
             'test:club-participation-diary',
+            'test:club-route-history',
+            'test:club-case-route-integration',
             'test:club-route-draft-scopes'
           )
           $fail=0
