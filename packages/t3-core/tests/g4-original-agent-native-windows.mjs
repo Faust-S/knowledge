@@ -10,8 +10,10 @@ import {pathToFileURL} from 'node:url';
 
 const [t3Root,agentRoot,workRoot,pythonDriver]=process.argv.slice(2);
 const phaseFail=(step,error)=>{
-  const code=/^[A-Z][A-Z0-9_]{2,119}$/.test(error?.message??'')?
-    error.message:'UNCLASSIFIED';
+  // System errors have safe fixed Node codes; do not emit descriptions.
+  const safe=value=>typeof value==='string'&&
+    /^[A-Z][A-Z0-9_]{2,119}$/.test(value)?value:null;
+  const code=safe(error?.code)??safe(error?.message)??'UNCLASSIFIED';
   console.error('G4_NATIVE_FAILURE_PHASE',step);
   console.error('G4_NATIVE_FAILURE_CODE',code);
   // Only a bounded exception TYPE is public. The private T3 stack, source,
