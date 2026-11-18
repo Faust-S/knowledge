@@ -650,7 +650,11 @@ jobs:
                 }
                 # Whitelisted accessibility metadata only; never log input
                 # values, source strings, filenames or archive paths.
-                Write-Output ('D07_NATIVE_IWXA_IMPORT_TAB_CONTROL='+$importTab.Current.ControlType.ProgrammaticName)
+                try {
+                  Write-Output ('D07_NATIVE_IWXA_IMPORT_TAB_CONTROL='+$importTab.Current.ControlType.ProgrammaticName)
+                }catch{
+                  Write-Output 'D07_NATIVE_IWXA_IMPORT_TAB_CONTROL=STALE'
+                }
                 if(!$upload){
                   foreach($proc in @(Get-Process msedge -ErrorAction SilentlyContinue |
                     Where-Object {$_.MainWindowHandle -ne 0})){
