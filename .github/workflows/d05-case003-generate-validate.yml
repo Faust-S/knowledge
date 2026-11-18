@@ -27,7 +27,7 @@ jobs:
             echo "D05_SITE_READ=FAIL"
             exit 1
           fi
-          if [ "$(git -C site rev-parse HEAD)" != "1b3c86ab6517dfd51e02f97d988b01a009690e9e" ]; then
+          if [ "$(git -C site rev-parse HEAD)" != "f189f0e5d6da3f94dbee7860577ebeafe1e09a0a" ]; then
             echo "D05_SITE_PIN=FAIL"
             exit 1
           fi
