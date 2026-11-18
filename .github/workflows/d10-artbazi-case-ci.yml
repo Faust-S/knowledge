@@ -174,6 +174,8 @@ jobs:
           build_result=$?
           if [ "$build_result" -ne 0 ]; then
             echo "::error::D10_REVIEW_LOCAL_PREVIEW_BUILD=FAIL"
+            # Only stable error codes; never print private source or build output.
+            grep -Eo 'ARTBAZI_[A-Z0-9_]+|TS[0-9]+' "$RUNNER_TEMP/d10-review-preview-build.log" | sort -u | head -n 16 | sed 's/^/D10_PREVIEW_ERROR_CODE=/' || true
             exit "$build_result"
           fi
           echo "D10_REVIEW_LOCAL_PREVIEW_BUILD=PASS"
