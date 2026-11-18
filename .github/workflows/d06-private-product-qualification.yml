@@ -240,43 +240,51 @@ jobs:
             if ($counts.Count -gt 0) {
               Write-Host ("D06_E2E_FAILED_COUNT=" + $counts[$counts.Count - 1].Groups[1].Value)
             }
-            # Read Playwright's machine report locally. Text-list parsing was
-            # unreliable (zero ordinals despite seven known failures).
-            $specs = @(& git ls-files -- "tests/e2e/*.spec.ts" | Sort-Object)
-            $ordinals = @{}
-            $jsonPath = $env:PLAYWRIGHT_JSON_OUTPUT_FILE
-            if (Test-Path -LiteralPath $jsonPath) {
-              $report = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json
-              $stack = [System.Collections.Generic.List[object]]::new()
-              foreach ($suite in @($report.suites)) { $stack.Add($suite) }
-              $failureCount = 0
-              while ($stack.Count -gt 0) {
-                $suite = $stack[$stack.Count - 1]
-                $stack.RemoveAt($stack.Count - 1)
-                foreach ($child in @($suite.suites)) { $stack.Add($child) }
-                foreach ($spec in @($suite.specs)) {
-                  if ($spec.ok -ne $false) { continue }
-                  $failureCount++
-                  $source = [string]$spec.file
-                  if (-not $source) { $source = [string]$suite.file }
-                  $source = $source.Replace([char]92, [char]47)
-                  $match = [regex]::Match($source, 'tests/e2e/[^/]+\.spec\.ts$')
-                  $relative = if ($match.Success) { $match.Value } else { "" }
-                  $index = [array]::IndexOf($specs, $relative)
-                  $ordinal = if ($index -ge 0) { $index + 1 } else { 0 }
-                  $key = [string]$ordinal
-                  $ordinals[$key] = 1 + [int]($ordinals[$key])
-                }
-              }
-              Write-Host ("D06_E2E_REPORT_FAILED_COUNT=" + $failureCount)
-            } else {
-              Write-Host "D06_E2E_JSON_REPORT=NOT_CREATED"
+            # Parse the private Playwright report with Node: PowerShell's
+            # ConvertFrom-Json can hang for many minutes on nested test traces.
+            # Only counts and tracked-file ordinals leave the disposable runner.
+            $reportScript = @'
+const fs = require("node:fs");
+const cp = require("node:child_process");
+const file = process.argv[1];
+if (!fs.existsSync(file)) {
+  console.log("D06_E2E_JSON_REPORT=NOT_CREATED");
+  process.exit(0);
+}
+const report = JSON.parse(fs.readFileSync(file, "utf8"));
+const files = cp.execFileSync("git", ["ls-files", "--", "tests/e2e/*.spec.ts"], {
+  encoding: "utf8",
+}).split(/\r?\n/).filter(Boolean).sort();
+const counts = new Map();
+let failures = 0;
+const stack = [...(report.suites || [])];
+while (stack.length) {
+  const suite = stack.pop();
+  for (const child of suite.suites || []) stack.push(child);
+  for (const spec of suite.specs || []) {
+    const tests = spec.tests || [];
+    const failed = spec.ok === false ||
+      tests.some(t => (t.results || []).some(r =>
+        ["failed", "timedOut", "interrupted"].includes(r.status)));
+    if (!failed) continue;
+    failures++;
+    const raw = String(spec.file || suite.file || "").replace(/\\/g, "/");
+    const match = raw.match(/tests\/e2e\/[^/]+\.spec\.ts$/);
+    const index = match ? files.indexOf(match[0]) : -1;
+    const ordinal = index + 1;
+    counts.set(ordinal, (counts.get(ordinal) || 0) + 1);
+  }
+}
+console.log("D06_E2E_JSON_REPORT=PASS");
+console.log("D06_E2E_REPORT_FAILED_COUNT=" + failures);
+console.log("D06_E2E_FAILED_SPEC_ORDINALS=" +
+  [...counts].sort((a,b) => a[0]-b[0]).map(([k,v]) => k+":"+v).join(","));
+console.log("D06_E2E_SPEC_COUNT=" + files.length);
+'@
+            & node -e $reportScript $env:PLAYWRIGHT_JSON_OUTPUT_FILE
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "D06_E2E_JSON_REPORT=PARSE_FAILED"
             }
-            $summary = @($ordinals.Keys | Sort-Object {
-              [int]$_
-            } | ForEach-Object { $_ + ":" + $ordinals[$_] }) -join ","
-            Write-Host ("D06_E2E_FAILED_SPEC_ORDINALS=" + $summary)
-            Write-Host ("D06_E2E_SPEC_COUNT=" + $specs.Count)
             exit 1
           }
       - name: State privacy boundary
