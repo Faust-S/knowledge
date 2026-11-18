@@ -72,6 +72,12 @@ jobs:
             if ($a -ne $b) { throw "D11_CANONICAL_MIRROR_DIFF" }
           }
           Write-Output "D11_UI_MIRROR=$($files.Count)/$($files.Count)"
+      - name: Validate original T2 service passport declaration shape
+        working-directory: site
+        run: |
+          & node --test tests/d11-service-passport-contract.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "D11_T2_PASSPORT_DECLARATION_INVALID" }
+          Write-Output "D11_T2_PASSPORT_DECLARATIONS=PASS"
       - name: Install npm dependencies in ephemeral checkout
         working-directory: site
         run: |
