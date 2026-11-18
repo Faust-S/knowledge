@@ -92,6 +92,30 @@ jobs:
           & npm run build:t2:site *> (Join-Path $env:RUNNER_TEMP "d11-build.log")
           if ($LASTEXITCODE -ne 0) { throw "D11_UI_BUILD_FAILED" }
           Write-Output "D11_UI_ONE_DIST=PASS"
+      - name: Run both canonical and site D11 source regression suites
+        id: source
+        continue-on-error: true
+        working-directory: site
+        run: |
+          $domainTests=@(Get-ChildItem ../domain/tests -File -Filter "*.test.mjs" | ForEach-Object { $_.FullName })
+          $siteTests=@(Get-ChildItem tests -File -Filter "*.test.mjs" | ForEach-Object { $_.FullName })
+          if ($domainTests.Count -ne 14 -or $siteTests.Count -lt 19) { throw "D11_TEST_INVENTORY_MISSING" }
+          & node --experimental-strip-types --test @domainTests
+          if ($LASTEXITCODE -ne 0) { throw "D11_CANONICAL_MODELS_REGRESSION_FAILED" }
+          & node --experimental-strip-types --test @siteTests
+          if ($LASTEXITCODE -ne 0) { throw "D11_SITE_SOURCE_REGRESSION_FAILED" }
+          Write-Output "D11_ALL_SOURCE_REGRESSIONS=PASS"
+      - name: Verify all nine integrated static product checks
+        id: hygiene
+        continue-on-error: true
+        working-directory: site
+        run: |
+          $checks=@("check:readability","check:hydration","check:runtime","check:no-localhost","check:assets","check:external-assets","check:links","check:seo","check:htaccess")
+          foreach ($check in $checks) {
+            & npm run --silent $check *> (Join-Path $env:RUNNER_TEMP ("d11-"+$check.Replace(":","-")+".log"))
+            if ($LASTEXITCODE -ne 0) { throw "D11_PRODUCT_STATIC_CHECK_FAILED: $check" }
+          }
+          Write-Output "D11_PRODUCT_STATIC_CHECKS=9/9 PASS"
       # Test the real export entry point rather than an arbitrary form save.
       # Protect every source payload; only status codes appear in public logs.
       # Preserve verified production dist bytes; only two Host-origin config
@@ -115,10 +139,13 @@ jobs:
           & node scripts/d11-live-t2-kernel-exchange-acceptance.mjs
           if ($LASTEXITCODE -ne 0) { throw "D11_T2_REAL_KERNEL_EXCHANGE_FAILED" }
           Write-Output "D11_T2_REAL_KERNEL_EXCHANGE=PASS"
-      - name: Enforce live acceptance of both independent paths
+      - name: Enforce source, site, GUI and T2 Kernel acceptance
         if: always()
         run: |
-          if ("${{ steps.ui.outcome }}" -ne "success" -or "${{ steps.kernel.outcome }}" -ne "success") {
+          if ("${{ steps.source.outcome }}" -ne "success" -or
+              "${{ steps.hygiene.outcome }}" -ne "success" -or
+              "${{ steps.ui.outcome }}" -ne "success" -or
+              "${{ steps.kernel.outcome }}" -ne "success") {
             throw "D11_LIVE_ACCEPTANCE_INCOMPLETE"
           }
           Write-Output "D11_LIVE_FULL_ACCEPTANCE=PASS"
