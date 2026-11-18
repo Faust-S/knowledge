@@ -49,6 +49,7 @@ try {
   }
   await page.setViewport({width:375,height:812});
   await page.goto(base + "/pt/map/",{waitUntil:"domcontentloaded"});
+  await page.waitForSelector(".iwxa-atlas[data-ready=\"true\"]",{timeout:45000});
   await page.waitForSelector("#agent-start",{timeout:22000});
   await page.click("#agent-start");
   await page.waitForFunction(() => {
