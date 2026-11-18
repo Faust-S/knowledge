@@ -81,9 +81,27 @@ export async function qualifyOriginalAgentD3Source({
   }
 }
 
+export async function qualifyOriginalAgentWithAllowedTokens({tokens=[],fetchFile,python='python'}={}){
+  const available=tokens.filter(token=>typeof token==='string'&&token.trim());
+  if(!available.length)throw Error('T3_AGENT_PRIVATE_SOURCE_TOKEN_UNAVAILABLE');
+  for(const token of available){
+    try{return await qualifyOriginalAgentD3Source({token,fetchFile,python});}
+    catch(error){
+      // Read-only GitHub Contents returns 404 for an unauthorized private
+      // repository. Try a second already-configured scoped credential without
+      // printing values, origins or the private source.
+      if(['T3_PRIVATE_SOURCE_FETCH_403','T3_PRIVATE_SOURCE_FETCH_404'].includes(error?.message))
+        continue;
+      throw error;
+    }
+  }
+  throw Error('T3_AGENT_PRIVATE_SOURCE_NOT_AUTHORIZED_IN_KNOWLEDGE');
+}
+
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
-  qualifyOriginalAgentD3Source({
-    token:process.env.AGENT_PRIVATE_READ_TOKEN,
+  qualifyOriginalAgentWithAllowedTokens({
+    tokens:[process.env.AGENT_PRIVATE_READ_TOKEN,
+      process.env.DOMEN_PRIVATE_READ_TOKEN,process.env.T3_PRIVATE_READ_TOKEN],
     python:process.env.PYTHON_COMMAND??'python',
   }).catch(error=>{
     const code=/^T3_[A-Z0-9_]+$/.test(error?.message??'')
