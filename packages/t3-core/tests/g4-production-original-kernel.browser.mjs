@@ -287,7 +287,17 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
     assert.equal(currentRegistry.state,'ORIGINAL_KERNEL_REGISTRY_CONFIRMED');
     assert.equal(currentRegistry.originalReadback,true);
     onPhase('ORIGINAL_PRODUCTION_TASK_REBIND_STATUS_SEQUENCE');
-    assert.equal(currentRegistry.statusSequence,4);
+    // Signed STATUS sequence is NOT the original Kernel Object revision.
+    // Compare it to the exact state the original T2 Kernel persisted.
+    const signedRegistry=await facade.getObject(productionWs,
+      't3.access.signed-registry');
+    assert.equal(signedRegistry.object.revision,4);
+    const originalAuthority='authority:'+productionOrg;
+    const storedFloor=signedRegistry.object.data?.statusFloor?.[originalAuthority];
+    assert.ok(Number.isSafeInteger(storedFloor)&&storedFloor>=4,
+      'G4_ORIGINAL_SIGNED_STATUS_FLOOR_REQUIRED');
+    assert.equal(currentRegistry.statusSequence,storedFloor,
+      'G4_ORIGINAL_T2_SIGNED_STATUS_READBACK_MISMATCH');
     const taskPath=join(workRoot,'original-production-signed-task.iwxa');
     onPhase('ORIGINAL_PRODUCTION_EMPLOYEE_KERNEL_TASK_EXPORT');
     const exported=await action('d3EmployeeExportTask',{
