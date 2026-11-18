@@ -237,6 +237,28 @@ jobs:
             if ($counts.Count -gt 0) {
               Write-Host ("D06_E2E_FAILED_COUNT=" + $counts[$counts.Count - 1].Groups[1].Value)
             }
+            # Identify failing spec files by ordinals in the private Git
+            # checkout. No paths, test titles or private assertion messages
+            # are published into the public control-plane log.
+            $specs = @(& git ls-files -- "tests/e2e/*.spec.ts" | Sort-Object)
+            $clean = [regex]::Replace($private, [char]27 + '\[[0-9;]*m', '')
+            $observed = [regex]::Matches(
+              $clean,
+              '(?m)^\s*[0-9]+\)\s*(?:\[[^\]\r\n]+\]\s*)?›\s*(tests/e2e/[^:\s]+\.spec\.ts):'
+            )
+            $ordinals = @{}
+            foreach ($match in $observed) {
+              $relative = $match.Groups[1].Value.Replace('\', '/')
+              $index = [array]::IndexOf($specs, $relative)
+              $ordinal = if ($index -ge 0) { $index + 1 } else { 0 }
+              $key = [string]$ordinal
+              $ordinals[$key] = 1 + [int]($ordinals[$key])
+            }
+            $summary = @($ordinals.Keys | Sort-Object {
+              [int]$_
+            } | ForEach-Object { $_ + ":" + $ordinals[$_] }) -join ","
+            Write-Host ("D06_E2E_FAILED_SPEC_ORDINALS=" + $summary)
+            Write-Host ("D06_E2E_SPEC_COUNT=" + $specs.Count)
             exit 1
           }
       - name: State privacy boundary
