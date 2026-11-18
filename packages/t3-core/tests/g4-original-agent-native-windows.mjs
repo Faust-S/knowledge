@@ -364,5 +364,18 @@ try{
     membershipChallenge),
     {code:'T3_EMPLOYEE_ORIGINAL_CHALLENGE_SCOPE_CHANGED'});
   console.log('G4_ORIGINAL_PRODUCTION_AGENT_MEMBERSHIP_CHALLENGE_PASS');
+  phase='ORIGINAL_PRODUCTION_REAL_T2_EMPLOYEE_KERNEL';
+  const {qualifyOriginalProductionEmployeeRealKernel}=await import(
+    pathToFileURL(join(process.cwd(),'packages','t3-core','tests',
+      'g4-production-original-kernel.browser.mjs')).href);
+  const kernelEvidence=await qualifyOriginalProductionEmployeeRealKernel({
+    t3Root,prodRoot,workRoot,employeeCandidateRoot,employeeProcess,
+    productionOrg,productionWs,candidate,
+    onPhase:next=>{phase=next;},
+  });
+  assert.equal(kernelEvidence.registryRevision,3);
+  assert.ok(kernelEvidence.signedGrantIds.work&&
+    kernelEvidence.signedGrantIds.export);
+
 }catch(error){phaseFail(phase,error)}
 finally{try{admin?.close()}catch{}}
