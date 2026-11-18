@@ -72,8 +72,10 @@ jobs:
           foreach ($file in $files) {
             $pair=Join-Path "d11-site/src/lib/logistics" $file.Name
             if (-not (Test-Path $pair)) { throw "D11_CANONICAL_MIRROR_MISSING" }
-            if ((Get-FileHash $file.FullName -Algorithm SHA256).Hash -ne
-                (Get-FileHash $pair -Algorithm SHA256).Hash) { throw "D11_CANONICAL_MIRROR_MISMATCH" }
+            # Git blob identity is invariant across Windows CRLF/LF checkout.
+            $left=(git -C d11-domain rev-parse "HEAD:model/logistics/$($file.Name)").Trim()
+            $right=(git -C d11-site rev-parse "HEAD:src/lib/logistics/$($file.Name)").Trim()
+            if ($left -ne $right) { throw "D11_CANONICAL_MIRROR_MISMATCH" }
           }
           Write-Output "D11_CANONICAL_MIRROR=$($files.Count)/$($files.Count)"
       - name: Full domain CASE tests (private log)
