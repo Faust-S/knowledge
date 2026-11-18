@@ -80,11 +80,11 @@ jobs:
           $hashes=@($mirror | ForEach-Object {(git hash-object $_).Trim()})
           if($hashes.Count -ne 3 -or (@($hashes|Select-Object -Unique)).Count -ne 1){throw 'D07_LIFECYCLE_MIRROR_MISMATCH'}
           Write-Output 'D07_LIFECYCLE_MIRRORS=3/3'
-          function Check([string]$name,[string]$folder,[string]$exe,[string[]]$args){
+          function Check([string]$name,[string]$folder,[string]$exe,[string[]]$commandArgs){
             Push-Location $folder
             try {
               $privateLog=Join-Path $env:RUNNER_TEMP ("d07-lifecycle-"+$name+".private.log")
-              & $exe @args *> $privateLog
+              & $exe @commandArgs *> $privateLog
               if($LASTEXITCODE -ne 0){Write-Output ("D07_LIFECYCLE_"+$name+"=FAIL");throw 'D07_LIFECYCLE_GATE_FAILED'}
               Write-Output ("D07_LIFECYCLE_"+$name+"=PASS")
             }finally{Pop-Location}
