@@ -1,0 +1,95 @@
+name: D11 full live Windows Linux acceptance
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d11-live-product-acceptance.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d11-full-live-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser:
+    name: D11 LIVE ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check private repository permissions
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { throw "D11_DOMEN_UNAVAILABLE" }
+          foreach ($repository in @("Faust-S/advice-logistics.ru","Faust-S/advice-logistics","Faust-S/T2")) {
+            gh api "repos/$repository" --jq ".id" > $null
+            if ($LASTEXITCODE -ne 0) { throw "D11_READ_ACCESS_DENIED" }
+          }
+          Write-Output "D11_PRIVATE_READ_ACCESS=PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/advice-logistics.ru
+          ref: work/2026-11-12-case001-logistics-engineering
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/advice-logistics
+          ref: work/2026-11-12-case001-logistics-engineering
+          token: ${{ secrets.DOMEN }}
+          path: domain
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          path: t2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pin revision and canonical source before browser acceptance
+        run: |
+          $site=(git -C site rev-parse HEAD).Trim()
+          $domain=(git -C domain rev-parse HEAD).Trim()
+          $t2=(git -C t2 rev-parse HEAD).Trim()
+          Write-Output "D11_UI_SITE_HEAD=$site"
+          Write-Output "D11_UI_DOMAIN_HEAD=$domain"
+          if ($t2 -ne "e70de29b72b83e2546f7ab74b17572685a728c17") { throw "D11_T2_PIN_CHANGED" }
+          $files=@(Get-ChildItem domain/model/logistics -File -Filter "*.ts")
+          if ($files.Count -lt 24) { throw "D11_SOURCE_FILES_MISSING" }
+          foreach ($f in $files) {
+            $a=(git -C domain rev-parse "HEAD:model/logistics/$($f.Name)").Trim()
+            $b=(git -C site rev-parse "HEAD:src/lib/logistics/$($f.Name)").Trim()
+            if ($a -ne $b) { throw "D11_CANONICAL_MIRROR_DIFF" }
+          }
+          Write-Output "D11_UI_MIRROR=$($files.Count)/$($files.Count)"
+      - name: Install npm dependencies in ephemeral checkout
+        working-directory: site
+        run: |
+          & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP "d11-npm-install.log")
+          if ($LASTEXITCODE -ne 0) { throw "D11_UI_NPM_INSTALL_FAILED" }
+          Write-Output "D11_UI_NPM=PASS"
+      - name: Build actual T2 Host and public site together
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+        run: |
+          & npm run build:t2:site *> (Join-Path $env:RUNNER_TEMP "d11-build.log")
+          if ($LASTEXITCODE -ne 0) { throw "D11_UI_BUILD_FAILED" }
+          Write-Output "D11_UI_ONE_DIST=PASS"
+      - name: Real browser E2E for ten cases (desktop and mobile)
+        working-directory: site
+        run: |
+          & node scripts/d11-live-browser-acceptance.mjs
+          if ($LASTEXITCODE -ne 0) { throw "D11_LIVE_TEN_CASES_FAILED" }
+          Write-Output "D11_LIVE_BROWSER=PASS"
+      # No upload-artifact, cache, dist publishing, or source disclosure.
