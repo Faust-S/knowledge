@@ -536,7 +536,7 @@ jobs:
                 ActivateNative $transfer
                 $null=WaitNative 'Перенос данных' $null
                 Write-Output 'D07_NATIVE_ORIGINAL_T2_EXCHANGE_ENTRY=PASS'
-                $exportTab=WaitNative 'Экспортировать' ([System.Windows.Automation.ControlType]::Button)
+                $exportTab=WaitNative 'Экспортировать' $null
                 ActivateNative $exportTab
                 $null=WaitNative 'Рабочие области' $null
                 $historyCheck=FindNative 'История событий' ([System.Windows.Automation.ControlType]::CheckBox)
