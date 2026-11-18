@@ -1,0 +1,178 @@
+name: IWXA PT 66 qualification - private source, no public artifacts
+on:
+  push:
+    branches: [work/2026-11-18-pt-66-qualification]
+    paths: [.github/workflows/iwxa-pt-66-qualification.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-pt-66-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source:
+    name: PT 66 exact-source guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Verify authorized access to specific private repository
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then echo "PT_DOMEN_SECRET_UNAVAILABLE"; exit 1; fi
+          if ! gh api repos/Faust-S/iwxa-ru-1 >/dev/null 2>&1; then
+            echo "PT_PRIVATE_REPOSITORY_ACCESS_NOT_AUTHORIZED"
+            exit 1
+          fi
+          echo "PT_PRIVATE_REPOSITORY_ACCESS=PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: 6837d8d43d19fd2b38f693d83a169803cdb5a9fa
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: pt-site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify SHA and execute source/model guards with private logs
+        shell: bash
+        working-directory: pt-site
+        run: |
+          test "$(git rev-parse HEAD)" = "6837d8d43d19fd2b38f693d83a169803cdb5a9fa" || exit 1
+          set +e
+          failures=0
+          run_check() {
+            label="$1"; shift
+            "$@" > "$RUNNER_TEMP/iwxa-pt-$label.log" 2>&1
+            status=$?
+            if [ "$status" -eq 0 ]; then
+              echo "$label=PASS"
+            else
+              echo "$label=FAIL_exit_$status"
+              failures=$((failures + 1))
+            fi
+          }
+          scripts=(scripts/check-portuguese-*-source.mjs)
+          if [ "${#scripts[@]}" -ne 24 ]; then
+            echo "PT_SOURCE_GUARD_INVENTORY_MISMATCH"
+            exit 1
+          fi
+          for script in "${scripts[@]}"; do
+            run_check "$(basename "$script" .mjs)" node "$script"
+          done
+          run_check PT_AGGREGATE node scripts/check-portuguese-source.mjs
+          run_check PT_ATLAS_SOURCE node scripts/check-portuguese-atlas-complete.mjs
+          run_check PT_MODEL_DECISIONS node scripts/check-portuguese-decision-parity.mjs
+          run_check PT_TEXT_COVERAGE node scripts/check-portuguese-translation-inclusion.mjs
+          run_check PT_ORBIT_GEOMETRY node --experimental-strip-types scripts/check-portuguese-orbit-caption.mjs
+          run_check PT_STATIC_VALIDATOR_SELFTEST node scripts/check-portuguese-static-release-selftest.mjs
+          echo "PT_SOURCE_SUITE_FAIL_COUNT=$failures"
+          test "$failures" -eq 0
+  static:
+    name: PT complete static build and SSR
+    needs: source
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Verify authorized private repository access
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then echo "PT_DOMEN_SECRET_UNAVAILABLE"; exit 1; fi
+          if ! gh api repos/Faust-S/iwxa-ru-1 >/dev/null 2>&1; then
+            echo "PT_PRIVATE_REPOSITORY_ACCESS_NOT_AUTHORIZED"
+            exit 1
+          fi
+          echo "PT_PRIVATE_REPOSITORY_ACCESS=PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: 6837d8d43d19fd2b38f693d83a169803cdb5a9fa
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: pt-site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Clean npm install and TypeScript
+        shell: bash
+        working-directory: pt-site
+        run: |
+          test "$(git rev-parse HEAD)" = "6837d8d43d19fd2b38f693d83a169803cdb5a9fa" || exit 1
+          if npm ci --no-audit --no-fund > "$RUNNER_TEMP/iwxa-pt-install.log" 2>&1; then
+            echo "PT_NPM_CI=PASS"
+          else
+            echo "PT_NPM_CI=FAIL"
+            exit 1
+          fi
+          if npm run typecheck > "$RUNNER_TEMP/iwxa-pt-types.log" 2>&1; then
+            echo "PT_TYPECHECK=PASS"
+          else
+            echo "PT_TYPECHECK=FAIL"
+            exit 1
+          fi
+      - name: Build actual static website, including all published languages
+        shell: bash
+        working-directory: pt-site
+        run: |
+          if npm run build:static > "$RUNNER_TEMP/iwxa-pt-build.log" 2>&1; then
+            echo "PT_STATIC_PRERENDER=PASS"
+          else
+            echo "PT_STATIC_PRERENDER=FAIL"
+            exit 1
+          fi
+      - name: Check 462 static routes, Atlas, SEO, accessibility and hosting
+        shell: bash
+        working-directory: pt-site
+        run: |
+          set +e
+          failures=0
+          run_check() {
+            label="$1"; shift
+            "$@" > "$RUNNER_TEMP/iwxa-pt-$label.log" 2>&1
+            status=$?
+            if [ "$status" -eq 0 ]; then
+              echo "$label=PASS"
+            else
+              echo "$label=FAIL_exit_$status"
+              failures=$((failures + 1))
+            fi
+          }
+          run_check PT_462_RELEASE node scripts/check-portuguese-static-release.mjs
+          for name in check:atlas check:routes check:readability check:schema check:llms check:seo check:no-localhost check:hosting-clean check:links check:runtime check:a11y check:responsive check:performance check:htaccess; do
+            run_check "PT_$(echo "$name" | tr ': -' '___')" npm run "$name"
+          done
+          echo "PT_STATIC_SUITE_FAIL_COUNT=$failures"
+          test "$failures" -eq 0
+      - name: Check 132 native SSR replies on original site server
+        shell: bash
+        working-directory: pt-site
+        run: |
+          if [ ! -f .output/server/index.mjs ]; then
+            echo "PT_NODE_SSR_ENTRY_MISSING"
+            exit 1
+          fi
+          PORT=4387 HOST=127.0.0.1 NODE_ENV=production node .output/server/index.mjs > "$RUNNER_TEMP/iwxa-pt-ssr-server.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 40); do
+            if curl -fsS -o /dev/null http://127.0.0.1:4387/; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "PT_SSR_SERVER_NOT_READY"
+            exit 1
+          fi
+          if node scripts/pt-ssr-contract.mjs --base=http://127.0.0.1:4387/ --out="$RUNNER_TEMP/iwxa-pt-ssr" > "$RUNNER_TEMP/iwxa-pt-ssr-contract.log" 2>&1; then
+            echo "PT_132_SSR_CONTRACT=PASS"
+          else
+            echo "PT_132_SSR_CONTRACT=FAIL"
+            exit 1
+          fi
