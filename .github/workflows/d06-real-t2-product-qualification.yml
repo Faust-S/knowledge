@@ -197,6 +197,14 @@ jobs:
               $stages[$stages.Count - 1].Groups[1].Value
             } else { "BEFORE_EXCHANGE_READBACK" }
             Write-Host ("D06_NATIVE_LAST_STAGE=" + $lastStage)
+            $persistence = [regex]::Match($content, "D06_NATIVE_PD16_SAVE_RESULT=(KERNEL_PRESENT|KERNEL_MISSING)")
+            if ($persistence.Success) {
+              Write-Host ("D06_NATIVE_PD16_SAVE_RESULT=" + $persistence.Groups[1].Value)
+            }
+            $ui = [regex]::Match($content, "D06_NATIVE_PD16_UI_RESULT=(ERROR|TIMEOUT)")
+            if ($ui.Success) {
+              Write-Host ("D06_NATIVE_PD16_UI_RESULT=" + $ui.Groups[1].Value)
+            }
             exit 1
           }
           Write-Host "D06_REAL_KERNEL_EXCHANGE=PASS"
