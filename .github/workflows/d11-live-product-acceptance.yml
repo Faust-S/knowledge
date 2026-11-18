@@ -105,6 +105,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "D11_CANONICAL_MODELS_REGRESSION_FAILED" }
           & node --experimental-strip-types --test @siteTests
           if ($LASTEXITCODE -ne 0) { throw "D11_SITE_SOURCE_REGRESSION_FAILED" }
+          $siteService=(Get-FileHash "src/lib/logistics/operational-services.ts" -Algorithm SHA256).Hash
+          $domainService=(Get-FileHash "../domain/model/logistics/operational-services.ts" -Algorithm SHA256).Hash
+          if ($siteService -ne $domainService) { throw "D11_OPERATIONAL_CANONICAL_MIRROR_MISMATCH" }
+          Write-Output "D11_CANONICAL_SERVICE_MIRROR=PASS"
           & npx --no-install tsc --noEmit --project tsconfig.json *> (Join-Path $env:RUNNER_TEMP "d11-types.log")
           if ($LASTEXITCODE -ne 0) { throw "D11_SITE_TYPES_FAILED" }
           Write-Output "D11_ALL_SOURCE_REGRESSIONS_AND_TYPES=PASS"
