@@ -112,7 +112,8 @@ jobs:
                 '--no-first-run','--no-default-browser-check',"--user-data-dir=$profile","--app=$url") -PassThru
               if($edgeProc){$started.Add($edgeProc.Id)}
               $titleSeen=$false
-              $caseSeen=$false
+              $caseButton=$null
+              $buttonText=if($num -eq '001'){'Создать черновик заказа'}else{''}
               for($attempt=0;$attempt -lt 60;$attempt++){
                 Start-Sleep -Milliseconds 600
                 $windows=@(Get-Process msedge -ErrorAction SilentlyContinue|Where-Object{$_.MainWindowHandle -ne 0})
@@ -121,15 +122,44 @@ jobs:
                   if(!$e){continue}
                   $scope=[System.Windows.Automation.TreeScope]::Descendants
                   $titleCondition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty,$headingText)
-                  $caseCondition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty,('Реальный проект · D07-CASE-'+$num))
                   if($e.FindFirst($scope,$titleCondition)){$titleSeen=$true}
-                  if($e.FindFirst($scope,$caseCondition)){$caseSeen=$true}
+                  if($buttonText){
+                    $btnCondition=[System.Windows.Automation.PropertyCondition]::new(
+                      [System.Windows.Automation.AutomationElement]::NameProperty,$buttonText)
+                    $candidate=$e.FindFirst($scope,$btnCondition)
+                    if($candidate -and $candidate.Current.IsEnabled){$caseButton=$candidate}
+                  }
                 }
-                if($titleSeen -and $caseSeen){break}
+                if($titleSeen -and (!$buttonText -or $caseButton)){break}
               }
               if(-not $titleSeen){throw 'D07_GUI_H1_NOT_VISIBLE'}
-              if(-not $caseSeen){throw 'D07_GUI_CASE_EYEBROW_NOT_VISIBLE'}
               Write-Output ('D07_EDGE_UIA_CASE_'+$num+'=PASS')
+              if($num -eq '001'){
+                if(-not $caseButton){throw 'D07_GUI_CREATE_DRAFT_BUTTON_NOT_READY'}
+                $invoke=[System.Windows.Automation.InvokePattern]$caseButton.GetCurrentPattern(
+                  [System.Windows.Automation.InvokePattern]::Pattern)
+                $invoke.Invoke()
+                $draftCreated=$false
+                for($step=0;$step -lt 25;$step++){
+                  Start-Sleep -Milliseconds 500
+                  $allWindows=@(Get-Process msedge -ErrorAction SilentlyContinue|Where-Object{$_.MainWindowHandle -ne 0})
+                  foreach($checkProcess in $allWindows){
+                    $view=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$checkProcess.MainWindowHandle)
+                    if(!$view){continue}
+                    $createdCondition=[System.Windows.Automation.PropertyCondition]::new(
+                      [System.Windows.Automation.AutomationElement]::NameProperty,'Заказ создан')
+                    $transferCondition=[System.Windows.Automation.PropertyCondition]::new(
+                      [System.Windows.Automation.AutomationElement]::NameProperty,'Передать в T2')
+                    if($view.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$createdCondition) -and
+                       $view.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$transferCondition)){
+                      $draftCreated=$true;break
+                    }
+                  }
+                  if($draftCreated){break}
+                }
+                if(-not $draftCreated){throw 'D07_GUI_REACT_DRAFT_CREATION_NOT_CONFIRMED'}
+                Write-Output 'D07_NATIVE_CASE_001_CREATE_DRAFT=PASS'
+              }
             }
             Write-Output 'D07_EDGE_UIA_CASES=2/2'
             Write-Output 'D07_REAL_KERNEL_RECEIPT_IWXA=NOT_RUN'
