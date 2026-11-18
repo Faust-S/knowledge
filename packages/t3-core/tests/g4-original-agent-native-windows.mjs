@@ -14,6 +14,12 @@ const phaseFail=(step,error)=>{
     error.message:'UNCLASSIFIED';
   console.error('G4_NATIVE_FAILURE_PHASE',step);
   console.error('G4_NATIVE_FAILURE_CODE',code);
+  // Only a bounded exception TYPE is public. The private T3 stack, source,
+  // signed payload, paths and key material never leave the Windows runner.
+  const classes=['AssertionError','TypeError','ReferenceError','RangeError',
+    'SyntaxError','Error','AggregateError'];
+  console.error('G4_NATIVE_FAILURE_CLASS',
+    classes.includes(error?.name)?error.name:'UNCLASSIFIED');
   process.exitCode=1;
 };
 let admin;
