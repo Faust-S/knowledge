@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: b905f02f4c882a8b8321f43900d69732d9e58711
+          ref: 8da124031b3496c2457396b4fb25df188494d88d
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi
-          ref: 9cd33764ff6ef10f48449ca5c0694711183c00b0
+          ref: a1f3f0aec14d936a65a74da6ce76dfab3e6aeebe
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -127,6 +127,21 @@ jobs:
             # Error classes only, not private source, stack traces or DOM values.
             grep -E '^(Error|AssertionError|SyntaxError|TypeError|TimeoutError|ReferenceError|RangeError):' "$RUNNER_TEMP/d10-case005-browser.log" | head -n 4 || true
             if grep -q '^Node.js' "$RUNNER_TEMP/d10-case005-browser.log"; then echo "D10_CASE005_NODE_EXIT=FAIL"; fi
+          fi
+          exit "$result"
+      - name: Real browser seasonal budget and ad-load case
+        shell: bash
+        run: |
+          set +e
+          cd site
+          node scripts/tests/d10-case006-browser-smoke.mjs > "$RUNNER_TEMP/d10-case006-browser.log" 2>&1
+          result=$?
+          grep -E '^D10_CASE006_' "$RUNNER_TEMP/d10-case006-browser.log" || true
+          if [ "$result" -eq 0 ]; then
+            echo "D10_CASE006_BROWSER=PASS"
+          else
+            echo "::error::D10_CASE006_BROWSER=FAIL exit=$result"
+            grep -E '^(Error|AssertionError|SyntaxError|TypeError|TimeoutError|ReferenceError|RangeError):' "$RUNNER_TEMP/d10-case006-browser.log" | head -n 4 || true
           fi
           exit "$result"
       - name: Inspect artifact without publishing private bytes
