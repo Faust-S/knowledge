@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 env:
   DOMAIN_SHA: 7d60133a038c65b4da9135ba7ee10eb14fb5332d
-  SITE_SHA: 7f6b5aa3f84eb3ae8e7c9d75aa7857037f751248
+  SITE_SHA: a4fec45925e76d2bf1a9d0dcb030b1e71b3d4247
   CI: 'true'
   PUPPETEER_SKIP_DOWNLOAD: '1'
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
