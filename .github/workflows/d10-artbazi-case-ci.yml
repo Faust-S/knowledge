@@ -124,6 +124,9 @@ jobs:
             echo "D10_CASE005_BROWSER=PASS"
           else
             echo "::error::D10_CASE005_BROWSER=FAIL exit=$result"
+            # Error classes only, not private source, stack traces or DOM values.
+            grep -E '^(Error|AssertionError|SyntaxError|TypeError|TimeoutError|ReferenceError|RangeError):' "$RUNNER_TEMP/d10-case005-browser.log" | head -n 4 || true
+            if grep -q '^Node.js' "$RUNNER_TEMP/d10-case005-browser.log"; then echo "D10_CASE005_NODE_EXIT=FAIL"; fi
           fi
           exit "$result"
       - name: Inspect artifact without publishing private bytes
