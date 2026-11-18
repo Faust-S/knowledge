@@ -44,16 +44,22 @@ elif stage == "types":
         for kind in sorted(set(re.findall(r"error\s+TS\d+", data))):
             emit("D04_TS_CLASS=" + kind.replace(" ", "_"))
 else:
+    from collections import Counter
     current = ""
+    errors: list[tuple[str, str]] = []
     for line in lines:
         stripped = line.strip().replace("\\", "/")
         if re.fullmatch(r".*\.(?:ts|tsx|js|mjs|jsx)", stripped) and " " not in stripped:
             current = stripped.split("d04-private/site/")[-1].lstrip("/")
         match = re.match(r"^\s*(\d+):(\d+)\s+error\s+.+?\s+([a-zA-Z@/][a-zA-Z0-9@/_-]+)\s*$", line)
-        if match:
+        if match and re.fullmatch(r"[A-Za-z0-9_./$-]+", current):
             row, col, rule = match.groups()
-            if re.fullmatch(r"[A-Za-z0-9_./$-]+", current):
-                emit(f"D04_LINT_ERROR={current}:{row}:{col}:{rule}")
+            errors.append((current, rule))
+    emit("D04_LINT_PARSED_ERRORS=" + str(len(errors)))
+    for filename, count in Counter(p for p, _ in errors).most_common(15):
+        emit(f"D04_LINT_FILE={filename}:errors={count}")
+    for rule, count in Counter(rule for _, rule in errors).most_common(5):
+        emit(f"D04_LINT_RULE={rule}:errors={count}")
     total = re.search(r"(\d+)\s+problems?\s+\((\d+)\s+errors?,\s+(\d+)\s+warnings?\)", data)
     if total:
         emit(f"D04_LINT_COUNTS={total.group(1)}/{total.group(2)}/{total.group(3)}")
