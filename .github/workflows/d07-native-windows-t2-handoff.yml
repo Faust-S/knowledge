@@ -98,10 +98,15 @@ jobs:
             if(-not $ready){throw 'D07_GUI_T2_HTTPS_UNAVAILABLE'}
             Write-Output 'D07_GUI_REAL_T2_HTTPS=PASS'
             $cases=@(
-              @('001','uborka-posle-remonta','Уборка новой квартиры: реальный заказ, повреждения и спор с исполнителем')
+              [pscustomobject]@{
+                number='001'
+                slug='uborka-posle-remonta'
+                heading='Уборка новой квартиры: реальный заказ, повреждения и спор с исполнителем'
+              }
             )
             foreach($item in $cases){
-              $num=$item[0];$slug=$item[1];$headingText=$item[2]
+              $num=$item.number;$slug=$item.slug;$headingText=$item.heading
+              if($slug -ne 'uborka-posle-remonta'){throw 'D07_GUI_SINGLE_CASE_ARGUMENT_INVALID'}
               $url=$origin+'/keisy/'+$slug+'/'
               $response=Invoke-WebRequest -Uri $url -SkipCertificateCheck -TimeoutSec 10
               if($response.StatusCode -ne 200){throw 'D07_GUI_CASE_HTTP_FAILED'}
