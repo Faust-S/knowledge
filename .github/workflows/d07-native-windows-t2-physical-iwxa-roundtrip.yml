@@ -722,6 +722,17 @@ jobs:
                 }
                 if(!$fileDialog){throw 'D07_NATIVE_IWXA_WINDOWS_FILE_DIALOG_NOT_OPENED'}
                 Write-Output 'D07_NATIVE_IWXA_WINDOWS_FILE_DIALOG=PASS'
+                # Bring the actual modal to the Windows foreground. UIA
+                # Window.SetFocus is not supported by this shell dialog.
+                try {
+                  Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class D07Win32Foreground { [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd); }' -ErrorAction Stop
+                  $windowHandle=$fileDialog.Current.NativeWindowHandle
+                  $foreground=($windowHandle -gt 0) -and
+                    [D07Win32Foreground]::SetForegroundWindow([IntPtr]::new([int64]$windowHandle))
+                  Write-Output ('D07_NATIVE_IWXA_DIALOG_FOREGROUND='+$foreground)
+                }catch{
+                  Write-Output 'D07_NATIVE_IWXA_DIALOG_FOREGROUND=UNAVAILABLE'
+                }
                 # Target the native File name edit, not the non-focusable
                 # Windows dialog root. The exact local path never enters CI
                 # console logs or uploaded artifacts.
@@ -731,6 +742,7 @@ jobs:
                   [System.Windows.Automation.PropertyCondition]::new(
                     [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
                     [System.Windows.Automation.ControlType]::Edit))
+                Write-Output ('D07_NATIVE_IWXA_DIALOG_EDIT_COUNT='+$editControls.Count)
                 for($n=0;$n -lt $editControls.Count;$n++){
                   $candidate=$editControls.Item($n)
                   if(!$candidate.Current.IsEnabled){continue}
@@ -773,6 +785,7 @@ jobs:
                   [System.Windows.Automation.PropertyCondition]::new(
                     [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
                     [System.Windows.Automation.ControlType]::Button))
+                Write-Output ('D07_NATIVE_IWXA_DIALOG_BUTTON_COUNT='+$buttons.Count)
                 for($n=0;$n -lt $buttons.Count;$n++){
                   $candidate=$buttons.Item($n)
                   if($candidate.Current.IsEnabled -and
@@ -785,11 +798,40 @@ jobs:
                   ActivateNative $openButton
                   Write-Output 'D07_NATIVE_IWXA_DIALOG_OPEN_BUTTON=PASS'
                 }else{
-                  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                  [System.Windows.Forms.SendKeys]::SendWait('%o')
                   Write-Output 'D07_NATIVE_IWXA_DIALOG_OPEN_KEYBOARD=PASS'
                 }
+                $fileDialogClosed=$false
+                for($attempt=0;$attempt -lt 24;$attempt++){
+                  Start-Sleep -Milliseconds 250
+                  if(!(FindOpenDialog)){$fileDialogClosed=$true;break}
+                }
+                if(!$fileDialogClosed){
+                  # Native Windows may first consume Enter for a file-name
+                  # autocomplete. Activate the Open shortcut explicitly.
+                  [System.Windows.Forms.SendKeys]::SendWait('%o')
+                  for($attempt=0;$attempt -lt 24;$attempt++){
+                    Start-Sleep -Milliseconds 250
+                    if(!(FindOpenDialog)){$fileDialogClosed=$true;break}
+                  }
+                }
+                Write-Output ('D07_NATIVE_IWXA_DIALOG_CLOSED='+$fileDialogClosed)
+                if(!$fileDialogClosed){throw 'D07_NATIVE_IWXA_DIALOG_REMAINS_OPEN'}
                 Write-Output 'D07_NATIVE_IWXA_FILE_PATH_SUBMITTED=PASS'
-                $null=WaitNative 'Режим импорта (allowed_modes)' $null
+                $importPreviewReady=$false
+                for($attempt=0;$attempt -lt 70;$attempt++){
+                  Start-Sleep -Milliseconds 500
+                  $currentText=NativeText
+                  if($currentText -match 'Режим импорта \(allowed_modes\)'){$importPreviewReady=$true;break}
+                }
+                if(!$importPreviewReady){
+                  $currentText=NativeText
+                  Write-Output ('D07_NATIVE_IWXA_PREVIEW_ERROR_VISIBLE='+
+                    ($currentText -match '(?i)(импорт|пакет|файл).*(ошиб|не удалось|отклон|некоррект)'))
+                  Write-Output ('D07_NATIVE_IWXA_PREVIEW_MISSING_PERMISSION='+ 
+                    ($currentText -match 'Ядро разрешает только предпросмотр'))
+                  throw 'D07_NATIVE_IWXA_PREVIEW_NOT_READY_AFTER_FILE_SELECTION'
+                }
                 Write-Output 'D07_NATIVE_IWXA_PHYSICAL_FILE_IMPORT_PREVIEW=PASS'
                 # Import the source order into a fresh, separately identified
                 # Workspace instead of silently merging with the original.
