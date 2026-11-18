@@ -56,13 +56,38 @@ jobs:
             fi
             echo "D05_REVISION_${destination}=PASS"
           }
-          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "9148b46c40efbf0c5d679b360c9a4f608c128634" "site"
+          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "0b5755ae9191652d02608fbb19e2f228c46ddbb9" "site"
           fetch_private "cehovod" "main" "074dd31fa447870b9c876f3d45e65aace77e8df7" "domain"
           unset header DOMEN
       - name: Install Node 22
         uses: actions/setup-node@v4
         with:
           node-version: 22.16.0
+      - name: Check Windows Git path normalization on synthetic files
+        if: runner.os == 'Windows'
+        run: |
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const os = require("node:os");
+          const cp = require("node:child_process");
+          const root = fs.mkdtempSync(path.join(os.tmpdir(), "d05-ci-git-fixture-"));
+          try {
+            cp.execFileSync("git", ["init", "-q", root]);
+            const requested = fs.realpathSync(root);
+            const raw = cp.execFileSync("git", ["-C", requested, "rev-parse", "--show-toplevel"], {encoding:"utf8"}).trim();
+            const checkout = fs.realpathSync(raw);
+            const rel = path.relative(checkout, requested);
+            console.log("D05_WIN_GIT_TOP_ABSOLUTE="+path.isAbsolute(raw));
+            console.log("D05_WIN_REALPATH_IDENTITY="+(requested === checkout));
+            console.log("D05_WIN_RELATIVE_IDENTITY="+(rel === ""));
+            console.log("D05_WIN_RELATIVE_OUTSIDE="+(rel === ".." || rel.startsWith(".."+path.sep) || path.isAbsolute(rel)));
+            console.log("D05_WIN_REQ_DRIVE="+path.parse(requested).root.slice(0,2).toUpperCase());
+            console.log("D05_WIN_GIT_DRIVE="+path.parse(checkout).root.slice(0,2).toUpperCase());
+          } finally {
+            fs.rmSync(root,{recursive:true,force:true});
+          }
+          NODE
       - name: Install site dependencies privately
         run: |
           set -euo pipefail
