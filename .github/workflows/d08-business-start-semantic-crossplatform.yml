@@ -1,0 +1,71 @@
+name: D08 MarketOps P1 semantic Windows Linux matrix
+on:
+  push:
+    branches: [work/2026-11-18-d08-marketops-windows-qualification]
+    paths: [.github/workflows/d08-business-start-semantic-crossplatform.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  DOMAIN_SHA: 7d60133a038c65b4da9135ba7ee10eb14fb5332d
+  SITE_SHA: 076255f257ca53d4575570eb25dd49be7be57ab6
+jobs:
+  p1-models:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Verify minimal read permission for only D08 private sources
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo "D08_P1_DOMEN_MISSING"; exit 1; }
+          gh api repos/Faust-S/market-ops --jq '.id' >/dev/null 2>&1 || exit 1
+          gh api repos/Faust-S/market-ops.ru --jq '.id' >/dev/null 2>&1 || exit 1
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops
+          ref: ${{ env.DOMAIN_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/domain
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Confirm exact owners and identical canonical source files
+        run: |
+          test "$(git -C private/domain rev-parse HEAD)" = "$DOMAIN_SHA"
+          test "$(git -C private/site rev-parse HEAD)" = "$SITE_SHA"
+          for name in business-start-overview.mjs business-start-overview.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts; do
+            cmp -s "private/domain/model/$name" "private/site/src/lib/$name" || { echo "D08_P1_CANONICAL_DRIFT"; exit 1; }
+          done
+          echo "D08_P1_CANONICAL_BYTE_EQUAL=PASS"
+      - name: Run domain negative and anti-duplication tests
+        working-directory: private/domain
+        run: |
+          node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs > "$RUNNER_TEMP/d08-private-domain.log" 2>&1 || { echo "D08_P1_DOMAIN_MODEL_TESTS_FAIL"; exit 1; }
+          echo "D08_P1_DOMAIN_MODEL_TESTS=PASS"
+      - name: Run independent website projection tests
+        working-directory: private/site
+        run: |
+          node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs > "$RUNNER_TEMP/d08-private-site.log" 2>&1 || { echo "D08_P1_SITE_PROJECTION_TESTS_FAIL"; exit 1; }
+          echo "D08_P1_SITE_PROJECTION_TESTS=PASS"
+      - name: Keep runner logs and sources private
+        if: always()
+        run: |
+          echo "D08_P1_PRIVATE_CODE_PUBLISHED=NO"
+          echo "D08_P1_PRIVATE_LOGS_PUBLISHED=NO"
+          echo "D08_P1_ARTIFACTS_UPLOADED=0"
