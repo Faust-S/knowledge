@@ -722,6 +722,15 @@ jobs:
                 }
                 if(!$fileDialog){throw 'D07_NATIVE_IWXA_WINDOWS_FILE_DIALOG_NOT_OPENED'}
                 Write-Output 'D07_NATIVE_IWXA_WINDOWS_FILE_DIALOG=PASS'
+                $dlgHwnd=[IntPtr]::new([int64]$fileDialog.Current.NativeWindowHandle)
+                $edgePids=@(Get-Process msedge -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
+                Write-Output ('D07_NATIVE_IWXA_DIALOG_IS_EDGE_PROCESS='+($edgePids -contains $fileDialog.Current.ProcessId))
+                Write-Output ('D07_NATIVE_IWXA_DIALOG_IS_WIN32_CLASS='+($fileDialog.Current.ClassName -eq '#32770'))
+                Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class D07DialogNative { [DllImport("user32.dll",SetLastError=true)] public static extern IntPtr GetDlgItem(IntPtr hDlg,int id); [DllImport("user32.dll",CharSet=CharSet.Unicode,SetLastError=true)] public static extern bool SetDlgItemText(IntPtr hDlg,int id,string value); [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd,uint msg,IntPtr wParam,IntPtr lParam); }'
+                $win32FileNameHandle=[D07DialogNative]::GetDlgItem($dlgHwnd,1148)
+                $win32OpenHandle=[D07DialogNative]::GetDlgItem($dlgHwnd,1)
+                Write-Output ('D07_NATIVE_IWXA_DIALOG_WIN32_FILENAME_PRESENT='+($win32FileNameHandle -ne [IntPtr]::Zero))
+                Write-Output ('D07_NATIVE_IWXA_DIALOG_WIN32_OPEN_PRESENT='+($win32OpenHandle -ne [IntPtr]::Zero))
                 # Bring the actual modal to the Windows foreground. UIA
                 # Window.SetFocus is not supported by this shell dialog.
                 try {
@@ -767,6 +776,14 @@ jobs:
                     }
                   }catch{}
                 }
+                if(!$nativeValueSet -and $win32FileNameHandle -ne [IntPtr]::Zero){
+                  try {
+                    $nativeValueSet=[D07DialogNative]::SetDlgItemText($dlgHwnd,1148,$archive.FullName)
+                    Write-Output ('D07_NATIVE_IWXA_FILE_NAME_WIN32_SET='+$nativeValueSet)
+                  }catch{
+                    Write-Output 'D07_NATIVE_IWXA_FILE_NAME_WIN32_SET=UNAVAILABLE'
+                  }
+                }
                 if(!$nativeValueSet){
                   # Windows en-US common dialog supports Alt+N to focus the
                   # File name edit. Only the ephemeral runner receives bytes.
@@ -794,12 +811,23 @@ jobs:
                     $openButton=$candidate;break
                   }
                 }
-                if($openButton){
-                  ActivateNative $openButton
-                  Write-Output 'D07_NATIVE_IWXA_DIALOG_OPEN_BUTTON=PASS'
-                }else{
-                  [System.Windows.Forms.SendKeys]::SendWait('%o')
-                  Write-Output 'D07_NATIVE_IWXA_DIALOG_OPEN_KEYBOARD=PASS'
+                $openByWin32=$false
+                if(!$openButton -and $win32OpenHandle -ne [IntPtr]::Zero){
+                  try {
+                    $null=[D07DialogNative]::SendMessage(
+                      $win32OpenHandle,[uint32]0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
+                    $openByWin32=$true
+                    Write-Output 'D07_NATIVE_IWXA_DIALOG_OPEN_WIN32=PASS'
+                  }catch{}
+                }
+                if(!$openByWin32){
+                  if($openButton){
+                    ActivateNative $openButton
+                    Write-Output 'D07_NATIVE_IWXA_DIALOG_OPEN_BUTTON=PASS'
+                  }else{
+                    [System.Windows.Forms.SendKeys]::SendWait('%o')
+                    Write-Output 'D07_NATIVE_IWXA_DIALOG_OPEN_KEYBOARD=PASS'
+                  }
                 }
                 $fileDialogClosed=$false
                 for($attempt=0;$attempt -lt 24;$attempt++){
