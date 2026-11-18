@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: 8da124031b3496c2457396b4fb25df188494d88d
+          ref: 43dc0a665e1ccc450fa619823caeb5dd538b9c14
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi
-          ref: a1f3f0aec14d936a65a74da6ce76dfab3e6aeebe
+          ref: 2d57c1b887421e0f848b5dbed52742c1e91e2dfe
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -45,7 +45,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "latest"
-      - name: Domain CASE-001-004 semantic regressions
+      - name: Domain CASE-001-007 semantic regressions
         shell: bash
         run: |
           set +e
@@ -142,6 +142,21 @@ jobs:
           else
             echo "::error::D10_CASE006_BROWSER=FAIL exit=$result"
             grep -E '^(Error|AssertionError|SyntaxError|TypeError|TimeoutError|ReferenceError|RangeError):' "$RUNNER_TEMP/d10-case006-browser.log" | head -n 4 || true
+          fi
+          exit "$result"
+      - name: Real browser Rebel Aromas retention and repeat payback case
+        shell: bash
+        run: |
+          set +e
+          cd site
+          node scripts/tests/d10-case007-browser-smoke.mjs > "$RUNNER_TEMP/d10-case007-browser.log" 2>&1
+          result=$?
+          grep -E '^D10_CASE007_' "$RUNNER_TEMP/d10-case007-browser.log" || true
+          if [ "$result" -eq 0 ]; then
+            echo "D10_CASE007_BROWSER=PASS"
+          else
+            echo "::error::D10_CASE007_BROWSER=FAIL exit=$result"
+            grep -E '^(Error|AssertionError|SyntaxError|TypeError|TimeoutError|ReferenceError|RangeError):' "$RUNNER_TEMP/d10-case007-browser.log" | head -n 4 || true
           fi
           exit "$result"
       - name: Inspect artifact without publishing private bytes
