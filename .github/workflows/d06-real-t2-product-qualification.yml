@@ -171,6 +171,24 @@ jobs:
             $codes = [regex]::Matches($content, "(?:D06|T2|IWXA)_[A-Z0-9_]+") |
               ForEach-Object { $_.Value } | Select-Object -Unique -First 12
             Write-Host ("D06_REAL_TRANSFER_FAILURE_CODES=" + ($codes -join ","))
+            # Public diagnostics are allowlisted categories only. No raw private
+            # stack traces, file paths, Result data, HTML, or artifacts.
+            $classes = [ordered]@{
+              "NPM_SCRIPT_MISSING" = "Missing script"
+              "NODE_MODULE_RESOLUTION" = "ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|Cannot find package"
+              "BROWSER_START" = "browserType\.launch|Failed to launch|Executable doesn't exist"
+              "BROWSER_TIMEOUT" = "TimeoutError|waitForFunction|Timeout [0-9]+ms exceeded"
+              "TLS_CERTIFICATE" = "ERR_CERT|certificate verify|self.signed certificate"
+              "HTTP_LISTENER" = "ECONNREFUSED|EADDRINUSE|ERR_CONNECTION|ERR_SSL"
+              "BROWSER_CONTEXT" = "browser has been closed|Target page, context or browser"
+              "ASSERTION" = "AssertionError|ERR_ASSERTION"
+              "TYPE_ERROR" = "TypeError|ReferenceError|SyntaxError"
+              "DOM_LOCATOR" = "strict mode violation|locator\.click|locator\.waitFor"
+              "TEST_RUNTIME" = "ERR_TEST|ERR_REQUIRE|ERR_UNSUPPORTED"
+            }
+            $identified = @($classes.Keys | Where-Object { $content -match $classes[$_] })
+            if ($identified.Count -eq 0) { $identified = @("UNCLASSIFIED") }
+            Write-Host ("D06_TRANSFER_FAILURE_CLASSES=" + ($identified -join ","))
             exit 1
           }
           Write-Host "D06_REAL_KERNEL_EXCHANGE=PASS"
