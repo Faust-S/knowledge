@@ -390,7 +390,75 @@ jobs:
                         [System.Windows.Automation.ControlType]::Text))
                     for($n=0;$n -lt $texts.Count;$n++){
                       $name=$texts.Item($n).Current.Name
-                      if($name -match 'Заказ сохранён и повторно прочитан\. Редакция 1\. Событие: [0-9a-f-]{36}'){
+                      if($name -match '^Заказ сохранён и повторно прочитан\. Редакция 1\. Событие: (.+)\.{
+                        $sawReceipt=$true
+                      }
+                      if($name -match 'Object ID:\s*d07:order:[0-9a-f]{64}'){$sawObject=$true}
+                    }
+                  }
+                  if($sawReceipt -and $sawObject){break}
+                }
+                if(-not $sawReceipt -or -not $sawObject){
+                  # Whitelisted UI state only; no private case text, object contents, or raw logs.
+                  $signals=[System.Collections.Generic.HashSet[string]]::new()
+                  foreach($process in @(Get-Process msedge -ErrorAction SilentlyContinue |
+                    Where-Object {$_.MainWindowHandle -ne 0})){
+                    $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$process.MainWindowHandle)
+                    if(!$window){continue}
+                    $texts=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                      [System.Windows.Automation.PropertyCondition]::new(
+                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                        [System.Windows.Automation.ControlType]::Text))
+                    for($n=0;$n -lt $texts.Count;$n++){
+                      $name=$texts.Item($n).Current.Name
+                      if($name -match 'Запись T2 не подтверждена:\s*(D07_[A-Z0-9_]+)'){
+                        $null=$signals.Add('UNCONFIRMED_'+$Matches[1])
+                      }elseif($name -match 'В этой рабочей области уже сохранён другой заказ'){
+                        $null=$signals.Add('CASE_WORKSPACE_CONFLICT')
+                      }elseif($name -match '^Сохранённые данные не менялись'){
+                        $null=$signals.Add('UNCHANGED')
+                      }elseif($name -match '^Предыдущая запись найдена в Kernel'){
+                        $null=$signals.Add('RECOVERED')
+                      }elseif($name -match '^Редакция записана, квитанция получена'){
+                        $null=$signals.Add('WRITTEN_READBACK')
+                      }elseif($name -match '^Заказ сохранён и повторно прочитан'){
+                        $null=$signals.Add('RECEIPT_TEXT_UNMATCHED')
+                      }elseif($name -match '^Kernel подтвердил конфликт редакций'){
+                        $null=$signals.Add('REVISION_CONFLICT')
+                      }elseif($name -match '^Не удалось проверить, существует ли заказ'){
+                        $null=$signals.Add('KERNEL_PREFLIGHT_FAILED')
+                      }elseif($name -match '^Запись T2 не подтверждена'){
+                        $null=$signals.Add('UNCONFIRMED_UNRECOGNIZED_CODE')
+                      }
+                    }
+                  }
+                  if($signals.Count -eq 0){Write-Output 'D07_NATIVE_UI_SAVE_OUTCOME=NO_RECOGNIZED_STATUS'}
+                  else{foreach($signal in @($signals | Sort-Object)){Write-Output ("D07_NATIVE_UI_SAVE_OUTCOME="+$signal)}}
+                  Write-Output ('D07_NATIVE_UI_RECEIPT_MATCH='+$sawReceipt)
+                  Write-Output ('D07_NATIVE_UI_OBJECT_MATCH='+$sawObject)
+                }
+                if(-not $sawReceipt){throw 'D07_NATIVE_T2_REAL_KERNEL_RECEIPT_NOT_OBSERVED'}
+                if(-not $sawObject){throw 'D07_NATIVE_T2_REAL_KERNEL_OBJECT_ID_NOT_OBSERVED'}
+                Write-Output 'D07_NATIVE_T2_KERNEL_RECEIPT_UI=PASS'
+                Write-Output 'D07_NATIVE_T2_KERNEL_ORDER_READBACK_UI=PASS'
+                Write-Output 'D07_PHYSICAL_IWXA_INDEPENDENT_IMPORT=NOT_RUN'
+
+              }
+              # Browser profile is isolated to one case. Close its native Edge
+              # process tree before opening the next to limit memory use.
+              if($edgeProc){
+                try{$edgeProc.Kill($true)}catch{}
+              }
+            }
+            Write-Output 'D07_EDGE_UIA_CASES=1/1'
+            Write-Output 'D07_REAL_KERNEL_RECEIPT_IWXA=NOT_RUN'
+          }finally{
+            foreach($edgeId in $started){Stop-Process -Id $edgeId -Force -ErrorAction SilentlyContinue}
+            if($server){Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue}
+          }
+          # No private source, dist, screenshots, browser profiles or raw logs uploaded.
+ -and
+                        -not [string]::IsNullOrWhiteSpace($Matches[1])){
                         $sawReceipt=$true
                       }
                       if($name -match 'Object ID:\s*d07:order:[0-9a-f]{64}'){$sawObject=$true}
