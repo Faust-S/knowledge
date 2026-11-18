@@ -1,5 +1,17 @@
 # IWXA T3 G4: единая миграция разработки в новый чат
 
+
+## Актуальный выпускной факт 18.11.2026: G4 Setup 0.6 true managed-byte Repair PASS
+
+**Это текущий проверенный срез Setup, все ранние CI ниже исторические.** Center `Faust-S/Center@work/2026-11-17-agent06-d6-signed-receipt-source-ci`, commit `7c00ced13ecebbcb4f3d32d184074a887bc0269e`; Agent 0.6 `1bf0847ed069c86fe6a11380537535f0ce6c0b8e`; исходный One Core `3f91b60c56e34a21ea919a4a2004e31bb5071c60`. [Нативная Windows-квалификация #44282434511](https://github.com/Faust-S/Center/actions/runs/44282434511) **SUCCESS**; параллельно [source #44282434583](https://github.com/Faust-S/Center/actions/runs/44282434583) **SUCCESS** и [D6 source #44282434531](https://github.com/Faust-S/Center/actions/runs/44282434531) **SUCCESS** на том же Center SHA.
+
+Настоящий Setup Core 0.6 EXE собран из того же original qualified T2 One Dist и нативного Agent, установлен в изолированный Windows-профиль. После установки тест **физически повредил** управляемый `t3-one-dist/_iwxa/domain.json`; повторная установка тем же реальным EXE восстановила исходный SHA-256, нативный Agent/One Dist, сохранила пользовательский маркер и отказала при вложенном DataRoot без изменений. Это реальный **same-version Repair**, не только no-op повторной установки.
+
+**Принципиальный оставшийся дефект G4:** в новом Agent Setup обновление версии через original Python `--replace-existing-release` выполняется на месте; исходный Explorer release-switch является намеренно forward-only и удаляет предыдущие исполняемые файлы. Его нельзя считать Rollback. Общий Center `installer/windows/SetupCore.Switch.cs` имеет отдельный реальный backup/rollback, но эти испытания **не являются** квалификацией именно G4 Agent EXE. Поэтому `POST_WRITE_ROLLBACK=NOT_RUN` и `G4=NOT_ACCEPTED`.
+
+**Следующий продуктовый приоритет:** без второго signer/Kernel/Exchange подключить оригинальный приватный T3 Ed25519 получатель к **самостоятельному установленному Atlas 0.9**, поскольку публичный signed UI/ports только исходно квалифицированы. Действительная D1-авторизация, оригинальный signed selected-Result `.iwxa`, независимый Atlas U05 CAS и два физически отдельных холодных readback пока не подтверждены. Не повышать `T3_READY` без этого и остальных D3/D7/D5. Точные gates — в `G4_PRODUCT_RELEASE_EVIDENCE_CURRENT.json`.
+
+
 ## Актуальный инкремент G4: оригинальный T2 Agent без браузерного WebLLM (17.11.2026)
 
 **Результат One Core:** `Faust-S/knowledge@40dc328172ea1403ca43ced53e4c539832f34d47`, [CI №44171450736](https://github.com/Faust-S/knowledge/actions/runs/44171450736) **SUCCESS**. Один наследуемый original T2 Kernel 0.3.6 / Runtime Contract 1.3.0 проверен в двух продуктах: подписанный Agent 0.6 Control-only без `model-worker-*`, и отдельно полный браузерный T3 WebLLM/BLI D5. Исполняемый Kernel/Host/Store остаётся один. Опция `--desktop-agent-control` допустима только в оригинальном Agent D6; исходный browser assembler продолжает отказ при неполной BLI-сборке.
