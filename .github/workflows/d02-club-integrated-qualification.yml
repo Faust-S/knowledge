@@ -1,0 +1,206 @@
+name: d02-club-integrated-qualification
+on:
+  push:
+    branches:
+      - work/2026-11-18-d02-club-qualification
+    paths:
+      - .github/workflows/d02-club-integrated-qualification.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d02-club-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  integrated:
+    name: Club source tests and integrated T2 / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      SITE_SHA: 78b0beeaf33ca2d45485292883ff2f11c31f63d1
+      DOMAIN_SHA: f182dfee92cadf33e01ab0ab5692ee54762696c2
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      CI: 'true'
+    steps:
+      - name: Ensure Git never rewrites qualified T2 LF blobs
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Checkout private canonical Club domain (temporary runner only)
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club
+          ref: ${{ env.DOMAIN_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: domain
+
+      - name: Checkout private Club site (temporary runner only)
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+
+      - name: Checkout exact private normative T2 (temporary runner only)
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+
+      - name: Pin Node.js and npm
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+
+      - name: Check all three immutable source revisions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repos = @(
+            @{ path='domain'; expected=$env:DOMAIN_SHA; label='DOMAIN' },
+            @{ path='site'; expected=$env:SITE_SHA; label='SITE' },
+            @{ path='t2'; expected=$env:T2_SHA; label='T2' }
+          )
+          foreach($r in $repos) {
+            $found = (& git -C $r.path rev-parse HEAD).Trim()
+            if($LASTEXITCODE -ne 0 -or $found -ne $r.expected) { throw "PIN_MISMATCH_$($r.label)" }
+            $dirty = & git -C $r.path status --porcelain
+            if($LASTEXITCODE -ne 0 -or $dirty) { throw "DIRTY_SOURCE_$($r.label)" }
+            Write-Output "D02_SOURCE_$($r.label)=PINNED"
+          }
+          Write-Output "D02_NODE=$(& node --version)"
+          Write-Output "D02_NPM=$(& npm --version)"
+
+      - name: Run all canonical domain subject tests
+        id: domain_test
+        continue-on-error: true
+        shell: pwsh
+        working-directory: domain
+        run: |
+          $ErrorActionPreference='Stop'
+          $log = Join-Path $env:RUNNER_TEMP 'club-domain-tests-private.log'
+          $cases = @(Get-ChildItem -Path tests -Filter '*.test.mjs' -Recurse -File | Sort-Object FullName | ForEach-Object FullName)
+          if($cases.Count -lt 20) { throw 'DOMAIN_CASE_TEST_DISCOVERY_INCOMPLETE' }
+          & node --test @cases *> $log
+          $code=$LASTEXITCODE
+          if($code -ne 0) {
+            Write-Output "D02_DOMAIN_TEST=FAIL count=$($cases.Count) exit=$code"
+            Get-Content $log | Select-String -Pattern '^not ok\b|^# (tests|pass|fail)\b|^npm error (code|errno)' | Select-Object -Last 40 | ForEach-Object { Write-Output $_.Line }
+            exit $code
+          }
+          Write-Output "D02_DOMAIN_TEST=PASS test_files=$($cases.Count)"
+
+      - name: Install site dependencies in the temporary runner
+        id: site_ci
+        continue-on-error: true
+        shell: pwsh
+        working-directory: site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'club-site-npm-install-private.log'
+          & npm ci --no-audit --no-fund *> $log
+          $code=$LASTEXITCODE
+          if($code -ne 0) {
+            Write-Output "D02_SITE_NPM_CI=FAIL exit=$code"
+            Get-Content $log | Select-String -Pattern '^npm error (code|errno|Exit handler)|^npm ERR! code|^Error: [A-Z_]+|EACCES|ENOTCACHED' | Select-Object -Last 25 | ForEach-Object { Write-Output $_.Line }
+            exit $code
+          }
+          Write-Output 'D02_SITE_NPM_CI=PASS'
+
+      - name: Run full current Club site source tests
+        id: site_tests
+        if: steps.site_ci.outcome == 'success'
+        continue-on-error: true
+        working-directory: site
+        shell: pwsh
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'club-site-tests-private.log'
+          & npm run test *> $log
+          $code=$LASTEXITCODE
+          if($code -ne 0) {
+            Write-Output "D02_SITE_TESTS=FAIL exit=$code"
+            Get-Content $log | Select-String -Pattern '^not ok\b|^# (tests|pass|fail)\b|^npm error (code|errno)|^Error: (CLUB_|T2_)' | Select-Object -Last 40 | ForEach-Object { Write-Output $_.Line }
+            exit $code
+          }
+          Write-Output 'D02_SITE_TESTS=PASS'
+
+      - name: Build real unified T2 Host plus public Club site
+        id: integrated_build
+        if: steps.site_ci.outcome == 'success'
+        continue-on-error: true
+        working-directory: site
+        shell: pwsh
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_T2_NPM_CACHE_DIR: ${{ runner.temp }}/club-npm-cache
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'club-integrated-build-private.log'
+          & npm run build *> $log
+          $code=$LASTEXITCODE
+          if($code -ne 0) {
+            Write-Output "D02_INTEGRATED_BUILD=FAIL exit=$code"
+            Get-Content $log | Select-String -Pattern '^Error: (CLUB_|T2_|K03|K035)|^npm error (code|errno|Exit handler)|^CLUB_T2_.*(MISSING|INVALID|FAIL)|EACCES|ENOTCACHED|^fatal:|^error TS[0-9]+' | Select-Object -Last 30 | ForEach-Object { Write-Output $_.Line }
+            exit $code
+          }
+          Write-Output 'D02_INTEGRATED_BUILD=PASS'
+          $essential=@('index.html','workspace/index.html','workspace/exchange/index.html','workspace/lifecycle/index.html','_iwxa/runtime/0.3.6/runtime.js')
+          foreach($rel in $essential) {
+            if(-not (Test-Path -LiteralPath (Join-Path 'dist' $rel))) { throw "DIST_MISSING_$($rel.Replace('/','_'))" }
+          }
+          $files=(Get-ChildItem -LiteralPath dist -Recurse -File | Measure-Object).Count
+          $hash=(Get-FileHash -LiteralPath 'dist/workspace/index.html' -Algorithm SHA256).Hash
+          Write-Output "D02_DIST_FILES=$files"
+          Write-Output "D02_WORKSPACE_HTML_SHA256=$hash"
+
+      - name: Verify integrated release contract and all 40 routes
+        id: release_gate
+        if: steps.integrated_build.outcome == 'success'
+        continue-on-error: true
+        working-directory: site
+        shell: pwsh
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'club-release-gate-private.log'
+          & npm run check:club-release *> $log
+          $code=$LASTEXITCODE
+          if($code -ne 0) {
+            Write-Output "D02_RELEASE_GATE=FAIL exit=$code"
+            Get-Content $log | Select-String -Pattern '^Error: (CLUB_|T2_)|CLUB_T2_RELEASE_GATE' | Select-Object -Last 20 | ForEach-Object { Write-Output $_.Line }
+            exit $code
+          }
+          Write-Output 'D02_RELEASE_GATE=PASS routes=40'
+
+      - name: Final private-source-safe status
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Output 'D02_CANDIDATE_SITE=78b0beeaf33ca2d45485292883ff2f11c31f63d1'
+          Write-Output "D02_DOMAIN_TESTS=${{ steps.domain_test.outcome }}"
+          Write-Output "D02_SITE_INSTALL=${{ steps.site_ci.outcome }}"
+          Write-Output "D02_SITE_TESTS=${{ steps.site_tests.outcome }}"
+          Write-Output "D02_INTEGRATED_BUILD=${{ steps.integrated_build.outcome }}"
+          Write-Output "D02_RELEASE_GATE=${{ steps.release_gate.outcome }}"
+          if ('${{ steps.domain_test.outcome }}' -ne 'success' -or
+              '${{ steps.site_ci.outcome }}' -ne 'success' -or
+              '${{ steps.site_tests.outcome }}' -ne 'success' -or
+              '${{ steps.integrated_build.outcome }}' -ne 'success' -or
+              '${{ steps.release_gate.outcome }}' -ne 'success') {
+            throw 'D02_QUALIFICATION_NOT_COMPLETE'
+          }
+          Write-Output 'D02_SOURCE_BUILD_QUALIFIED=PASS'
+          Write-Output 'D02_GUI_KERNEL_RECEIPT_IWXA=NOT_RUN_NOT_PRODUCT_ACCEPTED'
