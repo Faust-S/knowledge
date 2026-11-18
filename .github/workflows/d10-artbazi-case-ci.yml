@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: e00a628943526257a987301dfeac37b4e4206e2b
+          ref: 3aa40a73d939b78ee1be650305ee6d85047249eb
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -198,6 +198,21 @@ jobs:
           else
             echo "::error::D10_REVIEW_WORKSPACE_BROWSER=FAIL exit=$result"
             grep -E '^(Error|AssertionError|TimeoutError|TypeError):' "$RUNNER_TEMP/d10-review-browser.log" | head -n 4 || true
+          fi
+          exit "$result"
+      - name: Real RevOps decision to saved Kernel action and cold readback
+        shell: bash
+        run: |
+          set +e
+          cd "$RUNNER_TEMP/d10-host-loopback"
+          node scripts/tests/d10-revops-action-kernel-browser.mjs > "$RUNNER_TEMP/d10-revops-live.log" 2>&1
+          result=$?
+          grep -E '^D10_REVOPS_LIVE_' "$RUNNER_TEMP/d10-revops-live.log" || true
+          if [ "$result" -eq 0 ]; then
+            echo "D10_REVOPS_KERNEL_END_TO_END=PASS"
+          else
+            echo "::error::D10_REVOPS_KERNEL_END_TO_END=FAIL exit=$result"
+            grep -E '^(Error|AssertionError|TimeoutError|TypeError):' "$RUNNER_TEMP/d10-revops-live.log" | head -n 4 || true
           fi
           exit "$result"
       - name: Inspect artifact without publishing private bytes
