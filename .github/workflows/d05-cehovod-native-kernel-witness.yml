@@ -30,7 +30,7 @@ jobs:
             echo "D05_SITE_ACCESS=FAIL"
             exit 1
           fi
-          test "$(git -C site rev-parse HEAD)" = "1b3c86ab6517dfd51e02f97d988b01a009690e9e" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "f189f0e5d6da3f94dbee7860577ebeafe1e09a0a" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
           echo "D05_SITE_PIN=PASS"
           git init --quiet t2
           if ! GIT_TERMINAL_PROMPT=0 git -C t2 -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/T2.git e70de29b72b83e2546f7ab74b17572685a728c17 >/dev/null 2>&1; then
@@ -208,10 +208,10 @@ jobs:
             console.log("D05_WITNESS_NODE_CODE="+(/^[A-Z0-9_]+$/.test(errCode)?errCode:"UNCLASSIFIED"));
             const stack=String(error?.stack??"");
             const known={
-              "T2_WITNESS":[...stack.matchAll(/independent-browser-witness\\.mjs:(\\d+):/g)].map(m=>m[1]),
-              "T2_SERVER":[...stack.matchAll(/real-kernel-e2e\\.mjs:(\\d+):/g)].map(m=>m[1]),
-              "D05_JOURNEY":[...stack.matchAll(/prepare-d05-product-contract\\.mjs:(\\d+):/g)].map(m=>m[1]),
-              "TEST_STDIN":[...stack.matchAll(/(?:eval1|stdin):(\\d+):/g)].map(m=>m[1]),
+              "T2_WITNESS":[...stack.matchAll(/independent-browser-witness\.mjs:(\d+):/g)].map(m=>m[1]),
+              "T2_SERVER":[...stack.matchAll(/real-kernel-e2e\.mjs:(\d+):/g)].map(m=>m[1]),
+              "D05_JOURNEY":[...stack.matchAll(/prepare-d05-product-contract\.mjs:(\d+):/g)].map(m=>m[1]),
+              "TEST_STDIN":[...stack.matchAll(/(?:eval1|stdin):(\d+):/g)].map(m=>m[1]),
             };
             console.log("D05_WITNESS_STACK_LOCATIONS="+Object.entries(known).map(([k,v])=>k+":"+[...new Set(v)].slice(0,4).join(".")).join(","));
             const categories=["ERR_MODULE_NOT_FOUND","ENOENT","EACCES","EPERM","TimeoutError","TypeError","ReferenceError","SyntaxError","RangeError","locator","browserType.launch","readFileSync"];
