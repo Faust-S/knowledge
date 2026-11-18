@@ -1596,6 +1596,58 @@
       "g4_accepted": false,
       "t3_ready": false,
       "installed_product_acceptance": false
+    },
+    "original_production_employee_result_kernel_apply_2026_11_18": {
+      "exact_source_sha": "88e84a470302927a3362e93287fc4a77421e3a68",
+      "source_repository": "Faust-S/knowledge",
+      "source_branch": "work/2026-11-10-t3-t2-activity-projection",
+      "ci": {
+        "run_id": 44404574878,
+        "conclusion": "SUCCESS",
+        "platform": "windows-2022",
+        "qualified_steps": 20,
+        "required_steps": 20
+      },
+      "original_t3": {
+        "repository": "Faust-S/T3",
+        "exact_sha": "b7edfeaed992563d1e2904fbd39b9e92212009ee",
+        "ephemeral_private_files": 51
+      },
+      "original_agent": {
+        "repository": "Faust-S/iwxa-personal-agent",
+        "exact_sha": "5638684ab952dffa545d8a374507f494a1a5ef2a",
+        "ephemeral_private_files": 2
+      },
+      "original_t2": {
+        "release": "0.3.6",
+        "contract": "1.3.0",
+        "artifact": "iwxa-kernel-k036-same-store-history-20261019-qualified.1",
+        "second_kernel": false,
+        "second_store": false
+      },
+      "verified": [
+        "PRODUCTION DPAPI Admin owner and independent employee proof key; original Kernel employee grant, Task assignment DATA grant and exact signed status readback",
+        "Employee imported original signed invitation and assigned Task with the existing Agent Node/Python IPC and process-cold Task recovery",
+        "Employee generated the bounded original signed Result in the existing Agent IPC and no-reexport cold recovery",
+        "Original Admin Reconciliation received Result, verified employee signature and exact original Task revision, obtained separate source-test Human ACCEPT and original acceptance receipt",
+        "Independent source-test Human APPLY (different one-shot explicit consent) authorized only the exact accepted Result; original inherited T2 commitObjectGraph persisted one Applied Results Object and Event",
+        "Immediate original Kernel Object/Event/readback and original signed D3 read-only APPLY recovery with automaticRetryAllowed false",
+        "Two distinct browser-process cold restarts each read same original Kernel Applied Result Object/Event without another commit",
+        "Legacy one-shot original Admin CLI cannot bypass Human ACCEPT/REJECT confirmation",
+        "All ephemeral original private source and Result files deleted; no private GitHub Actions; no uploaded private code"
+      ],
+      "limits": [
+        "All production owner, employee and OS custody exercised on one Windows CI account with separate records, not two physical OS user profiles",
+        "Human ACCEPT/APPLY were independently explicitly armed in a test source witness, not installed Center native Windows dialogs",
+        "Two browser-process cold restarts, not two independent installed Tauri Host process qualification",
+        "The original employee signed Result contains bounded deterministic test-selected content, not a verified locally generated Agent model execution",
+        "Native installed GUI, product-neutral D6 continuation, PERSON D7, installed D5 and G4 universal remain NOT_ACCEPTED"
+      ],
+      "source_level": "NATIVE_OWNER_REAL_T2_KERNEL_SOURCE_PASS",
+      "installed_native_product": false,
+      "production_activation": false,
+      "g4_accepted": false,
+      "t3_ready": false
     }
   },
   "accepted_gates": {
@@ -1689,8 +1741,8 @@
     "t3_ready": false,
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
-    "original_private_native_signer": "SOURCE_16_OF_16_ORIGINAL_PRODUCTION_EMPLOYEE_AGENT_RESULT_ADMIN_CONFIRMED_HUMAN_ACCEPT_44404080056__KERNEL_APPLY_INSTALLED_GUI_HOLD",
-    "independent_installed_d3": "HOLD_16_OF_16_NATIVE_SOURCE_REAL_T2_KERNEL_AND_ORIGINAL_RESULT_HUMAN_ACCEPT_44404080056__EXPLICIT_HUMAN_APPLY_TWO_COLD_INSTALLED_GUI_NOT_RUN",
+    "original_private_native_signer": "SOURCE_WINDOWS_PRODUCTION_EMPLOYEE_REAL_T2_KERNEL_HUMAN_ACCEPT_AND_SEPARATE_APPLY_20_OF_20_SUCCESS_44404574878__TWO_OS_USERS_INSTALLED_GUI_HOLD",
+    "independent_installed_d3": "HOLD_SOURCE_REAL_T2_SIGNED_EMPLOYEE_RESULT_SEPARATE_APPLY_TWO_COLD_BROWSERS_20_OF_20_44404574878__NATIVE_INSTALLED_GUI_NOT_RUN",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
