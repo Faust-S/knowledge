@@ -1,0 +1,140 @@
+name: D04 native T2 3-family Kernel witness
+on:
+  push:
+    branches: [work/2026-11-18-d04-life-os-qualification]
+    paths: [.github/workflows/d04-t2-families-qualification.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d04-t2-families-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  family-qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify DOMEN authorization for three private source repositories
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then echo "D04_DOMEN_SECRET_MISSING"; exit 1; fi
+          for repo in Faust-S/bazmed.ru Faust-S/bazmed Faust-S/T2; do
+            if ! gh api "repos/$repo" --jq '.id' >/dev/null 2>&1; then
+              echo "D04_PRIVATE_SOURCE_ACCESS_DENIED:$repo"
+              exit 1
+            fi
+          done
+          echo "D04_NATIVE_PRIVATE_SOURCE_ACCESS=3/3"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/bazmed.ru
+          ref: 02a6b6133bc6968d34fb36034ff297ab3f22f41f
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/site
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/bazmed
+          ref: a148d0386a73fc0131f971075ce3743e7010e995
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/model
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 9c64951cd78411283e8a416641c36d71e169fc1d
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/t2
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check immutable source pins
+        run: |
+          set -euo pipefail
+          test "$(git -C d04-private/site rev-parse HEAD)" = "02a6b6133bc6968d34fb36034ff297ab3f22f41f"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "a148d0386a73fc0131f971075ce3743e7010e995"
+          test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
+          echo "D04_NATIVE_EXACT_REVISIONS=PASS"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install genuine site dependencies, normative T2 and Chromium
+        run: |
+          set -euo pipefail
+          (cd d04-private/site && npm ci --no-audit --no-fund --include=dev) >"$RUNNER_TEMP/d04-site-install.log" 2>&1 || { echo "D04_NATIVE_SITE_INSTALL=FAIL"; exit 1; }
+          canonical="d04-private/t2/t2/current/final-successor/canonical-source"
+          (cd "$canonical" && npm ci --no-audit --no-fund --include=dev) >"$RUNNER_TEMP/d04-t2-install.log" 2>&1 || { echo "D04_NATIVE_T2_INSTALL=FAIL"; exit 1; }
+          (cd "$canonical" && npx playwright install --with-deps chromium) >"$RUNNER_TEMP/d04-chromium.log" 2>&1 || { echo "D04_NATIVE_BROWSER_INSTALL=FAIL"; exit 1; }
+          echo "D04_NATIVE_DEPENDENCIES=PASS"
+      - name: Build exact original T2 Host and qualified Kernel with isolated read-only auditor
+        working-directory: d04-private/site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
+        run: |
+          set -euo pipefail
+          export IWXA_T2_PRODUCT_CHALLENGE="$(openssl rand -hex 32)"
+          if npm run build:t2:site >"$RUNNER_TEMP/d04-native-build.log" 2>&1; then
+            test -s dist/_iwxa/runtime/0.3.6/runtime.js
+            test -s dist/workspace/workspace.config.json
+            echo "D04_NATIVE_ORIGINAL_T2_BUILD=PASS"
+          else
+            echo "D04_NATIVE_ORIGINAL_T2_BUILD=FAIL"
+            grep -Eo 'BAZMED_[A-Z0-9_]+|D04_[A-Z0-9_]+' "$RUNNER_TEMP/d04-native-build.log" | sort -u | tail -15 || true
+            exit 1
+          fi
+      - name: Run T2-owned independent UI to Kernel to receipt to restart for all three families
+        working-directory: d04-private/site
+        run: |
+          set +e
+          node --input-type=module >"$RUNNER_TEMP/d04-native-families.log" 2>&1 <<'NODE'
+          import {createHash} from 'node:crypto';
+          import {readFileSync} from 'node:fs';
+          import {resolve,join} from 'node:path';
+          import {pathToFileURL} from 'node:url';
+          const site=process.cwd();
+          const canonical=resolve(process.env.GITHUB_WORKSPACE,'d04-private/t2/t2/current/final-successor/canonical-source');
+          const {bazmedWitnessContract,BAZMED_FAMILIES,BAZMED_ROUTES,BAZMED_SERVICE}=
+            await import(pathToFileURL(join(site,'qualification/product-journeys.mjs')).href);
+          const {runIndependentSiteWitness}=await import(pathToFileURL(join(canonical,
+            'src/factory2/products/domain-completion/independent-browser-witness.mjs')).href);
+          const conf='workspace/workspace.config.json';
+          const hash=createHash('sha256').update(readFileSync(join(site,'dist',conf))).digest('hex');
+          const inventory={serviceIds:[BAZMED_SERVICE],routes:BAZMED_ROUTES,persistentFamilies:BAZMED_FAMILIES};
+          const contract={
+            runtime:{kernel:'0.3.6',contract:'1.3.0',
+              artifactId:'iwxa-kernel-k036-same-store-history-20261019-qualified.1',
+              hostConfiguration:{path:conf,sha256:hash}},
+            witness:bazmedWitnessContract(),inventory,buildDirectory:'dist'
+          };
+          const result=await runIndependentSiteWitness({siteRoot:site,contract,inventory,buildDirectory:'dist'});
+          if(result.status!=='PASS'||result.runner!=='T2_OWNED_PLAYWRIGHT'||
+             result.observations.length!==3)throw Error('D04_NATIVE_FAMILY_COUNT_INVALID');
+          for(const family of BAZMED_FAMILIES){
+            const o=result.observations.find(x=>x.family===family);
+            if(!o||!o.afterKernelRestart||!o.afterPageReload||!o.historyPreserved||
+               !o.deniedWriteRejected||!o.independentReader||!o.freshUiChallenge||
+               !o.unrelatedObjectsPreserved||!o.noUndeclaredObjects||
+               o.nativeOperation!=='putObject')throw Error('D04_NATIVE_FAMILY_WITNESS_INCOMPLETE');
+            console.log('D04_NATIVE_FAMILY_PASS='+family);
+          }
+          console.log('D04_NATIVE_T2_THREE_RESULT_FAMILIES=PASS');
+          NODE
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "D04_NATIVE_THREE_FAMILIES=FAIL"
+            python3 "$GITHUB_WORKSPACE/tools/ci/d04_recovery_safe_diagnostics.py" "$RUNNER_TEMP/d04-native-families.log" || true
+            exit "$code"
+          fi
+          grep '^D04_NATIVE_' "$RUNNER_TEMP/d04-native-families.log" | tail -6
+          echo "D04_NATIVE_THREE_FAMILIES=PASS"
+          # No private dist, source, raw logs, browser profiles or archives uploaded.
