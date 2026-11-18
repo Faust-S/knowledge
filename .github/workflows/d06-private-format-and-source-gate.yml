@@ -1,0 +1,117 @@
+name: d06-private-format-and-source-gate
+
+# Existing D06 source only. Never publish private code, logs, or dist to knowledge.
+# The private branch is updated only by an ordinary fast-forward push after
+# a clean formatter-only diff and successful original check/test commands.
+on:
+  push:
+    branches: [test/2026-11-18-d06-qualification]
+    paths: [.github/workflows/d06-private-format-and-source-gate.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d06-private-format-source-gate
+  cancel-in-progress: false
+
+jobs:
+  format-and-qualify:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact private D06 source without persisting credentials
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: 0613b8cdc0fc9636b967b8d18c1d9cab1abef8bf
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Format existing tracked files and verify original source gates
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $ErrorActionPreference = "Stop"
+          $expected = "0613b8cdc0fc9636b967b8d18c1d9cab1abef8bf"
+          if ((& git rev-parse HEAD).Trim() -ne $expected) {
+            throw "D06_FORMAT_SOURCE_REVISION_MISMATCH"
+          }
+          if ((& git status --porcelain).Count -ne 0) {
+            throw "D06_FORMAT_SOURCE_NOT_CLEAN"
+          }
+          function SafeRun($args, $label) {
+            $log = Join-Path $env:RUNNER_TEMP ("d06-format-" + $label + ".private.log")
+            & cmd.exe /d /c ("npm " + $args + " > """ + $log + """ 2>&1")
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host ("D06_FORMAT_" + $label + "=FAIL")
+              exit 1
+            }
+            Write-Host ("D06_FORMAT_" + $label + "=PASS")
+          }
+          SafeRun "ci --no-audit --no-fund" "INSTALL"
+          SafeRun "run format:lint:plan" "PLAN"
+          SafeRun "run format:lint:apply" "APPLY"
+          $changed = @(& git diff --name-only)
+          if ($LASTEXITCODE -ne 0) { throw "D06_FORMAT_DIFF_FAILED" }
+          foreach ($path in $changed) {
+            $isAllowed = $path -match '^scripts/(check-external-assets\.ts|verify-native-transfer\.mjs)$' -or
+                         $path -match '^src/routes/cases\.[a-z-]+\.index\.tsx$'
+            if (-not $isAllowed) { throw "D06_FORMAT_UNEXPECTED_PATH" }
+          }
+          Write-Host ("D06_FORMAT_CHANGED_FILES=" + $changed.Count)
+          & git diff --check *> (Join-Path $env:RUNNER_TEMP "d06-diff-check.private.log")
+          if ($LASTEXITCODE -ne 0) { throw "D06_FORMAT_DIFF_CHECK_FAIL" }
+          SafeRun "run check" "CHECK"
+          SafeRun "run test" "TEST"
+          $after = @(& git diff --name-only)
+          if ((@($after) -join "|") -ne (@($changed) -join "|")) {
+            throw "D06_FORMAT_UNEXPECTED_TEST_MUTATION"
+          }
+          if ($changed.Count -eq 0) {
+            Write-Host "D06_FORMAT_NO_CHANGES=PASS"
+            exit 0
+          }
+          & git add -- $changed
+          & git -c user.name="IWXA CI" -c user.email="ci@users.noreply.github.com" commit -m "style(d06): format Windows-qualified source without changing domain behavior" *> (Join-Path $env:RUNNER_TEMP "d06-format-commit.private.log")
+          if ($LASTEXITCODE -ne 0) { throw "D06_FORMAT_COMMIT_FAILED" }
+          Write-Host "D06_FORMAT_QUALIFIED_COMMIT=PASS"
+      - name: Fast-forward only to the existing private D06 working branch
+        shell: pwsh
+        working-directory: private/site
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ([string]::IsNullOrWhiteSpace($env:DOMEN)) { throw "D06_FORMAT_DOMEN_MISSING" }
+          $expected = "0613b8cdc0fc9636b967b8d18c1d9cab1abef8bf"
+          $auth = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("x-access-token:" + $env:DOMEN))
+          $header = "http.extraheader=AUTHORIZATION: basic " + $auth
+          $remote = "https://github.com/Faust-S/komplektovod.ru.git"
+          $branch = "refs/heads/work/2026-11-11-case-driven-entry-and-drill"
+          $latest = & git -c $header ls-remote --exit-code $remote $branch 2>$null
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($latest)) {
+            throw "D06_FORMAT_PRIVATE_READ_ACCESS_DENIED"
+          }
+          $remoteSha = ($latest -split "\s+")[0]
+          if ($remoteSha -ne $expected) {
+            throw "D06_FORMAT_CONCURRENT_CHANGE_NO_PUSH"
+          }
+          $current = (& git rev-parse HEAD).Trim()
+          if ($current -eq $expected) {
+            Write-Host "D06_FORMAT_NO_PUSH_NEEDED"
+            exit 0
+          }
+          $log = Join-Path $env:RUNNER_TEMP "d06-format-push.private.log"
+          & git -c $header push $remote ("HEAD:" + $branch) *> $log
+          if ($LASTEXITCODE -ne 0) { throw "D06_FORMAT_FAST_FORWARD_PUSH_FAILED" }
+          Write-Host "D06_FORMAT_PRIVATE_WORK_BRANCH_UPDATED=PASS"
+      - name: Confirm no private outputs were published
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_PRIVATE_CODE_ARTIFACT_UPLOADS=0"
+          Write-Host "D06_PRIVATE_RUNNER_LOG_UPLOADS=0"
