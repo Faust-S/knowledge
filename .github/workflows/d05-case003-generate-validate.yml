@@ -27,7 +27,7 @@ jobs:
             echo "D05_SITE_READ=FAIL"
             exit 1
           fi
-          if [ "$(git -C site rev-parse HEAD)" != "f189f0e5d6da3f94dbee7860577ebeafe1e09a0a" ]; then
+          if [ "$(git -C site rev-parse HEAD)" != "3505f4012dcda6dd50a823f73abc181aa4b3e600" ]; then
             echo "D05_SITE_PIN=FAIL"
             exit 1
           fi
@@ -68,7 +68,9 @@ jobs:
             src/routes/instrumenty.sebestoimost-zakaza.tsx \
             src/routes/instrumenty.karta-kachestva.tsx \
             src/routes/zakaz-v-ceh.tsx \
-            scripts/check-functional-ui.ts > "$RUNNER_TEMP/d05-format.log" 2>&1
+            scripts/check-functional-ui.ts \
+            scripts/stage-cehovod-host.mjs \
+            scripts/verify-cehovod-product.mjs > "$RUNNER_TEMP/d05-format.log" 2>&1
           echo "D05_PRETTIER=PASS"
           # Vite's TanStack Router plugin refreshes its tracked route tree.
           if npm run build:source > "$RUNNER_TEMP/d05-build-source.log" 2>&1; then
@@ -97,7 +99,9 @@ jobs:
             src/routes/instrumenty.sebestoimost-zakaza.tsx \
             src/routes/instrumenty.karta-kachestva.tsx \
             src/routes/zakaz-v-ceh.tsx \
-            scripts/check-functional-ui.ts
+            scripts/check-functional-ui.ts \
+            scripts/stage-cehovod-host.mjs \
+            scripts/verify-cehovod-product.mjs
           git diff --cached --check
           if git diff --cached --quiet; then
             echo "D05_GENERATED_DIFF=UNCHANGED"
@@ -126,6 +130,8 @@ jobs:
             "src/routes/instrumenty.karta-kachestva.tsx",
             "src/routes/zakaz-v-ceh.tsx",
             "scripts/check-functional-ui.ts",
+            "scripts/stage-cehovod-host.mjs",
+            "scripts/verify-cehovod-product.mjs",
           ];
           const format = (c) => /[\s,;]/u.test(c);
           function separate(s) {
