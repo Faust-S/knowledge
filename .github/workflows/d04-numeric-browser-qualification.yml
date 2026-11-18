@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 80804b3f70d11ab712ca8c629dc5cd35ab55822b
+          ref: b9985c5f02031b1294989435c3bdb4182bcfcc89
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed
-          ref: a148d0386a73fc0131f971075ce3743e7010e995
+          ref: 9aa68471001d30c07bcd6dfaf20c7a1b65b51df2
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
           fetch-depth: 0
@@ -62,8 +62,8 @@ jobs:
       - name: Verify immutable source identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "80804b3f70d11ab712ca8c629dc5cd35ab55822b"
-          test "$(git -C d04-private/model rev-parse HEAD)" = "a148d0386a73fc0131f971075ce3743e7010e995"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "b9985c5f02031b1294989435c3bdb4182bcfcc89"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "9aa68471001d30c07bcd6dfaf20c7a1b65b51df2"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           echo "D04_RECOVERY_EXACT_SOURCE=PASS"
       - uses: actions/setup-node@v4
@@ -153,12 +153,13 @@ jobs:
             if(result.status!=='PASS'||result.realUiCalculators!==13||
                result.viewports.length!==2||!result.methodsRecomputed||
                !result.stagedResultVerified||result.missingKernelClaim!==false||
-               result.viewports.some(v=>v.calculationCount!==13||v.invalidGuards!==4))
+               result.viewports.some(v=>v.calculationCount!==13||v.invalidGuards!==4||!v.fullWaterlow))
               throw Error('D04_NUMERIC_MATRIX_INCOMPLETE');
             console.log('D04_NUMERIC_13_METHODS_W375=PASS');
             console.log('D04_NUMERIC_13_METHODS_W1440=PASS');
             console.log('D04_NUMERIC_8_NEGATIVE_BOUNDS=PASS');
             console.log('D04_NUMERIC_STAGED_ADMISSION=PASS');
+            console.log('D04_NUMERIC_FULL_WATERLOW_2005=PASS');
           }finally{await new Promise(done=>server.server.close(done))}
           NODE
           code=$?
