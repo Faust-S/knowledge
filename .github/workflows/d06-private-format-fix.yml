@@ -1,0 +1,74 @@
+name: d06-private-format-fix
+
+# Private checkout, output and patches never appear in public logs or artifacts.
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-private-format-fix.yml
+
+permissions:
+  contents: read
+
+jobs:
+  d06-format:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout private D06 working branch
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: work/2026-11-11-case-driven-entry-and-drill
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Format only lint-flagged tracked files and fast-forward
+        shell: pwsh
+        working-directory: private/site
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not $env:DOMEN) { Write-Host "D06_FORMAT=TOKEN_MISSING"; exit 1 }
+          $log = Join-Path $env:RUNNER_TEMP "d06-install-private.txt"
+          & npm ci --no-audit --no-fund *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FORMAT=INSTALL_FAILED"; exit 1 }
+          $log = Join-Path $env:RUNNER_TEMP "d06-format-plan-private.txt"
+          & npm run format:lint:plan *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FORMAT=PLAN_FAILED"; exit 1 }
+          $log = Join-Path $env:RUNNER_TEMP "d06-format-apply-private.txt"
+          & npm run format:lint:apply *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FORMAT=APPLY_FAILED"; exit 1 }
+          $changed = @(git diff --name-only --diff-filter=M)
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Write-Host ("D06_FORMAT_CHANGED_TRACKED_FILES=" + $changed.Count)
+          if ($changed.Count -gt 20) { Write-Host "D06_FORMAT=EXCESSIVE_DIFF"; exit 1 }
+          $log = Join-Path $env:RUNNER_TEMP "d06-format-diffcheck-private.txt"
+          & git diff --check *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FORMAT=DIFF_CHECK_FAILED"; exit 1 }
+          if ($changed.Count -eq 0) { Write-Host "D06_FORMAT=ALREADY_CLEAN"; exit 0 }
+          $log = Join-Path $env:RUNNER_TEMP "d06-format-lint-private.txt"
+          & npm run check:lint *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FORMAT=LINT_FAILED"; exit 1 }
+          & git config user.name "IWXA D06 Windows QA"
+          & git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          & git add -- $changed
+          $log = Join-Path $env:RUNNER_TEMP "d06-format-commit-private.txt"
+          & git commit -m "style(d06): apply pinned Prettier only to flagged source" *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FORMAT=COMMIT_FAILED"; exit 1 }
+          $auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:" + $env:DOMEN))
+          $log = Join-Path $env:RUNNER_TEMP "d06-format-push-private.txt"
+          & git -c "http.extraheader=AUTHORIZATION: basic $auth" push origin "HEAD:refs/heads/work/2026-11-11-case-driven-entry-and-drill" *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FORMAT=NON_FAST_FORWARD_OR_WRITE_DENIED"; exit 1 }
+          Write-Host "D06_FORMAT=PASS_PRIVATE_FAST_FORWARD"
+      - name: Confirm private data boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_PRIVATE_SOURCE_LOGS=RUNNER_LOCAL_ONLY"
+          Write-Host "D06_PUBLIC_ARTIFACT_UPLOADS=0"
