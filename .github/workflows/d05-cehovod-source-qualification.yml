@@ -91,6 +91,13 @@ jobs:
             console.log("D05_TYPESCRIPT_ERRORS="+(t.match(/error TS\d+/g)||[]).length);
             console.log("D05_TEST_FAILURE_LINES="+(t.match(/(?:FAIL|not ok) /g)||[]).length);
             console.log("D05_VENDOR_MISSING="+(/ERR_MODULE_NOT_FOUND[^\n]*cehovod-lifecycle|Cannot find module[^\n]*cehovod-lifecycle/.test(t)));
+            console.log("D05_TAP_SESSIONS="+(t.match(/TAP version 13/g)||[]).length);
+            console.log("D05_NODE_TEST_FAILURE_COUNT="+(t.match(/^not ok [0-9]+/gm)||[]).length);
+            console.log("D05_NODE_TEST_FAILURE_ORDINALS="+[...t.matchAll(/^not ok ([0-9]+)/gm)].map(x=>x[1]).join(","));
+            const codes=[...new Set(t.match(/\b(?:ERR_[A-Z0-9_]+|CEHOVOD_[A-Z0-9_]+|ENOENT|EPERM|EACCES)\b/g)||[])];
+            console.log("D05_DIAGNOSTIC_CODES="+codes.slice(-12).join(","));
+            console.log("D05_VITE_BUILD_FAILURE="+(/\bbuild failed\b|\bCould not resolve\b/i.test(t)));
+            console.log("D05_TEST_RUN_ABORTED="+(/ERR_MODULE_NOT_FOUND|Cannot find module/i.test(t)));
             '
             exit 1
           fi
