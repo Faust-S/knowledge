@@ -105,7 +105,7 @@ jobs:
           grep -E '^# (tests|pass|fail|skipped|cancelled) ' "$RUNNER_TEMP/d04-research.log" | tail -7 || true
           if [ "$code" -ne 0 ]; then
             echo "D04_RESEARCH_TESTS=FAIL"
-            grep '^not ok ' "$RUNNER_TEMP/d04-research.log" | head -14 | sed -E 's/^not ok ([0-9]+) - /D04_FAILED_TEST_\1=/' || true
+            python3 tools/ci/d04_safe_diagnostics.py research "$RUNNER_TEMP/d04-research.log" || true
             exit "$code"
           fi
           echo "D04_RESEARCH_TESTS=PASS"
@@ -144,7 +144,7 @@ jobs:
             echo "D04_TYPESCRIPT=PASS"
           else
             echo "D04_TYPESCRIPT=FAIL"
-            grep -Eo 'error TS[0-9]+' "$RUNNER_TEMP/d04-types.log" | sort | uniq -c | head -20 || true
+            python3 tools/ci/d04_safe_diagnostics.py types "$RUNNER_TEMP/d04-types.log" || true
             exit 1
           fi
       - name: Lint
@@ -156,7 +156,7 @@ jobs:
             echo "D04_LINT=PASS"
           else
             echo "D04_LINT=FAIL"
-            grep -Eo '[a-z@/-]+$' "$RUNNER_TEMP/d04-lint.log" | sort | uniq -c | sort -nr | head -12 || true
+            python3 tools/ci/d04_safe_diagnostics.py lint "$RUNNER_TEMP/d04-lint.log" || true
             exit 1
           fi
       - name: Build real original T2 Host, qualified Kernel, static site and Chromium smoke
