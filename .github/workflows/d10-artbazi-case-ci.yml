@@ -1,0 +1,100 @@
+name: D10 ArtBazi private-source product qualification
+on:
+  push:
+    branches:
+      - work/2026-11-18-d10-case-ci
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  d10-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout public orchestration
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout D10 site source (no publishing)
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/artbazi.ru
+          ref: cc2cfc5093540a085e8a722cd8c543246d2dcf1d
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - name: Checkout canonical domain source (no publishing)
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/artbazi
+          ref: 96b585f15b80b2dc2b0ab89547a169c82abfd490
+          token: ${{ secrets.DOMEN }}
+          path: domain
+          persist-credentials: false
+      - name: Checkout normative T2
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          path: t2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "latest"
+      - name: Domain CASE-001-004 semantic regressions
+        shell: bash
+        run: |
+          set +e
+          cd domain
+          npm run test:d10:cases > "$RUNNER_TEMP/d10-domain.log" 2>&1
+          result=$?
+          if [ "$result" -eq 0 ]; then echo "D10_DOMAIN_CASES=PASS"; else echo "::error::D10_DOMAIN_CASES=FAIL exit=$result"; fi
+          exit "$result"
+      - name: Frozen site dependencies
+        shell: bash
+        run: |
+          set +e
+          cd site
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d10-install.log" 2>&1
+          result=$?
+          if [ "$result" -eq 0 ]; then echo "D10_INSTALL=PASS"; else echo "::error::D10_INSTALL=FAIL exit=$result"; fi
+          exit "$result"
+      - name: Site source, Group E, Host, types
+        shell: bash
+        run: |
+          set -e
+          cd site
+          for gate in check:commercial check:crm check:t2-host-route check:group-e check:types; do
+            label="${gate//:/_}"
+            if npm run "$gate" > "$RUNNER_TEMP/d10-$label.log" 2>&1; then
+              echo "D10_$label=PASS"
+            else
+              echo "::error::D10_$label=FAIL"
+              exit 1
+            fi
+          done
+      - name: Reproduce integrated T2 site in one dist
+        shell: bash
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+        run: |
+          set +e
+          cd site
+          npm run build:t2:site > "$RUNNER_TEMP/d10-build.log" 2>&1
+          result=$?
+          if [ "$result" -eq 0 ] && [ -d dist ]; then
+            echo "D10_INTEGRATED_DIST=PASS"
+          else
+            echo "::error::D10_INTEGRATED_DIST=FAIL exit=$result"
+            exit 1
+          fi
+      - name: Inspect artifact without publishing private bytes
+        shell: bash
+        run: |
+          test -d site/dist
+          echo "D10_PRIVATE_DIST_EXISTENCE=PASS"
+          echo "D10_PRIVATE_CODE_AND_DIST_ARTIFACTS=NOT_PUBLISHED"
