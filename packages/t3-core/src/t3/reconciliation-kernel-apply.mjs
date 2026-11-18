@@ -16,6 +16,20 @@ function copy(value,code){
   try{return structuredClone(value);}
   catch{deny(code);}
 }
+// The inherited T2 graph persists the entire caller-supplied JSON Event
+// payload. Its canonical storage may reorder object keys, so byte-for-byte
+// JSON.stringify is not a valid equality check. Extra/mutated provenance
+// fields must never be accepted as the original signed application Event.
+function sameJson(a,b){
+  if(a===b)return true;
+  if(!a||!b||typeof a!=="object"||typeof b!=="object")return false;
+  if(Array.isArray(a)||Array.isArray(b))
+    return Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&
+      a.every((value,i)=>sameJson(value,b[i]));
+  const keys=Object.keys(a);
+  return keys.length===Object.keys(b).length&&
+    keys.every(key=>Object.hasOwn(b,key)&&sameJson(a[key],b[key]));
+}
 // Exact target keys required by the original historical application-host
 // binding; a workspace alias alone is not a complete recipient scope.
 const TARGET_FIELDS=["consumerId","processId","processVersion","purpose",
@@ -216,7 +230,8 @@ export function createTrustedReconciliationKernelApply({
         event.revision===expectedRevision&&
         obj(event.payload)&&
         event.payload.reconciliation_acceptance_id===acceptanceId&&
-        sameRevisions(event.payload.reconciliation_revision_ids);
+        sameRevisions(event.payload.reconciliation_revision_ids)&&
+        sameJson(event.payload,command.event.payload);
       const verifiedEvents=Array.isArray(events)?
         events.filter(sameEvent):[];
       check(receipt?.workspace_id===c.workspace_id&&
@@ -326,7 +341,8 @@ export function createTrustedReconciliationKernelApply({
         provenance.reconciliation_acceptance_id===acceptanceId&&
         Array.isArray(provenance.reconciliation_revision_ids)&&
         JSON.stringify([...provenance.reconciliation_revision_ids].sort())===
-          JSON.stringify([...revisionIds].sort());
+          JSON.stringify([...revisionIds].sort())&&
+        sameJson(provenance,command.event.payload);
     }):[];
     if(!matchObject(first)||!matchObject(second)||matching.length!==1)
       return unknown();
