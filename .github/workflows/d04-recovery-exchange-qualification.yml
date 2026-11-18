@@ -85,11 +85,12 @@ jobs:
             echo "D04_RECOVERY_NORMATIVE_T2_NPM_CI=FAIL"
             exit 1
           fi
-      - name: Install normative T2 browser runtime
+      - name: Install normative T2 Chromium from exact Playwright package
+        timeout-minutes: 5
         run: |
           set -euo pipefail
           canonical="d04-private/t2/t2/current/final-successor/canonical-source"
-          if (cd "$canonical" && npx playwright install --with-deps chromium) >"$RUNNER_TEMP/d04-browser-install.log" 2>&1; then
+          if (cd "$canonical" && timeout 210s npx playwright install chromium) >"$RUNNER_TEMP/d04-browser-install.log" 2>&1; then
             echo "D04_NORMATIVE_T2_BROWSER=PASS"
           else
             echo "D04_NORMATIVE_T2_BROWSER=FAIL"
