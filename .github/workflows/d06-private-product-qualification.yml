@@ -217,7 +217,10 @@ jobs:
         timeout-minutes: 35
         run: |
           $log = Join-Path $env:RUNNER_TEMP "d06-e2e-private.txt"
-          & npm run test:e2e *> $log
+          # Playwright's JSON report stays in RUNNER_TEMP and is never uploaded.
+          # The public log receives counts and deterministic private-spec ordinals.
+          $env:PLAYWRIGHT_JSON_OUTPUT_FILE = Join-Path $env:RUNNER_TEMP "d06-e2e-results.private.json"
+          & npm run test:e2e -- --reporter=json *> $log
           $status = if ($LASTEXITCODE -eq 0) { "PASS" } else { "FAIL" }
           Write-Host "D06_TEST_E2E=$status"
           if ($status -ne "PASS") {
@@ -237,22 +240,37 @@ jobs:
             if ($counts.Count -gt 0) {
               Write-Host ("D06_E2E_FAILED_COUNT=" + $counts[$counts.Count - 1].Groups[1].Value)
             }
-            # Identify failing spec files by ordinals in the private Git
-            # checkout. No paths, test titles or private assertion messages
-            # are published into the public control-plane log.
+            # Read Playwright's machine report locally. Text-list parsing was
+            # unreliable (zero ordinals despite seven known failures).
             $specs = @(& git ls-files -- "tests/e2e/*.spec.ts" | Sort-Object)
-            $clean = [regex]::Replace($private, [char]27 + '\[[0-9;]*m', '')
-            $observed = [regex]::Matches(
-              $clean,
-              '(?m)^\s*[0-9]+\)\s*(?:\[[^\]\r\n]+\]\s*)?›\s*(tests/e2e/[^:\s]+\.spec\.ts):'
-            )
             $ordinals = @{}
-            foreach ($match in $observed) {
-              $relative = $match.Groups[1].Value.Replace('\', '/')
-              $index = [array]::IndexOf($specs, $relative)
-              $ordinal = if ($index -ge 0) { $index + 1 } else { 0 }
-              $key = [string]$ordinal
-              $ordinals[$key] = 1 + [int]($ordinals[$key])
+            $jsonPath = $env:PLAYWRIGHT_JSON_OUTPUT_FILE
+            if (Test-Path -LiteralPath $jsonPath) {
+              $report = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json
+              $stack = [System.Collections.Generic.List[object]]::new()
+              foreach ($suite in @($report.suites)) { $stack.Add($suite) }
+              $failureCount = 0
+              while ($stack.Count -gt 0) {
+                $suite = $stack[$stack.Count - 1]
+                $stack.RemoveAt($stack.Count - 1)
+                foreach ($child in @($suite.suites)) { $stack.Add($child) }
+                foreach ($spec in @($suite.specs)) {
+                  if ($spec.ok -ne $false) { continue }
+                  $failureCount++
+                  $source = [string]$spec.file
+                  if (-not $source) { $source = [string]$suite.file }
+                  $source = $source.Replace('\\', '/')
+                  $match = [regex]::Match($source, 'tests/e2e/[^/]+\\.spec\\.ts$')
+                  $relative = if ($match.Success) { $match.Value } else { "" }
+                  $index = [array]::IndexOf($specs, $relative)
+                  $ordinal = if ($index -ge 0) { $index + 1 } else { 0 }
+                  $key = [string]$ordinal
+                  $ordinals[$key] = 1 + [int]($ordinals[$key])
+                }
+              }
+              Write-Host ("D06_E2E_REPORT_FAILED_COUNT=" + $failureCount)
+            } else {
+              Write-Host "D06_E2E_JSON_REPORT=NOT_CREATED"
             }
             $summary = @($ordinals.Keys | Sort-Object {
               [int]$_
