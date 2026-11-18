@@ -2,7 +2,7 @@
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
   "snapshot_date": "2026-11-18",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
-  "currentness": "SNAPSHOT_2026_11_18__CHECK_EXACT_CI_AND_LIVE_SHA",
+  "currentness": "SNAPSHOT_2026_11_18_PRODUCT_NEUTRAL_SCOPE_CHECK_EXACT_CI_AND_LIVE_SHA",
   "policy": {
     "t3_one_core": "Faust-S/knowledge/packages/t3-core",
     "t2_normative": "Faust-S/T2@main",
@@ -16,7 +16,11 @@
       "NATIVE_OWNER_PASS",
       "INSTALLED_PRODUCT_PASS",
       "CROSS_PRODUCT_G4_PASS"
-    ]
+    ],
+    "product_neutral_t3_architecture": "Faust-S/iwxa@knowledge/2026-10-02-system-atlas/architecture/IWXA_T3_PRODUCT_COMPOSITION_AND_OPTIONAL_ATLAS_2026_11_18_RU.md",
+    "atlas_required_for_generic_t3": false,
+    "optional_installed_product_integration": "U01 identifies app; U04 opens/activates window only; an optional trusted native owner port performs authorized commands in the destination owner's own Host/Store. No implied direct cross-process Tauri invoke or mandatory signed .iwxa",
+    "signed_atlas_file_transfer_scope": "OPTIONAL_INDEPENDENT_CROSS_SUBJECT_EVIDENCE_NOT_GENERIC_T3_PREREQUISITE"
   },
   "observations": {
     "one_core": {
@@ -681,17 +685,23 @@
     "G4_portable_selected_result_data": "ATLAS09_SIGNED_FILE_747_SOURCE_AND_INSTALLED_PRODUCT_44285788148_PASS_PRIVATE_SIGNED_E2E_HOLD",
     "D6_original_atlas_ui_kernel_gate": "SIGNED_SELECTED_FILE_UI_AND_LOST_ACK_747_SOURCE_PASS_ATLAS09_NATIVE_44285788148_PASS_PRIVATE_ORIGINAL_RECIPIENT_NOT_MOUNTED_HOLD",
     "D6_original_native_model_free_control": "AGENT_NATIVE_GUI_44178292091_PASS_SIGNED_PRIVATE_E2E_HOLD",
-    "D6_original_setup_core_06_native_executable": "TRUE_EXE_NATIVE_INSTALL_AND_CORRUPTED_ORIGINAL_T2_REPAIR_PASS_44282434511_POSTWRITE_ROLLBACK_HOLD"
+    "D6_original_setup_core_06_native_executable": "TRUE_EXE_NATIVE_INSTALL_AND_CORRUPTED_ORIGINAL_T2_REPAIR_PASS_44282434511_POSTWRITE_ROLLBACK_HOLD",
+    "T3_PRODUCT_NEUTRAL_CORE": "CORE_SOURCE_PASS_INSTALLED_UNIVERSAL_D1_D3_D5_D6_D7_NOT_ACCEPTED",
+    "T3_GENERIC_D6": "CORE_SOURCE_PASS_NATIVE_INDEPENDENT_RECIPIENT_NOT_ACCEPTED",
+    "T3_ATLAS_CONNECTED_PROGRAM": "U01_U04_AND_OWNER_COMMAND_PROFILE_SEPARATE_ACCEPTANCE_NOT_GENERIC_T3",
+    "T3_ATLAS_SIGNED_FILE_OPTIONAL": "SOURCE_SIGNED_RECIPIENT_AND_INSTALLED_ATLAS_PRODUCT_PASS_PRIVATE_SIGNED_E2E_NOT_ACCEPTED_OPTIONAL_PROFILE",
+    "T3_UNIVERSAL_RELEASE": "NOT_ACCEPTED_D1_D3_D5_D6_GENERIC_D7_HOLD"
   },
   "next_critical_path": [
-    "After failed installed Agent #44187887793 DRAFT_READBACK, qualify exact original Agent 9ab35b GUI witness with bounded observation #44189399520, while #44189399499 verifies source; no silent PASS.",
-    "Original private T3 and Atlas signed file source have recipient-only paths; do NOT claim installed standalone trust owner yet. Source Atlas #44189209843 SUCCESS, native Atlas #44189209886 pending. Mount ORIGINAL signed recipient verifier in Atlas native Host and prove one .iwxa delivery + two independent cold signed-result readbacks.",
-    "Atlas 0.9 independent native product installation and its own U05 Store: Windows #44181242347 SUCCESS at 3f84891c. Do NOT count these two product-store cold reopens as independent signed Agent D6 Result acceptance.",
-    "Installed Agent 0.6 source a0dc + One Core 3f91 are qualified for native original T2 One Dist via public Center #44178292091. Separately provision REAL original private Ed25519 employee grants, explicitly create original signed T2 Workspace with authorized D1 write and bind ORIGINAL Agent accepted-source/issuer Host, never test-only Kernel.",
-    "Send one real Human-accepted Agent Result selected summary -> exact signed original Kernel Object/Event -> original recipient-scoped signed .iwxa using the already existing Exchange and ledger. Prove selected content/hash and one disclosure, original signed receipts, lost-ACK read-only recovery.",
-    "Installed standalone Atlas 0.9 must mount trusted ORIGINAL recipient verifier for independently received signed .iwxa; currently mountAtlasSurface exists only as optional shipped export, not as standalone connection. Use its own Tauri AppHandle U05 CAS and two physically independent cold process readbacks.",
-    "After native D6, independently qualify signed Admin D3 Human ACCEPT then Kernel APPLY, Publisher PERSON D7 issue/renew/STATUS/revoke and hardware WebGPU offline D5 cold restart in same pinned G4 candidate. Domain migration sequential, not part of the core technical release.",
-    "Never enable private GitHub Actions, mint a second Kernel/Store/signer/Exchange or label source/GUI PASS as G4 ACCEPTED."
+    "Release scope is PRODUCT_NEUTRAL_T3. Keep normative original T2 Kernel/Host/Workspace/Exchange/Lifecycle integrated in ONE T3. Use current exact public One Core CI + installed Agent test; never interpret source PASS as installed owner.",
+    "Priority 1 D1/D3 WITHOUT ATLAS: actual independent Admin user and independently credentialed Agent employee, original signed Task, real Result/Human ACCEPT, separate Kernel APPLY with original Event/Object and TWO cold reads. CEN02 legacy requires Atlas work today: fix only its conditional project profile; do not weaken project WorkRef currentness.",
+    "Priority 2 D5 HARDWARE OFFLINE: qualify actual WebGPU inference and second fully offline cold restart in same original T3 Host, not the mock/headless source CI.",
+    "Priority 3 D6 GENERIC: prove one real accepted Result from original Agent or domain and one authorized recipient OTHER THAN OR WITHOUT Atlas, actual native owner receipt and read-only recovery; signed offline .iwxa only when independent exchange required.",
+    "Priority 4 D7: original Publisher PERSON issue/renew/status/revoke with installed consumer and cold readback, independent of Atlas.",
+    "Close Agent Setup Core 0.6 cross-version post-write Rollback separately; existing same-version managed-byte Repair native Windows #44282434511 SUCCESS is NOT cross-version rollback.",
+    "Parallel optional product integration: Atlas as one program of Agent/Admin; qualify U01 discovery and U04 opening/activation, then actual native owner command only if a trusted OS/IPC owner port exists. U04 alone does NOT select work or provide an Atlas AppHandle.",
+    "Optional independent signed-file Atlas D6: original private issuer -> recipient-signed .iwxa -> independently installed Atlas own U05 CAS and two cold reads; prior source 747/747 and installed Atlas product Windows #44285788148 SUCCESS do NOT mean signed private recipient E2E. HOLD does NOT block standalone generic T3 gates.",
+    "Keep original private T3 Actions PROHIBITED; do not create second signer, Registry, Store, Kernel, Task Engine, Router or format. Record exact HEAD/CI per owning product."
   ],
   "transport_profile_rules": {
     "original_T2_Workspace_iwxa": "Normal T2 Exchange importPreview/importCommit with original T2 Workspace/Package manifest",
@@ -741,10 +751,38 @@
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "NOT_REPEATED_IN_CI",
     "strict_order": [
+      "B0: verify exact complete normative T2 successor in ONE executable T3 One Dist and original Host/Kernel/Store/Exchange/Workspace/Lifecycle, with no second runtime or Atlas dependency",
+      "D1 + D3: prove installed independent manager and employee Agent signed grants / Task, Human ACCEPT then separately consented original Kernel APPLY and two cold original receipts; NO Atlas WorkRef for normal Task",
+      "D2 + D4: qualify authorized Event/Activity views and native owner Exchange/recipient transport without an Atlas project prerequisite",
+      "D5: real WebGPU generation, offline cold restart and second generation in the SAME installed T3 Host; no Agent-to-Atlas file transfer",
+      "D6_GENERIC: accepted Result from real subject -> any explicitly authorized independent original recipient -> owner durable readback/lost-ACK recovery; never force iwxa.atlas",
+      "D7_PERSON: original Publisher issue/renew/STATUS/revoke with installed recipient and cold readback; no Atlas prerequisite",
+      "Universal T3 release acceptance only after exact installed native source and all required generic D1-D7 gates. Separately qualify optional U01/U04 and Atlas owner commands, and rarer signed .iwxa file transfer as distinct integration profiles; do not turn those into prerequisites for generic T3"
+    ],
+    "product_neutral_architecture_2026_11_18": {
+      "decision": "OWNER_APPROVED_PRODUCT_NEUTRAL_T3",
+      "prior_order": "HISTORICAL_ONLY",
+      "generic_result_recipient": "ANY_AUTHORIZED_ORIGINAL_NATIVE_SUBJECT_PRODUCT_NOT_ATLAS_SPECIFIC",
+      "connected_atlas_default": "APP_DISCOVERY_WINDOW_AND_OWNER_COMMAND_PORT_NOT_FILE_TRANSFER",
+      "atlas_signed_file_gate": "OPTIONAL_PROFILE_NOT_BLOCKING_GENERIC_D3_D5_D6_D7",
+      "universal_d1_d7_missing": "UNQUALIFIED_NATIVE_EMPLOYEE_D3_WEBGPU_D5_GENERIC_RESULT_D6_PERSON_D7",
+      "no_status_promotion": true
+    },
+    "historical_strict_order_2026_11_17": [
       "Qualify one exact installed Agent + original private Ed25519 issuer + qualified T2 One Dist: real Human-selected Result summary, signed D1 JIT, original native T2 Object/Event, signed existing .iwxa with original selected text and SHA-256, independent signed readback and no replay after lost ACK",
       "Mount original signed .iwxa verification from its trusted existing native owner in truly independent Atlas 0.9 standalone and persist exact selected content through ITS OWN AppHandle U05 CAS and two physically independent cold process readbacks",
       "Qualify Agent Setup Core 0.6 native EXE from the same source + full install/Repair/Rollback, then original Admin D3 ACCEPT separately from Kernel APPLY, native PERSON Publisher D7 STATUS/revoke, and D5 WebGPU hardware offline cold restart",
       "Recheck normative T2 remains pinned and unified One Dist; never promote G4 from source-only runs"
+    ],
+    "historical_next_critical_path_2026_11_17": [
+      "After failed installed Agent #44187887793 DRAFT_READBACK, qualify exact original Agent 9ab35b GUI witness with bounded observation #44189399520, while #44189399499 verifies source; no silent PASS.",
+      "Original private T3 and Atlas signed file source have recipient-only paths; do NOT claim installed standalone trust owner yet. Source Atlas #44189209843 SUCCESS, native Atlas #44189209886 pending. Mount ORIGINAL signed recipient verifier in Atlas native Host and prove one .iwxa delivery + two independent cold signed-result readbacks.",
+      "Atlas 0.9 independent native product installation and its own U05 Store: Windows #44181242347 SUCCESS at 3f84891c. Do NOT count these two product-store cold reopens as independent signed Agent D6 Result acceptance.",
+      "Installed Agent 0.6 source a0dc + One Core 3f91 are qualified for native original T2 One Dist via public Center #44178292091. Separately provision REAL original private Ed25519 employee grants, explicitly create original signed T2 Workspace with authorized D1 write and bind ORIGINAL Agent accepted-source/issuer Host, never test-only Kernel.",
+      "Send one real Human-accepted Agent Result selected summary -> exact signed original Kernel Object/Event -> original recipient-scoped signed .iwxa using the already existing Exchange and ledger. Prove selected content/hash and one disclosure, original signed receipts, lost-ACK read-only recovery.",
+      "Installed standalone Atlas 0.9 must mount trusted ORIGINAL recipient verifier for independently received signed .iwxa; currently mountAtlasSurface exists only as optional shipped export, not as standalone connection. Use its own Tauri AppHandle U05 CAS and two physically independent cold process readbacks.",
+      "After native D6, independently qualify signed Admin D3 Human ACCEPT then Kernel APPLY, Publisher PERSON D7 issue/renew/STATUS/revoke and hardware WebGPU offline D5 cold restart in same pinned G4 candidate. Domain migration sequential, not part of the core technical release.",
+      "Never enable private GitHub Actions, mint a second Kernel/Store/signer/Exchange or label source/GUI PASS as G4 ACCEPTED."
     ]
   }
 }
