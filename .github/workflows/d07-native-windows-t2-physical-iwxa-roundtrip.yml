@@ -590,13 +590,41 @@ jobs:
                 # using native Windows file dialog, without injecting a fake archive.
                 $importTab=WaitNative 'Импортировать' $null
                 ActivateNative $importTab
-                $upload=WaitNative 'Выберите файл .iwxa' $null
+                Write-Output 'D07_NATIVE_IWXA_IMPORT_TAB=PASS'
+                $upload=FindNative 'Выберите файл .iwxa' $null
+                if(!$upload){
+                  # Windows Edge can expose the native file chooser button as
+                  # "Choose File"/"Browse", even though the HTML input is
+                  # labelled in Russian. Reject unrelated controls.
+                  foreach($proc in @(Get-Process msedge -ErrorAction SilentlyContinue |
+                    Where-Object {$_.MainWindowHandle -ne 0})){
+                    $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$proc.MainWindowHandle)
+                    if(!$window){continue}
+                    $buttons=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                      [System.Windows.Automation.PropertyCondition]::new(
+                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                        [System.Windows.Automation.ControlType]::Button))
+                    for($n=0;$n -lt $buttons.Count;$n++){
+                      $candidate=$buttons.Item($n)
+                      if($candidate.Current.IsEnabled -and
+                        $candidate.Current.Name -match '(?i)(choose file|browse|выбрать файл|обзор|выберите файл[.]iwxa)'){
+                        $upload=$candidate;break
+                      }
+                    }
+                    if($upload){break}
+                  }
+                }
+                if(!$upload){throw 'D07_NATIVE_IWXA_FILE_CHOOSER_UIA_NOT_FOUND'}
+                Write-Output 'D07_NATIVE_IWXA_FILE_CHOOSER_UIA=PASS'
                 ActivateNative $upload
                 Start-Sleep -Milliseconds 600
+                Write-Output 'D07_NATIVE_IWXA_FILE_CHOOSER_ACTIVATED=PASS'
+                # This path stays on the private Windows runner, never in logs.
                 Set-Clipboard -Value $archive.FullName
                 [System.Windows.Forms.SendKeys]::SendWait('^v')
                 Start-Sleep -Milliseconds 300
                 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                Write-Output 'D07_NATIVE_IWXA_FILE_PATH_SUBMITTED=PASS'
                 $null=WaitNative 'Режим импорта (allowed_modes)' $null
                 Write-Output 'D07_NATIVE_IWXA_PHYSICAL_FILE_IMPORT_PREVIEW=PASS'
                 # Import the source order into a fresh, separately identified
@@ -665,6 +693,13 @@ jobs:
                 if($receiptText -notmatch 'new-workspace'){
                   throw 'D07_NATIVE_IWXA_NEW_WORKSPACE_NOT_CONFIRMED'
                 }
+                # Verify the downloaded physical file has not been altered
+                # during native file import. No digest or private bytes logged.
+                $postImportHash=Get-FileHash -LiteralPath $archive.FullName -Algorithm SHA256
+                if($postImportHash.Hash -ne $digest.Hash){
+                  throw 'D07_NATIVE_IWXA_PHYSICAL_BYTES_CHANGED_DURING_IMPORT'
+                }
+                Write-Output 'D07_NATIVE_IWXA_SAME_FILE_SHA256_AFTER_IMPORT=PASS'
                 Write-Output 'D07_NATIVE_IWXA_NEW_WORKSPACE_IMPORT_OBJECT_HISTORY=PASS'
                 Write-Output 'D07_NATIVE_IWXA_PHYSICAL_ROUNDTRIP=PASS'
 
