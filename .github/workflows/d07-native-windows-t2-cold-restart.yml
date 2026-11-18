@@ -529,6 +529,13 @@ jobs:
                   $beforeEvent=$Matches[1].TrimEnd('.')
                 }else{throw 'D07_NATIVE_RESTART_EVENT_ID_UNAVAILABLE'}
                 if([string]::IsNullOrWhiteSpace($beforeEvent)){throw 'D07_NATIVE_RESTART_EVENT_ID_INVALID'}
+                $historyBefore=AccessibleText
+                $beforeHistoryHeader=($historyBefore -match 'Сохранённый заказ и история')
+                $beforeHistoryRow=($historyBefore -match 'Редакция\\s+1.*?событие')
+                $beforeHistoryEmpty=($historyBefore -match 'История событий ещё не загружена')
+                Write-Output ('D07_NATIVE_BEFORE_RESTART_HISTORY_SECTION='+$beforeHistoryHeader)
+                Write-Output ('D07_NATIVE_BEFORE_RESTART_HISTORY_ROW='+$beforeHistoryRow)
+                Write-Output ('D07_NATIVE_BEFORE_RESTART_HISTORY_EMPTY='+$beforeHistoryEmpty)
                 # This is a dedicated ephemeral Windows runner. Stop ALL
                 # actual Edge processes, including children independently
                 # retained after the launcher's process exits.
@@ -610,6 +617,23 @@ jobs:
                 }
                 $null=WaitNative 'Документы этого заказа: 9' $null
                 Write-Output 'D07_NATIVE_RESTART_ORDER_NINE_DOCUMENTS=PASS'
+                # Give the native accessibility tree an explicit focus and scroll
+                # target within the saved-result panel. This is an Edge UIA action,
+                # not browser JavaScript or a direct Kernel call.
+                $savedHeading=FindNative 'Сохранённый заказ и история' $null
+                Write-Output ('D07_NATIVE_RESTART_HISTORY_SECTION_PRESENT='+[bool]$savedHeading)
+                $focusHistory=FindNative 'Открыть сохранённую редакцию в брифе' ([System.Windows.Automation.ControlType]::Button)
+                if($focusHistory){
+                  try {
+                    $focusHistory.SetFocus()
+                    Start-Sleep -Milliseconds 400
+                    Write-Output 'D07_NATIVE_RESTART_HISTORY_FOCUSED=PASS'
+                  } catch {
+                    Write-Output 'D07_NATIVE_RESTART_HISTORY_FOCUSED=UNAVAILABLE'
+                  }
+                } else {
+                  Write-Output 'D07_NATIVE_RESTART_HISTORY_FOCUSED=NO_BUTTON'
+                }
                 $objectRestored=$false
                 $eventRestored=$false
                 $revisionRestored=$false
