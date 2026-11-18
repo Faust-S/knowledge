@@ -10,6 +10,11 @@ import {pathToFileURL} from 'node:url';
 const REPO='Faust-S/T3';
 const PIN='19be10c557618f5c8b476a739c8fc4ca0fa2ac7f';
 const TEST='tests/admin-original-host-port.test.mjs';
+const MULTI_EMPLOYEE_TESTS=Object.freeze([
+  'tests/multi-employee-provisioning.test.mjs',
+  'tests/multi-employee-admin.test.mjs',
+]);
+const DEFAULT_TEST_FILES=Object.freeze([TEST,...MULTI_EMPLOYEE_TESTS]);
 const EXPECT='native D3 compares every signed field independent of original JSON key order';
 const ROOTS=new Set(['interop','reconciliation','access-control','tests']);
 const MAX_FILES=130;
@@ -59,12 +64,18 @@ export async function getExactFile(path,token,{repository=REPO,sourcePin=PIN}={}
   return bytes;
 }
 
-export async function runOriginalPrivateOwnerSourceCheck({token,fetchFile=getExactFile,assets=['access-control/domain-registry.json']}={}){
+export async function runOriginalPrivateOwnerSourceCheck({
+  token,fetchFile=getExactFile,assets=['access-control/domain-registry.json'],
+  testFiles=DEFAULT_TEST_FILES,
+}={}){
+  if(!Array.isArray(testFiles)||testFiles.length===0||
+     testFiles.some(path=>![TEST,...MULTI_EMPLOYEE_TESTS].includes(path)))
+    throw Error('T3_PRIVATE_D3_UNAPPROVED_TEST_FILE');
   if(typeof token!=='string'||!token.trim())throw Error('T3_KNOWLEDGE_READ_TOKEN_NOT_AVAILABLE');
   const root=mkdtempSync(join(tmpdir(),'iwxa-t3-original-d3-'),{mode:0o700});
   // Original AccessRegistry loads this packaged policy with readFileSync,
   // not an ESM import. Read exactly this verified runtime asset as well.
-  const visited=new Set(),pending=[TEST,...assets];
+  const visited=new Set(),pending=[...testFiles,...assets];
   let count=0,totalBytes=0;
   try{
     while(pending.length){
@@ -99,7 +110,7 @@ export async function runOriginalPrivateOwnerSourceCheck({token,fetchFile=getExa
     // Original test code receives no token or CI credential environment.
     const env={PATH:process.env.PATH??'',HOME:process.env.HOME??'',
       TMPDIR:process.env.RUNNER_TEMP??tmpdir(),LANG:'C.UTF-8',CI:'true'};
-    const child=spawnSync(process.execPath,['--test',TEST],{
+    const child=spawnSync(process.execPath,['--test',...testFiles],{
       cwd:root,env,encoding:'utf8',timeout:120000,maxBuffer:2*1024*1024,
     });
     // Original source, Task texts, fixture details and test output are PRIVATE.
@@ -111,6 +122,12 @@ export async function runOriginalPrivateOwnerSourceCheck({token,fetchFile=getExa
     });
     const [tests,passed,failed]=metrics;
     const targeted=stdout.includes(EXPECT);
+    const multiEmployee=testFiles.includes(MULTI_EMPLOYEE_TESTS[0])&&
+      testFiles.includes(MULTI_EMPLOYEE_TESTS[1]);
+    const multiEmployeeExecuted=!multiEmployee||[
+      'shared real Registry separates staff grants',
+      'one Admin Registry and ledger receive two independent staff results',
+    ].every(text=>stdout.includes(text));
     const rawFailure=stdout+'\n'+(child.stderr??'');
     const knownFailure=[
       ['ERR_MODULE_NOT_FOUND','MISSING_IMPORT'],
@@ -158,7 +175,9 @@ export async function runOriginalPrivateOwnerSourceCheck({token,fetchFile=getExa
     console.log('T3_PRIVATE_D3_ORIGINAL_SUITE',
       `tests=${tests??'unknown'} pass=${passed??'unknown'} fail=${failed??'unknown'}`);
     console.log('T3_PRIVATE_D3_SIGNED_CONTEXT_REGRESSION',targeted?'EXECUTED':'NOT_EXECUTED');
-    if(child.status!==0||child.error||!targeted||!tests||passed!==tests||failed!==0)
+    console.log('T3_PRIVATE_D3_INDEPENDENT_STAFF_SOURCE_REGRESSIONS',
+      multiEmployeeExecuted?'EXECUTED':'NOT_EXECUTED');
+    if(child.status!==0||child.error||!targeted||!multiEmployeeExecuted||!tests||passed!==tests||failed!==0)
       throw Error('T3_PRIVATE_D3_ORIGINAL_OWNER_SOURCE_NOT_ACCEPTED');
     console.log('T3_PRIVATE_D3_ORIGINAL_OWNER_SOURCE_PASS_NOT_INSTALLED');
     return {tests,passed,failed,count};
