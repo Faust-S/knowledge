@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: e2540014d5e24dde4654e3f66eb99c57e74cc963
+          ref: 94e34183e0070d1ac40eb0cbc54cb7e16d2e60be
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -237,7 +237,7 @@ jobs:
           cd "$RUNNER_TEMP/d10-host-loopback"
           node scripts/tests/d10-public-kernel-transfer-browser.mjs > "$RUNNER_TEMP/d10-public-kernel.log" 2>&1
           result=$?
-          grep -E '^D10_PUBLIC_KERNEL_' "$RUNNER_TEMP/d10-public-kernel.log" || true
+          grep -E '^D10_(PUBLIC_KERNEL_|IWXA_DEBUG_STEP=|IWXA_)' "$RUNNER_TEMP/d10-public-kernel.log" || true
           if [ "$result" -eq 0 ]; then
             echo "D10_PUBLIC_T2_KERNEL_TRANSFER=PASS"
           else
