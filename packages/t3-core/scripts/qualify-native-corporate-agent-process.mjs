@@ -100,6 +100,7 @@ export async function qualifyNativeOriginalEmployee({
       'G4_ORIGINAL_NATIVE_EMPLOYEE_COLD_NO_REEXPORT_PASS',
       'G4_ORIGINAL_PRODUCTION_OWNER_COLD_READBACK_PASS',
       'G4_ORIGINAL_PRODUCTION_INDEPENDENT_EMPLOYEE_CREDENTIAL_COLD_PASS',
+      'G4_ORIGINAL_PRODUCTION_INDEPENDENT_AGENT_IPC_FIRST_USE_PASS',
     ];
     const passed=run.status===0&&markers.every(x=>output.includes(x));
     console.log('G4_NATIVE_ORIGINAL_T3_FILES_READ',t3Count);
