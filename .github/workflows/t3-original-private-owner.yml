@@ -63,5 +63,7 @@ jobs:
         run: node --test packages/t3-core/tests/qualify-original-agent-d3-port.test.mjs
       - name: Qualify ORIGINAL employee Agent D3 Python contract without cloning
         env:
-          AGENT_PRIVATE_READ_TOKEN: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
+          AGENT_PRIVATE_READ_TOKEN: ${{ secrets.AGENT }}
+          DOMEN_PRIVATE_READ_TOKEN: ${{ secrets.DOMEN }}
+          T3_PRIVATE_READ_TOKEN: ${{ secrets.T3 }}
         run: node packages/t3-core/scripts/qualify-original-agent-d3-port.mjs
