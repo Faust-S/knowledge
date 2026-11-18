@@ -1686,6 +1686,64 @@
       "t3_ready": false,
       "production_ready": false,
       "release_accepted": false
+    },
+    "original_admin_qual_t2_product_one_dist_2026_11_19": {
+      "source_repository": "Faust-S/knowledge",
+      "verified_public_workflow_run_id": 44411229550,
+      "verified_public_workflow_job": "public-one-dist",
+      "verified_public_workflow_conclusion": "SUCCESS",
+      "reverified_public_run_id": 44411947163,
+      "reverified_public_job_conclusion": "SUCCESS",
+      "product_owner": {
+        "repo": "Faust-S/Center",
+        "profile_path": "runtime/iwxa-admin-center-original-t2-profile.json",
+        "source_sha": "0a5b8ccd5f1f0169da13edc4429508884fd0bbb2",
+        "product_id": "iwxa.admin-center",
+        "service_id": "iwxa.admin-center.workspace",
+        "profile_mode": "NATIVE_T3_EXPLICIT_OPT_IN_CONTROL_ONLY"
+      },
+      "original_t3_owner": {
+        "repo": "Faust-S/T3",
+        "builder_path": "scripts/build-admin-center-d3-owner.ps1",
+        "source_sha": "ea1700ec0ce8524ead8b30f23ddb7a8611597ba8"
+      },
+      "normative_t2": {
+        "kernel": "0.3.6",
+        "runtime_contract": "1.3.0",
+        "immutable_artifact_id": "iwxa-kernel-k036-same-store-history-20261019-qualified.1",
+        "source_stage": "VERIFIED",
+        "unchanged_original_bytes": true
+      },
+      "source_one_dist": {
+        "stage_script": "packages/t3-core/scripts/materialize-original-admin-t2-product.mjs",
+        "assembler": "packages/t3-core/scripts/assemble-signed-control-dist.mjs",
+        "no_second_kernel": true,
+        "no_second_host": true,
+        "no_second_store": true,
+        "installed_admin_service_schema_registered": true,
+        "desktop_control_only_no_webgpu_worker": true,
+        "ordinary_browser_d5_validation_unchanged": true,
+        "public_test_input": "PROFILE_FIXTURE_ONLY",
+        "installed_private_center_profile_verified": "NOT_YET_ACCEPTED"
+      },
+      "installed_product": {
+        "source_only": true,
+        "installed_binary_test": "NOT_ACCEPTED",
+        "user_visible_native_human_review": "NOT_RUN",
+        "user_visible_separate_apply": "NOT_RUN",
+        "multi_user_windows_profiles": "NOT_RUN",
+        "result_without_atlas": "NOT_RUN"
+      },
+      "original_age_license": {
+        "pinned_zip_version": "v1.3.2",
+        "upstream_source_git_blob": "0080870bc29b23d7605816ac0a535a4eef9d1553",
+        "license_source": "EXACT_OFFICIAL_TAG_LICENSE",
+        "previous_zip_embedded_license_interchangeability": "REJECTED",
+        "current_native_build_proof": "NOT_YET_ACCEPTED"
+      },
+      "t3_ready": false,
+      "g4_accepted": false,
+      "production_activation": false
     }
   },
   "accepted_gates": {
