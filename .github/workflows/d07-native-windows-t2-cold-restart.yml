@@ -522,14 +522,12 @@ jobs:
                   return [string]::Join(' ',$names)
                 }
                 $initialText=AccessibleText
-                if($initialText -notmatch '(?i)Object\s*ID\s*:\s*(d07:order:[a-f0-9]{64})'){
-                  throw 'D07_NATIVE_RESTART_OBJECT_ID_UNAVAILABLE'
-                }
-                $beforeObject=$Matches[1]
-                if($initialText -notmatch 'Заказ сохранён и повторно прочитан.*?Событие\s*:\s*(\S+)'){
-                  throw 'D07_NATIVE_RESTART_EVENT_ID_UNAVAILABLE'
-                }
-                $beforeEvent=$Matches[1].TrimEnd('.')
+                if($initialText -match '(?i)Object\s*ID\s*:\s*(d07:order:[a-f0-9]{64})'){
+                  $beforeObject=$Matches[1]
+                }else{throw 'D07_NATIVE_RESTART_OBJECT_ID_UNAVAILABLE'}
+                if($initialText -match 'Заказ сохранён и повторно прочитан.*?Событие\s*:\s*(\S+)'){
+                  $beforeEvent=$Matches[1].TrimEnd('.')
+                }else{throw 'D07_NATIVE_RESTART_EVENT_ID_UNAVAILABLE'}
                 if([string]::IsNullOrWhiteSpace($beforeEvent)){throw 'D07_NATIVE_RESTART_EVENT_ID_INVALID'}
                 $edgeProc.Kill($true)
                 $edgeProc.WaitForExit(10000) | Out-Null
@@ -589,7 +587,9 @@ jobs:
                   }
                 }
                 if(!$savedButton){throw 'D07_NATIVE_RESTART_KERNEL_ORDER_NOT_LISTED'}
-                $savedButton.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+                $savedInvoke=[System.Windows.Automation.InvokePattern]$savedButton.GetCurrentPattern(
+                  [System.Windows.Automation.InvokePattern]::Pattern)
+                $savedInvoke.Invoke()
                 $null=WaitNative 'Документы этого заказа: 9' $null
                 Write-Output 'D07_NATIVE_RESTART_ORDER_NINE_DOCUMENTS=PASS'
                 $objectRestored=$false
