@@ -105,7 +105,20 @@ jobs:
           & npm run build *> $log
           if($LASTEXITCODE -ne 0) {
             Write-Output 'D02_OFFLINE_BUILD=FAIL'
-            Get-Content $log | Select-String -Pattern 'CLUB_T2_[A-Z_]+|K036_[A-Z_]+|^npm error (code|errno)|ENOTCACHED|EACCES|^Error: [A-Z_]+' | Select-Object -Last 15 | ForEach-Object { Write-Output $_.Line }
+            $body = Get-Content $log -Raw
+            # Only derived booleans/whitelisted failure codes can reach public logs.
+            foreach($marker in @('MATERIALIZED_UNMODIFIED_SUCCESSOR_BASE','EXACT_SUCCESSOR_MATERIALIZED','CLUB_T2_QUALIFIED_KERNEL_RELEASE','CLUB_T2_INTEGRATED_DIST_BUILT')){
+              Write-Output ("D02_OFFLINE_STAGE_" + $marker + "=" + $body.Contains($marker))
+            }
+            foreach($code in @('ENOTCACHED','EACCES','ENOENT','EPERM','E404','ERR_MODULE_NOT_FOUND','CLUB_T2_OFFLINE_CACHE_NOT_PREPARED','CLUB_T2_QUALIFIED_KERNEL_RELEASE_MISMATCH','CLUB_T2_PRODUCTION_CONFIG_INVALID','CLUB_T2_BUILD_MARKER_INVALID')){
+              if($body.Contains($code)) { Write-Output ("D02_OFFLINE_FAILURE_CODE=" + $code) }
+            }
+            if($body -match 'npm-cli\\.js ci') { Write-Output 'D02_OFFLINE_FAILURE_EXEC=NODE_NPM_CI' }
+            if($body -match 'npm-cli\\.js run build') { Write-Output 'D02_OFFLINE_FAILURE_EXEC=NODE_NPM_BUILD' }
+            if($body -match 'Error: Command failed') { Write-Output 'D02_OFFLINE_FAILURE_CLASS=CHILD_COMMAND_FAILED' }
+            if($body -match 'Error: (CLUB_[A-Z0-9_]+)') { Write-Output ("D02_OFFLINE_FAILURE_CLASS=" + $Matches[1]) }
+            if($body -match '(?m)^npm error code ([A-Z0-9_]+)') { Write-Output ("D02_OFFLINE_NPM_CODE=" + $Matches[1]) }
+            if($body -match '(?m)^npm error Exit handler never called') { Write-Output 'D02_OFFLINE_NPM_EXIT_HANDLER=FAIL' }
             throw 'D02_OFFLINE_BUILD_FAILED'
           }
           Write-Output 'D02_OFFLINE_BUILD=PASS'
