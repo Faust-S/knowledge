@@ -1,0 +1,56 @@
+name: D04 revised Waterlow 2005 canonical subject method tests
+on:
+  push:
+    branches: [work/2026-11-18-d04-life-os-qualification]
+    paths: [.github/workflows/d04-waterlow-2005-method.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d04-waterlow-2005-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  canonical-method:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require authorized access to original private domain
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo "D04_WATERLOW_AUTHORIZATION_MISSING"; exit 1; }
+          gh api repos/Faust-S/bazmed --jq '.id' >/dev/null 2>&1 ||
+            { echo "D04_WATERLOW_DOMAIN_ACCESS_DENIED"; exit 1; }
+          echo "D04_WATERLOW_DOMAIN_ACCESS=PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/bazmed
+          ref: e9de4e60208af51216c898e9b077f52f75532485
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/model
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run exact canonical score and boundary tests with private logs
+        working-directory: d04-private/model
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "e9de4e60208af51216c898e9b077f52f75532485"
+          node --check docs/life-os/WATERLOW_REVISED_2005_SCORING_V1.mjs
+          node --check docs/life-os/tests/waterlow-revised-2005.test.mjs
+          if node --test docs/life-os/tests/waterlow-revised-2005.test.mjs \
+            >"$RUNNER_TEMP/d04-waterlow-test.log" 2>&1; then
+            grep -E '^# (tests|pass|fail|skipped|cancelled) ' "$RUNNER_TEMP/d04-waterlow-test.log" | tail -5 || true
+            echo "D04_WATERLOW_2005_CANONICAL_METHOD=PASS"
+            echo "D04_WATERLOW_NO_AUTO_REPOSITIONING=PASS"
+          else
+            echo "D04_WATERLOW_2005_CANONICAL_METHOD=FAIL"
+            grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d04-waterlow-test.log" | tail -3 || true
+            exit 1
+          fi
+          # No private source, dist, raw logs or personal data uploaded.
