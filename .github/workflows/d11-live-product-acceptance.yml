@@ -143,7 +143,7 @@ jobs:
           & node scripts/d11-live-t2-kernel-exchange-acceptance.mjs
           if ($LASTEXITCODE -ne 0) { throw "D11_T2_REAL_KERNEL_EXCHANGE_FAILED" }
           Write-Output "D11_T2_REAL_KERNEL_EXCHANGE=PASS"
-      - name: Verify six real screenshots including original T2 Result detail
+      - name: Verify eight real screenshots including project list and original T2 Result
         id: visual
         continue-on-error: true
         if: always()
@@ -151,13 +151,14 @@ jobs:
           $dir=Join-Path $env:RUNNER_TEMP "d11-visual"
           foreach ($name in @("d11-dashboard-desktop.png","d11-dashboard-mobile.png",
                              "d11-home-desktop.png","d11-home-mobile.png",
-                             "d11-result-detail-desktop.png","d11-result-detail-mobile.png")) {
+                             "d11-result-detail-desktop.png","d11-result-detail-mobile.png",
+                             "d11-projects-desktop.png","d11-projects-mobile.png")) {
             $file=Join-Path $dir $name
             if (!(Test-Path $file) -or (Get-Item $file).Length -lt 1000) {
               throw "D11_VISUAL_SCREENSHOT_NOT_CONFIRMED"
             }
           }
-          Write-Output "D11_SIX_SCREENSHOTS=PASS"
+          Write-Output "D11_EIGHT_SCREENSHOTS=PASS"
       - name: Enforce source, site, GUI and T2 Kernel acceptance
         if: always()
         run: |
