@@ -1,6 +1,16 @@
 # IWXA T3 G4: единая миграция разработки в новый чат
 
 
+## 18.11.2026 Atlas 0.9: lost ACK + grant recheck + installed native PASS
+
+**Точный активный Atlas HEAD**: `Faust-S/Atlas@work/2026-11-16-atlas-0-9-t3`, `19ea3d228c585a1c50e749632c2f2df1a71c7c33`.
+
+Код D6 Atlas получил две реальные коррекции: после неопределённого ответа на сохранение подтверждение того же файла не отправляется повторно из UI; исходный подписанный получатель может подтвердить уже совершённый U05 CAS только через чтение существующего нативного Store без повторной записи. При этом итоговое подтверждение **обязательно повторно проверяет оригинальную подпись/архив и действующий grant после записи**, а не полагается на состояние до CAS. Регрессия при отзыве grant после записи выявила прежнюю ошибку и закрыта `19ea3d22`.
+
+Реальный source CI [№44285788088](https://github.com/Faust-S/Atlas/actions/runs/44285788088) **SUCCESS (747/747)**. Установленный Windows CI [№44285788148](https://github.com/Faust-S/Atlas/actions/runs/44285788148) **SUCCESS**: оригинальный Setup Core, Tauri Atlas 0.9, Rust U05, импорт большого проекта, два сохранения, холодный перезапуск и два независимых холодных native readback; отдельный guard `ATLAS09_STANDALONE_NO_FAKE_T3_OWNER_PASS`. Это **регрессия установленного продукта**, не настоящий подписанный корпоративный обмен.
+
+**Оставшийся блокер D6:** независимая установка Atlas пока не содержит подключённый приватный оригинальный `createOriginalAtlasSignedFileRecipientPort` и оригинальную recipient authority/trust. Публичный пакет содержит только проверенные Host exports/UI, не сам корпоративный signer/verifier. Требуется в той же установленной нативной композиции связать оригинальный `Faust-S/T3/interop/atlas-result-exchange.mjs` с `Faust-S/Atlas/desktop/src/atlas-t3-installed-host.mjs` через существующие доверенные порты, без browser/global injection, второго Store/Kernel/Host/Exchange; затем отдельный реальный Ed25519 `.iwxa`, Atlas U05 CAS и 2 холодных чтения на независимом получателе. До этого `D6_INSTALLED=NOT_ACCEPTED`, `G4=NOT_ACCEPTED`, `T3_READY=false`.
+
 ## Актуальный выпускной факт 18.11.2026: G4 Setup 0.6 true managed-byte Repair PASS
 
 **Это текущий проверенный срез Setup, все ранние CI ниже исторические.** Center `Faust-S/Center@work/2026-11-17-agent06-d6-signed-receipt-source-ci`, commit `7c00ced13ecebbcb4f3d32d184074a887bc0269e`; Agent 0.6 `1bf0847ed069c86fe6a11380537535f0ce6c0b8e`; исходный One Core `3f91b60c56e34a21ea919a4a2004e31bb5071c60`. [Нативная Windows-квалификация #44282434511](https://github.com/Faust-S/Center/actions/runs/44282434511) **SUCCESS**; параллельно [source #44282434583](https://github.com/Faust-S/Center/actions/runs/44282434583) **SUCCESS** и [D6 source #44282434531](https://github.com/Faust-S/Center/actions/runs/44282434531) **SUCCESS** на том же Center SHA.
