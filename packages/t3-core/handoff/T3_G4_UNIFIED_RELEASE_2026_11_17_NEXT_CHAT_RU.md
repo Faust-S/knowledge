@@ -1,5 +1,17 @@
 # IWXA T3 G4: единая миграция разработки в новый чат
 
+## 18.11.2026: D3/D6 source corrections before installed owners
+
+**Code pin** `Faust-S/knowledge@35ed15dcc819be67c4779dc24439911c5ab4f98d`; [full source CI №44325927593](https://github.com/Faust-S/knowledge/actions/runs/44325927593) **SUCCESS**: Node **786/786**, `test`, `real-host`, `windows-credential` PASS, GPU/native-age/native-model SKIPPED. Do not imply new hardware D5 on this exact SHA; prior full Apple Metal pass was [№44321733973](https://github.com/Faust-S/knowledge/actions/runs/44321733973) on `a24b575e`.
+
+**D6** [`1147db28`](https://github.com/Faust-S/knowledge/commit/1147db287634f9e8e51181b4cfb7823ec4ea9516): `native-result-continuation.mjs` no longer treats a canonical JSON insertion-order change as a change of signed subject. Every original D1 scope field retains exact value/type/absence comparison. Valid reordered context continues the selected Result to a non-Atlas recipient; changed grant during Human Review denies before native receive. CI №44325369907 SUCCESS. This is source qualification, not installed independent native recipient.
+
+**D3** [`35ed15dc`](https://github.com/Faust-S/knowledge/commit/35ed15dcc819be67c4779dc24439911c5ab4f98d): `reconciliation-kernel-apply.mjs` now refuses sparse arrays / non-JSON Event readbacks. Previously `Array.every` skipped holes and could falsely confirm a cold original Kernel APPLY despite different full provenance. Explicit `null` is never the same as a missing array element; reordered object keys remain valid. Recovery returns `OUTCOME_UNKNOWN` and never re-dispatches. Existing T2/Host/Store untouched.
+
+**Installed gap remains explicit:** public Center's standalone original D3 command requires the separately bundled original trusted owner; private T3 `interop/native-admin-d3.mjs` owns signer/recipient, while Agent's `runtime/t3_original_employee_worker.mjs` opens an independently installed original employee root and credential. No signed manager+employee production enrolment, genuine accepted Agent Result, separate manager ACCEPT/APPLY and two independently installed cold T2 Object/Event reads have been demonstrated in one G4 E2E. Neither Atlas, a synthetic issuer nor a new Kernel can substitute. Continue the existing native product owner mounting, not another round of framework extraction.
+
+`T3_READY=false`, `G4=NOT_ACCEPTED` pending exact native E2E owners, D7 PERSON and final product release checks.
+
 ## 18.11.2026: единый исходный T3 + аппаратный Apple Metal D5, полный CI SUCCESS
 
 **Подтверждённый исполняемый источник:** `Faust-S/knowledge@a24b575ecaa35e0f2b786c1a061f3a782bd7eb34`, [GitHub Actions №44321733973](https://github.com/Faust-S/knowledge/actions/runs/44321733973) **SUCCESS** на точном SHA. `test` (Node **784/784**), `real-host`, `windows-credential`, `metal-webgpu` **PASS**; `native-age`, `native-model` **SKIPPED**.
