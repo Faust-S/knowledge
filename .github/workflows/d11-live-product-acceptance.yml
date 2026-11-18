@@ -105,9 +105,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "D11_CANONICAL_MODELS_REGRESSION_FAILED" }
           & node --experimental-strip-types --test @siteTests
           if ($LASTEXITCODE -ne 0) { throw "D11_SITE_SOURCE_REGRESSION_FAILED" }
-          $siteService=(Get-FileHash "src/lib/logistics/operational-services.ts" -Algorithm SHA256).Hash
-          $domainService=(Get-FileHash "../domain/model/logistics/operational-services.ts" -Algorithm SHA256).Hash
-          if ($siteService -ne $domainService) { throw "D11_OPERATIONAL_CANONICAL_MIRROR_MISMATCH" }
+          # Git blobs are canonical. Windows checkout may expand LF to CRLF,
+          # so never compare raw working-tree SHA256 across repositories.
+          $siteBlob=(& git rev-parse "HEAD:src/lib/logistics/operational-services.ts").Trim()
+          $domainBlob=(& git -C ../domain rev-parse "HEAD:model/logistics/operational-services.ts").Trim()
+          if ($siteBlob -ne $domainBlob) { throw "D11_OPERATIONAL_CANONICAL_BLOB_MISMATCH" }
+          $siteSource=[IO.File]::ReadAllText((Resolve-Path "src/lib/logistics/operational-services.ts"))
+          $domainSource=[IO.File]::ReadAllText((Resolve-Path "../domain/model/logistics/operational-services.ts"))
+          if ($siteSource.Replace("`r`n","`n") -cne $domainSource.Replace("`r`n","`n")) {
+            throw "D11_OPERATIONAL_CANONICAL_WORKTREE_MISMATCH"
+          }
           if (!(Select-String -Path "scripts/d11-live-t2-kernel-exchange-acceptance.mjs" -Pattern 'const names=await p.$$eval' -SimpleMatch -Quiet)) { throw "D11_PROJECT_LIST_MULTIROW_WITNESS_MISSING" }
           Write-Output "D11_PROJECT_LIST_MULTIROW_WITNESS=PASS"
           Write-Output "D11_CANONICAL_SERVICE_MIRROR=PASS"
