@@ -5,17 +5,46 @@ import {createSubjectKernelBinding} from "./subject-access-binding.mjs";
 
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const validId=value=>typeof value==="string"&&ID.test(value);
-// Keep the exact original signed D1 scope stable across T2 JSON canonical
-// key reordering. Missing fields and changed values (including grant/epoch)
-// remain distinguishable; this is not a second identity or Access evaluator.
-const CONTEXT_FIELDS=Object.freeze([
-  "kind","context_id","actor_id","principal_id","role_id","grant_id",
-  "realm_id","audience","resource","purpose","workspace_id",
-  "organization_id","scope_revision",
-]);
-const identity=context=>JSON.stringify(CONTEXT_FIELDS.map(field=>[
-  Object.hasOwn(context??{},field),typeof context?.[field],context?.[field]??null,
-]));
+// Use the exact COMPLETE original D1 signed context, not just the first
+// generation's known fields. Additional original signed metadata must not
+// silently change while a Human approves delivery. Canonicalize ONLY object
+// key order: no IAM, signatures, authority or Store live here.
+function identity(value){
+  const active=new WeakSet();
+  const invalid=()=>deny("T3_D6_SIGNED_CONTEXT_INVALID");
+  function canonical(input){
+    if(input===null)return "null";
+    if(typeof input==="string"||typeof input==="boolean")
+      return JSON.stringify(input);
+    if(typeof input==="number")
+      return Number.isFinite(input)?JSON.stringify(input):invalid();
+    if(typeof input!=="object")return invalid();
+    if(active.has(input))return invalid();
+    active.add(input);
+    try{
+      if(Array.isArray(input)){
+        // Real signed JSON cannot contain sparse or extra-keyed arrays.
+        if(Object.keys(input).length!==input.length)return invalid();
+        const parts=[];
+        for(let i=0;i<input.length;i++){
+          if(!Object.hasOwn(input,i))return invalid();
+          parts.push(canonical(input[i]));
+        }
+        return "["+parts.join(",")+"]";
+      }
+      const proto=Object.getPrototypeOf(input);
+      if(proto!==Object.prototype&&proto!==null)return invalid();
+      return "{"+Object.keys(input).sort().map(
+        key=>JSON.stringify(key)+":"+canonical(input[key])
+      ).join(",")+"}";
+    }finally{
+      active.delete(input);
+    }
+  }
+  if(!value||typeof value!=="object"||Array.isArray(value))
+    return invalid();
+  return canonical(value);
+}
 function deny(code){
   throw Object.assign(new Error(code),{code,outcome:"DENIED"});
 }

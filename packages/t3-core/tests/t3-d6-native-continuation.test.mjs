@@ -84,6 +84,7 @@ function fixture(beforeHuman=async()=>{},{recipientId="native:atlas",resultRef="
     setRecipientId:id=>{nativeOwner.recipientId=id;},
     setReorderContext:value=>{reorderContext=value;},
     setGrantId:value=>{context.grant_id=value;},
+    setContextField:(field,value)=>{context[field]=value;},
     receives:()=>receives};
 }
 test("D6 selected signed Result continues to an installed owner with independent readback",async()=>{
@@ -150,6 +151,54 @@ test("generic D6 rejects changed original grant during review even if keys reord
     code:"T3_D6_SIGNED_CONTEXT_CHANGED",
   });
   assert.equal(f.receives(),0,"a changed signed grant cannot reach native receive");
+});
+
+test("generic D6 preserves additional original signed metadata after canonical key reordering",async()=>{
+  const f=fixture(async()=>{},{recipientId:"domain:bazmed",
+    resultRef:"domain:result:metadata"});
+  f.setContextField("originalSignedAccess",true);
+  f.setContextField("ownerAttestation",{grant:{id:"grant:owner",
+    flags:["ACTIVE","PROVEN"]},revision:3});
+  f.setReorderContext(true);
+  const result=await f.port.continueSelected(f.ref);
+  assert.equal(result.status,"OWNER_READBACK_CONFIRMED");
+  assert.equal(f.receives(),1);
+  assert.equal((await f.makePort().recover(f.ref)).status,
+    "OWNER_READBACK_CONFIRMED");
+  assert.equal(f.receives(),1);
+});
+
+test("generic D6 blocks changed extra signed fields during Human Review",async()=>{
+  let f;
+  f=fixture(async()=>{
+    f.setContextField("originalSignedAccess",false);
+  },{recipientId:"domain:bazmed",resultRef:"domain:result:metadata"});
+  f.setContextField("originalSignedAccess",true);
+  f.setReorderContext(true);
+  await assert.rejects(f.port.continueSelected(f.ref),
+    {code:"T3_D6_SIGNED_CONTEXT_CHANGED"});
+  assert.equal(f.receives(),0);
+});
+
+test("generic D6 blocks changed nested original signed provenance before native receive",async()=>{
+  let f;
+  f=fixture(async()=>{
+    f.setContextField("ownerAttestation",{grant:{id:"grant:replaced",
+      flags:["ACTIVE","PROVEN"]},revision:3});
+  },{recipientId:"domain:bazmed",resultRef:"domain:result:metadata"});
+  f.setContextField("ownerAttestation",{grant:{id:"grant:owner",
+    flags:["ACTIVE","PROVEN"]},revision:3});
+  await assert.rejects(f.port.continueSelected(f.ref),
+    {code:"T3_D6_SIGNED_CONTEXT_CHANGED"});
+  assert.equal(f.receives(),0);
+});
+
+test("generic D6 refuses non-JSON additions to the original signed scope",async()=>{
+  const f=fixture();
+  f.setContextField("ownerAttestation",undefined);
+  await assert.rejects(f.port.preview(f.ref),
+    {code:"T3_D6_SIGNED_CONTEXT_INVALID"});
+  assert.equal(f.receives(),0);
 });
 
 test("D6 denial and lost native ACK never automatically dispatch twice",async()=>{
