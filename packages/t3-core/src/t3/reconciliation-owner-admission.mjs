@@ -13,7 +13,25 @@ function snapshot(value,code){
   try{return structuredClone(value);}
   catch{fail(code);}
 }
-function same(a,b){return JSON.stringify(a)===JSON.stringify(b);}
+// Original T2 and the recipient ledger may return the same JSON record
+// with canonically reordered object keys. Compare its full structure instead
+// of insertion order; changing ANY value/field or array order still refuses.
+function same(a,b,depth=0){
+  if(depth>32)return false;
+  if(a===b)return true;
+  if(a===null||b===null||typeof a!=="object"||typeof b!=="object")
+    return false;
+  if(Array.isArray(a)||Array.isArray(b))
+    return Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&
+      a.every((value,i)=>Object.hasOwn(a,i)&&Object.hasOwn(b,i)&&
+        same(value,b[i],depth+1));
+  const plain=x=>Object.getPrototypeOf(x)===Object.prototype||
+    Object.getPrototypeOf(x)===null;
+  if(!plain(a)||!plain(b))return false;
+  const keys=Object.keys(a);
+  return keys.length===Object.keys(b).length&&
+    keys.every(key=>Object.hasOwn(b,key)&&same(a[key],b[key],depth+1));
+}
 
 export function createTrustedReconciliationAdmission({
   reconciler,currentContext,recipientForContext,confirmHumanReview,
@@ -155,10 +173,16 @@ export function createTrustedReconciliationAdmission({
         :await reconciler.reject(packageSha256,{operationId,previewDigest,decisionBy,reason});
       // After entering the owner this decision MAY already be committed.
       // Never retry automatically on an exception or an uncertain readback.
+      // Freeze the first owner response BEFORE reading back its durable
+      // decision. A shared mutable object reference must not mask a changed
+      // field between native dispatch and independent receipt readback.
+      const issuedReceipt=receipt==null?null:
+        snapshot(receipt,"T3_D3_ORIGINAL_DECISION_RECEIPT_NOT_CLONEABLE");
       const freshReceipt=await reconciler.receipt(operationId);
-      check(receipt&&freshReceipt&&same(receipt,freshReceipt)&&
-        receipt.packageSha256===packageSha256&&receipt.operationId===operationId&&
-        receipt.decisionBy===decisionBy,
+      check(issuedReceipt&&freshReceipt&&same(issuedReceipt,freshReceipt)&&
+        issuedReceipt.packageSha256===packageSha256&&
+        issuedReceipt.operationId===operationId&&
+        issuedReceipt.decisionBy===decisionBy,
         "T3_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED");
       if(kind==="ACCEPT"){
         check(receipt.schema==="IWXA_T3_ACCEPTANCE_RECEIPT/1"&&
