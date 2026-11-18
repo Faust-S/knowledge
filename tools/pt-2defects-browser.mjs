@@ -55,17 +55,19 @@ try {
     const el=document.querySelector("#agent-offers");
     return el&&!el.hidden;
   },{timeout:14000});
-  await page.click('[data-agent-offer="B"]');
-  await new Promise(r=>setTimeout(r,250));
-  const check=await page.evaluate(()=>{
+  for (const choice of ["A", "B"]) {
+    await page.click(`[data-agent-offer="${choice}"]`);
+    await new Promise(r=>setTimeout(r,250));
+    const check=await page.evaluate(()=>{
     const ids=["agent-offer-reason","agent-decision-context","agent-outcome"];
     return ids.map(id=>{
       const el=document.getElementById(id);
       return {id,missing:!el,ru:/[А-Яа-яЁё]/u.test((el?.textContent||"") + " " +(el?.getAttribute("aria-label")||"")),length:el?.textContent?.length||0};
     });
   });
-  console.log("PT_ATLAS_B_OBS="+JSON.stringify(check));
-  if(check.some(x=>x.missing||x.ru))problems.push("PT_ATLAS_B_RU_RUNTIME");
+  console.log("PT_ATLAS_"+choice+"_OBS="+JSON.stringify(check));
+    if(check.some(x=>x.missing||x.ru))problems.push("PT_ATLAS_"+choice+"_RU_RUNTIME");
+  }
   console.log("PT_TARGET_FAILURE_COUNT="+problems.length);
   problems.forEach(x=>console.error("PT_TARGET_FAIL="+x));
   if(problems.length)process.exitCode=1;
