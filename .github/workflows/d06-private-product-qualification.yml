@@ -82,6 +82,9 @@ jobs:
           }
           Write-Host "D06_NPM_CI=PASS"
       - name: Check D06 source, native Host, and regression tests
+        # Keep testing the built UI even if formatting fails; preserve FAIL
+        # through a final gate instead of misreporting product acceptance.
+        continue-on-error: true
         shell: pwsh
         working-directory: private/site
         run: |
@@ -104,7 +107,10 @@ jobs:
             )
             if ($code -ne 0) { $failed += 1 }
           }
-          if ($failed -gt 0) { exit 1 }
+          if ($failed -gt 0) {
+            Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP "d06-source-failed.flag") -Value "1"
+            exit 1
+          }
       - name: Install browser dependencies for existing static QA
         shell: pwsh
         working-directory: private/site
@@ -287,6 +293,15 @@ jobs:
             }
             exit 1
           }
+      - name: Assert source gate after all available diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path -LiteralPath (Join-Path $env:RUNNER_TEMP "d06-source-failed.flag")) {
+            Write-Host "D06_SOURCE_GATE_FINAL=FAIL"
+            exit 1
+          }
+          Write-Host "D06_SOURCE_GATE_FINAL=PASS"
       - name: State privacy boundary
         if: always()
         shell: pwsh
