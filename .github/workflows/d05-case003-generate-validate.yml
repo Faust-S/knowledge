@@ -1,0 +1,144 @@
+name: d05-case003-generate-validate
+on:
+  push:
+    branches:
+      - test/2026-11-18-d05-source-qualification
+    paths:
+      - .github/workflows/d05-case003-generate-validate.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Fetch exact private D05 site using authorized token
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          test -n "${DOMEN:-}" || { echo "D05_DOMEN=UNAVAILABLE"; exit 1; }
+          header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
+          if ! GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" clone --depth 1 --single-branch --branch work/2026-10-23-t2-site-only --no-tags --quiet https://github.com/Faust-S/cehovod.ru.git site > "$RUNNER_TEMP/d05-fetch.log" 2>&1; then
+            echo "D05_SITE_READ=FAIL"
+            exit 1
+          fi
+          if [ "$(git -C site rev-parse HEAD)" != "510e352bf198a16a2787d7e8c411a6e20532d798" ]; then
+            echo "D05_SITE_PIN=FAIL"
+            exit 1
+          fi
+          echo "D05_SITE_PIN=PASS"
+          unset header DOMEN
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+      - name: Install dependencies
+        run: |
+          if (cd site && npm ci --no-audit --no-fund) > "$RUNNER_TEMP/d05-install.log" 2>&1; then
+            echo "D05_NPM_CI=PASS"
+          else
+            echo "D05_NPM_CI=FAIL"
+            exit 1
+          fi
+      - name: Generate public metadata and format only new CASE-003 changes
+        run: |
+          set -euo pipefail
+          cd site
+          if npm run generate > "$RUNNER_TEMP/d05-generate.log" 2>&1; then
+            echo "D05_GENERATE=PASS"
+          else
+            echo "D05_GENERATE=FAIL"
+            exit 1
+          fi
+          npx --no-install prettier --write \
+            src/cases/cabinet-shop-003/quality.ts \
+            src/cases/cabinet-shop-003/inputs.ts \
+            src/cases/cabinet-shop-003/evaluate.ts \
+            src/cases/cabinet-shop-003/evaluate.test.ts \
+            src/components/cases/cabinet-article.ts \
+            src/components/cases/cabinet-article.test.ts \
+            src/routes/keisy.48-tumb.tsx \
+            src/routes/keisy.index.tsx \
+            src/site-routes.ts \
+            src/site-routes.test.ts > "$RUNNER_TEMP/d05-format.log" 2>&1
+          echo "D05_PRETTIER=PASS"
+          # Vite's TanStack Router plugin refreshes its tracked route tree.
+          if npm run build:source > "$RUNNER_TEMP/d05-build-source.log" 2>&1; then
+            echo "D05_BUILD_SOURCE=PASS"
+          else
+            echo "D05_BUILD_SOURCE=FAIL"
+            exit 1
+          fi
+          grep -q "'/keisy/48-tumb'" src/routeTree.gen.ts || { echo "D05_ROUTE_TREE=FAIL"; exit 1; }
+          grep -q "https://cehovod.ru/keisy/48-tumb/" public/sitemap.xml || { echo "D05_SITEMAP=FAIL"; exit 1; }
+          grep -q "https://cehovod.ru/keisy/48-tumb/" public/llms.txt || { echo "D05_LLMS=FAIL"; exit 1; }
+          echo "D05_ROUTE_TREE=PASS"
+          echo "D05_SITEMAP=PASS"
+          echo "D05_LLMS=PASS"
+          git add -- \
+            public/robots.txt public/sitemap.xml public/llms.txt \
+            src/routeTree.gen.ts \
+            src/cases/cabinet-shop-003 \
+            src/components/cases/cabinet-article.ts \
+            src/components/cases/cabinet-article.test.ts \
+            src/routes/keisy.48-tumb.tsx src/routes/keisy.index.tsx \
+            src/site-routes.ts src/site-routes.test.ts
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "D05_GENERATED_DIFF=UNCHANGED"
+          else
+            echo "D05_GENERATED_DIFF=PREPARED"
+          fi
+      - name: Return generated and formatted files to private site only
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          cd site
+          if git diff --cached --quiet; then echo "D05_PRIVATE_COMMIT=UNCHANGED"; exit 0; fi
+          git config user.name "IWXA D05 Source Qualification"
+          git config user.email "iwxa-d05-bot@users.noreply.github.com"
+          git commit --quiet -m "chore(case-003): generate routes and format article inputs"
+          header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
+          if ! GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" push --quiet https://github.com/Faust-S/cehovod.ru.git HEAD:refs/heads/work/2026-10-23-t2-site-only > "$RUNNER_TEMP/d05-push.log" 2>&1; then
+            echo "D05_PRIVATE_PUSH=FAIL"
+            exit 1
+          fi
+          echo "D05_PRIVATE_PUSH=PASS"
+          echo "D05_PRIVATE_COMMIT_SHA=$(git rev-parse HEAD)"
+          unset header DOMEN
+      - name: Run CASE-003 TypeScript and Vitest
+        run: |
+          set -euo pipefail
+          cd site
+          if npm run typecheck > "$RUNNER_TEMP/d05-type.log" 2>&1; then
+            echo "D05_TYPECHECK=PASS"
+          else
+            echo "D05_TYPECHECK=FAIL"
+            node -e '
+            const fs=require("node:fs");const t=fs.readFileSync(process.env.RUNNER_TEMP+"/d05-type.log","utf8");
+            const codes=[...new Set([...t.matchAll(/error (TS[0-9]+)/g)].map(x=>x[1]))];
+            const files=[...new Set([...t.matchAll(/(src\\/[^:( ]+)[(:]/g)].map(x=>x[1]))];
+            console.log("D05_TYPE_CODES="+codes.join(","));
+            console.log("D05_TYPE_FILES="+files.filter(x=>/cabinet|keisy|site-routes/.test(x)).slice(0,12).join(","));
+            console.log("D05_TYPE_ERRORS="+(t.match(/error TS[0-9]+/g)||[]).length);
+            '
+            exit 1
+          fi
+          if npx --no-install vitest run src/cases/cabinet-shop-003 src/components/cases/cabinet-article.test.ts src/site-routes.test.ts > "$RUNNER_TEMP/d05-vitest.log" 2>&1; then
+            echo "D05_CASE003_TESTS=PASS"
+          else
+            echo "D05_CASE003_TESTS=FAIL"
+            node -e '
+            const fs=require("node:fs");const t=fs.readFileSync(process.env.RUNNER_TEMP+"/d05-vitest.log","utf8");
+            console.log("D05_TEST_ERROR_CODES="+[...new Set(t.match(/CEHOVOD_CASE_003_[A-Z0-9_]+/g)||[])].join(","));
+            console.log("D05_TEST_ASSERT_ERRORS="+(t.match(/AssertionError|Error:/g)||[]).length);
+            console.log("D05_TEST_FAIL_LINES="+(t.match(/(?:FAIL|❯) /g)||[]).length);
+            '
+            exit 1
+          fi
+          echo "D05_CASE003_SOURCE_GATE=PASS"
