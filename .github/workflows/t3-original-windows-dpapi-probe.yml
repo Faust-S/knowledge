@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/t3-original-windows-dpapi-probe.yml
       - packages/t3-core/scripts/probe-original-windows-dpapi.mjs
+      - packages/t3-core/scripts/probe-original-private-windows-credential.mjs
   workflow_dispatch:
 permissions:
   contents: read
@@ -24,3 +25,19 @@ jobs:
         run: |
           node --check packages/t3-core/scripts/probe-original-windows-dpapi.mjs
           node packages/t3-core/scripts/probe-original-windows-dpapi.mjs
+
+  original-private-provider:
+    if: ${{ contains(github.event.head_commit.message, '[qualify-private-dpapi]') }}
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Qualify ORIGINAL Windows provider with bounded source only
+        env:
+          T3_READ_TOKEN: ${{ secrets.T3 || secrets.DOMEN }}
+        run: node packages/t3-core/scripts/probe-original-private-windows-credential.mjs

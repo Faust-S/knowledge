@@ -23,8 +23,8 @@ const AGENT_SEEDS=Object.freeze([
 ]);
 const MAX_FILES=125,MAX_BYTES=8*1024*1024,MAX_FILE=512*1024;
 
-async function stageOriginal(root,token,fetchT3){
-  const pending=[...T3_SEEDS],seen=new Set();
+export async function stageOriginal(root,token,fetchT3,seeds=T3_SEEDS){
+  const pending=[...seeds],seen=new Set();
   let total=0;
   while(pending.length){
     const path=pending.shift();
