@@ -1,0 +1,364 @@
+name: D07 native Windows CASE001 T2 Kernel save and readback
+on:
+  push:
+    branches: [work/2026-11-18-d07-case10-qualification]
+    paths: [.github/workflows/d07-native-windows-t2-case001-save.yml]
+permissions:
+  contents: read
+jobs:
+  t2-edge-uia:
+    runs-on: windows-latest
+    timeout-minutes: 65
+    env:
+      SITE_SHA: 0a85e2a9a06c461569d74b710eaf7a7710853d18
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      CI: 'true'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Confirm private source access
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'D07_GUI_TOKEN_MISSING'}
+          foreach($repo in @('Faust-S/uslugovod.ru','Faust-S/T2')){
+            $null=& gh api "repos/$repo" --jq '.id' 2>$null
+            if($LASTEXITCODE -ne 0){throw 'D07_GUI_REPO_ACCESS_DENIED'}
+          }
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+          Write-Output 'D07_GUI_SOURCE_ACCESS=PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - name: Build real pinned T2 and site only inside temporary runner
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+        working-directory: site
+        run: |
+          if((git rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D07_GUI_SITE_SHA_MISMATCH'}
+          if((git -C ../t2 rev-parse HEAD).Trim() -ne $env:T2_SHA){throw 'D07_GUI_T2_SHA_MISMATCH'}
+          $installLog=Join-Path $env:RUNNER_TEMP 'd07-gui-install.private.log'
+          & bun install --frozen-lockfile *> $installLog
+          if($LASTEXITCODE -ne 0){throw 'D07_GUI_INSTALL_FAILED'}
+          Write-Output 'D07_GUI_INSTALL=PASS'
+          $buildLog=Join-Path $env:RUNNER_TEMP 'd07-gui-build.private.log'
+          & bun run build:t2-integrated *> $buildLog
+          if($LASTEXITCODE -ne 0){throw 'D07_GUI_INTEGRATED_BUILD_FAILED'}
+          if(-not (Test-Path dist/workspace/index.html)){throw 'D07_GUI_T2_HOST_MISSING'}
+          Write-Output 'D07_GUI_ONE_DIST_T2=PASS'
+      - name: Test original T2 HTTPS with real Edge via Windows UIA
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_D07_PREVIEW_PORT: '55407'
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          $site=Join-Path $env:GITHUB_WORKSPACE 'site'
+          $candidates=@(
+            (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
+            (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
+          )
+          $edge=($candidates|Where-Object{Test-Path $_}|Select-Object -First 1)
+          if(-not $edge){throw 'D07_GUI_EDGE_MISSING'}
+          $origin='https://127.0.0.1:55407'
+          $server=$null
+          $started=[System.Collections.Generic.List[int]]::new()
+          try{
+            $server=Start-Process -FilePath 'node' -WorkingDirectory $site -ArgumentList @('scripts/preview-d07-integrated-site.mjs') -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd07-gui-host.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd07-gui-host-error.private.log') -PassThru
+            $ready=$false
+            for($i=0;$i -lt 45;$i++){
+              Start-Sleep -Milliseconds 600
+              try{
+                $response=Invoke-WebRequest -Uri ($origin+'/workspace/') -SkipCertificateCheck -TimeoutSec 2
+                if($response.StatusCode -eq 200){$ready=$true;break}
+              }catch{}
+            }
+            if(-not $ready){throw 'D07_GUI_T2_HTTPS_UNAVAILABLE'}
+            Write-Output 'D07_GUI_REAL_T2_HTTPS=PASS'
+            $cases=@(
+              [pscustomobject]@{
+                number='001'
+                slug='uborka-posle-remonta'
+                heading='Уборка новой квартиры: реальный заказ, повреждения и спор с исполнителем'
+              }
+            )
+            foreach($item in $cases){
+              $num=$item.number;$slug=$item.slug;$headingText=$item.heading
+              if($slug -ne 'uborka-posle-remonta'){throw 'D07_GUI_SINGLE_CASE_ARGUMENT_INVALID'}
+              $url=$origin+'/keisy/'+$slug+'/'
+              $response=Invoke-WebRequest -Uri $url -SkipCertificateCheck -TimeoutSec 10
+              if($response.StatusCode -ne 200){throw 'D07_GUI_CASE_HTTP_FAILED'}
+              $profile=Join-Path $env:RUNNER_TEMP ('d07-gui-profile-'+$num)
+              $edgeProc=Start-Process -FilePath $edge -ArgumentList @(
+                '--force-renderer-accessibility','--ignore-certificate-errors',
+                '--no-first-run','--no-default-browser-check',"--user-data-dir=$profile","--app=$url") -PassThru
+              if($edgeProc){$started.Add($edgeProc.Id)}
+              $titleSeen=$false
+              $caseButton=$null
+              $buttonText=if($num -eq '001'){'Создать черновик заказа'}else{''}
+              for($attempt=0;$attempt -lt 60;$attempt++){
+                Start-Sleep -Milliseconds 600
+                $windows=@(Get-Process msedge -ErrorAction SilentlyContinue|Where-Object{$_.MainWindowHandle -ne 0})
+                foreach($proc in $windows){
+                  $e=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$proc.MainWindowHandle)
+                  if(!$e){continue}
+                  $scope=[System.Windows.Automation.TreeScope]::Descendants
+                  $titleCondition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty,$headingText)
+                  if($e.FindFirst($scope,$titleCondition)){$titleSeen=$true}
+                  if($buttonText){
+                    $btnCondition=[System.Windows.Automation.PropertyCondition]::new(
+                      [System.Windows.Automation.AutomationElement]::NameProperty,$buttonText)
+                    $candidate=$e.FindFirst($scope,$btnCondition)
+                    if($candidate -and $candidate.Current.IsEnabled){$caseButton=$candidate}
+                  }
+                }
+                if($titleSeen -and (!$buttonText -or $caseButton)){break}
+              }
+              if(-not $titleSeen){throw 'D07_GUI_H1_NOT_VISIBLE'}
+              Write-Output ('D07_EDGE_UIA_CASE_'+$num+'=PASS')
+              if($num -eq '001'){
+                if(-not $caseButton){throw 'D07_GUI_CREATE_DRAFT_BUTTON_NOT_READY'}
+                $invoke=[System.Windows.Automation.InvokePattern]$caseButton.GetCurrentPattern(
+                  [System.Windows.Automation.InvokePattern]::Pattern)
+                $invoke.Invoke()
+                $draftCreated=$false
+                for($step=0;$step -lt 25;$step++){
+                  Start-Sleep -Milliseconds 500
+                  $allWindows=@(Get-Process msedge -ErrorAction SilentlyContinue|Where-Object{$_.MainWindowHandle -ne 0})
+                  foreach($checkProcess in $allWindows){
+                    $view=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$checkProcess.MainWindowHandle)
+                    if(!$view){continue}
+                    $createdCondition=[System.Windows.Automation.PropertyCondition]::new(
+                      [System.Windows.Automation.AutomationElement]::NameProperty,'Заказ создан')
+                    $transferCondition=[System.Windows.Automation.PropertyCondition]::new(
+                      [System.Windows.Automation.AutomationElement]::NameProperty,'Передать в T2')
+                    if($view.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$createdCondition) -and
+                       $view.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$transferCondition)){
+                      $draftCreated=$true;break
+                    }
+                  }
+                  if($draftCreated){break}
+                }
+                if(-not $draftCreated){throw 'D07_GUI_REACT_DRAFT_CREATION_NOT_CONFIRMED'}
+                Write-Output 'D07_NATIVE_CASE_001_CREATE_DRAFT=PASS'
+                $transferLink=$null
+                for($step=0;$step -lt 25;$step++){
+                  Start-Sleep -Milliseconds 400
+                  $allWindows=@(Get-Process msedge -ErrorAction SilentlyContinue|Where-Object{$_.MainWindowHandle -ne 0})
+                  foreach($checkProcess in $allWindows){
+                    $view=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$checkProcess.MainWindowHandle)
+                    if(!$view){continue}
+                    $condition=[System.Windows.Automation.PropertyCondition]::new(
+                      [System.Windows.Automation.AutomationElement]::NameProperty,'Передать в T2')
+                    $candidate=$view.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$condition)
+                    if($candidate -and $candidate.Current.IsEnabled){$transferLink=$candidate;break}
+                  }
+                  if($transferLink){break}
+                }
+                if(-not $transferLink){throw 'D07_T2_TRANSFER_LINK_NOT_ACCESSIBLE'}
+                $transferInvoke=[System.Windows.Automation.InvokePattern]$transferLink.GetCurrentPattern(
+                  [System.Windows.Automation.InvokePattern]::Pattern)
+                $transferInvoke.Invoke()
+                $hostVisible=$false
+                for($step=0;$step -lt 80;$step++){
+                  Start-Sleep -Milliseconds 500
+                  $allWindows=@(Get-Process msedge -ErrorAction SilentlyContinue|Where-Object{$_.MainWindowHandle -ne 0})
+                  foreach($checkProcess in $allWindows){
+                    $view=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$checkProcess.MainWindowHandle)
+                    if(!$view){continue}
+                    $scope=[System.Windows.Automation.TreeScope]::Descendants
+                    $domainTitle=[System.Windows.Automation.PropertyCondition]::new(
+                      [System.Windows.Automation.AutomationElement]::NameProperty,'Рабочая область для сохранения')
+                    $createButton=[System.Windows.Automation.PropertyCondition]::new(
+                      [System.Windows.Automation.AutomationElement]::NameProperty,'Создать рабочую область')
+                    if($view.FindFirst($scope,$domainTitle) -and $view.FindFirst($scope,$createButton)){
+                      $hostVisible=$true;break
+                    }
+                  }
+                  if($hostVisible){break}
+                }
+                if(-not $hostVisible){throw 'D07_LOCAL_ORDER_T2_HOST_ENTRY_NOT_CONFIRMED'}
+                Write-Output 'D07_NATIVE_CASE_001_T2_HOST_ENTRY=PASS'
+                function FindAction([string]$label) {
+                  $nameCond=[System.Windows.Automation.PropertyCondition]::new(
+                    [System.Windows.Automation.AutomationElement]::NameProperty,$label)
+                  $buttonCond=[System.Windows.Automation.PropertyCondition]::new(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::Button)
+                  $both=[System.Windows.Automation.AndCondition]::new($nameCond,$buttonCond)
+                  foreach($process in @(Get-Process msedge -ErrorAction SilentlyContinue |
+                    Where-Object {$_.MainWindowHandle -ne 0})){
+                    $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$process.MainWindowHandle)
+                    if(!$window){continue}
+                    $found=$window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$both)
+                    if($found -and $found.Current.IsEnabled){return $found}
+                  }
+                  return $null
+                }
+                function ClickAction([string]$label) {
+                  $action=$null
+                  for($attempt=0;$attempt -lt 55;$attempt++){
+                    $action=FindAction $label
+                    if($action){break}
+                    Start-Sleep -Milliseconds 400
+                  }
+                  if(!$action){throw 'D07_T2_NATIVE_ACTION_NOT_FOUND'}
+                  $pattern=[System.Windows.Automation.InvokePattern]$action.GetCurrentPattern(
+                    [System.Windows.Automation.InvokePattern]::Pattern)
+                  $pattern.Invoke()
+                  Start-Sleep -Milliseconds 300
+                }
+                # All steps below are regular clicks in the pinned original T2 Host.
+                ClickAction 'Создать рабочую область'
+                ClickAction 'Новая рабочая область'
+                ClickAction 'Создать рабочую область'
+                $created=$false
+                for($attempt=0;$attempt -lt 70;$attempt++){
+                  Start-Sleep -Milliseconds 500
+                  foreach($process in @(Get-Process msedge -ErrorAction SilentlyContinue |
+                    Where-Object {$_.MainWindowHandle -ne 0})){
+                    $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$process.MainWindowHandle)
+                    if(!$window){continue}
+                    $texts=$window.FindAll(
+                      [System.Windows.Automation.TreeScope]::Descendants,
+                      [System.Windows.Automation.PropertyCondition]::new(
+                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                        [System.Windows.Automation.ControlType]::Text))
+                    foreach($item in $texts){
+                      $name=$item.Current.Name
+                      if($name.StartsWith('Рабочая область · ws-')){$created=$true;break}
+                    }
+                    if($created){break}
+                  }
+                  if($created){break}
+                }
+                if(!$created){throw 'D07_NATIVE_T2_CREATED_WORKSPACE_NOT_OBSERVED'}
+                Write-Output 'D07_NATIVE_T2_CREATE_WORKSPACE=PASS'
+
+                # Return through actual D07 Host navigation, not direct Kernel calls.
+                function FindNative([string]$name, $controlType) {
+                  $nameCond=[System.Windows.Automation.PropertyCondition]::new(
+                    [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+                  $condition=if($controlType){
+                    [System.Windows.Automation.AndCondition]::new(
+                      $nameCond,[System.Windows.Automation.PropertyCondition]::new(
+                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,$controlType))
+                  }else{$nameCond}
+                  foreach($process in @(Get-Process msedge -ErrorAction SilentlyContinue |
+                    Where-Object {$_.MainWindowHandle -ne 0})){
+                    $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$process.MainWindowHandle)
+                    if(!$window){continue}
+                    $found=$window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$condition)
+                    if($found){return $found}
+                  }
+                  return $null
+                }
+                function WaitNative([string]$name, $controlType) {
+                  for($n=0;$n -lt 70;$n++){
+                    $found=FindNative $name $controlType
+                    if($found){return $found}
+                    Start-Sleep -Milliseconds 500
+                  }
+                  throw 'D07_NATIVE_GUI_REQUIRED_ELEMENT_MISSING'
+                }
+                $return=WaitNative 'Мои заказы' ([System.Windows.Automation.ControlType]::Hyperlink)
+                $returnPattern=[System.Windows.Automation.InvokePattern]$return.GetCurrentPattern(
+                  [System.Windows.Automation.InvokePattern]::Pattern)
+                $returnPattern.Invoke()
+                $null=WaitNative 'Рабочая область для сохранения' $null
+                Write-Output 'D07_NATIVE_T2_RETURN_TO_ORDERS=PASS'
+                # The browser draft was created on the same real Edge origin.
+                # Select it through the accessible HTML combobox.
+                $combo=FindNative 'Черновики заказов в браузере' ([System.Windows.Automation.ControlType]::ComboBox)
+                if(-not $combo){
+                  $combos=@()
+                  foreach($process in @(Get-Process msedge -ErrorAction SilentlyContinue |
+                    Where-Object {$_.MainWindowHandle -ne 0})){
+                    $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$process.MainWindowHandle)
+                    $list=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                      [System.Windows.Automation.PropertyCondition]::new(
+                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                        [System.Windows.Automation.ControlType]::ComboBox))
+                    for($n=0;$n -lt $list.Count;$n++){$combos+=,$list.Item($n)}
+                  }
+                  if($combos.Count -lt 2){throw 'D07_NATIVE_T2_DRAFT_SELECTOR_UNAVAILABLE'}
+                  $combo=$combos[$combos.Count-1]
+                }
+                $combo.SetFocus()
+                Add-Type -AssemblyName System.Windows.Forms
+                [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+                [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+                [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                $null=WaitNative 'Документы этого заказа: 9' $null
+                Write-Output 'D07_NATIVE_T2_DRAFT_NINE_DOCUMENTS=PASS'
+                $consent=WaitNative 'Я проверил заказ и разрешаю сохранить его в выбранную рабочую область T2. Это не принятие работ исполнителя.' ([System.Windows.Automation.ControlType]::CheckBox)
+                $toggle=[System.Windows.Automation.TogglePattern]$consent.GetCurrentPattern(
+                  [System.Windows.Automation.TogglePattern]::Pattern)
+                if($toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::Off){$toggle.Toggle()}
+                # Consent does not authorize saving by itself: the original Host
+                # separately verifies the order via READ_ORDER and manages revision.
+                ClickAction 'Сохранить заказ'
+                $sawReceipt=$false
+                $sawObject=$false
+                for($attempt=0;$attempt -lt 70;$attempt++){
+                  Start-Sleep -Milliseconds 500
+                  foreach($process in @(Get-Process msedge -ErrorAction SilentlyContinue |
+                    Where-Object {$_.MainWindowHandle -ne 0})){
+                    $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$process.MainWindowHandle)
+                    if(!$window){continue}
+                    $texts=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                      [System.Windows.Automation.PropertyCondition]::new(
+                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                        [System.Windows.Automation.ControlType]::Text))
+                    for($n=0;$n -lt $texts.Count;$n++){
+                      $name=$texts.Item($n).Current.Name
+                      if($name -match 'Заказ сохранён и повторно прочитан\. Редакция 1\. Событие: [0-9a-f-]{36}'){
+                        $sawReceipt=$true
+                      }
+                      if($name -match 'Object ID:\s*d07:order:[0-9a-f]{64}'){$sawObject=$true}
+                    }
+                  }
+                  if($sawReceipt -and $sawObject){break}
+                }
+                if(-not $sawReceipt){throw 'D07_NATIVE_T2_REAL_KERNEL_RECEIPT_NOT_OBSERVED'}
+                if(-not $sawObject){throw 'D07_NATIVE_T2_REAL_KERNEL_OBJECT_ID_NOT_OBSERVED'}
+                Write-Output 'D07_NATIVE_T2_KERNEL_RECEIPT_UI=PASS'
+                Write-Output 'D07_NATIVE_T2_KERNEL_ORDER_READBACK_UI=PASS'
+                Write-Output 'D07_PHYSICAL_IWXA_INDEPENDENT_IMPORT=NOT_RUN'
+
+              }
+              # Browser profile is isolated to one case. Close its native Edge
+              # process tree before opening the next to limit memory use.
+              if($edgeProc){
+                try{$edgeProc.Kill($true)}catch{}
+              }
+            }
+            Write-Output 'D07_EDGE_UIA_CASES=1/1'
+            Write-Output 'D07_REAL_KERNEL_RECEIPT_IWXA=NOT_RUN'
+          }finally{
+            foreach($edgeId in $started){Stop-Process -Id $edgeId -Force -ErrorAction SilentlyContinue}
+            if($server){Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue}
+          }
+          # No private source, dist, screenshots, browser profiles or raw logs uploaded.
