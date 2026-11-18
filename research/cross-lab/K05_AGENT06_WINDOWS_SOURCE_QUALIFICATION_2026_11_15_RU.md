@@ -291,3 +291,22 @@ Installed [Center #44372957899](https://github.com/Faust-S/Center/actions/runs/4
 ### Исходная проверка bounded GUI_RESULT диагностики завершена
 
 [Center source #44375606983](https://github.com/Faust-S/Center/actions/runs/44375606983) **SUCCESS** на exact private Agent `54050a0821f340f2efd83ac17b2ebb934ccd5797`: `117/117` Python, `28/28` CLI output, `19/19` compare, `15/15` observed tokens; package `28/28`, cold Core `1/1` при `0 SKIP`, TypeScript/Vite/UIA parser `PASS`. Публичных private artifact uploads по плану нет; не путать этот source PASS с Windows installed acceptance. Older native [#44374732818](https://github.com/Faust-S/Center/actions/runs/44374732818) остаётся на точном `59ea5616`, newer [#44375606995](https://github.com/Faust-S/Center/actions/runs/44375606995) закреплён на `54050a08` и ожидает/выполняет native qualification. `K05_NATIVE_ACCEPTED=false`.
+
+## 18.11: точная причина неверного эха llama-cli b11827, новая source квалификация
+
+Завершены оба ранее ожидавшихся installed Windows прогона; оба **FAIL на оригинальном K03** (не K05 GUI):
+
+- [Center #44374732818](https://github.com/Faust-S/Center/actions/runs/44374732818), Agent `59ea5616c21965ceae65c485f4f2c95c109696f5`: Setup Core, Tauri, install/verify/locations PASS; `K03_TASK_EXECUTE` FAIL, `AGENT_K03_TASK_ACCEPTED` последний checkpoint; `PAUSED/awaiting_result`, `basic_runtime_turn_echo_changed`.
+- [Center #44375606995](https://github.com/Faust-S/Center/actions/runs/44375606995), Agent `54050a0821f340f2efd83ac17b2ebb934ccd5797`: аналогичные Setup PASS, настоящий K03 FAIL с **точно тем же `basic_runtime_turn_echo_changed`**. Обе незакрытые Task остаются `PAUSED`; ошибочно успешный Model Result не записывался.
+
+Сверены реальные C++-контракты `ggml-org/llama.cpp@b11827`:
+- `common/common.h`: `bool escape = true` по умолчанию.
+- `common/arg.cpp`: `if(params.escape) string_process_escapes(params.prompt)` после чтения `-f`; аргумент `--no-escape` поддерживается и отключает эту операцию.
+- `common/common.cpp::string_process_escapes`: буквальные последовательности `\\n`, `\\t`, `\\r`, `\\xHH` и `\\\\` меняют исходный prompt (особенно прикреплённые JSON/пути Windows).
+- `tools/cli/cli-context.cpp`: вывод `-o` берёт изменённый `cur_msg` в `User:\\n...\\n\\nAssistant:\\n`. Первоначальная проверка Agent правильно сверяет этот transcript с оригинальным Core prompt, поэтому такой Output должен отклоняться.
+
+Новая адресная поправка [Agent `7932627b`](https://github.com/Faust-S/iwxa-personal-agent/commit/7932627b8948d5c958e4a2c4bd25c05e19cb9ec4) добавляет **штатный `--no-escape` только к аргументам original BasicGGUFProvider llama-cli**. Оригинальные Task, ModelPort, scheduler, Human Review, `_cli_answer` и K05 сравнение НЕ меняются. Добавлены 4 Python negative/positive контракта с буквальными escape и 1 package test. Отдельно скомпилирован точный switch `string_process_escapes` без модели, C++ `g++ -std=c++17 -Wall -Wextra -Werror` показал `DEFAULT_ESCAPE_CHANGES_LITERAL_TASK=YES`, `NO_ESCAPE_PRESERVES_LITERAL_TASK=YES`. Это **структурное подтверждение C++**, ещё не аппаратный установленный K03 PASS.
+
+Public Center pinned [`2d798a6f`](https://github.com/Faust-S/Center/commit/2d798a6f1e3e18449e527cc11edcda352a6b683f). [Source Windows #44386022527](https://github.com/Faust-S/Center/actions/runs/44386022527) **SUCCESS**: `121/121` original Agent/K05 Python, `32/32` CLI protocol, `19/19` comparison, `15/15` observed usage, package `29/29`, cold Core `1/1` (0 SKIP), TypeScript/Vite/UIA PASS. [Installed Windows #44386022555](https://github.com/Faust-S/Center/actions/runs/44386022555) запущен на той же exact private SHA, итог на момент записи **НЕ ПОЛУЧЕН**. Нельзя выдавать `--no-escape` за доказанное решение K03 до него.
+
+Главный Agent 0.6 и Office/D3/D6 не изменены, публичные private binary/artifact uploads запрещены. `SOURCE_PASS=true`, `INSTALLED_ACCEPTED=false`, `PRODUCT_ACCEPTED=false`, `READY_FOR_AGENT_INTEGRATION=false`, `REAL_EFFECTIVENESS=NOT_MEASURABLE`.
