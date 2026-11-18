@@ -24,8 +24,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     env:
-      SITE_SHA: 48cd778a847cc6a5ebd50969527fb840507b7350
-      DOMAIN_SHA: 3955a57d392e966f34cdb2965aef8d0ea0431b01
+      SITE_SHA: 76fb1119c51c09925159c5c73a192566962ea465
+      DOMAIN_SHA: 785635ba0aa6a8475a7388de9309e78aab94ab23
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -122,6 +122,21 @@ jobs:
             exit $code
           }
           Write-Output 'D02_SITE_NPM_CI=PASS'
+
+      - name: Confirm all 25 services and three source algorithms exactly match canonical Club
+        id: canon_parity
+        if: steps.site_ci.outcome == 'success'
+        continue-on-error: true
+        working-directory: site
+        shell: pwsh
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'club-canonical-site-parity-private.log'
+          & node scripts/check-club-domain-catalog-parity.mjs ../domain *> $log
+          if($LASTEXITCODE -ne 0) {
+            Write-Output 'D02_CANONICAL_DOMAIN_PARITY=FAIL'
+            throw 'D02_CANONICAL_DOMAIN_PARITY_FAILED'
+          }
+          Write-Output 'D02_CANONICAL_DOMAIN_PARITY=PASS services=25 bridges=3'
 
       - name: Run each site source suite and identify failures without leaking private logs
         id: site_tests
@@ -254,15 +269,17 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          Write-Output 'D02_CANDIDATE_SITE=48cd778a847cc6a5ebd50969527fb840507b7350'
+          Write-Output 'D02_CANDIDATE_SITE=76fb1119c51c09925159c5c73a192566962ea465'
           Write-Output "D02_DOMAIN_TESTS=${{ steps.domain_test.outcome }}"
           Write-Output "D02_SITE_INSTALL=${{ steps.site_ci.outcome }}"
+          Write-Output "D02_CANONICAL_PARITY=${{ steps.canon_parity.outcome }}"
           Write-Output "D02_SITE_TESTS=${{ steps.site_tests.outcome }}"
           Write-Output "D02_INTEGRATED_BUILD=${{ steps.integrated_build.outcome }}"
           Write-Output "D02_RELEASE_GATE=${{ steps.release_gate.outcome }}"
           Write-Output "D02_HTTP_PREVIEW=${{ steps.http_preview.outcome }}"
           if ('${{ steps.domain_test.outcome }}' -ne 'success' -or
               '${{ steps.site_ci.outcome }}' -ne 'success' -or
+              '${{ steps.canon_parity.outcome }}' -ne 'success' -or
               '${{ steps.site_tests.outcome }}' -ne 'success' -or
               '${{ steps.integrated_build.outcome }}' -ne 'success' -or
               '${{ steps.release_gate.outcome }}' -ne 'success' -or
