@@ -1,0 +1,85 @@
+name: D08 CASE001 multi-SKU persistence real Windows browser
+
+on:
+  push:
+    branches: [work/2026-11-18-d08-marketops-windows-qualification]
+    paths: [.github/workflows/d08-case001-two-sku-windows.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d08-case001-sku-ui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  case001-two-sku-ui:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      SITE_SHA: cee05415f6c24f5f0217a686c6c6d2087399f2cb
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      CI: 'true'
+    steps:
+      - name: Confirm exact private MarketOps site read access
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'D08_DOMEN_UNAVAILABLE'}
+          & gh api 'repos/Faust-S/market-ops.ru' --jq '.id' *> $null
+          if($LASTEXITCODE -ne 0){throw 'D08_SITE_ACCESS_DENIED'}
+          git config --global core.autocrlf false
+          Write-Host 'D08_FAST_SITE_ACCESS=PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install packages and system browser on Windows
+        working-directory: private/site
+        run: |
+          if((& git rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D08_FAST_PIN_MISMATCH'}
+          $install=Join-Path $env:RUNNER_TEMP 'd08-fast-install.private.log'
+          & npm ci --no-audit --no-fund *> $install
+          if($LASTEXITCODE -ne 0){throw 'D08_FAST_NPM_INSTALL_FAILED'}
+          $candidates=@(
+            'C:\Program Files\Google\Chrome\Application\chrome.exe',
+            'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
+            'C:\Program Files\Microsoft\Edge\Application\msedge.exe'
+          )
+          $found=@($candidates | Where-Object {Test-Path -LiteralPath $_})
+          if($found.Count -eq 0){throw 'D08_FAST_BROWSER_MISSING'}
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value ('PUPPETEER_EXECUTABLE_PATH='+$found[0])
+          Write-Host 'D08_FAST_NPM_AND_SYSTEM_BROWSER=PASS'
+      - name: Verify CASE001 full merchant project and two distinct SKU selections
+        working-directory: private/site
+        timeout-minutes: 7
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd08-case001-two-sku-private.log'
+          & node tests/marketops-case001-two-sku-windows-browser.mjs *> $log
+          $code=$LASTEXITCODE
+          foreach($line in @(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
+            $signal=$line.Trim()
+            if($signal -match '^D08_CASE001_[A-Z0-9_]+=(PASS|NOT_RUN|[A-Z0-9_]+)$'){
+              Write-Host $signal
+            }
+          }
+          if($code -ne 0){throw 'D08_CASE001_TWO_SKU_WINDOW_BROWSER_FAILED'}
+          Write-Host 'D08_CASE001_TWO_SKU_WINDOWS_UI=PASS'
+      - name: Confirm privacy and qualification scope
+        if: always()
+        run: |
+          Write-Host 'D08_PRIVATE_LOGS_PUBLISHED=NO'
+          Write-Host 'D08_ARTIFACT_UPLOADS=0'
+          Write-Host 'D08_ORIGINAL_KERNEL=NOT_RUN'
+          Write-Host 'D08_IWXA_EXPORT_IMPORT=NOT_RUN'
