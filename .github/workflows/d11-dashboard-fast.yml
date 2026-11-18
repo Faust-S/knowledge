@@ -28,6 +28,7 @@ jobs:
       - name: Parse actual desktop and mobile React entry components
         run: |
           node_modules/.bin/esbuild runtime/d11-module/D11WorkspaceOverview.tsx --format=esm --outfile=/tmp/d11-dashboard-ui-check.mjs
+          node_modules/.bin/esbuild runtime/d11-module/D11WorkspaceCard.tsx --format=esm --outfile=/tmp/d11-result-list-ui-check.mjs
           node_modules/.bin/esbuild src/routes/index.tsx --format=esm --outfile=/tmp/d11-home-ui-check.mjs
           node_modules/.bin/esbuild src/components/tools/D11WorkspaceEntry.tsx --format=esm --outfile=/tmp/d11-workspace-link-check.mjs
           grep -Fq "/workspace/#/overview" src/routes/index.tsx
