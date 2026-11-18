@@ -50,6 +50,9 @@ jobs:
         run: |
           set +e
           cd domain
+          npm install --no-save --no-package-lock --ignore-scripts > "$RUNNER_TEMP/d10-domain-install.log" 2>&1
+          install_result=$?
+          if [ "$install_result" -ne 0 ]; then echo "::error::D10_DOMAIN_DEPENDENCIES=FAIL"; exit "$install_result"; fi
           npm run test:d10:cases > "$RUNNER_TEMP/d10-domain.log" 2>&1
           result=$?
           if [ "$result" -eq 0 ]; then echo "D10_DOMAIN_CASES=PASS"; else echo "::error::D10_DOMAIN_CASES=FAIL exit=$result"; grep -E "^(not ok |# (tests|pass|fail|cancelled))" "$RUNNER_TEMP/d10-domain.log" | head -n 30 || true; fi
