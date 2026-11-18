@@ -1,0 +1,109 @@
+name: D08 Business Start P1 exact source Windows qualification
+on:
+  workflow_dispatch:
+  push:
+    branches: [work/2026-11-18-d08-marketops-windows-qualification]
+    paths:
+      - .github/workflows/d08-business-start-p1-windows.yml
+permissions:
+  contents: read
+concurrency:
+  group: d08-business-start-p1
+  cancel-in-progress: true
+env:
+  DOMAIN_SHA: d7a23f66a4402656301ecd780d356011c09d491c
+  SITE_SHA: 2e81a3601262a047307c65e2a65c7ec276b9ee4f
+  CI: 'true'
+  PUPPETEER_SKIP_DOWNLOAD: '1'
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+jobs:
+  business-start-p1:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check access only to two authorized private MarketOps repositories
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'D08_P1_DOMEN_MISSING'}
+          git config --global core.autocrlf false
+          foreach($repo in @('Faust-S/market-ops','Faust-S/market-ops.ru')){
+            & gh api ('repos/'+$repo) --jq '.id' *> $null
+            if($LASTEXITCODE -ne 0){throw 'D08_P1_PRIVATE_ACCESS_DENIED'}
+          }
+          Write-Host 'D08_P1_SOURCE_ACCESS=PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops
+          ref: ${{ env.DOMAIN_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/domain
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate exact pinned sources and canonical model equality
+        run: |
+          if((& git -C private/domain rev-parse HEAD).Trim() -ne $env:DOMAIN_SHA){throw 'D08_P1_DOMAIN_SHA_MISMATCH'}
+          if((& git -C private/site rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D08_P1_SITE_SHA_MISMATCH'}
+          foreach($f in @('business-start-overview.mjs','business-start-overview.d.mts')){
+            $domain=(Get-FileHash -LiteralPath ('private/domain/model/'+$f) -Algorithm SHA256).Hash
+            $site=(Get-FileHash -LiteralPath ('private/site/src/lib/'+$f) -Algorithm SHA256).Hash
+            if($domain -ne $site){throw 'D08_P1_CANONICAL_DRIFT'}
+          }
+          Write-Host 'D08_P1_CANONICAL_BYTES=PASS'
+      - name: Run full canonical business and regression tests
+        working-directory: private/domain
+        timeout-minutes: 8
+        run: |
+          & npm run test:cases *> (Join-Path $env:RUNNER_TEMP 'd08-p1-domain.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D08_P1_DOMAIN_TEST_FAILED'}
+          Write-Host 'D08_P1_DOMAIN_CASES=PASS'
+      - name: Install exact site dependencies
+        working-directory: private/site
+        timeout-minutes: 10
+        run: |
+          & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'd08-p1-npm.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D08_P1_NPM_INSTALL_FAILED'}
+          Write-Host 'D08_P1_SITE_INSTALL=PASS'
+      - name: Check TypeScript, lint and new P1 negative tests
+        working-directory: private/site
+        timeout-minutes: 10
+        run: |
+          foreach($name in @('check:types','lint')){
+            $log=Join-Path $env:RUNNER_TEMP ('d08-p1-'+$name.Replace(':','-')+'.private.log')
+            & npm run $name *> $log
+            if($LASTEXITCODE -ne 0){throw ('D08_P1_'+$name+'_FAILED')}
+          }
+          & node --test tests/business-start-overview.test.mjs *> (Join-Path $env:RUNNER_TEMP 'd08-p1-site-cases.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D08_P1_SITE_MODEL_FAILED'}
+          Write-Host 'D08_P1_SITE_TYPES_LINT_AND_MODEL=PASS'
+      - name: Full existing site adapters and T2 entry regressions
+        working-directory: private/site
+        timeout-minutes: 12
+        run: |
+          foreach($name in @('check:t2:entry','test:d08:adapters')){
+            $log=Join-Path $env:RUNNER_TEMP ('d08-p1-'+$name.Replace(':','-')+'.private.log')
+            & npm run $name *> $log
+            if($LASTEXITCODE -ne 0){throw ('D08_P1_'+$name+'_FAILED')}
+          }
+          Write-Host 'D08_P1_SITE_REGRESSIONS=PASS'
+      - name: Privacy and scope statement
+        if: always()
+        run: |
+          Write-Host 'D08_P1_PRIVATE_SOURCE_PUBLISHED=NO'
+          Write-Host 'D08_P1_PRIVATE_LOG_PUBLISHED=NO'
+          Write-Host 'D08_P1_ARTIFACT_UPLOADS=0'
+          Write-Host 'D08_P1_RELEASE_DIST=NOT_BUILT'
+          Write-Host 'D08_P1_REAL_GUI_SCREENSHOT=NOT_RUN'
+          Write-Host 'D08_P1_KERNEL_EXCHANGE_IN_THIS_JOB=NOT_RUN'
