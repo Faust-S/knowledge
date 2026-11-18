@@ -89,8 +89,10 @@ jobs:
                 Write-Output ("D07_LIFECYCLE_"+$name+"=FAIL")
                 if($name -eq 'TYPES'){
                   $found=@(Get-Content $privateLog | Where-Object {$_ -match 'error TS[0-9]{4}'} | ForEach-Object {
-                    if($_ -match '[/\\]([^/\\:(]+)[(:](\\d+)[,:].*?error (TS[0-9]{4})'){
-                      "$($Matches[1]):$($Matches[2]):$($Matches[3])"
+                    if($_ -match '([A-Za-z0-9_.-]+[.]tsx?):([0-9]+):([0-9]+).*?error (TS[0-9]{4})'){
+                      "$($Matches[1]):$($Matches[2]):$($Matches[4])"
+                    }elseif($_ -match '([A-Za-z0-9_.-]+[.]tsx?)\\(([0-9]+),([0-9]+)\\): error (TS[0-9]{4})'){
+                      "$($Matches[1]):$($Matches[2]):$($Matches[4])"
                     }elseif($_ -match '(TS[0-9]{4})'){"CODE:$($Matches[1])"}
                   })
                   foreach($item in $found|Select-Object -Unique){Write-Output ("D07_LIFECYCLE_TYPE_LOC="+$item)}
