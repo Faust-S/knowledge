@@ -186,7 +186,7 @@ jobs:
           foreach($rel in $essential) {
             if(-not (Test-Path -LiteralPath (Join-Path 'dist' $rel))) { throw "DIST_MISSING_$($rel.Replace('/','_'))" }
           }
-          $files=(Get-ChildItem -LiteralPath dist -Recurse -File | Measure-Object).Count
+          $files=(Get-ChildItem -LiteralPath dist -Recurse -File -Force | Measure-Object).Count
           $hash=(Get-FileHash -LiteralPath 'dist/workspace/index.html' -Algorithm SHA256).Hash
           Write-Output "D02_DIST_FILES=$files"
           Write-Output "D02_WORKSPACE_HTML_SHA256=$hash"
@@ -195,7 +195,7 @@ jobs:
           $root = (Resolve-Path dist).Path.TrimEnd([IO.Path]::DirectorySeparatorChar)
           $counts = @{}
           $inventory = [System.Collections.Generic.List[string]]::new()
-          foreach($file in (Get-ChildItem -LiteralPath dist -Recurse -File)) {
+          foreach($file in (Get-ChildItem -LiteralPath dist -Recurse -File -Force)) {
             $relative = $file.FullName.Substring($root.Length).TrimStart('/','\').Replace('\','/')
             $bucket = if($relative.StartsWith('_iwxa/runtime/')){'kernel-runtime'}
               elseif($relative.StartsWith('_iwxa/')){'kernel-other'}
