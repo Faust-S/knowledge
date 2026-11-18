@@ -89,10 +89,26 @@ function ClickNativeChoice([bool]$confirm){
       [System.Windows.Automation.Condition]::TrueCondition)
     foreach($window in $windows){
       try{
-        if($window.Current.ProcessId -ne $global:appProcess.Id -or
-          -not ([string]$window.Current.Name).Contains('IWXA T3: подключить организацию')){continue}
+        $title=[string]$window.Current.Name
+        $ownsProcess=($window.Current.ProcessId -eq $global:appProcess.Id)
+        $expectedTitle=$title.Contains('IWXA T3: подключить организацию')
+        if(-not $ownsProcess -and -not $expectedTitle){continue}
         $buttons=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
           [System.Windows.Automation.Condition]::TrueCondition)
+        if(-not $expectedTitle){
+          # Native Windows TaskDialog can expose its title in a static
+          # descendant instead of as the top-level window name. Accept it
+          # only under the exact installed Center PID, never another app.
+          $expectedTitle=$false
+          foreach($content in $buttons){
+            $message=[string]$content.Current.Name
+            if($message.Contains('IWXA T3: подключить организацию') -or
+               $message.Contains('Создать подписанную организацию T3')){
+              $expectedTitle=$true;break
+            }
+          }
+        }
+        if(-not $expectedTitle){continue}
         foreach($button in $buttons){
           if($button.Current.ControlType -ne [System.Windows.Automation.ControlType]::Button){continue}
           $label=[string]$button.Current.Name
@@ -106,6 +122,17 @@ function ClickNativeChoice([bool]$confirm){
       }catch{}
     }
     Start-Sleep -Milliseconds 250
+  }
+  # The native handler may refuse before showing a dialog (for example
+  # when the manager draft is still being saved). Report only known product
+  # machine codes. Never print the organization name or private UI content.
+  foreach($code in @(
+    'CEN_D3_SIGNED_ENROLLMENT_DRAFT_NOT_READY',
+    'CEN_D3_SIGNED_ENROLLMENT_DRAFT_SAVE_UNCONFIRMED',
+    'CEN_D3_SIGNED_ENROLLMENT_DRAFT_READBACK_MISMATCH',
+    'CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED',
+    'CEN_D3_ENROLLMENT_CANCELLED')){
+    if(HasText $code){Write-Host "G4_INSTALLED_FIRST_USE_MODAL_PREREQUISITE_CODE $code"}
   }
   throw 'G4_INSTALLED_FIRST_USE_NATIVE_MESSAGE_DIALOG_MISSING'
 }
@@ -158,6 +185,16 @@ try{
   $script:phase='SAVE_MANAGER_DRAFT'
   ClickButton 'Сохранить на компьютере'
   Write-Host 'G4_INSTALLED_FIRST_USE_MANAGER_SAVE_CLICKED'
+  $script:phase='WAIT_DRAFT_SAVE_READBACK'
+  $draftSaved=$false
+  for($i=0;$i -lt 90;$i++){
+    if(HasText 'Черновики сохранены на этом компьютере'){
+      $draftSaved=$true;break
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  Check $draftSaved 'G4_INSTALLED_FIRST_USE_MANAGER_SAVE_READBACK_MISSING'
+  Write-Host 'G4_INSTALLED_FIRST_USE_MANAGER_SAVE_READBACK_PASS'
   $script:phase='OPEN_RESULT_PANEL'
   ClickButton 'Результаты'
   Write-Host 'G4_INSTALLED_FIRST_USE_RESULTS_OPENED'
