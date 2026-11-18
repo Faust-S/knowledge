@@ -1,42 +1,29 @@
-# IWXA T3 G4: отдельное первое включение корпоративного сотрудника
+# IWXA T3 G4: original PRODUCTION employee, Windows DPAPI и T2 Kernel
 
-Дата: 18.11.2026. Статус: **SOURCE_IMPLEMENTED / WINDOWS_REQUALIFICATION_NOT_CONFIRMED / G4=NOT_ACCEPTED**.
+18.11.2026. Исполняемый T3: `Faust-S/knowledge@work/2026-11-10-t3-t2-activity-projection`. Приватный оригинальный подписант: `Faust-S/T3@work/2026-11-16-admin03-independent-employee-owner`. Сотрудник Agent: `Faust-S/iwxa-personal-agent@work/2026-11-16-agent06-corporate-t3-d3-current`.
 
-## Проверенная исходная граница
+## Подтверждено на реальных Windows процессах
 
-- Последний ранее подтверждённый Windows результат: knowledge Actions #44383462807, пять проверок исходных межпроцессных маршрутов и самостоятельный original PRODUCTION Admin Owner.
-- Пять проверок не образуют одну корпоративную операцию. Личный TEST-профиль сотрудника создавался через исходный fixture `provision()`.
-- В оригинальном `Faust-S/T3` уже есть PRODUCTION-операции native Admin D3: read/init подписанного T2 Kernel реестра, independent credential proof admission, employee begin/complete/read, отдельно signed Task DATA grant и адресованная Task, native ACCEPT и отдельный Human APPLY. Не создавать новый Kernel, signer, IAM, Store, Task Engine или Exchange.
-- Agent Node/Python работает с *ранее существующим* DPAPI employee vault и original invitation/Task, но исходная Windows первая регистрация независимого сотрудника ранее не была квалифицирована.
+1. [#44383462807](https://github.com/Faust-S/knowledge/actions/runs/44383462807): исходный подписанный TEST Agent Task/Result, Admin ACCEPT и cold readback, отдельно PRODUCTION Admin Owner с DPAPI, 5/5.
+2. [#44395161644](https://github.com/Faust-S/knowledge/actions/runs/44395161644): независимый PRODUCTION сотрудник, собственный оригинальный T3 DPAPI Vault и Ed25519 PROOF, 6/6.
+3. [#44396018427](https://github.com/Faust-S/knowledge/actions/runs/44396018427): исходное первое включение через **настоящий** Agent Python→Node IPC→original T3, холодная подпись и проверка запроса, 7/7.
+4. [#44396622596](https://github.com/Faust-S/knowledge/actions/runs/44396622596): невозможность автоматически перевыпустить ключ через тот же Agent IPC и холодное чтение, 8/8.
+5. [#44397866639](https://github.com/Faust-S/knowledge/actions/runs/44397866639): две независимые подписи сотрудника: admission нового proof-only ключа и второй membership grant challenge, 9/9. Отдельно устранено повреждение приватного файла T3 в `ceac8051116b75c01efefdeba986fc9849f73ccc`; добавлена preflight проверка синтаксиса оригинальных private owner modules до испытаний.
+6. [#44399566882](https://github.com/Faust-S/knowledge/actions/runs/44399566882): 10/10 PASS. Оригинальный PRODUCTION Admin Manager и independently created employee на **том же настоящем квалифицированном T2 Kernel 0.3.6 / Contract 1.3.0**. Kernel сохранил registry Object и три подписанные статусные версии/события: bootstrap, admission proof-only key, issuance `work.prepare` ACTION + `package.export` DATA grants. Адресный дефект manager JIT времени обнаружен реальным Kernel и устранён в private T3 `interop/runtime.mjs` коммитом `0aa8b602af7c59a0eca1ee7fb1bd45fd4159ab73`. Один Kernel, Store и оригинальный issuer; test fake Kernel не применялся.
+7. Следующее расширение сценария через оригинальный Kernel (manager Task DATA grant, signed invitation, addressed Task и readback) добавлено в исходники knowledge `tests/g4-production-original-kernel.browser.mjs`, Windows CI в работе: **результат ещё не принят**.
 
-## Новый узкий срез
+## Архитектурные и продуктовые границы
 
-Исходный владелец: `Faust-S/T3@work/2026-11-16-admin03-independent-employee-owner`, commit `c7dda44a09cd0bff338f8d0c72b5e1d78d54d1b0`, `interop/native-employee-d3.mjs`.
+- `Faust-S/T3` владеет оригинальным issuer, encrypted vault, первичным сотрудником, подписью и оригинальными `.iwxa`. Agent не получает issuer key, не создаёт второй IAM или ключи менеджера. Только делегирует `employee_first_use`, `employee_candidate`, `employee_proof` исходному T3.
+- Реальный original T2 Kernel/Host остаётся единственным хранилищем подписанного registry Object/Event. Проверки `getObject` и `listEventsSince` выполняются после `commitObjectGraph`.
+- Два разных person ID и vault root на одном Windows runner **не равны** двум независимо установленным Windows-программам под разными OS SID. Этот рубеж отдельно остаётся HOLD.
+- 10/10 source/native-process PASS **не** доказывает полный PRODUCTION Admin→Agent→Admin RESULT, подписанную корпоративную Task на реальном employee или установленный пользовательский GUI.
+- `ACCEPTED` и `APPLIED` не равнозначны. Следующий рубеж: signed addressed Task → employee Agent accepted Result → original Admin Human ACCEPT → отдельный Human APPLY → реальный `t1.commitObjectGraph` Object/Event → два холодных чтения, без повтора APPLY; после него installed GUI Admin Center/Agent.
+- D6 и PERSON D7 квалифицировать независимо. Atlas не обязательный посредник.
+- Приватные Actions запрещены; разрешён только публичный `knowledge` Windows CI с временным bounded read-only доступом к точным приватным SHA, без публикации исходников, ключей, Results, EXE, кешей и artifacts. Временные файлы удаляются в `finally` и выводятся только фиксированные коды/статусы.
 
-Реализовано:
-1. На Windows отдельно от Admin создаются собственные идентификаторы сотрудника и два оригинальных Ed25519-ключа в существующем шифрованном vault под DPAPI CurrentUser. Оригинальный issued grant **не создаётся**.
-2. Требуется явно предъявленный issuer public key с совпадающим SHA-256; public review key и exact organisation/Workspace фиксируются в локальном контексте. Отсутствующий, повреждённый, частично созданный либо повторный root не подменяется новой регистрацией.
-3. Холодное чтение подтверждает исходный key и организационную привязку. `makeProof()` подписывает точно проверенный оригинальный challenge. Оно не означает допуск сотрудника или выдачу полномочий.
-4. Запрещены собственный второй issuer и автоматическая доставка.
+## Обнаруженная системная флуктуация
 
-Публичный квалификационный код: `Faust-S/knowledge@work/2026-11-10-t3-t2-activity-projection`, commit `91b4c67b379a56e458409dfca678574623c84cde` (исправление точного проверяемого null-delimiter: `f902a9dd18d57652c31b27c6b4944d480e825514`).
+В общих Windows тестах 18.11 один source job упал по `EADDRINUSE 127.0.0.1:42904`, так как тест изолированного T3 UI выбирал `kernelPort+1` без резерва. Это не отказ original Kernel. Тестовый fixture переведён на выбранный ОС свободный UI порт в `t3-d1-isolated-ui-server.test.mjs`; **производственная схема не изменена**. Повторный Windows `test` job на `8080f963` SUCCESS.
 
-Windows qualification должна:
-- сохранить прежние пять PASS;
-- получить настоящий PRODUCTION manager identity/key/trust из исходного owner root;
-- создать отличный от менеджера новый employee vault; повторное создание и wrong scope блокировать;
-- холодным отдельным Node/DPAPI-процессом подписать employee proof и независимо проверить Ed25519 signature и digest всех полей;
-- выдавать шестой маркер `G4_ORIGINAL_PRODUCTION_INDEPENDENT_EMPLOYEE_CREDENTIAL_COLD_PASS` только после исполнения.
-
-**Новый шестой PASS пока не наблюдался.** Отсутствие результатов нового CI не трактовать как успех.
-
-## Незакрытый системный G4
-
-1. Подключить отдельного employee `d3EmployeeCredentialAdmit → d3EmployeeComplete → d3EmployeeTaskGrantIssue → d3EmployeeCreateTask/ExportTask` к настоящему подписанному оригинальному T2 Kernel с Object/Event + readback.
-2. Выполнить уже работающий Agent Node/Python signed Task → accepted Result именно для этого employee; зарегистрированная организация не должна быть TEST fixture.
-3. Оригинальный Admin receive → отдельный Human ACCEPT → отдельный Human APPLY → `t1.commitObjectGraph` → два холодных чтения Object/Event без повтора Apply. Не путать ACCEPTED и APPLIED.
-4. Проверить установленные GUI Admin Center + Agent. D6 и PERSON D7 выпускать самостоятельными маршрутами, Atlas не является обязательным посредником.
-
-Приватность: исходник T3 остаётся в закрытом T3; публичные изменения knowledge содержат только квалификационный код, hashes и имена маркеров. В открытом knowledge CI допускается лишь временное ограниченное чтение приватных исходников с гарантированным удалением без публикации артефактов; private Actions не запускать.
-
-`T3_READY=false`; `G4=NOT_ACCEPTED`.
+`T3_READY=false`, `G4=NOT_ACCEPTED`, `productionActivation=false`. Не повышать эти статусы без установленного Human APPLY и полного релиза.
