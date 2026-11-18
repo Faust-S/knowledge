@@ -59,18 +59,7 @@ jobs:
                 # assertion text. This identifies the failed unit stage.
                 $stage = $null
                 foreach ($line in ($logText -split "`n")) {
-                  if ($line.Trim() -match '^> [^ ]+ (test:[a-z0-9:.-]+)
-              }
-            }
-          }
-          if ($failed) { exit 1 }
-      - name: Privacy boundary
-        if: always()
-        shell: pwsh
-        run: |
-          Write-Host "D06_PRIVATE_SOURCE_ARTIFACTS=0"
-          Write-Host "D06_PRIVATE_LOGS_UPLOADED=0"
-) {
+                  if ($line.Trim() -match '^> [^ ]+ (test:[a-z0-9:.-]+)$') {
                     $stage = $Matches[1]
                   }
                 }
