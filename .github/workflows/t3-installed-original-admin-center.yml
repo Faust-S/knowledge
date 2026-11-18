@@ -60,7 +60,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 50e41c032a868e4dcaee3ef782c31a12f5404a8d
+          ref: ea1700ec0ce8524ead8b30f23ddb7a8611597ba8
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           filter: blob:none
@@ -121,7 +121,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
           $center=(& git -C .private/center rev-parse HEAD).Trim()
-          if($t3 -ne '50e41c032a868e4dcaee3ef782c31a12f5404a8d' -or
+          if($t3 -ne 'ea1700ec0ce8524ead8b30f23ddb7a8611597ba8' -or
              $center -ne '0a5b8ccd5f1f0169da13edc4429508884fd0bbb2'){
             throw 'G4_ORIGINAL_INSTALLED_PRIVATE_SOURCE_PIN_MISMATCH'
           }
@@ -191,6 +191,7 @@ jobs:
             $required=@('T3_D3_ORIGINAL_ADMIN_T2_PRODUCT_STAGE_CONFIRMED',
               'ORIGINAL_T3_D3_ONE_DIST_ASSEMBLED',
               'ORIGINAL_T3_D3_OWNER_BUILD_DONE',
+              'T3_D3_ORIGINAL_AGE_CANONICAL_LICENSE_TAG_VERIFIED',
               'CENTER_PRIVATE_T3_D3_SETUP_CORE_READY')
             $lines=@(Get-Content -LiteralPath $log -ErrorAction Stop)
             foreach($marker in $required){
@@ -236,7 +237,7 @@ jobs:
           ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 `
             -CenterRoot '.private/center' -OriginalT3Root '.private/t3' `
             -ExpectedCenterSha '0a5b8ccd5f1f0169da13edc4429508884fd0bbb2' `
-            -ExpectedT3Sha '50e41c032a868e4dcaee3ef782c31a12f5404a8d'
+            -ExpectedT3Sha 'ea1700ec0ce8524ead8b30f23ddb7a8611597ba8'
       - name: Destroy private source, native binaries and build logs
         if: always()
         shell: pwsh
