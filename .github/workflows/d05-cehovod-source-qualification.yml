@@ -106,6 +106,18 @@ jobs:
             echo "D05_CHECK_SOURCE=PASS"
           else
             echo "D05_CHECK_SOURCE=FAIL"
+            # Report lint metadata for changed files only; no private source or rule messages.
+            npx --no-install eslint src/host/dispatch-queue.ts src/host/CehovodDispatchQueue.tsx src/host/dispatch-queue.test.ts --format json > "$RUNNER_TEMP/d05-dispatch-eslint.json" 2> "$RUNNER_TEMP/d05-dispatch-eslint.err" || true
+            node - <<'NODE'
+            const fs=require("node:fs");
+            try {
+              const data=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/d05-dispatch-eslint.json","utf8"));
+              for(const file of data) {
+                const rel=file.filePath.replace(/\\/g,"/").split("/src/host/").at(-1);
+                for(const message of file.messages) console.log("D05_DISPATCH_LINT="+rel+":"+(message.ruleId||"parse")+":"+message.line+":"+message.column);
+              }
+            } catch { console.log("D05_DISPATCH_LINT_REPORT=UNAVAILABLE"); }
+            NODE
             # Print only the failing gate and error-category counts.
             # No private source text, test stack, npm log or artifact is published.
             node -e '
