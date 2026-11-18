@@ -107,7 +107,7 @@ jobs:
           else
             echo "D05_CHECK_SOURCE=FAIL"
             # Emit only ESLint rule IDs and line numbers, never private code.
-            npx --no-install eslint src/host/dispatch-queue.ts src/host/CehovodDispatchQueue.tsx src/host/dispatch-queue.test.ts scripts/d05-first-use-real-kernel-witness.mjs --format json > "$RUNNER_TEMP/d05-dispatch-eslint.json" 2>/dev/null || true
+            npx --no-install eslint src/host/dispatch-queue.ts src/host/CehovodDispatchQueue.tsx src/host/dispatch-queue.test.ts scripts/d05-first-use-real-kernel-witness.mjs src/lib/temporary-workspace.ts src/host/CehovodWorkspaceLabels.test.ts src/routes/instrumenty.karta-kachestva.tsx --format json > "$RUNNER_TEMP/d05-dispatch-eslint.json" 2>/dev/null || true
             node -e 'const fs=require("node:fs");try{const data=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/d05-dispatch-eslint.json","utf8"));for(const f of data){const name=f.filePath.replace(/\\/g,"/").split("/").at(-1);for(const m of f.messages)console.log("D05_DISPATCH_LINT="+name+":"+(m.ruleId||"parse")+":"+m.line+":"+m.column)}}catch{console.log("D05_DISPATCH_LINT_REPORT=UNAVAILABLE")}'
             # Print only the failing gate and error-category counts.
             # No private source text, test stack, npm log or artifact is published.
