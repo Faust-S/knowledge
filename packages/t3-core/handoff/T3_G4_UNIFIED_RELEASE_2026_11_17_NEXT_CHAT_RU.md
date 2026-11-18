@@ -1,5 +1,13 @@
 # IWXA T3 G4: единая миграция разработки в новый чат
 
+## 18.11.2026: combined Apple Metal SOURCE PASS, real employee IPC race correction
+
+Full public CI [#44340207574](https://github.com/Faust-S/knowledge/actions/runs/44340207574), **attempt 2 SUCCESS** on `fb55a10f10fd2d4f6c0c99be404187e82cd60ce8` (identical executable source `dee7ecba2c2ed2716812d412366d137bf184815f`): 792/792 Node, original T2 Host, Windows credential, true macOS Metal/WebGPU. Signed test-only split-origin One Dist: real WebLLM generation 35 chars, cold browser restart offline generation 55 chars, zero external requests, original T2 Kernel 0.3.6 readback. Public corporate D3 two cold reads of original Kernel Object/Event PASS. Independent domain model SmolLM2-360M: real 47-char generation, cold offline second 5-char generation, two distinct original Kernel objects, both readable, previous draft preserved. Only Metal job was rerun following a zero-step cancelled runner allocation; not a code rework. NOT an independent installed private Ed25519 employee/issuer or native G4 acceptance.
+
+Agent 0.6 D3 private employee branch `Faust-S/iwxa-personal-agent@e02e39d2f6f65e2f0c9194c78290aeeecc6846ec`: moved `OriginalEmployeePort.call()` consequential unknown-ACK fence INSIDE its existing RLock. Previously, a waiting concurrent write could pass pre-lock check then dispatch a second native operation after first ACK became UNKNOWN. Added existing-suite deterministic two-thread regression `test_uncertain_native_write_blocks_waiting_consequential_request`; isolated local behavior 2/2 PASS. **Exact private full suite and installed Windows native E2E NOT_RUN**; closed Actions prohibited and public Center checkout of original private T3 still 403. Agent stable 0.5 and parallel central 0.6 development unchanged. Separate branch integration required.
+
+G4 remains `T3_READY=false`, `G4=NOT_ACCEPTED` until true native original manager/employee Agent D1/D3 -> Human ACCEPT -> independent Kernel APPLY and two cold receipts, generic independent recipient D6 and installed Publisher PERSON D7. Atlas does not gate universal T3. Site self-contained one-repo domain build decision in latest AGENTS.md remains intact and is independent from this source/native release ledger.
+
 ## 18.11.2026: D3 large original receipt and D6 complete signed context, 792-source PASS
 
 Latest verified unified executable: Faust-S/knowledge@dee7ecba2c2ed2716812d412366d137bf184815f. GitHub Actions #44339359842 SUCCESS: Node 792/792, real-host SUCCESS, windows-credential SUCCESS; hardware Metal SKIPPED and native age/model SKIPPED. Keep source proof distinct from installed original signer/recipient acceptance.
