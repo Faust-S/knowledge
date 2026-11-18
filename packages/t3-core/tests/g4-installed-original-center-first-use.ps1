@@ -1,7 +1,7 @@
 # Public knowledge: NEW independent native Windows UIA witness for installed
 # private Admin Center first-use. Only UI labels and PASS codes leave runner.
 # No browser automation, no private source/logs, no imitation signed owner.
-param([Parameter(Mandatory=$true)][string]$CenterRoot)
+param([Parameter(Mandatory=$true)][string]$InstallRoot)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 Add-Type -AssemblyName UIAutomationClient
@@ -20,9 +20,8 @@ public static class G4NativeMouse {
 function Check([bool]$condition,[string]$code){
   if(-not $condition){throw $code}
 }
-$center=(Resolve-Path -LiteralPath $CenterRoot).Path
-$setup=Get-ItemProperty -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center' -ErrorAction Stop
-$exe=Join-Path ([string]$setup.InstallLocation) 'iwxa-admin-center.exe'
+$installed=(Resolve-Path -LiteralPath $InstallRoot).Path
+$exe=Join-Path $installed 'iwxa-admin-center.exe'
 Check (Test-Path -LiteralPath $exe -PathType Leaf) 'G4_INSTALLED_FIRST_USE_EXE_MISSING'
 $global:appProcess=$null
 function DesktopRoot(){
