@@ -11,6 +11,12 @@ on:
       - packages/t3-core/scripts/qualify-original-agent-d3-port.mjs
       - packages/t3-core/tests/qualify-original-agent-d3-port.test.mjs
   workflow_dispatch:
+    inputs:
+      qualify_agent:
+        description: 'Verify separately granted private Agent D3 source'
+        type: boolean
+        required: false
+        default: false
 
 # This runs ONLY in public knowledge. No private workflow, whole clone, raw
 # fixture output, source artifact, logs, cache or private signer export.
@@ -41,7 +47,11 @@ jobs:
           T3_READ_TOKEN: ${{ secrets.T3 || secrets.DOMEN }}
         run: node packages/t3-core/scripts/qualify-original-private-d3-owner.mjs
 
+  # Agent is a separately private product. Its own read grant has not been
+  # confirmed by knowledge, so do not turn core source PASS into job FAILURE.
+  # An explicit owner-enabled flag or workflow_dispatch qualifies this source.
   original-private-agent-d3-source:
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.qualify_agent) || vars.IWXA_AGENT_D3_SOURCE_CI_ENABLED == 'true' }}
     name: Agent original D3 employee port, bounded source (${{ matrix.os }})
     strategy:
       fail-fast: false
