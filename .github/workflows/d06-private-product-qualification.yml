@@ -1,0 +1,137 @@
+name: d06-private-product-qualification
+
+# Isolated public CI control plane. Private source, dist, logs, and secrets
+# remain on the ephemeral Windows runner. No PR trigger or artifact upload.
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-private-product-qualification.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d06-private-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-d06:
+    runs-on: windows-latest
+    timeout-minutes: 65
+    steps:
+      - name: Verify DOMEN read access separately for D06 and T2
+        shell: bash
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DOMEN:-}" ]; then
+            echo "D06_ACCESS=MISSING_DOMEN_SECRET"
+            exit 1
+          fi
+          auth="$(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
+          for repo in komplektovod komplektovod.ru T2; do
+            if GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=AUTHORIZATION: basic ${auth}" \
+              ls-remote --exit-code "https://github.com/Faust-S/${repo}.git" HEAD \
+              >/dev/null 2>&1; then
+              echo "D06_ACCESS_${repo}=PASS"
+            else
+              echo "D06_ACCESS_${repo}=DENIED"
+              exit 1
+            fi
+          done
+      - name: Checkout pinned D06 subject logic (runner only)
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod
+          ref: 29c89284b7212f3b7d0799ddb4d68fb4ec5095b0
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/domain
+      - name: Checkout pinned D06 site (runner only)
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: d330a8ff6b4d5a38369782a6a1b9b8444e47a538
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - name: Checkout qualified T2 source revision (runner only)
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/t2
+      - name: Set up Node.js matching Windows qualification
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install dependencies privately
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-npm-ci-private.txt"
+          & npm ci --no-audit --no-fund *> $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "D06_NPM_CI=FAIL"
+            exit 1
+          }
+          Write-Host "D06_NPM_CI=PASS"
+      - name: Check D06 source, native Host, and regression tests
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $ErrorActionPreference = "Continue"
+          $tests = @(
+            "check", "test", "build:host-module",
+            "test:case-040", "test:case-040:supplier",
+            "test:case040:procurement"
+          )
+          $failed = 0
+          foreach ($test in $tests) {
+            $safe = $test.Replace(":", "-")
+            $log = Join-Path $env:RUNNER_TEMP ("d06-" + $safe + "-private.txt")
+            & npm run $test *> $log
+            $code = $LASTEXITCODE
+            $status = if ($code -eq 0) { "PASS" } else { "FAIL" }
+            Write-Host ("D06_" + $safe + "=" + $status)
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value (
+              "| " + $safe + " | " + $status + " |"
+            )
+            if ($code -ne 0) { $failed += 1 }
+          }
+          if ($failed -gt 0) { exit 1 }
+      - name: Install browser dependencies for existing static QA
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-browser-setup-private.txt"
+          & npm run setup:browser *> $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "D06_BROWSER_SETUP=FAIL"
+            exit 1
+          }
+          Write-Host "D06_BROWSER_SETUP=PASS"
+      - name: Execute original complete static site qualification
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 35
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-static-check-private.txt"
+          & npm run build:static:check *> $log
+          $status = if ($LASTEXITCODE -eq 0) { "PASS" } else { "FAIL" }
+          Write-Host "D06_STATIC_QUALIFICATION=$status"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value (
+            "| build:static:check | " + $status + " |"
+          )
+          if ($status -ne "PASS") { exit 1 }
+      - name: State privacy boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_PUBLIC_ARTIFACT_UPLOADS=0"
+          Write-Host "D06_PRIVATE_SOURCE_LOGS=RUNNER_LOCAL_ONLY"
