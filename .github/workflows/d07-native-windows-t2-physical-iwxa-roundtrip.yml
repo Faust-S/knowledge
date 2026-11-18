@@ -648,6 +648,29 @@ jobs:
                     if($upload){break}
                   }
                 }
+                # Whitelisted accessibility metadata only; never log input
+                # values, source strings, filenames or archive paths.
+                Write-Output ('D07_NATIVE_IWXA_IMPORT_TAB_CONTROL='+$importTab.Current.ControlType.ProgrammaticName)
+                if(!$upload){
+                  foreach($proc in @(Get-Process msedge -ErrorAction SilentlyContinue |
+                    Where-Object {$_.MainWindowHandle -ne 0})){
+                    $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$proc.MainWindowHandle)
+                    if(!$window){continue}
+                    $nodes=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                      [System.Windows.Automation.Condition]::TrueCondition)
+                    $seen=0
+                    for($k=0;$k -lt $nodes.Count -and $seen -lt 6;$k++){
+                      try {
+                        $current=$nodes.Item($k).Current
+                        if($current.Name -match '(?i)(выберите файл[.]iwxa|choose file|browse|выбрать файл|обзор)'){
+                          Write-Output ('D07_NATIVE_IWXA_CHOOSER_CANDIDATE_CONTROL='+$current.ControlType.ProgrammaticName)
+                          Write-Output ('D07_NATIVE_IWXA_CHOOSER_CANDIDATE_FOCUSABLE='+$current.IsKeyboardFocusable)
+                          $seen++
+                        }
+                      }catch{}
+                    }
+                  }
+                }
                 if($upload){
                   Write-Output 'D07_NATIVE_IWXA_FILE_CHOOSER_UIA=PASS'
                   ActivateNative $upload
@@ -663,7 +686,15 @@ jobs:
                   # Only the native tab key path: do not inject into the React
                   # DOM or replace the original T2 file import machinery.
                   for($tabSteps=1;$tabSteps -le 7 -and !$fileDialog;$tabSteps++){
-                    $importTab.SetFocus()
+                    # React recreates the tab element when active content changes.
+                    # The earlier UIA handle can be stale/non-focusable.
+                    $freshTab=FindNative 'Импортировать' $null
+                    if(!$freshTab){throw 'D07_NATIVE_IWXA_IMPORT_TAB_LOST'}
+                    try {
+                      $freshTab.SetFocus()
+                    }catch {
+                      ActivateNative $freshTab
+                    }
                     for($tab=0;$tab -lt $tabSteps;$tab++){
                       [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
                     }
