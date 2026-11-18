@@ -30,7 +30,7 @@ jobs:
             echo "D05_SITE_ACCESS=FAIL"
             exit 1
           fi
-          test "$(git -C site rev-parse HEAD)" = "a325c2361d9c64eba9da5b71bce4ff3d5312eed5" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "1b3c86ab6517dfd51e02f97d988b01a009690e9e" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
           echo "D05_SITE_PIN=PASS"
           git init --quiet t2
           if ! GIT_TERMINAL_PROMPT=0 git -C t2 -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/T2.git e70de29b72b83e2546f7ab74b17572685a728c17 >/dev/null 2>&1; then
@@ -103,6 +103,10 @@ jobs:
             console.log("D05_REACHED_PHASES="+phases.filter(x=>t.includes(x)).join(","));
             const codes=[...new Set(t.match(/\\b(?:CEHOVOD_[A-Z0-9_]+|T2_[A-Z0-9_]+|ERR_[A-Z0-9_]+)\\b/g)||[])];
             console.log("D05_FAILURE_CODES="+codes.slice(-16).join(","));
+            const browserCases=[...new Set(t.match(/CASE003_[A-Z0-9_]+/g)||[])];
+            console.log("D05_CASE003_ERROR_CODES="+browserCases.slice(-12).join(","));
+            const terminalMessages=t.split(/\r?\n/).filter(x=>/check-functional-ui: FAIL/.test(x));
+            console.log("D05_FUNCTIONAL_GATE_FAILED="+(terminalMessages.length>0));
             const states=[...t.matchAll(/(?:check-hydration|check-runtime|check-functional-ui|check-workspace-responsive|check-navigation-a11y): (?:OK|FAIL)/g)].map(x=>x[0]);
             console.log("D05_BROWSER_GATE_STATES="+states.slice(-7).join(";"));
             console.log("D05_BROWSER_ERROR_COUNT="+(t.match(/(?:FAIL|Error:|Failed:)/g)||[]).length);
