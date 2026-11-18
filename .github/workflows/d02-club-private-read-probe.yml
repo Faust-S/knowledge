@@ -1,0 +1,40 @@
+name: d02-club-private-read-probe
+on:
+  push:
+    branches:
+      - work/2026-11-18-d02-club-qualification
+    paths:
+      - .github/workflows/d02-club-private-read-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scoped-read-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify token grants read on the exact three input repositories
+        shell: bash
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          set +x
+          if [ -z "${DOMEN:-}" ]; then
+            echo "DOMEN_CONFIGURED=NO"
+            exit 1
+          fi
+          auth="$(printf 'x-access-token:%s' "$DOMEN" | base64 -w0)"
+          failed=0
+          for repo in club club.iwxa.ru T2; do
+            if GIT_TERMINAL_PROMPT=0 git -c http.extraheader="AUTHORIZATION: basic $auth" ls-remote --exit-code "https://github.com/Faust-S/${repo}.git" HEAD >/dev/null 2>&1; then
+              echo "D02_READ_${repo}=PASS"
+            else
+              echo "D02_READ_${repo}=DENIED"
+              failed=1
+            fi
+          done
+          unset auth
+          exit "$failed"
