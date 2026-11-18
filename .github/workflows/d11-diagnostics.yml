@@ -30,6 +30,7 @@ jobs:
         run: |
           $log=Join-Path $env:RUNNER_TEMP "typescript.txt"
           & npx tsc --noEmit --pretty false *> $log
+          $typeExit=$LASTEXITCODE
           $errors=@(Get-Content $log | Select-String 'error TS[0-9]+:')
           Write-Output "D11_TYPES_COUNT=$($errors.Count)"
           foreach ($line in ($errors | Select-Object -First 48)) {
@@ -39,12 +40,15 @@ jobs:
               Write-Output "D11_TS_DIAG=$($where):$lineno $code $reason"
             }
           }
+          if ($typeExit -ne 0 -or $errors.Count -gt 0) { throw "D11_TYPECHECK_STILL_FAILING" }
+          Write-Output "D11_TYPECHECK=PASS"
       - name: Report lint counts by file and rule without source
         continue-on-error: true
         shell: pwsh
         run: |
           $log=Join-Path $env:RUNNER_TEMP "eslint.json"
           & npx eslint . --format json *> $log
+          $lintExit=$LASTEXITCODE
           $rows=Get-Content $log -Raw | ConvertFrom-Json
           $total=($rows | Measure-Object -Property errorCount -Sum).Sum
           $bad=@($rows | Where-Object {$_.errorCount -gt 0})
@@ -62,3 +66,5 @@ jobs:
           foreach ($item in ($bad | Sort-Object errorCount -Descending | Select-Object -First 12)) {
             Write-Output "D11_LINT_FILE=$([IO.Path]::GetFileName($item.filePath)):$($item.errorCount)"
           }
+          if ($lintExit -ne 0 -or $total -gt 0) { throw "D11_LINT_STILL_FAILING" }
+          Write-Output "D11_LINT=PASS"
