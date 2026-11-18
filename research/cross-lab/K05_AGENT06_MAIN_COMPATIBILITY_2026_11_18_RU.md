@@ -64,3 +64,16 @@
 | T3 D6 | 81 | 124 |
 
 Итог: источник K05 должен оставаться независимым до полной installed product qualification. Разница в истории достаточна для запрета на полный merge `workbench.tsx`, `daily_driver_engine.py`, `interaction_surface.py` и `approval.py`. Нативный CI [#44372957899](https://github.com/Faust-S/Center/actions/runs/44372957899) ещё выполняется. Источники [#44372957951](https://github.com/Faust-S/Center/actions/runs/44372957951) `SUCCESS` на `9c8a0eee` (117/117 Python, 26/26 package, cold Core 1/1). Статусы `READY_FOR_AGENT_INTEGRATION=false`, `PRODUCT_ACCEPTED=false` не меняются.
+
+## Сверка после настоящего исправления llama-cli, 18.11
+
+Central Agent `work/2026-11-15-agent-0-6-development` до сих пор HEAD `1bf0847ed069c86fe6a11380537535f0ce6c0b8e`; независимый Office владелец продвинулся до `0ef20603685216a44fa0b198962d26de5c5bb12b` и продолжает нативную Files/OCR интеграцию. T3 D3 и D6 продолжают использовать собственные owner-ветки, не K05. Никакого общего переноса старого K05 `workbench.tsx`, `daily_driver_engine.py`, `approval.py` не допускается.
+
+GitHub compare для exact `K05=7932627b8948d5c958e4a2c4bd25c05e19cb9ec4`:
+- base Central Agent: `ahead=84, behind=232`;
+- base Office: `ahead=84, behind=254`;
+- base T3 D3: `ahead=84, behind=26`;
+- base T3 D6: `ahead=84, behind=124`.
+Все четыре сравнения имеют `status=diverged`. Не трактовать ahead/behind как измерение качества продукта.
+
+Текущая техническая граница: адаптер `BasicGGUFProvider` использует подлинный pinned `llama.cpp b11827` с новым `--no-escape` для сохранения переданного пользователем текста; оригинальный `_cli_answer` по-прежнему принимает только верифицированный `User/Assistant` transcript. `K05_SOURCE_WINDOWS=PASS` на [#44386022527](https://github.com/Faust-S/Center/actions/runs/44386022527); `K05_INSTALLED=HOLD` до [#44386022555](https://github.com/Faust-S/Center/actions/runs/44386022555). При реальной интеграции только адресная передача фактически принятого адаптерного исправления и необязательного K05 UI/owner портов, без копирования K03/K05 Task Engine в Agent.
