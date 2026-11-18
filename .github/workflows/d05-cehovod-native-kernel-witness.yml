@@ -92,8 +92,12 @@ jobs:
             node -e '
             const fs=require("node:fs");
             const text=fs.readFileSync(process.env.RUNNER_TEMP+"/d05-product-diagnostic.log","utf8");
-            const codes=[...new Set(text.match(/\\b(?:CEHOVOD_[A-Z0-9_]+|T2_[A-Z0-9_]+|ERR_[A-Z0-9_]+)\\b/g)||[])];
+            const codes=[...new Set(text.match(/(?:CEHOVOD|T2|ERR|FACTORY2)_[A-Z0-9_]+/g)||[])];
             console.log("D05_DIAGNOSTIC_CODES="+codes.slice(-10).join(","));
+            const phases=["CEHOVOD_T2_DISPOSABLE_HOST_DEPENDENCIES_READY","CEHOVOD_HOST_STAGED_WITHOUT_ACTIVATION","CEHOVOD_HOST_STATIC_CANDIDATE_STAGED_WITHOUT_ACTIVATION","STATIC_PRODUCT_CONTENTS_PASS","CEHOVOD_T2_DIAGNOSTIC_PREVIEW_ASSEMBLED_NOT_QUALIFIED"];
+            console.log("D05_DIAGNOSTIC_PHASES="+phases.map((name,i)=>"P"+i+":"+Number(text.includes(name))).join(","));
+            console.log("D05_CATALOG_COLLISION="+text.includes("CEHOVOD_HOST_CONFIG_COLLISION"));
+            console.log("D05_CATALOG_HASH_ERROR="+text.includes("CEHOVOD_PRODUCT_SERVICE_CATALOG_HASH"));
             console.log("D05_HOST_DEPENDENCIES_READY="+text.includes("CEHOVOD_T2_DISPOSABLE_HOST_DEPENDENCIES_READY"));
             console.log("D05_SSR_ASSEMBLY_REACHED="+text.includes("CEHOVOD_T2_DIAGNOSTIC_PREVIEW_ASSEMBLED_NOT_QUALIFIED"));
             '
