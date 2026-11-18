@@ -81,10 +81,18 @@ try:
     print("G4_ORIGINAL_NATIVE_EMPLOYEE_COLD_NO_REEXPORT_PASS")
 except Exception as error:
     print("G4_NATIVE_FAILURE_PHASE",phase)
-    code=str(error)
-    if not re.fullmatch(r"[A-Z][A-Z0-9_]{2,119}",code):
-        code="UNCLASSIFIED"
+    # Preserve only a bounded machine identifier. Even if an exception
+    # wraps it in descriptive text, never expose any Task, path or Result.
+    message=str(error).strip()
+    machine=re.fullmatch(r"[A-Z][A-Z0-9_]{2,119}",message)
+    embedded=re.search(r"(?<![A-Z0-9_])(?:T3|INTEROP|WINDOWS)_[A-Z0-9_]{3,110}(?![A-Z0-9_])",message)
+    code=machine.group(0) if machine else (
+        embedded.group(0) if embedded else "UNCLASSIFIED")
     print("G4_NATIVE_FAILURE_CODE",code)
+    print("G4_NATIVE_FAILURE_CODE_SHAPE",
+          "CANONICAL" if machine else
+          "EMBEDDED_MACHINE_CODE" if embedded else
+          "EMPTY" if not message else "NONCANONICAL_TEXT")
     permitted={"KeyError","TypeError","ValueError","AssertionError",
       "CorporateT3Error","OSError","TimeoutError","AttributeError",
       "RuntimeError","IndexError"}
