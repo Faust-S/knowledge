@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 env:
   DOMAIN_SHA: d257dd067c9f693df088bba12a5975c6d03f0329
-  SITE_SHA: 462f13756fbcf5e5ba713941bec9e1915c5c9f80
+  SITE_SHA: eb44afa46fa5a6374f1481adbbf7ac147ff8f0f5
   CI: 'true'
   PUPPETEER_SKIP_DOWNLOAD: '1'
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -60,6 +60,13 @@ jobs:
             $domain=(Get-FileHash -LiteralPath ('private/domain/model/'+$f) -Algorithm SHA256).Hash
             $site=(Get-FileHash -LiteralPath ('private/site/src/lib/'+$f) -Algorithm SHA256).Hash
             if($domain -ne $site){throw 'D08_P1_CANONICAL_DRIFT'}
+          }
+          foreach($f in @('business-project.mjs','business-project.d.mts',
+             'affordable-loss-gate.mjs','affordable-loss-gate.d.mts',
+             'iwxa-domain-boundaries.mjs','iwxa-domain-boundaries.d.mts')){
+            $site=(Get-FileHash -LiteralPath ('private/site/src/lib/'+$f) -Algorithm SHA256).Hash
+            $embedded=(Get-FileHash -LiteralPath ('private/site/t2-site-module/marketops/decision/'+$f) -Algorithm SHA256).Hash
+            if($site -ne $embedded){throw 'D08_P1_T2_EMBEDDED_DRIFT'}
           }
           Write-Host 'D08_P1_CANONICAL_BYTES=PASS'
       - name: Run full canonical business and regression tests
