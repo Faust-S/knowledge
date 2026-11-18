@@ -99,7 +99,13 @@ jobs:
           if($env:RUNNER_OS -eq 'Linux'){
             Check INTEGRATED_BUILD site bun @('run','build:t2-integrated')
             Check T2_PREVIEW site bun @('run','preview:t2','--','--check')
-            if(-not (Test-Path site/dist/workspace/index.html)){throw 'D07_LIFECYCLE_ORIGINAL_T2_MISSING'}
+            $checkout=Join-Path $env:GITHUB_WORKSPACE 'site'
+            $hostEntry=Join-Path $checkout 'dist/workspace/index.html'
+            if(-not (Test-Path -LiteralPath $hostEntry)){
+              $present=Test-Path -LiteralPath (Join-Path $checkout 'dist')
+              Write-Output ("D07_LIFECYCLE_DIST_PRESENT="+$present)
+              throw 'D07_LIFECYCLE_ORIGINAL_T2_MISSING'
+            }
             Write-Output 'D07_LIFECYCLE_ONE_DIST_T2=PASS'
           }
           Write-Output 'D07_LIFECYCLE_CANDIDATE=PASS'
