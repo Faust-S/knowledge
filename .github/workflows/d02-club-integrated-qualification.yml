@@ -146,8 +146,14 @@ jobs:
             if ($code -ne 0) {
               $failed.Add($script)
               Write-Output "D02_SITE_TEST_FAIL=$script exit=$code"
-              $codes = @(Get-Content $log | Select-String -Pattern '^Error: (CLUB_[A-Z0-9_]+|T2_[A-Z0-9_]+)' | Select-Object -Last 3)
-              foreach ($item in $codes) { Write-Output ("D02_SITE_TEST_CODE=" + $item.Line.Trim()) }
+              # TAP failure titles and error codes are safe summaries, not private source.
+              $titles = @(Get-Content $log | Select-String -Pattern '(?i)\bnot ok\s+\d+\s+-\s+[^\r\n]+' | Select-Object -Last 8)
+              foreach ($item in $titles) {
+                $title = [regex]::Match($item.Line, '(?i)\bnot ok\s+\d+\s+-\s+[^\r\n]+').Value
+                Write-Output ("D02_SITE_TEST_ASSERTION=" + $title)
+              }
+              $codes = @(Get-Content $log | Select-String -Pattern '^[ ]{0,8}(failureType|code|operator): [A-Za-z0-9_\x27-]+' | Select-Object -Last 6)
+              foreach ($item in $codes) { Write-Output ("D02_SITE_TEST_KIND=" + $item.Line.Trim()) }
             }
           }
           Write-Output "D02_SITE_TEST_SUITE_COUNT=$count"
