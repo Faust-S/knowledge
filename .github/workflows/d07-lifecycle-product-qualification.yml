@@ -15,8 +15,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     env:
-      DOMAIN_SHA: 5467b8673a78958d4f1fb6aabc113cb5ba54f655
-      SITE_SHA: a315d92a54beb03ad4eda63c9497071ce253fc09
+      DOMAIN_SHA: 2cd2c28b08e5c7b252385dec9cc41aab4d7867cd
+      SITE_SHA: 512ebfd1ed66b4a4dd266877087b0f48d3461195
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -87,6 +87,14 @@ jobs:
               & $exe @commandArgs *> $privateLog
               if($LASTEXITCODE -ne 0){
                 Write-Output ("D07_LIFECYCLE_"+$name+"=FAIL")
+                if($name -eq 'SITE_TESTS'){
+                  foreach($line in @(Get-Content $privateLog | Where-Object {$_ -match '^not ok [0-9]+ - '})){
+                    if($line -match '^not ok ([0-9]+) - (.{1,140})'){
+                      $testName=$Matches[2] -replace '[^\\p{L}\\p{N} _.,:-]',''
+                      Write-Output ("D07_LIFECYCLE_SITE_FAIL_TEST="+$Matches[1]+":"+$testName)
+                    }
+                  }
+                }
                 if($name -eq 'TYPES'){
                   $found=@(Get-Content $privateLog | Where-Object {$_ -match 'error TS[0-9]{4}'} | ForEach-Object {
                     if($_ -match '([A-Za-z0-9_.-]+[.]tsx?):([0-9]+):([0-9]+).*?error (TS[0-9]{4})'){
