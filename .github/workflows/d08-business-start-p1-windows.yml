@@ -83,7 +83,20 @@ jobs:
           foreach($name in @('check:types','lint')){
             $log=Join-Path $env:RUNNER_TEMP ('d08-p1-'+$name.Replace(':','-')+'.private.log')
             & npm run $name *> $log
-            if($LASTEXITCODE -ne 0){throw ('D08_P1_'+$name+'_FAILED')}
+            if($LASTEXITCODE -ne 0){
+              if($name -eq 'check:types'){
+                $errors=@(Get-Content -LiteralPath $log | Where-Object {$_ -match 'error TS[0-9]+'})
+                Write-Host ('D08_P1_TS_ERROR_COUNT='+$errors.Count)
+                foreach($item in @($errors | Select-Object -First 12)){
+                  if($item -match '^(.*)\(([0-9]+),([0-9]+)\): error (TS[0-9]+):'){
+                    Write-Host ('D08_P1_TS_DIAGNOSTIC='+$Matches[4]+' FILE='+([IO.Path]::GetFileName($Matches[1]))+' LINE='+$Matches[2])
+                  } else {
+                    Write-Host 'D08_P1_TS_DIAGNOSTIC=UNPARSED'
+                  }
+                }
+              }
+              throw ('D08_P1_'+$name+'_FAILED')
+            }
           }
           & node --test tests/business-start-overview.test.mjs *> (Join-Path $env:RUNNER_TEMP 'd08-p1-site-cases.private.log')
           if($LASTEXITCODE -ne 0){throw 'D08_P1_SITE_MODEL_FAILED'}
