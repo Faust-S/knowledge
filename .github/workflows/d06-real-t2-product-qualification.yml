@@ -1,0 +1,183 @@
+name: d06-real-t2-product-qualification
+
+# Qualified T2 and Kernel stay on the ephemeral runner. No private artifacts
+# or full logs are uploaded into this public repository.
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-real-t2-product-qualification.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d06-integrated-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-t2-windows:
+    runs-on: windows-latest
+    timeout-minutes: 85
+    steps:
+      - name: Verify the DOMEN token has each private repository read permission
+        shell: bash
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DOMEN:-}" ]; then
+            echo "D06_T2_ACCESS=MISSING_DOMEN"
+            exit 1
+          fi
+          auth="$(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
+          for repo in komplektovod komplektovod.ru T2; do
+            if GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=AUTHORIZATION: basic ${auth}" \
+              ls-remote --exit-code "https://github.com/Faust-S/${repo}.git" HEAD \
+              >/dev/null 2>&1; then
+              echo "D06_T2_READ_${repo}=PASS"
+            else
+              echo "D06_T2_READ_${repo}=DENIED"
+              exit 1
+            fi
+          done
+      - name: Checkout D06 site at its qualified source revision
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: d330a8ff6b4d5a38369782a6a1b9b8444e47a538
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - name: Checkout D06 subject logic, without publication
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod
+          ref: 29c89284b7212f3b7d0799ddb4d68fb4ec5095b0
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/domain
+      - name: Checkout normative T2 at the D06 qualified revision
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/t2
+      - name: Prepare Windows Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install existing site and T2 dependencies privately
+        shell: pwsh
+        run: |
+          $folders = @(
+            (Join-Path $env:GITHUB_WORKSPACE "private/site"),
+            (Join-Path $env:GITHUB_WORKSPACE "private/t2/t2/current/final-successor/canonical-source")
+          )
+          for ($i = 0; $i -lt $folders.Count; $i++) {
+            Push-Location $folders[$i]
+            try {
+              $log = Join-Path $env:RUNNER_TEMP ("d06-product-install-" + $i + ".txt")
+              & npm ci --no-audit --no-fund *> $log
+              if ($LASTEXITCODE -ne 0) {
+                Write-Host ("D06_T2_INSTALL_" + $i + "=FAIL")
+                exit 1
+              }
+              Write-Host ("D06_T2_INSTALL_" + $i + "=PASS")
+            } finally {
+              Pop-Location
+            }
+          }
+      - name: Verify exact qualified ZIP SHA-256 and stage runtime privately
+        shell: pwsh
+        run: |
+          $source = Join-Path $env:GITHUB_WORKSPACE (
+            "private/t2/t2/current/final-successor/kernel-successors/" +
+            "k036-same-store-event-history-20261019/" +
+            "iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip"
+          )
+          $expectedZip = "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68"
+          $expectedRuntime = "e1737245aba309e900203b458087ca07cb08d9ccc89901754e1122cbc9a01e78"
+          if (-not (Test-Path $source)) {
+            Write-Host "D06_T2_QUALIFIED_ZIP=MISSING"
+            exit 1
+          }
+          if ((Get-FileHash $source -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedZip) {
+            Write-Host "D06_T2_QUALIFIED_ZIP=SHA_MISMATCH"
+            exit 1
+          }
+          $dest = Join-Path $env:RUNNER_TEMP "d06-qualified-kernel"
+          New-Item -ItemType Directory -Path $dest -Force | Out-Null
+          Expand-Archive -LiteralPath $source -DestinationPath $dest
+          $runtime = Join-Path $dest "_iwxa/runtime/0.3.6/runtime.js"
+          if (-not (Test-Path $runtime)) {
+            Write-Host "D06_T2_QUALIFIED_RUNTIME=MISSING"
+            exit 1
+          }
+          if ((Get-FileHash $runtime -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedRuntime) {
+            Write-Host "D06_T2_QUALIFIED_RUNTIME=SHA_MISMATCH"
+            exit 1
+          }
+          Write-Host "D06_T2_QUALIFIED_ZIP=PASS"
+          Write-Host "D06_T2_QUALIFIED_RUNTIME=PASS"
+      - name: Set up existing browser runtime for genuine Host and Exchange QA
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-t2-browser-setup-private.txt"
+          & npm run setup:browser *> $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "D06_T2_BROWSER_SETUP=FAIL"
+            exit 1
+          }
+          Write-Host "D06_T2_BROWSER_SETUP=PASS"
+      - name: Assemble actual qualified T2 Host, Kernel, and one site dist
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 35
+        env:
+          IWXA_T2_CANONICAL_ROOT: ${{ github.workspace }}/private/t2/t2/current/final-successor/canonical-source
+          IWXA_D06_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/d06-qualified-kernel
+          IWXA_D06_HOST_ORIGIN: https://localhost:8443
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-real-t2-assembly-private.txt"
+          & npm run build *> $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Write-Host "D06_REAL_T2_ASSEMBLY=FAIL"
+            $content = Get-Content -LiteralPath $log -Raw
+            $codes = [regex]::Matches($content, "(?:D06|T2|IWXA)_[A-Z0-9_]+") |
+              ForEach-Object { $_.Value } | Select-Object -Unique -First 12
+            Write-Host ("D06_REAL_T2_FAILURE_CODES=" + ($codes -join ","))
+            exit 1
+          }
+          Write-Host "D06_REAL_T2_ASSEMBLY=PASS"
+      - name: Real Kernel and Exchange independent .iwxa transfer with cold restart
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 20
+        env:
+          IWXA_T2_CANONICAL_ROOT: ${{ github.workspace }}/private/t2/t2/current/final-successor/canonical-source
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-real-kernel-transfer-private.txt"
+          & npm run verify:native-transfer *> $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Write-Host "D06_REAL_KERNEL_EXCHANGE=FAIL"
+            $content = Get-Content -LiteralPath $log -Raw
+            $codes = [regex]::Matches($content, "(?:D06|T2|IWXA)_[A-Z0-9_]+") |
+              ForEach-Object { $_.Value } | Select-Object -Unique -First 12
+            Write-Host ("D06_REAL_TRANSFER_FAILURE_CODES=" + ($codes -join ","))
+            exit 1
+          }
+          Write-Host "D06_REAL_KERNEL_EXCHANGE=PASS"
+      - name: Report privacy boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_QUALIFIED_PRODUCT_DIST=RUNNER_LOCAL_ONLY"
+          Write-Host "D06_PRIVATE_LOGS=RUNNER_LOCAL_ONLY"
+          Write-Host "D06_PUBLIC_ARTIFACT_UPLOADS=0"
