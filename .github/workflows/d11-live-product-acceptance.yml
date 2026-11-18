@@ -86,6 +86,8 @@ jobs:
           & npm run build:t2:site *> (Join-Path $env:RUNNER_TEMP "d11-build.log")
           if ($LASTEXITCODE -ne 0) { throw "D11_UI_BUILD_FAILED" }
           Write-Output "D11_UI_ONE_DIST=PASS"
+      # Test the real export entry point rather than an arbitrary form save.
+      # Protect every source payload; only status codes appear in public logs.
       - name: Real browser E2E for ten cases (desktop and mobile)
         id: ui
         continue-on-error: true
