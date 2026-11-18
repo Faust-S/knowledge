@@ -24,8 +24,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     env:
-      SITE_SHA: 758d659550fbfa6ca8c46f07ca89a9ba872acba5
-      DOMAIN_SHA: 785635ba0aa6a8475a7388de9309e78aab94ab23
+      SITE_SHA: 6fa55e81754c4cbd930cfaf02f4d37bf6b0a5b8d
+      DOMAIN_SHA: 3bf8bcbfd95ff3ea6376d1e8475e6b3ccc8ff002
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -263,7 +263,7 @@ jobs:
             Get-Content $log | Select-String -Pattern 'CLUB_HTTP_PREVIEW_[A-Z_]+|ERR_ASSERTION|ECONNREFUSED|ETIMEDOUT' | Select-Object -Last 8 | ForEach-Object { Write-Output $_.Line }
             exit 1
           }
-          Write-Output 'D02_HTTP_PREVIEW=PASS routes=40 assets=10 real404=5'
+          Write-Output 'D02_HTTP_PREVIEW=PASS routes=40 assets=12 real404=5'
 
       - name: Final private-source-safe status
         if: always()
