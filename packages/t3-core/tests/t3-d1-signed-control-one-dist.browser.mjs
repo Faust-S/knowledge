@@ -1741,7 +1741,34 @@ try{
   await recoveredPanel.getByRole('button',
     {name:'Прочитать черновик из Kernel по ID'}).click();
   const coldRead=recoveredPanel.getByTestId('t3-d5-saved-draft-readback');
-  await coldRead.waitFor({state:'visible',timeout:30000});
+  try{
+    await coldRead.waitFor({state:'visible',timeout:30000});
+  }catch(error){
+    // The signed Host focus can succeed but a later original Kernel getObject
+    // can be refused or its receipt invalidated. Preserve the actual status
+    // and independent T2 readback instead of guessing from a selector timeout
+    // or relaxing the signed Access and cold-recovery requirements.
+    const original=await browser.page.evaluate(async({serviceId,ws,id})=>{
+      const session=await IWXA.connect({service_id:serviceId});
+      try{
+        const read=await session.t1.getObject(ws,id);
+        return {found:read?.object?.object_id===id,
+          revision:read?.object?.revision,
+          schema:read?.object?.schema_id};
+      }catch(e){return {error:e?.code??e?.message??String(e)};}
+    },{serviceId,ws:'ws:south',id:southCopy.copiedId});
+    console.log('T3_D1_CORPORATE_COLD_DRAFT_READBACK_DIAGNOSTIC',
+      JSON.stringify({
+        signedPanel:(await recoveredPanel.innerText()).slice(0,2200),
+        currentWorkspace:await recoveredPanel.locator('strong').first()
+          .textContent().catch(()=>null),
+        selectedRecoverId:await recoveredPanel.getByTestId('t3-d5-recover-draft-id')
+          .inputValue().catch(()=>null),
+        originalKernel:original,
+        pageErrors:recoveredSouth.pageErrors,
+      }));
+    throw error;
+  }
   assert.ok((await coldRead.innerText()).includes(southCopy.copiedText));
   assert.deepEqual(recoveredSouth.pageErrors,[]);
   const originalCold=await browser.page.evaluate(async({serviceId,north,south})=>{
