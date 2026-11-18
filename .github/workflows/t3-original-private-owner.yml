@@ -1,4 +1,4 @@
-name: T3 original private owner bounded source qualification
+name: T3 original D3 and Agent bounded private source qualification
 
 on:
   push:
@@ -8,6 +8,8 @@ on:
       - .github/workflows/t3-original-private-owner.yml
       - packages/t3-core/scripts/qualify-original-private-d3-owner.mjs
       - packages/t3-core/tests/qualify-original-private-d3-owner.test.mjs
+      - packages/t3-core/scripts/qualify-original-agent-d3-port.mjs
+      - packages/t3-core/tests/qualify-original-agent-d3-port.test.mjs
   workflow_dispatch:
 
 # This runs ONLY in public knowledge. No private workflow, whole clone, raw
@@ -38,3 +40,28 @@ jobs:
         env:
           T3_READ_TOKEN: ${{ secrets.T3 || secrets.DOMEN }}
         run: node packages/t3-core/scripts/qualify-original-private-d3-owner.mjs
+
+  original-private-agent-d3-source:
+    name: Agent original D3 employee port, bounded source (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify two-file Agent loader without any private credentials
+        run: node --test packages/t3-core/tests/qualify-original-agent-d3-port.test.mjs
+      - name: Qualify ORIGINAL employee Agent D3 Python contract without cloning
+        env:
+          AGENT_PRIVATE_READ_TOKEN: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
+        run: node packages/t3-core/scripts/qualify-original-agent-d3-port.mjs
