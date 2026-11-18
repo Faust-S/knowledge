@@ -652,6 +652,30 @@
           "installed_windows": "NOT_RUN"
         },
         "level": "SOURCE_FIX_ONLY_PRIVATE_D3_BRANCH_UNQUALIFIED"
+      },
+      "agent06_bounded_knowledge_test_2026_11_18": {
+        "branch": "work/2026-11-16-agent06-corporate-t3-d3-current",
+        "private_source_sha": "16a5062eac537224cde22273c99e758ea5849a91",
+        "target": "tests/test_agent06_corporate_t3_employee.py",
+        "read_scope": [
+          "runtime/t3_original_employee_port.py",
+          "tests/test_agent06_corporate_t3_employee.py"
+        ],
+        "runner": "Faust-S/knowledge public Linux and Windows, no private clone",
+        "loader_self_tests": {
+          "pass": 5,
+          "total": 5,
+          "fail": 0
+        },
+        "original_private_tests": "NOT_RUN_PRIVATE_FILE_READ_404_ALL_EXISTING_SCOPED_TOKENS",
+        "run_id": 44370068755,
+        "original_agent_linux_job_conclusion": "FAILURE_BEFORE_ORIGINAL_PYTHON_TEST",
+        "token_claim": "Original T3 source grant is independently accepted; that does NOT establish authorization for private Agent repository.",
+        "qualification": "HOLD_UNTIL_OWNER_GRANTS_PRIVATE_AGENT_READ_TO_KNOWLEDGE",
+        "native_installed": "NOT_RUN",
+        "workflow_enabled": "EXPLICIT_DISPATCH_OR_REPO_VARIABLE_IWXA_AGENT_D3_SOURCE_CI_ENABLED",
+        "no_private_actions": true,
+        "no_private_source_published": true
       }
     },
     "admin_center": {
@@ -1206,14 +1230,14 @@
         "fail": 0,
         "scope": "PURE_COMPARATOR_ONLY_NOT_PRIVATE_NATIVE_FULL_SUITE"
       },
-      "private_suite": "ORIGINAL_D3_HOST_PORT_FULL_FILE_9_OF_9_SOURCE_PASS_NOT_INSTALLED",
+      "private_suite": "ORIGINAL_PRIVATE_D3_AND_TWO_EMPLOYEE_SOURCE_15_OF_15_PASS_44370068755_JOB_135034132307__INSTALLED_HOLD",
       "public_qualification": {
         "repository": "Faust-S/knowledge",
         "run_id": 44362487232,
         "conclusion": "SUCCESS",
         "exact_knowledge_sha": "33268e4336911c3cddf0f41cbdbb20b60fd2327e",
         "original_private_source_sha": "19be10c557618f5c8b476a739c8fc4ca0fa2ac7f",
-        "private_files_requested": 51,
+        "private_files_requested": 54,
         "technique": "PINNED_EXACT_CONTENTS_API_IMPORT_CLOSURE_PLUS_SINGLE_ORIGINAL_DOMAIN_POLICY_NO_GIT_CLONE",
         "no_private_source_committed": true,
         "private_actions_run": false,
@@ -1221,8 +1245,8 @@
         "ephemeral_files_removed": true,
         "original_test_file": "tests/admin-original-host-port.test.mjs",
         "original_tests": {
-          "total": 9,
-          "passed": 9,
+          "total": 15,
+          "passed": 15,
           "failed": 0
         },
         "public_loader_self_tests": {
@@ -1230,7 +1254,14 @@
           "passed": 4,
           "failed": 0
         },
-        "boundaries": "SOURCE_ONLY; installed Windows original signed manager+Agent employee/real Kernel APPLY and native PERSON remains NOT_RUN."
+        "boundaries": "SOURCE_ONLY; installed Windows original signed manager+Agent employee/real Kernel APPLY and native PERSON remains NOT_RUN.",
+        "additional_verified_job": {
+          "run_id": 44370068755,
+          "job_id": 135034132307,
+          "conclusion": "SUCCESS",
+          "workflow_afterwards": "CANCELLED_BY_NEW_COMMIT",
+          "test_count": 15
+        }
       },
       "installed_manager_agent_d3": "NOT_RUN",
       "release_effect": "PRIVATE_ORIGINAL_D3_PORT_SOURCE_PASS_IN_KNOWLEDGE, INSTALLED_PRODUCT_AND_G4_HOLD; CENTER_HTTP_403_IS_HISTORICAL_NOT_CURRENT_ACCESS_BLOCKER",
@@ -1251,6 +1282,38 @@
         "cause": "Production signed GRANT was valid for original maxTtlSeconds=31536000 PLUS 1000ms because notBefore=now-1000ms but expiresAt=now+31536000000ms.",
         "correction": "Compute signed expiry from the same notBefore and existing policy ttlSeconds; do not raise TTL limit or create new issuer.",
         "regression": "All original production grants compare signed notBefore/expiresAt against original authority maxTtlSeconds, including 365 days exactly."
+      },
+      "original_suite_expanded_2026_11_18": {
+        "original_owner_source_sha": "19be10c557618f5c8b476a739c8fc4ca0fa2ac7f",
+        "knowledge_head": "9a8dc6ff2afe29287c3f85c11996a23d8923f8ff",
+        "run_id": 44370068755,
+        "job_id": 135034132307,
+        "job_conclusion": "SUCCESS",
+        "workflow_conclusion": "CANCELLED_LATER_BY_NEWER_BRANCH_PUSH",
+        "private_files_read": 54,
+        "original_test_files": [
+          "tests/admin-original-host-port.test.mjs",
+          "tests/multi-employee-provisioning.test.mjs",
+          "tests/multi-employee-admin.test.mjs"
+        ],
+        "tests": {
+          "total": 15,
+          "pass": 15,
+          "fail": 0
+        },
+        "additional_coverage": "Two separately issued original employee Ed25519 work credentials, distinct person-owned roots and Tasks, two accepted independent Results, grant revocation isolation, prohibited foreign scopes and signed readback after cold restart.",
+        "source_only": true,
+        "private_actions_executed": false,
+        "private_files_uploaded": false,
+        "installed_admin_agent_e2e": "NOT_RUN"
+      },
+      "knowledge_api_rate_limit_2026_11_18": {
+        "run_id": 44370939072,
+        "conclusion": "FAILURE",
+        "failure": "T3_PRIVATE_SOURCE_RATE_LIMITED_BEFORE_ANY_PRIVATE_TEST",
+        "original_owner_sha_unchanged": true,
+        "interpretation": "Token/API capacity limitation. Does not invalidate prior exact private owner source test job 15/15 PASS, but no new source pass may be inferred from rate-limited run.",
+        "mitigation": "Original private source reads require explicit trusted commit marker [qualify-original-d3] or manual dispatch. No repeat on ordinary harness changes."
       }
     }
   },
@@ -1262,7 +1325,7 @@
     "D6_main_native_sender": "CORE_SOURCE_PASS",
     "D7_native_age_prior": "PASS_NOT_REPEATED_IN_LATEST_CI",
     "installed_original_private_d6": "HOLD",
-    "installed_employee_d1_d3": "HOLD_ORIGINAL_PRIVATE_D3_OWNER_SOURCE_9_OF_9_PASS_44362487232__INDEPENDENT_ADMIN_AGENT_AND_KERNEL_APPLY_NOT_RUN",
+    "installed_employee_d1_d3": "HOLD_D3_ORIGINAL_15_OF_15_SOURCE_PASS__AGENT_PRIVATE_SOURCE_NOT_RUN_404__INDEPENDENT_INSTALLED_ADMIN_AGENT_KERNEL_APPLY_NOT_RUN",
     "installed_agent_atlas_d6": "HOLD",
     "installed_publisher_d7": "HOLD",
     "cross_product_G4": "NOT_ACCEPTED",
@@ -1288,11 +1351,11 @@
     "ADMIN_CENTER_03_D3_GENERIC_UI": "INSTALLED_CENTER_PUBLIC_WINDOWS_SUCCESS_44301852914_AT_565572a9_MERGED_5ff8947d_NO_PRIVATE_SIGNED_D3",
     "T3_D3_ORIGINAL_ACCEPT_RECEIPT": "CORE_SOURCE_CANONICAL_RECEIPT_AND_COLD_DECISION_VALIDATION_PASS_44318043133__PRIVATE_INSTALLED_D3_HOLD",
     "D3_original_human_accept_receipt": "SOURCE_COMPLETE_5000_ROW_ORIGINAL_ACCEPT_RECEIPT_PASS_44338888023__INSTALLED_NATIVE_OWNER_HOLD",
-    "ORIGINAL_PRIVATE_D3_OWNER_SOURCE": "ORIGINAL_PRIVATE_D3_PORT_9_OF_9_PASS_KNOWLEDGE_44362487232_PIN_19be10c5__INSTALLED_D1_D3_HOLD"
+    "ORIGINAL_PRIVATE_D3_OWNER_SOURCE": "ORIGINAL_OWNER_MULTI_EMPLOYEE_15_OF_15_SOURCE_PASS_KNOWLEDGE_44370068755_JOB_135034132307__WORKFLOW_CANCELLED_AFTER_JOB__INSTALLED_D3_HOLD"
   },
   "next_critical_path": [
     "Release scope is PRODUCT_NEUTRAL_T3. Keep normative original T2 Kernel/Host/Workspace/Exchange/Lifecycle integrated in ONE T3. Use current exact public One Core CI + installed Agent test; never interpret source PASS as installed owner.",
-    "Priority 1 D1/D3 WITHOUT Atlas: original private signed owner 19be10c5 source-verified 9/9 (public knowledge #44362487232, 51 bounded API files, no clone, no private artifact, no private Actions). Previous Center #44334094866 HTTP 403 is HISTORICAL, no longer blocks source qualification. Remaining gate is real separately installed signed Admin Center manager -> original independent employee Agent (pending race fix integration e02e39d2) -> real accepted Result -> native Human ACCEPT -> separate original T2 Kernel APPLY -> two cold Object/Event readbacks. No new signers, no Atlas prerequisite.",
+    "Priority 1 D1/D3 without Atlas: original private T3 owner 19be10c5 source-verified 15/15 in public knowledge #44370068755 job #135034132307, 54 bounded files, two independent employees and signed results. Overall historical workflow cancelled only after owner job success; later source fetch hit GitHub API rate limit, do not count as code regression. Agent 0.6 private source two-file loader 5/5, but original Agent source tests NOT_RUN due HTTP404 across existing secrets (separate repository authorization). Its known IPC UNKNOWN fence fix e02e39d2 is still not independently installed. Keep native manager+employee Task/Result, Human ACCEPT, separate original Kernel APPLY and double cold readback as HOLD. Trigger original T3 private tests only by explicit release marker or manual dispatch; private Actions forbidden.",
     "Priority 2 D5: exact combined original source #44340207574 attempt 2 SUCCESS, real macOS Apple Metal WebLLM signed Host and independent domain second cold offline generation, zero network, original T2 0.3.6 Object/Event readback and two corporate cold opens, Node 792/792, Host/Windows PASS. This is SOURCE hardware qualification; native private installed D5 remains NOT_RUN. Don't indiscriminately rerun metal.",
     "Priority 3 D6 GENERIC: completed public full original D1 signed-context canonicalization incl. nested+new fields, Node source 792/792 PASS #44339359842. Still need genuine accepted Result from installed independent Agent/domain -> explicitly authorized recipient without mandatory Atlas, original native owner durable readback/lost-ACK recovery. A public contract fixture is not native E2E.",
     "Priority 4 D7: original Publisher PERSON issue/renew/status/revoke with installed consumer and cold readback, independent of Atlas.",
@@ -1343,8 +1406,8 @@
     "t3_ready": false,
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
-    "original_private_native_signer": "ORIGINAL_D3_SOURCE_9_OF_9_PASS_44362487232__NATIVE_WINDOWS_SIGNER_INSTALLED_NOT_QUALIFIED",
-    "independent_installed_d3": "HOLD_REAL_ADMIN_AGENT_RESULT_HUMAN_ACCEPT_SEPARATE_KERNEL_APPLY_DOUBLE_COLD_NOT_RUN__SOURCE_9_OF_9_PASS_44362487232",
+    "original_private_native_signer": "ORIGINAL_PRIVATE_D3_TWO_EMPLOYEE_SOURCE_15_OF_15_PASS_JOB_135034132307__NATIVE_INSTALLED_WINDOWS_NOT_QUALIFIED",
+    "independent_installed_d3": "HOLD_REAL_ADMIN_AGENT_SIGNED_TASK_ACCEPTED_RESULT_HUMAN_ACCEPT_SEPARATE_KERNEL_APPLY_TWO_COLD_READS",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
