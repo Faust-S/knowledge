@@ -148,7 +148,7 @@ jobs:
       # Verify the user-selected same-tab packet with the exact original D11
       # canonical compact serializer, real Kernel consent and Exchange import.
       # Use T2 #/workspaces first-run flow on HTTP loopback.
-      - name: Original T2 Host focus, Kernel receipts and independent .iwxa Exchange
+      - name: Browser-qualify project search, Host focus, Kernel results and independent .iwxa
         id: kernel
         continue-on-error: true
         working-directory: site
