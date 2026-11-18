@@ -55,8 +55,16 @@ jobs:
           node scripts/check-portuguese-competency-graph-source.mjs *> "$env:RUNNER_TEMP/pt-win-graph.log"
           if ($LASTEXITCODE -ne 0) { throw "PT_WINDOWS_GRAPH_GUARD_FAILED" }
           node scripts/check-portuguese-source.mjs *> "$env:RUNNER_TEMP/pt-win-source.log"
-          if ($LASTEXITCODE -ne 0) { throw "PT_WINDOWS_AGGREGATE_GUARD_FAILED" }
-          "PT_WINDOWS_SOURCE_GUARDS=PASS"
+          if ($LASTEXITCODE -ne 0) {
+            "PT_WINDOWS_AGGREGATE_GUARD=FAIL"
+            $matches = Select-String -Path "$env:RUNNER_TEMP/pt-win-source.log" -Pattern '^FAIL (.*): ' -AllMatches
+            foreach ($match in ($matches | Select-Object -First 30)) {
+              "PT_WINDOWS_FAILED_CHECK=" + $match.Matches[0].Groups[1].Value
+            }
+            "PT_WINDOWS_SOURCE_GUARD_FAILED=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          } else {
+            "PT_WINDOWS_SOURCE_GUARDS=PASS"
+          }
           $env:LOVABLE_BUILD_TARGET = "static"
           $env:NITRO_PRESET = "node-server"
           $env:SERVER_PRESET = "node-server"
@@ -98,6 +106,7 @@ jobs:
             & node qa-scripts/tools/pt-66-browser-qa.mjs 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/pt-win-browser.log"
             if ($LASTEXITCODE -ne 0) { throw "PT_WINDOWS_BROWSER_66_F02_FAILED" }
             "PT_WINDOWS_BROWSER_66_F02=PASS"
+            if ($env:PT_WINDOWS_SOURCE_GUARD_FAILED -eq "1") { throw "PT_WINDOWS_SOURCE_GUARD_STILL_FAILED" }
           } finally {
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
           }
