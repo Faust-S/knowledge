@@ -1,0 +1,38 @@
+name: domen-read-access-probe
+on:
+  push:
+    branches:
+      - test/2026-11-18-domen-read-access
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check DOMEN secret and private repository read access
+        shell: bash
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          set -uo pipefail
+          if [ -z "${DOMEN:-}" ]; then
+            echo "DOMEN_SECRET=MISSING"
+            exit 1
+          fi
+          echo "DOMEN_SECRET=PRESENT"
+          # Never echo the token, authenticated URL, headers, or Git errors.
+          # Only report success/failure for read-only git refs.
+          failed=0
+          for repo in artbazi.ru artbazi T2; do
+            if GIT_TERMINAL_PROMPT=0 git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 -w0)" ls-remote --exit-code "https://github.com/Faust-S/${repo}.git" HEAD >/dev/null 2>/dev/null; then
+              echo "READ_${repo}=PASS"
+            else
+              echo "READ_${repo}=FAIL"
+              failed=1
+            fi
+          done
+          exit "$failed"
