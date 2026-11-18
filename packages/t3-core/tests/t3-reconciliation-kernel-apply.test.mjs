@@ -381,6 +381,18 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   assert.equal((await makePort().recoverApplied(selection)).status,
     "ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
   assert.equal(commits,beforeUncertain+4);
+  // The original T2 contract, not this adapter, owns legitimate Event size.
+  // A large but complete JSON result must not be rejected by a new arbitrary
+  // 4096-element ceiling introduced during the sparse-array fix.
+  const largeWitnesses=Array.from({length:5000},(_,i)=>({index:i,valid:true}));
+  command.event.payload.reviewWitnesses=largeWitnesses;
+  lastEvent.payload.reviewWitnesses=structuredClone(largeWitnesses);
+  assert.equal((await makePort().recoverApplied(selection)).status,
+    "ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
+  lastEvent.payload.reviewWitnesses[4999].valid=false;
+  assert.equal((await makePort().recoverApplied(selection)).status,
+    "OUTCOME_UNKNOWN");
+  assert.equal(commits,beforeUncertain+4);
   delete command.event.payload.reviewWitnesses;
   delete lastEvent.payload.reviewWitnesses;
 });

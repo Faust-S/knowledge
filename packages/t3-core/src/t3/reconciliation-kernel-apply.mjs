@@ -20,32 +20,41 @@ function copy(value,code){
 // payload. Its canonical storage may reorder object keys, so byte-for-byte
 // JSON.stringify is not a valid equality check. Extra/mutated provenance
 // fields must never be accepted as the original signed application Event.
-function sameJson(a,b,depth=0){
-  // A sparse array may compare equal with .every() even though the original
-  // T2 persisted a different JSON value. Require dense, plain JSON at every
-  // level for Object/Event readback, never just matching top-level provenance.
-  if(depth>32)return false;
+function sameJson(a,b,activeA=new WeakSet(),activeB=new WeakSet()){
+  // Sparse or cyclic input is not a complete original T2 JSON value.
+  // Do not silently skip holes or accept a different Event's provenance.
+  // Original T2 owns payload size; legitimate large result arrays must not
+  // acquire a second artificial 4096-element/32-depth Host restriction.
   if(a===null||b===null)return a===b;
   if(typeof a!==typeof b)return false;
   if(typeof a==="string"||typeof a==="boolean")return a===b;
   if(typeof a==="number")
     return Number.isFinite(a)&&Number.isFinite(b)&&a===b;
   if(typeof a!=="object")return false;
-  if(Array.isArray(a)||Array.isArray(b)){
-    if(!Array.isArray(a)||!Array.isArray(b)||a.length!==b.length||
-       a.length>4096)return false;
-    for(let i=0;i<a.length;i++){
-      if(!Object.hasOwn(a,i)||!Object.hasOwn(b,i)||
-         !sameJson(a[i],b[i],depth+1))return false;
+  if(activeA.has(a)||activeB.has(b))return false;
+  activeA.add(a);
+  activeB.add(b);
+  try{
+    if(Array.isArray(a)||Array.isArray(b)){
+      if(!Array.isArray(a)||!Array.isArray(b)||a.length!==b.length)
+        return false;
+      for(let i=0;i<a.length;i++){
+        if(!Object.hasOwn(a,i)||!Object.hasOwn(b,i)||
+           !sameJson(a[i],b[i],activeA,activeB))return false;
+      }
+      return true;
     }
-    return true;
+    const plain=value=>Object.getPrototypeOf(value)===Object.prototype||
+      Object.getPrototypeOf(value)===null;
+    if(!plain(a)||!plain(b))return false;
+    const keys=Object.keys(a);
+    return keys.length===Object.keys(b).length&&
+      keys.every(key=>Object.hasOwn(b,key)&&
+        sameJson(a[key],b[key],activeA,activeB));
+  }finally{
+    activeA.delete(a);
+    activeB.delete(b);
   }
-  const plain=value=>Object.getPrototypeOf(value)===Object.prototype||
-    Object.getPrototypeOf(value)===null;
-  if(!plain(a)||!plain(b))return false;
-  const keys=Object.keys(a);
-  return keys.length===Object.keys(b).length&&
-    keys.every(key=>Object.hasOwn(b,key)&&sameJson(a[key],b[key],depth+1));
 }
 // Exact target keys required by the original historical application-host
 // binding; a workspace alias alone is not a complete recipient scope.
