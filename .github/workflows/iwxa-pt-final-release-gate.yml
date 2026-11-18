@@ -1,0 +1,99 @@
+name: IWXA PT final release gate 462 exact static
+on:
+  push:
+    branches: [work/2026-11-18-pt-66-qualification]
+    paths:
+      - .github/workflows/iwxa-pt-final-release-gate.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-pt-final-release-exact-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  final-release:
+    name: PT 462-page release validity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    steps:
+      - name: Permission check, no source disclosure
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo "PT_DOMEN_UNAVAILABLE"; exit 1; }
+          gh api repos/Faust-S/iwxa-ru-1 >/dev/null 2>&1 ||
+            { echo "PT_REPOSITORY_NOT_AUTHORIZED"; exit 1; }
+          echo "PT_PRIVATE_ACCESS=PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: 2f3f0f20b17655d5ed2c0bfe0954ea9186878b96
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          fetch-depth: 0
+          path: pt-site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.2"
+      - name: Fixed source and dependencies
+        shell: bash
+        working-directory: pt-site
+        run: |
+          test "$(git rev-parse HEAD)" = "2f3f0f20b17655d5ed2c0bfe0954ea9186878b96" ||
+            { echo "PT_RELEASE_SOURCE_SHA_MISMATCH"; exit 1; }
+          bun install --frozen-lockfile > "$RUNNER_TEMP/pt-install.txt" 2>&1 ||
+            { echo "PT_RELEASE_INSTALL=FAIL"; exit 1; }
+          echo "PT_RELEASE_INSTALL=PASS"
+          node scripts/check-portuguese-static-release-selftest.mjs > "$RUNNER_TEMP/pt-verifier-selftest.txt" 2>&1 ||
+            { echo "PT_RELEASE_VERIFIER_SELFTEST=FAIL"; exit 1; }
+          echo "PT_RELEASE_VERIFIER_SELFTEST=PASS"
+      - name: Generate actual 462-page static release
+        shell: bash
+        working-directory: pt-site
+        timeout-minutes: 48
+        run: |
+          set +e
+          npm run build:static > "$RUNNER_TEMP/pt-build.txt" 2>&1
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "PT_RELEASE_BUILD=FAIL_exit_$code"
+            grep -E '(^\[prerender\] visiting |^Error:|^Error |error|failed)' "$RUNNER_TEMP/pt-build.txt" |
+              tail -n 4 | sed -E 's#(\/home\/runner\/[^ :]+)#<private-path>#g' || true
+            exit 1
+          fi
+          echo "PT_RELEASE_BUILD=PASS"
+          echo "PT_RELEASE_HTML_COUNT=$(find dist-static -type f -name index.html | wc -l | tr -d ' ')"
+      - name: Exact 462 HTML, PT reciprocal sitemap and critical hosting
+        shell: bash
+        working-directory: pt-site
+        timeout-minutes: 12
+        run: |
+          set +e
+          fail=0
+          verify() {
+            label="$1"; shift
+            timeout 180 "$@" > "$RUNNER_TEMP/pt-final-$label.txt" 2>&1
+            code=$?
+            if [ "$code" -eq 0 ]; then
+              echo "PT_FINAL_$label=PASS"
+            else
+              echo "PT_FINAL_$label=FAIL_exit_$code"
+              grep -E '(^\[pt-static\]|^\[routes\]|^\[links\]|FAIL|ERROR|error)' "$RUNNER_TEMP/pt-final-$label.txt" |
+                sed -E 's#(\/home\/runner\/[^ :]+)#<private-path>#g' | tail -n 4 || true
+              fail=$((fail + 1))
+            fi
+          }
+          verify EXACT_462_HTML node scripts/check-portuguese-static-release.mjs
+          verify ROUTE_PARITY npm run check:routes
+          verify ATLAS npm run check:atlas
+          verify INTERNAL_LINKS npm run check:links
+          verify HOSTING npm run check:hosting-clean
+          verify SEO npm run check:seo
+          verify HTACCESS npm run check:htaccess
+          echo "PT_RELEASE_FAILURE_COUNT=$fail"
+          test "$fail" -eq 0
