@@ -1748,18 +1748,33 @@ try{
     // can be refused or its receipt invalidated. Preserve the actual status
     // and independent T2 readback instead of guessing from a selector timeout
     // or relaxing the signed Access and cold-recovery requirements.
-    const original=await browser.page.evaluate(async({serviceId,ws,id})=>{
-      const session=await IWXA.connect({service_id:serviceId});
+    // Independent read-only diagnostics must never replace the primary
+    // signed UI failure, even when the original T2 Kernel probe also fails.
+    const originalRead=browser.page.evaluate(async({serviceId,ws,id})=>{
       try{
-        const read=await session.t1.getObject(ws,id);
-        return {found:read?.object?.object_id===id,
-          revision:read?.object?.revision,
-          schema:read?.object?.schema_id};
-      }catch(e){return {error:e?.code??e?.message??String(e)};}
-    },{serviceId,ws:'ws:south',id:southCopy.copiedId});
+        const session=await IWXA.connect({service_id:serviceId});
+        const workspace=await session.t1.getWorkspace(ws).then(
+          w=>({found:w?.workspace_id===ws,profile:w?.profile}),
+          e=>({error:e?.code??e?.message??String(e)}));
+        const object=await session.t1.getObject(ws,id).then(
+          read=>({found:read?.object?.object_id===id,
+            revision:read?.object?.revision,
+            schema:read?.object?.schema_id}),
+          e=>({error:e?.code??e?.message??String(e)}));
+        return {workspace,object};
+      }catch(e){return {connectionError:e?.code??e?.message??String(e)};}
+    },{serviceId,ws:'ws:south',id:southCopy.copiedId})
+      .catch(e=>({probeError:e?.message??String(e)}));
+    const original=await Promise.race([
+      originalRead,
+      new Promise(resolve=>setTimeout(
+        ()=>resolve({probeError:'DIAGNOSTIC_READ_TIMEOUT'}),6000)),
+    ]);
+    const signedPanel=await recoveredPanel.innerText().catch(
+      e=>'PANEL_READ_ERROR: '+String(e?.message??e));
     console.log('T3_D1_CORPORATE_COLD_DRAFT_READBACK_DIAGNOSTIC',
       JSON.stringify({
-        signedPanel:(await recoveredPanel.innerText()).slice(0,2200),
+        signedPanel:signedPanel.slice(0,2200),
         currentWorkspace:await recoveredPanel.locator('strong').first()
           .textContent().catch(()=>null),
         selectedRecoverId:await recoveredPanel.getByTestId('t3-d5-recover-draft-id')
