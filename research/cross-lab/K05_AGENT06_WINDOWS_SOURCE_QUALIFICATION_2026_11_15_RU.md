@@ -212,3 +212,15 @@ Next practical owner workflow:
 Отдельная готовящаяся к новой source-квалификации измерительная доработка private K05 [`7f65cf03`](https://github.com/Faust-S/iwxa-personal-agent/commit/7f65cf038307d96e8b8e4c5fe31491be09f9c34e) сохраняет реальные `prompt_tokens` и `completion_tokens` из существующего завершённого llama-server ответа, если они являются валидными неперепутанными целыми; иначе `UNKNOWN`. Результаты K05 UI показывает строго как подписанную арифметическую разницу `second - first`, а не оценку общей стоимости. В Node-тестах выполняется реальная скомпилированная TSX-проекция, сравнение запрещено для `NOT_COMPARABLE`. Публичный source runner [Center №44350970764](https://github.com/Faust-S/Center/actions/runs/44350970764) запущен с точным `7f65cf03`; его результат ещё не заявлен. Последний установленный candidate остаётся `cbeb33d3`, потому что обязательный native CI нельзя подменять source-only PASS.
 
 Решение владельца от 18.11: `READY_FOR_AGENT_INTEGRATION=false`. Запрет на перенос K05 в центральную ветку записан также в `K05_AGENT06_INTEGRATION_GATE_2026_11_17_RU.md` (коммит `12cb7623`).
+
+### Итог текущей исходной квалификации измерения, 18.11
+
+Public Center [#44350970764](https://github.com/Faust-S/Center/actions/runs/44350970764) завершился `SUCCESS` на EXACT private Agent `7f65cf038307d96e8b8e4c5fe31491be09f9c34e`:
+- original Agent/K05 Python `104/104 PASS`; K05 CLI protocol `15/15`, observed real server token count validation `15/15`, executor-comparison `19/19`;
+- original package / static contracts `23/23 PASS`, cold packaged Core `1/1 PASS`, `0 SKIP`;
+- desktop UI/TypeScript/Vite, native PowerShell/UIA parser `PASS`;
+- Windows source CI and previous source [#44348329999](https://github.com/Faust-S/Center/actions/runs/44348329999) each have `0` published artifacts.
+
+Измерение токенов в `adapters/iwxa_llm_warm_session.py` принимает **только реальные** `prompt_tokens` и `completion_tokens` из provider `usage`, отклоняет булевы, строки, отрицательные, нецелые, слишком большие и несовместимые `total_tokens`; никакого восстановления по `requested_output_tokens`. K05 UI показывает `second − first` по времени, токенам и доступной стоимости только для `SOURCE_BOUND_EQUIVALENT_DISTINCT_TASKS`; отдельный Node-тест исполняет скомпилированную TSX projection. На этом этапе это измерительный **путь**, но не доказательство real effectiveness между двумя настоящими исполнителями.
+
+Нативный installed [#44348330057](https://github.com/Faust-S/Center/actions/runs/44348330057) использует прежний exact Agent `cbeb33d344f1fc6f1f52b9e0fbe35dab2ea1eff0` и ещё выполняется, не отменён source-only изменениями. На него не распространяется новый source PASS. `READY_FOR_AGENT_INTEGRATION=false`, `PRODUCT_ACCEPTED=false`, `REAL_TWO_EXECUTOR_EFFECTIVENESS=NOT_MEASURABLE`.
