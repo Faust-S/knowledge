@@ -128,6 +128,43 @@
           }
         },
         "authority_limit": "SOURCE_CONTRACT_AND_ORIGINAL_T2_REAL_HOST_ONLY_NO_PRIVATE_ADMIN_AGENT_SIGNED_E2E"
+      },
+      "d5_apple_metal_signed_source_2026_11_18": {
+        "status": "REAL_APPLE_WEBGPU_SOURCE_SCENARIO_PASS__COMPLETE_WORKFLOW_FAILURE_OTHER_D1_D3_STAGE",
+        "evidence": [
+          {
+            "run_id": 44304276180,
+            "exact_source_sha": "1f2fe79637c62b9ee81e4b1eadb6a19996948c08",
+            "workflow_conclusion": "failure",
+            "gpu": "Apple Paravirtual ANGLE Metal WebGPU",
+            "signed_one_dist_generation_chars": 37,
+            "offline_cold_generation_chars": 28,
+            "network_requests_during_cold": 0,
+            "original_t2_kernel": "0.3.6",
+            "original_kernel_readback": true,
+            "failed_later": "D3 CORP cold Workspace select disabled; no D5-full domain step"
+          },
+          {
+            "run_id": 44308946080,
+            "exact_source_sha": "d42ffadb42fb21981353aca023b6772544429f6e",
+            "workflow_conclusion": "failure",
+            "gpu": "Apple Paravirtual ANGLE Metal WebGPU",
+            "signed_one_dist_generation_chars": 24,
+            "offline_cold_generation_chars": 51,
+            "network_requests_during_cold": 0,
+            "original_t2_kernel": "0.3.6",
+            "original_kernel_readback": true,
+            "failed_later": "D1 CORP first-run gate showed Control refusal; no D5-full domain step"
+          }
+        ],
+        "boundary": "Genuine browser WebLLM WebGPU model generated local output on allocated macOS Apple Metal adapter in compiled split-origin T3 Host. Persistent browser profile, cold browser-process restart and offline second generation verified. Test-only signed owner in hardware generation scenario; NOT an independently installed private corporate signer, NOT full domain-level D5 PWA qualification and NOT universal G4 release.",
+        "regression_correction": {
+          "source": "packages/t3-core/src/workspace-host/bootstrap/SignedSelectedWorkspaceGate.tsx",
+          "commit": "2aa92a22203de298a69d4c32ada0d6bbed525001",
+          "cases": "typed original T2 WORKSPACE_NOT_FOUND accepted ONLY for prewrite first-run; PERMISSION_DENIED remains denied",
+          "mac_rerun": "44310606553 IN_PROGRESS_AT_RECORDING",
+          "source_unit_ci": "44310431312 IN_PROGRESS_AT_RECORDING"
+        }
       }
     },
     "private_original_d6": {
@@ -834,13 +871,13 @@
     "T3_ATLAS_SIGNED_FILE_OPTIONAL": "SOURCE_SIGNED_RECIPIENT_AND_INSTALLED_ATLAS_PRODUCT_PASS_PRIVATE_SIGNED_E2E_NOT_ACCEPTED_OPTIONAL_PROFILE",
     "T3_UNIVERSAL_RELEASE": "NOT_ACCEPTED_D1_D3_D5_D6_GENERIC_D7_HOLD",
     "D3_original_kernel_full_event_parity": "SOURCE_OBJECT_AND_FULL_EVENT_CANONICAL_READBACK_PASS_44299826868__ORIGINAL_PRIVATE_NATIVE_D3_HOLD",
-    "D5_hardware_current": "NOT_ACCEPTED_MACOS_GPU_RUN_44298912120_JOB_CANCELLED_NO_STEPS",
+    "D5_hardware_current": "SIGNED_ISOLATED_T3_HOST_REAL_APPLE_WEBGPU_TWO_GENERATIONS_COLD_OFFLINE_SOURCE_PASS_44304276180_44308946080__G4_NOT_ACCEPTED",
     "ADMIN_CENTER_03_D3_GENERIC_UI": "INSTALLED_CENTER_PUBLIC_WINDOWS_SUCCESS_44301852914_AT_565572a9_MERGED_5ff8947d_NO_PRIVATE_SIGNED_D3"
   },
   "next_critical_path": [
     "Release scope is PRODUCT_NEUTRAL_T3. Keep normative original T2 Kernel/Host/Workspace/Exchange/Lifecycle integrated in ONE T3. Use current exact public One Core CI + installed Agent test; never interpret source PASS as installed owner.",
     "Priority 1 D1/D3 WITHOUT ATLAS: Center PR #3 merged 5ff8947d, public installed Windows #44301852914 SUCCESS for standalone signed Task UI + optional Atlas 0.9. Still require actual PRIVATE corporate manager + independent employee signed enrollment, signed Task -> Agent native execution/accepted Result -> manager Human ACCEPT -> separately authorized original Kernel APPLY -> two cold readbacks. Do not mistake installed public Center for private signer readiness.",
-    "Priority 2 D5 HARDWARE OFFLINE: public macos-15 runner #44298912120 CANCELLED without steps (not a model failure and not GPU PASS); qualify actual WebGPU first and second offline cold generation in ONE original installed T3 Host on a GPU-capable witness, preserve exact source and model receipt.",
+    "Priority 2 D5 HARDWARE OFFLINE: Apple Metal GPU real WebLLM generation, cold browser-process offline regeneration and original Kernel readback confirmed in signed source Host on runs #44304276180 and #44308946080; both whole workflows failed in later corporate D1/D3 bootstrap. Source fix 2aa92a22 and test 42669592 are being qualified. Independently qualify domain-wide T3 PWA offline hardware flow and genuine installed private owner; do not label G4 ready.",
     "Priority 3 D6 GENERIC: prove one real accepted Result from original Agent or domain and one authorized recipient OTHER THAN OR WITHOUT Atlas, actual native owner receipt and read-only recovery; signed offline .iwxa only when independent exchange required.",
     "Priority 4 D7: original Publisher PERSON issue/renew/status/revoke with installed consumer and cold readback, independent of Atlas.",
     "Close Agent Setup Core 0.6 cross-version post-write Rollback separately; existing same-version managed-byte Repair native Windows #44282434511 SUCCESS is NOT cross-version rollback.",
@@ -894,7 +931,7 @@
     "independent_installed_d3": "HOLD",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
-    "hardware_offline_d5_latest": "NOT_REPEATED_IN_CI",
+    "hardware_offline_d5_latest": "SIGNED_T3_ONE_DIST_APPLE_METAL_REAL_GENERATION_COLD_OFFLINE_SOURCE_PASS_TWO_RUNS__DOMAIN_PWA_AND_INSTALLED_NATIVE_NOT_ACCEPTED",
     "strict_order": [
       "B0: verify exact complete normative T2 successor in ONE executable T3 One Dist and original Host/Kernel/Store/Exchange/Workspace/Lifecycle, with no second runtime or Atlas dependency",
       "D1 + D3: prove installed independent manager and employee Agent signed grants / Task, Human ACCEPT then separately consented original Kernel APPLY and two cold original receipts; NO Atlas WorkRef for normal Task",
