@@ -1,0 +1,125 @@
+name: d02-club-offline-t2-windows-qualification
+on:
+  push:
+    branches:
+      - work/2026-11-18-d02-club-qualification
+    paths:
+      - .github/workflows/d02-club-offline-t2-windows-qualification.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-build:
+    name: Full pinned T2 offline dependency and build qualification
+    runs-on: windows-latest
+    timeout-minutes: 55
+    env:
+      SITE_SHA: 58031793f02d2cde254ede44dd08c2c65260fe3d
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+    steps:
+      - name: Disable CRLF rewriting for exact T2 bytes
+        shell: pwsh
+        run: git config --global core.autocrlf false
+
+      - name: Checkout private Club build code only on temporary runner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+
+      - name: Checkout exact private normative T2 only on temporary runner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+
+      - name: Install private site CLI dependencies
+        shell: pwsh
+        working-directory: site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd02-offline-site-install-private.log'
+          & npm ci --no-audit --no-fund *> $log
+          if($LASTEXITCODE -ne 0) {
+            Write-Output 'D02_OFFLINE_SITE_CI=FAIL'
+            throw 'D02_OFFLINE_SITE_CI_FAILED'
+          }
+          Write-Output 'D02_OFFLINE_SITE_CI=PASS'
+
+      - name: Online warm-up then actual offline install of both original T2 lockfiles
+        shell: pwsh
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_T2_NPM_CACHE_DIR: ${{ runner.temp }}/club-t2-offline-dependencies
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd02-offline-preparation-private.log'
+          & npm run t2:cache:prepare -- --t2 $env:IWXA_T2_SOURCE_DIR --cache $env:IWXA_T2_NPM_CACHE_DIR *> $log
+          if($LASTEXITCODE -ne 0) {
+            Write-Output 'D02_OFFLINE_CACHE_PREPARE=FAIL'
+            Get-Content $log | Select-String -Pattern 'CLUB_T2_NPM_CACHE_[A-Z_]+|^npm error (code|errno)|^Error: [A-Z_]+' | Select-Object -Last 12 | ForEach-Object { Write-Output $_.Line }
+            throw 'D02_OFFLINE_CACHE_PREPARE_FAILED'
+          }
+          Write-Output 'D02_OFFLINE_CACHE_PREPARE=PASS kernel_and_host'
+
+      - name: Independently verify pinned T2 cache offline without installing packages
+        shell: pwsh
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_T2_NPM_CACHE_DIR: ${{ runner.temp }}/club-t2-offline-dependencies
+          npm_config_offline: 'true'
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd02-offline-verify-private.log'
+          & npm run t2:cache:verify -- --t2 $env:IWXA_T2_SOURCE_DIR --cache $env:IWXA_T2_NPM_CACHE_DIR *> $log
+          if($LASTEXITCODE -ne 0) {
+            Write-Output 'D02_OFFLINE_CACHE_VERIFY=FAIL'
+            Get-Content $log | Select-String -Pattern 'CLUB_T2_NPM_CACHE_[A-Z_]+|^npm error (code|errno)|^Error: [A-Z_]+' | Select-Object -Last 12 | ForEach-Object { Write-Output $_.Line }
+            throw 'D02_OFFLINE_CACHE_VERIFY_FAILED'
+          }
+          Write-Output 'D02_OFFLINE_CACHE_VERIFY=PASS'
+
+      - name: Force the exact original Kernel and Host installs offline and build integrated Club
+        shell: pwsh
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_T2_NPM_CACHE_DIR: ${{ runner.temp }}/club-t2-offline-dependencies
+          IWXA_T2_NPM_OFFLINE: '1'
+          npm_config_offline: 'true'
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd02-offline-build-private.log'
+          & npm run build *> $log
+          if($LASTEXITCODE -ne 0) {
+            Write-Output 'D02_OFFLINE_BUILD=FAIL'
+            Get-Content $log | Select-String -Pattern 'CLUB_T2_[A-Z_]+|K036_[A-Z_]+|^npm error (code|errno)|ENOTCACHED|EACCES|^Error: [A-Z_]+' | Select-Object -Last 15 | ForEach-Object { Write-Output $_.Line }
+            throw 'D02_OFFLINE_BUILD_FAILED'
+          }
+          Write-Output 'D02_OFFLINE_BUILD=PASS'
+          $gate=Join-Path $env:RUNNER_TEMP 'd02-offline-release-gate-private.log'
+          & npm run check:club-release *> $gate
+          if($LASTEXITCODE -ne 0) { throw 'D02_OFFLINE_RELEASE_GATE_FAILED' }
+          Write-Output 'D02_OFFLINE_RELEASE_GATE=PASS public_routes_40'
+          $count=(Get-ChildItem dist -Recurse -File | Measure-Object).Count
+          Write-Output "D02_OFFLINE_DIST_FILES=$count"
+          Write-Output 'D02_OFFLINE_PRODUCT_GUI_RECEIPT_IWXA=NOT_RUN'
+
+      - name: Confirm no private build artifacts are published
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Output 'D02_PRIVATE_CHECKOUTS_RUNNER_TEMPORARY=TRUE'
+          Write-Output 'D02_CLOSED_SOURCE_DIST_CACHE_ARTIFACTS_UPLOADED=FALSE'
