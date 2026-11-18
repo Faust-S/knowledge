@@ -22,7 +22,7 @@ jobs:
         shell: pwsh
     env:
       DOMAIN_SHA: 8aa740c44c57aa15452f647ebd7c8de5d506df7d
-      SITE_SHA: 699b4f520b4a4ae29964a8aaca87f3ae9b25c223
+      SITE_SHA: b1264f0a20dd1ed428fda832ae2a62f13d2d070c
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
