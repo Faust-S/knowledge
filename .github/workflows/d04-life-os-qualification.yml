@@ -1,0 +1,208 @@
+name: D04 BazMed Life OS qualification (private-source, no artifacts)
+on:
+  push:
+    branches:
+      - work/2026-11-18-d04-life-os-qualification
+    paths:
+      - .github/workflows/d04-life-os-qualification.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d04-life-os-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout public test harness only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify DOMEN access to the three requested private sources
+        id: access
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "D04_DOMEN_SECRET_UNAVAILABLE"
+            exit 1
+          fi
+          for repo in Faust-S/bazmed.ru Faust-S/bazmed Faust-S/T2; do
+            if ! gh api "repos/$repo" --jq '.id' >/dev/null 2>&1; then
+              echo "D04_PRIVATE_REPOSITORY_ACCESS_DENIED:$repo"
+              exit 1
+            fi
+          done
+          echo "D04_AUTHORIZED_PRIVATE_SOURCES=3/3"
+      - name: Checkout exact private BazMed site revision
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/bazmed.ru
+          ref: 84188a618eb35b0a68ce593dcc5e97eb07f704cb
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/site
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Checkout exact private BazMed subject revision
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/bazmed
+          ref: a148d0386a73fc0131f971075ce3743e7010e995
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/model
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Checkout exact normative private T2 revision
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 9c64951cd78411283e8a416641c36d71e169fc1d
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/t2
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify immutable site / subject / T2 revisions
+        run: |
+          set -euo pipefail
+          test "$(git -C d04-private/site rev-parse HEAD)" = "84188a618eb35b0a68ce593dcc5e97eb07f704cb"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "c584ec019f8b4ebc3571d4051e7b77287da475ca"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "a148d0386a73fc0131f971075ce3743e7010e995"
+          test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
+          for path in d04-private/site d04-private/model d04-private/t2; do
+            test -z "$(git -C "$path" status --porcelain --untracked-files=no)"
+          done
+          echo "D04_REVISIONS_AND_TREES=PASS"
+      - name: Set up Node.js 22 (no dependency cache)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install site dependencies without emitting private logs
+        id: install
+        working-directory: d04-private/site
+        run: |
+          set -euo pipefail
+          if npm ci --no-audit --no-fund --include=dev >"$RUNNER_TEMP/d04-install.log" 2>&1; then
+            echo "D04_NPM_CI=PASS"
+          else
+            echo "D04_NPM_CI=FAIL"
+            grep -Eo 'E[A-Z0-9_]{3,32}|ERR_[A-Z0-9_]+' "$RUNNER_TEMP/d04-install.log" | sort -u | head -12 || true
+            exit 1
+          fi
+      - name: Run original Life OS source and behavioral test suite
+        id: research
+        continue-on-error: true
+        working-directory: d04-private/site
+        run: |
+          set -uo pipefail
+          npm run check:life-os:research >"$RUNNER_TEMP/d04-research.log" 2>&1
+          code=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) ' "$RUNNER_TEMP/d04-research.log" | tail -7 || true
+          if [ "$code" -ne 0 ]; then
+            echo "D04_RESEARCH_TESTS=FAIL"
+            grep '^not ok ' "$RUNNER_TEMP/d04-research.log" | head -14 | sed -E 's/^not ok ([0-9]+) - /D04_FAILED_TEST_\1=/' || true
+            exit "$code"
+          fi
+          echo "D04_RESEARCH_TESTS=PASS"
+      - name: Run original T2 entry and Host integration source tests
+        id: entry
+        continue-on-error: true
+        working-directory: d04-private/site
+        run: |
+          set -uo pipefail
+          npm run check:t2:entry >"$RUNNER_TEMP/d04-entry.log" 2>&1
+          code=$?
+          grep -E '^# (tests|pass|fail|skipped|cancelled) ' "$RUNNER_TEMP/d04-entry.log" | tail -7 || true
+          if [ "$code" -ne 0 ]; then
+            echo "D04_T2_ENTRY_TESTS=FAIL"
+            grep '^not ok ' "$RUNNER_TEMP/d04-entry.log" | head -14 | sed -E 's/^not ok ([0-9]+) - /D04_FAILED_TEST_\1=/' || true
+            exit "$code"
+          fi
+          echo "D04_T2_ENTRY_TESTS=PASS"
+      - name: Check all existing tool links
+        id: links
+        continue-on-error: true
+        working-directory: d04-private/site
+        run: |
+          if npm run check:tool-links >"$RUNNER_TEMP/d04-links.log" 2>&1; then
+            echo "D04_TOOL_LINKS=PASS"
+          else
+            echo "D04_TOOL_LINKS=FAIL"
+            exit 1
+          fi
+      - name: Full TypeScript check
+        id: types
+        continue-on-error: true
+        working-directory: d04-private/site
+        run: |
+          if npx tsc --noEmit --pretty false >"$RUNNER_TEMP/d04-types.log" 2>&1; then
+            echo "D04_TYPESCRIPT=PASS"
+          else
+            echo "D04_TYPESCRIPT=FAIL"
+            grep -Eo 'error TS[0-9]+' "$RUNNER_TEMP/d04-types.log" | sort | uniq -c | head -20 || true
+            exit 1
+          fi
+      - name: Lint
+        id: lint
+        continue-on-error: true
+        working-directory: d04-private/site
+        run: |
+          if npm run lint >"$RUNNER_TEMP/d04-lint.log" 2>&1; then
+            echo "D04_LINT=PASS"
+          else
+            echo "D04_LINT=FAIL"
+            grep -Eo '[a-z@/-]+$' "$RUNNER_TEMP/d04-lint.log" | sort | uniq -c | sort -nr | head -12 || true
+            exit 1
+          fi
+      - name: Build real original T2 Host, qualified Kernel, static site and Chromium smoke
+        id: integrated
+        continue-on-error: true
+        working-directory: d04-private/site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
+        run: |
+          set -uo pipefail
+          npm run build:t2:site >"$RUNNER_TEMP/d04-integrated.log" 2>&1
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            echo "D04_INTEGRATED_T2_BUILD=FAIL"
+            grep -Eo 'BAZMED_[A-Z0-9_]+|D04_[A-Z0-9_]+|ERR_[A-Z0-9_]+' "$RUNNER_TEMP/d04-integrated.log" | sort -u | tail -25 || true
+            grep -Eo 'error TS[0-9]+' "$RUNNER_TEMP/d04-integrated.log" | sort -u | head -15 || true
+            exit "$code"
+          fi
+          for file in dist/index.html dist/workspace/index.html \
+            dist/workspace/exchange/index.html dist/workspace/lifecycle/index.html \
+            dist/_iwxa/current.json dist/_iwxa/runtime/0.3.6/runtime.js; do
+            if [ ! -s "$file" ]; then
+              echo "D04_REQUIRED_DIST_FILE_MISSING"
+              exit 1
+            fi
+          done
+          echo "D04_INTEGRATED_T2_BUILD=PASS"
+          echo "D04_NATIVE_KERNEL_AND_HOST_FILES=PASS"
+          echo "D04_CHROMIUM_SMOKE=PASS_IN_BUILD"
+          # Do not upload private dist, private logs, browser profiles or files.
+      - name: Enforce qualification status without uploading artifacts
+        if: always()
+        env:
+          RESEARCH: ${{ steps.research.outcome }}
+          ENTRY: ${{ steps.entry.outcome }}
+          LINKS: ${{ steps.links.outcome }}
+          TYPES: ${{ steps.types.outcome }}
+          LINT: ${{ steps.lint.outcome }}
+          INTEGRATED: ${{ steps.integrated.outcome }}
+        run: |
+          echo "D04_STAGE_OUTCOMES=research:$RESEARCH,entry:$ENTRY,links:$LINKS,types:$TYPES,lint:$LINT,integrated:$INTEGRATED"
+          for outcome in "$RESEARCH" "$ENTRY" "$LINKS" "$TYPES" "$LINT" "$INTEGRATED"; do
+            if [ "$outcome" != "success" ]; then
+              echo "D04_PRODUCT_QUALIFICATION=INCOMPLETE"
+              exit 1
+            fi
+          done
+          echo "D04_SOURCE_AND_INTEGRATED_QUALIFICATION=PASS"
+          echo "D04_FULL_PRODUCT_ACCEPTANCE=NOT_YET_QUALIFIED"
