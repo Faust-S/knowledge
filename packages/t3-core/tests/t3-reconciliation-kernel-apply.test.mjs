@@ -20,7 +20,8 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
     purpose:"result.apply",resource:"ws:a",workspace_id:"ws:a",scope_revision:1};
   const command={workspace_id:"ws:a",idempotency_key:effect,
     object:{object_id:"result:one",schema_id:"iwxa.result.native",
-      schema_version:"1.0.0",base_revision:0,data:{text:"reviewed"}},
+      schema_version:"1.0.0",base_revision:0,
+      data:{text:"reviewed",review_meta:{status:"accepted",approvalCount:2}}},
     event:{event_type:"native.result.applied",payload:{
       reconciliation_acceptance_id:accepted,
       reconciliation_revision_ids:[rev],
@@ -38,7 +39,7 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   };
   let written=null,lastEvent=null,loseAckAfterWrite=false;
   let tamperInitialEvent=false,hideOriginalEvent=false,duplicateEvent=false;
-  let tamperStoredProvenance=false;
+  let tamperStoredProvenance=false,tamperStoredData=false;
   let getObjectErrorCode=null,eventsErrorCode=null;
   const hash=value=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
   const access={
@@ -99,7 +100,10 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
         return written?{object:{
           workspace_id:"ws:a",object_id:"result:one",revision:1,
           schema_id:"iwxa.result.native",schema_version:"1.0.0",
-          data:{text:"reviewed"}},relations:{incoming:[],outgoing:[]}}:null;
+          // Original T2 canonicalizes nested JSON key ordering on disk.
+          data:{review_meta:{approvalCount:tamperStoredData?3:2,
+            status:"accepted"},text:"reviewed"}},
+          relations:{incoming:[],outgoing:[]}}:null;
       },
       listEventsSince:async()=>{
         if(eventsErrorCode)throw Object.assign(Error(eventsErrorCode),
@@ -352,5 +356,16 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   };
   const reordered=await makePort().recoverApplied(selection);
   assert.equal(reordered.status,"ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
+  assert.equal(commits,beforeUncertain+4);
+  // A genuinely changed result body is still NOT confirmed, even though
+  // the same body with reversed JSON keys is correctly recognized above.
+  tamperStoredData=true;
+  const corrupted=await makePort().recoverApplied(selection);
+  assert.equal(corrupted.status,"OUTCOME_UNKNOWN");
+  assert.equal(corrupted.automaticRetryAllowed,false);
+  assert.equal(commits,beforeUncertain+4);
+  tamperStoredData=false;
+  assert.equal((await makePort().recoverApplied(selection)).status,
+    "ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
   assert.equal(commits,beforeUncertain+4);
 });
