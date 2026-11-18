@@ -125,6 +125,11 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
+          # .private is a TEMPORARY sparse test fixture inside this public
+          # checkout, not One Core source. Keep the original T3 builder's
+          # strict clean-source assertion without treating this fixture as
+          # a dirty change to the public implementation.
+          Add-Content -LiteralPath '.git/info/exclude' -Value '/.private/'
           $builder=(Resolve-Path '.private/t3/scripts/build-admin-center-d3-owner.ps1').Path
           $tokens=[System.Management.Automation.Language.Token[]]@()
           $parseErrors=[System.Management.Automation.Language.ParseError[]]@()
