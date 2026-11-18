@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {qualifyOriginalAgentD3Source,AGENT_ORIGINAL_PIN}
+import {qualifyOriginalAgentD3Source,qualifyOriginalAgentWithAllowedTokens,AGENT_ORIGINAL_PIN}
   from '../scripts/qualify-original-agent-d3-port.mjs';
 
 test('Agent private employee source has exact non-branch code pin',()=>{
@@ -50,4 +50,30 @@ test('oversized original Agent source is rejected before executing Python',async
     token:'fake',
     fetchFile:async()=>Buffer.alloc(129*1024),
   }),{message:'T3_AGENT_PRIVATE_SOURCE_FILE_INVALID'});
+});
+
+test('fallback uses only already granted credentials and never clones repository',async()=>{
+  const requested=[];
+  const fixtures={
+    'runtime/t3_original_employee_port.py':Buffer.from('class OriginalEmployeePort: pass\n'),
+    'tests/test_agent06_corporate_t3_employee.py':Buffer.from([
+      'import unittest',
+      'class TestReceipt(unittest.TestCase):',
+      ' def test_uncertain_native_write_blocks_waiting_consequential_request(self):',
+      '  self.assertTrue(True)',
+      'for i in range(10):',
+      ' setattr(TestReceipt,"test_case_"+str(i),lambda self:self.assertTrue(True))',
+    ].join('\n')+'\n'),
+  };
+  const result=await qualifyOriginalAgentWithAllowedTokens({
+    tokens:['denied-credential','allowed-credential'],
+    fetchFile:async(path,token)=>{
+      requested.push([path,token]);
+      if(token==='denied-credential')throw Error('T3_PRIVATE_SOURCE_FETCH_404');
+      return fixtures[path];
+    },
+  });
+  assert.equal(result.tests,11);
+  assert.deepEqual(requested.map(item=>item[1]),
+    ['denied-credential','allowed-credential','allowed-credential']);
 });
