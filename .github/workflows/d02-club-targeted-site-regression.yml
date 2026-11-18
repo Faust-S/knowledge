@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      SITE_SHA: c6ae2ad107a488cf6760ae33d4ee10312765dbf0
+      SITE_SHA: dcc2957315fb84d66b1079f9232be58e74927b81
     steps:
       - name: Checkout exact private candidate without logging or publishing content
         uses: actions/checkout@v4
@@ -39,7 +39,7 @@ jobs:
           if($LASTEXITCODE -ne 0) { throw 'D02_TARGETED_NPM_CI_FAILED' }
           Write-Output 'D02_TARGETED_NPM_CI=PASS'
 
-      - name: Run unified 25-service UX plus eight critical site scenarios
+      - name: Run Club user-journey regression including project passport
         shell: pwsh
         working-directory: site
         run: |
@@ -70,6 +70,7 @@ jobs:
             'test:club-route-resume-ux',
             'test:club-evidence-portfolio',
             'test:club-case-route-integration',
+            'test:club-project-passport',
             'test:club-route-draft-scopes'
           )
           $fail=0
