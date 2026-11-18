@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: t3-original-private-owner-${{ github.ref }}-${{ github.sha }}
+  group: t3-original-private-owner-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
