@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      SITE_SHA: 5e5c92dbc035b3a43f7bcb999ceedfc1d45c664d
+      SITE_SHA: 795e45f20f5619ba35170c5e274d3c1a8888aa09
     steps:
       - name: Checkout exact private candidate without logging or publishing content
         uses: actions/checkout@v4
