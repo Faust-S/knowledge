@@ -86,33 +86,11 @@ jobs:
             $txt = Get-Content -LiteralPath $log -Raw
             Write-Host ("D06_ITEM_E2E_TIMEOUT_CLASS=" + [int]($txt -match "TimeoutError|Timeout [0-9]+ms exceeded"))
             Write-Host ("D06_ITEM_E2E_ASSERTION_CLASS=" + [int]($txt -match "AssertionError|expect\\(.*\\)\\.to"))
-            $classes = [ordered]@{
-              "NO_TESTS" = "No tests found|unknown option|unexpected argument"
-              "BROWSER_LAUNCH" = "Failed to launch|Executable doesn't exist"
-              "NAVIGATION" = "locator\\.(click|fill)|ERR_CONNECTION|ECONNREFUSED"
-              "ASSERTION" = "expected|Received|toHave|toBeVisible|toContainText"
-              "TIMEOUT" = "TimeoutError|Timeout [0-9]+ms|Test timeout"
-              "RUNTIME" = "TypeError|ReferenceError|Cannot find module|ERR_MODULE_NOT_FOUND"
-              "TEST_RUNNER" = "Running [0-9]+ tests|\\[chromium\\]"
-            }
-            foreach ($key in $classes.Keys) {
-              Write-Host ("D06_ITEM_E2E_CLASS_" + $key + "=" + [int]($txt -match $classes[$key]))
-            }
-            $count = [regex]::Matches($txt, '(?m)^\\s*([0-9]+) failed\\s*
-          }
-          Write-Host "D06_ITEM_E2E=PASS"
-      - name: Confirm private source isolation
-        if: always()
-        shell: pwsh
-        run: |
-          Write-Host "D06_ITEM_PRIVATE_SOURCE_PUBLICATION=0"
-          Write-Host "D06_ITEM_PRIVATE_DIST_PUBLICATION=0"
-          Write-Host "D06_ITEM_PRIVATE_TEST_REPORT_PUBLICATION=0"
-)
-            if ($count.Count -gt 0) {
-              Write-Host ("D06_ITEM_E2E_FAILED_COUNT=" +
-                $count[$count.Count - 1].Groups[1].Value)
-            }
+            Write-Host ("D06_ITEM_E2E_NO_TESTS=" + [int]($txt -match "No tests found|unknown option|unexpected argument"))
+            Write-Host ("D06_ITEM_E2E_RUNTIME=" + [int]($txt -match "TypeError|ReferenceError|Cannot find module|ERR_MODULE_NOT_FOUND"))
+            Write-Host ("D06_ITEM_E2E_NAVIGATION=" + [int]($txt -match "locator\\.(click|fill)|ERR_CONNECTION|ECONNREFUSED"))
+            Write-Host ("D06_ITEM_E2E_EXPECT=" + [int]($txt -match "toHave|toBeVisible|toContainText|AssertionError"))
+            Write-Host ("D06_ITEM_E2E_RUNNER=" + [int]($txt -match "Running [0-9]+ tests|\\[chromium\\]"))
             exit 1
           }
           Write-Host "D06_ITEM_E2E=PASS"
