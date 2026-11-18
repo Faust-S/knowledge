@@ -153,7 +153,7 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
     owner=openInstalledOriginalAdminD3HostPort(args);
     const snap=owner.nativeState().view.snapshot;
     assert.equal(snap.d3EmployeeRegistryBootstrapAvailable,true);
-    const binding={organizationId:productionOrg,workspaceId:productionWs,
+    let binding={organizationId:productionOrg,workspaceId:productionWs,
       actorId:snap.actorId,contextId:snap.contextId,
       contextEpoch:snap.contextEpoch};
     const action=async(operation,input={},archivePath=null)=>{
@@ -233,11 +233,67 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
     assert.equal(events.filter(e=>e.event_type===
       't3.access.signed_registry.persisted').length,3);
     console.log('G4_ORIGINAL_PRODUCTION_EMPLOYEE_REAL_T2_KERNEL_ENROLLED_PASS');
+    onPhase('ORIGINAL_PRODUCTION_EMPLOYEE_KERNEL_TASK_DATA_GRANT');
+    const taskGrant=await action('d3EmployeeTaskGrantIssue',{
+      confirmed:true,employeePersonId:candidate.employeePersonId,
+      enrollmentId:started.enrollmentId,
+    });
+    assert.equal(taskGrant.state,'ORIGINAL_MANAGER_TASK_DATA_ACTIVE');
+    assert.equal(taskGrant.originalReadback,true);
+    const invitePath=join(workRoot,'original-production-signed-invite.iwxa');
+    onPhase('ORIGINAL_PRODUCTION_EMPLOYEE_KERNEL_INVITATION');
+    const invitation=await action('d3EmployeeExportInvite',{
+      employeePersonId:candidate.employeePersonId,
+      enrollmentId:started.enrollmentId,
+    },invitePath);
+    assert.equal(invitation.originalSigned,true);
+    assert.equal(invitation.invitationDelivered,false);
+    assert.ok(existsSync(invitePath));
+    const taskId='task:g4-'+randomUUID();
+    onPhase('ORIGINAL_PRODUCTION_EMPLOYEE_KERNEL_SIGNED_TASK');
+    const created=await action('d3EmployeeCreateTask',{
+      confirmed:true,taskId,
+      task:'Inspect equipment quotations, validate constraints and return accepted findings.',
+      employeePersonId:candidate.employeePersonId,
+      enrollmentId:started.enrollmentId,
+    });
+    assert.equal(created.state,'SIGNED_TASK_CREATED_NOT_DELIVERED');
+    assert.equal(created.recipientId,candidate.employeePersonId);
+    // Original signed Task increments the epoch and detaches the old Kernel.
+    // Reattach the SAME qualified T2 facade with a fresh exact context,
+    // without another signer, Store, or extra Kernel process.
+    owner.attachOriginalKernel({
+      kernel:facade,createSignedAccessHostPort,
+      createTrustedReconciliationKernelApply,
+      createOriginalKernelRegistryStatePort,
+      createOriginalEmployeeEnrollmentOwner,
+      confirmSeparateApply:async()=>false,
+    });
+    const fresh=owner.nativeState().view.snapshot;
+    binding={organizationId:productionOrg,workspaceId:productionWs,
+      actorId:fresh.actorId,contextId:fresh.contextId,
+      contextEpoch:fresh.contextEpoch};
+    const taskPath=join(workRoot,'original-production-signed-task.iwxa');
+    onPhase('ORIGINAL_PRODUCTION_EMPLOYEE_KERNEL_TASK_EXPORT');
+    const exported=await action('d3EmployeeExportTask',{
+      taskId,employeePersonId:candidate.employeePersonId,
+      enrollmentId:started.enrollmentId,
+    },taskPath);
+    assert.equal(exported.status,'EXPORTED_UNDELIVERED');
+    assert.equal(exported.packageSha256,created.packageSha256);
+    assert.ok(existsSync(taskPath));
+    const latest=await facade.getObject(productionWs,
+      't3.access.signed-registry');
+    assert.equal(latest.object.revision,4);
+    console.log('G4_ORIGINAL_PRODUCTION_EMPLOYEE_REAL_T2_TASK_ISSUED_PASS');
+
     // First source-only qualification ends at real Kernel grants; installed
     // native Human ACCEPT / separate Human APPLY is a distinct next gate.
-    return {registryRevision:current.object.revision,
+    return {registryRevision:latest.object.revision,
       employeePersonId:candidate.employeePersonId,
-      signedGrantIds:signed.grantIds};
+      signedGrantIds:signed.grantIds,taskId,
+      taskRevisionId:created.taskRevisionId,
+      invitationPath:invitePath,taskPath};
   }finally{
     await owner?.close().catch(()=>{});
     await browser?.close().catch(()=>{});
