@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 66821d1c600c85c9bd388079d77bdd724519cdeb
+          ref: e5e89d6b5e0ef6285795bc4f17be42db30b9e80c
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -62,7 +62,7 @@ jobs:
       - name: Verify immutable source identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "66821d1c600c85c9bd388079d77bdd724519cdeb"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "e5e89d6b5e0ef6285795bc4f17be42db30b9e80c"
           test "$(git -C d04-private/model rev-parse HEAD)" = "a148d0386a73fc0131f971075ce3743e7010e995"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           echo "D04_RECOVERY_EXACT_SOURCE=PASS"
