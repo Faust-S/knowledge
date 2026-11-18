@@ -136,7 +136,7 @@ jobs:
             "scripts/verify-cehovod-product.mjs",
             "scripts/d05-first-use-real-kernel-witness.mjs",
           ];
-          const format = (c) => /[\s,;]/u.test(c);
+          const format = (c) => /[\s,;()*]/u.test(c);
           function separate(s) {
             const chars = [], gaps = [];
             let run = "";
