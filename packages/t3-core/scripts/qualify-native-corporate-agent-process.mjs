@@ -101,6 +101,7 @@ export async function qualifyNativeOriginalEmployee({
       ProgramData:process.env.ProgramData??'',PATHEXT:process.env.PATHEXT??'',
       TEMP:process.env.TEMP??tmpdir(),TMP:process.env.TMP??tmpdir(),
       HOME:process.env.HOME??'',PYTHON_COMMAND:python,CI:'true',
+      G4_ORIGINAL_QUALIFIED_T2_DIST:process.env.G4_ORIGINAL_QUALIFIED_T2_DIST??'',
     };
     const driver=join(process.cwd(),'packages','t3-core','tests',
       'g4-original-agent-native-windows.mjs');
@@ -120,6 +121,7 @@ export async function qualifyNativeOriginalEmployee({
       'G4_ORIGINAL_PRODUCTION_INDEPENDENT_AGENT_IPC_FIRST_USE_PASS',
       'G4_ORIGINAL_PRODUCTION_AGENT_FIRST_USE_NO_REPLAY_PASS',
       'G4_ORIGINAL_PRODUCTION_AGENT_MEMBERSHIP_CHALLENGE_PASS',
+      'G4_ORIGINAL_PRODUCTION_EMPLOYEE_REAL_T2_KERNEL_ENROLLED_PASS',
     ];
     const passed=run.status===0&&markers.every(x=>output.includes(x));
     console.log('G4_NATIVE_ORIGINAL_T3_FILES_READ',t3Count);
