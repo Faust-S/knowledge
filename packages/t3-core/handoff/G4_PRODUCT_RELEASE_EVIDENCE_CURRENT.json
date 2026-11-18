@@ -375,6 +375,24 @@
         "sparse_or_cyclic_input": "DENY_AS_NON_JSON",
         "replayed_writes": 0,
         "installed_private_corporate_app": "NOT_RUN"
+      },
+      "d5_latest_macos_recheck_2026_11_18": {
+        "source_sha": "c2f21d03b92430c6bd176a8e3d794b62912a1b47",
+        "run_id": 44326855603,
+        "workflow_conclusion": "FAILURE",
+        "jobs": {
+          "test": "SUCCESS",
+          "real_host": "SUCCESS",
+          "windows_credential": "SUCCESS",
+          "metal_webgpu": "CANCELLED_ZERO_STEPS"
+        },
+        "result": "NO_NEW_GPU_HARDWARE_WITNESS",
+        "previous_qualified": {
+          "run_id": 44321733973,
+          "source_sha": "a24b575ecaa35e0f2b786c1a061f3a782bd7eb34",
+          "conclusion": "SUCCESS"
+        },
+        "no_inferred_gpu_failure": true
       }
     },
     "private_original_d6": {
@@ -1049,6 +1067,37 @@
       "supported_user_route": "Installed Center 0.3 via Setup Core, normal management Task draft without Atlas; optional linked Atlas native project revisions retain exact JIT readback; installed Atlas 0.9 same Windows host, owner .iwxa and changed revision refuse stale WorkRef; user-facing mandatory-Atlas release text removed.",
       "excluded": "No original PRIVATE independently signed manager/employee D1/D3 issuer or Agent accepted Result/ACCEPT/KERNEL APPLY in this public CI. Does NOT close corporate G4 D1/D3 installed E2E. No private Actions.",
       "level": "PRODUCT_CENTER_INSTALLED_OPTIONAL_ATLAS_GUI_PASS"
+    },
+    "original_private_d3_native_context_2026_11_18": {
+      "repository": "Faust-S/T3",
+      "branch": "work/2026-11-16-admin03-independent-employee-owner",
+      "exact_code_sha": "75c8188e28cf3fc2df2f253b1705006fe172c138",
+      "modified_files": [
+        "interop/native-admin-d3.mjs",
+        "tests/admin-original-host-port.test.mjs"
+      ],
+      "changes": "Persistent original D3 Host, after-native-write readback and legacy CLI now compare all signed context fields regardless of original T2 JSON object property order. Mutated or missing grant/epoch/other fields deny. Private regression covers canonical order between actual signed Task ISSUE and durable readback; no Atlas WorkRef.",
+      "local_isolated_comparator": {
+        "tests": 9,
+        "pass": 9,
+        "fail": 0,
+        "scope": "PURE_COMPARATOR_ONLY_NOT_PRIVATE_NATIVE_FULL_SUITE"
+      },
+      "private_suite": "NOT_RUN",
+      "public_qualification": {
+        "repository": "Faust-S/Center",
+        "exact_sha": "221c7c667a614a807b4a7558e449f9c5d5c52e5b",
+        "run_id": 44334094866,
+        "conclusion": "FAILURE_BEFORE_TESTS",
+        "jobs": {
+          "d1_original": "HTTP_403_PRIVATE_CHECKOUT",
+          "d3_native_source": "HTTP_403_PRIVATE_CHECKOUT"
+        },
+        "private_tests_executed": 0,
+        "reason": "temporary secret exists but GitHub denied Faust-S/T3 repository checkout with 403"
+      },
+      "installed_manager_agent_d3": "NOT_RUN",
+      "release_effect": "SOURCE_PATCH_ONLY_NO_PRIVATE_OWNER_NOR_INSTALLED_G4_ACCEPTANCE"
     }
   },
   "accepted_gates": {
@@ -1059,7 +1108,7 @@
     "D6_main_native_sender": "CORE_SOURCE_PASS",
     "D7_native_age_prior": "PASS_NOT_REPEATED_IN_LATEST_CI",
     "installed_original_private_d6": "HOLD",
-    "installed_employee_d1_d3": "HOLD_ORIGINAL_INDEPENDENT_PRIVATE_ED25519_AGENT_RESULT_ACCEPT_SEPARATE_APPLY_NOT_RUN",
+    "installed_employee_d1_d3": "HOLD_PRIVATE_ORIGINAL_D3_NATIVE_CONTEXT_FIX_75c8188e_SOURCE_SUITE_BLOCKED_44334094866_HTTP_403_INSTALLED_ADMIN_AGENT_NOT_RUN",
     "installed_agent_atlas_d6": "HOLD",
     "installed_publisher_d7": "HOLD",
     "cross_product_G4": "NOT_ACCEPTED",
@@ -1087,7 +1136,7 @@
   },
   "next_critical_path": [
     "Release scope is PRODUCT_NEUTRAL_T3. Keep normative original T2 Kernel/Host/Workspace/Exchange/Lifecycle integrated in ONE T3. Use current exact public One Core CI + installed Agent test; never interpret source PASS as installed owner.",
-    "Priority 1 D1/D3 WITHOUT ATLAS: Center PR #3 merged 5ff8947d, public installed Windows #44301852914 SUCCESS for standalone signed Task UI + optional Atlas 0.9. Still require actual PRIVATE corporate manager + independent employee signed enrollment, signed Task -> Agent native execution/accepted Result -> manager Human ACCEPT -> separately authorized original Kernel APPLY -> two cold readbacks. Do not mistake installed public Center for private signer readiness.",
+    "Priority 1 D1/D3 without Atlas: private original T3 native D3 signer owner updated at 75c8188e. Public Center CI 44334094866 failed BEFORE original private checkout tests (HTTP 403 despite token being set). Restore scoped GitHub read access to Faust-S/T3 in the existing public Center secret, run original owner suite, then qualify genuinely installed independent manager+Agent employee signed Task/accepted Result/Human ACCEPT/separate Kernel APPLY and two cold reads. No private Actions or private code publication.",
     "Priority 2 D5: compiled source-Host Apple Metal WebLLM generation, zero-network cold restart, independent domain PWA second generation and original Kernel readback PASS in complete public CI #44321733973 at a24b575e. Not automatically inherited by later SHA, and not installed original private signer/Agent Host; repeat hardware on final integrated candidate. Do not merge D3 failure status with D5 hardware evidence.",
     "Priority 3 D6 GENERIC: prove one real accepted Result from original Agent or domain and one authorized recipient OTHER THAN OR WITHOUT Atlas, actual native owner receipt and read-only recovery; signed offline .iwxa only when independent exchange required.",
     "Priority 4 D7: original Publisher PERSON issue/renew/status/revoke with installed consumer and cold readback, independent of Atlas.",
@@ -1139,10 +1188,10 @@
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
     "original_private_native_signer": "NOT_QUALIFIED",
-    "independent_installed_d3": "HOLD",
+    "independent_installed_d3": "HOLD_PRIVATE_NATIVE_D3_SOURCE_PATCH_75c8188e__PUBLIC_CENTER_44334094866_PRETEST_CHECKOUT_403__INSTALLED_CORPORATE_SIGNER_AGENT_NOT_RUN",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
-    "hardware_offline_d5_latest": "SOURCE_APPLE_METAL_FULL_SIGNED_DOMAIN_AND_COLD_OFFLINE_PASS_44321733973_AT_a24b575e__HARDWARE_NOT_REPEATED_AT_8d3c0344__PRIVATE_INSTALLED_D5_HOLD",
+    "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_HOST_PASS_44321733973_AT_a24b575e__RERUN_44326855603_AT_c2f21d03_CANCELLED_ZERO_HARDWARE_STEPS__LATEST_SOURCE_8d3c0344_GPU_NOT_RUN",
     "strict_order": [
       "B0: verify exact complete normative T2 successor in ONE executable T3 One Dist and original Host/Kernel/Store/Exchange/Workspace/Lifecycle, with no second runtime or Atlas dependency",
       "D1 + D3: prove installed independent manager and employee Agent signed grants / Task, Human ACCEPT then separately consented original Kernel APPLY and two cold original receipts; NO Atlas WorkRef for normal Task",

@@ -1,5 +1,16 @@
 # IWXA T3 G4: единая миграция разработки в новый чат
 
+## 18.11.2026: private original D3 native context fix, CI checkout blocked
+
+Original private T3 Owner code: Faust-S/T3@75c8188e28cf3fc2df2f253b1705006fe172c138.
+Persistent D3 Host, native post-write readback and historical CLI now compare every signed subject field by field presence, primitive type and exact value, independently of JSON key order. A grant or epoch change is still denied. Existing private tests/admin-original-host-port.test.mjs has a regression involving original signed Task issue, reversal of property order across native readback and changed-grant refusal. No new Kernel, IAM, Store, signer, product or mandatory Atlas integration.
+
+Qualification boundary: isolated local comparator tests 9/9 PASS. The full private original Host suite is NOT_RUN. The public Center scoped checkout workflow was extended at 221c7c667a614a807b4a7558e449f9c5d5c52e5b. Actions #44334094866 FAILURE: both D1 and new D3 jobs stopped at checkout of private Faust-S/T3 with HTTP 403 before executing any private test. The secret was present, but repository permissions did not authorize checkout. No private source or test output was uploaded. Do not claim signed owner source CI PASS or installed D3 PASS from this run. Private Actions remain PROHIBITED.
+
+Hardware: knowledge #44326855603 FAILURE because macOS metal-webgpu job was CANCELLED before executing any steps. Source test, real-host and windows-credential passed there. This does not invalidate true Apple Metal D5 source-Host PASS at #44321733973 (a24b575e), but new source 8d3c0344 (786/786 Node PASS #44327463174) has no new hardware witness.
+
+Next: restore the existing scoped read-only public Center checkout to private Faust-S/T3; run pinned original private native owner suite. Then installed independent Admin manager -> employee Agent -> signed Task -> accepted Result -> manager Human ACCEPT -> separate Kernel APPLY -> two cold independent readbacks. D6 generic recipient and D7 PERSON remain separate, without Atlas as release dependency. T3_READY=false, G4=NOT_ACCEPTED.
+
 ## 18.11.2026: D3 complete large JSON, final exact source CI
 
 **Code:** `Faust-S/knowledge@8d3c0344f6152636b3ae4f9b1c67cff6be14690a`, [GitHub Actions №44327463174](https://github.com/Faust-S/knowledge/actions/runs/44327463174) **SUCCESS**: original T3 Node **786/786**, Host, Windows credentials PASS; Metal and native age/model SKIPPED. This supersedes the preceding code `35ed15dc` but not its source evidence.
