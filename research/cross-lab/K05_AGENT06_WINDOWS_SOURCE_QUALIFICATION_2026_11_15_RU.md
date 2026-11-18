@@ -310,3 +310,15 @@ Installed [Center #44372957899](https://github.com/Faust-S/Center/actions/runs/4
 Public Center pinned [`2d798a6f`](https://github.com/Faust-S/Center/commit/2d798a6f1e3e18449e527cc11edcda352a6b683f). [Source Windows #44386022527](https://github.com/Faust-S/Center/actions/runs/44386022527) **SUCCESS**: `121/121` original Agent/K05 Python, `32/32` CLI protocol, `19/19` comparison, `15/15` observed usage, package `29/29`, cold Core `1/1` (0 SKIP), TypeScript/Vite/UIA PASS. [Installed Windows #44386022555](https://github.com/Faust-S/Center/actions/runs/44386022555) запущен на той же exact private SHA, итог на момент записи **НЕ ПОЛУЧЕН**. Нельзя выдавать `--no-escape` за доказанное решение K03 до него.
 
 Главный Agent 0.6 и Office/D3/D6 не изменены, публичные private binary/artifact uploads запрещены. `SOURCE_PASS=true`, `INSTALLED_ACCEPTED=false`, `PRODUCT_ACCEPTED=false`, `READY_FOR_AGENT_INTEGRATION=false`, `REAL_EFFECTIVENESS=NOT_MEASURABLE`.
+
+## 19.11: K03 прошёл, следующий установленный FAIL локализован в K05 UIA
+
+[Center installed #44386022555](https://github.com/Faust-S/Center/actions/runs/44386022555) завершился FAIL на original Agent 7932627b8948d5c958e4a2c4bd25c05e19cb9ec4. Tauri, Setup Core, установка, original Core, K03 и cold Result достигли следующей стадии K05_GUI_NONCOMPARABLE. Прежний basic_runtime_turn_echo_changed на этом запуске не возник; повторную устойчивость K03 ещё не доказывает.
+
+Новый checkpoint: K05_NATIVE_UIA_STAGE=ACCEPTED_RESULT; K05_NATIVE_UIA_REASON=ACCEPTED_BADGE_NOT_VISIBLE. Native UIA witness ранее пропускал элементы IsOffscreen до Task-bound status identity. Для длинного исходного K03 Result это возможный ложный отказ из-за прокрутки; точная причина будет установлена повторной квалификацией.
+
+Отдельная ветка K05 Agent обновлена до 2a914bd4e3fdec6e4414813dcc232dff503b546b (первый fix 2a83a7cd). Только K05 UIA: exact accepted-task-objective-ID и accepted-task-status-ID, вложенная точная подпись при неполном WebView2 Name, реальный UIA ScrollItemPattern, повторная проверка видимости и совпадения обоих элементов. Не-K05 Result/Review остались строгими. Added finite reasons: ACCEPTED_STATUS_ID_MISSING, ACCEPTED_STATUS_LABEL_UNVERIFIED, ACCEPTED_STATUS_OFFSCREEN, ACCEPTED_READBACK_NOT_COINCIDENT. Эти причины разрешены native receipt и публичным CI без вывода текста Task/Result.
+
+Public Center c21d7e886cbb1b81e22c312f335a8e605ff74f76 закреплён на exact Agent SHA. [Source Windows #44402508002](https://github.com/Faust-S/Center/actions/runs/44402508002) запущен. До завершённой installed Windows проверки на исправленном SHA: K05_NATIVE_ACCEPTED=false, PRODUCT_ACCEPTED=false, REAL_EFFECTIVENESS=NOT_MEASURABLE, READY_FOR_AGENT_INTEGRATION=false.
+
+Основной Agent, Office, T3 D3/D6, main не изменены. Private Actions не запускались; публичный runner лишь временно читает exact private SHA; приватные EXE, модельные ответы и полные журналы не опубликованы.
