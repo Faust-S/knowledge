@@ -24,7 +24,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     env:
-      SITE_SHA: 76fb1119c51c09925159c5c73a192566962ea465
+      SITE_SHA: 758d659550fbfa6ca8c46f07ca89a9ba872acba5
       DOMAIN_SHA: 785635ba0aa6a8475a7388de9309e78aab94ab23
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -263,13 +263,13 @@ jobs:
             Get-Content $log | Select-String -Pattern 'CLUB_HTTP_PREVIEW_[A-Z_]+|ERR_ASSERTION|ECONNREFUSED|ETIMEDOUT' | Select-Object -Last 8 | ForEach-Object { Write-Output $_.Line }
             exit 1
           }
-          Write-Output 'D02_HTTP_PREVIEW=PASS routes=40 assets=5 real404=5'
+          Write-Output 'D02_HTTP_PREVIEW=PASS routes=40 assets=10 real404=5'
 
       - name: Final private-source-safe status
         if: always()
         shell: pwsh
         run: |
-          Write-Output 'D02_CANDIDATE_SITE=76fb1119c51c09925159c5c73a192566962ea465'
+          Write-Output 'D02_CANDIDATE_SITE=758d659550fbfa6ca8c46f07ca89a9ba872acba5'
           Write-Output "D02_DOMAIN_TESTS=${{ steps.domain_test.outcome }}"
           Write-Output "D02_SITE_INSTALL=${{ steps.site_ci.outcome }}"
           Write-Output "D02_CANONICAL_PARITY=${{ steps.canon_parity.outcome }}"
