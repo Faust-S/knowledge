@@ -93,6 +93,61 @@ jobs:
           else
             echo "D05_GENERATED_DIFF=PREPARED"
           fi
+      - name: Export formatting-only edit instructions (no private source)
+        run: |
+          set -euo pipefail
+          cd site
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const cp = require("node:child_process");
+          const paths = [
+            "src/cases/cabinet-shop-003/quality.ts",
+            "src/cases/cabinet-shop-003/inputs.ts",
+            "src/cases/cabinet-shop-003/evaluate.ts",
+            "src/cases/cabinet-shop-003/evaluate.test.ts",
+            "src/components/cases/cabinet-article.ts",
+            "src/components/cases/cabinet-article.test.ts",
+            "src/routes/keisy.48-tumb.tsx",
+            "src/routes/keisy.index.tsx",
+            "src/site-routes.ts",
+            "src/site-routes.test.ts",
+          ];
+          const format = (c) => /[\\s,;]/u.test(c);
+          function separate(s) {
+            const chars = [], gaps = [];
+            let run = "";
+            for(const c of s) {
+              if(format(c)) run += c;
+              else { gaps.push(run); chars.push(c); run = ""; }
+            }
+            gaps.push(run);
+            return {chars,gaps};
+          }
+          for(let i=0;i<paths.length;i++){
+            const file=paths[i], a=cp.execFileSync("git",["show","HEAD:"+file],{encoding:"utf8"});
+            const b=fs.readFileSync(file,"utf8"), old=separate(a), next=separate(b);
+            const label="F"+String(i).padStart(2,"0");
+            if(old.chars.join("")!==next.chars.join("")){
+              console.log("D05_FORMAT_MODE_"+label+"=NONFORMAT_CHANGES");
+              console.log("D05_FORMAT_NONWHITE_OLD_"+label+"="+old.chars.length);
+              console.log("D05_FORMAT_NONWHITE_NEW_"+label+"="+next.chars.length);
+              continue;
+            }
+            const changes=[];
+            for(let j=0;j<next.gaps.length;j++){
+              if(old.gaps[j]!==next.gaps[j])changes.push([j,next.gaps[j]]);
+            }
+            const encoded=Buffer.from(JSON.stringify(changes),"utf8").toString("base64url");
+            console.log("D05_FORMAT_MODE_"+label+"=WHITESPACE_ONLY");
+            console.log("D05_FORMAT_PATCH_"+label+"="+encoded);
+            console.log("D05_FORMAT_SHA_"+label+"="+cp.execFileSync("git",["hash-object",file],{encoding:"utf8"}).trim());
+          }
+          for(const [name,path] of [
+            ["SITEMAP","public/sitemap.xml"],
+            ["LLMS","public/llms.txt"],
+            ["ROUTETREE","src/routeTree.gen.ts"]
+          ]) console.log("D05_GENERATED_SHA_"+name+"="+cp.execFileSync("git",["hash-object",path],{encoding:"utf8"}).trim());
+          NODE
       - name: Return generated and formatted files to private site only
         env:
           DOMEN: ${{ secrets.DOMEN }}
