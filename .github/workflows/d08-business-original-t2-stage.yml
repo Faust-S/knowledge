@@ -1,0 +1,74 @@
+name: D08 Business Project original T2 external module staging
+on:
+  push:
+    branches: [work/2026-11-18-d08-marketops-windows-qualification]
+    paths: [.github/workflows/d08-business-original-t2-stage.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  SITE_SHA: c8adcf00c9c1c95cbbbbe5c02ae1b69cf2c54dc7
+  T2_SHA: 49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7
+  T2_STAGER_BLOB: edaa07543ac8583d874a59b3a05a8a97020bffaf
+jobs:
+  original-t2-stage:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    timeout-minutes: 16
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Confirm exact read access to site and original T2
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'D08_T2_STAGE_DOMEN_MISSING'}
+          foreach($repo in @('Faust-S/market-ops.ru','Faust-S/T2')){
+            & gh api ('repos/'+$repo) --jq '.id' *> $null
+            if($LASTEXITCODE -ne 0){throw 'D08_T2_STAGE_PRIVATE_ACCESS_DENIED'}
+          }
+          Write-Host 'D08_T2_STAGE_PRIVATE_ACCESS=PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Read only the immutable original T2 staging source
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if((& git -C private/site rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D08_T2_STAGE_SITE_SHA_MISMATCH'}
+          $endpoint='repos/Faust-S/T2/contents/t2/current/final-successor/canonical-source/scripts/stage-t2-external-module.mjs?ref='+$env:T2_SHA
+          $raw= & gh api $endpoint
+          if($LASTEXITCODE -ne 0){throw 'D08_T2_STAGE_FETCH_FAILED'}
+          $source=$raw | ConvertFrom-Json
+          if($source.sha -ne $env:T2_STAGER_BLOB){throw 'D08_T2_STAGER_SOURCE_SHA_MISMATCH'}
+          $bytes=[Convert]::FromBase64String(($source.content -replace '\s',''))
+          $target=Join-Path $env:RUNNER_TEMP 'stage-t2-external-module.mjs'
+          [System.IO.File]::WriteAllBytes($target,$bytes)
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value ('IWXA_T2_STAGER_PATH='+$target)
+          Write-Host 'D08_T2_STAGER_EXACT_BLOB=PASS'
+      - name: Execute actual T2 staging, byte comparisons and duplicate refusal
+        working-directory: private/site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd08-original-t2-stage.private.log'
+          & node --test tests/business-project-original-t2-stager.test.mjs *> $log
+          if($LASTEXITCODE -ne 0){throw 'D08_T2_ORIGINAL_STAGER_TEST_FAILED'}
+          Write-Host 'D08_T2_ORIGINAL_MODULE_STAGING=PASS'
+      - name: Record exact scope and privacy
+        if: always()
+        run: |
+          Write-Host 'D08_PRIVATE_T2_SOURCE_PUBLISHED=NO'
+          Write-Host 'D08_PRIVATE_SITE_SOURCE_PUBLISHED=NO'
+          Write-Host 'D08_ARTIFACT_UPLOADS=0'
+          Write-Host 'D08_BUILD_DIST=NOT_RUN'
+          Write-Host 'D08_KERNEL_RECEIPT=NOT_RUN'
