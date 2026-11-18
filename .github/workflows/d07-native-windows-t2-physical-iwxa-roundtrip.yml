@@ -589,7 +589,14 @@ jobs:
                 # Import the exact downloaded file in the original T2 Exchange
                 # using native Windows file dialog, without injecting a fake archive.
                 $importTab=WaitNative 'Импортировать' $null
-                ActivateNative $importTab
+                $tabPattern=$null
+                if($importTab.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$tabPattern)){
+                  ([System.Windows.Automation.SelectionItemPattern]$tabPattern).Select()
+                }else{ActivateNative $importTab}
+                Start-Sleep -Milliseconds 400
+                $importPanelVisible=(NativeText) -match 'Выберите сохранённый пакет'
+                Write-Output ('D07_NATIVE_IWXA_IMPORT_PANEL_VISIBLE='+$importPanelVisible)
+                if(!$importPanelVisible){throw 'D07_NATIVE_IWXA_IMPORT_PANEL_NOT_SELECTED'}
                 Write-Output 'D07_NATIVE_IWXA_IMPORT_TAB=PASS'
                 $upload=FindNative 'Выберите файл .iwxa' $null
                 if(!$upload){
@@ -614,12 +621,39 @@ jobs:
                     if($upload){break}
                   }
                 }
-                if(!$upload){throw 'D07_NATIVE_IWXA_FILE_CHOOSER_UIA_NOT_FOUND'}
-                Write-Output 'D07_NATIVE_IWXA_FILE_CHOOSER_UIA=PASS'
-                ActivateNative $upload
-                Start-Sleep -Milliseconds 600
-                Write-Output 'D07_NATIVE_IWXA_FILE_CHOOSER_ACTIVATED=PASS'
+                if($upload){
+                  Write-Output 'D07_NATIVE_IWXA_FILE_CHOOSER_UIA=PASS'
+                  ActivateNative $upload
+                }else{
+                  Write-Output 'D07_NATIVE_IWXA_FILE_CHOOSER_UIA=UNAVAILABLE'
+                  # Keyboard is the native HTML input[type=file] activation
+                  # fallback. The import tab is the last tabstop before input.
+                  $importTab.SetFocus()
+                  [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+                  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                }
+                $fileDialog=$null
+                for($check=0;$check -lt 30;$check++){
+                  $windows=[System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+                    [System.Windows.Automation.TreeScope]::Children,
+                    [System.Windows.Automation.PropertyCondition]::new(
+                      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                      [System.Windows.Automation.ControlType]::Window))
+                  for($w=0;$w -lt $windows.Count;$w++){
+                    $win=$windows.Item($w)
+                    if($win.Current.ClassName -eq '#32770' -or
+                       $win.Current.Name -match '(?i)^(Open|Открыть|Открытие|Select file|Выберите файл)$'){
+                      $fileDialog=$win
+                      break
+                    }
+                  }
+                  if($fileDialog){break}
+                  Start-Sleep -Milliseconds 250
+                }
+                if(!$fileDialog){throw 'D07_NATIVE_IWXA_WINDOWS_FILE_DIALOG_NOT_OPENED'}
+                Write-Output 'D07_NATIVE_IWXA_WINDOWS_FILE_DIALOG=PASS'
                 # This path stays on the private Windows runner, never in logs.
+                $fileDialog.SetFocus()
                 Set-Clipboard -Value $archive.FullName
                 [System.Windows.Forms.SendKeys]::SendWait('^v')
                 Start-Sleep -Milliseconds 300
