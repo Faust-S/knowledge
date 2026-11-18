@@ -1,0 +1,80 @@
+name: D07 private Bun lock repair (no source publishing)
+on:
+  push:
+    branches: [work/2026-11-18-d07-case10-qualification]
+    paths: [.github/workflows/d07-bun-lock-repair.yml]
+permissions:
+  contents: read
+jobs:
+  regenerate-private-lock-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ secrets.DOMEN }}
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Assert token can access exactly D07 site
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'D07_TOKEN_MISSING'}
+          $null=& gh api repos/Faust-S/uslugovod.ru --jq '.id' 2>$null
+          if($LASTEXITCODE -ne 0){throw 'D07_SITE_ACCESS_MISSING'}
+          Write-Host 'D07_PRIVATE_SITE_ACCESS=PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 699b4f520b4a4ae29964a8aaca87f3ae9b25c223
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - name: Regenerate lock, prove frozen install, update ONLY private bun.lock
+        working-directory: site
+        run: |
+          $ErrorActionPreference='Stop'
+          $branch='work/2026-11-11-d07-case-001-cleaning'
+          $head=(& gh api repos/Faust-S/uslugovod.ru/git/ref/heads/$branch --jq '.object.sha').Trim()
+          if($LASTEXITCODE -ne 0 -or $head -ne '699b4f520b4a4ae29964a8aaca87f3ae9b25c223'){throw 'D07_PRIVATE_HEAD_CHANGED'}
+          $log=Join-Path $env:RUNNER_TEMP 'd07-bun-regenerate-private.log'
+          & bun install --lockfile-only --ignore-scripts *> $log
+          if($LASTEXITCODE -ne 0){throw 'D07_LOCK_REGENERATION_FAILED'}
+          $paths=@(& git diff --name-only)
+          if($paths.Count -ne 1 -or $paths[0] -ne 'bun.lock'){throw 'D07_UNEXPECTED_CHANGED_SOURCE'}
+          $log=Join-Path $env:RUNNER_TEMP 'd07-bun-frozen-private.log'
+          & bun install --frozen-lockfile *> $log
+          if($LASTEXITCODE -ne 0){throw 'D07_REGENERATED_FROZEN_INSTALL_FAILED'}
+          if(-not (Test-Path src/routeTree.gen.ts)){throw 'D07_INSTALL_GENERATOR_FAILED'}
+          $contents=Get-Content src/routeTree.gen.ts -Raw
+          foreach($slug in @('uborka-posle-remonta','remont-vannoy-ulan-ude',
+            'ofisnyy-pereezd-rostov','internet-magazin-khozyayeva',
+            'buhgalterskiy-autsorsing-stroysouz','remont-dvigatelya-nissan-pathfinder',
+            'sudebnoe-predstavitelstvo-spravedlivost','muzykalnye-uroki-pervouralsk',
+            'fotosessiya-kalininskaya','brend-media-new-you')){
+            if(-not $contents.Contains("/keisy/$slug")){throw 'D07_GENERATOR_INCOMPLETE'}
+          }
+          Write-Host 'D07_GENERATED_ROUTES=10/10'
+          Write-Host 'D07_FROZEN_INSTALL=PASS'
+          $head2=(& gh api repos/Faust-S/uslugovod.ru/git/ref/heads/$branch --jq '.object.sha').Trim()
+          if($head2 -ne $head){throw 'D07_PRIVATE_CONCURRENT_CHANGE'}
+          $fileSha=(& gh api "repos/Faust-S/uslugovod.ru/contents/bun.lock?ref=$branch" --jq '.sha').Trim()
+          if($LASTEXITCODE -ne 0 -or !$fileSha){throw 'D07_PRIVATE_FILE_SHA_UNAVAILABLE'}
+          $b64=[Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path bun.lock)))
+          $payload=@{message='fix(d07): synchronize Bun 1.4.2 frozen lock with route generator';content=$b64;sha=$fileSha;branch=$branch} | ConvertTo-Json -Compress
+          $request=Join-Path $env:RUNNER_TEMP 'd07-private-lock-request.json'
+          [IO.File]::WriteAllText($request,$payload)
+          $out=Join-Path $env:RUNNER_TEMP 'd07-private-lock-response.json'
+          & gh api -X PUT repos/Faust-S/uslugovod.ru/contents/bun.lock --input $request *> $out
+          if($LASTEXITCODE -ne 0){throw 'D07_PRIVATE_LOCK_WRITE_DENIED'}
+          $result=Get-Content $out -Raw | ConvertFrom-Json
+          if(-not $result.commit.sha){throw 'D07_PRIVATE_LOCK_COMMIT_UNCONFIRMED'}
+          Write-Host "D07_PRIVATE_SITE_NEW_HEAD=$($result.commit.sha)"
+          Write-Host 'D07_PRIVATE_LOCK_ONLY=COMMITTED'
+          # No source, dist, private logs or secrets are uploaded to the public repo.
