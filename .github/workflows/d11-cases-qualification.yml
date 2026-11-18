@@ -185,10 +185,51 @@ jobs:
           Write-Output "D11_CASE_HTML=10/10"
           Write-Output "D11_T2_DIST=PASS"
           # Private dist and raw logs intentionally never uploaded.
+      - name: Check integrated static pages, links and site assets
+        id: static
+        if: matrix.os == 'ubuntu-latest'
+        continue-on-error: true
+        working-directory: d11-site
+        run: |
+          foreach ($script in @("check:readability","check:assets","check:external-assets",
+            "check:links","check:seo","check:no-localhost","check:htaccess")) {
+            $name=$script -replace '[:/]', '-'
+            $log=Join-Path $env:RUNNER_TEMP "d11-$name.log"
+            & npm run $script *> $log
+            $code=$LASTEXITCODE
+            if ($code -ne 0) {
+              # No private source, dist or test payloads in public logs.
+              Write-Output "D11_STATIC_CHECK_FAILED=$script exit=$code"
+              throw "D11_STATIC_GATE_FAILED"
+            }
+            Write-Output "D11_STATIC_CHECK_PASS=$script"
+          }
+      - name: Check actual hydrated pages in built D11 runtime
+        id: browser_smoke
+        if: matrix.os == 'ubuntu-latest'
+        continue-on-error: true
+        working-directory: d11-site
+        run: |
+          # The original D11 browser checks execute on ephemeral localhost
+          # against the integrated Host; this is not a substitute for Codex GUI.
+          foreach ($script in @("check:runtime","check:hydration")) {
+            $name=$script -replace '[:/]', '-'
+            $log=Join-Path $env:RUNNER_TEMP "d11-$name.log"
+            & npm run $script *> $log
+            $code=$LASTEXITCODE
+            if ($code -ne 0) {
+              Write-Output "D11_HYDRATION_CHECK_FAILED=$script exit=$code"
+              throw "D11_BROWSER_SMOKE_FAILED"
+            }
+            Write-Output "D11_HYDRATION_CHECK_PASS=$script"
+          }
       - name: Enforce all qualifications
         if: always()
         run: |
           if ("${{ steps.types.outcome }}" -ne "success" -or
               "${{ steps.lint.outcome }}" -ne "success" -or
-              "${{ steps.integrated.outcome }}" -ne "success") { throw "D11_QUALIFICATION_INCOMPLETE" }
+              "${{ steps.integrated.outcome }}" -ne "success" -or
+              ("${{ matrix.os }}" -eq "ubuntu-latest" -and
+                ("${{ steps.static.outcome }}" -ne "success" -or
+                 "${{ steps.browser_smoke.outcome }}" -ne "success"))) { throw "D11_QUALIFICATION_INCOMPLETE" }
           Write-Output "D11_SOURCE_QUALIFICATION=PASS"
