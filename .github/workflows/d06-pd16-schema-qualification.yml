@@ -63,11 +63,16 @@ jobs:
           }
           # Distinguish formatting introduced in the two PD16 changes
           # from unrelated outstanding formatting elsewhere in the branch.
-          $formatLog = Join-Path $env:RUNNER_TEMP "d06-pd16-changed-format-private.log"
-          & cmd.exe /d /c ('node node_modules/prettier/bin/prettier.cjs --check src/services/deliver-and-accept/factories.ts scripts/test-workflow-deliver-and-accept.ts > "' + $formatLog + '" 2>&1')
-          $formatStatus = if ($LASTEXITCODE -eq 0) { "PASS" } else { "FAIL" }
-          Write-Host ("D06_PD16_CHANGED_FILES_FORMAT=" + $formatStatus)
-          if ($formatStatus -ne "PASS") { $failures += 1 }
+          foreach ($target in @(
+            @{ key = "FACTORY"; file = "src/services/deliver-and-accept/factories.ts" },
+            @{ key = "REGRESSION"; file = "scripts/test-workflow-deliver-and-accept.ts" }
+          )) {
+            $formatLog = Join-Path $env:RUNNER_TEMP ("d06-pd16-format-" + $target.key + "-private.log")
+            & cmd.exe /d /c ('node node_modules/prettier/bin/prettier.cjs --check ' + $target.file + ' > "' + $formatLog + '" 2>&1')
+            $formatStatus = if ($LASTEXITCODE -eq 0) { "PASS" } else { "FAIL" }
+            Write-Host ("D06_PD16_" + $target.key + "_FORMAT=" + $formatStatus)
+            if ($formatStatus -ne "PASS") { $failures += 1 }
+          }
           if ($failures -gt 0) { exit 1 }
       - name: Confirm public privacy boundary
         if: always()
