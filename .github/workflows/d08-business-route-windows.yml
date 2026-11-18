@@ -75,7 +75,34 @@ jobs:
           foreach($script in @('check:t2:entry','test:d08:adapters')){
             $log=Join-Path $env:RUNNER_TEMP ('d08-p1-'+$script.Replace(':','-')+'.private.log')
             & npm run $script *> $log
-            if($LASTEXITCODE -ne 0){throw ('D08_P1_'+$script+'_FAILED')}
+            if($LASTEXITCODE -ne 0){
+              if($script -eq 'test:d08:adapters'){
+                foreach($test in @(
+                  'business-project.test.mjs',
+                  'business-project-t2-handoff.test.mjs',
+                  'business-project-native-kernel.test.mjs',
+                  'business-project-passport.test.mjs',
+                  'business-project-viewer.test.mjs',
+                  'marketops-kernel-command.test.mjs',
+                  'marketops-pending-project.test.mjs',
+                  'marketops-result-viewer.test.mjs',
+                  'marketops-recovery-intent.test.mjs'
+                )){
+                  $individual=Join-Path $env:RUNNER_TEMP ('d08-p1-'+$test+'.private.log')
+                  & node --import tsx --test ('tests/'+$test) *> $individual
+                  if($LASTEXITCODE -eq 0){Write-Host ('D08_P1_CASE_'+$test+'=PASS')}
+                  else {
+                    $raw=(Get-Content -LiteralPath $individual -Raw -ErrorAction SilentlyContinue)
+                    $class=if($raw -match 'ERR_MODULE_NOT_FOUND'){'MODULE'}
+                      elseif($raw -match 'ERR_ASSERTION|AssertionError'){'ASSERT'}
+                      elseif($raw -match 'SyntaxError'){'SYNTAX'}
+                      else {'OTHER'}
+                    Write-Host ('D08_P1_CASE_'+$test+'=FAIL_'+$class)
+                  }
+                }
+              }
+              throw ('D08_P1_'+$script+'_FAILED')
+            }
           }
           Write-Host 'D08_P1_ORIGINAL_ADAPTERS_AND_NEW_ROUTE=PASS'
       - name: Respect restricted release scope
