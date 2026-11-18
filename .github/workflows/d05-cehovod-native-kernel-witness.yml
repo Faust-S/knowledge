@@ -30,7 +30,7 @@ jobs:
             echo "D05_SITE_ACCESS=FAIL"
             exit 1
           fi
-          test "$(git -C site rev-parse HEAD)" = "4c8290708d25e42fa0beab73f0220546ac52d525" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "24ce9e7f6e4e2af2dea46a9bc96e8bd6af03ce82" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
           echo "D05_SITE_PIN=PASS"
           git init --quiet t2
           if ! GIT_TERMINAL_PROMPT=0 git -C t2 -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/T2.git e70de29b72b83e2546f7ab74b17572685a728c17 >/dev/null 2>&1; then
@@ -112,7 +112,7 @@ jobs:
           echo "D05_BROWSER_GUI=NOT_RUN"
           echo "D05_KERNEL_RECEIPTS=NOT_RUN"
 
-      - name: Run original T2 isolated Kernel witness for a real D05 order draft
+      - name: Run real T2 first-use provisioner and independent domain Result readback
         run: |
           set -euo pipefail
           source="$GITHUB_WORKSPACE/t2/t2/current/final-successor/canonical-source"
@@ -133,93 +133,5 @@ jobs:
             exit 1
           fi
           cd "$GITHUB_WORKSPACE/site"
-          D05_T2_WITNESS_COPY="$witness" node --input-type=module <<'NODE'
-          import { readFileSync } from "node:fs";
-          import { createHash } from "node:crypto";
-          import { resolve, join } from "node:path";
-          import { pathToFileURL } from "node:url";
-          const sha=(bytes)=>createHash("sha256").update(bytes).digest("hex");
-          let phase="START";
-          try {
-            phase="LOAD_SITE_AND_T2";
-            const site=resolve("."),build=join(site,"dist"),source=process.env.D05_T2_WITNESS_COPY;
-            const modulePath=join(source,"src/factory2/products/domain-completion/independent-browser-witness.mjs");
-            const {runIndependentSiteWitness}=await import(pathToFileURL(modulePath).href);
-            phase="IMPORT_WITNESS_COMPLETE";
-            const {makeD05DraftWitnessJourney}=await import(pathToFileURL(join(site,"scripts/prepare-d05-product-contract.mjs")).href);
-            phase="IMPORT_JOURNEY_COMPLETE";
-            const domain=JSON.parse(readFileSync(join(build,"_iwxa/domain.json"),"utf8"));
-            const passport=JSON.parse(readFileSync(join(build,"workspace/workspace.config.json"),"utf8"));
-            const relPath="workspace/workspace.config.json";
-            const runtime={
-              kernel:"0.3.6",contract:"1.3.0",
-              artifactId:domain.runtime.artifactId,
-              hostConfiguration:{path:relPath,sha256:sha(readFileSync(join(build,relPath)))}
-            };
-            if(passport.workspace_service_id!=="ru.5ibs.productionops.host"||
-               domain.status!=="local-candidate"||
-               domain.runtime.artifactId!=="iwxa-kernel-k036-same-store-history-20261019-qualified.1")
-              throw Error("D05_WITNESS_SUBJECT_MISMATCH");
-            const inventory={
-              serviceIds:domain.modules.map(m=>m.service_id),
-              routes:["/zakaz-v-ceh/"],
-              persistentFamilies:["production-order-draft"],
-              resultBindings:[{family:"production-order-draft",resultKind:"production-order-draft"}]
-            };
-            const contract={
-              runtime,
-              witness:{
-                runner:"T2_PLAYWRIGHT_KERNEL_READBACK",
-                previewOrigin:"LOOPBACK_TLS",
-                auditorMode:"ISOLATED_READ_ONLY",
-                journeys:[makeD05DraftWitnessJourney()]
-              },
-              productionActivation:false
-            };
-            phase="NATIVE_SITE_WITNESS";
-            const result=await runIndependentSiteWitness({
-              siteRoot:site,contract,inventory,buildDirectory:"dist",qualificationRoot:process.env.RUNNER_TEMP
-            });
-            phase="CHECK_EVIDENCE";
-            if(result.status!=="PASS"||result.runner!=="T2_OWNED_PLAYWRIGHT"||
-               result.observations?.length!==1||
-               result.observations[0].family!=="production-order-draft"||
-               result.observations[0].afterKernelRestart!==true||
-               result.observations[0].independentReader!==true||
-               result.observations[0].deniedWriteRejected!==true||
-               result.observations[0].historyPreserved!==true||
-               result.observations[0].noUndeclaredObjects!==true||
-               !/^[0-9a-f]{64}$/.test(result.observations[0].receiptSha256||""))
-              throw Error("D05_NATIVE_WITNESS_INCOMPLETE");
-            console.log("D05_REAL_T2_KERNEL_WITNESS=PASS");
-            console.log("D05_REAL_COMMIT_RECEIPT=PASS");
-            console.log("D05_INDEPENDENT_READBACK=PASS");
-            console.log("D05_COLD_BROWSER_RESTART=PASS");
-            console.log("D05_KERNEL_HISTORY=PASS");
-            console.log("D05_DENIED_WRITE_REJECTED=PASS");
-            console.log("D05_DRAFT_FAMILY_WITNESSED=1");
-            console.log("D05_FULL_26_FAMILY_WITNESS=NOT_RUN");
-            console.log("D05_IWXA_EXCHANGE=NOT_RUN");
-          } catch(error) {
-            const msg=String(error?.message??error);
-            const code=msg.match(/(?:FACTORY2|CEHOVOD|D05|ERR)_[A-Z0-9_]+/)?.[0]??"UNCLASSIFIED";
-            console.log("D05_REAL_T2_KERNEL_WITNESS=FAIL");
-            console.log("D05_WITNESS_ERROR_CODE="+code);
-            console.log("D05_WITNESS_PHASE="+phase);
-            const kind=String(error?.name??error?.constructor?.name??"Unknown").replace(/[^A-Za-z]/g,"");
-            console.log("D05_WITNESS_ERROR_CLASS="+kind);
-            const errCode=String(error?.code??"NONE");
-            console.log("D05_WITNESS_NODE_CODE="+(/^[A-Z0-9_]+$/.test(errCode)?errCode:"UNCLASSIFIED"));
-            const stack=String(error?.stack??"");
-            const known={
-              "T2_WITNESS":[...stack.matchAll(/independent-browser-witness\.mjs:(\d+):/g)].map(m=>m[1]),
-              "T2_SERVER":[...stack.matchAll(/real-kernel-e2e\.mjs:(\d+):/g)].map(m=>m[1]),
-              "D05_JOURNEY":[...stack.matchAll(/prepare-d05-product-contract\.mjs:(\d+):/g)].map(m=>m[1]),
-              "TEST_STDIN":[...stack.matchAll(/(?:eval1|stdin):(\d+):/g)].map(m=>m[1]),
-            };
-            console.log("D05_WITNESS_STACK_LOCATIONS="+Object.entries(known).map(([k,v])=>k+":"+[...new Set(v)].slice(0,4).join(".")).join(","));
-            const categories=["ERR_MODULE_NOT_FOUND","ENOENT","EACCES","EPERM","TimeoutError","TypeError","ReferenceError","SyntaxError","RangeError","locator","browserType.launch","readFileSync"];
-            console.log("D05_WITNESS_ERROR_CATEGORY="+categories.filter(x=>msg.includes(x)||stack.includes(x)).join(","));
-            process.exitCode=1;
-          }
-          NODE
+          node --check scripts/d05-first-use-real-kernel-witness.mjs
+          D05_T2_WITNESS_COPY="$witness" node scripts/d05-first-use-real-kernel-witness.mjs
