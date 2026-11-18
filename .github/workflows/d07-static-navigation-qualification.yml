@@ -77,12 +77,31 @@ jobs:
           gate INTEGRATED_BUILD bun run build:t2-integrated
           gate T2_PREVIEW bun run preview:t2 -- --check
           node --import tsx --input-type=module <<'AUDIT'
-          import { existsSync } from "node:fs";
+          import { existsSync, readFileSync } from "node:fs";
           import { siteRoutes, qualificationRoutes } from "./src/site-routes.ts";
           const all=[...siteRoutes,...qualificationRoutes];
           const absent=all.filter(path=>!existsSync("dist/"+path.replace(/^\/+|\/+$/g,"")+"/index.html"));
           if(absent.length) throw Error("D07_NAV_PRERENDER_MISSING_"+absent.length);
           if(!existsSync("dist/workspace/index.html")) throw Error("D07_NAV_ORIGINAL_T2_MISSING");
+          // All generated public HTML must link only to built service routes.
+          const known=new Set(siteRoutes);
+          let reviewedLinks=0;
+          let orphanLinks=0;
+          for (const page of all){
+            const file="dist/"+page.replace(/^\\/+|\\/+$/g,"")+"/index.html";
+            const html=readFileSync(file,"utf8");
+            for (const anchor of html.matchAll(/<a\\b[^>]*\\bhref=["']([^"']+)["'][^>]*>/g)){
+              const href=anchor[1];
+              if(!href.startsWith("/uslugi/")) continue;
+              reviewedLinks++;
+              const pathname=href.split(/[?#]/,1)[0];
+              const normalized=pathname.endsWith("/")?pathname:pathname+"/";
+              if(!known.has(normalized)) orphanLinks++;
+            }
+          }
+          console.log("D07_NAV_HTML_SERVICE_LINKS="+reviewedLinks);
+          console.log("D07_NAV_HTML_UNBUILT_TARGETS="+orphanLinks);
+          if(orphanLinks>0) throw Error("D07_NAV_HTML_UNBUILT_TARGETS");
           console.log("D07_NAV_PRERENDER="+all.length+"/"+all.length);
           console.log("D07_NAV_ORIGINAL_T2=PASS");
           AUDIT
