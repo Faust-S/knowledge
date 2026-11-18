@@ -64,6 +64,67 @@ it("installed Admin inspects only the original Control-selected Workspace, not l
   });
   expect(listWorkspaces).not.toHaveBeenCalled();
 });
+it("typed original T2 missing Workspace permits only a separately signed first-run create",async()=>{
+  let stored:{workspace_id:string;profile:string}|null=null;
+  const getWorkspace=vi.fn(async(id:string)=>{
+    expect(id).toBe("ws:original-missing");
+    if(stored===null)throw Object.assign(
+      new Error("WORKSPACE_NOT_FOUND"),{code:"WORKSPACE_NOT_FOUND"});
+    return stored;
+  });
+  const createWorkspace=vi.fn(async(input:{workspace_id:string;profile:string})=>{
+    stored={...input};return {...input};
+  });
+  const listWorkspaces=vi.fn(async()=>{
+    throw Error("UNSIGNED_DISCOVERY_MUST_NOT_RUN");
+  });
+  const candidate={getWorkspace,createWorkspace,listWorkspaces,
+    hasOperation:(name:string)=>name==="t1.createWorkspace"} as unknown as KernelFacade;
+  const trustedSelectedContext=vi.fn(async(method:string)=>{
+    expect(["getWorkspace","createWorkspace"]).toContain(method);
+    return {kind:"CORP" as const,workspace_id:"ws:original-missing",
+      resource:"ws:original-missing",organization_id:"org:original"};
+  });
+  render(<SignedSelectedWorkspaceGate required kernel={candidate}
+    profile="generic" trustedSelectedContext={trustedSelectedContext}>
+    <p data-testid="typed-original-created">Original selected Workspace</p>
+  </SignedSelectedWorkspaceGate>);
+  const initial=await screen.findByTestId("t3-d1-selected-workspace-message");
+  expect(initial.textContent).toMatch(/пока нет рабочей области/);
+  expect(createWorkspace).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByTestId("t3-d1-create-selected-workspace"));
+  await screen.findByTestId("typed-original-created");
+  expect(createWorkspace).toHaveBeenCalledTimes(1);
+  expect(createWorkspace).toHaveBeenCalledWith({
+    workspace_id:"ws:original-missing",profile:"generic",
+  });
+  expect(getWorkspace).toHaveBeenCalledTimes(3);
+  expect(listWorkspaces).not.toHaveBeenCalled();
+});
+
+it("typed original permission denial is NEVER converted to missing or signed create",async()=>{
+  const getWorkspace=vi.fn(async()=>{
+    throw Object.assign(new Error("PERMISSION_DENIED"),{code:"PERMISSION_DENIED"});
+  });
+  const createWorkspace=vi.fn();
+  const candidate={getWorkspace,createWorkspace,
+    listWorkspaces:vi.fn(async()=>[]),
+    hasOperation:()=>true} as unknown as KernelFacade;
+  const trustedSelectedContext=vi.fn(async()=>({
+    kind:"CORP" as const,workspace_id:"ws:denied",
+    resource:"ws:denied",organization_id:"org:denied",
+  }));
+  render(<SignedSelectedWorkspaceGate required kernel={candidate}
+    profile="generic" trustedSelectedContext={trustedSelectedContext}>
+    <p data-testid="denied-original-content">Must remain hidden</p>
+  </SignedSelectedWorkspaceGate>);
+  const msg=await screen.findByTestId("t3-d1-selected-workspace-message");
+  expect(msg.textContent).toMatch(/Control не подтвердил/);
+  expect(screen.queryByTestId("t3-d1-create-selected-workspace")).toBeNull();
+  expect(screen.queryByTestId("denied-original-content")).toBeNull();
+  expect(createWorkspace).not.toHaveBeenCalled();
+});
+
 it("missing selected Workspace displays concrete preparation step, never unsigned creation", async () => {
   const owner = kernel([]);
   render(<SignedSelectedWorkspaceGate required kernel={owner.value}>
