@@ -50,6 +50,7 @@ function FindName([string]$name,[string]$controlType='Button',[int]$retries=65){
 }
 function ClickButton([string]$label){
   $control=FindName $label 'Button'
+  $scroll=$null
   if($control.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern,[ref]$scroll)){
     $scroll.ScrollIntoView()
     Start-Sleep -Milliseconds 170
