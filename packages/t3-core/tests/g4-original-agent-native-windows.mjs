@@ -373,7 +373,7 @@ try{
     productionOrg,productionWs,candidate,
     onPhase:next=>{phase=next;},
   });
-  assert.equal(kernelEvidence.registryRevision,3);
+  assert.equal(kernelEvidence.registryRevision,4);
   assert.ok(kernelEvidence.signedGrantIds.work&&
     kernelEvidence.signedGrantIds.export);
 
