@@ -23,7 +23,9 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
       schema_version:"1.0.0",base_revision:0,data:{text:"reviewed"}},
     event:{event_type:"native.result.applied",payload:{
       reconciliation_acceptance_id:accepted,
-      reconciliation_revision_ids:[rev]}}};
+      reconciliation_revision_ids:[rev],
+      source_result_digest:"9".repeat(64),
+      owner_provenance:{origin:"agent-human-review",revision:2}}}};
   const binding={
     schema:"IWXA_T3_APPLICATION_HOST_BINDING/1",effectKey:effect,
     operation:{operationId:"effect:"+effect,payloadDigest:"d".repeat(64),
@@ -36,6 +38,7 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
   };
   let written=null,lastEvent=null,loseAckAfterWrite=false;
   let tamperInitialEvent=false,hideOriginalEvent=false,duplicateEvent=false;
+  let tamperStoredProvenance=false;
   let getObjectErrorCode=null,eventsErrorCode=null;
   const hash=value=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
   const access={
@@ -80,6 +83,8 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
           revision:1,occurred_at:new Date().toISOString(),
           idempotency_key:input.idempotency_key,
           payload:structuredClone(input.event.payload)};
+        if(tamperStoredProvenance)
+          lastEvent.payload.owner_provenance.revision=3;
         if(loseAckAfterWrite)throw new Error("ORIGINAL_KERNEL_ACK_LOST");
         const confirmedEvent=structuredClone(lastEvent);
         if(tamperInitialEvent)confirmedEvent.idempotency_key="f".repeat(64);
@@ -325,4 +330,27 @@ test("separate original-owner Apply uses the inherited Kernel graph and readback
     "ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
   assert.equal(commits,beforeUncertain+3,
     "read-only recovery cannot reissue any uncertain original Kernel write");
+  // Original T2 canonical storage can change JSON key ordering, but not
+  // the CONTENT of any application provenance field. A changed extra
+  // field must invalidate BOTH immediate APPLY and cold read-only recovery.
+  port=makePort();written=null;lastEvent=null;
+  tamperStoredProvenance=true;
+  await assert.rejects(port.applyAccepted(selection),
+    {code:"T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED"});
+  assert.equal(commits,beforeUncertain+4,
+    "a forged persisted Event still counts as a possibly committed write");
+  assert.equal((await port.recoverApplied(selection)).status,"OUTCOME_UNKNOWN");
+  assert.equal(commits,beforeUncertain+4,"forged Event recovery must not replay");
+  tamperStoredProvenance=false;
+  // Even a fresh owner can confirm only the exact originally signed
+  // provenance; reversed key ordering is a valid T2 canonicalization.
+  lastEvent.payload={
+    owner_provenance:{revision:2,origin:"agent-human-review"},
+    source_result_digest:"9".repeat(64),
+    reconciliation_revision_ids:[rev],
+    reconciliation_acceptance_id:accepted,
+  };
+  const reordered=await makePort().recoverApplied(selection);
+  assert.equal(reordered.status,"ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED");
+  assert.equal(commits,beforeUncertain+4);
 });
