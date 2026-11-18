@@ -1,0 +1,72 @@
+name: d06-private-unit-failure-isolation
+
+# Diagnose unit scripts independently. No private source, assertions or
+# command logs are emitted, uploaded, cached, or committed in public.
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-unit-failure-isolation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  unit-isolation-windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout pinned private D06 source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: 3e58b2d8f395587706bd9946af930c0c7eafd41b
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pinned dependencies
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-unit-install-private.log"
+          & npm ci --no-audit --no-fund *> $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "D06_UNIT_INSTALL=FAIL"
+            exit 1
+          }
+          Write-Host "D06_UNIT_INSTALL=PASS"
+      - name: Run each registered unit check and report only its result
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 29
+        run: |
+          $ErrorActionPreference = "Stop"
+          $pkg = Get-Content -LiteralPath "package.json" -Raw | ConvertFrom-Json
+          $unitScript = $pkg.scripts.'test:unit'
+          if (-not $unitScript) { Write-Host "D06_UNIT_REGISTRY=MISSING"; exit 1 }
+          $matches = [regex]::Matches($unitScript, 'npm run (test:[a-zA-Z0-9:.-]+)')
+          if ($matches.Count -lt 10) { Write-Host "D06_UNIT_REGISTRY=INCOMPLETE"; exit 1 }
+          $failures = 0
+          $passed = 0
+          foreach ($match in $matches) {
+            $name = $match.Groups[1].Value
+            $safe = $name.Replace(":","-")
+            $log = Join-Path $env:RUNNER_TEMP ("d06-unit-" + $safe + "-private.log")
+            & cmd.exe /d /c ("npm run " + $name + " > """ + $log + """ 2>&1")
+            $status = if ($LASTEXITCODE -eq 0) { "PASS" } else { "FAIL" }
+            Write-Host ("D06_UNIT_" + $safe + "=" + $status)
+            if ($LASTEXITCODE -eq 0) { $passed += 1 } else { $failures += 1 }
+          }
+          Write-Host ("D06_UNIT_PASS_COUNT=" + $passed)
+          Write-Host ("D06_UNIT_FAIL_COUNT=" + $failures)
+          if ($failures -gt 0) { exit 1 }
+      - name: Privacy boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_PRIVATE_LOGS=RUNNER_LOCAL_ONLY"
+          Write-Host "D06_PUBLIC_ARTIFACT_UPLOADS=0"
