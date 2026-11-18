@@ -1,0 +1,83 @@
+name: d02-club-targeted-site-regression
+on:
+  push:
+    branches:
+      - work/2026-11-18-d02-club-qualification
+    paths:
+      - .github/workflows/d02-club-targeted-site-regression.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SITE_SHA: d56ee58e05a0e0003655bd598ef6c5808b89eb3e
+    steps:
+      - name: Checkout exact private candidate without logging or publishing content
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+
+      - name: Install private candidate dependencies
+        shell: pwsh
+        working-directory: site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'club-targeted-install.log'
+          & npm ci --no-audit --no-fund *> $log
+          if($LASTEXITCODE -ne 0) { throw 'D02_TARGETED_NPM_CI_FAILED' }
+          Write-Output 'D02_TARGETED_NPM_CI=PASS'
+
+      - name: Run seven previously failing source suites in isolation
+        shell: pwsh
+        working-directory: site
+        run: |
+          $names=@(
+            'test:club-individual-entry',
+            'test:club-full-individual-case',
+            'test:club-case-09-article',
+            'test:club-case-03-native-tools',
+            'test:club-personal-cash-calendar',
+            'test:club-work-ledger-integration',
+            'test:club-route-progress-runtime'
+          )
+          $fail=0
+          foreach($name in $names) {
+            $log=Join-Path $env:RUNNER_TEMP ('private-' + $name.Replace(':','-') + '.log')
+            & npm run $name *> $log
+            if($LASTEXITCODE -eq 0) {
+              Write-Output "D02_SUITE_PASS=$name"
+              continue
+            }
+            $fail++
+            Write-Output "D02_SUITE_FAIL=$name"
+            $body=Get-Content $log -Raw
+            foreach($line in [regex]::Matches($body, '(?m)^not ok\s+\d+\s+-\s+[^\r\n]+')) {
+              Write-Output ('D02_ASSERTION=' + $line.Value.Trim())
+            }
+            # Only emit short exception classes/messages and assertion locations,
+            # never actual/expected objects, private source, tokens or full logs.
+            foreach($line in [regex]::Matches($body, '(?m)^\s+error:\s+(?<msg>[^\r\n]{1,180})')) {
+              $msg=$line.Groups['msg'].Value.Trim()
+              if($msg -match '^(TypeError|RangeError|ReferenceError|SyntaxError|Cannot|.* is not a function|Invalid|Unexpected|Not supported)') {
+                Write-Output ('D02_ERROR_CLASS=' + $msg.Substring(0,[Math]::Min($msg.Length,140)))
+              }
+            }
+            $locations=[regex]::Matches($body, 'test-club-[a-z0-9-]+\.mjs:\d+:\d+')
+            $unique=@($locations | Select-Object -ExpandProperty Value -Unique | Select-Object -Last 10)
+            foreach($location in $unique) { Write-Output ('D02_ASSERTION_LOCATION=' + $location) }
+          }
+          Write-Output "D02_TARGETED_SUITES=$($names.Count)"
+          if($fail -gt 0) { throw "D02_TARGETED_FAILURES=$fail" }
+          Write-Output 'D02_TARGETED_SITE_REGRESSION=PASS'
