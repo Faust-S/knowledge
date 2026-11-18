@@ -1,0 +1,57 @@
+name: D08 private source DOMEN access diagnostic
+
+on:
+  push:
+    branches: [work/2026-11-18-d08-marketops-windows-qualification]
+    paths: [.github/workflows/d08-domens-access-diagnostic.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-private-access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Test exact API authorization with sanitized status codes only
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){
+            Write-Host 'D08_DOMEN_PRESENT=NO'
+            exit 1
+          }
+          Write-Host 'D08_DOMEN_PRESENT=YES'
+          $headers=@{
+            Authorization=('Bearer '+$env:GH_TOKEN)
+            Accept='application/vnd.github+json'
+            'X-GitHub-Api-Version'='2022-11-28'
+          }
+          $map=[ordered]@{
+            KNOWLEDGE='Faust-S/knowledge'
+            T2='Faust-S/T2'
+            DOMAIN='Faust-S/market-ops'
+            SITE='Faust-S/market-ops.ru'
+          }
+          $all=$true
+          foreach($entry in $map.GetEnumerator()){
+            try{
+              $response=Invoke-WebRequest -Uri ('https://api.github.com/repos/'+$entry.Value) -Headers $headers -TimeoutSec 20 -SkipHttpErrorCheck
+              $code=[int]$response.StatusCode
+              Write-Host ('D08_ACCESS_'+$entry.Key+'='+$code)
+              if($entry.Key -in @('DOMAIN','SITE') -and $code -ne 200){$all=$false}
+            }catch{
+              Write-Host ('D08_ACCESS_'+$entry.Key+'=NETWORK_ERROR')
+              $all=$false
+            }
+          }
+          if(-not $all){throw 'D08_DOMEN_PRIVATE_ACCESS_UNAVAILABLE'}
+          Write-Host 'D08_DOMEN_PRIVATE_ACCESS=PASS'
+      - name: Confirm no private artifacts are published
+        if: always()
+        run: |
+          echo "D08_PRIVATE_FILES_CLONED=NO"
+          echo "D08_PRIVATE_LOGS_PUBLISHED=NO"
+          echo "D08_ARTIFACT_UPLOADS=0"
