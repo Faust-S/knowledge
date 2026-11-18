@@ -1,0 +1,112 @@
+name: d05-cehovod-private-source-qualification
+on:
+  push:
+    branches:
+      - test/2026-11-18-d05-source-qualification
+    paths:
+      - .github/workflows/d05-cehovod-source-qualification.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d05-source-qualification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source:
+    name: D05 source gate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Fetch exact private sources without publishing files
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DOMEN:-}" ]; then
+            echo "D05_DOMEN=UNAVAILABLE"
+            exit 1
+          fi
+          header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
+          fetch_private() {
+            local repo="$1" branch="$2" expected="$3" destination="$4"
+            if ! GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" ls-remote --exit-code "https://github.com/Faust-S/${repo}.git" "refs/heads/${branch}" >/dev/null 2>&1; then
+              echo "D05_READ_${destination}=FAIL"
+              return 1
+            fi
+            echo "D05_READ_${destination}=PASS"
+            if ! GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" clone --quiet --depth 1 --single-branch --branch "$branch" --no-tags "https://github.com/Faust-S/${repo}.git" "$destination" >/dev/null 2>&1; then
+              echo "D05_CLONE_${destination}=FAIL"
+              return 1
+            fi
+            local actual
+            actual="$(git -C "$destination" rev-parse HEAD)"
+            if [ "$actual" != "$expected" ]; then
+              echo "D05_REVISION_${destination}=FAIL"
+              return 1
+            fi
+            echo "D05_REVISION_${destination}=PASS"
+          }
+          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "9148b46c40efbf0c5d679b360c9a4f608c128634" "site"
+          fetch_private "cehovod" "main" "074dd31fa447870b9c876f3d45e65aace77e8df7" "domain"
+          unset header DOMEN
+      - name: Install Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+      - name: Install site dependencies privately
+        run: |
+          set -euo pipefail
+          cd site
+          if npm ci --no-audit --no-fund > "$RUNNER_TEMP/d05-npm-ci.log" 2>&1; then
+            echo "D05_NPM_CI=PASS"
+          else
+            echo "D05_NPM_CI=FAIL"
+            exit 1
+          fi
+      - name: Run complete source gate privately
+        run: |
+          set -euo pipefail
+          cd site
+          if npm run check:source > "$RUNNER_TEMP/d05-source.log" 2>&1; then
+            echo "D05_CHECK_SOURCE=PASS"
+          else
+            echo "D05_CHECK_SOURCE=FAIL"
+            # Print only the failing gate and error-category counts.
+            # No private source text, test stack, npm log or artifact is published.
+            node -e '
+            const fs=require("node:fs");
+            const t=fs.readFileSync(process.env.RUNNER_TEMP+"/d05-source.log","utf8");
+            const stages=[...t.matchAll(/^> (?:cehovod[^\n]* )?(verify:[^\n]*|check:[^\n]*|typecheck|lint|test(?::coverage)?|build:[^\n]*)$/gm)].map(m=>m[1]);
+            console.log("D05_LAST_COMMAND="+(stages.at(-1)||"unclassified").replace(/[^-a-zA-Z0-9: ]/g,"").slice(0,80));
+            console.log("D05_TYPESCRIPT_ERRORS="+(t.match(/error TS\d+/g)||[]).length);
+            console.log("D05_TEST_FAILURE_LINES="+(t.match(/(?:FAIL|not ok) /g)||[]).length);
+            console.log("D05_VENDOR_MISSING="+(/ERR_MODULE_NOT_FOUND[^\n]*cehovod-lifecycle|Cannot find module[^\n]*cehovod-lifecycle/.test(t)));
+            '
+            exit 1
+          fi
+      - name: Build site source without browser automation
+        run: |
+          set -euo pipefail
+          cd site
+          if npm run build:source > "$RUNNER_TEMP/d05-build-source.log" 2>&1; then
+            echo "D05_BUILD_SOURCE=PASS"
+          else
+            echo "D05_BUILD_SOURCE=FAIL"
+            exit 1
+          fi
+      - name: Report qualified source-only result
+        run: |
+          echo "D05_SOURCE_ONLY=PASS"
+          echo "D05_KERNEL_RECEIPTS=NOT_RUN"
+          echo "D05_ONE_DIST=NOT_RUN"
+          echo "D05_BROWSER_GUI=NOT_RUN"
