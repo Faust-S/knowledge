@@ -1,5 +1,17 @@
 # IWXA T3 G4: единая миграция разработки в новый чат
 
+## 18.11.2026: независимая корпоративная Task интегрирована и установочно квалифицирована
+
+**Принятая техническая коррекция** с сохранением основной ветки Admin Center: [Faust-S/Center PR #2](https://github.com/Faust-S/Center/pull/2) **MERGED** в `work/2026-11-18-admin03-atlas09-native`, merge HEAD `81eff021cf058fdbcd82c2b57002bfe02544a35d`; квалифицированный feature SHA `0558393fc3b7d417c9e6d3a874ea5573257ee49e`. Git tree обоих коммитов строго одинаков `25b32a67f7103560609218aba8ae410292ae6907` (base `30a8639fd` сохранён первым родителем). [Публичный Center CI #44295669017](https://github.com/Faust-S/Center/actions/runs/44295669017) **SUCCESS**: Linux/Windows/macOS models, интерфейс, нативная установка Center, оригинальный Atlas Store/CEN05, stale WorkRef отказ.
+
+Реальный `CEN02 issue()` подписывает Task без установленного Atlas/WorkRef, с независимым исходным T3 signer/recipient binding; модули Atlas подгружаются ТОЛЬКО в ветке реально привязанного WorkRef; кнопка CorporatePanel больше не требует работу Atlas. Адресный тест импортирует T3 admin-порты в изолированном `node:fs` дереве **вообще без vendor/atlas** и выдаёт Task с существующей original runtime fixture. Это **не** квалификация оригинального приватного подписанта или независимого сотрудника с реальной моделью.
+
+**Общий T3 D6** в `knowledge@afa94b9aad978bc134bbb3fa553da69714b1be4c` [CI #44293606966](https://github.com/Faust-S/knowledge/actions/runs/44293606966) **SUCCESS (Node 778/778; real-host и windows-credential SUCCESS; metal-webgpu/native-model SKIPPED)**: generic recipient домена без Atlas WorkRef / .iwxa file; 1 commit, 2 contract-cold readback. Настоящая установленная независимая доменная операция **NOT_ACCEPTED**.
+
+**Отдельно найдено продуктовое расхождение:** в Agent 0.6 `desktop/src/atlas-work-context.tsx` работает с ручным `.iwxa` файлом, а Agent U04 native Host привязан к Obsidian, не Atlas. Наличие CEN05 U01/U04 внутри Admin Center не доказывает подключение Atlas как штатной программы внутри Agent. Этот профиль надо делать в Agent с его собственным владельцем, не возвращать его в универсальный G4. Нормативное решение IWXA и точные owner-gates: `IWXA_T3_PRODUCT_COMPOSITION_AND_OPTIONAL_ATLAS_2026_11_18_RU.md` и `G4_PRODUCT_RELEASE_EVIDENCE_CURRENT.json`.
+
+**Оставшиеся универсальные блокеры:** полноценный установленный независимый D1/D3 менеджер → сотрудник Agent → Human ACCEPT → отдельный Kernel APPLY → 2 cold readback; аппаратный D5 WebGPU cold offline; реально установленный универсальный D6 предметный recipient; PERSON D7; отдельный Agent cross-version Rollback. Все они независимы от редкого signed .iwxa → Atlas file profile. `T3_READY=false`, общий `G4=NOT_ACCEPTED`.
+
 ## Актуальный приоритет 18.11.2026: T3 без обязательной зависимости от Atlas
 
 **Решение владельца:** [архитектура IWXA и подключаемого Atlas](https://github.com/Faust-S/iwxa/blob/knowledge/2026-10-02-system-atlas/architecture/IWXA_T3_PRODUCT_COMPOSITION_AND_OPTIONAL_ATLAS_2026_11_18_RU.md). Atlas главным образом подключаемая программа Agent/Admin: U01 обнаружение, U04 окно, отдельно разрешённый порт предметных команд Atlas с собственным Host и U05. Прямой UI/OS-порт не требует обязательной подписанной передачи `.iwxa`; одного U04 недостаточно для автоматической записи или глубокого выбора работы. Редкая независимая `Agent → signed T3 → .iwxa → Atlas` — отдельная приёмка переносимого файла, **не** основная архитектура универсального T3.
