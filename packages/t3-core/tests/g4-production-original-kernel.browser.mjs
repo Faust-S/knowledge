@@ -145,11 +145,27 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
     };
     const {openInstalledOriginalAdminD3HostPort}=await import(
       pathToFileURL(join(t3Root,'interop','native-admin-d3.mjs')).href);
+    // Source-only Human decision: a SINGLE explicit prearmed review selected
+    // by this test, tied to the exact signed preview and manager context.
+    // It is NOT an installed Windows MessageDialog acceptance.
+    let pendingHumanReview=null;
+    const confirmNativeReview=async challenge=>{
+      const expected=pendingHumanReview;
+      if(!expected||challenge?.decision!=='ACCEPT'||
+        challenge.operationId!==expected.operationId||
+        challenge.packageSha256!==expected.packageSha256||
+        challenge.previewDigest!==expected.previewDigest||
+        challenge.context?.workspace_id!==productionWs||
+        challenge.context?.organization_id!==productionOrg)
+        return false;
+      pendingHumanReview=null;
+      return true;
+    };
     const args={
       root:prodRoot,organizationId:productionOrg,kernel:facade,
       createSignedAccessHostPort,createTrustedReconciliationKernelApply,
       createOriginalKernelRegistryStatePort,createOriginalEmployeeEnrollmentOwner,
-      confirmHumanReview:async()=>false,confirmSeparateApply:async()=>false,
+      confirmHumanReview:confirmNativeReview,confirmSeparateApply:async()=>false,
       isHostActive:()=>true,currentHostEpoch:()=>1,
     };
     owner=openInstalledOriginalAdminD3HostPort(args);
@@ -382,10 +398,13 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
     console.log('G4_ORIGINAL_PRODUCTION_EMPLOYEE_ADMIN_RESULT_RECEIVE_PASS');
     onPhase('ORIGINAL_PRODUCTION_EMPLOYEE_ADMIN_HUMAN_ACCEPT');
     const reviewId='review:g4-'+randomUUID();
+    pendingHumanReview={operationId:reviewId,
+      packageSha256:resultDigest,previewDigest:preview.previewDigest};
     const accepted=await action('d3Decide',{
       operationId:reviewId,packageSha256:resultDigest,
       previewDigest:preview.previewDigest,decision:'ACCEPT',
     });
+    assert.equal(pendingHumanReview,null);
     assert.equal(accepted.acceptanceState,'ACCEPTED');
     assert.equal(accepted.kernelApplication,'NOT_APPLIED');
     assert.equal(accepted.requiresSeparateApply,true);
