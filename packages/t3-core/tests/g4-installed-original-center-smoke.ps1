@@ -63,12 +63,38 @@ try {
   Require ($handle -ne [IntPtr]::Zero) 'G4_INSTALLED_CENTER_NATIVE_WINDOW_MISSING'
   Add-Type -AssemblyName UIAutomationClient
   Add-Type -AssemblyName UIAutomationTypes
-  $rootUi=[System.Windows.Automation.AutomationElement]::FromHandle($handle)
-  Require ($null -ne $rootUi) 'G4_INSTALLED_CENTER_UIA_ROOT_MISSING'
-  $descendants=$rootUi.FindAll(
-    [System.Windows.Automation.TreeScope]::Descendants,
-    [System.Windows.Automation.Condition]::TrueCondition)
-  Require ($descendants.Count -ge 3) 'G4_INSTALLED_CENTER_WEBVIEW_UIA_EMPTY'
+  # A Tauri HWND appears BEFORE WebView2 has built its accessibility tree.
+  # Wait for a REAL product control, not a fixed sleep or the HWND alone.
+  $rendered=$false
+  $descendantCount=0
+  for($attempt=0;$attempt -lt 100;$attempt++){
+    $gui.Refresh()
+    Require (-not $gui.HasExited) 'G4_INSTALLED_CENTER_GUI_EXITED_BEFORE_RENDER'
+    try {
+      $rootUi=[System.Windows.Automation.AutomationElement]::FromHandle($handle)
+      if($null -ne $rootUi){
+        $nodes=$rootUi.FindAll(
+          [System.Windows.Automation.TreeScope]::Descendants,
+          [System.Windows.Automation.Condition]::TrueCondition)
+        $descendantCount=$nodes.Count
+        foreach($node in $nodes){
+          try{
+            if($node.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button){
+              $label=[string]$node.Current.Name
+              if($label.Contains('Добавить организацию') -or
+                 $label.Contains('Создать черновик организации')){
+                $rendered=$true
+                break
+              }
+            }
+          }catch{}
+        }
+      }
+    }catch{}
+    if($rendered){break}
+    Start-Sleep -Milliseconds 400
+  }
+  Require ($rendered -and $descendantCount -ge 3) 'G4_INSTALLED_CENTER_WEBVIEW_NOT_RENDERED_WITHIN_BOUND'
   Write-Host 'G4_INSTALLED_CENTER_NATIVE_WINDOW_UIA_PASS'
   # Graceful window-close is an actual Windows WM_CLOSE, not killing the
   # process as a substitute for checking resource/Host teardown.
@@ -87,6 +113,15 @@ public static class G4InstalledWindow {
   # This scope is a package/window acceptance only: do not imply installed
   # HUMAN ACCEPT, separate Kernel APPLY, two OS accounts or full G4 readiness.
   Write-Host 'G4_INSTALLED_CENTER_PRIVATE_PACKAGE_GUI_SMOKE_PASS_NOT_D3_E2E'
+  # Reuse the exact Setup Core receipt root for the separate first-use
+  # Windows UIA process; never assume an installation folder.
+  $registry=Get-ItemProperty -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center' -ErrorAction Stop
+  Require ([IO.Path]::GetFullPath([string]$registry.InstallLocation) -eq
+    $root) 'G4_INSTALLED_CENTER_SETUP_REGISTRY_RECEIPT_MISMATCH'
+  if($env:GITHUB_ENV){
+    "G4_INSTALLED_CENTER_ROOT=$root" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+  }
+  Write-Host 'G4_INSTALLED_CENTER_SETUP_REGISTRY_READBACK_PASS'
 }finally{
   if($gui){
     try {
