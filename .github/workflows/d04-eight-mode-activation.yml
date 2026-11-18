@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: e5628a33164d0cf0d14a46238165abb82341265a
+          ref: c86dce88a84a54045b17ab0ab34a9633b245e00f
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -62,13 +62,20 @@ jobs:
       - name: Verify immutable source identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "e5628a33164d0cf0d14a46238165abb82341265a"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "c86dce88a84a54045b17ab0ab34a9633b245e00f"
           test "$(git -C d04-private/model rev-parse HEAD)" = "a148d0386a73fc0131f971075ce3743e7010e995"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           echo "D04_RECOVERY_EXACT_SOURCE=PASS"
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Check both original private witness module syntaxes
+        working-directory: d04-private/site
+        run: |
+          set -euo pipefail
+          node --check qualification/life-os-mode-activation.browser.mjs
+          node --check qualification/life-os-eight-exchange.browser.mjs
+          echo "D04_EIGHT_MODE_WITNESS_SYNTAX=PASS"
       - name: Install private site and normative T2 dependencies without publishing logs
         run: |
           set -euo pipefail
@@ -146,15 +153,19 @@ jobs:
           try {
             const result=await runLifeOsEightModeActivation({
               chromium,origin:server.origin,challenge:process.env.IWXA_T2_PRODUCT_CHALLENGE,
-              selectWitnessOption
+              selectWitnessOption,verifyIndependentExchange:true
             });
             if(result.status!=='PASS'||result.modes!==8||result.workspaceCount!==1||
                result.configurationCount!==8||result.revisionsPerMode!==2||
-               result.activeMode!=='return'||!result.coldRestart||!result.readback)
+               result.activeMode!=='return'||!result.coldRestart||!result.readback||
+               result.exchangeStatus!=='PASS'||result.exchangeModes!==8||
+               result.exchangeEvents<16||!result.exchangeIndependent)
               throw new Error('D04_MODE_RESULT_INCOMPLETE');
             console.log('D04_EIGHT_MODE_ACTIVATION=PASS');
             console.log('D04_EIGHT_MODE_KERNEL_OBJECTS=8');
             console.log('D04_EIGHT_MODE_COLD_READBACK=PASS');
+            console.log('D04_EIGHT_MODE_IWXA_CLEAN_PROFILE=PASS');
+            console.log('D04_EIGHT_MODE_IWXA_EVENTS='+result.exchangeEvents);
           }finally{
             await new Promise(done=>server.server.close(done));
           }
