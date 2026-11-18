@@ -116,19 +116,63 @@ jobs:
             exit 1
           }
           Write-Host "D06_BROWSER_SETUP=PASS"
-      - name: Execute original complete static site qualification
+      # Run the original aggregate's exact stages separately to diagnose
+      # which failed. The prior Windows runner already established that the
+      # aggregate command itself fails after its check/test stages pass.
+      - name: Build existing static site from D06 source
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 22
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-build-static-private.txt"
+          & npm run build:static *> $log
+          $status = if ($LASTEXITCODE -eq 0) { "PASS" } else { "FAIL" }
+          Write-Host "D06_BUILD_STATIC=$status"
+          if ($status -ne "PASS") { exit 1 }
+      - name: Check the actual built static site
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 15
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-check-static-private.txt"
+          & npm run check:static *> $log
+          $status = if ($LASTEXITCODE -eq 0) { "PASS" } else { "FAIL" }
+          Write-Host "D06_CHECK_STATIC=$status"
+          if ($status -ne "PASS") {
+            $private = Get-Content -LiteralPath $log -Raw
+            $codes = [regex]::Matches($private, "(?:D06|IWXA|T2)_[A-Z0-9_]+") |
+              ForEach-Object { $_.Value } | Select-Object -Unique -First 12
+            Write-Host ("D06_STATIC_CHECK_CODES=" + ($codes -join ","))
+            exit 1
+          }
+      - name: Run original end-to-end browser suite against the built site
         shell: pwsh
         working-directory: private/site
         timeout-minutes: 35
         run: |
-          $log = Join-Path $env:RUNNER_TEMP "d06-static-check-private.txt"
-          & npm run build:static:check *> $log
+          $log = Join-Path $env:RUNNER_TEMP "d06-e2e-private.txt"
+          & npm run test:e2e *> $log
           $status = if ($LASTEXITCODE -eq 0) { "PASS" } else { "FAIL" }
-          Write-Host "D06_STATIC_QUALIFICATION=$status"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value (
-            "| build:static:check | " + $status + " |"
-          )
-          if ($status -ne "PASS") { exit 1 }
+          Write-Host "D06_TEST_E2E=$status"
+          if ($status -ne "PASS") {
+            $private = Get-Content -LiteralPath $log -Raw
+            $classes = [ordered]@{
+              "CHROMIUM_LAUNCH" = "Failed to launch|Executable doesn't exist"
+              "TIMEOUT" = "TimeoutError|Timeout [0-9]+ms exceeded"
+              "ASSERTION" = "AssertionError|expect\(.*\)\.to"
+              "TLS" = "ERR_CERT|certificate"
+              "NETWORK" = "ECONNREFUSED|ERR_CONNECTION"
+              "MODULE" = "ERR_MODULE_NOT_FOUND|Cannot find module"
+            }
+            $names = @($classes.Keys | Where-Object { $private -match $classes[$_] })
+            if ($names.Count -eq 0) { $names = @("UNCLASSIFIED") }
+            Write-Host ("D06_E2E_FAILURE_CLASSES=" + ($names -join ","))
+            $counts = [regex]::Matches($private, "(?m)^\s*([0-9]+) failed\s*$")
+            if ($counts.Count -gt 0) {
+              Write-Host ("D06_E2E_FAILED_COUNT=" + $counts[$counts.Count - 1].Groups[1].Value)
+            }
+            exit 1
+          }
       - name: State privacy boundary
         if: always()
         shell: pwsh
