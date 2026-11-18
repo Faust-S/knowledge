@@ -123,6 +123,13 @@ jobs:
             console.log("D05_DIAGNOSTIC_CODES="+codes.slice(-12).join(","));
             console.log("D05_VITE_BUILD_FAILURE="+(/\bbuild failed\b|\bCould not resolve\b/i.test(t)));
             console.log("D05_TEST_RUN_ABORTED="+(/ERR_MODULE_NOT_FOUND|Cannot find module/i.test(t)));
+            const failLines=t.split(/\r?\n/).filter(line=>/^\s*(?:FAIL|❯|×)\s/.test(line));
+            const failPaths=[...new Set(failLines.flatMap(line=>[...line.matchAll(/(src\/[A-Za-z0-9_./$-]+\.test\.[jt]sx?)/g)].map(m=>m[1])))];
+            console.log("D05_VITEST_FAILED_FILES="+failPaths.slice(0,15).join(","));
+            const failureClasses=[...new Set(t.match(/(?:AssertionError|ReferenceError|TypeError|SyntaxError|ENOENT|ERR_TEST_FAILURE)/g)||[])];
+            console.log("D05_FAILURE_CLASSES="+failureClasses.join(","));
+            const testFileSummary=t.split(/\r?\n/).filter(line=>/(?:Test Files|Tests  |Test Suites)/.test(line)).slice(-2);
+            console.log("D05_VITEST_HAS_SUMMARY="+(testFileSummary.length>0));
             '
             exit 1
           fi
