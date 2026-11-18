@@ -240,12 +240,21 @@ try{
     G4_EMPLOYEE_BOOTSTRAP_ROOT:employeeCandidateRoot,
     G4_EMPLOYEE_PUBLIC_PROFILE_PATH:profilePath,
   };
-  const employeeProcess=(mode,extra={})=>{
+  const employeeProcess=(mode,extra={},expectedFailure=null)=>{
     const result=spawnSync(python,[firstUseDriver],{
       cwd:workRoot,env:{...firstUseEnv,...extra,
         G4_EMPLOYEE_BOOTSTRAP_MODE:mode},
       encoding:'utf8',windowsHide:true,timeout:120000,maxBuffer:128*1024
     });
+    if(expectedFailure!==null){
+      const code=(result.stdout??'').match(
+        /G4_EMPLOYEE_BOOTSTRAP_FAILURE_CODE\s+([A-Z0-9_]{3,119})/);
+      assert.notEqual(result.status,0,
+        'G4_EMPLOYEE_FIRST_USE_REPLAY_UNEXPECTEDLY_ACCEPTED');
+      assert.equal(code?.[1],expectedFailure,
+        'G4_EMPLOYEE_FIRST_USE_REPLAY_DENIAL_REASON_CHANGED');
+      return null;
+    }
     if(result.status!==0){
       const message=(result.stdout??'').match(
         /G4_EMPLOYEE_BOOTSTRAP_FAILURE_CODE\s+([A-Z0-9_]{3,119})/);
@@ -263,6 +272,12 @@ try{
   assert.deepEqual(originalWindowsEmployeeCandidate(employeeCandidateRoot),candidate);
   assert.throws(()=>enrollOriginalWindowsEmployeeCandidate(employeeCandidateRoot,{}),
     {code:'T3_EMPLOYEE_WINDOWS_CANDIDATE_EXISTS_READBACK'});
+  // The Agent IPC must likewise deny a SECOND first-use without minting keys.
+  // A failed consequential native write stays unknown inside this process;
+  // the next operation is an independent cold, read-only original opening.
+  phase='ORIGINAL_PRODUCTION_EMPLOYEE_AGENT_NO_REPLAY';
+  employeeProcess('CREATE',{},'T3_EMPLOYEE_WINDOWS_CANDIDATE_EXISTS_READBACK');
+  console.log('G4_ORIGINAL_PRODUCTION_AGENT_FIRST_USE_NO_REPLAY_PASS');
   phase='ORIGINAL_PRODUCTION_EMPLOYEE_COLD_PROOF';
   const {randomUUID,verify,createPublicKey}=await import('node:crypto');
   const {canonical,digest:originalDigest}=await import(pathToFileURL(
