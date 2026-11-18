@@ -65,7 +65,7 @@ jobs:
           Write-Output "D11_UI_DOMAIN_HEAD=$domain"
           if ($t2 -ne "e70de29b72b83e2546f7ab74b17572685a728c17") { throw "D11_T2_PIN_CHANGED" }
           $files=@(Get-ChildItem domain/model/logistics -File -Filter "*.ts")
-          if ($files.Count -lt 24) { throw "D11_SOURCE_FILES_MISSING" }
+          if ($files.Count -lt 25) { throw "D11_OPERATIONAL_SERVICE_SOURCE_MISSING" }
           foreach ($f in $files) {
             $a=(git -C domain rev-parse "HEAD:model/logistics/$($f.Name)").Trim()
             $b=(git -C site rev-parse "HEAD:src/lib/logistics/$($f.Name)").Trim()
@@ -99,7 +99,7 @@ jobs:
         run: |
           $domainTests=@(Get-ChildItem ../domain/tests -File -Filter "*.test.mjs" | ForEach-Object { $_.FullName })
           $siteTests=@(Get-ChildItem tests -File -Filter "*.test.mjs" | ForEach-Object { $_.FullName })
-          if ($domainTests.Count -ne 14 -or $siteTests.Count -lt 19) { throw "D11_TEST_INVENTORY_MISSING" }
+          if ($domainTests.Count -ne 14 -or $siteTests.Count -lt 20) { throw "D11_OPERATIONAL_SERVICE_TESTS_MISSING" }
           & node --experimental-strip-types --test @domainTests
           if ($LASTEXITCODE -ne 0) { throw "D11_CANONICAL_MODELS_REGRESSION_FAILED" }
           & node --experimental-strip-types --test @siteTests
