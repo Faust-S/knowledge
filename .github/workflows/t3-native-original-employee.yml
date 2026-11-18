@@ -9,6 +9,7 @@ on:
       - packages/t3-core/scripts/qualify-original-agent-d3-port.mjs
       - packages/t3-core/tests/g4-original-agent-native-windows.mjs
       - packages/t3-core/tests/g4-original-agent-native-driver.py
+      - packages/t3-core/tests/g4-original-employee-bootstrap-driver.py
   workflow_dispatch:
 
 permissions:
