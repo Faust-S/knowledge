@@ -529,10 +529,19 @@ jobs:
                   $beforeEvent=$Matches[1].TrimEnd('.')
                 }else{throw 'D07_NATIVE_RESTART_EVENT_ID_UNAVAILABLE'}
                 if([string]::IsNullOrWhiteSpace($beforeEvent)){throw 'D07_NATIVE_RESTART_EVENT_ID_INVALID'}
-                $edgeProc.Kill($true)
-                $edgeProc.WaitForExit(10000) | Out-Null
+                # This is a dedicated ephemeral Windows runner. Stop ALL
+                # actual Edge processes, including children independently
+                # retained after the launcher's process exits.
+                foreach($edgeInstance in @(Get-Process msedge -ErrorAction SilentlyContinue)){
+                  try {$edgeInstance.Kill($true)} catch {try {Stop-Process -Id $edgeInstance.Id -Force -ErrorAction SilentlyContinue} catch {}}
+                }
+                $fullyStopped=$false
+                for($attempt=0;$attempt -lt 30;$attempt++){
+                  if(@(Get-Process msedge -ErrorAction SilentlyContinue).Count -eq 0){$fullyStopped=$true;break}
+                  Start-Sleep -Milliseconds 500
+                }
+                if(-not $fullyStopped){throw 'D07_NATIVE_BROWSER_NOT_FULLY_STOPPED'}
                 Start-Sleep -Seconds 2
-                if(-not $edgeProc.HasExited){throw 'D07_NATIVE_BROWSER_NOT_STOPPED'}
                 Write-Output 'D07_NATIVE_BROWSER_COLD_STOP=PASS'
                 $edgeProc=Start-Process -FilePath $edge -ArgumentList @(
                   '--force-renderer-accessibility','--ignore-certificate-errors',
@@ -587,9 +596,18 @@ jobs:
                   }
                 }
                 if(!$savedButton){throw 'D07_NATIVE_RESTART_KERNEL_ORDER_NOT_LISTED'}
-                $savedInvoke=[System.Windows.Automation.InvokePattern]$savedButton.GetCurrentPattern(
-                  [System.Windows.Automation.InvokePattern]::Pattern)
-                $savedInvoke.Invoke()
+                $nativeInvoke=$null
+                if($savedButton.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern,[ref]$nativeInvoke)){
+                  ([System.Windows.Automation.InvokePattern]$nativeInvoke).Invoke()
+                  Write-Output 'D07_NATIVE_RESTART_SAVED_ORDER_ACTION=UIA_INVOKE'
+                }else{
+                  # A native Edge button may expose a name, but no InvokePattern.
+                  # Focus + keyboard activation exercises the same user surface.
+                  $savedButton.SetFocus()
+                  Start-Sleep -Milliseconds 200
+                  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                  Write-Output 'D07_NATIVE_RESTART_SAVED_ORDER_ACTION=KEYBOARD'
+                }
                 $null=WaitNative 'Документы этого заказа: 9' $null
                 Write-Output 'D07_NATIVE_RESTART_ORDER_NINE_DOCUMENTS=PASS'
                 $objectRestored=$false
