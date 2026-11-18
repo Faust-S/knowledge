@@ -24,6 +24,7 @@ $installed=(Resolve-Path -LiteralPath $InstallRoot).Path
 $exe=Join-Path $installed 'iwxa-admin-center.exe'
 Check (Test-Path -LiteralPath $exe -PathType Leaf) 'G4_INSTALLED_FIRST_USE_EXE_MISSING'
 $global:appProcess=$null
+$script:phase='INIT'
 function DesktopRoot(){
   $global:appProcess.Refresh()
   Check (-not $global:appProcess.HasExited) 'G4_INSTALLED_FIRST_USE_WINDOW_EXITED'
@@ -45,7 +46,7 @@ function FindName([string]$name,[string]$controlType='Button',[int]$retries=65){
     }
     Start-Sleep -Milliseconds 320
   }
-  throw ('G4_INSTALLED_FIRST_USE_UI_MISSING_'+$controlType.ToUpperInvariant())
+  throw ('G4_INSTALLED_FIRST_USE_UI_MISSING_'+$controlType.ToUpperInvariant()+'_'+$script:phase)
 }
 function ClickButton([string]$label){
   $control=FindName $label 'Button'
@@ -118,18 +119,23 @@ function StartCenter(){
   }
   throw 'G4_INSTALLED_FIRST_USE_NATIVE_WINDOW_MISSING'
 }
-function CloseCenter(){
+function CloseCenter([bool]$strict=$true){
   if(!$global:appProcess){return}
   try{
     $global:appProcess.Refresh()
     if(!$global:appProcess.HasExited){
       $h=$global:appProcess.MainWindowHandle
       if($h -ne [IntPtr]::Zero){
-        Check ([G4NativeMouse]::PostMessage($h,0x10,[IntPtr]::Zero,[IntPtr]::Zero)) 'G4_INSTALLED_FIRST_USE_WM_CLOSE_FAILED'
+        $sent=[G4NativeMouse]::PostMessage($h,0x10,[IntPtr]::Zero,[IntPtr]::Zero)
+        if($strict){Check $sent 'G4_INSTALLED_FIRST_USE_WM_CLOSE_FAILED'}
       }
-      Check ($global:appProcess.WaitForExit(15000)) 'G4_INSTALLED_FIRST_USE_GRACEFUL_CLOSE_FAILED'
+      $closed=$global:appProcess.WaitForExit($(if($strict){15000}else{2500}))
+      if($strict){Check $closed 'G4_INSTALLED_FIRST_USE_GRACEFUL_CLOSE_FAILED'}
     }
   }finally{
+    # When the tested native UI has legitimately refused WM_CLOSE because of
+    # an unsaved editor, cleanup may kill ONLY the CI fixture process. Never
+    # treat that as a passed graceful close or overwrite the first failure.
     try{$global:appProcess.Refresh();if(!$global:appProcess.HasExited){$global:appProcess.Kill()}}catch{}
     $global:appProcess.Dispose()
     $global:appProcess=$null
@@ -137,8 +143,10 @@ function CloseCenter(){
 }
 try{
   StartCenter
+  $script:phase='CREATE_ORGANIZATION'
   TypeText 'Название' 'G4WindowsOrganization'
   ClickButton 'Создать черновик организации'
+  $script:phase='CREATE_ORDINARY_WORKSPACE'
   ClickButton 'Планы Atlas'
   TypeText 'Название рабочей области' 'G4CorporateWorkspace'
   ClickButton 'Добавить'
@@ -147,15 +155,22 @@ try{
   # Persist the real manager draft before the cold installed reopen.
   # The signed owner and the ordinary Center organization remain
   # distinct; neither silently reconstructs the other's storage.
+  $script:phase='SAVE_MANAGER_DRAFT'
   ClickButton 'Сохранить на компьютере'
+  Write-Host 'G4_INSTALLED_FIRST_USE_MANAGER_SAVE_CLICKED'
+  $script:phase='OPEN_RESULT_PANEL'
   ClickButton 'Результаты'
+  Write-Host 'G4_INSTALLED_FIRST_USE_RESULTS_OPENED'
+  $script:phase='FIND_NATIVE_T3_ENROLL'
   $enroll=FindName 'Подключить организацию' 'Button'
   Check $enroll.Current.IsEnabled 'G4_INSTALLED_FIRST_USE_ENROLL_NOT_AVAILABLE'
+  $script:phase='CANCEL_T3_ENROLL'
   ClickButton 'Подключить организацию'
   ClickNativeChoice $false
   Start-Sleep -Milliseconds 450
   Check (HasText 'NOT_CONNECTED') 'G4_INSTALLED_FIRST_USE_CANCEL_ISSUED_OWNER'
   Write-Host 'G4_INSTALLED_FIRST_USE_NATIVE_CANCEL_NO_OWNER_PASS'
+  $script:phase='CONFIRM_T3_ENROLL'
   ClickButton 'Подключить организацию'
   ClickNativeChoice $true
   $connected=$false
@@ -165,7 +180,9 @@ try{
   }
   Check $connected 'G4_INSTALLED_FIRST_USE_ORIGINAL_OWNER_NOT_CONNECTED'
   Write-Host 'G4_INSTALLED_FIRST_USE_NATIVE_WINDOWS_ENROLL_PASS'
+  $script:phase='SIGNED_OWNER_COLD_CLOSE'
   CloseCenter
+  $script:phase='SIGNED_OWNER_COLD_RESTART'
   StartCenter
   ClickButton 'Результаты'
   $durable=$false
@@ -176,5 +193,10 @@ try{
   Check $durable 'G4_INSTALLED_FIRST_USE_COLD_OWNER_NOT_RESTORED'
   Write-Host 'G4_INSTALLED_FIRST_USE_ORIGINAL_DPAPI_COLD_RESTART_PASS'
 }finally{
-  if($global:appProcess){CloseCenter}
+  if($global:appProcess){
+    try{CloseCenter -strict $false}catch{
+      # Preserve the actual UI/owner failure from the primary try block.
+      Write-Host 'G4_INSTALLED_FIRST_USE_CLEANUP_NONBLOCKING'
+    }
+  }
 }
