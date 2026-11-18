@@ -213,7 +213,7 @@ try{
   const issuerPublicKey=originalState.policy.keys[originalIdentity.issuer].publicKey;
   const reviewPublicKey=originalState.policy.keys[originalIdentity.reviewKey].publicKey;
   const employeeCandidateRoot=join(workRoot,'independent-windows-employee');
-  const candidate=enrollOriginalWindowsEmployeeCandidate(employeeCandidateRoot,{
+  const profile={
     audience:originalIdentity.audience,authorityId:originalIdentity.authority,
     confirmedIssuerSha256:createHash('sha256').update(issuerPublicKey).digest('hex'),
     issuerKeyId:originalIdentity.issuer,issuerPublicKey,
@@ -223,7 +223,39 @@ try{
     organizationName:originalIdentity.organizationName,
     realmId:originalIdentity.realm,reviewKeyId:originalIdentity.reviewKey,
     reviewPublicKey,workspaceId:originalIdentity.workspace,
-  });
+  };
+  const profilePath=join(dir,'production-employee-public-profile.json');
+  writeFileSync(profilePath,JSON.stringify(profile),{flag:'wx'});
+  const firstUseDriver=join(process.cwd(),'packages','t3-core','tests',
+    'g4-original-employee-bootstrap-driver.py');
+  const firstUseEnv={
+    PATH:process.env.PATH??'',SystemRoot:process.env.SystemRoot??'',
+    WINDIR:process.env.WINDIR??'',USERPROFILE:process.env.USERPROFILE??'',
+    APPDATA:process.env.APPDATA??'',LOCALAPPDATA:process.env.LOCALAPPDATA??'',
+    HOMEDRIVE:process.env.HOMEDRIVE??'',HOMEPATH:process.env.HOMEPATH??'',
+    PSModulePath:process.env.PSModulePath??'',
+    TEMP:process.env.TEMP??'',TMP:process.env.TMP??'',
+    PYTHONPATH:agentRoot,PYTHONDONTWRITEBYTECODE:'1',
+    PYTHONNOUSERSITE:'1',IWXA_T3_ORIGINAL_OWNER_DIR:t3Root,
+    G4_EMPLOYEE_BOOTSTRAP_ROOT:employeeCandidateRoot,
+    G4_EMPLOYEE_PUBLIC_PROFILE_PATH:profilePath,
+  };
+  const employeeProcess=(mode,extra={})=>{
+    const result=spawnSync(python,[firstUseDriver],{
+      cwd:workRoot,env:{...firstUseEnv,...extra,
+        G4_EMPLOYEE_BOOTSTRAP_MODE:mode},
+      encoding:'utf8',windowsHide:true,timeout:120000,maxBuffer:128*1024
+    });
+    if(result.status!==0){
+      const message=(result.stdout??'').match(
+        /G4_EMPLOYEE_BOOTSTRAP_FAILURE_CODE\\s+([A-Z0-9_]{3,119})/);
+      console.log('G4_AGENT_FIRST_USE_FAILURE_CODE',
+        message?.[1]??'UNCLASSIFIED');
+      throw Error('G4_AGENT_FIRST_USE_NATIVE_PROCESS_FAILED');
+    }
+    return JSON.parse(result.stdout.trim());
+  };
+  const candidate=employeeProcess('CREATE').candidate;
   assert.equal(candidate.state,'AWAITING_ORIGINAL_MANAGER_ENROLLMENT');
   assert.equal(candidate.originalKernelEnrollment,false);
   assert.notEqual(candidate.employeePersonId,originalIdentity.reviewer);
@@ -245,34 +277,17 @@ try{
     operationDigest:createHash('sha256').update('g4-original-employee-first-use')
       .digest('hex'),
   };
-  // Cold independent process receives no manager vault, password, issuer key,
-  // PAT, or private source bytes, only exact staged owner module paths.
-  const coldScript=[
-    "import{pathToFileURL}from'node:url';",
-    "const [modulePath,root,requestJson,challenge]=process.argv.slice(1);",
-    "const {originalWindowsEmployeeCandidate,proveOriginalWindowsEmployeeChallenge}=",
-    "await import(pathToFileURL(modulePath).href);",
-    "const candidate=originalWindowsEmployeeCandidate(root);",
-    "const answer=proveOriginalWindowsEmployeeChallenge(root,JSON.parse(requestJson),challenge);",
-    "if(candidate.employeePersonId!==answer.employeePersonId||",
-    "candidate.credentialKeyId!==answer.credentialKeyId||",
-    "answer.originalKernelWriteAttempted!==false)throw Error('COLD_EMPLOYEE_SCOPE_FAILED');",
-    "console.log(JSON.stringify(answer.proof));"
-  ].join('');
-  const coldEmployee=spawnSync(process.execPath,
-    ['--input-type=module','-e',coldScript,
-      join(t3Root,'interop','native-employee-d3.mjs'),
-      employeeCandidateRoot,JSON.stringify(request),challenge],
-    {cwd:workRoot,env:{
-      PATH:process.env.PATH??'',SystemRoot:process.env.SystemRoot??'',
-      WINDIR:process.env.WINDIR??'',USERPROFILE:process.env.USERPROFILE??'',
-      APPDATA:process.env.APPDATA??'',LOCALAPPDATA:process.env.LOCALAPPDATA??'',
-      HOMEDRIVE:process.env.HOMEDRIVE??'',HOMEPATH:process.env.HOMEPATH??'',
-      PSModulePath:process.env.PSModulePath??'',
-      TEMP:process.env.TEMP??'',TMP:process.env.TMP??'',
-    },encoding:'utf8',windowsHide:true,timeout:65000,maxBuffer:128*1024});
-  assert.equal(coldEmployee.status,0,'G4_EMPLOYEE_COLD_PROOF_PROCESS_FAILED');
-  const proof=JSON.parse(coldEmployee.stdout.trim());
+  // A separate cold Agent Python process opens ORIGINAL T3 DPAPI custody.
+  // It receives only public challenge data and never an issuer private key.
+  const challengePath=join(dir,'production-employee-public-request.json');
+  writeFileSync(challengePath,JSON.stringify(request),{flag:'wx'});
+  phase='ORIGINAL_PRODUCTION_EMPLOYEE_AGENT_COLD_IPC_PROOF';
+  const coldEmployee=employeeProcess('COLD_PROOF',{
+    G4_EMPLOYEE_PUBLIC_REQUEST_PATH:challengePath,
+    G4_EMPLOYEE_ORIGINAL_CHALLENGE:challenge,
+  });
+  assert.deepEqual(coldEmployee.candidate,candidate);
+  const proof=coldEmployee.proof;
   const proofMessage=Buffer.from('IWXA-T3-ACCESS-SIGNED-V1\0'+canonical({
     schema:proof.schema,keyId:proof.keyId,payload:proof.payload
   }));
@@ -291,5 +306,6 @@ try{
     employeeCandidateRoot,{...request,actorId:originalIdentity.reviewer},challenge),
     {code:'T3_EMPLOYEE_ORIGINAL_CHALLENGE_SCOPE_CHANGED'});
   console.log('G4_ORIGINAL_PRODUCTION_INDEPENDENT_EMPLOYEE_CREDENTIAL_COLD_PASS');
+  console.log('G4_ORIGINAL_PRODUCTION_INDEPENDENT_AGENT_IPC_FIRST_USE_PASS');
 }catch(error){phaseFail(phase,error)}
 finally{try{admin?.close()}catch{}}
