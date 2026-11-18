@@ -4,12 +4,12 @@ import {existsSync} from 'node:fs';
 import {join} from 'node:path';
 const exe=join(process.env.SystemRoot??'C:\\Windows',
   'System32','WindowsPowerShell','v1.0','powershell.exe');
-const probe=(name,body)=>{
+const probe=(name,body,env=process.env,input='')=>{
   const encoded=Buffer.from("$ErrorActionPreference='Stop';"+body,
     'utf16le').toString('base64');
   const result=spawnSync(exe,[
     '-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',encoded,
-  ],{input:'',encoding:'utf8',windowsHide:true,timeout:20000,maxBuffer:256*1024});
+  ],{input,env,encoding:'utf8',windowsHide:true,timeout:20000,maxBuffer:256*1024});
   const ok=result.status===0&&!result.error;
   console.log('G4_WINDOWS_PROVIDER_'+name,ok?'PASS':'FAIL',
     result.error?'SPAWN_ERROR':result.signal?'PROCESS_SIGNAL':
@@ -32,6 +32,32 @@ if(checks.EXECUTABLE){
     'if($u.Length -ne 3 -or $u[0] -ne 7){throw "NO_ROUNDTRIP"}'
   ].join(''));
 }
+const keys=[
+  'PATH','SystemRoot','WINDIR','USERPROFILE','APPDATA','LOCALAPPDATA',
+  'HOMEDRIVE','HOMEPATH','PSModulePath','ComSpec','ProgramData','PATHEXT',
+  'TEMP','TMP','HOME',
+];
+const narrowed=Object.fromEntries(keys.filter(k=>typeof process.env[k]==='string')
+  .map(k=>[k,process.env[k]]));
+const originalIdentity="$i=[System.Security.Principal.WindowsIdentity]::GetCurrent();"+
+  "$m=(Get-ItemProperty -LiteralPath 'HKLM:\\SOFTWARE\\Microsoft\\Cryptography').MachineGuid;"+
+  "@{sid=$i.User.Value;name=$i.Name;deviceId=$m}|ConvertTo-Json -Compress";
+if(checks.EXECUTABLE){
+  checks.EXACT_IDENTITY_FULL=probe('EXACT_IDENTITY_FULL',originalIdentity);
+  checks.EXACT_IDENTITY_NARROW=probe('EXACT_IDENTITY_NARROW',originalIdentity,narrowed);
+  const input=JSON.stringify({
+    data:Buffer.from('synthetic-g4-only').toString('base64'),
+    entropy:Buffer.from('native-source-probe').toString('base64'),
+  });
+  const exactProtection="Add-Type -AssemblyName System.Security;"+
+    "$v=ConvertFrom-Json ([Console]::In.ReadToEnd());"+
+    "$b=[Convert]::FromBase64String($v.data);"+
+    "$e=[Convert]::FromBase64String($v.entropy);"+
+    "[Convert]::ToBase64String([System.Security.Cryptography.ProtectedData]::Protect($b,$e,[System.Security.Cryptography.DataProtectionScope]::CurrentUser))";
+  checks.EXACT_PROTECT_FULL=probe('EXACT_PROTECT_FULL',exactProtection,process.env,input);
+  checks.EXACT_PROTECT_NARROW=probe('EXACT_PROTECT_NARROW',exactProtection,narrowed,input);
+}
+
 const passed=Object.values(checks).every(Boolean);
 console.log('G4_WINDOWS_PROVIDER_CURRENT_USER_RESULT',passed?'PASS':'HOLD');
 if(!passed)process.exitCode=1;
