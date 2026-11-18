@@ -112,7 +112,49 @@ site-репозитория домена**, с закреплённым выпу
 для полноценных проверок, приватные Actions запрещены. Оригинальный
 T2 нормативный HEAD/сборку не изменять.
 
-**Приёмочный уровень сейчас:**
-`NATIVE_OWNER_REAL_T2_KERNEL_SOURCE_PASS`,
-`INSTALLED_PRODUCT_PASS=NOT_RUN`,
-`CROSS_PRODUCT_G4_PASS=NOT_RUN`.
+## 5. Проверенный установленный Windows-пакет (19.11.2026)
+
+Причина предыдущей остановки была сборочной: архив квалифицированного
+T2 Kernel не содержал исходный предметный domain.json, Workspace и паспорт.
+Admin Center теперь определяет собственный T2-профиль; действующий One Core
+включает квалифицированные Kernel 0.3.6 / Contract 1.3.0 без изменения байтов.
+Отдельный desktop control-only профиль не включает неполный BLI Worker;
+обычная строгая браузерная D5-сборка не ослаблена.
+
+- [Windows #44411947163](https://github.com/Faust-S/knowledge/actions/runs/44411947163):
+  оригинальный приватный подписант T3, нативный Center и Setup Core
+  собраны; установка, SHA-256 подписанта и наличие оригинального
+  Kernel в установленном каталоге подтверждены. Раннее чтение WebView2
+  UIA дало FAIL и потребовало исправления ожидания.
+- [Windows #44413171459](https://github.com/Faust-S/knowledge/actions/runs/44413171459):
+  повторная реальная установка, React-кнопки из установленного WebView2,
+  штатное закрытие HWND через WM_CLOSE, создание обычной Workspace
+  без Atlas: PASS. Продолжение onboarding не принято.
+- [Windows #44414668010](https://github.com/Faust-S/knowledge/actions/runs/44414668010):
+  обычная Workspace PASS, явный вызов сохранения и переход к результатам
+  выполнены, кнопка подключения найдена. Нативный диалог при первом
+  подключении не обнаружен (FIRST_USE_NATIVE_MESSAGE_DIALOG_MISSING).
+  Это не доказательство ошибки криптографического подписанта: в
+  Center перед подключением установлен запрет, если сохранение черновика
+  ещё выполняется.
+- [Windows #44416173411](https://github.com/Faust-S/knowledge/actions/runs/44416173411):
+  выполняется повтор с обязательным наблюдаемым подтверждением
+  сохранения, независимой проверкой появившегося модального окна
+  и точными кодами отказа, без маскировки причин очисткой процесса.
+
+Поставка age v1.3.2 продолжает проверять исходный архив SHA-256.
+Отдельно проверена каноническая LICENSE из исходного тега v1.3.2,
+а не случайная копия из ZIP, формат которой мог отличаться.
+
+**Статусы на последней завершённой установленной проверке:**
+- NATIVE_OWNER_REAL_T2_KERNEL_SOURCE_PASS.
+- INSTALLED_SETUP_CORE_AND_NATIVE_WEBVIEW_GUI_PASS.
+- INSTALLED_ORDINARY_WORKSPACE_NO_ATLAS_PASS.
+- INSTALLED_D3_ENROLL_AND_COLD_RESTART_HOLD.
+- INSTALLED_HUMAN_ACCEPT_APPLY_NOT_RUN.
+- CROSS_PRODUCT_G4_NOT_ACCEPTED; T3_READY=false.
+
+Нативное подключение организации, независимые Windows-пользователи,
+Human ACCEPT и отдельно подтверждённый Apply через оригинальный T2
+Kernel/Object/Event, read-only recovery, D5, generic D6 и D7 не
+заменяются успешной установкой или Source PASS.
