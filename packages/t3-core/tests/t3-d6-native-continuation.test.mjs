@@ -5,7 +5,7 @@ import {createTrustedNativeContinuation} from "../src/t3/native-result-continuat
 // Public contract fixture only: no real native Atlas/Agent/issuer is present.
 function fixture(beforeHuman=async()=>{},{recipientId="native:atlas",resultRef="atlas:work:001"}={}){
   let revision=2,approved=true,revoked=false,selected=true,dropAck=false,receives=0;
-  let deletedAt=null;
+  let deletedAt=null,reorderContext=false,contextReads=0;
   let receiptHook=null,readbackHook=null,receiveHook=null;
   const workspace={workspace_id:"ws:personal",deleted_at:null};
   const focus={get:()=>selected?workspace:null,subscribe:()=>()=>{}};
@@ -17,7 +17,14 @@ function fixture(beforeHuman=async()=>{},{recipientId="native:atlas",resultRef="
     purpose:"read",workspace_id:"ws:personal",organization_id:null,scope_revision:1};
   const now=()=>new Date().toISOString(),later=()=>new Date(Date.now()+60000).toISOString();
   const access={
-    currentContext:()=>context,actionFor:()=> "workspace.read",
+    // Original T2 persistence may canonicalize the SAME signed context to a
+    // different object property order after a cold process/Host reopen.
+    currentContext:()=>{
+      contextReads++;
+      return reorderContext&&contextReads%2===0
+        ?Object.fromEntries(Object.entries(context).reverse()):context;
+    },
+    actionFor:()=> "workspace.read",
     operationDigest:()=> "a".repeat(64),
     authorize:()=>({schema:"IWXA_T3_AUTHORIZATION_DECISION/1",
       allowed:!revoked,outcome:revoked?"DENIED":"PERMITTED",evidenceOnly:true,
@@ -75,6 +82,8 @@ function fixture(beforeHuman=async()=>{},{recipientId="native:atlas",resultRef="
     setReadbackHook:fn=>readbackHook=fn,
     setReceiveHook:fn=>receiveHook=fn,
     setRecipientId:id=>{nativeOwner.recipientId=id;},
+    setReorderContext:value=>{reorderContext=value;},
+    setGrantId:value=>{context.grant_id=value;},
     receives:()=>receives};
 }
 test("D6 selected signed Result continues to an installed owner with independent readback",async()=>{
@@ -114,6 +123,33 @@ test("generic T3 D6 continues an accepted Result to a non-Atlas domain owner",as
   f.setRevoked(true);
   await assert.rejects(coldA.recover(f.ref),{code:"T3_ACCESS_NOT_PERMITTED"});
   assert.equal(f.receives(),1);
+});
+
+test("generic D6 keeps original signed context across T2 JSON key reordering",async()=>{
+  const f=fixture(async()=>{},{recipientId:"domain:bazmed",
+    resultRef:"domain:patient-result:001"});
+  // Every other original Access read returns the same context with reversed
+  // JSON insertion order, including across Human confirmation and readback.
+  f.setReorderContext(true);
+  assert.equal((await f.port.preview(f.ref)).status,"AVAILABLE");
+  const result=await f.port.continueSelected(f.ref);
+  assert.equal(result.status,"OWNER_READBACK_CONFIRMED");
+  assert.equal(result.recipientId,"domain:bazmed");
+  assert.equal(f.receives(),1);
+  const cold=f.makePort();
+  assert.equal((await cold.recover(f.ref)).status,"OWNER_READBACK_CONFIRMED");
+  assert.equal(f.receives(),1);
+});
+
+test("generic D6 rejects changed original grant during review even if keys reorder",async()=>{
+  let f;
+  f=fixture(async()=>f.setGrantId("grant:replaced"),{
+    recipientId:"domain:bazmed",resultRef:"domain:patient-result:001"});
+  f.setReorderContext(true);
+  await assert.rejects(f.port.continueSelected(f.ref),{
+    code:"T3_D6_SIGNED_CONTEXT_CHANGED",
+  });
+  assert.equal(f.receives(),0,"a changed signed grant cannot reach native receive");
 });
 
 test("D6 denial and lost native ACK never automatically dispatch twice",async()=>{

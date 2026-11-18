@@ -5,7 +5,17 @@ import {createSubjectKernelBinding} from "./subject-access-binding.mjs";
 
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const validId=value=>typeof value==="string"&&ID.test(value);
-const identity=context=>JSON.stringify(context);
+// Keep the exact original signed D1 scope stable across T2 JSON canonical
+// key reordering. Missing fields and changed values (including grant/epoch)
+// remain distinguishable; this is not a second identity or Access evaluator.
+const CONTEXT_FIELDS=Object.freeze([
+  "kind","context_id","actor_id","principal_id","role_id","grant_id",
+  "realm_id","audience","resource","purpose","workspace_id",
+  "organization_id","scope_revision",
+]);
+const identity=context=>JSON.stringify(CONTEXT_FIELDS.map(field=>[
+  Object.hasOwn(context??{},field),typeof context?.[field],context?.[field]??null,
+]));
 function deny(code){
   throw Object.assign(new Error(code),{code,outcome:"DENIED"});
 }
