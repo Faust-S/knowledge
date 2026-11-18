@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      SITE_SHA: 58031793f02d2cde254ede44dd08c2c65260fe3d
+      SITE_SHA: 5044fa2c196327fd8bece8888a16399da959d90a
     steps:
       - name: Checkout exact private candidate without logging or publishing content
         uses: actions/checkout@v4
@@ -39,7 +39,7 @@ jobs:
           if($LASTEXITCODE -ne 0) { throw 'D02_TARGETED_NPM_CI_FAILED' }
           Write-Output 'D02_TARGETED_NPM_CI=PASS'
 
-      - name: Run seven previously failing source suites in isolation
+      - name: Run project handoff plus seven core source suites in isolation
         shell: pwsh
         working-directory: site
         run: |
@@ -50,7 +50,8 @@ jobs:
             'test:club-case-03-native-tools',
             'test:club-personal-cash-calendar',
             'test:club-work-ledger-integration',
-            'test:club-route-progress-runtime'
+            'test:club-route-progress-runtime',
+            'test:club-project-route-handoff'
           )
           $fail=0
           foreach($name in $names) {
