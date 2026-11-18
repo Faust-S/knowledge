@@ -25,6 +25,8 @@ jobs:
         run: npm ci --no-audit --no-fund > /dev/null
       - name: Check real canonical service calculations and scoped dashboard projection
         run: node --experimental-strip-types --test tests/d11-operational-services.test.mjs tests/d11-dashboard-projection.test.mjs
+      - name: Typecheck integrated site source and typed operational APIs
+        run: node_modules/.bin/tsc --noEmit --project tsconfig.json
       - name: Parse actual desktop and mobile React entry components
         run: |
           node_modules/.bin/esbuild src/lib/logistics/operational-services.ts --bundle --platform=browser --format=esm --outfile=/tmp/d11-operational-services-bundle.mjs
