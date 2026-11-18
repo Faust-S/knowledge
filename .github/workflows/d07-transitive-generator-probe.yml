@@ -1,0 +1,60 @@
+name: D07 transitive TanStack generator probe (private runner only)
+on:
+  push:
+    branches: [work/2026-11-18-d07-case10-qualification]
+    paths: [.github/workflows/d07-transitive-generator-probe.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 699b4f520b4a4ae29964a8aaca87f3ae9b25c223
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - name: Prototype original lock with generator as transitive dependency
+        working-directory: site
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Get-Content package.json -Raw | ConvertFrom-Json -AsHashtable
+          $p.devDependencies.Remove('@tanstack/router-generator')
+          [IO.File]::WriteAllText((Join-Path (Get-Location) 'package.json'),($p|ConvertTo-Json -Depth 50)+[Environment]::NewLine)
+          & git show 'd99296fe732a703407fdf36c64ba7b334434a638:bun.lock' > bun.lock
+          if($LASTEXITCODE -ne 0){throw 'D07_ORIGINAL_LOCK_UNAVAILABLE'}
+          $log=Join-Path $env:RUNNER_TEMP 'd07-transitive-probe-private.log'
+          & bun install --frozen-lockfile *> $log
+          if($LASTEXITCODE -ne 0){
+            $raw=Get-Content $log -Raw
+            $reason=if($raw -match '(?i)frozen.{0,100}lockfile|lockfile.{0,100}frozen'){'FROZEN_LOCK'}
+              elseif($raw -match 'postinstall|generate-d07-route-tree'){'POSTINSTALL'}
+              else {'INSTALL_OTHER'}
+            Write-Host "D07_TRANSITIVE_PROBE_FAIL_CLASS=$reason"
+            throw 'D07_TRANSITIVE_FROZEN_INSTALL_FAILED'
+          }
+          if(-not (Test-Path src/routeTree.gen.ts)){throw 'D07_GENERATED_ROUTE_FILE_MISSING'}
+          $routes=Get-Content src/routeTree.gen.ts -Raw
+          foreach($slug in @('uborka-posle-remonta','remont-vannoy-ulan-ude',
+            'ofisnyy-pereezd-rostov','internet-magazin-khozyayeva',
+            'buhgalterskiy-autsorsing-stroysouz','remont-dvigatelya-nissan-pathfinder',
+            'sudebnoe-predstavitelstvo-spravedlivost','muzykalnye-uroki-pervouralsk',
+            'fotosessiya-kalininskaya','brend-media-new-you')){
+            if(-not $routes.Contains("/keisy/$slug")){throw 'D07_GENERATOR_ROUTE_MISSING'}
+          }
+          Write-Host 'D07_TRANSITIVE_FROZEN_INSTALL=PASS'
+          Write-Host 'D07_TRANSITIVE_GENERATOR_ROUTES=10/10'
+          # No content, dist or lockfile leaves the ephemeral runner.
