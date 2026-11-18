@@ -84,8 +84,8 @@ jobs:
             const format = await prettier.format(source, {
               ...(await prettier.resolveConfig(file)), filepath: file,
             });
-            const before = source.split(/\\r?\\n/);
-            const after = format.split(/\\r?\\n/);
+            const before = source.split(/\r?\n/);
+            const after = format.split(/\r?\n/);
             let first = 0;
             while (first < before.length && first < after.length &&
                    before[first] === after[first]) first++;
