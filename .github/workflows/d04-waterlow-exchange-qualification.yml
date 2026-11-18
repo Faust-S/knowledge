@@ -1,0 +1,188 @@
+name: D04 Waterlow 2005 independent original T2 .iwxa Exchange roundtrip
+on:
+  push:
+    branches:
+      - work/2026-11-18-d04-life-os-qualification
+    paths:
+      - .github/workflows/d04-waterlow-exchange-qualification.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d04-waterlow-exchange-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  recovery-exchange:
+    runs-on: ubuntu-latest
+    timeout-minutes: 105
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Confirm authorized private source reads before checkout
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then echo "D04_DOMEN_SECRET_MISSING"; exit 1; fi
+          for repo in Faust-S/bazmed.ru Faust-S/bazmed Faust-S/T2; do
+            if ! gh api "repos/$repo" --jq '.id' >/dev/null 2>&1; then
+              echo "D04_PRIVATE_REPOSITORY_ACCESS_DENIED:$repo"
+              exit 1
+            fi
+          done
+          echo "D04_RECOVERY_SOURCES_AUTHORIZED=3/3"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/bazmed.ru
+          ref: ed8d513e58c65763a18064d5d94fa2bd93c2400d
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/site
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/bazmed
+          ref: 9aa68471001d30c07bcd6dfaf20c7a1b65b51df2
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/model
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 9c64951cd78411283e8a416641c36d71e169fc1d
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/t2
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify immutable source identity
+        run: |
+          set -euo pipefail
+          test "$(git -C d04-private/site rev-parse HEAD)" = "ed8d513e58c65763a18064d5d94fa2bd93c2400d"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "9aa68471001d30c07bcd6dfaf20c7a1b65b51df2"
+          test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
+          echo "D04_RECOVERY_EXACT_SOURCE=PASS"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check both original private witness module syntaxes
+        working-directory: d04-private/site
+        run: |
+          set -euo pipefail
+          node --check qualification/life-os-mode-activation.browser.mjs
+          node --check qualification/life-os-waterlow-2005-native.browser.mjs
+          node --check qualification/life-os-waterlow-2005-exchange.browser.mjs
+          echo "D04_W2005_WITNESS_SYNTAX=PASS"
+      - name: Install private site and normative T2 dependencies without publishing logs
+        run: |
+          set -euo pipefail
+          if (cd d04-private/site && npm ci --no-audit --no-fund --include=dev) >"$RUNNER_TEMP/d04-site-install.log" 2>&1; then
+            echo "D04_RECOVERY_SITE_NPM_CI=PASS"
+          else
+            echo "D04_RECOVERY_SITE_NPM_CI=FAIL"
+            exit 1
+          fi
+          canonical="d04-private/t2/t2/current/final-successor/canonical-source"
+          if (cd "$canonical" && npm ci --no-audit --no-fund --include=dev) >"$RUNNER_TEMP/d04-t2-install.log" 2>&1; then
+            echo "D04_RECOVERY_NORMATIVE_T2_NPM_CI=PASS"
+          else
+            echo "D04_RECOVERY_NORMATIVE_T2_NPM_CI=FAIL"
+            exit 1
+          fi
+      - name: Install normative T2 Chromium from exact Playwright package
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          canonical="d04-private/t2/t2/current/final-successor/canonical-source"
+          if (cd "$canonical" && timeout 210s npx playwright install chromium) >"$RUNNER_TEMP/d04-browser-install.log" 2>&1; then
+            echo "D04_NORMATIVE_T2_BROWSER=PASS"
+          else
+            echo "D04_NORMATIVE_T2_BROWSER=FAIL"
+            exit 1
+          fi
+      - name: Generate new isolated witness challenge
+        run: |
+          umask 077
+          openssl rand -hex 32 > "$RUNNER_TEMP/d04-eight-mode-challenge"
+          echo "D04_FRESH_WITNESS_CHALLENGE=SET"
+      - name: Build exact T2 and BazMed with qualification-only read-only auditor
+        working-directory: d04-private/site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
+        run: |
+          set -uo pipefail
+          set +e
+          export IWXA_T2_PRODUCT_CHALLENGE="$(cat "$RUNNER_TEMP/d04-eight-mode-challenge")"
+          npm run build:t2:site >"$RUNNER_TEMP/d04-recovery-build.log" 2>&1
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "D04_RECOVERY_INTEGRATED_BUILD=FAIL"
+            grep -Eo 'BAZMED_[A-Z0-9_]+|D04_[A-Z0-9_]+' "$RUNNER_TEMP/d04-recovery-build.log" | sort -u | tail -20 || true
+            python3 "$GITHUB_WORKSPACE/tools/ci/d04_build_safe_diagnostics.py" "$RUNNER_TEMP/d04-recovery-build.log" || true
+            exit "$code"
+          fi
+          test -s dist/workspace/index.html
+          test -s dist/workspace/exchange/index.html
+          test -s dist/_iwxa/current.json
+          echo "D04_RECOVERY_INTEGRATED_BUILD=PASS"
+      - name: Real complete Waterlow 2005, native Result, in-place edit, cold readback
+        working-directory: d04-private/site
+        run: |
+          set -uo pipefail
+          set +e
+          export IWXA_T2_PRODUCT_CHALLENGE="$(cat "$RUNNER_TEMP/d04-eight-mode-challenge")"
+          node --input-type=module >"$RUNNER_TEMP/d04-waterlow-native-browser.log" 2>&1 <<'NODE'
+          import {createRequire} from 'node:module';
+          import {resolve,join} from 'node:path';
+          import {pathToFileURL} from 'node:url';
+          const site=process.cwd();
+          const canonical=resolve(process.env.GITHUB_WORKSPACE,
+            'd04-private/t2/t2/current/final-successor/canonical-source');
+          const {chromium}=createRequire(join(canonical,'package.json'))('playwright');
+          const {serveRealKernelHost}=await import(pathToFileURL(
+            join(canonical,'scripts/real-kernel-e2e.mjs')).href);
+          const {selectWitnessOption}=await import(pathToFileURL(
+            join(canonical,'src/factory2/products/domain-completion/independent-browser-witness.mjs')).href);
+          const {runWaterlow2005Native}=await import(pathToFileURL(
+            join(site,'qualification/life-os-waterlow-2005-native.browser.mjs')).href);
+          const server=await serveRealKernelHost(join(site,'dist'),{
+            independentWitness:true,previewOrigin:true
+          });
+          try {
+            const result=await runWaterlow2005Native({
+              chromium,origin:server.origin,challenge:process.env.IWXA_T2_PRODUCT_CHALLENGE,
+              selectWitnessOption,verifyIndependentExchange:true
+            });
+            if(result.status!=='PASS'||result.method!=='bazmed.life.waterlow-revised-2005/1.0.0'||
+               result.revisions!==2||result.workspaceCount!==1||!result.coldRestart||
+               !result.originalKernel||!result.independentReadback||!result.noSecondStore||
+               result.exchangeStatus!=='PASS'||result.exchangeEvents<2||
+               result.exchangeObjects<1||!result.exchangeIndependent||
+               !result.exchangeColdImported||!result.exchangeSourceUnchanged||
+               !result.exchangeHistoryPreserved)
+              throw Error('D04_W2005_EXCHANGE_RESULT_INCOMPLETE');
+            console.log('D04_W2005_NATIVE_REAL_UI=PASS');
+            console.log('D04_W2005_NATIVE_REVISIONS_1_AND_2=PASS');
+            console.log('D04_W2005_NATIVE_INDEPENDENT_READBACK=PASS');
+            console.log('D04_W2005_NATIVE_COLD_RESTART=PASS');
+            console.log('D04_W2005_IWXA_INDEPENDENT_IMPORT=PASS');
+            console.log('D04_W2005_IWXA_HISTORY_EVENTS='+result.exchangeEvents);
+            console.log('D04_W2005_IWXA_IMPORTED_COLD_RESTART=PASS');
+          }finally{await new Promise(done=>server.server.close(done))}
+          NODE
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "D04_W2005_NATIVE_BROWSER=FAIL"
+            grep -Eo 'D04_W2005_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-waterlow-native-browser.log" | sort -u | tail -12 || true
+            python3 "$GITHUB_WORKSPACE/tools/ci/d04_recovery_safe_diagnostics.py" "$RUNNER_TEMP/d04-waterlow-native-browser.log" || true
+            exit "$code"
+          fi
+          grep '^D04_W2005_' "$RUNNER_TEMP/d04-waterlow-native-browser.log" | tail -8
+          echo "D04_W2005_NATIVE_BROWSER=PASS"
+          # No private source, dist, personal profiles, archives or browser files uploaded.
