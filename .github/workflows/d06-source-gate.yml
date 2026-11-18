@@ -55,6 +55,13 @@ jobs:
                   if ($logText.Contains($kind)) { $types += $kind }
                 }
                 Write-Host ("D06_SOURCE_TEST_FAILURE_CLASSES=" + ($types -join ","))
+                # Script identifiers are non-secret, unlike the private
+                # assertion text. This identifies the failed unit stage.
+                $entries = [regex]::Matches($logText, "(?m)^> .* (test:[a-z0-9:.-]+)\\s*$")
+                if ($entries.Count -gt 0) {
+                  $stage = $entries[$entries.Count - 1].Groups[1].Value
+                  Write-Host ("D06_SOURCE_TEST_LAST_SCRIPT=" + $stage)
+                }
               }
             }
           }
