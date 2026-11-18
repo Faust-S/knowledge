@@ -143,7 +143,7 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
           return s.t1.commitObjectGraph(input);
         },{serviceId:SERVICE,input}),
     };
-    const {openInstalledOriginalAdminD3HostPort}=await import(
+    const {openInstalledOriginalAdminD3HostPort,runNativeAdminD3}=await import(
       pathToFileURL(join(t3Root,'interop','native-admin-d3.mjs')).href);
     // Source-only Human decision: a SINGLE explicit prearmed review selected
     // by this test, tied to the exact signed preview and manager context.
@@ -170,6 +170,22 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
     };
     // An unarmed review MUST NOT be approved, even in this opt-in source CI.
     assert.equal(await confirmNativeReview({decision:'ACCEPT'}),false);
+    // The historical one-shot CLI has no native Human confirmation channel.
+    // It MUST NOT accept or reject on behalf of the organization, even if a
+    // caller supplies a syntactically valid command with signed-looking IDs.
+    // This test runs while the production DPAPI owner is closed; no lock
+    // refusal may mask a decision bypass.
+    onPhase('ORIGINAL_PRODUCTION_LEGACY_CLI_HUMAN_REVIEW_DENIED');
+    const unsignedCliDecision=write(workRoot,
+      'original-human-review-unconfirmed-cli.json',
+      JSON.stringify({organizationId:productionOrg,operation:'d3Decide',
+        input:{decision:'ACCEPT',operationId:'review:unsigned',
+          packageSha256:'0'.repeat(64),previewDigest:'0'.repeat(64)}}));
+    assert.throws(
+      ()=>runNativeAdminD3(['d3-action',prodRoot,productionOrg,
+        unsignedCliDecision]),
+      {code:'T3_D3_HUMAN_REVIEW_REQUIRED'});
+    console.log('G4_ORIGINAL_PRODUCTION_LEGACY_CLI_REVIEW_DENIED_PASS');
     owner=openInstalledOriginalAdminD3HostPort(args);
     const snap=owner.nativeState().view.snapshot;
     assert.equal(snap.d3EmployeeRegistryBootstrapAvailable,true);
