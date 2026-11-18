@@ -1,0 +1,90 @@
+name: D07 static public navigation and original T2 source qualification
+on:
+  push:
+    branches: [work/2026-11-18-d07-case10-qualification]
+    paths: [.github/workflows/d07-static-navigation-qualification.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  navigation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      SITE_SHA: b8b798f4b719d13bb063fbe867bd01a4c206f37c
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      CI: 'true'
+    steps:
+      - name: Confirm authorized read of pinned private dependencies
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -z "$GH_TOKEN"; then echo "D07_NAV_PRIVATE_READ=FAIL"; exit 1; fi
+          gh api repos/Faust-S/uslugovod.ru --jq '.id' >/dev/null
+          gh api repos/Faust-S/T2 --jq '.id' >/dev/null
+          git config --global core.autocrlf false
+          echo "D07_NAV_PRIVATE_READ=PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          path: t2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - name: Full product-first tests, TS, logic lint and single integrated dist
+        shell: bash
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SITE_SHA"
+          test "$(git -C ../t2 rev-parse HEAD)" = "$T2_SHA"
+          echo "D07_NAV_PINNED_SOURCES=PASS"
+          gate() {
+            local label="$1"
+            shift
+            if "$@" >"$RUNNER_TEMP/d07-navigation-$label.private.log" 2>&1; then
+              echo "D07_NAV_$label=PASS"
+            else
+              echo "D07_NAV_$label=FAIL"
+              exit 1
+            fi
+          }
+          gate INSTALL bun install --frozen-lockfile
+          gate SOURCE_REGRESSION node --import tsx --test scripts/tests/d07-public-navigation-integrity.test.mjs
+          gate ALL_PRODUCT_TESTS bun run test:product-first
+          gate TYPES bun run check:types
+          gate LINT_LOGIC bun run lint:logic
+          gate PUBLIC_BUILD bun run build:public
+          gate INTEGRATED_BUILD bun run build:t2-integrated
+          gate T2_PREVIEW bun run preview:t2 -- --check
+          node --import tsx --input-type=module <<'AUDIT'
+          import { existsSync } from "node:fs";
+          import { siteRoutes, qualificationRoutes } from "./src/site-routes.ts";
+          const all=[...siteRoutes,...qualificationRoutes];
+          const absent=all.filter(path=>!existsSync("dist/"+path.replace(/^\/+|\/+$/g,"")+"/index.html"));
+          if(absent.length) throw Error("D07_NAV_PRERENDER_MISSING_"+absent.length);
+          if(!existsSync("dist/workspace/index.html")) throw Error("D07_NAV_ORIGINAL_T2_MISSING");
+          console.log("D07_NAV_PRERENDER="+all.length+"/"+all.length);
+          console.log("D07_NAV_ORIGINAL_T2=PASS");
+          AUDIT
+          echo "D07_NAV_QUALIFICATION=PASS"
+          # Do not upload private source, archives, artifacts, logs or dist.
