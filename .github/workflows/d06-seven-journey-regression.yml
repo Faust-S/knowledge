@@ -69,24 +69,24 @@ jobs:
               $failed++
               if (Test-Path -LiteralPath $json) {
                 $script = @'
-const fs=require("node:fs");
-let json;
-try{json=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));}catch{process.exit(2)}
-let line="0",kind="UNKNOWN";
-const stack=[...(json.suites||[])];
-while(stack.length){
- const suite=stack.pop();
- stack.push(...(suite.suites||[]));
- for(const spec of suite.specs||[])for(const test of spec.tests||[])for(const res of test.results||[]){
-  if(!["failed","timedOut","interrupted"].includes(res.status))continue;
-  kind=res.status.toUpperCase();
-  const trace=[...(res.errors||[]),res.error].filter(Boolean).map(e=>String(e.stack||e.message||"")).join(" ");
-  line=trace.match(/\.spec\.ts:(\d+):/)?.[1]||"0";
- }
-}
-console.log("D06_SEVEN_FAILURE_LINE="+line);
-console.log("D06_SEVEN_FAILURE_CLASS="+kind);
-'@
+          const fs=require("node:fs");
+          let json;
+          try{json=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));}catch{process.exit(2)}
+          let line="0",kind="UNKNOWN";
+          const stack=[...(json.suites||[])];
+          while(stack.length){
+           const suite=stack.pop();
+           stack.push(...(suite.suites||[]));
+           for(const spec of suite.specs||[])for(const test of spec.tests||[])for(const res of test.results||[]){
+            if(!["failed","timedOut","interrupted"].includes(res.status))continue;
+            kind=res.status.toUpperCase();
+            const trace=[...(res.errors||[]),res.error].filter(Boolean).map(e=>String(e.stack||e.message||"")).join(" ");
+            line=trace.match(/\.spec\.ts:(\d+):/)?.[1]||"0";
+           }
+          }
+          console.log("D06_SEVEN_FAILURE_LINE="+line);
+          console.log("D06_SEVEN_FAILURE_CLASS="+kind);
+          '@
                 & node -e $script $json
                 if ($LASTEXITCODE -ne 0) { Write-Host "D06_SEVEN_REPORT=INVALID" }
               } else { Write-Host "D06_SEVEN_REPORT=MISSING" }
