@@ -260,32 +260,7 @@ jobs:
                   $source = [string]$spec.file
                   if (-not $source) { $source = [string]$suite.file }
                   $source = $source.Replace([char]92, [char]47)
-                  $match = [regex]::Match($source, 'tests/e2e/[^/]+\.spec\.ts)
-                  $relative = if ($match.Success) { $match.Value } else { "" }
-                  $index = [array]::IndexOf($specs, $relative)
-                  $ordinal = if ($index -ge 0) { $index + 1 } else { 0 }
-                  $key = [string]$ordinal
-                  $ordinals[$key] = 1 + [int]($ordinals[$key])
-                }
-              }
-              Write-Host ("D06_E2E_REPORT_FAILED_COUNT=" + $failureCount)
-            } else {
-              Write-Host "D06_E2E_JSON_REPORT=NOT_CREATED"
-            }
-            $summary = @($ordinals.Keys | Sort-Object {
-              [int]$_
-            } | ForEach-Object { $_ + ":" + $ordinals[$_] }) -join ","
-            Write-Host ("D06_E2E_FAILED_SPEC_ORDINALS=" + $summary)
-            Write-Host ("D06_E2E_SPEC_COUNT=" + $specs.Count)
-            exit 1
-          }
-      - name: State privacy boundary
-        if: always()
-        shell: pwsh
-        run: |
-          Write-Host "D06_PUBLIC_ARTIFACT_UPLOADS=0"
-          Write-Host "D06_PRIVATE_SOURCE_LOGS=RUNNER_LOCAL_ONLY"
-)
+                  $match = [regex]::Match($source, 'tests/e2e/[^/]+\.spec\.ts$')
                   $relative = if ($match.Success) { $match.Value } else { "" }
                   $index = [array]::IndexOf($specs, $relative)
                   $ordinal = if ($index -ge 0) { $index + 1 } else { 0 }
