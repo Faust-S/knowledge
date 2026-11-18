@@ -257,11 +257,13 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
       employeePersonId:candidate.employeePersonId,
       enrollmentId:started.enrollmentId,
     });
+    onPhase('ORIGINAL_PRODUCTION_TASK_ISSUE_RETURNED');
     assert.equal(created.state,'SIGNED_TASK_CREATED_NOT_DELIVERED');
     assert.equal(created.recipientId,candidate.employeePersonId);
     // Original signed Task increments the epoch and detaches the old Kernel.
     // Reattach the SAME qualified T2 facade with a fresh exact context,
     // without another signer, Store, or extra Kernel process.
+    onPhase('ORIGINAL_PRODUCTION_TASK_REBIND');
     owner.attachOriginalKernel({
       kernel:facade,createSignedAccessHostPort,
       createTrustedReconciliationKernelApply,
@@ -276,9 +278,11 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
     // The original signed Task changed the Host epoch. Its Kernel binding
     // must first reconstruct signed employee rights READ-ONLY, not replay
     // registry initialization, a grant, or the Task's signature.
+    onPhase('ORIGINAL_PRODUCTION_TASK_REBIND_READBACK');
     const currentRegistry=await action('d3EmployeeRegistryReadback');
     assert.equal(currentRegistry.state,'ORIGINAL_KERNEL_REGISTRY_CONFIRMED');
     assert.equal(currentRegistry.originalReadback,true);
+    onPhase('ORIGINAL_PRODUCTION_TASK_REBIND_STATUS_SEQUENCE');
     assert.equal(currentRegistry.statusSequence,4);
     const taskPath=join(workRoot,'original-production-signed-task.iwxa');
     onPhase('ORIGINAL_PRODUCTION_EMPLOYEE_KERNEL_TASK_EXPORT');
