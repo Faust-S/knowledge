@@ -103,6 +103,9 @@ try{
       step?.[1]??'UNCLASSIFIED');
     console.log('G4_NATIVE_EMPLOYEE_FAILURE_CODE',
       code?.[1]??'UNCLASSIFIED');
+    const cls=employeeOutput.match(/G4_NATIVE_FAILURE_CLASS\s+(KeyError|TypeError|ValueError|AssertionError|CorporateT3Error|OSError|TimeoutError|AttributeError|RuntimeError|IndexError)/);
+    console.log('G4_NATIVE_EMPLOYEE_FAILURE_CLASS',
+      cls?.[1]??'UNCLASSIFIED');
     throw Error('G4_NATIVE_EMPLOYEE_IPC_ORIGINAL_FAIL');
   }
   assert.ok(employeeOutput.includes('G4_ORIGINAL_NATIVE_EMPLOYEE_SIGNED_TASK_PASS'));

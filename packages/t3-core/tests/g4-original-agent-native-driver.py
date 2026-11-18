@@ -31,9 +31,11 @@ try:
         phase="ORIGINAL_SIGNED_INVITE"
         port.call("import_invite",{"path":invite},consequential=True)
         port.call("select",{"context":"ORGANIZATION"})
-        phase="ORIGINAL_SIGNED_TASK"
+        phase="ORIGINAL_SIGNED_TASK_RECEIVE"
         received=port.call("receive_task",{"path":task_path},consequential=True)
+        phase="ORIGINAL_SIGNED_TASK_READ"
         task=port.task()
+        phase="ORIGINAL_SIGNED_TASK_BINDING"
         require(received.get("taskRevisionId")==task.get("taskRevisionId"),
                 "TASK_REVISION_REQUIRED")
         require(task.get("taskId","").startswith("task:"),"SIGNED_TASK_REQUIRED")
@@ -83,4 +85,10 @@ except Exception as error:
     if not re.fullmatch(r"[A-Z][A-Z0-9_]{2,119}",code):
         code="UNCLASSIFIED"
     print("G4_NATIVE_FAILURE_CODE",code)
+    permitted={"KeyError","TypeError","ValueError","AssertionError",
+      "CorporateT3Error","OSError","TimeoutError","AttributeError",
+      "RuntimeError","IndexError"}
+    print("G4_NATIVE_FAILURE_CLASS",
+      type(error).__name__ if type(error).__name__ in permitted
+      else "UNCLASSIFIED")
     raise SystemExit(1)

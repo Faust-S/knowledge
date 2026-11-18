@@ -117,6 +117,9 @@ export async function qualifyNativeOriginalEmployee({
           employeeStage?.[1]??'UNCLASSIFIED');
         console.log('G4_NATIVE_EMPLOYEE_FAILURE_CODE',
           employeeReason?.[1]??'UNCLASSIFIED');
+        const cls=output.match(/G4_NATIVE_EMPLOYEE_FAILURE_CLASS\s+(KeyError|TypeError|ValueError|AssertionError|CorporateT3Error|OSError|TimeoutError|AttributeError|RuntimeError|IndexError)/);
+        console.log('G4_NATIVE_EMPLOYEE_FAILURE_CLASS',
+          cls?.[1]??'UNCLASSIFIED');
       }
       throw Error('G4_NATIVE_ORIGINAL_EMPLOYEE_SOURCE_PROCESS_NOT_ACCEPTED');
     }
