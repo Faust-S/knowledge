@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  case006-dev-ui:
+  case005-007-dev-ui:
     runs-on: windows-latest
     timeout-minutes: 15
     defaults:
@@ -70,20 +70,7 @@ jobs:
           $code=$LASTEXITCODE
           foreach($line in @(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
             $signal=$line.Trim()
-            if($signal -match '^D08_(?:WINDOWS|CASE005|CASE007)_[A-Z0-9_]+=(PASS|NOT_RUN|[A-Z0-9_]+)){
-              Write-Host $signal
-            }
-          }
-          if($code -ne 0){throw 'D08_CASE005_007_WINDOW_BROWSER_FAILED'}
-          Write-Host 'D08_CASE005_007_WINDOWS_UI=PASS'
-      - name: Confirm privacy and qualification scope
-        if: always()
-        run: |
-          Write-Host 'D08_PRIVATE_LOGS_PUBLISHED=NO'
-          Write-Host 'D08_ARTIFACT_UPLOADS=0'
-          Write-Host 'D08_ORIGINAL_KERNEL=NOT_RUN'
-          Write-Host 'D08_IWXA_EXPORT_IMPORT=NOT_RUN'
-){
+            if($signal -match '^D08_(?:WINDOWS|CASE005|CASE007)_[A-Z0-9_]+=(PASS|NOT_RUN|[A-Z0-9_]+)$'){
               Write-Host $signal
             }
           }
