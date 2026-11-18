@@ -121,6 +121,20 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'G4_INSTALLED_CENTER_NPM_FAILED'}
           } finally{Pop-Location}
           Write-Host 'G4_INSTALLED_ONE_CORE_AND_CENTER_DEPS_PASS'
+      - name: Check original native builder syntax and clean exact source trees
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $builder=(Resolve-Path '.private/t3/scripts/build-admin-center-d3-owner.ps1').Path
+          $errors=$null
+          $null=[System.Management.Automation.Language.Parser]::ParseFile(
+            $builder,[ref]$null,[ref]$errors)
+          if(@($errors).Count -ne 0){throw 'G4_ORIGINAL_PRIVATE_BUILDER_PARSE_INVALID'}
+          Write-Host 'G4_PRIVATE_BUILDER_PARSER_PASS'
+          $public=@(& git status --porcelain)
+          $original=@(& git -C .private/t3 status --porcelain)
+          Write-Host ("G4_ORIGINAL_KNOWLEDGE_TREE_CLEAN " + ($public.Count -eq 0))
+          Write-Host ("G4_ORIGINAL_PRIVATE_T3_TREE_CLEAN " + ($original.Count -eq 0))
       - name: Build genuine original T3 signed owner, Center and Setup Core
         shell: pwsh
         timeout-minutes: 40
@@ -156,8 +170,44 @@ jobs:
                 }
               }
             }
+            # The PowerShell call itself may fail before native stderr can
+            # be redirected; classify its exception without exposing text.
+            $captured=[string]$_.Exception.Message
+            foreach($hit in [regex]::Matches($captured,
+                '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
+              $codes+=([string]$hit.Value)
+            }
             $last=if($codes.Count){$codes[-1]}else{'UNCLASSIFIED'}
+            $errClass=$_.Exception.GetType().Name
+            if($errClass -notmatch '^[A-Za-z]{3,65}(?:Exception|Error)
+          }
+      - name: Install original signed Owner and One Dist via Setup Core and check real Windows GUI
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 `
+            -CenterRoot '.private/center' -OriginalT3Root '.private/t3' `
+            -ExpectedCenterSha '565572a9b2a249296e5c27ba77fd60ac2be830aa' `
+            -ExpectedT3Sha 'd0d8ba2f791050a8c190f7cab305b5bb89365ae3'
+      - name: Destroy private source, native binaries and build logs
+        if: always()
+        shell: pwsh
+        run: |
+          $targets=@('.private',
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-k036'),
+            (Join-Path $env:RUNNER_TEMP 'g4-center-npm-private.log'),
+            (Join-Path $env:RUNNER_TEMP 'g4-private-owner-build.log'))
+          foreach($path in $targets){
+            if(Test-Path -LiteralPath $path){
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Host 'G4_INSTALLED_PRIVATE_SOURCE_AND_BINARIES_NOT_PUBLISHED'
+){
+              $errClass='UNCLASSIFIED'
+            }
             Write-Host "G4_INSTALLED_PRIVATE_BUILD_FAILURE_CODE $last"
+            Write-Host "G4_INSTALLED_PRIVATE_BUILD_FAILURE_CLASS $errClass"
             throw 'G4_INSTALLED_ORIGINAL_PRIVATE_BUILD_HOLD'
           }
       - name: Install original signed Owner and One Dist via Setup Core and check real Windows GUI
