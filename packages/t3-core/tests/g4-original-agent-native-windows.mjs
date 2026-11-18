@@ -273,7 +273,7 @@ try{
     },encoding:'utf8',windowsHide:true,timeout:65000,maxBuffer:128*1024});
   assert.equal(coldEmployee.status,0,'G4_EMPLOYEE_COLD_PROOF_PROCESS_FAILED');
   const proof=JSON.parse(coldEmployee.stdout.trim());
-  const proofMessage=Buffer.from('IWXA-T3-ACCESS-SIGNED-V1\\0'+canonical({
+  const proofMessage=Buffer.from('IWXA-T3-ACCESS-SIGNED-V1\0'+canonical({
     schema:proof.schema,keyId:proof.keyId,payload:proof.payload
   }));
   assert.equal(proof.keyId,candidate.credentialKeyId);
