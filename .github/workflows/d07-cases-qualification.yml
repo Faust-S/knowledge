@@ -21,7 +21,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      DOMAIN_SHA: 8aa740c44c57aa15452f647ebd7c8de5d506df7d
+      DOMAIN_SHA: 44c3fabf1251e86a3eb1c6eec3799dd97aa14ffe
       SITE_SHA: 0a85e2a9a06c461569d74b710eaf7a7710853d18
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -89,8 +89,11 @@ jobs:
             $b=(& git -C site rev-parse "HEAD:$file").Trim()
             if(!$a -or $a -ne $b){throw 'D07_CODE_MIRROR_MISMATCH'}
           }
+          $domainCase=(& git -C domain rev-parse "HEAD:src/domain/case-workspace-isolation.ts").Trim()
+          $siteCase=(& git -C site rev-parse "HEAD:t2-site-module/uslugovod/case-workspace-isolation.ts").Trim()
+          if(!$domainCase -or $domainCase -ne $siteCase){throw 'D07_CANONICAL_CASE_WORKSPACE_ISOLATION_MIRROR_MISMATCH'}
           Write-Host 'D07_SOURCE_PINS=PASS'
-          Write-Host 'D07_MIRRORS=22/22'
+          Write-Host 'D07_MIRRORS=23/23'
           $failed=[System.Collections.Generic.List[string]]::new()
           function Gate([string]$name,[string]$folder,[string]$command,[string[]]$argv){
             $log=Join-Path $env:RUNNER_TEMP ("d07-"+$name+".log")
