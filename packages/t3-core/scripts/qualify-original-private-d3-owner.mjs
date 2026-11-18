@@ -52,7 +52,13 @@ export async function getExactFile(path,token,{repository=REPO,sourcePin=PIN}={}
       'User-Agent':'iwxa-knowledge-bounded-private-original-d3-qualification',
     },signal:AbortSignal.timeout(20000)});
   }catch{throw Error('T3_PRIVATE_SOURCE_API_UNAVAILABLE');}
-  if(!response.ok)throw Error(`T3_PRIVATE_SOURCE_FETCH_${response.status}`);
+  if(!response.ok){
+    if([403,429].includes(response.status)&&
+      (response.headers.get('retry-after')||
+       response.headers.get('x-ratelimit-remaining')==='0'))
+      throw Error('T3_PRIVATE_SOURCE_RATE_LIMITED');
+    throw Error(`T3_PRIVATE_SOURCE_FETCH_${response.status}`);
+  }
   let item;
   try{item=await response.json();}catch{throw Error('T3_PRIVATE_SOURCE_RESPONSE_INVALID');}
   if(item?.type!=='file'||item.encoding!=='base64'||
@@ -187,8 +193,23 @@ export async function runOriginalPrivateOwnerSourceCheck({
   }
 }
 
+export async function qualifyOriginalWithAuthorizedTokens({tokens=[],fetchFile}={}){
+  const available=tokens.filter(token=>typeof token==='string'&&token.trim());
+  if(!available.length)throw Error('T3_KNOWLEDGE_READ_TOKEN_NOT_AVAILABLE');
+  for(const token of available){
+    try{return await runOriginalPrivateOwnerSourceCheck({token,fetchFile});}
+    catch(error){
+      if(['T3_PRIVATE_SOURCE_FETCH_403','T3_PRIVATE_SOURCE_FETCH_404'].includes(error?.message))
+        continue;
+      throw error;
+    }
+  }
+  throw Error('T3_ORIGINAL_PRIVATE_SOURCE_NOT_AUTHORIZED_IN_KNOWLEDGE');
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
-  runOriginalPrivateOwnerSourceCheck({token:process.env.T3_READ_TOKEN}).catch(error=>{
+  qualifyOriginalWithAuthorizedTokens({
+    tokens:[process.env.T3_READ_TOKEN,process.env.DOMEN_PRIVATE_READ_TOKEN],
+  }).catch(error=>{
     const code=typeof error?.message==='string'&&/^T3_[A-Z0-9_]+$/.test(error.message)
       ?error.message:'T3_PRIVATE_D3_QUALIFICATION_FAILED';
     console.error(code);
