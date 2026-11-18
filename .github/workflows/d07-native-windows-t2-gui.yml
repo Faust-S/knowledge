@@ -99,6 +99,14 @@ jobs:
             Write-Output 'D07_GUI_REAL_T2_HTTPS=PASS'
             $cases=@(
               @('001','uborka-posle-remonta','Уборка новой квартиры: реальный заказ, повреждения и спор с исполнителем'),
+              @('002','remont-vannoy-ulan-ude','Ремонт ванной: скрытые дефекты, авансы и отменённое решение'),
+              @('003','ofisnyy-pereezd-rostov','Офисный переезд: обещанные грузчики, неподтверждённая доплата и возврат аванса'),
+              @('004','internet-magazin-khozyayeva','Интернет-магазин «Хозяева»: результат, оплата и передача прав'),
+              @('005','buhgalterskiy-autsorsing-stroysouz','Бухгалтерский аутсорсинг: семь отчётных штрафов и повышенный тариф'),
+              @('006','remont-dvigatelya-nissan-pathfinder','Ремонт двигателя Nissan Pathfinder: какие замены оказались лишними'),
+              @('007','sudebnoe-predstavitelstvo-spravedlivost','Юридическое представительство: почему возврат пересчитали в апелляции'),
+              @('008','muzykalnye-uroki-pervouralsk','24 музыкальных занятия: как пересчитали стоимость после трёх уроков'),
+              @('009','fotosessiya-kalininskaya','Фотосессия в Калининской: когда качество снимков стало судебным вопросом'),
               @('010','brend-media-new-you','Бренд-медиа new-you.ru: когда рекламный трафик не заменил SEO')
             )
             foreach($item in $cases){
@@ -160,8 +168,13 @@ jobs:
                 if(-not $draftCreated){throw 'D07_GUI_REACT_DRAFT_CREATION_NOT_CONFIRMED'}
                 Write-Output 'D07_NATIVE_CASE_001_CREATE_DRAFT=PASS'
               }
+              # Browser profile is isolated to one case. Close its native Edge
+              # process tree before opening the next to limit memory use.
+              if($edgeProc){
+                try{$edgeProc.Kill($true)}catch{}
+              }
             }
-            Write-Output 'D07_EDGE_UIA_CASES=2/2'
+            Write-Output 'D07_EDGE_UIA_CASES=10/10'
             Write-Output 'D07_REAL_KERNEL_RECEIPT_IWXA=NOT_RUN'
           }finally{
             foreach($edgeId in $started){Stop-Process -Id $edgeId -Force -ErrorAction SilentlyContinue}
