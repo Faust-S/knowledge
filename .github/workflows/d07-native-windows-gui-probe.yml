@@ -1,0 +1,62 @@
+name: D07 native Windows GUI availability probe
+on:
+  push:
+    branches: [work/2026-11-18-d07-case10-qualification]
+    paths: [.github/workflows/d07-native-windows-gui-probe.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-ui-availability:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Inspect native desktop and Edge availability without browser drivers
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          Add-Type -AssemblyName System.Windows.Forms
+          $interactive=[Environment]::UserInteractive
+          $session=[System.Diagnostics.Process]::GetCurrentProcess().SessionId
+          $edgePaths=@(
+            (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
+            (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
+          )
+          $edge=($edgePaths | Where-Object {Test-Path -LiteralPath $_} | Select-Object -First 1)
+          Write-Output "D07_RUNNER_INTERACTIVE=$interactive"
+          Write-Output "D07_WINDOWS_SESSION_ID=$session"
+          Write-Output "D07_EDGE_INSTALLED=$([bool]$edge)"
+          if(-not $interactive){throw 'D07_UIA_INTERACTIVE_DESKTOP_NOT_AVAILABLE'}
+          if(-not $edge){throw 'D07_NATIVE_EDGE_NOT_INSTALLED'}
+          $desktop=[System.Windows.Automation.AutomationElement]::RootElement
+          if($null -eq $desktop){throw 'D07_UIA_DESKTOP_ROOT_NOT_FOUND'}
+          Write-Output 'D07_UIA_ROOT=PASS'
+          $started=@()
+          try {
+            $launch=Start-Process -FilePath $edge -ArgumentList @(
+              '--new-window','--no-first-run','--no-default-browser-check',
+              '--user-data-dir='+ (Join-Path $env:RUNNER_TEMP 'd07-native-edge-profile'),
+              'about:blank') -PassThru
+            $started += $launch.Id
+            $handle=0
+            for($i=0;$i -lt 30;$i++) {
+              Start-Sleep -Milliseconds 500
+              $process=Get-Process msedge -ErrorAction SilentlyContinue | Where-Object {$_.MainWindowHandle -ne 0}
+              if($process) {$handle=$process[0].MainWindowHandle;break}
+            }
+            if($handle -eq 0){throw 'D07_NATIVE_EDGE_WINDOW_UNAVAILABLE'}
+            $element=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$handle)
+            if($null -eq $element){throw 'D07_UIA_BROWSER_ELEMENT_NOT_FOUND'}
+            Write-Output 'D07_NATIVE_EDGE_WINDOW=PASS'
+            Write-Output 'D07_NATIVE_EDGE_UIA=PASS'
+            # No screenshot or desktop metadata uploaded or printed.
+          }finally{
+            if($launch -and $launch.Id){
+              Stop-Process -Id $launch.Id -Force -ErrorAction SilentlyContinue
+            }
+            # The runner is ephemeral; do not terminate unrelated UI processes.
+          }
