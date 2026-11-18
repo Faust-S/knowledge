@@ -1,5 +1,18 @@
 # IWXA T3 G4: единая миграция разработки в новый чат
 
+## Актуальный приоритет 18.11.2026: T3 без обязательной зависимости от Atlas
+
+**Решение владельца:** [архитектура IWXA и подключаемого Atlas](https://github.com/Faust-S/iwxa/blob/knowledge/2026-10-02-system-atlas/architecture/IWXA_T3_PRODUCT_COMPOSITION_AND_OPTIONAL_ATLAS_2026_11_18_RU.md). Atlas главным образом подключаемая программа Agent/Admin: U01 обнаружение, U04 окно, отдельно разрешённый порт предметных команд Atlas с собственным Host и U05. Прямой UI/OS-порт не требует обязательной подписанной передачи `.iwxa`; одного U04 недостаточно для автоматической записи или глубокого выбора работы. Редкая независимая `Agent → signed T3 → .iwxa → Atlas` — отдельная приёмка переносимого файла, **не** основная архитектура универсального T3.
+
+**Критическая коррекция порядка:** доработать единый original T2-based One Core и квалифицировать **D1/D3 независимого корпоративного сотрудника без Atlas WorkRef**, затем универсальные D2/D4, аппаратный D5 offline, D6 на любом действительном native recipient и PERSON D7. Файловый Atlas D6, отдельно установленный GUI Atlas и CEN05 остаются **дополнительными продуктовыми профилями** и не блокируют самостоятельные D3/D5/D6/D7. Полный системный G4 всё ещё **NOT_ACCEPTED**, `T3_READY=false` до настоящих установленных original owners и холодных чтений.
+
+**Устранён реальный публичный CEN02 defect:** `Faust-S/Center@work/2026-11-18-t3-generic-task-without-atlas` — отдельная интеграционная ветка от Admin `30a8639f`. `runtime/cen02-exchange.mjs:issue()` ранее безусловно требовал `atlasRef.workId` и `openAtlas`, противореча уже условному D3-профилю. Теперь при `atlasRef=null` не вызывается Atlas; оригинальный T3 создаёт подписанную Task, проверяет actor/recipient и возвращает `atlasRef:null`. При наличии WorkRef остаётся строгое JIT чтение Atlas, точная редакция и отказ при stale source. Source tests/CI на конкретном HEAD нужно проверить, это не настоящий установленный original private D3.
+
+**Универсальный D6 источник:** `packages/t3-core/src/t3/native-result-continuation.mjs` уже не содержит обязательного Atlas; тест `t3-d6-native-continuation.test.mjs` теперь включает независимый domain recipient, один owner commit и холодные recover без повторов. Тестовые doubles не доказывают установленного recipient; определить реальный non-Atlas product owner и квалифицировать отдельный нативный Result.
+
+**Следующий обязательный практический маршрут:** один реальный подписанный issuer D1 и два независимых субъекта Admin/Agent, реальная Task без Atlas, исполнение/Review, корпоративный ACCEPT, отдельный Kernel APPLY, два холодных readback. Не менять частные Admin/Agent ветки без учёта параллельных HEAD. Приватные Actions не запускать. Д5 WebGPU cold offline и D7 PERSON выполнять независимо от Atlas; Setup cross-version Rollback не считать same-version Repair. Исторические разделы ниже сохраняют инженерные факты своего времени, но **не** определяют текущий критический путь.
+
+
 
 ## 18.11.2026 Atlas 0.9: lost ACK + grant recheck + installed native PASS
 
