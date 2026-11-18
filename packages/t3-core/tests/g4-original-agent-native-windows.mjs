@@ -248,7 +248,7 @@ try{
     });
     if(result.status!==0){
       const message=(result.stdout??'').match(
-        /G4_EMPLOYEE_BOOTSTRAP_FAILURE_CODE\\s+([A-Z0-9_]{3,119})/);
+        /G4_EMPLOYEE_BOOTSTRAP_FAILURE_CODE\s+([A-Z0-9_]{3,119})/);
       console.log('G4_AGENT_FIRST_USE_FAILURE_CODE',
         message?.[1]??'UNCLASSIFIED');
       throw Error('G4_AGENT_FIRST_USE_NATIVE_PROCESS_FAILED');
