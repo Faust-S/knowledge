@@ -1,0 +1,185 @@
+name: D07 native Windows 10 CASE draft creation
+on:
+  push:
+    branches: [work/2026-11-18-d07-case10-qualification]
+    paths: [.github/workflows/d07-native-windows-10-drafts.yml]
+permissions:
+  contents: read
+jobs:
+  t2-edge-uia:
+    runs-on: windows-latest
+    timeout-minutes: 65
+    env:
+      SITE_SHA: 0a85e2a9a06c461569d74b710eaf7a7710853d18
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      CI: 'true'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Confirm private source access
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'D07_GUI_TOKEN_MISSING'}
+          foreach($repo in @('Faust-S/uslugovod.ru','Faust-S/T2')){
+            $null=& gh api "repos/$repo" --jq '.id' 2>$null
+            if($LASTEXITCODE -ne 0){throw 'D07_GUI_REPO_ACCESS_DENIED'}
+          }
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+          Write-Output 'D07_GUI_SOURCE_ACCESS=PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - name: Build real pinned T2 and site only inside temporary runner
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+        working-directory: site
+        run: |
+          if((git rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D07_GUI_SITE_SHA_MISMATCH'}
+          if((git -C ../t2 rev-parse HEAD).Trim() -ne $env:T2_SHA){throw 'D07_GUI_T2_SHA_MISMATCH'}
+          $installLog=Join-Path $env:RUNNER_TEMP 'd07-gui-install.private.log'
+          & bun install --frozen-lockfile *> $installLog
+          if($LASTEXITCODE -ne 0){throw 'D07_GUI_INSTALL_FAILED'}
+          Write-Output 'D07_GUI_INSTALL=PASS'
+          $buildLog=Join-Path $env:RUNNER_TEMP 'd07-gui-build.private.log'
+          & bun run build:t2-integrated *> $buildLog
+          if($LASTEXITCODE -ne 0){throw 'D07_GUI_INTEGRATED_BUILD_FAILED'}
+          if(-not (Test-Path dist/workspace/index.html)){throw 'D07_GUI_T2_HOST_MISSING'}
+          Write-Output 'D07_GUI_ONE_DIST_T2=PASS'
+      - name: Test original T2 HTTPS with real Edge via Windows UIA
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_D07_PREVIEW_PORT: '55407'
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          $site=Join-Path $env:GITHUB_WORKSPACE 'site'
+          $candidates=@(
+            (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
+            (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
+          )
+          $edge=($candidates|Where-Object{Test-Path $_}|Select-Object -First 1)
+          if(-not $edge){throw 'D07_GUI_EDGE_MISSING'}
+          $origin='https://127.0.0.1:55407'
+          $server=$null
+          $started=[System.Collections.Generic.List[int]]::new()
+          try{
+            $server=Start-Process -FilePath 'node' -WorkingDirectory $site -ArgumentList @('scripts/preview-d07-integrated-site.mjs') -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd07-gui-host.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd07-gui-host-error.private.log') -PassThru
+            $ready=$false
+            for($i=0;$i -lt 45;$i++){
+              Start-Sleep -Milliseconds 600
+              try{
+                $response=Invoke-WebRequest -Uri ($origin+'/workspace/') -SkipCertificateCheck -TimeoutSec 2
+                if($response.StatusCode -eq 200){$ready=$true;break}
+              }catch{}
+            }
+            if(-not $ready){throw 'D07_GUI_T2_HTTPS_UNAVAILABLE'}
+            Write-Output 'D07_GUI_REAL_T2_HTTPS=PASS'
+            $cases=@(
+              @('001','uborka-posle-remonta','Уборка новой квартиры: реальный заказ, повреждения и спор с исполнителем'),
+              @('002','remont-vannoy-ulan-ude','Ремонт ванной: скрытые дефекты, авансы и отменённое решение'),
+              @('003','ofisnyy-pereezd-rostov','Офисный переезд: обещанные грузчики, неподтверждённая доплата и возврат аванса'),
+              @('004','internet-magazin-khozyayeva','Интернет-магазин «Хозяева»: результат, оплата и передача прав'),
+              @('005','buhgalterskiy-autsorsing-stroysouz','Бухгалтерский аутсорсинг: семь отчётных штрафов и повышенный тариф'),
+              @('006','remont-dvigatelya-nissan-pathfinder','Ремонт двигателя Nissan Pathfinder: какие замены оказались лишними'),
+              @('007','sudebnoe-predstavitelstvo-spravedlivost','Юридическое представительство: почему возврат пересчитали в апелляции'),
+              @('008','muzykalnye-uroki-pervouralsk','24 музыкальных занятия: как пересчитали стоимость после трёх уроков'),
+              @('009','fotosessiya-kalininskaya','Фотосессия в Калининской: когда качество снимков стало судебным вопросом'),
+              @('010','brend-media-new-you','Бренд-медиа new-you.ru: когда рекламный трафик не заменил SEO')
+            )
+            foreach($item in $cases){
+              $num=$item[0];$slug=$item[1];$headingText=$item[2]
+              $url=$origin+'/keisy/'+$slug+'/'
+              $response=Invoke-WebRequest -Uri $url -SkipCertificateCheck -TimeoutSec 10
+              if($response.StatusCode -ne 200){throw 'D07_GUI_CASE_HTTP_FAILED'}
+              $profile=Join-Path $env:RUNNER_TEMP ('d07-gui-profile-'+$num)
+              $edgeProc=Start-Process -FilePath $edge -ArgumentList @(
+                '--force-renderer-accessibility','--ignore-certificate-errors',
+                '--no-first-run','--no-default-browser-check',"--user-data-dir=$profile","--app=$url") -PassThru
+              if($edgeProc){$started.Add($edgeProc.Id)}
+              $titleSeen=$false
+              $caseButton=$null
+              $buttonText=switch($num){
+                '001' {'Создать черновик заказа'}
+                '002' {'Создать черновик заказа'}
+                '003' {'Создать черновик заказа'}
+                '004' {'Создать заказ из проекта'}
+                '005' {'Создать заказ из проекта'}
+                default {'Создать заказ'}
+              }
+              for($attempt=0;$attempt -lt 60;$attempt++){
+                Start-Sleep -Milliseconds 600
+                $windows=@(Get-Process msedge -ErrorAction SilentlyContinue|Where-Object{$_.MainWindowHandle -ne 0})
+                foreach($proc in $windows){
+                  $e=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$proc.MainWindowHandle)
+                  if(!$e){continue}
+                  $scope=[System.Windows.Automation.TreeScope]::Descendants
+                  $titleCondition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty,$headingText)
+                  if($e.FindFirst($scope,$titleCondition)){$titleSeen=$true}
+                  if($buttonText){
+                    $btnCondition=[System.Windows.Automation.PropertyCondition]::new(
+                      [System.Windows.Automation.AutomationElement]::NameProperty,$buttonText)
+                    $candidate=$e.FindFirst($scope,$btnCondition)
+                    if($candidate -and $candidate.Current.IsEnabled){$caseButton=$candidate}
+                  }
+                }
+                if($titleSeen -and (!$buttonText -or $caseButton)){break}
+              }
+              if(-not $titleSeen){throw 'D07_GUI_H1_NOT_VISIBLE'}
+              Write-Output ('D07_EDGE_UIA_CASE_'+$num+'=PASS')
+              if(-not $caseButton){throw 'D07_GUI_CASE_CREATE_BUTTON_NOT_READY'}
+              $invoker=[System.Windows.Automation.InvokePattern]$caseButton.GetCurrentPattern(
+                [System.Windows.Automation.InvokePattern]::Pattern)
+              $invoker.Invoke()
+              $draftCreated=$false
+              for($step=0;$step -lt 25;$step++){
+                Start-Sleep -Milliseconds 500
+                $allWindows=@(Get-Process msedge -ErrorAction SilentlyContinue|Where-Object{$_.MainWindowHandle -ne 0})
+                foreach($checkProcess in $allWindows){
+                  $view=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$checkProcess.MainWindowHandle)
+                  if(!$view){continue}
+                  $transferCondition=[System.Windows.Automation.PropertyCondition]::new(
+                    [System.Windows.Automation.AutomationElement]::NameProperty,'Передать в T2')
+                  $createdLink=$view.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$transferCondition)
+                  if($createdLink -and $createdLink.Current.IsEnabled){$draftCreated=$true;break}
+                }
+                if($draftCreated){break}
+              }
+              if(-not $draftCreated){throw ('D07_GUI_CASE_'+$num+'_DRAFT_NOT_CREATED')}
+              Write-Output ('D07_NATIVE_DRAFT_CASE_'+$num+'=PASS')
+              # Browser profile is isolated to one case. Close its native Edge
+              # process tree before opening the next to limit memory use.
+              if($edgeProc){
+                try{$edgeProc.Kill($true)}catch{}
+              }
+            }
+            Write-Output 'D07_EDGE_UIA_CASES=10/10'
+            Write-Output 'D07_NATIVE_CASE_DRAFTS=10/10'
+            Write-Output 'D07_REAL_KERNEL_RECEIPT_IWXA=NOT_RUN'
+          }finally{
+            foreach($edgeId in $started){Stop-Process -Id $edgeId -Force -ErrorAction SilentlyContinue}
+            if($server){Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue}
+          }
+          # No private source, dist, screenshots, browser profiles or raw logs uploaded.
