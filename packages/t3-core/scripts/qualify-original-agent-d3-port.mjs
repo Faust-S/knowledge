@@ -66,14 +66,14 @@ export async function qualifyOriginalAgentD3Source({
       new RegExp(TARGET+'[^\\n]*\\.\\.\\. (ok|FAIL|ERROR)','m')
     )?.[1]??'NOT_FOUND';
     const targeted=targetStatus==='ok';
-    const testLines=output.split(/\\r?\\n/).filter(line=>
-      /^test_[A-Za-z0-9_]+\\s+\\(.+\\)\\s+\\.\\.\\.\\s+(?:ok|FAIL|ERROR)$/.test(line));
+    const testLines=output.split(/\r?\n/).filter(line=>
+      /^test_[A-Za-z0-9_]+\s+\(.+\)\s+\.\.\.\s+(?:ok|FAIL|ERROR)$/.test(line));
     const failedIndices=testLines.flatMap((line,index)=>
-      /\\.\\.\\.\\s+(?:FAIL|ERROR)$/.test(line)?[index+1]:[]);
+      /\.\.\.\s+(?:FAIL|ERROR)$/.test(line)?[index+1]:[]);
     const summaryStatus=run.status===0?'PYTHON_EXIT_SUCCESS':
-      /FAILED\\s+\\(failures=/.test(output)?'PYTHON_ASSERTION_FAILURE':
-      /FAILED\\s+\\(errors=/.test(output)?'PYTHON_TEST_ERROR':
-      /Traceback \\(most recent call last\\)/.test(output)?
+      /FAILED\s+\(failures=/.test(output)?'PYTHON_ASSERTION_FAILURE':
+      /FAILED\s+\(errors=/.test(output)?'PYTHON_TEST_ERROR':
+      /Traceback \(most recent call last\)/.test(output)?
         'PYTHON_EXCEPTION':'PYTHON_NONZERO_EXIT';
     // The complete original test log is deliberately NEVER emitted.
     console.log('T3_AGENT_PRIVATE_D3_FILES_READ',FILES.length);
