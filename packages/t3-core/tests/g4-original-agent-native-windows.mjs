@@ -384,6 +384,47 @@ try{
   assert.equal(kernelEvidence.registryRevision,4);
   assert.ok(kernelEvidence.signedGrantIds.work&&
     kernelEvidence.signedGrantIds.export);
+  // The exact signed invitation + Task are now delivered to the EXISTING
+  // original Agent IPC under the employee's own first-use DPAPI root. This
+  // is the real recipient's original importer, not a test-only .iwxa codec.
+  phase='ORIGINAL_PRODUCTION_EMPLOYEE_AGENT_IMPORT_TASK';
+  const expectedOriginalTask={
+    organizationId:productionOrg,workspaceId:productionWs,
+    executorId:candidate.employeePersonId,taskId:kernelEvidence.taskId,
+    taskRevisionId:kernelEvidence.taskRevisionId,
+    packageSha256:createHash('sha256').update(
+      readFileSync(kernelEvidence.taskPath)).digest('hex'),
+  };
+  const expectedPath=join(dir,'production-employee-original-task-binding.json');
+  writeFileSync(expectedPath,JSON.stringify(expectedOriginalTask),{flag:'wx'});
+  const employeeTaskDriver=join(process.cwd(),'packages','t3-core','tests',
+    'g4-original-employee-real-task-driver.py');
+  const deliver=mode=>{
+    const result=spawnSync(python,[employeeTaskDriver],{
+      cwd:workRoot,encoding:'utf8',windowsHide:true,
+      timeout:120000,maxBuffer:128*1024,
+      env:{...firstUseEnv,G4_AGENT_EMPLOYEE_TASK_MODE:mode,
+        G4_AGENT_EMPLOYEE_EXPECTED_FILE:expectedPath,
+        G4_AGENT_ORIGINAL_INVITATION_PATH:kernelEvidence.invitationPath,
+        G4_AGENT_ORIGINAL_TASK_PATH:kernelEvidence.taskPath},
+    });
+    if(result.status!==0){
+      const safe=(result.stdout??'').match(
+        /G4_AGENT_EMPLOYEE_TASK_FAILURE_CODE\s+([A-Z0-9_]{3,119})/);
+      console.log('G4_ORIGINAL_AGENT_DELIVERY_FAILURE_CODE',
+        safe?.[1]??'UNCLASSIFIED');
+      throw Error('G4_ORIGINAL_AGENT_DELIVERY_PROCESS_FAILED');
+    }
+    const receipt=JSON.parse(result.stdout.trim());
+    assert.equal(receipt.verified,true);
+    assert.equal(receipt.mode,mode);
+  };
+  deliver('IMPORT_RECEIVE');
+  console.log('G4_ORIGINAL_PRODUCTION_EMPLOYEE_AGENT_SIGNED_TASK_RECEIVE_PASS');
+  phase='ORIGINAL_PRODUCTION_EMPLOYEE_AGENT_TASK_COLD';
+  deliver('COLD_READBACK');
+  console.log('G4_ORIGINAL_PRODUCTION_EMPLOYEE_AGENT_TASK_COLD_READBACK_PASS');
+
 
 }catch(error){phaseFail(phase,error)}
 finally{try{admin?.close()}catch{}}
