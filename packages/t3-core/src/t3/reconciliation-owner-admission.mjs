@@ -21,10 +21,15 @@ function same(a,b,depth=0){
   if(a===b)return true;
   if(a===null||b===null||typeof a!=="object"||typeof b!=="object")
     return false;
-  if(Array.isArray(a)||Array.isArray(b))
-    return Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&
-      a.every((value,i)=>Object.hasOwn(a,i)&&Object.hasOwn(b,i)&&
-        same(value,b[i],depth+1));
+  if(Array.isArray(a)||Array.isArray(b)){
+    if(!Array.isArray(a)||!Array.isArray(b)||a.length!==b.length||
+       a.length>4096)return false;
+    for(let i=0;i<a.length;i++){
+      if(!Object.hasOwn(a,i)||!Object.hasOwn(b,i)||
+         !same(a[i],b[i],depth+1))return false;
+    }
+    return true;
+  }
   const plain=x=>Object.getPrototypeOf(x)===Object.prototype||
     Object.getPrototypeOf(x)===null;
   if(!plain(a)||!plain(b))return false;
@@ -102,6 +107,17 @@ export function createTrustedReconciliationAdmission({
     check(["IWXA_T3_ACCEPTANCE_RECEIPT/1",
       "IWXA_T3_REJECTION_RECEIPT/1"].includes(saved.schema),
       "T3_D3_ORIGINAL_RECEIPT_INVALID");
+    // A read-only recovery is meaningful only when the ORIGINAL owner
+    // confirms the same decision semantics as at initial dispatch.
+    // Even a persisted ACCEPT here is not an external Kernel APPLY.
+    const accepted=saved.schema==="IWXA_T3_ACCEPTANCE_RECEIPT/1";
+    check(accepted?
+      saved.acceptanceState==="ACCEPTED"&&
+        saved.appliedScope==="RECONCILIATION_LEDGER_ONLY"&&
+        saved.externalContextCoreApplied===false:
+      saved.acceptanceState==="REJECTED"&&
+        saved.applicationState==="NOT_APPLIED",
+      "T3_D3_ORIGINAL_RECEIPT_STATE_INVALID");
     return Object.freeze({
       found:true,
       receipt:snapshot(saved,"T3_D3_RECEIPT_NOT_CLONEABLE"),
