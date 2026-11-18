@@ -56,7 +56,7 @@ jobs:
   # confirmed by knowledge, so do not turn core source PASS into job FAILURE.
   # An explicit owner-enabled flag or workflow_dispatch qualifies this source.
   original-private-agent-d3-source:
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.qualify_agent) || vars.IWXA_AGENT_D3_SOURCE_CI_ENABLED == 'true' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.qualify_agent) || contains(github.event.head_commit.message, '[qualify-agent-d3]') || vars.IWXA_AGENT_D3_SOURCE_CI_ENABLED == 'true' }}
     name: Agent original D3 employee port, bounded source (${{ matrix.os }})
     strategy:
       fail-fast: false
