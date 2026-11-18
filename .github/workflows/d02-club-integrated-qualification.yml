@@ -24,7 +24,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     env:
-      SITE_SHA: 58031793f02d2cde254ede44dd08c2c65260fe3d
+      SITE_SHA: d23cfdd689728d5a69c5dfab4d8a66d82a5ce166
       DOMAIN_SHA: f182dfee92cadf33e01ab0ab5692ee54762696c2
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -208,6 +208,22 @@ jobs:
           }
           Write-Output 'D02_RELEASE_GATE=PASS routes=40'
 
+      - name: Confirm all 40 routes work via real HTTP and refuse private paths
+        id: http_preview
+        if: steps.release_gate.outcome == 'success'
+        continue-on-error: true
+        working-directory: site
+        shell: pwsh
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'club-integrated-http-private.log'
+          & node scripts/check-club-integrated-http-preview.mjs dist *> $log
+          if($LASTEXITCODE -ne 0) {
+            Write-Output 'D02_HTTP_PREVIEW=FAIL'
+            Get-Content $log | Select-String -Pattern 'CLUB_HTTP_PREVIEW_[A-Z_]+|ERR_ASSERTION|ECONNREFUSED|ETIMEDOUT' | Select-Object -Last 8 | ForEach-Object { Write-Output $_.Line }
+            exit 1
+          }
+          Write-Output 'D02_HTTP_PREVIEW=PASS routes=40 assets=5 real404=5'
+
       - name: Final private-source-safe status
         if: always()
         shell: pwsh
@@ -218,11 +234,13 @@ jobs:
           Write-Output "D02_SITE_TESTS=${{ steps.site_tests.outcome }}"
           Write-Output "D02_INTEGRATED_BUILD=${{ steps.integrated_build.outcome }}"
           Write-Output "D02_RELEASE_GATE=${{ steps.release_gate.outcome }}"
+          Write-Output "D02_HTTP_PREVIEW=${{ steps.http_preview.outcome }}"
           if ('${{ steps.domain_test.outcome }}' -ne 'success' -or
               '${{ steps.site_ci.outcome }}' -ne 'success' -or
               '${{ steps.site_tests.outcome }}' -ne 'success' -or
               '${{ steps.integrated_build.outcome }}' -ne 'success' -or
-              '${{ steps.release_gate.outcome }}' -ne 'success') {
+              '${{ steps.release_gate.outcome }}' -ne 'success' -or
+              '${{ steps.http_preview.outcome }}' -ne 'success') {
             throw 'D02_QUALIFICATION_NOT_COMPLETE'
           }
           Write-Output 'D02_SOURCE_BUILD_QUALIFIED=PASS'
