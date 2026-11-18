@@ -1,0 +1,92 @@
+name: d06-item-fleet-ui-qualification
+
+# Tests current physical-item Workspace UI against a real static site build.
+# All D06/domain sources, dist, screenshots and raw test logs stay on runner.
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-item-fleet-ui-qualification.yml
+permissions:
+  contents: read
+jobs:
+  item-fleet-ui:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Read exact private D06 site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: 8da617eea47a5682bd90c3692bba604448f3cac9
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - name: Read canonical domain item binding privately
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod
+          ref: 59c81bd6396fb0273286760c7f1f05a771bb2654
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/domain
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Verify contract and source compilation
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 10
+        run: |
+          $canon = (& git -C ../domain rev-parse "HEAD:src/rules/item-result-binding.ts").Trim()
+          $site = (& git rev-parse "HEAD:src/rules/item-result-binding.ts").Trim()
+          if ($canon -ne $site) { Write-Host "D06_ITEM_CONTRACT_SYNC=FAIL"; exit 1 }
+          Write-Host "D06_ITEM_CONTRACT_SYNC=PASS"
+          $log = Join-Path $env:RUNNER_TEMP "d06-item-ci-private.txt"
+          & npm ci --no-audit --no-fund *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_ITEM_NPM_CI=FAIL"; exit 1 }
+          Write-Host "D06_ITEM_NPM_CI=PASS"
+          & node ../domain/scripts/test-item-result-binding.mjs *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_ITEM_CANONICAL_TEST=FAIL"; exit 1 }
+          Write-Host "D06_ITEM_CANONICAL_TEST=PASS"
+          & npm run check:type *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_ITEM_TYPE=FAIL"; exit 1 }
+          Write-Host "D06_ITEM_TYPE=PASS"
+          & npm run test:item-lifecycle-view *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_ITEM_PROJECTION=FAIL"; exit 1 }
+          Write-Host "D06_ITEM_PROJECTION=PASS"
+      - name: Build immutable static site and install test browser
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 22
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-item-build-private.txt"
+          & npm run build:static *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_ITEM_BUILD=FAIL"; exit 1 }
+          Write-Host "D06_ITEM_BUILD=PASS"
+          & npm run setup:browser *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_ITEM_BROWSER=FAIL"; exit 1 }
+          Write-Host "D06_ITEM_BROWSER=PASS"
+      - name: Two-item ownership and lifecycle UI journeys
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 15
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-item-e2e-private.txt"
+          & npm run test:e2e -- tests/e2e/d06-item-context.spec.ts tests/e2e/d06-pd20-pd21-manual-save.spec.ts *> $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "D06_ITEM_E2E=FAIL"
+            $txt = Get-Content -LiteralPath $log -Raw
+            Write-Host ("D06_ITEM_E2E_TIMEOUT_CLASS=" + [int]($txt -match "TimeoutError|Timeout [0-9]+ms exceeded"))
+            Write-Host ("D06_ITEM_E2E_ASSERTION_CLASS=" + [int]($txt -match "AssertionError|expect\\(.*\\)\\.to"))
+            exit 1
+          }
+          Write-Host "D06_ITEM_E2E=PASS"
+      - name: Confirm private source isolation
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_ITEM_PRIVATE_SOURCE_PUBLICATION=0"
+          Write-Host "D06_ITEM_PRIVATE_DIST_PUBLICATION=0"
+          Write-Host "D06_ITEM_PRIVATE_TEST_REPORT_PUBLICATION=0"
