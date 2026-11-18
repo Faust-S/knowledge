@@ -244,43 +244,43 @@ jobs:
             # ConvertFrom-Json can hang for many minutes on nested test traces.
             # Only counts and tracked-file ordinals leave the disposable runner.
             $reportScript = @'
-const fs = require("node:fs");
-const cp = require("node:child_process");
-const file = process.argv[1];
-if (!fs.existsSync(file)) {
-  console.log("D06_E2E_JSON_REPORT=NOT_CREATED");
-  process.exit(0);
-}
-const report = JSON.parse(fs.readFileSync(file, "utf8"));
-const files = cp.execFileSync("git", ["ls-files", "--", "tests/e2e/*.spec.ts"], {
-  encoding: "utf8",
-}).split(/\r?\n/).filter(Boolean).sort();
-const counts = new Map();
-let failures = 0;
-const stack = [...(report.suites || [])];
-while (stack.length) {
-  const suite = stack.pop();
-  for (const child of suite.suites || []) stack.push(child);
-  for (const spec of suite.specs || []) {
-    const tests = spec.tests || [];
-    const failed = spec.ok === false ||
-      tests.some(t => (t.results || []).some(r =>
-        ["failed", "timedOut", "interrupted"].includes(r.status)));
-    if (!failed) continue;
-    failures++;
-    const raw = String(spec.file || suite.file || "").replace(/\\/g, "/");
-    const match = raw.match(/tests\/e2e\/[^/]+\.spec\.ts$/);
-    const index = match ? files.indexOf(match[0]) : -1;
-    const ordinal = index + 1;
-    counts.set(ordinal, (counts.get(ordinal) || 0) + 1);
-  }
-}
-console.log("D06_E2E_JSON_REPORT=PASS");
-console.log("D06_E2E_REPORT_FAILED_COUNT=" + failures);
-console.log("D06_E2E_FAILED_SPEC_ORDINALS=" +
-  [...counts].sort((a,b) => a[0]-b[0]).map(([k,v]) => k+":"+v).join(","));
-console.log("D06_E2E_SPEC_COUNT=" + files.length);
-'@
+          const fs = require("node:fs");
+          const cp = require("node:child_process");
+          const file = process.argv[1];
+          if (!fs.existsSync(file)) {
+            console.log("D06_E2E_JSON_REPORT=NOT_CREATED");
+            process.exit(0);
+          }
+          const report = JSON.parse(fs.readFileSync(file, "utf8"));
+          const files = cp.execFileSync("git", ["ls-files", "--", "tests/e2e/*.spec.ts"], {
+            encoding: "utf8",
+          }).split(/\r?\n/).filter(Boolean).sort();
+          const counts = new Map();
+          let failures = 0;
+          const stack = [...(report.suites || [])];
+          while (stack.length) {
+            const suite = stack.pop();
+            for (const child of suite.suites || []) stack.push(child);
+            for (const spec of suite.specs || []) {
+              const tests = spec.tests || [];
+              const failed = spec.ok === false ||
+                tests.some(t => (t.results || []).some(r =>
+                  ["failed", "timedOut", "interrupted"].includes(r.status)));
+              if (!failed) continue;
+              failures++;
+              const raw = String(spec.file || suite.file || "").replace(/\\/g, "/");
+              const match = raw.match(/tests\/e2e\/[^/]+\.spec\.ts$/);
+              const index = match ? files.indexOf(match[0]) : -1;
+              const ordinal = index + 1;
+              counts.set(ordinal, (counts.get(ordinal) || 0) + 1);
+            }
+          }
+          console.log("D06_E2E_JSON_REPORT=PASS");
+          console.log("D06_E2E_REPORT_FAILED_COUNT=" + failures);
+          console.log("D06_E2E_FAILED_SPEC_ORDINALS=" +
+            [...counts].sort((a,b) => a[0]-b[0]).map(([k,v]) => k+":"+v).join(","));
+          console.log("D06_E2E_SPEC_COUNT=" + files.length);
+          '@
             & node -e $reportScript $env:PLAYWRIGHT_JSON_OUTPUT_FILE
             if ($LASTEXITCODE -ne 0) {
               Write-Host "D06_E2E_JSON_REPORT=PARSE_FAILED"
