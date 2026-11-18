@@ -593,10 +593,10 @@ jobs:
                 # Import the exact downloaded file in the original T2 Exchange
                 # using native Windows file dialog, without injecting a fake archive.
                 $importTab=WaitNative 'Импортировать' $null
-                $tabPattern=$null
-                if($importTab.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$tabPattern)){
-                  ([System.Windows.Automation.SelectionItemPattern]$tabPattern).Select()
-                }else{ActivateNative $importTab}
+                # React's role=tab accepts keyboard ENTER. SelectionItem.Select
+                # alone changes the accessible selected state but does not keep
+                # the file-input keyboard path that previously opened the dialog.
+                ActivateNative $importTab
                 Start-Sleep -Milliseconds 400
                 $importPanelVisible=(NativeText) -match 'Выберите сохранённый пакет'
                 Write-Output ('D07_NATIVE_IWXA_IMPORT_PANEL_VISIBLE='+$importPanelVisible)
