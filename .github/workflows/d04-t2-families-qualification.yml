@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 406fffbfce41921f2d1ef1f9b19ed2ecaa661158
+          ref: de4c519ded103f6a779f753055a920872c136a42
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -60,7 +60,7 @@ jobs:
       - name: Check immutable source pins
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "406fffbfce41921f2d1ef1f9b19ed2ecaa661158"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "de4c519ded103f6a779f753055a920872c136a42"
           test "$(git -C d04-private/model rev-parse HEAD)" = "a148d0386a73fc0131f971075ce3743e7010e995"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           echo "D04_NATIVE_EXACT_REVISIONS=PASS"
@@ -180,3 +180,44 @@ jobs:
           grep '^D04_PUBLIC_' "$RUNNER_TEMP/d04-public-entry.log" | tail -4
           echo "D04_PUBLIC_ENTRY_DESKTOP_MOBILE=PASS"
           # No private source, dist, personal browser profiles or logs uploaded.
+      - name: Actual 13 calculators and 10 protocol checklists on mobile and desktop
+        working-directory: d04-private/site
+        run: |
+          set +e
+          node --input-type=module >"$RUNNER_TEMP/d04-tool-protocol-ui.log" 2>&1 <<'NODE'
+          import {createRequire} from 'node:module';
+          import {resolve,join} from 'node:path';
+          import {pathToFileURL} from 'node:url';
+          const site=process.cwd();
+          const canonical=resolve(process.env.GITHUB_WORKSPACE,
+            'd04-private/t2/t2/current/final-successor/canonical-source');
+          const {chromium}=createRequire(join(canonical,'package.json'))('playwright');
+          const {serveRealKernelHost}=await import(pathToFileURL(join(canonical,
+            'scripts/real-kernel-e2e.mjs')).href);
+          const {runLifeOsToolsProtocolsBrowser}=await import(pathToFileURL(join(site,
+            'qualification/life-os-tools-protocols.browser.mjs')).href);
+          const live=await serveRealKernelHost(join(site,'dist'),{
+            independentWitness:true,previewOrigin:true
+          });
+          try{
+            const result=await runLifeOsToolsProtocolsBrowser({chromium,origin:live.origin});
+            if(result.status!=='PASS'||result.viewports.length!==2||
+               result.viewports.some(v=>v.tools!==13||v.protocols!==10))
+              throw new Error('D04_COVERAGE_INCOMPLETE_RESULT');
+            for(const view of result.viewports)
+              console.log('D04_COVERAGE_WIDTH_'+view.width+'_13_TOOLS_10_PROTOCOLS=PASS');
+            console.log('D04_ALL_TOOLS_AND_PROTOCOLS=PASS');
+          }finally{
+            await new Promise(done=>live.server.close(done));
+          }
+          NODE
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "D04_ALL_TOOLS_AND_PROTOCOLS=FAIL"
+            python3 "$GITHUB_WORKSPACE/tools/ci/d04_recovery_safe_diagnostics.py" "$RUNNER_TEMP/d04-tool-protocol-ui.log" || true
+            exit "$code"
+          fi
+          grep '^D04_COVERAGE_' "$RUNNER_TEMP/d04-tool-protocol-ui.log" | tail -3
+          echo "D04_ALL_TOOLS_AND_PROTOCOLS=PASS"
+          # No private browser files, dist, user data, source or logs uploaded.
