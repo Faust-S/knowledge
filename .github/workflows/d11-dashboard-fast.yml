@@ -31,6 +31,5 @@ jobs:
           node_modules/.bin/esbuild src/routes/index.tsx --format=esm --outfile=/tmp/d11-home-ui-check.mjs
           node_modules/.bin/esbuild src/components/tools/D11WorkspaceEntry.tsx --format=esm --outfile=/tmp/d11-workspace-link-check.mjs
           grep -Fq "/workspace/#/overview" src/routes/index.tsx
-          grep -Fq "fragmentPattern: \"#/overview\"" /dev/null || true
           echo D11_DASHBOARD_SOURCE_CHECK=PASS
       # No artifact export: source and private build stay on the ephemeral runner.
