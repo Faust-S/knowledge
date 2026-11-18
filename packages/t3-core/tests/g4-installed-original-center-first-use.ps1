@@ -142,6 +142,10 @@ try{
   ClickButton 'Планы Atlas'
   TypeText 'Название рабочей области' 'G4CorporateWorkspace'
   ClickButton 'Добавить'
+  # Persist the real manager draft before the cold installed reopen.
+  # The signed owner and the ordinary Center organization remain
+  # distinct; neither silently reconstructs the other's storage.
+  ClickButton 'Сохранить на компьютере'
   ClickButton 'Результаты'
   $enroll=FindName 'Подключить организацию' 'Button'
   Check $enroll.Current.IsEnabled 'G4_INSTALLED_FIRST_USE_ENROLL_NOT_AVAILABLE'
