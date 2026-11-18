@@ -8,7 +8,8 @@ permissions:
   contents: read
 concurrency:
   group: d11-qualification-${{ github.ref }}
-  cancel-in-progress: false
+  # New D11 candidates supersede stale qualification runs on this branch.
+  cancel-in-progress: true
 jobs:
   qualify:
     name: D11 ${{ matrix.os }}
