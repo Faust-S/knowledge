@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: 2f3f0f20b17655d5ed2c0bfe0954ea9186878b96
+          ref: cc0cb9196a44b54b06df71990042debccf1de7fd
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: pt-site
@@ -47,6 +47,16 @@ jobs:
         run: |
           echo "PT_QA_SHA=$(git rev-parse HEAD)"
           bun install --frozen-lockfile > "$RUNNER_TEMP/pt-install.log" 2>&1 || { echo "PT_INSTALL=FAIL"; exit 1; }
+          node --import tsx scripts/check-portuguese-atlas-offer-regression.mjs > "$RUNNER_TEMP/pt-atlas-offers.log" 2>&1 || { echo "PT_ATLAS_OFFER_REGRESSION=FAIL"; tail -n 5 "$RUNNER_TEMP/pt-atlas-offers.log"; exit 1; }
+          echo "PT_ATLAS_OFFER_REGRESSION=PASS"
+          node --experimental-strip-types scripts/check-portuguese-orbit-caption.mjs > "$RUNNER_TEMP/pt-orbit-math.log" 2>&1 || { echo "PT_ORBIT_GEOMETRY=FAIL"; tail -n 5 "$RUNNER_TEMP/pt-orbit-math.log"; exit 1; }
+          echo "PT_ORBIT_GEOMETRY=PASS"
+          node scripts/check-portuguese-atlas-complete.mjs > "$RUNNER_TEMP/pt-atlas-source.log" 2>&1 || { echo "PT_ATLAS_SOURCE=FAIL"; tail -n 6 "$RUNNER_TEMP/pt-atlas-source.log"; exit 1; }
+          echo "PT_ATLAS_SOURCE=PASS"
+          node scripts/check-portuguese-source.mjs > "$RUNNER_TEMP/pt-aggregate.log" 2>&1 || { echo "PT_AGGREGATE=FAIL"; grep "^FAIL " "$RUNNER_TEMP/pt-aggregate.log" | tail -n 10; exit 1; }
+          echo "PT_AGGREGATE=PASS"
+          bun run typecheck > "$RUNNER_TEMP/pt-typecheck.log" 2>&1 || { echo "PT_TYPECHECK=FAIL"; tail -n 8 "$RUNNER_TEMP/pt-typecheck.log"; exit 1; }
+          echo "PT_TYPECHECK=PASS"
           export LOVABLE_BUILD_TARGET=static NITRO_PRESET=node-server SERVER_PRESET=node-server
           bun run build > "$RUNNER_TEMP/pt-build.log" 2>&1 || { echo "PT_BUILD=FAIL"; exit 1; }
           echo "PT_BUILD=PASS"
