@@ -80,6 +80,7 @@ jobs:
               # Only test names and TypeScript error identifiers: no code or fixture output.
               grep -E '^(not ok |# (tests|pass|fail|cancelled))' "$RUNNER_TEMP/d10-$label.log" | head -n 35 || true
               grep -E 'error TS[0-9]+:' "$RUNNER_TEMP/d10-$label.log" | sed -E 's/: error TS([0-9]+):.*/: TS\1/' | head -n 12 || true
+              grep -Eo 'TS[0-9]+' "$RUNNER_TEMP/d10-$label.log" | sort -u | head -n 15 | sed 's/^/D10_TYPESCRIPT_CODE=/' || true
               exit 1
             fi
           done
