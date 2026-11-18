@@ -53,7 +53,7 @@ jobs:
             else
               echo "$label=FAIL_exit_$status"
               echo "$label last error lines (redacted diagnostic):"
-              grep -Ei "fatal:|Error:|error:|AssertionError|not found|not a valid|unknown revision|PT_|FAIL" "$RUNNER_TEMP/iwxa-pt-$label.log" | sed -E "s#[[:alnum:]_.-]+/[[:alnum:]_./-]+#<path>#g" | tail -n 4 || true
+              grep "^FAIL " "$RUNNER_TEMP/iwxa-pt-$label.log" | sed -E "s/^FAIL ([^:]+):.*/FAILED_CHECK: \1/" | head -n 30 || true
               failures=$((failures + 1))
             fi
           }
