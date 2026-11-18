@@ -390,7 +390,8 @@ jobs:
                         [System.Windows.Automation.ControlType]::Text))
                     for($n=0;$n -lt $texts.Count;$n++){
                       $name=$texts.Item($n).Current.Name
-                      if($name -match '^Заказ сохранён и повторно прочитан\. Редакция 1\. Событие: (.+)\.{
+                      if($name -match '^Заказ сохранён и повторно прочитан\. Редакция 1\. Событие: (.+)\.$' -and
+                        -not [string]::IsNullOrWhiteSpace($Matches[1])){
                         $sawReceipt=$true
                       }
                       if($name -match 'Object ID:\s*d07:order:[0-9a-f]{64}'){$sawObject=$true}
@@ -399,7 +400,7 @@ jobs:
                   if($sawReceipt -and $sawObject){break}
                 }
                 if(-not $sawReceipt -or -not $sawObject){
-                  # Whitelisted UI state only; no private case text, object contents, or raw logs.
+                  # Whitelisted UI state only. Never print private order content.
                   $signals=[System.Collections.Generic.HashSet[string]]::new()
                   foreach($process in @(Get-Process msedge -ErrorAction SilentlyContinue |
                     Where-Object {$_.MainWindowHandle -ne 0})){
@@ -433,38 +434,9 @@ jobs:
                     }
                   }
                   if($signals.Count -eq 0){Write-Output 'D07_NATIVE_UI_SAVE_OUTCOME=NO_RECOGNIZED_STATUS'}
-                  else{foreach($signal in @($signals | Sort-Object)){Write-Output ("D07_NATIVE_UI_SAVE_OUTCOME="+$signal)}}
+                  else{foreach($signal in @($signals | Sort-Object)){Write-Output ('D07_NATIVE_UI_SAVE_OUTCOME='+$signal)}}
                   Write-Output ('D07_NATIVE_UI_RECEIPT_MATCH='+$sawReceipt)
                   Write-Output ('D07_NATIVE_UI_OBJECT_MATCH='+$sawObject)
-                }
-                if(-not $sawReceipt){throw 'D07_NATIVE_T2_REAL_KERNEL_RECEIPT_NOT_OBSERVED'}
-                if(-not $sawObject){throw 'D07_NATIVE_T2_REAL_KERNEL_OBJECT_ID_NOT_OBSERVED'}
-                Write-Output 'D07_NATIVE_T2_KERNEL_RECEIPT_UI=PASS'
-                Write-Output 'D07_NATIVE_T2_KERNEL_ORDER_READBACK_UI=PASS'
-                Write-Output 'D07_PHYSICAL_IWXA_INDEPENDENT_IMPORT=NOT_RUN'
-
-              }
-              # Browser profile is isolated to one case. Close its native Edge
-              # process tree before opening the next to limit memory use.
-              if($edgeProc){
-                try{$edgeProc.Kill($true)}catch{}
-              }
-            }
-            Write-Output 'D07_EDGE_UIA_CASES=1/1'
-            Write-Output 'D07_REAL_KERNEL_RECEIPT_IWXA=NOT_RUN'
-          }finally{
-            foreach($edgeId in $started){Stop-Process -Id $edgeId -Force -ErrorAction SilentlyContinue}
-            if($server){Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue}
-          }
-          # No private source, dist, screenshots, browser profiles or raw logs uploaded.
- -and
-                        -not [string]::IsNullOrWhiteSpace($Matches[1])){
-                        $sawReceipt=$true
-                      }
-                      if($name -match 'Object ID:\s*d07:order:[0-9a-f]{64}'){$sawObject=$true}
-                    }
-                  }
-                  if($sawReceipt -and $sawObject){break}
                 }
                 if(-not $sawReceipt){throw 'D07_NATIVE_T2_REAL_KERNEL_RECEIPT_NOT_OBSERVED'}
                 if(-not $sawObject){throw 'D07_NATIVE_T2_REAL_KERNEL_OBJECT_ID_NOT_OBSERVED'}
