@@ -2,7 +2,7 @@ name: D07 native Windows CASE001 cold restart Kernel history
 on:
   push:
     branches: [work/2026-11-18-d07-case10-qualification]
-    paths: [.github/workflows/d07-native-windows-t2-case001-save.yml]
+    paths: [.github/workflows/d07-native-windows-t2-cold-restart.yml]
 permissions:
   contents: read
 jobs:
