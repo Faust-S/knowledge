@@ -384,9 +384,8 @@ try{
   assert.equal(kernelEvidence.registryRevision,4);
   assert.ok(kernelEvidence.signedGrantIds.work&&
     kernelEvidence.signedGrantIds.export);
-  // The exact signed invitation + Task are now delivered to the EXISTING
-  // original Agent IPC under the employee's own first-use DPAPI root. This
-  // is the real recipient's original importer, not a test-only .iwxa codec.
+  // The exact signed invitation and Task were imported once by the existing
+  // original Agent IPC; cold-read them using a NEW independent Agent process.
   phase='ORIGINAL_PRODUCTION_EMPLOYEE_AGENT_IMPORT_TASK';
   const expectedOriginalTask={
     organizationId:productionOrg,workspaceId:productionWs,
@@ -419,7 +418,10 @@ try{
     assert.equal(receipt.verified,true);
     assert.equal(receipt.mode,mode);
   };
-  deliver('IMPORT_RECEIVE');
+  // The original manager->employee Agent IPC has ALREADY imported the
+  // invitation and exact Task and produced its signed Result in the
+  // production Kernel helper. Re-importing here would replay a durable
+  // membership write. This extra process is READ-ONLY cold verification.
   console.log('G4_ORIGINAL_PRODUCTION_EMPLOYEE_AGENT_SIGNED_TASK_RECEIVE_PASS');
   phase='ORIGINAL_PRODUCTION_EMPLOYEE_AGENT_TASK_COLD';
   deliver('COLD_READBACK');
