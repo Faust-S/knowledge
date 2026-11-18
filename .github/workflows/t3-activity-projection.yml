@@ -448,7 +448,13 @@ jobs:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
           T3_D1_D5_REQUIRE_HARDWARE_GPU: '1'
         run: node tests/t3-d1-signed-control-one-dist.browser.mjs
+      # D5 autonomous domain inference is an independent release gate.
+      # A later D1/D3 corporate UI assertion may fail AFTER hardware
+      # generation succeeded. Still exercise this different signed-domain
+      # PWA/offline path, but keep the FIRST failed step and entire job RED.
+      # !cancelled() never overrides an explicit workflow cancellation.
       - name: D5 inherited domain real Metal generation and cold offline restart
+        if: ${{ !cancelled() }}
         working-directory: packages/t3-core
         env:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
