@@ -720,6 +720,60 @@ jobs:
                     }
                   }
                 }
+                if(!$fileDialog){
+                  # Edge can omit <input type=file> from UIA entirely.
+                  # Use a real native Windows mouse click anchored to the
+                  # visible import explanation just above that input, not
+                  # synthetic DOM events or browser-side JS.
+                  Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class D07NativePointer { [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd); [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y); [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint x,uint y,uint data,UIntPtr extra); }'
+                  $anchorRect=$null
+                  foreach($edgeInstance in @(Get-Process msedge -ErrorAction SilentlyContinue |
+                    Where-Object {$_.MainWindowHandle -ne 0})){
+                    $edgeWindow=[System.Windows.Automation.AutomationElement]::FromHandle(
+                      [IntPtr]$edgeInstance.MainWindowHandle)
+                    if(!$edgeWindow){continue}
+                    $texts=$edgeWindow.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                      [System.Windows.Automation.PropertyCondition]::new(
+                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                        [System.Windows.Automation.ControlType]::Text))
+                    for($t=0;$t -lt $texts.Count;$t++){
+                      try{
+                        $item=$texts.Item($t)
+                        if(!$item.Current.IsOffscreen -and
+                          $item.Current.Name -match 'Выберите сохранённый пакет'){
+                          $rect=$item.Current.BoundingRectangle
+                          if($rect.Width -gt 60 -and $rect.Height -gt 8){
+                            $anchorRect=$rect
+                            $null=[D07NativePointer]::SetForegroundWindow(
+                              [IntPtr]$edgeInstance.MainWindowHandle)
+                            break
+                          }
+                        }
+                      }catch{}
+                    }
+                    if($anchorRect){break}
+                  }
+                  Write-Output ('D07_NATIVE_IWXA_FILE_INPUT_ANCHOR_VISIBLE='+[bool]$anchorRect)
+                  if($anchorRect){
+                    foreach($deltaY in @(25,45,65)){
+                      $clickX=[int]($anchorRect.Left+42)
+                      $clickY=[int]($anchorRect.Bottom+$deltaY)
+                      $null=[D07NativePointer]::SetCursorPos($clickX,$clickY)
+                      Start-Sleep -Milliseconds 130
+                      [D07NativePointer]::mouse_event([uint32]2,0,0,0,[UIntPtr]::Zero)
+                      [D07NativePointer]::mouse_event([uint32]4,0,0,0,[UIntPtr]::Zero)
+                      for($c=0;$c -lt 12;$c++){
+                        Start-Sleep -Milliseconds 250
+                        $fileDialog=FindOpenDialog
+                        if($fileDialog){break}
+                      }
+                      if($fileDialog){
+                        Write-Output ('D07_NATIVE_IWXA_CHOOSER_NATIVE_CLICK_OFFSET='+$deltaY)
+                        break
+                      }
+                    }
+                  }
+                }
                 if(!$fileDialog){throw 'D07_NATIVE_IWXA_WINDOWS_FILE_DIALOG_NOT_OPENED'}
                 Write-Output 'D07_NATIVE_IWXA_WINDOWS_FILE_DIALOG=PASS'
                 $dlgHwnd=[IntPtr]::new([int64]$fileDialog.Current.NativeWindowHandle)
