@@ -667,6 +667,42 @@ jobs:
                   }else{Write-Output 'D07_NATIVE_RESTART_HISTORY_MANUAL_RETRY=UNAVAILABLE'}
                 }
                 if(!$eventRestored){
+                  # Edge exposes LI names inconsistently: many <li> nodes have
+                  # ListItem/Group controls rather than Text. Inspect the
+                  # native accessibility tree once, without scripting the DOM.
+                  $historyLabel=(AccessibleText) -match 'История Kernel: [1-9][0-9]* событий заказа'
+                  if($historyLabel){
+                    $matchedKind=''
+                    $seenListItem=0
+                    foreach($proc in @(Get-Process msedge -ErrorAction SilentlyContinue |
+                      Where-Object {$_.MainWindowHandle -ne 0})){
+                      $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$proc.MainWindowHandle)
+                      if(!$window){continue}
+                      $controls=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                        [System.Windows.Automation.Condition]::TrueCondition)
+                      for($i=0;$i -lt $controls.Count;$i++){
+                        try {
+                          $current=$controls.Item($i).Current
+                          $name=$current.Name
+                          $kind=$current.ControlType.ProgrammaticName
+                          if($kind -eq 'ControlType.ListItem'){$seenListItem++}
+                          if($name -and $name.Contains($beforeEvent) -and
+                             ($kind -eq 'ControlType.ListItem' -or $kind -eq 'ControlType.Group' -or
+                              $kind -eq 'ControlType.Text')){
+                            $eventRestored=$true
+                            $matchedKind=$kind
+                            break
+                          }
+                        } catch {}
+                      }
+                      if($eventRestored){break}
+                    }
+                    Write-Output ('D07_NATIVE_RESTART_HISTORY_LISTITEM_COUNT='+$seenListItem)
+                    Write-Output ('D07_NATIVE_RESTART_HISTORY_ACCESSIBLE_ID_MATCH='+$eventRestored)
+                    if($eventRestored){Write-Output ('D07_NATIVE_RESTART_HISTORY_ID_CONTROL='+$matchedKind)}
+                  }
+                }
+                if(!$eventRestored){
                   $afterRestart=AccessibleText
                   $errorText=$afterRestart -match 'Историю Kernel не удалось прочитать'
                   $unavailableText=$afterRestart -match 'История Kernel недоступна в текущем режиме'
