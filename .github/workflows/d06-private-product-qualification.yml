@@ -179,6 +179,35 @@ jobs:
               $runtimeFailures = ([regex]::Matches($private, "\[runtime:fail\]")).Count
               Write-Host ("D06_" + $safe + "_HYDRATION_FAILURE_COUNT=" + $hydrationFailures)
               Write-Host ("D06_" + $safe + "_RUNTIME_FAILURE_COUNT=" + $runtimeFailures)
+              if ($check -eq "check:external-assets") {
+                foreach ($kind in @(
+                  @{ label = "FORBIDDEN_ORIGIN"; phrase = 'references forbidden host' },
+                  @{ label = "UNEXPECTED_REMOTE_ASSET"; phrase = 'unexpected external asset origin' }
+                )) {
+                  $count = ([regex]::Matches(
+                    $private, [regex]::Escape($kind.phrase)
+                  )).Count
+                  Write-Host ("D06_STATIC_ASSET_" + $kind.label + "_COUNT=" + $count)
+                }
+              }
+              if ($check -eq "check:seo") {
+                $seoProblems = [ordered]@{
+                  "TITLE" = "<title> .* > 60|missing <title>|expected 1 <title>"
+                  "DESCRIPTION" = "meta description .* > 160|missing meta description"
+                  "CANONICAL" = "canonical .* !== |expected 1 canonical|canonical .* missing trailing slash"
+                  "OG_URL" = "og:url .* !== "
+                  "H1" = "expected 1 <h1>"
+                  "SITEMAP" = "sitemap.xml: .*"
+                  "ROBOTS" = "robots.txt: .*"
+                  "MISSING_ROUTE" = "missing .*index.html"
+                  "NOINDEX" = "noindex route .*"
+                  "OTHER" = "contains a local address"
+                }
+                foreach ($name in $seoProblems.Keys) {
+                  $count = ([regex]::Matches($private, $seoProblems[$name])).Count
+                  Write-Host ("D06_STATIC_SEO_" + $name + "_COUNT=" + $count)
+                }
+              }
             }
           }
           if ($fail -gt 0) { exit 1 }
