@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: eb631c3a35e030ea9ecf894f790c39458f3d9450
+          ref: 017636ce45db4319ed1edf8028f56e7546b2a600
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -95,6 +95,20 @@ jobs:
             echo "::error::D10_INTEGRATED_DIST=FAIL exit=$result"
             exit 1
           fi
+      - name: Real browser case and public service smoke
+        shell: bash
+        run: |
+          set +e
+          cd site
+          node scripts/tests/d10-case004-browser-smoke.mjs > "$RUNNER_TEMP/d10-browser.log" 2>&1
+          result=$?
+          grep -E '^D10_' "$RUNNER_TEMP/d10-browser.log" || true
+          if [ "$result" -eq 0 ]; then
+            echo "D10_BROWSER_TARGETED=PASS"
+          else
+            echo "::error::D10_BROWSER_TARGETED=FAIL exit=$result"
+          fi
+          exit "$result"
       - name: Inspect artifact without publishing private bytes
         shell: bash
         run: |
