@@ -70,13 +70,14 @@ async function fixture(){
     assetForPath:path=>resources.get(path)??null,
     uiPort,
   });
-  return {root,kernel,kernelOrigin,start};
+  return {root,kernel,kernelOrigin,start,uiPort};
 }
 test("migrated public source serves the same signed AppShell at the inherited canonical route",async()=>{
   const f=await fixture();
   const server=f.start();
   try{
     const ui=await server.listen();
+    assert.equal(Number(new URL(ui).port),f.uiPort);
     const canonical=await fetch(ui+"/workspace/");
     const entry=await fetch(ui+"/workspace/isolated-signed-workspace.html");
     assert.equal(canonical.status,200);
