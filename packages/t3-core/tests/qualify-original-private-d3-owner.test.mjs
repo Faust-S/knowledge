@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {originalImportPaths,originalImportTarget,runOriginalPrivateOwnerSourceCheck}
-  from './qualify-original-private-d3-owner.mjs';
+  from '../scripts/qualify-original-private-d3-owner.mjs';
 
 test('bounded original import walker recognizes native ESM imports',()=>{
   const text=`import x from '../access-control/core.mjs';\n`+
