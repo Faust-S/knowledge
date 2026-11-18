@@ -200,5 +200,96 @@ try{
   assert.ok((coldProd.stdout??'').includes(
     'G4_ORIGINAL_PRODUCTION_OWNER_COLD_READBACK_PASS'));
   console.log('G4_ORIGINAL_PRODUCTION_OWNER_COLD_READBACK_PASS');
+
+  // Independently created Windows employee key and cold DPAPI proof. This
+  // candidate is NOT signed membership or installed Admin/Agent G4 acceptance.
+  phase='ORIGINAL_PRODUCTION_EMPLOYEE_FIRST_USE';
+  const {enrollOriginalWindowsEmployeeCandidate,
+    originalWindowsEmployeeCandidate,
+    proveOriginalWindowsEmployeeChallenge}=await import(pathToFileURL(
+      join(t3Root,'interop','native-employee-d3.mjs')).href);
+  const originalIdentity=JSON.parse(readFileSync(join(prodRoot,'identity.json'),'utf8'));
+  const originalState=JSON.parse(readFileSync(join(prodRoot,'registry.json'),'utf8')).state;
+  const issuerPublicKey=originalState.policy.keys[originalIdentity.issuer].publicKey;
+  const reviewPublicKey=originalState.policy.keys[originalIdentity.reviewKey].publicKey;
+  const employeeCandidateRoot=join(workRoot,'independent-windows-employee');
+  const candidate=enrollOriginalWindowsEmployeeCandidate(employeeCandidateRoot,{
+    audience:originalIdentity.audience,authorityId:originalIdentity.authority,
+    confirmedIssuerSha256:createHash('sha256').update(issuerPublicKey).digest('hex'),
+    issuerKeyId:originalIdentity.issuer,issuerPublicKey,
+    managerPersonId:originalIdentity.reviewer,
+    organizationDataRootId:originalIdentity.organizationDataRootId,
+    organizationId:originalIdentity.org,
+    organizationName:originalIdentity.organizationName,
+    realmId:originalIdentity.realm,reviewKeyId:originalIdentity.reviewKey,
+    reviewPublicKey,workspaceId:originalIdentity.workspace,
+  });
+  assert.equal(candidate.state,'AWAITING_ORIGINAL_MANAGER_ENROLLMENT');
+  assert.equal(candidate.originalKernelEnrollment,false);
+  assert.notEqual(candidate.employeePersonId,originalIdentity.reviewer);
+  assert.ok(!Object.hasOwn(originalState.policy.keys,candidate.credentialKeyId));
+  assert.deepEqual(originalWindowsEmployeeCandidate(employeeCandidateRoot),candidate);
+  assert.throws(()=>enrollOriginalWindowsEmployeeCandidate(employeeCandidateRoot,{}),
+    {code:'T3_EMPLOYEE_WINDOWS_CANDIDATE_EXISTS_READBACK'});
+  phase='ORIGINAL_PRODUCTION_EMPLOYEE_COLD_PROOF';
+  const {randomUUID,verify,createPublicKey}=await import('node:crypto');
+  const {canonical,digest}=await import(pathToFileURL(
+    join(t3Root,'access-control','core.mjs')).href);
+  const challenge=randomBytes(32).toString('hex');
+  const request={
+    id:'proof-key:employee:'+randomUUID(),
+    actorId:candidate.employeePersonId,principalId:productionOrg,
+    roleId:'worker',grantId:'proof-key:prospective',
+    audience:'t3.employee.enrollment',resource:productionWs,
+    action:'work.prepare',purpose:'work',realmId:originalIdentity.realm,
+    operationDigest:createHash('sha256').update('g4-original-employee-first-use')
+      .digest('hex'),
+  };
+  // Cold independent process receives no manager vault, password, issuer key,
+  // PAT, or private source bytes, only exact staged owner module paths.
+  const coldScript=[
+    "import{pathToFileURL}from'node:url';",
+    "const [modulePath,root,requestJson,challenge]=process.argv.slice(1);",
+    "const {originalWindowsEmployeeCandidate,proveOriginalWindowsEmployeeChallenge}=",
+    "await import(pathToFileURL(modulePath).href);",
+    "const candidate=originalWindowsEmployeeCandidate(root);",
+    "const answer=proveOriginalWindowsEmployeeChallenge(root,JSON.parse(requestJson),challenge);",
+    "if(candidate.employeePersonId!==answer.employeePersonId||",
+    "candidate.credentialKeyId!==answer.credentialKeyId||",
+    "answer.originalKernelWriteAttempted!==false)throw Error('COLD_EMPLOYEE_SCOPE_FAILED');",
+    "console.log(JSON.stringify(answer.proof));"
+  ].join('');
+  const coldEmployee=spawnSync(process.execPath,
+    ['--input-type=module','-e',coldScript,
+      join(t3Root,'interop','native-employee-d3.mjs'),
+      employeeCandidateRoot,JSON.stringify(request),challenge],
+    {cwd:workRoot,env:{
+      PATH:process.env.PATH??'',SystemRoot:process.env.SystemRoot??'',
+      WINDIR:process.env.WINDIR??'',USERPROFILE:process.env.USERPROFILE??'',
+      APPDATA:process.env.APPDATA??'',LOCALAPPDATA:process.env.LOCALAPPDATA??'',
+      HOMEDRIVE:process.env.HOMEDRIVE??'',HOMEPATH:process.env.HOMEPATH??'',
+      PSModulePath:process.env.PSModulePath??'',
+      TEMP:process.env.TEMP??'',TMP:process.env.TMP??'',
+    },encoding:'utf8',windowsHide:true,timeout:65000,maxBuffer:128*1024});
+  assert.equal(coldEmployee.status,0,'G4_EMPLOYEE_COLD_PROOF_PROCESS_FAILED');
+  const proof=JSON.parse(coldEmployee.stdout.trim());
+  const proofMessage=Buffer.from('IWXA-T3-ACCESS-SIGNED-V1\\0'+canonical({
+    schema:proof.schema,keyId:proof.keyId,payload:proof.payload
+  }));
+  assert.equal(proof.keyId,candidate.credentialKeyId);
+  assert.equal(proof.payload.environment,'PRODUCTION');
+  assert.equal(proof.payload.kind,'PROOF');
+  assert.equal(proof.payload.challenge,challenge);
+  assert.equal(proof.payload.requestDigest,digest(request));
+  assert.ok(verify(null,proofMessage,
+    createPublicKey(candidate.employeeProofKeyRecord.publicKey),
+    Buffer.from(proof.signature,'base64url')));
+  assert.throws(()=>proveOriginalWindowsEmployeeChallenge(
+    employeeCandidateRoot,{...request,principalId:'org:foreign'},challenge),
+    {code:'T3_EMPLOYEE_ORIGINAL_CHALLENGE_SCOPE_CHANGED'});
+  assert.throws(()=>proveOriginalWindowsEmployeeChallenge(
+    employeeCandidateRoot,{...request,actorId:originalIdentity.reviewer},challenge),
+    {code:'T3_EMPLOYEE_ORIGINAL_CHALLENGE_SCOPE_CHANGED'});
+  console.log('G4_ORIGINAL_PRODUCTION_INDEPENDENT_EMPLOYEE_CREDENTIAL_COLD_PASS');
 }catch(error){phaseFail(phase,error)}
 finally{try{admin?.close()}catch{}}
