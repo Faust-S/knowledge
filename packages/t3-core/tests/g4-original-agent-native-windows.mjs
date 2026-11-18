@@ -37,7 +37,18 @@ try{
   mkdirSync(employeeRoot,{recursive:true});
   mkdirSync(dir,{recursive:true});
   phase='ORIGINAL_WINDOWS_IDENTITY';
-  const identity=windowsIdentity();
+  // Identity discovery is a read-only operation. CI Windows PowerShell
+  // startup can fail transiently; never retry any signed or stored write.
+  let identity;
+  for(let attempt=1;attempt<=3;attempt++){
+    try{identity=windowsIdentity();break;}
+    catch(error){
+      if(error?.message!=='WINDOWS_PROVIDER_FAILED'||attempt===3)
+        throw error;
+      console.log('G4_NATIVE_IDENTITY_READ_RETRY',attempt);
+      await new Promise(resolve=>setTimeout(resolve,400*attempt));
+    }
+  }
   assert.ok(identity.sid&&identity.deviceId);
   phase='ORIGINAL_WINDOWS_DPAPI_PROTECT';
   const diagnostic=Buffer.from('g4-private-provider-warmup');
