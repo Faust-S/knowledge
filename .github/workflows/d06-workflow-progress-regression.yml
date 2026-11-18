@@ -1,0 +1,60 @@
+name: d06-workflow-progress-regression
+
+# Exact source-level regression isolated from Prettier-only lint changes.
+# Private code, stdout and test fixtures stay on ephemeral Windows runner.
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-workflow-progress-regression.yml
+
+permissions:
+  contents: read
+
+jobs:
+  progress-regression:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: 55f29229765acedebbb9f75147ca31734472c38e
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install private source dependencies
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-progress-install-private.log"
+          & npm ci --no-audit --no-fund *> $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "D06_PROGRESS_INSTALL=FAIL"
+            exit 1
+          }
+          Write-Host "D06_PROGRESS_INSTALL=PASS"
+      - name: Verify workflow progress and Host command regressions
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $errors = 0
+          foreach ($test in @("test:workflow-progress", "test:native")) {
+            $key = $test.Replace(":", "-")
+            $log = Join-Path $env:RUNNER_TEMP ("d06-" + $key + "-private.log")
+            & cmd.exe /d /c ("npm run " + $test + " > """ + $log + """ 2>&1")
+            $passed = $LASTEXITCODE -eq 0
+            Write-Host ("D06_" + $key + "=" + $(if ($passed) {"PASS"} else {"FAIL"}))
+            if (-not $passed) { $errors += 1 }
+          }
+          if ($errors -gt 0) { exit 1 }
+      - name: Privacy boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_PRIVATE_LOGS=RUNNER_LOCAL_ONLY"
+          Write-Host "D06_PUBLIC_ARTIFACT_UPLOADS=0"
