@@ -98,7 +98,7 @@ try{
     // Only the existing, declassified phase and machine code may appear
     // outside the original private Agent employee process.
     const step=employeeOutput.match(/G4_NATIVE_FAILURE_PHASE\s+([A-Z_]{3,80})/);
-    const code=employeeOutput.match(/G4_NATIVE_FAILURE_CODE\s+([A-Z_]{3,120})/);
+    const code=employeeOutput.match(/G4_NATIVE_FAILURE_CODE\s+([A-Z0-9_]{3,120})/);
     console.log('G4_NATIVE_EMPLOYEE_FAILURE_PHASE',
       step?.[1]??'UNCLASSIFIED');
     console.log('G4_NATIVE_EMPLOYEE_FAILURE_CODE',

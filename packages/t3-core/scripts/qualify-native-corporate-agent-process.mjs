@@ -106,12 +106,12 @@ export async function qualifyNativeOriginalEmployee({
     if(!passed){
       const step=output.match(/G4_NATIVE_FAILURE_PHASE\s+([A-Z_]{3,80})/);
       console.log('G4_NATIVE_FAILURE_PHASE',step?.[1]??'UNCLASSIFIED');
-      const code=output.match(/G4_NATIVE_FAILURE_CODE\s+([A-Z_]{3,120})/);
+      const code=output.match(/G4_NATIVE_FAILURE_CODE\s+([A-Z0-9_]{3,120})/);
       console.log('G4_NATIVE_FAILURE_CODE',code?.[1]??'REDACTED');
       const employeeStage=output.match(
         /G4_NATIVE_EMPLOYEE_FAILURE_PHASE\s+([A-Z_]{3,80})/);
       const employeeReason=output.match(
-        /G4_NATIVE_EMPLOYEE_FAILURE_CODE\s+([A-Z_]{3,120})/);
+        /G4_NATIVE_EMPLOYEE_FAILURE_CODE\s+([A-Z0-9_]{3,120})/);
       if(employeeStage||employeeReason){
         console.log('G4_NATIVE_EMPLOYEE_FAILURE_PHASE',
           employeeStage?.[1]??'UNCLASSIFIED');
