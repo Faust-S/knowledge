@@ -45,6 +45,17 @@ function selected(context, allowed) {
   if (allowed && workspaceId !== allowed) refuse("T3_D5_WORKSPACE_CHANGED");
   return { workspaceId, choice };
 }
+// The original T2 Kernel may persist a JSON object with canonical key
+// ordering. A readback must match every declared draft value and have no
+// extra keys, regardless of property insertion order. A failed semantic
+// match after putObject is still UNKNOWN and must never authorize replay.
+function sameDraftData(actual,expected){
+  if(!actual||typeof actual!=="object"||Array.isArray(actual))return false;
+  const fields=Object.keys(expected);
+  return Object.keys(actual).length===fields.length&&
+    fields.every(key=>Object.hasOwn(actual,key)&&actual[key]===expected[key]);
+}
+
 function requireKernel(kernel, operations) {
   if (kernel?.sessionInfo?.contract_version !== "1.3.0" ||
       typeof kernel.hasOperation !== "function" ||
@@ -131,7 +142,7 @@ export async function saveLocalInferenceDraft(context, {
         detail.object.object_id !== objectId ||
         detail.object.revision !== receipt.object.revision ||
         detail.object.schema_id !== LOCAL_INFERENCE_DRAFT_SCHEMA ||
-        JSON.stringify(detail.object.data) !== JSON.stringify(data)) {
+        !sameDraftData(detail.object.data,data)) {
       refuse("T3_D5_DRAFT_READBACK_MISMATCH");
     }
     return Object.freeze({
