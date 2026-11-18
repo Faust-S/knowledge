@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: 2f3f0f20b17655d5ed2c0bfe0954ea9186878b96
+          ref: 929cb920dca78a16266dccb57fe715a66179194d
           token: ${{ secrets.DOMEN }}
           fetch-depth: 0
           persist-credentials: false
@@ -46,12 +46,18 @@ jobs:
         shell: pwsh
         working-directory: pt-site
         run: |
-          if ((git rev-parse HEAD).Trim() -ne '2f3f0f20b17655d5ed2c0bfe0954ea9186878b96') {
+          if ((git rev-parse HEAD).Trim() -ne '929cb920dca78a16266dccb57fe715a66179194d') {
             throw "PT_WINDOWS_SOURCE_SHA_MISMATCH"
           }
           bun install --frozen-lockfile *> "$env:RUNNER_TEMP/pt-win-install.log"
           if ($LASTEXITCODE -ne 0) { throw "PT_WINDOWS_FROZEN_INSTALL_FAILED" }
           "PT_WINDOWS_FROZEN_INSTALL=PASS"
+          node --import tsx scripts/check-portuguese-atlas-offer-regression.mjs *> "$env:RUNNER_TEMP/pt-win-offers.log"
+          if ($LASTEXITCODE -ne 0) { throw "PT_WINDOWS_ATLAS_AB_TRANSLATION_FAILED" }
+          "PT_WINDOWS_ATLAS_AB_TRANSLATION=PASS"
+          node --experimental-strip-types scripts/check-portuguese-orbit-caption.mjs *> "$env:RUNNER_TEMP/pt-win-orbit.log"
+          if ($LASTEXITCODE -ne 0) { throw "PT_WINDOWS_ORBIT_GEOMETRY_FAILED" }
+          "PT_WINDOWS_ORBIT_GEOMETRY=PASS"
           node scripts/check-portuguese-competency-graph-source.mjs *> "$env:RUNNER_TEMP/pt-win-graph.log"
           if ($LASTEXITCODE -ne 0) { throw "PT_WINDOWS_GRAPH_GUARD_FAILED" }
           node scripts/check-portuguese-source.mjs *> "$env:RUNNER_TEMP/pt-win-source.log"
@@ -106,6 +112,9 @@ jobs:
             & node qa-scripts/tools/pt-66-browser-qa.mjs 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/pt-win-browser.log"
             if ($LASTEXITCODE -ne 0) { throw "PT_WINDOWS_BROWSER_66_F02_FAILED" }
             "PT_WINDOWS_BROWSER_66_F02=PASS"
+            & node qa-scripts/tools/pt-2defects-browser.mjs 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/pt-win-targeted.log"
+            if ($LASTEXITCODE -ne 0) { throw "PT_WINDOWS_AUTHOR_ATLAS_B_REAL_BROWSER_FAILED" }
+            "PT_WINDOWS_AUTHOR_ATLAS_B_REAL_BROWSER=PASS"
             if ($env:PT_WINDOWS_SOURCE_GUARD_FAILED -eq "1") { throw "PT_WINDOWS_SOURCE_GUARD_STILL_FAILED" }
           } finally {
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
