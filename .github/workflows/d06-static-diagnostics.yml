@@ -1,0 +1,113 @@
+name: d06-static-source-diagnostics
+
+# Runs private site checks on an ephemeral Windows machine only.
+# No source, HTML, dist, sensitive URLs, or logs are uploaded.
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-static-diagnostics.yml
+
+permissions:
+  contents: read
+
+jobs:
+  static-diagnostics:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Fetch private D06 site without persisting DOMEN
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: c09bcdf477f762e5a668cac0d7fee0402c3a783d
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - name: Set up Windows Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Prepare and assemble static site privately
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 16
+        run: |
+          foreach ($cmd in @("ci", "run setup:browser", "run build:static")) {
+            $safe = $cmd.Replace(" ", "_").Replace(":", "-")
+            $log = Join-Path $env:RUNNER_TEMP ("d06-" + $safe + ".private.txt")
+            & cmd.exe /d /c ("npm " + $cmd + " > """ + $log + """ 2>&1")
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host ("D06_PREPARE_" + $safe + "=FAIL")
+              exit 1
+            }
+            Write-Host ("D06_PREPARE_" + $safe + "=PASS")
+          }
+      - name: Classify only safe external-assets and SEO failures
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 6
+        run: |
+          $routeSource = Get-Content -LiteralPath "src/site-routes.ts" -Raw
+          $routes = @(
+            [regex]::Matches($routeSource, '(?m)^\s*"(/[^"]*)",') |
+              ForEach-Object { $_.Groups[1].Value }
+          )
+          $allPassed = $true
+          foreach ($test in @("external-assets", "seo")) {
+            $log = Join-Path $env:RUNNER_TEMP ("d06-" + $test + ".private.txt")
+            & npm run ("check:" + $test) *> $log
+            $status = if ($LASTEXITCODE -eq 0) { "PASS" } else { "FAIL" }
+            Write-Host ("D06_" + $test.ToUpperInvariant().Replace("-", "_") + "=" + $status)
+            if ($status -eq "PASS") { continue }
+            $allPassed = $false
+            $details = Get-Content -LiteralPath $log -Raw
+            if ($test -eq "external-assets") {
+              $forbidden = ([regex]::Matches($details, 'references forbidden host')).Count
+              $unexpected = ([regex]::Matches($details, 'unexpected external origin')).Count
+              Write-Host ("D06_EXTERNAL_FORBIDDEN_COUNT=" + $forbidden)
+              Write-Host ("D06_EXTERNAL_UNEXPECTED_COUNT=" + $unexpected)
+              foreach ($category in @(
+                @{ Name = "VIDEO_SOCIAL"; Pattern = '(?i)youtube|youtu\.be|vk\.com|vimeo' },
+                @{ Name = "SOURCES"; Pattern = '(?i)github\.com|gov|edu|org|docs|press' },
+                @{ Name = "GOOGLE"; Pattern = '(?i)google|gstatic' },
+                @{ Name = "PRODUCTS"; Pattern = '(?i)amazon|walmart|supplier|product' }
+              )) {
+                $count = ([regex]::Matches($details, $category.Pattern)).Count
+                Write-Host ("D06_EXTERNAL_CATEGORY_" + $category.Name + "=" + $count)
+              }
+            } else {
+              $rules = @(
+                @{ Name = "TITLE_LENGTH"; Pattern = '<title> \d+ > 60' },
+                @{ Name = "DESCRIPTION_LENGTH"; Pattern = 'meta description \d+ > 160' },
+                @{ Name = "TITLE_MISSING"; Pattern = 'missing <title>|expected 1 <title>' },
+                @{ Name = "DESC_MISSING"; Pattern = 'missing meta description' },
+                @{ Name = "H1"; Pattern = 'expected 1 <h1>' },
+                @{ Name = "CANONICAL"; Pattern = 'canonical .* !==|expected 1 canonical|missing trailing slash' },
+                @{ Name = "OG_URL"; Pattern = 'og:url .* !==' },
+                @{ Name = "NOINDEX"; Pattern = 'noindex route' },
+                @{ Name = "SITEMAP"; Pattern = 'sitemap\.xml:' },
+                @{ Name = "ROBOTS"; Pattern = 'robots\.txt:' }
+              )
+              foreach ($rule in $rules) {
+                $count = ([regex]::Matches($details, $rule.Pattern)).Count
+                Write-Host ("D06_SEO_" + $rule.Name + "=" + $count)
+              }
+              $seen = [System.Collections.Generic.HashSet[int]]::new()
+              foreach ($match in [regex]::Matches($details, '(?m)^\s+- (/[^:\r\n]*):')) {
+                $route = $match.Groups[1].Value
+                $idx = [array]::IndexOf($routes, $route)
+                if ($idx -ge 0) { [void]$seen.Add($idx) }
+              }
+              $indices = @($seen) | Sort-Object
+              Write-Host ("D06_SEO_PUBLIC_ROUTE_INDICES=" + ($indices -join ","))
+            }
+          }
+          if (-not $allPassed) { exit 1 }
+      - name: Assert diagnostics stayed on runner
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_PRIVATE_ARTIFACTS_UPLOADED=0"
+          Write-Host "D06_PRIVATE_LOGS_PRINTED=0"
