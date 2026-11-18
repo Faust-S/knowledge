@@ -783,6 +783,25 @@
         "signed_file_vs_kernel_event": "signed_file_mode_originalKernelEventVerified_false",
         "restrictions": "No private T3 Actions. Source double/witness tests alone do not prove actual original recipient enrollment, native two cold signed file opens or G4."
       }
+    },
+    "admin_center_03_generic_signed_task_2026_11_18": {
+      "repository": "Faust-S/Center",
+      "branch": "work/2026-11-18-admin03-atlas09-native",
+      "head_after_merge": "5ff8947d61e4783d15bc7d53ae1d8c684ae1a616",
+      "merged_pr": "https://github.com/Faust-S/Center/pull/3",
+      "source_qualified_sha": "565572a9b2a249296e5c27ba77fd60ac2be830aa",
+      "public_windows_run": "https://github.com/Faust-S/Center/actions/runs/44301852914",
+      "ci_conclusion": "SUCCESS",
+      "jobs": {
+        "native_windows_shell": "SUCCESS",
+        "linux_model": "SUCCESS",
+        "windows_model": "SUCCESS",
+        "macos_model": "SUCCESS",
+        "interface": "SUCCESS"
+      },
+      "supported_user_route": "Installed Center 0.3 via Setup Core, normal management Task draft without Atlas; optional linked Atlas native project revisions retain exact JIT readback; installed Atlas 0.9 same Windows host, owner .iwxa and changed revision refuse stale WorkRef; user-facing mandatory-Atlas release text removed.",
+      "excluded": "No original PRIVATE independently signed manager/employee D1/D3 issuer or Agent accepted Result/ACCEPT/KERNEL APPLY in this public CI. Does NOT close corporate G4 D1/D3 installed E2E. No private Actions.",
+      "level": "PRODUCT_CENTER_INSTALLED_OPTIONAL_ATLAS_GUI_PASS"
     }
   },
   "accepted_gates": {
@@ -815,11 +834,12 @@
     "T3_ATLAS_SIGNED_FILE_OPTIONAL": "SOURCE_SIGNED_RECIPIENT_AND_INSTALLED_ATLAS_PRODUCT_PASS_PRIVATE_SIGNED_E2E_NOT_ACCEPTED_OPTIONAL_PROFILE",
     "T3_UNIVERSAL_RELEASE": "NOT_ACCEPTED_D1_D3_D5_D6_GENERIC_D7_HOLD",
     "D3_original_kernel_full_event_parity": "SOURCE_OBJECT_AND_FULL_EVENT_CANONICAL_READBACK_PASS_44299826868__ORIGINAL_PRIVATE_NATIVE_D3_HOLD",
-    "D5_hardware_current": "NOT_ACCEPTED_MACOS_GPU_RUN_44298912120_JOB_CANCELLED_NO_STEPS"
+    "D5_hardware_current": "NOT_ACCEPTED_MACOS_GPU_RUN_44298912120_JOB_CANCELLED_NO_STEPS",
+    "ADMIN_CENTER_03_D3_GENERIC_UI": "INSTALLED_CENTER_PUBLIC_WINDOWS_SUCCESS_44301852914_AT_565572a9_MERGED_5ff8947d_NO_PRIVATE_SIGNED_D3"
   },
   "next_critical_path": [
     "Release scope is PRODUCT_NEUTRAL_T3. Keep normative original T2 Kernel/Host/Workspace/Exchange/Lifecycle integrated in ONE T3. Use current exact public One Core CI + installed Agent test; never interpret source PASS as installed owner.",
-    "Priority 1 D1/D3 WITHOUT ATLAS: installed independent Admin manager + credentialed Agent employee; original signed Task -> actual Result -> Human ACCEPT -> separate original Kernel APPLY -> 2 cold original readbacks. CEN02 unconditional Atlas WorkRef requirement was fixed in Center PR #2, merge 81eff021, installed CI #44297185822 SUCCESS; genuine private issuer/employee cross-product D3 remains HOLD.",
+    "Priority 1 D1/D3 WITHOUT ATLAS: Center PR #3 merged 5ff8947d, public installed Windows #44301852914 SUCCESS for standalone signed Task UI + optional Atlas 0.9. Still require actual PRIVATE corporate manager + independent employee signed enrollment, signed Task -> Agent native execution/accepted Result -> manager Human ACCEPT -> separately authorized original Kernel APPLY -> two cold readbacks. Do not mistake installed public Center for private signer readiness.",
     "Priority 2 D5 HARDWARE OFFLINE: public macos-15 runner #44298912120 CANCELLED without steps (not a model failure and not GPU PASS); qualify actual WebGPU first and second offline cold generation in ONE original installed T3 Host on a GPU-capable witness, preserve exact source and model receipt.",
     "Priority 3 D6 GENERIC: prove one real accepted Result from original Agent or domain and one authorized recipient OTHER THAN OR WITHOUT Atlas, actual native owner receipt and read-only recovery; signed offline .iwxa only when independent exchange required.",
     "Priority 4 D7: original Publisher PERSON issue/renew/status/revoke with installed consumer and cold readback, independent of Atlas.",
