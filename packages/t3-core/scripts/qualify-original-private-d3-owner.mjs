@@ -35,9 +35,9 @@ export function originalImportTarget(from,specifier){
   return path;
 }
 
-async function getExactFile(path,token){
-  const url=`https://api.github.com/repos/${REPO}/contents/`+
-    path.split('/').map(encodeURIComponent).join('/')+`?ref=${PIN}`;
+export async function getExactFile(path,token,{repository=REPO,sourcePin=PIN}={}){
+  const url=`https://api.github.com/repos/${repository}/contents/`+
+    path.split('/').map(encodeURIComponent).join('/')+`?ref=${encodeURIComponent(sourcePin)}`;
   let response;
   try{
     response=await fetch(url,{headers:{
