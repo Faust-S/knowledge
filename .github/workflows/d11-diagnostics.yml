@@ -52,6 +52,13 @@ jobs:
           $rules=$bad | ForEach-Object {$_.messages} | Where-Object {$_.severity -eq 2} |
             Group-Object ruleId | Sort-Object Count -Descending | Select-Object -First 12
           foreach ($r in $rules) { Write-Output "D11_LINT_RULE=$($r.Name):$($r.Count)" }
+          foreach ($item in $bad) {
+            foreach ($message in $item.messages) {
+              if ($message.severity -eq 2 -and $message.ruleId -ne "prettier/prettier") {
+                Write-Output "D11_LINT_SUBSTANTIVE=$([IO.Path]::GetFileName($item.filePath)):$($message.line):$($message.column) rule:$($message.ruleId)"
+              }
+            }
+          }
           foreach ($item in ($bad | Sort-Object errorCount -Descending | Select-Object -First 12)) {
             Write-Output "D11_LINT_FILE=$([IO.Path]::GetFileName($item.filePath)):$($item.errorCount)"
           }
