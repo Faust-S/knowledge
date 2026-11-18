@@ -23,6 +23,16 @@ async function fixture(){
     kernel.listen(0,"127.0.0.1",resolve);
   });
   const kernelOrigin="http://127.0.0.1:"+kernel.address().port;
+  // Tests must not assume that kernelPort+1 is free: other tests, runner
+  // services, or the OS can already own that port. Production still pins its
+  // UI origin; this fixture reserves an independently available test port.
+  const uiProbe=createServer();
+  await new Promise((resolve,reject)=>{
+    uiProbe.once("error",reject);
+    uiProbe.listen(0,"127.0.0.1",resolve);
+  });
+  const uiPort=uiProbe.address().port;
+  await close(uiProbe);
   const resources=new Map();
   const add=(route,file,text,type)=>{
     resources.set(route,{path:put(root,file,text),type});
@@ -58,6 +68,7 @@ async function fixture(){
   const start=()=>createT3IsolatedUiServer({
     kernelOrigin,serviceId:"iwxa.workspace.integration",
     assetForPath:path=>resources.get(path)??null,
+    uiPort,
   });
   return {root,kernel,kernelOrigin,start};
 }
