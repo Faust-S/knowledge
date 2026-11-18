@@ -1,0 +1,79 @@
+name: D07 original T2 Exchange and Lifecycle contracts
+on:
+  push:
+    branches: [work/2026-11-18-d07-case10-qualification]
+    paths: [.github/workflows/d07-original-t2-exchange-contracts.yml]
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+    steps:
+      - name: Verify private T2 read authority only
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'D07_T2_TOKEN_MISSING'}
+          $null=& gh api 'repos/Faust-S/T2' --jq '.id' 2>$null
+          if($LASTEXITCODE -ne 0){throw 'D07_T2_ACCESS_DENIED'}
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+          Write-Output 'D07_T2_READ_SCOPE=PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Exercise original Exchange and Lifecycle module contracts without a browser driver
+        working-directory: t2/t2/current/final-successor/canonical-source
+        run: |
+          if((git rev-parse HEAD).Trim() -ne $env:T2_SHA){throw 'D07_T2_UNPINNED_SOURCE'}
+          $log=Join-Path $env:RUNNER_TEMP 'd07-t2-exchange-install.private.log'
+          & npm ci --no-audit --no-fund *> $log
+          if($LASTEXITCODE -ne 0){throw 'D07_T2_EXCHANGE_INSTALL_FAILED'}
+          $tests=@(Get-ChildItem tests/exchange -File -Filter '*.test.ts' |
+            Sort-Object Name | ForEach-Object FullName)
+          $extra=@(
+            'tests/export-blob-url-lifecycle.test.ts',
+            'tests/export-confirm-after-download.test.ts',
+            'tests/export-package-artifact-validation.test.ts',
+            'tests/export-stale-preview-blocks-kernel.test.ts',
+            'tests/import-local-validation-authority.test.ts',
+            'tests/import-new-workspace-map.test.tsx',
+            'tests/import-refresh-command.test.tsx',
+            'tests/lifecycle-restore-receipt.test.ts'
+          )
+          if($tests.Count -lt 13){throw 'D07_T2_EXCHANGE_TEST_INVENTORY_INCOMPLETE'}
+          foreach($file in $extra){if(-not (Test-Path $file)){throw 'D07_T2_EXPECTED_CONTRACT_TEST_MISSING'}}
+          $list=@($tests)+$extra
+          $log=Join-Path $env:RUNNER_TEMP 'd07-t2-exchange-tests.private.log'
+          & node ./node_modules/vitest/vitest.mjs run @list *> $log
+          $exit=$LASTEXITCODE
+          $summary=Get-Content $log | Select-String 'Test Files|Tests  |Duration' |
+            Select-Object -Last 6
+          foreach($item in $summary){
+            if($item.Line -match '(\d+)\s+passed'){Write-Output "D07_T2_CONTRACT_PASS_COUNT=$($Matches[1])"}
+            if($item.Line -match '(\d+)\s+failed'){Write-Output "D07_T2_CONTRACT_FAIL_COUNT=$($Matches[1])"}
+          }
+          Write-Output "D07_T2_CONTRACT_TEST_FILES=$($list.Count)"
+          if($exit -ne 0){throw 'D07_T2_EXCHANGE_CONTRACTS_FAILED'}
+          Write-Output 'D07_ORIGINAL_T2_EXCHANGE_LIFECYCLE_CONTRACTS=PASS'
+          Write-Output 'D07_PHYSICAL_IWXA_BROWSER_ROUNDTRIP=NOT_RUN'
+          # No private source, raw logs, dist or archives uploaded.
