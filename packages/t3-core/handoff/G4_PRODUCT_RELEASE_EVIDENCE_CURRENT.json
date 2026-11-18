@@ -61,6 +61,14 @@
             "native_model": "SKIPPED",
             "metal_webgpu": "SKIPPED",
             "native_age": "SKIPPED"
+          },
+          "node_current_core_tests": {
+            "tests": 778,
+            "pass": 778,
+            "fail": 0,
+            "confirmed_in_job_log": true,
+            "subtest": "generic T3 D6 continues an accepted Result to a non-Atlas domain owner",
+            "test_id": 656
           }
         },
         "coverage": "generic native recipient domain:bazmed with no Atlas WorkRef/no signed file, original JIT T2 read, one owner commit and two contract-cold readbacks. PUBLIC FIXTURE, not installed BazMed recipient."
