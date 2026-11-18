@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 env:
-  SITE_SHA: 462f13756fbcf5e5ba713941bec9e1915c5c9f80
+  SITE_SHA: eb44afa46fa5a6374f1481adbbf7ac147ff8f0f5
   PUPPETEER_SKIP_DOWNLOAD: '1'
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
   CI: 'true'
@@ -43,6 +43,12 @@ jobs:
           & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'd08-p1-site-install.private.log')
           if($LASTEXITCODE -ne 0){throw 'D08_P1_SITE_INSTALL_FAILED'}
           Write-Host 'D08_P1_SITE_INSTALL=PASS'
+      - name: Check original T2 staging script syntax before compilation
+        working-directory: private/site
+        run: |
+          & node --check scripts/build-t2-site.mjs
+          if($LASTEXITCODE -ne 0){throw 'D08_P1_T2_BUILDER_SYNTAX_FAILED'}
+          Write-Host 'D08_P1_T2_BUILDER_SYNTAX=PASS'
       - name: Generate business route, check TypeScript and lint
         working-directory: private/site
         run: |
