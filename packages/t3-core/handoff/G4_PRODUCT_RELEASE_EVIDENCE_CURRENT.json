@@ -1409,6 +1409,56 @@
         "ephemeral_removed": true,
         "scope": "Original production issuer enrollment and cold open is real Windows native process source qualification using synthetic organization identifiers; original employee Task/Result still in independently verified TEST ceremony. No installed two Tauri GUI, native Kernel APPLY, dual cold original Kernel Objects/Events or end-to-end PRODUCTION independent employee."
       }
+    },
+    "original_production_employee_first_use_2026_11_18": {
+      "repository": "Faust-S/knowledge",
+      "source_sha": "c9d41b004abd7ddebd286a332725ab116622896c",
+      "ci": {
+        "run_id": 44396018427,
+        "conclusion": "SUCCESS",
+        "job": "signed-native-source-process",
+        "platform": "windows-2022",
+        "node_python_process": true,
+        "checks_passed": 7,
+        "checks_required": 7
+      },
+      "private_original_t3": {
+        "repository": "Faust-S/T3",
+        "branch": "work/2026-11-16-admin03-independent-employee-owner",
+        "pin": "c7dda44a09cd0bff338f8d0c72b5e1d78d54d1b0",
+        "private_files_staged": 51,
+        "signature_owner": "original Ed25519/Windows DPAPI",
+        "first_use_module": "interop/native-employee-d3.mjs"
+      },
+      "agent": {
+        "repository": "Faust-S/iwxa-personal-agent",
+        "branch": "work/2026-11-16-agent06-corporate-t3-d3-current",
+        "pin": "d4a1092cc89bde54e817f30bdd814e9d6325f13d",
+        "private_files_staged": 2,
+        "api": "existing Python OriginalEmployeePort -> Node worker -> original T3 first-use owner"
+      },
+      "passed": [
+        "original TEST signed Task -> Agent Node/Python IPC",
+        "original TEST signed Result export",
+        "original TEST Admin ACCEPT cold readback",
+        "original TEST Agent cold no re-export",
+        "original PRODUCTION Admin DPAPI enrol cold readback",
+        "independent PRODUCTION employee DPAPI Ed25519 cold signed proof",
+        "independent employee original first use and cold proof via real Agent Node/Python IPC"
+      ],
+      "not_proven": [
+        "independent employee signed authority committed to inherited original T2 Kernel",
+        "production employee issued signed Task -> accepted Result -> original Admin review",
+        "native Human ACCEPT distinct from Human APPLY and two cold original T2 Object/Event readbacks",
+        "two OS accounts/independent installed products and installed GUI",
+        "generic D6 and PERSON D7 installed release qualification"
+      ],
+      "level": "NATIVE_OWNER_PASS_NOT_INSTALLED_ORIGINAL_KERNEL_E2E",
+      "productionActivation": false,
+      "t3_ready": false,
+      "g4_accepted": false,
+      "original_kernel_apply": "NOT_RUN",
+      "privacy": "temporary private-source read-only material on public knowledge Windows runner; no private Actions; no private artifacts, source, keys or payload content emitted; ephemeral files removed"
     }
   },
   "accepted_gates": {
@@ -1502,8 +1552,8 @@
     "t3_ready": false,
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
-    "original_private_native_signer": "ORIGINAL_PRODUCTION_WINDOWS_DPAPI_SIGNED_ADMIN_OWNER_ENROLLED_COLD_PASS_44383462807__INDEPENDENT_EMPLOYEE_INSTALLED_AND_KERNEL_APPLY_NOT_RUN",
-    "independent_installed_d3": "HOLD_PRODUCTION_ADMIN_COLD_PASS_AND_SEPARATE_TEST_AGENT_FOUR_PASS_44383462807__CROSS_PRODUCTION_EMPLOYEE_KERNEL_AND_GUI_NOT_RUN",
+    "original_private_native_signer": "ORIGINAL_WINDOWS_PRODUCTION_ADMIN_DPAPI_AND_INDEPENDENT_EMPLOYEE_FIRST_USE_AGENT_IPC_7_OF_7_PASS_44396018427__KERNEL_MEMBERSHIP_INSTALLED_HOLD",
+    "independent_installed_d3": "HOLD_ORIGINAL_PRODUCTION_OWNER_AND_INDEPENDENT_EMPLOYEE_FIRST_USE_IPC_PASS_44396018427__ORIGINAL_T2_KERNEL_GRANT_TASK_APPLY_AND_GUI_NOT_RUN",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
