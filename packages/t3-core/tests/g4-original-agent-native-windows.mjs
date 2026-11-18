@@ -53,8 +53,13 @@ try{
   phase='AGENT_INDEPENDENT_PYTHON_NODE_IPC';
   const env={
     PATH:process.env.PATH??'',SystemRoot:process.env.SystemRoot??'',
-    WINDIR:process.env.WINDIR??'',TEMP:process.env.TEMP??'',
-    TMP:process.env.TMP??'',HOME:process.env.HOME??'',
+    WINDIR:process.env.WINDIR??'',USERPROFILE:process.env.USERPROFILE??'',
+    APPDATA:process.env.APPDATA??'',LOCALAPPDATA:process.env.LOCALAPPDATA??'',
+    HOMEDRIVE:process.env.HOMEDRIVE??'',HOMEPATH:process.env.HOMEPATH??'',
+    PSModulePath:process.env.PSModulePath??'',ComSpec:process.env.ComSpec??'',
+    ProgramData:process.env.ProgramData??'',PATHEXT:process.env.PATHEXT??'',
+    TEMP:process.env.TEMP??'',TMP:process.env.TMP??'',
+    HOME:process.env.HOME??'',
     PYTHONPATH:agentRoot,
     PYTHONDONTWRITEBYTECODE:'1',PYTHONNOUSERSITE:'1',
     IWXA_T3_ORIGINAL_OWNER_DIR:t3Root,

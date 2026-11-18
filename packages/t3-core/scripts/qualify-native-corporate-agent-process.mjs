@@ -76,9 +76,13 @@ export async function qualifyNativeOriginalEmployee({
     // root. Neither PAT nor an original private source is printed.
     const env={
       PATH:process.env.PATH??'',SystemRoot:process.env.SystemRoot??'',
-      WINDIR:process.env.WINDIR??'',TEMP:process.env.TEMP??tmpdir(),
-      TMP:process.env.TMP??tmpdir(),HOME:process.env.HOME??'',
-      PYTHON_COMMAND:python,CI:'true',
+      WINDIR:process.env.WINDIR??'',USERPROFILE:process.env.USERPROFILE??'',
+      APPDATA:process.env.APPDATA??'',LOCALAPPDATA:process.env.LOCALAPPDATA??'',
+      HOMEDRIVE:process.env.HOMEDRIVE??'',HOMEPATH:process.env.HOMEPATH??'',
+      PSModulePath:process.env.PSModulePath??'',ComSpec:process.env.ComSpec??'',
+      ProgramData:process.env.ProgramData??'',PATHEXT:process.env.PATHEXT??'',
+      TEMP:process.env.TEMP??tmpdir(),TMP:process.env.TMP??tmpdir(),
+      HOME:process.env.HOME??'',PYTHON_COMMAND:python,CI:'true',
     };
     const driver=join(process.cwd(),'packages','t3-core','tests',
       'g4-original-agent-native-windows.mjs');
