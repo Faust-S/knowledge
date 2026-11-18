@@ -1,21 +1,47 @@
 // Public-only original T2 + public One Core distribution probe.
 // Does not load original private T3 or Center source. Probe the EXACT
 // installed Admin D3 profile, not a test-only fake original Kernel.
-import {existsSync,rmSync} from 'node:fs';
+import {existsSync,rmSync,mkdtempSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {randomUUID} from 'node:crypto';
 import {assembleSignedControlDist}
   from '../scripts/assemble-signed-control-dist.mjs';
+import {materializeOriginalAdminT2Product}
+  from '../scripts/materialize-original-admin-t2-product.mjs';
 
 const qualified=process.env.G4_INSTALLED_QUALIFIED_T2_DIST;
 const compiled=join(process.cwd(),'packages','t3-core','dist');
-const output=join(tmpdir(),'g4-installed-admin-dist-preflight-'+randomUUID());
+const testDir=mkdtempSync(join(tmpdir(),'g4-installed-admin-dist-preflight-'));
+const output=join(testDir,'one-dist');
 try{
   if(!qualified||!existsSync(qualified)||!existsSync(compiled))
     throw Error('G4_INSTALLED_ONE_DIST_INPUT_NOT_PRESENT');
+  // A public-only preflight cannot inspect the PRIVATE Center product
+  // profile; this deliberately test-only mirror exercises original
+  // qualified-byte staging. The installed private builder must separately
+  // verify its actual Center-owned profile before any native build.
+  const profilePath=join(testDir,'public-profile-fixture.json');
+  writeFileSync(profilePath,JSON.stringify({
+    schema:'IWXA_ADMIN_ORIGINAL_T2_PRODUCT_PROFILE/1',
+    productId:'iwxa.admin-center',serviceId:'iwxa.admin-center.workspace',
+    configVersion:'0.3.0-dev.1',origin:'http://127.0.0.1:38471',
+    workspaceProfile:'generic',localStoreName:'iwxa-local',
+    kernelVersion:'0.3.6',runtimeContract:'1.3.0',
+    qualifiedArtifactId:
+      'iwxa-kernel-k036-same-store-history-20261019-qualified.1',
+    authorizedNativeOwner:'ORIGINAL_T3_SIGNED_ADMIN',
+    installedAdminT3Mode:'EXPLICIT_OPT_IN',
+  }),{flag:'wx'});
+  const source=join(testDir,'original-admin-t2');
+  const stage=await materializeOriginalAdminT2Product({
+    qualifiedKernelDist:qualified,centerProfile:profilePath,outputRoot:source,
+  });
+  if(stage.originalKernelBytesUnchanged!==true||
+     stage.serviceId!=='iwxa.admin-center.workspace')
+    throw Error('G4_INSTALLED_PUBLIC_PRODUCT_STAGE_NOT_VERIFIED');
+  console.log('G4_INSTALLED_PUBLIC_ADMIN_PRODUCT_T2_STAGE_PASS_TEST_PROFILE_ONLY');
   const result=assembleSignedControlDist({
-    t2Dist:qualified,t3Build:compiled,outputDir:output,
+    t2Dist:source,t3Build:compiled,outputDir:output,
     installedOriginalAdminD3:true,
   });
   if(result.schema!=='iwxa.t3.signed-control-one-dist/1'||
@@ -46,5 +72,5 @@ try{
     console.error('G4_INSTALLED_PUBLIC_ASSEMBLER_FS_CODE',kind);
   process.exitCode=1;
 }finally{
-  rmSync(output,{recursive:true,force:true,maxRetries:3});
+  rmSync(testDir,{recursive:true,force:true,maxRetries:3});
 }
