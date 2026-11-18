@@ -1,0 +1,95 @@
+name: IWXA PT 66 browser UX - private build, no artifacts
+on:
+  push:
+    branches: [work/2026-11-18-pt-66-qualification]
+    paths:
+      - .github/workflows/iwxa-pt-66-browser.yml
+      - tools/pt-66-browser-qa.mjs
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-pt-66-browser-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser:
+    name: PT 66 real-browser routes and F02
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Verify access to the permitted private site
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo "PT_DOMEN_SECRET_MISSING"; exit 1; }
+          gh api repos/Faust-S/iwxa-ru-1 >/dev/null 2>&1 ||
+            { echo "PT_PRIVATE_REPO_NOT_AUTHORIZED"; exit 1; }
+          echo "PT_PRIVATE_REPO_ACCESS=PASS"
+      - uses: actions/checkout@v4
+        with:
+          path: qa-scripts
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: de592dbf7e98a8d950198448adc93de1626bb7c9
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: pt-site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - name: Frozen install and actual SSR build
+        shell: bash
+        working-directory: pt-site
+        run: |
+          test "$(git rev-parse HEAD)" = de592dbf7e98a8d950198448adc93de1626bb7c9 ||
+            { echo "PT_SOURCE_SHA_CHANGED"; exit 1; }
+          if bun install --frozen-lockfile > "$RUNNER_TEMP/pt-browser-install.log" 2>&1; then
+            echo "PT_BROWSER_BUN_INSTALL=PASS"
+          else
+            echo "PT_BROWSER_BUN_INSTALL=FAIL"; exit 1
+          fi
+          export LOVABLE_BUILD_TARGET=static NITRO_PRESET=node-server SERVER_PRESET=node-server
+          if bun run build > "$RUNNER_TEMP/pt-browser-build.log" 2>&1; then
+            echo "PT_BROWSER_SSR_BUILD=PASS"
+          else
+            echo "PT_BROWSER_SSR_BUILD=FAIL"
+            tail -n 40 "$RUNNER_TEMP/pt-browser-build.log" | sed -E 's#(/home/runner/)[^ ]+#<runner-path>#g'
+            exit 1
+          fi
+          test -f .output/server/index.mjs ||
+            { echo "PT_BROWSER_SSR_ENTRY_NOT_FOUND"; exit 1; }
+      - name: Browser all 66 routes mobile and desktop, orbit F02 and F01
+        shell: bash
+        run: |
+          test -f qa-scripts/tools/pt-66-browser-qa.mjs
+          if command -v google-chrome >/dev/null 2>&1; then
+            export PUPPETEER_EXECUTABLE_PATH="$(command -v google-chrome)"
+          elif command -v chromium >/dev/null 2>&1; then
+            export PUPPETEER_EXECUTABLE_PATH="$(command -v chromium)"
+          fi
+          PORT=4387 HOST=127.0.0.1 NODE_ENV=production node pt-site/.output/server/index.mjs > "$RUNNER_TEMP/pt-browser-server.log" 2>&1 &
+          server="$!"
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://127.0.0.1:4387/; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then echo "PT_BROWSER_SERVER_NOT_READY"; exit 1; fi
+          echo "PT_BROWSER_SERVER=PASS"
+          if PT_SITE_DIR="$GITHUB_WORKSPACE/pt-site" PT_BASE=http://127.0.0.1:4387/ \
+            node qa-scripts/tools/pt-66-browser-qa.mjs > "$RUNNER_TEMP/pt-browser-results.log" 2>&1; then
+            grep '^PT_BQA_' "$RUNNER_TEMP/pt-browser-results.log" || true
+            echo "PT_BROWSER_66_F02=PASS"
+          else
+            grep '^PT_BQA_' "$RUNNER_TEMP/pt-browser-results.log" | head -n 100 || true
+            tail -n 12 "$RUNNER_TEMP/pt-browser-results.log" | sed -E 's#(/home/runner/)[^ ]+#<runner-path>#g'
+            echo "PT_BROWSER_66_F02=FAIL"
+            exit 1
+          fi
