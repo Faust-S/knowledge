@@ -46,7 +46,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: 619bf605edaf75eb56d169c2a1c3e2bbc7c60185
+          ref: 1f919d3a6c9a3a3887f077ebe7e85d520236b188
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -191,7 +191,7 @@ jobs:
             Write-Host ("D06_TRANSFER_FAILURE_CLASSES=" + ($identified -join ","))
             $stages = [regex]::Matches(
               $content,
-              "D06_NATIVE_STAGE=(EXCHANGE_RESTART_PASS|DOMAIN_MOUNTED|WIZARD_OPENED|WORKSPACE_SELECTED|SOLUTION_CREATED|PD01_FORM_SAVED|PD01_KERNEL_READBACK|PD04_CATALOG_OPEN|PD04_NAVIGATED|PD04_FORM_VISIBLE|PD04_PRESET_LOADED|PD04_SAVE_CLICKED|PD04_FORM_SAVED|PD04_KERNEL_READBACK|WESTIN_PROFILE_CONFIRMED|PD06_CATALOG_OPEN|PD06_FORM_VISIBLE|PD06_REQUIREMENTS_LOADED|PD06_FORM_SAVED|PD06_KERNEL_READBACK|PD13_FORM_VISIBLE|PD13_WORKFLOW_SELECTED|PD13_SOURCE_IMPORTED|PD13_FORM_SAVED|PD13_KERNEL_READBACK|PD16_FORM_VISIBLE|PD16_CRITERIA_IMPORTED|PD16_SAVE_READY|PD16_SAVE_CLICKED|PD16_FORM_SAVED|PD16_KERNEL_READBACK|PD17_FORM_VISIBLE|PD17_REFUSAL_DOCUMENTED|PD17_REFUSAL_SAVED|PD17_REFUSAL_KERNEL_READBACK|PD18_FORM_VISIBLE|PD18_REFUSAL_BLOCKED|SECOND_RESTART_READBACK)"
+              "D06_NATIVE_STAGE=(EXCHANGE_RESTART_PASS|DOMAIN_MOUNTED|WIZARD_OPENED|WORKSPACE_SELECTED|SOLUTION_CREATED|PD01_FORM_SAVED|PD01_KERNEL_READBACK|PD04_CATALOG_OPEN|PD04_NAVIGATED|PD04_FORM_VISIBLE|PD04_PRESET_LOADED|PD04_SAVE_CLICKED|PD04_FORM_SAVED|PD04_KERNEL_READBACK|WESTIN_PROFILE_CONFIRMED|PD06_CATALOG_OPEN|PD06_FORM_VISIBLE|PD06_REQUIREMENTS_LOADED|PD06_FORM_SAVED|PD06_KERNEL_READBACK|PD13_FORM_VISIBLE|PD13_WORKFLOW_SELECTED|PD13_SOURCE_IMPORTED|PD13_FORM_SAVED|PD13_KERNEL_READBACK|PD16_FORM_VISIBLE|PD16_CRITERIA_IMPORTED|PD16_SAVE_READY|PD16_SAVE_CLICKED|PD16_FORM_SAVED|PD16_KERNEL_READBACK|PD17_FORM_VISIBLE|PD17_REFUSAL_DOCUMENTED|PD17_REFUSAL_SAVED|PD17_REFUSAL_KERNEL_READBACK|PD18_FORM_VISIBLE|PD18_REFUSAL_BLOCKED|SECOND_RESTART_BEGIN|SECOND_RESTART_DOMAIN_CLOSED|SECOND_RESTART_BROWSER_CLOSED|SECOND_RESTART_BROWSER_OPENED|SECOND_RESTART_READER_READY|SECOND_RESTART_SNAPSHOT_FETCHED|SECOND_RESTART_READBACK)"
             )
             $lastStage = if ($stages.Count -gt 0) {
               $stages[$stages.Count - 1].Groups[1].Value
@@ -211,6 +211,28 @@ jobs:
             )
             if ($pd16Class.Success) {
               Write-Host ("D06_NATIVE_PD16_UI_ERROR_CLASSES=" + $pd16Class.Groups[1].Value)
+            }
+            # Cold-readback diagnostics expose only record counts and
+            # allowlisted mismatch classes. Never log object content or IDs.
+            foreach ($metric in @(
+              "EXPECTED_OBJECT_COUNT", "ACTUAL_OBJECT_COUNT",
+              "EXPECTED_EVENT_COUNT", "ACTUAL_EVENT_COUNT"
+            )) {
+              $value = [regex]::Match(
+                $content, "D06_RESTART_" + $metric + "=([0-9]{1,6})"
+              )
+              if ($value.Success) {
+                Write-Host ("D06_RESTART_" + $metric + "=" + $value.Groups[1].Value)
+              }
+            }
+            foreach ($metric in @("FIRST_OBJECT_DIFF_CLASS", "FIRST_EVENT_DIFF_CLASS")) {
+              $value = [regex]::Match(
+                $content, "D06_RESTART_" + $metric +
+                "=(NONE|MISSING|IDENTITY|RELATIONS|OBJECT_RECORD|EVENT_RECORD)"
+              )
+              if ($value.Success) {
+                Write-Host ("D06_RESTART_" + $metric + "=" + $value.Groups[1].Value)
+              }
             }
             exit 1
           }
