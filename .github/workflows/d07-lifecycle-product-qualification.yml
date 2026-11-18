@@ -88,12 +88,34 @@ jobs:
               if($LASTEXITCODE -ne 0){
                 Write-Output ("D07_LIFECYCLE_"+$name+"=FAIL")
                 if($name -eq 'SITE_TESTS'){
-                  foreach($line in @(Get-Content $privateLog | Where-Object {$_ -match '^not ok [0-9]+ - '})){
-                    if($line -match '^not ok ([0-9]+) - (.{1,140})'){
-                      $testName=$Matches[2] -replace '[^\\p{L}\\p{N} _.,:-]',''
-                      Write-Output ("D07_LIFECYCLE_SITE_FAIL_TEST="+$Matches[1]+":"+$testName)
+                  $siteTestLog=Get-Content $privateLog -Raw
+                  foreach($signature in @(
+                    @('ASSERT','AssertionError|ERR_ASSERTION'),
+                    @('MODULE','ERR_MODULE_NOT_FOUND|Cannot find module|Failed to resolve'),
+                    @('TYPEERROR','TypeError:'),
+                    @('SYNTAX','SyntaxError:'),
+                    @('ERROR','Error:'),
+                    @('TAP','not ok ')
+                  )){
+                    if($siteTestLog -match $signature[1]){
+                      Write-Output ("D07_LIFECYCLE_SITE_FAILURE_CLASS="+$signature[0])
                     }
                   }
+                  $script=(Get-Content (Join-Path $env:GITHUB_WORKSPACE 'site/package.json') -Raw | ConvertFrom-Json).scripts.'test:product-first'
+                  $paths=@([regex]::Matches($script,'scripts/tests/[a-zA-Z0-9-]+[.]test[.]mjs')|ForEach-Object {$_.Value}|Select-Object -Unique)
+                  $failedFiles=0
+                  foreach($testFile in $paths){
+                    Push-Location (Join-Path $env:GITHUB_WORKSPACE 'site')
+                    try {
+                      $isolationLog=Join-Path $env:RUNNER_TEMP 'd07-lifecycle-isolated.private.log'
+                      & node --import tsx --test $testFile *> $isolationLog
+                      if($LASTEXITCODE -ne 0){
+                        Write-Output ("D07_LIFECYCLE_SITE_FAILED_FILE="+([System.IO.Path]::GetFileName($testFile)))
+                        $failedFiles++
+                      }
+                    } finally {Pop-Location}
+                  }
+                  Write-Output ("D07_LIFECYCLE_SITE_FAILED_FILE_COUNT="+$failedFiles)
                 }
                 if($name -eq 'TYPES'){
                   $found=@(Get-Content $privateLog | Where-Object {$_ -match 'error TS[0-9]{4}'} | ForEach-Object {
