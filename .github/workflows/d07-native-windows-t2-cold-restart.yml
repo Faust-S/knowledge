@@ -624,7 +624,18 @@ jobs:
                 if(!$objectRestored){throw 'D07_NATIVE_RESTART_KERNEL_OBJECT_CHANGED'}
                 if(!$revisionRestored){throw 'D07_NATIVE_RESTART_KERNEL_REVISION_CHANGED'}
                 Write-Output 'D07_NATIVE_RESTART_KERNEL_OBJECT_REVISION=PASS'
-                if(!$eventRestored){throw 'D07_NATIVE_RESTART_KERNEL_EVENT_HISTORY_UNAVAILABLE'}
+                if(!$eventRestored){
+                  $afterRestart=AccessibleText
+                  $errorText=$afterRestart -match 'История Kernel недоступна'
+                  $emptyText=$afterRestart -match 'История событий ещё не загружена'
+                  $anyHistoryRow=$afterRestart -match 'Редакция\s+1.*?событие'
+                  $anyEventWord=$afterRestart -match '(?i)событие'
+                  Write-Output ('D07_NATIVE_RESTART_HISTORY_ERROR='+$errorText)
+                  Write-Output ('D07_NATIVE_RESTART_HISTORY_EMPTY='+$emptyText)
+                  Write-Output ('D07_NATIVE_RESTART_HISTORY_ROW='+$anyHistoryRow)
+                  Write-Output ('D07_NATIVE_RESTART_EVENT_LABEL_PRESENT='+$anyEventWord)
+                  throw 'D07_NATIVE_RESTART_KERNEL_EVENT_HISTORY_UNAVAILABLE'
+                }
                 Write-Output 'D07_NATIVE_RESTART_KERNEL_EVENT_HISTORY=PASS'
                 Write-Output 'D07_NATIVE_CASE001_COLD_RESTART=PASS'
                 Write-Output 'D07_PHYSICAL_IWXA_INDEPENDENT_IMPORT=NOT_RUN'
