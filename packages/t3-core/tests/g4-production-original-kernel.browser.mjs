@@ -168,6 +168,8 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
       confirmHumanReview:confirmNativeReview,confirmSeparateApply:async()=>false,
       isHostActive:()=>true,currentHostEpoch:()=>1,
     };
+    // An unarmed review MUST NOT be approved, even in this opt-in source CI.
+    assert.equal(await confirmNativeReview({decision:'ACCEPT'}),false);
     owner=openInstalledOriginalAdminD3HostPort(args);
     const snap=owner.nativeState().view.snapshot;
     assert.equal(snap.d3EmployeeRegistryBootstrapAvailable,true);
