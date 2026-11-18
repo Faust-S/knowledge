@@ -39,6 +39,7 @@ jobs:
           node --check packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs
           node --check packages/t3-core/tests/g4-original-agent-native-windows.mjs
           python -m py_compile packages/t3-core/tests/g4-original-agent-native-driver.py
+          python -m py_compile packages/t3-core/tests/g4-original-employee-bootstrap-driver.py
       - name: Separate original owner / Agent Node-Python Windows process
         env:
           T3_READ_TOKEN: ${{ secrets.T3 || secrets.DOMEN }}
