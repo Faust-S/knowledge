@@ -78,6 +78,46 @@ test("D5 explicit save is an original T2 object/event with readback, without pro
   }),[{workspace_id:WSA,object_id:receipt.object_id,revision:1,
     status:"DRAFT_UNTRUSTED",model_id:INPUT.model_id,text:INPUT.output}]);
 });
+test("D5 original Kernel canonical JSON readback preserves successful save without replay",async()=>{
+  const f=fixture();
+  const nativeGet=f.context.kernel.getObject;
+  f.context.kernel.getObject=async(...args)=>{
+    const read=await nativeGet(...args);
+    const source=read.object.data;
+    // T2 is allowed to canonicalize property key order when persisting
+    // one unchanged object, and the signed caller must not report UNKNOWN.
+    const sorted=Object.fromEntries(Object.entries(source).sort(([a],[b])=>
+      a.localeCompare(b)));
+    return {...read,object:{...read.object,data:sorted}};
+  };
+  const saved=await saveLocalInferenceDraft(f.context,INPUT);
+  assert.equal(saved.readback,true);
+  assert.equal(f.calls.filter(x=>x[0]==="putObject").length,1);
+  assert.equal((await getLocalInferenceDraft(f.context,{
+    expected_workspace_id:WSA,object_id:saved.object_id,
+  })).text,INPUT.output);
+  assert.equal(f.calls.filter(x=>x[0]==="putObject").length,1,
+    "canonical readback and cold reopen never issue a second write");
+});
+
+test("D5 unexpected extra persisted field is not a valid original Kernel receipt",async()=>{
+  const f=fixture();
+  const nativeGet=f.context.kernel.getObject;
+  f.context.kernel.getObject=async(...args)=>{
+    const read=await nativeGet(...args);
+    return {...read,object:{...read.object,data:{
+      ...read.object.data,unapproved_extra_field:"forged",
+    }}};
+  };
+  await assert.rejects(saveLocalInferenceDraft(f.context,INPUT),error=>{
+    assert.equal(error.code,"T3_D5_WRITE_MAY_HAVE_COMMITTED");
+    assert.equal(error.cause_code,"T3_D5_DRAFT_READBACK_MISMATCH");
+    assert.ok(f.store.has(error.object_id));
+    return true;
+  });
+  assert.equal(f.calls.filter(x=>x[0]==="putObject").length,1);
+});
+
 test("D5 refuses missing, foreign or altered selection before any original Kernel write",async()=>{
   const f=fixture();
   await assert.rejects(saveLocalInferenceDraft(f.context,{
