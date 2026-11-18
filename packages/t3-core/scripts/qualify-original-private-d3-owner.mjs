@@ -3,7 +3,7 @@
 // This file contains no private source. The token is used solely for authenticated GET.
 import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join,posix,dirname} from 'node:path';
+import {join,posix,dirname,isAbsolute,sep} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 
@@ -122,8 +122,23 @@ export async function runOriginalPrivateOwnerSourceCheck({token,fetchFile=getExa
       ['ERR_','NODE_RUNTIME_ERROR'],
     ].find(([needle])=>rawFailure.includes(needle))?.[1]??
       'UNCLASSIFIED_NATIVE_TEST_FAILURE';
-    if(child.status!==0||child.error||!targeted)
+    if(child.status!==0||child.error||!targeted){
       console.log('T3_PRIVATE_D3_SOURCE_FAILURE_CLASS',knownFailure);
+      if(knownFailure==='MISSING_RUNTIME_FILE'){
+        const hit=rawFailure.match(/ENOENT: no such file or directory, (?:open|stat|scandir) ['"]([^'"]+)['"]/);
+        const missing=hit?.[1];
+        const local=missing&&isAbsolute(missing)&&missing.startsWith(root+sep);
+        const relative=local?missing.slice(root.length+1).split(sep).join('/'):null;
+        const hash=value=>{
+          let h=2166136261;
+          for(let i=0;i<value.length;i++)h=Math.imul(h^value.charCodeAt(i),16777619);
+          return (h>>>0).toString(16).padStart(8,'0');
+        };
+        console.log('T3_PRIVATE_D3_MISSING_RUNTIME_LOCATION',
+          relative?'SOURCE_RELATIVE':missing?'OUTSIDE_BOUNDED_SOURCE':'NO_PATH');
+        if(relative)console.log('T3_PRIVATE_D3_MISSING_RUNTIME_FINGERPRINT',hash(relative));
+      }
+    }
     console.log('T3_PRIVATE_D3_SOURCE_MODULES_READ',count);
     console.log('T3_PRIVATE_D3_ORIGINAL_SUITE',
       `tests=${tests??'unknown'} pass=${passed??'unknown'} fail=${failed??'unknown'}`);
