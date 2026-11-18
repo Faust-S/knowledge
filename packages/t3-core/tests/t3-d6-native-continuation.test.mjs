@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {createTrustedNativeContinuation} from "../src/t3/native-result-continuation.mjs";
 
 // Public contract fixture only: no real native Atlas/Agent/issuer is present.
-function fixture(beforeHuman=async()=>{}){
+function fixture(beforeHuman=async()=>{},{recipientId="native:atlas",resultRef="atlas:work:001"}={}){
   let revision=2,approved=true,revoked=false,selected=true,dropAck=false,receives=0;
   let deletedAt=null;
   let receiptHook=null,readbackHook=null,receiveHook=null;
@@ -36,14 +36,14 @@ function fixture(beforeHuman=async()=>{}){
     }};
   const commits=new Map();
   const nativeOwner={
-    recipientId:"native:atlas",
+    recipientId,
     inspect:({reference})=>({status:"READY",operationId:"op:stable:001",
-      recipientId:"native:atlas",reference}),
+      recipientId,reference}),
     receive:async({operationId,reference})=>{
       receives++;
       if(receiveHook!==null)await receiveHook();
       commits.set(operationId,{state:"COMMITTED",operationId,
-        recipientId:"native:atlas",reference,resultRef:"atlas:work:001"});
+        recipientId,reference,resultRef});
       if(dropAck)throw new Error("native reply lost");
     },
     receipt:async operationId=>{
@@ -93,6 +93,29 @@ test("D6 selected signed Result continues to an installed owner with independent
   await assert.rejects(f.port.continueSelected(f.ref),{code:"T3_ACCESS_NOT_PERMITTED"});
   assert.equal(f.receives(),1);
 });
+test("generic T3 D6 continues an accepted Result to a non-Atlas domain owner",async()=>{
+  // No Atlas project, WorkRef, native U05 or .iwxa file import exists in this
+  // fixture. The SAME original signed Kernel/recipient contract applies to
+  // any independent installed domain owner, not just iwxa.atlas.
+  const f=fixture(async()=>{},{recipientId:"domain:bazmed",
+    resultRef:"domain:patient-result:001"});
+  assert.equal((await f.port.preview(f.ref)).status,"AVAILABLE");
+  const first=await f.port.continueSelected(f.ref);
+  assert.equal(first.status,"OWNER_READBACK_CONFIRMED");
+  assert.equal(first.recipientId,"domain:bazmed");
+  assert.equal(first.resultRef,"domain:patient-result:001");
+  assert.equal(f.receives(),1);
+  // Two independent Host instances can only recover the original native
+  // receipt. Neither cold reopen signs a new Task nor sends a second write.
+  const coldA=f.makePort(),coldB=f.makePort();
+  assert.equal((await coldA.recover(f.ref)).resultRef,"domain:patient-result:001");
+  assert.equal((await coldB.recover(f.ref)).status,"OWNER_READBACK_CONFIRMED");
+  assert.equal(f.receives(),1);
+  f.setRevoked(true);
+  await assert.rejects(coldA.recover(f.ref),{code:"T3_ACCESS_NOT_PERMITTED"});
+  assert.equal(f.receives(),1);
+});
+
 test("D6 denial and lost native ACK never automatically dispatch twice",async()=>{
   const f=fixture();
   f.setApproved(false);
