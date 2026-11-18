@@ -1,0 +1,34 @@
+name: D11 dashboard scoped UI and project services
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d11-dashboard-fast.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout private site read-only for ephemeral checks
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/advice-logistics.ru
+          ref: work/2026-11-12-case001-logistics-engineering
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install for syntax verification
+        run: npm ci --no-audit --no-fund > /dev/null
+      - name: Check real canonical service calculations and scoped dashboard projection
+        run: node --experimental-strip-types --test tests/d11-operational-services.test.mjs tests/d11-dashboard-projection.test.mjs
+      - name: Parse actual desktop and mobile React entry components
+        run: |
+          node_modules/.bin/esbuild runtime/d11-module/D11WorkspaceOverview.tsx --format=esm --outfile=/tmp/d11-dashboard-ui-check.mjs
+          node_modules/.bin/esbuild src/routes/index.tsx --format=esm --outfile=/tmp/d11-home-ui-check.mjs
+          node_modules/.bin/esbuild src/components/tools/D11WorkspaceEntry.tsx --format=esm --outfile=/tmp/d11-workspace-link-check.mjs
+          echo D11_DASHBOARD_SOURCE_CHECK=PASS
+      # No artifact export: source and private build stay on the ephemeral runner.
