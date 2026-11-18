@@ -400,6 +400,40 @@ jobs:
                   }
                   if($sawReceipt -and $sawObject){break}
                 }
+                # Native UIA exposes React text interpolations as adjacent text nodes.
+                # Reassemble only short adjacent accessible fragments; do not log private IDs.
+                if(-not $sawReceipt -or -not $sawObject){
+                  foreach($process in @(Get-Process msedge -ErrorAction SilentlyContinue | Where-Object {$_.MainWindowHandle -ne 0})){
+                    $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$process.MainWindowHandle)
+                    if(!$window){continue}
+                    $elements=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                      [System.Windows.Automation.PropertyCondition]::new(
+                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                        [System.Windows.Automation.ControlType]::Text))
+                    $names=[System.Collections.Generic.List[string]]::new()
+                    for($n=0;$n -lt $elements.Count;$n++){
+                      $value=$elements.Item($n).Current.Name
+                      if(-not [string]::IsNullOrWhiteSpace($value)){$names.Add($value)}
+                    }
+                    for($n=0;$n -lt $names.Count;$n++){
+                      if(-not $sawReceipt -and $names[$n] -match '^Заказ сохранён и повторно прочитан'){
+                        $length=[Math]::Min(9,$names.Count-$n)
+                        $part=[string]::Join(' ',$names.GetRange($n,$length))
+                        if($part -match 'Заказ сохранён и повторно прочитан.*?Редакция\s+1\s*\..*?Событие\s*:\s*(\S+)'){
+                          $eventToken=$Matches[1].TrimEnd('.')
+                          if(-not [string]::IsNullOrWhiteSpace($eventToken)){$sawReceipt=$true}
+                        }
+                      }
+                      if(-not $sawObject -and $names[$n] -match '(?i)Object\s*ID\s*:'){
+                        $length=[Math]::Min(5,$names.Count-$n)
+                        $part=[string]::Join(' ',$names.GetRange($n,$length))
+                        if($part -match 'd07:order:[a-f0-9]{64}'){$sawObject=$true}
+                      }
+                    }
+                  }
+                  Write-Output ('D07_NATIVE_UI_JOINED_RECEIPT_MATCH='+$sawReceipt)
+                  Write-Output ('D07_NATIVE_UI_JOINED_OBJECT_MATCH='+$sawObject)
+                }
                 if(-not $sawReceipt -or -not $sawObject){
                   # Whitelisted UI state only. Never print private order content.
                   $signals=[System.Collections.Generic.HashSet[string]]::new()
