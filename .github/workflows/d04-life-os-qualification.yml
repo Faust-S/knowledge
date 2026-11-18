@@ -10,7 +10,7 @@ permissions:
   contents: read
 concurrency:
   group: d04-life-os-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   qualify:
     runs-on: ubuntu-latest
@@ -105,7 +105,7 @@ jobs:
           grep -E '^# (tests|pass|fail|skipped|cancelled) ' "$RUNNER_TEMP/d04-research.log" | tail -7 || true
           if [ "$code" -ne 0 ]; then
             echo "D04_RESEARCH_TESTS=FAIL"
-            python3 tools/ci/d04_safe_diagnostics.py research "$RUNNER_TEMP/d04-research.log" || true
+            python3 "$GITHUB_WORKSPACE/tools/ci/d04_safe_diagnostics.py" research "$RUNNER_TEMP/d04-research.log" || true
             exit "$code"
           fi
           echo "D04_RESEARCH_TESTS=PASS"
@@ -144,7 +144,7 @@ jobs:
             echo "D04_TYPESCRIPT=PASS"
           else
             echo "D04_TYPESCRIPT=FAIL"
-            python3 tools/ci/d04_safe_diagnostics.py types "$RUNNER_TEMP/d04-types.log" || true
+            python3 "$GITHUB_WORKSPACE/tools/ci/d04_safe_diagnostics.py" types "$RUNNER_TEMP/d04-types.log" || true
             exit 1
           fi
       - name: Lint
@@ -156,11 +156,12 @@ jobs:
             echo "D04_LINT=PASS"
           else
             echo "D04_LINT=FAIL"
-            python3 tools/ci/d04_safe_diagnostics.py lint "$RUNNER_TEMP/d04-lint.log" || true
+            python3 "$GITHUB_WORKSPACE/tools/ci/d04_safe_diagnostics.py" lint "$RUNNER_TEMP/d04-lint.log" || true
             exit 1
           fi
       - name: Build real original T2 Host, qualified Kernel, static site and Chromium smoke
         id: integrated
+        if: steps.research.outcome == 'success' && steps.entry.outcome == 'success' && steps.links.outcome == 'success' && steps.types.outcome == 'success' && steps.lint.outcome == 'success'
         continue-on-error: true
         working-directory: d04-private/site
         env:
