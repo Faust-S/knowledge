@@ -156,12 +156,13 @@ jobs:
                   foreach($checkProcess in $allWindows){
                     $view=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$checkProcess.MainWindowHandle)
                     if(!$view){continue}
-                    $createdCondition=[System.Windows.Automation.PropertyCondition]::new(
-                      [System.Windows.Automation.AutomationElement]::NameProperty,'Заказ создан')
+                    # The title notification differs between case templates,
+                    # but the actual enabled "Передать в T2" route is created
+                    # only after React persisted the case draft in this profile.
                     $transferCondition=[System.Windows.Automation.PropertyCondition]::new(
                       [System.Windows.Automation.AutomationElement]::NameProperty,'Передать в T2')
-                    if($view.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$createdCondition) -and
-                       $view.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$transferCondition)){
+                    $transferElement=$view.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$transferCondition)
+                    if($transferElement -and $transferElement.Current.IsEnabled){
                       $draftCreated=$true;break
                     }
                   }
