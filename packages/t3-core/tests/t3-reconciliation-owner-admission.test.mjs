@@ -6,14 +6,20 @@ import {createTrustedReconciliationAdmission}
 // This is a public interface-only test, NOT a second reconciliation
 // implementation or evidence of real signed owner/installed product.
 const sha="a".repeat(64),previewDigest="b".repeat(64),acceptanceId="c".repeat(64);
-function fixture(reviewOverride=null){
+function fixture(reviewOverride=null,{reverseContextOrder=false}={}){
   let human=false,revision=1,allowed=true,accepts=0,applies=0,active=true,reviews=0;
+  let selectedCalls=0;
   const stored=new Map();
-  const ctx=()=>({
-    kind:"PERSONAL",context_id:"personal",actor_id:"person:owner",
-    principal_id:"person:owner",role_id:"role:owner",grant_id:"grant:owner",
-    workspace_id:"ws:mine",resource:"ws:mine",scope_revision:revision,
-  });
+  const ctx=()=>{
+    const value={
+      kind:"PERSONAL",context_id:"personal",actor_id:"person:owner",
+      principal_id:"person:owner",role_id:"role:owner",grant_id:"grant:owner",
+      workspace_id:"ws:mine",resource:"ws:mine",scope_revision:revision,
+    };
+    selectedCalls++;
+    return reverseContextOrder&&selectedCalls%2===0
+      ?Object.fromEntries(Object.entries(value).reverse()):value;
+  };
   const source={
     recipientId:"recipient:owner",
     receive:()=>({transportReceipt:{status:"RECEIVED"},preview:source.preview(sha)}),
@@ -174,4 +180,46 @@ test("D3 original receipt refusal is not a permit for new ACCEPT",async()=>{
     operationId:"op:denied",decisionBy:"person:owner"}),{code:"PERMISSION_DENIED"});
   assert.equal(f.reviews(),0);
   assert.deepEqual(f.counts(),{accepts:0,applies:0});
+});
+
+test("D3 accepts original receipt and signed context after canonical JSON key reordering",async()=>{
+  const f=fixture(null,{reverseContextOrder:true});
+  f.setHuman(true);
+  const nativeRead=f.source.receipt;
+  f.source.receipt=op=>{
+    const saved=nativeRead(op);
+    return saved==null?saved:Object.fromEntries(
+      Object.entries(saved).reverse());
+  };
+  const input={packageSha256:sha,previewDigest,
+    operationId:"op:canonical-order",decisionBy:"person:owner"};
+  const accepted=await f.port.accept(input);
+  assert.equal(accepted.acceptanceState,"ACCEPTED");
+  assert.equal(accepted.kernelApplication,"NOT_APPLIED");
+  assert.equal(accepted.receipt.applicationState,"APPLIED");
+  assert.equal((await f.makePort().receipt(input.operationId,sha)).found,true);
+  assert.deepEqual(f.counts(),{accepts:1,applies:0});
+  await assert.rejects(f.port.accept(input),
+    {code:"T3_D3_DECISION_OUTCOME_UNKNOWN_USE_RECEIPT"});
+  assert.deepEqual(f.counts(),{accepts:1,applies:0});
+});
+
+test("D3 refuses changed original receipt even when the owner reuses a mutable object",async()=>{
+  const f=fixture();
+  f.setHuman(true);
+  const nativeRead=f.source.receipt;
+  f.source.receipt=op=>{
+    const saved=nativeRead(op);
+    if(saved)saved.applicationState="FORGED_AFTER_DISPATCH";
+    return saved;
+  };
+  const input={packageSha256:sha,previewDigest,
+    operationId:"op:mutated-receipt",decisionBy:"person:owner"};
+  await assert.rejects(f.port.accept(input),
+    {code:"T3_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED"});
+  assert.deepEqual(f.counts(),{accepts:1,applies:0},
+    "a changed receipt cannot trigger another original ACCEPT or Kernel APPLY");
+  await assert.rejects(f.port.accept(input),
+    {code:"T3_D3_DECISION_OUTCOME_UNKNOWN_USE_RECEIPT"});
+  assert.deepEqual(f.counts(),{accepts:1,applies:0});
 });
