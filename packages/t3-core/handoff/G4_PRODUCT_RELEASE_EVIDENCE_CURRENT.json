@@ -1524,6 +1524,33 @@
       "installed_acceptance": false,
       "g4_accepted": false,
       "t3_ready": false
+    },
+    "original_production_agent_task_receive_2026_11_18": {
+      "source_sha": "5ee991cf84f5e646cf95578fce02fe3de2ca26c1",
+      "original_private_t3_sha": "5becefd9cbec769aa8efa45072cda5dff0794367",
+      "original_agent_sha": "5638684ab952dffa545d8a374507f494a1a5ef2a",
+      "ci_run_id": 44402664794,
+      "ci_conclusion": "SUCCESS",
+      "platform": "windows-2022",
+      "checks": 13,
+      "total_checks": 13,
+      "real_kernel": "original T2 0.3.6; Runtime Contract 1.3.0; one original Object/Event Store",
+      "passed": [
+        "11 preceding original signed production Admin/employee/kernel/Task stages",
+        "existing Python/Node IPC Agent consumed original employee-signed invitation/Task without another importer",
+        "second independent cold Python/Node process restored exact signed Task and matched its original person/org/workspace/revision and archive digest",
+        "Agent deterministic original signed Task submission binding verified without another Task issuance"
+      ],
+      "not_proven": [
+        "Full production Result signed by same newly enrolled employee then original independent Human ACCEPT and authorized Kernel APPLY",
+        "two separate Windows OS accounts and installed Tauri applications",
+        "native D5 model execution with installed product, generic D6 and PERSON D7"
+      ],
+      "original_source_private_artifacts_uploaded": false,
+      "private_actions_run": false,
+      "source_only": true,
+      "t3_ready": false,
+      "g4_accepted": false
     }
   },
   "accepted_gates": {
@@ -1618,7 +1645,7 @@
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
     "original_private_native_signer": "SOURCE_WINDOWS_PRODUCTION_EMPLOYEE_T2_KERNEL_AND_SIGNED_TASK_11_OF_11_PASS_44402219965__AGENT_RESULT_HUMAN_APPLY_INSTALLED_HOLD",
-    "independent_installed_d3": "HOLD_11_OF_11_NATIVE_SOURCE_EMPLOYEE_SIGNED_TASK_KERNEL_44402219965__SIGNED_AGENT_RESULT_ACCEPT_APPLY_GUI_NOT_RUN",
+    "independent_installed_d3": "HOLD_13_OF_13_REAL_T2_KERNEL_AND_INDEPENDENT_AGENT_SIGNED_TASK_RECEIVE_COLD_44402664794__AGENT_RESULT_ACCEPT_APPLY_AND_INSTALLED_GUI_NOT_RUN",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
