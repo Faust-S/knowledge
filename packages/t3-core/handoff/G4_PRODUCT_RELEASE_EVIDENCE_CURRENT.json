@@ -688,15 +688,53 @@
           "total": 5,
           "fail": 0
         },
-        "original_private_tests": "NOT_RUN_PRIVATE_FILE_READ_404_ALL_EXISTING_SCOPED_TOKENS",
-        "run_id": 44370068755,
+        "original_private_tests": "ORIGINAL_AGENT_D3_PYTHON_11_OF_11_PASS_LINUX_AND_WINDOWS_44372943761",
+        "run_id": 44372943761,
         "original_agent_linux_job_conclusion": "FAILURE_BEFORE_ORIGINAL_PYTHON_TEST",
         "token_claim": "Original T3 source grant is independently accepted; that does NOT establish authorization for private Agent repository.",
-        "qualification": "HOLD_UNTIL_OWNER_GRANTS_PRIVATE_AGENT_READ_TO_KNOWLEDGE",
+        "qualification": "SOURCE_11_OF_11_BOTH_OS_PLUS_NATIVE_PROCESS_WINDOWS_PASS_44382224189__INSTALLED_GUI_HOLD",
         "native_installed": "NOT_RUN",
         "workflow_enabled": "EXPLICIT_DISPATCH_OR_REPO_VARIABLE_IWXA_AGENT_D3_SOURCE_CI_ENABLED",
         "no_private_actions": true,
-        "no_private_source_published": true
+        "no_private_source_published": true,
+        "historical_private_tests_before_read_authorization": "NOT_RUN_PRIVATE_FILE_READ_404_ALL_EXISTING_SCOPED_TOKENS",
+        "original_agent_exact_current_pin": "cc00beceb5dcabc68662cd077ce4236a695ca576",
+        "original_tested_pin": "16a5062eac537224cde22273c99e758ea5849a91",
+        "access": "AUTHORIZED_PRIVATE_AGENT_READ_FROM_KNOWLEDGE"
+      },
+      "agent06_native_windows_process_2026_11_18": {
+        "qualification": "NATIVE_WINDOWS_ORIGINAL_TWO_PROCESSES_SIGNED_FIXTURE_PASS__INSTALLED_TAURI_GUI_AND_KERNEL_APPLY_HOLD",
+        "runner": "PUBLIC_KNOWLEDGE_WINDOWS_2022_GITHUB_ACTIONS",
+        "run_id": 44382224189,
+        "run_sha": "68b8d893f24aa17032f521e2033c3f43c4bbb164",
+        "run_conclusion": "SUCCESS",
+        "original_private_t3_owner_sha": "19be10c557618f5c8b476a739c8fc4ca0fa2ac7f",
+        "original_agent_d3_owner_sha": "cc00beceb5dcabc68662cd077ce4236a695ca576",
+        "agent_bug": "verifiedTask expected canonical taskId/executorId but compared snapshot id/assignedTo using the wrong field names, causing false T3_ORIGINAL_TASK_BINDING_CHANGED after signed import.",
+        "agent_fix": "Compare same canonical organizationId/workspaceId/executorId/taskId/taskRevisionId/packageSha256/task text after original signature, task revision and readback validation; preserve fail-closed mismatch refusal.",
+        "bounded_private_sources": {
+          "t3_files": 49,
+          "agent_files": 2,
+          "full_private_clones": false,
+          "private_artifacts_uploaded": false,
+          "source_in_public_repo": false,
+          "ephemeral_deleted": true
+        },
+        "original_windows_source_process_tests": {
+          "real_os_dpapi_current_user": true,
+          "real_node_agent_worker": true,
+          "real_python_agent_ipc": true,
+          "test_fixture_organization": "EXPLICIT_SYNTHETIC_TEST",
+          "signed_task_received_and_readback": "PASS",
+          "signed_employee_result_prepared_and_exported": "PASS",
+          "original_admin_human_accept_test_action_and_cold_receipt": "PASS",
+          "cold_employee_worker_no_duplicate_export": "PASS",
+          "original_kernel_apply": "NOT_RUN",
+          "two_cold_original_kernel_objects_and_events": "NOT_RUN",
+          "installed_admin_center_gui": "NOT_RUN",
+          "installed_agent_gui": "NOT_RUN"
+        },
+        "privacy": "Private originals read using scoped read-only GitHub secret on PUBLIC knowledge Windows runner; exact original source was ephemeral, not published or uploaded. No private repo Actions. Public visible status codes and pins only."
       }
     },
     "admin_center": {
@@ -1346,7 +1384,7 @@
     "D6_main_native_sender": "CORE_SOURCE_PASS",
     "D7_native_age_prior": "PASS_NOT_REPEATED_IN_LATEST_CI",
     "installed_original_private_d6": "HOLD",
-    "installed_employee_d1_d3": "HOLD_D3_ORIGINAL_15_OF_15_SOURCE_PASS__AGENT_PRIVATE_SOURCE_NOT_RUN_404__INDEPENDENT_INSTALLED_ADMIN_AGENT_KERNEL_APPLY_NOT_RUN",
+    "installed_employee_d1_d3": "HOLD_NATIVE_TWO_PROCESS_ORIGINAL_T3_AGENT_D3_PASS_44382224189__SEPARATE_ORIGINAL_KERNEL_APPLY_DUAL_COLD_AND_INSTALLED_GUI_NOT_RUN",
     "installed_agent_atlas_d6": "HOLD",
     "installed_publisher_d7": "HOLD",
     "cross_product_G4": "NOT_ACCEPTED",
@@ -1372,11 +1410,12 @@
     "ADMIN_CENTER_03_D3_GENERIC_UI": "INSTALLED_CENTER_PUBLIC_WINDOWS_SUCCESS_44301852914_AT_565572a9_MERGED_5ff8947d_NO_PRIVATE_SIGNED_D3",
     "T3_D3_ORIGINAL_ACCEPT_RECEIPT": "CORE_SOURCE_CANONICAL_RECEIPT_AND_COLD_DECISION_VALIDATION_PASS_44318043133__PRIVATE_INSTALLED_D3_HOLD",
     "D3_original_human_accept_receipt": "SOURCE_COMPLETE_5000_ROW_ORIGINAL_ACCEPT_RECEIPT_PASS_44338888023__INSTALLED_NATIVE_OWNER_HOLD",
-    "ORIGINAL_PRIVATE_D3_OWNER_SOURCE": "ORIGINAL_OWNER_MULTI_EMPLOYEE_15_OF_15_SOURCE_PASS_KNOWLEDGE_44370068755_JOB_135034132307__WORKFLOW_CANCELLED_AFTER_JOB__INSTALLED_D3_HOLD"
+    "ORIGINAL_PRIVATE_D3_OWNER_SOURCE": "ORIGINAL_OWNER_MULTI_EMPLOYEE_15_OF_15_SOURCE_PASS_KNOWLEDGE_44370068755_JOB_135034132307__WORKFLOW_CANCELLED_AFTER_JOB__INSTALLED_D3_HOLD",
+    "D3_NATIVE_ORIGINAL_AGENT_PROCESS": "REAL_PRIVATE_T3_AND_AGENT_NODE_PYTHON_WINDOWS_SIGNED_TASK_RESULT_ACCEPT_COLD_RECOVERY_PASS_44382224189__SYNTHETIC_SIGNED_FIXTURE__KERNEL_APPLY_AND_INSTALLED_GUI_NOT_RUN"
   },
   "next_critical_path": [
     "Release scope is PRODUCT_NEUTRAL_T3. Keep normative original T2 Kernel/Host/Workspace/Exchange/Lifecycle integrated in ONE T3. Use current exact public One Core CI + installed Agent test; never interpret source PASS as installed owner.",
-    "Priority 1 D1/D3 without Atlas: original private T3 owner 19be10c5 source-verified 15/15 in public knowledge #44370068755 job #135034132307, 54 bounded files, two independent employees and signed results. Overall historical workflow cancelled only after owner job success; later source fetch hit GitHub API rate limit, do not count as code regression. Agent 0.6 private source two-file loader 5/5, but original Agent source tests NOT_RUN due HTTP404 across existing secrets (separate repository authorization). Its known IPC UNKNOWN fence fix e02e39d2 is still not independently installed. Keep native manager+employee Task/Result, Human ACCEPT, separate original Kernel APPLY and double cold readback as HOLD. Trigger original T3 private tests only by explicit release marker or manual dispatch; private Actions forbidden.",
+    "Priority 1 D1/D3 WITHOUT ATLAS: access to both independent private original T3 and Agent is confirmed. Real original Windows native Node/Python two-process signed Task -> signed Result -> original Admin ACCEPT -> cold receipt and no repeat export SUCCESS #44382224189 on exact knowledge 68b8d893, private T3 19be10c5 and Agent cc00bece; 49 + 2 transient original files, DPAPI CurrentUser, no private artifact upload. This is synthetically signed TEST organization and native PROCESS qualification, not installed Tauri. Next: separate original T2 Kernel APPLY with independent Human APPLY confirmation and double-cold Object/Event readback, then independently installed Admin/Agent GUI. Avoid redundant Atlas intermediary and no second Kernel/Host/IAM/Store/Exchange.",
     "Priority 2 D5: exact combined original source #44340207574 attempt 2 SUCCESS, real macOS Apple Metal WebLLM signed Host and independent domain second cold offline generation, zero network, original T2 0.3.6 Object/Event readback and two corporate cold opens, Node 792/792, Host/Windows PASS. This is SOURCE hardware qualification; native private installed D5 remains NOT_RUN. Don't indiscriminately rerun metal.",
     "Priority 3 D6 GENERIC: completed public full original D1 signed-context canonicalization incl. nested+new fields, Node source 792/792 PASS #44339359842. Still need genuine accepted Result from installed independent Agent/domain -> explicitly authorized recipient without mandatory Atlas, original native owner durable readback/lost-ACK recovery. A public contract fixture is not native E2E.",
     "Priority 4 D7: original Publisher PERSON issue/renew/status/revoke with installed consumer and cold readback, independent of Atlas.",
@@ -1427,8 +1466,8 @@
     "t3_ready": false,
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
-    "original_private_native_signer": "ORIGINAL_PRIVATE_D3_TWO_EMPLOYEE_SOURCE_15_OF_15_PASS_JOB_135034132307__NATIVE_INSTALLED_WINDOWS_NOT_QUALIFIED",
-    "independent_installed_d3": "HOLD_REAL_ADMIN_AGENT_SIGNED_TASK_ACCEPTED_RESULT_HUMAN_ACCEPT_SEPARATE_KERNEL_APPLY_TWO_COLD_READS",
+    "original_private_native_signer": "SOURCE_15_OF_15_AND_REAL_WIN_NATIVE_TWO_PROCESS_SIGNED_TEST_FIXTURE_PASS_44382224189__INDEPENDENT_INSTALLED_ISSUER_GUI_HOLD",
+    "independent_installed_d3": "HOLD_REAL_NATIVE_SIGNED_TASK_RESULT_ACCEPT_COLD_PASS_44382224189__ORIGINAL_KERNEL_APPLY_AND_INSTALLED_ADMIN_AGENT_GUI_NOT_RUN",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
