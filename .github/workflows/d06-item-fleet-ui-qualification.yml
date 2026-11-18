@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: 8da617eea47a5682bd90c3692bba604448f3cac9
+          ref: e2ff327e997c426aa068fe57788e468d0a0d536c
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -56,6 +56,12 @@ jobs:
           & npm run test:item-lifecycle-view *> $log
           if ($LASTEXITCODE -ne 0) { Write-Host "D06_ITEM_PROJECTION=FAIL"; exit 1 }
           Write-Host "D06_ITEM_PROJECTION=PASS"
+          & npm run test:session *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_ITEM_SESSION_ADAPTER=FAIL"; exit 1 }
+          Write-Host "D06_ITEM_SESSION_ADAPTER=PASS"
+          & npm run test:native-item-binding *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_ITEM_NATIVE_ADAPTER=FAIL"; exit 1 }
+          Write-Host "D06_ITEM_NATIVE_ADAPTER=PASS"
       - name: Build immutable static site and install test browser
         shell: pwsh
         working-directory: private/site
@@ -80,6 +86,33 @@ jobs:
             $txt = Get-Content -LiteralPath $log -Raw
             Write-Host ("D06_ITEM_E2E_TIMEOUT_CLASS=" + [int]($txt -match "TimeoutError|Timeout [0-9]+ms exceeded"))
             Write-Host ("D06_ITEM_E2E_ASSERTION_CLASS=" + [int]($txt -match "AssertionError|expect\\(.*\\)\\.to"))
+            $classes = [ordered]@{
+              "NO_TESTS" = "No tests found|unknown option|unexpected argument"
+              "BROWSER_LAUNCH" = "Failed to launch|Executable doesn't exist"
+              "NAVIGATION" = "locator\\.(click|fill)|ERR_CONNECTION|ECONNREFUSED"
+              "ASSERTION" = "expected|Received|toHave|toBeVisible|toContainText"
+              "TIMEOUT" = "TimeoutError|Timeout [0-9]+ms|Test timeout"
+              "RUNTIME" = "TypeError|ReferenceError|Cannot find module|ERR_MODULE_NOT_FOUND"
+              "TEST_RUNNER" = "Running [0-9]+ tests|\\[chromium\\]"
+            }
+            foreach ($key in $classes.Keys) {
+              Write-Host ("D06_ITEM_E2E_CLASS_" + $key + "=" + [int]($txt -match $classes[$key]))
+            }
+            $count = [regex]::Matches($txt, '(?m)^\\s*([0-9]+) failed\\s*
+          }
+          Write-Host "D06_ITEM_E2E=PASS"
+      - name: Confirm private source isolation
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_ITEM_PRIVATE_SOURCE_PUBLICATION=0"
+          Write-Host "D06_ITEM_PRIVATE_DIST_PUBLICATION=0"
+          Write-Host "D06_ITEM_PRIVATE_TEST_REPORT_PUBLICATION=0"
+)
+            if ($count.Count -gt 0) {
+              Write-Host ("D06_ITEM_E2E_FAILED_COUNT=" +
+                $count[$count.Count - 1].Groups[1].Value)
+            }
             exit 1
           }
           Write-Host "D06_ITEM_E2E=PASS"
