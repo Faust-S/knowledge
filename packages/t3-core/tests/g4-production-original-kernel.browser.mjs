@@ -341,12 +341,12 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
         cwd:workRoot,env:employeeEnvironment,encoding:'utf8',
         windowsHide:true,timeout:150000,maxBuffer:256*1024,
       });
-    const employeeOutput=(subprocess.stdout??'')+'\\n'+(subprocess.stderr??'');
+    const employeeOutput=(subprocess.stdout??'')+'\n'+(subprocess.stderr??'');
     if(subprocess.status!==0){
       const phase=employeeOutput.match(
-        /G4_NATIVE_FAILURE_PHASE\\s+([A-Z_]{3,80})/);
+        /G4_NATIVE_FAILURE_PHASE\s+([A-Z_]{3,80})/);
       const code=employeeOutput.match(
-        /G4_NATIVE_FAILURE_CODE\\s+([A-Z0-9_]{3,119})/);
+        /G4_NATIVE_FAILURE_CODE\s+([A-Z0-9_]{3,119})/);
       console.log('G4_PRODUCTION_AGENT_FAILURE_PHASE',
         phase?.[1]??'UNCLASSIFIED');
       console.log('G4_PRODUCTION_AGENT_FAILURE_CODE',
