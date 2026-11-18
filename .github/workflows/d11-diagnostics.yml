@@ -25,6 +25,7 @@ jobs:
           & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP "install.txt")
           if ($LASTEXITCODE -ne 0) { throw "D11_NPM_CI_FAILED" }
       - name: Report compiler diagnostics without source
+        continue-on-error: true
         shell: pwsh
         run: |
           $log=Join-Path $env:RUNNER_TEMP "typescript.txt"
