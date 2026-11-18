@@ -22,6 +22,18 @@ type FirstRunExchange=Readonly<{
 }>;
 const denied=(code:string)=>Object.assign(new Error(code),{code});
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
+// Original T2 Runtime 1.3.0 may report a genuinely missing Workspace as
+// null or with its typed WORKSPACE_NOT_FOUND code. ONLY that exact pre-write
+// absence allows the existing signed first-run UI to offer an independent
+// create ACTION. No permission denial, revoked grant or lost-write ACK is
+// reclassified as missing, and the original signed Kernel stays authoritative.
+async function readSelectedBeforeWrite(kernel:KernelFacade,workspaceId:string){
+  try{return await kernel.getWorkspace(workspaceId);}
+  catch(error){
+    if((error as {code?:unknown}|null)?.code==="WORKSPACE_NOT_FOUND")return null;
+    throw error;
+  }
+}
 
 export function SignedSelectedWorkspaceGate({
   required,kernel,profile,signedKernelAccess,trustedSelectedContext,
@@ -61,7 +73,7 @@ export function SignedSelectedWorkspaceGate({
            typeof selected!=="string"||!ID.test(selected)||
            context?.resource!==selected)
           throw denied("T3_D1_SELECTED_CONTEXT_NOT_TRUSTED");
-        const original=await kernel.getWorkspace(selected);
+        const original=await readSelectedBeforeWrite(kernel,selected);
         if(ticket!==generation.current)return;
         if(original&&(original.workspace_id!==selected||
             original.deleted_at||Boolean(profile&&original.profile!==profile))){
@@ -117,7 +129,7 @@ export function SignedSelectedWorkspaceGate({
         throw denied("T3_D1_KERNEL_CREATE_UNAVAILABLE");
       // Stable Admin-selected ID handles uncertain write acknowledgement.
       // Re-read before any write, never create another Workspace ID.
-      const previous=await kernel.getWorkspace(selected);
+      const previous=await readSelectedBeforeWrite(kernel,selected);
       if(previous){
         if(previous.deleted_at||previous.profile!==profile)
           throw denied("T3_D1_WORKSPACE_READBACK_MISMATCH");
