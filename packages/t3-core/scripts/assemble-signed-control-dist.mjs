@@ -188,7 +188,7 @@ function required(root,path){
 export function assembleSignedControlDist({
   t2Dist,t3Build,outputDir,testOnlyUnqualifiedFixture=false,
   installedOriginalAdminD3=false,installedOriginalAgentD6=false,
-  desktopAgentControlOnly=false,
+  desktopAgentControlOnly=false,desktopAdminControlOnly=false,
 }={}){
   // A signed desktop Agent hosts T3 D1/D6 but owns native model execution
   // independently. An inert optional BLI marker is not permission to ship
@@ -199,6 +199,15 @@ export function assembleSignedControlDist({
         (!installedOriginalAgentD6||installedOriginalAdminD3||
          testOnlyUnqualifiedFixture)))
     fail("DESKTOP_AGENT_SIGNED_CONTROL_PROFILE_INVALID");
+  // Desktop Admin D3 is another ORIGINAL signed Windows product: its
+  // browser Workspace remains a Control surface. WebGPU/BLI belongs to
+  // browser domain D5, not the Windows Admin product's native signing flow.
+  // The opt-in profile never relaxes the ordinary domain or Agent builds.
+  if(typeof desktopAdminControlOnly!=="boolean"||
+      (desktopAdminControlOnly&&
+        (!installedOriginalAdminD3||installedOriginalAgentD6||
+         desktopAgentControlOnly||testOnlyUnqualifiedFixture)))
+    fail("DESKTOP_ADMIN_SIGNED_CONTROL_PROFILE_INVALID");
   if(typeof installedOriginalAdminD3!=="boolean")
     fail("INSTALLED_ADMIN_D3_FLAG_INVALID");
   if(typeof installedOriginalAgentD6!=="boolean")
@@ -266,8 +275,10 @@ export function assembleSignedControlDist({
     /^model-worker-[A-Za-z0-9_-]+\.js$/.test(basename(path)));
   if(desktopAgentControlOnly&&workers.length!==0)
     fail("DESKTOP_AGENT_WEBGPU_WORKER_FORBIDDEN");
-  const localInference=desktopAgentControlOnly?false:
-    marks.some(Boolean)||workers.length>0;
+  if(desktopAdminControlOnly&&workers.length!==0)
+    fail("DESKTOP_ADMIN_WEBGPU_WORKER_FORBIDDEN");
+  const localInference=(desktopAgentControlOnly||desktopAdminControlOnly)
+    ?false:marks.some(Boolean)||workers.length>0;
   if(localInference && (workers.length!==1||marks.some(mark=>!mark)||
       !readFileSync(workers[0],'utf8').includes('IWXA_NETWORK_DENIED_IN_WORKER')))
     fail('LOCAL_INFERENCE_COMPILED_MODULE_INCOMPLETE');
@@ -361,11 +372,16 @@ export function assembleSignedControlDist({
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   if(process.argv.length!==5&&
       !(process.argv.length===6&&
-        ['--installed-admin-d3','--installed-agent-d6'].includes(process.argv[5])))
+        ['--installed-admin-d3','--installed-agent-d6',
+         '--installed-admin-d3-control-only'].includes(process.argv[5])))
     fail('USAGE_T2_DIST_T3_BUILD_OUTPUT');
   console.log(JSON.stringify(assembleSignedControlDist({
     t2Dist:process.argv[2],t3Build:process.argv[3],outputDir:process.argv[4],
-    installedOriginalAdminD3:process.argv[5]==='--installed-admin-d3',
+    installedOriginalAdminD3:
+      ['--installed-admin-d3','--installed-admin-d3-control-only']
+        .includes(process.argv[5]),
+    desktopAdminControlOnly:
+      process.argv[5]==='--installed-admin-d3-control-only',
     installedOriginalAgentD6:process.argv[5]==='--installed-agent-d6',
   })));
 }
