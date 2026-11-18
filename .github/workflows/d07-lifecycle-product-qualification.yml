@@ -1,0 +1,106 @@
+name: D07 Lifecycle OS v1 source and original T2 qualification
+on:
+  push:
+    branches: [work/2026-11-18-d07-case10-qualification]
+    paths: [.github/workflows/d07-lifecycle-product-qualification.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 65
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      DOMAIN_SHA: 920db57193ebd6f9f0545629e75df3aa3fe22ba6
+      SITE_SHA: d12e90573e9403d2ef5f73176bdfaa26ba17408a
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      CI: 'true'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Private source access only through authorized DOMEN
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'D07_LIFECYCLE_TOKEN_MISSING'}
+          foreach($repo in @('Faust-S/uslugovod','Faust-S/uslugovod.ru','Faust-S/T2')){
+            $null=& gh api "repos/$repo" --jq '.id' 2>$null
+            if($LASTEXITCODE -ne 0){throw 'D07_LIFECYCLE_SOURCE_ACCESS_DENIED'}
+          }
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+          Write-Output 'D07_LIFECYCLE_SOURCE_ACCESS=PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod
+          ref: ${{ env.DOMAIN_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: domain
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - name: Pinned source mirrors, complete domain tests and lifecycle website
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($p in @(@('domain',$env:DOMAIN_SHA),@('site',$env:SITE_SHA),@('t2',$env:T2_SHA))){
+            if((git -C $p[0] rev-parse HEAD).Trim() -ne $p[1]){throw 'D07_LIFECYCLE_SOURCE_PIN_MISMATCH'}
+          }
+          $mirror=@(
+            'domain/src/domain/service-lifecycle.ts',
+            'site/src/domain/service-lifecycle.ts',
+            'site/t2-site-module/uslugovod/service-lifecycle.ts'
+          )
+          $hashes=@($mirror | ForEach-Object {(git hash-object $_).Trim()})
+          if($hashes.Count -ne 3 -or (@($hashes|Select-Object -Unique)).Count -ne 1){throw 'D07_LIFECYCLE_MIRROR_MISMATCH'}
+          Write-Output 'D07_LIFECYCLE_MIRRORS=3/3'
+          function Check([string]$name,[string]$folder,[string]$exe,[string[]]$args){
+            Push-Location $folder
+            try {
+              $privateLog=Join-Path $env:RUNNER_TEMP ("d07-lifecycle-"+$name+".private.log")
+              & $exe @args *> $privateLog
+              if($LASTEXITCODE -ne 0){Write-Output ("D07_LIFECYCLE_"+$name+"=FAIL");throw 'D07_LIFECYCLE_GATE_FAILED'}
+              Write-Output ("D07_LIFECYCLE_"+$name+"=PASS")
+            }finally{Pop-Location}
+          }
+          Check INSTALL site bun @('install','--frozen-lockfile')
+          $domainTests=@(Get-ChildItem domain/tests -Filter '*.test.mjs' -File | Sort-Object Name | ForEach-Object {$_.FullName})
+          if($domainTests.Count -lt 22){throw 'D07_LIFECYCLE_DOMAIN_TESTS_MISSING'}
+          Check DOMAIN_TESTS site node (@('--import','tsx','--test')+$domainTests)
+          Check SITE_TESTS site bun @('run','test:product-first')
+          Check TYPES site bun @('run','check:types')
+          Check LINT_LOGIC site bun @('run','lint:logic')
+          if($env:RUNNER_OS -eq 'Linux'){
+            Check INTEGRATED_BUILD site bun @('run','build:t2-integrated')
+            Check T2_PREVIEW site bun @('run','preview:t2','--','--check')
+            if(-not (Test-Path site/dist/workspace/index.html)){throw 'D07_LIFECYCLE_ORIGINAL_T2_MISSING'}
+            Write-Output 'D07_LIFECYCLE_ONE_DIST_T2=PASS'
+          }
+          Write-Output 'D07_LIFECYCLE_CANDIDATE=PASS'
+          # Do not upload source, dist, logs, secrets or .iwxa archives.
