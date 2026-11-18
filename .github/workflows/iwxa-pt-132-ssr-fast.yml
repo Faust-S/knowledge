@@ -1,0 +1,68 @@
+name: IWXA PT 132 SSR reciprocal contract - exact private source
+on:
+  push:
+    branches: [work/2026-11-18-pt-66-qualification]
+    paths: [.github/workflows/iwxa-pt-132-ssr-fast.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-pt-132-ssr-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ssr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check authorized access
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo "PT_PRIVATE_ACCESS=NO_SECRET"; exit 1; }
+          gh api repos/Faust-S/iwxa-ru-1 >/dev/null 2>&1 || { echo "PT_PRIVATE_ACCESS=DENIED"; exit 1; }
+          echo "PT_PRIVATE_ACCESS=PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: 2f3f0f20b17655d5ed2c0bfe0954ea9186878b96
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: pt-site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - name: Frozen install and real SSR build
+        working-directory: pt-site
+        run: |
+          test "$(git rev-parse HEAD)" = "2f3f0f20b17655d5ed2c0bfe0954ea9186878b96" || exit 1
+          bun install --frozen-lockfile > "$RUNNER_TEMP/pt-132-install.log" 2>&1 || { echo "PT_132_INSTALL=FAIL"; exit 1; }
+          echo "PT_132_INSTALL=PASS"
+          LOVABLE_BUILD_TARGET=static NITRO_PRESET=node-server SERVER_PRESET=node-server \
+            bun run build > "$RUNNER_TEMP/pt-132-build.log" 2>&1 ||
+            { echo "PT_132_SSR_BUILD=FAIL"; exit 1; }
+          test -f .output/server/index.mjs || exit 1
+          echo "PT_132_SSR_BUILD=PASS"
+      - name: Verify exact 66 PT metadata and 66 Russian reciprocals via production HTTP
+        working-directory: pt-site
+        run: |
+          PORT=4387 HOST=127.0.0.1 NODE_ENV=production node .output/server/index.mjs > "$RUNNER_TEMP/pt-132-server.log" 2>&1 &
+          server="$!"
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://127.0.0.1:4387/; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" -eq 1 || { echo "PT_132_SERVER=FAIL"; exit 1; }
+          echo "PT_132_SERVER=PASS"
+          if node scripts/pt-ssr-contract.mjs --base=http://127.0.0.1:4387/ --out="$RUNNER_TEMP/pt-132-results" > "$RUNNER_TEMP/pt-132-qa.log" 2>&1; then
+            echo "PT_132_SSR_CONTRACT=PASS"
+            node -e "const s=require(process.env.RUNNER_TEMP+'/pt-132-results/report.json').summary;console.log('PT_132_COUNT='+s.total);console.log('PT_132_PT='+s.checkedPT+'/66');console.log('PT_132_RU_RECIPROCALS='+s.checkedRuReciprocal+'/66')"
+          else
+            echo "PT_132_SSR_CONTRACT=FAIL"
+            node -e "const r=require(process.env.RUNNER_TEMP+'/pt-132-results/report.json');console.log('PT_132_FAILED_PT='+r.summary.failedPT);console.log('PT_132_FAILED_RU='+r.summary.failedRuReciprocal);console.log('PT_132_FAILED_ROUTE_CODES='+JSON.stringify(r.rows.filter(x=>!x.ok).map(x=>[x.ru_path,x.kind,x.code]).slice(0,15)))" || true
+            exit 1
+          fi
