@@ -11,8 +11,8 @@ concurrency:
   group: d08-business-start-p1
   cancel-in-progress: true
 env:
-  DOMAIN_SHA: d7a23f66a4402656301ecd780d356011c09d491c
-  SITE_SHA: 2e81a3601262a047307c65e2a65c7ec276b9ee4f
+  DOMAIN_SHA: 7d60133a038c65b4da9135ba7ee10eb14fb5332d
+  SITE_SHA: 518d8a2bff9d6f57321db4c5cb43c57e793ee2f1
   CI: 'true'
   PUPPETEER_SKIP_DOWNLOAD: '1'
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -56,7 +56,7 @@ jobs:
         run: |
           if((& git -C private/domain rev-parse HEAD).Trim() -ne $env:DOMAIN_SHA){throw 'D08_P1_DOMAIN_SHA_MISMATCH'}
           if((& git -C private/site rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D08_P1_SITE_SHA_MISMATCH'}
-          foreach($f in @('business-start-overview.mjs','business-start-overview.d.mts')){
+          foreach($f in @('business-start-overview.mjs','business-start-overview.d.mts','iwxa-domain-boundaries.mjs','iwxa-domain-boundaries.d.mts','affordable-loss-gate.mjs','affordable-loss-gate.d.mts')){
             $domain=(Get-FileHash -LiteralPath ('private/domain/model/'+$f) -Algorithm SHA256).Hash
             $site=(Get-FileHash -LiteralPath ('private/site/src/lib/'+$f) -Algorithm SHA256).Hash
             if($domain -ne $site){throw 'D08_P1_CANONICAL_DRIFT'}
@@ -98,7 +98,7 @@ jobs:
               throw ('D08_P1_'+$name+'_FAILED')
             }
           }
-          & node --test tests/business-start-overview.test.mjs *> (Join-Path $env:RUNNER_TEMP 'd08-p1-site-cases.private.log')
+          & node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs *> (Join-Path $env:RUNNER_TEMP 'd08-p1-site-cases.private.log')
           if($LASTEXITCODE -ne 0){throw 'D08_P1_SITE_MODEL_FAILED'}
           Write-Host 'D08_P1_SITE_TYPES_LINT_AND_MODEL=PASS'
       - name: Full existing site adapters and T2 entry regressions
