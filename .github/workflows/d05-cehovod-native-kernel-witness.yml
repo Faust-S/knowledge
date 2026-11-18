@@ -1,0 +1,221 @@
+name: d05-cehovod-native-kernel-witness
+on:
+  push:
+    branches:
+      - test/2026-11-18-d05-source-qualification
+    paths:
+      - .github/workflows/d05-cehovod-native-kernel-witness.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    name: D05 original T2 Kernel witness (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Fetch exact private site and immutable T2 inputs
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          test -n "${DOMEN:-}" || { echo "D05_DOMEN=UNAVAILABLE"; exit 1; }
+          header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
+          if ! GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" clone --quiet --depth 1 --single-branch --branch work/2026-10-23-t2-site-only --no-tags https://github.com/Faust-S/cehovod.ru.git site >/dev/null 2>&1; then
+            echo "D05_SITE_ACCESS=FAIL"
+            exit 1
+          fi
+          test "$(git -C site rev-parse HEAD)" = "1b3c86ab6517dfd51e02f97d988b01a009690e9e" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
+          echo "D05_SITE_PIN=PASS"
+          git init --quiet t2
+          if ! GIT_TERMINAL_PROMPT=0 git -C t2 -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/T2.git e70de29b72b83e2546f7ab74b17572685a728c17 >/dev/null 2>&1; then
+            echo "D05_T2_READ_PIN=FAIL"
+            exit 1
+          fi
+          git -C t2 checkout --quiet --detach FETCH_HEAD
+          test "$(git -C t2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17" || { echo "D05_T2_PIN=FAIL"; exit 1; }
+          echo "D05_T2_PIN=PASS"
+          unset header DOMEN
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+      - name: Install site dependencies
+        run: |
+          set -euo pipefail
+          if (cd site && npm ci --no-audit --no-fund) > "$RUNNER_TEMP/d05-site-install.log" 2>&1; then
+            echo "D05_SITE_NPM_CI=PASS"
+          else
+            echo "D05_SITE_NPM_CI=FAIL"
+            exit 1
+          fi
+      - name: Verify the exact accepted T2 Kernel archive and stage
+        run: |
+          set -euo pipefail
+          archive="$GITHUB_WORKSPACE/t2/t2/current/final-successor/kernel-successors/k036-same-store-event-history-20261019/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip"
+          node - "$archive" <<'NODE'
+          const fs=require("node:fs");
+          const crypto=require("node:crypto");
+          const archive=process.argv[2];
+          const expected="7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68";
+          const actual=crypto.createHash("sha256").update(fs.readFileSync(archive)).digest("hex");
+          if(actual!==expected) {console.log("D05_KERNEL_ARCHIVE_SHA=FAIL"); process.exit(1);}
+          console.log("D05_KERNEL_ARCHIVE_SHA=PASS");
+          NODE
+          mkdir -p "$RUNNER_TEMP/qualified-kernel" "$RUNNER_TEMP/verified-kernel"
+          unzip -qq "$archive" -d "$RUNNER_TEMP/qualified-kernel"
+          test -f "$RUNNER_TEMP/qualified-kernel/_iwxa/runtime/0.3.6/runtime.js" || { echo "D05_KERNEL_LAYOUT=FAIL"; exit 1; }
+          verifier="$GITHUB_WORKSPACE/t2/t2/current/final-successor/canonical-source/scripts/stage-verified-kernel.mjs"
+          if node "$verifier" "$RUNNER_TEMP/qualified-kernel" "$RUNNER_TEMP/verified-kernel" --qualification-only --artifact-id iwxa-kernel-k036-same-store-history-20261019-qualified.1 > "$RUNNER_TEMP/d05-kernel-verification.log" 2>&1; then
+            echo "D05_KERNEL_QUALIFIED_STAGING=PASS"
+          else
+            echo "D05_KERNEL_QUALIFIED_STAGING=FAIL"
+            exit 1
+          fi
+      - name: Assemble single diagnostic T2 product without browser automation
+        env:
+          IWXA_T2_CANONICAL_ROOT: ${{ github.workspace }}/t2/t2/current/final-successor/canonical-source
+          IWXA_CEHOVOD_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/qualified-kernel
+          IWXA_CEHOVOD_HOST_ORIGIN: https://127.0.0.1:8443
+        run: |
+          set -euo pipefail
+          cd site
+          if npm run diagnostic:preview:assemble > "$RUNNER_TEMP/d05-product-diagnostic.log" 2>&1; then
+            echo "D05_DIAGNOSTIC_ONE_DIST=PASS"
+          else
+            echo "D05_DIAGNOSTIC_ONE_DIST=FAIL"
+            node -e '
+            const fs=require("node:fs");
+            const text=fs.readFileSync(process.env.RUNNER_TEMP+"/d05-product-diagnostic.log","utf8");
+            const codes=[...new Set(text.match(/\\b(?:CEHOVOD_[A-Z0-9_]+|T2_[A-Z0-9_]+|ERR_[A-Z0-9_]+)\\b/g)||[])];
+            console.log("D05_DIAGNOSTIC_CODES="+codes.slice(-10).join(","));
+            console.log("D05_HOST_DEPENDENCIES_READY="+text.includes("CEHOVOD_T2_DISPOSABLE_HOST_DEPENDENCIES_READY"));
+            console.log("D05_SSR_ASSEMBLY_REACHED="+text.includes("CEHOVOD_T2_DIAGNOSTIC_PREVIEW_ASSEMBLED_NOT_QUALIFIED"));
+            '
+            exit 1
+          fi
+          test -f dist/_iwxa/current.json || { echo "D05_KERNEL_IN_DIST=FAIL"; exit 1; }
+          for file in keisy/index.html keisy/120-kronshteynov/index.html keisy/240-fartukov/index.html keisy/48-tumb/index.html workspace/index.html; do
+            test -f "dist/$file" || { echo "D05_STATIC_ROUTE_IN_DIST=FAIL"; exit 1; }
+          done
+          echo "D05_STATIC_ROUTES_IN_DIST=PASS"
+          echo "D05_DIST_PUBLISHED=NO"
+          echo "D05_BROWSER_GUI=NOT_RUN"
+          echo "D05_KERNEL_RECEIPTS=NOT_RUN"
+
+      - name: Run original T2 isolated Kernel witness for a real D05 order draft
+        run: |
+          set -euo pipefail
+          source="$GITHUB_WORKSPACE/t2/t2/current/final-successor/canonical-source"
+          witness="$RUNNER_TEMP/d05-t2-witness-source"
+          cp -a "$source" "$witness"
+          cmp -s "$source/src/factory2/products/domain-completion/independent-browser-witness.mjs" "$witness/src/factory2/products/domain-completion/independent-browser-witness.mjs" || { echo "D05_T2_WITNESS_SOURCE=FAIL"; exit 1; }
+          echo "D05_T2_WITNESS_SOURCE=PASS"
+          if (cd "$witness" && npm ci --include=dev --no-audit --no-fund) > "$RUNNER_TEMP/d05-t2-witness-install.log" 2>&1; then
+            echo "D05_T2_WITNESS_DEPENDENCIES=PASS"
+          else
+            echo "D05_T2_WITNESS_DEPENDENCIES=FAIL"
+            exit 1
+          fi
+          if (cd "$witness" && npx --no-install playwright install chromium) > "$RUNNER_TEMP/d05-t2-witness-browser.log" 2>&1; then
+            echo "D05_T2_PLAYWRIGHT_BROWSER=PASS"
+          else
+            echo "D05_T2_PLAYWRIGHT_BROWSER=FAIL"
+            exit 1
+          fi
+          cd "$GITHUB_WORKSPACE/site"
+          D05_T2_WITNESS_COPY="$witness" node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          import { createHash } from "node:crypto";
+          import { resolve, join } from "node:path";
+          import { pathToFileURL } from "node:url";
+          const sha=(bytes)=>createHash("sha256").update(bytes).digest("hex");
+          let phase="START";
+          try {
+            phase="LOAD_SITE_AND_T2";
+            const site=resolve("."),build=join(site,"dist"),source=process.env.D05_T2_WITNESS_COPY;
+            const modulePath=join(source,"src/factory2/products/domain-completion/independent-browser-witness.mjs");
+            const {runIndependentSiteWitness}=await import(pathToFileURL(modulePath).href);
+            phase="IMPORT_WITNESS_COMPLETE";
+            const {makeD05DraftWitnessJourney}=await import(pathToFileURL(join(site,"scripts/prepare-d05-product-contract.mjs")).href);
+            phase="IMPORT_JOURNEY_COMPLETE";
+            const domain=JSON.parse(readFileSync(join(build,"_iwxa/domain.json"),"utf8"));
+            const passport=JSON.parse(readFileSync(join(build,"workspace/workspace.config.json"),"utf8"));
+            const relPath="workspace/workspace.config.json";
+            const runtime={
+              kernel:"0.3.6",contract:"1.3.0",
+              artifactId:domain.runtime.artifactId,
+              hostConfiguration:{path:relPath,sha256:sha(readFileSync(join(build,relPath)))}
+            };
+            if(passport.workspace_service_id!=="ru.5ibs.productionops.host"||
+               domain.status!=="local-candidate"||
+               domain.runtime.artifactId!=="iwxa-kernel-k036-same-store-history-20261019-qualified.1")
+              throw Error("D05_WITNESS_SUBJECT_MISMATCH");
+            const inventory={
+              serviceIds:domain.modules.map(m=>m.service_id),
+              routes:["/zakaz-v-ceh/"],
+              persistentFamilies:["production-order-draft"],
+              resultBindings:[{family:"production-order-draft",resultKind:"production-order-draft"}]
+            };
+            const contract={
+              runtime,
+              witness:{
+                runner:"T2_PLAYWRIGHT_KERNEL_READBACK",
+                previewOrigin:"LOOPBACK_TLS",
+                auditorMode:"ISOLATED_READ_ONLY",
+                journeys:[makeD05DraftWitnessJourney()]
+              },
+              productionActivation:false
+            };
+            phase="NATIVE_SITE_WITNESS";
+            const result=await runIndependentSiteWitness({
+              siteRoot:site,contract,inventory,buildDirectory:"dist",qualificationRoot:process.env.RUNNER_TEMP
+            });
+            phase="CHECK_EVIDENCE";
+            if(result.status!=="PASS"||result.runner!=="T2_OWNED_PLAYWRIGHT"||
+               result.observations?.length!==1||
+               result.observations[0].family!=="production-order-draft"||
+               result.observations[0].afterKernelRestart!==true||
+               result.observations[0].independentReader!==true||
+               result.observations[0].deniedWriteRejected!==true||
+               result.observations[0].historyPreserved!==true||
+               result.observations[0].noUndeclaredObjects!==true||
+               !/^[0-9a-f]{64}$/.test(result.observations[0].receiptSha256||""))
+              throw Error("D05_NATIVE_WITNESS_INCOMPLETE");
+            console.log("D05_REAL_T2_KERNEL_WITNESS=PASS");
+            console.log("D05_REAL_COMMIT_RECEIPT=PASS");
+            console.log("D05_INDEPENDENT_READBACK=PASS");
+            console.log("D05_COLD_BROWSER_RESTART=PASS");
+            console.log("D05_KERNEL_HISTORY=PASS");
+            console.log("D05_DENIED_WRITE_REJECTED=PASS");
+            console.log("D05_DRAFT_FAMILY_WITNESSED=1");
+            console.log("D05_FULL_26_FAMILY_WITNESS=NOT_RUN");
+            console.log("D05_IWXA_EXCHANGE=NOT_RUN");
+          } catch(error) {
+            const msg=String(error?.message??error);
+            const code=msg.match(/(?:FACTORY2|CEHOVOD|D05|ERR)_[A-Z0-9_]+/)?.[0]??"UNCLASSIFIED";
+            console.log("D05_REAL_T2_KERNEL_WITNESS=FAIL");
+            console.log("D05_WITNESS_ERROR_CODE="+code);
+            console.log("D05_WITNESS_PHASE="+phase);
+            const kind=String(error?.name??error?.constructor?.name??"Unknown").replace(/[^A-Za-z]/g,"");
+            console.log("D05_WITNESS_ERROR_CLASS="+kind);
+            const errCode=String(error?.code??"NONE");
+            console.log("D05_WITNESS_NODE_CODE="+(/^[A-Z0-9_]+$/.test(errCode)?errCode:"UNCLASSIFIED"));
+            const stack=String(error?.stack??"");
+            const known={
+              "T2_WITNESS":[...stack.matchAll(/independent-browser-witness\\.mjs:(\\d+):/g)].map(m=>m[1]),
+              "T2_SERVER":[...stack.matchAll(/real-kernel-e2e\\.mjs:(\\d+):/g)].map(m=>m[1]),
+              "D05_JOURNEY":[...stack.matchAll(/prepare-d05-product-contract\\.mjs:(\\d+):/g)].map(m=>m[1]),
+              "TEST_STDIN":[...stack.matchAll(/(?:eval1|stdin):(\\d+):/g)].map(m=>m[1]),
+            };
+            console.log("D05_WITNESS_STACK_LOCATIONS="+Object.entries(known).map(([k,v])=>k+":"+[...new Set(v)].slice(0,4).join(".")).join(","));
+            const categories=["ERR_MODULE_NOT_FOUND","ENOENT","EACCES","EPERM","TimeoutError","TypeError","ReferenceError","SyntaxError","RangeError","locator","browserType.launch","readFileSync"];
+            console.log("D05_WITNESS_ERROR_CATEGORY="+categories.filter(x=>msg.includes(x)||stack.includes(x)).join(","));
+            process.exitCode=1;
+          }
+          NODE
