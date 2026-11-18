@@ -10,6 +10,7 @@ on:
       - packages/t3-core/tests/g4-original-agent-native-windows.mjs
       - packages/t3-core/tests/g4-original-agent-native-driver.py
       - packages/t3-core/tests/g4-original-employee-bootstrap-driver.py
+      - packages/t3-core/tests/g4-original-employee-real-task-driver.py
       - packages/t3-core/tests/g4-production-original-kernel.browser.mjs
   workflow_dispatch:
 
@@ -43,6 +44,7 @@ jobs:
           node --check packages/t3-core/tests/g4-production-original-kernel.browser.mjs
           python -m py_compile packages/t3-core/tests/g4-original-agent-native-driver.py
           python -m py_compile packages/t3-core/tests/g4-original-employee-bootstrap-driver.py
+          python -m py_compile packages/t3-core/tests/g4-original-employee-real-task-driver.py
       - name: Stage the original qualified T2 Kernel and installed Edge adapter
         shell: pwsh
         run: |
