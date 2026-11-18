@@ -123,20 +123,37 @@ jobs:
           }
           Write-Output 'D02_SITE_NPM_CI=PASS'
 
-      - name: Run full current Club site source tests
+      - name: Run each site source suite and identify failures without leaking private logs
         id: site_tests
         if: steps.site_ci.outcome == 'success'
         continue-on-error: true
         working-directory: site
         shell: pwsh
         run: |
-          $log=Join-Path $env:RUNNER_TEMP 'club-site-tests-private.log'
-          & npm run test *> $log
-          $code=$LASTEXITCODE
-          if($code -ne 0) {
-            Write-Output "D02_SITE_TESTS=FAIL exit=$code"
-            Get-Content $log | Select-String -Pattern '^not ok\b|^# (tests|pass|fail)\b|^npm error (code|errno)|^Error: (CLUB_|T2_)' | Select-Object -Last 40 | ForEach-Object { Write-Output $_.Line }
-            exit $code
+          $suite = (Get-Content package.json -Raw | ConvertFrom-Json).scripts.test
+          $commands = @([regex]::Split($suite, '\\s+&&\\s+'))
+          if ($commands.Count -lt 35) { throw 'D02_SITE_SUITE_LIST_INCOMPLETE' }
+          $failed = [System.Collections.Generic.List[string]]::new()
+          $count = 0
+          foreach ($command in $commands) {
+            if ($command -notmatch '^npm run (test:[A-Za-z0-9-]+)$') { throw 'D02_SITE_TEST_COMMAND_INVALID' }
+            $script = $Matches[1]
+            $safe = $script.Replace(':','-')
+            $log = Join-Path $env:RUNNER_TEMP ("club-private-" + $safe + ".log")
+            & npm run $script *> $log
+            $code = $LASTEXITCODE
+            $count++
+            if ($code -ne 0) {
+              $failed.Add($script)
+              Write-Output "D02_SITE_TEST_FAIL=$script exit=$code"
+              $codes = @(Get-Content $log | Select-String -Pattern '^Error: (CLUB_[A-Z0-9_]+|T2_[A-Z0-9_]+)' | Select-Object -Last 3)
+              foreach ($item in $codes) { Write-Output ("D02_SITE_TEST_CODE=" + $item.Line.Trim()) }
+            }
+          }
+          Write-Output "D02_SITE_TEST_SUITE_COUNT=$count"
+          if ($failed.Count -gt 0) {
+            Write-Output "D02_SITE_TESTS=FAIL failed_count=$($failed.Count)"
+            exit 1
           }
           Write-Output 'D02_SITE_TESTS=PASS'
 
