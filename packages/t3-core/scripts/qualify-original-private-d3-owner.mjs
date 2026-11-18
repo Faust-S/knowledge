@@ -109,6 +109,21 @@ export async function runOriginalPrivateOwnerSourceCheck({token,fetchFile=getExa
     });
     const [tests,passed,failed]=metrics;
     const targeted=stdout.includes(EXPECT);
+    const rawFailure=stdout+'\n'+(child.stderr??'');
+    const knownFailure=[
+      ['ERR_MODULE_NOT_FOUND','MISSING_IMPORT'],
+      ['Cannot find package','MISSING_PACKAGE'],
+      ['ENOENT','MISSING_RUNTIME_FILE'],
+      ['ERR_INVALID_PACKAGE_CONFIG','INVALID_PACKAGE_CONFIG'],
+      ['SyntaxError','SYNTAX_ERROR'],
+      ['ReferenceError','RUNTIME_REFERENCE_ERROR'],
+      ['AssertionError','TEST_ASSERTION'],
+      ['ERR_MODULE','MODULE_LOADING_ERROR'],
+      ['ERR_','NODE_RUNTIME_ERROR'],
+    ].find(([needle])=>rawFailure.includes(needle))?.[1]??
+      'UNCLASSIFIED_NATIVE_TEST_FAILURE';
+    if(child.status!==0||child.error||!targeted)
+      console.log('T3_PRIVATE_D3_SOURCE_FAILURE_CLASS',knownFailure);
     console.log('T3_PRIVATE_D3_SOURCE_MODULES_READ',count);
     console.log('T3_PRIVATE_D3_ORIGINAL_SUITE',
       `tests=${tests??'unknown'} pass=${passed??'unknown'} fail=${failed??'unknown'}`);
