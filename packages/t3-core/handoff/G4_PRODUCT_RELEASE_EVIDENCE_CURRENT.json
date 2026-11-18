@@ -734,7 +734,20 @@
           "installed_admin_center_gui": "NOT_RUN",
           "installed_agent_gui": "NOT_RUN"
         },
-        "privacy": "Private originals read using scoped read-only GitHub secret on PUBLIC knowledge Windows runner; exact original source was ephemeral, not published or uploaded. No private repo Actions. Public visible status codes and pins only."
+        "privacy": "Private originals read using scoped read-only GitHub secret on PUBLIC knowledge Windows runner; exact original source was ephemeral, not published or uploaded. No private repo Actions. Public visible status codes and pins only.",
+        "production_owner_followup_2026_11_18": {
+          "run_id": 44383462807,
+          "conclusion": "SUCCESS",
+          "signed_task_result_accept_and_employee_cold": "PASS",
+          "original_production_admin_owner_cold": "PASS",
+          "original_t3_files": 50,
+          "agent_files": 2,
+          "original_source_pin": "19be10c557618f5c8b476a739c8fc4ca0fa2ac7f",
+          "agent_source_pin": "cc00beceb5dcabc68662cd077ce4236a695ca576",
+          "production_issuer_not_same_as_test_task_issuer": true,
+          "installed_gui": "NOT_RUN",
+          "kernel_apply": "NOT_RUN"
+        }
       }
     },
     "admin_center": {
@@ -1373,6 +1386,28 @@
         "original_owner_sha_unchanged": true,
         "interpretation": "Token/API capacity limitation. Does not invalidate prior exact private owner source test job 15/15 PASS, but no new source pass may be inferred from rate-limited run.",
         "mitigation": "Original private source reads require explicit trusted commit marker [qualify-original-d3] or manual dispatch. No repeat on ordinary harness changes."
+      },
+      "native_production_owner_windows_2026_11_18": {
+        "public_knowledge_run_id": 44383462807,
+        "exact_knowledge_sha": "32ed9091c8ba0854c8ffbe56f97617e46c975351",
+        "conclusion": "SUCCESS",
+        "original_private_t3_owner_sha": "19be10c557618f5c8b476a739c8fc4ca0fa2ac7f",
+        "agent_source_sha": "cc00beceb5dcabc68662cd077ce4236a695ca576",
+        "original_private_files_read": 50,
+        "original_agent_files_read": 2,
+        "production_os": "windows-2022",
+        "production_owner_module": "interop/native-admin-d3.mjs",
+        "original_custody": "WINDOWS_DPAPI_CURRENT_USER",
+        "production_profile_enrolled": true,
+        "separate_node_process_cold_readback": true,
+        "owner_state": "ORIGINAL_SIGNED_CORPORATE_D3",
+        "owner_ready": true,
+        "release_t3_ready": false,
+        "legacy_test_employee_scenario": "FOUR_SAME_SNAPSHOT_MARKERS_PASS",
+        "private_source_published": false,
+        "private_source_uploaded": false,
+        "ephemeral_removed": true,
+        "scope": "Original production issuer enrollment and cold open is real Windows native process source qualification using synthetic organization identifiers; original employee Task/Result still in independently verified TEST ceremony. No installed two Tauri GUI, native Kernel APPLY, dual cold original Kernel Objects/Events or end-to-end PRODUCTION independent employee."
       }
     }
   },
@@ -1384,7 +1419,7 @@
     "D6_main_native_sender": "CORE_SOURCE_PASS",
     "D7_native_age_prior": "PASS_NOT_REPEATED_IN_LATEST_CI",
     "installed_original_private_d6": "HOLD",
-    "installed_employee_d1_d3": "HOLD_NATIVE_TWO_PROCESS_ORIGINAL_T3_AGENT_D3_PASS_44382224189__SEPARATE_ORIGINAL_KERNEL_APPLY_DUAL_COLD_AND_INSTALLED_GUI_NOT_RUN",
+    "installed_employee_d1_d3": "HOLD_REAL_NATIVE_TEST_AGENT_TASK_RESULT_ACCEPT_COLD_PASS_AND_PRODUCTION_ADMIN_COLD_PASS_44383462807__PRODUCTION_INDEPENDENT_EMPLOYEE_ENROLLMENT_ORIGINAL_KERNEL_APPLY_AND_INSTALLED_GUI_NOT_RUN",
     "installed_agent_atlas_d6": "HOLD",
     "installed_publisher_d7": "HOLD",
     "cross_product_G4": "NOT_ACCEPTED",
@@ -1411,11 +1446,12 @@
     "T3_D3_ORIGINAL_ACCEPT_RECEIPT": "CORE_SOURCE_CANONICAL_RECEIPT_AND_COLD_DECISION_VALIDATION_PASS_44318043133__PRIVATE_INSTALLED_D3_HOLD",
     "D3_original_human_accept_receipt": "SOURCE_COMPLETE_5000_ROW_ORIGINAL_ACCEPT_RECEIPT_PASS_44338888023__INSTALLED_NATIVE_OWNER_HOLD",
     "ORIGINAL_PRIVATE_D3_OWNER_SOURCE": "ORIGINAL_OWNER_MULTI_EMPLOYEE_15_OF_15_SOURCE_PASS_KNOWLEDGE_44370068755_JOB_135034132307__WORKFLOW_CANCELLED_AFTER_JOB__INSTALLED_D3_HOLD",
-    "D3_NATIVE_ORIGINAL_AGENT_PROCESS": "REAL_PRIVATE_T3_AND_AGENT_NODE_PYTHON_WINDOWS_SIGNED_TASK_RESULT_ACCEPT_COLD_RECOVERY_PASS_44382224189__SYNTHETIC_SIGNED_FIXTURE__KERNEL_APPLY_AND_INSTALLED_GUI_NOT_RUN"
+    "D3_NATIVE_ORIGINAL_AGENT_PROCESS": "ORIGINAL_PRIVATE_WINDOWS_NODE_PYTHON_SIGNED_TEST_EMPLOYEE_FOUR_MARKERS_AND_SEPARATE_PRODUCTION_ADMIN_COLD_PASS_44383462807__INSTALLED_GUI_AND_KERNEL_NOT_RUN",
+    "D3_ORIGINAL_NATIVE_WINDOWS_PRODUCTION_OWNER": "PRODUCTION_ORIGINAL_T3_WIN_DPAPI_ADMIN_ENROLLMENT_INDEPENDENT_COLD_NODE_READBACK_PASS_44383462807__INDEPENDENT_PRODUCTION_EMPLOYEE_AND_KERNEL_HOLD"
   },
   "next_critical_path": [
     "Release scope is PRODUCT_NEUTRAL_T3. Keep normative original T2 Kernel/Host/Workspace/Exchange/Lifecycle integrated in ONE T3. Use current exact public One Core CI + installed Agent test; never interpret source PASS as installed owner.",
-    "Priority 1 D1/D3 WITHOUT ATLAS: access to both independent private original T3 and Agent is confirmed. Real original Windows native Node/Python two-process signed Task -> signed Result -> original Admin ACCEPT -> cold receipt and no repeat export SUCCESS #44382224189 on exact knowledge 68b8d893, private T3 19be10c5 and Agent cc00bece; 49 + 2 transient original files, DPAPI CurrentUser, no private artifact upload. This is synthetically signed TEST organization and native PROCESS qualification, not installed Tauri. Next: separate original T2 Kernel APPLY with independent Human APPLY confirmation and double-cold Object/Event readback, then independently installed Admin/Agent GUI. Avoid redundant Atlas intermediary and no second Kernel/Host/IAM/Store/Exchange.",
+    "Priority 1 D1/D3, Atlas optional: exact original private Windows native run #44383462807 full SUCCESS 5 markers, 50 bounded T3 original files + 2 Agent, original TEST signed Task/Result Admin ACCEPT/cold Agent; additional truly PRODUCTION Windows DPAPI Admin D3 enrollment + independently cold restarted Node owner state. Those are SEPARATE native scenarios, not yet same independently credentialed production employee. Next join existing installed owner production employee credential enrollment and original inherited T2 Kernel (no alternative Store/issuer), separate Human APPLY and two cold Kernel Object/Event readbacks, then installed Admin+Agent Tauri GUI. No native private Actions or public private source artifacts.",
     "Priority 2 D5: exact combined original source #44340207574 attempt 2 SUCCESS, real macOS Apple Metal WebLLM signed Host and independent domain second cold offline generation, zero network, original T2 0.3.6 Object/Event readback and two corporate cold opens, Node 792/792, Host/Windows PASS. This is SOURCE hardware qualification; native private installed D5 remains NOT_RUN. Don't indiscriminately rerun metal.",
     "Priority 3 D6 GENERIC: completed public full original D1 signed-context canonicalization incl. nested+new fields, Node source 792/792 PASS #44339359842. Still need genuine accepted Result from installed independent Agent/domain -> explicitly authorized recipient without mandatory Atlas, original native owner durable readback/lost-ACK recovery. A public contract fixture is not native E2E.",
     "Priority 4 D7: original Publisher PERSON issue/renew/status/revoke with installed consumer and cold readback, independent of Atlas.",
@@ -1466,8 +1502,8 @@
     "t3_ready": false,
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
-    "original_private_native_signer": "SOURCE_15_OF_15_AND_REAL_WIN_NATIVE_TWO_PROCESS_SIGNED_TEST_FIXTURE_PASS_44382224189__INDEPENDENT_INSTALLED_ISSUER_GUI_HOLD",
-    "independent_installed_d3": "HOLD_REAL_NATIVE_SIGNED_TASK_RESULT_ACCEPT_COLD_PASS_44382224189__ORIGINAL_KERNEL_APPLY_AND_INSTALLED_ADMIN_AGENT_GUI_NOT_RUN",
+    "original_private_native_signer": "ORIGINAL_PRODUCTION_WINDOWS_DPAPI_SIGNED_ADMIN_OWNER_ENROLLED_COLD_PASS_44383462807__INDEPENDENT_EMPLOYEE_INSTALLED_AND_KERNEL_APPLY_NOT_RUN",
+    "independent_installed_d3": "HOLD_PRODUCTION_ADMIN_COLD_PASS_AND_SEPARATE_TEST_AGENT_FOUR_PASS_44383462807__CROSS_PRODUCTION_EMPLOYEE_KERNEL_AND_GUI_NOT_RUN",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
