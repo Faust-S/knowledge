@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      SITE_SHA: 9985de20940f2bc91e0be01273940320393e7044
+      SITE_SHA: b41744d1eae7b44525f4414cf5ea4d303ef0bb96
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
     steps:
@@ -55,6 +55,7 @@ jobs:
           import { situations } from "./src/data/situations.ts";
           import { tools } from "./src/data/tools.ts";
           import { siteRoutes, qualificationRoutes } from "./src/site-routes.ts";
+          import { getContentReport } from "./src/lib/serviceQuality.ts";
 
           const counts = {
             categories: categories.length,
@@ -80,6 +81,20 @@ jobs:
             detailed_full_risk: services.filter(x=>(x.riskFactors?.length??0)>=5).length,
             detailed_full_acceptance: services.filter(x=>(x.acceptanceChecklist?.length??x.acceptance?.length??0)>=7).length,
           };
+          const quality = getContentReport();
+          Object.assign(counts, {
+            subject_ready_models: quality.ready,
+            subject_mvp_models: quality.mvp,
+            quality_publishable_models: quality.publishable,
+            quality_thin_models: quality.thin,
+            quality_duplicate_titles: quality.duplicateTitles.length,
+            quality_duplicate_descriptions: quality.duplicateDescriptions.length,
+            quality_similar_introductions: quality.similarIntros.length,
+            quality_no_related: quality.noRelated.length,
+            quality_no_faq: quality.noFaq.length,
+            quality_no_acceptance: quality.noAcceptance.length,
+            quality_unknown_categories: quality.categoriesMissing.length,
+          });
           for (const [key,value] of Object.entries(counts)){
             if(!Number.isSafeInteger(value)||value<0) throw Error("D07_INVENTORY_BAD_COUNT");
             console.log("D07_INVENTORY_"+key.toUpperCase()+"="+value);
