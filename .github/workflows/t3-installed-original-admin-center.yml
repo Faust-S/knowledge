@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/t3-installed-original-admin-center.yml
       - packages/t3-core/tests/g4-installed-original-center-smoke.ps1
+      - packages/t3-core/tests/g4-installed-original-center-first-use.ps1
       - packages/t3-core/tests/g4-installed-original-one-dist-preflight.mjs
   workflow_dispatch:
 
@@ -238,6 +239,15 @@ jobs:
             -CenterRoot '.private/center' -OriginalT3Root '.private/t3' `
             -ExpectedCenterSha '0a5b8ccd5f1f0169da13edc4429508884fd0bbb2' `
             -ExpectedT3Sha 'ea1700ec0ce8524ead8b30f23ddb7a8611597ba8'
+      - name: Native UIA first-use cancel, real signed organization enrollment and cold restart
+        shell: pwsh
+        timeout-minutes: 9
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:G4_INSTALLED_CENTER_ROOT)){
+            throw 'G4_INSTALLED_CENTER_ROOT_NOT_ATTESTED'
+          }
+          ./packages/t3-core/tests/g4-installed-original-center-first-use.ps1 `
+            -InstallRoot $env:G4_INSTALLED_CENTER_ROOT
       - name: Destroy private source, native binaries and build logs
         if: always()
         shell: pwsh
