@@ -250,9 +250,21 @@
           },
           "installed_native_ci": {
             "run_id": 44285788148,
-            "status": "IN_PROGRESS_AT_OBSERVATION",
-            "conclusion": null,
-            "claim_boundary": "Actual Windows Atlas 0.9 install still being qualified on same source; no private ORIGINAL T3 recipient"
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "head_sha": "19ea3d228c585a1c50e749632c2f2df1a71c7c33",
+            "scope": "Actual Windows Atlas 0.9.0-dev.1 Tauri build, genuine original Setup Core install, Rust U05 Store unit tests, large .iwxa portfolio GUI import, two native work changes, cold restart, and TWO independent cold native U05 reads; original private Ed25519 recipient NOT installed or executed",
+            "proofs": [
+              "ATLAS09_ONE_DIST_SIGNED_HOST_PASS",
+              "ATLAS09_SETUP_CORE_PACKAGE_PASS",
+              "ATLAS09_SETUP_CORE_NATIVE_INSTALL_PASS",
+              "ATLAS09_RC_INSTALLER_SHA256_PASS",
+              "ATLAS08_CLEAN_SETUP_IMPORT_COLD_RESTART_PASS",
+              "ATLAS08_INSTALLED_CUMULATIVE_CORRECTIONS_SAVE_RESTART_PASS",
+              "ATLAS09_INSTALLED_PRODUCT_VERSION_PASS",
+              "ATLAS09_STANDALONE_NO_FAKE_T3_OWNER_PASS",
+              "ATLAS09_TWO_COLD_INSTALLED_STORE_READBACK_PASS"
+            ]
           },
           "behavior": "Atlas signed-file Human Review blocks repeat of the same native CAS attempt after uncertain ACK; signed recipient attempts at most one native commit, then reads actual original U05 snapshot; only its matching persisted decision with fresh recipient trust/grant and Atlas authorization may confirm. Lost ACK before CAS remains unknown. Revoked original grant after native write must block confirmed success, even when U05 Decision persisted.",
           "source_commits": [
@@ -263,7 +275,31 @@
           ],
           "origin_trust_owner": "NOT_MOUNTED_IN_STANDALONE_NATIVE_ATLAS",
           "signed_private_end_to_end": "NOT_ACCEPTED"
+        },
+        "native_ci_at_new_head": {
+          "run_id": 44285788148,
+          "status": "COMPLETED",
+          "conclusion": "SUCCESS",
+          "head_sha": "19ea3d228c585a1c50e749632c2f2df1a71c7c33",
+          "scope": "Actual Windows Atlas 0.9.0-dev.1 Tauri build, genuine original Setup Core install, Rust U05 Store unit tests, large .iwxa portfolio GUI import, two native work changes, cold restart, and TWO independent cold native U05 reads; original private Ed25519 recipient NOT installed or executed",
+          "proofs": [
+            "ATLAS09_ONE_DIST_SIGNED_HOST_PASS",
+            "ATLAS09_SETUP_CORE_PACKAGE_PASS",
+            "ATLAS09_SETUP_CORE_NATIVE_INSTALL_PASS",
+            "ATLAS09_RC_INSTALLER_SHA256_PASS",
+            "ATLAS08_CLEAN_SETUP_IMPORT_COLD_RESTART_PASS",
+            "ATLAS08_INSTALLED_CUMULATIVE_CORRECTIONS_SAVE_RESTART_PASS",
+            "ATLAS09_INSTALLED_PRODUCT_VERSION_PASS",
+            "ATLAS09_STANDALONE_NO_FAKE_T3_OWNER_PASS",
+            "ATLAS09_TWO_COLD_INSTALLED_STORE_READBACK_PASS"
+          ]
         }
+      },
+      "windows_ci_latest": {
+        "run_id": 44285788148,
+        "conclusion": "SUCCESS",
+        "source_sha": "19ea3d228c585a1c50e749632c2f2df1a71c7c33",
+        "scope": "Installed independent Atlas 0.9 product and original Store; signed private original recipient unmounted, no signed D6 import"
       }
     },
     "publisher": {
@@ -642,8 +678,8 @@
     "D6_original_nested_kernel_csp": "CORE_SOURCE_PASS_NOT_INSTALLED",
     "D6_original_one_dist_setup_materialization": "ORIGINAL_T2_AGENT_NATIVE_ONE_DIST_AND_INSTALLED_SETUP_TRUE_REPAIR_PASS_44282434511",
     "D6_original_product_identity_guard": "INSTALLED_SOURCE_PASS_PRIOR_MODEL_FREE_CANDIDATE",
-    "G4_portable_selected_result_data": "ATLAS_SIGNED_SELECTED_UI_AND_LOST_ACK_CURRENT_GRANT_747_SOURCE_PASS_PRIVATE_INSTALLED_SIGNED_E2E_HOLD",
-    "D6_original_atlas_ui_kernel_gate": "SIGNED_FILE_SOURCE_747_PASS_NATIVE_ATLAS_44285788148_PENDING_PRIVATE_ORIGINAL_SIGNED_RECIPIENT_HOLD",
+    "G4_portable_selected_result_data": "ATLAS09_SIGNED_FILE_747_SOURCE_AND_INSTALLED_PRODUCT_44285788148_PASS_PRIVATE_SIGNED_E2E_HOLD",
+    "D6_original_atlas_ui_kernel_gate": "SIGNED_SELECTED_FILE_UI_AND_LOST_ACK_747_SOURCE_PASS_ATLAS09_NATIVE_44285788148_PASS_PRIVATE_ORIGINAL_RECIPIENT_NOT_MOUNTED_HOLD",
     "D6_original_native_model_free_control": "AGENT_NATIVE_GUI_44178292091_PASS_SIGNED_PRIVATE_E2E_HOLD",
     "D6_original_setup_core_06_native_executable": "TRUE_EXE_NATIVE_INSTALL_AND_CORRUPTED_ORIGINAL_T2_REPAIR_PASS_44282434511_POSTWRITE_ROLLBACK_HOLD"
   },
