@@ -62,10 +62,16 @@ export async function qualifyOriginalAgentD3Source({
     const output=(run.stdout??'')+'\n'+(run.stderr??'');
     const count=output.match(/\bRan (\d+) tests? in \d+(?:\.\d+)?s\b/);
     const passed=run.status===0&&/^\s*OK\s*$/m.test(output);
-    const targetStatus=output.match(
-      new RegExp(TARGET+'[^\\n]*\\.\\.\\. (ok|FAIL|ERROR)','m')
-    )?.[1]??'NOT_FOUND';
-    const targeted=targetStatus==='ok';
+    // unittest -v emits a test docstring on a separate line before
+    // "... ok". The full 11-test suite must succeed; do not require an
+    // individual test name and its result marker on the SAME output line.
+    const targetListed=output.split(/\r?\n/).some(line=>
+      line.trimStart().startsWith(TARGET+' ('));
+    const noSkipped= !/\bskipped=\d+\b/.test(output)&&
+      !/\.\.\.\s+skipped\b/i.test(output);
+    const targeted=passed&&targetListed&&noSkipped;
+    const targetStatus=targetListed?
+      targeted?'PASS':'SUITE_FAILED_OR_SKIPPED':'NOT_FOUND';
     const testLines=output.split(/\r?\n/).filter(line=>
       /^test_[A-Za-z0-9_]+\s+\(.+\)\s+\.\.\.\s+(?:ok|FAIL|ERROR)$/.test(line));
     const failedIndices=testLines.flatMap((line,index)=>
