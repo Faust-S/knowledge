@@ -493,6 +493,27 @@
           "prior_draft_still_readable": true
         },
         "qualification_boundary": "PASS on compiled PUBLIC source and test-only signed owner. Original installed private issuer and Agent employee NOT_RUN; native D5 product and G4 remain NOT_ACCEPTED."
+      },
+      "source_qualification_bounded_g4_2026_11_18": {
+        "source_sha": "9343f142a9a34c50b45bd123a151b3a3ffbd143c",
+        "run_id": 44370908033,
+        "conclusion": "SUCCESS",
+        "jobs": {
+          "test": "SUCCESS",
+          "real_host": "SUCCESS",
+          "windows_credential": "SUCCESS",
+          "metal_webgpu": "SKIPPED",
+          "native_age": "SKIPPED",
+          "native_model": "SKIPPED"
+        },
+        "node_tests": {
+          "total": 801,
+          "pass": 801,
+          "fail": 0
+        },
+        "scope": "Latest PUBLIC One Core successor source regression including new bounded owner/Agent private test harness self-tests. T3 executable source unchanged from dee7ecba; Apple Metal proof is a SEPARATE earlier exact same executable code witness #44340207574 attempt 2, not a new GPU pass on this docs/test head.",
+        "private_original_owner": "15/15 independent SOURCE tests at job #135034132307, overall workflow later CANCELLED after success",
+        "native_agent_e2e": "NOT_RUN"
       }
     },
     "private_original_d6": {
@@ -1470,7 +1491,7 @@
       "offline_cold_restart": "NOT_RUN",
       "note": "macos-15 GitHub public runner never allocated; test and real-host and windows-credential PASS do not qualify hardware D5. Do not retry macOS indiscriminately or promote D5. Use a genuinely hardware-enabled system to collect exact original Host/browser cold offline two-generation evidence."
     },
-    "source_integrity_latest": "COMBINED_792_OF_792_REAL_HOST_WINDOWS_CREDENTIAL_AND_APPLE_METAL_GPU_PASS_44340207574_ATTEMPT2",
+    "source_integrity_latest": "PUBLIC_NODE_801_OF_801_REAL_HOST_AND_WINDOWS_CREDENTIAL_SUCCESS_44370908033_AT_9343f142__METAL_SKIPPED_EXACT_REVISION__PRIOR_APPLE_METAL_44340207574_ATTEMPT2_UNCHANGED_EXECUTABLE",
     "latest_verified_code_sha": "dee7ecba2c2ed2716812d412366d137bf184815f"
   }
 }
