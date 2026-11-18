@@ -72,6 +72,33 @@
           }
         },
         "coverage": "generic native recipient domain:bazmed with no Atlas WorkRef/no signed file, original JIT T2 read, one owner commit and two contract-cold readbacks. PUBLIC FIXTURE, not installed BazMed recipient."
+      },
+      "d3_event_payload_parity_2026_11_18": {
+        "source_commit": "68993fe53b63e572398852597861b8dc701c5a48",
+        "file": "packages/t3-core/src/t3/reconciliation-kernel-apply.mjs",
+        "scenario": "Original T2 commitObjectGraph persists complete caller Event JSON; D3 immediate original receipt and independent Event readback, plus lost-ACK read-only recovery, now match the ENTIRE event.payload independent of key ordering. Altered extra provenance field cannot be counted as the accepted application.",
+        "tests": "packages/t3-core/tests/t3-reconciliation-kernel-apply.test.mjs",
+        "ci": {
+          "repository": "Faust-S/knowledge",
+          "run_id": 44298427228,
+          "head_sha": "68993fe53b63e572398852597861b8dc701c5a48",
+          "conclusion": "SUCCESS",
+          "jobs": {
+            "test": "SUCCESS",
+            "real_host": "SUCCESS",
+            "windows_credential": "SUCCESS",
+            "native_model": "SKIPPED",
+            "metal_webgpu": "SKIPPED",
+            "native_age": "SKIPPED"
+          },
+          "node_current_core": {
+            "tests": 778,
+            "pass": 778,
+            "fail": 0
+          },
+          "scope": "public original T2/Host tests; private original signed Admin ACCEPT/APPLY installed E2E NOT_RUN"
+        },
+        "acceptance": "CORE_SOURCE_PASS_NOT_INSTALLED_PRIVATE_D3"
       }
     },
     "private_original_d6": {
@@ -757,11 +784,12 @@
     "T3_GENERIC_D6": "SOURCE_GENERIC_NATIVE_DOMAIN_CONTRACT_PASS_44293606966_INSTALLED_INDEPENDENT_RECIPIENT_NOT_ACCEPTED",
     "T3_ATLAS_CONNECTED_PROGRAM": "AGENT_ATLAS_FILE_WORKREF_ONLY_NO_U04_NATIVE_ATLAS_NOT_ACCEPTED__CENTER_CEN05_SEPARATE",
     "T3_ATLAS_SIGNED_FILE_OPTIONAL": "SOURCE_SIGNED_RECIPIENT_AND_INSTALLED_ATLAS_PRODUCT_PASS_PRIVATE_SIGNED_E2E_NOT_ACCEPTED_OPTIONAL_PROFILE",
-    "T3_UNIVERSAL_RELEASE": "NOT_ACCEPTED_D1_D3_D5_D6_GENERIC_D7_HOLD"
+    "T3_UNIVERSAL_RELEASE": "NOT_ACCEPTED_D1_D3_D5_D6_GENERIC_D7_HOLD",
+    "D3_original_kernel_full_event_parity": "CORE_SOURCE_PASS_44298427228__PRIVATE_INSTALLED_ADMIN_AGENT_D3_HOLD"
   },
   "next_critical_path": [
     "Release scope is PRODUCT_NEUTRAL_T3. Keep normative original T2 Kernel/Host/Workspace/Exchange/Lifecycle integrated in ONE T3. Use current exact public One Core CI + installed Agent test; never interpret source PASS as installed owner.",
-    "Priority 1 D1/D3 WITHOUT ATLAS: actual independent Admin user and independently credentialed Agent employee, original signed Task, real Result/Human ACCEPT, separate Kernel APPLY with original Event/Object and TWO cold reads. CEN02 legacy requires Atlas work today: fix only its conditional project profile; do not weaken project WorkRef currentness.",
+    "Priority 1 D1/D3 WITHOUT ATLAS: installed independent Admin manager + credentialed Agent employee; original signed Task -> actual Result -> Human ACCEPT -> separate original Kernel APPLY -> 2 cold original readbacks. CEN02 unconditional Atlas WorkRef requirement was fixed in Center PR #2, merge 81eff021, installed CI #44297185822 SUCCESS; genuine private issuer/employee cross-product D3 remains HOLD.",
     "Priority 2 D5 HARDWARE OFFLINE: qualify actual WebGPU inference and second fully offline cold restart in same original T3 Host, not the mock/headless source CI.",
     "Priority 3 D6 GENERIC: prove one real accepted Result from original Agent or domain and one authorized recipient OTHER THAN OR WITHOUT Atlas, actual native owner receipt and read-only recovery; signed offline .iwxa only when independent exchange required.",
     "Priority 4 D7: original Publisher PERSON issue/renew/status/revoke with installed consumer and cold readback, independent of Atlas.",
@@ -858,6 +886,16 @@
       "ATLAS_U01_U04_WINDOW",
       "ATLAS_OWNER_COMMAND",
       "SIGNED_ATLAS_FILE_D6"
-    ]
+    ],
+    "hardware_d5_requested_2026_11_18": {
+      "execution": "PUBLIC_MACOS_15_EXISTING_METAL_WEBGPU_WORKFLOW_OPT_IN",
+      "no_new_runtime_or_workflow": true,
+      "prior_mac_runner_allocation": "#43233365753 no runner allocated, not a hardware PASS",
+      "expected_tests": [
+        "t3-d1-signed-control-one-dist.browser.mjs",
+        "t3-d5-full-bli.browser.mjs"
+      ],
+      "status": "REQUESTED_NOT_YET_QUALIFIED"
+    }
   }
 }
