@@ -334,6 +334,21 @@
           "cross_version_rollback": "NOT_RUN",
           "private_original_signer": "NOT_RUN",
           "independent_atlas_receiver": "NOT_RUN"
+        },
+        "real_managed_file_repair_run": {
+          "id": 44282434511,
+          "status": "IN_PROGRESS_AT_OBSERVATION",
+          "center_sha": "7c00ced13ecebbcb4f3d32d184074a887bc0269e",
+          "scope": "Installed original T2 One Dist _iwxa/domain.json is intentionally corrupted in disposable native Windows install, then SAME native Setup EXE must restore exact pre-damage managed manifest SHA and preserve separate user marker. Invalid nested root refusal must match specific native validation message.",
+          "not_yet_qualified": true
+        },
+        "post_write_rollback_gap": {
+          "status": "NOT_RUN_OR_IMPLEMENTED_IN_G4_AGENT_SILENT_INSTALL",
+          "source_owner": "Faust-S/iwxa-personal-agent/windows/setup/IwxaPersonalSetup.Engine.Install.cs",
+          "finding": "Current Agent native Setup Existing branch calls the original Python package installer with --replace-existing-release in place. Same-version repair and fail-closed bad paths do NOT prove rollback after post-write failure or between 0.5 and 0.6.",
+          "not_rollback": "Existing runtime/explorer_windows_release_switch.py plus tools/apply_explorer_windows_release_switch.ps1 is an intentionally forward-only governed update and deletes the previous binary tree. Do NOT misreport that mechanism as rollback.",
+          "qualified_prior_independent_mechanism": "Faust-S/Center/installer/windows/SetupCore.Switch.cs contains an original owned-releases backup/rollback mechanism but is NOT the same Agent 0.6 Setup EXE path. Do not claim its standalone tests qualify Agent G4.",
+          "next_gate": "Use existing native owned-release rollback if proven compatible with Agent's actual package and data authority; otherwise keep native post-write rollback HOLD until true disposable 0.5 -> 0.6 upgrade/failure/recovery readback passes. Never invent second updater."
         }
       }
     },
