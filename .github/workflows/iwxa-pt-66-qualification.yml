@@ -32,6 +32,7 @@ jobs:
           ref: 6837d8d43d19fd2b38f693d83a169803cdb5a9fa
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
+          fetch-depth: 0
           path: pt-site
       - uses: actions/setup-node@v4
         with:
@@ -51,6 +52,8 @@ jobs:
               echo "$label=PASS"
             else
               echo "$label=FAIL_exit_$status"
+              echo "$label last error lines (redacted diagnostic):"
+              grep -Ei "fatal:|Error:|error:|AssertionError|not found|not a valid|unknown revision|PT_|FAIL" "$RUNNER_TEMP/iwxa-pt-$label.log" | sed -E "s#[[:alnum:]_.-]+/[[:alnum:]_./-]+#<path>#g" | tail -n 4 || true
               failures=$((failures + 1))
             fi
           }
@@ -93,6 +96,7 @@ jobs:
           ref: 6837d8d43d19fd2b38f693d83a169803cdb5a9fa
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
+          fetch-depth: 0
           path: pt-site
       - uses: actions/setup-node@v4
         with:
@@ -138,6 +142,8 @@ jobs:
               echo "$label=PASS"
             else
               echo "$label=FAIL_exit_$status"
+              echo "$label last error lines (redacted diagnostic):"
+              grep -Ei "fatal:|Error:|error:|AssertionError|not found|not a valid|unknown revision|PT_|FAIL" "$RUNNER_TEMP/iwxa-pt-$label.log" | sed -E "s#[[:alnum:]_.-]+/[[:alnum:]_./-]+#<path>#g" | tail -n 4 || true
               failures=$((failures + 1))
             fi
           }
