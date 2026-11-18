@@ -1,0 +1,55 @@
+name: D07 private ESLint locations (metadata only)
+on:
+  push:
+    branches: [work/2026-11-18-d07-case10-qualification]
+    paths: [.github/workflows/d07-eslint-diagnostic.yml]
+permissions:
+  contents: read
+jobs:
+  lint-locations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 699b4f520b4a4ae29964a8aaca87f3ae9b25c223
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - name: Emit ONLY ESLint rule identifiers and relative source locations
+        shell: pwsh
+        working-directory: site
+        run: |
+          $ErrorActionPreference='Stop'
+          $locklog=Join-Path $env:RUNNER_TEMP 'd07-ephemeral-lock-private.log'
+          & bun install --lockfile-only --ignore-scripts *> $locklog
+          if($LASTEXITCODE -ne 0){throw 'D07_LINT_DEPENDENCY_LOCK_FAILURE'}
+          & bun install --frozen-lockfile *> $locklog
+          if($LASTEXITCODE -ne 0){throw 'D07_LINT_DEPENDENCY_INSTALL_FAILURE'}
+          $log=Join-Path $env:RUNNER_TEMP 'd07-lint-json-private.log'
+          & ./node_modules/.bin/eslint . --rule 'prettier/prettier: off' --format json *> $log
+          $code=$LASTEXITCODE
+          $parsed=Get-Content $log -Raw | ConvertFrom-Json
+          $problems=0
+          foreach($file in $parsed){
+            $relative=[IO.Path]::GetRelativePath((Get-Location).Path,$file.filePath).Replace('\','/')
+            foreach($message in $file.messages){
+              if($message.severity -ne 2){continue}
+              $problems++
+              # File path, line, severity and rule only; no source, messages or snippets.
+              Write-Host "D07_LINT_LOCATION=$($relative):$($message.line):$($message.ruleId)"
+            }
+          }
+          Write-Host "D07_LINT_ERRORS=$problems"
+          Write-Host "D07_LINT_EXIT=$code"
+          # This is a diagnostic: do not mark source product accepted.
