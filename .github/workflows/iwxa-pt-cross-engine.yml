@@ -1,0 +1,77 @@
+name: IWXA PT Firefox WebKit 66 browser acceptance
+on:
+  push:
+    branches: [work/2026-11-18-pt-66-qualification]
+    paths:
+      - .github/workflows/iwxa-pt-cross-engine.yml
+      - tools/pt-66-cross-engine.mjs
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-pt-cross-engine-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  firefox-webkit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    steps:
+      - name: Verify authorized access to private source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo "PT_DOMEN_SECRET_UNAVAILABLE"; exit 1; }
+          gh api repos/Faust-S/iwxa-ru-1 >/dev/null 2>&1 || { echo "PT_PRIVATE_ACCESS_DENIED"; exit 1; }
+          echo "PT_PRIVATE_ACCESS=PASS"
+      - uses: actions/checkout@v4
+        with:
+          path: qa-scripts
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: 2f3f0f20b17655d5ed2c0bfe0954ea9186878b96
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: pt-site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - name: Frozen Bun, real SSR build, install Firefox and WebKit
+        working-directory: pt-site
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "2f3f0f20b17655d5ed2c0bfe0954ea9186878b96" || exit 1
+          bun install --frozen-lockfile > "$RUNNER_TEMP/pt-xengine-install.log" 2>&1 || { echo "PT_XENGINE_INSTALL=FAIL"; exit 1; }
+          echo "PT_XENGINE_INSTALL=PASS"
+          export LOVABLE_BUILD_TARGET=static NITRO_PRESET=node-server SERVER_PRESET=node-server
+          bun run build > "$RUNNER_TEMP/pt-xengine-build.log" 2>&1 || { echo "PT_XENGINE_SSR_BUILD=FAIL"; exit 1; }
+          test -f .output/server/index.mjs || { echo "PT_XENGINE_SSR_NOT_FOUND"; exit 1; }
+          echo "PT_XENGINE_SSR_BUILD=PASS"
+          ./node_modules/.bin/playwright install --with-deps firefox webkit > "$RUNNER_TEMP/pt-xengine-browsers.log" 2>&1 || { echo "PT_XENGINE_INSTALL_BROWSERS=FAIL"; exit 1; }
+          echo "PT_XENGINE_INSTALL_BROWSERS=PASS"
+      - name: Execute real 66 routes in Firefox and WebKit
+        shell: bash
+        run: |
+          PORT=4388 HOST=127.0.0.1 NODE_ENV=production node pt-site/.output/server/index.mjs > "$RUNNER_TEMP/pt-xengine-server.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://127.0.0.1:4388/; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then echo "PT_XENGINE_SERVER_NOT_READY"; exit 1; fi
+          echo "PT_XENGINE_SERVER=PASS"
+          if PT_SITE_DIR="$GITHUB_WORKSPACE/pt-site" PT_BASE=http://127.0.0.1:4388/ node qa-scripts/tools/pt-66-cross-engine.mjs > "$RUNNER_TEMP/pt-xengine-results.log" 2>&1; then
+            grep '^PT_XENGINE_' "$RUNNER_TEMP/pt-xengine-results.log" || true
+            echo "PT_FIREFOX_WEBKIT_66=PASS"
+          else
+            grep '^PT_XENGINE_' "$RUNNER_TEMP/pt-xengine-results.log" | head -n 110 || true
+            echo "PT_FIREFOX_WEBKIT_66=FAIL"
+            exit 1
+          fi
