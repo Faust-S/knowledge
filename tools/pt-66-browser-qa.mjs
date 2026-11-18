@@ -36,11 +36,20 @@ async function visit(path, wait = true) {
   if (wait) await page.waitForSelector("main[data-client-ready]", { timeout: 20000 });
 }
 try {
-  for (const preset of [{ name: "mobile", width: 375, height: 812 }, { name: "desktop", width: 1440, height: 900 }]) {
+  for (const preset of [
+    { name: "mobile_dark", width: 375, height: 812, theme: "dark" },
+    { name: "mobile_light", width: 375, height: 812, theme: "light" },
+    { name: "desktop_dark", width: 1440, height: 900, theme: "dark" },
+    { name: "desktop_light", width: 1440, height: 900, theme: "light" },
+  ]) {
     await page.setViewport({ width: preset.width, height: preset.height });
+    await visit("/pt/");
+    await page.evaluate(theme => window.localStorage.setItem("iwxa-theme", theme), preset.theme);
     let passed = 0;
     let attempted = 0;
     let changed = 0;
+    let navigated = 0;
+    let navAttempted = 0;
     for (const route of routes) {
       pageErrors.length = 0;
       const path = pt(route);
@@ -66,7 +75,7 @@ try {
             }
           }
           return {
-            lang: html.lang, path: location.pathname,
+            lang: html.lang, path: location.pathname, theme: html.dataset.theme,
             canonical, title: document.title,
             h1: !!main?.querySelector("h1"),
             textLength: text.length,
@@ -85,6 +94,7 @@ try {
         }, { routeSet: [...routeSet], path });
         if (info.path !== path) record("WRONG_ROUTE", info.path);
         if (info.lang !== "pt-BR") record("LANG", info.lang);
+        if (info.theme !== preset.theme) record("THEME_PERSISTENCE", preset.theme + "->" + info.theme);
         if (info.canonical !== "https://iwxa.ru" + path) record("CANONICAL", info.canonical);
         if (!info.title || !info.h1 || info.textLength < 40) record("EMPTY_DOCUMENT", info.textLength);
         if (info.width > info.client + 3) record("HORIZONTAL_OVERFLOW", info.width + "/" + info.client);
@@ -125,6 +135,31 @@ try {
             if (post !== pre) changed++;
           }
         }
+        // Navigate a real same-origin Portuguese link on every page that has one.
+        // This detects regressions that cannot be seen from hrefs or hydration alone.
+        const clickedPath = await page.evaluate(() => {
+          const anchors = [...(document.querySelector("main")?.querySelectorAll("a[href]") || [])];
+          const target = anchors.find(a => {
+            if (a.target === "_blank" || a.hasAttribute("download")) return false;
+            const box = a.getBoundingClientRect();
+            if (box.width < 1 || box.height < 1) return false;
+            const href = new URL(a.href, location.href);
+            return href.origin === location.origin && href.pathname.startsWith("/pt/") &&
+              href.pathname !== location.pathname;
+          });
+          if (!target) return null;
+          const expected = new URL(target.href, location.href).pathname;
+          target.click();
+          return expected;
+        });
+        if (clickedPath) {
+          navAttempted++;
+          try {
+            await page.waitForFunction(expected => location.pathname === expected,
+              { timeout: 10000 }, clickedPath);
+            navigated++;
+          } catch (e) { record("PT_NAVIGATION_CLICK", clickedPath); }
+        }
       } catch (e) {
         record("NAVIGATION_OR_HYDRATION", String(e?.message || e));
       }
@@ -134,6 +169,7 @@ try {
     console.log("PT_BQA_" + preset.name.toUpperCase() + "_PAGES=" + passed + "/66");
     console.log("PT_BQA_" + preset.name.toUpperCase() + "_ACTION_CANDIDATES=" + attempted);
     console.log("PT_BQA_" + preset.name.toUpperCase() + "_VISIBLE_STATE_CHANGES=" + changed);
+    console.log("PT_BQA_" + preset.name.toUpperCase() + "_NAVIGATIONS=" + navigated + "/" + navAttempted);
   }
 
   // F02: physical browser geometry after real controls and in both themes.
