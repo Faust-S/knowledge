@@ -110,6 +110,19 @@ jobs:
             const states=[...t.matchAll(/(?:check-hydration|check-runtime|check-functional-ui|check-workspace-responsive|check-navigation-a11y): (?:OK|FAIL)/g)].map(x=>x[0]);
             console.log("D05_BROWSER_GATE_STATES="+states.slice(-7).join(";"));
             console.log("D05_BROWSER_ERROR_COUNT="+(t.match(/(?:FAIL|Error:|Failed:)/g)||[]).length);
+            const navCategories=[
+              ["NAV_TRIGGER_MISSING",/trigger button not found/],
+              ["NAV_DIALOG_TOO_FEW_FOCUSABLE",/too few focusable inside dialog/],
+              ["NAV_FOCUS_ESCAPED_TAB",/focus escaped dialog after repeated Tab/],
+              ["NAV_FOCUS_ESCAPED_SHIFT_TAB",/focus escaped dialog after Shift\+Tab from first/],
+              ["NAV_FOCUS_NOT_RETURNED",/focus did not return to trigger after Escape/],
+              ["NAV_MENU_NOT_CLOSED",/menu did not close after in-app navigation/],
+              ["NAV_LINK_MISSING",/no link inside dialog/],
+              ["NAV_TIMEOUT",/(?:TimeoutError|waiting for selector .* failed|waiting for function failed)/],
+            ];
+            console.log("D05_NAV_A11Y_FAILURE_CLASSES="+navCategories.filter(x=>x[1].test(t)).map(x=>x[0]).join(","));
+            console.log("D05_NAV_A11Y_THROWN="+(/check-navigation-a11y: ERROR/.test(t)));
+
             '
             exit 1
           fi
