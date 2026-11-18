@@ -1,0 +1,78 @@
+name: D07 native Edge UIA content reading probe
+on:
+  push:
+    branches: [work/2026-11-18-d07-case10-qualification]
+    paths: [.github/workflows/d07-native-uia-content-probe.yml]
+permissions:
+  contents: read
+jobs:
+  uia-visible-content:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Read visible local browser content using native Windows UIAutomation only
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          $root=Join-Path $env:RUNNER_TEMP 'd07-uia-test'
+          New-Item -ItemType Directory -Force $root | Out-Null
+          [IO.File]::WriteAllText((Join-Path $root 'index.html'),
+            '<!doctype html><html lang="ru"><meta charset="utf-8"><title>D07 UIA</title><h1>D07 Native Browser Content</h1><p>D07 Unique Accessible Paragraph 2026</p></html>')
+          $script=Join-Path $root 'server.cjs'
+          [IO.File]::WriteAllText($script,
+            "require('http').createServer((q,r)=>{r.setHeader('Content-Type','text/html; charset=utf-8');r.end(require('fs').readFileSync(__dirname+'/index.html'))}).listen(55886,'127.0.0.1')")
+          $server=$null
+          $edgeProcess=$null
+          try{
+            $server=Start-Process -FilePath 'node' -ArgumentList @($script) -PassThru
+            $ready=$false
+            for($i=0;$i -lt 20;$i++){
+              Start-Sleep -Milliseconds 400
+              try{
+                $r=Invoke-WebRequest -Uri 'http://127.0.0.1:55886/' -UseBasicParsing -TimeoutSec 2
+                if($r.StatusCode -eq 200){$ready=$true;break}
+              }catch{}
+            }
+            if(-not $ready){throw 'D07_UIA_LOCAL_SERVER_UNAVAILABLE'}
+            $edges=@(
+              (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
+              (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
+            )
+            $edge=($edges | Where-Object {Test-Path $_} | Select-Object -First 1)
+            if(!$edge){throw 'D07_EDGE_NOT_INSTALLED'}
+            $profile=Join-Path $env:RUNNER_TEMP 'd07-uia-probe-profile'
+            $edgeProcess=Start-Process -FilePath $edge -ArgumentList @(
+              '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
+              "--user-data-dir=$profile",'--app=http://127.0.0.1:55886/') -PassThru
+            $found=$false
+            for($i=0;$i -lt 50;$i++){
+              Start-Sleep -Milliseconds 500
+              $process=@(Get-Process msedge -ErrorAction SilentlyContinue |
+                Where-Object {$_.MainWindowHandle -ne 0})
+              if($process.Count -eq 0){continue}
+              foreach($p in $process){
+                $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$p.MainWindowHandle)
+                if(!$window){continue}
+                foreach($expected in @('D07 Native Browser Content','D07 Unique Accessible Paragraph 2026')){
+                  $match=$window.FindFirst(
+                    [System.Windows.Automation.TreeScope]::Descendants,
+                    [System.Windows.Automation.PropertyCondition]::new(
+                      [System.Windows.Automation.AutomationElement]::NameProperty,$expected))
+                  if($null -ne $match){Write-Output "D07_UIA_FOUND=$expected";$found=$true}
+                }
+              }
+              if($found){break}
+            }
+            if(!$found){throw 'D07_NATIVE_UIA_PAGE_CONTENT_NOT_FOUND'}
+            Write-Output 'D07_NATIVE_EDGE_UIA_PAGE_READ=PASS'
+          }finally{
+            if($edgeProcess){Stop-Process -Id $edgeProcess.Id -Force -ErrorAction SilentlyContinue}
+            if($server){Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue}
+          }
