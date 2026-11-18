@@ -211,32 +211,3 @@ jobs:
             }
           }
           Write-Host 'G4_INSTALLED_PRIVATE_SOURCE_AND_BINARIES_NOT_PUBLISHED'
-){
-              $errClass='UNCLASSIFIED'
-            }
-            Write-Host "G4_INSTALLED_PRIVATE_BUILD_FAILURE_CODE $last"
-            Write-Host "G4_INSTALLED_PRIVATE_BUILD_FAILURE_CLASS $errClass"
-            throw 'G4_INSTALLED_ORIGINAL_PRIVATE_BUILD_HOLD'
-          }
-      - name: Install original signed Owner and One Dist via Setup Core and check real Windows GUI
-        shell: pwsh
-        timeout-minutes: 6
-        run: |
-          ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 `
-            -CenterRoot '.private/center' -OriginalT3Root '.private/t3' `
-            -ExpectedCenterSha '565572a9b2a249296e5c27ba77fd60ac2be830aa' `
-            -ExpectedT3Sha 'd0d8ba2f791050a8c190f7cab305b5bb89365ae3'
-      - name: Destroy private source, native binaries and build logs
-        if: always()
-        shell: pwsh
-        run: |
-          $targets=@('.private',
-            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-k036'),
-            (Join-Path $env:RUNNER_TEMP 'g4-center-npm-private.log'),
-            (Join-Path $env:RUNNER_TEMP 'g4-private-owner-build.log'))
-          foreach($path in $targets){
-            if(Test-Path -LiteralPath $path){
-              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
-            }
-          }
-          Write-Host 'G4_INSTALLED_PRIVATE_SOURCE_AND_BINARIES_NOT_PUBLISHED'
