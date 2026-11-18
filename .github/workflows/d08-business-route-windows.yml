@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 env:
-  SITE_SHA: 3c2a9a4cf17f2a3c939b93be0b27377c0c3a6c10
+  SITE_SHA: 89a0c87424272e7f998841cfecf8a2571c1f2ee6
   PUPPETEER_SKIP_DOWNLOAD: '1'
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
   CI: 'true'
