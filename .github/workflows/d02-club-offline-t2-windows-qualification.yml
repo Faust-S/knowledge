@@ -16,7 +16,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 55
     env:
-      SITE_SHA: bcd12698d40b64c1368680781ed2a45f2a019ac3
+      SITE_SHA: 17548f2b7f5f781d9dbf4113fd7e30a6589b40aa
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -67,7 +67,7 @@ jobs:
           IWXA_T2_NPM_CACHE_DIR: ${{ runner.temp }}/club-t2-offline-dependencies
         run: |
           $log=Join-Path $env:RUNNER_TEMP 'd02-offline-preparation-private.log'
-          & npm run t2:cache:prepare -- --t2 $env:IWXA_T2_SOURCE_DIR --cache $env:IWXA_T2_NPM_CACHE_DIR *> $log
+          & npm run t2:cache:prepare *> $log
           if($LASTEXITCODE -ne 0) {
             Write-Output 'D02_OFFLINE_CACHE_PREPARE=FAIL'
             Get-Content $log | Select-String -Pattern 'CLUB_T2_NPM_CACHE_[A-Z_]+|^npm error (code|errno)|^Error: [A-Z_]+' | Select-Object -Last 12 | ForEach-Object { Write-Output $_.Line }
@@ -84,7 +84,7 @@ jobs:
           npm_config_offline: 'true'
         run: |
           $log=Join-Path $env:RUNNER_TEMP 'd02-offline-verify-private.log'
-          & npm run t2:cache:verify -- --t2 $env:IWXA_T2_SOURCE_DIR --cache $env:IWXA_T2_NPM_CACHE_DIR *> $log
+          & npm run t2:cache:verify *> $log
           if($LASTEXITCODE -ne 0) {
             Write-Output 'D02_OFFLINE_CACHE_VERIFY=FAIL'
             Get-Content $log | Select-String -Pattern 'CLUB_T2_NPM_CACHE_[A-Z_]+|^npm error (code|errno)|^Error: [A-Z_]+' | Select-Object -Last 12 | ForEach-Object { Write-Output $_.Line }
