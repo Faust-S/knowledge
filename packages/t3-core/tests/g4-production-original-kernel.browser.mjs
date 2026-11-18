@@ -273,6 +273,12 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
     binding={organizationId:productionOrg,workspaceId:productionWs,
       actorId:fresh.actorId,contextId:fresh.contextId,
       contextEpoch:fresh.contextEpoch};
+    // The original signed Task changed the Host epoch. Its Kernel binding
+    // must first reconstruct signed employee rights READ-ONLY, not replay
+    // registry initialization, a grant, or the Task's signature.
+    const currentRegistry=await action('d3EmployeeRegistryReadback');
+    assert.equal(currentRegistry.state,'ORIGINAL_KERNEL_REGISTRY_CONFIRMED');
+    assert.equal(currentRegistry.originalReadback,true);
     const taskPath=join(workRoot,'original-production-signed-task.iwxa');
     onPhase('ORIGINAL_PRODUCTION_EMPLOYEE_KERNEL_TASK_EXPORT');
     const exported=await action('d3EmployeeExportTask',{
