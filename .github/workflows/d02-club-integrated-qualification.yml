@@ -196,7 +196,7 @@ jobs:
           $counts = @{}
           $inventory = [System.Collections.Generic.List[string]]::new()
           foreach($file in (Get-ChildItem -LiteralPath dist -Recurse -File)) {
-            $relative = $file.FullName.Substring($root.Length).TrimStart('/','\\').Replace('\\','/')
+            $relative = $file.FullName.Substring($root.Length).TrimStart('/','\').Replace('\','/')
             $bucket = if($relative.StartsWith('_iwxa/runtime/')){'kernel-runtime'}
               elseif($relative.StartsWith('_iwxa/')){'kernel-other'}
               elseif($relative.StartsWith('workspace/assets/')){'host-assets'}
