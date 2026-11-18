@@ -7,6 +7,7 @@ on:
       - .github/workflows/t3-original-windows-dpapi-probe.yml
       - packages/t3-core/scripts/probe-original-windows-dpapi.mjs
       - packages/t3-core/scripts/probe-original-private-windows-credential.mjs
+      - packages/t3-core/scripts/probe-original-private-windows-credential-child.mjs
   workflow_dispatch:
 permissions:
   contents: read
