@@ -1,0 +1,191 @@
+name: d02-club-native-kernel-receipt
+on:
+  push:
+    branches: [work/2026-11-18-d02-club-qualification]
+    paths: [.github/workflows/d02-club-native-kernel-receipt.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-receipt:
+    runs-on: windows-latest
+    timeout-minutes: 65
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      SITE_SHA: 64577d7c83006fd2fd2506a69d9fe92c76e7ba40
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      CI: 'true'
+    steps:
+      - name: Preserve LF and checkout exact private site only in disposable runner
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: 64577d7c83006fd2fd2506a69d9fe92c76e7ba40
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Assemble unmodified original T2 and complete Club site
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_T2_NPM_CACHE_DIR: ${{ runner.temp }}/d02-receipt-npm-cache
+        run: |
+          if((git rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D02_RECEIPT_SITE_PIN_CHANGED'}
+          if((git -C ../t2 rev-parse HEAD).Trim() -ne $env:T2_SHA){throw 'D02_RECEIPT_T2_PIN_CHANGED'}
+          & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'd02-receipt-install.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D02_RECEIPT_SITE_INSTALL_FAILED'}
+          & npm run build *> (Join-Path $env:RUNNER_TEMP 'd02-receipt-build.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D02_RECEIPT_ORIGINAL_T2_BUILD_FAILED'}
+          if(-not (Test-Path dist/workspace/index.html) -or
+             -not (Test-Path dist/projects/index.html)){throw 'D02_RECEIPT_DIST_INCOMPLETE'}
+          Write-Output 'D02_RECEIPT_ORIGINAL_T2_SITE_BUILD=PASS'
+      - name: Real Edge creates personal Workspace then writes and reads original Kernel Result
+        working-directory: site
+        env:
+          PORT: '55444'
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          $site=(Resolve-Path .).Path
+          $origin='http://localhost:55444'
+          $edge=@(
+            (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
+            (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
+          )|Where-Object{Test-Path $_}|Select-Object -First 1
+          if(!$edge){throw 'D02_RECEIPT_EDGE_NOT_FOUND'}
+          $server=$null;$b1=$null;$b2=$null;$b3=$null
+          $profile=Join-Path $env:RUNNER_TEMP 'd02-receipt-persistent-profile'
+          $scope=[System.Windows.Automation.TreeScope]::Descendants
+          function Locate([string]$name,[string]$type){
+            $condition=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+            if($type -eq 'button' -or $type -eq 'edit'){
+              $ctl=if($type -eq 'button'){[System.Windows.Automation.ControlType]::Button}
+                else{[System.Windows.Automation.ControlType]::Edit}
+              $condition=[System.Windows.Automation.AndCondition]::new(
+                $condition,[System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,$ctl))
+            }
+            foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
+              Where-Object {$_.MainWindowHandle -ne 0})){
+              $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+               [IntPtr]$p.MainWindowHandle)
+              if(!$root){continue}
+              $r=$root.FindFirst($scope,$condition)
+              if($r -and $r.Current.IsEnabled){return $r}
+            }
+            return $null
+          }
+          function Await([string]$name,[string]$type,[string]$errorCode){
+            for($i=0;$i -lt 80;$i++){
+              $found=Locate $name $type
+              if($found){return $found}
+              Start-Sleep -Milliseconds 500
+            }
+            throw $errorCode
+          }
+          function Invoke([string]$label,[string]$errorCode){
+            $control=Await $label 'button' $errorCode
+            try{
+              $pattern=[System.Windows.Automation.InvokePattern]$control.GetCurrentPattern(
+               [System.Windows.Automation.InvokePattern]::Pattern)
+              $pattern.Invoke()
+            }catch{throw $errorCode}
+          }
+          function Enter([string]$label,[string]$value,[string]$errorCode){
+            $control=Await $label 'edit' $errorCode
+            try{
+              $pattern=[System.Windows.Automation.ValuePattern]$control.GetCurrentPattern(
+               [System.Windows.Automation.ValuePattern]::Pattern)
+              $pattern.SetValue($value)
+            }catch{throw $errorCode}
+          }
+          function AwaitPrefix([string]$prefix,[string]$errorCode){
+            for($i=0;$i -lt 100;$i++){
+              foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
+                Where-Object {$_.MainWindowHandle -ne 0})){
+                $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                  [IntPtr]$p.MainWindowHandle)
+                if(!$root){continue}
+                $all=$root.FindAll($scope,[System.Windows.Automation.Condition]::TrueCondition)
+                foreach($r in $all){
+                  $name=$r.Current.Name
+                  if($name -and $name.StartsWith($prefix)){return $name}
+                }
+              }
+              Start-Sleep -Milliseconds 500
+            }
+            throw $errorCode
+          }
+          try {
+            $server=Start-Process -FilePath node -WorkingDirectory $site -ArgumentList @(
+              'scripts/serve-current-static.mjs','dist','--t2-loopback'
+            ) -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd02-receipt-http.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd02-receipt-http-error.private.log') -PassThru
+            $ready=$false
+            for($i=0;$i -lt 60;$i++){
+              Start-Sleep -Milliseconds 500
+              try{
+                if((Invoke-WebRequest -Uri ($origin+'/workspace/') -TimeoutSec 2).StatusCode -eq 200){
+                  $ready=$true;break
+                }
+              }catch{}
+            }
+            if(!$ready){throw 'D02_RECEIPT_HOST_HTTP_UNAVAILABLE'}
+            $b1=Start-Process -FilePath $edge -PassThru -ArgumentList @(
+              '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
+              "--user-data-dir=$profile","--app=$origin/workspace/#/workspaces"
+            )
+            Invoke 'Новая рабочая область' 'D02_RECEIPT_NEW_WORKSPACE_BUTTON_MISSING'
+            Invoke 'Создать рабочую область' 'D02_RECEIPT_CREATE_NOT_AVAILABLE'
+            Start-Sleep -Seconds 2
+            Write-Output 'D02_RECEIPT_NATIVE_CREATE_CLICK=PASS'
+            $b2=Start-Process -FilePath $edge -PassThru -ArgumentList @(
+              '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
+              "--user-data-dir=$profile","--app=$origin/workspace/#/domain"
+            )
+            $null=Await 'Моя рабочая область' '' 'D02_RECEIPT_DOMAIN_NOT_VISIBLE'
+            Invoke 'Создать профиль в рабочей области' 'D02_RECEIPT_PROFILE_EDITOR_UNAVAILABLE'
+            Enter 'Как к вам обращаться' 'Club проверка пользовательской записи' 'D02_RECEIPT_ALIAS_INPUT_FAILED'
+            Enter 'Цели' 'Сохранить собственную запись между запусками' 'D02_RECEIPT_GOAL_INPUT_FAILED'
+            Invoke 'Сохранить профиль в IWXA' 'D02_RECEIPT_NATIVE_SAVE_FAILED'
+            $null=AwaitPrefix 'Профиль сохранён. Подтверждена версия ' 'D02_RECEIPT_ORIGINAL_KERNEL_READBACK_MISSING'
+            Write-Output 'D02_RECEIPT_NATIVE_ORIGINAL_KERNEL_WRITE_READBACK=PASS'
+            if($b2){try{$b2.Kill($true)}catch{}}
+            if($b1){try{$b1.Kill($true)}catch{}}
+            Start-Sleep -Seconds 2
+            $b3=Start-Process -FilePath $edge -PassThru -ArgumentList @(
+              '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
+              "--user-data-dir=$profile","--app=$origin/workspace/#/domain"
+            )
+            $null=AwaitPrefix 'Последний: Club проверка пользовательской записи' 'D02_RECEIPT_COLD_RESTART_LOST_RESULT'
+            Write-Output 'D02_RECEIPT_NATIVE_ORIGINAL_KERNEL_COLD_RESTART=PASS'
+            Write-Output 'D02_RECEIPT_NATIVE_IWXA_EXPORT_IMPORT=NOT_RUN'
+          }finally{
+            foreach($p in @($b3,$b2,$b1)){
+              if($p){try{$p.Kill($true)}catch{}}
+            }
+            if($server){try{$server.Kill($true)}catch{}}
+          }
+      - name: Never upload private sources, profile or generated dist
+        if: always()
+        run: |
+          Write-Output 'D02_RECEIPT_PRIVATE_DATA_UPLOAD=FALSE'
+          Write-Output 'D02_RECEIPT_DIST_UPLOAD=FALSE'
