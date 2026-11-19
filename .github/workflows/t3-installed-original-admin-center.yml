@@ -43,6 +43,10 @@ jobs:
               (Resolve-Path -LiteralPath $file).Path,
               [ref]$tokens,[ref]$parseErrors)
             if($parseErrors.Length -ne 0){
+              Write-Host ("G4_INSTALLED_PUBLIC_NATIVE_UIA_PARSE_LOCATION {0} {1} {2}" -f
+                [IO.Path]::GetFileName($file),
+                $parseErrors[0].Extent.StartLineNumber,
+                $parseErrors[0].Extent.StartColumnNumber)
               throw 'G4_INSTALLED_PUBLIC_NATIVE_UIA_PARSER_FAILED'
             }
           }
