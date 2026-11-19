@@ -31,6 +31,12 @@ try {
   if ($env:PSModulePath -notlike ('*' + $osModules + '*')) {
     $env:PSModulePath = $osModules + [IO.Path]::PathSeparator + $env:PSModulePath
   }
+  # These are preinstalled Microsoft OS modules. Unlike a full user
+  # environment, the narrowly isolated source runner does not autoload all
+  # of them from a private session's profile.
+  Import-Module Microsoft.PowerShell.Utility -ErrorAction Stop
+  Import-Module Microsoft.PowerShell.Management -ErrorAction Stop
+  Import-Module Microsoft.PowerShell.Security -ErrorAction Stop
   Import-Module Microsoft.PowerShell.LocalAccounts -ErrorAction Stop
   if (-not (Get-Command New-LocalUser -ErrorAction SilentlyContinue) -or
       -not (Get-Command Get-LocalUser -ErrorAction SilentlyContinue) -or
@@ -259,6 +265,13 @@ if(!okay)process.exit(3);
     $fqid = [string]$_.FullyQualifiedErrorId
     if ($fqid -match '^[A-Za-z][A-Za-z0-9_,.:-]{1,110}$') {
       Write-Output ('G4_ORIGINAL_EMPLOYEE_OS_FAILURE_FQID ' + $fqid)
+    }
+    $command = [string]$_.Exception.CommandName
+    $allowedCommandNames = @('NEW-LOCALUSER','GET-LOCALUSER','REMOVE-LOCALUSER',
+      'CONVERTTO-SECURESTRING','NEW-OBJECT','START-SLEEP','GET-COMMAND',
+      'JOIN-PATH','GET-CONTENT','IMPORT-MODULE','TEST-PATH')
+    if ($command.ToUpperInvariant() -in $allowedCommandNames) {
+      Write-Output ('G4_ORIGINAL_EMPLOYEE_OS_MISSING_COMMAND ' + $command.ToUpperInvariant())
     }
     $message = [string]$_.Exception.Message
     if ($message -match '(?i)no mapping|identitynotmapped|cannot be mapped') {
