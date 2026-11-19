@@ -219,6 +219,26 @@ if(!okay)process.exit(3);
 } catch {
   $code = [string]$_.Exception.Message
   if ($code -notmatch '^G4_[A-Z0-9_]{5,110}$') { $code='G4_ORIGINAL_AGENT_SECOND_SID_NOT_QUALIFIED' }
+  if ($phase -eq 'STAGE_ONLY_PUBLIC_TRUST_AND_NATIVE_PORT') {
+    $failureClass = $_.Exception.GetType().Name
+    if ($failureClass -match '^[A-Za-z]{3,45}$') {
+      Write-Output ('G4_ORIGINAL_EMPLOYEE_OS_FAILURE_CLASS ' + $failureClass)
+    }
+    $fqid = [string]$_.FullyQualifiedErrorId
+    if ($fqid -match '^[A-Za-z][A-Za-z0-9_,.:-]{1,110}$') {
+      Write-Output ('G4_ORIGINAL_EMPLOYEE_OS_FAILURE_FQID ' + $fqid)
+    }
+    $message = [string]$_.Exception.Message
+    if ($message -match '(?i)not recognized|not found|not available') {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND COMMAND_UNAVAILABLE'
+    } elseif ($message -match '(?i)access is denied|unauthoriz|permission') {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND ACCESS_DENIED'
+    } elseif ($message -match '(?i)parameter|invalid argument') {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND INVALID_ARGUMENT'
+    } else {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND OTHER'
+    }
+  }
   Write-Output ('G4_ORIGINAL_AGENT_TWO_SID_FAILURE_PHASE ' + $phase)
   Write-Output ('G4_ORIGINAL_AGENT_TWO_SID_FAILURE_CODE ' + $code)
   throw 'G4_ORIGINAL_AGENT_TWO_SID_SOURCE_NOT_ACCEPTED'
