@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T2
-          ref: 2b990040b2cb686c1857a088185df668b89caaa4
+          ref: 758c31f8bb7ac8fe4a2ef8b6b2a61d5128422ef0
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           sparse-checkout: |
