@@ -2,7 +2,7 @@
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
   "snapshot_date": "2026-11-19",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
-  "currentness": "G4_SOURCE_D3_20_OF_20_PASS__INSTALLED_GUI_CANCEL_CONFIRM_PASS__COMPILED_EXE_ENOENT_44522357876__RETEST_44523584887",
+  "currentness": "G4_SOURCE_D3_20_OF_20_PASS__COMPILED_ORIGINAL_SIGNED_WINDOWS_OWNER_PREFLIGHT_FAIL_44526069510__INSTALLED_G4_HOLD",
   "policy": {
     "t3_one_core": "Faust-S/knowledge/packages/t3-core",
     "t2_normative": "Faust-S/T2@main",
@@ -1905,6 +1905,78 @@
           "status": "QUEUED_OR_RUNNING_NOT_ACCEPTED",
           "change": "Keep original signed single EXE and statically import license CLI; eliminate dynamic fallback to removed build-time shim."
         }
+      },
+      "compiled_owner_qualification_2026_11_19_late": {
+        "original_t3_head": "318b98d3d51ac2eb41bfef4afb54168d993ba618",
+        "center_head": "2628c4bc1b20b4393c485d12513f029fdea8b082",
+        "public_one_dist": "PASS",
+        "runs": [
+          {
+            "id": 44523057588,
+            "conclusion": "FAIL",
+            "native_builder": "FAIL",
+            "compiled_preflight_nonzero": true,
+            "stderr_line_count": 24,
+            "enoent": true
+          },
+          {
+            "id": 44523584887,
+            "conclusion": "FAIL",
+            "native_builder": "FAIL",
+            "compiled_preflight_nonzero": true,
+            "stderr_line_count": 16,
+            "enoent": true
+          },
+          {
+            "id": 44524235590,
+            "conclusion": "FAIL",
+            "native_builder": "FAIL",
+            "compiled_preflight_nonzero": true,
+            "stderr_line_count": 16,
+            "enoent": true,
+            "stderr_origin_markers": {
+              "bun_virtual": false,
+              "build_shim": false,
+              "original_cli": false,
+              "signed_interop": false,
+              "t2_asset": false
+            }
+          },
+          {
+            "id": 44524855058,
+            "conclusion": "FAIL",
+            "native_builder": "FAIL",
+            "compiled_preflight_nonzero": true,
+            "stderr_line_count": 16,
+            "enoent": true
+          },
+          {
+            "id": 44525474849,
+            "conclusion": "FAIL",
+            "native_builder": "FAIL",
+            "compiled_preflight_nonzero": true,
+            "stderr_line_count": 1,
+            "code": "T3_D3_ORIGINAL_COMPILED_NATIVE_IMPORT_UNAVAILABLE",
+            "enoent": false
+          },
+          {
+            "id": 44526069510,
+            "conclusion": "FAIL",
+            "native_builder": "FAIL",
+            "compiled_preflight_nonzero": true,
+            "stderr_line_count": 16,
+            "enoent": true
+          }
+        ],
+        "current_blocker": "T3_D3_ORIGINAL_COMPILED_ENROLL_ENTRY_UNAVAILABLE",
+        "meaning": "The exact bundled original Windows owner EXE does not reach the expected fail-closed D3 enrollment command in compiled preflight; no installed owner/readback verified after these changes.",
+        "hypothesis_not_proof": "Bun compiled module entry/resolution or launcher layout. Distinguish from original Kernel/DPAPI; do not weaken native D3 admission.",
+        "completed_code_changes": [
+          "Original Windows native owner bounded argv classification and static single-exe imports",
+          "Fail-closed original first-use absent command check without Bun lstat error text",
+          "Public Windows CI bounded preflight signal whitelist and removal of duplicated invalid workflow tails"
+        ],
+        "remaining": "Diagnose compiled Bun module resource failure in the private owner, then rerun same pinned installed Windows D3 and cold DPAPI; independent installed Agent/Human ACCEPT/APPLY still NOT_RUN"
       }
     }
   },
@@ -2000,7 +2072,7 @@
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
     "original_private_native_signer": "CURRENT_SOURCE_PIN_d0d8ba2f_NATIVE_ONE_SHOT_WINDOWS_BRIDGE_REQUALIFIED_20_OF_20_44406073956__INSTALLED_UI_HOLD",
-    "independent_installed_d3": "HOLD_ORIGINAL_COMPILED_OWNER_ENOENT_44522357876__STATIC_OWNER_CLI_RETEST_44523584887",
+    "independent_installed_d3": "HOLD_COMPILED_ORIGINAL_NATIVE_D3_ENTRY_44526069510__NEITHER_DPAPI_COLD_NOR_INSTALLED_HUMAN_APPLY_ACCEPTED",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
