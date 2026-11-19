@@ -286,19 +286,37 @@ function D10-VerifyResultChanged($slug,$caseId,$controlId,$resultId,$action) {
   if([string]::IsNullOrWhiteSpace($before)){
     throw "D10_WINDOWS_NATIVE_RESULT_UNREADABLE_$caseId"
   }
-  $control.SetFocus()
-  Start-Sleep -Milliseconds 200
   $beforeOption=if($action -like "COMBO_*"){ComboOptionName $control}else{""}
-  if($action -eq "COMBO_NEXT"){
-    [System.Windows.Forms.SendKeys]::SendWait("{HOME}{DOWN}{ENTER}{TAB}")
-  }elseif($action -eq "COMBO_SPRING"){
-    # CASE-004 initializes at summer. Select the *other* (spring) period:
-    # HOME, not END/HOME+DOWN which both select the original summer state.
-    [System.Windows.Forms.SendKeys]::SendWait("{HOME}{ENTER}{TAB}")
+  if($action -eq "COMBO_NEXT" -or $action -eq "COMBO_SPRING"){
+    try {$control.SetFocus()}catch {throw "D10_WINDOWS_NATIVE_FOCUS_FAILED_$caseId"}
+    Start-Sleep -Milliseconds 200
+    if($action -eq "COMBO_NEXT"){
+      [System.Windows.Forms.SendKeys]::SendWait("{HOME}{DOWN}{ENTER}{TAB}")
+    }else{
+      # CASE-004 initializes at summer; HOME selects spring.
+      [System.Windows.Forms.SendKeys]::SendWait("{HOME}{ENTER}{TAB}")
+    }
   }elseif($action -eq "BUTTON_INVOKE"){
-    $pattern=$control.GetCurrentPattern(
-      [System.Windows.Automation.InvokePattern]::Pattern)
-    ([System.Windows.Automation.InvokePattern]$pattern).Invoke()
+    $activated=$false
+    # InvokePattern is the normal UIAutomation action. Edge can omit it for
+    # an offscreen button, so use the equivalent real keyboard interaction.
+    try {
+      $pattern=$control.GetCurrentPattern(
+        [System.Windows.Automation.InvokePattern]::Pattern)
+      ([System.Windows.Automation.InvokePattern]$pattern).Invoke()
+      $activated=$true
+      Write-Output "D10_WINDOWS_NATIVE_BUTTON_METHOD_$caseId=INVOKE"
+    }catch{}
+    if(-not $activated){
+      try {
+        $control.SetFocus()
+        Start-Sleep -Milliseconds 200
+        [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+        $activated=$true
+        Write-Output "D10_WINDOWS_NATIVE_BUTTON_METHOD_$caseId=KEYBOARD"
+      }catch{}
+    }
+    if(-not $activated){throw "D10_WINDOWS_NATIVE_BUTTON_UNACTIONABLE_$caseId"}
   }else{
     throw "D10_WINDOWS_NATIVE_UNKNOWN_ACTION_$caseId"
   }
