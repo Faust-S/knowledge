@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 env:
-  SITE_SHA: 70e43c8385c4b38a3c1797f303c3cafb38434fe4
+  SITE_SHA: 2fc25f83331517a6eeeb1e38bae90d6230cc2a60
   PUPPETEER_SKIP_DOWNLOAD: '1'
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
   CI: 'true'
@@ -86,6 +86,9 @@ jobs:
                   'business-opening-paths.test.mjs',
                   'business-opening-paths-route.test.mjs',
                   'business-opening-program.test.mjs',
+                  'business-opening-cash-calendar.test.mjs',
+                  'business-opening-cash-calendar-route.test.mjs',
+                  'business-opening-cash-calendar-viewer.test.mjs',
                   'business-opening-program-route.test.mjs',
                   'business-opening-program-viewer.test.mjs',
                   'business-launch-review.test.mjs',

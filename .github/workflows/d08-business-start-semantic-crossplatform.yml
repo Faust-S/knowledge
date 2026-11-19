@@ -7,8 +7,8 @@ on:
 permissions:
   contents: read
 env:
-  DOMAIN_SHA: b1ef4b9cac5649245a45cdfadcc5b34958e70d5b
-  SITE_SHA: 70e43c8385c4b38a3c1797f303c3cafb38434fe4
+  DOMAIN_SHA: bc1396ee0b8f37b6ea26d75df912384af3f70d95
+  SITE_SHA: 2fc25f83331517a6eeeb1e38bae90d6230cc2a60
 jobs:
   p1-models:
     runs-on: ${{ matrix.os }}
@@ -49,17 +49,17 @@ jobs:
         run: |
           test "$(git -C private/domain rev-parse HEAD)" = "$DOMAIN_SHA"
           test "$(git -C private/site rev-parse HEAD)" = "$SITE_SHA"
-          for name in business-start-overview.mjs business-start-overview.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts business-project.mjs business-project.d.mts business-edit-intent.mjs business-edit-intent.d.mts business-experiment-comparison.mjs business-experiment-comparison.d.mts business-opening-paths.mjs business-opening-paths.d.mts business-opening-program.mjs business-opening-program.d.mts business-opening-program-review.mjs business-opening-program-review.d.mts business-launch-review.mjs business-launch-review.d.mts; do
+          for name in business-start-overview.mjs business-start-overview.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts business-project.mjs business-project.d.mts business-edit-intent.mjs business-edit-intent.d.mts business-experiment-comparison.mjs business-experiment-comparison.d.mts business-opening-paths.mjs business-opening-paths.d.mts business-opening-program.mjs business-opening-program.d.mts business-opening-program-review.mjs business-opening-program-review.d.mts business-opening-cash-calendar.mjs business-opening-cash-calendar.d.mts business-launch-review.mjs business-launch-review.d.mts; do
             cmp -s "private/domain/model/$name" "private/site/src/lib/$name" || { echo "D08_P1_CANONICAL_DRIFT"; exit 1; }
           done
-          for name in business-opening-program.mjs business-opening-program.d.mts business-opening-program-review.mjs business-opening-program-review.d.mts business-opening-paths.mjs business-opening-paths.d.mts business-experiment-comparison.mjs business-experiment-comparison.d.mts business-launch-review.mjs business-launch-review.d.mts business-project.mjs business-project.d.mts business-edit-intent.mjs business-edit-intent.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts; do
+          for name in business-opening-program.mjs business-opening-program.d.mts business-opening-program-review.mjs business-opening-program-review.d.mts business-opening-cash-calendar.mjs business-opening-cash-calendar.d.mts business-opening-paths.mjs business-opening-paths.d.mts business-experiment-comparison.mjs business-experiment-comparison.d.mts business-launch-review.mjs business-launch-review.d.mts business-project.mjs business-project.d.mts business-edit-intent.mjs business-edit-intent.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts; do
             cmp -s "private/site/src/lib/$name" "private/site/t2-site-module/marketops/decision/$name" || { echo "D08_P1_T2_EMBEDDED_BYTE_DRIFT"; exit 1; }
           done
           echo "D08_P1_CANONICAL_BYTE_EQUAL=PASS"
       - name: Run domain negative and anti-duplication tests
         working-directory: private/domain
         run: |
-          cases=(business-start-overview iwxa-domain-boundaries affordable-loss-gate business-project business-edit-intent business-experiment-comparison business-opening-paths business-opening-program business-launch-review business-management-decision)
+          cases=(business-start-overview iwxa-domain-boundaries affordable-loss-gate business-project business-edit-intent business-experiment-comparison business-opening-paths business-opening-program business-opening-cash-calendar business-launch-review business-management-decision)
           args=(); for testname in "${cases[@]}"; do args+=("tests/${testname}.test.mjs"); done
           if ! node --test "${args[@]}" > "$RUNNER_TEMP/d08-private-domain.log" 2>&1; then
             for testname in "${cases[@]}"; do
@@ -80,7 +80,7 @@ jobs:
       - name: Run independent website projection tests
         working-directory: private/site
         run: |
-          node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs tests/business-project.test.mjs tests/business-experiment-comparison.test.mjs tests/business-opening-paths.test.mjs tests/business-opening-program.test.mjs tests/business-management-decision.test.mjs tests/business-launch-review.test.mjs > "$RUNNER_TEMP/d08-private-site.log" 2>&1 || { echo "D08_P1_SITE_PROJECTION_TESTS_FAIL"; exit 1; }
+          node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs tests/business-project.test.mjs tests/business-experiment-comparison.test.mjs tests/business-opening-paths.test.mjs tests/business-opening-program.test.mjs tests/business-opening-cash-calendar.test.mjs tests/business-management-decision.test.mjs tests/business-launch-review.test.mjs > "$RUNNER_TEMP/d08-private-site.log" 2>&1 || { echo "D08_P1_SITE_PROJECTION_TESTS_FAIL"; exit 1; }
           echo "D08_P1_SITE_PROJECTION_TESTS=PASS"
       - name: Keep runner logs and sources private
         if: always()
