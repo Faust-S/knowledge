@@ -24,7 +24,7 @@ jobs:
       - name: Lock candidate before formatting
         shell: bash
         run: |
-          test "$(git rev-parse HEAD)" = "754e21bf4f0fc35d4bc3f126c51b9dfe081c05e7" || {
+          test "$(git rev-parse HEAD)" = "4dd815054964ca8b5e18be8626f9c3a8029ed033" || {
             echo "D09_FORMAT_BRANCH_ADVANCED=HOLD"; exit 1;
           }
           test -z "$(git status --porcelain)" || {
@@ -82,7 +82,7 @@ jobs:
       - name: Commit only checked T2 formatting to private working branch
         shell: bash
         run: |
-          test "$(git rev-parse HEAD)" = "754e21bf4f0fc35d4bc3f126c51b9dfe081c05e7"
+          test "$(git rev-parse HEAD)" = "4dd815054964ca8b5e18be8626f9c3a8029ed033"
           git add -- t2-site-module/hop src/integrations/t2
           if git diff --cached --quiet; then
             echo "D09_T2_FORMAT_NO_CHANGES"
