@@ -234,6 +234,7 @@ jobs:
             $required=@('T3_D3_ORIGINAL_ADMIN_T2_PRODUCT_STAGE_CONFIRMED',
               'ORIGINAL_T3_D3_ONE_DIST_ASSEMBLED',
               'ORIGINAL_T3_D3_OWNER_BUILD_DONE',
+              'T3_D3_ORIGINAL_COMPILED_ENROLL_ENTRY_VERIFIED',
               'T3_D3_ORIGINAL_AGE_CANONICAL_LICENSE_TAG_VERIFIED',
               'CENTER_PRIVATE_T3_D3_SETUP_CORE_READY')
             $lines=@(Get-Content -LiteralPath $log -ErrorAction Stop)
@@ -249,6 +250,238 @@ jobs:
             $codes=@()
             if(Test-Path -LiteralPath $log){
               foreach($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
+                # The private builder emits only bounded diagnostic scalars.
+                # Revalidate an exact allowlist before publishing any value.
+                $safe=[string]$line
+                if($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_NONZERO (True|False)
+                    '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
+                  $codes+=([string]$hit.Value)
+                }
+              }
+            }
+            # The PowerShell call itself may fail before native stderr can
+            # be redirected; classify its exception without exposing text.
+            $captured=[string]$_.Exception.Message
+            foreach($hit in [regex]::Matches($captured,
+                '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
+              $codes+=([string]$hit.Value)
+            }
+            $last=if($codes.Count){$codes[-1]}else{'UNCLASSIFIED'}
+            $errClass=$_.Exception.GetType().Name
+            if($errClass -notin @('RuntimeException',
+                'CommandNotFoundException','ParseException',
+                'ParameterBindingException','ParentContainsErrorRecordException')){
+              $errClass='UNCLASSIFIED'
+            }
+            Write-Host "G4_INSTALLED_PRIVATE_BUILD_FAILURE_CODE $last"
+            Write-Host "G4_INSTALLED_PRIVATE_BUILD_FAILURE_CLASS $errClass"
+            throw 'G4_INSTALLED_ORIGINAL_PRIVATE_BUILD_HOLD'
+          }
+      - name: Install original signed Owner and One Dist via Setup Core and check real Windows GUI
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 `
+            -CenterRoot '.private/center' -OriginalT3Root '.private/t3' `
+            -ExpectedCenterSha '2628c4bc1b20b4393c485d12513f029fdea8b082' `
+            -ExpectedT3Sha '00e2b1500027a31eaffede9530e725d5a8e0abbd'
+      - name: Native UIA first-use cancel, real signed organization enrollment and cold restart
+        shell: pwsh
+        timeout-minutes: 9
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:G4_INSTALLED_CENTER_ROOT)){
+            throw 'G4_INSTALLED_CENTER_ROOT_NOT_ATTESTED'
+          }
+          ./packages/t3-core/tests/g4-installed-original-center-first-use.ps1 `
+            -InstallRoot $env:G4_INSTALLED_CENTER_ROOT
+      - name: Destroy private source, native binaries and build logs
+        if: always()
+        shell: pwsh
+        run: |
+          $targets=@('.private',
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-k036'),
+            (Join-Path $env:RUNNER_TEMP 'g4-center-npm-private.log'),
+            (Join-Path $env:RUNNER_TEMP 'g4-private-owner-build.log'))
+          foreach($path in $targets){
+            if(Test-Path -LiteralPath $path){
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Host 'G4_INSTALLED_PRIVATE_SOURCE_AND_BINARIES_NOT_PUBLISHED'
+){
+                  Write-Host "G4_D3_COMPILED_OWNER_NATIVE_EXIT_NONZERO $($Matches[1])"
+                }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_LINE_COUNT ([0-9]{1,3})
+                    '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
+                  $codes+=([string]$hit.Value)
+                }
+              }
+            }
+            # The PowerShell call itself may fail before native stderr can
+            # be redirected; classify its exception without exposing text.
+            $captured=[string]$_.Exception.Message
+            foreach($hit in [regex]::Matches($captured,
+                '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
+              $codes+=([string]$hit.Value)
+            }
+            $last=if($codes.Count){$codes[-1]}else{'UNCLASSIFIED'}
+            $errClass=$_.Exception.GetType().Name
+            if($errClass -notin @('RuntimeException',
+                'CommandNotFoundException','ParseException',
+                'ParameterBindingException','ParentContainsErrorRecordException')){
+              $errClass='UNCLASSIFIED'
+            }
+            Write-Host "G4_INSTALLED_PRIVATE_BUILD_FAILURE_CODE $last"
+            Write-Host "G4_INSTALLED_PRIVATE_BUILD_FAILURE_CLASS $errClass"
+            throw 'G4_INSTALLED_ORIGINAL_PRIVATE_BUILD_HOLD'
+          }
+      - name: Install original signed Owner and One Dist via Setup Core and check real Windows GUI
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 `
+            -CenterRoot '.private/center' -OriginalT3Root '.private/t3' `
+            -ExpectedCenterSha '2628c4bc1b20b4393c485d12513f029fdea8b082' `
+            -ExpectedT3Sha '00e2b1500027a31eaffede9530e725d5a8e0abbd'
+      - name: Native UIA first-use cancel, real signed organization enrollment and cold restart
+        shell: pwsh
+        timeout-minutes: 9
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:G4_INSTALLED_CENTER_ROOT)){
+            throw 'G4_INSTALLED_CENTER_ROOT_NOT_ATTESTED'
+          }
+          ./packages/t3-core/tests/g4-installed-original-center-first-use.ps1 `
+            -InstallRoot $env:G4_INSTALLED_CENTER_ROOT
+      - name: Destroy private source, native binaries and build logs
+        if: always()
+        shell: pwsh
+        run: |
+          $targets=@('.private',
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-k036'),
+            (Join-Path $env:RUNNER_TEMP 'g4-center-npm-private.log'),
+            (Join-Path $env:RUNNER_TEMP 'g4-private-owner-build.log'))
+          foreach($path in $targets){
+            if(Test-Path -LiteralPath $path){
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Host 'G4_INSTALLED_PRIVATE_SOURCE_AND_BINARIES_NOT_PUBLISHED'
+){
+                  Write-Host "G4_D3_COMPILED_OWNER_STDERR_LINE_COUNT $($Matches[1])"
+                }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_ENOENT (True|False)
+                    '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
+                  $codes+=([string]$hit.Value)
+                }
+              }
+            }
+            # The PowerShell call itself may fail before native stderr can
+            # be redirected; classify its exception without exposing text.
+            $captured=[string]$_.Exception.Message
+            foreach($hit in [regex]::Matches($captured,
+                '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
+              $codes+=([string]$hit.Value)
+            }
+            $last=if($codes.Count){$codes[-1]}else{'UNCLASSIFIED'}
+            $errClass=$_.Exception.GetType().Name
+            if($errClass -notin @('RuntimeException',
+                'CommandNotFoundException','ParseException',
+                'ParameterBindingException','ParentContainsErrorRecordException')){
+              $errClass='UNCLASSIFIED'
+            }
+            Write-Host "G4_INSTALLED_PRIVATE_BUILD_FAILURE_CODE $last"
+            Write-Host "G4_INSTALLED_PRIVATE_BUILD_FAILURE_CLASS $errClass"
+            throw 'G4_INSTALLED_ORIGINAL_PRIVATE_BUILD_HOLD'
+          }
+      - name: Install original signed Owner and One Dist via Setup Core and check real Windows GUI
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 `
+            -CenterRoot '.private/center' -OriginalT3Root '.private/t3' `
+            -ExpectedCenterSha '2628c4bc1b20b4393c485d12513f029fdea8b082' `
+            -ExpectedT3Sha '00e2b1500027a31eaffede9530e725d5a8e0abbd'
+      - name: Native UIA first-use cancel, real signed organization enrollment and cold restart
+        shell: pwsh
+        timeout-minutes: 9
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:G4_INSTALLED_CENTER_ROOT)){
+            throw 'G4_INSTALLED_CENTER_ROOT_NOT_ATTESTED'
+          }
+          ./packages/t3-core/tests/g4-installed-original-center-first-use.ps1 `
+            -InstallRoot $env:G4_INSTALLED_CENTER_ROOT
+      - name: Destroy private source, native binaries and build logs
+        if: always()
+        shell: pwsh
+        run: |
+          $targets=@('.private',
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-k036'),
+            (Join-Path $env:RUNNER_TEMP 'g4-center-npm-private.log'),
+            (Join-Path $env:RUNNER_TEMP 'g4-private-owner-build.log'))
+          foreach($path in $targets){
+            if(Test-Path -LiteralPath $path){
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Host 'G4_INSTALLED_PRIVATE_SOURCE_AND_BINARIES_NOT_PUBLISHED'
+){
+                  Write-Host "G4_D3_COMPILED_OWNER_NATIVE_ENOENT $($Matches[1])"
+                }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_MACHINE_CODE ((?:T3_D3|INTEROP|WINDOWS|DPAPI|PRODUCT_OWNER)_[A-Z0-9_]{4,90})
+                    '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
+                  $codes+=([string]$hit.Value)
+                }
+              }
+            }
+            # The PowerShell call itself may fail before native stderr can
+            # be redirected; classify its exception without exposing text.
+            $captured=[string]$_.Exception.Message
+            foreach($hit in [regex]::Matches($captured,
+                '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
+              $codes+=([string]$hit.Value)
+            }
+            $last=if($codes.Count){$codes[-1]}else{'UNCLASSIFIED'}
+            $errClass=$_.Exception.GetType().Name
+            if($errClass -notin @('RuntimeException',
+                'CommandNotFoundException','ParseException',
+                'ParameterBindingException','ParentContainsErrorRecordException')){
+              $errClass='UNCLASSIFIED'
+            }
+            Write-Host "G4_INSTALLED_PRIVATE_BUILD_FAILURE_CODE $last"
+            Write-Host "G4_INSTALLED_PRIVATE_BUILD_FAILURE_CLASS $errClass"
+            throw 'G4_INSTALLED_ORIGINAL_PRIVATE_BUILD_HOLD'
+          }
+      - name: Install original signed Owner and One Dist via Setup Core and check real Windows GUI
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 `
+            -CenterRoot '.private/center' -OriginalT3Root '.private/t3' `
+            -ExpectedCenterSha '2628c4bc1b20b4393c485d12513f029fdea8b082' `
+            -ExpectedT3Sha '00e2b1500027a31eaffede9530e725d5a8e0abbd'
+      - name: Native UIA first-use cancel, real signed organization enrollment and cold restart
+        shell: pwsh
+        timeout-minutes: 9
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:G4_INSTALLED_CENTER_ROOT)){
+            throw 'G4_INSTALLED_CENTER_ROOT_NOT_ATTESTED'
+          }
+          ./packages/t3-core/tests/g4-installed-original-center-first-use.ps1 `
+            -InstallRoot $env:G4_INSTALLED_CENTER_ROOT
+      - name: Destroy private source, native binaries and build logs
+        if: always()
+        shell: pwsh
+        run: |
+          $targets=@('.private',
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-k036'),
+            (Join-Path $env:RUNNER_TEMP 'g4-center-npm-private.log'),
+            (Join-Path $env:RUNNER_TEMP 'g4-private-owner-build.log'))
+          foreach($path in $targets){
+            if(Test-Path -LiteralPath $path){
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Host 'G4_INSTALLED_PRIVATE_SOURCE_AND_BINARIES_NOT_PUBLISHED'
+){
+                  Write-Host "G4_D3_COMPILED_OWNER_MACHINE_CODE $($Matches[1])"
+                }
                 foreach($hit in [regex]::Matches([string]$line,
                     '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
                   $codes+=([string]$hit.Value)
