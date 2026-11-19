@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: a29342519466961dc1a1a8f44713323ebb0268f1
+          ref: 465b3faceaf0365a583db90235b69638bc7b46f7
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           fetch-depth: 0
@@ -46,7 +46,7 @@ jobs:
         working-directory: pt-site
         shell: bash
         run: |
-          test "$(git rev-parse HEAD)" = "a29342519466961dc1a1a8f44713323ebb0268f1" || exit 1
+          test "$(git rev-parse HEAD)" = "465b3faceaf0365a583db90235b69638bc7b46f7" || exit 1
           bun install --frozen-lockfile > "$RUNNER_TEMP/pt-install.log" 2>&1 || { echo "PT_INSTALL=FAIL"; exit 1; }
           echo "PT_INSTALL=PASS"
           node scripts/check-portuguese-source.mjs > "$RUNNER_TEMP/pt-guard.log" 2>&1 || {
