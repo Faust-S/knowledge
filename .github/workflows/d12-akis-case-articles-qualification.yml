@@ -7,8 +7,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: d12-akis-articles-${{ github.ref }}
-  cancel-in-progress: true
+  group: d12-akis-articles-final-v2-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   qualify:
     name: AKIS public article qualification ${{ matrix.os }}
@@ -26,12 +26,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: b0ce6ce80036802a499ee51300c1bd259e74e090
+          ref: dfca0d5ee654abeaca700c0b12c1dc1fe66f45be
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Verify exact source and private checkout
         run: |
-          test "$(git rev-parse HEAD)" = "b0ce6ce80036802a499ee51300c1bd259e74e090" || { echo "AKIS_HEAD_MISMATCH"; exit 1; }
+          test "$(git rev-parse HEAD)" = "dfca0d5ee654abeaca700c0b12c1dc1fe66f45be" || { echo "AKIS_HEAD_MISMATCH"; exit 1; }
           test -f src/routes/science.akis-production.tsx || exit 1
           test -f src/routes/science.akis-operator.tsx || exit 1
           test -f scripts/check-akis-production-article.test.ts || exit 1
@@ -76,7 +76,10 @@ jobs:
       - name: Full original site static build and prerender
         run: |
           bun run build:static > "$RUNNER_TEMP/akis-build.log" 2>&1 || {
-            echo "AKIS_STATIC_BUILD=FAIL"; exit 1;
+            echo "AKIS_STATIC_BUILD=FAIL"
+            # Show last attempted public URL, never private source or raw build logs.
+            grep '^\[prerender\] visiting /' "$RUNNER_TEMP/akis-build.log" | tail -1 || true
+            exit 1;
           }
           test -f dist-static/science/akis-production/index.html || exit 1
           test -f dist-static/science/akis-operator/index.html || exit 1
