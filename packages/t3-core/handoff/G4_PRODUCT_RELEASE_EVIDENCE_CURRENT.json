@@ -2308,6 +2308,20 @@
       "level": "NATIVE_PROCESS_COMBINED_SOURCE_PASS_NOT_INSTALLED_PRODUCT",
       "installed_corporate_d3": "NOT_ACCEPTED",
       "t3_ready": false
+    },
+    "g4_installed_agent_source_pin_gap_2026_11_19": {
+      "agent_repository": "Faust-S/iwxa-personal-agent",
+      "agent_head": "dff16da239882582d305a7fb4fc429ef7d58be3a",
+      "owner_config": "config/public-module-sources.json",
+      "t3_locked_revision": "3f91b60c56e34a21ea919a4a2004e31bb5071c60",
+      "latest_qualified_g4_core_source_revision": "530f72f75f3c168265894dec1ec154f7e0d65fa4",
+      "qualification_run": 44590346618,
+      "original_t2_qualified_archive": "iwxa-kernel-k036-same-store-history-20261019-qualified.1",
+      "product_consequence": "Agent Setup Core RequireOriginalT3 verifies the exact source lock, so installing current G4 from this unchanged Agent owner would fail the source pin guard or install an older One Core. It cannot count as the current G4 installed product.",
+      "owner_action": "Update t3 source pin in existing Agent config only with an exact frozen G4 One Core release candidate, qualify all affected Agent source and Setup Core native workflows in public knowledge CI, and retain original T2 runtime byte identity. Do not weaken pin guard.",
+      "changed_source_by_this_audit": false,
+      "status": "INSTALLED_RELEASE_PIN_ALIGNMENT_REQUIRED",
+      "g4_ready": false
     }
   },
   "accepted_gates": {
@@ -2354,7 +2368,7 @@
   },
   "next_critical_path": [
     "Release scope is PRODUCT_NEUTRAL_T3. Keep normative original T2 Kernel/Host/Workspace/Exchange/Lifecycle integrated in ONE T3. Use current exact public One Core CI + installed Agent test; never interpret source PASS as installed owner.",
-    "D1/D3 SOURCE combined Windows #44590346618 SUCCESS on exact knowledge@530f72f: 26/26 granular marker PASS and final source receipt, genuine second Windows SID original T3 first-use/DPAPI/Ed25519 proof, genuine local Qwen3 Agent Core accepted Result, signed .iwxa, original Admin Human source selections and Kernel APPLY/two cold readbacks. The second-SID proof and Kernel Agent task operate as distinct source ceremonies in same run; they are NOT one installed cross-user Task→Human ACCEPT→APPLY. Priority is the installed continuous route: current Agent 0.6 Tauri under separate Windows user and original Admin Center, real GUI human Review/ACCEPT/separate APPLY, durable original Kernel Object/Event and two installed independent cold process readbacks. Then generic non-Atlas D6, PERSON D7 and autonomous installed D5. Preserve hold and no second kernel.",
+    "D1/D3 SOURCE combined Windows #44590346618 SUCCESS on exact knowledge@530f72f: 26/26 granular marker PASS and final source receipt, genuine second Windows SID original T3 first-use/DPAPI/Ed25519 proof, genuine local Qwen3 Agent Core accepted Result, signed .iwxa, original Admin Human source selections and Kernel APPLY/two cold readbacks. The second-SID proof and Kernel Agent task operate as distinct source ceremonies in same run; they are NOT one installed cross-user Task→Human ACCEPT→APPLY. Priority is the installed continuous route: current Agent 0.6 Tauri under separate Windows user and original Admin Center, real GUI human Review/ACCEPT/separate APPLY, durable original Kernel Object/Event and two installed independent cold process readbacks. Then generic non-Atlas D6, PERSON D7 and autonomous installed D5. Preserve hold and no second kernel. AGENT INSTALLER PIN GAP: existing Agent config/public-module-sources.json t3=3f91b60c is older than combined G4 native source 530f72f; do not install stale T3 as G4. Re-pin through Agent owning source when exact release candidate is frozen, then qualify native current Agent under second SID and native Human ACCEPT/APPLY.",
     "Priority 2 D5: exact combined original source #44340207574 attempt 2 SUCCESS, real macOS Apple Metal WebLLM signed Host and independent domain second cold offline generation, zero network, original T2 0.3.6 Object/Event readback and two corporate cold opens, Node 792/792, Host/Windows PASS. This is SOURCE hardware qualification; native private installed D5 remains NOT_RUN. Don't indiscriminately rerun metal.",
     "Priority 3 D6 GENERIC: completed public full original D1 signed-context canonicalization incl. nested+new fields, Node source 792/792 PASS #44339359842. Still need genuine accepted Result from installed independent Agent/domain -> explicitly authorized recipient without mandatory Atlas, original native owner durable readback/lost-ACK recovery. A public contract fixture is not native E2E.",
     "Priority 4 D7: original Publisher PERSON issue/renew/status/revoke with installed consumer and cold readback, independent of Atlas.",
