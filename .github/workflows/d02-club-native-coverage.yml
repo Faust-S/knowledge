@@ -175,7 +175,14 @@ jobs:
                 if($window){break}
                 Start-Sleep -Milliseconds 150
               }
-              if($window){$null=[D02View]::MoveWindow([IntPtr]$window.MainWindowHandle,20,20,375,812,$true)}
+              if($window){
+                if(-not [D02View]::MoveWindow([IntPtr]$window.MainWindowHandle,20,20,375,812,$true)){
+                  throw 'D02_NATIVE_RESIZE_FAILED'
+                }
+                # Wait for the Edge renderer and UIA accessibility tree to
+                # reconcile the genuine 375px native Win32 resize.
+                Start-Sleep -Milliseconds 850
+              }
               $observed=WaitName $e.heading
               if(!$observed){
                 $fail.Add("$($e.kind):$($e.id)")
@@ -192,10 +199,16 @@ jobs:
                     $frame=[System.Windows.Automation.AutomationElement]::FromHandle(
                       [IntPtr]$window.MainWindowHandle).Current.BoundingRectangle
                     $rect=$observed.Current.BoundingRectangle
-                    $clipped=$observed.Current.IsOffscreen -or
-                      $rect.Width -lt 4 -or $rect.Height -lt 4 -or
-                      $rect.Left -lt ($frame.Left-3) -or
-                      $rect.Right -gt ($frame.Right+3)
+                    $clipped=$true
+                    for($k=0;$k -lt 28;$k++){
+                      $rect=$observed.Current.BoundingRectangle
+                      $clipped=$observed.Current.IsOffscreen -or
+                        $rect.Width -lt 4 -or $rect.Height -lt 4 -or
+                        $rect.Left -lt ($frame.Left-3) -or
+                        $rect.Right -gt ($frame.Right+3)
+                      if(!$clipped){break}
+                      Start-Sleep -Milliseconds 140
+                    }
                     if($clipped){
                       $fail.Add("geometry:$($e.kind):$($e.id)")
                       Write-Output "D02_NATIVE_375_GEOMETRY_FAIL=$($e.kind):$($e.id)"
