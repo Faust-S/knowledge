@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: f3c0f7b3af8c3c32be4255028b3fef2fbfb2c8d3
+          ref: 7212bddc9b3446a2eb71e2bc95ed9e1ae910e157
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -42,7 +42,7 @@ jobs:
           bun-version: "latest"
       - name: Verify pinned private and T2 source in runner
         run: |
-          if ((git -C site rev-parse HEAD).Trim() -ne "f3c0f7b3af8c3c32be4255028b3fef2fbfb2c8d3") { throw "D10_WINDOWS_SITE_PIN_MISMATCH" }
+          if ((git -C site rev-parse HEAD).Trim() -ne "7212bddc9b3446a2eb71e2bc95ed9e1ae910e157") { throw "D10_WINDOWS_SITE_PIN_MISMATCH" }
           if ((git -C t2 rev-parse HEAD).Trim() -ne "e70de29b72b83e2546f7ab74b17572685a728c17") { throw "D10_WINDOWS_T2_PIN_MISMATCH" }
           Write-Output "D10_WINDOWS_SOURCE_PINS=PASS"
       - name: Install site dependencies privately
@@ -65,6 +65,25 @@ jobs:
           $log="$env:RUNNER_TEMP\d10-win-build.log"
           npm run build:t2:site *> $log
           if($LASTEXITCODE -ne 0){
+            Get-Content $log | Select-String -Pattern 'D10_WINDOWS_BUILD_PHASE=[A-Z_]+' |
+              Select-Object -Last 12 | ForEach-Object {
+                if($_.Line -match 'D10_WINDOWS_BUILD_PHASE=([A-Z_]+)'){
+                  Write-Output "D10_WINDOWS_BUILD_PHASE=$($Matches[1])"
+                }
+              }
+            $full=Get-Content $log -Raw
+            foreach($pattern in @(
+              @{code="CANNOT_FIND_MODULE";expr="Cannot find module"},
+              @{code="MODULE_NOT_FOUND";expr="MODULE_NOT_FOUND"},
+              @{code="NPM_FAILURE";expr="npm error|npm ERR!"},
+              @{code="TAR_EXTRACTION";expr="tar: "},
+              @{code="ACCESS_DENIED";expr="Access is denied|EACCES"},
+              @{code="GIT_CHECKOUT";expr="fatal: "},
+              @{code="RUNTIME_TYPE_ERROR";expr="TypeError:"},
+              @{code="TIMEOUT";expr="timed out|ETIMEDOUT"}
+            )){
+              if($full -match $pattern.expr){Write-Output "D10_WINDOWS_BUILD_CLASS=$($pattern.code)"}
+            }
             Get-Content $log | Select-String -AllMatches -Pattern 'ARTBAZI_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T2_[A-Z0-9_]+|ERR_[A-Z0-9_]+|TS[0-9]{4}|ENOENT|EPERM|EACCES|ETIMEDOUT' |
               ForEach-Object {$_.Matches | ForEach-Object {$_.Value}} |
               Select-Object -Unique -First 18 | ForEach-Object {Write-Output "D10_WINDOWS_BUILD_ERROR_CODE=$_"}
