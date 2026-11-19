@@ -46,7 +46,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: 33ae9eb4781338b404988f3398f9550157fcc931
+          ref: bab6f3e6f81258abdf02843e6ee99d2fa4c4d067
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -54,7 +54,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod
-          ref: 6f8baeb111cea2fd9da1620040d384df47d283fe
+          ref: b37ea5a109b5fe30aa4b8a45f8c605c3fd9d24a4
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/domain
