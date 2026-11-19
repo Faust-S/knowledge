@@ -147,7 +147,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T2
-          ref: 93937c1a38bf67917d5f73ab2c06b4e4d196b00f
+          ref: a9d125700ab9c55e4f2c290aceb20f0b2930e6ef
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           sparse-checkout: |
@@ -161,7 +161,7 @@ jobs:
         run: |
           mv d09-temporary-t2 "$RUNNER_TEMP/d09-canonical-t2"
           test -f "$RUNNER_TEMP/d09-canonical-t2/t2/current/final-successor/canonical-source/package.json"
-          echo "D09_T2_CSP_CANDIDATE=93937c1a38bf67917d5f73ab2c06b4e4d196b00f"
+          echo "D09_T2_CSP_CANDIDATE=a9d125700ab9c55e4f2c290aceb20f0b2930e6ef"
       - name: Qualify standalone Host validators against reference AJV
         shell: bash
         run: |
@@ -289,6 +289,10 @@ jobs:
             exit 1
           }
           echo D09_EXPERIMENT_DYNAMIC_INTERPRETER_PATCH=PASS
+          node "$core/scripts/issue14-audit-ajv-after-patch.mjs" "$RUNNER_TEMP/d09-experimental-k036-same-store" > "$RUNNER_TEMP/d09-ajv-remaining-audit.log" 2>&1 || {
+            echo D09_EXPERIMENT_AJV_CONSTRUCTOR_AUDIT=FAIL; exit 1;
+          }
+          grep '^D09_KERNEL_REMAINING_AJV_CTORS=' "$RUNNER_TEMP/d09-ajv-remaining-audit.log"
           npm run typecheck > "$RUNNER_TEMP/d09-experimental-types.log" 2>&1 || {
             echo D09_EXPERIMENT_KERNEL_TYPES=FAIL; exit 1;
           }
