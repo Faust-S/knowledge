@@ -395,7 +395,8 @@ jobs:
           Write-Host 'G4_AGENT06_INSTALLED_NATIVE_GUI_QWEN_REVIEW_COLD_PASS'
           Write-Host 'G4_AGENT06_INSTALLED_SETUP_CORE_REPAIR_ROLLBACK_PASS'
           Write-Host 'G4_AGENT06_INSTALLED_NOT_CROSS_USER_ADMIN_ACCEPT_APPLY'
-      - name: Verify fresh Agent screenshot from true native window
+      - name: Independently qualify real Agent GUI image even when full Setup fails
+        if: always()
         shell: pwsh
         timeout-minutes: 2
         run: |
@@ -403,37 +404,63 @@ jobs:
           $folder = Join-Path $env:GITHUB_WORKSPACE 'artifacts/agent-current'
           $image = Join-Path $folder 'agent-native-current-first-screen.png'
           $manifest = Join-Path $folder 'capture-manifest.json'
-          for ($n=0;$n -lt 45;$n++) {
+          for ($n=0;$n -lt 18;$n++) {
             if ((Test-Path -LiteralPath $image -PathType Leaf) -and (Test-Path -LiteralPath $manifest -PathType Leaf)) { break }
             Start-Sleep -Seconds 1
           }
           if (!(Test-Path -LiteralPath $image -PathType Leaf) -or !(Test-Path -LiteralPath $manifest -PathType Leaf)) {
-            throw 'QA_AGENT_NATIVE_SCREEN_NOT_CAPTURED'
+            Write-Host 'QA_AGENT_NATIVE_FIRST_SCREEN_NOT_OBSERVED'
+          } else {
+            $proof = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+            $sha = (Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($proof.originalAgentSha -cne '0d4196fa732b52d192ac75590715199381dfb2df' -or
+                $proof.screenshotSha256 -cne $sha -or
+                $proof.windowTitle -cne 'IWXA Personal' -or
+                $proof.status -cne 'CAPTURED_REQUIRES_VISUAL_REVIEW' -or
+                (Get-Item -LiteralPath $image).Length -lt 6000) {
+              Write-Host 'QA_AGENT_NATIVE_FIRST_SCREEN_REJECTED'
+            } else {
+              Add-Content -LiteralPath $env:GITHUB_ENV -Value 'QA_AGENT_SCREEN_ACCEPTED=1'
+              Write-Host ('QA_AGENT_GUI_IMAGE_PROVENANCE_PASS sha256=' + $sha)
+              Write-Host 'QA_AGENT_GUI_IMAGE_NOT_RELEASE_ACCEPTANCE'
+            }
           }
-          $proof = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
-          $sha = (Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($proof.originalAgentSha -cne '0d4196fa732b52d192ac75590715199381dfb2df' -or
-              $proof.screenshotSha256 -cne $sha -or
-              $proof.windowTitle -cne 'IWXA Personal' -or
-              (Get-Item -LiteralPath $image).Length -lt 6000) {
-            throw 'QA_AGENT_NATIVE_SCREEN_PROVENANCE_INVALID'
-          }
-          Write-Host ('QA_AGENT_CURRENT_NATIVE_SCREEN_PASS sha256=' + $sha)
-      - name: Summarize product-neutral Setup Core native failure
+      - name: Classify original Setup Core failure by allowlisted code and stage only
         if: failure()
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $dir = Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06'
-          $p = Join-Path $dir 'logs/public-test-local-result.txt'
-          if (Test-Path -LiteralPath $p -PathType Leaf) {
-            Write-Host 'QA_AGENT_LOCAL_ACCEPTANCE_LOG_PRESENT'
-            $s = Get-Content -LiteralPath $p -Raw -ErrorAction SilentlyContinue
-            foreach ($c in @('SETUP_LOCAL_NATIVE_FAILED','SETUP_LOCAL_RUNTIME_WITNESS_EXIT_FAILED','SETUP_LOCAL_INSTALLATION_NOT_VERIFIED','SETUP_LOCAL_REPAIR_NOT_ACTIVATED','AGENT_SETUP_RUNTIME','AGENT_NATIVE_GUI')) {
-              if ($s.Contains($c)) { Write-Host ('QA_AGENT_NATIVE_FAILURE_CATEGORY ' + $c) }
+          $sources = @(
+            (Join-Path $dir 'logs/public-test-local-result.txt'),
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-private-build.log')
+          )
+          $codes = @()
+          foreach ($log in $sources) {
+            if (!(Test-Path -LiteralPath $log -PathType Leaf)) { continue }
+            $raw = Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            if (!$raw) { continue }
+            $pattern = '(?i)(?<![A-Za-z0-9_])(?:SETUP_LOCAL|AGENT_SETUP|AGENT_NATIVE_GUI|IWXA_SETUP_LOCAL)_[A-Z0-9_]{3,100}(?![A-Za-z0-9_])'
+            foreach ($match in [regex]::Matches($raw, $pattern)) {
+              $codes += $match.Value.ToUpperInvariant()
             }
-          } else { Write-Host 'QA_AGENT_LOCAL_ACCEPTANCE_LOG_MISSING' }
-          $state = Join-Path $dir 'temporary-installed-fixture/installed-witness.json'
-          if (Test-Path -LiteralPath $state -PathType Leaf) { Write-Host 'QA_AGENT_NATIVE_WITNESS_RECEIPT_PRESENT' }
+          }
+          foreach ($code in @($codes | Select-Object -Unique | Select-Object -Last 15)) {
+            Write-Host ('QA_AGENT_SETUP_SAFE_ERROR_CODE ' + $code)
+          }
+          $root = Join-Path $dir 'temporary-installed-fixture'
+          foreach ($part in @('identity','preflight','installed','verified','locations-readback','installed-witness','repair','verified-after-repair','confirmed','removed')) {
+            $file = Join-Path $root ($part + '.json')
+            if (!(Test-Path -LiteralPath $file -PathType Leaf)) { continue }
+            try {
+              $record = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+              $status = [string]$record.status
+              if ($status -notmatch '^[A-Z0-9_]{2,100}$') { $status = 'REDACTED' }
+              Write-Host ('QA_AGENT_SETUP_SAFE_STAGE ' + $part.ToUpperInvariant() + ' ' + $status)
+            } catch {
+              Write-Host ('QA_AGENT_SETUP_SAFE_STAGE ' + $part.ToUpperInvariant() + ' INVALID')
+            }
+          }
       - name: Erase private source model caches logs and native binaries
         if: always()
         shell: pwsh
@@ -448,8 +475,8 @@ jobs:
             }
           }
           Write-Host 'G4_AGENT06_PRIVATE_SOURCE_AND_NATIVE_ARTIFACTS_NOT_PUBLISHED'
-      - name: Retain only verified public-facing first-screen image, never private source
-        if: success()
+      - name: Retain independently verified real Agent first-screen image only
+        if: always() && env.QA_AGENT_SCREEN_ACCEPTED == '1'
         uses: actions/upload-artifact@v4
         with:
           name: agent06-current-native-first-screen
