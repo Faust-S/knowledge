@@ -158,3 +158,40 @@ Admin Center теперь определяет собственный T2-про�
 Human ACCEPT и отдельно подтверждённый Apply через оригинальный T2
 Kernel/Object/Event, read-only recovery, D5, generic D6 и D7 не
 заменяются успешной установкой или Source PASS.
+
+
+## 6. Установленный Native D3: найден реальный дефект аргументов (19.11)
+
+Windows [#44505177227](https://github.com/Faust-S/knowledge/actions/runs/44505177227)
+прошёл сборку original T2 One Dist, настоящий Setup Core, WebView2,
+отдельную Workspace без Atlas и локальный readback черновика.
+**Два Windows диалога** `IWXA T3: подключить организацию`
+были обнаружены из реального установленного Center (PID bound).
+Первый настоящий клик NO закрыл модальное окно и сохранил
+`NOT_CONNECTED`; второй настоящий клик YES также закрыл диалог.
+После этого интерфейс не получил подписанного Owner и выдал
+канонический код **`T3_PRODUCT_COMPONENT_ARGUMENTS_INVALID`**.
+
+Проверка исходного `Faust-S/Center/native/t3_product_component.rs`
+выявила **причину до запуска original T3 EXE**:
+общий список допустимых CLI action допускал ASCII `[a-z-]`,
+но собственная корпоративная операция называется `d3-enroll`.
+Цифра `3` всегда приводила к отказу. Это не дефект подписей,
+не отсутствие DPAPI, не ошибка оригинального Kernel и не основание
+перестраивать T3.
+
+Исправление в [Center `cbad39d9`](https://github.com/Faust-S/Center/commit/cbad39d9d06e6f7c3c18abdc285bc1569c557976):
+допускаются ASCII цифры **после первого символа** action.
+Сохранены лимит длины, разрешённый алфавит, типизированные
+argv без запуска Shell, запрет пробелов, Unicode, путей и
+управляющих символов. Добавлены адресные Rust регрессии.
+
+Повторный публичный установленный Windows CI
+[#44507093613](https://github.com/Faust-S/knowledge/actions/runs/44507093613)
+запущен на `knowledge@381e7fd2` с оригинальным Center `cbad39d9`,
+T3 `ea1700ec`, T2 Kernel 0.3.6 / Contract 1.3.0.
+**Фактический итог и подписанное cold readback обязательно
+проверять по завершённому CI**. До результатов:
+`INSTALLED_NATIVE_ENROLL_READY=HOLD`,
+`INSTALLED_HUMAN_ACCEPT_APPLY=NOT_RUN`,
+`T3_READY=false`.
