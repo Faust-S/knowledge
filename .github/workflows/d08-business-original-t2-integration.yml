@@ -18,7 +18,7 @@ concurrency:
 
 env:
   DOMAIN_SHA: 0b818674878f9e26e3fd1d5fe39e9e65f07897cc
-  SITE_SHA: fc46acf2f1e9aea3bd7ee556d21dfab91e633a56
+  SITE_SHA: 9aed6dde074bda4be9b891a847386895f304819f
   T2_SHA: 49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7
   CI: 'true'
   PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -61,6 +61,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Verify business Project witness JavaScript syntax
+        working-directory: private/site
+        run: |
+          & node --check tests/business-project-native-t2-windows.mjs
+          if($LASTEXITCODE -ne 0){throw 'D08_BIZ_WITNESS_SYNTAX_FAILED'}
+          Write-Host 'D08_BIZ_WITNESS_SYNTAX=PASS'
       - name: Verify original T2 SHA and accepted Kernel source archive
         run: |
           foreach($item in @(@('private/site',$env:SITE_SHA),@('private/t2',$env:T2_SHA))){
@@ -172,6 +178,32 @@ jobs:
           Write-Host 'D08_BUSINESS_INTEGRATED_BUILD=PASS'
           Write-Host 'D08_BUSINESS_ORIGINAL_KERNEL=PASS'
           Write-Host 'D08_BUSINESS_SCHEMA_IN_PASSPORT=PASS'
+      - name: Two business Projects via original T2 GUI, revision and cold restart
+        working-directory: private/site
+        timeout-minutes: 20
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/private/t2
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd08-business-native.private.log'
+          & node tests/business-project-native-t2-windows.mjs *> $log
+          $code=$LASTEXITCODE
+          foreach($line in @(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
+            $value=$line.Trim()
+            if($value -match '^D08_BIZ_[A-Z0-9_]+=(PASS|NOT_RUN|TRUE|[A-Z0-9_]+)
+        if: always()
+        run: |
+          Write-Host 'D08_PRIVATE_SOURCE_PUBLISHED=NO'
+          Write-Host 'D08_DIST_PUBLISHED=NO'
+          Write-Host 'D08_ARTIFACT_UPLOADS=0'
+          Write-Host 'D08_BUSINESS_GUI_WRITE=CHECK_WITNESS_SIGNALS'
+          Write-Host 'D08_BUSINESS_COLD_READBACK=CHECK_WITNESS_SIGNALS'
+          Write-Host 'D08_BUSINESS_IWXA_EXCHANGE=NOT_RUN'
+){
+              Write-Host $value
+            }
+          }
+          if($code -ne 0){throw 'D08_BIZ_NATIVE_ORIGINAL_T2_FAILED'}
+          Write-Host 'D08_BIZ_TWO_PROJECTS_NATIVE_KERNEL=PASS'
       - name: Exact qualification scope and privacy
         if: always()
         run: |
