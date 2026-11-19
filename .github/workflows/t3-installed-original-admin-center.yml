@@ -103,7 +103,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 6d1dd19cfe4f9614e246694e458117c7adfd7d8c
+          ref: a3a6cfd726fb6f4b7996a7b4996fb4dff8192a51
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           filter: blob:none
@@ -164,7 +164,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
           $center=(& git -C .private/center rev-parse HEAD).Trim()
-          if($t3 -ne '6d1dd19cfe4f9614e246694e458117c7adfd7d8c' -or
+          if($t3 -ne 'a3a6cfd726fb6f4b7996a7b4996fb4dff8192a51' -or
              $center -ne '2628c4bc1b20b4393c485d12513f029fdea8b082'){
             throw 'G4_ORIGINAL_INSTALLED_PRIVATE_SOURCE_PIN_MISMATCH'
           }
@@ -257,8 +257,122 @@ jobs:
                   Write-Host ("G4_COMPILED_ENROLL_{0} {1}" -f $Matches[1],$Matches[2])
                 }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_LINE_COUNT ([0-9]{1,4})$'){
                   Write-Host ("G4_COMPILED_ENROLL_LINE_COUNT " + $Matches[1])
-                }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_MACHINE_CODE ((?:T3_D3|INTEROP|WINDOWS|DPAPI|PRODUCT_OWNER)_[A-Z0-9_]{4,90})$'){
+                }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_MACHINE_CODE ((?:T3_D3|INTEROP|WINDOWS|DPAPI|PRODUCT_OWNER)_[A-Z0-9_]{4,90})
+                foreach($hit in [regex]::Matches([string]$line,
+                    '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
+                  $codes+=([string]$hit.Value)
+                }
+              }
+            }
+            # The PowerShell call itself may fail before native stderr can
+            # be redirected; classify its exception without exposing text.
+            $captured=[string]$_.Exception.Message
+            foreach($hit in [regex]::Matches($captured,
+                '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
+              $codes+=([string]$hit.Value)
+            }
+            $last=if($codes.Count){$codes[-1]}else{'UNCLASSIFIED'}
+            $errClass=$_.Exception.GetType().Name
+            if($errClass -notin @('RuntimeException',
+                'CommandNotFoundException','ParseException',
+                'ParameterBindingException','ParentContainsErrorRecordException')){
+              $errClass='UNCLASSIFIED'
+            }
+            Write-Host "G4_INSTALLED_PRIVATE_BUILD_FAILURE_CODE $last"
+            Write-Host "G4_INSTALLED_PRIVATE_BUILD_FAILURE_CLASS $errClass"
+            throw 'G4_INSTALLED_ORIGINAL_PRIVATE_BUILD_HOLD'
+          }
+      - name: Install original signed Owner and One Dist via Setup Core and check real Windows GUI
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 `
+            -CenterRoot '.private/center' -OriginalT3Root '.private/t3' `
+            -ExpectedCenterSha '2628c4bc1b20b4393c485d12513f029fdea8b082' `
+            -ExpectedT3Sha 'a3a6cfd726fb6f4b7996a7b4996fb4dff8192a51'
+      - name: Native UIA first-use cancel, real signed organization enrollment and cold restart
+        shell: pwsh
+        timeout-minutes: 9
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:G4_INSTALLED_CENTER_ROOT)){
+            throw 'G4_INSTALLED_CENTER_ROOT_NOT_ATTESTED'
+          }
+          ./packages/t3-core/tests/g4-installed-original-center-first-use.ps1 `
+            -InstallRoot $env:G4_INSTALLED_CENTER_ROOT
+      - name: Destroy private source, native binaries and build logs
+        if: always()
+        shell: pwsh
+        run: |
+          $targets=@('.private',
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-k036'),
+            (Join-Path $env:RUNNER_TEMP 'g4-center-npm-private.log'),
+            (Join-Path $env:RUNNER_TEMP 'g4-private-owner-build.log'))
+          foreach($path in $targets){
+            if(Test-Path -LiteralPath $path){
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Host 'G4_INSTALLED_PRIVATE_SOURCE_AND_BINARIES_NOT_PUBLISHED'
+){
                   Write-Host ("G4_COMPILED_ENROLL_MACHINE_CODE " + $Matches[1])
+                }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_ORIGIN_(BUN_VIRTUAL|BUILD_SHIM|ORIGINAL_CLI|SIGNED_INTEROP|T2_ASSET) (True|False)
+                foreach($hit in [regex]::Matches([string]$line,
+                    '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
+                  $codes+=([string]$hit.Value)
+                }
+              }
+            }
+            # The PowerShell call itself may fail before native stderr can
+            # be redirected; classify its exception without exposing text.
+            $captured=[string]$_.Exception.Message
+            foreach($hit in [regex]::Matches($captured,
+                '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
+              $codes+=([string]$hit.Value)
+            }
+            $last=if($codes.Count){$codes[-1]}else{'UNCLASSIFIED'}
+            $errClass=$_.Exception.GetType().Name
+            if($errClass -notin @('RuntimeException',
+                'CommandNotFoundException','ParseException',
+                'ParameterBindingException','ParentContainsErrorRecordException')){
+              $errClass='UNCLASSIFIED'
+            }
+            Write-Host "G4_INSTALLED_PRIVATE_BUILD_FAILURE_CODE $last"
+            Write-Host "G4_INSTALLED_PRIVATE_BUILD_FAILURE_CLASS $errClass"
+            throw 'G4_INSTALLED_ORIGINAL_PRIVATE_BUILD_HOLD'
+          }
+      - name: Install original signed Owner and One Dist via Setup Core and check real Windows GUI
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 `
+            -CenterRoot '.private/center' -OriginalT3Root '.private/t3' `
+            -ExpectedCenterSha '2628c4bc1b20b4393c485d12513f029fdea8b082' `
+            -ExpectedT3Sha 'a3a6cfd726fb6f4b7996a7b4996fb4dff8192a51'
+      - name: Native UIA first-use cancel, real signed organization enrollment and cold restart
+        shell: pwsh
+        timeout-minutes: 9
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:G4_INSTALLED_CENTER_ROOT)){
+            throw 'G4_INSTALLED_CENTER_ROOT_NOT_ATTESTED'
+          }
+          ./packages/t3-core/tests/g4-installed-original-center-first-use.ps1 `
+            -InstallRoot $env:G4_INSTALLED_CENTER_ROOT
+      - name: Destroy private source, native binaries and build logs
+        if: always()
+        shell: pwsh
+        run: |
+          $targets=@('.private',
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-k036'),
+            (Join-Path $env:RUNNER_TEMP 'g4-center-npm-private.log'),
+            (Join-Path $env:RUNNER_TEMP 'g4-private-owner-build.log'))
+          foreach($path in $targets){
+            if(Test-Path -LiteralPath $path){
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Host 'G4_INSTALLED_PRIVATE_SOURCE_AND_BINARIES_NOT_PUBLISHED'
+){
+                  Write-Host ("G4_COMPILED_ENROLL_ORIGIN_{0} {1}" -f $Matches[1],$Matches[2])
                 }
                 foreach($hit in [regex]::Matches([string]$line,
                     '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
@@ -291,7 +405,7 @@ jobs:
           ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 `
             -CenterRoot '.private/center' -OriginalT3Root '.private/t3' `
             -ExpectedCenterSha '2628c4bc1b20b4393c485d12513f029fdea8b082' `
-            -ExpectedT3Sha '6d1dd19cfe4f9614e246694e458117c7adfd7d8c'
+            -ExpectedT3Sha 'a3a6cfd726fb6f4b7996a7b4996fb4dff8192a51'
       - name: Native UIA first-use cancel, real signed organization enrollment and cold restart
         shell: pwsh
         timeout-minutes: 9
