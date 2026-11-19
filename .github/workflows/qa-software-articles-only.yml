@@ -35,6 +35,11 @@ jobs:
         run: |
           bun install --frozen-lockfile > "$RUNNER_TEMP/articles-install.log" 2>&1 || { echo 'ARTICLES_INSTALL_FAIL'; exit 1; }
           echo 'ARTICLES_FROZEN_DEPS_PASS'
+      - name: Build page routing and article output
+        working-directory: .private/site
+        run: |
+          bun run build > "$RUNNER_TEMP/articles-build.log" 2>&1 || { echo 'ARTICLES_VITE_BUILD_FAIL'; exit 1; }
+          echo 'ARTICLES_VITE_BUILD_PASS'
       - name: Compile and validate all TypeScript source
         working-directory: .private/site
         run: |
@@ -58,11 +63,6 @@ jobs:
             echo 'ARTICLES_TYPES_FAIL'; exit 1;
           }
           echo 'ARTICLES_TYPECHECK_PASS'
-      - name: Build page routing and article output
-        working-directory: .private/site
-        run: |
-          bun run build > "$RUNNER_TEMP/articles-build.log" 2>&1 || { echo 'ARTICLES_VITE_BUILD_FAIL'; exit 1; }
-          echo 'ARTICLES_VITE_BUILD_PASS'
       - name: Delete private source and temporary logs
         if: always()
         run: |
