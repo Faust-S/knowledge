@@ -227,7 +227,7 @@ jobs:
             exit 1
           }
           echo D09_KERNEL_CSP_DYNAMIC_BUILD=PASS
-          node --input-type=module - "$RUNNER_TEMP/d09-k036/dist/_iwxa/runtime/0.3.6/runtime.js" <<'NODE'
+          node --input-type=module - "$RUNNER_TEMP/d09-k036-same-store/dist/_iwxa/runtime/0.3.6/runtime.js" <<'NODE'
           import {readFileSync} from "node:fs";
           const lines=readFileSync(process.argv[2],"utf8").split("\n");
           const sites=[];
