@@ -40,6 +40,8 @@ jobs:
           node scripts/check-german-full-source.mjs > "$RUNNER_TEMP/guard-de.log" 2>&1
           echo "IWXA_DE_FAILING_MODULES"
           grep '^DE_SOURCE_CHECK_FAIL ' "$RUNNER_TEMP/guard-de.log" | head -n 35 || true
+          echo "IWXA_DE_FAILING_LABELS"
+          grep -E '^(DE_SOURCE_FAIL|DE_TWIN_FAIL|DE_ANALYTICS_FAIL) ' "$RUNNER_TEMP/guard-de.log" | head -n 28 || true
           node scripts/check-french-source.mjs > "$RUNNER_TEMP/guard-fr.log" 2>&1
           echo "IWXA_FR_FAILING_LABELS"
           grep '^ - ' "$RUNNER_TEMP/guard-fr.log" | head -n 12 || true
