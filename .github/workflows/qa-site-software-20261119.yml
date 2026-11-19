@@ -1,0 +1,65 @@
+name: IWXA Software site independent source and build qualification
+on:
+  push:
+    branches:
+      - qa/2026-11-19-software-site-source-qualification
+    paths:
+      - .github/workflows/qa-site-software-20261119.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-private-site-public-output:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: b09b710db18796247dcec385d40d449265ddac6b
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify exact site HEAD without showing source in public CI
+        shell: bash
+        run: |
+          set -eu
+          actual=$(git -C .private/site rev-parse HEAD)
+          test "$actual" = 'b09b710db18796247dcec385d40d449265ddac6b' || { echo 'SITE_EXACT_OWNER_SOURCE_MISMATCH'; exit 1; }
+          echo 'SITE_EXACT_OWNER_SOURCE_PIN_PASS'
+      - name: Install site dependencies in private source checkout
+        working-directory: .private/site
+        shell: bash
+        run: |
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/iwxa-software-npm.log" 2>&1 || { echo 'SITE_NPM_INSTALL_FAIL'; exit 1; }
+          echo 'SITE_NPM_INSTALL_PASS'
+      - name: Run independent IWXA software source and image checksum guard
+        working-directory: .private/site
+        shell: bash
+        run: |
+          node scripts/check-software-publications.mjs > "$RUNNER_TEMP/iwxa-software-check.log" 2>&1 || { echo 'SITE_SOFTWARE_CHECK_FAIL'; exit 1; }
+          echo 'SITE_SOFTWARE_CHECK_PASS'
+      - name: Build current site with new real Windows screenshots
+        working-directory: .private/site
+        shell: bash
+        run: |
+          npm run build > "$RUNNER_TEMP/iwxa-software-build.log" 2>&1 || { echo 'SITE_SOFTWARE_BUILD_FAIL'; exit 1; }
+          echo 'SITE_SOFTWARE_BUILD_PASS'
+      - name: Typecheck only current private source without emitting code
+        working-directory: .private/site
+        shell: bash
+        run: |
+          npx tsc --noEmit > "$RUNNER_TEMP/iwxa-software-types.log" 2>&1 || { echo 'SITE_SOFTWARE_TYPECHECK_FAIL'; exit 1; }
+          echo 'SITE_SOFTWARE_TYPECHECK_PASS'
+      - name: Remove private checkout and logs
+        if: always()
+        shell: bash
+        run: |
+          rm -rf .private/site
+          rm -f "$RUNNER_TEMP/iwxa-software-"*.log
+          echo 'SITE_SOFTWARE_PRIVATE_SOURCE_AND_LOGS_PURGED'
