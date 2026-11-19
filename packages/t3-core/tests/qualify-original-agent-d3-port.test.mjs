@@ -19,7 +19,7 @@ test('only two original Agent modules, no subprocess credentials or source outpu
   const script=[
     'import os, unittest',
     'class Demo(unittest.TestCase):',
-    ' def test_uncertain_native_write_blocks_waiting_consequential_request(self):',
+    ' def test_unknown_prepare_recovers_original_receipt_read_only(self):',
     '  """An original unittest multi-line shortDescription must not hide PASS."""',
     '  self.assertIsNone(os.getenv("AGENT_PRIVATE_READ_TOKEN"))',
     '  self.assertIsNone(os.getenv("T3_READ_TOKEN"))',
@@ -60,7 +60,7 @@ test('fallback uses only already granted credentials and never clones repository
     'tests/test_agent06_corporate_t3_employee.py':Buffer.from([
       'import unittest',
       'class TestReceipt(unittest.TestCase):',
-      ' def test_uncertain_native_write_blocks_waiting_consequential_request(self):',
+      ' def test_unknown_prepare_recovers_original_receipt_read_only(self):',
       '  """This description is printed separately in unittest verbose mode."""',
       '  self.assertTrue(True)',
       'for i in range(10):',
