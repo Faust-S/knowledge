@@ -115,7 +115,28 @@ jobs:
         shell: bash
         run: |
           npm run build:public-stage > "$RUNNER_TEMP/d09-public-build.log" 2>&1 || {
-            echo "D09_PUBLIC_STAGE=FAIL"; exit 1;
+            echo "D09_PUBLIC_STAGE=FAIL"
+            # Bounded diagnostic signatures only. Never publish source content,
+            # output files or full private build logs in the public repository.
+            node --input-type=module - "$RUNNER_TEMP/d09-public-build.log" <<'NODE'
+          import {readFileSync} from "node:fs";
+          const log=readFileSync(process.argv[2],"utf8");
+          const signals=[
+            ["VITE","error during build"],
+            ["MODULE_RESOLVE","Could not resolve"],
+            ["MODULE_MISSING","Cannot find module"],
+            ["ESBUILD","Transform failed"],
+            ["PRERENDER","prerender"],
+            ["NODE_OOM","heap out of memory"],
+            ["CSP","Content Security Policy"],
+          ];
+          console.log("D09_PUBLIC_FAILURE_CLASSES="+signals.filter(([,term])=>log.includes(term)).map(([key])=>key).join(","));
+          const errorLines=log.split("\n").filter(line=>
+            /^\s*(?:Error:|TypeError:|ReferenceError:|SyntaxError:|RollupError:|✘ \[ERROR\]|error during build|failed to load config|Error \[ERR_[A-Z_]+\])/.test(line));
+          const clean=line=>line.replace(/\/(?:home|tmp|mnt)\/[^\s:]*/g,"[private-path]").slice(0,180);
+          for(const line of errorLines.slice(-6)) console.log("D09_PUBLIC_ERROR_SIGNATURE="+clean(line));
+          NODE
+            exit 1
           }
           echo "D09_PUBLIC_STAGE=PASS"
       - name: Checkout normative T2 at the verified main revision
