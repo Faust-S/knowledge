@@ -2,7 +2,7 @@
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
   "snapshot_date": "2026-11-20",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
-  "currentness": "G4_ORIGINAL_D3_NATIVE_SOURCE_26_OF_26_44594391346_SUCCESS__AGENT_PACKAGE_AND_SETUP_BINARY_44611765160_BUILT__INSTALLED_LOCAL_NATIVE_ACCEPTANCE_FAILED__PENDING_44619450951__GENERIC_D6_OPTIONAL_WORKREF_SOURCE_PENDING_44620132894__D5_D7_NATIVE_HOLD__T3_READY_FALSE",
+  "currentness": "G4_NATIVE_D3_SOURCE_26_OF_26_44594391346_PASS__ORIGINAL_AGENT_PACKAGE_AND_SETUP_BUILT_44611765160__INSTALLED_NATIVE_ACCEPTANCE_FOLLOWUP_44619450951_PENDING__D6_NO_MANDATORY_ATLAS_WORKREF_SOURCE_44620132894_ALL_THREE_JOBS_SUCCESS__D6_GENERIC_NATIVE_D7_PERSON_D5_INSTALLED_HOLD__T3_READY_FALSE_G4_NOT_ACCEPTED",
   "policy": {
     "t3_one_core": "Faust-S/knowledge/packages/t3-core",
     "t2_normative": "Faust-S/T2@main",
@@ -2439,9 +2439,18 @@
         "f42e53cd28c881b2b8e04199595f9d7991f34414"
       ],
       "source_qualification_ci": 44620132894,
-      "source_qualification": "PENDING_NOT_ACCEPTED",
+      "source_qualification": "SUCCESS",
       "installed_native_recipient": "NOT_RUN",
-      "t3_ready": false
+      "t3_ready": false,
+      "source_qualification_core_head": "f42e53cd28c881b2b8e04199595f9d7991f34414",
+      "passed_jobs": [
+        "test",
+        "windows-credential",
+        "real-host"
+      ],
+      "materialized_original_t2_passport": "QUALIFIED_SOURCE_PASS",
+      "native_employee_and_independent_recipient": "NOT_RUN",
+      "production_ready": false
     }
   },
   "accepted_gates": {
@@ -2489,7 +2498,7 @@
   "next_critical_path": [
     "Release scope is PRODUCT_NEUTRAL_T3. Keep normative original T2 Kernel/Host/Workspace/Exchange/Lifecycle integrated in ONE T3. Use current exact public One Core CI + installed Agent test; never interpret source PASS as installed owner.",
     "D1/D3 original signed source 26/26 PASS at Agent 0d4196fa / core 9fbbbd54 (#44594391346). Windows #44611765160 confirms native Agent package manifest and Setup Core EXE built using original qualified T2/T3 One Dist, but FAILS during LOCAL NATIVE ACCEPTANCE; installed GUI, Qwen Human Review, physical Center ACCEPT/APPLY and two independent SID installed cold readbacks are NOT ACCEPTED. Sparse-checkout missing original .gitignore caused earlier RELEASE_WORKTREE_NOT_CLEAN; isolated no-private-output regression #44611563980 SUCCESS. Current installed witness diagnostic #44619450951 in progress; require exact finite phase before changing original Agent. D6_GENERIC WorkRef made optional in original T2 Agent service passport (no implicit Atlas); source CI #44620132894 pending, must not count as native delivery. G4 remains HOLD.",
-    "Priority 2 D5: exact combined original source #44340207574 attempt 2 SUCCESS, real macOS Apple Metal WebLLM signed Host and independent domain second cold offline generation, zero network, original T2 0.3.6 Object/Event readback and two corporate cold opens, Node 792/792, Host/Windows PASS. This is SOURCE hardware qualification; native private installed D5 remains NOT_RUN. Don't indiscriminately rerun metal.",
+    "D6_GENERIC original T2 Agent accepted-result schema optional project WorkRef SOURCE_PASS at exact knowledge f42e53cd (public CI #44620132894 test/real-host/Windows SUCCESS). This removes implicit Atlas project dependency from a normal Task/Result while preserving strict projectId/workId/revision if present. It does NOT prove installed independent D6 recipient; require original signed D1 authorization, Human approval, recipient owner durable receipt, lost-ACK no-resend and cold readback.",
     "Priority 3 D6 GENERIC: completed public full original D1 signed-context canonicalization incl. nested+new fields, Node source 792/792 PASS #44339359842. Still need genuine accepted Result from installed independent Agent/domain -> explicitly authorized recipient without mandatory Atlas, original native owner durable readback/lost-ACK recovery. A public contract fixture is not native E2E.",
     "Priority 4 D7: original Publisher PERSON issue/renew/status/revoke with installed consumer and cold readback, independent of Atlas.",
     "Close Agent Setup Core 0.6 cross-version post-write Rollback separately; existing same-version managed-byte Repair native Windows #44282434511 SUCCESS is NOT cross-version rollback.",
