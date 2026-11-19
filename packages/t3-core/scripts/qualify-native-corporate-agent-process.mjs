@@ -1,7 +1,7 @@
 // Public knowledge qualification only: stage the smallest original private
 // T3 and Agent modules needed to run the REAL Windows employee IPC worker.
 // No private git clone, code artifact, new owner or alternative Kernel.
-import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync} from 'node:fs';
 import {join,dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
@@ -103,6 +103,27 @@ export async function stageAgent(root,token){
     throw Error('G4_NATIVE_AGENT_SPARSE_SOURCE_SCOPE_INVALID');
   for(const path of AGENT_SEEDS)
     if(!allowed.includes(path))throw Error('G4_NATIVE_AGENT_REQUIRED_SOURCE_MISSING');
+  // A pinned native Agent must ship EXACTLY the One Core that passed the
+  // public original T2/Host CI. This is a build-input integrity check, not
+  // permission for the browser to select or authorize a recipient.
+  let lock,profile;
+  try{
+    lock=JSON.parse(readFileSync(join(root,'config/public-module-sources.json'),'utf8'));
+    profile=JSON.parse(readFileSync(join(root,'config/original-t2-agent-product.json'),'utf8'));
+  }catch{
+    throw Error('G4_AGENT_ONE_CORE_PRODUCT_SOURCE_LOCK_UNREADABLE');
+  }
+  const original=Array.isArray(lock.modules)
+    ?lock.modules.filter(x=>x?.id==='t3'):[];
+  if(original.length!==1||original[0].repository!=='Faust-S/knowledge'||
+    original[0].revision!=='9fbbbd54fd0587db5c7e0e5c807b96e024ae750b'||
+    profile.schema!=='IWXA_AGENT_ORIGINAL_T2_PRODUCT_PROFILE/1'||
+    profile.productId!=='iwxa.personal-agent'||
+    profile.authorizedNativeOwner!=='ORIGINAL_T3_SIGNED_EMPLOYEE'||
+    profile.authorizedResultRecipient!==null||
+    profile.installedAgentT3Mode!=='EXPLICIT_OPT_IN')
+    throw Error('G4_AGENT_ORIGINAL_PRODUCT_NEUTRAL_ONE_CORE_PIN_MISMATCH');
+
   // The Core is loaded directly by Python in its own child process. The
   // temporary private checkout is removed by the existing finally block.
   return allowed.length;
