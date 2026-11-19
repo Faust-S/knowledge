@@ -126,13 +126,23 @@ jobs:
               Set-Clipboard -Value $value
               [System.Windows.Forms.SendKeys]::SendWait('^a')
               [System.Windows.Forms.SendKeys]::SendWait('^v')
+              Write-Output ("D02_CASE_INPUT_CONTROL_TYPE="+$node.Current.ControlType.ProgrammaticName)
               $ok=$false
               for($k=0;$k -lt 30;$k++){
                 Start-Sleep -Milliseconds 120
+                $item=Find $name
+                if(!$item){continue}
                 try{
-                  $p=[System.Windows.Automation.ValuePattern](Find $name).GetCurrentPattern(
+                  $p=[System.Windows.Automation.ValuePattern]$item.GetCurrentPattern(
                     [System.Windows.Automation.ValuePattern]::Pattern)
                   if($p.Current.Value -eq $value){$ok=$true;break}
+                }catch{}
+                try{
+                  $p=[System.Windows.Automation.RangeValuePattern]$item.GetCurrentPattern(
+                    [System.Windows.Automation.RangeValuePattern]::Pattern)
+                  $expected=[double]::Parse($value,[System.Globalization.CultureInfo]::InvariantCulture)
+                  if([Math]::Abs($p.Current.Value-$expected) -lt 0.01){$ok=$true;break}
+                  if($k -eq 10){$p.SetValue($expected)}
                 }catch{}
               }
               if(!$ok){throw $code}
