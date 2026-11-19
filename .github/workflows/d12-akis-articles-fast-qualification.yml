@@ -26,12 +26,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: 49712b40ca01b7fdefbeae0e2f129b95b5b73e19
+          ref: 7f55adc0bf903b6a2336ab0e34bff4c2b47cea1e
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Verify source identity without printing private code
         run: |
-          test "$(git rev-parse HEAD)" = "49712b40ca01b7fdefbeae0e2f129b95b5b73e19" || exit 1
+          test "$(git rev-parse HEAD)" = "7f55adc0bf903b6a2336ab0e34bff4c2b47cea1e" || exit 1
           test -f src/routes/science.akis-production.tsx || exit 1
           test -f src/routes/science.akis-operator.tsx || exit 1
           test -f src/lib/akis-operator-demo.ts || exit 1
@@ -67,6 +67,9 @@ jobs:
           }
           bun run check:akis:hub > "$RUNNER_TEMP/akis-hub-unit.log" 2>&1 || {
             echo "AKIS_HUB_TESTS=FAIL"; exit 1;
+          }
+          bun run check:seo:title > "$RUNNER_TEMP/akis-seo-title.log" 2>&1 || {
+            echo "AKIS_SEO_TITLE_TESTS=FAIL"; exit 1;
           }
           echo "AKIS_CASE_UNIT=PASS"
       - name: Verify original website assets
