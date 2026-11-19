@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: 4bc99a4c8de74159bf45cebb466443f131934468
+          ref: 39b81d69399bbc62551ecb53eff36f7f566e88d5
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi
-          ref: 408a460b7cb0e102d79eefde7ae500e34849931a
+          ref: c786166495ce880bd2ebf9543e31eb3e7f114b95
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -101,6 +101,28 @@ jobs:
             echo "::error::D10_INTEGRATED_DIST=FAIL exit=$result"
             exit 1
           fi
+      - name: Verify hosting candidate is the original T2 static product
+        shell: bash
+        run: |
+          set -e
+          cd site
+          if node scripts/check-d10-hosting-release.mjs > "$RUNNER_TEMP/d10-release-inventory.log" 2>&1; then
+            echo "D10_HOSTING_INVENTORY=PASS"
+          else
+            echo "::error::D10_HOSTING_INVENTORY=FAIL"
+            grep -Eo 'D10_HOSTING_[A-Z0-9_]+' "$RUNNER_TEMP/d10-release-inventory.log" | sort -u | head -n 5 || true
+            exit 1
+          fi
+          for gate in check:no-localhost check:assets check:links check:seo check:htaccess; do
+            label="${gate//:/_}"
+            if npm run "$gate" > "$RUNNER_TEMP/d10-host-${label}.log" 2>&1; then
+              echo "D10_HOSTING_${label}=PASS"
+            else
+              echo "::error::D10_HOSTING_${label}=FAIL"
+              exit 1
+            fi
+          done
+          echo "D10_HOSTING_RELEASE_STATIC_GATES=PASS"
       - name: Real browser case and public service smoke
         shell: bash
         run: |
