@@ -84,4 +84,49 @@ jobs:
             echo "D09_PUBLIC_STAGE=FAIL"; exit 1;
           }
           echo "D09_PUBLIC_STAGE=PASS"
+      - name: Checkout normative T2 at the verified main revision
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 9c64951cd78411283e8a416641c36d71e169fc1d
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          sparse-checkout: |
+            t2/current/final-successor/canonical-source
+          path: d09-temporary-t2
+      - name: Prepare separate disposable T2 checkout
+        shell: bash
+        run: |
+          mv d09-temporary-t2 "$RUNNER_TEMP/d09-canonical-t2"
+          test -f "$RUNNER_TEMP/d09-canonical-t2/t2/current/final-successor/canonical-source/package.json"
+          echo "D09_T2_REFERENCE=9c64951cd78411283e8a416641c36d71e169fc1d"
+      - name: Compile HOP module for normative T2
+        shell: bash
+        run: |
+          npm run build:host-module > "$RUNNER_TEMP/d09-module-build.log" 2>&1 || {
+            echo "D09_MODULE_BUILD=FAIL"; exit 1;
+          }
+          echo "D09_MODULE_BUILD=PASS"
+      - name: Install and stage original T2 Host
+        shell: bash
+        run: |
+          host="$RUNNER_TEMP/d09-canonical-t2/t2/current/final-successor/canonical-source"
+          (cd "$host" && npm ci --no-audit --no-fund) > "$RUNNER_TEMP/d09-host-npm.log" 2>&1 || {
+            echo "D09_NORMATIVE_HOST_NPM=FAIL"; exit 1;
+          }
+          echo "D09_NORMATIVE_HOST_NPM=PASS"
+          node scripts/stage-d09-t2-module.mjs "$host" https://localhost:8443 > "$RUNNER_TEMP/d09-host-stage.log" 2>&1 || {
+            echo "D09_NORMATIVE_HOST_STAGE=FAIL"; exit 1;
+          }
+          echo "D09_NORMATIVE_HOST_STAGE=PASS"
+      - name: Build unmodified normative T2 with HOP module
+        shell: bash
+        run: |
+          host="$RUNNER_TEMP/d09-canonical-t2/t2/current/final-successor/canonical-source"
+          (cd "$host" && npm run build) > "$RUNNER_TEMP/d09-host-build.log" 2>&1 || {
+            echo "D09_NORMATIVE_HOST_BUILD=FAIL"; exit 1;
+          }
+          test -f "$host/dist/index.html"
+          test -f "$host/dist/_iwxa/domain.json"
+          echo "D09_NORMATIVE_HOST_BUILD=PASS"
       # No artifacts, private files, package, secrets or runtime are published.
