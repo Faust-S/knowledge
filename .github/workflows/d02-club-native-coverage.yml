@@ -199,6 +199,10 @@ jobs:
                     if($clipped){
                       $fail.Add("geometry:$($e.kind):$($e.id)")
                       Write-Output "D02_NATIVE_375_GEOMETRY_FAIL=$($e.kind):$($e.id)"
+                      # Only coordinates and one safe boolean; no page text or
+                      # user content. Distinguishes off-screen scroll from a
+                      # true left/right overflow of this key heading.
+                      Write-Output "D02_NATIVE_375_GEOMETRY_REASON=$($e.kind):$($e.id):offscreen=$($observed.Current.IsOffscreen):headingLeft=$([int]$rect.Left):headingRight=$([int]$rect.Right):windowLeft=$([int]$frame.Left):windowRight=$([int]$frame.Right)"
                     }else{
                       Write-Output "D02_NATIVE_375_GEOMETRY_PASS=$($e.kind):$($e.id)"
                     }
