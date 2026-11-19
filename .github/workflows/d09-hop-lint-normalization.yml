@@ -60,7 +60,9 @@ jobs:
             echo D09_LINT_CANDIDATE_TYPES=FAIL; exit 1;
           }
           npm run test:d09 > "$RUNNER_TEMP/d09-lint-domain.log" 2>&1 || {
-            echo D09_LINT_CANDIDATE_DOMAIN_TESTS=FAIL; exit 1;
+            echo D09_LINT_CANDIDATE_DOMAIN_TESTS=FAIL
+            grep -E "^not ok [0-9]+ - " "$RUNNER_TEMP/d09-lint-domain.log" | tail -25 || true
+            exit 1
           }
           ./node_modules/.bin/vitest run src/components/player/ResultContinuationPanel.t2.test.tsx src/integrations/t2/result-source-check.test.ts src/components/workspace/ImportPreviewDialog.t2.test.tsx > "$RUNNER_TEMP/d09-lint-ui.log" 2>&1 || {
             echo D09_LINT_CANDIDATE_UI_TESTS=FAIL; exit 1;
