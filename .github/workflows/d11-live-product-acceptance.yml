@@ -148,7 +148,7 @@ jobs:
       # Verify the user-selected same-tab packet with the exact original D11
       # canonical compact serializer, real Kernel consent and Exchange import.
       # Use T2 #/workspaces first-run flow on HTTP loopback.
-      - name: Verify hydrated CASE-003 and eight customer-owned projects with T2 and Exchange
+      - name: Verify persistent browser JSON uploads, eight customer projects and original T2 Exchange
         id: kernel
         continue-on-error: true
         working-directory: site
