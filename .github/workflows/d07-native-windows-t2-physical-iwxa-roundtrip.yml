@@ -774,6 +774,106 @@ jobs:
                     }
                   }
                 }
+                if(!$fileDialog){
+                  # The original T2 ImportView is a native input[type=file]
+                  # after a paragraph inside the packages tabpanel. Edge can
+                  # virtualize that input and its paragraph while scrolled.
+                  # First scroll the real tab into view through Windows UIA.
+                  $liveTab=FindNative 'Импортировать' ([System.Windows.Automation.ControlType]::TabItem)
+                  if(!$liveTab){$liveTab=$importTab}
+                  $tabBounds=$null
+                  try{
+                    $scrollPattern=$null
+                    if($liveTab.TryGetCurrentPattern(
+                      [System.Windows.Automation.ScrollItemPattern]::Pattern,
+                      [ref]$scrollPattern)){
+                      ([System.Windows.Automation.ScrollItemPattern]$scrollPattern).ScrollIntoView()
+                    }
+                    $liveTab.SetFocus()
+                    $tabBounds=$liveTab.Current.BoundingRectangle
+                    Write-Output ('D07_NATIVE_IWXA_IMPORT_TAB_ONSCREEN='+(!$liveTab.Current.IsOffscreen))
+                  }catch{
+                    Write-Output 'D07_NATIVE_IWXA_IMPORT_TAB_SCROLL=UNAVAILABLE'
+                  }
+                  Start-Sleep -Milliseconds 300
+                  $scrolledChooser=FindNative 'Выберите файл .iwxa' $null
+                  if($scrolledChooser){
+                    try{
+                      ActivateNative $scrolledChooser
+                      for($check=0;$check -lt 12 -and !$fileDialog;$check++){
+                        Start-Sleep -Milliseconds 250
+                        $fileDialog=FindOpenDialog
+                      }
+                    }catch{}
+                  }
+                  if(!$fileDialog -and $tabBounds -and $tabBounds.Width -gt 40 -and
+                     $tabBounds.Height -gt 12){
+                    # Physically click in the original T2 file-input region.
+                    # Use the visible tab's bounding rectangle, not guessed
+                    # absolute screen coordinates. No DOM injection or mock.
+                    $display=[System.Windows.Forms.SystemInformation]::VirtualScreen
+                    $ownerHwnd=[IntPtr]::Zero
+                    try{
+                      $ownerPid=$liveTab.Current.ProcessId
+                      $edgeOwner=Get-Process -Id $ownerPid -ErrorAction SilentlyContinue
+                      if($edgeOwner -and $edgeOwner.MainWindowHandle -ne 0){
+                        $ownerHwnd=[IntPtr]$edgeOwner.MainWindowHandle
+                      }
+                    }catch{}
+                    if($ownerHwnd -eq [IntPtr]::Zero){
+                      $firstEdge=@(Get-Process msedge -ErrorAction SilentlyContinue |
+                        Where-Object {$_.MainWindowHandle -ne 0} | Select-Object -First 1)
+                      if($firstEdge.Count -gt 0){
+                        $ownerHwnd=[IntPtr]$firstEdge[0].MainWindowHandle
+                      }
+                    }
+                    if($ownerHwnd -ne [IntPtr]::Zero){
+                      $null=[D07NativePointer]::SetForegroundWindow($ownerHwnd)
+                    }
+                    $tabX=[int]($tabBounds.Left+[Math]::Min(36,$tabBounds.Width/2))
+                    $tabY=[int]($tabBounds.Top+$tabBounds.Height/2)
+                    if($tabX -ge $display.Left -and $tabX -lt $display.Right -and
+                       $tabY -ge $display.Top -and $tabY -lt $display.Bottom){
+                      $null=[D07NativePointer]::SetCursorPos($tabX,$tabY)
+                      Start-Sleep -Milliseconds 200
+                      [D07NativePointer]::mouse_event([uint32]2,0,0,0,[UIntPtr]::Zero)
+                      [D07NativePointer]::mouse_event([uint32]4,0,0,0,[UIntPtr]::Zero)
+                      Start-Sleep -Milliseconds 250
+                      [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+                      [System.Windows.Forms.SendKeys]::SendWait(' ')
+                      for($check=0;$check -lt 12 -and !$fileDialog;$check++){
+                        Start-Sleep -Milliseconds 250
+                        $fileDialog=FindOpenDialog
+                      }
+                      if($fileDialog){Write-Output 'D07_NATIVE_IWXA_CHOOSER_FOCUSED_TAB=PASS'}
+                    }
+                    if(!$fileDialog){
+                      foreach($offsetY in @(56,76,96,116,136,156,176)){
+                        foreach($offsetX in @(30,100)){
+                          $clickX=[int]($tabBounds.Left+$offsetX)
+                          $clickY=[int]($tabBounds.Bottom+$offsetY)
+                          if($clickX -lt $display.Left -or $clickX -ge $display.Right -or
+                             $clickY -lt $display.Top -or $clickY -ge $display.Bottom){continue}
+                          $null=[D07NativePointer]::SetCursorPos($clickX,$clickY)
+                          Start-Sleep -Milliseconds 100
+                          [D07NativePointer]::mouse_event([uint32]2,0,0,0,[UIntPtr]::Zero)
+                          [D07NativePointer]::mouse_event([uint32]4,0,0,0,[UIntPtr]::Zero)
+                          for($check=0;$check -lt 5 -and !$fileDialog;$check++){
+                            Start-Sleep -Milliseconds 250
+                            $fileDialog=FindOpenDialog
+                          }
+                          if($fileDialog){
+                            Write-Output ('D07_NATIVE_IWXA_CHOOSER_TAB_RELATIVE_Y='+$offsetY)
+                            break
+                          }
+                        }
+                        if($fileDialog){break}
+                      }
+                    }
+                  }else{
+                    Write-Output 'D07_NATIVE_IWXA_IMPORT_TAB_GEOMETRY_UNAVAILABLE'
+                  }
+                }
                 if(!$fileDialog){throw 'D07_NATIVE_IWXA_WINDOWS_FILE_DIALOG_NOT_OPENED'}
                 Write-Output 'D07_NATIVE_IWXA_WINDOWS_FILE_DIALOG=PASS'
                 $dlgHwnd=[IntPtr]::new([int64]$fileDialog.Current.NativeWindowHandle)
