@@ -11,6 +11,7 @@ on:
       - packages/t3-core/tests/g4-original-agent-native-driver.py
       - packages/t3-core/tests/g4-native-two-windows-sids.ps1
       - packages/t3-core/tests/g4-original-agent-second-windows-sid.ps1
+      - packages/t3-core/scripts/qualify-original-agent-second-sid.mjs
       - packages/t3-core/tests/g4-original-employee-bootstrap-driver.py
       - packages/t3-core/tests/g4-original-employee-real-task-driver.py
       - packages/t3-core/tests/g4-production-original-kernel.browser.mjs
@@ -155,3 +156,39 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw 'G4_SECOND_WINDOWS_ACCOUNT_DPAPI_NOT_ACCEPTED'
           }
+
+  original-second-windows-sid-agent-source:
+    # The real original T3 employee source-only two-SID proof can be
+    # iterated without re-downloading Ollama/model or rerunning full D3.
+    # Private source and DPAPI vaults are transient and never uploaded.
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-original-second-sid]') }}
+    runs-on: windows-2022
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify public second-SID fixture syntax
+        shell: pwsh
+        run: |
+          node --check packages/t3-core/scripts/qualify-original-agent-second-sid.mjs
+          node --check packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs
+          python -m py_compile packages/t3-core/tests/g4-original-employee-bootstrap-driver.py
+          $script = 'packages/t3-core/tests/g4-original-agent-second-windows-sid.ps1'
+          $tokens = [System.Management.Automation.Language.Token[]]@()
+          $parseErrors = [System.Management.Automation.Language.ParseError[]]@()
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath $script).Path,[ref]$tokens,[ref]$parseErrors)
+          if ($parseErrors.Count -ne 0) { throw 'G4_ORIGINAL_SECOND_SID_SOURCE_PARSER_FAILED' }
+      - name: Run original T3/Agent employee first use under different Windows SID
+        env:
+          T3_READ_TOKEN: ${{ secrets.T3 || secrets.DOMEN }}
+          AGENT_READ_TOKEN: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
+        shell: pwsh
+        run: node packages/t3-core/scripts/qualify-original-agent-second-sid.mjs
