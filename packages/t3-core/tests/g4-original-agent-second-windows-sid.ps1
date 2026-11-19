@@ -31,12 +31,6 @@ try {
   if ($env:PSModulePath -notlike ('*' + $osModules + '*')) {
     $env:PSModulePath = $osModules + [IO.Path]::PathSeparator + $env:PSModulePath
   }
-  # These are preinstalled Microsoft OS modules. Unlike a full user
-  # environment, the narrowly isolated source runner does not autoload all
-  # of them from a private session's profile.
-  Import-Module Microsoft.PowerShell.Utility -ErrorAction Stop
-  Import-Module Microsoft.PowerShell.Management -ErrorAction Stop
-  Import-Module Microsoft.PowerShell.Security -ErrorAction Stop
   Import-Module Microsoft.PowerShell.LocalAccounts -ErrorAction Stop
   if (-not (Get-Command New-LocalUser -ErrorAction SilentlyContinue) -or
       -not (Get-Command Get-LocalUser -ErrorAction SilentlyContinue) -or
@@ -257,7 +251,7 @@ if(!okay)process.exit(3);
 } catch {
   $code = [string]$_.Exception.Message
   if ($code -notmatch '^G4_[A-Z0-9_]{5,110}$') { $code='G4_ORIGINAL_AGENT_SECOND_SID_NOT_QUALIFIED' }
-  if ($phase -in @('CREATE_WINDOWS_EMPLOYEE','STAGE_ONLY_PUBLIC_TRUST_AND_NATIVE_PORT')) {
+  if ($phase -in @('START','CREATE_WINDOWS_EMPLOYEE','STAGE_ONLY_PUBLIC_TRUST_AND_NATIVE_PORT')) {
     $failureClass = $_.Exception.GetType().Name
     if ($failureClass -match '^[A-Za-z]{3,45}$') {
       Write-Output ('G4_ORIGINAL_EMPLOYEE_OS_FAILURE_CLASS ' + $failureClass.ToUpperInvariant())
@@ -265,6 +259,14 @@ if(!okay)process.exit(3);
     $fqid = [string]$_.FullyQualifiedErrorId
     if ($fqid -match '^[A-Za-z][A-Za-z0-9_,.:-]{1,110}$') {
       Write-Output ('G4_ORIGINAL_EMPLOYEE_OS_FAILURE_FQID ' + $fqid)
+    }
+    $missingMessage = [string]$_.Exception.Message
+    foreach ($possible in @('NEW-LOCALUSER','GET-LOCALUSER','REMOVE-LOCALUSER',
+      'CONVERTTO-SECURESTRING','NEW-OBJECT','START-SLEEP','IMPORT-MODULE',
+      'JOIN-PATH','TEST-PATH','GET-COMMAND')) {
+      if ($missingMessage -match ("(?i)the term ['""]" + $possible + "['""]")) {
+        Write-Output ('G4_ORIGINAL_EMPLOYEE_OS_MISSING_COMMAND ' + $possible)
+      }
     }
     $command = [string]$_.Exception.CommandName
     $allowedCommandNames = @('NEW-LOCALUSER','GET-LOCALUSER','REMOVE-LOCALUSER',
