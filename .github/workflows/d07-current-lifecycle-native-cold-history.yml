@@ -10,7 +10,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 3e65fc0aa37f7bbfb809f0e58fd36a76524a5058
+      SITE_SHA: 7d3c10185a185a9dfcc216aea0949781bae6c4ca
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -781,11 +781,33 @@ jobs:
                 # accessibility tree and native keyboard input, not DOM scripts.
                 function EnterNativeText([string]$label,[string]$value) {
                   $edit=WaitNative $label ([System.Windows.Automation.ControlType]::Edit)
-                  if(!$edit){throw 'D07_NATIVE_REGULAR_EDIT_NOT_FOUND'}
-                  $edit.SetFocus()
-                  Start-Sleep -Milliseconds 250
-                  [System.Windows.Forms.SendKeys]::SendWait('^a')
-                  [System.Windows.Forms.SendKeys]::SendWait($value)
+                  if(!$edit -or !$edit.Current.IsEnabled){throw 'D07_NATIVE_REGULAR_EDIT_NOT_AVAILABLE'}
+                  $vp=$null
+                  $supportsValue=$edit.TryGetCurrentPattern(
+                    [System.Windows.Automation.ValuePattern]::Pattern,[ref]$vp)
+                  $safeCode=switch($label){
+                    'Наименование' {'TITLE'}
+                    'Что выполняется при посещении' {'SCOPE'}
+                    default {'CRITERIA'}
+                  }
+                  Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_VALUE_PATTERN='+$supportsValue)
+                  if($supportsValue){
+                    $p=[System.Windows.Automation.ValuePattern]$vp
+                    if($p.Current.IsReadOnly){throw 'D07_NATIVE_REGULAR_EDIT_READONLY'}
+                    $p.SetValue($value)
+                    # A native keyboard edit after the accessibility SetValue
+                    # also dispatches real input events for React's state tracker.
+                    $edit.SetFocus()
+                    Start-Sleep -Milliseconds 150
+                    [System.Windows.Forms.SendKeys]::SendWait('{END}')
+                    [System.Windows.Forms.SendKeys]::SendWait(' ')
+                    [System.Windows.Forms.SendKeys]::SendWait('{BACKSPACE}')
+                  }else{
+                    $edit.SetFocus()
+                    Start-Sleep -Milliseconds 200
+                    [System.Windows.Forms.SendKeys]::SendWait('^a')
+                    [System.Windows.Forms.SendKeys]::SendWait($value)
+                  }
                   Start-Sleep -Milliseconds 350
                 }
                 EnterNativeText 'Наименование' 'Weekly premises service'
