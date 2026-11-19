@@ -101,7 +101,44 @@ function Has-AccessibleArticleText($window,$expected){
       }catch{}
     }
   }catch{}
+  # React aria-live regions are sometimes exposed as UIA Group/Custom,
+  # not ControlType.Text. Only accept names containing the exact displayed
+  # dynamic phrase, never infer a pass from the selected menu option.
+  try {
+    $named=$window.FindAll(
+      [System.Windows.Automation.TreeScope]::Descendants,
+      [System.Windows.Automation.Condition]::TrueCondition)
+    for($i=0;$i -lt $named.Count;$i++){
+      try {
+        $candidate=$named.Item($i).Current
+        if($candidate.Name -and $candidate.Name.Contains($expected)){
+          return $true
+        }
+      }catch{}
+    }
+  }catch{}
   return $false
+}
+function ComboOptionName($combo) {
+  try {
+    $pattern=[System.Windows.Automation.SelectionPattern]$combo.GetCurrentPattern(
+      [System.Windows.Automation.SelectionPattern]::Pattern)
+    $items=$pattern.Current.GetSelection()
+    if($items -and $items.Length -gt 0){return [string]$items[0].Current.Name}
+  }catch{}
+  try {
+    $pattern=[System.Windows.Automation.ValuePattern]$combo.GetCurrentPattern(
+      [System.Windows.Automation.ValuePattern]::Pattern)
+    return [string]$pattern.Current.Value
+  }catch{}
+  try{return [string]$combo.Current.Name}catch{}
+  return ""
+}
+function MetricState($combo) {
+  $name=ComboOptionName $combo
+  if($name -match "После изменения работы"){return "AFTER"}
+  if($name -match "До изменения работы"){return "BEFORE"}
+  return "UNREADABLE"
 }
 try {
   $server = Start-Process -FilePath "node.exe" -ArgumentList "scripts/tests/d10-gui-static-preview-server.mjs" -WorkingDirectory (Join-Path $env:GITHUB_WORKSPACE "site") -PassThru -WindowStyle Hidden
@@ -193,13 +230,21 @@ try {
   $before=($null -ne $window -and
     (Has-AccessibleArticleText $window "Переговорная стадия до изменений"))
   Write-Output "D10_WINDOWS_CASE010_INITIAL_DYNAMIC_TEXT=$before"
-  for($i=0;$i -lt 2;$i++){
+  Write-Output "D10_WINDOWS_CASE010_INITIAL_OPTION=$(MetricState $metric)"
+  $repainted=$false
+  $selectedAfter=$false
+  for($i=0;$i -lt 3;$i++){
     $metric.SetFocus()
-    Start-Sleep -Milliseconds 200
-    [System.Windows.Forms.SendKeys]::SendWait("{HOME}{DOWN}{ENTER}")
-    $repainted=$false
-    for($t=0;$t -lt 40;$t++){
-      Start-Sleep -Milliseconds 200
+    Start-Sleep -Milliseconds 300
+    # Explicit native keyboard interaction. Tab commits the select's change
+    # in Edge as well as moving focus so React can repaint.
+    [System.Windows.Forms.SendKeys]::SendWait("{HOME}{DOWN}{ENTER}{TAB}")
+    Start-Sleep -Milliseconds 150
+    $state=MetricState $metric
+    Write-Output "D10_WINDOWS_CASE010_AFTER_KEYBOARD_STATE=$state"
+    if($state -eq "AFTER"){$selectedAfter=$true}
+    for($t=0;$t -lt 25;$t++){
+      Start-Sleep -Milliseconds 250
       $window=Find-EdgeWindow
       if($null -ne $window -and (Has-AccessibleArticleText $window "Переговорная стадия после изменений")){
         $repainted=$true
@@ -208,6 +253,9 @@ try {
     }
     if($repainted){break}
   }
+  Write-Output "D10_WINDOWS_CASE010_SELECTION_CONFIRMED=$selectedAfter"
+  Write-Output "D10_WINDOWS_CASE010_DYNAMIC_REPAINT_CONFIRMED=$repainted"
+  if(-not $selectedAfter){throw "D10_WINDOWS_CASE010_METRIC_SELECTION_UNCONFIRMED"}
   if(-not $repainted){throw "D10_WINDOWS_CASE010_METRIC_NOT_REPAINTED"}
   Write-Output "D10_WINDOWS_CASE010_NATIVE_METRIC_INTERACTION=PASS"
   if($passed -ne 10){throw "D10_WINDOWS_ARTICLE_COUNT_MISMATCH"}
