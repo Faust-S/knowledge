@@ -41,8 +41,19 @@ try {
   $phase = 'STAGE_ONLY_PUBLIC_TRUST_AND_NATIVE_PORT'
   $root = Join-Path $env:ProgramData ('IWXA-T3-Employee-SID-' + $nonce)
   $null = New-Item -ItemType Directory -Path $root -Force
-  & icacls.exe $root /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' ("*" + $employeeSid + ':(OI)(CI)M') *> $null
-  if ($LASTEXITCODE -ne 0) { throw 'G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_FAILED' }
+  # First grant exact explicit access while inherited administrator authority
+  # still exists; only THEN remove inheritance. Reversing the order can
+  # remove the caller's ability to set the final explicit ACL.
+  & icacls.exe $root /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' ("*" + $employeeSid + ':(OI)(CI)M') *> $null
+  if ($LASTEXITCODE -ne 0) {
+    Write-Output ('G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_GRANT_EXIT ' + $LASTEXITCODE)
+    throw 'G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_FAILED'
+  }
+  & icacls.exe $root /inheritance:r *> $null
+  if ($LASTEXITCODE -ne 0) {
+    Write-Output ('G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ISOLATE_EXIT ' + $LASTEXITCODE)
+    throw 'G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_FAILED'
+  }
   # Original private SOURCE may be executable by the second account; ORIGINAL
   # Admin Manager DPAPI vault never enters these two source directories.
   foreach ($source in @($T3Root,$AgentRoot)) {
