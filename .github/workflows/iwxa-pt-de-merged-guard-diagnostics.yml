@@ -35,6 +35,9 @@ jobs:
           test "$(git rev-parse HEAD)" = "d9c3a4029491dd273ae018a20354f132e6a6f217" || exit 1
           bun install --frozen-lockfile > "$RUNNER_TEMP/guard-install.log" 2>&1 || { echo "IWXA_INSTALL=FAIL"; exit 1; }
           node scripts/check-portuguese-source.mjs > "$RUNNER_TEMP/guard-pt.log" 2>&1
+          echo "IWXA_PT_SOURCE_EXIT=$?"
+          node scripts/check-portuguese-static-release-selftest.mjs > "$RUNNER_TEMP/static-selftest.log" 2>&1
+          echo "IWXA_PT_9_NEGATIVE_SELFTEST_EXIT=$?"
           echo "IWXA_PT_FAILING_LABELS"
           grep '^FAIL ' "$RUNNER_TEMP/guard-pt.log" | sed -E 's/^FAIL ([^:]*):.*/- \1/' | head -n 20 || true
           node scripts/check-german-full-source.mjs > "$RUNNER_TEMP/guard-de.log" 2>&1
