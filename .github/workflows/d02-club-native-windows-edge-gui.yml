@@ -11,7 +11,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     env:
-      SITE_SHA: a28818e5e953e3ce52b7a3d6692a53c75c5b7c35
+      SITE_SHA: 64577d7c83006fd2fd2506a69d9fe92c76e7ba40
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -176,6 +176,123 @@ jobs:
             if(!$resultFound){throw 'D02_NATIVE_FORM_RESULT_NOT_VISIBLE'}
             Write-Output 'D02_NATIVE_EDGE_REAL_USER_ENTRY=PASS'
             Write-Output 'D02_NATIVE_KERNEL_RECEIPT_AND_IWXA=NOT_RUN'
+          }finally{
+            if($browser){try{$browser.Kill($true)}catch{}}
+            if($server){try{$server.Kill($true)}catch{}}
+          }
+      - name: Native Edge records a real multi-role cooperation plan without Kernel impersonation
+        working-directory: site
+        env:
+          PORT: '55433'
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          $site=(Resolve-Path .).Path
+          $origin='http://localhost:55433'
+          $edge=@(
+            (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
+            (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
+          )|Where-Object{Test-Path $_}|Select-Object -First 1
+          if(!$edge){throw 'D02_S19_EDGE_MISSING'}
+          $server=$null;$browser=$null
+          try {
+            $server=Start-Process -FilePath node -WorkingDirectory $site -ArgumentList @(
+              'scripts/serve-current-static.mjs','dist','--t2-loopback'
+            ) -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd02-s19-http.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd02-s19-error.private.log') -PassThru
+            $ready=$false
+            for($i=0;$i -lt 60;$i++){
+              Start-Sleep -Milliseconds 500
+              try{
+                if((Invoke-WebRequest -Uri ($origin+'/projects/') -TimeoutSec 2).StatusCode -eq 200){$ready=$true;break}
+              }catch{}
+            }
+            if(!$ready){throw 'D02_S19_ORIGINAL_T2_HTTP_NOT_READY'}
+            $profile=Join-Path $env:RUNNER_TEMP 'd02-s19-native-isolated'
+            $browser=Start-Process -FilePath $edge -PassThru -ArgumentList @(
+              '--force-renderer-accessibility','--no-first-run',
+              '--no-default-browser-check', "--user-data-dir=$profile",
+              "--app=$origin/projects/#club-cooperation-scenario"
+            )
+            $scope=[System.Windows.Automation.TreeScope]::Descendants
+            function Locate([string]$name,[string]$kind){
+              $condition=[System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+              if($kind -eq 'edit' -or $kind -eq 'button'){
+                $type=if($kind -eq 'edit'){[System.Windows.Automation.ControlType]::Edit}
+                 else{[System.Windows.Automation.ControlType]::Button}
+                $condition=[System.Windows.Automation.AndCondition]::new(
+                  $condition,[System.Windows.Automation.PropertyCondition]::new(
+                   [System.Windows.Automation.AutomationElement]::ControlTypeProperty,$type))
+              }
+              foreach($process in @(Get-Process msedge -ErrorAction SilentlyContinue|
+                Where-Object {$_.MainWindowHandle -ne 0})){
+                $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                  [IntPtr]$process.MainWindowHandle)
+                if(!$root){continue}
+                $found=$root.FindFirst($scope,$condition)
+                if($found -and $found.Current.IsEnabled){return $found}
+              }
+              return $null
+            }
+            function Await([string]$name,[string]$kind,[string]$failure){
+              for($i=0;$i -lt 60;$i++){
+                $found=Locate $name $kind
+                if($found){return $found}
+                Start-Sleep -Milliseconds 500
+              }
+              throw $failure
+            }
+            function Enter([string]$label,[string]$value,[string]$failure){
+              $field=Await $label 'edit' $failure
+              try{
+                $pattern=[System.Windows.Automation.ValuePattern]$field.GetCurrentPattern(
+                 [System.Windows.Automation.ValuePattern]::Pattern)
+                $pattern.SetValue($value)
+              }catch{throw $failure}
+            }
+            $null=Await 'Как организовать работу вместе' '' 'D02_S19_EDITOR_NOT_VISIBLE'
+            Enter 'Как назовём совместную задачу' 'Доставка школьных материалов' 'D02_S19_TITLE_FAILED'
+            Enter 'Какого результата хотите получить' 'Передать пять комплектов до пятницы' 'D02_S19_OUTCOME_FAILED'
+            Enter 'Срок в неделях' '2' 'D02_S19_DURATION_FAILED'
+            Enter 'Бюджет, руб.' '350' 'D02_S19_BUDGET_FAILED'
+            Enter 'Если участник откажется или не сможет продолжить' 'Заберу оставшиеся комплекты' 'D02_S19_FALLBACK_FAILED'
+            Enter 'При каких условиях можно прекратить участие' 'До передачи следующей партии' 'D02_S19_EXIT_FAILED'
+            Enter 'Предлагаемая роль' 'Координатор' 'D02_S19_ROLE_FAILED'
+            Enter 'Что человек должен сделать' 'Получить пять комплектов' 'D02_S19_CONTRIBUTION_FAILED'
+            Enter 'Доступно часов в неделю' '4' 'D02_S19_CAPACITY_FAILED'
+            Enter 'Что нужно сделать' 'Сверить пять комплектов' 'D02_S19_TASK_FAILED'
+            Enter 'Как проверить результат' 'Пять подтверждений получения' 'D02_S19_CHECK_FAILED'
+            Enter 'План, часов' '3' 'D02_S19_HOURS_FAILED'
+            Enter 'Предполагаемые расходы, руб.' '45' 'D02_S19_COST_FAILED'
+            $button=Await 'Записать сценарий' 'button' 'D02_S19_SAVE_MISSING'
+            try{
+              $invoke=[System.Windows.Automation.InvokePattern]$button.GetCurrentPattern(
+               [System.Windows.Automation.InvokePattern]::Pattern)
+              $invoke.Invoke()
+            }catch{throw 'D02_S19_NATIVE_SAVE_FAILED'}
+            $found=$false
+            for($i=0;$i -lt 45;$i++){
+              foreach($process in @(Get-Process msedge -ErrorAction SilentlyContinue|
+                Where-Object {$_.MainWindowHandle -ne 0})){
+                $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                  [IntPtr]$process.MainWindowHandle)
+                if(!$root){continue}
+                $all=$root.FindAll($scope,[System.Windows.Automation.Condition]::TrueCondition)
+                foreach($item in $all){
+                  $name=$item.Current.Name
+                  if($name -and $name.StartsWith('Сценарий записан в этой вкладке')){
+                    $found=$true;break
+                  }
+                }
+                if($found){break}
+              }
+              if($found){break}
+              Start-Sleep -Milliseconds 500
+            }
+            if(!$found){throw 'D02_S19_NATIVE_RESULT_NOT_VISIBLE'}
+            Write-Output 'D02_S19_NATIVE_EDGE_INPUT_AND_RESULT=PASS'
+            Write-Output 'D02_S19_NATIVE_KERNEL_RECEIPT_AND_IWXA=NOT_RUN'
           }finally{
             if($browser){try{$browser.Kill($true)}catch{}}
             if($server){try{$server.Kill($true)}catch{}}
