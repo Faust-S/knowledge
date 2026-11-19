@@ -35,14 +35,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: work/2026-11-12-case001-logistics-engineering
+          ref: f0e5a6415d7cae2d740997ea1e9cf7a9ff28a19d
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics
-          ref: work/2026-11-12-case001-logistics-engineering
+          ref: f4e7d63198ec101cc53ae51a007bb709e1336d50
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -64,6 +64,10 @@ jobs:
           $t2=(git -C ../t2 rev-parse HEAD).Trim()
           Write-Output "D11_PROJECT_SITE_HEAD=$site"
           Write-Output "D11_PROJECT_DOMAIN_HEAD=$domain"
+          if ($site -ne "f0e5a6415d7cae2d740997ea1e9cf7a9ff28a19d" -or
+              $domain -ne "f4e7d63198ec101cc53ae51a007bb709e1336d50") {
+            throw "D11_PROJECT_QUALIFICATION_REVISION_CHANGED"
+          }
           if ($t2 -ne "e70de29b72b83e2546f7ab74b17572685a728c17") { throw "D11_NORMATIVE_T2_CHANGED" }
           foreach($file in @(Get-ChildItem ../domain/model/logistics -File -Filter "*.ts")){
             $canonical=(git -C ../domain rev-parse "HEAD:model/logistics/$($file.Name)").Trim()
