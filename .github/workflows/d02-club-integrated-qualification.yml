@@ -25,7 +25,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     env:
       SITE_SHA: b753da43b53506aa388217d820905ac38655095f
-      DOMAIN_SHA: 3850b2a6d3146e8b2b1a921a7e8c5b587a6ba6cd
+      DOMAIN_SHA: 008e94b4df1c5dd2342ea0ad6e79c7fecf65bbbb
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -194,6 +194,19 @@ jobs:
           if($code -ne 0) {
             Write-Output "D02_INTEGRATED_BUILD=FAIL exit=$code"
             Get-Content $log | Select-String -Pattern '^Error: (CLUB_|T2_|K03|K035)|^npm error (code|errno|Exit handler)|^CLUB_T2_.*(MISSING|INVALID|FAIL)|EACCES|ENOTCACHED|^fatal:|^error TS[0-9]+' | Select-Object -Last 30 | ForEach-Object { Write-Output $_.Line }
+            # Public report: error titles and paths only, not source, files, or dist.
+            $diagnostics = @(Get-Content $log | Select-String -Pattern '^(CURRENT STATIC SOURCE CHECK: FAIL|- [^\r\n]{1,180}: (?:broken local ref|long dash|internal Workspace|syntax error|missing)|SyntaxError:|Error: |npm error code )' | Select-Object -Last 18)
+            foreach($item in $diagnostics) {
+              Write-Output ('D02_BUILD_DIAGNOSTIC=' + $item.Line.Substring(0,[Math]::Min(220,$item.Line.Length)))
+            }
+            $tail=@(Get-Content $log | Select-Object -Last 12)
+            if($diagnostics.Count -eq 0) {
+              foreach($item in $tail) {
+                if($item -match '^(?:[A-Z0-9_]+: FAIL|npm error [A-Z]+|Error: [A-Z_0-9]+)') {
+                  Write-Output ('D02_BUILD_DIAGNOSTIC=' + $item.Substring(0,[Math]::Min(180,$item.Length)))
+                }
+              }
+            }
             exit $code
           }
           Write-Output 'D02_INTEGRATED_BUILD=PASS'
