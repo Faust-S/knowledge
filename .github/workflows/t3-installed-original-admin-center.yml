@@ -250,8 +250,7 @@ jobs:
             $codes=@()
             if(Test-Path -LiteralPath $log){
               foreach($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
-                # Only the private builder's fixed scalar diagnostics are
-                # exposed after a strict full-line allowlist match.
+                # Only bounded non-sensitive builder scalars are published.
                 $safe=[string]$line
                 if($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_(NONZERO|ENOENT) (True|False)$'){
                   Write-Host ("G4_COMPILED_ENROLL_{0} {1}" -f $Matches[1],$Matches[2])
@@ -262,7 +261,7 @@ jobs:
                 }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_ORIGIN_(BUN_VIRTUAL|BUILD_SHIM|ORIGINAL_CLI|SIGNED_INTEROP|T2_ASSET) (True|False)$'){
                   Write-Host ("G4_COMPILED_ENROLL_ORIGIN_{0} {1}" -f $Matches[1],$Matches[2])
                 }
-                foreach($hit in [regex]::Matches([string]$line,
+                foreach($hit in [regex]::Matches($safe,
                     '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
                   $codes+=([string]$hit.Value)
                 }
