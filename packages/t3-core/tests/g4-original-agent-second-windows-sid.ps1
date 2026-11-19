@@ -232,7 +232,7 @@ if(!okay)process.exit(3);
   if ($phase -in @('CREATE_WINDOWS_EMPLOYEE','STAGE_ONLY_PUBLIC_TRUST_AND_NATIVE_PORT')) {
     $failureClass = $_.Exception.GetType().Name
     if ($failureClass -match '^[A-Za-z]{3,45}$') {
-      Write-Output ('G4_ORIGINAL_EMPLOYEE_OS_FAILURE_CLASS ' + $failureClass)
+      Write-Output ('G4_ORIGINAL_EMPLOYEE_OS_FAILURE_CLASS ' + $failureClass.ToUpperInvariant())
     }
     $fqid = [string]$_.FullyQualifiedErrorId
     if ($fqid -match '^[A-Za-z][A-Za-z0-9_,.:-]{1,110}$') {
