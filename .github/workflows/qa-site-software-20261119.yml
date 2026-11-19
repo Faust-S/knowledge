@@ -57,7 +57,35 @@ jobs:
         run: |
           bun run build:static > "$RUNNER_TEMP/iwxa-software-static.log" 2>&1 || { echo 'SITE_SOFTWARE_STATIC_PRERENDER_FAIL'; exit 1; }
           echo 'SITE_SOFTWARE_STATIC_PRERENDER_PASS'
+      - name: Diagnose static packaging using only public-safe failure classes
+        if: failure()
+        working-directory: .private/site
+        shell: bash
+        run: |
+          log="$RUNNER_TEMP/iwxa-software-static.log"
+          if test -f "$log"; then
+            grep -Eq '\[prerender\] FAILED' "$log" && echo 'SITE_STATIC_PRERENDER_READING_FAIL' || true
+            grep -Eq '\[prerender\] done' "$log" && echo 'SITE_STATIC_PRERENDER_DONE_OBSERVED' || true
+            grep -Eq 'browser navigation failed' "$log" && echo 'SITE_STATIC_NAVIGATION_FAIL' || true
+            grep -Eq 'does not exist|not found' "$log" && echo 'SITE_STATIC_INPUT_MISSING' || true
+            grep -Eq 'EADDRINUSE|ECONNREFUSED|ETIMEDOUT|timed out' "$log" && echo 'SITE_STATIC_LOCAL_SERVER_FAIL' || true
+            grep -Eq 'ERR_MODULE_NOT_FOUND|Cannot find package|MODULE_NOT_FOUND' "$log" && echo 'SITE_STATIC_DEPENDENCY_FAIL' || true
+            grep -Eq 'JavaScript heap out of memory|Killed|SIGKILL' "$log" && echo 'SITE_STATIC_RESOURCE_FAIL' || true
+            grep -Eq '\[prerender\] preparing' "$log" && echo 'SITE_STATIC_PRERENDER_STARTED' || true
+            grep -Eq 'vite.*built|built in' "$log" && echo 'SITE_STATIC_VITE_COMPILED' || true
+            count=$(grep -Eo '[0-9]+/[0-9]+ page\(s\)' "$log" | tail -n 1 || true)
+            if test -n "$count"; then
+              count=$(printf '%s' "$count" | tr -cd '0-9/')
+              echo "SITE_STATIC_FAILED_PAGES_RATIO=$count"
+            fi
+          else
+            echo 'SITE_STATIC_LOG_NOT_CREATED'
+          fi
+          test -d dist-static || { echo 'SITE_STATIC_OUTPUT_DIR_MISSING'; exit 1; } && echo 'SITE_STATIC_OUTPUT_DIR_EXISTS' || true
+          test -d .output/public && echo 'SITE_STATIC_NITRO_PUBLIC_EXISTS' || true
+          test -d dist/client && echo 'SITE_STATIC_CLOUDFLARE_CLIENT_EXISTS' || true
       - name: Confirm all five current screenshots are present unchanged in hosting build
+        if: always()
         working-directory: .private/site
         shell: bash
         run: |
@@ -77,6 +105,7 @@ jobs:
           EOF_IMAGES
           echo 'SITE_SOFTWARE_FIVE_CURRENT_IMAGES_IN_DIST_PASS'
       - name: Typecheck only current private source without emitting code
+        if: always()
         working-directory: .private/site
         shell: bash
         run: |
