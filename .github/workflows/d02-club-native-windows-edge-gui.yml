@@ -180,7 +180,7 @@ jobs:
             if($browser){try{$browser.Kill($true)}catch{}}
             if($server){try{$server.Kill($true)}catch{}}
           }
-      - name: Native Edge records a real multi-role cooperation plan without Kernel impersonation
+      - name: Native Edge records a real cooperation plan without Kernel impersonation
         working-directory: site
         env:
           PORT: '55433'
@@ -292,7 +292,8 @@ jobs:
                 $all=$root.FindAll($scope,[System.Windows.Automation.Condition]::TrueCondition)
                 foreach($item in $all){
                   $name=$item.Current.Name
-                  if($name -and $name.StartsWith('Сценарий записан в этой вкладке')){
+                  if($name -and ($name.StartsWith('Сценарий записан в этой вкладке') -or
+                    $name.StartsWith('Предложено ролей: 1. Работ: 1.'))){
                     $found=$true;break
                   }
                 }
@@ -301,7 +302,15 @@ jobs:
               if($found){break}
               Start-Sleep -Milliseconds 500
             }
-            if(!$found){throw 'D02_S19_NATIVE_RESULT_NOT_VISIBLE'}
+            if(!$found){
+              $broken=Locate 'Проверьте роли, зависимости, время, расходы и условия выхода.' ''
+              if($broken){Write-Output 'D02_S19_DOMAIN_INPUT_VALIDATION=REJECTED'}
+              $dependency=Locate 'Зависимости указывайте номерами предыдущих работ, например 1 или 1, 2.' ''
+              if($dependency){Write-Output 'D02_S19_DEPENDENCY_VALIDATION=REJECTED'}
+              $noWrite=Locate 'Не удалось записать сценарий. Прежние данные сохранены.' ''
+              if($noWrite){Write-Output 'D02_S19_WRITE_STATUS=REJECTED'}
+              throw 'D02_S19_NATIVE_RESULT_NOT_VISIBLE'
+            }
             Write-Output 'D02_S19_NATIVE_EDGE_INPUT_AND_RESULT=PASS'
             Write-Output 'D02_S19_NATIVE_KERNEL_RECEIPT_AND_IWXA=NOT_RUN'
           }finally{
