@@ -40,11 +40,11 @@ try {
     check(h.lang===locale,"home_lang_"+locale);
     check(h.canonical==="https://iwxa.ru"+home,"home_canonical_"+locale);
     check(h.title.length>0&&h.mainText>120,"home_content_"+locale);
-    check(h.navLinks.length===8&&h.active.length===1&&h.active[0]===home,"home_language_switch_"+locale);
+    check(h.navLinks.length===16&&h.active.length===2&&h.active.every(link=>link===home),"home_language_switch_"+locale);
     const a=await goto(about);
     check(a.status===200&&a.lang===locale,"about_http_lang_"+locale);
     check(a.canonical==="https://iwxa.ru"+about,"about_canonical_"+locale);
-    check(a.navLinks.length===8&&a.active[0]===about,"about_language_switch_"+locale);
+    check(a.navLinks.length===16&&a.active.length===2&&a.active.every(link=>link===about),"about_language_switch_"+locale);
     const [,nextPrefix]=languages[(i+1)%languages.length];
     const nextPath=pathFor(nextPrefix,"/about/");
     await page.click(".atlas-language-switch details > summary");
