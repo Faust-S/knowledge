@@ -136,11 +136,29 @@ function ClickButton([string]$label){
   Start-Sleep -Milliseconds 420
 }
 function TypeText([string]$label,[string]$value){
-  $field=FindName $label 'Edit'
-  $field.SetFocus()
-  [System.Windows.Forms.SendKeys]::SendWait('^a')
-  [System.Windows.Forms.SendKeys]::SendWait($value)
-  Start-Sleep -Milliseconds 250
+  # Physical SendKeys can return before WebView2/React commits its controlled
+  # input. Never submit a state-changing form until native UIA ValuePattern
+  # independently confirms EXACT text; no arbitrary UI values are logged.
+  for($attempt=0;$attempt -lt 3;$attempt++){
+    $field=FindName $label 'Edit'
+    $field.SetFocus()
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    [System.Windows.Forms.SendKeys]::SendWait($value)
+    for($poll=0;$poll -lt 16;$poll++){
+      $pattern=$null
+      try{
+        if($field.TryGetCurrentPattern(
+          [System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern)){
+          if($pattern.Current.Value -ceq $value){
+            Write-Host "G4_INSTALLED_FIRST_USE_NATIVE_EDIT_READBACK_PASS $($script:phase)"
+            return
+          }
+        }
+      }catch{}
+      Start-Sleep -Milliseconds 180
+    }
+  }
+  throw 'G4_INSTALLED_FIRST_USE_NATIVE_EDIT_VALUE_NOT_ACKNOWLEDGED'
 }
 function HasText([string]$fragment){
   $root=DesktopRoot
