@@ -7,8 +7,8 @@ on:
 permissions:
   contents: read
 env:
-  DOMAIN_SHA: 3045828bc3d19cf1523e6148024c0af8bf482389
-  SITE_SHA: 16da8d1fbf087e09206a05fde921481612a8c1c6
+  DOMAIN_SHA: 6f009805848b27d57c349ff92d005a7c65c3dd94
+  SITE_SHA: 3b019d2f227137579ba5889ff3e1f6a7df2ea031
 jobs:
   p1-models:
     runs-on: ${{ matrix.os }}
@@ -59,7 +59,7 @@ jobs:
       - name: Run domain negative and anti-duplication tests
         working-directory: private/domain
         run: |
-          node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs tests/business-project.test.mjs tests/business-edit-intent.test.mjs tests/business-experiment-comparison.test.mjs tests/business-launch-review.test.mjs > "$RUNNER_TEMP/d08-private-domain.log" 2>&1 || { echo "D08_P1_DOMAIN_MODEL_TESTS_FAIL"; exit 1; }
+          node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs tests/business-project.test.mjs tests/business-edit-intent.test.mjs tests/business-experiment-comparison.test.mjs tests/business-launch-review.test.mjs tests/business-management-decision.test.mjs > "$RUNNER_TEMP/d08-private-domain.log" 2>&1 || { echo "D08_P1_DOMAIN_MODEL_TESTS_FAIL"; exit 1; }
           echo "D08_P1_DOMAIN_MODEL_TESTS=PASS"
       - name: Run independent website projection tests
         working-directory: private/site
