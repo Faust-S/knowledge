@@ -70,6 +70,49 @@ jobs:
           console.log("INTEGRATED_PT_REGISTERED="+c.routes.filter(r=>r.available.includes("pt-BR")).length);
           console.log("INTEGRATED_LOCALES="+c.locales.join(","));
           JS
+      - name: Resolve narrow DE and PT type/404 conflicts
+        working-directory: site
+        shell: bash
+        run: |
+          node - <<'JS'
+          const fs=require('fs'),cp=require('child_process');
+          const PT='b840ebfd57d086a65c4474136a3c334eda07f5c4';
+          const read=p=>fs.readFileSync(p,'utf8');
+          const write=(p,s)=>fs.writeFileSync(p,s);
+          const orbit='src/components/site/OrbitalMap.tsx';
+          let s=read(orbit);
+          const old='|"de-DE"})';
+          if(!s.includes(old)||s.includes('|"de-DE"|"pt-BR"})')) throw new Error('INTEGRATED_ORBIT_TYPE_ANCHOR_CHANGED');
+          write(orbit,s.replace(old,'|"de-DE"|"pt-BR"})'));
+          const root='src/routes/__root.tsx';
+          s=read(root);
+          const predicate='  const german = locale === "de-DE";';
+          if(s.split(predicate).length-1!==2)throw new Error('INTEGRATED_ROOT_LOCALE_ANCHOR_CHANGED');
+          write(root,s.replaceAll(predicate,predicate+String.fromCharCode(10)+'  const portuguese = locale === "pt-BR";'));
+          const legacy='src/components/life-plus/legacy-banner.tsx';
+          s=read(legacy);
+          const p=cp.execFileSync('git',['show',PT+':'+legacy],{encoding:'utf8'});
+          const candidates=[...p.matchAll(/: locale === "pt-BR" \? "[^"]*"/g)].map(x=>x[0]);
+          if(candidates.length!==2)throw new Error('INTEGRATED_LEGACY_PT_STRINGS_MISSING');
+          if(!s.includes(' | "de-DE" };'))throw new Error('INTEGRATED_LEGACY_TYPE_ANCHOR_CHANGED');
+          s=s.replace(' | "de-DE" };',' | "de-DE" | "pt-BR" };');
+          let ix=0;
+          s=s.replace(/: locale === "ar" \?/g,()=>{
+            const pt=candidates[ix++];
+            if(!pt)throw new Error('INTEGRATED_LEGACY_AR_ANCHOR_COUNT_CHANGED');
+            return pt+' : locale === "ar" ?';
+          });
+          if(ix!==2)throw new Error('INTEGRATED_LEGACY_AR_ANCHOR_COUNT_CHANGED');
+          write(legacy,s);
+          const common=['src/components/site/OrbitalMap.tsx','src/components/site/MeaningHierarchy.tsx','src/components/site/ui.tsx','src/i18n/site-copy.ts','src/routes/__root.tsx','src/components/life-plus/article.tsx','src/components/life-plus/connections.tsx','src/components/life-plus/lab.tsx','src/components/life-plus/legacy-banner.tsx','src/components/life-plus/controls/LifeNextRoute.tsx','src/components/life-plus/controls/LifeResultPanel.tsx'];
+          const count=(v,re)=>(v.match(re)||[]).length;
+          for(const path of common){
+            const actual=read(path),source=cp.execFileSync('git',['show',PT+':'+path],{encoding:'utf8'});
+            const n=count(actual,/pt-BR|portuguese|Português|ORBITAL_PT|PT_/gi),expected=count(source,/pt-BR|portuguese|Português|ORBITAL_PT|PT_/gi);
+            console.log('INTEGRATED_LOCALE_ELEMENTS='+path+' PT '+n+'/'+expected);
+          }
+          console.log('INTEGRATED_TYPE_UNION_REPAIR=PASS');
+          JS
       - name: Qualify integrated TSC then build
         shell: bash
         working-directory: site
