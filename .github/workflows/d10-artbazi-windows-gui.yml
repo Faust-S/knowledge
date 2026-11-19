@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: 39b81d69399bbc62551ecb53eff36f7f566e88d5
+          ref: dc7869489ef0c2efa3662674620933c718d6ca56
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -39,10 +39,10 @@ jobs:
           node-version: "22"
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "latest"
+          bun-version: "1.4.2"
       - name: Verify pinned private and T2 source in runner
         run: |
-          if ((git -C site rev-parse HEAD).Trim() -ne "39b81d69399bbc62551ecb53eff36f7f566e88d5") { throw "D10_WINDOWS_SITE_PIN_MISMATCH" }
+          if ((git -C site rev-parse HEAD).Trim() -ne "dc7869489ef0c2efa3662674620933c718d6ca56") { throw "D10_WINDOWS_SITE_PIN_MISMATCH" }
           if ((git -C t2 rev-parse HEAD).Trim() -ne "e70de29b72b83e2546f7ab74b17572685a728c17") { throw "D10_WINDOWS_T2_PIN_MISMATCH" }
           Write-Output "D10_WINDOWS_SOURCE_PINS=PASS"
       - name: Install site dependencies privately
@@ -141,6 +141,11 @@ jobs:
             $p=Start-Process -FilePath "$env:ComSpec" -ArgumentList @("/d","/c",$gate.cmd) -Wait -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err
             if($p.ExitCode -ne 0){
               Write-Output "D10_HOSTING_$($gate.code)=FAIL"
+              # Only release-checker error identifiers, never private file contents.
+              $failure=(Get-Content $out -Raw -ErrorAction SilentlyContinue) + (Get-Content $err -Raw -ErrorAction SilentlyContinue)
+              [regex]::Matches($failure,"D10_HOSTING_[A-Z0-9_]+") |
+                ForEach-Object {$_.Value} | Select-Object -Unique -First 5 |
+                ForEach-Object {Write-Output "D10_HOSTING_CAUSE=$_"}
               throw "D10_HOSTING_GATE_FAILED_$($gate.code)"
             }
             Write-Output "D10_HOSTING_$($gate.code)=PASS"
