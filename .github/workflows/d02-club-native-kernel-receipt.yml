@@ -654,14 +654,38 @@ jobs:
               $pattern.Invoke()
             }catch{throw $code}
           }
-          function ActivateTab([string]$name,[string]$code){
-            # Original T2 uses <button role="tab">, which Edge exposes as
-            # TabItem rather than UIA Button. Keyboard Space is a real click.
-            $tab=Await $name 'tab' $code
+          # Actual Windows mouse input to the real Edge window. The UIA
+          # TabItem can receive focus without dispatching a DOM click.
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class D02NativeMouse {
+            [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+            [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+          }
+          '@
+          function NativeClick($control,[string]$code){
             try{
-              $tab.SetFocus()
-              [System.Windows.Forms.SendKeys]::SendWait(' ')
+              try{$control.SetFocus()}catch{}
+              $point=$control.GetClickablePoint()
+              $x=[int][Math]::Round($point.X)
+              $y=[int][Math]::Round($point.Y)
+              if(-not [D02NativeMouse]::SetCursorPos($x,$y)){throw $code}
+              Start-Sleep -Milliseconds 100
+              [D02NativeMouse]::mouse_event(0x0002,0,0,0,[UIntPtr]::Zero)
+              [D02NativeMouse]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero)
             }catch{throw $code}
+          }
+          function ActivateTab([string]$name,[string]$code){
+            # T2 tab is role="tab" and therefore UIA TabItem, not Button.
+            $tab=Await $name 'tab' $code
+            NativeClick $tab $code
+            Start-Sleep -Milliseconds 250
+            try{
+              $selected=[System.Windows.Automation.SelectionItemPattern]$tab.GetCurrentPattern(
+                [System.Windows.Automation.SelectionItemPattern]::Pattern)
+              Write-Output "D02_IMPORT_NATIVE_TAB_SELECTED=$($selected.Current.IsSelected)"
+            }catch{Write-Output 'D02_IMPORT_NATIVE_TAB_SELECTION_NOT_EXPOSED=TRUE'}
           }
           function AwaitPrefix([string]$prefix,[string]$code){
             for($i=0;$i -lt 100;$i++){
@@ -698,13 +722,34 @@ jobs:
               throw 'D02_IMPORT_ORIGINAL_CAPABILITY_NOT_GRANTED'
             }
             ActivateTab 'Импортировать' 'D02_IMPORT_NATIVE_TAB_MISSING'
-            $choose=Await 'Выберите файл .iwxa' '' 'D02_IMPORT_FILE_INPUT_NOT_VISIBLE'
+            $choose=$null
+            for($i=0;$i -lt 50;$i++){
+              foreach($label in @('Выберите файл .iwxa','Выбрать файл','Choose File','Choose file','Browse...')){
+                $choose=Locate $label ''
+                if($choose){break}
+              }
+              if($choose){break}
+              Start-Sleep -Milliseconds 250
+            }
+            if(!$choose){
+              # Print only public UI controls, never file paths or user data.
+              $tab=Locate 'Импортировать' 'tab'
+              if($tab){
+                try{
+                  $selection=[System.Windows.Automation.SelectionItemPattern]$tab.GetCurrentPattern(
+                    [System.Windows.Automation.SelectionItemPattern]::Pattern)
+                  Write-Output "D02_IMPORT_TAB_SELECTED_WHEN_FILE_MISSING=$($selection.Current.IsSelected)"
+                }catch{Write-Output 'D02_IMPORT_TAB_SELECTION_STATUS_UNKNOWN=TRUE'}
+              }
+              Write-Output ('D02_IMPORT_EXPORT_PANEL_VISIBLE='+[bool](Locate 'Скачать .iwxa' 'button'))
+              throw 'D02_IMPORT_FILE_INPUT_NOT_VISIBLE'
+            }
+            Write-Output 'D02_IMPORT_NATIVE_FILE_CONTROL_FOUND=PASS'
             try{
-              $choose.SetFocus()
               $pattern=[System.Windows.Automation.InvokePattern]$choose.GetCurrentPattern(
                 [System.Windows.Automation.InvokePattern]::Pattern)
               $pattern.Invoke()
-            }catch{throw 'D02_IMPORT_NATIVE_FILE_PICKER_NOT_OPENED'}
+            }catch{NativeClick $choose 'D02_IMPORT_NATIVE_FILE_PICKER_NOT_OPENED'}
             Start-Sleep -Milliseconds 700
             # The standard Windows file chooser belongs to Edge. Entering an
             # actual file path here is a genuine native user operation; no
