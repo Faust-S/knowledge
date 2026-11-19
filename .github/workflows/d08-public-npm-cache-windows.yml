@@ -26,6 +26,13 @@ jobs:
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
+      - name: Checkout accepted public T2 dependency manifests
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7
+          persist-credentials: false
+          path: normative/t2
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -51,6 +58,30 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'D08_CACHE_OFFLINE_REPLAY_FAILED'}
           } finally {Pop-Location}
           Write-Host 'D08_CACHE_OFFLINE_REPLAY=PASS'
+          $t2=Join-Path $env:GITHUB_WORKSPACE 'normative/t2'
+          $t2Roots=@(
+            (Join-Path $t2 't2/current/final-successor/canonical-source'),
+            (Join-Path $t2 't2/current/final-successor/kernel-successors/k036-atomic-graph/source-overlay')
+          )
+          $n=0
+          foreach($root in $t2Roots){
+            $n++
+            Push-Location $root
+            try{
+              & npm ci --include=dev --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP ("d08-t2-install-".$n.".private.log"))
+              if($LASTEXITCODE -ne 0){throw 'D08_T2_PUBLIC_NPM_INSTALL_FAILED'}
+            } finally {Pop-Location}
+            $tmp=Join-Path $env:RUNNER_TEMP ("d08-t2-offline-verify-"+$n)
+            New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+            Copy-Item (Join-Path $root 'package.json') (Join-Path $tmp 'package.json')
+            Copy-Item (Join-Path $root 'package-lock.json') (Join-Path $tmp 'package-lock.json')
+            Push-Location $tmp
+            try{
+              & npm ci --offline --ignore-scripts --include=dev --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP ("d08-t2-offline-".$n.".private.log"))
+              if($LASTEXITCODE -ne 0){throw 'D08_T2_PUBLIC_NPM_OFFLINE_REPLAY_FAILED'}
+            } finally {Pop-Location}
+          }
+          Write-Host 'D08_T2_PUBLIC_NPM_OFFLINE_REPLAY=PASS'
           $cachePart=Join-Path $env:npm_config_cache '_cacache'
           if(-not (Test-Path -LiteralPath $cachePart -PathType Container)){throw 'D08_CACHE_CONTENT_MISSING'}
           $zip=Join-Path $env:RUNNER_TEMP 'd08-public-npm-cache-win64.zip'
@@ -60,6 +91,8 @@ jobs:
             site_sha=$env:SITE_SHA
             lock_sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath 'package-lock.json').Hash.ToLowerInvariant()
             archive_sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+            t2_canonical_lock_sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $t2Roots[0] 'package-lock.json')).Hash.ToLowerInvariant()
+            t2_kernel_lock_sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $t2Roots[1] 'package-lock.json')).Hash.ToLowerInvariant()
             offline_replay='PASS'
             no_private_source_or_dist_in_archive=$true
           }
