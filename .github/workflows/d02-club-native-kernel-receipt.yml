@@ -794,26 +794,46 @@ jobs:
               if($choose){break}
               Start-Sleep -Milliseconds 250
             }
-            if(!$choose){
-              # Print only public UI controls, never file paths or user data.
-              $tab=Locate 'Импортировать' 'tab'
-              if($tab){
+            if($choose){
+              Write-Output 'D02_IMPORT_NATIVE_FILE_CONTROL_FOUND=PASS'
+              try{
+                $pattern=[System.Windows.Automation.InvokePattern]$choose.GetCurrentPattern(
+                  [System.Windows.Automation.InvokePattern]::Pattern)
+                $pattern.Invoke()
+              }catch{
                 try{
-                  $selection=[System.Windows.Automation.SelectionItemPattern]$tab.GetCurrentPattern(
-                    [System.Windows.Automation.SelectionItemPattern]::Pattern)
-                  Write-Output "D02_IMPORT_TAB_SELECTED_WHEN_FILE_MISSING=$($selection.Current.IsSelected)"
-                }catch{Write-Output 'D02_IMPORT_TAB_SELECTION_STATUS_UNKNOWN=TRUE'}
+                  $choose.SetFocus()
+                  [System.Windows.Forms.SendKeys]::SendWait(' ')
+                  Write-Output 'D02_IMPORT_FILE_PICKER_TRIGGER=KEYBOARD_ON_CONTROL'
+                }catch{NativeClick $choose 'D02_IMPORT_NATIVE_FILE_PICKER_NOT_OPENED'}
               }
-              Write-Output ('D02_IMPORT_EXPORT_PANEL_PRESENT='+ (ExistsUIName 'Скачать .iwxa'))
-              Write-Output ('D02_IMPORT_IMPORT_PANEL_TEXT_PRESENT='+ (ExistsUIName 'Выберите сохранённый пакет'))
-              throw 'D02_IMPORT_FILE_INPUT_NOT_VISIBLE'
+            }else{
+              # Chromium may expose <input type=file> as a nested OS chooser
+              # without its HTML aria-label. The first keyboard Tab after
+              # the selected Import tab goes to that native file input.
+              # Do not inspect or print filenames or profile contents.
+              $tab=Locate 'Импортировать' 'tab'
+              if(!$tab -or !(ImportTabSelected $tab) -or
+                 (ExistsUIName 'Скачать .iwxa')){
+                throw 'D02_IMPORT_TAB_OR_PANEL_NOT_CONFIRMED'
+              }
+              try{
+                $tab.SetFocus()
+                [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+                Start-Sleep -Milliseconds 200
+                $focus=[System.Windows.Automation.AutomationElement]::FocusedElement
+                if(!$focus){throw 'D02_IMPORT_FILE_FOCUS_MISSING'}
+                $focusType=$focus.Current.ControlType.ProgrammaticName
+                Write-Output "D02_IMPORT_FIRST_FOCUS_TYPE=$focusType"
+                if($focusType -notmatch 'Button|Edit|Group|SplitButton'){
+                  throw 'D02_IMPORT_FOCUSED_NON_FILE_CONTROL'
+                }
+                [System.Windows.Forms.SendKeys]::SendWait(' ')
+                Write-Output 'D02_IMPORT_FILE_PICKER_TRIGGER=KEYBOARD_TAB_FROM_IMPORT'
+              }catch{
+                throw 'D02_IMPORT_NATIVE_FILE_PICKER_KEYBOARD_FAILED'
+              }
             }
-            Write-Output 'D02_IMPORT_NATIVE_FILE_CONTROL_FOUND=PASS'
-            try{
-              $pattern=[System.Windows.Automation.InvokePattern]$choose.GetCurrentPattern(
-                [System.Windows.Automation.InvokePattern]::Pattern)
-              $pattern.Invoke()
-            }catch{NativeClick $choose 'D02_IMPORT_NATIVE_FILE_PICKER_NOT_OPENED'}
             Start-Sleep -Milliseconds 700
             # The standard Windows file chooser belongs to Edge. Entering an
             # actual file path here is a genuine native user operation; no
