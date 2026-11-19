@@ -31,20 +31,48 @@ $entries = @(
 $server = $null
 $edgeProc = $null
 $profile = Join-Path $env:RUNNER_TEMP "d10-windows-ui-profile"
+function EdgeProcessIds {
+  return @(Get-Process -Name msedge -ErrorAction SilentlyContinue | ForEach-Object {$_.Id})
+}
 function Find-EdgeWindow {
-  $root = [System.Windows.Automation.AutomationElement]::RootElement
-  $children = $root.FindAll(
+  $ids=EdgeProcessIds
+  if($ids.Count -eq 0){return $null}
+  $root=[System.Windows.Automation.AutomationElement]::RootElement
+  $children=$root.FindAll(
     [System.Windows.Automation.TreeScope]::Children,
     [System.Windows.Automation.Condition]::TrueCondition)
   foreach($item in $children){
     try{
-      if($item.Current.ControlType -eq [System.Windows.Automation.ControlType]::Window -and
-         $item.Current.Name -match "Microsoft Edge"){
+      $current=$item.Current
+      if(($ids -contains $current.ProcessId) -and
+         ($current.ControlType -eq [System.Windows.Automation.ControlType]::Window -or
+          $current.ClassName -eq "Chrome_WidgetWin_1")){
         return $item
       }
     }catch{}
   }
   return $null
+}
+function Write-DesktopEnvironmentEvidence {
+  $session=[System.Diagnostics.Process]::GetCurrentProcess().SessionId
+  $ids=EdgeProcessIds
+  $root=[System.Windows.Automation.AutomationElement]::RootElement
+  $children=$root.FindAll([System.Windows.Automation.TreeScope]::Children,
+    [System.Windows.Automation.Condition]::TrueCondition)
+  $chromeWidgets=0
+  $visibleEdge=0
+  foreach($item in $children){
+    try{
+      if($item.Current.ClassName -eq "Chrome_WidgetWin_1"){$chromeWidgets++}
+      if($ids -contains $item.Current.ProcessId){$visibleEdge++}
+    }catch{}
+  }
+  Write-Output "D10_WINDOWS_USER_INTERACTIVE=$([Environment]::UserInteractive)"
+  Write-Output "D10_WINDOWS_UIA_SESSION=$session"
+  Write-Output "D10_WINDOWS_EDGE_PROCESS_COUNT=$($ids.Count)"
+  Write-Output "D10_WINDOWS_UIA_TOPLEVEL_COUNT=$($children.Count)"
+  Write-Output "D10_WINDOWS_UIA_CHROME_WIDGETS=$chromeWidgets"
+  Write-Output "D10_WINDOWS_UIA_EDGE_TOPLEVEL=$visibleEdge"
 }
 function Has-AccessibleArticleText($window,$expected){
   $textCondition=New-Object System.Windows.Automation.PropertyCondition(
@@ -81,7 +109,10 @@ try {
     if($null -ne $window){break}
     Start-Sleep -Milliseconds 300
   }
-  if($null -eq $window){throw "D10_WINDOWS_EDGE_UIA_WINDOW_MISSING"}
+  if($null -eq $window){
+    Write-DesktopEnvironmentEvidence
+    throw "D10_WINDOWS_EDGE_UIA_WINDOW_MISSING"
+  }
   Write-Output "D10_WINDOWS_EDGE_UIA_ATTACHED=PASS"
   $passed=0
   foreach($case in $entries){
