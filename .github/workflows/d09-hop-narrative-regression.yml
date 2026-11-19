@@ -145,9 +145,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/d09-tls"
-          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=localhost" \\
-            -keyout "$RUNNER_TEMP/d09-tls/key.pem" \\
-            -out "$RUNNER_TEMP/d09-tls/cert.pem" > "$RUNNER_TEMP/d09-openssl.log" 2>&1
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=localhost" -keyout "$RUNNER_TEMP/d09-tls/key.pem" -out "$RUNNER_TEMP/d09-tls/cert.pem" > "$RUNNER_TEMP/d09-openssl.log" 2>&1
           if command -v google-chrome >/dev/null 2>&1; then
             export PUPPETEER_EXECUTABLE_PATH="$(command -v google-chrome)"
           else
