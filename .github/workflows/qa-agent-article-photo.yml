@@ -5,6 +5,8 @@ on:
       - qa/2026-11-20-software-agent-article-capture
     paths:
       - .github/workflows/qa-agent-article-photo.yml
+      - tools/qa-patch-agent-editorial.py
+      - tools/qa-agent-article-photos.ps1
   workflow_dispatch:
 permissions:
   contents: read
