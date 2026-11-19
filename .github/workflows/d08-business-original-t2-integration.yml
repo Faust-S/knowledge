@@ -189,16 +189,7 @@ jobs:
           $code=$LASTEXITCODE
           foreach($line in @(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
             $value=$line.Trim()
-            if($value -match '^D08_BIZ_[A-Z0-9_]+=(PASS|NOT_RUN|TRUE|[A-Z0-9_]+)
-        if: always()
-        run: |
-          Write-Host 'D08_PRIVATE_SOURCE_PUBLISHED=NO'
-          Write-Host 'D08_DIST_PUBLISHED=NO'
-          Write-Host 'D08_ARTIFACT_UPLOADS=0'
-          Write-Host 'D08_BUSINESS_GUI_WRITE=CHECK_WITNESS_SIGNALS'
-          Write-Host 'D08_BUSINESS_COLD_READBACK=CHECK_WITNESS_SIGNALS'
-          Write-Host 'D08_BUSINESS_IWXA_EXCHANGE=NOT_RUN'
-){
+            if($value -match '^D08_BIZ_[A-Z0-9_]+=(PASS|NOT_RUN|TRUE|[A-Z0-9_]+)$'){
               Write-Host $value
             }
           }
@@ -210,6 +201,6 @@ jobs:
           Write-Host 'D08_PRIVATE_SOURCE_PUBLISHED=NO'
           Write-Host 'D08_DIST_PUBLISHED=NO'
           Write-Host 'D08_ARTIFACT_UPLOADS=0'
-          Write-Host 'D08_BUSINESS_GUI_WRITE=NOT_RUN'
-          Write-Host 'D08_BUSINESS_COLD_READBACK=NOT_RUN'
+          Write-Host 'D08_BUSINESS_GUI_WRITE=CHECK_WITNESS_SIGNALS'
+          Write-Host 'D08_BUSINESS_COLD_READBACK=CHECK_WITNESS_SIGNALS'
           Write-Host 'D08_BUSINESS_IWXA_EXCHANGE=NOT_RUN'
