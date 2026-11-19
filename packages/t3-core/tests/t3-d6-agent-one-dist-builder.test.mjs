@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,rmSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,dirname} from 'node:path';
-import {buildOriginalAgentOneDist,requireOriginalAgentT2Product}
+import {buildOriginalAgentOneDist,requireOriginalAgentT2Product,
+  materializeOriginalAgentT2Product}
   from '../scripts/build-original-agent-one-dist.mjs';
 
 test('original qualified T2 One Dist product builder cannot package a signed test Host as Personal Agent',()=>{
@@ -43,5 +44,39 @@ test('original qualified T2 One Dist product builder cannot package a signed tes
       /ORIGINAL_PRODUCT_IDENTITY_OR_RUNTIME_REQUIRED/);
     // There is deliberately no fabricated positive receipt. Only the
     // original production-qualified T2 assembler can produce that.
+  }finally{rmSync(temp,{recursive:true,force:true});}
+});
+
+
+test('G4 universal Agent One Dist rejects preauthorized Atlas or any default recipient',async()=>{
+  const temp=mkdtempSync(join(tmpdir(),'t3-no-default-recipient-'));
+  try{
+    const qualified=join(temp,'original-qualified-kernel');
+    const profilePath=join(temp,'owned-agent-profile.json');
+    const output=join(temp,'nonexistent-original-agent-dist');
+    mkdirSync(qualified);
+    const profile={
+      schema:'IWXA_AGENT_ORIGINAL_T2_PRODUCT_PROFILE/1',
+      productId:'iwxa.personal-agent',
+      serviceId:'iwxa.personal-agent.workspace',
+      configVersion:'0.6.0',origin:'http://127.0.0.1:18883',
+      workspaceProfile:'generic',localStoreName:'iwxa-local',
+      kernelVersion:'0.3.6',runtimeContract:'1.3.0',
+      qualifiedArtifactId:'iwxa-kernel-k036-same-store-history-20261019-qualified.1',
+      authorizedNativeOwner:'ORIGINAL_T3_SIGNED_EMPLOYEE',
+      authorizedResultRecipient:null,installedAgentT3Mode:'EXPLICIT_OPT_IN',
+    };
+    for(const recipient of ['iwxa.atlas','domain:bazmed','*']){
+      writeFileSync(profilePath,JSON.stringify({
+        ...profile,authorizedResultRecipient:recipient,
+      }));
+      await assert.rejects(()=>materializeOriginalAgentT2Product({
+        qualifiedKernelDist:qualified,agentProfile:profilePath,
+        outputRoot:output,
+      }),/T3_AGENT_ONE_DIST_OWNING_AGENT_PRODUCT_PROFILE_INVALID/);
+      assert.equal(existsSync(output),false);
+    }
+    // The full positive test is the real original T2 browser/One Dist
+    // qualification. This unit test MUST NOT fake a qualified T2 runtime.
   }finally{rmSync(temp,{recursive:true,force:true});}
 });
