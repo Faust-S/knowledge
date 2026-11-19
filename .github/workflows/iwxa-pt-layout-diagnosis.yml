@@ -34,6 +34,7 @@ jobs:
           ref: a29342519466961dc1a1a8f44713323ebb0268f1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
+          fetch-depth: 0
           path: pt-site
       - uses: actions/setup-node@v4
         with:
