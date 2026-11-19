@@ -7,12 +7,12 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: d12-akis-fast-\${{ github.ref }}
+  group: d12-akis-fast-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   qualify:
-    name: Independent source and browser \${{ matrix.os }}
-    runs-on: \${{ matrix.os }}
+    name: Independent source and browser ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -27,7 +27,7 @@ jobs:
         with:
           repository: Faust-S/iwxa-ru-1
           ref: 15f69d13cfb6e2b341ec5e2a117ec416612e5564
-          token: \${{ secrets.DOMEN }}
+          token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Checkout exact private original AKIS research
         uses: actions/checkout@v4
@@ -35,7 +35,7 @@ jobs:
           repository: Faust-S/iwxa
           ref: e624520c52101a34feab62ce68b2056dc54e5301
           path: akis-research
-          token: \${{ secrets.DOMEN }}
+          token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Verify source identity without printing private code
         run: |
@@ -67,7 +67,7 @@ jobs:
           echo "AKIS_CASE_UNIT=PASS"
       - name: Scientific source parity on original research code and passport
         env:
-          IWXA_AKIS_RESEARCH_SOURCE_DIR: \${{ github.workspace }}/akis-research
+          IWXA_AKIS_RESEARCH_SOURCE_DIR: ${{ github.workspace }}/akis-research
         run: |
           bun run check:akis:source-parity > "$RUNNER_TEMP/akis-source-parity.log" 2>&1 || {
             echo "AKIS_AUTHOR_SOURCE_PARITY=FAIL"; exit 1;
