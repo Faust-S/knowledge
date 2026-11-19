@@ -11,7 +11,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     env:
-      SITE_SHA: 64577d7c83006fd2fd2506a69d9fe92c76e7ba40
+      SITE_SHA: dfb69cdcba7c02aee79df4727cbfee822db5317c
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -263,19 +263,19 @@ jobs:
               }
             }
             $null=Await 'Как организовать работу вместе' '' 'D02_S19_EDITOR_NOT_VISIBLE'
-            Enter 'Как назовём совместную задачу' 'Доставка школьных материалов' 'D02_S19_TITLE_FAILED'
-            Enter 'Какого результата хотите получить' 'Передать пять комплектов до пятницы' 'D02_S19_OUTCOME_FAILED'
-            Enter 'Срок в неделях' '2' 'D02_S19_DURATION_FAILED'
-            Enter 'Бюджет, руб.' '350' 'D02_S19_BUDGET_FAILED'
-            Enter 'Если участник откажется или не сможет продолжить' 'Заберу оставшиеся комплекты' 'D02_S19_FALLBACK_FAILED'
-            Enter 'При каких условиях можно прекратить участие' 'До передачи следующей партии' 'D02_S19_EXIT_FAILED'
-            Enter 'Предлагаемая роль' 'Координатор' 'D02_S19_ROLE_FAILED'
-            Enter 'Что человек должен сделать' 'Получить пять комплектов' 'D02_S19_CONTRIBUTION_FAILED'
-            Enter 'Доступно часов в неделю' '4' 'D02_S19_CAPACITY_FAILED'
-            Enter 'Что нужно сделать' 'Сверить пять комплектов' 'D02_S19_TASK_FAILED'
-            Enter 'Как проверить результат' 'Пять подтверждений получения' 'D02_S19_CHECK_FAILED'
-            Enter 'План, часов' '3' 'D02_S19_HOURS_FAILED'
-            Enter 'Предполагаемые расходы, руб.' '45' 'D02_S19_COST_FAILED'
+            Enter 'Сценарий: Как назовём совместную задачу' 'Доставка школьных материалов' 'D02_S19_TITLE_FAILED'
+            Enter 'Сценарий: Какого результата хотите получить' 'Передать пять комплектов до пятницы' 'D02_S19_OUTCOME_FAILED'
+            Enter 'Сценарий: Срок в неделях' '2' 'D02_S19_DURATION_FAILED'
+            Enter 'Сценарий: Бюджет, руб.' '350' 'D02_S19_BUDGET_FAILED'
+            Enter 'Сценарий: Если участник откажется или не сможет продолжить' 'Заберу оставшиеся комплекты' 'D02_S19_FALLBACK_FAILED'
+            Enter 'Сценарий: При каких условиях можно прекратить участие' 'До передачи следующей партии' 'D02_S19_EXIT_FAILED'
+            Enter 'Сценарий: Предлагаемая роль' 'Координатор' 'D02_S19_ROLE_FAILED'
+            Enter 'Сценарий: Что человек должен сделать' 'Получить пять комплектов' 'D02_S19_CONTRIBUTION_FAILED'
+            Enter 'Сценарий: Доступно часов в неделю' '4' 'D02_S19_CAPACITY_FAILED'
+            Enter 'Сценарий: Что нужно сделать' 'Сверить пять комплектов' 'D02_S19_TASK_FAILED'
+            Enter 'Сценарий: Как проверить результат' 'Пять подтверждений получения' 'D02_S19_CHECK_FAILED'
+            Enter 'Сценарий: План, часов' '3' 'D02_S19_HOURS_FAILED'
+            Enter 'Сценарий: Предполагаемые расходы, руб.' '45' 'D02_S19_COST_FAILED'
             $button=Await 'Записать сценарий' 'button' 'D02_S19_SAVE_MISSING'
             try{
               $invoke=[System.Windows.Automation.InvokePattern]$button.GetCurrentPattern(
@@ -309,6 +309,15 @@ jobs:
               if($dependency){Write-Output 'D02_S19_DEPENDENCY_VALIDATION=REJECTED'}
               $noWrite=Locate 'Не удалось записать сценарий. Прежние данные сохранены.' ''
               if($noWrite){Write-Output 'D02_S19_WRITE_STATUS=REJECTED'}
+              if(Locate 'Это ваш план. Договорённость с другими участниками требует отдельного подтверждения.' ''){
+                Write-Output 'D02_S19_FORM_EVENT_NOT_OBSERVED=TRUE'
+              }
+              if(Locate 'Не удалось открыть сценарии. Записи не удалены.' ''){
+                Write-Output 'D02_S19_INVALID_STORED_RECORDS=TRUE'
+              }
+              if(Locate 'Сценариев пока нет. Начните с общего результата, роли и одной работы.' ''){
+                Write-Output 'D02_S19_RECORD_LIST_EMPTY=TRUE'
+              }
               throw 'D02_S19_NATIVE_RESULT_NOT_VISIBLE'
             }
             Write-Output 'D02_S19_NATIVE_EDGE_INPUT_AND_RESULT=PASS'
