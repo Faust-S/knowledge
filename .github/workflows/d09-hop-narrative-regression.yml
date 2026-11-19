@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           echo "D09_SITE_HEAD=$(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD)" = "b79323988f3a54eee2d44c95e22dc235d27474c7" || {
+          test "$(git rev-parse HEAD)" = "d4edebbb1cf99ce5750db84c8584c788f944d6a7" || {
             echo "D09_SITE_REVISION_CHANGED=HOLD"; exit 1;
           }
           node --experimental-strip-types --test tests/d09-read-model-guards.test.mjs > "$RUNNER_TEMP/d09-result-source.log" 2>&1 || {
@@ -87,7 +87,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop
-          ref: work/2026-11-19-narrative-ai-import
+          ref: df845681cfd2d0b82e996044509ea3d341c4b489
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: canonical-hop
@@ -98,6 +98,8 @@ jobs:
             cmp "$file" "canonical-hop/$file" || { echo "D09_CANONICAL_PARITY=FAIL"; exit 1; }
           done
           echo "D09_CANONICAL_PARITY=PASS"
+          # This is a temporary independent verification checkout, not site source.
+          rm -rf canonical-hop
       - name: Check public UX and product contracts
         shell: bash
         run: |
