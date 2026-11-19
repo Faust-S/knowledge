@@ -94,8 +94,8 @@ jobs:
             node - "$RUNNER_TEMP/build.log" <<'JS'
           const fs=require('fs');
           const log=fs.readFileSync(process.argv[2],"utf8");
-          const m=log.match(/([^\\s:]+\\.(?:tsx?|jsx?|mjs)):(\\d+):(\\d+):\\s*ERROR:/i);
-          if(m){console.log("INTEGRATED_BROKEN_FILE="+m[1].replace(/\\\\/g,"/").split("/").slice(-5).join("/"));console.log("INTEGRATED_BROKEN_LINE="+m[2]+":"+m[3]);}
+          const m=log.match(/([^\s:]+\.(?:tsx?|jsx?|mjs)):(\d+):(\d+):\s*ERROR:/i);
+          if(m){console.log("INTEGRATED_BROKEN_FILE="+m[1].split("/").slice(-5).join("/"));console.log("INTEGRATED_BROKEN_LINE="+m[2]+":"+m[3]);}
           else console.log("INTEGRATED_BROKEN_FILE=UNRESOLVED");
           JS
           fi
