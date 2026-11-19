@@ -1,0 +1,125 @@
+name: IWXA article photography current installed Personal Agent
+on:
+  push:
+    branches:
+      - qa/2026-11-20-software-agent-article-capture
+    paths:
+      - .github/workflows/qa-agent-article-photo.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  screenshot:
+    runs-on: windows-2022
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 9e863889491f3d460d938fd835f3513d6cb1564e
+          token: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /desktop/
+            /runtime/
+            /tools/
+            /config/
+            /adapters/
+            /cells/
+            /providers/
+            /schemas/
+            /profiles/
+            /surfaces/
+            /skills/
+            /operational-skills/
+            /automation/
+            /authority/
+            /Human/
+            /scripts/
+            /webui/
+            /windows/
+            /qualification/phase1/*.ps1
+            /qualification/phase1/*.py
+            /qualification/phase1/*.json
+            /qualification/phase1/*.mjs
+            /requirements.txt
+            /requirements-ci.txt
+            /.gitignore
+          path: .private/agent
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: c10e193846a0ea4c73cabe3744aa7db82439d54e
+          persist-credentials: false
+          path: .private/center
+      - name: Assert unchanged originals and prepare disposable documentary acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git -C .private/agent rev-parse HEAD).Trim() -cne '9e863889491f3d460d938fd835f3513d6cb1564e'){throw 'DOC_AGENT_HEAD_MISMATCH'}
+          if((git -C .private/center rev-parse HEAD).Trim() -cne 'c10e193846a0ea4c73cabe3744aa7db82439d54e'){throw 'DOC_INSTALLER_HEAD_MISMATCH'}
+          python tools/qa-patch-agent-editorial.py .private/agent
+          if($LASTEXITCODE -ne 0){throw 'DOC_AGENT_TEMPORARY_WITNESS_MISSING'}
+          Write-Host 'DOC_AGENT_PRIVATE_ORIGINALS_PINNED'
+      - name: Build genuine current installed application package, not a release
+        shell: pwsh
+        timeout-minutes: 48
+        run: |
+          $ErrorActionPreference='Stop'
+          $ps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          $agent=(Resolve-Path '.private/agent').Path
+          $center=(Resolve-Path '.private/center').Path
+          $work=Join-Path $env:RUNNER_TEMP 'editorial-agent-build'
+          $cache=Join-Path $env:RUNNER_TEMP 'editorial-agent-cache'
+          $log=Join-Path $env:RUNNER_TEMP 'editorial-agent-build.log'
+          $build=Join-Path $agent 'tools/qa-editorial-build.ps1'
+          & $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $build -CenterRoot $center -CenterCommit 'c10e193846a0ea4c73cabe3744aa7db82439d54e' -OutputRoot $work -ReleaseCacheRoot $cache *> $log
+          if($LASTEXITCODE -ne 0){throw 'DOC_AGENT_NATIVE_BUILD_FAILED'}
+          if(!(Test-Path -LiteralPath (Join-Path $work 'IWXA-Private-SetupCore-Candidate.exe'))){throw 'DOC_AGENT_PACKAGE_MISSING'}
+          Write-Host 'DOC_AGENT_CURRENT_NATIVE_SETUP_READY'
+      - name: Photograph genuine installed task draft, model and program screens
+        shell: pwsh
+        timeout-minutes: 14
+        env:
+          EDITORIAL_AGENT_SHA: 9e863889491f3d460d938fd835f3513d6cb1564e
+        run: |
+          $ErrorActionPreference='Stop'
+          $ps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          $center=(Resolve-Path '.private/center').Path
+          $agent=(Resolve-Path '.private/agent').Path
+          $package=Join-Path $env:RUNNER_TEMP 'editorial-agent-build/IWXA-Private-SetupCore-Candidate.exe'
+          $sandbox=Join-Path $env:RUNNER_TEMP 'editorial-agent-installed'
+          $witness=Join-Path $agent 'tools/qa-editorial-gui-witness.ps1'
+          $accept=Join-Path $center 'installer/windows/qualify-local-bundle.ps1'
+          & $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $accept -Setup $package -ProductId 'iwxa.personal-agent' -SandboxRoot $sandbox -SourceCommit '9e863889491f3d460d938fd835f3513d6cb1564e' -WitnessScript $witness -WitnessTimeoutSeconds 700 *> (Join-Path $env:RUNNER_TEMP 'editorial-agent-install.log')
+          if($LASTEXITCODE -ne 0){throw 'DOC_AGENT_REAL_GUI_WITNESS_FAILED'}
+          Write-Host 'DOC_AGENT_NATIVE_THREE_GUI_STATES_CAPTURED'
+      - name: Publish screenshots only, excluding private code and models
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-editorial-agent-real-windows-photos
+          path: artifacts/editorial-agent/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Purge all private product source and installed runtime
+        if: always()
+        shell: pwsh
+        run: |
+          foreach($p in @('.private/agent','.private/center',(Join-Path $env:RUNNER_TEMP 'editorial-agent-build'),(Join-Path $env:RUNNER_TEMP 'editorial-agent-cache'),(Join-Path $env:RUNNER_TEMP 'editorial-agent-installed'),(Join-Path $env:RUNNER_TEMP 'editorial-agent-build.log'),(Join-Path $env:RUNNER_TEMP 'editorial-agent-install.log'))){
+            if(Test-Path -LiteralPath $p){Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue}
+          }
+          Write-Host 'DOC_AGENT_TEMPORARY_SOURCE_PURGED'
