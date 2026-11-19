@@ -148,6 +148,9 @@ export async function qualifyNativeOriginalEmployee({
       ProgramData:process.env.ProgramData??'',PATHEXT:process.env.PATHEXT??'',
       TEMP:process.env.TEMP??tmpdir(),TMP:process.env.TMP??tmpdir(),
       HOME:process.env.HOME??'',PYTHON_COMMAND:python,CI:'true',
+      G4_ORIGINAL_PYTHON_COMMAND:process.env.pythonLocation
+        ?join(process.env.pythonLocation,'python.exe'):'',
+      G4_ORIGINAL_NODE_COMMAND:process.execPath,
       G4_ORIGINAL_QUALIFIED_T2_DIST:process.env.G4_ORIGINAL_QUALIFIED_T2_DIST??'',
       G4_AGENT_OLLAMA_BASE_URL:process.env.G4_AGENT_OLLAMA_BASE_URL??'',
       G4_AGENT_OLLAMA_MODEL:process.env.G4_AGENT_OLLAMA_MODEL??'',
