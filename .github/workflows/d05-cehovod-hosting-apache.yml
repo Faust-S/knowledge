@@ -30,7 +30,7 @@ jobs:
             echo "D05_PRIVATE_SITE=UNAVAILABLE"
             exit 1
           fi
-          test "$(git -C site rev-parse HEAD)" = "fb38824b1a01557e228b26f374f9e0bd33b3a247" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "0ada4f082a39ec9a7bf2be3f75b57ebc5ebc39b4" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
           echo "D05_SITE_PIN=PASS"
           unset header DOMEN
       - name: Install Node
