@@ -1,0 +1,204 @@
+name: d02-club-native-coverage
+on:
+  push:
+    branches:
+      - work/2026-11-18-d02-club-qualification
+    paths:
+      - .github/workflows/d02-club-native-coverage.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-coverage:
+    runs-on: windows-latest
+    timeout-minutes: 55
+    env:
+      SITE_SHA: e0a78dd60d3262cbd4beb54dde8b7eacd0c6d97b
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      CI: 'true'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Prevent Windows line-ending rewrite
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Build original full T2 Host and qualified Club site
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_T2_NPM_CACHE_DIR: ${{ runner.temp }}/d02-coverage-npm-cache
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D02_COVERAGE_SITE_PIN_MISMATCH'}
+          if((git -C ../t2 rev-parse HEAD).Trim() -ne $env:T2_SHA){throw 'D02_COVERAGE_T2_PIN_MISMATCH'}
+          & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'd02-coverage-install.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D02_COVERAGE_INSTALL_FAILED'}
+          & npm run build *> (Join-Path $env:RUNNER_TEMP 'd02-coverage-build.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D02_COVERAGE_BUILD_FAILED'}
+          & npm run check:club-release *> (Join-Path $env:RUNNER_TEMP 'd02-coverage-gate.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D02_COVERAGE_RELEASE_GATE_FAILED'}
+          Write-Output 'D02_COVERAGE_ORIGINAL_HOST_AND_SITE=PASS'
+      - name: Open all 18 service entries and 10 real case articles in Edge
+        working-directory: site
+        env:
+          PORT: '55469'
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class D02View {
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int z, bool repaint);
+          }
+          '@
+          $origin='http://localhost:55469'
+          $site=(Resolve-Path .).Path
+          $edge=@(
+            (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
+            (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
+          )|Where-Object{Test-Path $_}|Select-Object -First 1
+          if(!$edge){throw 'D02_COVERAGE_EDGE_NOT_INSTALLED'}
+          $entries=@(
+            @{kind='service';id='01';route='/profile/';heading='Опишите исходную ситуацию'}
+            @{kind='service';id='02';route='/tools/personal-economy/';heading='Карта личной экономики'}
+            @{kind='service';id='03';route='/tools/additional-income/';heading='Сколько работы нужно для выбранной цели'}
+            @{kind='service';id='04';route='/tools/resources-and-skills/';heading='Что уже можно превратить в полезный результат'}
+            @{kind='service';id='05';route='/roles/';heading='Найдите сочетание ролей'}
+            @{kind='service';id='06';route='/projects/';heading='Оформите замысел в рабочий черновик'}
+            @{kind='service';id='07';route='/tools/action-route/';heading='Переведите цель в четыре недели действий'}
+            @{kind='service';id='08';route='/workspace/#/domain';heading='Моя рабочая область'}
+            @{kind='service';id='09';route='/projects/#club-goal-map';heading='Мои цели и следующие действия'}
+            @{kind='service';id='10';route='/projects/#club-competency-gap';heading='Чего мне не хватает для выбранной роли'}
+            @{kind='service';id='11';route='/projects/#club-learning-route';heading='Мой маршрут освоения навыка'}
+            @{kind='service';id='12';route='/projects/#club-evidence-portfolio';heading='Что подтверждает мою работу'}
+            @{kind='service';id='13';route='/projects/#club-practice-choice';heading='Что могу попробовать уже сейчас'}
+            @{kind='service';id='14';route='/projects/#club-project-passport';heading='Оформите замысел в рабочий черновик'}
+            @{kind='service';id='15';route='/projects/#club-cooperation-request';heading='Предложить совместную работу'}
+            @{kind='service';id='16';route='/projects/#club-activity-diary';heading='Что сделано по моим проектам'}
+            @{kind='service';id='17';route='/projects/#club-personal-diagnostic';heading='Какое действие мне сейчас по силам'}
+            @{kind='service';id='18';route='/projects/#club-role-match';heading='Где мои возможности подходят проекту'}
+            @{kind='case';id='01';route='/publications/logistics-to-business-analysis/';heading='Как перейти от логистики к бизнес-анализу, не бросая работу'}
+            @{kind='case';id='02';route='/publications/taxi-or-courier/';heading='Такси или автодоставка: где Павлу осталось больше денег за месяц?'}
+            @{kind='case';id='03';route='/publications/cashier-extra-income/';heading='Продавец-кассир: где взять деньги, если нельзя потерять основную работу?'}
+            @{kind='case';id='04';route='/publications/warehouse-shifts/';heading='Работник склада: больше смен, ночная работа или склад ближе к дому?'}
+            @{kind='case';id='05';route='/publications/family-budget-paydays/';heading='Два взрослых работают. Почему семье всё равно не хватает денег перед зарплатой?'}
+            @{kind='case';id='06';route='/publications/cleaning-work-income/';heading='Марина берёт уборки после смены. Какие заказы действительно стоят времени?'}
+            @{kind='case';id='07';route='/publications/security-shift-income/';heading='Иван работает охранником 2/2. Поможет ли дополнительная смена или ближний объект?'}
+            @{kind='case';id='08';route='/publications/cafe-shift-tips/';heading='Анна работает в кафе. Прибавят ли деньги дополнительные выходы или лучше искать работу ближе к дому?'}
+            @{kind='case';id='09';route='/publications/pvz-work-pay/';heading='Марина работает на ПВЗ 2/2. Стоит ли брать дополнительные выходы и как проверить спорную недостачу?'}
+            @{kind='case';id='10';route='/publications/contact-center-remote/';heading='Елена работает оператором поддержки. Что выгоднее: офис, работа дома или дополнительные смены?'}
+          )
+          if(@($entries|Where-Object kind -eq service).Count -ne 18 -or
+             @($entries|Where-Object kind -eq case).Count -ne 10){
+            throw 'D02_COVERAGE_MANIFEST_INCOMPLETE'
+          }
+          $scope=[System.Windows.Automation.TreeScope]::Descendants
+          function FindName([string]$name){
+            $condition=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+            foreach($process in @(Get-Process msedge -ErrorAction SilentlyContinue |
+              Where-Object {$_.MainWindowHandle -ne 0})){
+              try{
+                $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                  [IntPtr]$process.MainWindowHandle)
+                if(!$root){continue}
+                $found=$root.FindFirst($scope,$condition)
+                if($found){return $found}
+              }catch{}
+            }
+            return $null
+          }
+          function WaitName([string]$name){
+            for($k=0;$k -lt 100;$k++){
+              $found=FindName $name
+              if($found){return $found}
+              Start-Sleep -Milliseconds 180
+            }
+            return $null
+          }
+          $server=$null
+          $fail=[System.Collections.Generic.List[string]]::new()
+          $counts=@{service=0;case=0}
+          try{
+            $server=Start-Process -FilePath node -WorkingDirectory $site -ArgumentList @(
+              'scripts/serve-current-static.mjs','dist','--t2-loopback'
+            ) -PassThru -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd02-coverage-http.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd02-coverage-http-errors.private.log')
+            $ready=$false
+            for($i=0;$i -lt 80;$i++){
+              Start-Sleep -Milliseconds 300
+              try{
+                if((Invoke-WebRequest -Uri ($origin+'/') -TimeoutSec 3).StatusCode -eq 200){$ready=$true;break}
+              }catch{}
+            }
+            if(!$ready){throw 'D02_COVERAGE_HTTP_NOT_READY'}
+            $profile=Join-Path $env:RUNNER_TEMP 'd02-native-coverage-profile'
+            foreach($e in $entries){
+              # The disposable GitHub runner owns the isolated browser
+              # processes. Close each route before launching the next.
+              try{Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue}catch{}
+              Start-Sleep -Milliseconds 350
+              $browser=$null
+              $browser=Start-Process -FilePath $edge -PassThru -ArgumentList @(
+                '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
+                "--user-data-dir=$profile","--app=$origin$($e.route)"
+              )
+              # This is a real native browser at notebook-like 375x812.
+              $window=$null
+              for($i=0;$i -lt 40;$i++){
+                $window=@(Get-Process msedge -ErrorAction SilentlyContinue |
+                  Where-Object {$_.MainWindowHandle -ne 0} | Select-Object -First 1)[0]
+                if($window){break}
+                Start-Sleep -Milliseconds 150
+              }
+              if($window){$null=[D02View]::MoveWindow([IntPtr]$window.MainWindowHandle,20,20,375,812,$true)}
+              $observed=WaitName $e.heading
+              if(!$observed){
+                $fail.Add("$($e.kind):$($e.id)")
+                Write-Output "D02_NATIVE_ROUTE_FAIL=$($e.kind):$($e.id)"
+              }else{
+                $counts[$e.kind]++
+                Write-Output "D02_NATIVE_ROUTE_PASS=$($e.kind):$($e.id)"
+              }
+            }
+            if($fail.Count -gt 0){throw ('D02_COVERAGE_NATIVE_ROUTE_FAILURE count='+$fail.Count)}
+            if($counts.service -ne 18 -or $counts.case -ne 10){
+              throw 'D02_COVERAGE_NATIVE_COUNTS_MISMATCH'
+            }
+            Write-Output 'D02_NATIVE_18_SERVICE_ENTRIES=PASS'
+            Write-Output 'D02_NATIVE_10_REAL_CASE_ARTICLES=PASS'
+            Write-Output 'D02_NATIVE_BROWSER_RESIZED_375x812=TRUE'
+            Write-Output 'D02_NATIVE_CRUD_RECEIPT_FOR_EACH_SERVICE=NOT_RUN'
+          }finally{
+            try{Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue}catch{}
+            if($server){try{$server.Kill($true)}catch{}}
+          }
+      - name: Confirm no private output ever published
+        if: always()
+        run: |
+          Write-Output 'D02_PRIVATE_DIST_ARTIFACT_UPLOAD=FALSE'
+          Write-Output 'D02_PRIVATE_PROFILE_UPLOAD=FALSE'
