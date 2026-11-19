@@ -29,6 +29,7 @@ jobs:
         shell: bash
         working-directory: site
         run: |
+          set +e
           set -u
           test "$(git rev-parse HEAD)" = "a04eb584077999fa662976670d636f03894c3e44" || exit 1
           bun install --frozen-lockfile > "$RUNNER_TEMP/guard-install.log" 2>&1 || { echo "IWXA_INSTALL=FAIL"; exit 1; }
