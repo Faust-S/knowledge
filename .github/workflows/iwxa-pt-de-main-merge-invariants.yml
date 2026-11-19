@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: d9c3a4029491dd273ae018a20354f132e6a6f217
+          ref: 618ae6a8263d60eb1bb562a5d0d4a0e69b256eab
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           fetch-depth: 0
@@ -33,7 +33,7 @@ jobs:
           const MAIN='e93b9c1c49b2d6030da692142b77c3edba8f098e';
           const PT='b840ebfd57d086a65c4474136a3c334eda07f5c4';
           const MERGE='a04eb584077999fa662976670d636f03894c3e44';
-          const CURRENT='d9c3a4029491dd273ae018a20354f132e6a6f217';
+          const CURRENT='618ae6a8263d60eb1bb562a5d0d4a0e69b256eab';
           const run=(...args)=>cp.execFileSync('git',args,{encoding:'utf8'}).trim();
           const assert=(ok,name)=>{if(!ok)throw Error('IWXA_INVARIANT_FAIL='+name);console.log('IWXA_INVARIANT_'+name+'=PASS')};
           assert(run('rev-parse','HEAD')===CURRENT,'EXACT_COMMIT');
