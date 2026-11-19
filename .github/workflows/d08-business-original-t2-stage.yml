@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 env:
-  SITE_SHA: 3b019d2f227137579ba5889ff3e1f6a7df2ea031
+  SITE_SHA: 8e584b0638f6604ce496331b4024a9bc04e93126
   T2_SHA: 49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7
   T2_STAGER_BLOB: edaa07543ac8583d874a59b3a05a8a97020bffaf
 jobs:
