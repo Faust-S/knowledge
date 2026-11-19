@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 300eac731ff189664bd61495795f9f246d7884b9
+          ref: 770ab8f91624ebad17b49fe5889cf2b48e3bcaa3
           token: ${{ secrets.DOMEN }}
           path: d11-site
           persist-credentials: false
@@ -68,7 +68,7 @@ jobs:
           Write-Output "D11_CORE_HEAD=$shaCore"
           Write-Output "D11_SITE_HEAD=$shaSite"
           if ($shaCore -ne "e88851681f310b325663475697e9120ab763ce12" -or
-              $shaSite -ne "300eac731ff189664bd61495795f9f246d7884b9") {
+              $shaSite -ne "770ab8f91624ebad17b49fe5889cf2b48e3bcaa3") {
             throw "D11_RELEASE_CANDIDATE_SOURCE_CHANGED"
           }
           Write-Output "D11_EXACT_RELEASE_SOURCE=PASS"
