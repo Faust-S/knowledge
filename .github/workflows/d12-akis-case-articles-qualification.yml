@@ -1,4 +1,4 @@
-name: D12 IWXA AKIS CASE-001+002 interactive articles
+name: D12 IWXA AKIS CASE-001+002 full-site qualification
 on:
   push:
     branches: [work/2026-11-02-pipeline-foundation]
@@ -7,13 +7,13 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: d12-akis-articles-final-v2-${{ github.ref }}
+  group: d12-akis-articles-full-v3-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   qualify:
     name: AKIS public article qualification ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 55
+    timeout-minutes: 100
     strategy:
       fail-fast: false
       matrix:
@@ -26,12 +26,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: dfca0d5ee654abeaca700c0b12c1dc1fe66f45be
+          ref: c25ccc72a394e6225f2e80960e2d6c92f90a61cf
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Verify exact source and private checkout
         run: |
-          test "$(git rev-parse HEAD)" = "dfca0d5ee654abeaca700c0b12c1dc1fe66f45be" || { echo "AKIS_HEAD_MISMATCH"; exit 1; }
+          test "$(git rev-parse HEAD)" = "c25ccc72a394e6225f2e80960e2d6c92f90a61cf" || { echo "AKIS_HEAD_MISMATCH"; exit 1; }
           test -f src/routes/science.akis-production.tsx || exit 1
           test -f src/routes/science.akis-operator.tsx || exit 1
           test -f scripts/check-akis-production-article.test.ts || exit 1
@@ -85,9 +85,9 @@ jobs:
           test -f dist-static/science/akis-operator/index.html || exit 1
           echo "AKIS_STATIC_BUILD=PASS"
           echo "AKIS_CASE_ARTICLES_HTML=2/2"
-      - name: Native source website static and SEO guards
+      - name: Full original IWXA static, accessibility and research guards
         run: |
-          for task in check:routes check:schema check:seo check:readability check:llms check:links check:no-localhost check:htaccess; do
+          for task in check:atlas check:routes check:readability check:schema check:llms check:seo check:no-localhost check:hosting-clean check:links check:runtime check:a11y check:responsive check:performance check:htaccess check:akis:static; do
             safe="${task//:/-}"
             bun run "$task" > "$RUNNER_TEMP/akis-$safe.log" 2>&1 || {
               echo "AKIS_STATIC_GUARD=FAIL task=$task"; exit 1;
@@ -100,11 +100,4 @@ jobs:
             echo "AKIS_REAL_BROWSER=FAIL"; exit 1;
           }
           echo "AKIS_REAL_BROWSER=PASS"
-      - name: Original site all-routes runtime smoke test
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          bun run check:runtime > "$RUNNER_TEMP/akis-runtime.log" 2>&1 || {
-            echo "AKIS_FULL_RUNTIME=FAIL"; exit 1;
-          }
-          echo "AKIS_FULL_RUNTIME=PASS"
       # No uploads: private sources, raw logs, build outputs and screenshots stay in runner TEMP.
