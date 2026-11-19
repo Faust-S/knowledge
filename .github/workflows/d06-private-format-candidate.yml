@@ -53,6 +53,24 @@ jobs:
             & npm run $stage *> $scratch
             if ($LASTEXITCODE -ne 0) {
               Write-Host ("D06_FMT_FAILED_STAGE=" + $stage)
+              if ($stage -eq "check:lint") {
+                $lintPath = Join-Path $env:RUNNER_TEMP "d06-format-remaining-private.json"
+                & node node_modules/eslint/bin/eslint.js . --format json > $lintPath 2> $scratch
+                $diagnostics = Get-Content -LiteralPath $lintPath -Raw | ConvertFrom-Json
+                $allMessages = @($diagnostics | ForEach-Object { $_.messages } | Where-Object { $_ })
+                $fmt = @($allMessages | Where-Object { $_.ruleId -eq "prettier/prettier" })
+                $other = @($allMessages | Where-Object { $_.severity -eq 2 -and $_.ruleId -ne "prettier/prettier" })
+                $warn = @($allMessages | Where-Object { $_.severity -eq 1 })
+                Write-Host ("D06_FMT_POST_PRETTIER=" + $fmt.Count)
+                Write-Host ("D06_FMT_POST_OTHER_ERRORS=" + $other.Count)
+                Write-Host ("D06_FMT_POST_WARNINGS=" + $warn.Count)
+                foreach ($group in ($other | Group-Object ruleId | Sort-Object Name)) {
+                  $safeRule = [string]$group.Name
+                  if ($safeRule -match "^[A-Za-z0-9/@_-]+$") {
+                    Write-Host ("D06_FMT_POST_RULE=" + $safeRule + ":" + $group.Count)
+                  }
+                }
+              }
               $plan = & node scripts/format-eslint-violations.mjs --plan 2> $scratch
               if ($LASTEXITCODE -eq 0) {
                 foreach ($line in $plan) {
