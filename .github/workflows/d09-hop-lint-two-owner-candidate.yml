@@ -32,7 +32,7 @@ jobs:
       - name: Pin both branch contents, do not publish source
         shell: bash
         run: |
-          test "$(git rev-parse HEAD)" = "2c9885c55ac7263543373bae05f283e04e202c37" || {
+          test "$(git rev-parse HEAD)" = "425320a7da226ab8e90ca3eb5131003f87317032" || {
             echo D09_TWO_OWNER_LINT_SITE_SHA_CHANGED=HOLD; exit 1;
           }
           mv canonical-hop "$RUNNER_TEMP/d09-canonical-hop"
