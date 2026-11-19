@@ -1,0 +1,108 @@
+name: IWXA software articles visual acceptance
+on:
+  push:
+    branches:
+      - qa/2026-11-19-software-site-source-qualification
+    paths:
+      - .github/workflows/qa-software-site-visual.yml
+permissions:
+  contents: read
+jobs:
+  visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: 2f0bdca8fba6e924d0b516d13a16066b095e765c
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Install exact frontend dependencies
+        working-directory: .private/site
+        run: bun install --frozen-lockfile > "$RUNNER_TEMP/editorial-visual-install.log" 2>&1
+      - name: Start original Vite site
+        working-directory: .private/site
+        shell: bash
+        run: |
+          bunx vite --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/editorial-visual-vite.log" 2>&1 &
+          for n in $(seq 1 80); do
+            curl --fail --silent http://127.0.0.1:4173/software/ > /dev/null && exit 0
+            sleep 1
+          done
+          echo 'SITE_VISUAL_VITE_START_FAIL'
+          exit 1
+      - name: Photograph four articles and verify interactive desktop gallery at two viewport widths
+        working-directory: .private/site
+        shell: bash
+        run: |
+          mkdir -p ../../artifacts/software-pages
+          node --input-type=module <<'JS'
+          import puppeteer from 'puppeteer';
+          import {mkdirSync,writeFileSync} from 'node:fs';
+          const output='../../artifacts/software-pages';
+          mkdirSync(output,{recursive:true});
+          const binary=process.env.PUPPETEER_EXECUTABLE_PATH||'/usr/bin/google-chrome';
+          const browser=await puppeteer.launch({headless:true,executablePath:binary,args:['--no-sandbox','--disable-setuid-sandbox']});
+          let records=[];
+          try{
+            const routes=[['overview','/software/'],['platform','/software/platform/'],['desktop','/software/desktop/'],['domains','/software/domains/']];
+            for(const [name,route] of routes){
+              const page=await browser.newPage();
+              await page.setViewport({width:1440,height:900,deviceScaleFactor:1});
+              const response=await page.goto('http://127.0.0.1:4173'+route,{waitUntil:'networkidle2',timeout:45000});
+              await page.waitForSelector('h1',{timeout:20000});
+              const info=await page.evaluate(()=>({title:document.querySelector('h1')?.textContent||'',width:document.documentElement.scrollWidth,viewport:window.innerWidth,images:[...document.querySelectorAll('.sw-screenshot img')].map(x=>({alt:x.alt,loaded:x.complete&&x.naturalWidth>0}))}));
+              if(!response?.ok() || !info.title.trim() || info.width>info.viewport+12)throw new Error('Article layout or route invalid: '+name+' '+JSON.stringify(info));
+              if(name==='desktop'){
+                const control=await page.$('[data-selection-group]');
+                if(!control)throw new Error('Desktop program selector missing');
+                for(const app of ['Atlas','Admin Center','Personal Agent']){
+                  await page.evaluate((label)=>{
+                    const buttons=[...document.querySelectorAll('.sw-control--programs button')];
+                    const button=buttons.find(x=>x.textContent?.includes(label));
+                    if(!button)throw new Error('Missing program button '+label);
+                    button.click();
+                  },app);
+                  await new Promise(resolve=>setTimeout(resolve,280));
+                  const images=await page.evaluate(()=>[...document.querySelectorAll('.sw-screenshot-grid--editorial img')].map(x=>({loaded:x.complete&&x.naturalWidth>0,alt:x.alt})));
+                  if((app==='Atlas'||app==='Admin Center')&&images.length!==3)throw new Error('Not three editorial scenes for '+app);
+                  if(images.some(x=>!x.loaded)){
+                    await page.waitForFunction(()=>[...document.querySelectorAll('.sw-screenshot-grid--editorial img')].every(x=>x.complete&&x.naturalWidth>0),{timeout:15000});
+                  }
+                  await page.screenshot({path:output+'/'+app.toLowerCase().replaceAll(' ','-')+'-desktop.png',fullPage:true});
+                  records.push({program:app,count:images.length,verifiedImages:images.every(x=>x.alt.length>10)});
+                }
+              }
+              await page.screenshot({path:output+'/'+name+'-desktop.png',fullPage:true});
+              records.push({route,name,title:info.title});
+              await page.setViewport({width:375,height:812,deviceScaleFactor:1,isMobile:true,hasTouch:true});
+              await new Promise(resolve=>setTimeout(resolve,320));
+              const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth+12);
+              if(overflow)throw new Error('Mobile horizontal overflow on '+name);
+              await page.screenshot({path:output+'/'+name+'-mobile.png',fullPage:true});
+              await page.close();
+            }
+            writeFileSync(output+'/manifest.json',JSON.stringify({exactSiteSha:'2f0bdca8fba6e924d0b516d13a16066b095e765c',records},null,2));
+            console.log('IWXA_SOFTWARE_ARTICLES_VISUAL_ROUTES_AND_GALLERIES_PASS',records.length);
+          }finally{await browser.close()}
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iwxa-software-article-mobile-desktop-visuals
+          path: artifacts/software-pages/
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Erase private website checkout
+        if: always()
+        shell: bash
+        run: |
+          rm -rf .private/site
+          rm -f "$RUNNER_TEMP/editorial-visual-"*.log
