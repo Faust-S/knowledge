@@ -2,7 +2,7 @@
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
   "snapshot_date": "2026-11-19",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
-  "currentness": "G4_SOURCE_D3_20_OF_20_PASS__COMPILED_ORIGINAL_SIGNED_WINDOWS_OWNER_PREFLIGHT_FAIL_44526069510__INSTALLED_G4_HOLD",
+  "currentness": "G4_D3_SOURCE_20_OF_20_PASS__INSTALLED_NATIVE_OWNER_CATALOG_JSON_BUNDLE_RETEST_44532646101__NO_G4_PROMOTION",
   "policy": {
     "t3_one_core": "Faust-S/knowledge/packages/t3-core",
     "t2_normative": "Faust-S/T2@main",
@@ -1977,6 +1977,35 @@
           "Public Windows CI bounded preflight signal whitelist and removal of duplicated invalid workflow tails"
         ],
         "remaining": "Diagnose compiled Bun module resource failure in the private owner, then rerun same pinned installed Windows D3 and cold DPAPI; independent installed Agent/Human ACCEPT/APPLY still NOT_RUN"
+      },
+      "compiled_owner_catalog_asset_2026_11_19": {
+        "source_run": 44531854240,
+        "source_result": "FAIL_COMPILED_ORIGINAL_OWNER_PREFLIGHT_BEFORE_INSTALL",
+        "module_probes": {
+          "CREDENTIAL": "COMPILED_AND_RAN",
+          "PROVISION": "COMPILED_AND_RAN",
+          "ACCESS_CORE": "COMPILED_AND_RAN",
+          "PRODUCT_CONTRACTS": "COMPILED_AND_RAN",
+          "REGISTRY": "COMPILED_BUT_FAILED_START",
+          "ORGANIZATIONAL_OPERATION": "COMPILED_BUT_FAILED_START",
+          "SCOPED_WORKSPACE": "COMPILED_BUT_FAILED_START",
+          "RUNTIME": "COMPILED_BUT_FAILED_START",
+          "NATIVE_D3": "COMPILED_BUT_FAILED_START"
+        },
+        "root_cause": "Original access-control/domain-registry.mjs read JSON via readFileSync(new URL(..., import.meta.url)) at module evaluation; Bun compiled EXE did not embed this relative filesystem JSON",
+        "original_owner": "Faust-S/T3",
+        "source_commit": "e6644395324a998fca122fcd5a59ba83dde7fb55",
+        "fix": "Static ESM JSON import of existing original access-control/domain-registry.json, preserving validation, version and values; no new authority, store or runtime",
+        "original_catalog_blob": "7ea70a0a8abf407cb8c2e8570f737950e84d3736",
+        "catalog_schema": "IWXA_T3_DOMAIN_REGISTRY/1",
+        "catalog_version": "2026-10-07.1",
+        "catalog_domains": 12,
+        "catalog_rules": 6,
+        "public_qualifier_commit": "1ff8c792e8cb915e1e9fe0b344185f63fd9435b8",
+        "installed_ci_run": 44532646101,
+        "status": "RUNNING_NOT_ACCEPTED",
+        "dpapi_cold_readback": "NOT_YET_PROVEN",
+        "universal_g4_accepted": false
       }
     }
   },
@@ -2072,7 +2101,7 @@
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
     "original_private_native_signer": "CURRENT_SOURCE_PIN_d0d8ba2f_NATIVE_ONE_SHOT_WINDOWS_BRIDGE_REQUALIFIED_20_OF_20_44406073956__INSTALLED_UI_HOLD",
-    "independent_installed_d3": "HOLD_COMPILED_ORIGINAL_NATIVE_D3_ENTRY_44526069510__NEITHER_DPAPI_COLD_NOR_INSTALLED_HUMAN_APPLY_ACCEPTED",
+    "independent_installed_d3": "HOLD_COMPILED_ORIGINAL_OWNER_CATALOG_JSON_BUNDLING_FIXED_AT_e6644395__NATIVE_RETEST_44532646101_RUNNING",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
