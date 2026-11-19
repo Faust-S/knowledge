@@ -29,6 +29,38 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Parse installed native UIA and compile Win32 helper before private checkout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $files=@(
+            'packages/t3-core/tests/g4-installed-original-center-first-use.ps1',
+            'packages/t3-core/tests/g4-installed-original-center-smoke.ps1')
+          foreach($file in $files){
+            $tokens=[System.Management.Automation.Language.Token[]]@()
+            $parseErrors=[System.Management.Automation.Language.ParseError[]]@()
+            $null=[System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path -LiteralPath $file).Path,
+              [ref]$tokens,[ref]$parseErrors)
+            if($parseErrors.Length -ne 0){
+              throw 'G4_INSTALLED_PUBLIC_NATIVE_UIA_PARSER_FAILED'
+            }
+          }
+          Write-Host 'G4_INSTALLED_PUBLIC_NATIVE_UIA_PARSER_PASS'
+          $script=Get-Content -LiteralPath $files[0] -Raw
+          $opening="Add-Type -TypeDefinition @'"
+          $first=$script.IndexOf($opening,[StringComparison]::Ordinal)
+          if($first -lt 0){throw 'G4_INSTALLED_PUBLIC_NATIVE_UIA_HELPER_NOT_FOUND'}
+          $first+=$opening.Length
+          $end=$script.IndexOf("'@", $first,[StringComparison]::Ordinal)
+          if($end -lt 0){throw 'G4_INSTALLED_PUBLIC_NATIVE_UIA_HELPER_NOT_CLOSED'}
+          $source=$script.Substring($first,$end-$first).Trim()
+          try{
+            Add-Type -TypeDefinition $source -ErrorAction Stop
+          }catch{
+            throw 'G4_INSTALLED_PUBLIC_NATIVE_UIA_HELPER_BUILD_FAILED'
+          }
+          Write-Host 'G4_INSTALLED_PUBLIC_NATIVE_UIA_WIN32_HELPER_BUILD_PASS'
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
