@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 089d3313bda6a05e5b529bb3c75f35dedfde115a
+          ref: 76c21cfa5f1d285a6155dfcb3f3ffeaac22c0399
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -49,7 +49,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed
-          ref: 5352fcdd97b01c04dd8e8fb67cff9b80c53b003d
+          ref: cc78160423f0ee58899b87b99f7432b441a038c3
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
           fetch-depth: 0
@@ -66,13 +66,16 @@ jobs:
       - name: Verify exact sources, canonical profile and witness
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "089d3313bda6a05e5b529bb3c75f35dedfde115a"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "50fa519bccace2a41b70285576e1967b4012de9a"
-          test "$(git -C d04-private/model rev-parse HEAD)" = "5352fcdd97b01c04dd8e8fb67cff9b80c53b003d"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "76c21cfa5f1d285a6155dfcb3f3ffeaac22c0399"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "bf67130c37d386e6511c0145bbb2785f8c901338"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "cc78160423f0ee58899b87b99f7432b441a038c3"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           cmp d04-private/model/docs/life-os/PERSONAL_OBSERVATION_PROFILE_V0_1.mjs d04-private/site/t2-site-module/bazmed/PERSONAL_OBSERVATION_PROFILE_V0_1.mjs
           node --check d04-private/site/qualification/life-os-observation-native.browser.mjs
           node --check d04-private/site/qualification/life-os-observation-exchange.browser.mjs
+          cmp d04-private/model/docs/life-os/PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs d04-private/site/t2-site-module/bazmed/PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs
+          cmp d04-private/model/docs/life-os/PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts d04-private/site/t2-site-module/bazmed/PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts
+          echo "D04_OBSERVATION_DYNAMICS_MODEL_COPY=PASS"
           echo "D04_OBSERVATION_SOURCE_PARITY_AND_EXACT_PINS=PASS"
       - uses: actions/setup-node@v4
         with:
