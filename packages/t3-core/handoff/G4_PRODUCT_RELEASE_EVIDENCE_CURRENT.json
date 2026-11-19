@@ -1775,14 +1775,21 @@
         "Cold installed Admin Owner re-open not yet demonstrated",
         "Installed Human ACCEPT and independent Human APPLY not run",
         "Separate Windows OS accounts and installed Agent with real model task not run",
-        "Universal D5/D6_GENERIC/D7_PERSON G4 acceptance not run"
+        "Universal D5/D6_GENERIC/D7_PERSON G4 acceptance not run",
+        "Native signed owner enrolled successfully after fixing d3-enroll argv gate NOT_YET_PROVEN",
+        "Installed Admin DPAPI cold readback with exact qualified patched Center NOT_YET_PROVEN"
       ],
       "subsequent_qualification_run": {
         "run_id": 44505177227,
-        "initial_state": "IN_PROGRESS_AT_2026_11_19",
+        "conclusion": "FAIL",
         "public_one_dist": "PASS",
-        "installed_enrollment": "PENDING_OUTCOME",
-        "must_refresh_from_live_CI": true
+        "installed_setup_webview": "PASS",
+        "native_cancel": "PASS",
+        "native_confirm_dialog_dismissed": "PASS",
+        "real_owner_enrollment": "FAIL_BEFORE_SIGNED_OWNER",
+        "exact_error_code": "T3_PRODUCT_COMPONENT_ARGUMENTS_INVALID",
+        "root_cause": "native/t3_product_component.rs action validator rejected digit in original d3-enroll CLI argv",
+        "private_center_source_at_failure": "0a5b8ccd5f1f0169da13edc4429508884fd0bbb2"
       },
       "safeguards": {
         "original_t2_immutable": true,
@@ -1792,6 +1799,18 @@
         "installed_D3_accepted": false,
         "g4_accepted": false,
         "t3_ready": false
+      },
+      "fix": {
+        "repository": "Faust-S/Center",
+        "branch": "work/2026-11-18-admin03-generic-d3-lazy-atlas",
+        "exact_sha": "cbad39d9d06e6f7c3c18abdc285bc1569c557976",
+        "changes": "allow lowercase ASCII digits after first native action letter and retain bounded no-shell argv validation; add regression tests including negative cases",
+        "validation_run": {
+          "repository": "Faust-S/knowledge",
+          "run_id": 44507093613,
+          "expected_sha": "381e7fd25a885bda5145ac3d56de858551f2f21b",
+          "status": "IN_PROGRESS_NOT_ACCEPTED"
+        }
       }
     }
   },
@@ -1887,7 +1906,7 @@
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
     "original_private_native_signer": "CURRENT_SOURCE_PIN_d0d8ba2f_NATIVE_ONE_SHOT_WINDOWS_BRIDGE_REQUALIFIED_20_OF_20_44406073956__INSTALLED_UI_HOLD",
-    "independent_installed_d3": "HOLD_NATIVE_SOURCE_REAL_T2_APPLY_20_OF_20_44406073956__INSTALLED_WINDOWS_SETUP_GUI_CANCEL_PASS_44502925301__ORIGINAL_OWNER_READY_COLD_UNQUALIFIED",
+    "independent_installed_d3": "HOLD_INSTALLED_WIN32_CANCEL_CONFIRM_PASS_44505177227__CENTER_NATIVE_D3_ENROLL_ARGV_FIXED_CBAD39D9__RETEST_44507093613_PENDING",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
