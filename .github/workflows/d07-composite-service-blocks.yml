@@ -132,6 +132,24 @@ jobs:
             }
             $codes=@($matches|Sort-Object -Unique|Select-Object -First 25)
             Write-Output ('D07_BUILD_DIAGNOSTIC_CODES='+($codes -join ','))
+            $knownFiles=@(Get-Content $log -ErrorAction SilentlyContinue |
+              ForEach-Object {
+                foreach($m in [regex]::Matches($_,'(?i)(?:ServiceAftercarePanel|ServiceSettlementPanel|UslugovodWorkspace|OrderViewer|service-aftercare|service-settlement|service-blocks|service-execution|service-changes|service-plan-templates)[.]tsx?')){
+                  $m.Value
+                }
+              } | Sort-Object -Unique)
+            $categories=@()
+            foreach($line in @(Get-Content $log -ErrorAction SilentlyContinue)){
+              if($line -match '(?i)(Failed to resolve import|Could not resolve|MODULE_NOT_FOUND|ERR_MODULE_NOT_FOUND)'){$categories+='UNRESOLVED_IMPORT'}
+              if($line -match '(?i)(Expected .+ but found|Unexpected token|SyntaxError|Unterminated|Parse error)'){$categories+='SYNTAX'}
+              if($line -match '(?i)(No matching export|not exported by)'){$categories+='EXPORT_MISMATCH'}
+              if($line -match '(?i)(TS[0-9]{4})'){$categories+=$Matches[1]}
+              if($line -match '(?i)(ENOMEM|out of memory|allocation failed)'){$categories+='MEMORY'}
+              if($line -match '(?i)(EPERM|EACCES|permission denied|ENOENT)'){$categories+='FILE_IO'}
+              if($line -match '(?i)(vite build failed|error during build|Build failed)'){$categories+='BUILD_FAILED'}
+            }
+            Write-Output ('D07_BUILD_COMPONENT_HINTS='+($knownFiles -join ','))
+            Write-Output ('D07_BUILD_FAILURE_CATEGORIES='+((@($categories|Sort-Object -Unique|Select-Object -First 20)) -join ','))
             throw 'D07_BLOCKS_ORIGINAL_T2_BUILD_FAIL'
           }
           if(!(Test-Path dist/workspace/index.html)){throw 'D07_BLOCKS_HOST_MISSING'}
