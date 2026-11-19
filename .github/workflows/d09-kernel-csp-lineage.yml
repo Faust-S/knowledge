@@ -159,4 +159,10 @@ jobs:
             echo D09_K036_CSP_STATIC_RUNTIME=FAIL; exit 1;
           }
           echo D09_K036_CSP_STATIC_RUNTIME=BUILT_UNQUALIFIED
+          npm run test:built > "$RUNNER_TEMP/d09-k036-built-tests.log" 2>&1 || {
+            echo D09_K036_CSP_STATIC_BUILT_TESTS=FAIL
+            grep -oE 'FAIL [A-Za-z0-9_.-]+|Tests?[[:space:]]+[0-9]+ failed|Error: [A-Z0-9_]+' "$RUNNER_TEMP/d09-k036-built-tests.log" | tail -10 || true
+            exit 1
+          }
+          echo D09_K036_CSP_STATIC_BUILT_TESTS=PASS
       # No source, zip, generated files or private code is copied to public artifacts.
