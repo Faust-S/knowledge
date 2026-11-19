@@ -97,10 +97,15 @@ try{
     G4_CONTROL_ROOT:employeeRoot,
     G4_INVITE_PATH:invitePath,G4_TASK_PATH:taskPath,
     G4_RESULT_PATH:resultPath,
+    G4_AGENT_CORE_ROOT:join(workRoot,'ephemeral-agent-core'),
+    G4_AGENT_OLLAMA_BASE_URL:process.env.G4_AGENT_OLLAMA_BASE_URL??'',
+    G4_AGENT_OLLAMA_MODEL:process.env.G4_AGENT_OLLAMA_MODEL??'',
+    OLLAMA_HOST:process.env.OLLAMA_HOST??'',
+    OLLAMA_MODELS:process.env.OLLAMA_MODELS??'',
   };
   const python=process.env.PYTHON_COMMAND??'python';
   const subprocess=spawnSync(python,[pythonDriver],{
-    cwd:workRoot,env,encoding:'utf8',timeout:150000,maxBuffer:512*1024});
+    cwd:workRoot,env,encoding:'utf8',timeout:420000,maxBuffer:512*1024});
   const employeeOutput=(subprocess.stdout??'')+'\n'+(subprocess.stderr??'');
   if(subprocess.status!==0){
     // Only the existing, declassified phase and machine code may appear
@@ -116,6 +121,10 @@ try{
       cls?.[1]??'UNCLASSIFIED');
     throw Error('G4_NATIVE_EMPLOYEE_IPC_ORIGINAL_FAIL');
   }
+  assert.ok(employeeOutput.includes('G4_ORIGINAL_AGENT_CORE_REAL_LOCAL_MODEL_SOURCE_PASS'));
+  console.log('G4_ORIGINAL_AGENT_CORE_REAL_LOCAL_MODEL_SOURCE_PASS');
+  assert.ok(employeeOutput.includes('G4_ORIGINAL_AGENT_CORE_ACCEPTED_RESULT_PROOF_SOURCE_PASS'));
+  console.log('G4_ORIGINAL_AGENT_CORE_ACCEPTED_RESULT_PROOF_SOURCE_PASS');
   assert.ok(employeeOutput.includes('G4_ORIGINAL_NATIVE_EMPLOYEE_SIGNED_TASK_PASS'));
   assert.ok(employeeOutput.includes('G4_ORIGINAL_NATIVE_EMPLOYEE_SIGNED_RESULT_PASS'));
   assert.ok(employeeOutput.includes('G4_ORIGINAL_NATIVE_EMPLOYEE_COLD_NO_REEXPORT_PASS'));
