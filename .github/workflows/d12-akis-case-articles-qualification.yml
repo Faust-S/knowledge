@@ -8,7 +8,7 @@ permissions:
   contents: read
 concurrency:
   group: d12-akis-current-main-full-v5-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   qualify:
     name: AKIS public article qualification ${{ matrix.os }}
