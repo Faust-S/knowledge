@@ -25,7 +25,7 @@ jobs:
         shell: bash
         run: |
           echo "D09_SITE_HEAD=$(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD)" = "69e24ea29c71e82d43a5fb6514249d1fea7a7f73" || {
+          test "$(git rev-parse HEAD)" = "df21d78c400ab207f4392b1b63b3f02770fad9ae" || {
             echo "D09_SITE_REVISION_CHANGED=HOLD"; exit 1;
           }
       - name: Install exact dependencies
@@ -54,7 +54,7 @@ jobs:
       - name: Exercise real React Result receipt and rejection UI
         shell: bash
         run: |
-          ./node_modules/.bin/vitest run src/components/player/ResultContinuationPanel.t2.test.tsx src/integrations/t2/result-source-check.test.ts > "$RUNNER_TEMP/d09-t2-result-ui.log" 2>&1 || {
+          ./node_modules/.bin/vitest run src/components/player/ResultContinuationPanel.t2.test.tsx src/integrations/t2/result-source-check.test.ts src/components/workspace/ImportPreviewDialog.t2.test.tsx > "$RUNNER_TEMP/d09-t2-result-ui.log" 2>&1 || {
             grep -E 'FAIL|AssertionError|expected|Error:' "$RUNNER_TEMP/d09-t2-result-ui.log" | tail -14 || true
             echo "D09_T2_RESULT_UI=FAIL"; exit 1;
           }
