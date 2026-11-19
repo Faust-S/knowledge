@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           echo "D09_SITE_HEAD=$(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD)" = "d41af5c5b4ec2eb83fe6514fd9ec9dc95e8fc8ba" || {
+          test "$(git rev-parse HEAD)" = "69e24ea29c71e82d43a5fb6514249d1fea7a7f73" || {
             echo "D09_SITE_REVISION_CHANGED=HOLD"; exit 1;
           }
           node --experimental-strip-types --test tests/d09-read-model-guards.test.mjs > "$RUNNER_TEMP/d09-result-source.log" 2>&1 || {
@@ -69,7 +69,7 @@ jobs:
             echo "D09_SITE_ASSEMBLY_SYNTAX=FAIL"; exit 1;
           }
           echo "D09_HOST_TEST=PASS"
-          ./node_modules/.bin/vitest run src/components/player/ResultContinuationPanel.t2.test.tsx > "$RUNNER_TEMP/d09-result-ui.log" 2>&1 || {
+          ./node_modules/.bin/vitest run src/components/player/ResultContinuationPanel.t2.test.tsx src/integrations/t2/result-source-check.test.ts > "$RUNNER_TEMP/d09-result-ui.log" 2>&1 || {
             grep -E 'FAIL|AssertionError|expected|Error:' "$RUNNER_TEMP/d09-result-ui.log" | tail -15 || true
             echo "D09_T2_RESULT_UI=FAIL"; exit 1;
           }
