@@ -1,0 +1,54 @@
+name: IWXA PT vs main conflict preflight
+on:
+  push:
+    branches: [work/2026-11-18-pt-66-qualification]
+    paths: [.github/workflows/iwxa-pt-main-merge-preflight.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Check private access
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          test -n "$GH_TOKEN" || exit 1
+          gh api repos/Faust-S/iwxa-ru-1 >/dev/null 2>&1 || exit 1
+          echo "PT_INTEGRATION_ACCESS=PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: e93b9c1c49b2d6030da692142b77c3edba8f098e
+          token: ${{ secrets.DOMEN }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: private-src
+      - name: Inspect Git merge conflicts without publishing source
+        shell: bash
+        working-directory: private-src
+        run: |
+          test "$(git rev-parse HEAD)" = "e93b9c1c49b2d6030da692142b77c3edba8f098e" || exit 1
+          git cat-file -e b840ebfd57d086a65c4474136a3c334eda07f5c4^{commit} ||
+            { echo "PT_MERGE_SOURCE_MISSING"; exit 1; }
+          base="$(git merge-base HEAD b840ebfd57d086a65c4474136a3c334eda07f5c4)"
+          echo "PT_MERGE_BASE_SHA=$base"
+          set +e
+          git -c merge.conflictStyle=merge merge --no-commit --no-ff -q b840ebfd57d086a65c4474136a3c334eda07f5c4 > "$RUNNER_TEMP/merge.log" 2>&1
+          status=$?
+          set -e
+          echo "PT_MERGE_EXIT=$status"
+          conflict_count="$(git diff --name-only --diff-filter=U | wc -l | tr -d ' ')"
+          echo "PT_MERGE_CONFLICT_COUNT=$conflict_count"
+          echo "PT_MERGE_CONFLICT_FILES_START"
+          git diff --name-only --diff-filter=U | sed -E 's#^#PT_MERGE_CONFLICT_FILE=#'
+          echo "PT_MERGE_CONFLICT_FILES_END"
+          git diff --cached --name-only | wc -l | awk '{print "PT_MERGE_INDEX_CHANGED_COUNT="$1}'
+          if [ "$status" -eq 0 ] && [ "$conflict_count" = 0 ]; then
+            echo "PT_MERGE_CLEAN=true"
+          else
+            echo "PT_MERGE_CLEAN=false"
+          fi
