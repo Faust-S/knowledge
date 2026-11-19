@@ -283,4 +283,10 @@ jobs:
           fi
           grep '^D04_DYNAMICS_' "$RUNNER_TEMP/d04-health-dynamics.log" | tail -8
           echo "D04_DYNAMICS_NATIVE_E2E=PASS"
+          if node qualification/run-life-os-recovery-ci.mjs >"$RUNNER_TEMP/d04-recovery.log" 2>&1; then
+            echo "D04_RECOVERY_NATIVE_E2E=PASS"
+          else
+            echo "D04_RECOVERY_NATIVE_E2E=FAIL"
+            exit 1
+          fi
           # No private source, archive, profile, Result or screenshot is uploaded.
