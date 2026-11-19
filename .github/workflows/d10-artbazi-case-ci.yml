@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: aad0608f03bf066d94218339d412bf154874be99
+          ref: 2b7a57874f4410002b2894e437a27ecbb46395ff
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi
-          ref: a30e72d6e4ddf877c14b046947b97c78f8ce1e3c
+          ref: 259b4175d921e6f9677616a66be10c4a7156b672
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -45,7 +45,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "latest"
-      - name: Domain CASE-001-007 semantic regressions
+      - name: Domain CASE-001-009 semantic regressions
         shell: bash
         run: |
           set +e
@@ -190,6 +190,21 @@ jobs:
             grep -E '^(Error|AssertionError|TypeError|TimeoutError):' "$RUNNER_TEMP/d10-case008-browser.log" | head -n 3 || true
           fi
           exit "$result"
+      - name: Real CASE-009 B2B sales discipline article and funnel service
+        shell: bash
+        run: |
+          set +e
+          cd site
+          node scripts/tests/d10-case009-browser-smoke.mjs > "$RUNNER_TEMP/d10-case009-browser.log" 2>&1
+          result=$?
+          grep -E '^D10_CASE009_BROWSER_' "$RUNNER_TEMP/d10-case009-browser.log" || true
+          if [ "$result" -eq 0 ]; then
+            echo "D10_CASE009_BROWSER=PASS"
+          else
+            echo "::error::D10_CASE009_BROWSER=FAIL exit=$result"
+            grep -E '^(Error|AssertionError|SyntaxError|TypeError|TimeoutError):' "$RUNNER_TEMP/d10-case009-browser.log" | head -n 3 || true
+          fi
+          exit "$result"
       - name: Mounted T2 Workspace commercial review scoping
         shell: bash
         env:
@@ -243,6 +258,21 @@ jobs:
           else
             echo "::error::D10_CASE008_KERNEL_PANEL=FAIL exit=$result"
             grep -E '^(Error|AssertionError|TypeError|TimeoutError):' "$RUNNER_TEMP/d10-case008-promotion.log" | head -n 3 || true
+          fi
+          exit "$result"
+      - name: Real CASE-009 Kernel client deal task and RevOps pipeline review
+        shell: bash
+        run: |
+          set +e
+          cd "$RUNNER_TEMP/d10-host-loopback"
+          node scripts/tests/d10-case009-pipeline-kernel-browser.mjs > "$RUNNER_TEMP/d10-case009-kernel.log" 2>&1
+          result=$?
+          grep -E '^D10_CASE009_KERNEL_' "$RUNNER_TEMP/d10-case009-kernel.log" || true
+          if [ "$result" -eq 0 ]; then
+            echo "D10_CASE009_KERNEL_PANEL=PASS"
+          else
+            echo "::error::D10_CASE009_KERNEL_PANEL=FAIL exit=$result"
+            grep -E '^(Error|AssertionError|SyntaxError|TypeError|TimeoutError):' "$RUNNER_TEMP/d10-case009-kernel.log" | head -n 3 || true
           fi
           exit "$result"
       - name: Real RevOps decision to saved Kernel action and cold readback
