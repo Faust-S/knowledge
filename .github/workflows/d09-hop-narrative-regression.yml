@@ -1,0 +1,54 @@
+name: D09 HOP semantic Studio regression
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d09-hop-narrative-regression.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  d09-narrative:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout private site without publishing files
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/hop.iwxa.ru
+          ref: work/2026-10-27-d09-t2-site-only
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Exact npm dependencies
+        shell: bash
+        run: |
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d09-npm.log" 2>&1 || {
+            echo "D09_NPM_CI=FAIL"; exit 1;
+          }
+          echo "D09_NPM_CI=PASS"
+      - name: Check TypeScript
+        shell: bash
+        run: |
+          npm run typecheck > "$RUNNER_TEMP/d09-types.log" 2>&1 || {
+            echo "D09_TYPES=FAIL"
+            grep -oE 'TS[0-9]{4,5}' "$RUNNER_TEMP/d09-types.log" | sort | uniq -c || true
+            exit 1
+          }
+          echo "D09_TYPES=PASS"
+      - name: Run semantic narrative tests
+        shell: bash
+        run: |
+          npx vitest run src/lib/__tests__/narrative-brief-import.test.ts > "$RUNNER_TEMP/d09-narrative.log" 2>&1 || {
+            echo "D09_NARRATIVE_TEST=FAIL"; exit 1;
+          }
+          echo "D09_NARRATIVE_TEST=PASS"
+      - name: Run D09 host and copy tests
+        shell: bash
+        run: |
+          npm run test:d09 > "$RUNNER_TEMP/d09-integration.log" 2>&1 || {
+            echo "D09_HOST_TEST=FAIL"; exit 1;
+          }
+          echo "D09_HOST_TEST=PASS"
+      # No artifacts, private files, package, secrets or runtime are published.
