@@ -268,6 +268,10 @@ try{
     HOMEPATH:process.env.HOMEPATH??'',
     TEMP:process.env.TEMP??'',TMP:process.env.TMP??'',
     COMPUTERNAME:process.env.COMPUTERNAME??'',
+    PSModulePath:process.env.PSModulePath??'',
+    ComSpec:process.env.ComSpec??'',
+    G4_ORIGINAL_PYTHON_COMMAND:process.env.G4_ORIGINAL_PYTHON_COMMAND??'',
+    G4_ORIGINAL_NODE_COMMAND:process.env.G4_ORIGINAL_NODE_COMMAND??'',
   },encoding:'utf8',windowsHide:true,timeout:260000,maxBuffer:128*1024});
   const twoSidOutput=(twoSid.stdout??'')+'\n'+(twoSid.stderr??'');
   if(twoSid.status!==0){
