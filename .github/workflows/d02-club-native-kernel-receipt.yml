@@ -203,15 +203,31 @@ jobs:
               Write-Output 'D02_RECEIPT_RESTART_EDITOR_STATE=FOUND_SAVED_PROFILE'
             }
             Activate $open.Current.Name $code
-            $null=Await 'Сохранённый профиль загружен через Kernel.' '' $code
-            $field=Await 'Как к вам обращаться' 'edit' $code
-            try{
-              $value=[System.Windows.Automation.ValuePattern]$field.GetCurrentPattern(
-                [System.Windows.Automation.ValuePattern]::Pattern)
-              if($value.Current.Value -cne 'Club проверка пользовательской записи'){
-                throw $code
+            # The status message is advisory and its UIA exposure can lag the
+            # form. After a cold browser start, this editor begins with EMPTY
+            # fields; only original Kernel getObject can restore the alias.
+            # Require actual native input readback, not an informational text.
+            $confirmed=$false
+            for($attempt=0;$attempt -lt 100;$attempt++){
+              $field=Locate 'Как к вам обращаться' 'edit'
+              if($field){
+                try{
+                  $value=[System.Windows.Automation.ValuePattern]$field.GetCurrentPattern(
+                    [System.Windows.Automation.ValuePattern]::Pattern)
+                  if($value.Current.Value -ceq 'Club проверка пользовательской записи'){
+                    $confirmed=$true;break
+                  }
+                }catch{}
               }
-            }catch{throw $code}
+              if(Locate 'Не удалось проверить сохранённый профиль. Запись отключена, чтобы не потерять данные.' ''){
+                throw 'D02_RECEIPT_KERNEL_PROFILE_LOAD_ERROR'
+              }
+              Start-Sleep -Milliseconds 300
+            }
+            if(!$confirmed){throw $code}
+            Write-Output 'D02_RECEIPT_NATIVE_KERNEL_PROFILE_FIELD_VALUE=PASS'
+            Write-Output ('D02_RECEIPT_KERNEL_STATUS_TEXT_VISIBLE='+[bool](
+              Locate 'Сохранённый профиль загружен через Kernel.' ''))
           }
           try {
             $server=Start-Process -FilePath node -WorkingDirectory $site -ArgumentList @(
