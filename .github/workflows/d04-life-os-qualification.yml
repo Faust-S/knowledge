@@ -311,6 +311,10 @@ jobs:
           for (scope,kind),count in sorted(counts.items()):
               print(f"D04_SEO_ISSUE_{scope}_{kind}={count}")
           print("D04_SEO_ISSUE_TOTAL="+str(sum(counts.values())))
+          for code in ("SyntaxError","ReferenceError","TypeError","RangeError","ENOENT","EACCES","ERR_MODULE_NOT_FOUND","ERR_PACKAGE_PATH_NOT_EXPORTED","npm error","SIGKILL","Killed","Error:"):
+              if code in data:
+                  print("D04_SEO_RUNTIME_SIGNAL_"+re.sub(r"[^A-Z0-9]","_",code.upper())+"=YES")
+          print("D04_SEO_HAS_VALIDATION_BANNER="+("YES" if "SEO check:" in data else "NO"))
           PY
               fi
               failed=1
