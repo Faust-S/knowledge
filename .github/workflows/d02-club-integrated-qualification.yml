@@ -24,8 +24,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     env:
-      SITE_SHA: 9c6ec911c32af5e7e0cfc6f4d6ad479acb29e30f
-      DOMAIN_SHA: 5535b2a3d7bb99ae2ed96b438d366062186ee313
+      SITE_SHA: 1875bfc466ced18a13f2bff88e116af6232d0f39
+      DOMAIN_SHA: 00cfe1722758e6284efce248c9208b88d614a520
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -136,7 +136,7 @@ jobs:
             Write-Output 'D02_CANONICAL_DOMAIN_PARITY=FAIL'
             throw 'D02_CANONICAL_DOMAIN_PARITY_FAILED'
           }
-          Write-Output 'D02_CANONICAL_DOMAIN_PARITY=PASS services=25 bridges=4'
+          Write-Output 'D02_CANONICAL_DOMAIN_PARITY=PASS services=25 bridges=5'
 
       - name: Run each site source suite and identify failures without leaking private logs
         id: site_tests
@@ -269,7 +269,7 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          Write-Output 'D02_CANDIDATE_SITE=9c6ec911c32af5e7e0cfc6f4d6ad479acb29e30f'
+          Write-Output 'D02_CANDIDATE_SITE=1875bfc466ced18a13f2bff88e116af6232d0f39'
           Write-Output "D02_DOMAIN_TESTS=${{ steps.domain_test.outcome }}"
           Write-Output "D02_SITE_INSTALL=${{ steps.site_ci.outcome }}"
           Write-Output "D02_CANONICAL_PARITY=${{ steps.canon_parity.outcome }}"
