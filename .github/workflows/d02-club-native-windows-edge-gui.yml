@@ -86,8 +86,8 @@ jobs:
                 if($r.StatusCode -eq 200){$ready=$true;break}
               }catch{}
             }
-            if(!$ready){throw 'D02_NATIVE_T2_HTTPS_UNAVAILABLE'}
-            Write-Output 'D02_NATIVE_ORIGINAL_T2_HTTPS=PASS'
+            if(!$ready){throw 'D02_NATIVE_T2_HTTP_UNAVAILABLE'}
+            Write-Output 'D02_NATIVE_ORIGINAL_T2_HTTP=PASS'
             $profile=Join-Path $env:RUNNER_TEMP 'd02-native-edge-isolated'
             $browser=Start-Process -FilePath $edge -PassThru -ArgumentList @(
               '--force-renderer-accessibility',
@@ -165,7 +165,8 @@ jobs:
                 if(!$root){continue}
                 $all=$root.FindAll($scope,[System.Windows.Automation.Condition]::TrueCondition)
                 foreach($a in $all){
-                  if($a.Current.Name.StartsWith('Оценка записана')){$resultFound=$true;break}
+                  $name=$a.Current.Name
+                  if($name -and $name.StartsWith('Оценка записана')){$resultFound=$true;break}
                 }
                 if($resultFound){break}
               }
