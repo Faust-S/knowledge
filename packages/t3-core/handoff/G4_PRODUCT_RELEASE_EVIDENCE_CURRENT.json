@@ -2,7 +2,7 @@
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
   "snapshot_date": "2026-11-19",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
-  "currentness": "G4_SOURCE_OWNER_15_OF_15_44559119612_PASS__NATIVE_AGENT_KERNEL_20_MARKERS_44559119398_PASS__INSTALLED_ADMIN_ORIGINAL_SHA_RETEST_44559119290_RUNNING__FULL_G4_HOLD",
+  "currentness": "G4_ORIGINAL_OWNER_15_OF_15_PASS_44559119612__AGENT_NATIVE_20_MARKERS_PASS_HISTORICAL_AGENT_44559119398__ADMIN_INSTALLED_DPAPI_COLD_PASS_44559119290__CURRENT_CENTRAL_AGENT06_11_SOURCE_LINUX_WINDOWS_PASS_44560730437__CENTRAL_NATIVE_RETEST_44560718625_RUNNING__G4_HOLD",
   "policy": {
     "t3_one_core": "Faust-S/knowledge/packages/t3-core",
     "t2_normative": "Faust-S/T2@main",
@@ -2114,11 +2114,47 @@
       },
       "installed_admin_requalification": {
         "id": 44559119290,
-        "conclusion": "IN_PROGRESS_NOT_ACCEPTED",
-        "level": "G4_INSTALLED_ONE_DIST_DPAPI_COLD_RETEST"
+        "conclusion": "SUCCESS",
+        "exact_private_t3_sha": "1a8267634955947bc0c6adc5614d7de176a33da2",
+        "center_sha": "2628c4bc1b20b4393c485d12513f029fdea8b082",
+        "public_qualification_sha": "b9fa8acf6a5c3667f7fc368f931a526e474161e8",
+        "markers": [
+          "G4_INSTALLED_ORIGINAL_OWNER_SHA256_PIN_PASS",
+          "G4_INSTALLED_ORDINARY_WORKSPACE_WITHOUT_ATLAS_PASS",
+          "G4_INSTALLED_FIRST_USE_NATIVE_WINDOWS_ENROLL_PASS",
+          "G4_INSTALLED_COLD_MANAGER_DRAFT_INDEPENDENT_DISK_READBACK_PASS",
+          "G4_INSTALLED_COLD_OWNER_REQUIRED_FILE_COUNT 5",
+          "G4_INSTALLED_COLD_ORIGINAL_DPAPI_INDEPENDENT_PROCESS_PASS",
+          "G4_INSTALLED_FIRST_USE_ORIGINAL_DPAPI_COLD_RESTART_PASS",
+          "G4_INSTALLED_PRIVATE_SOURCE_AND_BINARIES_NOT_PUBLISHED"
+        ],
+        "scope": "Installed Admin enrollment and independent original DPAPI process cold restored; not cross-product Agent native Human APPLY"
       },
       "native_human_invariant": "Trustworthy native port must require exactly selected decision, packageSha256, previewDigest, operationId, review actor and one-shot consumption; public source tests can simulate confirmation but installed native Win32 dialogue remains separately required.",
       "release_g4_accepted": false
+    },
+    "g4_central_agent06_current_source_2026_11_19": {
+      "agent_repo": "Faust-S/iwxa-personal-agent",
+      "agent_central_sha": "1bf0847ed069c86fe6a11380537535f0ce6c0b8e",
+      "private_owner_sha": "1a8267634955947bc0c6adc5614d7de176a33da2",
+      "difference_from_historic_agent": "Central Agent original Python IPC and Node worker are newer than previous corporate-only branch; current worker statically imports three additional original private modules (cold_guard, transfer_readback, selected_summary).",
+      "stage_rule": "Read only five exact central Agent files into isolated public Windows runner; do not clone/publish private source or copy signer.",
+      "agent_source_ci": {
+        "id": 44560730437,
+        "conclusion": "SUCCESS",
+        "platforms": [
+          "ubuntu-24.04",
+          "windows-2022"
+        ],
+        "original_python_tests": 11,
+        "unknown_ack_read_only": "PASS"
+      },
+      "agent_original_native_ci": {
+        "id": 44560718625,
+        "conclusion": "IN_PROGRESS_NOT_ACCEPTED"
+      },
+      "installed_central_agent": "NOT_RUN",
+      "qualifies_independent_installed_agent": false
     }
   },
   "accepted_gates": {
@@ -2158,9 +2194,10 @@
     "ORIGINAL_PRIVATE_D3_OWNER_SOURCE": "ORIGINAL_OWNER_MULTI_EMPLOYEE_15_OF_15_SOURCE_PASS_KNOWLEDGE_44370068755_JOB_135034132307__WORKFLOW_CANCELLED_AFTER_JOB__INSTALLED_D3_HOLD",
     "D3_NATIVE_ORIGINAL_AGENT_PROCESS": "ORIGINAL_PRIVATE_WINDOWS_NODE_PYTHON_SIGNED_TEST_EMPLOYEE_FOUR_MARKERS_AND_SEPARATE_PRODUCTION_ADMIN_COLD_PASS_44383462807__INSTALLED_GUI_AND_KERNEL_NOT_RUN",
     "D3_ORIGINAL_NATIVE_WINDOWS_PRODUCTION_OWNER": "PRODUCTION_ORIGINAL_T3_WIN_DPAPI_ADMIN_ENROLLMENT_INDEPENDENT_COLD_NODE_READBACK_PASS_44383462807__INDEPENDENT_PRODUCTION_EMPLOYEE_AND_KERNEL_HOLD",
-    "D3_INSTALLED_ADMIN_OWNER_ENROLL_AND_DPAPI_COLD": "PASS_GENUINE_WINDOWS_SETUP_WEBVIEW_OWNER_ENROLL_INDEPENDENT_DPAPI_PROCESS_AND_GUI_REOPEN_44537675979",
+    "D3_INSTALLED_ADMIN_OWNER_ENROLL_AND_DPAPI_COLD": "PASS_44537675979_AT_T3_B897__PASS_44559119290_AT_T3_1A826763_INDEPENDENT_DPAPI_PROCESS_AND_GUI_COLD",
     "D3_ORIGINAL_PRIVATE_OWNER_SOURCE_LATEST": "PASS_15_OF_15_44559119612_EXACT_T3_1A826763_SOURCE_ONLY",
-    "D3_ORIGINAL_NATIVE_AGENT_KERNEL_LATEST": "PASS_20_G4_MARKERS_44559119398_EXACT_T3_1A826763_NATIVE_NODE_PYTHON_NOT_INSTALLED_TAURI"
+    "D3_ORIGINAL_NATIVE_AGENT_KERNEL_LATEST": "PASS_20_G4_MARKERS_44559119398_EXACT_T3_1A826763_NATIVE_NODE_PYTHON_NOT_INSTALLED_TAURI",
+    "D3_AGENT06_CENTRAL_ORIGINAL_EMPLOYEE_SOURCE": "PASS_LINUX_WINDOWS_11_OF_11_44560730437_ON_AGENT_1BF0847__INSTALLED_AGENT_HOLD"
   },
   "next_critical_path": [
     "Release scope is PRODUCT_NEUTRAL_T3. Keep normative original T2 Kernel/Host/Workspace/Exchange/Lifecycle integrated in ONE T3. Use current exact public One Core CI + installed Agent test; never interpret source PASS as installed owner.",
@@ -2216,7 +2253,7 @@
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
     "original_private_native_signer": "CURRENT_SOURCE_PIN_d0d8ba2f_NATIVE_ONE_SHOT_WINDOWS_BRIDGE_REQUALIFIED_20_OF_20_44406073956__INSTALLED_UI_HOLD",
-    "independent_installed_d3": "PARTIAL_INSTALLED_ADMIN_DPAPI_COLD_PASS_44537675979_AT_B897__EXACT_T3_1A826763_RETEST_44559119290_RUNNING__INDEPENDENT_INSTALLED_AGENT_HUMAN_ACCEPT_APPLY_HOLD",
+    "independent_installed_d3": "PARTIAL_ADMIN_INSTALLED_SIGNED_OWNER_DPAPI_COLD_PASS_44559119290_EXACT_T3_1A826763__CENTRAL_AGENT_1BF0847_NATIVE_RETEST_44560718625_RUNNING__SECOND_WINDOWS_USER_NATIVE_HUMAN_APPLY_HOLD",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
