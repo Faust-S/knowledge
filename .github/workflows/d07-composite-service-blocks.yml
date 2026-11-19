@@ -15,8 +15,8 @@ jobs:
       matrix:
         runner: [windows-latest, ubuntu-latest]
     env:
-      SITE_SHA: 94abfe8a2cfe0dfbe9687836904c56cff5d9fab4
-      SUBJECT_SHA: ecaa052f252a9ae09c2562ff16a45c8db2f82f71
+      SITE_SHA: 756cf0fdba3a1a061c05a73e1e2b1bdd5ede45bb
+      SUBJECT_SHA: 6980a7983b8f3009d861db4f344388bf9f4ed922
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -85,8 +85,16 @@ jobs:
         working-directory: site
         run: |
           $log=Join-Path $env:RUNNER_TEMP 'd07-blocks-tests.private.log'
-          & node --import tsx --test scripts/tests/d07-service-blocks.test.mjs *> $log
-          if($LASTEXITCODE -ne 0){throw 'D07_BLOCKS_DOMAIN_TESTS_FAIL'}
+          & node --import tsx --test scripts/tests/d07-service-blocks.test.mjs scripts/tests/d07-service-execution.test.mjs *> $log
+          if($LASTEXITCODE -ne 0){
+            $failed=@(Get-Content $log -ErrorAction SilentlyContinue |
+              Where-Object {$_ -match '^not ok [0-9]+ - '})
+            foreach($line in $failed | Select-Object -First 20){
+              $name=$line -replace '^not ok [0-9]+ - ',''
+              Write-Output ('D07_EXECUTION_TEST_FAILURE='+$name)
+            }
+            throw 'D07_BLOCKS_DOMAIN_TESTS_FAIL'
+          }
           Write-Output 'D07_BLOCKS_DOMAIN_TESTS=PASS'
       - name: Check TypeScript and original T2 Host integration
         working-directory: site
