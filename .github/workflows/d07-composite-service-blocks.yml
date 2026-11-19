@@ -209,7 +209,13 @@ jobs:
               if($line -match 'public og:url mismatch'){$categories+='PUBLIC_OG_URL'}
               if($line -match 'technical HTML missing noindex'){$categories+='TECHNICAL_NOINDEX'}
               if($line -match 'technical HTML has indexable URL metadata'){$categories+='TECHNICAL_INDEXABLE'}
-              if($line -match 'unclassified HTML'){$categories+='UNCLASSIFIED_HTML'}
+              if($line -match 'unclassified HTML'){
+                $categories+='UNCLASSIFIED_HTML'
+                # Relative public URL file name only, never HTML bytes or private source.
+                if($line -match '(?:✗|x)\s+([A-Za-z0-9_./-]+\.html):\s+unclassified HTML'){
+                  Write-Output ('D07_RELEASE_UNCLASSIFIED_FILE='+$Matches[1])
+                }
+              }
               if($line -match 'изменены данные подтверждения'){$categories+='VERIFICATION_BYTES'}
             }
             Write-Output ('D07_RELEASE_SEO_CATEGORIES='+((@($categories|Sort-Object -Unique)) -join ','))
