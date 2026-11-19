@@ -10,7 +10,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 7d3c10185a185a9dfcc216aea0949781bae6c4ca
+      SITE_SHA: 79536258d4a52d4c7389fe79da6d239da0d75a80
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -777,6 +777,36 @@ jobs:
                 }
                 if(!$heading){throw 'D07_NATIVE_REGULAR_EDITOR_NOT_EXPANDED'}
                 Write-Output 'D07_NATIVE_REGULAR_PLAN_EDITOR=PASS'
+                # Distinguish a Windows runner desktop keyboard limitation
+                # from a React form defect. Do not log the typed content.
+                $keyboardPreflight=$false
+                $diagnosticForm=$null
+                try{
+                  $diagnosticForm=New-Object System.Windows.Forms.Form
+                  $diagnosticForm.Text='D07 native input preflight'
+                  $diagnosticForm.Width=360
+                  $diagnosticForm.Height=120
+                  $diagnosticEdit=New-Object System.Windows.Forms.TextBox
+                  $diagnosticEdit.Width=300
+                  $diagnosticEdit.Location=[System.Drawing.Point]::new(15,15)
+                  $diagnosticForm.Controls.Add($diagnosticEdit)
+                  $diagnosticForm.Show()
+                  [System.Windows.Forms.Application]::DoEvents()
+                  $diagnosticForm.Activate()
+                  $diagnosticEdit.Focus()|Out-Null
+                  Start-Sleep -Milliseconds 160
+                  [System.Windows.Forms.SendKeys]::SendWait('D07kbd')
+                  [System.Windows.Forms.Application]::DoEvents()
+                  Start-Sleep -Milliseconds 150
+                  $keyboardPreflight=($diagnosticEdit.Text -ceq 'D07kbd')
+                }catch{
+                  Write-Output 'D07_NATIVE_RUNNER_KEYBOARD_PREFLIGHT_EXCEPTION=YES'
+                }finally{
+                  if($diagnosticForm){try{$diagnosticForm.Close();$diagnosticForm.Dispose()}catch{}}
+                }
+                Write-Output ('D07_NATIVE_RUNNER_KEYBOARD_PREFLIGHT='+$keyboardPreflight)
+                if(!$keyboardPreflight){throw 'D07_NATIVE_RUNNER_KEYBOARD_UNAVAILABLE'}
+
                 # Enter plan details as a human would, using the public Edge
                 # accessibility tree and native keyboard input, not DOM scripts.
                 # The editor is a React-controlled input. UIA SetValue alone
