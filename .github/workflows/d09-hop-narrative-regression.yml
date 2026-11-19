@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           echo "D09_SITE_HEAD=$(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD)" = "fe9b761cbe2eb6d2e726ba78d83ef7ae4edfe096" || {
+          test "$(git rev-parse HEAD)" = "d41af5c5b4ec2eb83fe6514fd9ec9dc95e8fc8ba" || {
             echo "D09_SITE_REVISION_CHANGED=HOLD"; exit 1;
           }
           node --experimental-strip-types --test tests/d09-read-model-guards.test.mjs > "$RUNNER_TEMP/d09-result-source.log" 2>&1 || {
@@ -69,6 +69,11 @@ jobs:
             echo "D09_SITE_ASSEMBLY_SYNTAX=FAIL"; exit 1;
           }
           echo "D09_HOST_TEST=PASS"
+          ./node_modules/.bin/vitest run src/components/player/ResultContinuationPanel.t2.test.tsx > "$RUNNER_TEMP/d09-result-ui.log" 2>&1 || {
+            grep -E 'FAIL|AssertionError|expected|Error:' "$RUNNER_TEMP/d09-result-ui.log" | tail -15 || true
+            echo "D09_T2_RESULT_UI=FAIL"; exit 1;
+          }
+          echo "D09_T2_RESULT_UI=PASS"
       - name: Independently verify Project and source package guards
         shell: bash
         run: |
@@ -163,6 +168,14 @@ jobs:
           test -f dist/workspace/index.html
           test -f dist/workspace/exchange/index.html
           test -f dist/workspace/lifecycle/index.html
+          test -f dist/d09-site-owned.css
+          jq -e '.layout.workspace_chrome == "site-owned"' dist/_iwxa/domain-shell.json > /dev/null || {
+            echo "D09_PRODUCT_FIRST_CONFIGURATION=FAIL"; exit 1;
+          }
+          grep -q 'D09_PRODUCT_FIRST_FIRST_PAINT=PASS' "$RUNNER_TEMP/d09-final-build.log" || {
+            echo "D09_PRODUCT_FIRST_FIRST_PAINT=FAIL"; exit 1;
+          }
+          echo "D09_PRODUCT_FIRST_FIRST_PAINT=PASS"
           test -f dist/_iwxa/runtime/0.3.6/runtime.js
           test ! -e dist/workspace/studio/index.html || { echo "D09_ENGINEERING_STUDIO_PUBLISHED=FAIL"; exit 1; }
           test ! -e dist/workspace/studio.html || { echo "D09_ENGINEERING_STUDIO_PUBLISHED=FAIL"; exit 1; }
