@@ -41,6 +41,7 @@ jobs:
         run: |
           node --check packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs
           node --check packages/t3-core/tests/g4-original-agent-native-windows.mjs
+          node --test packages/t3-core/tests/g4-native-original-owner-pin-parity.test.mjs
           node --check packages/t3-core/tests/g4-production-original-kernel.browser.mjs
           python -m py_compile packages/t3-core/tests/g4-original-agent-native-driver.py
           python -m py_compile packages/t3-core/tests/g4-original-employee-bootstrap-driver.py
