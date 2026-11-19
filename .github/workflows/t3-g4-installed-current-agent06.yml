@@ -3,13 +3,14 @@ on:
   push:
     branches:
       - work/2026-11-10-t3-t2-activity-projection
+      - qa/2026-11-19-software-agent-current
     paths:
       - .github/workflows/t3-g4-installed-current-agent06.yml
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: t3-g4-installed-current-agent06
+  group: t3-g4-installed-current-agent06-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   installed-current-agent06:
@@ -164,6 +165,18 @@ jobs:
           } finally {
             Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
           }
+      - name: Start independent read-only watcher for current installed Agent first screen
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root = Join-Path $env:GITHUB_WORKSPACE 'artifacts/agent-current'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $file = Join-Path $env:GITHUB_WORKSPACE 'tools/qa-agent-current-first-screen.ps1'
+          $ps = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          if (!(Test-Path -LiteralPath $file)) { throw 'QA_AGENT_CAPTURE_WATCHER_MISSING' }
+          $args = '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $file + '" -OutputDir "' + $root + '"'
+          $watcher = Start-Process -FilePath $ps -ArgumentList $args -PassThru -WindowStyle Hidden
+          Write-Host 'QA_AGENT_NATIVE_FIRST_SCREEN_WATCHER_STARTED'
       - name: Build install and cold-qualify genuine current Agent Tauri with original T2/T3 One Dist
         shell: pwsh
         timeout-minutes: 72
@@ -382,6 +395,30 @@ jobs:
           Write-Host 'G4_AGENT06_INSTALLED_NATIVE_GUI_QWEN_REVIEW_COLD_PASS'
           Write-Host 'G4_AGENT06_INSTALLED_SETUP_CORE_REPAIR_ROLLBACK_PASS'
           Write-Host 'G4_AGENT06_INSTALLED_NOT_CROSS_USER_ADMIN_ACCEPT_APPLY'
+      - name: Verify fresh Agent screenshot from true native window
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $folder = Join-Path $env:GITHUB_WORKSPACE 'artifacts/agent-current'
+          $image = Join-Path $folder 'agent-native-current-first-screen.png'
+          $manifest = Join-Path $folder 'capture-manifest.json'
+          for ($n=0;$n -lt 45;$n++) {
+            if ((Test-Path -LiteralPath $image -PathType Leaf) -and (Test-Path -LiteralPath $manifest -PathType Leaf)) { break }
+            Start-Sleep -Seconds 1
+          }
+          if (!(Test-Path -LiteralPath $image -PathType Leaf) -or !(Test-Path -LiteralPath $manifest -PathType Leaf)) {
+            throw 'QA_AGENT_NATIVE_SCREEN_NOT_CAPTURED'
+          }
+          $proof = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+          $sha = (Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($proof.originalAgentSha -cne '0d4196fa732b52d192ac75590715199381dfb2df' -or
+              $proof.screenshotSha256 -cne $sha -or
+              $proof.windowTitle -cne 'IWXA Personal' -or
+              (Get-Item -LiteralPath $image).Length -lt 6000) {
+            throw 'QA_AGENT_NATIVE_SCREEN_PROVENANCE_INVALID'
+          }
+          Write-Host ('QA_AGENT_CURRENT_NATIVE_SCREEN_PASS sha256=' + $sha)
       - name: Erase private source model caches logs and native binaries
         if: always()
         shell: pwsh
@@ -396,6 +433,15 @@ jobs:
             }
           }
           Write-Host 'G4_AGENT06_PRIVATE_SOURCE_AND_NATIVE_ARTIFACTS_NOT_PUBLISHED'
+      - name: Retain only verified public-facing first-screen image, never private source
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent06-current-native-first-screen
+          path: artifacts/agent-current/
+          if-no-files-found: error
+          retention-days: 5
+
   agent-source-mutation-probe:
     if: contains(github.event.head_commit.message, '[qualify-agent-package-source]')
     runs-on: windows-2022
