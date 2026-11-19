@@ -32,7 +32,7 @@ jobs:
       - name: Pin both branch contents, do not publish source
         shell: bash
         run: |
-          test "$(git rev-parse HEAD)" = "89840e850707dd5b769b26e501c67a8e8c47325e" || {
+          test "$(git rev-parse HEAD)" = "2c9885c55ac7263543373bae05f283e04e202c37" || {
             echo D09_TWO_OWNER_LINT_SITE_SHA_CHANGED=HOLD; exit 1;
           }
           mv canonical-hop "$RUNNER_TEMP/d09-canonical-hop"
@@ -56,7 +56,7 @@ jobs:
         run: |
           node scripts/d09-normalize-lint.mjs "$RUNNER_TEMP/d09-canonical-hop" --apply > "$RUNNER_TEMP/d09-two-owner-result.log" 2>&1 || {
             echo D09_TWO_OWNER_LINT_NORMALIZE=FAIL
-            grep -oE 'D09_LINT_[A-Z0-9_]+' "$RUNNER_TEMP/d09-two-owner-result.log" | tail -25 || true
+            grep -E 'D09_LINT_(FAILED_GATE|FAILED_TEST_SIGNATURE|NORMALIZED_[A-Z_]+|NORMALIZATION)' "$RUNNER_TEMP/d09-two-owner-result.log" | tail -25 || true
             grep -oE 'error TS[0-9]+|AssertionError|ERR_[A-Z0-9_]+' "$RUNNER_TEMP/d09-two-owner-result.log" | sort -u | tail -10 || true
             exit 1
           }
