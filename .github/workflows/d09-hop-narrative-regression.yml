@@ -1,4 +1,4 @@
-name: D09 HOP semantic Studio regression
+name: D09 HOP canonical T2 Host and domain regression
 on:
   push:
     branches: [work/2026-11-02-pipeline-foundation]
@@ -28,6 +28,14 @@ jobs:
             echo "D09_NPM_CI=FAIL"; exit 1;
           }
           echo "D09_NPM_CI=PASS"
+      - name: Record exact HOP revision and check Result source boundary
+        shell: bash
+        run: |
+          echo "D09_SITE_HEAD=$(git rev-parse HEAD)"
+          node --experimental-strip-types --test tests/d09-read-model-guards.test.mjs > "$RUNNER_TEMP/d09-result-source.log" 2>&1 || {
+            echo "D09_RESULT_SOURCE_GUARD=FAIL"; exit 1;
+          }
+          echo "D09_RESULT_SOURCE_GUARD=PASS"
       - name: Check TypeScript
         shell: bash
         run: |
