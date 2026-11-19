@@ -131,6 +131,12 @@ export async function qualifyOriginalTwoSid({
       if(ipcOsCode)console.log('G4_ORIGINAL_TWO_SID_IPC_NATIVE_OS_CODE',ipcOsCode);
       const ipcId=extract('G4_ORIGINAL_AGENT_TWO_SID_ERROR_FQID');
       if(ipcId)console.log('G4_ORIGINAL_TWO_SID_IPC_ERROR_ID',code(ipcId));
+      const childCode=extract('G4_ORIGINAL_EMPLOYEE_CHILD_ERROR_CODE');
+      if(childCode)console.log('G4_ORIGINAL_TWO_SID_CHILD_CODE',code(childCode));
+      for(const key of ['NATIVE_PROCESS','PYTHON_PROCESS']){
+        const raw=output.match(new RegExp('G4_ORIGINAL_EMPLOYEE_'+key+'_EXIT\\s+(UNSET|-?[0-9]{1,6})'))?.[1];
+        if(raw)console.log('G4_ORIGINAL_TWO_SID_'+key+'_EXIT',raw);
+      }
       const nativeCode=extract('G4_ORIGINAL_AGENT_SECOND_SID_NATIVE_CODE');
       if(nativeCode)console.log('G4_ORIGINAL_TWO_SID_BRIDGE_CODE',code(nativeCode));
       throw Error('G4_ORIGINAL_SECOND_SID_AGENT_SOURCE_NOT_ACCEPTED');
