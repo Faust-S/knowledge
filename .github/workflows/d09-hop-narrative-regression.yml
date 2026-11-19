@@ -33,7 +33,7 @@ jobs:
         run: |
           npm run typecheck > "$RUNNER_TEMP/d09-types.log" 2>&1 || {
             echo "D09_TYPES=FAIL"
-            grep -oE 'TS[0-9]{4,5}' "$RUNNER_TEMP/d09-types.log" | sort | uniq -c || true
+            grep -E 'error TS[0-9]+' "$RUNNER_TEMP/d09-types.log" | sed -E 's/: error (TS[0-9]+):.*/: \1/' | head -30 || true
             exit 1
           }
           echo "D09_TYPES=PASS"
