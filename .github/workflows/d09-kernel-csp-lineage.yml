@@ -1,0 +1,102 @@
+name: D09 Kernel CSP source lineage and codegen probe
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d09-kernel-csp-lineage.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Checkout accepted T2 source authority
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 275e8653e7096ea8b40edaad6751d3c56825358b
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          sparse-checkout: |
+            t2/current/final-successor/canonical-source
+            t2/current/final-successor/canonical-source-inputs/k035-rc20
+            t2/current/final-successor/kernel-successors/k036-atomic-graph
+            t2/current/final-successor/kernel-successors/k036-same-store-event-history-20261019
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Recover the exact accepted predecessor before modifying anything
+        shell: bash
+        run: |
+          root="$GITHUB_WORKSPACE"
+          core="$root/t2/current/final-successor/canonical-source"
+          node "$core/scripts/materialize-k035-atomic-graph-successor.mjs" \
+            "$root/t2/current/final-successor/canonical-source-inputs/k035-rc20/SOURCE_AUTHORITY.json" \
+            "$root" "$RUNNER_TEMP/d09-k035" > "$RUNNER_TEMP/k035-materialize.json" 2>&1 || {
+            echo D09_K035_EXACT_RECOVERY=FAIL
+            grep -oE 'K035_[A-Z0-9_]+|Error: [A-Z0-9_]+' "$RUNNER_TEMP/k035-materialize.json" | tail -6 || true
+            exit 1
+          }
+          echo D09_K035_EXACT_RECOVERY=PASS
+          node "$core/scripts/materialize-k036-atomic-graph-qualified.mjs" \
+            "$RUNNER_TEMP/d09-k035" "$RUNNER_TEMP/d09-k036" > "$RUNNER_TEMP/k036-materialize.json" 2>&1 || {
+            echo D09_K036_EXACT_RECOVERY=FAIL
+            grep -oE '[A-Z0-9_]+_MISMATCH|Error: [A-Z0-9_]+' "$RUNNER_TEMP/k036-materialize.json" | tail -6 || true
+            exit 1
+          }
+          echo D09_K036_EXACT_RECOVERY=PASS
+      - name: Analyze source and exact qualified package without publishing source
+        shell: bash
+        run: |
+          node --input-type=module - "$RUNNER_TEMP/d09-k036" <<'NODE'
+          import {readFileSync,readdirSync,statSync} from "node:fs";
+          import {join,relative} from "node:path";
+          const root=process.argv[2], all=[];
+          function walk(dir) {for(const name of readdirSync(dir)) {
+            const p=join(dir,name),st=statSync(p);
+            if(st.isDirectory() && name!=="node_modules")walk(p);
+            else if(st.isFile()&&/\.(?:ts|tsx|mjs|js)$/.test(name))all.push(p);
+          }}
+          walk(root);
+          const patterns=[
+            ["AJV_IMPORT",/from\s+["']ajv(?:\/[^"']+)?["']/g],
+            ["AJV_NEW",/\bnew\s+Ajv(?:2020|2019)?\s*\(/g],
+            ["AJV_COMPILE",/\b(?:ajv|validator|Ajv)\s*\.\s*compile(?:Async)?\s*\(/g],
+            ["EVAL",/\beval\s*\(/g],
+            ["NEW_FUNCTION",/\bnew\s+Function\s*\(/g],
+            ["ESBUILD",/esbuild/g],
+            ["STANDALONE",/standaloneCode/g],
+          ];
+          const summary={scannedSourceFiles:all.length,features:[]};
+          for(const [name,regex] of patterns) {
+            const records=[];
+            for(const file of all) {
+              const s=readFileSync(file,"utf8");
+              const hits=[...s.matchAll(regex)].length;
+              if(hits)records.push({group:relative(root,file).split("/").slice(0,2).join("/"),count:hits});
+            }
+            if(records.length)summary.features.push({name,total:records.reduce((n,x)=>n+x.count,0),
+              byGroup:Object.entries(Object.groupBy(records,x=>x.group)).map(([group,rows])=>({group,files:rows.length,hits:rows.reduce((n,x)=>n+x.count,0)}))});
+          }
+          const pkg=JSON.parse(readFileSync(join(root,"package.json"),"utf8"));
+          summary.buildScripts=Object.keys(pkg.scripts??{}).filter(x=>/build|validate|test:built|contract|check:generated/.test(x));
+          summary.hasAjv=pkg.dependencies?.ajv!==undefined || pkg.devDependencies?.ajv!==undefined;
+          console.log("D09_KERNEL_SOURCE_CODEGEN="+JSON.stringify(summary));
+          NODE
+          python - <<'PY'
+          from zipfile import ZipFile
+          from pathlib import Path
+          p=Path("t2/current/final-successor/kernel-successors/k036-same-store-event-history-20261019/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip")
+          with ZipFile(p) as z:
+              names=z.namelist()
+              groups={"runtime":0,"source":0,"manifest":0,"other":0}
+              for name in names:
+                  if name.endswith("/"):continue
+                  if name.endswith("/runtime.js"): groups["runtime"]+=1
+                  elif "/src/" in name or name.startswith("src/"):groups["source"]+=1
+                  elif name.endswith(".json"):groups["manifest"]+=1
+                  else:groups["other"]+=1
+              print("D09_QUALIFIED_KERNEL_ARCHIVE_CONTENTS="+str(groups))
+          PY
+      # No source, zip, generated files or private code is copied to public artifacts.
