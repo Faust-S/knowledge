@@ -49,12 +49,6 @@ jobs:
             echo "AKIS_FROZEN_INSTALL=FAIL"; exit 1;
           }
           echo "AKIS_FROZEN_INSTALL=PASS"
-      - name: TypeScript check
-        run: |
-          bunx tsc --noEmit --pretty false > "$RUNNER_TEMP/akis-types.log" 2>&1 || {
-            echo "AKIS_TYPES=FAIL"; exit 1;
-          }
-          echo "AKIS_TYPES=PASS"
       - name: Two source and organizational acceptance suites
         run: |
           for task in check:akis:production check:akis:article; do
@@ -64,6 +58,15 @@ jobs:
             }
             echo "AKIS_TEST=PASS task=$task"
           done
+      - name: TypeScript check using the site's original route-generation prerequisite
+        run: |
+          npm run typecheck > "$RUNNER_TEMP/akis-types.log" 2>&1 || {
+            echo "AKIS_TYPES=FAIL"
+            grep -E 'error TS[0-9]+' "$RUNNER_TEMP/akis-types.log" |
+              sed -E 's/(error TS[0-9]+):.*/\1/' | head -20 || true
+            exit 1
+          }
+          echo "AKIS_TYPES=PASS"
       - name: Prepare Chromium for site's original static prerender
         run: |
           bunx puppeteer browsers install chrome > "$RUNNER_TEMP/akis-browser-install.log" 2>&1 || {
