@@ -36,11 +36,16 @@ jobs:
             { echo "PT_MERGE_SOURCE_MISSING"; exit 1; }
           base="$(git merge-base HEAD b840ebfd57d086a65c4474136a3c334eda07f5c4)"
           echo "PT_MERGE_BASE_SHA=$base"
+          git config user.name "IWXA Merge Qualification"
+          git config user.email "iwxa-merge-qa@users.noreply.github.com"
           set +e
           git -c merge.conflictStyle=merge merge --no-commit --no-ff -q b840ebfd57d086a65c4474136a3c334eda07f5c4 > "$RUNNER_TEMP/merge.log" 2>&1
           status=$?
           set -e
           echo "PT_MERGE_EXIT=$status"
+          if [ "$status" -ne 0 ]; then
+            grep -E "^(fatal|error|CONFLICT)" "$RUNNER_TEMP/merge.log" | sed -E "s#(/home/runner/)[^ ]+#<private-path>#g" | tail -n 20 || true
+          fi
           conflict_count="$(git diff --name-only --diff-filter=U | wc -l | tr -d ' ')"
           echo "PT_MERGE_CONFLICT_COUNT=$conflict_count"
           echo "PT_MERGE_CONFLICT_FILES_START"
