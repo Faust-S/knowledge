@@ -35,7 +35,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check --quiet Pillow==11.3.0
           python - <<'PY'
-          import hashlib, json, os
+          import base64, hashlib, json, os
           from pathlib import Path
           from PIL import Image
           artifact=Path(os.environ['RUNNER_TEMP'])/'native-screen'/"activity-native-ocel2.png"
@@ -49,6 +49,7 @@ jobs:
           target.parent.mkdir(parents=True,exist_ok=True)
           image.save(target,format='WEBP',quality=79,method=6)
           digest=hashlib.sha256(target.read_bytes()).hexdigest()
+          Path(str(target)+'.b64.txt').write_text(base64.b64encode(target.read_bytes()).decode('ascii')+'\n',encoding='ascii')
           manifest={
              'schema':'IWXA_AUTHENTIC_WINDOWS_SCREENSHOT/1',
              'product':"Activity Analyzer 0.1 Windows installed",
