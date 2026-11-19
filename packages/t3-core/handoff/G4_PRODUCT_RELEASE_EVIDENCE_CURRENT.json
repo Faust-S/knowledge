@@ -2,7 +2,7 @@
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
   "snapshot_date": "2026-11-20",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
-  "currentness": "20_11_G4_PRODUCT_NEUTRAL_CORE_D6_SOURCE_44620132894_SUCCESS__REAL_INSTALLED_AGENT_QWEN_REVIEW_EXCHANGE_INSPECT_REACHED_44619450951_BUT_WITNESS_PATH_FAIL__ORIGINAL_PRODUCT_AUTHORITY_FIX_AGENT_FFA56__CORE_F42E__NATIVE_WINDOWS_44622054312_AND_SIGNED_SOURCE_44622214812_IN_PROGRESS__T3_READY_FALSE_G4_NOT_ACCEPTED",
+  "currentness": "G4_EXACT_NATIVE_D3_SOURCE_AGENT_FFA56_CORE_F42E_26_OF_26_44622214812_SUCCESS__D6_GENERIC_ORIGINAL_T2_SOURCE_44620132894_SUCCESS__INSTALLED_NATIVE_AGENT_44622054312_IN_PROGRESS_UNACCEPTED__D3_NATIVE_HUMAN_GUI_D6_NATIVE_D7_PERSON_D5_INSTALLED_HOLD__T3_READY_FALSE_G4_NOT_ACCEPTED",
   "policy": {
     "t3_one_core": "Faust-S/knowledge/packages/t3-core",
     "t2_normative": "Faust-S/T2@main",
@@ -2355,11 +2355,13 @@
         "installed_native": "NOT_RUN"
       },
       "original_signed_d3_qualification": {
-        "run_id": 44594391346,
+        "run_id": 44622214812,
         "conclusion": "SUCCESS",
         "source_process_markers_pass": 26,
         "source_process_markers_total": 26,
-        "final_marker": "PASS",
+        "final_marker": "G4_NATIVE_PROCESS_SOURCE_PASS_NOT_INSTALLED_GUI",
+        "agent_head": "ffa56fee6f971afa74b6b49ccfb891fca0e97225",
+        "core_source_revision": "f42e53cd28c881b2b8e04199595f9d7991f34414",
         "installed_2_sid_gui_accept_apply": "NOT_RUN"
       },
       "installed_candidate_workflow": "t3-g4-installed-current-agent06.yml",
@@ -2470,8 +2472,28 @@
       "new_installed_ci": 44622054312,
       "new_installed_conclusion": "IN_PROGRESS_UNACCEPTED",
       "new_signed_d3_source_ci": 44622214812,
-      "new_signed_d3_source_conclusion": "IN_PROGRESS_UNACCEPTED",
+      "new_signed_d3_source_conclusion": "SUCCESS_26_OF_26_PLUS_FINAL_MARKER_SOURCE_ONLY",
       "cross_product_installed_d3": "NOT_ACCEPTED",
+      "g4": "NOT_ACCEPTED"
+    },
+    "g4_native_d3_source_exact_agent_2026_11_20": {
+      "scope": "NATIVE_ORIGINAL_SOURCE_NODE_PYTHON_WIN32_REAL_MODEL_NOT_INSTALLED_GUI",
+      "run_id": 44622214812,
+      "conclusion": "SUCCESS",
+      "agent_sha": "ffa56fee6f971afa74b6b49ccfb891fca0e97225",
+      "core_pin": "f42e53cd28c881b2b8e04199595f9d7991f34414",
+      "original_owner_sha": "1a8267634955947bc0c6adc5614d7de176a33da2",
+      "original_t2_sha": "9c64951cd78411283e8a416641c36d71e169fc1d",
+      "source_markers_pass": 26,
+      "source_markers_total": 26,
+      "final_marker": "G4_NATIVE_PROCESS_SOURCE_PASS_NOT_INSTALLED_GUI",
+      "real_local_qwen": "SOURCE_PASS",
+      "original_accepted_result_and_signed_transfer": "SOURCE_PASS",
+      "employee_second_sid_original_cryptography": "SOURCE_PASS",
+      "original_admin_accept_and_kernel_apply": "SOURCE_PASS_PROGRAMMATIC_HUMAN_DECISIONS",
+      "original_kernel_two_cold_readbacks": "SOURCE_PASS",
+      "native_installed_agent_under_second_sid": "NOT_RUN",
+      "installed_admin_physical_human_accept_apply": "NOT_RUN",
       "g4": "NOT_ACCEPTED"
     }
   },
@@ -2519,7 +2541,7 @@
   },
   "next_critical_path": [
     "Release scope is PRODUCT_NEUTRAL_T3. Keep normative original T2 Kernel/Host/Workspace/Exchange/Lifecycle integrated in ONE T3. Use current exact public One Core CI + installed Agent test; never interpret source PASS as installed owner.",
-    "LIVE 20.11 exact pinned Agent ffa56fee / One Core f42e53cd: source-native Windows D3 requal #44622214812 IN_PROGRESS, installed native Agent/real Qwen/Review/exchange/cold #44622054312 IN_PROGRESS; no acceptance before conclusions. Prior installed #44619450951 built Setup and executed genuine Qwen3, Core Task, Human Review, accepted .iwxa export/inspect, then FAILED in the witness because obsolete generic LOCALAPPDATA/IWXA authority paths differ from original runtime/windows_install_paths.py canonical LOCALAPPDATA/IWXA/PersonalAgent. Corrected five paths in original Agent 34c30f77, added static owner regression a703fdf6, retained user-data legacy and canonical guards. Latest Agent source SHA ffa56fee; D6 accepted-result optional workRef source-qualified #44620132894 SUCCESS, installed cross-product D6 still NOT_ACCEPTED. To finish D3 require physical installed employee under separate OS SID, separate installed Admin Human ACCEPT then APPLY, exact original Kernel Object/Event 2 cold readbacks; source test alone cannot close G4.",
+    "LIVE 20.11 exact pinned Agent ffa56fee / One Core f42e53cd: source-native Windows D3 requal #44622214812 SUCCESS 26/26 + final marker, SOURCE ONLY, installed native Agent/real Qwen/Review/exchange/cold #44622054312 IN_PROGRESS; no acceptance before conclusions. Prior installed #44619450951 built Setup and executed genuine Qwen3, Core Task, Human Review, accepted .iwxa export/inspect, then FAILED in the witness because obsolete generic LOCALAPPDATA/IWXA authority paths differ from original runtime/windows_install_paths.py canonical LOCALAPPDATA/IWXA/PersonalAgent. Corrected five paths in original Agent 34c30f77, added static owner regression a703fdf6, retained user-data legacy and canonical guards. Latest Agent source SHA ffa56fee; D6 accepted-result optional workRef source-qualified #44620132894 SUCCESS, installed cross-product D6 still NOT_ACCEPTED. To finish D3 require physical installed employee under separate OS SID, separate installed Admin Human ACCEPT then APPLY, exact original Kernel Object/Event 2 cold readbacks; source test alone cannot close G4.",
     "D6_GENERIC original T2 Agent accepted-result schema optional project WorkRef SOURCE_PASS at exact knowledge f42e53cd (public CI #44620132894 test/real-host/Windows SUCCESS). This removes implicit Atlas project dependency from a normal Task/Result while preserving strict projectId/workId/revision if present. It does NOT prove installed independent D6 recipient; require original signed D1 authorization, Human approval, recipient owner durable receipt, lost-ACK no-resend and cold readback.",
     "Priority 3 D6 GENERIC: completed public full original D1 signed-context canonicalization incl. nested+new fields, Node source 792/792 PASS #44339359842. Still need genuine accepted Result from installed independent Agent/domain -> explicitly authorized recipient without mandatory Atlas, original native owner durable readback/lost-ACK recovery. A public contract fixture is not native E2E.",
     "Priority 4 D7: original Publisher PERSON issue/renew/status/revoke with installed consumer and cold readback, independent of Atlas.",
