@@ -183,6 +183,32 @@ jobs:
               }else{
                 $counts[$e.kind]++
                 Write-Output "D02_NATIVE_ROUTE_PASS=$($e.kind):$($e.id)"
+                # A real 375-pixel Edge app window must expose its selected
+                # heading on-screen, rather than merely keeping hidden DOM.
+                # This catches broken anchor scrolling and horizontal clipping;
+                # it is geometry evidence, not a pixel-perfect screenshot.
+                if($window){
+                  try{
+                    $frame=[System.Windows.Automation.AutomationElement]::FromHandle(
+                      [IntPtr]$window.MainWindowHandle).Current.BoundingRectangle
+                    $rect=$observed.Current.BoundingRectangle
+                    $clipped=$observed.Current.IsOffscreen -or
+                      $rect.Width -lt 4 -or $rect.Height -lt 4 -or
+                      $rect.Left -lt ($frame.Left-3) -or
+                      $rect.Right -gt ($frame.Right+3)
+                    if($clipped){
+                      $fail.Add("geometry:$($e.kind):$($e.id)")
+                      Write-Output "D02_NATIVE_375_GEOMETRY_FAIL=$($e.kind):$($e.id)"
+                    }else{
+                      Write-Output "D02_NATIVE_375_GEOMETRY_PASS=$($e.kind):$($e.id)"
+                    }
+                  }catch{
+                    $fail.Add("geometry:$($e.kind):$($e.id)")
+                    Write-Output "D02_NATIVE_375_GEOMETRY_UNOBSERVED=$($e.kind):$($e.id)"
+                  }
+                }else{
+                  $fail.Add("window:$($e.kind):$($e.id)")
+                }
               }
             }
             if($fail.Count -gt 0){throw ('D02_COVERAGE_NATIVE_ROUTE_FAILURE count='+$fail.Count)}
