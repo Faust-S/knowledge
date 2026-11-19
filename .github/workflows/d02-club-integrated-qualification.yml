@@ -24,8 +24,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     env:
-      SITE_SHA: e193bb50a8314b8f5a929574e79833bfc9d6aec5
-      DOMAIN_SHA: f12cd167d2cb9c26266968ed365c3c9e4e9c1b05
+      SITE_SHA: 59415b73e8ca07f1aadf9f6238791dcddd0e49e5
+      DOMAIN_SHA: c041d2e045c122dc6c9bac4e08e7379dd1f6a171
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -269,7 +269,7 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          Write-Output 'D02_CANDIDATE_SITE=e193bb50a8314b8f5a929574e79833bfc9d6aec5'
+          Write-Output 'D02_CANDIDATE_SITE=59415b73e8ca07f1aadf9f6238791dcddd0e49e5'
           Write-Output "D02_DOMAIN_TESTS=${{ steps.domain_test.outcome }}"
           Write-Output "D02_SITE_INSTALL=${{ steps.site_ci.outcome }}"
           Write-Output "D02_CANONICAL_PARITY=${{ steps.canon_parity.outcome }}"
