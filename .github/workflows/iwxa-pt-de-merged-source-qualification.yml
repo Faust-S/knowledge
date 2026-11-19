@@ -66,6 +66,6 @@ jobs:
           check DE_SOURCE node scripts/check-german-full-source.mjs
           check FR_SOURCE node scripts/check-french-source.mjs
           check TYPECHECK bun run typecheck
-          check ROUTES npm run check:routes
+          check COVERAGE node -e 'const c=require("./translation/coverage.json"); if(c.routes.length!==66||c.routes.some(r=>!r.available.includes("pt-BR")||!r.available.includes("de-DE"))) process.exit(1)'
           echo "IWXA_MERGED_SOURCE_FAILURES=$failure"
           test "$failure" -eq 0
