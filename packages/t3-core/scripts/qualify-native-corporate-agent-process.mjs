@@ -145,6 +145,7 @@ export async function qualifyNativeOriginalEmployee({
       APPDATA:process.env.APPDATA??'',LOCALAPPDATA:process.env.LOCALAPPDATA??'',
       HOMEDRIVE:process.env.HOMEDRIVE??'',HOMEPATH:process.env.HOMEPATH??'',
       PSModulePath:process.env.PSModulePath??'',ComSpec:process.env.ComSpec??'',
+      COMPUTERNAME:process.env.COMPUTERNAME??'',
       ProgramData:process.env.ProgramData??'',PATHEXT:process.env.PATHEXT??'',
       TEMP:process.env.TEMP??tmpdir(),TMP:process.env.TMP??tmpdir(),
       HOME:process.env.HOME??'',PYTHON_COMMAND:python,CI:'true',
