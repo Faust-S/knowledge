@@ -34,7 +34,17 @@ try {
     throw 'G4_ORIGINAL_EMPLOYEE_WINDOWS_SID_NOT_DISTINCT'
   }
   $qualifiedUser = $env:COMPUTERNAME + '\' + $user
-  $translated = (New-Object Security.Principal.NTAccount($env:COMPUTERNAME,$user)).Translate([Security.Principal.SecurityIdentifier]).Value
+  $translated = $null
+  # Local SAM membership appears asynchronously on hosted Windows runners.
+  # Read-only identity resolution may retry, but never duplicate first-use.
+  for ($attempt=0; $attempt -lt 12; $attempt++) {
+    try {
+      $translated = (New-Object Security.Principal.NTAccount($env:COMPUTERNAME,$user)).Translate([Security.Principal.SecurityIdentifier]).Value
+      break
+    } catch [System.Security.Principal.IdentityNotMappedException] {
+      Start-Sleep -Milliseconds 300
+    }
+  }
   if ($translated -ne $employeeSid) {
     throw 'G4_ORIGINAL_EMPLOYEE_WINDOWS_SID_NOT_RESOLVED'
   }
@@ -229,7 +239,9 @@ if(!okay)process.exit(3);
       Write-Output ('G4_ORIGINAL_EMPLOYEE_OS_FAILURE_FQID ' + $fqid)
     }
     $message = [string]$_.Exception.Message
-    if ($message -match '(?i)account exists|already exists') {
+    if ($message -match '(?i)no mapping|identitynotmapped|cannot be mapped') {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND ACCOUNT_RESOLUTION'
+    } elseif ($message -match '(?i)account exists|already exists') {
       Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND ACCOUNT_EXISTS'
     } elseif ($message -match '(?i)account name|account could|account identity') {
       Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND ACCOUNT_RESOLUTION'
