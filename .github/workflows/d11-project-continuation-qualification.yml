@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: e1a5b8301485ac2c1cf84f0f783d9c2ae1b91ff7
+          ref: 2afd00dff94f8bcd68d0fbc7ee29436129eff717
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -64,7 +64,7 @@ jobs:
           $t2=(git -C ../t2 rev-parse HEAD).Trim()
           Write-Output "D11_PROJECT_SITE_HEAD=$site"
           Write-Output "D11_PROJECT_DOMAIN_HEAD=$domain"
-          if ($site -ne "e1a5b8301485ac2c1cf84f0f783d9c2ae1b91ff7" -or
+          if ($site -ne "2afd00dff94f8bcd68d0fbc7ee29436129eff717" -or
               $domain -ne "f8f2258164cbd0648a64608ebc014695bd572814") {
             throw "D11_PROJECT_QUALIFICATION_REVISION_CHANGED"
           }
