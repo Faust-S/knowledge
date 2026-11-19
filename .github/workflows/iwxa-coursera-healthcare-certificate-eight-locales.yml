@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: 9cbbf0df5976c0f7f8a14d28339d54f02601a696
+          ref: 7589230fd15e9d9f6009b897375ce6c8e96d448d
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           fetch-depth: 0
@@ -39,7 +39,7 @@ jobs:
         working-directory: site
         run: |
           set -eu
-          test "$(git rev-parse HEAD)" = "9cbbf0df5976c0f7f8a14d28339d54f02601a696"
+          test "$(git rev-parse HEAD)" = "7589230fd15e9d9f6009b897375ce6c8e96d448d"
           node scripts/check-certificate-ai-healthcare.mjs
           node --input-type=module - <<'JS'
           import fs from "node:fs";
