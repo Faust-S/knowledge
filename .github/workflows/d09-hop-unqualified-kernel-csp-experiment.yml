@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           echo "D09_SITE_HEAD=$(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD)" = "3afd6440e2259157aebae2ed900b2deec6f20c95" || {
+          test "$(git rev-parse HEAD)" = "0fea8d3d76d18c8ee52a3d21f75d44b2af097657" || {
             echo "D09_SITE_REVISION_CHANGED=HOLD"; exit 1;
           }
           node --experimental-strip-types --test tests/d09-read-model-guards.test.mjs > "$RUNNER_TEMP/d09-result-source.log" 2>&1 || {
@@ -147,7 +147,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T2
-          ref: c62efff5ab24c87a5895651a2e1ab55312e3f014
+          ref: 279651bde8dd223fa80742628f1b4dece7861686
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           sparse-checkout: |
@@ -161,7 +161,7 @@ jobs:
         run: |
           mv d09-temporary-t2 "$RUNNER_TEMP/d09-canonical-t2"
           test -f "$RUNNER_TEMP/d09-canonical-t2/t2/current/final-successor/canonical-source/package.json"
-          echo "D09_T2_CSP_CANDIDATE=c62efff5ab24c87a5895651a2e1ab55312e3f014"
+          echo "D09_T2_CSP_CANDIDATE=279651bde8dd223fa80742628f1b4dece7861686"
       - name: Qualify standalone Host validators against reference AJV
         shell: bash
         run: |
