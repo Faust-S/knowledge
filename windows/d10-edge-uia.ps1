@@ -30,6 +30,9 @@ $entries = @(
 )
 $server = $null
 $edgeProc = $null
+# Track the exact new Edge top-level window after native attachment, not a
+# random Edge window that may be created by the Windows runner.
+$script:edgeWindowHandle = [IntPtr]::Zero
 $profile = Join-Path $env:RUNNER_TEMP "d10-windows-ui-profile"
 function EdgeProcessIds {
   return @(Get-Process -Name msedge -ErrorAction SilentlyContinue | ForEach-Object {$_.Id})
@@ -37,6 +40,18 @@ function EdgeProcessIds {
 function Find-EdgeWindow {
   $ids=EdgeProcessIds
   if($ids.Count -eq 0){return $null}
+  if($script:edgeWindowHandle -ne [IntPtr]::Zero){
+    try {
+      $pinned=[System.Windows.Automation.AutomationElement]::FromHandle($script:edgeWindowHandle)
+      if($null -ne $pinned -and ($ids -contains $pinned.Current.ProcessId) -and
+         ($pinned.Current.ControlType -eq [System.Windows.Automation.ControlType]::Window -or
+          $pinned.Current.ClassName -eq "Chrome_WidgetWin_1")){
+        return $pinned
+      }
+    }catch{}
+    # Do not silently bind to a different Edge window after first attachment.
+    return $null
+  }
   $root=[System.Windows.Automation.AutomationElement]::RootElement
   $children=$root.FindAll(
     [System.Windows.Automation.TreeScope]::Children,
@@ -232,21 +247,28 @@ function D10-ResultText($window,$resultId) {
   return ($names -join " | ")
 }
 function D10-OpenCase($slug,$caseId) {
-  $window=Find-EdgeWindow
-  if($null -eq $window){throw "D10_WINDOWS_NATIVE_WINDOW_MISSING"}
-  [void][D10NativeWindow]::ShowWindow([IntPtr]$window.Current.NativeWindowHandle,9)
-  [void][D10NativeWindow]::SetForegroundWindow(
-    [IntPtr]$window.Current.NativeWindowHandle)
-  [System.Windows.Forms.Clipboard]::SetText("$origin/cases/$slug/")
-  [System.Windows.Forms.SendKeys]::SendWait("^l")
-  [System.Windows.Forms.SendKeys]::SendWait("^v")
-  [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
-  for($i=0;$i -lt 55;$i++){
-    Start-Sleep -Milliseconds 250
+  # A native navigation can miss foreground focus during a React rerender.
+  # Retry only the actual UIA keyboard navigation. Never accept an URL or an
+  # option value alone: the caller still verifies real result text changes.
+  for($attempt=0;$attempt -lt 3;$attempt++){
     $window=Find-EdgeWindow
-    if($null -ne $window -and (Has-AccessibleArticleText $window $caseId)){
-      return $window
+    if($null -eq $window){throw "D10_WINDOWS_NATIVE_WINDOW_MISSING"}
+    [void][D10NativeWindow]::ShowWindow([IntPtr]$window.Current.NativeWindowHandle,9)
+    [void][D10NativeWindow]::SetForegroundWindow(
+      [IntPtr]$window.Current.NativeWindowHandle)
+    Start-Sleep -Milliseconds 250
+    [System.Windows.Forms.Clipboard]::SetText("$origin/cases/$slug/")
+    [System.Windows.Forms.SendKeys]::SendWait("^l")
+    [System.Windows.Forms.SendKeys]::SendWait("^v")
+    [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+    for($i=0;$i -lt 55;$i++){
+      Start-Sleep -Milliseconds 250
+      $window=Find-EdgeWindow
+      if($null -ne $window -and (Has-AccessibleArticleText $window $caseId)){
+        return $window
+      }
     }
+    Write-Output "D10_WINDOWS_NATIVE_NAV_RETRY_$caseId=$($attempt+1)"
   }
   throw "D10_WINDOWS_NATIVE_ROUTE_UNAVAILABLE_$caseId"
 }
@@ -323,6 +345,8 @@ try {
     Write-DesktopEnvironmentEvidence
     throw "D10_WINDOWS_EDGE_UIA_WINDOW_MISSING"
   }
+  $script:edgeWindowHandle=[IntPtr]$window.Current.NativeWindowHandle
+  if($script:edgeWindowHandle -eq [IntPtr]::Zero){throw "D10_WINDOWS_EDGE_UIA_HANDLE_INVALID"}
   Write-Output "D10_WINDOWS_EDGE_UIA_ATTACHED=PASS"
   $passed=0
   foreach($case in $entries){
