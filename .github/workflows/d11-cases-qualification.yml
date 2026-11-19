@@ -118,7 +118,15 @@ jobs:
           & node --experimental-strip-types --test --test-reporter=tap @cases *> $log
           $code=$LASTEXITCODE
           Get-Content $log | Select-String -Pattern '^# (tests|pass|fail|skipped)\s+\d+$' | ForEach-Object {$_.Line}
-          if ($code -ne 0) { throw "D11_CONTRACT_TESTS_FAILED:$code" }
+          if ($code -ne 0) {
+            Get-Content $log | Select-String -Pattern '^not ok [0-9]+ - ' | ForEach-Object {
+              $title = $_.Line -replace '^not ok [0-9]+ - ', ''
+              # TAP test names, never private source, values or file excerpts.
+              $title = $title -replace '[^a-zA-Z0-9 ._:/()-]', '_'
+              Write-Output "D11_CONTRACT_FAILED_TEST=$($title.Substring(0,[Math]::Min(120,$title.Length)))"
+            }
+            throw "D11_CONTRACT_TESTS_FAILED:$code"
+          }
           Write-Output "D11_SITE_CONTRACTS=PASS"
       - name: TypeScript check
         id: types
