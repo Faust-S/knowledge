@@ -219,7 +219,7 @@ if(!okay)process.exit(3);
 } catch {
   $code = [string]$_.Exception.Message
   if ($code -notmatch '^G4_[A-Z0-9_]{5,110}$') { $code='G4_ORIGINAL_AGENT_SECOND_SID_NOT_QUALIFIED' }
-  if ($phase -eq 'STAGE_ONLY_PUBLIC_TRUST_AND_NATIVE_PORT') {
+  if ($phase -in @('CREATE_WINDOWS_EMPLOYEE','STAGE_ONLY_PUBLIC_TRUST_AND_NATIVE_PORT')) {
     $failureClass = $_.Exception.GetType().Name
     if ($failureClass -match '^[A-Za-z]{3,45}$') {
       Write-Output ('G4_ORIGINAL_EMPLOYEE_OS_FAILURE_CLASS ' + $failureClass)
@@ -229,7 +229,15 @@ if(!okay)process.exit(3);
       Write-Output ('G4_ORIGINAL_EMPLOYEE_OS_FAILURE_FQID ' + $fqid)
     }
     $message = [string]$_.Exception.Message
-    if ($message -match '(?i)not recognized|not found|not available') {
+    if ($message -match '(?i)account exists|already exists') {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND ACCOUNT_EXISTS'
+    } elseif ($message -match '(?i)account name|account could|account identity') {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND ACCOUNT_RESOLUTION'
+    } elseif ($message -match '(?i)privilege|administrat') {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND PRIVILEGE_REQUIRED'
+    } elseif ($message -match '(?i)password') {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND PASSWORD_POLICY'
+    } elseif ($message -match '(?i)not recognized|not found|not available') {
       Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND COMMAND_UNAVAILABLE'
     } elseif ($message -match '(?i)access is denied|unauthoriz|permission') {
       Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND ACCESS_DENIED'
