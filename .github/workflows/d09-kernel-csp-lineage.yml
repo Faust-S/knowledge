@@ -196,7 +196,11 @@ jobs:
           }
           grep '^D09_KERNEL_CSP_INTERPRETED_PATCH=' "$RUNNER_TEMP/d09-dynamic-patch.log"
           echo D09_KERNEL_CSP_DYNAMIC_PATCH=PASS
-          node "$core/scripts/issue14-audit-ajv-after-patch.mjs" "$RUNNER_TEMP/d09-k036" > "$RUNNER_TEMP/d09-ajv-csp-audit.log" 2>&1 || { echo D09_AJV_AUDIT=FAIL; exit 1; }
+          node "$core/scripts/issue14-audit-ajv-after-patch.mjs" "$RUNNER_TEMP/d09-k036" > "$RUNNER_TEMP/d09-ajv-csp-audit.log" 2>&1 || {
+            echo D09_AJV_AUDIT=FAIL
+            grep -E '^(TypeError|Error|ReferenceError|SyntaxError):' "$RUNNER_TEMP/d09-ajv-csp-audit.log" | sed -E "s#/(home|tmp|mnt)/[^[:space:]]+#<private-path>#g" | tail -3 || true
+            exit 1
+          }
           grep '^D09_KERNEL_REMAINING_AJV_CTORS=' "$RUNNER_TEMP/d09-ajv-csp-audit.log"
           npm run typecheck > "$RUNNER_TEMP/d09-dynamic-types.log" 2>&1 || {
             echo D09_KERNEL_CSP_DYNAMIC_TYPES=FAIL
