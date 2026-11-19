@@ -15,7 +15,7 @@ jobs:
       matrix:
         runner: [windows-latest, ubuntu-latest]
     env:
-      SITE_SHA: 2f68cdbb13268cac83ac39323f421d63a0f240cc
+      SITE_SHA: 0e0132021418fa7c5be29f9d57d19af1a73a3ae1
       SUBJECT_SHA: 068d978a2b8cb7ce57c363804f22b7dd85063eee
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -188,6 +188,36 @@ jobs:
             throw 'D07_HOSTING_PACKAGE_AUDIT_FAIL'
           }
           Write-Output 'D07_HOSTING_PACKAGE_AUDIT=PASS'
+      - name: Check actual static HTML navigation and SEO
+        working-directory: site
+        run: |
+          $links=Join-Path $env:RUNNER_TEMP 'd07-check-links.private.log'
+          & bun run check:links *> $links
+          if($LASTEXITCODE -ne 0){
+            $summary=@(Get-Content $links -ErrorAction SilentlyContinue | Where-Object {$_ -match '^\[check-links\]'})
+            $counts=@($summary | ForEach-Object {[regex]::Matches($_,'[0-9]+') | ForEach-Object {$_.Value}})
+            Write-Output ('D07_RELEASE_LINK_COUNTS='+($counts -join ','))
+            throw 'D07_RELEASE_LINKS_FAIL'
+          }
+          Write-Output 'D07_RELEASE_LINKS=PASS'
+          $seo=Join-Path $env:RUNNER_TEMP 'd07-check-seo.private.log'
+          & bun run check:seo *> $seo
+          if($LASTEXITCODE -ne 0){
+            $categories=@()
+            foreach($line in @(Get-Content $seo -ErrorAction SilentlyContinue)){
+              if($line -match 'public canonical mismatch'){$categories+='PUBLIC_CANONICAL'}
+              if($line -match 'public og:url mismatch'){$categories+='PUBLIC_OG_URL'}
+              if($line -match 'technical HTML missing noindex'){$categories+='TECHNICAL_NOINDEX'}
+              if($line -match 'technical HTML has indexable URL metadata'){$categories+='TECHNICAL_INDEXABLE'}
+              if($line -match 'unclassified HTML'){$categories+='UNCLASSIFIED_HTML'}
+              if($line -match 'изменены данные подтверждения'){$categories+='VERIFICATION_BYTES'}
+            }
+            Write-Output ('D07_RELEASE_SEO_CATEGORIES='+((@($categories|Sort-Object -Unique)) -join ','))
+            $summary=@(Get-Content $seo -ErrorAction SilentlyContinue | Where-Object {$_ -match '^\[check-seo\]'})
+            Write-Output ('D07_RELEASE_SEO_FAILURE_COUNT='+(([regex]::Match(($summary -join ' '),'[0-9]+')).Value))
+            throw 'D07_RELEASE_SEO_FAIL'
+          }
+          Write-Output 'D07_RELEASE_SEO=PASS'
       - name: Test existing product-first and service-lifecycle regression
         working-directory: site
         run: |
