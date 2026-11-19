@@ -156,6 +156,19 @@ jobs:
             }
             Write-Output ('D07_BUILD_COMPONENT_HINTS='+($knownFiles -join ','))
             Write-Output ('D07_BUILD_FAILURE_CATEGORIES='+((@($categories|Sort-Object -Unique|Select-Object -First 20)) -join ','))
+            # Whitelist only component basenames, line/column and TypeScript diagnostics.
+            $locations=@()
+            foreach($line in @(Get-Content $log -ErrorAction SilentlyContinue)){
+              foreach($m in [regex]::Matches($line,'(?i)(ServiceAftercarePanel|ServiceSettlementPanel|UslugovodWorkspace|OrderViewer|service-aftercare|service-settlement|order-model)[.]tsx?(?:[:(]([0-9]+)[,:]([0-9]+)[)]?)?')){
+                $item=$m.Groups[1].Value
+                if($m.Groups[2].Success){$item+=':'+ $m.Groups[2].Value +':'+$m.Groups[3].Value}
+                $diagnostic=[regex]::Match($line,'TS[0-9]{4}')
+                if($diagnostic.Success){$item+=':'+ $diagnostic.Value}
+                $locations+=$item
+              }
+            }
+            Write-Output ('D07_BUILD_COMPONENT_LOCATIONS='+((@($locations|Sort-Object -Unique|Select-Object -First 20)) -join ','))
+
             throw 'D07_BLOCKS_ORIGINAL_T2_BUILD_FAIL'
           }
           if(!(Test-Path dist/workspace/index.html)){throw 'D07_BLOCKS_HOST_MISSING'}
