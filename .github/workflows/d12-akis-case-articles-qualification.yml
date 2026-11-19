@@ -1,4 +1,4 @@
-name: D12 IWXA AKIS CASE-001+002 full-site qualification
+name: D12 IWXA AKIS CASE-001+002+003 full-site qualification
 on:
   push:
     branches: [work/2026-11-02-pipeline-foundation]
@@ -26,14 +26,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: c25ccc72a394e6225f2e80960e2d6c92f90a61cf
+          ref: 7b0dccaf0f2bb080a7f49d2428a7593c025d1725
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Verify exact source and private checkout
         run: |
-          test "$(git rev-parse HEAD)" = "c25ccc72a394e6225f2e80960e2d6c92f90a61cf" || { echo "AKIS_HEAD_MISMATCH"; exit 1; }
+          test "$(git rev-parse HEAD)" = "7b0dccaf0f2bb080a7f49d2428a7593c025d1725" || { echo "AKIS_HEAD_MISMATCH"; exit 1; }
           test -f src/routes/science.akis-production.tsx || exit 1
           test -f src/routes/science.akis-operator.tsx || exit 1
+          test -f src/routes/science.akis-interfirm.tsx || exit 1
+          test -f scripts/check-akis-interfirm-article.test.ts || exit 1
           test -f scripts/check-akis-production-article.test.ts || exit 1
           test -f scripts/check-akis-operator-article.test.ts || exit 1
           echo "AKIS_EXACT_SOURCE=PASS"
@@ -51,7 +53,7 @@ jobs:
           echo "AKIS_FROZEN_INSTALL=PASS"
       - name: Two source and organizational acceptance suites
         run: |
-          for task in check:akis:production check:akis:article; do
+          for task in check:akis:production check:akis:article check:akis:interfirm; do
             safe="${task//:/-}"
             bun run "$task" > "$RUNNER_TEMP/akis-$safe.log" 2>&1 || {
               echo "AKIS_TEST=FAIL task=$task"; exit 1;
@@ -83,8 +85,9 @@ jobs:
           }
           test -f dist-static/science/akis-production/index.html || exit 1
           test -f dist-static/science/akis-operator/index.html || exit 1
+          test -f dist-static/science/akis-interfirm/index.html || exit 1
           echo "AKIS_STATIC_BUILD=PASS"
-          echo "AKIS_CASE_ARTICLES_HTML=2/2"
+          echo "AKIS_CASE_ARTICLES_HTML=3/3"
       - name: Full original IWXA static, accessibility and research guards
         run: |
           for task in check:atlas check:routes check:readability check:schema check:llms check:seo check:no-localhost check:hosting-clean check:links check:runtime check:a11y check:responsive check:performance check:htaccess check:akis:static; do
