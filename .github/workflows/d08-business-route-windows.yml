@@ -41,7 +41,12 @@ jobs:
         run: |
           if((& git rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D08_P1_SITE_SHA_MISMATCH'}
           & npm run check:npm-lock *> (Join-Path $env:RUNNER_TEMP 'd08-p1-no-legacy-scaffold.private.log')
-          if($LASTEXITCODE -ne 0){throw 'D08_P1_NO_LEGACY_SCAFFOLD_FAILED'}
+          if($LASTEXITCODE -ne 0){
+            Get-Content (Join-Path $env:RUNNER_TEMP 'd08-p1-no-legacy-scaffold.private.log') |
+              Where-Object {$_ -match '^(not ok |# tests |# pass |# fail |# error:|# expected:|# actual:)'} |
+              Select-Object -First 20 | ForEach-Object {Write-Host $_}
+            throw 'D08_P1_NO_LEGACY_SCAFFOLD_FAILED'
+          }
           Write-Host 'D08_P1_NO_LEGACY_SCAFFOLD=PASS'
           & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'd08-p1-site-install.private.log')
           if($LASTEXITCODE -ne 0){throw 'D08_P1_SITE_INSTALL_FAILED'}
