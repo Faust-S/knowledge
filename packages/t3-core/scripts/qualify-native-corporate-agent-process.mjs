@@ -111,8 +111,6 @@ export async function qualifyNativeOriginalEmployee({
   t3Token,agentToken,
   fetchT3=(path,token)=>getExactFile(path,token,{
     repository:'Faust-S/T3',sourcePin:T3_ORIGINAL_NATIVE_EMPLOYEE_PIN}),
-  fetchAgent=(path,token)=>getExactFile(path,token,{
-    repository:'Faust-S/iwxa-personal-agent',sourcePin:AGENT_ORIGINAL_PIN}),
   python='python',
 }={}){
   if(process.platform!=='win32')throw Error('G4_NATIVE_WINDOWS_REQUIRED');
@@ -151,6 +149,10 @@ export async function qualifyNativeOriginalEmployee({
       TEMP:process.env.TEMP??tmpdir(),TMP:process.env.TMP??tmpdir(),
       HOME:process.env.HOME??'',PYTHON_COMMAND:python,CI:'true',
       G4_ORIGINAL_QUALIFIED_T2_DIST:process.env.G4_ORIGINAL_QUALIFIED_T2_DIST??'',
+      G4_AGENT_OLLAMA_BASE_URL:process.env.G4_AGENT_OLLAMA_BASE_URL??'',
+      G4_AGENT_OLLAMA_MODEL:process.env.G4_AGENT_OLLAMA_MODEL??'',
+      OLLAMA_HOST:process.env.OLLAMA_HOST??'',
+      OLLAMA_MODELS:process.env.OLLAMA_MODELS??'',
     };
     const driver=join(process.cwd(),'packages','t3-core','tests',
       'g4-original-agent-native-windows.mjs');
@@ -158,9 +160,11 @@ export async function qualifyNativeOriginalEmployee({
       'g4-original-agent-native-driver.py');
     const run=spawnSync(process.execPath,
       [driver,t3,agent,join(root,'fixture'),employee],
-      {env,encoding:'utf8',timeout:220000,maxBuffer:1024*1024});
+      {env,encoding:'utf8',timeout:900000,maxBuffer:1024*1024});
     const output=(run.stdout??'')+'\n'+(run.stderr??'');
     const markers=[
+      'G4_ORIGINAL_AGENT_CORE_REAL_LOCAL_MODEL_SOURCE_PASS',
+      'G4_ORIGINAL_AGENT_CORE_ACCEPTED_RESULT_PROOF_SOURCE_PASS',
       'G4_ORIGINAL_NATIVE_EMPLOYEE_SIGNED_TASK_PASS',
       'G4_ORIGINAL_NATIVE_EMPLOYEE_SIGNED_RESULT_PASS',
       'G4_ORIGINAL_NATIVE_ADMIN_ACCEPTED_READBACK_PASS',
