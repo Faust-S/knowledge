@@ -24,7 +24,7 @@ jobs:
       - name: Pin source and install dependencies
         shell: bash
         run: |
-          test "$(git rev-parse HEAD)" = "b79323988f3a54eee2d44c95e22dc235d27474c7"
+          test "$(git rev-parse HEAD)" = "63ada2f08686492f1168877a7c9fef4a38f0a7e4"
           npm ci --no-audit --no-fund > "$RUNNER_TEMP/d09-npm-lint.log" 2>&1
           echo D09_LINT_DEPENDENCIES=PASS
       - name: Collect counts without exposing source or output files
