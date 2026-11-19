@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 env:
-  SITE_SHA: 8179d41d666fcbe4915ca2f5774dd133050bb986
+  SITE_SHA: 24a5d25711e052e41119a6c8a313f409f4ef32de
   PUPPETEER_SKIP_DOWNLOAD: '1'
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
   CI: 'true'
@@ -83,6 +83,11 @@ jobs:
                   'business-project-native-kernel.test.mjs',
                   'business-project-passport.test.mjs',
                   'business-project-viewer.test.mjs',
+                  'business-project-edit-t2.test.mjs',
+                  'business-route-comparison.test.mjs',
+                  'business-experiment-comparison.test.mjs',
+                  'business-edit-intent.test.mjs',
+                  'business-route-registration.test.mjs',
                   'marketops-kernel-command.test.mjs',
                   'marketops-pending-project.test.mjs',
                   'marketops-result-viewer.test.mjs',
