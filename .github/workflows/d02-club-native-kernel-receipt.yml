@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: b2b5efa1bc4bb52df867dc649f91f7d4c55f0c9f
+      SITE_SHA: e7d75a76750d7a5f9b315de4e4134ba6465dbc9a
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: b2b5efa1bc4bb52df867dc649f91f7d4c55f0c9f
+          ref: e7d75a76750d7a5f9b315de4e4134ba6465dbc9a
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -411,7 +411,26 @@ jobs:
             }
             VerifyProfileFromKernel 'D02_RECEIPT_COLD_RESTART_LOST_RESULT'
             Write-Output 'D02_RECEIPT_NATIVE_ORIGINAL_KERNEL_COLD_RESTART=PASS'
-            if(!$overviewFound){throw 'D02_RECEIPT_FAMILY_VIEW_NOT_UPDATED'}
+            # The general result summary is asynchronous and may not have
+            # finished while the profile editor was open. Verify it again
+            # after the full browser restart, against one accessible status
+            # backed by the independently verified Kernel record.
+            $afterRestartFound=$false
+            for($i=0;$i -lt 40;$i++){
+              if(HasPrefix 'Последний: Club проверка пользовательской записи'){
+                $afterRestartFound=$true;break
+              }
+              Start-Sleep -Milliseconds 250
+            }
+            if(!$afterRestartFound){
+              Write-Output ('D02_RECEIPT_FAMILY_GENERIC_LAST_VISIBLE='+
+               (HasPrefix 'Последний:'))
+              Write-Output ('D02_RECEIPT_FAMILY_SAVE_COUNT_VISIBLE='+
+               (HasPrefix '1 сохранено'))
+              Write-Output ('D02_RECEIPT_FAMILY_ERROR_VISIBLE='+
+               (HasPrefix 'Kernel не подтвердил чтение этого направления.'))
+              throw 'D02_RECEIPT_FAMILY_VIEW_NOT_UPDATED'
+            }
             Write-Output 'D02_RECEIPT_NATIVE_SAVED_ALIAS_FAMILY=PASS'
             Write-Output 'D02_RECEIPT_NATIVE_IWXA_EXPORT_IMPORT=NOT_RUN'
           }finally{
