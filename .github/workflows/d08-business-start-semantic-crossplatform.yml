@@ -59,7 +59,18 @@ jobs:
       - name: Run domain negative and anti-duplication tests
         working-directory: private/domain
         run: |
-          node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs tests/business-project.test.mjs tests/business-edit-intent.test.mjs tests/business-experiment-comparison.test.mjs tests/business-opening-paths.test.mjs tests/business-launch-review.test.mjs tests/business-management-decision.test.mjs > "$RUNNER_TEMP/d08-private-domain.log" 2>&1 || { echo "D08_P1_DOMAIN_MODEL_TESTS_FAIL"; exit 1; }
+          cases=(business-start-overview iwxa-domain-boundaries affordable-loss-gate business-project business-edit-intent business-experiment-comparison business-opening-paths business-launch-review business-management-decision)
+          args=(); for testname in "${cases[@]}"; do args+=("tests/${testname}.test.mjs"); done
+          if ! node --test "${args[@]}" > "$RUNNER_TEMP/d08-private-domain.log" 2>&1; then
+            for testname in "${cases[@]}"; do
+              if node --test "tests/${testname}.test.mjs" > "$RUNNER_TEMP/d08-case-check.private.log" 2>&1; then
+                echo "D08_PRIVATE_TEST_${testname}=PASS"
+              else
+                echo "D08_PRIVATE_TEST_${testname}=FAIL"
+              fi
+            done
+            echo "D08_P1_DOMAIN_MODEL_TESTS_FAIL"; exit 1
+          fi
           echo "D08_P1_DOMAIN_MODEL_TESTS=PASS"
       - name: Run independent website projection tests
         working-directory: private/site
