@@ -10,7 +10,7 @@ import {getExactFile,originalImportPaths,originalImportTarget}
   from './qualify-original-private-d3-owner.mjs';
 import {AGENT_ORIGINAL_PIN} from './qualify-original-agent-d3-port.mjs';
 
-const T3_PIN='d0d8ba2f791050a8c190f7cab305b5bb89365ae3';
+export const T3_ORIGINAL_NATIVE_EMPLOYEE_PIN='b897404432cec18144942758d296c19d76232f55';
 const T3_SEEDS=Object.freeze([
   'interop/provision.mjs','interop/runtime.mjs',
   'interop/native-admin-d3.mjs','interop/native-employee-d3.mjs',
@@ -61,7 +61,7 @@ async function stageAgent(root,token,fetchAgent){
 export async function qualifyNativeOriginalEmployee({
   t3Token,agentToken,
   fetchT3=(path,token)=>getExactFile(path,token,{
-    repository:'Faust-S/T3',sourcePin:T3_PIN}),
+    repository:'Faust-S/T3',sourcePin:T3_ORIGINAL_NATIVE_EMPLOYEE_PIN}),
   fetchAgent=(path,token)=>getExactFile(path,token,{
     repository:'Faust-S/iwxa-personal-agent',sourcePin:AGENT_ORIGINAL_PIN}),
   python='python',
