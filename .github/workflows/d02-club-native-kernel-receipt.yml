@@ -156,13 +156,10 @@ jobs:
             )
             Invoke 'Новая рабочая область' 'D02_RECEIPT_NEW_WORKSPACE_BUTTON_MISSING'
             Invoke 'Создать рабочую область' 'D02_RECEIPT_CREATE_NOT_AVAILABLE'
-            $createFinished=$false
-            for($i=0;$i -lt 24;$i++){
-              if(!(Locate 'Создать рабочую область' 'button')){$createFinished=$true;break}
-              Start-Sleep -Milliseconds 500
-            }
-            if(!$createFinished){throw 'D02_RECEIPT_WORKSPACE_CREATE_NOT_CONFIRMED'}
-            Write-Output 'D02_RECEIPT_NATIVE_CREATE_UI_FINISHED=PASS'
+            # The same button also exists on Host's empty-catalog page.
+            # Its continued visibility does not prove that create failed.
+            # Verify creation from an independent personal Workspace inventory.
+            Write-Output 'D02_RECEIPT_NATIVE_CREATE_CLICK_SENT=TRUE'
             $b2=Start-Process -FilePath $edge -PassThru -ArgumentList @(
               '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
               "--user-data-dir=$profile","--app=$origin/workspace/#/domain"
@@ -192,6 +189,7 @@ jobs:
                 if($label -and $label.StartsWith('Личная область ')){$options.Add($item)}
               }
               Write-Output "D02_RECEIPT_PERSONAL_AREA_OPTIONS=$($options.Count)"
+              if($options.Count -gt 0){Write-Output 'D02_RECEIPT_CREATED_PERSONAL_WORKSPACE_VISIBLE=PASS'}
               if($options.Count -eq 0){
                 if(Locate 'Начните с личной рабочей области' ''){
                   throw 'D02_RECEIPT_PERSONAL_AREA_NOT_AVAILABLE_IN_HOST'
