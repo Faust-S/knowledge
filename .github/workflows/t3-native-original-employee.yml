@@ -21,8 +21,9 @@ concurrency:
   cancel-in-progress: true
 jobs:
   signed-native-source-process:
-    # One explicit G4 qualification. The original owner/Agent source is
-    # intentionally NOT fetched for ordinary public source/test commits.
+    # One G4 qualification. Source Owner SHA MUST match the exact installed
+    # Admin Owner; bounded parity preflight runs before any private GET.
+    # Native Node/Python PASS is never installed Tauri Agent qualification.
     if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-native-d3]') }}
     runs-on: windows-2022
     timeout-minutes: 26

@@ -92,8 +92,9 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'G4_INSTALLED_PUBLIC_ONE_DIST_PREFLIGHT_FAILED'}
   installed-original-admin:
     needs: public-one-dist
-    # Exact source owners are read-only, checkout is SPARSE, no private
-    # material or EXE is uploaded as a public workflow artifact.
+    # Exact signer source is pinned with Agent/source D3 parity.
+    # The native Human ACCEPT test changed, not the issuer's production code.
+    # Checkout remains SPARSE; no private EXE/source enters public artifacts.
     if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-installed-d3]') }}
     runs-on: windows-2022
     timeout-minutes: 65
