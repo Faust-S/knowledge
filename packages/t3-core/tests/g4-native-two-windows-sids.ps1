@@ -117,23 +117,11 @@ try {
 } catch {
   $code = [string]$_.Exception.Message
   if ($code -notmatch '^G4_[A-Z0-9_]{5,110}$') { $code = 'G4_TWO_SID_NATIVE_PRECONDITION_FAILED' }
-  # Public OS-only test: surface bounded Windows HRESULT, never credentials.
+  # Public OS-only fixture: bounded Windows HRESULT/category, never credentials.
   $hresult = $_.Exception.HResult
-  if ($hresult -is [int]) {
-    Write-Output ('G4_TWO_SID_FAILURE_HRESULT 0x' + $hresult.ToString('X8'))
-  }
+  if ($hresult -is [int]) { Write-Output ('G4_TWO_SID_FAILURE_HRESULT 0x' + $hresult.ToString('X8')) }
   $category = [string]$_.CategoryInfo.Category
-  if ($category -match '^[A-Za-z]{3,35}
-  Write-Output ('G4_TWO_SID_FAILURE_CODE ' + $code)
-  throw 'G4_TWO_SID_NATIVE_PRECONDITION_NOT_ACCEPTED'
-} finally {
-  if ($taskName) { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue }
-  if ($user) { Remove-LocalUser -Name $user -ErrorAction SilentlyContinue }
-  if ($root) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
-}
-) {
-    Write-Output ('G4_TWO_SID_FAILURE_CATEGORY ' + $category)
-  }
+  if ($category -match '^[A-Za-z]{3,35}$') { Write-Output ('G4_TWO_SID_FAILURE_CATEGORY ' + $category) }
   Write-Output ('G4_TWO_SID_FAILURE_PHASE ' + $phase)
   Write-Output ('G4_TWO_SID_FAILURE_CODE ' + $code)
   throw 'G4_TWO_SID_NATIVE_PRECONDITION_NOT_ACCEPTED'
