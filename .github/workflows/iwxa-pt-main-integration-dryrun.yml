@@ -90,6 +90,16 @@ jobs:
           types_status=$?
           set -e
           echo "INTEGRATED_BUILD_EXIT=$build_status"
+          if [ "$build_status" -ne 0 ]; then
+            node - "$RUNNER_TEMP/build.log" <<'JS'
+          const fs=require('fs');
+          const log=fs.readFileSync(process.argv[2],"utf8");
+          const m=log.match(/([^\\s:]+\\.(?:tsx?|jsx?|mjs)):(\\d+):(\\d+):\\s*ERROR:/i);
+          if(m){console.log("INTEGRATED_BROKEN_FILE="+m[1].replace(/\\\\/g,"/").split("/").slice(-5).join("/"));console.log("INTEGRATED_BROKEN_LINE="+m[2]+":"+m[3]);}
+          else console.log("INTEGRATED_BROKEN_FILE=UNRESOLVED");
+          JS
+          fi
+
           echo "INTEGRATED_TSC_EXIT=$types_status"
           if [ "$build_status" -ne 0 ]; then
             grep -Ei '(failed|error:|cannot|unable|missing|unexpected)' "$RUNNER_TEMP/build.log" |
