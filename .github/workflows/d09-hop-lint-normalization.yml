@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: work/2026-11-19-d09-lint-candidate
+          ref: work/2026-10-27-d09-t2-site-only
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -24,7 +24,7 @@ jobs:
       - name: Exact dependencies and frozen source
         shell: bash
         run: |
-          test "$(git rev-parse HEAD)" = "63ada2f08686492f1168877a7c9fef4a38f0a7e4"
+          test "$(git rev-parse HEAD)" = "e4c6528de3bc5de956f5b74ea62e391ff83d9bca"
           test -z "$(git status --porcelain)"
           npm ci --no-audit --no-fund > "$RUNNER_TEMP/d09-lint-npm.log" 2>&1
           echo D09_LINT_NORMALIZE_INPUT=PASS
@@ -93,19 +93,10 @@ jobs:
           }
           console.log("D09_LINT_AFTER="+JSON.stringify({errors,warnings,byRule:[...rules].sort((a,b)=>b[1]-a[1])}));
           NODE
-      - name: Commit tested changes to isolated private branch only
+      - name: Confirm private formatting feasibility without publishing
         shell: bash
-        env:
-          D09_PRIVATE_PUSH_TOKEN: ${{ secrets.DOMEN }}
         run: |
-          git diff --check || exit 1
-          git add -u
-          if git diff --cached --quiet; then
-            echo D09_LINT_NO_SOURCE_CHANGES; exit 0;
-          fi
-          git -c user.name="IWXA Qualification" -c user.email="iwxa-qualification@users.noreply.github.com" commit -qm "style(d09): normalize fixable lint in isolated HOP candidate"
-          auth="$(printf 'x-access-token:%s' "$D09_PRIVATE_PUSH_TOKEN" | base64 -w 0)"
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push -q origin HEAD:refs/heads/work/2026-11-19-d09-lint-candidate
-          echo "D09_LINT_PRIVATE_CANDIDATE_COMMIT=$(git rev-parse HEAD)"
-          echo D09_LINT_PRIVATE_CANDIDATE_PUSH=PASS
+          git diff --check || { echo D09_FORMAT_WHITESPACE=FAIL; exit 1; }
+          echo D09_FORMAT_VALIDATED_IN_EPHEMERAL_CHECKOUT=PASS
+          echo D09_FORMAT_SOURCE_NOT_PUBLISHED=true
       # Never upload private source, lint JSON, diffs, Node dependencies or build output.
