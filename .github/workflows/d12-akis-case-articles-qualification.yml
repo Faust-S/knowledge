@@ -26,12 +26,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: 49712b40ca01b7fdefbeae0e2f129b95b5b73e19
+          ref: 7f55adc0bf903b6a2336ab0e34bff4c2b47cea1e
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Verify exact source and private checkout
         run: |
-          test "$(git rev-parse HEAD)" = "49712b40ca01b7fdefbeae0e2f129b95b5b73e19" || { echo "AKIS_HEAD_MISMATCH"; exit 1; }
+          test "$(git rev-parse HEAD)" = "7f55adc0bf903b6a2336ab0e34bff4c2b47cea1e" || { echo "AKIS_HEAD_MISMATCH"; exit 1; }
           test -f src/routes/science.akis-production.tsx || exit 1
           test -f src/routes/science.akis-operator.tsx || exit 1
           test -f src/lib/akis-operator-demo.ts || exit 1
@@ -57,7 +57,7 @@ jobs:
           echo "AKIS_FROZEN_INSTALL=PASS"
       - name: Original article, research hub and organizational acceptance suites
         run: |
-          for task in check:akis:production check:akis:article check:akis:interfirm check:akis:dependence check:akis:hub; do
+          for task in check:akis:production check:akis:article check:akis:interfirm check:akis:dependence check:akis:hub check:seo:title; do
             safe="${task//:/-}"
             bun run "$task" > "$RUNNER_TEMP/akis-$safe.log" 2>&1 || {
               echo "AKIS_TEST=FAIL task=$task"; exit 1;
