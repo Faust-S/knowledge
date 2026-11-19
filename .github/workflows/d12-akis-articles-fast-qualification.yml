@@ -26,12 +26,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: 5b6b81e99ace25f38b91b795a51c9102eff4e38e
+          ref: 65e22852b2bc660d0f27f6d16bbd8df145ec9f8f
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Verify source identity without printing private code
         run: |
-          test "$(git rev-parse HEAD)" = "5b6b81e99ace25f38b91b795a51c9102eff4e38e" || exit 1
+          test "$(git rev-parse HEAD)" = "65e22852b2bc660d0f27f6d16bbd8df145ec9f8f" || exit 1
           test -f src/routes/science.akis-production.tsx || exit 1
           test -f src/routes/science.akis-operator.tsx || exit 1
           echo "AKIS_PRIVATE_SOURCE_IDENTITIES=PASS"
@@ -56,18 +56,6 @@ jobs:
             echo "AKIS_002_TESTS=FAIL"; exit 1;
           }
           echo "AKIS_CASE_UNIT=PASS"
-      - name: TypeScript via original Vite route generator
-        run: |
-          npm run typecheck > "$RUNNER_TEMP/akis-tsc.log" 2>&1 || {
-            echo "AKIS_TYPECHECK=FAIL"; exit 1;
-          }
-          echo "AKIS_TYPECHECK=PASS"
-      - name: Install Chromium for original browser engine
-        run: |
-          bunx puppeteer browsers install chrome > "$RUNNER_TEMP/akis-puppeteer.log" 2>&1 || {
-            echo "AKIS_BROWSER_INSTALL=FAIL"; exit 1;
-          }
-          echo "AKIS_BROWSER_INSTALL=PASS"
       - name: Verify original website assets
         run: |
           npx tsx scripts/verify-assets.ts > "$RUNNER_TEMP/akis-assets.log" 2>&1 || {
@@ -80,16 +68,27 @@ jobs:
             echo "AKIS_SITEMAP=FAIL"; exit 1;
           }
           echo "AKIS_SITEMAP=PASS"
-      - name: Original Vite static-target SSR compilation
+      - name: Original one-pass static SSR build and TypeScript
         env:
           LOVABLE_BUILD_TARGET: static
           NITRO_PRESET: node-server
           SERVER_PRESET: node-server
         run: |
-          npx vite build > "$RUNNER_TEMP/akis-vite.log" 2>&1 || {
-            echo "AKIS_VITE_SSR=FAIL"; exit 1;
+          # The site's native pretypecheck runs Vite build. With static preset,
+          # it generates the same node-server bundle that prerender needs.
+          npm run typecheck > "$RUNNER_TEMP/akis-tsc.log" 2>&1 || {
+            echo "AKIS_TYPECHECK_OR_SSR=FAIL"; exit 1;
           }
+          test -f .output/server/index.mjs || { echo "AKIS_NITRO_SERVER=FAIL"; exit 1; }
+          test -d .output/public || { echo "AKIS_NITRO_CLIENT=FAIL"; exit 1; }
+          echo "AKIS_TYPECHECK=PASS"
           echo "AKIS_VITE_SSR=PASS"
+      - name: Install Chromium for original browser engine
+        run: |
+          bunx puppeteer browsers install chrome > "$RUNNER_TEMP/akis-puppeteer.log" 2>&1 || {
+            echo "AKIS_BROWSER_INSTALL=FAIL"; exit 1;
+          }
+          echo "AKIS_BROWSER_INSTALL=PASS"
       - name: Original SSR prerender for two selected scientific articles
         env:
           LOVABLE_BUILD_TARGET: static
