@@ -121,6 +121,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $env:GIT_NO_LAZY_FETCH = '1'
           $source = @'
           param([string]$AgentRoot,[string]$SetupRoot)
           Set-StrictMode -Version Latest
@@ -156,6 +157,7 @@ jobs:
         timeout-minutes: 72
         run: |
           $ErrorActionPreference = 'Stop'
+          $env:GIT_NO_LAZY_FETCH = '1'
           $agent = (Resolve-Path -LiteralPath '.private/agent').Path
           $center = (Resolve-Path -LiteralPath '.private/setup-core').Path
           $core = (Resolve-Path -LiteralPath '.g4-pinned-one-core/packages/t3-core').Path
