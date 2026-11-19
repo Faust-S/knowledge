@@ -144,6 +144,19 @@ function HasText([string]$fragment){
   }
   return $false
 }
+function WaitForOrdinaryWorkspace([string]$name){
+  # A physical Windows click returns before WebView2 has committed the React
+  # update to the accessibility tree. The workspace is NOT accepted on click:
+  # require both its visible row and the native no-Atlas state to appear.
+  for($poll=0;$poll -lt 75;$poll++){
+    if((HasText $name) -and (HasText 'План Atlas пока не указан')){
+      return $true
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  Write-Host 'G4_INSTALLED_WORKSPACE_NATIVE_UI_READBACK_TIMEOUT'
+  return $false
+}
 function RequireDialogDismissed([IntPtr]$dialog){
   for($poll=0;$poll -lt 90;$poll++){
     if(-not [G4InstalledModal]::IsWindow($dialog) -or
@@ -274,7 +287,7 @@ try{
   ClickButton 'Планы Atlas'
   TypeText 'Название рабочей области' 'G4CorporateWorkspace'
   ClickButton 'Добавить'
-  Check (HasText 'G4CorporateWorkspace') 'G4_INSTALLED_WORKSPACE_WITHOUT_ATLAS_NOT_CREATED'
+  Check (WaitForOrdinaryWorkspace 'G4CorporateWorkspace') 'G4_INSTALLED_WORKSPACE_WITHOUT_ATLAS_NOT_CREATED'
   Write-Host 'G4_INSTALLED_ORDINARY_WORKSPACE_WITHOUT_ATLAS_PASS'
   # Persist the real manager draft before the cold installed reopen.
   # The signed owner and the ordinary Center organization remain
