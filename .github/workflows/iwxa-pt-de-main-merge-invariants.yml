@@ -1,0 +1,81 @@
+name: IWXA PT-DE merge immutable locale invariants
+on:
+  push:
+    branches: [work/2026-11-18-pt-66-qualification]
+    paths:
+      - .github/workflows/iwxa-pt-de-main-merge-invariants.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  invariants:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: d9c3a4029491dd273ae018a20354f132e6a6f217
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          fetch-depth: 0
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify exact parents, immutable old locales, PT contents, orbit painter, coverage
+        shell: bash
+        working-directory: site
+        run: |
+          node --input-type=module - <<'JS'
+          import fs from 'node:fs';
+          import cp from 'node:child_process';
+          const MAIN='e93b9c1c49b2d6030da692142b77c3edba8f098e';
+          const PT='b840ebfd57d086a65c4474136a3c334eda07f5c4';
+          const MERGE='a04eb584077999fa662976670d636f03894c3e44';
+          const CURRENT='d9c3a4029491dd273ae018a20354f132e6a6f217';
+          const run=(...args)=>cp.execFileSync('git',args,{encoding:'utf8'}).trim();
+          const assert=(ok,name)=>{if(!ok)throw Error('IWXA_INVARIANT_FAIL='+name);console.log('IWXA_INVARIANT_'+name+'=PASS')};
+          assert(run('rev-parse','HEAD')===CURRENT,'EXACT_COMMIT');
+          assert(run('rev-parse',MERGE+'^1')===MAIN&&run('rev-parse',MERGE+'^2')===PT,'TWO_ORIGINAL_PARENTS');
+          const tree=(ref)=>Object.fromEntries(run('ls-tree','-r',ref).split('\n').map(x=>{const [meta,p]=x.split('\t');return [p,meta.split(' ')[2]]}));
+          const m=tree(MAIN),p=tree(PT),n=tree(CURRENT);
+          const changed=Object.keys({...m,...n}).filter(x=>m[x]!==n[x]);
+          const removed=changed.filter(x=>!n[x]);
+          assert(removed.length===0,'NO_REMOVALS');
+          const existingLanguage=(x)=>/^src\/routes\/(?:de|fr|en|es|ar|zh)[.]/.test(x)||
+            /(?:^src\/i18n\/|^src\/atlas\/|^src\/route-data\/|^translation\/)(?:[^/]*[-.](?:de|fr|en|es|ar|zh)[-.\/])/.test(x);
+          assert(Object.keys(m).filter(existingLanguage).every(x=>m[x]===n[x]),'ALL_PREVIOUS_LOCALE_SOURCES_IDENTICAL');
+          const ptScoped=(x)=>/^src\/routes\/pt[.]/.test(x)||/^src\/route-data\/.*-pt[.]ts$/.test(x)||
+            /^src\/atlas\/.*-pt.*[.]ts$/.test(x)||/^src\/i18n\/(home-pt|pt-.*)[.]ts$/.test(x);
+          assert(Object.keys(p).filter(ptScoped).every(x=>n[x]===p[x]),'ORIGINAL_PT_SOURCE_UNMODIFIED');
+          assert(Object.keys(n).filter(x=>/^src\/routes\/pt[.].*[.]tsx$/.test(x)).length===61,'PT_ROUTE_FILES_61');
+          const ruArticleNames=['cifrovoy-dvoynik-universiteta','obrazovatelnaya-analitika'];
+          for(const slug of ruArticleNames) {
+            const f='src/routes/science.university.'+slug+'.tsx';
+            const original=run('show',MAIN+':'+f);
+            const actual=fs.readFileSync(f,'utf8').trim();
+            const restored=actual.replace('import mobileArticleCss from "@/styles/university-mobile-article-ru-pt.css?url";\n','').replace(', { rel: "stylesheet", href: mobileArticleCss }','');
+            assert(restored===original,'RU_'+slug.replaceAll('-','_').toUpperCase()+'_CONTENT');
+          }
+          const oldOrbit=run('show',MAIN+':src/components/site/OrbitalMap.tsx');
+          const newOrbit=fs.readFileSync('src/components/site/OrbitalMap.tsx','utf8');
+          const painter=(s)=>s.split('  // Imperative painter. Reads yaw/pitch refs + current lit sets and writes DOM directly.')[1]?.split('  // Paint immediately after every React commit')[0];
+          assert(Boolean(painter(oldOrbit))&&painter(oldOrbit)===painter(newOrbit),'ORBIT_CAMERA_AND_PAINTER_IDENTICAL');
+          const coverage=JSON.parse(fs.readFileSync('translation/coverage.json','utf8'));
+          const baseline=JSON.parse(run('show',MAIN+':translation/coverage.json'));
+          assert(coverage.routes.length===66&&coverage.locales.length===7&&coverage.routes.every((row,i)=>
+            row.route===baseline.routes[i].route&&row.available.includes('pt-BR')&&
+            JSON.stringify(row.available.filter(x=>x!=='pt-BR'))===JSON.stringify(baseline.routes[i].available)),
+            'EXISTING_COVERAGE_PRESERVED_PLUS_PT');
+          assert(Boolean(coverage.pt_unified)&&Boolean(coverage.de_sequential_status),'BOTH_LANGUAGE_REGISTRIES_PRESERVED');
+          const shared=[
+            'src/components/site/OrbitalMap.tsx','src/components/site/MeaningHierarchy.tsx','src/components/site/ui.tsx',
+            'src/i18n/site-copy.ts','src/routes/__root.tsx','src/components/life-plus/article.tsx',
+            'src/components/life-plus/connections.tsx','src/components/life-plus/lab.tsx',
+            'src/components/life-plus/legacy-banner.tsx','src/components/life-plus/controls/LifeNextRoute.tsx',
+            'src/components/life-plus/controls/LifeResultPanel.tsx'
+          ];
+          assert(shared.every(path=>{const x=fs.readFileSync(path,'utf8');return x.includes('de-DE')&&x.includes('pt-BR')}),'ALL_11_SHARED_MULTILINGUAL_COMPONENTS');
+          console.log('IWXA_IMMUTABILITY_CHECKS=PASS');
+          JS
