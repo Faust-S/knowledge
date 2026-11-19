@@ -109,6 +109,149 @@ jobs:
             throw 'G4_AGENT_ORIGINAL_T2_PINNED_ARCHIVE_MISSING'
           }
           Write-Host 'G4_INSTALLED_AGENT06_CURRENT_SOURCES_AND_T2_PREFLIGHT_PASS'
+      - name: Check original Agent and Setup Git integrity in WindowsPowerShell 5.1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = @'
+          param([string]$AgentRoot,[string]$SetupRoot)
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $git = Get-Command git.exe -ErrorAction Stop
+          function ExactGitCheck([string]$root) {
+            $head = @(& $git.Source -C $root rev-parse HEAD 2>$null)
+            if ($LASTEXITCODE -ne 0 -or @($head).Count -ne 1 -or
+                [string]$head[0] -cnotmatch '^[0-9a-f]{40}
+        shell: pwsh
+        timeout-minutes: 72
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $agent = (Resolve-Path -LiteralPath '.private/agent').Path
+          $center = (Resolve-Path -LiteralPath '.private/setup-core').Path
+          $core = (Resolve-Path -LiteralPath '.g4-pinned-one-core/packages/t3-core').Path
+          $output = Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06'
+          $cache = Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-cache'
+          $log = Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-private-build.log'
+          $script = Join-Path $agent 'tools/build_setup_core_windows_candidate.ps1'
+          $powershell = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          if (-not (Test-Path -LiteralPath $script -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $powershell -PathType Leaf)) {
+            throw 'G4_AGENT_ORIGINAL_SETUP_BUILDER_MISSING'
+          }
+          & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -CenterRoot $center -CenterCommit 'c10e193846a0ea4c73cabe3744aa7db82439d54e' -OutputRoot $output -ReleaseCacheRoot $cache -PublicT3CoreRoot $core -RequireOriginalT3 *> $log
+          if ($LASTEXITCODE -ne 0) {
+            # Only exact lower-case machine codes leave the private build log.
+            # Do not print private source lines, stderr, paths, payloads or EXE.
+            $stageFlags = [ordered]@{
+              OUTPUT_ROOT = (Test-Path -LiteralPath $output -PathType Container)
+              T2_EXTRACT = (Test-Path -LiteralPath (Join-Path $output 'build/qualified-original-t2') -PathType Container)
+              T3_DEPENDENCIES = (Test-Path -LiteralPath (Join-Path $output 'logs/original-t3-dependencies.log') -PathType Leaf)
+              T3_BUILD = (Test-Path -LiteralPath (Join-Path $output 'logs/original-t3-compiled-host.log') -PathType Leaf)
+              ORIGINAL_ONE_DIST = (Test-Path -LiteralPath (Join-Path $output 'build/original-agent-one-dist-receipt.json') -PathType Leaf)
+              AGENT_PACKAGE = (Test-Path -LiteralPath (Join-Path $output 'logs/private-build-result.json') -PathType Leaf)
+              SETUP_BUILT = (Test-Path -LiteralPath (Join-Path $output 'IWXA-Private-SetupCore-Candidate.exe') -PathType Leaf)
+            }
+            foreach ($name in $stageFlags.Keys) {
+              if ($stageFlags[$name]) { Write-Host ('G4_AGENT06_PRIVATE_BUILD_STAGE_REACHED ' + $name) }
+            }
+            if (Test-Path -LiteralPath $log -PathType Leaf) {
+              $rawInfo = Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+              if ($rawInfo) {
+                $classMatchers = [ordered]@{
+                  POWERSHELL_PARSER = 'ParserError|ParseException'
+                  COMMAND_MISSING = 'CommandNotFoundException|is not recognized as the name of a cmdlet'
+                  ARGUMENT_BINDING = 'ParameterBindingException|NamedParameterNotFound'
+                  GIT_COMMAND = 'git.exe|git identity failed'
+                  PATH_MISSING = 'ItemNotFoundException|Cannot find path|does not exist'
+                  ACCESS_DENIED = 'UnauthorizedAccessException|Access is denied'
+                  NODE_TOOL = 'npm ERR!|npm error|Node.js'
+                  PYTHON_TOOL = 'ModuleNotFoundError|ImportError'
+                }
+                foreach ($name in $classMatchers.Keys) {
+                  if ($rawInfo -match $classMatchers[$name]) {
+                    Write-Host ('G4_AGENT06_PRIVATE_BUILD_ERROR_CLASS ' + $name)
+                  }
+                }
+              }
+            }
+            $safeCodes = @()
+            if (Test-Path -LiteralPath $log -PathType Leaf) {
+              foreach ($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)) {
+                foreach ($m in [regex]::Matches([string]$line,
+                  '(?<![A-Za-z0-9_])(?:private_setup|original_t3|original_t2|agent_native|setup_core|private_package)_[a-z0-9_]{4,115}(?![A-Za-z0-9_])')) {
+                  $safeCodes += [string]$m.Value
+                }
+              }
+            }
+            $uniqueCodes = @($safeCodes | Select-Object -Unique | Select-Object -Last 4)
+            if ($uniqueCodes.Count -eq 0) {
+              Write-Host 'G4_AGENT06_ORIGINAL_SETUP_FAILURE_CODE UNCLASSIFIED'
+            } else {
+              foreach ($item in $uniqueCodes) {
+                Write-Host ('G4_AGENT06_ORIGINAL_SETUP_FAILURE_CODE ' + $item.ToUpperInvariant())
+              }
+            }
+            throw 'G4_AGENT06_CURRENT_ORIGINAL_NATIVE_SETUP_BUILD_NOT_ACCEPTED'
+          }
+          $installed = Join-Path $output 'temporary-installed-fixture/installed-witness.json'
+          $rollback = Join-Path $output 'temporary-rollback-fixture/rollback-witness.json'
+          $package = Join-Path $output 'IWXA-Private-SetupCore-Candidate.exe'
+          if (-not (Test-Path -LiteralPath $package -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $installed -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $rollback -PathType Leaf)) {
+            throw 'G4_AGENT06_INSTALLED_NATIVE_PACKAGE_RECEIPT_MISSING'
+          }
+          $gui = Get-Content -LiteralPath $installed -Raw | ConvertFrom-Json
+          $rb = Get-Content -LiteralPath $rollback -Raw | ConvertFrom-Json
+          if ($gui.status -ne 'PASS' -or
+              $gui.installed_native_cold_launch_verified -ne $true -or
+              $gui.installed_real_qwen_native_gui_result_verified -ne $true -or
+              $gui.installed_real_qwen_native_gui_submit_review_verified -ne $true -or
+              $gui.installed_core_readbacks_after_restart_verified -ne $true -or
+              $rb.status -ne 'PASS' -or
+              $rb.installed_file_identity_after_rollback -ne $true) {
+            throw 'G4_AGENT06_ORIGINAL_T2_NATIVE_GUI_RECEIPT_INVALID'
+          }
+          Write-Host 'G4_AGENT06_INSTALLED_GENUINE_SETUP_AND_ONE_CORE_PASS'
+          Write-Host 'G4_AGENT06_INSTALLED_NATIVE_GUI_QWEN_REVIEW_COLD_PASS'
+          Write-Host 'G4_AGENT06_INSTALLED_SETUP_CORE_REPAIR_ROLLBACK_PASS'
+          Write-Host 'G4_AGENT06_INSTALLED_NOT_CROSS_USER_ADMIN_ACCEPT_APPLY'
+      - name: Erase private source model caches logs and native binaries
+        if: always()
+        shell: pwsh
+        run: |
+          $targets = @('.private','.g4-pinned-one-core',
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06'),
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-cache'),
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-private-build.log'))
+          foreach ($path in $targets) {
+            if (Test-Path -LiteralPath $path) {
+              Remove-Item -LiteralPath $path -Force -Recurse -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Host 'G4_AGENT06_PRIVATE_SOURCE_AND_NATIVE_ARTIFACTS_NOT_PUBLISHED'
+) {
+              throw 'G4_INSTALLED_SOURCE_GIT_IDENTITY_NOT_READABLE'
+            }
+            $dirty = @(& $git.Source -C $root status --porcelain --untracked-files=all 2>$null)
+            if ($LASTEXITCODE -ne 0) { throw 'G4_INSTALLED_SOURCE_GIT_STATUS_UNAVAILABLE' }
+            if (@($dirty | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
+              throw 'G4_INSTALLED_SOURCE_GIT_DIRTY'
+            }
+          }
+          ExactGitCheck $AgentRoot
+          ExactGitCheck $SetupRoot
+          Write-Output 'G4_INSTALLED_WINDOWS_PS51_GIT_PREFLIGHT_PASS'
+          '@
+          $probe = Join-Path $env:RUNNER_TEMP 'g4-ps51-original-git-preflight.ps1'
+          [IO.File]::WriteAllText($probe,$source,[Text.UTF8Encoding]::new($false))
+          $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          try {
+            & $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $probe -AgentRoot (Resolve-Path '.private/agent').Path -SetupRoot (Resolve-Path '.private/setup-core').Path
+            if ($LASTEXITCODE -ne 0) { throw 'G4_INSTALLED_WINDOWS_PS51_GIT_PREFLIGHT_FAILED' }
+          } finally {
+            Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+          }
       - name: Build install and cold-qualify genuine current Agent Tauri with original T2/T3 One Dist
         shell: pwsh
         timeout-minutes: 72
