@@ -1,4 +1,4 @@
-name: D12 IWXA AKIS CASE-001+002+003 full-site qualification
+name: D12 IWXA AKIS research hub full-site qualification
 on:
   push:
     branches: [work/2026-11-02-pipeline-foundation]
@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: d12-akis-articles-full-v3-${{ github.ref }}
+  group: d12-akis-hub-full-v4-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   qualify:
@@ -26,15 +26,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: 4ac3585130dad21283e3658cecc5af89200325f9
+          ref: 72ae81e2213f25b8d24d37b7c085109012edfeb5
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Verify exact source and private checkout
         run: |
-          test "$(git rev-parse HEAD)" = "4ac3585130dad21283e3658cecc5af89200325f9" || { echo "AKIS_HEAD_MISMATCH"; exit 1; }
+          test "$(git rev-parse HEAD)" = "72ae81e2213f25b8d24d37b7c085109012edfeb5" || { echo "AKIS_HEAD_MISMATCH"; exit 1; }
           test -f src/routes/science.akis-production.tsx || exit 1
           test -f src/routes/science.akis-operator.tsx || exit 1
           test -f src/routes/science.akis-interfirm.tsx || exit 1
+          test -f src/routes/science.akis.tsx || exit 1
+          test -f scripts/check-akis-hub.test.ts || exit 1
           test -f scripts/check-akis-interfirm-article.test.ts || exit 1
           test -f scripts/check-akis-interfirm-dependence.test.ts || exit 1
           test -f scripts/check-akis-production-article.test.ts || exit 1
@@ -52,9 +54,9 @@ jobs:
             echo "AKIS_FROZEN_INSTALL=FAIL"; exit 1;
           }
           echo "AKIS_FROZEN_INSTALL=PASS"
-      - name: Two source and organizational acceptance suites
+      - name: Original article, research hub and organizational acceptance suites
         run: |
-          for task in check:akis:production check:akis:article check:akis:interfirm check:akis:dependence; do
+          for task in check:akis:production check:akis:article check:akis:interfirm check:akis:dependence check:akis:hub; do
             safe="${task//:/-}"
             bun run "$task" > "$RUNNER_TEMP/akis-$safe.log" 2>&1 || {
               echo "AKIS_TEST=FAIL task=$task"; exit 1;
@@ -84,14 +86,15 @@ jobs:
             grep '^\[prerender\] visiting /' "$RUNNER_TEMP/akis-build.log" | tail -1 || true
             exit 1;
           }
+          test -f dist-static/science/akis/index.html || exit 1
           test -f dist-static/science/akis-production/index.html || exit 1
           test -f dist-static/science/akis-operator/index.html || exit 1
           test -f dist-static/science/akis-interfirm/index.html || exit 1
           echo "AKIS_STATIC_BUILD=PASS"
-          echo "AKIS_CASE_ARTICLES_HTML=3/3"
+          echo "AKIS_SCIENCE_HTML=4/4"
       - name: Full original IWXA static, accessibility and research guards
         run: |
-          for task in check:atlas check:routes check:readability check:schema check:llms check:seo check:no-localhost check:hosting-clean check:links check:runtime check:a11y check:responsive check:performance check:htaccess check:akis:static; do
+          for task in check:atlas check:routes check:readability check:schema check:llms check:seo check:no-localhost check:hosting-clean check:links check:runtime check:a11y check:responsive check:performance check:htaccess check:akis:static check:akis:hub:static; do
             safe="${task//:/-}"
             bun run "$task" > "$RUNNER_TEMP/akis-$safe.log" 2>&1 || {
               echo "AKIS_STATIC_GUARD=FAIL task=$task"; exit 1;
