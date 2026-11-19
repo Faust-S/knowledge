@@ -42,7 +42,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics
-          ref: 687d7818715bc2cc7d6bbd799221be876df67646
+          ref: e88851681f310b325663475697e9120ab763ce12
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -65,7 +65,7 @@ jobs:
           Write-Output "D11_PROJECT_SITE_HEAD=$site"
           Write-Output "D11_PROJECT_DOMAIN_HEAD=$domain"
           if ($site -ne "526fc6b73189baec36196a634ec28bb300d0d9c3" -or
-              $domain -ne "687d7818715bc2cc7d6bbd799221be876df67646") {
+              $domain -ne "e88851681f310b325663475697e9120ab763ce12") {
             throw "D11_PROJECT_QUALIFICATION_REVISION_CHANGED"
           }
           if ($t2 -ne "e70de29b72b83e2546f7ab74b17572685a728c17") { throw "D11_NORMATIVE_T2_CHANGED" }
