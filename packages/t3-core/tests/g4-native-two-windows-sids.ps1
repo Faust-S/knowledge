@@ -124,7 +124,7 @@ try {
       Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
       Remove-Item -LiteralPath $startedFile -Force -ErrorAction SilentlyContinue
       $phase = 'DIRECT_SECOND_USER_WINDOWS_LOGON_' + $pass
-      $nativeCredential = New-Object Security.Principal.PSCredential($qualifiedUser,$secure)
+      $nativeCredential = [System.Management.Automation.PSCredential]::new($qualifiedUser,$secure)
       $childProcess = Start-Process -FilePath $exe -ArgumentList $args -Credential $nativeCredential -LoadUserProfile -PassThru -Wait -WindowStyle Hidden -ErrorAction Stop
       if ($childProcess.ExitCode -ne 0) { throw 'G4_SECOND_SID_DIRECT_LOGON_CHILD_FAILED' }
       if (Test-Path -LiteralPath $failure) { throw 'G4_SECOND_SID_CHILD_PROOF_FAILED' }
