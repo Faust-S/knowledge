@@ -128,7 +128,9 @@ try:
 
         phase = "AGENT_CORE_REAL_LOCAL_INFERENCE"
         runs = engine.automation_run_due(limit=1)
-        require(any(row.get("status") == "SUCCEEDED" for row in runs),
+        require(isinstance(runs, dict) and runs.get("claimed") == 1 and
+                any(row.get("status") == "SUCCEEDED"
+                    for row in runs.get("results", [])),
                 "G4_AGENT_REAL_MODEL_EXECUTION_REQUIRED")
         detail = engine.task_detail(task_id)
         require(detail.get("status") == "result_imported" and
