@@ -25,11 +25,13 @@ try {
   # The restricted native child environment does not inherit the runner's
   # PowerShell module search path. Load the EXISTING OS LocalAccounts module
   # from System32 explicitly; never install or emulate account management.
-  $accountsModule = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules\Microsoft.PowerShell.LocalAccounts\Microsoft.PowerShell.LocalAccounts.psd1'
-  if (-not (Test-Path -LiteralPath $accountsModule)) {
-    throw 'G4_ORIGINAL_WINDOWS_LOCAL_ACCOUNTS_MODULE_MISSING'
+  # Prefer OS module discovery. On some hosted Windows images this module
+  # has no separately packaged .psd1 at the assumed System32 path.
+  $osModules = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules'
+  if ($env:PSModulePath -notlike ('*' + $osModules + '*')) {
+    $env:PSModulePath = $osModules + [IO.Path]::PathSeparator + $env:PSModulePath
   }
-  Import-Module -Name $accountsModule -ErrorAction Stop
+  Import-Module Microsoft.PowerShell.LocalAccounts -ErrorAction Stop
   if (-not (Get-Command New-LocalUser -ErrorAction SilentlyContinue) -or
       -not (Get-Command Get-LocalUser -ErrorAction SilentlyContinue) -or
       -not (Get-Command Remove-LocalUser -ErrorAction SilentlyContinue)) {
