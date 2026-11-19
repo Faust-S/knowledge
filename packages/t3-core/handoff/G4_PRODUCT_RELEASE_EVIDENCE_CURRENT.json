@@ -2,7 +2,7 @@
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
   "snapshot_date": "2026-11-19",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
-  "currentness": "G4_SOURCE_D3_20_OF_20_PASS__INSTALLED_ADMIN_SIGNED_OWNER_ENROLL_DPAPI_INDEPENDENT_COLD_AND_GUI_PASS_44537675979__CROSS_OWNER_D3_D5_D6_GENERIC_D7_PERSON_HOLD",
+  "currentness": "G4_SOURCE_OWNER_15_OF_15_44559119612_PASS__NATIVE_AGENT_KERNEL_20_MARKERS_44559119398_PASS__INSTALLED_ADMIN_ORIGINAL_SHA_RETEST_44559119290_RUNNING__FULL_G4_HOLD",
   "policy": {
     "t3_one_core": "Faust-S/knowledge/packages/t3-core",
     "t2_normative": "Faust-S/T2@main",
@@ -2089,6 +2089,36 @@
           "D7_PERSON_INSTALLED"
         ]
       }
+    },
+    "g4_signed_owner_exact_revision_2026_11_19": {
+      "original_private_t3_sha": "1a8267634955947bc0c6adc5614d7de176a33da2",
+      "last_installed_accepted_owner_sha": "b897404432cec18144942758d296c19d76232f55",
+      "exact_pin_qualification_code_sha": "b9fa8acf6a5c3667f7fc368f931a526e474161e8",
+      "diagnosis": "Three original D3 witnesses previously used different source SHA: source Owner 19be10c5, native employee d0d8ba2f, installed Admin b8974044. Private source 14/15 at b897 due stale assertion that native ACCEPT bypasses explicit Human confirmation.",
+      "correction": "Private T3 source regression now arms and consumes one EXACT trusted Human ACCEPT challenge; original signed production nativeAction/port/Kernel code unchanged. All three public G4 source/installed CI owners pinned to same private T3 SHA.",
+      "source_owner_suite": {
+        "id": 44559119612,
+        "conclusion": "SUCCESS",
+        "tests": 15,
+        "passed": 15,
+        "failed": 0,
+        "level": "SOURCE_NOT_INSTALLED"
+      },
+      "native_agent_kernel": {
+        "id": 44559119398,
+        "conclusion": "SUCCESS",
+        "control_markers": 20,
+        "private_t3_files": 51,
+        "private_agent_files": 2,
+        "level": "NATIVE_WINDOWS_ORIGINAL_NODE_PYTHON_SOURCE_NOT_INSTALLED_TAURI"
+      },
+      "installed_admin_requalification": {
+        "id": 44559119290,
+        "conclusion": "IN_PROGRESS_NOT_ACCEPTED",
+        "level": "G4_INSTALLED_ONE_DIST_DPAPI_COLD_RETEST"
+      },
+      "native_human_invariant": "Trustworthy native port must require exactly selected decision, packageSha256, previewDigest, operationId, review actor and one-shot consumption; public source tests can simulate confirmation but installed native Win32 dialogue remains separately required.",
+      "release_g4_accepted": false
     }
   },
   "accepted_gates": {
@@ -2128,7 +2158,9 @@
     "ORIGINAL_PRIVATE_D3_OWNER_SOURCE": "ORIGINAL_OWNER_MULTI_EMPLOYEE_15_OF_15_SOURCE_PASS_KNOWLEDGE_44370068755_JOB_135034132307__WORKFLOW_CANCELLED_AFTER_JOB__INSTALLED_D3_HOLD",
     "D3_NATIVE_ORIGINAL_AGENT_PROCESS": "ORIGINAL_PRIVATE_WINDOWS_NODE_PYTHON_SIGNED_TEST_EMPLOYEE_FOUR_MARKERS_AND_SEPARATE_PRODUCTION_ADMIN_COLD_PASS_44383462807__INSTALLED_GUI_AND_KERNEL_NOT_RUN",
     "D3_ORIGINAL_NATIVE_WINDOWS_PRODUCTION_OWNER": "PRODUCTION_ORIGINAL_T3_WIN_DPAPI_ADMIN_ENROLLMENT_INDEPENDENT_COLD_NODE_READBACK_PASS_44383462807__INDEPENDENT_PRODUCTION_EMPLOYEE_AND_KERNEL_HOLD",
-    "D3_INSTALLED_ADMIN_OWNER_ENROLL_AND_DPAPI_COLD": "PASS_GENUINE_WINDOWS_SETUP_WEBVIEW_OWNER_ENROLL_INDEPENDENT_DPAPI_PROCESS_AND_GUI_REOPEN_44537675979"
+    "D3_INSTALLED_ADMIN_OWNER_ENROLL_AND_DPAPI_COLD": "PASS_GENUINE_WINDOWS_SETUP_WEBVIEW_OWNER_ENROLL_INDEPENDENT_DPAPI_PROCESS_AND_GUI_REOPEN_44537675979",
+    "D3_ORIGINAL_PRIVATE_OWNER_SOURCE_LATEST": "PASS_15_OF_15_44559119612_EXACT_T3_1A826763_SOURCE_ONLY",
+    "D3_ORIGINAL_NATIVE_AGENT_KERNEL_LATEST": "PASS_20_G4_MARKERS_44559119398_EXACT_T3_1A826763_NATIVE_NODE_PYTHON_NOT_INSTALLED_TAURI"
   },
   "next_critical_path": [
     "Release scope is PRODUCT_NEUTRAL_T3. Keep normative original T2 Kernel/Host/Workspace/Exchange/Lifecycle integrated in ONE T3. Use current exact public One Core CI + installed Agent test; never interpret source PASS as installed owner.",
@@ -2184,7 +2216,7 @@
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
     "original_private_native_signer": "CURRENT_SOURCE_PIN_d0d8ba2f_NATIVE_ONE_SHOT_WINDOWS_BRIDGE_REQUALIFIED_20_OF_20_44406073956__INSTALLED_UI_HOLD",
-    "independent_installed_d3": "PARTIAL_ADMIN_SIGNED_OWNER_INSTALLED_ENROLL_DPAPI_COLD_AND_GUI_REOPEN_PASS_44537675979__INDEPENDENT_AGENT_HUMAN_ACCEPT_AND_SEPARATE_KERNEL_APPLY_HOLD",
+    "independent_installed_d3": "PARTIAL_INSTALLED_ADMIN_DPAPI_COLD_PASS_44537675979_AT_B897__EXACT_T3_1A826763_RETEST_44559119290_RUNNING__INDEPENDENT_INSTALLED_AGENT_HUMAN_ACCEPT_APPLY_HOLD",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
