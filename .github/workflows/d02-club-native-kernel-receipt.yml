@@ -621,9 +621,11 @@ jobs:
           function Locate([string]$name,[string]$type){
             $cond=[System.Windows.Automation.PropertyCondition]::new(
               [System.Windows.Automation.AutomationElement]::NameProperty,$name)
-            if($type -eq 'button' -or $type -eq 'combo'){
+            if($type -eq 'button' -or $type -eq 'combo' -or $type -eq 'tab'){
               $control=if($type -eq 'combo'){
                 [System.Windows.Automation.ControlType]::ComboBox
+              }elseif($type -eq 'tab'){
+                [System.Windows.Automation.ControlType]::TabItem
               }else{[System.Windows.Automation.ControlType]::Button}
               $cond=[System.Windows.Automation.AndCondition]::new(
                 $cond,[System.Windows.Automation.PropertyCondition]::new(
@@ -650,6 +652,15 @@ jobs:
               $pattern=[System.Windows.Automation.InvokePattern]$node.GetCurrentPattern(
                 [System.Windows.Automation.InvokePattern]::Pattern)
               $pattern.Invoke()
+            }catch{throw $code}
+          }
+          function ActivateTab([string]$name,[string]$code){
+            # Original T2 uses <button role="tab">, which Edge exposes as
+            # TabItem rather than UIA Button. Keyboard Space is a real click.
+            $tab=Await $name 'tab' $code
+            try{
+              $tab.SetFocus()
+              [System.Windows.Forms.SendKeys]::SendWait(' ')
             }catch{throw $code}
           }
           function AwaitPrefix([string]$prefix,[string]$code){
@@ -686,7 +697,7 @@ jobs:
             if(Locate 'Операция «Перенос данных» не предоставлена ядром в текущем режиме.' ''){
               throw 'D02_IMPORT_ORIGINAL_CAPABILITY_NOT_GRANTED'
             }
-            Click 'Импортировать' 'D02_IMPORT_NATIVE_TAB_MISSING'
+            ActivateTab 'Импортировать' 'D02_IMPORT_NATIVE_TAB_MISSING'
             $choose=Await 'Выберите файл .iwxa' '' 'D02_IMPORT_FILE_INPUT_NOT_VISIBLE'
             try{
               $choose.SetFocus()
