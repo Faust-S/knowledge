@@ -61,6 +61,12 @@ jobs:
             throw 'G4_INSTALLED_PUBLIC_NATIVE_UIA_HELPER_BUILD_FAILED'
           }
           Write-Host 'G4_INSTALLED_PUBLIC_NATIVE_UIA_WIN32_HELPER_BUILD_PASS'
+          if(-not $script.Contains('RequireDialogDismissed $dialog') -or
+             -not $script.Contains('G4_INSTALLED_FIRST_USE_NATIVE_DIALOG_DECISION_CONFIRMED') -or
+             -not $script.Contains('G4_INSTALLED_FIRST_USE_NATIVE_OWNER_ERROR_CODE')){
+            throw 'G4_INSTALLED_PUBLIC_NATIVE_HUMAN_WITNESS_INCOMPLETE'
+          }
+          Write-Host 'G4_INSTALLED_PUBLIC_NATIVE_HUMAN_DECISION_WITNESS_PASS'
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
