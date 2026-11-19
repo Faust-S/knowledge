@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: cac2bf6988b718441265bbf939c895259343acb3
+          ref: d777c43e4d941a849a5db799661397ec41bccd03
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -333,6 +333,21 @@ jobs:
           else
             echo "::error::D10_PUBLIC_T2_KERNEL_TRANSFER=FAIL exit=$result"
             grep -E '^(Error|AssertionError|TimeoutError|TypeError|ProtocolError):' "$RUNNER_TEMP/d10-public-kernel.log" | head -n 4 || true
+          fi
+          exit "$result"
+      - name: Independent multi-family CRM quote receipt and refund IWXA import
+        shell: bash
+        run: |
+          set +e
+          cd "$RUNNER_TEMP/d10-host-loopback"
+          node scripts/tests/d10-multifamily-iwxa-browser.mjs > "$RUNNER_TEMP/d10-multi-iwxa.log" 2>&1
+          result=$?
+          grep -E '^D10_(MULTI_|IWXA_|PUBLIC_KERNEL_)' "$RUNNER_TEMP/d10-multi-iwxa.log" || true
+          if [ "$result" -eq 0 ]; then
+            echo "D10_MULTI_FAMILY_IWXA=PASS"
+          else
+            echo "::error::D10_MULTI_FAMILY_IWXA=FAIL exit=$result"
+            grep -E '^(Error|AssertionError|TypeError|TimeoutError):' "$RUNNER_TEMP/d10-multi-iwxa.log" | head -n 3 || true
           fi
           exit "$result"
       - name: Inspect artifact without publishing private bytes
