@@ -105,13 +105,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'G4_AGENT_ORIGINAL_LOCAL_MODEL_PULL_FAILED' }
           $inventory = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 10
           $matches = @($inventory.models | Where-Object {
-            $_.name -eq 'qwen3:0.6b' -and $_.digest -match '^[0-9a-f]{64}
-        env:
-          T3_READ_TOKEN: ${{ secrets.T3 || secrets.DOMEN }}
-          AGENT_READ_TOKEN: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
-        shell: pwsh
-        run: node packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs
-
+            $_.name -eq 'qwen3:0.6b' -and $_.digest -match '^[0-9a-f]{64}$'
           })
           if ($matches.Count -ne 1) { throw 'G4_AGENT_LOCAL_MODEL_WEIGHTS_UNVERIFIED' }
           "OLLAMA_HOST=127.0.0.1:11434" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
