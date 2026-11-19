@@ -31,7 +31,8 @@ jobs:
   # The previous 15/15 source suite was on an older private signer.
   # Requalify the SAME exact Owner as installed Admin and original Agent,
   # including the one-shot native Human ACCEPT regression.
-  # An explicit trusted commit marker or manual dispatch reruns private source.
+  # An explicit trusted marker runs the current central Agent06 employee test
+  # suite without changing the accepted original private D3 signer.
   original-private-d3-source:
     if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-original-d3]') }}
     runs-on: ubuntu-24.04
