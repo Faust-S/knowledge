@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: e7d75a76750d7a5f9b315de4e4134ba6465dbc9a
+      SITE_SHA: e0a78dd60d3262cbd4beb54dde8b7eacd0c6d97b
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -214,12 +214,15 @@ jobs:
             for($i=0;$i -lt 60;$i++){
               Start-Sleep -Milliseconds 500
               try{
-                if((Invoke-WebRequest -Uri ($origin+'/workspace/') -TimeoutSec 2).StatusCode -eq 200){
+                if((Invoke-WebRequest -Uri ('http://127.0.0.1:55444/workspace/') -TimeoutSec 2).StatusCode -eq 200){
                   $ready=$true;break
                 }
               }catch{}
             }
-            if(!$ready){throw 'D02_RECEIPT_HOST_HTTP_UNAVAILABLE'}
+            if(!$ready){
+              Write-Output ("D02_RECEIPT_HTTP_SERVER_RUNNING=" + (-not $server.HasExited))
+              throw 'D02_RECEIPT_HOST_HTTP_UNAVAILABLE'
+            }
             $b1=Start-Process -FilePath $edge -PassThru -ArgumentList @(
               '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
               "--user-data-dir=$profile","--app=$origin/workspace/#/workspaces"
@@ -506,7 +509,7 @@ jobs:
             for($i=0;$i -lt 60;$i++){
               Start-Sleep -Milliseconds 500
               try{
-                if((Invoke-WebRequest -Uri ($origin+'/workspace/exchange/') -TimeoutSec 2).StatusCode -eq 200){$ready=$true;break}
+                if((Invoke-WebRequest -Uri ('http://127.0.0.1:55444/workspace/exchange/') -TimeoutSec 2).StatusCode -eq 200){$ready=$true;break}
               }catch{}
             }
             if(!$ready){throw 'D02_EXCHANGE_ORIGINAL_HOST_HTTP_UNAVAILABLE'}
@@ -657,7 +660,7 @@ jobs:
             for($i=0;$i -lt 60;$i++){
               Start-Sleep -Milliseconds 500
               try{
-                if((Invoke-WebRequest -Uri ($origin+'/workspace/exchange/') -TimeoutSec 2).StatusCode -eq 200){$ready=$true;break}
+                if((Invoke-WebRequest -Uri ('http://127.0.0.1:55444/workspace/exchange/') -TimeoutSec 2).StatusCode -eq 200){$ready=$true;break}
               }catch{}
             }
             if(!$ready){throw 'D02_IMPORT_ORIGINAL_HOST_HTTP_UNAVAILABLE'}
