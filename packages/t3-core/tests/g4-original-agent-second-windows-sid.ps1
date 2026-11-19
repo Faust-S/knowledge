@@ -160,7 +160,14 @@ try {
   $phase = 'STAGE_PUBLIC_AGENT_LAUNCHER'
   [IO.File]::WriteAllText($worker,$workerSource,[Text.Encoding]::UTF8)
   $phase = 'RESOLVE_INSTALLED_PYTHON'
-  $pythonCommand = (Get-Command python -ErrorAction Stop).Source
+  $pythonCommand = [string]$env:G4_ORIGINAL_PYTHON_COMMAND
+  $nodeCommand = [string]$env:G4_ORIGINAL_NODE_COMMAND
+  if (-not [IO.Path]::IsPathRooted($pythonCommand) -or
+      -not [IO.Path]::IsPathRooted($nodeCommand) -or
+      -not (Test-Path -LiteralPath $pythonCommand -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $nodeCommand -PathType Leaf)) {
+    throw 'G4_ORIGINAL_EMPLOYEE_PINNED_INTERPRETER_REQUIRED'
+  }
   $credential = [System.Management.Automation.PSCredential]::new($qualifiedUser,$secure)
   $exe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
   $phase = 'INDEPENDENT_AGENT_IPC_COLD_PROCESSES'
@@ -265,8 +272,9 @@ const okay=verify(null,bytes,createPublicKey(
 if(!okay)process.exit(3);
 '@
   [IO.File]::WriteAllText($proofVerifier,$verifyCode,[Text.Encoding]::UTF8)
-  & node $proofVerifier $public $T3Root *> $null
-  if ($LASTEXITCODE -ne 0) { throw 'G4_ORIGINAL_AGENT_SECOND_SID_CRYPTO_PROOF_INVALID' }
+  $proofArgs = @(('"' + $proofVerifier + '"'),('"' + $public + '"'),('"' + $T3Root + '"'))
+  $proofRun = Start-Process -FilePath $nodeCommand -ArgumentList $proofArgs -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop
+  if ($proofRun.ExitCode -ne 0) { throw 'G4_ORIGINAL_AGENT_SECOND_SID_CRYPTO_PROOF_INVALID' }
   Write-Output 'G4_ORIGINAL_AGENT_SECOND_SID_CRYPTO_PROOF_VERIFIED_PASS'
   Write-Output 'G4_ORIGINAL_AGENT_SECOND_SID_NATIVE_FIRST_USE_PASS'
   Write-Output 'G4_ORIGINAL_AGENT_SECOND_SID_NATIVE_DPAPI_COLD_PASS'
