@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T2
-          ref: d2679cfaa7eaaeed841a7b1d4638f0388a1d386d
+          ref: 87b195e1e86d6b994f107b4c3cf69f372a23c397
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           sparse-checkout: |
@@ -202,6 +202,12 @@ jobs:
             exit 1
           }
           grep '^D09_KERNEL_REMAINING_AJV_CTORS=' "$RUNNER_TEMP/d09-ajv-csp-audit.log"
+          node "$core/scripts/issue14-remove-runtime-ajv.mjs" "$RUNNER_TEMP/d09-k036" > "$RUNNER_TEMP/d09-remove-ajv.log" 2>&1 || {
+            echo D09_KERNEL_AJV_REMOVAL=FAIL
+            grep -oE 'D09_AJV_[A-Z0-9_]+' "$RUNNER_TEMP/d09-remove-ajv.log" | tail -8 || true
+            exit 1
+          }
+          grep '^D09_KERNEL_AJV_CONSTRUCTORS_REMOVED=' "$RUNNER_TEMP/d09-remove-ajv.log"
           npm run typecheck > "$RUNNER_TEMP/d09-dynamic-types.log" 2>&1 || {
             echo D09_KERNEL_CSP_DYNAMIC_TYPES=FAIL
             grep -oE 'error TS[0-9]+' "$RUNNER_TEMP/d09-dynamic-types.log" | sort -u | tail -12 || true
