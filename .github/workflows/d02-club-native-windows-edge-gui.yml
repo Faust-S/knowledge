@@ -1,0 +1,185 @@
+name: d02-club-native-windows-edge-gui
+on:
+  push:
+    branches: [work/2026-11-18-d02-club-qualification]
+    paths: [.github/workflows/d02-club-native-windows-edge-gui.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-edge-gui:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      SITE_SHA: 7a4b770bdb56f3ad30a8701ad59ee0cfdbec7978
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      CI: 'true'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Preserve exact private T2 bytes
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Checkout pinned private Club on disposable runner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - name: Checkout original pinned T2 on disposable runner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Build one original T2 Host and Club dist
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_T2_NPM_CACHE_DIR: ${{ runner.temp }}/d02-gui-npm-cache
+        run: |
+          if((git rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D02_NATIVE_SITE_PIN_MISMATCH'}
+          if((git -C ../t2 rev-parse HEAD).Trim() -ne $env:T2_SHA){throw 'D02_NATIVE_T2_PIN_MISMATCH'}
+          & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'd02-gui-npm.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D02_NATIVE_NPM_INSTALL_FAILED'}
+          & npm run build *> (Join-Path $env:RUNNER_TEMP 'd02-gui-build.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D02_NATIVE_T2_BUILD_FAILED'}
+          if(-not (Test-Path dist/workspace/index.html) -or
+             -not (Test-Path dist/projects/index.html)){throw 'D02_NATIVE_DIST_INCOMPLETE'}
+          Write-Output 'D02_NATIVE_ORIGINAL_T2_BUILD=PASS'
+      - name: Open real Edge and write one original Club user skill result through GUI
+        working-directory: site
+        env:
+          PORT: '55422'
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          $site=(Resolve-Path .).Path
+          $origin='https://localhost:55422'
+          $edge=@(
+            (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
+            (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
+          )|Where-Object{Test-Path $_}|Select-Object -First 1
+          if(!$edge){throw 'D02_NATIVE_EDGE_MISSING'}
+          $server=$null;$browser=$null
+          try {
+            $server=Start-Process -FilePath node -WorkingDirectory $site -ArgumentList @(
+              'scripts/serve-current-static.mjs','dist','--t2-loopback-tls'
+            ) -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd02-gui-https.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd02-gui-https-error.private.log') -PassThru
+            $ready=$false
+            for($i=0;$i -lt 65;$i++){
+              Start-Sleep -Milliseconds 500
+              try{
+                $r=Invoke-WebRequest -Uri ($origin+'/projects/') -SkipCertificateCheck -TimeoutSec 2
+                if($r.StatusCode -eq 200){$ready=$true;break}
+              }catch{}
+            }
+            if(!$ready){throw 'D02_NATIVE_T2_HTTPS_UNAVAILABLE'}
+            Write-Output 'D02_NATIVE_ORIGINAL_T2_HTTPS=PASS'
+            $profile=Join-Path $env:RUNNER_TEMP 'd02-native-edge-isolated'
+            $browser=Start-Process -FilePath $edge -PassThru -ArgumentList @(
+              '--force-renderer-accessibility','--ignore-certificate-errors',
+              '--no-first-run','--no-default-browser-check',
+              "--user-data-dir=$profile",
+              "--app=$origin/projects/#club-competency-gap"
+            )
+            $scope=[System.Windows.Automation.TreeScope]::Descendants
+            function FindNative([string]$name,[string]$kind) {
+              $cond=[System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+              if($kind -eq 'edit' -or $kind -eq 'button'){
+                $type=if($kind -eq 'edit') {
+                  [System.Windows.Automation.ControlType]::Edit
+                } else {[System.Windows.Automation.ControlType]::Button}
+                $cond=[System.Windows.Automation.AndCondition]::new(
+                  $cond,[System.Windows.Automation.PropertyCondition]::new(
+                  [System.Windows.Automation.AutomationElement]::ControlTypeProperty,$type))
+              }
+              foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
+                Where-Object {$_.MainWindowHandle -ne 0})){
+                $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                  [IntPtr]$p.MainWindowHandle)
+                if(!$root){continue}
+                $found=$root.FindFirst($scope,$cond)
+                if($found -and $found.Current.IsEnabled){return $found}
+              }
+              return $null
+            }
+            function WaitNative([string]$name,[string]$kind,[string]$fail){
+              for($i=0;$i -lt 65;$i++){
+                $x=FindNative $name $kind
+                if($x){return $x}
+                Start-Sleep -Milliseconds 500
+              }
+              throw $fail
+            }
+            $null=WaitNative 'Оформите замысел в рабочий черновик' '' 'D02_NATIVE_PROJECTS_H1_MISSING'
+            foreach($h in @(
+              'Чего мне не хватает для выбранной роли',
+              'Мой маршрут освоения навыка',
+              'Что могу попробовать уже сейчас',
+              'Записать результат и основание',
+              'Как организовать работу вместе',
+              'Что обещал, что сделал и чем подтвердить'
+            )){$null=WaitNative $h '' 'D02_NATIVE_SUBSERVICE_NOT_VISIBLE'}
+            Write-Output 'D02_NATIVE_EDGE_SIX_SERVICES_VISIBLE=PASS'
+            function Fill([string]$name,[string]$value,[string]$fail){
+              $field=WaitNative $name 'edit' $fail
+              try{
+                $pattern=[System.Windows.Automation.ValuePattern]$field.GetCurrentPattern(
+                  [System.Windows.Automation.ValuePattern]::Pattern)
+                $pattern.SetValue($value)
+              }catch{throw $fail}
+            }
+            Fill 'Какую роль хотите попробовать' 'Помощник пункта выдачи' 'D02_NATIVE_INPUT_ROLE_FAILED'
+            Fill 'Какого результата хотите достичь' 'Обработать пять заказов' 'D02_NATIVE_INPUT_OUTCOME_FAILED'
+            Fill 'Первое действие' 'Проверить пробную смену' 'D02_NATIVE_INPUT_NEXT_FAILED'
+            Fill 'Навык или умение' 'Приём заказов' 'D02_NATIVE_INPUT_SKILL_FAILED'
+            Fill 'Как проверить результат' 'Пять приёмок без ошибки' 'D02_NATIVE_INPUT_CRITERION_FAILED'
+            Fill 'Что попробую сделать' 'Принять пять заказов с наставником' 'D02_NATIVE_INPUT_PRACTICE_FAILED'
+            $button=WaitNative 'Записать оценку' 'button' 'D02_NATIVE_SAVE_BUTTON_MISSING'
+            try{
+              $invoke=[System.Windows.Automation.InvokePattern]$button.GetCurrentPattern(
+                [System.Windows.Automation.InvokePattern]::Pattern)
+              $invoke.Invoke()
+            }catch{throw 'D02_NATIVE_SAVE_BUTTON_INVOKE_FAILED'}
+            $resultFound=$false
+            for($i=0;$i -lt 60;$i++){
+              foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
+                Where-Object {$_.MainWindowHandle -ne 0})){
+                $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                  [IntPtr]$p.MainWindowHandle)
+                if(!$root){continue}
+                $all=$root.FindAll($scope,[System.Windows.Automation.Condition]::TrueCondition)
+                foreach($a in $all){
+                  if($a.Current.Name.StartsWith('Оценка записана')){$resultFound=$true;break}
+                }
+                if($resultFound){break}
+              }
+              if($resultFound){break}
+              Start-Sleep -Milliseconds 500
+            }
+            if(!$resultFound){throw 'D02_NATIVE_FORM_RESULT_NOT_VISIBLE'}
+            Write-Output 'D02_NATIVE_EDGE_REAL_USER_ENTRY=PASS'
+            Write-Output 'D02_NATIVE_KERNEL_RECEIPT_AND_IWXA=NOT_RUN'
+          }finally{
+            if($browser){try{$browser.Kill($true)}catch{}}
+            if($server){try{$server.Kill($true)}catch{}}
+          }
+      - name: Confirm private data and dist never published
+        if: always()
+        run: |
+          Write-Output 'D02_NATIVE_PRIVATE_DATA_UPLOADED=FALSE'
+          Write-Output 'D02_NATIVE_EDGE_PROFILE_UPLOADED=FALSE'
