@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: a2e5a6ecc72336942ec130773017edcf354717e8
+      SITE_SHA: dfa2070daa74a7b7d7226b630ac2ebdff53f780f
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: a2e5a6ecc72336942ec130773017edcf354717e8
+          ref: dfa2070daa74a7b7d7226b630ac2ebdff53f780f
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
