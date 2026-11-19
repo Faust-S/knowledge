@@ -413,7 +413,25 @@ jobs:
           } else {
             $proof = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
             $sha = (Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($proof.originalAgentSha -cne '0d4196fa732b52d192ac75590715199381dfb2df' -or
+            $nativeDraft = Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06/temporary-installed-fixture/native-gui-draft.json'
+            $draftAccepted = $false
+            if (Test-Path -LiteralPath $nativeDraft -PathType Leaf) {
+              try {
+                $saved = Get-Content -LiteralPath $nativeDraft -Raw | ConvertFrom-Json
+                $draftAccepted = ($saved.status -ceq 'PASS' -and $saved.input -ceq 'NATIVE_WINDOWS_UI_AUTOMATION')
+              } catch {}
+            }
+            $stateFile=Join-Path $folder 'capture-state.json'
+            $stateOk=$false
+            if (Test-Path -LiteralPath $stateFile -PathType Leaf) {
+              try {
+                $observed=Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
+                $stateOk=($observed.exactInstalledExeVerified -and $observed.titledWindowSeen -and $observed.genuineUiControlsSeen)
+              } catch {}
+            }
+            if (!$draftAccepted -or !$stateOk) {
+              Write-Host 'QA_AGENT_NATIVE_SCREEN_NOT_LINKED_TO_VERIFIED_GUI_DRAFT'
+            } elseif ($proof.originalAgentSha -cne '0d4196fa732b52d192ac75590715199381dfb2df' -or
                 $proof.screenshotSha256 -cne $sha -or
                 $proof.windowTitle -cne 'IWXA Personal' -or
                 $proof.status -cne 'CAPTURED_REQUIRES_VISUAL_REVIEW' -or
@@ -449,6 +467,16 @@ jobs:
             Write-Host ('QA_AGENT_SETUP_SAFE_ERROR_CODE ' + $code)
           }
           $root = Join-Path $dir 'temporary-installed-fixture'
+          foreach ($part in @('native-gui-draft','installed-real-qwen-proof')) {
+            $present=(Test-Path -LiteralPath (Join-Path $root ($part+'.json')) -PathType Leaf)
+            Write-Host ('QA_AGENT_NATIVE_PROOF_FILE ' + $part.ToUpperInvariant() + ' ' + $(if($present){'PRESENT'}else{'ABSENT'}))
+          }
+          $local = Join-Path $root 'isolated-profile/AppData/Local/IWXA'
+          foreach ($name in @('current-install.json','storage-authority.json')) {
+            $present=(Test-Path -LiteralPath (Join-Path $local $name) -PathType Leaf)
+            $category=if($name -like 'current-*'){'INSTALL_MARKER'}else{'STORAGE_MARKER'}
+            Write-Host ('QA_AGENT_AUTHORITY_STAGE ' + $category + ' ' + $(if($present){'PRESENT'}else{'ABSENT'}))
+          }
           foreach ($part in @('identity','preflight','installed','verified','locations-readback','installed-witness','repair','verified-after-repair','confirmed','removed')) {
             $file = Join-Path $root ($part + '.json')
             if (!(Test-Path -LiteralPath $file -PathType Leaf)) { continue }
