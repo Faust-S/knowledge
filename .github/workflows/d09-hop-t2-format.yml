@@ -48,7 +48,18 @@ jobs:
       - name: Verify T2 lint without weakening rules
         shell: bash
         run: |
-          ./node_modules/.bin/eslint t2-site-module/hop src/integrations/t2 > "$RUNNER_TEMP/d09-format-lint.log" 2>&1 || {
+          ./node_modules/.bin/eslint t2-site-module/hop src/integrations/t2 --format json > "$RUNNER_TEMP/d09-format-lint.json" 2>&1 || {
+            node --input-type=module - "$RUNNER_TEMP/d09-format-lint.json" <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const files = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+          const counts = new Map();
+          const names = [];
+          for (const file of files) {
+            if (file.errorCount) names.push({file: file.filePath.split('/').slice(-2).join('/'), count: file.errorCount});
+            for (const entry of file.messages) counts.set(entry.ruleId ?? 'parser', (counts.get(entry.ruleId ?? 'parser') ?? 0) + 1);
+          }
+          console.log('D09_T2_LINT_REMAINING=' + JSON.stringify({rules: [...counts], files:names.slice(0,20)}));
+          NODE
             echo "D09_T2_SCOPED_LINT=FAIL"; exit 1;
           }
           echo "D09_T2_SCOPED_LINT=PASS"
