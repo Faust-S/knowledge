@@ -32,6 +32,11 @@ try {
     $env:PSModulePath = $osModules + [IO.Path]::PathSeparator + $env:PSModulePath
   }
   Import-Module Microsoft.PowerShell.LocalAccounts -ErrorAction Stop
+  # JSON readback and native filesystem utilities must be explicitly present
+  # in the restricted WindowsPowerShell process. Do not silently continue
+  # with unparsed corporate trust data if autoload is unavailable.
+  Import-Module Microsoft.PowerShell.Utility -ErrorAction Stop
+  Import-Module Microsoft.PowerShell.Management -ErrorAction Stop
   if (-not (Get-Command New-LocalUser -ErrorAction SilentlyContinue) -or
       -not (Get-Command Get-LocalUser -ErrorAction SilentlyContinue) -or
       -not (Get-Command Remove-LocalUser -ErrorAction SilentlyContinue)) {
@@ -278,7 +283,8 @@ if(!okay)process.exit(3);
     $missingMessage = [string]$_.Exception.Message
     foreach ($possible in @('NEW-LOCALUSER','GET-LOCALUSER','REMOVE-LOCALUSER',
       'CONVERTTO-SECURESTRING','NEW-OBJECT','START-SLEEP','IMPORT-MODULE',
-      'JOIN-PATH','TEST-PATH','GET-COMMAND')) {
+      'JOIN-PATH','TEST-PATH','GET-COMMAND','WHERE-OBJECT','COPY-ITEM',
+       'GET-CONTENT','CONVERTFROM-JSON','CONVERTTO-JSON','START-PROCESS')) {
       if ($missingMessage -match ("(?i)the term ['""]" + $possible + "['""]")) {
         Write-Output ('G4_ORIGINAL_EMPLOYEE_OS_MISSING_COMMAND ' + $possible)
       }
@@ -286,7 +292,9 @@ if(!okay)process.exit(3);
     $command = [string]$_.Exception.CommandName
     $allowedCommandNames = @('NEW-LOCALUSER','GET-LOCALUSER','REMOVE-LOCALUSER',
       'CONVERTTO-SECURESTRING','NEW-OBJECT','START-SLEEP','GET-COMMAND',
-      'JOIN-PATH','GET-CONTENT','IMPORT-MODULE','TEST-PATH')
+      'JOIN-PATH','GET-CONTENT','IMPORT-MODULE','TEST-PATH',
+       'WHERE-OBJECT','COPY-ITEM','CONVERTFROM-JSON','CONVERTTO-JSON',
+       'START-PROCESS')
     if ($command.ToUpperInvariant() -in $allowedCommandNames) {
       Write-Output ('G4_ORIGINAL_EMPLOYEE_OS_MISSING_COMMAND ' + $command.ToUpperInvariant())
     }
