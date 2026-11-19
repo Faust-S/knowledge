@@ -130,6 +130,38 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             # Only exact lower-case machine codes leave the private build log.
             # Do not print private source lines, stderr, paths, payloads or EXE.
+            $stageFlags = [ordered]@{
+              OUTPUT_ROOT = (Test-Path -LiteralPath $output -PathType Container)
+              T2_EXTRACT = (Test-Path -LiteralPath (Join-Path $output 'build/qualified-original-t2') -PathType Container)
+              T3_DEPENDENCIES = (Test-Path -LiteralPath (Join-Path $output 'logs/original-t3-dependencies.log') -PathType Leaf)
+              T3_BUILD = (Test-Path -LiteralPath (Join-Path $output 'logs/original-t3-compiled-host.log') -PathType Leaf)
+              ORIGINAL_ONE_DIST = (Test-Path -LiteralPath (Join-Path $output 'build/original-agent-one-dist-receipt.json') -PathType Leaf)
+              AGENT_PACKAGE = (Test-Path -LiteralPath (Join-Path $output 'logs/private-build-result.json') -PathType Leaf)
+              SETUP_BUILT = (Test-Path -LiteralPath (Join-Path $output 'IWXA-Private-SetupCore-Candidate.exe') -PathType Leaf)
+            }
+            foreach ($name in $stageFlags.Keys) {
+              if ($stageFlags[$name]) { Write-Host ('G4_AGENT06_PRIVATE_BUILD_STAGE_REACHED ' + $name) }
+            }
+            if (Test-Path -LiteralPath $log -PathType Leaf) {
+              $rawInfo = Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+              if ($rawInfo) {
+                $classMatchers = [ordered]@{
+                  POWERSHELL_PARSER = 'ParserError|ParseException'
+                  COMMAND_MISSING = 'CommandNotFoundException|is not recognized as the name of a cmdlet'
+                  ARGUMENT_BINDING = 'ParameterBindingException|NamedParameterNotFound'
+                  GIT_COMMAND = 'git.exe|git identity failed'
+                  PATH_MISSING = 'ItemNotFoundException|Cannot find path|does not exist'
+                  ACCESS_DENIED = 'UnauthorizedAccessException|Access is denied'
+                  NODE_TOOL = 'npm ERR!|npm error|Node.js'
+                  PYTHON_TOOL = 'ModuleNotFoundError|ImportError'
+                }
+                foreach ($name in $classMatchers.Keys) {
+                  if ($rawInfo -match $classMatchers[$name]) {
+                    Write-Host ('G4_AGENT06_PRIVATE_BUILD_ERROR_CLASS ' + $name)
+                  }
+                }
+              }
+            }
             $safeCodes = @()
             if (Test-Path -LiteralPath $log -PathType Leaf) {
               foreach ($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)) {
