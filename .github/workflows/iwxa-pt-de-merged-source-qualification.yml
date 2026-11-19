@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: 98bc5a28ff3495b0f6f41b1a7d338edd14ef0658
+          ref: 618ae6a8263d60eb1bb562a5d0d4a0e69b256eab
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           fetch-depth: 0
@@ -46,7 +46,7 @@ jobs:
           set -uo pipefail
           failure=0
           actual=$(git rev-parse HEAD)
-          if [ "$actual" != "98bc5a28ff3495b0f6f41b1a7d338edd14ef0658" ]; then
+          if [ "$actual" != "618ae6a8263d60eb1bb562a5d0d4a0e69b256eab" ]; then
             echo "IWXA_MERGED_REVISION=FAIL"
             exit 1
           fi
