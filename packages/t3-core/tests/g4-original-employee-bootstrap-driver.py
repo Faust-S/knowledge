@@ -25,6 +25,11 @@ def main():
             assert candidate["state"] == "AWAITING_ORIGINAL_MANAGER_ENROLLMENT"
             assert candidate["originalKernelEnrollment"] is False
             print(json.dumps({"candidate": candidate}, separators=(",", ":")))
+        elif mode == "READ_CANDIDATE":
+            candidate = port.employee_candidate(root)
+            assert candidate["state"] == "AWAITING_ORIGINAL_MANAGER_ENROLLMENT"
+            assert candidate["originalKernelEnrollment"] is False
+            print(json.dumps({"candidate": candidate}, separators=(",", ":")))
         elif mode == "COLD_PROOF":
             request_path = Path(os.environ["G4_EMPLOYEE_PUBLIC_REQUEST_PATH"])
             request = json.loads(request_path.read_text(encoding="utf-8"))
