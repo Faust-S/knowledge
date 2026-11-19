@@ -1,0 +1,71 @@
+name: IWXA PT-DE integrated main source qualification
+on:
+  push:
+    branches: [work/2026-11-18-pt-66-qualification]
+    paths:
+      - .github/workflows/iwxa-pt-de-merged-source-qualification.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-pt-de-merge-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  merged-source:
+    name: Main plus PT-DE merged source / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - name: Checkout original private site, no persisted credentials
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: a04eb584077999fa662976670d636f03894c3e44
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.2"
+      - name: Verify merged source and cross-locale guards
+        shell: bash
+        working-directory: site
+        env:
+          LOVABLE_BUILD_TARGET: static
+          NITRO_PRESET: node-server
+          SERVER_PRESET: node-server
+        run: |
+          set -uo pipefail
+          failure=0
+          actual=$(git rev-parse HEAD)
+          if [ "$actual" != "a04eb584077999fa662976670d636f03894c3e44" ]; then
+            echo "IWXA_MERGED_REVISION=FAIL"
+            exit 1
+          fi
+          echo "IWXA_MERGED_REVISION=PASS"
+          check() {
+            local name="$1"; shift
+            if "$@" > "$RUNNER_TEMP/iwxa-${name}.txt" 2>&1; then
+              echo "IWXA_${name}=PASS"
+            else
+              echo "IWXA_${name}=FAIL"
+              echo "IWXA_${name}_ERRORS=$(grep -Eic 'FAIL|error|exception|not found|undefined' "$RUNNER_TEMP/iwxa-${name}.txt" || true)"
+              failure=$((failure+1))
+            fi
+          }
+          check INSTALL bun install --frozen-lockfile
+          if [ "$failure" -ne 0 ]; then exit 1; fi
+          check PT_SOURCE node scripts/check-portuguese-source.mjs
+          check DE_SOURCE node scripts/check-german-full-source.mjs
+          check FR_SOURCE node scripts/check-french-source.mjs
+          check TYPECHECK bun run typecheck
+          check ROUTES npm run check:routes
+          echo "IWXA_MERGED_SOURCE_FAILURES=$failure"
+          test "$failure" -eq 0
