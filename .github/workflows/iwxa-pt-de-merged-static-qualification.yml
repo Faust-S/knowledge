@@ -1,0 +1,84 @@
+name: IWXA PT-DE integrated static site qualification
+on:
+  push:
+    branches: [work/2026-11-18-pt-66-qualification]
+    paths:
+      - .github/workflows/iwxa-pt-de-merged-static-qualification.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  static-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: a04eb584077999fa662976670d636f03894c3e44
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.2"
+      - name: Build original merged static site
+        shell: bash
+        working-directory: site
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "a04eb584077999fa662976670d636f03894c3e44"
+          echo "IWXA_EXACT_MERGE=PASS"
+          bun install --frozen-lockfile > "$RUNNER_TEMP/merged-install.log" 2>&1 || { echo "IWXA_STATIC_INSTALL=FAIL"; exit 1; }
+          echo "IWXA_STATIC_INSTALL=PASS"
+          npm run build:static > "$RUNNER_TEMP/merged-build.log" 2>&1 || { echo "IWXA_STATIC_BUILD=FAIL"; exit 1; }
+          echo "IWXA_STATIC_BUILD=PASS"
+      - name: Check all exported locales and preserved navigation
+        shell: bash
+        working-directory: site
+        run: |
+          set -uo pipefail
+          failure=0
+          check() {
+            local name="$1"; shift
+            if "$@" > "$RUNNER_TEMP/merged-${name}.log" 2>&1; then
+              echo "IWXA_STATIC_${name}=PASS"
+            else
+              echo "IWXA_STATIC_${name}=FAIL"
+              echo "IWXA_STATIC_${name}_ERROR_COUNT=$(grep -Eic 'FAIL|error|missing|mismatch' "$RUNNER_TEMP/merged-${name}.log" || true)"
+              failure=$((failure+1))
+            fi
+          }
+          check TOTAL_PAGES node --input-type=module - <<'JS'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const coverage=JSON.parse(fs.readFileSync('translation/coverage.json','utf8'));
+          const langs=[...fs.readFileSync('src/i18n/site-routes.ts','utf8').matchAll(/\{\s*code: "([^"]+)", prefix: "([^"]*)"/g)].map(m=>({code:m[1],prefix:m[2]}));
+          if(langs.length!==8||coverage.routes.length!==66||coverage.locales.length!==7) process.exit(1);
+          let count=0;
+          for(const row of coverage.routes)for(const l of langs){
+            if(l.code!=='ru'&&!row.available.includes(l.code)) continue;
+            const route=l.code==='ru'?row.route:'/'+l.prefix+(row.route==='/'?'/':row.route);
+            const file=path.join('dist-static',...route.split('/').filter(Boolean),'index.html');
+            if(!fs.existsSync(file))process.exit(2);
+            const html=fs.readFileSync(file,'utf8');
+            if(!/<html\b/i.test(html)||!/<head\b/i.test(html)||!/<body\b/i.test(html)||!/<title\b/i.test(html))process.exit(3);
+            if(!html.includes('https://iwxa.ru'+route))process.exit(4);
+            count++;
+          }
+          if(count!==528)process.exit(5);
+          const countActual=(function walk(dir){return fs.readdirSync(dir,{withFileTypes:true}).reduce((n,e)=>n+(e.isDirectory()?walk(path.join(dir,e.name)):e.name==='index.html'?1:0),0)}('dist-static'));
+          if(countActual!==528)process.exit(6);
+          console.log('IWXA_TOTAL_ROUTES='+count);
+          JS
+          check ROUTES npm run check:routes
+          check ATLAS npm run check:atlas
+          check LINKS npm run check:links
+          check SEO npm run check:seo
+          check HOSTING npm run check:hosting-clean
+          check HTACCESS npm run check:htaccess
+          echo "IWXA_STATIC_CHECK_FAILURES=$failure"
+          test "$failure" -eq 0
