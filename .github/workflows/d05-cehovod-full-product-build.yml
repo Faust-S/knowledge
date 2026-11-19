@@ -30,7 +30,7 @@ jobs:
             echo "D05_SITE_ACCESS=FAIL"
             exit 1
           fi
-          test "$(git -C site rev-parse HEAD)" = "1e8976961ddca923ad3ce94c61020d09b90d2142" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "b36b07cd5e21a9726c24662e2ccff5a9296e93b5" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
           echo "D05_SITE_PIN=PASS"
           git init --quiet t2
           if ! GIT_TERMINAL_PROMPT=0 git -C t2 -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/T2.git e70de29b72b83e2546f7ab74b17572685a728c17 >/dev/null 2>&1; then
@@ -160,6 +160,8 @@ jobs:
           node --check scripts/d05-first-use-real-kernel-witness.mjs
           D05_T2_WITNESS_COPY="$witness" node scripts/d05-first-use-real-kernel-witness.mjs
           D05_T2_WITNESS_COPY="$witness" D05_FIRST_USE_CASE001=1 D05_FIRST_USE_CASE001_EXCHANGE=1 node scripts/d05-first-use-real-kernel-witness.mjs
+          D05_T2_WITNESS_COPY="$witness" D05_FIRST_USE_CASE002=1 node scripts/d05-first-use-real-kernel-witness.mjs
+          echo "D05_CASE002_TWO_RESULT_WITNESS=PASS"
           echo "D05_CASE001_REQUEST_TWO_RESULTS=PASS"
           echo "D05_FULL_26_FAMILY_WITNESS=NOT_RUN"
           echo "D05_IWXA_EXCHANGE=PASS"
