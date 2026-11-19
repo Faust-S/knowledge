@@ -15,8 +15,8 @@ jobs:
       matrix:
         runner: [windows-latest, ubuntu-latest]
     env:
-      SITE_SHA: 7e6b35c6eef45977a02aa77bcffc6e101416210f
-      SUBJECT_SHA: b93284c7b92fa219c6538865e0bda729726bf546
+      SITE_SHA: ad48c6ef00e101fcb89d03437e2863d79e53a70a
+      SUBJECT_SHA: 49f336bea9a4d51013e548de326563e662f091c0
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -69,7 +69,7 @@ jobs:
           if((git -C site rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D07_SITE_SHA_MISMATCH'}
           if((git -C subject rev-parse HEAD).Trim() -ne $env:SUBJECT_SHA){throw 'D07_SUBJECT_SHA_MISMATCH'}
           if((git -C t2 rev-parse HEAD).Trim() -ne $env:T2_SHA){throw 'D07_T2_SHA_MISMATCH'}
-          foreach($name in @('service-blocks.ts','service-execution.ts','service-changes.ts','service-plan-templates.ts','service-settlement.ts','service-aftercare.ts','service-regular.ts','service-links.ts','service-attention.ts','service-month-report.ts')){
+          foreach($name in @('service-blocks.ts','service-execution.ts','service-changes.ts','service-plan-templates.ts','service-settlement.ts','service-aftercare.ts','service-regular.ts','service-links.ts','service-attention.ts','service-month-report.ts','service-commitments.ts')){
             $a=(Get-FileHash (Join-Path 'subject/src/domain' $name) -Algorithm SHA256).Hash
             $b=(Get-FileHash (Join-Path 'site/src/domain' $name) -Algorithm SHA256).Hash
             $c=(Get-FileHash (Join-Path 'site/t2-site-module/uslugovod' $name) -Algorithm SHA256).Hash
@@ -87,7 +87,7 @@ jobs:
         working-directory: site
         run: |
           $log=Join-Path $env:RUNNER_TEMP 'd07-blocks-tests.private.log'
-          & node --import tsx --test --test-reporter=tap scripts/tests/d07-service-blocks.test.mjs scripts/tests/d07-service-execution.test.mjs scripts/tests/d07-service-plan-templates.test.mjs scripts/tests/d07-service-settlement.test.mjs scripts/tests/d07-service-aftercare.test.mjs scripts/tests/d07-service-regular.test.mjs scripts/tests/d07-composite-service-journey.test.mjs scripts/tests/d07-service-links.test.mjs scripts/tests/d07-service-attention.test.mjs scripts/tests/d07-service-month-report.test.mjs scripts/tests/d07-host-module-tsx-parse.test.mjs *> $log
+          & node --import tsx --test --test-reporter=tap scripts/tests/d07-service-blocks.test.mjs scripts/tests/d07-service-execution.test.mjs scripts/tests/d07-service-plan-templates.test.mjs scripts/tests/d07-service-settlement.test.mjs scripts/tests/d07-service-aftercare.test.mjs scripts/tests/d07-service-regular.test.mjs scripts/tests/d07-composite-service-journey.test.mjs scripts/tests/d07-service-links.test.mjs scripts/tests/d07-service-attention.test.mjs scripts/tests/d07-service-month-report.test.mjs scripts/tests/d07-service-commitments.test.mjs scripts/tests/d07-host-module-tsx-parse.test.mjs *> $log
           if($LASTEXITCODE -ne 0){
             $failed=@(Get-Content $log -ErrorAction SilentlyContinue |
               Where-Object {$_ -match '^not ok [0-9]+ - '})
