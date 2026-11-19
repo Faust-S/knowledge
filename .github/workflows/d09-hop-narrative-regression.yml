@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           echo "D09_SITE_HEAD=$(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD)" = "5806fd95c89583050b710d14aae92826957a87b7" || {
+          test "$(git rev-parse HEAD)" = "3378ea7c153c2b52524fc4f6df545703e0834583" || {
             echo "D09_SITE_REVISION_CHANGED=HOLD"; exit 1;
           }
           node --experimental-strip-types --test tests/d09-read-model-guards.test.mjs > "$RUNNER_TEMP/d09-result-source.log" 2>&1 || {
