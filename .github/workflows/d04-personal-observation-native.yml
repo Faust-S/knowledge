@@ -1,0 +1,177 @@
+name: D04 personal observation native T2 acceptance
+on:
+  push:
+    branches:
+      - work/2026-11-18-d04-life-os-qualification
+    paths:
+      - .github/workflows/d04-personal-observation-native.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d04-observation-native-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  observation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 105
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout public qualification harness
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Confirm authorized private repository access
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then echo "D04_DOMEN_SECRET_UNAVAILABLE"; exit 1; fi
+          for repo in Faust-S/bazmed.ru Faust-S/bazmed Faust-S/T2; do
+            gh api "repos/$repo" --jq '.id' >/dev/null 2>&1 || {
+              echo "D04_PRIVATE_REPOSITORY_ACCESS_DENIED"
+              exit 1
+            }
+          done
+          echo "D04_AUTHORIZED_PRIVATE_SOURCES=3/3"
+      - name: Checkout exact private site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/bazmed.ru
+          ref: 2c7bbc76579956224c3c873765f848c22ca746a8
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/site
+          persist-credentials: false
+      - name: Checkout exact private subject
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/bazmed
+          ref: 0f1c550ab039c02d0cab0a911bdb67f96b97fb2e
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/model
+          persist-credentials: false
+      - name: Checkout original normative T2
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 9c64951cd78411283e8a416641c36d71e169fc1d
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/t2
+          persist-credentials: false
+      - name: Verify exact sources, canonical profile and witness
+        run: |
+          set -euo pipefail
+          test "$(git -C d04-private/site rev-parse HEAD)" = "2c7bbc76579956224c3c873765f848c22ca746a8"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "1fd3cc1f6f57c689aa5bb11752b1131af4d34b3e"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "0f1c550ab039c02d0cab0a911bdb67f96b97fb2e"
+          test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
+          cmp d04-private/model/docs/life-os/PERSONAL_OBSERVATION_PROFILE_V0_1.mjs d04-private/site/t2-site-module/bazmed/PERSONAL_OBSERVATION_PROFILE_V0_1.mjs
+          node --check d04-private/site/qualification/life-os-observation-native.browser.mjs
+          echo "D04_OBSERVATION_SOURCE_PARITY_AND_EXACT_PINS=PASS"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install exact site and T2 packages without printing private logs
+        run: |
+          set -euo pipefail
+          if (cd d04-private/site && npm ci --no-audit --no-fund --include=dev) >"$RUNNER_TEMP/d04-observation-site-install.log" 2>&1; then
+            echo "D04_OBSERVATION_SITE_INSTALL=PASS"
+          else
+            echo "D04_OBSERVATION_SITE_INSTALL=FAIL"
+            exit 1
+          fi
+          canonical=d04-private/t2/t2/current/final-successor/canonical-source
+          if (cd "$canonical" && npm ci --no-audit --no-fund --include=dev) >"$RUNNER_TEMP/d04-observation-t2-install.log" 2>&1; then
+            echo "D04_OBSERVATION_T2_INSTALL=PASS"
+          else
+            echo "D04_OBSERVATION_T2_INSTALL=FAIL"
+            exit 1
+          fi
+      - name: Run observation command and TypeScript admission
+        working-directory: d04-private/site
+        run: |
+          set -euo pipefail
+          if node --import tsx --test tests/life-os-personal-observation.test.mjs >"$RUNNER_TEMP/d04-observation-unit.log" 2>&1; then
+            echo "D04_OBSERVATION_UNIT_ADMISSION=PASS"
+          else
+            echo "D04_OBSERVATION_UNIT_ADMISSION=FAIL"
+            grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d04-observation-unit.log" | tail -3 || true
+            exit 1
+          fi
+          if npx tsc --noEmit --pretty false >"$RUNNER_TEMP/d04-observation-ts.log" 2>&1; then
+            echo "D04_OBSERVATION_TYPESCRIPT=PASS"
+          else
+            echo "D04_OBSERVATION_TYPESCRIPT=FAIL"
+            exit 1
+          fi
+      - name: Install normative T2 browser
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          canonical=d04-private/t2/t2/current/final-successor/canonical-source
+          if (cd "$canonical" && timeout 240s npx playwright install chromium) >"$RUNNER_TEMP/d04-observation-browser.log" 2>&1; then
+            echo "D04_OBSERVATION_NORMATIVE_BROWSER=PASS"
+          else
+            echo "D04_OBSERVATION_NORMATIVE_BROWSER=FAIL"
+            exit 1
+          fi
+      - name: Build original T2 Host and scoped Kernel
+        working-directory: d04-private/site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
+        run: |
+          set -euo pipefail
+          if npm run build:t2:site >"$RUNNER_TEMP/d04-observation-build.log" 2>&1; then
+            test -s dist/workspace/index.html
+            test -s dist/_iwxa/current.json
+            echo "D04_OBSERVATION_ORIGINAL_T2_BUILD=PASS"
+          else
+            echo "D04_OBSERVATION_ORIGINAL_T2_BUILD=FAIL"
+            grep -Eo 'BAZMED_[A-Z0-9_]+|D04_[A-Z0-9_]+' "$RUNNER_TEMP/d04-observation-build.log" | sort -u | head -12 || true
+            exit 1
+          fi
+      - name: Run actual observation GUI, Kernel correction, history and cold readback
+        working-directory: d04-private/site
+        run: |
+          set -uo pipefail
+          set +e
+          node --input-type=module >"$RUNNER_TEMP/d04-observation-native.log" 2>&1 <<'NODE'
+          import {createRequire} from 'node:module';
+          import {resolve,join} from 'node:path';
+          import {pathToFileURL} from 'node:url';
+          const site=process.cwd();
+          const canonical=resolve(process.env.GITHUB_WORKSPACE,
+            'd04-private/t2/t2/current/final-successor/canonical-source');
+          const {chromium}=createRequire(join(canonical,'package.json'))('playwright');
+          const {serveRealKernelHost}=await import(pathToFileURL(join(canonical,'scripts/real-kernel-e2e.mjs')).href);
+          const {selectWitnessOption}=await import(pathToFileURL(
+            join(canonical,'src/factory2/products/domain-completion/independent-browser-witness.mjs')).href);
+          const {runPersonalObservationNativeJourney}=await import(pathToFileURL(
+            join(site,'qualification/life-os-observation-native.browser.mjs')).href);
+          const server=await serveRealKernelHost(join(site,'dist'),{
+            independentWitness:true,previewOrigin:true
+          });
+          try{
+            const result=await runPersonalObservationNativeJourney({
+              chromium,origin:server.origin,selectWitnessOption
+            });
+            if(result.status!=='PASS'||result.objects!==1||result.events!==2||
+               result.revision!==2||!result.cold||!result.history||
+               !result.workspaceIdVerified)throw Error('D04_OBSERVATION_INCOMPLETE');
+            console.log('D04_OBSERVATION_NATIVE_E2E=PASS');
+            console.log('D04_OBSERVATION_KERNEL_CAS_AND_EVENT=PASS');
+            console.log('D04_OBSERVATION_ORIGINAL_SOURCE_HISTORY=PASS');
+            console.log('D04_OBSERVATION_COLD_RESTART=PASS');
+          }finally{await new Promise(done=>server.server.close(done));}
+          NODE
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "D04_OBSERVATION_NATIVE_E2E=FAIL"
+            grep -Eo 'D04_OBSERVATION_(STAGE|ERROR_CLASS)_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-observation-native.log" | sort -u | tail -8 || true
+            exit "$code"
+          fi
+          grep '^D04_OBSERVATION_' "$RUNNER_TEMP/d04-observation-native.log" | tail -8
+          # Never upload private site, model, T2, dist, logs, profiles or user data.
