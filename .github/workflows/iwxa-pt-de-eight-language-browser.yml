@@ -1,0 +1,62 @@
+name: IWXA PT-DE all eight languages client navigation qualification
+on:
+  push:
+    branches: [work/2026-11-18-pt-66-qualification]
+    paths:
+      - .github/workflows/iwxa-pt-de-eight-language-browser.yml
+      - tools/iwxa-merged-eight-language-browser.mjs
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: qa
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: 618ae6a8263d60eb1bb562a5d0d4a0e69b256eab
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.2"
+      - name: Install and build original integrated site
+        shell: bash
+        working-directory: site
+        env:
+          LOVABLE_BUILD_TARGET: static
+          NITRO_PRESET: node-server
+          SERVER_PRESET: node-server
+        run: |
+          test "$(git rev-parse HEAD)" = "618ae6a8263d60eb1bb562a5d0d4a0e69b256eab" || exit 1
+          bun install --frozen-lockfile > "$RUNNER_TEMP/iwxa-eight-install.log" 2>&1 || { echo "IWXA_EIGHT_INSTALL=FAIL"; exit 1; }
+          echo "IWXA_EIGHT_INSTALL=PASS"
+          bun run build > "$RUNNER_TEMP/iwxa-eight-build.log" 2>&1 || { echo "IWXA_EIGHT_BUILD=FAIL"; exit 1; }
+          echo "IWXA_EIGHT_BUILD=PASS"
+      - name: Actual Chromium/React navigation and 404 on eight languages
+        shell: bash
+        run: |
+          PORT=4386 HOST=127.0.0.1 NODE_ENV=production node site/.output/server/index.mjs > "$RUNNER_TEMP/iwxa-eight-server.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for i in $(seq 1 70); do
+            if curl -fsS -o /dev/null http://127.0.0.1:4386/; then break; fi
+            sleep 1
+          done
+          IWXA_SITE_DIR="$GITHUB_WORKSPACE/site" IWXA_BASE=http://127.0.0.1:4386 node qa/tools/iwxa-merged-eight-language-browser.mjs > "$RUNNER_TEMP/iwxa-eight-browser.log" 2>&1 || {
+            echo "IWXA_EIGHT_BROWSER=FAIL"
+            grep '^IWXA_EIGHT_' "$RUNNER_TEMP/iwxa-eight-browser.log" | tail -n 15 || true
+            exit 1
+          }
+          grep '^IWXA_EIGHT_' "$RUNNER_TEMP/iwxa-eight-browser.log"
+          echo "IWXA_EIGHT_BROWSER=PASS"
