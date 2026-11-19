@@ -15,8 +15,8 @@ jobs:
       matrix:
         runner: [windows-latest, ubuntu-latest]
     env:
-      SITE_SHA: ae9aea150a02361e62352b7e98387c9c8183607f
-      SUBJECT_SHA: 3d9660af53055d863724b154352b153930e4ef41
+      SITE_SHA: 2927c69ebbfc91a5396581d1f5f6e50083c1e3be
+      SUBJECT_SHA: a52b288b256e13f66de7a74ec08dbeb986b0ff6b
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -69,7 +69,7 @@ jobs:
           if((git -C site rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D07_SITE_SHA_MISMATCH'}
           if((git -C subject rev-parse HEAD).Trim() -ne $env:SUBJECT_SHA){throw 'D07_SUBJECT_SHA_MISMATCH'}
           if((git -C t2 rev-parse HEAD).Trim() -ne $env:T2_SHA){throw 'D07_T2_SHA_MISMATCH'}
-          foreach($name in @('service-blocks.ts','service-execution.ts','service-changes.ts','service-plan-templates.ts','service-settlement.ts')){
+          foreach($name in @('service-blocks.ts','service-execution.ts','service-changes.ts','service-plan-templates.ts','service-settlement.ts','service-aftercare.ts')){
             $a=(Get-FileHash (Join-Path 'subject/src/domain' $name) -Algorithm SHA256).Hash
             $b=(Get-FileHash (Join-Path 'site/src/domain' $name) -Algorithm SHA256).Hash
             $c=(Get-FileHash (Join-Path 'site/t2-site-module/uslugovod' $name) -Algorithm SHA256).Hash
@@ -87,7 +87,7 @@ jobs:
         working-directory: site
         run: |
           $log=Join-Path $env:RUNNER_TEMP 'd07-blocks-tests.private.log'
-          & node --import tsx --test scripts/tests/d07-service-blocks.test.mjs scripts/tests/d07-service-execution.test.mjs scripts/tests/d07-service-plan-templates.test.mjs scripts/tests/d07-service-settlement.test.mjs *> $log
+          & node --import tsx --test scripts/tests/d07-service-blocks.test.mjs scripts/tests/d07-service-execution.test.mjs scripts/tests/d07-service-plan-templates.test.mjs scripts/tests/d07-service-settlement.test.mjs scripts/tests/d07-service-aftercare.test.mjs *> $log
           if($LASTEXITCODE -ne 0){
             $failed=@(Get-Content $log -ErrorAction SilentlyContinue |
               Where-Object {$_ -match '^not ok [0-9]+ - '})
@@ -122,7 +122,18 @@ jobs:
           Write-Output 'D07_BLOCKS_TYPES=PASS'
           $log=Join-Path $env:RUNNER_TEMP 'd07-blocks-build.private.log'
           & bun run build:t2-integrated *> $log
-          if($LASTEXITCODE -ne 0){throw 'D07_BLOCKS_ORIGINAL_T2_BUILD_FAIL'}
+          if($LASTEXITCODE -ne 0){
+            # Never publish source, secrets, complete paths, stack traces or build logs.
+            $matches=@()
+            foreach($line in @(Get-Content $log -ErrorAction SilentlyContinue)){
+              foreach($candidate in [regex]::Matches($line,'D07_[A-Z0-9_]+|T2_[A-Z0-9_]+|TS[0-9]{4}|ERR_[A-Z0-9_]+|(?:MODULE_NOT_FOUND|ENOENT|EACCES|ENOMEM|ETIMEDOUT|EPERM)')){
+                $matches+=($candidate.Value)
+              }
+            }
+            $codes=@($matches|Sort-Object -Unique|Select-Object -First 25)
+            Write-Output ('D07_BUILD_DIAGNOSTIC_CODES='+($codes -join ','))
+            throw 'D07_BLOCKS_ORIGINAL_T2_BUILD_FAIL'
+          }
           if(!(Test-Path dist/workspace/index.html)){throw 'D07_BLOCKS_HOST_MISSING'}
           Write-Output 'D07_BLOCKS_ORIGINAL_T2_INTEGRATED_BUILD=PASS'
       - name: Test existing product-first and service-lifecycle regression
