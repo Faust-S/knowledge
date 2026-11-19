@@ -131,6 +131,7 @@ jobs:
             @{ code="INVENTORY"; cmd="node scripts/check-d10-hosting-release.mjs" },
             @{ code="LOCALHOST"; cmd="npm run check:no-localhost" },
             @{ code="ASSETS"; cmd="npm run check:assets" },
+            @{ code="EXTERNAL_ASSETS"; cmd="npm run check:external-assets" },
             @{ code="LINKS"; cmd="npm run check:links" },
             @{ code="SEO"; cmd="npm run check:seo" },
             @{ code="APACHE"; cmd="npm run check:htaccess" }

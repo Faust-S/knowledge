@@ -289,10 +289,12 @@ function D10-VerifyResultChanged($slug,$caseId,$controlId,$resultId,$action) {
   $control.SetFocus()
   Start-Sleep -Milliseconds 200
   $beforeOption=if($action -like "COMBO_*"){ComboOptionName $control}else{""}
-  if($action -eq "COMBO_NEXT" -or $action -eq "COMBO_SUMMER"){
-    # The same native key sequence passed on CASE-001..003 and CASE-008..010.
-    # End on a focused Edge select did not reliably dispatch React change.
+  if($action -eq "COMBO_NEXT"){
     [System.Windows.Forms.SendKeys]::SendWait("{HOME}{DOWN}{ENTER}{TAB}")
+  }elseif($action -eq "COMBO_SPRING"){
+    # CASE-004 initializes at summer. Select the *other* (spring) period:
+    # HOME, not END/HOME+DOWN which both select the original summer state.
+    [System.Windows.Forms.SendKeys]::SendWait("{HOME}{ENTER}{TAB}")
   }elseif($action -eq "BUTTON_INVOKE"){
     $pattern=$control.GetCurrentPattern(
       [System.Windows.Automation.InvokePattern]::Pattern)
@@ -445,7 +447,7 @@ try {
   D10-VerifyResultChanged "renovation-ad-to-contract" "CASE-001" "case001-channel" "case001-native-metrics" "COMBO_NEXT"
   D10-VerifyResultChanged "galvanic-equipment-b2b" "CASE-002" "case002-channel" "case002-native-metrics" "COMBO_NEXT"
   D10-VerifyResultChanged "accordance-b2b-saas" "CASE-003" "case003-month" "case003-native-metrics" "COMBO_NEXT"
-  D10-VerifyResultChanged "local-clinic-appointments" "CASE-004" "case004-period" "case004-native-metrics" "COMBO_SUMMER"
+  D10-VerifyResultChanged "local-clinic-appointments" "CASE-004" "case004-period" "case004-native-metrics" "COMBO_SPRING"
   D10-VerifyResultChanged "interior-design-school-attribution" "CASE-005" "case005-window-180" "case005-native-metrics" "BUTTON_INVOKE"
   D10-VerifyResultChanged "seasonal-patio-furniture" "CASE-006" "case006-share-40" "case006-native-metrics" "BUTTON_INVOKE"
   D10-VerifyResultChanged "rebel-aromas-repeat-sales" "CASE-007" "case007-metric" "case007-native-metrics" "COMBO_NEXT"
