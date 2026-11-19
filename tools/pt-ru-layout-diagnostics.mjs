@@ -12,7 +12,7 @@ const sample=async path=>{
   const res=await page.goto(base+path,{waitUntil:"domcontentloaded",timeout:45000});
   if(res?.status()!==200)throw Error("HTTP "+res?.status()+" "+path);
   await page.waitForSelector("main[data-client-ready]",{timeout:25000});
-  await page.waitForTimeout(180);
+  await new Promise(resolve => setTimeout(resolve, 180));
   return page.evaluate(()=>{
     const computed=s=>{const n=document.querySelector(s);if(!n)return null;const c=getComputedStyle(n);
       return {paddingTop:parseFloat(c.paddingTop)||0,fontSize:parseFloat(c.fontSize)||0,
