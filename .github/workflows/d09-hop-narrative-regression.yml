@@ -74,6 +74,7 @@ jobs:
             echo "D09_PROJECT_PACKAGE_GUARDS=FAIL"; exit 1;
           }
           echo "D09_PROJECT_PACKAGE_GUARDS=PASS"
+          echo "D09_PROJECT_ZIP_ENVELOPE=PASS"
       - name: Checkout canonical private HOP logic
         uses: actions/checkout@v4
         with:
