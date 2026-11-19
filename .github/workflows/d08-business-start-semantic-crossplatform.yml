@@ -8,7 +8,7 @@ permissions:
   contents: read
 env:
   DOMAIN_SHA: bc1396ee0b8f37b6ea26d75df912384af3f70d95
-  SITE_SHA: 2fc25f83331517a6eeeb1e38bae90d6230cc2a60
+  SITE_SHA: 524c986c430150e10bc619485d3ae384f154a923
 jobs:
   p1-models:
     runs-on: ${{ matrix.os }}
@@ -82,6 +82,28 @@ jobs:
         run: |
           node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs tests/business-project.test.mjs tests/business-experiment-comparison.test.mjs tests/business-opening-paths.test.mjs tests/business-opening-program.test.mjs tests/business-opening-cash-calendar.test.mjs tests/business-management-decision.test.mjs tests/business-launch-review.test.mjs > "$RUNNER_TEMP/d08-private-site.log" 2>&1 || { echo "D08_P1_SITE_PROJECTION_TESTS_FAIL"; exit 1; }
           echo "D08_P1_SITE_PROJECTION_TESTS=PASS"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify release package contract, forbidden payloads and production origin
+        working-directory: private/site
+        run: |
+          python -m unittest discover -s tests -p 'test_package_hosting.py' -v > "$RUNNER_TEMP/d08-hosting-fixture.private.log" 2>&1 || { echo "D08_HOSTING_PACKAGER_FIXTURE=FAIL"; exit 1; }
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path(".")
+          domain=json.loads((root/"t2-site-module/t2-config/domain.json").read_text(encoding="utf-8"))
+          shell=json.loads((root/"t2-site-module/t2-config/domain-shell.json").read_text(encoding="utf-8"))
+          host=(root/"public/.htaccess").read_text(encoding="utf-8")
+          assert domain["origin"]==shell["origin"]=="https://market-ops.ru"
+          assert domain["status"]=="production"
+          assert domain["release"]["deployment_mode"]=="production"
+          assert "RewriteCond %{HTTP_HOST} !^market-ops\\.ru$ [NC]" in host
+          assert "https://market-ops.ru" in host
+          print("D08_HOSTING_RELEASE_SOURCE=PASS")
+          PY
+          echo "D08_HOSTING_PACKAGER_FIXTURE=PASS"
       - name: Keep runner logs and sources private
         if: always()
         run: |
