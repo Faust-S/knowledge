@@ -24,8 +24,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     env:
-      SITE_SHA: d8939e54a650ea473f0e97269e19ca51d61c6467
-      DOMAIN_SHA: 91c8d2877d87d7e7c80a6a288e19611580dbd1db
+      SITE_SHA: 6dc625c3d79ad80eb71c8769d50036c5307b68a4
+      DOMAIN_SHA: d11164000c48d49e246cd9020763cfdb05a4dd2c
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -205,6 +205,24 @@ jobs:
                 if($item -match '^(?:[A-Z0-9_]+: FAIL|npm error [A-Z]+|Error: [A-Z_0-9]+)') {
                   Write-Output ('D02_BUILD_DIAGNOSTIC=' + $item.Substring(0,[Math]::Min(180,$item.Length)))
                 }
+              }
+            }
+            $safePatterns = @(
+              @{id='NODE_EXEC_EXIT_HANDLER';value='Exit handler never called'},
+              @{id='NPM_NOT_FOUND';value='ENOENT'},
+              @{id='NPM_CACHE';value='ENOTCACHED'},
+              @{id='NPM_ACCESS';value='EACCES'},
+              @{id='NETWORK_TIMEOUT';value='ETIMEDOUT'},
+              @{id='MODULE_NOT_FOUND';value='ERR_MODULE_NOT_FOUND'},
+              @{id='TYPESCRIPT_ERROR';value='error TS'},
+              @{id='STATIC_CHECK_FAILED';value='CURRENT STATIC SOURCE CHECK: FAIL'},
+              @{id='CLUB_BUILD_ERROR';value='Error: CLUB_'},
+              @{id='T2_BUILD_ERROR';value='Error: T2_'}
+            )
+            $fullLog = Get-Content $log -Raw
+            foreach($signal in $safePatterns) {
+              if($fullLog.Contains($signal.value)) {
+                Write-Output ("D02_BUILD_ERROR_CLASS=" + $signal.id)
               }
             }
             exit $code
