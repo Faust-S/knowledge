@@ -1,0 +1,122 @@
+name: IWXA AI for Healthcare certificate release qualification
+on:
+  push:
+    branches: [work/2026-11-18-pt-66-qualification]
+    paths:
+      - .github/workflows/iwxa-coursera-healthcare-certificate-eight-locales.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  certificate-source:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: qa
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: 9cbbf0df5976c0f7f8a14d28339d54f02601a696
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          fetch-depth: 0
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.2"
+      - name: Certificate, 72 previous records, binary integrity and change scope
+        shell: bash
+        working-directory: site
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "9cbbf0df5976c0f7f8a14d28339d54f02601a696"
+          node scripts/check-certificate-ai-healthcare.mjs
+          node --input-type=module - <<'JS'
+          import fs from "node:fs";
+          import cp from "node:child_process";
+          const original="7a751b1d18763a6634e03df2fb0101eeedb0f6a6";
+          const old=cp.execFileSync("git",["show",original+":src/route-data/competencies-data.ts"],{encoding:"utf8"});
+          const now=fs.readFileSync("src/route-data/competencies-data.ts","utf8");
+          const urls=s=>[...s.matchAll(/verifyUrl:\s*"([^"]+)"/g)].map(x=>x[1]);
+          const previous=urls(old),current=new Set(urls(now));
+          if(previous.length!==72||previous.some(x=>!current.has(x)))process.exit(1);
+          const expected=new Set([
+            "PROJECT_CONTEXT.md",
+            "src/route-data/competencies-data.ts",
+            "src/routes/competencies.tsx","src/routes/en.competencies.tsx",
+            "src/routes/zh-hans.competencies.tsx","src/routes/es.competencies.tsx",
+            "src/routes/ar.competencies.tsx","src/routes/fr.competencies.tsx",
+            "src/routes/de.competencies.tsx","src/routes/pt.competencies.tsx",
+            "scripts/check-certificate-ai-healthcare.mjs",
+            "public/assets/certs/RKMI6MC3MAY2.webp"
+          ]);
+          const changed=cp.execFileSync("git",["diff","--name-only",original,"HEAD"],{encoding:"utf8"}).trim().split("\n");
+          if(changed.length!==expected.size||changed.some(p=>!expected.has(p)))process.exit(2);
+          console.log("IWXA_CERT_PREVIOUS_72_PRESERVED=PASS");
+          console.log("IWXA_CERT_CHANGE_SCOPE_12_FILES=PASS");
+          JS
+      - name: Frozen installation and TypeScript on original site
+        shell: bash
+        working-directory: site
+        env:
+          LOVABLE_BUILD_TARGET: static
+          NITRO_PRESET: node-server
+          SERVER_PRESET: node-server
+        run: |
+          set -eu
+          bun install --frozen-lockfile > "$RUNNER_TEMP/iwxa-certificate-install.log" 2>&1 || { echo "IWXA_CERT_INSTALL=FAIL"; exit 1; }
+          echo "IWXA_CERT_INSTALL=PASS"
+          bun run typecheck > "$RUNNER_TEMP/iwxa-certificate-typecheck.log" 2>&1 || {
+            echo "IWXA_CERT_TYPECHECK=FAIL"
+            grep -E 'error TS|error:' "$RUNNER_TEMP/iwxa-certificate-typecheck.log" | head -n 20 || true
+            exit 1
+          }
+          echo "IWXA_CERT_TYPECHECK=PASS"
+      - name: Build actual SSR
+        if: matrix.os == 'ubuntu-24.04'
+        shell: bash
+        working-directory: site
+        env:
+          LOVABLE_BUILD_TARGET: static
+          NITRO_PRESET: node-server
+          SERVER_PRESET: node-server
+        run: |
+          set -eu
+          bun run build > "$RUNNER_TEMP/iwxa-certificate-ssr.log" 2>&1 || {
+            echo "IWXA_CERT_SSR_BUILD=FAIL"
+            grep -E 'error|ERROR' "$RUNNER_TEMP/iwxa-certificate-ssr.log" | tail -n 15 || true
+            exit 1
+          }
+          test -f .output/server/index.mjs
+          echo "IWXA_CERT_SSR_BUILD=PASS"
+      - name: All eight browser pages, official link, search, live WebP and structured metadata
+        if: matrix.os == 'ubuntu-24.04'
+        shell: bash
+        run: |
+          set -eu
+          PORT=4390 HOST=127.0.0.1 NODE_ENV=production node site/.output/server/index.mjs > "$RUNNER_TEMP/iwxa-certificate-http.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 70); do
+            if curl -fsS -o /dev/null http://127.0.0.1:4390/; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" -eq 1 || { echo "IWXA_CERT_SERVER=FAIL"; exit 1; }
+          IWXA_SITE_DIR="$GITHUB_WORKSPACE/site" IWXA_BASE="http://127.0.0.1:4390" node "$GITHUB_WORKSPACE/qa/tools/iwxa-healthcare-certificate-eight-locale-browser.mjs" > "$RUNNER_TEMP/iwxa-certificate-browser.log" 2>&1 || {
+            echo "IWXA_CERT_BROWSER=FAIL"
+            grep 'IWXA_CERT_' "$RUNNER_TEMP/iwxa-certificate-browser.log" | tail -n 12 || true
+            exit 1
+          }
+          grep '^IWXA_CERT_' "$RUNNER_TEMP/iwxa-certificate-browser.log" | tail -n 12
+          echo "IWXA_CERT_BROWSER=PASS"
