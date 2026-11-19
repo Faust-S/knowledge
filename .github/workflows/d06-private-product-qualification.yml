@@ -54,7 +54,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: 53988e73a99ab291cb8bba0d678e1df62015f7bb
+          ref: f0a226323565a6deb2f75eb1133d3f35dae50e6d
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -81,26 +81,7 @@ jobs:
             exit 1
           }
           Write-Host "D06_NPM_CI=PASS"
-      - name: Apply formatting in temporary private checkout without publication
-        shell: pwsh
-        working-directory: private/site
-        run: |
-          $log = Join-Path $env:RUNNER_TEMP "d06-private-format-build.txt"
-          & node scripts/format-eslint-violations.mjs --apply *> $log
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "D06_EPHEMERAL_FORMAT=FAIL"
-            exit 1
-          }
-          & git diff --check *> $log
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "D06_EPHEMERAL_DIFF=FAIL"
-            exit 1
-          }
-          Write-Host "D06_EPHEMERAL_FORMAT=PASS"
-          Write-Host "D06_FORMATTED_SOURCE_PUBLISHED=0"
       - name: Check D06 source, native Host, and regression tests
-        # Keep testing the built UI even if formatting fails; preserve FAIL
-        # through a final gate instead of misreporting product acceptance.
         continue-on-error: true
         shell: pwsh
         working-directory: private/site
@@ -139,185 +120,15 @@ jobs:
             exit 1
           }
           Write-Host "D06_BROWSER_SETUP=PASS"
-      # Run the original aggregate's exact stages separately to diagnose
-      # which failed. The prior Windows runner already established that the
-      # aggregate command itself fails after its check/test stages pass.
-      - name: Build existing static site from D06 source
+      - name: Run complete static qualification on published source
         shell: pwsh
         working-directory: private/site
-        timeout-minutes: 22
+        timeout-minutes: 50
         run: |
-          $log = Join-Path $env:RUNNER_TEMP "d06-build-static-private.txt"
-          & npm run build:static *> $log
-          $status = if ($LASTEXITCODE -eq 0) { "PASS" } else { "FAIL" }
-          Write-Host "D06_BUILD_STATIC=$status"
-          if ($status -ne "PASS") { exit 1 }
-      - name: Diagnose every static check against the already built site
-        shell: pwsh
-        working-directory: private/site
-        timeout-minutes: 30
-        run: |
-          $ErrorActionPreference = "Continue"
-          $checks = @(
-            "check:readability",
-            "check:hydration",
-            "check:runtime",
-            "check:no-localhost",
-            "check:assets",
-            "check:external-assets",
-            "check:links",
-            "check:seo",
-            "check:htaccess",
-            "check:404",
-            "check:preview-no-spa-fallback"
-          )
-          $fail = 0
-          foreach ($check in $checks) {
-            $safe = $check.Replace(":", "-")
-            $log = Join-Path $env:RUNNER_TEMP ("d06-static-" + $safe + ".private.txt")
-            & npm run $check *> $log
-            $exitCode = $LASTEXITCODE
-            $status = if ($exitCode -eq 0) { "PASS" } else { "FAIL" }
-            Write-Host ("D06_" + $safe + "=" + $status)
-            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value (
-              "| " + $check + " | " + $status + " |"
-            )
-            if ($exitCode -ne 0) {
-              $fail += 1
-              $private = Get-Content -LiteralPath $log -Raw
-              $classes = [ordered]@{
-                "HYDRATION" = "hydration:fail|body text shrank|root container empty"
-                "RUNTIME_CONSOLE" = "runtime:fail|console\.error|pageerror|CRITICAL"
-                "CHROME_BROWSER" = "BROWSER_NOT_FOUND|Failed to launch|ERR_BLOCKED_BY_ADMINISTRATOR"
-                "TIMEOUT" = "TimeoutError|Timeout [0-9]+ms exceeded"
-                "HTTP_STATUS" = "HTTP (?:4|5)[0-9][0-9]|status (?:4|5)[0-9][0-9]"
-                "MISSING_ASSET" = "missing asset|failed assets|ENOENT|not found"
-                "CONTENT" = "missing h1|no <h1>|unmatched|mismatch"
-                "ASSERTION" = "AssertionError|ERR_ASSERTION"
-              }
-              $categories = @($classes.Keys | Where-Object { $private -match $classes[$_] })
-              if ($categories.Count -eq 0) { $categories = @("UNCLASSIFIED") }
-              Write-Host ("D06_" + $safe + "_FAILURE_CLASSES=" + ($categories -join ","))
-              $hydrationFailures = ([regex]::Matches($private, "\[hydration:fail\]")).Count
-              $runtimeFailures = ([regex]::Matches($private, "\[runtime:fail\]")).Count
-              Write-Host ("D06_" + $safe + "_HYDRATION_FAILURE_COUNT=" + $hydrationFailures)
-              Write-Host ("D06_" + $safe + "_RUNTIME_FAILURE_COUNT=" + $runtimeFailures)
-              if ($check -eq "check:external-assets") {
-                foreach ($kind in @(
-                  @{ label = "FORBIDDEN_ORIGIN"; phrase = 'references forbidden host' },
-                  @{ label = "UNEXPECTED_REMOTE_ASSET"; phrase = 'unexpected external asset origin' }
-                )) {
-                  $count = ([regex]::Matches(
-                    $private, [regex]::Escape($kind.phrase)
-                  )).Count
-                  Write-Host ("D06_STATIC_ASSET_" + $kind.label + "_COUNT=" + $count)
-                }
-              }
-              if ($check -eq "check:seo") {
-                $seoProblems = [ordered]@{
-                  "TITLE" = "<title> .* > 60|missing <title>|expected 1 <title>"
-                  "DESCRIPTION" = "meta description .* > 160|missing meta description"
-                  "CANONICAL" = "canonical .* !== |expected 1 canonical|canonical .* missing trailing slash"
-                  "OG_URL" = "og:url .* !== "
-                  "H1" = "expected 1 <h1>"
-                  "SITEMAP" = "sitemap.xml: .*"
-                  "ROBOTS" = "robots.txt: .*"
-                  "MISSING_ROUTE" = "missing .*index.html"
-                  "NOINDEX" = "noindex route .*"
-                  "OTHER" = "contains a local address"
-                }
-                foreach ($name in $seoProblems.Keys) {
-                  $count = ([regex]::Matches($private, $seoProblems[$name])).Count
-                  Write-Host ("D06_STATIC_SEO_" + $name + "_COUNT=" + $count)
-                }
-              }
-            }
-          }
-          if ($fail -gt 0) { exit 1 }
-      - name: Run original end-to-end browser suite against the built site
-        shell: pwsh
-        working-directory: private/site
-        timeout-minutes: 35
-        run: |
-          $log = Join-Path $env:RUNNER_TEMP "d06-e2e-private.txt"
-          # Playwright's JSON report stays in RUNNER_TEMP and is never uploaded.
-          # The public log receives counts and deterministic private-spec ordinals.
-          $env:PLAYWRIGHT_JSON_OUTPUT_FILE = Join-Path $env:RUNNER_TEMP "d06-e2e-results.private.json"
-          & npm run test:e2e -- --reporter=json *> $log
-          $status = if ($LASTEXITCODE -eq 0) { "PASS" } else { "FAIL" }
-          Write-Host "D06_TEST_E2E=$status"
-          if ($status -ne "PASS") {
-            $private = Get-Content -LiteralPath $log -Raw
-            $classes = [ordered]@{
-              "CHROMIUM_LAUNCH" = "Failed to launch|Executable doesn't exist"
-              "TIMEOUT" = "TimeoutError|Timeout [0-9]+ms exceeded"
-              "ASSERTION" = "AssertionError|expect\(.*\)\.to"
-              "TLS" = "ERR_CERT|certificate"
-              "NETWORK" = "ECONNREFUSED|ERR_CONNECTION"
-              "MODULE" = "ERR_MODULE_NOT_FOUND|Cannot find module"
-            }
-            $names = @($classes.Keys | Where-Object { $private -match $classes[$_] })
-            if ($names.Count -eq 0) { $names = @("UNCLASSIFIED") }
-            Write-Host ("D06_E2E_FAILURE_CLASSES=" + ($names -join ","))
-            $counts = [regex]::Matches($private, "(?m)^\s*([0-9]+) failed\s*$")
-            if ($counts.Count -gt 0) {
-              Write-Host ("D06_E2E_FAILED_COUNT=" + $counts[$counts.Count - 1].Groups[1].Value)
-            }
-            # Parse the private Playwright report with Node: PowerShell's
-            # ConvertFrom-Json can hang for many minutes on nested test traces.
-            # Only counts and tracked-file ordinals leave the disposable runner.
-            $reportScript = @'
-          const fs = require("node:fs");
-          const cp = require("node:child_process");
-          const file = process.argv[1];
-          if (!fs.existsSync(file)) {
-            console.log("D06_E2E_JSON_REPORT=NOT_CREATED");
-            process.exit(0);
-          }
-          const report = JSON.parse(fs.readFileSync(file, "utf8"));
-          const files = cp.execFileSync("git", ["ls-files", "--", "tests/e2e/*.spec.ts"], {
-            encoding: "utf8",
-          }).split(/\r?\n/).filter(Boolean).sort();
-          const counts = new Map();
-          const failedLocations = [];
-          let failures = 0;
-          const stack = [...(report.suites || [])];
-          while (stack.length) {
-            const suite = stack.pop();
-            for (const child of suite.suites || []) stack.push(child);
-            for (const spec of suite.specs || []) {
-              const tests = spec.tests || [];
-              const failed = spec.ok === false ||
-                tests.some(t => (t.results || []).some(r =>
-                  ["failed", "timedOut", "interrupted"].includes(r.status)));
-              if (!failed) continue;
-              failures++;
-              const raw = String(spec.file || spec.location?.file || suite.file || "").replace(/\\/g, "/");
-              const base = raw.split("/").pop();
-              const index = files.findIndex((name) => name.endsWith("/" + base));
-              const ordinal = index + 1;
-              counts.set(ordinal, (counts.get(ordinal) || 0) + 1);
-              const badResults = tests.flatMap(t => (t.results || [])
-                .filter(r => ["failed", "timedOut", "interrupted"].includes(r.status)));
-              const trace = badResults.flatMap(r => [...(r.errors || []), r.error]
-                .filter(Boolean).map(e => String(e.stack || e.message || ""))).join(" ");
-              const line = trace.match(/\.spec\.ts:(\d+):/)?.[1] || "0";
-              failedLocations.push(ordinal + ":" + line);
-            }
-          }
-          console.log("D06_E2E_JSON_REPORT=PASS");
-          console.log("D06_E2E_REPORT_FAILED_COUNT=" + failures);
-          console.log("D06_E2E_FAILED_SPEC_ORDINALS=" +
-            [...counts].sort((a,b) => a[0]-b[0]).map(([k,v]) => k+":"+v).join(","));
-          console.log("D06_E2E_SPEC_COUNT=" + files.length);
-          console.log("D06_E2E_FAIL_LOCATIONS=" + failedLocations.slice(0,32).join(","));
-          '@
-            & node -e $reportScript $env:PLAYWRIGHT_JSON_OUTPUT_FILE
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host "D06_E2E_JSON_REPORT=PARSE_FAILED"
-            }
-            exit 1
-          }
+          $log = Join-Path $env:RUNNER_TEMP "d06-static-check-private.txt"
+          & npm run build:static:check *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_STATIC_AGGREGATE=FAIL"; exit 1 }
+          Write-Host "D06_STATIC_AGGREGATE=PASS"
       - name: Assert source gate after all available diagnostics
         if: always()
         shell: pwsh
