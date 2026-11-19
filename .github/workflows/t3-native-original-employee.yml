@@ -10,6 +10,7 @@ on:
       - packages/t3-core/tests/g4-original-agent-native-windows.mjs
       - packages/t3-core/tests/g4-original-agent-native-driver.py
       - packages/t3-core/tests/g4-native-two-windows-sids.ps1
+      - packages/t3-core/tests/g4-original-agent-second-windows-sid.ps1
       - packages/t3-core/tests/g4-original-employee-bootstrap-driver.py
       - packages/t3-core/tests/g4-original-employee-real-task-driver.py
       - packages/t3-core/tests/g4-production-original-kernel.browser.mjs
@@ -47,6 +48,12 @@ jobs:
           node --check packages/t3-core/tests/g4-original-agent-native-windows.mjs
           node --test packages/t3-core/tests/g4-native-original-owner-pin-parity.test.mjs
           node --check packages/t3-core/tests/g4-production-original-kernel.browser.mjs
+          $script = 'packages/t3-core/tests/g4-original-agent-second-windows-sid.ps1'
+          $tokens = [System.Management.Automation.Language.Token[]]@()
+          $errors = [System.Management.Automation.Language.ParseError[]]@()
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath $script).Path,[ref]$tokens,[ref]$errors)
+          if ($errors.Count -ne 0) { throw 'G4_ORIGINAL_AGENT_TWO_SID_POWERSHELL_PARSER_FAILED' }
           python -m py_compile packages/t3-core/tests/g4-original-agent-native-driver.py
           python -m py_compile packages/t3-core/tests/g4-original-employee-bootstrap-driver.py
           python -m py_compile packages/t3-core/tests/g4-original-employee-real-task-driver.py
