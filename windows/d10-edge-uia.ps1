@@ -197,6 +197,99 @@ function Verify-NativeCaseSelect($slug,$caseId,$controlId,$expectedBefore,$expec
   if(-not $repainted){throw "D10_WINDOWS_CASE_NATIVE_RESULT_NOT_REPAINTED"}
   Write-Output "D10_WINDOWS_NATIVE_$caseId=PASS"
 }
+
+# Capture actual text exposed by Edge UIAutomation beneath a React result
+# container. An option change alone is not sufficient evidence of a redraw.
+function D10-FindAutomationId($window,$id) {
+  $all=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.Condition]::TrueCondition)
+  for($i=0;$i -lt $all.Count;$i++){
+    try {if($all.Item($i).Current.AutomationId -eq $id){return $all.Item($i)}}catch{}
+  }
+  return $null
+}
+function D10-ResultText($window,$resultId) {
+  $group=D10-FindAutomationId $window $resultId
+  if($null -eq $group){return $null}
+  $names=New-Object 'System.Collections.Generic.List[string]'
+  $all=$group.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.Condition]::TrueCondition)
+  for($i=0;$i -lt $all.Count;$i++){
+    try {
+      $item=$all.Item($i).Current
+      if($item.ControlType -eq [System.Windows.Automation.ControlType]::Text -and
+        -not [string]::IsNullOrWhiteSpace($item.Name)){$names.Add($item.Name.Trim())}
+    }catch{}
+  }
+  if($names.Count -eq 0){
+    try {
+      $pattern=[System.Windows.Automation.TextPattern]$group.GetCurrentPattern(
+        [System.Windows.Automation.TextPattern]::Pattern)
+      return $pattern.DocumentRange.GetText(-1)
+    }catch{}
+  }
+  if($names.Count -eq 0){return $null}
+  return ($names -join " | ")
+}
+function D10-OpenCase($slug,$caseId) {
+  $window=Find-EdgeWindow
+  if($null -eq $window){throw "D10_WINDOWS_NATIVE_WINDOW_MISSING"}
+  [void][D10NativeWindow]::ShowWindow([IntPtr]$window.Current.NativeWindowHandle,9)
+  [void][D10NativeWindow]::SetForegroundWindow(
+    [IntPtr]$window.Current.NativeWindowHandle)
+  [System.Windows.Forms.Clipboard]::SetText("$origin/cases/$slug/")
+  [System.Windows.Forms.SendKeys]::SendWait("^l")
+  [System.Windows.Forms.SendKeys]::SendWait("^v")
+  [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+  for($i=0;$i -lt 55;$i++){
+    Start-Sleep -Milliseconds 250
+    $window=Find-EdgeWindow
+    if($null -ne $window -and (Has-AccessibleArticleText $window $caseId)){
+      return $window
+    }
+  }
+  throw "D10_WINDOWS_NATIVE_ROUTE_UNAVAILABLE_$caseId"
+}
+function D10-VerifyResultChanged($slug,$caseId,$controlId,$resultId,$action) {
+  $window=D10-OpenCase $slug $caseId
+  $control=$null;$before=$null
+  for($i=0;$i -lt 32;$i++){
+    $window=Find-EdgeWindow
+    $control=D10-FindAutomationId $window $controlId
+    $before=D10-ResultText $window $resultId
+    if($null -ne $control -and -not [string]::IsNullOrWhiteSpace($before)){break}
+    Start-Sleep -Milliseconds 250
+  }
+  if($null -eq $control){throw "D10_WINDOWS_NATIVE_CONTROL_MISSING_$caseId"}
+  if([string]::IsNullOrWhiteSpace($before)){
+    throw "D10_WINDOWS_NATIVE_RESULT_UNREADABLE_$caseId"
+  }
+  $control.SetFocus()
+  Start-Sleep -Milliseconds 200
+  if($action -eq "COMBO_NEXT"){
+    [System.Windows.Forms.SendKeys]::SendWait("{HOME}{DOWN}{ENTER}{TAB}")
+  }elseif($action -eq "COMBO_SUMMER"){
+    [System.Windows.Forms.SendKeys]::SendWait("{END}{ENTER}{TAB}")
+  }elseif($action -eq "BUTTON_INVOKE"){
+    $pattern=$control.GetCurrentPattern(
+      [System.Windows.Automation.InvokePattern]::Pattern)
+    ([System.Windows.Automation.InvokePattern]$pattern).Invoke()
+  }else{
+    throw "D10_WINDOWS_NATIVE_UNKNOWN_ACTION_$caseId"
+  }
+  $after=$null
+  for($i=0;$i -lt 35;$i++){
+    Start-Sleep -Milliseconds 200
+    $window=Find-EdgeWindow
+    $after=D10-ResultText $window $resultId
+    if(-not [string]::IsNullOrWhiteSpace($after) -and $after -ne $before){break}
+  }
+  if([string]::IsNullOrWhiteSpace($after) -or $after -eq $before){
+    throw "D10_WINDOWS_NATIVE_RESULT_UNCHANGED_$caseId"
+  }
+  Write-Output "D10_WINDOWS_NATIVE_$caseId=PASS"
+}
+
 try {
   $server = Start-Process -FilePath "node.exe" -ArgumentList "scripts/tests/d10-gui-static-preview-server.mjs" -WorkingDirectory (Join-Path $env:GITHUB_WORKSPACE "site") -PassThru -WindowStyle Hidden
   $ready = $false
@@ -317,6 +410,14 @@ try {
   Write-Output "D10_WINDOWS_CASE010_NATIVE_METRIC_INTERACTION=PASS"
   Verify-NativeCaseSelect "popsockets-search-incrementality" "CASE-008" "case008-lens" "Выручка" "Заказы" "Оценка выпавших заказов, а не экспорт индивидуальных покупок."
   Verify-NativeCaseSelect "meteomatics-pipeline-discipline" "CASE-009" "case009-metric" "Цикл до изменений" "Цикл после изменений" "После структурирования"
+
+  D10-VerifyResultChanged "renovation-ad-to-contract" "CASE-001" "case001-channel" "case001-native-metrics" "COMBO_NEXT"
+  D10-VerifyResultChanged "galvanic-equipment-b2b" "CASE-002" "case002-channel" "case002-native-metrics" "COMBO_NEXT"
+  D10-VerifyResultChanged "accordance-b2b-saas" "CASE-003" "case003-month" "case003-native-metrics" "COMBO_NEXT"
+  D10-VerifyResultChanged "local-clinic-appointments" "CASE-004" "case004-period" "case004-native-metrics" "COMBO_SUMMER"
+  D10-VerifyResultChanged "interior-design-school-attribution" "CASE-005" "case005-window-180" "case005-native-metrics" "BUTTON_INVOKE"
+  D10-VerifyResultChanged "seasonal-patio-furniture" "CASE-006" "case006-share-40" "case006-native-metrics" "BUTTON_INVOKE"
+  D10-VerifyResultChanged "rebel-aromas-repeat-sales" "CASE-007" "case007-metric" "case007-native-metrics" "COMBO_NEXT"
   if($passed -ne 10){throw "D10_WINDOWS_ARTICLE_COUNT_MISMATCH"}
   Write-Output "D10_WINDOWS_UIA_ROUTES=10/10"
   Write-Output "D10_WINDOWS_UIA_BASELINE=PASS"
