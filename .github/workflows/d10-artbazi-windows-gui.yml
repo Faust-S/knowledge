@@ -138,8 +138,12 @@ jobs:
             if($failure -match 'd10-edge-uia(?:-utf8)?\\.ps1:(\\d+) char:(\\d+)'){
               Write-Output "D10_WINDOWS_UIA_FAILURE_LINE=$($Matches[1])"
             }
+            # Only bounded sanitized UIA diagnostic tokens; no closed source/DOM dumps.
+            $failureCodes=[regex]::Matches($failure,'D10_WINDOWS_[A-Z0-9_-]+') |
+              ForEach-Object {$_.Value} | Select-Object -Unique -Last 5
+            foreach($failureCode in $failureCodes){Write-Output "D10_WINDOWS_UIA_CAUSE=$failureCode"}
             $errors=Get-Content $errLog | Select-String -Pattern "D10_WINDOWS_[A-Z0-9_]+" | Select-Object -Last 3
-            foreach($error in $errors){Write-Output "D10_WINDOWS_UIA_DIAG=$($error.Matches[0].Value)"}
+            foreach($diagnostic in $errors){Write-Output "D10_WINDOWS_UIA_DIAG=$($diagnostic.Matches[0].Value)"}
             throw "D10_WINDOWS_UIA_NATIVE_INTERACTION_FAILED"
           }
           if(-not (Select-String -Path $log -Pattern "D10_WINDOWS_CASE010_NATIVE_METRIC_INTERACTION=PASS" -Quiet)){
