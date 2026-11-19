@@ -68,6 +68,20 @@ jobs:
           result=$?
           if [ "$result" -eq 0 ]; then echo "D10_INSTALL=PASS"; else echo "::error::D10_INSTALL=FAIL exit=$result"; fi
           exit "$result"
+      - name: Existing specialist Sales workflows and seller package regression
+        shell: bash
+        run: |
+          # Keep private source and individual Sales fixtures inside the runner.
+          set +e
+          cd site
+          npm run sales:test > "$RUNNER_TEMP/d10-sales-functional.log" 2>&1
+          result=$?
+          if [ "$result" -eq 0 ]; then
+            echo "D10_SALES_FUNCTIONAL_REGRESSION=PASS"
+          else
+            echo "::error::D10_SALES_FUNCTIONAL_REGRESSION=FAIL exit=$result"
+          fi
+          exit "$result"
       - name: Site source, Group E, Host, types
         shell: bash
         run: |
@@ -113,7 +127,7 @@ jobs:
             grep -Eo 'D10_HOSTING_[A-Z0-9_]+' "$RUNNER_TEMP/d10-release-inventory.log" | sort -u | head -n 5 || true
             exit 1
           fi
-          for gate in check:no-localhost check:assets check:links check:seo check:htaccess; do
+          for gate in check:no-localhost check:assets check:external-assets check:links check:seo check:htaccess; do
             label="${gate//:/_}"
             if npm run "$gate" > "$RUNNER_TEMP/d10-host-${label}.log" 2>&1; then
               echo "D10_HOSTING_${label}=PASS"
