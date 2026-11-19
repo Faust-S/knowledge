@@ -35,14 +35,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 6a8c3df5d28ec91c9605f92251eb50c206aa09a9
+          ref: a5df69a0498f2a440b05c0d86c09f1b94e75f3f0
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics
-          ref: d06d386bfaab886e04c721545dee2c5e833789f4
+          ref: f8f2258164cbd0648a64608ebc014695bd572814
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -64,8 +64,8 @@ jobs:
           $t2=(git -C ../t2 rev-parse HEAD).Trim()
           Write-Output "D11_PROJECT_SITE_HEAD=$site"
           Write-Output "D11_PROJECT_DOMAIN_HEAD=$domain"
-          if ($site -ne "6a8c3df5d28ec91c9605f92251eb50c206aa09a9" -or
-              $domain -ne "d06d386bfaab886e04c721545dee2c5e833789f4") {
+          if ($site -ne "a5df69a0498f2a440b05c0d86c09f1b94e75f3f0" -or
+              $domain -ne "f8f2258164cbd0648a64608ebc014695bd572814") {
             throw "D11_PROJECT_QUALIFICATION_REVISION_CHANGED"
           }
           if ($t2 -ne "e70de29b72b83e2546f7ab74b17572685a728c17") { throw "D11_NORMATIVE_T2_CHANGED" }
