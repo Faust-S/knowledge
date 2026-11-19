@@ -1,0 +1,71 @@
+name: D08 MarketOps full domain test isolation Windows
+on:
+  push:
+    branches: [work/2026-11-18-d08-marketops-windows-qualification]
+    paths: [.github/workflows/d08-full-domain-test-isolated.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  DOMAIN_SHA: dcab0fa2d7fbcbfb8cd9ccdede7137ed0c65c4e5
+jobs:
+  domain-tests:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [0, 1, 2, 3, 4, 5]
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Confirm authorized private domain access
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'D08_DOMEN_UNAVAILABLE'}
+          & gh api repos/Faust-S/market-ops --jq .id *> $null
+          if($LASTEXITCODE -ne 0){throw 'D08_DOMAIN_ACCESS_DENIED'}
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops
+          ref: ${{ env.DOMAIN_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/domain
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Execute exact private test partition with bounded concurrency
+        working-directory: private/domain
+        timeout-minutes: 17
+        env:
+          PARTITION: ${{ matrix.group }}
+        run: |
+          $head=(& git rev-parse HEAD).Trim()
+          if($head -ne $env:DOMAIN_SHA){throw 'D08_DOMAIN_SHA_MISMATCH'}
+          $files=@(Get-ChildItem -LiteralPath tests -File -Filter '*.test.mjs' | Sort-Object Name)
+          if($files.Count -ne 33){throw 'D08_DOMAIN_TEST_MANIFEST_CHANGED'}
+          $index=[int]$env:PARTITION
+          $groupFiles=@(for($i=0;$i -lt $files.Count;$i++){if(($i % 6) -eq $index){$files[$i].FullName}})
+          if($groupFiles.Count -lt 5){throw 'D08_DOMAIN_PARTITION_INCOMPLETE'}
+          $log=Join-Path $env:RUNNER_TEMP ('d08-domain-'+$index+'.private.log')
+          & node --test --test-concurrency=2 @groupFiles *> $log
+          if($LASTEXITCODE -ne 0){
+            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            $classification=if($raw -match 'AssertionError|ERR_ASSERTION'){'ASSERTION'}
+              elseif($raw -match 'SIGTERM|ERR_TEST_FAILURE|test failed'){'TEST_FAILURE'}
+              elseif($raw -match 'ERR_MODULE_NOT_FOUND'){'MODULE'}
+              else {'UNKNOWN'}
+            Write-Host ('D08_DOMAIN_PARTITION_'+$index+'=FAIL_'+$classification)
+            throw 'D08_DOMAIN_GROUP_FAILED'
+          }
+          Write-Host ('D08_DOMAIN_PARTITION_'+$index+'=PASS')
+          Write-Host ('D08_DOMAIN_PARTITION_FILE_COUNT='+$groupFiles.Count)
+      - name: State privacy boundary
+        if: always()
+        run: |
+          Write-Host 'D08_PRIVATE_SOURCES_PUBLISHED=NO'
+          Write-Host 'D08_LOG_ARTIFACTS_UPLOADED=0'
+          Write-Host 'D08_RELEASE_DIST=NOT_BUILT'
