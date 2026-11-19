@@ -379,6 +379,14 @@ try{
     if(HasText 'Подписанный T3 D3 получатель доступен'){
       $connected=$true;break
     }
+    # A signed child's terminal error is not a slow WebView repaint.
+    # Stop observing that failed operation; do NOT automatically re-enroll.
+    if($i%6 -eq 0 -and
+       ((HasText 'T3_PRODUCT_COMPONENT_') -or
+        (HasText 'T3_D3_ORIGINAL_ENROLL_'))){
+      Write-Host 'G4_INSTALLED_FIRST_USE_OWNER_TERMINAL_MACHINE_ERROR_OBSERVED'
+      break
+    }
     Start-Sleep -Milliseconds 350
   }
   if(-not $connected){DiagnoseSignedOwner}
