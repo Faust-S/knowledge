@@ -1,0 +1,201 @@
+name: d02-club-native-case-interaction
+on:
+  push:
+    branches: [work/2026-11-18-d02-club-qualification]
+    paths: [.github/workflows/d02-club-native-case-interaction.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-case-interactivity:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      SITE_SHA: e0a78dd60d3262cbd4beb54dde8b7eacd0c6d97b
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      CI: 'true'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Preserve original LF bytes
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Build exact original T2 and Club without publishing
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_T2_NPM_CACHE_DIR: ${{ runner.temp }}/d02-case-npm-cache
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D02_CASE_SITE_SHA_MISMATCH'}
+          if((git -C ../t2 rev-parse HEAD).Trim() -ne $env:T2_SHA){throw 'D02_CASE_T2_SHA_MISMATCH'}
+          & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'd02-case-npm.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D02_CASE_INSTALL_FAILED'}
+          & npm run build *> (Join-Path $env:RUNNER_TEMP 'd02-case-build.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D02_CASE_BUILD_FAILED'}
+          Write-Output 'D02_CASE_ORIGINAL_T2_DIST=PASS'
+      - name: Change actual inputs in six mass-case calculators via native Edge
+        working-directory: site
+        env:
+          PORT: '55471'
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          Add-Type -AssemblyName System.Windows.Forms
+          $edge=@(
+            (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
+            (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
+          )|Where-Object{Test-Path $_}|Select-Object -First 1
+          if(!$edge){throw 'D02_CASE_EDGE_MISSING'}
+          $site=(Resolve-Path .).Path
+          $origin='http://localhost:55471'
+          $entries=@(
+            @{id='05';slug='family-budget-paydays';field='После налога за один выход, ₽';value='4200';button='Пересчитать будущие дни';success='Варианты рассчитаны по оригинальному календарю Club.'}
+            @{id='06';slug='cleaning-work-income';field='Ближний заказ, оплата до НПД, ₽';value='3800';button='Пересчитать';success='Предложения пересчитаны. Выплаты и работа за 60 дней неизменны.'}
+            @{id='07';slug='security-shift-income';field='Оплата дневной смены рядом с домом, ₽';value='4300';button='Пересчитать варианты';success='Будущие варианты пересчитаны. История и фактические поступления не изменены.'}
+            @{id='08';slug='cafe-shift-tips';field='Оплата смены в ближнем кафе, ₽';value='4000';button='Пересчитать три графика';success='Сравнение пересчитано. Старые начисления и фактические переводы не изменены.'}
+            @{id='09';slug='pvz-work-pay';field='Оплата смены на ближнем ПВЗ, ₽';value='4100';button='Пересчитать варианты';success='Сравнение обновлено. Начисления и семейные деньги из истории не изменены.'}
+            @{id='10';slug='contact-center-remote';field='Базовая оплата удалённой смены, ₽';value='4400';button='Сравнить четыре варианта';success='Четыре варианта пересчитаны. Исходная зарплата, премии и семейные платежи не изменены.'}
+          )
+          $scope=[System.Windows.Automation.TreeScope]::Descendants
+          function Roots(){
+            foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue |
+              Where-Object {$_.MainWindowHandle -ne 0})){
+              try{
+                $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$p.MainWindowHandle)
+                if($root){Write-Output $root}
+              }catch{}
+            }
+          }
+          function Find([string]$name){
+            $cond=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+            foreach($root in @(Roots)){
+              $node=$root.FindFirst($scope,$cond)
+              if($node -and $node.Current.IsEnabled){return $node}
+            }
+            return $null
+          }
+          function Await([string]$name,[string]$code){
+            for($k=0;$k -lt 110;$k++){
+              $node=Find $name
+              if($node){return $node}
+              Start-Sleep -Milliseconds 240
+            }
+            throw $code
+          }
+          function Fingerprint(){
+            $out=[System.Collections.Generic.List[string]]::new()
+            $cond=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+              [System.Windows.Automation.ControlType]::Text)
+            foreach($root in @(Roots)){
+              foreach($node in $root.FindAll($scope,$cond)){
+                $label=$node.Current.Name
+                if($label -and $label.Length -gt 1){$out.Add($label)}
+              }
+            }
+            return [string]::Join([Environment]::NewLine,$out)
+          }
+          function Fill([string]$name,[string]$value,[string]$code){
+            $node=Await $name $code
+            try{
+              $node.SetFocus()
+              Set-Clipboard -Value $value
+              [System.Windows.Forms.SendKeys]::SendWait('^a')
+              [System.Windows.Forms.SendKeys]::SendWait('^v')
+              $ok=$false
+              for($k=0;$k -lt 30;$k++){
+                Start-Sleep -Milliseconds 120
+                try{
+                  $p=[System.Windows.Automation.ValuePattern](Find $name).GetCurrentPattern(
+                    [System.Windows.Automation.ValuePattern]::Pattern)
+                  if($p.Current.Value -eq $value){$ok=$true;break}
+                }catch{}
+              }
+              if(!$ok){throw $code}
+            }catch{throw $code}
+          }
+          function Activate([string]$name,[string]$code){
+            $node=Await $name $code
+            try{
+              $p=[System.Windows.Automation.InvokePattern]$node.GetCurrentPattern(
+                [System.Windows.Automation.InvokePattern]::Pattern)
+              $p.Invoke()
+            }catch{
+              try{
+                $node.SetFocus()
+                [System.Windows.Forms.SendKeys]::SendWait(' ')
+              }catch{throw $code}
+            }
+          }
+          $server=$null
+          $good=0
+          try{
+            $server=Start-Process -FilePath node -WorkingDirectory $site -ArgumentList @(
+              'scripts/serve-current-static.mjs','dist','--t2-loopback'
+            ) -PassThru -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd02-case-http.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd02-case-http-error.private.log')
+            $ready=$false
+            for($k=0;$k -lt 80;$k++){
+              Start-Sleep -Milliseconds 250
+              try{
+                if((Invoke-WebRequest -Uri 'http://127.0.0.1:55471/' -TimeoutSec 2).StatusCode -eq 200){$ready=$true;break}
+              }catch{}
+            }
+            if(!$ready){throw 'D02_CASE_HTTP_NOT_READY'}
+            foreach($entry in $entries){
+              try{Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue}catch{}
+              Start-Sleep -Milliseconds 500
+              $profile=Join-Path $env:RUNNER_TEMP ('d02-native-case-'+$entry.id)
+              $browser=Start-Process -FilePath $edge -PassThru -ArgumentList @(
+                '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
+                "--user-data-dir=$profile","--app=$origin/publications/$($entry.slug)/"
+              )
+              $null=Await $entry.success ('D02_CASE_'+$entry.id+'_INITIAL_CALCULATION_MISSING')
+              $old=Fingerprint
+              Fill $entry.field $entry.value ('D02_CASE_'+$entry.id+'_EDIT_FAILED')
+              Activate $entry.button ('D02_CASE_'+$entry.id+'_RECALC_NOT_AVAILABLE')
+              $changed=$false
+              for($k=0;$k -lt 50;$k++){
+                Start-Sleep -Milliseconds 180
+                if((Fingerprint) -cne $old){$changed=$true;break}
+              }
+              if(!$changed){throw ('D02_CASE_'+$entry.id+'_INTERACTIVE_RESULT_UNCHANGED')}
+              $null=Await $entry.success ('D02_CASE_'+$entry.id+'_RECALCULATION_FAILED')
+              $good++
+              Write-Output "D02_NATIVE_CASE_INTERACTION=PASS:$($entry.id)"
+              try{$browser.Kill($true)}catch{}
+            }
+            if($good -ne 6){throw 'D02_CASE_REAL_INTERACTION_COUNT_MISMATCH'}
+            Write-Output 'D02_NATIVE_SIX_CASE_INTERACTIONS=PASS'
+          }finally{
+            try{Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue}catch{}
+            if($server){try{$server.Kill($true)}catch{}}
+          }
+      - name: Confirm no private case data was published
+        if: always()
+        run: |
+          Write-Output 'D02_CASE_USER_PROFILE_UPLOAD=FALSE'
+          Write-Output 'D02_CASE_DIST_UPLOAD=FALSE'
