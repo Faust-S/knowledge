@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           echo "D09_SITE_HEAD=$(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD)" = "d4edebbb1cf99ce5750db84c8584c788f944d6a7" || {
+          test "$(git rev-parse HEAD)" = "5806fd95c89583050b710d14aae92826957a87b7" || {
             echo "D09_SITE_REVISION_CHANGED=HOLD"; exit 1;
           }
           node --experimental-strip-types --test tests/d09-read-model-guards.test.mjs > "$RUNNER_TEMP/d09-result-source.log" 2>&1 || {
@@ -87,7 +87,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop
-          ref: df845681cfd2d0b82e996044509ea3d341c4b489
+          ref: 4c20c3c554eee53d75faf6b329b7053bcc81ecfd
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: canonical-hop
