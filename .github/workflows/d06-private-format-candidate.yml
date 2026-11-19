@@ -42,8 +42,30 @@ jobs:
           & node scripts/format-eslint-violations.mjs --apply *> $scratch
           if ($LASTEXITCODE -ne 0) { Write-Host "D06_FMT_APPLY=FAIL"; exit 1 }
           Write-Host "D06_FMT_APPLY=PASS"
-          & npm run check *> $scratch
-          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FMT_CHECK=FAIL"; exit 1 }
+          $stages = @(
+            "check:package", "check:playwright-cli", "check:type",
+            "check:lint", "check:registry", "check:schemas",
+            "check:session-docs", "check:contracts", "check:adapter-boundary",
+            "check:service-save-api", "check:e2e-antipatterns",
+            "check:design-system", "check:visual-contract"
+          )
+          foreach ($stage in $stages) {
+            & npm run $stage *> $scratch
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host ("D06_FMT_FAILED_STAGE=" + $stage)
+              $plan = & node scripts/format-eslint-violations.mjs --plan 2> $scratch
+              if ($LASTEXITCODE -eq 0) {
+                foreach ($line in $plan) {
+                  if ($line -match "^D06-WIN-003: [0-9]+ Prettier violations in [0-9]+ tracked files\\.$" -or
+                      $line -match "^Other ESLint errors: [0-9]+; warnings: [0-9]+\\.$") {
+                    Write-Host ("D06_FMT_CLASS=" + $line)
+                  }
+                }
+              }
+              exit 1
+            }
+            Write-Host ("D06_FMT_STAGE_PASS=" + $stage)
+          }
           Write-Host "D06_FMT_CHECK=PASS"
           & git diff --check *> $scratch
           if ($LASTEXITCODE -ne 0) { Write-Host "D06_FMT_DIFF_CHECK=FAIL"; exit 1 }
