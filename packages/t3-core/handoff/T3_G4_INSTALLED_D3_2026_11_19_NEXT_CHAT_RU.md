@@ -275,3 +275,44 @@ WebView2 UIA и штатное WM_CLOSE; в first-use проверке отка�
 приватный runtime. В случае прохождения Workspace отдельно требуется
 `D3_OWNER_READY`, затем холодное восстановление DPAPI, два Windows OS
 владельца и полный установленный Agent/Human ACCEPT/APPLY/Kernel.
+
+
+## 9. Установленный D3: native Owner исполняется, но регистрация ещё FAIL (19.11)
+
+[Windows #44515194473](https://github.com/Faust-S/knowledge/actions/runs/44515194473),
+точные `knowledge@5bc8ad712175ed5d92463ae186e9973cfa5ca0ee`,
+`Center@cbad39d9`, `T3@ea1700ec`: публичный One Dist,
+Setup Core, оригинальный подписант, WebView2, Workspace без Atlas,
+сохранённый менеджерский черновик, два независимых настоящих Win32
+диалога CANCEL/YES и закрытие обоих диалогов **PASS**.
+Установленная регистрация **FAIL** после YES:
+`T3_PRODUCT_COMPONENT_OPERATION_FAILED`; исходный приватный
+процесс запущен и завершился с ненулевым кодом, но оригинальная
+ошибка дочернего stderr была скрыта при неканоническом формате.
+Никакого `D3_OWNER_READY`, DPAPI cold readback или installed
+Human ACCEPT/APPLY этот запуск не подтвердил.
+
+Дополнительно найден диагностический дефект: публичный UIA helper
+безусловно считывал `DataLocation` из Setup Core HKCU, хотя поле
+необязательно; при его отсутствии настоящий native Owner отказ
+маскировался новой ошибкой PowerShell. Исправлено в
+`knowledge@dd55bcb817149050ce381fe05e52d6e6e7aefff3`:
+сохраняется основной отказ, предусмотрен штатный Tauri local data
+fallback и только bounded counts файлов (без чтения vault/DPAPI).
+
+У оригинального владельца интерфейса `Faust-S/Center@2628c4bc1b20b4393c485d12513f029fdea8b082`
+в штатном `native/t3_product_component.rs` добавлена
+классификация ошибок pinned signed Owner: точный bounded machine
+code или ограниченная категория; сырые пути, stderr и приватные
+данные не публикуются. Добавлены Rust регрессии на маскирование
+произвольного текста. **Ни Kernel, ни подписи, ни режим Human
+подтверждения не изменены.**
+
+Запущен очередной установленный [CI #44517274170](https://github.com/Faust-S/knowledge/actions/runs/44517274170)
+с точными T3 `ea1700ec` и Center `2628c4bc` на
+`knowledge@b20f29c2b0f0233a80578f9048ade149ed1b2ccd`.
+По окончании проверить `G4_INSTALLED_FIRST_USE_NATIVE_OWNER_ERROR_CODE`,
+`G4_INSTALLED_FIRST_USE_NATIVE_OWNER_REQUIRED_FILES`,
+`G4_INSTALLED_FIRST_USE_NATIVE_OWNER_ORIGINAL_FILES` и
+`G4_INSTALLED_FIRST_USE_ORIGINAL_DPAPI_COLD_RESTART_PASS`.
+До доказанного `D3_OWNER_READY`: `T3_READY=false`, `G4=NOT_ACCEPTED`.
