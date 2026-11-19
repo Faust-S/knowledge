@@ -103,13 +103,19 @@ jobs:
           Write-Output "D10_WINDOWS_INTEGRATED_DIST=PASS"
       - name: Native Microsoft Edge Windows UIAutomation ten article routes
         run: |
-          & "$env:GITHUB_WORKSPACE\windows\d10-edge-uia.ps1" *> "$env:RUNNER_TEMP\d10-win-uia.log"
-          $result=if($?){0}else{1}
-          Get-Content "$env:RUNNER_TEMP\d10-win-uia.log" | Select-String -Pattern "^D10_WINDOWS_" | ForEach-Object {$_.Line}
+          $log="$env:RUNNER_TEMP\d10-win-uia.log"
+          $errLog="$env:RUNNER_TEMP\d10-win-uia-err.log"
+          $script="$env:GITHUB_WORKSPACE\windows\d10-edge-uia.ps1"
+          $proc=Start-Process -FilePath "$PSHOME\powershell.exe" -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-File",$script) -Wait -PassThru -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $errLog
+          $result=$proc.ExitCode
+          Get-Content $log | Select-String -Pattern "^D10_WINDOWS_" | ForEach-Object {$_.Line}
           if($result -ne 0){
-            $errors=Get-Content "$env:RUNNER_TEMP\d10-win-uia.log" | Select-String -Pattern "D10_WINDOWS_[A-Z0-9_]+" | Select-Object -Last 3
+            $errors=Get-Content $errLog | Select-String -Pattern "D10_WINDOWS_[A-Z0-9_]+" | Select-Object -Last 3
             foreach($error in $errors){Write-Output "D10_WINDOWS_UIA_DIAG=$($error.Matches[0].Value)"}
-            throw "D10_WINDOWS_UIA_BASELINE_FAILED"
+            throw "D10_WINDOWS_UIA_NATIVE_INTERACTION_FAILED"
+          }
+          if(-not (Select-String -Path $log -Pattern "D10_WINDOWS_CASE010_NATIVE_METRIC_INTERACTION=PASS" -Quiet)){
+            throw "D10_WINDOWS_CASE010_NATIVE_RESULT_NOT_CONFIRMED"
           }
       - name: No private artifacts published
         run: |
