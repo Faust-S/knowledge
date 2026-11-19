@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 env:
-  SITE_SHA: 3f5bb77a0d34c9f0814bc4dec6aa59ae229293f1
+  SITE_SHA: a4d03c29b2d8c40781d9b0fe2ae4a77286b9c306
   PUPPETEER_SKIP_DOWNLOAD: '1'
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
   CI: 'true'
@@ -40,6 +40,9 @@ jobs:
         working-directory: private/site
         run: |
           if((& git rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D08_P1_SITE_SHA_MISMATCH'}
+          & npm run check:npm-lock *> (Join-Path $env:RUNNER_TEMP 'd08-p1-no-legacy-scaffold.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D08_P1_NO_LEGACY_SCAFFOLD_FAILED'}
+          Write-Host 'D08_P1_NO_LEGACY_SCAFFOLD=PASS'
           & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'd08-p1-site-install.private.log')
           if($LASTEXITCODE -ne 0){throw 'D08_P1_SITE_INSTALL_FAILED'}
           Write-Host 'D08_P1_SITE_INSTALL=PASS'

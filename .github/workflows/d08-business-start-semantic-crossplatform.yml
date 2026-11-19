@@ -8,7 +8,7 @@ permissions:
   contents: read
 env:
   DOMAIN_SHA: bc1396ee0b8f37b6ea26d75df912384af3f70d95
-  SITE_SHA: 3f5bb77a0d34c9f0814bc4dec6aa59ae229293f1
+  SITE_SHA: a4d03c29b2d8c40781d9b0fe2ae4a77286b9c306
 jobs:
   p1-models:
     runs-on: ${{ matrix.os }}
@@ -53,8 +53,9 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: '1'
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
         run: |
-          node scripts/check-public-npm-lock.mjs >/dev/null || { echo "D08_NPM_PUBLIC_LOCK=FAIL"; exit 1; }
+          npm run check:npm-lock > "$RUNNER_TEMP/d08-template-clean.private.log" 2>&1 || { echo "D08_NPM_PUBLIC_LOCK_AND_SCAFFOLD=FAIL"; exit 1; }
           echo "D08_NPM_PUBLIC_LOCK=PASS"
+          echo "D08_NO_LEGACY_SCAFFOLD=PASS"
           if npm ci --no-audit --no-fund --include=dev > "$RUNNER_TEMP/d08-npm-ci.private.log" 2>&1; then
             test -f node_modules/typescript/bin/tsc || { echo "D08_NPM_TYPESCRIPT_MISSING"; exit 1; }
             echo "D08_NPM_CI_PUBLIC_REGISTRY=PASS"
