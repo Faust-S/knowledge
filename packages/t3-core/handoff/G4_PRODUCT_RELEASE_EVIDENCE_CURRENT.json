@@ -2,7 +2,7 @@
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
   "snapshot_date": "2026-11-19",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
-  "currentness": "G4_SOURCE_ORIGINAL_D3_20_20_PASS_INSTALLED_HUMAN_FIRST_USE_PASS__COMPILED_OWNER_PRE_ENROLL_ENOENT__STATIC_DISPATCH_RETEST_44520786486",
+  "currentness": "G4_SOURCE_D3_20_OF_20__INSTALLED_FIRST_USE_NATIVE_CANCEL_CONFIRM_PASS__COMPILED_D3_ENTRY_PREFLIGHT_HOLD_44521476378",
   "policy": {
     "t3_one_core": "Faust-S/knowledge/packages/t3-core",
     "t2_normative": "Faust-S/T2@main",
@@ -1887,9 +1887,17 @@
         "center_sha": "2628c4bc1b20b4393c485d12513f029fdea8b082",
         "public_workflow_sha": "91c3a18329234580cb4efc06354535bd7570e619",
         "installed_run_id": 44520786486,
-        "status": "RUNNING_NOT_ACCEPTED",
+        "status": "FAILED_COMPILED_ENTRY_PREFLIGHT_44520786486_WITHOUT_RAW_ERROR",
         "native_owner_ready": "HOLD",
-        "original_dpapi_cold_reopen": "NOT_RUN"
+        "original_dpapi_cold_reopen": "NOT_RUN",
+        "failure": "T3_D3_ORIGINAL_COMPILED_ENROLL_ENTRY_UNAVAILABLE",
+        "diagnostic_retest": {
+          "original_t3_sha": "00e2b1500027a31eaffede9530e725d5a8e0abbd",
+          "public_workflow_sha": "5ecd48318d05b7cf1e04a6434673941b8f8f48ba",
+          "run_id": 44521476378,
+          "status": "IN_PROGRESS",
+          "classification": "bounded compiled EXE stderr machine codes, exit status and line count only"
+        }
       }
     }
   },
@@ -1985,7 +1993,7 @@
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
     "original_private_native_signer": "CURRENT_SOURCE_PIN_d0d8ba2f_NATIVE_ONE_SHOT_WINDOWS_BRIDGE_REQUALIFIED_20_OF_20_44406073956__INSTALLED_UI_HOLD",
-    "independent_installed_d3": "HOLD_PRIVATE_COMPILED_OWNER_PRE_D3_ENROLL_ENOENT__EXACT_STATIC_CLI_REQUALIFICATION_44520786486_RUNNING",
+    "independent_installed_d3": "HOLD_COMPILED_ORIGINAL_D3_OWNER_PREFLIGHT_FAILED_44520786486__CLASSIFIED_44521476378_RUNNING",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
