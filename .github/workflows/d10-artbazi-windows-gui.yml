@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: 52b3fcb65f73e289b4f9bb3aa76d30dd119293af
+          ref: 39b81d69399bbc62551ecb53eff36f7f566e88d5
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -42,7 +42,7 @@ jobs:
           bun-version: "latest"
       - name: Verify pinned private and T2 source in runner
         run: |
-          if ((git -C site rev-parse HEAD).Trim() -ne "52b3fcb65f73e289b4f9bb3aa76d30dd119293af") { throw "D10_WINDOWS_SITE_PIN_MISMATCH" }
+          if ((git -C site rev-parse HEAD).Trim() -ne "39b81d69399bbc62551ecb53eff36f7f566e88d5") { throw "D10_WINDOWS_SITE_PIN_MISMATCH" }
           if ((git -C t2 rev-parse HEAD).Trim() -ne "e70de29b72b83e2546f7ab74b17572685a728c17") { throw "D10_WINDOWS_T2_PIN_MISMATCH" }
           Write-Output "D10_WINDOWS_SOURCE_PINS=PASS"
       - name: Install site dependencies privately
@@ -122,6 +122,30 @@ jobs:
           if(-not (Test-Path "dist/workspace/index.html")){throw "D10_WINDOWS_WORKSPACE_MISSING"}
           if(-not (Test-Path "dist/cases/vesper-quote-to-deal/index.html")){throw "D10_WINDOWS_CASE010_HTML_MISSING"}
           Write-Output "D10_WINDOWS_INTEGRATED_DIST=PASS"
+      - name: Verify production-hosting candidate inventory and static rules
+        working-directory: site
+        run: |
+          # Source and dist remain only in this ephemeral runner.
+          # Publish stable gate names and exit codes, never private source text.
+          $gates=@(
+            @{ code="INVENTORY"; cmd="node scripts/check-d10-hosting-release.mjs" },
+            @{ code="LOCALHOST"; cmd="npm run check:no-localhost" },
+            @{ code="ASSETS"; cmd="npm run check:assets" },
+            @{ code="LINKS"; cmd="npm run check:links" },
+            @{ code="SEO"; cmd="npm run check:seo" },
+            @{ code="APACHE"; cmd="npm run check:htaccess" }
+          )
+          foreach($gate in $gates){
+            $out=Join-Path $env:RUNNER_TEMP ("d10-release-"+$gate.code+"-out.log")
+            $err=Join-Path $env:RUNNER_TEMP ("d10-release-"+$gate.code+"-err.log")
+            $p=Start-Process -FilePath "$env:ComSpec" -ArgumentList @("/d","/c",$gate.cmd) -Wait -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err
+            if($p.ExitCode -ne 0){
+              Write-Output "D10_HOSTING_$($gate.code)=FAIL"
+              throw "D10_HOSTING_GATE_FAILED_$($gate.code)"
+            }
+            Write-Output "D10_HOSTING_$($gate.code)=PASS"
+          }
+          Write-Output "D10_HOSTING_RELEASE_STATIC_GATES=PASS"
       - name: Native Microsoft Edge Windows UIAutomation ten article routes
         run: |
           $log="$env:RUNNER_TEMP\d10-win-uia.log"
