@@ -89,7 +89,23 @@ jobs:
           $log=Join-Path $env:RUNNER_TEMP 'editorial-agent-build.log'
           $build=Join-Path $agent 'tools/qa-editorial-build.ps1'
           & $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $build -CenterRoot $center -CenterCommit 'c10e193846a0ea4c73cabe3744aa7db82439d54e' -OutputRoot $work -ReleaseCacheRoot $cache *> $log
-          if($LASTEXITCODE -ne 0){throw 'DOC_AGENT_NATIVE_BUILD_FAILED'}
+          if($LASTEXITCODE -ne 0){
+            $text=if(Test-Path -LiteralPath $log){Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue}else{''}
+            $codes=[regex]::Matches([string]$text,'(?i)(?:private_setup|agent_setup|original_t3|iwxa_setup|win32|os_error)_[a-z0-9_]{3,100}')
+            foreach($code in @($codes | Select-Object -Unique | Select-Object -Last 12)){
+              Write-Host ('DOC_AGENT_NATIVE_SAFE_FAILURE_CODE '+$code.Value.ToLowerInvariant())
+            }
+            $tsErrors=[regex]::Matches([string]$text,'(?<!\w)TS[0-9]{4}(?!\w)')
+            foreach($code in @($tsErrors | Select-Object -Unique | Select-Object -Last 8)){
+              Write-Host ('DOC_AGENT_NATIVE_SAFE_TYPESCRIPT_CODE '+$code.Value)
+            }
+            foreach($item in @('logs/native-desktop-build.log','build/package/IWXA-Personal-Agent-Windows-Explorer-Prototype.zip','IWXA-Private-SetupCore-Candidate.exe','logs/private-build-result.json')){
+              if(Test-Path -LiteralPath (Join-Path $work $item) -PathType Leaf){
+                Write-Host ('DOC_AGENT_NATIVE_SAFE_STAGE_PRESENT '+($item -replace '[^A-Za-z0-9]','_'))
+              }
+            }
+            throw 'DOC_AGENT_NATIVE_BUILD_FAILED'
+          }
           if(!(Test-Path -LiteralPath (Join-Path $work 'IWXA-Private-SetupCore-Candidate.exe'))){throw 'DOC_AGENT_PACKAGE_MISSING'}
           Write-Host 'DOC_AGENT_CURRENT_NATIVE_SETUP_READY'
       - name: Photograph genuine installed task draft, model and program screens
