@@ -1,0 +1,114 @@
+name: D12 AKIS CASE-001-002 targeted independent qualification
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d12-akis-articles-fast-qualification.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d12-akis-fast-\${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  qualify:
+    name: Independent source and browser \${{ matrix.os }}
+    runs-on: \${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout exact private article source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: 15f69d13cfb6e2b341ec5e2a117ec416612e5564
+          token: \${{ secrets.DOMEN }}
+          persist-credentials: false
+      - name: Checkout exact private original AKIS research
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa
+          ref: e624520c52101a34feab62ce68b2056dc54e5301
+          path: akis-research
+          token: \${{ secrets.DOMEN }}
+          persist-credentials: false
+      - name: Verify source identity without printing private code
+        run: |
+          test "$(git rev-parse HEAD)" = "15f69d13cfb6e2b341ec5e2a117ec416612e5564" || exit 1
+          test "$(git -C akis-research rev-parse HEAD)" = "e624520c52101a34feab62ce68b2056dc54e5301" || exit 1
+          test -f src/routes/science.akis-production.tsx || exit 1
+          test -f src/routes/science.akis-operator.tsx || exit 1
+          echo "AKIS_PRIVATE_SOURCE_IDENTITIES=PASS"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Frozen dependencies
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/akis-install.log" 2>&1 || {
+            echo "AKIS_INSTALL=FAIL"; exit 1;
+          }
+          echo "AKIS_INSTALL=PASS"
+      - name: Real Node tests on both models
+        run: |
+          bun run check:akis:production > "$RUNNER_TEMP/akis-001.log" 2>&1 || {
+            echo "AKIS_001_TESTS=FAIL"; exit 1;
+          }
+          bun run check:akis:article > "$RUNNER_TEMP/akis-002.log" 2>&1 || {
+            echo "AKIS_002_TESTS=FAIL"; exit 1;
+          }
+          echo "AKIS_CASE_UNIT=PASS"
+      - name: Scientific source parity on original research code and passport
+        env:
+          IWXA_AKIS_RESEARCH_SOURCE_DIR: \${{ github.workspace }}/akis-research
+        run: |
+          bun run check:akis:source-parity > "$RUNNER_TEMP/akis-source-parity.log" 2>&1 || {
+            echo "AKIS_AUTHOR_SOURCE_PARITY=FAIL"; exit 1;
+          }
+          echo "AKIS_AUTHOR_SOURCE_PARITY=PASS"
+      - name: TypeScript via original Vite route generator
+        run: |
+          npm run typecheck > "$RUNNER_TEMP/akis-tsc.log" 2>&1 || {
+            echo "AKIS_TYPECHECK=FAIL"; exit 1;
+          }
+          echo "AKIS_TYPECHECK=PASS"
+      - name: Install Chromium for original browser engine
+        run: |
+          bunx puppeteer browsers install chrome > "$RUNNER_TEMP/akis-puppeteer.log" 2>&1 || {
+            echo "AKIS_BROWSER_INSTALL=FAIL"; exit 1;
+          }
+          echo "AKIS_BROWSER_INSTALL=PASS"
+      - name: Build original Vite SSR and prerender only the two AKIS articles
+        env:
+          IWXA_PRERENDER_ROUTES: /science/akis-production/,/science/akis-operator/
+        run: |
+          bun run build:static > "$RUNNER_TEMP/akis-target-build.log" 2>&1 || {
+            echo "AKIS_TWO_PAGE_PRERENDER=FAIL"; exit 1;
+          }
+          test -f dist-static/science/akis-production/index.html || exit 1
+          test -f dist-static/science/akis-operator/index.html || exit 1
+          echo "AKIS_TWO_PAGE_PRERENDER=PASS"
+      - name: Check original HTML, canonical, schema and reciprocal research links
+        run: |
+          bun run check:akis:static > "$RUNNER_TEMP/akis-ssr-check.log" 2>&1 || {
+            echo "AKIS_ARTICLE_SSR=FAIL"; exit 1;
+          }
+          bun run check:schema > "$RUNNER_TEMP/akis-schema.log" 2>&1 || {
+            echo "AKIS_ARTICLE_SCHEMA=FAIL"; exit 1;
+          }
+          echo "AKIS_ARTICLE_SSR=PASS"
+          echo "AKIS_ARTICLE_SCHEMA=PASS"
+      - name: Native click, math, mobile overflow, dark light, interactive browser scenario
+        run: |
+          bun run check:akis:browser > "$RUNNER_TEMP/akis-browser.log" 2>&1 || {
+            echo "AKIS_BROWSER=FAIL"; exit 1;
+          }
+          echo "AKIS_BROWSER=PASS"
+      # Research, site, generated HTML, logs and screenshots stay on the runner.
