@@ -1,0 +1,207 @@
+name: D08 original T2 two business Projects with IWXA Exchange Windows
+
+# Public workflow, private source remains exclusively on ephemeral runners.
+# Triggered by push to this isolated qualification branch.
+# No release, artifact upload, PR, or private stdout is permitted.
+on:
+  push:
+    branches: [work/2026-11-18-d08-marketops-windows-qualification]
+    paths: [.github/workflows/d08-business-original-t2-iwxa.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d08-business-iwxa-original-t2-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOMAIN_SHA: 0b818674878f9e26e3fd1d5fe39e9e65f07897cc
+  SITE_SHA: 6dca33ea5d7b1f92e978386187a8ab680b839cf6
+  T2_SHA: 49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7
+  CI: 'true'
+  PUPPETEER_SKIP_DOWNLOAD: '1'
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+jobs:
+  integrated-t2-windows:
+    runs-on: windows-latest
+    timeout-minutes: 105
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Verify DOMEN grants read access to exact site and normative T2
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'D08_DOMEN_SECRET_UNAVAILABLE'}
+          foreach($repo in @('Faust-S/market-ops.ru','Faust-S/T2')){
+            & gh api "repos/$repo" --jq '.id' *> $null
+            if($LASTEXITCODE -ne 0){throw 'D08_T2_ACCESS_DENIED'}
+          }
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+          Write-Host 'D08_T2_READ_ACCESS=PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify business Project witness JavaScript syntax
+        working-directory: private/site
+        run: |
+          & node --check tests/business-project-native-t2-windows.mjs
+          if($LASTEXITCODE -ne 0){throw 'D08_BIZ_WITNESS_SYNTAX_FAILED'}
+          Write-Host 'D08_BIZ_WITNESS_SYNTAX=PASS'
+      - name: Verify original T2 SHA and accepted Kernel source archive
+        run: |
+          foreach($item in @(@('private/site',$env:SITE_SHA),@('private/t2',$env:T2_SHA))){
+            $actual=(& git -C $item[0] rev-parse HEAD).Trim()
+            if($actual -ne $item[1]){throw 'D08_INTEGRATED_PIN_MISMATCH'}
+          }
+          $archive=Join-Path $env:GITHUB_WORKSPACE 'private/t2/t2/current/final-successor/kernel-successors/k036-same-store-event-history-20261019/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip'
+          if(-not (Test-Path $archive)){throw 'D08_T2_QUALIFIED_ARCHIVE_MISSING'}
+          $actual=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($actual -ne '7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68'){
+            throw 'D08_T2_QUALIFIED_ARCHIVE_HASH_MISMATCH'
+          }
+          Write-Host 'D08_T2_EXACT_PIN=PASS'
+          Write-Host 'D08_T2_QUALIFIED_KERNEL_ZIP=PASS'
+      - name: Install site packages privately
+        working-directory: private/site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd08-integrated-install.private.log'
+          & npm ci --no-audit --no-fund *> $log
+          if($LASTEXITCODE -ne 0){throw 'D08_INTEGRATED_SITE_INSTALL_FAILED'}
+          Write-Host 'D08_INTEGRATED_SITE_INSTALL=PASS'
+      - name: Resolve the actual Windows browser needed by the existing prerender build
+        run: |
+          $candidates=@(
+            'C:\Program Files\Google\Chrome\Application\chrome.exe',
+            'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
+            'C:\Program Files\Microsoft\Edge\Application\msedge.exe',
+            'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe'
+          )
+          $found=@($candidates | Where-Object { Test-Path -LiteralPath $_ })
+          if($found.Count -eq 0){throw 'D08_PRERENDER_SYSTEM_BROWSER_MISSING'}
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value ('PUPPETEER_EXECUTABLE_PATH='+$found[0])
+          Write-Host 'D08_PRERENDER_SYSTEM_BROWSER=PASS'
+          Write-Host 'D08_BROWSER_AUTOMATION_SCOPE=BUILD_TIME_PRERENDER_ONLY'
+      - name: Build one actual site with original T2 Host and qualified Kernel
+        working-directory: private/site
+        timeout-minutes: 90
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/private/t2
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd08-real-t2-build.private.log'
+          & npm run build *> $log
+          $code=$LASTEXITCODE
+          if($code -ne 0){
+            Write-Host 'D08_FULL_ORIGINAL_T2_BUILD=FAIL'
+            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            $codes=[regex]::Matches($raw,'(?:MARKETOPS|IWXA|T2)_[A-Z0-9_]+') |
+              ForEach-Object {$_.Value} | Sort-Object -Unique | Select-Object -Last 12
+            Write-Host ('D08_BUILD_REASON_CODES='+($codes -join ','))
+            $classes=[ordered]@{
+              NPM_TARBALL='TAR_BAD_ARCHIVE|TAR_ENTRY_ERROR|tarball|EINTEGRITY'
+              NETWORK='ECONNRESET|ETIMEDOUT|EAI_AGAIN|CERT_HAS_EXPIRED'
+              MODULE='ERR_MODULE_NOT_FOUND|Cannot find module|MODULE_NOT_FOUND'
+              TYPES='TS\d{4}|SyntaxError'
+              PERMISSIONS='EPERM|EACCES|Access is denied'
+              BUILD='Build failed|failed to build|RollupError'
+            }
+            $found=@($classes.Keys | Where-Object {$raw -match $classes[$_]})
+            if($found.Count -eq 0){$found=@('UNCLASSIFIED')}
+            Write-Host ('D08_BUILD_FAILURE_CLASSES='+($found -join ','))
+            throw 'D08_INTEGRATED_BUILD_FAILED'
+          }
+          Write-Host 'D08_FULL_ORIGINAL_T2_BUILD=PASS'
+      - name: Verify actual protected and public entries in one ephemeral dist
+        working-directory: private/site
+        run: |
+          $required=@(
+            'dist/index.html',
+            'dist/tools/launch-map/index.html',
+            'dist/tools/cash-gap/index.html',
+            'dist/tools/forgotten-costs/index.html',
+            'dist/tools/launch-budget/index.html',
+            'dist/tools/fbo-fbs-selector/index.html',
+            'dist/tools/unit-economy/index.html',
+            'dist/tools/ad-load/index.html',
+            'dist/workspace/index.html',
+            'dist/workspace/exchange/index.html',
+            'dist/workspace/lifecycle/index.html',
+            'dist/_iwxa/runtime/0.3.6/runtime.js'
+          )
+          foreach($rel in $required){
+            if(-not(Test-Path -LiteralPath $rel)){throw 'D08_INTEGRATED_ROUTE_ASSET_MISSING'}
+          }
+          $runtime=(Get-FileHash -LiteralPath 'dist/_iwxa/runtime/0.3.6/runtime.js' -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($runtime -ne 'e1737245aba309e900203b458087ca07cb08d9ccc89901754e1122cbc9a01e78'){
+            throw 'D08_T2_RUNTIME_HASH_MISMATCH'
+          }
+          Write-Host 'D08_PUBLIC_CASE_ROUTES=7/7'
+          Write-Host 'D08_WORKSPACE_EXCHANGE_LIFECYCLE=3/3'
+          Write-Host 'D08_QUALIFIED_RUNTIME_HASH=PASS'
+          Write-Host 'D08_EPHEMERAL_INTEGRATED_DIST=PASS'
+      - name: Assert first class business Project type in actual original T2 build
+        working-directory: private/site
+        run: |
+          foreach($rel in @(
+            'dist/business/index.html',
+            'dist/workspace/index.html',
+            'dist/workspace/exchange/index.html',
+            'dist/_iwxa/runtime/0.3.6/runtime.js'
+          )){
+            if(-not(Test-Path -LiteralPath $rel)){throw 'D08_BUSINESS_ORIGINAL_BUILD_MISSING_ENTRY'}
+          }
+          $passport='dist/_iwxa/services/ru.iwxa.marketops.workspace.json'
+          if(-not(Test-Path -LiteralPath $passport)){throw 'D08_BUSINESS_PASSPORT_MISSING'}
+          $p=Get-Content -LiteralPath $passport -Raw | ConvertFrom-Json
+          if(@($p.output_object_types) -notcontains 'ru.iwxa.marketops.business-project'){
+            throw 'D08_BUSINESS_PROJECT_NOT_IN_ORIGINAL_T2_PASSPORT'
+          }
+          Write-Host 'D08_BUSINESS_INTEGRATED_BUILD=PASS'
+          Write-Host 'D08_BUSINESS_QUALIFIED_KERNEL_STAGED=PASS'
+          Write-Host 'D08_BUSINESS_SCHEMA_IN_PASSPORT=PASS'
+      - name: Two business Projects via original T2 GUI, revision and cold restart
+        working-directory: private/site
+        timeout-minutes: 20
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/private/t2
+          D08_BIZ_EXCHANGE_TEST: '1'
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd08-business-native.private.log'
+          & node tests/business-project-native-t2-windows.mjs *> $log
+          $code=$LASTEXITCODE
+          foreach($line in @(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
+            $value=$line.Trim()
+            if($value -match '^D08_BIZ_[A-Z0-9_]+=(PASS|NOT_RUN|TRUE|[A-Z0-9_]+)$'){
+              Write-Host $value
+            }
+          }
+          if($code -ne 0){throw 'D08_BIZ_NATIVE_ORIGINAL_T2_FAILED'}
+          Write-Host 'D08_BIZ_TWO_PROJECTS_NATIVE_KERNEL=PASS'
+      - name: Exact qualification scope and privacy
+        if: always()
+        run: |
+          Write-Host 'D08_PRIVATE_SOURCE_PUBLISHED=NO'
+          Write-Host 'D08_DIST_PUBLISHED=NO'
+          Write-Host 'D08_ARTIFACT_UPLOADS=0'
+          Write-Host 'D08_BUSINESS_GUI_WRITE=CHECK_WITNESS_SIGNALS'
+          Write-Host 'D08_BUSINESS_COLD_READBACK=CHECK_WITNESS_SIGNALS'
+          Write-Host 'D08_BUSINESS_IWXA_EXCHANGE=CHECK_WITNESS_SIGNALS'
