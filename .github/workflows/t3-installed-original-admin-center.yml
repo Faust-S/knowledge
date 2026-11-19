@@ -103,7 +103,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 0990a5a07c94ab8da81d7b4a760a4884111fc211
+          ref: 5ef9caf7a943447a8a612c9451423a790ec681ce
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           filter: blob:none
@@ -164,7 +164,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
           $center=(& git -C .private/center rev-parse HEAD).Trim()
-          if($t3 -ne '0990a5a07c94ab8da81d7b4a760a4884111fc211' -or
+          if($t3 -ne '5ef9caf7a943447a8a612c9451423a790ec681ce' -or
              $center -ne '2628c4bc1b20b4393c485d12513f029fdea8b082'){
             throw 'G4_ORIGINAL_INSTALLED_PRIVATE_SOURCE_PIN_MISMATCH'
           }
@@ -280,7 +280,7 @@ jobs:
           ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 `
             -CenterRoot '.private/center' -OriginalT3Root '.private/t3' `
             -ExpectedCenterSha '2628c4bc1b20b4393c485d12513f029fdea8b082' `
-            -ExpectedT3Sha '0990a5a07c94ab8da81d7b4a760a4884111fc211'
+            -ExpectedT3Sha '5ef9caf7a943447a8a612c9451423a790ec681ce'
       - name: Native UIA first-use cancel, real signed organization enrollment and cold restart
         shell: pwsh
         timeout-minutes: 9
