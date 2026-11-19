@@ -54,11 +54,21 @@ jobs:
           if ! test -f src/routes/pt.life-plus.tsx || ! test -f src/styles/university-mobile-article-ru-pt.css; then echo "PT_MERGE_NEW_FILES=FAIL"; exit 1; fi
           echo "PT_MERGE_NEW_FILES=PASS"
           node - <<'JS'
-          const fs=require('fs');
-          const c=JSON.parse(fs.readFileSync('translation/coverage.json','utf8'));
-          console.log("INTEGRATED_PT_REGISTERED="+c.routes.filter(x=>x.available.includes("pt-BR")).length);
+          const fs=require('fs'),cp=require('child_process');
+          const f='translation/coverage.json';
+          const c=JSON.parse(fs.readFileSync(f,'utf8'));
+          const pt=JSON.parse(cp.execFileSync('git',['show','b840ebfd57d086a65c4474136a3c334eda07f5c4:'+f],{encoding:'utf8'}));
+          if(c.routes.length!==66 || pt.routes.length!==66 ||
+             c.routes.some((r,i)=>r.route!==pt.routes[i].route))throw new Error("PT_COVERAGE_SOURCE_ROUTES_CHANGED");
+          if(!pt.routes.every(r=>r.available.includes('pt-BR')))throw new Error("PT_COVERAGE_INCOMPLETE");
+          const orig=c.routes.map(r=>[r.route,r.available.filter(l=>l!=='pt-BR')]);
+          c.locales=[...new Set([...c.locales,'pt-BR'])];
+          c.routes=c.routes.map(r=>({...r,available:[...new Set([...r.available,'pt-BR'])]}));
+          c.pt_unified=pt.pt_unified;
+          if(c.routes.some((r,i)=>JSON.stringify([r.route,r.available.filter(l=>l!=='pt-BR')])!==JSON.stringify(orig[i]))) throw new Error("OTHER_LOCALES_CHANGED");
+          fs.writeFileSync(f,JSON.stringify(c,null,2)+'\\n');
+          console.log("INTEGRATED_PT_REGISTERED="+c.routes.filter(r=>r.available.includes("pt-BR")).length);
           console.log("INTEGRATED_LOCALES="+c.locales.join(","));
-          if(c.routes.filter(x=>x.available.includes("pt-BR")).length!==66)process.exitCode=1;
           JS
       - name: Check integrated typecheck and build
         shell: bash
