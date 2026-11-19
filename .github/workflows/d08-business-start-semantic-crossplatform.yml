@@ -7,8 +7,8 @@ on:
 permissions:
   contents: read
 env:
-  DOMAIN_SHA: 6f72251afa24f1b2fcfd175eb07c1b72b16dd531
-  SITE_SHA: c089a6de0d09e9d01da35eae0ab87cb3e06a3636
+  DOMAIN_SHA: 3045828bc3d19cf1523e6148024c0af8bf482389
+  SITE_SHA: 16da8d1fbf087e09206a05fde921481612a8c1c6
 jobs:
   p1-models:
     runs-on: ${{ matrix.os }}
@@ -49,7 +49,7 @@ jobs:
         run: |
           test "$(git -C private/domain rev-parse HEAD)" = "$DOMAIN_SHA"
           test "$(git -C private/site rev-parse HEAD)" = "$SITE_SHA"
-          for name in business-start-overview.mjs business-start-overview.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts business-project.mjs business-project.d.mts business-edit-intent.mjs business-edit-intent.d.mts business-experiment-comparison.mjs business-experiment-comparison.d.mts; do
+          for name in business-start-overview.mjs business-start-overview.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts business-project.mjs business-project.d.mts business-edit-intent.mjs business-edit-intent.d.mts business-experiment-comparison.mjs business-experiment-comparison.d.mts business-launch-review.mjs business-launch-review.d.mts; do
             cmp -s "private/domain/model/$name" "private/site/src/lib/$name" || { echo "D08_P1_CANONICAL_DRIFT"; exit 1; }
           done
           for name in business-project.mjs business-project.d.mts business-edit-intent.mjs business-edit-intent.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts; do
@@ -59,7 +59,7 @@ jobs:
       - name: Run domain negative and anti-duplication tests
         working-directory: private/domain
         run: |
-          node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs tests/business-project.test.mjs tests/business-edit-intent.test.mjs tests/business-experiment-comparison.test.mjs > "$RUNNER_TEMP/d08-private-domain.log" 2>&1 || { echo "D08_P1_DOMAIN_MODEL_TESTS_FAIL"; exit 1; }
+          node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs tests/business-project.test.mjs tests/business-edit-intent.test.mjs tests/business-experiment-comparison.test.mjs tests/business-launch-review.test.mjs > "$RUNNER_TEMP/d08-private-domain.log" 2>&1 || { echo "D08_P1_DOMAIN_MODEL_TESTS_FAIL"; exit 1; }
           echo "D08_P1_DOMAIN_MODEL_TESTS=PASS"
       - name: Run independent website projection tests
         working-directory: private/site
