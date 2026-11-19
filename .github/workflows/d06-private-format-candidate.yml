@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: c1b7ae09c7227cd83e17287e77d5235d569d8e24
+          ref: 5057e77c012feb5d974216eabd704d52e722ded0
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -36,7 +36,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Host "D06_FMT_INSTALL=FAIL"; exit 1 }
           Write-Host "D06_FMT_INSTALL=PASS"
           $base = (& git rev-parse HEAD).Trim()
-          if ($base -ne "c1b7ae09c7227cd83e17287e77d5235d569d8e24") {
+          if ($base -ne "5057e77c012feb5d974216eabd704d52e722ded0") {
             Write-Host "D06_FMT_PIN=FAIL"; exit 1
           }
           & node scripts/format-eslint-violations.mjs --apply *> $scratch
@@ -85,6 +85,15 @@ jobs:
             Write-Host ("D06_FMT_STAGE_PASS=" + $stage)
           }
           Write-Host "D06_FMT_CHECK=PASS"
+          & npm run setup:browser *> $scratch
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FMT_BROWSER_SETUP=FAIL"; exit 1 }
+          Write-Host "D06_FMT_BROWSER_SETUP=PASS"
+          & npm run build:static:check *> $scratch
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "D06_FMT_FULL_STATIC_CHECK=FAIL"
+            exit 1
+          }
+          Write-Host "D06_FMT_FULL_STATIC_CHECK=PASS"
           & git diff --check *> $scratch
           if ($LASTEXITCODE -ne 0) { Write-Host "D06_FMT_DIFF_CHECK=FAIL"; exit 1 }
           $changed = @(& git diff --name-only)
