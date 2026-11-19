@@ -1,0 +1,137 @@
+name: Fresh IWXA Personal Agent 0.6 local-only installed native UI witness
+on:
+  push:
+    branches:
+      - qa/2026-11-19-agent06-local-native-first-screen
+    paths:
+      - .github/workflows/qa-agent06-local-first-screen.yml
+permissions:
+  contents: read
+jobs:
+  installed-agent0-6-local-ui:
+    runs-on: windows-2022
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Read exact current private Agent sources for ephemeral local GUI
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 0d4196fa732b52d192ac75590715199381dfb2df
+          token: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /desktop/
+            /runtime/
+            /tools/
+            /config/
+            /adapters/
+            /cells/
+            /providers/
+            /schemas/
+            /profiles/
+            /surfaces/
+            /skills/
+            /operational-skills/
+            /automation/
+            /authority/
+            /Human/
+            /scripts/
+            /webui/
+            /windows/
+            /qualification/phase1/*.ps1
+            /qualification/phase1/*.py
+            /qualification/phase1/*.json
+            /qualification/phase1/*.mjs
+            /requirements.txt
+            /requirements-ci.txt
+            /.gitignore
+          path: .private/agent
+      - name: Read existing actual Agent-owned Setup Core pinned revision
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: c10e193846a0ea4c73cabe3744aa7db82439d54e
+          persist-credentials: false
+          path: .private/center
+      - name: Independently verify current sources and clean private checkouts
+        shell: pwsh
+        run: |
+          $a=(git -C .private/agent rev-parse HEAD).Trim()
+          $c=(git -C .private/center rev-parse HEAD).Trim()
+          if ($a -cne '0d4196fa732b52d192ac75590715199381dfb2df' -or $c -cne 'c10e193846a0ea4c73cabe3744aa7db82439d54e') { throw 'QA_AGENT_SOURCE_IDENTITY_MISMATCH' }
+          if ((git -C .private/agent status --porcelain) -or (git -C .private/center status --porcelain)) { throw 'QA_AGENT_SOURCE_TREE_NOT_CLEAN' }
+          Write-Host 'QA_AGENT_PLAIN_SOURCE_PIN_PASS'
+      - name: Start native UIA watcher before any installed app is launched
+        shell: pwsh
+        run: |
+          $dst=Join-Path $env:GITHUB_WORKSPACE 'artifacts/agent-local'
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          $file=Join-Path $env:GITHUB_WORKSPACE 'tools/qa-agent-current-first-screen.ps1'
+          $ps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          $params='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$file+'" -OutputDir "'+$dst+'" -TimeoutSeconds 3500'
+          Start-Process -FilePath $ps -ArgumentList $params -WindowStyle Hidden | Out-Null
+          Write-Host 'QA_AGENT_LOCAL_WATCHER_STARTED'
+      - name: Build and install genuine current Agent without experimental T3 One Dist
+        shell: pwsh
+        timeout-minutes: 55
+        run: |
+          $ErrorActionPreference='Stop'
+          $agent=(Resolve-Path '.private/agent').Path
+          $center=(Resolve-Path '.private/center').Path
+          $out=Join-Path $env:RUNNER_TEMP 'iwxa-agent06-local-native'
+          $cache=Join-Path $env:RUNNER_TEMP 'iwxa-agent06-local-cache'
+          $log=Join-Path $env:RUNNER_TEMP 'iwxa-agent06-local-private.log'
+          $ps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          $builder=Join-Path $agent 'tools/build_setup_core_windows_candidate.ps1'
+          & $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $builder -CenterRoot $center -CenterCommit 'c10e193846a0ea4c73cabe3744aa7db82439d54e' -OutputRoot $out -ReleaseCacheRoot $cache *> $log
+          if ($LASTEXITCODE -ne 0) {
+            $completed=@('logs/native-desktop-build.log','build/IWXA-Personal-Agent-Windows-Setup.exe','logs/public-test-local-result.txt')
+            foreach($rel in $completed){
+              if(Test-Path -LiteralPath (Join-Path $out $rel)){Write-Host ('QA_AGENT_LOCAL_STAGE_REACHED '+($rel -replace '[^A-Za-z0-9]','_'))}
+            }
+            throw 'QA_AGENT_CURRENT_LOCAL_INSTALL_GATE_FAILED'
+          }
+          Write-Host 'QA_AGENT_LOCAL_ORIGINAL_SETUP_INSTALL_ACCEPTED'
+      - name: Independently report whether a real native UI was captured
+        if: always()
+        shell: pwsh
+        run: |
+          $folder=Join-Path $env:GITHUB_WORKSPACE 'artifacts/agent-local'
+          $image=Join-Path $folder 'agent-native-current-first-screen.png'
+          $proof=Join-Path $folder 'capture-manifest.json'
+          if(!(Test-Path -LiteralPath $image) -or !(Test-Path -LiteralPath $proof)) { Write-Host 'QA_AGENT_LOCAL_GUI_NOT_CAPTURED'; exit 0 }
+          $data=Get-Content -LiteralPath $proof -Raw | ConvertFrom-Json
+          $hash=(Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($hash -cne $data.screenshotSha256 -or $data.originalAgentSha -cne '0d4196fa732b52d192ac75590715199381dfb2df' -or $data.windowTitle -cne 'IWXA Personal') {throw 'QA_AGENT_NATIVE_CAPTURE_PROOF_INVALID'}
+          Write-Host ('QA_AGENT_CURRENT_NATIVE_GUI_FIRST_SCREEN_CAPTURED '+$hash)
+      - name: Keep only public-facing native screenshot, never program bytes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent06-local-native-first-screen
+          path: artifacts/agent-local/
+          if-no-files-found: ignore
+          retention-days: 5
+      - name: Purge all private code and native artifacts
+        if: always()
+        shell: pwsh
+        run: |
+          foreach($p in @('.private/agent','.private/center',(Join-Path $env:RUNNER_TEMP 'iwxa-agent06-local-native'),(Join-Path $env:RUNNER_TEMP 'iwxa-agent06-local-cache'),(Join-Path $env:RUNNER_TEMP 'iwxa-agent06-local-private.log'))){
+            if(Test-Path -LiteralPath $p){Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue}
+          }
+          Write-Host 'QA_AGENT_PRIVATE_CODE_AND_BINARIES_REMOVED'
