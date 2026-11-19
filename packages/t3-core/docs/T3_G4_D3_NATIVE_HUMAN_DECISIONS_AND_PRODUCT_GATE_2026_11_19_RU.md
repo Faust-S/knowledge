@@ -195,3 +195,15 @@ T3 `ea1700ec`, T2 Kernel 0.3.6 / Contract 1.3.0.
 `INSTALLED_NATIVE_ENROLL_READY=HOLD`,
 `INSTALLED_HUMAN_ACCEPT_APPLY=NOT_RUN`,
 `T3_READY=false`.
+
+## 7. Установленный Owner: итоговая независимая холодная квалификация (19.11.2026)
+
+Завершённый [Windows CI №44537675979](https://github.com/Faust-S/knowledge/actions/runs/44537675979) = **SUCCESS** на точных `knowledge@6ad3a3e5`, оригинальном `T3@b8974044`, `Center@2628c4bc`.
+
+Получены реальные `G4_INSTALLED_FIRST_USE_NATIVE_WINDOWS_ENROLL_PASS`, `G4_INSTALLED_COLD_MANAGER_DRAFT_INDEPENDENT_DISK_READBACK_PASS`, `G4_INSTALLED_COLD_OWNER_REQUIRED_FILE_COUNT 5`, `G4_INSTALLED_COLD_ORIGINAL_DPAPI_INDEPENDENT_PROCESS_PASS`, `G4_INSTALLED_FIRST_USE_ORIGINAL_DPAPI_COLD_RESTART_PASS`. Установка One Dist / Setup Core, native WebView2, реальный Windows-dialog CANCEL/YES и Workspace без Atlas тоже PASS.
+
+Таким образом **первичная производственная регистрация Admin Owner и его независимое DPAPI cold readback завершены**. Ранние HOLD на регистрацию и холодное восстановление в разделах выше являются историческими.
+
+**Ограничение:** это ещё не установленный маршрут двух независимых Windows-пользователей Agent -> оригинальный подписанный Result -> отдельный native ACCEPT -> отдельный native APPLY -> исходный Kernel Object/Event -> два холодных readback. Такой маршрут по-прежнему `NOT_ACCEPTED`. Сохраняются `G4=NOT_ACCEPTED`, `T3_READY=false`.
+
+Единая актуальная оценка: [T3 G4 ecosystem readiness audit](T3_G4_ECOSYSTEM_RELEASE_READINESS_AUDIT_2026_11_19_RU.md). Машинный реестр содержит отдельный принятый `D3_INSTALLED_ADMIN_OWNER_ENROLL_AND_DPAPI_COLD`, но не повышает весь D3 или G4.
