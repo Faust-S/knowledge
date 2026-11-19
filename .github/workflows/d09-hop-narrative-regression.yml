@@ -148,8 +148,13 @@ jobs:
           D09_ORIGIN: https://localhost:8443
         run: |
           npm run build > "$RUNNER_TEMP/d09-final-build.log" 2>&1 || {
+            grep -oE 'D09_(SITE_ONLY|FULL_BUILD)_[A-Z0-9_:.-]+' "$RUNNER_TEMP/d09-final-build.log" | tail -6 || true
             echo "D09_INTEGRATED_STATIC_DIST=FAIL"; exit 1;
           }
+          grep -q 'D09_ENGINEERING_STUDIO_JS_ENTRIES_REMOVED=1' "$RUNNER_TEMP/d09-final-build.log" || {
+            echo "D09_ENGINEERING_STUDIO_JS_NOT_EXCLUDED=FAIL"; exit 1;
+          }
+          echo "D09_ENGINEERING_STUDIO_JS_ENTRIES_REMOVED=1"
           test -f dist/index.html
           test -f dist/workspace/index.html
           test -f dist/workspace/exchange/index.html
