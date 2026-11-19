@@ -178,6 +178,17 @@ jobs:
             throw 'QA_AGENT_PRODUCT_SCOPED_AUTHORITY_PATH_NOT_UPDATED'
           }
           Write-Host 'QA_AGENT_LIVE_OWNER_PRODUCT_SCOPED_AUTHORITY_PIN_PASS'
+      - name: Validate independent native screenshot scripts with Windows PowerShell parser
+        shell: pwsh
+        run: |
+          foreach($rel in @('tools/qa-agent-current-first-screen.ps1','tools/qa-agent-capture-post-witness.ps1')){
+            $tokens=$null
+            $errors=$null
+            $file=(Resolve-Path -LiteralPath $rel).Path
+            [System.Management.Automation.Language.Parser]::ParseFile($file,[ref]$tokens,[ref]$errors) | Out-Null
+            if($errors.Count -gt 0){throw 'QA_AGENT_NATIVE_CAPTURE_POWERSHELL_SYNTAX_INVALID'}
+          }
+          Write-Host 'QA_AGENT_NATIVE_CAPTURE_POWERSHELL_PARSE_PASS'
       - name: Start independent read-only watcher for current installed Agent first screen
         shell: pwsh
         run: |
@@ -408,6 +419,18 @@ jobs:
           Write-Host 'G4_AGENT06_INSTALLED_NATIVE_GUI_QWEN_REVIEW_COLD_PASS'
           Write-Host 'G4_AGENT06_INSTALLED_SETUP_CORE_REPAIR_ROLLBACK_PASS'
           Write-Host 'G4_AGENT06_INSTALLED_NOT_CROSS_USER_ADMIN_ACCEPT_APPLY'
+      - name: Capture original installed Agent directly after native task proof
+        if: always()
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $ErrorActionPreference='Stop'
+          $output=Join-Path $env:GITHUB_WORKSPACE 'artifacts/agent-current'
+          $fixture=Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06/temporary-installed-fixture'
+          $script=Join-Path $env:GITHUB_WORKSPACE 'tools/qa-agent-capture-post-witness.ps1'
+          $ps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          & $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -FixtureRoot $fixture -OutputDir $output
+          if($LASTEXITCODE -ne 0){throw 'QA_AGENT_POST_CAPTURE_WORKFLOW_FAILED'}
       - name: Independently qualify real Agent GUI image even when full Setup fails
         if: always()
         shell: pwsh
