@@ -42,7 +42,12 @@ try {
   $random = New-Object byte[] 32
   [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($random)
   $password = [Convert]::ToBase64String($random) + 'Aa1!'
-  $secure = ConvertTo-SecureString $password -AsPlainText -Force
+  # Minimal native Windows child PATH may omit the PowerShell Security
+  # module; construct the same SecureString using the BCL, not an
+  # alternate account or cryptographic implementation.
+  $secure = [Security.SecureString]::new()
+  foreach ($character in $password.ToCharArray()) { $secure.AppendChar($character) }
+  $secure.MakeReadOnly()
   $null = New-LocalUser -Name $user -Password $secure -Description 'Ephemeral T3 original employee source witness' -AccountNeverExpires -PasswordNeverExpires
   $employeeSid = (Get-LocalUser -Name $user).SID.Value
   if ($employeeSid -eq $managerSid -or $employeeSid -notmatch '^S-1-5-21-[0-9-]+$') {
