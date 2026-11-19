@@ -117,7 +117,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T2
-          ref: 279651bde8dd223fa80742628f1b4dece7861686
+          ref: 2d50a50b1a5ffda3395046da146efad3636732d1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           sparse-checkout: |
@@ -131,7 +131,7 @@ jobs:
         run: |
           mv d09-temporary-t2 "$RUNNER_TEMP/d09-canonical-t2"
           test -f "$RUNNER_TEMP/d09-canonical-t2/t2/current/final-successor/canonical-source/package.json"
-          echo "D09_T2_CSP_CANDIDATE=279651bde8dd223fa80742628f1b4dece7861686"
+          echo "D09_T2_CSP_CANDIDATE=2d50a50b1a5ffda3395046da146efad3636732d1"
       - name: Qualify standalone Host validators against reference AJV
         shell: bash
         run: |
@@ -269,6 +269,12 @@ jobs:
             exit 1
           }
           echo D09_EXPERIMENT_AJV_RUNTIME_REMOVAL=PASS
+          node "$core/scripts/issue14-zod-csp-jitless.mjs" "$RUNNER_TEMP/d09-experimental-k036-same-store" > "$RUNNER_TEMP/d09-experimental-zod-csp.log" 2>&1 || {
+            echo D09_EXPERIMENT_ZOD_JITLESS=FAIL
+            grep -oE 'D09_ZOD_[A-Z0-9_]+' "$RUNNER_TEMP/d09-experimental-zod-csp.log" | tail -6 || true
+            exit 1
+          }
+          echo D09_EXPERIMENT_ZOD_JITLESS=PASS
           npm run typecheck > "$RUNNER_TEMP/d09-experimental-types.log" 2>&1 || {
             echo D09_EXPERIMENT_KERNEL_TYPES=FAIL; exit 1;
           }
