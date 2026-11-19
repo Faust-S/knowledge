@@ -1,0 +1,79 @@
+name: IWXA software editorial screenshots from genuine current Windows GUI
+on:
+  push:
+    branches:
+      - qa/2026-11-20-software-gallery-evidence
+    paths:
+      - .github/workflows/qa-software-gallery.yml
+      - tools/qa-patch-center-article.py
+      - tools/qa-gallery-verify.py
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  admin-native:
+    runs-on: windows-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: 2628c4bc1b20b4393c485d12513f029fdea8b082
+          path: .qa/center
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          repository: Faust-S/Center
+          run-id: 44613210749
+          name: center-windows-preparation-shell
+          path: .qa/center
+          github-token: ${{ github.token }}
+      - name: Prepare temporary test copy without changing the product
+        shell: pwsh
+        run: python tools/qa-patch-center-article.py .qa/center/tests/installed-windows-center.ps1
+      - name: Run installed native Center UI Automation with three screenshots
+        shell: pwsh
+        working-directory: .qa/center
+        timeout-minutes: 9
+        run: ./tests/qa-editorial-installed-center.ps1
+      - name: Retain newly photographed Windows screens
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: editorial-three-admin-native
+          path: artifacts/editorial-admin/
+          if-no-files-found: ignore
+          retention-days: 7
+  process:
+    needs: admin-native
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: editorial-three-admin-native
+          path: ${{ runner.temp }}/admin
+      - uses: actions/download-artifact@v4
+        with:
+          repository: Faust-S/Atlas
+          run-id: 44612742339
+          name: atlas09-installed-windows-evidence
+          path: ${{ runner.temp }}/atlas
+          github-token: ${{ github.token }}
+      - name: Convert only actual Windows captures and preserve SHA-256
+        run: |
+          python -m pip install --disable-pip-version-check --quiet Pillow==11.3.0
+          python tools/qa-gallery-verify.py
+      - name: Retain verified binary content as transferable base64 without program changes
+        run: |
+          git config user.name "IWXA Editorial QA"
+          git config user.email "iwxa-qa@users.noreply.github.com"
+          git add qa-software-gallery/
+          git commit -m "evidence: current three-view Atlas and Admin screens for IWXA.ru [skip ci]"
+          git push origin HEAD:qa/2026-11-20-software-gallery-evidence
