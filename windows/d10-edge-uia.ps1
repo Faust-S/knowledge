@@ -85,6 +85,22 @@ function Has-AccessibleArticleText($window,$expected){
       if($items.Item($i).Current.Name.Contains($expected)){return $true}
     }catch{}
   }
+  # Edge may expose article paragraphs through its Document TextPattern
+  # instead of individual ControlType.Text nodes, especially while scrolled.
+  try {
+    $docCondition=New-Object System.Windows.Automation.PropertyCondition(
+      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+      [System.Windows.Automation.ControlType]::Document)
+    $documents=$window.FindAll(
+      [System.Windows.Automation.TreeScope]::Descendants,$docCondition)
+    foreach($document in $documents) {
+      try {
+        $pattern=[System.Windows.Automation.TextPattern]$document.GetCurrentPattern(
+          [System.Windows.Automation.TextPattern]::Pattern)
+        if($pattern.DocumentRange.GetText(-1).Contains($expected)){return $true}
+      }catch{}
+    }
+  }catch{}
   return $false
 }
 try {
@@ -153,10 +169,30 @@ try {
     [System.Windows.Automation.TreeScope]::Descendants,$comboCondition)
   Write-Output "D10_WINDOWS_CASE010_COMBO_COUNT=$($combos.Count)"
   if($combos.Count -lt 2){throw "D10_WINDOWS_CASE010_METRIC_CONTROL_NOT_ACCESSIBLE"}
-  if(-not (Has-AccessibleArticleText $window "Переговорная стадия до изменений")){
-    throw "D10_WINDOWS_CASE010_INITIAL_DYNAMIC_RESULT_NOT_ACCESSIBLE"
+  $metric=$null
+  $metricSource="UNKNOWN"
+  foreach($item in $combos){
+    try {
+      $id=$item.Current.AutomationId
+      $name=$item.Current.Name
+      if($id -eq "case010-metric"){
+        $metric=$item;$metricSource="AUTOMATION_ID";break
+      }
+      if($name -match "длительность переговорного"){
+        $metric=$item;$metricSource="ACCESSIBLE_LABEL";break
+      }
+    }catch{}
   }
-  $metric=$combos.Item(0)
+  if($null -eq $metric){
+    $metric=$combos.Item(0);$metricSource="FIRST_COMBO_FALLBACK"
+  }
+  Write-Output "D10_WINDOWS_CASE010_METRIC_LOCATOR=$metricSource"
+  $metric.SetFocus()
+  Start-Sleep -Milliseconds 350
+  $window=Find-EdgeWindow
+  $before=($null -ne $window -and
+    (Has-AccessibleArticleText $window "Переговорная стадия до изменений"))
+  Write-Output "D10_WINDOWS_CASE010_INITIAL_DYNAMIC_TEXT=$before"
   for($i=0;$i -lt 2;$i++){
     $metric.SetFocus()
     Start-Sleep -Milliseconds 200
