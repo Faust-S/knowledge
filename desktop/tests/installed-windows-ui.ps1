@@ -78,6 +78,45 @@ try {
     if (!(Find-Accessible $window.Root 'HOLD · ВЫПУСК ЗАКРЫТ')) {
         throw 'INSTALLED_OCEL2_HOLD_NOT_VISIBLE'
     }
+    # Genuine installed Tauri window: capture only after the OCEL UIA witness.
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+    $bounds = $window.Root.Current.BoundingRectangle
+    $monitor = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    $left = [int][Math]::Max($monitor.Left, [Math]::Floor($bounds.Left))
+    $top = [int][Math]::Max($monitor.Top, [Math]::Floor($bounds.Top))
+    $right = [int][Math]::Min($monitor.Right, [Math]::Ceiling($bounds.Right))
+    $bottom = [int][Math]::Min($monitor.Bottom, [Math]::Ceiling($bounds.Bottom))
+    $width = $right - $left
+    $height = $bottom - $top
+    if ($width -lt 600 -or $height -lt 450) { throw 'ACTIVITY_NATIVE_CAPTURE_INVALID_WINDOW' }
+    $captureDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts/activity-current'
+    [void][IO.Directory]::CreateDirectory($captureDir)
+    $destination = Join-Path $captureDir 'activity-native-ocel2.png'
+    $bitmap = [System.Drawing.Bitmap]::new($width, $height)
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    try {
+        $graphics.CopyFromScreen([System.Drawing.Point]::new($left, $top), [System.Drawing.Point]::Empty, [System.Drawing.Size]::new($width, $height))
+        $bitmap.Save($destination, [System.Drawing.Imaging.ImageFormat]::Png)
+    } finally {
+        $graphics.Dispose()
+        $bitmap.Dispose()
+    }
+    if ((Get-Item -LiteralPath $destination).Length -lt 6000) { throw 'ACTIVITY_NATIVE_CAPTURE_EMPTY' }
+    $sourceOwner = '2383c58f88901f16aa2a5fa780de447dba3d4750'
+    $receipt = [ordered]@{
+        program = 'IWXA Activity'
+        sourceOwnerCommit = $sourceOwner
+        ciCommit = $env:GITHUB_SHA
+        windowTitle = $window.Process.MainWindowTitle
+        nativeExeSha256 = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+        screenshotSha256 = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
+        screenshotFile = 'activity-native-ocel2.png'
+        verification = 'NATIVE_UIA_OCEL2_VISIBLE'
+        data = 'generated local synthetic example, no user information'
+    }
+    $receipt | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $captureDir 'capture-manifest.json') -Encoding UTF8
+    Write-Host "IWXA_ACTIVITY_CURRENT_NATIVE_CAPTURE_PASS sha256=$($receipt.screenshotSha256)"
     # Selecting a disconnected T3 base MUST remove the previously rendered OCEL graph.
     $t3Pattern.Invoke()
     if (!(Find-Accessible $window.Root 'HOLD: T3_TRUSTED_HOST_NOT_CONNECTED')) {

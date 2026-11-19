@@ -2,7 +2,7 @@ name: Activity base native desktop checks
 on:
   push:
     branches:
-      - work/2026-11-10-activity-base-anonymizer
+      - work/2026-11-19-software-capture-activity
     paths:
       - modules/activity-base-anonymizer/**
       - desktop/**
@@ -148,6 +148,14 @@ jobs:
       - name: Installed native window and synthetic first-use witness (no browser)
         shell: powershell
         run: desktop/tests/installed-windows-ui.ps1 -Executable "$env:LOCALAPPDATA\Programs\IWXA Activity\iwxa-activity-base-desktop.exe"
+      - name: Publish new Activity screenshot and exact native proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: activity-current-native-screen
+          path: artifacts/activity-current/
+          if-no-files-found: ignore
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
           name: iwxa-activity-desktop-setup-windows
