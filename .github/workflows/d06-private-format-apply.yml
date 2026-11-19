@@ -60,7 +60,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not $head) {
             Write-Host "D06_FORMAT_PUSH=REMOTE_DENIED"; exit 1
           }
-          $remoteSha = (($head | Select-Object -First 1) -split "\\s+")[0]
+          $remoteSha = (($head | Select-Object -First 1) -split '\s+')[0]
           if ($remoteSha -ne $base) { Write-Host "D06_FORMAT_PUSH=REMOTE_MOVED"; exit 1 }
           & git config user.name "IWXA D06 private CI"
           & git config user.email "d06-ci@users.noreply.github.com"
