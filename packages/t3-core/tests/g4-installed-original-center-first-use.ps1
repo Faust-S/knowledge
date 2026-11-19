@@ -34,6 +34,7 @@ public static class G4InstalledModal {
     IntPtr hwnd,int itemId);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(
     IntPtr hwnd);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [StructLayout(LayoutKind.Sequential)]
   public struct Rect {
     public int Left,Top,Right,Bottom;
@@ -107,9 +108,15 @@ function ClickButton([string]$label){
   $control=FindName $label 'Button'
   # One physical native Windows click on the exact signed enrollment
   # button; InvokePattern can focus without dispatching the React action.
+  # UIA can locate an accessibility control while a different HWND still
+  # owns the foreground. Physical mouse_event must target the installed app,
+  # not the runner console; signed native dialogs are activated separately.
+  $focus=[G4InstalledModal]::SetForegroundWindow(
+    $global:appProcess.MainWindowHandle)
+  Start-Sleep -Milliseconds 180
+  $foreground=[G4InstalledModal]::GetForegroundWindow()
+  Check ($foreground -eq $global:appProcess.MainWindowHandle) 'G4_INSTALLED_FIRST_USE_APP_NOT_FOREGROUND_FOR_PHYSICAL_CLICK'
   if($label -eq 'Подключить организацию'){
-    $focus=[G4InstalledModal]::SetForegroundWindow(
-      $global:appProcess.MainWindowHandle)
     Write-Host "G4_INSTALLED_FIRST_USE_FOREGROUND_REQUEST $focus"
   }
   $scroll=$null
@@ -144,6 +151,13 @@ function HasText([string]$fragment){
   }
   return $false
 }
+function WaitForText([string]$fragment,[int]$maxPolls=55){
+  for($poll=0;$poll -lt $maxPolls;$poll++){
+    if(HasText $fragment){return $true}
+    Start-Sleep -Milliseconds 250
+  }
+  return $false
+}
 function WaitForOrdinaryWorkspace([string]$name){
   # A physical Windows click returns before WebView2 has committed the React
   # update to the accessibility tree. The workspace is NOT accepted on click:
@@ -153,6 +167,18 @@ function WaitForOrdinaryWorkspace([string]$name){
       return $true
     }
     Start-Sleep -Milliseconds 250
+  }
+  # Privacy preserving bounded diagnostic: never print arbitrary UI text,
+  # organization content, draft values or private signed owner state.
+  $signals=@(
+    'G4WindowsOrganization',
+    'Планы Atlas и рабочие области',
+    'G4CorporateWorkspace',
+    'План Atlas пока не указан',
+    'Черновик изменён.')
+  for($index=0;$index -lt $signals.Count;$index++){
+    $visible=HasText $signals[$index]
+    Write-Host "G4_INSTALLED_WORKSPACE_UI_SIGNAL_$index $visible"
   }
   Write-Host 'G4_INSTALLED_WORKSPACE_NATIVE_UI_READBACK_TIMEOUT'
   return $false
@@ -283,8 +309,10 @@ try{
   $script:phase='CREATE_ORGANIZATION'
   TypeText 'Название' 'G4WindowsOrganization'
   ClickButton 'Создать черновик организации'
+  Check (WaitForText 'G4WindowsOrganization') 'G4_INSTALLED_ORDINARY_ORGANIZATION_NOT_CREATED'
   $script:phase='CREATE_ORDINARY_WORKSPACE'
   ClickButton 'Планы Atlas'
+  Check (WaitForText 'Планы Atlas и рабочие области') 'G4_INSTALLED_WORKSPACE_PAGE_NOT_OPENED'
   TypeText 'Название рабочей области' 'G4CorporateWorkspace'
   ClickButton 'Добавить'
   Check (WaitForOrdinaryWorkspace 'G4CorporateWorkspace') 'G4_INSTALLED_WORKSPACE_WITHOUT_ATLAS_NOT_CREATED'
