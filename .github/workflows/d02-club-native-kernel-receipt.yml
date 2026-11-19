@@ -1092,7 +1092,32 @@ jobs:
             }
             $null=Await 'Перенести в T2' 'button' 'D02_GOAL_NATIVE_COMMIT_NOT_READY'
             Press (Await 'Перенести в T2' 'button' 'D02_GOAL_NATIVE_COMMIT_NOT_READY') 'D02_GOAL_NATIVE_COMMIT_FAILED'
-            $null=AwaitPrefix 'Результат сохранён. Версия' '' 'D02_GOAL_KERNEL_RECEIPT_NOT_VISIBLE'
+            Write-Output 'D02_GOAL_NATIVE_EXPLICIT_COMMIT_INVOKED=TRUE'
+            $receipt=$null
+            for($k=0;$k -lt 110;$k++){
+              $receipt=Prefix 'Результат сохранён. Версия' ''
+              if($receipt){break}
+              Start-Sleep -Milliseconds 320
+            }
+            if(!$receipt){
+              # Safe reason-code-only diagnostics. No user data, object IDs,
+              # imports, source JSON, event IDs or private paths are logged.
+              foreach($entry in @(
+                @{label='Результат мог сохраниться, но эта вкладка не получила подтверждение.';id='SITE_RECEIPT_NOT_APPLIED'},
+                @{label='Kernel сохранил результат.';id='KERNEL_SAVED_SITE_UNACKNOWLEDGED'},
+                @{label='Результаты связаны с Kernel.';id='KERNEL_BULK_ACK'},
+                @{label='Проверка и сохранение через Kernel...';id='KERNEL_COMMIT_STILL_RUNNING'},
+                @{label='Перенос остановлен.';id='HOST_IMPORT_STOPPED'},
+                @{label='Статус: ALL_SELECTED_VERIFIED';id='HOST_REPORT_ALL_SELECTED_VERIFIED'},
+                @{label='Статус: SELECTED_VERIFIED_SOURCE_INCOMPLETE';id='HOST_REPORT_PARTIAL'},
+                @{label='Проект: CREATED';id='PROJECT_CREATED_WITNESS'},
+                @{label='Host не подтвердил выбранную рабочую область.';id='FOCUS_DENIED'},
+                @{label='Сначала выберите ту же рабочую область';id='FOCUS_CHANGED'}
+              )){
+                if(Prefix $entry.label ''){Write-Output "D02_GOAL_COMMIT_DIAGNOSTIC=$($entry.id)"}
+              }
+              throw 'D02_GOAL_NATIVE_SITE_RECEIPT_MISSING'
+            }
             Write-Output 'D02_GOAL_NATIVE_T2_KERNEL_COMMIT_RECEIPT=PASS'
             try{$browser.Kill($true)}catch{}
             Start-Sleep -Milliseconds 900
