@@ -245,6 +245,52 @@ try{
   writeFileSync(profilePath,JSON.stringify(profile),{flag:'wx'});
   const firstUseDriver=join(process.cwd(),'packages','t3-core','tests',
     'g4-original-employee-bootstrap-driver.py');
+  // Real second Windows logon SID: the existing Agent Python/Node bridge
+  // creates and cold-opens an ORIGINAL T3 employee DPAPI candidate using
+  // only public manager trust. No manager private key crosses user profiles.
+  // This qualifies source custody, not installed GUI or ACCEPT/APPLY.
+  phase='ORIGINAL_PRODUCTION_SECOND_WINDOWS_SID_AGENT_DPAPI';
+  const twoSidDriver=join(process.cwd(),'packages','t3-core','tests',
+    'g4-original-agent-second-windows-sid.ps1');
+  const twoSid=spawnSync('powershell.exe',[
+    '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+    '-File',twoSidDriver,'-T3Root',t3Root,
+    '-AgentRoot',agentRoot,'-PythonDriver',firstUseDriver,
+    '-PublicProfilePath',profilePath,
+  ],{cwd:workRoot,env:{
+    PATH:process.env.PATH??'',SystemRoot:process.env.SystemRoot??'',
+    WINDIR:process.env.WINDIR??'',
+    ProgramData:process.env.ProgramData??'',
+    USERPROFILE:process.env.USERPROFILE??'',
+    APPDATA:process.env.APPDATA??'',
+    LOCALAPPDATA:process.env.LOCALAPPDATA??'',
+    HOMEDRIVE:process.env.HOMEDRIVE??'',
+    HOMEPATH:process.env.HOMEPATH??'',
+    TEMP:process.env.TEMP??'',TMP:process.env.TMP??'',
+    COMPUTERNAME:process.env.COMPUTERNAME??'',
+  },encoding:'utf8',windowsHide:true,timeout:260000,maxBuffer:128*1024});
+  const twoSidOutput=(twoSid.stdout??'')+'\n'+(twoSid.stderr??'');
+  if(twoSid.status!==0){
+    const failPhase=twoSidOutput.match(
+      /G4_ORIGINAL_AGENT_TWO_SID_FAILURE_PHASE\s+([A-Z0-9_]{3,119})/);
+    const failCode=twoSidOutput.match(
+      /G4_ORIGINAL_AGENT_TWO_SID_FAILURE_CODE\s+([A-Z0-9_]{3,119})/);
+    console.log('G4_ORIGINAL_AGENT_TWO_SID_FAILURE_PHASE',
+      failPhase?.[1]??'UNCLASSIFIED');
+    console.log('G4_ORIGINAL_AGENT_TWO_SID_FAILURE_CODE',
+      failCode?.[1]??'UNCLASSIFIED');
+    throw Error('G4_ORIGINAL_AGENT_SECOND_SID_DPAPI_SOURCE_NOT_ACCEPTED');
+  }
+  for(const marker of [
+    'G4_ORIGINAL_AGENT_SECOND_SID_NATIVE_FIRST_USE_PASS',
+    'G4_ORIGINAL_AGENT_SECOND_SID_NATIVE_DPAPI_COLD_PASS',
+    'G4_ORIGINAL_AGENT_SECOND_SID_NATIVE_SIGNED_PROOF_PASS',
+    'G4_ORIGINAL_AGENT_SECOND_SID_CRYPTO_PROOF_VERIFIED_PASS',
+  ]){
+    assert.ok(twoSidOutput.includes(marker),
+      'G4_ORIGINAL_AGENT_SECOND_SID_SOURCE_MARKER_MISSING');
+    console.log(marker);
+  }
   const firstUseEnv={
     PATH:process.env.PATH??'',SystemRoot:process.env.SystemRoot??'',
     WINDIR:process.env.WINDIR??'',USERPROFILE:process.env.USERPROFILE??'',
