@@ -10,7 +10,7 @@ concurrency:
   group: d08-business-dev-ui-${{ github.ref }}
   cancel-in-progress: true
 env:
-  SITE_SHA: c80c89bf440f6b0a8fcbd0bb41ac03a72885c08f
+  SITE_SHA: 0855c04945bdaa408894d56a08a3a69893044ae3
   PUPPETEER_SKIP_DOWNLOAD: '1'
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
 jobs:
