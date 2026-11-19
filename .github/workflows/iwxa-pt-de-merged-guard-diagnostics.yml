@@ -1,0 +1,44 @@
+name: IWXA PT-DE merged source guard failure names
+on:
+  push:
+    branches: [work/2026-11-18-pt-66-qualification]
+    paths:
+      - .github/workflows/iwxa-pt-de-merged-guard-diagnostics.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnostics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: a04eb584077999fa662976670d636f03894c3e44
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.2"
+      - name: Identify source guard labels without exposing private diagnostics
+        shell: bash
+        working-directory: site
+        run: |
+          set -u
+          test "$(git rev-parse HEAD)" = "a04eb584077999fa662976670d636f03894c3e44" || exit 1
+          bun install --frozen-lockfile > "$RUNNER_TEMP/guard-install.log" 2>&1 || { echo "IWXA_INSTALL=FAIL"; exit 1; }
+          node scripts/check-portuguese-source.mjs > "$RUNNER_TEMP/guard-pt.log" 2>&1
+          echo "IWXA_PT_FAILING_LABELS"
+          grep '^FAIL ' "$RUNNER_TEMP/guard-pt.log" | sed -E 's/^FAIL ([^:]*):.*/- \1/' | head -n 20 || true
+          node scripts/check-german-full-source.mjs > "$RUNNER_TEMP/guard-de.log" 2>&1
+          echo "IWXA_DE_FAILING_MODULES"
+          grep '^DE_SOURCE_CHECK_FAIL ' "$RUNNER_TEMP/guard-de.log" | head -n 35 || true
+          node scripts/check-french-source.mjs > "$RUNNER_TEMP/guard-fr.log" 2>&1
+          echo "IWXA_FR_FAILING_LABELS"
+          grep '^ - ' "$RUNNER_TEMP/guard-fr.log" | head -n 12 || true
+          echo "IWXA_GUARD_DIAGNOSTICS_COMPLETED=PASS"
