@@ -38,7 +38,25 @@ jobs:
       - name: Compile and validate all TypeScript source
         working-directory: .private/site
         run: |
-          bunx tsc --noEmit > "$RUNNER_TEMP/articles-types.log" 2>&1 || { echo 'ARTICLES_TYPES_FAIL'; exit 1; }
+          bunx tsc --noEmit > "$RUNNER_TEMP/articles-types.log" 2>&1 || {
+            python - <<'PY'
+          import pathlib,re,os,collections
+          path=pathlib.Path(os.environ['RUNNER_TEMP'])/'articles-types.log'
+          errors=path.read_text(errors='replace').splitlines()
+          summary=collections.Counter()
+          output=[]
+          for line in errors:
+              m=re.search(r'^(.+?)\((\d+),(\d+)\): error (TS\d+):',line)
+              if not m: continue
+              file=m.group(1)
+              summary[m.group(4)]+=1
+              if '/software' in file or 'software-' in file:
+                  output.append(f"ARTICLE_TS_DIAGNOSTIC {file} line={m.group(2)} col={m.group(3)} code={m.group(4)}")
+          for item in output[:40]: print(item)
+          print("ARTICLE_TS_CODE_COUNTS",dict(summary))
+          PY
+            echo 'ARTICLES_TYPES_FAIL'; exit 1;
+          }
           echo 'ARTICLES_TYPECHECK_PASS'
       - name: Build page routing and article output
         working-directory: .private/site
