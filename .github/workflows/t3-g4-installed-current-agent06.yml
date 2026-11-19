@@ -253,6 +253,10 @@ jobs:
               $value = if ($safeProofFlags[$flagName]) { 'TRUE' } else { 'FALSE' }
               Write-Host ('G4_AGENT06_LOCAL_QWEN_POSTPROOF_FLAG ' + $flagName + ' ' + $value)
             }
+            # Exact original witness uses K03_TASK_* stages. The previous
+            # public diagnostic accidentally omitted digits, hiding the
+            # actual installed post-Qwen failure phase. No release gate is
+            # weakened: only a bounded OS-safe phase is displayed.
             $installedReceipt = Join-Path $output 'temporary-installed-fixture/installed-witness.json'
             if (Test-Path -LiteralPath $installedReceipt -PathType Leaf) {
               try {
@@ -263,7 +267,318 @@ jobs:
                 if ($witnessStatus -cmatch '^(PASS|FAIL)$') {
                   Write-Host ('G4_AGENT06_INSTALLED_WITNESS_STATUS ' + $witnessStatus)
                 }
-                if ($witnessPhase -cmatch '^[A-Z_]{3,70}$') {
+                if ($witnessPhase -cmatch '^[A-Z][A-Z0-9_]{2,70}
+                  Write-Host ('G4_AGENT06_INSTALLED_WITNESS_PHASE ' + $witnessPhase)
+                }
+                foreach ($prop in @('failure_code','last_operation','last_checkpoint')) {
+                  $observed = [string]$witnessRow.$prop
+                  if ($observed -cmatch '^[A-Z][A-Z0-9_]{2,86}$') {
+                    Write-Host ('G4_AGENT06_INSTALLED_WITNESS_' + $prop.ToUpperInvariant() + ' ' + $observed)
+                  }
+                }
+              } catch {
+                Write-Host 'G4_AGENT06_INSTALLED_WITNESS_JSON_NOT_READABLE'
+              }
+            } else {
+              Write-Host 'G4_AGENT06_INSTALLED_WITNESS_NOT_CREATED'
+            }
+            if (Test-Path -LiteralPath $log -PathType Leaf) {
+              $privateError = Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+              if ($privateError) {
+                $safeCodes = [regex]::Matches($privateError,
+                  '(?i)(?<![A-Za-z0-9_])(?:setup_local|agent_setup_witness|agent_setup_runtime|private_setup_core)_[a-z0-9_]{4,110}(?![A-Za-z0-9_])')
+                foreach ($safeCode in @($safeCodes | Select-Object -Unique | Select-Object -Last 5)) {
+                  Write-Host ('G4_AGENT06_LOCAL_ACCEPT_SAFE_CODE ' + $safeCode.Value.ToUpperInvariant())
+                }
+              }
+            }
+            # Fixed safe phase flags and machine codes only: the original
+            # build log, Tauri compiler output and private absolute paths
+            # remain inside the disposable Windows runner.
+            $nativeFlags = [ordered]@{
+              SETUP_STUB = (Test-Path -LiteralPath (Join-Path $output 'build/IWXA Personal Setup.stub.exe') -PathType Leaf)
+              MANAGED_PYTHON = (Test-Path -LiteralPath (Join-Path $output 'build/test-python/current-python.txt') -PathType Leaf)
+              NATIVE_ICON = (Test-Path -LiteralPath (Join-Path $output 'logs/native-desktop-icon.json') -PathType Leaf)
+              U04_PREPARED = (Test-Path -LiteralPath (Join-Path $output 'logs/u04-source-preparation.json') -PathType Leaf)
+              U04_STAGED = (Test-Path -LiteralPath (Join-Path $output 'logs/u04-stage.json') -PathType Leaf)
+              DESKTOP_NPM = (Test-Path -LiteralPath (Join-Path $output 'logs/native-desktop-dependencies.log') -PathType Leaf)
+              DESKTOP_TAURI = (Test-Path -LiteralPath (Join-Path $output 'logs/native-desktop-build.log') -PathType Leaf)
+              RUST_TEST = (Test-Path -LiteralPath (Join-Path $output 'logs/native-rust-test-compile.log') -PathType Leaf)
+              AGENT_PACKAGE_MANIFEST = (Test-Path -LiteralPath (Join-Path $output 'build/package/bootstrap/package-manifest.json') -PathType Leaf)
+              AGENT_SETUP_BUNDLE = (Test-Path -LiteralPath (Join-Path $output 'build/IWXA-Personal-Agent-Windows-Setup.exe') -PathType Leaf)
+            }
+            foreach ($key in $nativeFlags.Keys) {
+              if ($nativeFlags[$key]) {
+                Write-Host ('G4_AGENT06_NATIVE_PACKAGE_PHASE_REACHED ' + $key)
+              }
+            }
+            # Existing Agent release compiles native Rust tests AFTER
+            # Tauri EXE. Report only compiler diagnostic IDs and safe phase
+            # categories. Full Rust logs, paths, private symbols, and source
+            # code must not appear in the public job log.
+            foreach ($suffix in @('native-rust-test-compile.log.stderr',
+                                  'native-desktop-build.log.stderr',
+                                  'package/package-gate-failure.json')) {
+              $candidateFile = Join-Path (Join-Path $output 'logs') $suffix
+              if (-not (Test-Path -LiteralPath $candidateFile -PathType Leaf)) { continue }
+              $raw = Get-Content -LiteralPath $candidateFile -Raw -ErrorAction SilentlyContinue
+              if (-not $raw) { continue }
+              $kind = if ($suffix -like 'native-rust*') { 'RUST_TEST' } elseif ($suffix -like 'native-desktop*') { 'TAURI' } else { 'PACKAGE' }
+              $compilerCodes = @([regex]::Matches($raw, 'error\[(E[0-9]{4})\]') |
+                ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+              foreach ($code in $compilerCodes) {
+                Write-Host ('G4_AGENT06_COMPILER_ERROR_ID ' + $kind + ' ' + $code)
+              }
+              $classes = [ordered]@{
+                RUST_COMPILE_FAILED = '(?:error: could not compile|error: aborting due to|compilation failed)'
+                RUST_FEATURE_CONFLICT = 'failed to select a version|failed to resolve patches|conflicting versions'
+                RUST_DEPENDENCY_DOWNLOAD = 'failed to download|failed to fetch|timed out|network failure'
+                RUST_LINK_FAILED = '(?:linking with .* failed|fatal error LNK[0-9]{4}|link.exe.*failed)'
+                MISSING_PROJECT_FILE = 'file not found|could not find|No such file or directory'
+                WINDOWS_SHELL_FAILURE = 'NativeCommandError|CommandNotFoundException'
+              }
+              foreach ($name in $classes.Keys) {
+                if ($raw -match $classes[$name]) {
+                  Write-Host ('G4_AGENT06_COMPILER_ERROR_CLASS ' + $kind + ' ' + $name)
+                }
+              }
+              if ($kind -eq 'PACKAGE') {
+                try {
+                  $failure = $raw | ConvertFrom-Json -ErrorAction Stop
+                  $safeStage = [string]$failure.stage
+                  if ($safeStage -match '^[a-z_]{3,60}$') {
+                    Write-Host ('G4_AGENT06_PACKAGE_GATE_STAGE ' + $safeStage.ToUpperInvariant())
+                  }
+                  foreach ($field in @('error_code','error_detail')) {
+                    foreach ($match in [regex]::Matches([string]$failure.$field,
+                      '(?<![A-Za-z0-9_])(?:native_candidate|agent06_t3|phase1_package)_[a-z0-9_]{3,90}(?![A-Za-z0-9_])')) {
+                      Write-Host ('G4_AGENT06_PACKAGE_GATE_CODE ' + $match.Value.ToUpperInvariant())
+                    }
+                  }
+                } catch {
+                  Write-Host 'G4_AGENT06_PACKAGE_GATE_JSON_UNCLASSIFIED'
+                }
+              }
+            }
+            # The existing product package builder emits a private Python
+            # traceback/exception only inside this runner. Safely extract the
+            # first machine-token following its fixed error prefix, NEVER
+            # arbitrary stderr, paths, source names, or user content.
+            $packageDiagnosticInputs = @(
+              $log,
+              (Join-Path $output 'logs/package-build-only.json'),
+              (Join-Path $output 'logs/package/package-gate-failure.json')
+            )
+            foreach ($sourceLog in $packageDiagnosticInputs) {
+              if (-not (Test-Path -LiteralPath $sourceLog -PathType Leaf)) { continue }
+              $sourceText = Get-Content -LiteralPath $sourceLog -Raw -ErrorAction SilentlyContinue
+              if (-not $sourceText) { continue }
+              $messages = [regex]::Matches($sourceText,
+                '(?i)IWXA_EXPLORER_BUILD_FAIL:\s*([a-z][a-z0-9_]{3,95})(?![a-z0-9_])')
+              foreach ($message in @($messages | Select-Object -Last 3)) {
+                Write-Host ('G4_AGENT06_PYTHON_PACKAGE_FAILURE_TOKEN ' +
+                  $message.Groups[1].Value.ToUpperInvariant())
+              }
+              if ($sourceText -match '(?i)IWXA_EXPLORER_BUILD_FAIL' -and
+                  $messages.Count -eq 0) {
+                Write-Host 'G4_AGENT06_PYTHON_PACKAGE_FAILURE_UNCLASSIFIED'
+              }
+              $preciseCodes = [regex]::Matches($sourceText,
+                '(?<![a-zA-Z0-9_])(?:agent06_original_t3|agent06_original_t2|original_agent_d6|desktop_native|release_worktree|release_payload|git_command|u01_pinned|k03_pinned)_[a-z0-9_]{3,96}(?![a-zA-Z0-9_])')
+              foreach ($code in @($preciseCodes | Select-Object -Unique | Select-Object -Last 4)) {
+                Write-Host ('G4_AGENT06_PYTHON_PACKAGE_SAFE_CODE ' +
+                  $code.Value.ToUpperInvariant())
+              }
+            }
+            $originalPipelineLog = Join-Path $output 'logs/private-build-result.json'
+            if (Test-Path -LiteralPath $originalPipelineLog -PathType Leaf) {
+              $nativeRaw = Get-Content -LiteralPath $originalPipelineLog -Raw -ErrorAction SilentlyContinue
+              if ($nativeRaw) {
+                $foundNativeCodes = [regex]::Matches($nativeRaw,
+                  '(?<![A-Za-z0-9_])native_candidate_[a-z0-9_]{4,90}(?![A-Za-z0-9_])')
+                foreach ($match in @($foundNativeCodes | Select-Object -Last 5)) {
+                  Write-Host ('G4_AGENT06_NATIVE_PACKAGE_FAILURE_CODE ' + $match.Value.ToUpperInvariant())
+                }
+                $categories = [ordered]@{
+                  POWERSHELL_NATIVE_COMMAND = 'NativeCommandError|NativeCommandException'
+                  UNQUALIFIED_GIT_SOURCE = 'git\.exe.*(?:fatal:|error:)'
+                  MISSING_ORIGINAL_TOOL = 'CommandNotFoundException|The term .* is not recognized'
+                  RUST_BUILD_FAILURE = 'cargo.*(?:error|failed)|error\[E[0-9]{4}\]'
+                  NODE_BUILD_FAILURE = 'npm error|npm ERR!|vite.*error'
+                  WINDOWS_PRIVILEGE = 'access is denied|UnauthorizedAccessException'
+                }
+                foreach ($category in $categories.Keys) {
+                  if ($nativeRaw -match $categories[$category]) {
+                    Write-Host ('G4_AGENT06_NATIVE_PACKAGE_FAILURE_CLASS ' + $category)
+                  }
+                }
+              }
+            }
+            if (Test-Path -LiteralPath $log -PathType Leaf) {
+              $rawInfo = Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+              if ($rawInfo) {
+                $classMatchers = [ordered]@{
+                  POWERSHELL_PARSER = 'ParserError|ParseException'
+                  COMMAND_MISSING = 'CommandNotFoundException|is not recognized as the name of a cmdlet'
+                  ARGUMENT_BINDING = 'ParameterBindingException|NamedParameterNotFound'
+                  GIT_COMMAND = 'git.exe|git identity failed'
+                  PATH_MISSING = 'ItemNotFoundException|Cannot find path|does not exist'
+                  ACCESS_DENIED = 'UnauthorizedAccessException|Access is denied'
+                  NODE_TOOL = 'npm ERR!|npm error|Node.js'
+                  PYTHON_TOOL = 'ModuleNotFoundError|ImportError'
+                }
+                foreach ($name in $classMatchers.Keys) {
+                  if ($rawInfo -match $classMatchers[$name]) {
+                    Write-Host ('G4_AGENT06_PRIVATE_BUILD_ERROR_CLASS ' + $name)
+                  }
+                }
+              }
+            }
+            $safeCodes = @()
+            if (Test-Path -LiteralPath $log -PathType Leaf) {
+              foreach ($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)) {
+                foreach ($m in [regex]::Matches([string]$line,
+                  '(?<![A-Za-z0-9_])(?:private_setup|original_t3|original_t2|agent_native|setup_core|private_package|native_candidate)_[a-z0-9_]{4,115}(?![A-Za-z0-9_])')) {
+                  $safeCodes += [string]$m.Value
+                }
+              }
+            }
+            $uniqueCodes = @($safeCodes | Select-Object -Unique | Select-Object -Last 4)
+            if ($uniqueCodes.Count -eq 0) {
+              Write-Host 'G4_AGENT06_ORIGINAL_SETUP_FAILURE_CODE UNCLASSIFIED'
+            } else {
+              foreach ($item in $uniqueCodes) {
+                Write-Host ('G4_AGENT06_ORIGINAL_SETUP_FAILURE_CODE ' + $item.ToUpperInvariant())
+              }
+            }
+            throw 'G4_AGENT06_CURRENT_ORIGINAL_NATIVE_SETUP_BUILD_NOT_ACCEPTED'
+          }
+          $installed = Join-Path $output 'temporary-installed-fixture/installed-witness.json'
+          $rollback = Join-Path $output 'temporary-rollback-fixture/rollback-witness.json'
+          $package = Join-Path $output 'IWXA-Private-SetupCore-Candidate.exe'
+          if (-not (Test-Path -LiteralPath $package -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $installed -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $rollback -PathType Leaf)) {
+            throw 'G4_AGENT06_INSTALLED_NATIVE_PACKAGE_RECEIPT_MISSING'
+          }
+          $gui = Get-Content -LiteralPath $installed -Raw | ConvertFrom-Json
+          $rb = Get-Content -LiteralPath $rollback -Raw | ConvertFrom-Json
+          if ($gui.status -ne 'PASS' -or
+              $gui.installed_native_cold_launch_verified -ne $true -or
+              $gui.installed_real_qwen_native_gui_result_verified -ne $true -or
+              $gui.installed_real_qwen_native_gui_submit_review_verified -ne $true -or
+              $gui.installed_core_readbacks_after_restart_verified -ne $true -or
+              $rb.status -ne 'PASS' -or
+              $rb.installed_file_identity_after_rollback -ne $true) {
+            throw 'G4_AGENT06_ORIGINAL_T2_NATIVE_GUI_RECEIPT_INVALID'
+          }
+          Write-Host 'G4_AGENT06_INSTALLED_GENUINE_SETUP_AND_ONE_CORE_PASS'
+          Write-Host 'G4_AGENT06_INSTALLED_NATIVE_GUI_QWEN_REVIEW_COLD_PASS'
+          Write-Host 'G4_AGENT06_INSTALLED_SETUP_CORE_REPAIR_ROLLBACK_PASS'
+          Write-Host 'G4_AGENT06_INSTALLED_NOT_CROSS_USER_ADMIN_ACCEPT_APPLY'
+      - name: Erase private source model caches logs and native binaries
+        if: always()
+        shell: pwsh
+        run: |
+          $targets = @('.private','.g4-pinned-one-core',
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06'),
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-cache'),
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-private-build.log'))
+          foreach ($path in $targets) {
+            if (Test-Path -LiteralPath $path) {
+              Remove-Item -LiteralPath $path -Force -Recurse -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Host 'G4_AGENT06_PRIVATE_SOURCE_AND_NATIVE_ARTIFACTS_NOT_PUBLISHED'
+  agent-source-mutation-probe:
+    if: contains(github.event.head_commit.message, '[qualify-agent-package-source]')
+    runs-on: windows-2022
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Stage exact central Agent 0.6 source without historical binary evidence
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ffa56fee6f971afa74b6b49ccfb891fca0e97225
+          token: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /desktop/
+            /runtime/
+            /tools/
+            /config/
+            /adapters/
+            /cells/
+            /providers/
+            /schemas/
+            /profiles/
+            /surfaces/
+            /skills/
+            /operational-skills/
+            /automation/
+            /authority/
+            /Human/
+            /scripts/
+            /webui/
+            /windows/
+            /qualification/phase1/*.ps1
+            /qualification/phase1/*.py
+            /qualification/phase1/*.json
+            /qualification/phase1/*.mjs
+            /requirements.txt
+            /requirements-ci.txt
+            /.gitignore
+            /AGENTS.md
+          path: .private/agent
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify private Agent source remains clean across public module staging
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:GIT_NO_LAZY_FETCH = '1'
+          $repo = (Resolve-Path -LiteralPath '.private/agent').Path
+          function Verify([string]$stage) {
+            $lines = @(& git -C $repo status --porcelain=v1 --untracked-files=all 2>$null)
+            if ($LASTEXITCODE -ne 0) { throw 'G4_AGENT_GIT_STATUS_UNAVAILABLE' }
+            $dirty = @($lines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            if ($dirty.Count) {
+              Write-Host ('G4_AGENT_SOURCE_DIRTY_STAGE ' + $stage)
+              Write-Host ('G4_AGENT_SOURCE_DIRTY_TRACKED_COUNT ' + @($dirty | Where-Object { $_ -notmatch '^\?\?' }).Count)
+              Write-Host ('G4_AGENT_SOURCE_DIRTY_UNTRACKED_COUNT ' + @($dirty | Where-Object { $_ -match '^\?\?' }).Count)
+              throw 'G4_AGENT_SOURCE_MUTATION_REPRODUCED'
+            }
+            Write-Host ('G4_AGENT_SOURCE_CLEAN_STAGE ' + $stage)
+          }
+          function Execute([string]$stage,[string[]]$nodeArgs) {
+            Push-Location $repo
+            try {
+              & node @nodeArgs *> (Join-Path $env:RUNNER_TEMP ('g4-agent-' + $stage + '.log'))
+              if ($LASTEXITCODE -ne 0) { throw ('G4_AGENT_MODULE_STAGE_FAILED_' + $stage) }
+            } finally { Pop-Location }
+            Verify $stage
+          }
+          Verify 'CHECKOUT'
+          Execute 'U04_FETCH' @('scripts/prepare-public-modules.mjs','--only-u04','--fetch')
+          Execute 'U04_STAGE' @('scripts/stage-u04-desktop.mjs',(Join-Path $repo 'build/u04-owner-sources'),(Join-Path $env:RUNNER_TEMP 'g4-agent-u04-desktop'))
+          Execute 'K03_FETCH' @('scripts/prepare-public-modules.mjs','--only-k03','--fetch')
+          Execute 'U01_FETCH' @('scripts/prepare-public-modules.mjs','--only-u01','--fetch')
+          Write-Host 'G4_AGENT_PUBLIC_MODULE_STAGING_CLEAN_PASS'
+      - name: Purge private source and temporary logs
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath '.private' -Force -Recurse -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'g4-agent-*' -ErrorAction SilentlyContinue |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          Write-Host 'G4_AGENT_SOURCE_PROBE_NO_PRIVATE_ARTIFACTS_PUBLISHED'
+) {
                   Write-Host ('G4_AGENT06_INSTALLED_WITNESS_PHASE ' + $witnessPhase)
                 }
                 foreach ($prop in @('failure_code','last_operation','last_checkpoint')) {
