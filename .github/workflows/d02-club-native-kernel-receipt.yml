@@ -77,8 +77,9 @@ jobs:
           function Locate([string]$name,[string]$type){
             $condition=[System.Windows.Automation.PropertyCondition]::new(
               [System.Windows.Automation.AutomationElement]::NameProperty,$name)
-            if($type -eq 'button' -or $type -eq 'edit'){
+            if($type -eq 'button' -or $type -eq 'edit' -or $type -eq 'combo'){
               $ctl=if($type -eq 'button'){[System.Windows.Automation.ControlType]::Button}
+                elseif($type -eq 'combo'){[System.Windows.Automation.ControlType]::ComboBox}
                 else{[System.Windows.Automation.ControlType]::Edit}
               $condition=[System.Windows.Automation.AndCondition]::new(
                 $condition,[System.Windows.Automation.PropertyCondition]::new(
@@ -162,6 +163,21 @@ jobs:
               "--user-data-dir=$profile","--app=$origin/workspace/#/domain"
             )
             $null=Await 'Моя рабочая область' '' 'D02_RECEIPT_DOMAIN_NOT_VISIBLE'
+            $create=Locate 'Создать профиль в рабочей области' 'button'
+            if(!$create){
+              if(Locate 'Чтение рабочих областей не разрешено Kernel.' ''){
+                throw 'D02_RECEIPT_T2_CAPABILITY_READ_DENIED'
+              }
+              $selector=Locate 'Личная рабочая область' 'combo'
+              if(!$selector){throw 'D02_RECEIPT_PERSONAL_AREA_SELECTOR_NOT_FOUND'}
+              Write-Output 'D02_RECEIPT_NATIVE_PERSONAL_AREA_SELECTOR=PASS'
+              Add-Type -AssemblyName System.Windows.Forms
+              $selector.SetFocus()
+              [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+              [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+              [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+              Start-Sleep -Seconds 2
+            }
             Invoke 'Создать профиль в рабочей области' 'D02_RECEIPT_PROFILE_EDITOR_UNAVAILABLE'
             Enter 'Как к вам обращаться' 'Club проверка пользовательской записи' 'D02_RECEIPT_ALIAS_INPUT_FAILED'
             Enter 'Цели' 'Сохранить собственную запись между запусками' 'D02_RECEIPT_GOAL_INPUT_FAILED'
