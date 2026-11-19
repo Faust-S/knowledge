@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 5c5d33278bd77f8798663518b9b62efccf916bdb
+          ref: ec6428e7d86dac45543ce62bd367507c79fc104e
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed
-          ref: a148d0386a73fc0131f971075ce3743e7010e995
+          ref: 9aa68471001d30c07bcd6dfaf20c7a1b65b51df2
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
           fetch-depth: 0
@@ -62,8 +62,8 @@ jobs:
       - name: Verify immutable source identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "5c5d33278bd77f8798663518b9b62efccf916bdb"
-          test "$(git -C d04-private/model rev-parse HEAD)" = "a148d0386a73fc0131f971075ce3743e7010e995"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "ec6428e7d86dac45543ce62bd367507c79fc104e"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "9aa68471001d30c07bcd6dfaf20c7a1b65b51df2"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           echo "D04_RECOVERY_EXACT_SOURCE=PASS"
       - uses: actions/setup-node@v4
@@ -74,7 +74,7 @@ jobs:
         run: |
           set -euo pipefail
           node --check qualification/life-os-ten-protocol-revisions.browser.mjs
-          node --check qualification/life-os-ten-protocol-revisions.browser.mjs
+          node --check qualification/life-os-ten-protocol-exchange.browser.mjs
           echo "D04_TEN_PROTOCOL_WITNESS_SYNTAX=PASS"
       - name: Install private site and normative T2 dependencies without publishing logs
         run: |
@@ -90,6 +90,28 @@ jobs:
             echo "D04_RECOVERY_NORMATIVE_T2_NPM_CI=PASS"
           else
             echo "D04_RECOVERY_NORMATIVE_T2_NPM_CI=FAIL"
+            exit 1
+          fi
+      - name: Verify source tests and TypeScript before original T2 browser qualification
+        working-directory: d04-private/site
+        run: |
+          set -euo pipefail
+          if npm run check:life-os:research >"$RUNNER_TEMP/d04-research.log" 2>&1; then
+            echo "D04_TEN_PROTOCOL_RESEARCH=PASS"
+          else
+            echo "D04_TEN_PROTOCOL_RESEARCH=FAIL"
+            exit 1
+          fi
+          if npm run check:t2:entry >"$RUNNER_TEMP/d04-entry.log" 2>&1; then
+            echo "D04_TEN_PROTOCOL_T2_ENTRY=PASS"
+          else
+            echo "D04_TEN_PROTOCOL_T2_ENTRY=FAIL"
+            exit 1
+          fi
+          if npx tsc --noEmit >"$RUNNER_TEMP/d04-typecheck.log" 2>&1; then
+            echo "D04_TEN_PROTOCOL_TYPESCRIPT=PASS"
+          else
+            echo "D04_TEN_PROTOCOL_TYPESCRIPT=FAIL"
             exit 1
           fi
       - name: Install normative T2 Chromium from exact Playwright package
@@ -157,12 +179,17 @@ jobs:
             });
             if(result.status!=='PASS'||result.protocols!==10||result.results!==10||
                result.revisions!==2||result.events!==20||
-               !result.coldRestart||!result.independentReadback)
+               !result.coldRestart||!result.independentReadback||
+               result.exchange?.status!=='PASS'||result.exchange?.objects!==10||
+               result.exchange?.events!==20||!result.exchange?.coldImported||
+               !result.exchange?.sourceUnchanged)
               throw new Error('D04_PROTOCOL_NATIVE_RESULT_INCOMPLETE');
             console.log('D04_TEN_PROTOCOL_NATIVE_REVISIONS=PASS');
             console.log('D04_TEN_PROTOCOL_KERNEL_OBJECTS=10');
             console.log('D04_TEN_PROTOCOL_KERNEL_EVENTS=20');
             console.log('D04_TEN_PROTOCOL_COLD_READBACK=PASS');
+            console.log('D04_TEN_PROTOCOL_IWXA_INDEPENDENT_IMPORT=PASS');
+            console.log('D04_TEN_PROTOCOL_IWXA_COLD_READBACK=PASS');
           }finally{
             await new Promise(done=>server.server.close(done));
           }
