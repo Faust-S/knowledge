@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: dfa2070daa74a7b7d7226b630ac2ebdff53f780f
+      SITE_SHA: bdfe21b54d6d273589191ae4788c395e3c50a9ce
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: dfa2070daa74a7b7d7226b630ac2ebdff53f780f
+          ref: bdfe21b54d6d273589191ae4788c395e3c50a9ce
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -149,6 +149,43 @@ jobs:
               Start-Sleep -Milliseconds 500
             }
             throw $errorCode
+          }
+          function HasPrefix([string]$prefix){
+            foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
+              Where-Object {$_.MainWindowHandle -ne 0})){
+              $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                [IntPtr]$p.MainWindowHandle)
+              if(!$root){continue}
+              $all=$root.FindAll($scope,[System.Windows.Automation.Condition]::TrueCondition)
+              foreach($row in $all){
+                $name=$row.Current.Name
+                if($name -and $name.StartsWith($prefix)){return $true}
+              }
+            }
+            return $false
+          }
+          function Activate([string]$label,[string]$code){
+            $button=Await $label 'button' $code
+            try{
+              Add-Type -AssemblyName System.Windows.Forms
+              $button.SetFocus()
+              [System.Windows.Forms.SendKeys]::SendWait(' ')
+            }catch{throw $code}
+          }
+          function VerifyProfileFromKernel([string]$code){
+            $open=Locate 'Редактировать профиль здесь' 'button'
+            if(!$open){$open=Locate 'Создать профиль в рабочей области' 'button'}
+            if(!$open){throw $code}
+            Activate $open.Current.Name $code
+            $null=Await 'Сохранённый профиль загружен через Kernel.' '' $code
+            $field=Await 'Как к вам обращаться' 'edit' $code
+            try{
+              $value=[System.Windows.Automation.ValuePattern]$field.GetCurrentPattern(
+                [System.Windows.Automation.ValuePattern]::Pattern)
+              if($value.Current.Value -cne 'Club проверка пользовательской записи'){
+                throw $code
+              }
+            }catch{throw $code}
           }
           try {
             $server=Start-Process -FilePath node -WorkingDirectory $site -ArgumentList @(
@@ -303,10 +340,28 @@ jobs:
             Invoke 'Сохранить профиль в IWXA' 'D02_RECEIPT_NATIVE_SAVE_FAILED'
             $null=AwaitPrefix 'Профиль сохранён. Подтверждена версия ' 'D02_RECEIPT_ORIGINAL_KERNEL_READBACK_MISSING'
             Write-Output 'D02_RECEIPT_NATIVE_ORIGINAL_KERNEL_WRITE_READBACK=PASS'
-            # A receipt for an empty profile is insufficient. The independent
-            # family list must show the *user's entered alias* after readback.
-            $null=AwaitPrefix 'Последний: Club проверка пользовательской записи' 'D02_RECEIPT_SAVED_ALIAS_NOT_IN_KERNEL_VIEW'
-            Write-Output 'D02_RECEIPT_SAVED_USER_ALIAS_READBACK=PASS'
+            # The profile editor read is fresh getObject, after React unmount.
+            # The family list is a separate listObjects plus getObject check.
+            $overviewFound=$false
+            for($i=0;$i -lt 8;$i++){
+              if(HasPrefix 'Последний: Club проверка пользовательской записи'){
+                $overviewFound=$true;break
+              }
+              Start-Sleep -Milliseconds 250
+            }
+            if(!$overviewFound){
+              Activate 'Обновить результаты' 'D02_RECEIPT_OVERVIEW_REFRESH_NOT_AVAILABLE'
+              for($i=0;$i -lt 20;$i++){
+                if(HasPrefix 'Последний: Club проверка пользовательской записи'){
+                  $overviewFound=$true;break
+                }
+                Start-Sleep -Milliseconds 250
+              }
+            }
+            Write-Output ('D02_RECEIPT_FAMILY_ALIAS_VISIBLE='+$overviewFound)
+            Activate 'Закрыть редактор' 'D02_RECEIPT_PROFILE_EDITOR_NOT_CLOSED'
+            VerifyProfileFromKernel 'D02_RECEIPT_REOPENED_PROFILE_FIELDS_MISMATCH'
+            Write-Output 'D02_RECEIPT_NATIVE_PROFILE_REOPENED_FROM_KERNEL=PASS'
             if($b2){try{$b2.Kill($true)}catch{}}
             if($b1){try{$b1.Kill($true)}catch{}}
             Start-Sleep -Seconds 2
@@ -329,8 +384,10 @@ jobs:
                 Write-Output 'D02_RECEIPT_RESTART_WORKSPACE_SELECTED_BY_USER=TRUE'
               }catch{throw 'D02_RECEIPT_RESTART_WORKSPACE_SELECT_FAILED'}
             }
-            $null=AwaitPrefix 'Последний: Club проверка пользовательской записи' 'D02_RECEIPT_COLD_RESTART_LOST_RESULT'
+            VerifyProfileFromKernel 'D02_RECEIPT_COLD_RESTART_LOST_RESULT'
             Write-Output 'D02_RECEIPT_NATIVE_ORIGINAL_KERNEL_COLD_RESTART=PASS'
+            if(!$overviewFound){throw 'D02_RECEIPT_FAMILY_VIEW_NOT_UPDATED'}
+            Write-Output 'D02_RECEIPT_NATIVE_SAVED_ALIAS_FAMILY=PASS'
             Write-Output 'D02_RECEIPT_NATIVE_IWXA_EXPORT_IMPORT=NOT_RUN'
           }finally{
             foreach($p in @($b3,$b2,$b1)){
