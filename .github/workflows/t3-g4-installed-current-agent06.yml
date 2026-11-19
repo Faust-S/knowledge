@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 0d4196fa732b52d192ac75590715199381dfb2df
+          ref: ffa56fee6f971afa74b6b49ccfb891fca0e97225
           token: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
           persist-credentials: false
           filter: blob:none
@@ -82,7 +82,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 9fbbbd54fd0587db5c7e0e5c807b96e024ae750b
+          ref: f42e53cd28c881b2b8e04199595f9d7991f34414
           persist-credentials: false
           filter: blob:none
           sparse-checkout: |
@@ -95,9 +95,9 @@ jobs:
           $agent = (& git -C .private/agent rev-parse HEAD).Trim()
           $setup = (& git -C .private/setup-core rev-parse HEAD).Trim()
           $core = (& git -C .g4-pinned-one-core rev-parse HEAD).Trim()
-          if ($agent -ne '0d4196fa732b52d192ac75590715199381dfb2df' -or
+          if ($agent -ne 'ffa56fee6f971afa74b6b49ccfb891fca0e97225' -or
               $setup -ne 'c10e193846a0ea4c73cabe3744aa7db82439d54e' -or
-              $core -ne '9fbbbd54fd0587db5c7e0e5c807b96e024ae750b') {
+              $core -ne 'f42e53cd28c881b2b8e04199595f9d7991f34414') {
             throw 'G4_AGENT_EXACT_INSTALLED_SOURCE_PIN_MISMATCH'
           }
           $ignoreFile = '.private/agent/.gitignore'
@@ -127,6 +127,16 @@ jobs:
               $profile.installedAgentT3Mode -cne 'EXPLICIT_OPT_IN') {
             throw 'G4_INSTALLED_AGENT_DEFAULT_ATLAS_RECIPIENT_FORBIDDEN'
           }
+          # Product owner paths come from the original installed
+          # runtime/windows_install_paths.py. A stale generic IWXA path in
+          # the witness must not invalidate a real model + Human Review.
+          $witnessSource = Get-Content -LiteralPath '.private/agent/tools/qualify_setup_core_runtime.ps1' -Raw
+          if (($witnessSource.Split("'IWXA\PersonalAgent\current-install.json'").Count - 1) -lt 3 -or
+              ($witnessSource.Split("'IWXA\PersonalAgent\storage-authority.json'").Count - 1) -lt 2 -or
+              -not $witnessSource.Contains('agent_setup_runtime_touched_real_legacy_storage_authority')) {
+            throw 'G4_INSTALLED_AGENT_PRODUCT_SCOPED_AUTHORITY_WITNESS_MISMATCH'
+          }
+          Write-Host 'G4_INSTALLED_AGENT_ORIGINAL_PRODUCT_AUTHORITY_WITNESS_PASS'
           Write-Host 'G4_INSTALLED_AGENT_PRODUCT_NEUTRAL_NO_DEFAULT_RECIPIENT_PASS'
           Write-Host 'G4_INSTALLED_AGENT06_CURRENT_SOURCES_AND_T2_PREFLIGHT_PASS'
       - name: Check original Agent and Setup Git integrity in WindowsPowerShell 5.1
@@ -486,7 +496,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 0d4196fa732b52d192ac75590715199381dfb2df
+          ref: ffa56fee6f971afa74b6b49ccfb891fca0e97225
           token: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
           persist-credentials: false
           filter: blob:none
