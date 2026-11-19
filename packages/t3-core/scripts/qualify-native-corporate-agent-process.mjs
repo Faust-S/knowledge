@@ -61,7 +61,7 @@ const AGENT_CORE_SPARSE_ROOTS=Object.freeze([
 // Stage the installed Agent's EXISTING Core, never a second Core, with a
 // partial, blob-filtered, pinned Git checkout. No private repo Actions,
 // complete checkout, published source, artifacts, caches or log output.
-async function stageAgent(root,token){
+export async function stageAgent(root,token){
   if(!token)throw Error('G4_NATIVE_AGENT_READ_GRANT_REQUIRED');
   const auth=Buffer.from('x-access-token:'+token).toString('base64');
   const env={
