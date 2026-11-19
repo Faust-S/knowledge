@@ -259,14 +259,26 @@ jobs:
         working-directory: d04-private/site
         run: |
           set -uo pipefail
-          if npm run release:verify-dist >"$RUNNER_TEMP/d04-release-dist.log" 2>&1; then
-            echo "D04_HOSTING_DIST_CHECKS=PASS"
-            grep -E '^D04_(STATIC_ROUTES|STATIC_FILES|STATIC_BYTES|HOSTING_DIST_GATE)=' "$RUNNER_TEMP/d04-release-dist.log" | tail -5 || true
-          else
+          failed=0
+          for stage in release:check-dist check:production-urls check:no-localhost check:assets check:external-assets check:links check:seo check:htaccess; do
+            name="$(printf '%s' "$stage" | tr '[:lower:]' '[:upper:]' | sed 's/[^A-Z0-9]/_/g')"
+            log="$RUNNER_TEMP/d04-hosting-$name.log"
+            if npm run "$stage" >"$log" 2>&1; then
+              echo "D04_HOSTING_STAGE_${name}=PASS"
+              if [ "$stage" = release:check-dist ]; then
+                grep -E '^D04_(STATIC_ROUTES|STATIC_FILES|STATIC_BYTES|HOSTING_DIST_GATE)=' "$log" | tail -5 || true
+              fi
+            else
+              echo "D04_HOSTING_STAGE_${name}=FAIL"
+              grep -Eo 'D04_HOSTING_DIST_ERROR:[A-Z_]+' "$log" | sort -u | head -10 || true
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
             echo "D04_HOSTING_DIST_CHECKS=FAIL"
-            grep -Eo 'D04_HOSTING_DIST_ERROR:[A-Z_]+' "$RUNNER_TEMP/d04-release-dist.log" | sort -u | head -14 || true
             exit 1
           fi
+          echo "D04_HOSTING_DIST_CHECKS=PASS"
       - name: Enforce qualification status without uploading artifacts
         if: always()
         env:
