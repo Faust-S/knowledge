@@ -217,8 +217,7 @@ function DiagnoseSignedOwner(){
     }
   }
   # Presence only, never open or print private DPAPI/Ed25519 files.
-  $config=Get-ItemProperty -LiteralPath
-    'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center' -ErrorAction Stop
+  $config=Get-ItemProperty -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center' -ErrorAction Stop
   $rootPath=[string]$config.DataLocation
   if($rootPath -and (Test-Path -LiteralPath $rootPath)){
     $organizations=Join-Path $rootPath 't3-admin/organizations'
