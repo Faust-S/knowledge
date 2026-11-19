@@ -791,6 +791,28 @@ jobs:
                 EnterNativeText 'Наименование' 'Weekly premises service'
                 EnterNativeText 'Что выполняется при посещении' 'Clean premises and inspect equipment every visit'
                 EnterNativeText 'Как проверяется результат' 'Customer observes the cleaned zones and records any defects'
+                # ValuePattern diagnostic checks React state via the native
+                # accessibility tree, without logging test-entered or user data.
+                foreach($inputLabel in @('Наименование','Что выполняется при посещении','Как проверяется результат')){
+                  $field=FindNative $inputLabel ([System.Windows.Automation.ControlType]::Edit)
+                  $ok=$false
+                  if($field){
+                    $vp=$null
+                    if($field.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$vp)){
+                      $ok=([System.Windows.Automation.ValuePattern]$vp).Current.Value.Length -gt 0
+                    }
+                  }
+                  $safeCode=switch($inputLabel){
+                    'Наименование' {'TITLE'} 
+                    'Что выполняется при посещении' {'SCOPE'}
+                    default {'CRITERIA'}
+                  }
+                  Write-Output ('D07_NATIVE_REGULAR_INPUT_'+$safeCode+'_NONEMPTY='+$ok)
+                }
+                $createNative=FindNative 'Добавить план регулярной услуги' ([System.Windows.Automation.ControlType]::Button)
+                if(!$createNative){throw 'D07_NATIVE_REGULAR_CREATE_BUTTON_NOT_FOUND'}
+                Write-Output ('D07_NATIVE_REGULAR_CREATE_BUTTON_ENABLED='+$createNative.Current.IsEnabled)
+                if(-not $createNative.Current.IsEnabled){throw 'D07_NATIVE_REGULAR_CREATE_BUTTON_DISABLED'}
                 ClickAction 'Добавить план регулярной услуги'
                 $planVisible=$false
                 for($attempt=0;$attempt -lt 55;$attempt++){
