@@ -51,14 +51,20 @@ jobs:
         run: |
           bun run build > "$RUNNER_TEMP/iwxa-software-build.log" 2>&1 || { echo 'SITE_SOFTWARE_BUILD_FAIL'; exit 1; }
           echo 'SITE_SOFTWARE_BUILD_PASS'
+      - name: Assemble actual static shared-hosting output
+        working-directory: .private/site
+        shell: bash
+        run: |
+          bun run build:static > "$RUNNER_TEMP/iwxa-software-static.log" 2>&1 || { echo 'SITE_SOFTWARE_STATIC_PRERENDER_FAIL'; exit 1; }
+          echo 'SITE_SOFTWARE_STATIC_PRERENDER_PASS'
       - name: Confirm all five current screenshots are present unchanged in hosting build
         working-directory: .private/site
         shell: bash
         run: |
           set -euo pipefail
-          test -d dist
+          test -d dist-static
           while read -r file expected; do
-            found=$(find dist -type f -path "*/assets/software/$file" -print -quit)
+            found=$(find dist-static -type f -path "*/assets/software/$file" -print -quit)
             test -n "$found" || { echo 'SITE_SOFTWARE_DIST_IMAGE_MISSING'; exit 1; }
             actual=$(sha256sum "$found" | cut -d ' ' -f 1)
             test "$actual" = "$expected" || { echo 'SITE_SOFTWARE_DIST_IMAGE_HASH_MISMATCH'; exit 1; }
