@@ -54,15 +54,58 @@ export async function stageOriginal(root,token,fetchT3,seeds=T3_SEEDS){
   }
   return seen.size;
 }
-async function stageAgent(root,token,fetchAgent){
-  for(const path of AGENT_SEEDS){
-    const bytes=await fetchAgent(path,token);
-    if(!Buffer.isBuffer(bytes)||bytes.length>MAX_FILE)throw Error('G4_NATIVE_AGENT_SOURCE_FILE_INVALID');
-    const target=join(root,...path.split('/'));
-    mkdirSync(dirname(target),{recursive:true});
-    writeFileSync(target,bytes,{flag:'wx',mode:0o600});
-  }
-  return AGENT_SEEDS.length;
+const AGENT_CORE_SPARSE_ROOTS=Object.freeze([
+  'runtime','adapters','cells','providers','surfaces',
+  'schemas','profiles','config','skills','operational-skills',
+]);
+// Stage the installed Agent's EXISTING Core, never a second Core, with a
+// partial, blob-filtered, pinned Git checkout. No private repo Actions,
+// complete checkout, published source, artifacts, caches or log output.
+async function stageAgent(root,token){
+  if(!token)throw Error('G4_NATIVE_AGENT_READ_GRANT_REQUIRED');
+  const auth=Buffer.from('x-access-token:'+token).toString('base64');
+  const env={
+    PATH:process.env.PATH??'',SystemRoot:process.env.SystemRoot??'',
+    WINDIR:process.env.WINDIR??'',HOME:process.env.HOME??'',
+    USERPROFILE:process.env.USERPROFILE??'',APPDATA:process.env.APPDATA??'',
+    LOCALAPPDATA:process.env.LOCALAPPDATA??'',
+    TEMP:process.env.TEMP??'',TMP:process.env.TMP??'',
+    GIT_TERMINAL_PROMPT:'0',GIT_ASKPASS:'echo',
+    GIT_CONFIG_COUNT:'1',
+    GIT_CONFIG_KEY_0:'http.https://github.com/.extraheader',
+    GIT_CONFIG_VALUE_0:'AUTHORIZATION: basic '+auth,
+  };
+  const git=(args)=>{
+    const run=spawnSync('git',['-C',root,...args],{
+      env,encoding:'utf8',windowsHide:true,timeout:125000,
+      maxBuffer:256*1024,
+    });
+    // Git might include private file paths or credentials in diagnostics.
+    // No Git output, especially stderr, is ever sent to public Actions.
+    if(run.status!==0||run.error)
+      throw Error('G4_NATIVE_AGENT_SPARSE_CHECKOUT_FAILED');
+    return (run.stdout??'').trim();
+  };
+  mkdirSync(root,{recursive:true,mode:0o700});
+  git(['init','--quiet']);
+  git(['remote','add','origin','https://github.com/Faust-S/iwxa-personal-agent.git']);
+  git(['sparse-checkout','init','--cone']);
+  git(['sparse-checkout','set',...AGENT_CORE_SPARSE_ROOTS]);
+  git(['fetch','--quiet','--depth=1','--filter=blob:none','--no-tags',
+    'origin',AGENT_ORIGINAL_PIN]);
+  git(['checkout','--quiet','--detach','FETCH_HEAD']);
+  if(git(['rev-parse','HEAD'])!==AGENT_ORIGINAL_PIN)
+    throw Error('G4_NATIVE_AGENT_SPARSE_SOURCE_PIN_CHANGED');
+  const paths=git(['ls-files','--cached']).split(/\r?\n/).filter(Boolean);
+  const allowed=paths.filter(p=>AGENT_CORE_SPARSE_ROOTS.some(dir=>p.startsWith(dir+'/')));
+  if(allowed.length<150||allowed.length>1000||allowed.some(p=>
+    !/^[a-zA-Z0-9_./-]+$/.test(p)||p.includes('..')))
+    throw Error('G4_NATIVE_AGENT_SPARSE_SOURCE_SCOPE_INVALID');
+  for(const path of AGENT_SEEDS)
+    if(!allowed.includes(path))throw Error('G4_NATIVE_AGENT_REQUIRED_SOURCE_MISSING');
+  // The Core is loaded directly by Python in its own child process. The
+  // temporary private checkout is removed by the existing finally block.
+  return allowed.length;
 }
 export async function qualifyNativeOriginalEmployee({
   t3Token,agentToken,
@@ -78,7 +121,7 @@ export async function qualifyNativeOriginalEmployee({
   try{
     const t3=join(root,'original-t3'),agent=join(root,'employee-agent');
     const t3Count=await stageOriginal(t3,t3Token,fetchT3);
-    const agentCount=await stageAgent(agent,agentToken,fetchAgent);
+    const agentCount=await stageAgent(agent,agentToken);
     // Fail early on a damaged original private source before credential
     // issuance. Only fixed machine codes leave this public Windows job.
     // The original code and syntax diagnostics never enter the CI output.
