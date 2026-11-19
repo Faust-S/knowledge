@@ -7,7 +7,7 @@ import json
 import os
 import re
 from pathlib import Path
-from runtime.t3_original_employee_port import OriginalEmployeePort
+from runtime.t3_original_employee_port import OriginalEmployeePort, CorporateT3Error
 
 CODE = re.compile(r"^[A-Z][A-Z0-9_]{2,119}$")
 
@@ -21,10 +21,30 @@ def main():
         if mode == "CREATE":
             profile_path = Path(os.environ["G4_EMPLOYEE_PUBLIC_PROFILE_PATH"])
             profile = json.loads(profile_path.read_text(encoding="utf-8"))
-            candidate = port.employee_first_use(root, profile, confirmed=True)
+            try:
+                candidate = port.employee_first_use(root, profile, confirmed=True)
+                recovered = False
+            except CorporateT3Error as error:
+                if str(error) != "T3_OUTCOME_UNKNOWN_RECONCILE_FIRST":
+                    raise
+                # Read the ORIGINAL employee vault only. Never repeat a first-
+                # use write after lost ACK: it could have committed already.
+                try:
+                    candidate = port.employee_candidate(root)
+                except CorporateT3Error:
+                    raise CorporateT3Error(
+                        "T3_EMPLOYEE_FIRST_USE_RECONCILIATION_REQUIRED"
+                    ) from None
+                recovered = True
             assert candidate["state"] == "AWAITING_ORIGINAL_MANAGER_ENROLLMENT"
             assert candidate["originalKernelEnrollment"] is False
-            print(json.dumps({"candidate": candidate}, separators=(",", ":")))
+            assert candidate["organizationId"] == profile["organizationId"]
+            assert candidate["workspaceId"] == profile["workspaceId"]
+            assert candidate["managerPersonId"] == profile["managerPersonId"]
+            assert isinstance(candidate.get("credentialKeyId"), str)
+            assert candidate["employeeProofKeyRecord"]["subjectId"] == candidate["employeePersonId"]
+            print(json.dumps({"candidate": candidate,
+                              "readOnlyRecovered": recovered}, separators=(",", ":")))
         elif mode == "READ_CANDIDATE":
             candidate = port.employee_candidate(root)
             assert candidate["state"] == "AWAITING_ORIGINAL_MANAGER_ENROLLMENT"
