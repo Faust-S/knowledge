@@ -45,6 +45,19 @@ jobs:
         run: |
           bun install --frozen-lockfile > "$RUNNER_TEMP/iwxa-software-npm.log" 2>&1 || { echo 'SITE_BUN_INSTALL_FAIL'; exit 1; }
           echo 'SITE_BUN_INSTALL_PASS'
+      - name: Provide actual Chrome for the site's original prerender engine
+        working-directory: .private/site
+        shell: bash
+        run: |
+          set -euo pipefail
+          chrome=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)
+          if test -n "$chrome"; then
+            printf 'PUPPETEER_EXECUTABLE_PATH=%s\n' "$chrome" >> "$GITHUB_ENV"
+            echo 'SITE_NATIVE_PRERENDER_SYSTEM_CHROME_READY'
+          else
+            bunx puppeteer browsers install chrome > "$RUNNER_TEMP/iwxa-software-browser.log" 2>&1 || { echo 'SITE_PRERENDER_BROWSER_INSTALL_FAILED'; exit 1; }
+            echo 'SITE_NATIVE_PRERENDER_BROWSER_DOWNLOADED'
+          fi
       - name: Build current site with new real Windows screenshots
         working-directory: .private/site
         shell: bash
@@ -71,6 +84,9 @@ jobs:
             grep -Eq 'EADDRINUSE|ECONNREFUSED|ETIMEDOUT|timed out' "$log" && echo 'SITE_STATIC_LOCAL_SERVER_FAIL' || true
             grep -Eq 'ERR_MODULE_NOT_FOUND|Cannot find package|MODULE_NOT_FOUND' "$log" && echo 'SITE_STATIC_DEPENDENCY_FAIL' || true
             grep -Eq 'JavaScript heap out of memory|Killed|SIGKILL' "$log" && echo 'SITE_STATIC_RESOURCE_FAIL' || true
+            grep -Eq 'Could not find Chrome|Browser was not found|Could not find Chromium|Chromium revision' "$log" && echo 'SITE_STATIC_PRERENDER_CHROME_NOT_FOUND' || true
+            grep -Eq 'Failed to launch the browser process|Running as root without --no-sandbox' "$log" && echo 'SITE_STATIC_BROWSER_LAUNCH_FAILED' || true
+            grep -Eq 'server didn.t start|server startup|listen EADDRINUSE' "$log" && echo 'SITE_STATIC_SSR_NOT_STARTED' || true
             grep -Eq '\[prerender\] preparing' "$log" && echo 'SITE_STATIC_PRERENDER_STARTED' || true
             grep -Eq 'vite.*built|built in' "$log" && echo 'SITE_STATIC_VITE_COMPILED' || true
             count=$(grep -Eo '[0-9]+/[0-9]+ page\(s\)' "$log" | tail -n 1 || true)
