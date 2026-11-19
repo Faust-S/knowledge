@@ -135,6 +135,17 @@ jobs:
           npm run typecheck > "$RUNNER_TEMP/d09-static-typecheck.log" 2>&1 || {
             echo D09_K036_CSP_STATIC_TYPES=FAIL
             grep -oE 'error TS[0-9]+' "$RUNNER_TEMP/d09-static-typecheck.log" | sort -u | tail -15 || true
+            node --input-type=module - "$RUNNER_TEMP/d09-static-typecheck.log" <<'NODE'
+          import {readFileSync} from "node:fs";
+          const lines=readFileSync(process.argv[2],"utf8").split("\n");
+          const relevant=lines.filter(x=>/error TS[0-9]+|ERR_|Error:|npm error|failed|Cannot|Invalid/.test(x)).slice(-9);
+          for(const row of relevant){
+            const safe=row.trim().slice(0,210)
+             .replace(/\/[^\s:()]+/g,"[private-path]")
+             .replace(/["'][^"']{8,}["']/g,"[private-value]");
+            console.log("D09_K036_TYPECHECK_SIGNATURE="+safe);
+          }
+          NODE
             exit 1
           }
           echo D09_K036_CSP_STATIC_TYPES=PASS
