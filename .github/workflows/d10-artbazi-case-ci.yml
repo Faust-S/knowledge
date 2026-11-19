@@ -71,17 +71,23 @@ jobs:
       - name: Existing specialist Sales workflows and seller package regression
         shell: bash
         run: |
-          # Keep private source and individual Sales fixtures inside the runner.
+          # Execute the exact tracked sales:test chain, exposing only the stage
+          # number, never private source, source paths, failing assertions or data.
           set +e
           cd site
-          npm run sales:test > "$RUNNER_TEMP/d10-sales-functional.log" 2>&1
-          result=$?
-          if [ "$result" -eq 0 ]; then
-            echo "D10_SALES_FUNCTIONAL_REGRESSION=PASS"
-          else
-            echo "::error::D10_SALES_FUNCTIONAL_REGRESSION=FAIL exit=$result"
-          fi
-          exit "$result"
+          mapfile -t cmds < <(node -e 'const p=require("./package.json"); const x=p.scripts["sales:test"]; if(!x)process.exit(2); console.log(x.split(" && ").join("\n"))')
+          if [ "${#cmds[@]}" -lt 15 ]; then echo "::error::D10_SALES_CHAIN_INCOMPLETE"; exit 1; fi
+          for i in "${!cmds[@]}"; do
+            bash -c "${cmds[$i]}" > "$RUNNER_TEMP/d10-sales-stage-$i.log" 2>&1
+            result=$?
+            if [ "$result" -ne 0 ]; then
+              echo "::error::D10_SALES_STAGE_FAILED_INDEX=$i exit=$result"
+              echo "::error::D10_SALES_FUNCTIONAL_REGRESSION=FAIL"
+              exit "$result"
+            fi
+            echo "D10_SALES_STAGE_$i=PASS"
+          done
+          echo "D10_SALES_FUNCTIONAL_REGRESSION=PASS"
       - name: Site source, Group E, Host, types
         shell: bash
         run: |
