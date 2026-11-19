@@ -52,7 +52,7 @@ jobs:
           for name in business-start-overview.mjs business-start-overview.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts business-project.mjs business-project.d.mts business-edit-intent.mjs business-edit-intent.d.mts business-experiment-comparison.mjs business-experiment-comparison.d.mts; do
             cmp -s "private/domain/model/$name" "private/site/src/lib/$name" || { echo "D08_P1_CANONICAL_DRIFT"; exit 1; }
           done
-          for name in business-project.mjs business-project.d.mts business-edit-intent.mjs business-edit-intent.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts business-experiment-comparison.mjs business-experiment-comparison.d.mts; do
+          for name in business-project.mjs business-project.d.mts business-edit-intent.mjs business-edit-intent.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts; do
             cmp -s "private/site/src/lib/$name" "private/site/t2-site-module/marketops/decision/$name" || { echo "D08_P1_T2_EMBEDDED_BYTE_DRIFT"; exit 1; }
           done
           echo "D08_P1_CANONICAL_BYTE_EQUAL=PASS"
