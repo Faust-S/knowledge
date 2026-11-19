@@ -420,6 +420,143 @@ jobs:
             }
             if($server){try{$server.Kill($true)}catch{}}
           }
+      - name: Original T2 Exchange exports a real physical .iwxa after the native profile receipt
+        working-directory: site
+        env:
+          PORT: '55445'
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          $site=(Resolve-Path .).Path
+          $origin='http://localhost:55445'
+          $edge=@(
+            (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
+            (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
+          )|Where-Object{Test-Path $_}|Select-Object -First 1
+          if(!$edge){throw 'D02_EXCHANGE_EDGE_MISSING'}
+          $profile=Join-Path $env:RUNNER_TEMP 'd02-receipt-persistent-profile'
+          $download=Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads'
+          New-Item -Path $download -ItemType Directory -Force | Out-Null
+          $server=$null;$browser=$null
+          $scope=[System.Windows.Automation.TreeScope]::Descendants
+          function Roots(){
+            foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
+              Where-Object {$_.MainWindowHandle -ne 0})){
+              $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                [IntPtr]$p.MainWindowHandle)
+              if($root){Write-Output $root}
+            }
+          }
+          function Locate([string]$name,[string]$kind){
+            $cond=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+            if($kind -eq 'button'){
+              $cond=[System.Windows.Automation.AndCondition]::new(
+                $cond,[System.Windows.Automation.PropertyCondition]::new(
+                  [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                  [System.Windows.Automation.ControlType]::Button))
+            }
+            foreach($root in @(Roots)){
+              $match=$root.FindFirst($scope,$cond)
+              if($match -and $match.Current.IsEnabled){return $match}
+            }
+            return $null
+          }
+          function Await([string]$label,[string]$kind,[string]$code){
+            for($i=0;$i -lt 75;$i++){
+              $found=Locate $label $kind
+              if($found){return $found}
+              Start-Sleep -Milliseconds 500
+            }
+            throw $code
+          }
+          function Activate([string]$name,[string]$code){
+            $control=Await $name 'button' $code
+            try{
+              $pattern=[System.Windows.Automation.InvokePattern]$control.GetCurrentPattern(
+                [System.Windows.Automation.InvokePattern]::Pattern)
+              $pattern.Invoke()
+            }catch{throw $code}
+          }
+          try{
+            $server=Start-Process -FilePath node -WorkingDirectory $site -ArgumentList @(
+              'scripts/serve-current-static.mjs','dist','--t2-loopback'
+            ) -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd02-exchange-http.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd02-exchange-error.private.log') -PassThru
+            $ready=$false
+            for($i=0;$i -lt 60;$i++){
+              Start-Sleep -Milliseconds 500
+              try{
+                if((Invoke-WebRequest -Uri ($origin+'/workspace/exchange/') -TimeoutSec 2).StatusCode -eq 200){$ready=$true;break}
+              }catch{}
+            }
+            if(!$ready){throw 'D02_EXCHANGE_ORIGINAL_HOST_HTTP_UNAVAILABLE'}
+            $browser=Start-Process -FilePath $edge -PassThru -ArgumentList @(
+              '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
+              "--user-data-dir=$profile","--app=$origin/workspace/exchange/#/home"
+            )
+            $null=Await 'Перенос данных' '' 'D02_EXCHANGE_NATIVE_HOST_NOT_VISIBLE'
+            if(Locate 'Операция «Перенос данных» не предоставлена ядром в текущем режиме.' ''){
+              throw 'D02_EXCHANGE_ORIGINAL_CAPABILITY_NOT_GRANTED'
+            }
+            $null=Await 'Экспортировать' 'button' 'D02_EXCHANGE_EXPORT_TAB_MISSING'
+            $controls=[System.Collections.Generic.List[object]]::new()
+            $condition=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+              [System.Windows.Automation.ControlType]::CheckBox)
+            for($i=0;$i -lt 50;$i++){
+              $controls.Clear()
+              foreach($root in @(Roots)){
+                $found=$root.FindAll($scope,$condition)
+                foreach($node in $found){
+                  if(!$node.Current.IsOffscreen -and $node.Current.IsEnabled){
+                    $name=$node.Current.Name
+                    if($name -and $name -notmatch '^История событий|^Ассеты$|^Связи$|^Схемы
+        if: always()
+        run: |
+          Write-Output 'D02_RECEIPT_PRIVATE_DATA_UPLOAD=FALSE'
+          Write-Output 'D02_RECEIPT_DIST_UPLOAD=FALSE'
+){
+                      $controls.Add($node)
+                    }
+                  }
+                }
+              }
+              if($controls.Count -gt 0){break}
+              Start-Sleep -Milliseconds 500
+            }
+            Write-Output ('D02_EXCHANGE_NATIVE_WORKSPACE_CHOICES='+$controls.Count)
+            if($controls.Count -ne 1){throw 'D02_EXCHANGE_NATIVE_WORKSPACE_SELECTION_AMBIGUOUS'}
+            try{
+              $toggle=[System.Windows.Automation.TogglePattern]$controls[0].GetCurrentPattern(
+                [System.Windows.Automation.TogglePattern]::Pattern)
+              if($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On){
+                $toggle.Toggle()
+              }
+            }catch{throw 'D02_EXCHANGE_NATIVE_WORKSPACE_SELECTION_FAILED'}
+            Activate 'Предпросмотр' 'D02_EXCHANGE_PREVIEW_BUTTON_DISABLED'
+            Activate 'Собрать архив' 'D02_EXCHANGE_ORIGINAL_PACKAGING_FAILED'
+            Activate 'Скачать .iwxa' 'D02_EXCHANGE_DOWNLOAD_NOT_AVAILABLE'
+            $file=$null
+            for($i=0;$i -lt 60;$i++){
+              $files=@(Get-ChildItem -Path $download -Filter '*.iwxa' -File -ErrorAction SilentlyContinue |
+                Where-Object {$_.Length -gt 128})
+              if($files.Count -eq 1){$file=$files[0];break}
+              Start-Sleep -Milliseconds 500
+            }
+            if(!$file){throw 'D02_EXCHANGE_PHYSICAL_ARCHIVE_NOT_FOUND'}
+            $data=[System.IO.File]::ReadAllBytes($file.FullName)
+            $digest=[System.Security.Cryptography.SHA256]::HashData($data)
+            if($digest.Length -ne 32 -or $data.Length -lt 129){throw 'D02_EXCHANGE_PHYSICAL_ARCHIVE_CORRUPT'}
+            Write-Output 'D02_EXCHANGE_NATIVE_PHYSICAL_EXPORT=PASS'
+            Activate 'Подтвердить приём' 'D02_EXCHANGE_CONFIRM_NOT_AVAILABLE'
+            $null=Await 'Приём подтверждён' '' 'D02_EXCHANGE_ORIGINAL_RECEIPT_MISSING'
+            Write-Output 'D02_EXCHANGE_NATIVE_ORIGINAL_CONFIRM_RECEIPT=PASS'
+            Write-Output 'D02_EXCHANGE_INDEPENDENT_IMPORT=NOT_RUN'
+          }finally{
+            if($browser){try{$browser.Kill($true)}catch{}}
+            if($server){try{$server.Kill($true)}catch{}}
+          }
       - name: Never upload private sources, profile or generated dist
         if: always()
         run: |
