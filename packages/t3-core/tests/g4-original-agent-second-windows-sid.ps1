@@ -144,9 +144,22 @@ try {
     $env:G4_EMPLOYEE_PUBLIC_REQUEST_PATH = $cfg.requestPath
     $env:G4_EMPLOYEE_ORIGINAL_CHALLENGE = $cfg.challenge
   }
-  $raw = & $cfg.python $cfg.driver 2>$null
-  $exit = $LASTEXITCODE
-  $reply = [string]::Join([Environment]::NewLine,@($raw))
+  # Child belongs to the independent employee SID. Never infer success
+  # from LASTEXITCODE in a restricted WindowsPowerShell session: check the
+  # exact native process.ExitCode, then parse only bounded returned JSON.
+  $stdoutFile = $OutputPath + '.stdout'
+  $stderrFile = $OutputPath + '.stderr'
+  $reply = ''
+  $exit = -1
+  try {
+    $args = @('"' + $cfg.driver + '"')
+    $run = Start-Process -FilePath $cfg.python -ArgumentList $args -WorkingDirectory (Split-Path -Parent $OutputPath) -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile -ErrorAction Stop
+    $exit = if ($null -eq $run.ExitCode) {-1} else {[int]$run.ExitCode}
+    $reply = [IO.File]::ReadAllText($stdoutFile,[Text.Encoding]::UTF8)
+  } finally {
+    if ([IO.File]::Exists($stdoutFile)) { [IO.File]::Delete($stdoutFile) }
+    if ([IO.File]::Exists($stderrFile)) { [IO.File]::Delete($stderrFile) }
+  }
   $response = @{sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;
     exitCode=$exit;output=$reply}
   [IO.File]::WriteAllText($OutputPath,(ConvertTo-Json $response -Compress -Depth 12),[Text.Encoding]::UTF8)
@@ -199,6 +212,13 @@ try {
       throw 'G4_ORIGINAL_AGENT_SECOND_SID_IDENTITY_CHANGED'
     }
     if ($process.ExitCode -ne 0 -or $readback.exitCode -ne 0) {
+      $nativeExit = if ($null -eq $process.ExitCode) {'UNSET'} else {[string]$process.ExitCode}
+      $pythonExit = if ($null -eq $readback.exitCode) {'UNSET'} else {[string]$readback.exitCode}
+      Write-Output ('G4_ORIGINAL_EMPLOYEE_NATIVE_PROCESS_EXIT ' + $nativeExit)
+      Write-Output ('G4_ORIGINAL_EMPLOYEE_PYTHON_PROCESS_EXIT ' + $pythonExit)
+      if ($readback.error -match '^G4_[A-Z0-9_]{5,100}$') {
+        Write-Output ('G4_ORIGINAL_EMPLOYEE_CHILD_ERROR_CODE ' + [string]$readback.error)
+      }
       $shape = [string]$readback.output
       if ($shape -match 'G4_EMPLOYEE_BOOTSTRAP_FAILURE_CODE ([A-Z0-9_]{3,119})') {
         Write-Output ('G4_ORIGINAL_AGENT_SECOND_SID_NATIVE_CODE ' + $Matches[1])
