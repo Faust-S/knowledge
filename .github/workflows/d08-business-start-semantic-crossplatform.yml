@@ -63,7 +63,7 @@ jobs:
           args=(); for testname in "${cases[@]}"; do args+=("tests/${testname}.test.mjs"); done
           if ! node --test "${args[@]}" > "$RUNNER_TEMP/d08-private-domain.log" 2>&1; then
             for testname in "${cases[@]}"; do
-              if node --test "tests/${testname}.test.mjs" > "$RUNNER_TEMP/d08-case-check.private.log" 2>&1; then
+              if node --test --test-reporter=tap "tests/${testname}.test.mjs" > "$RUNNER_TEMP/d08-case-check.private.log" 2>&1; then
                 echo "D08_PRIVATE_TEST_${testname}=PASS"
               else
                 echo "D08_PRIVATE_TEST_${testname}=FAIL"
