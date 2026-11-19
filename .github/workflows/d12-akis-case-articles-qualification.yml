@@ -1,0 +1,104 @@
+name: D12 IWXA AKIS CASE-001+002 interactive articles
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d12-akis-case-articles-qualification.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d12-akis-articles-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  qualify:
+    name: AKIS public article qualification ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout private D12 source in runner only
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: b0ce6ce80036802a499ee51300c1bd259e74e090
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+      - name: Verify exact source and private checkout
+        run: |
+          test "$(git rev-parse HEAD)" = "b0ce6ce80036802a499ee51300c1bd259e74e090" || { echo "AKIS_HEAD_MISMATCH"; exit 1; }
+          test -f src/routes/science.akis-production.tsx || exit 1
+          test -f src/routes/science.akis-operator.tsx || exit 1
+          test -f scripts/check-akis-production-article.test.ts || exit 1
+          test -f scripts/check-akis-operator-article.test.ts || exit 1
+          echo "AKIS_EXACT_SOURCE=PASS"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Exact dependency installation with private logs
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/akis-install.log" 2>&1 || {
+            echo "AKIS_FROZEN_INSTALL=FAIL"; exit 1;
+          }
+          echo "AKIS_FROZEN_INSTALL=PASS"
+      - name: TypeScript check
+        run: |
+          bunx tsc --noEmit --pretty false > "$RUNNER_TEMP/akis-types.log" 2>&1 || {
+            echo "AKIS_TYPES=FAIL"; exit 1;
+          }
+          echo "AKIS_TYPES=PASS"
+      - name: Two source and organizational acceptance suites
+        run: |
+          for task in check:akis:production check:akis:article; do
+            safe="${task//:/-}"
+            bun run "$task" > "$RUNNER_TEMP/akis-$safe.log" 2>&1 || {
+              echo "AKIS_TEST=FAIL task=$task"; exit 1;
+            }
+            echo "AKIS_TEST=PASS task=$task"
+          done
+      - name: Prepare Chromium for site's original static prerender
+        run: |
+          bunx puppeteer browsers install chrome > "$RUNNER_TEMP/akis-browser-install.log" 2>&1 || {
+            echo "AKIS_CHROME_INSTALL=FAIL"; exit 1;
+          }
+          echo "AKIS_CHROME_INSTALL=PASS"
+      - name: Full original site static build and prerender
+        run: |
+          bun run build:static > "$RUNNER_TEMP/akis-build.log" 2>&1 || {
+            echo "AKIS_STATIC_BUILD=FAIL"; exit 1;
+          }
+          test -f dist-static/science/akis-production/index.html || exit 1
+          test -f dist-static/science/akis-operator/index.html || exit 1
+          echo "AKIS_STATIC_BUILD=PASS"
+          echo "AKIS_CASE_ARTICLES_HTML=2/2"
+      - name: Native source website static and SEO guards
+        run: |
+          for task in check:routes check:schema check:seo check:readability check:llms check:links check:no-localhost check:htaccess; do
+            safe="${task//:/-}"
+            bun run "$task" > "$RUNNER_TEMP/akis-$safe.log" 2>&1 || {
+              echo "AKIS_STATIC_GUARD=FAIL task=$task"; exit 1;
+            }
+            echo "AKIS_STATIC_GUARD=PASS task=$task"
+          done
+      - name: Hydrated real browser article interactions, overflow and themes
+        run: |
+          bun run check:akis:browser > "$RUNNER_TEMP/akis-interactions.log" 2>&1 || {
+            echo "AKIS_REAL_BROWSER=FAIL"; exit 1;
+          }
+          echo "AKIS_REAL_BROWSER=PASS"
+      - name: Original site all-routes runtime smoke test
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          bun run check:runtime > "$RUNNER_TEMP/akis-runtime.log" 2>&1 || {
+            echo "AKIS_FULL_RUNTIME=FAIL"; exit 1;
+          }
+          echo "AKIS_FULL_RUNTIME=PASS"
+      # No uploads: private sources, raw logs, build outputs and screenshots stay in runner TEMP.
