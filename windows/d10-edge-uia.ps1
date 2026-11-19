@@ -142,6 +142,35 @@ try {
     $passed++
     Write-Output "D10_WINDOWS_UIA_$marker=PASS"
   }
+  # Exercise an actual user decision after navigating CASE-010, not just a
+  # page title. Chrome exposes the native <select> as a UIA ComboBox.
+  $window=Find-EdgeWindow
+  if($null -eq $window){throw "D10_WINDOWS_CASE010_WINDOW_NOT_AVAILABLE"}
+  $comboCondition=New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+    [System.Windows.Automation.ControlType]::ComboBox)
+  $combos=$window.FindAll(
+    [System.Windows.Automation.TreeScope]::Descendants,$comboCondition)
+  Write-Output "D10_WINDOWS_CASE010_COMBO_COUNT=$($combos.Count)"
+  if($combos.Count -lt 2){throw "D10_WINDOWS_CASE010_METRIC_CONTROL_NOT_ACCESSIBLE"}
+  $metric=$combos.Item(0)
+  for($i=0;$i -lt 2;$i++){
+    $metric.SetFocus()
+    Start-Sleep -Milliseconds 200
+    [System.Windows.Forms.SendKeys]::SendWait("{HOME}{DOWN}{ENTER}")
+    $repainted=$false
+    for($t=0;$t -lt 40;$t++){
+      Start-Sleep -Milliseconds 200
+      $window=Find-EdgeWindow
+      if($null -ne $window -and (Has-AccessibleArticleText $window "7 дней")){
+        $repainted=$true
+        break
+      }
+    }
+    if($repainted){break}
+  }
+  if(-not $repainted){throw "D10_WINDOWS_CASE010_METRIC_NOT_REPAINTED"}
+  Write-Output "D10_WINDOWS_CASE010_NATIVE_METRIC_INTERACTION=PASS"
   if($passed -ne 10){throw "D10_WINDOWS_ARTICLE_COUNT_MISMATCH"}
   Write-Output "D10_WINDOWS_UIA_ROUTES=10/10"
   Write-Output "D10_WINDOWS_UIA_BASELINE=PASS"
