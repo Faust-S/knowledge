@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 2c7bbc76579956224c3c873765f848c22ca746a8
+          ref: ee2a0f4dbfc819e4d082e7001f4fbb82792c109e
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -66,12 +66,13 @@ jobs:
       - name: Verify exact sources, canonical profile and witness
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "2c7bbc76579956224c3c873765f848c22ca746a8"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "1fd3cc1f6f57c689aa5bb11752b1131af4d34b3e"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "ee2a0f4dbfc819e4d082e7001f4fbb82792c109e"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "f885785bfe15f74cc461e3cac23b59638d721e18"
           test "$(git -C d04-private/model rev-parse HEAD)" = "0f1c550ab039c02d0cab0a911bdb67f96b97fb2e"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           cmp d04-private/model/docs/life-os/PERSONAL_OBSERVATION_PROFILE_V0_1.mjs d04-private/site/t2-site-module/bazmed/PERSONAL_OBSERVATION_PROFILE_V0_1.mjs
           node --check d04-private/site/qualification/life-os-observation-native.browser.mjs
+          node --check d04-private/site/qualification/life-os-observation-exchange.browser.mjs
           echo "D04_OBSERVATION_SOURCE_PARITY_AND_EXACT_PINS=PASS"
       - uses: actions/setup-node@v4
         with:
@@ -162,11 +163,14 @@ jobs:
             });
             if(result.status!=='PASS'||result.objects!==1||result.events!==2||
                result.revision!==2||!result.cold||!result.history||
-               !result.workspaceIdVerified)throw Error('D04_OBSERVATION_INCOMPLETE');
+               !result.workspaceIdVerified||result.exchange?.status!=="PASS"||
+               !result.exchange.coldImported||!result.exchange.historyPreserved||
+               !result.exchange.sourceUnchanged)throw Error('D04_OBSERVATION_INCOMPLETE');
             console.log('D04_OBSERVATION_NATIVE_E2E=PASS');
             console.log('D04_OBSERVATION_KERNEL_CAS_AND_EVENT=PASS');
             console.log('D04_OBSERVATION_ORIGINAL_SOURCE_HISTORY=PASS');
             console.log('D04_OBSERVATION_COLD_RESTART=PASS');
+            console.log('D04_OBSERVATION_INDEPENDENT_IWXA=PASS');
           }finally{await new Promise(done=>server.server.close(done));}
           NODE
           code=$?
