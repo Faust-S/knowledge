@@ -26,12 +26,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: 76b1dd2919c7aba7f45702890dbcc660fd28c7d4
+          ref: 74534f55c27656f10d861844e44c805b78a88dae
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Verify source identity without printing private code
         run: |
-          test "$(git rev-parse HEAD)" = "76b1dd2919c7aba7f45702890dbcc660fd28c7d4" || exit 1
+          test "$(git rev-parse HEAD)" = "74534f55c27656f10d861844e44c805b78a88dae" || exit 1
           test -f src/routes/science.akis-production.tsx || exit 1
           test -f src/routes/science.akis-operator.tsx || exit 1
           echo "AKIS_PRIVATE_SOURCE_IDENTITIES=PASS"
@@ -98,7 +98,7 @@ jobs:
           IWXA_PRERENDER_ROUTES: /science/akis-production/,/science/akis-operator/
         run: |
           npx tsx scripts/prerender.ts > "$RUNNER_TEMP/akis-prerender.log" 2>&1 || {
-            grep -oE 'SSR timeout|browser navigation failed|did not become ready|no SSR build found|Failed to launch|ERR_[A-Z_]+' "$RUNNER_TEMP/akis-prerender.log" | sort -u | head -4 || true
+            grep -oE 'SSR timeout|browser navigation failed|did not become ready|no SSR build found|Failed to launch|ERR_[A-Z0-9_]+|ENOENT|EPERM|EACCES|ENOTDIR|MODULE_NOT_FOUND|SyntaxError|ReferenceError|TypeError|RangeError|spawn ENOENT|Cannot find|Cannot read|Could not' "$RUNNER_TEMP/akis-prerender.log" | sort -u | head -8 || true
             echo "AKIS_TWO_PAGE_PRERENDER=FAIL"; exit 1;
           }
           test -f dist-static/science/akis-production/index.html || exit 1
@@ -119,6 +119,7 @@ jobs:
       - name: Native click, math, mobile overflow, dark light, interactive browser scenario
         run: |
           bun run check:akis:browser > "$RUNNER_TEMP/akis-browser.log" 2>&1 || {
+            grep -oE 'AKIS_BROWSER_(ASSERT_FAILED|ACTION_MISSING):[^[:space:]]+|TimeoutError|Waiting failed|net::ERR_[A-Z_]+' "$RUNNER_TEMP/akis-browser.log" | sort -u | head -5 || true
             echo "AKIS_BROWSER=FAIL"; exit 1;
           }
           echo "AKIS_BROWSER=PASS"
