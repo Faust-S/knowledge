@@ -141,4 +141,21 @@ jobs:
           test -f dist/workspace/lifecycle/index.html
           test -f dist/_iwxa/runtime/0.3.6/runtime.js
           echo "D09_INTEGRATED_STATIC_DIST=PASS"
+      - name: Verify real T2 Host under strict HTTPS CSP
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/d09-tls"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=localhost" \\
+            -keyout "$RUNNER_TEMP/d09-tls/key.pem" \\
+            -out "$RUNNER_TEMP/d09-tls/cert.pem" > "$RUNNER_TEMP/d09-openssl.log" 2>&1
+          if command -v google-chrome >/dev/null 2>&1; then
+            export PUPPETEER_EXECUTABLE_PATH="$(command -v google-chrome)"
+          else
+            npx puppeteer browsers install chrome > "$RUNNER_TEMP/d09-browser-install.log" 2>&1 || {
+              echo "D09_CSP_BROWSER_UNAVAILABLE=FAIL"; exit 1;
+            }
+          fi
+          export D09_PREVIEW_KEY_PATH="$RUNNER_TEMP/d09-tls/key.pem"
+          export D09_PREVIEW_CERT_PATH="$RUNNER_TEMP/d09-tls/cert.pem"
+          node tests/d09-strict-csp-host-witness.mjs
       # No artifacts, private files, package, secrets or runtime are published.
