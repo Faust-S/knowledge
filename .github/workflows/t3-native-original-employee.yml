@@ -50,13 +50,6 @@ jobs:
           python -m py_compile packages/t3-core/tests/g4-original-agent-native-driver.py
           python -m py_compile packages/t3-core/tests/g4-original-employee-bootstrap-driver.py
           python -m py_compile packages/t3-core/tests/g4-original-employee-real-task-driver.py
-      - name: Verify real second Windows SID, DPAPI isolation and two cold processes
-        shell: pwsh
-        timeout-minutes: 5
-        run: |
-          $ErrorActionPreference = 'Stop'
-          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File packages/t3-core/tests/g4-native-two-windows-sids.ps1
-          if ($LASTEXITCODE -ne 0) { throw 'G4_SECOND_WINDOWS_ACCOUNT_DPAPI_NOT_ACCEPTED' }
       - name: Stage the original qualified T2 Kernel and installed Edge adapter
         shell: pwsh
         run: |
@@ -128,3 +121,30 @@ jobs:
           AGENT_READ_TOKEN: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
         shell: pwsh
         run: node packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs
+
+  independent-windows-sid-precondition:
+    # Separate OS-user/DPAPI infrastructure check. Does NOT change the
+    # existing signed source D3 receipt or qualify installed Agent/Center.
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-native-sid]') }}
+    runs-on: windows-2022
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify Windows SID script syntax and run isolated DPAPI cold proof
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'packages/t3-core/tests/g4-native-two-windows-sids.ps1'
+          $tokens = [System.Management.Automation.Language.Token[]]@()
+          $parseErrors = [System.Management.Automation.Language.ParseError[]]@()
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath $path).Path,[ref]$tokens,[ref]$parseErrors)
+          if ($parseErrors.Count -ne 0) {
+            throw 'G4_TWO_SID_PUBLIC_POWERSHELL_PARSER_FAILED'
+          }
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $path
+          if ($LASTEXITCODE -ne 0) {
+            throw 'G4_SECOND_WINDOWS_ACCOUNT_DPAPI_NOT_ACCEPTED'
+          }
