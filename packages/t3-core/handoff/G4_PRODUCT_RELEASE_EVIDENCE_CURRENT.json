@@ -1744,6 +1744,55 @@
       "t3_ready": false,
       "g4_accepted": false,
       "production_activation": false
+    },
+    "original_admin_installed_first_use_2026_11_19": {
+      "evidence_kind": "INSTALLED_NATIVE_WINDOWS_PARTIAL",
+      "source_run": {
+        "repository": "Faust-S/knowledge",
+        "run_id": 44502925301,
+        "conclusion": "FAIL_AT_PRODUCTION_OWNER_READY_READBACK",
+        "platform": "windows-2022"
+      },
+      "exact_sources": {
+        "t3_original_private": "ea1700ec0ce8524ead8b30f23ddb7a8611597ba8",
+        "center_original_private": "0a5b8ccd5f1f0169da13edc4429508884fd0bbb2",
+        "original_t2_kernel": "0.3.6",
+        "original_t2_contract": "1.3.0"
+      },
+      "passed": [
+        "Public exact original T2 plus T3 signed Admin One Dist preflight",
+        "Original production T3 issuer, native Center and Setup Core build",
+        "Installed private signed owner and inherited original Kernel bytes matching SHA-256",
+        "Installed Tauri Windows window, real WebView2 accessibility buttons and graceful WM_CLOSE",
+        "Ordinary separate organization Workspace created without Atlas",
+        "Manager draft local save with observed readback",
+        "Actual original Windows native enrollment dialog detected",
+        "Native cancel click, dialog dismissed, owner remains NOT_CONNECTED",
+        "Second native enrollment dialog detected and confirmation click dispatched"
+      ],
+      "failed_or_unconfirmed": [
+        "Original signed Owner D3_OWNER_READY readback after confirmed enrollment not accepted",
+        "Cold installed Admin Owner re-open not yet demonstrated",
+        "Installed Human ACCEPT and independent Human APPLY not run",
+        "Separate Windows OS accounts and installed Agent with real model task not run",
+        "Universal D5/D6_GENERIC/D7_PERSON G4 acceptance not run"
+      ],
+      "subsequent_qualification_run": {
+        "run_id": 44505177227,
+        "initial_state": "IN_PROGRESS_AT_2026_11_19",
+        "public_one_dist": "PASS",
+        "installed_enrollment": "PENDING_OUTCOME",
+        "must_refresh_from_live_CI": true
+      },
+      "safeguards": {
+        "original_t2_immutable": true,
+        "atlas_not_mandatory": true,
+        "private_actions_executed": false,
+        "private_exe_or_source_uploaded": false,
+        "installed_D3_accepted": false,
+        "g4_accepted": false,
+        "t3_ready": false
+      }
     }
   },
   "accepted_gates": {
@@ -1838,7 +1887,7 @@
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
     "original_private_native_signer": "CURRENT_SOURCE_PIN_d0d8ba2f_NATIVE_ONE_SHOT_WINDOWS_BRIDGE_REQUALIFIED_20_OF_20_44406073956__INSTALLED_UI_HOLD",
-    "independent_installed_d3": "HOLD_20_OF_20_REAL_T2_KERNEL_HUMAN_ACCEPT_APPLY_TWO_COLD_BROWSER_44406073956__DIFFERENT_WINDOWS_LOGONS_AND_NATIVE_GUI_NOT_RUN",
+    "independent_installed_d3": "HOLD_NATIVE_SOURCE_REAL_T2_APPLY_20_OF_20_44406073956__INSTALLED_WINDOWS_SETUP_GUI_CANCEL_PASS_44502925301__ORIGINAL_OWNER_READY_COLD_UNQUALIFIED",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
