@@ -261,17 +261,40 @@ jobs:
               [System.Windows.Automation.PropertyCondition]::new(
                 [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
                 [System.Windows.Automation.ControlType]::Button))
-            foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
-              Where-Object {$_.MainWindowHandle -ne 0})){
-              $root=[System.Windows.Automation.AutomationElement]::FromHandle(
-                [IntPtr]$p.MainWindowHandle)
-              if(!$root){continue}
-              $all=$root.FindAll($scope,$buttonCondition)
-              foreach($candidate in $all){
-                if($candidate.Current.IsEnabled -and !$candidate.Current.IsOffscreen){
-                  $matched.Add($candidate)
+            # React modal rendering and the Windows UIA tree are asynchronous.
+            # A single scan after Invoking the header button can observe zero
+            # controls even though the modal is about to appear.
+            for($attempt=0;$attempt -lt 70;$attempt++){
+              $matched.Clear()
+              foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
+                Where-Object {$_.MainWindowHandle -ne 0})){
+                $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                  [IntPtr]$p.MainWindowHandle)
+                if(!$root){continue}
+                $all=$root.FindAll($scope,$buttonCondition)
+                foreach($candidate in $all){
+                  if($candidate.Current.IsEnabled -and !$candidate.Current.IsOffscreen){
+                    $matched.Add($candidate)
+                  }
                 }
               }
+              if($matched.Count -gt 0){break}
+              if($attempt -eq 25){
+                # If UIA InvokePattern was accepted but did not dispatch a
+                # DOM click in Edge, retry with a real keyboard activation.
+                $entry=Locate 'Новая рабочая область' 'button'
+                if($entry){
+                  try{
+                    $entry.SetFocus()
+                    Add-Type -AssemblyName System.Windows.Forms
+                    [System.Windows.Forms.SendKeys]::SendWait(' ')
+                    Write-Output 'D02_RECEIPT_CREATE_MODAL_KEYBOARD_RETRY=TRUE'
+                  }catch{
+                    Write-Output 'D02_RECEIPT_CREATE_MODAL_KEYBOARD_RETRY=UNAVAILABLE'
+                  }
+                }
+              }
+              Start-Sleep -Milliseconds 250
             }
             Write-Output "D02_RECEIPT_CREATE_BUTTON_CHOICES=$($matched.Count)"
             if($matched.Count -eq 0){throw 'D02_RECEIPT_CREATE_NOT_AVAILABLE'}
