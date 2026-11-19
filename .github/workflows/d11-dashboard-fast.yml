@@ -46,6 +46,7 @@ jobs:
           grep -Fq "d11-customer-order-mobile.png" scripts/d11-live-browser-acceptance.mjs
           grep -Fq "D11_OWN_" scripts/d11-live-browser-acceptance.mjs
           grep -Fq "isExampleCase" src/routes/tools.warehouse-peak-shifts.tsx
+          grep -Fq "_editorImportFromResult" src/routes/tools.warehouse-peak-shifts.tsx
           grep -Fq "d11-own-" scripts/d11-live-browser-acceptance.mjs
           grep -Fq "/workspace/#/overview" src/routes/index.tsx
           echo D11_DASHBOARD_SOURCE_CHECK=PASS
