@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 6fa95dd8a33085dbd3ad64586b6aa7387cd82eff
+          ref: 672886e039e32ddfcbda42ccd40b00c03df646bd
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -53,7 +53,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed
-          ref: 0f1c550ab039c02d0cab0a911bdb67f96b97fb2e
+          ref: 5d93db12199ed48e834a7ca49f1106451288adcf
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
           fetch-depth: 0
@@ -70,9 +70,9 @@ jobs:
       - name: Verify immutable site / subject / T2 revisions
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "6fa95dd8a33085dbd3ad64586b6aa7387cd82eff"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "f8360926693dee7c47efb6a4ae548193cd686a74"
-          test "$(git -C d04-private/model rev-parse HEAD)" = "0f1c550ab039c02d0cab0a911bdb67f96b97fb2e"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "672886e039e32ddfcbda42ccd40b00c03df646bd"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "f06f4751c61c3bd4d0f9ecda3d9b710a37d0c4bb"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "5d93db12199ed48e834a7ca49f1106451288adcf"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           for path in d04-private/site d04-private/model d04-private/t2; do
             test -z "$(git -C "$path" status --porcelain --untracked-files=no)"
