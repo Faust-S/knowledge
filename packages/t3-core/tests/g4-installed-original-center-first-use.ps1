@@ -394,13 +394,22 @@ try{
   Write-Host 'G4_INSTALLED_FIRST_USE_NATIVE_WINDOWS_ENROLL_PASS'
   $script:phase='SIGNED_OWNER_COLD_CLOSE'
   CloseCenter
+  $script:phase='SIGNED_OWNER_INDEPENDENT_COLD_STATE'
+  & (Join-Path $PSScriptRoot 'g4-installed-original-owner-cold-state.ps1') -InstallRoot $installed
   $script:phase='SIGNED_OWNER_COLD_RESTART'
   StartCenter
+  Check (WaitForText 'G4WindowsOrganization' 100) 'G4_INSTALLED_COLD_MANAGER_ORGANIZATION_UI_NOT_RESTORED'
   ClickButton 'Результаты'
   $durable=$false
   for($i=0;$i -lt 70;$i++){
     if(HasText 'Подписанный T3 D3 получатель доступен'){$durable=$true;break}
     Start-Sleep -Milliseconds 350
+  }
+  if(-not $durable){
+    Write-Host "G4_INSTALLED_COLD_ORGANIZATION_UI_VISIBLE $(HasText 'G4WindowsOrganization')"
+    Write-Host "G4_INSTALLED_COLD_OWNER_NOT_CONNECTED_UI $(HasText 'NOT_CONNECTED:')"
+    Write-Host "G4_INSTALLED_COLD_OWNER_READ_FAILED_UI $(HasText 'OWNER_READ_FAILED:')"
+    DiagnoseSignedOwner
   }
   Check $durable 'G4_INSTALLED_FIRST_USE_COLD_OWNER_NOT_RESTORED'
   Write-Host 'G4_INSTALLED_FIRST_USE_ORIGINAL_DPAPI_COLD_RESTART_PASS'
