@@ -1,7 +1,7 @@
 // Dedicated, focused SOURCE proof of original Agent D3 employee DPAPI custody
 // under a distinct real Windows SID. Does not execute model, installed GUI,
 // Human ACCEPT/APPLY, nor original Kernel. No private code or keys published.
-import {mkdtempSync,mkdirSync,rmSync,writeFileSync,readFileSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,rmSync,writeFileSync,readFileSync,existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
@@ -61,6 +61,10 @@ export async function qualifyOriginalTwoSid({
     const publicProfile=join(root,'manager-public-trust.json');
     writeFileSync(publicProfile,JSON.stringify(profile),{
       flag:'wx',mode:0o600});
+    const pythonHome=process.env.pythonLocation??process.env.Python_ROOT_DIR;
+    const pythonExe=pythonHome?join(pythonHome,'python.exe'):null;
+    if(!pythonExe||!existsSync(pythonExe)||!existsSync(process.execPath))
+      throw Error('G4_SECOND_SID_PINNED_INTERPRETER_UNAVAILABLE');
     phase='RUN_SECOND_WINDOWS_ACCOUNT_ORIGINAL_AGENT';
     const source=join(process.cwd(),'packages','t3-core','tests');
     const driver=join(source,'g4-original-employee-bootstrap-driver.py');
@@ -79,6 +83,8 @@ export async function qualifyOriginalTwoSid({
       ProgramData:process.env.ProgramData??'',
       COMPUTERNAME:process.env.COMPUTERNAME??'',
       ComSpec:process.env.ComSpec??'',
+      G4_ORIGINAL_PYTHON_COMMAND:pythonExe,
+      G4_ORIGINAL_NODE_COMMAND:process.execPath,
     };
     const result=spawnSync(join(windowsRoot,'System32','WindowsPowerShell',
       'v1.0','powershell.exe'),[
