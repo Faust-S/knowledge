@@ -66,7 +66,7 @@ jobs:
           c.routes=c.routes.map(r=>({...r,available:[...new Set([...r.available,'pt-BR'])]}));
           c.pt_unified=pt.pt_unified;
           if(c.routes.some((r,i)=>JSON.stringify([r.route,r.available.filter(l=>l!=='pt-BR')])!==JSON.stringify(orig[i]))) throw new Error("OTHER_LOCALES_CHANGED");
-          fs.writeFileSync(f,JSON.stringify(c,null,2)+'\\n');
+          fs.writeFileSync(f,JSON.stringify(c,null,2)+String.fromCharCode(10));
           console.log("INTEGRATED_PT_REGISTERED="+c.routes.filter(r=>r.available.includes("pt-BR")).length);
           console.log("INTEGRATED_LOCALES="+c.locales.join(","));
           JS
