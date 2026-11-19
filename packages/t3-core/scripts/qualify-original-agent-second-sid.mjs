@@ -78,7 +78,7 @@ export async function qualifyOriginalTwoSid({
       TEMP:process.env.TEMP??'',TMP:process.env.TMP??'',
       ProgramData:process.env.ProgramData??'',
       COMPUTERNAME:process.env.COMPUTERNAME??'',
-      ComSpec:process.env.ComSpec??'',PSModulePath:process.env.PSModulePath??'',
+      ComSpec:process.env.ComSpec??'',
     };
     const result=spawnSync(join(windowsRoot,'System32','WindowsPowerShell',
       'v1.0','powershell.exe'),[
