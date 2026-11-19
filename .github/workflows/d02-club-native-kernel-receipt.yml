@@ -423,13 +423,13 @@ jobs:
       - name: Original T2 Exchange exports a real physical .iwxa after the native profile receipt
         working-directory: site
         env:
-          PORT: '55445'
+          PORT: '55444'
         run: |
           $ErrorActionPreference='Stop'
           Add-Type -AssemblyName UIAutomationClient
           Add-Type -AssemblyName UIAutomationTypes
           $site=(Resolve-Path .).Path
-          $origin='http://localhost:55445'
+          $origin='http://localhost:55444'
           $edge=@(
             (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
             (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
@@ -499,7 +499,7 @@ jobs:
             if(Locate 'Операция «Перенос данных» не предоставлена ядром в текущем режиме.' ''){
               throw 'D02_EXCHANGE_ORIGINAL_CAPABILITY_NOT_GRANTED'
             }
-            $null=Await 'Экспортировать' 'button' 'D02_EXCHANGE_EXPORT_TAB_MISSING'
+            $null=Await 'Экспортировать' '' 'D02_EXCHANGE_EXPORT_TAB_MISSING'
             $controls=[System.Collections.Generic.List[object]]::new()
             $condition=[System.Windows.Automation.PropertyCondition]::new(
               [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
