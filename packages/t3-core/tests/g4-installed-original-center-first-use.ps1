@@ -50,6 +50,19 @@ function FindName([string]$name,[string]$controlType='Button',[int]$retries=65){
 }
 function ClickButton([string]$label){
   $control=FindName $label 'Button'
+  # UIAutomation invokes the real native WebView2 accessibility action,
+  # never an injected JS or a second application command. One invocation.
+  if($label -eq 'Подключить организацию'){
+    $access=$null
+    if($control.TryGetCurrentPattern(
+        [System.Windows.Automation.InvokePattern]::Pattern,[ref]$access)){
+      Check $control.Current.IsEnabled 'G4_INSTALLED_FIRST_USE_ENROLL_UIA_DISABLED'
+      $access.Invoke()
+      Write-Host 'G4_INSTALLED_FIRST_USE_ENROLL_UIA_INVOKED'
+      Start-Sleep -Milliseconds 150
+      return
+    }
+  }
   $scroll=$null
   if($control.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern,[ref]$scroll)){
     $scroll.ScrollIntoView()
@@ -126,6 +139,20 @@ function ClickNativeChoice([bool]$confirm){
   # The native handler may refuse before showing a dialog (for example
   # when the manager draft is still being saved). Report only known product
   # machine codes. Never print the organization name or private UI content.
+  $knownStates=@(
+    'Подключение T3 не началось:',
+    'Не удалось сохранить',
+    'Изменение не выполнено.',
+    'Подписанный T3 D3 получатель доступен',
+    'Оригинальный подписанный T3-владелец организации подключён.',
+    'NOT_CONNECTED:','OWNER_READ_FAILED:',
+    'CEN_D3_EXPLICIT_ORGANIZATION_REQUIRED',
+    'CEN_D3_ORGANIZATION_REQUIRED')
+  for($s=0;$s -lt $knownStates.Count;$s++){
+    if(HasText $knownStates[$s]){
+      Write-Host "G4_INSTALLED_FIRST_USE_UI_STATE_CLASS $s"
+    }
+  }
   foreach($code in @(
     'CEN_D3_SIGNED_ENROLLMENT_DRAFT_NOT_READY',
     'CEN_D3_SIGNED_ENROLLMENT_DRAFT_SAVE_UNCONFIRMED',
