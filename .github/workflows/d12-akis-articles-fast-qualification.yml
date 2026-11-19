@@ -26,12 +26,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: f43b67b302d0dd42707f973a14da79362f497b4b
+          ref: 76b1dd2919c7aba7f45702890dbcc660fd28c7d4
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Verify source identity without printing private code
         run: |
-          test "$(git rev-parse HEAD)" = "f43b67b302d0dd42707f973a14da79362f497b4b" || exit 1
+          test "$(git rev-parse HEAD)" = "76b1dd2919c7aba7f45702890dbcc660fd28c7d4" || exit 1
           test -f src/routes/science.akis-production.tsx || exit 1
           test -f src/routes/science.akis-operator.tsx || exit 1
           echo "AKIS_PRIVATE_SOURCE_IDENTITIES=PASS"
