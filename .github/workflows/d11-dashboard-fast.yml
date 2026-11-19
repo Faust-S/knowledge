@@ -44,6 +44,8 @@ jobs:
           done
           grep -Fq "Выбрать JSON-файл" runtime/d11-module/D11WorkspaceCard.tsx
           grep -Fq "d11-customer-order-mobile.png" scripts/d11-live-browser-acceptance.mjs
+          grep -Fq "D11_OWN_" scripts/d11-live-browser-acceptance.mjs
+          grep -Fq "d11-own-" scripts/d11-live-browser-acceptance.mjs
           grep -Fq "/workspace/#/overview" src/routes/index.tsx
           echo D11_DASHBOARD_SOURCE_CHECK=PASS
       # No artifact export: source and private build stay on the ephemeral runner.
