@@ -82,6 +82,25 @@ jobs:
             result=$?
             if [ "$result" -ne 0 ]; then
               echo "::error::D10_SALES_STAGE_FAILED_INDEX=$i exit=$result"
+              if [ "$i" -eq 0 ]; then
+                # The source scanner returns JSON. Publish only relative paths
+                # and error classes, not offending code, snippets or source map.
+                node - "$RUNNER_TEMP/d10-sales-stage-$i.log" <<'NODE'
+          const fs=require("node:fs");
+          const log=fs.readFileSync(process.argv[2],"utf8");
+          const start=log.indexOf('{\n  "ok"');
+          try {
+            const parsed=JSON.parse(log.slice(start));
+            const errors=[...(parsed.errors??[]),...(parsed.stagedT2Domain?.errors??[])];
+            console.log("D10_SALES_SOURCE_ERRORS="+errors.length);
+            for(const e of errors.slice(0,10)){
+              console.log("D10_SALES_SOURCE_FILE="+String(e.file??"unknown").replace(/[^a-zA-Z0-9_.\\/-]/g,"_"));
+              console.log("D10_SALES_SOURCE_CLASS="+(String(e.message).startsWith("Missing export")?"MISSING_EXPORT":
+                String(e.message).startsWith("Missing local module")?"MISSING_MODULE":"SYNTAX_OR_OTHER"));
+            }
+          }catch{console.log("D10_SALES_SOURCE_ERROR_CLASS=OUTPUT_UNPARSEABLE")}
+          NODE
+              fi
               echo "::error::D10_SALES_FUNCTIONAL_REGRESSION=FAIL"
               exit "$result"
             fi
