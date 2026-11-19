@@ -266,10 +266,11 @@ function D10-VerifyResultChanged($slug,$caseId,$controlId,$resultId,$action) {
   }
   $control.SetFocus()
   Start-Sleep -Milliseconds 200
-  if($action -eq "COMBO_NEXT"){
+  $beforeOption=if($action -like "COMBO_*"){ComboOptionName $control}else{""}
+  if($action -eq "COMBO_NEXT" -or $action -eq "COMBO_SUMMER"){
+    # The same native key sequence passed on CASE-001..003 and CASE-008..010.
+    # End on a focused Edge select did not reliably dispatch React change.
     [System.Windows.Forms.SendKeys]::SendWait("{HOME}{DOWN}{ENTER}{TAB}")
-  }elseif($action -eq "COMBO_SUMMER"){
-    [System.Windows.Forms.SendKeys]::SendWait("{END}{ENTER}{TAB}")
   }elseif($action -eq "BUTTON_INVOKE"){
     $pattern=$control.GetCurrentPattern(
       [System.Windows.Automation.InvokePattern]::Pattern)
@@ -283,6 +284,12 @@ function D10-VerifyResultChanged($slug,$caseId,$controlId,$resultId,$action) {
     $window=Find-EdgeWindow
     $after=D10-ResultText $window $resultId
     if(-not [string]::IsNullOrWhiteSpace($after) -and $after -ne $before){break}
+  }
+  if($action -like "COMBO_*"){
+    $afterOption=ComboOptionName $control
+    $optionChanged=$afterOption -ne $beforeOption
+    Write-Output "D10_WINDOWS_NATIVE_SELECTION_$caseId=$optionChanged"
+    if(-not $optionChanged){throw "D10_WINDOWS_NATIVE_SELECTION_UNCHANGED_$caseId"}
   }
   if([string]::IsNullOrWhiteSpace($after) -or $after -eq $before){
     throw "D10_WINDOWS_NATIVE_RESULT_UNCHANGED_$caseId"
