@@ -24,6 +24,7 @@ jobs:
     # One G4 qualification. Source Owner SHA MUST match the exact installed
     # Admin Owner; bounded parity preflight runs before any private GET.
     # Native Node/Python PASS is never installed Tauri Agent qualification.
+    # Central Agent 0.6 now supplies its original worker and static imports.
     if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-native-d3]') }}
     runs-on: windows-2022
     timeout-minutes: 26
