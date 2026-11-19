@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 76c21cfa5f1d285a6155dfcb3f3ffeaac22c0399
+          ref: fa2b3aaedd3c88a1722b8884530822a13ad2c6e6
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -66,13 +66,14 @@ jobs:
       - name: Verify exact sources, canonical profile and witness
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "76c21cfa5f1d285a6155dfcb3f3ffeaac22c0399"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "bf67130c37d386e6511c0145bbb2785f8c901338"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "fa2b3aaedd3c88a1722b8884530822a13ad2c6e6"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "d55950d1dd6a10e659d46d457d5c72d34d00d1d3"
           test "$(git -C d04-private/model rev-parse HEAD)" = "cc78160423f0ee58899b87b99f7432b441a038c3"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           cmp d04-private/model/docs/life-os/PERSONAL_OBSERVATION_PROFILE_V0_1.mjs d04-private/site/t2-site-module/bazmed/PERSONAL_OBSERVATION_PROFILE_V0_1.mjs
           node --check d04-private/site/qualification/life-os-observation-native.browser.mjs
           node --check d04-private/site/qualification/life-os-observation-exchange.browser.mjs
+          node --check d04-private/site/qualification/life-os-observation-dynamics.browser.mjs
           cmp d04-private/model/docs/life-os/PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs d04-private/site/t2-site-module/bazmed/PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs
           cmp d04-private/model/docs/life-os/PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts d04-private/site/t2-site-module/bazmed/PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts
           echo "D04_OBSERVATION_DYNAMICS_MODEL_COPY=PASS"
@@ -100,7 +101,7 @@ jobs:
         working-directory: d04-private/site
         run: |
           set -euo pipefail
-          if node --import tsx --test tests/life-os-personal-observation.test.mjs >"$RUNNER_TEMP/d04-observation-unit.log" 2>&1; then
+          if node --import tsx --test tests/life-os-personal-observation.test.mjs tests/life-os-personal-observation-dynamics.test.mjs >"$RUNNER_TEMP/d04-observation-unit.log" 2>&1; then
             echo "D04_OBSERVATION_UNIT_ADMISSION=PASS"
           else
             echo "D04_OBSERVATION_UNIT_ADMISSION=FAIL"
@@ -165,6 +166,8 @@ jobs:
             join(canonical,'src/factory2/products/domain-completion/independent-browser-witness.mjs')).href);
           const {runPersonalObservationNativeJourney}=await import(pathToFileURL(
             join(site,'qualification/life-os-observation-native.browser.mjs')).href);
+          const {runPersonalObservationDynamicsNativeJourney}=await import(pathToFileURL(
+            join(site,'qualification/life-os-observation-dynamics.browser.mjs')).href);
           const server=await serveRealKernelHost(join(site,'dist'),{
             independentWitness:true,previewOrigin:true
           });
@@ -182,6 +185,17 @@ jobs:
             console.log('D04_OBSERVATION_ORIGINAL_SOURCE_HISTORY=PASS');
             console.log('D04_OBSERVATION_COLD_RESTART=PASS');
             console.log('D04_OBSERVATION_INDEPENDENT_IWXA=PASS');
+            const dynamics=await runPersonalObservationDynamicsNativeJourney({
+              chromium,origin:server.origin,selectWitnessOption
+            });
+            if(dynamics.status!=='PASS'||dynamics.objects!==2||
+               dynamics.events!==2||dynamics.points!==2||
+               dynamics.originalLinks!==2||!dynamics.cold||
+               dynamics.mobile!==375||dynamics.desktop!==1440||
+               !dynamics.methodStable)throw Error('D04_OBSERVATION_DYNAMICS_INCOMPLETE');
+            console.log('D04_OBSERVATION_DYNAMICS_REAL_TWO_SOURCES=PASS');
+            console.log('D04_OBSERVATION_DYNAMICS_ORIGINAL_RESULT_LINKS=PASS');
+            console.log('D04_OBSERVATION_DYNAMICS_COLD_T2=PASS');
           }finally{await new Promise(done=>server.server.close(done));}
           NODE
           code=$?
@@ -189,6 +203,7 @@ jobs:
           if [ "$code" -ne 0 ]; then
             echo "D04_OBSERVATION_NATIVE_E2E=FAIL"
             grep -Eo 'D04_OBSERVATION_(STAGE|ERROR_CLASS|SAFE_CAUSE)_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-observation-native.log" | sort -u | tail -8 || true
+            grep -Eo 'D04_OBSERVATION_DYNAMICS_(STAGE|CLASS|SAFE)_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-observation-native.log" | sort -u | tail -8 || true
             exit "$code"
           fi
           grep '^D04_OBSERVATION_' "$RUNNER_TEMP/d04-observation-native.log" | tail -8
