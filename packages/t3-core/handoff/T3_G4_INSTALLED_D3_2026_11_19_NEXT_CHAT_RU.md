@@ -353,3 +353,51 @@ owner error `T3_PRODUCT_COMPONENT_ORIGINAL_FILE_NOT_FOUND`; ни один нов
 установленный сотрудник в Agent, Human ACCEPT и второй APPLY,
 Kernel Object/Event и два холодных чтения. После этого универсальные
 D5/D6_GENERIC/D7_PERSON. `G4=NOT_ACCEPTED`, `T3_READY=false`.
+
+
+## 10. Фактическая граница установленного G4 после исправлений 19.11
+
+Последний квалификационный срез: `Faust-S/knowledge@3826755186f55591f0e9d09b3daaa57341d8fc9b`,
+оригинальный подписант `Faust-S/T3@318b98d3d51ac2eb41bfef4afb54168d993ba618`,
+Native Center `Faust-S/Center@2628c4bc1b20b4393c485d12513f029fdea8b082`.
+Целевой нормативный T2 Kernel `0.3.6`, Runtime Contract `1.3.0`.
+
+- На исходном корпоративном D3 сохранено **20/20 PASS**.
+- Предыдущий установленный UIA на настоящем Windows подтвердил
+  создание Workspace **без Atlas**, запись черновика, отдельные
+  физические NO и YES штатного Win32 диалога. `d3-enroll` после
+  YES всё ещё не возвращал `D3_OWNER_READY`.
+- Последующая сборочная изоляция выявила точный блокер
+  `T3_D3_ORIGINAL_COMPILED_ENROLL_ENTRY_UNAVAILABLE`: скомпилированный
+  Bun Owner не достигает канонического fail-closed ответа в предварительном
+  нативном CLI; установочный процесс корректно остановлен **до**
+  объявления продукта готовым.
+- Отдельные Windows прогоны:
+  [#44523057588](https://github.com/Faust-S/knowledge/actions/runs/44523057588):
+  исходный EXE stderr содержит ENOENT, 24 строки;
+  [#44523584887](https://github.com/Faust-S/knowledge/actions/runs/44523584887):
+  ENOENT, 16 строк;
+  [#44524235590](https://github.com/Faust-S/knowledge/actions/runs/44524235590):
+  16 строк, классификация известных модулей отрицательная;
+  [#44525474849](https://github.com/Faust-S/knowledge/actions/runs/44525474849):
+  однострочный `T3_D3_ORIGINAL_COMPILED_NATIVE_IMPORT_UNAVAILABLE` при
+  экспериментальном динамическом импорте;
+  [#44526069510](https://github.com/Faust-S/knowledge/actions/runs/44526069510):
+  после восстановления полностью статического единого EXE всё ещё
+  ENOENT, 16 строк.
+- Готовый установленный Owner и DPAPI cold reopen **не доказаны**.
+  Независимый установленный Agent / Human ACCEPT / APPLY / Kernel
+  Object-Event / два cold readback / D5 / D6_GENERIC / D7_PERSON **не выполнялись**
+  в рамках принятого G4. `T3_READY=false`, `G4=NOT_ACCEPTED`.
+
+Следующее действие: адресно найти исходный файл/ресурс, запрашиваемый
+`Bun --compile` у единственного приватного оригинального EXE. В
+компилируемых модулях отдельно проверить обращения
+`readFileSync/new URL(import.meta.url)` к исходным файлам, которые Bun
+не встраивает автоматически. Не копировать приватные исходники в
+публичный knowledge и не заменять оригинальную регистрацию mock/TEST
+субъектом. Сначала добиться точного машинного отказа оригинального
+D3 в неопасном compiled preflight, после этого выполнять прежний
+установленный NO/YES и DPAPI cold readback. Не запускать в приватных
+репозиториях Actions, не передавать в публичные артефакты исходники,
+EXE, stderr, vault, ключи или dist.
