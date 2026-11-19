@@ -53,11 +53,15 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: '1'
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
         run: |
-          npm run check:npm-lock > "$RUNNER_TEMP/d08-template-clean.private.log" 2>&1 || {
-            grep -E '^(not ok |# tests |# pass |# fail |# error:|# expected:|# actual:)' "$RUNNER_TEMP/d08-template-clean.private.log" | head -20 || true
+          node scripts/check-public-npm-lock.mjs > "$RUNNER_TEMP/d08-lock-format.private.log" 2>&1 || {
+            echo "D08_NPM_LOCK_FORMAT=FAIL"; exit 1;
+          }
+          echo "D08_NPM_LOCK_FORMAT=PASS"
+          node --test --test-reporter=tap tests/check-public-npm-lock.test.mjs tests/no-legacy-scaffold.test.mjs > "$RUNNER_TEMP/d08-template-clean.private.log" 2>&1 || {
+            grep -E '^(not ok |# tests |# pass |# fail |# error:|# expected:|# actual:|# location:)' "$RUNNER_TEMP/d08-template-clean.private.log" | head -25 || true
             echo "D08_NPM_PUBLIC_LOCK_AND_SCAFFOLD=FAIL"; exit 1;
           }
-          echo "D08_NPM_PUBLIC_LOCK=PASS"
+                    echo "D08_NPM_PUBLIC_LOCK=PASS"
           echo "D08_NO_LEGACY_SCAFFOLD=PASS"
           if npm ci --no-audit --no-fund --include=dev > "$RUNNER_TEMP/d08-npm-ci.private.log" 2>&1; then
             test -f node_modules/typescript/bin/tsc || { echo "D08_NPM_TYPESCRIPT_MISSING"; exit 1; }
