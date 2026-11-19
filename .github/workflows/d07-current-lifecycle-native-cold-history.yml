@@ -779,10 +779,10 @@ jobs:
                 Write-Output 'D07_NATIVE_REGULAR_PLAN_EDITOR=PASS'
                 # Enter plan details as a human would, using the public Edge
                 # accessibility tree and native keyboard input, not DOM scripts.
-                # Windows UIA ValuePattern.SetValue does not necessarily
-                # emit input events consumed by React controlled fields.
-                # Focus the real Edge app and use the native keyboard instead.
+                # The editor is a React-controlled input. UIA SetValue alone
+                # does not fire the native keyboard events needed for onChange.
                 Add-Type -Namespace D07Native -Name Foreground -MemberDefinition '[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr hWnd); [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();'
+                Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class D07RegularPointer { [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y); [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint x,uint y,uint data,UIntPtr extra); }'
                 function EnterNativeText([string]$label,[string]$value) {
                   $edit=WaitNative $label ([System.Windows.Automation.ControlType]::Edit)
                   if(!$edit -or !$edit.Current.IsEnabled){throw 'D07_NATIVE_REGULAR_EDIT_NOT_AVAILABLE'}
@@ -793,7 +793,7 @@ jobs:
                     [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
                     [System.Windows.Automation.ControlType]::Edit)
                   $target=[System.Windows.Automation.AndCondition]::new($nameCond,$typeCond)
-                  foreach($proc in @(Get-Process msedge -ErrorAction SilentlyContinue |
+                  foreach($proc in @(Get-Process msedge -ErrorAction SilentlyContinue|
                     Where-Object {$_.MainWindowHandle -ne 0})){
                     $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$proc.MainWindowHandle)
                     if($window -and $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$target)){
@@ -801,28 +801,58 @@ jobs:
                     }
                   }
                   if($owner -eq [IntPtr]::Zero){throw 'D07_NATIVE_REGULAR_EDITOR_WINDOW_NOT_FOUND'}
-                  $null=[D07Native.Foreground]::SetForegroundWindow($owner)
-                  Start-Sleep -Milliseconds 250
-                  $edit.SetFocus()
-                  Start-Sleep -Milliseconds 250
-                  $focus=$edit.Current.HasKeyboardFocus
-                  $front=([D07Native.Foreground]::GetForegroundWindow() -eq $owner)
                   $safeCode=switch($label){
                     'Наименование' {'TITLE'}
                     'Что выполняется при посещении' {'SCOPE'}
                     default {'CRITERIA'}
                   }
+                  $scroll=$null
+                  if($edit.Current.IsOffscreen -and
+                     $edit.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern,[ref]$scroll)){
+                    ([System.Windows.Automation.ScrollItemPattern]$scroll).ScrollIntoView()
+                  }
+                  $null=[D07Native.Foreground]::SetForegroundWindow($owner)
+                  Start-Sleep -Milliseconds 230
+                  $edit.SetFocus()
+                  Start-Sleep -Milliseconds 230
+                  $rect=$edit.Current.BoundingRectangle
+                  $screen=[System.Windows.Forms.SystemInformation]::VirtualScreen
+                  $clickable=(-not $edit.Current.IsOffscreen -and
+                    $rect.Width -gt 16 -and $rect.Height -gt 10)
+                  if($clickable){
+                    $x=[int]($rect.Left+[Math]::Min(36,$rect.Width/2))
+                    $y=[int]($rect.Top+$rect.Height/2)
+                    if($x -ge $screen.Left -and $x -lt $screen.Right -and
+                       $y -ge $screen.Top -and $y -lt $screen.Bottom){
+                      $null=[D07RegularPointer]::SetCursorPos($x,$y)
+                      Start-Sleep -Milliseconds 130
+                      [D07RegularPointer]::mouse_event([uint32]2,0,0,0,[UIntPtr]::Zero)
+                      [D07RegularPointer]::mouse_event([uint32]4,0,0,0,[UIntPtr]::Zero)
+                    }
+                  }
+                  Start-Sleep -Milliseconds 280
+                  $focus=$edit.Current.HasKeyboardFocus
+                  $front=([D07Native.Foreground]::GetForegroundWindow() -eq $owner)
                   Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_FOCUS='+$focus)
                   Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_FOREGROUND='+$front)
+                  Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_ONSCREEN='+(!$edit.Current.IsOffscreen))
                   if(!$focus -or !$front){throw 'D07_NATIVE_REGULAR_KEYBOARD_FOCUS_FAILED'}
                   [System.Windows.Forms.SendKeys]::SendWait('^a')
-                  [System.Windows.Forms.SendKeys]::SendWait($value)
-                  Start-Sleep -Milliseconds 400
+                  # Key-by-key typing permits React to commit controlled state
+                  # between native events rather than dropping a burst of keys.
+                  foreach($character in $value.ToCharArray()){
+                    [System.Windows.Forms.SendKeys]::SendWait([string]$character)
+                    Start-Sleep -Milliseconds 45
+                  }
+                  Start-Sleep -Milliseconds 500
                   $vp=$null
                   if(!$edit.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$vp)){
                     throw 'D07_NATIVE_REGULAR_INPUT_READBACK_UNAVAILABLE'
                   }
-                  $match=([System.Windows.Automation.ValuePattern]$vp).Current.Value -eq $value
+                  $current=([System.Windows.Automation.ValuePattern]$vp).Current.Value
+                  $match=$current -ceq $value
+                  Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_VALUE_LENGTH='+$current.Length)
+                  Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_FOCUS_AFTER='+$edit.Current.HasKeyboardFocus)
                   Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_TYPED='+$match)
                   if(!$match){throw 'D07_NATIVE_REGULAR_KEYBOARD_VALUE_MISMATCH'}
                 }
