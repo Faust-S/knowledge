@@ -134,6 +134,12 @@ jobs:
           }
           echo "AKIS_ARTICLE_SSR=PASS"
           echo "AKIS_ARTICLE_SCHEMA=PASS"
+      - name: Diagnose SEO metadata on the four generated research pages
+        run: |
+          # The scoped prerender intentionally omits other 528 pages. Check only
+          # pages that were generated; never treat missing unrelated pages as a pass.
+          bun run check:seo > "$RUNNER_TEMP/akis-seo-scoped.log" 2>&1 || true
+          node -e 'const fs=require("node:fs");const p=JSON.parse(fs.readFileSync("dist/seo-report.json","utf8"));const names=new Set(["/science/akis/","/science/akis-production/","/science/akis-operator/","/science/akis-interfirm/"]);const pages=p.pages.filter(x=>names.has(x.route));console.log("AKIS_SEO_SCOPE="+pages.length);let n=0;for(const page of pages){for(const err of page.errors){n++;const tag=err.split(/[:(]/,1)[0].trim().replace(/[^A-Za-z0-9_-]+/g,"_");console.log("AKIS_SEO_PAGE_ERROR="+page.route+":"+tag)}}for(const [kind,records] of [["DUP_TITLES",p.duplicates.titles],["DUP_DESCS",p.duplicates.descriptions],["DUP_CANON",p.duplicates.canonicals]]){for(const d of records)if(d.routes.some(r=>names.has(r)))console.log("AKIS_SEO_"+kind+"="+d.routes.filter(r=>names.has(r)).join(","))}console.log("AKIS_SEO_NEW_PAGE_ERRORS="+n);if(pages.length!==4||n>0)process.exit(1)'
       - name: Native click, math, mobile overflow, dark light, interactive browser scenario
         run: |
           bun run check:akis:browser > "$RUNNER_TEMP/akis-browser.log" 2>&1 || {
