@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 52c834eaad0f98d470a7e1e490c5f36bbaefce55
+          ref: caf3d1d97d7ac1429d02976af177b1d57687f696
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -64,7 +64,7 @@ jobs:
           $t2=(git -C ../t2 rev-parse HEAD).Trim()
           Write-Output "D11_PROJECT_SITE_HEAD=$site"
           Write-Output "D11_PROJECT_DOMAIN_HEAD=$domain"
-          if ($site -ne "52c834eaad0f98d470a7e1e490c5f36bbaefce55" -or
+          if ($site -ne "caf3d1d97d7ac1429d02976af177b1d57687f696" -or
               $domain -ne "09c02ab4a83bd7d762d5825615862ef37850a59c") {
             throw "D11_PROJECT_QUALIFICATION_REVISION_CHANGED"
           }
@@ -103,7 +103,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "D11_007_010_SITE_RECONCILIATION_FAILED" }
           Write-Output "D11_CASE007_TO_CASE010_DOMAIN_AND_SITE=PASS"
           & npx --no-install tsc --noEmit --project tsconfig.json *> (Join-Path $env:RUNNER_TEMP "d11-types.log")
-          if ($LASTEXITCODE -ne 0) { throw "D11_PROJECT_TYPES_FAILED" }
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content (Join-Path $env:RUNNER_TEMP "d11-types.log") |
+              Select-String -Pattern "error TS[0-9]+" |
+              Select-Object -First 25
+            throw "D11_PROJECT_TYPES_FAILED"
+          }
           Write-Output "D11_PROJECT_IDENTITY_AND_TYPES=PASS"
       - name: Real editor to Host to Kernel fork and revision readback
         working-directory: site
