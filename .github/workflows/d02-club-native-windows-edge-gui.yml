@@ -11,7 +11,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     env:
-      SITE_SHA: 7a4b770bdb56f3ad30a8701ad59ee0cfdbec7978
+      SITE_SHA: a28818e5e953e3ce52b7a3d6692a53c75c5b7c35
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -67,7 +67,7 @@ jobs:
           Add-Type -AssemblyName UIAutomationClient
           Add-Type -AssemblyName UIAutomationTypes
           $site=(Resolve-Path .).Path
-          $origin='https://localhost:55422'
+          $origin='http://localhost:55422'
           $edge=@(
             (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
             (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
@@ -76,13 +76,13 @@ jobs:
           $server=$null;$browser=$null
           try {
             $server=Start-Process -FilePath node -WorkingDirectory $site -ArgumentList @(
-              'scripts/serve-current-static.mjs','dist','--t2-loopback-tls'
+              'scripts/serve-current-static.mjs','dist','--t2-loopback'
             ) -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd02-gui-https.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd02-gui-https-error.private.log') -PassThru
             $ready=$false
             for($i=0;$i -lt 65;$i++){
               Start-Sleep -Milliseconds 500
               try{
-                $r=Invoke-WebRequest -Uri ($origin+'/projects/') -SkipCertificateCheck -TimeoutSec 2
+                $r=Invoke-WebRequest -Uri ($origin+'/projects/') -TimeoutSec 2
                 if($r.StatusCode -eq 200){$ready=$true;break}
               }catch{}
             }
@@ -90,7 +90,7 @@ jobs:
             Write-Output 'D02_NATIVE_ORIGINAL_T2_HTTPS=PASS'
             $profile=Join-Path $env:RUNNER_TEMP 'd02-native-edge-isolated'
             $browser=Start-Process -FilePath $edge -PassThru -ArgumentList @(
-              '--force-renderer-accessibility','--ignore-certificate-errors',
+              '--force-renderer-accessibility',
               '--no-first-run','--no-default-browser-check',
               "--user-data-dir=$profile",
               "--app=$origin/projects/#club-competency-gap"
@@ -132,9 +132,10 @@ jobs:
               'Что могу попробовать уже сейчас',
               'Записать результат и основание',
               'Как организовать работу вместе',
-              'Что обещал, что сделал и чем подтвердить'
+              'Что обещал, что сделал и чем подтвердить',
+              'Какое действие мне сейчас по силам'
             )){$null=WaitNative $h '' 'D02_NATIVE_SUBSERVICE_NOT_VISIBLE'}
-            Write-Output 'D02_NATIVE_EDGE_SIX_SERVICES_VISIBLE=PASS'
+            Write-Output 'D02_NATIVE_EDGE_SEVEN_SERVICES_VISIBLE=PASS'
             function Fill([string]$name,[string]$value,[string]$fail){
               $field=WaitNative $name 'edit' $fail
               try{
