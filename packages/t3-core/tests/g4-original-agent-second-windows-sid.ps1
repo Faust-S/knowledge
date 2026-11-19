@@ -82,10 +82,16 @@ try {
   # another Windows SID in public CI #44577052493. Do not apply separate
   # ACL mutations in a different order and infer equivalence.
   & $icacls $root /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' ("*" + $employeeSid + ':(OI)(CI)M') *> $null
-  if ($LASTEXITCODE -ne 0) {
-    Write-Output ('G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_EXIT ' + [string]$LASTEXITCODE)
+  $aclExit = if ($null -eq $LASTEXITCODE) {'UNSET'} else {[string]$LASTEXITCODE}
+  Write-Output ('G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_DIAGNOSTIC ' + $aclExit)
+  if ($aclExit -ne '0') {
     throw 'G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_FAILED'
   }
+  $employeeAccess = [IO.DirectoryInfo]::new($root).GetAccessControl().GetAccessRules($true,$false,[Security.Principal.SecurityIdentifier]) | Where-Object {
+    $_.IdentityReference.Value -eq $employeeSid -and $_.AccessControlType -eq 'Allow' -and
+    (($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Modify) -eq [Security.AccessControl.FileSystemRights]::Modify)
+  }
+  if (-not $employeeAccess) { throw 'G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_READBACK_FAILED' }
   # Original private SOURCE may be executable by the second account; ORIGINAL
   # Admin Manager DPAPI vault never enters these two source directories.
   foreach ($source in @($T3Root,$AgentRoot)) {
