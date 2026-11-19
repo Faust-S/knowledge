@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: 86a57edd80c13e6a034d6c60240caeb8664735ac
+      SITE_SHA: 475401565860620d92a9f7b73a1b68330775a153
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 86a57edd80c13e6a034d6c60240caeb8664735ac
+          ref: 475401565860620d92a9f7b73a1b68330775a153
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -216,27 +216,33 @@ jobs:
                 $label=$item.Current.Name
                 if($label -and $label.StartsWith('Личная область ')){$options.Add($item)}
               }
-              Write-Output "D02_RECEIPT_PERSONAL_AREA_OPTIONS=$($options.Count)"
-              if($options.Count -gt 0){Write-Output 'D02_RECEIPT_CREATED_PERSONAL_WORKSPACE_VISIBLE=PASS'}
+              Write-Output "D02_RECEIPT_PERSONAL_AREA_OPTIONS_UIA=$($options.Count)"
               if($options.Count -eq 0){
-                if(Locate 'Начните с личной рабочей области' ''){
-                  throw 'D02_RECEIPT_PERSONAL_AREA_NOT_AVAILABLE_IN_HOST'
-                }
-                throw 'D02_RECEIPT_PERSONAL_AREA_OPTIONS_EMPTY'
-              }
-              try{
-                $choice=[System.Windows.Automation.SelectionItemPattern]$options[0].GetCurrentPattern(
-                  [System.Windows.Automation.SelectionItemPattern]::Pattern)
-                $choice.Select()
-                $usedSelectionItem=$true
-                Write-Output 'D02_RECEIPT_PERSONAL_AREA_SELECTED_BY_UIA=PASS'
-              }catch{
+                # Chromium-backed HTML select sometimes exposes no ListItem
+                # children in UIA even when the control has options. Use the
+                # same keyboard selection a person would perform.
+                Write-Output 'D02_RECEIPT_SELECT_OPTIONS_UIA_VIRTUALIZED=TRUE'
                 Add-Type -AssemblyName System.Windows.Forms
                 $selector.SetFocus()
                 [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
                 [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
                 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
                 Write-Output 'D02_RECEIPT_PERSONAL_AREA_FALLBACK_KEYBOARD=USED'
+              }else{
+                try{
+                  $choice=[System.Windows.Automation.SelectionItemPattern]$options[0].GetCurrentPattern(
+                    [System.Windows.Automation.SelectionItemPattern]::Pattern)
+                  $choice.Select()
+                  $usedSelectionItem=$true
+                  Write-Output 'D02_RECEIPT_PERSONAL_AREA_SELECTED_BY_UIA=PASS'
+                }catch{
+                  Add-Type -AssemblyName System.Windows.Forms
+                  $selector.SetFocus()
+                  [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+                  [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+                  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                  Write-Output 'D02_RECEIPT_PERSONAL_AREA_FALLBACK_KEYBOARD=USED'
+                }
               }
               $editorVisible=$false
               for($i=0;$i -lt 36;$i++){
@@ -245,6 +251,7 @@ jobs:
                 }
                 Start-Sleep -Milliseconds 500
               }
+              if($editorVisible){Write-Output 'D02_RECEIPT_NATIVE_PERSONAL_AREA_CONFIRMED=PASS'}
               if(!$editorVisible){
                 if(Locate 'Host не подтвердил выбранную рабочую область. Запись в Kernel недоступна.' ''){
                   throw 'D02_RECEIPT_HOST_FOCUS_REJECTED'
