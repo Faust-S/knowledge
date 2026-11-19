@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           echo "D09_SITE_HEAD=$(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD)" = "0fea8d3d76d18c8ee52a3d21f75d44b2af097657" || {
+          test "$(git rev-parse HEAD)" = "65a4c1598561797a13e64be5b58e986343a3e385" || {
             echo "D09_SITE_REVISION_CHANGED=HOLD"; exit 1;
           }
           node --experimental-strip-types --test tests/d09-read-model-guards.test.mjs > "$RUNNER_TEMP/d09-result-source.log" 2>&1 || {
@@ -111,38 +111,8 @@ jobs:
             echo "D09_PRODUCT_CONTRACTS=FAIL"; exit 1;
           }
           echo "D09_PRODUCT_CONTRACTS=PASS"
-      - name: Build standalone public HOP stage
-        shell: bash
-        run: |
-          npm run build:public-stage > "$RUNNER_TEMP/d09-public-build.log" 2>&1 || {
-            echo "D09_PUBLIC_STAGE_INITIAL_ATTEMPT_FAILED"
-            # One retry of exactly the same build command on the same source.
-            npm run build:public-stage > "$RUNNER_TEMP/d09-public-build-retry.log" 2>&1 || {
-            echo "D09_PUBLIC_STAGE=FAIL"
-            # Bounded diagnostic signatures only. Never publish source content,
-            # output files or full private build logs in the public repository.
-            node --input-type=module - "$RUNNER_TEMP/d09-public-build.log" <<'NODE'
-          import {readFileSync} from "node:fs";
-          const log=readFileSync(process.argv[2],"utf8");
-          const signals=[
-            ["VITE","error during build"],
-            ["MODULE_RESOLVE","Could not resolve"],
-            ["MODULE_MISSING","Cannot find module"],
-            ["ESBUILD","Transform failed"],
-            ["PRERENDER","prerender"],
-            ["NODE_OOM","heap out of memory"],
-            ["CSP","Content Security Policy"],
-          ];
-          console.log("D09_PUBLIC_FAILURE_CLASSES="+signals.filter(([,term])=>log.includes(term)).map(([key])=>key).join(","));
-          const errorLines=log.split("\n").filter(line=>
-            /^\s*(?:Error:|TypeError:|ReferenceError:|SyntaxError:|RollupError:|✘ \[ERROR\]|error during build|failed to load config|Error \[ERR_[A-Z_]+\])/.test(line));
-          const clean=line=>line.replace(/\/(?:home|tmp|mnt)\/[^\s:]*/g,"[private-path]").slice(0,180);
-          for(const line of errorLines.slice(-6)) console.log("D09_PUBLIC_ERROR_SIGNATURE="+clean(line));
-          NODE
-              exit 1
-            }
-          }
-          echo "D09_PUBLIC_STAGE=PASS"
+      # The subsequent npm run build performs the same public-stage build once.
+      # Avoid rendering the complete website a second time in this witness.
       - name: Checkout isolated T2 issue14 CSP candidate
         uses: actions/checkout@v4
         with:
