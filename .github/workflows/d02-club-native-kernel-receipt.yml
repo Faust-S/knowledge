@@ -173,9 +173,28 @@ jobs:
             }catch{throw $code}
           }
           function VerifyProfileFromKernel([string]$code){
-            $open=Locate 'Редактировать профиль здесь' 'button'
-            if(!$open){$open=Locate 'Создать профиль в рабочей области' 'button'}
-            if(!$open){throw $code}
+            # Host focus, the domain inventory, and the 7-family readback are
+            # asynchronous after a cold start. A one-shot UIA lookup can
+            # mistakenly report data loss while the Kernel is still loading.
+            $open=$null
+            for($i=0;$i -lt 90;$i++){
+              $open=Locate 'Редактировать профиль здесь' 'button'
+              if(!$open){$open=Locate 'Создать профиль в рабочей области' 'button'}
+              if($open){break}
+              if(Locate 'Чтение рабочих областей не разрешено Kernel.' ''){
+                throw 'D02_RECEIPT_RESTART_KERNEL_READ_DENIED'
+              }
+              if(Locate 'Host не подтвердил выбранную рабочую область. Запись в Kernel недоступна.' ''){
+                throw 'D02_RECEIPT_RESTART_HOST_FOCUS_DENIED'
+              }
+              Start-Sleep -Milliseconds 500
+            }
+            if(!$open){
+              $visible=HasPrefix 'Сохранённых результатов пока нет.'
+              Write-Output ('D02_RECEIPT_RESTART_NO_EDITOR_EMPTY_FAMILY='+$visible)
+              throw $code
+            }
+            Write-Output 'D02_RECEIPT_RESTART_PROFILE_EDITOR_READY=PASS'
             Activate $open.Current.Name $code
             $null=Await 'Сохранённый профиль загружен через Kernel.' '' $code
             $field=Await 'Как к вам обращаться' 'edit' $code
@@ -383,6 +402,12 @@ jobs:
                 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
                 Write-Output 'D02_RECEIPT_RESTART_WORKSPACE_SELECTED_BY_USER=TRUE'
               }catch{throw 'D02_RECEIPT_RESTART_WORKSPACE_SELECT_FAILED'}
+            }
+            # Refresh only after the person's explicit workspace selection;
+            # this does not modify data, authority or any saved Result.
+            if(Locate 'Обновить результаты' 'button'){
+              Activate 'Обновить результаты' 'D02_RECEIPT_RESTART_REFRESH_FAILED'
+              Write-Output 'D02_RECEIPT_RESTART_RESULT_REFRESH_REQUESTED=TRUE'
             }
             VerifyProfileFromKernel 'D02_RECEIPT_COLD_RESTART_LOST_RESULT'
             Write-Output 'D02_RECEIPT_NATIVE_ORIGINAL_KERNEL_COLD_RESTART=PASS'
