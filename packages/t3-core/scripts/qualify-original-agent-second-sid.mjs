@@ -114,6 +114,9 @@ export async function qualifyOriginalTwoSid({
       if(klass)console.log('G4_ORIGINAL_TWO_SID_OS_ERROR_CLASS',code(klass.toUpperCase()));
       if(fqid)console.log('G4_ORIGINAL_TWO_SID_OS_ERROR_ID',code(fqid.toUpperCase()));
       if(kind)console.log('G4_ORIGINAL_TWO_SID_OS_ERROR_KIND',code(kind));
+      const missingCmd=extract('G4_ORIGINAL_EMPLOYEE_OS_MISSING_COMMAND');
+      if(missingCmd)console.log('G4_ORIGINAL_TWO_SID_MISSING_OS_COMMAND',
+        code(missingCmd));
       const nativeCode=extract('G4_ORIGINAL_AGENT_SECOND_SID_NATIVE_CODE');
       if(nativeCode)console.log('G4_ORIGINAL_TWO_SID_BRIDGE_CODE',code(nativeCode));
       throw Error('G4_ORIGINAL_SECOND_SID_AGENT_SOURCE_NOT_ACCEPTED');
