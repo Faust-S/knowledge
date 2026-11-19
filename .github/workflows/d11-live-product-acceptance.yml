@@ -137,7 +137,7 @@ jobs:
       # Preserve verified production dist bytes; only two Host-origin config
       # responses are overlaid in-memory. Diagnose initial T2 route mount,
       # browser exceptions and missing Host resources without leaking payloads.
-      - name: Real browser E2E for ten cases (desktop and mobile)
+      - name: Real browser E2E for ten cases plus restored own-project forms
         id: ui
         continue-on-error: true
         working-directory: site
