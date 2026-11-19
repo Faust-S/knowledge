@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T2
-          ref: 275e8653e7096ea8b40edaad6751d3c56825358b
+          ref: 068791a3325e1c36f2d9f8b7a016b756f397cf87
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           sparse-checkout: |
@@ -46,6 +46,17 @@ jobs:
             exit 1
           }
           echo D09_K036_EXACT_RECOVERY=PASS
+      - name: Check the restored Kernel's AJV call shapes
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/d09-k036"
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d09-k036-npm.log" 2>&1 || {
+            echo D09_K036_SOURCE_NPM=FAIL
+            grep -oE 'npm ERR! [A-Z0-9_:-]+' "$RUNNER_TEMP/d09-k036-npm.log" | tail -6 || true
+            exit 1
+          }
+          echo D09_K036_SOURCE_NPM=PASS
+          node "$GITHUB_WORKSPACE/t2/current/final-successor/canonical-source/scripts/issue14-kernel-ajv-structure.mjs" "$RUNNER_TEMP/d09-k036"
       - name: Analyze source and exact qualified package without publishing source
         shell: bash
         run: |
