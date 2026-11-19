@@ -32,29 +32,30 @@ jobs:
           actual=$(git -C .private/site rev-parse HEAD)
           test "$actual" = 'b09b710db18796247dcec385d40d449265ddac6b' || { echo 'SITE_EXACT_OWNER_SOURCE_MISMATCH'; exit 1; }
           echo 'SITE_EXACT_OWNER_SOURCE_PIN_PASS'
-      - name: Install site dependencies in private source checkout
-        working-directory: .private/site
-        shell: bash
-        run: |
-          npm ci --no-audit --no-fund > "$RUNNER_TEMP/iwxa-software-npm.log" 2>&1 || { echo 'SITE_NPM_INSTALL_FAIL'; exit 1; }
-          echo 'SITE_NPM_INSTALL_PASS'
-      - name: Run independent IWXA software source and image checksum guard
+      - uses: oven-sh/setup-bun@v2
+      - name: Run independent software article and asset integrity check before dependency setup
         working-directory: .private/site
         shell: bash
         run: |
           node scripts/check-software-publications.mjs > "$RUNNER_TEMP/iwxa-software-check.log" 2>&1 || { echo 'SITE_SOFTWARE_CHECK_FAIL'; exit 1; }
           echo 'SITE_SOFTWARE_CHECK_PASS'
+      - name: Install site dependencies in private source checkout
+        working-directory: .private/site
+        shell: bash
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/iwxa-software-npm.log" 2>&1 || { echo 'SITE_BUN_INSTALL_FAIL'; exit 1; }
+          echo 'SITE_BUN_INSTALL_PASS'
       - name: Build current site with new real Windows screenshots
         working-directory: .private/site
         shell: bash
         run: |
-          npm run build > "$RUNNER_TEMP/iwxa-software-build.log" 2>&1 || { echo 'SITE_SOFTWARE_BUILD_FAIL'; exit 1; }
+          bun run build > "$RUNNER_TEMP/iwxa-software-build.log" 2>&1 || { echo 'SITE_SOFTWARE_BUILD_FAIL'; exit 1; }
           echo 'SITE_SOFTWARE_BUILD_PASS'
       - name: Typecheck only current private source without emitting code
         working-directory: .private/site
         shell: bash
         run: |
-          npx tsc --noEmit > "$RUNNER_TEMP/iwxa-software-types.log" 2>&1 || { echo 'SITE_SOFTWARE_TYPECHECK_FAIL'; exit 1; }
+          bunx tsc --noEmit > "$RUNNER_TEMP/iwxa-software-types.log" 2>&1 || { echo 'SITE_SOFTWARE_TYPECHECK_FAIL'; exit 1; }
           echo 'SITE_SOFTWARE_TYPECHECK_PASS'
       - name: Remove private checkout and logs
         if: always()
