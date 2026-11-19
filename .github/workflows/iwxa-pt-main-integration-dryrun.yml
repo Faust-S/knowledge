@@ -70,59 +70,34 @@ jobs:
           console.log("INTEGRATED_PT_REGISTERED="+c.routes.filter(r=>r.available.includes("pt-BR")).length);
           console.log("INTEGRATED_LOCALES="+c.locales.join(","));
           JS
-      - name: Diagnose integrated build and TypeScript independently
+      - name: Qualify integrated TSC then build
         shell: bash
         working-directory: site
         run: |
           bun install --frozen-lockfile > "$RUNNER_TEMP/install.log" 2>&1 || { echo "INTEGRATED_INSTALL=FAIL"; exit 1; }
           echo "INTEGRATED_INSTALL=PASS"
-          node scripts/sync-route-tree.mjs > "$RUNNER_TEMP/sync.log" 2>&1 || {
-            echo "INTEGRATED_ROUTE_TREE=FAIL"
-            grep -E 'Error|ERR|fail|Cannot|Module' "$RUNNER_TEMP/sync.log" | tail -n 8 | cut -c 1-140 || true
-            exit 1
-          }
+          node scripts/sync-route-tree.mjs > "$RUNNER_TEMP/sync.log" 2>&1 || { echo "INTEGRATED_ROUTE_TREE=FAIL"; exit 1; }
           echo "INTEGRATED_ROUTE_TREE=PASS"
-          export LOVABLE_BUILD_TARGET=static NITRO_PRESET=node-server SERVER_PRESET=node-server
           set +e
-          bun run build > "$RUNNER_TEMP/build.log" 2>&1
-          build_status=$?
           ./node_modules/.bin/tsc --noEmit > "$RUNNER_TEMP/typecheck.log" 2>&1
-          types_status=$?
+          code=$?
           set -e
-          echo "INTEGRATED_BUILD_EXIT=$build_status"
-          if [ "$build_status" -ne 0 ]; then
-            node - "$RUNNER_TEMP/build.log" <<'JS'
-          const fs=require('fs');
-          const log=fs.readFileSync(process.argv[2],"utf8");
-          const m=log.split(/\r?\n/).map(x=>x.trim()).find(x=>x.includes(": ERROR:") && /:[0-9]+:[0-9]+:/.test(x));
-          if(m){const p=m.split(": ERROR:")[0];console.log("INTEGRATED_BROKEN_LOCATION="+(p.includes("/site/")?p.split("/site/").slice(-1)[0]:p.split("/").slice(-4).join("/")));}
-          else console.log("INTEGRATED_BROKEN_FILE=UNRESOLVED");
-          JS
-          fi
-
-          echo "INTEGRATED_TSC_EXIT=$types_status"
-          if [ "$build_status" -ne 0 ]; then
-            grep -Ei '(failed|error:|cannot|unable|missing|unexpected)' "$RUNNER_TEMP/build.log" |
-              sed -E 's#^.*(/src/[^ :]+:[0-9]+:[0-9]+:)#\\1#; s#(/home/runner/)[^ :]+#<private-path>#g' | cut -c 1-170 | tail -n 12 || true
-          fi
-          if [ "$types_status" -ne 0 ]; then
-            node - "$RUNNER_TEMP/typecheck.log" <<'JS'
-          const fs=require('fs'),s=fs.readFileSync(process.argv[2],"utf8");
-          for(const line of s.split(/\r?\n/).filter(x=>x.includes("error TS")).slice(0,8)){
-            const m=line.match(/([^\s]+\.(?:ts|tsx))\((\d+),(\d+)\):\s*error\s*TS(\d+)/);
-            if(m)console.log("INTEGRATED_TSC_LOCATION="+m[1].split("/").slice(-4).join("/")+":"+m[2]+":"+m[3]+" TS"+m[4]);
-          }
-          JS
-          fi
-          if [ "$types_status" -ne 0 ]; then
+          echo "INTEGRATED_TSC_EXIT=$code"
+          if [ "$code" -ne 0 ]; then
             grep -E 'error TS[0-9]+:' "$RUNNER_TEMP/typecheck.log" |
-              sed -E 's#(/home/runner/)[^ :]+#<private-path>#g' |
               sed -E 's/(error TS[0-9]+:).*/\\1 <diagnostic redacted>/' |
-              tail -n 26 || true
+              tail -n 45 || true
             echo "INTEGRATED_TSC_TOTAL_ERRORS=$(grep -c 'error TS[0-9]*:' "$RUNNER_TEMP/typecheck.log")"
-          fi
-          if [ "$build_status" -ne 0 ] || [ "$types_status" -ne 0 ]; then
-            echo "INTEGRATED_BUILD_AND_TYPES=FAIL"
+            echo "INTEGRATED_TYPES=FAIL"
             exit 1
           fi
-          echo "INTEGRATED_BUILD_AND_TYPES=PASS"
+          echo "INTEGRATED_TYPES=PASS"
+          export LOVABLE_BUILD_TARGET=static NITRO_PRESET=node-server SERVER_PRESET=node-server
+          bun run build > "$RUNNER_TEMP/build.log" 2>&1 || {
+            echo "INTEGRATED_BUILD=FAIL"
+            grep -Ei 'error|failed|cannot|unable|missing' "$RUNNER_TEMP/build.log" |
+              sed -E 's#(/home/runner/)[^ :]+#<private-path>#g' |
+              tail -n 6 || true
+            exit 1
+          }
+          echo "INTEGRATED_BUILD=PASS"
