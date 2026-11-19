@@ -316,3 +316,40 @@ code или ограниченная категория; сырые пути, st
 `G4_INSTALLED_FIRST_USE_NATIVE_OWNER_ORIGINAL_FILES` и
 `G4_INSTALLED_FIRST_USE_ORIGINAL_DPAPI_COLD_RESTART_PASS`.
 До доказанного `D3_OWNER_READY`: `T3_READY=false`, `G4=NOT_ACCEPTED`.
+
+
+## 10. G4: отказ до оригинальной регистрации в скомпилированном owner и прямой D3 entry (19.11)
+
+[Windows #44519283998](https://github.com/Faust-S/knowledge/actions/runs/44519283998):
+**FAIL** после успешного native Setup Core / WebView2, обычной Workspace,
+сохранения менеджерского черновика и реальных Windows CANCEL/YES. Original
+owner error `T3_PRODUCT_COMPONENT_ORIGINAL_FILE_NOT_FOUND`; ни один новый
+`T3_D3_ORIGINAL_ENROLL_*_FILE_NOT_FOUND` code не появился, каталог
+оригинального Owner в проверенном Tauri local data root не создан. Следовательно,
+**нет доказательства**, что native CLI дошёл до функции регистрации. Возможная
+причина: динамический import исходного CLI из Bun-скомпилированного
+интеграционного entry после удаления build-time shim. Это гипотеза, не
+доказанный окончательный источник ENOENT.
+
+Адресное устранение неустойчивой точки загрузки:
+- `Faust-S/T3@0532f544`: интегрированный оригинальный owner EXE напрямую
+  и статически импортирует **ту же** `runNativeAdminD3`; только вербы
+  `d3-state/d3-action/d3-enroll` выполняются непосредственно. Иной
+  licensing CLI оставлен неизменённым. Никакого нового Owner/Core/Kernel,
+  подписанта, IAM/Store/Host/Exchange.
+- `Faust-S/T3@5ef9caf7`: после сборки EXE выполняется fail-closed
+  preflight: `d3-enroll` с заведомо отсутствующим command file обязан
+  получить **точный** `T3_D3_ORIGINAL_ENROLL_COMMAND_FILE_NOT_FOUND` и не
+  создать каталог/секрет. Сырой stderr не выводится. Публичные артефакты
+  приватного EXE отсутствуют.
+- `Faust-S/knowledge@91c3a183`: закреплены exact T3 `5ef9caf7`
+  и Center `2628c4bc`, запущен новый установленный
+  [Windows #44520786486](https://github.com/Faust-S/knowledge/actions/runs/44520786486).
+  **Проверить фактический conclusion до объявления любого PASS.**
+
+Машинный реестр обновлён в `knowledge@78a8d1e6` со статусами HOLD.
+При успешном preflight далее требуется настоящий подписанный Owner
+`D3_OWNER_READY`, cold Windows DPAPI readback, отдельный
+установленный сотрудник в Agent, Human ACCEPT и второй APPLY,
+Kernel Object/Event и два холодных чтения. После этого универсальные
+D5/D6_GENERIC/D7_PERSON. `G4=NOT_ACCEPTED`, `T3_READY=false`.
