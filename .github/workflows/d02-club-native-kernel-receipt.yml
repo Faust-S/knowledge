@@ -530,12 +530,8 @@ jobs:
                 foreach($node in $found){
                   if(!$node.Current.IsOffscreen -and $node.Current.IsEnabled){
                     $name=$node.Current.Name
-                    if($name -and $name -notmatch '^История событий|^Ассеты$|^Связи$|^Схемы
-        if: always()
-        run: |
-          Write-Output 'D02_RECEIPT_PRIVATE_DATA_UPLOAD=FALSE'
-          Write-Output 'D02_RECEIPT_DIST_UPLOAD=FALSE'
-){
+                    if($name -and $name -notmatch '^(?:История событий|Ассеты$|Связи$|Схемы$)'){
+
                       $controls.Add($node)
                     }
                   }
