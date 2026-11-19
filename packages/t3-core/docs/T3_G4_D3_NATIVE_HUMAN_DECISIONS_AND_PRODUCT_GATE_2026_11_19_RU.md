@@ -207,3 +207,13 @@ T3 `ea1700ec`, T2 Kernel 0.3.6 / Contract 1.3.0.
 **Ограничение:** это ещё не установленный маршрут двух независимых Windows-пользователей Agent -> оригинальный подписанный Result -> отдельный native ACCEPT -> отдельный native APPLY -> исходный Kernel Object/Event -> два холодных readback. Такой маршрут по-прежнему `NOT_ACCEPTED`. Сохраняются `G4=NOT_ACCEPTED`, `T3_READY=false`.
 
 Единая актуальная оценка: [T3 G4 ecosystem readiness audit](T3_G4_ECOSYSTEM_RELEASE_READINESS_AUDIT_2026_11_19_RU.md). Машинный реестр содержит отдельный принятый `D3_INSTALLED_ADMIN_OWNER_ENROLL_AND_DPAPI_COLD`, но не повышает весь D3 или G4.
+
+## 8. Подлинный центральный Agent Core / исходный D3 PASS, 19.11.2026
+
+Публичный [Windows CI №44571096678](https://github.com/Faust-S/knowledge/actions/runs/44571096678) завершён **SUCCESS (23/23 маркера)**. Это текущая доказанная квалификация центрального `Agent 0.6@dff16da239882582d305a7fb4fc429ef7d58be3a` против исходного подписанного `T3@1a8267634955947bc0c6adc5614d7de176a33da2`. Нормативный T2 не изменялся.
+
+Отказ `T3_AGENT_ACCEPTED_SOURCE_PROOF_REQUIRED` исправлен правильно: вместо искусственного текста исходный драйвер проводит подписанную Task через штатный `DailyDriverEngine` и реальную локальную `Qwen3 0.6B` (наблюдаемый Ollama и проверенные веса); затем получает сохранённый Result, явный исходный Human Review, проверенный accepted digest и передаёт результат штатному `OriginalEmployeePort.prepare`. Исходный T3 подписывает `.iwxa`; проверены оригинальная регистрация сотрудника, DPAPI, подписанный результат, отдельные исходные ACCEPT/APPLY, Kernel Object/Event, два холодных процесса и запрет второго экспорта.
+
+В самом Agent восстановлено делегирование `employee_first_use`, `employee_candidate`, `employee_proof` на оригинальный модуль `native-employee-d3.mjs`. Никаких вторых Vault/Signer/Registry/Kernel/Exchange не введено.
+
+**Строгий уровень:** `NATIVE_PROCESS_SOURCE_PASS_NOT_INSTALLED_GUI`. Проверка исходного Human Review/ACCEPT/APPLY выполняет явно запрограммированные операции, а не клики реальных людей; независимый второй Windows user SID и установленный Agent GUI не проверены. Поэтому `INSTALLED_PRODUCT_PASS` и G4 всё ещё **HOLD**. Следующий приоритет: под двумя Windows-пользователями воспроизвести установленный нативный Agent → Admin Center с физическими отдельными Human ACCEPT и APPLY, затем два независимых холодных readback оригинального T2. Не обходить этот этап маркировкой source CI как продуктовой приёмки.
