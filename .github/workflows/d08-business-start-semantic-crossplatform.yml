@@ -8,7 +8,7 @@ permissions:
   contents: read
 env:
   DOMAIN_SHA: 6f009805848b27d57c349ff92d005a7c65c3dd94
-  SITE_SHA: c35ece7aea713859d4c1bad51c76fb216600c69d
+  SITE_SHA: d75775881eaadd23caf268ecf037d696bc17d8a5
 jobs:
   p1-models:
     runs-on: ${{ matrix.os }}
