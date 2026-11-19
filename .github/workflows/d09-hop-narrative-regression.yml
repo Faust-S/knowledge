@@ -51,4 +51,37 @@ jobs:
             echo "D09_HOST_TEST=FAIL"; exit 1;
           }
           echo "D09_HOST_TEST=PASS"
+      - name: Checkout canonical private HOP logic
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/hop
+          ref: work/2026-11-19-narrative-ai-import
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: canonical-hop
+      - name: Verify subject-code parity with the website
+        shell: bash
+        run: |
+          for file in src/lib/narrative-brief-import.ts src/lib/__tests__/narrative-brief-import.test.ts src/content-system/editorial.ts src/content-system/surfaces.ts; do
+            cmp "$file" "canonical-hop/$file" || { echo "D09_CANONICAL_PARITY=FAIL"; exit 1; }
+          done
+          echo "D09_CANONICAL_PARITY=PASS"
+      - name: Check public UX and product contracts
+        shell: bash
+        run: |
+          npm run check:consumer-ux > "$RUNNER_TEMP/d09-ux.log" 2>&1 || {
+            echo "D09_CONSUMER_UX=FAIL"; exit 1;
+          }
+          echo "D09_CONSUMER_UX=PASS"
+          npm run check:product-contracts > "$RUNNER_TEMP/d09-contracts.log" 2>&1 || {
+            echo "D09_PRODUCT_CONTRACTS=FAIL"; exit 1;
+          }
+          echo "D09_PRODUCT_CONTRACTS=PASS"
+      - name: Build standalone public HOP stage
+        shell: bash
+        run: |
+          npm run build:public-stage > "$RUNNER_TEMP/d09-public-build.log" 2>&1 || {
+            echo "D09_PUBLIC_STAGE=FAIL"; exit 1;
+          }
+          echo "D09_PUBLIC_STAGE=PASS"
       # No artifacts, private files, package, secrets or runtime are published.
