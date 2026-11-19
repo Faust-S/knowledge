@@ -100,6 +100,17 @@ jobs:
               $core -ne '9fbbbd54fd0587db5c7e0e5c807b96e024ae750b') {
             throw 'G4_AGENT_EXACT_INSTALLED_SOURCE_PIN_MISMATCH'
           }
+          $ignoreFile = '.private/agent/.gitignore'
+          if (-not (Test-Path -LiteralPath $ignoreFile -PathType Leaf)) {
+            throw 'G4_INSTALLED_AGENT_TRACKED_GITIGNORE_MISSING'
+          }
+          $ignoreRules = @(Get-Content -LiteralPath $ignoreFile)
+          if (-not ($ignoreRules -ccontains 'build/') -or
+              -not ($ignoreRules -ccontains 'dist/') -or
+              -not ($ignoreRules -ccontains '*.log')) {
+            throw 'G4_INSTALLED_AGENT_RELEASE_IGNORE_RULES_MISMATCH'
+          }
+          Write-Host 'G4_INSTALLED_AGENT_SPARSE_RELEASE_IGNORE_GUARD_PASS'
           $lock = Get-Content -LiteralPath '.private/agent/config/public-module-sources.json' -Raw | ConvertFrom-Json
           $entries = @($lock.modules | Where-Object { $_.id -ceq 't3' })
           if ($entries.Count -ne 1 -or $entries[0].revision -cne $core) {
