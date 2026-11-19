@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: 312ea50c0136501040ee321a309c362f9ef9e668
+          ref: f3c0f7b3af8c3c32be4255028b3fef2fbfb2c8d3
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -42,7 +42,7 @@ jobs:
           bun-version: "latest"
       - name: Verify pinned private and T2 source in runner
         run: |
-          if ((git -C site rev-parse HEAD).Trim() -ne "312ea50c0136501040ee321a309c362f9ef9e668") { throw "D10_WINDOWS_SITE_PIN_MISMATCH" }
+          if ((git -C site rev-parse HEAD).Trim() -ne "f3c0f7b3af8c3c32be4255028b3fef2fbfb2c8d3") { throw "D10_WINDOWS_SITE_PIN_MISMATCH" }
           if ((git -C t2 rev-parse HEAD).Trim() -ne "e70de29b72b83e2546f7ab74b17572685a728c17") { throw "D10_WINDOWS_T2_PIN_MISMATCH" }
           Write-Output "D10_WINDOWS_SOURCE_PINS=PASS"
       - name: Install site dependencies privately
@@ -62,8 +62,14 @@ jobs:
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
         run: |
-          npm run build:t2:site *> "$env:RUNNER_TEMP\d10-win-build.log"
-          if($LASTEXITCODE -ne 0){throw "D10_WINDOWS_INTEGRATED_BUILD_FAILED"}
+          $log="$env:RUNNER_TEMP\d10-win-build.log"
+          npm run build:t2:site *> $log
+          if($LASTEXITCODE -ne 0){
+            Get-Content $log | Select-String -AllMatches -Pattern 'ARTBAZI_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T2_[A-Z0-9_]+|ERR_[A-Z0-9_]+|TS[0-9]{4}|ENOENT|EPERM|EACCES|ETIMEDOUT' |
+              ForEach-Object {$_.Matches | ForEach-Object {$_.Value}} |
+              Select-Object -Unique -First 18 | ForEach-Object {Write-Output "D10_WINDOWS_BUILD_ERROR_CODE=$_"}
+            throw "D10_WINDOWS_INTEGRATED_BUILD_FAILED"
+          }
           if(-not (Test-Path "dist/workspace/index.html")){throw "D10_WINDOWS_WORKSPACE_MISSING"}
           if(-not (Test-Path "dist/cases/vesper-quote-to-deal/index.html")){throw "D10_WINDOWS_CASE010_HTML_MISSING"}
           Write-Output "D10_WINDOWS_INTEGRATED_DIST=PASS"
