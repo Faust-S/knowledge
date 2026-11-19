@@ -78,6 +78,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
+          node packages/t3-core/tests/g4-compiled-owner-diagnostics.mjs --selftest
+          if($LASTEXITCODE -ne 0){throw 'G4_COMPILED_OWNER_DIAGNOSTIC_CLASSIFIER_TEST_FAILED'}
           & npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund *> $null
           if($LASTEXITCODE -ne 0){throw 'G4_INSTALLED_PUBLIC_T3_DEPENDENCIES_FAILED'}
           & npm run build --prefix packages/t3-core *> $null
@@ -248,6 +250,7 @@ jobs:
             # Print only bounded canonical machine codes: NEVER print private
             # source excerpts, local paths, Rust errors or the raw build log.
             $codes=@()
+            node packages/t3-core/tests/g4-compiled-owner-diagnostics.mjs $log
             if(Test-Path -LiteralPath $log){
               foreach($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
                 # Only bounded non-sensitive builder scalars are published.
@@ -258,7 +261,9 @@ jobs:
                   Write-Host ("G4_COMPILED_ENROLL_LINE_COUNT " + $Matches[1])
                 }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_MACHINE_CODE ((?:T3_D3|INTEROP|WINDOWS|DPAPI|PRODUCT_OWNER)_[A-Z0-9_]{4,90})$'){
                   Write-Host ("G4_COMPILED_ENROLL_MACHINE_CODE " + $Matches[1])
-                }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_ORIGIN_(BUN_VIRTUAL|BUILD_SHIM|ORIGINAL_CLI|SIGNED_INTEROP|T2_ASSET) (True|False)
+                }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_ORIGIN_(BUN_VIRTUAL|BUILD_SHIM|ORIGINAL_CLI|SIGNED_INTEROP|T2_ASSET) (True|False)$'){
+                  Write-Host ("G4_COMPILED_ENROLL_ORIGIN_{0} {1}" -f $Matches[1],$Matches[2])
+                }
                 foreach($hit in [regex]::Matches($safe,
                     '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
                   $codes+=([string]$hit.Value)
