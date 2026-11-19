@@ -56,7 +56,11 @@ jobs:
         shell: bash
         run: |
           npm run test:d09 > "$RUNNER_TEMP/d09-integration.log" 2>&1 || {
+            grep -E 'not ok|AssertionError|at .*d09-.*test.mjs' "$RUNNER_TEMP/d09-integration.log" | tail -12 || true
             echo "D09_HOST_TEST=FAIL"; exit 1;
+          }
+          node --check tests/d09-strict-csp-host-witness.mjs || {
+            echo "D09_BROWSER_WITNESS_SYNTAX=FAIL"; exit 1;
           }
           echo "D09_HOST_TEST=PASS"
       - name: Independently verify Project and source package guards
