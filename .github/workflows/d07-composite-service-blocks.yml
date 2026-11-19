@@ -87,13 +87,19 @@ jobs:
         working-directory: site
         run: |
           $log=Join-Path $env:RUNNER_TEMP 'd07-blocks-tests.private.log'
-          & node --import tsx --test scripts/tests/d07-service-blocks.test.mjs scripts/tests/d07-service-execution.test.mjs scripts/tests/d07-service-plan-templates.test.mjs scripts/tests/d07-service-settlement.test.mjs scripts/tests/d07-service-aftercare.test.mjs scripts/tests/d07-host-module-tsx-parse.test.mjs *> $log
+          & node --import tsx --test --test-reporter=tap scripts/tests/d07-service-blocks.test.mjs scripts/tests/d07-service-execution.test.mjs scripts/tests/d07-service-plan-templates.test.mjs scripts/tests/d07-service-settlement.test.mjs scripts/tests/d07-service-aftercare.test.mjs scripts/tests/d07-host-module-tsx-parse.test.mjs *> $log
           if($LASTEXITCODE -ne 0){
             $failed=@(Get-Content $log -ErrorAction SilentlyContinue |
               Where-Object {$_ -match '^not ok [0-9]+ - '})
             foreach($line in $failed | Select-Object -First 20){
               $name=$line -replace '^not ok [0-9]+ - ',''
               Write-Output ('D07_EXECUTION_TEST_FAILURE='+$name)
+            }
+            foreach($line in @(Get-Content $log -ErrorAction SilentlyContinue |
+              Where-Object {$_ -match 'D07_STAGED_SOURCE_PARSE_FAILURE='} | Select-Object -First 20)){
+              if($line -match '(D07_STAGED_SOURCE_PARSE_FAILURE=[a-zA-Z0-9_.-]+:[0-9]+:[0-9]+)'){
+                Write-Output $Matches[1]
+              }
             }
             throw 'D07_BLOCKS_DOMAIN_TESTS_FAIL'
           }
