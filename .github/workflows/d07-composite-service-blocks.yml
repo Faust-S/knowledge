@@ -15,7 +15,7 @@ jobs:
       matrix:
         runner: [windows-latest, ubuntu-latest]
     env:
-      SITE_SHA: 30da687ca09ed44f0ef5197f84fc33e959d3d36f
+      SITE_SHA: 44ae5ab345caf7a051b3b559a9e04f3c892962dd
       SUBJECT_SHA: ecaa052f252a9ae09c2562ff16a45c8db2f82f71
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -95,7 +95,16 @@ jobs:
         run: |
           $log=Join-Path $env:RUNNER_TEMP 'd07-blocks-types.private.log'
           & bun run check:types *> $log
-          if($LASTEXITCODE -ne 0){throw 'D07_BLOCKS_TYPES_FAIL'}
+          if($LASTEXITCODE -ne 0){
+            # No source text, contents or private diagnostics are published.
+            # Only relative module basename, line and TS diagnostic code.
+            foreach($line in @(Get-Content $log -ErrorAction SilentlyContinue)){
+              if($line -match '([^\\/() ]+[.]tsx?)\\(([0-9]+),([0-9]+)\\): error (TS[0-9]+)'){
+                Write-Output ('D07_TYPE_ISSUE='+$Matches[1]+':'+$Matches[2]+':'+$Matches[4])
+              }
+            }
+            throw 'D07_BLOCKS_TYPES_FAIL'
+          }
           Write-Output 'D07_BLOCKS_TYPES=PASS'
           $log=Join-Path $env:RUNNER_TEMP 'd07-blocks-build.private.log'
           & bun run build:t2-integrated *> $log
