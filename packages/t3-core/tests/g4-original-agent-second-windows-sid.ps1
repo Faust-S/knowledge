@@ -114,6 +114,7 @@ try {
     ('*' + $employeeSid + ':R'))
   $aclProcess = Start-Process -FilePath $icacls -ArgumentList $driverArgs -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop
   if ($aclProcess.ExitCode -ne 0) { throw 'G4_ORIGINAL_EMPLOYEE_DRIVER_READ_ACL_FAILED' }
+  $phase = 'READ_PUBLIC_ORIGINAL_TRUST'
   $profile = Get-Content -LiteralPath $PublicProfilePath -Raw | ConvertFrom-Json
   if ($profile.organizationId -notmatch '^org:' -or
       $profile.issuerPublicKey -notmatch 'BEGIN PUBLIC KEY' -or
@@ -121,6 +122,7 @@ try {
     throw 'G4_ORIGINAL_EMPLOYEE_PUBLIC_TRUST_REQUIRED'
   }
   $publicCopy = Join-Path $root 'trust-profile.json'
+  $phase = 'COPY_PUBLIC_ORIGINAL_TRUST'
   Copy-Item -LiteralPath $PublicProfilePath -Destination $publicCopy
   $candidateRoot = Join-Path $root 'original-employee'
   $worker = Join-Path $root 'run-one-original-agent-call.ps1'
@@ -155,7 +157,9 @@ try {
   exit 1
 }
 '@
+  $phase = 'STAGE_PUBLIC_AGENT_LAUNCHER'
   [IO.File]::WriteAllText($worker,$workerSource,[Text.Encoding]::UTF8)
+  $phase = 'RESOLVE_INSTALLED_PYTHON'
   $pythonCommand = (Get-Command python -ErrorAction Stop).Source
   $credential = [System.Management.Automation.PSCredential]::new($qualifiedUser,$secure)
   $exe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
