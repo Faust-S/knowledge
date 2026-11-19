@@ -115,6 +115,9 @@ jobs:
         shell: bash
         run: |
           npm run build:public-stage > "$RUNNER_TEMP/d09-public-build.log" 2>&1 || {
+            echo "D09_PUBLIC_STAGE_INITIAL_ATTEMPT_FAILED"
+            # One retry of exactly the same build command on the same source.
+            npm run build:public-stage > "$RUNNER_TEMP/d09-public-build-retry.log" 2>&1 || {
             echo "D09_PUBLIC_STAGE=FAIL"
             # Bounded diagnostic signatures only. Never publish source content,
             # output files or full private build logs in the public repository.
@@ -136,7 +139,8 @@ jobs:
           const clean=line=>line.replace(/\/(?:home|tmp|mnt)\/[^\s:]*/g,"[private-path]").slice(0,180);
           for(const line of errorLines.slice(-6)) console.log("D09_PUBLIC_ERROR_SIGNATURE="+clean(line));
           NODE
-            exit 1
+              exit 1
+            }
           }
           echo "D09_PUBLIC_STAGE=PASS"
       - name: Checkout isolated T2 issue14 CSP candidate
