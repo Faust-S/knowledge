@@ -8,7 +8,7 @@ import {spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 
 const REPO='Faust-S/T3';
-export const ORIGINAL_PRIVATE_SOURCE_PIN='b897404432cec18144942758d296c19d76232f55';
+export const ORIGINAL_PRIVATE_SOURCE_PIN='1a8267634955947bc0c6adc5614d7de176a33da2';
 const TEST='tests/admin-original-host-port.test.mjs';
 const MULTI_EMPLOYEE_TESTS=Object.freeze([
   'tests/multi-employee-provisioning.test.mjs',
