@@ -7,8 +7,8 @@ on:
 permissions:
   contents: read
 env:
-  DOMAIN_SHA: dcab0fa2d7fbcbfb8cd9ccdede7137ed0c65c4e5
-  SITE_SHA: 89a0c87424272e7f998841cfecf8a2571c1f2ee6
+  DOMAIN_SHA: b2e4320e5b4cb6cb9d5a51a511fed9a89a44da0e
+  SITE_SHA: e472572ccb0d1c6cb35580719abc0a1ec562a63c
 jobs:
   p1-models:
     runs-on: ${{ matrix.os }}
@@ -49,22 +49,22 @@ jobs:
         run: |
           test "$(git -C private/domain rev-parse HEAD)" = "$DOMAIN_SHA"
           test "$(git -C private/site rev-parse HEAD)" = "$SITE_SHA"
-          for name in business-start-overview.mjs business-start-overview.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts business-project.mjs business-project.d.mts business-edit-intent.mjs business-edit-intent.d.mts; do
+          for name in business-start-overview.mjs business-start-overview.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts business-project.mjs business-project.d.mts business-edit-intent.mjs business-edit-intent.d.mts business-experiment-comparison.mjs business-experiment-comparison.d.mts; do
             cmp -s "private/domain/model/$name" "private/site/src/lib/$name" || { echo "D08_P1_CANONICAL_DRIFT"; exit 1; }
           done
-          for name in business-project.mjs business-project.d.mts business-edit-intent.mjs business-edit-intent.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts; do
+          for name in business-project.mjs business-project.d.mts business-edit-intent.mjs business-edit-intent.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts business-experiment-comparison.mjs business-experiment-comparison.d.mts; do
             cmp -s "private/site/src/lib/$name" "private/site/t2-site-module/marketops/decision/$name" || { echo "D08_P1_T2_EMBEDDED_BYTE_DRIFT"; exit 1; }
           done
           echo "D08_P1_CANONICAL_BYTE_EQUAL=PASS"
       - name: Run domain negative and anti-duplication tests
         working-directory: private/domain
         run: |
-          node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs tests/business-project.test.mjs tests/business-edit-intent.test.mjs > "$RUNNER_TEMP/d08-private-domain.log" 2>&1 || { echo "D08_P1_DOMAIN_MODEL_TESTS_FAIL"; exit 1; }
+          node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs tests/business-project.test.mjs tests/business-edit-intent.test.mjs tests/business-experiment-comparison.test.mjs > "$RUNNER_TEMP/d08-private-domain.log" 2>&1 || { echo "D08_P1_DOMAIN_MODEL_TESTS_FAIL"; exit 1; }
           echo "D08_P1_DOMAIN_MODEL_TESTS=PASS"
       - name: Run independent website projection tests
         working-directory: private/site
         run: |
-          node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs tests/business-project.test.mjs > "$RUNNER_TEMP/d08-private-site.log" 2>&1 || { echo "D08_P1_SITE_PROJECTION_TESTS_FAIL"; exit 1; }
+          node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs tests/business-project.test.mjs tests/business-experiment-comparison.test.mjs > "$RUNNER_TEMP/d08-private-site.log" 2>&1 || { echo "D08_P1_SITE_PROJECTION_TESTS_FAIL"; exit 1; }
           echo "D08_P1_SITE_PROJECTION_TESTS=PASS"
       - name: Keep runner logs and sources private
         if: always()
