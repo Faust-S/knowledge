@@ -289,6 +289,55 @@ if(!okay)process.exit(3);
         Write-Output ('G4_ORIGINAL_EMPLOYEE_OS_MISSING_COMMAND ' + $possible)
       }
     }
+    # Only simple PowerShell command names may cross the public CI boundary.
+    # Never print private source paths, arbitrary exception text or argv.
+    $unknown = [string]$_.Exception.CommandName
+    if (-not $unknown) {
+      $reason = [string]$_.Exception.Message
+      if ($reason -match "(?i)the term ['\x22]([a-z][a-z0-9-]{1,55})['\x22]") {
+        $unknown = $Matches[1]
+      }
+    }
+    if ($unknown -match '^[A-Za-z][A-Za-z0-9-]{1,55}
+    $allowedCommandNames = @('NEW-LOCALUSER','GET-LOCALUSER','REMOVE-LOCALUSER',
+      'CONVERTTO-SECURESTRING','NEW-OBJECT','START-SLEEP','GET-COMMAND',
+      'JOIN-PATH','GET-CONTENT','IMPORT-MODULE','TEST-PATH',
+       'WHERE-OBJECT','COPY-ITEM','CONVERTFROM-JSON','CONVERTTO-JSON',
+       'START-PROCESS')
+    if ($command.ToUpperInvariant() -in $allowedCommandNames) {
+      Write-Output ('G4_ORIGINAL_EMPLOYEE_OS_MISSING_COMMAND ' + $command.ToUpperInvariant())
+    }
+    $message = [string]$_.Exception.Message
+    if ($message -match '(?i)no mapping|identitynotmapped|cannot be mapped') {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND ACCOUNT_RESOLUTION'
+    } elseif ($message -match '(?i)account exists|already exists') {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND ACCOUNT_EXISTS'
+    } elseif ($message -match '(?i)account name|account could|account identity') {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND ACCOUNT_RESOLUTION'
+    } elseif ($message -match '(?i)privilege|administrat') {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND PRIVILEGE_REQUIRED'
+    } elseif ($message -match '(?i)password') {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND PASSWORD_POLICY'
+    } elseif ($message -match '(?i)not recognized|not found|not available') {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND COMMAND_UNAVAILABLE'
+    } elseif ($message -match '(?i)access is denied|unauthoriz|permission') {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND ACCESS_DENIED'
+    } elseif ($message -match '(?i)parameter|invalid argument') {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND INVALID_ARGUMENT'
+    } else {
+      Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND OTHER'
+    }
+  }
+  Write-Output ('G4_ORIGINAL_AGENT_TWO_SID_FAILURE_PHASE ' + $phase)
+  Write-Output ('G4_ORIGINAL_AGENT_TWO_SID_FAILURE_CODE ' + $code)
+  throw 'G4_ORIGINAL_AGENT_TWO_SID_SOURCE_NOT_ACCEPTED'
+} finally {
+  if ($user) { Remove-LocalUser -Name $user -ErrorAction SilentlyContinue }
+  if ($root) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+}
+) {
+      Write-Output ('G4_ORIGINAL_EMPLOYEE_OS_COMMAND_NAME ' + $unknown.ToUpperInvariant())
+    }
     $command = [string]$_.Exception.CommandName
     $allowedCommandNames = @('NEW-LOCALUSER','GET-LOCALUSER','REMOVE-LOCALUSER',
       'CONVERTTO-SECURESTRING','NEW-OBJECT','START-SLEEP','GET-COMMAND',
