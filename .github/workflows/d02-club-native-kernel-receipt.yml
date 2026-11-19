@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: 1d1da09672d36588fbcaf47fbc2f7ca95bd398e1
+      SITE_SHA: a2e5a6ecc72336942ec130773017edcf354717e8
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 1d1da09672d36588fbcaf47fbc2f7ca95bd398e1
+          ref: a2e5a6ecc72336942ec130773017edcf354717e8
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -114,9 +114,23 @@ jobs:
           function Enter([string]$label,[string]$value,[string]$errorCode){
             $control=Await $label 'edit' $errorCode
             try{
-              $pattern=[System.Windows.Automation.ValuePattern]$control.GetCurrentPattern(
-               [System.Windows.Automation.ValuePattern]::Pattern)
-              $pattern.SetValue($value)
+              # ValuePattern.SetValue can alter the DOM without React onChange.
+              # Real keyboard paste must reach the app before any Kernel write.
+              Add-Type -AssemblyName System.Windows.Forms
+              $control.SetFocus()
+              Set-Clipboard -Value $value -ErrorAction Stop
+              [System.Windows.Forms.SendKeys]::SendWait('^a')
+              [System.Windows.Forms.SendKeys]::SendWait('^v')
+              $matched=$false
+              for($i=0;$i -lt 25;$i++){
+                Start-Sleep -Milliseconds 120
+                $current=Locate $label 'edit'
+                if(!$current){continue}
+                $pattern=[System.Windows.Automation.ValuePattern]$current.GetCurrentPattern(
+                 [System.Windows.Automation.ValuePattern]::Pattern)
+                if($pattern.Current.Value -ceq $value){$matched=$true;break}
+              }
+              if(!$matched){throw $errorCode}
             }catch{throw $errorCode}
           }
           function AwaitPrefix([string]$prefix,[string]$errorCode){
@@ -285,6 +299,7 @@ jobs:
             Write-Output 'D02_RECEIPT_PROFILE_EDITOR_VISIBLE=PASS'
             Enter 'Как к вам обращаться' 'Club проверка пользовательской записи' 'D02_RECEIPT_ALIAS_INPUT_FAILED'
             Enter 'Цели' 'Сохранить собственную запись между запусками' 'D02_RECEIPT_GOAL_INPUT_FAILED'
+            Write-Output 'D02_RECEIPT_NATIVE_REACT_INPUT_EVENTS=PASS'
             Invoke 'Сохранить профиль в IWXA' 'D02_RECEIPT_NATIVE_SAVE_FAILED'
             $null=AwaitPrefix 'Профиль сохранён. Подтверждена версия ' 'D02_RECEIPT_ORIGINAL_KERNEL_READBACK_MISSING'
             Write-Output 'D02_RECEIPT_NATIVE_ORIGINAL_KERNEL_WRITE_READBACK=PASS'
