@@ -31,4 +31,8 @@ addition="""    $guiDraftSaved=$true
 """
 s=s.replace(needle,addition)
 p.with_name("qa-editorial-gui-witness.ps1").write_text(s,encoding="utf-8-sig")
+# Do not change owner HEAD/TREE. Ignore QA-only temporary instruments in this disposable checkout.
+exclude=root/".git/info/exclude"
+previous=exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+exclude.write_text(previous+"\n/tools/qa-editorial-build.ps1\n/tools/qa-editorial-gui-witness.ps1\n",encoding="utf-8")
 print("EDITORIAL_AGENT_DISPOSABLE_INSTRUMENTATION_READY")
