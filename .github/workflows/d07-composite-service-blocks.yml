@@ -193,7 +193,16 @@ jobs:
         run: |
           $log=Join-Path $env:RUNNER_TEMP 'd07-blocks-product-tests.private.log'
           & bun run test:product-first *> $log
-          if($LASTEXITCODE -ne 0){throw 'D07_BLOCKS_PRODUCT_REGRESSION_FAIL'}
+          if($LASTEXITCODE -ne 0){
+            $failed=@(Get-Content $log -ErrorAction SilentlyContinue |
+              Where-Object {$_ -match '^not ok [0-9]+ - '})
+            foreach($line in $failed | Select-Object -First 15){
+              $name=$line -replace '^not ok [0-9]+ - ',''
+              Write-Output ('D07_PRODUCT_TEST_FAILURE='+$name)
+            }
+            Write-Output ('D07_PRODUCT_TEST_FAILURE_COUNT='+$failed.Count)
+            throw 'D07_BLOCKS_PRODUCT_REGRESSION_FAIL'
+          }
           Write-Output 'D07_BLOCKS_PRODUCT_REGRESSION=PASS'
       # Private checkout, archive bytes, dist, test logs and browser profiles
       # remain inside the ephemeral runner; no upload-artifact steps.
