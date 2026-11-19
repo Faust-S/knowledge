@@ -70,7 +70,9 @@ function originalAgentProfile(path){
      profile.qualifiedArtifactId!==
        'iwxa-kernel-k036-same-store-history-20261019-qualified.1'||
      profile.authorizedNativeOwner!=='ORIGINAL_T3_SIGNED_EMPLOYEE'||
-     profile.authorizedResultRecipient!=='iwxa.atlas'||
+     // Product-neutral One Dist has NO implied Atlas or other recipient.
+     // Each native recipient needs original signed D1 and explicit disclosure.
+     profile.authorizedResultRecipient!==null||
      profile.installedAgentT3Mode!=='EXPLICIT_OPT_IN')
     fail('OWNING_AGENT_PRODUCT_PROFILE_INVALID');
   return profile;
