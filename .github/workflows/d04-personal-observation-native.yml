@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: ee2a0f4dbfc819e4d082e7001f4fbb82792c109e
+          ref: 877a21037256fbdec824b84e406e0039942c7aef
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -66,8 +66,8 @@ jobs:
       - name: Verify exact sources, canonical profile and witness
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "ee2a0f4dbfc819e4d082e7001f4fbb82792c109e"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "f885785bfe15f74cc461e3cac23b59638d721e18"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "877a21037256fbdec824b84e406e0039942c7aef"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "4fa3c4e04305e9aecfa5e9fa6c9b24a887f65b56"
           test "$(git -C d04-private/model rev-parse HEAD)" = "0f1c550ab039c02d0cab0a911bdb67f96b97fb2e"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           cmp d04-private/model/docs/life-os/PERSONAL_OBSERVATION_PROFILE_V0_1.mjs d04-private/site/t2-site-module/bazmed/PERSONAL_OBSERVATION_PROFILE_V0_1.mjs
