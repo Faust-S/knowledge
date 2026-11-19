@@ -11,7 +11,7 @@ concurrency:
   group: d08-business-start-p1
   cancel-in-progress: true
 env:
-  DOMAIN_SHA: dcab0fa2d7fbcbfb8cd9ccdede7137ed0c65c4e5
+  DOMAIN_SHA: bc1396ee0b8f37b6ea26d75df912384af3f70d95
   SITE_SHA: 3193cfcfc2f3b8f6ade773129eb3e0147c7dc7b5
   CI: 'true'
   PUPPETEER_SKIP_DOWNLOAD: '1'
