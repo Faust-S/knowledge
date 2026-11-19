@@ -198,6 +198,59 @@ jobs:
             foreach ($name in $stageFlags.Keys) {
               if ($stageFlags[$name]) { Write-Host ('G4_AGENT06_PRIVATE_BUILD_STAGE_REACHED ' + $name) }
             }
+            # Original Setup Core is already built. On local acceptance
+            # failure inspect ONLY the finite stage/code of the original
+            # installed witness; no private stdout, paths or GUI text.
+            $acceptFile = Join-Path $output 'logs/public-test-local-result.txt'
+            if (Test-Path -LiteralPath $acceptFile -PathType Leaf) {
+              $acceptText = Get-Content -LiteralPath $acceptFile -Raw -ErrorAction SilentlyContinue
+              if ($acceptText) {
+                foreach ($step in @(
+                  'IWXA_SETUP_LOCAL_RUNTIME_WITNESS_PASS',
+                  'IWXA_SETUP_LOCAL_REPAIR_AND_CONFIRM_PASS',
+                  'IWXA_SETUP_LOCAL_NATIVE_INSTALL_AND_PRESERVE_PASS'
+                )) {
+                  if ($acceptText.Contains($step)) {
+                    Write-Host ('G4_AGENT06_LOCAL_ACCEPT_STAGE_PASS ' + $step)
+                  }
+                }
+              }
+            }
+            $installedReceipt = Join-Path $output 'temporary-installed-fixture/installed-witness.json'
+            if (Test-Path -LiteralPath $installedReceipt -PathType Leaf) {
+              try {
+                $witnessRow = Get-Content -LiteralPath $installedReceipt -Raw -ErrorAction Stop |
+                  ConvertFrom-Json -ErrorAction Stop
+                $witnessStatus = [string]$witnessRow.status
+                $witnessPhase = [string]$witnessRow.phase
+                if ($witnessStatus -cmatch '^(PASS|FAIL)$') {
+                  Write-Host ('G4_AGENT06_INSTALLED_WITNESS_STATUS ' + $witnessStatus)
+                }
+                if ($witnessPhase -cmatch '^[A-Z_]{3,70}$') {
+                  Write-Host ('G4_AGENT06_INSTALLED_WITNESS_PHASE ' + $witnessPhase)
+                }
+                foreach ($prop in @('failure_code','last_operation','last_checkpoint')) {
+                  $observed = [string]$witnessRow.$prop
+                  if ($observed -cmatch '^[A-Z][A-Z0-9_]{2,86}$') {
+                    Write-Host ('G4_AGENT06_INSTALLED_WITNESS_' + $prop.ToUpperInvariant() + ' ' + $observed)
+                  }
+                }
+              } catch {
+                Write-Host 'G4_AGENT06_INSTALLED_WITNESS_JSON_NOT_READABLE'
+              }
+            } else {
+              Write-Host 'G4_AGENT06_INSTALLED_WITNESS_NOT_CREATED'
+            }
+            if (Test-Path -LiteralPath $log -PathType Leaf) {
+              $privateError = Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+              if ($privateError) {
+                $safeCodes = [regex]::Matches($privateError,
+                  '(?i)(?<![A-Za-z0-9_])(?:setup_local|agent_setup_witness|agent_setup_runtime|private_setup_core)_[a-z0-9_]{4,110}(?![A-Za-z0-9_])')
+                foreach ($safeCode in @($safeCodes | Select-Object -Unique | Select-Object -Last 5)) {
+                  Write-Host ('G4_AGENT06_LOCAL_ACCEPT_SAFE_CODE ' + $safeCode.Value.ToUpperInvariant())
+                }
+              }
+            }
             # Fixed safe phase flags and machine codes only: the original
             # build log, Tauri compiler output and private absolute paths
             # remain inside the disposable Windows runner.
