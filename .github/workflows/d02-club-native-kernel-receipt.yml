@@ -1053,7 +1053,29 @@ jobs:
             Write-Output 'D02_GOAL_NATIVE_PUBLIC_FORM_SAVED=PASS'
             Press (Await 'Сохранить в IWXA' 'link' 'D02_GOAL_EXPLICIT_HANDOFF_LINK_MISSING') 'D02_GOAL_HANDOFF_LINK_FAILED'
             $null=Await 'Перенести результаты из Клуба' '' 'D02_GOAL_ORIGINAL_HOST_IMPORT_CARD_MISSING'
-            $null=AwaitPrefix 'Проверьте выбранный Result' '' 'D02_GOAL_NATIVE_PROPOSAL_NOT_CONFIRMED'
+            # The status message is not an authority. The real in-page source
+            # preview is only constructed after original Host has accepted the
+            # exact one-Result proposal and validated its session envelope.
+            $preview=$null
+            for($i=0;$i -lt 70;$i++){
+              $preview=Prefix 'Файл: Результат из текущей страницы' ''
+              if($preview){break}
+              Start-Sleep -Milliseconds 350
+            }
+            if(!$preview){
+              foreach($entry in @(
+                @{label='CLUB_T2_CREATE_SOURCE_INVALID';id='INVALID_CREATE_SELECTION'},
+                @{label='CLUB_T2_ORIGIN_DENIED';id='ORIGIN_DENIED'},
+                @{label='CLUB_T2_SOURCE_DISCONNECTED';id='SOURCE_DISCONNECTED'},
+                @{label='Выберите копию данных, сохранённую на сайте Клуба.';id='NO_PREVIEW'},
+                @{label='Защищённая рабочая область не подключена.';id='PROPOSAL_NOT_ACCEPTED'},
+                @{label='Результат из текущей страницы';id='SOURCE_LABEL_PRESENT'}
+              )){
+                if(Prefix $entry.label ''){Write-Output "D02_GOAL_PREVIEW_DIAGNOSTIC=$($entry.id)"}
+              }
+              throw 'D02_GOAL_ORIGINAL_T2_PROPOSAL_PREVIEW_MISSING'
+            }
+            Write-Output 'D02_GOAL_NATIVE_ORIGINAL_HOST_PREVIEW=PASS'
             $target=AwaitPrefix 'Личная область 1' 'Button' 'D02_GOAL_TARGET_WORKSPACE_MISSING'
             Press $target 'D02_GOAL_TARGET_FOCUS_FAILED'
             $checkbox=Await 'Подтверждаю запись перечисленных результатов в выбранную область T2.' '' 'D02_GOAL_CONSENT_NOT_FOUND'
