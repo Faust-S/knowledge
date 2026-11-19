@@ -254,6 +254,36 @@ jobs:
                 }
               }
             }
+            # The existing product package builder emits a private Python
+            # traceback/exception only inside this runner. Safely extract the
+            # first machine-token following its fixed error prefix, NEVER
+            # arbitrary stderr, paths, source names, or user content.
+            $packageDiagnosticInputs = @(
+              $log,
+              (Join-Path $output 'logs/package-build-only.json'),
+              (Join-Path $output 'logs/package/package-gate-failure.json')
+            )
+            foreach ($sourceLog in $packageDiagnosticInputs) {
+              if (-not (Test-Path -LiteralPath $sourceLog -PathType Leaf)) { continue }
+              $sourceText = Get-Content -LiteralPath $sourceLog -Raw -ErrorAction SilentlyContinue
+              if (-not $sourceText) { continue }
+              $messages = [regex]::Matches($sourceText,
+                '(?i)IWXA_EXPLORER_BUILD_FAIL:\s*([a-z][a-z0-9_]{3,95})(?![a-z0-9_])')
+              foreach ($message in @($messages | Select-Object -Last 3)) {
+                Write-Host ('G4_AGENT06_PYTHON_PACKAGE_FAILURE_TOKEN ' +
+                  $message.Groups[1].Value.ToUpperInvariant())
+              }
+              if ($sourceText -match '(?i)IWXA_EXPLORER_BUILD_FAIL' -and
+                  $messages.Count -eq 0) {
+                Write-Host 'G4_AGENT06_PYTHON_PACKAGE_FAILURE_UNCLASSIFIED'
+              }
+              $preciseCodes = [regex]::Matches($sourceText,
+                '(?<![a-zA-Z0-9_])(?:agent06_original_t3|agent06_original_t2|original_agent_d6|desktop_native|release_worktree|release_payload|git_command|u01_pinned|k03_pinned)_[a-z0-9_]{3,96}(?![a-zA-Z0-9_])')
+              foreach ($code in @($preciseCodes | Select-Object -Unique | Select-Object -Last 4)) {
+                Write-Host ('G4_AGENT06_PYTHON_PACKAGE_SAFE_CODE ' +
+                  $code.Value.ToUpperInvariant())
+              }
+            }
             $originalPipelineLog = Join-Path $output 'logs/private-build-result.json'
             if (Test-Path -LiteralPath $originalPipelineLog -PathType Leaf) {
               $nativeRaw = Get-Content -LiteralPath $originalPipelineLog -Raw -ErrorAction SilentlyContinue
