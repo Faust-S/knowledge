@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T2
-          ref: 279651bde8dd223fa80742628f1b4dece7861686
+          ref: 2d50a50b1a5ffda3395046da146efad3636732d1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           sparse-checkout: |
@@ -215,6 +215,12 @@ jobs:
             exit 1
           }
           grep '^D09_KERNEL_AJV_CONSTRUCTORS_REMOVED=' "$RUNNER_TEMP/d09-remove-ajv.log"
+          node "$core/scripts/issue14-zod-csp-jitless.mjs" "$RUNNER_TEMP/d09-k036-same-store" > "$RUNNER_TEMP/d09-zod-jitless.log" 2>&1 || {
+            echo D09_KERNEL_ZOD_CSP_BOOTSTRAP=FAIL
+            grep -oE 'D09_ZOD_[A-Z0-9_]+' "$RUNNER_TEMP/d09-zod-jitless.log" | tail -5 || true
+            exit 1
+          }
+          grep '^D09_KERNEL_ZOD_CSP_BOOTSTRAP=' "$RUNNER_TEMP/d09-zod-jitless.log"
           npm run typecheck > "$RUNNER_TEMP/d09-dynamic-types.log" 2>&1 || {
             echo D09_KERNEL_CSP_DYNAMIC_TYPES=FAIL
             grep -oE 'error TS[0-9]+' "$RUNNER_TEMP/d09-dynamic-types.log" | sort -u | tail -12 || true
