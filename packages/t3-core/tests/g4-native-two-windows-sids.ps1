@@ -81,7 +81,20 @@ try {
   $action = New-ScheduledTaskAction -Execute $exe -Argument $args
   $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 3) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
   $phase = 'REGISTER_SECOND_USER_BATCH_PROCESS'
-  $null = Register-ScheduledTask -TaskName $taskName -Action $action -Settings $settings -User ('.\' + $user) -Password $password -Force -ErrorAction Stop
+  # Task Scheduler requires a resolvable machine-qualified NTAccount, not
+  # PowerShell's local shorthand ".\name" on hosted Windows runners.
+  $qualifiedUser = $env:COMPUTERNAME + '\' + $user
+  $resolvedSid = $null
+  for ($attempt = 0; $attempt -lt 10; $attempt++) {
+    try {
+      $resolvedSid = (New-Object Security.Principal.NTAccount($env:COMPUTERNAME,$user)).Translate([Security.Principal.SecurityIdentifier]).Value
+      break
+    } catch [System.Security.Principal.IdentityNotMappedException] {
+      Start-Sleep -Milliseconds 300
+    }
+  }
+  if ($resolvedSid -ne $employeeSid) { throw 'G4_EMPLOYEE_WINDOWS_NTACCOUNT_NOT_MAPPED' }
+  $null = Register-ScheduledTask -TaskName $taskName -Action $action -Settings $settings -User $qualifiedUser -Password $password -Force -ErrorAction Stop
   for ($pass=1;$pass -le 2;$pass++) {
     $phase = 'COLD_SECOND_USER_PROCESS_' + $pass
     foreach($filename in @('employee-proof.json','employee-failure')) {
