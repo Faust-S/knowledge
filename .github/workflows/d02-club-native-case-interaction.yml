@@ -119,34 +119,77 @@ jobs:
             }
             return [string]::Join([Environment]::NewLine,$out)
           }
+          function FindEditable([string]$name){
+            $byName=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+            $types=[System.Windows.Automation.OrCondition]::new(
+              [System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::Edit),
+              [System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::Spinner))
+            $cond=[System.Windows.Automation.AndCondition]::new($byName,$types)
+            foreach($root in @(Roots)){
+              $node=$root.FindFirst($scope,$cond)
+              if($node -and $node.Current.IsEnabled){return $node}
+            }
+            return $null
+          }
           function Fill([string]$name,[string]$value,[string]$code){
-            $node=Await $name $code
+            $node=$null
+            for($k=0;$k -lt 110;$k++){
+              $node=FindEditable $name
+              if($node){break}
+              Start-Sleep -Milliseconds 240
+            }
+            if(!$node){throw $code}
+            Write-Output ("D02_CASE_INPUT_CONTROL_TYPE="+$node.Current.ControlType.ProgrammaticName)
+            $done=$false
             try{
-              $node.SetFocus()
-              Set-Clipboard -Value $value
-              [System.Windows.Forms.SendKeys]::SendWait('^a')
-              [System.Windows.Forms.SendKeys]::SendWait('^v')
-              Write-Output ("D02_CASE_INPUT_CONTROL_TYPE="+$node.Current.ControlType.ProgrammaticName)
-              $ok=$false
-              for($k=0;$k -lt 30;$k++){
-                Start-Sleep -Milliseconds 120
-                $item=Find $name
-                if(!$item){continue}
-                try{
-                  $p=[System.Windows.Automation.ValuePattern]$item.GetCurrentPattern(
-                    [System.Windows.Automation.ValuePattern]::Pattern)
-                  if($p.Current.Value -eq $value){$ok=$true;break}
-                }catch{}
-                try{
-                  $p=[System.Windows.Automation.RangeValuePattern]$item.GetCurrentPattern(
-                    [System.Windows.Automation.RangeValuePattern]::Pattern)
-                  $expected=[double]::Parse($value,[System.Globalization.CultureInfo]::InvariantCulture)
-                  if([Math]::Abs($p.Current.Value-$expected) -lt 0.01){$ok=$true;break}
-                  if($k -eq 10){$p.SetValue($expected)}
-                }catch{}
-              }
-              if(!$ok){throw $code}
-            }catch{throw $code}
+              $range=[System.Windows.Automation.RangeValuePattern]$node.GetCurrentPattern(
+                [System.Windows.Automation.RangeValuePattern]::Pattern)
+              $range.SetValue([double]::Parse($value,[System.Globalization.CultureInfo]::InvariantCulture))
+              $done=$true
+              Write-Output 'D02_CASE_INPUT_METHOD=UIA_RANGE'
+            }catch{}
+            if(!$done){
+              try{
+                $pattern=[System.Windows.Automation.ValuePattern]$node.GetCurrentPattern(
+                  [System.Windows.Automation.ValuePattern]::Pattern)
+                $pattern.SetValue($value)
+                $done=$true
+                Write-Output 'D02_CASE_INPUT_METHOD=UIA_VALUE'
+              }catch{}
+            }
+            if(!$done){
+              try{
+                $node.SetFocus()
+                Set-Clipboard -Value $value
+                [System.Windows.Forms.SendKeys]::SendWait('^a')
+                [System.Windows.Forms.SendKeys]::SendWait('^v')
+                $done=$true
+                Write-Output 'D02_CASE_INPUT_METHOD=NATIVE_KEYBOARD'
+              }catch{}
+            }
+            if(!$done){throw $code}
+            $confirmed=$false
+            for($k=0;$k -lt 30;$k++){
+              Start-Sleep -Milliseconds 120
+              $item=FindEditable $name
+              if(!$item){continue}
+              try{
+                $pattern=[System.Windows.Automation.ValuePattern]$item.GetCurrentPattern(
+                  [System.Windows.Automation.ValuePattern]::Pattern)
+                if($pattern.Current.Value -eq $value){$confirmed=$true;break}
+              }catch{}
+              try{
+                $range=[System.Windows.Automation.RangeValuePattern]$item.GetCurrentPattern(
+                  [System.Windows.Automation.RangeValuePattern]::Pattern)
+                if([Math]::Abs($range.Current.Value-[double]$value) -lt 0.01){$confirmed=$true;break}
+              }catch{}
+            }
+            if(!$confirmed){throw $code}
           }
           function Activate([string]$name,[string]$code){
             $node=Await $name $code
