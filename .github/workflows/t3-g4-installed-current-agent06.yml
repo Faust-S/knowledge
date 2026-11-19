@@ -206,6 +206,54 @@ jobs:
                 Write-Host ('G4_AGENT06_NATIVE_PACKAGE_PHASE_REACHED ' + $key)
               }
             }
+            # Existing Agent release compiles native Rust tests AFTER
+            # Tauri EXE. Report only compiler diagnostic IDs and safe phase
+            # categories. Full Rust logs, paths, private symbols, and source
+            # code must not appear in the public job log.
+            foreach ($suffix in @('native-rust-test-compile.log.stderr',
+                                  'native-desktop-build.log.stderr',
+                                  'package/package-gate-failure.json')) {
+              $candidateFile = Join-Path (Join-Path $output 'logs') $suffix
+              if (-not (Test-Path -LiteralPath $candidateFile -PathType Leaf)) { continue }
+              $raw = Get-Content -LiteralPath $candidateFile -Raw -ErrorAction SilentlyContinue
+              if (-not $raw) { continue }
+              $kind = if ($suffix -like 'native-rust*') { 'RUST_TEST' } elseif ($suffix -like 'native-desktop*') { 'TAURI' } else { 'PACKAGE' }
+              $compilerCodes = @([regex]::Matches($raw, 'error\[(E[0-9]{4})\]') |
+                ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+              foreach ($code in $compilerCodes) {
+                Write-Host ('G4_AGENT06_COMPILER_ERROR_ID ' + $kind + ' ' + $code)
+              }
+              $classes = [ordered]@{
+                RUST_COMPILE_FAILED = '(?:error: could not compile|error: aborting due to|compilation failed)'
+                RUST_FEATURE_CONFLICT = 'failed to select a version|failed to resolve patches|conflicting versions'
+                RUST_DEPENDENCY_DOWNLOAD = 'failed to download|failed to fetch|timed out|network failure'
+                RUST_LINK_FAILED = '(?:linking with .* failed|fatal error LNK[0-9]{4}|link.exe.*failed)'
+                MISSING_PROJECT_FILE = 'file not found|could not find|No such file or directory'
+                WINDOWS_SHELL_FAILURE = 'NativeCommandError|CommandNotFoundException'
+              }
+              foreach ($name in $classes.Keys) {
+                if ($raw -match $classes[$name]) {
+                  Write-Host ('G4_AGENT06_COMPILER_ERROR_CLASS ' + $kind + ' ' + $name)
+                }
+              }
+              if ($kind -eq 'PACKAGE') {
+                try {
+                  $failure = $raw | ConvertFrom-Json -ErrorAction Stop
+                  $safeStage = [string]$failure.stage
+                  if ($safeStage -match '^[a-z_]{3,60}$') {
+                    Write-Host ('G4_AGENT06_PACKAGE_GATE_STAGE ' + $safeStage.ToUpperInvariant())
+                  }
+                  foreach ($field in @('error_code','error_detail')) {
+                    foreach ($match in [regex]::Matches([string]$failure.$field,
+                      '(?<![A-Za-z0-9_])(?:native_candidate|agent06_t3|phase1_package)_[a-z0-9_]{3,90}(?![A-Za-z0-9_])')) {
+                      Write-Host ('G4_AGENT06_PACKAGE_GATE_CODE ' + $match.Value.ToUpperInvariant())
+                    }
+                  }
+                } catch {
+                  Write-Host 'G4_AGENT06_PACKAGE_GATE_JSON_UNCLASSIFIED'
+                }
+              }
+            }
             $originalPipelineLog = Join-Path $output 'logs/private-build-result.json'
             if (Test-Path -LiteralPath $originalPipelineLog -PathType Leaf) {
               $nativeRaw = Get-Content -LiteralPath $originalPipelineLog -Raw -ErrorAction SilentlyContinue
@@ -254,7 +302,7 @@ jobs:
             if (Test-Path -LiteralPath $log -PathType Leaf) {
               foreach ($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)) {
                 foreach ($m in [regex]::Matches([string]$line,
-                  '(?<![A-Za-z0-9_])(?:private_setup|original_t3|original_t2|agent_native|setup_core|private_package)_[a-z0-9_]{4,115}(?![A-Za-z0-9_])')) {
+                  '(?<![A-Za-z0-9_])(?:private_setup|original_t3|original_t2|agent_native|setup_core|private_package|native_candidate)_[a-z0-9_]{4,115}(?![A-Za-z0-9_])')) {
                   $safeCodes += [string]$m.Value
                 }
               }
