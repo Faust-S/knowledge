@@ -1,0 +1,80 @@
+name: D08 Business comparison native Windows dev UI
+on:
+  push:
+    branches: [work/2026-11-18-d08-marketops-windows-qualification]
+    paths: [.github/workflows/d08-business-dev-windows.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d08-business-dev-ui-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  SITE_SHA: dc995c80c2befaa2bf4e9b62814af7cbd4747164
+  PUPPETEER_SKIP_DOWNLOAD: '1'
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+jobs:
+  business-dev-ui:
+    runs-on: windows-latest
+    timeout-minutes: 18
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Verify private MarketOps source access
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'D08_BIZ_DOMEN_MISSING'}
+          & gh api repos/Faust-S/market-ops.ru --jq '.id' *> $null
+          if($LASTEXITCODE -ne 0){throw 'D08_BIZ_SITE_ACCESS_DENIED'}
+          git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install and locate system browser
+        working-directory: private/site
+        run: |
+          if((& git rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D08_BIZ_SITE_PIN_MISMATCH'}
+          & node --check tests/business-project-dev-windows-browser.mjs
+          if($LASTEXITCODE -ne 0){throw 'D08_BIZ_DEV_SYNTAX_FAILED'}
+          & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'd08-biz-dev-install.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D08_BIZ_SITE_INSTALL_FAILED'}
+          $candidates=@(
+            'C:\Program Files\Google\Chrome\Application\chrome.exe',
+            'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
+            'C:\Program Files\Microsoft\Edge\Application\msedge.exe'
+          )
+          $found=@($candidates | Where-Object {Test-Path -LiteralPath $_})
+          if($found.Count -eq 0){throw 'D08_BIZ_WINDOWS_BROWSER_MISSING'}
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value ('PUPPETEER_EXECUTABLE_PATH='+$found[0])
+          Write-Host 'D08_BIZ_BROWSER_AND_SOURCE=PASS'
+      - name: Run actual React inputs, budget comparison and T2 handoff
+        working-directory: private/site
+        timeout-minutes: 7
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd08-biz-dev-ui.private.log'
+          & node tests/business-project-dev-windows-browser.mjs *> $log
+          $exit=$LASTEXITCODE
+          foreach($line in @(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
+            $value=$line.Trim()
+            if($value -match '^D08_BIZ_DEV_[A-Z0-9_]+=(PASS|NOT_RUN|TRUE|[A-Z0-9_]+)$'){
+              Write-Host $value
+            }
+          }
+          if($exit -ne 0){throw 'D08_BIZ_DEV_UI_FAILED'}
+          Write-Host 'D08_BUSINESS_COMPARISON_REAL_REACT=PASS'
+      - name: Privacy and precise boundaries
+        if: always()
+        run: |
+          Write-Host 'D08_PRIVATE_SOURCE_PUBLISHED=NO'
+          Write-Host 'D08_PRIVATE_LOGS_PUBLISHED=NO'
+          Write-Host 'D08_ARTIFACT_UPLOADS=0'
+          Write-Host 'D08_KERNEL_GUI_RECEIPT=NOT_RUN'
