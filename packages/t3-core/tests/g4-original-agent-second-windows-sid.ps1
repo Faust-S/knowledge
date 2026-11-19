@@ -49,6 +49,8 @@ try {
     & icacls.exe $source /grant ("*" + $employeeSid + ':(OI)(CI)RX') /T *> $null
     if ($LASTEXITCODE -ne 0) { throw 'G4_ORIGINAL_EMPLOYEE_SOURCE_READ_ACL_FAILED' }
   }
+  & icacls.exe $PythonDriver /grant ("*" + $employeeSid + ':R') *> $null
+  if ($LASTEXITCODE -ne 0) { throw 'G4_ORIGINAL_EMPLOYEE_DRIVER_READ_ACL_FAILED' }
   $profile = Get-Content -LiteralPath $PublicProfilePath -Raw | ConvertFrom-Json
   if ($profile.organizationId -notmatch '^org:' -or
       $profile.issuerPublicKey -notmatch 'BEGIN PUBLIC KEY' -or
@@ -173,6 +175,32 @@ try {
     managerSid=$managerSid;employeeSid=$employeeSid;
     candidate=$candidate;proof=$proved.proof;challenge=$challenge;request=$request}
   [IO.File]::WriteAllText($public,(ConvertTo-Json $verified -Compress -Depth 16),[Text.Encoding]::UTF8)
+  $proofVerifier = Join-Path $root 'verify-original-employee-proof.mjs'
+  $verifyCode = @'
+import {readFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {verify,createPublicKey} from 'node:crypto';
+import {pathToFileURL} from 'node:url';
+const [proofPath,t3Root]=process.argv.slice(2);
+const p=JSON.parse(readFileSync(proofPath,'utf8'));
+const {canonical,digest}=await import(pathToFileURL(
+  join(t3Root,'access-control','core.mjs')).href);
+if(p.schema!=='G4_ORIGINAL_AGENT_TWO_SID_PROOF/1'||
+   p.managerSid===p.employeeSid||
+   p.proof.keyId!==p.candidate.credentialKeyId||
+   p.proof.payload.requestDigest!==digest(p.request)||
+   p.proof.payload.challenge!==p.challenge)process.exit(2);
+const bytes=Buffer.from('IWXA-T3-ACCESS-SIGNED-V1\0'+canonical({
+  schema:p.proof.schema,keyId:p.proof.keyId,payload:p.proof.payload}));
+const okay=verify(null,bytes,createPublicKey(
+  p.candidate.employeeProofKeyRecord.publicKey),
+  Buffer.from(p.proof.signature,'base64url'));
+if(!okay)process.exit(3);
+'@
+  [IO.File]::WriteAllText($proofVerifier,$verifyCode,[Text.Encoding]::UTF8)
+  & node $proofVerifier $public $T3Root *> $null
+  if ($LASTEXITCODE -ne 0) { throw 'G4_ORIGINAL_AGENT_SECOND_SID_CRYPTO_PROOF_INVALID' }
+  Write-Output 'G4_ORIGINAL_AGENT_SECOND_SID_CRYPTO_PROOF_VERIFIED_PASS'
   Write-Output 'G4_ORIGINAL_AGENT_SECOND_SID_NATIVE_FIRST_USE_PASS'
   Write-Output 'G4_ORIGINAL_AGENT_SECOND_SID_NATIVE_DPAPI_COLD_PASS'
   Write-Output 'G4_ORIGINAL_AGENT_SECOND_SID_NATIVE_SIGNED_PROOF_PASS'
