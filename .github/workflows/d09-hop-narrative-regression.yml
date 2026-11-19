@@ -62,7 +62,7 @@ jobs:
       - name: Verify subject-code parity with the website
         shell: bash
         run: |
-          for file in src/lib/narrative-brief-import.ts src/lib/__tests__/narrative-brief-import.test.ts src/content-system/editorial.ts src/content-system/surfaces.ts; do
+          for file in src/lib/narrative-brief-import.ts src/lib/__tests__/narrative-brief-import.test.ts src/content-system/editorial.ts src/content-system/surfaces.ts src/product-system/registry.ts; do
             cmp "$file" "canonical-hop/$file" || { echo "D09_CANONICAL_PARITY=FAIL"; exit 1; }
           done
           echo "D09_CANONICAL_PARITY=PASS"
