@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: 8ff6307223073955e73c83c400390429c3fbcee3
+          ref: 726dbd7f2f60be59440e92823256be4c08d6610a
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -228,6 +228,21 @@ jobs:
           else
             echo "::error::D10_REVIEW_WORKSPACE_BROWSER=FAIL exit=$result"
             grep -E '^(Error|AssertionError|TimeoutError|TypeError):' "$RUNNER_TEMP/d10-review-browser.log" | head -n 4 || true
+          fi
+          exit "$result"
+      - name: Real CASE-008 native Promotion Kernel campaign and read-only experiment
+        shell: bash
+        run: |
+          set +e
+          cd "$RUNNER_TEMP/d10-host-loopback"
+          node scripts/tests/d10-case008-promotion-kernel-browser.mjs > "$RUNNER_TEMP/d10-case008-promotion.log" 2>&1
+          result=$?
+          grep -E '^D10_CASE008_KERNEL_' "$RUNNER_TEMP/d10-case008-promotion.log" || true
+          if [ "$result" -eq 0 ]; then
+            echo "D10_CASE008_KERNEL_PANEL=PASS"
+          else
+            echo "::error::D10_CASE008_KERNEL_PANEL=FAIL exit=$result"
+            grep -E '^(Error|AssertionError|TypeError|TimeoutError):' "$RUNNER_TEMP/d10-case008-promotion.log" | head -n 3 || true
           fi
           exit "$result"
       - name: Real RevOps decision to saved Kernel action and cold readback
