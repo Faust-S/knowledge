@@ -18,7 +18,7 @@ concurrency:
 
 env:
   DOMAIN_SHA: e915f54177573d5b9db6e3d10f4836fe2a462af2
-  SITE_SHA: b3cb1e37975ccc4b48ba3fa6dcc07e7493170f6d
+  SITE_SHA: bd17b76b157955d127b7f064350ca046ea425f2b
   T2_SHA: 49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7
   CI: 'true'
   PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -102,7 +102,7 @@ jobs:
           & node --test tests/t2-production-assets.test.mjs *> $log
           if($LASTEXITCODE -ne 0) {
             $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
-            $failed=@([regex]::Matches($raw,'not ok [0-9]+[^\\r\\n]*') | Select-Object -First 5 | ForEach-Object {$_.Value})
+            $failed=@([regex]::Matches($raw,'not ok [0-9]+[^\r\n]*') | Select-Object -First 5 | ForEach-Object {$_.Value})
             Write-Host ('D08_PRODUCTION_DIAGNOSTICS_TEST_FAILURES='+($failed -join ';'))
             throw 'D08_PRODUCTION_DIAGNOSTICS_TESTS_FAILED'
           }
@@ -187,7 +187,7 @@ jobs:
           & python scripts/package-hosting.py --expected-head $env:SITE_SHA *> $log
           if($LASTEXITCODE -ne 0){
             $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
-            $matches=[regex]::Matches($raw,'MARKETOPS_HOSTING_ARCHIVE=FAIL:[^\\r\\n]+')
+            $matches=[regex]::Matches($raw,'MARKETOPS_HOSTING_ARCHIVE=FAIL:[^\r\n]+')
             foreach($item in $matches){Write-Host $item.Value}
             throw 'D08_HOSTING_PACKAGE_FAILED'
           }
