@@ -24,18 +24,10 @@ jobs:
           ref: 19882b9bd4591f67a717a3b644d73e1d14b06d6f
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          repository: Faust-S/iwxa
-          ref: e624520c52101a34feab62ce68b2056dc54e5301
-          path: akis-original-science
-          token: ${{ secrets.DOMEN }}
-          persist-credentials: false
-      - name: Verify original private source revisions
+      - name: Verify exact site source revision
         run: |
           test "$(git rev-parse HEAD)" = "19882b9bd4591f67a717a3b644d73e1d14b06d6f" || { echo "AKIS_SITE_REVISION_INVALID"; exit 1; }
-          test "$(git -C akis-original-science rev-parse HEAD)" = "e624520c52101a34feab62ce68b2056dc54e5301" || { echo "AKIS_RESEARCH_REVISION_INVALID"; exit 1; }
-          echo "AKIS_ORIGINAL_SOURCE_IDENTITY=PASS"
+          echo "AKIS_SITE_SOURCE_IDENTITY=PASS"
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -57,6 +49,18 @@ jobs:
             }
             echo "AKIS_CASE_MODEL_TEST=PASS $task"
           done
+      - name: Get original scientific source (requires independent private-repo authorization)
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa
+          ref: e624520c52101a34feab62ce68b2056dc54e5301
+          path: akis-original-science
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+      - name: Verify original scientific source revision
+        run: |
+          test "$(git -C akis-original-science rev-parse HEAD)" = "e624520c52101a34feab62ce68b2056dc54e5301" || { echo "AKIS_RESEARCH_REVISION_INVALID"; exit 1; }
+          echo "AKIS_ORIGINAL_SOURCE_IDENTITY=PASS"
       - name: Exact canonical source and complete parameter grid parity
         env:
           IWXA_AKIS_RESEARCH_SOURCE_DIR: ${{ github.workspace }}/akis-original-science
