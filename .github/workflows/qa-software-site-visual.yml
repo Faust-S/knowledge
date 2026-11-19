@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: 2f0bdca8fba6e924d0b516d13a16066b095e765c
+          ref: b00d61877fd8ae4672a6cb74ccf5a5435ff8ac70
           token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
           persist-credentials: false
           path: .private/site
@@ -89,7 +89,7 @@ jobs:
               await page.screenshot({path:output+'/'+name+'-mobile.png',fullPage:true});
               await page.close();
             }
-            writeFileSync(output+'/manifest.json',JSON.stringify({exactSiteSha:'2f0bdca8fba6e924d0b516d13a16066b095e765c',records},null,2));
+            writeFileSync(output+'/manifest.json',JSON.stringify({exactSiteSha:'b00d61877fd8ae4672a6cb74ccf5a5435ff8ac70',records},null,2));
             console.log('IWXA_SOFTWARE_ARTICLES_VISUAL_ROUTES_AND_GALLERIES_PASS',records.length);
           }finally{await browser.close()}
           JS
