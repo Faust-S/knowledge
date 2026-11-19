@@ -783,6 +783,7 @@ jobs:
                 # does not fire the native keyboard events needed for onChange.
                 Add-Type -Namespace D07Native -Name Foreground -MemberDefinition '[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr hWnd); [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();'
                 Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class D07RegularPointer { [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y); [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint x,uint y,uint data,UIntPtr extra); }'
+                Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class D07UnicodeKeys { [StructLayout(LayoutKind.Sequential)] public struct INPUT { public int type; public InputUnion u; } [StructLayout(LayoutKind.Explicit)] public struct InputUnion { [FieldOffset(0)] public MOUSEINPUT mi; [FieldOffset(0)] public KEYBDINPUT ki; [FieldOffset(0)] public HARDWAREINPUT hi; } [StructLayout(LayoutKind.Sequential)] public struct MOUSEINPUT { public int dx; public int dy; public uint mouseData; public uint flags; public uint time; public IntPtr extra; } [StructLayout(LayoutKind.Sequential)] public struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint flags; public uint time; public IntPtr extra; } [StructLayout(LayoutKind.Sequential)] public struct HARDWAREINPUT { public uint msg; public ushort p1; public ushort p2; } [DllImport("user32.dll",SetLastError=true)] private static extern uint SendInput(uint count, INPUT[] inputs, int size); public static bool TypeChar(char c) { var down=new INPUT {type=1,u=new InputUnion{ki=new KEYBDINPUT{wScan=(ushort)c,flags=4}}}; var up=new INPUT {type=1,u=new InputUnion{ki=new KEYBDINPUT{wScan=(ushort)c,flags=6}}}; return SendInput(2,new INPUT[]{down,up},Marshal.SizeOf(typeof(INPUT)))==2; } }'
                 function EnterNativeText([string]$label,[string]$value) {
                   $edit=WaitNative $label ([System.Windows.Automation.ControlType]::Edit)
                   if(!$edit -or !$edit.Current.IsEnabled){throw 'D07_NATIVE_REGULAR_EDIT_NOT_AVAILABLE'}
@@ -837,12 +838,14 @@ jobs:
                   Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_FOREGROUND='+$front)
                   Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_ONSCREEN='+(!$edit.Current.IsOffscreen))
                   if(!$focus -or !$front){throw 'D07_NATIVE_REGULAR_KEYBOARD_FOCUS_FAILED'}
-                  [System.Windows.Forms.SendKeys]::SendWait('^a')
-                  # Key-by-key typing permits React to commit controlled state
-                  # between native events rather than dropping a burst of keys.
+                  # Use trusted native Unicode key-down/up pairs. SendKeys
+                  # did not deliver printable text on this CI desktop, though
+                  # keyboard focus and the foreground window were correct.
                   foreach($character in $value.ToCharArray()){
-                    [System.Windows.Forms.SendKeys]::SendWait([string]$character)
-                    Start-Sleep -Milliseconds 45
+                    if(-not [D07UnicodeKeys]::TypeChar([char]$character)){
+                      throw 'D07_NATIVE_REGULAR_UNICODE_SENDINPUT_FAILED'
+                    }
+                    Start-Sleep -Milliseconds 55
                   }
                   Start-Sleep -Milliseconds 500
                   $vp=$null
