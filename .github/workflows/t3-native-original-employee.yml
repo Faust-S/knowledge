@@ -28,7 +28,7 @@ jobs:
     # signed Task taskId/executorId (never compare to raw id/assignedTo).
     if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-native-d3]') }}
     runs-on: windows-2022
-    timeout-minutes: 26
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -68,6 +68,58 @@ jobs:
             $gitOpenSSL | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           }
           "G4_ORIGINAL_QUALIFIED_T2_DIST=$qualified" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Stage real local Ollama model and existing Agent Python dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --disable-pip-version-check --no-input -q attrs==26.1.0 jsonschema==4.26.0 jsonschema-specifications==2025.9.1 pypdf==6.21.4 referencing==0.37.0 rpds-py==2026.5.1 cryptography==50.0.2
+          if ($LASTEXITCODE -ne 0) { throw 'G4_AGENT_EXISTING_CORE_DEPENDENCIES_FAILED' }
+          $archive = Join-Path $env:RUNNER_TEMP 'g4-ollama-v0.40.16.zip'
+          Invoke-WebRequest -Uri 'https://github.com/ollama/ollama/releases/download/v0.40.16/ollama-windows-amd64.zip' -OutFile $archive
+          $observed = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($observed -ne '50fcf5ad54277f2fa5d173ebfc93bcb017adbc0c9ef2314daabc96ca9e6aa64e') {
+            throw 'G4_OLLAMA_OFFICIAL_RELEASE_SHA256_CHANGED'
+          }
+          $binaryRoot = Join-Path $env:RUNNER_TEMP 'g4-agent-ollama'
+          Expand-Archive -LiteralPath $archive -DestinationPath $binaryRoot -Force
+          Remove-Item -LiteralPath $archive -Force
+          $exe = @(Get-ChildItem -LiteralPath $binaryRoot -Filter 'ollama.exe' -File -Recurse)
+          if ($exe.Count -ne 1) { throw 'G4_OLLAMA_ORIGINAL_EXECUTABLE_INVALID' }
+          $models = Join-Path $env:RUNNER_TEMP 'g4-original-agent-models'
+          New-Item -ItemType Directory -Force -Path $models | Out-Null
+          $env:OLLAMA_MODELS = $models
+          $env:OLLAMA_HOST = '127.0.0.1:11434'
+          $env:OLLAMA_NO_CLOUD = '1'
+          $server = Start-Process -FilePath $exe[0].FullName -ArgumentList 'serve' -WindowStyle Hidden -PassThru
+          if (-not $server -or $server.HasExited) { throw 'G4_OLLAMA_LOCAL_SERVER_START_FAILED' }
+          $ready = $false
+          for ($i = 0; $i -lt 90; $i++) {
+            try {
+              $version = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/version' -TimeoutSec 2
+              if ($version.version) { $ready = $true; break }
+            } catch {}
+            Start-Sleep -Seconds 1
+          }
+          if (-not $ready) { throw 'G4_OLLAMA_LOCAL_SERVER_NOT_READY' }
+          & $exe[0].FullName pull 'qwen3:0.6b' *> $null
+          if ($LASTEXITCODE -ne 0) { throw 'G4_AGENT_ORIGINAL_LOCAL_MODEL_PULL_FAILED' }
+          $inventory = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 10
+          $matches = @($inventory.models | Where-Object {
+            $_.name -eq 'qwen3:0.6b' -and $_.digest -match '^[0-9a-f]{64}
+        env:
+          T3_READ_TOKEN: ${{ secrets.T3 || secrets.DOMEN }}
+          AGENT_READ_TOKEN: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
+        shell: pwsh
+        run: node packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs
+
+          })
+          if ($matches.Count -ne 1) { throw 'G4_AGENT_LOCAL_MODEL_WEIGHTS_UNVERIFIED' }
+          "OLLAMA_HOST=127.0.0.1:11434" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "OLLAMA_MODELS=$models" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "OLLAMA_NO_CLOUD=1" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "G4_AGENT_OLLAMA_BASE_URL=http://127.0.0.1:11434" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "G4_AGENT_OLLAMA_MODEL=qwen3:0.6b" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output 'G4_AGENT_ORIGINAL_LOCAL_OLLAMA_WEIGHTS_READY'
       - name: Separate original owner / Agent Node-Python Windows process
         env:
           T3_READ_TOKEN: ${{ secrets.T3 || secrets.DOMEN }}
