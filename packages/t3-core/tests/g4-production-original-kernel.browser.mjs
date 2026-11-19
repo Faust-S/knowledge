@@ -392,11 +392,16 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
       G4_CONTROL_ROOT:employeeCandidateRoot,
       G4_INVITE_PATH:invitePath,G4_TASK_PATH:taskPath,
       G4_RESULT_PATH:resultPath,
+      G4_AGENT_CORE_ROOT:join(workRoot,'production-agent-core'),
+      G4_AGENT_OLLAMA_BASE_URL:process.env.G4_AGENT_OLLAMA_BASE_URL??'',
+      G4_AGENT_OLLAMA_MODEL:process.env.G4_AGENT_OLLAMA_MODEL??'',
+      OLLAMA_HOST:process.env.OLLAMA_HOST??'',
+      OLLAMA_MODELS:process.env.OLLAMA_MODELS??'',
     };
     const subprocess=spawnSync(process.env.PYTHON_COMMAND??'python',
       [pythonDriver],{
         cwd:workRoot,env:employeeEnvironment,encoding:'utf8',
-        windowsHide:true,timeout:150000,maxBuffer:256*1024,
+        windowsHide:true,timeout:420000,maxBuffer:256*1024,
       });
     const employeeOutput=(subprocess.stdout??'')+'\n'+(subprocess.stderr??'');
     if(subprocess.status!==0){
@@ -411,6 +416,8 @@ export async function qualifyOriginalProductionEmployeeRealKernel({
       no('G4_PRODUCTION_AGENT_ORIGINAL_IPC_NOT_ACCEPTED');
     }
     for(const marker of [
+      'G4_ORIGINAL_AGENT_CORE_REAL_LOCAL_MODEL_SOURCE_PASS',
+      'G4_ORIGINAL_AGENT_CORE_ACCEPTED_RESULT_PROOF_SOURCE_PASS',
       'G4_ORIGINAL_NATIVE_EMPLOYEE_SIGNED_TASK_PASS',
       'G4_ORIGINAL_NATIVE_EMPLOYEE_SIGNED_RESULT_PASS',
       'G4_ORIGINAL_NATIVE_EMPLOYEE_COLD_NO_REEXPORT_PASS',
