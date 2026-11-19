@@ -36,3 +36,15 @@
 Ссылки на реализацию: `packages/t3-core/tests/g4-original-agent-native-driver.py`, `packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs`, `.github/workflows/t3-native-original-employee.yml`; Agent `runtime/t3_original_employee_port.py` и `runtime/t3_original_employee_worker.mjs`.
 
 Нормативным машиночитаемым статусом остаётся `packages/t3-core/handoff/G4_PRODUCT_RELEASE_EVIDENCE_CURRENT.json`. Исторические CI FAIL #44569790539 и #44570223585 не скрываются: первый обнаружил несоответствие формы ответа scheduler, второй выявил отсутствовавшие первичные операции сотрудника в новом Agent; оба дефекта исправлены перед SUCCESS #44571096678.
+
+## 19.11: два Windows SID с оригинальным Agent IPC
+
+**Факт:** [публичный Windows CI №44589568659](https://github.com/Faust-S/knowledge/actions/runs/44589568659) = **SUCCESS**, ревизия `knowledge@9439db65f156b7ed17f5c180c7217b8828a49939`, оригинальный T3 `1a8267634955947bc0c6adc5614d7de176a33da2`, центральный Agent 0.6 `dff16da239882582d305a7fb4fc429ef7d58be3a`.
+
+Подтверждены четыре исходных нативных признака: `G4_ORIGINAL_AGENT_SECOND_SID_NATIVE_FIRST_USE_PASS`, `G4_ORIGINAL_AGENT_SECOND_SID_NATIVE_DPAPI_COLD_PASS`, `G4_ORIGINAL_AGENT_SECOND_SID_NATIVE_SIGNED_PROOF_PASS`, `G4_ORIGINAL_AGENT_SECOND_SID_CRYPTO_PROOF_VERIFIED_PASS`. Реальный второй Windows user SID выполнил первичную регистрацию сотрудника через штатные `OriginalEmployeePort` и Node-worker; его оригинальный DPAPI-кандидат восстановлен другим процессом, а оригинальная Ed25519-подпись вызова проверена публичным ключом сотрудника. Это **source/native-process** квалификация, не установленный Agent Tauri и не реальные клики Human ACCEPT/APPLY.
+
+Причина длительного отказа: исходные приватные модули находились в пользовательском TEMP руководителя, через который второй Windows SID не мог безопасно пройти. Исправление не выдаёт прав на TEMP руководителя: оно размещает **строго закреплённые необходимые исходные модули** во временном каталоге второго пользователя внутри ProgramData, проверяет ACL, не переносит менеджерские vault, правомочия или Kernel. Весь временный исходный код удалён после проверки; приватные Actions и артефакты не использованы. Прежний отдельный Windows OS SID/DPAPI PASS №44577052493 сохранён.
+
+Объединённый исходный D3 с Qwen3, оригинальным Kernel, 23 прежними проверками и четырьмя новыми проверками запущен дополнительно; не считать его SUCCESS до завершённого CI. Даже полный исходный SUCCESS не заменит установленные независимые native Agent/Admin, физические Human ACCEPT и отдельный APPLY, D6_GENERIC, D7_PERSON, D5.
+
+**Статус:** `T3_READY=false`, `G4=NOT_ACCEPTED`.
