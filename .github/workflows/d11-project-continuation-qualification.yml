@@ -35,14 +35,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 7e750f9daeb199ff02cb8daf093803107d7fa8c5
+          ref: f7494f878bf3093ecf5cfe796a51cfcde9eea92c
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics
-          ref: f4e7d63198ec101cc53ae51a007bb709e1336d50
+          ref: d06d386bfaab886e04c721545dee2c5e833789f4
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -64,8 +64,8 @@ jobs:
           $t2=(git -C ../t2 rev-parse HEAD).Trim()
           Write-Output "D11_PROJECT_SITE_HEAD=$site"
           Write-Output "D11_PROJECT_DOMAIN_HEAD=$domain"
-          if ($site -ne "7e750f9daeb199ff02cb8daf093803107d7fa8c5" -or
-              $domain -ne "f4e7d63198ec101cc53ae51a007bb709e1336d50") {
+          if ($site -ne "f7494f878bf3093ecf5cfe796a51cfcde9eea92c" -or
+              $domain -ne "d06d386bfaab886e04c721545dee2c5e833789f4") {
             throw "D11_PROJECT_QUALIFICATION_REVISION_CHANGED"
           }
           if ($t2 -ne "e70de29b72b83e2546f7ab74b17572685a728c17") { throw "D11_NORMATIVE_T2_CHANGED" }
@@ -90,6 +90,11 @@ jobs:
         run: |
           & node --experimental-strip-types --test tests/d11-dashboard-projection.test.mjs
           if ($LASTEXITCODE -ne 0) { throw "D11_PROJECT_IDENTITY_TEST_FAILED" }
+          & node --experimental-strip-types --test ../domain/tests/case009-to-case010.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "D11_CANONICAL_WAREHOUSE_TRANSFER_FAILED" }
+          & node --experimental-strip-types --test tests/d11-warehouse-to-order.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "D11_SITE_WAREHOUSE_TRANSFER_FAILED" }
+          Write-Output "D11_CASE009_TO_CASE010_DOMAIN_AND_SITE=PASS"
           & npx --no-install tsc --noEmit --project tsconfig.json *> (Join-Path $env:RUNNER_TEMP "d11-types.log")
           if ($LASTEXITCODE -ne 0) { throw "D11_PROJECT_TYPES_FAILED" }
           Write-Output "D11_PROJECT_IDENTITY_AND_TYPES=PASS"
