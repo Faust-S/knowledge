@@ -199,7 +199,7 @@ try {
     operationDigest='1' * 64
   }
   $requestFile = Join-Path $root 'proof-request.json'
-  [IO.File]::WriteAllText($requestFile,(ConvertTo-Json $request -Compress -Depth 4),[Text.Encoding]::UTF8)
+  [IO.File]::WriteAllText($requestFile,(ConvertTo-Json $request -Compress -Depth 4),[System.Text.UTF8Encoding]::new($false))
   $salt = New-Object byte[] 32
   [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($salt)
   $challenge = -join ($salt | ForEach-Object { $_.ToString('x2') })
@@ -217,7 +217,7 @@ try {
   $verified = @{schema='G4_ORIGINAL_AGENT_TWO_SID_PROOF/1';
     managerSid=$managerSid;employeeSid=$employeeSid;
     candidate=$candidate;proof=$proved.proof;challenge=$challenge;request=$request}
-  [IO.File]::WriteAllText($public,(ConvertTo-Json $verified -Compress -Depth 16),[Text.Encoding]::UTF8)
+  [IO.File]::WriteAllText($public,(ConvertTo-Json $verified -Compress -Depth 16),[System.Text.UTF8Encoding]::new($false))
   $proofVerifier = Join-Path $root 'verify-original-employee-proof.mjs'
   $verifyCode = @'
 import {readFileSync} from 'node:fs';
