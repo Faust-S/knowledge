@@ -10,7 +10,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 79536258d4a52d4c7389fe79da6d239da0d75a80
+      SITE_SHA: 97a05c4d97e1ea5655b158dd190c741dbc7508e6
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -887,6 +887,30 @@ jobs:
                   Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_VALUE_LENGTH='+$current.Length)
                   Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_FOCUS_AFTER='+$edit.Current.HasKeyboardFocus)
                   Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_TYPED='+$match)
+                  if(!$match){
+                    # Real OS clipboard paste is another accessible native path.
+                    # It triggers browser paste/input, not JS DOM property writes.
+                    try{
+                      [System.Windows.Forms.Clipboard]::SetText($value)
+                      $edit=WaitNative $label ([System.Windows.Automation.ControlType]::Edit)
+                      $edit.SetFocus()
+                      Start-Sleep -Milliseconds 160
+                      [System.Windows.Forms.SendKeys]::SendWait('^a')
+                      [System.Windows.Forms.SendKeys]::SendWait('^v')
+                      Start-Sleep -Milliseconds 450
+                      $fresh=WaitNative $label ([System.Windows.Automation.ControlType]::Edit)
+                      $pattern=$null
+                      if($fresh.TryGetCurrentPattern(
+                        [System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern)){
+                        $match=([System.Windows.Automation.ValuePattern]$pattern).Current.Value -ceq $value
+                      }
+                    }catch{
+                      Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_PASTE_EXCEPTION=YES')
+                    }finally{
+                      try{[System.Windows.Forms.Clipboard]::Clear()}catch{}
+                    }
+                    Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_PASTED='+$match)
+                  }
                   if(!$match){throw 'D07_NATIVE_REGULAR_KEYBOARD_VALUE_MISMATCH'}
                 }
                 EnterNativeText 'Наименование' 'Weekly premises service'
