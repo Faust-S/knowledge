@@ -15,8 +15,8 @@ jobs:
       matrix:
         runner: [windows-latest, ubuntu-latest]
     env:
-      SITE_SHA: 756cf0fdba3a1a061c05a73e1e2b1bdd5ede45bb
-      SUBJECT_SHA: 6980a7983b8f3009d861db4f344388bf9f4ed922
+      SITE_SHA: 9cef964aeea3ced832514f29db3939e3012f868a
+      SUBJECT_SHA: 7dc65ef81bfdf9f2933792884d6e05f3c37f7607
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -69,10 +69,12 @@ jobs:
           if((git -C site rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D07_SITE_SHA_MISMATCH'}
           if((git -C subject rev-parse HEAD).Trim() -ne $env:SUBJECT_SHA){throw 'D07_SUBJECT_SHA_MISMATCH'}
           if((git -C t2 rev-parse HEAD).Trim() -ne $env:T2_SHA){throw 'D07_T2_SHA_MISMATCH'}
-          $a=(Get-FileHash subject/src/domain/service-blocks.ts -Algorithm SHA256).Hash
-          $b=(Get-FileHash site/src/domain/service-blocks.ts -Algorithm SHA256).Hash
-          $c=(Get-FileHash site/t2-site-module/uslugovod/service-blocks.ts -Algorithm SHA256).Hash
-          if($a -ne $b -or $a -ne $c){throw 'D07_SERVICE_BLOCKS_SEMANTIC_SOURCE_DRIFT'}
+          foreach($name in @('service-blocks.ts','service-execution.ts','service-changes.ts')){
+            $a=(Get-FileHash (Join-Path 'subject/src/domain' $name) -Algorithm SHA256).Hash
+            $b=(Get-FileHash (Join-Path 'site/src/domain' $name) -Algorithm SHA256).Hash
+            $c=(Get-FileHash (Join-Path 'site/t2-site-module/uslugovod' $name) -Algorithm SHA256).Hash
+            if($a -ne $b -or $a -ne $c){throw 'D07_SERVICE_MODEL_SOURCE_DRIFT'}
+          }
           Write-Output 'D07_CANONICAL_DOMAIN_TO_T2_PARITY=PASS'
       - name: Install exact site dependencies
         working-directory: site
