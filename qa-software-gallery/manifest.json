@@ -1,0 +1,78 @@
+{
+  "schema": "IWXA_REAL_EDITORIAL_SCREENSHOTS/1",
+  "records": [
+    {
+      "product": "atlas",
+      "name": "atlas-01-portfolio.webp",
+      "subject": "Портфель и восстановление локального проекта",
+      "sourceFile": "atlas06-connect-visual-atlas09-native-store-cold-open-2.png",
+      "sourceSha256": "d80f9ba4a339448a68d38b8537cffda63cb1bc37183cdb5c4ad33d8872752dc1",
+      "assetSha256": "f4fa6504b5f80aca9bdacdfdc2bfa024ad2392d710fc49424cacbeb0207e03dd",
+      "width": 1008,
+      "height": 701,
+      "run": 44612742339,
+      "productSha": "19ea3d228c585a1c50e749632c2f2df1a71c7c33"
+    },
+    {
+      "product": "atlas",
+      "name": "atlas-02-works.webp",
+      "subject": "Таблица работ и несохранённые изменения",
+      "sourceFile": "atlas06-connect-visual-atlas08-two-work-corrections-not-saved-820.png",
+      "sourceSha256": "5dab822e046001509acc167683bf0620fd50f6bcfb8447daed19497e0675f5dd",
+      "assetSha256": "b6efca79418177d2c2b18d9025df770d6cb09eb1e3763ce3ed52d551cf9b787c",
+      "width": 804,
+      "height": 642,
+      "run": 44612742339,
+      "productSha": "19ea3d228c585a1c50e749632c2f2df1a71c7c33"
+    },
+    {
+      "product": "atlas",
+      "name": "atlas-03-impact.webp",
+      "subject": "Прогноз влияния изменения длительности",
+      "sourceFile": "atlas06-connect-visual-atlas08-cumulative-work-forecast-820.png",
+      "sourceSha256": "30abbfa33f2fe7b332dbbe70c74d48e796b91c5eff62ecec52ced9c167890497",
+      "assetSha256": "71b7ad3d0f7bacd1e2b3d1cd76ca42db2349744a07fd0082b97b372c68dfcd2c",
+      "width": 804,
+      "height": 642,
+      "run": 44612742339,
+      "productSha": "19ea3d228c585a1c50e749632c2f2df1a71c7c33"
+    },
+    {
+      "product": "admin",
+      "name": "admin-01-atlas-work.webp",
+      "subject": "Связанный проект Atlas и рабочие объекты",
+      "sourceFile": "admin-01-atlas-work.png",
+      "sourceSha256": "dfc999722872d97979639422ef125e75a549d93e4cd83cf98f549dc379de6127",
+      "assetSha256": "95c37df7ed76cb95ee331a487ae02785965ed3192ffdb7838516367b4eb33cf5",
+      "width": 1024,
+      "height": 768,
+      "run": 44629675478,
+      "productSha": "2628c4bc1b20b4393c485d12513f029fdea8b082"
+    },
+    {
+      "product": "admin",
+      "name": "admin-02-assignment-editor.webp",
+      "subject": "Редактирование поручения с критериями",
+      "sourceFile": "admin-02-assignment-editor.png",
+      "sourceSha256": "e19434d97df06f7bef94ef52393fa54d317c6414882463c0738ea0bb55d3800a",
+      "assetSha256": "aa922197896f9feb78e0d7a8867bf9072daaf14469a0de12b403c4caf9d1c2f4",
+      "width": 1024,
+      "height": 768,
+      "run": 44629675478,
+      "productSha": "2628c4bc1b20b4393c485d12513f029fdea8b082"
+    },
+    {
+      "product": "admin",
+      "name": "admin-03-roles-seats.webp",
+      "subject": "Сотрудники, роли и планирование агентских мест",
+      "sourceFile": "admin-03-roles-seats.png",
+      "sourceSha256": "f5f1bdc45c40eadfccf4d0acc8b1d791915fc6208a50c58da2545d7b0a674809",
+      "assetSha256": "f40babaa29dfe38fc06aa401deb4ef747679c6198f4d38aed2f11baef887dc0c",
+      "width": 1024,
+      "height": 768,
+      "run": 44629675478,
+      "productSha": "2628c4bc1b20b4393c485d12513f029fdea8b082"
+    }
+  ],
+  "operations": "Crop real native window bounds; encode as WebP. No simulated program UI."
+}
