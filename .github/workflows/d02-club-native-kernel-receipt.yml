@@ -156,8 +156,13 @@ jobs:
             )
             Invoke 'Новая рабочая область' 'D02_RECEIPT_NEW_WORKSPACE_BUTTON_MISSING'
             Invoke 'Создать рабочую область' 'D02_RECEIPT_CREATE_NOT_AVAILABLE'
-            Start-Sleep -Seconds 2
-            Write-Output 'D02_RECEIPT_NATIVE_CREATE_CLICK=PASS'
+            $createFinished=$false
+            for($i=0;$i -lt 24;$i++){
+              if(!(Locate 'Создать рабочую область' 'button')){$createFinished=$true;break}
+              Start-Sleep -Milliseconds 500
+            }
+            if(!$createFinished){throw 'D02_RECEIPT_WORKSPACE_CREATE_NOT_CONFIRMED'}
+            Write-Output 'D02_RECEIPT_NATIVE_CREATE_UI_FINISHED=PASS'
             $b2=Start-Process -FilePath $edge -PassThru -ArgumentList @(
               '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
               "--user-data-dir=$profile","--app=$origin/workspace/#/domain"
@@ -171,12 +176,61 @@ jobs:
               $selector=Locate 'Личная рабочая область' 'combo'
               if(!$selector){throw 'D02_RECEIPT_PERSONAL_AREA_SELECTOR_NOT_FOUND'}
               Write-Output 'D02_RECEIPT_NATIVE_PERSONAL_AREA_SELECTOR=PASS'
-              Add-Type -AssemblyName System.Windows.Forms
-              $selector.SetFocus()
-              [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
-              [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
-              [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-              Start-Sleep -Seconds 2
+              $usedSelectionItem=$false
+              $options=[System.Collections.Generic.List[object]]::new()
+              try{
+                $expand=[System.Windows.Automation.ExpandCollapsePattern]$selector.GetCurrentPattern(
+                  [System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+                $expand.Expand()
+              }catch{}
+              $listItems=$selector.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                [System.Windows.Automation.PropertyCondition]::new(
+                  [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                  [System.Windows.Automation.ControlType]::ListItem))
+              foreach($item in $listItems){
+                $label=$item.Current.Name
+                if($label -and $label.StartsWith('Личная область ')){$options.Add($item)}
+              }
+              Write-Output "D02_RECEIPT_PERSONAL_AREA_OPTIONS=$($options.Count)"
+              if($options.Count -eq 0){
+                if(Locate 'Начните с личной рабочей области' ''){
+                  throw 'D02_RECEIPT_PERSONAL_AREA_NOT_AVAILABLE_IN_HOST'
+                }
+                throw 'D02_RECEIPT_PERSONAL_AREA_OPTIONS_EMPTY'
+              }
+              try{
+                $choice=[System.Windows.Automation.SelectionItemPattern]$options[0].GetCurrentPattern(
+                  [System.Windows.Automation.SelectionItemPattern]::Pattern)
+                $choice.Select()
+                $usedSelectionItem=$true
+                Write-Output 'D02_RECEIPT_PERSONAL_AREA_SELECTED_BY_UIA=PASS'
+              }catch{
+                Add-Type -AssemblyName System.Windows.Forms
+                $selector.SetFocus()
+                [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+                [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+                [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                Write-Output 'D02_RECEIPT_PERSONAL_AREA_FALLBACK_KEYBOARD=USED'
+              }
+              $editorVisible=$false
+              for($i=0;$i -lt 36;$i++){
+                if(Locate 'Создать профиль в рабочей области' 'button'){
+                  $editorVisible=$true;break
+                }
+                Start-Sleep -Milliseconds 500
+              }
+              if(!$editorVisible){
+                if(Locate 'Host не подтвердил выбранную рабочую область. Запись в Kernel недоступна.' ''){
+                  throw 'D02_RECEIPT_HOST_FOCUS_REJECTED'
+                }
+                if(Locate 'Чтение рабочих областей не разрешено Kernel.' ''){
+                  throw 'D02_RECEIPT_T2_CAPABILITY_READ_DENIED'
+                }
+                if(Locate 'Сохранённых результатов пока нет.' ''){
+                  Write-Output 'D02_RECEIPT_WORKSPACE_VIEW_RENDERED_NO_EDITOR=TRUE'
+                }
+                throw 'D02_RECEIPT_NATIVE_WORKSPACE_NOT_FOCUSED'
+              }
             }
             Invoke 'Создать профиль в рабочей области' 'D02_RECEIPT_PROFILE_EDITOR_UNAVAILABLE'
             Enter 'Как к вам обращаться' 'Club проверка пользовательской записи' 'D02_RECEIPT_ALIAS_INPUT_FAILED'
