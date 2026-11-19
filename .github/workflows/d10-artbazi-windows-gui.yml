@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: 7212bddc9b3446a2eb71e2bc95ed9e1ae910e157
+          ref: 34900d434f106b80880fe8a98a407cee5f2f048b
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -42,7 +42,7 @@ jobs:
           bun-version: "latest"
       - name: Verify pinned private and T2 source in runner
         run: |
-          if ((git -C site rev-parse HEAD).Trim() -ne "7212bddc9b3446a2eb71e2bc95ed9e1ae910e157") { throw "D10_WINDOWS_SITE_PIN_MISMATCH" }
+          if ((git -C site rev-parse HEAD).Trim() -ne "34900d434f106b80880fe8a98a407cee5f2f048b") { throw "D10_WINDOWS_SITE_PIN_MISMATCH" }
           if ((git -C t2 rev-parse HEAD).Trim() -ne "e70de29b72b83e2546f7ab74b17572685a728c17") { throw "D10_WINDOWS_T2_PIN_MISMATCH" }
           Write-Output "D10_WINDOWS_SOURCE_PINS=PASS"
       - name: Install site dependencies privately
@@ -63,8 +63,17 @@ jobs:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
         run: |
           $log="$env:RUNNER_TEMP\d10-win-build.log"
-          npm run build:t2:site *> $log
-          if($LASTEXITCODE -ne 0){
+          $errLog="$env:RUNNER_TEMP\d10-win-build-err.log"
+          Write-Output "D10_WINDOWS_BUILD_RUNNER_STARTED=PASS"
+          # Windows PowerShell 5.1 treats native stderr as a terminating
+          # NativeCommandError with Stop, even when the child is progressing.
+          # Let the child finish, capture both streams privately and inspect
+          # its real process exit code without publishing its source output.
+          $proc=Start-Process -FilePath "$env:ComSpec" -ArgumentList @("/d","/c","npm run build:t2:site") -Wait -PassThru -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $errLog
+          $exitCode=$proc.ExitCode
+          Write-Output "D10_WINDOWS_BUILD_PROCESS_REAPED=PASS"
+          if($exitCode -ne 0){
+            if(Test-Path $errLog){Get-Content $errLog | Add-Content $log}
             Get-Content $log | Select-String -Pattern 'D10_WINDOWS_BUILD_PHASE=[A-Z_]+' |
               Select-Object -Last 12 | ForEach-Object {
                 if($_.Line -match 'D10_WINDOWS_BUILD_PHASE=([A-Z_]+)'){
