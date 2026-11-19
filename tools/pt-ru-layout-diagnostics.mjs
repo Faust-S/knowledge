@@ -76,11 +76,17 @@ try{
     ["pt-analytics","/pt/science/university/obrazovatelnaya-analitika/"],
   ]){
     const s=await sample(path);
+    const readable = [s.h1,s.para].every(x =>
+      x && !x.missing && x.textRight <= x.viewport - 8 &&
+      x.elementRight <= x.viewport - 8 &&
+      x.scrollOverflow <= 1);
     console.log("UNIVERSITY_READABILITY_OBS="+JSON.stringify({
-      name,overflowClipping:s.clip,h1:s.h1,paragraph:s.para,
+      name,overflowClipping:s.clip,h1:s.h1,paragraph:s.para,readable,
     }));
+    if(!readable)failed++;
   }
   console.log("PT_LIFE_STYLE_PARITY="+qualified+"/4");
+  console.log("UNIVERSITY_READABILITY_REQUIRED=4/4");
   console.log("PT_LIFE_STYLE_FAILURES="+failed);
   if(failed)process.exitCode=1;
 }finally{await browser.close();}
