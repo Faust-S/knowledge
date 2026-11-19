@@ -271,6 +271,40 @@ jobs:
             else
               echo "D04_HOSTING_STAGE_${name}=FAIL"
               grep -Eo 'D04_HOSTING_DIST_ERROR:[A-Z_]+' "$log" | sort -u | head -10 || true
+              if [ "$stage" = check:seo ]; then
+                # Publish bounded structural issue categories only. Never emit
+                # private HTML, source excerpts, meta values, profiles, or logs.
+                python3 - "$log" <<'PY'
+          from collections import Counter
+          from pathlib import Path
+          import sys
+          data=Path(sys.argv[1]).read_text(encoding="utf-8",errors="replace")
+          counts=Counter()
+          for line in data.splitlines():
+              if not line.startswith("  - "):
+                  continue
+              issue=line[4:]
+              scope="HOST" if issue.startswith("workspace/") else ("SITEMAP" if issue.startswith("sitemap") else "PUBLIC")
+              if "нет canonical" in issue: kind="MISSING_CANONICAL"
+              elif "дублирующиеся canonical" in issue: kind="DUPLICATE_CANONICAL"
+              elif "canonical=" in issue: kind="CANONICAL_MISMATCH"
+              elif "без trailing slash" in issue: kind="TRAILING_SLASH"
+              elif "нет og:url" in issue: kind="MISSING_OG_URL"
+              elif "og:url=" in issue: kind="OG_URL_MISMATCH"
+              elif "нет meta description" in issue: kind="MISSING_DESCRIPTION"
+              elif "дублирующиеся <title>" in issue: kind="DUPLICATE_TITLE"
+              elif "нет <title>" in issue or "пустой <title>" in issue: kind="TITLE"
+              elif "noindex" in issue: kind="SITEMAP_NOINDEX"
+              elif "lastmod" in issue: kind="LASTMOD"
+              elif "sitemap" in issue: kind="SITEMAP"
+              elif "robots" in issue: kind="ROBOTS"
+              else: kind="OTHER"
+              counts[(scope,kind)]+=1
+          for (scope,kind),count in sorted(counts.items()):
+              print(f"D04_SEO_ISSUE_{scope}_{kind}={count}")
+          print("D04_SEO_ISSUE_TOTAL="+str(sum(counts.values())))
+          PY
+              fi
               failed=1
             fi
           done
