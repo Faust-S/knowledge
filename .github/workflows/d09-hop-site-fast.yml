@@ -23,7 +23,11 @@ jobs:
           node-version: '24'
       - name: Lock actual revision to observable log
         shell: bash
-        run: echo "D09_SITE_HEAD=$(git rev-parse HEAD)"
+        run: |
+          echo "D09_SITE_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "62d814d6b0caf5f9fe6e180a86ee67f5a0ba2376" || {
+            echo "D09_SITE_REVISION_CHANGED=HOLD"; exit 1;
+          }
       - name: Install exact dependencies
         shell: bash
         run: |
@@ -47,6 +51,14 @@ jobs:
             echo "D09_FAST_TESTS=FAIL"; exit 1;
           }
           echo "D09_FAST_TESTS=PASS"
+      - name: Exercise real React Result receipt and rejection UI
+        shell: bash
+        run: |
+          ./node_modules/.bin/vitest run src/components/player/ResultContinuationPanel.t2.test.tsx > "$RUNNER_TEMP/d09-t2-result-ui.log" 2>&1 || {
+            grep -E 'FAIL|AssertionError|expected|Error:' "$RUNNER_TEMP/d09-t2-result-ui.log" | tail -14 || true
+            echo "D09_T2_RESULT_UI=FAIL"; exit 1;
+          }
+          echo "D09_T2_RESULT_UI=PASS"
       - name: Compile the real Host-facing HOP module
         shell: bash
         run: |
