@@ -68,7 +68,7 @@ jobs:
             $n++
             Push-Location $root
             try{
-              & npm ci --include=dev --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP ("d08-t2-install-".$n.".private.log"))
+              & npm ci --include=dev --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP ("d08-t2-install-"+$n+".private.log"))
               if($LASTEXITCODE -ne 0){throw 'D08_T2_PUBLIC_NPM_INSTALL_FAILED'}
             } finally {Pop-Location}
             $tmp=Join-Path $env:RUNNER_TEMP ("d08-t2-offline-verify-"+$n)
@@ -77,7 +77,7 @@ jobs:
             Copy-Item (Join-Path $root 'package-lock.json') (Join-Path $tmp 'package-lock.json')
             Push-Location $tmp
             try{
-              & npm ci --offline --ignore-scripts --include=dev --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP ("d08-t2-offline-".$n.".private.log"))
+              & npm ci --offline --ignore-scripts --include=dev --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP ("d08-t2-offline-"+$n+".private.log"))
               if($LASTEXITCODE -ne 0){throw 'D08_T2_PUBLIC_NPM_OFFLINE_REPLAY_FAILED'}
             } finally {Pop-Location}
           }
