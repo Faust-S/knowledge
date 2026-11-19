@@ -1,4 +1,4 @@
-name: D12 AKIS research hub and three studies targeted qualification
+name: D12 AKIS research hub current-main integration targeted qualification
 on:
   push:
     branches: [work/2026-11-02-pipeline-foundation]
@@ -26,12 +26,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: 3b25f600addd163377c49dc6223bf2c752c17e5c
+          ref: 182a496b2397db815f25b1563b3e478d1d15dd50
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Verify source identity without printing private code
         run: |
-          test "$(git rev-parse HEAD)" = "3b25f600addd163377c49dc6223bf2c752c17e5c" || exit 1
+          test "$(git rev-parse HEAD)" = "182a496b2397db815f25b1563b3e478d1d15dd50" || exit 1
           test -f src/routes/science.akis-production.tsx || exit 1
           test -f src/routes/science.akis-operator.tsx || exit 1
           test -f src/routes/science.akis-interfirm.tsx || exit 1
