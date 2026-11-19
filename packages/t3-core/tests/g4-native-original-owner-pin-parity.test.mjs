@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {dirname,resolve} from 'node:path';
 import {T3_ORIGINAL_NATIVE_EMPLOYEE_PIN} from '../scripts/qualify-native-corporate-agent-process.mjs';
 import {AGENT_ORIGINAL_PIN} from '../scripts/qualify-original-agent-d3-port.mjs';
-const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../../..');
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
 const installed=readFileSync(
   resolve(root,'.github/workflows/t3-installed-original-admin-center.yml'),'utf8');
 test('source Agent D3 witness uses the exact installed original private T3 Owner SHA',()=>{
