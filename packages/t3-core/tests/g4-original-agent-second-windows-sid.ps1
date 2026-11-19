@@ -175,6 +175,7 @@ try {
   function Invoke-OriginalEmployee {
     param([string]$Mode,[string]$RequestPath='',[string]$Challenge='')
     $script:sequence++
+    $script:phase = 'AGENT_IPC_PREPARE_PUBLIC_INPUT'
     $requestFile = Join-Path $root ('call-' + $script:sequence + '.json')
     $replyFile = Join-Path $root ('reply-' + $script:sequence + '.json')
     $configuration = @{
@@ -186,10 +187,13 @@ try {
     [IO.File]::WriteAllText($requestFile,(ConvertTo-Json $configuration -Compress -Depth 6),[Text.Encoding]::UTF8)
     $args = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
       $worker + '" -ConfigPath "' + $requestFile + '" -OutputPath "' + $replyFile + '"'
+    $script:phase = 'AGENT_IPC_SECOND_USER_PROCESS_START'
     $process = Start-Process -FilePath $exe -ArgumentList $args -Credential $credential -LoadUserProfile -PassThru -Wait -WindowStyle Hidden -ErrorAction Stop
+    $script:phase = 'AGENT_IPC_READ_SECOND_USER_REPLY'
     if (-not (Test-Path -LiteralPath $replyFile)) {
       throw 'G4_ORIGINAL_AGENT_SECOND_SID_RESPONSE_MISSING'
     }
+    $script:phase = 'AGENT_IPC_PARSE_SECOND_USER_REPLY'
     $readback = Get-Content -LiteralPath $replyFile -Raw | ConvertFrom-Json
     if ($readback.sid -ne $employeeSid -or $readback.sid -eq $managerSid) {
       throw 'G4_ORIGINAL_AGENT_SECOND_SID_IDENTITY_CHANGED'
@@ -201,6 +205,7 @@ try {
       }
       throw 'G4_ORIGINAL_AGENT_SECOND_SID_BRIDGE_FAILED'
     }
+    $script:phase = 'AGENT_IPC_PARSE_ORIGINAL_T3_RESPONSE'
     try { return ($readback.output | ConvertFrom-Json -ErrorAction Stop) }
     catch { throw 'G4_ORIGINAL_AGENT_SECOND_SID_JSON_RESPONSE_INVALID' }
   }
@@ -341,6 +346,18 @@ if(!okay)process.exit(3);
     } else {
       Write-Output 'G4_ORIGINAL_EMPLOYEE_OS_FAILURE_KIND OTHER'
     }
+  }
+  $exceptionClass = $_.Exception.GetType().Name
+  if ($exceptionClass -match '^[A-Za-z]{3,55}$') {
+    Write-Output ('G4_ORIGINAL_AGENT_TWO_SID_ERROR_CLASS ' + $exceptionClass.ToUpperInvariant())
+  }
+  $fqid = [string]$_.FullyQualifiedErrorId
+  if ($fqid -match '^[A-Za-z][A-Za-z0-9_,.:-]{1,110}$') {
+    Write-Output ('G4_ORIGINAL_AGENT_TWO_SID_ERROR_FQID ' + $fqid.ToUpperInvariant())
+  }
+  $nativeError = $_.Exception.NativeErrorCode
+  if ($nativeError -is [int] -and $nativeError -ge 0 -and $nativeError -le 65535) {
+    Write-Output ('G4_ORIGINAL_AGENT_TWO_SID_NATIVE_OS_CODE ' + [string]$nativeError)
   }
   Write-Output ('G4_ORIGINAL_AGENT_TWO_SID_FAILURE_PHASE ' + $phase)
   Write-Output ('G4_ORIGINAL_AGENT_TWO_SID_FAILURE_CODE ' + $code)
