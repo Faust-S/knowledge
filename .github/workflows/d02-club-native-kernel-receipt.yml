@@ -1058,7 +1058,10 @@ jobs:
             # exact one-Result proposal and validated its session envelope.
             $preview=$null
             for($i=0;$i -lt 70;$i++){
-              $preview=Prefix 'Файл: Результат из текущей страницы' ''
+              # Chromium accessibility splits the "Файл:" wrapper from its
+              # static filename span. The exact live one-Result source label
+              # exists only after Host accepted and parsed the proposal.
+              $preview=Prefix 'Результат из текущей страницы' ''
               if($preview){break}
               Start-Sleep -Milliseconds 350
             }
