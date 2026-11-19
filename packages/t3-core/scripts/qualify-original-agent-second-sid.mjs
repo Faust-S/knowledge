@@ -106,7 +106,7 @@ export async function qualifyOriginalTwoSid({
       console.log('G4_ORIGINAL_TWO_SID_FAILURE_CODE',
         code(extract('G4_ORIGINAL_AGENT_TWO_SID_FAILURE_CODE')));
       console.log('G4_ORIGINAL_TWO_SID_ACL_STATUS',
-        output.match(/G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_(GRANT|ISOLATE)_EXIT\s+([0-9]{1,6})/)
+        output.match(/G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_(?:GRANT|ISOLATE|ACL)_EXIT\s+([0-9]{1,6})/)
           ?.slice(1).join('_')??'NOT_OBSERVED');
       const klass=extract('G4_ORIGINAL_EMPLOYEE_OS_FAILURE_CLASS');
       const fqid=extract('G4_ORIGINAL_EMPLOYEE_OS_FAILURE_FQID');
