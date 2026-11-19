@@ -148,6 +148,10 @@ jobs:
           test -f dist/workspace/exchange/index.html
           test -f dist/workspace/lifecycle/index.html
           test -f dist/_iwxa/runtime/0.3.6/runtime.js
+          test ! -e dist/workspace/studio/index.html || { echo "D09_ENGINEERING_STUDIO_PUBLISHED=FAIL"; exit 1; }
+          test ! -e dist/workspace/studio.html || { echo "D09_ENGINEERING_STUDIO_PUBLISHED=FAIL"; exit 1; }
+          test ! -e dist/studio.html || { echo "D09_ENGINEERING_STUDIO_PUBLISHED=FAIL"; exit 1; }
+          echo "D09_ENGINEERING_STUDIO_EXCLUDED=PASS"
           echo "D09_INTEGRATED_STATIC_DIST=PASS"
       - name: Verify real T2 Host under strict HTTPS CSP
         shell: bash
