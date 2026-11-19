@@ -32,6 +32,9 @@ jobs:
         shell: bash
         run: |
           echo "D09_SITE_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "fe9b761cbe2eb6d2e726ba78d83ef7ae4edfe096" || {
+            echo "D09_SITE_REVISION_CHANGED=HOLD"; exit 1;
+          }
           node --experimental-strip-types --test tests/d09-read-model-guards.test.mjs > "$RUNNER_TEMP/d09-result-source.log" 2>&1 || {
             echo "D09_RESULT_SOURCE_GUARD=FAIL"; exit 1;
           }
