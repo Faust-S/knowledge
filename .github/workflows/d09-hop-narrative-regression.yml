@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           echo "D09_SITE_HEAD=$(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD)" = "6dd675953a56aa8acc602e67706610e1b8fd0981" || {
+          test "$(git rev-parse HEAD)" = "b79323988f3a54eee2d44c95e22dc235d27474c7" || {
             echo "D09_SITE_REVISION_CHANGED=HOLD"; exit 1;
           }
           node --experimental-strip-types --test tests/d09-read-model-guards.test.mjs > "$RUNNER_TEMP/d09-result-source.log" 2>&1 || {
@@ -182,6 +182,13 @@ jobs:
           test ! -e dist/studio.html || { echo "D09_ENGINEERING_STUDIO_PUBLISHED=FAIL"; exit 1; }
           echo "D09_ENGINEERING_STUDIO_EXCLUDED=PASS"
           echo "D09_INTEGRATED_STATIC_DIST=PASS"
+      - name: Check deployed Apache routing and mutable Kernel cache policy
+        shell: bash
+        run: |
+          npm run check:htaccess > "$RUNNER_TEMP/d09-htaccess.log" 2>&1 || {
+            echo "D09_APACHE_HOSTING_POLICY=FAIL"; exit 1;
+          }
+          echo "D09_APACHE_HOSTING_POLICY=PASS"
       - name: Verify real T2 Host under strict HTTPS CSP
         shell: bash
         run: |
@@ -198,3 +205,16 @@ jobs:
           export D09_PREVIEW_CERT_PATH="$RUNNER_TEMP/d09-tls/cert.pem"
           node tests/d09-strict-csp-host-witness.mjs
       # No artifacts, private files, package, secrets or runtime are published.
+
+      - name: Report full lint independently of known upstream CSP failure
+        if: always()
+        shell: bash
+        run: |
+          if npm run lint > "$RUNNER_TEMP/d09-lint-full.log" 2>&1; then
+            echo "D09_FULL_LINT=PASS"
+          else
+            echo "D09_FULL_LINT=FAIL"
+            grep -E 'problems? \(' "$RUNNER_TEMP/d09-lint-full.log" | tail -2 || true
+            grep -E 'error  |warning  ' "$RUNNER_TEMP/d09-lint-full.log" | sed -E 's/^.*(prettier|typescript-eslint|react-hooks|react-refresh).*$/\1/' | sort | uniq -c | tail -10 || true
+            exit 1
+          fi
