@@ -255,21 +255,44 @@ function DiagnoseSignedOwner(){
       Write-Host "G4_INSTALLED_FIRST_USE_NATIVE_OWNER_UI_CLASS $([Array]::IndexOf(@('NOT_CONNECTED:','OWNER_READ_FAILED:','Подключение T3 не началось:','Оригинальный подписанный T3-владелец организации подключён.'),$class))"
     }
   }
-  # Presence only, never open or print private DPAPI/Ed25519 files.
-  $config=Get-ItemProperty -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center' -ErrorAction Stop
-  $rootPath=[string]$config.DataLocation
-  if($rootPath -and (Test-Path -LiteralPath $rootPath)){
-    $organizations=Join-Path $rootPath 't3-admin/organizations'
-    $scopes=@(Get-ChildItem -LiteralPath $organizations -Directory -ErrorAction SilentlyContinue)
-    Write-Host "G4_INSTALLED_FIRST_USE_NATIVE_OWNER_SCOPE_COUNT $($scopes.Count)"
-    if($scopes.Count -eq 1){
-      $expected=@('registry.json','identity.json','vault.json',
-        'operators.json','master-secret.dpapi.json')
-      $present=@($expected|Where-Object {
-        Test-Path -LiteralPath (Join-Path $scopes[0].FullName $_) -PathType Leaf
-      })
-      Write-Host "G4_INSTALLED_FIRST_USE_NATIVE_OWNER_REQUIRED_FILES $($present.Count)"
+  # The original Setup Core may omit DataLocation: Center then uses
+  # app_local_data_dir() for its canonical Tauri identifier. Never read
+  # secrets; inspect file presence only, with no raw paths in public logs.
+  try{
+    $config=Get-ItemProperty -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center' -ErrorAction Stop
+    $rootPath=''
+    if($config.PSObject.Properties.Name -contains 'DataLocation'){
+      $rootPath=[string]$config.DataLocation
+    }elseif($env:LOCALAPPDATA){
+      $rootPath=Join-Path $env:LOCALAPPDATA 'ru.iwxa.admin-center'
+      Write-Host 'G4_INSTALLED_FIRST_USE_NATIVE_OWNER_DATA_ROOT_APP_LOCAL_FALLBACK'
     }
+    if($rootPath -and (Test-Path -LiteralPath $rootPath)){
+      $organizations=Join-Path $rootPath 't3-admin/organizations'
+      $scopes=@(Get-ChildItem -LiteralPath $organizations -Directory -ErrorAction SilentlyContinue)
+      Write-Host "G4_INSTALLED_FIRST_USE_NATIVE_OWNER_SCOPE_COUNT $($scopes.Count)"
+      if($scopes.Count -eq 1){
+        $expected=@('registry.json','identity.json','vault.json',
+          'operators.json','master-secret.dpapi.json')
+        $present=@($expected|Where-Object {
+          Test-Path -LiteralPath (Join-Path $scopes[0].FullName $_) -PathType Leaf
+        })
+        $original=@('registry.json','identity.json','vault.json',
+          'personal-control/vault.json','personal-control/identity.json',
+          'personal-control/trust.json')
+        $provisioned=@($original|Where-Object {
+          Test-Path -LiteralPath (Join-Path $scopes[0].FullName $_) -PathType Leaf
+        })
+        Write-Host "G4_INSTALLED_FIRST_USE_NATIVE_OWNER_REQUIRED_FILES $($present.Count)"
+        Write-Host "G4_INSTALLED_FIRST_USE_NATIVE_OWNER_ORIGINAL_FILES $($provisioned.Count)"
+      }
+    }else{
+      Write-Host 'G4_INSTALLED_FIRST_USE_NATIVE_OWNER_DATA_ROOT_NOT_FOUND'
+    }
+  }catch{
+    # Diagnostics must never turn the original signed Owner failure into an
+    # unrelated PowerShell exception or reveal filesystem/registry paths.
+    Write-Host 'G4_INSTALLED_FIRST_USE_NATIVE_OWNER_DIAGNOSTICS_UNAVAILABLE'
   }
 }
 function StartCenter(){
