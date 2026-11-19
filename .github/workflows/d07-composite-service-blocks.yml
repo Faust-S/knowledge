@@ -127,7 +127,7 @@ jobs:
           }
           Write-Output 'D07_BLOCKS_TYPES=PASS'
           $log=Join-Path $env:RUNNER_TEMP 'd07-blocks-build.private.log'
-          & bun run build:t2-integrated *> $log
+          & bun run build *> $log
           if($LASTEXITCODE -ne 0){
             # Never publish source, secrets, complete paths, stack traces or build logs.
             $matches=@()
