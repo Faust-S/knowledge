@@ -7,8 +7,8 @@ on:
 permissions:
   contents: read
 env:
-  DOMAIN_SHA: 6f009805848b27d57c349ff92d005a7c65c3dd94
-  SITE_SHA: d75775881eaadd23caf268ecf037d696bc17d8a5
+  DOMAIN_SHA: a4c963a7dd6fc73b54386c5be94540a91ad8afc8
+  SITE_SHA: 8cd33c6c5d38798edbd7be7233cfd4d334a33f92
 jobs:
   p1-models:
     runs-on: ${{ matrix.os }}
@@ -52,7 +52,7 @@ jobs:
           for name in business-start-overview.mjs business-start-overview.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts business-project.mjs business-project.d.mts business-edit-intent.mjs business-edit-intent.d.mts business-experiment-comparison.mjs business-experiment-comparison.d.mts business-launch-review.mjs business-launch-review.d.mts; do
             cmp -s "private/domain/model/$name" "private/site/src/lib/$name" || { echo "D08_P1_CANONICAL_DRIFT"; exit 1; }
           done
-          for name in business-project.mjs business-project.d.mts business-edit-intent.mjs business-edit-intent.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts; do
+          for name in business-launch-review.mjs business-launch-review.d.mts business-project.mjs business-project.d.mts business-edit-intent.mjs business-edit-intent.d.mts affordable-loss-gate.mjs affordable-loss-gate.d.mts iwxa-domain-boundaries.mjs iwxa-domain-boundaries.d.mts; do
             cmp -s "private/site/src/lib/$name" "private/site/t2-site-module/marketops/decision/$name" || { echo "D08_P1_T2_EMBEDDED_BYTE_DRIFT"; exit 1; }
           done
           echo "D08_P1_CANONICAL_BYTE_EQUAL=PASS"
@@ -64,7 +64,7 @@ jobs:
       - name: Run independent website projection tests
         working-directory: private/site
         run: |
-          node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs tests/business-project.test.mjs tests/business-experiment-comparison.test.mjs > "$RUNNER_TEMP/d08-private-site.log" 2>&1 || { echo "D08_P1_SITE_PROJECTION_TESTS_FAIL"; exit 1; }
+          node --test tests/business-start-overview.test.mjs tests/iwxa-domain-boundaries.test.mjs tests/affordable-loss-gate.test.mjs tests/business-project.test.mjs tests/business-experiment-comparison.test.mjs tests/business-launch-review.test.mjs > "$RUNNER_TEMP/d08-private-site.log" 2>&1 || { echo "D08_P1_SITE_PROJECTION_TESTS_FAIL"; exit 1; }
           echo "D08_P1_SITE_PROJECTION_TESTS=PASS"
       - name: Keep runner logs and sources private
         if: always()
