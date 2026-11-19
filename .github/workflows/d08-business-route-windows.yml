@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 env:
-  SITE_SHA: 78a0a4d163f46ab94857093f8137bfeaf4c4b071
+  SITE_SHA: df76de731d8ffc12976ec30ea3817843a6ff9201
   PUPPETEER_SKIP_DOWNLOAD: '1'
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
   CI: 'true'
@@ -85,6 +85,9 @@ jobs:
                   'business-project-viewer.test.mjs',
                   'business-opening-paths.test.mjs',
                   'business-opening-paths-route.test.mjs',
+                  'business-opening-program.test.mjs',
+                  'business-opening-program-route.test.mjs',
+                  'business-opening-program-viewer.test.mjs',
                   'business-launch-review.test.mjs',
                   'business-management-decision.test.mjs',
                   'business-project-edit-t2.test.mjs',
