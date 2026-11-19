@@ -35,14 +35,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 9b91f58562512c37bfe28343fdd2b07482713ef6
+          ref: 32620c9fdda36a9fb739369b20d23a7af7f21dd4
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics
-          ref: 3dbb19a7b2ff3d67424f0146e9507cc0d932a4ad
+          ref: e3a3822f57b2633ecd2d06016b6e4354164e327a
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -64,8 +64,8 @@ jobs:
           $t2=(git -C ../t2 rev-parse HEAD).Trim()
           Write-Output "D11_PROJECT_SITE_HEAD=$site"
           Write-Output "D11_PROJECT_DOMAIN_HEAD=$domain"
-          if ($site -ne "9b91f58562512c37bfe28343fdd2b07482713ef6" -or
-              $domain -ne "3dbb19a7b2ff3d67424f0146e9507cc0d932a4ad") {
+          if ($site -ne "32620c9fdda36a9fb739369b20d23a7af7f21dd4" -or
+              $domain -ne "e3a3822f57b2633ecd2d06016b6e4354164e327a") {
             throw "D11_PROJECT_QUALIFICATION_REVISION_CHANGED"
           }
           if ($t2 -ne "e70de29b72b83e2546f7ab74b17572685a728c17") { throw "D11_NORMATIVE_T2_CHANGED" }
@@ -101,6 +101,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "D11_007_010_CARRIER_RECONCILIATION_FAILED" }
           & node --experimental-strip-types --test tests/d11-carrier-to-order.test.mjs
           if ($LASTEXITCODE -ne 0) { throw "D11_007_010_SITE_RECONCILIATION_FAILED" }
+          & node --experimental-strip-types --test tests/d11-direct-carrier-lineage.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "D11_DIRECT_CARRIER_LINEAGE_FAILED" }
           Write-Output "D11_CASE007_TO_CASE010_DOMAIN_AND_SITE=PASS"
           & npx --no-install tsc --noEmit --project tsconfig.json *> (Join-Path $env:RUNNER_TEMP "d11-types.log")
           if ($LASTEXITCODE -ne 0) {
