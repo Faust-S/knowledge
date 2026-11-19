@@ -35,7 +35,7 @@ const profile={
   kernelVersion:'0.3.6',runtimeContract:'1.3.0',
   qualifiedArtifactId:artifactId,
   authorizedNativeOwner:'ORIGINAL_T3_SIGNED_EMPLOYEE',
-  authorizedResultRecipient:'iwxa.atlas',
+  authorizedResultRecipient:null,
   installedAgentT3Mode:'EXPLICIT_OPT_IN',
 };
 const mime={'.js':'text/javascript','.mjs':'text/javascript',
@@ -43,6 +43,8 @@ const mime={'.js':'text/javascript','.mjs':'text/javascript',
   '.ico':'image/x-icon','.wasm':'application/wasm'};
 let browser=null,server=null;
 try{
+  assert.equal(profile.authorizedResultRecipient,null,
+    'product-neutral Agent One Dist must not preauthorize Atlas');
   writeFileSync(input,JSON.stringify(profile));
   const prepared=await materializeOriginalAgentT2Product({
     qualifiedKernelDist:qualified,agentProfile:input,outputRoot:stage});
