@@ -61,18 +61,25 @@ try {
   if ($translated -ne $employeeSid) {
     throw 'G4_ORIGINAL_EMPLOYEE_WINDOWS_SID_NOT_RESOLVED'
   }
+  # The public Node source qualifier launches a deliberately minimal child
+  # environment. Resolve native Windows ACL tooling from System32 directly,
+  # not from an inherited PATH that can omit OS utility directories.
+  $icacls = Join-Path $env:SystemRoot 'System32\icacls.exe'
+  if (-not (Test-Path -LiteralPath $icacls)) {
+    throw 'G4_ORIGINAL_WINDOWS_NATIVE_ACL_TOOL_MISSING'
+  }
   $phase = 'STAGE_ONLY_PUBLIC_TRUST_AND_NATIVE_PORT'
   $root = Join-Path $env:ProgramData ('IWXA-T3-Employee-SID-' + $nonce)
   $null = New-Item -ItemType Directory -Path $root -Force
   # First grant exact explicit access while inherited administrator authority
   # still exists; only THEN remove inheritance. Reversing the order can
   # remove the caller's ability to set the final explicit ACL.
-  & icacls.exe $root /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' ("*" + $employeeSid + ':(OI)(CI)M') *> $null
+  & $icacls $root /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' ("*" + $employeeSid + ':(OI)(CI)M') *> $null
   if ($LASTEXITCODE -ne 0) {
     Write-Output ('G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_GRANT_EXIT ' + $LASTEXITCODE)
     throw 'G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_FAILED'
   }
-  & icacls.exe $root /inheritance:r *> $null
+  & $icacls $root /inheritance:r *> $null
   if ($LASTEXITCODE -ne 0) {
     Write-Output ('G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ISOLATE_EXIT ' + $LASTEXITCODE)
     throw 'G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_FAILED'
@@ -80,10 +87,10 @@ try {
   # Original private SOURCE may be executable by the second account; ORIGINAL
   # Admin Manager DPAPI vault never enters these two source directories.
   foreach ($source in @($T3Root,$AgentRoot)) {
-    & icacls.exe $source /grant ("*" + $employeeSid + ':(OI)(CI)RX') /T *> $null
+    & $icacls $source /grant ("*" + $employeeSid + ':(OI)(CI)RX') /T *> $null
     if ($LASTEXITCODE -ne 0) { throw 'G4_ORIGINAL_EMPLOYEE_SOURCE_READ_ACL_FAILED' }
   }
-  & icacls.exe $PythonDriver /grant ("*" + $employeeSid + ':R') *> $null
+  & $icacls $PythonDriver /grant ("*" + $employeeSid + ':R') *> $null
   if ($LASTEXITCODE -ne 0) { throw 'G4_ORIGINAL_EMPLOYEE_DRIVER_READ_ACL_FAILED' }
   $profile = Get-Content -LiteralPath $PublicProfilePath -Raw | ConvertFrom-Json
   if ($profile.organizationId -notmatch '^org:' -or
