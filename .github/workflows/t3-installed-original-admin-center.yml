@@ -257,7 +257,11 @@ jobs:
                   Write-Host ("G4_COMPILED_ENROLL_{0} {1}" -f $Matches[1],$Matches[2])
                 }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_LINE_COUNT ([0-9]{1,4})$'){
                   Write-Host ("G4_COMPILED_ENROLL_LINE_COUNT " + $Matches[1])
-                }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_MACHINE_CODE ((?:T3_D3|INTEROP|WINDOWS|DPAPI|PRODUCT_OWNER)_[A-Z0-9_]{4,90})
+                }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_MACHINE_CODE ((?:T3_D3|INTEROP|WINDOWS|DPAPI|PRODUCT_OWNER)_[A-Z0-9_]{4,90})$'){
+                  Write-Host ("G4_COMPILED_ENROLL_MACHINE_CODE " + $Matches[1])
+                }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_ORIGIN_(BUN_VIRTUAL|BUILD_SHIM|ORIGINAL_CLI|SIGNED_INTEROP|T2_ASSET) (True|False)$'){
+                  Write-Host ("G4_COMPILED_ENROLL_ORIGIN_{0} {1}" -f $Matches[1],$Matches[2])
+                }
                 foreach($hit in [regex]::Matches([string]$line,
                     '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
                   $codes+=([string]$hit.Value)
