@@ -15,7 +15,7 @@ jobs:
       matrix:
         runner: [windows-latest, ubuntu-latest]
     env:
-      SITE_SHA: d457b2f2fb6be03308a1511ef3576e0682501e48
+      SITE_SHA: 2380f0d519e601399f100a5f2e436b2a77923fae
       SUBJECT_SHA: 068d978a2b8cb7ce57c363804f22b7dd85063eee
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -138,6 +138,12 @@ jobs:
             }
             $codes=@($matches|Sort-Object -Unique|Select-Object -First 25)
             Write-Output ('D07_BUILD_DIAGNOSTIC_CODES='+($codes -join ','))
+            $stageLines=@(Get-Content $log -ErrorAction SilentlyContinue |
+              Where-Object {$_ -match 'D07_PUBLIC_BUILD_STEP_(?:START|PASS|FAIL)=[A-Za-z0-9_:.-]+'})
+            foreach($line in $stageLines | Select-Object -Last 15){
+              $match=[regex]::Match($line,'D07_PUBLIC_BUILD_STEP_(?:START|PASS|FAIL)=[A-Za-z0-9_:.-]+')
+              if($match.Success){Write-Output $match.Value}
+            }
             $knownFiles=@(Get-Content $log -ErrorAction SilentlyContinue |
               ForEach-Object {
                 foreach($m in [regex]::Matches($_,'(?i)(?:ServiceAftercarePanel|ServiceSettlementPanel|UslugovodWorkspace|OrderViewer|service-aftercare|service-settlement|service-blocks|service-execution|service-changes|service-plan-templates)[.]tsx?')){
