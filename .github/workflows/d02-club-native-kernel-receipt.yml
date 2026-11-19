@@ -57,6 +57,8 @@ jobs:
              -not (Test-Path dist/projects/index.html)){throw 'D02_RECEIPT_DIST_INCOMPLETE'}
           Write-Output 'D02_RECEIPT_ORIGINAL_T2_SITE_BUILD=PASS'
       - name: Real Edge creates personal Workspace then writes and reads original Kernel Result
+        id: native_profile
+        continue-on-error: true
         working-directory: site
         env:
           PORT: '55444'
@@ -195,6 +197,11 @@ jobs:
               throw $code
             }
             Write-Output 'D02_RECEIPT_RESTART_PROFILE_EDITOR_READY=PASS'
+            if($open.Current.Name -eq 'Создать профиль в рабочей области'){
+              Write-Output 'D02_RECEIPT_RESTART_EDITOR_STATE=NO_PROFILE_IN_FAMILY'
+            }else{
+              Write-Output 'D02_RECEIPT_RESTART_EDITOR_STATE=FOUND_SAVED_PROFILE'
+            }
             Activate $open.Current.Name $code
             $null=Await 'Сохранённый профиль загружен через Kernel.' '' $code
             $field=Await 'Как к вам обращаться' 'edit' $code
@@ -443,6 +450,8 @@ jobs:
             if($server){try{$server.Kill($true)}catch{}}
           }
       - name: Original T2 Exchange exports a real physical .iwxa after the native profile receipt
+        id: physical_export
+        continue-on-error: true
         working-directory: site
         env:
           PORT: '55444'
@@ -576,6 +585,8 @@ jobs:
             if($server){try{$server.Kill($true)}catch{}}
           }
       - name: Independently import the physical archive with original Exchange into fresh Edge profile
+        id: independent_import
+        continue-on-error: true
         working-directory: site
         env:
           PORT: '55444'
@@ -729,6 +740,19 @@ jobs:
             foreach($p in @($reopened,$browser)){if($p){try{$p.Kill($true)}catch{}}}
             if($server){try{$server.Kill($true)}catch{}}
           }
+      - name: Final independent native Windows verdict
+        if: always()
+        run: |
+          $profile='${{ steps.native_profile.outcome }}'
+          $export='${{ steps.physical_export.outcome }}'
+          $import='${{ steps.independent_import.outcome }}'
+          Write-Output "D02_NATIVE_PROFILE_STEP=$profile"
+          Write-Output "D02_NATIVE_PHYSICAL_EXPORT_STEP=$export"
+          Write-Output "D02_NATIVE_INDEPENDENT_IMPORT_STEP=$import"
+          if($profile -ne 'success' -or $export -ne 'success' -or $import -ne 'success'){
+            throw 'D02_NATIVE_END_TO_END_NOT_ACCEPTED'
+          }
+          Write-Output 'D02_NATIVE_FULL_INDEPENDENT_ROUNDTRIP=PASS'
       - name: Never upload private sources, profile or generated dist
         if: always()
         run: |
