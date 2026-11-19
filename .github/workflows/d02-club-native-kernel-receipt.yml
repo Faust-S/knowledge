@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: 475401565860620d92a9f7b73a1b68330775a153
+      SITE_SHA: 309a7ac4dc2772345ceaaf1c662a22bb5363aaab
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 475401565860620d92a9f7b73a1b68330775a153
+          ref: 309a7ac4dc2772345ceaaf1c662a22bb5363aaab
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -265,7 +265,24 @@ jobs:
                 throw 'D02_RECEIPT_NATIVE_WORKSPACE_NOT_FOCUSED'
               }
             }
-            Invoke 'Создать профиль в рабочей области' 'D02_RECEIPT_PROFILE_EDITOR_UNAVAILABLE'
+            try {
+              Invoke 'Создать профиль в рабочей области' 'D02_RECEIPT_PROFILE_EDITOR_UNAVAILABLE'
+            }catch{
+              # Edge can expose a genuine button without InvokePattern.
+              # Use the actual focused control and keyboard, then require
+              # the editor to become visible before recording any success.
+              if(!(Locate 'Как к вам обращаться' 'edit')){
+                $editorButton=Await 'Создать профиль в рабочей области' 'button' 'D02_RECEIPT_PROFILE_EDITOR_UNAVAILABLE'
+                try{
+                  Add-Type -AssemblyName System.Windows.Forms
+                  $editorButton.SetFocus()
+                  [System.Windows.Forms.SendKeys]::SendWait(' ')
+                  Write-Output 'D02_RECEIPT_PROFILE_EDITOR_NATIVE_KEYBOARD=USED'
+                }catch{throw 'D02_RECEIPT_PROFILE_EDITOR_KEYBOARD_FAILED'}
+              }
+            }
+            $null=Await 'Как к вам обращаться' 'edit' 'D02_RECEIPT_PROFILE_EDITOR_NOT_OPEN'
+            Write-Output 'D02_RECEIPT_PROFILE_EDITOR_VISIBLE=PASS'
             Enter 'Как к вам обращаться' 'Club проверка пользовательской записи' 'D02_RECEIPT_ALIAS_INPUT_FAILED'
             Enter 'Цели' 'Сохранить собственную запись между запусками' 'D02_RECEIPT_GOAL_INPUT_FAILED'
             Invoke 'Сохранить профиль в IWXA' 'D02_RECEIPT_NATIVE_SAVE_FAILED'
