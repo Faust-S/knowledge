@@ -419,138 +419,21 @@ jobs:
             throw 'QA_AGENT_NATIVE_SCREEN_PROVENANCE_INVALID'
           }
           Write-Host ('QA_AGENT_CURRENT_NATIVE_SCREEN_PASS sha256=' + $sha)
-      - name: Classify exact original Setup Core native failure without leaking private logs
+      - name: Summarize product-neutral Setup Core native failure
         if: failure()
         shell: pwsh
         run: |
-          $root = Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06'
-          $proof = Join-Path $root 'logs/public-test-local-result.txt'
-          if (Test-Path -LiteralPath $proof -PathType Leaf) {
-            $source = Get-Content -LiteralPath $proof -Raw -ErrorAction SilentlyContinue
-            $codes = [regex]::Matches([string]$source,
-              '(?i)(?<![A-Za-z0-9_])(?:IWXA_SETUP_LOCAL|SETUP_LOCAL|AGENT_SETUP|AGENT_NATIVE_GUI)_[A-Z0-9_]{3,90}(?![A-Za-z0-9_])')
-            foreach ($match in @($codes | Select-Object -Unique | Select-Object -Last 12)) {
-              Write-Host ('QA_AGENT_SAFE_SETUP_CODE ' + $match.Value.ToUpperInvariant())
+          $dir = Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06'
+          $p = Join-Path $dir 'logs/public-test-local-result.txt'
+          if (Test-Path -LiteralPath $p -PathType Leaf) {
+            Write-Host 'QA_AGENT_LOCAL_ACCEPTANCE_LOG_PRESENT'
+            $s = Get-Content -LiteralPath $p -Raw -ErrorAction SilentlyContinue
+            foreach ($c in @('SETUP_LOCAL_NATIVE_FAILED','SETUP_LOCAL_RUNTIME_WITNESS_EXIT_FAILED','SETUP_LOCAL_INSTALLATION_NOT_VERIFIED','SETUP_LOCAL_REPAIR_NOT_ACTIVATED','AGENT_SETUP_RUNTIME','AGENT_NATIVE_GUI')) {
+              if ($s.Contains($c)) { Write-Host ('QA_AGENT_NATIVE_FAILURE_CATEGORY ' + $c) }
             }
-            Write-Host 'QA_AGENT_SAFE_SETUP_LOG_FOUND'
-          } else { Write-Host 'QA_AGENT_SAFE_SETUP_LOG_ABSENT' }
-          $base = Join-Path $root 'temporary-installed-fixture'
-          foreach ($name in @('identity.json','preflight.json','installed.json','verified.json','installed-witness.json','removed.json')) {
-            if (Test-Path -LiteralPath (Join-Path $base $name) -PathType Leaf) {
-              Write-Host ('QA_AGENT_SAFE_SETUP_STAGE ' + ($name -replace '\.json
-        if: always()
-        shell: pwsh
-        run: |
-          $targets = @('.private','.g4-pinned-one-core',
-            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06'),
-            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-cache'),
-            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-private-build.log'))
-          foreach ($path in $targets) {
-            if (Test-Path -LiteralPath $path) {
-              Remove-Item -LiteralPath $path -Force -Recurse -ErrorAction SilentlyContinue
-            }
-          }
-          Write-Host 'G4_AGENT06_PRIVATE_SOURCE_AND_NATIVE_ARTIFACTS_NOT_PUBLISHED'
-      - name: Retain only verified public-facing first-screen image, never private source
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: agent06-current-native-first-screen
-          path: artifacts/agent-current/
-          if-no-files-found: error
-          retention-days: 5
-
-  agent-source-mutation-probe:
-    if: contains(github.event.head_commit.message, '[qualify-agent-package-source]')
-    runs-on: windows-2022
-    timeout-minutes: 18
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Stage exact central Agent 0.6 source without historical binary evidence
-        uses: actions/checkout@v4
-        with:
-          repository: Faust-S/iwxa-personal-agent
-          ref: 0d4196fa732b52d192ac75590715199381dfb2df
-          token: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
-          persist-credentials: false
-          filter: blob:none
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /desktop/
-            /runtime/
-            /tools/
-            /config/
-            /adapters/
-            /cells/
-            /providers/
-            /schemas/
-            /profiles/
-            /surfaces/
-            /skills/
-            /operational-skills/
-            /automation/
-            /authority/
-            /Human/
-            /scripts/
-            /webui/
-            /windows/
-            /qualification/phase1/*.ps1
-            /qualification/phase1/*.py
-            /qualification/phase1/*.json
-            /qualification/phase1/*.mjs
-            /requirements.txt
-            /requirements-ci.txt
-            /.gitignore
-            /AGENTS.md
-          path: .private/agent
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.16.0'
-      - name: Verify private Agent source remains clean across public module staging
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $env:GIT_NO_LAZY_FETCH = '1'
-          $repo = (Resolve-Path -LiteralPath '.private/agent').Path
-          function Verify([string]$stage) {
-            $lines = @(& git -C $repo status --porcelain=v1 --untracked-files=all 2>$null)
-            if ($LASTEXITCODE -ne 0) { throw 'G4_AGENT_GIT_STATUS_UNAVAILABLE' }
-            $dirty = @($lines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-            if ($dirty.Count) {
-              Write-Host ('G4_AGENT_SOURCE_DIRTY_STAGE ' + $stage)
-              Write-Host ('G4_AGENT_SOURCE_DIRTY_TRACKED_COUNT ' + @($dirty | Where-Object { $_ -notmatch '^\?\?' }).Count)
-              Write-Host ('G4_AGENT_SOURCE_DIRTY_UNTRACKED_COUNT ' + @($dirty | Where-Object { $_ -match '^\?\?' }).Count)
-              throw 'G4_AGENT_SOURCE_MUTATION_REPRODUCED'
-            }
-            Write-Host ('G4_AGENT_SOURCE_CLEAN_STAGE ' + $stage)
-          }
-          function Execute([string]$stage,[string[]]$nodeArgs) {
-            Push-Location $repo
-            try {
-              & node @nodeArgs *> (Join-Path $env:RUNNER_TEMP ('g4-agent-' + $stage + '.log'))
-              if ($LASTEXITCODE -ne 0) { throw ('G4_AGENT_MODULE_STAGE_FAILED_' + $stage) }
-            } finally { Pop-Location }
-            Verify $stage
-          }
-          Verify 'CHECKOUT'
-          Execute 'U04_FETCH' @('scripts/prepare-public-modules.mjs','--only-u04','--fetch')
-          Execute 'U04_STAGE' @('scripts/stage-u04-desktop.mjs',(Join-Path $repo 'build/u04-owner-sources'),(Join-Path $env:RUNNER_TEMP 'g4-agent-u04-desktop'))
-          Execute 'K03_FETCH' @('scripts/prepare-public-modules.mjs','--only-k03','--fetch')
-          Execute 'U01_FETCH' @('scripts/prepare-public-modules.mjs','--only-u01','--fetch')
-          Write-Host 'G4_AGENT_PUBLIC_MODULE_STAGING_CLEAN_PASS'
-      - name: Purge private source and temporary logs
-        if: always()
-        shell: pwsh
-        run: |
-          Remove-Item -LiteralPath '.private' -Force -Recurse -ErrorAction SilentlyContinue
-          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'g4-agent-*' -ErrorAction SilentlyContinue |
-            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-          Write-Host 'G4_AGENT_SOURCE_PROBE_NO_PRIVATE_ARTIFACTS_PUBLISHED'
-,'').ToUpperInvariant())
-            }
-          }
+          } else { Write-Host 'QA_AGENT_LOCAL_ACCEPTANCE_LOG_MISSING' }
+          $state = Join-Path $dir 'temporary-installed-fixture/installed-witness.json'
+          if (Test-Path -LiteralPath $state -PathType Leaf) { Write-Host 'QA_AGENT_NATIVE_WITNESS_RECEIPT_PRESENT' }
       - name: Erase private source model caches logs and native binaries
         if: always()
         shell: pwsh
