@@ -65,8 +65,13 @@ export async function qualifyOriginalTwoSid({
     const source=join(process.cwd(),'packages','t3-core','tests');
     const driver=join(source,'g4-original-employee-bootstrap-driver.py');
     const script=join(source,'g4-original-agent-second-windows-sid.ps1');
+    const windowsRoot=process.env.SystemRoot??'C:\\Windows';
+    const psModules=[process.env.PSModulePath??'',
+      join(windowsRoot,'System32','WindowsPowerShell','v1.0','Modules')]
+      .filter(Boolean).join(';');
     const env={
-      PATH:process.env.PATH??'',SystemRoot:process.env.SystemRoot??'',
+      PATH:process.env.PATH??'',SystemRoot:windowsRoot,
+      PSModulePath:psModules,
       WINDIR:process.env.WINDIR??'',USERPROFILE:process.env.USERPROFILE??'',
       APPDATA:process.env.APPDATA??'',LOCALAPPDATA:process.env.LOCALAPPDATA??'',
       HOMEDRIVE:process.env.HOMEDRIVE??'',HOMEPATH:process.env.HOMEPATH??'',
@@ -75,7 +80,8 @@ export async function qualifyOriginalTwoSid({
       COMPUTERNAME:process.env.COMPUTERNAME??'',
       ComSpec:process.env.ComSpec??'',PSModulePath:process.env.PSModulePath??'',
     };
-    const result=spawnSync('powershell.exe',[
+    const result=spawnSync(join(windowsRoot,'System32','WindowsPowerShell',
+      'v1.0','powershell.exe'),[
       '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',
       script,'-T3Root',t3,'-AgentRoot',agent,
       '-PythonDriver',driver,'-PublicProfilePath',publicProfile,
