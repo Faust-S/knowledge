@@ -22,6 +22,19 @@ try {
   }
   $managerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
   $nonce = ([guid]::NewGuid().ToString('N')).Substring(0,12)
+  # The restricted native child environment does not inherit the runner's
+  # PowerShell module search path. Load the EXISTING OS LocalAccounts module
+  # from System32 explicitly; never install or emulate account management.
+  $accountsModule = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules\Microsoft.PowerShell.LocalAccounts\Microsoft.PowerShell.LocalAccounts.psd1'
+  if (-not (Test-Path -LiteralPath $accountsModule)) {
+    throw 'G4_ORIGINAL_WINDOWS_LOCAL_ACCOUNTS_MODULE_MISSING'
+  }
+  Import-Module -Name $accountsModule -ErrorAction Stop
+  if (-not (Get-Command New-LocalUser -ErrorAction SilentlyContinue) -or
+      -not (Get-Command Get-LocalUser -ErrorAction SilentlyContinue) -or
+      -not (Get-Command Remove-LocalUser -ErrorAction SilentlyContinue)) {
+    throw 'G4_ORIGINAL_WINDOWS_LOCAL_ACCOUNTS_COMMANDS_MISSING'
+  }
   $phase = 'CREATE_WINDOWS_EMPLOYEE'
   $user = 'iwxag4' + $nonce
   $random = New-Object byte[] 32
