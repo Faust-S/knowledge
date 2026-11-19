@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 5aefd7b17475d44b5c75ddb3e38f85eed097215c
+          ref: 49830ac5985f95eafb0268dc8bbb5dc55860e019
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed
-          ref: 5d93db12199ed48e834a7ca49f1106451288adcf
+          ref: 5352fcdd97b01c04dd8e8fb67cff9b80c53b003d
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
           fetch-depth: 0
@@ -62,8 +62,8 @@ jobs:
       - name: Verify immutable source identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "5aefd7b17475d44b5c75ddb3e38f85eed097215c"
-          test "$(git -C d04-private/model rev-parse HEAD)" = "5d93db12199ed48e834a7ca49f1106451288adcf"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "49830ac5985f95eafb0268dc8bbb5dc55860e019"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "5352fcdd97b01c04dd8e8fb67cff9b80c53b003d"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           test "$(git hash-object d04-private/site/src/lib/life-calculation-admission.mjs)" = "$(git hash-object d04-private/model/docs/life-os/LIFE_CALCULATION_ADMISSION_V0_1.mjs)"
           test "$(git hash-object d04-private/site/src/lib/life-calculation-admission.d.mts)" = "$(git hash-object d04-private/model/docs/life-os/LIFE_CALCULATION_ADMISSION_V0_1.d.mts)"
