@@ -110,8 +110,12 @@ const AGENT_D6_RESULT_DECLARATION=Object.freeze({
         required:['projectId','workId','revision'],additionalProperties:false,
       },
     },
+    // WorkRef belongs only to an explicitly project-bound recipient. A
+    // generic accepted Result has no Atlas project and must still be saved
+    // by the ONE original Agent T2 Kernel service. When WorkRef is supplied
+    // its precise project/work/revision is verified by the existing schema.
     required:['taskId','resultId','acceptedDigest','signedTaskId',
-      'signedTaskRevisionId','signedTaskPackageSha256','contextDigest','workRef'],
+      'signedTaskRevisionId','signedTaskPackageSha256','contextDigest'],
     additionalProperties:false,
   },embedded:{},
 });
