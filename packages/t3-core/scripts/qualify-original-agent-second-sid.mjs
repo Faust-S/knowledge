@@ -105,6 +105,8 @@ export async function qualifyOriginalTwoSid({
         code(extract('G4_ORIGINAL_AGENT_TWO_SID_FAILURE_PHASE')));
       console.log('G4_ORIGINAL_TWO_SID_FAILURE_CODE',
         code(extract('G4_ORIGINAL_AGENT_TWO_SID_FAILURE_CODE')));
+      const aclDiagnostic=output.match(/G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_DIAGNOSTIC\s+(UNSET|[0-9]{1,6})/)?.[1];
+      if(aclDiagnostic)console.log('G4_ORIGINAL_TWO_SID_ACL_DIAGNOSTIC',aclDiagnostic);
       console.log('G4_ORIGINAL_TWO_SID_ACL_STATUS',
         output.match(/G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_(?:GRANT|ISOLATE|ACL)_EXIT\s+([0-9]{1,6})/)
           ?.slice(1).join('_')??'NOT_OBSERVED');
