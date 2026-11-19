@@ -213,6 +213,9 @@ export async function qualifyNativeOriginalEmployee({
           secondSidCode?.[1]??'UNCLASSIFIED');
         console.log('G4_NATIVE_SECOND_SID_ORIGINAL_BRIDGE_CODE',
           secondSidOriginal?.[1]??'UNCLASSIFIED');
+        const aclStatus=output.match(
+          /G4_ORIGINAL_AGENT_TWO_SID_ACL_STATUS\s+((?:GRANT|ISOLATE)_[0-9]{1,5})/);
+        if(aclStatus)console.log('G4_NATIVE_SECOND_SID_ACL_STATUS',aclStatus[1]);
       }
       const employeeStage=output.match(
         /G4_NATIVE_EMPLOYEE_FAILURE_PHASE\s+([A-Z_]{3,80})/);
