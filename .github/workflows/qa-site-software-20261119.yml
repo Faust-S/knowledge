@@ -51,6 +51,25 @@ jobs:
         run: |
           bun run build > "$RUNNER_TEMP/iwxa-software-build.log" 2>&1 || { echo 'SITE_SOFTWARE_BUILD_FAIL'; exit 1; }
           echo 'SITE_SOFTWARE_BUILD_PASS'
+      - name: Confirm all five current screenshots are present unchanged in hosting build
+        working-directory: .private/site
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d dist
+          while read -r file expected; do
+            found=$(find dist -type f -path "*/assets/software/$file" -print -quit)
+            test -n "$found" || { echo 'SITE_SOFTWARE_DIST_IMAGE_MISSING'; exit 1; }
+            actual=$(sha256sum "$found" | cut -d ' ' -f 1)
+            test "$actual" = "$expected" || { echo 'SITE_SOFTWARE_DIST_IMAGE_HASH_MISMATCH'; exit 1; }
+          done <<'EOF_IMAGES'
+          atlas09-current-verified.webp 67e4bcbbe5addd84406220c9131fbccd02857b0243900c116bfe7dc936202e35
+          activity-current-verified.webp 8ad32aaafb0a7a60854e0c7cbfe6a0eb067ae43ae9b840064866229a4014c564
+          admin03-current-verified.webp eac497db00b5af9baf1f61f47eef889a467a62c2f29e8bbf43663032a2e64257
+          publisher05-current-verified.webp fc6c741e4f33244cfd747de2061d51441b39e4ff75f53eb0c9dba61a9d38874a
+          setup-core-1-current-verified.webp 885ef484c4e65a0873763fd69b0a2d788e8df36484863eb16ed966affae8ba61
+          EOF_IMAGES
+          echo 'SITE_SOFTWARE_FIVE_CURRENT_IMAGES_IN_DIST_PASS'
       - name: Typecheck only current private source without emitting code
         working-directory: .private/site
         shell: bash
