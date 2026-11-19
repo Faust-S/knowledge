@@ -1,0 +1,52 @@
+name: D08 native T2 business witness contract syntax
+on:
+  push:
+    branches: [work/2026-11-18-d08-marketops-windows-qualification]
+    paths: [.github/workflows/d08-business-witness-syntax.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  SITE_SHA: 800834f0e053ffbc53ea46167978df3c347668b2
+jobs:
+  syntax:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - name: Verify private site access
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        shell: bash
+        run: |
+          test -n "$GH_TOKEN" || exit 1
+          gh api repos/Faust-S/market-ops.ru --jq .id >/dev/null
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check both actual browser witnesses without running fake Kernel
+        shell: bash
+        run: |
+          test "$(git -C private/site rev-parse HEAD)" = "$SITE_SHA"
+          node --check private/site/tests/business-project-native-t2-windows.mjs
+          node --check private/site/tests/business-project-dev-windows-browser.mjs
+          node -e 'const fs=require("fs");const s=fs.readFileSync("private/site/tests/business-project-native-t2-windows.mjs","utf8");if(!s.includes("clickAndNavigate")||!s.includes("EXCHANGE_INDEPENDENT_KERNEL_READBACK")||!s.includes("EXCHANGE_CORRUPTION_REJECTED"))process.exit(2);'
+          echo D08_BUSINESS_WITNESS_SYNTAX=PASS
+          echo D08_BUSINESS_EXCHANGE_JOURNEY_DECLARED=PASS
+          echo D08_BUSINESS_ORIGINAL_KERNEL=NOT_RUN
+      - name: Preserve private data
+        if: always()
+        shell: bash
+        run: |
+          echo D08_PRIVATE_SOURCE_PUBLISHED=NO
+          echo D08_ARTIFACT_UPLOADS=0
