@@ -1,0 +1,83 @@
+name: D10 ArtBazi Windows Edge UIA qualification baseline
+on:
+  push:
+    branches: [work/2026-11-18-d10-case-ci]
+    paths: [.github/workflows/d10-artbazi-windows-gui.yml, windows/d10-edge-uia.ps1]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  d10-edge-uia:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Checkout public Windows orchestration
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout private D10 site for isolated Windows runner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/artbazi.ru
+          ref: 312ea50c0136501040ee321a309c362f9ef9e668
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - name: Checkout original normative T2
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          path: t2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "latest"
+      - name: Verify pinned private and T2 source in runner
+        run: |
+          if ((git -C site rev-parse HEAD).Trim() -ne "312ea50c0136501040ee321a309c362f9ef9e668") { throw "D10_WINDOWS_SITE_PIN_MISMATCH" }
+          if ((git -C t2 rev-parse HEAD).Trim() -ne "e70de29b72b83e2546f7ab74b17572685a728c17") { throw "D10_WINDOWS_T2_PIN_MISMATCH" }
+          Write-Output "D10_WINDOWS_SOURCE_PINS=PASS"
+      - name: Install site dependencies privately
+        working-directory: site
+        run: |
+          bun install --frozen-lockfile *> "$env:RUNNER_TEMP\d10-win-install.log"
+          if($LASTEXITCODE -ne 0){throw "D10_WINDOWS_BUN_INSTALL_FAILED"}
+          Write-Output "D10_WINDOWS_BUN_INSTALL=PASS"
+      - name: TypeScript Windows gate
+        working-directory: site
+        run: |
+          npm run check:types *> "$env:RUNNER_TEMP\d10-win-types.log"
+          if($LASTEXITCODE -ne 0){throw "D10_WINDOWS_TYPECHECK_FAILED"}
+          Write-Output "D10_WINDOWS_TYPES=PASS"
+      - name: Original T2 plus site in one Windows dist
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+        run: |
+          npm run build:t2:site *> "$env:RUNNER_TEMP\d10-win-build.log"
+          if($LASTEXITCODE -ne 0){throw "D10_WINDOWS_INTEGRATED_BUILD_FAILED"}
+          if(-not (Test-Path "dist/workspace/index.html")){throw "D10_WINDOWS_WORKSPACE_MISSING"}
+          if(-not (Test-Path "dist/cases/vesper-quote-to-deal/index.html")){throw "D10_WINDOWS_CASE010_HTML_MISSING"}
+          Write-Output "D10_WINDOWS_INTEGRATED_DIST=PASS"
+      - name: Native Microsoft Edge Windows UIAutomation ten article routes
+        run: |
+          & "$env:GITHUB_WORKSPACE\windows\d10-edge-uia.ps1" *> "$env:RUNNER_TEMP\d10-win-uia.log"
+          $result=if($?){0}else{1}
+          Get-Content "$env:RUNNER_TEMP\d10-win-uia.log" | Select-String -Pattern "^D10_WINDOWS_" | ForEach-Object {$_.Line}
+          if($result -ne 0){
+            $errors=Get-Content "$env:RUNNER_TEMP\d10-win-uia.log" | Select-String -Pattern "D10_WINDOWS_[A-Z0-9_]+" | Select-Object -Last 3
+            foreach($error in $errors){Write-Output "D10_WINDOWS_UIA_DIAG=$($error.Matches[0].Value)"}
+            throw "D10_WINDOWS_UIA_BASELINE_FAILED"
+          }
+      - name: No private artifacts published
+        run: |
+          Write-Output "D10_WINDOWS_CODE_AND_DIST=NOT_PUBLISHED"
+          Write-Output "D10_WINDOWS_GUI_BASELINE_IS_NOT_FULL_PRODUCT_ACCEPTANCE=TRUE"
