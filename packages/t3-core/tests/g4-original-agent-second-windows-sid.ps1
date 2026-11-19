@@ -214,14 +214,14 @@ try {
     if ($process.ExitCode -ne 0 -or $readback.exitCode -ne 0) {
       $nativeExit = if ($null -eq $process.ExitCode) {'UNSET'} else {[string]$process.ExitCode}
       $pythonExit = if ($null -eq $readback.exitCode) {'UNSET'} else {[string]$readback.exitCode}
-      Write-Output ('G4_ORIGINAL_EMPLOYEE_NATIVE_PROCESS_EXIT ' + $nativeExit)
-      Write-Output ('G4_ORIGINAL_EMPLOYEE_PYTHON_PROCESS_EXIT ' + $pythonExit)
+      Write-Host ('G4_ORIGINAL_EMPLOYEE_NATIVE_PROCESS_EXIT ' + $nativeExit)
+      Write-Host ('G4_ORIGINAL_EMPLOYEE_PYTHON_PROCESS_EXIT ' + $pythonExit)
       if ($readback.error -match '^G4_[A-Z0-9_]{5,100}$') {
-        Write-Output ('G4_ORIGINAL_EMPLOYEE_CHILD_ERROR_CODE ' + [string]$readback.error)
+        Write-Host ('G4_ORIGINAL_EMPLOYEE_CHILD_ERROR_CODE ' + [string]$readback.error)
       }
       $shape = [string]$readback.output
       if ($shape -match 'G4_EMPLOYEE_BOOTSTRAP_FAILURE_CODE ([A-Z0-9_]{3,119})') {
-        Write-Output ('G4_ORIGINAL_AGENT_SECOND_SID_NATIVE_CODE ' + $Matches[1])
+        Write-Host ('G4_ORIGINAL_AGENT_SECOND_SID_NATIVE_CODE ' + $Matches[1])
       }
       throw 'G4_ORIGINAL_AGENT_SECOND_SID_BRIDGE_FAILED'
     }
