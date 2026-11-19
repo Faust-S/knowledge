@@ -8,6 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {dirname,resolve} from 'node:path';
 import {T3_ORIGINAL_NATIVE_EMPLOYEE_PIN} from '../scripts/qualify-native-corporate-agent-process.mjs';
 import {AGENT_ORIGINAL_PIN} from '../scripts/qualify-original-agent-d3-port.mjs';
+import {ORIGINAL_PRIVATE_SOURCE_PIN} from '../scripts/qualify-original-private-d3-owner.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
 const installed=readFileSync(
   resolve(root,'.github/workflows/t3-installed-original-admin-center.yml'),'utf8');
@@ -15,6 +16,8 @@ test('source Agent D3 witness uses the exact installed original private T3 Owner
   const owner=installed.match(/repository: Faust-S\/T3\s*\r?\n\s*ref: ([a-f0-9]{40})\b/);
   assert.ok(owner,'installed original T3 private checkout pin required');
   assert.match(T3_ORIGINAL_NATIVE_EMPLOYEE_PIN,/^[a-f0-9]{40}$/);
+  assert.equal(ORIGINAL_PRIVATE_SOURCE_PIN,owner[1],
+    'original source qualification must use installed private Owner');
   assert.equal(T3_ORIGINAL_NATIVE_EMPLOYEE_PIN,owner[1],
     'source-only Agent witness cannot silently test a different signed Owner');
 });
