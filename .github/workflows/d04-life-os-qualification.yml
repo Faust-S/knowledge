@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: aa6633d038bd3bd88d0fa10d088ca847b8566da5
+          ref: a0eb3db2e11d0dbe8734af90808670d86e97966b
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -70,8 +70,8 @@ jobs:
       - name: Verify immutable site / subject / T2 revisions
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "aa6633d038bd3bd88d0fa10d088ca847b8566da5"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "42c34c91a3ba1a2d7d8c942c66b1e3653326ff13"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "a0eb3db2e11d0dbe8734af90808670d86e97966b"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "2ebf1760fb819243227d6193af54d722f843f363"
           test "$(git -C d04-private/model rev-parse HEAD)" = "d0f6ec9d50c01891ed1001fb872ac2d5770e8f0d"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           for path in d04-private/site d04-private/model d04-private/t2; do
@@ -105,7 +105,7 @@ jobs:
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
           BAZMED_SUBJECT_SOURCE_DIR: ${{ github.workspace }}/d04-private/model
-          D04_RELEASE_SITE_SHA: aa6633d038bd3bd88d0fa10d088ca847b8566da5
+          D04_RELEASE_SITE_SHA: a0eb3db2e11d0dbe8734af90808670d86e97966b
         run: |
           set -euo pipefail
           if npm run release:check-source >"$RUNNER_TEMP/d04-release-source.log" 2>&1; then
