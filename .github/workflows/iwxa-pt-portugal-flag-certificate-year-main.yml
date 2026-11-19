@@ -1,0 +1,160 @@
+name: IWXA main Portugal flag and certificate year regression
+on:
+  push:
+    branches: [work/2026-11-18-pt-66-qualification]
+    paths:
+      - .github/workflows/iwxa-pt-portugal-flag-certificate-year-main.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: qa
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: 6b247023c12fe656a6abe827d1b221a8856aa535
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          fetch-depth: 2
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.2"
+      - name: Nine-file scope, real Portugal flag, eight year-only cards and untouched registry
+        shell: bash
+        working-directory: site
+        run: |
+          set -eu
+          node --input-type=module - <<'JS'
+          import fs from "node:fs";
+          import cp from "node:child_process";
+          const read=p=>fs.readFileSync(p,"utf8");
+          const expectedCommit="6b247023c12fe656a6abe827d1b221a8856aa535";
+          const parent="bad4d9b0a9cbdcc324b26e042fd7135cb6479397";
+          const current=cp.execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim();
+          if(current!==expectedCommit)throw Error("wrong main commit");
+          const svg=read("public/assets/flags/pt.svg");
+          if(!svg.includes('id="flag-icons-pt"')||!svg.includes('fill="red"')||!svg.includes('fill="#060"')||!svg.includes('id="pt-f"')||svg.includes("<text"))throw Error("Portugal SVG invalid");
+          const hash=cp.execFileSync("git",["hash-object","public/assets/flags/pt.svg"],{encoding:"utf8"}).trim();
+          if(hash!=="2767cd4e9faa0beec0593e039b899f78c1831fcb")throw Error("Portugal source hash mismatch");
+          const routes=["competencies","en.competencies","zh-hans.competencies","es.competencies","ar.competencies","fr.competencies","de.competencies","pt.competencies"];
+          for (const name of routes){
+            const content=read("src/routes/"+name+".tsx");
+            if(!content.includes("· {c.year}")||content.includes("· {c.issuedOn ?? c.year}"))throw Error("year mismatch on "+name);
+            const original=cp.execFileSync("git",["show",parent+":src/routes/"+name+".tsx"],{encoding:"utf8"});
+            if(original.replace("· {c.issuedOn ?? c.year}","· {c.year}")!==content)throw Error("other page change on "+name);
+          }
+          const changed=cp.execFileSync("git",["diff","--name-only",parent,"HEAD"],{encoding:"utf8"}).trim().split("\n").sort();
+          const expected=["public/assets/flags/pt.svg",...routes.map(x=>"src/routes/"+x+".tsx")].sort();
+          if(JSON.stringify(changed)!==JSON.stringify(expected))throw Error("change scope not nine files");
+          if(read("src/route-data/competencies-data.ts").includes('issuedOn: "2026-11-13"')===false)throw Error("precise source date lost");
+          const originalData=cp.execFileSync("git",["show",parent+":src/route-data/competencies-data.ts"],{encoding:"utf8"});
+          if(read("src/route-data/competencies-data.ts")!==originalData)throw Error("registry modified");
+          console.log("IWXA_FLAG_PORTUGAL=PASS");
+          console.log("IWXA_CERT_YEAR_ONLY_EIGHT_LOCALES=PASS");
+          console.log("IWXA_SOURCE_REGISTRY_UNCHANGED=PASS");
+          console.log("IWXA_CHANGE_SCOPE_NINE_FILES=PASS");
+          JS
+      - name: Frozen dependencies and TypeScript
+        shell: bash
+        working-directory: site
+        env:
+          LOVABLE_BUILD_TARGET: static
+          NITRO_PRESET: node-server
+          SERVER_PRESET: node-server
+        run: |
+          set -eu
+          bun install --frozen-lockfile > "$RUNNER_TEMP/iwxa-main-regression-install.log" 2>&1 || { echo "IWXA_MAIN_INSTALL=FAIL"; exit 1; }
+          echo "IWXA_MAIN_INSTALL=PASS"
+          bun run typecheck > "$RUNNER_TEMP/iwxa-main-regression-types.log" 2>&1 || { echo "IWXA_MAIN_TYPES=FAIL"; grep -E 'error TS|error:' "$RUNNER_TEMP/iwxa-main-regression-types.log" | head -n 20 || true; exit 1; }
+          echo "IWXA_MAIN_TYPES=PASS"
+      - name: Build unchanged integrated SSR
+        if: matrix.os == 'ubuntu-24.04'
+        shell: bash
+        working-directory: site
+        env:
+          LOVABLE_BUILD_TARGET: static
+          NITRO_PRESET: node-server
+          SERVER_PRESET: node-server
+        run: |
+          set -eu
+          bun run build > "$RUNNER_TEMP/iwxa-main-regression-build.log" 2>&1 || { echo "IWXA_MAIN_BUILD=FAIL"; grep -E 'error|ERROR' "$RUNNER_TEMP/iwxa-main-regression-build.log" | tail -n 15 || true; exit 1; }
+          test -f .output/server/index.mjs
+          echo "IWXA_MAIN_BUILD=PASS"
+      - name: Real browser checks for Portuguese national flag and certificate year on all eight pages
+        if: matrix.os == 'ubuntu-24.04'
+        shell: bash
+        run: |
+          set -eu
+          PORT=4392 HOST=127.0.0.1 NODE_ENV=production node site/.output/server/index.mjs > "$RUNNER_TEMP/iwxa-main-regression-server.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 70); do
+            if curl -fsS -o /dev/null http://127.0.0.1:4392/; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" -eq 1 || { echo "IWXA_MAIN_SERVER=FAIL"; exit 1; }
+          cd site
+          node --input-type=module - <<'JS'
+          import puppeteer from "puppeteer";
+          const base="http://127.0.0.1:4392";
+          const routes=[["ru","","ru"],["en","en","en-GB"],["zh","zh-hans","zh-Hans-CN"],["es","es","es-ES"],["ar","ar","ar"],["fr","fr","fr-FR"],["de","de","de-DE"],["pt","pt","pt-BR"]];
+          const certUrl="https://coursera.org/verify/RKMI6MC3MAY2";
+          const browser=await puppeteer.launch({headless:true,args:["--no-sandbox","--disable-setuid-sandbox"]});
+          const page=await browser.newPage();
+          await page.setViewport({width:1440,height:900});
+          const errors=[];
+          page.on("pageerror",e=>errors.push(e.message));
+          let count=0;
+          const check=(ok,label)=>{if(!ok)throw Error("IWXA_MAIN_BROWSER_FAIL="+label);count++};
+          try{
+            for(const [name,prefix,locale] of routes){
+              const path=(prefix?"/"+prefix:"")+"/competencies/";
+              const response=await page.goto(base+path,{waitUntil:"domcontentloaded",timeout:55000});
+              await page.waitForSelector("main[data-client-ready]",{timeout:25000});
+              check(response?.status()===200,name+"_http");
+              const data=await page.evaluate(url=>{
+                const link=[...document.querySelectorAll("article a[href]")].find(x=>x.getAttribute("href")===url);
+                const card=link?.closest("article");
+                const flags=[...document.querySelectorAll('img[src="/assets/flags/pt.svg"]')];
+                return {
+                  lang:document.documentElement.lang,
+                  title:card?.querySelector("h3")?.textContent?.trim()||"",
+                  text:card?.textContent||"",
+                  flagCount:flags.length,
+                  flagLoaded:flags.every(x=>x.complete&&x.naturalWidth>0),
+                  summary:[...document.querySelectorAll(".atlas-language-switch summary")].map(x=>x.getAttribute("aria-label")||""),
+                  source:link?.getAttribute("href")||""
+                }
+              },certUrl);
+              check(data.lang===locale,name+"_language");
+              check(data.title==="AI for Healthcare",name+"_title");
+              check(/Coursera\s*·\s*2026/i.test(data.text)&&!data.text.includes("2026-11-13"),name+"_year_only");
+              check(data.flagCount>=2&&data.flagLoaded,name+"_portugal_flag_in_menus");
+              check(data.source===certUrl,name+"_verification_link");
+              if(name==="pt")check(data.summary.some(x=>x.includes("Português")),name+"_selected_portuguese");
+            }
+            check(errors.length===0,"no_js_page_errors");
+            console.log("IWXA_MAIN_BROWSER_ASSERTIONS="+count);
+            console.log("IWXA_MAIN_BROWSER_FAILURES=0");
+            console.log("IWXA_MAIN_PAGE_ERRORS=0");
+          } finally {
+            await page.close().catch(()=>{});
+            await browser.close().catch(()=>{});
+          }
+          JS
