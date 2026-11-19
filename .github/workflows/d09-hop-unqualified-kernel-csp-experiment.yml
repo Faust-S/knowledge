@@ -253,19 +253,33 @@ jobs:
             echo D09_EXPERIMENT_EXACT_K036=FAIL; exit 1;
           }
           echo D09_EXPERIMENT_EXACT_K036=PASS
-          cd "$RUNNER_TEMP/d09-experimental-k036"
+          node "$core/scripts/create-k036-import-time-candidate.mjs" \
+            "$RUNNER_TEMP/d09-experimental-k036" "$RUNNER_TEMP/d09-experimental-k036-timestamp" > "$RUNNER_TEMP/d09-timestamp-patch.log" 2>&1 || {
+            echo D09_EXPERIMENT_TIMESTAMP_LINEAGE=FAIL
+            grep -oE 'K036_IMPORT_TIME_[A-Z0-9_]+' "$RUNNER_TEMP/d09-timestamp-patch.log" | tail -6 || true
+            exit 1
+          }
+          echo D09_EXPERIMENT_TIMESTAMP_LINEAGE=PASS
+          node "$core/scripts/create-k036-same-store-history-candidate.mjs" \
+            "$RUNNER_TEMP/d09-experimental-k036-timestamp" "$RUNNER_TEMP/d09-experimental-k036-same-store" > "$RUNNER_TEMP/d09-same-store-patch.log" 2>&1 || {
+            echo D09_EXPERIMENT_SAME_STORE_LINEAGE=FAIL
+            grep -oE 'K036_SAME_STORE_[A-Z0-9_]+' "$RUNNER_TEMP/d09-same-store-patch.log" | tail -6 || true
+            exit 1
+          }
+          echo D09_EXPERIMENT_SAME_STORE_LINEAGE=PASS
+          cd "$RUNNER_TEMP/d09-experimental-k036-same-store"
           npm ci --no-audit --no-fund > "$RUNNER_TEMP/d09-k036-install.log" 2>&1 || {
             echo D09_EXPERIMENT_KERNEL_NPM=FAIL; exit 1;
           }
           node "$core/scripts/issue14-generate-kernel-static-validators.mjs" \
-            "$RUNNER_TEMP/d09-experimental-k036" > "$RUNNER_TEMP/d09-experimental-static.log" 2>&1 || {
+            "$RUNNER_TEMP/d09-experimental-k036-same-store" > "$RUNNER_TEMP/d09-experimental-static.log" 2>&1 || {
             echo D09_EXPERIMENT_KERNEL_GENERATE=FAIL; exit 1;
           }
           echo D09_EXPERIMENT_KERNEL_GENERATE=PASS
           npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund @cfworker/json-schema@4.1.1 > "$RUNNER_TEMP/d09-experimental-interpreter-npm.log" 2>&1 || {
             echo D09_EXPERIMENT_INTERPRETER_INSTALL=FAIL; exit 1;
           }
-          node "$core/scripts/issue14-kernel-interpreted-runtime.mjs" "$RUNNER_TEMP/d09-experimental-k036" > "$RUNNER_TEMP/d09-experimental-interpreted.log" 2>&1 || {
+          node "$core/scripts/issue14-kernel-interpreted-runtime.mjs" "$RUNNER_TEMP/d09-experimental-k036-same-store" > "$RUNNER_TEMP/d09-experimental-interpreted.log" 2>&1 || {
             echo D09_EXPERIMENT_DYNAMIC_INTERPRETER_PATCH=FAIL
             grep -oE 'D09_KERNEL_[A-Z0-9_]+|Error: [A-Z0-9_]+' "$RUNNER_TEMP/d09-experimental-interpreted.log" | tail -7 || true
             exit 1
@@ -290,7 +304,7 @@ jobs:
           mirror="$RUNNER_TEMP/d09-csp-unqualified-issue14"
           test ! -e "$mirror"
           cp -a dist "$mirror"
-          kernel="$RUNNER_TEMP/d09-experimental-k036/dist/_iwxa/runtime/0.3.6/runtime.js"
+          kernel="$RUNNER_TEMP/d09-experimental-k036-same-store/dist/_iwxa/runtime/0.3.6/runtime.js"
           cp "$kernel" "$mirror/_iwxa/runtime/0.3.6/runtime.js"
           node --input-type=module - "$mirror" <<'NODE'
           import {readFileSync,writeFileSync} from "node:fs";
@@ -317,7 +331,7 @@ jobs:
             }
           fi
           export D09_CSP_EXPERIMENT_ROOT="$RUNNER_TEMP/d09-csp-unqualified-issue14"
-          export D09_CSP_EXPERIMENT_SHA256="$(sha256sum "$RUNNER_TEMP/d09-experimental-k036/dist/_iwxa/runtime/0.3.6/runtime.js" | cut -d ' ' -f1)"
+          export D09_CSP_EXPERIMENT_SHA256="$(sha256sum "$RUNNER_TEMP/d09-experimental-k036-same-store/dist/_iwxa/runtime/0.3.6/runtime.js" | cut -d ' ' -f1)"
           export D09_PREVIEW_KEY_PATH="$RUNNER_TEMP/d09-experimental-tls/key.pem"
           export D09_PREVIEW_CERT_PATH="$RUNNER_TEMP/d09-experimental-tls/cert.pem"
           if node tests/d09-experimental-kernel-csp-witness.mjs > "$RUNNER_TEMP/d09-experimental-browser.log" 2>&1; then
