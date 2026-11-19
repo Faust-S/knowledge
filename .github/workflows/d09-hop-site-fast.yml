@@ -25,7 +25,7 @@ jobs:
         shell: bash
         run: |
           echo "D09_SITE_HEAD=$(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD)" = "df21d78c400ab207f4392b1b63b3f02770fad9ae" || {
+          test "$(git rev-parse HEAD)" = "060d1a1e88e9a742ae3c1d39c781969d3f2e0ac" || {
             echo "D09_SITE_REVISION_CHANGED=HOLD"; exit 1;
           }
       - name: Install exact dependencies
