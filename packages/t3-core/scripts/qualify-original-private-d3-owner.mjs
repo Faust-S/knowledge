@@ -8,7 +8,7 @@ import {spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 
 const REPO='Faust-S/T3';
-const PIN='19be10c557618f5c8b476a739c8fc4ca0fa2ac7f';
+export const ORIGINAL_PRIVATE_SOURCE_PIN='b897404432cec18144942758d296c19d76232f55';
 const TEST='tests/admin-original-host-port.test.mjs';
 const MULTI_EMPLOYEE_TESTS=Object.freeze([
   'tests/multi-employee-provisioning.test.mjs',
@@ -40,7 +40,7 @@ export function originalImportTarget(from,specifier){
   return path;
 }
 
-export async function getExactFile(path,token,{repository=REPO,sourcePin=PIN}={}){
+export async function getExactFile(path,token,{repository=REPO,sourcePin=ORIGINAL_PRIVATE_SOURCE_PIN}={}){
   const url=`https://api.github.com/repos/${repository}/contents/`+
     path.split('/').map(encodeURIComponent).join('/')+`?ref=${encodeURIComponent(sourcePin)}`;
   let response;
@@ -79,8 +79,8 @@ export async function runOriginalPrivateOwnerSourceCheck({
     throw Error('T3_PRIVATE_D3_UNAPPROVED_TEST_FILE');
   if(typeof token!=='string'||!token.trim())throw Error('T3_KNOWLEDGE_READ_TOKEN_NOT_AVAILABLE');
   const root=mkdtempSync(join(tmpdir(),'iwxa-t3-original-d3-'),{mode:0o700});
-  // Original AccessRegistry loads this packaged policy with readFileSync,
-  // not an ESM import. Read exactly this verified runtime asset as well.
+  // Keep the ORIGINAL signed policy JSON in the bounded source checkout.
+  // The installed Bun Owner bundles it via a static ESM JSON import.
   const visited=new Set(),pending=[...testFiles,...assets];
   let count=0,totalBytes=0;
   try{
