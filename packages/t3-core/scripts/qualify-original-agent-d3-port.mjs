@@ -8,7 +8,7 @@ import {spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {getExactFile} from './qualify-original-private-d3-owner.mjs';
 
-export const AGENT_ORIGINAL_PIN='5638684ab952dffa545d8a374507f494a1a5ef2a';
+export const AGENT_ORIGINAL_PIN='1bf0847ed069c86fe6a11380537535f0ce6c0b8e';
 const REPO='Faust-S/iwxa-personal-agent';
 const FILES=Object.freeze([
   'runtime/t3_original_employee_port.py',
@@ -16,7 +16,7 @@ const FILES=Object.freeze([
 ]);
 const MAX_FILE_BYTES=128*1024;
 const MAX_TOTAL_BYTES=256*1024;
-const TARGET='test_uncertain_native_write_blocks_waiting_consequential_request';
+const TARGET='test_unknown_prepare_recovers_original_receipt_read_only';
 
 export async function qualifyOriginalAgentD3Source({
   token,
