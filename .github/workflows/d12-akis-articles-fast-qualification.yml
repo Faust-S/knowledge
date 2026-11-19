@@ -26,12 +26,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: 40b124d232204c313155fe1a1b9b87e76bd95cbd
+          ref: 5b6b81e99ace25f38b91b795a51c9102eff4e38e
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Verify source identity without printing private code
         run: |
-          test "$(git rev-parse HEAD)" = "40b124d232204c313155fe1a1b9b87e76bd95cbd" || exit 1
+          test "$(git rev-parse HEAD)" = "5b6b81e99ace25f38b91b795a51c9102eff4e38e" || exit 1
           test -f src/routes/science.akis-production.tsx || exit 1
           test -f src/routes/science.akis-operator.tsx || exit 1
           echo "AKIS_PRIVATE_SOURCE_IDENTITIES=PASS"
@@ -95,7 +95,7 @@ jobs:
           LOVABLE_BUILD_TARGET: static
           NITRO_PRESET: node-server
           SERVER_PRESET: node-server
-          IWXA_PRERENDER_ROUTES: /science/akis-production/,/science/akis-operator/
+          IWXA_PRERENDER_ROUTES: "%2Fscience%2Fakis-production%2F,%2Fscience%2Fakis-operator%2F"
         run: |
           npx tsx scripts/prerender.ts > "$RUNNER_TEMP/akis-prerender.log" 2>&1 || {
             # Only error classifications, never raw source or local runner paths.
@@ -120,7 +120,7 @@ jobs:
       - name: Native click, math, mobile overflow, dark light, interactive browser scenario
         run: |
           bun run check:akis:browser > "$RUNNER_TEMP/akis-browser.log" 2>&1 || {
-            grep -oE 'AKIS_BROWSER_(ASSERT_FAILED|ACTION_MISSING):[^[:space:]]+|TimeoutError|Waiting failed|net::ERR_[A-Z_]+' "$RUNNER_TEMP/akis-browser.log" | sort -u | head -5 || true
+            grep -oE 'AKIS_BROWSER_(FAILURE_KIND|FAILURE_STAGE)=[^[:space:]]+|AKIS_BROWSER_(ASSERT_FAILED|ACTION_MISSING):[^[:space:]]+|TimeoutError|Waiting failed|net::ERR_[A-Z_]+' "$RUNNER_TEMP/akis-browser.log" | sort -u | head -5 || true
             echo "AKIS_BROWSER=FAIL"; exit 1;
           }
           echo "AKIS_BROWSER=PASS"
