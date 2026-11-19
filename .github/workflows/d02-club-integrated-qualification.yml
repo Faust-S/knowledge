@@ -296,11 +296,32 @@ jobs:
           }
           Write-Output 'D02_HTTP_PREVIEW=PASS routes=40 assets=12 real404=5'
 
+      - name: Verify temporary physical ZIP from the exact integrated dist without publishing it
+        id: archive_qualification
+        if: steps.http_preview.outcome == 'success'
+        continue-on-error: true
+        working-directory: site
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $zip=Join-Path $env:RUNNER_TEMP 'd02-candidate-preflight.zip'
+          $log=Join-Path $env:RUNNER_TEMP 'd02-candidate-preflight.private.log'
+          try{
+            & node scripts/package-hosting.mjs dist $zip *> $log
+            if($LASTEXITCODE -ne 0){throw 'D02_EPHEMERAL_ARCHIVE_PACKAGE_FAIL'}
+            & node scripts/verify-club-hosting-archive.mjs dist $zip *>> $log
+            if($LASTEXITCODE -ne 0){throw 'D02_EPHEMERAL_ARCHIVE_READBACK_FAIL'}
+            Write-Output 'D02_EPHEMERAL_ARCHIVE_QUALIFIED=PASS'
+            Write-Output 'D02_EPHEMERAL_ARCHIVE_PUBLISHED=FALSE'
+          }finally{
+            Remove-Item -LiteralPath $zip,($zip+'.sha256') -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Final private-source-safe status
         if: always()
         shell: pwsh
         run: |
-          Write-Output 'D02_CANDIDATE_SITE=b753da43b53506aa388217d820905ac38655095f'
+          Write-Output "D02_CANDIDATE_SITE=$env:SITE_SHA"
           Write-Output "D02_DOMAIN_TESTS=${{ steps.domain_test.outcome }}"
           Write-Output "D02_SITE_INSTALL=${{ steps.site_ci.outcome }}"
           Write-Output "D02_CANONICAL_PARITY=${{ steps.canon_parity.outcome }}"
@@ -308,13 +329,15 @@ jobs:
           Write-Output "D02_INTEGRATED_BUILD=${{ steps.integrated_build.outcome }}"
           Write-Output "D02_RELEASE_GATE=${{ steps.release_gate.outcome }}"
           Write-Output "D02_HTTP_PREVIEW=${{ steps.http_preview.outcome }}"
+          Write-Output "D02_EPHEMERAL_ARCHIVE=${{ steps.archive_qualification.outcome }}"
           if ('${{ steps.domain_test.outcome }}' -ne 'success' -or
               '${{ steps.site_ci.outcome }}' -ne 'success' -or
               '${{ steps.canon_parity.outcome }}' -ne 'success' -or
               '${{ steps.site_tests.outcome }}' -ne 'success' -or
               '${{ steps.integrated_build.outcome }}' -ne 'success' -or
               '${{ steps.release_gate.outcome }}' -ne 'success' -or
-              '${{ steps.http_preview.outcome }}' -ne 'success') {
+              '${{ steps.http_preview.outcome }}' -ne 'success' -or
+               '${{ steps.archive_qualification.outcome }}' -ne 'success') {
             throw 'D02_QUALIFICATION_NOT_COMPLETE'
           }
           Write-Output 'D02_SOURCE_BUILD_QUALIFIED=PASS'
