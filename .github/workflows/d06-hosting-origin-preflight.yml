@@ -1,0 +1,166 @@
+name: d06-hosting-origin-preflight
+
+# Test the release-origin BUILD in an ephemeral runner, never publish dist or
+# private source. Final hosting artifact is assembled separately by Codex.
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-hosting-origin-preflight.yml
+
+permissions:
+  contents: read
+
+jobs:
+  production-origin:
+    runs-on: windows-latest
+    timeout-minutes: 65
+    steps:
+      - name: Checkout D06 product at exact candidate SHA
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: 53988e73a99ab291cb8bba0d678e1df62015f7bb
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - name: Checkout read-only normative T2 at exact SHA
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 9c64951cd78411283e8a416641c36d71e169fc1d
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/t2
+      - name: Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Clean private dependency installation
+        shell: pwsh
+        run: |
+          foreach ($pair in @(
+            @{ name = 'SITE'; path = 'private/site' },
+            @{ name = 'T2'; path = 'private/t2/t2/current/final-successor/canonical-source' }
+          )) {
+            Push-Location (Join-Path $env:GITHUB_WORKSPACE $pair.path)
+            try {
+              $log = Join-Path $env:RUNNER_TEMP ("d06-origin-install-" + $pair.name + ".txt")
+              & npm ci --no-audit --no-fund *> $log
+              if ($LASTEXITCODE -ne 0) {
+                Write-Host ("D06_PROD_INSTALL_" + $pair.name + "=FAIL")
+                exit 1
+              }
+              Write-Host ("D06_PROD_INSTALL_" + $pair.name + "=PASS")
+            } finally {
+              Pop-Location
+            }
+          }
+      - name: Verify accepted Kernel ZIP and stage exact immutable bytes
+        shell: pwsh
+        run: |
+          $release = Join-Path $env:GITHUB_WORKSPACE 'private/t2/t2/current/final-successor/kernel-successors/k036-same-store-event-history-20261019/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip'
+          $zipHash = '7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68'
+          $runtimeHash = 'e1737245aba309e900203b458087ca07cb08d9ccc89901754e1122cbc9a01e78'
+          if (-not (Test-Path -LiteralPath $release) -or
+              (Get-FileHash $release -Algorithm SHA256).Hash.ToLowerInvariant() -ne $zipHash) {
+            Write-Host 'D06_PROD_QUALIFIED_ARCHIVE=FAIL'
+            exit 1
+          }
+          $dest = Join-Path $env:RUNNER_TEMP 'd06-prod-verified-kernel'
+          Expand-Archive -LiteralPath $release -DestinationPath $dest
+          $runtime = Join-Path $dest '_iwxa/runtime/0.3.6/runtime.js'
+          if (-not (Test-Path $runtime) -or
+              (Get-FileHash $runtime -Algorithm SHA256).Hash.ToLowerInvariant() -ne $runtimeHash) {
+            Write-Host 'D06_PROD_QUALIFIED_RUNTIME=FAIL'
+            exit 1
+          }
+          Write-Host 'D06_PROD_QUALIFIED_ARCHIVE=PASS'
+          Write-Host 'D06_PROD_QUALIFIED_RUNTIME=PASS'
+      - name: Build one integrated site for exact canonical HTTPS production origin
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 35
+        env:
+          IWXA_T2_CANONICAL_ROOT: ${{ github.workspace }}/private/t2/t2/current/final-successor/canonical-source
+          IWXA_D06_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/d06-prod-verified-kernel
+          IWXA_D06_HOST_ORIGIN: https://komplektovod.ru
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'd06-production-origin-build-private.txt'
+          & npm run build *> $log
+          if ($LASTEXITCODE -ne 0) {
+            $raw = Get-Content -LiteralPath $log -Raw
+            $codes = [regex]::Matches($raw, 'D06_(?:SITE_ONLY|KERNEL_BINDING|FINAL_PRODUCT)_[A-Z0-9_]+') |
+              ForEach-Object { $_.Value } | Select-Object -Unique -First 6
+            Write-Host 'D06_PROD_BUILD=FAIL'
+            Write-Host ('D06_PROD_ERROR_CLASSES=' + (($codes | Select-Object -Unique) -join ','))
+            exit 1
+          }
+          Write-Host 'D06_PROD_BUILD=PASS'
+      - name: Confirm release profile and exact published paths, no engineering services
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $root = (Resolve-Path dist).Path
+          $paths = @(
+            'index.html', '404.html', '.htaccess',
+            'workspace/index.html', 'workspace/exchange/index.html',
+            'workspace/lifecycle/index.html', '_iwxa/domain.json',
+            '_iwxa/service-catalog.json', 'workspace/workspace.config.json',
+            '_iwxa/runtime/0.3.6/runtime.js'
+          )
+          foreach ($path in $paths) {
+            if (-not (Test-Path -LiteralPath (Join-Path $root $path) -PathType Leaf)) {
+              Write-Host 'D06_PROD_REQUIRED_FILES=FAIL'
+              exit 1
+            }
+          }
+          $domain = Get-Content -LiteralPath (Join-Path $root '_iwxa/domain.json') -Raw | ConvertFrom-Json
+          $catalog = Get-Content -LiteralPath (Join-Path $root '_iwxa/service-catalog.json') -Raw | ConvertFrom-Json
+          $workspace = Get-Content -LiteralPath (Join-Path $root 'workspace/workspace.config.json') -Raw | ConvertFrom-Json
+          $modules = @($workspace.modules | Where-Object { $_.state -eq 'active' } | ForEach-Object { $_.module_id })
+          $must = @('iwxa.workspace.base', 'iwxa.workspace.exchange', 'iwxa.workspace.lifecycle', 'iwxa.domain.komplektovod')
+          if ($domain.origin -ne 'https://komplektovod.ru' -or
+              $domain.status -ne 'production' -or
+              $domain.release.deployment_mode -ne 'static' -or
+              $domain.config_version -ne $workspace.config_version -or
+              $catalog.count -ne 1 -or
+              $catalog.entries.Count -ne 1 -or
+              $catalog.entries[0].service_id -ne 'ru.iwxa.komplektovod.host' -or
+              @($must | Where-Object { $modules -notcontains $_ }).Count -gt 0 -or
+              (Test-Path (Join-Path $root '_iwxa/services/ru.iwxa.komplektovod.product-auditor.json')) -or
+              (Test-Path (Join-Path $root '_iwxa/services/ru.iwxa.komplektovod.first-run-provisioner.json')) -or
+              (Test-Path (Join-Path $root 'workspace/studio')) -or
+              (Test-Path (Join-Path $root 'workspace/_iwxa'))) {
+            Write-Host 'D06_PROD_MANIFEST=FAIL'
+            exit 1
+          }
+          $actual = (Get-FileHash (Join-Path $root '_iwxa/runtime/0.3.6/runtime.js') -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne 'e1737245aba309e900203b458087ca07cb08d9ccc89901754e1122cbc9a01e78') {
+            Write-Host 'D06_PROD_KERNEL_HASH=FAIL'
+            exit 1
+          }
+          Write-Host 'D06_PROD_MANIFEST=PASS'
+          Write-Host 'D06_PROD_KERNEL_HASH=PASS'
+      - name: Check exact final dist static hosting contracts
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 15
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'd06-production-origin-static-private.txt'
+          & npm run check:static *> $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host 'D06_PROD_STATIC=FAIL'
+            exit 1
+          }
+          Write-Host 'D06_PROD_STATIC=PASS'
+      - name: Guarantee no artifact or private log publication
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host 'D06_PROD_BUILD_ARTIFACT=RUNNER_LOCAL_ONLY'
+          Write-Host 'D06_PROD_PRIVATE_ARTIFACT_UPLOADS=0'
+          Write-Host 'D06_PROD_PRIVATE_LOG_UPLOADS=0'
+          Write-Host 'D06_PROD_DEPLOYMENT=NOT_PERFORMED'
+          Write-Host 'D06_PROD_USER_ACCEPTANCE=NOT_INFERRED'
