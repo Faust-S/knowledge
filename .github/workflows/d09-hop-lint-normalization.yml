@@ -24,7 +24,7 @@ jobs:
       - name: Exact dependencies and frozen source
         shell: bash
         run: |
-          test "$(git rev-parse HEAD)" = "b79323988f3a54eee2d44c95e22dc235d27474c7"
+          test "$(git rev-parse HEAD)" = "63ada2f08686492f1168877a7c9fef4a38f0a7e4"
           test -z "$(git status --porcelain)"
           npm ci --no-audit --no-fund > "$RUNNER_TEMP/d09-lint-npm.log" 2>&1
           echo D09_LINT_NORMALIZE_INPUT=PASS
