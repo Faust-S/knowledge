@@ -61,7 +61,7 @@ jobs:
           }
           npm run test:d09 > "$RUNNER_TEMP/d09-lint-domain.log" 2>&1 || {
             echo D09_LINT_CANDIDATE_DOMAIN_TESTS=FAIL
-            grep -E "^not ok [0-9]+ - " "$RUNNER_TEMP/d09-lint-domain.log" | tail -25 || true
+            grep -E "not ok|✖|# fail|# tests|# pass|HOP_AJV_|ERR_ASSERTION|AssertionError|D09_SITE_" "$RUNNER_TEMP/d09-lint-domain.log" | tail -35 || true
             exit 1
           }
           ./node_modules/.bin/vitest run src/components/player/ResultContinuationPanel.t2.test.tsx src/integrations/t2/result-source-check.test.ts src/components/workspace/ImportPreviewDialog.t2.test.tsx > "$RUNNER_TEMP/d09-lint-ui.log" 2>&1 || {
