@@ -10,7 +10,7 @@
    - installed Admin Center [#44559119290](https://github.com/Faust-S/knowledge/actions/runs/44559119290);
    - original private Agent Node/Python + настоящий T2 Kernel [#44559119398](https://github.com/Faust-S/knowledge/actions/runs/44559119398);
    - исходный оригинальный D3 Owner и его одноразовый Human ACCEPT [#44559119612](https://github.com/Faust-S/knowledge/actions/runs/44559119612).
-   У всех трёх пока **PENDING до получения итогового conclusion**. Не предполагать PASS. При FAIL читать только bounded codes, никогда сырые приватные логи/ключи.
+   **Фактический результат:** #44559119398 SUCCESS (original native Agent/Kernel 20 контрольных этапов), #44559119612 SUCCESS (15/15 original Owner), #44559119290 всё ещё требовал итоговой проверки на момент этой редакции. Установленный D3 считать PASS только по финалу третьего CI. При FAIL читать только bounded codes, никогда сырые приватные логи/ключи.
 3. Сверить live HEAD/TREE `Faust-S/knowledge`, `Faust-S/T3`, `Faust-S/Center`, `Faust-S/iwxa-personal-agent`, нормативного `Faust-S/T2@main`; открыть актуальный код и точные `AGENTS.md` частных владельцев прежде чем писать.
 4. При PASS сохранить каждое доказательство отдельно в машинном реестре с точной ревизией. При FAIL исправить реальную причину в исходном владельце и повторить только нужную проверку. G4 не повышать преждевременно.
 
@@ -58,7 +58,7 @@
 При следующей сверке приватного исходного Owner на том же `b8974044` [#44558118653](https://github.com/Faust-S/knowledge/actions/runs/44558118653) показал **14/15 PASS**: тест #2 был историческим. Оригинальная защита `createOriginalAdminD3HostPort().nativeAction(d3Decide)` уже правильно вызывает `port.accept/reject` и `confirmHumanReview`, но старый приватный тест всё ещё требовал `decisions===0`, тем самым противоречил безопасной реализации. **Исправлен тест у владельца**, не ослаблялись подписи и Human consent:
 `Faust-S/T3@1a8267634955947bc0c6adc5614d7de176a33da2` (`tests/admin-original-host-port.test.mjs`), теперь явный one-shot тестовый Human challenge точно связывает `decision`, `packageSha256`, `previewDigest`, `operationId`, `actor` и подтверждается ровно один раз. Это source test harness, **не** замена native Win32 consent.
 
-Все три независимых публичных qualification workflow заново закреплены на `T3@1a826763...` и совместно запущены коммитом `knowledge@b9fa8acf6a5c3667f7fc368f931a526e474161e8`. Их финальный conclusion проверить немедленно. Установленный Admin-исходник Center остался неизменным, выпускная граница unchanged.
+Все три независимых публичных qualification workflow заново закреплены на `T3@1a826763...` и совместно запущены коммитом `knowledge@b9fa8acf6a5c3667f7fc368f931a526e474161e8`. **Фактические результаты:** original signed Owner source #44559119612 = 15/15 PASS, native employee/Kernel #44559119398 = все 20 этапов PASS. Оригинальный T3 `b8974044 → 1a826763` изменил **только** `tests/admin-original-host-port.test.mjs` (1 commit, 14 additions/1 deletion), производственные файлы подписанта/Kernel не изменялись. Installed Admin #44559119290 подлежит отдельной финальной сверке. Установленный Admin-исходник Center остался неизменным, выпускная граница unchanged.
 
 ## 4. Открытые реальные product gates (строгий порядок)
 
