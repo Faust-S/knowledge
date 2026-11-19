@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: 81eed631bb0e0ec41eb2dda6fcf7d20775f72e2e
+          ref: a29342519466961dc1a1a8f44713323ebb0268f1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: pt-site
@@ -45,9 +45,16 @@ jobs:
         working-directory: pt-site
         shell: bash
         run: |
-          test "$(git rev-parse HEAD)" = "81eed631bb0e0ec41eb2dda6fcf7d20775f72e2e" || exit 1
+          test "$(git rev-parse HEAD)" = "a29342519466961dc1a1a8f44713323ebb0268f1" || exit 1
           bun install --frozen-lockfile > "$RUNNER_TEMP/pt-install.log" 2>&1 || { echo "PT_INSTALL=FAIL"; exit 1; }
           echo "PT_INSTALL=PASS"
+          node scripts/check-portuguese-source.mjs > "$RUNNER_TEMP/pt-guard.log" 2>&1 || {
+            echo "PT_SOURCE_GUARD=FAIL"
+            grep -E '(FAIL|Error:|unexpected)' "$RUNNER_TEMP/pt-guard.log" | tail -n 12 |
+              sed -E 's#/home/runner/[^ ]+#<private-path>#g' || true
+            exit 1
+          }
+          echo "PT_SOURCE_GUARD=PASS"
           bun run typecheck > "$RUNNER_TEMP/pt-types.log" 2>&1 || {
             echo "PT_TYPECHECK=FAIL"
             grep -E 'error TS|error' "$RUNNER_TEMP/pt-types.log" | sed -E 's#/home/runner/[^ ]+#<private-path>#g' | tail -n 5 || true
