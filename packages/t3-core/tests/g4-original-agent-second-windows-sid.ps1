@@ -78,13 +78,18 @@ try {
   $phase = 'STAGE_ONLY_PUBLIC_TRUST_AND_NATIVE_PORT'
   $root = Join-Path $env:ProgramData ('IWXA-T3-Employee-SID-' + $nonce)
   $null = New-Item -ItemType Directory -Path $root -Force
-  # Repeat the exact atomic icacls combination already qualified under
-  # another Windows SID in public CI #44577052493. Do not apply separate
-  # ACL mutations in a different order and infer equivalence.
-  & $icacls $root /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' ("*" + $employeeSid + ':(OI)(CI)M') *> $null
-  $aclExit = if ($null -eq $LASTEXITCODE) {'UNSET'} else {[string]$LASTEXITCODE}
+  # WindowsPowerShell child receives a restricted process environment.
+  # Do not trust the automatic LASTEXITCODE: launch the ORIGINAL system ACL
+  # utility as a native process, check its explicit exit code AND read back
+  # the effective ACL for the independent employee SID.
+  $quotedRoot = '"' + $root + '"'
+  $aclArguments = @($quotedRoot,'/inheritance:r','/grant:r',
+    '*S-1-5-18:(OI)(CI)F','*S-1-5-32-544:(OI)(CI)F',
+    ('*' + $employeeSid + ':(OI)(CI)M'))
+  $aclProcess = Start-Process -FilePath $icacls -ArgumentList $aclArguments -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop
+  $aclExit = [string]$aclProcess.ExitCode
   Write-Output ('G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_DIAGNOSTIC ' + $aclExit)
-  if ($aclExit -ne '0' -and $aclExit -ne 'UNSET') {
+  if ($aclExit -ne '0') {
     throw 'G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_FAILED'
   }
   $employeeAccess = [IO.DirectoryInfo]::new($root).GetAccessControl().GetAccessRules($true,$false,[Security.Principal.SecurityIdentifier]) | Where-Object {
@@ -95,11 +100,15 @@ try {
   # Original private SOURCE may be executable by the second account; ORIGINAL
   # Admin Manager DPAPI vault never enters these two source directories.
   foreach ($source in @($T3Root,$AgentRoot)) {
-    & $icacls $source /grant ("*" + $employeeSid + ':(OI)(CI)RX') /T *> $null
-    if ($LASTEXITCODE -ne 0) { throw 'G4_ORIGINAL_EMPLOYEE_SOURCE_READ_ACL_FAILED' }
+    $sourceArgs = @(('"' + $source + '"'),'/grant',
+      ('*' + $employeeSid + ':(OI)(CI)RX'),'/T')
+    $aclProcess = Start-Process -FilePath $icacls -ArgumentList $sourceArgs -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop
+    if ($aclProcess.ExitCode -ne 0) { throw 'G4_ORIGINAL_EMPLOYEE_SOURCE_READ_ACL_FAILED' }
   }
-  & $icacls $PythonDriver /grant ("*" + $employeeSid + ':R') *> $null
-  if ($LASTEXITCODE -ne 0) { throw 'G4_ORIGINAL_EMPLOYEE_DRIVER_READ_ACL_FAILED' }
+  $driverArgs = @(('"' + $PythonDriver + '"'),'/grant',
+    ('*' + $employeeSid + ':R'))
+  $aclProcess = Start-Process -FilePath $icacls -ArgumentList $driverArgs -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop
+  if ($aclProcess.ExitCode -ne 0) { throw 'G4_ORIGINAL_EMPLOYEE_DRIVER_READ_ACL_FAILED' }
   $profile = Get-Content -LiteralPath $PublicProfilePath -Raw | ConvertFrom-Json
   if ($profile.organizationId -notmatch '^org:' -or
       $profile.issuerPublicKey -notmatch 'BEGIN PUBLIC KEY' -or
