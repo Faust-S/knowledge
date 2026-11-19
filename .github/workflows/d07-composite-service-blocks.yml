@@ -98,10 +98,14 @@ jobs:
           if($LASTEXITCODE -ne 0){
             # No source text, contents or private diagnostics are published.
             # Only relative module basename, line and TS diagnostic code.
-            foreach($line in @(Get-Content $log -ErrorAction SilentlyContinue)){
-              if($line -match '([^\\/() ]+[.]tsx?)\\(([0-9]+),([0-9]+)\\): error (TS[0-9]+)'){
-                Write-Output ('D07_TYPE_ISSUE='+$Matches[1]+':'+$Matches[2]+':'+$Matches[4])
-              }
+            $issues=@(Get-Content $log -ErrorAction SilentlyContinue |
+              Where-Object { $_ -match 'TS[0-9]{4}' })
+            Write-Output ('D07_TYPE_ISSUE_COUNT='+$issues.Count)
+            foreach($issue in $issues | Select-Object -First 25){
+              $code=([regex]::Match($issue,'TS[0-9]{4}')).Value
+              $path=([regex]::Match($issue,'[a-zA-Z0-9_.-]+[.]tsx?')).Value
+              $position=([regex]::Match($issue,'\\([0-9]+,[0-9]+\\)|:[0-9]+:[0-9]+')).Value
+              Write-Output ('D07_TYPE_ISSUE='+$path+$position+':'+$code)
             }
             throw 'D07_BLOCKS_TYPES_FAIL'
           }
