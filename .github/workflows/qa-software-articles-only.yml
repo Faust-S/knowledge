@@ -1,0 +1,53 @@
+name: IWXA software articles source, TypeScript and Vite qualification
+on:
+  push:
+    branches:
+      - qa/2026-11-19-software-site-source-qualification
+    paths:
+      - .github/workflows/qa-software-articles-only.yml
+permissions:
+  contents: read
+jobs:
+  editorial-articles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: bcb625f3ebb9a062761df305d93058b4b76236a0
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          path: .private/site
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Verify exact editorial HEAD and all native screenshot checksums
+        working-directory: .private/site
+        run: |
+          test "$(git rev-parse HEAD)" = 'bcb625f3ebb9a062761df305d93058b4b76236a0' || { echo 'ARTICLES_SITE_HEAD_FAIL'; exit 1; }
+          node scripts/check-software-publications.mjs > "$RUNNER_TEMP/articles-check.log" 2>&1 || { echo 'ARTICLES_SOURCE_GUARD_FAIL'; exit 1; }
+          echo 'ARTICLES_SOURCE_AND_SCREENSHOTS_PASS'
+      - name: Install exactly the site's frozen dependencies
+        working-directory: .private/site
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/articles-install.log" 2>&1 || { echo 'ARTICLES_INSTALL_FAIL'; exit 1; }
+          echo 'ARTICLES_FROZEN_DEPS_PASS'
+      - name: Compile and validate all TypeScript source
+        working-directory: .private/site
+        run: |
+          bunx tsc --noEmit > "$RUNNER_TEMP/articles-types.log" 2>&1 || { echo 'ARTICLES_TYPES_FAIL'; exit 1; }
+          echo 'ARTICLES_TYPECHECK_PASS'
+      - name: Build page routing and article output
+        working-directory: .private/site
+        run: |
+          bun run build > "$RUNNER_TEMP/articles-build.log" 2>&1 || { echo 'ARTICLES_VITE_BUILD_FAIL'; exit 1; }
+          echo 'ARTICLES_VITE_BUILD_PASS'
+      - name: Delete private source and temporary logs
+        if: always()
+        run: |
+          rm -rf .private/site
+          rm -f "$RUNNER_TEMP/articles-"*.log
+          echo 'ARTICLES_PRIVATE_SOURCE_PURGED'
