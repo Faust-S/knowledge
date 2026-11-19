@@ -188,7 +188,7 @@ try {
     $args = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
       $worker + '" -ConfigPath "' + $requestFile + '" -OutputPath "' + $replyFile + '"'
     $script:phase = 'AGENT_IPC_SECOND_USER_PROCESS_START'
-    $process = Start-Process -FilePath $exe -ArgumentList $args -Credential $credential -LoadUserProfile -PassThru -Wait -WindowStyle Hidden -ErrorAction Stop
+    $process = Start-Process -FilePath $exe -ArgumentList $args -WorkingDirectory $root -Credential $credential -LoadUserProfile -PassThru -Wait -WindowStyle Hidden -ErrorAction Stop
     $script:phase = 'AGENT_IPC_READ_SECOND_USER_REPLY'
     if (-not (Test-Path -LiteralPath $replyFile)) {
       throw 'G4_ORIGINAL_AGENT_SECOND_SID_RESPONSE_MISSING'
@@ -354,6 +354,11 @@ if(!okay)process.exit(3);
   $fqid = [string]$_.FullyQualifiedErrorId
   if ($fqid -match '^[A-Za-z][A-Za-z0-9_,.:-]{1,110}$') {
     Write-Output ('G4_ORIGINAL_AGENT_TWO_SID_ERROR_FQID ' + $fqid.ToUpperInvariant())
+  }
+  $inner = $_.Exception.InnerException
+  if ($inner -is [ComponentModel.Win32Exception] -and
+      $inner.NativeErrorCode -ge 0 -and $inner.NativeErrorCode -le 65535) {
+    Write-Output ('G4_ORIGINAL_AGENT_TWO_SID_NATIVE_OS_CODE ' + [string]$inner.NativeErrorCode)
   }
   $nativeError = $_.Exception.NativeErrorCode
   if ($nativeError -is [int] -and $nativeError -ge 0 -and $nativeError -le 65535) {
