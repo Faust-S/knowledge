@@ -143,18 +143,40 @@ jobs:
           }
           Write-Host 'D06_PROD_MANIFEST=PASS'
           Write-Host 'D06_PROD_KERNEL_HASH=PASS'
-      - name: Check exact final dist static hosting contracts
+      # check:static/readability applies to the PUBLIC pre-rendered site and
+      # is exercised separately by the full 23-spec product QA. T2 Host HTML
+      # is intentionally client-rendered; it is not a 1000-word public article.
+      # Here verify the FINAL combined artifact, without relaxing site checks.
+      - name: Check final integrated assets, exact origin and hosting paths
         shell: pwsh
         working-directory: private/site
         timeout-minutes: 15
         run: |
-          $log = Join-Path $env:RUNNER_TEMP 'd06-production-origin-static-private.txt'
-          & npm run check:static *> $log
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host 'D06_PROD_STATIC=FAIL'
+          $checks = @(
+            'check:no-localhost',
+            'check:assets',
+            'check:external-assets',
+            'check:htaccess',
+            'check:404',
+            'check:preview-no-spa-fallback'
+          )
+          $fail = 0
+          foreach ($check in $checks) {
+            $safe = $check.Replace(':', '-')
+            $log = Join-Path $env:RUNNER_TEMP ('d06-production-' + $safe + '.private.txt')
+            & npm run $check *> $log
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host ('D06_PROD_' + $safe + '=PASS')
+            } else {
+              Write-Host ('D06_PROD_' + $safe + '=FAIL')
+              $fail += 1
+            }
+          }
+          if ($fail -gt 0) {
+            Write-Host 'D06_PROD_INTEGRATED_DIST_CHECKS=FAIL'
             exit 1
           }
-          Write-Host 'D06_PROD_STATIC=PASS'
+          Write-Host 'D06_PROD_INTEGRATED_DIST_CHECKS=PASS'
       - name: Guarantee no artifact or private log publication
         if: always()
         shell: pwsh
