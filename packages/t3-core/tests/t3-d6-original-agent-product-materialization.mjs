@@ -8,6 +8,7 @@ import {spawnSync} from 'node:child_process';
 import {mkdtempSync,readFileSync,writeFileSync,rmSync,readdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve,relative,sep,extname} from 'node:path';
+import Ajv from 'ajv';
 import {chromium} from 'playwright';
 import {materializeOriginalAgentT2Product,
   buildOriginalAgentOneDistFromQualifiedKernel}
@@ -109,6 +110,33 @@ try{
   assert.equal(passport.permissions.workspace.create,true);
   assert.deepEqual(passport.permissions.objects.delete,[]);
   assert.ok(passport.schemas['iwxa.agent.accepted-result']);
+  const resultDeclaration=passport.schemas['iwxa.agent.accepted-result'].json_schema;
+  assert.equal(resultDeclaration.type,'object');
+  assert.equal(resultDeclaration.additionalProperties,false);
+  assert.equal(resultDeclaration.required.includes('workRef'),false,
+    'Generic original T2 accepted Result cannot require Atlas WorkRef');
+  assert.deepEqual(resultDeclaration.properties.workRef.required,
+    ['projectId','workId','revision'],
+    'Optional project binding must remain complete and revision-bound');
+  const validateResult=(new Ajv({strict:true})).compile(resultDeclaration);
+  const genericResult={
+    taskId:'task:generic:01',resultId:'result:generic:01',
+    acceptedDigest:'a'.repeat(64),signedTaskId:'signed:task:01',
+    signedTaskRevisionId:'revision:01',
+    signedTaskPackageSha256:'b'.repeat(64),contextDigest:'c'.repeat(64),
+  };
+  assert.equal(validateResult(genericResult),true,
+    'Original Agent service must accept an ordinary signed Result without Atlas');
+  assert.equal(validateResult({...genericResult,workRef:{
+    projectId:'project:01',workId:'work:01',revision:'3',
+  }}),true,'Optional project-bound result must remain valid');
+  assert.equal(validateResult({...genericResult,workRef:{
+    projectId:'project:01',workId:'work:01',
+  }}),false,'A partially supplied project reference cannot bypass revision');
+  assert.equal(validateResult({...genericResult,workRef:{
+    projectId:'project:01',workId:'work:01',revision:'3',extra:'x',
+  }}),false,'An optional WorkRef must reject unrecognized data');
+
   assert.ok(passport.schemas['iwxa.t3.access.signed-registry']);
   assert.equal(sha(readFileSync(join(dist,'_iwxa/loader.js'))),
     sha(originalLoader));
