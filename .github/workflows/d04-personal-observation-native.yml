@@ -43,6 +43,7 @@ jobs:
           ref: 2c7bbc76579956224c3c873765f848c22ca746a8
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
+          fetch-depth: 0
           persist-credentials: false
       - name: Checkout exact private subject
         uses: actions/checkout@v4
@@ -51,6 +52,7 @@ jobs:
           ref: 0f1c550ab039c02d0cab0a911bdb67f96b97fb2e
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
+          fetch-depth: 0
           persist-credentials: false
       - name: Checkout original normative T2
         uses: actions/checkout@v4
@@ -59,6 +61,7 @@ jobs:
           ref: 9c64951cd78411283e8a416641c36d71e169fc1d
           token: ${{ secrets.DOMEN }}
           path: d04-private/t2
+          fetch-depth: 0
           persist-credentials: false
       - name: Verify exact sources, canonical profile and witness
         run: |
