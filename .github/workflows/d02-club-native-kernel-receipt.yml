@@ -676,16 +676,79 @@ jobs:
               [D02NativeMouse]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero)
             }catch{throw $code}
           }
-          function ActivateTab([string]$name,[string]$code){
-            # T2 tab is role="tab" and therefore UIA TabItem, not Button.
-            $tab=Await $name 'tab' $code
-            NativeClick $tab $code
-            Start-Sleep -Milliseconds 250
+          function ExistsUIName([string]$name){
+            # Unlike Locate, this includes disabled buttons. Export Download
+            # is disabled on an empty export panel, but still visible there.
+            $cond=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+            foreach($root in @(Roots)){
+              if($root.FindFirst($scope,$cond)){return $true}
+            }
+            return $false
+          }
+          function ImportTabSelected($tab){
             try{
-              $selected=[System.Windows.Automation.SelectionItemPattern]$tab.GetCurrentPattern(
+              $pattern=[System.Windows.Automation.SelectionItemPattern]$tab.GetCurrentPattern(
                 [System.Windows.Automation.SelectionItemPattern]::Pattern)
-              Write-Output "D02_IMPORT_NATIVE_TAB_SELECTED=$($selected.Current.IsSelected)"
-            }catch{Write-Output 'D02_IMPORT_NATIVE_TAB_SELECTION_NOT_EXPOSED=TRUE'}
+              return [bool]$pattern.Current.IsSelected
+            }catch{return $false}
+          }
+          function ActivateTab([string]$name,[string]$code){
+            # Edge exposes HTML <button role="tab"> as UIA TabItem. Mouse
+            # GetClickablePoint may be unavailable in a Windows CI session;
+            # use accessible UI actions and real keyboard events first.
+            $tab=Await $name 'tab' $code
+            $method='none'
+            try{
+              $pattern=[System.Windows.Automation.SelectionItemPattern]$tab.GetCurrentPattern(
+                [System.Windows.Automation.SelectionItemPattern]::Pattern)
+              $pattern.Select()
+              $method='uia-selection'
+            }catch{
+              Write-Output 'D02_IMPORT_TAB_UIA_SELECTION_UNAVAILABLE=TRUE'
+            }
+            Start-Sleep -Milliseconds 200
+            if(-not (ImportTabSelected $tab)){
+              try{
+                $legacy=[System.Windows.Automation.LegacyIAccessiblePattern]$tab.GetCurrentPattern(
+                  [System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)
+                $legacy.DoDefaultAction()
+                $method='legacy-default-action'
+              }catch{
+                Write-Output 'D02_IMPORT_TAB_LEGACY_DEFAULT_UNAVAILABLE=TRUE'
+              }
+            }
+            Start-Sleep -Milliseconds 200
+            if(-not (ImportTabSelected $tab)){
+              try{
+                $tab.SetFocus()
+                [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                Start-Sleep -Milliseconds 100
+                [System.Windows.Forms.SendKeys]::SendWait(' ')
+                $method='native-keyboard'
+              }catch{
+                Write-Output 'D02_IMPORT_TAB_KEYBOARD_UNAVAILABLE=TRUE'
+              }
+            }
+            Start-Sleep -Milliseconds 250
+            if(-not (ImportTabSelected $tab) -and (ExistsUIName 'Скачать .iwxa')){
+              # Final native pointer fallback; its absence is a CI desktop
+              # limitation, not evidence that the original Kernel denied import.
+              try{
+                NativeClick $tab $code
+                $method='native-pointer'
+              }catch{
+                Write-Output 'D02_IMPORT_TAB_POINTER_UNAVAILABLE=TRUE'
+              }
+            }
+            Start-Sleep -Milliseconds 250
+            $selected=ImportTabSelected $tab
+            Write-Output "D02_IMPORT_NATIVE_TAB_ACTION=$method"
+            Write-Output "D02_IMPORT_NATIVE_TAB_SELECTED=$selected"
+            Write-Output ("D02_IMPORT_EXPORT_PANEL_PRESENT=" + (ExistsUIName 'Скачать .iwxa'))
+            if(-not $selected -and (ExistsUIName 'Скачать .iwxa')){
+              throw 'D02_IMPORT_TAB_DID_NOT_SWITCH'
+            }
           }
           function AwaitPrefix([string]$prefix,[string]$code){
             for($i=0;$i -lt 100;$i++){
@@ -741,7 +804,8 @@ jobs:
                   Write-Output "D02_IMPORT_TAB_SELECTED_WHEN_FILE_MISSING=$($selection.Current.IsSelected)"
                 }catch{Write-Output 'D02_IMPORT_TAB_SELECTION_STATUS_UNKNOWN=TRUE'}
               }
-              Write-Output ('D02_IMPORT_EXPORT_PANEL_VISIBLE='+[bool](Locate 'Скачать .iwxa' 'button'))
+              Write-Output ('D02_IMPORT_EXPORT_PANEL_PRESENT='+ (ExistsUIName 'Скачать .iwxa'))
+              Write-Output ('D02_IMPORT_IMPORT_PANEL_TEXT_PRESENT='+ (ExistsUIName 'Выберите сохранённый пакет'))
               throw 'D02_IMPORT_FILE_INPUT_NOT_VISIBLE'
             }
             Write-Output 'D02_IMPORT_NATIVE_FILE_CONTROL_FOUND=PASS'
