@@ -140,6 +140,63 @@ function MetricState($combo) {
   if($name -match "До изменения работы"){return "BEFORE"}
   return "UNREADABLE"
 }
+function Verify-NativeCaseSelect($slug,$caseId,$controlId,$expectedBefore,$expectedAfter,$expectedDynamic) {
+  $url="$origin/cases/$slug/"
+  $window=Find-EdgeWindow
+  if($null -eq $window){throw "D10_WINDOWS_CASE_NATIVE_WINDOW_MISSING"}
+  [void][D10NativeWindow]::ShowWindow([IntPtr]$window.Current.NativeWindowHandle,9)
+  [void][D10NativeWindow]::SetForegroundWindow(
+    [IntPtr]$window.Current.NativeWindowHandle)
+  [System.Windows.Forms.Clipboard]::SetText($url)
+  [System.Windows.Forms.SendKeys]::SendWait("^l")
+  [System.Windows.Forms.SendKeys]::SendWait("^v")
+  [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+  $ready=$false
+  for($i=0;$i -lt 50;$i++){
+    Start-Sleep -Milliseconds 250
+    $window=Find-EdgeWindow
+    if($null -ne $window -and (Has-AccessibleArticleText $window $caseId)){
+      $ready=$true;break
+    }
+  }
+  if(-not $ready){throw "D10_WINDOWS_CASE_NATIVE_ROUTE_UNAVAILABLE"}
+  $comboCondition=New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+    [System.Windows.Automation.ControlType]::ComboBox)
+  $combo=$null
+  for($t=0;$t -lt 30;$t++){
+    $window=Find-EdgeWindow
+    $elements=$window.FindAll(
+      [System.Windows.Automation.TreeScope]::Descendants,$comboCondition)
+    foreach($element in $elements){
+      if($element.Current.AutomationId -eq $controlId){$combo=$element;break}
+    }
+    if($combo){break}
+    Start-Sleep -Milliseconds 200
+  }
+  if($null -eq $combo){throw "D10_WINDOWS_CASE_NATIVE_CONTROL_NOT_FOUND"}
+  $initial=ComboOptionName $combo
+  if($initial -ne $expectedBefore){throw "D10_WINDOWS_CASE_NATIVE_INITIAL_OPTION_CHANGED"}
+  $selected=$false
+  $repainted=$false
+  for($attempt=0;$attempt -lt 3;$attempt++){
+    $combo.SetFocus()
+    Start-Sleep -Milliseconds 250
+    [System.Windows.Forms.SendKeys]::SendWait("{HOME}{DOWN}{ENTER}{TAB}")
+    for($i=0;$i -lt 30;$i++){
+      Start-Sleep -Milliseconds 200
+      if((ComboOptionName $combo) -eq $expectedAfter){$selected=$true}
+      $window=Find-EdgeWindow
+      if($null -ne $window -and
+         (Has-AccessibleArticleText $window $expectedDynamic)){$repainted=$true}
+      if($selected -and $repainted){break}
+    }
+    if($selected -and $repainted){break}
+  }
+  if(-not $selected){throw "D10_WINDOWS_CASE_NATIVE_SELECTION_UNCONFIRMED"}
+  if(-not $repainted){throw "D10_WINDOWS_CASE_NATIVE_RESULT_NOT_REPAINTED"}
+  Write-Output "D10_WINDOWS_NATIVE_$caseId=PASS"
+}
 try {
   $server = Start-Process -FilePath "node.exe" -ArgumentList "scripts/tests/d10-gui-static-preview-server.mjs" -WorkingDirectory (Join-Path $env:GITHUB_WORKSPACE "site") -PassThru -WindowStyle Hidden
   $ready = $false
@@ -258,6 +315,8 @@ try {
   if(-not $selectedAfter){throw "D10_WINDOWS_CASE010_METRIC_SELECTION_UNCONFIRMED"}
   if(-not $repainted){throw "D10_WINDOWS_CASE010_METRIC_NOT_REPAINTED"}
   Write-Output "D10_WINDOWS_CASE010_NATIVE_METRIC_INTERACTION=PASS"
+  Verify-NativeCaseSelect "popsockets-search-incrementality" "CASE-008" "case008-lens" "Выручка" "Заказы" "Оценка выпавших заказов, а не экспорт индивидуальных покупок."
+  Verify-NativeCaseSelect "meteomatics-pipeline-discipline" "CASE-009" "case009-metric" "Цикл до изменений" "Цикл после изменений" "После структурирования"
   if($passed -ne 10){throw "D10_WINDOWS_ARTICLE_COUNT_MISMATCH"}
   Write-Output "D10_WINDOWS_UIA_ROUTES=10/10"
   Write-Output "D10_WINDOWS_UIA_BASELINE=PASS"
