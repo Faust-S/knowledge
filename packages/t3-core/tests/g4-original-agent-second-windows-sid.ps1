@@ -102,18 +102,39 @@ try {
     (($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Modify) -eq [Security.AccessControl.FileSystemRights]::Modify)
   }
   if (-not $employeeAccess) { throw 'G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_READBACK_FAILED' }
-  # Original private SOURCE may be executable by the second account; ORIGINAL
-  # Admin Manager DPAPI vault never enters these two source directories.
-  foreach ($source in @($T3Root,$AgentRoot)) {
-    $sourceArgs = @(('"' + $source + '"'),'/grant',
-      ('*' + $employeeSid + ':(OI)(CI)RX'),'/T')
-    $aclProcess = Start-Process -FilePath $icacls -ArgumentList $sourceArgs -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop
-    if ($aclProcess.ExitCode -ne 0) { throw 'G4_ORIGINAL_EMPLOYEE_SOURCE_READ_ACL_FAILED' }
+  # The independent Windows user must not traverse the CI manager's TEMP
+  # ancestors. Stage ONLY the exact fetched original source modules into
+  # this disposable SID-scoped root. Never copy .git, PAT, manager vault,
+  # organization records or the original T2 Store. Destroy in finally.
+  $phase = 'STAGE_INDEPENDENT_WINDOWS_USER_ORIGINAL_MODULES'
+  $employeeT3Root = Join-Path $root 'original-t3-modules'
+  $employeeAgentRoot = Join-Path $root 'original-agent-modules'
+  $null = New-Item -ItemType Directory -Path $employeeT3Root -Force
+  $null = New-Item -ItemType Directory -Path $employeeAgentRoot -Force
+  foreach ($segment in @('access-control','interop','reconciliation')) {
+    $source = Join-Path $T3Root $segment
+    if (-not (Test-Path -LiteralPath $source -PathType Container)) {
+      throw 'G4_ORIGINAL_SECOND_SID_T3_MODULE_MISSING'
+    }
+    Copy-Item -LiteralPath $source -Destination $employeeT3Root -Recurse -Force -ErrorAction Stop
   }
-  $driverArgs = @(('"' + $PythonDriver + '"'),'/grant',
-    ('*' + $employeeSid + ':R'))
-  $aclProcess = Start-Process -FilePath $icacls -ArgumentList $driverArgs -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop
-  if ($aclProcess.ExitCode -ne 0) { throw 'G4_ORIGINAL_EMPLOYEE_DRIVER_READ_ACL_FAILED' }
+  foreach ($segment in @('runtime','adapters','cells','providers','surfaces',
+    'schemas','profiles','config','skills','operational-skills')) {
+    $source = Join-Path $AgentRoot $segment
+    if (-not (Test-Path -LiteralPath $source -PathType Container)) {
+      throw 'G4_ORIGINAL_SECOND_SID_AGENT_MODULE_MISSING'
+    }
+    Copy-Item -LiteralPath $source -Destination $employeeAgentRoot -Recurse -Force -ErrorAction Stop
+  }
+  $employeeDriver = Join-Path $root 'original-employee-bootstrap.py'
+  Copy-Item -LiteralPath $PythonDriver -Destination $employeeDriver -ErrorAction Stop
+  if (-not (Test-Path -LiteralPath (Join-Path $employeeT3Root 'interop/native-employee-d3.mjs')) -or
+      -not (Test-Path -LiteralPath (Join-Path $employeeAgentRoot 'runtime/t3_original_employee_port.py')) -or
+      -not (Test-Path -LiteralPath $employeeDriver)) {
+    throw 'G4_ORIGINAL_SECOND_SID_MODULE_STAGE_READBACK_FAILED'
+  }
+  # Original pinned source SHA was checked BEFORE this disposable copy.
+  # This scope contains no original manager DPAPI custody material.
   $phase = 'READ_PUBLIC_ORIGINAL_TRUST'
   $profile = Get-Content -LiteralPath $PublicProfilePath -Raw | ConvertFrom-Json
   if ($profile.organizationId -notmatch '^org:' -or
@@ -192,8 +213,8 @@ try {
     $requestFile = Join-Path $root ('call-' + $script:sequence + '.json')
     $replyFile = Join-Path $root ('reply-' + $script:sequence + '.json')
     $configuration = @{
-      python=$pythonCommand;driver=$PythonDriver;agentRoot=$AgentRoot;
-      t3Root=$T3Root;candidateRoot=$candidateRoot;mode=$Mode;
+      python=$pythonCommand;driver=$employeeDriver;agentRoot=$employeeAgentRoot;
+      t3Root=$employeeT3Root;candidateRoot=$candidateRoot;mode=$Mode;
       profilePath=$publicCopy;requestPath=$RequestPath;challenge=$Challenge;
       executablePath=$env:PATH
     }
