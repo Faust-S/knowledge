@@ -46,21 +46,28 @@ jobs:
             exit 1
           }
           echo D09_K036_EXACT_RECOVERY=PASS
+          node "$core/scripts/create-k036-import-time-candidate.mjs" "$RUNNER_TEMP/d09-k036" "$RUNNER_TEMP/d09-k036-timestamp" > "$RUNNER_TEMP/d09-timestamp-rebuild.log" 2>&1 || {
+            echo D09_DB8_TIMESTAMP_RECOVERY=FAIL; exit 1;
+          }
+          node "$core/scripts/create-k036-same-store-history-candidate.mjs" "$RUNNER_TEMP/d09-k036-timestamp" "$RUNNER_TEMP/d09-k036-same-store" > "$RUNNER_TEMP/d09-db8-rebuild.log" 2>&1 || {
+            echo D09_DB8_SAME_STORE_RECOVERY=FAIL; exit 1;
+          }
+          echo D09_DB8_EXACT_LINEAGE=PASS
       - name: Check the restored Kernel's AJV call shapes
         shell: bash
         run: |
-          cd "$RUNNER_TEMP/d09-k036"
+          cd "$RUNNER_TEMP/d09-k036-same-store"
           npm ci --no-audit --no-fund > "$RUNNER_TEMP/d09-k036-npm.log" 2>&1 || {
             echo D09_K036_SOURCE_NPM=FAIL
             grep -oE 'npm ERR! [A-Z0-9_:-]+' "$RUNNER_TEMP/d09-k036-npm.log" | tail -6 || true
             exit 1
           }
           echo D09_K036_SOURCE_NPM=PASS
-          node "$GITHUB_WORKSPACE/t2/current/final-successor/canonical-source/scripts/issue14-kernel-ajv-structure.mjs" "$RUNNER_TEMP/d09-k036"
+          node "$GITHUB_WORKSPACE/t2/current/final-successor/canonical-source/scripts/issue14-kernel-ajv-structure.mjs" "$RUNNER_TEMP/d09-k036-same-store"
       - name: Analyze source and exact qualified package without publishing source
         shell: bash
         run: |
-          node --input-type=module - "$RUNNER_TEMP/d09-k036" <<'NODE'
+          node --input-type=module - "$RUNNER_TEMP/d09-k036-same-store" <<'NODE'
           import {readFileSync,readdirSync,statSync} from "node:fs";
           import {join,relative} from "node:path";
           const root=process.argv[2], all=[];
@@ -114,8 +121,8 @@ jobs:
         shell: bash
         run: |
           core="$GITHUB_WORKSPACE/t2/current/final-successor/canonical-source"
-          cd "$RUNNER_TEMP/d09-k036"
-          node "$core/scripts/issue14-generate-kernel-static-validators.mjs" "$RUNNER_TEMP/d09-k036" \
+          cd "$RUNNER_TEMP/d09-k036-same-store"
+          node "$core/scripts/issue14-generate-kernel-static-validators.mjs" "$RUNNER_TEMP/d09-k036-same-store" \
             > "$RUNNER_TEMP/d09-static-generate.log" 2>&1 || {
             echo D09_K036_CSP_STATIC_GENERATION=FAIL
             grep -oE 'CSP_STATIC_[A-Z0-9_]+|D09_KERNEL_[A-Z0-9_]+|Error: [A-Z0-9_]+' "$RUNNER_TEMP/d09-static-generate.log" | tail -8 || true
@@ -168,14 +175,14 @@ jobs:
       - name: Compare CSP-safe interpreter against Ajv on real private Kernel schemas
         shell: bash
         run: |
-          cd "$RUNNER_TEMP/d09-k036"
+          cd "$RUNNER_TEMP/d09-k036-same-store"
           npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund \
             @cfworker/json-schema@4.1.1 > "$RUNNER_TEMP/d09-interpreter-npm.log" 2>&1 || {
             echo D09_KERNEL_CSP_INTERPRETER_NPM=FAIL; exit 1;
           }
           echo D09_KERNEL_CSP_INTERPRETER_NPM=PASS
           node "$GITHUB_WORKSPACE/t2/current/final-successor/canonical-source/scripts/issue14-kernel-interpreter-parity.mjs" \
-            "$RUNNER_TEMP/d09-k036" > "$RUNNER_TEMP/d09-interpreter-parity.log" 2>&1 || {
+            "$RUNNER_TEMP/d09-k036-same-store" > "$RUNNER_TEMP/d09-interpreter-parity.log" 2>&1 || {
             grep '^D09_KERNEL_CSP_INTERPRETER_PARITY=' "$RUNNER_TEMP/d09-interpreter-parity.log" || true
             grep -oE 'D09_CSP_INTERPRETER_[A-Z0-9_]+|Error: [A-Z0-9_]+' "$RUNNER_TEMP/d09-interpreter-parity.log" | tail -6 || true
             echo D09_KERNEL_CSP_INTERPRETER_PARITY=FAIL
@@ -186,9 +193,9 @@ jobs:
       - name: Qualify both static and dynamic CSP-safe Kernel validator transforms in disposable source
         shell: bash
         run: |
-          cd "$RUNNER_TEMP/d09-k036"
+          cd "$RUNNER_TEMP/d09-k036-same-store"
           core="$GITHUB_WORKSPACE/t2/current/final-successor/canonical-source"
-          node "$core/scripts/issue14-kernel-interpreted-runtime.mjs" "$RUNNER_TEMP/d09-k036" \
+          node "$core/scripts/issue14-kernel-interpreted-runtime.mjs" "$RUNNER_TEMP/d09-k036-same-store" \
             > "$RUNNER_TEMP/d09-dynamic-patch.log" 2>&1 || {
             echo D09_KERNEL_CSP_DYNAMIC_PATCH=FAIL
             grep -oE 'D09_KERNEL_[A-Z0-9_]+|Error: [A-Z0-9_]+' "$RUNNER_TEMP/d09-dynamic-patch.log" | tail -12 || true
@@ -196,13 +203,13 @@ jobs:
           }
           grep '^D09_KERNEL_CSP_INTERPRETED_PATCH=' "$RUNNER_TEMP/d09-dynamic-patch.log"
           echo D09_KERNEL_CSP_DYNAMIC_PATCH=PASS
-          node "$core/scripts/issue14-audit-ajv-after-patch.mjs" "$RUNNER_TEMP/d09-k036" > "$RUNNER_TEMP/d09-ajv-csp-audit.log" 2>&1 || {
+          node "$core/scripts/issue14-audit-ajv-after-patch.mjs" "$RUNNER_TEMP/d09-k036-same-store" > "$RUNNER_TEMP/d09-ajv-csp-audit.log" 2>&1 || {
             echo D09_AJV_AUDIT=FAIL
             grep -E '^(TypeError|Error|ReferenceError|SyntaxError):' "$RUNNER_TEMP/d09-ajv-csp-audit.log" | sed -E "s#/(home|tmp|mnt)/[^[:space:]]+#<private-path>#g" | tail -3 || true
             exit 1
           }
           grep '^D09_KERNEL_REMAINING_AJV_CTORS=' "$RUNNER_TEMP/d09-ajv-csp-audit.log"
-          node "$core/scripts/issue14-remove-runtime-ajv.mjs" "$RUNNER_TEMP/d09-k036" > "$RUNNER_TEMP/d09-remove-ajv.log" 2>&1 || {
+          node "$core/scripts/issue14-remove-runtime-ajv.mjs" "$RUNNER_TEMP/d09-k036-same-store" > "$RUNNER_TEMP/d09-remove-ajv.log" 2>&1 || {
             echo D09_KERNEL_AJV_REMOVAL=FAIL
             grep -E 'D09_AJV_UNSUPPORTED_CONTEXT=|D09_AJV_[A-Z0-9_]+' "$RUNNER_TEMP/d09-remove-ajv.log" | tail -9 || true
             exit 1
@@ -241,6 +248,18 @@ jobs:
           console.log("D09_KERNEL_NEW_FUNCTION_PROVENANCE="+JSON.stringify({
             count:sites.length,sites:sites.slice(0,28)
           }));
+          const frames=[1969,1805,4817,2594,19168,2622,19222].map(line=>{
+            const row=lines[line-1]??"";
+            let source="UNMAPPED";
+            for(let i=line-1;i>=Math.max(0,line-2200);i--){
+              if(/node_modules\//.test(lines[i])){source=normalizePackage(lines[i]);break;}
+            }
+            return {line,source,lexical:{
+              functionWord:/\bFunction\b/.test(row),evalWord:/\beval\b/.test(row),
+              newWord:/\bnew\b/.test(row),codegen:/compile|codegen|CodeGen/i.test(row)
+            }};
+          });
+          console.log("D09_KERNEL_RUNTIME_STACK_LINEAGE="+JSON.stringify({lines:lines.length,frames}));
           NODE
           npm run test:built > "$RUNNER_TEMP/d09-dynamic-tests.log" 2>&1 || {
             echo D09_KERNEL_CSP_DYNAMIC_BUILT_TESTS=FAIL
