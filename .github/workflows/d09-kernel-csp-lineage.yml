@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T2
-          ref: 87b195e1e86d6b994f107b4c3cf69f372a23c397
+          ref: eff7dc92ae9e3785741fc98d681d74758215dabb
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           sparse-checkout: |
@@ -204,7 +204,7 @@ jobs:
           grep '^D09_KERNEL_REMAINING_AJV_CTORS=' "$RUNNER_TEMP/d09-ajv-csp-audit.log"
           node "$core/scripts/issue14-remove-runtime-ajv.mjs" "$RUNNER_TEMP/d09-k036" > "$RUNNER_TEMP/d09-remove-ajv.log" 2>&1 || {
             echo D09_KERNEL_AJV_REMOVAL=FAIL
-            grep -oE 'D09_AJV_[A-Z0-9_]+' "$RUNNER_TEMP/d09-remove-ajv.log" | tail -8 || true
+            grep -E 'D09_AJV_UNSUPPORTED_CONTEXT=|D09_AJV_[A-Z0-9_]+' "$RUNNER_TEMP/d09-remove-ajv.log" | tail -9 || true
             exit 1
           }
           grep '^D09_KERNEL_AJV_CONSTRUCTORS_REMOVED=' "$RUNNER_TEMP/d09-remove-ajv.log"
