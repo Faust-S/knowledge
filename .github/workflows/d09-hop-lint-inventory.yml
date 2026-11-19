@@ -35,7 +35,7 @@ jobs:
           import { readFileSync } from "node:fs";
           import { relative } from "node:path";
           const results=JSON.parse(readFileSync(process.argv[2],"utf8"));
-          const dirs=new Map(), rules=new Map();
+          const dirs=new Map(), rules=new Map(), nonFixable=[];
           let errors=0,warnings=0,fixable=0,files=0;
           for(const record of results){
             if(!record.messages?.length) continue;
@@ -52,6 +52,7 @@ jobs:
               errors+=(m.severity===2);
               warnings+=(m.severity===1);
               fixable+=Boolean(m.fix);
+              if(m.severity===2&&!m.fix) nonFixable.push({path,line:m.line,rule:m.ruleId});
               const key=m.ruleId??"unclassified";
               rules.set(key,(rules.get(key)??0)+1);
             }
@@ -60,6 +61,7 @@ jobs:
           console.log("D09_LINT_INVENTORY="+JSON.stringify({files,errors,warnings,fixable,
             byRule:[...rules].sort((a,b)=>b[1]-a[1]).slice(0,16),
             byDirectory:[...dirs].sort((a,b)=>b[1].errors-a[1].errors).slice(0,25)}));
+          console.log("D09_LINT_NONFIXABLE="+JSON.stringify(nonFixable));
           NODE
           test -z "$(git status --porcelain)" || { echo D09_SOURCE_MUTATED=FAIL; exit 1; }
           echo D09_LINT_INVENTORY_READ_ONLY=PASS
