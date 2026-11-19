@@ -153,6 +153,9 @@ try {
     [System.Windows.Automation.TreeScope]::Descendants,$comboCondition)
   Write-Output "D10_WINDOWS_CASE010_COMBO_COUNT=$($combos.Count)"
   if($combos.Count -lt 2){throw "D10_WINDOWS_CASE010_METRIC_CONTROL_NOT_ACCESSIBLE"}
+  if(-not (Has-AccessibleArticleText $window "Переговорная стадия до изменений")){
+    throw "D10_WINDOWS_CASE010_INITIAL_DYNAMIC_RESULT_NOT_ACCESSIBLE"
+  }
   $metric=$combos.Item(0)
   for($i=0;$i -lt 2;$i++){
     $metric.SetFocus()
@@ -162,7 +165,7 @@ try {
     for($t=0;$t -lt 40;$t++){
       Start-Sleep -Milliseconds 200
       $window=Find-EdgeWindow
-      if($null -ne $window -and (Has-AccessibleArticleText $window "7 дней")){
+      if($null -ne $window -and (Has-AccessibleArticleText $window "Переговорная стадия после изменений")){
         $repainted=$true
         break
       }
