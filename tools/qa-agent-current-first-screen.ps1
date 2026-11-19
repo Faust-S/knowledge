@@ -79,7 +79,7 @@ while([DateTime]::UtcNow -lt $end) {
       $digest=(Get-FileHash -LiteralPath $png -Algorithm SHA256).Hash.ToLowerInvariant()
       $manifest=[ordered]@{
         schema='IWXA_AGENT_REAL_NATIVE_CAPTURE/1'
-        originalAgentSha='0d4196fa732b52d192ac75590715199381dfb2df'
+        originalAgentSha='ffa56fee6f971afa74b6b49ccfb891fca0e97225'
         ciSha=$env:GITHUB_SHA
         windowTitle='IWXA Personal'
         mode='Genuine installed Tauri, visible native UIA home/task interface'

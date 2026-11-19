@@ -4,6 +4,7 @@ on:
     branches:
       - work/2026-11-10-t3-t2-activity-projection
       - qa/2026-11-19-software-agent-current
+      - qa/2026-11-20-agent06-current-native-capture
     paths:
       - .github/workflows/t3-g4-installed-current-agent06.yml
   workflow_dispatch:
@@ -35,7 +36,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 0d4196fa732b52d192ac75590715199381dfb2df
+          ref: ffa56fee6f971afa74b6b49ccfb891fca0e97225
           token: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
           persist-credentials: false
           filter: blob:none
@@ -83,7 +84,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 9fbbbd54fd0587db5c7e0e5c807b96e024ae750b
+          ref: f42e53cd28c881b2b8e04199595f9d7991f34414
           persist-credentials: false
           filter: blob:none
           sparse-checkout: |
@@ -96,9 +97,9 @@ jobs:
           $agent = (& git -C .private/agent rev-parse HEAD).Trim()
           $setup = (& git -C .private/setup-core rev-parse HEAD).Trim()
           $core = (& git -C .g4-pinned-one-core rev-parse HEAD).Trim()
-          if ($agent -ne '0d4196fa732b52d192ac75590715199381dfb2df' -or
+          if ($agent -ne 'ffa56fee6f971afa74b6b49ccfb891fca0e97225' -or
               $setup -ne 'c10e193846a0ea4c73cabe3744aa7db82439d54e' -or
-              $core -ne '9fbbbd54fd0587db5c7e0e5c807b96e024ae750b') {
+              $core -ne 'f42e53cd28c881b2b8e04199595f9d7991f34414') {
             throw 'G4_AGENT_EXACT_INSTALLED_SOURCE_PIN_MISMATCH'
           }
           $ignoreFile = '.private/agent/.gitignore'
@@ -165,6 +166,18 @@ jobs:
           } finally {
             Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
           }
+      - name: Assert source owner and product-scoped storage authority paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $file=Join-Path $env:GITHUB_WORKSPACE '.private/agent/tools/qualify_setup_core_runtime.ps1'
+          if(!(Test-Path -LiteralPath $file -PathType Leaf)){throw 'QA_AGENT_RUNTIME_WITNESS_ABSENT'}
+          $raw=Get-Content -LiteralPath $file -Raw -Encoding UTF8
+          if(-not $raw.Contains("IWXA\PersonalAgent\current-install.json") -or
+             -not $raw.Contains("IWXA\PersonalAgent\storage-authority.json")){
+            throw 'QA_AGENT_PRODUCT_SCOPED_AUTHORITY_PATH_NOT_UPDATED'
+          }
+          Write-Host 'QA_AGENT_LIVE_OWNER_PRODUCT_SCOPED_AUTHORITY_PIN_PASS'
       - name: Start independent read-only watcher for current installed Agent first screen
         shell: pwsh
         run: |
@@ -431,7 +444,7 @@ jobs:
             }
             if (!$draftAccepted -or !$stateOk) {
               Write-Host 'QA_AGENT_NATIVE_SCREEN_NOT_LINKED_TO_VERIFIED_GUI_DRAFT'
-            } elseif ($proof.originalAgentSha -cne '0d4196fa732b52d192ac75590715199381dfb2df' -or
+            } elseif ($proof.originalAgentSha -cne 'ffa56fee6f971afa74b6b49ccfb891fca0e97225' -or
                 $proof.screenshotSha256 -cne $sha -or
                 $proof.windowTitle -cne 'IWXA Personal' -or
                 $proof.status -cne 'CAPTURED_REQUIRES_VISUAL_REVIEW' -or
@@ -532,7 +545,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 0d4196fa732b52d192ac75590715199381dfb2df
+          ref: ffa56fee6f971afa74b6b49ccfb891fca0e97225
           token: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
           persist-credentials: false
           filter: blob:none
