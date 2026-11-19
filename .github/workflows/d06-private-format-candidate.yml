@@ -1,0 +1,81 @@
+name: d06-private-format-candidate
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-private-format-candidate.yml
+permissions:
+  contents: read
+jobs:
+  private-format:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Private checkout pinned to approved D06 working source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: f6e88ad0aba2c5843ac2c8064b6170f1aea976ee
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Format tracked source locally and push ONLY to private candidate
+        working-directory: private/site
+        shell: pwsh
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $scratch = Join-Path $env:RUNNER_TEMP "d06-private-format-log.txt"
+          & npm ci --no-audit --no-fund *> $scratch
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FMT_INSTALL=FAIL"; exit 1 }
+          Write-Host "D06_FMT_INSTALL=PASS"
+          $base = (& git rev-parse HEAD).Trim()
+          if ($base -ne "f6e88ad0aba2c5843ac2c8064b6170f1aea976ee") {
+            Write-Host "D06_FMT_PIN=FAIL"; exit 1
+          }
+          & node scripts/format-eslint-violations.mjs --apply *> $scratch
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FMT_APPLY=FAIL"; exit 1 }
+          Write-Host "D06_FMT_APPLY=PASS"
+          & npm run check *> $scratch
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FMT_CHECK=FAIL"; exit 1 }
+          Write-Host "D06_FMT_CHECK=PASS"
+          & git diff --check *> $scratch
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FMT_DIFF_CHECK=FAIL"; exit 1 }
+          $changed = @(& git diff --name-only)
+          Write-Host ("D06_FMT_FILES=" + $changed.Count)
+          if ($changed.Count -eq 0) { Write-Host "D06_FMT_CANDIDATE=NO_CHANGES"; exit 0 }
+          if (-not $env:DOMEN) { Write-Host "D06_FMT_CANDIDATE=NO_AUTH"; exit 1 }
+          $remote = "https://github.com/Faust-S/komplektovod.ru.git"
+          $auth = [Convert]::ToBase64String(
+            [Text.Encoding]::ASCII.GetBytes("x-access-token:" + $env:DOMEN)
+          )
+          $work = "refs/heads/work/2026-11-11-case-driven-entry-and-drill"
+          $current = & git -c ("http.extraheader=AUTHORIZATION: basic " + $auth) ls-remote $remote $work 2> $scratch
+          if ($LASTEXITCODE -ne 0 -or -not $current) {
+            Write-Host "D06_FMT_REMOTE_READ=FAIL"; exit 1
+          }
+          $remoteSha = (($current | Select-Object -First 1) -split '\s+')[0]
+          if ($remoteSha -ne $base) { Write-Host "D06_FMT_SOURCE_MOVED=YES"; exit 1 }
+          & git config user.name "IWXA D06 private format"
+          & git config user.email "d06-ci@users.noreply.github.com"
+          & git add -u
+          & git commit -m "style(d06): apply canonical formatting to private source" *> $scratch
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FMT_COMMIT=FAIL"; exit 1 }
+          $dest = "refs/heads/work/2026-11-19-d06-format-candidate"
+          & git -c ("http.extraheader=AUTHORIZATION: basic " + $auth) push $remote ("HEAD:" + $dest) *> $scratch
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FMT_CANDIDATE=WRITE_DENIED"; exit 1 }
+          Write-Host "D06_FMT_CANDIDATE=PRIVATE_BRANCH_WRITTEN"
+      - name: No private artifacts or logs leave the runner
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_PRIVATE_SOURCE_PUBLICATION=0"
+          Write-Host "D06_PRIVATE_DIST_PUBLICATION=0"
+          Write-Host "D06_PRIVATE_DIFF_PUBLICATION=0"
+          Write-Host "D06_PRIVATE_LOG_UPLOAD=0"
