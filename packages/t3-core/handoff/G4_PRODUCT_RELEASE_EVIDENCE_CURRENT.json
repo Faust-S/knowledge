@@ -2,7 +2,7 @@
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
   "snapshot_date": "2026-11-19",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
-  "currentness": "G4_D3_SOURCE_20_OF_20_PASS__INSTALLED_REAL_UIA_CANCEL_CONFIRM_PASS_44515194473__SIGNED_OWNER_READY_FAIL__RETEST_44517274170",
+  "currentness": "G4_D3_SOURCE_20_OF_20_PASS__INSTALLED_CENTER_HUMAN_ENROLL_CANCEL_CONFIRM_PASS__ORIGINAL_SIGNER_ENOENT_44517274170__STAGED_RETEST_44519283998",
   "policy": {
     "t3_one_core": "Faust-S/knowledge/packages/t3-core",
     "t2_normative": "Faust-S/T2@main",
@@ -1854,7 +1854,27 @@
         "public_diagnostic_commit": "dd55bcb817149050ce381fe05e52d6e6e7aefff3",
         "public_workflow_commit": "b20f29c2b0f0233a80578f9048ade149ed1b2ccd",
         "installed_run_id": 44517274170,
-        "status": "RUNNING_NOT_ACCEPTED"
+        "status": "COMPLETED_RUN_FAILED_AT_ORIGINAL_FILE_NOT_FOUND",
+        "failed_run": {
+          "run_id": 44517274170,
+          "conclusion": "FAIL",
+          "original_owner_code": "T3_PRODUCT_COMPONENT_ORIGINAL_FILE_NOT_FOUND",
+          "ordinary_workspace": "PASS",
+          "native_cancel_and_confirm": "PASS",
+          "dpapi_cold_restart": "NOT_RUN",
+          "setup_core_data_location": "OPTIONAL_FIELD_ABSENT",
+          "fallback_scope_count": 0
+        }
+      },
+      "private_owner_stage_pin": {
+        "original_t3_repository": "Faust-S/T3",
+        "original_t3_sha": "0990a5a07c94ab8da81d7b4a760a4884111fc211",
+        "change": "Wrap ENOENT only in the original signed first-use enrollment stages COMMAND, CREATE_ROOT, WINDOWS_IDENTITY, DPAPI_CUSTODY, ORIGINAL_PROVISION, OPERATORS, SIGNED_INVITATION, COLD_STATE. No raw paths logged and no new signing authority.",
+        "center_sha": "2628c4bc1b20b4393c485d12513f029fdea8b082",
+        "public_witness_sha": "1198b43dd6c9932ca4e93b1bed7fec192f83e9c2",
+        "workflow_sha": "2aea3381c3cf9f797fb24610aa76b8add29712ce",
+        "installed_ci_run_id": 44519283998,
+        "status": "IN_PROGRESS_NOT_ACCEPTED"
       }
     }
   },
@@ -1950,7 +1970,7 @@
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
     "original_private_native_signer": "CURRENT_SOURCE_PIN_d0d8ba2f_NATIVE_ONE_SHOT_WINDOWS_BRIDGE_REQUALIFIED_20_OF_20_44406073956__INSTALLED_UI_HOLD",
-    "independent_installed_d3": "HOLD_INSTALLED_ORIGINAL_OWNER_EXECUTED_FAILED_44515194473__CLASSIFIED_PRIVATE_NATIVE_DIAGNOSTICS_RETEST_44517274170_RUNNING",
+    "independent_installed_d3": "HOLD_NATIVE_ORIGINAL_SIGNER_FILE_NOT_FOUND_44517274170__STAGED_CLASSIFICATION_44519283998_RUNNING",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
