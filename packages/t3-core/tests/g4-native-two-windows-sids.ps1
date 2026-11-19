@@ -122,6 +122,19 @@ try {
   if ($hresult -is [int]) { Write-Output ('G4_TWO_SID_FAILURE_HRESULT 0x' + $hresult.ToString('X8')) }
   $category = [string]$_.CategoryInfo.Category
   if ($category -match '^[A-Za-z]{3,35}$') { Write-Output ('G4_TWO_SID_FAILURE_CATEGORY ' + $category) }
+  $id = [string]$_.FullyQualifiedErrorId
+  if ($id -match '^[a-zA-Z0-9_.:-]{1,100}$') {
+    Write-Output ('G4_TWO_SID_FAILURE_FQID ' + $id)
+  }
+  # Only an OS-only disposable account is involved in this phase; redact
+  # user, password and all possible absolute paths before the public log.
+  $osReason = [string]$_.Exception.Message
+  if ($password) { $osReason = $osReason.Replace($password,'REDACTED') }
+  if ($user) { $osReason = $osReason.Replace($user,'SECOND_ACCOUNT') }
+  if ($root) { $osReason = $osReason.Replace($root,'TEMP_PATH') }
+  $osReason = [regex]::Replace($osReason,'[A-Za-z]:\\[^\s"'';]+','PATH')
+  if ($osReason.Length -gt 190) { $osReason = $osReason.Substring(0,190) }
+  Write-Output ('G4_TWO_SID_FAILURE_OS_REASON ' + $osReason)
   Write-Output ('G4_TWO_SID_FAILURE_PHASE ' + $phase)
   Write-Output ('G4_TWO_SID_FAILURE_CODE ' + $code)
   throw 'G4_TWO_SID_NATIVE_PRECONDITION_NOT_ACCEPTED'
