@@ -216,6 +216,31 @@ jobs:
                 }
               }
             }
+            # Distinguish a genuine failed Python Task/Review from failure
+            # AFTER a successful export when the product authority readback
+            # is required. Never print Qwen output or private receipt values.
+            $qwenRoot = Join-Path $output 'temporary-installed-fixture'
+            $qwenProof = Join-Path $qwenRoot 'installed-real-qwen-proof.json'
+            $qwenOutput = Join-Path $qwenRoot 'installed-real-qwen.status'
+            $authorityRoot = Join-Path $qwenRoot 'isolated-profile/AppData/Local/IWXA'
+            $safeProofFlags = [ordered]@{
+              TASK_REVIEW_PROOF_CREATED = (Test-Path -LiteralPath $qwenProof -PathType Leaf)
+              CURRENT_INSTALL_CREATED = (Test-Path -LiteralPath (Join-Path $authorityRoot 'current-install.json') -PathType Leaf)
+              STORAGE_AUTHORITY_CREATED = (Test-Path -LiteralPath (Join-Path $authorityRoot 'storage-authority.json') -PathType Leaf)
+            }
+            if (Test-Path -LiteralPath $qwenOutput -PathType Leaf) {
+              $qwenMarkers = @(Get-Content -LiteralPath $qwenOutput -ErrorAction SilentlyContinue)
+              $safeProofFlags['TASK_REVIEW_PYTHON_FINAL_MARKER'] = (
+                $qwenMarkers -ccontains 'AGENT_INSTALLED_REAL_QWEN_TASK_REVIEW_PASS'
+              )
+              $safeProofFlags['QWEN_EXPORT_INSPECT_MARKER'] = (
+                $qwenMarkers -ccontains 'AGENT_REAL_QWEN_IWXA_EXPORT_INSPECT_PASS'
+              )
+            }
+            foreach ($flagName in $safeProofFlags.Keys) {
+              $value = if ($safeProofFlags[$flagName]) { 'TRUE' } else { 'FALSE' }
+              Write-Host ('G4_AGENT06_LOCAL_QWEN_POSTPROOF_FLAG ' + $flagName + ' ' + $value)
+            }
             $installedReceipt = Join-Path $output 'temporary-installed-fixture/installed-witness.json'
             if (Test-Path -LiteralPath $installedReceipt -PathType Leaf) {
               try {
