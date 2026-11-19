@@ -15,7 +15,7 @@ jobs:
       matrix:
         runner: [windows-latest, ubuntu-latest]
     env:
-      SITE_SHA: e37682e9a515632f181b61435ab6e8f992007b8c
+      SITE_SHA: ac54a08b6fadb34c84fa76787122fa687da23bfd
       SUBJECT_SHA: 068d978a2b8cb7ce57c363804f22b7dd85063eee
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -173,6 +173,21 @@ jobs:
           }
           if(!(Test-Path dist/workspace/index.html)){throw 'D07_BLOCKS_HOST_MISSING'}
           Write-Output 'D07_BLOCKS_ORIGINAL_T2_INTEGRATED_BUILD=PASS'
+      - name: Verify exact Apache hosting inventory before Codex release build
+        working-directory: site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd07-hosting-inventory.private.log'
+          & node scripts/audit-d07-hosting-package.mjs *> $log
+          if($LASTEXITCODE -ne 0){
+            $codes=@(Get-Content $log -ErrorAction SilentlyContinue |
+              ForEach-Object {
+                $match=[regex]::Match($_,'D07_HOSTING_[A-Z0-9_]+')
+                if($match.Success){$match.Value}
+              } | Sort-Object -Unique | Select-Object -First 15)
+            Write-Output ('D07_HOSTING_AUDIT_CODES='+($codes -join ','))
+            throw 'D07_HOSTING_PACKAGE_AUDIT_FAIL'
+          }
+          Write-Output 'D07_HOSTING_PACKAGE_AUDIT=PASS'
       - name: Test existing product-first and service-lifecycle regression
         working-directory: site
         run: |
