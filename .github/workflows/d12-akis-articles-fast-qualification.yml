@@ -68,11 +68,37 @@ jobs:
             echo "AKIS_BROWSER_INSTALL=FAIL"; exit 1;
           }
           echo "AKIS_BROWSER_INSTALL=PASS"
-      - name: Build original Vite SSR and prerender only the two AKIS articles
+      - name: Verify original website assets
+        run: |
+          npx tsx scripts/verify-assets.ts > "$RUNNER_TEMP/akis-assets.log" 2>&1 || {
+            echo "AKIS_ASSETS=FAIL"; exit 1;
+          }
+          echo "AKIS_ASSETS=PASS"
+      - name: Generate original public sitemap
+        run: |
+          npx tsx scripts/generate-sitemap.ts > "$RUNNER_TEMP/akis-sitemap.log" 2>&1 || {
+            echo "AKIS_SITEMAP=FAIL"; exit 1;
+          }
+          echo "AKIS_SITEMAP=PASS"
+      - name: Original Vite static-target SSR compilation
         env:
+          LOVABLE_BUILD_TARGET: static
+          NITRO_PRESET: node-server
+          SERVER_PRESET: node-server
+        run: |
+          npx vite build > "$RUNNER_TEMP/akis-vite.log" 2>&1 || {
+            echo "AKIS_VITE_SSR=FAIL"; exit 1;
+          }
+          echo "AKIS_VITE_SSR=PASS"
+      - name: Original SSR prerender for two selected scientific articles
+        env:
+          LOVABLE_BUILD_TARGET: static
+          NITRO_PRESET: node-server
+          SERVER_PRESET: node-server
           IWXA_PRERENDER_ROUTES: /science/akis-production/,/science/akis-operator/
         run: |
-          bun run build:static > "$RUNNER_TEMP/akis-target-build.log" 2>&1 || {
+          npx tsx scripts/prerender.ts > "$RUNNER_TEMP/akis-prerender.log" 2>&1 || {
+            grep -oE 'SSR timeout|browser navigation failed|did not become ready|no SSR build found|Failed to launch|ERR_[A-Z_]+' "$RUNNER_TEMP/akis-prerender.log" | sort -u | head -4 || true
             echo "AKIS_TWO_PAGE_PRERENDER=FAIL"; exit 1;
           }
           test -f dist-static/science/akis-production/index.html || exit 1
