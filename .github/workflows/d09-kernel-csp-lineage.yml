@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T2
-          ref: ba82608491a024477fadbc53efeea6cf407edec5
+          ref: 8d178e9164b3d1d285b45935ef4e9651f850b000
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           sparse-checkout: |
@@ -110,4 +110,33 @@ jobs:
                   else:groups["other"]+=1
               print("D09_QUALIFIED_KERNEL_ARCHIVE_CONTENTS="+str(groups))
           PY
+      - name: Build and typecheck a disposable Kernel with CSP-safe startup schemas
+        shell: bash
+        run: |
+          core="$GITHUB_WORKSPACE/t2/current/final-successor/canonical-source"
+          cd "$RUNNER_TEMP/d09-k036"
+          node "$core/scripts/issue14-generate-kernel-static-validators.mjs" "$RUNNER_TEMP/d09-k036" \
+            > "$RUNNER_TEMP/d09-static-generate.log" 2>&1 || {
+            echo D09_K036_CSP_STATIC_GENERATION=FAIL
+            grep -oE 'CSP_STATIC_[A-Z0-9_]+|D09_KERNEL_[A-Z0-9_]+|Error: [A-Z0-9_]+' "$RUNNER_TEMP/d09-static-generate.log" | tail -8 || true
+            exit 1
+          }
+          echo D09_K036_CSP_STATIC_GENERATION=PASS
+          grep 'D09_KERNEL_CSP_STATIC_GENERATED=' "$RUNNER_TEMP/d09-static-generate.log" || true
+          npm run typecheck > "$RUNNER_TEMP/d09-static-typecheck.log" 2>&1 || {
+            echo D09_K036_CSP_STATIC_TYPES=FAIL
+            grep -oE 'error TS[0-9]+' "$RUNNER_TEMP/d09-static-typecheck.log" | sort -u | tail -15 || true
+            exit 1
+          }
+          echo D09_K036_CSP_STATIC_TYPES=PASS
+          npm run build > "$RUNNER_TEMP/d09-static-build.log" 2>&1 || {
+            echo D09_K036_CSP_STATIC_BUILD=FAIL
+            grep -oE 'Error: [A-Z0-9_]+|error [A-Z0-9_]+|Could not resolve|failed to build|Build failed' "$RUNNER_TEMP/d09-static-build.log" | tail -12 || true
+            exit 1
+          }
+          echo D09_K036_CSP_STATIC_BUILD=PASS
+          test -f dist/_iwxa/runtime/0.3.6/runtime.js || {
+            echo D09_K036_CSP_STATIC_RUNTIME=FAIL; exit 1;
+          }
+          echo D09_K036_CSP_STATIC_RUNTIME=BUILT_UNQUALIFIED
       # No source, zip, generated files or private code is copied to public artifacts.
