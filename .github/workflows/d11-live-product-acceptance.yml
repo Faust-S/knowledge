@@ -93,6 +93,8 @@ jobs:
           & npm run build:t2:site *> (Join-Path $env:RUNNER_TEMP "d11-build.log")
           if ($LASTEXITCODE -ne 0) { throw "D11_UI_BUILD_FAILED" }
           Write-Output "D11_UI_ONE_DIST=PASS"
+      # Every operational editor now retains selected JSON until File.text resolves.
+      # The source suite rejects early-cleared file inputs before full browser checks.
       - name: Run both canonical and site D11 source regression suites
         id: source
         continue-on-error: true
