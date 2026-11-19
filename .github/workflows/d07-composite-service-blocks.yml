@@ -1,0 +1,113 @@
+name: D07 composite service blocks original T2 product
+on:
+  push:
+    branches: [work/2026-11-18-d07-case10-qualification]
+    paths: [.github/workflows/d07-composite-service-blocks.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  product:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-latest, ubuntu-latest]
+    env:
+      SITE_SHA: 30da687ca09ed44f0ef5197f84fc33e959d3d36f
+      SUBJECT_SHA: ecaa052f252a9ae09c2562ff16a45c8db2f82f71
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      CI: 'true'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Confirm private source access without printing secrets
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'D07_PRIVATE_ACCESS_NOT_CONFIGURED'}
+          foreach($repo in @('Faust-S/uslugovod.ru','Faust-S/uslugovod','Faust-S/T2')){
+            $null=& gh api "repos/$repo" --jq '.id' 2>$null
+            if($LASTEXITCODE -ne 0){throw 'D07_PRIVATE_REPO_ACCESS_DENIED'}
+          }
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+          Write-Output 'D07_SOURCE_ACCESS=PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod
+          ref: ${{ env.SUBJECT_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: subject
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - name: Verify exact canonical source parity without printing source
+        run: |
+          if((git -C site rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D07_SITE_SHA_MISMATCH'}
+          if((git -C subject rev-parse HEAD).Trim() -ne $env:SUBJECT_SHA){throw 'D07_SUBJECT_SHA_MISMATCH'}
+          if((git -C t2 rev-parse HEAD).Trim() -ne $env:T2_SHA){throw 'D07_T2_SHA_MISMATCH'}
+          $a=(Get-FileHash subject/src/domain/service-blocks.ts -Algorithm SHA256).Hash
+          $b=(Get-FileHash site/src/domain/service-blocks.ts -Algorithm SHA256).Hash
+          $c=(Get-FileHash site/t2-site-module/uslugovod/service-blocks.ts -Algorithm SHA256).Hash
+          if($a -ne $b -or $a -ne $c){throw 'D07_SERVICE_BLOCKS_SEMANTIC_SOURCE_DRIFT'}
+          Write-Output 'D07_CANONICAL_DOMAIN_TO_T2_PARITY=PASS'
+      - name: Install exact site dependencies
+        working-directory: site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd07-blocks-install.private.log'
+          & bun install --frozen-lockfile *> $log
+          if($LASTEXITCODE -ne 0){throw 'D07_BLOCKS_INSTALL_FAIL'}
+          Write-Output 'D07_BLOCKS_INSTALL=PASS'
+      - name: Test new composite model and legacy order compatibility
+        working-directory: site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd07-blocks-tests.private.log'
+          & node --import tsx --test scripts/tests/d07-service-blocks.test.mjs *> $log
+          if($LASTEXITCODE -ne 0){throw 'D07_BLOCKS_DOMAIN_TESTS_FAIL'}
+          Write-Output 'D07_BLOCKS_DOMAIN_TESTS=PASS'
+      - name: Check TypeScript and original T2 Host integration
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd07-blocks-types.private.log'
+          & bun run check:types *> $log
+          if($LASTEXITCODE -ne 0){throw 'D07_BLOCKS_TYPES_FAIL'}
+          Write-Output 'D07_BLOCKS_TYPES=PASS'
+          $log=Join-Path $env:RUNNER_TEMP 'd07-blocks-build.private.log'
+          & bun run build:t2-integrated *> $log
+          if($LASTEXITCODE -ne 0){throw 'D07_BLOCKS_ORIGINAL_T2_BUILD_FAIL'}
+          if(!(Test-Path dist/workspace/index.html)){throw 'D07_BLOCKS_HOST_MISSING'}
+          Write-Output 'D07_BLOCKS_ORIGINAL_T2_INTEGRATED_BUILD=PASS'
+      - name: Test existing product-first and service-lifecycle regression
+        working-directory: site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd07-blocks-product-tests.private.log'
+          & bun run test:product-first *> $log
+          if($LASTEXITCODE -ne 0){throw 'D07_BLOCKS_PRODUCT_REGRESSION_FAIL'}
+          Write-Output 'D07_BLOCKS_PRODUCT_REGRESSION=PASS'
+      # Private checkout, archive bytes, dist, test logs and browser profiles
+      # remain inside the ephemeral runner; no upload-artifact steps.
