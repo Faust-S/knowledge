@@ -610,11 +610,14 @@ jobs:
           function Locate([string]$name,[string]$type){
             $cond=[System.Windows.Automation.PropertyCondition]::new(
               [System.Windows.Automation.AutomationElement]::NameProperty,$name)
-            if($type -eq 'button'){
+            if($type -eq 'button' -or $type -eq 'combo'){
+              $control=if($type -eq 'combo'){
+                [System.Windows.Automation.ControlType]::ComboBox
+              }else{[System.Windows.Automation.ControlType]::Button}
               $cond=[System.Windows.Automation.AndCondition]::new(
                 $cond,[System.Windows.Automation.PropertyCondition]::new(
                   [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                  [System.Windows.Automation.ControlType]::Button))
+                  $control))
             }
             foreach($root in @(Roots)){
               $found=$root.FindFirst($scope,$cond)
@@ -706,6 +709,19 @@ jobs:
               "--user-data-dir=$profile","--app=$origin/workspace/#/domain"
             )
             $null=Await 'Моя рабочая область' '' 'D02_IMPORT_REOPEN_DOMAIN_MISSING'
+            # Host never assumes focus merely because one imported workspace
+            # exists. Select it explicitly through the original native UI.
+            $selector=Await 'Личная рабочая область' 'combo' 'D02_IMPORT_WORKSPACE_SELECTOR_MISSING'
+            try{
+              $selector.SetFocus()
+              [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+              [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+              [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+              Write-Output 'D02_IMPORT_NEW_WORKSPACE_SELECTED_BY_USER=PASS'
+            }catch{throw 'D02_IMPORT_WORKSPACE_FOCUS_FAILED'}
+            if(Locate 'Обновить результаты' 'button'){
+              Click 'Обновить результаты' 'D02_IMPORT_READBACK_REFRESH_FAILED'
+            }
             $null=AwaitPrefix 'Последний: Club проверка пользовательской записи' 'D02_IMPORT_FRESH_PROFILE_COLD_READBACK_MISSING'
             Write-Output 'D02_IMPORT_INDEPENDENT_WORKSPACE_COLD_READBACK=PASS'
             Write-Output 'D02_IMPORT_PRIVATE_ARCHIVE_UPLOAD=FALSE'
