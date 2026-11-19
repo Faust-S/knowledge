@@ -68,7 +68,7 @@ jobs:
               else
                 echo "D08_PRIVATE_TEST_${testname}=FAIL"
                 if [[ "$testname" == "business-opening-paths" ]]; then
-                  grep -E '^[[:space:]]*not ok [0-9]+ ' "$RUNNER_TEMP/d08-case-check.private.log" | sed -E 's/^[[:space:]]*not ok ([0-9]+) .*/D08_OPENING_FAILED_CASE_INDEX=\\1/' || true
+                  grep -E '^[[:space:]]*not ok [0-9]+ ' "$RUNNER_TEMP/d08-case-check.private.log" | awk '{print "D08_OPENING_FAILED_CASE_INDEX="$3}' || true
                   if grep -q ERR_MODULE_NOT_FOUND "$RUNNER_TEMP/d08-case-check.private.log"; then echo "D08_OPENING_FAILURE_CLASS=MODULE"; fi
                   if grep -q ERR_ASSERTION "$RUNNER_TEMP/d08-case-check.private.log"; then echo "D08_OPENING_FAILURE_CLASS=ASSERT"; fi
                 fi
