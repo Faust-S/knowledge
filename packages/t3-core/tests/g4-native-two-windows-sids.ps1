@@ -45,6 +45,7 @@ try {
 param([Parameter(Mandatory=$true)][string]$ProofRoot)
 $ErrorActionPreference = 'Stop'
 try {
+  [IO.File]::WriteAllText((Join-Path $ProofRoot 'employee-started'),'STARTED',[Text.Encoding]::UTF8)
   Add-Type -AssemblyName System.Security
   $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
   $entropy = [Text.Encoding]::UTF8.GetBytes('IWXA G4 native two-SID proof')
@@ -100,14 +101,35 @@ try {
     foreach($filename in @('employee-proof.json','employee-failure')) {
       Remove-Item -LiteralPath (Join-Path $root $filename) -Force -ErrorAction SilentlyContinue
     }
-    Start-ScheduledTask -TaskName $taskName
     $response = Join-Path $root 'employee-proof.json'
     $failure = Join-Path $root 'employee-failure'
+    $startedFile = Join-Path $root 'employee-started'
+    Remove-Item -LiteralPath $startedFile -Force -ErrorAction SilentlyContinue
+    Start-ScheduledTask -TaskName $taskName
     $observed = $false
-    for ($tick=0;$tick -lt 90;$tick++) {
+    for ($tick=0;$tick -lt 18;$tick++) {
       if (Test-Path -LiteralPath $failure) { throw 'G4_SECOND_SID_CHILD_PROOF_FAILED' }
       if (Test-Path -LiteralPath $response) { $observed = $true; break }
       Start-Sleep -Seconds 1
+    }
+    if (-not $observed) {
+      $info = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
+      if ($null -ne $info) {
+        Write-Output ('G4_TWO_SID_SCHEDULER_LAST_RESULT ' + [string]$info.LastTaskResult)
+      }
+      # A hosted runner can refuse a batch logon while still allowing a
+      # fresh CreateProcessWithLogonW for the exact SAME secondary user.
+      # Stop the scheduled instance before trying the supported direct
+      # Windows Credential launch; never reuse the manager's token.
+      Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+      Remove-Item -LiteralPath $startedFile -Force -ErrorAction SilentlyContinue
+      $phase = 'DIRECT_SECOND_USER_WINDOWS_LOGON_' + $pass
+      $nativeCredential = New-Object Security.Principal.PSCredential($qualifiedUser,$secure)
+      $childProcess = Start-Process -FilePath $exe -ArgumentList $args -Credential $nativeCredential -LoadUserProfile -PassThru -Wait -WindowStyle Hidden -ErrorAction Stop
+      if ($childProcess.ExitCode -ne 0) { throw 'G4_SECOND_SID_DIRECT_LOGON_CHILD_FAILED' }
+      if (Test-Path -LiteralPath $failure) { throw 'G4_SECOND_SID_CHILD_PROOF_FAILED' }
+      if (Test-Path -LiteralPath $response) { $observed = $true }
+      if ($observed) { Write-Output 'G4_TWO_SID_SECONDARY_WINDOWS_LOGON_PROCESS_PASS' }
     }
     if (-not $observed) { throw 'G4_TWO_SID_COLD_PROCESS_NO_RESPONSE' }
     $record = Get-Content -LiteralPath $response -Raw | ConvertFrom-Json
