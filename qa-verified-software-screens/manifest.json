@@ -1,0 +1,13 @@
+{
+  "schema": "IWXA_AUTHENTIC_WINDOWS_SCREENSHOT/1",
+  "product": "Activity Analyzer 0.1 Windows installed",
+  "product_owner_sha": "2383c58f88901f16aa2a5fa780de447dba3d4750",
+  "windows_run": 44613010007,
+  "original_image_sha256": "dac4fb322632f4ce89d9645ec056ca311bd8bed826e64dbca15cf9cfa04ab79a",
+  "webp_image_sha256": "8ad32aaafb0a7a60854e0c7cbfe6a0eb067ae43ae9b840064866229a4014c564",
+  "width": 1014,
+  "height": 721,
+  "source_path": "activity-native-ocel2.png",
+  "captured_from": "genuine installed Windows GUI, no generation",
+  "modification": "crop real native window bounds; WebP encode only"
+}
