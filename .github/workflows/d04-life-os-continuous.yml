@@ -287,6 +287,7 @@ jobs:
             echo "D04_RECOVERY_NATIVE_E2E=PASS"
           else
             echo "D04_RECOVERY_NATIVE_E2E=FAIL"
+            grep "D04_RECOVERY_STAGE_" "$RUNNER_TEMP/d04-recovery.log" | tail -1 || true
             exit 1
           fi
           # No private source, archive, profile, Result or screenshot is uploaded.
