@@ -131,8 +131,10 @@ jobs:
           # runtime/windows_install_paths.py. A stale generic IWXA path in
           # the witness must not invalidate a real model + Human Review.
           $witnessSource = Get-Content -LiteralPath '.private/agent/tools/qualify_setup_core_runtime.ps1' -Raw
-          if (($witnessSource.Split("'IWXA\PersonalAgent\current-install.json'").Count - 1) -lt 3 -or
-              ($witnessSource.Split("'IWXA\PersonalAgent\storage-authority.json'").Count - 1) -lt 2 -or
+          $currentMarker = [regex]::Escape("'IWXA\PersonalAgent\current-install.json'")
+          $storageMarker = [regex]::Escape("'IWXA\PersonalAgent\storage-authority.json'")
+          if ([regex]::Matches($witnessSource, $currentMarker).Count -lt 3 -or
+              [regex]::Matches($witnessSource, $storageMarker).Count -lt 2 -or
               -not $witnessSource.Contains('agent_setup_runtime_touched_real_legacy_storage_authority')) {
             throw 'G4_INSTALLED_AGENT_PRODUCT_SCOPED_AUTHORITY_WITNESS_MISMATCH'
           }
