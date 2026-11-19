@@ -18,9 +18,15 @@ const T3_SEEDS=Object.freeze([
   'interop/result-contract.mjs','access-control/windows-credential.mjs',
   'access-control/domain-registry.json',
 ]);
+// Current central Agent 0.6 employee worker imports these three PURE
+// binding/recovery modules at startup. Every file comes from the SAME pinned
+// private Agent checkout; no alternative Agent runtime, ledger or signer.
 const AGENT_SEEDS=Object.freeze([
   'runtime/t3_original_employee_port.py',
   'runtime/t3_original_employee_worker.mjs',
+  'runtime/t3_original_employee_cold_guard.mjs',
+  'runtime/t3_original_transfer_readback.mjs',
+  'runtime/t3_original_atlas_selected_summary.mjs',
 ]);
 const MAX_FILES=125,MAX_BYTES=8*1024*1024,MAX_FILE=512*1024;
 
