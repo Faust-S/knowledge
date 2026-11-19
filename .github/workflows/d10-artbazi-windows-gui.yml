@@ -57,6 +57,21 @@ jobs:
           npm run check:types *> "$env:RUNNER_TEMP\d10-win-types.log"
           if($LASTEXITCODE -ne 0){throw "D10_WINDOWS_TYPECHECK_FAILED"}
           Write-Output "D10_WINDOWS_TYPES=PASS"
+      - name: Validate native Windows UIAutomation script syntax
+        run: |
+          $tokens=$null
+          $errorsFound=$null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "$env:GITHUB_WORKSPACE\\windows\\d10-edge-uia.ps1",
+            [ref]$tokens,[ref]$errorsFound) | Out-Null
+          if($errorsFound.Count -gt 0){
+            foreach($entry in $errorsFound){
+              Write-Output "D10_WINDOWS_UIA_PARSE_LINE=$($entry.Extent.StartLineNumber)"
+              Write-Output "D10_WINDOWS_UIA_PARSE_ERROR_ID=$($entry.ErrorId)"
+            }
+            throw "D10_WINDOWS_UIA_PARSER_FAILED"
+          }
+          Write-Output "D10_WINDOWS_UIA_SCRIPT_SYNTAX=PASS"
       - name: Original T2 plus site in one Windows dist
         working-directory: site
         env:
@@ -110,6 +125,13 @@ jobs:
           $result=$proc.ExitCode
           Get-Content $log | Select-String -Pattern "^D10_WINDOWS_" | ForEach-Object {$_.Line}
           if($result -ne 0){
+            $failure=Get-Content $errLog -Raw
+            foreach($class in @("ParserError","MethodInvocationException","InvalidOperation","RuntimeException","ArgumentException","NullReferenceException")){
+              if($failure -match $class){Write-Output "D10_WINDOWS_UIA_FAILURE_CLASS=$class"}
+            }
+            if($failure -match 'd10-edge-uia\\.ps1:(\\d+) char:(\\d+)'){
+              Write-Output "D10_WINDOWS_UIA_FAILURE_LINE=$($Matches[1])"
+            }
             $errors=Get-Content $errLog | Select-String -Pattern "D10_WINDOWS_[A-Z0-9_]+" | Select-Object -Last 3
             foreach($error in $errors){Write-Output "D10_WINDOWS_UIA_DIAG=$($error.Matches[0].Value)"}
             throw "D10_WINDOWS_UIA_NATIVE_INTERACTION_FAILED"
