@@ -128,7 +128,25 @@ jobs:
           }
           & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -CenterRoot $center -CenterCommit 'c10e193846a0ea4c73cabe3744aa7db82439d54e' -OutputRoot $output -ReleaseCacheRoot $cache -PublicT3CoreRoot $core -RequireOriginalT3 *> $log
           if ($LASTEXITCODE -ne 0) {
-            # Never publish private compiler traces, model content or EXE.
+            # Only exact lower-case machine codes leave the private build log.
+            # Do not print private source lines, stderr, paths, payloads or EXE.
+            $safeCodes = @()
+            if (Test-Path -LiteralPath $log -PathType Leaf) {
+              foreach ($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)) {
+                foreach ($m in [regex]::Matches([string]$line,
+                  '(?<![A-Za-z0-9_])(?:private_setup|original_t3|original_t2|agent_native|setup_core|private_package)_[a-z0-9_]{4,115}(?![A-Za-z0-9_])')) {
+                  $safeCodes += [string]$m.Value
+                }
+              }
+            }
+            $uniqueCodes = @($safeCodes | Select-Object -Unique | Select-Object -Last 4)
+            if ($uniqueCodes.Count -eq 0) {
+              Write-Host 'G4_AGENT06_ORIGINAL_SETUP_FAILURE_CODE UNCLASSIFIED'
+            } else {
+              foreach ($item in $uniqueCodes) {
+                Write-Host ('G4_AGENT06_ORIGINAL_SETUP_FAILURE_CODE ' + $item.ToUpperInvariant())
+              }
+            }
             throw 'G4_AGENT06_CURRENT_ORIGINAL_NATIVE_SETUP_BUILD_NOT_ACCEPTED'
           }
           $installed = Join-Path $output 'temporary-installed-fixture/installed-witness.json'
