@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: d777c43e4d941a849a5db799661397ec41bccd03
+          ref: 53cb044a6083b81e21f2f03654abcdd408ee786c
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -107,10 +107,12 @@ jobs:
           node scripts/tests/d10-case004-browser-smoke.mjs > "$RUNNER_TEMP/d10-browser.log" 2>&1
           result=$?
           grep -E '^D10_' "$RUNNER_TEMP/d10-browser.log" || true
+          grep -E '^D10_' "$RUNNER_TEMP/d10-browser.log" || true
           if [ "$result" -eq 0 ]; then
             echo "D10_BROWSER_TARGETED=PASS"
           else
             echo "::error::D10_BROWSER_TARGETED=FAIL exit=$result"
+            grep -E '^(Error|AssertionError|TypeError|TimeoutError):' "$RUNNER_TEMP/d10-browser.log" | head -n 3 || true
           fi
           exit "$result"
       - name: All 23 public services real input result and T2 handoff review
@@ -333,6 +335,21 @@ jobs:
           else
             echo "::error::D10_PUBLIC_T2_KERNEL_TRANSFER=FAIL exit=$result"
             grep -E '^(Error|AssertionError|TimeoutError|TypeError|ProtocolError):' "$RUNNER_TEMP/d10-public-kernel.log" | head -n 4 || true
+          fi
+          exit "$result"
+      - name: Physical cold restart of original T2 browser Host and origin
+        shell: bash
+        run: |
+          set +e
+          cd "$RUNNER_TEMP/d10-host-loopback"
+          node scripts/tests/d10-case010-real-cold-host-browser.mjs > "$RUNNER_TEMP/d10-cold-host.log" 2>&1
+          result=$?
+          grep -E '^D10_COLD_' "$RUNNER_TEMP/d10-cold-host.log" || true
+          if [ "$result" -eq 0 ]; then
+            echo "D10_COLD_ORIGINAL_HOST=PASS"
+          else
+            echo "::error::D10_COLD_ORIGINAL_HOST=FAIL exit=$result"
+            grep -E '^(Error|AssertionError|TypeError|TimeoutError):' "$RUNNER_TEMP/d10-cold-host.log" | head -n 3 || true
           fi
           exit "$result"
       - name: Independent multi-family CRM quote receipt and refund IWXA import
