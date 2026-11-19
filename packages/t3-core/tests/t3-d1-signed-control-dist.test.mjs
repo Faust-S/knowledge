@@ -214,9 +214,12 @@ test('installed Agent D6 registers the existing accepted-result schema only in i
     assert.equal(declaration.schema_version,'1.0.0');
     assert.equal(declaration.preserve_unknown,false);
     const expected=['taskId','resultId','acceptedDigest','signedTaskId',
-      'signedTaskRevisionId','signedTaskPackageSha256','contextDigest','workRef'];
-    assert.deepEqual(declaration.json_schema.required,expected);
-    assert.deepEqual(Object.keys(declaration.json_schema.properties),expected);
+      'signedTaskRevisionId','signedTaskPackageSha256','contextDigest'];
+    assert.deepEqual(declaration.json_schema.required,expected,
+      'normal accepted Result must not require an Atlas project');
+    assert.deepEqual(Object.keys(declaration.json_schema.properties),
+      [...expected,'workRef'],
+      'optional exact project binding must remain in the original schema');
     assert.deepEqual(declaration.json_schema.properties.workRef.required,
       ['projectId','workId','revision']);
     assert.equal(declaration.json_schema.properties.workRef.additionalProperties,false);
