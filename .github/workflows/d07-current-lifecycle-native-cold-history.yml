@@ -10,7 +10,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 97a05c4d97e1ea5655b158dd190c741dbc7508e6
+      SITE_SHA: bbf147e28e02742d34e3988203d7314a3216c681
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -768,6 +768,29 @@ jobs:
                   throw 'D07_NATIVE_SERVICE_OS_PANEL_INCOMPLETE'
                 }
                 Write-Output 'D07_NATIVE_SERVICE_OS_THREE_MODULES_ACCESSIBLE=PASS'
+                # Read-only monthly report must work through real Edge UIA
+                # without entering any text or creating a new T2 mutation.
+                $monthlyNative=FindServiceSummary 'Отчёт об оказании услуг за период'
+                if(!$monthlyNative){throw 'D07_NATIVE_MONTH_REPORT_MISSING'}
+                Write-Output 'D07_NATIVE_MONTH_REPORT_SUMMARY=PASS'
+                ExpandServiceSummary $monthlyNative
+                $monthAction=WaitNative 'Составить отчёт' ([System.Windows.Automation.ControlType]::Button)
+                if(!$monthAction -or !$monthAction.Current.IsEnabled){
+                  throw 'D07_NATIVE_MONTH_REPORT_ACTION_UNAVAILABLE'
+                }
+                ClickAction 'Составить отчёт'
+                $reportVisible=$false
+                for($attempt=0;$attempt -lt 45;$attempt++){
+                  Start-Sleep -Milliseconds 300
+                  $reported=AccessibleText
+                  if($reported -match 'Отчёт составлен по текущим сведениям заказа' -and
+                     $reported -match 'Полный текст отчёта'){
+                    $reportVisible=$true;break
+                  }
+                }
+                if(!$reportVisible){throw 'D07_NATIVE_MONTH_REPORT_RENDER_MISSING'}
+                Write-Output 'D07_NATIVE_MONTH_REPORT_GENERATED_THROUGH_EDGE=PASS'
+
                 ExpandServiceSummary $regularNative
                 $heading=$null
                 for($attempt=0;$attempt -lt 30;$attempt++){
