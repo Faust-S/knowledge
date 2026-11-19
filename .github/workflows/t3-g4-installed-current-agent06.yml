@@ -1,0 +1,170 @@
+name: T3 G4 installed pinned current Personal Agent 0.6 Windows
+on:
+  push:
+    branches:
+      - work/2026-11-10-t3-t2-activity-projection
+    paths:
+      - .github/workflows/t3-g4-installed-current-agent06.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: t3-g4-installed-current-agent06
+  cancel-in-progress: true
+jobs:
+  installed-current-agent06:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-installed-agent-g4]') }}
+    runs-on: windows-2022
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Stage exact central Agent 0.6 source without historical binary evidence
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 4d4f151a77541b932f510a921fed97bd7159c77c
+          token: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /desktop/
+            /runtime/
+            /tools/
+            /config/
+            /adapters/
+            /cells/
+            /providers/
+            /schemas/
+            /profiles/
+            /surfaces/
+            /skills/
+            /operational-skills/
+            /automation/
+            /authority/
+            /Human/
+            /scripts/
+            /webui/
+            /windows/
+            /qualification/phase1/*.ps1
+            /qualification/phase1/*.py
+            /qualification/phase1/*.json
+            /qualification/phase1/*.mjs
+            /requirements.txt
+            /requirements-ci.txt
+            /AGENTS.md
+          path: .private/agent
+      - name: Stage exact original product-neutral Setup Core owner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: c10e193846a0ea4c73cabe3744aa7db82439d54e
+          token: ${{ secrets.CENTER || secrets.DOMEN || secrets.T3 }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            installer
+          path: .private/setup-core
+      - name: Stage exact source-qualified original One Core G4 candidate
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 530f72f75f3c168265894dec1ec154f7e0d65fa4
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            packages/t3-core
+          path: .g4-pinned-one-core
+      - name: Verify all three exact pinned sources before native build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $agent = (& git -C .private/agent rev-parse HEAD).Trim()
+          $setup = (& git -C .private/setup-core rev-parse HEAD).Trim()
+          $core = (& git -C .g4-pinned-one-core rev-parse HEAD).Trim()
+          if ($agent -ne '4d4f151a77541b932f510a921fed97bd7159c77c' -or
+              $setup -ne 'c10e193846a0ea4c73cabe3744aa7db82439d54e' -or
+              $core -ne '530f72f75f3c168265894dec1ec154f7e0d65fa4') {
+            throw 'G4_AGENT_EXACT_INSTALLED_SOURCE_PIN_MISMATCH'
+          }
+          $lock = Get-Content -LiteralPath '.private/agent/config/public-module-sources.json' -Raw | ConvertFrom-Json
+          $entries = @($lock.modules | Where-Object { $_.id -ceq 't3' })
+          if ($entries.Count -ne 1 -or $entries[0].revision -cne $core) {
+            throw 'G4_AGENT_INSTALLED_ONE_CORE_OWNER_PIN_MISMATCH'
+          }
+          $archive = '.g4-pinned-one-core/packages/t3-core/qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip'
+          if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
+            throw 'G4_AGENT_ORIGINAL_T2_PINNED_ARCHIVE_MISSING'
+          }
+          Write-Host 'G4_INSTALLED_AGENT06_CURRENT_SOURCES_AND_T2_PREFLIGHT_PASS'
+      - name: Build install and cold-qualify genuine current Agent Tauri with original T2/T3 One Dist
+        shell: pwsh
+        timeout-minutes: 72
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $agent = (Resolve-Path -LiteralPath '.private/agent').Path
+          $center = (Resolve-Path -LiteralPath '.private/setup-core').Path
+          $core = (Resolve-Path -LiteralPath '.g4-pinned-one-core/packages/t3-core').Path
+          $output = Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06'
+          $cache = Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-cache'
+          $log = Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-private-build.log'
+          $script = Join-Path $agent 'tools/build_setup_core_windows_candidate.ps1'
+          $powershell = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          if (-not (Test-Path -LiteralPath $script -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $powershell -PathType Leaf)) {
+            throw 'G4_AGENT_ORIGINAL_SETUP_BUILDER_MISSING'
+          }
+          & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -CenterRoot $center -CenterCommit 'c10e193846a0ea4c73cabe3744aa7db82439d54e' -OutputRoot $output -ReleaseCacheRoot $cache -PublicT3CoreRoot $core -RequireOriginalT3 *> $log
+          if ($LASTEXITCODE -ne 0) {
+            # Never publish private compiler traces, model content or EXE.
+            throw 'G4_AGENT06_CURRENT_ORIGINAL_NATIVE_SETUP_BUILD_NOT_ACCEPTED'
+          }
+          $installed = Join-Path $output 'temporary-installed-fixture/installed-witness.json'
+          $rollback = Join-Path $output 'temporary-rollback-fixture/rollback-witness.json'
+          $package = Join-Path $output 'IWXA-Private-SetupCore-Candidate.exe'
+          if (-not (Test-Path -LiteralPath $package -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $installed -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $rollback -PathType Leaf)) {
+            throw 'G4_AGENT06_INSTALLED_NATIVE_PACKAGE_RECEIPT_MISSING'
+          }
+          $gui = Get-Content -LiteralPath $installed -Raw | ConvertFrom-Json
+          $rb = Get-Content -LiteralPath $rollback -Raw | ConvertFrom-Json
+          if ($gui.status -ne 'PASS' -or
+              $gui.installed_native_cold_launch_verified -ne $true -or
+              $gui.installed_real_qwen_native_gui_result_verified -ne $true -or
+              $gui.installed_real_qwen_native_gui_submit_review_verified -ne $true -or
+              $gui.installed_core_readbacks_after_restart_verified -ne $true -or
+              $rb.status -ne 'PASS' -or
+              $rb.installed_file_identity_after_rollback -ne $true) {
+            throw 'G4_AGENT06_ORIGINAL_T2_NATIVE_GUI_RECEIPT_INVALID'
+          }
+          Write-Host 'G4_AGENT06_INSTALLED_GENUINE_SETUP_AND_ONE_CORE_PASS'
+          Write-Host 'G4_AGENT06_INSTALLED_NATIVE_GUI_QWEN_REVIEW_COLD_PASS'
+          Write-Host 'G4_AGENT06_INSTALLED_SETUP_CORE_REPAIR_ROLLBACK_PASS'
+          Write-Host 'G4_AGENT06_INSTALLED_NOT_CROSS_USER_ADMIN_ACCEPT_APPLY'
+      - name: Erase private source model caches logs and native binaries
+        if: always()
+        shell: pwsh
+        run: |
+          $targets = @('.private','.g4-pinned-one-core',
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06'),
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-cache'),
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-private-build.log'))
+          foreach ($path in $targets) {
+            if (Test-Path -LiteralPath $path) {
+              Remove-Item -LiteralPath $path -Force -Recurse -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Host 'G4_AGENT06_PRIVATE_SOURCE_AND_NATIVE_ARTIFACTS_NOT_PUBLISHED'
