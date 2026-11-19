@@ -43,7 +43,9 @@ jobs:
         with:
           node-version: '22'
       - name: Validate bounded private-source reader without private credentials
-        run: node --test packages/t3-core/tests/qualify-original-private-d3-owner.test.mjs
+        run: |
+          node --test packages/t3-core/tests/g4-native-original-owner-pin-parity.test.mjs
+          node --test packages/t3-core/tests/qualify-original-private-d3-owner.test.mjs
       - name: Original signed D3 owner contract on an exact private T3 commit
         # Owner has allowed read-only testing from public knowledge, not whole
         # checkout. T3 is the direct scoped secret; DOMEN is a legacy fallback.
