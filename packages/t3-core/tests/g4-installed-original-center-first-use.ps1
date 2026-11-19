@@ -104,10 +104,9 @@ function FindName([string]$name,[string]$controlType='Button',[int]$retries=65){
 }
 function ClickButton([string]$label){
   $control=FindName $label 'Button'
-  # Exactly one real physical OS click for enrollment: WebView2 UIA
-  # InvokePattern can return without ever dispatching React onClick.
+  # One physical native Windows click on the exact signed enrollment
+  # button; InvokePattern can focus without dispatching the React action.
   if($label -eq 'Подключить организацию'){
-    $global:appProcess.Refresh()
     $focus=[G4InstalledModal]::SetForegroundWindow(
       $global:appProcess.MainWindowHandle)
     Write-Host "G4_INSTALLED_FIRST_USE_FOREGROUND_REQUEST $focus"
@@ -146,8 +145,8 @@ function HasText([string]$fragment){
 }
 function ClickNativeChoice([bool]$confirm){
   for($i=0;$i -lt 90;$i++){
-    # Real Win32 TaskDialogs are not always exposed as UIA desktop children.
-    # Match only the exact dialog TITLE and installed Center PROCESS ID.
+    # Win32 rfd TaskDialog can be absent from the UIA desktop child tree.
+    # Match exact installed Center PID/title, then click real native control.
     $native=[G4InstalledModal]::FindExact(
       $global:appProcess.Id,'IWXA T3: подключить организацию')
     if($native -ne [IntPtr]::Zero){
@@ -176,342 +175,8 @@ function ClickNativeChoice([bool]$confirm){
           if($item.Current.ControlType -ne
             [System.Windows.Automation.ControlType]::Button){continue}
           $name=[string]$item.Current.Name
-          $isWanted=if($confirm){$name -match '^(?:&?Да|&?Yes|OK)
-      [System.Windows.Automation.TreeScope]::Children,
-      [System.Windows.Automation.Condition]::TrueCondition)
-    foreach($window in $windows){
-      try{
-        $title=[string]$window.Current.Name
-        $ownsProcess=($window.Current.ProcessId -eq $global:appProcess.Id)
-        $expectedTitle=$title.Contains('IWXA T3: подключить организацию')
-        if(-not $ownsProcess -and -not $expectedTitle){continue}
-        $buttons=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-          [System.Windows.Automation.Condition]::TrueCondition)
-        if(-not $expectedTitle){
-          # Native Windows TaskDialog can expose its title in a static
-          # descendant instead of as the top-level window name. Accept it
-          # only under the exact installed Center PID, never another app.
-          $expectedTitle=$false
-          foreach($content in $buttons){
-            $message=[string]$content.Current.Name
-            if($message.Contains('IWXA T3: подключить организацию') -or
-               $message.Contains('Создать подписанную организацию T3')){
-              $expectedTitle=$true;break
-            }
-          }
-        }
-        if(-not $expectedTitle){continue}
-        foreach($button in $buttons){
-          if($button.Current.ControlType -ne [System.Windows.Automation.ControlType]::Button){continue}
-          $label=[string]$button.Current.Name
-          $wanted=if($confirm){$label -match '^(?:&?Да|&?Yes|OK)$'}
-                  else{$label -match '^(?:&?Нет|&?No|Cancel|Отмена)$'}
-          if(-not $wanted){continue}
-          $p=$button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-          $p.Invoke()
-          return
-        }
-      }catch{}
-    }
-    Start-Sleep -Milliseconds 250
-  }
-  # The native handler may refuse before showing a dialog (for example
-  # when the manager draft is still being saved). Report only known product
-  # machine codes. Never print the organization name or private UI content.
-  $knownStates=@(
-    'Подключение T3 не началось:',
-    'Не удалось сохранить',
-    'Изменение не выполнено.',
-    'Подписанный T3 D3 получатель доступен',
-    'Оригинальный подписанный T3-владелец организации подключён.',
-    'NOT_CONNECTED:','OWNER_READ_FAILED:',
-    'CEN_D3_EXPLICIT_ORGANIZATION_REQUIRED',
-    'CEN_D3_ORGANIZATION_REQUIRED')
-  for($s=0;$s -lt $knownStates.Count;$s++){
-    if(HasText $knownStates[$s]){
-      Write-Host "G4_INSTALLED_FIRST_USE_UI_STATE_CLASS $s"
-    }
-  }
-  foreach($code in @(
-    'CEN_D3_SIGNED_ENROLLMENT_DRAFT_NOT_READY',
-    'CEN_D3_SIGNED_ENROLLMENT_DRAFT_SAVE_UNCONFIRMED',
-    'CEN_D3_SIGNED_ENROLLMENT_DRAFT_READBACK_MISMATCH',
-    'CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED',
-    'CEN_D3_ENROLLMENT_CANCELLED')){
-    if(HasText $code){Write-Host "G4_INSTALLED_FIRST_USE_MODAL_PREREQUISITE_CODE $code"}
-  }
-  throw 'G4_INSTALLED_FIRST_USE_NATIVE_MESSAGE_DIALOG_MISSING'
-}
-function StartCenter(){
-  $global:appProcess=Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru
-  for($i=0;$i -lt 90;$i++){
-    Start-Sleep -Milliseconds 400
-    $global:appProcess.Refresh()
-    Check (-not $global:appProcess.HasExited) 'G4_INSTALLED_FIRST_USE_PREMATURE_EXIT'
-    if($global:appProcess.MainWindowHandle -ne [IntPtr]::Zero){return}
-  }
-  throw 'G4_INSTALLED_FIRST_USE_NATIVE_WINDOW_MISSING'
-}
-function CloseCenter([bool]$strict=$true){
-  if(!$global:appProcess){return}
-  try{
-    $global:appProcess.Refresh()
-    if(!$global:appProcess.HasExited){
-      $h=$global:appProcess.MainWindowHandle
-      if($h -ne [IntPtr]::Zero){
-        $sent=[G4NativeMouse]::PostMessage($h,0x10,[IntPtr]::Zero,[IntPtr]::Zero)
-        if($strict){Check $sent 'G4_INSTALLED_FIRST_USE_WM_CLOSE_FAILED'}
-      }
-      $closed=$global:appProcess.WaitForExit($(if($strict){15000}else{2500}))
-      if($strict){Check $closed 'G4_INSTALLED_FIRST_USE_GRACEFUL_CLOSE_FAILED'}
-    }
-  }finally{
-    # When the tested native UI has legitimately refused WM_CLOSE because of
-    # an unsaved editor, cleanup may kill ONLY the CI fixture process. Never
-    # treat that as a passed graceful close or overwrite the first failure.
-    try{$global:appProcess.Refresh();if(!$global:appProcess.HasExited){$global:appProcess.Kill()}}catch{}
-    $global:appProcess.Dispose()
-    $global:appProcess=$null
-  }
-}
-try{
-  StartCenter
-  $script:phase='CREATE_ORGANIZATION'
-  TypeText 'Название' 'G4WindowsOrganization'
-  ClickButton 'Создать черновик организации'
-  $script:phase='CREATE_ORDINARY_WORKSPACE'
-  ClickButton 'Планы Atlas'
-  TypeText 'Название рабочей области' 'G4CorporateWorkspace'
-  ClickButton 'Добавить'
-  Check (HasText 'G4CorporateWorkspace') 'G4_INSTALLED_WORKSPACE_WITHOUT_ATLAS_NOT_CREATED'
-  Write-Host 'G4_INSTALLED_ORDINARY_WORKSPACE_WITHOUT_ATLAS_PASS'
-  # Persist the real manager draft before the cold installed reopen.
-  # The signed owner and the ordinary Center organization remain
-  # distinct; neither silently reconstructs the other's storage.
-  $script:phase='SAVE_MANAGER_DRAFT'
-  ClickButton 'Сохранить на компьютере'
-  Write-Host 'G4_INSTALLED_FIRST_USE_MANAGER_SAVE_CLICKED'
-  $script:phase='WAIT_DRAFT_SAVE_READBACK'
-  $draftSaved=$false
-  for($i=0;$i -lt 90;$i++){
-    if(HasText 'Черновики сохранены на этом компьютере'){
-      $draftSaved=$true;break
-    }
-    Start-Sleep -Milliseconds 250
-  }
-  Check $draftSaved 'G4_INSTALLED_FIRST_USE_MANAGER_SAVE_READBACK_MISSING'
-  Write-Host 'G4_INSTALLED_FIRST_USE_MANAGER_SAVE_READBACK_PASS'
-  $script:phase='OPEN_RESULT_PANEL'
-  ClickButton 'Результаты'
-  Write-Host 'G4_INSTALLED_FIRST_USE_RESULTS_OPENED'
-  $script:phase='FIND_NATIVE_T3_ENROLL'
-  $enroll=FindName 'Подключить организацию' 'Button'
-  Check $enroll.Current.IsEnabled 'G4_INSTALLED_FIRST_USE_ENROLL_NOT_AVAILABLE'
-  $script:phase='CANCEL_T3_ENROLL'
-  ClickButton 'Подключить организацию'
-  ClickNativeChoice $false
-  Start-Sleep -Milliseconds 450
-  Check (HasText 'NOT_CONNECTED') 'G4_INSTALLED_FIRST_USE_CANCEL_ISSUED_OWNER'
-  Write-Host 'G4_INSTALLED_FIRST_USE_NATIVE_CANCEL_NO_OWNER_PASS'
-  $script:phase='CONFIRM_T3_ENROLL'
-  ClickButton 'Подключить организацию'
-  ClickNativeChoice $true
-  $connected=$false
-  for($i=0;$i -lt 70;$i++){
-    if(HasText 'Подписанный T3 D3 получатель доступен'){$connected=$true;break}
-    Start-Sleep -Milliseconds 350
-  }
-  Check $connected 'G4_INSTALLED_FIRST_USE_ORIGINAL_OWNER_NOT_CONNECTED'
-  Write-Host 'G4_INSTALLED_FIRST_USE_NATIVE_WINDOWS_ENROLL_PASS'
-  $script:phase='SIGNED_OWNER_COLD_CLOSE'
-  CloseCenter
-  $script:phase='SIGNED_OWNER_COLD_RESTART'
-  StartCenter
-  ClickButton 'Результаты'
-  $durable=$false
-  for($i=0;$i -lt 70;$i++){
-    if(HasText 'Подписанный T3 D3 получатель доступен'){$durable=$true;break}
-    Start-Sleep -Milliseconds 350
-  }
-  Check $durable 'G4_INSTALLED_FIRST_USE_COLD_OWNER_NOT_RESTORED'
-  Write-Host 'G4_INSTALLED_FIRST_USE_ORIGINAL_DPAPI_COLD_RESTART_PASS'
-}finally{
-  if($global:appProcess){
-    try{CloseCenter -strict $false}catch{
-      # Preserve the actual UI/owner failure from the primary try block.
-      Write-Host 'G4_INSTALLED_FIRST_USE_CLEANUP_NONBLOCKING'
-    }
-  }
-}
-}
-            else{$name -match '^(?:&?Нет|&?No|Cancel|Отмена)
-      [System.Windows.Automation.TreeScope]::Children,
-      [System.Windows.Automation.Condition]::TrueCondition)
-    foreach($window in $windows){
-      try{
-        $title=[string]$window.Current.Name
-        $ownsProcess=($window.Current.ProcessId -eq $global:appProcess.Id)
-        $expectedTitle=$title.Contains('IWXA T3: подключить организацию')
-        if(-not $ownsProcess -and -not $expectedTitle){continue}
-        $buttons=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-          [System.Windows.Automation.Condition]::TrueCondition)
-        if(-not $expectedTitle){
-          # Native Windows TaskDialog can expose its title in a static
-          # descendant instead of as the top-level window name. Accept it
-          # only under the exact installed Center PID, never another app.
-          $expectedTitle=$false
-          foreach($content in $buttons){
-            $message=[string]$content.Current.Name
-            if($message.Contains('IWXA T3: подключить организацию') -or
-               $message.Contains('Создать подписанную организацию T3')){
-              $expectedTitle=$true;break
-            }
-          }
-        }
-        if(-not $expectedTitle){continue}
-        foreach($button in $buttons){
-          if($button.Current.ControlType -ne [System.Windows.Automation.ControlType]::Button){continue}
-          $label=[string]$button.Current.Name
-          $wanted=if($confirm){$label -match '^(?:&?Да|&?Yes|OK)$'}
-                  else{$label -match '^(?:&?Нет|&?No|Cancel|Отмена)$'}
-          if(-not $wanted){continue}
-          $p=$button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-          $p.Invoke()
-          return
-        }
-      }catch{}
-    }
-    Start-Sleep -Milliseconds 250
-  }
-  # The native handler may refuse before showing a dialog (for example
-  # when the manager draft is still being saved). Report only known product
-  # machine codes. Never print the organization name or private UI content.
-  $knownStates=@(
-    'Подключение T3 не началось:',
-    'Не удалось сохранить',
-    'Изменение не выполнено.',
-    'Подписанный T3 D3 получатель доступен',
-    'Оригинальный подписанный T3-владелец организации подключён.',
-    'NOT_CONNECTED:','OWNER_READ_FAILED:',
-    'CEN_D3_EXPLICIT_ORGANIZATION_REQUIRED',
-    'CEN_D3_ORGANIZATION_REQUIRED')
-  for($s=0;$s -lt $knownStates.Count;$s++){
-    if(HasText $knownStates[$s]){
-      Write-Host "G4_INSTALLED_FIRST_USE_UI_STATE_CLASS $s"
-    }
-  }
-  foreach($code in @(
-    'CEN_D3_SIGNED_ENROLLMENT_DRAFT_NOT_READY',
-    'CEN_D3_SIGNED_ENROLLMENT_DRAFT_SAVE_UNCONFIRMED',
-    'CEN_D3_SIGNED_ENROLLMENT_DRAFT_READBACK_MISMATCH',
-    'CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED',
-    'CEN_D3_ENROLLMENT_CANCELLED')){
-    if(HasText $code){Write-Host "G4_INSTALLED_FIRST_USE_MODAL_PREREQUISITE_CODE $code"}
-  }
-  throw 'G4_INSTALLED_FIRST_USE_NATIVE_MESSAGE_DIALOG_MISSING'
-}
-function StartCenter(){
-  $global:appProcess=Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru
-  for($i=0;$i -lt 90;$i++){
-    Start-Sleep -Milliseconds 400
-    $global:appProcess.Refresh()
-    Check (-not $global:appProcess.HasExited) 'G4_INSTALLED_FIRST_USE_PREMATURE_EXIT'
-    if($global:appProcess.MainWindowHandle -ne [IntPtr]::Zero){return}
-  }
-  throw 'G4_INSTALLED_FIRST_USE_NATIVE_WINDOW_MISSING'
-}
-function CloseCenter([bool]$strict=$true){
-  if(!$global:appProcess){return}
-  try{
-    $global:appProcess.Refresh()
-    if(!$global:appProcess.HasExited){
-      $h=$global:appProcess.MainWindowHandle
-      if($h -ne [IntPtr]::Zero){
-        $sent=[G4NativeMouse]::PostMessage($h,0x10,[IntPtr]::Zero,[IntPtr]::Zero)
-        if($strict){Check $sent 'G4_INSTALLED_FIRST_USE_WM_CLOSE_FAILED'}
-      }
-      $closed=$global:appProcess.WaitForExit($(if($strict){15000}else{2500}))
-      if($strict){Check $closed 'G4_INSTALLED_FIRST_USE_GRACEFUL_CLOSE_FAILED'}
-    }
-  }finally{
-    # When the tested native UI has legitimately refused WM_CLOSE because of
-    # an unsaved editor, cleanup may kill ONLY the CI fixture process. Never
-    # treat that as a passed graceful close or overwrite the first failure.
-    try{$global:appProcess.Refresh();if(!$global:appProcess.HasExited){$global:appProcess.Kill()}}catch{}
-    $global:appProcess.Dispose()
-    $global:appProcess=$null
-  }
-}
-try{
-  StartCenter
-  $script:phase='CREATE_ORGANIZATION'
-  TypeText 'Название' 'G4WindowsOrganization'
-  ClickButton 'Создать черновик организации'
-  $script:phase='CREATE_ORDINARY_WORKSPACE'
-  ClickButton 'Планы Atlas'
-  TypeText 'Название рабочей области' 'G4CorporateWorkspace'
-  ClickButton 'Добавить'
-  Check (HasText 'G4CorporateWorkspace') 'G4_INSTALLED_WORKSPACE_WITHOUT_ATLAS_NOT_CREATED'
-  Write-Host 'G4_INSTALLED_ORDINARY_WORKSPACE_WITHOUT_ATLAS_PASS'
-  # Persist the real manager draft before the cold installed reopen.
-  # The signed owner and the ordinary Center organization remain
-  # distinct; neither silently reconstructs the other's storage.
-  $script:phase='SAVE_MANAGER_DRAFT'
-  ClickButton 'Сохранить на компьютере'
-  Write-Host 'G4_INSTALLED_FIRST_USE_MANAGER_SAVE_CLICKED'
-  $script:phase='WAIT_DRAFT_SAVE_READBACK'
-  $draftSaved=$false
-  for($i=0;$i -lt 90;$i++){
-    if(HasText 'Черновики сохранены на этом компьютере'){
-      $draftSaved=$true;break
-    }
-    Start-Sleep -Milliseconds 250
-  }
-  Check $draftSaved 'G4_INSTALLED_FIRST_USE_MANAGER_SAVE_READBACK_MISSING'
-  Write-Host 'G4_INSTALLED_FIRST_USE_MANAGER_SAVE_READBACK_PASS'
-  $script:phase='OPEN_RESULT_PANEL'
-  ClickButton 'Результаты'
-  Write-Host 'G4_INSTALLED_FIRST_USE_RESULTS_OPENED'
-  $script:phase='FIND_NATIVE_T3_ENROLL'
-  $enroll=FindName 'Подключить организацию' 'Button'
-  Check $enroll.Current.IsEnabled 'G4_INSTALLED_FIRST_USE_ENROLL_NOT_AVAILABLE'
-  $script:phase='CANCEL_T3_ENROLL'
-  ClickButton 'Подключить организацию'
-  ClickNativeChoice $false
-  Start-Sleep -Milliseconds 450
-  Check (HasText 'NOT_CONNECTED') 'G4_INSTALLED_FIRST_USE_CANCEL_ISSUED_OWNER'
-  Write-Host 'G4_INSTALLED_FIRST_USE_NATIVE_CANCEL_NO_OWNER_PASS'
-  $script:phase='CONFIRM_T3_ENROLL'
-  ClickButton 'Подключить организацию'
-  ClickNativeChoice $true
-  $connected=$false
-  for($i=0;$i -lt 70;$i++){
-    if(HasText 'Подписанный T3 D3 получатель доступен'){$connected=$true;break}
-    Start-Sleep -Milliseconds 350
-  }
-  Check $connected 'G4_INSTALLED_FIRST_USE_ORIGINAL_OWNER_NOT_CONNECTED'
-  Write-Host 'G4_INSTALLED_FIRST_USE_NATIVE_WINDOWS_ENROLL_PASS'
-  $script:phase='SIGNED_OWNER_COLD_CLOSE'
-  CloseCenter
-  $script:phase='SIGNED_OWNER_COLD_RESTART'
-  StartCenter
-  ClickButton 'Результаты'
-  $durable=$false
-  for($i=0;$i -lt 70;$i++){
-    if(HasText 'Подписанный T3 D3 получатель доступен'){$durable=$true;break}
-    Start-Sleep -Milliseconds 350
-  }
-  Check $durable 'G4_INSTALLED_FIRST_USE_COLD_OWNER_NOT_RESTORED'
-  Write-Host 'G4_INSTALLED_FIRST_USE_ORIGINAL_DPAPI_COLD_RESTART_PASS'
-}finally{
-  if($global:appProcess){
-    try{CloseCenter -strict $false}catch{
-      # Preserve the actual UI/owner failure from the primary try block.
-      Write-Host 'G4_INSTALLED_FIRST_USE_CLEANUP_NONBLOCKING'
-    }
-  }
-}
-}
+          $isWanted=if($confirm){$name -match '^(?:&?Да|&?Yes|OK)$'}
+            else{$name -match '^(?:&?Нет|&?No|Cancel|Отмена)$'}
           if(-not $isWanted){continue}
           $p=$item.GetCurrentPattern(
             [System.Windows.Automation.InvokePattern]::Pattern)
@@ -529,7 +194,7 @@ try{
         $title=[string]$window.Current.Name
         $ownsProcess=($window.Current.ProcessId -eq $global:appProcess.Id)
         $expectedTitle=$title.Contains('IWXA T3: подключить организацию')
-        if(-not $ownsProcess -and -not $expectedTitle){continue}
+        if(-not $ownsProcess){continue}
         $buttons=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
           [System.Windows.Automation.Condition]::TrueCondition)
         if(-not $expectedTitle){
@@ -563,6 +228,9 @@ try{
   # The native handler may refuse before showing a dialog (for example
   # when the manager draft is still being saved). Report only known product
   # machine codes. Never print the organization name or private UI content.
+  $dialogs=[G4InstalledModal]::CountOwnedDialogs(
+    $global:appProcess.Id)
+  Write-Host "G4_INSTALLED_FIRST_USE_WIN32_DIALOG_COUNT $dialogs"
   $knownStates=@(
     'Подключение T3 не началось:',
     'Не удалось сохранить',
