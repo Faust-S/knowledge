@@ -8,7 +8,7 @@ permissions:
   contents: read
 env:
   DOMAIN_SHA: bc1396ee0b8f37b6ea26d75df912384af3f70d95
-  SITE_SHA: 63964f41bcabc971a646b6c6319a5779b22b0c89
+  SITE_SHA: 3f5bb77a0d34c9f0814bc4dec6aa59ae229293f1
 jobs:
   p1-models:
     runs-on: ${{ matrix.os }}
@@ -45,6 +45,28 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Verify public npm lock and perform clean dependency installation
+        working-directory: private/site
+        env:
+          npm_config_registry: https://registry.npmjs.org/
+          npm_config_cache: ${{ runner.temp }}/marketops-npm-registry-cache
+          PUPPETEER_SKIP_DOWNLOAD: '1'
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          node scripts/check-public-npm-lock.mjs >/dev/null || { echo "D08_NPM_PUBLIC_LOCK=FAIL"; exit 1; }
+          echo "D08_NPM_PUBLIC_LOCK=PASS"
+          if npm ci --no-audit --no-fund --include=dev > "$RUNNER_TEMP/d08-npm-ci.private.log" 2>&1; then
+            test -f node_modules/typescript/bin/tsc || { echo "D08_NPM_TYPESCRIPT_MISSING"; exit 1; }
+            echo "D08_NPM_CI_PUBLIC_REGISTRY=PASS"
+            echo "D08_NPM_CI_CACHE_ISOLATED=PASS"
+          else
+            if grep -Eiq 'EINTEGRITY|integrity checksum' "$RUNNER_TEMP/d08-npm-ci.private.log"; then echo "D08_NPM_FAILURE_CLASS=INTEGRITY";
+            elif grep -Eiq 'E404|404 Not Found' "$RUNNER_TEMP/d08-npm-ci.private.log"; then echo "D08_NPM_FAILURE_CLASS=PACKAGE_UNAVAILABLE";
+            elif grep -Eiq 'EACCES|EPERM' "$RUNNER_TEMP/d08-npm-ci.private.log"; then echo "D08_NPM_FAILURE_CLASS=ACCESS";
+            elif grep -Eiq 'EUSAGE|Missing:|Invalid:' "$RUNNER_TEMP/d08-npm-ci.private.log"; then echo "D08_NPM_FAILURE_CLASS=LOCK_UNSYNCED";
+            else echo "D08_NPM_FAILURE_CLASS=OTHER"; fi
+            echo "D08_NPM_CI_PUBLIC_REGISTRY=FAIL"; exit 1
+          fi
       - name: Confirm exact owners and identical canonical source files
         run: |
           test "$(git -C private/domain rev-parse HEAD)" = "$DOMAIN_SHA"
