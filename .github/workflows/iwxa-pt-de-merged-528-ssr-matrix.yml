@@ -1,0 +1,86 @@
+name: IWXA PT-DE merged all 528 SSR routes
+on:
+  push:
+    branches: [work/2026-11-18-pt-66-qualification]
+    paths:
+      - .github/workflows/iwxa-pt-de-merged-528-ssr-matrix.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  routes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 48
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: d9c3a4029491dd273ae018a20354f132e6a6f217
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.2"
+      - name: Original integrated SSR and dependencies
+        shell: bash
+        working-directory: site
+        env:
+          LOVABLE_BUILD_TARGET: static
+          NITRO_PRESET: node-server
+          SERVER_PRESET: node-server
+        run: |
+          test "$(git rev-parse HEAD)" = "d9c3a4029491dd273ae018a20354f132e6a6f217" || exit 1
+          bun install --frozen-lockfile > "$RUNNER_TEMP/merged-matrix-install.log" 2>&1 || { echo "IWXA_MATRIX_INSTALL=FAIL"; exit 1; }
+          bun run build > "$RUNNER_TEMP/merged-matrix-build.log" 2>&1 || { echo "IWXA_MATRIX_BUILD=FAIL"; exit 1; }
+          test -f .output/server/index.mjs || exit 1
+          echo "IWXA_MATRIX_BUILD=PASS"
+      - name: GET every source-registered multilingual route and inspect SSR canonical
+        shell: bash
+        run: |
+          PORT=4387 HOST=127.0.0.1 NODE_ENV=production node site/.output/server/index.mjs > "$RUNNER_TEMP/merged-matrix-server.log" 2>&1 &
+          srv=$!
+          trap 'kill "$srv" 2>/dev/null || true' EXIT
+          for i in $(seq 1 75); do
+            if curl -fsS -o /dev/null http://127.0.0.1:4387/; then break; fi
+            sleep 1
+          done
+          node --input-type=module - <<'JS'
+          import fs from 'node:fs';
+          const coverage=JSON.parse(fs.readFileSync('site/translation/coverage.json','utf8'));
+          const src=fs.readFileSync('site/src/i18n/site-routes.ts','utf8');
+          const langs=[...src.matchAll(/\{\s*code: "([^"]+)", prefix: "([^"]*)"/g)].map(x=>({code:x[1],prefix:x[2]}));
+          if(coverage.routes.length!==66||langs.length!==8)process.exit(1);
+          const requests=[];
+          for(const row of coverage.routes)for(const l of langs){
+            if(l.code!=='ru'&&!row.available.includes(l.code))continue;
+            const path=l.code==='ru'?row.route:'/'+l.prefix+(row.route==='/'?'/':row.route);
+            requests.push({path,locale:l.code});
+          }
+          if(requests.length!==528)process.exit(2);
+          let next=0,passed=0,failed=0;
+          const failByLocale={};
+          await Promise.all(Array.from({length:12},async()=>{
+            while(next<requests.length){
+              const {path,locale}=requests[next++];
+              try{
+                const response=await fetch('http://127.0.0.1:4387'+path,{headers:{accept:'text/html'},signal:AbortSignal.timeout(40000)});
+                const html=await response.text();
+                const lang=html.match(/<html\b[^>]*\blang=["']([^"']+)/)?.[1]??'';
+                const canon=html.match(/<link\b(?=[^>]*\brel=["']canonical["'])[^>]*>/i)?.[0]??'';
+                if(!response.ok||!html.includes('<main')||lang!==locale||!canon.includes('https://iwxa.ru'+path))throw Error('route-contract');
+                passed++;
+              }catch{
+                failed++; failByLocale[locale]=(failByLocale[locale]??0)+1;
+              }
+            }
+          }));
+          console.log('IWXA_MATRIX_EXPECTED='+requests.length);
+          console.log('IWXA_MATRIX_PASS='+passed);
+          console.log('IWXA_MATRIX_FAIL='+failed);
+          console.log('IWXA_MATRIX_FAIL_LOCALE_COUNTS='+JSON.stringify(failByLocale));
+          if(failed)process.exit(1);
+          JS
