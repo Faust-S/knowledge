@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: b80120f21d9cab0a2f3ed528c8e11f7807731a73
+          ref: 431462cc39b3a82505b018479b351001b5dd05c4
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -64,7 +64,7 @@ jobs:
           $t2=(git -C ../t2 rev-parse HEAD).Trim()
           Write-Output "D11_PROJECT_SITE_HEAD=$site"
           Write-Output "D11_PROJECT_DOMAIN_HEAD=$domain"
-          if ($site -ne "b80120f21d9cab0a2f3ed528c8e11f7807731a73" -or
+          if ($site -ne "431462cc39b3a82505b018479b351001b5dd05c4" -or
               $domain -ne "f4e7d63198ec101cc53ae51a007bb709e1336d50") {
             throw "D11_PROJECT_QUALIFICATION_REVISION_CHANGED"
           }
@@ -96,7 +96,7 @@ jobs:
       - name: Real editor to Host to Kernel fork and revision readback
         working-directory: site
         run: |
-          & node scripts/d11-project-continuation-acceptance.mjs
+          & node --experimental-strip-types scripts/d11-project-continuation-acceptance.mjs
           if ($LASTEXITCODE -ne 0) { throw "D11_PROJECT_CONTINUATION_FAILED" }
           Write-Output "D11_REAL_PROJECT_CONTINUATION=PASS"
       # No screenshot, archive, dist, customer JSON, private source or secrets are published.
