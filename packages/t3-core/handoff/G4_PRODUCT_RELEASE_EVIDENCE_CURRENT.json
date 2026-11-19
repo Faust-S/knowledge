@@ -2,7 +2,7 @@
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
   "snapshot_date": "2026-11-19",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
-  "currentness": "G4_D3_SOURCE_20_OF_20_PASS__INSTALLED_CENTER_HUMAN_ENROLL_CANCEL_CONFIRM_PASS__ORIGINAL_SIGNER_ENOENT_44517274170__STAGED_RETEST_44519283998",
+  "currentness": "G4_SOURCE_ORIGINAL_D3_20_20_PASS_INSTALLED_HUMAN_FIRST_USE_PASS__COMPILED_OWNER_PRE_ENROLL_ENOENT__STATIC_DISPATCH_RETEST_44520786486",
   "policy": {
     "t3_one_core": "Faust-S/knowledge/packages/t3-core",
     "t2_normative": "Faust-S/T2@main",
@@ -1874,7 +1874,22 @@
         "public_witness_sha": "1198b43dd6c9932ca4e93b1bed7fec192f83e9c2",
         "workflow_sha": "2aea3381c3cf9f797fb24610aa76b8add29712ce",
         "installed_ci_run_id": 44519283998,
-        "status": "IN_PROGRESS_NOT_ACCEPTED"
+        "status": "FAILED_BEFORE_ORIGINAL_ENROLL_STAGE",
+        "failure_class": "T3_PRODUCT_COMPONENT_ORIGINAL_FILE_NOT_FOUND",
+        "failure_evidence": "No T3_D3_ORIGINAL_ENROLL_* staged code observed; no original organization scope files under tested fallback root"
+      },
+      "compiled_owner_original_native_entry_2026_11_19": {
+        "issue": "Installed Bun-compiled original owner reported ENOENT before instrumented enrollNativeAdminD3 code; dynamic import path from removed transient shim is one plausible cause, not yet independently proven",
+        "original_owner_repo": "Faust-S/T3",
+        "original_owner_branch": "work/2026-11-16-admin03-independent-employee-owner",
+        "original_owner_sha": "5ef9caf7a943447a8a612c9451423a790ec681ce",
+        "original_owner_change": "Direct static import and dispatch of same runNativeAdminD3 for d3-state/d3-action/d3-enroll from the existing integrated original owner binary; legacy licensing CLI unchanged; compiled fail-closed invalid-command preflight added",
+        "center_sha": "2628c4bc1b20b4393c485d12513f029fdea8b082",
+        "public_workflow_sha": "91c3a18329234580cb4efc06354535bd7570e619",
+        "installed_run_id": 44520786486,
+        "status": "RUNNING_NOT_ACCEPTED",
+        "native_owner_ready": "HOLD",
+        "original_dpapi_cold_reopen": "NOT_RUN"
       }
     }
   },
@@ -1970,7 +1985,7 @@
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
     "original_private_native_signer": "CURRENT_SOURCE_PIN_d0d8ba2f_NATIVE_ONE_SHOT_WINDOWS_BRIDGE_REQUALIFIED_20_OF_20_44406073956__INSTALLED_UI_HOLD",
-    "independent_installed_d3": "HOLD_NATIVE_ORIGINAL_SIGNER_FILE_NOT_FOUND_44517274170__STAGED_CLASSIFICATION_44519283998_RUNNING",
+    "independent_installed_d3": "HOLD_PRIVATE_COMPILED_OWNER_PRE_D3_ENROLL_ENOENT__EXACT_STATIC_CLI_REQUALIFICATION_44520786486_RUNNING",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
