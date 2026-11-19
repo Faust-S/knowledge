@@ -249,11 +249,18 @@ jobs:
             # source excerpts, local paths, Rust errors or the raw build log.
             $codes=@()
             if(Test-Path -LiteralPath $log){
+              # Only original builder's fixed diagnostic scalars and
+              # bounded machine codes may leave this private Windows job.
               foreach($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
-                # The private builder emits only bounded diagnostic scalars.
-                # Revalidate an exact allowlist before publishing any value.
                 $safe=[string]$line
-                if($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_NONZERO (True|False)
+                if($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_(NONZERO|ENOENT) (True|False)$'){
+                  Write-Host ("G4_COMPILED_ENROLL_{0} {1}" -f $Matches[1],$Matches[2])
+                }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_LINE_COUNT ([0-9]{1,4})$'){
+                  Write-Host ("G4_COMPILED_ENROLL_LINE_COUNT " + $Matches[1])
+                }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_MACHINE_CODE ((?:T3_D3|INTEROP|WINDOWS|DPAPI|PRODUCT_OWNER)_[A-Z0-9_]{4,90})$'){
+                  Write-Host ("G4_COMPILED_ENROLL_MACHINE_CODE " + $Matches[1])
+                }
+                foreach($hit in [regex]::Matches($safe,
                     '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
                   $codes+=([string]$hit.Value)
                 }
