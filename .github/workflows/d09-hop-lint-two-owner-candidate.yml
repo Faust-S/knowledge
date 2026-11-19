@@ -35,7 +35,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "89840e850707dd5b769b26e501c67a8e8c47325e" || {
             echo D09_TWO_OWNER_LINT_SITE_SHA_CHANGED=HOLD; exit 1;
           }
-          test "$(git -C canonical-hop rev-parse HEAD)" = "4c20c3c554eee53d75faf6b329b7053bcc81ecfd" || {
+          mv canonical-hop "$RUNNER_TEMP/d09-canonical-hop"
+          test "$(git -C "$RUNNER_TEMP/d09-canonical-hop" rev-parse HEAD)" = "4c20c3c554eee53d75faf6b329b7053bcc81ecfd" || {
             echo D09_TWO_OWNER_LINT_SUBJECT_SHA_CHANGED=HOLD; exit 1;
           }
           echo D09_TWO_OWNER_LINT_EXACT_INPUT=PASS
@@ -53,7 +54,7 @@ jobs:
       - name: Normalize paired owner files and verify all code and lint in disposable clones
         shell: bash
         run: |
-          node scripts/d09-normalize-lint.mjs canonical-hop --apply > "$RUNNER_TEMP/d09-two-owner-result.log" 2>&1 || {
+          node scripts/d09-normalize-lint.mjs "$RUNNER_TEMP/d09-canonical-hop" --apply > "$RUNNER_TEMP/d09-two-owner-result.log" 2>&1 || {
             echo D09_TWO_OWNER_LINT_NORMALIZE=FAIL
             grep -oE 'D09_LINT_[A-Z0-9_]+' "$RUNNER_TEMP/d09-two-owner-result.log" | tail -25 || true
             grep -oE 'error TS[0-9]+|AssertionError|ERR_[A-Z0-9_]+' "$RUNNER_TEMP/d09-two-owner-result.log" | sort -u | tail -10 || true
