@@ -8,7 +8,7 @@ import {spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {getExactFile} from './qualify-original-private-d3-owner.mjs';
 
-export const AGENT_ORIGINAL_PIN='0d4196fa732b52d192ac75590715199381dfb2df';
+export const AGENT_ORIGINAL_PIN='ffa56fee6f971afa74b6b49ccfb891fca0e97225';
 const REPO='Faust-S/iwxa-personal-agent';
 const FILES=Object.freeze([
   'runtime/t3_original_employee_port.py',
