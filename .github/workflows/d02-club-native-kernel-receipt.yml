@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: dfb69cdcba7c02aee79df4727cbfee822db5317c
+      SITE_SHA: 86a57edd80c13e6a034d6c60240caeb8664735ac
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: dfb69cdcba7c02aee79df4727cbfee822db5317c
+          ref: 86a57edd80c13e6a034d6c60240caeb8664735ac
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -155,7 +155,35 @@ jobs:
               "--user-data-dir=$profile","--app=$origin/workspace/#/workspaces"
             )
             Invoke 'Новая рабочая область' 'D02_RECEIPT_NEW_WORKSPACE_BUTTON_MISSING'
-            Invoke 'Создать рабочую область' 'D02_RECEIPT_CREATE_NOT_AVAILABLE'
+            # Host's empty catalog ALSO exposes "Создать рабочую область":
+            # the modal confirmation is later in the UIA tree. Choose the
+            # LAST visible matching button, not the catalog's first button.
+            $matched=[System.Collections.Generic.List[object]]::new()
+            $buttonCondition=[System.Windows.Automation.AndCondition]::new(
+              [System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::NameProperty,'Создать рабочую область'),
+              [System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::Button))
+            foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
+              Where-Object {$_.MainWindowHandle -ne 0})){
+              $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                [IntPtr]$p.MainWindowHandle)
+              if(!$root){continue}
+              $all=$root.FindAll($scope,$buttonCondition)
+              foreach($candidate in $all){
+                if($candidate.Current.IsEnabled -and !$candidate.Current.IsOffscreen){
+                  $matched.Add($candidate)
+                }
+              }
+            }
+            Write-Output "D02_RECEIPT_CREATE_BUTTON_CHOICES=$($matched.Count)"
+            if($matched.Count -eq 0){throw 'D02_RECEIPT_CREATE_NOT_AVAILABLE'}
+            try{
+              $button=[System.Windows.Automation.InvokePattern]$matched[$matched.Count-1].GetCurrentPattern(
+                [System.Windows.Automation.InvokePattern]::Pattern)
+              $button.Invoke()
+            }catch{throw 'D02_RECEIPT_CREATE_MODAL_CONFIRM_FAILED'}
             # The same button also exists on Host's empty-catalog page.
             # Its continued visibility does not prove that create failed.
             # Verify creation from an independent personal Workspace inventory.
