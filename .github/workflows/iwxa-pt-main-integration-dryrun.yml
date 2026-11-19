@@ -70,22 +70,37 @@ jobs:
           console.log("INTEGRATED_PT_REGISTERED="+c.routes.filter(r=>r.available.includes("pt-BR")).length);
           console.log("INTEGRATED_LOCALES="+c.locales.join(","));
           JS
-      - name: Check integrated typecheck and build
+      - name: Diagnose integrated build and TypeScript independently
         shell: bash
         working-directory: site
         run: |
           bun install --frozen-lockfile > "$RUNNER_TEMP/install.log" 2>&1 || { echo "INTEGRATED_INSTALL=FAIL"; exit 1; }
           echo "INTEGRATED_INSTALL=PASS"
-          bun run typecheck > "$RUNNER_TEMP/typecheck.log" 2>&1 || {
-            echo "INTEGRATED_TYPECHECK=FAIL"
-            grep -E "error TS|error:" "$RUNNER_TEMP/typecheck.log" | tail -n 16 | sed -E 's#(/home/runner/)[^ :]+#<private-path>#g' || true
+          node scripts/sync-route-tree.mjs > "$RUNNER_TEMP/sync.log" 2>&1 || {
+            echo "INTEGRATED_ROUTE_TREE=FAIL"
+            grep -E 'Error|ERR|fail|Cannot|Module' "$RUNNER_TEMP/sync.log" | tail -n 8 | cut -c 1-140 || true
             exit 1
           }
-          echo "INTEGRATED_TYPECHECK=PASS"
+          echo "INTEGRATED_ROUTE_TREE=PASS"
           export LOVABLE_BUILD_TARGET=static NITRO_PRESET=node-server SERVER_PRESET=node-server
-          bun run build > "$RUNNER_TEMP/build.log" 2>&1 || {
-            echo "INTEGRATED_BUILD=FAIL"
-            grep -E "error|failed|Error" "$RUNNER_TEMP/build.log" | tail -n 12 | sed -E 's#(/home/runner/)[^ :]+#<private-path>#g' || true
-            exit 1
-          }
-          echo "INTEGRATED_BUILD=PASS"
+          set +e
+          bun run build > "$RUNNER_TEMP/build.log" 2>&1
+          build_status=$?
+          ./node_modules/.bin/tsc --noEmit > "$RUNNER_TEMP/typecheck.log" 2>&1
+          types_status=$?
+          set -e
+          echo "INTEGRATED_BUILD_EXIT=$build_status"
+          echo "INTEGRATED_TSC_EXIT=$types_status"
+          if [ "$build_status" -ne 0 ]; then
+            grep -Ei '(failed|error:|cannot|unable|missing|unexpected)' "$RUNNER_TEMP/build.log" |
+              sed -E 's#(/home/runner/)[^ :]+#<private-path>#g' | cut -c 1-150 | tail -n 12 || true
+          fi
+          if [ "$types_status" -ne 0 ]; then
+            grep -E 'error TS[0-9]+:' "$RUNNER_TEMP/typecheck.log" |
+              sed -E 's#(/home/runner/)[^ :]+#<private-path>#g' |
+              sed -E 's/(error TS[0-9]+:).*/\\1 <diagnostic redacted>/' |
+              tail -n 26 || true
+            echo "INTEGRATED_TSC_TOTAL_ERRORS=$(grep -c 'error TS[0-9]*:' "$RUNNER_TEMP/typecheck.log")"
+          fi
+          test "$build_status" -eq 0 && test "$types_status" -eq 0
+          echo "INTEGRATED_BUILD_AND_TYPES=PASS"
