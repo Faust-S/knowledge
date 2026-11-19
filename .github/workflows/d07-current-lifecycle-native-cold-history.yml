@@ -779,36 +779,52 @@ jobs:
                 Write-Output 'D07_NATIVE_REGULAR_PLAN_EDITOR=PASS'
                 # Enter plan details as a human would, using the public Edge
                 # accessibility tree and native keyboard input, not DOM scripts.
+                # Windows UIA ValuePattern.SetValue does not necessarily
+                # emit input events consumed by React controlled fields.
+                # Focus the real Edge app and use the native keyboard instead.
+                Add-Type -Namespace D07Native -Name Foreground -MemberDefinition '[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr hWnd); [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();'
                 function EnterNativeText([string]$label,[string]$value) {
                   $edit=WaitNative $label ([System.Windows.Automation.ControlType]::Edit)
                   if(!$edit -or !$edit.Current.IsEnabled){throw 'D07_NATIVE_REGULAR_EDIT_NOT_AVAILABLE'}
-                  $vp=$null
-                  $supportsValue=$edit.TryGetCurrentPattern(
-                    [System.Windows.Automation.ValuePattern]::Pattern,[ref]$vp)
+                  $owner=[IntPtr]::Zero
+                  $nameCond=[System.Windows.Automation.PropertyCondition]::new(
+                    [System.Windows.Automation.AutomationElement]::NameProperty,$label)
+                  $typeCond=[System.Windows.Automation.PropertyCondition]::new(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::Edit)
+                  $target=[System.Windows.Automation.AndCondition]::new($nameCond,$typeCond)
+                  foreach($proc in @(Get-Process msedge -ErrorAction SilentlyContinue |
+                    Where-Object {$_.MainWindowHandle -ne 0})){
+                    $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$proc.MainWindowHandle)
+                    if($window -and $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$target)){
+                      $owner=[IntPtr]$proc.MainWindowHandle;break
+                    }
+                  }
+                  if($owner -eq [IntPtr]::Zero){throw 'D07_NATIVE_REGULAR_EDITOR_WINDOW_NOT_FOUND'}
+                  $null=[D07Native.Foreground]::SetForegroundWindow($owner)
+                  Start-Sleep -Milliseconds 250
+                  $edit.SetFocus()
+                  Start-Sleep -Milliseconds 250
+                  $focus=$edit.Current.HasKeyboardFocus
+                  $front=([D07Native.Foreground]::GetForegroundWindow() -eq $owner)
                   $safeCode=switch($label){
                     'Наименование' {'TITLE'}
                     'Что выполняется при посещении' {'SCOPE'}
                     default {'CRITERIA'}
                   }
-                  Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_VALUE_PATTERN='+$supportsValue)
-                  if($supportsValue){
-                    $p=[System.Windows.Automation.ValuePattern]$vp
-                    if($p.Current.IsReadOnly){throw 'D07_NATIVE_REGULAR_EDIT_READONLY'}
-                    $p.SetValue($value)
-                    # A native keyboard edit after the accessibility SetValue
-                    # also dispatches real input events for React's state tracker.
-                    $edit.SetFocus()
-                    Start-Sleep -Milliseconds 150
-                    [System.Windows.Forms.SendKeys]::SendWait('{END}')
-                    [System.Windows.Forms.SendKeys]::SendWait(' ')
-                    [System.Windows.Forms.SendKeys]::SendWait('{BACKSPACE}')
-                  }else{
-                    $edit.SetFocus()
-                    Start-Sleep -Milliseconds 200
-                    [System.Windows.Forms.SendKeys]::SendWait('^a')
-                    [System.Windows.Forms.SendKeys]::SendWait($value)
+                  Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_FOCUS='+$focus)
+                  Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_FOREGROUND='+$front)
+                  if(!$focus -or !$front){throw 'D07_NATIVE_REGULAR_KEYBOARD_FOCUS_FAILED'}
+                  [System.Windows.Forms.SendKeys]::SendWait('^a')
+                  [System.Windows.Forms.SendKeys]::SendWait($value)
+                  Start-Sleep -Milliseconds 400
+                  $vp=$null
+                  if(!$edit.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$vp)){
+                    throw 'D07_NATIVE_REGULAR_INPUT_READBACK_UNAVAILABLE'
                   }
-                  Start-Sleep -Milliseconds 350
+                  $match=([System.Windows.Automation.ValuePattern]$vp).Current.Value -eq $value
+                  Write-Output ('D07_NATIVE_REGULAR_'+$safeCode+'_TYPED='+$match)
+                  if(!$match){throw 'D07_NATIVE_REGULAR_KEYBOARD_VALUE_MISMATCH'}
                 }
                 EnterNativeText 'Наименование' 'Weekly premises service'
                 EnterNativeText 'Что выполняется при посещении' 'Clean premises and inspect equipment every visit'
