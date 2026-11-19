@@ -64,6 +64,7 @@ jobs:
             /qualification/phase1/*.mjs
             /requirements.txt
             /requirements-ci.txt
+            /.gitignore
             /AGENTS.md
           path: .private/agent
       - name: Stage exact original product-neutral Setup Core owner
@@ -426,6 +427,7 @@ jobs:
             /qualification/phase1/*.mjs
             /requirements.txt
             /requirements-ci.txt
+            /.gitignore
             /AGENTS.md
           path: .private/agent
       - uses: actions/setup-node@v4
