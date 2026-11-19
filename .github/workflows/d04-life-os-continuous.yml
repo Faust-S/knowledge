@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 028b623a0364639350b6270f2655814af9c1b4ba
+          ref: d79eb8b57504cdfca918f046a440b69f0c795165
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -62,7 +62,7 @@ jobs:
       - name: Verify immutable source identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "028b623a0364639350b6270f2655814af9c1b4ba"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "d79eb8b57504cdfca918f046a440b69f0c795165"
           test "$(git -C d04-private/model rev-parse HEAD)" = "bf84d1991ee01481fe6ee62d2d581a5e04f17a57"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           echo "D04_RECOVERY_EXACT_SOURCE=PASS"
@@ -293,7 +293,7 @@ jobs:
             echo "D04_RECOVERY_NATIVE_E2E=PASS"
           else
             echo "D04_RECOVERY_NATIVE_E2E=FAIL"
-            grep "D04_RECOVERY_STAGE_" "$RUNNER_TEMP/d04-recovery.log" | tail -1 || true
+            grep -Eo "D04_RECOVERY_(STAGE|CAUSE_CLASS)_[A-Za-z0-9_]+" "$RUNNER_TEMP/d04-recovery.log" | sort -u | tail -8 || true
             exit 1
           fi
           # No private source, archive, profile, Result or screenshot is uploaded.
