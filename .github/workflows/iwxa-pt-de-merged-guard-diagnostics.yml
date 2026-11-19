@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: d9c3a4029491dd273ae018a20354f132e6a6f217
+          ref: 98bc5a28ff3495b0f6f41b1a7d338edd14ef0658
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           fetch-depth: 0
@@ -32,7 +32,7 @@ jobs:
         run: |
           set +e
           set -u
-          test "$(git rev-parse HEAD)" = "d9c3a4029491dd273ae018a20354f132e6a6f217" || exit 1
+          test "$(git rev-parse HEAD)" = "98bc5a28ff3495b0f6f41b1a7d338edd14ef0658" || exit 1
           bun install --frozen-lockfile > "$RUNNER_TEMP/guard-install.log" 2>&1 || { echo "IWXA_INSTALL=FAIL"; exit 1; }
           node scripts/check-portuguese-source.mjs > "$RUNNER_TEMP/guard-pt.log" 2>&1
           echo "IWXA_PT_SOURCE_EXIT=$?"
