@@ -15,8 +15,8 @@ jobs:
       matrix:
         runner: [windows-latest, ubuntu-latest]
     env:
-      SITE_SHA: 283878d5bd9bb56c6f5490802bd04bb1ec40cada
-      SUBJECT_SHA: e7f89106a946c910c47bba594e915d96b0157738
+      SITE_SHA: e37682e9a515632f181b61435ab6e8f992007b8c
+      SUBJECT_SHA: 068d978a2b8cb7ce57c363804f22b7dd85063eee
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
