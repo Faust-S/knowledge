@@ -16,6 +16,60 @@ public static class G4NativeMouse {
   [DllImport("user32.dll")] public static extern bool PostMessage(
     IntPtr handle,uint msg,IntPtr w,IntPtr l);
 }
+public static class G4InstalledModal {
+  public delegate bool EnumWindowCallback(IntPtr hwnd,IntPtr data);
+  [DllImport("user32.dll")] static extern bool EnumWindows(
+    EnumWindowCallback callback,IntPtr data);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(
+    IntPtr hwnd,out uint processId);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+  [DllImport("user32.dll",EntryPoint="GetWindowTextW",CharSet=CharSet.Unicode)]
+  static extern int GetText(IntPtr hwnd,
+    System.Text.StringBuilder buffer,int length);
+  [DllImport("user32.dll",EntryPoint="GetClassNameW",CharSet=CharSet.Unicode)]
+  static extern int GetClass(IntPtr hwnd,
+    System.Text.StringBuilder buffer,int length);
+  [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(
+    IntPtr hwnd,int itemId);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(
+    IntPtr hwnd);
+  [StructLayout(LayoutKind.Sequential)]
+  public struct Rect {
+    public int Left,Top,Right,Bottom;
+  }
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(
+    IntPtr hwnd,out Rect bounds);
+  public static IntPtr FindExact(int processId,string exactTitle){
+    IntPtr found=IntPtr.Zero;
+    EnumWindows((hwnd,state)=>{
+      uint actual;GetWindowThreadProcessId(hwnd,out actual);
+      if(actual==(uint)processId && IsWindowVisible(hwnd)){
+        var text=new System.Text.StringBuilder(256);
+        GetText(hwnd,text,text.Capacity);
+        if(text.ToString().Equals(exactTitle,StringComparison.Ordinal)){
+          found=hwnd;
+          return false;
+        }
+      }
+      return true;
+    },IntPtr.Zero);
+    return found;
+  }
+  public static int CountOwnedDialogs(int processId){
+    int found=0;
+    EnumWindows((hwnd,state)=>{
+      uint actual;GetWindowThreadProcessId(hwnd,out actual);
+      if(actual==(uint)processId && IsWindowVisible(hwnd)){
+        var kind=new System.Text.StringBuilder(80);
+        GetClass(hwnd,kind,kind.Capacity);
+        if(kind.ToString().Equals("#32770",StringComparison.Ordinal))
+          found++;
+      }
+      return true;
+    },IntPtr.Zero);
+    return found;
+  }
+}
 '@
 function Check([bool]$condition,[string]$code){
   if(-not $condition){throw $code}
