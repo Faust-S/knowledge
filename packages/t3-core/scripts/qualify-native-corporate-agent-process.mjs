@@ -116,7 +116,7 @@ export async function stageAgent(root,token){
   const original=Array.isArray(lock.modules)
     ?lock.modules.filter(x=>x?.id==='t3'):[];
   if(original.length!==1||original[0].repository!=='Faust-S/knowledge'||
-    original[0].revision!=='9fbbbd54fd0587db5c7e0e5c807b96e024ae750b'||
+    original[0].revision!=='f42e53cd28c881b2b8e04199595f9d7991f34414'||
     profile.schema!=='IWXA_AGENT_ORIGINAL_T2_PRODUCT_PROFILE/1'||
     profile.productId!=='iwxa.personal-agent'||
     profile.authorizedNativeOwner!=='ORIGINAL_T3_SIGNED_EMPLOYEE'||
