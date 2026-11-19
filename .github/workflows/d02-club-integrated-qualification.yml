@@ -24,8 +24,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     env:
-      SITE_SHA: ebe51b1ad70cdde50c006df14518b13130b5e8e0
-      DOMAIN_SHA: f3fd825df7d0c65e186be5058e927cf0a554e0d6
+      SITE_SHA: c9d67e5993f67bad2ac51fe0dcc54f6356bd85de
+      DOMAIN_SHA: 2894654cf1b35e67ea0aeb0053d2ff4c2b179af3
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -136,7 +136,7 @@ jobs:
             Write-Output 'D02_CANONICAL_DOMAIN_PARITY=FAIL'
             throw 'D02_CANONICAL_DOMAIN_PARITY_FAILED'
           }
-          Write-Output 'D02_CANONICAL_DOMAIN_PARITY=PASS services=25 bridges=9'
+          Write-Output 'D02_CANONICAL_DOMAIN_PARITY=PASS services=25 bridges=10'
 
       - name: Run each site source suite and identify failures without leaking private logs
         id: site_tests
