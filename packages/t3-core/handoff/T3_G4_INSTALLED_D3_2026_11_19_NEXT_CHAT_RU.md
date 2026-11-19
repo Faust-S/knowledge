@@ -401,3 +401,20 @@ D3 в неопасном compiled preflight, после этого выполн�
 установленный NO/YES и DPAPI cold readback. Не запускать в приватных
 репозиториях Actions, не передавать в публичные артефакты исходники,
 EXE, stderr, vault, ключи или dist.
+
+## Последующая поправка: G4 Admin Owner и DPAPI cold PASS (19.11.2026)
+
+Этот исторический handoff готовился до окончательного нативного прогона. Все утверждения выше о `INSTALLED_NATIVE_ENROLL_CONFIRM_READY=HOLD` и `INSTALLED_OWNER_DPAPI_COLD=HOLD` относятся к **старому времени наблюдения**, не к текущему статусу.
+
+На точной ревизии `knowledge@6ad3a3e5` + original `T3@b8974044` + `Center@2628c4bc` [CI №44537675979](https://github.com/Faust-S/knowledge/actions/runs/44537675979) завершён `SUCCESS`:
+- Original T2 One Dist, Setup Core, WebView2, Workspace без Atlas и native manager draft: PASS.
+- Настоящий Windows NO и отдельный YES в `IWXA T3: подключить организацию`: PASS.
+- Подписанный производственный Admin Owner зарегистрирован: PASS.
+- Независимый новый Windows-процесс оригинального EXE с `d3-state` открыл прежнюю DPAPI-связку: PASS.
+- Повторный запуск установленного Admin Center восстановил подписанное состояние: PASS.
+
+Корень раннего `ENOENT`: оригинальный `domain-registry.json` загружался относительно `import.meta.url` и отсутствовал внутри Bun compiled EXE. Исправлена статическая упаковка JSON и авто-запуск импортированных Server/License модулей. Параллельно Windows UIA ввод стал требовать точного `ValuePattern` readback. История исправлений сохранена в машинном реестре.
+
+**Следующее незакрытое требование:** установленный независимый Agent под второй Windows-учётной записью, настоящий model Task/Result, отдельные OS-confirmed Human ACCEPT/APPLY, исходный Kernel Object/Event и два cold readback. Далее D6_GENERIC, D7_PERSON и конечная D5 автономная установка. Ни один из этих gate не получил автоматического PASS из успешного Admin enrollment. `G4=NOT_ACCEPTED`, `T3_READY=false`.
+
+Актуальный аудит системы и всех программ: [T3_G4_ECOSYSTEM_RELEASE_READINESS_AUDIT_2026_11_19_RU.md](../docs/T3_G4_ECOSYSTEM_RELEASE_READINESS_AUDIT_2026_11_19_RU.md). Для будущих проверок обязательны live HEAD/TREE и машинный реестр, а не исторические пины в начале передачи.
