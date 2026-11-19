@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 606e33984f325f3b75bd059525c8ce8d792c0c22
+          ref: f6cf166ced72349b2493a34b0b120fb948d69c76
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -62,7 +62,7 @@ jobs:
       - name: Verify immutable source identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "606e33984f325f3b75bd059525c8ce8d792c0c22"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "f6cf166ced72349b2493a34b0b120fb948d69c76"
           test "$(git -C d04-private/model rev-parse HEAD)" = "6a83efea76798653fb8b918f9b5bba83b52b2374"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           test "$(git hash-object d04-private/site/src/lib/life-calculation-admission.mjs)" = "$(git hash-object d04-private/model/docs/life-os/LIFE_CALCULATION_ADMISSION_V0_1.mjs)"
@@ -226,7 +226,7 @@ jobs:
           set -e
           if [ "$code" -ne 0 ]; then
             echo "D04_TEN_PROTOCOL_NATIVE_E2E=FAIL"
-            grep -Eo 'D04_PROTOCOL_(STAGE|CAUSE_CLASS|SAVE_STEP|SAVE_UI)_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-ten-protocol-e2e.log" | sort -u | tail -8 || true
+            grep -Eo 'D04_PROTOCOL_(STAGE|CAUSE_CLASS|SAVE_STEP|SAVE_UI|OVERVIEW_STATE)_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-ten-protocol-e2e.log" | sort -u | tail -8 || true
             python3 "$GITHUB_WORKSPACE/tools/ci/d04_recovery_safe_diagnostics.py" "$RUNNER_TEMP/d04-ten-protocol-e2e.log" || true
             exit "$code"
           fi
