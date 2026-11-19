@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 35e6d7fe821fc53573fbcdabb473d159da0f62fa
+          ref: aaf8c80cb0cc35b1a60878cd39d8255e7715926c
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -70,8 +70,8 @@ jobs:
       - name: Verify immutable site / subject / T2 revisions
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "35e6d7fe821fc53573fbcdabb473d159da0f62fa"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "ba6bc7cef65170be6bcdfeecd1da15fdd420eacd"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "aaf8c80cb0cc35b1a60878cd39d8255e7715926c"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "f48540b0c67c024fa275172eb0417334236fbb2a"
           test "$(git -C d04-private/model rev-parse HEAD)" = "d0f6ec9d50c01891ed1001fb872ac2d5770e8f0d"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           for path in d04-private/site d04-private/model d04-private/t2; do
@@ -105,7 +105,7 @@ jobs:
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
           BAZMED_SUBJECT_SOURCE_DIR: ${{ github.workspace }}/d04-private/model
-          D04_RELEASE_SITE_SHA: 35e6d7fe821fc53573fbcdabb473d159da0f62fa
+          D04_RELEASE_SITE_SHA: aaf8c80cb0cc35b1a60878cd39d8255e7715926c
         run: |
           set -euo pipefail
           if npm run release:check-source >"$RUNNER_TEMP/d04-release-source.log" 2>&1; then
@@ -278,8 +278,10 @@ jobs:
           from collections import Counter
           from pathlib import Path
           import sys
+          import re
           data=Path(sys.argv[1]).read_text(encoding="utf-8",errors="replace")
           counts=Counter()
+          paths=set()
           for line in data.splitlines():
               if not line.startswith("  - "):
                   continue
@@ -300,6 +302,12 @@ jobs:
               elif "robots" in issue: kind="ROBOTS"
               else: kind="OTHER"
               counts[(scope,kind)]+=1
+              if scope=="PUBLIC" and kind in ("MISSING_CANONICAL","MISSING_OG_URL"):
+                  name=issue.split(":",1)[0].strip()
+                  if re.fullmatch(r"[A-Za-z0-9_./-]{1,100}",name):
+                      paths.add(name)
+          for name in sorted(paths)[:8]:
+              print("D04_SEO_PUBLIC_STATIC_PATH="+name)
           for (scope,kind),count in sorted(counts.items()):
               print(f"D04_SEO_ISSUE_{scope}_{kind}={count}")
           print("D04_SEO_ISSUE_TOTAL="+str(sum(counts.values())))
