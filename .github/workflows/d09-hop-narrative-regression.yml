@@ -59,6 +59,14 @@ jobs:
             echo "D09_HOST_TEST=FAIL"; exit 1;
           }
           echo "D09_HOST_TEST=PASS"
+      - name: Independently verify Project and source package guards
+        shell: bash
+        run: |
+          node --experimental-strip-types --test tests/d09-read-model-guards.test.mjs tests/d09-source-package-integrity.test.mjs > "$RUNNER_TEMP/d09-project-guards.log" 2>&1 || {
+            grep -E 'AssertionError|at .*d09-.*test\\.mjs|not ok|ERR_ASSERTION' "$RUNNER_TEMP/d09-project-guards.log" | tail -20 || true
+            echo "D09_PROJECT_PACKAGE_GUARDS=FAIL"; exit 1;
+          }
+          echo "D09_PROJECT_PACKAGE_GUARDS=PASS"
       - name: Checkout canonical private HOP logic
         uses: actions/checkout@v4
         with:
