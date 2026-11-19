@@ -26,16 +26,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: 7b0dccaf0f2bb080a7f49d2428a7593c025d1725
+          ref: 4ccba4bce87edda1a8c098cfd6568a2fafaa9255
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Verify exact source and private checkout
         run: |
-          test "$(git rev-parse HEAD)" = "7b0dccaf0f2bb080a7f49d2428a7593c025d1725" || { echo "AKIS_HEAD_MISMATCH"; exit 1; }
+          test "$(git rev-parse HEAD)" = "4ccba4bce87edda1a8c098cfd6568a2fafaa9255" || { echo "AKIS_HEAD_MISMATCH"; exit 1; }
           test -f src/routes/science.akis-production.tsx || exit 1
           test -f src/routes/science.akis-operator.tsx || exit 1
           test -f src/routes/science.akis-interfirm.tsx || exit 1
           test -f scripts/check-akis-interfirm-article.test.ts || exit 1
+          test -f scripts/check-akis-interfirm-dependence.test.ts || exit 1
           test -f scripts/check-akis-production-article.test.ts || exit 1
           test -f scripts/check-akis-operator-article.test.ts || exit 1
           echo "AKIS_EXACT_SOURCE=PASS"
@@ -53,7 +54,7 @@ jobs:
           echo "AKIS_FROZEN_INSTALL=PASS"
       - name: Two source and organizational acceptance suites
         run: |
-          for task in check:akis:production check:akis:article check:akis:interfirm; do
+          for task in check:akis:production check:akis:article check:akis:interfirm check:akis:dependence; do
             safe="${task//:/-}"
             bun run "$task" > "$RUNNER_TEMP/akis-$safe.log" 2>&1 || {
               echo "AKIS_TEST=FAIL task=$task"; exit 1;
