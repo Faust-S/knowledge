@@ -279,6 +279,10 @@ try{
       failPhase?.[1]??'UNCLASSIFIED');
     console.log('G4_ORIGINAL_AGENT_TWO_SID_FAILURE_CODE',
       failCode?.[1]??'UNCLASSIFIED');
+    const nativeAcl=twoSidOutput.match(
+      /G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_(GRANT|ISOLATE)_EXIT\s+([0-9]{1,5})/);
+    if(nativeAcl)console.log('G4_ORIGINAL_AGENT_TWO_SID_ACL_STATUS',
+      nativeAcl[1]+'_'+nativeAcl[2]);
     throw Error('G4_ORIGINAL_AGENT_SECOND_SID_DPAPI_SOURCE_NOT_ACCEPTED');
   }
   for(const marker of [
