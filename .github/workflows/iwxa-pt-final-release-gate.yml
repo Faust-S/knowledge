@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: 929cb920dca78a16266dccb57fe715a66179194d
+          ref: a29342519466961dc1a1a8f44713323ebb0268f1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           fetch-depth: 0
@@ -43,7 +43,7 @@ jobs:
         shell: bash
         working-directory: pt-site
         run: |
-          test "$(git rev-parse HEAD)" = "929cb920dca78a16266dccb57fe715a66179194d" ||
+          test "$(git rev-parse HEAD)" = "a29342519466961dc1a1a8f44713323ebb0268f1" ||
             { echo "PT_RELEASE_SOURCE_SHA_MISMATCH"; exit 1; }
           bun install --frozen-lockfile > "$RUNNER_TEMP/pt-install.txt" 2>&1 ||
             { echo "PT_RELEASE_INSTALL=FAIL"; exit 1; }
