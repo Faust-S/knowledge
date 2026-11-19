@@ -78,17 +78,12 @@ try {
   $phase = 'STAGE_ONLY_PUBLIC_TRUST_AND_NATIVE_PORT'
   $root = Join-Path $env:ProgramData ('IWXA-T3-Employee-SID-' + $nonce)
   $null = New-Item -ItemType Directory -Path $root -Force
-  # First grant exact explicit access while inherited administrator authority
-  # still exists; only THEN remove inheritance. Reversing the order can
-  # remove the caller's ability to set the final explicit ACL.
-  & $icacls $root /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' ("*" + $employeeSid + ':(OI)(CI)M') *> $null
+  # Repeat the exact atomic icacls combination already qualified under
+  # another Windows SID in public CI #44577052493. Do not apply separate
+  # ACL mutations in a different order and infer equivalence.
+  & $icacls $root /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' ("*" + $employeeSid + ':(OI)(CI)M') *> $null
   if ($LASTEXITCODE -ne 0) {
-    Write-Output ('G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_GRANT_EXIT ' + $LASTEXITCODE)
-    throw 'G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_FAILED'
-  }
-  & $icacls $root /inheritance:r *> $null
-  if ($LASTEXITCODE -ne 0) {
-    Write-Output ('G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ISOLATE_EXIT ' + $LASTEXITCODE)
+    Write-Output ('G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_EXIT ' + [string]$LASTEXITCODE)
     throw 'G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_FAILED'
   }
   # Original private SOURCE may be executable by the second account; ORIGINAL
