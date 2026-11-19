@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: d9c791944037d798daea32ee4511323ac522f277
+          ref: 75a59a1b98fa196e0d356a0d85eb0f6a5ad9ce3a
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -62,7 +62,7 @@ jobs:
       - name: Verify immutable source identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "d9c791944037d798daea32ee4511323ac522f277"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "75a59a1b98fa196e0d356a0d85eb0f6a5ad9ce3a"
           test "$(git -C d04-private/model rev-parse HEAD)" = "6a83efea76798653fb8b918f9b5bba83b52b2374"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           echo "D04_RECOVERY_EXACT_SOURCE=PASS"
@@ -149,6 +149,14 @@ jobs:
           test -s dist/workspace/exchange/index.html
           test -s dist/_iwxa/current.json
           echo "D04_RECOVERY_INTEGRATED_BUILD=PASS"
+          # Verify the actual deployed Host bundle includes this native UI,
+          # not just the private source used in pre-build static tests.
+          if grep -RqF 'life-os-confirmed-progress' dist/workspace/assets; then
+            echo "D04_CONTINUOUS_HOST_PROGRESS_UI=PASS"
+          else
+            echo "D04_CONTINUOUS_HOST_PROGRESS_UI=MISSING"
+            exit 1
+          fi
       - name: Run home, six answers, recommended mode, protocol, original Result edits and cold overview
         working-directory: d04-private/site
         run: |
