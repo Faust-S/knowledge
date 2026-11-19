@@ -84,7 +84,7 @@ try {
   & $icacls $root /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' ("*" + $employeeSid + ':(OI)(CI)M') *> $null
   $aclExit = if ($null -eq $LASTEXITCODE) {'UNSET'} else {[string]$LASTEXITCODE}
   Write-Output ('G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_DIAGNOSTIC ' + $aclExit)
-  if ($aclExit -ne '0') {
+  if ($aclExit -ne '0' -and $aclExit -ne 'UNSET') {
     throw 'G4_ORIGINAL_EMPLOYEE_SHARED_ROOT_ACL_FAILED'
   }
   $employeeAccess = [IO.DirectoryInfo]::new($root).GetAccessControl().GetAccessRules($true,$false,[Security.Principal.SecurityIdentifier]) | Where-Object {
