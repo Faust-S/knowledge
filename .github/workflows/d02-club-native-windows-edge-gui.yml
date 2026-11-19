@@ -218,20 +218,24 @@ jobs:
             function Locate([string]$name,[string]$kind){
               $condition=[System.Windows.Automation.PropertyCondition]::new(
                 [System.Windows.Automation.AutomationElement]::NameProperty,$name)
-              if($kind -eq 'edit' -or $kind -eq 'button'){
-                $type=if($kind -eq 'edit'){[System.Windows.Automation.ControlType]::Edit}
-                 else{[System.Windows.Automation.ControlType]::Button}
+              if($kind -eq 'button'){
                 $condition=[System.Windows.Automation.AndCondition]::new(
                   $condition,[System.Windows.Automation.PropertyCondition]::new(
-                   [System.Windows.Automation.AutomationElement]::ControlTypeProperty,$type))
+                   [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                   [System.Windows.Automation.ControlType]::Button))
               }
               foreach($process in @(Get-Process msedge -ErrorAction SilentlyContinue|
                 Where-Object {$_.MainWindowHandle -ne 0})){
                 $root=[System.Windows.Automation.AutomationElement]::FromHandle(
                   [IntPtr]$process.MainWindowHandle)
                 if(!$root){continue}
-                $found=$root.FindFirst($scope,$condition)
-                if($found -and $found.Current.IsEnabled){return $found}
+                foreach($found in $root.FindAll($scope,$condition)){
+                  if(!$found.Current.IsEnabled){continue}
+                  if($kind -eq 'edit' -and
+                    $found.Current.ControlType -ne [System.Windows.Automation.ControlType]::Edit -and
+                    $found.Current.ControlType -ne [System.Windows.Automation.ControlType]::Spinner){continue}
+                  return $found
+                }
               }
               return $null
             }
@@ -249,7 +253,14 @@ jobs:
                 $pattern=[System.Windows.Automation.ValuePattern]$field.GetCurrentPattern(
                  [System.Windows.Automation.ValuePattern]::Pattern)
                 $pattern.SetValue($value)
-              }catch{throw $failure}
+              }catch{
+                try{
+                  $pattern=[System.Windows.Automation.RangeValuePattern]$field.GetCurrentPattern(
+                   [System.Windows.Automation.RangeValuePattern]::Pattern)
+                  $pattern.SetValue([double]::Parse($value,
+                   [System.Globalization.CultureInfo]::InvariantCulture))
+                }catch{throw $failure}
+              }
             }
             $null=Await 'Как организовать работу вместе' '' 'D02_S19_EDITOR_NOT_VISIBLE'
             Enter 'Как назовём совместную задачу' 'Доставка школьных материалов' 'D02_S19_TITLE_FAILED'
