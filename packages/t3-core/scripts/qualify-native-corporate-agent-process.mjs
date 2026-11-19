@@ -200,6 +200,20 @@ export async function qualifyNativeOriginalEmployee({
       console.log('G4_NATIVE_FAILURE_PHASE',step?.[1]??'UNCLASSIFIED');
       const code=output.match(/G4_NATIVE_FAILURE_CODE\s+([A-Z0-9_]{3,120})/);
       console.log('G4_NATIVE_FAILURE_CODE',code?.[1]??'REDACTED');
+      const secondSidStage=output.match(
+        /G4_ORIGINAL_AGENT_TWO_SID_FAILURE_PHASE\s+([A-Z0-9_]{3,119})/);
+      const secondSidCode=output.match(
+        /G4_ORIGINAL_AGENT_TWO_SID_FAILURE_CODE\s+([A-Z0-9_]{3,119})/);
+      const secondSidOriginal=output.match(
+        /G4_ORIGINAL_AGENT_SECOND_SID_NATIVE_CODE\s+([A-Z0-9_]{3,119})/);
+      if(secondSidStage||secondSidCode||secondSidOriginal){
+        console.log('G4_NATIVE_SECOND_SID_FAILURE_PHASE',
+          secondSidStage?.[1]??'UNCLASSIFIED');
+        console.log('G4_NATIVE_SECOND_SID_FAILURE_CODE',
+          secondSidCode?.[1]??'UNCLASSIFIED');
+        console.log('G4_NATIVE_SECOND_SID_ORIGINAL_BRIDGE_CODE',
+          secondSidOriginal?.[1]??'UNCLASSIFIED');
+      }
       const employeeStage=output.match(
         /G4_NATIVE_EMPLOYEE_FAILURE_PHASE\s+([A-Z_]{3,80})/);
       const employeeReason=output.match(
