@@ -9,6 +9,7 @@ on:
       - packages/t3-core/scripts/qualify-original-agent-d3-port.mjs
       - packages/t3-core/tests/g4-original-agent-native-windows.mjs
       - packages/t3-core/tests/g4-original-agent-native-driver.py
+      - packages/t3-core/tests/g4-native-two-windows-sids.ps1
       - packages/t3-core/tests/g4-original-employee-bootstrap-driver.py
       - packages/t3-core/tests/g4-original-employee-real-task-driver.py
       - packages/t3-core/tests/g4-production-original-kernel.browser.mjs
@@ -49,6 +50,13 @@ jobs:
           python -m py_compile packages/t3-core/tests/g4-original-agent-native-driver.py
           python -m py_compile packages/t3-core/tests/g4-original-employee-bootstrap-driver.py
           python -m py_compile packages/t3-core/tests/g4-original-employee-real-task-driver.py
+      - name: Verify real second Windows SID, DPAPI isolation and two cold processes
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File packages/t3-core/tests/g4-native-two-windows-sids.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'G4_SECOND_WINDOWS_ACCOUNT_DPAPI_NOT_ACCEPTED' }
       - name: Stage the original qualified T2 Kernel and installed Edge adapter
         shell: pwsh
         run: |
