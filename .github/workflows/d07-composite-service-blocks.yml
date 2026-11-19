@@ -15,7 +15,7 @@ jobs:
       matrix:
         runner: [windows-latest, ubuntu-latest]
     env:
-      SITE_SHA: 08adacd58783ccd147c442225451a6b7b7f88f1d
+      SITE_SHA: 9e377a9415361d1ffc899ff2149c730cffad384b
       SUBJECT_SHA: 1f476cb9e3d710aa880a2473841298fdfb30fb40
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -87,7 +87,7 @@ jobs:
         working-directory: site
         run: |
           $log=Join-Path $env:RUNNER_TEMP 'd07-blocks-tests.private.log'
-          & node --import tsx --test --test-reporter=tap scripts/tests/d07-service-blocks.test.mjs scripts/tests/d07-service-execution.test.mjs scripts/tests/d07-service-plan-templates.test.mjs scripts/tests/d07-service-settlement.test.mjs scripts/tests/d07-service-aftercare.test.mjs scripts/tests/d07-service-regular.test.mjs scripts/tests/d07-host-module-tsx-parse.test.mjs *> $log
+          & node --import tsx --test --test-reporter=tap scripts/tests/d07-service-blocks.test.mjs scripts/tests/d07-service-execution.test.mjs scripts/tests/d07-service-plan-templates.test.mjs scripts/tests/d07-service-settlement.test.mjs scripts/tests/d07-service-aftercare.test.mjs scripts/tests/d07-service-regular.test.mjs scripts/tests/d07-composite-service-journey.test.mjs scripts/tests/d07-host-module-tsx-parse.test.mjs *> $log
           if($LASTEXITCODE -ne 0){
             $failed=@(Get-Content $log -ErrorAction SilentlyContinue |
               Where-Object {$_ -match '^not ok [0-9]+ - '})
