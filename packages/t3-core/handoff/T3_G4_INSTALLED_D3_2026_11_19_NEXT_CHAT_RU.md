@@ -5,8 +5,9 @@
 > `packages/t3-core/handoff/G4_PRODUCT_RELEASE_EVIDENCE_CURRENT.json`,
 > `packages/t3-core/docs/T3_G4_D3_NATIVE_HUMAN_DECISIONS_AND_PRODUCT_GATE_2026_11_19_RU.md`,
 > актуальный нормативный T2 и проверенные CI. **Сразу** опросить живые
-> HEAD/TREE всех затрагиваемых веток и финальный статус Windows run
-> [#44505177227](https://github.com/Faust-S/knowledge/actions/runs/44505177227).
+> HEAD/TREE всех затрагиваемых веток и исходы Windows
+> [#44505177227](https://github.com/Faust-S/knowledge/actions/runs/44505177227)
+> и повторного [#44507093613](https://github.com/Faust-S/knowledge/actions/runs/44507093613).
 > HEAD внутри этого документа — зафиксированный ориентир, не вечный pin.
 
 ## 0. Цель, недопустимые архитектурные отклонения
@@ -46,13 +47,13 @@ Codex допустим только для действительно недос
 
 | Владелец | Рабочая ветка и ориентир HEAD | Назначение |
 | --- | --- | --- |
-| One Core + публичный Windows CI | `Faust-S/knowledge@work/2026-11-10-t3-t2-activity-projection`; текущий проверенный исходный срез **790c47a27ba72d39f3cec3f6ca8e2dff21ec1ade** (перед последующим обновлением реестра) | единственный T3, квалифицированный T2, One Dist, публичная приёмка |
+| One Core + публичный Windows CI | `Faust-S/knowledge@work/2026-11-10-t3-t2-activity-projection`; текущий проверенный исходный срез **381e7fd25a885bda5145ac3d56de858551f2f21b** (точный CI pin нового installed ретеста, затем registry/handoff обновлены) | единственный T3, квалифицированный T2, One Dist, публичная приёмка |
 | Оригинальный частный подписант | `Faust-S/T3@work/2026-11-16-admin03-independent-employee-owner`, **ea1700ec0ce8524ead8b30f23ddb7a8611597ba8** | оригинальный корпоративный DPAPI Owner, Ed25519, Human ACCEPT/APPLY и сборщик native D3 |
-| Нативный Admin Center | `Faust-S/Center@work/2026-11-18-admin03-generic-d3-lazy-atlas`, **0a5b8ccd5f1f0169da13edc4429508884fd0bbb2** | Rust Tauri GUI, OS dialog, Setup Core, предметный профиль T2 |
+| Нативный Admin Center | `Faust-S/Center@work/2026-11-18-admin03-generic-d3-lazy-atlas`, **cbad39d9d06e6f7c3c18abdc285bc1569c557976** (исправление реального native d3-enroll argv) | Rust Tauri GUI, OS dialog, Setup Core, предметный профиль T2 |
 | Оригинальный Agent IPC в source D3 | `Faust-S/iwxa-personal-agent`, **5638684ab952dffa545d8a374507f494a1a5ef2a** | строго исходный проверенный Node/Python signed Task/Result witness; **не** объявлять текущим HEAD Agent 0.6 без сверки |
 
 Последний установленный workflow пинит именно T3 `ea1700ec`
-и Center `0a5b8ccd`. Точные версии обязан подтверждать CI,
+и Center `cbad39d9`. Точные версии обязан подтверждать CI,
 а не автоматически брать HEAD сторонних веток.
 
 ## 2. Подтверждённые технологические результаты
@@ -95,13 +96,26 @@ Object/Event/read-only recovery и **два холодных браузерны�
 зарегистрирован. Установленный cold-owner readback ещё HOLD.
 
 [#44504959942](https://github.com/Faust-S/knowledge/actions/runs/44504959942)
-остановился на публичном parser/preflight для Windows UIA, **до**
-приватной сборки; код самого подписанта не затронут.
-Исправление диагностики parser зафиксировано на `790c47a2`.
+остановился на публичном parser/preflight Windows UIA, **до**
+приватной сборки. Исправление диагностического parser на `790c47a2`.
 [#44505177227](https://github.com/Faust-S/knowledge/actions/runs/44505177227)
-на этом SHA прошёл `public-one-dist` SUCCESS, private setup/build
-проверялись; **окончательное состояние run ОБЯЗАТЕЛЬНО перечитать**,
-не наследовать промежуточный `in_progress` как PASS.
+на этом SHA завершился **FAIL** на установленном native D3:
+публичный One Dist, приватная сборка/установка, WebView2, черновик
+и реальные Windows диалоги CANCEL и YES с подтверждённым закрытием
+**PASS**, но настоящий Center вернул точный исходный код
+`T3_PRODUCT_COMPONENT_ARGUMENTS_INVALID`. Анализ
+`Center/native/t3_product_component.rs` доказал корень: фильтр
+`action.bytes().all(is_ascii_lowercase || '-')` отклонял собственную
+команду `d3-enroll` из-за цифры 3 **перед запуском подписанта**.
+Исправлено в приватном Center
+[`cbad39d9`](https://github.com/Faust-S/Center/commit/cbad39d9d06e6f7c3c18abdc285bc1569c557976):
+ASCII digits разрешены только после первой строчной буквы при
+сохранении лимита длины, списка разрешённых символов, no-shell argv,
+отказа пробелам, Unicode, разделителям пути; добавлены Rust регрессии.
+Следующий публичный installed Windows
+[#44507093613](https://github.com/Faust-S/knowledge/actions/runs/44507093613)
+запущен на точном `knowledge@381e7fd2` и
+`Center@cbad39d9`; его **фактический итог обязательно проверить**.
 
 Последний доступный машинный реестр
 `G4_PRODUCT_RELEASE_EVIDENCE_CURRENT.json`
@@ -133,7 +147,7 @@ Object/Event/read-only recovery и **два холодных браузерны�
 
 ## 4. Приоритет немедленной диагностики D3
 
-1. Сначала читать **финальный** run #44505177227 и точные markers
+1. Сначала читать **финальный** run #44507093613 и точные markers
    job `installed-original-admin`, особенно
    `G4_INSTALLED_FIRST_USE_NATIVE_DIALOG_DECISION_CONFIRMED`,
    `G4_INSTALLED_FIRST_USE_NATIVE_WINDOWS_ENROLL_PASS`,
@@ -209,3 +223,24 @@ PERSON D7 → отдельный installed/Host D5 → полный G4 release c
 `INSTALLED_ACCEPT_APPLY=NOT_RUN`,
 `D6_GENERIC/D7_PERSON=HOLD`,
 `G4=NOT_ACCEPTED`, `T3_READY=false`.
+
+
+## 7. Инженерный вывод на момент передачи (после #445051)
+
+Ранее отсутствие подписанного статуса ошибочно можно было принять
+за отказ криптографии, DPAPI или Human Review. Теперь есть реальный
+native machine code и адресная причина **раньше запуска original
+owner**: допустимая команда `d3-enroll` отклонялась общим
+Windows transport validator. Исправлен только владелец этого Rust
+контракта, `Faust-S/Center`, а не T3 Kernel/Access/Store.
+Не выполнять ни повторное enrollment, ни новый APPLY автоматически
+после неизвестной квитанции. Следующий установленный CI обязан
+доказать original `D3_OWNER_READY` и cold DPAPI readback,
+затем проверить действительный Human ACCEPT и отдельный APPLY.
+
+В журнале нового CI искать маркеры
+`G4_INSTALLED_FIRST_USE_NATIVE_WINDOWS_ENROLL_PASS` и
+`G4_INSTALLED_FIRST_USE_ORIGINAL_DPAPI_COLD_RESTART_PASS`;
+само нажатие YES или отсутствие прежней ошибки **не PASS**.
+Если возникнет иной код — зафиксировать его машинно,
+не менять оригинальные полномочия.
