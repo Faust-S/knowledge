@@ -186,6 +186,50 @@ jobs:
             foreach ($name in $stageFlags.Keys) {
               if ($stageFlags[$name]) { Write-Host ('G4_AGENT06_PRIVATE_BUILD_STAGE_REACHED ' + $name) }
             }
+            # Fixed safe phase flags and machine codes only: the original
+            # build log, Tauri compiler output and private absolute paths
+            # remain inside the disposable Windows runner.
+            $nativeFlags = [ordered]@{
+              SETUP_STUB = (Test-Path -LiteralPath (Join-Path $output 'build/IWXA Personal Setup.stub.exe') -PathType Leaf)
+              MANAGED_PYTHON = (Test-Path -LiteralPath (Join-Path $output 'build/test-python/current-python.txt') -PathType Leaf)
+              NATIVE_ICON = (Test-Path -LiteralPath (Join-Path $output 'logs/native-desktop-icon.json') -PathType Leaf)
+              U04_PREPARED = (Test-Path -LiteralPath (Join-Path $output 'logs/u04-source-preparation.json') -PathType Leaf)
+              U04_STAGED = (Test-Path -LiteralPath (Join-Path $output 'logs/u04-stage.json') -PathType Leaf)
+              DESKTOP_NPM = (Test-Path -LiteralPath (Join-Path $output 'logs/native-desktop-dependencies.log') -PathType Leaf)
+              DESKTOP_TAURI = (Test-Path -LiteralPath (Join-Path $output 'logs/native-desktop-build.log') -PathType Leaf)
+              RUST_TEST = (Test-Path -LiteralPath (Join-Path $output 'logs/native-rust-test-compile.log') -PathType Leaf)
+              AGENT_PACKAGE_MANIFEST = (Test-Path -LiteralPath (Join-Path $output 'build/package/bootstrap/package-manifest.json') -PathType Leaf)
+              AGENT_SETUP_BUNDLE = (Test-Path -LiteralPath (Join-Path $output 'build/IWXA-Personal-Agent-Windows-Setup.exe') -PathType Leaf)
+            }
+            foreach ($key in $nativeFlags.Keys) {
+              if ($nativeFlags[$key]) {
+                Write-Host ('G4_AGENT06_NATIVE_PACKAGE_PHASE_REACHED ' + $key)
+              }
+            }
+            $originalPipelineLog = Join-Path $output 'logs/private-build-result.json'
+            if (Test-Path -LiteralPath $originalPipelineLog -PathType Leaf) {
+              $nativeRaw = Get-Content -LiteralPath $originalPipelineLog -Raw -ErrorAction SilentlyContinue
+              if ($nativeRaw) {
+                $foundNativeCodes = [regex]::Matches($nativeRaw,
+                  '(?<![A-Za-z0-9_])native_candidate_[a-z0-9_]{4,90}(?![A-Za-z0-9_])')
+                foreach ($match in @($foundNativeCodes | Select-Object -Last 5)) {
+                  Write-Host ('G4_AGENT06_NATIVE_PACKAGE_FAILURE_CODE ' + $match.Value.ToUpperInvariant())
+                }
+                $categories = [ordered]@{
+                  POWERSHELL_NATIVE_COMMAND = 'NativeCommandError|NativeCommandException'
+                  UNQUALIFIED_GIT_SOURCE = 'git\.exe.*(?:fatal:|error:)'
+                  MISSING_ORIGINAL_TOOL = 'CommandNotFoundException|The term .* is not recognized'
+                  RUST_BUILD_FAILURE = 'cargo.*(?:error|failed)|error\[E[0-9]{4}\]'
+                  NODE_BUILD_FAILURE = 'npm error|npm ERR!|vite.*error'
+                  WINDOWS_PRIVILEGE = 'access is denied|UnauthorizedAccessException'
+                }
+                foreach ($category in $categories.Keys) {
+                  if ($nativeRaw -match $categories[$category]) {
+                    Write-Host ('G4_AGENT06_NATIVE_PACKAGE_FAILURE_CLASS ' + $category)
+                  }
+                }
+              }
+            }
             if (Test-Path -LiteralPath $log -PathType Leaf) {
               $rawInfo = Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
               if ($rawInfo) {
