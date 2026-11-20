@@ -9,6 +9,9 @@ import {pathToFileURL} from 'node:url';
 
 const REPO='Faust-S/T3';
 export const ORIGINAL_PRIVATE_SOURCE_PIN='1a8267634955947bc0c6adc5614d7de176a33da2';
+// Final source candidate is a fast-forward of the accepted installed owner.
+// It is qualified independently; do not inherit Center installed proof.
+export const ORIGINAL_FINAL_OWNER_CANDIDATE_PIN='75a36f8273552b48ad370ae626e7b5290edb08d9';
 const TEST='tests/admin-original-host-port.test.mjs';
 const MULTI_EMPLOYEE_TESTS=Object.freeze([
   'tests/multi-employee-provisioning.test.mjs',
@@ -207,8 +210,19 @@ export async function qualifyOriginalWithAuthorizedTokens({tokens=[],fetchFile}=
   throw Error('T3_ORIGINAL_PRIVATE_SOURCE_NOT_AUTHORIZED_IN_KNOWLEDGE');
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
+  const finalCandidate=process.argv.includes('--candidate');
   qualifyOriginalWithAuthorizedTokens({
     tokens:[process.env.T3_READ_TOKEN,process.env.DOMEN_PRIVATE_READ_TOKEN],
+    ...(finalCandidate?{fetchFile:(path,token)=>getExactFile(path,token,{
+      sourcePin:ORIGINAL_FINAL_OWNER_CANDIDATE_PIN,
+    })}:{}),
+  }).then(result=>{
+    if(finalCandidate){
+      console.log('T3_FINAL_ORIGINAL_D3_OWNER_CANDIDATE_PIN',
+        ORIGINAL_FINAL_OWNER_CANDIDATE_PIN);
+      console.log('T3_FINAL_ORIGINAL_D3_OWNER_SOURCE_PASS',result.tests);
+      console.log('T3_FINAL_OWNER_SOURCE_ONLY_NOT_INSTALLED');
+    }
   }).catch(error=>{
     const code=typeof error?.message==='string'&&/^T3_[A-Z0-9_]+$/.test(error.message)
       ?error.message:'T3_PRIVATE_D3_QUALIFICATION_FAILED';

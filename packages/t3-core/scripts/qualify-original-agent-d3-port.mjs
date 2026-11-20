@@ -108,7 +108,7 @@ export async function qualifyOriginalAgentD3Source({
 /** Optional NEXT Agent source acceptance, kept separate from the already
  * installed c68387bd evidence. Uses existing Python suites and Node parse
  * check, without staging a second Agent Core or exposing private files. */
-export const AGENT_COMPANY_DEV_PIN='8fcda07dae2b53a49f662a65928945350a0607df';
+export const AGENT_COMPANY_DEV_PIN='c87eec6a6b889b863a000b2c2b05ce0f2a0e0ccf';
 export async function qualifyOriginalAgentCompanyCandidate({
   token,
   fetchFile=(path,secret)=>getExactFile(path,secret,{

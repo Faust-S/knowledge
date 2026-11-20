@@ -36,7 +36,7 @@ jobs:
   # suite on the corrected central Agent task binding without changing
   # the accepted original private D3 signer.
   original-private-d3-source:
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-original-d3]') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-original-d3]') || contains(github.event.head_commit.message, '[qualify-final-d3]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -57,6 +57,12 @@ jobs:
           T3_READ_TOKEN: ${{ secrets.T3 }}
           DOMEN_PRIVATE_READ_TOKEN: ${{ secrets.DOMEN }}
         run: node packages/t3-core/scripts/qualify-original-private-d3-owner.mjs
+      - name: Reuse original native signed D3 suite on final D3/PERSON candidate
+        if: ${{ contains(github.event.head_commit.message, '[qualify-final-d3]') }}
+        env:
+          T3_READ_TOKEN: ${{ secrets.T3 }}
+          DOMEN_PRIVATE_READ_TOKEN: ${{ secrets.DOMEN }}
+        run: node packages/t3-core/scripts/qualify-original-private-d3-owner.mjs --candidate
 
   # Agent is a separately private product. Its own read grant has not been
   # confirmed by knowledge, so do not turn core source PASS into job FAILURE.
