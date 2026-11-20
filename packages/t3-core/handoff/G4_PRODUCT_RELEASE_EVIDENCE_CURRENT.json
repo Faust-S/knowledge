@@ -2665,13 +2665,14 @@
         "run_id": 44723931788,
         "agent_sha": "21505e819f8a745a502c96bcf703eadef5fbcaaa",
         "conclusion": "SUCCESS",
-        "evidence_level": "INSTALLED_AGENT_NATIVE_GUI_QWEN_REVIEW_COLD_SETUP_REPAIR_ROLLBACK_PASS_NOT_CROSS_PRODUCT",
+        "evidence_level": "INSTALLED_PRODUCT_PASS",
         "final_markers": [
           "G4_AGENT06_INSTALLED_GENUINE_SETUP_AND_ONE_CORE_PASS",
           "G4_AGENT06_INSTALLED_NATIVE_GUI_QWEN_REVIEW_COLD_PASS",
           "G4_AGENT06_INSTALLED_SETUP_CORE_REPAIR_ROLLBACK_PASS",
           "G4_AGENT06_INSTALLED_NOT_CROSS_USER_ADMIN_ACCEPT_APPLY"
-        ]
+        ],
+        "scope": "AGENT_STANDALONE_NATIVE_QWEN_REVIEW_COLD_SETUP_REPAIR_ROLLBACK_NOT_CROSS_PRODUCT_D3"
       },
       "latest_installed_failure": {
         "run_id": 44710719858,
