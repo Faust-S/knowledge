@@ -75,6 +75,12 @@ jobs:
           }
           grep -E 'D09_FEATURED.*=PASS' "$RUNNER_TEMP/gallery-browser.log" | tail -24
           echo D09_GALLERY_BROWSER=PASS
+          node tests/d09-public-rebuild.browser.mjs > "$RUNNER_TEMP/gallery-pages.log" 2>&1 || {
+            grep -E 'D09_PUBLIC|AssertionError|Error:|TimeoutError' "$RUNNER_TEMP/gallery-pages.log" | tail -24 | cut -c1-220 || true
+            echo D09_GALLERY_PUBLIC_ROUTES=FAIL; exit 1;
+          }
+          grep -E 'D09_PUBLIC.*=PASS' "$RUNNER_TEMP/gallery-pages.log" | tail -12
+          echo D09_GALLERY_PUBLIC_ROUTES=PASS
       - name: Upload screenshots of actual rendered HOP works only
         if: always()
         uses: actions/upload-artifact@v4
