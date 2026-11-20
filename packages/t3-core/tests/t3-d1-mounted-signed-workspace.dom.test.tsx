@@ -335,7 +335,9 @@ it("lost original Control stream displays a terminal signed Host error and canno
   const mounted=render(view(f.session));
   await waitFor(()=>expect(screen.getByTestId("d1-owner-connection-status")
     .textContent).toBe("ready"));
-  expect(handles).toHaveLength(1);
+  // Ready state can commit before the child RuntimeWitness effect registers
+  // its handle under concurrent React/Vitest. Require BOTH independently.
+  await waitFor(()=>expect(handles).toHaveLength(1));
   const stale=handles[0].contextProvider.createContext("iwxa.domain.demo").kernel;
   await act(async()=>emit("unavailable"));
   await waitFor(()=>expect(screen.getByTestId("d1-owner-connection-status")
