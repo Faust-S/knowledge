@@ -1,7 +1,7 @@
 name: D09 HOP full lint (private source in public isolated runner)
 on:
   push:
-    branches: [work/2026-11-02-pipeline-foundation]
+    branches: [work/2026-11-20-d09-avatar-qualification]
     paths: [.github/workflows/d09-hop-final-lint.yml]
   workflow_dispatch:
 permissions:
