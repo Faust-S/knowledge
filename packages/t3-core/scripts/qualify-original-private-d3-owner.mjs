@@ -8,7 +8,7 @@ import {spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 
 const REPO='Faust-S/T3';
-export const ORIGINAL_PRIVATE_SOURCE_PIN='1a8267634955947bc0c6adc5614d7de176a33da2';
+export const ORIGINAL_PRIVATE_SOURCE_PIN='e460021673bf58fec54d52a62c28fbd913047b99';
 // Final source candidate is a fast-forward of the accepted installed owner.
 // It is qualified independently; do not inherit Center installed proof.
 export const ORIGINAL_FINAL_OWNER_CANDIDATE_PIN='e460021673bf58fec54d52a62c28fbd913047b99';

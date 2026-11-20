@@ -28,14 +28,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: f42e53cd28c881b2b8e04199595f9d7991f34414
+          ref: 2f65931cd70e0c64e29b31e1824b7af0c0baf6d1
           persist-credentials: false
       - name: Verify exact release One Core SHA before installed Admin
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           $head=(& git rev-parse HEAD).Trim()
-          if($head -cne 'f42e53cd28c881b2b8e04199595f9d7991f34414'){
+          if($head -cne '2f65931cd70e0c64e29b31e1824b7af0c0baf6d1'){
             throw 'G4_INSTALLED_ADMIN_ONE_CORE_PIN_MISMATCH'
           }
           Write-Output 'G4_INSTALLED_ADMIN_EXACT_RELEASE_ONE_CORE_F42E_PASS'
@@ -111,14 +111,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: f42e53cd28c881b2b8e04199595f9d7991f34414
+          ref: 2f65931cd70e0c64e29b31e1824b7af0c0baf6d1
           persist-credentials: false
       - name: Verify exact release One Core SHA before installed Admin
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           $head=(& git rev-parse HEAD).Trim()
-          if($head -cne 'f42e53cd28c881b2b8e04199595f9d7991f34414'){
+          if($head -cne '2f65931cd70e0c64e29b31e1824b7af0c0baf6d1'){
             throw 'G4_INSTALLED_ADMIN_ONE_CORE_PIN_MISMATCH'
           }
           Write-Output 'G4_INSTALLED_ADMIN_EXACT_RELEASE_ONE_CORE_F42E_PASS'
@@ -126,7 +126,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 1a8267634955947bc0c6adc5614d7de176a33da2
+          ref: e460021673bf58fec54d52a62c28fbd913047b99
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           filter: blob:none
@@ -187,7 +187,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
           $center=(& git -C .private/center rev-parse HEAD).Trim()
-          if($t3 -ne '1a8267634955947bc0c6adc5614d7de176a33da2' -or
+          if($t3 -ne 'e460021673bf58fec54d52a62c28fbd913047b99' -or
              $center -ne '2628c4bc1b20b4393c485d12513f029fdea8b082'){
             throw 'G4_ORIGINAL_INSTALLED_PRIVATE_SOURCE_PIN_MISMATCH'
           }
@@ -316,7 +316,7 @@ jobs:
           ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 `
             -CenterRoot '.private/center' -OriginalT3Root '.private/t3' `
             -ExpectedCenterSha '2628c4bc1b20b4393c485d12513f029fdea8b082' `
-            -ExpectedT3Sha '1a8267634955947bc0c6adc5614d7de176a33da2'
+            -ExpectedT3Sha 'e460021673bf58fec54d52a62c28fbd913047b99'
       - name: Native UIA first-use cancel, real signed organization enrollment and cold restart
         shell: pwsh
         timeout-minutes: 9

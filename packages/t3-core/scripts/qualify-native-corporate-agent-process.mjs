@@ -10,7 +10,7 @@ import {getExactFile,originalImportPaths,originalImportTarget}
   from './qualify-original-private-d3-owner.mjs';
 import {AGENT_ORIGINAL_PIN} from './qualify-original-agent-d3-port.mjs';
 
-export const T3_ORIGINAL_NATIVE_EMPLOYEE_PIN='1a8267634955947bc0c6adc5614d7de176a33da2';
+export const T3_ORIGINAL_NATIVE_EMPLOYEE_PIN='e460021673bf58fec54d52a62c28fbd913047b99';
 const T3_SEEDS=Object.freeze([
   'interop/provision.mjs','interop/runtime.mjs',
   'interop/native-admin-d3.mjs','interop/native-employee-d3.mjs',
@@ -116,7 +116,7 @@ export async function stageAgent(root,token){
   const original=Array.isArray(lock.modules)
     ?lock.modules.filter(x=>x?.id==='t3'):[];
   if(original.length!==1||original[0].repository!=='Faust-S/knowledge'||
-    original[0].revision!=='f42e53cd28c881b2b8e04199595f9d7991f34414'||
+    original[0].revision!=='2f65931cd70e0c64e29b31e1824b7af0c0baf6d1'||
     profile.schema!=='IWXA_AGENT_ORIGINAL_T2_PRODUCT_PROFILE/1'||
     profile.productId!=='iwxa.personal-agent'||
     profile.authorizedNativeOwner!=='ORIGINAL_T3_SIGNED_EMPLOYEE'||

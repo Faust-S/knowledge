@@ -2662,7 +2662,8 @@
         "ORIGINAL_T2_EXCHANGE_COMPANY_DOCUMENT_ASSET_ATTACHMENT_TRANSFER_AND_RECIPIENT_READBACK",
         "FINAL_T3_VERSIONED_ONE_DIST_RC_PROVENANCE_INDEPENDENT_RELEASE_ACCEPTANCE_PENDING",
         "INSTALLED_AGENT_NEW_COMPANY_KEY_TASK_RESULT_AND_ADMIN_RECEIPT_NOT_RUN",
-        "ORIGINAL_COMPANY_BINARY_ATTACHMENTS_AND_FULL_IWXA_EXCHANGE_NOT_COMPLETE"
+        "ORIGINAL_COMPANY_BINARY_ATTACHMENTS_AND_FULL_IWXA_EXCHANGE_NOT_COMPLETE",
+        "EXACT_CANDIDATE_NATIVE_WINDOWS_ORIGINAL_T3_AGENT_PROCESS_AND_INSTALLED_SETUP_REQUALIFICATION"
       ],
       "existing_evidence_preserved": true,
       "company_workspace": {
@@ -2676,16 +2677,15 @@
         "transport": "EXISTING_IWXA_MANUAL_HANDOFF_WHEN_OFFLINE_OPTIONAL_AUTHORIZED_SYNC_IF_CONNECTED",
         "offline_delivery": "PENDING_COMPANY_RECEIPT_NOT_DELIVERED_UNTIL_ORIGINAL_RECIPIENT_READBACK",
         "authorization": "D1_SIGNED_JIT_REVOCATION_APPLIES_ON_ENTRY_WRITE_EXPORT_AND_RECEIPT",
-        "agent_development_sha": "4e454f5729674de76f8d3ec00defaea61b02d4db",
-        "agent_development_status": "SOURCE_PASS_WINDOWS_LINUX_EXACT_AGENT_NOT_INSTALLED",
+        "agent_development_sha": "c854ce6269233939cef937ffe730f684a31f9b8e",
+        "agent_development_status": "SOURCE_QUALIFICATION_PENDING_NEW_PIN_C854_INSTALLED_NOT_RUN",
         "agent_development_source_evidence": {
-          "run_id": 44815605828,
-          "source_sha": "4e454f5729674de76f8d3ec00defaea61b02d4db",
-          "windows": "PASS",
-          "linux": "PASS",
-          "original_company_schema_setup": "PASS",
-          "complete_accepted_result_source": "PASS",
-          "installed": "NOT_RUN_NEW_SHA"
+          "prior_run_id": 44815605828,
+          "prior_agent_sha": "4e454f5729674de76f8d3ec00defaea61b02d4db",
+          "new_agent_sha": "c854ce6269233939cef937ffe730f684a31f9b8e",
+          "pinned_public_one_core": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1",
+          "current_source_check": "PENDING",
+          "installed": "NOT_RUN"
         },
         "release_status": "SOURCE_SIGNED_COMPANY_KEY_AND_ORIGINAL_T2_RESULT_PASS_FINAL_PRODUCT_OPEN",
         "payload_boundary": "Complete accepted corporate Result is read from existing Agent Core, never manually selected, then committed as Object/Event into original corporate T2 Workspace on the same signed JIT port. 2m UTF16 text. Binary attachments and full T2 Exchange remain open; installed qualification pending.",
@@ -2767,6 +2767,19 @@
         "conclusion": "SUCCESS",
         "test_count": 18,
         "evidence_kind": "GENUINE_ORIGINAL_D3_ED25519_DEFAULT_COMPANY_KEY_SIGNED_READ_WRITE_CREATE_AND_ATOMIC_GRAPH"
+      },
+      "installed_qualification_candidate": {
+        "state": "PINNED_NEW_CANDIDATE_NOT_YET_ACCEPTED",
+        "original_t3_owner_sha": "e460021673bf58fec54d52a62c28fbd913047b99",
+        "agent_sha": "c854ce6269233939cef937ffe730f684a31f9b8e",
+        "public_one_core_sha": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1",
+        "original_t2_head": "9c64951cd78411283e8a416641c36d71e169fc1d",
+        "original_t2_qualified_tree": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
+        "previous_installed_acceptance": "HISTORICAL_ONLY_PRIOR_PINS",
+        "windows_native_process_run_id": null,
+        "windows_admin_installed_run_id": null,
+        "windows_agent_installed_run_id": null,
+        "approved": false
       }
     },
     "required_gates": {
