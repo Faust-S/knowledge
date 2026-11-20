@@ -104,6 +104,95 @@ export async function qualifyOriginalAgentD3Source({
   }
 }
 
+
+/** Optional NEXT Agent source acceptance, kept separate from the already
+ * installed c68387bd evidence. Uses existing Python suites and Node parse
+ * check, without staging a second Agent Core or exposing private files. */
+export const AGENT_COMPANY_DEV_PIN='456af8b135c39ee825fd4ea81f6d50044167a6b4';
+export async function qualifyOriginalAgentCompanyCandidate({
+  token,
+  fetchFile=(path,secret)=>getExactFile(path,secret,{
+    repository:REPO,sourcePin:AGENT_COMPANY_DEV_PIN,
+  }),
+  python='python',
+}={}){
+  if(typeof token!=='string'||!token.trim())
+    throw Error('T3_AGENT_PRIVATE_SOURCE_TOKEN_UNAVAILABLE');
+  const roots=[
+    'runtime/t3_original_employee_port.py',
+    'runtime/t3_original_employee_worker.mjs',
+    'runtime/t3_result_projection.py',
+    'tests/test_agent06_corporate_t3_employee.py',
+    'tests/test_t3_result_projection.py',
+  ];
+  const root=mkdtempSync(join(tmpdir(),'iwxa-agent-company-next-'),{mode:0o700});
+  try{
+    let total=0;
+    for(const path of roots){
+      const bytes=await fetchFile(path,token);
+      if(!Buffer.isBuffer(bytes)||bytes.length>128*1024)
+        throw Error('T3_COMPANY_CANDIDATE_SOURCE_INVALID');
+      total+=bytes.length;
+      if(total>512*1024)
+        throw Error('T3_COMPANY_CANDIDATE_SOURCE_TOO_LARGE');
+      const target=join(root,...path.split('/'));
+      mkdirSync(dirname(target),{recursive:true,mode:0o700});
+      writeFileSync(target,bytes,{mode:0o600,flag:'wx'});
+    }
+    const environment={
+      PATH:process.env.PATH??'',HOME:process.env.HOME??'',
+      USERPROFILE:process.env.USERPROFILE??'',
+      SystemRoot:process.env.SystemRoot??'',WINDIR:process.env.WINDIR??'',
+      TMP:process.env.TMP??tmpdir(),TEMP:process.env.TEMP??tmpdir(),
+      TMPDIR:process.env.RUNNER_TEMP??tmpdir(),
+      LANG:'C.UTF-8',CI:'true',PYTHONDONTWRITEBYTECODE:'1',
+      PYTHONNOUSERSITE:'1',
+    };
+    const syntax=spawnSync(process.execPath,
+      ['--check',join(root,'runtime/t3_original_employee_worker.mjs')],
+      {cwd:root,env:environment,encoding:'utf8',timeout:30000});
+    if(syntax.status!==0||syntax.error)
+      throw Error('T3_COMPANY_CANDIDATE_EMPLOYEE_SYNTAX_FAILED');
+    const plans=[
+      ['test_agent06_corporate_t3_employee.py',
+        'test_company_area_opens_on_signed_selection_before_any_task'],
+      ['test_t3_result_projection.py',
+        'test_company_complete_result_uses_existing_fields_only'],
+    ];
+    let totalTests=0;
+    for(const [pattern,required]of plans){
+      const run=spawnSync(python,[
+        '-m','unittest','discover','-s','tests','-p',pattern,'-v',
+      ],{cwd:root,env:environment,encoding:'utf8',
+        timeout:90000,maxBuffer:1024*1024});
+      const output=(run.stdout??'')+'\n'+(run.stderr??'');
+      const match=output.match(/\bRan (\d+) tests? in \d+(?:\.\d+)?s\b/);
+      const present=output.split(/\r?\n/).some(s=>
+        s.trimStart().startsWith(required+' ('));
+      if(run.status!==0||run.error||!match||
+         !/^\s*OK\s*$/m.test(output)||!present||
+         /\bskipped=\d+\b/.test(output)){
+        // Never publish a private test traceback, prompt, source or result.
+        console.log('T3_COMPANY_CANDIDATE_FAILED_SUITE',
+          pattern==='test_agent06_corporate_t3_employee.py'
+          ?'ORIGINAL_EMPLOYEE':'ORIGINAL_RESULT');
+        throw Error('T3_COMPANY_CANDIDATE_SOURCE_NOT_ACCEPTED');
+      }
+      totalTests+=Number(match[1]);
+    }
+    if(totalTests<25)
+      throw Error('T3_COMPANY_CANDIDATE_TEST_COVERAGE_REGRESSED');
+    console.log('T3_COMPANY_NEXT_SHA',AGENT_COMPANY_DEV_PIN);
+    console.log('T3_COMPANY_EXISTING_SOURCE_TESTS_PASS',totalTests);
+    console.log('T3_COMPANY_EMPLOYEE_WORKER_SYNTAX_PASS');
+    console.log('T3_COMPANY_CANDIDATE_NOT_INSTALLED_NOT_FINAL_T3');
+    return {candidate:AGENT_COMPANY_DEV_PIN,tests:totalTests};
+  }finally{
+    rmSync(root,{recursive:true,force:true,maxRetries:2});
+    console.log('T3_COMPANY_EPHEMERAL_PRIVATE_SOURCE_REMOVED');
+  }
+}
+
 export async function qualifyOriginalAgentWithAllowedTokens({tokens=[],fetchFile,python='python'}={}){
   const available=tokens.filter(token=>typeof token==='string'&&token.trim());
   if(!available.length)throw Error('T3_AGENT_PRIVATE_SOURCE_TOKEN_UNAVAILABLE');
