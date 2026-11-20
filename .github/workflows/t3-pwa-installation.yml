@@ -26,6 +26,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Assert exact frozen T3 executable, original T2 and WebLLM inputs
+        shell: bash
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD:packages/t3-core/src)" = "51c68641f4ee9dfb6de833705cbe3294742e2bd8"
+          test "$(git rev-parse HEAD:packages/t3-core/qualified-runtime)" = "1594274dbf5e38214b8422ba11e8c7114bd5425c"
+          test "$(git rev-parse HEAD:packages/t3-core/integration-sources)" = "e17b628392fb4e2dbeba2df67fdb0a5506fc5243"
+          echo "T3_G4_PWA_FROZEN_EXECUTABLE_AND_T2_SOURCE_PASS"
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -47,3 +55,5 @@ jobs:
       - name: Install PWA into OS browser profile and reopen standalone offline
         working-directory: packages/t3-core
         run: node --test tests/t3-pwa-os-install.browser.mjs
+      - name: Record PWA qualification is an OS install of signed One Core, not final domain activation
+        run: echo "T3_G4_OS_PWA_INSTALL_ONLY_NOT_SITE_OR_CROSS_PRODUCT_G4"
