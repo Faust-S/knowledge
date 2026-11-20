@@ -87,6 +87,24 @@ test('current source and installed runs cannot borrow historical signed D3 succe
   assert.notEqual(q.last_original_d3_source_pass.agent_sha,current.pins.installed_agent);
   assert.equal(q.current_original_d3_source.agent_sha,current.pins.installed_agent);
   assert.equal(q.current_installed_agent.agent_sha,current.pins.installed_agent);
+  // Prior separate installed Qwen success remains historical at its OWN SHA.
+  // A later failed run is not proof of broken production and cannot count as
+  // success for a new Agent diagnostic-only commit.
+  assert.notEqual(q.previous_exact_agent_installed_pass.agent_sha,
+    current.pins.installed_agent);
+  assert.equal(q.previous_exact_agent_installed_pass.conclusion,'SUCCESS');
+  assert.equal(q.previous_exact_agent_installed_pass.evidence_level,
+    'INSTALLED_PRODUCT_PASS_HISTORICAL');
+  assert.equal(q.previous_exact_agent_source_d3_pass.conclusion,'SUCCESS');
+  assert.equal(q.previous_exact_agent_source_d3_pass.evidence_level,
+    'SOURCE_NATIVE_PROCESS_PASS_HISTORICAL');
+  assert.equal(q.previous_failed_agent_install_attempt.conclusion,'FAIL');
+  assert.equal(q.previous_failed_agent_install_attempt.finite_phase,'K03_TASK_EXECUTE');
+  assert.equal(q.previous_failed_agent_install_attempt.last_checkpoint,
+    'AGENT_K03_TASK_ACCEPTED');
+  const wf=read('.github/workflows/t3-g4-installed-current-agent06.yml');
+  assert.match(wf,/test_agent06_k03_finite_failure_sidecar[.]py/);
+  assert.match(wf,/G4_AGENT06_K03_PRIVATE_DIAG_ON_CURRENT_AGENT_PREFLIGHT_PASS/);
   if(q.current_installed_agent.conclusion==='SUCCESS'){
     assert.equal(q.current_installed_agent.evidence_level,'INSTALLED_PRODUCT_PASS');
     assert.equal(q.current_installed_agent.scope,
