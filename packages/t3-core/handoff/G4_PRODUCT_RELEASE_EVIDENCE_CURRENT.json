@@ -2775,7 +2775,7 @@
         "reason": "Restored original Bun import.meta.main guard to keep imported Control server from invoking CLI when bundled"
       },
       "installed_qualification_candidate": {
-        "state": "NEW_OWNER_PIN_BUN_IMPORT_FIXED_INSTALLED_REQUALIFICATION_PENDING",
+        "state": "PINNED_NEW_CANDIDATE_NOT_YET_ACCEPTED",
         "original_t3_owner_sha": "a66581d0c113319c65e2a6df417d3636fdc4bf5c",
         "agent_sha": "c854ce6269233939cef937ffe730f684a31f9b8e",
         "public_one_core_sha": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1",
@@ -2788,7 +2788,8 @@
         "approved": false,
         "windows_admin_installed_conclusion": "FAIL_COMPILED_SERVER_IMPORT",
         "windows_agent_installed_conclusion": "FAIL_ONE_DIST_ASSEMBLY_BEFORE_SETUP",
-        "windows_native_process_conclusion": "SOURCE_NATIVE_PROCESS_SUCCESS_PREVIOUS_OWNER_SHA"
+        "windows_native_process_conclusion": "SOURCE_NATIVE_PROCESS_SUCCESS_PREVIOUS_OWNER_SHA",
+        "diagnostic_state": "BUN_IMPORT_META_MAIN_RESTORED_COMPILATION_REQUALIFICATION_PENDING"
       }
     },
     "required_gates": {
