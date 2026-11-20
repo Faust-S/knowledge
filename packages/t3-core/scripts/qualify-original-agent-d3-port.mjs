@@ -1,6 +1,8 @@
 // IWXA G4: run the original Agent D3 employee IPC/Result port tests through
 // the public knowledge runner using TWO pinned private-source files only.
 // No private repository clone, source artifact, test trace or key export.
+// Requalify exact original Agent source whenever its immutable pinned SHA moves;
+// previous 26/26 results remain historical rather than transferable.
 import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
 import {join,dirname} from 'node:path';
 import {tmpdir} from 'node:os';
