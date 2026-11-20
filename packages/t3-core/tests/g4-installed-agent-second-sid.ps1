@@ -202,7 +202,7 @@ try {
   }
   [IO.File]::WriteAllText((Join-Path $ProofRoot 'guest-finished.json'),
     (ConvertTo-Json ([ordered]@{status='PASS';sid=$user;sourceSha=$request.sourceSha;
-      originalSetup=true;nativeGuiCold=true;uninstallPreservedData=true
+      originalSetup=$true;nativeGuiCold=$true;uninstallPreservedData=$true
     }) -Compress),[Text.UTF8Encoding]::new($false))
 } catch {
   $allowed=@('GUEST_EXISTING_PRODUCT','GUEST_SETUP_FAILED','GUEST_SETUP_RECEIPT_MISSING',
@@ -277,11 +277,24 @@ try {
   }
   if(-not $completed){throw 'G4_AGENT_GUEST_PRESERVATION_RECEIPT_TIMEOUT'}
   $result=Get-Content -LiteralPath $done -Raw -Encoding UTF8|ConvertFrom-Json
-  if($result.status -cne 'PASS' -or $result.sid -cne $guestSid -or
-     $result.sourceSha -cne $AgentSourceSha -or
-     $result.originalSetup -ne $true -or
-     $result.nativeGuiCold -ne $true -or
-     $result.uninstallPreservedData -ne $true){
+  # The ORIGINAL guest writer must emit typed JSON booleans ($true), not
+  # PowerShell barewords (string "true"). Preserve exact identity comparison.
+  $finalFailure=if($result.status -cne 'PASS'){
+    'STATUS'
+  }elseif($result.sid -cne $guestSid){
+    'WINDOWS_SID'
+  }elseif($result.sourceSha -cne $AgentSourceSha){
+    'EXACT_AGENT_SOURCE'
+  }elseif(($result.originalSetup -isnot [bool]) -or $result.originalSetup -cne $true){
+    'ORIGINAL_SETUP_TYPED_BOOL'
+  }elseif(($result.nativeGuiCold -isnot [bool]) -or $result.nativeGuiCold -cne $true){
+    'NATIVE_COLD_TYPED_BOOL'
+  }elseif(($result.uninstallPreservedData -isnot [bool]) -or $result.uninstallPreservedData -cne $true){
+    'PRESERVED_DATA_TYPED_BOOL'
+  }else{'NONE'}
+  if($finalFailure -cne 'NONE'){
+    # Fixed finite enum only; never publish SID, key, path or source bytes.
+    Write-Output ('G4_AGENT_GUEST_FINAL_RECEIPT_FAILURE_CLASS '+$finalFailure)
     throw 'G4_AGENT_GUEST_ORIGINAL_SETUP_FINAL_RECEIPT_INVALID'
   }
   Write-Output 'G4_AGENT_INSTALLED_GUEST_SECOND_WINDOWS_SID_PASS'
