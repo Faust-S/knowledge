@@ -1,4 +1,4 @@
-name: T3 PWA installation qualification
+name: T3 PWA offline and installability source qualification (OS native install HOLD)
 on:
   push:
     branches:
@@ -52,8 +52,8 @@ jobs:
       - name: Preserve autonomous T3 cold browser restart and updates
         working-directory: packages/t3-core
         run: node --test tests/t3-domain-switch.browser.mjs
-      - name: Install PWA into OS browser profile and reopen standalone offline
+      - name: Probe native OS PWA install capability; SKIP means installed acceptance HOLD
         working-directory: packages/t3-core
         run: node --test tests/t3-pwa-os-install.browser.mjs
-      - name: Record PWA qualification is an OS install of signed One Core, not final domain activation
-        run: echo "T3_G4_OS_PWA_INSTALL_ONLY_NOT_SITE_OR_CROSS_PRODUCT_G4"
+      - name: Do not promote PWA OS installation from the browser SKIP
+        run: echo "T3_G4_PWA_SOURCE_ONLY_NATIVE_OS_INSTALL_HOLD_NOT_ACCEPTED"
