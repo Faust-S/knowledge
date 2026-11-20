@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: c81e0d3d56e95ed1e7498b793402145ee85f10cf
+          ref: abd48cf5ecf248949522b5a9fe6b6244c37d2fe8
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Set up Node 24
@@ -69,6 +69,7 @@ jobs:
           node --check tests/d09-original-t2-production-first-run.browser.mjs
           node --check tests/d09-original-t2-project-save.browser.mjs
           node --check scripts/serve-d09-dist.mjs
+          node --check tests/d09-pixel-avatar-user.browser.mjs
           node --check scripts/check-d09-hosting-dist.mjs
           echo D09_BROWSER_WITNESS_SYNTAX=PASS
           npm run check:consumer-ux > "$RUNNER_TEMP/d09-ux.log" 2>&1 || {
@@ -171,6 +172,13 @@ jobs:
             echo D09_ORIGINAL_T2_GUI=FAIL; exit 1;
           }
           grep -E 'D09_(WORKSPACE|EXCHANGE|LIFECYCLE|T2_REAL_BROWSER|ENGINEERING_)' "$RUNNER_TEMP/d09-browser.log" | tail -15 || true
+          node tests/d09-pixel-avatar-user.browser.mjs > "$RUNNER_TEMP/d09-avatar-browser.log" 2>&1 || {
+            grep -E 'D09_AVATAR_|AssertionError|Error' "$RUNNER_TEMP/d09-avatar-browser.log" | tail -14 | cut -c1-200 || true
+            echo D09_AVATAR_REAL_BROWSER=FAIL
+            exit 1
+          }
+          grep 'D09_AVATAR_.*=PASS' "$RUNNER_TEMP/d09-avatar-browser.log" | tail -8 || true
+          echo D09_AVATAR_REAL_BROWSER=PASS
           echo D09_ORIGINAL_T2_GUI=PASS
       - name: Build isolated production-identity HOP with original T2
         shell: bash
