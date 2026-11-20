@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 1c7bcf4db94bec50d795cb6b5bde3d9b37618622
+          ref: 3deca92057b4da1a5c7f4ddfc2e56fcf07f47bfd
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -72,6 +72,6 @@ jobs:
           echo D09_AVATAR_PUBLIC_BUILD=PASS
       - name: Report verified isolated feature source
         run: |
-          echo "D09_AVATAR_PINNED_SOURCE=1c7bcf4db94bec50d795cb6b5bde3d9b37618622"
+          echo "D09_AVATAR_PINNED_SOURCE=3deca92057b4da1a5c7f4ddfc2e56fcf07f47bfd"
           echo D09_AVATAR_PRIVATE_CODE_NOT_PUBLISHED=PASS
       # No private checkout, logs, dist, binaries, screenshots or artifacts are uploaded.
