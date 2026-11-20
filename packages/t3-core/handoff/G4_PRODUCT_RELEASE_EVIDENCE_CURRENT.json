@@ -2669,7 +2669,7 @@
         "transport": "EXISTING_IWXA_MANUAL_HANDOFF_WHEN_OFFLINE_OPTIONAL_AUTHORIZED_SYNC_IF_CONNECTED",
         "offline_delivery": "PENDING_COMPANY_RECEIPT_NOT_DELIVERED_UNTIL_ORIGINAL_RECIPIENT_READBACK",
         "authorization": "D1_SIGNED_JIT_REVOCATION_APPLIES_ON_ENTRY_WRITE_EXPORT_AND_RECEIPT",
-        "agent_development_sha": "c0eb9715df7bb8611584dff152bfaed2e60a751c",
+        "agent_development_sha": "84aa686e37d45b36d96349ecab4e708fce44ec27",
         "agent_development_status": "UNQUALIFIED_SOURCE_NEW_NO_INSTALLED_EVIDENCE",
         "release_status": "INCOMPLETE"
       }
