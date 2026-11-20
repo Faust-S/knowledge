@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: d42427e37a499c35df6493bd63864bd0560b2233
+          ref: d3fbb09820c83c5d0f4bbb36451e572e021a5beb
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Use Node 24
@@ -48,12 +48,16 @@ jobs:
           }
           grep -E 'HOP_MOTION_.*=PASS|HOP_PIXEL_.*=PASS' "$RUNNER_TEMP/motion-native.log" | tail -12
           echo D09_MOTION_NATIVE_IWXA=PASS
-          ./node_modules/.bin/tsx scripts/qualify-pixel-character-transfer.ts > "$RUNNER_TEMP/cross-native.log" 2>&1 || {
+          D09_CHARACTER_SOURCE_OUTPUT="$RUNNER_TEMP/hop-character-source.iwxa" ./node_modules/.bin/tsx scripts/qualify-pixel-character-transfer.ts > "$RUNNER_TEMP/cross-native.log" 2>&1 || {
             grep -E 'HOP_CROSS_|Error:|AssertionError' "$RUNNER_TEMP/cross-native.log" | tail -20 | cut -c1-230 || true
             echo D09_CROSS_NATIVE_IWXA=FAIL
             exit 1
           }
           grep -E 'HOP_CROSS_.*=PASS' "$RUNNER_TEMP/cross-native.log" | tail -15
+          test -s "$RUNNER_TEMP/hop-character-source.iwxa" || {
+            echo D09_CHARACTER_SOURCE_MISSING=FAIL
+            exit 1
+          }
           echo D09_CROSS_NATIVE_IWXA=PASS
       - name: Generate genuine GIF fixture for Chrome decoder
         shell: bash
@@ -76,11 +80,11 @@ jobs:
       - name: Normalize and lint only new files in isolated checkout
         shell: bash
         run: |
-          ./node_modules/.bin/prettier --write src/lib/pixel-animation.ts src/lib/pixel-animation-document.ts src/lib/pixel-character.ts src/lib/pixel-character-transfer.ts src/integrations/pixel/character-file.ts src/integrations/pixel/character-file.test.ts src/lib/project-model.ts src/lib/project-vocabulary.ts src/lib/workspace-runtime.ts src/lib/action-rules.ts src/lib/project-validator.ts src/lib/__tests__/pixel-reaction-actions.test.ts src/lib/__tests__/pixel-animation.test.ts src/lib/__tests__/pixel-animation-document.test.ts src/lib/__tests__/pixel-character.test.ts src/lib/pixel-avatar-commit.ts src/components/hop/PixelAvatarEditor.tsx src/components/hop/PixelAvatarCreator.tsx src/components/hop/PixelAvatarMotionStudio.tsx src/components/hop/__tests__/PixelAvatarMotionStudio.test.tsx src/components/workspace/PixelAvatarDialog.tsx src/components/workspace/PixelCharacterPortrait.tsx src/components/workspace/ReusePixelCharacterDialog.tsx src/components/workspace/ActionsInspector.tsx src/components/player/ProjectPlayer.tsx src/components/workspace/PixelSceneAnimation.tsx src/components/workspace/SceneRenderer.tsx src/components/workspace/__tests__/PixelSceneAnimation.test.tsx src/components/workspace/__tests__/SceneRenderer.motion.test.tsx src/components/player/__tests__/ProjectPlayer.pixel-reaction.test.tsx src/components/workspace/__tests__/ActionsInspector.pixel-reaction.test.tsx src/components/workspace/__tests__/ReusePixelCharacterDialog.test.tsx src/routes/avatars.tsx src/integrations/pixel/avatar-project.ts src/components/workspace/ElementsPanel.tsx src/components/workspace/WorkspacePage.tsx scripts/qualify-pixel-avatar-iwxa.ts > "$RUNNER_TEMP/motion-format.log" 2>&1 || {
+          ./node_modules/.bin/prettier --write src/lib/pixel-animation.ts src/lib/pixel-animation-document.ts src/lib/pixel-character.ts src/lib/pixel-character-transfer.ts src/integrations/pixel/character-file.ts src/integrations/pixel/character-file.test.ts src/lib/project-model.ts src/lib/project-vocabulary.ts src/lib/workspace-runtime.ts src/lib/action-rules.ts src/lib/project-validator.ts src/lib/__tests__/pixel-reaction-actions.test.ts src/lib/__tests__/pixel-animation.test.ts src/lib/__tests__/pixel-animation-document.test.ts src/lib/__tests__/pixel-character.test.ts src/lib/pixel-avatar-commit.ts src/components/hop/PixelAvatarEditor.tsx src/components/hop/PixelAvatarCreator.tsx src/components/hop/PixelAvatarMotionStudio.tsx src/components/hop/__tests__/PixelAvatarMotionStudio.test.tsx src/components/workspace/PixelAvatarDialog.tsx src/components/workspace/PixelCharacterPortrait.tsx src/components/workspace/ReusePixelCharacterDialog.tsx src/components/workspace/ActionsInspector.tsx src/components/player/ProjectPlayer.tsx src/components/workspace/PixelSceneAnimation.tsx src/components/workspace/SceneRenderer.tsx src/components/workspace/__tests__/PixelSceneAnimation.test.tsx src/components/workspace/__tests__/SceneRenderer.motion.test.tsx src/components/player/__tests__/ProjectPlayer.pixel-reaction.test.tsx src/components/workspace/__tests__/ActionsInspector.pixel-reaction.test.tsx src/components/workspace/__tests__/ReusePixelCharacterDialog.test.tsx src/routes/avatars.tsx src/integrations/pixel/avatar-project.ts src/components/workspace/ElementsPanel.tsx src/components/workspace/WorkspacePage.tsx scripts/qualify-pixel-avatar-iwxa.ts scripts/qualify-pixel-character-transfer.ts tests/d09-pixel-character-picker.browser.mjs > "$RUNNER_TEMP/motion-format.log" 2>&1 || {
             echo D09_MOTION_FORMAT=FAIL
             exit 1
           }
-          ./node_modules/.bin/eslint src/lib/pixel-animation.ts src/lib/pixel-animation-document.ts src/lib/pixel-character.ts src/lib/pixel-character-transfer.ts src/integrations/pixel/character-file.ts src/integrations/pixel/character-file.test.ts src/lib/project-model.ts src/lib/project-vocabulary.ts src/lib/workspace-runtime.ts src/lib/action-rules.ts src/lib/project-validator.ts src/lib/__tests__/pixel-reaction-actions.test.ts src/lib/__tests__/pixel-animation.test.ts src/lib/__tests__/pixel-animation-document.test.ts src/lib/__tests__/pixel-character.test.ts src/lib/pixel-avatar-commit.ts src/components/hop/PixelAvatarEditor.tsx src/components/hop/PixelAvatarCreator.tsx src/components/hop/PixelAvatarMotionStudio.tsx src/components/hop/__tests__/PixelAvatarMotionStudio.test.tsx src/components/workspace/PixelAvatarDialog.tsx src/components/workspace/PixelCharacterPortrait.tsx src/components/workspace/ReusePixelCharacterDialog.tsx src/components/workspace/ActionsInspector.tsx src/components/player/ProjectPlayer.tsx src/components/workspace/PixelSceneAnimation.tsx src/components/workspace/SceneRenderer.tsx src/components/workspace/__tests__/PixelSceneAnimation.test.tsx src/components/workspace/__tests__/SceneRenderer.motion.test.tsx src/components/player/__tests__/ProjectPlayer.pixel-reaction.test.tsx src/components/workspace/__tests__/ActionsInspector.pixel-reaction.test.tsx src/components/workspace/__tests__/ReusePixelCharacterDialog.test.tsx src/routes/avatars.tsx src/integrations/pixel/avatar-project.ts src/components/workspace/ElementsPanel.tsx src/components/workspace/WorkspacePage.tsx scripts/qualify-pixel-avatar-iwxa.ts > "$RUNNER_TEMP/motion-lint.log" 2>&1 || {
+          ./node_modules/.bin/eslint src/lib/pixel-animation.ts src/lib/pixel-animation-document.ts src/lib/pixel-character.ts src/lib/pixel-character-transfer.ts src/integrations/pixel/character-file.ts src/integrations/pixel/character-file.test.ts src/lib/project-model.ts src/lib/project-vocabulary.ts src/lib/workspace-runtime.ts src/lib/action-rules.ts src/lib/project-validator.ts src/lib/__tests__/pixel-reaction-actions.test.ts src/lib/__tests__/pixel-animation.test.ts src/lib/__tests__/pixel-animation-document.test.ts src/lib/__tests__/pixel-character.test.ts src/lib/pixel-avatar-commit.ts src/components/hop/PixelAvatarEditor.tsx src/components/hop/PixelAvatarCreator.tsx src/components/hop/PixelAvatarMotionStudio.tsx src/components/hop/__tests__/PixelAvatarMotionStudio.test.tsx src/components/workspace/PixelAvatarDialog.tsx src/components/workspace/PixelCharacterPortrait.tsx src/components/workspace/ReusePixelCharacterDialog.tsx src/components/workspace/ActionsInspector.tsx src/components/player/ProjectPlayer.tsx src/components/workspace/PixelSceneAnimation.tsx src/components/workspace/SceneRenderer.tsx src/components/workspace/__tests__/PixelSceneAnimation.test.tsx src/components/workspace/__tests__/SceneRenderer.motion.test.tsx src/components/player/__tests__/ProjectPlayer.pixel-reaction.test.tsx src/components/workspace/__tests__/ActionsInspector.pixel-reaction.test.tsx src/components/workspace/__tests__/ReusePixelCharacterDialog.test.tsx src/routes/avatars.tsx src/integrations/pixel/avatar-project.ts src/components/workspace/ElementsPanel.tsx src/components/workspace/WorkspacePage.tsx scripts/qualify-pixel-avatar-iwxa.ts scripts/qualify-pixel-character-transfer.ts tests/d09-pixel-character-picker.browser.mjs > "$RUNNER_TEMP/motion-lint.log" 2>&1 || {
             grep -E 'error|warning' "$RUNNER_TEMP/motion-lint.log" | head -20 | cut -c1-200 || true
             echo D09_MOTION_LINT=FAIL
             exit 1
@@ -103,6 +107,18 @@ jobs:
           }
           test -f dist/avatars/index.html
           echo D09_MOTION_PUBLIC_BUILD=PASS
+      - name: Real browser external IWXA character picker, search and portrait
+        shell: bash
+        run: |
+          export D09_CHARACTER_SOURCE_FILE="$RUNNER_TEMP/hop-character-source.iwxa"
+          export PUPPETEER_EXECUTABLE_PATH="$(command -v google-chrome || true)"
+          node tests/d09-pixel-character-picker.browser.mjs > "$RUNNER_TEMP/character-browser.log" 2>&1 || {
+            grep -E 'D09_CHARACTER_|Error:|AssertionError' "$RUNNER_TEMP/character-browser.log" | tail -20 | cut -c1-230 || true
+            echo D09_CHARACTER_REAL_BROWSER=FAIL
+            exit 1
+          }
+          grep -E 'D09_CHARACTER_.*=PASS' "$RUNNER_TEMP/character-browser.log" | tail -12
+          echo D09_CHARACTER_REAL_BROWSER=PASS
       - name: Real Chrome pixel motion creator and GIF decoder
         shell: bash
         run: |
@@ -116,5 +132,5 @@ jobs:
           echo D09_MOTION_REAL_BROWSER=PASS
       - name: Report pinned verified product source
         run: |
-          echo D09_MOTION_SOURCE=d42427e37a499c35df6493bd63864bd0560b2233
+          echo D09_MOTION_SOURCE=d3fbb09820c83c5d0f4bbb36451e572e021a5beb
           echo D09_MOTION_PRIVATE_ARTIFACT_UPLOADS=NONE
