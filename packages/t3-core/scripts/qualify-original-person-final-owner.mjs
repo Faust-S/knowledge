@@ -72,12 +72,12 @@ export async function qualifyOriginalFinalPersonSource({
     // Give the developer ONLY ordinal and a redacted failure class.
     // Never leak private test names, assertion actual/expected, source or
     // stack traces into public Actions logs.
-    const failureOrdinals=[...output.matchAll(/^not ok (\\d+) - [^\\r\\n]*$/gm)]
+    const failureOrdinals=[...output.matchAll(/^not ok (\d+) - [^\r\n]*$/gm)]
       .map(hit=>{
         const segment=output.slice(hit.index+hit[0].length);
-        const end=segment.search(/^\\s*(?:not ok|ok|# Subtest:) /m);
+        const end=segment.search(/^\s*(?:not ok|ok|# Subtest:) /m);
         const block=end>=0?segment.slice(0,end):segment;
-        const message=block.match(/^\\s*error: ['"]([^'"\\n]+)['"]/m)?.[1]??'';
+        const message=block.match(/^\s*error: ['"]([^'"\n]+)['"]/m)?.[1]??'';
         const safeCode=/^[A-Z][A-Z0-9_]{3,96}$/.test(message)
           ?message:/ERR_ASSERTION|AssertionError|Expected values/.test(block)
             ?'ASSERTION_MISMATCH'
