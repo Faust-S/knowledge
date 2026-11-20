@@ -48,8 +48,11 @@ jobs:
             echo D09_GALLERY_PRODUCT_CONTRACTS=FAIL; exit 1;
           }
           echo D09_GALLERY_CONTRACTS=PASS
-      - name: Lint authored files
+      - name: Normalize and lint authored files in disposable checkout
         run: |
+          ./node_modules/.bin/prettier --write src/content/featured-artwork.ts src/content/featured-works.ts src/content/instantiate-featured-work.ts src/content/__tests__/featured-works.test.ts src/components/hop/FeaturedWorksGallery.tsx > "$RUNNER_TEMP/gallery-format.log" 2>&1 || {
+            echo D09_GALLERY_FORMAT=FAIL; exit 1;
+          }
           ./node_modules/.bin/eslint src/content/featured-artwork.ts src/content/featured-works.ts src/content/instantiate-featured-work.ts src/content/__tests__/featured-works.test.ts src/components/hop/FeaturedWorksGallery.tsx > "$RUNNER_TEMP/gallery-lint.log" 2>&1 || {
             tail -24 "$RUNNER_TEMP/gallery-lint.log" | cut -c1-220 || true
             echo D09_GALLERY_LINT=FAIL; exit 1;
