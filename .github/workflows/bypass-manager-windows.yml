@@ -129,14 +129,14 @@ jobs:
       - name: Upload unsigned Windows build and test assets
         uses: actions/upload-artifact@v4
         with:
-          name: bypass-manager-0-3-alpha-win64-unsigned
+          name: bypass-manager-0-4-one-button-win64-unsigned
           path: |
             tools/bypass-manager/Bypass-Manager.exe
             tools/bypass-manager/README-RU.md
           if-no-files-found: error
 
-  publish-pinned-guidefix:
-    name: Publish directly downloadable Alpha after Windows PASS
+  publish-one-button:
+    name: Publish one-button Windows Alpha after native CI PASS
     needs: windows-native
     if: github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-alpha]')
     runs-on: ubuntu-24.04
@@ -150,50 +150,50 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: bypass-manager-0-3-alpha-win64-unsigned
+          name: bypass-manager-0-4-one-button-win64-unsigned
           path: release/raw
-      - name: Package exact Windows CI executable and corresponding sources
+      - uses: actions/download-artifact@v4
+        with:
+          name: bypass-manager-native-ui-frames
+          path: release/ui
+      - name: Package exact native Windows executable and real GUI evidence
         shell: bash
         run: |
           set -euo pipefail
           test -s release/raw/Bypass-Manager.exe
           test -s release/raw/README-RU.md
+          test -s release/ui/main-one-button.png
           mkdir -p release/windows
           cp release/raw/Bypass-Manager.exe release/windows/
           cp release/raw/README-RU.md release/windows/
-          cp tools/bypass-manager/MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md release/windows/
-          cp tools/bypass-manager/VALIDATION-MATRIX-2026-11-16-RU.md release/windows/
-          cp tools/bypass-manager/MODEL-RESULTS-2026-11-17-RU.md release/windows/
-          mkdir -p release/windows/model
-          cp tools/bypass-manager/model/field-model-local-2026-11-17.json release/windows/model/
-          (cd release/windows && zip -q -9 ../Bypass-Manager-0.3-Alpha-Local-Proxy-ABA-Windows-x64.zip Bypass-Manager.exe README-RU.md MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md VALIDATION-MATRIX-2026-11-16-RU.md MODEL-RESULTS-2026-11-17-RU.md model/field-model-local-2026-11-17.json)
-          git archive --format zip --prefix=bypass-manager-0.3-local-proxy-aba-source/ -o release/Bypass-Manager-0.3-Alpha-Local-Proxy-ABA-Source.zip HEAD:tools/bypass-manager
-          cp tools/bypass-manager/MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md release/
-          cp tools/bypass-manager/VALIDATION-MATRIX-2026-11-16-RU.md release/
-          cp tools/bypass-manager/MODEL-RESULTS-2026-11-17-RU.md release/
-          cp tools/bypass-manager/model/field-model-local-2026-11-17.json release/
-          (cd release && sha256sum Bypass-Manager-0.3-Alpha-Local-Proxy-ABA-Windows-x64.zip Bypass-Manager-0.3-Alpha-Local-Proxy-ABA-Source.zip MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md VALIDATION-MATRIX-2026-11-16-RU.md MODEL-RESULTS-2026-11-17-RU.md field-model-local-2026-11-17.json > SHA256SUMS.txt)
-      - name: Create immutable prerelease
+          cp tools/bypass-manager/PRODUCT-RESET-2026-11-20-RU.md release/windows/
+          cp tools/bypass-manager/ONE-BUTTON-DEVELOPMENT-2026-11-21-RU.md release/windows/
+          (cd release/windows && zip -q -9 ../Bypass-Manager-0.4-One-Button-Windows-x64.zip Bypass-Manager.exe README-RU.md PRODUCT-RESET-2026-11-20-RU.md ONE-BUTTON-DEVELOPMENT-2026-11-21-RU.md)
+          git archive --format=zip --prefix=bypass-manager-0.4-one-button-source/ --output=release/Bypass-Manager-0.4-One-Button-Source.zip HEAD:tools/bypass-manager
+          cp release/ui/main-one-button.png release/Bypass-Manager-0.4-Native-Windows.png
+          cp tools/bypass-manager/PRODUCT-RESET-2026-11-20-RU.md release/
+          cp tools/bypass-manager/ONE-BUTTON-DEVELOPMENT-2026-11-21-RU.md release/
+          (cd release && sha256sum Bypass-Manager-0.4-One-Button-Windows-x64.zip Bypass-Manager-0.4-One-Button-Source.zip Bypass-Manager-0.4-Native-Windows.png PRODUCT-RESET-2026-11-20-RU.md ONE-BUTTON-DEVELOPMENT-2026-11-21-RU.md > SHA256SUMS.txt)
+      - name: Create immutable prerelease with direct download links
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG=bypass-manager-0.3-alpha-local-proxy-aba-2026-11-17
+          TAG=bypass-manager-0.4-alpha-one-button-2026-11-21
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release already exists, refusing to replace files"
+            echo "Release already exists; refusing to replace files"
             exit 1
           fi
           gh release create "$TAG" \
-            release/Bypass-Manager-0.3-Alpha-Local-Proxy-ABA-Windows-x64.zip \
-            release/Bypass-Manager-0.3-Alpha-Local-Proxy-ABA-Source.zip \
-            release/MIGRATION_NEXT_CHAT_BYPASS_MANAGER_0_3_2026_11_16_RU.md \
-            release/VALIDATION-MATRIX-2026-11-16-RU.md \
-            release/MODEL-RESULTS-2026-11-17-RU.md \
-            release/field-model-local-2026-11-17.json \
+            release/Bypass-Manager-0.4-One-Button-Windows-x64.zip \
+            release/Bypass-Manager-0.4-One-Button-Source.zip \
+            release/Bypass-Manager-0.4-Native-Windows.png \
+            release/PRODUCT-RESET-2026-11-20-RU.md \
+            release/ONE-BUTTON-DEVELOPMENT-2026-11-21-RU.md \
             release/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Bypass Manager 0.3 Alpha | 53 local proxy and A/B/A models | Windows CI" \
-            --notes "Windows native GUI, PowerShell and original winws2 Lua/WinDivert dry-run PASS required for release. 53 reproducible scenarios with loopback HTTP CONNECT and SOCKS5 TLS, VLESS with no TUN / Local Proxy, app-to-owned-loopback socket observations, correct VPN-off baseline and A/B/A rollback after owned DPI. Exact Windows binary built from the same commit. Includes Russian report and source JSON. Controlled manager-origin proxy HTTPS is NOT per-application public egress or a native Amnezia Premium handshake. A/B/A reversal remains correlation, not proven DPI causality. Real user video/network acceptance remains REAL_NETWORK_NOT_ACCEPTED. Unsigned Windows Alpha." \
+            --title "Bypass Manager 0.4 Alpha | One Button | Native Windows CI" \
+            --notes "First independent native Windows mode: one-button direct HTTPS/TLS adaptation without Amnezia, VPN subscription or remote IP, verified real winws2/WinDivert start, ownership inspection and stop. Three-button native GUI smoke (3 cold starts) and real Windows screenshot. Only manager-origin speed and public IP/region are measured. Browser-integrated VPN is an optional independent browser channel, not a Windows app and not proof of system-wide protection. Direct TLS adaptation does not add encryption or hide public IP. Native startup is not real blocked-site success; REAL_NETWORK_NOT_ACCEPTED. Unsigned Alpha." \
             --prerelease
