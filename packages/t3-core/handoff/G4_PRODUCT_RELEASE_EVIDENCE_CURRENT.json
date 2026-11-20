@@ -2654,7 +2654,7 @@
         "D1_D3_ORIGINAL_SIGNED_COMPANY_WORKSPACE_AS_AUTHORITY_FOR_ALL_CORPORATE_TASKS_RESULTS_AND_DRAFTS",
         "D1_D3_CORPORATE_WORKSPACE_ONE_RESULT_DEFAULT_COMPANY_DELIVERY_AND_LOCAL_OFFLINE_IWXA_HANDOFF",
         "D1_D3_COMPLETE_CORPORATE_DOCUMENTS_ATTACHMENTS_AND_LARGE_RESULTS_OVER_ORIGINAL_T2_WORKSPACE_EXCHANGE_WITHOUT_TRUNCATION",
-        "D7_PERSON_ISSUER_NATIVE_HOLDER_AND_STATUS_FULL_SOURCE_COMPLETION",
+        "D7_ORIGINAL_PERSON_SOURCE_22_PASS_FINAL_ONE_DIST_COMPOSITION_PENDING",
         "INTEGRATED_D1_D7_PLATFORM_INTERFACE_AND_FINAL_BUNDLE",
         "VERSIONED_FROZEN_FINAL_T3_ONE_DIST_AND_PROVENANCE_NOT_JUST_OWNER_INPUT"
       ],
@@ -2670,10 +2670,17 @@
         "transport": "EXISTING_IWXA_MANUAL_HANDOFF_WHEN_OFFLINE_OPTIONAL_AUTHORIZED_SYNC_IF_CONNECTED",
         "offline_delivery": "PENDING_COMPANY_RECEIPT_NOT_DELIVERED_UNTIL_ORIGINAL_RECIPIENT_READBACK",
         "authorization": "D1_SIGNED_JIT_REVOCATION_APPLIES_ON_ENTRY_WRITE_EXPORT_AND_RECEIPT",
-        "agent_development_sha": "84aa686e37d45b36d96349ecab4e708fce44ec27",
-        "agent_development_status": "UNQUALIFIED_SOURCE_NEW_NO_INSTALLED_EVIDENCE",
+        "agent_development_sha": "8fcda07dae2b53a49f662a65928945350a0607df",
+        "agent_development_status": "SOURCE_QUALIFICATION_PENDING_NOT_INSTALLED",
         "release_status": "INCOMPLETE",
         "payload_boundary": "Agent Core may accept long documents but original signed interop.result.v2 limits result text to 100000 UTF16 code units; complete documents and attachments require original T2 Object/Exchange payload ownership, not trimming or a second Result"
+      },
+      "original_t3_final_candidate_sha": "75a36f8273552b48ad370ae626e7b5290edb08d9",
+      "person_d7_source_qualification": {
+        "run_id": 44789248082,
+        "original_owner_sha": "75a36f8273552b48ad370ae626e7b5290edb08d9",
+        "test_count": 22,
+        "conclusion": "SOURCE_PASS_NOT_INSTALLED"
       }
     },
     "required_gates": {
@@ -2713,9 +2720,9 @@
         "remaining": "Core generic D6 original accepted Result optional workRef source and qualified original T2 Host #44620132894 PASS. Current signed D3 source process #44730781821 26/26 PASS. Separate installed authorized non-Atlas recipient native durable commit, lost-ACK recovery and cold still HOLD."
       },
       "D7": {
-        "source": "PARTIAL",
+        "source": "PASS",
         "installed": "HOLD",
-        "remaining": "Original age1.3.1 two-recipient encryption #44736009194 PASS is NOT native Publisher PERSON. Original signed Publisher PERSON Issue/Renew/STATUS/Revoke with installed Publisher and independent installed consumer cold plus actual trust/receipt remains HOLD; earlier synthetic license native scripts forbid Actions use."
+        "remaining": "T3 original signed PERSON issuer/holder/status/renew/revoke/cold 22/22 SOURCE PASS on exact private 75a36f82 (#44789248082); independent native/installed Publisher and recipient remain separate. D7 source interface must still be composed into final verified One Dist, without any new license provider."
       }
     },
     "qualifications": {
