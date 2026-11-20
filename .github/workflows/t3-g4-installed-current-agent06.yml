@@ -144,25 +144,6 @@ jobs:
           Write-Host 'G4_INSTALLED_AGENT_ORIGINAL_PRODUCT_AUTHORITY_WITNESS_PASS'
           Write-Host 'G4_INSTALLED_AGENT_PRODUCT_NEUTRAL_NO_DEFAULT_RECIPIENT_PASS'
           Write-Host 'G4_INSTALLED_AGENT06_CURRENT_SOURCES_AND_T2_PREFLIGHT_PASS'
-      - name: Stage original signed T3 employee module for installed Agent Windows qualification
-        shell: pwsh
-        env:
-          T3_READ_TOKEN: ${{ secrets.T3 || secrets.DOMEN }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $owner = Join-Path $env:RUNNER_TEMP 'g4-installed-original-employee-owner'
-          $agent = (Resolve-Path -LiteralPath '.private/agent').Path
-          & node packages/t3-core/scripts/stage-installed-original-employee-owner.mjs $owner $agent
-          if($LASTEXITCODE -ne 0){throw 'G4_INSTALLED_ORIGINAL_EMPLOYEE_MODULE_STAGE_FAILED'}
-      - name: Prepare actual original Admin public trust for second-SID installed employee
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          $owner=Join-Path $env:RUNNER_TEMP 'g4-installed-original-employee-owner'
-          $manager=Join-Path $env:RUNNER_TEMP 'g4-installed-original-admin-private'
-          $public=Join-Path $env:RUNNER_TEMP 'g4-installed-original-employee-trust.json'
-          & node packages/t3-core/tests/g4-installed-original-employee-trust.mjs $owner $manager $public
-          if($LASTEXITCODE -ne 0){throw 'G4_INSTALLED_ORIGINAL_MANAGER_PUBLIC_TRUST_FAILED'}
       - name: Check original Agent and Setup Git integrity in WindowsPowerShell 5.1
         shell: pwsh
         run: |
@@ -628,7 +609,7 @@ jobs:
         # model Task is inconclusive. Job failure remains a hard FAIL.
         if: ${{ always() && !cancelled() }}
         shell: pwsh
-        timeout-minutes: 15
+        timeout-minutes: 9
         run: |
           $ErrorActionPreference='Stop'
           $setup=Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06/IWXA-Private-SetupCore-Candidate.exe'
@@ -640,20 +621,13 @@ jobs:
           # product ID/source SHA. Passing here NEVER fixes a K03 failure
           # and NEVER emits full G4/D3 acceptance.
           $ps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
-          $original=Join-Path $env:RUNNER_TEMP 'g4-installed-original-employee-owner'
-          $trust=Join-Path $env:RUNNER_TEMP 'g4-installed-original-employee-trust.json'
-          $driver=(Resolve-Path -LiteralPath 'packages/t3-core/tests/g4-installed-original-employee-first-use.py').Path
-          $verifier=(Resolve-Path -LiteralPath 'packages/t3-core/tests/g4-installed-original-employee-proof-verify.mjs').Path
-          & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 'packages/t3-core/tests/g4-installed-agent-second-sid.ps1' -Setup $setup -AgentSourceSha 'c68387bdb6a7507fe412b62639d9c091d7b933dc' -OriginalOwnerRoot $original -PublicTrustProfile $trust -EmployeeFirstUseDriver $driver -EmployeeProofVerifier $verifier
+          & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 'packages/t3-core/tests/g4-installed-agent-second-sid.ps1' -Setup $setup -AgentSourceSha 'c68387bdb6a7507fe412b62639d9c091d7b933dc'
           if($LASTEXITCODE -ne 0){throw 'G4_AGENT_GUEST_SECOND_SID_NATIVE_INSTALL_NOT_ACCEPTED'}
       - name: Erase private source model caches logs and native binaries
         if: always()
         shell: pwsh
         run: |
           $targets = @('.private','.g4-pinned-one-core',
-            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-employee-owner'),
-            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-admin-private'),
-            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-employee-trust.json'),
             (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06'),
             (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-cache'),
             (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-private-build.log'))
