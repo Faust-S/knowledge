@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 418a8ad5dd1f3772cfd06dc36291f41f68c000c3
+          ref: 64084af54cedd7539e6f1e258efd6d9ba2d0694e
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -43,6 +43,13 @@ jobs:
             echo D09_AVATAR_INTERACTION=FAIL; exit 1;
           }
           echo D09_AVATAR_INTERACTION=PASS
+      - name: Apply project's standard formatter to new development files
+        shell: bash
+        run: |
+          ./node_modules/.bin/prettier --write src/lib/pixel-avatar.ts src/lib/__tests__/pixel-avatar.test.ts src/components/hop/PixelAvatarEditor.tsx src/components/hop/__tests__/PixelAvatarEditor.test.tsx src/routes/avatars.tsx > "$RUNNER_TEMP/d09-avatar-prettier.log" 2>&1 || {
+            echo D09_AVATAR_FORMAT=FAIL; exit 1;
+          }
+          echo D09_AVATAR_FORMAT=PASS
       - name: Lint changed files
         shell: bash
         run: |
@@ -63,4 +70,27 @@ jobs:
           }
           echo D09_AVATAR_ROUTE=PASS
           echo D09_AVATAR_PUBLIC_BUILD=PASS
+      - name: Commit formatted feature files back to isolated private development branch
+        shell: bash
+        env:
+          HOP_DEV_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          test -n "$HOP_DEV_TOKEN" || { echo D09_AVATAR_DEV_TOKEN=UNAVAILABLE; exit 1; }
+          test "$(git rev-parse HEAD)" = "64084af54cedd7539e6f1e258efd6d9ba2d0694e" || { echo D09_AVATAR_SOURCE_DRIFT=FAIL; exit 1; }
+          git config user.name "IWXA CI Formatter"
+          git config user.email "140275131+Faust-S@users.noreply.github.com"
+          git add src/lib/pixel-avatar.ts src/lib/__tests__/pixel-avatar.test.ts src/components/hop/PixelAvatarEditor.tsx src/components/hop/__tests__/PixelAvatarEditor.test.tsx src/routes/avatars.tsx src/routeTree.gen.ts
+          if git diff --cached --quiet; then
+            echo D09_AVATAR_FORMAT_ALREADY_CLEAN=PASS
+            exit 0
+          fi
+          git commit -m "style(d09): format verified pixel avatar feature" > "$RUNNER_TEMP/d09-avatar-format-commit.log" 2>&1 || {
+            echo D09_AVATAR_FORMAT_COMMIT=FAIL; exit 1;
+          }
+          header="$(printf 'x-access-token:%s' "$HOP_DEV_TOKEN" | base64 -w 0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $header" push https://github.com/Faust-S/hop.iwxa.ru.git HEAD:refs/heads/work/2026-11-20-d09-pixel-avatar-editor > "$RUNNER_TEMP/d09-avatar-private-push.log" 2>&1 || {
+            echo D09_AVATAR_DEV_PUSH=FAIL; exit 1;
+          }
+          echo D09_AVATAR_FORMAT_COMMIT=PASS
+          echo D09_AVATAR_DEV_PUSH=PASS
       # No private checkout, logs, dist, binaries, screenshots or artifacts are uploaded.
