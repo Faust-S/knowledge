@@ -181,6 +181,13 @@ try {
   }
   $verified=InvokeOriginalSetup '--verify-installed-file' (Join-Path $ProofRoot 'verify.json')
   if($verified.status -cne 'OWNED_FILES_VERIFIED'){throw 'GUEST_SETUP_FILE_VERIFICATION_FAILED'}
+  # A prior installed Agent can pass GUI/Qwen while shipping the OLD T3.
+  # Verify the new company Workspace module is a real installed payload
+  # file, not merely a staged CI checkout.
+  $companyModules=@(Get-ChildItem -LiteralPath $program -Recurse -File -Filter 'original-company-workspace-persistence.mjs' -ErrorAction Stop)
+  if($companyModules.Count -ne 1 -or $companyModules[0].Length -lt 1024){
+    throw 'GUEST_ORIGINAL_T3_COMPANY_WORKSPACE_MODULE_MISSING'
+  }
   $phase='SECOND_SID_NATIVE_FIRST_GUI'
   $native=LaunchNative
   ConfirmGuestEditor $native
