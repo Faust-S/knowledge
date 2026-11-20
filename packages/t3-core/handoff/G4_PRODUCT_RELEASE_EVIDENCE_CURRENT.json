@@ -2,7 +2,7 @@
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
   "snapshot_date": "2026-11-20",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
-  "currentness": "20_11_ONE_CORE_F42E_SOURCE_808_OF_808_WORKSPACE_1144_PASS_NATIVE_D5_METAL_QWEN_AGE_PASS__AGENT_10CE_SIGNED_D3_26_26_AND_INSTALLED_SECOND_SID_PASS_BUT_K03_PAUSED_OUTPUT_INVALID__NEW_AGENT_032F_USER_SELECTED_NONTHINKING_CANDIDATE_NATIVE_SOURCE_44743560152_INSTALLED_44743560041_PENDING__G4_NOT_ACCEPTED",
+  "currentness": "20_11_ONE_CORE_F42E_SOURCE_808_OF_808_WORKSPACE_1144_PASS_NATIVE_D5_METAL_QWEN_AGE_PASS__AGENT_10CE_SIGNED_D3_26_26_AND_INSTALLED_SECOND_SID_PASS_BUT_K03_PAUSED_OUTPUT_INVALID__NEW_AGENT_032F_USER_SELECTED_NONTHINKING_CANDIDATE_NATIVE_SOURCE_44743560152_26_OF_26_PASS_INSTALLED_44743560041_IN_PROGRESS__G4_NOT_ACCEPTED",
   "policy": {
     "t3_one_core": "Faust-S/knowledge/packages/t3-core",
     "t2_normative": "Faust-S/T2@main",
@@ -2623,9 +2623,9 @@
         "remaining": "Original T2 0.3.6 Event/Activity read-only derived live projection with independent 2 cold browser/Host reads #44736009194 real-host PASS; installed real Activity Analyzer owner-approved production derived Result not yet qualified."
       },
       "D3": {
-        "source": "PARTIAL",
+        "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "Current Agent 032f76 QA explicit durable user-selected nonthinking Qwen, original signed corporate source D3 #44743560152 QUEUED and installed full Qwen/K03 plus second SID #44743560041 QUEUED. Prior exact Agent 10ceaa source 26/26 #44737664603 PASS and second user real installed native GUI/UIA/Setup/cold/uninstall #44737664578 PASS, historical SHA only. Same #44737664578 full standalone K03 PAUSED BASIC_RUNTIME_OUTPUT_INVALID after Task accepted, no Result fabricated or retried. Still missing physical between installed Agent and separately installed Center, separate native Human ACCEPT and APPLY and original Kernel two independent cold readbacks."
+        "remaining": "Current Agent 032f76 QA explicit durable user-selected nonthinking Qwen, original signed corporate source D3 #44743560152 SUCCESS 26/26 and installed full Qwen/K03 plus second SID #44743560041 IN_PROGRESS. Prior exact Agent 10ceaa source 26/26 #44737664603 PASS and second user real installed native GUI/UIA/Setup/cold/uninstall #44737664578 PASS, historical SHA only. Same #44737664578 full standalone K03 PAUSED BASIC_RUNTIME_OUTPUT_INVALID after Task accepted, no Result fabricated or retried. Still missing physical between installed Agent and separately installed Center, separate native Human ACCEPT and APPLY and original Kernel two independent cold readbacks."
       },
       "D4": {
         "source": "PASS",
@@ -2658,8 +2658,9 @@
       "current_original_d3_source": {
         "run_id": 44743560152,
         "agent_sha": "032f76b08d4a3254858f1a74eab4d31b33f2e9b0",
-        "conclusion": "QUEUED",
-        "evidence_level": "NOT_YET_ACCEPTED"
+        "conclusion": "SUCCESS",
+        "evidence_level": "SOURCE_NATIVE_PROCESS_PASS",
+        "marker_count": 26
       },
       "current_installed_agent": {
         "run_id": 44743560041,
@@ -2883,7 +2884,7 @@
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
     "original_private_native_signer": "CURRENT_SOURCE_PIN_d0d8ba2f_NATIVE_ONE_SHOT_WINDOWS_BRIDGE_REQUALIFIED_20_OF_20_44406073956__INSTALLED_UI_HOLD",
-    "independent_installed_d3": "CURRENT_AGENT_032F_EXACT_SOURCE_44743560152_QUEUED_INSTALLED_K03_GUEST_44743560041_QUEUED__PRIOR_AGENT_10CE_SIGNED_D3_26_OF_26_SUCCESS_SECOND_SID_NATIVE_INSTALL_PASS_BUT_K03_FAILED__CENTER_SIGNED_OWNER_INSTALLED_44726573571_PASS__CROSS_INSTALLED_HUMAN_ACCEPT_APPLY_KERNEL_COLD_HOLD",
+    "independent_installed_d3": "CURRENT_AGENT_032F_EXACT_SOURCE_44743560152_26_OF_26_PASS_INSTALLED_K03_GUEST_44743560041_QUEUED__PRIOR_AGENT_10CE_SIGNED_D3_26_OF_26_SUCCESS_SECOND_SID_NATIVE_INSTALL_PASS_BUT_K03_FAILED__CENTER_SIGNED_OWNER_INSTALLED_44726573571_PASS__CROSS_INSTALLED_HUMAN_ACCEPT_APPLY_KERNEL_COLD_HOLD",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
