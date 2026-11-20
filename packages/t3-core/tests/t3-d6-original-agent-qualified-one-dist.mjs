@@ -118,6 +118,7 @@ try{
   assert.equal(sha(readFileSync(join(source,servicePath))),sha(originalPassport));
   const installed=JSON.parse(assembledPassport);
   assert.equal(installed.schemas['iwxa.agent.accepted-result']?.schema_version,'1.0.0');
+  assert.equal(installed.schemas['iwxa.t3.company-work-record']?.schema_version,'1.0.0');
   assert.equal(installed.schemas['iwxa.t3.access.signed-registry']?.schema_version,'1.0.0');
   assert.deepEqual(installed.schemas['iwxa.t3.access.signed-registry'].json_schema,
     {type:'object'},'the original signed D1 policy is not reimplemented by Agent');
@@ -129,7 +130,8 @@ try{
   for(const row of [installed.permissions.objects.read,
     installed.permissions.objects.write,installed.input_object_types,
     installed.output_object_types]){
-    for(const schema of ['iwxa.agent.accepted-result','iwxa.t3.access.signed-registry'])
+    for(const schema of ['iwxa.agent.accepted-result','iwxa.t3.company-work-record',
+      'iwxa.t3.access.signed-registry'])
       assert.ok(row.includes(schema),'original D6 schema not authorized: '+schema);
   }
   assert.equal(sha(readFileSync(join(source,'_iwxa/runtime/0.3.6/runtime.js'))),
@@ -170,6 +172,45 @@ try{
   const graph=prepareOriginalAgentAtlasGraph({
     operationId,binding,accepted,workspace_id:workspace,
   });
+  // Independently prove the unchanged ORIGINAL T2 Kernel accepts COMPLETE
+  // corporate Result text through the newly registered Agent-only schema.
+  // This public fixture does NOT claim a private Human ACCEPT/Task signature.
+  const completeText='Принятое корпоративное исследование. '.repeat(44000);
+  assert.ok(completeText.length>1200000&&completeText.length<=2000000);
+  const data={
+    schema:'IWXA_T3_ORIGINAL_COMPANY_WORK_RECORD/1',
+    kind:'RESULT',artifactId:'RES-public-accepted',
+    operationId:'accepted:RES-public-accepted',
+    organizationId:'org:public-company',workspaceId:workspace,
+    executorId:'person:public-worker',taskId:'task:public-graph-test',
+    taskRevisionId:'a'.repeat(64),taskPackageSha256:'b'.repeat(64),
+    mimeType:'application/json',text:completeText,
+    sha256:sha(Buffer.from(completeText,'utf8')),
+    sourceKind:'ORIGINAL_AGENT_HUMAN_ACCEPTED',
+  };
+  const companyKey=sha(Buffer.from(JSON.stringify([
+    data.organizationId,data.workspaceId,data.taskId,
+    data.taskRevisionId,data.kind,data.artifactId,
+  ]),'utf8'));
+  const companyGraph={
+    workspace_id:workspace,idempotency_key:companyKey,
+    object:{
+      object_id:'company:work:'+companyKey,
+      schema_id:'iwxa.t3.company-work-record',schema_version:'1.0.0',
+      base_revision:0,data,
+    },
+    relation_puts:[],relation_deletes:[],
+    event:{event_type:'iwxa.company.work-record.committed',
+      payload:{
+        schema:data.schema,kind:data.kind,artifactId:data.artifactId,
+        operationId:data.operationId,organizationId:data.organizationId,
+        workspaceId:data.workspaceId,executorId:data.executorId,
+        taskId:data.taskId,taskRevisionId:data.taskRevisionId,
+        taskPackageSha256:data.taskPackageSha256,
+        artifactSha256:data.sha256,sourceKind:data.sourceKind,
+        objectId:'company:work:'+companyKey,
+      }},
+  };
   const probe=origin+'/__original_agent_d6_kernel_probe__';
   const ready=async()=>{
     browser=await launch();
@@ -198,27 +239,54 @@ try{
   assert.equal(written.idempotencyKey,graph.idempotency_key);
   assert.ok(written.eventId,
     'the real inherited Kernel must persist an original Event');
+  const companyWritten=await page.evaluate(async({serviceId,companyGraph})=>{
+    const kernel=await window.IWXA.connect({service_id:serviceId});
+    const receipt=await kernel.t1.commitObjectGraph(companyGraph);
+    return {revision:receipt.object?.revision,
+      objectId:receipt.object?.object_id,
+      eventId:receipt.event?.event_id,
+      idempotencyKey:receipt.event?.idempotency_key};
+  },{serviceId,companyGraph});
+  assert.equal(companyWritten.revision,1);
+  assert.equal(companyWritten.objectId,companyGraph.object.object_id);
+  assert.equal(companyWritten.idempotencyKey,companyKey);
 
   // Completely close the browser process between independent Kernel reads.
   // Do not call commitObjectGraph again, and do not fake either receipt.
   for(let coldIndex=1;coldIndex<=2;coldIndex++){
     await browser.close();browser=null;
     const coldPage=await ready();
-    const observed=await coldPage.evaluate(async({serviceId,graph,written})=>{
+    const observed=await coldPage.evaluate(async({
+      serviceId,graph,written,companyGraph,companyWritten
+    })=>{
       const kernel=await window.IWXA.connect({service_id:serviceId});
       const raw=await kernel.t1.getObject(
         graph.workspace_id,graph.object.object_id);
+      const company=await kernel.t1.getObject(
+        companyGraph.workspace_id,companyGraph.object.object_id);
       const events=await kernel.t1.listEventsSince(graph.workspace_id);
-      return {object:raw?.object??null,matched:events.filter(e=>
-        e.event_id===written.eventId&&
-        e.event_type===graph.event.event_type&&
-        e.idempotency_key===graph.idempotency_key)};
-    },{serviceId,graph,written});
+      return {object:raw?.object??null,
+        company:company?.object??null,
+        matched:events.filter(e=>
+          e.event_id===written.eventId&&
+          e.event_type===graph.event.event_type&&
+          e.idempotency_key===graph.idempotency_key),
+        companyEvents:events.filter(e=>
+          e.event_id===companyWritten.eventId&&
+          e.event_type===companyGraph.event.event_type&&
+          e.idempotency_key===companyGraph.idempotency_key)};
+    },{serviceId,graph,written,companyGraph,companyWritten});
     assert.equal(observed.object?.revision,1);
     assert.deepEqual(observed.object.data,graph.object.data);
     assert.equal(observed.matched.length,1,
       'each cold original T2 read must see the same one Event');
+    assert.equal(observed.company?.revision,1);
+    assert.deepEqual(observed.company.data,companyGraph.object.data);
+    assert.equal(observed.company.data.sha256,data.sha256);
+    assert.equal(observed.companyEvents.length,1,
+      'company Result must survive both original T2 cold Event reads');
   }
+  console.log('AGENT_COMPANY_COMPLETE_TEXT_ORIGINAL_KERNEL_TWO_COLD_READS_PASS');
   console.log('AGENT_D6_ORIGINAL_KERNEL_OBJECT_EVENT_TWO_COLD_READS_PASS');
   console.log('AGENT_D6_ORIGINAL_QUALIFIED_ONE_DIST_PROFILE_PASS');
 }finally{
