@@ -1,7 +1,7 @@
-name: D09 HOP T2 pixel motion integration original Host witness
+name: D09 HOP T2 reusable characters original Host witness
 on:
   push:
-    branches: [work/2026-11-20-d09-motion-qualification]
+    branches: [work/2026-11-20-d09-character-qualification]
     paths: [.github/workflows/d09-hop-t2-avatar-integrated-witness.yml]
   workflow_dispatch:
 permissions:
@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 1f73174b5631799017394ac9a44024ddd2837239
+          ref: 3330d321a4a01097caef39869106c0b9cedc277f
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Set up Node 24
@@ -89,6 +89,7 @@ jobs:
             exit 1
           }
           echo D09_T2_AVATAR_NATIVE=PASS
+          echo D09_CHARACTER_NATIVE_IWXA=PASS
       - name: Qualify real native IWXA export of all 24 seed remixes
         shell: bash
         run: |
