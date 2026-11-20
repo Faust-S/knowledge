@@ -227,6 +227,13 @@ export function createTrustedOriginalCompanyWorkspacePersistence({
         organizationId:task.organizationId,artifactSha256:source.sha256});
     }catch(error){
       if(dispatched)unknown=true;
+      else if(error&&typeof error==='object'){
+        // No commitObjectGraph dispatch occurred. Missing Workspace,
+        // revoked JIT and changed accepted source are original pre-write
+        // refusals, not uncertain writes. Never freeze a legitimate future
+        // company operation merely because a read-only preflight failed.
+        error.outcome='DENIED';
+      }
       throw error;
     }finally{inFlight=false;}
   }

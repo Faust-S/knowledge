@@ -128,10 +128,12 @@ test('company document and Task stay in original signed Workspace, not personal 
     assert.equal(fx.commits,1);
   }
 });
-test('no original signed object.write grant denies company commit',async()=>{
+test('no original signed object.write grant denies company commit before dispatch',async()=>{
   const fx=fixture({writeRight:false});
-  await assert.rejects(fx.make().commit('RESULT','RES-accepted'),
-    {code:'T3_COMPANY_SIGNED_JIT_REQUIRED'});
+  const port=fx.make();
+  await assert.rejects(port.commit('RESULT','RES-accepted'),
+    {code:'T3_COMPANY_SIGNED_JIT_REQUIRED',outcome:'DENIED'});
+  assert.equal(port.outcomeUnknown,false);
   assert.equal(fx.commits,0);
 });
 test('changing original Task during source read refuses before Kernel write',async()=>{
