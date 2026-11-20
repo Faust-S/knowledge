@@ -18,6 +18,7 @@ const digest=s=>createHash('sha256').update(s,'utf8').digest('hex');
 const fail=code=>{throw Object.assign(Error(code),{code});};
 const requireThat=(ok,code)=>{if(!ok)fail(code);};
 const readOnlyAbsent=error=>error?.code==='OBJECT_NOT_FOUND';
+const workspaceAbsent=error=>error?.code==='WORKSPACE_NOT_FOUND';
 function scope(task){
   requireThat(task&&typeof task==='object'&&!Array.isArray(task)&&
     ['organizationId','workspaceId','executorId','taskId'].every(k=>id(task[k]))&&
@@ -119,12 +120,46 @@ export function createTrustedOriginalCompanyWorkspacePersistence({
     requireThat(eq(recent,original,Object.keys(original)),
       'T3_COMPANY_SIGNED_TASK_CHANGED');
   };
+  async function observedWorkspace(task){
+    let ws=null;
+    try{ws=await signed('getWorkspace').getWorkspace(task.workspaceId);}
+    catch(error){if(!workspaceAbsent(error))throw error;}
+    if(ws!==null&&ws!==undefined){
+      requireThat(ws.workspace_id===task.workspaceId&&ws.deleted_at==null,
+        'T3_COMPANY_ORIGINAL_WORKSPACE_NOT_READY');
+      return ws;
+    }
+    return null; // Original T2 says missing, never a permission denial
+  }
+  async function ensureCompanyWorkspace(task){
+    await unchanged(task);
+    requireThat(kernel.hasOperation('t1.createWorkspace'),
+      'T3_COMPANY_ORIGINAL_CREATE_OPERATION_UNAVAILABLE');
+    // A signed company key may include the independent original
+    // workspace.create ACTION. Its absence never authorizes fallback
+    // creation or a new Store. A lost ACK is checked by original readback.
+    const create=signed('createWorkspace');
+    let createError=null;
+    try{
+      await create.createWorkspace({
+        workspace_id:task.workspaceId,profile:'generic',
+      });
+    }catch(error){createError=error;}
+    const observed=await observedWorkspace(task);
+    if(observed?.workspace_id===task.workspaceId&&observed.profile==='generic'){
+      await unchanged(task);
+      return;
+    }
+    if(createError?.outcome==='DENIED')throw createError;
+    unknown=true; // No second create after an ambiguous original write
+    if(createError)throw createError;
+    fail('T3_COMPANY_ORIGINAL_CREATE_READBACK_MISSING');
+  }
   async function recorded(task,kind,artifactId){
     const where=locator(task,kind,artifactId);
     await unchanged(task);
-    const ws=await signed('getWorkspace').getWorkspace(where.workspace_id);
-    requireThat(ws?.workspace_id===where.workspace_id&&
-      ws.deleted_at==null,'T3_COMPANY_ORIGINAL_WORKSPACE_NOT_READY');
+    const ws=await observedWorkspace(task);
+    if(ws===null)return {where,record:null,workspaceMissing:true};
     let read;
     try{read=await signed('getObject').getObject(where.workspace_id,where.object_id);}
     catch(error){
@@ -193,7 +228,13 @@ export function createTrustedOriginalCompanyWorkspacePersistence({
       const source=freezeSource(await readInstalledCompanyArtifact({
         kind,artifactId,task:structuredClone(task)}),task,kind,artifactId);
       await unchanged(task);
-      const existing=await recorded(task,kind,artifactId);
+      let existing=await recorded(task,kind,artifactId);
+      if(existing.workspaceMissing){
+        await ensureCompanyWorkspace(task);
+        existing=await recorded(task,kind,artifactId);
+        requireThat(!existing.workspaceMissing,
+          'T3_COMPANY_ORIGINAL_CREATE_READBACK_MISSING');
+      }
       if(existing.record){
         requireThat(eq(existing.record.data,source,
           ['kind','artifactId','operationId','organizationId','workspaceId',

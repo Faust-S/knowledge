@@ -9,11 +9,14 @@ import {createTrustedOriginalCompanyWorkspacePersistence,
 // separate private Ed25519 issuer are qualified by their existing suites.
 const sha=s=>createHash('sha256').update(s).digest('hex');
 function fixture({text='Результат исследования. '.repeat(60000),
-  lostAck=false,writeRight=true,jitDenied=false,mutateSource=null,kind='RESULT'}={}){
+  lostAck=false,writeRight=true,createRight=true,workspaceMissing=false,
+  lostCreateAck=false,jitDenied=false,mutateSource=null,kind='RESULT'}={}){
   let task={organizationId:'org:factory',workspaceId:'ws:factory',
     executorId:'person:employee',taskId:'task:signed',
     taskRevisionId:'a'.repeat(64),packageSha256:'b'.repeat(64)};
-  let stored=null,events=[],commits=0,active=true,writeJit=0;
+  let stored=null,events=[],commits=0,creates=0,active=true,writeJit=0;
+  let workspace=workspaceMissing?null:{workspace_id:'ws:factory',profile:'generic',
+    deleted_at:null};
   const context={kind:'CORP',context_id:'ctx:original',
     actor_id:'person:employee',principal_id:'org:factory',
     organization_id:'org:factory',role_id:'role:worker',
@@ -22,7 +25,8 @@ function fixture({text='Результат исследования. '.repeat(60
     purpose:'workspace.work',scope_revision:1};
   const access={
     currentContext:()=>({...context}),
-    actionFor:op=>op==='t1.commitObjectGraph'?'object.write':'workspace.read',
+    actionFor:op=>op==='t1.commitObjectGraph'?'object.write':
+      op==='t1.createWorkspace'?'workspace.create':'workspace.read',
     operationDigest:x=>sha(JSON.stringify(x)),
     authorize:request=>{
       if(request.action==='object.write')writeJit++;
@@ -44,8 +48,20 @@ function fixture({text='Результат исследования. '.repeat(60
   const kernel={
     sessionInfo:{contract_version:'1.3.0',runtime_version:'0.3.6'},
     hasOperation:op=>['t1.getWorkspace','t1.getObject',
-      't1.listEventsSince','t1.commitObjectGraph'].includes(op),
-    getWorkspace:async ws=>({workspace_id:ws,deleted_at:null}),
+      't1.listEventsSince','t1.commitObjectGraph',
+      't1.createWorkspace'].includes(op),
+    getWorkspace:async ws=>workspace&&workspace.workspace_id===ws
+      ?structuredClone(workspace):null,
+    createWorkspace:async input=>{
+      creates++;
+      assert.equal(input.workspace_id,task.workspaceId);
+      assert.equal(input.profile,'generic');
+      if(workspace)throw Error('ORIGINAL_WORKSPACE_EXISTS');
+      workspace={workspace_id:input.workspace_id,profile:input.profile,
+        deleted_at:null};
+      if(lostCreateAck)throw Error('ORIGINAL_WORKSPACE_CREATE_ACK_LOST');
+      return structuredClone(workspace);
+    },
     getObject:async(ws,id)=>stored&&stored.object_id===id&&
         stored.workspace_id===ws
       ?{object:structuredClone(stored),
@@ -88,14 +104,16 @@ function fixture({text='Результат исследования. '.repeat(60
         kind==='TASK'?'ORIGINAL_SIGNED_TASK':'ORIGINAL_COMPANY_WORKAREA'};
   };
   const make=()=>createTrustedOriginalCompanyWorkspacePersistence({
-    kernel,selectSignedAccess:op=>op==='commitObjectGraph'&&!writeRight
-      ?null:access,
+    kernel,selectSignedAccess:op=>
+      (op==='commitObjectGraph'&&!writeRight)||
+      (op==='createWorkspace'&&!createRight)?null:access,
     readOriginalSignedTask:()=>task,
     readInstalledCompanyArtifact:artifact,
     isHostActive:()=>active,
   });
   return {make,mutateTask:values=>{task={...task,...values};},
-    get commits(){return commits;},get stored(){return stored;},
+    get commits(){return commits;},get creates(){return creates;},
+    get workspace(){return workspace;},get stored(){return stored;},
     get events(){return events;},get writeJit(){return writeJit;},
     stop:()=>{active=false;},tamperData:()=>{stored.data.text+='ALTERED';},
     tamperEvent:()=>{events[0].payload.artifactSha256='f'.repeat(64);}};
@@ -118,6 +136,37 @@ test('complete accepted Result is original company Object + exact Event, with tw
   const replay=await p.commit('RESULT','RES-accepted');
   assert.equal(replay.alreadyCommitted,true);
   assert.equal(fx.commits,1);
+});
+test('company invitation key auto-creates original T2 Workspace without manual UI click',async()=>{
+  const fx=fixture({workspaceMissing:true});
+  const result=await fx.make().commit('TASK','task:signed');
+  assert.equal(result.state,'COMPANY_ORIGINAL_COMMITTED');
+  assert.equal(fx.workspace.workspace_id,'ws:factory');
+  assert.equal(fx.workspace.profile,'generic');
+  assert.equal(fx.creates,1);
+  assert.equal(fx.commits,1);
+  assert.equal((await fx.make().recover('TASK','task:signed')).state,
+    'COMPANY_ORIGINAL_COMMITTED');
+  assert.equal(fx.creates,1); // cold read never creates a second Workspace
+});
+test('company key lacking signed workspace.create cannot create a missing Workspace',async()=>{
+  const fx=fixture({workspaceMissing:true,createRight:false});
+  const port=fx.make();
+  assert.equal((await port.read('TASK','task:signed')).state,'NOT_FOUND');
+  await assert.rejects(port.commit('TASK','task:signed'),
+    {code:'T3_COMPANY_SIGNED_JIT_REQUIRED',outcome:'DENIED'});
+  assert.equal(fx.creates,0);
+  assert.equal(fx.commits,0);
+  assert.equal(port.outcomeUnknown,false);
+});
+test('original T2 lost create ACK is readback-reconciled without a second create',async()=>{
+  const fx=fixture({workspaceMissing:true,lostCreateAck:true});
+  const p=fx.make();
+  const receipt=await p.commit('RESULT','RES-accepted');
+  assert.equal(receipt.originalKernelReadback,true);
+  assert.equal(fx.creates,1);
+  assert.equal(fx.commits,1);
+  assert.equal((await fx.make().read('RESULT','RES-accepted')).originalKernelReadback,true);
 });
 test('company document and Task stay in original signed Workspace, not personal area',async()=>{
   for(const kind of ['TASK','DRAFT','DOCUMENT','HISTORY']){
