@@ -140,4 +140,49 @@ jobs:
           }
           grep -E 'D09_(WORKSPACE|EXCHANGE|LIFECYCLE|T2_REAL_BROWSER|ENGINEERING_)' "$RUNNER_TEMP/d09-browser.log" | tail -15 || true
           echo D09_ORIGINAL_T2_GUI=PASS
+      - name: Build isolated production-identity HOP with original T2
+        shell: bash
+        env:
+          D09_ORIGIN: https://hop.iwxa.ru:9443
+          D09_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/d09-kernel
+          D09_ASSEMBLY_ONLY: '1'
+          D09_ASSEMBLY_ONLY_CONSENT: NO_NEW_TESTS_EXACT_QUALIFIED_INPUTS
+        run: |
+          export D09_T2_CANONICAL_SOURCE="$RUNNER_TEMP/d09-normative-t2/t2/current/final-successor/canonical-source"
+          npm run build > "$RUNNER_TEMP/d09-production-build.log" 2>&1 || {
+            echo D09_PRODUCTION_IDENTITY_BUILD=FAIL
+            grep -oE '(D09|T2|IWXA)_[A-Z0-9_:.]+' "$RUNNER_TEMP/d09-production-build.log" | sort -u | tail -15 || true
+            exit 1
+          }
+          node --input-type=module -e '
+            import {readFileSync,existsSync} from "node:fs";
+            import assert from "node:assert/strict";
+            const c=JSON.parse(readFileSync("dist/_iwxa/domain.json","utf8"));
+            assert.equal(c.origin,"https://hop.iwxa.ru:9443");
+            assert.equal(c.status,"production-candidate-not-activated");
+            assert.ok(!c.modules.some(m=>m.host_role==="workspace-first-run-provisioner"));
+            assert.ok(!existsSync("dist/_iwxa/services/ru.iwxa.hop.first-run-provisioner.json"));
+            const host=JSON.parse(readFileSync("dist/_iwxa/services/ru.iwxa.hop.host.json","utf8"));
+            const auditor=JSON.parse(readFileSync("dist/_iwxa/services/ru.iwxa.hop.product-auditor.json","utf8"));
+            assert.equal(host.permissions.workspace.create,true);
+            assert.equal(auditor.permissions.workspace.create,false);
+          ' || { echo D09_PRODUCTION_PASSPORT=FAIL; exit 1; }
+          echo D09_PRODUCTION_IDENTITY_BUILD=PASS
+          echo D09_PRODUCTION_PASSPORT=PASS
+      - name: Original T2 production first Workspace and process-cold native readback
+        shell: bash
+        run: |
+          export D09_PREVIEW_PRODUCTION_LOOPBACK=1
+          export D09_PREVIEW_CERT_PATH="$RUNNER_TEMP/d09-tls/cert.pem"
+          export D09_PREVIEW_KEY_PATH="$RUNNER_TEMP/d09-tls/key.pem"
+          if command -v google-chrome >/dev/null 2>&1; then
+            export PUPPETEER_EXECUTABLE_PATH="$(command -v google-chrome)"
+          fi
+          node tests/d09-original-t2-production-first-run.browser.mjs > "$RUNNER_TEMP/d09-production-first-run.log" 2>&1 || {
+            grep -E 'D09_PRODUCTION_[A-Z0-9_]+=(PASS|FAIL)' "$RUNNER_TEMP/d09-production-first-run.log" | tail -12 || true
+            echo D09_ORIGINAL_PRODUCTION_FIRST_WORKSPACE=FAIL
+            exit 1
+          }
+          grep -E 'D09_PRODUCTION_[A-Z0-9_]+=PASS' "$RUNNER_TEMP/d09-production-first-run.log" | tail -12 || true
+          echo D09_ORIGINAL_PRODUCTION_FIRST_WORKSPACE=PASS
       # Never publish private source, runtime, ZIP, screenshots or browser profiles.
