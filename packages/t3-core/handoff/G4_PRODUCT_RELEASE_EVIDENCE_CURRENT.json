@@ -2671,9 +2671,17 @@
         "offline_delivery": "PENDING_COMPANY_RECEIPT_NOT_DELIVERED_UNTIL_ORIGINAL_RECIPIENT_READBACK",
         "authorization": "D1_SIGNED_JIT_REVOCATION_APPLIES_ON_ENTRY_WRITE_EXPORT_AND_RECEIPT",
         "agent_development_sha": "c87eec6a6b889b863a000b2c2b05ce0f2a0e0ccf",
-        "agent_development_status": "SOURCE_QUALIFICATION_PENDING_NOT_INSTALLED",
+        "agent_development_status": "SOURCE_PASS_33_EXISTING_TESTS_WINDOWS_AND_LINUX_NOT_INSTALLED",
+        "agent_development_source_evidence": {
+          "run_id": 44790833889,
+          "agent_sha": "c87eec6a6b889b863a000b2c2b05ce0f2a0e0ccf",
+          "windows": "33/33 PASS",
+          "linux": "33/33 PASS",
+          "worker_node_syntax": "PASS",
+          "installed": "NOT_ACCEPTED_NEW_SHA"
+        },
         "release_status": "INCOMPLETE",
-        "payload_boundary": "Agent Core may accept long documents but original signed interop.result.v2 limits result text to 100000 UTF16 code units; complete documents and attachments require original T2 Object/Exchange payload ownership, not trimming or a second Result"
+        "payload_boundary": "Agent Core and original signed interop.result.v2 now permit up to 2000000 UTF16 units on the qualified source candidates (Agent c87eec6a / T3 75a36f82). Larger documents and binary attachments still require original T2 Object/Exchange with provenance; no truncation or second Result."
       },
       "original_t3_final_candidate_sha": "75a36f8273552b48ad370ae626e7b5290edb08d9",
       "person_d7_source_qualification": {
@@ -2683,11 +2691,13 @@
         "conclusion": "SOURCE_PASS_NOT_INSTALLED"
       },
       "original_owner_candidate_d3_qualification": {
-        "state": "QUEUED_SOURCE_ONLY",
+        "state": "SOURCE_PASS_NOT_INSTALLED",
         "candidate_sha": "75a36f8273552b48ad370ae626e7b5290edb08d9",
         "installed_owner_sha": "1a8267634955947bc0c6adc5614d7de176a33da2",
-        "run_id": null,
-        "conclusion": null
+        "run_id": 44790833889,
+        "conclusion": "SUCCESS",
+        "test_count": 15,
+        "proof_kind": "EXISTING_ORIGINAL_SIGNED_D3_SUITE"
       }
     },
     "required_gates": {
