@@ -86,6 +86,11 @@ test('current source and installed runs cannot borrow historical signed D3 succe
     'SOURCE_NATIVE_PROCESS_PASS_HISTORICAL');
   assert.notEqual(q.last_original_d3_source_pass.agent_sha,current.pins.installed_agent);
   assert.equal(q.current_original_d3_source.agent_sha,current.pins.installed_agent);
+  if(q.current_original_d3_source.conclusion==='SUCCESS'){
+    assert.equal(q.current_original_d3_source.evidence_level,'SOURCE_NATIVE_PROCESS_PASS');
+    assert.equal(q.current_original_d3_source.marker_count,26);
+    assert.equal(current.required_gates.D3.source,'PASS');
+  }
   assert.equal(q.current_installed_agent.agent_sha,current.pins.installed_agent);
   // Prior separate installed Qwen success remains historical at its OWN SHA.
   // A later failed run is not proof of broken production and cannot count as
