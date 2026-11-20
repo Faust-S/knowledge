@@ -35,18 +35,18 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Attest unchanged executable One Core and original T2 fixture
+      - name: Attest exact T3 engineering candidate and unchanged original T2 and BLI
         shell: bash
         run: |
           set -eu
           actual_src=$(git rev-parse HEAD:packages/t3-core/src)
           actual_t2=$(git rev-parse HEAD:packages/t3-core/qualified-runtime)
           actual_bli=$(git rev-parse HEAD:packages/t3-core/integration-sources)
-          test "$actual_src" = "51c68641f4ee9dfb6de833705cbe3294742e2bd8"
+          test "$actual_src" = "97b921f110d92a0fff1bab726ab1afca70948be2"
           test "$actual_t2" = "1594274dbf5e38214b8422ba11e8c7114bd5425c"
           test "$actual_bli" = "e17b628392fb4e2dbeba2df67fdb0a5506fc5243"
-          echo 'G4_FROZEN_EXECUTABLE_ONE_CORE_SRC_TREE_PASS'
-          echo 'G4_FROZEN_ORIGINAL_T2_AND_BLI_INPUT_TREES_PASS'
+          echo 'T3_FINAL_CANDIDATE_EXECUTABLE_SOURCE_TREE_PASS'
+          echo 'T3_ORIGINAL_T2_AND_BLI_INPUT_TREES_UNCHANGED_PASS'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -202,18 +202,18 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Attest unchanged executable One Core and original T2 fixture
+      - name: Attest exact T3 engineering candidate and unchanged original T2 and BLI
         shell: bash
         run: |
           set -eu
           actual_src=$(git rev-parse HEAD:packages/t3-core/src)
           actual_t2=$(git rev-parse HEAD:packages/t3-core/qualified-runtime)
           actual_bli=$(git rev-parse HEAD:packages/t3-core/integration-sources)
-          test "$actual_src" = "51c68641f4ee9dfb6de833705cbe3294742e2bd8"
+          test "$actual_src" = "97b921f110d92a0fff1bab726ab1afca70948be2"
           test "$actual_t2" = "1594274dbf5e38214b8422ba11e8c7114bd5425c"
           test "$actual_bli" = "e17b628392fb4e2dbeba2df67fdb0a5506fc5243"
-          echo 'G4_FROZEN_EXECUTABLE_ONE_CORE_SRC_TREE_PASS'
-          echo 'G4_FROZEN_ORIGINAL_T2_AND_BLI_INPUT_TREES_PASS'
+          echo 'T3_FINAL_CANDIDATE_EXECUTABLE_SOURCE_TREE_PASS'
+          echo 'T3_ORIGINAL_T2_AND_BLI_INPUT_TREES_UNCHANGED_PASS'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -401,18 +401,18 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-      - name: Attest unchanged executable One Core and original T2 fixture
+      - name: Attest exact T3 engineering candidate and unchanged original T2 and BLI
         shell: bash
         run: |
           set -eu
           actual_src=$(git rev-parse HEAD:packages/t3-core/src)
           actual_t2=$(git rev-parse HEAD:packages/t3-core/qualified-runtime)
           actual_bli=$(git rev-parse HEAD:packages/t3-core/integration-sources)
-          test "$actual_src" = "51c68641f4ee9dfb6de833705cbe3294742e2bd8"
+          test "$actual_src" = "97b921f110d92a0fff1bab726ab1afca70948be2"
           test "$actual_t2" = "1594274dbf5e38214b8422ba11e8c7114bd5425c"
           test "$actual_bli" = "e17b628392fb4e2dbeba2df67fdb0a5506fc5243"
-          echo 'G4_FROZEN_EXECUTABLE_ONE_CORE_SRC_TREE_PASS'
-          echo 'G4_FROZEN_ORIGINAL_T2_AND_BLI_INPUT_TREES_PASS'
+          echo 'T3_FINAL_CANDIDATE_EXECUTABLE_SOURCE_TREE_PASS'
+          echo 'T3_ORIGINAL_T2_AND_BLI_INPUT_TREES_UNCHANGED_PASS'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -465,18 +465,18 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Attest unchanged executable One Core and original T2 fixture
+      - name: Attest exact T3 engineering candidate and unchanged original T2 and BLI
         shell: bash
         run: |
           set -eu
           actual_src=$(git rev-parse HEAD:packages/t3-core/src)
           actual_t2=$(git rev-parse HEAD:packages/t3-core/qualified-runtime)
           actual_bli=$(git rev-parse HEAD:packages/t3-core/integration-sources)
-          test "$actual_src" = "51c68641f4ee9dfb6de833705cbe3294742e2bd8"
+          test "$actual_src" = "97b921f110d92a0fff1bab726ab1afca70948be2"
           test "$actual_t2" = "1594274dbf5e38214b8422ba11e8c7114bd5425c"
           test "$actual_bli" = "e17b628392fb4e2dbeba2df67fdb0a5506fc5243"
-          echo 'G4_FROZEN_EXECUTABLE_ONE_CORE_SRC_TREE_PASS'
-          echo 'G4_FROZEN_ORIGINAL_T2_AND_BLI_INPUT_TREES_PASS'
+          echo 'T3_FINAL_CANDIDATE_EXECUTABLE_SOURCE_TREE_PASS'
+          echo 'T3_ORIGINAL_T2_AND_BLI_INPUT_TREES_UNCHANGED_PASS'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -525,18 +525,18 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Attest unchanged executable One Core and original T2 fixture
+      - name: Attest exact T3 engineering candidate and unchanged original T2 and BLI
         shell: bash
         run: |
           set -eu
           actual_src=$(git rev-parse HEAD:packages/t3-core/src)
           actual_t2=$(git rev-parse HEAD:packages/t3-core/qualified-runtime)
           actual_bli=$(git rev-parse HEAD:packages/t3-core/integration-sources)
-          test "$actual_src" = "51c68641f4ee9dfb6de833705cbe3294742e2bd8"
+          test "$actual_src" = "97b921f110d92a0fff1bab726ab1afca70948be2"
           test "$actual_t2" = "1594274dbf5e38214b8422ba11e8c7114bd5425c"
           test "$actual_bli" = "e17b628392fb4e2dbeba2df67fdb0a5506fc5243"
-          echo 'G4_FROZEN_EXECUTABLE_ONE_CORE_SRC_TREE_PASS'
-          echo 'G4_FROZEN_ORIGINAL_T2_AND_BLI_INPUT_TREES_PASS'
+          echo 'T3_FINAL_CANDIDATE_EXECUTABLE_SOURCE_TREE_PASS'
+          echo 'T3_ORIGINAL_T2_AND_BLI_INPUT_TREES_UNCHANGED_PASS'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -566,18 +566,18 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
-      - name: Attest unchanged executable One Core and original T2 fixture
+      - name: Attest exact T3 engineering candidate and unchanged original T2 and BLI
         shell: bash
         run: |
           set -eu
           actual_src=$(git rev-parse HEAD:packages/t3-core/src)
           actual_t2=$(git rev-parse HEAD:packages/t3-core/qualified-runtime)
           actual_bli=$(git rev-parse HEAD:packages/t3-core/integration-sources)
-          test "$actual_src" = "51c68641f4ee9dfb6de833705cbe3294742e2bd8"
+          test "$actual_src" = "97b921f110d92a0fff1bab726ab1afca70948be2"
           test "$actual_t2" = "1594274dbf5e38214b8422ba11e8c7114bd5425c"
           test "$actual_bli" = "e17b628392fb4e2dbeba2df67fdb0a5506fc5243"
-          echo 'G4_FROZEN_EXECUTABLE_ONE_CORE_SRC_TREE_PASS'
-          echo 'G4_FROZEN_ORIGINAL_T2_AND_BLI_INPUT_TREES_PASS'
+          echo 'T3_FINAL_CANDIDATE_EXECUTABLE_SOURCE_TREE_PASS'
+          echo 'T3_ORIGINAL_T2_AND_BLI_INPUT_TREES_UNCHANGED_PASS'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
