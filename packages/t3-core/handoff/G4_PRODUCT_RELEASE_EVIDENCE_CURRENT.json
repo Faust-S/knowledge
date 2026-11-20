@@ -2610,12 +2610,12 @@
       "B0": {
         "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "One Core source and installed Center qualified. Agent c68387b first SID passed setup, real Qwen, GUI, cold recovery, repair and rollback in #44753501324. Second SID cold window did not exit after close."
+        "remaining": "One Core source and installed Center qualified. Agent c68387b passed real Qwen, GUI, cold, repair and rollback, plus independent second SID install, cold UIA, graceful close and uninstall preserving data in #44756816999."
       },
       "D1": {
         "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "Installed Center signed owner and DPAPI passed #44726573571. Agent c68387b second SID cold GUI close requires requalification after checking draft readiness."
+        "remaining": "Installed Center signed owner and DPAPI passed #44726573571. Agent c68387b independent second Windows SID passed #44756816999. Signed employee-to-Admin installed handoff remains."
       },
       "D2": {
         "source": "PARTIAL",
@@ -2625,7 +2625,7 @@
       "D3": {
         "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "Signed D3 c68387b passed #44753688093. Agent first SID passed #44753501324. Second SID graceful close and physical signed Result transfer to installed Center, separate Human ACCEPT/APPLY and two Kernel cold reads remain."
+        "remaining": "Signed source D3 passed #44753688093 and installed Agent passed on both Windows SIDs in #44756816999. Physical signed Result transfer into installed Admin Center, separate Human ACCEPT and APPLY, and two cold Kernel readbacks remain."
       },
       "D4": {
         "source": "PASS",
@@ -2663,10 +2663,18 @@
         "marker_count": 26
       },
       "current_installed_agent": {
-        "run_id": null,
+        "run_id": 44756816999,
         "agent_sha": "c68387bdb6a7507fe412b62639d9c091d7b933dc",
-        "conclusion": "QUEUED",
-        "evidence_level": "NOT_YET_ACCEPTED"
+        "conclusion": "SUCCESS",
+        "evidence_level": "INSTALLED_PRODUCT_PASS",
+        "overall_run_conclusion": "SUCCESS",
+        "scope": "STANDALONE_NATIVE_GUI_QWEN_REVIEW_K03_COLD_SETUP_REPAIR_ROLLBACK_NOT_CROSS_PRODUCT",
+        "final_markers": [
+          "G4_AGENT06_INSTALLED_GENUINE_SETUP_AND_ONE_CORE_PASS",
+          "G4_AGENT06_INSTALLED_NATIVE_GUI_QWEN_REVIEW_COLD_PASS",
+          "G4_AGENT06_INSTALLED_SETUP_CORE_REPAIR_ROLLBACK_PASS",
+          "G4_AGENT06_INSTALLED_NOT_CROSS_USER_ADMIN_ACCEPT_APPLY"
+        ]
       },
       "latest_installed_failure": {
         "run_id": 44710719858,
@@ -2709,11 +2717,17 @@
         "scope": "SECOND_INDEPENDENT_WINDOWS_SID_SAME_INTERACTIVE_SESSION_CROSS_ACCOUNT_UIA"
       },
       "current_installed_agent_second_sid": {
-        "run_id": null,
+        "run_id": 44756816999,
         "agent_sha": "c68387bdb6a7507fe412b62639d9c091d7b933dc",
-        "conclusion": "QUEUED",
-        "evidence_level": "NOT_YET_ACCEPTED",
-        "scope": "ORIGINAL_GUEST_WINDOWS_SID_SETUP_NATIVE_GUI_COLD_UIA_UNINSTALL_PRESERVE_NO_CORPORATE_D3"
+        "conclusion": "SUCCESS",
+        "evidence_level": "INSTALLED_SECOND_WINDOWS_SID_GUI_PASS_NOT_CORPORATE_D3",
+        "scope": "ORIGINAL_GUEST_WINDOWS_SID_SETUP_NATIVE_GUI_COLD_UIA_UNINSTALL_PRESERVE_NO_CORPORATE_D3",
+        "final_markers": [
+          "G4_AGENT_INSTALLED_GUEST_SECOND_WINDOWS_SID_PASS",
+          "G4_AGENT_INSTALLED_GUEST_ORIGINAL_SETUP_CORE_PASS",
+          "G4_AGENT_INSTALLED_GUEST_NATIVE_GUI_COLD_UIA_PASS",
+          "G4_AGENT_INSTALLED_GUEST_UNINSTALL_PRESERVE_PASS"
+        ]
       },
       "previous_exact_agent_source_d3_pass": {
         "run_id": 44723931657,
