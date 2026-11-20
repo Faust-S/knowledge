@@ -327,12 +327,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             # Only exact lower-case machine codes leave the private build log.
             # Do not print private source lines, stderr, paths, payloads or EXE.
+            $buildText = ''
+            $buildFile = Join-Path $output 'logs/original-t3-compiled-host.log'
+            if(Test-Path -LiteralPath $buildFile -PathType Leaf){
+              $buildText = Get-Content -LiteralPath $buildFile -Raw -ErrorAction SilentlyContinue
+            }
             $stageFlags = [ordered]@{
               OUTPUT_ROOT = (Test-Path -LiteralPath $output -PathType Container)
               T2_EXTRACT = (Test-Path -LiteralPath (Join-Path $output 'build/qualified-original-t2') -PathType Container)
               T3_DEPENDENCIES = (Test-Path -LiteralPath (Join-Path $output 'logs/original-t3-dependencies.log') -PathType Leaf)
               T3_BUILD = (Test-Path -LiteralPath (Join-Path $output 'logs/original-t3-compiled-host.log') -PathType Leaf)
               SIGNED_WORKSPACE_COMPILED = (Test-Path -LiteralPath (Join-Path $core 'dist/signed-workspace.html') -PathType Leaf)
+              ISOLATED_SIGNED_WORKSPACE_COMPILED = (Test-Path -LiteralPath (Join-Path $core 'dist/isolated-signed-workspace.html') -PathType Leaf)
+              TRUSTED_KERNEL_REALM_COMPILED = (Test-Path -LiteralPath (Join-Path $core 'dist/trusted-kernel-realm.html') -PathType Leaf)
+              T3_VITE_BUILT = ($buildText -match '(?i)built in [0-9.]+(?:ms|s)')
+              T3_STATIC_ROUTES_MATERIALIZED = ($buildText -match 'static directory routes materialized')
+              ORIGINAL_AGENT_PROFILE_PRESENT = (Test-Path -LiteralPath (Join-Path $agent 'config/original-t2-agent-product.json') -PathType Leaf)
               ORIGINAL_DIST_BUILD_RECEIPT_TEXT = (Test-Path -LiteralPath (Join-Path $output 'logs/original-agent-one-dist-build.json') -PathType Leaf)
               ORIGINAL_ONE_DIST = (Test-Path -LiteralPath (Join-Path $output 'build/original-agent-one-dist-receipt.json') -PathType Leaf)
               AGENT_PACKAGE = (Test-Path -LiteralPath (Join-Path $output 'logs/private-build-result.json') -PathType Leaf)
@@ -340,6 +350,16 @@ jobs:
             }
             foreach ($name in $stageFlags.Keys) {
               if ($stageFlags[$name]) { Write-Host ('G4_AGENT06_PRIVATE_BUILD_STAGE_REACHED ' + $name) }
+            }
+            # Fixed diagnostic classes only; never echo source build logs.
+            $buildFailureClass = 'NONE'
+            foreach ($cls in @('SyntaxError','TypeError','ReferenceError',
+                'ERR_MODULE_NOT_FOUND','ERR_PACKAGE_PATH_NOT_EXPORTED',
+                'ENOENT','EPERM','EACCES','RollupError')){
+              if($buildText.Contains($cls)){$buildFailureClass=$cls.ToUpperInvariant();break}
+            }
+            if($buildFailureClass -ne 'NONE'){
+              Write-Host ('G4_AGENT06_ORIGINAL_PUBLIC_BUILD_FAILURE_CLASS ' + $buildFailureClass)
             }
             # Original Setup Core is already built. On local acceptance
             # failure inspect ONLY the finite stage/code of the original
