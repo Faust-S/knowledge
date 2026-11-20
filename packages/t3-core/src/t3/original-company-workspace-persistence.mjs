@@ -273,12 +273,13 @@ export function createTrustedOriginalCompanyWorkspacePersistence({
         originalObjectId:where.object_id,workspaceId:task.workspaceId,
         organizationId:task.organizationId,artifactSha256:source.sha256});
     }catch(error){
-      if(dispatched)unknown=true;
-      else if(error&&typeof error==='object'){
-        // No commitObjectGraph dispatch occurred. Missing Workspace,
-        // revoked JIT and changed accepted source are original pre-write
-        // refusals, not uncertain writes. Never freeze a legitimate future
-        // company operation merely because a read-only preflight failed.
+      // Unknown includes a possibly dispatched original Workspace create
+      // whose ACK/readback could not be verified, not only ObjectGraph.
+      if(dispatched||unknown){
+        unknown=true;
+        if(error&&typeof error==='object')error.outcome='UNKNOWN';
+      }else if(error&&typeof error==='object'){
+        // JIT denial or missing signing key BEFORE any original write.
         error.outcome='DENIED';
       }
       throw error;
