@@ -29,9 +29,18 @@ jobs:
           }
           echo D09_STATIC_NPM=PASS
           npm run build:public-stage > "$RUNNER_TEMP/d09-static-build.log" 2>&1 || {
-            echo D09_STATIC_PUBLIC_BUILD=FAIL
-            grep -Ei 'error|fail|unexpected|cannot|not found' "$RUNNER_TEMP/d09-static-build.log" | sed -E 's#/(home|tmp|mnt)/[^[:space:]]+#<private-path>#g' | cut -c1-150 | tail -10 || true
-            exit 1
+            if grep -q 'Timed out after 30000 ms while waiting for the WS endpoint URL' "$RUNNER_TEMP/d09-static-build.log"; then
+              echo D09_CHROME_STARTUP_RETRY=1
+              npm run build:public-stage > "$RUNNER_TEMP/d09-static-build-retry.log" 2>&1 || {
+                echo D09_STATIC_PUBLIC_BUILD=FAIL
+                grep -Ei 'error|fail|unexpected|cannot|not found|timed out' "$RUNNER_TEMP/d09-static-build-retry.log" | tail -8 | cut -c1-150 || true
+                exit 1
+              }
+            else
+              echo D09_STATIC_PUBLIC_BUILD=FAIL
+              grep -Ei 'error|fail|unexpected|cannot|not found' "$RUNNER_TEMP/d09-static-build.log" | tail -8 | cut -c1-150 || true
+              exit 1
+            fi
           }
           echo D09_STATIC_PUBLIC_BUILD=PASS
           test -f dist/avatars/index.html || { echo D09_AVATARS_PRERENDER=FAIL; exit 1; }
