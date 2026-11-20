@@ -95,7 +95,12 @@ try{
   assert.equal(ps.status,0,ps.stderr?.slice(0,1500));
   assert.ok(ps.stdout.includes('T3_WINDOWS_ORIGINAL_PS51_CLI_PASS'));
   assert.equal(JSON.parse(readFileSync(psReceipt,'utf8')).local_inference_registered,false);
-  assert.equal(JSON.parse(readFileSync(psLog,'utf8')).original_runtime_unchanged,true);
+  const redirected=readFileSync(psLog);
+  assert.equal(redirected[0],0xff,'PS5.1 redirected Node JSON must carry UTF-16LE BOM');
+  assert.equal(redirected[1],0xfe);
+  // The installed Agent must parse BOM-aware, not force UTF8 here.
+  assert.equal(JSON.parse(redirected.subarray(2).toString('utf16le'))
+    .original_runtime_unchanged,true);
   console.log('T3_WINDOWS_ORIGINAL_AGENT_PS51_BUILD_AND_RECEIPT_PASS');
   console.log('T3_WINDOWS_ORIGINAL_AGENT_DESKTOP_ONE_DIST_DIRECT_CLI_PASS');
 }finally{
