@@ -30,14 +30,6 @@ jobs:
           }
           echo "D09_SITE_HEAD=$(git rev-parse HEAD)"
           echo D09_SITE_NPM=PASS
-      - name: Verify native IWXA pixel roundtrip
-        shell: bash
-        run: |
-          ./node_modules/.bin/tsx scripts/qualify-pixel-avatar-iwxa.ts > "$RUNNER_TEMP/d09-pixel-native.log" 2>&1 || {
-            echo D09_T2_AVATAR_NATIVE=FAIL
-            exit 1
-          }
-          echo D09_T2_AVATAR_NATIVE=PASS
       - name: Source, contract and HOP product checks
         shell: bash
         run: |
@@ -87,6 +79,14 @@ jobs:
             echo D09_PRODUCT_CONTRACTS=FAIL; exit 1;
           }
           echo D09_PRODUCT_CONTRACTS=PASS
+      - name: Verify native IWXA pixel roundtrip
+        shell: bash
+        run: |
+          ./node_modules/.bin/tsx scripts/qualify-pixel-avatar-iwxa.ts > "$RUNNER_TEMP/d09-pixel-native.log" 2>&1 || {
+            echo D09_T2_AVATAR_NATIVE=FAIL
+            exit 1
+          }
+          echo D09_T2_AVATAR_NATIVE=PASS
       - name: Qualify real native IWXA export of all 24 seed remixes
         shell: bash
         run: |
