@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: 107d1bb9ac10e18e09c5c39a9834a3edcdba137c
+          ref: 95a2ef595c897bfc2d935ac60736edfd569f37a0
           token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
           path: .private/site
           persist-credentials: false
@@ -27,7 +27,7 @@ jobs:
       - name: Verify exact editorial HEAD and all native screenshot checksums
         working-directory: .private/site
         run: |
-          test "$(git rev-parse HEAD)" = '107d1bb9ac10e18e09c5c39a9834a3edcdba137c' || { echo 'ARTICLES_SITE_HEAD_FAIL'; exit 1; }
+          test "$(git rev-parse HEAD)" = '95a2ef595c897bfc2d935ac60736edfd569f37a0' || { echo 'ARTICLES_SITE_HEAD_FAIL'; exit 1; }
           node scripts/check-software-publications.mjs > "$RUNNER_TEMP/articles-check.log" 2>&1 || { echo 'ARTICLES_SOURCE_GUARD_FAIL'; exit 1; }
           echo 'ARTICLES_SOURCE_AND_SCREENSHOTS_PASS'
       - name: Install exactly the site's frozen dependencies
