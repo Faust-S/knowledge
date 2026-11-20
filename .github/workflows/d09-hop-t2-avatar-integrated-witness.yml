@@ -1,7 +1,7 @@
-name: D09 HOP T2 avatar integration original Host witness
+name: D09 HOP T2 pixel motion integration original Host witness
 on:
   push:
-    branches: [work/2026-11-20-d09-avatar-qualification]
+    branches: [work/2026-11-20-d09-motion-qualification]
     paths: [.github/workflows/d09-hop-t2-avatar-integrated-witness.yml]
   workflow_dispatch:
 permissions:
@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 2c43745d0050ff5e3eb401addaaf98a30ef92766
+          ref: 1f73174b5631799017394ac9a44024ddd2837239
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Set up Node 24
@@ -70,6 +70,7 @@ jobs:
           node --check tests/d09-original-t2-project-save.browser.mjs
           node --check scripts/serve-d09-dist.mjs
           node --check tests/d09-pixel-avatar-user.browser.mjs
+          node --check tests/d09-pixel-motion-user.browser.mjs
           node --check scripts/check-d09-hosting-dist.mjs
           echo D09_BROWSER_WITNESS_SYNTAX=PASS
           npm run check:consumer-ux > "$RUNNER_TEMP/d09-ux.log" 2>&1 || {
@@ -188,6 +189,16 @@ jobs:
           }
           grep 'D09_AVATAR_.*=PASS' "$RUNNER_TEMP/d09-avatar-browser.log" | tail -8 || true
           echo D09_AVATAR_REAL_BROWSER=PASS
+          export D09_MOTION_GIF_OUTPUT="$RUNNER_TEMP/d09-motion-frames.gif"
+          ./node_modules/.bin/tsx scripts/qualify-pixel-motion-gif.ts > "$RUNNER_TEMP/d09-motion-gif.log" 2>&1 || {
+            echo D09_MOTION_REAL_GIF=FAIL; exit 1;
+          }
+          node tests/d09-pixel-motion-user.browser.mjs > "$RUNNER_TEMP/d09-motion-browser.log" 2>&1 || {
+            grep -E 'D09_MOTION_|AssertionError|Error' "$RUNNER_TEMP/d09-motion-browser.log" | tail -16 | cut -c1-200 || true
+            echo D09_MOTION_REAL_BROWSER=FAIL; exit 1;
+          }
+          grep 'D09_MOTION_.*=PASS' "$RUNNER_TEMP/d09-motion-browser.log" | tail -10 || true
+          echo D09_MOTION_REAL_BROWSER=PASS
           echo D09_ORIGINAL_T2_GUI=PASS
       - name: Build isolated production-identity HOP with original T2
         shell: bash
