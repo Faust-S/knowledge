@@ -2600,8 +2600,8 @@
     "release_scope": "PRODUCT_NEUTRAL_NO_MANDATORY_ATLAS",
     "core_release": {
       "schema": "IWXA_T3_ONE_CORE_RELEASE_SCOPE/1",
-      "status": "ACCEPTED_FOR_PRODUCT_INTEGRATION",
-      "release_subject": "ONE_FROZEN_EXECUTABLE_T3_INHERITING_ORIGINAL_T2",
+      "status": "QUALIFIED_ENGINEERING_BASELINE_NOT_FINAL_T3",
+      "release_subject": "FROZEN_T2_T3_RUNTIME_QUALIFIED_FOR_FINAL_ENGINEERING_NOT_A_PRODUCT_RELEASE",
       "source_sha": "f42e53cd28c881b2b8e04199595f9d7991f34414",
       "executable_tree_sha": "51c68641f4ee9dfb6de833705cbe3294742e2bd8",
       "normative_t2_sha": "9c64951cd78411283e8a416641c36d71e169fc1d",
@@ -2616,13 +2616,14 @@
         "installed_center": 44726573571,
         "original_signed_d3_native_source": 44753688093
       },
-      "feature_boundary": "ONE_CORE_RUNTIME_AND_PUBLIC_D1_D7_PORTS_WITH_ORIGINAL_T2_NOT_EVERY_NATIVE_OWNER",
+      "feature_boundary": "ONE_CORE_TECHNOLOGY_QUALIFIED_SOURCE_OR_SELECTED_INSTALLED_PROFILES_NOT_ALL_D1_D7_FINAL",
       "independent_release_scopes": [
-        "EACH_DESKTOP_PROGRAM",
-        "EACH_AUTONOMOUS_DOMAIN_DIST",
-        "OPTIONAL_CROSS_PRODUCT_D3_D4_D6_D7_INTEGRATION"
+        "FINAL_T3_TECHNOLOGY_RELEASE_FIRST",
+        "ONLY_AFTER_THAT_EACH_DESKTOP_PROGRAM",
+        "ONLY_AFTER_THAT_EACH_DOMAIN",
+        "OPTIONAL_OWNER_TO_OWNER_INTEGRATIONS"
       ],
-      "migration_eligible": true,
+      "migration_eligible": false,
       "auto_publish_to_sites": false
     },
     "pins": {
@@ -2632,6 +2633,29 @@
       "installed_agent": "c68387bdb6a7507fe412b62639d9c091d7b933dc",
       "installed_center": "2628c4bc1b20b4393c485d12513f029fdea8b082",
       "original_setup_core": "c10e193846a0ea4c73cabe3744aa7db82439d54e"
+    },
+    "final_t3_release": {
+      "schema": "IWXA_T3_FINAL_TECHNOLOGY_RELEASE/1",
+      "state": "NOT_RELEASED",
+      "definition": "COMPLETE_D1_D7_IN_ONE_ORIGINAL_T2_T3_RUNTIME_AND_VERSIONED_REUSABLE_ONE_DIST",
+      "domain_migration_allowed": false,
+      "transfer_contract": "EXISTING_MANUAL_OR_OWNER_SELECTED_IWXA_NO_MANDATORY_LIVE_INTERAPP_IPC",
+      "result_contract": "TASK_RESULT_IS_CONTENT_WITH_PROVENANCE_AND_SELECTED_DISCLOSURE_NOT_THE_IWXA_CARRIER",
+      "decision_contract": "ACCEPT_RECEIVER_DECISION_APPLY_ONLY_IF_AUTHORIZED_KERNEL_CHANGE_REQUIRED",
+      "excludes_as_t3_release_prerequisites": [
+        "PHYSICAL_TWO_INSTALLED_APPLICATIONS_AGENT_TO_CENTER_UIA_CROSS_PRODUCT_WITNESS",
+        "INSTALLED_ATLAS_OR_WORKREF_FOR_GENERIC_TASK",
+        "INSTALLED_ACTIVITY_ANALYZER_PROGRAM",
+        "INSTALLED_PUBLISHER_PROGRAM",
+        "FIRST_OR_ANY_DOMAIN_MIGRATION",
+        "AUTOMATED_TRANSPORT_REPLACING_MANUAL_IWXA"
+      ],
+      "currently_open": [
+        "D7_PERSON_ISSUER_NATIVE_HOLDER_AND_STATUS_FULL_SOURCE_COMPLETION",
+        "INTEGRATED_D1_D7_PLATFORM_INTERFACE_AND_FINAL_BUNDLE",
+        "VERSIONED_FROZEN_FINAL_T3_ONE_DIST_AND_PROVENANCE_NOT_JUST_OWNER_INPUT"
+      ],
+      "existing_evidence_preserved": true
     },
     "required_gates": {
       "B0": {
@@ -2963,14 +2987,14 @@
     "final_automated_acceptance": null,
     "verdict": {
       "g4": "NOT_ACCEPTED",
-      "g4_scope": "OPTIONAL_ECOSYSTEM_NATIVE_INTEGRATION_MATRIX",
-      "t3_ready": true
+      "g4_scope": "HISTORICAL_OPTIONAL_ECOSYSTEM_INTEGRATION_NOT_T3_RELEASE_GATE",
+      "t3_ready": false
     }
   },
   "release_candidate": {
     "label": "IWXA_T3_G4_PRODUCT_NEUTRAL_SOURCE_CANDIDATE_2026_11_18",
     "production_ready": false,
-    "t3_ready": true,
+    "t3_ready": false,
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
     "original_private_native_signer": "CURRENT_SOURCE_PIN_d0d8ba2f_NATIVE_ONE_SHOT_WINDOWS_BRIDGE_REQUALIFIED_20_OF_20_44406073956__INSTALLED_UI_HOLD",
