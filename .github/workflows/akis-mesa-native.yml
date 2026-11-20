@@ -26,23 +26,39 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
-      - name: Verify that a bounded private read grant is available
+      - name: Select an existing scoped token that can read private IWXA
         shell: bash
         env:
-          AKIS_READ_TOKEN: ${{ secrets.DOMEN || secrets.T3 }}
+          AKIS_IWXA_TOKEN: ${{ secrets.IWXA }}
+          AKIS_SOURCE_TOKEN: ${{ secrets.SOURCE }}
+          AKIS_DOMEN_TOKEN: ${{ secrets.DOMEN }}
+          AKIS_T3_TOKEN: ${{ secrets.T3 }}
+          AKIS_AGENT_TOKEN: ${{ secrets.AGENT }}
+          AKIS_CENTER_TOKEN: ${{ secrets.CENTER }}
         run: |
-          if [ -z "$AKIS_READ_TOKEN" ]; then
-            echo "AKIS_PRIVATE_SOURCE_ACCESS=NOT_CONFIGURED"
-            exit 1
-          fi
-          echo "AKIS_PRIVATE_SOURCE_ACCESS=TOKEN_PRESENT"
+          set -euo pipefail
+          for name in AKIS_IWXA_TOKEN AKIS_SOURCE_TOKEN AKIS_DOMEN_TOKEN AKIS_T3_TOKEN AKIS_AGENT_TOKEN AKIS_CENTER_TOKEN; do
+            candidate="${!name}"
+            if [ -z "$candidate" ]; then continue; fi
+            status=$(curl --silent --show-error --max-time 8 --output /dev/null --write-out "%{http_code}" \
+              -H "Authorization: Bearer $candidate" \
+              -H "Accept: application/vnd.github+json" \
+              https://api.github.com/repos/Faust-S/iwxa)
+            if [ "$status" = "200" ]; then
+              echo "AKIS_PRIVATE_READ_TOKEN=$candidate" >> "$GITHUB_ENV"
+              echo "AKIS_PRIVATE_SOURCE_ACCESS=GRANTED"
+              exit 0
+            fi
+          done
+          echo "AKIS_PRIVATE_SOURCE_ACCESS=NOT_AUTHORIZED"
+          exit 1
       - name: Check out only the pinned qualitative model, never export its source
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa
           ref: 278995f9702aa6f93c20cf20eb036f4701dd017a
           path: private-iwxa
-          token: ${{ secrets.DOMEN || secrets.T3 }}
+          token: ${{ env.AKIS_PRIVATE_READ_TOKEN }}
           persist-credentials: false
           fetch-depth: 1
           sparse-checkout-cone-mode: false
