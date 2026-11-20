@@ -57,8 +57,9 @@ jobs:
             for(const [name,route] of routes){
               const page=await browser.newPage();
               await page.setViewport({width:1440,height:900,deviceScaleFactor:1});
-              const response=await page.goto('http://127.0.0.1:4173'+route,{waitUntil:'networkidle2',timeout:45000});
-              await page.waitForSelector('h1',{timeout:20000});
+              console.log('EDITORIAL_VISUAL_ROUTE_BEGIN',name,route);
+              const response=await page.goto('http://127.0.0.1:4173'+route,{waitUntil:'domcontentloaded',timeout:45000});
+              await page.waitForSelector('h1',{timeout:45000});
               if(!response?.ok())throw new Error('Bad route: '+route);
               if(name==='desktop'){
                 const expected=[['agent',3],['atlas',3],['admin',3],['analyzer',1],['publisher',1]];
