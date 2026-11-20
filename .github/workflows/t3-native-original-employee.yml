@@ -33,7 +33,7 @@ jobs:
     # Native Node/Python PASS is never installed Tauri Agent qualification.
     # Central Agent 0.6 original worker + imports use current canonical
     # signed Task taskId/executorId (never compare to raw id/assignedTo).
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-native-d3]') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-native-d3]') || contains(github.event.head_commit.message, '[qualify-installed-agent-g4]') }}
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
