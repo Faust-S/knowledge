@@ -106,12 +106,13 @@ export function createTrustedOriginalCompanyWorkspacePersistence({
     active();
     return task;
   };
-  const signed=op=>{
+  const signed=(op,{onCommitObjectGraphDispatch=null}={})=>{
     active();
     const access=selectSignedAccess(op);
     requireThat(access&&typeof access.currentContext==='function',
       'T3_COMPANY_SIGNED_JIT_REQUIRED');
-    return createSubjectKernelBinding({kernel,access,isHostActive});
+    return createSubjectKernelBinding({kernel,access,isHostActive,
+      onCommitObjectGraphDispatch});
   };
   const unchanged=async original=>{
     const recent=await current();
@@ -209,11 +210,12 @@ export function createTrustedOriginalCompanyWorkspacePersistence({
       // Write only through original Kernel's signed JIT. No local journal,
       // alternative Store or second export/Result. Mark uncertain before
       // the native dispatch; a lost ACK never causes automatic retry.
-      // Resolve the ORIGINAL signed write right BEFORE recording an
-      // ambiguous Kernel dispatch. A missing or revoked grant is a
-      // definite pre-write denial, not a lost acknowledgement.
-      const signedWrite=signed('commitObjectGraph');
-      dispatched=true;
+      // The existing signed Host calls this hook AT the actual original
+      // Kernel dispatch, after JIT grant/status/Task/context checks. A
+      // definite pre-dispatch denial must not freeze the corporate WorkArea.
+      const signedWrite=signed('commitObjectGraph',{
+        onCommitObjectGraphDispatch:()=>{dispatched=true;},
+      });
       const receipt=await signedWrite.commitObjectGraph(command);
       requireThat(receipt?.object?.object_id===where.object_id&&
         receipt.object.workspace_id===where.workspace_id,

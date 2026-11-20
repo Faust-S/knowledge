@@ -9,7 +9,7 @@ import {createTrustedOriginalCompanyWorkspacePersistence,
 // separate private Ed25519 issuer are qualified by their existing suites.
 const sha=s=>createHash('sha256').update(s).digest('hex');
 function fixture({text='Результат исследования. '.repeat(60000),
-  lostAck=false,writeRight=true,mutateSource=null,kind='RESULT'}={}){
+  lostAck=false,writeRight=true,jitDenied=false,mutateSource=null,kind='RESULT'}={}){
   let task={organizationId:'org:factory',workspaceId:'ws:factory',
     executorId:'person:employee',taskId:'task:signed',
     taskRevisionId:'a'.repeat(64),packageSha256:'b'.repeat(64)};
@@ -27,7 +27,9 @@ function fixture({text='Результат исследования. '.repeat(60
     authorize:request=>{
       if(request.action==='object.write')writeJit++;
       return {schema:'IWXA_T3_ORGANIZATION_OPERATION_DECISION/1',
-        allowed:true,outcome:'PERMITTED',evidenceOnly:true,
+        allowed:!(jitDenied&&request.action==='object.write'),
+        outcome:jitDenied&&request.action==='object.write'?'DENIED':'PERMITTED',
+        evidenceOnly:true,
         requestDigest:sha(JSON.stringify(request)),
         policyDigest:'c'.repeat(64),operationDigest:'d'.repeat(64),
         evidenceDigest:'e'.repeat(64),statusSequence:1,
@@ -135,6 +137,15 @@ test('no original signed object.write grant denies company commit before dispatc
     {code:'T3_COMPANY_SIGNED_JIT_REQUIRED',outcome:'DENIED'});
   assert.equal(port.outcomeUnknown,false);
   assert.equal(fx.commits,0);
+});
+test('original JIT revoked write fails BEFORE original Kernel dispatch; no false lost ACK',async()=>{
+  const fx=fixture({jitDenied:true});
+  const port=fx.make();
+  await assert.rejects(port.commit('RESULT','RES-accepted'),
+    {code:'T3_ACCESS_NOT_PERMITTED',outcome:'DENIED'});
+  assert.equal(fx.writeJit,1);
+  assert.equal(fx.commits,0);
+  assert.equal(port.outcomeUnknown,false);
 });
 test('changing original Task during source read refuses before Kernel write',async()=>{
   let fx;
