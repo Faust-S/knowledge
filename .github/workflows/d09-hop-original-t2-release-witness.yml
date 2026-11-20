@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 590a6c3c8878890b4ef496e6b79e07fa2032446a
+          ref: 717325b9a32955915da1b261a7c2188481240590
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Set up Node 24
@@ -57,6 +57,10 @@ jobs:
             echo D09_HOST_JSON_READBACK_GUARD=FAIL; exit 1;
           }
           echo D09_HOST_JSON_READBACK_GUARD=PASS
+          npx vitest run src/templates/__tests__/completion-event-contract.test.ts > "$RUNNER_TEMP/d09-completion.log" 2>&1 || {
+            echo D09_COMPLETION_EVENT_CONTRACT=FAIL; exit 1;
+          }
+          echo D09_COMPLETION_EVENT_CONTRACT=PASS
           node --check tests/d09-strict-csp-host-witness.mjs
           node --check tests/d09-original-t2-production-first-run.browser.mjs
           node --check tests/d09-original-t2-project-save.browser.mjs
