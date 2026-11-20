@@ -1,6 +1,6 @@
-# Reproducible public source qualification of the original IWXA qualitative AKIS.
-# Neither an Agent integration nor a claim of real economic/financial effects.
-name: AKIS Mesa 3.5.2 native research qualification
+# Public Mesa dependency smoke ONLY. AKIS model lives in private Faust-S/iwxa.
+# Never attempt an unauthorised checkout of that repository in public Actions.
+name: Mesa 3.5.2 public dependency smoke (AKIS source NOT_RUN)
 on:
   push:
     branches:
@@ -8,66 +8,49 @@ on:
 permissions:
   contents: read
 jobs:
-  native-mesa:
+  mesa-library-only:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: Faust-S/iwxa
-          ref: 278995f9702aa6f93c20cf20eb036f4701dd017a
-          path: source
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Verify exact research owner and install real Mesa
+      - name: Install pinned public Mesa wheel
         shell: bash
         run: |
           set -euo pipefail
-          observed="$(git -C source rev-parse HEAD)"
-          test "$observed" = "278995f9702aa6f93c20cf20eb036f4701dd017a"
-          echo "AKIS_SOURCE_OWNER_SHA=$observed"
-          python -m pip install --disable-pip-version-check --no-cache-dir 'pytest>=8,<10' -r source/research/akis/qualitative_mesa/requirements.txt
-          python -c 'from importlib.metadata import version; assert version("mesa")=="3.5.2"; print("AKIS_REAL_MESA_VERSION=3.5.2")'
-      - name: Run all original rules and non-skipped Mesa tests
+          python -m pip install --disable-pip-version-check --no-cache-dir 'mesa==3.5.2'
+          python -c 'from importlib.metadata import version; assert version("mesa")=="3.5.2"; print("MESA_NATIVE_LIBRARY_VERSION=3.5.2")'
+      - name: Exercise original public Mesa 3.5.2 event scheduler
         shell: bash
         run: |
           set -euo pipefail
-          cd source
-          python -m pytest -q research/akis/qualitative_mesa/tests --junitxml="$RUNNER_TEMP/akis-mesa-junit.xml"
-          python - "$RUNNER_TEMP/akis-mesa-junit.xml" <<'PY'
-          import sys
-          from xml.etree import ElementTree as ET
-          root=ET.parse(sys.argv[1]).getroot()
-          suites=[root] if root.tag=="testsuite" else list(root.findall("testsuite"))
-          total=sum(int(s.get("tests", 0)) for s in suites)
-          failures=sum(int(s.get("failures", 0)) for s in suites)
-          errors=sum(int(s.get("errors", 0)) for s in suites)
-          skipped=sum(int(s.get("skipped", 0)) for s in suites)
-          print("AKIS_NATIVE_TESTS="+str(total))
-          print("AKIS_NATIVE_FAILURES="+str(failures))
-          print("AKIS_NATIVE_ERRORS="+str(errors))
-          print("AKIS_NATIVE_SKIPPED="+str(skipped))
-          assert total>=19 and failures==0 and errors==0 and skipped==0
+          python - <<'PY'
+          import mesa
+          from importlib.metadata import version
+          assert version("mesa")=="3.5.2"
+          class Mini(mesa.Model):
+              def __init__(self):
+                  super().__init__(seed=0)
+                  self.actor=mesa.Agent(self)
+                  self.observed=[]
+                  self._callbacks=[]
+                  for at,name in ((1,"offer"),(2,"decision"),(3,"accept")):
+                      def callback(event=name):
+                          self.observed.append(event)
+                      self._callbacks.append(callback)
+                      self.schedule_event(callback,at=float(at))
+          model=Mini()
+          assert len(model.agents)==1
+          model.run_until(4.0)
+          assert model.observed==["offer","decision","accept"]
+          print("MESA_NATIVE_EVENT_SCHEDULER_PASS")
           PY
-          echo 'AKIS_NATIVE_MESA_TESTS_PASS'
-      - name: Execute three real CLI governance scenarios
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd source
-          for fixture in sole_flow collegial_quorum_hold mixed_scope_hold; do
-            python -m research.akis.qualitative_mesa.cli --input "research/akis/qualitative_mesa/fixtures/$fixture.json" > "$RUNNER_TEMP/akis-$fixture.json"
-            python - "$RUNNER_TEMP/akis-$fixture.json" "$fixture" <<'PY'
-          import json,sys
-          row=json.load(open(sys.argv[1], encoding="utf-8"))
-          assert row["schema"]=="IWXA_AKIS_QUALITATIVE_RESULT/0.1"
-          assert row["evidence"]=="MODEL_ONLY"
-          assert row["profit"]=={"operator":"UNKNOWN","participants":"UNKNOWN","system_increment":"UNKNOWN"}
-          assert row["institution"]["mode"] in ("SOLE","COLLEGIAL","MIXED")
-          assert row["counts"]["applied"]+row["counts"]["blocked"] == len(row["trace"])
-          print("AKIS_MODEL_CLI_PASS="+sys.argv[2])
-          PY
-          done
-      # No copies or artifacts; Agent/T3 installed acceptance is a separate gate.
+          echo 'AKIS_PRIVATE_SOURCE_TESTS=NOT_RUN'
+          echo 'AKIS_AGENT_TOOLPROVIDER=NOT_RUN'
+          echo 'AKIS_T3_INSTALLED=NOT_RUN'
+          echo 'AKIS_PRODUCT_ACCEPTED=false'
+      # No private repository checkout, no artifacts or cache.
