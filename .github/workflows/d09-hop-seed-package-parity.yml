@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 463bf61c965723605bf19233f0d15d29c6955517
+          ref: 7ea047e8e4a20be0b6e913fd4bc2c041517be4fc
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -36,11 +36,12 @@ jobs:
       - name: Exercise real seed Remix to IWXA canonical roundtrip
         shell: bash
         run: |
-          npx vitest run src/content-system/__tests__/seed-export-real-package.test.ts > "$RUNNER_TEMP/d09-seed.log" 2>&1 || {
+          npx tsx scripts/d09-seed-package-diagnostic.ts > "$RUNNER_TEMP/d09-seed.log" 2>&1 || {
             echo D09_NATIVE_SEED_PACKAGES=FAIL
-            grep -E 'D09_SEED_ISSUE=' "$RUNNER_TEMP/d09-seed.log" | sort -u | head -30 || true
+            grep -E 'D09_SEED_ERROR=|D09_SEEDS_(TOTAL|FAILED)=' "$RUNNER_TEMP/d09-seed.log" | sort -u | head -35 || true
             grep -E 'Error:|Cannot find|Failed to resolve|Test Files|Tests |Error [A-Z]|Unhandled' "$RUNNER_TEMP/d09-seed.log" | sed -E 's#/(home|tmp|mnt)/[^[:space:]]+#<private-path>#g' | cut -c1-150 | tail -12 || true
             grep -E 'Tests .* failed|Test Files .* failed' "$RUNNER_TEMP/d09-seed.log" | tail -4 || true
             exit 1
           }
+          grep -E 'D09_SEEDS_(TOTAL|FAILED)=' "$RUNNER_TEMP/d09-seed.log" | tail -2 || true
           echo D09_NATIVE_SEED_PACKAGES=PASS
