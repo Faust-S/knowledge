@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: cc6547c2ff949ba14bc7c153467ba06c5ec476a8
+          ref: 6413054492784eaa587df6cc069935150d7a3425
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Set up Node 24
@@ -121,7 +121,7 @@ jobs:
           npm run build > "$RUNNER_TEMP/d09-build.log" 2>&1 || {
             echo D09_ORIGINAL_T2_BUILD=FAIL
             grep -oE '(D09|T2|IWXA)_[A-Z0-9_:.]+' "$RUNNER_TEMP/d09-build.log" | sort -u | tail -20 || true
-            grep -E '(^Error:|^npm error|^TypeError:|^SyntaxError:|^Error \[|not found|error TS[0-9]+)' "$RUNNER_TEMP/d09-build.log" | sed -E 's#/(home|tmp|mnt)/[^[:space:]]+#<private-path>#g' | cut -c1-180 | tail -8 || true
+            grep -Ei 'error|failed|could not|cannot|unexpected|unresolved|not found|missing|vite|prebuild|build:public-stage|build:host-module' "$RUNNER_TEMP/d09-build.log" | sed -E 's#/(home|tmp|mnt)/[^[:space:]]+#<private-path>#g' | cut -c1-210 | tail -22 || true
             exit 1
           }
           echo D09_ORIGINAL_T2_BUILD=PASS
