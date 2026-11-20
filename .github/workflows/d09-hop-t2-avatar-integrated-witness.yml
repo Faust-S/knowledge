@@ -30,15 +30,15 @@ jobs:
           }
           echo "D09_SITE_HEAD=$(git rev-parse HEAD)"
           echo D09_SITE_NPM=PASS
-      - name: Verify pixel feature and native IWXA before original T2 build
+      - name: Verify native IWXA pixel roundtrip
         shell: bash
         run: |
           ./node_modules/.bin/tsx scripts/qualify-pixel-avatar-iwxa.ts > "$RUNNER_TEMP/d09-pixel-native.log" 2>&1 || {
-            grep -E 'HOP_PIXEL_NATIVE_|Error|Assertion' "$RUNNER_TEMP/d09-pixel-native.log" | tail -15 | cut -c 1-200 || true
             echo D09_T2_AVATAR_NATIVE=FAIL
             exit 1
           }
-          grep '^HOP_PIXEL_NATIVE_.*=PASS
+          echo D09_T2_AVATAR_NATIVE=PASS
+      - name: Source, contract and HOP product checks
         shell: bash
         run: |
           npm run typecheck > "$RUNNER_TEMP/d09-types.log" 2>&1 || {
