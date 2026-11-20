@@ -38,7 +38,15 @@ jobs:
           if($head -cne '2f65931cd70e0c64e29b31e1824b7af0c0baf6d1'){
             throw 'G4_INSTALLED_ADMIN_ONE_CORE_PIN_MISMATCH'
           }
-          Write-Output 'G4_INSTALLED_ADMIN_EXACT_RELEASE_ONE_CORE_F42E_PASS'
+          # Qualification is tied to the exact new executable source and
+          # inherited original T2 archive tree, not an old installed receipt.
+          $source=(& git rev-parse 'HEAD:packages/t3-core/src').Trim()
+          $t2=(& git rev-parse 'HEAD:packages/t3-core/qualified-runtime').Trim()
+          if($source -cne '1bd96668e7264e1eb7775ca750cd007ac33b4827' -or
+             $t2 -cne '1594274dbf5e38214b8422ba11e8c7114bd5425c'){
+            throw 'T3_INSTALLED_ADMIN_NEW_CANDIDATE_ORIGINAL_SOURCE_TREE_CHANGED'
+          }
+          Write-Output 'T3_INSTALLED_ADMIN_EXACT_ORIGINAL_T2_AND_COMPANY_T3_SOURCE_PASS'
       - name: Parse installed native UIA and compile Win32 helper before private checkout
         shell: pwsh
         run: |
@@ -121,7 +129,15 @@ jobs:
           if($head -cne '2f65931cd70e0c64e29b31e1824b7af0c0baf6d1'){
             throw 'G4_INSTALLED_ADMIN_ONE_CORE_PIN_MISMATCH'
           }
-          Write-Output 'G4_INSTALLED_ADMIN_EXACT_RELEASE_ONE_CORE_F42E_PASS'
+          # Qualification is tied to the exact new executable source and
+          # inherited original T2 archive tree, not an old installed receipt.
+          $source=(& git rev-parse 'HEAD:packages/t3-core/src').Trim()
+          $t2=(& git rev-parse 'HEAD:packages/t3-core/qualified-runtime').Trim()
+          if($source -cne '1bd96668e7264e1eb7775ca750cd007ac33b4827' -or
+             $t2 -cne '1594274dbf5e38214b8422ba11e8c7114bd5425c'){
+            throw 'T3_INSTALLED_ADMIN_NEW_CANDIDATE_ORIGINAL_SOURCE_TREE_CHANGED'
+          }
+          Write-Output 'T3_INSTALLED_ADMIN_EXACT_ORIGINAL_T2_AND_COMPANY_T3_SOURCE_PASS'
       - name: Stage selected original T3 owner code at exact private revision
         uses: actions/checkout@v4
         with:
