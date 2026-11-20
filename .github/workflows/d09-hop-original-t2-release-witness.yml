@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: cdee8a9d095764f393c608d50c32c1c5c9ff04ab
+          ref: 16758eaa2656a866f5bbc0a68c712eca82fecef7
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Set up Node 24
@@ -135,7 +135,7 @@ jobs:
           export D09_PREVIEW_CERT_PATH="$RUNNER_TEMP/d09-tls/cert.pem"
           export D09_PREVIEW_KEY_PATH="$RUNNER_TEMP/d09-tls/key.pem"
           node tests/d09-strict-csp-host-witness.mjs > "$RUNNER_TEMP/d09-browser.log" 2>&1 || {
-            grep -E 'D09_(WORKSPACE|EXCHANGE|LIFECYCLE|T2_|PUBLIC_|ENGINEERING_|NATIVE_)' "$RUNNER_TEMP/d09-browser.log" | tail -25 || true
+            grep -E 'D09_(WORKSPACE|EXCHANGE|LIFECYCLE|T2_|PUBLIC_|ENGINEERING_|NATIVE_|HOP_)' "$RUNNER_TEMP/d09-browser.log" | tail -25 || true
             echo D09_ORIGINAL_T2_GUI=FAIL; exit 1;
           }
           grep -E 'D09_(WORKSPACE|EXCHANGE|LIFECYCLE|T2_REAL_BROWSER|ENGINEERING_)' "$RUNNER_TEMP/d09-browser.log" | tail -15 || true
