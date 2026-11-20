@@ -3,7 +3,7 @@
 // product profile. No mock Kernel, alternative Host, signer or new Store.
 // This runs before the optional BLI WebGPU Worker is compiled.
 import assert from 'node:assert/strict';
-import {mkdtempSync,readFileSync,writeFileSync,rmSync,existsSync,readdirSync}
+import {mkdtempSync,readFileSync,writeFileSync,rmSync,existsSync,readdirSync,mkdirSync}
   from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
@@ -67,6 +67,36 @@ try{
   assert.equal(JSON.parse(readFileSync(cliReceipt,'utf8')).local_inference_registered,false);
   assert.equal(sha(join(cliDist,'_iwxa/loader.js')),
     sha(join(qualified,'_iwxa/loader.js')));
+  // Reproduce exactly how the installed native Agent invokes the public
+  // builder: Windows PowerShell 5.1, a redirected Node stdout file, original
+  // signed-only build and an independent sibling JSON receipt.
+  const psRoot=join(root,'installed-layout','build');
+  mkdirSync(psRoot,{recursive:true});
+  const psScript=join(root,'original-ps51-invocation.ps1');
+  writeFileSync(psScript,[
+    'param([string]$Builder,[string]$Qualified,[string]$ProductProfile,',
+    '  [string]$Compiled,[string]$Dist,[string]$Receipt,[string]$Log)',
+    '$ErrorActionPreference = \'Stop\'',
+    '& node.exe $Builder --qualified-kernel-dist $Qualified --agent-profile $ProductProfile --t3-build $Compiled --output $Dist --receipt $Receipt --desktop-agent-control > $Log',
+    'if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $Dist -PathType Container) -or !(Test-Path -LiteralPath $Receipt -PathType Leaf)){throw \'T3_WINDOWS_ORIGINAL_PS51_CLI_NO_RECEIPT\'}',
+    'Write-Output \'T3_WINDOWS_ORIGINAL_PS51_CLI_PASS\'',
+  ].join('\\n')+'\\n');
+  const psDist=join(psRoot,'original-agent-one-dist');
+  const psReceipt=join(psRoot,'original-agent-one-dist-receipt.json');
+  const psLog=join(root,'original-agent-one-dist-build.json');
+  const ps=spawnSync('powershell.exe',[
+    '-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+    '-File',psScript,'-Builder',resolve('scripts/build-original-agent-one-dist.mjs'),
+    '-Qualified',qualified,'-ProductProfile',profile,
+    '-Compiled',resolve('dist'),'-Dist',psDist,
+    '-Receipt',psReceipt,'-Log',psLog,
+  ],{timeout:120000,encoding:'utf8',windowsHide:true,
+    maxBuffer:4*1024*1024});
+  assert.equal(ps.status,0,ps.stderr?.slice(0,1500));
+  assert.ok(ps.stdout.includes('T3_WINDOWS_ORIGINAL_PS51_CLI_PASS'));
+  assert.equal(JSON.parse(readFileSync(psReceipt,'utf8')).local_inference_registered,false);
+  assert.equal(JSON.parse(readFileSync(psLog,'utf8')).original_runtime_unchanged,true);
+  console.log('T3_WINDOWS_ORIGINAL_AGENT_PS51_BUILD_AND_RECEIPT_PASS');
   console.log('T3_WINDOWS_ORIGINAL_AGENT_DESKTOP_ONE_DIST_DIRECT_CLI_PASS');
 }finally{
   rmSync(root,{recursive:true,force:true,maxRetries:3});
