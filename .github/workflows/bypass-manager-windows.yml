@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/2026-11-15-bypass-manager-0-3-alpha
+      - work/2026-11-20-bypass-manager-one-button
     paths:
       - tools/bypass-manager/**
       - .github/workflows/bypass-manager-windows.yml
@@ -67,7 +68,7 @@ jobs:
         run: .\Tests\Test-GuiSmoke.ps1
       - name: Capture product-first Win32 frames (visual inspection artifact)
         shell: powershell
-        continue-on-error: true
+        continue-on-error: false
         run: .\Tests\Capture-ProductUI.ps1 -OutputRoot $env:RUNNER_TEMP
       - name: Upload captured GUI frames for independent visual QA
         if: always()
@@ -75,7 +76,7 @@ jobs:
         with:
           name: bypass-manager-native-ui-frames
           path: ${{ runner.temp }}/bypass-ui/*.png
-          if-no-files-found: ignore
+          if-no-files-found: error
       - name: Download seven fixed official upstream files (test only)
         shell: powershell
         run: |
@@ -106,6 +107,25 @@ jobs:
         run: |
           $engine=Get-Content (Join-Path $env:RUNNER_TEMP 'engine-path.txt')
           .\Tests\Verify-Windows.ps1 -WithUpstream -BundleRoot $engine
+      - name: Native Direct TLS filter start, verify ownership, stop (no VPN)
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $engine=Get-Content (Join-Path $env:RUNNER_TEMP 'engine-path.txt')
+          $state=Join-Path $env:RUNNER_TEMP 'bypass-onebutton-native-trial'
+          $native=Join-Path (Get-Location) 'runtime\Scripts\Start-Direct.ps1'
+          $stop=Join-Path (Get-Location) 'runtime\Scripts\Start-Profile.ps1'
+          try {
+            & $native -Action Start -BundleRoot $engine -StateFolder $state
+            $line=@(& $native -Action Status -StateFolder $state) | Select-Object -Last 1
+            $v=$line | ConvertFrom-Json
+            if($v.state -ne 'RUNNING' -or $v.mode -ne 'DIRECT_AUTO_TLS') {throw "Owned native process not running ($($v.state))"}
+            Write-Host 'PASS owned Direct TLS native WinDivert process started and observed'
+          } finally {
+            & $stop -Action Stop -StateFolder $state
+          }
+          if(Test-Path (Join-Path $state 'winws2-owned.json')) {throw 'Owned WinDivert process state was not cleaned'}
+          Write-Host 'PASS owned Direct TLS native WinDivert process cleanly stopped'
       - name: Upload unsigned Windows build and test assets
         uses: actions/upload-artifact@v4
         with:

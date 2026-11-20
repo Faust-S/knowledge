@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/2026-11-15-bypass-manager-0-3-alpha
+      - work/2026-11-20-bypass-manager-one-button
     paths:
       - tools/bypass-manager/**
       - .github/workflows/bypass-manager-scenarios.yml
