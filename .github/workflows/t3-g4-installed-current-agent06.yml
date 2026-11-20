@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 9e863889491f3d460d938fd835f3513d6cb1564e
+          ref: b5b9fda7ae5fac73de778f92dcfc6b0f607a8393
           token: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
           persist-credentials: false
           filter: blob:none
@@ -95,7 +95,7 @@ jobs:
           $agent = (& git -C .private/agent rev-parse HEAD).Trim()
           $setup = (& git -C .private/setup-core rev-parse HEAD).Trim()
           $core = (& git -C .g4-pinned-one-core rev-parse HEAD).Trim()
-          if ($agent -ne '9e863889491f3d460d938fd835f3513d6cb1564e' -or
+          if ($agent -ne 'b5b9fda7ae5fac73de778f92dcfc6b0f607a8393' -or
               $setup -ne 'c10e193846a0ea4c73cabe3744aa7db82439d54e' -or
               $core -ne 'f42e53cd28c881b2b8e04199595f9d7991f34414') {
             throw 'G4_AGENT_EXACT_INSTALLED_SOURCE_PIN_MISMATCH'
@@ -176,6 +176,46 @@ jobs:
           } finally {
             Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
           }
+      - name: Parse original private Windows GUI and setup witness scripts before building
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # The installed witness is executed under WindowsPowerShell 5.1.
+          # Preflight the PRIVATE original scripts with that exact parser
+          # before native Tauri/Setup Core builds; publish only finite status.
+          $ps = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          $check = @'
+          param([string]$AgentRoot)
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $files = [ordered]@{
+            SETUP_RUNTIME = 'tools/qualify_setup_core_runtime.ps1'
+            NATIVE_GUI = 'tools/qualify_setup_core_native_gui.ps1'
+          }
+          foreach($kind in $files.Keys){
+            $source = Join-Path $AgentRoot $files[$kind]
+            if(!(Test-Path -LiteralPath $source -PathType Leaf)){
+              throw 'G4_AGENT06_PRIVATE_WITNESS_PARSE_SOURCE_MISSING'
+            }
+            $tokens = $null
+            $syntaxErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              $source, [ref]$tokens, [ref]$syntaxErrors)
+            if(@($syntaxErrors).Count -ne 0){
+              Write-Output ('G4_AGENT06_PRIVATE_SCRIPT_PARSE_FAILURE ' + $kind)
+              throw 'G4_AGENT06_PRIVATE_WITNESS_SYNTAX_INVALID'
+            }
+            Write-Output ('G4_AGENT06_PRIVATE_SCRIPT_PARSE_PASS ' + $kind)
+          }
+          '@
+          $file = Join-Path $env:RUNNER_TEMP 'g4-agent06-private-script-parse-preflight.ps1'
+          [IO.File]::WriteAllText($file,$check,[Text.UTF8Encoding]::new($false))
+          try {
+            & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $file -AgentRoot (Resolve-Path '.private/agent').Path
+            if($LASTEXITCODE -ne 0) { throw 'G4_AGENT06_PRIVATE_WINDOWS_PARSE_PREFLIGHT_FAILED' }
+          } finally {
+            Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+          }
       - name: Build install and cold-qualify genuine current Agent Tauri with original T2/T3 One Dist
         shell: pwsh
         timeout-minutes: 72
@@ -234,7 +274,7 @@ jobs:
             $qwenRoot = Join-Path $output 'temporary-installed-fixture'
             $qwenProof = Join-Path $qwenRoot 'installed-real-qwen-proof.json'
             $qwenOutput = Join-Path $qwenRoot 'installed-real-qwen.status'
-            $authorityRoot = Join-Path $qwenRoot 'isolated-profile/AppData/Local/IWXA'
+            $authorityRoot = Join-Path $qwenRoot 'isolated-profile/AppData/Local/IWXA/PersonalAgent'
             $safeProofFlags = [ordered]@{
               TASK_REVIEW_PROOF_CREATED = (Test-Path -LiteralPath $qwenProof -PathType Leaf)
               CURRENT_INSTALL_CREATED = (Test-Path -LiteralPath (Join-Path $authorityRoot 'current-install.json') -PathType Leaf)
@@ -500,7 +540,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 9e863889491f3d460d938fd835f3513d6cb1564e
+          ref: b5b9fda7ae5fac73de778f92dcfc6b0f607a8393
           token: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
           persist-credentials: false
           filter: blob:none
