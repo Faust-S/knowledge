@@ -131,19 +131,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $env:BYPASS_CI_ENGINE_ROOT=(Get-Content (Join-Path $env:RUNNER_TEMP 'engine-path.txt'))
-          go test -count=1 -run '^TestPinnedBundleRealFiles
-        uses: actions/upload-artifact@v4
-        with:
-          name: bypass-manager-0-4-offline-https-win64-unsigned
-          path: |
-            tools/bypass-manager/Bypass-Manager.exe
-            tools/bypass-manager/README-RU.md
-            tools/bypass-manager/engine/**
-            tools/bypass-manager/LICENSES/WinDivert-LICENSE.txt
-            tools/bypass-manager/THIRD-PARTY-NOTICES-RU.md
-            tools/bypass-manager/ONE-BUTTON-HTTPS-CHECK-2026-11-21-RU.md
-          if-no-files-found: error
- -v .
+          go test -count=1 -run '^TestPinnedBundleRealFiles$' -v .
           if($LASTEXITCODE -ne 0) {throw 'Offline original engine installation FAILED'}
       - name: Assemble complete offline engine and third-party license
         shell: powershell
@@ -171,6 +159,10 @@ jobs:
           path: |
             tools/bypass-manager/Bypass-Manager.exe
             tools/bypass-manager/README-RU.md
+            tools/bypass-manager/engine/**
+            tools/bypass-manager/LICENSES/WinDivert-LICENSE.txt
+            tools/bypass-manager/THIRD-PARTY-NOTICES-RU.md
+            tools/bypass-manager/ONE-BUTTON-HTTPS-CHECK-2026-11-21-RU.md
           if-no-files-found: error
 
   publish-offline-https:
