@@ -62,6 +62,7 @@ jobs:
             /qualification/phase1/*.py
             /qualification/phase1/*.json
             /qualification/phase1/*.mjs
+            /tests/test_agent05_basic_runtime_error_clarity.py
             /requirements.txt
             /requirements-ci.txt
             /.gitignore
@@ -616,6 +617,7 @@ jobs:
             /qualification/phase1/*.py
             /qualification/phase1/*.json
             /qualification/phase1/*.mjs
+            /tests/test_agent05_basic_runtime_error_clarity.py
             /requirements.txt
             /requirements-ci.txt
             /.gitignore
