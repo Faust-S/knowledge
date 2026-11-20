@@ -138,7 +138,7 @@ test('complete accepted Result is original company Object + exact Event, with tw
   assert.equal(fx.commits,1);
 });
 test('company invitation key auto-creates original T2 Workspace without manual UI click',async()=>{
-  const fx=fixture({workspaceMissing:true});
+  const fx=fixture({workspaceMissing:true,kind:'TASK'});
   const result=await fx.make().commit('TASK','task:signed');
   assert.equal(result.state,'COMPANY_ORIGINAL_COMMITTED');
   assert.equal(fx.workspace.workspace_id,'ws:factory');
@@ -150,7 +150,7 @@ test('company invitation key auto-creates original T2 Workspace without manual U
   assert.equal(fx.creates,1); // cold read never creates a second Workspace
 });
 test('company key lacking signed workspace.create cannot create a missing Workspace',async()=>{
-  const fx=fixture({workspaceMissing:true,createRight:false});
+  const fx=fixture({workspaceMissing:true,createRight:false,kind:'TASK'});
   const port=fx.make();
   assert.equal((await port.read('TASK','task:signed')).state,'NOT_FOUND');
   await assert.rejects(port.commit('TASK','task:signed'),
