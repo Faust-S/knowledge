@@ -2620,7 +2620,7 @@
       "D2": {
         "source": "PARTIAL",
         "installed": "HOLD",
-        "remaining": "original Event/Activity approved derived Result in installed owner"
+        "remaining": "Original T2 0.3.6 Event/Activity read-only derived live projection with independent 2 cold browser/Host reads #44736009194 real-host PASS; installed real Activity Analyzer owner-approved production derived Result not yet qualified."
       },
       "D3": {
         "source": "PASS",
@@ -2630,22 +2630,22 @@
       "D4": {
         "source": "PASS",
         "installed": "HOLD",
-        "remaining": "native independent exchange recipient with original owner receipts"
+        "remaining": "Original T2 0.3.6 independent 2 Kernel Exchange consumers with cold byte/provenance readback, actual native age1.3.1 two-recipient encryption/decryption and tamper/wrong recipient denials #44736009194 real-host/native-age PASS on frozen One Core f42e. Two separately installed original product consumers with genuine authorized .iwxa transfer remain HOLD."
       },
       "D5": {
-        "source": "PARTIAL",
+        "source": "PASS",
         "installed": "HOLD",
-        "remaining": "final same-site dist hardware WebGPU and local model install consent then offline cold restart"
+        "remaining": "Frozen One Core f42e exact source tree compiled WebLLM0.2.87 Apple Metal genuine WebGPU generation plus offline cold second model generation #44736009194 SUCCESS; native Qwen/llama.cpp b12244 original Kernel cold run same #44736009194 SUCCESS. Full run failed ONE stale ledger assertion 807/808 corrected at 18af7f30, rerun #44736580680 IN_PROGRESS. No exact site-hosted product dist independently qualified or native signed installed issuer; D5 installed HOLD."
       },
       "D6": {
         "source": "PASS",
         "installed": "HOLD",
-        "remaining": "generic authorized non-Atlas recipient durable receipt lost-ACK read-only recovery"
+        "remaining": "Core generic D6 original accepted Result optional workRef source and qualified original T2 Host #44620132894 PASS. Current signed D3 source process #44730781821 26/26 PASS. Separate installed authorized non-Atlas recipient native durable commit, lost-ACK recovery and cold still HOLD."
       },
       "D7": {
         "source": "PARTIAL",
         "installed": "HOLD",
-        "remaining": "installed Publisher PERSON issue renew STATUS revoke and independent cold read"
+        "remaining": "Original age1.3.1 two-recipient encryption #44736009194 PASS is NOT native Publisher PERSON. Original signed Publisher PERSON Issue/Renew/STATUS/Revoke with installed Publisher and independent installed consumer cold plus actual trust/receipt remains HOLD; earlier synthetic license native scripts forbid Actions use."
       }
     },
     "qualifications": {
@@ -2761,6 +2761,33 @@
         "code": "GUEST_SETUP_FAILED",
         "scope": "SETUP_CORE_PROGRAM_ROOT_UNDER_RESERVED_COMMON_APPLICATION_DATA",
         "last_pass": "NATIVE_STANDALONE_GUI_QWEN_REVIEW_COLD"
+      },
+      "current_one_core_full_qualification": {
+        "observed_full_run_id": 44736009194,
+        "exact_executable_one_core_sha": "f42e53cd28c881b2b8e04199595f9d7991f34414",
+        "exact_executable_src_tree_sha": "51c68641f4ee9dfb6de833705cbe3294742e2bd8",
+        "original_t2_kernel_tree_sha": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
+        "original_bli_tree_sha": "e17b628392fb4e2dbeba2df67fdb0a5506fc5243",
+        "conclusion": "FAIL_STALE_CURRENT_MACHINE_LEDGER_ASSERTION_ONLY",
+        "pass_jobs": [
+          "WINDOWS_CREDENTIAL",
+          "REAL_HOST",
+          "NATIVE_QWEN",
+          "NATIVE_AGE",
+          "APPLE_METAL_WEBGPU"
+        ],
+        "failed_jobs": [
+          "SOURCE_NODE_807_PASS_1_STALE_MACHINE_LEDGER_ASSERTION_FAIL"
+        ],
+        "model_evidence": {
+          "native": "LLAMA_CPP_B12244_QWEN3_0_6B_REAL_KERNEL_COLD_PASS",
+          "webgpu": "APPLE_METAL_REAL_GENERATION_OFFLINE_SECOND_GENERATION_PASS"
+        },
+        "exchange_evidence": "ORIGINAL_T2_0_3_6_NATIVE_AGE_1_3_1_TWO_RECIPIENTS_COLD_PASS",
+        "acceptance_scope": "SOURCE_AND_HARDWARE_ONLY_NOT_INSTALLED_TWO_INDEPENDENT_PRODUCTS",
+        "corrected_test_commit": "18af7f302877dc88585f2d4b360f3e7db759f0a3",
+        "corrected_run_id": 44736580680,
+        "corrected_run_conclusion": "IN_PROGRESS"
       }
     },
     "final_independent_acceptance": null,
