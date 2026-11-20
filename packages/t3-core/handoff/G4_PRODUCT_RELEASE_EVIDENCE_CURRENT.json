@@ -2660,8 +2660,9 @@
         "D1_D3_ACTUAL_INSTALLED_NATIVE_COMPANY_RESULT_WRITE_AND_ADMIN_RECEIPT_READBACK",
         "D1_D3_FIRST_RUN_COMPANY_WORKSPACE_BY_SIGNED_KEY_WITHOUT_EXTRA_MANUAL_CREATE",
         "ORIGINAL_T2_EXCHANGE_COMPANY_DOCUMENT_ASSET_ATTACHMENT_TRANSFER_AND_RECIPIENT_READBACK",
-        "SIGNED_COMPANY_WORKSPACE_AUTO_FIRST_RUN_REAL_KERNEL_READBACK_SOURCE_QUALIFICATION",
-        "NATIVE_SIGNED_COMPANY_WORKSPACE_AUTO_CREATE_ACTUAL_KERNEL_QUALIFICATION"
+        "FINAL_T3_VERSIONED_ONE_DIST_RC_PROVENANCE_INDEPENDENT_RELEASE_ACCEPTANCE_PENDING",
+        "INSTALLED_AGENT_NEW_COMPANY_KEY_TASK_RESULT_AND_ADMIN_RECEIPT_NOT_RUN",
+        "ORIGINAL_COMPANY_BINARY_ATTACHMENTS_AND_FULL_IWXA_EXCHANGE_NOT_COMPLETE"
       ],
       "existing_evidence_preserved": true,
       "company_workspace": {
@@ -2676,17 +2677,17 @@
         "offline_delivery": "PENDING_COMPANY_RECEIPT_NOT_DELIVERED_UNTIL_ORIGINAL_RECIPIENT_READBACK",
         "authorization": "D1_SIGNED_JIT_REVOCATION_APPLIES_ON_ENTRY_WRITE_EXPORT_AND_RECEIPT",
         "agent_development_sha": "4e454f5729674de76f8d3ec00defaea61b02d4db",
-        "agent_development_status": "SOURCE_QUALIFICATION_PENDING_ORIGINAL_SIGNED_TASK_THEN_COMPLETE_RESULT",
+        "agent_development_status": "SOURCE_PASS_WINDOWS_LINUX_EXACT_AGENT_NOT_INSTALLED",
         "agent_development_source_evidence": {
-          "prior_agent_sha": "1675334eafd3eef0fcf055500cdcb1d1ec1441b6",
-          "prior_source_ci": 44801086813,
-          "prior_source_status": "SUCCESS",
-          "current_agent_sha": "4e454f5729674de76f8d3ec00defaea61b02d4db",
-          "run_id": null,
-          "status": "PENDING",
-          "installed": "NOT_ACCEPTED"
+          "run_id": 44815605828,
+          "source_sha": "4e454f5729674de76f8d3ec00defaea61b02d4db",
+          "windows": "PASS",
+          "linux": "PASS",
+          "original_company_schema_setup": "PASS",
+          "complete_accepted_result_source": "PASS",
+          "installed": "NOT_RUN_NEW_SHA"
         },
-        "release_status": "INCOMPLETE_SOURCE_UPDATED_COMPANY_KEY_AND_NATIVE_AUTOCREATE_INSTALLED_PENDING",
+        "release_status": "SOURCE_SIGNED_COMPANY_KEY_AND_ORIGINAL_T2_RESULT_PASS_FINAL_PRODUCT_OPEN",
         "payload_boundary": "Complete accepted corporate Result is read from existing Agent Core, never manually selected, then committed as Object/Event into original corporate T2 Workspace on the same signed JIT port. 2m UTF16 text. Binary attachments and full T2 Exchange remain open; installed qualification pending.",
         "source_company_original_kernel_text_qualification": {
           "run_id": 44800762682,
@@ -2697,51 +2698,75 @@
           "qualification_code_note": "This result is genuine original T2 browser Storage/Events with public company source body; not private signed Agent/Center installed E2E"
         },
         "latest_one_core_candidate": {
-          "source_sha": "f641e8be3bba85f932a2dd1902a13de0c0dd43ed",
-          "executable_source_tree": "1bd96668e7264e1eb7775ca750cd007ac33b4827",
+          "source_sha": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1",
+          "source_tree": "1bd96668e7264e1eb7775ca750cd007ac33b4827",
           "original_t2_tree_sha": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
-          "source_test_ci": null,
-          "status": "PENDING_PRODUCT_REAL_HOST_AND_NATIVE_FIRST_RUN"
+          "original_bli_tree_sha": "e17b628392fb4e2dbeba2df67fdb0a5506fc5243",
+          "source_test_ci": 44815605948,
+          "conclusion": "SUCCESS",
+          "jobs": {
+            "test": "PASS",
+            "real_host": "PASS",
+            "windows_credential": "PASS",
+            "metal_webgpu": "SKIPPED",
+            "native_age": "SKIPPED",
+            "native_model": "SKIPPED"
+          },
+          "artifact_name": "iwxa-t3-one-dist-rc-2f65931cd70e0c64e29b31e1824b7af0c0baf6d1",
+          "artifact_id": 14668814778,
+          "artifact_sha256": "8a2f565888bd8597e2f05a158a30793a05849b199665f03f236b59de1490d327",
+          "manifest_sha256": "9a74d9e76315ef41fc578f828c2e4ad663b8fcc2b35a73661a4bf710f581e414",
+          "candidate_version": "0.3.0-rc.1",
+          "candidate_status": "CANDIDATE_NOT_FINAL",
+          "file_count": 75,
+          "uncompressed_bytes": 2504085,
+          "result": "VERIFIED_VERSIONED_ONE_DIST_RC_NOT_INSTALLED_NOT_FINAL_RELEASE"
         },
         "auto_company_first_run": {
-          "state": "SOURCE_QUALIFICATION_PENDING_NATIVE_AND_BROWSER",
-          "code_sha": "f641e8be3bba85f932a2dd1902a13de0c0dd43ed",
-          "source_tree": "1bd96668e7264e1eb7775ca750cd007ac33b4827",
-          "installed": "NOT_RUN",
-          "native": "Original signed workspace.create JIT, exact Workspace readback, auto on first use; missing grant denied; no second Store/Kernel.",
-          "browser": "Auto-onboarding via already signed company key; asynchronous Kernel readback test corrected"
+          "state": "SOURCE_PASS_NOT_INSTALLED",
+          "source_sha": "cf4d9397a8e81e61d46a183a796bf9efc71be60d",
+          "source_qualification_run_id": 44815221698,
+          "mechanism": "ORIGINAL_SIGNED_WORKSPACE_CREATE_ONLY_WHEN_SELECTED_COMPANY_KEY_RIGHT_ACTIVE;ONE_T2;ORIGINAL_KERNEL_READBACK;NO_MANUAL_CREATE",
+          "lost_ack_original_readback": "PASS",
+          "source_denial": "PASS",
+          "installed": "NOT_RUN_NEW_SHA"
         },
         "default_task_and_result": {
-          "state": "SOURCE_QUALIFICATION_PENDING",
-          "task": "ORIGINAL_SIGNED_TASK_COMMITTED_FIRST_IN_SAME_ORIGINAL_T2_WORKSPACE",
-          "result": "COMPLETE_PREVIOUS_HUMAN_ACCEPTED_RESULT_COMMITTED_SECOND_ONLY_AFTER_SIGNED_TASK_READBACK",
-          "no_second_result_selection": true,
-          "delivery": "NOT_DELIVERED_UNTIL_ORIGINAL_COMPANY_RECEIPT"
+          "state": "SOURCE_PASS_ORIGINAL_KERNEL_NOT_INSTALLED",
+          "run_id": 44815605948,
+          "source_ci": 44815221698,
+          "signed_task": "ORIGINAL_SIGNED_TASK_OBJECT_EVENT_SAME_WORKSPACE_PASS",
+          "accepted_result": "COMPLETE_HUMAN_ACCEPTED_CORE_RESULT_OBJECT_EVENT_TWO_COLD_READS_PASS",
+          "no_second_manual_result": true,
+          "recipient_company_ack": "NOT_TESTED"
         },
         "default_signed_invitation": {
-          "state": "SOURCE_IMPLEMENTED_PENDING_ORIGINAL_OWNER_QUALIFICATION",
+          "state": "SOURCE_PASS_NOT_INSTALLED",
           "original_owner_sha": "e460021673bf58fec54d52a62c28fbd913047b99",
-          "entry": "One Admin key defaults to signed workspace.read/object.write/workspace.create for same company/workspace. Explicit partial flags preserve limited grants; Atlas optional.",
-          "installed": "NOT_RUN"
+          "source_qualification_run_id": 44815605828,
+          "original_owner_tests": "18_PASS",
+          "semantics": "ORDINARY_ADMIN_KEY_SIGNED_WORKSPACE_READ_WRITE_CREATE_ALL_BOUNDED_TO_SELECTED_COMPANY_WORKSPACE;EXPLICIT_LIMITED_KEY_PRESERVED",
+          "atlas_optional": true,
+          "installed": "NOT_RUN_NEW_SHA"
         }
       },
       "original_t3_final_candidate_sha": "e460021673bf58fec54d52a62c28fbd913047b99",
       "person_d7_source_qualification": {
-        "state": "SOURCE_REQUALIFICATION_PENDING_DEFAULT_COMPANY_KEY",
+        "state": "SOURCE_PASS_NOT_INSTALLED",
         "original_owner_sha": "e460021673bf58fec54d52a62c28fbd913047b99",
-        "prior_run_id": 44800088162,
-        "run_id": null,
-        "test_count": null,
-        "conclusion": null
+        "run_id": 44815605828,
+        "test_count": 22,
+        "conclusion": "SUCCESS",
+        "coverage": "ORIGINAL_ISSUER_HOLDER_RENEW_REVOKE_COLD_SOURCE_ONLY"
       },
       "original_owner_candidate_d3_qualification": {
-        "state": "SOURCE_QUALIFICATION_PENDING_NEW_DEFAULT_COMPANY_KEY",
+        "state": "SOURCE_PASS_NOT_INSTALLED",
         "candidate_sha": "e460021673bf58fec54d52a62c28fbd913047b99",
         "installed_owner_sha": "1a8267634955947bc0c6adc5614d7de176a33da2",
-        "prior_run_id": 44800088162,
-        "run_id": null,
-        "conclusion": null,
-        "evidence_kind": "ORIGINAL_SIGNED_ED25519_COMPANY_KEY_READ_WRITE_CREATE_DEFAULT_AND_ATLAS_FREE_ATOMIC_GRAPH"
+        "run_id": 44815605828,
+        "conclusion": "SUCCESS",
+        "test_count": 18,
+        "evidence_kind": "GENUINE_ORIGINAL_D3_ED25519_DEFAULT_COMPANY_KEY_SIGNED_READ_WRITE_CREATE_AND_ATOMIC_GRAPH"
       }
     },
     "required_gates": {
