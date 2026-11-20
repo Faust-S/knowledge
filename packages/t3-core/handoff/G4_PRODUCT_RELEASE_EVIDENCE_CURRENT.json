@@ -2673,16 +2673,16 @@
         "transport": "EXISTING_IWXA_MANUAL_HANDOFF_WHEN_OFFLINE_OPTIONAL_AUTHORIZED_SYNC_IF_CONNECTED",
         "offline_delivery": "PENDING_COMPANY_RECEIPT_NOT_DELIVERED_UNTIL_ORIGINAL_RECIPIENT_READBACK",
         "authorization": "D1_SIGNED_JIT_REVOCATION_APPLIES_ON_ENTRY_WRITE_EXPORT_AND_RECEIPT",
-        "agent_development_sha": "1675334eafd3eef0fcf055500cdcb1d1ec1441b6",
-        "agent_development_status": "SOURCE_PASS_LINUX_WINDOWS_NEW_COMPANY_SCHEMA_SETUP_NOT_INSTALLED",
+        "agent_development_sha": "4e454f5729674de76f8d3ec00defaea61b02d4db",
+        "agent_development_status": "SOURCE_QUALIFICATION_PENDING_ORIGINAL_SIGNED_TASK_THEN_COMPLETE_RESULT",
         "agent_development_source_evidence": {
-          "run_id": 44801086813,
-          "source_sha": "1675334eafd3eef0fcf055500cdcb1d1ec1441b6",
-          "windows": "PASS",
-          "linux": "PASS",
-          "setup_original_company_work_schema": "PASS",
-          "complete_accepted_result_reentrant_core": "PASS",
-          "installed": "NOT_RUN_NEW_SHA"
+          "prior_agent_sha": "1675334eafd3eef0fcf055500cdcb1d1ec1441b6",
+          "prior_source_ci": 44801086813,
+          "prior_source_status": "SUCCESS",
+          "current_agent_sha": "4e454f5729674de76f8d3ec00defaea61b02d4db",
+          "run_id": null,
+          "status": "PENDING",
+          "installed": "NOT_ACCEPTED"
         },
         "release_status": "INCOMPLETE_SOURCE_COMPANY_RESULT_PASS_FINAL_INSTALLED_AND_EXCHANGE_OPEN",
         "payload_boundary": "Complete accepted corporate Result is read from existing Agent Core, never manually selected, then committed as Object/Event into original corporate T2 Workspace on the same signed JIT port. 2m UTF16 text. Binary attachments and full T2 Exchange remain open; installed qualification pending.",
@@ -2695,27 +2695,25 @@
           "qualification_code_note": "This result is genuine original T2 browser Storage/Events with public company source body; not private signed Agent/Center installed E2E"
         },
         "latest_one_core_candidate": {
-          "sha": "70393736307391293d0f8d64bd3d077edc00d8c6",
-          "source_test_ci": null,
-          "conclusion": "PENDING_NEW_AUTO_COMPANY_ENTRY",
-          "jobs": {
-            "test": "SUCCESS",
-            "real_host": "SUCCESS",
-            "windows_credential": "SUCCESS",
-            "native_age": "SKIPPED",
-            "native_model": "SKIPPED",
-            "metal_webgpu": "SKIPPED"
-          },
-          "frozen_original_t2_tree": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
-          "source_tree": "c382495e2b2954a3b85e9bf6c1e8004b7c179d6d"
+          "source_sha": "d0461bf722f68f83dee200d30f8b53e32531ebf7",
+          "executable_source_tree": "ac19f069e9c86572f053f2ae2ab2362bd6f418f7",
+          "public_source_ci": null,
+          "status": "PENDING_POST_FIRST_RUN_AND_ORIGINAL_TASK_RESULT_CANDIDATE",
+          "original_t2_tree_sha": "1594274dbf5e38214b8422ba11e8c7114bd5425c"
         },
         "auto_company_first_run": {
-          "state": "SOURCE_IMPLEMENTED_QUALIFICATION_PENDING",
           "source_commit": "70393736307391293d0f8d64bd3d077edc00d8c6",
-          "source_tree": "c382495e2b2954a3b85e9bf6c1e8004b7c179d6d",
-          "contract": "SIGNED_CORP_SELECTED_WORKSPACE_AUTOCREATE_ONLY_WITH_ORIGINAL_WORKSPACE_CREATE_GRANT; PERSONAL_AND_UNAUTHORIZED_NO_AUTO_CREATE",
-          "no_second_kernel": true,
-          "installed": "NOT_RUN_NEW_SHA"
+          "source_tree": "ac19f069e9c86572f053f2ae2ab2362bd6f418f7",
+          "state": "SOURCE_QUALIFICATION_PENDING_EXACT_BROWSER_AUTO_FIRST_RUN",
+          "profile": "CORP_ONLY_VALID_SIGNED_CREATE_JIT_NO_EXTRA_MANUAL_CLICK",
+          "personal_workspace_unmodified": true
+        },
+        "default_task_and_result": {
+          "state": "SOURCE_QUALIFICATION_PENDING",
+          "task": "ORIGINAL_SIGNED_TASK_COMMITTED_FIRST_IN_SAME_ORIGINAL_T2_WORKSPACE",
+          "result": "COMPLETE_PREVIOUS_HUMAN_ACCEPTED_RESULT_COMMITTED_SECOND_ONLY_AFTER_SIGNED_TASK_READBACK",
+          "no_second_result_selection": true,
+          "delivery": "NOT_DELIVERED_UNTIL_ORIGINAL_COMPANY_RECEIPT"
         }
       },
       "original_t3_final_candidate_sha": "a48a41744b911b89cbac2a3e0c99320932ad9469",
