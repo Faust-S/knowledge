@@ -6,16 +6,19 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: d01-learn-real-ui
+  cancel-in-progress: true
 jobs:
   original-learn:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 15
     steps:
       - name: Checkout exact original private Learn site
         uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: cb5c1d449e711f3472208a4d6851510f77c0456f
+          ref: 2715873d97d43e4fc2d8b61bc4ed37982d5e6788
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -43,7 +46,7 @@ jobs:
         run: |
           set -eu
           test "$(git -C private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
-          test "$(git -C private/site rev-parse HEAD)" = cb5c1d449e711f3472208a4d6851510f77c0456f
+          test "$(git -C private/site rev-parse HEAD)" = 2715873d97d43e4fc2d8b61bc4ed37982d5e6788
           test "$(git -C private/domain rev-parse HEAD)" = 97d2984121199251b11ce6cadc5dc085da9699f9
           cmp private/domain/learning-journey/projection.ts private/site/t2/domain-modules/learn-results/learning-journey.ts
           cmp private/domain/learning-journey/today.ts private/site/t2/domain-modules/learn-results/learning-today.ts
@@ -53,7 +56,7 @@ jobs:
         env:
           D01_T2_CHECKOUT: ${{ github.workspace }}/private/t2
           D01_EXPECTED_T2_HEAD: 9c64951cd78411283e8a416641c36d71e169fc1d
-          D01_EXPECTED_SITE_HEAD: cb5c1d449e711f3472208a4d6851510f77c0456f
+          D01_EXPECTED_SITE_HEAD: 2715873d97d43e4fc2d8b61bc4ed37982d5e6788
           D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
         run: node private/site/qa/d01-product-witness-2026-10-26/ci-real-screens.mjs
       - name: Upload only verified browser PNG and SHA-256 manifest
