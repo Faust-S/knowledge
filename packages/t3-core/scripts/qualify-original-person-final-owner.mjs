@@ -69,6 +69,27 @@ export async function qualifyOriginalFinalPersonSource({
     const metric=k=>Number(output.match(new RegExp('^# '+k+' (\\d+)$','m'))?.[1]??NaN);
     const [tests,pass,fail,skipped]=['tests','pass','fail','skipped'].map(metric);
     const targets=REQUIRED.every(text=>output.includes(text));
+    // Give the developer ONLY ordinal and a redacted failure class.
+    // Never leak private test names, assertion actual/expected, source or
+    // stack traces into public Actions logs.
+    const failureOrdinals=[...output.matchAll(/^not ok (\\d+) - [^\\r\\n]*$/gm)]
+      .map(hit=>{
+        const segment=output.slice(hit.index+hit[0].length);
+        const end=segment.search(/^\\s*(?:not ok|ok|# Subtest:) /m);
+        const block=end>=0?segment.slice(0,end):segment;
+        const message=block.match(/^\\s*error: ['"]([^'"\\n]+)['"]/m)?.[1]??'';
+        const safeCode=/^[A-Z][A-Z0-9_]{3,96}$/.test(message)
+          ?message:/ERR_ASSERTION|AssertionError|Expected values/.test(block)
+            ?'ASSERTION_MISMATCH'
+            :/ERR_MODULE_NOT_FOUND|Cannot find module/.test(block)
+              ?'MISSING_IMPORT'
+              :/ENOENT/.test(block)?'MISSING_FILE'
+                :/TypeError/.test(block)?'TYPE_ERROR':'OTHER_FAILURE';
+        return {ordinal:Number(hit[1]),code:safeCode};
+      });
+    if(failureOrdinals.length)
+      console.log('T3_PERSON_PRIVATE_FAILED_ORDINALS_CLASSES',
+        JSON.stringify(failureOrdinals));
     if(result.error||result.status!==0||!targets||
        !Number.isSafeInteger(tests)||tests<22||
        pass!==tests||fail!==0||
