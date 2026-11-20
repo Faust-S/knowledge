@@ -62,10 +62,12 @@ export function manifestForOneDist(entries,{version,oneCoreSha,t2Sha,assembled,p
      !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(product.origin)||
      typeof product.serviceId!=='string'||!product.serviceId.trim()||
      typeof product.assemblyProfile!=='string'||
-     !['signed-control','agent-d6'].includes(product.assemblyProfile)||
-     (product.assemblyProfile==='agent-d6'&&
+     !['signed-control','agent-d6','agent-d6-desktop'].includes(product.assemblyProfile)||
+     (product.assemblyProfile.startsWith('agent-d6')&&
        (product.id!==PRODUCT_AGENT||
-        assembled.original_agent_d6_schema_registered!==true)))
+        assembled.original_agent_d6_schema_registered!==true))||
+     (product.assemblyProfile==='agent-d6-desktop'&&
+       assembled.local_inference_registered!==false))
     fail('PRODUCT_OWNED_T2_SERVICE_REQUIRED');
   const files=entries.map(x=>({
     path:x.name,bytes:x.bytes.length,sha256:hash(x.bytes),
@@ -109,7 +111,7 @@ export function prepareT3OneDistCandidate({
   // prevents manufacturing a misleading cross-domain "universal ZIP".
   if(!candidate.test(version)||!id.test(oneCoreSha)||!id.test(t2Sha))
     fail('VERSION_AND_SOURCE_PINS_REQUIRED');
-  if(!['signed-control','agent-d6'].includes(assemblyProfile))
+  if(!['signed-control','agent-d6','agent-d6-desktop'].includes(assemblyProfile))
     fail('ASSEMBLY_PROFILE_INVALID');
   let originalDomain,originalConfig;
   try{
@@ -119,7 +121,7 @@ export function prepareT3OneDistCandidate({
   if(typeof originalDomain?.domain_id!=='string'||
      typeof originalConfig?.workspace_service_id!=='string'||
      originalDomain.domain_id!==originalConfig.domain_id||
-     (assemblyProfile==='agent-d6'&&originalDomain.domain_id!==PRODUCT_AGENT))
+     (assemblyProfile.startsWith('agent-d6')&&originalDomain.domain_id!==PRODUCT_AGENT))
     fail('ORIGINAL_PRODUCT_IDENTITY_MISMATCH');
   mkdirSync(dirname(output),{recursive:true});
   mkdirSync(output);
@@ -127,7 +129,8 @@ export function prepareT3OneDistCandidate({
     const dist=join(output,'one-dist');
     const assembled=assembleSignedControlDist({
       t2Dist:t2,t3Build:t3,outputDir:dist,
-      installedOriginalAgentD6:assemblyProfile==='agent-d6',
+      installedOriginalAgentD6:assemblyProfile.startsWith('agent-d6'),
+      desktopAgentControlOnly:assemblyProfile==='agent-d6-desktop',
     });
     if(!assembled||assembled.original_runtime_unchanged!==true)
       fail('ORIGINAL_RUNTIME_CHANGED');
@@ -138,6 +141,9 @@ export function prepareT3OneDistCandidate({
     // Explicitly do not ship model weights. Installation is opt-in and local.
     if(raw.some(x=>/\.(?:gguf|safetensors|pt|pth|onnx)$/i.test(x.name)))
       fail('MODEL_WEIGHTS_EMBEDDED');
+    if(assemblyProfile==='agent-d6-desktop'&&raw.some(x=>
+      /\/model-worker-[A-Za-z0-9_-]+\.js$/.test(x.name)))
+      fail('DESKTOP_AGENT_WEBGPU_WORKER_FORBIDDEN');
     const domain=JSON.parse(readFileSync(join(dist,'_iwxa/domain.json'),'utf8'));
     const config=JSON.parse(readFileSync(join(dist,'workspace/workspace.config.json'),'utf8'));
     const manifest=manifestForOneDist(raw,{
@@ -176,10 +182,13 @@ if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   const [qualifiedT2Dist,compiledT3Build,outputRoot,version,
     oneCoreSha,t2Sha,flag]=process.argv.slice(2);
   if(![8,9].includes(process.argv.length)||
-     (flag!==undefined&&flag!=='--installed-agent-d6'))
+     (flag!==undefined&&!['--installed-agent-d6',
+       '--installed-agent-d6-control-only'].includes(flag)))
     fail('USAGE_PRODUCT_T2_DIST_T3_BUILD_OUTPUT_AND_OPTIONAL_AGENT');
   process.stdout.write(JSON.stringify(prepareT3OneDistCandidate({
     qualifiedT2Dist,compiledT3Build,outputRoot,version,oneCoreSha,t2Sha,
-    assemblyProfile:flag==='--installed-agent-d6'?'agent-d6':'signed-control',
+    assemblyProfile:flag==='--installed-agent-d6-control-only'
+      ?'agent-d6-desktop':flag==='--installed-agent-d6'
+        ?'agent-d6':'signed-control',
   }))+'\n');
 }

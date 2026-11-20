@@ -59,3 +59,14 @@ test('a product-specific One Dist cannot be declared universal or silently grant
     original_agent_d6_schema_registered:false}}),
     /T3_ONE_DIST_CANDIDATE_PRODUCT_OWNED_T2_SERVICE_REQUIRED/);
 });
+
+test('desktop Agent must have its original signed D6 schema but no WebLLM inference',()=>{
+  const desktop={...product,assemblyProfile:'agent-d6-desktop'};
+  const ready=manifest(undefined,{
+    product:desktop,assembled:{...assembled,local_inference_registered:false},
+  });
+  assert.equal(ready.assemblyProfile,'agent-d6-desktop');
+  assert.throws(()=>manifest(undefined,{product:desktop,
+    assembled:{...assembled,local_inference_registered:true}}),
+    /T3_ONE_DIST_CANDIDATE_PRODUCT_OWNED_T2_SERVICE_REQUIRED/);
+});

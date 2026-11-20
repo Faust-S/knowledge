@@ -115,6 +115,7 @@ jobs:
         run: |
           node --check packages/t3-core/scripts/t3-pwa-manifest.mjs
           node --test packages/t3-core/tests/t3-pwa-install.test.mjs
+          node --test packages/t3-core/tests/t3-final-one-dist-candidate.test.mjs
       - name: Verify original Runtime 1.3 isolated bootstrap semantics
         run: node --test packages/t3-core/tests/t3-d1-origin-isolated-bootstrap.test.mjs
       - name: Run original T2 Runtime 1.3 Host facade regression
@@ -337,6 +338,13 @@ jobs:
           console.log('T3_AGENT_PRODUCT_PROFILE_PIN',pin);
           console.log('T3_PRODUCT_OWNED_QUALIFIED_T2_STAGE_PASS');
           NODE
+      # The browser's tested BLI build must never be shipped inside
+      # native Agent, whose T3 Workspace uses other model integrations.
+      - name: Rebuild native Agent T3 Host without browser WebLLM Worker
+        working-directory: packages/t3-core
+        env:
+          IWXA_T3_AGENT_BUILD_PROFILE: DESKTOP_SIGNED_ONLY
+        run: npm run build
       - name: Assemble product-owned original T3 One Dist RC (no private signer)
         working-directory: packages/t3-core
         run: |
@@ -347,7 +355,7 @@ jobs:
             "0.3.0-rc.1" \
             "f42e53cd28c881b2b8e04199595f9d7991f34414" \
             "9c64951cd78411283e8a416641c36d71e169fc1d" \
-            --installed-agent-d6
+            --installed-agent-d6-control-only
           (cd "$RUNNER_TEMP/iwxa-t3-one-dist-rc" && sha256sum -c SHA256SUMS.txt)
       - name: Retain original T2 T3 One Dist RC ZIP, manifest and SHA-256
         uses: actions/upload-artifact@v4
