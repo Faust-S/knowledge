@@ -78,7 +78,7 @@ jobs:
                 await page.waitForFunction(()=>[...document.querySelectorAll('.sw-article-figure img')].every(i=>i.complete&&i.naturalWidth>0),{timeout:20000});
                 const images=await page.evaluate(()=>[...document.querySelectorAll('.sw-article-figure img')].map(x=>({src:x.getAttribute('src'),alt:x.alt,naturalWidth:x.naturalWidth})));
                 if(images.length!==11 || images.some(x=>x.alt.length<25||x.naturalWidth<750))throw new Error('Eleven images did not load: '+JSON.stringify(images));
-                const scenes=await page.$('.sw-article-scene');
+                const scenes=await page.$$('.sw-article-scene');
                 if(scenes.length!==11)throw new Error('Expected eleven narrative scenes');
                 for(let i=0;i<scenes.length;i++){
                   const scene=scenes[i];
@@ -114,7 +114,7 @@ jobs:
                 if(!fit)throw new Error('Mobile inline image exceeds viewport');
               }
               if(name==='desktop'){
-                const mobileScenes=await page.$('#desktop-agent .sw-article-scene');
+                const mobileScenes=await page.$$('#desktop-agent .sw-article-scene');
                 if(mobileScenes.length!==3)throw new Error('Mobile Agent chapters missing');
                 for(let i=0;i<mobileScenes.length;i++){
                   await mobileScenes[i].evaluate(el=>el.scrollIntoView({block:'center',behavior:'instant'}));
