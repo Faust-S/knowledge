@@ -71,7 +71,8 @@ jobs:
       - name: Verify qualified original runtime by exact hash
         shell: bash
         run: |
-          archive="$PWD/normative-t2/t2/current/final-successor/kernel-successors/k036-same-store-event-history-20261019/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip"
+          mv normative-t2 "$RUNNER_TEMP/d09-normative-t2"
+          archive="$RUNNER_TEMP/d09-normative-t2/t2/current/final-successor/kernel-successors/k036-same-store-event-history-20261019/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip"
           test -f "$archive" || { echo D09_QUALIFIED_ZIP_MISSING; exit 1; }
           echo "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68  $archive" | sha256sum -c - >/dev/null || {
             echo D09_QUALIFIED_ZIP_HASH=FAIL; exit 1;
@@ -87,12 +88,11 @@ jobs:
         shell: bash
         env:
           D09_ORIGIN: https://localhost:8443
-          D09_T2_CANONICAL_SOURCE: ${{ runner.temp }}/d09-site-placeholder
           D09_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/d09-kernel
           D09_ASSEMBLY_ONLY: '1'
           D09_ASSEMBLY_ONLY_CONSENT: NO_NEW_TESTS_EXACT_QUALIFIED_INPUTS
         run: |
-          export D09_T2_CANONICAL_SOURCE="$PWD/normative-t2/t2/current/final-successor/canonical-source"
+          export D09_T2_CANONICAL_SOURCE="$RUNNER_TEMP/d09-normative-t2/t2/current/final-successor/canonical-source"
           npm run build > "$RUNNER_TEMP/d09-build.log" 2>&1 || {
             echo D09_ORIGINAL_T2_BUILD=FAIL
             grep -oE 'D09_(FULL_BUILD|SITE_ONLY|BINDING|T2_STAGE)_[A-Z0-9_:.]+' "$RUNNER_TEMP/d09-build.log" | tail -10 || true
