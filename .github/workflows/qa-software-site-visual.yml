@@ -78,10 +78,27 @@ jobs:
                 await page.waitForFunction(()=>[...document.querySelectorAll('.sw-article-figure img')].every(i=>i.complete&&i.naturalWidth>0),{timeout:20000});
                 const images=await page.evaluate(()=>[...document.querySelectorAll('.sw-article-figure img')].map(x=>({src:x.getAttribute('src'),alt:x.alt,naturalWidth:x.naturalWidth})));
                 if(images.length!==11 || images.some(x=>x.alt.length<25||x.naturalWidth<750))throw new Error('Eleven images did not load: '+JSON.stringify(images));
-                for(const [id] of expected){
-                  const chapter=await page.$('#desktop-'+id);
-                  if(!chapter)throw new Error('Missing chapter '+id);
-                  await chapter.screenshot({path:output+'/'+id+'-article-desktop.png'});
+                const scenes=await page.$('.sw-article-scene');
+                if(scenes.length!==11)throw new Error('Expected eleven narrative scenes');
+                for(let i=0;i<scenes.length;i++){
+                  const scene=scenes[i];
+                  const img=await scene.$('.sw-article-figure img');
+                  if(!img)throw new Error('Scene image missing: '+i);
+                  await scene.evaluate(el=>el.scrollIntoView({block:'center',behavior:'instant'}));
+                  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+                  await new Promise(resolve=>setTimeout(resolve,230));
+                  const render=await img.evaluate(el=>({
+                    opacity:getComputedStyle(el).opacity,
+                    visibility:getComputedStyle(el).visibility,
+                    width:el.getBoundingClientRect().width,
+                    loaded:el.complete&&el.naturalWidth>0,
+                  }));
+                  if(!render.loaded||render.opacity==='0'||render.visibility==='hidden'||render.width<200)
+                    throw new Error('Image hidden when scrolled into view: '+i+' '+JSON.stringify(render));
+                  const label=String(i+1).padStart(2,'0');
+                  await img.screenshot({path:output+'/illustration-'+label+'.png'});
+                  await scene.screenshot({path:output+'/scene-'+label+'.png'});
+                  console.log('EDITORIAL_IMAGE_PAINTED',label,images[i].src);
                 }
                 records.push({name:'inline-editorial-images',chapters:observed.chapters,images});
               }
@@ -96,13 +113,39 @@ jobs:
                 const fit=await page.evaluate(()=>[...document.querySelectorAll('.sw-article-figure img')].every(x=>x.getBoundingClientRect().width<=window.innerWidth));
                 if(!fit)throw new Error('Mobile inline image exceeds viewport');
               }
-              await page.screenshot({path:output+'/'+name+'-mobile.png',fullPage:true});
+              if(name==='desktop'){
+                const mobileScenes=await page.$('#desktop-agent .sw-article-scene');
+                if(mobileScenes.length!==3)throw new Error('Mobile Agent chapters missing');
+                for(let i=0;i<mobileScenes.length;i++){
+                  await mobileScenes[i].evaluate(el=>el.scrollIntoView({block:'center',behavior:'instant'}));
+                  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+                  await mobileScenes[i].screenshot({path:output+'/agent-mobile-'+String(i+1).padStart(2,'0')+'.png'});
+                }
+              }
               await page.close();
             }
             writeFileSync(output+'/manifest.json',JSON.stringify({exactSiteSha:'107d1bb9ac10e18e09c5c39a9834a3edcdba137c',records},null,2));
             console.log('IWXA_SOFTWARE_ARTICLES_INLINE_ELEVEN_IMAGES_PASS',records.length);
           }finally{await browser.close()}
           JS
+      - name: Verify real rendered image pixels, not just WebP network loads
+        run: |
+          python3 -m pip install --disable-pip-version-check --quiet Pillow==11.3.0
+          python3 - <<'PY'
+          from PIL import Image,ImageStat
+          from pathlib import Path
+          samples=sorted(Path('artifacts/software-pages').glob('illustration-*.png'))
+          assert len(samples)==11, f'INLINE_PAINTED_IMAGE_COUNT_FAIL {len(samples)}'
+          for p in samples:
+              with Image.open(p) as image:
+                  gray=image.convert('L')
+                  st=ImageStat.Stat(gray)
+                  spread=st.stddev[0]
+                  if image.width<380 or image.height<220 or spread<12:
+                      raise RuntimeError(f'INLINE_IMAGE_BLANK_OR_TOO_SMALL {p.name} {image.size} {spread:.2f}')
+                  print('INLINE_PAINTED_IMAGE_PASS',p.name,image.width,image.height,round(spread,2))
+          print('INLINE_ELEVEN_PAINTED_SCREENSHOTS_PASS')
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
