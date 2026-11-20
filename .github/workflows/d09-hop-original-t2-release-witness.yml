@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: b674917590ec9cbfc2eab40bb7597fa23e5724d9
+          ref: 84c481bda0ead3cfd3b98106413579ae4bf3382d
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Set up Node 24
@@ -196,7 +196,7 @@ jobs:
             export PUPPETEER_EXECUTABLE_PATH="$(command -v google-chrome)"
           fi
           node tests/d09-original-t2-project-save.browser.mjs > "$RUNNER_TEMP/d09-product-flow.log" 2>&1 || {
-            grep -E 'D09_(PRODUCT|PROJECT|ORIGINAL_T2_PROJECT_FLOW)_[A-Z0-9_]+=(PASS|FAIL)|D09_PROJECT_UI_DIAGNOSTICS=' "$RUNNER_TEMP/d09-product-flow.log" | tail -15 || true
+            grep -E 'D09_(PRODUCT|PROJECT|ORIGINAL_T2_PROJECT_FLOW)_[A-Z0-9_]+=(PASS|FAIL)|D09_PROJECT_(UI|SAVE_CLICK)_DIAGNOSTICS=' "$RUNNER_TEMP/d09-product-flow.log" | tail -15 || true
             echo D09_NATIVE_HOP_PRODUCT_FLOW=FAIL
             exit 1
           }
