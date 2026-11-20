@@ -44,7 +44,7 @@ export function manifestForOneDist(entries,{version,oneCoreSha,t2Sha,assembled})
   if(!Array.isArray(entries)||entries.length===0||entries.length>65500||
      entries.some(x=>typeof x?.name!=='string'||
        !x.name.startsWith('one-dist/')||
-       !Buffer.isBuffer(x.bytes)||x.bytes.length===0))
+       !Buffer.isBuffer(x.bytes)))
     fail('ARCHIVE_ENTRY_INVALID');
   const names=entries.map(x=>x.name);
   if(new Set(names).size!==names.length||
@@ -58,7 +58,7 @@ export function manifestForOneDist(entries,{version,oneCoreSha,t2Sha,assembled})
   ])if(!names.includes(path))fail('INCOMPLETE_ORIGINAL_ONE_DIST');
   const files=entries.map(x=>({
     path:x.name,bytes:x.bytes.length,sha256:hash(x.bytes),
-  })).sort((a,b)=>a.path.localeCompare(b.path,'en'));
+  })).sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);
   return {
     schema:'IWXA_T3_ONE_DIST_RELEASE_CANDIDATE/1',
     status:'CANDIDATE_NOT_FINAL',
