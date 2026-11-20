@@ -33,11 +33,24 @@ test('typed current ledger requires independent installed B0 and D1-D7',()=>{
     assert.equal(typeof state.remaining,'string',gate+' remaining acceptance');
     assert.ok(state.remaining.length>12,gate+' acceptance must be actionable');
   }
-  const ready=names.every(key=>current.required_gates[key].installed==='PASS');
-  assert.equal(current.verdict.t3_ready,ready);
-  assert.equal(evidence.release_candidate.t3_ready,ready);
-  assert.equal(evidence.release_candidate.production_ready,ready);
-  assert.equal(current.verdict.g4,ready?'ACCEPTED':'NOT_ACCEPTED');
+  const allInstalledGatesPass=names.every(
+    key=>current.required_gates[key].installed==='PASS');
+  const finallyAccepted=current.verdict.g4==='ACCEPTED';
+  assert.ok(['ACCEPTED','NOT_ACCEPTED'].includes(current.verdict.g4));
+  // All installed gates are NECESSARY, not sufficient. An independent final
+  // release acceptance is a distinct owner decision; never auto-promote G4.
+  assert.equal(current.verdict.t3_ready,finallyAccepted);
+  assert.equal(evidence.release_candidate.t3_ready,finallyAccepted);
+  assert.ok(!evidence.release_candidate.production_ready||finallyAccepted);
+  assert.ok(!finallyAccepted||allInstalledGatesPass,
+    'no G4 acceptance before every installed gate');
+  if(finallyAccepted){
+    assert.ok(current.final_independent_acceptance?.source_sha);
+    assert.match(current.final_independent_acceptance.source_sha,hex40);
+    assert.equal(current.final_independent_acceptance.accepted,true);
+  }else{
+    assert.equal(current.final_independent_acceptance,null);
+  }
   assert.equal(evidence.accepted_gates.cross_product_G4,current.verdict.g4);
   assert.equal(evidence.policy.source_ci_never_equals_installed_product,true);
   assert.equal(evidence.policy.allow_private_actions,false);
