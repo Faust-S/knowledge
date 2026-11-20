@@ -87,7 +87,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa
-          ref: 278995f9702aa6f93c20cf20eb036f4701dd017a
+          ref: 560ee6bf89d3c8fe28a1ee422670d5df5d281946
           path: private-iwxa
           token: ${{ env.AKIS_PRIVATE_READ_TOKEN }}
           persist-credentials: false
@@ -126,3 +126,5 @@ jobs:
         run: |
           python -m research.akis.qualitative_mesa.cli --input private-iwxa/research/akis/qualitative_mesa/fixtures/sole_flow.json > "$RUNNER_TEMP/akis-cli-result.json"
           python -c "import json,os; d=json.load(open(os.path.join(os.environ['RUNNER_TEMP'],'akis-cli-result.json'),encoding='utf-8')); assert d['schema']=='IWXA_AKIS_QUALITATIVE_RESULT/0.1'; assert d['evidence']=='MODEL_ONLY'; assert d['profit']['operator']=='UNKNOWN'; assert d['counts']=={'applied':8,'blocked':0}; assert d['works']['w1']['result']=='ACCEPTED_BY_ORIGINAL_RECIPIENT'; print('AKIS_NATIVE_CLI=PASS MODEL_ONLY, 8 applied, 0 blocked')"
+          python -m research.akis.qualitative_mesa.cli --input private-iwxa/research/akis/qualitative_mesa/fixtures/dynamic_need_and_resource_hold.json > "$RUNNER_TEMP/akis-cli-dynamic.json"
+          python -c "import json,os; p=os.path.join(os.environ['RUNNER_TEMP'],'akis-cli-dynamic.json'); d=json.load(open(p,encoding='utf-8')); assert d['schema']=='IWXA_AKIS_QUALITATIVE_RESULT/0.1'; assert d['evidence']=='MODEL_ONLY'; assert d['counts']=={'applied':12,'blocked':2}; assert [e['reason'] for e in d['trace'] if e['outcome']=='BLOCKED']==['RESOURCE_READINESS_UNKNOWN','RESOURCE_NOT_AVAILABLE']; assert d['works']['w1']['result']=='ACCEPTED_BY_ORIGINAL_RECIPIENT'; assert d['profit']['operator']=='UNKNOWN'; print('AKIS_NATIVE_DYNAMIC_CLI=PASS MODEL_ONLY, 12 applied, 2 blocked')"
