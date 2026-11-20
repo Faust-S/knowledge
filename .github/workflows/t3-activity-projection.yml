@@ -550,9 +550,26 @@ jobs:
         run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs
       - name: Compile original inherited BLI/WebLLM Host on Windows before native Agent install
         working-directory: packages/t3-core
+        shell: pwsh
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-agent-windows-original-k036
         run: |
+          $ErrorActionPreference='Stop'
           npm ci --ignore-scripts --no-audit --no-fund
+          if($LASTEXITCODE -ne 0){throw 'T3_WINDOWS_ORIGINAL_NPM_INSTALL_FAILED'}
+          # The installed Agent builds this signed-only profile, not BLI.
+          # Qualify actual original Kernel bytes and the exact native CLI
+          # on Windows BEFORE the later WebLLM Worker changes compiled dist.
+          $archive='qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip'
+          New-Item -ItemType Directory -Force -Path $env:IWXA_T2_QUALIFIED_KERNEL_DIST | Out-Null
+          Expand-Archive -LiteralPath $archive -DestinationPath $env:IWXA_T2_QUALIFIED_KERNEL_DIST -Force
+          npm run build
+          if($LASTEXITCODE -ne 0){throw 'T3_WINDOWS_DESKTOP_SIGNED_WORKSPACE_BUILD_FAILED'}
+          node tests/t3-d6-original-agent-windows-assembly.mjs
+          if($LASTEXITCODE -ne 0){throw 'T3_WINDOWS_ORIGINAL_AGENT_ONE_DIST_CLI_FAILED'}
+          # Browser BLI remains a separate, optional D5 profile.
           node scripts/qualify-bli-inherited-host.mjs
+          if($LASTEXITCODE -ne 0){throw 'T3_WINDOWS_BLI_COMPILATION_FAILED'}
   metal-webgpu:
     # Two macos-15 arm64 attempts (#43233365753, #44298912120) were
     # cancelled without executing ANY steps; they do NOT qualify WebGPU.
