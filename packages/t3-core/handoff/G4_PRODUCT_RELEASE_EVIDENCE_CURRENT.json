@@ -2,7 +2,7 @@
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
   "snapshot_date": "2026-11-20",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
-  "currentness": "20_11_G4_NOT_ACCEPTED__SOURCE_D3_44730781821_AND_INSTALLED_AGENT_SECOND_SID_44730781732_QUEUED_EXACT_AGENT_28D934__OLD_AGENT_21505_SOURCE_44723931657_AND_INSTALLED_44723931788_HISTORICAL_SUCCESS__OLD_REPEAT_44727367869_FAIL_K03_AFTER_TASK__ORIGINAL_CENTER_44726573571_INSTALLED_SAME_CORE_PASS",
+  "currentness": "20_11_D3_SOURCE_EXACT_AGENT_28D934_26_OF_26_44730781821_SUCCESS__INSTALLED_AGENT_K03_AND_GUEST_44730781732_IN_PROGRESS__SIGNED_CENTER_INSTALLED_44726573571_PASS__G4_NOT_ACCEPTED",
   "policy": {
     "t3_one_core": "Faust-S/knowledge/packages/t3-core",
     "t2_normative": "Faust-S/T2@main",
@@ -2623,9 +2623,9 @@
         "remaining": "original Event/Activity approved derived Result in installed owner"
       },
       "D3": {
-        "source": "PARTIAL",
+        "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "Previous exact Agent 21505e81 SOURCE D3 26/26 PASS #44723931657, standalone installed Agent PASS #44723931788, signed Admin installed PASS #44726573571 (all history preserved). New current Agent 28d934b7 is diagnostic-only K03 change and needs new exact source D3 #44730781821 and installed Agent plus second Windows SID #44730781732; no physical employee Result -> separate Center native ACCEPT/APPLY Kernel two cold reads yet"
+        "remaining": "Exact current Agent 28d934b7 signed original source process 26/26 #44730781821 SUCCESS (one source process with real model, different SID and Kernel cold). Standalone prior Agent and current signed Center installed individually PASS historic. Current installed Qwen/K03 second-SID #44730781732 still IN_PROGRESS; ONE physically installed Agent->signed original Center separate Human ACCEPT/APPLY original Kernel two independent cold remains NOT_ACCEPTED."
       },
       "D4": {
         "source": "PASS",
@@ -2658,8 +2658,9 @@
       "current_original_d3_source": {
         "run_id": 44730781821,
         "agent_sha": "28d934b7d40fd7689c8e3456c0bf95977fb82d27",
-        "conclusion": "QUEUED",
-        "evidence_level": "NOT_YET_ACCEPTED"
+        "conclusion": "SUCCESS",
+        "evidence_level": "SOURCE_NATIVE_PROCESS_PASS",
+        "marker_count": 26
       },
       "current_installed_agent": {
         "run_id": 44730781732,
@@ -2758,7 +2759,7 @@
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
     "original_private_native_signer": "CURRENT_SOURCE_PIN_d0d8ba2f_NATIVE_ONE_SHOT_WINDOWS_BRIDGE_REQUALIFIED_20_OF_20_44406073956__INSTALLED_UI_HOLD",
-    "independent_installed_d3": "EXACT_NEW_AGENT_28D934_SOURCE_44730781821_QUEUED_INSTALLED_GUEST_44730781732_QUEUED__PRIOR_AGENT_21505_SOURCE_AND_STANDALONE_NATIVE_PASSES_HISTORICAL__CENTER_2628_INSTALLED_F42E_SIGNED_OWNER_PASS__NO_ONE_CORPORATE_NATIVE_ACCEPT_APPLY_KERNEL_COLD_YET",
+    "independent_installed_d3": "EXACT_AGENT_28D934_SOURCE_NATIVE_SIGNED_D3_26_OF_26_44730781821_SUCCESS__INSTALLED_AGENT_K03_GUEST_44730781732_PENDING__PHYSICAL_SIGNED_ADMIN_NATIVE_ACCEPT_APPLY_CROSS_SID_KERNEL_TWO_COLD_HOLD",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
