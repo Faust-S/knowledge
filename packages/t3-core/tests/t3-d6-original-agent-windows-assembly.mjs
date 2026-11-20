@@ -80,7 +80,7 @@ try{
     '& node.exe $Builder --qualified-kernel-dist $Qualified --agent-profile $ProductProfile --t3-build $Compiled --output $Dist --receipt $Receipt --desktop-agent-control > $Log',
     'if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $Dist -PathType Container) -or !(Test-Path -LiteralPath $Receipt -PathType Leaf)){throw \'T3_WINDOWS_ORIGINAL_PS51_CLI_NO_RECEIPT\'}',
     'Write-Output \'T3_WINDOWS_ORIGINAL_PS51_CLI_PASS\'',
-  ].join('\\n')+'\\n');
+  ].join('\n')+'\n');
   const psDist=join(psRoot,'original-agent-one-dist');
   const psReceipt=join(psRoot,'original-agent-one-dist-receipt.json');
   const psLog=join(root,'original-agent-one-dist-build.json');
