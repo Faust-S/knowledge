@@ -23,7 +23,7 @@ function fixture({text='Результат исследования. '.repeat(60
   const access={
     currentContext:()=>({...context}),
     actionFor:op=>op==='t1.commitObjectGraph'?'object.write':'workspace.read',
-    operationDigest:sha,
+    operationDigest:x=>sha(JSON.stringify(x)),
     authorize:request=>{
       if(request.action==='object.write')writeJit++;
       return {schema:'IWXA_T3_ORGANIZATION_OPERATION_DECISION/1',
