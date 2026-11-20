@@ -188,9 +188,21 @@ export async function qualifyOriginalAgentCompanyCandidate({
          !/^\s*OK\s*$/m.test(output)||!present||
          /\bskipped=\d+\b/.test(output)){
         // Never publish a private test traceback, prompt, source or result.
+        const labels={
+          'test_agent06_corporate_t3_employee.py':'ORIGINAL_EMPLOYEE',
+          'test_t3_result_projection.py':'ORIGINAL_RESULT_PROJECTION',
+          'test_agent06_company_original_core_result.py':'ORIGINAL_COMPLETE_ACCEPTED_CORE',
+          'test_agent06_original_t3_reentrant_ipc.py':'ORIGINAL_NESTED_COMPANY_IPC',
+          'test_agent06_t3_setup_payload.py':'ORIGINAL_ONE_DIST_SETUP',
+        };
         console.log('T3_COMPANY_CANDIDATE_FAILED_SUITE',
-          pattern==='test_agent06_corporate_t3_employee.py'
-          ?'ORIGINAL_EMPLOYEE':'ORIGINAL_RESULT');
+          labels[pattern]??'UNRECOGNIZED_SUITE');
+        const all=output.split(/\r?\n/).filter(line=>
+          line.trim().startsWith('test_')&&line.includes(' ... '));
+        console.log('T3_COMPANY_CANDIDATE_FAILED_TEST_POSITIONS',
+          JSON.stringify(all.flatMap((line,i)=>
+            /\.\.\. (?:FAIL|ERROR)$/.test(line)?[i+1]:[])));
+        console.log('T3_COMPANY_CANDIDATE_TEST_COUNT',match?.[1]??'unknown');
         throw Error('T3_COMPANY_CANDIDATE_SOURCE_NOT_ACCEPTED');
       }
       totalTests+=Number(match[1]);
