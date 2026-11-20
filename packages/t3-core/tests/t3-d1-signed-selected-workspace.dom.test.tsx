@@ -49,7 +49,8 @@ it("installed Admin inspects only the original Control-selected Workspace, not l
       resource:"ws:admin-original",organization_id:"org:admin"};
   });
   render(<SignedSelectedWorkspaceGate required kernel={owner}
-    profile="generic" trustedSelectedContext={trustedSelectedContext}>
+    profile="generic" autoCreateSignedCorporate={false}
+    trustedSelectedContext={trustedSelectedContext}>
     <p data-testid="signed-admin-original-ready">Оригинальная Workspace</p>
   </SignedSelectedWorkspaceGate>);
   await screen.findByTestId("t3-d1-selected-workspace-message");
@@ -86,7 +87,8 @@ it("typed original T2 missing Workspace permits only a separately signed first-r
       resource:"ws:original-missing",organization_id:"org:original"};
   });
   render(<SignedSelectedWorkspaceGate required kernel={candidate}
-    profile="generic" trustedSelectedContext={trustedSelectedContext}>
+    profile="generic" autoCreateSignedCorporate={false}
+    trustedSelectedContext={trustedSelectedContext}>
     <p data-testid="typed-original-created">Original selected Workspace</p>
   </SignedSelectedWorkspaceGate>);
   const initial=await screen.findByTestId("t3-d1-selected-workspace-message");
@@ -102,6 +104,49 @@ it("typed original T2 missing Workspace permits only a separately signed first-r
   expect(listWorkspaces).not.toHaveBeenCalled();
 });
 
+it("original signed corporate key automatically creates its Workspace with the same Kernel",async()=>{
+  let stored:{workspace_id:string;profile:string}|null=null;
+  const getWorkspace=vi.fn(async()=>stored);
+  const createWorkspace=vi.fn(async(input:{workspace_id:string;profile:string})=>{
+    stored={...input};return {...input};
+  });
+  const listWorkspaces=vi.fn(async()=>{throw Error("UNSIGNED_LIST_DENIED");});
+  const kernel={getWorkspace,createWorkspace,listWorkspaces,
+    hasOperation:(name:string)=>name==="t1.createWorkspace"} as unknown as KernelFacade;
+  const original=vi.fn(async (method:string)=>{
+    expect(["getWorkspace","createWorkspace"]).toContain(method);
+    return {kind:"CORP" as const,organization_id:"org:company",
+      workspace_id:"ws:company-by-key",resource:"ws:company-by-key"};
+  });
+  render(<SignedSelectedWorkspaceGate required kernel={kernel}
+    profile="generic" trustedSelectedContext={original}>
+    <p data-testid="original-auto-company">Компания</p>
+  </SignedSelectedWorkspaceGate>);
+  await screen.findByTestId("original-auto-company");
+  expect(createWorkspace).toHaveBeenCalledTimes(1);
+  expect(createWorkspace).toHaveBeenCalledWith({
+    workspace_id:"ws:company-by-key",profile:"generic",
+  });
+  expect(listWorkspaces).not.toHaveBeenCalled();
+  expect(original).toHaveBeenCalledWith("createWorkspace");
+});
+it("a signed company key without a distinct create grant never creates automatically",async()=>{
+  const createWorkspace=vi.fn();
+  const kernel={getWorkspace:vi.fn(async()=>null),createWorkspace,
+    hasOperation:()=>true} as unknown as KernelFacade;
+  const original=vi.fn(async(method:string)=>method==="getWorkspace"
+    ?{kind:"CORP" as const,organization_id:"org:company",
+       workspace_id:"ws:missing",resource:"ws:missing"}:null);
+  render(<SignedSelectedWorkspaceGate required kernel={kernel}
+    profile="generic" trustedSelectedContext={original}>
+    <p data-testid="no-unsigned-company">Не показывать</p>
+  </SignedSelectedWorkspaceGate>);
+  await screen.findByTestId("t3-d1-selected-workspace-message");
+  await waitFor(()=>expect(original).toHaveBeenCalledWith("createWorkspace"));
+  expect(createWorkspace).not.toHaveBeenCalled();
+  expect(screen.queryByTestId("no-unsigned-company")).toBeNull();
+});
+
 it("typed original permission denial is NEVER converted to missing or signed create",async()=>{
   const getWorkspace=vi.fn(async()=>{
     throw Object.assign(new Error("PERMISSION_DENIED"),{code:"PERMISSION_DENIED"});
@@ -115,7 +160,8 @@ it("typed original permission denial is NEVER converted to missing or signed cre
     resource:"ws:denied",organization_id:"org:denied",
   }));
   render(<SignedSelectedWorkspaceGate required kernel={candidate}
-    profile="generic" trustedSelectedContext={trustedSelectedContext}>
+    profile="generic" autoCreateSignedCorporate={false}
+    trustedSelectedContext={trustedSelectedContext}>
     <p data-testid="denied-original-content">Must remain hidden</p>
   </SignedSelectedWorkspaceGate>);
   const msg=await screen.findByTestId("t3-d1-selected-workspace-message");

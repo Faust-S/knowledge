@@ -37,11 +37,12 @@ async function readSelectedBeforeWrite(kernel:KernelFacade,workspaceId:string){
 
 export function SignedSelectedWorkspaceGate({
   required,kernel,profile,signedKernelAccess,trustedSelectedContext,
-  firstRunExchange=null,children,
+  autoCreateSignedCorporate=true,firstRunExchange=null,children,
 }:{
   required:boolean;
   kernel:KernelFacade|null;
   profile?:string;
+  autoCreateSignedCorporate?:boolean;
   signedKernelAccess?:SignedResolver;
   trustedSelectedContext?: (operation:string)=>Promise<{
     kind:"CORP"|"PERSONAL";workspace_id:string;resource:string;
@@ -55,6 +56,7 @@ export function SignedSelectedWorkspaceGate({
   const [busy,setBusy]=useState(false);
   const [createError,setCreateError]=useState<string|null>(null);
   const generation=useRef(0),running=useRef(false);
+  const attemptedSignedCreate=useRef(new WeakMap<KernelFacade,Set<string>>());
 
   useEffect(()=>{
     const ticket=++generation.current;
@@ -162,6 +164,33 @@ export function SignedSelectedWorkspaceGate({
       if(ticket===generation.current)setBusy(false);
     }
   },[required,kernel,signedKernelAccess,trustedSelectedContext,profile,phase]);
+
+  // The employee's original signed company key opens/creates its one T2
+  // Workspace. No second manual create action is required when the ORIGINAL
+  // Control issued the distinct workspace.create right. PERSONAL/generic
+  // hosts retain their original explicit first-run UI.
+  useEffect(()=>{
+    if(!autoCreateSignedCorporate||!required||!kernel||
+       phase!=="missing"||!profile||!trustedSelectedContext||
+       !kernel.hasOperation("t1.createWorkspace"))return;
+    let active=true;
+    const ticket=generation.current;
+    void (async()=>{
+      const context=await trustedSelectedContext("createWorkspace");
+      if(!active||ticket!==generation.current||context?.kind!=="CORP"||
+         typeof context.organization_id!=="string"||
+         typeof context.workspace_id!=="string"||!ID.test(context.workspace_id)||
+         context.resource!==context.workspace_id)return;
+      const key=[context.organization_id,context.workspace_id,profile].join("\u0000");
+      let seen=attemptedSignedCreate.current.get(kernel);
+      if(!seen){seen=new Set<string>();attemptedSignedCreate.current.set(kernel,seen);}
+      if(seen.has(key))return;
+      seen.add(key);
+      await create(); // Existing signed JIT, same original Kernel, cold readback
+    })().catch(()=>{}); // No unsigned fallback and no unobserved retry
+    return ()=>{active=false;};
+  },[autoCreateSignedCorporate,required,kernel,phase,profile,
+      trustedSelectedContext,create]);
 
   if(!required)return <>{children}</>;
   if(phase==="ready")return <>{children}</>;
