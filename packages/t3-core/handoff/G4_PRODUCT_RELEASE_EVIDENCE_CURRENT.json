@@ -2602,7 +2602,7 @@
       "one_core": "f42e53cd28c881b2b8e04199595f9d7991f34414",
       "normative_t2": "9c64951cd78411283e8a416641c36d71e169fc1d",
       "original_t3_signed_owner": "1a8267634955947bc0c6adc5614d7de176a33da2",
-      "installed_agent": "cd52b70adabf367118bef70d162f03a2d49dc3cb",
+      "installed_agent": "c68387bdb6a7507fe412b62639d9c091d7b933dc",
       "installed_center": "2628c4bc1b20b4393c485d12513f029fdea8b082",
       "original_setup_core": "c10e193846a0ea4c73cabe3744aa7db82439d54e"
     },
@@ -2610,12 +2610,12 @@
       "B0": {
         "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "Frozen One Core f42e53 source #44744242421 PASS; real Qwen/age/Metal #44736009194 PASS. Installed Center signed Owner/DPAPI #44726573571 PASS. Previous Agent 12707f installed #44745032154 FAIL QWEN_EXECUTE HTTP_409. Exact new Agent cd52b70 needs fresh installed acceptance; G4 HOLD."
+        "remaining": "Frozen One Core f42e53 source #44744242421 PASS; real Qwen/age/Metal #44736009194 PASS. Installed Center signed Owner/DPAPI #44726573571 PASS. Previous Agent 12707f installed #44745032154 FAIL QWEN_EXECUTE HTTP_409. Agent cd52b70 failed #44749670978 during QWEN_EXECUTE (HTTP_409). Agent c68387b corrects the locally reproduced provider_config_projection_missing and awaits installed acceptance; G4 HOLD."
       },
       "D1": {
         "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "Installed Center signed original Owner/DPAPI cold #44726573571 PASS. Previous Agent 12707f second Windows SID installed #44745032154 failed GUEST_NATIVE_GRACEFUL_CLOSE_FAILED after native GUI cold UIA. Exact Agent cd52b70 second SID unverified; cross-product native Human ACCEPT/APPLY HOLD."
+        "remaining": "Installed Center signed original Owner/DPAPI cold #44726573571 PASS. Previous Agent 12707f second Windows SID installed #44745032154 failed GUEST_NATIVE_GRACEFUL_CLOSE_FAILED after native GUI cold UIA. Agent cd52b70 second SID passed in #44749670978. Current c68387b second SID awaits qualification; cross-product native Human ACCEPT/APPLY HOLD."
       },
       "D2": {
         "source": "PARTIAL",
@@ -2625,7 +2625,7 @@
       "D3": {
         "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "Previous Agent 12707f original signed source 26/26 #44745032035 PASS, installed #44745032154 FAIL QWEN_EXECUTE HTTP_409 at SNAPSHOT; independent second SID also failed native graceful close. Agent cd52b70 is newly pinned and must earn new independent source and installed results. Physical Agent Task Result -> installed Center Human ACCEPT and separate APPLY -> two Kernel cold readbacks HOLD."
+        "remaining": "Previous Agent 12707f original signed source 26/26 #44745032035 PASS, installed #44745032154 FAIL QWEN_EXECUTE HTTP_409 at SNAPSHOT; independent second SID also failed native graceful close. Agent cd52b70 signed source passed #44749760502 and second SID passed #44749670978. Its first installed route failed HTTP_409. Agent c68387b is pending fresh qualification. Physical Agent Task Result -> installed Center Human ACCEPT and separate APPLY -> two Kernel cold readbacks HOLD."
       },
       "D4": {
         "source": "PASS",
@@ -2657,13 +2657,13 @@
       },
       "current_original_d3_source": {
         "run_id": null,
-        "agent_sha": "cd52b70adabf367118bef70d162f03a2d49dc3cb",
+        "agent_sha": "c68387bdb6a7507fe412b62639d9c091d7b933dc",
         "conclusion": "QUEUED",
         "evidence_level": "NOT_YET_ACCEPTED"
       },
       "current_installed_agent": {
         "run_id": null,
-        "agent_sha": "cd52b70adabf367118bef70d162f03a2d49dc3cb",
+        "agent_sha": "c68387bdb6a7507fe412b62639d9c091d7b933dc",
         "conclusion": "QUEUED",
         "evidence_level": "NOT_YET_ACCEPTED"
       },
@@ -2709,7 +2709,7 @@
       },
       "current_installed_agent_second_sid": {
         "run_id": null,
-        "agent_sha": "cd52b70adabf367118bef70d162f03a2d49dc3cb",
+        "agent_sha": "c68387bdb6a7507fe412b62639d9c091d7b933dc",
         "conclusion": "QUEUED",
         "evidence_level": "NOT_YET_ACCEPTED",
         "scope": "ORIGINAL_GUEST_WINDOWS_SID_SETUP_NATIVE_GUI_COLD_UIA_UNINSTALL_PRESERVE_NO_CORPORATE_D3"
