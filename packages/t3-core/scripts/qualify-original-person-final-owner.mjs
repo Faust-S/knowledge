@@ -11,7 +11,7 @@ import {pathToFileURL} from 'node:url';
 import {getExactFile,originalImportPaths,originalImportTarget}
   from './qualify-original-private-d3-owner.mjs';
 
-export const T3_FINAL_PERSON_SOURCE_PIN='75a36f8273552b48ad370ae626e7b5290edb08d9';
+export const T3_FINAL_PERSON_SOURCE_PIN='30fc0865c5f19ecce7ce7bc2bff8da4847e8ce18';
 const REPOSITORY='Faust-S/T3';
 const TEST='tests/access-product-license-person.test.mjs';
 const STATIC=['access-control/domain-registry.json'];

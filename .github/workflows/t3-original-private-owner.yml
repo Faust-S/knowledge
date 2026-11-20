@@ -62,7 +62,7 @@ jobs:
         env:
           T3_READ_TOKEN: ${{ secrets.T3 }}
           DOMEN_PRIVATE_READ_TOKEN: ${{ secrets.DOMEN }}
-        run: node packages/t3-core/scripts/qualify-original-private-d3-owner.mjs --candidate
+        run: node packages/t3-core/scripts/qualify-original-private-d3-owner.mjs --candidate --company-graph
 
   # Agent is a separately private product. Its own read grant has not been
   # confirmed by knowledge, so do not turn core source PASS into job FAILURE.

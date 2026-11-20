@@ -11,13 +11,14 @@ const REPO='Faust-S/T3';
 export const ORIGINAL_PRIVATE_SOURCE_PIN='1a8267634955947bc0c6adc5614d7de176a33da2';
 // Final source candidate is a fast-forward of the accepted installed owner.
 // It is qualified independently; do not inherit Center installed proof.
-export const ORIGINAL_FINAL_OWNER_CANDIDATE_PIN='75a36f8273552b48ad370ae626e7b5290edb08d9';
+export const ORIGINAL_FINAL_OWNER_CANDIDATE_PIN='30fc0865c5f19ecce7ce7bc2bff8da4847e8ce18';
 const TEST='tests/admin-original-host-port.test.mjs';
 const MULTI_EMPLOYEE_TESTS=Object.freeze([
   'tests/multi-employee-provisioning.test.mjs',
   'tests/multi-employee-admin.test.mjs',
 ]);
 const DEFAULT_TEST_FILES=Object.freeze([TEST,...MULTI_EMPLOYEE_TESTS]);
+const COMPANY_GRAPH_TEST='tests/t3-signed-activity-owner.test.mjs';
 const EXPECT='native D3 compares every signed field independent of original JSON key order';
 const ROOTS=new Set(['interop','reconciliation','access-control','tests']);
 const MAX_FILES=130;
@@ -78,7 +79,7 @@ export async function runOriginalPrivateOwnerSourceCheck({
   testFiles=DEFAULT_TEST_FILES,
 }={}){
   if(!Array.isArray(testFiles)||testFiles.length===0||
-     testFiles.some(path=>![TEST,...MULTI_EMPLOYEE_TESTS].includes(path)))
+     testFiles.some(path=>![TEST,...MULTI_EMPLOYEE_TESTS,COMPANY_GRAPH_TEST].includes(path)))
     throw Error('T3_PRIVATE_D3_UNAPPROVED_TEST_FILE');
   if(typeof token!=='string'||!token.trim())throw Error('T3_KNOWLEDGE_READ_TOKEN_NOT_AVAILABLE');
   const root=mkdtempSync(join(tmpdir(),'iwxa-t3-original-d3-'),{mode:0o700});
@@ -137,6 +138,9 @@ export async function runOriginalPrivateOwnerSourceCheck({
       'shared real Registry separates staff grants',
       'one Admin Registry and ledger receive two independent staff results',
     ].every(text=>stdout.includes(text));
+    const companyGraph=testFiles.includes(COMPANY_GRAPH_TEST);
+    const companyGraphExecuted=!companyGraph||
+      stdout.includes('one existing signed owner issues two Activity DATA rights');
     const rawFailure=stdout+'\n'+(child.stderr??'');
     const knownFailure=[
       ['ERR_MODULE_NOT_FOUND','MISSING_IMPORT'],
@@ -186,7 +190,10 @@ export async function runOriginalPrivateOwnerSourceCheck({
     console.log('T3_PRIVATE_D3_SIGNED_CONTEXT_REGRESSION',targeted?'EXECUTED':'NOT_EXECUTED');
     console.log('T3_PRIVATE_D3_INDEPENDENT_STAFF_SOURCE_REGRESSIONS',
       multiEmployeeExecuted?'EXECUTED':'NOT_EXECUTED');
-    if(child.status!==0||child.error||!targeted||!multiEmployeeExecuted||!tests||passed!==tests||failed!==0)
+    if(companyGraph)console.log('T3_COMPANY_ORIGINAL_ATOMIC_GRAPH_WRITE_RIGHT',
+      companyGraphExecuted&&passed===tests?'PASS':'NOT_ACCEPTED');
+    if(child.status!==0||child.error||!targeted||!multiEmployeeExecuted||
+       !companyGraphExecuted||!tests||passed!==tests||failed!==0)
       throw Error('T3_PRIVATE_D3_ORIGINAL_OWNER_SOURCE_NOT_ACCEPTED');
     console.log('T3_PRIVATE_D3_ORIGINAL_OWNER_SOURCE_PASS_NOT_INSTALLED');
     return {tests,passed,failed,count};
@@ -196,11 +203,12 @@ export async function runOriginalPrivateOwnerSourceCheck({
   }
 }
 
-export async function qualifyOriginalWithAuthorizedTokens({tokens=[],fetchFile}={}){
+export async function qualifyOriginalWithAuthorizedTokens({tokens=[],fetchFile,
+  testFiles=DEFAULT_TEST_FILES}={}){
   const available=tokens.filter(token=>typeof token==='string'&&token.trim());
   if(!available.length)throw Error('T3_KNOWLEDGE_READ_TOKEN_NOT_AVAILABLE');
   for(const token of available){
-    try{return await runOriginalPrivateOwnerSourceCheck({token,fetchFile});}
+    try{return await runOriginalPrivateOwnerSourceCheck({token,fetchFile,testFiles});}
     catch(error){
       if(['T3_PRIVATE_SOURCE_FETCH_403','T3_PRIVATE_SOURCE_FETCH_404'].includes(error?.message))
         continue;
@@ -211,11 +219,13 @@ export async function qualifyOriginalWithAuthorizedTokens({tokens=[],fetchFile}=
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const finalCandidate=process.argv.includes('--candidate');
+  const companyGraph=process.argv.includes('--company-graph');
   qualifyOriginalWithAuthorizedTokens({
     tokens:[process.env.T3_READ_TOKEN,process.env.DOMEN_PRIVATE_READ_TOKEN],
     ...(finalCandidate?{fetchFile:(path,token)=>getExactFile(path,token,{
       sourcePin:ORIGINAL_FINAL_OWNER_CANDIDATE_PIN,
     })}:{}),
+    ...(companyGraph?{testFiles:[...DEFAULT_TEST_FILES,COMPANY_GRAPH_TEST]}:{}),
   }).then(result=>{
     if(finalCandidate){
       console.log('T3_FINAL_ORIGINAL_D3_OWNER_CANDIDATE_PIN',
