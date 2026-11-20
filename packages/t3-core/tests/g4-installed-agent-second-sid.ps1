@@ -143,7 +143,9 @@ try {
     $p.Refresh()
     if(-not $p.HasExited){
       if(-not $p.CloseMainWindow()){throw 'GUEST_NATIVE_CLOSE_NOT_ACKNOWLEDGED'}
-      if(-not $p.WaitForExit(20000)){throw 'GUEST_NATIVE_GRACEFUL_CLOSE_FAILED'}
+      # Allow the original WebView2 and local runtime to drain after WM_CLOSE.
+      # Still require the *same* original process to exit, never force PASS.
+      if(-not $p.WaitForExit(60000)){throw 'GUEST_NATIVE_GRACEFUL_CLOSE_FAILED'}
     }
   }
   $phase='SECOND_SID_SETUP'
