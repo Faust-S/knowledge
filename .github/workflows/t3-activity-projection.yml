@@ -36,6 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Attest unchanged executable One Core and original T2 fixture
+        shell: bash
         run: |
           set -eu
           actual_src=$(git rev-parse HEAD:packages/t3-core/src)
@@ -201,6 +202,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Attest unchanged executable One Core and original T2 fixture
+        shell: bash
         run: |
           set -eu
           actual_src=$(git rev-parse HEAD:packages/t3-core/src)
@@ -308,6 +310,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Attest unchanged executable One Core and original T2 fixture
+        shell: bash
         run: |
           set -eu
           actual_src=$(git rev-parse HEAD:packages/t3-core/src)
@@ -371,6 +374,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Attest unchanged executable One Core and original T2 fixture
+        shell: bash
         run: |
           set -eu
           actual_src=$(git rev-parse HEAD:packages/t3-core/src)
@@ -430,6 +434,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Attest unchanged executable One Core and original T2 fixture
+        shell: bash
         run: |
           set -eu
           actual_src=$(git rev-parse HEAD:packages/t3-core/src)
@@ -470,6 +475,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Attest unchanged executable One Core and original T2 fixture
+        shell: bash
         run: |
           set -eu
           actual_src=$(git rev-parse HEAD:packages/t3-core/src)
