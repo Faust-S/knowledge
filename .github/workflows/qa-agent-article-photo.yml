@@ -103,6 +103,7 @@ jobs:
               $file=Join-Path $work $relative
               if(!(Test-Path -LiteralPath $file -PathType Leaf)){continue}
               $logText=Get-Content -LiteralPath $file -Raw -ErrorAction SilentlyContinue
+              if([string]::IsNullOrWhiteSpace([string]$logText)){continue}
               foreach($match in [regex]::Matches([string]$logText,'(?i)(?<![a-z0-9_])(?:native_candidate|private_setup|original_t3|agent_native_gui)_[a-z0-9_]{4,100}(?![a-z0-9_])')){
                 Write-Host ('DOC_AGENT_BUILD_CODE '+$match.Value.ToUpperInvariant())
               }
@@ -117,6 +118,7 @@ jobs:
               }
               foreach($class in $classes.Keys){if([regex]::IsMatch([string]$logText,[string]$classes[$class])){Write-Host ('DOC_AGENT_BUILD_CLASS '+$class)}}
             }
+            foreach($code in [regex]::Matches([string]$text,'(?i)(?<![a-z0-9_])(?:native_candidate|private_setup|original_t3|agent_native_gui)_[a-z0-9_]{4,100}(?![a-z0-9_])')){Write-Host ('DOC_AGENT_OUTER_LOG_CODE '+$code.Value.ToUpperInvariant())}
             foreach($item in @('logs/native-desktop-build.log','build/package/IWXA-Personal-Agent-Windows-Explorer-Prototype.zip','IWXA-Private-SetupCore-Candidate.exe','logs/private-build-result.json')){
               if(Test-Path -LiteralPath (Join-Path $work $item) -PathType Leaf){
                 Write-Host ('DOC_AGENT_NATIVE_SAFE_STAGE_PRESENT '+($item -replace '[^A-Za-z0-9]','_'))
