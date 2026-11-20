@@ -629,13 +629,26 @@ try{
   // Waiting for "detached" alone incorrectly succeeds before React mounts.
   // The ORIGINAL T2 Kernel's stable Object/Workspace readback is authoritative.
   async function awaitOriginalCompanyWorkspace(workspaceId){
-    await browser.page.waitForFunction(async({serviceId,workspaceId})=>{
-      try{
-        const kernel=await window.IWXA.connect({service_id:serviceId});
-        const row=await kernel.t1.getWorkspace(workspaceId);
-        return row?.workspace_id===workspaceId&&row.profile==='generic';
-      }catch{return false;}
-    },{serviceId,workspaceId},{timeout:60000, polling:250});
+    // Promise-returning waitForFunction predicates can be treated as
+    // truthy before the T2 read finishes. Poll AWAITED page.evaluate
+    // and require an explicit plain JSON readback on the original origin.
+    let observed=null;
+    for(let attempt=0;attempt<240;attempt++){
+      observed=await browser.page.evaluate(async({serviceId,workspaceId})=>{
+        try{
+          const kernel=await window.IWXA.connect({service_id:serviceId});
+          const row=await kernel.t1.getWorkspace(workspaceId);
+          return {id:row?.workspace_id??null,profile:row?.profile??null};
+        }catch{return {id:null,profile:null};}
+      },{serviceId,workspaceId});
+      if(observed.id===workspaceId&&observed.profile==='generic')
+        return observed;
+      await new Promise(done=>setTimeout(done,250));
+    }
+    console.error('T3_D1_AUTO_CREATE_ORIGINAL_KERNEL_READBACK_DIAGNOSTIC',
+      JSON.stringify({workspaceMatch:observed?.id===workspaceId,
+        profile:observed?.profile??null}));
+    throw Error('T3_D1_AUTO_CREATE_ORIGINAL_KERNEL_READBACK_TIMEOUT');
   }
   // The canonical split-origin entry performs the SAME signed onboarding.
   // This fixture uses synthetic rights only until the later real Ed25519 run.
