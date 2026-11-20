@@ -2663,7 +2663,9 @@
         "FINAL_T3_VERSIONED_ONE_DIST_RC_PROVENANCE_INDEPENDENT_RELEASE_ACCEPTANCE_PENDING",
         "INSTALLED_AGENT_NEW_COMPANY_KEY_TASK_RESULT_AND_ADMIN_RECEIPT_NOT_RUN",
         "ORIGINAL_COMPANY_BINARY_ATTACHMENTS_AND_FULL_IWXA_EXCHANGE_NOT_COMPLETE",
-        "EXACT_CANDIDATE_NATIVE_WINDOWS_ORIGINAL_T3_AGENT_PROCESS_AND_INSTALLED_SETUP_REQUALIFICATION"
+        "EXACT_CANDIDATE_NATIVE_WINDOWS_ORIGINAL_T3_AGENT_PROCESS_AND_INSTALLED_SETUP_REQUALIFICATION",
+        "NATIVE_COMPILED_PRIVATE_T3_SERVER_IMPORT_GUARD_REQUALIFICATION",
+        "AGENT_INSTALLED_ORIGINAL_ONE_DIST_BUILD_FAILURE_CLASSIFY_AND_FIX"
       ],
       "existing_evidence_preserved": true,
       "company_workspace": {
@@ -2741,45 +2743,52 @@
           "recipient_company_ack": "NOT_TESTED"
         },
         "default_signed_invitation": {
-          "state": "SOURCE_PASS_NOT_INSTALLED",
-          "original_owner_sha": "e460021673bf58fec54d52a62c28fbd913047b99",
+          "state": "SOURCE_REQUALIFICATION_PENDING_BUN_ENTRY_FIX",
+          "original_owner_sha": "a66581d0c113319c65e2a6df417d3636fdc4bf5c",
           "source_qualification_run_id": 44815605828,
           "original_owner_tests": "18_PASS",
           "semantics": "ORDINARY_ADMIN_KEY_SIGNED_WORKSPACE_READ_WRITE_CREATE_ALL_BOUNDED_TO_SELECTED_COMPANY_WORKSPACE;EXPLICIT_LIMITED_KEY_PRESERVED",
           "atlas_optional": true,
-          "installed": "NOT_RUN_NEW_SHA"
+          "installed": "NOT_RUN_NEW_OWNER_SHA",
+          "previous_qualification_run_id": 44815605828
         }
       },
-      "original_t3_final_candidate_sha": "e460021673bf58fec54d52a62c28fbd913047b99",
+      "original_t3_final_candidate_sha": "a66581d0c113319c65e2a6df417d3636fdc4bf5c",
       "person_d7_source_qualification": {
-        "state": "SOURCE_PASS_NOT_INSTALLED",
-        "original_owner_sha": "e460021673bf58fec54d52a62c28fbd913047b99",
-        "run_id": 44815605828,
-        "test_count": 22,
-        "conclusion": "SUCCESS",
-        "coverage": "ORIGINAL_ISSUER_HOLDER_RENEW_REVOKE_COLD_SOURCE_ONLY"
+        "state": "SOURCE_REQUALIFICATION_PENDING_NEW_OWNER_PIN",
+        "original_owner_sha": "a66581d0c113319c65e2a6df417d3636fdc4bf5c",
+        "prior_owner_sha": "e460021673bf58fec54d52a62c28fbd913047b99",
+        "prior_run_id": 44815605828,
+        "run_id": null,
+        "test_count": null,
+        "conclusion": null
       },
       "original_owner_candidate_d3_qualification": {
-        "state": "SOURCE_PASS_NOT_INSTALLED",
-        "candidate_sha": "e460021673bf58fec54d52a62c28fbd913047b99",
+        "state": "SOURCE_REQUALIFICATION_PENDING_BUN_COMPILED_ENTRY_FIX",
+        "candidate_sha": "a66581d0c113319c65e2a6df417d3636fdc4bf5c",
+        "previous_candidate_sha": "e460021673bf58fec54d52a62c28fbd913047b99",
+        "previous_source_run_id": 44815605828,
+        "previous_source_conclusion": "SUCCESS_HISTORICAL_OLD_PIN",
         "installed_owner_sha": "1a8267634955947bc0c6adc5614d7de176a33da2",
-        "run_id": 44815605828,
-        "conclusion": "SUCCESS",
-        "test_count": 18,
-        "evidence_kind": "GENUINE_ORIGINAL_D3_ED25519_DEFAULT_COMPANY_KEY_SIGNED_READ_WRITE_CREATE_AND_ATOMIC_GRAPH"
+        "run_id": null,
+        "conclusion": null,
+        "reason": "Restored original Bun import.meta.main guard to keep imported Control server from invoking CLI when bundled"
       },
       "installed_qualification_candidate": {
-        "state": "PINNED_NEW_CANDIDATE_NOT_YET_ACCEPTED",
-        "original_t3_owner_sha": "e460021673bf58fec54d52a62c28fbd913047b99",
+        "state": "NEW_OWNER_PIN_BUN_IMPORT_FIXED_INSTALLED_REQUALIFICATION_PENDING",
+        "original_t3_owner_sha": "a66581d0c113319c65e2a6df417d3636fdc4bf5c",
         "agent_sha": "c854ce6269233939cef937ffe730f684a31f9b8e",
         "public_one_core_sha": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1",
         "original_t2_head": "9c64951cd78411283e8a416641c36d71e169fc1d",
         "original_t2_qualified_tree": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
         "previous_installed_acceptance": "HISTORICAL_ONLY_PRIOR_PINS",
-        "windows_native_process_run_id": null,
-        "windows_admin_installed_run_id": null,
-        "windows_agent_installed_run_id": null,
-        "approved": false
+        "windows_native_process_run_id": 44816666343,
+        "windows_admin_installed_run_id": 44817746729,
+        "windows_agent_installed_run_id": 44817746656,
+        "approved": false,
+        "windows_admin_installed_conclusion": "FAIL_COMPILED_SERVER_IMPORT",
+        "windows_agent_installed_conclusion": "FAIL_ONE_DIST_ASSEMBLY_BEFORE_SETUP",
+        "windows_native_process_conclusion": "SOURCE_NATIVE_PROCESS_SUCCESS_PREVIOUS_OWNER_SHA"
       }
     },
     "required_gates": {
