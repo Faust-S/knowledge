@@ -41,7 +41,14 @@ jobs:
           echo D09_SITE_TYPES=PASS
           npm run test:d09 > "$RUNNER_TEMP/d09-tests.log" 2>&1 || {
             echo D09_SITE_CONTRACT_TESTS=FAIL
-            grep -E '^not ok|^# (tests|pass|fail)|AssertionError|SyntaxError|Error \\[' "$RUNNER_TEMP/d09-tests.log" | tail -20 || true
+            for suite in tests/d09-*.test.mjs; do
+              if node --experimental-strip-types --test "$suite" > "$RUNNER_TEMP/d09-single.log" 2>&1; then
+                echo "D09_SUITE_PASS=$suite"
+              else
+                echo "D09_SUITE_FAIL=$suite"
+                grep -E 'not ok|# fail|ERR_ASSERTION|SyntaxError|Error \[' "$RUNNER_TEMP/d09-single.log" | tail -8 || true
+              fi
+            done
             exit 1
           }
           echo D09_SITE_CONTRACT_TESTS=PASS
