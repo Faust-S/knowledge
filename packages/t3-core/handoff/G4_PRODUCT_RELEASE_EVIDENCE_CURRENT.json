@@ -2672,7 +2672,8 @@
         "EXACT_AGENT_WINDOWS_PS51_RECEIPT_BOM_DECODE_INSTALLED_QUALIFICATION",
         "PS51_FULL_REDIRECTED_NATIVE_SETUP_BOM_REQUALIFICATION_PENDING",
         "AGENT_6FAE_PS51_NATIVE_ICON_SETUP_REDIRECTED_JSON_FULL_INSTALLED_GUI_PENDING",
-        "ADMIN_CENTER_ORIGINAL_SIGNED_CHILD_EXIT_RELEASE_INDEPENDENT_COLD_DPAPI_REQUALIFICATION"
+        "ADMIN_CENTER_ORIGINAL_SIGNED_CHILD_EXIT_RELEASE_INDEPENDENT_COLD_DPAPI_REQUALIFICATION",
+        "INSTALLED_TWO_PRODUCT_SIGNED_CORPORATE_TASK_TO_RESULT_HUMAN_ACCEPT_APPLY_PENDING"
       ],
       "existing_evidence_preserved": true,
       "company_workspace": {
@@ -2775,13 +2776,19 @@
           "native_gui": "PASS",
           "ordinary_workspace_without_atlas": "PASS",
           "native_enroll": "PASS",
-          "cold_native_owner": "FAIL_INTEROP_PRODUCT_LOCKED",
+          "cold_native_owner": "PASS_AFTER_GRACEFUL_CENTER_EXIT",
           "cause": "ORIGINAL_CENTER_TAURI_MISSING_EXPLICIT_ORIGINAL_OWNER_RELEASE_ON_NATIVE_EXIT",
           "source_fix_sha": "5da2473f5e13df58cd715b0109c29b7707a97847",
           "source_baseline_sha": "2628c4bc1b20b4393c485d12513f029fdea8b082",
-          "new_run_id": null,
-          "new_result": "NOT_RUN_NEW_CENTER_SHA"
-        }
+          "new_run_id": 44822013150,
+          "new_result": "PASS",
+          "cold_restart_gui": "PASS",
+          "owner_sha": "adfcb77a3497415ce8bb194647d2d5be3a41eafa",
+          "original_t2": "0.3.6",
+          "center_sha": "5da2473f5e13df58cd715b0109c29b7707a97847",
+          "result_scope": "INSTALLED_FIRST_USE_ONLY_NO_CORPORATE_RESULT_TRANSFER_CLAIM"
+        },
+        "installed_admin_status": "SIGNED_ORIGINAL_D3_FIRST_USE_AND_DPAPI_COLD_GUI_PASS"
       },
       "original_t3_final_candidate_sha": "adfcb77a3497415ce8bb194647d2d5be3a41eafa",
       "person_d7_source_qualification": {
@@ -2813,10 +2820,10 @@
         "original_t2_qualified_tree": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
         "previous_installed_acceptance": "HISTORICAL_ONLY_PRIOR_PINS",
         "windows_native_process_run_id": 44821254010,
-        "windows_admin_installed_run_id": null,
+        "windows_admin_installed_run_id": 44822013150,
         "windows_agent_installed_run_id": null,
         "approved": false,
-        "windows_admin_installed_conclusion": "PENDING_FIRST_USE_EXIT_RELEASE_COLD_WITNESS",
+        "windows_admin_installed_conclusion": "PASS_INSTALLED_FIRST_USE_SIGNED_ENROLL_DPAPI_INDEPENDENT_COLD_READ_AND_GUI_REOPEN",
         "windows_agent_installed_conclusion": "PENDING_NATIVE_WINDOWS_SETUP_TAURI_GUI",
         "windows_native_process_conclusion": "SOURCE_NATIVE_PROCESS_PASS_NOT_INSTALLED_GUI",
         "diagnostic_state": "ORIGINAL_NATIVE_SIGNED_OWNER_PID_LOCK_AFTER_CENTER_EXIT_FIXED_AT_RUN_EVENT_EXIT",
@@ -2852,7 +2859,8 @@
           "metal_webgpu": "SKIPPED",
           "conclusion": "SUCCESS",
           "installed": false
-        }
+        },
+        "windows_admin_installed_scope": "INSTALLED_ADMIN_CENTER_SIGNED_OWNER_FIRST_USE_ONLY_NOT_CROSS_PRODUCT_ACCEPT_APPLY"
       }
     },
     "required_gates": {
