@@ -10,6 +10,7 @@ on:
       - .github/workflows/t3-g4-installed-current-agent06.yml
       - packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs
       - packages/t3-core/scripts/qualify-original-agent-d3-port.mjs
+      - packages/t3-core/tests/g4-native-original-owner-pin-parity.test.mjs
       - packages/t3-core/tests/g4-original-agent-native-windows.mjs
       - packages/t3-core/tests/g4-original-agent-native-driver.py
       - packages/t3-core/tests/g4-native-two-windows-sids.ps1
