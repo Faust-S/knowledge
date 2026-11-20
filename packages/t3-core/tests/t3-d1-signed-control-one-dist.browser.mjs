@@ -666,7 +666,9 @@ try{
   assert.equal(new URL(selected.url()).hash,'#/overview');
   const created=await browser.page.evaluate(async({serviceId,workspace_id})=>{
     const kernel=await globalThis.IWXA.connect({service_id:serviceId});
-    return kernel.t1.getWorkspace(workspace_id);
+    const row=await kernel.t1.getWorkspace(workspace_id);
+    return {workspace_id:row?.workspace_id??null,
+      profile:row?.profile??null,deleted_at:row?.deleted_at??null};
   },{serviceId,workspace_id:scopedWorkspace});
   assert.equal(created?.workspace_id,scopedWorkspace);
   assert.equal(created?.profile,'generic');
@@ -1447,7 +1449,9 @@ try{
     assert.equal(await page.evaluate(()=>typeof window.IWXA),'undefined');
     const read=await browser.page.evaluate(async({serviceId,ws})=>{
       const original=await IWXA.connect({service_id:serviceId});
-      return original.t1.getWorkspace(ws);
+      const row=await original.t1.getWorkspace(ws);
+      return {workspace_id:row?.workspace_id??null,profile:row?.profile??null,
+        deleted_at:row?.deleted_at??null};
     },{serviceId,ws:'ws:'+short});
     assert.equal(read?.workspace_id,'ws:'+short);
     assert.equal(read?.profile,'generic');
