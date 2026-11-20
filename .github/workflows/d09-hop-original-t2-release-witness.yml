@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 3c17f97a7f06977e6cf745474bc6a9a69b1de50e
+          ref: cc6547c2ff949ba14bc7c153467ba06c5ec476a8
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Set up Node 24
@@ -53,6 +53,10 @@ jobs:
             exit 1
           }
           echo D09_SITE_CONTRACT_TESTS=PASS
+          node --experimental-strip-types --test tests/d09-json-content-equality.test.mjs > "$RUNNER_TEMP/d09-json-equality.log" 2>&1 || {
+            echo D09_HOST_JSON_READBACK_GUARD=FAIL; exit 1;
+          }
+          echo D09_HOST_JSON_READBACK_GUARD=PASS
           node --check tests/d09-strict-csp-host-witness.mjs
           node --check tests/d09-original-t2-production-first-run.browser.mjs
           node --check tests/d09-original-t2-project-save.browser.mjs
