@@ -2686,6 +2686,7 @@
         "evidence_level": "HARDWARE_SOURCE_PRIOR_NOT_EXACT_SITE_DIST"
       }
     },
+    "final_independent_acceptance": null,
     "verdict": {
       "g4": "NOT_ACCEPTED",
       "t3_ready": false
