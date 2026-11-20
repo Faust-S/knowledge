@@ -2609,8 +2609,8 @@
     "required_gates": {
       "B0": {
         "source": "PASS",
-        "installed": "PARTIAL",
-        "remaining": "One Core source and installed Center qualified. Agent c68387b passed real Qwen, GUI, cold, repair and rollback, plus independent second SID install, cold UIA, graceful close and uninstall preserving data in #44756816999."
+        "installed": "PASS",
+        "remaining": "B0 One Core/Setup accepted for its exact scope: original T2/T3 One Dist f42e53cd, installed signed Center 2628c4bc + DPAPI cold #44726573571 SUCCESS, installed Agent c68387bd Qwen/GUI/Task/Review/Result/cold/Repair/Rollback and second Windows SID #44756816999 SUCCESS. B0 has no cross-product Human ACCEPT/APPLY requirement; independent D1-D7 gates retain their own statuses."
       },
       "D1": {
         "source": "PASS",
