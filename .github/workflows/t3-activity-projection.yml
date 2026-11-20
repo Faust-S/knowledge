@@ -276,6 +276,22 @@ jobs:
         run: |
           npm run build
           node tests/t3-d6-original-agent-product-materialization.mjs
+      # The later browser BLI test stages an optional WebLLM source module
+      # in this disposable checkout. Preserve the ALREADY-qualified clean
+      # native Agent build BEFORE that staging, not another post-BLI build.
+      - name: Preserve qualified original native Agent T3 compile before BLI
+        working-directory: packages/t3-core
+        run: |
+          set -eu
+          target="$RUNNER_TEMP/iwxa-t3-native-agent-build"
+          test ! -e "$target"
+          mkdir -p "$target"
+          cp -a dist/. "$target/"
+          if find "$target" -type f -name 'model-worker-*.js' | grep -q .; then
+            echo 'T3_AGENT_NATIVE_BLI_WORKER_WRONG_PROFILE'
+            exit 1
+          fi
+          echo 'T3_AGENT_NATIVE_COMPILED_BEFORE_BLI_PASS'
       # Compile the inherited Host only once. Qualify D1 first so its
       # browser first-run failures surface before the slower WebGPU timeout.
       - name: Compile complete inherited T3 Host with BLI Worker for browser qualification
@@ -357,17 +373,12 @@ jobs:
           NODE
       # The browser's tested BLI build must never be shipped inside
       # native Agent, whose T3 Workspace uses other model integrations.
-      - name: Rebuild native Agent T3 Host without browser WebLLM Worker
-        working-directory: packages/t3-core
-        env:
-          IWXA_T3_AGENT_BUILD_PROFILE: DESKTOP_SIGNED_ONLY
-        run: npm run build
       - name: Assemble product-owned original T3 One Dist RC (no private signer)
         working-directory: packages/t3-core
         run: |
           node scripts/prepare-t3-one-dist-candidate.mjs \
             "$RUNNER_TEMP/iwxa-t3-agent-product-t2" \
-            "dist" \
+            "$RUNNER_TEMP/iwxa-t3-native-agent-build" \
             "$RUNNER_TEMP/iwxa-t3-one-dist-rc" \
             "0.3.0-rc.1" \
             "f42e53cd28c881b2b8e04199595f9d7991f34414" \
