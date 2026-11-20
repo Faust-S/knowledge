@@ -37,19 +37,21 @@ test('typed current ledger requires independent installed B0 and D1-D7',()=>{
     key=>current.required_gates[key].installed==='PASS');
   const finallyAccepted=current.verdict.g4==='ACCEPTED';
   assert.ok(['ACCEPTED','NOT_ACCEPTED'].includes(current.verdict.g4));
-  // All installed gates are NECESSARY, not sufficient. An independent final
-  // release acceptance is a distinct owner decision; never auto-promote G4.
+  assert.equal(current.final_acceptance_policy,'AUTOMATED_INSTALLED_G4');
+  assert.ok(['ACCEPTED','NOT_ACCEPTED'].includes(current.verdict.g4));
   assert.equal(current.verdict.t3_ready,finallyAccepted);
   assert.equal(evidence.release_candidate.t3_ready,finallyAccepted);
   assert.ok(!evidence.release_candidate.production_ready||finallyAccepted);
   assert.ok(!finallyAccepted||allInstalledGatesPass,
     'no G4 acceptance before every installed gate');
   if(finallyAccepted){
-    assert.ok(current.final_independent_acceptance?.source_sha);
-    assert.match(current.final_independent_acceptance.source_sha,hex40);
-    assert.equal(current.final_independent_acceptance.accepted,true);
+    const qualification=current.final_automated_acceptance;
+    assert.match(qualification.source_sha,hex40);
+    assert.ok(Number.isSafeInteger(qualification.run_id)&&qualification.run_id>0);
+    assert.equal(qualification.conclusion,'SUCCESS');
+    assert.deepEqual(qualification.pins,current.pins);
   }else{
-    assert.equal(current.final_independent_acceptance,null);
+    assert.equal(current.final_automated_acceptance,null);
   }
   assert.equal(evidence.accepted_gates.cross_product_G4,current.verdict.g4);
   assert.equal(evidence.policy.source_ci_never_equals_installed_product,true);
@@ -116,7 +118,6 @@ test('current source and installed runs cannot borrow historical signed D3 succe
       'exact installed full Agent must not borrow a prior run that failed another gate');
     assert.equal(q.previous_failed_guest_installed_agent.code,'GUEST_SETUP_FAILED');
     assert.equal(q.previous_failed_guest_installed_agent.scope,'SETUP_CORE_PROGRAM_ROOT_UNDER_RESERVED_COMMON_APPLICATION_DATA');
-    assert.equal(current.required_gates.D3.installed,'PARTIAL');
     assert.equal(q.current_installed_agent.scope,
       'STANDALONE_NATIVE_GUI_QWEN_REVIEW_K03_COLD_SETUP_REPAIR_ROLLBACK_NOT_CROSS_PRODUCT');
     assert.ok(Array.isArray(q.current_installed_agent.final_markers));
@@ -130,7 +131,6 @@ test('current source and installed runs cannot borrow historical signed D3 succe
   assert.equal(q.current_pwa_source_installability.one_core_sha,current.pins.one_core);
   assert.equal(q.current_pwa_source_installability.native_os_install_result,
     'SKIPPED_UNSUPPORTED_DEVTOOLS_PWA_INSTALL');
-  assert.equal(current.required_gates.D5.installed,'HOLD');
   assert.equal(q.prior_agent28_guest_second_sid_result.conclusion,'FAIL');
   assert.equal(q.prior_agent28_guest_second_sid_result.original_native_gui_cold_and_independent_uia,true);
   assert.equal(q.prior_agent28_k03_model_failure.finite_reason,

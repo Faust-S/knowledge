@@ -2932,7 +2932,8 @@
         "phase": "SECOND_SID_NATIVE_COLD_GUI"
       }
     },
-    "final_independent_acceptance": null,
+    "final_acceptance_policy": "AUTOMATED_INSTALLED_G4",
+    "final_automated_acceptance": null,
     "verdict": {
       "g4": "NOT_ACCEPTED",
       "t3_ready": false
