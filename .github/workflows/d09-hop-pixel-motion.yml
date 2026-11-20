@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: fd110c150e08db65fd300d76eba06bb75c6a601d
+          ref: 3e641964d75076ec9ff88f2eea763bcea51f33e3
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Use Node 24
@@ -48,6 +48,13 @@ jobs:
           }
           grep -E 'HOP_MOTION_.*=PASS|HOP_PIXEL_.*=PASS' "$RUNNER_TEMP/motion-native.log" | tail -12
           echo D09_MOTION_NATIVE_IWXA=PASS
+          ./node_modules/.bin/tsx scripts/qualify-pixel-character-transfer.ts > "$RUNNER_TEMP/cross-native.log" 2>&1 || {
+            grep -E 'HOP_CROSS_|Error:|AssertionError' "$RUNNER_TEMP/cross-native.log" | tail -20 | cut -c1-230 || true
+            echo D09_CROSS_NATIVE_IWXA=FAIL
+            exit 1
+          }
+          grep -E 'HOP_CROSS_.*=PASS' "$RUNNER_TEMP/cross-native.log" | tail -15
+          echo D09_CROSS_NATIVE_IWXA=PASS
       - name: Generate genuine GIF fixture for Chrome decoder
         shell: bash
         run: |
@@ -109,5 +116,5 @@ jobs:
           echo D09_MOTION_REAL_BROWSER=PASS
       - name: Report pinned verified product source
         run: |
-          echo D09_MOTION_SOURCE=fd110c150e08db65fd300d76eba06bb75c6a601d
+          echo D09_MOTION_SOURCE=3e641964d75076ec9ff88f2eea763bcea51f33e3
           echo D09_MOTION_PRIVATE_ARTIFACT_UPLOADS=NONE
