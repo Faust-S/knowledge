@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 9e863889491f3d460d938fd835f3513d6cb1564e
+          ref: b5b9fda7ae5fac73de778f92dcfc6b0f607a8393
           token: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
           persist-credentials: false
           filter: blob:none
@@ -71,7 +71,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((git -C .private/agent rev-parse HEAD).Trim() -cne '9e863889491f3d460d938fd835f3513d6cb1564e'){throw 'DOC_AGENT_HEAD_MISMATCH'}
+          if((git -C .private/agent rev-parse HEAD).Trim() -cne 'b5b9fda7ae5fac73de778f92dcfc6b0f607a8393'){throw 'DOC_AGENT_HEAD_MISMATCH'}
           if((git -C .private/center rev-parse HEAD).Trim() -cne 'c10e193846a0ea4c73cabe3744aa7db82439d54e'){throw 'DOC_INSTALLER_HEAD_MISMATCH'}
           python tools/qa-patch-agent-editorial.py .private/agent
           if($LASTEXITCODE -ne 0){throw 'DOC_AGENT_TEMPORARY_WITNESS_MISSING'}
@@ -99,6 +99,24 @@ jobs:
             foreach($code in @($tsErrors | Select-Object -Unique | Select-Object -Last 8)){
               Write-Host ('DOC_AGENT_NATIVE_SAFE_TYPESCRIPT_CODE '+$code.Value)
             }
+            foreach($relative in @('logs/private-build-result.json','logs/native-desktop-build.log','logs/native-desktop-build.log.stderr','logs/native-desktop-test-compile.log','logs/native-desktop-test-compile.log.stderr','logs/package-build-only.json','logs/test-python-bootstrap.log')){
+              $file=Join-Path $work $relative
+              if(!(Test-Path -LiteralPath $file -PathType Leaf)){continue}
+              $logText=Get-Content -LiteralPath $file -Raw -ErrorAction SilentlyContinue
+              foreach($match in [regex]::Matches([string]$logText,'(?i)(?<![a-z0-9_])(?:native_candidate|private_setup|original_t3|agent_native_gui)_[a-z0-9_]{4,100}(?![a-z0-9_])')){
+                Write-Host ('DOC_AGENT_BUILD_CODE '+$match.Value.ToUpperInvariant())
+              }
+              $classes=[ordered]@{
+                RUST_COMPILE='(?i)error\\[E[0-9]{4}\\]|error: could not compile'
+                RUST_LINK='(?i)LNK[0-9]{4}|link.exe.*failed'
+                RUST_NETWORK='(?i)failed to download|failed to fetch|network failure'
+                FRONTEND_TYPES='(?i)error TS[0-9]{4}'
+                FRONTEND_MODULE='(?i)module not found|cannot find module'
+                NODE_INSTALL='(?i)npm ERR!|npm error'
+                POWERSHELL='(?i)NativeCommandError|CommandNotFoundException'
+              }
+              foreach($class in $classes.Keys){if([regex]::IsMatch([string]$logText,[string]$classes[$class])){Write-Host ('DOC_AGENT_BUILD_CLASS '+$class)}}
+            }
             foreach($item in @('logs/native-desktop-build.log','build/package/IWXA-Personal-Agent-Windows-Explorer-Prototype.zip','IWXA-Private-SetupCore-Candidate.exe','logs/private-build-result.json')){
               if(Test-Path -LiteralPath (Join-Path $work $item) -PathType Leaf){
                 Write-Host ('DOC_AGENT_NATIVE_SAFE_STAGE_PRESENT '+($item -replace '[^A-Za-z0-9]','_'))
@@ -112,7 +130,7 @@ jobs:
         shell: pwsh
         timeout-minutes: 14
         env:
-          EDITORIAL_AGENT_SHA: 9e863889491f3d460d938fd835f3513d6cb1564e
+          EDITORIAL_AGENT_SHA: b5b9fda7ae5fac73de778f92dcfc6b0f607a8393
         run: |
           $ErrorActionPreference='Stop'
           $ps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
@@ -122,7 +140,7 @@ jobs:
           $sandbox=Join-Path $env:RUNNER_TEMP 'editorial-agent-installed'
           $witness=Join-Path $agent 'tools/qa-editorial-gui-witness.ps1'
           $accept=Join-Path $center 'installer/windows/qualify-local-bundle.ps1'
-          & $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $accept -Setup $package -ProductId 'iwxa.personal-agent' -SandboxRoot $sandbox -SourceCommit '9e863889491f3d460d938fd835f3513d6cb1564e' -WitnessScript $witness -WitnessTimeoutSeconds 700 *> (Join-Path $env:RUNNER_TEMP 'editorial-agent-install.log')
+          & $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $accept -Setup $package -ProductId 'iwxa.personal-agent' -SandboxRoot $sandbox -SourceCommit 'b5b9fda7ae5fac73de778f92dcfc6b0f607a8393' -WitnessScript $witness -WitnessTimeoutSeconds 700 *> (Join-Path $env:RUNNER_TEMP 'editorial-agent-install.log')
           if($LASTEXITCODE -ne 0){throw 'DOC_AGENT_REAL_GUI_WITNESS_FAILED'}
           Write-Host 'DOC_AGENT_NATIVE_THREE_GUI_STATES_CAPTURED'
       - name: Publish screenshots only, excluding private code and models
