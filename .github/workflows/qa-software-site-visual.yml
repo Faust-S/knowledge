@@ -32,6 +32,7 @@ jobs:
         shell: bash
         run: |
           bunx vite --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/editorial-visual-vite.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/iwxa-editorial-vite.pid"
           for n in $(seq 1 80); do
             curl --fail --silent http://127.0.0.1:4173/software/ > /dev/null && exit 0
             sleep 1
@@ -112,5 +113,16 @@ jobs:
         if: always()
         shell: bash
         run: |
-          rm -rf .private/site
+          if [ -s "$RUNNER_TEMP/iwxa-editorial-vite.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/iwxa-editorial-vite.pid")" 2>/dev/null || true
+          fi
+          pkill -f '[v]ite --host 127.0.0.1 --port 4173' || true
+          for n in 1 2 3 4 5 6; do
+            rm -rf .private/site 2>/dev/null || true
+            test ! -e .private/site && break
+            sleep 2
+          done
+          test ! -e .private/site || { echo 'PRIVATE_SITE_PURGE_FAIL'; exit 1; }
+          rm -f "$RUNNER_TEMP/iwxa-editorial-vite.pid"
           rm -f "$RUNNER_TEMP/editorial-visual-"*.log
+          echo 'PRIVATE_SITE_PURGED'
