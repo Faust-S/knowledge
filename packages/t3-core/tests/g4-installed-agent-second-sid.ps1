@@ -63,23 +63,67 @@ $native=$null
 try {
   $request=Get-Content -LiteralPath (Join-Path $ProofRoot 'input.json') -Raw -Encoding UTF8|ConvertFrom-Json
   $setup=[string]$request.setup
-  $program=Join-Path $ProofRoot 'application'
-  $data=Join-Path $ProofRoot 'data'
+  # Setup Core intentionally refuses CommonApplicationData (ProgramData) for
+  # every install/data location. ProofRoot is shared ONLY for ephemeral CI
+  # receipts; the real installed application belongs to this guest SID.
+  $guestLocal=[Environment]::GetFolderPath(
+    [Environment+SpecialFolder]::LocalApplicationData)
+  $guestHome=[Environment]::GetFolderPath(
+    [Environment+SpecialFolder]::UserProfile)
+  $caseName=Split-Path -Path $ProofRoot -Leaf
+  if([string]::IsNullOrWhiteSpace($guestLocal) -or
+     [string]::IsNullOrWhiteSpace($guestHome) -or
+     $caseName -cnotmatch '^IWXA-G4-INSTALLED-GUEST-[a-f0-9]{10}$' -or
+     -not $guestLocal.StartsWith(($guestHome.TrimEnd('\')+'\'),
+       [StringComparison]::OrdinalIgnoreCase)){
+    throw 'GUEST_LOCAL_USER_PROFILE_INVALID'
+  }
+  $guestRoot=Join-Path $guestLocal $caseName
+  $program=Join-Path $guestRoot 'application'
+  $data=Join-Path $guestRoot 'data'
   $locations=Join-Path $ProofRoot 'locations.json'
   $registry='HKCU:\Software\IWXA\SetupCore\Products\iwxa.personal-agent'
   if(Test-Path -LiteralPath $registry){throw 'GUEST_EXISTING_PRODUCT'}
+  $script:setupFailureMode='NONE'
+  $script:setupFailureCode='NONE'
+  $script:setupFailurePhase='NONE'
   function InvokeOriginalSetup([string]$mode,[string]$output,[string]$arg=''){
+    $script:setupFailureMode=switch($mode){
+      '--inspect-file' {'INSPECT'}
+      '--preflight-file' {'PREFLIGHT'}
+      '--install-locations-file' {'INSTALL'}
+      '--verify-installed-file' {'VERIFY'}
+      '--uninstall-file' {'UNINSTALL'}
+      default {'UNKNOWN'}
+    }
     $argv=if($arg){
       '{0} "{1}" "{2}"' -f $mode,$arg,$output
     }else{
       '{0} "{1}"' -f $mode,$output
     }
     $p=Start-Process -FilePath $setup -ArgumentList $argv -PassThru -WindowStyle Hidden -ErrorAction Stop
-    try{
-      if(-not $p.WaitForExit(180000) -or $p.ExitCode -ne 0){throw 'GUEST_SETUP_FAILED'}
+    try {
+      $exited=$p.WaitForExit(180000)
+      $code=if($exited){$p.ExitCode}else{-1}
     }finally{$p.Dispose()}
-    if(!(Test-Path -LiteralPath $output -PathType Leaf)){throw 'GUEST_SETUP_RECEIPT_MISSING'}
-    return Get-Content -LiteralPath $output -Raw -Encoding UTF8|ConvertFrom-Json
+    if(!(Test-Path -LiteralPath $output -PathType Leaf)){
+      throw 'GUEST_SETUP_RECEIPT_MISSING'
+    }
+    $receipt=Get-Content -LiteralPath $output -Raw -Encoding UTF8|ConvertFrom-Json
+    if($receipt.status -ceq 'ERROR'){
+      # Setup Core's machine-readable error class is finite and path-free.
+      # Never publish its unrestricted raw reason or exception text.
+      $reason=[string]$receipt.reason
+      $phase=[string]$receipt.installPhase
+      if($reason -cmatch '^SETUP_[A-Z0-9_]{3,90}$'){
+        $script:setupFailureCode=$reason
+      }
+      if($phase -cmatch '^[A-Z][A-Z0-9_]{2,45}$'){
+        $script:setupFailurePhase=$phase
+      }
+    }
+    if(-not $exited -or $code -ne 0){throw 'GUEST_SETUP_FAILED'}
+    return $receipt
   }
   function LaunchNative {
     $exe=Join-Path $program 'desktop\bin\IWXA Personal.exe'
@@ -115,9 +159,9 @@ try {
   if($pre.status -cne 'READY_FOR_FIRST_INSTALL'){throw 'GUEST_SETUP_PREFLIGHT_FAILED'}
   [ordered]@{
     schema='IWXA_SETUP_LOCATIONS/1';programRoot=$program;dataRoot=$data;
-    softwareRoot=(Join-Path $ProofRoot 'software');
-    modelsRoot=(Join-Path $ProofRoot 'models');
-    cacheRoot=(Join-Path $ProofRoot 'cache');startWithWindows=$false
+    softwareRoot=(Join-Path $guestRoot 'software');
+    modelsRoot=(Join-Path $guestRoot 'models');
+    cacheRoot=(Join-Path $guestRoot 'cache');startWithWindows=$false
   }|ConvertTo-Json -Compress|Set-Content -LiteralPath $locations -Encoding UTF8
   $installed=InvokeOriginalSetup '--install-locations-file' (Join-Path $ProofRoot 'installed.json') $locations
   if($installed.status -cne 'INSTALLED_NOT_LAUNCHED' -or
@@ -167,11 +211,15 @@ try {
     'GUEST_NATIVE_GRACEFUL_CLOSE_FAILED','GUEST_SIGNED_ORIGINAL_SETUP_IDENTITY_INVALID',
     'GUEST_SETUP_PREFLIGHT_FAILED','GUEST_ORIGINAL_INSTALL_NOT_REGISTERED',
     'GUEST_SETUP_FILE_VERIFICATION_FAILED','GUEST_MANAGER_UIA_ACK_MISSING',
-    'GUEST_UNINSTALL_OR_DATA_PRESERVATION_FAILED')
+    'GUEST_UNINSTALL_OR_DATA_PRESERVATION_FAILED',
+    'GUEST_LOCAL_USER_PROFILE_INVALID')
   $reason=[string]$_.Exception.Message
   if($reason -cnotin $allowed){$reason='GUEST_UNKNOWN'}
   [IO.File]::WriteAllText((Join-Path $ProofRoot 'guest-failure.json'),
-    (ConvertTo-Json ([ordered]@{phase=$phase;code=$reason}) -Compress),
+    (ConvertTo-Json ([ordered]@{
+      phase=$phase;code=$reason;setupMode=$script:setupFailureMode;
+      setupReason=$script:setupFailureCode;setupPhase=$script:setupFailurePhase
+    }) -Compress),
     [Text.UTF8Encoding]::new($false))
   exit 1
 } finally {
@@ -265,6 +313,16 @@ try {
         }
         if([string]$row.code -cmatch '^GUEST_[A-Z0-9_]{4,90}$'){
           Write-Output ('G4_AGENT_GUEST_CHILD_FAILURE_CODE '+$row.code)
+        }
+        if([string]$row.setupMode -cin @('INSPECT','PREFLIGHT','INSTALL','VERIFY','UNINSTALL')){
+          Write-Output ('G4_AGENT_GUEST_SETUP_FAILURE_MODE '+$row.setupMode)
+        }
+        if([string]$row.setupReason -cmatch '^SETUP_[A-Z0-9_]{3,90}$'){
+          Write-Output ('G4_AGENT_GUEST_SETUP_FAILURE_REASON '+$row.setupReason)
+        }
+        if([string]$row.setupPhase -cmatch '^[A-Z][A-Z0-9_]{2,45}$' -and
+           [string]$row.setupPhase -cne 'NONE'){
+          Write-Output ('G4_AGENT_GUEST_SETUP_FAILURE_PHASE '+$row.setupPhase)
         }
       }catch{}
     }
