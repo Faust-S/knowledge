@@ -81,7 +81,8 @@ function prepared(task,source,where){
   return {workspace_id:where.workspace_id,
     idempotency_key:where.idempotency_key,
     object:{object_id:where.object_id,schema_id:ORIGINAL_COMPANY_RECORD_SCHEMA,
-      schema_version:'1.0.0',base_revision:0,data},event};
+      schema_version:'1.0.0',base_revision:0,data},
+    relation_puts:[],relation_deletes:[],event};
 }
 export function createTrustedOriginalCompanyWorkspacePersistence({
   kernel,selectSignedAccess,readOriginalSignedTask,

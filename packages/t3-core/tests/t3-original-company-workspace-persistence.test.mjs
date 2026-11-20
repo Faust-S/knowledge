@@ -53,8 +53,8 @@ function fixture({text='Результат исследования. '.repeat(60
       commits++;
       assert.equal(command.object.base_revision,0);
       assert.equal(command.object.schema_id,ORIGINAL_COMPANY_RECORD_SCHEMA);
-      assert.equal(command.relations_put,undefined);
-      assert.equal(command.relations_delete,undefined);
+      assert.deepEqual(command.relation_puts,[]);
+      assert.deepEqual(command.relation_deletes,[]);
       if(stored)throw Error('ORIGINAL_REVISION_CONFLICT');
       stored={workspace_id:command.workspace_id,
         object_id:command.object.object_id,
