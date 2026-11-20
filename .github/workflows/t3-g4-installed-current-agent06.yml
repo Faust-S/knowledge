@@ -144,6 +144,16 @@ jobs:
           Write-Host 'G4_INSTALLED_AGENT_ORIGINAL_PRODUCT_AUTHORITY_WITNESS_PASS'
           Write-Host 'G4_INSTALLED_AGENT_PRODUCT_NEUTRAL_NO_DEFAULT_RECIPIENT_PASS'
           Write-Host 'G4_INSTALLED_AGENT06_CURRENT_SOURCES_AND_T2_PREFLIGHT_PASS'
+      - name: Stage original signed T3 employee module for installed Agent Windows qualification
+        shell: pwsh
+        env:
+          T3_READ_TOKEN: ${{ secrets.T3 || secrets.DOMEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $owner = Join-Path $env:RUNNER_TEMP 'g4-installed-original-employee-owner'
+          $agent = (Resolve-Path -LiteralPath '.private/agent').Path
+          & node packages/t3-core/scripts/stage-installed-original-employee-owner.mjs $owner $agent
+          if($LASTEXITCODE -ne 0){throw 'G4_INSTALLED_ORIGINAL_EMPLOYEE_MODULE_STAGE_FAILED'}
       - name: Check original Agent and Setup Git integrity in WindowsPowerShell 5.1
         shell: pwsh
         run: |
@@ -628,6 +638,7 @@ jobs:
         shell: pwsh
         run: |
           $targets = @('.private','.g4-pinned-one-core',
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-employee-owner'),
             (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06'),
             (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-cache'),
             (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-private-build.log'))
