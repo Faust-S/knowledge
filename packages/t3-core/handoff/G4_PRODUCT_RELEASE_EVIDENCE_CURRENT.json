@@ -2670,18 +2670,19 @@
         "transport": "EXISTING_IWXA_MANUAL_HANDOFF_WHEN_OFFLINE_OPTIONAL_AUTHORIZED_SYNC_IF_CONNECTED",
         "offline_delivery": "PENDING_COMPANY_RECEIPT_NOT_DELIVERED_UNTIL_ORIGINAL_RECIPIENT_READBACK",
         "authorization": "D1_SIGNED_JIT_REVOCATION_APPLIES_ON_ENTRY_WRITE_EXPORT_AND_RECEIPT",
-        "agent_development_sha": "c87eec6a6b889b863a000b2c2b05ce0f2a0e0ccf",
-        "agent_development_status": "SOURCE_PASS_33_EXISTING_TESTS_WINDOWS_AND_LINUX_NOT_INSTALLED",
+        "agent_development_sha": "444f44b49644e32db8c6b6f08989f2e212110226",
+        "agent_development_status": "SOURCE_FIX_COMMITTED_COMPLETE_DOCUMENT_IPC_REQUALIFICATION_PENDING",
         "agent_development_source_evidence": {
           "run_id": 44790833889,
           "agent_sha": "c87eec6a6b889b863a000b2c2b05ce0f2a0e0ccf",
           "windows": "33/33 PASS",
           "linux": "33/33 PASS",
           "worker_node_syntax": "PASS",
-          "installed": "NOT_ACCEPTED_NEW_SHA"
+          "installed": "NOT_ACCEPTED_NEW_SHA",
+          "note": "33/33 prior source tests at old SHA; next 444f44b4 includes large UTF8 IPC fix and tests awaiting CI"
         },
         "release_status": "INCOMPLETE",
-        "payload_boundary": "Agent Core and original signed interop.result.v2 now permit up to 2000000 UTF16 units on the qualified source candidates (Agent c87eec6a / T3 75a36f82). Larger documents and binary attachments still require original T2 Object/Exchange with provenance; no truncation or second Result."
+        "payload_boundary": "Original employee IPC: prepare up to 12 MiB UTF-8 request; preview up to 12 MiB UTF-8 response, complete signed source Result up to 2000000 UTF-16 units. Large binary attachments still require original T2 Exchange; no truncation permitted. Source tests pending CI."
       },
       "original_t3_final_candidate_sha": "75a36f8273552b48ad370ae626e7b5290edb08d9",
       "person_d7_source_qualification": {

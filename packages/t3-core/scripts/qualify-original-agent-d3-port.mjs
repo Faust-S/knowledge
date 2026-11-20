@@ -108,7 +108,7 @@ export async function qualifyOriginalAgentD3Source({
 /** Optional NEXT Agent source acceptance, kept separate from the already
  * installed c68387bd evidence. Uses existing Python suites and Node parse
  * check, without staging a second Agent Core or exposing private files. */
-export const AGENT_COMPANY_DEV_PIN='c87eec6a6b889b863a000b2c2b05ce0f2a0e0ccf';
+export const AGENT_COMPANY_DEV_PIN='444f44b49644e32db8c6b6f08989f2e212110226';
 export async function qualifyOriginalAgentCompanyCandidate({
   token,
   fetchFile=(path,secret)=>getExactFile(path,secret,{
@@ -124,6 +124,10 @@ export async function qualifyOriginalAgentCompanyCandidate({
     'runtime/t3_result_projection.py',
     'tests/test_agent06_corporate_t3_employee.py',
     'tests/test_t3_result_projection.py',
+    'tests/test_agent06_original_t3_large_ipc.test.mjs',
+    'runtime/t3_original_employee_cold_guard.mjs',
+    'runtime/t3_original_transfer_readback.mjs',
+    'runtime/t3_original_atlas_selected_summary.mjs',
   ];
   const root=mkdtempSync(join(tmpdir(),'iwxa-agent-company-next-'),{mode:0o700});
   try{
@@ -180,11 +184,22 @@ export async function qualifyOriginalAgentCompanyCandidate({
       }
       totalTests+=Number(match[1]);
     }
-    if(totalTests<25)
+    if(totalTests<28)
       throw Error('T3_COMPANY_CANDIDATE_TEST_COVERAGE_REGRESSED');
+    const bridge=spawnSync(process.execPath,[
+      '--test',join(root,'tests/test_agent06_original_t3_large_ipc.test.mjs'),
+    ],{cwd:root,env:environment,encoding:'utf8',timeout:90000,
+      maxBuffer:1024*1024});
+    if(bridge.status!==0||bridge.error||
+       !/^# pass 3\s*$/m.test(bridge.stdout??'')||
+       !/^# fail 0\s*$/m.test(bridge.stdout??'')){
+      console.log('T3_COMPANY_CANDIDATE_FAILED_SUITE','COMPLETE_DOCUMENT_IPC');
+      throw Error('T3_COMPANY_CANDIDATE_IPC_NOT_ACCEPTED');
+    }
     console.log('T3_COMPANY_NEXT_SHA',AGENT_COMPANY_DEV_PIN);
     console.log('T3_COMPANY_EXISTING_SOURCE_TESTS_PASS',totalTests);
     console.log('T3_COMPANY_EMPLOYEE_WORKER_SYNTAX_PASS');
+    console.log('T3_COMPANY_COMPLETE_DOCUMENT_IPC_3_PASS');
     console.log('T3_COMPANY_CANDIDATE_NOT_INSTALLED_NOT_FINAL_T3');
     return {candidate:AGENT_COMPANY_DEV_PIN,tests:totalTests};
   }finally{
