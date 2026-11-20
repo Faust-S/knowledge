@@ -2666,7 +2666,8 @@
         "EXACT_CANDIDATE_NATIVE_WINDOWS_ORIGINAL_T3_AGENT_PROCESS_AND_INSTALLED_SETUP_REQUALIFICATION",
         "NATIVE_COMPILED_PRIVATE_T3_SERVER_IMPORT_GUARD_REQUALIFICATION",
         "AGENT_INSTALLED_ORIGINAL_ONE_DIST_BUILD_FAILURE_CLASSIFY_AND_FIX",
-        "ADMIN_ACTUAL_INVITATION_UI_SOURCE_AND_INSTALLED_WINDOWS_QUALIFICATION"
+        "ADMIN_ACTUAL_INVITATION_UI_SOURCE_AND_INSTALLED_WINDOWS_QUALIFICATION",
+        "AGENT_NATIVE_SETUP_WINPS5_1_VITE_STDERR_NONFATAL_QUALIFICATION"
       ],
       "existing_evidence_preserved": true,
       "company_workspace": {
@@ -2680,15 +2681,19 @@
         "transport": "EXISTING_IWXA_MANUAL_HANDOFF_WHEN_OFFLINE_OPTIONAL_AUTHORIZED_SYNC_IF_CONNECTED",
         "offline_delivery": "PENDING_COMPANY_RECEIPT_NOT_DELIVERED_UNTIL_ORIGINAL_RECIPIENT_READBACK",
         "authorization": "D1_SIGNED_JIT_REVOCATION_APPLIES_ON_ENTRY_WRITE_EXPORT_AND_RECEIPT",
-        "agent_development_sha": "c854ce6269233939cef937ffe730f684a31f9b8e",
-        "agent_development_status": "SOURCE_QUALIFICATION_PENDING_NEW_PIN_C854_INSTALLED_NOT_RUN",
+        "agent_development_sha": "d51ccc8873c4dd76abec696b0ac6a9fecdeb2299",
+        "agent_development_status": "NEW_NATIVE_BUILDER_POWERSHELL_EXIT_CODE_SOURCE_AND_INSTALLED_PENDING",
         "agent_development_source_evidence": {
           "prior_run_id": 44815605828,
           "prior_agent_sha": "4e454f5729674de76f8d3ec00defaea61b02d4db",
           "new_agent_sha": "c854ce6269233939cef937ffe730f684a31f9b8e",
           "pinned_public_one_core": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1",
           "current_source_check": "PENDING",
-          "installed": "NOT_RUN"
+          "installed": "NOT_RUN",
+          "agent_sha": "d51ccc8873c4dd76abec696b0ac6a9fecdeb2299",
+          "previous_agent_sha": "c854ce6269233939cef937ffe730f684a31f9b8e",
+          "source_win_qualification": "PENDING_NEW_PIN",
+          "installed_win_qualification": "PENDING_NEW_PIN"
         },
         "release_status": "SOURCE_SIGNED_COMPANY_KEY_AND_ORIGINAL_T2_RESULT_PASS_FINAL_PRODUCT_OPEN",
         "payload_boundary": "Complete accepted corporate Result is read from existing Agent Core, never manually selected, then committed as Object/Event into original corporate T2 Workspace on the same signed JIT port. 2m UTF16 text. Binary attachments and full T2 Exchange remain open; installed qualification pending.",
@@ -2779,19 +2784,20 @@
       "installed_qualification_candidate": {
         "state": "PINNED_NEW_CANDIDATE_NOT_YET_ACCEPTED",
         "original_t3_owner_sha": "adfcb77a3497415ce8bb194647d2d5be3a41eafa",
-        "agent_sha": "c854ce6269233939cef937ffe730f684a31f9b8e",
+        "agent_sha": "d51ccc8873c4dd76abec696b0ac6a9fecdeb2299",
         "public_one_core_sha": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1",
         "original_t2_head": "9c64951cd78411283e8a416641c36d71e169fc1d",
         "original_t2_qualified_tree": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
         "previous_installed_acceptance": "HISTORICAL_ONLY_PRIOR_PINS",
         "windows_native_process_run_id": 44816666343,
         "windows_admin_installed_run_id": null,
-        "windows_agent_installed_run_id": 44817746656,
+        "windows_agent_installed_run_id": null,
         "approved": false,
         "windows_admin_installed_conclusion": "NOT_RUN_NEW_SHA",
-        "windows_agent_installed_conclusion": "FAIL_ONE_DIST_ASSEMBLY_BEFORE_SETUP",
+        "windows_agent_installed_conclusion": "NOT_RUN_NEW_SHA",
         "windows_native_process_conclusion": "SOURCE_NATIVE_PROCESS_SUCCESS_PREVIOUS_OWNER_SHA",
-        "diagnostic_state": "BUN_ENTRY_GUARD_RESTORED_ADMIN_INVITATION_UI_DEFAULT_FIXED"
+        "diagnostic_state": "BUN_ENTRY_GUARD_RESTORED_ADMIN_INVITATION_UI_DEFAULT_FIXED",
+        "agent_native_build_fix": "POWERSHELL_5_1_NATIVE_STDERR_WARNINGS_USE_REAL_EXIT_CODE"
       }
     },
     "required_gates": {
