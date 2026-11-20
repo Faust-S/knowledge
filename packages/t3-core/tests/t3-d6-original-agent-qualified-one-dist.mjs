@@ -211,6 +211,29 @@ try{
         objectId:'company:work:'+companyKey,
       }},
   };
+  // The signed original Task and its complete Human-accepted Result belong
+  // to the SAME original company Workspace and same unmodified T2 Kernel.
+  const taskText='Исходная корпоративная задача, подписанная руководителем';
+  const taskData={
+    ...data,kind:'TASK',artifactId:'task:public-graph-test',
+    operationId:'signed:'+data.taskRevisionId,mimeType:'text/plain',
+    text:taskText,sha256:sha(Buffer.from(taskText,'utf8')),
+    sourceKind:'ORIGINAL_SIGNED_TASK',
+  };
+  const taskKey=sha(Buffer.from(JSON.stringify([
+    taskData.organizationId,taskData.workspaceId,taskData.taskId,
+    taskData.taskRevisionId,taskData.kind,taskData.artifactId,
+  ]),'utf8'));
+  const taskGraph={
+    ...companyGraph,idempotency_key:taskKey,
+    object:{...companyGraph.object,object_id:'company:work:'+taskKey,
+      data:taskData},
+    event:{...companyGraph.event,payload:{
+      ...companyGraph.event.payload,kind:'TASK',artifactId:taskData.artifactId,
+      operationId:taskData.operationId,artifactSha256:taskData.sha256,
+      sourceKind:'ORIGINAL_SIGNED_TASK',objectId:'company:work:'+taskKey,
+    }},
+  };
   const probe=origin+'/__original_agent_d6_kernel_probe__';
   const ready=async()=>{
     browser=await launch();
@@ -239,14 +262,20 @@ try{
   assert.equal(written.idempotencyKey,graph.idempotency_key);
   assert.ok(written.eventId,
     'the real inherited Kernel must persist an original Event');
-  const companyWritten=await page.evaluate(async({serviceId,companyGraph})=>{
+  const {signedTaskWritten,companyWritten}=await page.evaluate(async({
+    serviceId,companyGraph,taskGraph
+  })=>{
     const kernel=await window.IWXA.connect({service_id:serviceId});
-    const receipt=await kernel.t1.commitObjectGraph(companyGraph);
-    return {revision:receipt.object?.revision,
-      objectId:receipt.object?.object_id,
-      eventId:receipt.event?.event_id,
-      idempotencyKey:receipt.event?.idempotency_key};
-  },{serviceId,companyGraph});
+    const task=await kernel.t1.commitObjectGraph(taskGraph);
+    const result=await kernel.t1.commitObjectGraph(companyGraph);
+    const receipt=r=>({revision:r.object?.revision,
+      objectId:r.object?.object_id,eventId:r.event?.event_id,
+      idempotencyKey:r.event?.idempotency_key});
+    return {signedTaskWritten:receipt(task),companyWritten:receipt(result)};
+  },{serviceId,companyGraph,taskGraph});
+  assert.equal(signedTaskWritten.revision,1);
+  assert.equal(signedTaskWritten.objectId,taskGraph.object.object_id);
+  assert.equal(signedTaskWritten.idempotencyKey,taskKey);
   assert.equal(companyWritten.revision,1);
   assert.equal(companyWritten.objectId,companyGraph.object.object_id);
   assert.equal(companyWritten.idempotencyKey,companyKey);
@@ -257,16 +286,20 @@ try{
     await browser.close();browser=null;
     const coldPage=await ready();
     const observed=await coldPage.evaluate(async({
-      serviceId,graph,written,companyGraph,companyWritten
+      serviceId,graph,written,companyGraph,companyWritten,
+      taskGraph,signedTaskWritten
     })=>{
       const kernel=await window.IWXA.connect({service_id:serviceId});
       const raw=await kernel.t1.getObject(
         graph.workspace_id,graph.object.object_id);
       const company=await kernel.t1.getObject(
         companyGraph.workspace_id,companyGraph.object.object_id);
+      const signedTask=await kernel.t1.getObject(
+        taskGraph.workspace_id,taskGraph.object.object_id);
       const events=await kernel.t1.listEventsSince(graph.workspace_id);
       return {object:raw?.object??null,
         company:company?.object??null,
+        signedTask:signedTask?.object??null,
         matched:events.filter(e=>
           e.event_id===written.eventId&&
           e.event_type===graph.event.event_type&&
@@ -274,8 +307,13 @@ try{
         companyEvents:events.filter(e=>
           e.event_id===companyWritten.eventId&&
           e.event_type===companyGraph.event.event_type&&
-          e.idempotency_key===companyGraph.idempotency_key)};
-    },{serviceId,graph,written,companyGraph,companyWritten});
+          e.idempotency_key===companyGraph.idempotency_key),
+        taskEvents:events.filter(e=>
+          e.event_id===signedTaskWritten.eventId&&
+          e.event_type===taskGraph.event.event_type&&
+          e.idempotency_key===taskGraph.idempotency_key)};
+    },{serviceId,graph,written,companyGraph,companyWritten,taskGraph,
+      signedTaskWritten});
     assert.equal(observed.object?.revision,1);
     assert.deepEqual(observed.object.data,graph.object.data);
     assert.equal(observed.matched.length,1,
@@ -285,7 +323,12 @@ try{
     assert.equal(observed.company.data.sha256,data.sha256);
     assert.equal(observed.companyEvents.length,1,
       'company Result must survive both original T2 cold Event reads');
+    assert.equal(observed.signedTask?.revision,1);
+    assert.deepEqual(observed.signedTask.data,taskGraph.object.data);
+    assert.equal(observed.taskEvents.length,1,
+      'same signed company Task must persist alongside accepted Result');
   }
+  console.log('AGENT_COMPANY_SIGNED_TASK_AND_FULL_RESULT_ONE_T2_TWO_COLD_READS_PASS');
   console.log('AGENT_COMPANY_COMPLETE_TEXT_ORIGINAL_KERNEL_TWO_COLD_READS_PASS');
   console.log('AGENT_D6_ORIGINAL_KERNEL_OBJECT_EVENT_TWO_COLD_READS_PASS');
   console.log('AGENT_D6_ORIGINAL_QUALIFIED_ONE_DIST_PROFILE_PASS');
