@@ -28,7 +28,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: f42e53cd28c881b2b8e04199595f9d7991f34414
           persist-credentials: false
+      - name: Verify exact release One Core SHA before installed Admin
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $head=(& git rev-parse HEAD).Trim()
+          if($head -cne 'f42e53cd28c881b2b8e04199595f9d7991f34414'){
+            throw 'G4_INSTALLED_ADMIN_ONE_CORE_PIN_MISMATCH'
+          }
+          Write-Output 'G4_INSTALLED_ADMIN_EXACT_RELEASE_ONE_CORE_F42E_PASS'
       - name: Parse installed native UIA and compile Win32 helper before private checkout
         shell: pwsh
         run: |
@@ -101,7 +111,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: f42e53cd28c881b2b8e04199595f9d7991f34414
           persist-credentials: false
+      - name: Verify exact release One Core SHA before installed Admin
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $head=(& git rev-parse HEAD).Trim()
+          if($head -cne 'f42e53cd28c881b2b8e04199595f9d7991f34414'){
+            throw 'G4_INSTALLED_ADMIN_ONE_CORE_PIN_MISMATCH'
+          }
+          Write-Output 'G4_INSTALLED_ADMIN_EXACT_RELEASE_ONE_CORE_F42E_PASS'
       - name: Stage selected original T3 owner code at exact private revision
         uses: actions/checkout@v4
         with:
