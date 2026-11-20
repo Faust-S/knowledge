@@ -69,7 +69,12 @@ jobs:
       - name: Independently qualify source and AKIS research models
         working-directory: .private/site
         run: |
-          node scripts/check-software-publications.mjs > "$RUNNER_TEMP/integrated-software.log" 2>&1 || { echo 'INTEGRATED_SOFTWARE_GUARD_FAIL'; exit 1; }
+          if ! node scripts/check-software-publications.mjs > "$RUNNER_TEMP/integrated-software.log" 2>&1; then
+            grep '^FAIL:' "$RUNNER_TEMP/integrated-software.log" | cut -c 1-130 || true
+            grep '^\\[software\\]' "$RUNNER_TEMP/integrated-software.log" || true
+            echo 'INTEGRATED_SOFTWARE_GUARD_FAIL'
+            exit 1
+          fi
           bun run check:akis:hub > "$RUNNER_TEMP/integrated-akis-hub.log" 2>&1 || { echo 'INTEGRATED_AKIS_HUB_FAIL'; exit 1; }
           bun run check:akis:article > "$RUNNER_TEMP/integrated-akis-article.log" 2>&1 || { echo 'INTEGRATED_AKIS_ARTICLE_FAIL'; exit 1; }
           echo 'INTEGRATED_SOFTWARE_AND_AKIS_SOURCE_PASS'
