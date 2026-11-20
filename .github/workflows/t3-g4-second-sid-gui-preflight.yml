@@ -1,0 +1,56 @@
+name: T3 G4 independent second Windows SID native GUI runner preflight
+on:
+  push:
+    branches:
+      - work/2026-11-10-t3-t2-activity-projection
+    paths:
+      - .github/workflows/t3-g4-second-sid-gui-preflight.yml
+      - packages/t3-core/tests/g4-second-windows-sid-native-gui-preflight.ps1
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: t3-g4-second-sid-gui-preflight-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  second-sid-native-desktop:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-g4-second-sid-gui]') }}
+    runs-on: windows-2022
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check public OS-only witness syntax under exact Windows PowerShell 5.1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $file=(Resolve-Path 'packages/t3-core/tests/g4-second-windows-sid-native-gui-preflight.ps1').Path
+          $tokens=$null
+          $syntaxErrors=$null
+          [void][Management.Automation.Language.Parser]::ParseFile(
+            $file,[ref]$tokens,[ref]$syntaxErrors)
+          if(@($syntaxErrors).Count -ne 0){throw 'G4_SECOND_SID_NATIVE_GUI_PUBLIC_SYNTAX_FAILED'}
+          $source=Get-Content -LiteralPath $file -Raw -Encoding UTF8
+          foreach($marker in @(
+            'G4_SECOND_SID_NATIVE_GUI_DIFFERENT_WINDOWS_SID_PASS',
+            'G4_SECOND_SID_NATIVE_GUI_SAME_INTERACTIVE_SESSION_PASS',
+            'G4_SECOND_SID_NATIVE_GUI_CROSS_ACCOUNT_UIA_PASS',
+            'G4_SECOND_SID_NATIVE_GUI_OS_PRECONDITION_ONLY_NOT_INSTALLED_D3'
+          )){
+            if(-not $source.Contains($marker)){throw 'G4_SECOND_SID_NATIVE_GUI_PUBLIC_CONTRACT_MISSING'}
+          }
+          Write-Output 'G4_SECOND_SID_NATIVE_GUI_PUBLIC_PS51_PARSE_PASS'
+      - name: Establish real separate Windows account, desktop and UIA without private IWXA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $ps=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 'packages/t3-core/tests/g4-second-windows-sid-native-gui-preflight.ps1'
+          if($LASTEXITCODE -ne 0){throw 'G4_SECOND_SID_NATIVE_GUI_RUNNER_PRECONDITION_FAILED'}
+      - name: Confirm that no private original owner or product was staged
+        if: always()
+        shell: pwsh
+        run: |
+          if(Test-Path -LiteralPath '.private'){throw 'G4_SECOND_SID_NATIVE_GUI_PRIVATE_CHECKOUT_FORBIDDEN'}
+          Write-Output 'G4_SECOND_SID_NATIVE_GUI_NO_PRIVATE_SOURCE_OR_BINARY_PUBLISHED'
