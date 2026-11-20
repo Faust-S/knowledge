@@ -1,0 +1,82 @@
+name: IWXA Software and AKIS exact affected routes static acceptance
+on:
+  push:
+    branches:
+      - qa/2026-11-19-software-site-source-qualification
+    paths:
+      - .github/workflows/qa-site-software-akis-target.yml
+permissions:
+  contents: read
+jobs:
+  exact-affected-routes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: 0b76b123f40a92a02387e51dc5b9976924868a5e
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Confirm exact integrated owner SHA
+        run: |
+          test "$(git -C .private/site rev-parse HEAD)" = '0b76b123f40a92a02387e51dc5b9976924868a5e' || { echo 'INTEGRATED_HEAD_MISMATCH'; exit 1; }
+          echo 'INTEGRATED_HEAD_PASS'
+      - name: Frozen install
+        working-directory: .private/site
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/integrated-install.log" 2>&1 || { echo 'INTEGRATED_INSTALL_FAIL'; exit 1; }
+          echo 'INTEGRATED_INSTALL_PASS'
+      - name: Prepare installed Chrome
+        run: |
+          chrome=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)
+          if [ -n "$chrome" ]; then
+            echo "PUPPETEER_EXECUTABLE_PATH=$chrome" >> "$GITHUB_ENV"
+          else
+            bunx puppeteer browsers install chrome > "$RUNNER_TEMP/integrated-chrome.log" 2>&1 || { echo 'INTEGRATED_CHROME_FAIL'; exit 1; }
+          fi
+      - name: Native static prerender of all changed software and AKIS routes
+        working-directory: .private/site
+        env:
+          IWXA_PRERENDER_ROUTES: "/software/,/software/platform/,/software/desktop/,/software/domains/,/technologies/,/tools/,/science/akis/,/science/akis-production/,/science/akis-operator/,/science/akis-interfirm/"
+        run: |
+          bun run build:static > "$RUNNER_TEMP/integrated-static.log" 2>&1 || { echo 'INTEGRATED_PRERENDER_FAIL'; exit 1; }
+          echo 'INTEGRATED_PRERENDER_TEN_ROUTES_PASS'
+      - name: Inspect true on-disk route HTML, SEO and all eleven image files
+        working-directory: .private/site
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync,existsSync,statSync} from 'node:fs';
+          import {join} from 'node:path';
+          const routes=["/software/","/software/platform/","/software/desktop/","/software/domains/","/technologies/","/tools/","/science/akis/","/science/akis-production/","/science/akis-operator/","/science/akis-interfirm/"];
+          for(const path of routes){
+            const file=join('dist-static',path,'index.html');
+            if(!existsSync(file))throw Error('STATIC_ROUTE_FILE_MISSING '+path);
+            const h=readFileSync(file,'utf8');
+            if(h.length<2000||!h.includes('https://iwxa.ru'+path)||!/<title[ >]/.test(h))throw Error('STATIC_ROUTE_HTML_MISSING '+path);
+            console.log('INTEGRATED_ROUTE_HTML_PASS',path,statSync(file).size);
+          }
+          const shots=['agent-01-home-request.webp','agent-02-dialogs.webp','agent-03-basic-programs.webp','atlas-01-portfolio.webp','atlas-02-works.webp','atlas-03-impact.webp','admin-01-atlas-work.webp','admin-02-assignment-editor.webp','admin-03-roles-seats.webp','activity-current-verified.webp','publisher05-current-verified.webp'];
+          for(const name of shots){const f=join('dist-static/assets/software',name);if(!existsSync(f)||statSync(f).size<15000)throw Error('INTEGRATED_IMAGE_MISSING '+name)}
+          console.log('INTEGRATED_STATIC_IMAGES_ELEVEN_PASS');
+          JS
+      - name: Independently qualify source and AKIS research models
+        working-directory: .private/site
+        run: |
+          node scripts/check-software-publications.mjs > "$RUNNER_TEMP/integrated-software.log" 2>&1 || { echo 'INTEGRATED_SOFTWARE_GUARD_FAIL'; exit 1; }
+          bun run check:akis:hub > "$RUNNER_TEMP/integrated-akis-hub.log" 2>&1 || { echo 'INTEGRATED_AKIS_HUB_FAIL'; exit 1; }
+          bun run check:akis:article > "$RUNNER_TEMP/integrated-akis-article.log" 2>&1 || { echo 'INTEGRATED_AKIS_ARTICLE_FAIL'; exit 1; }
+          echo 'INTEGRATED_SOFTWARE_AND_AKIS_SOURCE_PASS'
+      - name: Purge private checkout and logs
+        if: always()
+        run: |
+          rm -rf .private/site
+          rm -f "$RUNNER_TEMP/integrated-"*.log
+          test ! -e .private/site || { echo 'INTEGRATED_PRIVATE_PURGE_FAIL'; exit 1; }
+          echo 'INTEGRATED_PRIVATE_PURGE_PASS'
