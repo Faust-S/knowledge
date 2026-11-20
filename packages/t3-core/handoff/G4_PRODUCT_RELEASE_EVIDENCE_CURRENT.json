@@ -2695,9 +2695,9 @@
           "qualification_code_note": "This result is genuine original T2 browser Storage/Events with public company source body; not private signed Agent/Center installed E2E"
         },
         "latest_one_core_candidate": {
-          "sha": "52c22a332c7a857b5daf5b7e75b650a76a5e9284",
-          "source_test_ci": 44801086632,
-          "conclusion": "SUCCESS",
+          "sha": "70393736307391293d0f8d64bd3d077edc00d8c6",
+          "source_test_ci": null,
+          "conclusion": "PENDING_NEW_AUTO_COMPANY_ENTRY",
           "jobs": {
             "test": "SUCCESS",
             "real_host": "SUCCESS",
@@ -2706,7 +2706,16 @@
             "native_model": "SKIPPED",
             "metal_webgpu": "SKIPPED"
           },
-          "frozen_original_t2_tree": "1594274dbf5e38214b8422ba11e8c7114bd5425c"
+          "frozen_original_t2_tree": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
+          "source_tree": "c382495e2b2954a3b85e9bf6c1e8004b7c179d6d"
+        },
+        "auto_company_first_run": {
+          "state": "SOURCE_IMPLEMENTED_QUALIFICATION_PENDING",
+          "source_commit": "70393736307391293d0f8d64bd3d077edc00d8c6",
+          "source_tree": "c382495e2b2954a3b85e9bf6c1e8004b7c179d6d",
+          "contract": "SIGNED_CORP_SELECTED_WORKSPACE_AUTOCREATE_ONLY_WITH_ORIGINAL_WORKSPACE_CREATE_GRANT; PERSONAL_AND_UNAUTHORIZED_NO_AUTO_CREATE",
+          "no_second_kernel": true,
+          "installed": "NOT_RUN_NEW_SHA"
         }
       },
       "original_t3_final_candidate_sha": "a48a41744b911b89cbac2a3e0c99320932ad9469",
