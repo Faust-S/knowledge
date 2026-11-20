@@ -127,10 +127,19 @@ jobs:
         run: |
           export D09_T2_CANONICAL_SOURCE="$RUNNER_TEMP/d09-normative-t2/t2/current/final-successor/canonical-source"
           npm run build > "$RUNNER_TEMP/d09-build.log" 2>&1 || {
-            echo D09_ORIGINAL_T2_BUILD=FAIL
-            grep -oE '(D09|T2|IWXA)_[A-Z0-9_:.]+' "$RUNNER_TEMP/d09-build.log" | sort -u | tail -20 || true
-            grep -Ei 'error|failed|could not|cannot|unexpected|unresolved|not found|missing|vite|prebuild|build:public-stage|build:host-module' "$RUNNER_TEMP/d09-build.log" | sed -E 's#/(home|tmp|mnt)/[^[:space:]]+#<private-path>#g' | cut -c1-210 | tail -22 || true
-            exit 1
+            if grep -q 'Timed out after 30000 ms while waiting for the WS endpoint URL' "$RUNNER_TEMP/d09-build.log"; then
+              echo D09_PRERENDER_BROWSER_ENDPOINT_TRANSIENT_RETRY=1
+              npm run build > "$RUNNER_TEMP/d09-build-retry.log" 2>&1 || {
+                echo D09_ORIGINAL_T2_BUILD=FAIL
+                grep -Ei 'error|failed|timeout|could not' "$RUNNER_TEMP/d09-build-retry.log" | tail -14 | cut -c1-210 || true
+                exit 1
+              }
+            else
+              echo D09_ORIGINAL_T2_BUILD=FAIL
+              grep -oE '(D09|T2|IWXA)_[A-Z0-9_:.]+' "$RUNNER_TEMP/d09-build.log" | sort -u | tail -20 || true
+              grep -Ei 'error|failed|could not|cannot|unexpected|unresolved|not found|missing|vite|prebuild|build:public-stage|build:host-module' "$RUNNER_TEMP/d09-build.log" | sed -E 's#/(home|tmp|mnt)/[^[:space:]]+#<private-path>#g' | cut -c1-210 | tail -22 || true
+              exit 1
+            fi
           }
           echo D09_ORIGINAL_T2_BUILD=PASS
           test -f dist/workspace/index.html
