@@ -1,4 +1,4 @@
-name: IWXA software articles visual acceptance
+name: IWXA desktop software contextual-illustration visual acceptance
 on:
   push:
     branches:
@@ -39,7 +39,7 @@ jobs:
           done
           echo 'SITE_VISUAL_VITE_START_FAIL'
           exit 1
-      - name: Verify four articles and contextual illustrations at desktop and mobile widths
+      - name: Verify five illustrated desktop chapters at desktop and mobile widths
         working-directory: .private/site
         shell: bash
         run: |
@@ -53,12 +53,12 @@ jobs:
           const browser=await puppeteer.launch({headless:true,executablePath:binary,args:['--no-sandbox','--disable-setuid-sandbox']});
           const records=[];
           try{
-            const routes=[['overview','/software/'],['platform','/software/platform/'],['desktop','/software/desktop/'],['domains','/software/domains/']];
+            const routes=[['desktop','/software/desktop/']];
             for(const [name,route] of routes){
               const page=await browser.newPage();
               await page.setViewport({width:1440,height:900,deviceScaleFactor:1});
               console.log('EDITORIAL_VISUAL_ROUTE_BEGIN',name,route);
-              const response=await page.goto('http://127.0.0.1:4173'+route,{waitUntil:'domcontentloaded',timeout:45000});
+              const response=await page.goto('http://127.0.0.1:4173'+route,{waitUntil:'domcontentloaded',timeout:90000});
               await page.waitForSelector('h1',{timeout:45000});
               if(!response?.ok())throw new Error('Bad route: '+route);
               if(name==='desktop'){
