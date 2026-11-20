@@ -152,6 +152,11 @@ jobs:
           Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/basil00/WinDivert/v2.2.2/LICENSE' -OutFile $license -UseBasicParsing -TimeoutSec 35
           if((git hash-object $license).Trim() -ne '8489a8e773c33fd6f91eb67276e2d82a2d7547c3'){throw 'Pinned WinDivert license verification failed'}
           Write-Host 'PASS offline engine, original binaries and LGPL license ready'
+      - name: Real Windows GUI button enable, offline install, TLS before-after, disable
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          .\Tests\Test-OneButtonOfflineGUI.ps1
       - name: Upload unsigned Windows build and test assets
         uses: actions/upload-artifact@v4
         with:
