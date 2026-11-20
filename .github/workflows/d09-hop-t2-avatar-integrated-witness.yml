@@ -1,7 +1,7 @@
 name: D09 HOP T2 interactive story reactions original Host witness
 on:
   push:
-    branches: [work/2026-11-20-d09-cross-project-qualification]
+    branches: [work/2026-11-20-d09-picker-qualification]
     paths: [.github/workflows/d09-hop-t2-avatar-integrated-witness.yml]
   workflow_dispatch:
 permissions:
@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 4703d56c7e4a8dab773c9eea02f9f06c8e562725
+          ref: d3fbb09820c83c5d0f4bbb36451e572e021a5beb
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Set up Node 24
