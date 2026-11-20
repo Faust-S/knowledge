@@ -75,3 +75,6 @@ export { createTrustedNativeContinuation } from "./native-result-continuation.mj
 export {createTrustedAgeExchange} from "./age-protected-exchange.mjs";
 
 export {createTrustedPublisherHandoff} from "./publisher-license-handoff.mjs";
+
+export {createTrustedOriginalCompanyWorkspacePersistence,
+  ORIGINAL_COMPANY_RECORD_SCHEMA} from './original-company-workspace-persistence.mjs';

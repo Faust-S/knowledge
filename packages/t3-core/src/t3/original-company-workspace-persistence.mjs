@@ -28,9 +28,6 @@ function scope(task){
       'taskRevisionId','packageSha256'].map(k=>[k,task[k]])));
 }
 const eq=(a,b,keys)=>keys.every(k=>a?.[k]===b?.[k]);
-const fields=['schema','kind','artifactId','operationId','organizationId',
-  'workspaceId','executorId','taskId','taskRevisionId','taskPackageSha256',
-  'mimeType','text','sha256','sourceKind'];
 function freezeSource(source,task,kind,artifactId){
   requireThat(source&&typeof source==='object'&&!Array.isArray(source)&&
     Object.keys(source).sort().join(',')===
