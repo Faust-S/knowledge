@@ -2671,36 +2671,35 @@
         "transport": "EXISTING_IWXA_MANUAL_HANDOFF_WHEN_OFFLINE_OPTIONAL_AUTHORIZED_SYNC_IF_CONNECTED",
         "offline_delivery": "PENDING_COMPANY_RECEIPT_NOT_DELIVERED_UNTIL_ORIGINAL_RECIPIENT_READBACK",
         "authorization": "D1_SIGNED_JIT_REVOCATION_APPLIES_ON_ENTRY_WRITE_EXPORT_AND_RECEIPT",
-        "agent_development_sha": "b4fbbf62550316a227a8daf8e81c77be123e03a4",
-        "agent_development_status": "SOURCE_IPC_PASS_LINUX_WINDOWS_NOT_INSTALLED",
+        "agent_development_sha": "d517d8e74955a8499fc4e9168e21752805fb94d0",
+        "agent_development_status": "SOURCE_QUALIFICATION_PENDING_COMPANY_T2_MOUNT_AND_DEFAULT_FULL_RESULT",
         "agent_development_source_evidence": {
-          "run_id": 44795337152,
-          "agent_sha": "b4fbbf62550316a227a8daf8e81c77be123e03a4",
-          "linux": "PASS",
-          "windows": "PASS",
-          "scope": "Existing private corporate employee/Result suites plus Node real original employee IPC 3 tests for complete UTF-8 and near-contract 1.9m UTF16 Result; no original private Kernel content or credentials logged",
-          "installed": "NOT_ACCEPTED_NEW_SHA"
+          "prior_ipc_run_id": 44795337152,
+          "source_sha": "d517d8e74955a8499fc4e9168e21752805fb94d0",
+          "installed": "NOT_ACCEPTED",
+          "scope": "Native original company Kernel mount and automatic complete accepted Agent Result source; source tests pending exact private bounded CI"
         },
         "release_status": "INCOMPLETE",
-        "payload_boundary": "Complete 2m UTF16 company signed Result requires <=12 MiB UTF-8 prepare and preview IPC. Original Agent complete-document IPC source PASS Linux+Windows #44795337152; not a binary attachment feature or installed original corporate Workspace Exchange proof."
+        "payload_boundary": "Complete accepted corporate Result is read from existing Agent Core, never manually selected, then committed as Object/Event into original corporate T2 Workspace on the same signed JIT port. 2m UTF16 text. Binary attachments and full T2 Exchange remain open; installed qualification pending."
       },
-      "original_t3_final_candidate_sha": "acd197da54adfd9419c4d42ca580bde498e74657",
+      "original_t3_final_candidate_sha": "a48a41744b911b89cbac2a3e0c99320932ad9469",
       "person_d7_source_qualification": {
-        "state": "SOURCE_REQUALIFICATION_PENDING_NEW_OWNER_SHA",
-        "previous_original_owner_sha": "75a36f8273552b48ad370ae626e7b5290edb08d9",
-        "previous_run_id": 44789248082,
-        "original_owner_sha": "acd197da54adfd9419c4d42ca580bde498e74657",
+        "state": "SOURCE_REQUALIFICATION_PENDING",
+        "original_owner_sha": "a48a41744b911b89cbac2a3e0c99320932ad9469",
+        "prior_source_sha": "acd197da54adfd9419c4d42ca580bde498e74657",
+        "prior_run_id": 44797239199,
         "run_id": null,
-        "test_count": 22,
-        "conclusion": "PENDING"
+        "test_count": null,
+        "conclusion": null
       },
       "original_owner_candidate_d3_qualification": {
-        "state": "SOURCE_REQUALIFICATION_PENDING",
-        "candidate_sha": "acd197da54adfd9419c4d42ca580bde498e74657",
+        "state": "SOURCE_QUALIFICATION_PENDING_NEW_OWNER",
+        "candidate_sha": "a48a41744b911b89cbac2a3e0c99320932ad9469",
         "installed_owner_sha": "1a8267634955947bc0c6adc5614d7de176a33da2",
         "run_id": null,
         "conclusion": null,
-        "test_count": null
+        "test_count": null,
+        "evidence_kind": "ORIGINAL_SIGNED_D3_PLUS_ATLAS_FREE_COMPANY_MOUNT_SOURCE"
       }
     },
     "required_gates": {
