@@ -625,6 +625,18 @@ try{
   assert.equal(await signed.evaluate(()=>typeof globalThis.IWXA),'undefined',
     'failed Control cannot fall back to raw Kernel');
 
+  // The signed first-run gate may not exist yet on first navigation.
+  // Waiting for "detached" alone incorrectly succeeds before React mounts.
+  // The ORIGINAL T2 Kernel's stable Object/Workspace readback is authoritative.
+  async function awaitOriginalCompanyWorkspace(workspaceId){
+    await browser.page.waitForFunction(async({serviceId,workspaceId})=>{
+      try{
+        const kernel=await window.IWXA.connect({service_id:serviceId});
+        const row=await kernel.t1.getWorkspace(workspaceId);
+        return row?.workspace_id===workspaceId&&row.profile==='generic';
+      }catch{return false;}
+    },{serviceId,workspaceId},{timeout:60000, polling:250});
+  }
   // The canonical split-origin entry performs the SAME signed onboarding.
   // This fixture uses synthetic rights only until the later real Ed25519 run.
   syntheticOwner=true;
@@ -636,6 +648,7 @@ try{
   // automatically when it carries the separate signed workspace.create grant.
   // There is no second Human create click. An old read-only key still denies.
   try{
+    await awaitOriginalCompanyWorkspace(scopedWorkspace);
     await selected.getByTestId('t3-d1-selected-workspace-gate')
       .waitFor({state:'detached',timeout:60000});
   }catch(error){
@@ -1416,6 +1429,7 @@ try{
     // The selected original T2 Workspace now comes up without a second
     // manual operation. Both the owner and browser Host still check JIT.
     try{
+      await awaitOriginalCompanyWorkspace('ws:'+short);
       await page.getByTestId('t3-d1-selected-workspace-gate')
         .waitFor({state:'detached',timeout:60000});
     }catch(error){
