@@ -11,13 +11,13 @@ permissions:
 jobs:
   verify-private-site-public-output:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-ru-1
-          ref: bcb625f3ebb9a062761df305d93058b4b76236a0
+          ref: 0b76b123f40a92a02387e51dc5b9976924868a5e
           token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
           persist-credentials: false
           path: .private/site
@@ -30,7 +30,7 @@ jobs:
         run: |
           set -eu
           actual=$(git -C .private/site rev-parse HEAD)
-          test "$actual" = 'bcb625f3ebb9a062761df305d93058b4b76236a0' || { echo 'SITE_EXACT_OWNER_SOURCE_MISMATCH'; exit 1; }
+          test "$actual" = '0b76b123f40a92a02387e51dc5b9976924868a5e' || { echo 'SITE_EXACT_OWNER_SOURCE_MISMATCH'; exit 1; }
           echo 'SITE_EXACT_OWNER_SOURCE_PIN_PASS'
       - uses: oven-sh/setup-bun@v2
       - name: Run independent software article and asset integrity check before dependency setup
@@ -64,11 +64,11 @@ jobs:
         run: |
           bun run build > "$RUNNER_TEMP/iwxa-software-build.log" 2>&1 || { echo 'SITE_SOFTWARE_BUILD_FAIL'; exit 1; }
           echo 'SITE_SOFTWARE_BUILD_PASS'
-      - name: Assemble actual static shared-hosting output
+      - name: Qualify full merged static hosting output, AKIS and software checks
         working-directory: .private/site
         shell: bash
         run: |
-          bun run build:static > "$RUNNER_TEMP/iwxa-software-static.log" 2>&1 || { echo 'SITE_SOFTWARE_STATIC_PRERENDER_FAIL'; exit 1; }
+          bun run build:static:check > "$RUNNER_TEMP/iwxa-software-static.log" 2>&1 || { echo 'SITE_SOFTWARE_STATIC_PRERENDER_FAIL'; exit 1; }
           echo 'SITE_SOFTWARE_STATIC_PRERENDER_PASS'
       - name: Diagnose static packaging using only public-safe failure classes
         if: failure()
@@ -100,7 +100,7 @@ jobs:
           test -d dist-static || { echo 'SITE_STATIC_OUTPUT_DIR_MISSING'; exit 1; } && echo 'SITE_STATIC_OUTPUT_DIR_EXISTS' || true
           test -d .output/public && echo 'SITE_STATIC_NITRO_PUBLIC_EXISTS' || true
           test -d dist/client && echo 'SITE_STATIC_CLOUDFLARE_CLIENT_EXISTS' || true
-      - name: Confirm all five current screenshots are present unchanged in hosting build
+      - name: Confirm all eleven current article photographs are unchanged in hosting build
         if: always()
         working-directory: .private/site
         shell: bash
@@ -113,13 +113,19 @@ jobs:
             actual=$(sha256sum "$found" | cut -d ' ' -f 1)
             test "$actual" = "$expected" || { echo 'SITE_SOFTWARE_DIST_IMAGE_HASH_MISMATCH'; exit 1; }
           done <<'EOF_IMAGES'
-          atlas09-current-verified.webp 67e4bcbbe5addd84406220c9131fbccd02857b0243900c116bfe7dc936202e35
+          agent-01-home-request.webp b27599757d61b02c46489a353ce70d09f22c57d9fb63e2b1d5742b2e4f8fcc44
+          agent-02-dialogs.webp 994fd5ba8c2682864922b40db389fc071a082267802ae7ccbf056d2a5c94b16b
+          agent-03-basic-programs.webp 297cb7d9dc6b1d74c3f187f0e1054aa0cc98cc2ffe3e330c0006335817762f4d
+          atlas-01-portfolio.webp f4fa6504b5f80aca9bdacdfdc2bfa024ad2392d710fc49424cacbeb0207e03dd
+          atlas-02-works.webp b6efca79418177d2c2b18d9025df770d6cb09eb1e3763ce3ed52d551cf9b787c
+          atlas-03-impact.webp 71b7ad3d0f7bacd1e2b3d1cd76ca42db2349744a07fd0082b97b372c68dfcd2c
+          admin-01-atlas-work.webp 95c37df7ed76cb95ee331a487ae02785965ed3192ffdb7838516367b4eb33cf5
+          admin-02-assignment-editor.webp aa922197896f9feb78e0d7a8867bf9072daaf14469a0de12b403c4caf9d1c2f4
+          admin-03-roles-seats.webp f40babaa29dfe38fc06aa401deb4ef747679c6198f4d38aed2f11baef887dc0c
           activity-current-verified.webp 8ad32aaafb0a7a60854e0c7cbfe6a0eb067ae43ae9b840064866229a4014c564
-          admin03-current-verified.webp eac497db00b5af9baf1f61f47eef889a467a62c2f29e8bbf43663032a2e64257
           publisher05-current-verified.webp fc6c741e4f33244cfd747de2061d51441b39e4ff75f53eb0c9dba61a9d38874a
-          setup-core-1-current-verified.webp 885ef484c4e65a0873763fd69b0a2d788e8df36484863eb16ed966affae8ba61
           EOF_IMAGES
-          echo 'SITE_SOFTWARE_FIVE_CURRENT_IMAGES_IN_DIST_PASS'
+          echo 'SITE_SOFTWARE_ELEVEN_IMAGES_IN_DIST_PASS'
       - name: Typecheck only current private source without emitting code
         if: always()
         working-directory: .private/site
