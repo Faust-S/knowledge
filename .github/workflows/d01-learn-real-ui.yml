@@ -1,0 +1,70 @@
+name: D01 Learn genuine T2 Workspace UI screenshots
+on:
+  push:
+    branches: [work/2026-11-20-d01-real-ui]
+    paths: [.github/workflows/d01-learn-real-ui.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-learn:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact original private Learn site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/learn.iwxa.ru
+          ref: c38bd1eb7940f489903debe72fdbf2f3c51f5e8a
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - name: Checkout exact original Learn subject model
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/learn
+          ref: ffe0a8916ff6a6bda313ee730d096a21099faf25
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/domain
+      - name: Checkout original normative T2 and its qualified Kernel release
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: main
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Verify exact owners and run canonical linked-learning tests
+        shell: bash
+        run: |
+          set -eu
+          test "$(git -C private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
+          test "$(git -C private/site rev-parse HEAD)" = c38bd1eb7940f489903debe72fdbf2f3c51f5e8a
+          test "$(git -C private/domain rev-parse HEAD)" = ffe0a8916ff6a6bda313ee730d096a21099faf25
+          cmp private/domain/learning-journey/projection.ts private/site/t2/domain-modules/learn-results/learning-journey.ts
+          cmp private/domain/learning-journey/today.ts private/site/t2/domain-modules/learn-results/learning-today.ts
+          node --experimental-strip-types --test private/domain/learning-journey/*.test.mjs
+      - name: Run the original Learn/T2 site, Kernel and real browser witness
+        shell: bash
+        env:
+          D01_T2_CHECKOUT: ${{ github.workspace }}/private/t2
+          D01_EXPECTED_T2_HEAD: 9c64951cd78411283e8a416641c36d71e169fc1d
+          D01_EXPECTED_SITE_HEAD: c38bd1eb7940f489903debe72fdbf2f3c51f5e8a
+          D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
+        run: node private/site/qa/d01-product-witness-2026-10-26/ci-real-screens.mjs
+      - name: Upload only verified browser PNG and SHA-256 manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d01-real-workspace-screenshots
+          path: |
+            ${{ runner.temp }}/d01-real-screens/learn-workspace-*.png
+            ${{ runner.temp }}/d01-real-screens/learn-workspace-screenshots.json
+          if-no-files-found: ignore
+          retention-days: 7
+# No original private source, dist, Kernel archive, .iwxa or browser profile
+# is exposed in public evidence. Only fresh isolated-QA screen captures.
