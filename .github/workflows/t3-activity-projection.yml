@@ -300,6 +300,30 @@ jobs:
         env:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
         run: node tests/t3-d5-full-bli.browser.mjs
+      # Actually assemble the existing qualified T2 + compiled T3 as ONE
+      # reusable release candidate. This is a build output, not a G4 test.
+      # The archive contains only public source-derived runtime bytes, never
+      # the private issuer/Agent or model weights.
+      - name: Assemble reproducible T3 One Dist release candidate
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+        run: |
+          node scripts/prepare-t3-one-dist-candidate.mjs \
+            "$IWXA_T2_QUALIFIED_KERNEL_DIST" \
+            "dist" \
+            "$RUNNER_TEMP/iwxa-t3-one-dist-rc" \
+            "0.3.0-rc.1" \
+            "f42e53cd28c881b2b8e04199595f9d7991f34414" \
+            "9c64951cd78411283e8a416641c36d71e169fc1d"
+          sha256sum -c "$RUNNER_TEMP/iwxa-t3-one-dist-rc/SHA256SUMS.txt" --ignore-missing
+      - name: Retain original T2 T3 One Dist RC ZIP, manifest and SHA-256
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-t3-one-dist-rc-${{ github.sha }}
+          path: ${{ runner.temp }}/iwxa-t3-one-dist-rc/
+          if-no-files-found: error
+          retention-days: 14
 
   native-model:
     # Opt-in genuine native external model owner. No inference engine or model
