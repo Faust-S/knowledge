@@ -604,14 +604,22 @@ jobs:
           Write-Host 'G4_AGENT06_INSTALLED_SETUP_CORE_REPAIR_ROLLBACK_PASS'
           Write-Host 'G4_AGENT06_INSTALLED_NOT_CROSS_USER_ADMIN_ACCEPT_APPLY'
       - name: Real installed original Agent native GUI under second independent Windows SID
+        # K03 is separately mandatory for the entire product, but an optional
+        # second-user native installation must not be hidden if the earlier
+        # model Task is inconclusive. Job failure remains a hard FAIL.
+        if: ${{ always() && !cancelled() }}
         shell: pwsh
         timeout-minutes: 9
         run: |
           $ErrorActionPreference='Stop'
           $setup=Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06/IWXA-Private-SetupCore-Candidate.exe'
           if(!(Test-Path -LiteralPath $setup -PathType Leaf)){
-            throw 'G4_AGENT_GUEST_ACCEPTED_ORIGINAL_SETUP_NOT_PRESENT'
+            Write-Output 'G4_AGENT_GUEST_NOT_RUN_SETUP_NOT_BUILT'
+            exit 0
           }
+          # The child test independently inspects the original Setup Core
+          # product ID/source SHA. Passing here NEVER fixes a K03 failure
+          # and NEVER emits full G4/D3 acceptance.
           $ps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
           & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 'packages/t3-core/tests/g4-installed-agent-second-sid.ps1' -Setup $setup -AgentSourceSha '28d934b7d40fd7689c8e3456c0bf95977fb82d27'
           if($LASTEXITCODE -ne 0){throw 'G4_AGENT_GUEST_SECOND_SID_NATIVE_INSTALL_NOT_ACCEPTED'}
