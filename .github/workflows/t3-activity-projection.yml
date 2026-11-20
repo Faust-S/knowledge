@@ -304,18 +304,50 @@ jobs:
       # reusable release candidate. This is a build output, not a G4 test.
       # The archive contains only public source-derived runtime bytes, never
       # the private issuer/Agent or model weights.
-      - name: Assemble reproducible T3 One Dist release candidate
+      - name: Stage original Agent-owned T2 from exact private read-only profile
         working-directory: packages/t3-core
         env:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+          AGENT_PRIVATE_READ_TOKEN: ${{ secrets.AGENT }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {join} from 'node:path';
+          import {writeFileSync} from 'node:fs';
+          import {getExactFile} from './scripts/qualify-original-private-d3-owner.mjs';
+          import {materializeOriginalAgentT2Product} from './scripts/build-original-agent-one-dist.mjs';
+          const token=process.env.AGENT_PRIVATE_READ_TOKEN;
+          if(typeof token!=='string'||!token.trim())
+            throw Error('T3_AGENT_PRODUCT_PROFILE_READ_GRANT_REQUIRED');
+          // Read ONE immutable non-secret product configuration. Never clone,
+          // publish original Agent source, enroll a fake signer or cache keys.
+          const pin='8fcda07dae2b53a49f662a65928945350a0607df';
+          const bytes=await getExactFile('config/original-t2-agent-product.json',token,{
+            repository:'Faust-S/iwxa-personal-agent',sourcePin:pin,
+          });
+          if(bytes.length>8192)throw Error('T3_AGENT_PROFILE_TOO_LARGE');
+          const path=join(process.env.RUNNER_TEMP,'iwxa-agent-original-profile.json');
+          writeFileSync(path,bytes,{flag:'wx',mode:0o600});
+          const prepared=await materializeOriginalAgentT2Product({
+            qualifiedKernelDist:process.env.IWXA_T2_QUALIFIED_KERNEL_DIST,
+            agentProfile:path,
+            outputRoot:join(process.env.RUNNER_TEMP,'iwxa-t3-agent-product-t2'),
+          });
+          if(!prepared.verifiedKernel||prepared.productId!=='iwxa.personal-agent')
+            throw Error('T3_AGENT_ORIGINAL_PRODUCT_STAGE_NOT_VERIFIED');
+          console.log('T3_AGENT_PRODUCT_PROFILE_PIN',pin);
+          console.log('T3_PRODUCT_OWNED_QUALIFIED_T2_STAGE_PASS');
+          NODE
+      - name: Assemble product-owned original T3 One Dist RC (no private signer)
+        working-directory: packages/t3-core
         run: |
           node scripts/prepare-t3-one-dist-candidate.mjs \
-            "$IWXA_T2_QUALIFIED_KERNEL_DIST" \
+            "$RUNNER_TEMP/iwxa-t3-agent-product-t2" \
             "dist" \
             "$RUNNER_TEMP/iwxa-t3-one-dist-rc" \
             "0.3.0-rc.1" \
             "f42e53cd28c881b2b8e04199595f9d7991f34414" \
-            "9c64951cd78411283e8a416641c36d71e169fc1d"
+            "9c64951cd78411283e8a416641c36d71e169fc1d" \
+            --installed-agent-d6
           (cd "$RUNNER_TEMP/iwxa-t3-one-dist-rc" && sha256sum -c SHA256SUMS.txt)
       - name: Retain original T2 T3 One Dist RC ZIP, manifest and SHA-256
         uses: actions/upload-artifact@v4

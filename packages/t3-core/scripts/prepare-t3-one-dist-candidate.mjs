@@ -15,6 +15,7 @@ import {collectDirectoryEntries,readStoredZip,writeStoredZip}
 
 const id=/^[a-f0-9]{40}$/;
 const candidate=/^0\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$/;
+const PRODUCT_AGENT='iwxa.personal-agent';
 const fail=code=>{throw Error('T3_ONE_DIST_CANDIDATE_'+code);};
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 function inside(root,child){
@@ -35,7 +36,7 @@ function noSymlinks(root){
   walk(root);
   return count;
 }
-export function manifestForOneDist(entries,{version,oneCoreSha,t2Sha,assembled}){
+export function manifestForOneDist(entries,{version,oneCoreSha,t2Sha,assembled,product}){
   if(!candidate.test(version)||!id.test(oneCoreSha)||!id.test(t2Sha)||
      assembled?.original_runtime_unchanged!==true||
      assembled?.original_qualified_artifact!==
@@ -56,6 +57,16 @@ export function manifestForOneDist(entries,{version,oneCoreSha,t2Sha,assembled})
     'one-dist/workspace/workspace.config.json',
     'one-dist/workspace/signed-workspace.html',
   ])if(!names.includes(path))fail('INCOMPLETE_ORIGINAL_ONE_DIST');
+  if(!product||typeof product.id!=='string'||!product.id.trim()||
+     typeof product.origin!=='string'||
+     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(product.origin)||
+     typeof product.serviceId!=='string'||!product.serviceId.trim()||
+     typeof product.assemblyProfile!=='string'||
+     !['signed-control','agent-d6'].includes(product.assemblyProfile)||
+     (product.assemblyProfile==='agent-d6'&&
+       (product.id!==PRODUCT_AGENT||
+        assembled.original_agent_d6_schema_registered!==true)))
+    fail('PRODUCT_OWNED_T2_SERVICE_REQUIRED');
   const files=entries.map(x=>({
     path:x.name,bytes:x.bytes.length,sha256:hash(x.bytes),
   })).sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);
@@ -63,7 +74,11 @@ export function manifestForOneDist(entries,{version,oneCoreSha,t2Sha,assembled})
     schema:'IWXA_T3_ONE_DIST_RELEASE_CANDIDATE/1',
     status:'CANDIDATE_NOT_FINAL',
     version,
-    releaseSubject:'ONE_ORIGINAL_T2_T3_HOST_KERNEL_STORE_EXCHANGE_LIFECYCLE',
+    releaseSubject:'PRODUCT_OWNED_ONE_ORIGINAL_T2_T3_HOST_KERNEL_STORE_EXCHANGE_LIFECYCLE',
+    productId:product.id,
+    productOrigin:product.origin,
+    workspaceServiceId:product.serviceId,
+    assemblyProfile:product.assemblyProfile,
     sourcePins:{executableOneCore:oneCoreSha,originalT2:t2Sha},
     provenanceStatus:'PIN_ASSERTED_REQUIRES_INDEPENDENT_SOURCE_CI',
     originalKernel:'0.3.6',runtimeContract:'1.3.0',
@@ -79,6 +94,7 @@ export function manifestForOneDist(entries,{version,oneCoreSha,t2Sha,assembled})
 }
 export function prepareT3OneDistCandidate({
   qualifiedT2Dist,compiledT3Build,outputRoot,version,oneCoreSha,t2Sha,
+  assemblyProfile='signed-control',
 }={}){
   if(![qualifiedT2Dist,compiledT3Build,outputRoot].every(
     x=>typeof x==='string'&&x.trim()))
@@ -88,15 +104,30 @@ export function prepareT3OneDistCandidate({
   if(existsSync(output)||[t2,t3].some(src=>inside(src,output)||
      inside(output,src))||t2===t3)
     fail('OUTPUT_MUST_BE_NEW_OUTSIDE_SOURCES');
-  // Reject malformed release metadata BEFORE performing any writes.
+  // An original T2 Kernel ZIP is not itself a deployable product. Require
+  // the product-owned domain, service passport and pinned origin. This
+  // prevents manufacturing a misleading cross-domain "universal ZIP".
   if(!candidate.test(version)||!id.test(oneCoreSha)||!id.test(t2Sha))
     fail('VERSION_AND_SOURCE_PINS_REQUIRED');
+  if(!['signed-control','agent-d6'].includes(assemblyProfile))
+    fail('ASSEMBLY_PROFILE_INVALID');
+  let originalDomain,originalConfig;
+  try{
+    originalDomain=JSON.parse(readFileSync(join(t2,'_iwxa/domain.json'),'utf8'));
+    originalConfig=JSON.parse(readFileSync(join(t2,'workspace/workspace.config.json'),'utf8'));
+  }catch{fail('ORIGINAL_PRODUCT_T2_STAGE_REQUIRED');}
+  if(typeof originalDomain?.domain_id!=='string'||
+     typeof originalConfig?.workspace_service_id!=='string'||
+     originalDomain.domain_id!==originalConfig.domain_id||
+     (assemblyProfile==='agent-d6'&&originalDomain.domain_id!==PRODUCT_AGENT))
+    fail('ORIGINAL_PRODUCT_IDENTITY_MISMATCH');
   mkdirSync(dirname(output),{recursive:true});
   mkdirSync(output);
   try{
     const dist=join(output,'one-dist');
     const assembled=assembleSignedControlDist({
       t2Dist:t2,t3Build:t3,outputDir:dist,
+      installedOriginalAgentD6:assemblyProfile==='agent-d6',
     });
     if(!assembled||assembled.original_runtime_unchanged!==true)
       fail('ORIGINAL_RUNTIME_CHANGED');
@@ -107,8 +138,12 @@ export function prepareT3OneDistCandidate({
     // Explicitly do not ship model weights. Installation is opt-in and local.
     if(raw.some(x=>/\.(?:gguf|safetensors|pt|pth|onnx)$/i.test(x.name)))
       fail('MODEL_WEIGHTS_EMBEDDED');
+    const domain=JSON.parse(readFileSync(join(dist,'_iwxa/domain.json'),'utf8'));
+    const config=JSON.parse(readFileSync(join(dist,'workspace/workspace.config.json'),'utf8'));
     const manifest=manifestForOneDist(raw,{
       version,oneCoreSha,t2Sha,assembled,
+      product:{id:domain.domain_id,origin:domain.origin,
+        serviceId:config.workspace_service_id,assemblyProfile},
     });
     const zipPath=join(output,'t3-one-dist-'+version+'.zip');
     writeStoredZip(zipPath,raw);
@@ -139,9 +174,12 @@ export function prepareT3OneDistCandidate({
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   const [qualifiedT2Dist,compiledT3Build,outputRoot,version,
-    oneCoreSha,t2Sha]=process.argv.slice(2);
-  if(process.argv.length!==8)fail('USAGE_SIX_ARGUMENTS_REQUIRED');
+    oneCoreSha,t2Sha,flag]=process.argv.slice(2);
+  if(![8,9].includes(process.argv.length)||
+     (flag!==undefined&&flag!=='--installed-agent-d6'))
+    fail('USAGE_PRODUCT_T2_DIST_T3_BUILD_OUTPUT_AND_OPTIONAL_AGENT');
   process.stdout.write(JSON.stringify(prepareT3OneDistCandidate({
     qualifiedT2Dist,compiledT3Build,outputRoot,version,oneCoreSha,t2Sha,
+    assemblyProfile:flag==='--installed-agent-d6'?'agent-d6':'signed-control',
   }))+'\n');
 }
