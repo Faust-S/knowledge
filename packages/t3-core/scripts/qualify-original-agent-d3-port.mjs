@@ -132,6 +132,7 @@ export async function qualifyOriginalAgentCompanyCandidate({
     'tests/test_agent06_company_original_core_result.py',
     'tests/test_agent06_original_t3_reentrant_ipc.py',
     'tools/t3_one_core_payload.py',
+    'tools/k03_public_sources.py',
     'tests/test_agent06_t3_setup_payload.py',
   ];
   const root=mkdtempSync(join(tmpdir(),'iwxa-agent-company-next-'),{mode:0o700});
