@@ -9,6 +9,7 @@ on:
       - packages/t3-core/scripts/qualify-original-private-d3-owner.mjs
       - packages/t3-core/tests/qualify-original-private-d3-owner.test.mjs
       - packages/t3-core/scripts/qualify-original-agent-d3-port.mjs
+      - packages/t3-core/scripts/qualify-original-person-final-owner.mjs
       - packages/t3-core/tests/qualify-original-agent-d3-port.test.mjs
   workflow_dispatch:
     inputs:
@@ -95,3 +96,22 @@ jobs:
         run: |
           node --input-type=module -e "import {qualifyOriginalAgentCompanyCandidate} from './packages/t3-core/scripts/qualify-original-agent-d3-port.mjs'; await qualifyOriginalAgentCompanyCandidate({token:process.env.AGENT_PRIVATE_READ_TOKEN||process.env.DOMEN_PRIVATE_READ_TOKEN,python:process.env.PYTHON_COMMAND??'python'})"
 
+
+  # Exact current original PERSON issuer+consumer test, not a second IAM or
+  # a public copy of the original private T3 owner.
+  original-person-d7-source:
+    if: ${{ contains(github.event.head_commit.message, '[qualify-t3-d7]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify actual original PERSON issuer holder STATUS renewal and cold recovery
+        env:
+          T3_READ_TOKEN: ${{ secrets.T3 }}
+          DOMEN_PRIVATE_READ_TOKEN: ${{ secrets.DOMEN }}
+        run: node packages/t3-core/scripts/qualify-original-person-final-owner.mjs
