@@ -46,6 +46,7 @@ jobs:
                 echo "D09_SUITE_PASS=$suite"
               else
                 echo "D09_SUITE_FAIL=$suite"
+                grep -oE 'D09_HOSTING_DIST_[A-Z0-9_]+' "$RUNNER_TEMP/d09-single.log" | sort -u | tail -10 || true
                 grep -E 'not ok|# fail|ERR_ASSERTION|SyntaxError|Error \[' "$RUNNER_TEMP/d09-single.log" | tail -8 || true
               fi
             done
