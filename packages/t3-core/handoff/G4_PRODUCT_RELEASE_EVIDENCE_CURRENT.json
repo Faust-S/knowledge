@@ -2671,13 +2671,14 @@
         "transport": "EXISTING_IWXA_MANUAL_HANDOFF_WHEN_OFFLINE_OPTIONAL_AUTHORIZED_SYNC_IF_CONNECTED",
         "offline_delivery": "PENDING_COMPANY_RECEIPT_NOT_DELIVERED_UNTIL_ORIGINAL_RECIPIENT_READBACK",
         "authorization": "D1_SIGNED_JIT_REVOCATION_APPLIES_ON_ENTRY_WRITE_EXPORT_AND_RECEIPT",
-        "agent_development_sha": "d517d8e74955a8499fc4e9168e21752805fb94d0",
-        "agent_development_status": "SOURCE_QUALIFICATION_PENDING_COMPANY_T2_MOUNT_AND_DEFAULT_FULL_RESULT",
+        "agent_development_sha": "1675334eafd3eef0fcf055500cdcb1d1ec1441b6",
+        "agent_development_status": "SOURCE_QUALIFICATION_PENDING_EXACT_SETUP_COMPANY_WORKSPACE",
         "agent_development_source_evidence": {
-          "prior_ipc_run_id": 44795337152,
-          "source_sha": "d517d8e74955a8499fc4e9168e21752805fb94d0",
-          "installed": "NOT_ACCEPTED",
-          "scope": "Native original company Kernel mount and automatic complete accepted Agent Result source; source tests pending exact private bounded CI"
+          "current_sha": "1675334eafd3eef0fcf055500cdcb1d1ec1441b6",
+          "prior_run_id": 44800088162,
+          "prior_agent_sha": "d517d8e74955a8499fc4e9168e21752805fb94d0",
+          "previous_success": "PRIVATE_SOURCE_LINUX_WINDOWS_PASS_NATIVE_MOUNT_AND_FULL_RESULT_BUT_NOT_THIS_EXACT_SETUP_PIN",
+          "installed": "NOT_ACCEPTED"
         },
         "release_status": "INCOMPLETE",
         "payload_boundary": "Complete accepted corporate Result is read from existing Agent Core, never manually selected, then committed as Object/Event into original corporate T2 Workspace on the same signed JIT port. 2m UTF16 text. Binary attachments and full T2 Exchange remain open; installed qualification pending."

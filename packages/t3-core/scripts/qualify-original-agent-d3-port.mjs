@@ -108,7 +108,7 @@ export async function qualifyOriginalAgentD3Source({
 /** Optional NEXT Agent source acceptance, kept separate from the already
  * installed c68387bd evidence. Uses existing Python suites and Node parse
  * check, without staging a second Agent Core or exposing private files. */
-export const AGENT_COMPANY_DEV_PIN='d517d8e74955a8499fc4e9168e21752805fb94d0';
+export const AGENT_COMPANY_DEV_PIN='1675334eafd3eef0fcf055500cdcb1d1ec1441b6';
 export async function qualifyOriginalAgentCompanyCandidate({
   token,
   fetchFile=(path,secret)=>getExactFile(path,secret,{
@@ -131,6 +131,8 @@ export async function qualifyOriginalAgentCompanyCandidate({
     'runtime/t3_original_result_owner.py',
     'tests/test_agent06_company_original_core_result.py',
     'tests/test_agent06_original_t3_reentrant_ipc.py',
+    'tools/t3_one_core_payload.py',
+    'tests/test_agent06_t3_setup_payload.py',
   ];
   const root=mkdtempSync(join(tmpdir(),'iwxa-agent-company-next-'),{mode:0o700});
   try{
@@ -169,6 +171,8 @@ export async function qualifyOriginalAgentCompanyCandidate({
         'test_complete_acceptance_is_one_result_without_manual_selection'],
       ['test_agent06_original_t3_reentrant_ipc.py',
         'test_company_complete_result_uses_same_nested_core_reader'],
+      ['test_agent06_t3_setup_payload.py',
+        'test_qualified_original_source_and_d6_dist_are_packaged_byte_exact'],
     ];
     let totalTests=0;
     for(const [pattern,required]of plans){
@@ -191,7 +195,7 @@ export async function qualifyOriginalAgentCompanyCandidate({
       }
       totalTests+=Number(match[1]);
     }
-    if(totalTests<37)
+    if(totalTests<38)
       throw Error('T3_COMPANY_CANDIDATE_TEST_COVERAGE_REGRESSED');
     const bridge=spawnSync(process.execPath,[
       '--test',join(root,'tests/test_agent06_original_t3_large_ipc.test.mjs'),
@@ -215,6 +219,7 @@ export async function qualifyOriginalAgentCompanyCandidate({
     console.log('T3_COMPANY_EMPLOYEE_WORKER_SYNTAX_PASS');
     console.log('T3_COMPANY_COMPLETE_DOCUMENT_IPC_3_PASS');
     console.log('T3_COMPANY_CORE_ACCEPTED_RESULT_AND_REENTRANT_CALLBACK_SOURCE_PASS');
+    console.log('T3_AGENT_ONE_DIST_COMPANY_SCHEMA_ADMISSION_PASS');
     console.log('T3_COMPANY_CANDIDATE_NOT_INSTALLED_NOT_FINAL_T3');
     return {candidate:AGENT_COMPANY_DEV_PIN,tests:totalTests};
   }finally{
