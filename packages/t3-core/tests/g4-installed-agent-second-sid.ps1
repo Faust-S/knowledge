@@ -138,6 +138,14 @@ try {
     }
     throw 'GUEST_NATIVE_WINDOW_UNAVAILABLE'
   }
+  function ConfirmGuestEditor([Diagnostics.Process]$p){
+    # A visible HWND precedes the WebView's Core-owned draft restoration.
+    # Verify the fresh guest's empty editor on first launch and cold reopen.
+    $probe=Join-Path $program 'tools\qualify_setup_core_native_gui.ps1'
+    try {
+      & $probe -WindowProcessId $p.Id -Mode readback -ExpectedSha256 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' | Out-Null
+    }catch{throw 'GUEST_NATIVE_EDITOR_READBACK_FAILED'}
+  }
   function StopNative([Diagnostics.Process]$p){
     if($p -eq $null){return}
     $p.Refresh()
@@ -175,10 +183,12 @@ try {
   if($verified.status -cne 'OWNED_FILES_VERIFIED'){throw 'GUEST_SETUP_FILE_VERIFICATION_FAILED'}
   $phase='SECOND_SID_NATIVE_FIRST_GUI'
   $native=LaunchNative
+  ConfirmGuestEditor $native
   StopNative $native
   $native=$null
   $phase='SECOND_SID_NATIVE_COLD_GUI'
   $native=LaunchNative
+  ConfirmGuestEditor $native
   $reply=[ordered]@{sid=$user;session=$session;pid=$native.Id;
     coldHwnd=[int64]$native.MainWindowHandle}
   [IO.File]::WriteAllText((Join-Path $ProofRoot 'ui-ready.json'),
@@ -210,7 +220,7 @@ try {
   $allowed=@('GUEST_EXISTING_PRODUCT','GUEST_SETUP_FAILED','GUEST_SETUP_RECEIPT_MISSING',
     'GUEST_NATIVE_EXE_MISSING','GUEST_NATIVE_WINDOW_EXITED',
     'GUEST_NATIVE_WINDOW_UNAVAILABLE','GUEST_NATIVE_CLOSE_NOT_ACKNOWLEDGED',
-    'GUEST_NATIVE_GRACEFUL_CLOSE_FAILED','GUEST_SIGNED_ORIGINAL_SETUP_IDENTITY_INVALID',
+    'GUEST_NATIVE_GRACEFUL_CLOSE_FAILED','GUEST_NATIVE_EDITOR_READBACK_FAILED','GUEST_SIGNED_ORIGINAL_SETUP_IDENTITY_INVALID',
     'GUEST_SETUP_PREFLIGHT_FAILED','GUEST_ORIGINAL_INSTALL_NOT_REGISTERED',
     'GUEST_SETUP_FILE_VERIFICATION_FAILED','GUEST_MANAGER_UIA_ACK_MISSING',
     'GUEST_UNINSTALL_OR_DATA_PRESERVATION_FAILED',

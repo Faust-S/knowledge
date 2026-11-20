@@ -2610,12 +2610,12 @@
       "B0": {
         "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "Frozen One Core f42e53 source #44744242421 PASS; real Qwen/age/Metal #44736009194 PASS. Installed Center signed Owner/DPAPI #44726573571 PASS. Previous Agent 12707f installed #44745032154 FAIL QWEN_EXECUTE HTTP_409. Agent cd52b70 failed #44749670978 during QWEN_EXECUTE (HTTP_409). Agent c68387b corrects the locally reproduced provider_config_projection_missing and awaits installed acceptance; G4 HOLD."
+        "remaining": "One Core source and installed Center qualified. Agent c68387b first SID passed setup, real Qwen, GUI, cold recovery, repair and rollback in #44753501324. Second SID cold window did not exit after close."
       },
       "D1": {
         "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "Installed Center signed original Owner/DPAPI cold #44726573571 PASS. Previous Agent 12707f second Windows SID installed #44745032154 failed GUEST_NATIVE_GRACEFUL_CLOSE_FAILED after native GUI cold UIA. Agent cd52b70 second SID passed in #44749670978. Current c68387b second SID awaits qualification; cross-product native Human ACCEPT/APPLY HOLD."
+        "remaining": "Installed Center signed owner and DPAPI passed #44726573571. Agent c68387b second SID cold GUI close requires requalification after checking draft readiness."
       },
       "D2": {
         "source": "PARTIAL",
@@ -2625,7 +2625,7 @@
       "D3": {
         "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "Previous Agent 12707f original signed source 26/26 #44745032035 PASS, installed #44745032154 FAIL QWEN_EXECUTE HTTP_409 at SNAPSHOT; independent second SID also failed native graceful close. Agent cd52b70 signed source passed #44749760502 and second SID passed #44749670978. Its first installed route failed HTTP_409. Agent c68387b is pending fresh qualification. Physical Agent Task Result -> installed Center Human ACCEPT and separate APPLY -> two Kernel cold readbacks HOLD."
+        "remaining": "Signed D3 c68387b passed #44753688093. Agent first SID passed #44753501324. Second SID graceful close and physical signed Result transfer to installed Center, separate Human ACCEPT/APPLY and two Kernel cold reads remain."
       },
       "D4": {
         "source": "PASS",
@@ -2656,10 +2656,11 @@
         "evidence_level": "SOURCE_NATIVE_PROCESS_PASS_HISTORICAL"
       },
       "current_original_d3_source": {
-        "run_id": null,
+        "run_id": 44753688093,
         "agent_sha": "c68387bdb6a7507fe412b62639d9c091d7b933dc",
-        "conclusion": "QUEUED",
-        "evidence_level": "NOT_YET_ACCEPTED"
+        "conclusion": "SUCCESS",
+        "evidence_level": "SOURCE_NATIVE_PROCESS_PASS",
+        "marker_count": 26
       },
       "current_installed_agent": {
         "run_id": null,
@@ -2907,6 +2908,14 @@
         "guest_code": "GUEST_NATIVE_GRACEFUL_CLOSE_FAILED",
         "evidence_level": "INSTALLED_PRODUCT_NOT_ACCEPTED",
         "former_pin": true
+      },
+      "installed_agent_attempt_44753501324": {
+        "run_id": 44753501324,
+        "agent_sha": "c68387bdb6a7507fe412b62639d9c091d7b933dc",
+        "conclusion": "FAIL",
+        "first_sid_setup_qwen_gui_cold_repair_rollback": "PASS",
+        "second_sid": "GUEST_NATIVE_GRACEFUL_CLOSE_FAILED",
+        "phase": "SECOND_SID_NATIVE_COLD_GUI"
       }
     },
     "final_independent_acceptance": null,
