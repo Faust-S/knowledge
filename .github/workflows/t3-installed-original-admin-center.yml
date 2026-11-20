@@ -300,6 +300,9 @@ jobs:
                   Write-Host ("G4_COMPILED_ENROLL_MACHINE_CODE " + $Matches[1])
                 }elseif($safe -match '^T3_D3_COMPILED_ENROLL_PREFLIGHT_ORIGIN_(BUN_VIRTUAL|BUILD_SHIM|ORIGINAL_CLI|SIGNED_INTEROP|T2_ASSET) (True|False)$'){
                   Write-Host ("G4_COMPILED_ENROLL_ORIGIN_{0} {1}" -f $Matches[1],$Matches[2])
+                }elseif($safe -match '^T3_D3_COMPILED_IMPORT_PROBE_([A-Z0-9_]{3,36})_(COMPILED|RAN) (True|False)$'){
+                  # Bounded original private Bun import outcome, no text paths/EXE.
+                  Write-Host ("G4_COMPILED_IMPORT_{0}_{1} {2}" -f $Matches[1],$Matches[2],$Matches[3])
                 }
                 foreach($hit in [regex]::Matches($safe,
                     '(?<![A-Z0-9_])(?:T3_D3|G4|CEN_D3|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){

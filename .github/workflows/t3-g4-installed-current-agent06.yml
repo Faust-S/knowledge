@@ -332,6 +332,7 @@ jobs:
               T2_EXTRACT = (Test-Path -LiteralPath (Join-Path $output 'build/qualified-original-t2') -PathType Container)
               T3_DEPENDENCIES = (Test-Path -LiteralPath (Join-Path $output 'logs/original-t3-dependencies.log') -PathType Leaf)
               T3_BUILD = (Test-Path -LiteralPath (Join-Path $output 'logs/original-t3-compiled-host.log') -PathType Leaf)
+              SIGNED_WORKSPACE_COMPILED = (Test-Path -LiteralPath (Join-Path $core 'dist/signed-workspace.html') -PathType Leaf)
               ORIGINAL_ONE_DIST = (Test-Path -LiteralPath (Join-Path $output 'build/original-agent-one-dist-receipt.json') -PathType Leaf)
               AGENT_PACKAGE = (Test-Path -LiteralPath (Join-Path $output 'logs/private-build-result.json') -PathType Leaf)
               SETUP_BUILT = (Test-Path -LiteralPath (Join-Path $output 'IWXA-Private-SetupCore-Candidate.exe') -PathType Leaf)
@@ -413,7 +414,7 @@ jobs:
               $privateError = Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
               if ($privateError) {
                 $safeCodes = [regex]::Matches($privateError,
-                  '(?i)(?<![A-Za-z0-9_])(?:setup_local|agent_setup_witness|agent_setup_runtime|private_setup_core)_[a-z0-9_]{4,110}(?![A-Za-z0-9_])')
+                  '(?i)(?<![A-Za-z0-9_])(?:setup_local|agent_setup_witness|agent_setup_runtime|private_setup_core|original_t3_g4|original_t3_qualified|original_t3_owning)_[a-z0-9_]{4,110}(?![A-Za-z0-9_])')
                 foreach ($safeCode in @($safeCodes | Select-Object -Unique | Select-Object -Last 5)) {
                   Write-Host ('G4_AGENT06_LOCAL_ACCEPT_SAFE_CODE ' + $safeCode.Value.ToUpperInvariant())
                 }
