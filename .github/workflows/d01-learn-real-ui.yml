@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: c38bd1eb7940f489903debe72fdbf2f3c51f5e8a
+          ref: 822c477ee286bc6c7e72bac90fb2fffc90e5bd19
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -43,7 +43,7 @@ jobs:
         run: |
           set -eu
           test "$(git -C private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
-          test "$(git -C private/site rev-parse HEAD)" = c38bd1eb7940f489903debe72fdbf2f3c51f5e8a
+          test "$(git -C private/site rev-parse HEAD)" = 822c477ee286bc6c7e72bac90fb2fffc90e5bd19
           test "$(git -C private/domain rev-parse HEAD)" = ffe0a8916ff6a6bda313ee730d096a21099faf25
           cmp private/domain/learning-journey/projection.ts private/site/t2/domain-modules/learn-results/learning-journey.ts
           cmp private/domain/learning-journey/today.ts private/site/t2/domain-modules/learn-results/learning-today.ts
@@ -53,7 +53,7 @@ jobs:
         env:
           D01_T2_CHECKOUT: ${{ github.workspace }}/private/t2
           D01_EXPECTED_T2_HEAD: 9c64951cd78411283e8a416641c36d71e169fc1d
-          D01_EXPECTED_SITE_HEAD: c38bd1eb7940f489903debe72fdbf2f3c51f5e8a
+          D01_EXPECTED_SITE_HEAD: 822c477ee286bc6c7e72bac90fb2fffc90e5bd19
           D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
         run: node private/site/qa/d01-product-witness-2026-10-26/ci-real-screens.mjs
       - name: Upload only verified browser PNG and SHA-256 manifest
