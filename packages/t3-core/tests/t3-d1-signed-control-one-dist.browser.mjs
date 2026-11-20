@@ -632,13 +632,13 @@ try{
   const selectedErrors=[];
   selected.on('pageerror',err=>selectedErrors.push(err.message));
   await selected.goto(origin+'/workspace/signed-workspace.html#'+token);
-  const missing=selected.getByTestId('t3-d1-selected-workspace-message');
+  // The original corporate key now opens or creates its selected Workspace
+  // automatically when it carries the separate signed workspace.create grant.
+  // There is no second Human create click. An old read-only key still denies.
   try{
-    await missing.waitFor({state:'visible',timeout:60000});
+    await selected.getByTestId('t3-d1-selected-workspace-gate')
+      .waitFor({state:'detached',timeout:60000});
   }catch(error){
-    // Diagnose the actual original browser Host instead of interpreting a
-    // UI selector timeout as a Kernel failure. No screenshot, secret token
-    // or signed archive is captured or published.
     const pageText=await selected.locator('body').innerText().catch(()=>null);
     console.error('T3_D1_SIGNED_UI_DIAGNOSTIC',JSON.stringify({
       pageErrors:selectedErrors,
@@ -650,12 +650,7 @@ try{
     throw error;
   }
   assert.equal(new URL(selected.url()).origin,uiOrigin);
-  assert.match(await missing.innerText(),/пока нет рабочей области/,
-    'T3_D1_SIGNED_FIRST_RUN_MUST_EXPLAIN_MISSING_ORIGINAL_WORKSPACE');
   assert.equal(new URL(selected.url()).hash,'#/overview');
-  await selected.getByTestId('t3-d1-create-selected-workspace').click();
-  await selected.getByTestId('t3-d1-selected-workspace-gate')
-    .waitFor({state:'detached',timeout:30000});
   const created=await browser.page.evaluate(async({serviceId,workspace_id})=>{
     const kernel=await globalThis.IWXA.connect({service_id:serviceId});
     return kernel.t1.getWorkspace(workspace_id);
@@ -1417,31 +1412,25 @@ try{
   };
   const onboardCorporate=async short=>{
     const {page,pageErrors}=await openCorporateApp();
-    const gate=page.getByTestId('t3-d1-selected-workspace-message');
-    // A visible alert alone can be a transient signed JIT refusal while
-    // the original Control epoch is being rebound. The actual first-run
-    // capability is the independently authorized create action. Do not
-    // click an untrusted ID or treat a Control denial as a missing Workspace.
+    // Real original Ed25519 company key has explicit workspace.create.
+    // The selected original T2 Workspace now comes up without a second
+    // manual operation. Both the owner and browser Host still check JIT.
     try{
-      await page.getByTestId('t3-d1-create-selected-workspace')
-        .waitFor({state:'visible',timeout:45000});
+      await page.getByTestId('t3-d1-selected-workspace-gate')
+        .waitFor({state:'detached',timeout:60000});
     }catch(error){
       console.log('T3_D1_CORPORATE_FIRST_RUN_ORIGINAL_OWNER_DIAGNOSTIC',
         JSON.stringify({
           organization:short,
-          alert:await gate.innerText().catch(()=>null),
+          alert:await page.getByTestId('t3-d1-selected-workspace-message')
+            .innerText().catch(()=>null),
           root:await page.locator('#root').innerText().then(x=>x.slice(0,1700)).catch(()=>null),
           pageErrors,
         }));
       throw error;
     }
-    assert.match(await gate.innerText(),/выбранного профиля/,
-      'CORP_SIGNED_FIRST_RUN_REQUIRED');
     assert.equal(new URL(page.url()).hash,'#/overview');
     assert.equal(await page.evaluate(()=>typeof window.IWXA),'undefined');
-    await page.getByTestId('t3-d1-create-selected-workspace').click();
-    await page.getByTestId('t3-d1-selected-workspace-gate')
-      .waitFor({state:'detached',timeout:45000});
     const read=await browser.page.evaluate(async({serviceId,ws})=>{
       const original=await IWXA.connect({service_id:serviceId});
       return original.t1.getWorkspace(ws);
