@@ -135,7 +135,7 @@ jobs:
           export D09_PREVIEW_CERT_PATH="$RUNNER_TEMP/d09-tls/cert.pem"
           export D09_PREVIEW_KEY_PATH="$RUNNER_TEMP/d09-tls/key.pem"
           node tests/d09-strict-csp-host-witness.mjs > "$RUNNER_TEMP/d09-browser.log" 2>&1 || {
-            grep -E 'D09_(WORKSPACE|EXCHANGE|LIFECYCLE|T2_|PUBLIC_|ENGINEERING_)' "$RUNNER_TEMP/d09-browser.log" | tail -25 || true
+            grep -E 'D09_(WORKSPACE|EXCHANGE|LIFECYCLE|T2_|PUBLIC_|ENGINEERING_|NATIVE_)' "$RUNNER_TEMP/d09-browser.log" | tail -25 || true
             echo D09_ORIGINAL_T2_GUI=FAIL; exit 1;
           }
           grep -E 'D09_(WORKSPACE|EXCHANGE|LIFECYCLE|T2_REAL_BROWSER|ENGINEERING_)' "$RUNNER_TEMP/d09-browser.log" | tail -15 || true
