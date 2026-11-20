@@ -2670,7 +2670,8 @@
         "AGENT_NATIVE_SETUP_WINPS5_1_VITE_STDERR_NONFATAL_QUALIFICATION",
         "AGENT_PS51_BOM_AWARE_ONE_DIST_INSTALLED_WIN_ACCEPTANCE_PENDING",
         "EXACT_AGENT_WINDOWS_PS51_RECEIPT_BOM_DECODE_INSTALLED_QUALIFICATION",
-        "PS51_FULL_REDIRECTED_NATIVE_SETUP_BOM_REQUALIFICATION_PENDING"
+        "PS51_FULL_REDIRECTED_NATIVE_SETUP_BOM_REQUALIFICATION_PENDING",
+        "AGENT_6FAE_PS51_NATIVE_ICON_SETUP_REDIRECTED_JSON_FULL_INSTALLED_GUI_PENDING"
       ],
       "existing_evidence_preserved": true,
       "company_workspace": {
@@ -2684,17 +2685,17 @@
         "transport": "EXISTING_IWXA_MANUAL_HANDOFF_WHEN_OFFLINE_OPTIONAL_AUTHORIZED_SYNC_IF_CONNECTED",
         "offline_delivery": "PENDING_COMPANY_RECEIPT_NOT_DELIVERED_UNTIL_ORIGINAL_RECIPIENT_READBACK",
         "authorization": "D1_SIGNED_JIT_REVOCATION_APPLIES_ON_ENTRY_WRITE_EXPORT_AND_RECEIPT",
-        "agent_development_sha": "7f723496cdc36e6b55b5b98f5c1feb15e2683e3b",
-        "agent_development_status": "BOM_AWARE_ALL_WINDOWS_REDIRECTED_JSON_SOURCE_QUALIFICATION_PENDING",
+        "agent_development_sha": "6fae1fe254cb26babcc8a9ba852f91900e344fdd",
+        "agent_development_status": "SOURCE_READY_EXACT_WINDOWS_REDIRECTED_JSON_AND_NATIVE_BUILD_QUALIFICATION_PENDING",
         "agent_development_source_evidence": {
           "prior_run_id": 44815605828,
           "prior_agent_sha": "4e454f5729674de76f8d3ec00defaea61b02d4db",
-          "new_agent_sha": "7f723496cdc36e6b55b5b98f5c1feb15e2683e3b",
+          "new_agent_sha": "6fae1fe254cb26babcc8a9ba852f91900e344fdd",
           "pinned_public_one_core": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1",
           "current_source_check": "PENDING",
-          "installed": "NOT_RUN_EXACT_NEW_SHA",
-          "agent_sha": "7f723496cdc36e6b55b5b98f5c1feb15e2683e3b",
-          "previous_agent_sha": "91650cf1c77b98b3f05752074fccb6ae5f684c19",
+          "installed": "NOT_RUN_EXACT_AGENT_6FAE",
+          "agent_sha": "6fae1fe254cb26babcc8a9ba852f91900e344fdd",
+          "previous_agent_sha": "7f723496cdc36e6b55b5b98f5c1feb15e2683e3b",
           "source_win_qualification": "PENDING_NEW_PIN",
           "installed_win_qualification": "PENDING_NEW_PIN",
           "current_sha": "91650cf1c77b98b3f05752074fccb6ae5f684c19",
@@ -2789,7 +2790,7 @@
       "installed_qualification_candidate": {
         "state": "PINNED_NEW_CANDIDATE_NOT_YET_ACCEPTED",
         "original_t3_owner_sha": "adfcb77a3497415ce8bb194647d2d5be3a41eafa",
-        "agent_sha": "7f723496cdc36e6b55b5b98f5c1feb15e2683e3b",
+        "agent_sha": "6fae1fe254cb26babcc8a9ba852f91900e344fdd",
         "public_one_core_sha": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1",
         "original_t2_head": "9c64951cd78411283e8a416641c36d71e169fc1d",
         "original_t2_qualified_tree": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
@@ -2799,10 +2800,10 @@
         "windows_agent_installed_run_id": null,
         "approved": false,
         "windows_admin_installed_conclusion": "NOT_RUN_NEW_SHA",
-        "windows_agent_installed_conclusion": "PENDING_EXACT_PS51_BOM_AWARE_AGENT_INSTALL",
+        "windows_agent_installed_conclusion": "PENDING_ALL_PS51_NATIVE_BUILD_JSON_DECODING",
         "windows_native_process_conclusion": "SOURCE_NATIVE_PROCESS_SUCCESS_PREVIOUS_OWNER_SHA",
         "diagnostic_state": "BUN_ENTRY_GUARD_RESTORED_ADMIN_INVITATION_UI_DEFAULT_FIXED",
-        "agent_native_build_fix": "PS51_BOM_AWARE_REDIRECTED_NODE_PYTHON_AND_NESTED_POWERSHELL_JSON"
+        "agent_native_build_fix": "PS51_REDIRECTED_JSON_BOM_SAFE_ALL_NATIVE_SETUP_STAGES"
       }
     },
     "required_gates": {
