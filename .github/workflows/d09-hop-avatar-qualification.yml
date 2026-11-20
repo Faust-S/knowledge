@@ -66,8 +66,16 @@ jobs:
         shell: bash
         run: |
           npm run build:public-stage > "$RUNNER_TEMP/d09-avatar-public.log" 2>&1 || {
-            grep -E 'error|fail|Error:|✘' "$RUNNER_TEMP/d09-avatar-public.log" | tail -22 | cut -c 1-230 || true
-            echo D09_AVATAR_PUBLIC_BUILD=FAIL; exit 1;
+            if grep -q 'Timed out after 30000 ms while waiting for the WS endpoint URL' "$RUNNER_TEMP/d09-avatar-public.log"; then
+              echo D09_AVATAR_CHROME_STARTUP_RETRY=1
+              npm run build:public-stage > "$RUNNER_TEMP/d09-avatar-public-retry.log" 2>&1 || {
+                grep -E 'error|fail|Error:|Timed out' "$RUNNER_TEMP/d09-avatar-public-retry.log" | tail -12 | cut -c 1-230 || true
+                echo D09_AVATAR_PUBLIC_BUILD=FAIL; exit 1;
+              }
+            else
+              grep -E 'error|fail|Error:' "$RUNNER_TEMP/d09-avatar-public.log" | tail -12 | cut -c 1-230 || true
+              echo D09_AVATAR_PUBLIC_BUILD=FAIL; exit 1;
+            fi
           }
           test -f dist/avatars/index.html || {
             echo D09_AVATAR_ROUTE_MISSING=FAIL; exit 1;
