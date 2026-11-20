@@ -2671,7 +2671,8 @@
         "AGENT_PS51_BOM_AWARE_ONE_DIST_INSTALLED_WIN_ACCEPTANCE_PENDING",
         "EXACT_AGENT_WINDOWS_PS51_RECEIPT_BOM_DECODE_INSTALLED_QUALIFICATION",
         "PS51_FULL_REDIRECTED_NATIVE_SETUP_BOM_REQUALIFICATION_PENDING",
-        "AGENT_6FAE_PS51_NATIVE_ICON_SETUP_REDIRECTED_JSON_FULL_INSTALLED_GUI_PENDING"
+        "AGENT_6FAE_PS51_NATIVE_ICON_SETUP_REDIRECTED_JSON_FULL_INSTALLED_GUI_PENDING",
+        "ADMIN_CENTER_ORIGINAL_SIGNED_CHILD_EXIT_RELEASE_INDEPENDENT_COLD_DPAPI_REQUALIFICATION"
       ],
       "existing_evidence_preserved": true,
       "company_workspace": {
@@ -2764,6 +2765,20 @@
           "installed": "NOT_RUN_NEW_SHA",
           "previous_qualification_run_id": 44815605828,
           "admin_ui_defaults": "READ_WRITE_CREATE_CHECKED_COLLAPSED_ADVANCED_LIMITED_KEY"
+        },
+        "installed_admin_first_use": {
+          "previous_run_id": 44819664058,
+          "previous_result": "FAIL_AFTER_SIGNED_ENROLL_ORIGINAL_PRODUCT_LOCKED",
+          "installed_setup": "PASS",
+          "native_gui": "PASS",
+          "ordinary_workspace_without_atlas": "PASS",
+          "native_enroll": "PASS",
+          "cold_native_owner": "FAIL_INTEROP_PRODUCT_LOCKED",
+          "cause": "ORIGINAL_CENTER_TAURI_MISSING_EXPLICIT_ORIGINAL_OWNER_RELEASE_ON_NATIVE_EXIT",
+          "source_fix_sha": "5da2473f5e13df58cd715b0109c29b7707a97847",
+          "source_baseline_sha": "2628c4bc1b20b4393c485d12513f029fdea8b082",
+          "new_run_id": null,
+          "new_result": "NOT_RUN_NEW_CENTER_SHA"
         }
       },
       "original_t3_final_candidate_sha": "adfcb77a3497415ce8bb194647d2d5be3a41eafa",
@@ -2799,11 +2814,13 @@
         "windows_admin_installed_run_id": null,
         "windows_agent_installed_run_id": null,
         "approved": false,
-        "windows_admin_installed_conclusion": "NOT_RUN_NEW_SHA",
+        "windows_admin_installed_conclusion": "PENDING_NATIVE_EXIT_SIGNED_CHILD_KILL_AND_COLD_REOPEN",
         "windows_agent_installed_conclusion": "PENDING_ALL_PS51_NATIVE_BUILD_JSON_DECODING",
         "windows_native_process_conclusion": "SOURCE_NATIVE_PROCESS_SUCCESS_PREVIOUS_OWNER_SHA",
-        "diagnostic_state": "BUN_ENTRY_GUARD_RESTORED_ADMIN_INVITATION_UI_DEFAULT_FIXED",
-        "agent_native_build_fix": "PS51_REDIRECTED_JSON_BOM_SAFE_ALL_NATIVE_SETUP_STAGES"
+        "diagnostic_state": "ORIGINAL_NATIVE_SIGNED_OWNER_PID_LOCK_AFTER_CENTER_EXIT_FIXED_AT_RUN_EVENT_EXIT",
+        "agent_native_build_fix": "PS51_REDIRECTED_JSON_BOM_SAFE_ALL_NATIVE_SETUP_STAGES",
+        "center_sha": "5da2473f5e13df58cd715b0109c29b7707a97847",
+        "center_source_base": "2628c4bc1b20b4393c485d12513f029fdea8b082"
       }
     },
     "required_gates": {
