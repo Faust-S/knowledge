@@ -2,7 +2,7 @@
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
   "snapshot_date": "2026-11-20",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
-  "currentness": "20_11_AGENT_FFA56_CORE_F42E_NATIVE_D3_44622214812_SOURCE_PASS_26_OF_26__D6_GENERIC_44620132894_SOURCE_PASS__INSTALLED_44628590076_FAIL_MALFORMED_PRIVATE_WITNESS_BEFORE_RECEIPT__SOURCE_FIXED_AGENT_B5B9FDA7__WINDOWS_PS51_PARSE_PASS_44710719858__INSTALLED_RUN_IN_PROGRESS__G4_NOT_ACCEPTED_T3_READY_FALSE",
+  "currentness": "20_11_G4_NOT_ACCEPTED__SOURCE_D3_44622214812_PASS_HISTORICAL_AGENT_FFA56__D6_GENERIC_44620132894_PASS_CORE_F42E__INSTALLED_AGENT_44710719858_FAIL_QWEN_MODEL_TRY_NATIVE_PROCESS__CURRENT_AGENT_21505E_PINNED_SOURCE_44723931657_AND_INSTALLED_44723931788_IN_PROGRESS",
   "policy": {
     "t3_one_core": "Faust-S/knowledge/packages/t3-core",
     "t2_normative": "Faust-S/T2@main",
@@ -2594,6 +2594,103 @@
       "conclusion": "SUCCESS"
     }
   },
+  "current_release": {
+    "schema": "IWXA_T3_G4_CURRENT_GATE_MATRIX/1",
+    "source_of_truth": "THIS_TYPED_CURRENT_RELEASE_ONLY__LEGACY_OBSERVATIONS_HISTORICAL",
+    "release_scope": "PRODUCT_NEUTRAL_NO_MANDATORY_ATLAS",
+    "pins": {
+      "one_core": "f42e53cd28c881b2b8e04199595f9d7991f34414",
+      "normative_t2": "9c64951cd78411283e8a416641c36d71e169fc1d",
+      "original_t3_signed_owner": "1a8267634955947bc0c6adc5614d7de176a33da2",
+      "installed_agent": "21505e819f8a745a502c96bcf703eadef5fbcaaa",
+      "installed_center": "2628c4bc1b20b4393c485d12513f029fdea8b082",
+      "original_setup_core": "c10e193846a0ea4c73cabe3744aa7db82439d54e"
+    },
+    "required_gates": {
+      "B0": {
+        "source": "PASS",
+        "installed": "PARTIAL",
+        "remaining": "exact one-dist installed product completion"
+      },
+      "D1": {
+        "source": "PASS",
+        "installed": "PARTIAL",
+        "remaining": "signed grants plus independently installed employee/Admin native rights"
+      },
+      "D2": {
+        "source": "PARTIAL",
+        "installed": "HOLD",
+        "remaining": "original Event/Activity approved derived Result in installed owner"
+      },
+      "D3": {
+        "source": "PARTIAL",
+        "installed": "HOLD",
+        "remaining": "exact current Agent source requal, installed real Task/Review, separate Admin ACCEPT/APPLY two SID and two cold Kernel reads"
+      },
+      "D4": {
+        "source": "PASS",
+        "installed": "HOLD",
+        "remaining": "native independent exchange recipient with original owner receipts"
+      },
+      "D5": {
+        "source": "PARTIAL",
+        "installed": "HOLD",
+        "remaining": "final same-site dist hardware WebGPU and local model install consent then offline cold restart"
+      },
+      "D6": {
+        "source": "PASS",
+        "installed": "HOLD",
+        "remaining": "generic authorized non-Atlas recipient durable receipt lost-ACK read-only recovery"
+      },
+      "D7": {
+        "source": "PARTIAL",
+        "installed": "HOLD",
+        "remaining": "installed Publisher PERSON issue renew STATUS revoke and independent cold read"
+      }
+    },
+    "qualifications": {
+      "last_original_d3_source_pass": {
+        "run_id": 44622214812,
+        "agent_sha": "ffa56fee6f971afa74b6b49ccfb891fca0e97225",
+        "conclusion": "SUCCESS",
+        "evidence_level": "SOURCE_NATIVE_PROCESS_PASS_HISTORICAL"
+      },
+      "current_original_d3_source": {
+        "run_id": 44723931657,
+        "agent_sha": "21505e819f8a745a502c96bcf703eadef5fbcaaa",
+        "conclusion": "IN_PROGRESS",
+        "evidence_level": "NOT_YET_ACCEPTED"
+      },
+      "current_installed_agent": {
+        "run_id": 44723931788,
+        "agent_sha": "21505e819f8a745a502c96bcf703eadef5fbcaaa",
+        "conclusion": "IN_PROGRESS",
+        "evidence_level": "NOT_YET_ACCEPTED"
+      },
+      "latest_installed_failure": {
+        "run_id": 44710719858,
+        "agent_sha": "b5b9fda7ae5fac73de778f92dcfc6b0f607a8393",
+        "conclusion": "FAIL",
+        "finite_reason": "QWEN_EXECUTE_MODEL_TRY_MODEL_PROCESS_FAILED"
+      },
+      "source_generic_d6": {
+        "run_id": 44620132894,
+        "one_core_sha": "f42e53cd28c881b2b8e04199595f9d7991f34414",
+        "conclusion": "SUCCESS",
+        "evidence_level": "SOURCE_ONLY"
+      },
+      "prior_hardware_d5": {
+        "run_id": 44340207574,
+        "attempt": 2,
+        "conclusion": "SUCCESS",
+        "evidence_level": "HARDWARE_SOURCE_PRIOR_NOT_EXACT_SITE_DIST"
+      }
+    },
+    "verdict": {
+      "g4": "NOT_ACCEPTED",
+      "t3_ready": false
+    }
+  },
   "release_candidate": {
     "label": "IWXA_T3_G4_PRODUCT_NEUTRAL_SOURCE_CANDIDATE_2026_11_18",
     "production_ready": false,
@@ -2601,7 +2698,7 @@
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
     "original_private_native_signer": "CURRENT_SOURCE_PIN_d0d8ba2f_NATIVE_ONE_SHOT_WINDOWS_BRIDGE_REQUALIFIED_20_OF_20_44406073956__INSTALLED_UI_HOLD",
-    "independent_installed_d3": "SOURCE_D3_26_OF_26_44622214812_PASS__INSTALLED_44625025638_FAIL_GUI_TASK_REVIEW__RETRY_44628590076_FAIL_MALFORMED_WITNESS__AGENT_B5B9FDA7_SCRIPT_RESTORED__WINDOWS_44710719858_PS51_PARSE_PASS_NATIVE_INSTALLED_IN_PROGRESS__NATIVE_ADMIN_SEPARATE_ACCEPT_APPLY_CROSS_SID_HOLD",
+    "independent_installed_d3": "CURRENT_AGENT_21505E_SOURCE_44723931657_IN_PROGRESS_INSTALLED_44723931788_IN_PROGRESS__PREVIOUS_44710719858_FAIL_MODEL_TRY_NATIVE_PROCESS__INSTALLED_ADMIN_NATIVE_ACCEPT_APPLY_CROSS_SID_HOLD",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
