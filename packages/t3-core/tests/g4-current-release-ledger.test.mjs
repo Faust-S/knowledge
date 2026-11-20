@@ -121,6 +121,19 @@ test('current source and installed runs cannot borrow historical signed D3 succe
     assert.ok(Array.isArray(q.current_installed_agent.final_markers));
     assert.equal(q.current_installed_agent.final_markers.length,4);
   }
+  assert.equal(q.current_one_core_full_qualification.exact_executable_one_core_sha,
+    current.pins.one_core);
+  assert.equal(q.current_one_core_full_qualification.corrected_run_conclusion,'SUCCESS');
+  assert.equal(q.current_one_core_full_qualification.acceptance_scope,
+    'SOURCE_AND_HARDWARE_ONLY_NOT_INSTALLED_TWO_INDEPENDENT_PRODUCTS');
+  assert.equal(q.current_pwa_source_installability.one_core_sha,current.pins.one_core);
+  assert.equal(q.current_pwa_source_installability.native_os_install_result,
+    'SKIPPED_UNSUPPORTED_DEVTOOLS_PWA_INSTALL');
+  assert.equal(current.required_gates.D5.installed,'HOLD');
+  assert.equal(q.prior_agent28_guest_second_sid_result.conclusion,'FAIL');
+  assert.equal(q.prior_agent28_guest_second_sid_result.original_native_gui_cold_and_independent_uia,true);
+  assert.equal(q.prior_agent28_k03_model_failure.finite_reason,
+    'K03_TASK_MODEL_EXECUTION_STOPPED');
   assert.equal(q.source_generic_d6.one_core_sha,current.pins.one_core);
   assert.equal(q.current_installed_admin.center_sha,current.pins.installed_center);
   assert.equal(q.current_installed_admin.one_core_sha,current.pins.one_core);
