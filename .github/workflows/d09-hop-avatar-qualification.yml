@@ -35,6 +35,10 @@ jobs:
             echo D09_AVATAR_TYPECHECK=FAIL; exit 1;
           }
           echo D09_AVATAR_TYPECHECK=PASS
+      - name: Native .iwxa avatar roundtrip
+        shell: bash
+        run: |
+          ./node_modules/.bin/tsx scripts/qualify-pixel-avatar-iwxa.ts
       - name: Focused pixel model and editor interaction tests
         shell: bash
         run: |
