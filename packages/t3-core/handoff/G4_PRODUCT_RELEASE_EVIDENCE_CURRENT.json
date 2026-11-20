@@ -2660,7 +2660,8 @@
         "D1_D3_ACTUAL_INSTALLED_NATIVE_COMPANY_RESULT_WRITE_AND_ADMIN_RECEIPT_READBACK",
         "D1_D3_FIRST_RUN_COMPANY_WORKSPACE_BY_SIGNED_KEY_WITHOUT_EXTRA_MANUAL_CREATE",
         "ORIGINAL_T2_EXCHANGE_COMPANY_DOCUMENT_ASSET_ATTACHMENT_TRANSFER_AND_RECIPIENT_READBACK",
-        "SIGNED_COMPANY_WORKSPACE_AUTO_FIRST_RUN_REAL_KERNEL_READBACK_SOURCE_QUALIFICATION"
+        "SIGNED_COMPANY_WORKSPACE_AUTO_FIRST_RUN_REAL_KERNEL_READBACK_SOURCE_QUALIFICATION",
+        "NATIVE_SIGNED_COMPANY_WORKSPACE_AUTO_CREATE_ACTUAL_KERNEL_QUALIFICATION"
       ],
       "existing_evidence_preserved": true,
       "company_workspace": {
@@ -2696,20 +2697,19 @@
           "qualification_code_note": "This result is genuine original T2 browser Storage/Events with public company source body; not private signed Agent/Center installed E2E"
         },
         "latest_one_core_candidate": {
-          "source_sha": "48c888099bb959ea97ed77269ba618d0c5166e1b",
-          "executable_source_tree": "e5fd5d4ed5a00a9f5723e9875e29425f8421d788",
-          "public_source_ci": null,
-          "status": "SOURCE_REQUALIFICATION_PENDING_POST_DENIAL_AND_BROWSER_FIRST_RUN_FIX",
+          "source_sha": "f641e8be3bba85f932a2dd1902a13de0c0dd43ed",
+          "executable_source_tree": "1bd96668e7264e1eb7775ca750cd007ac33b4827",
           "original_t2_tree_sha": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
-          "source_test_ci": null
+          "source_test_ci": null,
+          "status": "PENDING_PRODUCT_REAL_HOST_AND_NATIVE_FIRST_RUN"
         },
         "auto_company_first_run": {
-          "source_commit": "70393736307391293d0f8d64bd3d077edc00d8c6",
-          "source_tree": "ac19f069e9c86572f053f2ae2ab2362bd6f418f7",
-          "state": "SOURCE_QUALIFICATION_PENDING_REAL_KERNEL_READBACK",
-          "profile": "CORP_ONLY_VALID_SIGNED_CREATE_JIT_NO_EXTRA_MANUAL_CLICK",
-          "personal_workspace_unmodified": true,
-          "browser_race_fix_commit": "48c888099bb959ea97ed77269ba618d0c5166e1b"
+          "state": "SOURCE_QUALIFICATION_PENDING_NATIVE_AND_BROWSER",
+          "code_sha": "f641e8be3bba85f932a2dd1902a13de0c0dd43ed",
+          "source_tree": "1bd96668e7264e1eb7775ca750cd007ac33b4827",
+          "installed": "NOT_RUN",
+          "native": "Original signed workspace.create JIT, exact Workspace readback, auto on first use; missing grant denied; no second Store/Kernel.",
+          "browser": "Auto-onboarding via already signed company key; asynchronous Kernel readback test corrected"
         },
         "default_task_and_result": {
           "state": "SOURCE_QUALIFICATION_PENDING",
