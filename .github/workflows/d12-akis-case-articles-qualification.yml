@@ -95,13 +95,23 @@ jobs:
           echo "AKIS_SCIENCE_HTML=4/4"
       - name: Full original IWXA static, accessibility and research guards
         run: |
+          errors=0
           for task in check:atlas check:routes check:readability check:schema check:llms check:seo check:no-localhost check:hosting-clean check:links check:runtime check:a11y check:responsive check:performance check:htaccess check:akis:static check:akis:hub:static; do
             safe="${task//:/-}"
-            bun run "$task" > "$RUNNER_TEMP/akis-$safe.log" 2>&1 || {
-              echo "AKIS_STATIC_GUARD=FAIL task=$task"; exit 1;
-            }
-            echo "AKIS_STATIC_GUARD=PASS task=$task"
+            if bun run "$task" > "$RUNNER_TEMP/akis-$safe.log" 2>&1; then
+              echo "AKIS_STATIC_GUARD=PASS task=$task"
+            else
+              echo "AKIS_STATIC_GUARD=FAIL task=$task"
+              if [ "$task" = "check:seo" ] && [ -f dist/seo-check.txt ]; then
+                # This contains public site routes and SEO errors only; never upload raw logs or private sources.
+                echo "AKIS_SEO_PUBLIC_DIAGNOSTICS_BEGIN"
+                sed -n '/^ERRORS:/,$p' dist/seo-check.txt | head -35
+                echo "AKIS_SEO_PUBLIC_DIAGNOSTICS_END"
+              fi
+              errors=1
+            fi
           done
+          test "$errors" -eq 0
       - name: Hydrated real browser article interactions, overflow and themes
         run: |
           bun run check:akis:browser > "$RUNNER_TEMP/akis-interactions.log" 2>&1 || {
