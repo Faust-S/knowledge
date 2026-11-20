@@ -194,6 +194,13 @@ export async function qualifyOriginalAgentCompanyCandidate({
        !/^# pass 3\s*$/m.test(bridge.stdout??'')||
        !/^# fail 0\s*$/m.test(bridge.stdout??'')){
       console.log('T3_COMPANY_CANDIDATE_FAILED_SUITE','COMPLETE_DOCUMENT_IPC');
+      // Only public numeric TAP positions. Never print the private test
+      // output, request bytes or stack traces into public CI logs.
+      const lines=(bridge.stdout??'').split(/\r?\n/);
+      console.log('T3_COMPANY_IPC_NODE_EXIT',bridge.status??'unknown');
+      console.log('T3_COMPANY_IPC_TAP_FAIL_POSITIONS',JSON.stringify(
+        lines.filter(x=>/^\s*not ok \d+ /.test(x)).map(x=>
+          Number(x.trim().match(/^not ok (\d+)/)?.[1])).filter(Number.isSafeInteger)));
       throw Error('T3_COMPANY_CANDIDATE_IPC_NOT_ACCEPTED');
     }
     console.log('T3_COMPANY_NEXT_SHA',AGENT_COMPANY_DEV_PIN);
