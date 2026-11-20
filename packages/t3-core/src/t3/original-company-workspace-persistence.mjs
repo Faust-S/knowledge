@@ -209,8 +209,12 @@ export function createTrustedOriginalCompanyWorkspacePersistence({
       // Write only through original Kernel's signed JIT. No local journal,
       // alternative Store or second export/Result. Mark uncertain before
       // the native dispatch; a lost ACK never causes automatic retry.
+      // Resolve the ORIGINAL signed write right BEFORE recording an
+      // ambiguous Kernel dispatch. A missing or revoked grant is a
+      // definite pre-write denial, not a lost acknowledgement.
+      const signedWrite=signed('commitObjectGraph');
       dispatched=true;
-      const receipt=await signed('commitObjectGraph').commitObjectGraph(command);
+      const receipt=await signedWrite.commitObjectGraph(command);
       requireThat(receipt?.object?.object_id===where.object_id&&
         receipt.object.workspace_id===where.workspace_id,
         'T3_COMPANY_ORIGINAL_WRITE_RECEIPT_CHANGED');
