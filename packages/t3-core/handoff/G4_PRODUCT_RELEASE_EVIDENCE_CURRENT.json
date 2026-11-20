@@ -2598,6 +2598,33 @@
     "schema": "IWXA_T3_G4_CURRENT_GATE_MATRIX/1",
     "source_of_truth": "THIS_TYPED_CURRENT_RELEASE_ONLY__LEGACY_OBSERVATIONS_HISTORICAL",
     "release_scope": "PRODUCT_NEUTRAL_NO_MANDATORY_ATLAS",
+    "core_release": {
+      "schema": "IWXA_T3_ONE_CORE_RELEASE_SCOPE/1",
+      "status": "ACCEPTED_FOR_PRODUCT_INTEGRATION",
+      "release_subject": "ONE_FROZEN_EXECUTABLE_T3_INHERITING_ORIGINAL_T2",
+      "source_sha": "f42e53cd28c881b2b8e04199595f9d7991f34414",
+      "executable_tree_sha": "51c68641f4ee9dfb6de833705cbe3294742e2bd8",
+      "normative_t2_sha": "9c64951cd78411283e8a416641c36d71e169fc1d",
+      "kernel_version": "0.3.6",
+      "runtime_contract": "1.3.0",
+      "delivery": "EXISTING_VERIFIED_ONE_DIST_PER_PRODUCT_NO_SECOND_KERNEL",
+      "verified_actions": {
+        "original_t3_core_source": 44772659989,
+        "original_t3_full_qualification_corrected": 44736580680,
+        "native_qwen_age_metal_jobs": 44736009194,
+        "installed_agent": 44756816999,
+        "installed_center": 44726573571,
+        "original_signed_d3_native_source": 44753688093
+      },
+      "feature_boundary": "ONE_CORE_RUNTIME_AND_PUBLIC_D1_D7_PORTS_WITH_ORIGINAL_T2_NOT_EVERY_NATIVE_OWNER",
+      "independent_release_scopes": [
+        "EACH_DESKTOP_PROGRAM",
+        "EACH_AUTONOMOUS_DOMAIN_DIST",
+        "OPTIONAL_CROSS_PRODUCT_D3_D4_D6_D7_INTEGRATION"
+      ],
+      "migration_eligible": true,
+      "auto_publish_to_sites": false
+    },
     "pins": {
       "one_core": "f42e53cd28c881b2b8e04199595f9d7991f34414",
       "normative_t2": "9c64951cd78411283e8a416641c36d71e169fc1d",
@@ -2936,13 +2963,14 @@
     "final_automated_acceptance": null,
     "verdict": {
       "g4": "NOT_ACCEPTED",
-      "t3_ready": false
+      "g4_scope": "OPTIONAL_ECOSYSTEM_NATIVE_INTEGRATION_MATRIX",
+      "t3_ready": true
     }
   },
   "release_candidate": {
     "label": "IWXA_T3_G4_PRODUCT_NEUTRAL_SOURCE_CANDIDATE_2026_11_18",
     "production_ready": false,
-    "t3_ready": false,
+    "t3_ready": true,
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
     "original_private_native_signer": "CURRENT_SOURCE_PIN_d0d8ba2f_NATIVE_ONE_SHOT_WINDOWS_BRIDGE_REQUALIFIED_20_OF_20_44406073956__INSTALLED_UI_HOLD",

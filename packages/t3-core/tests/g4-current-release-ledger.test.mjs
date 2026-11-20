@@ -23,7 +23,7 @@ function pinnedCheckout(workflow,repo){
   return match[1];
 }
 
-test('typed current ledger requires independent installed B0 and D1-D7',()=>{
+test('typed current ledger releases One Core independently of optional installed ecosystem G4',()=>{
   assert.equal(current.schema,'IWXA_T3_G4_CURRENT_GATE_MATRIX/1');
   assert.equal(current.release_scope,'PRODUCT_NEUTRAL_NO_MANDATORY_ATLAS');
   assert.deepEqual(Object.keys(current.required_gates),names);
@@ -33,17 +33,45 @@ test('typed current ledger requires independent installed B0 and D1-D7',()=>{
     assert.equal(typeof state.remaining,'string',gate+' remaining acceptance');
     assert.ok(state.remaining.length>12,gate+' acceptance must be actionable');
   }
+  // T3 executable release is independent of an optional full ecosystem G4.
+  // Do not require a native Publisher, Activity, Atlas, or all installed domain
+  // profiles merely to reuse the same qualified T2/T3 One Core in a product.
+  const core=current.core_release;
+  assert.equal(core.schema,'IWXA_T3_ONE_CORE_RELEASE_SCOPE/1');
+  assert.equal(core.status,'ACCEPTED_FOR_PRODUCT_INTEGRATION');
+  assert.equal(core.release_subject,'ONE_FROZEN_EXECUTABLE_T3_INHERITING_ORIGINAL_T2');
+  assert.equal(core.source_sha,current.pins.one_core);
+  assert.equal(core.normative_t2_sha,current.pins.normative_t2);
+  assert.equal(core.executable_tree_sha,
+    current.qualifications.current_one_core_full_qualification.exact_executable_src_tree_sha);
+  assert.equal(core.kernel_version,'0.3.6');
+  assert.equal(core.runtime_contract,'1.3.0');
+  assert.equal(core.auto_publish_to_sites,false);
+  assert.equal(core.migration_eligible,true);
+  assert.equal(current.required_gates.B0.installed,'PASS');
+  assert.equal(current.qualifications.current_installed_agent.conclusion,'SUCCESS');
+  assert.equal(current.qualifications.current_installed_admin.conclusion,'SUCCESS');
+  assert.equal(current.qualifications.current_one_core_full_qualification.corrected_run_conclusion,'SUCCESS');
+  assert.equal(core.verified_actions.original_t3_core_source,44772659989);
+  assert.equal(core.verified_actions.installed_agent,
+    current.qualifications.current_installed_agent.run_id);
+  assert.equal(core.verified_actions.installed_center,
+    current.qualifications.current_installed_admin.run_id);
+  assert.equal(core.verified_actions.native_qwen_age_metal_jobs,
+    current.qualifications.current_one_core_full_qualification.observed_full_run_id);
+  assert.equal(current.verdict.t3_ready,true,
+    'T3 One Core must not be blocked by installed integrations of other owners');
+  assert.equal(evidence.release_candidate.t3_ready,current.verdict.t3_ready);
+
   const allInstalledGatesPass=names.every(
     key=>current.required_gates[key].installed==='PASS');
   const finallyAccepted=current.verdict.g4==='ACCEPTED';
   assert.ok(['ACCEPTED','NOT_ACCEPTED'].includes(current.verdict.g4));
   assert.equal(current.final_acceptance_policy,'AUTOMATED_INSTALLED_G4');
-  assert.ok(['ACCEPTED','NOT_ACCEPTED'].includes(current.verdict.g4));
-  assert.equal(current.verdict.t3_ready,finallyAccepted);
-  assert.equal(evidence.release_candidate.t3_ready,finallyAccepted);
+  assert.equal(current.verdict.g4_scope,'OPTIONAL_ECOSYSTEM_NATIVE_INTEGRATION_MATRIX');
   assert.ok(!evidence.release_candidate.production_ready||finallyAccepted);
   assert.ok(!finallyAccepted||allInstalledGatesPass,
-    'no G4 acceptance before every installed gate');
+    'no optional aggregate G4 acceptance before every installed gate');
   if(finallyAccepted){
     const qualification=current.final_automated_acceptance;
     assert.match(qualification.source_sha,hex40);
