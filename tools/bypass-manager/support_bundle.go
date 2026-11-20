@@ -29,6 +29,7 @@ type SupportReport struct {
 	Guide         *GuideReport       `json:"guide,omitempty"`
 	Effect        *DPIEffect         `json:"dpi_effect,omitempty"`
 	Direct        *DirectReport      `json:"direct,omitempty"`
+	DirectCheck   *DirectCheckReport `json:"direct_check,omitempty"`
 	Caveat        string             `json:"caveat"`
 }
 type SupportSource struct {
@@ -63,6 +64,7 @@ func buildSupportReport(folder string, now time.Time) SupportReport {
 	}{
 		{"latest-guide.json", &GuideReport{}},
 		{"latest-direct.json", &DirectReport{}},
+		{"latest-direct-check.json", &DirectCheckReport{}},
 		{"latest-network.json", &NetworkAudit{}},
 		{"latest-path.json", &PathReport{}},
 		{"latest-speed.json", &LiveAudit{}},
@@ -85,9 +87,18 @@ func buildSupportReport(folder string, now time.Time) SupportReport {
 				if age > 15*time.Minute {
 					source.Status = "STALE_INCLUDED"
 				}
+				validEntry := true
 				switch v := entry.target.(type) {
 				case *DirectReport:
 					s.Direct = v
+				case *DirectCheckReport:
+					if validDirectCheck(*v) {
+						s.DirectCheck = v
+					} else {
+						// Do not accept forged sample identifiers in shared evidence.
+						source.Status = "INVALID_OR_OLD_SCHEMA"
+						validEntry = false
+					}
 				case *GuideReport:
 					s.Guide = v
 					verdict := assessDPIEffect(v)
@@ -105,7 +116,9 @@ func buildSupportReport(folder string, now time.Time) SupportReport {
 				case *MTUTrialReport:
 					s.MTU = v
 				}
-				s.Available++
+				if validEntry {
+					s.Available++
+				}
 			} else {
 				source.Status = "INVALID_OR_OLD_SCHEMA"
 			}

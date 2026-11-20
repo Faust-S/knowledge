@@ -60,7 +60,7 @@ func (ui *oneUI) setState(state, reason string) {
 		oneBtnText(ui.button, "Выключить")
 	case directOff:
 		oneBtnText(ui.headline, "Выключено")
-		oneBtnText(ui.description, "Одна кнопка включает локальную адаптацию TLS. VPN и адрес сервера не требуются.\nПри первом включении загружаются проверенные компоненты winws2.")
+		oneBtnText(ui.description, "Одна кнопка включает локальную адаптацию TLS. VPN и адрес сервера не требуются.\nКомпоненты winws2 проверяются из архива. Отдельный VPN не нужен.")
 		oneBtnText(ui.button, "Включить")
 	case "OTHER_OWNED_PROFILE":
 		oneBtnText(ui.headline, "Найден прежний режим DPI")
@@ -99,7 +99,7 @@ func (ui *oneUI) init() {
 	ui.geoLine = ctrl(ui.hwnd, "STATIC", "Регион: ещё не определён", 0, 0, 24, 363, 780, 25)
 	ui.speedLine = ctrl(ui.hwnd, "STATIC", "Скорость: ещё не измерена", 0, 0, 24, 397, 780, 25)
 	ui.status = ctrl(ui.hwnd, "STATIC", "Готово к работе", 0, 0, 24, 447, 780, 28)
-	ui.smallPrint = ctrl(ui.hwnd, "STATIC", "HTTPS сайта шифруется самим сайтом. DPI-обработка не скрывает IP и не заменяет VPN.\nДанные о посещённых доменах хранятся локально и не включаются в отчёт.", 0, 0, 24, 475, 780, 50)
+	ui.smallPrint = ctrl(ui.hwnd, "STATIC", "При включении проверяются три открытых HTTPS-сервиса; они увидят IP программы.\nЛокальная адаптация не скрывает IP и не заменяет VPN.", 0, 0, 24, 475, 780, 50)
 	f, _, _ := gdiDLL.NewProc("CreateFontW").Call(uintptr(int32Height(-25)), 0, 0, 0, 600, 0, 0, 0, 1, 0, 0, 0, 0, uintptr(unsafe.Pointer(wstr("Segoe UI"))))
 	if f != 0 {
 		ui.titleFont = f
@@ -162,6 +162,15 @@ func (ui *oneUI) checkState() {
 		if !ui.busy {
 			ui.result = state
 			ui.cause = ""
+			if state == directRunning {
+				var prior DirectCheckReport
+				if err := readStrictJSON(filepath.Join(m.home, "results", "latest-direct-check.json"), &prior); err == nil && validDirectCheck(prior) {
+					stamp, parseErr := time.Parse(time.RFC3339Nano, prior.CheckedUTC)
+					if parseErr == nil && time.Since(stamp) < 15*time.Minute && time.Since(stamp) > -time.Minute {
+						ui.cause = directCheckSummary(prior)
+					}
+				}
+			}
 		}
 		ui.mu.Unlock()
 		post(ui.hwnd, oneRefreshMsg)
@@ -196,11 +205,31 @@ func (ui *oneUI) toggle() {
 		m := ui.makeManager()
 		var err error
 		state := directOff
+		var outcome DirectCheckReport
 		if desired == "start" {
-			_ = m.saveDirectReport(directReport(directPending, "PREPARING"))
-			err = m.startDirect(ctx)
+			_ = m.saveDirectReport(directReport(directPending, "CHECKING_BEFORE_START"))
+			outcome, err = directMeasuredStart(ctx, m.startDirect,
+				func(ctx context.Context) (bool, error) {
+					checkCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+					defer cancel()
+					v, e := m.getDirectStatus(checkCtx)
+					return v == directRunning, e
+				},
+				func(ctx context.Context) DirectCheckPhase {
+					return probeDirectPhase(ctx, newDirectProbeClient(), directProbeTargets)
+				},
+			)
+			_ = m.saveDirectCheck(outcome)
 			if err == nil {
 				state = directRunning
+			}
+			if err != nil && m.ownStateExists() {
+				// If the native process dies during the post-start probe,
+				// release only our own verified handle instead of leaving an
+				// unexplained WinDivert filter or pretending it is stopped.
+				if stopErr := m.stopDirect(); stopErr != nil {
+					state = directUnverified
+				}
 			}
 		} else {
 			if x := m.ensureRuntime(); x != nil {
@@ -214,7 +243,7 @@ func (ui *oneUI) toggle() {
 			state = directFailed
 			reason = "Операция не выполнена: " + directFailureCode(err) + ". Подробнее в отчёте."
 		} else if state == directRunning {
-			reason = "Локальный TLS-обработчик запущен; эффект конкретных сайтов пока не проверен."
+			reason = directCheckSummary(outcome)
 		} else {
 			reason = "Собственный DPI-фильтр остановлен. Маршруты и VPN не изменялись."
 		}
@@ -239,6 +268,9 @@ func (ui *oneUI) toggle() {
 		}
 		if state == directFailed {
 			report.Outcome = directFailureCode(err)
+		}
+		if state == directUnverified {
+			report.Outcome = "OWNED_PROCESS_REQUIRES_STOP"
 		}
 		if ctx.Err() != nil {
 			report.Outcome = "CANCELLED_RECHECK_REQUIRED"

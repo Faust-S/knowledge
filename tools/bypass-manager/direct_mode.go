@@ -42,6 +42,8 @@ func directFailureCode(err error) string {
 		return "OWNED_PROCESS_REQUIRES_STOP"
 	case strings.Contains(msg, "another dpi") || strings.Contains(msg, "existing dpi"):
 		return "OTHER_DPI_CONFLICT"
+	case strings.Contains(msg, "bundled engine") || strings.Contains(msg, "offline engine"):
+		return "ENGINE_BUNDLE_INVALID"
 	case strings.Contains(msg, "pinned engine") || strings.Contains(msg, "official source"):
 		return "ENGINE_DOWNLOAD_UNAVAILABLE"
 	case strings.Contains(msg, "dry run") || strings.Contains(msg, "option parser") || strings.Contains(msg, "original engine"):
@@ -141,10 +143,18 @@ func (m *Manager) startDirect(ctx context.Context) error {
 		m.cfg.BundleRoot = preferredEngineRoot(m.home)
 	}
 	if !enginePresent(m.cfg.BundleRoot) {
-		// The primary user action explicitly initiates the one-time download of
-		// pinned official engine components, never a subscription or VPN profile.
-		if err := installUpstream(ctx, m.cfg.BundleRoot, func(string) (string, error) { return "д", nil }, m.output); err != nil {
-			return fmt.Errorf("pinned engine: %w", err)
+		// Prefer the unmodified bundled components from the release ZIP. A
+		// disconnected network must not prevent the first local DPI startup.
+		installed, err := installOfflineEngine(ctx, m.cfg.BundleRoot)
+		if err != nil {
+			return fmt.Errorf("bundled engine: %w", err)
+		}
+		if !installed {
+			// Developers who build only the EXE can still retrieve the pinned
+			// official files once; the release ZIP works offline.
+			if err := installUpstream(ctx, m.cfg.BundleRoot, func(string) (string, error) { return "д", nil }, m.output); err != nil {
+				return fmt.Errorf("pinned engine: %w", err)
+			}
 		}
 	}
 	if err := ctx.Err(); err != nil {
