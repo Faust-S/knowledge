@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 92060a4ca0f819b6976f2a15772339a6dc7232e7
+          ref: f0338068448ec9aeed64433f9f963dd1756b344c
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Set up Node 24
@@ -55,6 +55,7 @@ jobs:
           echo D09_SITE_CONTRACT_TESTS=PASS
           node --check tests/d09-strict-csp-host-witness.mjs
           node --check tests/d09-original-t2-production-first-run.browser.mjs
+          node --check tests/d09-original-t2-project-save.browser.mjs
           node --check scripts/serve-d09-dist.mjs
           node --check scripts/check-d09-hosting-dist.mjs
           echo D09_BROWSER_WITNESS_SYNTAX=PASS
@@ -185,4 +186,20 @@ jobs:
           }
           grep -E 'D09_PRODUCTION_[A-Z0-9_]+=PASS' "$RUNNER_TEMP/d09-production-first-run.log" | tail -12 || true
           echo D09_ORIGINAL_PRODUCTION_FIRST_WORKSPACE=PASS
+      - name: Real HOP authoring to original T2 Project and process-cold readback
+        shell: bash
+        run: |
+          export D09_PREVIEW_PRODUCTION_LOOPBACK=1
+          export D09_PREVIEW_CERT_PATH="$RUNNER_TEMP/d09-tls/cert.pem"
+          export D09_PREVIEW_KEY_PATH="$RUNNER_TEMP/d09-tls/key.pem"
+          if command -v google-chrome >/dev/null 2>&1; then
+            export PUPPETEER_EXECUTABLE_PATH="$(command -v google-chrome)"
+          fi
+          node tests/d09-original-t2-project-save.browser.mjs > "$RUNNER_TEMP/d09-product-flow.log" 2>&1 || {
+            grep -E 'D09_(PRODUCT|PROJECT|ORIGINAL_T2_PROJECT_FLOW)_[A-Z0-9_]+=(PASS|FAIL)' "$RUNNER_TEMP/d09-product-flow.log" | tail -15 || true
+            echo D09_NATIVE_HOP_PRODUCT_FLOW=FAIL
+            exit 1
+          }
+          grep -E 'D09_(PRODUCT|PROJECT|ORIGINAL_T2_PROJECT_FLOW)_[A-Z0-9_]+=PASS' "$RUNNER_TEMP/d09-product-flow.log" | tail -15 || true
+          echo D09_NATIVE_HOP_PRODUCT_FLOW=PASS
       # Never publish private source, runtime, ZIP, screenshots or browser profiles.
