@@ -2665,7 +2665,7 @@
       "current_installed_agent": {
         "run_id": 44730781732,
         "agent_sha": "28d934b7d40fd7689c8e3456c0bf95977fb82d27",
-        "conclusion": "QUEUED",
+        "conclusion": "IN_PROGRESS",
         "evidence_level": "NOT_YET_ACCEPTED"
       },
       "latest_installed_failure": {
@@ -2711,7 +2711,7 @@
       "current_installed_agent_second_sid": {
         "run_id": 44730781732,
         "agent_sha": "28d934b7d40fd7689c8e3456c0bf95977fb82d27",
-        "conclusion": "QUEUED",
+        "conclusion": "IN_PROGRESS",
         "evidence_level": "NOT_YET_ACCEPTED",
         "scope": "ORIGINAL_SETUP_SECOND_WINDOWS_SID_GUI_COLD_AND_PRESERVE_NOT_CORPORATE_D3"
       },
