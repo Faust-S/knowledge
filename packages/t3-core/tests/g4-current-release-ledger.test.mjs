@@ -95,6 +95,28 @@ test('current source and installed runs cannot borrow historical signed D3 succe
     assert.equal(q.current_installed_agent.final_markers.length,4);
   }
   assert.equal(q.source_generic_d6.one_core_sha,current.pins.one_core);
+  assert.equal(q.current_installed_admin.center_sha,current.pins.installed_center);
+  assert.equal(q.current_installed_admin.one_core_sha,current.pins.one_core);
+  assert.equal(q.current_installed_admin.owner_sha,current.pins.original_t3_signed_owner);
+  assert.equal(q.current_installed_admin.conclusion,'SUCCESS');
+  assert.equal(q.current_installed_admin.evidence_level,'INSTALLED_PRODUCT_PASS');
+  assert.equal(q.current_installed_admin.scope,
+    'CENTER_ORIGINAL_SIGNED_OWNER_NATIVE_ENROLL_DPAPI_COLD_NOT_CROSS_PRODUCT');
+  assert.ok(Array.isArray(q.current_installed_admin.final_markers));
+  assert.equal(q.current_installed_admin.final_markers.length,5);
+  assert.equal(q.current_second_sid_gui_os_preflight.conclusion,'SUCCESS');
+  assert.equal(q.current_second_sid_gui_os_preflight.evidence_level,
+    'OS_PRECONDITION_ONLY_NOT_INSTALLED_PRODUCT');
+  assert.equal(q.current_installed_agent_second_sid.agent_sha,current.pins.installed_agent);
+  assert.ok(['IN_PROGRESS','QUEUED','SUCCESS','FAIL','CANCELLED'].includes(
+    q.current_installed_agent_second_sid.conclusion));
+  if(q.current_installed_agent_second_sid.conclusion!=='SUCCESS'){
+    assert.equal(q.current_installed_agent_second_sid.evidence_level,
+      'NOT_YET_ACCEPTED');
+  }else{
+    assert.equal(q.current_installed_agent_second_sid.evidence_level,
+      'INSTALLED_SECOND_WINDOWS_SID_GUI_PASS_NOT_CORPORATE_D3');
+  }
   for(const key of ['current_original_d3_source','current_installed_agent']){
     assert.ok(Number.isSafeInteger(q[key].run_id)&&q[key].run_id>0);
     assert.ok(['IN_PROGRESS','SUCCESS','FAIL','CANCELLED','QUEUED'].includes(q[key].conclusion));
