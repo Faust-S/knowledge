@@ -26,12 +26,20 @@ jobs:
             echo D09_NATIVE_SEED_NPM=FAIL; exit 1;
           }
           echo D09_NATIVE_SEED_NPM=PASS
+      - name: Generate normative HOP validators before Vitest
+        shell: bash
+        run: |
+          npx tsx scripts/generate-hop-standalone.ts > "$RUNNER_TEMP/d09-schemas.log" 2>&1 || {
+            echo D09_NATIVE_SCHEMAS=FAIL; exit 1;
+          }
+          echo D09_NATIVE_SCHEMAS=PASS
       - name: Exercise real seed Remix to IWXA canonical roundtrip
         shell: bash
         run: |
           npx vitest run src/content-system/__tests__/seed-export-real-package.test.ts > "$RUNNER_TEMP/d09-seed.log" 2>&1 || {
             echo D09_NATIVE_SEED_PACKAGES=FAIL
             grep -E 'D09_SEED_ISSUE=' "$RUNNER_TEMP/d09-seed.log" | sort -u | head -30 || true
+            grep -E 'Error:|Cannot find|Failed to resolve|Test Files|Tests |Error [A-Z]|Unhandled' "$RUNNER_TEMP/d09-seed.log" | sed -E 's#/(home|tmp|mnt)/[^[:space:]]+#<private-path>#g' | cut -c1-150 | tail -12 || true
             grep -E 'Tests .* failed|Test Files .* failed' "$RUNNER_TEMP/d09-seed.log" | tail -4 || true
             exit 1
           }
