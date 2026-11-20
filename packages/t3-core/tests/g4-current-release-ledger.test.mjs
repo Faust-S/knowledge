@@ -67,6 +67,14 @@ test('current original Agent, One Core, Setup and signed Owner pins are exact',(
   assert.equal(current.pins.one_core,pinnedCheckout(installed,'Faust-S/knowledge'));
   assert.equal(current.pins.original_setup_core,pinnedCheckout(installed,'Faust-S/Center'));
   assert.equal(current.pins.original_t3_signed_owner,pinnedCheckout(signed,'Faust-S/T3'));
+  // Center's independent public and native Windows jobs must compile the
+  // identical One Core that qualified the installed Agent, not branch HEAD.
+  const originalCenterSourcePins=[...signed.matchAll(
+    /- uses: actions\/checkout@v4\s*\n\s*with:\s*\n\s*ref: ([a-f0-9]{40})\b/g)];
+  assert.equal(originalCenterSourcePins.length,2,
+    'public and installed Center must both pin One Core');
+  assert.ok(originalCenterSourcePins.every(m=>m[1]===current.pins.one_core),
+    'Center/Agent One Core SHA mismatch');
   const originalAgent=source.match(/export const AGENT_ORIGINAL_PIN='([a-f0-9]{40})'/);
   assert.ok(originalAgent,'signed D3 original Agent pin required');
   assert.equal(originalAgent[1],current.pins.installed_agent);
@@ -79,6 +87,13 @@ test('current source and installed runs cannot borrow historical signed D3 succe
   assert.notEqual(q.last_original_d3_source_pass.agent_sha,current.pins.installed_agent);
   assert.equal(q.current_original_d3_source.agent_sha,current.pins.installed_agent);
   assert.equal(q.current_installed_agent.agent_sha,current.pins.installed_agent);
+  if(q.current_installed_agent.conclusion==='SUCCESS'){
+    assert.equal(q.current_installed_agent.evidence_level,'INSTALLED_PRODUCT_PASS');
+    assert.equal(q.current_installed_agent.scope,
+      'AGENT_STANDALONE_NATIVE_QWEN_REVIEW_COLD_SETUP_REPAIR_ROLLBACK_NOT_CROSS_PRODUCT_D3');
+    assert.ok(Array.isArray(q.current_installed_agent.final_markers));
+    assert.equal(q.current_installed_agent.final_markers.length,4);
+  }
   assert.equal(q.source_generic_d6.one_core_sha,current.pins.one_core);
   for(const key of ['current_original_d3_source','current_installed_agent']){
     assert.ok(Number.isSafeInteger(q[key].run_id)&&q[key].run_id>0);
