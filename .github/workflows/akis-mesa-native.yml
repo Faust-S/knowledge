@@ -1,0 +1,89 @@
+name: AKIS official Mesa 3.5.2 native qualification
+
+on:
+  push:
+    branches:
+      - work/2026-11-21-akis-mesa-native
+    paths:
+      - .github/workflows/akis-mesa-native.yml
+  workflow_dispatch:
+
+# Native tests of an exact private IWXA source commit, without publishing
+# source files, logs, runtime payloads, Python wheels, or test artifacts.
+permissions:
+  contents: read
+
+concurrency:
+  group: akis-mesa-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mesa-3-5-2:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Verify that a bounded private read grant is available
+        shell: bash
+        env:
+          AKIS_READ_TOKEN: ${{ secrets.DOMEN || secrets.T3 }}
+        run: |
+          if [ -z "$AKIS_READ_TOKEN" ]; then
+            echo "AKIS_PRIVATE_SOURCE_ACCESS=NOT_CONFIGURED"
+            exit 1
+          fi
+          echo "AKIS_PRIVATE_SOURCE_ACCESS=TOKEN_PRESENT"
+      - name: Check out only the pinned qualitative model, never export its source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa
+          ref: 278995f9702aa6f93c20cf20eb036f4701dd017a
+          path: private-iwxa
+          token: ${{ secrets.DOMEN || secrets.T3 }}
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            research/akis/qualitative_mesa/
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the official pinned Mesa release
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check -q mesa==3.5.2 pytest
+          python -c "import importlib.metadata as m; assert m.version('mesa') == '3.5.2'; print('MESA_INSTALLED=3.5.2')"
+      - name: Run real Mesa tests and existing source-rule tests
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/private-iwxa
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+        run: |
+          set +e
+          python -m pytest -q -ra --disable-warnings private-iwxa/research/akis/qualitative_mesa/tests > "$RUNNER_TEMP/akis-native-pytest.log" 2>&1
+          result=$?
+          set -e
+          if [ "$result" -ne 0 ]; then
+            echo "AKIS_NATIVE_MESA=FAIL exit_code=$result"
+            grep -E '^FAILED .*::' "$RUNNER_TEMP/akis-native-pytest.log" | sed 's/ .*//' || true
+            grep -E '^=+ .* (failed|error|skipped) .* =+$' "$RUNNER_TEMP/akis-native-pytest.log" | tail -n 1 || true
+            exit "$result"
+          fi
+          if grep -Eq '(^|[^0-9])[1-9][0-9]* skipped' "$RUNNER_TEMP/akis-native-pytest.log"; then
+            echo "AKIS_NATIVE_MESA=FAIL unexpected skipped test"
+            exit 1
+          fi
+          summary=$(tail -n 1 "$RUNNER_TEMP/akis-native-pytest.log")
+          echo "AKIS_NATIVE_MESA=PASS $summary"
+      - name: Run local CLI with real Mesa and verify research-only result
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/private-iwxa
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python -m research.akis.qualitative_mesa.cli --input private-iwxa/research/akis/qualitative_mesa/fixtures/sole_flow.json > "$RUNNER_TEMP/akis-cli-result.json"
+          python -c "import json,os; d=json.load(open(os.path.join(os.environ['RUNNER_TEMP'],'akis-cli-result.json'),encoding='utf-8')); assert d['schema']=='IWXA_AKIS_QUALITATIVE_RESULT/0.1'; assert d['evidence']=='MODEL_ONLY'; assert d['profit']['operator']=='UNKNOWN'; assert d['counts']=={'applied':8,'blocked':0}; assert d['works']['w1']['result']=='ACCEPTED_BY_ORIGINAL_RECIPIENT'; print('AKIS_NATIVE_CLI=PASS MODEL_ONLY, 8 applied, 0 blocked')"
