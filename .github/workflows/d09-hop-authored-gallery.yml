@@ -1,0 +1,86 @@
+name: D09 HOP finished authored works and real screenshots
+on:
+  push:
+    branches: [work/2026-11-21-d09-authored-gallery-qualification]
+    paths: [.github/workflows/d09-hop-authored-gallery.yml]
+permissions:
+  contents: read
+jobs:
+  real-authored-gallery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - name: Checkout exact private HOP source without uploads
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/hop.iwxa.ru
+          ref: c406e47739f9cfb444dc44d48b005b8a4f556c49
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+      - name: Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pinned dependencies
+        run: |
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/gallery-install.log" 2>&1 || {
+            echo D09_GALLERY_INSTALL=FAIL; exit 1;
+          }
+          echo D09_GALLERY_INSTALL=PASS
+      - name: TypeScript, editorial and pixel contract tests
+        run: |
+          npm run typecheck > "$RUNNER_TEMP/gallery-types.log" 2>&1 || {
+            grep -E 'error TS[0-9]+' "$RUNNER_TEMP/gallery-types.log" | tail -16 | cut -c1-230 || true
+            echo D09_GALLERY_TYPES=FAIL; exit 1;
+          }
+          echo D09_GALLERY_TYPES=PASS
+          ./node_modules/.bin/vitest run src/content/__tests__/featured-works.test.ts src/components/workspace/__tests__/WorkspaceStartScreen.public-entry.test.tsx > "$RUNNER_TEMP/gallery-vitest.log" 2>&1 || {
+            grep -E 'FAIL|Error:|expected|Actual|AssertionError' "$RUNNER_TEMP/gallery-vitest.log" | tail -25 | cut -c1-230 || true
+            echo D09_GALLERY_UNIT=FAIL; exit 1;
+          }
+          echo D09_GALLERY_UNIT=PASS
+          npm run check:consumer-ux > "$RUNNER_TEMP/gallery-consumer.log" 2>&1 || {
+            tail -18 "$RUNNER_TEMP/gallery-consumer.log" | cut -c1-210 || true
+            echo D09_GALLERY_CONSUMER_UX=FAIL; exit 1;
+          }
+          npm run check:product-contracts > "$RUNNER_TEMP/gallery-product.log" 2>&1 || {
+            tail -18 "$RUNNER_TEMP/gallery-product.log" | cut -c1-210 || true
+            echo D09_GALLERY_PRODUCT_CONTRACTS=FAIL; exit 1;
+          }
+          echo D09_GALLERY_CONTRACTS=PASS
+      - name: Lint authored files
+        run: |
+          ./node_modules/.bin/eslint src/content/featured-artwork.ts src/content/featured-works.ts src/content/instantiate-featured-work.ts src/content/__tests__/featured-works.test.ts src/components/hop/FeaturedWorksGallery.tsx > "$RUNNER_TEMP/gallery-lint.log" 2>&1 || {
+            tail -24 "$RUNNER_TEMP/gallery-lint.log" | cut -c1-220 || true
+            echo D09_GALLERY_LINT=FAIL; exit 1;
+          }
+          echo D09_GALLERY_LINT=PASS
+      - name: Build actual site and prerender all routes
+        run: |
+          npm run build:public-stage > "$RUNNER_TEMP/gallery-build.log" 2>&1 || {
+            grep -E 'Error|FAIL|error' "$RUNNER_TEMP/gallery-build.log" | tail -18 | cut -c1-215 || true
+            echo D09_GALLERY_BUILD=FAIL; exit 1;
+          }
+          echo D09_GALLERY_BUILD=PASS
+      - name: Real Chromium finished works, endings and editable Workspace
+        run: |
+          export PUPPETEER_EXECUTABLE_PATH="$(command -v google-chrome || true)"
+          export D09_FEATURED_SCREEN_DIR="$RUNNER_TEMP/d09-featured-ui"
+          node tests/d09-featured-works.browser.mjs > "$RUNNER_TEMP/gallery-browser.log" 2>&1 || {
+            grep -E 'D09_FEATURED|AssertionError|Error:|TimeoutError' "$RUNNER_TEMP/gallery-browser.log" | tail -26 | cut -c1-220 || true
+            echo D09_GALLERY_BROWSER=FAIL; exit 1;
+          }
+          grep -E 'D09_FEATURED.*=PASS' "$RUNNER_TEMP/gallery-browser.log" | tail -24
+          echo D09_GALLERY_BROWSER=PASS
+      - name: Upload screenshots of actual rendered HOP works only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d09-authored-gallery-real-screenshots
+          path: ${{ runner.temp }}/d09-featured-ui/*.png
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Report exact source
+        run: |
+          echo D09_GALLERY_SOURCE=c406e47739f9cfb444dc44d48b005b8a4f556c49
+          echo D09_GALLERY_SOURCE_CODE_UPLOADS=NONE
