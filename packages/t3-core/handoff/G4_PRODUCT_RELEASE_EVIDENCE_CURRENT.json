@@ -2,7 +2,7 @@
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
   "snapshot_date": "2026-11-20",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
-  "currentness": "20_11_CURRENT_AGENT_28D934_STANDALONE_INSTALLED_QWEN_K03_GUI_COLD_44730781732_PASS__GUEST_SETUP_44730781732_FAIL_PROGRAMDATA_ROOT__CORRECTED_GUEST_LOCAL_APP_DATA_44735213270_IN_PROGRESS__D3_SOURCE_44730781821_26_OF_26_PASS__SIGNED_CENTER_44726573571_PASS__G4_NOT_ACCEPTED",
+  "currentness": "20_11_CORE_FROZEN_PRODUCT_SOURCE_ALL_PASS_44736580680_NATIVE_METAL_AGE_QWEN_JOBS_PASS_44736009194__PWA_OFFLINE_WIN_LINUX_SOURCE_44736969303_PASS_OS_INSTALL_SKIPPED__AGENT_CURRENT_10CE_D3_SOURCE_44737664603_AND_INSTALLED_GUEST_44737664578_RUNNING__PRIOR_28D_K03_STOPPED_GUEST_TYPED_BOOL_MISMATCH__G4_NOT_ACCEPTED",
   "policy": {
     "t3_one_core": "Faust-S/knowledge/packages/t3-core",
     "t2_normative": "Faust-S/T2@main",
@@ -2602,7 +2602,7 @@
       "one_core": "f42e53cd28c881b2b8e04199595f9d7991f34414",
       "normative_t2": "9c64951cd78411283e8a416641c36d71e169fc1d",
       "original_t3_signed_owner": "1a8267634955947bc0c6adc5614d7de176a33da2",
-      "installed_agent": "28d934b7d40fd7689c8e3456c0bf95977fb82d27",
+      "installed_agent": "10ceaa50f08b72a76e9dcbd8ec64d16532632b94",
       "installed_center": "2628c4bc1b20b4393c485d12513f029fdea8b082",
       "original_setup_core": "c10e193846a0ea4c73cabe3744aa7db82439d54e"
     },
@@ -2610,12 +2610,12 @@
       "B0": {
         "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "Original exact One Core f42e53 standalone installed Agent 28d934b7 on #44730781732 PASS Qwen/K03 GUI/cold/Repair/Rollback, installed signed Center #44726573571 PASS. Combined user-product G4 candidate missing"
+        "remaining": "Frozen original One Core f42e53 source 807+1 tests and Workspace/DOM Windows/Host #44736580680 PASS, original native model/Apple Metal/age #44736009194 independent jobs PASS. Prior installed standalone Agent 28d934 #44730781732 PASS and signed installed Center #44726573571 PASS; exact current Agent 10ceaa installed #44737664578 pending, cross-product final G4 HOLD."
       },
       "D1": {
         "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "Original signed Center enrolled DPAPI cold #44726573571 PASS, two SID OS UIA #44726886171 PASS, standalone original Agent installed #44730781732 PASS; first guest Agent attempt same #44730781732 FAILED because temporary QA installed inside forbidden ProgramData. Fixed test guest LocalAppData #44735213270 IN_PROGRESS; original employee cross-product Task/Result and native recipient consent not yet accepted"
+        "remaining": "Native original Center signed owner DPAPI cold #44726573571 PASS, real independent second SID OS GUI/UIA #44726886171 PASS. Prior Agent 28d user-local app installed reached native cold GUI/UIA #44735213270 but final typed receipt failed; fixed and exact current 10ce #44737664578 IN_PROGRESS. Real corporate signed employee grants/Task -> installed Center separate Human ACCEPT/APPLY HOLD."
       },
       "D2": {
         "source": "PARTIAL",
@@ -2623,9 +2623,9 @@
         "remaining": "Original T2 0.3.6 Event/Activity read-only derived live projection with independent 2 cold browser/Host reads #44736009194 real-host PASS; installed real Activity Analyzer owner-approved production derived Result not yet qualified."
       },
       "D3": {
-        "source": "PASS",
+        "source": "PARTIAL",
         "installed": "PARTIAL",
-        "remaining": "Exact Agent 28d934b7 source-native corporate signed 26/26 #44730781821 PASS plus standalone installed Agent Qwen/GUI/K03/Review/Cold #44730781732 PASS and original signed Center DPAPI GUI #44726573571 PASS. Guest independent installed Agent #44735213270 IN_PROGRESS on corrected guest LocalAppData. ONE true signed installed Task -> employee model/Review Result -> separate Center native ACCEPT and APPLY -> original T2 Kernel two cold reads still HOLD"
+        "remaining": "Current Agent 10ceaa QA-only change: exact original source signed corporate D3 #44737664603 IN_PROGRESS, standalone installed real Qwen/K03 plus guest second Windows SID #44737664578 IN_PROGRESS. Prior Agent 28d934 source 26/26 #44730781821 PASS, standalone installed #44730781732 PASS, both HISTORICAL. Prior guest #44735213270 reached native cold GUI, UIA, uninstall, but QA final typed-boolean receipt mismatch and separate K03 model worker stopped. One signed transaction between installed Agent and signed installed Center with distinct physical Human ACCEPT/APPLY and original Kernel two cold readbacks still HOLD."
       },
       "D4": {
         "source": "PASS",
@@ -2635,7 +2635,7 @@
       "D5": {
         "source": "PASS",
         "installed": "HOLD",
-        "remaining": "Frozen One Core f42e exact source tree compiled WebLLM0.2.87 Apple Metal genuine WebGPU generation plus offline cold second model generation #44736009194 SUCCESS; native Qwen/llama.cpp b12244 original Kernel cold run same #44736009194 SUCCESS. Full run failed ONE stale ledger assertion 807/808 corrected at 18af7f30, rerun #44736580680 IN_PROGRESS. No exact site-hosted product dist independently qualified or native signed installed issuer; D5 installed HOLD."
+        "remaining": "Frozen One Core f42e53 real Apple Metal hardware WebGPU 2 generations, cold offline original Kernel #44736009194 PASS. PWA domain switch/installability/offline cold Windows+Linux #44736969303 source PASS; actual browser OS PWA.install SKIPPED due unsupported DevTools method, so native OS PWA installed and exact final domain dist cannot be marked PASS. Final domain signed owner independent installed D5 HOLD."
       },
       "D6": {
         "source": "PASS",
@@ -2656,25 +2656,16 @@
         "evidence_level": "SOURCE_NATIVE_PROCESS_PASS_HISTORICAL"
       },
       "current_original_d3_source": {
-        "run_id": 44730781821,
-        "agent_sha": "28d934b7d40fd7689c8e3456c0bf95977fb82d27",
-        "conclusion": "SUCCESS",
-        "evidence_level": "SOURCE_NATIVE_PROCESS_PASS",
-        "marker_count": 26
+        "run_id": 44737664603,
+        "agent_sha": "10ceaa50f08b72a76e9dcbd8ec64d16532632b94",
+        "conclusion": "IN_PROGRESS",
+        "evidence_level": "NOT_YET_ACCEPTED"
       },
       "current_installed_agent": {
-        "run_id": 44730781732,
-        "agent_sha": "28d934b7d40fd7689c8e3456c0bf95977fb82d27",
-        "conclusion": "SUCCESS",
-        "overall_run_conclusion": "FAIL_GUEST_SECOND_SID_SETUP",
-        "evidence_level": "INSTALLED_PRODUCT_PASS",
-        "scope": "STANDALONE_NATIVE_GUI_QWEN_REVIEW_K03_COLD_SETUP_REPAIR_ROLLBACK_NOT_CROSS_PRODUCT",
-        "final_markers": [
-          "G4_AGENT06_INSTALLED_GENUINE_SETUP_AND_ONE_CORE_PASS",
-          "G4_AGENT06_INSTALLED_NATIVE_GUI_QWEN_REVIEW_COLD_PASS",
-          "G4_AGENT06_INSTALLED_SETUP_CORE_REPAIR_ROLLBACK_PASS",
-          "G4_AGENT06_INSTALLED_NOT_CROSS_USER_ADMIN_ACCEPT_APPLY"
-        ]
+        "run_id": 44737664578,
+        "agent_sha": "10ceaa50f08b72a76e9dcbd8ec64d16532632b94",
+        "conclusion": "IN_PROGRESS",
+        "evidence_level": "NOT_YET_ACCEPTED"
       },
       "latest_installed_failure": {
         "run_id": 44710719858,
@@ -2717,11 +2708,11 @@
         "scope": "SECOND_INDEPENDENT_WINDOWS_SID_SAME_INTERACTIVE_SESSION_CROSS_ACCOUNT_UIA"
       },
       "current_installed_agent_second_sid": {
-        "run_id": 44735213270,
-        "agent_sha": "28d934b7d40fd7689c8e3456c0bf95977fb82d27",
+        "run_id": 44737664578,
+        "agent_sha": "10ceaa50f08b72a76e9dcbd8ec64d16532632b94",
         "conclusion": "IN_PROGRESS",
         "evidence_level": "NOT_YET_ACCEPTED",
-        "scope": "ORIGINAL_SETUP_SECOND_WINDOWS_SID_LOCAL_APP_DATA_GUI_COLD_PRESERVE_NO_CORPORATE_D3"
+        "scope": "ORIGINAL_GUEST_USER_LOCAL_APP_DATA_TYPED_RECEIPT_UIA_COLD_UNINSTALL_NOT_CORPORATE_D3"
       },
       "previous_exact_agent_source_d3_pass": {
         "run_id": 44723931657,
@@ -2787,7 +2778,62 @@
         "acceptance_scope": "SOURCE_AND_HARDWARE_ONLY_NOT_INSTALLED_TWO_INDEPENDENT_PRODUCTS",
         "corrected_test_commit": "18af7f302877dc88585f2d4b360f3e7db759f0a3",
         "corrected_run_id": 44736580680,
-        "corrected_run_conclusion": "IN_PROGRESS"
+        "corrected_run_conclusion": "SUCCESS"
+      },
+      "prior_agent28_source_d3_pass": {
+        "run_id": 44730781821,
+        "agent_sha": "28d934b7d40fd7689c8e3456c0bf95977fb82d27",
+        "conclusion": "SUCCESS",
+        "evidence_level": "SOURCE_NATIVE_PROCESS_PASS_HISTORICAL",
+        "marker_count": 26,
+        "former_pin": true
+      },
+      "prior_agent28_standalone_installed_pass": {
+        "run_id": 44730781732,
+        "agent_sha": "28d934b7d40fd7689c8e3456c0bf95977fb82d27",
+        "conclusion": "SUCCESS",
+        "overall_run_conclusion": "FAIL_GUEST_SECOND_SID_SETUP",
+        "evidence_level": "INSTALLED_PRODUCT_PASS_HISTORICAL",
+        "scope": "STANDALONE_NATIVE_GUI_QWEN_REVIEW_K03_COLD_SETUP_REPAIR_ROLLBACK_NOT_CROSS_PRODUCT",
+        "final_markers": [
+          "G4_AGENT06_INSTALLED_GENUINE_SETUP_AND_ONE_CORE_PASS",
+          "G4_AGENT06_INSTALLED_NATIVE_GUI_QWEN_REVIEW_COLD_PASS",
+          "G4_AGENT06_INSTALLED_SETUP_CORE_REPAIR_ROLLBACK_PASS",
+          "G4_AGENT06_INSTALLED_NOT_CROSS_USER_ADMIN_ACCEPT_APPLY"
+        ],
+        "former_pin": true
+      },
+      "prior_agent28_guest_second_sid_result": {
+        "run_id": 44735213270,
+        "agent_sha": "28d934b7d40fd7689c8e3456c0bf95977fb82d27",
+        "conclusion": "FAIL",
+        "phase": "GUEST_FINAL_RECEIPT",
+        "original_setup_under_guest_local_app_data": true,
+        "original_native_gui_cold_and_independent_uia": true,
+        "original_native_uninstall_preserve": true,
+        "completion_witness_mismatch": true,
+        "source_only_not_cross_product": true,
+        "note": "Guest wrote string true not typed JSON boolean; corrected proof without bypassing all exact receipt checks. K03 independently failed due durable model job stopped after Task accepted."
+      },
+      "prior_agent28_k03_model_failure": {
+        "run_id": 44735213270,
+        "agent_sha": "28d934b7d40fd7689c8e3456c0bf95977fb82d27",
+        "conclusion": "FAIL",
+        "phase": "K03_TASK_EXECUTE",
+        "checkpoint": "AGENT_K03_TASK_ACCEPTED",
+        "finite_reason": "K03_TASK_MODEL_EXECUTION_STOPPED",
+        "no_automatic_retry": true,
+        "subreason_not_yet_observed": true
+      },
+      "current_pwa_source_installability": {
+        "run_id": 44736969303,
+        "one_core_sha": "f42e53cd28c881b2b8e04199595f9d7991f34414",
+        "conclusion": "SUCCESS_SOURCE_ONLY",
+        "windows_offline_switch_and_cold": "PASS",
+        "linux_offline_switch_and_cold": "PASS",
+        "native_os_install_result": "SKIPPED_UNSUPPORTED_DEVTOOLS_PWA_INSTALL",
+        "evidence_level": "SOURCE_OFFLINE_BROWSER_PASS_NATIVE_OS_INSTALL_HOLD",
+        "scope": "NO_SITE_RELEASE_NO_FINAL_D5"
       }
     },
     "final_independent_acceptance": null,
@@ -2803,7 +2849,7 @@
     "one_core": "CORE_SOURCE_PASS",
     "cross_product_source": "CORE_SOURCE_PASS",
     "original_private_native_signer": "CURRENT_SOURCE_PIN_d0d8ba2f_NATIVE_ONE_SHOT_WINDOWS_BRIDGE_REQUALIFIED_20_OF_20_44406073956__INSTALLED_UI_HOLD",
-    "independent_installed_d3": "EXACT_AGENT_28D934_SOURCE_D3_26_OF_26_44730781821_PASS__STANDALONE_AGENT_44730781732_NATIVE_QWEN_K03_GUI_COLD_PASS__SIGNED_CENTER_44726573571_PASS__GUEST_NATIVE_44735213270_IN_PROGRESS__SIGNED_INSTALLED_CORPORATE_ACCEPT_APPLY_KERNEL_TWO_COLD_HOLD",
+    "independent_installed_d3": "CURRENT_AGENT_10CE_SOURCE_D3_44737664603_RUNNING_INSTALLED_GUEST_44737664578_RUNNING__PRIOR_AGENT_28D_SOURCE_D3_44730781821_SUCCESS_STANDALONE_INSTALLED_44730781732_SUCCESS_HISTORY__SIGNED_CENTER_INSTALLED_44726573571_PASS__SEPARATE_NATIVE_HUMAN_ACCEPT_APPLY_ORIGINAL_KERNEL_COLD_MISSING",
     "independent_installed_d6": "HOLD",
     "independent_installed_person_license_d7": "HOLD",
     "hardware_offline_d5_latest": "SOURCE_REAL_APPLE_METAL_SIGNED_AND_DOMAIN_COLD_OFFLINE_PASS_44340207574_ATTEMPT2_AT_fb55a10f_CODE_dee7ecba__PRIVATE_INSTALLED_HOLD",
