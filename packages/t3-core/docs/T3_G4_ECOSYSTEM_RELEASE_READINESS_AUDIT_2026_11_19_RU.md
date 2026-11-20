@@ -128,3 +128,21 @@
 4. Каждый новый PASS должен иметь repo+branch+HEAD/TREE, точный CI run/attempt, scope `SOURCE` / `INSTALLED` / `CROSS_PRODUCT` и доказанный финальный checkpoint.
 5. Каждый FAIL сохраняет старый достоверный PASS на его исходном SHA, но не переносит его на новую ревизию. Код меняется только после фиксации воспроизводимой причины.
 
+## 7. Установленные рубежи и следующая операция (20.11.2026)
+
+Вводить в эксплуатацию G4 **нельзя**. Однако два независимых оригинальных десктопных продукта теперь прошли нативные испытания на одном фиксированном исходном One Core:
+
+| Проверка | Ровно подтверждённый уровень |
+| --- | --- |
+| [#44723931788](https://github.com/Faust-S/knowledge/actions/runs/44723931788) | Настоящий установленный Agent 0.6, оригинальный T2/T3 One Dist `f42e53cd`, Qwen3, локальная Task, нативный Human Review, холодное восстановление, Setup Core Repair/Rollback: `INSTALLED_PRODUCT_PASS`; **не** корпоративная операция |
+| [#44726573571](https://github.com/Faust-S/knowledge/actions/runs/44726573571) | Настоящий установленный Admin Center `2628c4bc` с оригинальным подписантом T3 `1a826763` и тем же One Core `f42e53cd`; реальная Workspace без Atlas, Win32 enrollment NO/YES, независимое DPAPI и холодный перезапуск: `INSTALLED_PRODUCT_PASS`; **не** корпоративный ACCEPT/APPLY |
+| [#44723931657](https://github.com/Faust-S/knowledge/actions/runs/44723931657) | Исходный подписанный корпоративный D3 на точно том же Agent `21505e81`: 26/26 Windows PASS, включая два SID, original T2 Kernel APPLY и два source-cold; `SOURCE_NATIVE_PROCESS_PASS`, **не** installed GUI |
+| [#44726886171](https://github.com/Faust-S/knowledge/actions/runs/44726886171) | Отдельная настоящая Windows SID, второе нативное окно в той же интерактивной сессии, его UIA из процесса менеджера; `OS_PRECONDITION_ONLY_NOT_INSTALLED_D3` |
+| [#44727367869](https://github.com/Faust-S/knowledge/actions/runs/44727367869) | Повторная установка оригинального Agent Setup Core под вторым настоящим Windows SID + его нативный GUI, холодное открытие и удаление с сохранением данных: **IN_PROGRESS при фиксации**, не считать PASS раньше завершения |
+| [#44727824593](https://github.com/Faust-S/knowledge/actions/runs/44727824593) | Публичный контроль machine ledger, всех точных SHA и несовпадающих уровней acceptance: SUCCESS |
+
+**Следующая строгая проверка не должна быть механической суммой этих результатов.** Требуется единый установленный сценарий под двумя SID: оригинальный Center выпускает подписанные Task и права D1, второй установленный Agent получает Task через существующий `corporate-work-control`, выполняет её своей локальной моделью и сохраняет Human-accepted Result, оригинальный `OriginalEmployeePort.prepare`/Export производит подписанный `.iwxa`. Затем **тот же самый** установленный Center получает результат через native file picker, проверяет original Reconciliation, показывает `d3Decide` с отдельным физическим Win32 YES/NO, сохраняет оригинальную ACCEPT квитанцию, после чего показывает **отдельный** `d3ApplyAccepted` и применяет строго в original T2 Kernel. Завершение подтверждают ровно два новых независимых холодных readback исходного Object/Event. Lost-ACK = read-only recovery, без повторной отправки.
+
+Оригинальный WebView2 интерфейс Agent уже содержит `desktop/src/corporate-work-control.tsx`, а Center - `src/CorporateEmployeeEnrollment.tsx` и `src/CorporateD3Panel.tsx`; сами signed ports и две отдельные native consent ветки находятся у собственных владельцев. Не создавать второй клиентский transport, второй signer, Store или Kernel. Atlas не обязателен. Не использовать существующие source фикстуры для имитации установленного Human Review.
+
+**Текущий алгоритм:** дождаться конкретного результата [#44727367869](https://github.com/Faust-S/knowledge/actions/runs/44727367869), при отказе исправить адресно его установленную причину. После реального guest native PASS расширить публичный квалификационный маршрут до одной подписанной операции двух установленных программ на фиксированном One Core. Параллельно не блокировать разработку и T2-релизы доменов; универсальный D6_GENERIC, установленный D7_PERSON и завершающий D5 browser-dist должны закрываться самостоятельно. Один общий G4 только после всех восьми машинных installed-гейтов и отдельной независимой финальной приёмки.
