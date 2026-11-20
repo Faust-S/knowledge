@@ -5,6 +5,7 @@ on:
       - work/2026-11-10-t3-t2-activity-projection
     paths:
       - .github/workflows/t3-g4-installed-current-agent06.yml
+      - packages/t3-core/tests/g4-installed-agent-second-sid.ps1
   workflow_dispatch:
 permissions:
   contents: read
@@ -265,6 +266,32 @@ jobs:
           } finally {
             Pop-Location
           }
+      - name: Preflight public installed second-SID Agent witness and embedded worker under PS 5.1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $file=(Resolve-Path 'packages/t3-core/tests/g4-installed-agent-second-sid.ps1').Path
+          $tokens=$null
+          $syntax=$null
+          [void][Management.Automation.Language.Parser]::ParseFile(
+            $file,[ref]$tokens,[ref]$syntax)
+          if(@($syntax).Count -ne 0){throw 'G4_AGENT_GUEST_PUBLIC_SCRIPT_PARSER_INVALID'}
+          $text=Get-Content -LiteralPath $file -Raw -Encoding UTF8
+          $opening='$script='+"@'"
+          $start=$text.IndexOf($opening,[StringComparison]::Ordinal)
+          if($start -lt 0){throw 'G4_AGENT_GUEST_EMBEDDED_WORKER_NOT_FOUND'}
+          $bodyStart=$text.IndexOf([char]10,$start)+1
+          $end=$text.IndexOf(([string][char]10+"'@"),$bodyStart,[StringComparison]::Ordinal)
+          if($bodyStart -le 0 -or $end -le $bodyStart){
+            throw 'G4_AGENT_GUEST_EMBEDDED_WORKER_NOT_CLOSED'
+          }
+          $inner=$text.Substring($bodyStart,$end-$bodyStart)
+          $innerTokens=$null
+          $innerSyntax=$null
+          [void][Management.Automation.Language.Parser]::ParseInput(
+            $inner,[ref]$innerTokens,[ref]$innerSyntax)
+          if(@($innerSyntax).Count -ne 0){throw 'G4_AGENT_GUEST_EMBEDDED_WORKER_PARSER_INVALID'}
+          Write-Output 'G4_AGENT_GUEST_ORIGINAL_POWERSHELL_AND_CHILD_PARSE_PASS'
       - name: Build install and cold-qualify genuine current Agent Tauri with original T2/T3 One Dist
         shell: pwsh
         timeout-minutes: 72
@@ -563,6 +590,18 @@ jobs:
           Write-Host 'G4_AGENT06_INSTALLED_NATIVE_GUI_QWEN_REVIEW_COLD_PASS'
           Write-Host 'G4_AGENT06_INSTALLED_SETUP_CORE_REPAIR_ROLLBACK_PASS'
           Write-Host 'G4_AGENT06_INSTALLED_NOT_CROSS_USER_ADMIN_ACCEPT_APPLY'
+      - name: Real installed original Agent native GUI under second independent Windows SID
+        shell: pwsh
+        timeout-minutes: 9
+        run: |
+          $ErrorActionPreference='Stop'
+          $setup=Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06/IWXA-Private-SetupCore-Candidate.exe'
+          if(!(Test-Path -LiteralPath $setup -PathType Leaf)){
+            throw 'G4_AGENT_GUEST_ACCEPTED_ORIGINAL_SETUP_NOT_PRESENT'
+          }
+          $ps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 'packages/t3-core/tests/g4-installed-agent-second-sid.ps1' -Setup $setup -AgentSourceSha '21505e819f8a745a502c96bcf703eadef5fbcaaa'
+          if($LASTEXITCODE -ne 0){throw 'G4_AGENT_GUEST_SECOND_SID_NATIVE_INSTALL_NOT_ACCEPTED'}
       - name: Erase private source model caches logs and native binaries
         if: always()
         shell: pwsh
