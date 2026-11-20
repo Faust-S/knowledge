@@ -1,0 +1,93 @@
+name: D09 HOP pixel skins and motion product qualification
+on:
+  push:
+    branches: [work/2026-11-20-d09-motion-qualification]
+    paths: [.github/workflows/d09-hop-pixel-motion.yml]
+permissions:
+  contents: read
+jobs:
+  pixel-motion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - name: Checkout exact private HOP development source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/hop.iwxa.ru
+          ref: 921e5b62ba5f14ddff4af3b3a8b576115a95211a
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+      - name: Use Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install locked dependencies
+        shell: bash
+        run: |
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/motion-install.log" 2>&1 || {
+            echo D09_MOTION_NPM=FAIL
+            exit 1
+          }
+          echo D09_MOTION_NPM=PASS
+      - name: TypeScript and original validator generation
+        shell: bash
+        run: |
+          npm run typecheck > "$RUNNER_TEMP/motion-types.log" 2>&1 || {
+            grep -E 'error TS[0-9]+' "$RUNNER_TEMP/motion-types.log" | head -20 | cut -c1-230 || true
+            echo D09_MOTION_TYPES=FAIL
+            exit 1
+          }
+          echo D09_MOTION_TYPES=PASS
+      - name: Native original HOP Workspace and IWXA animation roundtrip
+        shell: bash
+        run: |
+          ./node_modules/.bin/tsx scripts/qualify-pixel-avatar-iwxa.ts > "$RUNNER_TEMP/motion-native.log" 2>&1 || {
+            grep -E 'HOP_MOTION_|HOP_PIXEL_|Error|Assertion' "$RUNNER_TEMP/motion-native.log" | tail -20 | cut -c1-200 || true
+            echo D09_MOTION_NATIVE_IWXA=FAIL
+            exit 1
+          }
+          grep -E 'HOP_MOTION_.*=PASS|HOP_PIXEL_.*=PASS' "$RUNNER_TEMP/motion-native.log" | tail -12
+          echo D09_MOTION_NATIVE_IWXA=PASS
+      - name: Focused model, GIF and browser component tests
+        shell: bash
+        run: |
+          ./node_modules/.bin/vitest run src/lib/__tests__/pixel-animation.test.ts src/lib/__tests__/pixel-animation-document.test.ts src/components/hop/__tests__/PixelAvatarMotionStudio.test.tsx src/components/hop/__tests__/PixelAvatarEditor.test.tsx src/integrations/pixel/avatar-project.test.ts > "$RUNNER_TEMP/motion-vitest.log" 2>&1 || {
+            grep -E 'FAIL|AssertionError|Error:|expected|Actual|Expected' "$RUNNER_TEMP/motion-vitest.log" | tail -25 | cut -c1-200 || true
+            echo D09_MOTION_UNIT=FAIL
+            exit 1
+          }
+          echo D09_MOTION_UNIT=PASS
+      - name: Normalize and lint only new files in isolated checkout
+        shell: bash
+        run: |
+          ./node_modules/.bin/prettier --write src/lib/pixel-animation.ts src/lib/pixel-animation-document.ts src/lib/__tests__/pixel-animation.test.ts src/lib/__tests__/pixel-animation-document.test.ts src/lib/pixel-avatar-commit.ts src/components/hop/PixelAvatarEditor.tsx src/components/hop/PixelAvatarCreator.tsx src/components/hop/PixelAvatarMotionStudio.tsx src/components/hop/__tests__/PixelAvatarMotionStudio.test.tsx src/components/workspace/PixelAvatarDialog.tsx src/routes/avatars.tsx src/integrations/pixel/avatar-project.ts scripts/qualify-pixel-avatar-iwxa.ts > "$RUNNER_TEMP/motion-format.log" 2>&1 || {
+            echo D09_MOTION_FORMAT=FAIL
+            exit 1
+          }
+          ./node_modules/.bin/eslint src/lib/pixel-animation.ts src/lib/pixel-animation-document.ts src/lib/__tests__/pixel-animation.test.ts src/lib/__tests__/pixel-animation-document.test.ts src/lib/pixel-avatar-commit.ts src/components/hop/PixelAvatarEditor.tsx src/components/hop/PixelAvatarCreator.tsx src/components/hop/PixelAvatarMotionStudio.tsx src/components/hop/__tests__/PixelAvatarMotionStudio.test.tsx src/components/workspace/PixelAvatarDialog.tsx src/routes/avatars.tsx src/integrations/pixel/avatar-project.ts scripts/qualify-pixel-avatar-iwxa.ts > "$RUNNER_TEMP/motion-lint.log" 2>&1 || {
+            grep -E 'error|warning' "$RUNNER_TEMP/motion-lint.log" | head -20 | cut -c1-200 || true
+            echo D09_MOTION_LINT=FAIL
+            exit 1
+          }
+          echo D09_MOTION_LINT=PASS
+      - name: Build and prerender public creator
+        shell: bash
+        run: |
+          npm run build:public-stage > "$RUNNER_TEMP/motion-build.log" 2>&1 || {
+            if grep -q 'Timed out after 30000 ms while waiting for the WS endpoint URL' "$RUNNER_TEMP/motion-build.log"; then
+              npm run build:public-stage > "$RUNNER_TEMP/motion-build-retry.log" 2>&1 || {
+                echo D09_MOTION_PUBLIC_BUILD=FAIL
+                exit 1
+              }
+            else
+              grep -E 'error|Error|FAIL' "$RUNNER_TEMP/motion-build.log" | tail -15 | cut -c1-230 || true
+              echo D09_MOTION_PUBLIC_BUILD=FAIL
+              exit 1
+            fi
+          }
+          test -f dist/avatars/index.html
+          echo D09_MOTION_PUBLIC_BUILD=PASS
+      - name: Report pinned verified product source
+        run: |
+          echo D09_MOTION_SOURCE=921e5b62ba5f14ddff4af3b3a8b576115a95211a
+          echo D09_MOTION_PRIVATE_ARTIFACT_UPLOADS=NONE
