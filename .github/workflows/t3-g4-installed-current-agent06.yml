@@ -333,6 +333,7 @@ jobs:
               T3_DEPENDENCIES = (Test-Path -LiteralPath (Join-Path $output 'logs/original-t3-dependencies.log') -PathType Leaf)
               T3_BUILD = (Test-Path -LiteralPath (Join-Path $output 'logs/original-t3-compiled-host.log') -PathType Leaf)
               SIGNED_WORKSPACE_COMPILED = (Test-Path -LiteralPath (Join-Path $core 'dist/signed-workspace.html') -PathType Leaf)
+              ORIGINAL_DIST_BUILD_RECEIPT_TEXT = (Test-Path -LiteralPath (Join-Path $output 'logs/original-agent-one-dist-build.json') -PathType Leaf)
               ORIGINAL_ONE_DIST = (Test-Path -LiteralPath (Join-Path $output 'build/original-agent-one-dist-receipt.json') -PathType Leaf)
               AGENT_PACKAGE = (Test-Path -LiteralPath (Join-Path $output 'logs/private-build-result.json') -PathType Leaf)
               SETUP_BUILT = (Test-Path -LiteralPath (Join-Path $output 'IWXA-Private-SetupCore-Candidate.exe') -PathType Leaf)
@@ -356,6 +357,18 @@ jobs:
                     Write-Host ('G4_AGENT06_LOCAL_ACCEPT_STAGE_PASS ' + $step)
                   }
                 }
+              }
+            }
+            # Only source-owned PUBLIC assembler machine codes may leave
+            # temporary Windows logs. No stderr, paths, source or secret bytes.
+            $originalOneDistLog = Join-Path $output 'logs/original-agent-one-dist-build.json'
+            if(Test-Path -LiteralPath $originalOneDistLog -PathType Leaf){
+              $originalOneDistRaw = Get-Content -LiteralPath $originalOneDistLog -Raw -ErrorAction SilentlyContinue
+              $codes = @([regex]::Matches([string]$originalOneDistRaw,
+                '(?i)(?<![A-Za-z0-9_])(?:T3_AGENT_ONE_DIST|T3_D1_DIST)_[A-Z0-9_]{4,100}(?![A-Za-z0-9_])') |
+                ForEach-Object {$_.Value.ToUpperInvariant()} | Select-Object -Unique)
+              foreach($code in ($codes | Select-Object -Last 5)){
+                Write-Host ('G4_AGENT06_ORIGINAL_PUBLIC_ASSEMBLER_CODE ' + $code)
               }
             }
             # Distinguish a genuine failed Python Task/Review from failure
@@ -414,7 +427,7 @@ jobs:
               $privateError = Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
               if ($privateError) {
                 $safeCodes = [regex]::Matches($privateError,
-                  '(?i)(?<![A-Za-z0-9_])(?:setup_local|agent_setup_witness|agent_setup_runtime|private_setup_core|original_t3_g4|original_t3_qualified|original_t3_owning)_[a-z0-9_]{4,110}(?![A-Za-z0-9_])')
+                  '(?i)(?<![A-Za-z0-9_])(?:setup_local|agent_setup_witness|agent_setup_runtime|private_setup_core|original_t3_g4|original_t3_qualified|original_t3_owning|t3_agent_one_dist|t3_d1_dist)_[a-z0-9_]{4,110}(?![A-Za-z0-9_])')
                 foreach ($safeCode in @($safeCodes | Select-Object -Unique | Select-Object -Last 5)) {
                   Write-Host ('G4_AGENT06_LOCAL_ACCEPT_SAFE_CODE ' + $safeCode.Value.ToUpperInvariant())
                 }
