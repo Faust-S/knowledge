@@ -8,10 +8,10 @@ import {spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 
 const REPO='Faust-S/T3';
-export const ORIGINAL_PRIVATE_SOURCE_PIN='a66581d0c113319c65e2a6df417d3636fdc4bf5c';
+export const ORIGINAL_PRIVATE_SOURCE_PIN='adfcb77a3497415ce8bb194647d2d5be3a41eafa';
 // Final source candidate is a fast-forward of the accepted installed owner.
 // It is qualified independently; do not inherit Center installed proof.
-export const ORIGINAL_FINAL_OWNER_CANDIDATE_PIN='a66581d0c113319c65e2a6df417d3636fdc4bf5c';
+export const ORIGINAL_FINAL_OWNER_CANDIDATE_PIN='adfcb77a3497415ce8bb194647d2d5be3a41eafa';
 const TEST='tests/admin-original-host-port.test.mjs';
 const MULTI_EMPLOYEE_TESTS=Object.freeze([
   'tests/multi-employee-provisioning.test.mjs',
@@ -85,7 +85,11 @@ export async function runOriginalPrivateOwnerSourceCheck({
   const root=mkdtempSync(join(tmpdir(),'iwxa-t3-original-d3-'),{mode:0o700});
   // Keep the ORIGINAL signed policy JSON in the bounded source checkout.
   // The installed Bun Owner bundles it via a static ESM JSON import.
-  const visited=new Set(),pending=[...testFiles,...assets];
+  // Bounded Admin invitation UI fixture only for original company test.
+  // This prevents API-only default-key tests masking the old client flags.
+  const companyUi=testFiles.includes(COMPANY_GRAPH_TEST)
+    ?['interop/index.html','interop/app.js']:[];
+  const visited=new Set(),pending=[...testFiles,...assets,...companyUi];
   let count=0,totalBytes=0;
   try{
     while(pending.length){
