@@ -126,17 +126,55 @@ jobs:
           }
           if(Test-Path (Join-Path $state 'winws2-owned.json')) {throw 'Owned WinDivert process state was not cleaned'}
           Write-Host 'PASS owned Direct TLS native WinDivert process cleanly stopped'
+      - name: Offline engine install from the exact original seven files
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:BYPASS_CI_ENGINE_ROOT=(Get-Content (Join-Path $env:RUNNER_TEMP 'engine-path.txt'))
+          go test -count=1 -run '^TestPinnedBundleRealFiles
+        uses: actions/upload-artifact@v4
+        with:
+          name: bypass-manager-0-4-offline-https-win64-unsigned
+          path: |
+            tools/bypass-manager/Bypass-Manager.exe
+            tools/bypass-manager/README-RU.md
+            tools/bypass-manager/engine/**
+            tools/bypass-manager/LICENSES/WinDivert-LICENSE.txt
+            tools/bypass-manager/THIRD-PARTY-NOTICES-RU.md
+            tools/bypass-manager/ONE-BUTTON-HTTPS-CHECK-2026-11-21-RU.md
+          if-no-files-found: error
+ -v .
+          if($LASTEXITCODE -ne 0) {throw 'Offline original engine installation FAILED'}
+      - name: Assemble complete offline engine and third-party license
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Get-Content (Join-Path $env:RUNNER_TEMP 'engine-path.txt')
+          $dest=Join-Path (Get-Location) 'engine'
+          New-Item -ItemType Directory -Path $dest -Force | Out-Null
+          foreach($name in @('winws2.exe','WinDivert.dll','WinDivert64.sys','cygwin1.dll','lua/zapret-lib.lua','lua/zapret-antidpi.lua','lua/zapret-auto.lua')){
+            $to=Join-Path $dest $name
+            New-Item -ItemType Directory -Path (Split-Path $to) -Force | Out-Null
+            Copy-Item -LiteralPath (Join-Path $src $name) -Destination $to
+            if((git hash-object $to).Trim() -ne (git hash-object (Join-Path $src $name)).Trim()){throw "Offline binary changed: $name"}
+          }
+          $licenses=Join-Path (Get-Location) 'LICENSES'
+          New-Item -ItemType Directory -Path $licenses -Force | Out-Null
+          $license=Join-Path $licenses 'WinDivert-LICENSE.txt'
+          Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/basil00/WinDivert/v2.2.2/LICENSE' -OutFile $license -UseBasicParsing -TimeoutSec 35
+          if((git hash-object $license).Trim() -ne '8489a8e773c33fd6f91eb67276e2d82a2d7547c3'){throw 'Pinned WinDivert license verification failed'}
+          Write-Host 'PASS offline engine, original binaries and LGPL license ready'
       - name: Upload unsigned Windows build and test assets
         uses: actions/upload-artifact@v4
         with:
-          name: bypass-manager-0-4-one-button-win64-unsigned
+          name: bypass-manager-0-4-offline-https-win64-unsigned
           path: |
             tools/bypass-manager/Bypass-Manager.exe
             tools/bypass-manager/README-RU.md
           if-no-files-found: error
 
-  publish-one-button:
-    name: Publish one-button Windows Alpha after native CI PASS
+  publish-offline-https:
+    name: Publish offline Windows Alpha after full native CI PASS
     needs: windows-native
     if: github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-alpha]')
     runs-on: ubuntu-24.04
@@ -150,50 +188,56 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: bypass-manager-0-4-one-button-win64-unsigned
+          name: bypass-manager-0-4-offline-https-win64-unsigned
           path: release/raw
       - uses: actions/download-artifact@v4
         with:
           name: bypass-manager-native-ui-frames
           path: release/ui
-      - name: Package exact native Windows executable and real GUI evidence
+      - name: Package verified original engine, EXE, reports and license
         shell: bash
         run: |
           set -euo pipefail
           test -s release/raw/Bypass-Manager.exe
-          test -s release/raw/README-RU.md
+          test -s release/raw/engine/winws2.exe
+          test -s release/raw/engine/WinDivert64.sys
+          test -s release/raw/LICENSES/WinDivert-LICENSE.txt
           test -s release/ui/main-one-button.png
           mkdir -p release/windows
           cp release/raw/Bypass-Manager.exe release/windows/
           cp release/raw/README-RU.md release/windows/
           cp tools/bypass-manager/PRODUCT-RESET-2026-11-20-RU.md release/windows/
           cp tools/bypass-manager/ONE-BUTTON-DEVELOPMENT-2026-11-21-RU.md release/windows/
-          (cd release/windows && zip -q -9 ../Bypass-Manager-0.4-One-Button-Windows-x64.zip Bypass-Manager.exe README-RU.md PRODUCT-RESET-2026-11-20-RU.md ONE-BUTTON-DEVELOPMENT-2026-11-21-RU.md)
-          git archive --format=zip --prefix=bypass-manager-0.4-one-button-source/ --output=release/Bypass-Manager-0.4-One-Button-Source.zip HEAD:tools/bypass-manager
+          cp tools/bypass-manager/ONE-BUTTON-HTTPS-CHECK-2026-11-21-RU.md release/windows/
+          cp tools/bypass-manager/THIRD-PARTY-NOTICES-RU.md release/windows/
+          cp -R release/raw/engine release/windows/
+          cp -R release/raw/LICENSES release/windows/
+          (cd release/windows && zip -q -r -9 ../Bypass-Manager-0.4-One-Button-Offline-Windows-x64.zip Bypass-Manager.exe README-RU.md PRODUCT-RESET-2026-11-20-RU.md ONE-BUTTON-DEVELOPMENT-2026-11-21-RU.md ONE-BUTTON-HTTPS-CHECK-2026-11-21-RU.md THIRD-PARTY-NOTICES-RU.md engine LICENSES)
+          git archive --format=zip --prefix=bypass-manager-0.4-offline-source/ --output=release/Bypass-Manager-0.4-One-Button-Offline-Source.zip HEAD:tools/bypass-manager
           cp release/ui/main-one-button.png release/Bypass-Manager-0.4-Native-Windows.png
-          cp tools/bypass-manager/PRODUCT-RESET-2026-11-20-RU.md release/
-          cp tools/bypass-manager/ONE-BUTTON-DEVELOPMENT-2026-11-21-RU.md release/
-          (cd release && sha256sum Bypass-Manager-0.4-One-Button-Windows-x64.zip Bypass-Manager-0.4-One-Button-Source.zip Bypass-Manager-0.4-Native-Windows.png PRODUCT-RESET-2026-11-20-RU.md ONE-BUTTON-DEVELOPMENT-2026-11-21-RU.md > SHA256SUMS.txt)
-      - name: Create immutable prerelease with direct download links
+          cp tools/bypass-manager/ONE-BUTTON-HTTPS-CHECK-2026-11-21-RU.md release/
+          cp tools/bypass-manager/THIRD-PARTY-NOTICES-RU.md release/
+          (cd release && sha256sum Bypass-Manager-0.4-One-Button-Offline-Windows-x64.zip Bypass-Manager-0.4-One-Button-Offline-Source.zip Bypass-Manager-0.4-Native-Windows.png ONE-BUTTON-HTTPS-CHECK-2026-11-21-RU.md THIRD-PARTY-NOTICES-RU.md > SHA256SUMS.txt)
+      - name: Publish immutable GitHub prerelease
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG=bypass-manager-0.4-alpha-one-button-2026-11-21
+          TAG=bypass-manager-0.4-alpha-offline-https-2026-11-21
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release already exists; refusing to replace files"
+            echo "This version already exists, refusing to overwrite"
             exit 1
           fi
           gh release create "$TAG" \
-            release/Bypass-Manager-0.4-One-Button-Windows-x64.zip \
-            release/Bypass-Manager-0.4-One-Button-Source.zip \
+            release/Bypass-Manager-0.4-One-Button-Offline-Windows-x64.zip \
+            release/Bypass-Manager-0.4-One-Button-Offline-Source.zip \
             release/Bypass-Manager-0.4-Native-Windows.png \
-            release/PRODUCT-RESET-2026-11-20-RU.md \
-            release/ONE-BUTTON-DEVELOPMENT-2026-11-21-RU.md \
+            release/ONE-BUTTON-HTTPS-CHECK-2026-11-21-RU.md \
+            release/THIRD-PARTY-NOTICES-RU.md \
             release/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Bypass Manager 0.4 Alpha | One Button | Native Windows CI" \
-            --notes "First independent native Windows mode: one-button direct HTTPS/TLS adaptation without Amnezia, VPN subscription or remote IP, verified real winws2/WinDivert start, ownership inspection and stop. Three-button native GUI smoke (3 cold starts) and real Windows screenshot. Only manager-origin speed and public IP/region are measured. Browser-integrated VPN is an optional independent browser channel, not a Windows app and not proof of system-wide protection. Direct TLS adaptation does not add encryption or hide public IP. Native startup is not real blocked-site success; REAL_NETWORK_NOT_ACCEPTED. Unsigned Alpha." \
+            --title "Bypass Manager 0.4 Alpha | Offline engine + HTTPS evidence" \
+            --notes "Full Windows ZIP includes original pinned unmodified winws2, WinDivert, Cygwin and Lua, third-party license texts and hash-pinned atomic offline install. One-button Enable checks three fixed public HTTPS probes before and after its own WinDivert startup. A general HTTPS change is NOT evidence of a recovered blocked site, DPI causality, browser traffic or hidden IP. Native Windows GUI, native driver ownership start/stop and offline installation pass CI. REAL_NETWORK_NOT_ACCEPTED. Unsigned Alpha." \
             --prerelease
