@@ -120,7 +120,7 @@ export async function runOriginalPrivateOwnerSourceCheck({
     // Original test code receives no token or CI credential environment.
     const env={PATH:process.env.PATH??'',HOME:process.env.HOME??'',
       TMPDIR:process.env.RUNNER_TEMP??tmpdir(),LANG:'C.UTF-8',CI:'true'};
-    const child=spawnSync(process.execPath,['--test',...testFiles],{
+    const child=spawnSync(process.execPath,['--test','--test-reporter=tap',...testFiles],{
       cwd:root,env,encoding:'utf8',timeout:120000,maxBuffer:2*1024*1024,
     });
     // Original source, Task texts, fixture details and test output are PRIVATE.

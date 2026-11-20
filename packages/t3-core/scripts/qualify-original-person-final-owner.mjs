@@ -60,7 +60,7 @@ export async function qualifyOriginalFinalPersonSource({
           }
       }
     }
-    const result=spawnSync(process.execPath,['--test',TEST],{
+    const result=spawnSync(process.execPath,['--test','--test-reporter=tap',TEST],{
       cwd:root,encoding:'utf8',timeout:120000,maxBuffer:2*1024*1024,
       env:{PATH:process.env.PATH??'',HOME:process.env.HOME??'',
         TMPDIR:process.env.RUNNER_TEMP??tmpdir(),CI:'true'},
