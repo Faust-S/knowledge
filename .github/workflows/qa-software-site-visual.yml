@@ -100,7 +100,8 @@ jobs:
             writeFileSync(output+'/manifest.json',JSON.stringify({exactSiteSha:'107d1bb9ac10e18e09c5c39a9834a3edcdba137c',records},null,2));
             console.log('IWXA_SOFTWARE_ARTICLES_INLINE_ELEVEN_IMAGES_PASS',records.length);
           }finally{await browser.close()}
-          JS      - uses: actions/upload-artifact@v4
+          JS
+      - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: iwxa-software-article-mobile-desktop-visuals
