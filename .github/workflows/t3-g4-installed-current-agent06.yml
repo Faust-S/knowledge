@@ -397,7 +397,7 @@ jobs:
                 if ($witnessPhase -cmatch '^[A-Z][A-Z0-9_]{2,70}$') {
                   Write-Host ('G4_AGENT06_INSTALLED_WITNESS_PHASE ' + $witnessPhase)
                 }
-                foreach ($prop in @('failure_code','last_operation','last_checkpoint')) {
+                foreach ($prop in @('failure_code','last_operation','last_checkpoint','background_state','background_error_class')) {
                   $observed = [string]$witnessRow.$prop
                   if ($observed -cmatch '^[A-Z][A-Z0-9_]{2,86}$') {
                     Write-Host ('G4_AGENT06_INSTALLED_WITNESS_' + $prop.ToUpperInvariant() + ' ' + $observed)
