@@ -11,14 +11,14 @@ const REPO='Faust-S/T3';
 export const ORIGINAL_PRIVATE_SOURCE_PIN='1a8267634955947bc0c6adc5614d7de176a33da2';
 // Final source candidate is a fast-forward of the accepted installed owner.
 // It is qualified independently; do not inherit Center installed proof.
-export const ORIGINAL_FINAL_OWNER_CANDIDATE_PIN='30fc0865c5f19ecce7ce7bc2bff8da4847e8ce18';
+export const ORIGINAL_FINAL_OWNER_CANDIDATE_PIN='acd197da54adfd9419c4d42ca580bde498e74657';
 const TEST='tests/admin-original-host-port.test.mjs';
 const MULTI_EMPLOYEE_TESTS=Object.freeze([
   'tests/multi-employee-provisioning.test.mjs',
   'tests/multi-employee-admin.test.mjs',
 ]);
 const DEFAULT_TEST_FILES=Object.freeze([TEST,...MULTI_EMPLOYEE_TESTS]);
-const COMPANY_GRAPH_TEST='tests/t3-signed-activity-owner.test.mjs';
+const COMPANY_GRAPH_TEST='tests/t3-company-atomic-graph-owner.test.mjs';
 const EXPECT='native D3 compares every signed field independent of original JSON key order';
 const ROOTS=new Set(['interop','reconciliation','access-control','tests']);
 const MAX_FILES=130;
@@ -140,7 +140,7 @@ export async function runOriginalPrivateOwnerSourceCheck({
     ].every(text=>stdout.includes(text));
     const companyGraph=testFiles.includes(COMPANY_GRAPH_TEST);
     const companyGraphExecuted=!companyGraph||
-      stdout.includes('one existing signed owner issues two Activity DATA rights');
+      stdout.includes('original corporate atomic graph JIT uses exactly the signed object.write grant, cold and revoke');
     const rawFailure=stdout+'\n'+(child.stderr??'');
     const knownFailure=[
       ['ERR_MODULE_NOT_FOUND','MISSING_IMPORT'],
