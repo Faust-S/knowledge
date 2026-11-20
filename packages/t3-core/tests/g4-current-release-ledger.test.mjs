@@ -182,7 +182,11 @@ test('current source and installed runs cannot borrow historical signed D3 succe
       'INSTALLED_SECOND_WINDOWS_SID_GUI_PASS_NOT_CORPORATE_D3');
   }
   for(const key of ['current_original_d3_source','current_installed_agent']){
-    assert.ok(Number.isSafeInteger(q[key].run_id)&&q[key].run_id>0);
+    // A newly pinned owner has no run ID until GitHub schedules its exact
+    // workflow. Do not assign a historical run to the new SHA.
+    assert.ok(q[key].run_id===null ||
+      (Number.isSafeInteger(q[key].run_id)&&q[key].run_id>0));
+    if(q[key].conclusion==='SUCCESS')assert.ok(q[key].run_id>0);
     assert.ok(['IN_PROGRESS','SUCCESS','FAIL','CANCELLED','QUEUED'].includes(q[key].conclusion));
     assert.ok(['NOT_YET_ACCEPTED','SOURCE_NATIVE_PROCESS_PASS',
       'INSTALLED_PRODUCT_PASS'].includes(q[key].evidence_level));
