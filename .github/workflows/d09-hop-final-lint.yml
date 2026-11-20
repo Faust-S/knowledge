@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 92060a4ca0f819b6976f2a15772339a6dc7232e7
+          ref: 2c43745d0050ff5e3eb401addaaf98a30ef92766
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
