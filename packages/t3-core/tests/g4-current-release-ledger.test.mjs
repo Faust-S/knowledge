@@ -112,7 +112,8 @@ test('current source and installed runs cannot borrow historical signed D3 succe
   assert.match(wf,/G4_AGENT06_K03_PRIVATE_DIAG_ON_CURRENT_AGENT_PREFLIGHT_PASS/);
   if(q.current_installed_agent.conclusion==='SUCCESS'){
     assert.equal(q.current_installed_agent.evidence_level,'INSTALLED_PRODUCT_PASS');
-    assert.equal(q.current_installed_agent.overall_run_conclusion,'FAIL_GUEST_SECOND_SID_SETUP');
+    assert.equal(q.current_installed_agent.overall_run_conclusion,'SUCCESS',
+      'exact installed full Agent must not borrow a prior run that failed another gate');
     assert.equal(q.previous_failed_guest_installed_agent.code,'GUEST_SETUP_FAILED');
     assert.equal(q.previous_failed_guest_installed_agent.scope,'SETUP_CORE_PROGRAM_ROOT_UNDER_RESERVED_COMMON_APPLICATION_DATA');
     assert.equal(current.required_gates.D3.installed,'PARTIAL');
@@ -134,6 +135,29 @@ test('current source and installed runs cannot borrow historical signed D3 succe
   assert.equal(q.prior_agent28_guest_second_sid_result.original_native_gui_cold_and_independent_uia,true);
   assert.equal(q.prior_agent28_k03_model_failure.finite_reason,
     'K03_TASK_MODEL_EXECUTION_STOPPED');
+  // Native second SID Setup/UIA/cold/uninstall passed on the previous Agent
+  // even though the SAME workflow failed a distinct K03 model Task. Preserve
+  // its narrower SUCCESS, never treat it as installed G4 or as current Agent.
+  assert.equal(q.prior_agent10_second_sid_installed_pass.evidence_level,
+    'INSTALLED_SECOND_WINDOWS_SID_GUI_PASS_HISTORICAL');
+  assert.equal(q.prior_agent10_second_sid_installed_pass.conclusion,
+    'SUCCESS_SECOND_SID_JOB');
+  assert.equal(q.prior_agent10_second_sid_installed_pass.overall_run_conclusion,
+    'FAIL_K03_MODEL_OUTPUT');
+  assert.notEqual(q.prior_agent10_second_sid_installed_pass.agent_sha,
+    current.pins.installed_agent);
+  assert.ok(q.prior_agent10_second_sid_installed_pass.final_markers.includes(
+    'G4_AGENT_INSTALLED_GUEST_NATIVE_GUI_COLD_UIA_PASS'));
+  assert.equal(q.prior_agent10_k03_failed.background_state,'PAUSED');
+  assert.equal(q.prior_agent10_k03_failed.background_error_class,
+    'BASIC_RUNTIME_OUTPUT_INVALID');
+  assert.equal(q.prior_agent10_k03_failed.runtime_model_inference_complete,false);
+  assert.equal(q.prior_agent10_signed_d3_pass.conclusion,'SUCCESS');
+  assert.equal(q.prior_agent10_signed_d3_pass.evidence_level,
+    'SOURCE_NATIVE_PROCESS_PASS_HISTORICAL');
+  assert.notEqual(q.prior_agent10_signed_d3_pass.agent_sha,
+    current.pins.installed_agent);
+
   assert.equal(q.source_generic_d6.one_core_sha,current.pins.one_core);
   assert.equal(q.current_installed_admin.center_sha,current.pins.installed_center);
   assert.equal(q.current_installed_admin.one_core_sha,current.pins.one_core);
