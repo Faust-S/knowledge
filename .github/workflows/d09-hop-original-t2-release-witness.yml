@@ -1,7 +1,7 @@
 name: D09 HOP original normative T2 product witness
 on:
   push:
-    branches: [work/2026-11-20-d09-public-rebuild-qualification]
+    branches: [work/2026-11-21-d09-authored-gallery-qualification]
     paths: [.github/workflows/d09-hop-original-t2-release-witness.yml]
   workflow_dispatch:
 permissions:
@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 1f4da2915c06680033ebf70c5ce0c3247add2341
+          ref: 1bb4c2b16e05c49ed2a1228f8aec6ed716f40da9
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Set up Node 24
