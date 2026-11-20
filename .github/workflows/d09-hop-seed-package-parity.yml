@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 28fc7feaac53d28eae9a4c387d4d60af6a755c6e
+          ref: 3c17f97a7f06977e6cf745474bc6a9a69b1de50e
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -45,3 +45,20 @@ jobs:
           }
           grep -E 'D09_SEEDS_(TOTAL|FAILED)=' "$RUNNER_TEMP/d09-seed.log" | tail -2 || true
           echo D09_NATIVE_SEED_PACKAGES=PASS
+      - name: Typecheck updated creative-chain guided editing
+        run: |
+          npm run typecheck > "$RUNNER_TEMP/d09-updated-types.log" 2>&1 || {
+            echo D09_SEED_TYPES=FAIL
+            grep -E 'error TS[0-9]+' "$RUNNER_TEMP/d09-updated-types.log" | head -12 || true
+            exit 1
+          }
+          echo D09_SEED_TYPES=PASS
+      - name: Verify all first-party seed fidelity and UUIDv7 Remix regressions
+        shell: bash
+        run: |
+          npx vitest run src/lib/__tests__/remix.test.ts src/content-system/__tests__/seed-fidelity.test.ts > "$RUNNER_TEMP/d09-seed-regressions.log" 2>&1 || {
+            echo D09_SEED_REGRESSIONS=FAIL
+            grep -E 'Test Files|Tests |FAIL|AssertionError' "$RUNNER_TEMP/d09-seed-regressions.log" | cut -c1-150 | tail -8 || true
+            exit 1
+          }
+          echo D09_SEED_REGRESSIONS=PASS
