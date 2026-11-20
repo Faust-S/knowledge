@@ -36,6 +36,8 @@ const (
 	wmAppLive          = 0x8008
 	wmAppGuidePrompt   = 0x8009
     wmAppProductRefresh = 0x800A
+    wmAppDirectRefresh = 0x800B
+    wmAppDirectDone = 0x800C
 	wsOverlappedWindow = 0x00CF0000
 	wsVisible          = 0x10000000
 	wsChild            = 0x40000000

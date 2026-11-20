@@ -28,6 +28,7 @@ type SupportReport struct {
 	MTU           *MTUTrialReport    `json:"mtu_trial,omitempty"`
 	Guide         *GuideReport       `json:"guide,omitempty"`
 	Effect        *DPIEffect         `json:"dpi_effect,omitempty"`
+	Direct        *DirectReport      `json:"direct,omitempty"`
 	Caveat        string             `json:"caveat"`
 }
 type SupportSource struct {
@@ -61,6 +62,7 @@ func buildSupportReport(folder string, now time.Time) SupportReport {
 		target any
 	}{
 		{"latest-guide.json", &GuideReport{}},
+		{"latest-direct.json", &DirectReport{}},
 		{"latest-network.json", &NetworkAudit{}},
 		{"latest-path.json", &PathReport{}},
 		{"latest-speed.json", &LiveAudit{}},
@@ -84,6 +86,8 @@ func buildSupportReport(folder string, now time.Time) SupportReport {
 					source.Status = "STALE_INCLUDED"
 				}
 				switch v := entry.target.(type) {
+				case *DirectReport:
+					s.Direct = v
 				case *GuideReport:
 					s.Guide = v
 					verdict := assessDPIEffect(v)
@@ -109,14 +113,19 @@ func buildSupportReport(folder string, now time.Time) SupportReport {
 		s.Sources = append(s.Sources, source)
 	}
 	if s.Available == 0 {
-        s.Summary = "NO_VALID_REPORTS"
-    } else {
-        recent := false
-        for _, source := range s.Sources {
-            if source.Status == "INCLUDED" { recent = true; break }
-        }
-        if !recent {s.Summary = "HISTORICAL_ONLY"}
-    }
+		s.Summary = "NO_VALID_REPORTS"
+	} else {
+		recent := false
+		for _, source := range s.Sources {
+			if source.Status == "INCLUDED" {
+				recent = true
+				break
+			}
+		}
+		if !recent {
+			s.Summary = "HISTORICAL_ONLY"
+		}
+	}
 	s.Tuning = tuningSuggestions(s)
 	return s
 }

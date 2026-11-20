@@ -45,7 +45,13 @@ func TestStrictReportRejectsInjectedUserFields(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "latest-speed.json"), []byte(`{"schema_version":"0.3.3","speed_grade":"FAST","ip":"9.9.9.9"}`), 0600)
 	report := buildSupportReport(dir, time.Now())
-	if report.Available != 0 || report.Sources[3].Status != "INVALID_OR_OLD_SCHEMA" {
+	rejected := false
+	for _, source := range report.Sources {
+		if source.Name == "latest-speed.json" && source.Status == "INVALID_OR_OLD_SCHEMA" {
+			rejected = true
+		}
+	}
+	if report.Available != 0 || !rejected {
 		t.Fatal("unknown identity field included")
 	}
 }
@@ -83,16 +89,26 @@ func TestSupportBundleAppsAndMTUAvoidProcessIdentity(t *testing.T) {
 }
 
 func TestSupportBundleClearlyMarksOldEvidenceAndEffect(t *testing.T) {
- dir:=t.TempDir()
- now:=time.Date(2026,11,17,15,0,0,0,time.UTC)
- report:=GuideReport{SchemaVersion:"0.3.2",State:"DIAGNOSTIC_SERVICES_UNAVAILABLE",CompletedUTC:now.Add(-time.Hour).Format(time.RFC3339),Rounds:[]GuideRound{{Protocol:guideAWG,DPIProfile:"NONE",State:"INCONCLUSIVE"}}}
- file:=filepath.Join(dir,"latest-guide.json")
- if err:=saveJSON(file,report);err!=nil {t.Fatal(err)}
- earlier:=now.Add(-time.Hour)
- if err:=os.Chtimes(file,earlier,earlier);err!=nil {t.Fatal(err)}
- out:=buildSupportReport(dir,now)
- if out.Summary!="HISTORICAL_ONLY" || out.Sources[0].Status!="STALE_INCLUDED" || out.Effect==nil || out.Effect.State!="NOT_TESTED" {t.Fatalf("wrong freshness/effect: %+v",out)}
- if err:=os.Chtimes(file,now,now);err!=nil {t.Fatal(err)}
- out=buildSupportReport(dir,now)
- if out.Sources[0].Status!="INCLUDED" || out.Summary!="READ_ONLY_RECONSTRUCTION" {t.Fatalf("fresh report not included: %+v",out)}
+	dir := t.TempDir()
+	now := time.Date(2026, 11, 17, 15, 0, 0, 0, time.UTC)
+	report := GuideReport{SchemaVersion: "0.3.2", State: "DIAGNOSTIC_SERVICES_UNAVAILABLE", CompletedUTC: now.Add(-time.Hour).Format(time.RFC3339), Rounds: []GuideRound{{Protocol: guideAWG, DPIProfile: "NONE", State: "INCONCLUSIVE"}}}
+	file := filepath.Join(dir, "latest-guide.json")
+	if err := saveJSON(file, report); err != nil {
+		t.Fatal(err)
+	}
+	earlier := now.Add(-time.Hour)
+	if err := os.Chtimes(file, earlier, earlier); err != nil {
+		t.Fatal(err)
+	}
+	out := buildSupportReport(dir, now)
+	if out.Summary != "HISTORICAL_ONLY" || out.Sources[0].Status != "STALE_INCLUDED" || out.Effect == nil || out.Effect.State != "NOT_TESTED" {
+		t.Fatalf("wrong freshness/effect: %+v", out)
+	}
+	if err := os.Chtimes(file, now, now); err != nil {
+		t.Fatal(err)
+	}
+	out = buildSupportReport(dir, now)
+	if out.Sources[0].Status != "INCLUDED" || out.Summary != "READ_ONLY_RECONSTRUCTION" {
+		t.Fatalf("fresh report not included: %+v", out)
+	}
 }

@@ -28,7 +28,7 @@ import (
 //go:embed runtime/Scripts/*.ps1 runtime/Scripts/*.psm1 runtime/Profiles/profiles.json
 var embedded embed.FS
 
-const version = "0.3.0-alpha"
+const version = "0.4.0-alpha-onebutton"
 
 // The Windows program deliberately does not start, stop, configure, or read secrets from Amnezia.
 // It controls only the one winws2 instance it owns through the audited PowerShell adapter.
@@ -306,7 +306,7 @@ var runtimeWriteMu sync.Mutex
 func (m *Manager) ensureRuntime() error {
 	runtimeWriteMu.Lock()
 	defer runtimeWriteMu.Unlock()
-	for _, name := range []string{"Scripts/Common.psm1", "Scripts/Start-Profile.ps1", "Scripts/Get-AdapterStats.ps1", "Scripts/Find-VpnAdapter.ps1", "Scripts/Get-EndpointRoute.ps1", "Scripts/Get-DnsExposure.ps1", "Scripts/Get-VpnStatus.ps1", "Scripts/Get-PathEvidence.ps1", "Scripts/Get-AppSockets.ps1", "Scripts/Get-LocalProxyPorts.ps1", "Scripts/Get-OuterEndpoint.ps1", "Scripts/Temporary-MTU.ps1", "Profiles/profiles.json"} {
+	for _, name := range []string{"Scripts/Common.psm1", "Scripts/Start-Profile.ps1", "Scripts/Get-AdapterStats.ps1", "Scripts/Find-VpnAdapter.ps1", "Scripts/Get-EndpointRoute.ps1", "Scripts/Get-DnsExposure.ps1", "Scripts/Get-VpnStatus.ps1", "Scripts/Get-PathEvidence.ps1", "Scripts/Get-AppSockets.ps1", "Scripts/Get-LocalProxyPorts.ps1", "Scripts/Get-OuterEndpoint.ps1", "Scripts/Start-Direct.ps1", "Scripts/Temporary-MTU.ps1", "Profiles/profiles.json"} {
 		source := "runtime/" + name
 		data, err := embedded.ReadFile(source)
 		if err != nil {
@@ -944,7 +944,7 @@ func (m *Manager) run(ctx context.Context) error {
 
 func main() {
 	if runtime.GOOS == "windows" && len(os.Args) == 1 {
-		os.Exit(guiMain())
+		os.Exit(oneButtonGuiMain())
 	}
 	os.Exit(realMain())
 }

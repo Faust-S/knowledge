@@ -1,4 +1,4 @@
-# Native visual QA: two actual Win32 frames captured on the public Windows
+# Native visual QA: one actual native one-button Win32 frame captured on the public Windows
 # runner. No Amnezia, winws2, VPN account, packet filter or network action.
 [CmdletBinding()]
 param([string]$OutputRoot=$env:RUNNER_TEMP)
@@ -34,7 +34,7 @@ try {
     }
     if($proc.MainWindowHandle -eq 0) {throw 'Main window not found'}
     $hwnd=[IntPtr]$proc.MainWindowHandle
-    [void][BypassProductCapture]::ShowWindow($hwnd,3)
+    [void][BypassProductCapture]::ShowWindow($hwnd,9)
     Start-Sleep -Milliseconds 500
     function Save-ProductFrame([string]$Name) {
         $r=[BypassProductCapture+RECT]::new()
@@ -55,12 +55,11 @@ try {
             Write-Host "CAPTURED ${Name}: $w x $h, $((Get-Item $path).Length) bytes"
         } finally {$bmp.Dispose()}
     }
-    Save-ProductFrame 'main-collapsed.png'
-    $details=[BypassProductCapture]::GetDlgItem($hwnd,2010)
-    if($details -eq [IntPtr]::Zero) {throw 'Details control missing'}
-    [void][BypassProductCapture]::SendMessage($details,[uint32]0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)
-    Start-Sleep -Milliseconds 300
-    Save-ProductFrame 'details-expanded.png'
+    foreach($id in @(3101,3102,3103)) {
+        $item=[BypassProductCapture]::GetDlgItem($hwnd,$id)
+        if($item -eq [IntPtr]::Zero) {throw "One-button action missing $id"}
+    }
+    Save-ProductFrame 'main-one-button.png'
 } finally {
     $proc.Refresh()
     if(-not $proc.HasExited) {
