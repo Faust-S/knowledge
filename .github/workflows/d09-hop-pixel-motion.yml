@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 84ee6771f84279e717e01a6816db2a88d19fd92b
+          ref: fd110c150e08db65fd300d76eba06bb75c6a601d
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Use Node 24
@@ -109,5 +109,5 @@ jobs:
           echo D09_MOTION_REAL_BROWSER=PASS
       - name: Report pinned verified product source
         run: |
-          echo D09_MOTION_SOURCE=84ee6771f84279e717e01a6816db2a88d19fd92b
+          echo D09_MOTION_SOURCE=fd110c150e08db65fd300d76eba06bb75c6a601d
           echo D09_MOTION_PRIVATE_ARTIFACT_UPLOADS=NONE
