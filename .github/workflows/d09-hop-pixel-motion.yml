@@ -1,7 +1,7 @@
-name: D09 HOP reusable character actions and scene qualification
+name: D09 HOP interactive pixel reactions qualification
 on:
   push:
-    branches: [work/2026-11-20-d09-character-qualification]
+    branches: [work/2026-11-20-d09-reaction-qualification]
     paths: [.github/workflows/d09-hop-pixel-motion.yml]
 permissions:
   contents: read
@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 3330d321a4a01097caef39869106c0b9cedc277f
+          ref: dceb16b133fd48ac742675887f9fb4c58959be29
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Use Node 24
@@ -109,5 +109,5 @@ jobs:
           echo D09_MOTION_REAL_BROWSER=PASS
       - name: Report pinned verified product source
         run: |
-          echo D09_MOTION_SOURCE=79612685d765bc94cfb9850c77c63624cefe590a
+          echo D09_MOTION_SOURCE=dceb16b133fd48ac742675887f9fb4c58959be29
           echo D09_MOTION_PRIVATE_ARTIFACT_UPLOADS=NONE
