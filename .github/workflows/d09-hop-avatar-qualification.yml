@@ -1,0 +1,66 @@
+name: D09 HOP avatar functional qualification
+on:
+  push:
+    branches: [work/2026-11-20-d09-avatar-qualification]
+    paths: [.github/workflows/d09-hop-avatar-qualification.yml]
+permissions:
+  contents: read
+jobs:
+  avatar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact private HOP development source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/hop.iwxa.ru
+          ref: d8d92e4a15b69d26a0f98855e96b254c9573a799
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install source dependencies
+        shell: bash
+        run: |
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d09-avatar-npm.log" 2>&1 || {
+            echo D09_AVATAR_NPM_CI=FAIL; exit 1;
+          }
+          echo D09_AVATAR_NPM_CI=PASS
+      - name: Typecheck
+        shell: bash
+        run: |
+          npm run typecheck > "$RUNNER_TEMP/d09-avatar-types.log" 2>&1 || {
+            grep -E 'error TS[0-9]+' "$RUNNER_TEMP/d09-avatar-types.log" | head -20 | cut -c 1-230 || true
+            echo D09_AVATAR_TYPECHECK=FAIL; exit 1;
+          }
+          echo D09_AVATAR_TYPECHECK=PASS
+      - name: Focused pixel model and editor interaction tests
+        shell: bash
+        run: |
+          ./node_modules/.bin/vitest run src/lib/__tests__/pixel-avatar.test.ts src/components/hop/__tests__/PixelAvatarEditor.test.tsx > "$RUNNER_TEMP/d09-avatar-vitest.log" 2>&1 || {
+            grep -E 'FAIL|AssertionError|Error:|expected|Actual|Expected' "$RUNNER_TEMP/d09-avatar-vitest.log" | tail -24 | cut -c 1-230 || true
+            echo D09_AVATAR_INTERACTION=FAIL; exit 1;
+          }
+          echo D09_AVATAR_INTERACTION=PASS
+      - name: Lint changed files
+        shell: bash
+        run: |
+          ./node_modules/.bin/eslint src/lib/pixel-avatar.ts src/lib/__tests__/pixel-avatar.test.ts src/components/hop/PixelAvatarEditor.tsx src/components/hop/__tests__/PixelAvatarEditor.test.tsx src/routes/avatars.tsx > "$RUNNER_TEMP/d09-avatar-lint.log" 2>&1 || {
+            grep -E 'error|warning' "$RUNNER_TEMP/d09-avatar-lint.log" | head -20 | cut -c 1-230 || true
+            echo D09_AVATAR_LINT=FAIL; exit 1;
+          }
+          echo D09_AVATAR_LINT=PASS
+      - name: Build browser site and prerender all public routes
+        shell: bash
+        run: |
+          npm run build:public-stage > "$RUNNER_TEMP/d09-avatar-public.log" 2>&1 || {
+            grep -E 'error|fail|Error:|✘' "$RUNNER_TEMP/d09-avatar-public.log" | tail -22 | cut -c 1-230 || true
+            echo D09_AVATAR_PUBLIC_BUILD=FAIL; exit 1;
+          }
+          test -f dist/avatars/index.html || {
+            echo D09_AVATAR_ROUTE_MISSING=FAIL; exit 1;
+          }
+          echo D09_AVATAR_ROUTE=PASS
+          echo D09_AVATAR_PUBLIC_BUILD=PASS
+      # No private checkout, logs, dist, binaries, screenshots or artifacts are uploaded.
