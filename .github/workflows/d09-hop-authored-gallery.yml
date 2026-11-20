@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: c406e47739f9cfb444dc44d48b005b8a4f556c49
+          ref: 743ab877a3bd463fb8e5cf8c5be7afcc8f16fdde
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Node 24
@@ -85,5 +85,5 @@ jobs:
           if-no-files-found: ignore
       - name: Report exact source
         run: |
-          echo D09_GALLERY_SOURCE=c406e47739f9cfb444dc44d48b005b8a4f556c49
+          echo D09_GALLERY_SOURCE=743ab877a3bd463fb8e5cf8c5be7afcc8f16fdde
           echo D09_GALLERY_SOURCE_CODE_UPLOADS=NONE
