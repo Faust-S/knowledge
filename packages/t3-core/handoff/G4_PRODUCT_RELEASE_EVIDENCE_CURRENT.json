@@ -2659,7 +2659,8 @@
         "VERSIONED_FROZEN_FINAL_T3_ONE_DIST_AND_PROVENANCE_NOT_JUST_OWNER_INPUT",
         "D1_D3_ACTUAL_INSTALLED_NATIVE_COMPANY_RESULT_WRITE_AND_ADMIN_RECEIPT_READBACK",
         "D1_D3_FIRST_RUN_COMPANY_WORKSPACE_BY_SIGNED_KEY_WITHOUT_EXTRA_MANUAL_CREATE",
-        "ORIGINAL_T2_EXCHANGE_COMPANY_DOCUMENT_ASSET_ATTACHMENT_TRANSFER_AND_RECIPIENT_READBACK"
+        "ORIGINAL_T2_EXCHANGE_COMPANY_DOCUMENT_ASSET_ATTACHMENT_TRANSFER_AND_RECIPIENT_READBACK",
+        "SIGNED_COMPANY_WORKSPACE_AUTO_FIRST_RUN_REAL_KERNEL_READBACK_SOURCE_QUALIFICATION"
       ],
       "existing_evidence_preserved": true,
       "company_workspace": {
@@ -2695,18 +2696,20 @@
           "qualification_code_note": "This result is genuine original T2 browser Storage/Events with public company source body; not private signed Agent/Center installed E2E"
         },
         "latest_one_core_candidate": {
-          "source_sha": "d0461bf722f68f83dee200d30f8b53e32531ebf7",
-          "executable_source_tree": "ac19f069e9c86572f053f2ae2ab2362bd6f418f7",
+          "source_sha": "48c888099bb959ea97ed77269ba618d0c5166e1b",
+          "executable_source_tree": "e5fd5d4ed5a00a9f5723e9875e29425f8421d788",
           "public_source_ci": null,
-          "status": "PENDING_POST_FIRST_RUN_AND_ORIGINAL_TASK_RESULT_CANDIDATE",
-          "original_t2_tree_sha": "1594274dbf5e38214b8422ba11e8c7114bd5425c"
+          "status": "SOURCE_REQUALIFICATION_PENDING_POST_DENIAL_AND_BROWSER_FIRST_RUN_FIX",
+          "original_t2_tree_sha": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
+          "source_test_ci": null
         },
         "auto_company_first_run": {
           "source_commit": "70393736307391293d0f8d64bd3d077edc00d8c6",
           "source_tree": "ac19f069e9c86572f053f2ae2ab2362bd6f418f7",
-          "state": "SOURCE_QUALIFICATION_PENDING_EXACT_BROWSER_AUTO_FIRST_RUN",
+          "state": "SOURCE_QUALIFICATION_PENDING_REAL_KERNEL_READBACK",
           "profile": "CORP_ONLY_VALID_SIGNED_CREATE_JIT_NO_EXTRA_MANUAL_CLICK",
-          "personal_workspace_unmodified": true
+          "personal_workspace_unmodified": true,
+          "browser_race_fix_commit": "48c888099bb959ea97ed77269ba618d0c5166e1b"
         },
         "default_task_and_result": {
           "state": "SOURCE_QUALIFICATION_PENDING",
