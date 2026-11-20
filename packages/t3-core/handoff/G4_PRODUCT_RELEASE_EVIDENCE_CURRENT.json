@@ -2686,7 +2686,7 @@
           "status": "PENDING",
           "installed": "NOT_ACCEPTED"
         },
-        "release_status": "INCOMPLETE_SOURCE_COMPANY_RESULT_PASS_FINAL_INSTALLED_AND_EXCHANGE_OPEN",
+        "release_status": "INCOMPLETE_SOURCE_UPDATED_COMPANY_KEY_AND_NATIVE_AUTOCREATE_INSTALLED_PENDING",
         "payload_boundary": "Complete accepted corporate Result is read from existing Agent Core, never manually selected, then committed as Object/Event into original corporate T2 Workspace on the same signed JIT port. 2m UTF16 text. Binary attachments and full T2 Exchange remain open; installed qualification pending.",
         "source_company_original_kernel_text_qualification": {
           "run_id": 44800762682,
@@ -2717,24 +2717,31 @@
           "result": "COMPLETE_PREVIOUS_HUMAN_ACCEPTED_RESULT_COMMITTED_SECOND_ONLY_AFTER_SIGNED_TASK_READBACK",
           "no_second_result_selection": true,
           "delivery": "NOT_DELIVERED_UNTIL_ORIGINAL_COMPANY_RECEIPT"
+        },
+        "default_signed_invitation": {
+          "state": "SOURCE_IMPLEMENTED_PENDING_ORIGINAL_OWNER_QUALIFICATION",
+          "original_owner_sha": "e460021673bf58fec54d52a62c28fbd913047b99",
+          "entry": "One Admin key defaults to signed workspace.read/object.write/workspace.create for same company/workspace. Explicit partial flags preserve limited grants; Atlas optional.",
+          "installed": "NOT_RUN"
         }
       },
-      "original_t3_final_candidate_sha": "a48a41744b911b89cbac2a3e0c99320932ad9469",
+      "original_t3_final_candidate_sha": "e460021673bf58fec54d52a62c28fbd913047b99",
       "person_d7_source_qualification": {
-        "state": "SOURCE_PASS_NOT_INSTALLED",
-        "original_owner_sha": "a48a41744b911b89cbac2a3e0c99320932ad9469",
-        "run_id": 44800088162,
-        "test_count": 22,
-        "conclusion": "SUCCESS",
-        "coverage": "ORIGINAL_ISSUER_HOLDER_ISSUE_RENEW_REVOKE_STATUS_COLD_SOURCE_NOT_FINAL_ONE_DIST"
+        "state": "SOURCE_REQUALIFICATION_PENDING_DEFAULT_COMPANY_KEY",
+        "original_owner_sha": "e460021673bf58fec54d52a62c28fbd913047b99",
+        "prior_run_id": 44800088162,
+        "run_id": null,
+        "test_count": null,
+        "conclusion": null
       },
       "original_owner_candidate_d3_qualification": {
-        "state": "SOURCE_PASS_NOT_INSTALLED",
-        "candidate_sha": "a48a41744b911b89cbac2a3e0c99320932ad9469",
+        "state": "SOURCE_QUALIFICATION_PENDING_NEW_DEFAULT_COMPANY_KEY",
+        "candidate_sha": "e460021673bf58fec54d52a62c28fbd913047b99",
         "installed_owner_sha": "1a8267634955947bc0c6adc5614d7de176a33da2",
-        "run_id": 44800088162,
-        "conclusion": "SUCCESS",
-        "evidence_kind": "ORIGINAL_SIGNED_D3_ED25519_COMPANY_ATOMIC_GRAPH_AND_ATLAS_FREE_HOST_SOURCE"
+        "prior_run_id": 44800088162,
+        "run_id": null,
+        "conclusion": null,
+        "evidence_kind": "ORIGINAL_SIGNED_ED25519_COMPANY_KEY_READ_WRITE_CREATE_DEFAULT_AND_ATLAS_FREE_ATOMIC_GRAPH"
       }
     },
     "required_gates": {

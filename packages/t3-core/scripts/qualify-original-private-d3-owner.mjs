@@ -11,7 +11,7 @@ const REPO='Faust-S/T3';
 export const ORIGINAL_PRIVATE_SOURCE_PIN='1a8267634955947bc0c6adc5614d7de176a33da2';
 // Final source candidate is a fast-forward of the accepted installed owner.
 // It is qualified independently; do not inherit Center installed proof.
-export const ORIGINAL_FINAL_OWNER_CANDIDATE_PIN='a48a41744b911b89cbac2a3e0c99320932ad9469';
+export const ORIGINAL_FINAL_OWNER_CANDIDATE_PIN='e460021673bf58fec54d52a62c28fbd913047b99';
 const TEST='tests/admin-original-host-port.test.mjs';
 const MULTI_EMPLOYEE_TESTS=Object.freeze([
   'tests/multi-employee-provisioning.test.mjs',
