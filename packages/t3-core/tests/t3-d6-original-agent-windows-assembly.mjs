@@ -52,7 +52,7 @@ try{
   assert.equal(sha(join(output,'_iwxa/runtime/0.3.6/runtime.js')),
     sha(join(qualified,'_iwxa/runtime/0.3.6/runtime.js')));
   assert.ok(!readdirSync(join(output,'workspace/assets'))
-    .some(name=>/^model-worker-[A-Za-z0-9_-]+\\.js$/.test(name)));
+    .some(name=>/^model-worker-[A-Za-z0-9_-]+\.js$/.test(name)));
   const cliDist=join(root,'cli-one-dist');
   const cliReceipt=join(root,'cli-one-dist-receipt.json');
   const cli=spawnSync(process.execPath,[
