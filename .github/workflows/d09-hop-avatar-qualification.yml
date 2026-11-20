@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 0673181eb837a811c6249067971d4d46d3eecc7f
+          ref: 1c7bcf4db94bec50d795cb6b5bde3d9b37618622
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: |
           ./node_modules/.bin/vitest run src/lib/__tests__/pixel-avatar.test.ts src/lib/__tests__/pixel-avatar-document.test.ts src/integrations/pixel/avatar-project.test.ts src/components/hop/__tests__/PixelAvatarEditor.test.tsx > "$RUNNER_TEMP/d09-avatar-vitest.log" 2>&1 || {
-            grep -E 'FAIL|AssertionError|Error:|expected|Actual|Expected|AVATAR_EXPORT_STAGE|AVATAR_IMPORT_STAGE|AVATAR_EXPORT_ERROR|AVATAR_BASELINE_EXPORT|AVATAR_PLAIN_PROJECT_EXPORT|AVATAR_DIRECT_PACKAGE_STAGE' "$RUNNER_TEMP/d09-avatar-vitest.log" | tail -24 | cut -c 1-230 || true
+            grep -E 'FAIL|AssertionError|Error:|expected|Actual|Expected|AVATAR_EXPORT_STAGE|AVATAR_IMPORT_STAGE|AVATAR_EXPORT_ERROR|AVATAR_BASELINE_EXPORT|AVATAR_PLAIN_PROJECT_EXPORT|AVATAR_DIRECT_PACKAGE_STAGE|AVATAR_STAGE_' "$RUNNER_TEMP/d09-avatar-vitest.log" | tail -24 | cut -c 1-230 || true
             echo D09_AVATAR_INTERACTION=FAIL; exit 1;
           }
           echo D09_AVATAR_INTERACTION=PASS
@@ -72,6 +72,6 @@ jobs:
           echo D09_AVATAR_PUBLIC_BUILD=PASS
       - name: Report verified isolated feature source
         run: |
-          echo "D09_AVATAR_PINNED_SOURCE=0673181eb837a811c6249067971d4d46d3eecc7f"
+          echo "D09_AVATAR_PINNED_SOURCE=1c7bcf4db94bec50d795cb6b5bde3d9b37618622"
           echo D09_AVATAR_PRIVATE_CODE_NOT_PUBLISHED=PASS
       # No private checkout, logs, dist, binaries, screenshots or artifacts are uploaded.
