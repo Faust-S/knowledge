@@ -44,9 +44,12 @@ jobs:
           const items=JSON.parse(readFileSync(file,"utf8"));
           let errors=0,warnings=0;
           const findings=[];
+          const byRule=new Map(),byFile=[];
           for(const f of items){
             errors+=f.errorCount;warnings+=f.warningCount;
+            if(f.errorCount) byFile.push([relative(process.cwd(),f.filePath),f.errorCount]);
             for(const m of f.messages.filter(x=>x.severity===2)){
+              const k=m.ruleId??"parse-error";byRule.set(k,(byRule.get(k)??0)+1);
               if(findings.length<60)findings.push([
                 relative(process.cwd(),f.filePath),
                 m.line??0, m.ruleId??"parse-error"
@@ -55,6 +58,8 @@ jobs:
           }
           console.log("D09_FULL_LINT_ERRORS="+errors);
           console.log("D09_FULL_LINT_WARNINGS="+warnings);
+          for(const [k,v] of [...byRule].sort((a,b)=>b[1]-a[1])) console.log("D09_LINT_RULE="+k+":"+v);
+          for(const [p,v] of byFile.sort((a,b)=>b[1]-a[1]).slice(0,40))console.log("D09_LINT_FILE="+p+":"+v);
           for(const f of findings) console.log("D09_LINT_LOCATION="+f);
           NODE
           if test "$result" -ne 0; then echo D09_FULL_LINT=FAIL; exit 1; fi
