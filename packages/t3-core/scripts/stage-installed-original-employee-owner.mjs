@@ -4,7 +4,7 @@
 // original native employee SOURCE qualification; reuse them verbatim.
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {existsSync,mkdirSync,rmSync,realpathSync,lstatSync,appendFileSync} from 'node:fs';
+import {existsSync,mkdirSync,rmSync,realpathSync,lstatSync} from 'node:fs';
 import {basename,dirname,isAbsolute,join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {stageOriginal,T3_ORIGINAL_NATIVE_EMPLOYEE_PIN} from './qualify-native-corporate-agent-process.mjs';
@@ -77,10 +77,8 @@ export async function stageInstalledOriginalEmployeeOwner({
        reply?.code!=='T3_EMPLOYEE_WINDOWS_CANDIDATE_NOT_FOUND'||
        reply?.outcomeUnknown!==false)
       fail('G4_INSTALLED_ORIGINAL_AGENT_SIGNER_BINDING_FAILED');
-    const envfile=process.env.GITHUB_ENV;
-    if(typeof envfile!=='string'||!isAbsolute(envfile))
-      fail('G4_INSTALLED_ORIGINAL_OWNER_GITHUB_ENV_REQUIRED');
-    appendFileSync(envfile,'IWXA_T3_ORIGINAL_OWNER_DIR='+target+'\n','utf8');
+    // Keep signer scope OUT of ordinary standalone GUI/Qwen qualification.
+    // A separate second-SID corporate test binds this path explicitly.
     console.log('G4_INSTALLED_ORIGINAL_OWNER_EXACT_PRIVATE_SOURCE_PASS');
     console.log('G4_INSTALLED_AGENT_ORIGINAL_SIGNER_WORKER_BOUND_PASS');
     console.log('G4_INSTALLED_ORIGINAL_OWNER_NOT_YET_CROSS_PRODUCT_D3');
