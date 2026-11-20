@@ -1,4 +1,4 @@
-# Native Win32 GUI lifecycle and layout checks; ASCII-only for Windows PowerShell 5.1.
+﻿# Native Win32 GUI lifecycle and layout checks; ASCII-only for Windows PowerShell 5.1.
 [CmdletBinding()]
 param()
 $ErrorActionPreference='Stop'
