@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: 6740092c03f51e99c48b06e7a77ca6e3d86918a6
+          ref: 7b017b8513ba23e8d2c4510f01bb63056a0c1daf
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -46,7 +46,7 @@ jobs:
         run: |
           set -eu
           test "$(git -C private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
-          test "$(git -C private/site rev-parse HEAD)" = 6740092c03f51e99c48b06e7a77ca6e3d86918a6
+          test "$(git -C private/site rev-parse HEAD)" = 7b017b8513ba23e8d2c4510f01bb63056a0c1daf
           test "$(git -C private/domain rev-parse HEAD)" = f658208644dd6ce68f1672ecd847d62bdaed7ae5
           cmp private/domain/learning-journey/projection.ts private/site/t2/domain-modules/learn-results/learning-journey.ts
           cmp private/domain/learning-journey/today.ts private/site/t2/domain-modules/learn-results/learning-today.ts
@@ -56,7 +56,7 @@ jobs:
         env:
           D01_T2_CHECKOUT: ${{ github.workspace }}/private/t2
           D01_EXPECTED_T2_HEAD: 9c64951cd78411283e8a416641c36d71e169fc1d
-          D01_EXPECTED_SITE_HEAD: 6740092c03f51e99c48b06e7a77ca6e3d86918a6
+          D01_EXPECTED_SITE_HEAD: 7b017b8513ba23e8d2c4510f01bb63056a0c1daf
           D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
           D01_CASE_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-001-workplace-numeracy.json
         run: node private/site/qa/d01-product-witness-2026-10-26/ci-real-screens.mjs
