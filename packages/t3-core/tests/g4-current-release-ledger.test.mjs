@@ -112,8 +112,12 @@ test('current source and installed runs cannot borrow historical signed D3 succe
   assert.match(wf,/G4_AGENT06_K03_PRIVATE_DIAG_ON_CURRENT_AGENT_PREFLIGHT_PASS/);
   if(q.current_installed_agent.conclusion==='SUCCESS'){
     assert.equal(q.current_installed_agent.evidence_level,'INSTALLED_PRODUCT_PASS');
+    assert.equal(q.current_installed_agent.overall_run_conclusion,'FAIL_GUEST_SECOND_SID_SETUP');
+    assert.equal(q.previous_failed_guest_installed_agent.code,'GUEST_SETUP_FAILED');
+    assert.equal(q.previous_failed_guest_installed_agent.scope,'SETUP_CORE_PROGRAM_ROOT_UNDER_RESERVED_COMMON_APPLICATION_DATA');
+    assert.equal(current.required_gates.D3.installed,'PARTIAL');
     assert.equal(q.current_installed_agent.scope,
-      'AGENT_STANDALONE_NATIVE_QWEN_REVIEW_COLD_SETUP_REPAIR_ROLLBACK_NOT_CROSS_PRODUCT_D3');
+      'STANDALONE_NATIVE_GUI_QWEN_REVIEW_K03_COLD_SETUP_REPAIR_ROLLBACK_NOT_CROSS_PRODUCT');
     assert.ok(Array.isArray(q.current_installed_agent.final_markers));
     assert.equal(q.current_installed_agent.final_markers.length,4);
   }
