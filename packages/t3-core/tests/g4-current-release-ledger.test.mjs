@@ -90,28 +90,45 @@ test('typed ledger keeps qualified B0 distinct from unreleased final D1-D7 T3 an
   assert.equal(evidence.policy.allow_private_actions,false);
 });
 
-test('current original Agent, One Core, Setup and signed Owner pins are exact',()=>{
+test('frozen original installed receipts remain historical and new product candidate pins are exact',()=>{
   const installed=read('.github/workflows/t3-g4-installed-current-agent06.yml');
   const signed=read('.github/workflows/t3-installed-original-admin-center.yml');
   const source=read('packages/t3-core/scripts/qualify-original-agent-d3-port.mjs');
+  const candidate=current.final_t3_release.installed_qualification_candidate;
+  assert.equal(candidate.state,'PINNED_NEW_CANDIDATE_NOT_YET_ACCEPTED');
+  assert.equal(candidate.approved,false,
+    'editing Windows checkout pins cannot manufacture an installed product PASS');
+  // Historical B0 installation remains frozen under its own SHA. Do not
+  // rewrite previous successful source/installation receipts for new code.
   for(const [name,pin] of Object.entries(current.pins))
-    assert.match(pin,hex40,'bad '+name+' current SHA');
-  assert.equal(current.pins.installed_agent,
-    pinnedCheckout(installed,'Faust-S/iwxa-personal-agent'));
-  assert.equal(current.pins.one_core,pinnedCheckout(installed,'Faust-S/knowledge'));
-  assert.equal(current.pins.original_setup_core,pinnedCheckout(installed,'Faust-S/Center'));
-  assert.equal(current.pins.original_t3_signed_owner,pinnedCheckout(signed,'Faust-S/T3'));
-  // Center's independent public and native Windows jobs must compile the
-  // identical One Core that qualified the installed Agent, not branch HEAD.
-  const originalCenterSourcePins=[...signed.matchAll(
+    assert.match(pin,hex40,'bad historical '+name+' SHA');
+  assert.equal(current.qualifications.current_installed_agent.agent_sha,
+    current.pins.installed_agent);
+  assert.equal(current.qualifications.current_installed_admin.owner_sha,
+    current.pins.original_t3_signed_owner);
+  assert.notEqual(candidate.agent_sha,current.pins.installed_agent);
+  assert.notEqual(candidate.original_t3_owner_sha,current.pins.original_t3_signed_owner);
+  assert.notEqual(candidate.public_one_core_sha,current.pins.one_core);
+  for(const key of ['agent_sha','original_t3_owner_sha','public_one_core_sha'])
+    assert.match(candidate[key],hex40);
+  assert.equal(pinnedCheckout(installed,'Faust-S/iwxa-personal-agent'),
+    candidate.agent_sha);
+  assert.equal(pinnedCheckout(installed,'Faust-S/knowledge'),
+    candidate.public_one_core_sha);
+  assert.equal(pinnedCheckout(installed,'Faust-S/Center'),
+    current.pins.original_setup_core);
+  assert.equal(pinnedCheckout(signed,'Faust-S/T3'),
+    candidate.original_t3_owner_sha);
+  // Both Center jobs must pin the very same NEW One Core as the Agent.
+  const centerSourcePins=[...signed.matchAll(
     /- uses: actions\/checkout@v4\s*\n\s*with:\s*\n\s*ref: ([a-f0-9]{40})\b/g)];
-  assert.equal(originalCenterSourcePins.length,2,
-    'public and installed Center must both pin One Core');
-  assert.ok(originalCenterSourcePins.every(m=>m[1]===current.pins.one_core),
-    'Center/Agent One Core SHA mismatch');
+  assert.equal(centerSourcePins.length,2);
+  assert.ok(centerSourcePins.every(m=>m[1]===candidate.public_one_core_sha));
   const originalAgent=source.match(/export const AGENT_ORIGINAL_PIN='([a-f0-9]{40})'/);
-  assert.ok(originalAgent,'signed D3 original Agent pin required');
-  assert.equal(originalAgent[1],current.pins.installed_agent);
+  assert.ok(originalAgent);
+  assert.equal(originalAgent[1],candidate.agent_sha);
+  assert.equal(current.final_t3_release.company_workspace.agent_development_sha,
+    candidate.agent_sha);
 });
 
 test('current source and installed runs cannot borrow historical signed D3 success',()=>{
