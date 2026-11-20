@@ -310,21 +310,38 @@ jobs:
         env:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
           AGENT_PRIVATE_READ_TOKEN: ${{ secrets.AGENT }}
+          DOMEN_PRIVATE_READ_TOKEN: ${{ secrets.DOMEN }}
+          T3_PRIVATE_READ_TOKEN: ${{ secrets.T3 }}
         run: |
           node --input-type=module <<'NODE'
           import {join} from 'node:path';
           import {writeFileSync} from 'node:fs';
           import {getExactFile} from './scripts/qualify-original-private-d3-owner.mjs';
           import {materializeOriginalAgentT2Product} from './scripts/build-original-agent-one-dist.mjs';
-          const token=process.env.AGENT_PRIVATE_READ_TOKEN;
-          if(typeof token!=='string'||!token.trim())
+          // Use the same three ALREADY-authorized read-only sources as
+          // original Agent qualification, without printing token origins.
+          const tokens=[process.env.AGENT_PRIVATE_READ_TOKEN,
+            process.env.DOMEN_PRIVATE_READ_TOKEN,
+            process.env.T3_PRIVATE_READ_TOKEN]
+            .filter(x=>typeof x==='string'&&x.trim());
+          if(!tokens.length)
             throw Error('T3_AGENT_PRODUCT_PROFILE_READ_GRANT_REQUIRED');
           // Read ONE immutable non-secret product configuration. Never clone,
           // publish original Agent source, enroll a fake signer or cache keys.
           const pin='8fcda07dae2b53a49f662a65928945350a0607df';
-          const bytes=await getExactFile('config/original-t2-agent-product.json',token,{
-            repository:'Faust-S/iwxa-personal-agent',sourcePin:pin,
-          });
+          let bytes=null;
+          for(const token of tokens){
+            try{
+              bytes=await getExactFile('config/original-t2-agent-product.json',token,{
+                repository:'Faust-S/iwxa-personal-agent',sourcePin:pin,
+              });
+              break;
+            }catch(error){
+              if(!['T3_PRIVATE_SOURCE_FETCH_403','T3_PRIVATE_SOURCE_FETCH_404']
+                .includes(error?.message))throw error;
+            }
+          }
+          if(!bytes)throw Error('T3_AGENT_PRODUCT_PROFILE_NOT_AUTHORIZED');
           if(bytes.length>8192)throw Error('T3_AGENT_PROFILE_TOO_LARGE');
           const path=join(process.env.RUNNER_TEMP,'iwxa-agent-original-profile.json');
           writeFileSync(path,bytes,{flag:'wx',mode:0o600});
