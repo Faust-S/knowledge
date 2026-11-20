@@ -5,10 +5,22 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory=$true)][string]$Setup,
-  [Parameter(Mandatory=$true)][string]$AgentSourceSha
+  [Parameter(Mandatory=$true)][string]$AgentSourceSha,
+  [string]$OriginalOwnerRoot='',
+  [string]$PublicTrustProfile='',
+  [string]$EmployeeFirstUseDriver='',
+  [string]$EmployeeProofVerifier=''
 )
 $ErrorActionPreference='Stop'
 $phase='PREPARE'
+$originalArguments=@($OriginalOwnerRoot,$PublicTrustProfile,
+  $EmployeeFirstUseDriver,$EmployeeProofVerifier)
+$originalEnabled=($originalArguments|Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -gt 0
+if($originalEnabled -and
+   (($originalArguments|Where-Object { -not [IO.Path]::IsPathRooted($_) -or
+      -not (Test-Path -LiteralPath $_) }).Count -gt 0)){
+  throw 'G4_INSTALLED_GUEST_ORIGINAL_SIGNER_INPUT_INCOMPLETE'
+}
 $account=$null
 $root=$null
 $workerProcess=$null
@@ -49,8 +61,39 @@ try {
   if((Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash -cne $originalHash){
     throw 'G4_AGENT_GUEST_SETUP_BYTES_CHANGED'
   }
+  $originalSource=''
+  $publicTrust=''
+  $pythonDriver=''
+  $nodeVerifier=''
+  $nodePath=''
+  if($originalEnabled){
+    # Copy only the original pinned SOURCE modules, never the manager vault.
+    # A distinct original manager root stays restricted to Administrators.
+    $originalSource=Join-Path $root 'original-owner'
+    New-Item -ItemType Directory -Path $originalSource -Force|Out-Null
+    foreach($sourcePart in @('interop','access-control','reconciliation')){
+      $part=Join-Path $OriginalOwnerRoot $sourcePart
+      if(!(Test-Path -LiteralPath $part -PathType Container)){
+        throw 'G4_INSTALLED_GUEST_ORIGINAL_SIGNER_SOURCE_INCOMPLETE'
+      }
+      Copy-Item -LiteralPath $part -Destination $originalSource -Recurse -ErrorAction Stop
+    }
+    $publicTrust=Join-Path $root 'public-trust.json'
+    $pythonDriver=Join-Path $root 'original-employee-first-use.py'
+    $nodeVerifier=Join-Path $root 'original-employee-verify.mjs'
+    Copy-Item -LiteralPath $PublicTrustProfile -Destination $publicTrust -ErrorAction Stop
+    Copy-Item -LiteralPath $EmployeeFirstUseDriver -Destination $pythonDriver -ErrorAction Stop
+    Copy-Item -LiteralPath $EmployeeProofVerifier -Destination $nodeVerifier -ErrorAction Stop
+    $nodePath=(Get-Command node.exe -ErrorAction Stop).Source
+    if(-not [IO.Path]::IsPathRooted($nodePath) -or
+       !(Test-Path -LiteralPath $nodePath -PathType Leaf)){
+      throw 'G4_INSTALLED_GUEST_ORIGINAL_NODE_MISSING'
+    }
+  }
   $request=Join-Path $root 'input.json'
-  [ordered]@{sourceSha=$AgentSourceSha;setup=$package;scope=$root
+  [ordered]@{sourceSha=$AgentSourceSha;setup=$package;scope=$root;
+    signedOwner=[bool]$originalEnabled;owner=$originalSource;trust=$publicTrust;
+    driver=$pythonDriver;verifier=$nodeVerifier;node=$nodePath
   }|ConvertTo-Json -Compress|Set-Content -LiteralPath $request -Encoding UTF8
 
   # Executed by the SECOND Windows SID, not the manager. Existing Setup Core
@@ -202,6 +245,57 @@ try {
   if(-not $observed){throw 'GUEST_MANAGER_UIA_ACK_MISSING'}
   StopNative $native
   $native=$null
+  $originalEmployeeVerified=$false
+  if($request.signedOwner -eq $true){
+    $phase='SECOND_SID_ORIGINAL_SIGNER_FIRST_USE'
+    $installReceipt=Get-Content -LiteralPath (Join-Path $program 'explorer-install-receipt.json') -Raw -Encoding UTF8|ConvertFrom-Json
+    $pythonRelative=[string]$installReceipt.managed_runtime.python_executable
+    if([string]::IsNullOrWhiteSpace($pythonRelative) -or
+       [IO.Path]::IsPathRooted($pythonRelative) -or
+       $pythonRelative.Contains('..') -or $pythonRelative.Contains(':')){
+      throw 'GUEST_ORIGINAL_SIGNER_INSTALLED_PYTHON_INVALID'
+    }
+    $installedPython=[IO.Path]::GetFullPath((Join-Path $program $pythonRelative.Replace('/','\')))
+    if(-not $installedPython.StartsWith($program.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase) -or
+       !(Test-Path -LiteralPath $installedPython -PathType Leaf)){
+      throw 'GUEST_ORIGINAL_SIGNER_INSTALLED_PYTHON_MISSING'
+    }
+    $env:PYTHONPATH=$program
+    $env:PYTHONDONTWRITEBYTECODE='1'
+    $env:PYTHONNOUSERSITE='1'
+    $env:IWXA_T3_ORIGINAL_OWNER_DIR=[string]$request.owner
+    $guestCandidate=Join-Path $guestRoot 'original-employee'
+    $guestCandidateReceipt=Join-Path $guestRoot 'original-employee-receipt.json'
+    $guestSignedProof=Join-Path $guestRoot 'original-employee-public-proof.json'
+    $runArgs=@('--program',$program,'--owner',[string]$request.owner,
+      '--node',[string]$request.node,'--profile',[string]$request.trust,
+      '--root',$guestCandidate,'--receipt',$guestCandidateReceipt,
+      '--proof',$guestSignedProof)
+    $firstUseLog=Join-Path $ProofRoot 'original-employee-first-use.status'
+    & $installedPython -B ([string]$request.driver) --phase create @runArgs > $firstUseLog 2>&1
+    if($LASTEXITCODE -ne 0 -or
+       @((Get-Content -LiteralPath $firstUseLog -ErrorAction SilentlyContinue)) -cnotcontains
+         'G4_INSTALLED_EMPLOYEE_ORIGINAL_NATIVE_FIRST_USE_PASS'){
+      throw 'GUEST_ORIGINAL_SIGNER_FIRST_USE_FAILED'
+    }
+    $phase='SECOND_SID_ORIGINAL_SIGNER_COLD_READBACK'
+    & $installedPython -B ([string]$request.driver) --phase readback @runArgs > $firstUseLog 2>&1
+    $readbackRows=@(Get-Content -LiteralPath $firstUseLog -ErrorAction SilentlyContinue)
+    if($LASTEXITCODE -ne 0 -or
+       $readbackRows -cnotcontains 'G4_INSTALLED_EMPLOYEE_ORIGINAL_DPAPI_COLD_READBACK_PASS' -or
+       $readbackRows -cnotcontains 'G4_INSTALLED_EMPLOYEE_SIGNED_PROOF_CREATED_UNVERIFIED'){
+      throw 'GUEST_ORIGINAL_SIGNER_COLD_READBACK_FAILED'
+    }
+    $phase='SECOND_SID_ORIGINAL_SIGNER_PROOF_VERIFY'
+    $verifiedLog=Join-Path $ProofRoot 'original-employee-signature.status'
+    & ([string]$request.node) ([string]$request.verifier) ([string]$request.owner) $guestSignedProof > $verifiedLog 2>&1
+    if($LASTEXITCODE -ne 0 -or
+       @((Get-Content -LiteralPath $verifiedLog -ErrorAction SilentlyContinue)) -cnotcontains
+          'G4_INSTALLED_EMPLOYEE_ORIGINAL_SIGNED_PROOF_VERIFIED_PASS'){
+      throw 'GUEST_ORIGINAL_SIGNER_PROOF_INVALID'
+    }
+    $originalEmployeeVerified=$true
+  }
   $phase='SECOND_SID_UNINSTALL'
   $marker=Join-Path $data 'guest-data-preservation.fixture'
   [IO.File]::WriteAllText($marker,'PRESERVE',[Text.UTF8Encoding]::new($false))
@@ -214,7 +308,8 @@ try {
   }
   [IO.File]::WriteAllText((Join-Path $ProofRoot 'guest-finished.json'),
     (ConvertTo-Json ([ordered]@{status='PASS';sid=$user;sourceSha=$request.sourceSha;
-      originalSetup=$true;nativeGuiCold=$true;uninstallPreservedData=$true
+      originalSetup=$true;nativeGuiCold=$true;uninstallPreservedData=$true;
+      originalEmployeeSignerVerified=$originalEmployeeVerified
     }) -Compress),[Text.UTF8Encoding]::new($false))
 } catch {
   $allowed=@('GUEST_EXISTING_PRODUCT','GUEST_SETUP_FAILED','GUEST_SETUP_RECEIPT_MISSING',
@@ -224,7 +319,12 @@ try {
     'GUEST_SETUP_PREFLIGHT_FAILED','GUEST_ORIGINAL_INSTALL_NOT_REGISTERED',
     'GUEST_SETUP_FILE_VERIFICATION_FAILED','GUEST_MANAGER_UIA_ACK_MISSING',
     'GUEST_UNINSTALL_OR_DATA_PRESERVATION_FAILED',
-    'GUEST_LOCAL_USER_PROFILE_INVALID')
+    'GUEST_LOCAL_USER_PROFILE_INVALID',
+    'GUEST_ORIGINAL_SIGNER_INSTALLED_PYTHON_INVALID',
+    'GUEST_ORIGINAL_SIGNER_INSTALLED_PYTHON_MISSING',
+    'GUEST_ORIGINAL_SIGNER_FIRST_USE_FAILED',
+    'GUEST_ORIGINAL_SIGNER_COLD_READBACK_FAILED',
+    'GUEST_ORIGINAL_SIGNER_PROOF_INVALID')
   $reason=[string]$_.Exception.Message
   if($reason -cnotin $allowed){$reason='GUEST_UNKNOWN'}
   [IO.File]::WriteAllText((Join-Path $ProofRoot 'guest-failure.json'),
@@ -303,6 +403,10 @@ try {
     'NATIVE_COLD_TYPED_BOOL'
   }elseif(($result.uninstallPreservedData -isnot [bool]) -or $result.uninstallPreservedData -cne $true){
     'PRESERVED_DATA_TYPED_BOOL'
+  }elseif($originalEnabled -and
+          (($result.originalEmployeeSignerVerified -isnot [bool]) -or
+            $result.originalEmployeeSignerVerified -cne $true)){
+    'ORIGINAL_EMPLOYEE_SIGNER'
   }else{'NONE'}
   if($finalFailure -cne 'NONE'){
     # Fixed finite enum only; never publish SID, key, path or source bytes.
@@ -313,6 +417,11 @@ try {
   Write-Output 'G4_AGENT_INSTALLED_GUEST_ORIGINAL_SETUP_CORE_PASS'
   Write-Output 'G4_AGENT_INSTALLED_GUEST_NATIVE_GUI_COLD_UIA_PASS'
   Write-Output 'G4_AGENT_INSTALLED_GUEST_UNINSTALL_PRESERVE_PASS'
+  if($originalEnabled){
+    Write-Output 'G4_AGENT_INSTALLED_GUEST_ORIGINAL_SIGNER_FIRST_USE_DPAPI_COLD_PASS'
+    Write-Output 'G4_AGENT_INSTALLED_GUEST_ORIGINAL_SIGNED_EMPLOYEE_PROOF_PASS'
+    Write-Output 'G4_AGENT_INSTALLED_GUEST_NOT_CROSS_PRODUCT_ACCEPT_APPLY'
+  }
   Write-Output 'G4_AGENT_INSTALLED_GUEST_NOT_CORPORATE_ACCEPT_APPLY'
 } catch {
   $reason=[string]$_.Exception.Message
