@@ -159,6 +159,7 @@ export function PackagesView({
         ) : (
           <ImportView kernel={kernel} commands={commands}
             pwaFileHandle={pwaFileHandle} pwaLaunchEpoch={pwaLaunchEpoch}
+            signedWorkspaceScope={signedWorkspaceScope}
             protectedExchange={protectedExchange} />
         )}
       </div>

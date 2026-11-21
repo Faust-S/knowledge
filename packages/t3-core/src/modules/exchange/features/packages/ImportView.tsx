@@ -44,10 +44,39 @@ export interface ImportViewProps {
   /** Monotonic OS launch counter, even when OS reuses the same file handle. */
   pwaLaunchEpoch?: number;
   protectedExchange?: ReturnType<typeof createTrustedAgeExchange> | null;
+  /** Original signed Host hint, never an import grant. */
+  signedWorkspaceScope?: boolean;
 }
 
 const MAX_PACKAGE_BYTES = 200 * 1024 * 1024;
 const ALLOWED_EXTENSION = ".iwxa";
+
+// Preserve the ORIGINAL T2 package format and ImportPlan. A signed company
+// can import only its ONE complete Workspace, never a chosen Result or subset.
+// The signed Kernel, not this UI guard, remains the authority for importCommit.
+function completeSignedWorkspacePlan(
+  handle: ImportPreviewHandle,
+  plan: ImportPlanForm,
+  catalog: readonly WorkspaceRecord[],
+): boolean {
+  const rows=handle.preview.workspaces;
+  if(rows.length!==1 || handle.preview.totals.workspaces!==1 ||
+      catalog.length!==1 || catalog[0].read_only===true ||
+      rows[0].workspace_id!==catalog[0].workspace_id) return false;
+  const id=rows[0].workspace_id, allowed=handle.preview.included,
+    denied=handle.preview.excluded_by_permission,
+    totals=handle.preview.totals;
+  if(!allowed || !denied ||
+     !(["workspaces","objects","events","relations","assets","schemas"] as const)
+       .every(kind=>denied[kind]===0 && allowed[kind]===totals[kind])) return false;
+  if(plan.include_workspaces.length!==1 || plan.include_workspaces[0]!==id ||
+     (plan.include_objects?.length??0)!==0 ||
+     !plan.include_history || !plan.include_assets || !plan.include_relations ||
+     !["full","selective","merge"].includes(plan.mode) ||
+     !handle.allowed_modes.includes(plan.mode) ||
+     (plan.mode==="merge" && plan.target_workspace!==id)) return false;
+  return true;
+}
 
 export type ImportErrorClass =
   | "expired"
@@ -100,7 +129,8 @@ export function classifyImportError(
  * PROMPT 23 §8–§16, PROMPT 32 — canonical Import state machine surface.
  */
 export function ImportView({ kernel, commands, pwaFileHandle = null,
-  pwaLaunchEpoch = 0, protectedExchange = null }: ImportViewProps) {
+  pwaLaunchEpoch = 0, protectedExchange = null,
+  signedWorkspaceScope = false }: ImportViewProps) {
   const [state, dispatch] = useReducer(importReducer, INITIAL_IMPORT_STATE);
   const [pwaReadBusy, setPwaReadBusy] = useState(false);
   const [pwaReadError, setPwaReadError] = useState<string | null>(null);
@@ -372,6 +402,13 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   const runCommit = async () => {
     if (!state.handle) return;
     if (commitGuardRef.current) return; // §13
+    // Plain .iwxa in a signed Host is a complete one-company Workspace,
+    // never a selective cross-organization write. Protected native age has
+    // its own ORIGINAL Kernel and remains governed by that native owner.
+    const signedPlain = signedWorkspaceScope &&
+      nativePreviewTokenRef.current !== state.handle.preview_token;
+    if (signedPlain && !completeSignedWorkspacePlan(
+      state.handle,state.plan,localWorkspaces)) return;
     const previewWorkspaceIds =
       state.handle.preview.workspaces.map((workspace) => workspace.workspace_id);
     const previewObjectKeys =
@@ -754,8 +791,12 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       }
     }
   };
+  const signedPlain = signedWorkspaceScope && state.handle!==null &&
+    nativePreviewTokenRef.current !== state.handle.preview_token;
+  const signedFullReady = !signedPlain || completeSignedWorkspacePlan(
+    state.handle!,state.plan,localWorkspaces);
   return renderImport({
-    state, canPreview,
+    state, canPreview, signedPlain, signedFullReady,
     canCommit:state.handle?canCommitToken(state.handle.preview_token):canCommit,
     canCancel:state.handle?canCancelToken(state.handle.preview_token):canCancel,
     canPlainPreview:kernel.hasOperation("t2.importPreview"),localWorkspaces,
@@ -773,6 +814,8 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
 interface RenderProps {
   state: ImportState;
   canPreview: boolean;
+  signedPlain: boolean;
+  signedFullReady: boolean;
   canPlainPreview: boolean;
   canCommit: boolean;
   canCancel: boolean;
@@ -800,7 +843,7 @@ interface RenderProps {
 
 function renderImport(p: RenderProps) {
   const {
-    state, canPreview, canCommit, canCancel, canPlainPreview, localWorkspaces,
+    state, canPreview, signedPlain, signedFullReady, canCommit, canCancel, canPlainPreview, localWorkspaces,
     onFile, runCommit, cancelActive, dispatch,
     pwaFileHandle, pwaReadBusy, pwaReadError, pwaUsed, openPwaFile,
     protectedExchange, ageFile, setAgeFile, ageBusy, ageError, openAgeFile,
@@ -809,7 +852,7 @@ function renderImport(p: RenderProps) {
   } = p;
   const busy = state.status === "previewing" || state.status === "committing";
   const scopeIssues = state.handle ? validateImportScope(state.handle.preview, state.plan) : [];
-  const commitDisabled = scopeIssues.length > 0 || !canCommit || busy || !state.handle
+  const commitDisabled = !signedFullReady || scopeIssues.length > 0 || !canCommit || busy || !state.handle
     || state.planValidation.length > 0
     || state.status === "committed";
 
@@ -939,6 +982,10 @@ function renderImport(p: RenderProps) {
             </p>
           )}
 
+          {signedPlain ? <p className="text-xs text-slate-300" data-testid="import-whole-company-workspace">
+            Импортируется вся подписанная Workspace компании: объекты, история, вложения, связи и схемы.
+            Частичный выбор содержимого недоступен.
+          </p> : <>
           <fieldset className="border border-slate-800 rounded p-2 space-y-1">
             <legend className="text-xs px-1 text-slate-400">Режим импорта (allowed_modes)</legend>
             <select
@@ -1165,6 +1212,15 @@ function renderImport(p: RenderProps) {
               </label>
             ))}
           </fieldset>
+          </>}
+          {signedPlain && !signedFullReady && (
+            <p role="alert" data-testid="import-company-workspace-mismatch"
+              className="text-xs text-amber-300">
+              Весь пакет должен относиться к текущей подписанной Workspace и быть
+              доступен для полного восстановления исходным T2 Kernel.
+              Импорт другого контекста или неполного содержимого запрещён.
+            </p>
+          )}
 
           {state.handle.preview.conflicts.length > 0 && (
             <section aria-labelledby="imp-conflicts" data-testid="import-conflicts">
