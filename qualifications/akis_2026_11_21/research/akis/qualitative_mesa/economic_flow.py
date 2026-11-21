@@ -17,6 +17,7 @@ from .cooperation import (
 )
 from .modern_economic_evidence import ModernEconomicEvidenceError, review_cost_attribution
 from .economic_liquidity import LiquidityInputError, evaluate_cash_timing
+from .economic_lifecycle import LifecycleInputError, classify_lifecycle_costs
 
 
 class EconomicInputError(ValueError):
@@ -90,7 +91,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
     if (not isinstance(raw, dict) or required - set(raw) or
             set(raw) - required - {
                 "mechanism_allocations", "coordination_event_bindings",
-                "modern_cost_bindings", "cash_timing",
+                "modern_cost_bindings", "cash_timing", "lifecycle_costs",
             }):
         raise EconomicInputError("INVALID_ECONOMICS_FIELDS")
     doc = raw
@@ -302,5 +303,13 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
                 transfer_index=transfer_index, coverage=covered, subjects=subjects,
             )
         except LiquidityInputError as exc:
+            raise EconomicInputError(str(exc)) from exc
+    if "lifecycle_costs" in doc:
+        try:
+            output["lifecycle_resource_costs"] = classify_lifecycle_costs(
+                doc["lifecycle_costs"], sources=sources,
+                resource_index=resource_index, subjects=subjects, outside=outside,
+            )
+        except LifecycleInputError as exc:
             raise EconomicInputError(str(exc)) from exc
     return output
