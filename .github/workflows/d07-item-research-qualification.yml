@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 29e2c59362314c02fccffd4113d6ebceff26d994
+          ref: 49e92a23ddd2622c60965928226c9354402c9049
           token: ${{ secrets.DOMEN }}
           path: subject
           persist-credentials: false
@@ -29,18 +29,19 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 4ab8975703c51ac1d071703f945e894f379ec5ff
+          ref: 1c437f1b53236d9982ab3e871bbf56f7b197662e
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify exact revisions and business logic parity
         run: |
-          test "$(git -C subject rev-parse HEAD)" = "29e2c59362314c02fccffd4113d6ebceff26d994"
-          test "$(git -C site rev-parse HEAD)" = "4ab8975703c51ac1d071703f945e894f379ec5ff"
+          test "$(git -C subject rev-parse HEAD)" = "49e92a23ddd2622c60965928226c9354402c9049"
+          test "$(git -C site rev-parse HEAD)" = "1c437f1b53236d9982ab3e871bbf56f7b197662e"
           cmp subject/src/domain/service-external-gap-research.ts site/src/domain/service-external-gap-research.ts
           cmp subject/src/domain/service-professional-gap-inventory.ts site/src/domain/service-professional-gap-inventory.ts
           cmp subject/src/domain/service-subject-plumbing-a.ts site/src/domain/service-subject-plumbing-a.ts
           cmp subject/src/domain/service-subject-flooring-a.ts site/src/domain/service-subject-flooring-a.ts
+          cmp subject/src/domain/service-original-corroboration.ts site/src/domain/service-original-corroboration.ts
           echo D07_ITEM_RESEARCH_PARITY=PASS
       - uses: actions/setup-node@v4
         with:
@@ -54,12 +55,12 @@ jobs:
           bun install --frozen-lockfile > "$RUNNER_TEMP/d07-item-install.log" 2>&1 || exit 1
           node --check scripts/d07-run-official-source-research.mjs
           node --check scripts/d07-original-source-fetch.mjs
-          for t in scripts/tests/d07-external-gap-research.test.mjs scripts/tests/d07-original-source-fetch.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs; do node --check "$t"; done
+          for t in scripts/tests/d07-external-gap-research.test.mjs scripts/tests/d07-original-source-fetch.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs scripts/tests/d07-original-corroboration.test.mjs; do node --check "$t"; done
           echo D07_ITEM_RESEARCH_INSTALL_AND_SYNTAX=PASS
       - name: Test independent per-operation evidence and anti-fabrication checks
         working-directory: site
         run: |
-          node --import tsx --test scripts/tests/d07-external-gap-research.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs scripts/tests/d07-original-source-fetch.test.mjs scripts/tests/d07-plumbing-professional-method.test.mjs scripts/tests/d07-flooring-professional-method.test.mjs scripts/tests/d07-professional-preview.test.mjs scripts/tests/d07-methodology-top500.test.mjs > "$RUNNER_TEMP/d07-item-tests.log" 2>&1 || {
+          node --import tsx --test scripts/tests/d07-external-gap-research.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs scripts/tests/d07-original-source-fetch.test.mjs scripts/tests/d07-original-corroboration.test.mjs scripts/tests/d07-plumbing-professional-method.test.mjs scripts/tests/d07-flooring-professional-method.test.mjs scripts/tests/d07-professional-preview.test.mjs scripts/tests/d07-methodology-top500.test.mjs > "$RUNNER_TEMP/d07-item-tests.log" 2>&1 || {
             echo D07_ITEM_RESEARCH_TESTS=FAIL
             grep -E '^not ok|^# (tests|pass|fail)|^[[:space:]]+(actual|expected|error):' "$RUNNER_TEMP/d07-item-tests.log" | tail -24 || true
             exit 1
@@ -94,5 +95,5 @@ jobs:
           }
           echo D07_ITEM_LIVE_ORIGINALS=PASS
           grep -E '^D07_(ORIGINAL|RESEARCH)' "$RUNNER_TEMP/d07-item-live.log" | tail -20
-          node -e "const f=require('fs');const x=JSON.parse(f.readFileSync(process.env.D07_RECEIPT_DEST,'utf8'));for(const r of x.receipts)console.log('D07_SOURCE_TEXT_SHA256='+r.sourceId+':'+r.textSha256);const n=x.research.reduce((s,r)=>s+r.individualTargetsSearched,0);console.log('D07_INDIVIDUAL_GAP_TARGETS='+n);if(n<8||x.counts.approvedMethodologies!==0||x.counts.uniqueOriginalUrlsFetched!==6||x.research.some(r=>!r.unresolvedItems.length))process.exit(1);console.log('D07_FOREIGN_GUIDANCE_JURISDICTION_CHECK='+x.counts.foreignJurisdictionRejected);console.log('D07_ITEM_RESEARCH_NO_FALSE_FINALIZATION=PASS')"
+          node -e "const f=require('fs');const x=JSON.parse(f.readFileSync(process.env.D07_RECEIPT_DEST,'utf8'));for(const r of x.receipts)console.log('D07_SOURCE_TEXT_SHA256='+r.sourceId+':'+r.textSha256);const n=x.research.reduce((s,r)=>s+r.individualTargetsSearched,0);console.log('D07_INDIVIDUAL_GAP_TARGETS='+n);if(n<8||x.counts.approvedMethodologies!==0||x.counts.uniqueOriginalUrlsFetched!==6||x.counts.corroboratedClaims!==9||x.counts.corroboratedOperations!==8||x.counts.sourceDriftRejections!==0||x.corroborations.some(r=>r.methodContentComplete||r.methodologyApproved)||x.research.some(r=>!r.unresolvedItems.length))process.exit(1);console.log('D07_FOREIGN_GUIDANCE_JURISDICTION_CHECK='+x.counts.foreignJurisdictionRejected);console.log('D07_ITEM_RESEARCH_NO_FALSE_FINALIZATION=PASS')"
       # Private checkouts are ephemeral, no artifacts/source HTML/results uploaded.
