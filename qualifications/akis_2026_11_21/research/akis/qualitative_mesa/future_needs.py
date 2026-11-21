@@ -210,8 +210,19 @@ def future_need_projection(
                     try:
                         state.capacity_ledger.preview_plan(work.key, plan)
                         options[work.key] = plan
-                    except CapacityBlocked:
-                        status = "FUTURE_NEED_CONFLICTS_WITH_ACCEPTED_CAPACITY"
+                    except CapacityBlocked as exc:
+                        original_claim_overlap = any(
+                            reservation.resource == exc.resource
+                            and reservation.start < proposed.end
+                            and proposed.start < reservation.end
+                            for reservation in state.capacity_ledger.reservations
+                            for proposed in plan
+                        )
+                        status = (
+                            "FUTURE_NEED_CONFLICTS_WITH_ACCEPTED_CAPACITY"
+                            if original_claim_overlap else
+                            "FUTURE_NEED_SOURCE_DECLARED_CAPACITY_INSUFFICIENT"
+                        )
         row["status"] = status
         row["original_work_request_confirmed"] = bool(
             state.works.get(work.key) is not None
