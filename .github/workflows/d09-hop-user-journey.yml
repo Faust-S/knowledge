@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 809e2e0d6a4f1cc24e418d682cef4bba4ea0b73b
+          ref: 847e883108aa9536a869145c027834966c29b1df
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: HOP brand and source hygiene
@@ -187,6 +187,10 @@ jobs:
             fi
           }
           echo D09_ORIGINAL_T2_BUILD=PASS
+           test -s dist/recipient/hop-portable-player.iife.js
+           test -s dist/recipient/hop-portable-player.css
+           grep -q 'HopPortablePlayer' dist/recipient/hop-portable-player.iife.js
+           echo D09_OFFLINE_ORIGINAL_PLAYER_BUNDLE=PASS
           test -f dist/workspace/index.html
           test -f dist/workspace/exchange/index.html
           test -f dist/workspace/lifecycle/index.html
