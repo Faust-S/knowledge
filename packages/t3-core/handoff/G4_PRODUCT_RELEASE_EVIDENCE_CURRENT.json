@@ -2792,7 +2792,9 @@
         "export_ui_source_qualification": "HOST_SCOPED_WHOLE_WORKSPACE_SELECTION_LOCKED_AND_MANIFEST_CHECKED_SOURCE_SUCCESS_44892877314; SIGNED_AGENT_TO_ORIGINAL_WORKSPACE_BINDING_STILL_OPEN",
         "latest_agent_workflow_head": "1a2f4ad159e10faedd0d129596eb2532e18e8a65",
         "latest_agent_workflow_run": 44895029181,
-        "latest_agent_workflow_status": "PENDING_INSTALLED_WINDOWS_APPROVAL"
+        "latest_agent_workflow_status": "FAIL_K03_TASK_EXECUTE_MODEL_EXECUTION_STOPPED",
+        "source_latest_private_diag_sha": "292049e09c2af9678b67274853a9a342eb266cc5",
+        "source_private_diag_scope": "Allowlisted 4 existing GGUF output failure codes in original Windows witness; diagnostics only, NOT a model fix or installed acceptance. Private Actions prohibited."
       },
       "original_t3_final_candidate_sha": "162f699d69f63e1d54bc002465c28c9781bf62ae",
       "person_d7_source_qualification": {
@@ -2833,7 +2835,7 @@
         "windows_agent_installed_run_id": 44895029181,
         "approved": false,
         "windows_admin_installed_conclusion": "SUCCESS_INSTALLED_ADMIN_SIGNED_OWNER_GUI_WORKSPACE_WITHOUT_ATLAS_ENROLL_DPAPI_COLD",
-        "windows_agent_installed_conclusion": "IN_PROGRESS_NOT_YET_ACCEPTED",
+        "windows_agent_installed_conclusion": "FAIL_K03_TASK_EXECUTE_MODEL_EXECUTION_STOPPED",
         "windows_native_process_conclusion": "SUCCESS_NATIVE_EXACT_T3_OWNER_AGENT_26_OF_26_SOURCE_ONLY_NOT_INSTALLED_GUI",
         "diagnostic_state": "ORIGINAL_NATIVE_SIGNED_OWNER_PID_LOCK_AFTER_CENTER_EXIT_FIXED_AT_RUN_EVENT_EXIT",
         "agent_native_build_fix": "MODEL_FINAL_OUTPUT_FRAME_AND_REASONING_CLASSIFICATION_PRESERVES_STRICT_NO_FAKE_RESULT",
@@ -2902,7 +2904,7 @@
           "G4_ORIGINAL_PRODUCTION_EMPLOYEE_REAL_T2_COLD_READBACK_TWO_PASS",
           "G4_NATIVE_PROCESS_SOURCE_PASS_NOT_INSTALLED_GUI"
         ],
-        "latest_witness_scope": "New Agent SHA 2020493c with one company Workspace UI under installed CI #44895029181 IN_PROGRESS; older native 26/26 and Qwen installed success are valid ONLY for Agent SHA 5dc3. No proof of whole Python Engine workspace persistence or full .iwxa transfer.",
+        "latest_witness_scope": "Agent 2020493c on public knowledge Windows #44895029181: Tauri / One Dist / Setup Core constructed, genuine K03 local-model Task PAUSED before Result. Failed installed GUI qualification; no proof of all-company native Python persistence or full .iwxa.",
         "previous_native_source_scope": {
           "run_id": 44821254010,
           "source_sha": "cd9a074afc35b5c40555f725654f4637dfc13df8",
@@ -2949,7 +2951,21 @@
         },
         "latest_installed_agent_attempt": 1,
         "windows_agent_ui_scope": "ONE_SIGNED_ORIGINAL_COMPANY_WORKSPACE_UI_NO_PARALLEL_AUTO_WORKAREA; SOURCE_CHANGED_NOT_YET_INSTALLED_QUALIFIED",
-        "pending_new_agent_core_source": "COMPANY_WORKSPACE_UI_REWORK_FIRST_NO_NEW_AGENT_LOCAL_WORKAREA_AUTO_ON_CORP_SELECTION"
+        "pending_new_agent_core_source": "COMPANY_WORKSPACE_UI_REWORK_FIRST_NO_NEW_AGENT_LOCAL_WORKAREA_AUTO_ON_CORP_SELECTION",
+        "latest_installed_agent_witness": {
+          "run_id": 44895029181,
+          "head_sha": "1a2f4ad159e10faedd0d129596eb2532e18e8a65",
+          "conclusion": "FAIL",
+          "build_stage": "TAURI_ONE_DIST_SETUP_CORE_BUILT",
+          "installed_phase": "K03_TASK_EXECUTE",
+          "safe_failure_code": "K03_TASK_MODEL_EXECUTION_STOPPED",
+          "last_checkpoint": "AGENT_K03_TASK_ACCEPTED",
+          "background_state": "PAUSED",
+          "background_error_class": "UNAVAILABLE_DUE_TO_FOUR_MISSING_WINDOWS_ENUMS_AT_THIS_SHA",
+          "original_t2_kernel_failure_claimed": false,
+          "company_workspace_installed_accepted": false,
+          "source_artifacts_published": false
+        }
       },
       "resolved_product_installation_2026_11_21": {
         "original_compiled_signed_owner": "PASS_44888532442_ATTEMPT_2",
