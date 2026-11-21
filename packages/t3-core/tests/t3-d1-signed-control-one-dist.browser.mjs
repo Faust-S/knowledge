@@ -437,6 +437,10 @@ try{
   const domainWeb=JSON.parse(readFileSync(join(webSource,'_iwxa/domain.json'),'utf8'));
   domainWeb.origin='https://t3-reference.example.test';
   writeFileSync(join(webSource,'_iwxa/domain.json'),JSON.stringify(domainWeb));
+  const webShell=JSON.parse(readFileSync(
+    join(webSource,'_iwxa/domain-shell.json'),'utf8'));
+  webShell.origin=domainWeb.origin;
+  writeFileSync(join(webSource,'_iwxa/domain-shell.json'),JSON.stringify(webShell));
   writeFileSync(join(webSource,'index.html'),
     '<!doctype html><html lang="ru"><head><title>IWXA T3 Reference</title></head>'+
     '<body><main>Оригинальный сайт</main></body></html>');

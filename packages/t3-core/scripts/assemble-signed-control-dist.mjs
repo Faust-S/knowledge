@@ -282,7 +282,10 @@ export function assembleSignedControlDist({
   if(parsed.origin!==origin||(!loopback&&
      ((installedOriginalAgentD6||installedOriginalAdminD3)||!web)))
     fail('PRODUCT_PINNED_HTTPS_OR_NATIVE_LOOPBACK_ORIGIN_REQUIRED');
-  required(source,'_iwxa/domain-shell.json');
+  const domainShell=JSON.parse(readFileSync(
+    required(source,'_iwxa/domain-shell.json'),'utf8'));
+  if(web&&domainShell.origin!==origin)
+    fail('WEB_DOMAIN_SHELL_ORIGIN_MISMATCH');
   const catalog=JSON.parse(readFileSync(required(source,'_iwxa/service-catalog.json'),'utf8'));
   const config=JSON.parse(readFileSync(required(source,'workspace/workspace.config.json'),'utf8'));
   if(typeof config.workspace_service_id!=='string'||
