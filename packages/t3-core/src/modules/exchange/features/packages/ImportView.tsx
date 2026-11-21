@@ -61,9 +61,11 @@ function completeSignedWorkspacePlan(
 ): boolean {
   const rows=handle.preview.workspaces;
   if(rows.length!==1 || handle.preview.totals.workspaces!==1 ||
-      catalog.length!==1 || catalog[0].read_only===true ||
-      rows[0].workspace_id!==catalog[0].workspace_id) return false;
-  const id=rows[0].workspace_id, allowed=handle.preview.included,
+      catalog.length!==1 || catalog[0].read_only===true) return false;
+  // The original T2 Subject binding permits a foreign archive SOURCE ID
+  // only when merging its COMPLETE content into the sole signed recipient.
+  const id=rows[0].workspace_id, target=catalog[0].workspace_id,
+    allowed=handle.preview.included,
     denied=handle.preview.excluded_by_permission,
     totals=handle.preview.totals;
   if(!allowed || !denied ||
@@ -72,9 +74,11 @@ function completeSignedWorkspacePlan(
   if(plan.include_workspaces.length!==1 || plan.include_workspaces[0]!==id ||
      (plan.include_objects?.length??0)!==0 ||
      !plan.include_history || !plan.include_assets || !plan.include_relations ||
-     !["full","selective","merge"].includes(plan.mode) ||
      !handle.allowed_modes.includes(plan.mode) ||
-     (plan.mode==="merge" && plan.target_workspace!==id)) return false;
+     (id!==target
+       ? plan.mode!=="merge" || plan.target_workspace!==target
+       : !["full","selective","merge"].includes(plan.mode) ||
+         (plan.mode==="merge" && plan.target_workspace!==target))) return false;
   return true;
 }
 
