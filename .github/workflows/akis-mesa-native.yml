@@ -84,7 +84,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa
-          ref: 640f9e11119e1e513f479336d2fad626f081a167
+          ref: 7c5bf39264b548b25c31d5b615a9e8cb81359a41
           path: private-iwxa
           token: ${{ env.AKIS_PRIVATE_READ_TOKEN }}
           persist-credentials: false
@@ -127,5 +127,27 @@ jobs:
           python -c "import json,os; p=os.path.join(os.environ['RUNNER_TEMP'],'akis-cli-dynamic.json'); d=json.load(open(p,encoding='utf-8')); assert d['schema']=='IWXA_AKIS_QUALITATIVE_RESULT/0.1'; assert d['evidence']=='MODEL_ONLY'; assert d['counts']=={'applied':12,'blocked':2}; assert [e['reason'] for e in d['trace'] if e['outcome']=='BLOCKED']==['RESOURCE_READINESS_UNKNOWN','RESOURCE_NOT_AVAILABLE']; assert d['works']['w1']['result']=='ACCEPTED_BY_ORIGINAL_RECIPIENT'; assert d['profit']['operator']=='UNKNOWN'; print('AKIS_NATIVE_DYNAMIC_CLI=PASS MODEL_ONLY, 12 applied, 2 blocked')"
           python -m research.akis.qualitative_mesa.cli --input private-iwxa/research/akis/qualitative_mesa/fixtures/portfolio_economics_unknown.json > "$RUNNER_TEMP/akis-cli-economics.json"
           python -c "import json,os; p=os.path.join(os.environ['RUNNER_TEMP'],'akis-cli-economics.json'); d=json.load(open(p,encoding='utf-8')); e=d['economics']; assert d['evidence']=='MODEL_ONLY'; assert d['counts']=={'applied':18,'blocked':5}; assert d['works']['w2']['result']=='ACCEPTED_BY_ORIGINAL_RECIPIENT'; assert e['source_authority']=='DECLARED_UNVERIFIED'; assert e['source_count']==0; assert e['consolidated_scope_complete_declared'] is False; assert e['consolidated_cash_difference_claimed_scope'] is None; assert e['profit']=='UNKNOWN'; assert e['economic_value_added']=='NOT_IDENTIFIABLE'; assert d['profit']['operator']=='UNKNOWN'; print('AKIS_NATIVE_ECONOMICS_CLI=PASS no fictional money or automated economic advantage')"
+          python -m research.akis.qualitative_mesa.cli --input private-iwxa/research/akis/qualitative_mesa/fixtures/adaptation_economic_portfolio.json > "$RUNNER_TEMP/akis-cli-adaptation.json"
+          python - <<'PY'
+          import json,os
+          p=os.path.join(os.environ["RUNNER_TEMP"],"akis-cli-adaptation.json")
+          d=json.load(open(p,encoding="utf-8"))
+          assert d["evidence"]=="MODEL_ONLY"
+          assert d["counts"]=={"applied":18,"blocked":5}
+          assert d["institution"]["revision"]=="oc-1"
+          assert d["economics"]["profit"]=="UNKNOWN"
+          assert d["economics"]["comparative_causal_effect"]=="NOT_IDENTIFIABLE"
+          assert d["adaptation"]["decision"]=="NO_AUTOMATIC_ORGANIZATIONAL_CHANGE"
+          proposals=d["adaptation"]["proposals"]
+          assert len(proposals)==2
+          assert proposals[0]["assessment"]=="REVIEWABLE_AS_HYPOTHESIS"
+          assert proposals[0]["authorized_change"] is False
+          assert "CODE_OWNERS_NOT_LISTED" in proposals[1]["unresolved_flags"]
+          assert proposals[1]["authorized_change"] is False
+          assert all(p["causal_attribution"]=="NOT_IDENTIFIABLE" for p in proposals)
+          assert d["works"]["w1"]["result"]=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
+          assert d["works"]["w2"]["result"]=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
+          print("AKIS_NATIVE_ADAPTATION_CLI=PASS 2 hypotheses, no automatic rights or fictional profit")
+          PY
           python -m research.akis.qualitative_mesa.cli --input private-iwxa/research/akis/qualitative_mesa/fixtures/portfolio_correction_cascade.json > "$RUNNER_TEMP/akis-cli-portfolio.json"
           python -c "import json,os; p=os.path.join(os.environ['RUNNER_TEMP'],'akis-cli-portfolio.json'); d=json.load(open(p,encoding='utf-8')); assert d['evidence']=='MODEL_ONLY'; assert d['counts']=={'applied':18,'blocked':5}; assert [e['reason'] for e in d['trace'] if e['outcome']=='BLOCKED']==['DEPENDENCY_AWAITING_ACCEPTANCE','UPSTREAM_RESULT_REJECTED','CORRECTION_OWNER_OR_REJECTED_RESULT_REQUIRED','NEW_MODEL_ONLY_EVIDENCE_REQUIRED','DEPENDENCY_AWAITING_ACCEPTANCE']; assert d['works']['w2']['result']=='ACCEPTED_BY_ORIGINAL_RECIPIENT'; assert d['portfolio']['institutional_change']=='NO_AUTOMATIC_CHANGE'; assert d['profit']['system_increment']=='UNKNOWN'; assert len(d['result_history']['w1'])==4; print('AKIS_NATIVE_PORTFOLIO_CLI=PASS MODEL_ONLY 18 applied 5 blocked')"
