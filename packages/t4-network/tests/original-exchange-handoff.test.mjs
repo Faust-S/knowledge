@@ -57,7 +57,7 @@ test('confirmed original T3 export transfers exact opaque bytes with independent
   assert.equal(result.originalPackageDigest,'original-package-digest');
   assert.equal(result.sha256,packageSha256(h.original.bytes));
   assert.equal(h.events.length,1);
-  assert.deepEqual(h.events[0][1].bytes,h.original.bytes);
+  assert.deepEqual(Buffer.from(h.events[0][1].bytes),h.original.bytes);
   assert.equal(h.events[0][1].createOnly,true);
 });
 test('not confirmed state blocks without network',async()=>{
