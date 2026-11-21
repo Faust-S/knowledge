@@ -142,6 +142,7 @@ def native_bilateral_claims():
         item['source_ref']='model://b/owner-finance' if side=='BUYER' else 'model://c/owner-finance'
         item['demand_source_ref']='model://b/need'
         item['offer_source_ref']='model://c/capability'
+        item['offer']='O1'  # scenario's actual original owner-sourced Offer key
         item['work_source_revision']='d-1'
         item['available_at']=4
         item['expires_at']=9
@@ -202,6 +203,8 @@ def test_original_need_must_have_explicit_matching_capacity_unit():
     del d['resources'][0]['capacity_units']
     del d['resources'][0]['capacity_unit']
     out=simulate(d)
-    assert at(out,3)['status']=='ORIGINAL_WORK_CAPACITY_UNIT_UNQUALIFIED'
+    # Deduplicated evolution reports the persistent source defect at t=0;
+    # supplier activation at t=3 adds no new causal information.
+    assert at(out,0)['status']=='ORIGINAL_WORK_CAPACITY_UNIT_UNQUALIFIED'
     assert out['formation_opportunities']['current_opportunity_count']==0
     assert out['works']['w1']['consenting_principals']==[]
