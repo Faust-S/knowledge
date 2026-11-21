@@ -71,9 +71,12 @@ test('typed ledger keeps qualified B0 distinct from unreleased final D1-D7 T3 an
     key=>current.required_gates[key].installed==='PASS');
   const finallyAccepted=current.verdict.g4==='ACCEPTED';
   assert.ok(['ACCEPTED','NOT_ACCEPTED'].includes(current.verdict.g4));
-  assert.equal(current.final_acceptance_policy,'AUTOMATED_INSTALLED_G4');
+  assert.equal(current.final_acceptance_policy,'INDEPENDENT_TECHNOLOGY_D1_D7_ORIGINAL_T2_ONE_DIST');
   assert.equal(current.verdict.g4_scope,'HISTORICAL_OPTIONAL_ECOSYSTEM_INTEGRATION_NOT_T3_RELEASE_GATE');
-  assert.ok(!evidence.release_candidate.production_ready||finallyAccepted);
+  const platformReleased=current.final_t3_release.state==='RELEASED';
+  assert.equal(current.verdict.t3_ready,platformReleased);
+  assert.ok(!evidence.release_candidate.production_ready||platformReleased,
+    'platform production readiness requires its own final T3 technology release, not optional installed G4');
   assert.ok(!finallyAccepted||allInstalledGatesPass,
     'no optional aggregate G4 acceptance before every installed gate');
   if(finallyAccepted){
