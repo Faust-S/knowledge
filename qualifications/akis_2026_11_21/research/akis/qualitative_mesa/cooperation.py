@@ -443,7 +443,19 @@ def cooperation_change_reviews(links: Sequence[CooperationLink],
             name not in subjects or not subjects[name].active for name in required
         ):
             status = "MODEL_REVIEW_PARTICIPANT_AVAILABILITY_REVALIDATION_REQUIRED"
+        source_linked_requests = [
+            event for event in trace
+            if event.get("action") == "request" and event.get("outcome") == "APPLIED"
+            and event.get("request_linked_change_id") == proposal["change_id"]
+            and event.get("requested_cooperation_link") == link.key
+        ]
         out.append({
+            "new_original_work_requests_citing_consultation": len(source_linked_requests),
+            "linked_new_original_work_ids": sorted(
+                event["work"] for event in source_linked_requests
+                if isinstance(event.get("work"), str)
+            ),
+            "linked_request_is_not_contract_or_organizational_amendment": True,
             "historical_review_status": historical_status,
             "original_consultees_provenance": (
                 "SNAPSHOT_IN_ORIGINAL_TRACE" if "original_consultees" in proposal
@@ -701,6 +713,22 @@ def cooperation_system_view(links: Sequence[CooperationLink], works: Mapping[str
         own_channels = [row for row in channels if row["link"] == link.key]
         own_reviews = [row for row in reviews if row["link"] == link.key]
         own_changes = [row for row in change_reviews if row["link"] == link.key]
+        referenced_new_works = sorted({
+            wid for row in own_changes
+            for wid in row["linked_new_original_work_ids"] if wid in works
+        })
+        referenced_results = {
+            wid: {
+                "original_obligation": works[wid].obligation,
+                "original_result": works[wid].result,
+                "original_consent_count": len(works[wid].consents),
+                "original_result_accepted": (
+                    works[wid].result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+                ),
+                "new_work_economic_effect": "NOT_IDENTIFIABLE",
+            }
+            for wid in referenced_new_works
+        }
         original_code_checks = [
             organizational_code_readiness(row) for row in own_changes
         ]
@@ -746,7 +774,9 @@ def cooperation_system_view(links: Sequence[CooperationLink], works: Mapping[str
                       else "MODEL_ONLY_INVITATION_POSSIBLE_NOT_AUTHORIZED"
                   ),
                   "original_works": list(link.works),
-                  "all_original_obligations_accepted": signed},
+                  "all_original_obligations_accepted": signed,
+                  "new_original_works_referencing_prior_consultation": referenced_new_works,
+                  "original_new_work_rights_still_need_separate_consent": True},
             "КПБ": {"status": "MODEL_ONLY_PARTIAL_SOURCE_GATES" if source_rules else "SOURCE_RIGHTS_NOT_QUALIFIED",
                     "work_action_requirements": [list(row) for row in sorted(source_rules)],
                     "source_claim_authentication": "NOT_IMPLEMENTED"},
@@ -759,6 +789,7 @@ def cooperation_system_view(links: Sequence[CooperationLink], works: Mapping[str
             "КЖ": {"status": "ORIGINAL_RESULT_AND_EVENT_TRACE_ONLY",
                   "results_by_work": base["work_results"],
                   "original_result_references": "OWNER_SCOPED_NOT_REDISCLOSED",
+                  "work_results_after_reconfiguration_review": referenced_results,
                   "last_applied_event_at": last_at,
                   "applied_event_count": len(applied),
                   "blocked_event_reasons": base["blocked_event_reasons"]},
@@ -795,6 +826,9 @@ def cooperation_system_view(links: Sequence[CooperationLink], works: Mapping[str
                     "organizational_change": "NOT_AUTOMATIC",
                     "reconfiguration_reviews": [
                         {"change_id": row["change_id"], "status": row["review_status"],
+                         "source_linked_new_original_work_count":
+                             row["new_original_work_requests_citing_consultation"],
+                         "original_new_work_ids": row["linked_new_original_work_ids"],
                          "fresh_original_qualification_required":
                              row["requires_fresh_original_qualification"]}
                         for row in own_changes]},
@@ -818,6 +852,8 @@ def cooperation_system_view(links: Sequence[CooperationLink], works: Mapping[str
             "source_ref": link.source_ref, "source_revision": link.source_revision,
             "original_works": list(link.works), "components": state_by_component,
             "proposed_cooperation_changes": len(own_changes),
+            "new_work_requests_with_prior_consultation": len(referenced_new_works),
+            "economic_gain_from_linked_new_work": "NOT_IDENTIFIABLE",
             "author_formation_phases": formation_phase_evidence(
                 link=link, works=own_works, modeled_events=linked_events,
                 source_rules=source_rules, declared_economic_channels=len(own_channels),
