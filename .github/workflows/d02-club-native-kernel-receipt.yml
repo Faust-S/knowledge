@@ -1125,11 +1125,54 @@ jobs:
               }catch{}
             }
             if(!$ready){throw 'D02_CONTRIBUTION_LOCAL_SITE_NOT_READY'}
+            # First restore the already saved cooperation scenario through
+            # the original T2 Host. A new browser tab must never invent a
+            # scenario relation from the earlier step's title.
             $browser=Start-Process -FilePath $edge -PassThru -ArgumentList @(
               '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
-              "--user-data-dir=$profile","--app=$origin/projects/#club-contribution-case"
+              "--user-data-dir=$profile","--app=$origin/workspace/#/domain"
             )
+            $null=Await 'Моя работа' '' 'D02_LINKED_HOST_MISSING'
+            $selector=Await 'Личная рабочая область' 'combo' 'D02_LINKED_SOURCE_WORKSPACE_MISSING'
+            $selector.SetFocus()
+            [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+            [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+            [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+            $heading=Await 'Совместная работа: Покупки соседям' '' 'D02_LINKED_SCENARIO_NOT_IN_KERNEL'
+            $cursor=$heading
+            $continue=$null
+            $pick=[System.Windows.Automation.AndCondition]::new(
+              [System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::NameProperty,'Продолжить дело'),
+              [System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::Button))
+            for($level=0;$level -lt 12;$level++){
+              if(!$cursor){break}
+              try{$continue=$cursor.FindFirst($scope,$pick)}catch{}
+              if($continue){break}
+              try{
+                $cursor=$cursor.FindFirst([System.Windows.Automation.TreeScope]::Parent,
+                  [System.Windows.Automation.Condition]::TrueCondition)
+              }catch{break}
+            }
+            if(!$continue){throw 'D02_LINKED_EXACT_SCENARIO_CONTINUE_MISSING'}
+            Press $continue 'D02_LINKED_SCENARIO_RESTORE_REQUEST_FAILED'
+            $null=Await 'Открыть сохранённые результаты в Клубе' '' 'D02_LINKED_RESTORE_PANEL_MISSING'
+            $null=AwaitPrefix 'Выбран проект «Совместная работа: Покупки соседям»' '' 'D02_LINKED_RESTORE_SELECTION_MISSING'
+            Press (Await 'Передать выбранные результаты на сайт' 'button' 'D02_LINKED_RESTORE_CONFIRM_MISSING') 'D02_LINKED_RESTORE_CONFIRM_FAILED'
+            $null=Await 'Результаты загружены' '' 'D02_LINKED_RESTORE_NOT_APPLIED'
+            Press (Await 'Открыть Сценарий кооперации' 'link' 'D02_LINKED_RETURN_TO_EDITOR_MISSING') 'D02_LINKED_RETURN_TO_EDITOR_FAILED'
+            $null=Await 'Как организовать работу вместе' '' 'D02_LINKED_ORIGINAL_EDITOR_MISSING'
+            Press (Await 'Записать свой вклад по этому сценарию' 'link' 'D02_LINKED_SOURCE_ACTION_MISSING') 'D02_LINKED_SOURCE_ACTION_FAILED'
+            $null=Await 'Сценарий выбран. Укажите свою работу и нажмите «Подставить выбранную работу». Проверьте обещание перед записью.' '' 'D02_LINKED_SOURCE_NOT_SELECTED'
+            $task=Await 'Работа из выбранного сценария' 'combo' 'D02_LINKED_TASK_SELECT_MISSING'
+            $task.SetFocus()
+            [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+            [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+            [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
             $null=Await 'Что обещал, что сделал и чем подтвердить' '' 'D02_CONTRIBUTION_FORM_NOT_VISIBLE'
+            Write-Output 'D02_CONTRIBUTION_ORIGINAL_SCENARIO_T2_RESTORED=PASS'
             Enter 'Название вклада' 'Сверка покупки' 'D02_CONTRIBUTION_TITLE_INVALID'
             Enter 'В какой роли участвую' 'Организатор' 'D02_CONTRIBUTION_ROLE_INVALID'
             Enter 'Что обещаю сделать' 'Проверить десять продуктовых наборов' 'D02_CONTRIBUTION_PROMISE_INVALID'
@@ -1149,6 +1192,8 @@ jobs:
             Enter 'Что нужно проверить' 'Сверить покупки с накладной' 'D02_CONTRIBUTION_REVIEW_QUESTION_INVALID'
             Press (Await 'Записать вклад' 'button' 'D02_CONTRIBUTION_SUBMIT_NOT_FOUND') 'D02_CONTRIBUTION_SUBMIT_FAILED'
             $null=AwaitPrefix 'Вклад записан в этой вкладке.' '' 'D02_CONTRIBUTION_LOCAL_WRITE_NOT_CONFIRMED'
+            $null=AwaitPrefix 'Связано с работой №1: Сверить десять покупок' '' 'D02_CONTRIBUTION_EXACT_SCENARIO_TASK_LINK_MISSING'
+            Write-Output 'D02_CONTRIBUTION_EXACT_SCENARIO_TASK_LINK=PASS'
             Write-Output 'D02_CONTRIBUTION_NATIVE_USER_CREATION=PASS'
             Press (Await 'Сохранить в IWXA' 'link' 'D02_CONTRIBUTION_SAVE_LINK_MISSING') 'D02_CONTRIBUTION_HANDOFF_FAILED'
             $null=Await 'Перенести результаты из Клуба' '' 'D02_CONTRIBUTION_ORIGINAL_HOST_MISSING'
@@ -1180,6 +1225,8 @@ jobs:
             [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
             [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
             $null=Await 'Мой вклад: Сверка покупки' '' 'D02_CONTRIBUTION_COLD_RESULT_MISSING'
+            $null=Await 'Мои записи вклада (1)' '' 'D02_CONTRIBUTION_COLD_GROUPING_MISSING'
+            Write-Output 'D02_CONTRIBUTION_NATIVE_LINKED_KERNEL_COLD_READBACK=PASS'
             Write-Output 'D02_CONTRIBUTION_NATIVE_KERNEL_COLD_READBACK=PASS'
           }finally{
             foreach($p in @($browser,$reopened)){if($p){try{$p.Kill($true)}catch{}}}
