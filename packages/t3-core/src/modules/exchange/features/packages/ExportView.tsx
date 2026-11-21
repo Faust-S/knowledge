@@ -58,6 +58,8 @@ function isValidPackageArtifact(
 export interface ExportViewProps {
   kernel: KernelFacade;
   scopedWorkspaceId?: string | null;
+  /** Original signed Host scope hint only. The Kernel still owns permissions. */
+  signedWorkspaceScope?: boolean;
   protectedExchange?: ReturnType<typeof createTrustedAgeExchange> | null;
 }
 
@@ -78,7 +80,7 @@ export interface ExportViewProps {
  * `receipt.confirmed_at` and `receipt.package_digest` are surfaced.
  */
 export function ExportView({ kernel, scopedWorkspaceId,
-  protectedExchange = null }: ExportViewProps) {
+  signedWorkspaceScope = false, protectedExchange = null }: ExportViewProps) {
   const [state, dispatch] = useReducer(exportReducer, INITIAL_EXPORT_STATE);
   const busyRef = useRef(false);
   const objectUrlRef = useRef<string | null>(null);
@@ -124,7 +126,8 @@ export function ExportView({ kernel, scopedWorkspaceId,
       // Keep the ORIGINAL T2 state-machine snapshots identical to the
       // complete package requested from Kernel after previous selection.
       const whole = scopedWorkspaceId ??
-        (usable.length === 1 ? usable[0].workspace_id : null);
+        (signedWorkspaceScope && usable.length === 1
+          ? usable[0].workspace_id : null);
       if (whole && usable.some(w => w.workspace_id === whole)) {
         dispatch({ type: "set-selection", selection: {
           workspaces: [whole], include_history: true, include_assets: true,
@@ -136,14 +139,14 @@ export function ExportView({ kernel, scopedWorkspaceId,
       dispatch({ type: "workspaces-failed", error: e instanceof Error ? e.message : String(e) });
     });
     return () => { alive = false; };
-  }, [kernel, scopedWorkspaceId]);
+  }, [kernel, scopedWorkspaceId, signedWorkspaceScope]);
 
-  // The ORIGINAL signed T2 Kernel lists only its ONE authorized Workspace.
-  // Even before the Host's focus is selected, this is a complete-company
-  // export. No history/Asset/relations/schema exclusion for that Workspace.
-  // In an unrestricted multi-Workspace T2 session, retain generic Exchange.
+  // A single catalog row is not evidence of a signed company Workspace.
+  // Only a trusted original signed Host makes one selected Workspace a
+  // mandatory full .iwxa; ordinary T2 retains its original export options.
   const wholeWorkspaceId = scopedWorkspaceId ??
-    (state.catalog.length === 1 ? state.catalog[0].workspace_id : null);
+    (signedWorkspaceScope && state.catalog.length === 1
+      ? state.catalog[0].workspace_id : null);
   const selection: ExportSelection = useMemo(() => wholeWorkspaceId
     ? {
         workspaces: [wholeWorkspaceId],

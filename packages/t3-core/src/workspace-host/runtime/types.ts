@@ -66,6 +66,8 @@ export interface WorkspaceHostRuntimeHandle {
   readonly moduleRegistry: ModuleRegistry;
   readonly moduleSnapshot: readonly ModuleStatusRecord[];
   readonly currentWorkspaceStore: CurrentWorkspaceStore;
+  /** Trusted signed T3 Host hint; not an Access grant or editable module field. */
+  readonly signedWorkspaceScope: boolean;
   readonly dashboardState: DashboardRefreshState;
   readonly panelsState: HostPanelsState;
   readonly contextProvider: ModuleContextProvider;

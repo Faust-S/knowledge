@@ -13,14 +13,13 @@ function makeKernel(): KernelFacade {
     listWorkspaces: () =>
       Promise.resolve([
         { workspace_id: "a", profile: "generic", deleted_at: null } as unknown as WorkspaceRecord,
-        { workspace_id: "b", profile: "generic", deleted_at: null } as unknown as WorkspaceRecord,
       ]),
     exportPreview: vi.fn().mockResolvedValue({
-      workspaces: ["a", "b"],
-      counts: { workspaces: 2, objects: 0, events: 0, relations: 0, assets: 0, schemas: 0 },
+      workspaces: ["a"],
+      counts: { workspaces: 1, objects: 0, events: 0, relations: 0, assets: 0, schemas: 0 },
       approx_bytes: 0,
       summary: {
-        included: { workspaces: 2, objects: 0, events: 0, relations: 0, assets: 0, schemas: 0 },
+        included: { workspaces: 1, objects: 0, events: 0, relations: 0, assets: 0, schemas: 0 },
         excluded_by_permission: { workspaces: 0, objects: 0, events: 0, relations: 0, assets: 0, schemas: 0 },
         scope_mode: "workspace",
       },
@@ -41,8 +40,8 @@ describe("Export stale preview (§2)", () => {
     await act(async () => { fireEvent.click(screen.getByTestId("export-preview")); });
     await waitFor(() => expect(screen.queryByTestId("export-preview-result")).toBeTruthy());
 
-    // Generic original T2 with multiple Workspaces still permits a selection
-    // change; a one-Workspace corporate export intentionally does not.
+    // One generic T2 Workspace retains the original selection options.
+    // Only the original signed T3 Host locks the entire company Workspace.
     await act(async () => { fireEvent.click(screen.getByTestId("export-include_history")); });
 
     // Force-click the package button even if disabled.

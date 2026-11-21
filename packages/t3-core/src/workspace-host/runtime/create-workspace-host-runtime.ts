@@ -401,6 +401,7 @@ export async function createWorkspaceHostRuntime(
     moduleRegistry,
     moduleSnapshot,
     currentWorkspaceStore,
+    signedWorkspaceScope: Boolean(input.signedKernelAccess),
     dashboardState,
     panelsState,
     contextProvider,

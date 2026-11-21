@@ -15,6 +15,7 @@ export interface PackagesViewProps {
   commands: CommandsFacade;
   initialTab: PackagesTab;
   exportScopeId: string | null;
+  signedWorkspaceScope?: boolean;
   protectedExchange?: ReturnType<typeof createTrustedAgeExchange> | null;
   publisherHandoff?: ReturnType<typeof createTrustedPublisherHandoff> | null;
 }
@@ -30,6 +31,7 @@ export function PackagesView({
   commands,
   initialTab,
   exportScopeId,
+  signedWorkspaceScope = false,
   protectedExchange = null,
   publisherHandoff = null,
 }: PackagesViewProps) {
@@ -152,6 +154,7 @@ export function PackagesView({
       >
         {tab === "export" ? (
           <ExportView kernel={kernel} scopedWorkspaceId={exportScopeId}
+             signedWorkspaceScope={signedWorkspaceScope}
              protectedExchange={protectedExchange} />
         ) : (
           <ImportView kernel={kernel} commands={commands}

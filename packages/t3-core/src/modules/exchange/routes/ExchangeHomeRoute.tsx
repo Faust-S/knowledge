@@ -64,6 +64,7 @@ export default function ExchangeHomeRoute() {
           commands={context.commands}
           initialTab="export"
           exportScopeId={exportScopeId}
+          signedWorkspaceScope={runtime?.signedWorkspaceScope === true}
           protectedExchange={runtime?.protectedExchange ?? null}
           publisherHandoff={runtime?.publisherHandoff ?? null}
         />
