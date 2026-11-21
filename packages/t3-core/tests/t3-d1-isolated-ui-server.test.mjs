@@ -65,10 +65,10 @@ async function fixture(){
   add("/workspace/index.html","workspace/index.html","UNSIGNED_T2_ENTRY",
     "text/html; charset=utf-8");
   add("/workspace/.env","workspace/.env","PRIVATE","text/plain");
-  const start=()=>createT3IsolatedUiServer({
+  const start=(installedParentOrigin=null)=>createT3IsolatedUiServer({
     kernelOrigin,serviceId:"iwxa.workspace.integration",
     assetForPath:path=>resources.get(path)??null,
-    uiPort,
+    uiPort,installedParentOrigin,
   });
   return {root,kernel,kernelOrigin,start,uiPort};
 }
@@ -87,6 +87,8 @@ test("migrated public source serves the same signed AppShell at the inherited ca
     assert.match(csp,/script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'/);
     assert.ok(csp.includes("frame-src "+f.kernelOrigin));
     assert.match(csp,/connect-src 'self';/);
+    assert.match(csp,/frame-ancestors 'none'/);
+    assert.equal(canonical.headers.get("x-frame-options"),"DENY");
     assert.doesNotMatch(csp,/huggingface\.co|xethub/);
     assert.equal(canonical.headers.get("cache-control"),"no-store");
     assert.equal(canonical.headers.get("x-content-type-options"),"nosniff");
@@ -118,6 +120,34 @@ test("migrated public source serves the same signed AppShell at the inherited ca
     assert.equal(wrongHost,403);
     assert.equal((await fetch(ui+"/workspace/",{method:"POST"})).status,405);
     await assert.rejects(()=>server.listen(),/ALREADY_STARTED/);
+  }finally{
+    await server.close();await close(f.kernel);
+    rmSync(f.root,{recursive:true,force:true});
+  }
+});
+test("installed native Agent parent alone can frame the real isolated Workspace",async()=>{
+  const f=await fixture();
+  const kernelPort=Number(new URL(f.kernelOrigin).port);
+  let parentPort=16001;
+  while(parentPort===kernelPort||parentPort===f.uiPort)parentPort++;
+  const parentOrigin="http://127.0.0.1:"+parentPort;
+  for(const denied of ["http://localhost:16001","https://127.0.0.1:16001",
+    f.kernelOrigin,"http://127.0.0.1:"+f.uiPort]){
+    assert.throws(()=>f.start(denied),/TRUSTED_PARENT_ORIGIN_INVALID/);
+  }
+  const server=f.start(parentOrigin);
+  try{
+    const origin=await server.listen();
+    const page=await fetch(origin+"/workspace/isolated-signed-workspace.html");
+    assert.equal(page.status,200);
+    const csp=page.headers.get("content-security-policy");
+    assert.ok(csp.includes("frame-ancestors "+parentOrigin));
+    assert.ok(csp.includes("frame-src "+f.kernelOrigin));
+    assert.equal(page.headers.get("x-frame-options"),null,
+      "legacy XFO DENY must not block an exact trusted cross-origin parent");
+    assert.equal((await fetch(origin+"/_iwxa/loader.js")).status,404);
+    assert.equal((await fetch(origin+"/workspace/index.html")).status,404);
+    assert.equal((await fetch(origin+"/workspace/assets/main-TEST.js")).status,200);
   }finally{
     await server.close();await close(f.kernel);
     rmSync(f.root,{recursive:true,force:true});

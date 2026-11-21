@@ -24,7 +24,7 @@ const MODEL_CONNECT=Object.freeze([
 ]);
 const deny=code=>{throw Error("T3_D1_ISOLATED_UI_"+code);};
 
-function headers(kernelOrigin,downloadWorker=false){
+function headers(kernelOrigin,downloadWorker=false,installedParentOrigin=null){
   // Existing Workspace schema compilation needs new Function(); that is
   // restricted to this isolated compiled-UI origin, never Control/Kernel.
   const allowed=downloadWorker?" "+MODEL_CONNECT.join(" "):"";
@@ -32,13 +32,16 @@ function headers(kernelOrigin,downloadWorker=false){
     "Cache-Control":"no-store",
     "X-Content-Type-Options":"nosniff",
     "Referrer-Policy":"no-referrer",
-    "X-Frame-Options":"DENY",
+    // X-Frame-Options cannot express an exact cross-origin native parent.
+    // Its DENY value remains for every ordinary (noninstalled) Workspace.
+    ...(installedParentOrigin===null?{"X-Frame-Options":"DENY"}:{}),
     "Content-Security-Policy":
       "default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; "+
       "style-src 'self'; img-src 'self' data:; font-src 'self'; "+
       "connect-src 'self'"+allowed+"; worker-src 'self' blob:; "+
       "frame-src "+kernelOrigin+"; base-uri 'none'; "+
-      "form-action 'none'; frame-ancestors 'none'",
+      "form-action 'none'; frame-ancestors "+
+        (installedParentOrigin===null?"'none'":installedParentOrigin),
   };
 }
 
@@ -50,6 +53,7 @@ function headers(kernelOrigin,downloadWorker=false){
  */
 export function createT3IsolatedUiServer({
   kernelOrigin,serviceId,assetForPath,uiPort=null,
+  installedParentOrigin=null,
 }={}){
   if(!LOCAL.test(kernelOrigin??"")||!SERVICE.test(serviceId??"")||
      typeof assetForPath!=="function")deny("TRUSTED_STARTUP_REQUIRED");
@@ -60,10 +64,19 @@ export function createT3IsolatedUiServer({
   if(!Number.isSafeInteger(selectedPort)||selectedPort<1||
      selectedPort>65535||selectedPort===kernelPort)
     deny("PINNED_PORT_INVALID");
+  // The original native owner supplies the exact installed Agent parent.
+  // No wildcard, arbitrary web origin or second Kernel/UI origin is allowed.
+  if(installedParentOrigin!==null &&
+     (!LOCAL.test(installedParentOrigin) ||
+      Number(new URL(installedParentOrigin).port)>65535 ||
+      Number(new URL(installedParentOrigin).port)===kernelPort ||
+      Number(new URL(installedParentOrigin).port)===selectedPort))
+    deny("TRUSTED_PARENT_ORIGIN_INVALID");
   let uiOrigin=null;
   const server=createServer((req,res)=>{
     const send=(code,body,type="application/json",isWorker=false)=>{
-      res.writeHead(code,{"Content-Type":type,...headers(kernelOrigin,isWorker)});
+      res.writeHead(code,{"Content-Type":type,
+        ...headers(kernelOrigin,isWorker,installedParentOrigin)});
       res.end(Buffer.isBuffer(body)?body:type==="application/json"
         ?JSON.stringify(body):body);
     };
