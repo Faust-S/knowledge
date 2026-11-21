@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      SITE_SHA: 3791c668cb57460bc06303a9d790d6b07d338da7
+      SITE_SHA: 4b8d313cfd4971f049ef7fec9dbbf9222e54c862
       SUBJECT_SHA: c23980b88eb342ace31554e6165b9b0e92fbf8b6
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
