@@ -54,6 +54,12 @@ def choose_model_action(observation: Mapping[str, Any], *, configuration: str) -
     elif reason in RESOURCE_HOLD_REASONS:
         action = "HOLD_NEW_OPPORTUNITY_RESOURCE_OR_PARTICIPATION"
     elif (reason in {"OUTSIDE_OPTION_UNKNOWN", "REVIEWABLE_NOT_CONSENTED"}
+          and observation.get("_private_owner_cash_review_required")):
+        # The original owner privately sees source-qualified portfolio timing.
+        # The action is intentionally generic: neither a cash gap nor its
+        # owner-specific figures/causes may leak to the common trace.
+        action = "REQUEST_INDEPENDENT_EVIDENCE_REVIEW"
+    elif (reason in {"OUTSIDE_OPTION_UNKNOWN", "REVIEWABLE_NOT_CONSENTED"}
           and observation.get("goal_comparison") == "INCOMPARABLE_OBJECTIVES"):
         action = "REQUEST_OWNER_MULTI_OBJECTIVE_TRADEOFF_REVIEW"
     elif (reason in {"OUTSIDE_OPTION_UNKNOWN", "REVIEWABLE_NOT_CONSENTED"}
