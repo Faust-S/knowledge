@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops
-          ref: c47d0c9f241c756c891a4cbf4139b00c3d8729c2
+          ref: bf7b969675481565d2a2748812838238c145c23b
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: logic
@@ -33,14 +33,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops.ru
-          ref: 568593f796e117e8204e4a90c77f7829d647a1a0
+          ref: df54ef8e501e3df190dc79961ee44249077f17f0
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
       - name: Verify private revisions, never emit private source
         run: |
-          test "$(git -C logic rev-parse HEAD)" = "c47d0c9f241c756c891a4cbf4139b00c3d8729c2" || exit 1
-          test "$(git -C site rev-parse HEAD)" = "568593f796e117e8204e4a90c77f7829d647a1a0" || exit 1
+          test "$(git -C logic rev-parse HEAD)" = "bf7b969675481565d2a2748812838238c145c23b" || exit 1
+          test "$(git -C site rev-parse HEAD)" = "df54ef8e501e3df190dc79961ee44249077f17f0" || exit 1
           cmp logic/model/business-obligation.mjs site/t2-site-module/marketops/decision/business-obligation.mjs
           cmp logic/model/business-obligation.d.mts site/t2-site-module/marketops/decision/business-obligation.d.mts
           echo D08_SUBJECT_PARITY=PASS
