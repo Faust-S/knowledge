@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: b1bbc23b1c83edfbeee591ce393bf700436d292b
+      SITE_SHA: 98e479953a92b1e3fb0a73ed3840f11dc85f3d3c
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -707,11 +707,13 @@ jobs:
           function Locate([string]$name,[string]$type){
             $cond=[System.Windows.Automation.PropertyCondition]::new(
               [System.Windows.Automation.AutomationElement]::NameProperty,$name)
-            if($type -eq 'button' -or $type -eq 'combo' -or $type -eq 'tab'){
+            if($type -eq 'button' -or $type -eq 'combo' -or $type -eq 'tab' -or $type -eq 'edit'){
               $control=if($type -eq 'combo'){
                 [System.Windows.Automation.ControlType]::ComboBox
               }elseif($type -eq 'tab'){
                 [System.Windows.Automation.ControlType]::TabItem
+              }elseif($type -eq 'edit'){
+                [System.Windows.Automation.ControlType]::Edit
               }else{[System.Windows.Automation.ControlType]::Button}
               $cond=[System.Windows.Automation.AndCondition]::new(
                 $cond,[System.Windows.Automation.PropertyCondition]::new(
@@ -992,7 +994,7 @@ jobs:
                 throw 'D02_IMPORT_PROFILE_KEYBOARD_ACTIVATION_FAILED'
               }
             }
-            $alias=Await 'Как к вам обращаться' '' 'D02_IMPORT_PROFILE_FIELD_MISSING'
+            $alias=Await 'Как к вам обращаться' 'edit' 'D02_IMPORT_PROFILE_FIELD_MISSING'
             $actual=[System.Windows.Automation.ValuePattern]$alias.GetCurrentPattern(
               [System.Windows.Automation.ValuePattern]::Pattern)
             if($actual.Current.Value -cne 'Club проверка пользовательской записи'){
