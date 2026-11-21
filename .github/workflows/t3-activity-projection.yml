@@ -196,7 +196,7 @@ jobs:
           import {lstatSync,readdirSync,readFileSync,writeFileSync} from 'node:fs';
           import {join} from 'node:path';
           import {execFileSync} from 'node:child_process';
-          const roots=["dist","qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip","integration-sources/bli1/SOURCE_PIN.json","package.json","package-lock.json","scripts/assemble-signed-control-dist.mjs","scripts/register-t3-local-inference.mjs","scripts/materialize-t3-domain-mode.mjs","scripts/t3-pwa-manifest.mjs","scripts/prepare-t3-one-dist-candidate.mjs","scripts/zip-store.mjs","scripts/real-kernel-e2e.mjs","src/t3","src/factory2/products/domain-completion/independent-browser-witness.mjs"];
+          const roots=["dist","qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip","integration-sources/bli1/SOURCE_PIN.json","package.json","package-lock.json","scripts/assemble-signed-control-dist.mjs","scripts/register-t3-local-inference.mjs","scripts/materialize-t3-domain-mode.mjs","scripts/t3-pwa-manifest.mjs","scripts/prepare-t3-one-dist-candidate.mjs","scripts/zip-store.mjs","scripts/real-kernel-e2e.mjs","src/t3","src/factory2/products/domain-completion/independent-browser-witness.mjs","src/factory2/products/domain-completion/qualified-kernel-artifact.json"];
           const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
           const items=[];
           function include(path){
@@ -267,6 +267,7 @@ jobs:
             packages/t3-core/scripts/real-kernel-e2e.mjs
             packages/t3-core/src/t3/
             packages/t3-core/src/factory2/products/domain-completion/independent-browser-witness.mjs
+            packages/t3-core/src/factory2/products/domain-completion/qualified-kernel-artifact.json
             packages/t3-core/t3-platform-inputs.json
             packages/t3-core/t3-platform-inputs.sha256
           if-no-files-found: error
