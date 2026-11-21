@@ -424,13 +424,7 @@ jobs:
                     $win=$roots.Item($i)
                     try {
                       if($win.Current.ClassName -eq '#32770' -or
-                         $win.Current.Name -match '(?i)^(Open|Открыть|Открытие|Select file|Choose file to upload|Выберите файл)
-          }finally{
-            CloseEdge
-            if($server){Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue}
-          }
-      # No source, dist, browser profile, reports, archives or images uploaded.
-){
+                         $win.Current.Name -match '(?i)^(Open|Открыть|Открытие|Select file|Choose file to upload|Выберите файл)$'){
                         return $win
                       }
                     }catch{}
@@ -776,13 +770,7 @@ jobs:
                   $candidate=$buttons.Item($n)
                   if($candidate.Current.IsEnabled -and
                      ($candidate.Current.AutomationId -eq '1' -or
-                      $candidate.Current.Name -match '(?i)^(&?Open|Открыть|Open\(&O\))
-          }finally{
-            CloseEdge
-            if($server){Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue}
-          }
-      # No source, dist, browser profile, reports, archives or images uploaded.
-)){
+                      $candidate.Current.Name -match '(?i)^(&?Open|Открыть|Open\(&O\))$')){
                     $openButton=$candidate;break
                   }
                 }
