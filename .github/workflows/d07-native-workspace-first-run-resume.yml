@@ -15,7 +15,7 @@ jobs:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
       CI: 'true'
-      IWXA_D07_PREVIEW_PORT: '55417'
+      IWXA_D07_PREVIEW_PORT: '55407'
     defaults:
       run:
         shell: pwsh
@@ -75,7 +75,7 @@ jobs:
           $ErrorActionPreference='Stop'
           Add-Type -AssemblyName UIAutomationClient
           Add-Type -AssemblyName UIAutomationTypes
-          $origin='https://127.0.0.1:55417'
+          $origin='https://127.0.0.1:55407'
           $url=$origin+'/workspace/#/domain'
           $profile=Join-Path $env:RUNNER_TEMP 'd07-native-workspace-profile'
           $site=Join-Path $env:GITHUB_WORKSPACE 'site'
@@ -169,18 +169,39 @@ jobs:
             return $false
           }
           try{
+            # Run canonical preview's own preflight before attempting UIA.
+            # Never expose internal source, dist, profiles or raw server logs.
+            $preflight=Join-Path $env:RUNNER_TEMP 'd07-preview-preflight.private.log'
+            & node scripts/preview-d07-integrated-site.mjs --check *> $preflight
+            if($LASTEXITCODE -ne 0){
+              $codes=@(Select-String -Path $preflight -Pattern 'D07_LOCAL_PREVIEW_[A-Z0-9_]+' -AllMatches |
+                ForEach-Object {$_.Matches.Value} | Select-Object -Unique)
+              if($codes.Count -gt 0){Write-Output ('D07_PREVIEW_CODE='+($codes -join ','))}
+              throw 'D07_NATIVE_PREVIEW_PREFLIGHT_FAIL'
+            }
+            Write-Output 'D07_NATIVE_PREVIEW_PREFLIGHT=PASS'
             $server=Start-Process -FilePath 'node' -WorkingDirectory $site -ArgumentList @(
               'scripts/preview-d07-integrated-site.mjs'
             ) -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd07-host.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd07-host-error.private.log') -PassThru
             $ready=$false
-            for($i=0;$i -lt 50;$i++){
-              Start-Sleep -Milliseconds 450
+            for($i=0;$i -lt 120;$i++){
+              Start-Sleep -Milliseconds 600
+              if($server.HasExited){break}
               try{
-                $response=Invoke-WebRequest -Uri $origin+'/workspace/' -SkipCertificateCheck -TimeoutSec 2
+                $response=Invoke-WebRequest -Uri ($origin+'/workspace/') -SkipCertificateCheck -TimeoutSec 2
                 if($response.StatusCode -eq 200){$ready=$true;break}
               }catch{}
             }
-            if(!$ready){throw 'D07_NATIVE_HTTPS_NOT_READY'}
+            if(!$ready){
+              $errorFile=Join-Path $env:RUNNER_TEMP 'd07-host-error.private.log'
+              if(Test-Path $errorFile){
+                $codes=@(Select-String -Path $errorFile -Pattern 'D07_LOCAL_PREVIEW_[A-Z0-9_]+' -AllMatches |
+                  ForEach-Object {$_.Matches.Value} | Select-Object -Unique)
+                if($codes.Count -gt 0){Write-Output ('D07_PREVIEW_CODE='+($codes -join ','))}
+              }
+              if($server.HasExited){throw 'D07_NATIVE_HTTPS_PROCESS_EXITED'}
+              throw 'D07_NATIVE_HTTPS_NOT_READY'
+            }
             Write-Output 'D07_NATIVE_HTTPS_HOST=PASS'
             $edgeProc=OpenEdge $url
             $new=WaitUIA 'Новый заказ' 'button' 30
