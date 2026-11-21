@@ -2548,11 +2548,11 @@
     "D3_AGENT06_CENTRAL_ORIGINAL_EMPLOYEE_SOURCE": "EXACT_CURRENT_AGENT_21505E_ONE_CORE_F42E_ORIGINAL_T3_1A826_SOURCE_NATIVE_26_OF_26_PLUS_FINAL_44723931657_SUCCESS__INDEPENDENT_INSTALLED_GUI_ADMIN_APPLY_HOLD"
   },
   "next_critical_path": [
-    "Priority 1: replace local Agent corporate WorkArea authority with the ONE existing signed original T2 company Workspace opened by Admin Center grant; ordinary Agent work must remain in this workspace. Do not develop separate Task/Result/document/history bridges or per-Result disclosures.",
-    "Priority 2: use original T2 Kernel/Exchange t2.exportPackage with exactly the selected company workspace and all include_history/assets/relations/schemas true; ordinary original T2 Import restores the entire company Workspace, with independent cold readback. No new archive format, Store or Kernel; no claims of delivery before actual recipient receipt.",
-    "Priority 3: qualify complete Workspace including file/assets and cold recovery with the existing T3 CI, preserving personal and foreign-company separation. Source signed 26/26, original PERSON 22/22, standalone installed Admin and Agent are already separately evidenced; they are narrower than full Workspace acceptance.",
-    "Priority 4: finish D1-D7 original owner composition, versioned reproducible ONE final T3 One Dist and factual build provenance. Atlas, two installed GUI interapp flow, Publisher installed app and domain migrations are not T3 final prerequisites.",
-    "Original private T3 Actions remain prohibited; use only public knowledge for bounded private reads. Do not create a second signer, Registry, Store, Kernel, Task Engine, Router or .iwxa format."
+    "Priority 1: complete the existing generic D1-D7 platform interfaces over original T2 0.3.6 Kernel/Host/Store/Workspace/Exchange, and close only actual functional gaps; no new infrastructure.",
+    "Priority 2: verify full original T2 .iwxa Workspace export/import including history/assets/relations/schemas with cold recipient readback in generic T3, not through installed corporate Agent.",
+    "Priority 3: freeze and reproduce one versioned One Dist with Git-checked T3 source identity, original T2 qualified runtime and original D7 consumer; final acceptance must use evidence for the exact resulting bytes.",
+    "Separate product track: Agent 0.6 native Task Engine must write directly in the signed original company T2 Workspace; Admin Center provides corporate authority and receives the single whole .iwxa. Preserve personal/other organizations; no second Result or per-type bridges.",
+    "Original private T3 Actions remain prohibited. Keep private signer and keys out of public artifacts. Atlas, Publisher, installed two-GUI transfer and domain migrations are not T3 technology release gates."
   ],
   "transport_profile_rules": {
     "original_T2_Workspace_iwxa": "Normal T2 Exchange importPreview/importCommit with original T2 Workspace/Package manifest",
@@ -2647,14 +2647,14 @@
         "AUTOMATED_TRANSPORT_REPLACING_MANUAL_IWXA",
         "UNSUPPORTED_DEVTOOLS_PWA_INSTALL_METHOD_FOR_BROWSER_T3",
         "TWO_RECIPIENT_NATIVE_AGE_FOR_PLAIN_ORIGINAL_IWXA_EXPORT",
-        "INSTALLED_INDEPENDENT_D6_RECIPIENT_PROGRAM_FOR_GENERIC_T3"
+        "INSTALLED_INDEPENDENT_D6_RECIPIENT_PROGRAM_FOR_GENERIC_T3",
+        "INSTALLED_AGENT_TO_ADMIN_CENTER_WHOLE_COMPANY_WORKSPACE_DELIVERY_AND_COLD_GUI",
+        "AGENT_NATIVE_PYTHON_TASK_ENGINE_DIRECT_WRITE_IN_COMPANY_WORKSPACE"
       ],
       "currently_open": [
-        "ONE_ORIGINAL_T2_CORPORATE_WORKSPACE_IS_ACTIVE_AGENT_WORK_CONTEXT_NOT_LOCAL_AGENT_WORKAREA",
-        "WHOLE_CORPORATE_WORKSPACE_DURABLE_READ_WRITE_AND_FULL_EXISTING_T2_IWXA_EXPORT_IMPORT_HISTORY_ASSETS_RELATIONS_SCHEMAS_WITH_COLD_READBACK",
-        "D7_ORIGINAL_PERSON_SOURCE_22_PASS_FINAL_ONE_DIST_COMPOSITION_PENDING",
-        "INTEGRATED_D1_D7_PLATFORM_INTERFACE_AND_FINAL_BUNDLE",
-        "VERSIONED_FROZEN_FINAL_T3_ONE_DIST_AND_PROVENANCE_NOT_JUST_OWNER_INPUT"
+        "GENERIC_ORIGINAL_T2_FULL_WORKSPACE_IWXA_EXPORT_IMPORT_COLD_READBACK_IN_ONE_T3_PLATFORM_PROFILE",
+        "INTEGRATED_D1_D7_PLATFORM_RUNTIME_AND_ORIGINAL_SIGNED_CONSUMER_PORTS_IN_FINAL_ONE_DIST",
+        "VERSIONED_FROZEN_REPRODUCIBLE_FINAL_T3_ONE_DIST_WITH_EXACT_PROVENANCE_AND_INDEPENDENT_QUALIFICATION"
       ],
       "existing_evidence_preserved": true,
       "company_workspace": {
@@ -2814,7 +2814,10 @@
           "original_bli_tree_sha": "e17b628392fb4e2dbeba2df67fdb0a5506fc5243",
           "status": "SOURCE_QUALIFIED_RC_NOT_FINAL",
           "installed": false
-        }
+        },
+        "integration_owner": "AGENT_PLUS_ADMIN_CENTER_PRODUCT_TRACK",
+        "platform_release_blocker": false,
+        "product_integration_status": "OPEN_NATIVE_AGENT_TASK_ENGINE_STILL_LOCAL_AND_FULL_COMPANY_IWXA_COLD_RECEIPT_NOT_ACCEPTED"
       },
       "original_t3_final_candidate_sha": "162f699d69f63e1d54bc002465c28c9781bf62ae",
       "person_d7_source_qualification": {
@@ -2999,7 +3002,7 @@
         "exact_person_d7_source": "PASS_22_22_44890782631_OWNER_162F",
         "exact_one_core_current_source": "PASS_TEST_REAL_HOST_WINDOWS_44890782582_FROZEN_TREE"
       },
-      "platform_release_basis": "COMPLETE_ORIGINAL_COMPANY_T2_WORKSPACE_AND_EXISTING_FULL_IWXA_EXCHANGE_PLUS_D1_D7_COMPOSITION_PLUS_VERSIONED_PROVEN_FINAL_ONE_DIST; NO_MANDATORY_ECOSYSTEM_G4_GUI_MATRIX",
+      "platform_release_basis": "INTEGRATED_GENERIC_ORIGINAL_T2_T3_D1_D7_FULL_WORKSPACE_EXCHANGE_AND_PROVEN_VERSIONED_ONE_DIST__NO_AGENT_ADMIN_CENTER_CORPORATE_GUI_DEPENDENCY",
       "latest_executable_source_qualification": {
         "run_id": 44897104030,
         "commit_sha": "1d914c756de5687f309e692aadfbbebc0ffe7add",
@@ -3014,7 +3017,8 @@
         "owner_input_artifact_id": 14704263327,
         "one_dist_rc_artifact_id": 14703763536,
         "scope": "SOURCE_ONLY_WHOLE_ORIGINAL_COMPANY_WORKSPACE_EXPORT_AND_SIGNED_IMPORT_SAME_OR_FOREIGN_SOURCE_TO_EXACT_SELECTED_RECIPIENT_NO_NEW_KERNEL; NOT INSTALLED_AGENT_GUI; NOT FULL_COMPANY_NATIVE_PYTHON_ENGINE; NOT FINAL_DIST"
-      }
+      },
+      "platform_release_boundary": "GENERIC_T2_T3_D1_D7_AND_VERIFIED_ONE_DIST_ONLY__COMPANY_AGENT_ADMIN_CENTER_INTEGRATION_QUALIFIED_SEPARATELY"
     },
     "required_gates": {
       "B0": {
@@ -3025,7 +3029,7 @@
       "D1": {
         "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "Signed corporate Access and first-use Owner passed independently. For final platform, bind ordinary Agent corporate work to exactly one original T2 Workspace under existing signed grant. Independent installed two-GUI handoff is optional product integration."
+        "remaining": "Qualify original D1 signed grants and authorization against the generic T2/T3 Host and Kernel. Installing employee Agent and enrolling it through Admin Center is a separate corporate product gate."
       },
       "D2": {
         "source": "PASS",
@@ -3035,12 +3039,12 @@
       "D3": {
         "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "26/26 native signed Task/Result and Admin ACCEPT/APPLY on exact owner are source qualified. Final platform needs ordinary Agent work in the ONE original company T2 Workspace, not secondary WorkArea or per-Result selection. Separate two-app installed GUI E2E is optional."
+        "remaining": "Finish generic signed Task/Result, Human ACCEPT and separate authorized Kernel APPLY against the original One Core. Do not make Agent-specific Python WorkArea migration or two-application GUI a technology release condition."
       },
       "D4": {
         "source": "PASS",
         "installed": "HOLD",
-        "remaining": "Finish full original T2 Exchange .iwxa export/import of exactly one authorized corporate Workspace with all history, Assets, relations and schemas and real cold readback. Optional age two-recipient encryption is not required for plain original .iwxa."
+        "remaining": "Qualify original T2 Exchange full selected Workspace .iwxa export/import including history, Assets, relations and schemas with independent cold readback on generic T3. Agent-to-company delivery is separately owned by Agent and Admin Center."
       },
       "D5": {
         "source": "PASS",
@@ -3055,7 +3059,7 @@
       "D7": {
         "source": "PASS",
         "installed": "HOLD",
-        "remaining": "Original PERSON issuer/holder, STATUS, renewal, revocation and cold source 22/22 PASS on original owner 162f in #44890782631. Compose original D7 into final One Dist; installed Publisher and installed licence recipient are optional product integrations."
+        "remaining": "Compose original D7 PERSON holder/consumer, protected exchange and authorization contracts in the final generic T3 runtime. Original private signing keys and installed Publisher remain with their existing native owner and are not bundled into a public dist."
       }
     },
     "qualifications": {

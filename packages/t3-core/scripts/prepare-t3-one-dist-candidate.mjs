@@ -5,6 +5,7 @@
 // Usage: npm run package:t3:candidate -- <qualified-t2-dist> <compiled-t3-build>
 //   <new-output-directory> <0.x.y-rc.z> <one-core-source-sha> <t2-source-sha>
 import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
 import {existsSync,lstatSync,mkdirSync,readFileSync,readdirSync,
   rmSync,writeFileSync} from 'node:fs';
 import {dirname,isAbsolute,join,relative,resolve,sep} from 'node:path';
@@ -18,6 +19,22 @@ const candidate=/^0\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$/;
 const PRODUCT_AGENT='iwxa.personal-agent';
 const fail=code=>{throw Error('T3_ONE_DIST_CANDIDATE_'+code);};
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
+// Check the code we are packaging, not a historical SHA supplied by CI.
+// This does not claim to verify the original T2 source pin: the inherited
+// runtime still uses its own qualified original T2 artifact verifier.
+function requireExactOneCoreSource(sha){
+  const checkout=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
+  let actual,dirty;
+  try{
+    actual=execFileSync('git',['rev-parse','HEAD'],{
+      cwd:checkout,encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();
+    dirty=execFileSync('git',['status','--porcelain','--',
+      'packages/t3-core/src','packages/t3-core/scripts'],{
+      cwd:checkout,encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();
+  }catch{fail('EXACT_SOURCE_CHECKOUT_REQUIRED');}
+  if(actual!==sha)fail('EXECUTABLE_SOURCE_PIN_MISMATCH');
+  if(dirty)fail('UNCOMMITTED_EXECUTABLE_SOURCE');
+}
 function inside(root,child){
   const path=relative(root,child);
   return path===''||(
@@ -113,6 +130,7 @@ export function prepareT3OneDistCandidate({
     fail('VERSION_AND_SOURCE_PINS_REQUIRED');
   if(!['signed-control','agent-d6','agent-d6-desktop'].includes(assemblyProfile))
     fail('ASSEMBLY_PROFILE_INVALID');
+  requireExactOneCoreSource(oneCoreSha);
   let originalDomain,originalConfig;
   try{
     originalDomain=JSON.parse(readFileSync(join(t2,'_iwxa/domain.json'),'utf8'));
@@ -151,6 +169,11 @@ export function prepareT3OneDistCandidate({
       product:{id:domain.domain_id,origin:domain.origin,
         serviceId:config.workspace_service_id,assemblyProfile},
     });
+    // The original T2 source SHA is still an external pin; the inherited
+    // qualified T2 artifact and exact executable T3 Git checkout are checked.
+    // Do not label this candidate a final, independently accepted release.
+    manifest.provenanceStatus=
+      'EXECUTABLE_ONE_CORE_GIT_HEAD_VERIFIED_T2_SOURCE_PIN_ASSERTED';
     const zipPath=join(output,'t3-one-dist-'+version+'.zip');
     writeStoredZip(zipPath,raw);
     const zipEntries=readStoredZip(zipPath);

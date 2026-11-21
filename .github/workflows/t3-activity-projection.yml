@@ -381,7 +381,7 @@ jobs:
             "$RUNNER_TEMP/iwxa-t3-native-agent-build" \
             "$RUNNER_TEMP/iwxa-t3-one-dist-rc" \
             "0.3.0-rc.1" \
-            "f42e53cd28c881b2b8e04199595f9d7991f34414" \
+            "$(git rev-parse HEAD)" \
             "9c64951cd78411283e8a416641c36d71e169fc1d" \
             --installed-agent-d6-control-only
           (cd "$RUNNER_TEMP/iwxa-t3-one-dist-rc" && sha256sum -c SHA256SUMS.txt)
