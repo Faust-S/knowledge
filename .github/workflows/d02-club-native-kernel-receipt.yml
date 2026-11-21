@@ -514,23 +514,26 @@ jobs:
             }
           }
           function Enter([string]$name,[string]$value,[string]$code){
-            $node=Await $name 'edit' $code
-            try{
-              $node.SetFocus()
-              Set-Clipboard -Value $value
-              [System.Windows.Forms.SendKeys]::SendWait('^a')
-              [System.Windows.Forms.SendKeys]::SendWait('^v')
-              $done=$false
-              for($k=0;$k -lt 30;$k++){
-                Start-Sleep -Milliseconds 100
-                $current=Locate $name 'edit'
-                if(!$current){continue}
-                $v=[System.Windows.Automation.ValuePattern]$current.GetCurrentPattern(
-                  [System.Windows.Automation.ValuePattern]::Pattern)
-                if($v.Current.Value -ceq $value){$done=$true;break}
-              }
-              if(!$done){throw $code}
-            }catch{throw $code}
+            for($attempt=0;$attempt -lt 3;$attempt++){
+              $node=Await $name 'edit' $code
+              try{
+                $node.SetFocus()
+                Start-Sleep -Milliseconds 150
+                Set-Clipboard -Value $value
+                [System.Windows.Forms.SendKeys]::SendWait('^a')
+                [System.Windows.Forms.SendKeys]::SendWait('^v')
+                for($k=0;$k -lt 20;$k++){
+                  Start-Sleep -Milliseconds 140
+                  $current=Locate $name 'edit'
+                  if(!$current){continue}
+                  $v=[System.Windows.Automation.ValuePattern]$current.GetCurrentPattern(
+                    [System.Windows.Automation.ValuePattern]::Pattern)
+                  if($v.Current.Value -ceq $value){return}
+                }
+              }catch{}
+              Start-Sleep -Milliseconds 350
+            }
+            throw $code
           }
           $server=$null;$browser=$null;$reopened=$null
           try{
