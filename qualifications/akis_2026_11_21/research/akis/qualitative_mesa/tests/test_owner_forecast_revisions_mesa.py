@@ -199,3 +199,69 @@ def test_no_optional_forecast_revisions_preserves_original_cash_interpretation()
     assert with_update["works"] == without_update["works"]
     assert with_update["trace"] == without_update["trace"]
     assert with_update["counts"] == without_update["counts"]
+
+
+def _full_organizational_cycle():
+    """Complete synthetic source-event SEQUENCE, not endogenous signed consent."""
+    from .test_future_need_mesa_integration import future
+    scenario = data()
+    # Future need is prospective, prior work still owns every real model event.
+    scenario["context_evidence"]["strict"] = False
+    scenario["resources"][0]["capacity_units"] = 1
+    scenario["resources"][0]["capacity_unit"] = "research_staff"
+    scenario["future_need_signals"] = [
+        future(start=0, end=13, prereq=[
+            {"work": "w1", "source_revision": "d-1"},
+        ])
+    ]
+    scenario["events"].extend([
+        {"at": 4, "action": "consent", "actor": "a", "work": "w1",
+         "source_revision": "d-1", "org_revision": "oc-1"},
+        {"at": 5, "action": "consent", "actor": "b", "work": "w1",
+         "source_revision": "d-1", "org_revision": "oc-1"},
+        {"at": 6, "action": "commit", "actor": "op", "work": "w1"},
+        {"at": 7, "action": "start", "actor": "a", "work": "w1"},
+        {"at": 8, "action": "complete", "actor": "a", "work": "w1",
+         "result_ref": "model://a/first-result"},
+        {"at": 9, "action": "accept", "actor": "b", "work": "w1"},
+    ])
+    scenario["model_horizon"] = 12
+    return scenario
+
+
+def test_one_mesa_clock_original_payment_forecast_to_consent_result_and_next_need():
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    scenario = _full_organizational_cycle()
+    result = simulate(scenario)
+    assert result["counts"] == {"applied": 9, "blocked": 0}
+    assert result["works"]["w1"]["obligation"] == "FULFILLED"
+    assert result["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert result["works"]["w1"]["consenting_principals"] == ["a", "b"]
+    assert "w2" not in result["works"]
+    phases = {row["at"]: row["projection"]["needs"][0]["status"]
+              for row in result["future_need_dynamics"]["read_only_evolution"]}
+    assert phases[0.0] == "FUTURE_NEED_AWAIT_ORIGINAL_ACCEPTED_RESULT"
+    assert phases[8.0] == "FUTURE_NEED_AWAIT_ORIGINAL_ACCEPTED_RESULT"
+    assert phases[9.0] == "SOURCE_ACTIVE_FOR_RESEARCH"
+    assert result["future_need_dynamics"]["pre_order_owner_need_is_not_original_work"]
+    assert result["future_need_dynamics"]["no_automatic_original_request_or_contract"]
+    assert result["general_akis_model"]["legal_consent_created"] is False
+    assert result["economics"]["profit"] == "UNKNOWN"
+    assert result["trace"][2]["action"] == "source_update"
+    assert result["trace"][5]["action"] == "commit"
+    assert result["trace"][8]["action"] == "accept"
+    assert simulate(deepcopy(scenario)) == result
+
+
+def test_no_accepted_original_result_prevents_next_need_even_after_owner_cash_reassessment():
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    scenario = _full_organizational_cycle()
+    scenario["events"][-1]["action"] = "reject"
+    result = simulate(scenario)
+    assert result["counts"] == {"applied": 9, "blocked": 0}
+    assert result["works"]["w1"]["result"] == "REJECTED"
+    assert "w2" not in result["works"]
+    assert result["future_need_dynamics"]["current"]["needs"][0][
+        "status"
+    ] == "FUTURE_NEED_AWAIT_ORIGINAL_ACCEPTED_RESULT"
+    assert result["economics"]["economic_value_added"] == "NOT_IDENTIFIABLE"
