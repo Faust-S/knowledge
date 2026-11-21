@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops.ru
-          ref: d93b8424d453144964dc8f34fc1fb00b68326e9c
+          ref: 33cba7a42d1d5b8c54c7027270c144ab7c0978eb
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -44,7 +44,7 @@ jobs:
           path: t2
       - name: Verify clean pinned private identities without outputting source
         run: |
-          test "$(git -C site rev-parse HEAD)" = "d93b8424d453144964dc8f34fc1fb00b68326e9c" || exit 1
+          test "$(git -C site rev-parse HEAD)" = "33cba7a42d1d5b8c54c7027270c144ab7c0978eb" || exit 1
           test "$(git -C t2 rev-parse HEAD)" = "49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7" || exit 1
           test -z "$(git -C t2 status --porcelain)" || exit 1
           test -f site/tests/d08-obligation-native-t2-roundtrip.mjs || exit 1
