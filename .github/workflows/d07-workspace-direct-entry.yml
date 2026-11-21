@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      SITE_SHA: 7e5a7b4f4164fab37c1bb79eb0683934bcecbebf
+      SITE_SHA: fb6df5babec23aa1e4f57725b4a1f80d0fbf9d36
       SUBJECT_SHA: 79767d998339f033c8f81987bcd19b3a2a2a058c
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -75,6 +75,15 @@ jobs:
           test "$(git -C t2 rev-parse HEAD)" = "$T2_SHA" || exit 1
           cd site
           if ! bun install --frozen-lockfile >"$RUNNER_TEMP/d07-install.private.log" 2>&1; then
+            if grep -Eqi 'unexpected token|syntaxerror|parse error|TS1005' "$RUNNER_TEMP/d07-install.private.log"; then
+              echo 'D07_DEPS_CAUSE=ROUTE_GENERATION_PARSE'
+            elif grep -Eqi 'frozen.lock|lockfile.*changed|lockfile.*out.of.date' "$RUNNER_TEMP/d07-install.private.log"; then
+              echo 'D07_DEPS_CAUSE=LOCKFILE'
+            elif grep -Eqi 'timed.out|connection|registry|http.5[0-9][0-9]|http.429|certificate' "$RUNNER_TEMP/d07-install.private.log"; then
+              echo 'D07_DEPS_CAUSE=REGISTRY_OR_NETWORK'
+            else
+              echo 'D07_DEPS_CAUSE=UNCLASSIFIED'
+            fi
             echo 'D07_DEPS=FAIL'
             exit 1
           fi
@@ -114,5 +123,6 @@ jobs:
             exit 1
           fi
           test -s dist/workspace/index.html || { echo 'D07_ORIGINAL_HOST_MISSING'; exit 1; }
+          grep -E '^D07_WORKSPACE_SUBJECT_(CRITERIA|DETAILED|STARTERS)=[0-9]+$' "$RUNNER_TEMP/d07-build.private.log" | tail -3 || true
           echo 'D07_ONE_DIST_ORIGINAL_T2=PASS'
       # Do not upload dist, private source, logs, archives, browser profiles or screenshots.
