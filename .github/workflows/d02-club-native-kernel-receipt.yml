@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: 67c9d0388b9d2b20b58963ae68fe4f5441cd59f2
+      SITE_SHA: 34c903b4794a66aeb1580fd563c02a20f4972fb7
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -1142,7 +1142,13 @@ jobs:
             Press (Await 'Продолжить дело: Совместная работа: Покупки соседям' 'button' 'D02_LINKED_EXACT_SCENARIO_CONTINUE_MISSING') 'D02_LINKED_SCENARIO_RESTORE_REQUEST_FAILED'
             $null=Await 'Открыть сохранённые результаты в Клубе' '' 'D02_LINKED_RESTORE_PANEL_MISSING'
             $null=AwaitPrefix 'Выбран проект «Совместная работа: Покупки соседям»' '' 'D02_LINKED_RESTORE_SELECTION_MISSING'
-            Press (Await 'Передать выбранные результаты на сайт' 'button' 'D02_LINKED_RESTORE_CONFIRM_MISSING') 'D02_LINKED_RESTORE_CONFIRM_FAILED'
+            $confirm=Await 'Передать выбранные результаты на сайт' 'button' 'D02_LINKED_RESTORE_CONFIRM_MISSING'
+            $confirm.SetFocus()
+            [System.Windows.Forms.SendKeys]::SendWait(' ')
+            # The original T0 restore asks the human to accept new/linked
+            # Result counts. Accept this real native Edge confirmation.
+            Start-Sleep -Milliseconds 400
+            [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
             $null=Await 'Результаты загружены' '' 'D02_LINKED_RESTORE_NOT_APPLIED'
             Press (Await 'Открыть Сценарий кооперации' 'link' 'D02_LINKED_RETURN_TO_EDITOR_MISSING') 'D02_LINKED_RETURN_TO_EDITOR_FAILED'
             $null=Await 'Как организовать работу вместе' '' 'D02_LINKED_ORIGINAL_EDITOR_MISSING'
@@ -1811,7 +1817,11 @@ jobs:
             Click 'Продолжить вклад: Сверка покупки' 'D02_IMPORT_LINKED_CONTINUE_BUTTON_NOT_FOUND'
             $null=Await 'Открыть сохранённые результаты в Клубе' '' 'D02_IMPORT_LINKED_CONTINUE_PANEL_MISSING'
             $null=AwaitPrefix 'Выбран личный вклад и исходное дело' '' 'D02_IMPORT_LINKED_CONTINUE_SELECTION_MISSING'
-            Click 'Передать выбранные результаты на сайт' 'D02_IMPORT_LINKED_CONTINUE_CONFIRM_FAILED'
+            $confirm=Await 'Передать выбранные результаты на сайт' 'button' 'D02_IMPORT_LINKED_CONTINUE_CONFIRM_MISSING'
+            $confirm.SetFocus()
+            [System.Windows.Forms.SendKeys]::SendWait(' ')
+            Start-Sleep -Milliseconds 400
+            [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
             $null=Await 'Результаты загружены' '' 'D02_IMPORT_LINKED_CONTINUE_NOT_APPLIED'
             $destination=Await 'Открыть Мой вклад' '' 'D02_IMPORT_LINKED_CONTINUE_DESTINATION_MISSING'
             $destination.SetFocus()
