@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: ff17d6e6325bb5babdbe144f66b8e22bbcf72332
+      SITE_SHA: 67c9d0388b9d2b20b58963ae68fe4f5441cd59f2
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -1138,26 +1138,8 @@ jobs:
             [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
             [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
             [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-            $heading=Await 'Совместная работа: Покупки соседям' '' 'D02_LINKED_SCENARIO_NOT_IN_KERNEL'
-            $cursor=$heading
-            $continue=$null
-            $pick=[System.Windows.Automation.AndCondition]::new(
-              [System.Windows.Automation.PropertyCondition]::new(
-                [System.Windows.Automation.AutomationElement]::NameProperty,'Продолжить дело'),
-              [System.Windows.Automation.PropertyCondition]::new(
-                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                [System.Windows.Automation.ControlType]::Button))
-            for($level=0;$level -lt 12;$level++){
-              if(!$cursor){break}
-              try{$continue=$cursor.FindFirst($scope,$pick)}catch{}
-              if($continue){break}
-              try{
-                $cursor=$cursor.FindFirst([System.Windows.Automation.TreeScope]::Parent,
-                  [System.Windows.Automation.Condition]::TrueCondition)
-              }catch{break}
-            }
-            if(!$continue){throw 'D02_LINKED_EXACT_SCENARIO_CONTINUE_MISSING'}
-            Press $continue 'D02_LINKED_SCENARIO_RESTORE_REQUEST_FAILED'
+            $null=Await 'Совместная работа: Покупки соседям' '' 'D02_LINKED_SCENARIO_NOT_IN_KERNEL'
+            Press (Await 'Продолжить дело: Совместная работа: Покупки соседям' 'button' 'D02_LINKED_EXACT_SCENARIO_CONTINUE_MISSING') 'D02_LINKED_SCENARIO_RESTORE_REQUEST_FAILED'
             $null=Await 'Открыть сохранённые результаты в Клубе' '' 'D02_LINKED_RESTORE_PANEL_MISSING'
             $null=AwaitPrefix 'Выбран проект «Совместная работа: Покупки соседям»' '' 'D02_LINKED_RESTORE_SELECTION_MISSING'
             Press (Await 'Передать выбранные результаты на сайт' 'button' 'D02_LINKED_RESTORE_CONFIRM_MISSING') 'D02_LINKED_RESTORE_CONFIRM_FAILED'
