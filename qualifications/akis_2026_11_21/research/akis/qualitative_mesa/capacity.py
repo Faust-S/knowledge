@@ -247,6 +247,30 @@ class CapacityLedger:
                           else "RESOURCE_CAPACITY_EXCEEDED")
                 raise CapacityBlocked(reason, key)
 
+    def preview_options(
+        self, option_plans: Mapping[str, Sequence[Reservation]]
+    ) -> list[dict[str, Any]]:
+        """Compare independent potential works WITHOUT reserving any resource.
+
+        All candidate plans must be individually valid against accepted
+        reservations. Simultaneous prospective use is then compared to
+        calendar-declared capacity by the ORIGINAL interval-sweep evaluator.
+        Multiple possible works remain alternatives, not accepted obligations.
+        """
+        if not isinstance(option_plans, Mapping) or len(option_plans) > 256:
+            raise CapacityInputError("INVALID_OPTION_PORTFOLIO")
+        candidates: list[Reservation] = []
+        for work, plan in sorted(option_plans.items()):
+            self.preview_plan(work, plan)
+            candidates.extend(plan)
+        if not candidates:
+            return []
+        combined = [*self.reservations, *candidates]
+        result: list[dict[str, Any]] = []
+        for resource in sorted({entry.resource for entry in candidates}):
+            result.extend(self._violations(resource, combined, proposals=candidates))
+        return result
+
     def reserve_plan(self, work: str, plan: Sequence[Reservation]) -> None:
         self.preview_plan(work, plan)
         # All resources, all operation windows: one atomic commitment.
