@@ -10,7 +10,7 @@ import {spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {getExactFile} from './qualify-original-private-d3-owner.mjs';
 
-export const AGENT_ORIGINAL_PIN='6fae1fe254cb26babcc8a9ba852f91900e344fdd';
+export const AGENT_ORIGINAL_PIN='5dc3e3e98ac4ccbc4b1db2adeb3395e9a1f84369';
 const REPO='Faust-S/iwxa-personal-agent';
 const FILES=Object.freeze([
   'runtime/t3_original_employee_port.py',
@@ -108,7 +108,7 @@ export async function qualifyOriginalAgentD3Source({
 /** Optional NEXT Agent source acceptance, kept separate from the already
  * installed c68387bd evidence. Uses existing Python suites and Node parse
  * check, without staging a second Agent Core or exposing private files. */
-export const AGENT_COMPANY_DEV_PIN='6fae1fe254cb26babcc8a9ba852f91900e344fdd';
+export const AGENT_COMPANY_DEV_PIN='5dc3e3e98ac4ccbc4b1db2adeb3395e9a1f84369';
 export async function qualifyOriginalAgentCompanyCandidate({
   token,
   fetchFile=(path,secret)=>getExactFile(path,secret,{

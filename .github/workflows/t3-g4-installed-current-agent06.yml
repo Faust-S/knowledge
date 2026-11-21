@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 6fae1fe254cb26babcc8a9ba852f91900e344fdd
+          ref: 5dc3e3e98ac4ccbc4b1db2adeb3395e9a1f84369
           token: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
           persist-credentials: false
           filter: blob:none
@@ -98,7 +98,7 @@ jobs:
           $agent = (& git -C .private/agent rev-parse HEAD).Trim()
           $setup = (& git -C .private/setup-core rev-parse HEAD).Trim()
           $core = (& git -C .g4-pinned-one-core rev-parse HEAD).Trim()
-          if ($agent -ne '6fae1fe254cb26babcc8a9ba852f91900e344fdd' -or
+          if ($agent -ne '5dc3e3e98ac4ccbc4b1db2adeb3395e9a1f84369' -or
               $setup -ne 'c10e193846a0ea4c73cabe3744aa7db82439d54e' -or
               $core -ne '2f65931cd70e0c64e29b31e1824b7af0c0baf6d1') {
             throw 'G4_AGENT_EXACT_INSTALLED_SOURCE_PIN_MISMATCH'
@@ -262,6 +262,27 @@ jobs:
               assert NATIVE_HTTP_CLASS[code] in witness
           for value in (1, 2, -9, None, True):
               assert classify_native_cli_exit(value) == "basic_runtime_generation_failed"
+          # Test the actual strict llama.cpp transcript frame and the
+          # no-content finite classifications before a new installed Task.
+          from adapters.iwxa_basic_model_provider import _cli_answer, _visible_assistant_answer
+          from runtime.iwxa_basic_gguf import BasicGGUFError
+          user = "К03: пример проверки"
+          exact = "User:\\n" + user + "\\n\\nAssistant:\\n"
+          assert _cli_answer(exact + "Готово.", user) == "Готово."
+          assert _cli_answer(exact.replace("\\n","\\r\\n") + "Готово.",user) == "Готово."
+          finite = (
+              (lambda: _cli_answer("Assistant:\\n"+user,user),"basic_runtime_output_frame_invalid"),
+              (lambda: _visible_assistant_answer("<think>только анализ"),"basic_runtime_output_reasoning_unfinished"),
+              (lambda: _visible_assistant_answer("<think>только анализ</think>"),"basic_runtime_output_empty"),
+          )
+          for operation,code in finite:
+              try:
+                  operation()
+                  raise AssertionError("real native output parser accepted invalid Result")
+              except BasicGGUFError as err:
+                  assert str(err) == code
+              assert code in NATIVE_HTTP_CLASS
+          print("G4_AGENT06_NATIVE_OUTPUT_FINITE_CLASSIFICATIONS_PASS")
           print("G4_AGENT06_NATIVE_CLI_FINITE_CAUSE_PREFLIGHT_PASS")
           '@
             & python -B -c $source
@@ -655,7 +676,7 @@ jobs:
           # product ID/source SHA. Passing here NEVER fixes a K03 failure
           # and NEVER emits full G4/D3 acceptance.
           $ps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
-          & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 'packages/t3-core/tests/g4-installed-agent-second-sid.ps1' -Setup $setup -AgentSourceSha '6fae1fe254cb26babcc8a9ba852f91900e344fdd'
+          & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 'packages/t3-core/tests/g4-installed-agent-second-sid.ps1' -Setup $setup -AgentSourceSha '5dc3e3e98ac4ccbc4b1db2adeb3395e9a1f84369'
           if($LASTEXITCODE -ne 0){throw 'G4_AGENT_GUEST_SECOND_SID_NATIVE_INSTALL_NOT_ACCEPTED'}
       - name: Erase private source model caches logs and native binaries
         if: always()
@@ -683,7 +704,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 6fae1fe254cb26babcc8a9ba852f91900e344fdd
+          ref: 5dc3e3e98ac4ccbc4b1db2adeb3395e9a1f84369
           token: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
           persist-credentials: false
           filter: blob:none

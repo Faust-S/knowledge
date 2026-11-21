@@ -2673,7 +2673,9 @@
         "PS51_FULL_REDIRECTED_NATIVE_SETUP_BOM_REQUALIFICATION_PENDING",
         "AGENT_6FAE_PS51_NATIVE_ICON_SETUP_REDIRECTED_JSON_FULL_INSTALLED_GUI_PENDING",
         "ADMIN_CENTER_ORIGINAL_SIGNED_CHILD_EXIT_RELEASE_INDEPENDENT_COLD_DPAPI_REQUALIFICATION",
-        "INSTALLED_TWO_PRODUCT_SIGNED_CORPORATE_TASK_TO_RESULT_HUMAN_ACCEPT_APPLY_PENDING"
+        "INSTALLED_TWO_PRODUCT_SIGNED_CORPORATE_TASK_TO_RESULT_HUMAN_ACCEPT_APPLY_PENDING",
+        "K03_NATIVE_QWEN_TASK_FINAL_OUTPUT_FRAME_VS_REASONING_DIAGNOSTIC_AND_REPAIR",
+        "INSTALLED_AGENT_0_6_WITH_SAME_SIGNED_OWNER_T3_FRESH_ACCEPTANCE"
       ],
       "existing_evidence_preserved": true,
       "company_workspace": {
@@ -2687,23 +2689,27 @@
         "transport": "EXISTING_IWXA_MANUAL_HANDOFF_WHEN_OFFLINE_OPTIONAL_AUTHORIZED_SYNC_IF_CONNECTED",
         "offline_delivery": "PENDING_COMPANY_RECEIPT_NOT_DELIVERED_UNTIL_ORIGINAL_RECIPIENT_READBACK",
         "authorization": "D1_SIGNED_JIT_REVOCATION_APPLIES_ON_ENTRY_WRITE_EXPORT_AND_RECEIPT",
-        "agent_development_sha": "6fae1fe254cb26babcc8a9ba852f91900e344fdd",
-        "agent_development_status": "SOURCE_READY_EXACT_WINDOWS_REDIRECTED_JSON_AND_NATIVE_BUILD_QUALIFICATION_PENDING",
+        "agent_development_sha": "5dc3e3e98ac4ccbc4b1db2adeb3395e9a1f84369",
+        "agent_development_status": "K03_NATIVE_MODEL_OUTPUT_CLASSIFICATION_SOURCE_NEW_CANDIDATE_PINNED",
         "agent_development_source_evidence": {
           "prior_run_id": 44815605828,
           "prior_agent_sha": "4e454f5729674de76f8d3ec00defaea61b02d4db",
-          "new_agent_sha": "6fae1fe254cb26babcc8a9ba852f91900e344fdd",
+          "new_agent_sha": "5dc3e3e98ac4ccbc4b1db2adeb3395e9a1f84369",
           "pinned_public_one_core": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1",
-          "current_source_check": "PENDING",
+          "current_source_check": "PENDING_NEW_EXACT_SHA",
           "installed": "NOT_YET_ACCEPTED",
-          "agent_sha": "6fae1fe254cb26babcc8a9ba852f91900e344fdd",
-          "previous_agent_sha": "7f723496cdc36e6b55b5b98f5c1feb15e2683e3b",
+          "agent_sha": "5dc3e3e98ac4ccbc4b1db2adeb3395e9a1f84369",
+          "previous_agent_sha": "6fae1fe254cb26babcc8a9ba852f91900e344fdd",
           "source_win_qualification": "PENDING_NEW_PIN",
           "installed_win_qualification": "PENDING_NEW_PIN",
           "current_sha": "91650cf1c77b98b3f05752074fccb6ae5f684c19",
           "native_windows_stdout_encoding": "PowerShell 5.1 UTF-16LE BOM decoded; JSON stdout isolated from warnings",
           "source_windows_process_run": 44821254010,
-          "current_native_qualification": "PASS_26_MARKERS_EXACT_AGENT_6FAE"
+          "current_native_qualification": "RECHECK_PENDING_NEW_SHA",
+          "previous_installed_run_id": 44821254033,
+          "previous_installed_failure": "K03_TASK_MODEL_EXECUTION_STOPPED",
+          "previous_installed_model_error": "BASIC_RUNTIME_OUTPUT_INVALID",
+          "exact_build": "SETUP_TAURI_ONE_DIST_SECOND_WINDOWS_SID_GUI_PASS"
         },
         "release_status": "SOURCE_SIGNED_COMPANY_KEY_AND_ORIGINAL_T2_RESULT_PASS_FINAL_PRODUCT_OPEN",
         "payload_boundary": "Complete accepted corporate Result is read from existing Agent Core, never manually selected, then committed as Object/Event into original corporate T2 Workspace on the same signed JIT port. 2m UTF16 text. Binary attachments and full T2 Exchange remain open; installed qualification pending.",
@@ -2814,7 +2820,7 @@
       "installed_qualification_candidate": {
         "state": "PINNED_NEW_CANDIDATE_NOT_YET_ACCEPTED",
         "original_t3_owner_sha": "adfcb77a3497415ce8bb194647d2d5be3a41eafa",
-        "agent_sha": "6fae1fe254cb26babcc8a9ba852f91900e344fdd",
+        "agent_sha": "5dc3e3e98ac4ccbc4b1db2adeb3395e9a1f84369",
         "public_one_core_sha": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1",
         "original_t2_head": "9c64951cd78411283e8a416641c36d71e169fc1d",
         "original_t2_qualified_tree": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
@@ -2824,10 +2830,10 @@
         "windows_agent_installed_run_id": null,
         "approved": false,
         "windows_admin_installed_conclusion": "PASS_INSTALLED_FIRST_USE_SIGNED_ENROLL_DPAPI_INDEPENDENT_COLD_READ_AND_GUI_REOPEN",
-        "windows_agent_installed_conclusion": "PENDING_NATIVE_WINDOWS_SETUP_TAURI_GUI",
+        "windows_agent_installed_conclusion": "PENDING_NEW_AGENT_K03_FINITE_OUTPUT_DIAGNOSTIC_AND_INSTALLED_QWEN",
         "windows_native_process_conclusion": "SOURCE_NATIVE_PROCESS_PASS_NOT_INSTALLED_GUI",
         "diagnostic_state": "ORIGINAL_NATIVE_SIGNED_OWNER_PID_LOCK_AFTER_CENTER_EXIT_FIXED_AT_RUN_EVENT_EXIT",
-        "agent_native_build_fix": "PS51_REDIRECTED_JSON_BOM_SAFE_ALL_NATIVE_SETUP_STAGES",
+        "agent_native_build_fix": "MODEL_FINAL_OUTPUT_FRAME_AND_REASONING_CLASSIFICATION_PRESERVES_STRICT_NO_FAKE_RESULT",
         "center_sha": "5da2473f5e13df58cd715b0109c29b7707a97847",
         "center_source_base": "2628c4bc1b20b4393c485d12513f029fdea8b082",
         "native_source_scope": {
@@ -2860,7 +2866,15 @@
           "conclusion": "SUCCESS",
           "installed": false
         },
-        "windows_admin_installed_scope": "INSTALLED_ADMIN_CENTER_SIGNED_OWNER_FIRST_USE_ONLY_NOT_CROSS_PRODUCT_ACCEPT_APPLY"
+        "windows_admin_installed_scope": "INSTALLED_ADMIN_CENTER_SIGNED_OWNER_FIRST_USE_ONLY_NOT_CROSS_PRODUCT_ACCEPT_APPLY",
+        "previous_agent_installed_fail": {
+          "run_id": 44821254033,
+          "agent_sha": "6fae1fe254cb26babcc8a9ba852f91900e344fdd",
+          "installed_native_setup": "PASS",
+          "second_windows_sid": "PASS",
+          "k03_task": "FAIL_BASIC_RUNTIME_OUTPUT_INVALID",
+          "scope": "K03_TASK_EXECUTION_NOT_REVIEWED"
+        }
       }
     },
     "required_gates": {
