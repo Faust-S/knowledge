@@ -93,10 +93,10 @@ jobs:
         run: |
           node --import tsx scripts/d07-run-official-source-research.mjs --require-live > "$RUNNER_TEMP/d07-pdf-live.log" 2>&1 || {
             echo D07_PDF_LIVE=FAIL
-            grep -E '^D07_(ORIGINAL|RESEARCH)' "$RUNNER_TEMP/d07-pdf-live.log" | tail -20 || true
+            grep -E '^D07_(ORIGINAL|RESEARCH|PDF_DIAG)' "$RUNNER_TEMP/d07-pdf-live.log" | tail -20 || true
             exit 1
           }
           echo D07_PDF_LIVE=PASS
-          grep -E '^D07_(ORIGINAL|RESEARCH)' "$RUNNER_TEMP/d07-pdf-live.log" | tail -24
+          grep -E '^D07_(ORIGINAL|RESEARCH|PDF_DIAG)' "$RUNNER_TEMP/d07-pdf-live.log" | tail -24
           node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync(process.env.D07_RECEIPT_DEST));console.log('D07_PDF_RETRIEVED='+x.counts.retrievedSources);console.log('D07_PDF_UNIQUE_FETCHES='+x.counts.uniquePdfOriginalsFetched);for(const r of x.receipts){console.log('D07_PDF_TEXT_SHA256='+r.sourceId+':'+r.textSha256);if(r.methodologyApproved||r.rightsApproved||r.applicabilityApproved)process.exit(1)}if(x.counts.uniquePdfOriginalsFetched!==2||x.counts.approvedMethodologies!==0||x.counts.verifiedExactPassages<2)process.exit(1)"
       # No private source, original technical PDFs, rendered pages, receipts or dist uploaded.
