@@ -22,6 +22,7 @@ from .adaptation_review import (
 from .participant_response import DecisionProfile, ProfileInputError, assess_principal, parse_profiles
 from .subject_dynamics import choose_model_action, cooperative_choice_state
 from .subject_goals import GoalInputError, parse_subject_goals, evaluate_subject_goals
+from .future_needs import FutureNeedInputError, parse_future_needs, future_need_projection
 from .economic_outlook import OutlookInputError, choose_outlook, parse_outlooks
 from .joint_purchasing import PurchasingInputError, evaluate_plan, parse_plans
 from .partner_discovery import DiscoveryInputError, parse_discovery, parse_formation_finance, discover
@@ -178,6 +179,7 @@ class OperatorAKISModel(mesa.Model):
         research_input = dict(scenario)
         raw_profiles = research_input.pop("decision_profiles", [])
         raw_subject_goals = research_input.pop("subject_goals", [])
+        raw_future_needs = research_input.pop("future_need_signals", [])
         self.endogenous_subjects_enabled = research_input.pop("endogenous_subjects", False)
         if type(self.endogenous_subjects_enabled) is not bool:
             raise InputError("ENDOGENOUS_SUBJECTS_MUST_BE_BOOLEAN")
@@ -196,6 +198,12 @@ class OperatorAKISModel(mesa.Model):
         self.adaptation_enabled = "adaptation_requests" in research_input
         raw_reviews = research_input.pop("adaptation_requests", [])
         self.qualitative = QualitativeAKIS(research_input)
+        try:
+            self.future_needs = parse_future_needs(raw_future_needs, self.qualitative)
+        except FutureNeedInputError as exc:
+            raise InputError(str(exc)) from exc
+        self.future_need_evolution: list[dict[str, Any]] = []
+        self._future_need_last_signature: str | None = None
         try:
             self.adaptation_requests = parse_review_requests(
                 raw_reviews, self.qualitative.subjects
@@ -289,7 +297,7 @@ class OperatorAKISModel(mesa.Model):
             for event in self.qualitative.events
         )
         self._review_active = (
-            self.adaptation_enabled or self.economic_claims is not None or bool(self.economic_outlooks) or bool(self.joint_purchasing_plans)
+            bool(self.future_needs) or self.adaptation_enabled or self.economic_claims is not None or bool(self.economic_outlooks) or bool(self.joint_purchasing_plans)
             or self.qualitative.context_basis is not None
             or self.qualitative.portfolio_review_enabled
             or self.qualitative.handoff_strict
@@ -317,6 +325,7 @@ class OperatorAKISModel(mesa.Model):
                 last_original_at,
                 max((row.available_at for row in self.economic_outlooks), default=0),
                 max((row.available_at for row in self.subject_goals), default=0),
+                max((row.expires_at for row in self.future_needs), default=0),
                 max((plan.supplier_start for plan in self.joint_purchasing_plans), default=0),
                 max((buyer.available_at for plan in self.joint_purchasing_plans
                      for buyer in plan.buyers), default=0),
@@ -351,6 +360,16 @@ class OperatorAKISModel(mesa.Model):
             callback = partial(self._reassess_economic_outlook, work_id, trigger)
             self._callbacks.append(callback)
             self.schedule_event(callback, at=float(at), priority=Priority.DEFAULT)
+        if self.future_needs:
+            # The model's ONE scheduler observes owner-preexisting demand
+            # sources. Neither availability nor expiration creates Work.
+            instants = {0, self._model_end_at}
+            for claim in self.future_needs:
+                instants.update({claim.available_at, claim.expires_at})
+            for at in sorted(t for t in instants if t <= self._model_end_at):
+                callback = self._capture_future_need_state
+                self._callbacks.append(callback)
+                self.schedule_event(callback, at=float(at), priority=Priority.LOW)
         procurement_changes = set()
         for plan in self.joint_purchasing_plans:
             for at in (plan.supplier_start, plan.supplier_end):
@@ -503,9 +522,39 @@ class OperatorAKISModel(mesa.Model):
             "group_status": result["status"],
         }
 
+    def _capture_future_need_state(self) -> None:
+        if not self.future_needs:
+            return
+        now = float(self.time)
+        choices = {subject: agent.modeled_choices for subject, agent in self._by_id.items()}
+        projection = future_need_projection(
+            self.qualitative, self.future_needs, at=now, actor_choices=choices,
+        )
+        signature = json.dumps({
+            "needs": [(row["need"], row["status"], row["resource_competition"],
+                       row["original_work_request_confirmed"])
+                      for row in projection["needs"]],
+            "competed": projection["capacity_contested_count"],
+        }, sort_keys=True)
+        if signature != self._future_need_last_signature:
+            self._future_need_last_signature = signature
+            self.future_need_evolution.append({
+                "at": now,
+                "original_trace_position": len(self.qualitative.trace),
+                "projection": projection,
+                "source_kind": "OWNER_MODEL_ONLY_FUTURE_NEED_NOT_ORIGINAL_WORK",
+            })
+
+    def _schedule_future_need_refresh(self) -> None:
+        if self.future_needs:
+            callback = self._capture_future_need_state
+            self._callbacks.append(callback)
+            self.schedule_event(callback, after=0.0, priority=Priority.LOW)
+
     def _reassess_economic_outlook(self, work_id: str, trigger: str) -> None:
         self._outlook_epoch += 1
         self._schedule_responses({"action": trigger, "work": work_id})
+        self._schedule_future_need_refresh()
 
     def _apply_event(self, event: dict[str, Any]) -> None:
         outcome = self.qualitative.apply(event, int(self.time))
@@ -515,6 +564,8 @@ class OperatorAKISModel(mesa.Model):
                                     "cooperation_change_propose", "cooperation_change_response"}
                 ) and outcome["outcome"] == "APPLIED":
             self._schedule_responses(event)
+        if outcome["outcome"] == "APPLIED":
+            self._schedule_future_need_refresh()
         if self._review_active or any(
             work.requires_accepted for work in self.qualitative.works.values()
         ):
@@ -658,7 +709,7 @@ class OperatorAKISModel(mesa.Model):
             )
 
     def execute(self) -> dict[str, Any]:
-        if self.qualitative.events or self.endogenous_subjects_enabled or self.economic_outlooks or self.joint_purchasing_plans or self.partner_discovery_enabled or self.general_akis_enabled:
+        if self.qualitative.events or self.future_needs or self.endogenous_subjects_enabled or self.economic_outlooks or self.joint_purchasing_plans or self.partner_discovery_enabled or self.general_akis_enabled:
             # Inclusive integer horizon; flush same-time reactions without
             # executing the next period at model_horizon + 1.
             self.run_until(float(self._model_end_at) + 0.5)
@@ -666,6 +717,22 @@ class OperatorAKISModel(mesa.Model):
         if self.decision_profiles or self.endogenous_subjects_enabled or self.economic_outlooks or self.joint_purchasing_plans or self.partner_discovery_enabled or self._interest_events_present or self._future_participation_events_present or self._cooperation_change_events_present:
             output["decision_observations"] = list(self.decision_observations)
             output["decision_observations_truncated"] = self.assessment_truncated
+        if self.future_needs:
+            current = future_need_projection(
+                self.qualitative, self.future_needs, at=float(self.time),
+                actor_choices={subject: agent.modeled_choices
+                               for subject, agent in self._by_id.items()},
+            )
+            output["future_need_dynamics"] = {
+                "current": current,
+                "read_only_evolution": list(self.future_need_evolution),
+                "pre_order_owner_need_is_not_original_work": True,
+                "accepted_original_result_can_activate_future_need": True,
+                "no_automatic_original_request_or_contract": True,
+                "no_automatic_resource_reservation": True,
+                "single_existing_mesa_scheduler": True,
+                "single_existing_original_capacity_ledger": True,
+            }
         if self.endogenous_subjects_enabled:
             # Read-only adaptation of actor decisions within the SAME Mesa model.
             # No source evidence, original event or legal result is synthesized.
@@ -747,6 +814,16 @@ class OperatorAKISModel(mesa.Model):
                 "single_original_scheduler": True,
                 "original_results_and_org_code_unmodified": True,
             }
+            if self.future_needs:
+                output["general_akis_model"]["pre_order_need_feedback"] = {
+                    "source": "MODEL_ONLY_INDEPENDENT_CUSTOMER_NEED",
+                    "count": output["future_need_dynamics"]["current"]["count"],
+                    "active_research_needs": output["future_need_dynamics"]["current"]["reviewable_count"],
+                    "contested_capacity_count": output["future_need_dynamics"]["current"]["capacity_contested_count"],
+                    "original_work_created": False,
+                    "organizational_code_legal_status": "UNMODIFIED",
+                    "economic_gain": "NOT_IDENTIFIABLE",
+                }
             if self.endogenous_subjects_enabled:
                 output["general_akis_model"]["subject_choice_feedback"] = {
                     "basis": "MODEL_ONLY_DERIVED_FROM_ORIGINAL_NINE_COMPONENT_STATE",
