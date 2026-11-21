@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: c2b0463c352a8191b9a97987cb60ea44c4c1e9b2
+          ref: a5d6cece73cd31fac48110a3815da053322f897c
           token: ${{ secrets.DOMEN }}
           path: subject
           persist-credentials: false
@@ -29,16 +29,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 6b72442f889cd9e79e786837d946878a6730da16
+          ref: f5affd9aadf541dfc9de2a06656c525f9bf8c200
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify exact revisions and business logic parity
         run: |
-          test "$(git -C subject rev-parse HEAD)" = "c2b0463c352a8191b9a97987cb60ea44c4c1e9b2"
-          test "$(git -C site rev-parse HEAD)" = "6b72442f889cd9e79e786837d946878a6730da16"
+          test "$(git -C subject rev-parse HEAD)" = "a5d6cece73cd31fac48110a3815da053322f897c"
+          test "$(git -C site rev-parse HEAD)" = "f5affd9aadf541dfc9de2a06656c525f9bf8c200"
           cmp subject/src/domain/service-external-gap-research.ts site/src/domain/service-external-gap-research.ts
           cmp subject/src/domain/service-professional-gap-inventory.ts site/src/domain/service-professional-gap-inventory.ts
+          cmp subject/src/domain/service-subject-plumbing-a.ts site/src/domain/service-subject-plumbing-a.ts
+          cmp subject/src/domain/service-subject-flooring-a.ts site/src/domain/service-subject-flooring-a.ts
           echo D07_ITEM_RESEARCH_PARITY=PASS
       - uses: actions/setup-node@v4
         with:
@@ -57,7 +59,7 @@ jobs:
       - name: Test independent per-operation evidence and anti-fabrication checks
         working-directory: site
         run: |
-          node --import tsx --test scripts/tests/d07-external-gap-research.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs scripts/tests/d07-original-source-fetch.test.mjs > "$RUNNER_TEMP/d07-item-tests.log" 2>&1 || {
+          node --import tsx --test scripts/tests/d07-external-gap-research.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs scripts/tests/d07-original-source-fetch.test.mjs scripts/tests/d07-plumbing-professional-method.test.mjs scripts/tests/d07-flooring-professional-method.test.mjs scripts/tests/d07-professional-preview.test.mjs scripts/tests/d07-methodology-top500.test.mjs > "$RUNNER_TEMP/d07-item-tests.log" 2>&1 || {
             echo D07_ITEM_RESEARCH_TESTS=FAIL
             grep -E '^not ok|^# (tests|pass|fail)|^[[:space:]]+(actual|expected|error):' "$RUNNER_TEMP/d07-item-tests.log" | tail -24 || true
             exit 1
