@@ -20,6 +20,7 @@ from .adaptation_review import (
     parse_review_requests, review_adaptation,
 )
 from .participant_response import DecisionProfile, ProfileInputError, assess_principal, parse_profiles
+from .subject_dynamics import choose_model_action, cooperative_choice_state
 from .economic_outlook import OutlookInputError, choose_outlook, parse_outlooks
 from .joint_purchasing import PurchasingInputError, evaluate_plan, parse_plans
 from .partner_discovery import DiscoveryInputError, parse_discovery, parse_formation_finance, discover
@@ -40,6 +41,43 @@ class EconomicSubject(mesa.Agent):
         super().__init__(model)
         self.party_id = party_id
         self.kind = kind
+        # Each Mesa principal keeps ONLY its own, non-binding research choices.
+        self.modeled_choices: dict[str, dict[str, Any]] = {}
+
+    def choose(self, work_id: str, observation: dict[str, Any],
+               trace_position: int, outlook_epoch: int) -> dict[str, Any]:
+        """Make and remember an endogenous choice, never legal consent."""
+        state = self.model.qualitative
+        work = state.works[work_id]
+        configuration = (
+            self.model.general_design.configuration
+            if self.model.general_design is not None else "operator"
+        )
+        choice = choose_model_action(observation, configuration=configuration)
+        previous = self.modeled_choices.get(work_id)
+        transition = (
+            "INITIAL" if previous is None else "UNCHANGED"
+            if (previous["action"], previous["assessment_reason"],
+                previous["source_revision"], previous["org_revision"])
+            == (choice["action"], choice["assessment_reason"],
+                work.source_revision, state.institution.revision)
+            else "CHANGED"
+        )
+        self.modeled_choices[work_id] = {
+            **choice,
+            "at": float(self.model.time),
+            "source_trace_position": trace_position,
+            "outlook_epoch": outlook_epoch,
+            "source_revision": work.source_revision,
+            "org_revision": state.institution.revision,
+        }
+        return {
+            **choice,
+            "transition": transition,
+            "prior_action": previous["action"] if previous else None,
+            "source_trace_position": trace_position,
+            "org_revision": state.institution.revision,
+        }
 
     def assess(self, work_id: str) -> dict[str, Any]:
         state = self.model.qualitative
@@ -93,7 +131,7 @@ class OperatorAKISModel(mesa.Model):
 
     RESPONSE_LIMIT = 8192  # technical bound, not an organizational coefficient
     REACTION_TRIGGERS = frozenset({
-        "request", "offer", "authorize", "resource_status", "change_mode", "exclude", "commit",
+        "initial_subject_evaluation", "request", "offer", "authorize", "resource_status", "change_mode", "exclude", "commit",
         "complete", "reject", "resubmit", "accept", "source_update", "resource_calendar_update",
         "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response",
         "economic_outlook_available", "economic_outlook_expired",
@@ -106,6 +144,9 @@ class OperatorAKISModel(mesa.Model):
             raise InputError("INPUT_MUST_BE_OBJECT")
         research_input = dict(scenario)
         raw_profiles = research_input.pop("decision_profiles", [])
+        self.endogenous_subjects_enabled = research_input.pop("endogenous_subjects", False)
+        if type(self.endogenous_subjects_enabled) is not bool:
+            raise InputError("ENDOGENOUS_SUBJECTS_MUST_BE_BOOLEAN")
         raw_outlooks = research_input.pop("economic_outlooks", [])
         raw_joint_purchasing = research_input.pop("joint_purchasing_proposals", [])
         raw_partner_discovery = research_input.pop("partner_discovery", None)
@@ -188,6 +229,8 @@ class OperatorAKISModel(mesa.Model):
             raise InputError(str(exc)) from exc
         self.parties = [EconomicSubject(self, key, party.kind) for key, party in self.qualitative.subjects.items()]
         self._by_id = {subject.party_id: subject for subject in self.parties}
+        self.endogenous_choice_evolution: list[dict[str, Any]] = []
+        self._endogenous_last_signature: dict[str, tuple[Any, ...]] = {}
         self.decision_observations: list[dict[str, Any]] = []
         # Derived snapshots, never a second journal or an original event stream.
         self.general_views: list[dict[str, Any]] = []
@@ -289,6 +332,13 @@ class OperatorAKISModel(mesa.Model):
                 callback = self._capture_general_system
                 self._callbacks.append(callback)
                 self.schedule_event(callback, at=float(at), priority=Priority.LOW)
+        if self.endogenous_subjects_enabled:
+            # One Mesa clock. Initial choices at t=0 need no invented source
+            # event and can never enter the original QualitativeAKIS trace.
+            for work_id in sorted(self.qualitative.works):
+                self._schedule_responses({
+                    "action": "initial_subject_evaluation", "work": work_id,
+                })
 
     def _capture_general_system(self) -> None:
         view = general_system_view(
@@ -505,6 +555,33 @@ class OperatorAKISModel(mesa.Model):
             "observation_kind": "SIMULATED_SUBJECT_RESPONSE",
         })
         self.decision_observations.append(observation)
+        if self.endogenous_subjects_enabled and original_work is not None:
+            observation["endogenous_choice"] = self._by_id[subject].choose(
+                work_id, observation, triggering_trace_position,
+                triggering_outlook_epoch,
+            )
+            choices = {key: agent.modeled_choices
+                       for key, agent in self._by_id.items()}
+            group = cooperative_choice_state(
+                self.qualitative, choices, work_id, at=float(self.time),
+                trace_position=triggering_trace_position,
+                outlook_epoch=triggering_outlook_epoch,
+            )
+            if group["status"] != "WAIT_FOR_ALL_CURRENT_INDEPENDENT_CHOICES":
+                signature = (
+                    group["status"], group["original_obligation"],
+                    group["original_result"], group["original_principals"],
+                )
+                # Python lists are not hashable, but tuples in signature are
+                # compared by value (not hashed) to avoid duplicate snapshots.
+                if self._endogenous_last_signature.get(work_id) != signature:
+                    self._endogenous_last_signature[work_id] = signature
+                    self.endogenous_choice_evolution.append({
+                        **group, "trigger": trigger,
+                        "original_trace_position": triggering_trace_position,
+                        "outlook_epoch": triggering_outlook_epoch,
+                        "causality": "DERIVED_FROM_INDEPENDENT_MESA_AGENT_CHOICES",
+                    })
         if original_work is not None and self.qualitative.cooperation_links:
             # Read the state NOW, not the final end-of-run state. This adds a
             # view to an existing observation, not another scheduler or event log.
@@ -515,14 +592,30 @@ class OperatorAKISModel(mesa.Model):
             )
 
     def execute(self) -> dict[str, Any]:
-        if self.qualitative.events or self.economic_outlooks or self.joint_purchasing_plans or self.partner_discovery_enabled or self.general_akis_enabled:
+        if self.qualitative.events or self.endogenous_subjects_enabled or self.economic_outlooks or self.joint_purchasing_plans or self.partner_discovery_enabled or self.general_akis_enabled:
             # Inclusive integer horizon; flush same-time reactions without
             # executing the next period at model_horizon + 1.
             self.run_until(float(self._model_end_at) + 0.5)
         output = self.qualitative.snapshot()
-        if self.decision_profiles or self.economic_outlooks or self.joint_purchasing_plans or self.partner_discovery_enabled or self._interest_events_present or self._future_participation_events_present or self._cooperation_change_events_present:
+        if self.decision_profiles or self.endogenous_subjects_enabled or self.economic_outlooks or self.joint_purchasing_plans or self.partner_discovery_enabled or self._interest_events_present or self._future_participation_events_present or self._cooperation_change_events_present:
             output["decision_observations"] = list(self.decision_observations)
             output["decision_observations_truncated"] = self.assessment_truncated
+        if self.endogenous_subjects_enabled:
+            # Read-only adaptation of actor decisions within the SAME Mesa model.
+            # No source evidence, original event or legal result is synthesized.
+            last_by_work = {
+                row["work"]: row for row in self.endogenous_choice_evolution
+            }
+            output["endogenous_subjects"] = {
+                "evidence": "MODEL_ONLY_SIMULATED_CHOICES_NOT_OWNER_STATEMENTS",
+                "last_jointly_observed": [last_by_work[k] for k in sorted(last_by_work)],
+                "read_only_evolution": list(self.endogenous_choice_evolution),
+                "unobserved_work_ids": sorted(set(self.qualitative.works) - set(last_by_work)),
+                "new_original_events_created": False,
+                "original_work_result_and_consent_unchanged": True,
+                "independent_original_principals": True,
+                "single_mesa_scheduler": True,
+            }
         if self.partner_discovery_enabled:
             current = discover(
                 self.discovery_demands, self.discovery_offers, self.qualitative,
@@ -588,6 +681,12 @@ class OperatorAKISModel(mesa.Model):
                 "single_original_scheduler": True,
                 "original_results_and_org_code_unmodified": True,
             }
+            if self.endogenous_subjects_enabled:
+                output["general_akis_model"]["subject_choice_feedback"] = {
+                    "basis": "MODEL_ONLY_DERIVED_FROM_ORIGINAL_NINE_COMPONENT_STATE",
+                    "latest_independent_choice_by_work": output["endogenous_subjects"]["last_jointly_observed"],
+                    "not_an_original_authorized_transition": True,
+                }
         if self.adaptation_enabled or "portfolio" in output or "economics" in output or "context_basis" in output or (
                 "capacity" in output and any(spec.calendar is not None for spec in self.qualitative.resource_specs.values())):
             try:
