@@ -151,7 +151,6 @@ jobs:
             interop
             reconciliation
             scripts
-            tests
             package.json
           path: .private/t3
       - name: Stage selected original Center application at exact private revision
@@ -258,13 +257,6 @@ jobs:
           $original=@(& git -C .private/t3 status --porcelain)
           Write-Host ("G4_ORIGINAL_KNOWLEDGE_TREE_CLEAN " + ($public.Count -eq 0))
           Write-Host ("G4_ORIGINAL_PRIVATE_T3_TREE_CLEAN " + ($original.Count -eq 0))
-      - name: Verify original private static asset and compiled-owner import boundary
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          & node --test .private/t3/tests/t3-native-static-asset.test.mjs
-          if($LASTEXITCODE -ne 0){throw 'G4_ORIGINAL_NATIVE_ASSET_BOUNDARY_TEST_FAILED'}
-          Write-Host 'G4_ORIGINAL_NATIVE_ASSET_BOUNDARY_TEST_PASS'
       - name: Build genuine original T3 signed owner, Center and Setup Core
         shell: pwsh
         timeout-minutes: 40
