@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 025b44d00f6201cab816a221d46bee083cb4a006
+          ref: 38bd8b96c5d7920980e6a31b7db6d6a206ec125f
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -29,14 +29,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: a0a3e2c43c736a8ad761c3bfba35ddae71ca544a
+          ref: 71f242233e10038aa6796c195c7ea6bfa7f92877
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify exact refs and original subject-protocol parity
         run: |
-          test "$(git -C domain rev-parse HEAD)" = "025b44d00f6201cab816a221d46bee083cb4a006"
-          test "$(git -C site rev-parse HEAD)" = "a0a3e2c43c736a8ad761c3bfba35ddae71ca544a"
+          test "$(git -C domain rev-parse HEAD)" = "38bd8b96c5d7920980e6a31b7db6d6a206ec125f"
+          test "$(git -C site rev-parse HEAD)" = "71f242233e10038aa6796c195c7ea6bfa7f92877"
           cmp domain/src/domain/service-subject-wallpaper-a.ts site/src/domain/service-subject-wallpaper-a.ts
           cmp domain/src/domain/service-subject-protocols.ts site/src/domain/service-subject-protocols.ts
           cmp domain/src/domain/service-original-corroboration.ts site/src/domain/service-original-corroboration.ts
