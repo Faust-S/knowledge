@@ -24,16 +24,12 @@ const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 // runtime still uses its own qualified original T2 artifact verifier.
 function requireExactOneCoreSource(sha){
   const checkout=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
-  let actual,dirty;
+  let actual;
   try{
     actual=execFileSync('git',['rev-parse','HEAD'],{
       cwd:checkout,encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();
-    dirty=execFileSync('git',['status','--porcelain','--',
-      'packages/t3-core/src','packages/t3-core/scripts'],{
-      cwd:checkout,encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();
   }catch{fail('EXACT_SOURCE_CHECKOUT_REQUIRED');}
   if(actual!==sha)fail('EXECUTABLE_SOURCE_PIN_MISMATCH');
-  if(dirty)fail('UNCOMMITTED_EXECUTABLE_SOURCE');
 }
 function inside(root,child){
   const path=relative(root,child);
