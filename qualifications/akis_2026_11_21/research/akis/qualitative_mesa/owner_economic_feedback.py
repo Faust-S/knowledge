@@ -130,8 +130,10 @@ def private_owner_financial_review(
 ) -> bool:
     """Return a private review gate, not a preference, refusal, or cash value.
 
-    Source not currently available -> no financial signal; current but
-    unqualified or adverse evidence -> ask original owner to review.
+    A missing current source, original result, or required ContextBasis
+    authority prevents any use of this financial signal. Only an active,
+    eligible source with adverse or incomplete cash evidence prompts a
+    generic review without disclosing why.
     The returned boolean is NOT serialized into global model observations.
     """
     current = [c for c in claims if c.owner == owner and c.work == work.key
@@ -142,20 +144,20 @@ def private_owner_financial_review(
         return True
     c = current[0]
     if c.work_revision != work.source_revision or c.org_revision != state.institution.revision:
-        return True
+        return False
     if not state.subjects[owner].active:
-        return True
+        return False
     if state.context_basis is not None and state.context_basis.strict:
         try:
             state.context_basis.assert_allowed(work.key, "interest_update", owner, int(at))
         except ContextBlocked:
-            # A missing original context right cannot be laundered into an
-            # economic preference, or an implicit permission to publish.
-            return True
+            # Never use an inaccessible source even for a generic
+            # financial-origin review action: no information leakage.
+            return False
     for prior_work, prior_rev in c.prerequisites:
         w = state.works.get(prior_work)
         if w is None or w.source_revision != prior_rev or w.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT":
-            return True
+            return False
 
     cash = economics.get("cash_timing", {})
     owner_path = cash.get("per_original_owner_private_research_projection", {}).get(owner, {})
