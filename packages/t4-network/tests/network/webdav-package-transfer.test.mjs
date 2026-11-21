@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { createWebDavPackageTransport, packageSha256 } from '../../src/network/webdav-package-transfer.mjs';
+import {createT4OriginalExchangeHandoff} from '../../src/network/original-exchange-handoff.mjs';
 const baseUrl=process.env.T4_TEST_URL,auth=process.env.T4_TEST_AUTH;
 const policy={objectFamily:'owner-exported-package',workspaceId:'test-person-a',authorityRoot:'original-owner-a',writeOwnerRef:'original-exchange-a',primaryPlacement:'LOCAL_PRIMARY_HOSTED_REPLICA',allowedLocations:['test-webdav'],retentionClass:'test',recoveryClass:'test',universalCloudMaster:false,subjectActionAuthority:false};
 let serial=0;
@@ -37,3 +38,51 @@ test('bytes snapshotted before async authorization',async()=>{const b=bytes(),or
 test('5xx write is unknown without retry',async()=>{let n=0;const t=createWebDavPackageTransport(cfg({fetchImpl:async()=>{n++;return new Response(null,{status:500});}}));await assert.rejects(t.putSnapshot(sample(bytes())),ec('OUTCOME_UNKNOWN'));assert.equal(n,1);t.close();});
 test('readback, not PUT ETag, verifies upload',async()=>{const b=bytes();let n=0;const t=createWebDavPackageTransport(cfg({fetchImpl:async(u,o)=>{n++;return o.method==='PUT'?new Response(null,{status:201}):new Response(b);}}));const r=await t.putSnapshot(sample(b));assert.equal(r.state,'PUBLISHED_AND_READ_BACK');assert.equal(r.etag,null);assert.equal(n,2);t.close();});
 test('checkpoint for cold-server fresh-process read',async()=>{const t=createWebDavPackageTransport(cfg()),b=bytes('cold');const r=await t.putSnapshot(sample(b));writeFileSync(process.env.T4_TEST_CHECKPOINT,JSON.stringify({key:r.key,sha256:r.sha256,text:b.toString('base64')}));t.close();});
+
+test('real HTTPS roundtrip joins confirmed original Exchange-shaped artifact to original preview port', async()=>{
+  const t=createWebDavPackageTransport(cfg());
+  const data=bytes('confirmed-original-shape');
+  const workspace={workspace_id:'test-person-a'};
+  const packageDigest='original-digest-fixture';
+  const semanticDigest='original-semantic-fixture';
+  const state={
+    status:'confirmed',ackSensitive:true,fileSavedConfirmed:true,
+    packageSnapshot:{workspaces:['test-person-a']},
+    artifact:{
+      filename:'original.iwxa',bytes:data,size:data.byteLength,package_digest:packageDigest,
+      semantic_digest:semanticDigest,
+      manifest:{format:'iwxa.package',format_version:'1.1',encryption:'none',
+        package_digest:packageDigest,semantic_digest:semanticDigest,workspaces:['test-person-a']},
+      validation:{format:'iwxa.package.validation',ok:true}
+    },
+    receipt:{package_digest:packageDigest,workspace_ids:['test-person-a'],
+      confirmed_at:'2026-11-21T00:00:00Z',confirmations:1}
+  };
+  let previews=0,commits=0;
+  const kernel={
+    hasOperation:op=>['t2.exportPackage','t2.confirmExport','t2.importPreview','t2.importCancel'].includes(op),
+    importPreview:async content=>{
+      previews++;
+      assert.deepEqual(Buffer.from(content),data);
+      return {preview_token:'original-kernel-preview-token'};
+    },
+    importCommit:async()=>{commits++;throw Error('T4_must_not_auto_commit');}
+  };
+  const handoff=createT4OriginalExchangeHandoff({
+    transport:t,originalKernel:kernel,workspaceId:'test-person-a',
+    readOriginalExportState:()=>state,
+    currentWorkspace:{get:()=>workspace,subscribe:()=>()=>{}}
+  });
+  try{
+    const published=await handoff.publishConfirmedExport();
+    assert.equal(published.originalPackageDigest,packageDigest);
+    assert.equal(published.transportReceipt.state,'PUBLISHED_AND_READ_BACK');
+    const prepared=await handoff.previewRemoteImport({
+      key:published.sha256+'.iwxa',expectedSha256:published.sha256
+    });
+    assert.equal(prepared.originalPreview.preview_token,'original-kernel-preview-token');
+    assert.equal(prepared.originalImportCommitted,false);
+    assert.equal(previews,1);
+    assert.equal(commits,0);
+  }finally{t.close();}
+});
