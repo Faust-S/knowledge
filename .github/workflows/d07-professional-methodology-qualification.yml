@@ -1,0 +1,103 @@
+name: D07 professional methodology V9.1 private-source qualification
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d07-professional-methodology-qualification.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d07-professional-methods-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate-methodologies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout exact private subject-model commit
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod
+          ref: 0ce4eea80b34d23f0d1c8c472b16bf1a80971d98
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: subject
+      - name: Checkout exact private website commit
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: d612104716a076f637b0a389ca8762b5bf1b6df0
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - name: Check revisions and source mirrors
+        run: |
+          test "$(git -C subject rev-parse HEAD)" = "0ce4eea80b34d23f0d1c8c472b16bf1a80971d98"
+          test "$(git -C site rev-parse HEAD)" = "d612104716a076f637b0a389ca8762b5bf1b6df0"
+          for file in service-finalization-gate.ts service-external-gap-research.ts service-professional-gap-inventory.ts service-subject-protocols.ts service-professional-source-intake.ts service-method-fragment-assembly.ts service-professional-evidence.ts service-subject-logistics-b.ts service-subject-logistics-k.ts; do
+            cmp "subject/src/domain/$file" "site/src/domain/$file" >/dev/null || exit 2
+          done
+          echo D07_PROFESSIONAL_PARITY=PASS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - name: Install exact Bun dependencies without publishing code
+        working-directory: site
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-install.log" 2>&1 || {
+            echo D07_INSTALL=FAIL
+            exit 1
+          }
+          echo D07_INSTALL=PASS
+      - name: Run all source, gap, logistics and approval regressions
+        working-directory: site
+        run: |
+          fail=0
+          for f in \
+            d07-external-gap-research.test.mjs \
+            d07-professional-gap-inventory.test.mjs \
+            d07-professional-finalization-gate.test.mjs \
+            d07-professional-source-intake.test.mjs \
+            d07-professional-fragment-assembly.test.mjs \
+            d07-professional-evidence-closure.test.mjs \
+            d07-method-fragment-batch.test.mjs \
+            d07-logistics-professional-methods.test.mjs; do
+            if node --import tsx --test "scripts/tests/$f" > "$RUNNER_TEMP/$f.log" 2>&1; then
+              echo "D07_TEST_$(echo "$f" | tr '[:lower:].-' '[:upper:]__')=PASS"
+            else
+              echo "D07_TEST_$(echo "$f" | tr '[:lower:].-' '[:upper:]__')=FAIL"
+              grep -E '^not ok [0-9]+|^# (tests|pass|fail)' "$RUNNER_TEMP/$f.log" | tail -12 || true
+              fail=1
+            fi
+          done
+          exit "$fail"
+      - name: Whole-site TypeScript compilation
+        if: always()
+        working-directory: site
+        run: |
+          if bun x tsc --noEmit > "$RUNNER_TEMP/d07-tsc.log" 2>&1; then
+            echo D07_TYPES=PASS
+          else
+            echo D07_TYPES=FAIL
+            grep -oE 'TS[0-9]+' "$RUNNER_TEMP/d07-tsc.log" | sort | uniq -c | head -15 || true
+            exit 1
+          fi
+      - name: Generate all 500 and count actual readiness
+        if: always()
+        working-directory: site
+        run: |
+          if node --import tsx scripts/generate-d07-methodology-top500.mjs "$RUNNER_TEMP/d07-500" --as-of=2026-11-21 > "$RUNNER_TEMP/d07-500.log" 2>&1; then
+            echo D07_GENERATE_TOP500=PASS
+            node -e "const fs=require('fs');const p=process.env.RUNNER_TEMP+'/d07-500/';const f=JSON.parse(fs.readFileSync(p+'service-professional-finalization.top500.generated.json'));const q=JSON.parse(fs.readFileSync(p+'service-external-gap-research.top500.generated.json'));console.log('D07_TOP500_SELECTED='+f.counts.selected);console.log('D07_INDIVIDUAL_PROTOCOLS_SELECTED='+f.counts.editorialWithIndividualTechnology);console.log('D07_APPROVED_METHODS='+f.counts.independentlyApprovedMethodologies);console.log('D07_FINALIZED_T2='+f.counts.finalized);console.log('D07_RESEARCH_TASKS='+q.services.reduce((a,s)=>a+s.itemGaps.length+s.unresolved.length,0));"
+          else
+            echo D07_GENERATE_TOP500=FAIL
+            grep -oE 'D07_[A-Z0-9_]+|^# (tests|pass|fail)' "$RUNNER_TEMP/d07-500.log" | sort -u | head -15 || true
+            exit 1
+          fi
+      # No artifact/log upload. Private checkout is temporary on this public runner.
