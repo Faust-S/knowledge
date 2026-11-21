@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: 34c903b4794a66aeb1580fd563c02a20f4972fb7
+      SITE_SHA: 89d52f9919fd5412d6841c8a1d0925a72251c284
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -1819,6 +1819,13 @@ jobs:
                 Write-Output 'D02_IMPORT_LINKED_VIEW_ACTIVATION=NATIVE_KEYBOARD'
               }catch{throw 'D02_IMPORT_CONTRIBUTION_EXACT_VIEW_ACTION_NOT_FOUND'}
             }
+            # The original read-only viewer exposes the saved values as
+            # accessible named notes. Distinguish invalid Result shape from
+            # a missing evidence node; neither is silently accepted.
+            if(Locate 'Не удалось прочитать все сведения о совместной работе. Откройте исходный инструмент и проверьте запись.' ''){
+              throw 'D02_IMPORT_CONTRIBUTION_VIEW_INVALID'
+            }
+            $null=Await 'Подтверждающие сведения моего вклада' '' 'D02_IMPORT_CONTRIBUTION_PROOF_GROUP_MISSING'
             $null=AwaitPrefix 'Основание: Товарная накладная и чек номер 115' 'D02_IMPORT_CONTRIBUTION_EVIDENCE_LOST'
             $null=AwaitPrefix 'Записанный результат: Проверил десять наборов' 'D02_IMPORT_CONTRIBUTION_RESULT_LOST'
             Write-Output 'D02_IMPORT_CONTRIBUTION_EXACT_EVIDENCE_IN_T2_VIEWER=PASS'
