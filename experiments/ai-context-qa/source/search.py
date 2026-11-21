@@ -1,4 +1,8 @@
-"""Rebuildable local source retrieval. No network, credentials or model required."""
+"""Rebuildable local source retrieval. No network, credentials or model required.
+
+Program output can prove a search was executed; an AI host must separately show
+its actual tool call and which returned sources informed its answer.
+"""
 import argparse, hashlib, json, re, sqlite3, tempfile
 from contextlib import closing
 from pathlib import Path
@@ -115,10 +119,14 @@ def query(query_text,db,rows,scope=None,role=None,limit=8,rebuild=False,cache=No
     eligible=eligible_sources(rows,include_archived)
     rows,stale=checked_sources(eligible,cache)
     if status_out is not None:
+        # Proof of the actual retrieval implementation, not proof that a model
+        # read or applied the returned results. Never emit prompts or secrets.
         status_out.update(retrieval_status='REVIEW_REQUIRED_SOURCE_DRIFT' if stale else 'SOURCE_HASHES_VERIFIED_OR_EXTERNAL_METADATA_ONLY',
                           indexed_sources=len(rows),stale_sources_skipped=len(stale),
                           stale_source_ids=[x['id'] for x in stale[:30]],
-                          historical_sources_omitted=0 if include_archived else total_records-len(eligible))
+                          historical_sources_omitted=0 if include_archived else total_records-len(eligible),
+                          retrieval_engine='IWXA_LOCAL_SOURCE_SEARCH/1',
+                          executable_sha256=hashlib.sha256(canonical_file_bytes(Path(__file__))).hexdigest())
     db=Path(db);db.parent.mkdir(parents=True,exist_ok=True)
     fresh=False
     if db.exists():
@@ -173,6 +181,12 @@ def main():
     if not a.query:p.error('--query, --node or --overview is required')
     status={}
     results=query(a.query,a.db,sources(),a.scope,a.role,a.limit,a.rebuild,cache,a.include_archived,status,a.excerpt_chars)
-    print(json.dumps(dict(query=a.query,results=results,source_integrity=status,reading_mode='EXPLICIT_ARCHIVE_INCLUDED' if a.include_archived else 'CURRENT_ONLY',rule='T0 minimal particles / T1 minimal processes are the only current meanings. Metadata is navigation, not source content.'),ensure_ascii=False,indent=2))
+    execution=dict(schema='IWXA_AI_CONTEXT_EXECUTION_EVIDENCE/1',
+                   mechanism=status['retrieval_engine'],
+                   executable='knowledge/system/tools/search.py',
+                   executable_sha256=status['executable_sha256'],
+                   returned_source_ids=[r['source_id'] for r in results],
+                   evidence_scope='PROGRAM_EXECUTION_ONLY_AI_TOOL_CALL_AND_RESPONSE_USE_NOT_ATTESTED')
+    print(json.dumps(dict(query=a.query,results=results,source_integrity=status,execution=execution,reading_mode='EXPLICIT_ARCHIVE_INCLUDED' if a.include_archived else 'CURRENT_ONLY',rule='T0 minimal particles / T1 minimal processes are the only current meanings. Metadata is navigation, not source content.'),ensure_ascii=False,indent=2))
 
 if __name__=='__main__':main()

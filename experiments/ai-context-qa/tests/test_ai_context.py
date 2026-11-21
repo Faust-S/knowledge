@@ -122,6 +122,30 @@ class AIContextSyntheticTests(unittest.TestCase):
         self.assertIsNone(entry["excerpt_start_char"])
         self.assertIsNone(entry["excerpt_end_char"])
 
+    def test_actual_cli_execution_emits_source_trace_without_ai_claim(self):
+        import contextlib
+        import io
+        import sys
+        from unittest.mock import patch
+        record = io.StringIO()
+        args = ["search.py", "--query", "ExternalCandidateBeta", "--scope", "external",
+                "--db", str(self.db("actual-cli.sqlite"))]
+        with patch.object(sys, "argv", args), contextlib.redirect_stdout(record):
+            search.main()
+        response = json.loads(record.getvalue())
+        proof = response["execution"]
+        self.assertEqual(proof["schema"], "IWXA_AI_CONTEXT_EXECUTION_EVIDENCE/1")
+        self.assertEqual(proof["mechanism"], "IWXA_LOCAL_SOURCE_SEARCH/1")
+        expected = hashlib.sha256(search.canonical_file_bytes(Path(search.__file__))).hexdigest()
+        self.assertEqual(proof["executable_sha256"], expected)
+        self.assertEqual(response["source_integrity"]["executable_sha256"], expected)
+        self.assertEqual(proof["returned_source_ids"], ["S-EXTERNAL"])
+        self.assertEqual(proof["returned_source_ids"],
+                         [item["source_id"] for item in response["results"]])
+        self.assertEqual(response["results"][0]["content_kind"],
+                         "METADATA_AND_CANDIDATES_ONLY")
+        self.assertIn("NOT_ATTESTED", proof["evidence_scope"])
+
     def test_sha_drift_skips_bad_source_but_keeps_healthy(self):
         rows = [dict(self.rows[1], sha256="0" * 64), self.rows[0]]
         status = {}
