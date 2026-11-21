@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: 61b516efa1d1e53cc832346a228cfe1902ed2b75
+          ref: f8db6dc0cd14e501fd5c5adfb4bd358ce214e800
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/learn
-          ref: 286eb5a3bd3ed37deb3655c224bcb8c91bef58c0
+          ref: 272276c9d4feee94286dad1339c6e44113d80241
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/domain
@@ -46,26 +46,27 @@ jobs:
         run: |
           set -eu
           test "$(git -C private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
-          test "$(git -C private/site rev-parse HEAD)" = 61b516efa1d1e53cc832346a228cfe1902ed2b75
-          test "$(git -C private/domain rev-parse HEAD)" = 286eb5a3bd3ed37deb3655c224bcb8c91bef58c0
+          test "$(git -C private/site rev-parse HEAD)" = f8db6dc0cd14e501fd5c5adfb4bd358ce214e800
+          test "$(git -C private/domain rev-parse HEAD)" = 272276c9d4feee94286dad1339c6e44113d80241
           cmp private/domain/learning-journey/projection.ts private/site/t2/domain-modules/learn-results/learning-journey.ts
           cmp private/domain/learning-journey/today.ts private/site/t2/domain-modules/learn-results/learning-today.ts
           cmp private/domain/learning-journey/workplace-shifts.mjs private/site/practice/quick-arithmetic/engine/workplace-shifts.mjs
           cmp private/domain/learning-journey/price-check.mjs private/site/practice/quick-arithmetic/engine/price-check.mjs
           cmp private/domain/practice/feedback-v1.mjs private/site/practice/practice-feedback-v1.js
           cmp private/domain/practice/checklist-evaluation.mjs private/site/practice/checklist-evaluation.js
+          cmp private/domain/practice/self-check-review.mjs private/site/practice/self-check-review.js
           cmp private/domain/practice/models/find-error-in-solution.v1.json private/site/practice/models/find-error-in-solution.v1.json
           node --check private/site/practice/assets-r6-clean/practice-player-U4wosZfh.js
           node --check private/site/practice/assets-r6-clean/run-Cq91mFXk.js
           node --check private/site/practice/assets-r6-clean/result-lQFostOC.js
-          node --test private/domain/practice/checklist-evaluation.test.mjs
+          node --test private/domain/practice/*.test.mjs
           node --experimental-strip-types --test private/domain/learning-journey/*.test.mjs
       - name: Run the original Learn/T2 site, Kernel and real browser witness
         shell: bash
         env:
           D01_T2_CHECKOUT: ${{ github.workspace }}/private/t2
           D01_EXPECTED_T2_HEAD: 9c64951cd78411283e8a416641c36d71e169fc1d
-          D01_EXPECTED_SITE_HEAD: 61b516efa1d1e53cc832346a228cfe1902ed2b75
+          D01_EXPECTED_SITE_HEAD: f8db6dc0cd14e501fd5c5adfb4bd358ce214e800
           D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
           D01_CASE_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-001-workplace-numeracy.json
           D01_CASE_002_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-002-price-label-check.json
