@@ -50,6 +50,13 @@ test('candidate refuses incomplete qualified original Kernel, duplicate or illeg
     /T3_ONE_DIST_CANDIDATE_VERIFIED_SOURCE_AND_RUNTIME_REQUIRED/);
 });
 
+test('stable T3 version creates a product-owned build, not a fake accepted domain',()=>{
+  const productBuild=manifest(undefined,{version:'0.3.0'});
+  assert.equal(productBuild.schema,'IWXA_T3_ONE_DIST_VERSIONED_BUILD/1');
+  assert.equal(productBuild.status,'PRODUCT_DIST_BUILT_NOT_ACCEPTED');
+  assert.equal(productBuild.domainMigrationAllowed,false);
+  assert.equal(productBuild.originalKernel,'0.3.6');
+});
 test('a product-specific One Dist cannot be declared universal or silently granted Agent D6',()=>{
   assert.throws(()=>manifest(undefined,{product:null}),
     /T3_ONE_DIST_CANDIDATE_PRODUCT_OWNED_T2_SERVICE_REQUIRED/);

@@ -3,7 +3,7 @@
 // The only assembler remains assembleSignedControlDist. No new Kernel,
 // Store, Exchange, format, signer or copied model weights are introduced.
 // Usage: npm run package:t3:candidate -- <qualified-t2-dist> <compiled-t3-build>
-//   <new-output-directory> <0.x.y-rc.z> <one-core-source-sha> <t2-source-sha>
+//   <new-output-directory> <0.x.y[-rc.z]> <one-core-source-sha> <t2-source-sha>
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {existsSync,lstatSync,mkdirSync,readFileSync,readdirSync,
@@ -16,6 +16,8 @@ import {collectDirectoryEntries,readStoredZip,writeStoredZip}
 
 const id=/^[a-f0-9]{40}$/;
 const candidate=/^0\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$/;
+const stable=/^0\.[0-9]+\.[0-9]+$/;
+const validVersion=value=>candidate.test(value)||stable.test(value);
 const PRODUCT_AGENT='iwxa.personal-agent';
 const fail=code=>{throw Error('T3_ONE_DIST_CANDIDATE_'+code);};
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -50,7 +52,7 @@ function noSymlinks(root){
   return count;
 }
 export function manifestForOneDist(entries,{version,oneCoreSha,t2Sha,assembled,product}){
-  if(!candidate.test(version)||!id.test(oneCoreSha)||!id.test(t2Sha)||
+  if(!validVersion(version)||!id.test(oneCoreSha)||!id.test(t2Sha)||
      assembled?.original_runtime_unchanged!==true||
      assembled?.original_qualified_artifact!==
        'iwxa-kernel-k036-same-store-history-20261019-qualified.1')
@@ -111,8 +113,13 @@ export function manifestForOneDist(entries,{version,oneCoreSha,t2Sha,assembled,p
     path:x.name,bytes:x.bytes.length,sha256:hash(x.bytes),
   })).sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);
   return {
-    schema:'IWXA_T3_ONE_DIST_RELEASE_CANDIDATE/1',
-    status:'CANDIDATE_NOT_FINAL',
+    schema:stable.test(version)?'IWXA_T3_ONE_DIST_VERSIONED_BUILD/1':
+      'IWXA_T3_ONE_DIST_RELEASE_CANDIDATE/1',
+    // An independently qualified T3 technology version is not permission to
+    // declare any target domain installed, signed or accepted without its
+    // own product qualification. A native Agent candidate remains an RC.
+    status:stable.test(version)?'PRODUCT_DIST_BUILT_NOT_ACCEPTED':
+      'CANDIDATE_NOT_FINAL',
     version,
     releaseSubject:'PRODUCT_OWNED_ONE_ORIGINAL_T2_T3_HOST_KERNEL_STORE_EXCHANGE_LIFECYCLE',
     productId:product.id,
@@ -147,7 +154,7 @@ export function prepareT3OneDistCandidate({
   // An original T2 Kernel ZIP is not itself a deployable product. Require
   // the product-owned domain, service passport and pinned origin. This
   // prevents manufacturing a misleading cross-domain "universal ZIP".
-  if(!candidate.test(version)||!id.test(oneCoreSha)||!id.test(t2Sha))
+  if(!validVersion(version)||!id.test(oneCoreSha)||!id.test(t2Sha))
     fail('VERSION_AND_SOURCE_PINS_REQUIRED');
   if(!['signed-control','agent-d6','agent-d6-desktop'].includes(assemblyProfile))
     fail('ASSEMBLY_PROFILE_INVALID');

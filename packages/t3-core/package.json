@@ -35,7 +35,8 @@
     "test:product:core": "node scripts/run-t3-product-core-tests.mjs",
     "test:product:workspace": "vitest run --config vitest.t3-product.config.mjs",
     "stage:domain-offline": "node scripts/materialize-t3-domain-mode.mjs",
-    "package:t3:candidate": "node scripts/prepare-t3-one-dist-candidate.mjs"
+    "package:t3:candidate": "node scripts/prepare-t3-one-dist-candidate.mjs",
+    "package:t3:product": "node scripts/prepare-t3-one-dist-candidate.mjs"
   },
   "dependencies": {
     "ajv": "^8.20.0",
@@ -66,7 +67,7 @@
     "vite": "^8.0.16",
     "vitest": "^4.1.10"
   },
-  "version": "0.3.0-rc.1",
+  "version": "0.3.0",
   "engines": {
     "node": ">=22.16.0"
   }

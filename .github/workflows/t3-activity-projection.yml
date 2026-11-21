@@ -229,7 +229,7 @@ jobs:
           if(head!==process.env.T3_PLATFORM_SOURCE)
             throw Error('T3_PLATFORM_EXACT_GIT_SHA_REQUIRED');
           const manifest={schema:'IWXA_T3_PORTABLE_PLATFORM_INPUTS/1',
-            version:'0.3.0-rc.1',sourceCommit:head,
+            version:'0.3.0',sourceCommit:head,
             sourceTree:git('rev-parse','HEAD:packages/t3-core/src'),
             originalT2SourceCommit:'9c64951cd78411283e8a416641c36d71e169fc1d',
             originalKernel:'0.3.6',runtimeContract:'1.3.0',
@@ -248,10 +248,10 @@ jobs:
               manifestSha256:digest(bytes),originalKernel:manifest.originalKernel}));
           NODE
           sha256sum -c t3-platform-inputs.sha256
-      - name: Retain portable T3 0.3.0-rc.1 platform inputs for web products
+      - name: Retain portable T3 0.3.0 platform inputs for web products
         uses: actions/upload-artifact@v4
         with:
-          name: iwxa-t3-platform-inputs-0.3.0-rc.1-${{ github.sha }}
+          name: iwxa-t3-platform-inputs-0.3.0-${{ github.sha }}
           path: |
             packages/t3-core/dist/
             packages/t3-core/qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip
