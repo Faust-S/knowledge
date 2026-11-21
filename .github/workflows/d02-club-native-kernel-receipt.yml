@@ -1787,54 +1787,17 @@ jobs:
             # Read the actual imported task in the original T2 Result viewer.
             # Locate the View action in the same week card, not any project's
             # similarly named button. No temporary tab-state is reused.
-            $weekHeading=Await 'Моя неделя' '' 'D02_IMPORT_WEEK_CARD_NOT_ACCESSIBLE'
-            $walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker
-            $cursor=$weekHeading
-            $weekView=$null
-            for($level=0;$level -lt 12;$level++){
-              if(!$cursor){break}
-              try{
-                $resume=$cursor.FindFirst($scope,[System.Windows.Automation.PropertyCondition]::new(
-                  [System.Windows.Automation.AutomationElement]::NameProperty,'Продолжить неделю'))
-                $viewCondition=[System.Windows.Automation.AndCondition]::new(
-                  [System.Windows.Automation.PropertyCondition]::new(
-                    [System.Windows.Automation.AutomationElement]::NameProperty,'Посмотреть'),
-                  [System.Windows.Automation.PropertyCondition]::new(
-                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                    [System.Windows.Automation.ControlType]::Button))
-                $viewer=$cursor.FindFirst($scope,$viewCondition)
-                if($resume -and $viewer){$weekView=$viewer;break}
-                $cursor=$walker.GetParent($cursor)
-              }catch{break}
-            }
-            if(!$weekView){throw 'D02_IMPORT_WEEK_VIEW_ACTION_NOT_FOUND'}
+            # Exact accessible viewer names prevent selecting another
+            # card's generic 'Посмотреть' action as more results are imported.
+            $null=Await 'Моя неделя' '' 'D02_IMPORT_WEEK_CARD_NOT_ACCESSIBLE'
+            $weekView=Await 'Посмотреть запись: Моя неделя' 'button' 'D02_IMPORT_WEEK_VIEW_ACTION_NOT_FOUND'
             $weekView.SetFocus()
             [System.Windows.Forms.SendKeys]::SendWait(' ')
             $null=Await 'Забрать документы для семейного бюджета' '' 'D02_IMPORT_WEEK_TASK_CONTENT_LOST'
             Write-Output 'D02_IMPORT_WEEK_EXACT_TASK_IN_T2_VIEWER=PASS'
-            $sceneHeading=Await 'Совместная работа: Покупки соседям' '' 'D02_IMPORT_SCENE_COLD_RESULT_MISSING'
+            $null=Await 'Совместная работа: Покупки соседям' '' 'D02_IMPORT_SCENE_COLD_RESULT_MISSING'
             Write-Output 'D02_IMPORT_SCENARIO_IWXA_COLD_READBACK=PASS'
-            # Open the exact imported Project Result in the original
-            # read-only T2 viewer and confirm its real user-authored task.
-            $cursor=$sceneHeading
-            $sceneView=$null
-            for($level=0;$level -lt 12;$level++){
-              if(!$cursor){break}
-              try{
-                $resume=$cursor.FindFirst($scope,[System.Windows.Automation.PropertyCondition]::new(
-                  [System.Windows.Automation.AutomationElement]::NameProperty,'Продолжить дело'))
-                $viewCondition=[System.Windows.Automation.AndCondition]::new(
-                  [System.Windows.Automation.PropertyCondition]::new(
-                    [System.Windows.Automation.AutomationElement]::NameProperty,'Посмотреть'),
-                  [System.Windows.Automation.PropertyCondition]::new(
-                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                    [System.Windows.Automation.ControlType]::Button))
-                $view=$cursor.FindFirst($scope,$viewCondition)
-                if($resume -and $view){$sceneView=$view;break}
-                $cursor=$walker.GetParent($cursor)
-              }catch{break}
-            }
-            if(!$sceneView){throw 'D02_IMPORT_SCENE_VIEW_ACTION_NOT_FOUND'}
+            $sceneView=Await 'Посмотреть запись: Совместная работа: Покупки соседям' 'button' 'D02_IMPORT_SCENE_VIEW_ACTION_NOT_FOUND'
             $sceneView.SetFocus()
             [System.Windows.Forms.SendKeys]::SendWait(' ')
             $null=Await 'Сверить десять покупок' '' 'D02_IMPORT_SCENE_TASK_CONTENT_LOST'
