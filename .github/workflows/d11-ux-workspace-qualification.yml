@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 5bbc90a2c474b085ef031602a8db35d180aafe08
+          ref: 63b55a34c3ac0ff2eff9b7b60379186d3702e450
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -51,7 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C site rev-parse HEAD)" = "5bbc90a2c474b085ef031602a8db35d180aafe08"
+          test "$(git -C site rev-parse HEAD)" = "63b55a34c3ac0ff2eff9b7b60379186d3702e450"
           test "$(git -C t2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17"
           echo D11_UX_SITE_REVISION=PASS
           echo D11_NORMATIVE_T2_REVISION=PASS
@@ -87,6 +87,12 @@ jobs:
             echo D11_UX_ONE_DIST=PASS
           else
             echo D11_UX_ONE_DIST=FAIL
+            echo -n "D11_UX_BUILD_ERROR_CODES="
+            { grep -Eo 'TS[0-9]{4}|T2_EXTERNAL_MODULE_[A-Z0-9_]+|D11_[A-Z0-9_]+|ERR_[A-Z0-9_]+' "$RUNNER_TEMP/d11-ux-build.log" || true; } | sort -u | head -n 20 | tr '\n' ','
+            echo
+            if grep -Eiq 'Could not resolve|Rollup failed to resolve|Failed to resolve import|Cannot find module' "$RUNNER_TEMP/d11-ux-build.log"; then echo D11_UX_BUILD_IMPORT_ERROR=YES; fi
+            if grep -Eq 'error TS[0-9]{4}' "$RUNNER_TEMP/d11-ux-build.log"; then echo D11_UX_BUILD_TYPE_ERROR=YES; fi
+            if grep -Eq 'T2_EXTERNAL_MODULE_' "$RUNNER_TEMP/d11-ux-build.log"; then echo D11_UX_BUILD_STAGE_ERROR=YES; fi
             exit 1
           fi
       - name: Check TypeScript after generated file-route refresh
@@ -130,7 +136,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 5bbc90a2c474b085ef031602a8db35d180aafe08
+          ref: 63b55a34c3ac0ff2eff9b7b60379186d3702e450
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -152,7 +158,7 @@ jobs:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "5bbc90a2c474b085ef031602a8db35d180aafe08"
+          test "$(git rev-parse HEAD)" = "63b55a34c3ac0ff2eff9b7b60379186d3702e450"
           test "$(git -C ../t2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17"
           node --check scripts/d11-ux-first-entry-browser-acceptance.mjs
           if ! npm ci --no-audit --no-fund > "$RUNNER_TEMP/d11-ux-browser-install.log" 2>&1; then
