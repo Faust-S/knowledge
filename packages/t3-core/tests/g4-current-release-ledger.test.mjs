@@ -23,7 +23,7 @@ function pinnedCheckout(workflow,repo){
   return match[1];
 }
 
-test('typed ledger keeps qualified B0 distinct from unreleased final D1-D7 T3 and historical G4',()=>{
+test('typed ledger separates released T3 technology, original T2, and still optional installed G4',()=>{
   assert.equal(current.schema,'IWXA_T3_G4_CURRENT_GATE_MATRIX/1');
   assert.equal(current.release_scope,'PRODUCT_NEUTRAL_NO_MANDATORY_ATLAS');
   assert.deepEqual(Object.keys(current.required_gates),names);
@@ -37,17 +37,32 @@ test('typed ledger keeps qualified B0 distinct from unreleased final D1-D7 T3 an
   // Do not require a native Publisher, Activity, Atlas, or all installed domain
   // profiles merely to reuse the same qualified T2/T3 One Core in a product.
   const core=current.core_release;
+  const platformReleased=current.final_t3_release.state==='RELEASED';
   assert.equal(core.schema,'IWXA_T3_ONE_CORE_RELEASE_SCOPE/1');
-  assert.equal(core.status,'QUALIFIED_ENGINEERING_BASELINE_NOT_FINAL_T3');
-  assert.equal(core.release_subject,'FROZEN_T2_T3_RUNTIME_QUALIFIED_FOR_FINAL_ENGINEERING_NOT_A_PRODUCT_RELEASE');
-  assert.equal(core.source_sha,current.pins.one_core);
   assert.equal(core.normative_t2_sha,current.pins.normative_t2);
-  assert.equal(core.executable_tree_sha,
-    current.qualifications.current_one_core_full_qualification.exact_executable_src_tree_sha);
   assert.equal(core.kernel_version,'0.3.6');
   assert.equal(core.runtime_contract,'1.3.0');
   assert.equal(core.auto_publish_to_sites,false);
-  assert.equal(core.migration_eligible,false);
+  if(platformReleased){
+    assert.equal(core.status,'RELEASED_T3_TECHNOLOGY_0_3_0');
+    assert.equal(core.version,'0.3.0');
+    assert.equal(core.source_sha,current.final_t3_release.release_evidence.source_sha);
+    assert.equal(core.executable_tree_sha,
+      current.final_t3_release.release_evidence.source_tree_sha);
+    assert.equal(core.portable_inputs.manifest_sha256,
+      current.final_t3_release.release_evidence.portable_platform_manifest_sha256);
+    assert.equal(current.final_t3_release.release_evidence.conclusion,'SUCCESS');
+    assert.equal(current.final_t3_release.release_evidence.exact_platform_ci_run,44913691238);
+    assert.equal(core.migration_eligible,true);
+  }else{
+    assert.equal(core.status,'QUALIFIED_ENGINEERING_BASELINE_NOT_FINAL_T3');
+    assert.equal(core.release_subject,
+      'FROZEN_T2_T3_RUNTIME_QUALIFIED_FOR_FINAL_ENGINEERING_NOT_A_PRODUCT_RELEASE');
+    assert.equal(core.source_sha,current.pins.one_core);
+    assert.equal(core.executable_tree_sha,
+      current.qualifications.current_one_core_full_qualification.exact_executable_src_tree_sha);
+    assert.equal(core.migration_eligible,false);
+  }
   assert.equal(current.required_gates.B0.installed,'PASS');
   assert.equal(current.qualifications.current_installed_agent.conclusion,'SUCCESS');
   assert.equal(current.qualifications.current_installed_admin.conclusion,'SUCCESS');
@@ -59,13 +74,13 @@ test('typed ledger keeps qualified B0 distinct from unreleased final D1-D7 T3 an
     current.qualifications.current_installed_admin.run_id);
   assert.equal(core.verified_actions.native_qwen_age_metal_jobs,
     current.qualifications.current_one_core_full_qualification.observed_full_run_id);
-  assert.equal(current.verdict.t3_ready,false,
-    'A qualified runtime is not final T3 while D1-D7 completion and final One Dist remain open');
-  assert.equal(current.final_t3_release.state,'NOT_RELEASED');
-  assert.equal(current.final_t3_release.domain_migration_allowed,false);
+  assert.equal(current.verdict.t3_ready,platformReleased,
+    'T3 platform readiness depends on exact technology evidence, not optional installed G4');
+  assert.equal(current.final_t3_release.domain_migration_allowed,platformReleased);
   assert.equal(current.final_t3_release.transfer_contract,
     'EXISTING_MANUAL_OR_OWNER_SELECTED_IWXA_NO_MANDATORY_LIVE_INTERAPP_IPC');
-  assert.equal(evidence.release_candidate.t3_ready,current.verdict.t3_ready);
+  assert.equal(evidence.release_candidate.t3_ready,false,
+    'Historical November 18 source candidate must not be rewritten as an accepted product');
 
   const allInstalledGatesPass=names.every(
     key=>current.required_gates[key].installed==='PASS');
@@ -73,7 +88,6 @@ test('typed ledger keeps qualified B0 distinct from unreleased final D1-D7 T3 an
   assert.ok(['ACCEPTED','NOT_ACCEPTED'].includes(current.verdict.g4));
   assert.equal(current.final_acceptance_policy,'INDEPENDENT_TECHNOLOGY_D1_D7_ORIGINAL_T2_ONE_DIST');
   assert.equal(current.verdict.g4_scope,'HISTORICAL_OPTIONAL_ECOSYSTEM_INTEGRATION_NOT_T3_RELEASE_GATE');
-  const platformReleased=current.final_t3_release.state==='RELEASED';
   assert.equal(current.verdict.t3_ready,platformReleased);
   assert.ok(!evidence.release_candidate.production_ready||platformReleased,
     'platform production readiness requires its own final T3 technology release, not optional installed G4');

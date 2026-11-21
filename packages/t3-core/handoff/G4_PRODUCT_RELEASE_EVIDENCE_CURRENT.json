@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_T3_G4_PRODUCT_RELEASE_EVIDENCE/1",
-  "snapshot_date": "2026-11-20",
+  "snapshot_date": "2026-11-21",
   "authority_role": "GIT_SOURCE_AND_CI_SNAPSHOT_ONLY_NOT_NATIVE_OR_BUSINESS_AUTHORITY",
   "currentness": "20_11_CORE_FROZEN_SOURCE_44744242421_SUCCESS_NATIVE_QWEN_AGE_APPLE_METAL_PASS__AGENT_032F_SIGNED_SOURCE_26_26_PASS_INSTALLED_QWEN_SNAPSHOT_HTTP_409_PRE_SWITCH_QA_FIXED__CURRENT_12707F_NATIVE_SOURCE_44745032035_26_OF_26_PASS_INSTALLED_44745032154_IN_PROGRESS__PRIOR_10CE_GUEST_INSTALLED_PASS__G4_NOT_ACCEPTED",
   "policy": {
@@ -2545,14 +2545,15 @@
     "D3_INSTALLED_ADMIN_OWNER_ENROLL_AND_DPAPI_COLD": "PASS_44537675979_AT_T3_B897__PASS_44559119290_AT_T3_1A826763_INDEPENDENT_DPAPI_PROCESS_AND_GUI_COLD",
     "D3_ORIGINAL_PRIVATE_OWNER_SOURCE_LATEST": "PASS_15_OF_15_44559119612_EXACT_T3_1A826763_SOURCE_ONLY",
     "D3_ORIGINAL_NATIVE_AGENT_KERNEL_LATEST": "PASS_20_G4_MARKERS_44559119398_ON_HISTORICAL_AGENT_563868__CURRENT_CENTRAL_AGENT_C347_FAIL_ACCEPTED_CORE_PROOF_44561386251",
-    "D3_AGENT06_CENTRAL_ORIGINAL_EMPLOYEE_SOURCE": "EXACT_CURRENT_AGENT_21505E_ONE_CORE_F42E_ORIGINAL_T3_1A826_SOURCE_NATIVE_26_OF_26_PLUS_FINAL_44723931657_SUCCESS__INDEPENDENT_INSTALLED_GUI_ADMIN_APPLY_HOLD"
+    "D3_AGENT06_CENTRAL_ORIGINAL_EMPLOYEE_SOURCE": "EXACT_CURRENT_AGENT_21505E_ONE_CORE_F42E_ORIGINAL_T3_1A826_SOURCE_NATIVE_26_OF_26_PLUS_FINAL_44723931657_SUCCESS__INDEPENDENT_INSTALLED_GUI_ADMIN_APPLY_HOLD",
+    "T3_TECHNOLOGY_0_3_0": "RELEASED_PRODUCT_NEUTRAL_D1_D7_FULL_CI_44913691238_SHA_3056EEF0_PORTABLE_INPUTS_AND_ORIGINAL_ONE_DIST"
   },
   "next_critical_path": [
-    "Priority 1: complete the existing generic D1-D7 platform interfaces over original T2 0.3.6 Kernel/Host/Store/Workspace/Exchange, and close only actual functional gaps; no new infrastructure.",
-    "Priority 2: verify full original T2 .iwxa Workspace export/import including history/assets/relations/schemas with cold recipient readback in generic T3, not through installed corporate Agent.",
-    "Priority 3: freeze and reproduce one versioned One Dist with Git-checked T3 source identity, original T2 qualified runtime and original D7 consumer; final acceptance must use evidence for the exact resulting bytes.",
-    "Separate product track: Agent 0.6 native Task Engine must write directly in the signed original company T2 Workspace; Admin Center provides corporate authority and receives the single whole .iwxa. Preserve personal/other organizations; no second Result or per-type bridges.",
-    "Original private T3 Actions remain prohibited. Keep private signer and keys out of public artifacts. Atlas, Publisher, installed two-GUI transfer and domain migrations are not T3 technology release gates."
+    "T3 0.3.0 technology release frozen at Faust-S/knowledge@release/t3-0.3.0. No more platform-wide acceptance loops for separately installed products.",
+    "A domain may begin its OWN explicit migration: copy exact SHA-256-qualified T3 platform inputs into its WEB repository; assemble one product-owned final dist from the original qualified T2 profile; qualify its real browser/workspace/user routes independently.",
+    "Do not ship a generic fake all-domains dist, force native Agent/Atlas/Publisher or independently publish domain changes without product-owner approval.",
+    "Installed corporate Agent Task Engine, signed Admin Center and full-company Workspace handoff remain a SEPARATE product-development and acceptance track, not a T3 platform release gate.",
+    "Private GitHub Actions forbidden; no additional Kernel, Host, Store, IAM, signer, Exchange, Task Engine, Router or .iwxa format."
   ],
   "transport_profile_rules": {
     "original_T2_Workspace_iwxa": "Normal T2 Exchange importPreview/importCommit with original T2 Workspace/Package manifest",
@@ -2596,10 +2597,10 @@
     "release_scope": "PRODUCT_NEUTRAL_NO_MANDATORY_ATLAS",
     "core_release": {
       "schema": "IWXA_T3_ONE_CORE_RELEASE_SCOPE/1",
-      "status": "QUALIFIED_ENGINEERING_BASELINE_NOT_FINAL_T3",
-      "release_subject": "FROZEN_T2_T3_RUNTIME_QUALIFIED_FOR_FINAL_ENGINEERING_NOT_A_PRODUCT_RELEASE",
-      "source_sha": "f42e53cd28c881b2b8e04199595f9d7991f34414",
-      "executable_tree_sha": "51c68641f4ee9dfb6de833705cbe3294742e2bd8",
+      "status": "RELEASED_T3_TECHNOLOGY_0_3_0",
+      "release_subject": "IWXA_T3_PRODUCT_NEUTRAL_TECHNOLOGY_VERIFIED_PORTABLE_INPUTS_ONE_DIST_PER_PRODUCT",
+      "source_sha": "3056eef0665fb3503294d49b89d937af2ea060e2",
+      "executable_tree_sha": "55c7731509513e80fd0aa80da25d3cb49f9f8efb",
       "normative_t2_sha": "9c64951cd78411283e8a416641c36d71e169fc1d",
       "kernel_version": "0.3.6",
       "runtime_contract": "1.3.0",
@@ -2610,17 +2611,33 @@
         "native_qwen_age_metal_jobs": 44736009194,
         "installed_agent": 44756816999,
         "installed_center": 44726573571,
-        "original_signed_d3_native_source": 44753688093
+        "original_signed_d3_native_source": 44753688093,
+        "final_t3_0_3_0_source_and_hardware": 44913691238
       },
-      "feature_boundary": "ONE_CORE_TECHNOLOGY_QUALIFIED_SOURCE_OR_SELECTED_INSTALLED_PROFILES_NOT_ALL_D1_D7_FINAL",
+      "feature_boundary": "D1_D7_TECHNOLOGY_QUALIFIED_SOURCE_HARDWARE_AND_PORTABLE_ONE_CORE__INSTALLED_APPLICATIONS_INDEPENDENT",
       "independent_release_scopes": [
         "FINAL_T3_TECHNOLOGY_RELEASE_FIRST",
         "ONLY_AFTER_THAT_EACH_DESKTOP_PROGRAM",
         "ONLY_AFTER_THAT_EACH_DOMAIN",
         "OPTIONAL_OWNER_TO_OWNER_INTEGRATIONS"
       ],
-      "migration_eligible": false,
-      "auto_publish_to_sites": false
+      "migration_eligible": true,
+      "auto_publish_to_sites": false,
+      "version": "0.3.0",
+      "portable_inputs": {
+        "schema": "IWXA_T3_PORTABLE_PLATFORM_INPUTS/1",
+        "version": "0.3.0",
+        "artifact_name": "iwxa-t3-platform-inputs-0.3.0-3056eef0665fb3503294d49b89d937af2ea060e2",
+        "artifact_id": 14710772859,
+        "archive_sha256": "6a80def6c3a9581daa24cd6d79ec26c557f70fb37f08a8b96e160ef4783b9fc4",
+        "manifest_sha256": "6bd9421889a7e374988f0d9a2ee00f2b758d8cbb213154d791f13bb1e5c0eb2b",
+        "file_count": 127,
+        "original_kernel_version": "0.3.6",
+        "original_kernel_contract": "1.3.0",
+        "native_signer_included": false,
+        "model_weights_included": false,
+        "owner_specific_installed_products_accepted": false
+      }
     },
     "pins": {
       "one_core": "f42e53cd28c881b2b8e04199595f9d7991f34414",
@@ -2632,9 +2649,9 @@
     },
     "final_t3_release": {
       "schema": "IWXA_T3_FINAL_TECHNOLOGY_RELEASE/1",
-      "state": "NOT_RELEASED",
+      "state": "RELEASED",
       "definition": "COMPLETE_D1_D7_IN_ONE_ORIGINAL_T2_T3_RUNTIME_AND_VERSIONED_REUSABLE_ONE_DIST",
-      "domain_migration_allowed": false,
+      "domain_migration_allowed": true,
       "transfer_contract": "EXISTING_MANUAL_OR_OWNER_SELECTED_IWXA_NO_MANDATORY_LIVE_INTERAPP_IPC",
       "result_contract": "ONE_WHOLE_ORIGINAL_COMPANY_T2_WORKSPACE_OWNS_ALL_WORK_NO_SECOND_CORPORATE_RESULT_OR_ITEM_DISCLOSURE",
       "decision_contract": "ACCEPT_RECEIVER_DECISION_APPLY_ONLY_IF_AUTHORIZED_KERNEL_CHANGE_REQUIRED",
@@ -2651,11 +2668,7 @@
         "INSTALLED_AGENT_TO_ADMIN_CENTER_WHOLE_COMPANY_WORKSPACE_DELIVERY_AND_COLD_GUI",
         "AGENT_NATIVE_PYTHON_TASK_ENGINE_DIRECT_WRITE_IN_COMPANY_WORKSPACE"
       ],
-      "currently_open": [
-        "GENERIC_ORIGINAL_T2_FULL_WORKSPACE_IWXA_EXPORT_IMPORT_COLD_READBACK_IN_ONE_T3_PLATFORM_PROFILE",
-        "INTEGRATED_D1_D7_PLATFORM_RUNTIME_AND_ORIGINAL_SIGNED_CONSUMER_PORTS_IN_FINAL_ONE_DIST",
-        "VERSIONED_FROZEN_REPRODUCIBLE_FINAL_T3_ONE_DIST_WITH_EXACT_PROVENANCE_AND_INDEPENDENT_QUALIFICATION"
-      ],
+      "currently_open": [],
       "existing_evidence_preserved": true,
       "company_workspace": {
         "contract": "ORIGINAL_SIGNED_T3_COMPANY_WORKSPACE_OVER_ONE_T2_KERNEL_STORE_EXCHANGE",
@@ -3019,7 +3032,45 @@
         "scope": "SOURCE_ONLY_WHOLE_ORIGINAL_COMPANY_WORKSPACE_EXPORT_AND_SIGNED_IMPORT_SAME_OR_FOREIGN_SOURCE_TO_EXACT_SELECTED_RECIPIENT_NO_NEW_KERNEL; NOT INSTALLED_AGENT_GUI; NOT FULL_COMPANY_NATIVE_PYTHON_ENGINE; NOT FINAL_DIST"
       },
       "platform_release_boundary": "GENERIC_T2_T3_D1_D7_AND_VERIFIED_ONE_DIST_ONLY__COMPANY_AGENT_ADMIN_CENTER_INTEGRATION_QUALIFIED_SEPARATELY",
-      "acceptance_policy": "INDEPENDENT_EXACT_T2_T3_PLATFORM_D1_D7_AND_VERIFIED_VERSIONED_ONE_DIST__G4_INSTALLED_APPLICATIONS_SEPARATE"
+      "acceptance_policy": "INDEPENDENT_EXACT_T2_T3_PLATFORM_D1_D7_AND_VERIFIED_VERSIONED_ONE_DIST__G4_INSTALLED_APPLICATIONS_SEPARATE",
+      "version": "0.3.0",
+      "release_scope": "PRODUCT_NEUTRAL_D1_D7_TECHNOLOGY_NOT_INSTALLED_PRODUCT_G4",
+      "release_evidence": {
+        "source_sha": "3056eef0665fb3503294d49b89d937af2ea060e2",
+        "source_tree_sha": "55c7731509513e80fd0aa80da25d3cb49f9f8efb",
+        "exact_platform_ci_run": 44913691238,
+        "conclusion": "SUCCESS",
+        "jobs": {
+          "test": "SUCCESS",
+          "real-host": "SUCCESS",
+          "windows-credential": "SUCCESS",
+          "native-model": "SUCCESS",
+          "native-age": "SUCCESS",
+          "metal-webgpu": "SUCCESS"
+        },
+        "features": {
+          "D1": "ORIGINAL_T2_SIGNED_GRANTS_AND_WINDOWS_CREDENTIAL_SOURCE_PASS",
+          "D2": "ORIGINAL_KERNEL_ACTIVITY_EVENT_PERSISTENCE_COLD_PASS",
+          "D3": "SIGNED_TASK_RESULT_HUMAN_DECISION_AND_ORIGINAL_T2_CORE_SOURCE_PASS",
+          "D4": "FULL_ONE_WORKSPACE_IWXA_HISTORY_ASSETS_RELATIONS_SCHEMAS_TWO_INDEPENDENT_RECIPIENTS_COLD_PASS",
+          "D5": "APPLE_METAL_SMOLLM2_WEBGPU_COLD_OFFLINE_SECOND_GENERATION_AND_NATIVE_QWEN_ORIGINAL_KERNEL_PASS",
+          "D6": "GENERIC_ORIGINAL_T2_RECIPIENT_COLD_AND_DURABLE_SOURCE_PASS_NO_ATLAS_REQUIRED",
+          "D7": "ORIGINAL_AGE_1_3_1_TWO_INDEPENDENT_RECIPIENTS_COLD_PASS__PERSON_ORIGINAL_OWNER_SOURCE_22_OF_22_PRIOR_PASS"
+        },
+        "original_t2_source_sha": "9c64951cd78411283e8a416641c36d71e169fc1d",
+        "original_t2_kernel_sha256": "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68",
+        "original_bli_tree_sha": "e17b628392fb4e2dbeba2df67fdb0a5506fc5243",
+        "portable_platform_input_artifact_id": 14710772859,
+        "portable_platform_input_archive_sha256": "6a80def6c3a9581daa24cd6d79ec26c557f70fb37f08a8b96e160ef4783b9fc4",
+        "portable_platform_manifest_sha256": "6bd9421889a7e374988f0d9a2ee00f2b758d8cbb213154d791f13bb1e5c0eb2b",
+        "portable_platform_file_count": 127,
+        "independent_checksum_check": "128_OF_128_SHA256_PASS",
+        "independent_node_builder_check": "PORTABLE_T3_STABLE_BUILD_MODULES_PASS",
+        "release_branch": "release/t3-0.3.0",
+        "installed_agent_admin_center_corporate_transfer": "NOT_ACCEPTED_SEPARATE_PRODUCT_TRACK",
+        "no_automatic_domain_migration": true,
+        "no_private_signer_in_public_artifact": true
+      }
     },
     "required_gates": {
       "B0": {
@@ -3345,6 +3396,42 @@
         "first_sid_setup_qwen_gui_cold_repair_rollback": "PASS",
         "second_sid": "GUEST_NATIVE_GRACEFUL_CLOSE_FAILED",
         "phase": "SECOND_SID_NATIVE_COLD_GUI"
+      },
+      "final_t3_0_3_0": {
+        "source_sha": "3056eef0665fb3503294d49b89d937af2ea060e2",
+        "source_tree_sha": "55c7731509513e80fd0aa80da25d3cb49f9f8efb",
+        "exact_platform_ci_run": 44913691238,
+        "conclusion": "SUCCESS",
+        "jobs": {
+          "test": "SUCCESS",
+          "real-host": "SUCCESS",
+          "windows-credential": "SUCCESS",
+          "native-model": "SUCCESS",
+          "native-age": "SUCCESS",
+          "metal-webgpu": "SUCCESS"
+        },
+        "features": {
+          "D1": "ORIGINAL_T2_SIGNED_GRANTS_AND_WINDOWS_CREDENTIAL_SOURCE_PASS",
+          "D2": "ORIGINAL_KERNEL_ACTIVITY_EVENT_PERSISTENCE_COLD_PASS",
+          "D3": "SIGNED_TASK_RESULT_HUMAN_DECISION_AND_ORIGINAL_T2_CORE_SOURCE_PASS",
+          "D4": "FULL_ONE_WORKSPACE_IWXA_HISTORY_ASSETS_RELATIONS_SCHEMAS_TWO_INDEPENDENT_RECIPIENTS_COLD_PASS",
+          "D5": "APPLE_METAL_SMOLLM2_WEBGPU_COLD_OFFLINE_SECOND_GENERATION_AND_NATIVE_QWEN_ORIGINAL_KERNEL_PASS",
+          "D6": "GENERIC_ORIGINAL_T2_RECIPIENT_COLD_AND_DURABLE_SOURCE_PASS_NO_ATLAS_REQUIRED",
+          "D7": "ORIGINAL_AGE_1_3_1_TWO_INDEPENDENT_RECIPIENTS_COLD_PASS__PERSON_ORIGINAL_OWNER_SOURCE_22_OF_22_PRIOR_PASS"
+        },
+        "original_t2_source_sha": "9c64951cd78411283e8a416641c36d71e169fc1d",
+        "original_t2_kernel_sha256": "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68",
+        "original_bli_tree_sha": "e17b628392fb4e2dbeba2df67fdb0a5506fc5243",
+        "portable_platform_input_artifact_id": 14710772859,
+        "portable_platform_input_archive_sha256": "6a80def6c3a9581daa24cd6d79ec26c557f70fb37f08a8b96e160ef4783b9fc4",
+        "portable_platform_manifest_sha256": "6bd9421889a7e374988f0d9a2ee00f2b758d8cbb213154d791f13bb1e5c0eb2b",
+        "portable_platform_file_count": 127,
+        "independent_checksum_check": "128_OF_128_SHA256_PASS",
+        "independent_node_builder_check": "PORTABLE_T3_STABLE_BUILD_MODULES_PASS",
+        "release_branch": "release/t3-0.3.0",
+        "installed_agent_admin_center_corporate_transfer": "NOT_ACCEPTED_SEPARATE_PRODUCT_TRACK",
+        "no_automatic_domain_migration": true,
+        "no_private_signer_in_public_artifact": true
       }
     },
     "final_acceptance_policy": "INDEPENDENT_TECHNOLOGY_D1_D7_ORIGINAL_T2_ONE_DIST",
@@ -3352,7 +3439,7 @@
     "verdict": {
       "g4": "NOT_ACCEPTED",
       "g4_scope": "HISTORICAL_OPTIONAL_ECOSYSTEM_INTEGRATION_NOT_T3_RELEASE_GATE",
-      "t3_ready": false
+      "t3_ready": true
     }
   },
   "release_candidate": {
