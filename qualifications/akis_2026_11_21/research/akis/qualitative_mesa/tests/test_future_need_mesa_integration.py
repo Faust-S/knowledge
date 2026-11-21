@@ -294,3 +294,57 @@ def test_native_mesa_customer_request_with_reused_id_but_changed_work_scope_is_n
     assert out["counts"] == {"applied": 1, "blocked": 0}
     assert out["works"]["w2"]["requested_at"] == 2
     assert out["works"]["w2"]["obligation"] == "NOT_ACCEPTED"
+
+
+def test_native_mesa_source_declared_calendar_insufficiency_is_not_existing_contract():
+    pytest.importorskip("mesa")
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    scenario = setup()
+    scenario["resources"][0]["calendar"] = {
+        "revision": "cal-1", "source": "model://a/calendar-1",
+        "windows": [{"start": 20, "end": 30, "units": 0}],
+    }
+    scenario["future_need_signals"] = [future()]
+    out = simulate(scenario)
+    rows = out["future_need_dynamics"]["read_only_evolution"]
+    status = rows[1]["projection"]["needs"][0]["status"]
+    assert status == "FUTURE_NEED_SOURCE_DECLARED_CAPACITY_INSUFFICIENT"
+    assert out["counts"] == {"applied": 0, "blocked": 0}
+    assert "w2" not in out["works"]
+    assert out["future_need_dynamics"]["no_automatic_resource_reservation"]
+
+
+def test_native_mesa_goal_conflict_changes_original_customer_future_need_readiness():
+    pytest.importorskip("mesa")
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    scenario = setup()
+    scenario["endogenous_subjects"] = True
+    claim = future(ident="n1", work_id="w1", slot_start=7, slot_end=11)
+    claim["work_spec"]["source_revision"] = "d-1"
+    scenario["future_need_signals"] = [claim]
+    scenario["decision_profiles"] = [
+        {"subject": p, "work": "w1", "source_revision": "d-1",
+         "org_revision": "oc-1", "willingness": "WILLING",
+         "outside_option": "UNKNOWN"} for p in ("a", "b")
+    ]
+    scenario["subject_goals"] = [{
+        "owner": "b", "work": "w1", "work_source_revision": "d-1",
+        "org_revision": "oc-1", "source_ref": "model://b/goal-conflict",
+        "available_at": 2, "expires_at": 5,
+        "objectives": {
+            "economic_surplus": "COOPERATION_BETTER",
+            "liquidity": "OUTSIDE_BETTER",
+        },
+    }]
+    scenario["events"] = [
+        {"at": 1, "action": "offer", "actor": "op", "work": "w1"},
+        {"at": 2, "action": "authorize", "actor": "op", "work": "w1"},
+    ]
+    scenario["model_horizon"] = 5
+    result = simulate(scenario)
+    statuses = {row["at"]: row["projection"]["needs"][0]["status"]
+                for row in result["future_need_dynamics"]["read_only_evolution"]}
+    assert statuses[2.0] == "FUTURE_NEED_OWNER_GOAL_CONFLICT"
+    assert result["works"]["w1"]["consenting_principals"] == []
+    assert result["counts"] == {"applied": 2, "blocked": 0}
+    assert result["future_need_dynamics"]["current"]["original_work_created"] is False
