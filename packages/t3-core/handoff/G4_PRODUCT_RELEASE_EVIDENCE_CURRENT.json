@@ -2663,15 +2663,8 @@
         "FINAL_T3_VERSIONED_ONE_DIST_RC_PROVENANCE_INDEPENDENT_RELEASE_ACCEPTANCE_PENDING",
         "INSTALLED_AGENT_NEW_COMPANY_KEY_TASK_RESULT_AND_ADMIN_RECEIPT_NOT_RUN",
         "ORIGINAL_COMPANY_BINARY_ATTACHMENTS_AND_FULL_IWXA_EXCHANGE_NOT_COMPLETE",
-        "EXACT_CANDIDATE_NATIVE_WINDOWS_ORIGINAL_T3_AGENT_PROCESS_AND_INSTALLED_SETUP_REQUALIFICATION",
         "ADMIN_ACTUAL_INVITATION_UI_SOURCE_AND_INSTALLED_WINDOWS_QUALIFICATION",
-        "AGENT_NATIVE_SETUP_WINPS5_1_VITE_STDERR_NONFATAL_QUALIFICATION",
-        "AGENT_PS51_BOM_AWARE_ONE_DIST_INSTALLED_WIN_ACCEPTANCE_PENDING",
-        "EXACT_AGENT_WINDOWS_PS51_RECEIPT_BOM_DECODE_INSTALLED_QUALIFICATION",
-        "PS51_FULL_REDIRECTED_NATIVE_SETUP_BOM_REQUALIFICATION_PENDING",
-        "AGENT_6FAE_PS51_NATIVE_ICON_SETUP_REDIRECTED_JSON_FULL_INSTALLED_GUI_PENDING",
         "INSTALLED_TWO_PRODUCT_SIGNED_CORPORATE_TASK_TO_RESULT_HUMAN_ACCEPT_APPLY_PENDING",
-        "K03_NATIVE_QWEN_TASK_FINAL_OUTPUT_FRAME_VS_REASONING_DIAGNOSTIC_AND_REPAIR",
         "INSTALLED_AGENT_0_6_WITH_SAME_SIGNED_OWNER_T3_FRESH_ACCEPTANCE"
       ],
       "existing_evidence_preserved": true,
@@ -2797,15 +2790,16 @@
       },
       "original_t3_final_candidate_sha": "162f699d69f63e1d54bc002465c28c9781bf62ae",
       "person_d7_source_qualification": {
-        "state": "SOURCE_REQUALIFICATION_PENDING_NEW_OWNER_UI",
-        "original_owner_sha": "adfcb77a3497415ce8bb194647d2d5be3a41eafa",
+        "state": "ORIGINAL_PERSON_SIGNED_SOURCE_22_22_PASS_EXACT_INSTALLED_OWNER",
+        "original_owner_sha": "162f699d69f63e1d54bc002465c28c9781bf62ae",
         "previous_owner_sha": "a66581d0c113319c65e2a6df417d3636fdc4bf5c",
         "previous_run_id": 44818613532,
-        "run_id": null,
-        "test_count": null,
-        "conclusion": null,
+        "run_id": 44890782631,
+        "test_count": 22,
+        "conclusion": "SUCCESS",
         "latest_installed_owner_sha": "162f699d69f63e1d54bc002465c28c9781bf62ae",
-        "latest_owner_person_source_qualification": "NOT_REQUALIFIED_ON_NEW_EXACT_SHA"
+        "latest_owner_person_source_qualification": "PASS_22_OF_22_44890782631_SOURCE_ONLY",
+        "installed_native_person_qualification": "NOT_RUN"
       },
       "original_owner_candidate_d3_qualification": {
         "state": "INSTALLED_SIGNED_FIRST_USE_PASS_SOURCE_PERSON_SEPARATE",
@@ -2816,7 +2810,9 @@
         "run_id": null,
         "conclusion": null,
         "scope": "GENUINE_ORIGINAL_ED25519_COMPANY_SIGNED_READ_WRITE_CREATE_AND_ACTUAL_ADMIN_UI_DEFAULTS",
-        "installed": "SIGNED_FIRST_USE_PASS_44888532442_NOT_CROSS_PRODUCT_ACCEPT_APPLY"
+        "installed": "SIGNED_FIRST_USE_PASS_44888532442_NOT_CROSS_PRODUCT_ACCEPT_APPLY",
+        "native_agent_source_run_id": 44890677784,
+        "native_agent_source_outcome": "26_OF_26_PASS_EXACT_SIGNER_NOT_INSTALLED_GUI"
       },
       "installed_qualification_candidate": {
         "state": "PINNED_NEW_CANDIDATE_NOT_YET_ACCEPTED",
@@ -2826,22 +2822,23 @@
         "original_t2_head": "9c64951cd78411283e8a416641c36d71e169fc1d",
         "original_t2_qualified_tree": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
         "previous_installed_acceptance": "HISTORICAL_ONLY_PRIOR_PINS",
-        "windows_native_process_run_id": 44885719134,
+        "windows_native_process_run_id": 44890677784,
         "windows_admin_installed_run_id": 44888532442,
         "windows_agent_installed_run_id": 44885719135,
         "approved": false,
         "windows_admin_installed_conclusion": "SUCCESS_INSTALLED_ADMIN_SIGNED_OWNER_GUI_WORKSPACE_WITHOUT_ATLAS_ENROLL_DPAPI_COLD",
         "windows_agent_installed_conclusion": "SUCCESS_INSTALLED_AGENT_QWEN_REVIEW_COLD_REPAIR_ROLLBACK_SECOND_WINDOWS_SID",
-        "windows_native_process_conclusion": "SUCCESS_NATIVE_SOURCE_26_MARKERS_NOT_INSTALLED_GUI",
+        "windows_native_process_conclusion": "SUCCESS_NATIVE_EXACT_T3_OWNER_AGENT_26_OF_26_SOURCE_ONLY_NOT_INSTALLED_GUI",
         "diagnostic_state": "ORIGINAL_NATIVE_SIGNED_OWNER_PID_LOCK_AFTER_CENTER_EXIT_FIXED_AT_RUN_EVENT_EXIT",
         "agent_native_build_fix": "MODEL_FINAL_OUTPUT_FRAME_AND_REASONING_CLASSIFICATION_PRESERVES_STRICT_NO_FAKE_RESULT",
         "center_sha": "5da2473f5e13df58cd715b0109c29b7707a97847",
         "center_source_base": "2628c4bc1b20b4393c485d12513f029fdea8b082",
         "native_source_scope": {
-          "run_id": 44821254010,
-          "source_sha": "cd9a074afc35b5c40555f725654f4637dfc13df8",
-          "original_t3_owner_sha": "adfcb77a3497415ce8bb194647d2d5be3a41eafa",
-          "agent_sha": "6fae1fe254cb26babcc8a9ba852f91900e344fdd",
+          "run_id": 44890677784,
+          "source_sha": "da363026ec73b3d77743ed9b3f00140aba0caafe",
+          "original_t3_owner_sha": "162f699d69f63e1d54bc002465c28c9781bf62ae",
+          "agent_sha": "5dc3e3e98ac4ccbc4b1db2adeb3395e9a1f84369",
+          "one_core_sha": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1",
           "original_t2": "0.3.6",
           "source_process_markers": 26,
           "local_model": "ACTUAL_OLLAMA_QWEN",
@@ -2850,12 +2847,13 @@
           "original_admin_accept": true,
           "original_admin_apply": true,
           "original_kernel_cold_readback": true,
+          "independent_windows_sid_dpapi": true,
           "installed_gui": false,
           "conclusion": "SUCCESS"
         },
         "source_current_qualification": {
-          "run_id": 44822438047,
-          "source_sha": "7660c6a63a757a3c82ce0db61f38056cc5691d6e",
+          "run_id": 44890782582,
+          "source_sha": "ca67ee5fcef0ea69f92c40b1ae1092a824650f8a",
           "source_tree_sha": "1bd96668e7264e1eb7775ca750cd007ac33b4827",
           "original_t2_tree_sha": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
           "real_host": "PASS",
@@ -2865,7 +2863,8 @@
           "native_model": "SKIPPED",
           "metal_webgpu": "SKIPPED",
           "conclusion": "SUCCESS",
-          "installed": false
+          "installed": false,
+          "scope": "Exact One Core underlying source tree identical to installed candidate 2f"
         },
         "windows_admin_installed_scope": "INSTALLED_ADMIN_CENTER_SIGNED_OWNER_FIRST_USE_ONLY_NOT_CROSS_PRODUCT_ACCEPT_APPLY",
         "previous_agent_installed_fail": {
@@ -2879,7 +2878,7 @@
         "latest_installed_admin_attempt": 2,
         "latest_installed_admin_ci_sha": "d81bdaf0173c7eaf12d5a23b64e7fad07b8c8457",
         "latest_installed_agent_ci_sha": "a584cdb61b7c8fe4b780e562d8827a3631e93896",
-        "latest_native_process_ci_sha": "a584cdb61b7c8fe4b780e562d8827a3631e93896",
+        "latest_native_process_ci_sha": "da363026ec73b3d77743ed9b3f00140aba0caafe",
         "latest_installed_admin_markers": [
           "G4_INSTALLED_ORIGINAL_SIGNED_OWNER_CENTER_SETUP_BUILT_PASS",
           "G4_INSTALLED_SETUP_CORE_PRIVATE_ONE_DIST_PASS",
@@ -2903,7 +2902,37 @@
           "G4_ORIGINAL_PRODUCTION_EMPLOYEE_REAL_T2_COLD_READBACK_TWO_PASS",
           "G4_NATIVE_PROCESS_SOURCE_PASS_NOT_INSTALLED_GUI"
         ],
-        "latest_witness_scope": "Separate SUCCESS runs: native original signed employee/Admin process (not installed GUI), installed Agent GUI and installed Admin GUI. This is not a single installed cross-product result acceptance; Atlas optional; no new Result or Store."
+        "latest_witness_scope": "Exact signed T3 Owner 162f + Agent 5dc + One Core 2f: 26/26 real native process, separate installed Admin and separate installed Agent SUCCESS; no two-product installed GUI E2E and no full document/attachment Exchange acceptance.",
+        "previous_native_source_scope": {
+          "run_id": 44821254010,
+          "source_sha": "cd9a074afc35b5c40555f725654f4637dfc13df8",
+          "original_t3_owner_sha": "adfcb77a3497415ce8bb194647d2d5be3a41eafa",
+          "agent_sha": "6fae1fe254cb26babcc8a9ba852f91900e344fdd",
+          "original_t2": "0.3.6",
+          "source_process_markers": 26,
+          "local_model": "ACTUAL_OLLAMA_QWEN",
+          "original_signed_task": true,
+          "original_accepted_result": true,
+          "original_admin_accept": true,
+          "original_admin_apply": true,
+          "original_kernel_cold_readback": true,
+          "installed_gui": false,
+          "conclusion": "SUCCESS"
+        },
+        "previous_source_current_qualification": {
+          "run_id": 44822438047,
+          "source_sha": "7660c6a63a757a3c82ce0db61f38056cc5691d6e",
+          "source_tree_sha": "1bd96668e7264e1eb7775ca750cd007ac33b4827",
+          "original_t2_tree_sha": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
+          "real_host": "PASS",
+          "node_regressions": "PASS",
+          "windows_credential": "PASS",
+          "native_age": "SKIPPED",
+          "native_model": "SKIPPED",
+          "metal_webgpu": "SKIPPED",
+          "conclusion": "SUCCESS",
+          "installed": false
+        }
       },
       "resolved_product_installation_2026_11_21": {
         "original_compiled_signed_owner": "PASS_44888532442_ATTEMPT_2",
@@ -2912,7 +2941,10 @@
         "original_t3_employee_admin_native_process": "PASS_SOURCE_NATIVE_44885719134",
         "not_proven": "SINGLE_INSTALLED_AGENT_TO_ADMIN_ACCEPT_APPLY_OR_FINAL_D1_D7_RELEASE",
         "t2_kernel_unchanged": "0.3.6",
-        "one_core_sha": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1"
+        "one_core_sha": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1",
+        "exact_native_agent_admin_source": "PASS_26_26_44890677784_OWNER_162F_AGENT_5DC",
+        "exact_person_d7_source": "PASS_22_22_44890782631_OWNER_162F",
+        "exact_one_core_current_source": "PASS_TEST_REAL_HOST_WINDOWS_44890782582_FROZEN_TREE"
       }
     },
     "required_gates": {
