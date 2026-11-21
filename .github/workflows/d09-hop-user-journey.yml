@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 50e86e2f1f050b696669025d305f029cc79bc15e
+          ref: e5f8a6f6bfd6419246abcc7f1df407201db314bd
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: HOP brand and source hygiene
@@ -191,6 +191,7 @@ jobs:
            test -s dist/recipient/hop-portable-player.css
            grep -q 'HopPortablePlayer' dist/recipient/hop-portable-player.iife.js
            echo D09_OFFLINE_ORIGINAL_PLAYER_BUNDLE=PASS
+           node -e "const f=require('node:fs');for(const n of ['hop-portable-player.iife.js','hop-portable-player.css'])console.log('D09_OFFLINE_'+n.replace(/[^A-Za-z]/g,'_').toUpperCase()+'_BYTES='+f.statSync('dist/recipient/'+n).size)"
            for check in check:seo check:htaccess check:landing-bundle-boundary; do
              npm run "$check" > "$RUNNER_TEMP/d09-${check//[:]/-}.log" 2>&1 || {
                echo "D09_POST_BUILD_GUARD=${check}:FAIL"
