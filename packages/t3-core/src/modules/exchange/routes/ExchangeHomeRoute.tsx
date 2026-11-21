@@ -1,3 +1,4 @@
+import { useCallback, useSyncExternalStore } from "react";
 import { useWorkspaceModuleRuntime } from "../../../workspace-host/rendering/ModuleRenderContext";
 import { PackagesView } from "../features/packages/PackagesView";
 import { useWorkspaceHostRuntimeHandle } from "../../../workspace-host/runtime/WorkspaceHostRuntimeProvider";
@@ -12,6 +13,16 @@ export default function ExchangeHomeRoute() {
   const { context } = useWorkspaceModuleRuntime();
   const kernel = context.kernel;
   const runtime = useWorkspaceHostRuntimeHandle();
+  // The Host already owns the selected ORIGINAL T2 Workspace. Selection is
+  // only the UI export scope; the original Kernel/signed D1 grant still gates
+  // every Preview, Package and Confirm. Never infer corporate authority here.
+  const focusedWorkspace = runtime?.currentWorkspaceStore;
+  const subscribeFocus = useCallback((notify: () => void) =>
+    focusedWorkspace?.subscribe(() => notify()) ?? (() => {}),
+    [focusedWorkspace]);
+  const readFocus = useCallback(() =>
+    focusedWorkspace?.get()?.workspace_id ?? null, [focusedWorkspace]);
+  const exportScopeId = useSyncExternalStore(subscribeFocus, readFocus, () => null);
 
   if (!kernel) {
     return (
@@ -52,7 +63,7 @@ export default function ExchangeHomeRoute() {
           kernel={context.kernel}
           commands={context.commands}
           initialTab="export"
-          exportScopeId={null}
+          exportScopeId={exportScopeId}
           protectedExchange={runtime?.protectedExchange ?? null}
           publisherHandoff={runtime?.publisherHandoff ?? null}
         />
