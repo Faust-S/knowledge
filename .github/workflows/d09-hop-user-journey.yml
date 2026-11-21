@@ -15,9 +15,26 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 0f47344d7a63d65f4c4415bc7d622ffb3a58f0df
+          ref: 43cc1a8c4432528f4be12c7e0f062d11fcfe1c58
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
+      - name: HOP brand and source hygiene
+        shell: bash
+        run: |
+          test -s public/favicon.svg && test -s public/favicon.ico
+          grep -q 'M8 28 Q20 4 32 20' public/favicon.svg
+          grep -q '/favicon.svg' index.html
+          node -e "const b=require('node:fs').readFileSync('public/favicon.ico');if(b.readUInt16LE(2)!==1||b.readUInt16LE(4)!==3)process.exit(1)"
+          if find . -path './node_modules' -prune -o -iname '*lovable*' -print | grep -q .; then
+            echo D09_OBSOLETE_VENDOR_PATHS=FAIL
+            exit 1
+          fi
+          if grep -RIlEi 'lovable|gpteng|gptengineer' src scripts public index.html AGENTS.md > "$RUNNER_TEMP/d09-vendor-hits.txt"; then
+            echo D09_OBSOLETE_VENDOR_REFS=FAIL
+            sed -n '1,14p' "$RUNNER_TEMP/d09-vendor-hits.txt"
+            exit 1
+          fi
+          echo D09_HOP_BRAND_AND_VENDOR_REMNANTS=PASS
       - name: Set up Node 24
         uses: actions/setup-node@v4
         with:
@@ -156,6 +173,17 @@ jobs:
             echo D09_APACHE_CONFIG=FAIL; exit 1;
           }
           echo D09_APACHE_CONFIG=PASS
+           npm run check:assets > "$RUNNER_TEMP/d09-assets.log" 2>&1 || {
+             echo D09_BRAND_ASSETS=FAIL
+             tail -12 "$RUNNER_TEMP/d09-assets.log"
+             exit 1
+           }
+           npm run check:external-assets > "$RUNNER_TEMP/d09-external.log" 2>&1 || {
+             echo D09_EXTERNAL_MEDIA_BOUNDARY=FAIL
+             tail -12 "$RUNNER_TEMP/d09-external.log"
+             exit 1
+           }
+           echo D09_BRAND_ASSETS_AND_MEDIA_BOUNDARY=PASS
       - name: Original T2 actual HTTPS browser and first Workspace
         shell: bash
         run: |
