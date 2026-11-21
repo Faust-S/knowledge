@@ -267,11 +267,13 @@ jobs:
           from adapters.iwxa_basic_model_provider import _cli_answer, _visible_assistant_answer
           from runtime.iwxa_basic_gguf import BasicGGUFError
           user = "К03: пример проверки"
-          exact = "User:\\n" + user + "\\n\\nAssistant:\\n"
+          nl = chr(10)
+          crlf = chr(13) + nl
+          exact = "User:" + nl + user + nl + nl + "Assistant:" + nl
           assert _cli_answer(exact + "Готово.", user) == "Готово."
-          assert _cli_answer(exact.replace("\\n","\\r\\n") + "Готово.",user) == "Готово."
+          assert _cli_answer(exact.replace(nl,crlf) + "Готово.",user) == "Готово."
           finite = (
-              (lambda: _cli_answer("Assistant:\\n"+user,user),"basic_runtime_output_frame_invalid"),
+              (lambda: _cli_answer("Assistant:"+nl+user,user),"basic_runtime_output_frame_invalid"),
               (lambda: _visible_assistant_answer("<think>только анализ"),"basic_runtime_output_reasoning_unfinished"),
               (lambda: _visible_assistant_answer("<think>только анализ</think>"),"basic_runtime_output_empty"),
           )
