@@ -12,8 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      SITE_SHA: f66a6a0c5eeb9787831eddbdb45b4dade105bba3
-      SUBJECT_SHA: ffab0f464d0871663615c4c3289511d6643fbd46
+      SITE_SHA: 2d4463453c532aeb17cc2ac8951f9002293f7c7d
+      SUBJECT_SHA: c9b9b90c63cec63873999fd3ae3658b69f4902b0
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -71,6 +71,7 @@ jobs:
           grep -q 'riskProgress' subject/src/domain/order-contract.ts || { echo 'D07_SUBJECT_RISK_PROGRESS_MISSING'; exit 1; }
           cmp -s site/src/data/serviceDirectory.ts subject/src/data/serviceDirectory.ts || { echo 'D07_DIRECTORY_MODEL_DRIFT'; exit 1; }
           cmp -s site/src/domain/service-order-starter.ts subject/src/domain/service-order-starter.ts || { echo 'D07_STARTER_MODEL_DRIFT'; exit 1; }
+          cmp -s site/src/domain/service-source-adaptation.ts subject/src/domain/service-source-adaptation.ts || { echo 'D07_SOURCE_MODEL_DRIFT'; exit 1; }
           echo 'D07_SUBJECT_MODEL=PASS'
           test "$(git -C t2 rev-parse HEAD)" = "$T2_SHA" || exit 1
           cd site
@@ -110,6 +111,25 @@ jobs:
             exit 1
           fi
           echo 'D07_TESTS=PASS'
+      - name: Check official O*NET task dataset adaptation without publishing source
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          url='https://www.onetcenter.org/dl_files/database/db_31_0_json/task_statements.json'
+          file="$RUNNER_TEMP/d07-onet-task-statements.json"
+          if ! curl --fail --location --silent --show-error --retry 2 --connect-timeout 15 --max-time 120 --output "$file" "$url" >"$RUNNER_TEMP/d07-onet-fetch.private.log" 2>&1; then
+            echo 'D07_ONET_OFFICIAL_DOWNLOAD=FAIL'
+            exit 1
+          fi
+          if ! node --import tsx scripts/adapt-onet-task-statements.mjs "$file" --summary-only >"$RUNNER_TEMP/d07-onet-summary.private.log" 2>&1; then
+            echo 'D07_ONET_OFFICIAL_IMPORT=FAIL'
+            grep -Eo 'D07_[A-Z0-9_]+' "$RUNNER_TEMP/d07-onet-summary.private.log" | sort -u | head -10 || true
+            exit 1
+          fi
+          grep -E '^D07_SOURCE_ONET_(DIRECTORY|LINKEDSERVICES|OCCUPATIONCODES|CORETASKS)=[0-9]+$' "$RUNNER_TEMP/d07-onet-summary.private.log" || true
+          grep -q '^D07_SOURCE_ONET_REVIEW_ONLY=PASS$' "$RUNNER_TEMP/d07-onet-summary.private.log"
+          echo 'D07_ONET_OFFICIAL_IMPORT=PASS'
       - name: Build actual integrated site with canonical T2 Host
         shell: bash
         working-directory: site
