@@ -117,6 +117,22 @@ def test_native_mesa_acceptance_preserves_prior_obligation_in_endogenous_view():
     from research.akis.qualitative_mesa.mesa_model import simulate
     scenario = fixture()
     scenario["endogenous_subjects"] = True
+    # The shared fixture does not contain an executed Work by default.
+    # Acceptance must come only from original Work actions, not the
+    # model-generated independent agent choice.
+    scenario["events"] = [
+        {"at": 1, "action": "offer", "actor": "op", "work": "w1"},
+        {"at": 2, "action": "authorize", "actor": "op", "work": "w1"},
+        {"at": 3, "action": "consent", "actor": "a", "work": "w1",
+         "source_revision": "d-1", "org_revision": "oc-1"},
+        {"at": 4, "action": "consent", "actor": "b", "work": "w1",
+         "source_revision": "d-1", "org_revision": "oc-1"},
+        {"at": 5, "action": "commit", "actor": "op", "work": "w1"},
+        {"at": 6, "action": "start", "actor": "a", "work": "w1"},
+        {"at": 7, "action": "complete", "actor": "a", "work": "w1",
+         "result_ref": "model://accepted-w1"},
+        {"at": 8, "action": "accept", "actor": "b", "work": "w1"},
+    ]
     out = simulate(scenario)
     assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert out["endogenous_subjects"]["last_jointly_observed"][0]["status"] == "PRIOR_ORIGINAL_OBLIGATION_PRESERVED"
