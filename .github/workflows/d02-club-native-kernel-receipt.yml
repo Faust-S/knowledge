@@ -1766,7 +1766,7 @@ jobs:
             $families=Await 'Показать все 7 разделов' '' 'D02_IMPORT_FAMILY_OVERVIEW_MISSING'
             $families.SetFocus()
             [System.Windows.Forms.SendKeys]::SendWait(' ')
-            $null=AwaitPrefix 'Последний: Club проверка пользовательской записи' '' 'D02_IMPORT_PROFILE_KERNEL_FAMILY_READBACK_MISSING'
+            $null=AwaitPrefix 'Последний: Club проверка пользовательской записи' 'D02_IMPORT_PROFILE_KERNEL_FAMILY_READBACK_MISSING'
             Write-Output 'D02_IMPORT_PROFILE_ORIGINAL_KERNEL_FAMILY_GETOBJECT=PASS'
             Write-Output 'D02_IMPORT_INDEPENDENT_WORKSPACE_COLD_READBACK=PASS'
             $null=Await 'Моя неделя' '' 'D02_IMPORT_WEEK_RESULT_MISSING_AFTER_COLD_OPEN'
