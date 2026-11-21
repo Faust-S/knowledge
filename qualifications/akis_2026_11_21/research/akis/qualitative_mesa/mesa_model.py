@@ -834,6 +834,38 @@ class OperatorAKISModel(mesa.Model):
                     "latest_independent_choice_by_work": output["endogenous_subjects"]["last_jointly_observed"],
                     "not_an_original_authorized_transition": True,
                 }
+        if self.general_akis_enabled and "economics" in output:
+            # One read-only connection from the existing economic ledger to
+            # the NINE-component general AKIS view, after original Result and
+            # economic claims have both been evaluated. No new decision,
+            # private cash amount, money, grant or original event is emitted.
+            cash = output["economics"].get("cash_timing", {})
+            lifecycle = output["economics"].get("lifecycle_resource_costs", {})
+            if cash or lifecycle:
+                counts = cash.get("cross_owner_nonfinancial_status_counts", {})
+                output["general_akis_model"]["economic_time_and_cost_feedback"] = {
+                    "research_status": "CURRENT_END_OF_RUN_DECLARED_ECONOMIC_PROJECTION",
+                    "original_ledger": "ONE_ECONOMIC_CLAIMS_TRANSFER_AND_RESOURCE_USE_SET",
+                    "cash_risk_owner_count": counts.get("known_gap_in_either_scenario", 0),
+                    "cash_timing_incomplete_owner_count": counts.get(
+                        "incomplete_time_or_initial_balance", 0
+                    ),
+                    "cash_same_tick_unresolved_owner_count": counts.get(
+                        "same_tick_order_unresolved", 0
+                    ),
+                    "full_lifecycle_stages_in_model": len(lifecycle.get("stages", [])),
+                    "original_cost_records_classified": lifecycle.get(
+                        "classified_original_record_count", 0
+                    ),
+                    "cost_source_scope_comparable_owner_count": lifecycle.get(
+                        "owners_with_source_declared_scope_comparison", 0
+                    ),
+                    "independent_owner_financial_decision": "NOT_AUTHENTICATED",
+                    "empirically_realized_cooperative_saving": "NOT_ESTABLISHED",
+                    "private_owner_cash_and_cost_values": "NOT_REDISCLOSED",
+                    "all_original_work_results_and_org_code_preserved": True,
+                    "financial_risk_does_not_infer_owner_consent_or_new_contract": True,
+                }
         if self.adaptation_enabled or "portfolio" in output or "economics" in output or "context_basis" in output or (
                 "capacity" in output and any(spec.calendar is not None for spec in self.qualitative.resource_specs.values())):
             try:
