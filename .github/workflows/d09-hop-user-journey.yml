@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 81779f192d998764eb16ed8de3c402da8e07dbbb
+          ref: 50e86e2f1f050b696669025d305f029cc79bc15e
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: HOP brand and source hygiene
