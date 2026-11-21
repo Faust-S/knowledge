@@ -84,7 +84,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa
-          ref: d63af696850fd56c0d0a800582615fb5b684c495
+          ref: e05168affc42e0cb07360ebaaedb7e952115aedd
           path: private-iwxa
           token: ${{ env.AKIS_PRIVATE_READ_TOKEN }}
           persist-credentials: false
@@ -156,5 +156,7 @@ jobs:
           PY
           python -m research.akis.qualitative_mesa.cli --input private-iwxa/research/akis/qualitative_mesa/fixtures/kpb_source_revocation_model_only.json > "$RUNNER_TEMP/akis-cli-kpb.json"
           python -c "import json,os; d=json.load(open(os.path.join(os.environ['RUNNER_TEMP'],'akis-cli-kpb.json'),encoding='utf-8')); assert d['evidence']=='MODEL_ONLY'; assert d['counts']=={'applied':10,'blocked':1}; assert [x['reason'] for x in d['trace'] if x['outcome']=='BLOCKED']==['CONTEXT_SOURCE_UNKNOWN']; assert d['works']['w1']['result']=='ACCEPTED_BY_ORIGINAL_RECIPIENT'; assert d['context_basis']['strict'] is True; assert d['context_basis']['authenticated_documents'] is False; assert all(x['effect']=='NO_AUTOMATIC_CONSENT' for x in d['decision_observations']); assert d['profit']['operator']=='UNKNOWN'; print('AKIS_NATIVE_KPB_CLI=PASS MODEL_ONLY source revocation without implicit rights')"
+          python -m research.akis.qualitative_mesa.cli --input private-iwxa/research/akis/qualitative_mesa/fixtures/multi_owner_capacity_model_only.json > "$RUNNER_TEMP/akis-cli-capacity.json"
+          python -c "import json,os; d=json.load(open(os.path.join(os.environ['RUNNER_TEMP'],'akis-cli-capacity.json'),encoding='utf-8')); assert d['evidence']=='MODEL_ONLY'; assert d['counts']=={'applied':17,'blocked':3}; assert [x['reason'] for x in d['trace'] if x['outcome']=='BLOCKED']==['INDEPENDENT_ACCEPTANCE_MISSING','RESOURCE_CAPACITY_EXCEEDED','RESOURCE_NOT_AVAILABLE']; assert d['capacity']['strict'] is True; assert len(d['capacity']['reservations'])==2; assert set(d['works']['w1']['consenting_principals'])=={'a','b','c'}; assert d['works']['w1']['result']=='ACCEPTED_BY_ORIGINAL_RECIPIENT'; assert d['capacity']['economic_productivity']=='NOT_IDENTIFIABLE'; assert d['profit']['operator']=='UNKNOWN'; print('AKIS_NATIVE_CAPACITY_CLI=PASS MODEL_ONLY 17 applied 3 blocked')"
           python -m research.akis.qualitative_mesa.cli --input private-iwxa/research/akis/qualitative_mesa/fixtures/portfolio_correction_cascade.json > "$RUNNER_TEMP/akis-cli-portfolio.json"
           python -c "import json,os; p=os.path.join(os.environ['RUNNER_TEMP'],'akis-cli-portfolio.json'); d=json.load(open(p,encoding='utf-8')); assert d['evidence']=='MODEL_ONLY'; assert d['counts']=={'applied':18,'blocked':5}; assert [e['reason'] for e in d['trace'] if e['outcome']=='BLOCKED']==['DEPENDENCY_AWAITING_ACCEPTANCE','UPSTREAM_RESULT_REJECTED','CORRECTION_OWNER_OR_REJECTED_RESULT_REQUIRED','NEW_MODEL_ONLY_EVIDENCE_REQUIRED','DEPENDENCY_AWAITING_ACCEPTANCE']; assert d['works']['w2']['result']=='ACCEPTED_BY_ORIGINAL_RECIPIENT'; assert d['portfolio']['institutional_change']=='NO_AUTOMATIC_CHANGE'; assert d['profit']['system_increment']=='UNKNOWN'; assert len(d['result_history']['w1'])==4; print('AKIS_NATIVE_PORTFOLIO_CLI=PASS MODEL_ONLY 18 applied 5 blocked')"
