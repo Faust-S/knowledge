@@ -894,9 +894,9 @@ jobs:
             [System.Windows.Forms.SendKeys]::SendWait(' ')
             $null=AwaitPrefix 'Сценарий записан в этой вкладке.' '' 'D02_SCENE_LOCAL_WRITE_MISSING'
             Write-Output 'D02_SCENE_NATIVE_USER_CREATION=PASS'
-            $link=Await 'Сохранить в IWXA' 'link' 'D02_SCENE_HANDOFF_MISSING'
-            $link.SetFocus()
-            [System.Windows.Forms.SendKeys]::SendWait(' ')
+            # A native HTML hyperlink must activate by Enter/Invoke.
+            # Space is for buttons/checkboxes and may only scroll the page.
+            Press (Await 'Сохранить в IWXA' 'link' 'D02_SCENE_HANDOFF_MISSING') 'D02_SCENE_HANDOFF_FAILED'
             $null=Await 'Перенести результаты из Клуба' '' 'D02_SCENE_T2_HOST_MISSING'
             $null=AwaitPrefix 'Результат из текущей страницы' '' 'D02_SCENE_PREVIEW_MISSING'
             $workspace=AwaitPrefix 'Личная область 1' 'Button' 'D02_SCENE_WORKSPACE_MISSING'
