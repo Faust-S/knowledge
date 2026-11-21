@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 63b55a34c3ac0ff2eff9b7b60379186d3702e450
+          ref: 131ebed5585cf8e14dc570332c9319129e33a1b4
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -40,7 +40,7 @@ jobs:
         run: |
           $site=(& git rev-parse HEAD).Trim()
           $t2=(& git -C ../t2 rev-parse HEAD).Trim()
-          if($site -ne "63b55a34c3ac0ff2eff9b7b60379186d3702e450" -or
+          if($site -ne "131ebed5585cf8e14dc570332c9319129e33a1b4" -or
              $t2 -ne "e70de29b72b83e2546f7ab74b17572685a728c17"){
             throw "D11_WINDOWS_SOURCE_REVISION_CHANGED"
           }
@@ -52,6 +52,7 @@ jobs:
           & npm run build:t2:site *> $buildLog
           if($LASTEXITCODE -ne 0){
             $raw=[IO.File]::ReadAllText($buildLog)
+            @([regex]::Matches($raw,'D11_SUBBUILD_(?:HOST|KERNEL|SITE)=(?:PASS|FAIL)')|ForEach-Object {$_.Value}|Select-Object -Unique)|ForEach-Object {Write-Output $_}
             $classes=@("ENOENT","EPERM","EACCES","ERR_MODULE_NOT_FOUND",
               "MODULE_NOT_FOUND","ERR_REQUIRE_ESM","ERR_PACKAGE_PATH_NOT_EXPORTED",
               "ERR_INVALID_ARG_TYPE","ERR_UNSUPPORTED_ESM_URL_SCHEME",
