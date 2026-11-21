@@ -31,6 +31,7 @@ from .cooperation import (
     CooperationInputError, parse_cooperation_links, cooperation_view, attach_requested_work,
     latest_future_participation, propose_cooperation_change,
     respond_to_cooperation_change, original_cooperation_consultees,
+    qualify_cooperation_change_reference,
 )
 
 SCHEMA = "IWXA_AKIS_QUALITATIVE_INPUT/0.1"
@@ -340,6 +341,7 @@ class QualitativeAKIS:
         blocked_resource = None
         calendar_risks = None
         model_org_review = None
+        linked_change_evidence = None
         org_code_model_escalation_target = (
             self.model_org_policy.reviewer_by_action.get(action)
             if self.model_org_policy is not None else None
@@ -350,7 +352,7 @@ class QualitativeAKIS:
             if action == "change_mode":
                 self._change_mode(ev)
             elif action == "request":
-                self._request_work(ev, at)
+                linked_change_evidence = self._request_work(ev, at)
             elif action == "resource_status":
                 self._set_resource_availability(ev)
             elif action == "resource_calendar_update":
@@ -480,10 +482,12 @@ class QualitativeAKIS:
                 report["cooperation_relation_source"] = "MODEL_ONLY_DECLARED"
         if action == "request" and ev.get("cooperation_link") is not None:
             report["requested_cooperation_link"] = ev.get("cooperation_link")
+        if action == "request" and report["outcome"] == "APPLIED" and linked_change_evidence:
+            report.update(linked_change_evidence)
         self.trace.append(report)
         return report
 
-    def _request_work(self, ev: dict[str, Any], at: int) -> None:
+    def _request_work(self, ev: dict[str, Any], at: int) -> dict[str, Any] | None:
         work = self._parse_work(ev.get("work_spec"))
         if work.key in self.works:
             raise BlockedDecision("WORK_ALREADY_EXISTS")
@@ -495,7 +499,19 @@ class QualitativeAKIS:
             raise BlockedDecision("REQUESTER_NOT_AVAILABLE")
         if any(dep not in self.works for dep in work.requires_accepted):
             raise BlockedDecision("DEPENDENCY_WORK_UNKNOWN")
+        linked_change_evidence = None
         try:
+            if "change_id" in ev:
+                linked_change_evidence = qualify_cooperation_change_reference(
+                    change_id=ev["change_id"],
+                    requested_link=ev.get("cooperation_link"),
+                    expected_revision=ev.get("cooperation_source_revision"),
+                    requester=ev["actor"], work=work,
+                    links=self.cooperation_links,
+                    resource_owners=self.resources,
+                    institution=self.institution, subjects=self.subjects,
+                    trace=self.trace, at=at,
+                )
             next_links = attach_requested_work(
                 self.cooperation_links, work, self.resources,
                 link_id=ev.get("cooperation_link"),
@@ -509,6 +525,7 @@ class QualitativeAKIS:
         work.request_at = at
         self.works[work.key] = work  # a need is neither an operator offer nor an obligation
         self.cooperation_links = next_links  # research association only; no contractual consent
+        return linked_change_evidence
 
     def _set_participation_status(self, ev: dict[str, Any]) -> None:
         # An original principal controls only the availability of its OWN
