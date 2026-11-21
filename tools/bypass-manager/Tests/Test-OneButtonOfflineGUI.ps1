@@ -24,11 +24,11 @@ $oldAppData=$env:LOCALAPPDATA
 $private=Join-Path $env:RUNNER_TEMP ('bypass-e2e-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $private -Force | Out-Null
 $env:LOCALAPPDATA=$private
-$home=Join-Path $private 'BypassManager'
-$results=Join-Path $home 'results'
+$appHome=Join-Path $private 'BypassManager'
+$results=Join-Path $appHome 'results'
 $proc=$null
 try {
-  if(Test-Path (Join-Path $home 'engine')) {throw 'Offline engine test root is not cold'}
+  if(Test-Path (Join-Path $appHome 'engine')) {throw 'Offline engine test root is not cold'}
   $proc=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
   $deadline=(Get-Date).AddSeconds(20)
   $button=[IntPtr]::Zero
@@ -70,7 +70,7 @@ try {
     }
   }
   if(-not $running){throw 'Native GUI did not reach verified running state with offline engine'}
-  if(-not (Test-Path -LiteralPath (Join-Path $home 'engine\winws2.exe'))){throw 'Offline engine did not install to the private runtime'}
+  if(-not (Test-Path -LiteralPath (Join-Path $appHome 'engine\winws2.exe'))){throw 'Offline engine did not install to the private runtime'}
   $deadline=(Get-Date).AddSeconds(8)
   $expected=-join ([char[]]@(1042,1099,1082,1083,1102,1095,1080,1090,1100))
   do {
@@ -91,7 +91,7 @@ try {
     }catch {}
   }
   if(-not $stopped){throw 'Native GUI did not stop its own filter'}
-  if(Test-Path -LiteralPath (Join-Path $home 'active\winws2-owned.json')){throw 'Owned process record remained after stop'}
+  if(Test-Path -LiteralPath (Join-Path $appHome 'active\winws2-owned.json')){throw 'Owned process record remained after stop'}
   Write-Host 'PASS native one-button shutdown: owned WinDivert process stopped, no VPN or Windows route changes'
   if(-not $proc.CloseMainWindow()){throw 'GUI did not accept window close'}
   if(-not $proc.WaitForExit(8000)){throw 'GUI did not exit normally'}
@@ -101,7 +101,7 @@ try {
     if(-not $proc.HasExited){Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue}
     $proc.Dispose()
   }
-  $state=Join-Path $home 'active'
+  $state=Join-Path $appHome 'active'
   if(Test-Path -LiteralPath (Join-Path $state 'winws2-owned.json')) {
     & (Join-Path $root 'runtime\Scripts\Start-Profile.ps1') -Action Stop -StateFolder $state
   }
