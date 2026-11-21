@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: 99d4f8d24b451ddffdb8e08afb16b56e03a71a86
+      SITE_SHA: b1bbc23b1c83edfbeee591ce393bf700436d292b
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -970,14 +970,27 @@ jobs:
             Click 'Мой профиль' 'D02_IMPORT_PROFILE_SHORTCUT_MISSING'
             try{
               Click 'Редактировать профиль здесь' 'D02_IMPORT_PROFILE_EDITOR_MISSING'
+              Write-Output 'D02_IMPORT_PROFILE_EDITOR_ACTIVATION=UIA_INVOKE'
             }catch{
-              Write-Output ('D02_IMPORT_PROFILE_CREATE_SUGGESTED='+
-                [bool](Locate 'Создать профиль в рабочей области' 'button'))
-              Write-Output ('D02_IMPORT_PROFILE_READ_ERROR='+
-                [bool](Locate 'Kernel не подтвердил чтение этого направления.' ''))
-              Write-Output ('D02_IMPORT_PROFILE_EMPTY_FAMILY='+
-                [bool](Locate 'Сохранённых результатов пока нет.' ''))
-              throw
+              # Edge exposes the original enabled button but can omit or
+              # reject InvokePattern. Use real native keyboard activation.
+              $edit=Locate 'Редактировать профиль здесь' 'button'
+              if(!$edit){
+                Write-Output ('D02_IMPORT_PROFILE_CREATE_SUGGESTED='+
+                  [bool](Locate 'Создать профиль в рабочей области' 'button'))
+                Write-Output ('D02_IMPORT_PROFILE_READ_ERROR='+
+                  [bool](Locate 'Kernel не подтвердил чтение этого направления.' ''))
+                Write-Output ('D02_IMPORT_PROFILE_EMPTY_FAMILY='+
+                  [bool](Locate 'Сохранённых результатов пока нет.' ''))
+                throw 'D02_IMPORT_PROFILE_EDITOR_TRULY_UNAVAILABLE'
+              }
+              try{
+                $edit.SetFocus()
+                [System.Windows.Forms.SendKeys]::SendWait(' ')
+                Write-Output 'D02_IMPORT_PROFILE_EDITOR_ACTIVATION=NATIVE_KEYBOARD'
+              }catch{
+                throw 'D02_IMPORT_PROFILE_KEYBOARD_ACTIVATION_FAILED'
+              }
             }
             $alias=Await 'Как к вам обращаться' '' 'D02_IMPORT_PROFILE_FIELD_MISSING'
             $actual=[System.Windows.Automation.ValuePattern]$alias.GetCurrentPattern(
