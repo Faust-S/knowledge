@@ -397,6 +397,33 @@ jobs:
             if($buildFailureClass -ne 'NONE'){
               Write-Host ('G4_AGENT06_ORIGINAL_PUBLIC_BUILD_FAILURE_CLASS ' + $buildFailureClass)
             }
+            # Report only compiler error IDs from the already-running native
+            # Tauri build. No private source line, path, stderr, or model text.
+            $nativeDesktopLog=Join-Path $output 'logs/native-desktop-build.log'
+            if(Test-Path -LiteralPath $nativeDesktopLog -PathType Leaf){
+              $nativeBuild=Get-Content -LiteralPath $nativeDesktopLog -Raw -ErrorAction SilentlyContinue
+              $tsIds=@([regex]::Matches([string]$nativeBuild,
+                '(?i)error\s+TS([0-9]{4}):') | ForEach-Object {
+                  $_.Groups[1].Value
+                } | Select-Object -Unique -First 6)
+              foreach($id in $tsIds){
+                Write-Host ('G4_AGENT06_NATIVE_TAURI_TYPESCRIPT_CODE TS' + $id)
+              }
+              $rustIds=@([regex]::Matches([string]$nativeBuild,
+                '(?i)error\[E([0-9]{4})\]') | ForEach-Object {
+                  $_.Groups[1].Value
+                } | Select-Object -Unique -First 6)
+              foreach($id in $rustIds){
+                Write-Host ('G4_AGENT06_NATIVE_TAURI_RUST_CODE E' + $id)
+              }
+              if($tsIds.Count -eq 0 -and $rustIds.Count -eq 0){
+                $phase='UNCLASSIFIED'
+                if($nativeBuild -match '(?i)typescript|tsc --noEmit'){$phase='TYPESCRIPT'}
+                elseif($nativeBuild -match '(?i)vite.*build|rollup'){$phase='VITE'}
+                elseif($nativeBuild -match '(?i)rustc|cargo.*build'){$phase='RUST'}
+                Write-Host ('G4_AGENT06_NATIVE_TAURI_BUILD_PHASE ' + $phase)
+              }
+            }
             # Original Setup Core is already built. On local acceptance
             # failure inspect ONLY the finite stage/code of the original
             # installed witness; no private stdout, paths or GUI text.
