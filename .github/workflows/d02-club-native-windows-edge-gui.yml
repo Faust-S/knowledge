@@ -11,7 +11,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     env:
-      SITE_SHA: e0a78dd60d3262cbd4beb54dde8b7eacd0c6d97b
+      SITE_SHA: 2d465b019dd89fff5f1037cbce1229e851fe1f07
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -131,11 +131,9 @@ jobs:
               'Мой маршрут освоения навыка',
               'Что могу попробовать уже сейчас',
               'Записать результат и основание',
-              'Как организовать работу вместе',
-              'Что обещал, что сделал и чем подтвердить',
               'Какое действие мне сейчас по силам'
-            )){$null=WaitNative $h '' 'D02_NATIVE_SUBSERVICE_NOT_VISIBLE'}
-            Write-Output 'D02_NATIVE_EDGE_SEVEN_SERVICES_VISIBLE=PASS'
+            )){$null=WaitNative $h '' 'D02_NATIVE_ACTIVE_SKILL_TOOL_NOT_VISIBLE'}
+            Write-Output 'D02_NATIVE_EDGE_RELEVANT_SKILL_TOOLS_VISIBLE=PASS'
             function Fill([string]$name,[string]$value,[string]$fail){
               $field=WaitNative $name 'edit' $fail
               try{
