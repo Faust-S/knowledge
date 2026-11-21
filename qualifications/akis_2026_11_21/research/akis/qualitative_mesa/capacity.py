@@ -1,0 +1,333 @@
+"""Declared resource capacity and calendars in one AKIS research state.
+
+A calendar and its owner are MODEL_ONLY claims, not observed machine output,
+verified property, a corporate permission, or a second scheduling engine.
+The decision clock (`events.at`) and planned slot axis are deliberately distinct.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from typing import Any, Mapping, Sequence
+
+MAX_UNITS = 1_000_000  # parser bound, not an economic coefficient
+MAX_NEEDS = 32
+MAX_CALENDAR_WINDOWS = 128  # parser bound, not a scientific limit
+
+
+class CapacityInputError(ValueError):
+    """Malformed source-declared research input."""
+
+
+class CapacityBlocked(Exception):
+    """A proposed work cannot use the source-declared resource state."""
+
+    def __init__(self, reason: str, resource: str | None = None):
+        self.reason = reason
+        self.resource = resource
+        super().__init__(reason)
+
+
+@dataclass(frozen=True)
+class CalendarWindow:
+    start: int
+    end: int
+    units: int
+
+
+@dataclass(frozen=True)
+class ResourceCalendar:
+    revision: str
+    source: str
+    windows: tuple[CalendarWindow, ...]
+
+    def available_at(self, slot: int) -> int:
+        for w in self.windows:
+            if w.start <= slot < w.end:
+                return w.units
+            if w.start > slot:
+                break
+        return 0  # A declared closed window is distinct from unreported availability.
+
+
+@dataclass(frozen=True)
+class ResourceCapacity:
+    key: str
+    owner: str
+    units: int
+    unit: str
+    site: str | None
+    basis: str
+    calendar: ResourceCalendar | None = None
+
+
+@dataclass(frozen=True)
+class ResourceNeed:
+    resource: str
+    units: int
+
+
+@dataclass(frozen=True)
+class Reservation:
+    resource: str
+    work: str
+    start: int
+    end: int
+    units: int
+
+
+def _identifier(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value) > 128:
+        raise CapacityInputError(f"INVALID_{label.upper()}")
+    return value
+
+
+def _units(value: Any, label: str, *, permit_zero: bool = False) -> int:
+    lower = 0 if permit_zero else 1
+    if type(value) is not int or not lower <= value <= MAX_UNITS:
+        raise CapacityInputError(f"INVALID_{label.upper()}")
+    return value
+
+
+def parse_resource_calendar(raw: Any, maximum: int) -> ResourceCalendar:
+    if not isinstance(raw, dict) or set(raw) != {"revision", "source", "windows"}:
+        raise CapacityInputError("INVALID_RESOURCE_CALENDAR_FIELDS")
+    revision = _identifier(raw["revision"], "calendar_revision")
+    source = _identifier(raw["source"], "calendar_source")
+    if not source.startswith("model://"):
+        raise CapacityInputError("CALENDAR_SOURCE_MUST_BE_MODEL_ONLY")
+    windows = raw["windows"]
+    if not isinstance(windows, list) or not 1 <= len(windows) <= MAX_CALENDAR_WINDOWS:
+        raise CapacityInputError("INVALID_CALENDAR_WINDOW_COUNT")
+    parsed: list[CalendarWindow] = []
+    last_end = -1
+    for obj in windows:
+        if not isinstance(obj, dict) or set(obj) != {"start", "end", "units"}:
+            raise CapacityInputError("INVALID_CALENDAR_WINDOW_FIELDS")
+        a, b = obj["start"], obj["end"]
+        if type(a) is not int or type(b) is not int or a < 0 or a >= b:
+            raise CapacityInputError("INVALID_CALENDAR_WINDOW_TIME")
+        qty = _units(obj["units"], "calendar_window_units", permit_zero=True)
+        if qty > maximum:
+            raise CapacityInputError("CALENDAR_EXCEEDS_RESOURCE_CAPACITY")
+        if a < last_end:
+            raise CapacityInputError("CALENDAR_WINDOWS_OVERLAP_OR_UNSORTED")
+        parsed.append(CalendarWindow(a, b, qty))
+        last_end = b
+    return ResourceCalendar(revision, source, tuple(parsed))
+
+
+def parse_resource_capacity(obj: Mapping[str, Any]) -> ResourceCapacity:
+    """Static ceiling, source-declared planned calendar, owner, and site."""
+    if not isinstance(obj, dict):
+        raise CapacityInputError("RESOURCE_MUST_BE_OBJECT")
+    key = _identifier(obj.get("id"), "resource_id")
+    owner = _identifier(obj.get("owner"), "resource_owner")
+    has_units = "capacity_units" in obj
+    has_unit = "capacity_unit" in obj
+    if has_units != has_unit:
+        raise CapacityInputError("CAPACITY_UNITS_AND_UNIT_REQUIRED_TOGETHER")
+    if has_units:
+        units = _units(obj["capacity_units"], "capacity_units")
+        unit = _identifier(obj["capacity_unit"], "capacity_unit")
+        basis = "MODEL_DECLARED"
+    else:
+        units, unit, basis = 1, "UNSPECIFIED", "LEGACY_FIXTURE_DEFAULT"
+    site = obj.get("site")
+    if site is not None:
+        site = _identifier(site, "resource_site")
+    if "calendar" in obj and basis != "MODEL_DECLARED":
+        raise CapacityInputError("CALENDAR_REQUIRES_EXPLICIT_CAPACITY")
+    calendar = parse_resource_calendar(obj["calendar"], units) if "calendar" in obj else None
+    return ResourceCapacity(key, owner, units, unit, site, basis, calendar)
+
+
+def parse_resource_needs(
+    obj: Mapping[str, Any], primary_resource: str, resources: Mapping[str, Any]
+) -> tuple[ResourceNeed, ...]:
+    """All original resource owners remain independent original principals."""
+    _identifier(primary_resource, "primary_resource")
+    if "resource_requirements" not in obj:
+        return (ResourceNeed(primary_resource, 1),)
+    raw = obj["resource_requirements"]
+    if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_NEEDS:
+        raise CapacityInputError("INVALID_RESOURCE_REQUIREMENT_LIST")
+    result = []
+    seen = set()
+    for item in raw:
+        if not isinstance(item, dict) or set(item) != {"resource", "units"}:
+            raise CapacityInputError("INVALID_RESOURCE_REQUIREMENT_FIELDS")
+        key = _identifier(item["resource"], "required_resource")
+        qty = _units(item["units"], "required_resource_units")
+        if key in seen:
+            raise CapacityInputError("DUPLICATE_RESOURCE_REQUIREMENT")
+        if key not in resources:
+            raise CapacityInputError("REQUIRED_RESOURCE_UNKNOWN")
+        seen.add(key)
+        result.append(ResourceNeed(key, qty))
+    if primary_resource not in seen:
+        raise CapacityInputError("PRIMARY_RESOURCE_REQUIREMENT_MISSING")
+    return tuple(sorted(result, key=lambda n: n.resource))
+
+
+class CapacityLedger:
+    """One original obligation ledger with source-declared planned intervals.
+
+    All the resources in a new work are checked before recording any reservation.
+    A later owner update may reveal danger to accepted obligations but cannot
+    erase, re-sign, or move them. The calendar does not advance Mesa time.
+    """
+
+    def __init__(self, specs: Mapping[str, ResourceCapacity]):
+        self.specs = dict(specs)
+        self.reservations: list[Reservation] = []
+
+    def original_owners(self, needs: Sequence[ResourceNeed]) -> set[str]:
+        return {self.specs[n.resource].owner for n in needs}
+
+    def _boundaries(self, key: str, reservations: Sequence[Reservation]) -> list[int]:
+        points = {point for r in reservations if r.resource == key
+                  for point in (r.start, r.end)}
+        calendar = self.specs[key].calendar
+        if calendar is not None:
+            points.update(point for w in calendar.windows for point in (w.start, w.end))
+        return sorted(points)
+
+    def _capacity_at(self, key: str, t: int) -> int:
+        spec = self.specs[key]
+        return spec.calendar.available_at(t) if spec.calendar is not None else spec.units
+
+    def _violations(
+        self, key: str, reservations: Sequence[Reservation], *,
+        proposals: Sequence[Reservation] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Intervals with insufficient declared capacity; end is exclusive.
+
+        New commitments only check slots touched by the proposed bundle.
+        An earlier owner's reduced capacity can make some *old* commitments at
+        risk without globally preventing unrelated new work on another slot.
+        """
+        points = self._boundaries(key, reservations)
+        found = []
+        for index in range(len(points) - 1):
+            start, end = points[index], points[index + 1]
+            if proposals is not None and not any(p.resource == key and
+                    p.start <= start < p.end for p in proposals):
+                continue
+            active = [r for r in reservations if r.resource == key and
+                      r.start <= start < r.end]
+            if not active:
+                continue
+            available = self._capacity_at(key, start)
+            used = sum(r.units for r in active)
+            if used > available:
+                found.append({
+                    "resource": key, "start": start, "end": end,
+                    "used_units": used, "available_units": available,
+                    "works": sorted({r.work for r in active}),
+                })
+        return found
+
+    def preview_plan(self, work: str, plan: Sequence[Reservation]) -> None:
+        """Validate ALL proposed operation intervals without changing any booking."""
+        if not plan or len(plan) > 1024:
+            raise CapacityInputError("INVALID_OPERATION_RESERVATIONS")
+        if any(r.work == work for r in self.reservations):
+            raise CapacityBlocked("WORK_ALREADY_RESERVED")
+        if any(r.work != work or r.resource not in self.specs or
+               type(r.units) is not int or not 1 <= r.units <= MAX_UNITS or
+               type(r.start) is not int or type(r.end) is not int or
+               r.start < 0 or r.start >= r.end for r in plan):
+            raise CapacityInputError("INVALID_OPERATION_RESERVATIONS")
+        proposals = list(plan)
+        combined = self.reservations + proposals
+        for key in sorted({p.resource for p in proposals}):
+            if self._violations(key, combined, proposals=proposals):
+                reason = ("RESOURCE_CALENDAR_CAPACITY_EXCEEDED"
+                          if self.specs[key].calendar is not None
+                          else "RESOURCE_CAPACITY_EXCEEDED")
+                raise CapacityBlocked(reason, key)
+
+    def reserve_plan(self, work: str, plan: Sequence[Reservation]) -> None:
+        self.preview_plan(work, plan)
+        # All resources, all operation windows: one atomic commitment.
+        self.reservations.extend(plan)
+
+    def preview(self, work: str, needs: Sequence[ResourceNeed], start: int, end: int) -> None:
+        """Backward-compatible whole-work reservations, without double booking."""
+        if type(start) is not int or type(end) is not int or start < 0 or end <= start:
+            raise CapacityInputError("INVALID_RESERVATION_WINDOW")
+        if not needs or len({n.resource for n in needs}) != len(needs):
+            raise CapacityInputError("INVALID_RESOURCE_REQUIREMENTS")
+        if any(n.resource not in self.specs or type(n.units) is not int
+               or not 1 <= n.units <= MAX_UNITS for n in needs):
+            raise CapacityInputError("INVALID_RESOURCE_REQUIREMENTS")
+        self.preview_plan(work, [Reservation(n.resource, work, start, end, n.units)
+                                 for n in needs])
+
+    def reserve(self, work: str, needs: Sequence[ResourceNeed], start: int, end: int) -> None:
+        self.preview(work, needs, start, end)
+        self.reservations.extend(Reservation(n.resource, work, start, end, n.units)
+                                 for n in needs)
+
+    def planned_window_risk(self, needs: Sequence[ResourceNeed], start: int,
+                            end: int, *, outstanding: set[str] | None = None) -> str | None:
+        """Capacity risk for this operation, excluding already accepted results."""
+        relevant = [r for r in self.reservations if outstanding is None or r.work in outstanding]
+        for key in sorted({n.resource for n in needs}):
+            for item in self._violations(key, relevant):
+                if max(start, item["start"]) < min(end, item["end"]):
+                    return key
+        return None
+
+    def update_calendar(self, key: str, calendar: ResourceCalendar) -> list[dict[str, Any]]:
+        """Apply owner's MODEL_ONLY future planning declaration, preserving all promises."""
+        if key not in self.specs:
+            raise CapacityInputError("REQUIRED_RESOURCE_UNKNOWN")
+        self.specs[key] = replace(self.specs[key], calendar=calendar)
+        return self.reservation_risks(resources={key})
+
+    def reservation_risks(
+        self, *, resources: set[str] | None = None, outstanding: set[str] | None = None
+    ) -> list[dict[str, Any]]:
+        """Conflicts for accepted modeled obligations, not evidence of breach."""
+        risks = []
+        for key in sorted(resources if resources is not None else self.specs):
+            relevant = [r for r in self.reservations if r.resource == key and
+                        (outstanding is None or r.work in outstanding)]
+            risks.extend(self._violations(key, relevant))
+        return risks
+
+    def is_work_at_risk(self, work: str, *, outstanding: set[str] | None = None) -> str | None:
+        for item in self.reservation_risks(outstanding=outstanding):
+            if work in item["works"]:
+                return item["resource"]
+        return None
+
+    def snapshot(self, *, outstanding: set[str] | None = None) -> dict[str, Any]:
+        resources: dict[str, dict[str, Any]] = {}
+        for key, spec in sorted(self.specs.items()):
+            value: dict[str, Any] = {
+                "owner": spec.owner, "capacity_units": spec.units,
+                "capacity_unit": spec.unit, "site": spec.site,
+                "capacity_basis": spec.basis,
+            }
+            if spec.calendar is not None:
+                value["calendar"] = {
+                    "revision": spec.calendar.revision,
+                    "source": spec.calendar.source,
+                    "source_authenticity": "DECLARED_UNVERIFIED",
+                    "outside_windows": "ZERO_DECLARED_AVAILABILITY",
+                    "windows": [vars(w) for w in spec.calendar.windows],
+                }
+            resources[key] = value
+        result = {
+            "evidence": "MODEL_ONLY",
+            "resources": resources,
+            "reservations": [vars(r) for r in self.reservations],
+            "physical_transport_and_critical_path": "NOT_MODELED",
+            "economic_productivity": "NOT_IDENTIFIABLE",
+        }
+        if any(spec.calendar is not None for spec in self.specs.values()):
+            result["reservation_risks"] = self.reservation_risks(outstanding=outstanding)
+            result["planned_slot_axis"] = "SEPARATE_FROM_EVENT_DECISION_CLOCK"
+        return result
