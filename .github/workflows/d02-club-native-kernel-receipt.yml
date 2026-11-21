@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: 2bd2a1751e8a0ba6070e8ffa3bd7602c2d069bc6
+      SITE_SHA: ff17d6e6325bb5babdbe144f66b8e22bbcf72332
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -1799,7 +1799,17 @@ jobs:
             # The person's contribution is a distinct original Kernel Result.
             # Open its explicitly labelled action, not the parent's generic
             # 'Посмотреть' button which can point to the cooperation scenario.
-            $claimView=Await 'Посмотреть вклад: Сверка покупки' 'button' 'D02_IMPORT_CONTRIBUTION_EXACT_VIEW_ACTION_NOT_FOUND'
+            # The preceding GUI step creates a standalone contribution
+            # with no scenario selected. The independent importer must
+            # inspect that exact Result, not assume it belongs to a group.
+            # A linked contribution uses its own explicitly labelled button.
+            $claimView=Locate 'Посмотреть вклад: Сверка покупки' 'button'
+            $linkage='LINKED'
+            if(!$claimView){
+              $claimView=Await 'Посмотреть запись: Мой вклад: Сверка покупки' 'button' 'D02_IMPORT_CONTRIBUTION_EXACT_VIEW_ACTION_NOT_FOUND'
+              $linkage='STANDALONE'
+            }
+            Write-Output "D02_IMPORT_CONTRIBUTION_VIEW_PATH=$linkage"
             # Real keyboard activation (Edge React onClick), scoped to the
             # contribution's uniquely named button. No generic project viewer.
             try{
