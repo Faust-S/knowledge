@@ -29,17 +29,28 @@ HISTORICAL_MOTIVES = (
 )
 # The author's original nine cost categories are kept as a HISTORICAL
 # connection-cost decomposition. Naming them cannot establish completeness.
+# Verified directly against doctorate Ch4, formula (4.6), primary DOCX
+# printed p.17: Зинт + Зпасп + Здан + Зправ + Зшабл + Здоступ +
+# Зтест + Зобуч + Звал. The labels denote independent cost sources.
 ONBOARDING_CATEGORIES = (
     "interview",
     "participant_passport",
-    "context_process_basis",
-    "rights_and_permissions",
+    "data_preparation",
+    "rule_formalization",
     "process_templates",
-    "access_configuration",
+    "access_rights_separation",
     "testing",
-    "training",
+    "human_reviewer_training",
     "initial_validation",
 )
+# Earlier working-theory tags were too broad or inaccurately linked to the
+# author's exact cost components. Retain as input for research compatibility,
+# but NEVER count them as proved canonical cost categories: requalification
+# of the original owner source is required.
+LEGACY_UNQUALIFIED_TAGS = frozenset({
+    "context_process_basis", "rights_and_permissions",
+    "access_configuration", "training",
+})
 # Contemporary liabilities are additional dimensions, not a replacement
 # of the nine author elements or a new author morphology axis.
 MODERN_EXPOSURES = (
@@ -53,7 +64,7 @@ MODERN_EXPOSURES = (
     "financing_and_working_capital_carry_cost",
     "operator_governance_overhead",
 )
-CATEGORY_SET = set(ONBOARDING_CATEGORIES) | set(MODERN_EXPOSURES)
+CATEGORY_SET = set(ONBOARDING_CATEGORIES) | set(MODERN_EXPOSURES) | set(LEGACY_UNQUALIFIED_TAGS)
 BINDING_FIELDS = frozenset({"owner", "category", "resource_use_id", "source"})
 MAX_BINDINGS = 512  # parser bound, not an organizational/financial threshold
 
@@ -118,6 +129,8 @@ def review_cost_attribution(
     return {
         "evidence": "MODEL_ONLY_ORIGINAL_RESOURCE_USE_REFERENCE",
         "onboarding_9_historical_categories": list(ONBOARDING_CATEGORIES),
+        "onboarding_primary_source": "DOCTORATE_CH4_FORMULA_4_6_VERIFIED_PRIMARY_DOCX",
+        "legacy_tags_cannot_fill_author_categories": True,
         "modern_cost_and_risk_exposures": list(MODERN_EXPOSURES),
         "owners": {
             owner: {
@@ -128,6 +141,9 @@ def review_cost_attribution(
                 "modern_exposure_unreported": [
                     category for category in MODERN_EXPOSURES if category not in categories
                 ],
+                "legacy_unqualified_tags_requiring_owner_source_review": sorted(
+                    category for category in categories if category in LEGACY_UNQUALIFIED_TAGS
+                ),
                 "bound_original_use_count": sum(len(uses) for uses in categories.values()),
                 "amounts_not_added_again_to_cash_or_real_resource_uses": True,
                 "missing_cost_is_not_zero": True,
