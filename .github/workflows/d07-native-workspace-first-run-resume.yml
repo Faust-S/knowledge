@@ -10,7 +10,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     env:
-      SITE_SHA: d18e561aae1171b5a2a111fc2ea3fc3b3bb0699f
+      SITE_SHA: fae7fb9574a120644d462354cee60ca5753d62e4
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -123,7 +123,7 @@ jobs:
                 $all=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition)
                 for($i=$all.Count-1;$i -ge 0;$i--){
                   $element=$all.Item($i)
-                  if($element.Current.IsEnabled -and !$element.Current.IsOffscreen){return $element}
+                  if($element.Current.IsEnabled){return $element}
                 }
               }catch{}
             }
