@@ -21,6 +21,7 @@ from .adaptation_review import (
 )
 from .participant_response import DecisionProfile, ProfileInputError, assess_principal, parse_profiles
 from .subject_dynamics import choose_model_action, cooperative_choice_state
+from .subject_goals import GoalInputError, parse_subject_goals, evaluate_subject_goals
 from .economic_outlook import OutlookInputError, choose_outlook, parse_outlooks
 from .joint_purchasing import PurchasingInputError, evaluate_plan, parse_plans
 from .partner_discovery import DiscoveryInputError, parse_discovery, parse_formation_finance, discover
@@ -58,9 +59,11 @@ class EconomicSubject(mesa.Agent):
         transition = (
             "INITIAL" if previous is None else "UNCHANGED"
             if (previous["action"], previous["assessment_reason"],
-                previous["source_revision"], previous["org_revision"])
+                previous["source_revision"], previous["org_revision"],
+                previous.get("goal_comparison"))
             == (choice["action"], choice["assessment_reason"],
-                work.source_revision, state.institution.revision)
+                work.source_revision, state.institution.revision,
+                observation.get("goal_comparison"))
             else "CHANGED"
         )
         self.modeled_choices[work_id] = {
@@ -70,6 +73,7 @@ class EconomicSubject(mesa.Agent):
             "outlook_epoch": outlook_epoch,
             "source_revision": work.source_revision,
             "org_revision": state.institution.revision,
+            "goal_comparison": observation.get("goal_comparison"),
         }
         return {
             **choice,
@@ -93,6 +97,16 @@ class EconomicSubject(mesa.Agent):
             )
         if work is not None and self.model.joint_purchasing_plans:
             joint = self.model._joint_purchasing_position(self.party_id, work_id)
+        goals = None
+        if work is not None and self.model.subject_goals:
+            principals = (state.capacity_ledger.original_owners(work.resource_requirements)
+                          | {work.customer})
+            goals = evaluate_subject_goals(
+                self.model.subject_goals, owner=self.party_id, work=work,
+                org_revision=state.institution.revision, at=float(self.model.time),
+                works=state.works, context_basis=state.context_basis,
+                original_owners=principals,
+            )
         # Original independent willingness and original owner preference
         # remain authoritative *within the simulated research state*.
         # A modeled quotation can only refine UNKNOWN, never sign consent.
@@ -103,10 +117,28 @@ class EconomicSubject(mesa.Agent):
         elif ((outlook is None or outlook["reason"] == "NO_CURRENT_OWNER_OUTLOOK")
               and joint and joint["position"] == "COOPERATION_PREFERRED"):
             prediction = joint["position"]
+        goal_preference = goals["position"] if goals is not None else "UNKNOWN"
+        goal_conflict = bool(
+            prediction is not None and goal_preference != "UNKNOWN"
+            and prediction != goal_preference
+        )
+        if prediction is None and goal_preference in {
+            "COOPERATION_PREFERRED", "OUTSIDE_PREFERRED",
+        }:
+            prediction = goal_preference
         observation = assess_principal(
             state, self.model.decision_profiles, self.party_id, work_id,
             modeled_outside_position=prediction,
         )
+        if goals is not None:
+            observation.update({
+                "goal_comparison": goals["comparison"],
+                "goal_reason": goals["reason"],
+                "goal_source_conflict": goal_conflict,
+                "goal_evidence": "OWNER_SCOPED_MODEL_ONLY_NOT_REALIZED",
+                "goal_private_objectives": "NOT_REDISCLOSED",
+                "goal_can_grant_consent": False,
+            })
         if outlook is not None:
             observation.update({
                 "economic_position": outlook["position"],
@@ -131,7 +163,8 @@ class OperatorAKISModel(mesa.Model):
 
     RESPONSE_LIMIT = 8192  # technical bound, not an organizational coefficient
     REACTION_TRIGGERS = frozenset({
-        "initial_subject_evaluation", "request", "offer", "authorize", "resource_status", "change_mode", "exclude", "commit",
+        "initial_subject_evaluation", "goal_source_available", "goal_source_expired",
+        "request", "offer", "authorize", "resource_status", "change_mode", "exclude", "commit",
         "complete", "reject", "resubmit", "accept", "source_update", "resource_calendar_update",
         "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response",
         "economic_outlook_available", "economic_outlook_expired",
@@ -144,9 +177,12 @@ class OperatorAKISModel(mesa.Model):
             raise InputError("INPUT_MUST_BE_OBJECT")
         research_input = dict(scenario)
         raw_profiles = research_input.pop("decision_profiles", [])
+        raw_subject_goals = research_input.pop("subject_goals", [])
         self.endogenous_subjects_enabled = research_input.pop("endogenous_subjects", False)
         if type(self.endogenous_subjects_enabled) is not bool:
             raise InputError("ENDOGENOUS_SUBJECTS_MUST_BE_BOOLEAN")
+        if raw_subject_goals and not self.endogenous_subjects_enabled:
+            raise InputError("SUBJECT_GOALS_REQUIRE_ENDOGENOUS_SUBJECTS")
         raw_outlooks = research_input.pop("economic_outlooks", [])
         raw_joint_purchasing = research_input.pop("joint_purchasing_proposals", [])
         raw_partner_discovery = research_input.pop("partner_discovery", None)
@@ -181,6 +217,9 @@ class OperatorAKISModel(mesa.Model):
                             source_revision=spec["source_revision"],
                         ),
                     )
+            self.subject_goals = parse_subject_goals(
+                raw_subject_goals, self.qualitative.subjects, known_works,
+            )
             self.economic_outlooks = parse_outlooks(
                 raw_outlooks, self.qualitative.subjects, self.qualitative.cooperation_links,
                 known_works=set(known_works),
@@ -225,7 +264,7 @@ class OperatorAKISModel(mesa.Model):
             # restricting predicate; no second governance state or event log.
             self.qualitative.model_org_policy = self.model_org_policy
         except (OutlookInputError, PurchasingInputError, DiscoveryInputError,
-                GeneralSystemInputError, OrgCodeInputError) as exc:
+                GeneralSystemInputError, OrgCodeInputError, GoalInputError) as exc:
             raise InputError(str(exc)) from exc
         self.parties = [EconomicSubject(self, key, party.kind) for key, party in self.qualitative.subjects.items()]
         self._by_id = {subject.party_id: subject for subject in self.parties}
@@ -277,6 +316,7 @@ class OperatorAKISModel(mesa.Model):
             requested_horizon if requested_horizon is not None else max(
                 last_original_at,
                 max((row.available_at for row in self.economic_outlooks), default=0),
+                max((row.available_at for row in self.subject_goals), default=0),
                 max((plan.supplier_start for plan in self.joint_purchasing_plans), default=0),
                 max((buyer.available_at for plan in self.joint_purchasing_plans
                      for buyer in plan.buyers), default=0),
@@ -295,6 +335,19 @@ class OperatorAKISModel(mesa.Model):
             for row in self.economic_outlooks if row.expires_at <= self._model_end_at
         }
         for at, trigger, work_id in sorted(outlook_changes):
+            callback = partial(self._reassess_economic_outlook, work_id, trigger)
+            self._callbacks.append(callback)
+            self.schedule_event(callback, at=float(at), priority=Priority.DEFAULT)
+        # Goals are private research claims; their availability changes use the
+        # same Mesa scheduler and never enter the original legal/event trace.
+        goal_changes = {
+            (row.available_at, "goal_source_available", row.work)
+            for row in self.subject_goals if row.available_at <= self._model_end_at
+        } | {
+            (row.expires_at, "goal_source_expired", row.work)
+            for row in self.subject_goals if row.expires_at <= self._model_end_at
+        }
+        for at, trigger, work_id in sorted(goal_changes):
             callback = partial(self._reassess_economic_outlook, work_id, trigger)
             self._callbacks.append(callback)
             self.schedule_event(callback, at=float(at), priority=Priority.DEFAULT)
@@ -510,6 +563,11 @@ class OperatorAKISModel(mesa.Model):
                 if any(prior_work == source_work
                        for prior_work, _ in outlook.requires_accepted_results)
             )
+            impacted.extend(
+                goal.work for goal in self.subject_goals
+                if any(prior_work == source_work
+                       for prior_work, _ in goal.requires_accepted_results)
+            )
         else:
             impacted = [event["work"]]
         if self.joint_purchasing_plans:
@@ -569,9 +627,16 @@ class OperatorAKISModel(mesa.Model):
                 outlook_epoch=triggering_outlook_epoch,
             )
             if group["status"] != "WAIT_FOR_ALL_CURRENT_INDEPENDENT_CHOICES":
+                current_choices = tuple(
+                    (principal,
+                     choices.get(principal, {}).get(work_id, {}).get("action"),
+                     choices.get(principal, {}).get(work_id, {}).get("goal_comparison"))
+                    for principal in group["original_principals"]
+                )
                 signature = (
                     group["status"], group["original_obligation"],
-                    group["original_result"], group["original_principals"],
+                    group["original_result"], tuple(group["original_principals"]),
+                    current_choices,
                 )
                 # Python lists are not hashable, but tuples in signature are
                 # compared by value (not hashed) to avoid duplicate snapshots.

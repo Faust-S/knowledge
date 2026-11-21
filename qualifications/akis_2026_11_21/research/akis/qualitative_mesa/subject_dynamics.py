@@ -53,6 +53,18 @@ def choose_model_action(observation: Mapping[str, Any], *, configuration: str) -
         action = "REQUEST_OWNER_SOURCE_REQUALIFICATION"
     elif reason in RESOURCE_HOLD_REASONS:
         action = "HOLD_NEW_OPPORTUNITY_RESOURCE_OR_PARTICIPATION"
+    elif (reason in {"OUTSIDE_OPTION_UNKNOWN", "REVIEWABLE_NOT_CONSENTED"}
+          and observation.get("goal_comparison") == "INCOMPARABLE_OBJECTIVES"):
+        action = "REQUEST_OWNER_MULTI_OBJECTIVE_TRADEOFF_REVIEW"
+    elif (reason in {"OUTSIDE_OPTION_UNKNOWN", "REVIEWABLE_NOT_CONSENTED"}
+          and observation.get("goal_source_conflict")):
+        action = "REQUEST_OWNER_EVIDENCE_RECONCILIATION"
+    elif (reason == "REVIEWABLE_NOT_CONSENTED"
+          and observation.get("goal_reason") in {
+              "STALE_GOAL_SOURCE_OR_ORG_REVISION", "GOAL_SOURCE_EXPIRED",
+              "DEPENDENT_ORIGINAL_RESULT_NOT_ACCEPTED",
+          }):
+        action = "REQUEST_OWNER_GOAL_SOURCE_REQUALIFICATION"
     elif reason == "REVIEWABLE_NOT_CONSENTED":
         if observation.get("execution_gate", "NONE") != "NONE":
             action = "WAIT_FOR_ORIGINAL_PREREQUISITE_RESULT"
