@@ -1799,7 +1799,13 @@ jobs:
             # The person's contribution is a distinct original Kernel Result.
             # Open its explicitly labelled action, not the parent's generic
             # 'Посмотреть' button which can point to the cooperation scenario.
-            Activate 'Посмотреть вклад: Сверка покупки' 'D02_IMPORT_CONTRIBUTION_EXACT_VIEW_ACTION_NOT_FOUND'
+            $claimView=Await 'Посмотреть вклад: Сверка покупки' 'button' 'D02_IMPORT_CONTRIBUTION_EXACT_VIEW_ACTION_NOT_FOUND'
+            # Real keyboard activation (Edge React onClick), scoped to the
+            # contribution's uniquely named button. No generic project viewer.
+            try{
+              $claimView.SetFocus()
+              [System.Windows.Forms.SendKeys]::SendWait(' ')
+            }catch{throw 'D02_IMPORT_CONTRIBUTION_EXACT_VIEW_ACTION_NOT_FOUND'}
             $null=AwaitPrefix 'Основание: Товарная накладная и чек номер 115' '' 'D02_IMPORT_CONTRIBUTION_EVIDENCE_LOST'
             $null=AwaitPrefix 'Записанный результат: Проверил десять наборов' '' 'D02_IMPORT_CONTRIBUTION_RESULT_LOST'
             Write-Output 'D02_IMPORT_CONTRIBUTION_EXACT_EVIDENCE_IN_T2_VIEWER=PASS'
