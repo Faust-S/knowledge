@@ -8,6 +8,7 @@ import {
   selectionsEqual,
   toExportOptions,
   type ExportState,
+  type ExportSelection,
 } from "../state/export-machine";
 
 function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
@@ -127,10 +128,26 @@ export function ExportView({ kernel, scopedWorkspaceId,
     return () => { alive = false; };
   }, [kernel, scopedWorkspaceId]);
 
-  const options = useMemo(() => toExportOptions(state.selection), [state.selection]);
+  // A Host-scoped company export is always the WHOLE original T2 Workspace.
+  // These options are derived from the trusted scope, not toggles or Result fields.
+  // The generic T2 Exchange remains unchanged when no scope is supplied.
+  const selection: ExportSelection = useMemo(() => scopedWorkspaceId
+    ? {
+        workspaces: [scopedWorkspaceId],
+        include_history: true,
+        include_assets: true,
+        include_relations: true,
+        include_schemas: true,
+      }
+    : state.selection, [state.selection, scopedWorkspaceId]);
+  const scopeReady = !scopedWorkspaceId || (
+    state.catalog.some(w => w.workspace_id === scopedWorkspaceId) &&
+    state.selection.workspaces.length === 1 &&
+    state.selection.workspaces[0] === scopedWorkspaceId);
+  const options = useMemo(() => toExportOptions(selection), [selection]);
 
   const runPreview = async () => {
-    if (busyRef.current) return;
+    if (busyRef.current || !scopeReady) return;
     busyRef.current = true;
     dispatch({ type: "preview-started" });
     try {
@@ -143,7 +160,7 @@ export function ExportView({ kernel, scopedWorkspaceId,
 
   const runPackage = async () => {
     if (busyRef.current) return;
-    if (!state.preview || !state.ackSensitive) return;
+    if (!state.preview || !state.ackSensitive || !scopeReady) return;
     if (
       !state.preview ||
       !state.previewSnapshot ||
@@ -159,7 +176,7 @@ export function ExportView({ kernel, scopedWorkspaceId,
     dispatch({ type: "package-started" });
     try {
       const artifact = await kernel.exportPackage(options);
-      if (!isValidPackageArtifact(artifact, state.selection)) {
+      if (!isValidPackageArtifact(artifact, selection)) {
         throw new Error("Ядро вернуло некорректный PackageArtifact.");
       }
       dispatch({ type: "package-succeeded", artifact });
@@ -217,13 +234,13 @@ export function ExportView({ kernel, scopedWorkspaceId,
     const artifact=state.artifact;
     if (!protectedExchange || protectedExchange.canSeal === false ||
         !artifact || protectedBusy || busyRef.current ||
-        state.selection.workspaces.length!==1 ||
-        !isValidPackageArtifact(artifact,state.selection)) return;
+        selection.workspaces.length!==1 || !scopeReady ||
+        !isValidPackageArtifact(artifact,selection)) return;
     if(artifact.bytes.byteLength>protectedExchange.maxArchiveBytes){
       setProtectedError("Размер архива превышает лимит установленного age. Обычный .iwxa доступен отдельно.");
       return;
     }
-    const workspace_id=state.selection.workspaces[0];
+    const workspace_id=selection.workspaces[0];
     setProtectedBusy(true);
     setProtectedError(null);
     try {
@@ -258,7 +275,7 @@ export function ExportView({ kernel, scopedWorkspaceId,
   };
 
   return renderExport({
-    state, canPreview, canPackage, canConfirm,
+    state, selection, scopedWorkspaceId, scopeReady, canPreview, canPackage, canConfirm,
     runPreview, runPackage, runDownload, runProtectedDownload, runConfirm, dispatch,
     protectedExchange, protectedBusy, protectedError, downloadedName,
     protectedDownloadedName,
@@ -267,6 +284,9 @@ export function ExportView({ kernel, scopedWorkspaceId,
 
 interface RenderProps {
   state: ExportState;
+  selection: ExportSelection;
+  scopedWorkspaceId?: string | null;
+  scopeReady: boolean;
   canPreview: boolean;
   canPackage: boolean;
   canConfirm: boolean;
@@ -284,12 +304,12 @@ interface RenderProps {
 }
 
 function renderExport(p: RenderProps) {
-  const { state, canPreview, canPackage, canConfirm,
+  const { state, selection, scopedWorkspaceId, scopeReady, canPreview, canPackage, canConfirm,
     runPreview, runPackage, runDownload, runProtectedDownload, runConfirm, dispatch,
     protectedExchange, protectedBusy, protectedError, downloadedName,
     protectedDownloadedName } = p;
   const busy = state.status === "previewing" || state.status === "packaging" || state.status === "confirming";
-  const previewDisabled = !canPreview || state.selection.workspaces.length === 0 || busy;
+  const previewDisabled = !canPreview || selection.workspaces.length === 0 || !scopeReady || busy;
   const packageDisabled = !canPackage || !state.preview || !state.ackSensitive || busy;
   const downloadDisabled = !state.artifact || busy || protectedBusy;
   const confirmDisabled =
@@ -306,11 +326,11 @@ function renderExport(p: RenderProps) {
 
       <fieldset className="border border-slate-800 rounded p-2 max-h-56 overflow-auto">
         <legend className="text-xs px-1 text-slate-400">Рабочие области</legend>
-        {state.catalog.map((w) => {
-          const checked = state.selection.workspaces.includes(w.workspace_id);
+        {state.catalog.filter(w => !scopedWorkspaceId || w.workspace_id === scopedWorkspaceId).map((w) => {
+          const checked = selection.workspaces.includes(w.workspace_id);
           return (
             <label key={w.workspace_id} className="flex items-center gap-2 text-sm py-1">
-              <input type="checkbox" checked={checked} onChange={(e) => {
+              <input type="checkbox" checked={checked} disabled={Boolean(scopedWorkspaceId)} onChange={(e) => {
                 const next = new Set(state.selection.workspaces);
                 if (e.target.checked) next.add(w.workspace_id); else next.delete(w.workspace_id);
                 dispatch({ type: "set-selection", selection: { workspaces: [...next] } });
@@ -325,7 +345,7 @@ function renderExport(p: RenderProps) {
         )}
       </fieldset>
 
-      <fieldset className="border border-slate-800 rounded p-2 space-y-1">
+      {!scopedWorkspaceId ? <fieldset className="border border-slate-800 rounded p-2 space-y-1">
         <legend className="text-xs px-1 text-slate-400">Что включить в пакет</legend>
         {([
           ["include_history", "История событий", state.selection.include_history],
@@ -339,7 +359,9 @@ function renderExport(p: RenderProps) {
             <span className="text-slate-200">{label}</span>
           </label>
         ))}
-      </fieldset>
+      </fieldset> : <p className="text-xs text-slate-400" data-testid="export-whole-workspace-scope">
+        Передаётся вся выбранная Workspace: объекты, история, файлы, связи и схемы.
+      </p>}
 
       {state.preview && state.status !== "confirmed" && (
         <label className="flex items-start gap-2 text-xs text-slate-300">
@@ -370,7 +392,7 @@ function renderExport(p: RenderProps) {
         </button>
         {protectedExchange && protectedExchange.canSeal !== false &&
           <button type="button" onClick={() => void runProtectedDownload()}
-          disabled={downloadDisabled || state.selection.workspaces.length!==1 ||
+          disabled={downloadDisabled || selection.workspaces.length!==1 ||
             nativeAgeTooLarge}
           data-testid="export-age-protected"
           className="px-3 py-1.5 text-xs rounded bg-indigo-900/70 hover:bg-indigo-900 disabled:opacity-40 min-h-[44px]">
