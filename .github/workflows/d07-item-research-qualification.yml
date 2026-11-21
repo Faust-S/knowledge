@@ -1,0 +1,96 @@
+name: D07 item-targeted external evidence qualification
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d07-item-research-qualification.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d07-item-research-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify-external-sources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout exact private D07 subject model
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod
+          ref: c2b0463c352a8191b9a97987cb60ea44c4c1e9b2
+          token: ${{ secrets.DOMEN }}
+          path: subject
+          persist-credentials: false
+      - name: Checkout exact private D07 website
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 6b72442f889cd9e79e786837d946878a6730da16
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - name: Verify exact revisions and business logic parity
+        run: |
+          test "$(git -C subject rev-parse HEAD)" = "c2b0463c352a8191b9a97987cb60ea44c4c1e9b2"
+          test "$(git -C site rev-parse HEAD)" = "6b72442f889cd9e79e786837d946878a6730da16"
+          cmp subject/src/domain/service-external-gap-research.ts site/src/domain/service-external-gap-research.ts
+          cmp subject/src/domain/service-professional-gap-inventory.ts site/src/domain/service-professional-gap-inventory.ts
+          echo D07_ITEM_RESEARCH_PARITY=PASS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.2"
+      - name: Install frozen dependencies and validate test syntax
+        working-directory: site
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-item-install.log" 2>&1 || exit 1
+          node --check scripts/d07-run-official-source-research.mjs
+          node --check scripts/d07-original-source-fetch.mjs
+          for t in scripts/tests/d07-external-gap-research.test.mjs scripts/tests/d07-original-source-fetch.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs; do node --check "$t"; done
+          echo D07_ITEM_RESEARCH_INSTALL_AND_SYNTAX=PASS
+      - name: Test independent per-operation evidence and anti-fabrication checks
+        working-directory: site
+        run: |
+          node --import tsx --test scripts/tests/d07-external-gap-research.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs scripts/tests/d07-original-source-fetch.test.mjs > "$RUNNER_TEMP/d07-item-tests.log" 2>&1 || {
+            echo D07_ITEM_RESEARCH_TESTS=FAIL
+            grep -E '^not ok|^# (tests|pass|fail)|^[[:space:]]+(actual|expected|error):' "$RUNNER_TEMP/d07-item-tests.log" | tail -24 || true
+            exit 1
+          }
+          echo D07_ITEM_RESEARCH_TESTS=PASS
+          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d07-item-tests.log" | tail -4
+      - name: Full-site TypeScript and TOP-500 generation
+        working-directory: site
+        run: |
+          bun x tsc --noEmit > "$RUNNER_TEMP/d07-item-types.log" 2>&1 || {
+            echo D07_ITEM_RESEARCH_TYPES=FAIL
+            grep -oE 'TS[0-9]+' "$RUNNER_TEMP/d07-item-types.log" | sort | uniq -c | head -15 || true
+            exit 1
+          }
+          echo D07_ITEM_RESEARCH_TYPES=PASS
+          node --import tsx scripts/generate-d07-methodology-top500.mjs "$RUNNER_TEMP/d07-item-500" --as-of=2026-11-21 > "$RUNNER_TEMP/d07-item-generate.log" 2>&1 || {
+            echo D07_ITEM_RESEARCH_GENERATION=FAIL
+            grep -oE 'D07_[A-Z0-9_]+' "$RUNNER_TEMP/d07-item-generate.log" | tail -6 || true
+            exit 1
+          }
+          echo D07_ITEM_RESEARCH_GENERATION=PASS
+          node -e "const f=require('fs');const p=process.env.RUNNER_TEMP+'/d07-item-500/service-professional-finalization.top500.generated.json';const d=JSON.parse(f.readFileSync(p,'utf8'));if(d.counts.selected!==500||d.counts.independentlyApprovedMethodologies!==0)process.exit(1);console.log('D07_ITEM_RESEARCH_500_CANDIDATES=PASS')"
+      - name: Live verify item-scoped original fragments
+        working-directory: site
+        env:
+          D07_RECEIPT_DEST: ${{ runner.temp }}/d07-item-research-receipt.json
+        run: |
+          node --import tsx scripts/d07-run-official-source-research.mjs --require-live > "$RUNNER_TEMP/d07-item-live.log" 2>&1 || {
+            echo D07_ITEM_LIVE_ORIGINALS=FAIL
+            grep -E '^D07_(ORIGINAL|RESEARCH)' "$RUNNER_TEMP/d07-item-live.log" | tail -20 || true
+            exit 1
+          }
+          echo D07_ITEM_LIVE_ORIGINALS=PASS
+          grep -E '^D07_(ORIGINAL|RESEARCH)' "$RUNNER_TEMP/d07-item-live.log" | tail -20
+          node -e "const f=require('fs');const x=JSON.parse(f.readFileSync(process.env.D07_RECEIPT_DEST,'utf8'));for(const r of x.receipts)console.log('D07_SOURCE_TEXT_SHA256='+r.sourceId+':'+r.textSha256);const n=x.research.reduce((s,r)=>s+r.individualTargetsSearched,0);console.log('D07_INDIVIDUAL_GAP_TARGETS='+n);if(n<6||x.counts.approvedMethodologies!==0||x.research.some(r=>!r.unresolvedItems.length))process.exit(1);console.log('D07_ITEM_RESEARCH_NO_FALSE_FINALIZATION=PASS')"
+      # Private checkouts are ephemeral, no artifacts/source HTML/results uploaded.
