@@ -241,7 +241,10 @@ def test_one_mesa_clock_original_payment_forecast_to_consent_result_and_next_nee
     phases = {row["at"]: row["projection"]["needs"][0]["status"]
               for row in result["future_need_dynamics"]["read_only_evolution"]}
     assert phases[0.0] == "FUTURE_NEED_AWAIT_ORIGINAL_ACCEPTED_RESULT"
-    assert phases[8.0] == "FUTURE_NEED_AWAIT_ORIGINAL_ACCEPTED_RESULT"
+    # Mesa records changed research states, not an identical snapshot for
+    # every original event. Before ORIGINAL acceptance the need stays gated.
+    assert all(status == "FUTURE_NEED_AWAIT_ORIGINAL_ACCEPTED_RESULT"
+               for time, status in phases.items() if time < 9)
     assert phases[9.0] == "SOURCE_ACTIVE_FOR_RESEARCH"
     assert result["future_need_dynamics"]["pre_order_owner_need_is_not_original_work"]
     assert result["future_need_dynamics"]["no_automatic_original_request_or_contract"]
