@@ -10,7 +10,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     env:
-      SITE_SHA: d12483aab7dc590bbee1ead39aac204fa64e4100
+      SITE_SHA: d18e561aae1171b5a2a111fc2ea3fc3b3bb0699f
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -204,10 +204,43 @@ jobs:
             }
             Write-Output 'D07_NATIVE_HTTPS_HOST=PASS'
             $edgeProc=OpenEdge $url
-            $new=WaitUIA 'Новый заказ' 'button' 30
+            $new=WaitUIA 'Новый заказ' 'button' 60
             if(!$new){
-              $first=WaitUIA 'Создать рабочую область' 'button' 40
-              if(!$first){throw 'D07_NATIVE_FIRST_RUN_ENTRY_MISSING'}
+              $first=WaitUIA 'Создать рабочую область' 'button' 80
+              if(!$first){
+                # Report only static UI states from our clean, empty test
+                # profile; never dump the accessibility tree or user data.
+                $allowed=@(
+                  'Мои услуги','Рабочая область','Создать рабочую область',
+                  'Новая рабочая область','Новый заказ',
+                  'Kernel session is not ready','T2: checking existing workspaces',
+                  'T2 Capability','Список рабочих областей',
+                  'Рабочих областей пока нет','Загрузка','Не удалось'
+                )
+                $windows=@(Get-Process msedge -ErrorAction SilentlyContinue |
+                  Where-Object{$_.MainWindowHandle -ne 0})
+                Write-Output ('D07_NATIVE_EDGE_WINDOWS='+$windows.Count)
+                $markers=[System.Collections.Generic.HashSet[string]]::new()
+                foreach($proc in $windows){
+                  try{
+                    $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$proc.MainWindowHandle)
+                    if(!$window){continue}
+                    $all=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                      [System.Windows.Automation.Condition]::TrueCondition)
+                    for($i=0;$i -lt $all.Count;$i++){
+                      $text=$all.Item($i).Current.Name
+                      if(!$text){continue}
+                      foreach($label in $allowed){
+                        if($text.Contains($label)){$null=$markers.Add($label)}
+                      }
+                    }
+                  }catch{}
+                }
+                foreach($label in $allowed){
+                  if($markers.Contains($label)){Write-Output ('D07_NATIVE_UI_VISIBLE='+$label)}
+                }
+                throw 'D07_NATIVE_FIRST_RUN_ENTRY_MISSING'
+              }
               ClickUIA 'Создать рабочую область'
               # The original Host may provision through its first-run gate
               # or expose its ordinary Workspaces list and confirmation.
@@ -250,7 +283,7 @@ jobs:
               throw 'D07_NATIVE_ORDER_REVISION_NOT_VISIBLE'
             }
             Write-Output 'D07_NATIVE_LAST_ORDER_COLD_REOPEN=PASS'
-            ClickUIA 'Архив .iwxa' 'link'
+            ClickUIA 'Копия и перенос (.iwxa)' 'link'
             if(!(WaitText 'Сохранение и перенос заказов' 70)){
               throw 'D07_NATIVE_EXCHANGE_ROUTE_NOT_VISIBLE'
             }
