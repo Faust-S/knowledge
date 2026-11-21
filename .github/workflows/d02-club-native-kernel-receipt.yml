@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: 2599e078f303f0ab06fcc48a8cb1f37413a744b0
+      SITE_SHA: e77454b182c8e2f06a1691d473044edc14e2ea89
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -851,7 +851,7 @@ jobs:
             }
             throw $code
           }
-          $server=$null;$browser=$null;$reopened=$null
+          $server=$null;$browser=$null;$reopened=$null;$weekBrowser=$null;$weekReopened=$null
           try{
             $server=Start-Process -FilePath node -WorkingDirectory $site -ArgumentList @(
               'scripts/serve-current-static.mjs','dist','--t2-loopback'
@@ -964,8 +964,15 @@ jobs:
                 Write-Output 'D02_IMPORT_NEW_WORKSPACE_SELECTED_BY_USER=PASS'
               }catch{throw 'D02_IMPORT_WORKSPACE_FOCUS_FAILED'}
             }
+            # The separate Kernel-backed profile editor is the actual readback.
+            # A transient UIA failure on this optional refresh must not suppress
+            # or fake that mandatory independent read.
             if(Locate 'Обновить результаты' 'button'){
-              Click 'Обновить результаты' 'D02_IMPORT_READBACK_REFRESH_FAILED'
+              try{
+                Click 'Обновить результаты' 'D02_IMPORT_READBACK_REFRESH_FAILED'
+              }catch{
+                Write-Output 'D02_IMPORT_OPTIONAL_REFRESH=UNAVAILABLE_USE_KERNEL_EDITOR'
+              }
             }
             # Categories are collapsed until requested. Use the real profile
             # shortcut and original Kernel-backed editor, not hidden UI text.
@@ -1206,9 +1213,58 @@ jobs:
             # The seven technical families remain available but folded away.
             $null=Await 'Сохранить семейный резерв' '' 'D02_GOAL_COLD_KERNEL_RESULT_MISSING'
             Write-Output 'D02_GOAL_NATIVE_PROJECT_KERNEL_COLD_READBACK=PASS'
+            # One real weekly commitment, saved through the existing
+            # Club Project Result and original T2 Host, not a test-only writer.
+            if($reopened){try{$reopened.Kill($true)}catch{}}
+            Start-Sleep -Milliseconds 800
+            $weekBrowser=Start-Process -FilePath $edge -PassThru -ArgumentList @(
+              '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
+              "--user-data-dir=$profile","--app=$origin/tools/action-route/#club-week-plan"
+            )
+            $null=Await 'Моя неделя: дела, смены и договорённости' '' 'D02_WEEK_EDITOR_NOT_VISIBLE'
+            Enter 'Что нужно сделать' 'Забрать документы для семейного бюджета' 'D02_WEEK_TITLE_INPUT_FAILED'
+            Press (Await 'Добавить дело' 'button' 'D02_WEEK_SUBMIT_MISSING') 'D02_WEEK_SUBMIT_FAILED'
+            $null=AwaitPrefix 'Дело обновлено в этой вкладке.' '' 'D02_WEEK_LOCAL_WRITE_NOT_CONFIRMED'
+            $null=Await 'Забрать документы для семейного бюджета' '' 'D02_WEEK_ITEM_NOT_VISIBLE'
+            Write-Output 'D02_WEEK_NATIVE_USER_CREATION=PASS'
+            Press (Await 'Сохранить план в рабочей области' 'link' 'D02_WEEK_SAVE_LINK_MISSING') 'D02_WEEK_SAVE_LINK_FAILED'
+            $null=Await 'Перенести результаты из Клуба' '' 'D02_WEEK_T2_HOST_NOT_VISIBLE'
+            $null=AwaitPrefix 'Результат из текущей страницы' '' 'D02_WEEK_SOURCE_PREVIEW_MISSING'
+            $target=AwaitPrefix 'Личная область 1' 'Button' 'D02_WEEK_WORKSPACE_CHOICE_MISSING'
+            Press $target 'D02_WEEK_WORKSPACE_CHOICE_FAILED'
+            $checkbox=Await 'Подтверждаю запись перечисленных результатов в выбранную область T2.' '' 'D02_WEEK_CONSENT_MISSING'
+            try{
+              $toggle=[System.Windows.Automation.TogglePattern]$checkbox.GetCurrentPattern(
+                [System.Windows.Automation.TogglePattern]::Pattern)
+              if($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On){$toggle.Toggle()}
+            }catch{
+              $checkbox.SetFocus()
+              [System.Windows.Forms.SendKeys]::SendWait(' ')
+            }
+            Press (Await 'Перенести в T2' 'button' 'D02_WEEK_COMMIT_NOT_READY') 'D02_WEEK_COMMIT_FAILED'
+            $null=AwaitPrefix 'Kernel сохранил результат.' '' 'D02_WEEK_KERNEL_RECEIPT_NOT_VISIBLE'
+            $null=AwaitPrefix 'Проект: CREATED' '' 'D02_WEEK_NATIVE_CREATE_NOT_CONFIRMED'
+            Write-Output 'D02_WEEK_ORIGINAL_T2_KERNEL_RECEIPT=PASS'
+            if($weekBrowser){try{$weekBrowser.Kill($true)}catch{}}
+            Start-Sleep -Milliseconds 900
+            $weekReopened=Start-Process -FilePath $edge -PassThru -ArgumentList @(
+              '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
+              "--user-data-dir=$profile","--app=$origin/workspace/#/domain"
+            )
+            $null=Await 'Моя работа' '' 'D02_WEEK_COLD_HOST_MISSING'
+            $selector=Await 'Личная рабочая область' 'combo' 'D02_WEEK_COLD_WORKSPACE_SELECT_MISSING'
+            $selector.SetFocus()
+            [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+            [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+            [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+            $null=Await 'Моя неделя' '' 'D02_WEEK_COLD_RESULT_NOT_VISIBLE'
+            $null=Await 'Дел в недельном плане: 1' '' 'D02_WEEK_COLD_TASK_COUNT_MISMATCH'
+            Write-Output 'D02_WEEK_NATIVE_KERNEL_COLD_READBACK=PASS'
           }finally{
             if($browser){try{$browser.Kill($true)}catch{}}
             if($reopened){try{$reopened.Kill($true)}catch{}}
+            if($weekBrowser){try{$weekBrowser.Kill($true)}catch{}}
+            if($weekReopened){try{$weekReopened.Kill($true)}catch{}}
             if($server){try{$server.Kill($true)}catch{}}
           }
 
