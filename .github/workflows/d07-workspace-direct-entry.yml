@@ -12,8 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      SITE_SHA: 0f4b5f32e3d214cdcb957189edf0056f70b638fb
-      SUBJECT_SHA: 4fedf6b1acf4017bced16fb9922286da939e8184
+      SITE_SHA: af9c2b065aad65060f052348538172a84bd64c44
+      SUBJECT_SHA: cfbed75a44ff1c515ddf2d66cdb3968f2abf1eb7
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -131,6 +131,15 @@ jobs:
           fi
           grep -E '^D07_SOURCE_ONET_(DIRECTORY|LINKEDSERVICES|OCCUPATIONCODES|CORETASKS)=[0-9]+$' "$RUNNER_TEMP/d07-onet-summary.private.log" || true
           grep -q '^D07_SOURCE_ONET_REVIEW_ONLY=PASS$' "$RUNNER_TEMP/d07-onet-summary.private.log"
+          mkdir -p "$RUNNER_TEMP/d07-method-with-external"
+          if ! node --import tsx scripts/generate-d07-methodology-top500.mjs "$RUNNER_TEMP/d07-method-with-external" "--onet=$file" >"$RUNNER_TEMP/d07-method-with-external.private.log" 2>&1; then
+            echo 'D07_ONET_TOP500_CONVERSION=FAIL'
+            grep -Eo 'D07_[A-Z0-9_]+' "$RUNNER_TEMP/d07-method-with-external.private.log" | sort -u | head -10 || true
+            exit 1
+          fi
+          grep -q '^D07_METHOD_WITHEXTERNALCANDIDATETASKS=13$' "$RUNNER_TEMP/d07-method-with-external.private.log" || exit 1
+          grep -q '^D07_METHOD_PROPOSEDTASKCOUNT=250$' "$RUNNER_TEMP/d07-method-with-external.private.log" || exit 1
+          echo 'D07_ONET_TOP500_CONVERSION=PASS'
           echo 'D07_ONET_OFFICIAL_IMPORT=PASS'
       - name: Build actual integrated site with canonical T2 Host
         shell: bash
