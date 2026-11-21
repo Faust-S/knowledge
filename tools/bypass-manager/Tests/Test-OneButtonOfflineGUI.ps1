@@ -70,7 +70,20 @@ try {
     }
   }
   if(-not $running){throw 'Native GUI did not reach verified running state with offline engine'}
-  if(-not (Test-Path -LiteralPath (Join-Path $appHome 'engine\winws2.exe'))){throw 'Offline engine did not install to the private runtime'}
+  # The verified offline engine is intentionally allowed to run in place next
+  # to the EXE. It is copied to the private runtime only when portable use is
+  # unavailable. Check the actual recorded process executable, not a location.
+  $ownedFile=Join-Path $appHome 'active\winws2-owned.json'
+  if(-not (Test-Path -LiteralPath $ownedFile -PathType Leaf)){throw 'Native engine has no owned process record'}
+  $record=Get-Content -LiteralPath $ownedFile -Raw | ConvertFrom-Json
+  $actualExecutable=[System.IO.Path]::GetFullPath([string]$record.Exe)
+  $portableExecutable=[System.IO.Path]::GetFullPath((Join-Path $engine 'winws2.exe'))
+  $privateExecutable=[System.IO.Path]::GetFullPath((Join-Path $appHome 'engine\winws2.exe'))
+  if(-not ($actualExecutable -ieq $portableExecutable -or $actualExecutable -ieq $privateExecutable)) {
+    throw 'Native process did not use bundled or verified private engine'
+  }
+  if(-not (Test-Path -LiteralPath $actualExecutable -PathType Leaf)){throw 'Recorded native binary disappeared'}
+  Write-Host 'PASS native process uses a verified offline engine (portable or private)'
   $deadline=(Get-Date).AddSeconds(8)
   $expected=-join ([char[]]@(1042,1099,1082,1083,1102,1095,1080,1090,1100))
   do {
