@@ -426,6 +426,43 @@ try{
     hash(readFileSync(join(output,'_iwxa/runtime/0.3.6/runtime.js'))));
   assert.equal(readFileSync(join(output,'workspace/index.html'),'utf8'),
     '<!doctype html><title>Original T2 Workspace source</title>');
+
+  // Same verified ORIGINAL T2 Kernel + compiled T3, now as a normal HTTPS
+  // browser product. The published domain has its own site, complete T3
+  // Workspace routes and one existing offline switch; no native signer,
+  // alternate Kernel or separate Agent WorkArea is involved.
+  const webSource=join(root,'web-product-source');
+  const webOutput=join(root,'web-product-one-dist');
+  cpSync(source,webSource,{recursive:true});
+  const domainWeb=JSON.parse(readFileSync(join(webSource,'_iwxa/domain.json'),'utf8'));
+  domainWeb.origin='https://t3-reference.example.test';
+  writeFileSync(join(webSource,'_iwxa/domain.json'),JSON.stringify(domainWeb));
+  writeFileSync(join(webSource,'index.html'),
+    '<!doctype html><html lang="ru"><head><title>IWXA T3 Reference</title></head>'+
+    '<body><main>Оригинальный сайт</main></body></html>');
+  const builtWeb=assembleSignedControlDist({
+    t2Dist:webSource,t3Build:join(core,'dist'),outputDir:webOutput,
+  });
+  assert.equal(builtWeb.autonomous_domain_mode_staged,true);
+  assert.equal(builtWeb.origin,'https://t3-reference.example.test');
+  for(const asset of [
+    'index.html','workspace/index.html','workspace/exchange/index.html',
+    'workspace/lifecycle/index.html','workspace/studio/index.html',
+    't3-domain-mode.mjs','t3-sw.js','t3-offline-manifest.json',
+    't3-app-manifest.json',
+  ])assert.ok(existsSync(join(webOutput,asset)),'WEB_ONE_DIST_MISSING:'+asset);
+  assert.ok(readFileSync(join(webOutput,'workspace/index.html'),'utf8')
+    .includes('/workspace/assets/'),'WEB_T3_WORKSPACE_NOT_COMPILED');
+  const immutableRealm=readFileSync(
+    join(webOutput,'workspace/trusted-kernel-realm.html'),'utf8');
+  assert.equal(immutableRealm,
+    readFileSync(join(core,'dist/trusted-kernel-realm.html'),'utf8'));
+  assert.equal(hash(readFileSync(join(webOutput,'_iwxa/runtime/0.3.6/runtime.js'))),
+    hash(readFileSync(join(source,'_iwxa/runtime/0.3.6/runtime.js'))));
+  console.log('T3_BROWSER_HTTPS_ONE_DIST_SITE_WORKSPACE_EXCHANGE_LIFECYCLE_PASS',
+    JSON.stringify({originalKernel:'0.3.6',https:true,
+      originalSitePreserved:true,oneDist:true,offlineSwitch:true,
+      agentRequired:false,adminSignerEmbedded:false}));
   installed=true;
 
   browser=await launch();
