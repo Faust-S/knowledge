@@ -84,7 +84,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa
-          ref: 3bed87fe4cac578b44677c54362bebea95b16b54
+          ref: 640f9e11119e1e513f479336d2fad626f081a167
           path: private-iwxa
           token: ${{ env.AKIS_PRIVATE_READ_TOKEN }}
           persist-credentials: false
