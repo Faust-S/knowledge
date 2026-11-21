@@ -13,7 +13,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 55
     env:
-      SITE_SHA: 2599e078f303f0ab06fcc48a8cb1f37413a744b0
+      SITE_SHA: bf99bd1a998f58588921b3c9d826244b67bb5258
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -228,7 +228,7 @@ jobs:
                 }
               }
             }
-            # Open six real money/income forms through their published anchors.
+            # Open seven real money, income and personal time tools by anchors.
             # A hidden heading alone is insufficient; native Edge must show
             # it within the real 375-pixel app window.
             $deepLinks=@(
@@ -238,6 +238,7 @@ jobs:
               @{code='income-contact';route='/tools/additional-income/#contact-work-ledger';heading='Моя смена в контакт-центре: звонки, качество и премия'}
               @{code='income-pvz';route='/tools/additional-income/#pvz-work-ledger';heading='Мои операции на пункте выдачи заказов'}
               @{code='income-payment';route='/tools/additional-income/#club-income-payments';heading='3. Денежная выплата или резерв налога'}
+              @{code='time-week';route='/tools/action-route/#club-week-plan';heading='Моя неделя: дела, смены и договорённости'}
             )
             foreach($d in $deepLinks){
               try{Get-Process msedge -ErrorAction SilentlyContinue |
