@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 7ae092815e912fc542d2ae04aebfaf0636a39bfc
+          ref: 159d7aa6057ea01f3c254882305a79d280136109
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -70,8 +70,8 @@ jobs:
       - name: Verify immutable site / subject / T2 revisions
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "7ae092815e912fc542d2ae04aebfaf0636a39bfc"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "9c538809e817112f5a6321b7ae78714ec03a162e"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "159d7aa6057ea01f3c254882305a79d280136109"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "385310bbacd1eb91a2edcf834c22e7779d841e9f"
           test "$(git -C d04-private/model rev-parse HEAD)" = "d0f6ec9d50c01891ed1001fb872ac2d5770e8f0d"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           for path in d04-private/site d04-private/model d04-private/t2; do
@@ -105,7 +105,7 @@ jobs:
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
           BAZMED_SUBJECT_SOURCE_DIR: ${{ github.workspace }}/d04-private/model
-          D04_RELEASE_SITE_SHA: 7ae092815e912fc542d2ae04aebfaf0636a39bfc
+          D04_RELEASE_SITE_SHA: 159d7aa6057ea01f3c254882305a79d280136109
         run: |
           set -euo pipefail
           if npm run release:check-source >"$RUNNER_TEMP/d04-release-source.log" 2>&1; then
@@ -237,6 +237,145 @@ jobs:
           if [ "$code" -ne 0 ]; then
             echo "D04_INTEGRATED_T2_BUILD=FAIL"
             grep -Eo 'BAZMED_[A-Z0-9_]+|D04_[A-Z0-9_]+|ERR_[A-Z0-9_]+' "$RUNNER_TEMP/d04-integrated.log" | sort -u | tail -25 || true
+            grep -E '^D04_BROWSER_PROBLEM_[A-Z_]+=[0-9]+
+            grep -Eo 'error TS[0-9]+' "$RUNNER_TEMP/d04-integrated.log" | sort -u | head -15 || true
+            exit "$code"
+          fi
+          for file in dist/index.html dist/workspace/index.html \
+            dist/workspace/exchange/index.html dist/workspace/lifecycle/index.html \
+            dist/_iwxa/current.json dist/_iwxa/runtime/0.3.6/runtime.js; do
+            if [ ! -s "$file" ]; then
+              echo "D04_REQUIRED_DIST_FILE_MISSING"
+              exit 1
+            fi
+          done
+          echo "D04_INTEGRATED_T2_BUILD=PASS"
+          # Safe numeric diagnostics only, without private assets or personal data.
+          grep -E '^D04_EMPTY_WORKSPACE_(HOST_FIRST_USABLE_MS|DOM_READY_MS|HOST_ASSET_REQUESTS|HOST_ASSET_DECODED_KIB)=[0-9]+$' "$RUNNER_TEMP/d04-integrated.log" | tail -4 || true
+          responsive_count="$(grep -c '^BAZMED_NAVIGATION_PASS ' "$RUNNER_TEMP/d04-integrated.log" || true)"
+          echo "D04_WORKSPACE_RESPONSIVE_VIEWPORTS=$responsive_count"
+          if [ "$responsive_count" -ne 5 ]; then
+            echo "D04_WORKSPACE_RESPONSIVE_VIEWPORTS_INCOMPLETE"
+            exit 1
+          fi
+          for marker in D04_WORKSPACE_TOOL_RETURN_PATH D04_WORKSPACE_OVERVIEW_ENTRY; do
+            if ! grep -qx "$marker=PASS" "$RUNNER_TEMP/d04-integrated.log"; then
+              echo "$marker=FAIL"
+              exit 1
+            fi
+            echo "$marker=PASS"
+          done
+          grep -E '^D04_WORKSPACE_(PUBLIC_RETURN_MS|OVERVIEW_COLD_MS)=[0-9]+$' "$RUNNER_TEMP/d04-integrated.log" | tail -2 || true
+          home_count="$(grep -c '^D04_PUBLIC_HOME_ENTRY_PASS ' "$RUNNER_TEMP/d04-integrated.log" || true)"
+          echo "D04_PUBLIC_HOME_VIEWPORTS=$home_count"
+          if [ "$home_count" -ne 2 ]; then
+            echo "D04_PUBLIC_HOME_VIEWPORTS_INCOMPLETE"
+            exit 1
+          fi
+          echo "D04_NATIVE_KERNEL_AND_HOST_FILES=PASS"
+          echo "D04_CHROMIUM_SMOKE=PASS_IN_BUILD"
+          # Do not upload private dist, private logs, browser profiles or files.
+      - name: Audit host-uploadable dist without publishing it
+        id: hosting
+        if: steps.integrated.outcome == 'success'
+        continue-on-error: true
+        working-directory: d04-private/site
+        run: |
+          set -uo pipefail
+          failed=0
+          for stage in release:check-dist check:production-urls check:no-localhost check:assets check:external-assets check:links check:seo check:htaccess; do
+            name="$(printf '%s' "$stage" | tr '[:lower:]' '[:upper:]' | sed 's/[^A-Z0-9]/_/g')"
+            log="$RUNNER_TEMP/d04-hosting-$name.log"
+            if npm run "$stage" >"$log" 2>&1; then
+              echo "D04_HOSTING_STAGE_${name}=PASS"
+              if [ "$stage" = release:check-dist ]; then
+                grep -E '^D04_(STATIC_ROUTES|STATIC_FILES|STATIC_BYTES|HOSTING_DIST_GATE)=' "$log" | tail -5 || true
+              fi
+            else
+              echo "D04_HOSTING_STAGE_${name}=FAIL"
+              grep -Eo 'D04_HOSTING_DIST_ERROR:[A-Z_]+' "$log" | sort -u | head -10 || true
+              if [ "$stage" = check:seo ]; then
+                # Publish bounded structural issue categories only. Never emit
+                # private HTML, source excerpts, meta values, profiles, or logs.
+                python3 - "$log" <<'PY'
+          from collections import Counter
+          from pathlib import Path
+          import sys
+          import re
+          data=Path(sys.argv[1]).read_text(encoding="utf-8",errors="replace")
+          counts=Counter()
+          paths=set()
+          for line in data.splitlines():
+              if not line.startswith("  - "):
+                  continue
+              issue=line[4:]
+              scope="HOST" if issue.startswith("workspace/") else ("SITEMAP" if issue.startswith("sitemap") else "PUBLIC")
+              if "нет canonical" in issue: kind="MISSING_CANONICAL"
+              elif "дублирующиеся canonical" in issue: kind="DUPLICATE_CANONICAL"
+              elif "canonical=" in issue: kind="CANONICAL_MISMATCH"
+              elif "без trailing slash" in issue: kind="TRAILING_SLASH"
+              elif "нет og:url" in issue: kind="MISSING_OG_URL"
+              elif "og:url=" in issue: kind="OG_URL_MISMATCH"
+              elif "нет meta description" in issue: kind="MISSING_DESCRIPTION"
+              elif "дублирующиеся <title>" in issue: kind="DUPLICATE_TITLE"
+              elif "нет <title>" in issue or "пустой <title>" in issue: kind="TITLE"
+              elif "noindex" in issue: kind="SITEMAP_NOINDEX"
+              elif "lastmod" in issue: kind="LASTMOD"
+              elif "sitemap" in issue: kind="SITEMAP"
+              elif "robots" in issue: kind="ROBOTS"
+              else: kind="OTHER"
+              counts[(scope,kind)]+=1
+              if scope=="PUBLIC" and kind in ("MISSING_CANONICAL","MISSING_OG_URL"):
+                  name=issue.split(":",1)[0].strip()
+                  if re.fullmatch(r"[A-Za-z0-9_./-]{1,100}",name):
+                      paths.add(name)
+          for name in sorted(paths)[:8]:
+              print("D04_SEO_PUBLIC_STATIC_PATH="+name)
+          for (scope,kind),count in sorted(counts.items()):
+              print(f"D04_SEO_ISSUE_{scope}_{kind}={count}")
+          print("D04_SEO_ISSUE_TOTAL="+str(sum(counts.values())))
+          for code in ("SyntaxError","ReferenceError","TypeError","RangeError","ENOENT","EACCES","ERR_MODULE_NOT_FOUND","ERR_PACKAGE_PATH_NOT_EXPORTED","npm error","SIGKILL","Killed","Error:"):
+              if code in data:
+                  print("D04_SEO_RUNTIME_SIGNAL_"+re.sub(r"[^A-Z0-9]","_",code.upper())+"=YES")
+          print("D04_SEO_HAS_VALIDATION_BANNER="+("YES" if "SEO check:" in data else "NO"))
+          PY
+              fi
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "D04_HOSTING_DIST_CHECKS=FAIL"
+            exit 1
+          fi
+          echo "D04_HOSTING_DIST_CHECKS=PASS"
+      - name: Enforce qualification status without uploading artifacts
+        if: always()
+        env:
+          RESEARCH: ${{ steps.research.outcome }}
+          ENTRY: ${{ steps.entry.outcome }}
+          LINKS: ${{ steps.links.outcome }}
+          TYPES: ${{ steps.types.outcome }}
+          LINT: ${{ steps.lint.outcome }}
+          SEMANTIC: ${{ steps.semantic.outcome }}
+          INTEGRATED: ${{ steps.integrated.outcome }}
+          HOSTING: ${{ steps.hosting.outcome }}
+        run: |
+          echo "D04_STAGE_OUTCOMES=research:$RESEARCH,entry:$ENTRY,links:$LINKS,types:$TYPES,lint:$LINT,semantic:$SEMANTIC,integrated:$INTEGRATED,hosting:$HOSTING"
+          for outcome in "$RESEARCH" "$ENTRY" "$LINKS" "$TYPES" "$SEMANTIC" "$INTEGRATED" "$HOSTING"; do
+            if [ "$outcome" != "success" ]; then
+              echo "D04_PRODUCT_QUALIFICATION=INCOMPLETE"
+              exit 1
+            fi
+          done
+          echo "D04_SOURCE_AND_INTEGRATED_QUALIFICATION=PASS"
+          echo "D04_HOSTING_RELEASE_CANDIDATE=SOURCE_AND_TEST_DIST_PASS"
+          echo "D04_FINAL_PRODUCTION_BUILD=DELEGATED_TO_CODEX"
+          if [ "$LINT" != "success" ]; then
+            echo "D04_FULL_PRETTIER_LINT=FAIL_BASELINE"
+            echo "D04_RELEASE_READINESS=HOLD"
+          fi
+          echo "D04_FULL_PRODUCT_ACCEPTANCE=NOT_YET_QUALIFIED"
+ "$RUNNER_TEMP/d04-integrated.log" | head -10 || true
             grep -Eo 'error TS[0-9]+' "$RUNNER_TEMP/d04-integrated.log" | sort -u | head -15 || true
             exit "$code"
           fi
