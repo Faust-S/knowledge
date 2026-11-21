@@ -364,6 +364,22 @@ export function assembleSignedControlDist({
     if(existsSync(target)&&readFileSync(target,'utf8')!==html)
       fail('SIGNED_ENTRY_COLLISION');
   }
+  // A web product receives the actual T3 Workspace, Exchange, Lifecycle
+  // and Studio pages. Preserve its ORIGINAL site index.html and original T2
+  // Host/Store; never reuse the native Agent placeholder as a domain shell.
+  const webEntries=web?[
+    ['index.html','index.html','/workspace/'],
+    ['exchange/index.html','exchange/index.html','/workspace/exchange/'],
+    ['lifecycle/index.html','lifecycle/index.html','/workspace/lifecycle/'],
+    ['studio/index.html','studio/index.html','/workspace/studio/'],
+  ]:[];
+  const compiledWebEntries=webEntries.map(([from,to,base])=>{
+    const html=readFileSync(required(compiled,from),'utf8');
+    if(!html.includes('<base href="'+base+'"')||
+       !/\\b(?:src|href)="\\/workspace\\/assets\\/[A-Za-z0-9_.\\/-]+"/.test(html))
+      fail('COMPILED_WEB_WORKSPACE_ENTRY_REQUIRED:'+from);
+    return {to,html};
+  });
   const favicon=join(source,'workspace/favicon.ico');
   const compiledFavicon=join(compiled,'favicon.ico');
   if(!existsSync(favicon)&&!existsSync(compiledFavicon))fail('SIGNED_FAVICON_REQUIRED');
@@ -380,6 +396,11 @@ export function assembleSignedControlDist({
     for(const item of staged){
       mkdirSync(dirname(join(temp,item.dest)),{recursive:true});
       copyFileSync(item.source,join(temp,item.dest));
+    }
+    for(const page of compiledWebEntries){
+      const destination=join(temp,'workspace',page.to);
+      mkdirSync(dirname(destination),{recursive:true});
+      writeFileSync(destination,page.html);
     }
     if(!existsSync(join(temp,'workspace/favicon.ico')))
       copyFileSync(compiledFavicon,join(temp,'workspace/favicon.ico'));
