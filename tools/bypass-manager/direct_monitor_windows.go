@@ -51,10 +51,13 @@ func recentDirectMonitor(m *Manager) (DirectMonitorReport, bool) {
 // A separate monitor is active only while the native GUI is open. It does not
 // install a service, capture browsing history or silently change system routes.
 func (ui *oneUI) watchDirect() {
+	canTune := ui.recoverPendingDirectStrategy()
 	ticker := time.NewTicker(directMonitorInterval)
 	defer ticker.Stop()
 	var supervisor directSupervisor
 	seenLearned := map[string]bool{}
+	seenStrategies := map[string]bool{}
+	trialCount := 0
 	for {
 		select {
 		case <-ui.ctx.Done():
@@ -73,6 +76,8 @@ func (ui *oneUI) watchDirect() {
 		if !wanted {
 			supervisor.disarm()
 			clear(seenLearned)
+			clear(seenStrategies)
+			trialCount = 0
 			continue
 		}
 		supervisor.arm()
@@ -108,6 +113,17 @@ func (ui *oneUI) watchDirect() {
 		if snapshot.Action != directMonitorNone {
 			ui.executeDirectMonitorAction(m, &snapshot)
 		}
+		trialNote := ""
+		// Tune one newly learned host at a time. Never do this while the
+		// three public probes show general network impairment.
+		if canTune && snapshot.State == "GENERAL_HTTPS_AVAILABLE" && trialCount < directStrategyTrialsPerSession {
+			if attempted, note := ui.tuneDirectLearned(m, epoch, seenStrategies); attempted {
+				trialCount++
+				trialNote = note
+			} else {
+				trialNote = note
+			}
+		}
 		if !validDirectMonitor(snapshot) {
 			continue
 		}
@@ -124,6 +140,7 @@ func (ui *oneUI) watchDirect() {
 					ui.result = "AUTO_RECOVERY_PENDING"
 				}
 				ui.cause = directMonitorSummary(snapshot)
+				if trialNote != "" { ui.cause = trialNote }
 			}
 		}
 		ui.mu.Unlock()

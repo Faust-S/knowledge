@@ -32,6 +32,7 @@ type SupportReport struct {
 	DirectCheck   *DirectCheckReport `json:"direct_check,omitempty"`
 	DirectMonitor *DirectMonitorReport `json:"direct_monitor,omitempty"`
 	DirectLearned *DirectLearnedReport `json:"direct_learned,omitempty"`
+	DirectStrategy *DirectStrategyReport `json:"direct_strategy,omitempty"`
 	Caveat        string             `json:"caveat"`
 }
 type SupportSource struct {
@@ -69,6 +70,7 @@ func buildSupportReport(folder string, now time.Time) SupportReport {
 		{"latest-direct-check.json", &DirectCheckReport{}},
 		{"latest-direct-monitor.json", &DirectMonitorReport{}},
 		{"latest-direct-learned.json", &DirectLearnedReport{}},
+		{"latest-direct-strategy.json", &DirectStrategyReport{}},
 		{"latest-network.json", &NetworkAudit{}},
 		{"latest-path.json", &PathReport{}},
 		{"latest-speed.json", &LiveAudit{}},
@@ -95,6 +97,13 @@ func buildSupportReport(folder string, now time.Time) SupportReport {
 				switch v := entry.target.(type) {
 				case *DirectReport:
 					s.Direct = v
+				case *DirectStrategyReport:
+					if validDirectStrategyReport(*v) {
+						s.DirectStrategy = v
+					} else {
+						source.Status = "INVALID_OR_OLD_SCHEMA"
+						validEntry = false
+					}
 				case *DirectLearnedReport:
 					if validDirectLearned(*v) {
 						s.DirectLearned = v

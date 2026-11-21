@@ -49,9 +49,17 @@ if($conflicts.Count -gt 0) {throw 'Another DPI process is running; cannot safely
 # Automatically learned domains stay ONLY in the private per-user working area.
 # No external VPN endpoint, private keys or browser settings are required.
 $hosts=Join-Path $stateFolder 'direct-auto-hosts.txt'
+$alternate=Join-Path $stateFolder 'direct-alternative-hosts.txt'
 New-Item -ItemType Directory -Path $stateFolder -Force | Out-Null
-if(-not (Test-Path -LiteralPath $hosts -PathType Leaf)) {
-    [System.IO.File]::WriteAllText($hosts,'',[System.Text.UTF8Encoding]::new($false))
+foreach($listPath in @($hosts,$alternate)) {
+    if(-not (Test-Path -LiteralPath $listPath -PathType Leaf)) {
+        [System.IO.File]::WriteAllText($listPath,'',[System.Text.UTF8Encoding]::new($false))
+    }
+    # Never follow reparse-point/symlink lists into unrelated user files.
+    $entry=Get-Item -LiteralPath $listPath -Force
+    if($entry.PSIsContainer -or (($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw 'Direct profile list is not a regular local file'
+    }
 }
 # The original auto-hostlist evaluates BOTH client requests and server replies.
 # The earlier filter omitted inbound TLS payload and could misclassify live
@@ -62,6 +70,18 @@ $argsList=@(
     "--wf-raw=$raw",
     "--lua-init=@$luaLib",
     "--lua-init=@$luaDpi",
+    # First winning profile: explicitly selected problematic domains only.
+    # Sentinel keeps the host filter nonempty when the alternate file is empty.
+    # Without it, the entire TLS stream could accidentally match the strategy.
+    '--filter-tcp=443',
+    '--filter-l7=tls',
+    '--hostlist-domains=iwxa-never-match.invalid',
+    "--hostlist=$alternate",
+    '--out-range=-d10',
+    '--payload=tls_client_hello',
+    '--lua-desync=multidisorder:pos=1,midsld',
+    '--new',
+    # Default auto-hostlist continues learning and applying the original recipe.
     '--filter-tcp=443',
     '--filter-l7=tls',
     "--hostlist-auto=$hosts",

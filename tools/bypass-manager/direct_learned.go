@@ -118,7 +118,7 @@ func probeDirectLearnedTLS(ctx context.Context, host string) string {
 	ips, err := net.DefaultResolver.LookupIP(dnsCtx, "ip4", host)
 	cancel()
 	if err != nil || len(ips) == 0 {
-		return "TLS_FAILED"
+		return "DNS_UNAVAILABLE"
 	}
 	address := ""
 	for _, ip := range ips {
@@ -133,7 +133,7 @@ func probeDirectLearnedTLS(ctx context.Context, host string) string {
 	dialer := &net.Dialer{Timeout: 4 * time.Second}
 	conn, err := dialer.DialContext(ctx, "tcp4", address)
 	if err != nil {
-		return "TLS_FAILED"
+		return "TCP_FAILED"
 	}
 	defer conn.Close()
 	tlsConn := tls.Client(conn, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
