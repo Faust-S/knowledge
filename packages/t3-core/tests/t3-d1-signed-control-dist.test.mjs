@@ -62,11 +62,11 @@ test('refuse workspace asset collisions before modifying the original T2 or writ
     assert.equal(readFileSync(join(f.t2,'workspace/assets/signed-123.js'),'utf8'),'Different T2 asset');
   }finally{rmSync(f.dir,{recursive:true,force:true});}
 });
-test('refuse non-local or missing Control origin and an absent original service',()=>{
+test('refuse insecure external HTTP origin and an absent original service',()=>{
   const f=fixture();
   try{
-    f.put(f.t2,'_iwxa/domain.json',JSON.stringify({origin:'https://example.test'}));
-    assert.throws(()=>f.run(),/T3_D1_DIST_PINNED_LOOPBACK_ORIGIN_REQUIRED/);
+    f.put(f.t2,'_iwxa/domain.json',JSON.stringify({origin:'http://example.test'}));
+    assert.throws(()=>f.run(),/T3_D1_DIST_PRODUCT_PINNED_HTTPS_OR_NATIVE_LOOPBACK_ORIGIN_REQUIRED/);
     f.put(f.t2,'_iwxa/domain.json',JSON.stringify({origin:'http://127.0.0.1:18883'}));
     f.put(f.t2,'_iwxa/service-catalog.json','{"entries":[]}');
     assert.throws(()=>f.run(),/T3_D1_DIST_ORIGINAL_WORKSPACE_SERVICE_REQUIRED/);
