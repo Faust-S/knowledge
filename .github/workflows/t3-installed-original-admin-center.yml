@@ -151,6 +151,7 @@ jobs:
             interop
             reconciliation
             scripts
+            tests
             package.json
           path: .private/t3
       - name: Stage selected original Center application at exact private revision
