@@ -28,7 +28,7 @@ import (
 //go:embed runtime/Scripts/*.ps1 runtime/Scripts/*.psm1 runtime/Profiles/profiles.json
 var embedded embed.FS
 
-const version = "0.4.0-alpha-onebutton"
+const version = "0.5.0-alpha-adaptive-tls"
 
 // The Windows program deliberately does not start, stop, configure, or read secrets from Amnezia.
 // It controls only the one winws2 instance it owns through the audited PowerShell adapter.

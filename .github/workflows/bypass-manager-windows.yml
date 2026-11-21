@@ -160,7 +160,7 @@ jobs:
       - name: Upload unsigned Windows build and test assets
         uses: actions/upload-artifact@v4
         with:
-          name: bypass-manager-0-4-offline-https-win64-unsigned
+          name: bypass-manager-0-5-adaptive-tls-win64-unsigned
           path: |
             tools/bypass-manager/Bypass-Manager.exe
             tools/bypass-manager/README-RU.md
@@ -168,10 +168,11 @@ jobs:
             tools/bypass-manager/LICENSES/WinDivert-LICENSE.txt
             tools/bypass-manager/THIRD-PARTY-NOTICES-RU.md
             tools/bypass-manager/ONE-BUTTON-HTTPS-CHECK-2026-11-21-RU.md
+            tools/bypass-manager/AUTO-STRATEGY-2026-11-21-RU.md
           if-no-files-found: error
 
-  publish-offline-https:
-    name: Publish offline Windows Alpha after full native CI PASS
+  publish-adaptive-tls:
+    name: Publish adaptive Windows Alpha after native and scenario PASS
     needs: windows-native
     if: github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-alpha]')
     runs-on: ubuntu-24.04
@@ -180,12 +181,27 @@ jobs:
       contents: write
       actions: read
     steps:
+      - name: Require matching scenario matrix PASS for this exact commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for round in $(seq 1 45); do
+            state="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${GITHUB_SHA}&per_page=30" --jq '[.workflow_runs[] | select(.name == "Bypass Manager - adversarial scenario matrix") | (.conclusion // "pending")] | first // "missing"')"
+            echo "Scenario matrix status for ${GITHUB_SHA}: ${state}"
+            if [[ "$state" == "success" ]]; then exit 0; fi
+            if [[ "$state" == "failure" || "$state" == "cancelled" || "$state" == "timed_out" ]]; then exit 1; fi
+            sleep 10
+          done
+          echo "Scenario matrix did not finish successfully, refusing release"
+          exit 1
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: bypass-manager-0-4-offline-https-win64-unsigned
+          name: bypass-manager-0-5-adaptive-tls-win64-unsigned
           path: release/raw
       - uses: actions/download-artifact@v4
         with:
@@ -206,35 +222,38 @@ jobs:
           cp tools/bypass-manager/PRODUCT-RESET-2026-11-20-RU.md release/windows/
           cp tools/bypass-manager/ONE-BUTTON-DEVELOPMENT-2026-11-21-RU.md release/windows/
           cp tools/bypass-manager/ONE-BUTTON-HTTPS-CHECK-2026-11-21-RU.md release/windows/
+          cp tools/bypass-manager/AUTO-STRATEGY-2026-11-21-RU.md release/windows/
           cp tools/bypass-manager/THIRD-PARTY-NOTICES-RU.md release/windows/
           cp -R release/raw/engine release/windows/
           cp -R release/raw/LICENSES release/windows/
-          (cd release/windows && zip -q -r -9 ../Bypass-Manager-0.4-One-Button-Offline-Windows-x64.zip Bypass-Manager.exe README-RU.md PRODUCT-RESET-2026-11-20-RU.md ONE-BUTTON-DEVELOPMENT-2026-11-21-RU.md ONE-BUTTON-HTTPS-CHECK-2026-11-21-RU.md THIRD-PARTY-NOTICES-RU.md engine LICENSES)
-          git archive --format=zip --prefix=bypass-manager-0.4-offline-source/ --output=release/Bypass-Manager-0.4-One-Button-Offline-Source.zip HEAD:tools/bypass-manager
-          cp release/ui/main-one-button.png release/Bypass-Manager-0.4-Native-Windows.png
+          (cd release/windows && zip -q -r -9 ../Bypass-Manager-0.5-Adaptive-Windows-x64.zip Bypass-Manager.exe README-RU.md PRODUCT-RESET-2026-11-20-RU.md ONE-BUTTON-DEVELOPMENT-2026-11-21-RU.md ONE-BUTTON-HTTPS-CHECK-2026-11-21-RU.md AUTO-STRATEGY-2026-11-21-RU.md THIRD-PARTY-NOTICES-RU.md engine LICENSES)
+          git archive --format=zip --prefix=bypass-manager-0.5-adaptive-source/ --output=release/Bypass-Manager-0.5-Adaptive-Source.zip HEAD:tools/bypass-manager
+          cp release/ui/main-one-button.png release/Bypass-Manager-0.5-Native-Windows.png
           cp tools/bypass-manager/ONE-BUTTON-HTTPS-CHECK-2026-11-21-RU.md release/
+          cp tools/bypass-manager/AUTO-STRATEGY-2026-11-21-RU.md release/
           cp tools/bypass-manager/THIRD-PARTY-NOTICES-RU.md release/
-          (cd release && sha256sum Bypass-Manager-0.4-One-Button-Offline-Windows-x64.zip Bypass-Manager-0.4-One-Button-Offline-Source.zip Bypass-Manager-0.4-Native-Windows.png ONE-BUTTON-HTTPS-CHECK-2026-11-21-RU.md THIRD-PARTY-NOTICES-RU.md > SHA256SUMS.txt)
+          (cd release && sha256sum Bypass-Manager-0.5-Adaptive-Windows-x64.zip Bypass-Manager-0.5-Adaptive-Source.zip Bypass-Manager-0.5-Native-Windows.png ONE-BUTTON-HTTPS-CHECK-2026-11-21-RU.md AUTO-STRATEGY-2026-11-21-RU.md THIRD-PARTY-NOTICES-RU.md > SHA256SUMS.txt)
       - name: Publish immutable GitHub prerelease
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG=bypass-manager-0.4-alpha-offline-https-2026-11-21
+          TAG=bypass-manager-0.5-alpha-adaptive-tls-2026-11-21
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "This version already exists, refusing to overwrite"
             exit 1
           fi
           gh release create "$TAG" \
-            release/Bypass-Manager-0.4-One-Button-Offline-Windows-x64.zip \
-            release/Bypass-Manager-0.4-One-Button-Offline-Source.zip \
-            release/Bypass-Manager-0.4-Native-Windows.png \
+            release/Bypass-Manager-0.5-Adaptive-Windows-x64.zip \
+            release/Bypass-Manager-0.5-Adaptive-Source.zip \
+            release/Bypass-Manager-0.5-Native-Windows.png \
             release/ONE-BUTTON-HTTPS-CHECK-2026-11-21-RU.md \
+            release/AUTO-STRATEGY-2026-11-21-RU.md \
             release/THIRD-PARTY-NOTICES-RU.md \
             release/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Bypass Manager 0.4 Alpha | Offline engine + HTTPS evidence" \
-            --notes "Full Windows ZIP includes original pinned unmodified winws2, WinDivert, Cygwin and Lua, third-party license texts and hash-pinned atomic offline install. One-button Enable checks three fixed public HTTPS probes before and after its own WinDivert startup. A general HTTPS change is NOT evidence of a recovered blocked site, DPI causality, browser traffic or hidden IP. Native Windows GUI, native driver ownership start/stop and offline installation pass CI. REAL_NETWORK_NOT_ACCEPTED. Unsigned Alpha." \
+            --title "Bypass Manager 0.5 Alpha | Adaptive TLS for learned hosts" \
+            --notes "Unsigned Windows Alpha with pinned original offline winws2, WinDivert, Cygwin, Lua and licenses. One button starts and stops its own TLS filter without VPN. A second native profile allows bounded per-host trials for domains learned by the engine, with crash-recoverable rollback. TLS probes do not establish website access, DPI causality, success of another Windows app, or hidden public IP. Native Windows GUI and scenario matrix qualified; REAL_NETWORK_NOT_ACCEPTED." \
             --prerelease
