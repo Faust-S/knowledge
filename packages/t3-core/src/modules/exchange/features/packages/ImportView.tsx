@@ -198,7 +198,12 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     if(!kernel.hasOperation("t2.importCancel"))return false;
     return (await kernel.importCancel(token))===true;
   },[kernel,protectedExchange]);
-  const canListLocal = kernel.hasOperation("t1.listWorkspaces");
+  // Signed original T2 Host has NO unsigned global listWorkspaces grant.
+  // Its existing guarded listWorkspaces maps to signed getWorkspace for the
+  // single selected corporate ID. Do not block whole Workspace import by
+  // asking for a separate global enumeration permission.
+  const canListLocal = signedWorkspaceScope ||
+    kernel.hasOperation("t1.listWorkspaces");
 
   const cancelActive = useCallback(async (
     why: "explicit" | "new-file" | "unmount" | "session-change",
