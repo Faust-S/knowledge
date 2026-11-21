@@ -80,13 +80,7 @@ def parse_future_needs(raw: Any, state: Any) -> tuple[FutureNeed, ...]:
             raise FutureNeedInputError("OVERLAPPING_FUTURE_NEED_SOURCE")
         intervals.setdefault(work.key, []).append((start, end))
         original = state.works.get(work.key)
-        if original is not None and (
-            original.customer != work.customer or original.source_revision != work.source_revision
-            or original.resource != work.resource or original.slot_start != work.slot_start
-            or original.slot_end != work.slot_end or
-            original.resource_requirements != work.resource_requirements or
-            original.operations != work.operations
-        ):
+        if original is not None and not _original_work_matches_claim(original, work):
             raise FutureNeedInputError("FUTURE_NEED_DISAGREES_WITH_ORIGINAL_WORK")
         raw_prerequisites = item.get("requires_accepted_results", [])
         if not isinstance(raw_prerequisites, list) or len(raw_prerequisites) > 32:
@@ -110,6 +104,19 @@ def parse_future_needs(raw: Any, state: Any) -> tuple[FutureNeed, ...]:
             tuple(sorted(prerequisites)),
         ))
     return tuple(sorted(result, key=lambda n: (n.available_at, n.key)))
+
+
+def _original_work_matches_claim(original: Any, predicted: Any) -> bool:
+    """Exact original scope, not merely the ID or source revision."""
+    return (
+        original.customer == predicted.customer
+        and original.source_revision == predicted.source_revision
+        and original.resource == predicted.resource
+        and original.slot_start == predicted.slot_start
+        and original.slot_end == predicted.slot_end
+        and original.resource_requirements == predicted.resource_requirements
+        and original.operations == predicted.operations
+    )
 
 
 def _capacity_plan(need: FutureNeed) -> tuple[Reservation, ...]:
@@ -139,6 +146,8 @@ def future_need_projection(
             "transaction_cost_effect": "NOT_IDENTIFIABLE",
             "resource_competition": "NOT_EVALUATED",
             "original_result_modified": False,
+            "other_resource_owner_consents": "NOT_OBSERVED",
+            "original_owner_source_authenticated": False,
         }
         if at < item.available_at:
             status = "FUTURE_OWNER_NEED_SOURCE_NOT_AVAILABLE"
@@ -157,9 +166,8 @@ def future_need_projection(
             existing = state.works.get(work.key)
             if existing is not None and existing.obligation != "NOT_ACCEPTED":
                 status = "FUTURE_NEED_ORIGINAL_OBLIGATION_PRESERVED"
-            elif existing is not None and (existing.customer != item.owner or
-                     existing.source_revision != work.source_revision):
-                status = "FUTURE_NEED_ORIGINAL_WORK_SOURCE_CHANGED"
+            elif existing is not None and not _original_work_matches_claim(existing, work):
+                status = "FUTURE_NEED_ORIGINAL_WORK_SCOPE_CHANGED"
             elif existing is not None and existing.requester not in (None, item.owner):
                 status = "FUTURE_NEED_ORIGINAL_REQUEST_NOT_OWNER_QUALIFIED"
             if status == "SOURCE_ACTIVE_FOR_RESEARCH" and state.context_basis is not None:
@@ -208,6 +216,7 @@ def future_need_projection(
         row["original_work_request_confirmed"] = bool(
             state.works.get(work.key) is not None
             and state.works[work.key].requester == item.owner
+            and _original_work_matches_claim(state.works[work.key], work)
         )
         rows.append(row)
     competition = state.capacity_ledger.preview_options(options) if options else []
