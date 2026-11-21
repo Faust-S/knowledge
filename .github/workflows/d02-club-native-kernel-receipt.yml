@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: e77454b182c8e2f06a1691d473044edc14e2ea89
+      SITE_SHA: b7379bfb9f296cd644fda3ac93889cf08eb0b0d7
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -976,7 +976,12 @@ jobs:
             }
             # Categories are collapsed until requested. Use the real profile
             # shortcut and original Kernel-backed editor, not hidden UI text.
-            Click 'Мой профиль' 'D02_IMPORT_PROFILE_SHORTCUT_MISSING'
+            # UIA Invoke may acknowledge a button without a DOM click.
+            # Activate the real profile shortcut via native keyboard.
+            $profileShortcut=Await 'Мой профиль' 'button' 'D02_IMPORT_PROFILE_SHORTCUT_MISSING'
+            $profileShortcut.SetFocus()
+            [System.Windows.Forms.SendKeys]::SendWait(' ')
+            Write-Output 'D02_IMPORT_PROFILE_SHORTCUT=KEYBOARD_ACTIVATED'
             try{
               Click 'Редактировать профиль здесь' 'D02_IMPORT_PROFILE_EDITOR_MISSING'
               Write-Output 'D02_IMPORT_PROFILE_EDITOR_ACTIVATION=UIA_INVOKE'
@@ -1223,8 +1228,26 @@ jobs:
             )
             $null=Await 'Моя неделя: дела, смены и договорённости' '' 'D02_WEEK_EDITOR_NOT_VISIBLE'
             Enter 'Что нужно сделать' 'Забрать документы для семейного бюджета' 'D02_WEEK_TITLE_INPUT_FAILED'
-            Press (Await 'Добавить дело' 'button' 'D02_WEEK_SUBMIT_MISSING') 'D02_WEEK_SUBMIT_FAILED'
-            $null=AwaitPrefix 'Дело обновлено в этой вкладке.' '' 'D02_WEEK_LOCAL_WRITE_NOT_CONFIRMED'
+            # A UIA InvokePattern return is not reliable confirmation that
+            # a native Edge button dispatched a form submit. Use keyboard.
+            $weekSave=Await 'Добавить дело' 'button' 'D02_WEEK_SUBMIT_MISSING'
+            $weekSave.SetFocus()
+            [System.Windows.Forms.SendKeys]::SendWait(' ')
+            Write-Output 'D02_WEEK_NATIVE_KEYBOARD_SUBMIT=TRUE'
+            $written=$false
+            for($k=0;$k -lt 65;$k++){
+              if(Prefix 'Дело обновлено в этой вкладке.' ''){$written=$true;break}
+              if(Prefix 'Не удалось записать дело.' ''){throw 'D02_WEEK_SITE_WRITE_REJECTED'}
+              if(Prefix 'Сначала проверьте текущий план' ''){throw 'D02_WEEK_SOURCE_NEEDS_REVIEW'}
+              Start-Sleep -Milliseconds 450
+            }
+            if(!$written){
+              Write-Output ('D02_WEEK_STATUS_UNCHANGED='+[bool](
+                Prefix 'Записи остаются в этой вкладке до сохранения' ''))
+              Write-Output ('D02_WEEK_LOCAL_SAVED_EXISTS='+[bool](
+                Prefix 'Забрать документы для семейного бюджета' ''))
+              throw 'D02_WEEK_LOCAL_WRITE_NOT_CONFIRMED'
+            }
             $null=Await 'Забрать документы для семейного бюджета' '' 'D02_WEEK_ITEM_NOT_VISIBLE'
             Write-Output 'D02_WEEK_NATIVE_USER_CREATION=PASS'
             Press (Await 'Сохранить план в рабочей области' 'link' 'D02_WEEK_SAVE_LINK_MISSING') 'D02_WEEK_SAVE_LINK_FAILED'
