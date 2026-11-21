@@ -17,9 +17,9 @@ jobs:
           set +e
           echo D07_PUBLIC_PDF_NETWORK_START
           for url in \
-            https://www.metylan.ru/upload/iblock/439/jtboc6y3wl219qvjfk7scrqr511c3y9p/TDS-Metilan-Universal-Premium.pdf \
-            https://www.metylan.ru/upload/iblock/361/qm771x9m2tngqmg1uznquj44lbfevv5m/8xqswfah0osxylhawaffqttoowdu8ha7.pdf \
-            https://www.metylan.ru/ \
+            https://www.bostik.com/files/live/sites/shared_bostik/files/documents-brochures/Russia/Documents/TDS/bostik-russia-multi-fliz-tds%28rus%29.pdf \
+            https://www.bostik.com/files/live/sites/shared_bostik/files/documents-brochures/Russia/Documents/TDS/Quelyd_Spets%20Flizelin_TDS%28RUS%29.pdf \
+            https://www.bostik.com/russia/ru/catalog/product/construction/emea/russia/product-bostik-quelyd-flizmulti/ \
             https://www.quick-step.ru/laminate/installation/; do
             host=$(echo "$url" | cut -d/ -f3)
             printf 'D07_CURL_PROBE_HOST=%s\n' "$host"
@@ -28,7 +28,7 @@ jobs:
             printf 'D07_CURL_EXIT=%s\n' "$?"
           done
           node - <<'NODE'
-          const host="https://www.metylan.ru/";
+          const host="https://www.bostik.com/";
           const c=new AbortController();setTimeout(()=>c.abort(),10000);
           fetch(host,{method:"HEAD",signal:c.signal}).then(r=>
             console.log("D07_NODE_FETCH="+r.status)).catch(e=>
