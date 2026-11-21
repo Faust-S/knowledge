@@ -1629,8 +1629,11 @@ jobs:
             # exists. Select it explicitly through the original native UI.
             $resume=Locate 'Открыть мою рабочую область' 'button'
             if($resume){
-              Click 'Открыть мою рабочую область' 'D02_IMPORT_WORKSPACE_FOCUS_FAILED'
-              Write-Output 'D02_IMPORT_NEW_WORKSPACE_SELECTED_BY_USER=PASS'
+              # A UIA Invoke can return before React receives the click.
+              # This is a native keyboard activation on the importer window.
+              $resume.SetFocus()
+              [System.Windows.Forms.SendKeys]::SendWait(' ')
+              Write-Output 'D02_IMPORT_NEW_WORKSPACE_FOCUS_ACTION=KEYBOARD'
             }else{
               $selector=Await 'Личная рабочая область' 'combo' 'D02_IMPORT_WORKSPACE_SELECTOR_MISSING'
               try{
@@ -1638,19 +1641,44 @@ jobs:
                 [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
                 [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
                 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-                Write-Output 'D02_IMPORT_NEW_WORKSPACE_SELECTED_BY_USER=PASS'
+                Write-Output 'D02_IMPORT_NEW_WORKSPACE_FOCUS_ACTION=SELECT'
               }catch{throw 'D02_IMPORT_WORKSPACE_FOCUS_FAILED'}
             }
-            # The separate Kernel-backed profile editor is the actual readback.
-            # A transient UIA failure on this optional refresh must not suppress
-            # or fake that mandatory independent read.
-            if(Locate 'Обновить результаты' 'button'){
-              try{
-                Click 'Обновить результаты' 'D02_IMPORT_READBACK_REFRESH_FAILED'
-              }catch{
-                Write-Output 'D02_IMPORT_OPTIONAL_REFRESH=UNAVAILABLE_USE_KERNEL_EDITOR'
+            # Wait for the original Host's seven-family Kernel readback
+            # before claiming workspace focus or opening saved results.
+            # Do not force a second refresh during the first readback.
+            $readbackReady=$false
+            for($i=0;$i -lt 100;$i++){
+              if(Locate 'Host не подтвердил выбранную рабочую область. Запись в Kernel недоступна.' ''){
+                throw 'D02_IMPORT_HOST_REFUSED_WORKSPACE_FOCUS'
               }
+              foreach($root in @(Roots)){
+                foreach($node in $root.FindAll($scope,
+                    [System.Windows.Automation.Condition]::TrueCondition)){
+                  $name=$node.Current.Name
+                  if($name -and $name -match '([0-7]) из 7 направлений.*?([0-9]+) подтверждённых результатов'){
+                    $resultCount=[int]$Matches[2]
+                    Write-Output ('D02_IMPORT_KERNEL_RESULT_COUNT='+$resultCount)
+                    if($resultCount -lt 5){throw 'D02_IMPORT_FIVE_RESULTS_MISSING_IN_NEW_WORKSPACE'}
+                    $readbackReady=$true
+                    break
+                  }
+                }
+                if($readbackReady){break}
+              }
+              if($readbackReady){break}
+              if($i -eq 12 -and (Locate 'Открыть мою рабочую область' 'button')){
+                # A click not acknowledged by Host must not be treated as a
+                # successful focus. Retry once on the same native button.
+                $button=Locate 'Открыть мою рабочую область' 'button'
+                $button.SetFocus()
+                [System.Windows.Forms.SendKeys]::SendWait(' ')
+                Write-Output 'D02_IMPORT_FOCUS_RETRY=KEYBOARD'
+              }
+              Start-Sleep -Milliseconds 400
             }
+            if(!$readbackReady){throw 'D02_IMPORT_KERNEL_INVENTORY_NOT_READY'}
+            Write-Output 'D02_IMPORT_NEW_WORKSPACE_SELECTED_BY_USER=PASS'
             # Evidence about the imported Host surface, not about private
             # values; errors remain visible instead of being ignored.
             Write-Output ('D02_IMPORT_FRESH_PROFILE_EDGE_WINDOWS='+
