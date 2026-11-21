@@ -1805,18 +1805,28 @@ jobs:
             Write-Output 'D02_IMPORT_LINKED_SCENARIO_CONTRIBUTION_GROUP=PASS'
             # Real keyboard activation (Edge React onClick), scoped to the
             # contribution's uniquely named button. No generic project viewer.
+            # Prefer the actual native UIA button activation; a focused
+            # button can consume Space without dispatching React onClick.
             try{
-              $claimView.SetFocus()
-              [System.Windows.Forms.SendKeys]::SendWait(' ')
-            }catch{throw 'D02_IMPORT_CONTRIBUTION_EXACT_VIEW_ACTION_NOT_FOUND'}
-            $null=AwaitPrefix 'Основание: Товарная накладная и чек номер 115' '' 'D02_IMPORT_CONTRIBUTION_EVIDENCE_LOST'
-            $null=AwaitPrefix 'Записанный результат: Проверил десять наборов' '' 'D02_IMPORT_CONTRIBUTION_RESULT_LOST'
+              $invoke=[System.Windows.Automation.InvokePattern]$claimView.GetCurrentPattern(
+                [System.Windows.Automation.InvokePattern]::Pattern)
+              $invoke.Invoke()
+              Write-Output 'D02_IMPORT_LINKED_VIEW_ACTIVATION=UIA_INVOKE'
+            }catch{
+              try{
+                $claimView.SetFocus()
+                [System.Windows.Forms.SendKeys]::SendWait(' ')
+                Write-Output 'D02_IMPORT_LINKED_VIEW_ACTIVATION=NATIVE_KEYBOARD'
+              }catch{throw 'D02_IMPORT_CONTRIBUTION_EXACT_VIEW_ACTION_NOT_FOUND'}
+            }
+            $null=AwaitPrefix 'Основание: Товарная накладная и чек номер 115' 'D02_IMPORT_CONTRIBUTION_EVIDENCE_LOST'
+            $null=AwaitPrefix 'Записанный результат: Проверил десять наборов' 'D02_IMPORT_CONTRIBUTION_RESULT_LOST'
             Write-Output 'D02_IMPORT_CONTRIBUTION_EXACT_EVIDENCE_IN_T2_VIEWER=PASS'
             # Continue exactly this claim after import, restoring its source
             # scenario and claim with the original T2 Host confirmation.
             Click 'Продолжить вклад: Сверка покупки' 'D02_IMPORT_LINKED_CONTINUE_BUTTON_NOT_FOUND'
             $null=Await 'Открыть сохранённые результаты в Клубе' '' 'D02_IMPORT_LINKED_CONTINUE_PANEL_MISSING'
-            $null=AwaitPrefix 'Выбран личный вклад и исходное дело' '' 'D02_IMPORT_LINKED_CONTINUE_SELECTION_MISSING'
+            $null=AwaitPrefix 'Выбран личный вклад и исходное дело' 'D02_IMPORT_LINKED_CONTINUE_SELECTION_MISSING'
             $confirm=Await 'Передать выбранные результаты на сайт' 'button' 'D02_IMPORT_LINKED_CONTINUE_CONFIRM_MISSING'
             $confirm.SetFocus()
             [System.Windows.Forms.SendKeys]::SendWait(' ')
