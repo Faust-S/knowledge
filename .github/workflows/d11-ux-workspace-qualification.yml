@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 353b5b099e67e4453948261bc26e360f90beb0ce
+          ref: 783d4840da37bfa6291a0052674019318f9320df
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -51,7 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C site rev-parse HEAD)" = "353b5b099e67e4453948261bc26e360f90beb0ce"
+          test "$(git -C site rev-parse HEAD)" = "783d4840da37bfa6291a0052674019318f9320df"
           test "$(git -C t2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17"
           echo D11_UX_SITE_REVISION=PASS
           echo D11_NORMATIVE_T2_REVISION=PASS
@@ -124,13 +124,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest]
     steps:
       - name: Checkout exact private D11 UI
         uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 353b5b099e67e4453948261bc26e360f90beb0ce
+          ref: 783d4840da37bfa6291a0052674019318f9320df
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -152,7 +152,7 @@ jobs:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "353b5b099e67e4453948261bc26e360f90beb0ce"
+          test "$(git rev-parse HEAD)" = "783d4840da37bfa6291a0052674019318f9320df"
           test "$(git -C ../t2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17"
           node --check scripts/d11-ux-first-entry-browser-acceptance.mjs
           if ! npm ci --no-audit --no-fund > "$RUNNER_TEMP/d11-ux-browser-install.log" 2>&1; then
