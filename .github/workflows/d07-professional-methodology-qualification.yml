@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 33bc545c0da0980ee7f0d6d6f8de5028b066cc5a
+          ref: fa211755cf67d1ed423c0f1c394329761e2f8d36
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: subject
@@ -29,15 +29,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: a210bef740b439ed94f1e4c4f2752171b2c63a27
+          ref: a2f523d8f3bd4295a4c4d7780716618a4969f1a8
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
       - name: Check revisions and source mirrors
         run: |
-          test "$(git -C subject rev-parse HEAD)" = "33bc545c0da0980ee7f0d6d6f8de5028b066cc5a"
-          test "$(git -C site rev-parse HEAD)" = "a210bef740b439ed94f1e4c4f2752171b2c63a27"
-          for file in service-finalization-gate.ts service-external-gap-research.ts service-professional-gap-inventory.ts service-subject-protocols.ts service-professional-source-intake.ts service-method-fragment-assembly.ts service-professional-evidence.ts service-subject-logistics-b.ts service-subject-logistics-k.ts service-subject-plumbing-a.ts service-subject-moving-team.ts service-methodology-conversion.ts; do
+          test "$(git -C subject rev-parse HEAD)" = "fa211755cf67d1ed423c0f1c394329761e2f8d36"
+          test "$(git -C site rev-parse HEAD)" = "a2f523d8f3bd4295a4c4d7780716618a4969f1a8"
+          for file in service-finalization-gate.ts service-external-gap-research.ts service-professional-gap-inventory.ts service-subject-protocols.ts service-professional-source-intake.ts service-method-fragment-assembly.ts service-professional-evidence.ts service-subject-logistics-b.ts service-subject-logistics-k.ts service-subject-plumbing-a.ts service-subject-moving-team.ts service-subject-flooring-a.ts service-methodology-conversion.ts; do
             cmp "subject/src/domain/$file" "site/src/domain/$file" >/dev/null || exit 2
           done
           echo D07_PROFESSIONAL_PARITY=PASS
@@ -59,6 +59,10 @@ jobs:
         working-directory: site
         run: |
           node --import tsx --input-type=module -e 'import {getServiceDirectory} from "./src/data/serviceDirectory.ts";import {SUBJECT_PROTOCOLS} from "./src/domain/service-subject-protocols.ts";const key="perevozki-dostavka-logistika";const d=getServiceDirectory().filter(x=>x.categorySlug===key);const p=SUBJECT_PROTOCOLS.filter(x=>x.categorySlug===key);console.log("D07_LOGISTICS_DIRECTORY="+d.length);console.log("D07_LOGISTICS_PROTOCOLS="+p.length);console.log("D07_LOGISTICS_MISSING="+d.filter(x=>!p.some(y=>y.serviceSlug===x.slug)).map(x=>x.slug).join(","));console.log("D07_LOGISTICS_EXTRA="+p.filter(x=>!d.some(y=>y.slug===x.serviceSlug)).map(x=>x.serviceSlug).join(","));'
+      - name: Report conversion diagnostics without sharing private source
+        working-directory: site
+        run: |
+          node --import tsx --input-type=module -e 'import {getServiceDirectory} from "./src/data/serviceDirectory.ts";import {getService} from "./src/data/services.ts";import {convertServiceMethodology} from "./src/domain/service-methodology-conversion.ts";for (const [category,slug] of [["perevozki-dostavka-logistika","pereezd-gruzchiki"],["remont-dom-mastera","zamena-smesitelya"],["remont-dom-mastera","ukladka-laminata"]]) {const row=getServiceDirectory().find(x=>x.categorySlug===category&&x.slug===slug);if(!row){console.log("D07_DIAG_ABSENT="+slug);continue;}try{const m=convertServiceMethodology(row,{service:getService(category,slug)});console.log("D07_DIAG="+slug+"|protocol="+(m.professional.subjectProtocol?.operations?.length??0)+"|works="+m.execution.works.length+"|acceptance="+m.quality.acceptance.length+"|costs="+m.finance.costComponents.length+"|resourceCandidates="+m.finance.resourceCandidates.length+"|sourceWorks="+m.execution.works.filter(w=>w.source==="d07-subject-protocol").length+"|established="+m.execution.works.filter(w=>w.source==="d07-workplan").length);}catch(e){console.log("D07_DIAG_EXCEPTION="+slug+"|"+String(e.message).slice(0,100));}}'
       - name: Run all source, gap, logistics and approval regressions
         working-directory: site
         run: |
@@ -73,12 +77,13 @@ jobs:
             d07-method-fragment-batch.test.mjs \
             d07-logistics-professional-methods.test.mjs \
             d07-methodology-top500.test.mjs \
-            d07-plumbing-professional-method.test.mjs; do
+            d07-plumbing-professional-method.test.mjs \
+            d07-flooring-professional-method.test.mjs; do
             if node --import tsx --test "scripts/tests/$f" > "$RUNNER_TEMP/$f.log" 2>&1; then
               echo "D07_TEST_$(echo "$f" | tr '[:lower:].-' '[:upper:]__')=PASS"
             else
               echo "D07_TEST_$(echo "$f" | tr '[:lower:].-' '[:upper:]__')=FAIL"
-              grep -E '^not ok [0-9]+|^# (tests|pass|fail)|^[[:space:]]+(actual|expected|code):|at TestContext' "$RUNNER_TEMP/$f.log" | tail -24 || true
+              grep -E '^not ok [0-9]+|^# (tests|pass|fail)|^[[:space:]]+(actual|expected|code|error):|at TestContext' "$RUNNER_TEMP/$f.log" | tail -26 || true
               fail=1
             fi
           done
