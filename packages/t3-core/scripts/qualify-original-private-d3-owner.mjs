@@ -8,10 +8,10 @@ import {spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 
 const REPO='Faust-S/T3';
-export const ORIGINAL_PRIVATE_SOURCE_PIN='adfcb77a3497415ce8bb194647d2d5be3a41eafa';
+export const ORIGINAL_PRIVATE_SOURCE_PIN='162f699d69f63e1d54bc002465c28c9781bf62ae';
 // Final source candidate is a fast-forward of the accepted installed owner.
 // It is qualified independently; do not inherit Center installed proof.
-export const ORIGINAL_FINAL_OWNER_CANDIDATE_PIN='adfcb77a3497415ce8bb194647d2d5be3a41eafa';
+export const ORIGINAL_FINAL_OWNER_CANDIDATE_PIN='162f699d69f63e1d54bc002465c28c9781bf62ae';
 const TEST='tests/admin-original-host-port.test.mjs';
 const MULTI_EMPLOYEE_TESTS=Object.freeze([
   'tests/multi-employee-provisioning.test.mjs',
