@@ -10,7 +10,7 @@ import {getExactFile,originalImportPaths,originalImportTarget}
   from './qualify-original-private-d3-owner.mjs';
 import {AGENT_ORIGINAL_PIN} from './qualify-original-agent-d3-port.mjs';
 
-export const T3_ORIGINAL_NATIVE_EMPLOYEE_PIN='adfcb77a3497415ce8bb194647d2d5be3a41eafa';
+export const T3_ORIGINAL_NATIVE_EMPLOYEE_PIN='162f699d69f63e1d54bc002465c28c9781bf62ae';
 const T3_SEEDS=Object.freeze([
   'interop/provision.mjs','interop/runtime.mjs',
   'interop/native-admin-d3.mjs','interop/native-employee-d3.mjs',
