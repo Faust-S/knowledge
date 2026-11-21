@@ -23,6 +23,7 @@ from .participant_response import DecisionProfile, ProfileInputError, assess_pri
 from .subject_dynamics import choose_model_action, cooperative_choice_state
 from .subject_goals import GoalInputError, parse_subject_goals, evaluate_subject_goals
 from .future_needs import FutureNeedInputError, parse_future_needs, future_need_projection
+from .modern_economic_evidence import modern_economic_review
 from .economic_outlook import OutlookInputError, choose_outlook, parse_outlooks
 from .joint_purchasing import PurchasingInputError, evaluate_plan, parse_plans
 from .partner_discovery import DiscoveryInputError, parse_discovery, parse_formation_finance, discover
@@ -180,6 +181,9 @@ class OperatorAKISModel(mesa.Model):
         raw_profiles = research_input.pop("decision_profiles", [])
         raw_subject_goals = research_input.pop("subject_goals", [])
         raw_future_needs = research_input.pop("future_need_signals", [])
+        self.modern_economy_review_enabled = research_input.pop("modern_economy_review", False)
+        if type(self.modern_economy_review_enabled) is not bool:
+            raise InputError("MODERN_ECONOMY_REVIEW_MUST_BE_BOOLEAN")
         self.endogenous_subjects_enabled = research_input.pop("endogenous_subjects", False)
         if type(self.endogenous_subjects_enabled) is not bool:
             raise InputError("ENDOGENOUS_SUBJECTS_MUST_BE_BOOLEAN")
@@ -867,6 +871,20 @@ class OperatorAKISModel(mesa.Model):
                 adaptation=output.get("adaptation"),
                 context_basis=self.qualitative.context_basis,
             )
+        if self.modern_economy_review_enabled:
+            output["modern_economic_review"] = modern_economic_review(
+                self.qualitative.subjects, economic_view=output.get("economics"),
+                joint_purchasing=output.get("cooperation", {}).get("joint_purchasing_model"),
+                formation=output.get("formation_opportunities"),
+            )
+            if self.general_akis_enabled:
+                output["general_akis_model"]["modern_economic_status"] = {
+                    "ten_2011_motives_automatically_realized": 0,
+                    "nine_onboarding_cost_categories_preserved": 9,
+                    "real_world_validation": "NOT_ESTABLISHED",
+                    "additional_2026_cost_and_governance_exposures": 9,
+                    "economic_change_is_originally_authorized": False,
+                }
         return output
 
 
