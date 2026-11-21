@@ -301,6 +301,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
             output["cash_timing"] = evaluate_cash_timing(
                 doc["cash_timing"], sources=sources,
                 transfer_index=transfer_index, coverage=covered, subjects=subjects,
+                outside=outside,
             )
         except LiquidityInputError as exc:
             raise EconomicInputError(str(exc)) from exc
