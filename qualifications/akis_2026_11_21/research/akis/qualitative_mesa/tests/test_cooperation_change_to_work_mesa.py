@@ -290,3 +290,42 @@ def test_later_independent_objection_does_not_delete_an_already_requested_origin
     assert state.works["w1"].result=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
     # Historical request persists, but late dissent cannot be assumed
     # resolved nor override subsequent independent work consent requirements.
+
+
+def test_native_mesa_owner_need_precedes_first_result_then_reuses_original_consultation():
+    """Pre-order need -> independent acceptance -> model review -> original next Work.
+
+    All signed model events are EXPLICIT original research inputs. No agent
+    creates any legal consent or infers a transaction-cost saving.
+    """
+    pytest.importorskip("mesa")
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    from .test_future_need_mesa_integration import future
+    d=prepare()
+    claim=future(owner="b",work_id="w2",start=0,end=23,
+                 slot_start=20,slot_end=30,resource="ra",
+                 prereq=[{"work":"w1","source_revision":"d-1"}])
+    claim["work_spec"]["source_revision"]="d-2"
+    claim["work_spec"]["requires_accepted"]=["w1"]
+    d["future_need_signals"]=[claim]
+    d["events"]=complete_cycle()
+    d["model_horizon"]=22
+    out=simulate(d)
+    phases={row["at"]:row["projection"]["needs"][0]["status"]
+            for row in out["future_need_dynamics"]["read_only_evolution"]}
+    assert phases[0.0]=="FUTURE_NEED_AWAIT_ORIGINAL_ACCEPTED_RESULT"
+    assert phases[8.0]=="SOURCE_ACTIVE_FOR_RESEARCH"
+    assert out["future_need_dynamics"]["current"]["needs"][0][
+        "original_work_request_confirmed"
+    ] is True
+    assert out["future_need_dynamics"]["current"]["needs"][0][
+        "status"
+    ]=="FUTURE_NEED_ORIGINAL_OBLIGATION_PRESERVED"
+    assert out["cooperation"]["system_projection"]["relations"][0][
+        "new_work_requests_with_prior_consultation"
+    ]==1
+    assert out["works"]["w2"]["result"]=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["future_need_dynamics"]["no_automatic_original_request_or_contract"]
+    assert out["profit"]["system_increment"]=="UNKNOWN"
+    assert out["counts"]=={"applied":21,"blocked":0}
+    assert simulate(deepcopy(d))==out
