@@ -158,6 +158,7 @@ def modern_economic_review(
     operators = sorted(key for key, v in subjects.items() if v.kind == "OPERATOR")
     per_subject = economic_view.get("per_subject", {}) if economic_view else {}
     liquidity = economic_view.get("cash_timing", {}) if economic_view else {}
+    lifecycle = economic_view.get("lifecycle_resource_costs", {}) if economic_view else {}
     private_liquidity = liquidity.get("per_original_owner_private_research_projection", {})
     private_statuses = {
         owner: {
@@ -214,6 +215,14 @@ def modern_economic_review(
             "cross_owner_nonfinancial_status_counts", {}
         ),
         "timed_cash_owner_values_remain_private_not_for_interfirm_publication": True,
+        "lifecycle_stages_defined": len(lifecycle.get("stages", [])),
+        "lifecycle_original_records_classified": lifecycle.get(
+            "classified_original_record_count", 0
+        ),
+        "lifecycle_owner_declared_comparison_count": lifecycle.get(
+            "owners_with_source_declared_scope_comparison", 0
+        ),
+        "lifecycle_resource_cost_arithmetic_is_not_causal_economy": True,
         "network_perspective": network_comparison,
         "internal_transfers_added_as_external_value": False,
         "liquidity_proof_from_individual_claims": (
