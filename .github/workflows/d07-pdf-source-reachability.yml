@@ -1,0 +1,39 @@
+name: D07 public manufacturer PDF network reachability
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d07-pdf-source-reachability.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe-public-pdf-publishers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe actual official publisher endpoints without fetching full PDFs
+        shell: bash
+        run: |
+          set +e
+          echo D07_PUBLIC_PDF_NETWORK_START
+          for url in \
+            https://www.metylan.ru/upload/iblock/439/jtboc6y3wl219qvjfk7scrqr511c3y9p/TDS-Metilan-Universal-Premium.pdf \
+            https://www.metylan.ru/upload/iblock/361/qm771x9m2tngqmg1uznquj44lbfevv5m/8xqswfah0osxylhawaffqttoowdu8ha7.pdf \
+            https://www.metylan.ru/ \
+            https://www.quick-step.ru/laminate/installation/; do
+            host=$(echo "$url" | cut -d/ -f3)
+            printf 'D07_CURL_PROBE_HOST=%s\n' "$host"
+            curl -I --connect-timeout 6 --max-time 12 --max-redirs 0 -sS \
+              -o /dev/null -w 'D07_CURL_STATUS=%{http_code} TLS=%{ssl_verify_result} ERR=%{errormsg}\n' "$url"
+            printf 'D07_CURL_EXIT=%s\n' "$?"
+          done
+          node - <<'NODE'
+          const host="https://www.metylan.ru/";
+          const c=new AbortController();setTimeout(()=>c.abort(),10000);
+          fetch(host,{method:"HEAD",signal:c.signal}).then(r=>
+            console.log("D07_NODE_FETCH="+r.status)).catch(e=>
+            console.log("D07_NODE_FETCH_ERROR="+e.name+
+             ":CAUSE="+(e.cause?.code??"none")+
+             ":DETAIL="+String(e.cause?.message??"").slice(0,120)));
+          NODE
+          echo D07_PUBLIC_PDF_NETWORK_FINISH
