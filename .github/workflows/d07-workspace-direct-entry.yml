@@ -119,6 +119,15 @@ jobs:
           set -euo pipefail
           if ! bun run build:t2-integrated >"$RUNNER_TEMP/d07-build.private.log" 2>&1; then
             echo 'D07_INTEGRATED_BUILD=FAIL'
+            # Display only internal stage markers, never stderr, source paths or dist.
+            grep -E '^D07_PUBLIC_BUILD_STEP_(START|PASS|FAIL)=[A-Za-z0-9:_-]+' "$RUNNER_TEMP/d07-build.private.log" | tail -12 || true
+            grep -E '^D07_WORKSPACE_SUBJECT_(CRITERIA|DETAILED|STARTERS)=[0-9]+
+          fi
+          test -s dist/workspace/index.html || { echo 'D07_ORIGINAL_HOST_MISSING'; exit 1; }
+          grep -E '^D07_WORKSPACE_SUBJECT_(CRITERIA|DETAILED|STARTERS)=[0-9]+$' "$RUNNER_TEMP/d07-build.private.log" | tail -3 || true
+          echo 'D07_ONE_DIST_ORIGINAL_T2=PASS'
+      # Do not upload dist, private source, logs, archives, browser profiles or screenshots.
+ "$RUNNER_TEMP/d07-build.private.log" | tail -3 || true
             grep -Eo 'D07_[A-Z0-9_]+|T2_[A-Z0-9_]+|TS[0-9]{4}|ERR_[A-Z0-9_]+' "$RUNNER_TEMP/d07-build.private.log" | sort -u | head -30 || true
             exit 1
           fi
