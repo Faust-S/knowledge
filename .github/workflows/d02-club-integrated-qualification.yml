@@ -24,7 +24,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     env:
-      SITE_SHA: 96595b19dde0bfd56a739959084425a9e610ce6f
+      SITE_SHA: 88bf4c395462292f3f376970f13431a7a01119e3
       DOMAIN_SHA: 500dee32f0f09622a306f6ffade7e90a11a02755
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
