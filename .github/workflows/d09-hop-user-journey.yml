@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: 5cf289780f06e498930514e7bfabfccec8ecc928
+          ref: 809e2e0d6a4f1cc24e418d682cef4bba4ea0b73b
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: HOP brand and source hygiene
@@ -56,7 +56,7 @@ jobs:
             exit 1
           }
           echo D09_SITE_TYPES=PASS
-          ./node_modules/.bin/vitest run src/content/__tests__/featured-works.test.ts src/components/workspace/__tests__/WorkspaceStartScreen.public-entry.test.tsx src/components/workspace/__tests__/GuidedEditor.artwork.test.tsx src/components/workspace/__tests__/PixelAvatarDialog.creation.test.tsx src/lib/__tests__/recipient-handoff.test.ts src/lib/__tests__/share-work-media.test.ts src/lib/__tests__/pixel-animation.test.ts src/components/workspace/__tests__/ShareWorkDialog.test.tsx > "$RUNNER_TEMP/d09-ux-route-unit.log" 2>&1 || {
+          ./node_modules/.bin/vitest run src/content/__tests__/featured-works.test.ts src/components/workspace/__tests__/WorkspaceStartScreen.public-entry.test.tsx src/components/workspace/__tests__/GuidedEditor.artwork.test.tsx src/components/workspace/__tests__/PixelAvatarDialog.creation.test.tsx src/lib/__tests__/recipient-handoff.test.ts src/lib/__tests__/share-work-media.test.ts src/lib/__tests__/pixel-animation.test.ts src/components/workspace/__tests__/ShareWorkDialog.test.tsx src/lib/__tests__/share-scene-sequence.test.ts > "$RUNNER_TEMP/d09-ux-route-unit.log" 2>&1 || {
             echo D09_UX_ROUTE_UNIT=FAIL
             grep -E 'FAIL|AssertionError|expected|Error:' "$RUNNER_TEMP/d09-ux-route-unit.log" | tail -16 | cut -c1-210 || true
             exit 1
