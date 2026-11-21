@@ -84,7 +84,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa
-          ref: 85449318d1ad93d08244940d69ef41d67a456851
+          ref: ce984e0df3e6c1adb6353d00badd7f34eb99d84c
           path: private-iwxa
           token: ${{ env.AKIS_PRIVATE_READ_TOKEN }}
           persist-credentials: false
@@ -194,6 +194,28 @@ jobs:
           assert all(d["works"][w]["result"]=="ACCEPTED_BY_ORIGINAL_RECIPIENT" for w in ("w1","w2"))
           assert d["profit"]["system_increment"]=="UNKNOWN"
           print("AKIS_NATIVE_TECHNOLOGY_CLI=PASS 20 applied 2 blocked, no automatic result")
+          PY
+          python -m research.akis.qualitative_mesa.cli --input private-iwxa/research/akis/qualitative_mesa/fixtures/cross_owner_handoff_model_only.json > "$RUNNER_TEMP/akis-cli-handoff.json"
+          python - <<'PY'
+          import json,os
+          d=json.load(open(os.path.join(os.environ["RUNNER_TEMP"],"akis-cli-handoff.json"),encoding="utf-8"))
+          assert d["evidence"]=="MODEL_ONLY"
+          assert d["counts"]=={"applied":14,"blocked":7}
+          w=d["works"]["w1"]
+          h=w["technology"]["handoffs"]
+          assert h["physical_delivery"]=="NOT_OBSERVED"
+          assert h["transfer_claim_authentication"]=="DECLARED_UNVERIFIED"
+          assert h["transport_duration"]=="NOT_IDENTIFIABLE"
+          assert h["transport_cost"]=="NOT_IDENTIFIABLE"
+          assert h["required_edges"][0]["state"]=="RECEIVED"
+          assert h["required_edges"][0]["sender"]=="a"
+          assert h["required_edges"][0]["receiver"]=="b"
+          assert w["result"]=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
+          assert "HANDOFF_RECEIPT_NOT_DECLARED" in {
+              e["reason"] for e in d["trace"] if e["outcome"]=="BLOCKED"
+          }
+          assert d["profit"]["system_increment"]=="UNKNOWN"
+          print("AKIS_NATIVE_HANDOFF_CLI=PASS 14 applied 7 blocked, no invented transport")
           PY
           python -m research.akis.qualitative_mesa.cli --input private-iwxa/research/akis/qualitative_mesa/fixtures/portfolio_correction_cascade.json > "$RUNNER_TEMP/akis-cli-portfolio.json"
           python -c "import json,os; p=os.path.join(os.environ['RUNNER_TEMP'],'akis-cli-portfolio.json'); d=json.load(open(p,encoding='utf-8')); assert d['evidence']=='MODEL_ONLY'; assert d['counts']=={'applied':18,'blocked':5}; assert [e['reason'] for e in d['trace'] if e['outcome']=='BLOCKED']==['DEPENDENCY_AWAITING_ACCEPTANCE','UPSTREAM_RESULT_REJECTED','CORRECTION_OWNER_OR_REJECTED_RESULT_REQUIRED','NEW_MODEL_ONLY_EVIDENCE_REQUIRED','DEPENDENCY_AWAITING_ACCEPTANCE']; assert d['works']['w2']['result']=='ACCEPTED_BY_ORIGINAL_RECIPIENT'; assert d['portfolio']['institutional_change']=='NO_AUTOMATIC_CHANGE'; assert d['profit']['system_increment']=='UNKNOWN'; assert len(d['result_history']['w1'])==4; print('AKIS_NATIVE_PORTFOLIO_CLI=PASS MODEL_ONLY 18 applied 5 blocked')"
