@@ -162,3 +162,26 @@ def test_native_mesa_default_scenario_unchanged_and_rejects_nonboolean_opt_in():
     modified["modern_economy_review"] = "yes"
     with pytest.raises(InputError, match="MODERN_ECONOMY_REVIEW_MUST_BE_BOOLEAN"):
         simulate(modified)
+
+
+def test_original_doctoral_equation_4_6_categories_are_exact_and_legacy_tags_not_promoted():
+    from research.akis.qualitative_mesa.modern_economic_evidence import (
+        LEGACY_UNQUALIFIED_TAGS,
+    )
+    assert ONBOARDING_CATEGORIES == (
+        "interview", "participant_passport", "data_preparation",
+        "rule_formalization", "process_templates", "access_rights_separation",
+        "testing", "human_reviewer_training", "initial_validation",
+    )
+    assert len(LEGACY_UNQUALIFIED_TAGS) == 4
+    d = original_costs()
+    old = evaluate_economic_claims(d, subject_state(), work_state())["modern_cost_attribution"]
+    owner = old["owners"]["a"]
+    assert "training" in owner["legacy_unqualified_tags_requiring_owner_source_review"]
+    assert "human_reviewer_training" in owner["onboarding_missing_source_coverage"]
+    assert old["legacy_tags_cannot_fill_author_categories"]
+    d["modern_cost_bindings"][0]["category"] = "human_reviewer_training"
+    new = evaluate_economic_claims(d, subject_state(), work_state())["modern_cost_attribution"]
+    assert "human_reviewer_training" not in new["owners"]["a"]["onboarding_missing_source_coverage"]
+    assert new["owners"]["a"]["legacy_unqualified_tags_requiring_owner_source_review"] == []
+    assert new["onboarding_primary_source"] == "DOCTORATE_CH4_FORMULA_4_6_VERIFIED_PRIMARY_DOCX"
