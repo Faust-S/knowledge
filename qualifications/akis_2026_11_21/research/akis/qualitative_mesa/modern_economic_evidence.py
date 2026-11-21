@@ -1,0 +1,217 @@
+"""2026-evidence-aware economic interpretation of the ORIGINAL AKIS ledger.
+
+The ten motives from the 2011 candidate thesis are *historical research
+hypotheses*, not parameters, gains, institutional rights or empirical proof.
+Modern source validation must establish each mechanism for a specific owner,
+horizon, counterfactual, source and actual Result. This module never adds cash
+or changes original Work, organisational code, resource use or delegation.
+"""
+from __future__ import annotations
+
+from typing import Any, Mapping, Sequence
+
+
+class ModernEconomicEvidenceError(ValueError):
+    """A model-only cost attribution lacks an unambiguous original source."""
+
+
+HISTORICAL_MOTIVES = (
+    "transaction_cost_reduction",
+    "specialized_information_infrastructure",
+    "volume_related_discounts",
+    "service_quality_from_knowledge",
+    "extension_of_partner_services",
+    "faster_projects_from_shared_resources",
+    "organizational_and_logistics_innovation",
+    "projects_impossible_for_single_member",
+    "idle_resource_revenue",
+    "access_to_new_markets",
+)
+# The author's original nine cost categories are kept as a HISTORICAL
+# connection-cost decomposition. Naming them cannot establish completeness.
+ONBOARDING_CATEGORIES = (
+    "interview",
+    "participant_passport",
+    "context_process_basis",
+    "rights_and_permissions",
+    "process_templates",
+    "access_configuration",
+    "testing",
+    "training",
+    "initial_validation",
+)
+# Contemporary liabilities are additional dimensions, not a replacement
+# of the nine author elements or a new author morphology axis.
+MODERN_EXPOSURES = (
+    "interoperability_and_semantics",
+    "cybersecurity_and_incident_response",
+    "data_usage_sovereignty",
+    "portability_and_switching",
+    "agent_identity_authorization_audit",
+    "competition_and_information_separation",
+    "regulatory_product_traceability",
+    "liquidity_and_working_capital",
+    "operator_governance_and_sustainability",
+)
+CATEGORY_SET = set(ONBOARDING_CATEGORIES) | set(MODERN_EXPOSURES)
+BINDING_FIELDS = frozenset({"owner", "category", "resource_use_id", "source"})
+MAX_BINDINGS = 512  # parser bound, not an organizational/financial threshold
+
+# These policy gates are deliberately narrower than the older blanket claims.
+# This is a literature-motivated research map, not measured AKIS outcomes.
+_MODERN_GATES = {
+    "transaction_cost_reduction": "FULL_LIFECYCLE_CONTRACT_AND_COORDINATION_COST_COMPARISON",
+    "specialized_information_infrastructure": "ALTERNATIVE_ARCHITECTURE_COST_AND_VIABLE_USE_CASE",
+    "volume_related_discounts": "ORIGINAL_SUPPLIER_TIERS_NET_COST_AND_COMPETITION_REVIEW",
+    "service_quality_from_knowledge": "ACCEPTED_RESULT_AND_LICENSED_REUSED_KNOWLEDGE",
+    "extension_of_partner_services": "INDEPENDENT_MARKET_DEMAND_AND_QUALITY_CAPABILITY",
+    "faster_projects_from_shared_resources": "SAME_SCOPE_SCHEDULE_RESILIENCE_AND_OPPORTUNITY_COST",
+    "organizational_and_logistics_innovation": "PROCESS_ADOPTION_AND_VERIFIED_OUTCOME_MINUS_AI_COST_RISK",
+    "projects_impossible_for_single_member": "TECHNOLOGY_COMPLEMENTARITY_RIGHTS_AND_LIQUIDITY",
+    "idle_resource_revenue": "PAID_ORIGINAL_WORK_AND_FOREGONE_ALTERNATIVE",
+    "access_to_new_markets": "REGULATORY_ACCESS_CHANNEL_COST_AND_PLATFORM_DEPENDENCE",
+}
+
+
+def _name(value: Any, code: str) -> str:
+    if not isinstance(value, str) or not value or len(value) > 128:
+        raise ModernEconomicEvidenceError(code)
+    return value
+
+
+def review_cost_attribution(
+    raw: Any, *, sources: Mapping[str, Any], resource_index: Mapping[str, Any],
+    subjects: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Refer ONLY to original COOPERATION resource_uses, never new money.
+
+    Absence of a category proves neither zero cost nor high profitability.
+    All source records in this original ledger are MODEL_ONLY; reference binding
+    cannot authenticate invoice, reimbursement, cash, physical saving or right.
+    """
+    if not isinstance(raw, list) or len(raw) > MAX_BINDINGS:
+        raise ModernEconomicEvidenceError("INVALID_MODERN_ECONOMIC_BINDING_COUNT")
+    used: set[str] = set()
+    by_owner: dict[str, dict[str, list[str]]] = {}
+    for row in raw:
+        if not isinstance(row, dict) or set(row) != BINDING_FIELDS:
+            raise ModernEconomicEvidenceError("INVALID_MODERN_ECONOMIC_BINDING")
+        owner = _name(row["owner"], "INVALID_MODERN_ECONOMIC_OWNER")
+        cat = _name(row["category"], "INVALID_MODERN_ECONOMIC_CATEGORY")
+        record_id = _name(row["resource_use_id"], "INVALID_MODERN_RESOURCE_ID")
+        source = _name(row["source"], "INVALID_MODERN_SOURCE_ID")
+        if owner not in subjects:
+            raise ModernEconomicEvidenceError("MODERN_ECONOMIC_OWNER_UNKNOWN")
+        if cat not in CATEGORY_SET:
+            raise ModernEconomicEvidenceError("MODERN_ECONOMIC_CATEGORY_UNKNOWN")
+        if record_id in used:
+            raise ModernEconomicEvidenceError("DUPLICATE_MODERN_ECONOMIC_RESOURCE_ATTRIBUTION")
+        resource = resource_index.get(record_id)
+        if resource is None:
+            raise ModernEconomicEvidenceError("MODERN_ECONOMIC_RESOURCE_NOT_IN_ORIGINAL_LEDGER")
+        if (resource["scenario"] != "COOPERATION" or
+                resource["owner"] != owner or resource["source"] != source or
+                sources.get(source, {}).get("owner") != owner):
+            raise ModernEconomicEvidenceError("MODERN_ECONOMIC_OWNER_SOURCE_SCOPE_MISMATCH")
+        used.add(record_id)
+        by_owner.setdefault(owner, {}).setdefault(cat, []).append(record_id)
+    return {
+        "evidence": "MODEL_ONLY_ORIGINAL_RESOURCE_USE_REFERENCE",
+        "onboarding_9_historical_categories": list(ONBOARDING_CATEGORIES),
+        "modern_cost_and_risk_exposures": list(MODERN_EXPOSURES),
+        "owners": {
+            owner: {
+                "categories_with_declared_non_cash_use": sorted(categories),
+                "onboarding_missing_source_coverage": [
+                    category for category in ONBOARDING_CATEGORIES if category not in categories
+                ],
+                "modern_exposure_unreported": [
+                    category for category in MODERN_EXPOSURES if category not in categories
+                ],
+                "bound_original_use_count": sum(len(uses) for uses in categories.values()),
+                "amounts_not_added_again_to_cash_or_real_resource_uses": True,
+                "missing_cost_is_not_zero": True,
+                "full_lifecycle_cost_completeness": "NOT_ESTABLISHED",
+            }
+            for owner, categories in sorted(by_owner.items())
+        },
+        "distinct_original_resource_use_references": len(used),
+        "no_new_cash_or_resource_use": True,
+        "no_established_total_onboarding_cost_or_saving": True,
+        "no_company_data_sharing_right_derived": True,
+    }
+
+
+def modern_economic_review(
+    subjects: Mapping[str, Any],
+    *, economic_view: Mapping[str, Any] | None,
+    joint_purchasing: Mapping[str, Any] | None = None,
+    formation: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Cross-component interpretation with failure-to-prove by default.
+
+    Only existing model outputs are interpreted. Operator, firms and network
+    are separate perspectives. Internal transfers may cancel on consolidation,
+    but claimed cash deltas NEVER establish causation or financial viability.
+    """
+    firms = sorted(key for key, v in subjects.items() if v.kind != "OPERATOR")
+    operators = sorted(key for key, v in subjects.items() if v.kind == "OPERATOR")
+    per_subject = economic_view.get("per_subject", {}) if economic_view else {}
+    private_statuses = {
+        owner: {
+            "comparison": per_subject.get(owner, {}).get(
+                "cash_comparison", "NOT_IDENTIFIABLE"),
+            "outside_feasibility": per_subject.get(owner, {}).get(
+                "outside_feasibility", "UNKNOWN"),
+            "liquidity_sufficiency": "NOT_ESTABLISHED_BY_CASH_DIFFERENCE",
+            "transaction_cost_saving": "NOT_IDENTIFIABLE_WITHOUT_COMPARABLE_COST_CHAIN",
+            "original_independent_consent": "NOT_INFERRED",
+        } for owner in sorted(subjects)
+    }
+    network_comparison = (
+        "DECLARED_EXTERNAL_CASH_ARITHMETIC_ONLY"
+        if economic_view and economic_view.get("consolidated_comparable_declared")
+        else "NOT_IDENTIFIABLE"
+    )
+    purchase_status = (
+        "POSSIBLE_GROUP_REQUIRES_COMPETITION_AND_LEGAL_REVIEW"
+        if joint_purchasing and any(
+            row.get("status") == "UNIQUE_PROSPECTIVE_GROUP_NOT_CONSENTED"
+            for row in joint_purchasing.get("proposals", [])
+        ) else "NO_CURRENT_VOLUNTARY_GROUP_VERIFIED"
+    )
+    return {
+        "scientific_status": "HISTORICAL_MOTIVES_CURRENTLY_CONDITIONAL_NOT_EFFICACY_CLAIMS",
+        "current_world_evidence_evaluated_separately_from_this_model": True,
+        "motives_2011": [
+            {
+                "id": key,
+                "modernization": "CONDITIONALLY_RETAIN_OR_REFORMULATE_NOT_AUTOMATIC",
+                "required_qualification": _MODERN_GATES[key],
+                "realized_economic_effect": "NOT_ESTABLISHED_BY_MOTIVE",
+            } for key in HISTORICAL_MOTIVES
+        ],
+        "historic_motive_count": len(HISTORICAL_MOTIVES),
+        "onboarding_nine_historical_buckets": list(ONBOARDING_CATEGORIES),
+        "modern_cost_exposures": list(MODERN_EXPOSURES),
+        "per_original_subject": private_statuses,
+        "firm_count": len(firms),
+        "operator_count": len(operators),
+        "operator_perspective": (
+            "SEPARATE_DECLARED_CASH_NOT_PROOF_OF_SUSTAINABILITY"
+            if operators and economic_view else "NOT_IDENTIFIABLE"
+        ),
+        "network_perspective": network_comparison,
+        "internal_transfers_added_as_external_value": False,
+        "liquidity_proof_from_individual_claims": "NOT_ESTABLISHED",
+        "bilateral_model_finance_state": (
+            "PRESENT_MODEL_ONLY" if formation and "economic_choice" in formation
+            else "NOT_QUALIFIED"
+        ),
+        "joint_purchasing": purchase_status,
+        "competition_market_law": "REQUIRES_JURISDICTION_SPECIFIC_EVALUATION",
+        "platform_dependence_and_exit_cost": "NOT_ZERO_BY_DEFAULT",
+        "security_identity_and_data_usage_risks": "NOT_ZERO_BY_DEFAULT",
+        "real_world_causal_savings": "NOT_ESTABLISHED",
+        "new_original_events_or_legal_rights": False,
+    }
