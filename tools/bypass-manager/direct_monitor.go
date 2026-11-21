@@ -12,7 +12,7 @@ const directMonitorInterval = 60 * time.Second
 
 var errInvalidDirectMonitor = errors.New("invalid direct monitor state")
 
-const directMonitorCaveat = "Fixed HTTPS probes measure only this application's IPv4 connectivity. Auto-restart is limited to one owned-process attempt per session; persistent degradation stops only the owned filter. No blocked site recovery, DPI causality, other-app path or IP masking is asserted."
+const directMonitorCaveat = "Fixed HTTPS probes measure only this application's IPv4 connectivity. Auto-restart is limited to one owned-process attempt per session; persistent degradation triggers one reversible own-filter off/on comparison. No blocked site recovery, DPI causality, other-app path or IP masking is asserted."
 
 const (
 	directMonitorNone     = "NONE"
@@ -58,6 +58,7 @@ func (s *directSupervisor) observe(state string, p *DirectCheckPhase, hadWorking
 	case directRunning:
 		s.lost = 0
 		if !validDirectPhase(p) || p == nil || p.Total != 3 {
+			s.impaired = 0
 			r.State = "CHECK_INCOMPLETE"
 			break
 		}
@@ -92,6 +93,7 @@ func (s *directSupervisor) observe(state string, p *DirectCheckPhase, hadWorking
 		s.impaired, s.lost = 0, 0
 		r.State = "OTHER_PROFILE_UNTOUCHED"
 	default:
+		s.impaired, s.lost = 0, 0
 		r.State = "PROCESS_STATUS_UNKNOWN"
 	}
 	r.ConsecutiveImpaired, r.ConsecutiveLost, r.AutoRestarts = s.impaired, s.lost, s.restarts
@@ -120,7 +122,8 @@ func validDirectMonitor(r DirectMonitorReport) bool {
 	switch r.State {
 	case "MONITOR_NOT_ARMED", "CHECK_INCOMPLETE", "GENERAL_HTTPS_AVAILABLE", "GENERAL_HTTPS_IMPAIRED",
 		"ROLLBACK_REQUIRED", "ROLLBACK_APPLIED", "ROLLBACK_FAILED", "ENGINE_MISSING", "RESTART_REQUIRED",
-		"RECOVERED", "RECOVERY_FAILED", "RECOVERY_EXHAUSTED", "OTHER_PROFILE_UNTOUCHED", "PROCESS_STATUS_UNKNOWN":
+		"RECOVERED", "RECOVERY_FAILED", "RECOVERY_EXHAUSTED", "OTHER_PROFILE_UNTOUCHED", "PROCESS_STATUS_UNKNOWN",
+		"FILTER_RESTORED_NO_AB_GAIN", "RESTORE_FAILED", "STOP_REQUESTED":
 	default:
 		return false
 	}
@@ -132,4 +135,11 @@ func (m *Manager) saveDirectMonitor(r DirectMonitorReport) error {
 		return errInvalidDirectMonitor
 	}
 	return saveJSON(filepath.Join(m.home, "results", "latest-direct-monitor.json"), r)
+}
+
+// A single before/after comparison can justify keeping our own filter OFF,
+// but does not establish that the filter caused the original outage.
+func directABOffImproved(filteredPassed int, off *DirectCheckPhase) bool {
+	return filteredPassed >= 0 && filteredPassed < 2 && off != nil && validDirectPhase(off) &&
+		off.Total == 3 && len(off.Samples) == 3 && off.Passed >= 2 && off.Passed > filteredPassed
 }

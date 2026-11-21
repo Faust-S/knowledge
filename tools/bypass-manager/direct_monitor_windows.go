@@ -22,7 +22,13 @@ func directMonitorSummary(r DirectMonitorReport) string {
 	case "RECOVERY_FAILED", "RECOVERY_EXHAUSTED":
 		return "Автовосстановление не удалось или исчерпано. Проверьте отчёт и включите вручную."
 	case "ROLLBACK_APPLIED":
-		return "После повторных HTTPS-ошибок собственный фильтр выключен. Причина ошибок неизвестна."
+		return "Без фильтра HTTPS стал доступнее. Собственный фильтр выключен; причинность не доказана."
+	case "FILTER_RESTORED_NO_AB_GAIN":
+		return "Без фильтра HTTPS не улучшился. Восстановлен прежний фильтр."
+	case "RESTORE_FAILED":
+		return "Проверка A/B завершилась, но повторный запуск фильтра не удался. См. отчёт."
+	case "STOP_REQUESTED":
+		return "Выполняется ручное выключение фильтра."
 	case "ROLLBACK_FAILED":
 		return "Не удалось автоматически остановить свой фильтр. Проверьте остановку вручную."
 	default:
@@ -48,6 +54,7 @@ func (ui *oneUI) watchDirect() {
 	ticker := time.NewTicker(directMonitorInterval)
 	defer ticker.Stop()
 	var supervisor directSupervisor
+	seenLearned := map[string]bool{}
 	for {
 		select {
 		case <-ui.ctx.Done():
@@ -55,7 +62,7 @@ func (ui *oneUI) watchDirect() {
 		case <-ticker.C:
 		}
 		ui.mu.Lock()
-		wanted, busy, closing := ui.requestedOn, ui.busy, ui.closing
+		wanted, busy, closing, epoch := ui.requestedOn, ui.busy, ui.closing, ui.operationEpoch
 		ui.mu.Unlock()
 		if closing {
 			return
@@ -65,6 +72,7 @@ func (ui *oneUI) watchDirect() {
 		}
 		if !wanted {
 			supervisor.disarm()
+			clear(seenLearned)
 			continue
 		}
 		supervisor.arm()
@@ -81,11 +89,21 @@ func (ui *oneUI) watchDirect() {
 		if state == directRunning && ctx.Err() == nil {
 			p := probeDirectPhase(ctx, newDirectProbeClient(), directProbeTargets)
 			phase = &p
+			if ctx.Err() == nil {
+				learned := probeNewDirectLearned(ctx, filepath.Join(m.stateFolder, "direct-auto-hosts.txt"), seenLearned, probeDirectLearnedTLS)
+				_ = m.saveDirectLearned(learned)
+			}
 		}
 		snapshot := supervisor.observe(state, phase, baselineHealthy)
 		done()
 		if ui.ctx.Err() != nil {
 			return
+		}
+		ui.mu.Lock()
+		obsolete := ui.operationEpoch != epoch || !ui.requestedOn || ui.busy
+		ui.mu.Unlock()
+		if obsolete {
+			continue
 		}
 		if snapshot.Action != directMonitorNone {
 			ui.executeDirectMonitorAction(m, &snapshot)
@@ -96,8 +114,8 @@ func (ui *oneUI) watchDirect() {
 		_ = m.saveDirectMonitor(snapshot)
 		// Do not overwrite a pending user action with a monitor result.
 		ui.mu.Lock()
-		if !ui.busy && !ui.closing {
-			if snapshot.State == "ROLLBACK_APPLIED" || snapshot.State == "RECOVERY_FAILED" || snapshot.State == "RECOVERY_EXHAUSTED" {
+		if !ui.busy && !ui.closing && ui.operationEpoch == epoch {
+			if snapshot.State == "ROLLBACK_APPLIED" || snapshot.State == "RESTORE_FAILED" || snapshot.State == "RECOVERY_FAILED" || snapshot.State == "RECOVERY_EXHAUSTED" {
 				ui.requestedOn = false
 			}
 			if snapshot.EngineState != "UNKNOWN" {
@@ -147,8 +165,52 @@ func (ui *oneUI) executeDirectMonitorAction(m *Manager, r *DirectMonitorReport) 
 			_ = m.saveDirectLocalFailure(err)
 			return
 		}
-		r.State, r.EngineState = "ROLLBACK_APPLIED", directOff
-		_ = m.saveDirectReport(directReport(directOff, "AUTO_STOPPED_ON_REPEATED_HTTPS_LOSS"))
+		// Compare public HTTPS with our filter OFF. If availability does
+		// not improve, restore the exact prior owned native filter.
+		offCtx, endOff := context.WithTimeout(context.Background(), 10*time.Second)
+		off := probeDirectPhase(offCtx, newDirectProbeClient(), directProbeTargets)
+		endOff()
+		if directABOffImproved(r.Passed, &off) {
+			r.State, r.EngineState = "ROLLBACK_APPLIED", directOff
+			_ = m.saveDirectReport(directReport(directOff, "AUTO_AB_HTTPS_AVAILABLE_WITHOUT_FILTER_NOT_CAUSAL_PROOF"))
+			_ = m.saveDirectLocalFailure(nil)
+			return
+		}
+		ui.mu.Lock()
+		stillWanted := ui.requestedOn
+		ui.mu.Unlock()
+		if !stillWanted {
+			r.State, r.EngineState = "STOP_REQUESTED", directOff
+			return
+		}
+		// Window close must not strand the user's previously running
+		// filter OFF. Finish restoring using a bounded independent context.
+		restoreCtx, endRestore := context.WithTimeout(context.Background(), 75*time.Second)
+		err = m.startDirect(restoreCtx)
+		endRestore()
+		if err == nil {
+			checkCtx, endCheck := context.WithTimeout(context.Background(), 12*time.Second)
+			var verified string
+			verified, err = m.getDirectStatus(checkCtx)
+			endCheck()
+			if err == nil && verified != directRunning {
+				err = errors.New("direct filter could not be verified after A/B restoration")
+			}
+		}
+		if err != nil {
+			r.State, r.EngineState = "RESTORE_FAILED", directOff
+			if m.ownStateExists() {
+				if stopErr := m.stopDirect(); stopErr != nil {
+					r.EngineState = directUnverified
+					err = errors.Join(err, stopErr)
+				}
+			}
+			_ = m.saveDirectReport(directReport(r.EngineState, "AUTO_AB_RESTORE_FAILED"))
+			_ = m.saveDirectLocalFailure(err)
+			return
+		}
+		r.State, r.EngineState = "FILTER_RESTORED_NO_AB_GAIN", directRunning
+		_ = m.saveDirectReport(directReport(directRunning, "AUTO_AB_NO_GAIN_OFF_FILTER_RESTORED"))
 		_ = m.saveDirectLocalFailure(nil)
 		return
 	}

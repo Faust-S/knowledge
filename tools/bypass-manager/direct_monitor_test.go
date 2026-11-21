@@ -110,3 +110,23 @@ func TestDirectMonitorReportRejectsIdentifiersAndUnknownStates(t *testing.T) {
 		t.Fatal("untrusted time")
 	}
 }
+
+func TestDirectABOffImprovedRequiresFreshCompleteIndependentHTTPS(t *testing.T) {
+	if !directABOffImproved(0, directFixturePhase(2)) || !directABOffImproved(1, directFixturePhase(3)) {
+		t.Fatal("lost clear A/B improvement")
+	}
+	if directABOffImproved(0, nil) || directABOffImproved(0, &DirectCheckPhase{Total:3,Passed:3}) || directABOffImproved(2, directFixturePhase(3)) || directABOffImproved(0,directFixturePhase(1)) {
+		t.Fatal("false A/B improvement")
+	}
+}
+
+func TestMonitorConsecutiveFailuresResetOnIncompleteOrUnknown(t *testing.T) {
+	var s directSupervisor
+	s.arm()
+	if r:=s.observe(directRunning,directFixturePhase(0),true);r.ConsecutiveImpaired!=1 { t.Fatal(r) }
+	if r:=s.observe(directRunning,nil,true);r.State!="CHECK_INCOMPLETE" || r.ConsecutiveImpaired!=0 { t.Fatal(r) }
+	if r:=s.observe(directRunning,directFixturePhase(0),true);r.Action!=directMonitorNone { t.Fatal(r) }
+	if r:=s.observe("UNKNOWN",nil,true);r.ConsecutiveImpaired!=0 || r.ConsecutiveLost!=0 { t.Fatal(r) }
+	if r:=s.observe(directUnverified,nil,true);r.Action!=directMonitorNone { t.Fatal(r) }
+	if r:=s.observe(directRunning,directFixturePhase(2),true);r.ConsecutiveLost!=0 { t.Fatal(r) }
+}

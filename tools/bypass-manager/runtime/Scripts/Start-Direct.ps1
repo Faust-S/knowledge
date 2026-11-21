@@ -53,9 +53,11 @@ New-Item -ItemType Directory -Path $stateFolder -Force | Out-Null
 if(-not (Test-Path -LiteralPath $hosts -PathType Leaf)) {
     [System.IO.File]::WriteAllText($hosts,'',[System.Text.UTF8Encoding]::new($false))
 }
-# Minimal TLS capture: packets needed to classify repeated failed handshakes.
-# Do not capture UDP, arbitrary VPN protocols or application payload logs.
-$raw='((outbound&&tcp.DstPort==443&&(tcp.PayloadLength>0||tcp.Syn||tcp.Fin||tcp.Rst))||(inbound&&tcp.SrcPort==443&&(tcp.Syn||tcp.Rst)))'
+# The original auto-hostlist evaluates BOTH client requests and server replies.
+# The earlier filter omitted inbound TLS payload and could misclassify live
+# connections as failed. Capture TCP/443 response payload plus SYN/FIN/RST;
+# no UDP, other ports, or user-level payload logs are enabled.
+$raw='((outbound&&tcp.DstPort==443&&(tcp.PayloadLength>0||tcp.Syn||tcp.Fin||tcp.Rst))||(inbound&&tcp.SrcPort==443&&(tcp.PayloadLength>0||tcp.Syn||tcp.Fin||tcp.Rst)))'
 $argsList=@(
     "--wf-raw=$raw",
     "--lua-init=@$luaLib",

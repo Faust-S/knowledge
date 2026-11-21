@@ -36,6 +36,7 @@ type oneUI struct {
 	mu                                                                                                              sync.Mutex
 	operationMu                                                                                                     sync.Mutex
 	busy, closing, speedBusy, requestedOn, initialStateChecked                                                      bool
+	operationEpoch                                                                                                  uint64
 	cancel                                                                                                          context.CancelFunc
 	result                                                                                                          string
 	cause                                                                                                           string
@@ -105,7 +106,7 @@ func (ui *oneUI) init() {
 	ui.geoLine = ctrl(ui.hwnd, "STATIC", "Регион: ещё не определён", 0, 0, 24, 363, 780, 25)
 	ui.speedLine = ctrl(ui.hwnd, "STATIC", "Скорость: ещё не измерена", 0, 0, 24, 397, 780, 25)
 	ui.status = ctrl(ui.hwnd, "STATIC", "Готово к работе", 0, 0, 24, 447, 780, 28)
-	ui.smallPrint = ctrl(ui.hwnd, "STATIC", "Пока окно открыто, каждые 60 с проверяются три HTTPS-сервиса; они видят IP программы.\nАдаптация не скрывает IP, не заменяет VPN и не гарантирует обход конкретного сайта.", 0, 0, 24, 475, 780, 50)
+	ui.smallPrint = ctrl(ui.hwnd, "STATIC", "Мониторинг проверяет HTTPS-сервисы и новые проблемные домены через TLS.\nПроверяемые узлы видят IP программы; это не заменяет VPN.", 0, 0, 24, 475, 780, 50)
 	f, _, _ := gdiDLL.NewProc("CreateFontW").Call(uintptr(int32Height(-25)), 0, 0, 0, 600, 0, 0, 0, 1, 0, 0, 0, 0, uintptr(unsafe.Pointer(wstr("Segoe UI"))))
 	if f != 0 {
 		ui.titleFont = f
@@ -155,6 +156,7 @@ func (ui *oneUI) checkState() {
 		ui.mu.Unlock()
 		return
 	}
+	epoch := ui.operationEpoch
 	ui.mu.Unlock()
 	go func() {
 		m := ui.makeManager()
@@ -166,7 +168,7 @@ func (ui *oneUI) checkState() {
 		}
 		ui.mu.Lock()
 
-		if !ui.busy {
+		if !ui.busy && !ui.closing && ui.operationEpoch == epoch {
 			ui.result = state
 			ui.cause = ""
 			if !ui.initialStateChecked {
@@ -214,6 +216,7 @@ func (ui *oneUI) toggle() {
 	ctx, cancel := context.WithCancel(ui.ctx)
 
 	ui.busy = true
+	ui.operationEpoch++
 	ui.cancel = cancel
 	ui.requestedOn = false
 	ui.initialStateChecked = true
