@@ -120,9 +120,14 @@ export function ExportView({ kernel, scopedWorkspaceId,
       if (!alive) return;
       const usable = wss.filter((w) => !w.deleted_at);
       const signedFocus = signedWorkspaceScope ? scopedWorkspaceId : null;
-      const initial = signedFocus
-        ? usable.filter((w) => w.workspace_id === signedFocus).map((w) => w.workspace_id)
-        : usable.map((w) => w.workspace_id);
+      // A signed company session never defaults to ALL visible Workspace
+      // rows when its selected company scope has not yet been resolved.
+      // An absent signed scope must block export, not quietly broaden it.
+      const initial = signedWorkspaceScope
+        ? (signedFocus
+          ? usable.filter(w => w.workspace_id === signedFocus).map(w => w.workspace_id)
+          : usable.length === 1 ? [usable[0].workspace_id] : [])
+        : usable.map(w => w.workspace_id);
       dispatch({ type: "workspaces-loaded", catalog: usable, initialWorkspaces: initial });
       // Keep the ORIGINAL T2 state-machine snapshots identical to the
       // complete package requested from Kernel after previous selection.
@@ -157,10 +162,10 @@ export function ExportView({ kernel, scopedWorkspaceId,
         include_schemas: true,
       }
     : state.selection, [state.selection, wholeWorkspaceId]);
-  const scopeReady = !wholeWorkspaceId || (
+  const scopeReady = !signedWorkspaceScope || Boolean(wholeWorkspaceId && (
     state.catalog.some(w => w.workspace_id === wholeWorkspaceId) &&
     state.selection.workspaces.length === 1 &&
-    state.selection.workspaces[0] === wholeWorkspaceId);
+    state.selection.workspaces[0] === wholeWorkspaceId));
   const options = useMemo(() => toExportOptions(selection), [selection]);
 
   const runPreview = async () => {
@@ -296,7 +301,8 @@ export function ExportView({ kernel, scopedWorkspaceId,
   };
 
   return renderExport({
-    state, selection, scopedWorkspaceId: wholeWorkspaceId, scopeReady,
+    state, selection, scopedWorkspaceId: wholeWorkspaceId,
+    signedWorkspaceScope, scopeReady,
     canPreview, canPackage, canConfirm,
     runPreview, runPackage, runDownload, runProtectedDownload, runConfirm, dispatch,
     protectedExchange, protectedBusy, protectedError, downloadedName,
@@ -308,6 +314,7 @@ interface RenderProps {
   state: ExportState;
   selection: ExportSelection;
   scopedWorkspaceId?: string | null;
+  signedWorkspaceScope: boolean;
   scopeReady: boolean;
   canPreview: boolean;
   canPackage: boolean;
@@ -326,7 +333,8 @@ interface RenderProps {
 }
 
 function renderExport(p: RenderProps) {
-  const { state, selection, scopedWorkspaceId, scopeReady, canPreview, canPackage, canConfirm,
+  const { state, selection, scopedWorkspaceId, signedWorkspaceScope, scopeReady,
+    canPreview, canPackage, canConfirm,
     runPreview, runPackage, runDownload, runProtectedDownload, runConfirm, dispatch,
     protectedExchange, protectedBusy, protectedError, downloadedName,
     protectedDownloadedName } = p;
@@ -347,13 +355,21 @@ function renderExport(p: RenderProps) {
         Экспорт следует Runtime Contract {CONTRACT_VERSION}: предпросмотр → архив → скачивание → подтверждение приёма.
       </p>
 
+      {signedWorkspaceScope && !scopeReady && (
+        <p role="status" className="text-xs text-slate-400">
+          Подписанная Workspace компании ещё не выбрана или не подтверждена Kernel.
+          Экспорт недоступен до восстановления исходной рабочей области.
+        </p>
+      )}
       <fieldset className="border border-slate-800 rounded p-2 max-h-56 overflow-auto">
         <legend className="text-xs px-1 text-slate-400">Рабочие области</legend>
-        {state.catalog.filter(w => !scopedWorkspaceId || w.workspace_id === scopedWorkspaceId).map((w) => {
+        {state.catalog.filter(w => !signedWorkspaceScope ||
+          (scopedWorkspaceId && w.workspace_id === scopedWorkspaceId)).map((w) => {
           const checked = selection.workspaces.includes(w.workspace_id);
           return (
             <label key={w.workspace_id} className="flex items-center gap-2 text-sm py-1">
-              <input type="checkbox" checked={checked} disabled={Boolean(scopedWorkspaceId)} onChange={(e) => {
+              <input type="checkbox" checked={checked}
+                disabled={signedWorkspaceScope || Boolean(scopedWorkspaceId)} onChange={(e) => {
                 const next = new Set(state.selection.workspaces);
                 if (e.target.checked) next.add(w.workspace_id); else next.delete(w.workspace_id);
                 dispatch({ type: "set-selection", selection: { workspaces: [...next] } });
@@ -368,7 +384,7 @@ function renderExport(p: RenderProps) {
         )}
       </fieldset>
 
-      {!scopedWorkspaceId ? <fieldset className="border border-slate-800 rounded p-2 space-y-1">
+      {!signedWorkspaceScope && !scopedWorkspaceId ? <fieldset className="border border-slate-800 rounded p-2 space-y-1">
         <legend className="text-xs px-1 text-slate-400">Что включить в пакет</legend>
         {([
           ["include_history", "История событий", state.selection.include_history],
