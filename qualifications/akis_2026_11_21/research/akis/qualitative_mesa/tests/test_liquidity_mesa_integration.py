@@ -135,3 +135,13 @@ def test_native_mesa_original_tasks_remain_unchanged_and_operator_separate():
     assert output["modern_economic_review"]["liquidity_proof_from_individual_claims"]=="SOURCE_DECLARED_FORECAST_NOT_REAL_BANK_SOLVENCY"
     assert output["trace"]==[]
     assert simulate(deepcopy(scenario))==output
+
+
+def test_declared_outside_option_feasibility_gates_cash_comparison_for_operator():
+    d = case()
+    unknown = evaluate(d)["cash_timing"]["per_original_owner_private_research_projection"]["op"]
+    assert unknown["status"] == "TIMED_CASH_PATHS_BUT_INDEPENDENT_OUTSIDE_OPTION_NOT_QUALIFIED"
+    d["outside_feasibility"]["op"] = {"state": "FEASIBLE_DECLARED", "source": "o1"}
+    qualified = evaluate(d)["cash_timing"]["per_original_owner_private_research_projection"]["op"]
+    assert qualified["status"] == "DECLARED_LIQUIDITY_RESERVE_MET_FOR_BOTH_ALTERNATIVES"
+    assert qualified["real_bank_balance_verified"] is False
