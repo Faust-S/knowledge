@@ -326,8 +326,13 @@ jobs:
               if($item.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern,[ref]$pattern)){
                 ([System.Windows.Automation.InvokePattern]$pattern).Invoke()
               }else{
-                $item.SetFocus()
-                [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                $select=$null
+                if($item.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$select)){
+                  ([System.Windows.Automation.SelectionItemPattern]$select).Select()
+                }else{
+                  $item.SetFocus()
+                  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                }
               }
               Start-Sleep -Milliseconds 350
             }
@@ -354,8 +359,9 @@ jobs:
 
             # Download a real, complete Workspace archive using original T2
             # Exchange. Selection must contain the one fresh test Workspace.
-            $exportTab=WaitNative 'Экспортировать' $null
-            ActivateNative $exportTab
+            # The canonical T2 Exchange opens the Export tab by default.
+            # Do not force focus onto an inaccessible TabItem.
+            $null=WaitNative 'Экспортировать' $null
             $null=WaitNative 'Рабочие области' $null
             $historyCheck=FindNative 'История событий' ([System.Windows.Automation.ControlType]::CheckBox)
             if($historyCheck){
