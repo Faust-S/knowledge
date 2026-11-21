@@ -228,7 +228,18 @@ def test_native_mesa_preserves_one_trace_through_new_work_and_two_independent_re
     request_trace=out["trace"][12]
     assert request_trace["action"]=="request"
     assert request_trace["request_linked_change_id"]=="chg-1"
-    assert out["cooperation"]["system_projection"]["relations"][0]["components"]["Э"]["profit"]=="NOT_IDENTIFIABLE"
+    relation=out["cooperation"]["system_projection"]["relations"][0]
+    assert relation["components"]["Э"]["profit"]=="NOT_IDENTIFIABLE"
+    assert relation["new_work_requests_with_prior_consultation"]==1
+    assert relation["components"]["П"]["new_original_works_referencing_prior_consultation"]==["w2"]
+    new_result=relation["components"]["КЖ"]["work_results_after_reconfiguration_review"]["w2"]
+    assert new_result["original_result_accepted"]
+    assert new_result["original_consent_count"]==2
+    assert new_result["new_work_economic_effect"]=="NOT_IDENTIFIABLE"
+    review=relation["components"]["ЖЦ"]["reconfiguration_reviews"][0]
+    assert review["source_linked_new_original_work_count"]==1
+    assert review["original_new_work_ids"]==["w2"]
+    assert relation["economic_gain_from_linked_new_work"]=="NOT_IDENTIFIABLE"
     assert out["general_akis_model"]["legal_consent_created"] is False
     assert out["general_akis_model"]["original_results_and_org_code_unmodified"]
     assert out["profit"]["system_increment"]=="UNKNOWN"
@@ -262,3 +273,20 @@ def test_future_request_depending_on_unaccepted_original_result_cannot_start():
     result=state.apply({"at":19,"action":"start","actor":"a","work":"w2"},19)
     assert result["reason"]=="DEPENDENCY_AWAITING_ACCEPTANCE"
     assert state.works["w2"].execution=="NOT_STARTED"
+
+
+def test_later_independent_objection_does_not_delete_an_already_requested_original_work():
+    state,_=apply_sequence(accept_first_work()+review_events())
+    assert state.apply(request(),13)["outcome"]=="APPLIED"
+    before=deepcopy(state.works["w1"].consents)
+    assert state.apply(reply("a",14,decision="OBJECT_MODEL_PROPOSAL"),14)["outcome"]=="APPLIED"
+    after=cooperation_change_reviews(state.cooperation_links,state.trace,
+                                     current_org_revision="oc-1",
+                                     subjects=state.subjects)[0]
+    assert after["review_status"]=="SOURCE_DECLARED_OBJECTION_REQUIRES_REVIEW"
+    assert after["new_original_work_requests_citing_consultation"]==1
+    assert state.works["w2"].obligation=="NOT_ACCEPTED"
+    assert state.works["w1"].consents==before
+    assert state.works["w1"].result=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    # Historical request persists, but late dissent cannot be assumed
+    # resolved nor override subsequent independent work consent requirements.
