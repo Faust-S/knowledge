@@ -122,7 +122,7 @@ def test_original_accepted_result_dependency_does_not_mean_payment():
     item["requires_accepted_results"] = [{"work": "w0", "source_revision": "prior-1"}]
     signal = parse_owner_finance([item], state=state, original_money=finance_claims())
     finance = evaluate_economic_claims(finance_claims(), state.subjects, state.works)
-    assert private_owner_financial_review(
+    assert not private_owner_financial_review(
         signal, owner="b", work=state.works["w1"], state=state, at=2, economics=finance)
     state.works["w0"].result = "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert private_owner_financial_review(
@@ -222,3 +222,43 @@ def test_native_mesa_absent_owner_finance_input_keeps_previous_choice_contract()
     assert previous["works"]==active["works"]
     assert previous["trace"]==active["trace"]
     assert previous["economics"]==active["economics"]
+
+
+def test_strict_original_context_denial_has_no_financial_signal_or_generic_indirect_leak():
+    scenario = akis_fixture()
+    scenario["context_evidence"] = {
+        "strict": True,
+        "sources": [],
+        "requirements": [],
+    }
+    state = QualitativeAKIS(scenario)
+    claims = parse_owner_finance([claim()], state=state, original_money=finance_claims())
+    econ = evaluate_economic_claims(finance_claims(), state.subjects, state.works)
+    assert not private_owner_financial_review(
+        claims, owner="b", work=state.works["w1"], state=state,
+        at=2, economics=econ)
+    # A model claim is not an original context grant.
+    assert state.trace == []
+
+
+def test_stale_original_governance_revision_fails_closed_without_requiring_risk_review():
+    state = QualitativeAKIS(akis_fixture())
+    claims = parse_owner_finance([claim()], state=state, original_money=finance_claims())
+    econ = evaluate_economic_claims(finance_claims(), state.subjects, state.works)
+    assert private_owner_financial_review(
+        claims, owner="b", work=state.works["w1"], state=state,
+        at=2, economics=econ)
+    state.institution.revision = "oc-revised"
+    assert not private_owner_financial_review(
+        claims, owner="b", work=state.works["w1"], state=state,
+        at=2, economics=econ)
+
+
+def test_qualified_owner_without_declared_financial_gap_is_not_automatically_blocked():
+    state = QualitativeAKIS(akis_fixture())
+    c = parse_owner_finance([claim(owner="a")], state=state, original_money=finance_claims())
+    econ = evaluate_economic_claims(finance_claims(), state.subjects, state.works)
+    assert not private_owner_financial_review(
+        c, owner="a", work=state.works["w1"], state=state, at=2, economics=econ)
+    # This is NO positive economic preference: the result merely provides
+    # no additional owner-private financial review condition.
