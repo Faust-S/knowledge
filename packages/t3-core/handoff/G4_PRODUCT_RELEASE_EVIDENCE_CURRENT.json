@@ -2548,15 +2548,11 @@
     "D3_AGENT06_CENTRAL_ORIGINAL_EMPLOYEE_SOURCE": "EXACT_CURRENT_AGENT_21505E_ONE_CORE_F42E_ORIGINAL_T3_1A826_SOURCE_NATIVE_26_OF_26_PLUS_FINAL_44723931657_SUCCESS__INDEPENDENT_INSTALLED_GUI_ADMIN_APPLY_HOLD"
   },
   "next_critical_path": [
-    "Release scope is PRODUCT_NEUTRAL_T3. Keep normative original T2 Kernel/Host/Workspace/Exchange/Lifecycle integrated in ONE T3. Use current exact public One Core CI + installed Agent test; never interpret source PASS as installed owner.",
-    "20.11 current Agent 28d934b7 changes ONLY disposable K03 installed witness finite-code sidecar (Python and PowerShell) and tests, preserving production runtime. Previous Agent 21505e81 passed native Qwen/GUI/Review/cold/Setup Repair Rollback #44723931788, signed source D3 26/26 #44723931657; later repeat #44727367869 failed after K03 Task Accepted before model Result and did NOT reach new second-SID installed step, finite failure code was lost due Windows PowerShell 5.1 decorated native stderr. Original signed Center 2628c4bc installed on same One Core f42e53cd and original signed T3 Owner 1a826763 #44726573571 SUCCESS; Windows OS second independent SID native GUI/UIA #44726886171 PASS OS ONLY. New current source D3 #44730781821 and installed Agent+guest #44730781732 queued; do not borrow historical passes. First accept new finite K03 diagnostic, fix only confirmed cause, then guest installed Agent native GUI, then one true cross-product original signed Task, employee real model Review Result, separate Center Win32 ACCEPT/APPLY and original T2 Kernel Object/Event twice cold without replay. G4 NOT_ACCEPTED.",
-    "D6_GENERIC original T2 Agent accepted-result schema optional project WorkRef SOURCE_PASS at exact knowledge f42e53cd (public CI #44620132894 test/real-host/Windows SUCCESS). This removes implicit Atlas project dependency from a normal Task/Result while preserving strict projectId/workId/revision if present. It does NOT prove installed independent D6 recipient; require original signed D1 authorization, Human approval, recipient owner durable receipt, lost-ACK no-resend and cold readback.",
-    "Priority 3 D6 GENERIC: completed public full original D1 signed-context canonicalization incl. nested+new fields, Node source 792/792 PASS #44339359842. Still need genuine accepted Result from installed independent Agent/domain -> explicitly authorized recipient without mandatory Atlas, original native owner durable readback/lost-ACK recovery. A public contract fixture is not native E2E.",
-    "Priority 4 D7: original Publisher PERSON issue/renew/status/revoke with installed consumer and cold readback, independent of Atlas.",
-    "Close Agent Setup Core 0.6 cross-version post-write Rollback separately; existing same-version managed-byte Repair native Windows #44282434511 SUCCESS is NOT cross-version rollback.",
-    "Parallel optional product integration: Atlas as one program of Agent/Admin; qualify U01 discovery and U04 opening/activation, then actual native owner command only if a trusted OS/IPC owner port exists. U04 alone does NOT select work or provide an Atlas AppHandle.",
-    "Optional independent signed-file Atlas D6: original private issuer -> recipient-signed .iwxa -> independently installed Atlas own U05 CAS and two cold reads; prior source 747/747 and installed Atlas product Windows #44285788148 SUCCESS do NOT mean signed private recipient E2E. HOLD does NOT block standalone generic T3 gates.",
-    "Keep original private T3 Actions PROHIBITED; do not create second signer, Registry, Store, Kernel, Task Engine, Router or format. Record exact HEAD/CI per owning product."
+    "Priority 1: replace local Agent corporate WorkArea authority with the ONE existing signed original T2 company Workspace opened by Admin Center grant; ordinary Agent work must remain in this workspace. Do not develop separate Task/Result/document/history bridges or per-Result disclosures.",
+    "Priority 2: use original T2 Kernel/Exchange t2.exportPackage with exactly the selected company workspace and all include_history/assets/relations/schemas true; ordinary original T2 Import restores the entire company Workspace, with independent cold readback. No new archive format, Store or Kernel; no claims of delivery before actual recipient receipt.",
+    "Priority 3: qualify complete Workspace including file/assets and cold recovery with the existing T3 CI, preserving personal and foreign-company separation. Source signed 26/26, original PERSON 22/22, standalone installed Admin and Agent are already separately evidenced; they are narrower than full Workspace acceptance.",
+    "Priority 4: finish D1-D7 original owner composition, versioned reproducible ONE final T3 One Dist and factual build provenance. Atlas, two installed GUI interapp flow, Publisher installed app and domain migrations are not T3 final prerequisites.",
+    "Original private T3 Actions remain prohibited; use only public knowledge for bounded private reads. Do not create a second signer, Registry, Store, Kernel, Task Engine, Router or .iwxa format."
   ],
   "transport_profile_rules": {
     "original_T2_Workspace_iwxa": "Normal T2 Exchange importPreview/importCommit with original T2 Workspace/Package manifest",
@@ -2640,7 +2636,7 @@
       "definition": "COMPLETE_D1_D7_IN_ONE_ORIGINAL_T2_T3_RUNTIME_AND_VERSIONED_REUSABLE_ONE_DIST",
       "domain_migration_allowed": false,
       "transfer_contract": "EXISTING_MANUAL_OR_OWNER_SELECTED_IWXA_NO_MANDATORY_LIVE_INTERAPP_IPC",
-      "result_contract": "ONE_CORPORATE_WORKSPACE_OWNS_TASK_RESULT_DRAFTS_AND_PROVENANCE_NO_SECOND_MANUAL_AGENT_RESULT",
+      "result_contract": "ONE_WHOLE_ORIGINAL_COMPANY_T2_WORKSPACE_OWNS_ALL_WORK_NO_SECOND_CORPORATE_RESULT_OR_ITEM_DISCLOSURE",
       "decision_contract": "ACCEPT_RECEIVER_DECISION_APPLY_ONLY_IF_AUTHORIZED_KERNEL_CHANGE_REQUIRED",
       "excludes_as_t3_release_prerequisites": [
         "PHYSICAL_TWO_INSTALLED_APPLICATIONS_AGENT_TO_CENTER_UIA_CROSS_PRODUCT_WITNESS",
@@ -2651,18 +2647,13 @@
         "AUTOMATED_TRANSPORT_REPLACING_MANUAL_IWXA"
       ],
       "currently_open": [
-        "D1_D3_ORIGINAL_SIGNED_COMPANY_WORKSPACE_AS_AUTHORITY_FOR_ALL_CORPORATE_TASKS_RESULTS_AND_DRAFTS",
-        "D1_D3_CORPORATE_WORKSPACE_ONE_RESULT_DEFAULT_COMPANY_DELIVERY_AND_LOCAL_OFFLINE_IWXA_HANDOFF",
-        "D1_D3_COMPLETE_CORPORATE_DOCUMENTS_ATTACHMENTS_AND_LARGE_RESULTS_OVER_ORIGINAL_T2_WORKSPACE_EXCHANGE_WITHOUT_TRUNCATION",
+        "ONE_ORIGINAL_T2_CORPORATE_WORKSPACE_IS_ACTIVE_AGENT_WORK_CONTEXT_NOT_LOCAL_AGENT_WORKAREA",
+        "WHOLE_CORPORATE_WORKSPACE_DURABLE_READ_WRITE_AND_FULL_EXISTING_T2_IWXA_EXPORT_IMPORT_HISTORY_ASSETS_RELATIONS_SCHEMAS_WITH_COLD_READBACK",
         "D7_ORIGINAL_PERSON_SOURCE_22_PASS_FINAL_ONE_DIST_COMPOSITION_PENDING",
         "INTEGRATED_D1_D7_PLATFORM_INTERFACE_AND_FINAL_BUNDLE",
         "VERSIONED_FROZEN_FINAL_T3_ONE_DIST_AND_PROVENANCE_NOT_JUST_OWNER_INPUT",
-        "D1_D3_ACTUAL_INSTALLED_NATIVE_COMPANY_RESULT_WRITE_AND_ADMIN_RECEIPT_READBACK",
         "D1_D3_FIRST_RUN_COMPANY_WORKSPACE_BY_SIGNED_KEY_WITHOUT_EXTRA_MANUAL_CREATE",
-        "ORIGINAL_T2_EXCHANGE_COMPANY_DOCUMENT_ASSET_ATTACHMENT_TRANSFER_AND_RECIPIENT_READBACK",
         "FINAL_T3_VERSIONED_ONE_DIST_RC_PROVENANCE_INDEPENDENT_RELEASE_ACCEPTANCE_PENDING",
-        "INSTALLED_AGENT_NEW_COMPANY_KEY_TASK_RESULT_AND_ADMIN_RECEIPT_NOT_RUN",
-        "ORIGINAL_COMPANY_BINARY_ATTACHMENTS_AND_FULL_IWXA_EXCHANGE_NOT_COMPLETE",
         "ADMIN_ACTUAL_INVITATION_UI_SOURCE_AND_INSTALLED_WINDOWS_QUALIFICATION",
         "INSTALLED_TWO_PRODUCT_SIGNED_CORPORATE_TASK_TO_RESULT_HUMAN_ACCEPT_APPLY_PENDING",
         "INSTALLED_AGENT_0_6_WITH_SAME_SIGNED_OWNER_T3_FRESH_ACCEPTANCE"
@@ -2673,8 +2664,8 @@
         "entry": "SIGNED_COMPANY_INVITATION_AND_ENROLLED_EMPLOYEE_CREDENTIAL_BOUND_TO_COMPANY_WORKSPACE",
         "local_agent_area": "NON_AUTHORITATIVE_STAGING_UNTIL_ORIGINAL_T2_WORKSPACE_BINDING_EXISTS",
         "personal_boundary": "PERSONAL_WORKSPACE_MEMORY_AND_PRIVATE_SOURCES_NOT_SHARED",
-        "default_result": "COMPLETE_ORIGINALLY_ACCEPTED_COMPANY_RESULT_NO_PER_RESULT_FIELD_SELECTION",
-        "data_scope": "COMPANY_TASKS_RESULTS_DRAFTS_HISTORY_DOCUMENTS_EVIDENCE_AND_PROVENANCE_FROM_THIS_WORKSPACE_ONLY",
+        "default_result": "INTERNAL_ORIGINAL_AGENT_RESULT_IN_THE_COMPANY_WORKSPACE_NO_SEPARATE_RESULT_EXPORT",
+        "data_scope": "ALL_DATA_CREATED_WITHIN_EXACT_SELECTED_COMPANY_WORKSPACE_PERSONAL_AND_OTHER_ORGANIZATIONS_EXCLUDED",
         "owner": "COMPANY_ORIGINAL_T2_WORKSPACE",
         "transport": "EXISTING_IWXA_MANUAL_HANDOFF_WHEN_OFFLINE_OPTIONAL_AUTHORIZED_SYNC_IF_CONNECTED",
         "offline_delivery": "PENDING_COMPANY_RECEIPT_NOT_DELIVERED_UNTIL_ORIGINAL_RECIPIENT_READBACK",
@@ -2701,8 +2692,8 @@
           "previous_installed_model_error": "BASIC_RUNTIME_OUTPUT_INVALID",
           "exact_build": "SETUP_TAURI_ONE_DIST_SECOND_WINDOWS_SID_GUI_PASS"
         },
-        "release_status": "SOURCE_SIGNED_COMPANY_KEY_AND_ORIGINAL_T2_RESULT_PASS_FINAL_PRODUCT_OPEN",
-        "payload_boundary": "Complete accepted corporate Result is read from existing Agent Core, never manually selected, then committed as Object/Event into original corporate T2 Workspace on the same signed JIT port. 2m UTF16 text. Binary attachments and full T2 Exchange remain open; installed qualification pending.",
+        "release_status": "WHOLE_COMPANY_WORKSPACE_EXPORT_IMPORT_AND_PRIMARY_AGENT_CONTEXT_NOT_QUALIFIED",
+        "payload_boundary": "The sole transferable unit is the whole original T2 company Workspace, with assets/history/relations/schemas via existing T2 Exchange; old original-company-workspace-persistence Object/Event and signed per-Result file tests do NOT prove this. No manual summary/claims selection or type-specific corporate bridge is a release requirement.",
         "source_company_original_kernel_text_qualification": {
           "run_id": 44800762682,
           "one_core_candidate": "474a17b62ffb2ad9955ec3b1d3b2d8db514c16bd",
@@ -2786,7 +2777,20 @@
           "earlier_installed_pass_run_id": 44822013150,
           "latest_public_workflow_sha": "d81bdaf0173c7eaf12d5a23b64e7fad07b8c8457"
         },
-        "installed_admin_status": "SIGNED_ORIGINAL_D3_FIRST_USE_AND_DPAPI_COLD_GUI_PASS_EXACT_OWNER_162F_44888532442"
+        "installed_admin_status": "SIGNED_ORIGINAL_D3_FIRST_USE_AND_DPAPI_COLD_GUI_PASS_EXACT_OWNER_162F_44888532442",
+        "owner_decision": "2026-11-21_SINGLE_ENTIRE_COMPANY_WORKSPACE",
+        "unit_of_save": "WHOLE_ORIGINAL_COMPANY_T2_WORKSPACE_NOT_PER_TASK_RESULT_DOCUMENT_OR_HISTORY",
+        "unit_of_company_transfer": "ONE_WHOLE_ORIGINAL_T2_WORKSPACE_WITH_HISTORY_ASSETS_RELATIONS_SCHEMAS_EXISTING_IWXA_EXCHANGE",
+        "no_item_selection": true,
+        "no_second_company_result": true,
+        "export_options": {
+          "workspaces": "EXACT_SIGNED_COMPANY_WORKSPACE_ONLY",
+          "include_history": true,
+          "include_assets": true,
+          "include_relations": true,
+          "include_schemas": true
+        },
+        "authoritative_implementation_gap": "Agent still stages tasks and results in local WorkArea; original T2 source bridge handles only limited per-artifact records. Must switch ordinary corporate work to the original T2 Workspace and reuse existing whole-Workspace Exchange; existing source tests are narrower."
       },
       "original_t3_final_candidate_sha": "162f699d69f63e1d54bc002465c28c9781bf62ae",
       "person_d7_source_qualification": {
@@ -2966,12 +2970,12 @@
       "D3": {
         "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "Signed source D3 passed #44753688093 and installed Agent passed on both Windows SIDs in #44756816999. Physical signed Result transfer into installed Admin Center, separate Human ACCEPT and APPLY, and two cold Kernel readbacks remain."
+        "remaining": "Signed native original employee task/result and Admin ACCEPT/APPLY source qualified. Still needs Agent ordinary company mode bound to ONE original T2 Workspace with all work persisted there and full original T2 Workspace Export/Import, not a per-Result handoff or mandatory installed GUI cross-product matrix."
       },
       "D4": {
         "source": "PASS",
         "installed": "HOLD",
-        "remaining": "Original T2 0.3.6 independent 2 Kernel Exchange consumers with cold byte/provenance readback, actual native age1.3.1 two-recipient encryption/decryption and tamper/wrong recipient denials #44736009194 real-host/native-age PASS on frozen One Core f42e. Two separately installed original product consumers with genuine authorized .iwxa transfer remain HOLD."
+        "remaining": "Use inherited T2 0.3.6 Exchange to export/import exactly ONE complete company Workspace with history, assets, relations and schemas under the original signed grant and recipient readback. Existing native age/two-recipient and source T2 tests do not prove this complete company Workspace flow."
       },
       "D5": {
         "source": "PASS",
