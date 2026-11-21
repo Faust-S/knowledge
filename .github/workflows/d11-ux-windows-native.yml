@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 5bbc90a2c474b085ef031602a8db35d180aafe08
+          ref: 63b55a34c3ac0ff2eff9b7b60379186d3702e450
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -40,7 +40,7 @@ jobs:
         run: |
           $site=(& git rev-parse HEAD).Trim()
           $t2=(& git -C ../t2 rev-parse HEAD).Trim()
-          if($site -ne "5bbc90a2c474b085ef031602a8db35d180aafe08" -or
+          if($site -ne "63b55a34c3ac0ff2eff9b7b60379186d3702e450" -or
              $t2 -ne "e70de29b72b83e2546f7ab74b17572685a728c17"){
             throw "D11_WINDOWS_SOURCE_REVISION_CHANGED"
           }
@@ -61,6 +61,11 @@ jobs:
             $seen=@($classes|Where-Object {$raw.Contains($_)})
             if($seen.Count){Write-Output ("D11_WINDOWS_BUILD_CLASSES="+($seen -join ","))}
             else{Write-Output "D11_WINDOWS_BUILD_CLASSES=UNCLASSIFIED"}
+            $codes=@([regex]::Matches($raw,'TS\d{4}|T2_EXTERNAL_MODULE_[A-Z0-9_]+|D11_[A-Z0-9_]+|ERR_[A-Z0-9_]+')|ForEach-Object {$_.Value}|Select-Object -Unique -First 20)
+            Write-Output ("D11_WINDOWS_BUILD_ERROR_CODES="+($codes -join ","))
+            if($raw -match 'Could not resolve|Rollup failed to resolve|Failed to resolve import|Cannot find module'){Write-Output "D11_WINDOWS_BUILD_IMPORT_ERROR=YES"}
+            if($raw -match 'error TS\d{4}'){Write-Output "D11_WINDOWS_BUILD_TYPE_ERROR=YES"}
+            if($raw -match 'T2_EXTERNAL_MODULE_'){Write-Output "D11_WINDOWS_BUILD_STAGE_ERROR=YES"}
             Write-Output ("D11_WINDOWS_BUILD_LOG_LINES="+($raw.Split([char]10).Count))
             throw "D11_WINDOWS_ORIGINAL_T2_BUILD_FAILED"
           }
