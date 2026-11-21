@@ -243,6 +243,9 @@ def test_four_context_paper_claims_without_original_basis_do_not_unlock_agent():
             "core":core,"recipient":"op","purpose":"original-contract-review","operation":"READ"
         })
     data["general_akis"]=d
+    # Inspect while the four *paper* claims are current. The final default
+    # horizon may lie after expires_at=5 and would make them correctly missing.
+    data["model_horizon"]=4
     out=simulate(data)
     view=out["general_akis_model"]
     assert view["context_cores"]["missing"]==[]
