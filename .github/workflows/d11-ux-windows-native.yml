@@ -1,0 +1,101 @@
+name: D11 UX Windows native T2 browser witness
+on:
+  push:
+    branches: [work/2026-11-21-d11-ux-workspace-qualification]
+    paths: [.github/workflows/d11-ux-windows-native.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-windows:
+    runs-on: windows-latest
+    timeout-minutes: 55
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout private D11 UI read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/advice-logistics.ru
+          ref: 353b5b099e67e4453948261bc26e360f90beb0ce
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - name: Checkout original T2 read-only
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          path: t2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Qualify Windows release build in native PowerShell
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+        run: |
+          $site=(& git rev-parse HEAD).Trim()
+          $t2=(& git -C ../t2 rev-parse HEAD).Trim()
+          if($site -ne "353b5b099e67e4453948261bc26e360f90beb0ce" -or
+             $t2 -ne "e70de29b72b83e2546f7ab74b17572685a728c17"){
+            throw "D11_WINDOWS_SOURCE_REVISION_CHANGED"
+          }
+          $npmLog=Join-Path $env:RUNNER_TEMP "d11-windows-npm.log"
+          & npm ci --no-audit --no-fund *> $npmLog
+          if($LASTEXITCODE -ne 0){throw "D11_WINDOWS_NPM_INSTALL_FAILED"}
+          Write-Output "D11_WINDOWS_NPM=PASS"
+          $buildLog=Join-Path $env:RUNNER_TEMP "d11-windows-t2-build.log"
+          & npm run build:t2:site *> $buildLog
+          if($LASTEXITCODE -ne 0){
+            $raw=[IO.File]::ReadAllText($buildLog)
+            $classes=@("ENOENT","EPERM","EACCES","ERR_MODULE_NOT_FOUND",
+              "MODULE_NOT_FOUND","ERR_REQUIRE_ESM","ERR_PACKAGE_PATH_NOT_EXPORTED",
+              "ERR_INVALID_ARG_TYPE","ERR_UNSUPPORTED_ESM_URL_SCHEME",
+              "EISDIR","EINVAL","ETIMEDOUT","ECONNRESET","heap out of memory",
+              "out of memory","D11_T2_SOURCE","D11_","TS2307","TS2322",
+              "TS2345","VITE","ERR_OSSL_EVP_UNSUPPORTED","ERR_UNSUPPORTED_DIR_IMPORT")
+            $seen=@($classes|Where-Object {$raw.Contains($_)})
+            if($seen.Count){Write-Output ("D11_WINDOWS_BUILD_CLASSES="+($seen -join ","))}
+            else{Write-Output "D11_WINDOWS_BUILD_CLASSES=UNCLASSIFIED"}
+            Write-Output ("D11_WINDOWS_BUILD_LOG_LINES="+($raw.Split([char]10).Count))
+            throw "D11_WINDOWS_ORIGINAL_T2_BUILD_FAILED"
+          }
+          Write-Output "D11_WINDOWS_ORIGINAL_T2_BUILD=PASS"
+      - name: Real desktop and mobile first-entry navigation
+        working-directory: site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP "d11-windows-ux-entry.log"
+          & node scripts/d11-ux-first-entry-browser-acceptance.mjs *> $log
+          if($LASTEXITCODE -ne 0){
+            Get-Content $log | Select-String -Pattern "^D11_UX_BROWSER_FAILED=" |
+              Select-Object -Last 1 | ForEach-Object { Write-Output ($_.Line.Substring(0,[Math]::Min(180,$_.Line.Length))) }
+            throw "D11_WINDOWS_FIRST_ENTRY_BROWSER_FAILED"
+          }
+          Write-Output "D11_WINDOWS_FIRST_ENTRY_BROWSER=PASS"
+      - name: Real T2 first Workspace, ten services and independent .iwxa
+        working-directory: site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP "d11-windows-t2-endtoend.log"
+          & node scripts/d11-live-t2-kernel-exchange-acceptance.mjs *> $log
+          if($LASTEXITCODE -ne 0){
+            Get-Content $log | Select-String -Pattern "^D11_REAL_T2_FAILED=" |
+              Select-Object -Last 1 | ForEach-Object { Write-Output ($_.Line.Substring(0,[Math]::Min(180,$_.Line.Length))) }
+            throw "D11_WINDOWS_T2_KERNEL_EXCHANGE_FAILED"
+          }
+          Write-Output "D11_WINDOWS_T2_KERNEL_EXCHANGE=PASS"
+      - name: Real user project revisions, direct source handoff and .iwxa
+        working-directory: site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP "d11-windows-project-continuation.log"
+          & node scripts/d11-project-continuation-acceptance.mjs *> $log
+          if($LASTEXITCODE -ne 0){
+            Get-Content $log | Select-String -Pattern "^D11_PROJECT_CONTINUATION_FAILED=" |
+              Select-Object -Last 1 | ForEach-Object { Write-Output ($_.Line.Substring(0,[Math]::Min(180,$_.Line.Length))) }
+            throw "D11_WINDOWS_USER_PROJECT_CONTINUATION_FAILED"
+          }
+          Write-Output "D11_WINDOWS_USER_PROJECT_CONTINUATION=PASS"
+      # Never publish build, .iwxa, screenshots, private source, raw logs or secrets.
