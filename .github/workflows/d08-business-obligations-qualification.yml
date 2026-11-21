@@ -78,7 +78,9 @@ jobs:
           }
           echo D08_TYPES=PASS
           npm run test:d08:adapters > "$RUNNER_TEMP/d08-adapters.log" 2>&1 || {
-            echo D08_ADAPTERS=FAIL; exit 1;
+            echo D08_ADAPTERS=FAIL
+            grep -E '^not ok [0-9]+|^    not ok [0-9]+|^# (tests|pass|fail|cancelled) ' "$RUNNER_TEMP/d08-adapters.log" | tail -25 || true
+            exit 1;
           }
           echo D08_ADAPTERS=PASS
       # No artifacts and no logs uploaded. Private source and dist stay ephemeral.
