@@ -2668,7 +2668,7 @@
         "transport": "EXISTING_IWXA_MANUAL_HANDOFF_WHEN_OFFLINE_OPTIONAL_AUTHORIZED_SYNC_IF_CONNECTED",
         "offline_delivery": "PENDING_COMPANY_RECEIPT_NOT_DELIVERED_UNTIL_ORIGINAL_RECIPIENT_READBACK",
         "authorization": "D1_SIGNED_JIT_REVOCATION_APPLIES_ON_ENTRY_WRITE_EXPORT_AND_RECEIPT",
-        "agent_development_sha": "269b706cb770b8705180a317e96c638b1f3d184c",
+        "agent_development_sha": "2e7fdf2f65523322536a933beab4e4d885ab2b49",
         "agent_development_status": "K03_NATIVE_MODEL_OUTPUT_CLASSIFICATION_SOURCE_NEW_CANDIDATE_PINNED",
         "agent_development_source_evidence": {
           "prior_run_id": 44815605828,
@@ -2837,7 +2837,7 @@
       "installed_qualification_candidate": {
         "state": "PINNED_NEW_CANDIDATE_NOT_YET_ACCEPTED",
         "original_t3_owner_sha": "162f699d69f63e1d54bc002465c28c9781bf62ae",
-        "agent_sha": "269b706cb770b8705180a317e96c638b1f3d184c",
+        "agent_sha": "2e7fdf2f65523322536a933beab4e4d885ab2b49",
         "public_one_core_sha": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1",
         "original_t2_head": "9c64951cd78411283e8a416641c36d71e169fc1d",
         "original_t2_qualified_tree": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
