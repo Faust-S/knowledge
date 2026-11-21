@@ -16,6 +16,7 @@ from .cooperation import (
     attribute_cooperative_event_costs,
 )
 from .modern_economic_evidence import ModernEconomicEvidenceError, review_cost_attribution
+from .economic_liquidity import LiquidityInputError, evaluate_cash_timing
 
 
 class EconomicInputError(ValueError):
@@ -87,7 +88,10 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
     """
     required = {"period", "currency", "sources", "transfers", "resource_uses", "coverage", "outside_feasibility"}
     if (not isinstance(raw, dict) or required - set(raw) or
-            set(raw) - required - {"mechanism_allocations", "coordination_event_bindings", "modern_cost_bindings"}):
+            set(raw) - required - {
+                "mechanism_allocations", "coordination_event_bindings",
+                "modern_cost_bindings", "cash_timing",
+            }):
         raise EconomicInputError("INVALID_ECONOMICS_FIELDS")
     doc = raw
     period = _identifier(doc["period"], "ECONOMIC_PERIOD")
@@ -288,5 +292,15 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
                 resource_index=resource_index, subjects=subjects,
             )
         except ModernEconomicEvidenceError as exc:
+            raise EconomicInputError(str(exc)) from exc
+    if "cash_timing" in doc:
+        # Dates and balances refer to the SAME source-declared transfers;
+        # the model generates no loans, invoices, interest or new money.
+        try:
+            output["cash_timing"] = evaluate_cash_timing(
+                doc["cash_timing"], sources=sources,
+                transfer_index=transfer_index, coverage=covered, subjects=subjects,
+            )
+        except LiquidityInputError as exc:
             raise EconomicInputError(str(exc)) from exc
     return output
