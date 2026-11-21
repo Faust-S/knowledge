@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: 2d465b019dd89fff5f1037cbce1229e851fe1f07
+      SITE_SHA: 61ea5125b86e4faf0610dd43f61f36d399b038cb
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -175,8 +175,12 @@ jobs:
             }catch{throw $code}
           }
           function VerifyProfileFromKernel([string]$code){
-            # The profile editor is intentionally hidden until the person asks
-            # for it. Enter through the same shortcut visible in the Workspace.
+            # The Host never grants authority based on an old browser session.
+            # Use the visible human action to reopen the single existing area.
+            if(Locate 'Открыть мою рабочую область' 'button'){
+              Activate 'Открыть мою рабочую область' 'D02_RECEIPT_COLD_RESUME_BUTTON_FAILED'
+              Write-Output 'D02_RECEIPT_REOPEN_PERSONAL_WORKSPACE=USER_CONFIRMED'
+            }
             Activate 'Мой профиль' 'D02_RECEIPT_PROFILE_SHORTCUT_NOT_AVAILABLE'
             # Host focus, the domain inventory, and the 7-family readback are
             # asynchronous after a cold start. A one-shot UIA lookup can
@@ -455,16 +459,22 @@ jobs:
             # Host focus is intentionally not stored as cross-session authority.
             # Re-select the same user-owned Workspace after a cold browser
             # open, then require the original user alias from Kernel readback.
-            $selector=Locate 'Личная рабочая область' 'combo'
-            if($selector){
-              Add-Type -AssemblyName System.Windows.Forms
-              try{
-                $selector.SetFocus()
-                [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
-                [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
-                [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-                Write-Output 'D02_RECEIPT_RESTART_WORKSPACE_SELECTED_BY_USER=TRUE'
-              }catch{throw 'D02_RECEIPT_RESTART_WORKSPACE_SELECT_FAILED'}
+            $resume=Locate 'Открыть мою рабочую область' 'button'
+            if($resume){
+              Activate 'Открыть мою рабочую область' 'D02_RECEIPT_COLD_RESUME_BUTTON_FAILED'
+              Write-Output 'D02_RECEIPT_RESTART_WORKSPACE_SELECTED_BY_USER=TRUE'
+            }else{
+              $selector=Locate 'Личная рабочая область' 'combo'
+              if($selector){
+                Add-Type -AssemblyName System.Windows.Forms
+                try{
+                  $selector.SetFocus()
+                  [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+                  [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+                  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                  Write-Output 'D02_RECEIPT_RESTART_WORKSPACE_SELECTED_BY_USER=TRUE'
+                }catch{throw 'D02_RECEIPT_RESTART_WORKSPACE_SELECT_FAILED'}
+              }
             }
             # Refresh only after the person's explicit workspace selection;
             # this does not modify data, authority or any saved Result.
@@ -922,14 +932,20 @@ jobs:
             $null=Await 'Моя работа' '' 'D02_IMPORT_REOPEN_DOMAIN_MISSING'
             # Host never assumes focus merely because one imported workspace
             # exists. Select it explicitly through the original native UI.
-            $selector=Await 'Личная рабочая область' 'combo' 'D02_IMPORT_WORKSPACE_SELECTOR_MISSING'
-            try{
-              $selector.SetFocus()
-              [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
-              [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
-              [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+            $resume=Locate 'Открыть мою рабочую область' 'button'
+            if($resume){
+              Click 'Открыть мою рабочую область' 'D02_IMPORT_WORKSPACE_FOCUS_FAILED'
               Write-Output 'D02_IMPORT_NEW_WORKSPACE_SELECTED_BY_USER=PASS'
-            }catch{throw 'D02_IMPORT_WORKSPACE_FOCUS_FAILED'}
+            }else{
+              $selector=Await 'Личная рабочая область' 'combo' 'D02_IMPORT_WORKSPACE_SELECTOR_MISSING'
+              try{
+                $selector.SetFocus()
+                [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+                [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+                [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                Write-Output 'D02_IMPORT_NEW_WORKSPACE_SELECTED_BY_USER=PASS'
+              }catch{throw 'D02_IMPORT_WORKSPACE_FOCUS_FAILED'}
+            }
             if(Locate 'Обновить результаты' 'button'){
               Click 'Обновить результаты' 'D02_IMPORT_READBACK_REFRESH_FAILED'
             }
