@@ -28,12 +28,32 @@ func directStrategySummary(r DirectStrategyReport) string {
 	}
 }
 
+
+func (ui *oneUI) beginDirectAutoOperation() bool {
+	ui.mu.Lock()
+	defer ui.mu.Unlock()
+	if ui.closing || ui.ctx.Err() != nil { return false }
+	ui.tuning = true
+	return true
+}
+func (ui *oneUI) endDirectAutoOperation() {
+	ui.mu.Lock()
+	ui.tuning = false
+	closing := ui.closing
+	ui.mu.Unlock()
+	if closing { post(ui.hwnd, oneTuningDoneMsg) }
+}
+
 // An exclusive lock prevents the native button from starting/stopping while
 // the winws2 hot-reloaded hostlist is being changed. The UI can still accept
 // Stop; ready() makes the in-flight trial revert before the stop obtains lock.
 func (ui *oneUI) tuneDirectLearned(m *Manager, epoch uint64, seen map[string]bool) (bool, string) {
 	ui.operationMu.Lock()
-	defer ui.operationMu.Unlock()
+	if !ui.beginDirectAutoOperation() {
+		ui.operationMu.Unlock()
+		return false, ""
+	}
+	defer func() { ui.operationMu.Unlock(); ui.endDirectAutoOperation() }()
 	ready := func() bool {
 		ui.mu.Lock()
 		defer ui.mu.Unlock()
@@ -85,7 +105,11 @@ func (ui *oneUI) tuneDirectLearned(m *Manager, epoch uint64, seen map[string]boo
 // It is intentionally independent from connectivity probes or VPN state.
 func (ui *oneUI) recoverPendingDirectStrategy() bool {
 	ui.operationMu.Lock()
-	defer ui.operationMu.Unlock()
+	if !ui.beginDirectAutoOperation() {
+		ui.operationMu.Unlock()
+		return false
+	}
+	defer func() { ui.operationMu.Unlock(); ui.endDirectAutoOperation() }()
 	m := ui.makeManager()
 	recovered, err := recoverDirectStrategyTrial(directAlternativePath(m))
 	if err != nil {

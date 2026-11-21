@@ -150,7 +150,12 @@ func (ui *oneUI) watchDirect() {
 
 func (ui *oneUI) executeDirectMonitorAction(m *Manager, r *DirectMonitorReport) {
 	ui.operationMu.Lock()
-	defer ui.operationMu.Unlock()
+	if !ui.beginDirectAutoOperation() {
+		ui.operationMu.Unlock()
+		r.Action, r.State = directMonitorNone, "MONITOR_NOT_ARMED"
+		return
+	}
+	defer func() { ui.operationMu.Unlock(); ui.endDirectAutoOperation() }()
 	ui.mu.Lock()
 	wanted := ui.requestedOn && !ui.busy && !ui.closing
 	ui.mu.Unlock()

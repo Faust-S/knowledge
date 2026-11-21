@@ -23,6 +23,7 @@ const (
 	oneRefreshMsg       = 0x8010
 	oneOperationDoneMsg = 0x8011
 	oneSpeedDoneMsg     = 0x8012
+	oneTuningDoneMsg    = 0x8013
 )
 
 func int32Height(n int32) uintptr { return uintptr(uint64(int64(n))) }
@@ -35,7 +36,7 @@ type oneUI struct {
 	titleFont, headlineFont                                                                                         uintptr
 	mu                                                                                                              sync.Mutex
 	operationMu                                                                                                     sync.Mutex
-	busy, closing, speedBusy, requestedOn, initialStateChecked                                                      bool
+	busy, closing, speedBusy, requestedOn, initialStateChecked, tuning                                              bool
 	operationEpoch                                                                                                  uint64
 	cancel                                                                                                          context.CancelFunc
 	result                                                                                                          string
@@ -199,6 +200,10 @@ func (ui *oneUI) checkState() {
 }
 func (ui *oneUI) toggle() {
 	ui.mu.Lock()
+	if ui.closing {
+		ui.mu.Unlock()
+		return
+	}
 	if ui.busy {
 		cancel := ui.cancel
 		ui.mu.Unlock()
@@ -446,6 +451,12 @@ func oneWindowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 	case oneSpeedDoneMsg:
 		ui.applySpeed()
 		return 0
+	case oneTuningDoneMsg:
+		ui.mu.Lock()
+		finished := ui.closing && !ui.busy && !ui.tuning
+		ui.mu.Unlock()
+		if finished { procDestroy.Call(hwnd) }
+		return 0
 	case wmCommand:
 		switch loword(w) {
 		case oneToggleID:
@@ -458,15 +469,24 @@ func oneWindowCallback(hwnd uintptr, message uint32, w, l uintptr) uintptr {
 		return 0
 	case wmClose:
 		ui.mu.Lock()
-		busy := ui.busy
+		busy, tuning := ui.busy, ui.tuning
 		ui.closing = true
 		cancel := ui.cancel
+		cancelMonitor := ui.lifetimeCancel
 		ui.mu.Unlock()
 		if busy {
 			if cancel != nil {
 				cancel()
 			}
 			oneBtnText(ui.status, "Ожидаю завершения отмены, прежде чем закрыть окно.")
+			return 0
+		}
+		if tuning {
+			// Do not terminate the GUI process while an on-disk hostlist
+			// change is provisional. Cancel network checks and let the
+			// worker complete its rollback before destroying the window.
+			if cancelMonitor != nil { cancelMonitor() }
+			oneBtnText(ui.status, "Отменяю автоподбор и восстанавливаю прежние настройки...")
 			return 0
 		}
 		procDestroy.Call(hwnd)
