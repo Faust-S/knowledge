@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: 8cac8bb448b26fce0fbee5a071319a34476deb71
+      SITE_SHA: 2d465b019dd89fff5f1037cbce1229e851fe1f07
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -320,8 +320,7 @@ jobs:
               if(Locate 'Чтение рабочих областей не разрешено Kernel.' ''){
                 throw 'D02_RECEIPT_T2_CAPABILITY_READ_DENIED'
               }
-              $selector=Locate 'Личная рабочая область' 'combo'
-              if(!$selector){throw 'D02_RECEIPT_PERSONAL_AREA_SELECTOR_NOT_FOUND'}
+              $selector=Await 'Личная рабочая область' 'combo' 'D02_RECEIPT_PERSONAL_AREA_SELECTOR_NOT_FOUND'
               Write-Output 'D02_RECEIPT_NATIVE_PERSONAL_AREA_SELECTOR=PASS'
               $usedSelectionItem=$false
               $options=[System.Collections.Generic.List[object]]::new()
@@ -934,7 +933,16 @@ jobs:
             if(Locate 'Обновить результаты' 'button'){
               Click 'Обновить результаты' 'D02_IMPORT_READBACK_REFRESH_FAILED'
             }
-            $null=AwaitPrefix 'Последний: Club проверка пользовательской записи' 'D02_IMPORT_FRESH_PROFILE_COLD_READBACK_MISSING'
+            # Categories are collapsed until requested. Use the real profile
+            # shortcut and original Kernel-backed editor, not hidden UI text.
+            Click 'Мой профиль' 'D02_IMPORT_PROFILE_SHORTCUT_MISSING'
+            Click 'Редактировать профиль здесь' 'D02_IMPORT_PROFILE_EDITOR_MISSING'
+            $alias=Await 'Как к вам обращаться' '' 'D02_IMPORT_PROFILE_FIELD_MISSING'
+            $actual=[System.Windows.Automation.ValuePattern]$alias.GetCurrentPattern(
+              [System.Windows.Automation.ValuePattern]::Pattern)
+            if($actual.Current.Value -cne 'Club проверка пользовательской записи'){
+              throw 'D02_IMPORT_FRESH_PROFILE_COLD_READBACK_MISSING'
+            }
             Write-Output 'D02_IMPORT_INDEPENDENT_WORKSPACE_COLD_READBACK=PASS'
             Write-Output 'D02_IMPORT_PRIVATE_ARCHIVE_UPLOAD=FALSE'
           }finally{
@@ -1137,7 +1145,9 @@ jobs:
             [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
             [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
             [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-            $null=AwaitPrefix 'Последний: Сохранить семейный резерв' '' 'D02_GOAL_COLD_KERNEL_RESULT_MISSING'
+            # The saved project is now visible first in "Мои дела и планы".
+            # The seven technical families remain available but folded away.
+            $null=Await 'Сохранить семейный резерв' '' 'D02_GOAL_COLD_KERNEL_RESULT_MISSING'
             Write-Output 'D02_GOAL_NATIVE_PROJECT_KERNEL_COLD_READBACK=PASS'
           }finally{
             if($browser){try{$browser.Kill($true)}catch{}}
