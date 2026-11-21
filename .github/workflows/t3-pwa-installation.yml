@@ -30,7 +30,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git rev-parse HEAD:packages/t3-core/src)" = "51c68641f4ee9dfb6de833705cbe3294742e2bd8"
+          test "$(git rev-parse HEAD:packages/t3-core/src)" = "55c7731509513e80fd0aa80da25d3cb49f9f8efb"
           test "$(git rev-parse HEAD:packages/t3-core/qualified-runtime)" = "1594274dbf5e38214b8422ba11e8c7114bd5425c"
           test "$(git rev-parse HEAD:packages/t3-core/integration-sources)" = "e17b628392fb4e2dbeba2df67fdb0a5506fc5243"
           echo "T3_G4_PWA_FROZEN_EXECUTABLE_AND_T2_SOURCE_PASS"
