@@ -92,7 +92,7 @@ export function createT4OriginalExchangeHandoff({
         schema: 'IWXA_T4_ORIGINAL_EXCHANGE_HANDOFF_V1',
         workspaceId, originalPackageDigest: artifact.package_digest, sha256,
         originalExportConfirmed: true, originalImportCommitted: false,
-        transportReceipt,
+        transportReceipt: transferReceipt,
       });
     } finally { focus.release(); }
   }
