@@ -50,8 +50,8 @@ MODERN_EXPOSURES = (
     "agent_identity_authorization_audit",
     "competition_and_information_separation",
     "regulatory_product_traceability",
-    "liquidity_and_working_capital",
-    "operator_governance_and_sustainability",
+    "financing_and_working_capital_carry_cost",
+    "operator_governance_overhead",
 )
 CATEGORY_SET = set(ONBOARDING_CATEGORIES) | set(MODERN_EXPOSURES)
 BINDING_FIELDS = frozenset({"owner", "category", "resource_use_id", "source"})
