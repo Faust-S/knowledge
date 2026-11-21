@@ -2664,15 +2664,12 @@
         "INSTALLED_AGENT_NEW_COMPANY_KEY_TASK_RESULT_AND_ADMIN_RECEIPT_NOT_RUN",
         "ORIGINAL_COMPANY_BINARY_ATTACHMENTS_AND_FULL_IWXA_EXCHANGE_NOT_COMPLETE",
         "EXACT_CANDIDATE_NATIVE_WINDOWS_ORIGINAL_T3_AGENT_PROCESS_AND_INSTALLED_SETUP_REQUALIFICATION",
-        "NATIVE_COMPILED_PRIVATE_T3_SERVER_IMPORT_GUARD_REQUALIFICATION",
-        "AGENT_INSTALLED_ORIGINAL_ONE_DIST_BUILD_FAILURE_CLASSIFY_AND_FIX",
         "ADMIN_ACTUAL_INVITATION_UI_SOURCE_AND_INSTALLED_WINDOWS_QUALIFICATION",
         "AGENT_NATIVE_SETUP_WINPS5_1_VITE_STDERR_NONFATAL_QUALIFICATION",
         "AGENT_PS51_BOM_AWARE_ONE_DIST_INSTALLED_WIN_ACCEPTANCE_PENDING",
         "EXACT_AGENT_WINDOWS_PS51_RECEIPT_BOM_DECODE_INSTALLED_QUALIFICATION",
         "PS51_FULL_REDIRECTED_NATIVE_SETUP_BOM_REQUALIFICATION_PENDING",
         "AGENT_6FAE_PS51_NATIVE_ICON_SETUP_REDIRECTED_JSON_FULL_INSTALLED_GUI_PENDING",
-        "ADMIN_CENTER_ORIGINAL_SIGNED_CHILD_EXIT_RELEASE_INDEPENDENT_COLD_DPAPI_REQUALIFICATION",
         "INSTALLED_TWO_PRODUCT_SIGNED_CORPORATE_TASK_TO_RESULT_HUMAN_ACCEPT_APPLY_PENDING",
         "K03_NATIVE_QWEN_TASK_FINAL_OUTPUT_FRAME_VS_REASONING_DIAGNOSTIC_AND_REPAIR",
         "INSTALLED_AGENT_0_6_WITH_SAME_SIGNED_OWNER_T3_FRESH_ACCEPTANCE"
@@ -2786,17 +2783,19 @@
           "cause": "ORIGINAL_CENTER_TAURI_MISSING_EXPLICIT_ORIGINAL_OWNER_RELEASE_ON_NATIVE_EXIT",
           "source_fix_sha": "5da2473f5e13df58cd715b0109c29b7707a97847",
           "source_baseline_sha": "2628c4bc1b20b4393c485d12513f029fdea8b082",
-          "new_run_id": 44822013150,
+          "new_run_id": 44888532442,
           "new_result": "PASS",
           "cold_restart_gui": "PASS",
-          "owner_sha": "adfcb77a3497415ce8bb194647d2d5be3a41eafa",
+          "owner_sha": "162f699d69f63e1d54bc002465c28c9781bf62ae",
           "original_t2": "0.3.6",
           "center_sha": "5da2473f5e13df58cd715b0109c29b7707a97847",
-          "result_scope": "INSTALLED_FIRST_USE_ONLY_NO_CORPORATE_RESULT_TRANSFER_CLAIM"
+          "result_scope": "INSTALLED_SIGNED_OWNER_CORPORATE_WORKSPACE_WITHOUT_ATLAS_MANAGER_DRAFT_COLD_DPAPI_NOT_CROSS_PRODUCT_RESULT",
+          "earlier_installed_pass_run_id": 44822013150,
+          "latest_public_workflow_sha": "d81bdaf0173c7eaf12d5a23b64e7fad07b8c8457"
         },
-        "installed_admin_status": "SIGNED_ORIGINAL_D3_FIRST_USE_AND_DPAPI_COLD_GUI_PASS"
+        "installed_admin_status": "SIGNED_ORIGINAL_D3_FIRST_USE_AND_DPAPI_COLD_GUI_PASS_EXACT_OWNER_162F_44888532442"
       },
-      "original_t3_final_candidate_sha": "adfcb77a3497415ce8bb194647d2d5be3a41eafa",
+      "original_t3_final_candidate_sha": "162f699d69f63e1d54bc002465c28c9781bf62ae",
       "person_d7_source_qualification": {
         "state": "SOURCE_REQUALIFICATION_PENDING_NEW_OWNER_UI",
         "original_owner_sha": "adfcb77a3497415ce8bb194647d2d5be3a41eafa",
@@ -2804,34 +2803,36 @@
         "previous_run_id": 44818613532,
         "run_id": null,
         "test_count": null,
-        "conclusion": null
+        "conclusion": null,
+        "latest_installed_owner_sha": "162f699d69f63e1d54bc002465c28c9781bf62ae",
+        "latest_owner_person_source_qualification": "NOT_REQUALIFIED_ON_NEW_EXACT_SHA"
       },
       "original_owner_candidate_d3_qualification": {
-        "state": "SOURCE_REQUALIFICATION_PENDING_REAL_ADMIN_INVITATION_UI",
-        "candidate_sha": "adfcb77a3497415ce8bb194647d2d5be3a41eafa",
+        "state": "INSTALLED_SIGNED_FIRST_USE_PASS_SOURCE_PERSON_SEPARATE",
+        "candidate_sha": "162f699d69f63e1d54bc002465c28c9781bf62ae",
         "previous_candidate_sha": "a66581d0c113319c65e2a6df417d3636fdc4bf5c",
         "previous_source_run_id": 44818613532,
         "installed_owner_sha": "1a8267634955947bc0c6adc5614d7de176a33da2",
         "run_id": null,
         "conclusion": null,
         "scope": "GENUINE_ORIGINAL_ED25519_COMPANY_SIGNED_READ_WRITE_CREATE_AND_ACTUAL_ADMIN_UI_DEFAULTS",
-        "installed": "NOT_RUN_NEW_SHA"
+        "installed": "SIGNED_FIRST_USE_PASS_44888532442_NOT_CROSS_PRODUCT_ACCEPT_APPLY"
       },
       "installed_qualification_candidate": {
         "state": "PINNED_NEW_CANDIDATE_NOT_YET_ACCEPTED",
-        "original_t3_owner_sha": "adfcb77a3497415ce8bb194647d2d5be3a41eafa",
+        "original_t3_owner_sha": "162f699d69f63e1d54bc002465c28c9781bf62ae",
         "agent_sha": "5dc3e3e98ac4ccbc4b1db2adeb3395e9a1f84369",
         "public_one_core_sha": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1",
         "original_t2_head": "9c64951cd78411283e8a416641c36d71e169fc1d",
         "original_t2_qualified_tree": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
         "previous_installed_acceptance": "HISTORICAL_ONLY_PRIOR_PINS",
-        "windows_native_process_run_id": 44821254010,
-        "windows_admin_installed_run_id": 44822013150,
-        "windows_agent_installed_run_id": null,
+        "windows_native_process_run_id": 44885719134,
+        "windows_admin_installed_run_id": 44888532442,
+        "windows_agent_installed_run_id": 44885719135,
         "approved": false,
-        "windows_admin_installed_conclusion": "PASS_INSTALLED_FIRST_USE_SIGNED_ENROLL_DPAPI_INDEPENDENT_COLD_READ_AND_GUI_REOPEN",
-        "windows_agent_installed_conclusion": "PENDING_NEW_AGENT_K03_FINITE_OUTPUT_DIAGNOSTIC_AND_INSTALLED_QWEN",
-        "windows_native_process_conclusion": "SOURCE_NATIVE_PROCESS_PASS_NOT_INSTALLED_GUI",
+        "windows_admin_installed_conclusion": "SUCCESS_INSTALLED_ADMIN_SIGNED_OWNER_GUI_WORKSPACE_WITHOUT_ATLAS_ENROLL_DPAPI_COLD",
+        "windows_agent_installed_conclusion": "SUCCESS_INSTALLED_AGENT_QWEN_REVIEW_COLD_REPAIR_ROLLBACK_SECOND_WINDOWS_SID",
+        "windows_native_process_conclusion": "SUCCESS_NATIVE_SOURCE_26_MARKERS_NOT_INSTALLED_GUI",
         "diagnostic_state": "ORIGINAL_NATIVE_SIGNED_OWNER_PID_LOCK_AFTER_CENTER_EXIT_FIXED_AT_RUN_EVENT_EXIT",
         "agent_native_build_fix": "MODEL_FINAL_OUTPUT_FRAME_AND_REASONING_CLASSIFICATION_PRESERVES_STRICT_NO_FAKE_RESULT",
         "center_sha": "5da2473f5e13df58cd715b0109c29b7707a97847",
@@ -2874,7 +2875,44 @@
           "second_windows_sid": "PASS",
           "k03_task": "FAIL_BASIC_RUNTIME_OUTPUT_INVALID",
           "scope": "K03_TASK_EXECUTION_NOT_REVIEWED"
-        }
+        },
+        "latest_installed_admin_attempt": 2,
+        "latest_installed_admin_ci_sha": "d81bdaf0173c7eaf12d5a23b64e7fad07b8c8457",
+        "latest_installed_agent_ci_sha": "a584cdb61b7c8fe4b780e562d8827a3631e93896",
+        "latest_native_process_ci_sha": "a584cdb61b7c8fe4b780e562d8827a3631e93896",
+        "latest_installed_admin_markers": [
+          "G4_INSTALLED_ORIGINAL_SIGNED_OWNER_CENTER_SETUP_BUILT_PASS",
+          "G4_INSTALLED_SETUP_CORE_PRIVATE_ONE_DIST_PASS",
+          "G4_INSTALLED_CENTER_NATIVE_WINDOW_UIA_PASS",
+          "G4_INSTALLED_ORDINARY_WORKSPACE_WITHOUT_ATLAS_PASS",
+          "G4_INSTALLED_FIRST_USE_NATIVE_WINDOWS_ENROLL_PASS",
+          "G4_INSTALLED_COLD_ORIGINAL_DPAPI_INDEPENDENT_PROCESS_PASS",
+          "G4_INSTALLED_FIRST_USE_ORIGINAL_DPAPI_COLD_RESTART_PASS"
+        ],
+        "latest_installed_agent_markers": [
+          "G4_AGENT06_INSTALLED_GENUINE_SETUP_AND_ONE_CORE_PASS",
+          "G4_AGENT06_INSTALLED_NATIVE_GUI_QWEN_REVIEW_COLD_PASS",
+          "G4_AGENT06_INSTALLED_SETUP_CORE_REPAIR_ROLLBACK_PASS",
+          "G4_AGENT_INSTALLED_GUEST_SECOND_WINDOWS_SID_PASS",
+          "G4_AGENT_INSTALLED_GUEST_NATIVE_GUI_COLD_UIA_PASS"
+        ],
+        "latest_native_process_markers": [
+          "G4_ORIGINAL_PRODUCTION_EMPLOYEE_REAL_T2_AGENT_RESULT_PASS",
+          "G4_ORIGINAL_PRODUCTION_EMPLOYEE_ADMIN_HUMAN_ACCEPT_PASS",
+          "G4_ORIGINAL_PRODUCTION_EMPLOYEE_REAL_T2_KERNEL_APPLY_PASS",
+          "G4_ORIGINAL_PRODUCTION_EMPLOYEE_REAL_T2_COLD_READBACK_TWO_PASS",
+          "G4_NATIVE_PROCESS_SOURCE_PASS_NOT_INSTALLED_GUI"
+        ],
+        "latest_witness_scope": "Separate SUCCESS runs: native original signed employee/Admin process (not installed GUI), installed Agent GUI and installed Admin GUI. This is not a single installed cross-product result acceptance; Atlas optional; no new Result or Store."
+      },
+      "resolved_product_installation_2026_11_21": {
+        "original_compiled_signed_owner": "PASS_44888532442_ATTEMPT_2",
+        "installed_admin_signed_first_use": "PASS_44888532442",
+        "installed_agent_native_qwen_gui_second_sid": "PASS_44885719135",
+        "original_t3_employee_admin_native_process": "PASS_SOURCE_NATIVE_44885719134",
+        "not_proven": "SINGLE_INSTALLED_AGENT_TO_ADMIN_ACCEPT_APPLY_OR_FINAL_D1_D7_RELEASE",
+        "t2_kernel_unchanged": "0.3.6",
+        "one_core_sha": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1"
       }
     },
     "required_gates": {
