@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: 8739dfa84cb08127e5bd9cc56b1c76eb2919c243
+      SITE_SHA: 2bd2a1751e8a0ba6070e8ffa3bd7602c2d069bc6
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -1796,27 +1796,10 @@ jobs:
             Write-Output 'D02_IMPORT_CONTRIBUTION_IWXA_COLD_READBACK=PASS'
             # Read the exact contribution's evidence from the unchanged
             # original T2 Result viewer. A self-record is not peer acceptance.
-            $cursor=$contribHeading
-            $claimView=$null
-            for($level=0;$level -lt 12;$level++){
-              if(!$cursor){break}
-              try{
-                $resume=$cursor.FindFirst($scope,[System.Windows.Automation.PropertyCondition]::new(
-                  [System.Windows.Automation.AutomationElement]::NameProperty,'Продолжить дело'))
-                $cond=[System.Windows.Automation.AndCondition]::new(
-                  [System.Windows.Automation.PropertyCondition]::new(
-                    [System.Windows.Automation.AutomationElement]::NameProperty,'Посмотреть'),
-                  [System.Windows.Automation.PropertyCondition]::new(
-                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                    [System.Windows.Automation.ControlType]::Button))
-                $view=$cursor.FindFirst($scope,$cond)
-                if($resume -and $view){$claimView=$view;break}
-                $cursor=$walker.GetParent($cursor)
-              }catch{break}
-            }
-            if(!$claimView){throw 'D02_IMPORT_CONTRIBUTION_VIEW_ACTION_NOT_FOUND'}
-            $claimView.SetFocus()
-            [System.Windows.Forms.SendKeys]::SendWait(' ')
+            # The person's contribution is a distinct original Kernel Result.
+            # Open its explicitly labelled action, not the parent's generic
+            # 'Посмотреть' button which can point to the cooperation scenario.
+            Activate 'Посмотреть вклад: Сверка покупки' 'D02_IMPORT_CONTRIBUTION_EXACT_VIEW_ACTION_NOT_FOUND'
             $null=AwaitPrefix 'Основание: Товарная накладная и чек номер 115' '' 'D02_IMPORT_CONTRIBUTION_EVIDENCE_LOST'
             $null=AwaitPrefix 'Записанный результат: Проверил десять наборов' '' 'D02_IMPORT_CONTRIBUTION_RESULT_LOST'
             Write-Output 'D02_IMPORT_CONTRIBUTION_EXACT_EVIDENCE_IN_T2_VIEWER=PASS'
