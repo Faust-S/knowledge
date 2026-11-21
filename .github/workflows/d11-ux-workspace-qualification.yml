@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 3d4442a8ba9695d12ffb32a33a7042cf19a73586
+          ref: e4a57af4c147c3c651f3cf6388574b8d32873c75
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -51,7 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C site rev-parse HEAD)" = "3d4442a8ba9695d12ffb32a33a7042cf19a73586"
+          test "$(git -C site rev-parse HEAD)" = "e4a57af4c147c3c651f3cf6388574b8d32873c75"
           test "$(git -C t2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17"
           echo D11_UX_SITE_REVISION=PASS
           echo D11_NORMATIVE_T2_REVISION=PASS
@@ -115,3 +115,88 @@ jobs:
           done
           echo D11_UX_STATIC_CHECKS=PASS
       # No source, dist, logs, screenshots or other private artifacts are uploaded.
+
+  browser:
+    needs: qualification
+    name: D11 actual T2 user journeys ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout exact private D11 UI
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/advice-logistics.ru
+          ref: e4a57af4c147c3c651f3cf6388574b8d32873c75
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - name: Checkout exact original T2
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          path: t2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build integrated private candidate
+        working-directory: site
+        shell: bash
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "e4a57af4c147c3c651f3cf6388574b8d32873c75"
+          test "$(git -C ../t2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17"
+          node --check scripts/d11-ux-first-entry-browser-acceptance.mjs
+          if ! npm ci --no-audit --no-fund > "$RUNNER_TEMP/d11-ux-browser-install.log" 2>&1; then
+            echo D11_UX_BROWSER_INSTALL=FAIL
+            exit 1
+          fi
+          if ! npm run build:t2:site > "$RUNNER_TEMP/d11-ux-browser-build.log" 2>&1; then
+            echo D11_UX_BROWSER_BUILD=FAIL
+            exit 1
+          fi
+          echo D11_UX_BROWSER_ONE_DIST=PASS
+      - name: Real mobile, desktop and failed discovery first entry
+        working-directory: site
+        shell: bash
+        run: |
+          if node scripts/d11-ux-first-entry-browser-acceptance.mjs > "$RUNNER_TEMP/d11-ux-browser-entry.log" 2>&1; then
+            grep '^D11_UX_.*=PASS' "$RUNNER_TEMP/d11-ux-browser-entry.log" || true
+          else
+            grep '^D11_UX_BROWSER_FAILED=' "$RUNNER_TEMP/d11-ux-browser-entry.log" |
+              cut -c 1-180 || true
+            exit 1
+          fi
+      - name: Real first Workspace, all ten calculations and independent .iwxa
+        working-directory: site
+        shell: bash
+        run: |
+          if node scripts/d11-live-t2-kernel-exchange-acceptance.mjs > "$RUNNER_TEMP/d11-ux-browser-t2.log" 2>&1; then
+            grep -E '^D11_(T2_REAL_FIRST_WORKSPACE|REAL_T2_KERNEL_EXCHANGE_ACCEPTANCE|T2_IWXA_NEW_WORKSPACE_IMPORT)=PASS' "$RUNNER_TEMP/d11-ux-browser-t2.log" || true
+            echo D11_UX_T2_END_TO_END=PASS
+          else
+            grep '^D11_REAL_T2_FAILED=' "$RUNNER_TEMP/d11-ux-browser-t2.log" |
+              cut -c 1-180 || true
+            exit 1
+          fi
+      - name: Real user projects, revision, direct source transfer and imported .iwxa
+        working-directory: site
+        shell: bash
+        run: |
+          if node scripts/d11-project-continuation-acceptance.mjs > "$RUNNER_TEMP/d11-ux-browser-project.log" 2>&1; then
+            grep -E '^D11_(OWN_PROJECT_DIRECT_REOPEN_AND_ACTIONS|T2_TEN_SERVICE_PROJECT_FILTER|PROJECT_INDEPENDENT_IWXA_EXCHANGE|PROJECT_CONTINUATION_REAL_T2)=PASS' "$RUNNER_TEMP/d11-ux-browser-project.log" || true
+            echo D11_UX_USER_PROJECTS_END_TO_END=PASS
+          else
+            grep '^D11_PROJECT_CONTINUATION_FAILED=' "$RUNNER_TEMP/d11-ux-browser-project.log" |
+              cut -c 1-180 || true
+            exit 1
+          fi
+      # Deliberately no uploads: private source, generated dist and browser profile stay on ephemeral runners.
