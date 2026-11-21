@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: e0a78dd60d3262cbd4beb54dde8b7eacd0c6d97b
+      SITE_SHA: 8cac8bb448b26fce0fbee5a071319a34476deb71
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -175,6 +175,9 @@ jobs:
             }catch{throw $code}
           }
           function VerifyProfileFromKernel([string]$code){
+            # The profile editor is intentionally hidden until the person asks
+            # for it. Enter through the same shortcut visible in the Workspace.
+            Activate 'Мой профиль' 'D02_RECEIPT_PROFILE_SHORTCUT_NOT_AVAILABLE'
             # Host focus, the domain inventory, and the 7-family readback are
             # asynchronous after a cold start. A one-shot UIA lookup can
             # mistakenly report data loss while the Kernel is still loading.
@@ -311,8 +314,8 @@ jobs:
               '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
               "--user-data-dir=$profile","--app=$origin/workspace/#/domain"
             )
-            $null=Await 'Моя рабочая область' '' 'D02_RECEIPT_DOMAIN_NOT_VISIBLE'
-            $create=Locate 'Создать профиль в рабочей области' 'button'
+            $null=Await 'Моя работа' '' 'D02_RECEIPT_DOMAIN_NOT_VISIBLE'
+            $create=Locate 'Мой профиль' 'button'
             if(!$create){
               if(Locate 'Чтение рабочих областей не разрешено Kernel.' ''){
                 throw 'D02_RECEIPT_T2_CAPABILITY_READ_DENIED'
@@ -365,7 +368,7 @@ jobs:
               }
               $editorVisible=$false
               for($i=0;$i -lt 36;$i++){
-                if(Locate 'Создать профиль в рабочей области' 'button'){
+                if(Locate 'Мой профиль' 'button'){
                   $editorVisible=$true;break
                 }
                 Start-Sleep -Milliseconds 500
@@ -384,6 +387,9 @@ jobs:
                 throw 'D02_RECEIPT_NATIVE_WORKSPACE_NOT_FOCUSED'
               }
             }
+            # Open the profile on demand instead of showing seven technical
+            # families and an editor to every new visitor.
+            Activate 'Мой профиль' 'D02_RECEIPT_PROFILE_SHORTCUT_MISSING'
             try {
               Invoke 'Создать профиль в рабочей области' 'D02_RECEIPT_PROFILE_EDITOR_UNAVAILABLE'
             }catch{
@@ -411,6 +417,15 @@ jobs:
             # The profile editor read is fresh getObject, after React unmount.
             # The family list is a separate listObjects plus getObject check.
             $overviewFound=$false
+            # Personal categories are collapsed by default; open them with
+            # the same native keyboard interaction available to a visitor.
+            $familySummary=Locate 'Показать все 7 разделов' ''
+            if($familySummary){
+              Add-Type -AssemblyName System.Windows.Forms
+              $familySummary.SetFocus()
+              [System.Windows.Forms.SendKeys]::SendWait(' ')
+              Write-Output 'D02_RECEIPT_FAMILY_LIST_EXPANDED=TRUE'
+            }
             for($i=0;$i -lt 8;$i++){
               if(HasPrefix 'Последний: Club проверка пользовательской записи'){
                 $overviewFound=$true;break
@@ -437,7 +452,7 @@ jobs:
               '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
               "--user-data-dir=$profile","--app=$origin/workspace/#/domain"
             )
-            $null=Await 'Моя рабочая область' '' 'D02_RECEIPT_RESTART_DOMAIN_NOT_VISIBLE'
+            $null=Await 'Моя работа' '' 'D02_RECEIPT_RESTART_DOMAIN_NOT_VISIBLE'
             # Host focus is intentionally not stored as cross-session authority.
             # Re-select the same user-owned Workspace after a cold browser
             # open, then require the original user alias from Kernel readback.
@@ -465,6 +480,13 @@ jobs:
             # after the full browser restart, against one accessible status
             # backed by the independently verified Kernel record.
             $afterRestartFound=$false
+            $familySummary=Locate 'Показать все 7 разделов' ''
+            if($familySummary){
+              Add-Type -AssemblyName System.Windows.Forms
+              $familySummary.SetFocus()
+              [System.Windows.Forms.SendKeys]::SendWait(' ')
+              Write-Output 'D02_RECEIPT_COLD_FAMILY_LIST_EXPANDED=TRUE'
+            }
             for($i=0;$i -lt 40;$i++){
               if(HasPrefix 'Последний: Club проверка пользовательской записи'){
                 $afterRestartFound=$true;break
@@ -898,7 +920,7 @@ jobs:
               '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
               "--user-data-dir=$profile","--app=$origin/workspace/#/domain"
             )
-            $null=Await 'Моя рабочая область' '' 'D02_IMPORT_REOPEN_DOMAIN_MISSING'
+            $null=Await 'Моя работа' '' 'D02_IMPORT_REOPEN_DOMAIN_MISSING'
             # Host never assumes focus merely because one imported workspace
             # exists. Select it explicitly through the original native UI.
             $selector=Await 'Личная рабочая область' 'combo' 'D02_IMPORT_WORKSPACE_SELECTOR_MISSING'
@@ -1109,7 +1131,7 @@ jobs:
               '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
               "--user-data-dir=$profile","--app=$origin/workspace/#/domain"
             )
-            $null=Await 'Моя рабочая область' '' 'D02_GOAL_COLD_HOST_NOT_VISIBLE'
+            $null=Await 'Моя работа' '' 'D02_GOAL_COLD_HOST_NOT_VISIBLE'
             $selector=Await 'Личная рабочая область' 'combo' 'D02_GOAL_COLD_SELECTOR_NOT_VISIBLE'
             $selector.SetFocus()
             [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
