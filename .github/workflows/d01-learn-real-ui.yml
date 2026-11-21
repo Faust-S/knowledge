@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/learn
-          ref: 4ddd4827f06ad1fd759261b2bac3de5eb108274a
+          ref: 06eef827dd6b6f67567f059e9390ae9c17282e77
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/domain
@@ -47,7 +47,7 @@ jobs:
           set -eu
           test "$(git -C private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
           test "$(git -C private/site rev-parse HEAD)" = d0cbfa07fce51fd46c119516c0d9752272a3d271
-          test "$(git -C private/domain rev-parse HEAD)" = 4ddd4827f06ad1fd759261b2bac3de5eb108274a
+          test "$(git -C private/domain rev-parse HEAD)" = 06eef827dd6b6f67567f059e9390ae9c17282e77
           cmp private/domain/learning-journey/projection.ts private/site/t2/domain-modules/learn-results/learning-journey.ts
           cmp private/domain/learning-journey/today.ts private/site/t2/domain-modules/learn-results/learning-today.ts
           cmp private/domain/learning-journey/workplace-shifts.mjs private/site/practice/quick-arithmetic/engine/workplace-shifts.mjs
