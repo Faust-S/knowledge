@@ -170,6 +170,136 @@ jobs:
           set -e
           if [ "$code" -ne 0 ]; then
             echo "D04_RECOVERY_INTEGRATED_BUILD=FAIL"
+            # All values below are generated from bounded source-defined enums, never
+            # from exception messages, selectors, private paths or user content.
+            grep -E '^D04_BROWSER_FAILURE_(PHASE|CODE|RUNTIME_CLASS)=[A-Za-z0-9_-]{1,90}
+            exit "$code"
+          fi
+          test -s dist/workspace/index.html
+          test -s dist/workspace/exchange/index.html
+          test -s dist/_iwxa/current.json
+          echo "D04_RECOVERY_INTEGRATED_BUILD=PASS"
+          if grep -RqF 'life-os-health-dynamics' dist/workspace/assets; then
+            echo "D04_DYNAMICS_HOST_COMPONENT=PASS"
+          else
+            echo "D04_DYNAMICS_HOST_COMPONENT=MISSING"
+            exit 1
+          fi
+          # Verify the actual deployed Host bundle includes this native UI,
+          # not just the private source used in pre-build static tests.
+          if grep -RqF 'life-os-confirmed-progress' dist/workspace/assets; then
+            echo "D04_CONTINUOUS_HOST_PROGRESS_UI=PASS"
+          else
+            echo "D04_CONTINUOUS_HOST_PROGRESS_UI=MISSING"
+            exit 1
+          fi
+      - name: Run home, six answers, recommended mode, protocol, original Result edits and cold overview
+        working-directory: d04-private/site
+        run: |
+          set -uo pipefail
+          set +e
+          export IWXA_T2_PRODUCT_CHALLENGE="$(cat "$RUNNER_TEMP/d04-ten-protocol-challenge")"
+          node --input-type=module >"$RUNNER_TEMP/d04-ten-protocol-e2e.log" 2>&1 <<'NODE'
+          import {createRequire} from 'node:module';
+          import {resolve,join} from 'node:path';
+          import {pathToFileURL} from 'node:url';
+          const site=process.cwd();
+          const canonical=resolve(process.env.GITHUB_WORKSPACE,
+            'd04-private/t2/t2/current/final-successor/canonical-source');
+          const {chromium}=createRequire(join(canonical,'package.json'))('playwright');
+          const {serveRealKernelHost}=await import(pathToFileURL(join(canonical,'scripts/real-kernel-e2e.mjs')).href);
+          const {selectWitnessOption}=await import(pathToFileURL(
+            join(canonical,'src/factory2/products/domain-completion/independent-browser-witness.mjs')).href);
+          const {runLifeOsContinuousJourney}=await import(pathToFileURL(
+            join(site,'qualification/life-os-continuous-journey.browser.mjs')).href);
+          const server=await serveRealKernelHost(join(site,'dist'),{
+            independentWitness:true,previewOrigin:true
+          });
+          try {
+            const result=await runLifeOsContinuousJourney({
+              chromium,origin:server.origin,challenge:process.env.IWXA_T2_PRODUCT_CHALLENGE,
+              selectWitnessOption
+            });
+            if(result.status!=='PASS'||result.quizSteps!==6||result.resultRevision!==2||
+               result.objects!==1||result.events!==2||!result.cold||
+               !result.overview||!result.history||result.viewportMobile!==375||
+               result.viewportDesktop!==1440)
+              throw new Error('D04_PROTOCOL_NATIVE_RESULT_INCOMPLETE');
+            console.log('D04_CONTINUOUS_HOME_QUIZ_MODE_PROTOCOL=PASS');
+            console.log('D04_CONTINUOUS_RESULT_CAS_AND_HISTORY=PASS');
+            console.log('D04_CONTINUOUS_COLD_RESTORE=PASS');
+          }finally{
+            await new Promise(done=>server.server.close(done));
+          }
+          NODE
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "D04_CONTINUOUS_NATIVE_E2E=FAIL"
+            grep -Eo 'D04_CONTINUOUS_(STAGE|CAUSE_CLASS|NATIVE_STATE|OVERVIEW_STATE)_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-ten-protocol-e2e.log" | sort -u | tail -8 || true
+            python3 "$GITHUB_WORKSPACE/tools/ci/d04_recovery_safe_diagnostics.py" "$RUNNER_TEMP/d04-ten-protocol-e2e.log" || true
+            exit "$code"
+          fi
+          grep '^D04_' "$RUNNER_TEMP/d04-ten-protocol-e2e.log" | tail -10
+          echo "D04_CONTINUOUS_NATIVE_E2E=PASS"
+          # Private dist/browser data/logs never enter public artifacts.
+      - name: Run real two-result personal health dynamics through original T2 and cold overview
+        working-directory: d04-private/site
+        run: |
+          set -uo pipefail
+          set +e
+          export IWXA_T2_PRODUCT_CHALLENGE="$(cat "$RUNNER_TEMP/d04-ten-protocol-challenge")"
+          node --input-type=module >"$RUNNER_TEMP/d04-health-dynamics.log" 2>&1 <<'NODE'
+          import {createRequire} from 'node:module';
+          import {resolve,join} from 'node:path';
+          import {pathToFileURL} from 'node:url';
+          const site=process.cwd();
+          const canonical=resolve(process.env.GITHUB_WORKSPACE,
+            'd04-private/t2/t2/current/final-successor/canonical-source');
+          const {chromium}=createRequire(join(canonical,'package.json'))('playwright');
+          const {serveRealKernelHost}=await import(pathToFileURL(join(canonical,'scripts/real-kernel-e2e.mjs')).href);
+          const {selectWitnessOption}=await import(pathToFileURL(
+            join(canonical,'src/factory2/products/domain-completion/independent-browser-witness.mjs')).href);
+          const {runVerifiedHealthDynamicsJourney}=await import(pathToFileURL(
+            join(site,'qualification/life-os-health-dynamics.browser.mjs')).href);
+          const server=await serveRealKernelHost(join(site,'dist'),{
+            independentWitness:true,previewOrigin:true
+          });
+          try {
+            const result=await runVerifiedHealthDynamicsJourney({
+              chromium,origin:server.origin,selectWitnessOption
+            });
+            if(result.status!=='PASS'||result.workspaces!==1||result.objects!==2||
+               result.events!==2||result.points!==2||!result.chart||
+               !result.cold||!result.independentReadback||!result.methodStable||
+               !result.sourceLinks||result.mobile!==375||result.desktop!==1440)
+              throw new Error('D04_DYNAMICS_INCOMPLETE');
+            console.log('D04_DYNAMICS_REAL_2_RESULTS=PASS');
+            console.log('D04_DYNAMICS_ORIGINAL_KERNEL_SOURCE=PASS');
+            console.log('D04_DYNAMICS_SELECT_CHART_OPEN_SOURCE=PASS');
+            console.log('D04_DYNAMICS_COLD_PERSONAL_OVERVIEW=PASS');
+          }finally {
+            await new Promise(done=>server.server.close(done));
+          }
+          NODE
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "D04_DYNAMICS_NATIVE_E2E=FAIL"
+            grep -Eo 'D04_DYNAMICS_(STAGE|CAUSE_CLASS)_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-health-dynamics.log" | sort -u | tail -8 || true
+            exit "$code"
+          fi
+          grep '^D04_DYNAMICS_' "$RUNNER_TEMP/d04-health-dynamics.log" | tail -8
+          echo "D04_DYNAMICS_NATIVE_E2E=PASS"
+          if node qualification/run-life-os-recovery-ci.mjs >"$RUNNER_TEMP/d04-recovery.log" 2>&1; then
+            echo "D04_RECOVERY_NATIVE_E2E=PASS"
+          else
+            echo "D04_RECOVERY_NATIVE_E2E=FAIL"
+            grep -Eo "D04_RECOVERY_(STAGE|CAUSE_CLASS)_[A-Za-z0-9_]+" "$RUNNER_TEMP/d04-recovery.log" | sort -u | tail -8 || true
+            exit 1
+          fi
+          # No private source, archive, profile, Result or screenshot is uploaded.
+ "$RUNNER_TEMP/d04-recovery-build.log" | tail -3 || true
             grep -Eo 'BAZMED_[A-Z0-9_]+|D04_[A-Z0-9_]+' "$RUNNER_TEMP/d04-recovery-build.log" | sort -u | tail -20 || true
             exit "$code"
           fi
