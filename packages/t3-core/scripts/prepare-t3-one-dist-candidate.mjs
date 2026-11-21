@@ -91,6 +91,20 @@ export function manifestForOneDist(entries,{version,oneCoreSha,t2Sha,assembled,p
      (product.assemblyProfile==='agent-d6-desktop'&&
        assembled.local_inference_registered!==false))
     fail('PRODUCT_OWNED_T2_SERVICE_REQUIRED');
+  // A browser deployment is a full product with its site, original T2
+  // Kernel, and built T3 Workspace/Exchange/Lifecycle/Studio. The installed
+  // Agent and Admin profiles deliberately keep their native launch pages.
+  if(product.assemblyProfile==='signed-control'&&
+     product.origin.startsWith('https://')){
+    const requiredWeb=[
+      'one-dist/index.html','one-dist/workspace/index.html',
+      'one-dist/workspace/exchange/index.html',
+      'one-dist/workspace/lifecycle/index.html',
+      'one-dist/workspace/studio/index.html',
+    ];
+    if(requiredWeb.some(path=>!names.includes(path)))
+      fail('INCOMPLETE_WEB_ONE_DIST');
+  }
   const files=entries.map(x=>({
     path:x.name,bytes:x.bytes.length,sha256:hash(x.bytes),
   })).sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);

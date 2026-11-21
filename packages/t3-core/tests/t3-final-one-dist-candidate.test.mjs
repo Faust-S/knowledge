@@ -63,12 +63,20 @@ test('a product-specific One Dist cannot be declared universal or silently grant
 test('ordinary domains retain canonical HTTPS product origins, but native Agent does not',()=>{
   const domain={id:'iwxa.web-example',origin:'https://example.org',
     serviceId:'iwxa.web-example.workspace',assemblyProfile:'signed-control'};
-  const qualified=manifest(undefined,{product:domain});
+  const webEntries=[
+    'one-dist/index.html','one-dist/workspace/index.html',
+    'one-dist/workspace/exchange/index.html',
+    'one-dist/workspace/lifecycle/index.html',
+    'one-dist/workspace/studio/index.html',
+  ].map(name=>({name,bytes:Buffer.from('<!doctype html>')}));
+  const qualified=manifest([...fixture(),...webEntries],{product:domain});
+  assert.throws(()=>manifest(undefined,{product:domain}),
+    /T3_ONE_DIST_CANDIDATE_INCOMPLETE_WEB_ONE_DIST/);
   assert.equal(qualified.productOrigin,'https://example.org');
   assert.equal(qualified.assemblyProfile,'signed-control');
-  assert.throws(()=>manifest(undefined,{product:{...domain,origin:'https://example.org/other'}}),
+  assert.throws(()=>manifest([...fixture(),...webEntries],{product:{...domain,origin:'https://example.org/other'}}),
     /T3_ONE_DIST_CANDIDATE_PRODUCT_OWNED_T2_SERVICE_REQUIRED/);
-  assert.throws(()=>manifest(undefined,{product:{...domain,assemblyProfile:'agent-d6'}}),
+  assert.throws(()=>manifest([...fixture(),...webEntries],{product:{...domain,assemblyProfile:'agent-d6'}}),
     /T3_ONE_DIST_CANDIDATE_PRODUCT_OWNED_T2_SERVICE_REQUIRED/);
 });
 
