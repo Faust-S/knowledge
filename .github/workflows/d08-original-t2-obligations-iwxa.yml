@@ -1,0 +1,107 @@
+name: D08 original T2 obligations full independent iwxa qualification
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d08-original-t2-obligations-iwxa.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d08-original-t2-obligations-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  real-host-exchange:
+    name: Original T2 installed site + native Windows browser + clean profile
+    runs-on: windows-latest
+    timeout-minutes: 70
+    defaults:
+      run:
+        shell: bash
+    env:
+      IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+      PUPPETEER_SKIP_DOWNLOAD: "1"
+      CI: "true"
+    steps:
+      - name: Set long-path checkout compatibility
+        run: |
+          git config --global core.longpaths true
+          git config --global core.autocrlf false
+      - name: Checkout exact private MarketOps site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: 519b7256c4ff9d10233fe6294ca660c21af930a1
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - name: Checkout original accepted T2 source, exact MarketOps pin
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - name: Verify clean pinned private identities without outputting source
+        run: |
+          test "$(git -C site rev-parse HEAD)" = "519b7256c4ff9d10233fe6294ca660c21af930a1" || exit 1
+          test "$(git -C t2 rev-parse HEAD)" = "49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7" || exit 1
+          test -z "$(git -C t2 status --porcelain)" || exit 1
+          test -f site/tests/d08-obligation-native-t2-roundtrip.mjs || exit 1
+          test -f t2/t2/current/final-successor/canonical-source/scripts/stage-t2-external-module.mjs || exit 1
+          echo D08_REAL_ORIGINAL_T2_PIN=PASS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - name: Native test syntax
+        working-directory: site
+        run: |
+          node --check tests/d08-obligation-native-t2-roundtrip.mjs || exit 1
+          echo D08_NATIVE_WITNESS_SYNTAX=PASS
+      - name: Install site dependencies
+        working-directory: site
+        run: |
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d08-original-install.log" 2>&1 || {
+            echo D08_NATIVE_INSTALL=FAIL; exit 1;
+          }
+          echo D08_NATIVE_INSTALL=PASS
+      - name: Use installed Windows Chrome or acquire test browser
+        working-directory: site
+        run: |
+          CHROME="C:\Program Files\Google\Chrome\Application\chrome.exe"
+          if test -f "$CHROME"; then
+            echo "PUPPETEER_EXECUTABLE_PATH=$CHROME" >> "$GITHUB_ENV"
+          else
+            unset PUPPETEER_SKIP_DOWNLOAD
+            node_modules/.bin/puppeteer browsers install chrome > "$RUNNER_TEMP/d08-browser.log" 2>&1 || {
+              echo D08_NATIVE_BROWSER=FAIL; exit 1;
+            }
+          fi
+          echo D08_NATIVE_BROWSER=PASS
+      - name: Build only disposable integrated site on exact original T2
+        working-directory: site
+        run: |
+          npm run build > "$RUNNER_TEMP/d08-original-build.log" 2>&1 || {
+            echo D08_NATIVE_T2_BUILD=FAIL
+            node -e 'const fs=require("node:fs");const s=fs.readFileSync(process.env.RUNNER_TEMP+"/d08-original-build.log","utf8");for(const [key,re] of [["T2_PIN",/MARKETOPS_T2_PIN_MISMATCH/],["KERNEL",/KERNEL_RELEASE|RUNTIME_READBACK|QUALIFIED_RELEASE/],["NET",/ECONNRESET|ETIMEDOUT|registry\.npmjs/],["TS",/TS[0-9]{4}/],["VITE",/vite.*error|RollupError/i],["STAGE",/stage-t2-external-module/]])if(re.test(s))console.log("D08_NATIVE_T2_BUILD_CAUSE="+key);'
+            exit 1
+          }
+          test -f dist/workspace/index.html || exit 1
+          test -f dist/workspace/exchange/index.html || exit 1
+          test -f dist/_iwxa/runtime/0.3.6/runtime.js || exit 1
+          echo D08_NATIVE_T2_BUILD=PASS
+      - name: Real GUI business obligation to independent iwxa import
+        working-directory: site
+        run: |
+          node tests/d08-obligation-native-t2-roundtrip.mjs > "$RUNNER_TEMP/d08-original-gui.log" 2>&1 || {
+            grep -E '^D08_NATIVE_OBLIGATIONS_(FAILURE_PHASE|FAILURE_TYPE|FAILURE_CODE)=' \
+              "$RUNNER_TEMP/d08-original-gui.log" | head -3 || true
+            echo D08_NATIVE_T2_EXCHANGE=FAIL
+            exit 1
+          }
+          grep -E '^D08_NATIVE_OBLIGATIONS_[A-Z_]+=PASS$' "$RUNNER_TEMP/d08-original-gui.log"
+          grep -q '^D08_NATIVE_OBLIGATIONS_FULL_ROUNDTRIP=PASS$' "$RUNNER_TEMP/d08-original-gui.log" || exit 1
+          echo D08_NATIVE_T2_EXCHANGE=PASS
+      # No artifacts, private files, screenshots, logs, credentials or dist are uploaded.
