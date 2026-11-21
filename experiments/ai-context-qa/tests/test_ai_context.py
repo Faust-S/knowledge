@@ -20,6 +20,7 @@ class AIContextSyntheticTests(unittest.TestCase):
         self.root = Path(tmp.name)
         self.k = self.root / "knowledge" / "system"
         self.k.mkdir(parents=True)
+        (self.k / "CHANGE_EVENTS.jsonl").write_text("", encoding="utf-8")
         (self.root / "docs").mkdir()
         (self.root / "archive").mkdir()
         policy = {
