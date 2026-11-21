@@ -1,0 +1,142 @@
+{
+  "schema": "IWXA_AKIS_AUTHOR_CONCEPT_MAP/0.1",
+  "synthetic_qualification_fixture": true,
+  "not_the_doctoral_canonical_author_catalog": true,
+  "taxonomy": {
+    "morphological_axes": [
+      {
+        "key": "scale",
+        "values": [
+          "Внутрифирменные",
+          "межфирменные"
+        ]
+      },
+      {
+        "key": "governance",
+        "values": [
+          "Централизованные",
+          "операторские"
+        ]
+      },
+      {
+        "key": "autonomy",
+        "values": [
+          "Рекомендательные",
+          "подготовительные",
+          "доверенно-исполнительные"
+        ]
+      },
+      {
+        "key": "process",
+        "values": [
+          "Жесткие",
+          "межфирменные"
+        ]
+      },
+      {
+        "key": "knowledge",
+        "values": [
+          "Локальный",
+          "операторский"
+        ]
+      },
+      {
+        "key": "data",
+        "values": [
+          "Внутренние",
+          "смешанные"
+        ]
+      },
+      {
+        "key": "platform",
+        "values": [
+          "Внутриплатформенные",
+          "независимые"
+        ]
+      },
+      {
+        "key": "economics",
+        "values": [
+          "Абонентские",
+          "результатные"
+        ]
+      },
+      {
+        "key": "human",
+        "values": [
+          "Ручной контроль",
+          "контроль по исключениям"
+        ]
+      }
+    ],
+    "subject_configurations": [
+      {
+        "id": "intra"
+      },
+      {
+        "id": "inter"
+      },
+      {
+        "id": "operator"
+      },
+      {
+        "id": "sector"
+      },
+      {
+        "id": "macro"
+      },
+      {
+        "id": "trace"
+      }
+    ],
+    "organizational_code_components": [
+      "С",
+      "ИД",
+      "Рол",
+      "Пр",
+      "Запр",
+      "Ист",
+      "Событ",
+      "Прав",
+      "Авт",
+      "Эск",
+      "Отв",
+      "Журн",
+      "Пересм"
+    ],
+    "formation_phases": [
+      {
+        "phase": 1,
+        "name": "SYNTHETIC_PHASE_1"
+      },
+      {
+        "phase": 2,
+        "name": "SYNTHETIC_PHASE_2"
+      },
+      {
+        "phase": 3,
+        "name": "SYNTHETIC_PHASE_3"
+      },
+      {
+        "phase": 4,
+        "name": "SYNTHETIC_PHASE_4"
+      },
+      {
+        "phase": 5,
+        "name": "SYNTHETIC_PHASE_5"
+      },
+      {
+        "phase": 6,
+        "name": "SYNTHETIC_PHASE_6"
+      },
+      {
+        "phase": 7,
+        "name": "SYNTHETIC_PHASE_7"
+      },
+      {
+        "phase": 8,
+        "name": "SYNTHETIC_PHASE_8"
+      }
+    ]
+  }
+}
