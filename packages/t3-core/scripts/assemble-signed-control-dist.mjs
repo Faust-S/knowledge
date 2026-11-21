@@ -10,6 +10,7 @@ import {assertQualifiedKernelArtifact}
   from '../src/factory2/products/domain-completion/independent-browser-witness.mjs';
 import {registerT3LocalInferenceService}
   from './register-t3-local-inference.mjs';
+import {materializeDomainMode} from './materialize-t3-domain-mode.mjs';
 
 // The original D3 recipient writes this exact Object through T2
 // commitObjectGraph. Register only in an installed original Admin D3 dist.
@@ -419,6 +420,10 @@ export function assembleSignedControlDist({
     if(hash(join(temp,'_iwxa/loader.js'))!==hash(originalLoader)||
        hash(join(temp,'_iwxa/runtime/0.3.6/runtime.js'))!==hash(originalRuntime))
       fail('ORIGINAL_KERNEL_CHANGED');
+    // Browser domains leave this SAME dist with its final site, Workspace,
+    // original Kernel/Exchange and one explicit offline T3 switch.
+    // No native Agent or Admin signer is staged into a browser domain.
+    if(web)materializeDomainMode(temp);
     if(existsSync(output))fail('OUTPUT_ALREADY_EXISTS');
     renameSync(temp,output);
     return {schema:'iwxa.t3.signed-control-one-dist/1',origin,
@@ -430,7 +435,8 @@ export function assembleSignedControlDist({
       original_qualified_artifact:qualified?.artifactId??'TEST_ONLY_UNQUALIFIED',
       original_loader_sha256:hash(originalLoader),
       original_runtime_sha256:hash(originalRuntime),
-      original_runtime_unchanged:true,output};
+      original_runtime_unchanged:true,
+      autonomous_domain_mode_staged:web,output};
   }catch(error){rmSync(temp,{recursive:true,force:true});throw error;}
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){

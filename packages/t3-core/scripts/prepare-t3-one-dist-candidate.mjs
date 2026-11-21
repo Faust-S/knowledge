@@ -101,6 +101,8 @@ export function manifestForOneDist(entries,{version,oneCoreSha,t2Sha,assembled,p
       'one-dist/workspace/exchange/index.html',
       'one-dist/workspace/lifecycle/index.html',
       'one-dist/workspace/studio/index.html',
+      'one-dist/t3-domain-mode.mjs','one-dist/t3-sw.js',
+      'one-dist/t3-app-manifest.json','one-dist/t3-offline-manifest.json',
     ];
     if(requiredWeb.some(path=>!names.includes(path)))
       fail('INCOMPLETE_WEB_ONE_DIST');

@@ -136,8 +136,17 @@ export function materializeDomainMode(distRoot, assistantDistRoot = null) {
     const route = path.endsWith("/index.html") ? path.slice(0,-"index.html".length) : path;
     const title = (before.match(/<title[^>]*>([^<]{1,200})<\/title>/i)?.[1] || route).trim();
     pages.push({path:route,title:title.slice(0,150)});
-    replacements.push([page, inject(before, relative(root,page), !!assistantDistRoot,
-      appleIcon)]);
+    // Trusted Kernel and signed isolated entries are not normal website
+    // pages. Do not inject a site-wide service-worker controller into their
+    // isolated execution contexts; retain their compiled bytes unchanged.
+    const protectedRealm=new Set([
+      'workspace/signed-workspace.html',
+      'workspace/isolated-signed-workspace.html',
+      'workspace/trusted-kernel-realm.html',
+    ]);
+    const relativePage=relative(root,page).split(sep).join('/');
+    replacements.push([page,protectedRealm.has(relativePage)?before:
+      inject(before,relativePage,!!assistantDistRoot,appleIcon)]);
   }
   for (const [path, content] of replacements) writeFileSync(path, content);
   copyFileSync(join(scriptRoot, "t3-domain-mode.mjs"), join(root, "t3-domain-mode.mjs"));

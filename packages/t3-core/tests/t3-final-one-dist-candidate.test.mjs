@@ -68,6 +68,8 @@ test('ordinary domains retain canonical HTTPS product origins, but native Agent 
     'one-dist/workspace/exchange/index.html',
     'one-dist/workspace/lifecycle/index.html',
     'one-dist/workspace/studio/index.html',
+    'one-dist/t3-domain-mode.mjs','one-dist/t3-sw.js',
+    'one-dist/t3-app-manifest.json','one-dist/t3-offline-manifest.json',
   ].map(name=>({name,bytes:Buffer.from('<!doctype html>')}));
   const qualified=manifest([...fixture(),...webEntries],{product:domain});
   assert.throws(()=>manifest(undefined,{product:domain}),
