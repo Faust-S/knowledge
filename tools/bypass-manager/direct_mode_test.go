@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -111,5 +114,32 @@ func TestLocalDirectFailureNotExportedAndCleared(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("private error was not cleared after recovery: %v", err)
+	}
+}
+
+func TestDirectNativeLaunchWaitDelayRequiresExactMarkerAndVerifiedError(t *testing.T) {
+	const marker = "DIRECT_STARTED: owned native TLS adaptation process is running; successful bypass NOT verified."
+	wrappedWait := fmt.Errorf("PowerShell: %w: %s", exec.ErrWaitDelay, marker)
+	cases := []struct {
+		name string
+		stdout string
+		err error
+		accepted bool
+	}{
+		{"clean launch", marker, nil, true},
+		{"original stdout pipe inherited by winws2", marker, wrappedWait, true},
+		{"WaitDelay without marker", "PowerShell command executed", wrappedWait, false},
+		{"nonzero native start failure with marker", marker, errors.New("exit status 1"), false},
+		{"no output but successful command", "", nil, false},
+		{"only generic marker", "DIRECT_STARTED", nil, false},
+		{"foreign output with no proof", "DIRECT_STARTED: some other process", wrappedWait, false},
+		{"cancel before verified launch", marker, context.Canceled, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := directLaunchOutputAccepted(tc.stdout, tc.err); got != tc.accepted {
+				t.Fatalf("accepted=%v wanted %v", got, tc.accepted)
+			}
+		})
 	}
 }

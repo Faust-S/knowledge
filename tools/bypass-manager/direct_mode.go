@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -146,6 +147,16 @@ func (m *Manager) getDirectStatus(ctx context.Context) (string, error) {
 // Enable immediately installs the native engine if absent, then starts a
 // bounded TLS-only auto-hostlist profile. This never requires Amnezia, a VPN
 // server IP, network route changes or a browser extension.
+// A long-lived winws2 may inherit a PowerShell stdout pipe. In that case
+// PowerShell itself has already exited successfully, but Go's CombinedOutput
+// reports exec.ErrWaitDelay after waiting for the inherited pipe to close.
+// The startup marker is NOT sufficient proof: startDirect always checks the
+// saved process PID, start time, and executable path immediately afterward.
+func directLaunchOutputAccepted(output string, err error) bool {
+	const marker = "DIRECT_STARTED: owned native TLS adaptation process is running"
+	return strings.Contains(output, marker) && (err == nil || errors.Is(err, exec.ErrWaitDelay))
+}
+
 func (m *Manager) startDirect(ctx context.Context) error {
 	defer func() {
 		// A cancelled PowerShell launcher may already have spawned winws2 before
@@ -198,12 +209,14 @@ func (m *Manager) startDirect(ctx context.Context) error {
 	startCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	output, err = m.powerShell(startCtx, "Start-Direct.ps1", args[:len(args)-1]...)
 	cancel()
-	if err != nil {
-		return fmt.Errorf("native direct start failed: %w", err)
-	}
-	if !strings.Contains(output, "DIRECT_STARTED") {
+	if !directLaunchOutputAccepted(output, err) {
+		if err != nil {
+			return fmt.Errorf("native direct start failed: %w", err)
+		}
 		return errors.New("native direct start not confirmed")
 	}
+	// Never infer success merely from a marker or WaitDelay: validate the
+	// actual owned process identity below, as before.
 	// The owned WinDivert process can exit after PowerShell returned. Check PID
 	// and creation time through the same operating-system identity code.
 	checkCtx, done := context.WithTimeout(context.Background(), 12*time.Second)
