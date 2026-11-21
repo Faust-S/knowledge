@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 353b5b099e67e4453948261bc26e360f90beb0ce
+          ref: ebd9651ac33266bd22aa9834c2d849c633d84b48
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -40,7 +40,7 @@ jobs:
         run: |
           $site=(& git rev-parse HEAD).Trim()
           $t2=(& git -C ../t2 rev-parse HEAD).Trim()
-          if($site -ne "353b5b099e67e4453948261bc26e360f90beb0ce" -or
+          if($site -ne "ebd9651ac33266bd22aa9834c2d849c633d84b48" -or
              $t2 -ne "e70de29b72b83e2546f7ab74b17572685a728c17"){
             throw "D11_WINDOWS_SOURCE_REVISION_CHANGED"
           }
