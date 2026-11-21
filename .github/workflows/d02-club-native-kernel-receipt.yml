@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: 4ec1e20f00ab1ae7c8c4ca26c85bfc8768802398
+      SITE_SHA: e87797a3071d4bd07000e6d20458f72e4958a242
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -1297,6 +1297,34 @@ jobs:
             $null=Await 'Моя неделя' '' 'D02_IMPORT_WEEK_RESULT_MISSING_AFTER_COLD_OPEN'
             $null=Await 'Дел в недельном плане: 1' '' 'D02_IMPORT_WEEK_TASK_LOST_IN_IWXA'
             Write-Output 'D02_IMPORT_WEEK_IWXA_INDEPENDENT_COLD_READBACK=PASS'
+            # Read the actual imported task in the original T2 Result viewer.
+            # Locate the View action in the same week card, not any project's
+            # similarly named button. No temporary tab-state is reused.
+            $weekHeading=Await 'Моя неделя' '' 'D02_IMPORT_WEEK_CARD_NOT_ACCESSIBLE'
+            $walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker
+            $cursor=$weekHeading
+            $weekView=$null
+            for($level=0;$level -lt 12;$level++){
+              if(!$cursor){break}
+              try{
+                $resume=$cursor.FindFirst($scope,[System.Windows.Automation.PropertyCondition]::new(
+                  [System.Windows.Automation.AutomationElement]::NameProperty,'Продолжить неделю'))
+                $viewCondition=[System.Windows.Automation.AndCondition]::new(
+                  [System.Windows.Automation.PropertyCondition]::new(
+                    [System.Windows.Automation.AutomationElement]::NameProperty,'Посмотреть'),
+                  [System.Windows.Automation.PropertyCondition]::new(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::Button))
+                $viewer=$cursor.FindFirst($scope,$viewCondition)
+                if($resume -and $viewer){$weekView=$viewer;break}
+                $cursor=$walker.GetParent($cursor)
+              }catch{break}
+            }
+            if(!$weekView){throw 'D02_IMPORT_WEEK_VIEW_ACTION_NOT_FOUND'}
+            $weekView.SetFocus()
+            [System.Windows.Forms.SendKeys]::SendWait(' ')
+            $null=Await 'Забрать документы для семейного бюджета' '' 'D02_IMPORT_WEEK_TASK_CONTENT_LOST'
+            Write-Output 'D02_IMPORT_WEEK_EXACT_TASK_IN_T2_VIEWER=PASS'
             Write-Output 'D02_IMPORT_PRIVATE_ARCHIVE_UPLOAD=FALSE'
           }finally{
             foreach($p in @($reopened,$browser)){if($p){try{$p.Kill($true)}catch{}}}
