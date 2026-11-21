@@ -29,14 +29,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: c0fbe2b93ca365fa5f55f158e25b5e4b764664be
+          ref: a0a3e2c43c736a8ad761c3bfba35ddae71ca544a
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify exact refs and original subject-protocol parity
         run: |
           test "$(git -C domain rev-parse HEAD)" = "025b44d00f6201cab816a221d46bee083cb4a006"
-          test "$(git -C site rev-parse HEAD)" = "c0fbe2b93ca365fa5f55f158e25b5e4b764664be"
+          test "$(git -C site rev-parse HEAD)" = "a0a3e2c43c736a8ad761c3bfba35ddae71ca544a"
           cmp domain/src/domain/service-subject-wallpaper-a.ts site/src/domain/service-subject-wallpaper-a.ts
           cmp domain/src/domain/service-subject-protocols.ts site/src/domain/service-subject-protocols.ts
           cmp domain/src/domain/service-original-corroboration.ts site/src/domain/service-original-corroboration.ts
