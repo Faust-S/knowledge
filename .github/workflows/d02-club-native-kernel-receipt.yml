@@ -1846,17 +1846,12 @@ jobs:
             # The person's contribution is a distinct original Kernel Result.
             # Open its explicitly labelled action, not the parent's generic
             # 'Посмотреть' button which can point to the cooperation scenario.
-            # The preceding GUI step creates a standalone contribution
-            # with no scenario selected. The independent importer must
-            # inspect that exact Result, not assume it belongs to a group.
-            # A linked contribution uses its own explicitly labelled button.
-            $claimView=Locate 'Посмотреть вклад: Сверка покупки' 'button'
-            $linkage='LINKED'
-            if(!$claimView){
-              $claimView=Await 'Посмотреть запись: Мой вклад: Сверка покупки' 'button' 'D02_IMPORT_CONTRIBUTION_EXACT_VIEW_ACTION_NOT_FOUND'
-              $linkage='STANDALONE'
-            }
-            Write-Output "D02_IMPORT_CONTRIBUTION_VIEW_PATH=$linkage"
+            # This archive must contain a genuine scenario relation, not
+            # merely two similarly named objects with no common source.
+            $null=Await 'Мои записи вклада (1)' '' 'D02_IMPORT_LINKED_CONTRIBUTION_GROUP_MISSING'
+            $claimView=Await 'Посмотреть вклад: Сверка покупки' 'button' 'D02_IMPORT_LINKED_CONTRIBUTION_VIEW_MISSING'
+            Write-Output 'D02_IMPORT_CONTRIBUTION_VIEW_PATH=LINKED'
+            Write-Output 'D02_IMPORT_LINKED_SCENARIO_CONTRIBUTION_GROUP=PASS'
             # Real keyboard activation (Edge React onClick), scoped to the
             # contribution's uniquely named button. No generic project viewer.
             try{
@@ -1866,6 +1861,20 @@ jobs:
             $null=AwaitPrefix 'Основание: Товарная накладная и чек номер 115' '' 'D02_IMPORT_CONTRIBUTION_EVIDENCE_LOST'
             $null=AwaitPrefix 'Записанный результат: Проверил десять наборов' '' 'D02_IMPORT_CONTRIBUTION_RESULT_LOST'
             Write-Output 'D02_IMPORT_CONTRIBUTION_EXACT_EVIDENCE_IN_T2_VIEWER=PASS'
+            # Continue exactly this claim after import, restoring its source
+            # scenario and claim with the original T2 Host confirmation.
+            Click 'Продолжить вклад: Сверка покупки' 'D02_IMPORT_LINKED_CONTINUE_BUTTON_NOT_FOUND'
+            $null=Await 'Открыть сохранённые результаты в Клубе' '' 'D02_IMPORT_LINKED_CONTINUE_PANEL_MISSING'
+            $null=AwaitPrefix 'Выбран личный вклад и исходное дело' '' 'D02_IMPORT_LINKED_CONTINUE_SELECTION_MISSING'
+            Click 'Передать выбранные результаты на сайт' 'D02_IMPORT_LINKED_CONTINUE_CONFIRM_FAILED'
+            $null=Await 'Результаты загружены' '' 'D02_IMPORT_LINKED_CONTINUE_NOT_APPLIED'
+            $destination=Await 'Открыть Мой вклад' '' 'D02_IMPORT_LINKED_CONTINUE_DESTINATION_MISSING'
+            $destination.SetFocus()
+            [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+            $null=Await 'Что обещал, что сделал и чем подтвердить' '' 'D02_IMPORT_LINKED_EDITOR_NOT_OPENED'
+            $null=Await 'Результат: Проверил десять наборов' '' 'D02_IMPORT_LINKED_EDITOR_RESULT_MISSING'
+            $null=Await 'Основание: Товарная накладная и чек номер 115' '' 'D02_IMPORT_LINKED_EDITOR_EVIDENCE_MISSING'
+            Write-Output 'D02_IMPORT_LINKED_CONTRIBUTION_CONTINUATION=PASS'
             Write-Output 'D02_IMPORT_PRIVATE_ARCHIVE_UPLOAD=FALSE'
           }finally{
             foreach($p in @($reopened,$browser)){if($p){try{$p.Kill($true)}catch{}}}
