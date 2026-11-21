@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 3fd8cc66217dc7aeed7978f37253844886a749c7
+          ref: 67ea46ec16816e09b822d9ce6d091e97f486dca7
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -51,7 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C site rev-parse HEAD)" = "3fd8cc66217dc7aeed7978f37253844886a749c7"
+          test "$(git -C site rev-parse HEAD)" = "67ea46ec16816e09b822d9ce6d091e97f486dca7"
           test "$(git -C t2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17"
           echo D11_UX_SITE_REVISION=PASS
           echo D11_NORMATIVE_T2_REVISION=PASS
@@ -138,7 +138,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: 3fd8cc66217dc7aeed7978f37253844886a749c7
+          ref: 67ea46ec16816e09b822d9ce6d091e97f486dca7
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -160,7 +160,7 @@ jobs:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "3fd8cc66217dc7aeed7978f37253844886a749c7"
+          test "$(git rev-parse HEAD)" = "67ea46ec16816e09b822d9ce6d091e97f486dca7"
           test "$(git -C ../t2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17"
           node --check scripts/d11-ux-first-entry-browser-acceptance.mjs
           if ! npm ci --no-audit --no-fund > "$RUNNER_TEMP/d11-ux-browser-install.log" 2>&1; then
