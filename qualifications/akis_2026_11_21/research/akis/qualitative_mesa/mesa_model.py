@@ -24,6 +24,9 @@ from .subject_dynamics import choose_model_action, cooperative_choice_state
 from .subject_goals import GoalInputError, parse_subject_goals, evaluate_subject_goals
 from .future_needs import FutureNeedInputError, parse_future_needs, future_need_projection
 from .modern_economic_evidence import modern_economic_review
+from .owner_economic_feedback import (
+    OwnerFinanceInputError, parse_owner_finance, private_owner_financial_review,
+)
 from .economic_outlook import OutlookInputError, choose_outlook, parse_outlooks
 from .joint_purchasing import PurchasingInputError, evaluate_plan, parse_plans
 from .partner_discovery import DiscoveryInputError, parse_discovery, parse_formation_finance, discover
@@ -46,6 +49,8 @@ class EconomicSubject(mesa.Agent):
         self.kind = kind
         # Each Mesa principal keeps ONLY its own, non-binding research choices.
         self.modeled_choices: dict[str, dict[str, Any]] = {}
+        # Transient private evidence, never in shared Mesa observations.
+        self._financial_review_required = False
 
     def choose(self, work_id: str, observation: dict[str, Any],
                trace_position: int, outlook_epoch: int) -> dict[str, Any]:
@@ -56,7 +61,11 @@ class EconomicSubject(mesa.Agent):
             self.model.general_design.configuration
             if self.model.general_design is not None else "operator"
         )
-        choice = choose_model_action(observation, configuration=configuration)
+        choice = choose_model_action(
+            {**observation,
+             "_private_owner_cash_review_required": self._financial_review_required},
+            configuration=configuration,
+        )
         previous = self.modeled_choices.get(work_id)
         transition = (
             "INITIAL" if previous is None else "UNCHANGED"
@@ -109,6 +118,14 @@ class EconomicSubject(mesa.Agent):
                 works=state.works, context_basis=state.context_basis,
                 original_owners=principals,
             )
+        self._financial_review_required = bool(
+            work is not None and self.model.owner_financial_claims
+            and private_owner_financial_review(
+                self.model.owner_financial_claims, owner=self.party_id,
+                work=work, state=state, at=float(self.model.time),
+                economics=self.model._private_cash_economics(),
+            )
+        )
         # Original independent willingness and original owner preference
         # remain authoritative *within the simulated research state*.
         # A modeled quotation can only refine UNKNOWN, never sign consent.
@@ -171,6 +188,7 @@ class OperatorAKISModel(mesa.Model):
         "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response",
         "economic_outlook_available", "economic_outlook_expired",
         "joint_purchasing_quote_change",
+        "owner_finance_source_available", "owner_finance_source_expired",
     })
 
     def __init__(self, scenario: dict[str, Any]) -> None:
@@ -181,6 +199,7 @@ class OperatorAKISModel(mesa.Model):
         raw_profiles = research_input.pop("decision_profiles", [])
         raw_subject_goals = research_input.pop("subject_goals", [])
         raw_future_needs = research_input.pop("future_need_signals", [])
+        raw_owner_finance = research_input.pop("owner_financial_reviews", [])
         self.modern_economy_review_enabled = research_input.pop("modern_economy_review", False)
         if type(self.modern_economy_review_enabled) is not bool:
             raise InputError("MODERN_ECONOMY_REVIEW_MUST_BE_BOOLEAN")
@@ -189,6 +208,8 @@ class OperatorAKISModel(mesa.Model):
             raise InputError("ENDOGENOUS_SUBJECTS_MUST_BE_BOOLEAN")
         if raw_subject_goals and not self.endogenous_subjects_enabled:
             raise InputError("SUBJECT_GOALS_REQUIRE_ENDOGENOUS_SUBJECTS")
+        if raw_owner_finance and not self.endogenous_subjects_enabled:
+            raise InputError("OWNER_FINANCE_REVIEW_REQUIRES_ENDOGENOUS_SUBJECTS")
         raw_outlooks = research_input.pop("economic_outlooks", [])
         raw_joint_purchasing = research_input.pop("joint_purchasing_proposals", [])
         raw_partner_discovery = research_input.pop("partner_discovery", None)
@@ -202,6 +223,14 @@ class OperatorAKISModel(mesa.Model):
         self.adaptation_enabled = "adaptation_requests" in research_input
         raw_reviews = research_input.pop("adaptation_requests", [])
         self.qualitative = QualitativeAKIS(research_input)
+        try:
+            self.owner_financial_claims = parse_owner_finance(
+                raw_owner_finance, state=self.qualitative,
+                original_money=self.economic_claims,
+            )
+        except OwnerFinanceInputError as exc:
+            raise InputError(str(exc)) from exc
+        self._owner_cash_economic_cache: dict[str, Any] | None = None
         try:
             self.future_needs = parse_future_needs(raw_future_needs, self.qualitative)
         except FutureNeedInputError as exc:
@@ -301,7 +330,7 @@ class OperatorAKISModel(mesa.Model):
             for event in self.qualitative.events
         )
         self._review_active = (
-            bool(self.future_needs) or self.adaptation_enabled or self.economic_claims is not None or bool(self.economic_outlooks) or bool(self.joint_purchasing_plans)
+            bool(self.future_needs) or bool(self.owner_financial_claims) or self.adaptation_enabled or self.economic_claims is not None or bool(self.economic_outlooks) or bool(self.joint_purchasing_plans)
             or self.qualitative.context_basis is not None
             or self.qualitative.portfolio_review_enabled
             or self.qualitative.handoff_strict
@@ -329,6 +358,7 @@ class OperatorAKISModel(mesa.Model):
                 last_original_at,
                 max((row.available_at for row in self.economic_outlooks), default=0),
                 max((row.available_at for row in self.subject_goals), default=0),
+                max((row.expires_at for row in self.owner_financial_claims), default=0),
                 max((row.expires_at for row in self.future_needs), default=0),
                 max((plan.supplier_start for plan in self.joint_purchasing_plans), default=0),
                 max((buyer.available_at for plan in self.joint_purchasing_plans
@@ -361,6 +391,19 @@ class OperatorAKISModel(mesa.Model):
             for row in self.subject_goals if row.expires_at <= self._model_end_at
         }
         for at, trigger, work_id in sorted(goal_changes):
+            callback = partial(self._reassess_economic_outlook, work_id, trigger)
+            self._callbacks.append(callback)
+            self.schedule_event(callback, at=float(at), priority=Priority.DEFAULT)
+        owner_finance_changes = {
+            (row.available_at, "owner_finance_source_available", row.work)
+            for row in self.owner_financial_claims
+            if row.available_at <= self._model_end_at
+        } | {
+            (row.expires_at, "owner_finance_source_expired", row.work)
+            for row in self.owner_financial_claims
+            if row.expires_at <= self._model_end_at
+        }
+        for at, trigger, work_id in sorted(owner_finance_changes):
             callback = partial(self._reassess_economic_outlook, work_id, trigger)
             self._callbacks.append(callback)
             self.schedule_event(callback, at=float(at), priority=Priority.DEFAULT)
@@ -415,6 +458,31 @@ class OperatorAKISModel(mesa.Model):
                 self._schedule_responses({
                     "action": "initial_subject_evaluation", "work": work_id,
                 })
+
+    def _private_cash_economics(self) -> dict[str, Any]:
+        """Read original economic claims only, never create a second money book.
+
+        The subset excludes independent optional audit mechanisms so owner
+        review does not prematurely require a later accepted Result. Cash is
+        explicitly prospective, not evidence of real settlement.
+        """
+        if self._owner_cash_economic_cache is None:
+            if not isinstance(self.economic_claims, dict):
+                raise InputError("OWNER_FINANCE_REQUIRES_ORIGINAL_CASH_TIMING")
+            original = self.economic_claims
+            required = (
+                "period", "currency", "sources", "transfers",
+                "resource_uses", "coverage", "outside_feasibility", "cash_timing",
+            )
+            try:
+                self._owner_cash_economic_cache = evaluate_economic_claims(
+                    {k: original[k] for k in required},
+                    self.qualitative.subjects, self.qualitative.works,
+                    self.qualitative.cooperation_links, self.qualitative.trace,
+                )
+            except (EconomicInputError, KeyError) as exc:
+                raise InputError("OWNER_FINANCE_ORIGINAL_CASH_PROJECTION_INVALID") from exc
+        return self._owner_cash_economic_cache
 
     def _capture_general_system(self) -> None:
         view = general_system_view(
@@ -753,6 +821,15 @@ class OperatorAKISModel(mesa.Model):
                 "independent_original_principals": True,
                 "single_mesa_scheduler": True,
             }
+            if self.owner_financial_claims:
+                # Deliberately do not disclose owner, balance, risk or which
+                # particular economic condition caused the generic review.
+                output["endogenous_subjects"]["private_financial_evidence_boundary"] = {
+                    "scope": "ORIGINAL_OWNER_PRIVATE_RESEARCH_SOURCE",
+                    "shared_observation_contains_original_CASH_VALUES": False,
+                    "source_time_review_uses_existing_mesa_clock": True,
+                    "actual_owner_consent_or_payment_created": False,
+                }
         if self.partner_discovery_enabled:
             current = discover(
                 self.discovery_demands, self.discovery_offers, self.qualitative,
@@ -866,6 +943,10 @@ class OperatorAKISModel(mesa.Model):
                     "all_original_work_results_and_org_code_preserved": True,
                     "financial_risk_does_not_infer_owner_consent_or_new_contract": True,
                 }
+                if self.owner_financial_claims:
+                    output["general_akis_model"]["economic_time_and_cost_feedback"][
+                        "private_owner_research_reevaluation"
+                    ] = "SOURCE_TIMED_GENERIC_REVIEW_ONLY_NO_FINANCIAL_DISCLOSURE"
         if self.adaptation_enabled or "portfolio" in output or "economics" in output or "context_basis" in output or (
                 "capacity" in output and any(spec.calendar is not None for spec in self.qualitative.resource_specs.values())):
             try:
