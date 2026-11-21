@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: 98a3fbc4132502708b805a6b4eb21e7d5ecd72d7
+      SITE_SHA: 8739dfa84cb08127e5bd9cc56b1c76eb2919c243
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -1046,10 +1046,33 @@ jobs:
           # Browser number inputs may expose UIA Spinner/RangeValue instead
           # of Edit/ValuePattern. Use real keyboard input, then inspect the
           # actual native control (including a nested Edit) before continuing.
+          function LocateNumeric([string]$name){
+            $named=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+            $spinner=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+              [System.Windows.Automation.ControlType]::Spinner)
+            $edit=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+              [System.Windows.Automation.ControlType]::Edit)
+            $numeric=[System.Windows.Automation.OrCondition]::new($spinner,$edit)
+            $condition=[System.Windows.Automation.AndCondition]::new($named,$numeric)
+            foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue |
+              Where-Object {$_.MainWindowHandle -ne 0})){
+              try{
+                $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                  [IntPtr]$p.MainWindowHandle)
+                if(!$root){continue}
+                $result=$root.FindFirst($scope,$condition)
+                if($result -and $result.Current.IsEnabled){return $result}
+              }catch{}
+            }
+            return $null
+          }
           function EnterNumber([string]$name,[string]$value,[string]$code){
             $target=$null
             for($search=0;$search -lt 65;$search++){
-              $target=Locate $name ''
+              $target=LocateNumeric $name
               if($target){break}
               Start-Sleep -Milliseconds 200
             }
@@ -1061,7 +1084,7 @@ jobs:
                 [System.Windows.Forms.SendKeys]::SendWait($value)
                 [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
                 Start-Sleep -Milliseconds 250
-                $current=Locate $name ''
+                $current=LocateNumeric $name
                 if(!$current){continue}
                 $candidates=@($current)
                 foreach($child in $current.FindAll($scope,
@@ -1083,7 +1106,7 @@ jobs:
               }catch{}
               Start-Sleep -Milliseconds 250
             }
-            Write-Output ('D02_SCENE_NUMERIC_UIA_CONTROL='+$target.Current.ControlType.ProgrammaticName)
+            Write-Output ('D02_CONTRIBUTION_NUMERIC_UIA_CONTROL='+$target.Current.ControlType.ProgrammaticName)
             throw $code
           }
 
