@@ -302,6 +302,10 @@ def test_native_mesa_owner_need_precedes_first_result_then_reuses_original_consu
     from research.akis.qualitative_mesa.mesa_model import simulate
     from .test_future_need_mesa_integration import future
     d=prepare()
+    # The prospective need must have an ORIGINAL source-declared capacity;
+    # an implicit fixture default is not permission to allocate production.
+    d["resources"][0]["capacity_units"]=1
+    d["resources"][0]["capacity_unit"]="research_staff"
     claim=future(owner="b",work_id="w2",start=0,end=23,
                  slot_start=20,slot_end=30,resource="ra",
                  prereq=[{"work":"w1","source_revision":"d-1"}])
