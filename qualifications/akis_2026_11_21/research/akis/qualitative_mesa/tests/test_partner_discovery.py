@@ -237,6 +237,9 @@ def test_two_resources_from_one_original_owner_are_not_two_independent_partners(
             unit='units',basis='MODEL_DECLARED',calendar=None)
     s.resource_availability['second-supplier-machine']='AVAILABLE'
     s.resource_availability_origin['second-supplier-machine']='MODEL_INPUT'
+    # Original CapacityLedger copies initial specs. A test-created resource
+    # must be explicitly added to that same original ledger before preview.
+    s.capacity_ledger.specs['second-supplier-machine']=s.resource_specs['second-supplier-machine']
     p=raw()
     second=deepcopy(p['offers'][0]);second.update(id='S2',resource='second-supplier-machine',
                                                   source_ref='model://supplier/second-source')
