@@ -1,0 +1,242 @@
+name: D07 native Windows Workspace first run and cold resume
+on:
+  push:
+    branches: [work/2026-11-21-d07-workspace-quality]
+    paths: [.github/workflows/d07-native-workspace-first-run-resume.yml]
+permissions:
+  contents: read
+jobs:
+  native-uia:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      SITE_SHA: d12483aab7dc590bbee1ead39aac204fa64e4100
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      CI: 'true'
+      IWXA_D07_PREVIEW_PORT: '55417'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Confirm private read access
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'D07_NATIVE_ACCESS_MISSING'}
+          foreach($repo in @('Faust-S/uslugovod.ru','Faust-S/T2')){
+            $null=& gh api "repos/$repo" --jq '.id' 2>$null
+            if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_ACCESS_DENIED'}
+          }
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+          Write-Output 'D07_NATIVE_SOURCE_ACCESS=PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - name: Build authentic T2 site privately
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D07_NATIVE_SITE_PIN_MISMATCH'}
+          if((git -C ../t2 rev-parse HEAD).Trim() -ne $env:T2_SHA){throw 'D07_NATIVE_T2_PIN_MISMATCH'}
+          & bun install --frozen-lockfile *> (Join-Path $env:RUNNER_TEMP 'd07-install.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_INSTALL_FAIL'}
+          & bun run build:t2-integrated *> (Join-Path $env:RUNNER_TEMP 'd07-build.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_BUILD_FAIL'}
+          if(-not (Test-Path 'dist/workspace/index.html')){throw 'D07_NATIVE_T2_ENTRY_MISSING'}
+          Write-Output 'D07_NATIVE_ONE_DIST_T2=PASS'
+      - name: Run native Edge UI Automation on original Host
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          $origin='https://127.0.0.1:55417'
+          $url=$origin+'/workspace/#/domain'
+          $profile=Join-Path $env:RUNNER_TEMP 'd07-native-workspace-profile'
+          $site=Join-Path $env:GITHUB_WORKSPACE 'site'
+          $edge=@(
+            (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
+            (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
+          )|Where-Object{Test-Path $_}|Select-Object -First 1
+          if(-not $edge){throw 'D07_EDGE_NOT_INSTALLED'}
+          $server=$null
+          $edgeProc=$null
+          function OpenEdge([string]$page){
+            return Start-Process -FilePath $edge -ArgumentList @(
+              '--force-renderer-accessibility','--ignore-certificate-errors',
+              '--no-first-run','--no-default-browser-check','--disable-background-mode',
+              "--user-data-dir=$profile","--app=$page"
+            ) -PassThru
+          }
+          function CloseEdge {
+            if($script:edgeProc){
+              try{$script:edgeProc.Kill($true)}catch{}
+              try{$script:edgeProc.WaitForExit(6000)}catch{}
+            }
+            Start-Sleep -Milliseconds 1200
+          }
+          function FindUIA([string]$label,[string]$kind){
+            $name=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::NameProperty,$label)
+            if($kind -eq 'button'){
+              $type=[System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::Button)
+            }elseif($kind -eq 'link'){
+              $type=[System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::Hyperlink)
+            }else{$type=$null}
+            $condition=if($type){
+              [System.Windows.Automation.AndCondition]::new($name,$type)
+            }else{$name}
+            foreach($process in @(Get-Process msedge -ErrorAction SilentlyContinue|
+              Where-Object{$_.MainWindowHandle -ne 0})){
+              try{
+                $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$process.MainWindowHandle)
+                if(!$window){continue}
+                $all=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition)
+                for($i=$all.Count-1;$i -ge 0;$i--){
+                  $element=$all.Item($i)
+                  if($element.Current.IsEnabled -and !$element.Current.IsOffscreen){return $element}
+                }
+              }catch{}
+            }
+            return $null
+          }
+          function WaitUIA([string]$label,[string]$kind,[int]$attempts=75){
+            for($step=0;$step -lt $attempts;$step++){
+              $found=FindUIA $label $kind
+              if($found){return $found}
+              Start-Sleep -Milliseconds 450
+            }
+            return $null
+          }
+          function ClickUIA([string]$label,[string]$kind='button'){
+            $element=WaitUIA $label $kind
+            if(!$element){throw ('D07_NATIVE_ACTION_NOT_FOUND: '+$label)}
+            $pattern=[System.Windows.Automation.InvokePattern]$element.GetCurrentPattern(
+              [System.Windows.Automation.InvokePattern]::Pattern)
+            $pattern.Invoke()
+            Start-Sleep -Milliseconds 250
+          }
+          function HasText([string]$part){
+            foreach($process in @(Get-Process msedge -ErrorAction SilentlyContinue|
+              Where-Object{$_.MainWindowHandle -ne 0})){
+              try{
+                $window=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$process.MainWindowHandle)
+                if(!$window){continue}
+                $all=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                  [System.Windows.Automation.Condition]::TrueCondition)
+                for($i=0;$i -lt $all.Count;$i++){
+                  $label=$all.Item($i).Current.Name
+                  if($label -and $label.Contains($part)){return $true}
+                }
+              }catch{}
+            }
+            return $false
+          }
+          function WaitText([string]$part,[int]$attempts=75){
+            for($i=0;$i -lt $attempts;$i++){
+              if(HasText $part){return $true}
+              Start-Sleep -Milliseconds 500
+            }
+            return $false
+          }
+          try{
+            $server=Start-Process -FilePath 'node' -WorkingDirectory $site -ArgumentList @(
+              'scripts/preview-d07-integrated-site.mjs'
+            ) -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd07-host.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd07-host-error.private.log') -PassThru
+            $ready=$false
+            for($i=0;$i -lt 50;$i++){
+              Start-Sleep -Milliseconds 450
+              try{
+                $response=Invoke-WebRequest -Uri $origin+'/workspace/' -SkipCertificateCheck -TimeoutSec 2
+                if($response.StatusCode -eq 200){$ready=$true;break}
+              }catch{}
+            }
+            if(!$ready){throw 'D07_NATIVE_HTTPS_NOT_READY'}
+            Write-Output 'D07_NATIVE_HTTPS_HOST=PASS'
+            $edgeProc=OpenEdge $url
+            $new=WaitUIA 'Новый заказ' 'button' 30
+            if(!$new){
+              $first=WaitUIA 'Создать рабочую область' 'button' 40
+              if(!$first){throw 'D07_NATIVE_FIRST_RUN_ENTRY_MISSING'}
+              ClickUIA 'Создать рабочую область'
+              # The original Host may provision through its first-run gate
+              # or expose its ordinary Workspaces list and confirmation.
+              $route='unknown'
+              for($i=0;$i -lt 55;$i++){
+                if(FindUIA 'Новый заказ' 'button'){$route='gate';break}
+                if(FindUIA 'Новая рабочая область' 'button'){$route='catalog';break}
+                Start-Sleep -Milliseconds 450
+              }
+              if($route -eq 'catalog'){
+                ClickUIA 'Новая рабочая область'
+                ClickUIA 'Создать рабочую область'
+                Start-Sleep -Seconds 2
+              }elseif($route -ne 'gate'){
+                throw 'D07_NATIVE_WORKSPACE_CREATE_NOT_CONFIRMED'
+              }
+              CloseEdge
+              $edgeProc=OpenEdge $url
+              if(!(WaitUIA 'Новый заказ' 'button' 90)){
+                throw 'D07_NATIVE_WORKSPACE_RETURN_FAILED'
+              }
+              Write-Output 'D07_NATIVE_T2_FIRST_WORKSPACE=PASS'
+            }else{
+              Write-Output 'D07_NATIVE_T2_WORKSPACE_AVAILABLE=PASS'
+            }
+            ClickUIA 'Новый заказ'
+            $save=WaitUIA 'Сохранить заказ' 'button' 90
+            if(!$save){throw 'D07_NATIVE_SAVE_NOT_ENABLED'}
+            ClickUIA 'Сохранить заказ'
+            if(!(WaitText 'Заказ сохранён и повторно прочитан' 85)){
+              throw 'D07_NATIVE_KERNEL_READBACK_NOT_VISIBLE'
+            }
+            Write-Output 'D07_NATIVE_ORDER_SAVE_RECEIPT=PASS'
+            CloseEdge
+            $edgeProc=OpenEdge $url
+            if(!(WaitText 'Изменения сохранены в Workspace' 90)){
+              throw 'D07_NATIVE_COLD_REOPEN_MISSING'
+            }
+            if(!(WaitText 'Редакция 1' 30)){
+              throw 'D07_NATIVE_ORDER_REVISION_NOT_VISIBLE'
+            }
+            Write-Output 'D07_NATIVE_LAST_ORDER_COLD_REOPEN=PASS'
+            ClickUIA 'Архив .iwxa' 'link'
+            if(!(WaitText 'Сохранение и перенос заказов' 70)){
+              throw 'D07_NATIVE_EXCHANGE_ROUTE_NOT_VISIBLE'
+            }
+            Write-Output 'D07_NATIVE_ORIGINAL_IWXA_EXCHANGE=PASS'
+            Write-Output 'D07_NATIVE_PHYSICAL_IWXA_ROUNDTRIP=NOT_RUN'
+          }finally{
+            CloseEdge
+            if($server){Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue}
+          }
+      # No source, dist, browser profile, reports, archives or images uploaded.
