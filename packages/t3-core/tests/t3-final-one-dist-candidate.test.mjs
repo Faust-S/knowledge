@@ -60,6 +60,18 @@ test('a product-specific One Dist cannot be declared universal or silently grant
     /T3_ONE_DIST_CANDIDATE_PRODUCT_OWNED_T2_SERVICE_REQUIRED/);
 });
 
+test('ordinary domains retain canonical HTTPS product origins, but native Agent does not',()=>{
+  const domain={id:'iwxa.web-example',origin:'https://example.org',
+    serviceId:'iwxa.web-example.workspace',assemblyProfile:'signed-control'};
+  const qualified=manifest(undefined,{product:domain});
+  assert.equal(qualified.productOrigin,'https://example.org');
+  assert.equal(qualified.assemblyProfile,'signed-control');
+  assert.throws(()=>manifest(undefined,{product:{...domain,origin:'https://example.org/other'}}),
+    /T3_ONE_DIST_CANDIDATE_PRODUCT_OWNED_T2_SERVICE_REQUIRED/);
+  assert.throws(()=>manifest(undefined,{product:{...domain,assemblyProfile:'agent-d6'}}),
+    /T3_ONE_DIST_CANDIDATE_PRODUCT_OWNED_T2_SERVICE_REQUIRED/);
+});
+
 test('desktop Agent must have its original signed D6 schema but no WebLLM inference',()=>{
   const desktop={...product,assemblyProfile:'agent-d6-desktop'};
   const ready=manifest(undefined,{
