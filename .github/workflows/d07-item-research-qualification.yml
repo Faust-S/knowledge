@@ -29,14 +29,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 3af0cf1fdabdddace6814208572eb9f8380a3663
+          ref: d09857a30078ce6eb17ee0efcba36a0d6e8fdcf0
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify exact revisions and business logic parity
         run: |
           test "$(git -C subject rev-parse HEAD)" = "38bd8b96c5d7920980e6a31b7db6d6a206ec125f"
-          test "$(git -C site rev-parse HEAD)" = "3af0cf1fdabdddace6814208572eb9f8380a3663"
+          test "$(git -C site rev-parse HEAD)" = "d09857a30078ce6eb17ee0efcba36a0d6e8fdcf0"
           cmp subject/src/domain/service-external-gap-research.ts site/src/domain/service-external-gap-research.ts
           cmp subject/src/domain/service-professional-gap-inventory.ts site/src/domain/service-professional-gap-inventory.ts
           cmp subject/src/domain/service-subject-plumbing-a.ts site/src/domain/service-subject-plumbing-a.ts
