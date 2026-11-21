@@ -27,6 +27,9 @@ from .modern_economic_evidence import modern_economic_review
 from .owner_economic_feedback import (
     OwnerFinanceInputError, parse_owner_finance, private_owner_financial_review,
 )
+from .owner_forecast_revisions import (
+    ForecastRevisionInputError, parse_forecast_revisions, private_forecast_override,
+)
 from .economic_outlook import OutlookInputError, choose_outlook, parse_outlooks
 from .joint_purchasing import PurchasingInputError, evaluate_plan, parse_plans
 from .partner_discovery import DiscoveryInputError, parse_discovery, parse_formation_finance, discover
@@ -123,7 +126,9 @@ class EconomicSubject(mesa.Agent):
             and private_owner_financial_review(
                 self.model.owner_financial_claims, owner=self.party_id,
                 work=work, state=state, at=float(self.model.time),
-                economics=self.model._private_cash_economics(),
+                economics=self.model._private_cash_economics(
+                    owner=self.party_id, work_id=work_id,
+                ),
             )
         )
         # Original independent willingness and original owner preference
@@ -200,6 +205,7 @@ class OperatorAKISModel(mesa.Model):
         raw_subject_goals = research_input.pop("subject_goals", [])
         raw_future_needs = research_input.pop("future_need_signals", [])
         raw_owner_finance = research_input.pop("owner_financial_reviews", [])
+        raw_owner_forecast = research_input.pop("owner_payment_forecast_revisions", [])
         self.modern_economy_review_enabled = research_input.pop("modern_economy_review", False)
         if type(self.modern_economy_review_enabled) is not bool:
             raise InputError("MODERN_ECONOMY_REVIEW_MUST_BE_BOOLEAN")
@@ -210,6 +216,8 @@ class OperatorAKISModel(mesa.Model):
             raise InputError("SUBJECT_GOALS_REQUIRE_ENDOGENOUS_SUBJECTS")
         if raw_owner_finance and not self.endogenous_subjects_enabled:
             raise InputError("OWNER_FINANCE_REVIEW_REQUIRES_ENDOGENOUS_SUBJECTS")
+        if raw_owner_forecast and not raw_owner_finance:
+            raise InputError("OWNER_FORECAST_REVISIONS_REQUIRE_ORIGINAL_FINANCIAL_REVIEW")
         raw_outlooks = research_input.pop("economic_outlooks", [])
         raw_joint_purchasing = research_input.pop("joint_purchasing_proposals", [])
         raw_partner_discovery = research_input.pop("partner_discovery", None)
@@ -229,6 +237,14 @@ class OperatorAKISModel(mesa.Model):
                 original_money=self.economic_claims,
             )
         except OwnerFinanceInputError as exc:
+            raise InputError(str(exc)) from exc
+        try:
+            self.owner_forecast_revisions = parse_forecast_revisions(
+                raw_owner_forecast, state=self.qualitative,
+                original_money=self.economic_claims,
+                owner_claims=self.owner_financial_claims,
+            )
+        except ForecastRevisionInputError as exc:
             raise InputError(str(exc)) from exc
         self._owner_cash_economic_cache: dict[str, Any] | None = None
         try:
@@ -459,7 +475,9 @@ class OperatorAKISModel(mesa.Model):
                     "action": "initial_subject_evaluation", "work": work_id,
                 })
 
-    def _private_cash_economics(self) -> dict[str, Any]:
+    def _private_cash_economics(
+        self, *, owner: str | None = None, work_id: str | None = None,
+    ) -> dict[str, Any]:
         """Read original economic claims only, never create a second money book.
 
         The subset excludes independent optional audit mechanisms so owner
@@ -482,6 +500,29 @@ class OperatorAKISModel(mesa.Model):
                 )
             except (EconomicInputError, KeyError) as exc:
                 raise InputError("OWNER_FINANCE_ORIGINAL_CASH_PROJECTION_INVALID") from exc
+        if owner is not None and work_id is not None and self.owner_forecast_revisions:
+            updated = private_forecast_override(
+                self.owner_forecast_revisions, owner=owner, work=work_id,
+                at=float(self.time), original_money=self.economic_claims,
+                state=self.qualitative,
+            )
+            if updated is not None:
+                original = self.economic_claims
+                # This is only a read-only owner-private reinterpretation.
+                # Other principals never see updated transfer timing.
+                keys = (
+                    "period", "currency", "sources", "transfers",
+                    "resource_uses", "coverage", "outside_feasibility",
+                )
+                try:
+                    return evaluate_economic_claims(
+                        {**{key: original[key] for key in keys},
+                         "cash_timing": updated},
+                        self.qualitative.subjects, self.qualitative.works,
+                        self.qualitative.cooperation_links, self.qualitative.trace,
+                    )
+                except (EconomicInputError, KeyError) as exc:
+                    raise InputError("OWNER_FORECAST_PRIVATE_PROJECTION_INVALID") from exc
         return self._owner_cash_economic_cache
 
     def _capture_general_system(self) -> None:
@@ -829,6 +870,10 @@ class OperatorAKISModel(mesa.Model):
                     "shared_observation_contains_original_CASH_VALUES": False,
                     "source_time_review_uses_existing_mesa_clock": True,
                     "actual_owner_consent_or_payment_created": False,
+                    "forecast_revision_requires_applied_original_source_update": bool(
+                        self.owner_forecast_revisions
+                    ),
+                    "forecast_revision_changes_shared_cash_ledger": False,
                 }
         if self.partner_discovery_enabled:
             current = discover(
