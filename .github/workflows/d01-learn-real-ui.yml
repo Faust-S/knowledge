@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: d6b8a9ab5f324465125b65c16c13537eec0c34d2
+          ref: 35ceadeea116058f36eaae642c9820c673bd3df5
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -46,7 +46,7 @@ jobs:
         run: |
           set -eu
           test "$(git -C private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
-          test "$(git -C private/site rev-parse HEAD)" = d6b8a9ab5f324465125b65c16c13537eec0c34d2
+          test "$(git -C private/site rev-parse HEAD)" = 35ceadeea116058f36eaae642c9820c673bd3df5
           test "$(git -C private/domain rev-parse HEAD)" = 811e5c5edd1ee5bb9632acbc8aa5a94d0162624c
           cmp private/domain/learning-journey/projection.ts private/site/t2/domain-modules/learn-results/learning-journey.ts
           cmp private/domain/learning-journey/today.ts private/site/t2/domain-modules/learn-results/learning-today.ts
@@ -92,7 +92,7 @@ jobs:
         env:
           D01_T2_CHECKOUT: ${{ github.workspace }}/private/t2
           D01_EXPECTED_T2_HEAD: 9c64951cd78411283e8a416641c36d71e169fc1d
-          D01_EXPECTED_SITE_HEAD: d6b8a9ab5f324465125b65c16c13537eec0c34d2
+          D01_EXPECTED_SITE_HEAD: 35ceadeea116058f36eaae642c9820c673bd3df5
           D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
           D01_CASE_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-001-workplace-numeracy.json
           D01_CASE_002_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-002-price-label-check.json
