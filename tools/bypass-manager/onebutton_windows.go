@@ -34,7 +34,8 @@ type oneUI struct {
 	title, subtitle, headline, description, button, measure, report, status, ipLine, geoLine, speedLine, smallPrint uintptr
 	titleFont, headlineFont                                                                                         uintptr
 	mu                                                                                                              sync.Mutex
-	busy, closing, speedBusy                                                                                        bool
+	operationMu                                                                                                     sync.Mutex
+	busy, closing, speedBusy, requestedOn, initialStateChecked                                                      bool
 	cancel                                                                                                          context.CancelFunc
 	result                                                                                                          string
 	cause                                                                                                           string
@@ -70,6 +71,11 @@ func (ui *oneUI) setState(state, reason string) {
 		oneBtnText(ui.headline, "Требуется восстановление собственного процесса")
 		oneBtnText(ui.description, "Запись есть, но принадлежность процесса не подтверждена.\nВосстановление откажется завершать чужой процесс.")
 		oneBtnText(ui.button, "Проверить остановку")
+
+	case "AUTO_RECOVERY_PENDING":
+		oneBtnText(ui.headline, "Проверяю восстановление фильтра...")
+		oneBtnText(ui.description, "Свой обработчик остановился. Повторно проверяю процесс, затем сделаю не более одной попытки автозапуска.\nДругие DPI-программы и сетевые маршруты не изменяю.")
+		oneBtnText(ui.button, "Выключить")
 	case directPending:
 		oneBtnText(ui.headline, "Включаю локальную адаптацию...")
 		oneBtnText(ui.description, "Проверяю оригинальные компоненты и запускаю только собственный WinDivert-фильтр.")
@@ -99,7 +105,7 @@ func (ui *oneUI) init() {
 	ui.geoLine = ctrl(ui.hwnd, "STATIC", "Регион: ещё не определён", 0, 0, 24, 363, 780, 25)
 	ui.speedLine = ctrl(ui.hwnd, "STATIC", "Скорость: ещё не измерена", 0, 0, 24, 397, 780, 25)
 	ui.status = ctrl(ui.hwnd, "STATIC", "Готово к работе", 0, 0, 24, 447, 780, 28)
-	ui.smallPrint = ctrl(ui.hwnd, "STATIC", "При включении проверяются три открытых HTTPS-сервиса; они увидят IP программы.\nЛокальная адаптация не скрывает IP и не заменяет VPN.", 0, 0, 24, 475, 780, 50)
+	ui.smallPrint = ctrl(ui.hwnd, "STATIC", "Пока окно открыто, каждые 60 с проверяются три HTTPS-сервиса; они видят IP программы.\nАдаптация не скрывает IP, не заменяет VPN и не гарантирует обход конкретного сайта.", 0, 0, 24, 475, 780, 50)
 	f, _, _ := gdiDLL.NewProc("CreateFontW").Call(uintptr(int32Height(-25)), 0, 0, 0, 600, 0, 0, 0, 1, 0, 0, 0, 0, uintptr(unsafe.Pointer(wstr("Segoe UI"))))
 	if f != 0 {
 		ui.titleFont = f
@@ -159,9 +165,14 @@ func (ui *oneUI) checkState() {
 			state = directUnverified
 		}
 		ui.mu.Lock()
+
 		if !ui.busy {
 			ui.result = state
 			ui.cause = ""
+			if !ui.initialStateChecked {
+				ui.requestedOn = state == directRunning
+				ui.initialStateChecked = true
+			}
 			if state == directRunning {
 				var prior DirectCheckReport
 				if err := readStrictJSON(filepath.Join(m.home, "results", "latest-direct-check.json"), &prior); err == nil && validDirectCheck(prior) {
@@ -170,6 +181,14 @@ func (ui *oneUI) checkState() {
 						ui.cause = directCheckSummary(prior)
 					}
 				}
+			}
+			if monitored, ok := recentDirectMonitor(m); ok && monitored.EngineState == state {
+				if explanation := directMonitorSummary(monitored); explanation != "" {
+					ui.cause = explanation
+				}
+			}
+			if ui.requestedOn && (state == directOff || state == directUnverified) {
+				ui.result = "AUTO_RECOVERY_PENDING"
 			}
 		}
 		ui.mu.Unlock()
@@ -187,21 +206,28 @@ func (ui *oneUI) toggle() {
 		}
 		return
 	}
+
 	desired := "start"
-	if ui.current == directRunning || ui.current == directUnverified || ui.current == "OTHER_OWNED_PROFILE" {
+	if ui.requestedOn || ui.current == directRunning || ui.current == directUnverified || ui.current == "OTHER_OWNED_PROFILE" || ui.current == "AUTO_RECOVERY_PENDING" {
 		desired = "stop"
 	}
 	ctx, cancel := context.WithCancel(ui.ctx)
+
 	ui.busy = true
 	ui.cancel = cancel
+	ui.requestedOn = false
+	ui.initialStateChecked = true
 	ui.mu.Unlock()
 	if desired == "start" {
 		ui.setState(directPending, "Подготавливаю оригинальный движок. Проверка доступа к сайту ещё не выполнялась.")
 	} else {
 		ui.setState("STOPPING", "Останавливаю только собственный DPI-процесс.")
 	}
+
 	go func() {
 		defer cancel()
+		ui.operationMu.Lock()
+		defer ui.operationMu.Unlock()
 		m := ui.makeManager()
 		var err error
 		state := directOff
@@ -276,8 +302,16 @@ func (ui *oneUI) toggle() {
 		if ctx.Err() != nil {
 			report.Outcome = "CANCELLED_RECHECK_REQUIRED"
 		}
+
 		_ = m.saveDirectReport(report)
+		var reset directSupervisor
+		monitorState := state
+		if monitorState != directOff && monitorState != directRunning && monitorState != directUnverified && monitorState != "OTHER_OWNED_PROFILE" {
+			monitorState = "UNKNOWN"
+		}
+		_ = m.saveDirectMonitor(reset.observe(monitorState, nil, false))
 		ui.mu.Lock()
+		ui.requestedOn = desired == "start" && state == directRunning && err == nil && ctx.Err() == nil
 		ui.result = state
 		ui.cause = reason
 		ui.busy = false
@@ -353,7 +387,9 @@ func (ui *oneUI) showReport() {
 	}
 }
 func (ui *oneUI) boot() {
+
 	ui.checkState()
+	go ui.watchDirect()
 	ui.pollStop = make(chan struct{})
 	go func() {
 		t := time.NewTicker(15 * time.Second)

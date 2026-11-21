@@ -30,6 +30,7 @@ type SupportReport struct {
 	Effect        *DPIEffect         `json:"dpi_effect,omitempty"`
 	Direct        *DirectReport      `json:"direct,omitempty"`
 	DirectCheck   *DirectCheckReport `json:"direct_check,omitempty"`
+	DirectMonitor *DirectMonitorReport `json:"direct_monitor,omitempty"`
 	Caveat        string             `json:"caveat"`
 }
 type SupportSource struct {
@@ -65,6 +66,7 @@ func buildSupportReport(folder string, now time.Time) SupportReport {
 		{"latest-guide.json", &GuideReport{}},
 		{"latest-direct.json", &DirectReport{}},
 		{"latest-direct-check.json", &DirectCheckReport{}},
+		{"latest-direct-monitor.json", &DirectMonitorReport{}},
 		{"latest-network.json", &NetworkAudit{}},
 		{"latest-path.json", &PathReport{}},
 		{"latest-speed.json", &LiveAudit{}},
@@ -91,6 +93,13 @@ func buildSupportReport(folder string, now time.Time) SupportReport {
 				switch v := entry.target.(type) {
 				case *DirectReport:
 					s.Direct = v
+				case *DirectMonitorReport:
+					if validDirectMonitor(*v) {
+						s.DirectMonitor = v
+					} else {
+						source.Status = "INVALID_OR_OLD_SCHEMA"
+						validEntry = false
+					}
 				case *DirectCheckReport:
 					if validDirectCheck(*v) {
 						s.DirectCheck = v
