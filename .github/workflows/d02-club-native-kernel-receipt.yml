@@ -813,6 +813,49 @@ jobs:
             throw $code
           }
 
+          # Browser number inputs may expose UIA Spinner/RangeValue instead
+          # of Edit/ValuePattern. Use real keyboard input, then inspect the
+          # actual native control (including a nested Edit) before continuing.
+          function EnterNumber([string]$name,[string]$value,[string]$code){
+            $target=$null
+            for($search=0;$search -lt 65;$search++){
+              $target=Locate $name ''
+              if($target){break}
+              Start-Sleep -Milliseconds 200
+            }
+            if(!$target){throw ($code+'_CONTROL_NOT_FOUND')}
+            for($attempt=0;$attempt -lt 3;$attempt++){
+              try{
+                $target.SetFocus()
+                [System.Windows.Forms.SendKeys]::SendWait('^a')
+                [System.Windows.Forms.SendKeys]::SendWait($value)
+                [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+                Start-Sleep -Milliseconds 250
+                $current=Locate $name ''
+                if(!$current){continue}
+                $candidates=@($current)
+                foreach($child in $current.FindAll($scope,
+                    [System.Windows.Automation.Condition]::TrueCondition)){
+                  $candidates+=@($child)
+                }
+                foreach($candidate in $candidates){
+                  try{
+                    $p=[System.Windows.Automation.ValuePattern]$candidate.GetCurrentPattern(
+                      [System.Windows.Automation.ValuePattern]::Pattern)
+                    if($p.Current.Value -ceq $value){return}
+                  }catch{}
+                  try{
+                    $p=[System.Windows.Automation.RangeValuePattern]$candidate.GetCurrentPattern(
+                      [System.Windows.Automation.RangeValuePattern]::Pattern)
+                    if([Math]::Abs($p.Current.Value-[double]$value) -lt 0.001){return}
+                  }catch{}
+                }
+              }catch{}
+              Start-Sleep -Milliseconds 250
+            }
+            Write-Output ('D02_SCENE_NUMERIC_UIA_CONTROL='+$target.Current.ControlType.ProgrammaticName)
+            throw $code
+          }
           $server=$null;$browser=$null;$reopened=$null
           try{
             $server=Start-Process -FilePath node -WorkingDirectory $site -ArgumentList @(
@@ -835,17 +878,17 @@ jobs:
             $null=Await 'Как организовать работу вместе' '' 'D02_SCENE_FORM_MISSING'
             Enter 'Сценарий: Как назовём совместную задачу' 'Покупки соседям' 'D02_SCENE_TITLE_INPUT_FAILED'
             Enter 'Сценарий: Какого результата хотите получить' 'Собрать и доставить десять наборов' 'D02_SCENE_OUTCOME_INPUT_FAILED'
-            Enter 'Сценарий: Срок в неделях' '2' 'D02_SCENE_WEEKS_INPUT_FAILED'
-            Enter 'Сценарий: Бюджет, руб.' '1000' 'D02_SCENE_BUDGET_INPUT_FAILED'
+            EnterNumber 'Сценарий: Срок в неделях' '2' 'D02_SCENE_WEEKS_INPUT_FAILED'
+            EnterNumber 'Сценарий: Бюджет, руб.' '1000' 'D02_SCENE_BUDGET_INPUT_FAILED'
             Enter 'Сценарий: Если участник откажется или не сможет продолжить' 'Согласовать замену до следующего заказа' 'D02_SCENE_FALLBACK_INPUT_FAILED'
             Enter 'Сценарий: При каких условиях можно прекратить участие' 'Предупредить до следующей доставки' 'D02_SCENE_EXIT_INPUT_FAILED'
             Enter 'Сценарий: Предлагаемая роль' 'Организатор' 'D02_SCENE_ROLE_INPUT_FAILED'
             Enter 'Сценарий: Что человек должен сделать' 'Сверить список продуктов' 'D02_SCENE_CONTRIBUTION_INPUT_FAILED'
-            Enter 'Сценарий: Доступно часов в неделю' '4' 'D02_SCENE_CAPACITY_INPUT_FAILED'
+            EnterNumber 'Сценарий: Доступно часов в неделю' '4' 'D02_SCENE_CAPACITY_INPUT_FAILED'
             Enter 'Сценарий: Что нужно сделать' 'Сверить десять покупок' 'D02_SCENE_TASK_INPUT_FAILED'
             Enter 'Сценарий: Как проверить результат' 'Десять покупок совпали с чеком' 'D02_SCENE_CHECK_INPUT_FAILED'
-            Enter 'Сценарий: План, часов' '2' 'D02_SCENE_HOURS_INPUT_FAILED'
-            Enter 'Сценарий: Предполагаемые расходы, руб.' '150' 'D02_SCENE_COST_INPUT_FAILED'
+            EnterNumber 'Сценарий: План, часов' '2' 'D02_SCENE_HOURS_INPUT_FAILED'
+            EnterNumber 'Сценарий: Предполагаемые расходы, руб.' '150' 'D02_SCENE_COST_INPUT_FAILED'
             $save=Await 'Записать сценарий' 'button' 'D02_SCENE_SAVE_BUTTON_MISSING'
             $save.SetFocus()
             [System.Windows.Forms.SendKeys]::SendWait(' ')
