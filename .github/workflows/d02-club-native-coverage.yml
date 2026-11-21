@@ -13,7 +13,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 55
     env:
-      SITE_SHA: 142ecb27b0026960564bad6ad0ece8bf86ffa570
+      SITE_SHA: e5ee9b4d1f2570a30ed1861207c48fc005cf65e7
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
