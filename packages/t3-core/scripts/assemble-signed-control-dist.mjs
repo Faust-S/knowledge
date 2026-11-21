@@ -376,7 +376,8 @@ export function assembleSignedControlDist({
   const compiledWebEntries=webEntries.map(([from,to,base])=>{
     const html=readFileSync(required(compiled,from),'utf8');
     if(!html.includes('<base href="'+base+'"')||
-       !/\\b(?:src|href)="\\/workspace\\/assets\\/[A-Za-z0-9_.\\/-]+"/.test(html))
+       (!html.includes('src="/workspace/assets/')&&
+        !html.includes('href="/workspace/assets/')))
       fail('COMPILED_WEB_WORKSPACE_ENTRY_REQUIRED:'+from);
     return {to,html};
   });
