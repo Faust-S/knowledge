@@ -2668,7 +2668,7 @@
         "transport": "EXISTING_IWXA_MANUAL_HANDOFF_WHEN_OFFLINE_OPTIONAL_AUTHORIZED_SYNC_IF_CONNECTED",
         "offline_delivery": "PENDING_COMPANY_RECEIPT_NOT_DELIVERED_UNTIL_ORIGINAL_RECIPIENT_READBACK",
         "authorization": "D1_SIGNED_JIT_REVOCATION_APPLIES_ON_ENTRY_WRITE_EXPORT_AND_RECEIPT",
-        "agent_development_sha": "5dc3e3e98ac4ccbc4b1db2adeb3395e9a1f84369",
+        "agent_development_sha": "2020493c7f0b929cd0aaa1707c91424f4b0a749c",
         "agent_development_status": "K03_NATIVE_MODEL_OUTPUT_CLASSIFICATION_SOURCE_NEW_CANDIDATE_PINNED",
         "agent_development_source_evidence": {
           "prior_run_id": 44815605828,
@@ -2788,8 +2788,11 @@
           "include_relations": true,
           "include_schemas": true
         },
-        "authoritative_implementation_gap": "Agent still stages tasks and results in local WorkArea; original T2 source bridge handles only limited per-artifact records. Must switch ordinary corporate work to the original T2 Workspace and reuse existing whole-Workspace Exchange; existing source tests are narrower.",
-        "export_ui_source_qualification": "HOST_SCOPED_WHOLE_WORKSPACE_SELECTION_LOCKED_AND_MANIFEST_CHECKED_SOURCE_SUCCESS_44892877314; SIGNED_AGENT_TO_ORIGINAL_WORKSPACE_BINDING_STILL_OPEN"
+        "authoritative_implementation_gap": "Agent corporate screen now uses original signed T2/T3 Workspace and no longer creates local corporate WorkArea on context selection. Native Python Agent Task Engine STILL persists outside the original company T2 Kernel; whole Workspace durable native path and full .iwxa readback remain open.",
+        "export_ui_source_qualification": "HOST_SCOPED_WHOLE_WORKSPACE_SELECTION_LOCKED_AND_MANIFEST_CHECKED_SOURCE_SUCCESS_44892877314; SIGNED_AGENT_TO_ORIGINAL_WORKSPACE_BINDING_STILL_OPEN",
+        "latest_agent_workflow_head": "1a2f4ad159e10faedd0d129596eb2532e18e8a65",
+        "latest_agent_workflow_run": 44895029181,
+        "latest_agent_workflow_status": "PENDING_INSTALLED_WINDOWS_APPROVAL"
       },
       "original_t3_final_candidate_sha": "162f699d69f63e1d54bc002465c28c9781bf62ae",
       "person_d7_source_qualification": {
@@ -2820,17 +2823,17 @@
       "installed_qualification_candidate": {
         "state": "PINNED_NEW_CANDIDATE_NOT_YET_ACCEPTED",
         "original_t3_owner_sha": "162f699d69f63e1d54bc002465c28c9781bf62ae",
-        "agent_sha": "5dc3e3e98ac4ccbc4b1db2adeb3395e9a1f84369",
+        "agent_sha": "2020493c7f0b929cd0aaa1707c91424f4b0a749c",
         "public_one_core_sha": "2f65931cd70e0c64e29b31e1824b7af0c0baf6d1",
         "original_t2_head": "9c64951cd78411283e8a416641c36d71e169fc1d",
         "original_t2_qualified_tree": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
         "previous_installed_acceptance": "HISTORICAL_ONLY_PRIOR_PINS",
         "windows_native_process_run_id": 44890677784,
         "windows_admin_installed_run_id": 44888532442,
-        "windows_agent_installed_run_id": 44885719135,
+        "windows_agent_installed_run_id": 44895029181,
         "approved": false,
         "windows_admin_installed_conclusion": "SUCCESS_INSTALLED_ADMIN_SIGNED_OWNER_GUI_WORKSPACE_WITHOUT_ATLAS_ENROLL_DPAPI_COLD",
-        "windows_agent_installed_conclusion": "SUCCESS_INSTALLED_AGENT_QWEN_REVIEW_COLD_REPAIR_ROLLBACK_SECOND_WINDOWS_SID",
+        "windows_agent_installed_conclusion": "IN_PROGRESS_NOT_YET_ACCEPTED",
         "windows_native_process_conclusion": "SUCCESS_NATIVE_EXACT_T3_OWNER_AGENT_26_OF_26_SOURCE_ONLY_NOT_INSTALLED_GUI",
         "diagnostic_state": "ORIGINAL_NATIVE_SIGNED_OWNER_PID_LOCK_AFTER_CENTER_EXIT_FIXED_AT_RUN_EVENT_EXIT",
         "agent_native_build_fix": "MODEL_FINAL_OUTPUT_FRAME_AND_REASONING_CLASSIFICATION_PRESERVES_STRICT_NO_FAKE_RESULT",
@@ -2880,7 +2883,7 @@
         },
         "latest_installed_admin_attempt": 2,
         "latest_installed_admin_ci_sha": "d81bdaf0173c7eaf12d5a23b64e7fad07b8c8457",
-        "latest_installed_agent_ci_sha": "a584cdb61b7c8fe4b780e562d8827a3631e93896",
+        "latest_installed_agent_ci_sha": "1a2f4ad159e10faedd0d129596eb2532e18e8a65",
         "latest_native_process_ci_sha": "da363026ec73b3d77743ed9b3f00140aba0caafe",
         "latest_installed_admin_markers": [
           "G4_INSTALLED_ORIGINAL_SIGNED_OWNER_CENTER_SETUP_BUILT_PASS",
@@ -2891,13 +2894,7 @@
           "G4_INSTALLED_COLD_ORIGINAL_DPAPI_INDEPENDENT_PROCESS_PASS",
           "G4_INSTALLED_FIRST_USE_ORIGINAL_DPAPI_COLD_RESTART_PASS"
         ],
-        "latest_installed_agent_markers": [
-          "G4_AGENT06_INSTALLED_GENUINE_SETUP_AND_ONE_CORE_PASS",
-          "G4_AGENT06_INSTALLED_NATIVE_GUI_QWEN_REVIEW_COLD_PASS",
-          "G4_AGENT06_INSTALLED_SETUP_CORE_REPAIR_ROLLBACK_PASS",
-          "G4_AGENT_INSTALLED_GUEST_SECOND_WINDOWS_SID_PASS",
-          "G4_AGENT_INSTALLED_GUEST_NATIVE_GUI_COLD_UIA_PASS"
-        ],
+        "latest_installed_agent_markers": [],
         "latest_native_process_markers": [
           "G4_ORIGINAL_PRODUCTION_EMPLOYEE_REAL_T2_AGENT_RESULT_PASS",
           "G4_ORIGINAL_PRODUCTION_EMPLOYEE_ADMIN_HUMAN_ACCEPT_PASS",
@@ -2905,7 +2902,7 @@
           "G4_ORIGINAL_PRODUCTION_EMPLOYEE_REAL_T2_COLD_READBACK_TWO_PASS",
           "G4_NATIVE_PROCESS_SOURCE_PASS_NOT_INSTALLED_GUI"
         ],
-        "latest_witness_scope": "Exact signed T3 Owner 162f + Agent 5dc + One Core 2f: 26/26 real native process, separate installed Admin and separate installed Agent SUCCESS; no two-product installed GUI E2E and no full document/attachment Exchange acceptance.",
+        "latest_witness_scope": "New Agent SHA 2020493c with one company Workspace UI under installed CI #44895029181 IN_PROGRESS; older native 26/26 and Qwen installed success are valid ONLY for Agent SHA 5dc3. No proof of whole Python Engine workspace persistence or full .iwxa transfer.",
         "previous_native_source_scope": {
           "run_id": 44821254010,
           "source_sha": "cd9a074afc35b5c40555f725654f4637dfc13df8",
@@ -2935,7 +2932,24 @@
           "metal_webgpu": "SKIPPED",
           "conclusion": "SUCCESS",
           "installed": false
-        }
+        },
+        "previous_agent_installed_receipt": {
+          "agent_sha": "5dc3e3e98ac4ccbc4b1db2adeb3395e9a1f84369",
+          "run_id": 44885719135,
+          "conclusion": "SUCCESS_INSTALLED_AGENT_QWEN_REVIEW_COLD_REPAIR_ROLLBACK_SECOND_WINDOWS_SID",
+          "ci_sha": "a584cdb61b7c8fe4b780e562d8827a3631e93896",
+          "markers": [
+            "G4_AGENT06_INSTALLED_GENUINE_SETUP_AND_ONE_CORE_PASS",
+            "G4_AGENT06_INSTALLED_NATIVE_GUI_QWEN_REVIEW_COLD_PASS",
+            "G4_AGENT06_INSTALLED_SETUP_CORE_REPAIR_ROLLBACK_PASS",
+            "G4_AGENT_INSTALLED_GUEST_SECOND_WINDOWS_SID_PASS",
+            "G4_AGENT_INSTALLED_GUEST_NATIVE_GUI_COLD_UIA_PASS"
+          ],
+          "source": "HISTORICAL_APPROVED_FOR_OLD_AGENT_SHA_ONLY"
+        },
+        "latest_installed_agent_attempt": 1,
+        "windows_agent_ui_scope": "ONE_SIGNED_ORIGINAL_COMPANY_WORKSPACE_UI_NO_PARALLEL_AUTO_WORKAREA; SOURCE_CHANGED_NOT_YET_INSTALLED_QUALIFIED",
+        "pending_new_agent_core_source": "COMPANY_WORKSPACE_UI_REWORK_FIRST_NO_NEW_AGENT_LOCAL_WORKAREA_AUTO_ON_CORP_SELECTION"
       },
       "resolved_product_installation_2026_11_21": {
         "original_compiled_signed_owner": "PASS_44888532442_ATTEMPT_2",
