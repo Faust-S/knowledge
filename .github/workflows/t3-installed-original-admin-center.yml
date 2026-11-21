@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: t3-g4-installed-original-admin-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   public-one-dist:
