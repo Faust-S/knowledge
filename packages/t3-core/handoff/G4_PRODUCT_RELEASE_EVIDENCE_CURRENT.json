@@ -2644,19 +2644,17 @@
         "INSTALLED_ACTIVITY_ANALYZER_PROGRAM",
         "INSTALLED_PUBLISHER_PROGRAM",
         "FIRST_OR_ANY_DOMAIN_MIGRATION",
-        "AUTOMATED_TRANSPORT_REPLACING_MANUAL_IWXA"
+        "AUTOMATED_TRANSPORT_REPLACING_MANUAL_IWXA",
+        "UNSUPPORTED_DEVTOOLS_PWA_INSTALL_METHOD_FOR_BROWSER_T3",
+        "TWO_RECIPIENT_NATIVE_AGE_FOR_PLAIN_ORIGINAL_IWXA_EXPORT",
+        "INSTALLED_INDEPENDENT_D6_RECIPIENT_PROGRAM_FOR_GENERIC_T3"
       ],
       "currently_open": [
         "ONE_ORIGINAL_T2_CORPORATE_WORKSPACE_IS_ACTIVE_AGENT_WORK_CONTEXT_NOT_LOCAL_AGENT_WORKAREA",
         "WHOLE_CORPORATE_WORKSPACE_DURABLE_READ_WRITE_AND_FULL_EXISTING_T2_IWXA_EXPORT_IMPORT_HISTORY_ASSETS_RELATIONS_SCHEMAS_WITH_COLD_READBACK",
         "D7_ORIGINAL_PERSON_SOURCE_22_PASS_FINAL_ONE_DIST_COMPOSITION_PENDING",
         "INTEGRATED_D1_D7_PLATFORM_INTERFACE_AND_FINAL_BUNDLE",
-        "VERSIONED_FROZEN_FINAL_T3_ONE_DIST_AND_PROVENANCE_NOT_JUST_OWNER_INPUT",
-        "D1_D3_FIRST_RUN_COMPANY_WORKSPACE_BY_SIGNED_KEY_WITHOUT_EXTRA_MANUAL_CREATE",
-        "FINAL_T3_VERSIONED_ONE_DIST_RC_PROVENANCE_INDEPENDENT_RELEASE_ACCEPTANCE_PENDING",
-        "ADMIN_ACTUAL_INVITATION_UI_SOURCE_AND_INSTALLED_WINDOWS_QUALIFICATION",
-        "INSTALLED_TWO_PRODUCT_SIGNED_CORPORATE_TASK_TO_RESULT_HUMAN_ACCEPT_APPLY_PENDING",
-        "INSTALLED_AGENT_0_6_WITH_SAME_SIGNED_OWNER_T3_FRESH_ACCEPTANCE"
+        "VERSIONED_FROZEN_FINAL_T3_ONE_DIST_AND_PROVENANCE_NOT_JUST_OWNER_INPUT"
       ],
       "existing_evidence_preserved": true,
       "company_workspace": {
@@ -2790,7 +2788,8 @@
           "include_relations": true,
           "include_schemas": true
         },
-        "authoritative_implementation_gap": "Agent still stages tasks and results in local WorkArea; original T2 source bridge handles only limited per-artifact records. Must switch ordinary corporate work to the original T2 Workspace and reuse existing whole-Workspace Exchange; existing source tests are narrower."
+        "authoritative_implementation_gap": "Agent still stages tasks and results in local WorkArea; original T2 source bridge handles only limited per-artifact records. Must switch ordinary corporate work to the original T2 Workspace and reuse existing whole-Workspace Exchange; existing source tests are narrower.",
+        "export_ui_source_qualification": "HOST_SCOPED_WHOLE_WORKSPACE_SELECTION_LOCKED_AND_MANIFEST_CHECKED_SOURCE_SUCCESS_44892877314; SIGNED_AGENT_TO_ORIGINAL_WORKSPACE_BINDING_STILL_OPEN"
       },
       "original_t3_final_candidate_sha": "162f699d69f63e1d54bc002465c28c9781bf62ae",
       "person_d7_source_qualification": {
@@ -2949,6 +2948,20 @@
         "exact_native_agent_admin_source": "PASS_26_26_44890677784_OWNER_162F_AGENT_5DC",
         "exact_person_d7_source": "PASS_22_22_44890782631_OWNER_162F",
         "exact_one_core_current_source": "PASS_TEST_REAL_HOST_WINDOWS_44890782582_FROZEN_TREE"
+      },
+      "platform_release_basis": "COMPLETE_ORIGINAL_COMPANY_T2_WORKSPACE_AND_EXISTING_FULL_IWXA_EXCHANGE_PLUS_D1_D7_COMPOSITION_PLUS_VERSIONED_PROVEN_FINAL_ONE_DIST; NO_MANDATORY_ECOSYSTEM_G4_GUI_MATRIX",
+      "latest_executable_source_qualification": {
+        "run_id": 44892877314,
+        "commit_sha": "35b9c797ec62931f087eb49dc88e4897af38774f",
+        "source_tree_sha": "c93616dcddee0cac30e9a7ddcf0e0760e1bffb16",
+        "original_t2_tree_sha": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
+        "original_bli_tree_sha": "e17b628392fb4e2dbeba2df67fdb0a5506fc5243",
+        "test": "SUCCESS",
+        "real_host": "SUCCESS",
+        "windows_credential": "SUCCESS",
+        "owner_input_artifact_id": 14703130812,
+        "one_dist_rc_artifact_id": 14702657181,
+        "scope": "CURRENT_EXCHANGE_SCOPED_FULL_WORKSPACE_SOURCE_ONLY_NOT_AGENT_CORPORATE_OR_FINAL_RELEASE"
       }
     },
     "required_gates": {
@@ -2960,37 +2973,37 @@
       "D1": {
         "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "Installed Center signed owner and DPAPI passed #44726573571. Agent c68387b independent second Windows SID passed #44756816999. Signed employee-to-Admin installed handoff remains."
+        "remaining": "Signed corporate Access and first-use Owner passed independently. For final platform, bind ordinary Agent corporate work to exactly one original T2 Workspace under existing signed grant. Independent installed two-GUI handoff is optional product integration."
       },
       "D2": {
         "source": "PASS",
         "installed": "HOLD",
-        "remaining": "T3 D2 technology read-only Event/Activity source and two independent original T2 0.3.6 browser/Host cold reads qualified #44736009194 and #44768003643 real-host/808 source regressions SUCCESS. Installed Activity Analyzer production derived Result with native owner-approved publication is a separate unqualified product integration; it is not evidenced by this core source PASS."
+        "remaining": "T3 technology Activity/Event projection already has original T2 read/cold source evidence. Installed Activity Analyzer and its publication remain independent optional product work, not final T3 release prerequisites."
       },
       "D3": {
         "source": "PASS",
         "installed": "PARTIAL",
-        "remaining": "Signed native original employee task/result and Admin ACCEPT/APPLY source qualified. Still needs Agent ordinary company mode bound to ONE original T2 Workspace with all work persisted there and full original T2 Workspace Export/Import, not a per-Result handoff or mandatory installed GUI cross-product matrix."
+        "remaining": "26/26 native signed Task/Result and Admin ACCEPT/APPLY on exact owner are source qualified. Final platform needs ordinary Agent work in the ONE original company T2 Workspace, not secondary WorkArea or per-Result selection. Separate two-app installed GUI E2E is optional."
       },
       "D4": {
         "source": "PASS",
         "installed": "HOLD",
-        "remaining": "Use inherited T2 0.3.6 Exchange to export/import exactly ONE complete company Workspace with history, assets, relations and schemas under the original signed grant and recipient readback. Existing native age/two-recipient and source T2 tests do not prove this complete company Workspace flow."
+        "remaining": "Finish full original T2 Exchange .iwxa export/import of exactly one authorized corporate Workspace with all history, Assets, relations and schemas and real cold readback. Optional age two-recipient encryption is not required for plain original .iwxa."
       },
       "D5": {
         "source": "PASS",
         "installed": "HOLD",
-        "remaining": "Frozen One Core f42e53 real Apple Metal hardware WebGPU 2 generations, cold offline original Kernel #44736009194 PASS. PWA domain switch/installability/offline cold Windows+Linux #44736969303 source PASS; actual browser OS PWA.install SKIPPED due unsupported DevTools method, so native OS PWA installed and exact final domain dist cannot be marked PASS. Final domain signed owner independent installed D5 HOLD."
+        "remaining": "Hardware WebGPU generation and cold offline original Kernel are qualified on prior unchanged inference code. Final exact One Dist must include integrated D5. OS PWA.install via unsupported DevTools method and a specific migrated website are not T3 platform gates."
       },
       "D6": {
         "source": "PASS",
         "installed": "HOLD",
-        "remaining": "Core generic D6 original accepted Result optional workRef source and qualified original T2 Host #44620132894 PASS. Current signed D3 source process #44730781821 26/26 PASS. Separate installed authorized non-Atlas recipient native durable commit, lost-ACK recovery and cold still HOLD."
+        "remaining": "Generic authorized continuation and optional WorkRef are source qualified. Independently installed non-Atlas recipient and its business workflow belong to recipient product acceptance, not final technology release."
       },
       "D7": {
         "source": "PASS",
         "installed": "HOLD",
-        "remaining": "T3 original signed PERSON issuer/holder/status/renew/revoke/cold 22/22 SOURCE PASS on exact private 75a36f82 (#44789248082); independent native/installed Publisher and recipient remain separate. D7 source interface must still be composed into final verified One Dist, without any new license provider."
+        "remaining": "Original PERSON issuer/holder, STATUS, renewal, revocation and cold source 22/22 PASS on original owner 162f in #44890782631. Compose original D7 into final One Dist; installed Publisher and installed licence recipient are optional product integrations."
       }
     },
     "qualifications": {
