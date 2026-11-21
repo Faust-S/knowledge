@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazi.ru
-          ref: 2122e11dc7ba73ea1e10d208c6978ddcd0efd85a
+          ref: e7396caea73ac7891a34fbffa7158dec094111a7
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -42,7 +42,7 @@ jobs:
           bun-version: "1.4.2"
       - name: Verify pinned private and T2 source in runner
         run: |
-          if ((git -C site rev-parse HEAD).Trim() -ne "2122e11dc7ba73ea1e10d208c6978ddcd0efd85a") { throw "D10_WINDOWS_SITE_PIN_MISMATCH" }
+          if ((git -C site rev-parse HEAD).Trim() -ne "e7396caea73ac7891a34fbffa7158dec094111a7") { throw "D10_WINDOWS_SITE_PIN_MISMATCH" }
           if ((git -C t2 rev-parse HEAD).Trim() -ne "e70de29b72b83e2546f7ab74b17572685a728c17") { throw "D10_WINDOWS_T2_PIN_MISMATCH" }
           Write-Output "D10_WINDOWS_SOURCE_PINS=PASS"
       - name: Install site dependencies privately
