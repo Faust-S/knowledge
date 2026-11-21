@@ -270,9 +270,17 @@ export function assembleSignedControlDist({
   const originalRuntime=required(source,'_iwxa/runtime/0.3.6/runtime.js');
   const domain=JSON.parse(readFileSync(required(source,'_iwxa/domain.json'),'utf8'));
   const origin=originFrom(domain);
-  if(typeof origin!=='string'||!/^http:\/\/127\.0\.0\.1:[0-9]{1,5}$/.test(origin)||
-     Number(new URL(origin).port)<1||Number(new URL(origin).port)>65535||
-     new URL(origin).origin!==origin)fail('PINNED_LOOPBACK_ORIGIN_REQUIRED');
+  // Ordinary HTTPS domains use their OWN product origin; native Windows
+  // signers remain on their original loopback origin.
+  let parsed;
+  try{parsed=new URL(origin);}catch{fail('PRODUCT_ORIGIN_REQUIRED');}
+  const loopback=parsed.protocol==='http:'&&parsed.hostname==='127.0.0.1'&&
+    Number(parsed.port)>=1&&Number(parsed.port)<=65535;
+  const web=parsed.protocol==='https:'&&Boolean(parsed.hostname)&&
+    parsed.hostname!=='localhost';
+  if(parsed.origin!==origin||(!loopback&&
+     ((installedOriginalAgentD6||installedOriginalAdminD3)||!web)))
+    fail('PRODUCT_PINNED_HTTPS_OR_NATIVE_LOOPBACK_ORIGIN_REQUIRED');
   required(source,'_iwxa/domain-shell.json');
   const catalog=JSON.parse(readFileSync(required(source,'_iwxa/service-catalog.json'),'utf8'));
   const config=JSON.parse(readFileSync(required(source,'workspace/workspace.config.json'),'utf8'));
