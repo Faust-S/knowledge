@@ -262,3 +262,52 @@ def test_qualified_owner_without_declared_financial_gap_is_not_automatically_blo
         c, owner="a", work=state.works["w1"], state=state, at=2, economics=econ)
     # This is NO positive economic preference: the result merely provides
     # no additional owner-private financial review condition.
+
+
+@pytest.mark.parametrize("configuration", ["intra", "inter", "operator", "sector", "macro", "trace"])
+def test_each_author_configuration_preserves_separate_private_cash_and_original_principals(configuration):
+    """Six morphology research forms are NOT six legally executed institutions."""
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    s = fixture()
+    s["general_akis"]["configuration"] = configuration
+    out = simulate(s)
+    observed = [row for row in out["decision_observations"]
+                if row["subject"] == "b" and row["at"] == 2.0]
+    assert observed and observed[-1]["endogenous_choice"]["action"] == (
+        "REQUEST_INDEPENDENT_EVIDENCE_REVIEW"
+    )
+    assert out["general_akis_model"]["configuration_dynamics"]["configuration"] == configuration
+    assert out["works"]["w1"]["obligation"] == "NOT_ACCEPTED"
+    assert out["works"]["w1"]["consenting_principals"] == []
+    assert out["general_akis_model"]["legal_consent_created"] is False
+    assert out["counts"] == {"applied": 2, "blocked": 0}
+
+
+def test_original_independent_outside_preference_overrides_private_financial_signal():
+    """An owner refusing new work cannot be converted into a financial recommendation."""
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    s = fixture()
+    s["decision_profiles"][1]["outside_option"] = "OUTSIDE_PREFERRED"
+    out = simulate(s)
+    rows = [row for row in out["decision_observations"]
+            if row["subject"] == "b" and row["at"] == 2.0]
+    assert rows[-1]["endogenous_choice"]["action"] == "DECLINE_NEW_OPPORTUNITY"
+    assert out["counts"] == {"applied": 2, "blocked": 0}
+    assert out["works"]["w1"]["consenting_principals"] == []
+
+
+def test_existing_original_commitment_has_priority_over_model_financial_source():
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    s = fixture()
+    s["events"].extend([
+        {"at": 3, "action": "consent", "actor": "a", "work": "w1",
+         "source_revision": "d-1", "org_revision": "oc-1"},
+        {"at": 4, "action": "consent", "actor": "b", "work": "w1",
+         "source_revision": "d-1", "org_revision": "oc-1"},
+        {"at": 5, "action": "commit", "actor": "op", "work": "w1"},
+    ])
+    out = simulate(s)
+    decisions = [row for row in out["decision_observations"]
+                 if row["subject"] == "b" and row["at"] == 5.0]
+    assert decisions and decisions[-1]["endogenous_choice"]["action"] == "HONOR_PRIOR_OBLIGATION"
+    assert out["works"]["w1"]["obligation"] == "ACCEPTED_BY_ORIGINAL_PRINCIPALS"
