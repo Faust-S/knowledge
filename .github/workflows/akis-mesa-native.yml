@@ -84,7 +84,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa
-          ref: 7c5bf39264b548b25c31d5b615a9e8cb81359a41
+          ref: 27a021788147a3fd614edc8dd373ce1ac6aacbaf
           path: private-iwxa
           token: ${{ env.AKIS_PRIVATE_READ_TOKEN }}
           persist-credentials: false
@@ -138,6 +138,11 @@ jobs:
           assert d["economics"]["profit"]=="UNKNOWN"
           assert d["economics"]["comparative_causal_effect"]=="NOT_IDENTIFIABLE"
           assert d["adaptation"]["decision"]=="NO_AUTOMATIC_ORGANIZATIONAL_CHANGE"
+          inquiries=d["adaptation"]["event_inquiries"]
+          cues=d["portfolio"]["review_cues"]
+          assert len(inquiries)==len(cues)
+          assert {(i["basis_at"],i["signal"]) for i in inquiries}=={(c["at"],c["signal"]) for c in cues}
+          assert all(i["decision"]=="INQUIRY_ONLY_NOT_PROPOSAL" for i in inquiries)
           proposals=d["adaptation"]["proposals"]
           assert len(proposals)==2
           assert proposals[0]["assessment"]=="REVIEWABLE_AS_HYPOTHESIS"
