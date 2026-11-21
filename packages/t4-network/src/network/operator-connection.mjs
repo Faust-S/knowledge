@@ -88,7 +88,9 @@ export function openT4OperatorConnection({
   });
   return Object.freeze({
     profile,transport,close:()=>transport.close(),
-    operatorMayUseVerifiedAnonymizedDerivatives:cloud,
+    operatorAgreementDeclared:cloud,
+    operatorAgreementCheckedPerNetworkRequest:cloud,
+    operatorMayUseVerifiedAnonymizedDerivatives:false,
     automaticDataExtractionEnabled:false,
     originalDataOwnershipTransferred:false,
   });

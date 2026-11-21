@@ -76,6 +76,8 @@ test('IWXA cloud checks live original-owner agreement on every transfer',async()
   await assert.rejects(ctx.transport.getSnapshot({key:packageSha256(b)+'.iwxa',expectedSha256:packageSha256(b)}),
     e=>e.code==='AUTHORIZATION_DENIED');
   assert.equal(network,1);assert.ok(calls>=2);
+  assert.equal(ctx.operatorAgreementDeclared,true);
+  assert.equal(ctx.operatorMayUseVerifiedAnonymizedDerivatives,false);
   assert.equal(ctx.automaticDataExtractionEnabled,false);
   ctx.close();
 });
