@@ -1387,53 +1387,16 @@ jobs:
                 Write-Output 'D02_IMPORT_OPTIONAL_REFRESH=UNAVAILABLE_USE_KERNEL_EDITOR'
               }
             }
-            # Categories are collapsed until requested. Use the real profile
-            # shortcut and original Kernel-backed editor, not hidden UI text.
-            # UIA Invoke may acknowledge a button without a DOM click.
-            # Activate the real profile shortcut via native keyboard.
-            $profileShortcut=Await 'Мой профиль' 'button' 'D02_IMPORT_PROFILE_SHORTCUT_MISSING'
-            $profileShortcut.SetFocus()
+            # T2's seven-family overview is a fresh original Kernel
+            # listObjects/getObject projection. Verify imported personal
+            # data from it instead of relying on the optional edit form,
+            # which may not be offered until Host focus settles.
+            $families=Await 'Показать все 7 разделов' '' 'D02_IMPORT_FAMILY_OVERVIEW_MISSING'
+            $families.SetFocus()
             [System.Windows.Forms.SendKeys]::SendWait(' ')
-            Write-Output 'D02_IMPORT_PROFILE_SHORTCUT=KEYBOARD_ACTIVATED'
-            try{
-              Click 'Редактировать профиль здесь' 'D02_IMPORT_PROFILE_EDITOR_MISSING'
-              Write-Output 'D02_IMPORT_PROFILE_EDITOR_ACTIVATION=UIA_INVOKE'
-            }catch{
-              # Edge exposes the original enabled button but can omit or
-              # reject InvokePattern. Use real native keyboard activation.
-              $edit=Locate 'Редактировать профиль здесь' 'button'
-              if(!$edit){
-                Write-Output ('D02_IMPORT_PROFILE_CREATE_SUGGESTED='+
-                  [bool](Locate 'Создать профиль в рабочей области' 'button'))
-                Write-Output ('D02_IMPORT_PROFILE_READ_ERROR='+
-                  [bool](Locate 'Kernel не подтвердил чтение этого направления.' ''))
-                Write-Output ('D02_IMPORT_PROFILE_EMPTY_FAMILY='+
-                  [bool](Locate 'Сохранённых результатов пока нет.' ''))
-                throw 'D02_IMPORT_PROFILE_EDITOR_TRULY_UNAVAILABLE'
-              }
-              try{
-                $edit.SetFocus()
-                [System.Windows.Forms.SendKeys]::SendWait(' ')
-                Write-Output 'D02_IMPORT_PROFILE_EDITOR_ACTIVATION=NATIVE_KEYBOARD'
-              }catch{
-                throw 'D02_IMPORT_PROFILE_KEYBOARD_ACTIVATION_FAILED'
-              }
-            }
-            $alias=Await 'Как к вам обращаться' 'edit' 'D02_IMPORT_PROFILE_FIELD_MISSING'
-            $actual=[System.Windows.Automation.ValuePattern]$alias.GetCurrentPattern(
-              [System.Windows.Automation.ValuePattern]::Pattern)
-            if($actual.Current.Value -cne 'Club проверка пользовательской записи'){
-              throw 'D02_IMPORT_FRESH_PROFILE_COLD_READBACK_MISSING'
-            }
+            $null=AwaitPrefix 'Последний: Club проверка пользовательской записи' '' 'D02_IMPORT_PROFILE_KERNEL_FAMILY_READBACK_MISSING'
+            Write-Output 'D02_IMPORT_PROFILE_ORIGINAL_KERNEL_FAMILY_GETOBJECT=PASS'
             Write-Output 'D02_IMPORT_INDEPENDENT_WORKSPACE_COLD_READBACK=PASS'
-            # The archive was created only after the weekly Project Result
-            # received a verified Kernel receipt in the source Workspace.
-            # This browser profile is entirely new and was reopened cold.
-            # Close the profile editor so the imported weekly Result is
-            # observable in the original read-only Host Workspace view.
-            $close=Await 'Закрыть редактор' 'button' 'D02_IMPORT_PROFILE_EDITOR_CLOSE_MISSING'
-            $close.SetFocus()
-            [System.Windows.Forms.SendKeys]::SendWait(' ')
             $null=Await 'Моя неделя' '' 'D02_IMPORT_WEEK_RESULT_MISSING_AFTER_COLD_OPEN'
             $null=Await 'Дел в недельном плане: 1' '' 'D02_IMPORT_WEEK_TASK_LOST_IN_IWXA'
             Write-Output 'D02_IMPORT_WEEK_IWXA_INDEPENDENT_COLD_READBACK=PASS'
@@ -1465,8 +1428,33 @@ jobs:
             [System.Windows.Forms.SendKeys]::SendWait(' ')
             $null=Await 'Забрать документы для семейного бюджета' '' 'D02_IMPORT_WEEK_TASK_CONTENT_LOST'
             Write-Output 'D02_IMPORT_WEEK_EXACT_TASK_IN_T2_VIEWER=PASS'
-            $null=Await 'Совместная работа: Покупки соседям' '' 'D02_IMPORT_SCENE_COLD_RESULT_MISSING'
+            $sceneHeading=Await 'Совместная работа: Покупки соседям' '' 'D02_IMPORT_SCENE_COLD_RESULT_MISSING'
             Write-Output 'D02_IMPORT_SCENARIO_IWXA_COLD_READBACK=PASS'
+            # Open the exact imported Project Result in the original
+            # read-only T2 viewer and confirm its real user-authored task.
+            $cursor=$sceneHeading
+            $sceneView=$null
+            for($level=0;$level -lt 12;$level++){
+              if(!$cursor){break}
+              try{
+                $resume=$cursor.FindFirst($scope,[System.Windows.Automation.PropertyCondition]::new(
+                  [System.Windows.Automation.AutomationElement]::NameProperty,'Продолжить дело'))
+                $viewCondition=[System.Windows.Automation.AndCondition]::new(
+                  [System.Windows.Automation.PropertyCondition]::new(
+                    [System.Windows.Automation.AutomationElement]::NameProperty,'Посмотреть'),
+                  [System.Windows.Automation.PropertyCondition]::new(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::Button))
+                $view=$cursor.FindFirst($scope,$viewCondition)
+                if($resume -and $view){$sceneView=$view;break}
+                $cursor=$walker.GetParent($cursor)
+              }catch{break}
+            }
+            if(!$sceneView){throw 'D02_IMPORT_SCENE_VIEW_ACTION_NOT_FOUND'}
+            $sceneView.SetFocus()
+            [System.Windows.Forms.SendKeys]::SendWait(' ')
+            $null=Await 'Сверить десять покупок' '' 'D02_IMPORT_SCENE_TASK_CONTENT_LOST'
+            Write-Output 'D02_IMPORT_SCENARIO_EXACT_TASK_IN_T2_VIEWER=PASS'
             Write-Output 'D02_IMPORT_PRIVATE_ARCHIVE_UPLOAD=FALSE'
           }finally{
             foreach($p in @($reopened,$browser)){if($p){try{$p.Kill($true)}catch{}}}
