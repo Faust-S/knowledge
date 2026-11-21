@@ -55,16 +55,23 @@ export function createT4NetworkConnectionProfile(input={}) {
 
 export function openT4OperatorConnection({
   profile,placementPolicy,getMode,authorize,getAuthorizationHeader,
-  verifyOriginalOwnerAgreement,fetchImpl,maxBytes,timeoutMs,allowHttpLoopbackFixture,
+  verifyOriginalOwnerAgreement,verifyOperatorEndpoint,fetchImpl,maxBytes,timeoutMs,allowHttpLoopbackFixture,
 }={}) {
   if (profile?.schema!=='IWXA_T4_NETWORK_CONNECTION_PROFILE_V1' ||
     typeof authorize!=='function' || typeof getMode!=='function' ||
     typeof getAuthorizationHeader!=='function') fail('NETWORK_PORTS_REQUIRED');
   const cloud=profile.mode==='IWXA_CLOUD';
   if(cloud&&typeof verifyOriginalOwnerAgreement!=='function') fail('ORIGINAL_OWNER_AGREEMENT_PORT_REQUIRED');
+  if(cloud&&typeof verifyOperatorEndpoint!=='function') fail('IWXA_OPERATOR_ENDPOINT_VERIFIER_REQUIRED');
+  const routed=ctx=>Object.freeze({...ctx,operatorRef:profile.operatorRef,profileRef:profile.profileRef,profileMode:profile.mode});
   const checkedAuthorize=async ctx=>{
-    if(await authorize(ctx)!==true) return false;
+    if(await authorize(routed(ctx))!==true) return false;
     if(!cloud) return true;
+    if(await verifyOperatorEndpoint(Object.freeze({
+      profileRef:profile.profileRef,operatorRef:profile.operatorRef,
+      locationRef:profile.locationRef,endpointUrl:profile.endpointUrl,
+      workspaceId:ctx.workspaceId,operation:ctx.operation,
+    }))!==true) return false;
     return await verifyOriginalOwnerAgreement(Object.freeze({
       operation:ctx.operation,profileRef:profile.profileRef,
       workspaceId:ctx.workspaceId,originalOwnerRef:profile.cloudAgreement.originalOwnerRef,
@@ -76,7 +83,7 @@ export function openT4OperatorConnection({
   };
   const transport=createWebDavPackageTransport({
     baseUrl:profile.endpointUrl,locationRef:profile.locationRef,placementPolicy,
-    getMode,authorize:checkedAuthorize,getAuthorizationHeader,fetchImpl,maxBytes,
+    getMode,authorize:checkedAuthorize,getAuthorizationHeader:ctx=>getAuthorizationHeader(routed(ctx)),fetchImpl,maxBytes,
     timeoutMs,allowHttpLoopbackFixture,
   });
   return Object.freeze({

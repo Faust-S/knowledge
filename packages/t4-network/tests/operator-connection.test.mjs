@@ -68,6 +68,7 @@ test('IWXA cloud checks live original-owner agreement on every transfer',async()
   const b=Buffer.from('opaque-cloud-only-with-current-agreement');
   const ctx=openT4OperatorConnection({profile:p,placementPolicy:policy,getMode:()=> 'T4_NETWORK',
     authorize:async()=>true,getAuthorizationHeader:async()=> 'Bearer example',
+    verifyOperatorEndpoint:async e=>{assert.equal(e.operatorRef,'iwxa:operator');assert.equal(e.endpointUrl,profileData.endpointUrl);return true;},
     verifyOriginalOwnerAgreement:async e=>{calls++;assert.equal(e.originalOwnerRef,'org:company');return allowed;},
     fetchImpl:async()=>{network++;return new Response(b,{status:200});}});
   await ctx.transport.getSnapshot({key:packageSha256(b)+'.iwxa',expectedSha256:packageSha256(b)});
@@ -84,4 +85,28 @@ test('IWXA cloud refuses activation without original owner evidence port',()=>{
   assert.throws(()=>openT4OperatorConnection({profile:p,placementPolicy:policy,
     getMode:()=> 'T4_NETWORK',authorize:async()=>true,getAuthorizationHeader:async()=> 'Bearer example'}),
     code('ORIGINAL_OWNER_AGREEMENT_PORT_REQUIRED'));
+});
+
+test('unverified IWXA operator endpoint is rejected before network access',async()=>{
+  const p=createT4NetworkConnectionProfile({...profileData,mode:'IWXA_CLOUD',
+    operatorRef:'iwxa:operator',cloudAgreement:agreement});
+  let network=0;
+  const b=Buffer.from('not-sent');
+  const ctx=openT4OperatorConnection({profile:p,placementPolicy:policy,getMode:()=> 'T4_NETWORK',
+    authorize:async()=>true,getAuthorizationHeader:async()=> 'Bearer example',
+    verifyOperatorEndpoint:async()=>false,verifyOriginalOwnerAgreement:async()=>true,
+    fetchImpl:async()=>{network++;return new Response(b,{status:200});}});
+  await assert.rejects(ctx.transport.getSnapshot({key:packageSha256(b)+'.iwxa',
+    expectedSha256:packageSha256(b)}),e=>e.code==='AUTHORIZATION_DENIED');
+  assert.equal(network,0);
+  ctx.close();
+});
+test('IWXA cloud requires an operator endpoint verifier, not just a claimed operator ID',()=>{
+  const p=createT4NetworkConnectionProfile({...profileData,mode:'IWXA_CLOUD',
+    operatorRef:'iwxa:operator',cloudAgreement:agreement});
+  assert.throws(()=>openT4OperatorConnection({profile:p,placementPolicy:policy,
+    getMode:()=> 'T4_NETWORK',authorize:async()=>true,
+    getAuthorizationHeader:async()=> 'Bearer example',
+    verifyOriginalOwnerAgreement:async()=>true}),
+    code('IWXA_OPERATOR_ENDPOINT_VERIFIER_REQUIRED'));
 });
