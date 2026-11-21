@@ -33,14 +33,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops.ru
-          ref: 607b0b31c0b89ba158b788f34055c2da6fb6379e
+          ref: ef950c1e05a903973c5539a406a1037ccd25cba1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
       - name: Verify private revisions, never emit private source
         run: |
           test "$(git -C logic rev-parse HEAD)" = "3596fd40a4981f210c35ddcf186ad947087e56b1" || exit 1
-          test "$(git -C site rev-parse HEAD)" = "607b0b31c0b89ba158b788f34055c2da6fb6379e" || exit 1
+          test "$(git -C site rev-parse HEAD)" = "ef950c1e05a903973c5539a406a1037ccd25cba1" || exit 1
           cmp logic/model/business-obligation.mjs site/t2-site-module/marketops/decision/business-obligation.mjs
           cmp logic/model/business-obligation.d.mts site/t2-site-module/marketops/decision/business-obligation.d.mts
           cmp logic/model/business-goods-cash-coordination.mjs site/t2-site-module/marketops/decision/business-goods-cash-coordination.mjs
