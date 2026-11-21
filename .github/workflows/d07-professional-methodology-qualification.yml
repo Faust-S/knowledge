@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: fa211755cf67d1ed423c0f1c394329761e2f8d36
+          ref: 5ba616f4b83d2deb451ccbfcd37a23bedc64f8f1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: subject
@@ -29,14 +29,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: a2f523d8f3bd4295a4c4d7780716618a4969f1a8
+          ref: ddd40bb81770fbbfc878cb1b2c5852a2bc30e40f
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
       - name: Check revisions and source mirrors
         run: |
-          test "$(git -C subject rev-parse HEAD)" = "fa211755cf67d1ed423c0f1c394329761e2f8d36"
-          test "$(git -C site rev-parse HEAD)" = "a2f523d8f3bd4295a4c4d7780716618a4969f1a8"
+          test "$(git -C subject rev-parse HEAD)" = "5ba616f4b83d2deb451ccbfcd37a23bedc64f8f1"
+          test "$(git -C site rev-parse HEAD)" = "ddd40bb81770fbbfc878cb1b2c5852a2bc30e40f"
           for file in service-finalization-gate.ts service-external-gap-research.ts service-professional-gap-inventory.ts service-subject-protocols.ts service-professional-source-intake.ts service-method-fragment-assembly.ts service-professional-evidence.ts service-subject-logistics-b.ts service-subject-logistics-k.ts service-subject-plumbing-a.ts service-subject-moving-team.ts service-subject-flooring-a.ts service-methodology-conversion.ts; do
             cmp "subject/src/domain/$file" "site/src/domain/$file" >/dev/null || exit 2
           done
