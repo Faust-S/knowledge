@@ -1363,23 +1363,58 @@ jobs:
           if(!$edge){throw 'D02_IMPORT_EDGE_MISSING'}
           $scope=[System.Windows.Automation.TreeScope]::Descendants
           function Roots(){
-            # Edge may retain older exporter windows during its profile
-            # handoff. Only inspect the fresh independent importer profile:
-            # otherwise an exact title from the old workspace can give a
-            # false successful focus in the wrong browser window.
-            $pids=@(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" |
-              Where-Object {$_.CommandLine -and
-                $_.CommandLine.Contains("--user-data-dir=$profile")} |
-              ForEach-Object {[int]$_.ProcessId})
-            foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue |
-              Where-Object {$_.MainWindowHandle -ne 0 -and
-                $pids -contains [int]$_.Id})){
+            # Edge can place the app window in a child process whose command
+            # line does not repeat --user-data-dir. Include verified children
+            # of the new importer root, never any older source-profile window.
+            $procs=@(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'")
+            $pids=[System.Collections.Generic.HashSet[int]]::new()
+            foreach($p in $procs){
+              if($p.CommandLine -and $p.CommandLine.Contains("--user-data-dir=$profile")){
+                [void]$pids.Add([int]$p.ProcessId)
+              }
+            }
+            for($depth=0;$depth -lt 9;$depth++){
+              $added=$false
+              foreach($p in $procs){
+                if($pids.Contains([int]$p.ParentProcessId) -and
+                   $pids.Add([int]$p.ProcessId)){$added=$true}
+              }
+              if(!$added){break}
+            }
+            $windows=@(Get-Process msedge -ErrorAction SilentlyContinue |
+              Where-Object {$_.MainWindowHandle -ne 0})
+            $matched=0
+            foreach($p in $windows){
+              if(!$pids.Contains([int]$p.Id)){continue}
               try{
                 $root=[System.Windows.Automation.AutomationElement]::FromHandle(
                   [IntPtr]$p.MainWindowHandle)
-                if($root){Write-Output $root}
+                if($root){$matched++;Write-Output $root}
               }catch{}
             }
+            if($matched -gt 0){return}
+            # If Edge hands off to a newly spawned main window without a
+            # traceable parent, accept only a single window created after this
+            # fresh profile was launched and visibly rendering the known
+            # Exchange/Workspace UI. Never search an old generic Edge window.
+            if(!$browser){return}
+            try{$started=$browser.StartTime.AddSeconds(-6)}catch{return}
+            $recent=@($windows|Where-Object{
+              try{$_.StartTime -ge $started}catch{$false}
+            })
+            if($recent.Count -ne 1){return}
+            try{
+              $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                [IntPtr]$recent[0].MainWindowHandle)
+              foreach($title in @('Перенос данных','Моя работа')){
+                $condition=[System.Windows.Automation.PropertyCondition]::new(
+                  [System.Windows.Automation.AutomationElement]::NameProperty,$title)
+                if($root.FindFirst($scope,$condition)){
+                  Write-Output $root
+                  return
+                }
+              }
+            }catch{}
           }
           function Locate([string]$name,[string]$type){
             $cond=[System.Windows.Automation.PropertyCondition]::new(
