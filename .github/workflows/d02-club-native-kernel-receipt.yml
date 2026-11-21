@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: 8ef3374519ac35589efb2b0b32f69456664d69ec
+      SITE_SHA: 98a3fbc4132502708b805a6b4eb21e7d5ecd72d7
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -933,9 +933,239 @@ jobs:
             if($server){try{$server.Kill($true)}catch{}}
           }
 
+      - name: Real Edge records personal contribution and evidence in original T2
+        id: native_contribution
+        if: steps.native_scenario.outcome == 'success'
+        continue-on-error: true
+        working-directory: site
+        env:
+          PORT: '55444'
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          Add-Type -AssemblyName System.Windows.Forms
+          $site=(Resolve-Path .).Path
+          $origin='http://localhost:55444'
+          $profile=Join-Path $env:RUNNER_TEMP 'd02-receipt-persistent-profile'
+          if(!(Test-Path $profile)){throw 'D02_CONTRIBUTION_ORIGINAL_PROFILE_MISSING'}
+          $edge=@(
+            (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
+            (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
+          )|Where-Object{Test-Path $_}|Select-Object -First 1
+          if(!$edge){throw 'D02_CONTRIBUTION_EDGE_MISSING'}
+          $scope=[System.Windows.Automation.TreeScope]::Descendants
+          function Locate([string]$name,[string]$kind){
+            $cond=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+            if($kind -eq 'button' -or $kind -eq 'edit' -or $kind -eq 'link' -or $kind -eq 'combo'){
+              $ctl=if($kind -eq 'button'){[System.Windows.Automation.ControlType]::Button}
+                elseif($kind -eq 'edit'){[System.Windows.Automation.ControlType]::Edit}
+                elseif($kind -eq 'link'){[System.Windows.Automation.ControlType]::Hyperlink}
+                else{[System.Windows.Automation.ControlType]::ComboBox}
+              $cond=[System.Windows.Automation.AndCondition]::new(
+                $cond,[System.Windows.Automation.PropertyCondition]::new(
+                  [System.Windows.Automation.AutomationElement]::ControlTypeProperty,$ctl))
+            }
+            foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
+              Where-Object {$_.MainWindowHandle -ne 0})){
+              try{
+                $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$p.MainWindowHandle)
+                if(!$root){continue}
+                $found=$root.FindFirst($scope,$cond)
+                if($found -and $found.Current.IsEnabled){return $found}
+              }catch{}
+            }
+            return $null
+          }
+          function Await([string]$name,[string]$kind,[string]$code){
+            for($k=0;$k -lt 110;$k++){
+              $x=Locate $name $kind
+              if($x){return $x}
+              Start-Sleep -Milliseconds 350
+            }
+            throw $code
+          }
+          function Prefix([string]$prefix,[string]$kind){
+            foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
+              Where-Object {$_.MainWindowHandle -ne 0})){
+              try{
+                $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$p.MainWindowHandle)
+                if(!$root){continue}
+                foreach($x in $root.FindAll($scope,[System.Windows.Automation.Condition]::TrueCondition)){
+                  if($x.Current.Name -and $x.Current.Name.StartsWith($prefix) -and $x.Current.IsEnabled -and
+                     (!$kind -or $x.Current.ControlType.ProgrammaticName -match $kind)){return $x}
+                }
+              }catch{}
+            }
+            return $null
+          }
+          function AwaitPrefix([string]$prefix,[string]$kind,[string]$code){
+            for($k=0;$k -lt 110;$k++){
+              $x=Prefix $prefix $kind
+              if($x){return $x}
+              Start-Sleep -Milliseconds 350
+            }
+            throw $code
+          }
+          function Press($node,[string]$code){
+            try{
+              $pattern=[System.Windows.Automation.InvokePattern]$node.GetCurrentPattern(
+                [System.Windows.Automation.InvokePattern]::Pattern)
+              $pattern.Invoke()
+            }catch{
+              try{
+                $node.SetFocus()
+                [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+              }catch{throw $code}
+            }
+          }
+          function Enter([string]$name,[string]$value,[string]$code){
+            for($attempt=0;$attempt -lt 3;$attempt++){
+              $node=Await $name 'edit' $code
+              try{
+                $node.SetFocus()
+                Start-Sleep -Milliseconds 150
+                Set-Clipboard -Value $value
+                [System.Windows.Forms.SendKeys]::SendWait('^a')
+                [System.Windows.Forms.SendKeys]::SendWait('^v')
+                for($k=0;$k -lt 20;$k++){
+                  Start-Sleep -Milliseconds 140
+                  $current=Locate $name 'edit'
+                  if(!$current){continue}
+                  $v=[System.Windows.Automation.ValuePattern]$current.GetCurrentPattern(
+                    [System.Windows.Automation.ValuePattern]::Pattern)
+                  if($v.Current.Value -ceq $value){return}
+                }
+              }catch{}
+              Start-Sleep -Milliseconds 350
+            }
+            throw $code
+          }
+
+          # Browser number inputs may expose UIA Spinner/RangeValue instead
+          # of Edit/ValuePattern. Use real keyboard input, then inspect the
+          # actual native control (including a nested Edit) before continuing.
+          function EnterNumber([string]$name,[string]$value,[string]$code){
+            $target=$null
+            for($search=0;$search -lt 65;$search++){
+              $target=Locate $name ''
+              if($target){break}
+              Start-Sleep -Milliseconds 200
+            }
+            if(!$target){throw ($code+'_CONTROL_NOT_FOUND')}
+            for($attempt=0;$attempt -lt 3;$attempt++){
+              try{
+                $target.SetFocus()
+                [System.Windows.Forms.SendKeys]::SendWait('^a')
+                [System.Windows.Forms.SendKeys]::SendWait($value)
+                [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+                Start-Sleep -Milliseconds 250
+                $current=Locate $name ''
+                if(!$current){continue}
+                $candidates=@($current)
+                foreach($child in $current.FindAll($scope,
+                    [System.Windows.Automation.Condition]::TrueCondition)){
+                  $candidates+=@($child)
+                }
+                foreach($candidate in $candidates){
+                  try{
+                    $p=[System.Windows.Automation.ValuePattern]$candidate.GetCurrentPattern(
+                      [System.Windows.Automation.ValuePattern]::Pattern)
+                    if($p.Current.Value -ceq $value){return}
+                  }catch{}
+                  try{
+                    $p=[System.Windows.Automation.RangeValuePattern]$candidate.GetCurrentPattern(
+                      [System.Windows.Automation.RangeValuePattern]::Pattern)
+                    if([Math]::Abs($p.Current.Value-[double]$value) -lt 0.001){return}
+                  }catch{}
+                }
+              }catch{}
+              Start-Sleep -Milliseconds 250
+            }
+            Write-Output ('D02_SCENE_NUMERIC_UIA_CONTROL='+$target.Current.ControlType.ProgrammaticName)
+            throw $code
+          }
+
+          $server=$null;$browser=$null;$reopened=$null
+          try{
+            $server=Start-Process -FilePath node -WorkingDirectory $site -ArgumentList @(
+              'scripts/serve-current-static.mjs','dist','--t2-loopback'
+            ) -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd02-contribution-http.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd02-contribution-errors.private.log') -PassThru
+            $ready=$false
+            for($k=0;$k -lt 80;$k++){
+              Start-Sleep -Milliseconds 300
+              try{
+                if((Invoke-WebRequest -Uri ($origin+'/projects/') -TimeoutSec 2).StatusCode -eq 200){
+                  $ready=$true;break
+                }
+              }catch{}
+            }
+            if(!$ready){throw 'D02_CONTRIBUTION_LOCAL_SITE_NOT_READY'}
+            $browser=Start-Process -FilePath $edge -PassThru -ArgumentList @(
+              '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
+              "--user-data-dir=$profile","--app=$origin/projects/#club-contribution-case"
+            )
+            $null=Await 'Что обещал, что сделал и чем подтвердить' '' 'D02_CONTRIBUTION_FORM_NOT_VISIBLE'
+            Enter 'Название вклада' 'Сверка покупки' 'D02_CONTRIBUTION_TITLE_INVALID'
+            Enter 'В какой роли участвую' 'Организатор' 'D02_CONTRIBUTION_ROLE_INVALID'
+            Enter 'Что обещаю сделать' 'Проверить десять продуктовых наборов' 'D02_CONTRIBUTION_PROMISE_INVALID'
+            Enter 'Как проверить результат' 'Все товары и чеки совпали' 'D02_CONTRIBUTION_CRITERION_INVALID'
+            EnterNumber 'План времени, часов' '2' 'D02_CONTRIBUTION_PLANNED_HOURS_INVALID'
+            EnterNumber 'План расходов, руб.' '150' 'D02_CONTRIBUTION_PLANNED_COST_INVALID'
+            $state=Await 'Моё состояние' 'combo' 'D02_CONTRIBUTION_STATE_NOT_FOUND'
+            $state.SetFocus()
+            [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+            [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+            [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+            Enter 'Что сделал' 'Проверил десять наборов' 'D02_CONTRIBUTION_ACTUAL_RESULT_INVALID'
+            Enter 'Основание результата или уже понесённых затрат' 'Товарная накладная и чек номер 115' 'D02_CONTRIBUTION_BASIS_INVALID'
+            EnterNumber 'Фактически потрачено часов' '2.5' 'D02_CONTRIBUTION_ACTUAL_HOURS_INVALID'
+            EnterNumber 'Фактические расходы, руб.' '160' 'D02_CONTRIBUTION_ACTUAL_COST_INVALID'
+            Enter 'Кто должен проверить результат' 'Координатор' 'D02_CONTRIBUTION_REVIEWER_INVALID'
+            Enter 'Что нужно проверить' 'Сверить покупки с накладной' 'D02_CONTRIBUTION_REVIEW_QUESTION_INVALID'
+            Press (Await 'Записать вклад' 'button' 'D02_CONTRIBUTION_SUBMIT_NOT_FOUND') 'D02_CONTRIBUTION_SUBMIT_FAILED'
+            $null=AwaitPrefix 'Вклад записан в этой вкладке.' '' 'D02_CONTRIBUTION_LOCAL_WRITE_NOT_CONFIRMED'
+            Write-Output 'D02_CONTRIBUTION_NATIVE_USER_CREATION=PASS'
+            Press (Await 'Сохранить в IWXA' 'link' 'D02_CONTRIBUTION_SAVE_LINK_MISSING') 'D02_CONTRIBUTION_HANDOFF_FAILED'
+            $null=Await 'Перенести результаты из Клуба' '' 'D02_CONTRIBUTION_ORIGINAL_HOST_MISSING'
+            $null=AwaitPrefix 'Результат из текущей страницы' '' 'D02_CONTRIBUTION_SOURCE_PREVIEW_MISSING'
+            Press (AwaitPrefix 'Личная область 1' 'Button' 'D02_CONTRIBUTION_WORKSPACE_MISSING') 'D02_CONTRIBUTION_WORKSPACE_SELECT_FAILED'
+            $checkbox=Await 'Подтверждаю запись перечисленных результатов в выбранную область T2.' '' 'D02_CONTRIBUTION_CONSENT_MISSING'
+            try{
+              $toggle=[System.Windows.Automation.TogglePattern]$checkbox.GetCurrentPattern(
+                [System.Windows.Automation.TogglePattern]::Pattern)
+              if($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On){$toggle.Toggle()}
+            }catch{
+              $checkbox.SetFocus()
+              [System.Windows.Forms.SendKeys]::SendWait(' ')
+            }
+            Press (Await 'Перенести в T2' 'button' 'D02_CONTRIBUTION_KERNEL_COMMIT_NOT_READY') 'D02_CONTRIBUTION_KERNEL_COMMIT_FAILED'
+            $null=AwaitPrefix 'Kernel сохранил результат.' '' 'D02_CONTRIBUTION_KERNEL_RECEIPT_MISSING'
+            $null=AwaitPrefix 'Проект: CREATED' '' 'D02_CONTRIBUTION_NATIVE_CREATE_NOT_CONFIRMED'
+            Write-Output 'D02_CONTRIBUTION_ORIGINAL_T2_KERNEL_RECEIPT=PASS'
+            if($browser){try{$browser.Kill($true)}catch{}}
+            Start-Sleep -Milliseconds 900
+            $reopened=Start-Process -FilePath $edge -PassThru -ArgumentList @(
+              '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
+              "--user-data-dir=$profile","--app=$origin/workspace/#/domain"
+            )
+            $null=Await 'Моя работа' '' 'D02_CONTRIBUTION_COLD_HOST_MISSING'
+            $selector=Await 'Личная рабочая область' 'combo' 'D02_CONTRIBUTION_COLD_WORKSPACE_SELECT_MISSING'
+            $selector.SetFocus()
+            [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+            [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+            [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+            $null=Await 'Мой вклад: Сверка покупки' '' 'D02_CONTRIBUTION_COLD_RESULT_MISSING'
+            Write-Output 'D02_CONTRIBUTION_NATIVE_KERNEL_COLD_READBACK=PASS'
+          }finally{
+            foreach($p in @($browser,$reopened)){if($p){try{$p.Kill($true)}catch{}}}
+            if($server){try{$server.Kill($true)}catch{}}
+          }
+
       - name: Original T2 Exchange exports the saved profile, goal and week in one physical .iwxa
         id: physical_export
-        if: steps.native_profile.outcome == 'success' && steps.native_goal.outcome == 'success' && steps.native_scenario.outcome == 'success'
+        if: steps.native_profile.outcome == 'success' && steps.native_goal.outcome == 'success' && steps.native_scenario.outcome == 'success' && steps.native_contribution.outcome == 'success'
         continue-on-error: true
         working-directory: site
         env:
@@ -1058,8 +1288,8 @@ jobs:
               }
             }catch{}
             Write-Output ('D02_EXCHANGE_PREVIEW_OBJECTS='+$previewObjects)
-            if($previewObjects -notmatch '^[0-9]+$' -or [int]$previewObjects -lt 4){
-              throw 'D02_EXCHANGE_SCENARIO_NOT_INCLUDED'
+            if($previewObjects -notmatch '^[0-9]+$' -or [int]$previewObjects -lt 5){
+              throw 'D02_EXCHANGE_CONTRIBUTION_NOT_INCLUDED'
             }
             Activate 'Скачать .iwxa' 'D02_EXCHANGE_DOWNLOAD_NOT_AVAILABLE'
             $file=$null
@@ -1476,6 +1706,34 @@ jobs:
             [System.Windows.Forms.SendKeys]::SendWait(' ')
             $null=Await 'Сверить десять покупок' '' 'D02_IMPORT_SCENE_TASK_CONTENT_LOST'
             Write-Output 'D02_IMPORT_SCENARIO_EXACT_TASK_IN_T2_VIEWER=PASS'
+            $contribHeading=Await 'Мой вклад: Сверка покупки' '' 'D02_IMPORT_CONTRIBUTION_COLD_RESULT_MISSING'
+            Write-Output 'D02_IMPORT_CONTRIBUTION_IWXA_COLD_READBACK=PASS'
+            # Read the exact contribution's evidence from the unchanged
+            # original T2 Result viewer. A self-record is not peer acceptance.
+            $cursor=$contribHeading
+            $claimView=$null
+            for($level=0;$level -lt 12;$level++){
+              if(!$cursor){break}
+              try{
+                $resume=$cursor.FindFirst($scope,[System.Windows.Automation.PropertyCondition]::new(
+                  [System.Windows.Automation.AutomationElement]::NameProperty,'Продолжить дело'))
+                $cond=[System.Windows.Automation.AndCondition]::new(
+                  [System.Windows.Automation.PropertyCondition]::new(
+                    [System.Windows.Automation.AutomationElement]::NameProperty,'Посмотреть'),
+                  [System.Windows.Automation.PropertyCondition]::new(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::Button))
+                $view=$cursor.FindFirst($scope,$cond)
+                if($resume -and $view){$claimView=$view;break}
+                $cursor=$walker.GetParent($cursor)
+              }catch{break}
+            }
+            if(!$claimView){throw 'D02_IMPORT_CONTRIBUTION_VIEW_ACTION_NOT_FOUND'}
+            $claimView.SetFocus()
+            [System.Windows.Forms.SendKeys]::SendWait(' ')
+            $null=AwaitPrefix 'Основание: Товарная накладная и чек номер 115' '' 'D02_IMPORT_CONTRIBUTION_EVIDENCE_LOST'
+            $null=AwaitPrefix 'Записанный результат: Проверил десять наборов' '' 'D02_IMPORT_CONTRIBUTION_RESULT_LOST'
+            Write-Output 'D02_IMPORT_CONTRIBUTION_EXACT_EVIDENCE_IN_T2_VIEWER=PASS'
             Write-Output 'D02_IMPORT_PRIVATE_ARCHIVE_UPLOAD=FALSE'
           }finally{
             foreach($p in @($reopened,$browser)){if($p){try{$p.Kill($true)}catch{}}}
@@ -1489,17 +1747,20 @@ jobs:
           $import='${{ steps.independent_import.outcome }}'
           $goal='${{ steps.native_goal.outcome }}'
           $scenario='${{ steps.native_scenario.outcome }}'
+          $contribution='${{ steps.native_contribution.outcome }}'
           Write-Output "D02_NATIVE_PROFILE_STEP=$profile"
           Write-Output "D02_NATIVE_PHYSICAL_EXPORT_STEP=$export"
           Write-Output "D02_NATIVE_INDEPENDENT_IMPORT_STEP=$import"
           Write-Output "D02_NATIVE_GOAL_KERNEL_STEP=$goal"
           Write-Output "D02_NATIVE_SCENARIO_STEP=$scenario"
-          if($profile -ne 'success' -or $export -ne 'success' -or $import -ne 'success' -or $goal -ne 'success' -or $scenario -ne 'success'){
+          Write-Output "D02_NATIVE_CONTRIBUTION_STEP=$contribution"
+          if($profile -ne 'success' -or $export -ne 'success' -or $import -ne 'success' -or $goal -ne 'success' -or $scenario -ne 'success' -or $contribution -ne 'success'){
             throw 'D02_NATIVE_END_TO_END_NOT_ACCEPTED'
           }
           Write-Output 'D02_NATIVE_FULL_INDEPENDENT_ROUNDTRIP=PASS'
           Write-Output 'D02_NATIVE_WEEK_IWXA_INDEPENDENT_ROUNDTRIP=PASS'
           Write-Output 'D02_NATIVE_SCENARIO_IWXA_INDEPENDENT_ROUNDTRIP=PASS'
+          Write-Output 'D02_NATIVE_CONTRIBUTION_IWXA_INDEPENDENT_ROUNDTRIP=PASS'
       - name: Never upload private sources, profile or generated dist
         if: always()
         run: |
