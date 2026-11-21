@@ -2789,12 +2789,24 @@
           "include_schemas": true
         },
         "authoritative_implementation_gap": "Agent corporate screen now uses original signed T2/T3 Workspace and no longer creates local corporate WorkArea on context selection. Native Python Agent Task Engine STILL persists outside the original company T2 Kernel; whole Workspace durable native path and full .iwxa readback remain open.",
-        "export_ui_source_qualification": "HOST_SCOPED_WHOLE_WORKSPACE_SELECTION_LOCKED_AND_MANIFEST_CHECKED_SOURCE_SUCCESS_44892877314; SIGNED_AGENT_TO_ORIGINAL_WORKSPACE_BINDING_STILL_OPEN",
+        "export_ui_source_qualification": "SIGNED_ORIGINAL_HOST_REQUIRED; PLAIN_T2_FOCUS_RETAINS_ORIGINAL_OPTIONS; VERIFIED_SOURCE_TREE_d4347cbb_44897104030_SUCCESS",
         "latest_agent_workflow_head": "1a2f4ad159e10faedd0d129596eb2532e18e8a65",
         "latest_agent_workflow_run": 44895029181,
         "latest_agent_workflow_status": "FAIL_K03_TASK_EXECUTE_MODEL_EXECUTION_STOPPED",
         "source_latest_private_diag_sha": "292049e09c2af9678b67274853a9a342eb266cc5",
-        "source_private_diag_scope": "Allowlisted 4 existing GGUF output failure codes in original Windows witness; diagnostics only, NOT a model fix or installed acceptance. Private Actions prohibited."
+        "source_private_diag_scope": "Allowlisted 4 existing GGUF output failure codes in original Windows witness; diagnostics only, NOT a model fix or installed acceptance. Private Actions prohibited.",
+        "import_ui_source_qualification": "EXACT_ORIGINAL_T2_ONE_WORKSPACE_RECEIVER_LIST_VIA_SIGNED_GET_WORKSPACE; SAME_OR_FOREIGN_SOURCE_FULL_MERGE; NO_OBJECT_FIELD_SELECTION; SOURCE_44897104030_SUCCESS; FULL_ORIGINAL_KERNEL_COLD_E2E_NOT_RUN",
+        "installed_native_ui_embedding_contract": "Private original signer owner T3@162f699d already uses interop/t3-isolated-ui-server.mjs with exact installedParentOrigin; public knowledge isolated-ui-server.mjs remains nonembeddable, so no public CSP patch required. Installed native Agent corporate iframe NOT_QUALIFIED.",
+        "native_agent_work_context": "ONE_SIGNED_IFRAME_UI_SOURCE_IMPLEMENTED; PYTHON_AGENT_TASK_ENGINE_STILL_LOCAL; NO_FULL_CORPORATE_NATIVE_PERSISTENCE_PROOF",
+        "latest_source_release_candidate": {
+          "version": "0.3.0-rc.1",
+          "source_sha": "1d914c756de5687f309e692aadfbbebc0ffe7add",
+          "source_tree_sha": "d4347cbb6648476886f023c56ba2fef4179e7710",
+          "one_dist_artifact_id": 14703763536,
+          "one_dist_artifact_name": "iwxa-t3-one-dist-rc-1d914c756de5687f309e692aadfbbebc0ffe7add",
+          "status": "SOURCE_QUALIFIED_RC_NOT_FINAL",
+          "installed": false
+        }
       },
       "original_t3_final_candidate_sha": "162f699d69f63e1d54bc002465c28c9781bf62ae",
       "person_d7_source_qualification": {
@@ -2981,17 +2993,19 @@
       },
       "platform_release_basis": "COMPLETE_ORIGINAL_COMPANY_T2_WORKSPACE_AND_EXISTING_FULL_IWXA_EXCHANGE_PLUS_D1_D7_COMPOSITION_PLUS_VERSIONED_PROVEN_FINAL_ONE_DIST; NO_MANDATORY_ECOSYSTEM_G4_GUI_MATRIX",
       "latest_executable_source_qualification": {
-        "run_id": 44892877314,
-        "commit_sha": "35b9c797ec62931f087eb49dc88e4897af38774f",
-        "source_tree_sha": "c93616dcddee0cac30e9a7ddcf0e0760e1bffb16",
+        "run_id": 44897104030,
+        "commit_sha": "1d914c756de5687f309e692aadfbbebc0ffe7add",
+        "source_tree_sha": "d4347cbb6648476886f023c56ba2fef4179e7710",
+        "final_branch_sha": "037b78e0fabf661d5fd1dd42d5dc143c9c5156ff",
+        "final_source_tree_identical_to_qualified_run": true,
         "original_t2_tree_sha": "1594274dbf5e38214b8422ba11e8c7114bd5425c",
         "original_bli_tree_sha": "e17b628392fb4e2dbeba2df67fdb0a5506fc5243",
         "test": "SUCCESS",
         "real_host": "SUCCESS",
         "windows_credential": "SUCCESS",
-        "owner_input_artifact_id": 14703130812,
-        "one_dist_rc_artifact_id": 14702657181,
-        "scope": "CURRENT_EXCHANGE_SCOPED_FULL_WORKSPACE_SOURCE_ONLY_NOT_AGENT_CORPORATE_OR_FINAL_RELEASE"
+        "owner_input_artifact_id": 14704263327,
+        "one_dist_rc_artifact_id": 14703763536,
+        "scope": "SOURCE_ONLY_WHOLE_ORIGINAL_COMPANY_WORKSPACE_EXPORT_AND_SIGNED_IMPORT_SAME_OR_FOREIGN_SOURCE_TO_EXACT_SELECTED_RECIPIENT_NO_NEW_KERNEL; NOT INSTALLED_AGENT_GUI; NOT FULL_COMPANY_NATIVE_PYTHON_ENGINE; NOT FINAL_DIST"
       }
     },
     "required_gates": {
