@@ -1,0 +1,117 @@
+name: D11 Workspace UX private source qualification
+on:
+  push:
+    branches:
+      - work/2026-11-21-d11-ux-workspace-qualification
+    paths:
+      - .github/workflows/d11-ux-workspace-qualification.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d11-ux-workspace-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Confirm private checkout permission
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN:-}" || { echo D11_SOURCE_ACCESS=UNAVAILABLE; exit 1; }
+          gh api repos/Faust-S/advice-logistics.ru --jq .id > /dev/null ||
+            { echo D11_SITE_ACCESS=DENIED; exit 1; }
+          gh api repos/Faust-S/T2 --jq .id > /dev/null ||
+            { echo D11_T2_ACCESS=DENIED; exit 1; }
+          echo D11_SOURCE_ACCESS=PASS
+      - name: Checkout exact D11 UX candidate
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/advice-logistics.ru
+          ref: 318507ef5b1612f5732773d52594ab4404447166
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - name: Checkout original normative T2
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          path: t2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Confirm source revisions without printing content
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C site rev-parse HEAD)" = "318507ef5b1612f5732773d52594ab4404447166"
+          test "$(git -C t2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17"
+          echo D11_UX_SITE_REVISION=PASS
+          echo D11_NORMATIVE_T2_REVISION=PASS
+      - name: Install private dependencies
+        working-directory: site
+        shell: bash
+        run: |
+          if npm ci --no-audit --no-fund > "$RUNNER_TEMP/d11-ux-npm.log" 2>&1; then
+            echo D11_UX_INSTALL=PASS
+          else
+            echo D11_UX_INSTALL=FAIL
+            exit 1
+          fi
+      - name: Verify all D11 source and UX regression tests
+        working-directory: site
+        shell: bash
+        run: |
+          if node --experimental-strip-types --test tests/*.test.mjs > "$RUNNER_TEMP/d11-ux-tests.log" 2>&1; then
+            echo D11_UX_ALL_SITE_TESTS=PASS
+          else
+            echo D11_UX_ALL_SITE_TESTS=FAIL
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d11-ux-tests.log" |
+              sed 's/[^a-zA-Z0-9 _.-]/_/g' | head -n 15 || true
+            exit 1
+          fi
+      - name: Build exact public site and original T2 Host into one dist
+        working-directory: site
+        shell: bash
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+        run: |
+          if npm run build:t2:site > "$RUNNER_TEMP/d11-ux-build.log" 2>&1; then
+            echo D11_UX_ONE_DIST=PASS
+          else
+            echo D11_UX_ONE_DIST=FAIL
+            exit 1
+          fi
+      - name: Check TypeScript after generated file-route refresh
+        working-directory: site
+        shell: bash
+        run: |
+          if node_modules/.bin/tsc --noEmit --project tsconfig.json > "$RUNNER_TEMP/d11-ux-tsc.log" 2>&1; then
+            echo D11_UX_TYPES=PASS
+          else
+            echo D11_UX_TYPES=FAIL
+            grep -E 'error TS[0-9]+' "$RUNNER_TEMP/d11-ux-tsc.log" |
+              sed -E 's/^([^ :]+)[(:][0-9:,)]*: error (TS[0-9]+).*/\2 in \1/' |
+              head -n 15 || true
+            exit 1
+          fi
+      - name: Check built routes and static hosting
+        working-directory: site
+        shell: bash
+        run: |
+          test -f dist/start/index.html || { echo D11_UX_START_ROUTE=FAIL; exit 1; }
+          for check in check:links check:runtime check:assets check:htaccess; do
+            if ! npm run --silent "$check" > "$RUNNER_TEMP/d11-ux-${check//:/-}.log" 2>&1; then
+              echo D11_UX_STATIC_CHECK=FAIL
+              exit 1
+            fi
+          done
+          echo D11_UX_STATIC_CHECKS=PASS
+      # No source, dist, logs, screenshots or other private artifacts are uploaded.
