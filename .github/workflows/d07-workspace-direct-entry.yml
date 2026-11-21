@@ -1,0 +1,102 @@
+name: D07 Workspace direct journey and canonical T2 build
+on:
+  push:
+    branches:
+      - work/2026-11-21-d07-workspace-quality
+    paths:
+      - .github/workflows/d07-workspace-direct-entry.yml
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SITE_SHA: 69fef351ae31aa6188e0f73d4f4bb7469a9268fc
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      CI: 'true'
+    steps:
+      - name: Confirm private repositories are accessible
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo 'D07_PRIVATE_ACCESS_MISSING'; exit 1; }
+          gh api repos/Faust-S/uslugovod.ru --jq .id >/dev/null
+          gh api repos/Faust-S/T2 --jq .id >/dev/null
+          echo 'D07_SOURCE_ACCESS=PASS'
+      - name: Checkout private site only into ephemeral runner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - name: Checkout original T2 only into ephemeral runner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - name: Set Node.js and Bun
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - name: Verify fixed private revisions and install
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C site rev-parse HEAD)" = "$SITE_SHA" || exit 1
+          test "$(git -C t2 rev-parse HEAD)" = "$T2_SHA" || exit 1
+          cd site
+          if ! bun install --frozen-lockfile >"$RUNNER_TEMP/d07-install.private.log" 2>&1; then
+            echo 'D07_DEPS=FAIL'
+            exit 1
+          fi
+          echo 'D07_DEPS=PASS'
+      - name: TypeScript and module syntax
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          if ! bun run check:types >"$RUNNER_TEMP/d07-types.private.log" 2>&1; then
+            echo 'D07_TYPES=FAIL'
+            grep -Eo 'TS[0-9]{4}' "$RUNNER_TEMP/d07-types.private.log" | sort -u | head -20 || true
+            exit 1
+          fi
+          echo 'D07_TYPES=PASS'
+      - name: Run product regression including new Workspace start
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          if ! bun run test:product-first >"$RUNNER_TEMP/d07-tests.private.log" 2>&1; then
+            echo 'D07_TESTS=FAIL'
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d07-tests.private.log" | sed -E 's/^not ok [0-9]+ - /D07_FAILED_TEST=/' | head -20 || true
+            exit 1
+          fi
+          echo 'D07_TESTS=PASS'
+      - name: Build actual integrated site with canonical T2 Host
+        shell: bash
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+        run: |
+          set -euo pipefail
+          if ! bun run build:t2-integrated >"$RUNNER_TEMP/d07-build.private.log" 2>&1; then
+            echo 'D07_INTEGRATED_BUILD=FAIL'
+            grep -Eo 'D07_[A-Z0-9_]+|T2_[A-Z0-9_]+|TS[0-9]{4}|ERR_[A-Z0-9_]+' "$RUNNER_TEMP/d07-build.private.log" | sort -u | head -30 || true
+            exit 1
+          fi
+          test -s dist/workspace/index.html || { echo 'D07_ORIGINAL_HOST_MISSING'; exit 1; }
+          echo 'D07_ONE_DIST_ORIGINAL_T2=PASS'
+      # Do not upload dist, private source, logs, archives, browser profiles or screenshots.
