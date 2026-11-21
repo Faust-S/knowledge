@@ -12,8 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      SITE_SHA: 9cca4e5715ba41f73bbf2d9d2853a2bb0917c10b
-      SUBJECT_SHA: bb204ed9c5593f452bf3978b4b8b5444fcd4bcc6
+      SITE_SHA: 0f4b5f32e3d214cdcb957189edf0056f70b638fb
+      SUBJECT_SHA: 4fedf6b1acf4017bced16fb9922286da939e8184
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -72,6 +72,8 @@ jobs:
           cmp -s site/src/data/serviceDirectory.ts subject/src/data/serviceDirectory.ts || { echo 'D07_DIRECTORY_MODEL_DRIFT'; exit 1; }
           cmp -s site/src/domain/service-order-starter.ts subject/src/domain/service-order-starter.ts || { echo 'D07_STARTER_MODEL_DRIFT'; exit 1; }
           cmp -s site/src/domain/service-source-adaptation.ts subject/src/domain/service-source-adaptation.ts || { echo 'D07_SOURCE_MODEL_DRIFT'; exit 1; }
+          cmp -s site/src/domain/service-top500.ts subject/src/domain/service-top500.ts || { echo 'D07_TOP500_MODEL_DRIFT'; exit 1; }
+          cmp -s site/src/domain/service-methodology-conversion.ts subject/src/domain/service-methodology-conversion.ts || { echo 'D07_CONVERSION_MODEL_DRIFT'; exit 1; }
           echo 'D07_SUBJECT_MODEL=PASS'
           test "$(git -C t2 rev-parse HEAD)" = "$T2_SHA" || exit 1
           cd site
@@ -147,5 +149,8 @@ jobs:
           fi
           test -s dist/workspace/index.html || { echo 'D07_ORIGINAL_HOST_MISSING'; exit 1; }
           grep -E '^D07_WORKSPACE_SUBJECT_(CRITERIA|DETAILED|STARTERS)=[0-9]+$' "$RUNNER_TEMP/d07-build.private.log" | tail -3 || true
+          grep -E '^D07_METHOD_(SELECTED|DEFERRED|DETAILED|STARTERS|CONVERSION_BATCH)=' "$RUNNER_TEMP/d07-build.private.log" | tail -5 || true
+          grep -q '^D07_METHOD_SELECTED=500$' "$RUNNER_TEMP/d07-build.private.log" || { echo 'D07_TOP500_BUILD_MISSING'; exit 1; }
+          grep -q '^D07_METHOD_CONVERSION_BATCH=PASS$' "$RUNNER_TEMP/d07-build.private.log" || { echo 'D07_METHOD_BUILD_MISSING'; exit 1; }
           echo 'D07_ONE_DIST_ORIGINAL_T2=PASS'
       # Do not upload dist, private source, logs, archives, browser profiles or screenshots.
