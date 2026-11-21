@@ -472,6 +472,102 @@ def cooperation_change_reviews(links: Sequence[CooperationLink],
     return out
 
 
+# A past MODEL_ONLY consultation can be cited by a newly requested original
+# Work, but does not grant any authority or alter earlier Work. The proposal
+# does not create a new relation, contract, resource or monetary record.
+REQUEST_REFERENCABLE_CHANGE_KINDS = frozenset({
+    "REVISE_SHARED_FUNCTION", "REVISE_RESOURCE_COOPERATION",
+    "REVISE_COST_SHARING",
+})
+
+
+def qualify_cooperation_change_reference(
+    *, change_id: Any, requested_link: Any, expected_revision: Any,
+    requester: Any, work: Any, links: Sequence[CooperationLink],
+    resource_owners: Mapping[str, str], institution: Any,
+    subjects: Mapping[str, Any], trace: Sequence[Mapping[str, Any]],
+    at: int,
+) -> dict[str, Any]:
+    """A completed consultation is prior *evidence*, NOT an authorization.
+
+    No proposal changes the source, price, quality or technology of Work. Its
+    review must be finished and *current before* an explicit ORIGINAL customer
+    request may associate the newly specified Work with it. Even if eligible,
+    all subsequent authorization and each original principal's consent are
+    separate original events, and old obligations remain unchanged.
+
+    One proposal is referencable by at most one new original Work in this
+    research version. This avoids unbounded prospective claims on its scope.
+    """
+    ident = _id(change_id, "CHANGE_ID")
+    if not isinstance(at, int) or isinstance(at, bool):
+        raise CooperationInputError("COOPERATION_CHANGE_REQUEST_TIME_INVALID")
+    if requested_link is None or expected_revision is None:
+        raise CooperationInputError("COOPERATION_CHANGE_REQUEST_LINK_REQUIRED")
+    link = _declared_link(links, requested_link)
+    if link.source_revision != expected_revision:
+        raise CooperationInputError("COOPERATION_CHANGE_SOURCE_REVISION_STALE")
+    if requester != work.customer or requester not in link.participants:
+        raise CooperationInputError("COOPERATION_CHANGE_ORIGINAL_CUSTOMER_REQUIRED")
+    if any(
+        row.get("request_linked_change_id") == ident and
+        row.get("action") == "request" and row.get("outcome") == "APPLIED"
+        for row in trace
+    ):
+        raise CooperationInputError("COOPERATION_CHANGE_ALREADY_REFERENCED_BY_ORIGINAL_REQUEST")
+    proposal = _applied_proposal(trace, ident)
+    if proposal is None:
+        raise CooperationInputError("COOPERATION_CHANGE_ORIGINAL_PROPOSAL_REQUIRED")
+    if (proposal.get("cooperation_link") != link.key or
+            proposal.get("cooperation_source_revision") != link.source_revision or
+            proposal.get("org_revision") != institution.revision):
+        raise CooperationInputError("COOPERATION_CHANGE_REQUEST_STALE_INSTITUTION_OR_RELATION")
+    if proposal.get("change_kind") not in REQUEST_REFERENCABLE_CHANGE_KINDS:
+        raise CooperationInputError("COOPERATION_CHANGE_NOT_A_FUTURE_WORK_SCOPE")
+    if not proposal.get("original_consultees") or not proposal.get("original_relation_participants"):
+        raise CooperationInputError("COOPERATION_CHANGE_ORIGINAL_CONSULTATION_NOT_FROZEN")
+    if not isinstance(proposal.get("at"), int) or at <= proposal["at"]:
+        raise CooperationInputError("COOPERATION_CHANGE_REQUEST_MUST_FOLLOW_CONSULTATION")
+    required = _required_consultees(proposal, link)
+    if not required.issubset(link.participants):
+        raise CooperationInputError("COOPERATION_CHANGE_REQUEST_NEW_PARTY_NEEDS_NEW_RELATION")
+    if any(not subjects[name].active for name in required):
+        raise CooperationInputError("COOPERATION_CHANGE_ORIGINAL_PARTICIPANT_NOT_CURRENT")
+    if any(
+        latest_future_participation(trace, link.key, name, link.source_revision,
+                                    institution.revision) == "PAUSED_NEW_WORK"
+        for name in required
+    ):
+        raise CooperationInputError("COOPERATION_CHANGE_FUTURE_PARTICIPATION_PAUSED")
+    owners = original_parties_for_work(work, resource_owners)
+    if not owners.issubset(link.participants):
+        raise CooperationInputError("COOPERATION_CHANGE_REQUEST_REQUIRES_EXISTING_PRINCIPALS")
+    review = next((row for row in cooperation_change_reviews(
+        links, trace, current_org_revision=institution.revision, subjects=subjects
+    ) if row["change_id"] == ident and row["link"] == link.key), None)
+    if review is None or review["review_status"] != "MODEL_CONSULTATION_COMPLETE_NOT_LEGAL_AUTHORIZATION":
+        raise CooperationInputError("COOPERATION_CHANGE_INDEPENDENT_CONSULTATION_NOT_COMPLETE")
+    # A completed consultation must have existed strictly before the new Work
+    # request, not be assembled using results observed only in the future.
+    responses = [
+        row for row in trace if row.get("action") == "cooperation_change_response"
+        and row.get("outcome") == "APPLIED" and row.get("change_id") == ident
+        and row.get("actor") in required
+    ]
+    if not responses or max(row["at"] for row in responses) >= at:
+        raise CooperationInputError("COOPERATION_CHANGE_REVIEW_NOT_PRIOR_TO_REQUEST")
+    return {
+        "request_linked_change_id": ident,
+        "request_linked_change_scope": proposal["change_kind"],
+        "request_linked_economic_channel": proposal["economic_channel"],
+        "request_model_consultation_prior_support_count": review["supporting_model_declarations"],
+        "request_consultation_source": "ORIGINAL_MODEL_TRACE_NO_LEGAL_AUTHORIZATION",
+        "request_fresh_consent_and_org_code_required": True,
+        "request_original_work_specific_economics": "NOT_VERIFIED",
+        "request_original_work_quality_and_responsibility": "NOT_VERIFIED",
+    }
+
+
 def cooperation_reconfiguration_economics(
     *, change: Mapping[str, Any], link: CooperationLink,
     evidence: Mapping[str, Any],
