@@ -238,6 +238,7 @@ func (ui *oneUI) toggle() {
 				err = m.stopDirect()
 			}
 		}
+		_ = m.saveDirectLocalFailure(err)
 		reason := ""
 		if err != nil {
 			state = directFailed

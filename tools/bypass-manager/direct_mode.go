@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -65,6 +66,27 @@ func directReport(state, outcome string) DirectReport {
 }
 func (m *Manager) saveDirectReport(report DirectReport) error {
 	return saveJSON(filepath.Join(m.home, "results", "latest-direct.json"), report)
+}
+
+// A detailed diagnostic stays only in the user's local results directory.
+// The support exporter uses a separate strict whitelist and never includes
+// this file, which can contain paths or PowerShell error messages.
+func (m *Manager) saveDirectLocalFailure(err error) error {
+	path := filepath.Join(m.home, "results", "latest-direct-error.local.txt")
+	if err == nil {
+		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			return removeErr
+		}
+		return nil
+	}
+	if mkErr := os.MkdirAll(filepath.Dir(path), 0700); mkErr != nil {
+		return mkErr
+	}
+	message := err.Error()
+	if len(message) > 4000 {
+		message = message[:4000]
+	}
+	return os.WriteFile(path, []byte(message+"\n"), 0600)
 }
 
 func parseDirectStatus(b []byte) (string, error) {

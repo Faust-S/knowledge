@@ -85,3 +85,31 @@ func TestDirectFailureHasNoRawDetailsInShareableReport(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalDirectFailureNotExportedAndCleared(t *testing.T) {
+	root := t.TempDir()
+	m := &Manager{home: root}
+	private := "private-engine-path C:\\CI\\user\\secret\\winws2.exe"
+	if err := m.saveDirectLocalFailure(errors.New(private)); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "results", "latest-direct-error.local.txt")
+	b, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(b), private) {
+		t.Fatalf("missing local diagnostic: %v", err)
+	}
+	out, _, err := saveSupport(filepath.Join(root, "results"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil || strings.Contains(string(data), "private-engine-path") {
+		t.Fatal("private local error leaked into support report", err)
+	}
+	if err := m.saveDirectLocalFailure(nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("private error was not cleared after recovery: %v", err)
+	}
+}

@@ -56,6 +56,13 @@ try {
       $state=Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
       $check=Get-Content -LiteralPath $checkFile -Raw | ConvertFrom-Json
       if($state.state -eq 'FAILED' -or $state.state -eq 'STALE_OR_UNVERIFIED'){
+        $internal=Join-Path $results 'latest-direct-error.local.txt'
+        if(Test-Path -LiteralPath $internal -PathType Leaf) {
+          # Synthetic GitHub-runner paths only. This local file is never in
+          # user-shared support JSON or in a release artifact.
+          $diagnostic=Get-Content -LiteralPath $internal -Raw
+          Write-Host ('Native Win32 private start error (CI-only): ' + $diagnostic.Trim())
+        }
         $phase=if($null -eq $check){'NO_CHECK'}else{[string]$check.state}
         throw "Native GUI startup reported $($state.state), outcome=$($state.outcome), HTTPS phase=$phase, before=$($check.before.passed)/$($check.before.total), after=$($check.after.passed)/$($check.after.total)"
       }
