@@ -53,3 +53,19 @@ jobs:
           name: t4-network-qualification
           path: ${{ runner.temp }}/iwxa-t4-network-qualification/
           if-no-files-found: ignore
+
+  windows-contract:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify T4 network contracts on Windows
+        working-directory: packages/t4-network
+        run: |
+          node --check src/network/webdav-package-transfer.mjs
+          node --check src/network/original-exchange-handoff.mjs
+          node --check src/network/operator-connection.mjs
+          npm test
