@@ -260,5 +260,5 @@ def test_future_request_depending_on_unaccepted_original_result_cannot_start():
                            "org_revision":"oc-1"},at)["outcome"]=="APPLIED"
     assert state.apply({"at":18,"action":"commit","actor":"op","work":"w2"},18)["outcome"]=="APPLIED"
     result=state.apply({"at":19,"action":"start","actor":"a","work":"w2"},19)
-    assert result["reason"]=="PORTFOLIO_PREDECESSOR_RESULT_NOT_ACCEPTED"
+    assert result["reason"]=="DEPENDENCY_AWAITING_ACCEPTANCE"
     assert state.works["w2"].execution=="NOT_STARTED"
