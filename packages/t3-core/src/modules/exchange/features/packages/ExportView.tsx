@@ -119,13 +119,14 @@ export function ExportView({ kernel, scopedWorkspaceId,
     kernel.listWorkspaces().then((wss) => {
       if (!alive) return;
       const usable = wss.filter((w) => !w.deleted_at);
-      const initial = scopedWorkspaceId
-        ? usable.filter((w) => w.workspace_id === scopedWorkspaceId).map((w) => w.workspace_id)
+      const signedFocus = signedWorkspaceScope ? scopedWorkspaceId : null;
+      const initial = signedFocus
+        ? usable.filter((w) => w.workspace_id === signedFocus).map((w) => w.workspace_id)
         : usable.map((w) => w.workspace_id);
       dispatch({ type: "workspaces-loaded", catalog: usable, initialWorkspaces: initial });
       // Keep the ORIGINAL T2 state-machine snapshots identical to the
       // complete package requested from Kernel after previous selection.
-      const whole = scopedWorkspaceId ??
+      const whole = signedFocus ??
         (signedWorkspaceScope && usable.length === 1
           ? usable[0].workspace_id : null);
       if (whole && usable.some(w => w.workspace_id === whole)) {
@@ -144,7 +145,7 @@ export function ExportView({ kernel, scopedWorkspaceId,
   // A single catalog row is not evidence of a signed company Workspace.
   // Only a trusted original signed Host makes one selected Workspace a
   // mandatory full .iwxa; ordinary T2 retains its original export options.
-  const wholeWorkspaceId = scopedWorkspaceId ??
+  const wholeWorkspaceId = (signedWorkspaceScope ? scopedWorkspaceId : null) ??
     (signedWorkspaceScope && state.catalog.length === 1
       ? state.catalog[0].workspace_id : null);
   const selection: ExportSelection = useMemo(() => wholeWorkspaceId

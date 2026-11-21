@@ -33,7 +33,8 @@ function makeKernel(): KernelFacade {
 describe("Export stale preview (§2)", () => {
   it("does not call exportPackage when selection changed after preview", async () => {
     const kernel = makeKernel();
-    render(createElement(ExportView, { kernel }));
+    // A generic T2 focus is NOT proof of company-signed Access.
+    render(createElement(ExportView, { kernel, scopedWorkspaceId: "a" }));
 
     await waitFor(() => expect(screen.getByTestId("export-preview-result")).toBeFalsy(), { timeout: 100 }).catch(() => {});
 
