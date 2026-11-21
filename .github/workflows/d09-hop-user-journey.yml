@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: a99acf40d9262e8c2fe8e915fa0af27ea49ece96
+          ref: 7850c2fc79d517773df08cff62f0b6ba720e50fc
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Set up Node 24
