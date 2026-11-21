@@ -15,6 +15,7 @@ from .cooperation import (
     CooperationInputError, CooperationLink, evaluate_cooperation_cost_channels,
     attribute_cooperative_event_costs,
 )
+from .modern_economic_evidence import ModernEconomicEvidenceError, review_cost_attribution
 
 
 class EconomicInputError(ValueError):
@@ -86,7 +87,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
     """
     required = {"period", "currency", "sources", "transfers", "resource_uses", "coverage", "outside_feasibility"}
     if (not isinstance(raw, dict) or required - set(raw) or
-            set(raw) - required - {"mechanism_allocations", "coordination_event_bindings"}):
+            set(raw) - required - {"mechanism_allocations", "coordination_event_bindings", "modern_cost_bindings"}):
         raise EconomicInputError("INVALID_ECONOMICS_FIELDS")
     doc = raw
     period = _identifier(doc["period"], "ECONOMIC_PERIOD")
@@ -277,5 +278,15 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
                 sources, resource_index, output["cooperation_cost_channels"],
             )
         except CooperationInputError as exc:
+            raise EconomicInputError(str(exc)) from exc
+    if "modern_cost_bindings" in doc:
+        # Only binds existing, original, non-cash resource uses to costs.
+        # No new ledger, new costs, automatic incentive, or false zero.
+        try:
+            output["modern_cost_attribution"] = review_cost_attribution(
+                doc["modern_cost_bindings"], sources=sources,
+                resource_index=resource_index, subjects=subjects,
+            )
+        except ModernEconomicEvidenceError as exc:
             raise EconomicInputError(str(exc)) from exc
     return output
