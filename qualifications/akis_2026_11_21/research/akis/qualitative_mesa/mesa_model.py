@@ -456,7 +456,8 @@ class OperatorAKISModel(mesa.Model):
 
     def _apply_event(self, event: dict[str, Any]) -> None:
         outcome = self.qualitative.apply(event, int(self.time))
-        if (self.decision_profiles or self.economic_outlooks or self.joint_purchasing_plans or
+        if (self.decision_profiles or self.endogenous_subjects_enabled or
+                self.economic_outlooks or self.joint_purchasing_plans or
                 event["action"] in {"interest_update", "participation_status",
                                     "cooperation_change_propose", "cooperation_change_response"}
                 ) and outcome["outcome"] == "APPLIED":
