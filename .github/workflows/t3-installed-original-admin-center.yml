@@ -142,7 +142,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: adfcb77a3497415ce8bb194647d2d5be3a41eafa
+          ref: 162f699d69f63e1d54bc002465c28c9781bf62ae
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           filter: blob:none
@@ -203,7 +203,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
           $center=(& git -C .private/center rev-parse HEAD).Trim()
-          if($t3 -ne 'adfcb77a3497415ce8bb194647d2d5be3a41eafa' -or
+          if($t3 -ne '162f699d69f63e1d54bc002465c28c9781bf62ae' -or
              $center -ne '5da2473f5e13df58cd715b0109c29b7707a97847'){
             throw 'G4_ORIGINAL_INSTALLED_PRIVATE_SOURCE_PIN_MISMATCH'
           }
@@ -257,6 +257,13 @@ jobs:
           $original=@(& git -C .private/t3 status --porcelain)
           Write-Host ("G4_ORIGINAL_KNOWLEDGE_TREE_CLEAN " + ($public.Count -eq 0))
           Write-Host ("G4_ORIGINAL_PRIVATE_T3_TREE_CLEAN " + ($original.Count -eq 0))
+      - name: Verify original private static asset and compiled-owner import boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & node --test .private/t3/tests/t3-native-static-asset.test.mjs
+          if($LASTEXITCODE -ne 0){throw 'G4_ORIGINAL_NATIVE_ASSET_BOUNDARY_TEST_FAILED'}
+          Write-Host 'G4_ORIGINAL_NATIVE_ASSET_BOUNDARY_TEST_PASS'
       - name: Build genuine original T3 signed owner, Center and Setup Core
         shell: pwsh
         timeout-minutes: 40
@@ -335,7 +342,7 @@ jobs:
           ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 `
             -CenterRoot '.private/center' -OriginalT3Root '.private/t3' `
             -ExpectedCenterSha '5da2473f5e13df58cd715b0109c29b7707a97847' `
-            -ExpectedT3Sha 'adfcb77a3497415ce8bb194647d2d5be3a41eafa'
+            -ExpectedT3Sha '162f699d69f63e1d54bc002465c28c9781bf62ae'
       - name: Native UIA first-use cancel, real signed organization enrollment and cold restart
         shell: pwsh
         timeout-minutes: 9
