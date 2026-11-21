@@ -13,7 +13,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 55
     env:
-      SITE_SHA: 2d465b019dd89fff5f1037cbce1229e851fe1f07
+      SITE_SHA: 1e926843fd238f9b2d301d2f1de3794a1923e40f
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -227,6 +227,68 @@ jobs:
                   $fail.Add("window:$($e.kind):$($e.id)")
                 }
               }
+            }
+            # Open four original tool forms through their published anchors.
+            # A hidden heading alone is insufficient; native Edge must show
+            # it within the real 375-pixel app window.
+            $deepLinks=@(
+              @{code='money-decisions';route='/tools/personal-economy/#club-family-scenario-heading';heading='Проверить будущие денежные решения'}
+              @{code='income-contact';route='/tools/additional-income/#contact-work-ledger';heading='Моя смена в контакт-центре: звонки, качество и премия'}
+              @{code='income-pvz';route='/tools/additional-income/#pvz-work-ledger';heading='Мои операции на пункте выдачи заказов'}
+              @{code='income-payment';route='/tools/additional-income/#club-income-payments';heading='3. Денежная выплата или резерв налога'}
+            )
+            foreach($d in $deepLinks){
+              try{Get-Process msedge -ErrorAction SilentlyContinue |
+                Stop-Process -Force -ErrorAction SilentlyContinue}catch{}
+              Start-Sleep -Milliseconds 350
+              $deep=Start-Process -FilePath $edge -PassThru -ArgumentList @(
+                '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
+                "--user-data-dir=$profile","--app=$origin$($d.route)"
+              )
+              $window=$null
+              for($k=0;$k -lt 50;$k++){
+                $window=@(Get-Process msedge -ErrorAction SilentlyContinue |
+                  Where-Object {$_.MainWindowHandle -ne 0}|Select-Object -First 1)[0]
+                if($window){break}
+                Start-Sleep -Milliseconds 150
+              }
+              if(!$window){
+                $fail.Add("deep-window:$($d.code)")
+                Write-Output "D02_NATIVE_TOOL_DEEP_LINK_FAIL=$($d.code):WINDOW"
+                continue
+              }
+              if(-not [D02View]::MoveWindow([IntPtr]$window.MainWindowHandle,20,20,375,812,$true)){
+                $fail.Add("deep-resize:$($d.code)")
+                Write-Output "D02_NATIVE_TOOL_DEEP_LINK_FAIL=$($d.code):RESIZE"
+                continue
+              }
+              $observed=WaitName $d.heading
+              if(!$observed){
+                $fail.Add("deep-heading:$($d.code)")
+                Write-Output "D02_NATIVE_TOOL_DEEP_LINK_FAIL=$($d.code):HEADING"
+                continue
+              }
+              $visible=$false
+              for($k=0;$k -lt 40;$k++){
+                try{
+                  $frame=[System.Windows.Automation.AutomationElement]::FromHandle(
+                    [IntPtr]$window.MainWindowHandle).Current.BoundingRectangle
+                  $rect=$observed.Current.BoundingRectangle
+                  $visible=(!$observed.Current.IsOffscreen -and
+                    $rect.Width -gt 3 -and $rect.Height -gt 3 -and
+                    $rect.Left -ge ($frame.Left-3) -and
+                    $rect.Right -le ($frame.Right+3))
+                  if($visible){break}
+                }catch{}
+                Start-Sleep -Milliseconds 160
+              }
+              if(!$visible){
+                $fail.Add("deep-geometry:$($d.code)")
+                Write-Output "D02_NATIVE_TOOL_DEEP_LINK_FAIL=$($d.code):GEOMETRY"
+              }else{
+                Write-Output "D02_NATIVE_TOOL_DEEP_LINK_PASS=$($d.code)"
+              }
+              if($deep){try{$deep.Kill($true)}catch{}}
             }
             if($fail.Count -gt 0){throw ('D02_COVERAGE_NATIVE_ROUTE_FAILURE count='+$fail.Count)}
             if($counts.service -ne 18 -or $counts.case -ne 10){
