@@ -70,9 +70,18 @@ export function manifestForOneDist(entries,{version,oneCoreSha,t2Sha,assembled,p
     'one-dist/workspace/workspace.config.json',
     'one-dist/workspace/signed-workspace.html',
   ])if(!names.includes(path))fail('INCOMPLETE_ORIGINAL_ONE_DIST');
+  let originValid=false;
+  try{
+    const url=new URL(product?.origin);
+    const localhost=url.protocol==='http:'&&url.hostname==='127.0.0.1'&&
+      Number(url.port)>=1&&Number(url.port)<=65535;
+    const web=product?.assemblyProfile==='signed-control'&&
+      url.protocol==='https:'&&Boolean(url.hostname)&&
+      url.hostname!=='localhost';
+    originValid=url.origin===product.origin&&(localhost||web);
+  }catch{/* invalid product origin stays rejected */}
   if(!product||typeof product.id!=='string'||!product.id.trim()||
-     typeof product.origin!=='string'||
-     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(product.origin)||
+     !originValid||
      typeof product.serviceId!=='string'||!product.serviceId.trim()||
      typeof product.assemblyProfile!=='string'||
      !['signed-control','agent-d6','agent-d6-desktop'].includes(product.assemblyProfile)||
