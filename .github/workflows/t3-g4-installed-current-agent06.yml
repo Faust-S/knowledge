@@ -14,6 +14,9 @@ concurrency:
   cancel-in-progress: true
 jobs:
   installed-current-agent06:
+    # The installed browser attaches the ORIGINAL signed company Kernel.
+    # A Node-only source harness without that attachment must fail closed;
+    # do not rerun that unrelated source case when qualifying native K03.
     if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-installed-agent-g4]') }}
     runs-on: windows-2022
     timeout-minutes: 85
