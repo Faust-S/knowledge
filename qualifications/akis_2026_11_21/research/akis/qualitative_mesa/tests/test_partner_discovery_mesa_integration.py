@@ -185,8 +185,13 @@ def test_unilateral_financial_quote_cannot_be_promoted_to_common_economic_eviden
     d=scenario()
     d['partner_discovery']['formation_finance']=native_bilateral_claims()[:1]
     out=simulate(d)
-    assert at(out,4)['economic_status']=='BILATERAL_OWNER_EVIDENCE_INCOMPLETE'
-    assert at(out,4)['economically_possible_count']==0
+    # Only BUYER's quote activates at t=4; no PROVIDER quote exists.
+    # The current economic reason remains unchanged from supplier activation
+    # at t=3, so the causal evolution intentionally deduplicates t=4.
+    assert at(out,3)['economic_status']=='BILATERAL_OWNER_EVIDENCE_INCOMPLETE'
+    assert all(row['work_proposals'][0].get('economically_possible_count', 0) == 0
+               for row in out['formation_opportunities']['evolution'])
+    assert out['formation_opportunities']['economically_reviewable_count']==0
     assert 'cooperation' not in out
 
 def test_source_default_cannot_masquerade_as_an_owner_available_resource():
