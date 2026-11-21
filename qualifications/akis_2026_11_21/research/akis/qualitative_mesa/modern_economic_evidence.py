@@ -157,13 +157,17 @@ def modern_economic_review(
     firms = sorted(key for key, v in subjects.items() if v.kind != "OPERATOR")
     operators = sorted(key for key, v in subjects.items() if v.kind == "OPERATOR")
     per_subject = economic_view.get("per_subject", {}) if economic_view else {}
+    liquidity = economic_view.get("cash_timing", {}) if economic_view else {}
+    private_liquidity = liquidity.get("per_original_owner_private_research_projection", {})
     private_statuses = {
         owner: {
             "comparison": per_subject.get(owner, {}).get(
                 "cash_comparison", "NOT_IDENTIFIABLE"),
             "outside_feasibility": per_subject.get(owner, {}).get(
                 "outside_feasibility", "UNKNOWN"),
-            "liquidity_sufficiency": "NOT_ESTABLISHED_BY_CASH_DIFFERENCE",
+            "liquidity_sufficiency": private_liquidity.get(owner, {}).get(
+                "status", "NOT_ESTABLISHED_BY_CASH_DIFFERENCE"
+            ),
             "transaction_cost_saving": "NOT_IDENTIFIABLE_WITHOUT_COMPARABLE_COST_CHAIN",
             "original_independent_consent": "NOT_INFERRED",
         } for owner in sorted(subjects)
@@ -201,9 +205,21 @@ def modern_economic_review(
             "SEPARATE_DECLARED_CASH_NOT_PROOF_OF_SUSTAINABILITY"
             if operators and economic_view else "NOT_IDENTIFIABLE"
         ),
+        "operator_declared_liquidity_gap_count": sum(
+            private_liquidity.get(owner, {}).get("status")
+            == "DECLARED_LIQUIDITY_GAP_IN_ONE_OR_MORE_CASES"
+            for owner in operators
+        ),
+        "timed_cash_proof_counts_without_private_amounts": liquidity.get(
+            "cross_owner_nonfinancial_status_counts", {}
+        ),
+        "timed_cash_owner_values_remain_private_not_for_interfirm_publication": True,
         "network_perspective": network_comparison,
         "internal_transfers_added_as_external_value": False,
-        "liquidity_proof_from_individual_claims": "NOT_ESTABLISHED",
+        "liquidity_proof_from_individual_claims": (
+            "SOURCE_DECLARED_FORECAST_NOT_REAL_BANK_SOLVENCY"
+            if liquidity else "NOT_ESTABLISHED"
+        ),
         "bilateral_model_finance_state": (
             "PRESENT_MODEL_ONLY" if formation and "economic_choice" in formation
             else "NOT_QUALIFIED"
