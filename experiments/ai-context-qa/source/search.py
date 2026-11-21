@@ -73,7 +73,43 @@ def _build(con,rows,cache):
     con.execute('INSERT INTO meta VALUES (?,?)',('fingerprint',fingerprint(rows,cache)))
     con.commit()
 
-def query(query_text,db,rows,scope=None,role=None,limit=8,rebuild=False,cache=None,include_archived=False,status_out=None):
+def focused_excerpt(text, query_text, max_chars=1100):
+    """Return a bounded, query-oriented source window and its local character offsets.
+
+    The returned window is navigational evidence, never the complete source text.
+    The exact source locator and original chunk offsets remain available to callers.
+    """
+    if max_chars < 120:
+        raise ValueError('excerpt_chars must be at least 120')
+    if len(text) <= max_chars:
+        return text, 0, len(text), False
+    width = max_chars - 2  # reserve space for possible leading/trailing ellipses
+    terms = list(dict.fromkeys(re.findall(r'[\w]+', query_text, flags=re.UNICODE)))
+    hits = []
+    for index, term in enumerate(terms):
+        for match in re.finditer(re.escape(term), text, flags=re.IGNORECASE):
+            hits.append((match.start(), index))
+            if sum(1 for _, t in hits if t == index) >= 20:
+                break
+    if hits:
+        # Prefer a window containing more DISTINCT query terms; keep early text
+        # in ties. This avoids returning only the first, potentially weak hit.
+        starts = {0}
+        last = len(text) - width
+        for position, _ in hits:
+            starts.add(min(last, max(0, position - width // 3)))
+        def rank(begin):
+            covered = [term for position, term in hits if begin <= position < begin + width]
+            return len(set(covered)), len(covered), -begin
+        begin = max(starts, key=rank)
+    else:
+        begin = 0  # title-only FTS match: show the document opening
+    end = begin + width
+    snippet = ('…' if begin else '') + text[begin:end] + ('…' if end < len(text) else '')
+    return snippet, begin, end, True
+
+
+def query(query_text,db,rows,scope=None,role=None,limit=8,rebuild=False,cache=None,include_archived=False,status_out=None,excerpt_chars=1100):
     rules=reading_policy(ROOT)
     total_records=len(rows)
     eligible=eligible_sources(rows,include_archived)
@@ -106,8 +142,11 @@ def query(query_text,db,rows,scope=None,role=None,limit=8,rebuild=False,cache=No
         if i in seen:continue
         seen.add(i);r=lookup[i]
         content_kind,body=body.split('\n',1)
+        snippet,local_start,local_end,truncated=focused_excerpt(body,query_text,excerpt_chars)
         out.append(dict(source_id=i,path=r['path'],locator=r['locator'],content_kind=content_kind,scope=s,authority_role=role_,reading_status='ARCHIVED_COMPATIBILITY_ONLY' if (archived(r,rules) or r.get('default_read_status')=='HISTORICAL_ONLY') else 'CURRENT_SOURCE',title=title,start_char=start,end_char=end,score=score,
-                        original_path=r.get('original_path'),origin=r['origin'],sha256=r['sha256'],excerpt=body))
+                        original_path=r.get('original_path'),origin=r['origin'],sha256=r['sha256'],excerpt=snippet,
+                        excerpt_truncated=truncated,excerpt_start_char=start+local_start if content_kind=='FULL_TEXT' else None,
+                        excerpt_end_char=start+local_end if content_kind=='FULL_TEXT' else None))
         if len(out)>=limit:break
     return out
 
@@ -127,12 +166,13 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--query');p.add_argument('--scope');p.add_argument('--role');p.add_argument('--limit',type=int,default=8);p.add_argument('--node');p.add_argument('--overview',action='store_true');p.add_argument('--rebuild',action='store_true');p.add_argument('--db',default=str(Path(tempfile.gettempdir())/'iwxa-source-index'/('index-'+hashlib.sha256(str(ROOT).encode()).hexdigest()[:12]+'.sqlite')))
     p.add_argument('--cache-manifest',help='JSON source_id to local absolute path; fulltext cache lives outside Git')
     p.add_argument('--include-archived',action='store_true',help='Explicit history/compatibility task only; retired terms do not become current')
+    p.add_argument('--excerpt-chars',type=int,default=1100,help='Maximum source excerpt length, minimum 120; use the original source for complete interpretation')
     a=p.parse_args();cache=json.loads(Path(a.cache_manifest).read_text(encoding='utf-8')) if a.cache_manifest else None
     if a.overview:print((K/'SYSTEM_OVERVIEW_RU.md').read_text(encoding='utf-8'));return
     if a.node:print(json.dumps(graph_node(a.node,a.include_archived),ensure_ascii=False,indent=2));return
     if not a.query:p.error('--query, --node or --overview is required')
     status={}
-    results=query(a.query,a.db,sources(),a.scope,a.role,a.limit,a.rebuild,cache,a.include_archived,status)
+    results=query(a.query,a.db,sources(),a.scope,a.role,a.limit,a.rebuild,cache,a.include_archived,status,a.excerpt_chars)
     print(json.dumps(dict(query=a.query,results=results,source_integrity=status,reading_mode='EXPLICIT_ARCHIVE_INCLUDED' if a.include_archived else 'CURRENT_ONLY',rule='T0 minimal particles / T1 minimal processes are the only current meanings. Metadata is navigation, not source content.'),ensure_ascii=False,indent=2))
 
 if __name__=='__main__':main()

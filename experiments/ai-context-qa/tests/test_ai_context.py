@@ -86,6 +86,42 @@ class AIContextSyntheticTests(unittest.TestCase):
         self.assertEqual(archival[0]["reading_status"], "ARCHIVED_COMPATIBILITY_ONLY")
         self.assertEqual(search.query("HistoricalSignal", self.db("one.sqlite"), self.rows), [])
 
+    def test_search_returns_short_relevant_excerpt_with_exact_offsets(self):
+        content = ("Ordinary background context. " * 110 +
+                   "SpecialNeedle exact technical result. " +
+                   "Ordinary later context. " * 120)
+        row = self.make_local("S-EXCERPT", "docs/long.md", content, "current")
+        found = search.query("SpecialNeedle", self.db("excerpt.sqlite"), [row],
+                             excerpt_chars=420)
+        self.assertEqual(len(found), 1)
+        entry = found[0]
+        self.assertEqual(entry["source_id"], row["id"])
+        self.assertEqual(entry["sha256"], row["sha256"])
+        self.assertTrue(entry["excerpt_truncated"])
+        self.assertLessEqual(len(entry["excerpt"]), 420)
+        self.assertIn("SpecialNeedle", entry["excerpt"])
+        self.assertEqual(content[entry["excerpt_start_char"]:entry["excerpt_end_char"]],
+                         entry["excerpt"].strip("…"))
+        self.assertGreater(entry["excerpt_start_char"], 0)
+
+    def test_title_only_match_still_returns_source_opening(self):
+        content = "StartHere " * 500
+        row = self.make_local("S-TITLE", "docs/title.md", content, "current")
+        row["title"] = "UniqueTitleMarker"
+        found = search.query("UniqueTitleMarker", self.db("title.sqlite"), [row],
+                             excerpt_chars=240)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["excerpt_start_char"], 0)
+        self.assertTrue(found[0]["excerpt"].startswith("StartHere"))
+        self.assertTrue(found[0]["excerpt_truncated"])
+
+    def test_external_metadata_excerpt_has_no_source_body_offsets(self):
+        entry = search.query("ExternalCandidateBeta", self.db("metadata-position.sqlite"),
+                             [self.rows[3]])[0]
+        self.assertEqual(entry["content_kind"], "METADATA_AND_CANDIDATES_ONLY")
+        self.assertIsNone(entry["excerpt_start_char"])
+        self.assertIsNone(entry["excerpt_end_char"])
+
     def test_sha_drift_skips_bad_source_but_keeps_healthy(self):
         rows = [dict(self.rows[1], sha256="0" * 64), self.rows[0]]
         status = {}
