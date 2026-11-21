@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 361c18a7140380cacb169bbdb8da109cf81f9a6d
+          ref: 3dc0770b249d9ea08eeaa491727e3a0093b8c583
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -70,8 +70,8 @@ jobs:
       - name: Verify immutable site / subject / T2 revisions
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "361c18a7140380cacb169bbdb8da109cf81f9a6d"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "9326f8ca86dc57306cfb925351ab138802d26c20"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "3dc0770b249d9ea08eeaa491727e3a0093b8c583"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "3cc58015a238dc7796ef44bc70ffb797cd04829a"
           test "$(git -C d04-private/model rev-parse HEAD)" = "d0f6ec9d50c01891ed1001fb872ac2d5770e8f0d"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           for path in d04-private/site d04-private/model d04-private/t2; do
@@ -105,7 +105,7 @@ jobs:
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
           BAZMED_SUBJECT_SOURCE_DIR: ${{ github.workspace }}/d04-private/model
-          D04_RELEASE_SITE_SHA: 361c18a7140380cacb169bbdb8da109cf81f9a6d
+          D04_RELEASE_SITE_SHA: 3dc0770b249d9ea08eeaa491727e3a0093b8c583
         run: |
           set -euo pipefail
           if npm run release:check-source >"$RUNNER_TEMP/d04-release-source.log" 2>&1; then
@@ -258,7 +258,7 @@ jobs:
             echo "D04_WORKSPACE_RESPONSIVE_VIEWPORTS_INCOMPLETE"
             exit 1
           fi
-          for marker in D04_WORKSPACE_TOOL_RETURN_PATH D04_WORKSPACE_OVERVIEW_ENTRY; do
+          for marker in D04_WORKSPACE_TOOL_RETURN_PATH D04_WORKSPACE_OVERVIEW_ENTRY D04_CAREGIVER_WORKING_ENTRY; do
             if ! grep -qx "$marker=PASS" "$RUNNER_TEMP/d04-integrated.log"; then
               echo "$marker=FAIL"
               exit 1
