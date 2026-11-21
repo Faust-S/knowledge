@@ -29,14 +29,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: ddd40bb81770fbbfc878cb1b2c5852a2bc30e40f
+          ref: 9bf9f4e4a68c7874739e1b79705c2eac4a112fc6
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
       - name: Check revisions and source mirrors
         run: |
           test "$(git -C subject rev-parse HEAD)" = "5ba616f4b83d2deb451ccbfcd37a23bedc64f8f1"
-          test "$(git -C site rev-parse HEAD)" = "ddd40bb81770fbbfc878cb1b2c5852a2bc30e40f"
+          test "$(git -C site rev-parse HEAD)" = "9bf9f4e4a68c7874739e1b79705c2eac4a112fc6"
           for file in service-finalization-gate.ts service-external-gap-research.ts service-professional-gap-inventory.ts service-subject-protocols.ts service-professional-source-intake.ts service-method-fragment-assembly.ts service-professional-evidence.ts service-subject-logistics-b.ts service-subject-logistics-k.ts service-subject-plumbing-a.ts service-subject-moving-team.ts service-subject-flooring-a.ts service-methodology-conversion.ts; do
             cmp "subject/src/domain/$file" "site/src/domain/$file" >/dev/null || exit 2
           done
@@ -55,6 +55,13 @@ jobs:
             exit 1
           }
           echo D07_INSTALL=PASS
+      - name: Syntax-check all service test files before execution
+        working-directory: site
+        run: |
+          for file in scripts/tests/d07-*.test.mjs; do
+            node --check "$file" >/dev/null
+          done
+          echo D07_TEST_SYNTAX=PASS
       - name: Report logistics catalogue and protocol coverage without user data
         working-directory: site
         run: |
