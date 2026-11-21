@@ -121,6 +121,16 @@ export function ExportView({ kernel, scopedWorkspaceId,
         ? usable.filter((w) => w.workspace_id === scopedWorkspaceId).map((w) => w.workspace_id)
         : usable.map((w) => w.workspace_id);
       dispatch({ type: "workspaces-loaded", catalog: usable, initialWorkspaces: initial });
+      // Keep the ORIGINAL T2 state-machine snapshots identical to the
+      // complete package requested from Kernel after previous selection.
+      const whole = scopedWorkspaceId ??
+        (usable.length === 1 ? usable[0].workspace_id : null);
+      if (whole && usable.some(w => w.workspace_id === whole)) {
+        dispatch({ type: "set-selection", selection: {
+          workspaces: [whole], include_history: true, include_assets: true,
+          include_relations: true, include_schemas: true,
+        } });
+      }
     }).catch((e) => {
       if (!alive) return;
       dispatch({ type: "workspaces-failed", error: e instanceof Error ? e.message : String(e) });
@@ -128,22 +138,25 @@ export function ExportView({ kernel, scopedWorkspaceId,
     return () => { alive = false; };
   }, [kernel, scopedWorkspaceId]);
 
-  // A Host-scoped company export is always the WHOLE original T2 Workspace.
-  // These options are derived from the trusted scope, not toggles or Result fields.
-  // The generic T2 Exchange remains unchanged when no scope is supplied.
-  const selection: ExportSelection = useMemo(() => scopedWorkspaceId
+  // The ORIGINAL signed T2 Kernel lists only its ONE authorized Workspace.
+  // Even before the Host's focus is selected, this is a complete-company
+  // export. No history/Asset/relations/schema exclusion for that Workspace.
+  // In an unrestricted multi-Workspace T2 session, retain generic Exchange.
+  const wholeWorkspaceId = scopedWorkspaceId ??
+    (state.catalog.length === 1 ? state.catalog[0].workspace_id : null);
+  const selection: ExportSelection = useMemo(() => wholeWorkspaceId
     ? {
-        workspaces: [scopedWorkspaceId],
+        workspaces: [wholeWorkspaceId],
         include_history: true,
         include_assets: true,
         include_relations: true,
         include_schemas: true,
       }
-    : state.selection, [state.selection, scopedWorkspaceId]);
-  const scopeReady = !scopedWorkspaceId || (
-    state.catalog.some(w => w.workspace_id === scopedWorkspaceId) &&
+    : state.selection, [state.selection, wholeWorkspaceId]);
+  const scopeReady = !wholeWorkspaceId || (
+    state.catalog.some(w => w.workspace_id === wholeWorkspaceId) &&
     state.selection.workspaces.length === 1 &&
-    state.selection.workspaces[0] === scopedWorkspaceId);
+    state.selection.workspaces[0] === wholeWorkspaceId);
   const options = useMemo(() => toExportOptions(selection), [selection]);
 
   const runPreview = async () => {
@@ -160,7 +173,8 @@ export function ExportView({ kernel, scopedWorkspaceId,
 
   const runPackage = async () => {
     if (busyRef.current) return;
-    if (!state.preview || !state.ackSensitive || !scopeReady) return;
+    if (!state.preview || !state.ackSensitive || !scopeReady ||
+        !selectionsEqual(state.previewSnapshot ?? state.selection, selection)) return;
     if (
       !state.preview ||
       !state.previewSnapshot ||
@@ -228,7 +242,9 @@ export function ExportView({ kernel, scopedWorkspaceId,
   };
 
   const runDownload = () => {
-    if (state.artifact) triggerDownload(state.artifact.bytes,state.artifact.filename,true);
+    if (scopeReady && state.artifact) {
+      triggerDownload(state.artifact.bytes,state.artifact.filename,true);
+    }
   };
   const runProtectedDownload = async () => {
     const artifact=state.artifact;
@@ -258,7 +274,8 @@ export function ExportView({ kernel, scopedWorkspaceId,
     }
   };
   const runConfirm = async () => {
-    if (state.status !== "download-initiated" || !state.fileSavedConfirmed) return;
+    if (!scopeReady || state.status !== "download-initiated" ||
+        !state.fileSavedConfirmed) return;
     if (!state.artifact) return;
     if (!canConfirm) return;
     const workspaceIds = state.packageSnapshot?.workspaces ?? [];
@@ -275,7 +292,8 @@ export function ExportView({ kernel, scopedWorkspaceId,
   };
 
   return renderExport({
-    state, selection, scopedWorkspaceId, scopeReady, canPreview, canPackage, canConfirm,
+    state, selection, scopedWorkspaceId: wholeWorkspaceId, scopeReady,
+    canPreview, canPackage, canConfirm,
     runPreview, runPackage, runDownload, runProtectedDownload, runConfirm, dispatch,
     protectedExchange, protectedBusy, protectedError, downloadedName,
     protectedDownloadedName,
@@ -310,10 +328,11 @@ function renderExport(p: RenderProps) {
     protectedDownloadedName } = p;
   const busy = state.status === "previewing" || state.status === "packaging" || state.status === "confirming";
   const previewDisabled = !canPreview || selection.workspaces.length === 0 || !scopeReady || busy;
-  const packageDisabled = !canPackage || !state.preview || !state.ackSensitive || busy;
-  const downloadDisabled = !state.artifact || busy || protectedBusy;
+  const packageDisabled = !canPackage || !state.preview ||
+    !state.ackSensitive || !scopeReady || busy;
+  const downloadDisabled = !state.artifact || !scopeReady || busy || protectedBusy;
   const confirmDisabled =
-    !state.artifact || !canConfirm || !state.fileSavedConfirmed ||
+    !state.artifact || !canConfirm || !scopeReady || !state.fileSavedConfirmed ||
     busy || state.status !== "download-initiated";
   const nativeAgeTooLarge=Boolean(protectedExchange && state.artifact &&
     state.artifact.bytes.byteLength>protectedExchange.maxArchiveBytes);
