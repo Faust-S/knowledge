@@ -29,14 +29,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 9bf9f4e4a68c7874739e1b79705c2eac4a112fc6
+          ref: 46ef4454e09b1a4f09084c9586aa494cf2f386b1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
       - name: Check revisions and source mirrors
         run: |
           test "$(git -C subject rev-parse HEAD)" = "5ba616f4b83d2deb451ccbfcd37a23bedc64f8f1"
-          test "$(git -C site rev-parse HEAD)" = "9bf9f4e4a68c7874739e1b79705c2eac4a112fc6"
+          test "$(git -C site rev-parse HEAD)" = "46ef4454e09b1a4f09084c9586aa494cf2f386b1"
           for file in service-finalization-gate.ts service-external-gap-research.ts service-professional-gap-inventory.ts service-subject-protocols.ts service-professional-source-intake.ts service-method-fragment-assembly.ts service-professional-evidence.ts service-subject-logistics-b.ts service-subject-logistics-k.ts service-subject-plumbing-a.ts service-subject-moving-team.ts service-subject-flooring-a.ts service-methodology-conversion.ts; do
             cmp "subject/src/domain/$file" "site/src/domain/$file" >/dev/null || exit 2
           done
@@ -85,7 +85,8 @@ jobs:
             d07-logistics-professional-methods.test.mjs \
             d07-methodology-top500.test.mjs \
             d07-plumbing-professional-method.test.mjs \
-            d07-flooring-professional-method.test.mjs; do
+            d07-flooring-professional-method.test.mjs \
+            d07-professional-preview.test.mjs; do
             if node --import tsx --test "scripts/tests/$f" > "$RUNNER_TEMP/$f.log" 2>&1; then
               echo "D07_TEST_$(echo "$f" | tr '[:lower:].-' '[:upper:]__')=PASS"
             else
