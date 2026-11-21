@@ -77,6 +77,8 @@ def test_independent_owner_claim_precedes_any_original_order():
 def test_invalid_owner_owned_future_need_rejected(bad, reason):
     claim = future()
     claim.update(bad)
+    if bad.get("owner") == "a":
+        claim["source_ref"] = "model://a/independent-owner-source"
     with pytest.raises(FutureNeedInputError, match=reason):
         parse_future_needs([claim], QualitativeAKIS(setup()))
 
@@ -271,3 +273,24 @@ def test_existing_accepted_capacity_is_not_appropriated_by_new_need():
     assert out["works"]["w1"]["obligation"] == "ACCEPTED_BY_ORIGINAL_PRINCIPALS"
     assert "w2" not in out["works"]
     assert out["counts"] == {"applied": 5, "blocked": 0}
+
+
+def test_native_mesa_customer_request_with_reused_id_but_changed_work_scope_is_not_same_need():
+    pytest.importorskip("mesa")
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    scenario = setup()
+    claim = future()
+    scenario["future_need_signals"] = [claim]
+    changed = deepcopy(claim["work_spec"])
+    changed["slot_start"] = 21
+    scenario["events"] = [
+        {"at": 2, "action": "request", "actor": "b", "work_spec": changed}
+    ]
+    out = simulate(scenario)
+    states = {row["at"]: row["projection"]["needs"][0]
+              for row in out["future_need_dynamics"]["read_only_evolution"]}
+    assert states[2.0]["status"] == "FUTURE_NEED_ORIGINAL_WORK_SCOPE_CHANGED"
+    assert states[2.0]["original_work_request_confirmed"] is False
+    assert out["counts"] == {"applied": 1, "blocked": 0}
+    assert out["works"]["w2"]["requested_at"] == 2
+    assert out["works"]["w2"]["obligation"] == "NOT_ACCEPTED"
