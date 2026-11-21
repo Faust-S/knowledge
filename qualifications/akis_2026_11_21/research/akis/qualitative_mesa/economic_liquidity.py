@@ -73,6 +73,7 @@ def evaluate_cash_timing(
     raw: Any, *, sources: Mapping[str, Mapping[str, Any]],
     transfer_index: Mapping[str, Mapping[str, Any]],
     coverage: Mapping[str, Mapping[str, str]], subjects: Mapping[str, Any],
+    outside: Mapping[str, str],
 ) -> dict[str, Any]:
     """Calculate only a SOURCE-DECLARED, owner-scoped liquidity conditional.
 
@@ -184,6 +185,9 @@ def evaluate_cash_timing(
                  for row in states for k in ("expected", "declared_late_case")):
             verdict = "LIQUIDITY_DEPENDS_ON_UNVERIFIED_SAME_TICK_ORDER"
             scoped_counts["same_tick_order_unresolved"] += 1
+        elif outside.get(owner) != "FEASIBLE_DECLARED":
+            verdict = "TIMED_CASH_PATHS_BUT_INDEPENDENT_OUTSIDE_OPTION_NOT_QUALIFIED"
+            scoped_counts["incomplete_time_or_initial_balance"] += 1
         else:
             verdict = "DECLARED_LIQUIDITY_RESERVE_MET_FOR_BOTH_ALTERNATIVES"
             scoped_counts["qualified_reserve_both_scenarios"] += 1
