@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: de5ae471e8efb994f02435a28a6cc0c8cd01b6a7
+          ref: 33bc545c0da0980ee7f0d6d6f8de5028b066cc5a
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: subject
@@ -29,15 +29,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 434f78bfadc726224c530b90d4946b65b5fd7288
+          ref: a210bef740b439ed94f1e4c4f2752171b2c63a27
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
       - name: Check revisions and source mirrors
         run: |
-          test "$(git -C subject rev-parse HEAD)" = "de5ae471e8efb994f02435a28a6cc0c8cd01b6a7"
-          test "$(git -C site rev-parse HEAD)" = "434f78bfadc726224c530b90d4946b65b5fd7288"
-          for file in service-finalization-gate.ts service-external-gap-research.ts service-professional-gap-inventory.ts service-subject-protocols.ts service-professional-source-intake.ts service-method-fragment-assembly.ts service-professional-evidence.ts service-subject-logistics-b.ts service-subject-logistics-k.ts service-subject-plumbing-a.ts; do
+          test "$(git -C subject rev-parse HEAD)" = "33bc545c0da0980ee7f0d6d6f8de5028b066cc5a"
+          test "$(git -C site rev-parse HEAD)" = "a210bef740b439ed94f1e4c4f2752171b2c63a27"
+          for file in service-finalization-gate.ts service-external-gap-research.ts service-professional-gap-inventory.ts service-subject-protocols.ts service-professional-source-intake.ts service-method-fragment-assembly.ts service-professional-evidence.ts service-subject-logistics-b.ts service-subject-logistics-k.ts service-subject-plumbing-a.ts service-subject-moving-team.ts service-methodology-conversion.ts; do
             cmp "subject/src/domain/$file" "site/src/domain/$file" >/dev/null || exit 2
           done
           echo D07_PROFESSIONAL_PARITY=PASS
