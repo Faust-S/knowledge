@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: e2f9bfce0424bbcd51b38a9066cac14ebf1faee3
+          ref: 5cf289780f06e498930514e7bfabfccec8ecc928
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: HOP brand and source hygiene
@@ -73,6 +73,17 @@ jobs:
             exit 1
           }
           echo D09_CONCEPT_AND_INVARIANTS=PASS
+          npm run check:lockfile > "$RUNNER_TEMP/d09-lockfile.log" 2>&1 || {
+            echo D09_PORTABLE_LOCKFILE=FAIL
+            tail -15 "$RUNNER_TEMP/d09-lockfile.log"
+            exit 1
+          }
+          npm run archive:source > "$RUNNER_TEMP/d09-source-archive.log" 2>&1 || {
+            echo D09_LOCAL_SOURCE_ARCHIVE=FAIL
+            tail -16 "$RUNNER_TEMP/d09-source-archive.log"
+            exit 1
+          }
+          echo D09_PORTABLE_ARCHIVE=PASS
           npm run test:d09 > "$RUNNER_TEMP/d09-tests.log" 2>&1 || {
             echo D09_SITE_CONTRACT_TESTS=FAIL
             for suite in tests/d09-*.test.mjs; do
