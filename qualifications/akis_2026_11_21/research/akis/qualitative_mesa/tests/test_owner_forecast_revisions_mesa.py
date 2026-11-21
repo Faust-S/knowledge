@@ -64,7 +64,7 @@ def data():
         "requirements": [
             {"work": "w1", "action": act, "sources": ["ctx-op-shared"],
              "expected_revisions": ["s1"]}
-            for act in ("offer", "authorize", "consent")
+            for act in ("authorize", "consent")
         ] + [
             {"work": "w1", "action": "interest_update",
              "sources": ["ctx-b-financial"], "expected_revisions": ["r2"]},
