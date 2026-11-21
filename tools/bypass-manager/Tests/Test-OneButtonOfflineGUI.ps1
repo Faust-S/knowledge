@@ -55,7 +55,10 @@ try {
     try {
       $state=Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
       $check=Get-Content -LiteralPath $checkFile -Raw | ConvertFrom-Json
-      if($state.state -eq 'FAILED' -or $state.state -eq 'STALE_OR_UNVERIFIED'){throw "Native GUI startup reported $($state.state)"}
+      if($state.state -eq 'FAILED' -or $state.state -eq 'STALE_OR_UNVERIFIED'){
+        $phase=if($null -eq $check){'NO_CHECK'}else{[string]$check.state}
+        throw "Native GUI startup reported $($state.state), outcome=$($state.outcome), HTTPS phase=$phase, before=$($check.before.passed)/$($check.before.total), after=$($check.after.passed)/$($check.after.total)"
+      }
       if($state.state -ne 'RUNNING'){continue}
       if($check.engine_running -ne $true -or $check.before.total -ne 3 -or $check.after.total -ne 3){throw 'Native GUI did not record pre/post TLS samples'}
       if($check.effect_verified -ne $false){throw 'Unjustified positive DPI effect evidence'}
