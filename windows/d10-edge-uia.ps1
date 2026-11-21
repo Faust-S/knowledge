@@ -372,27 +372,10 @@ try {
   foreach($case in $entries){
     $slug=[string]$case[0]
     $marker=[string]$case[1]
-    $url="$origin/cases/$slug/"
-    $window=Find-EdgeWindow
-    if($null -eq $window){throw "D10_WINDOWS_EDGE_UIA_LOST"}
-    [void][D10NativeWindow]::ShowWindow([IntPtr]$window.Current.NativeWindowHandle,9)
-    [void][D10NativeWindow]::SetForegroundWindow(
-      [IntPtr]$window.Current.NativeWindowHandle)
-    Start-Sleep -Milliseconds 150
-    [System.Windows.Forms.Clipboard]::SetText($url)
-    [System.Windows.Forms.SendKeys]::SendWait("^l")
-    [System.Windows.Forms.SendKeys]::SendWait("^v")
-    [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
-    $found=$false
-    for($i=0;$i -lt 45;$i++){
-      Start-Sleep -Milliseconds 300
-      $window=Find-EdgeWindow
-      if($null -ne $window -and (Has-AccessibleArticleText $window $marker)){
-        $found=$true
-        break
-      }
-    }
-    if(-not $found){throw "D10_WINDOWS_ROUTE_UIA_NOT_VERIFIED_$marker"}
+    # Reuse the already defined bounded native Edge navigation helper.
+    # It retries lost keyboard focus while still requiring the exact
+    # visible article marker from UIAutomation on every successful route.
+    $window=D10-OpenCase $slug $marker
     $passed++
     Write-Output "D10_WINDOWS_UIA_$marker=PASS"
   }
