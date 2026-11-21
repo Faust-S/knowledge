@@ -411,12 +411,11 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   const runCommit = async () => {
     if (!state.handle) return;
     if (commitGuardRef.current) return; // §13
-    // Plain .iwxa in a signed Host is a complete one-company Workspace,
-    // never a selective cross-organization write. Protected native age has
-    // its own ORIGINAL Kernel and remains governed by that native owner.
-    const signedPlain = signedWorkspaceScope &&
-      nativePreviewTokenRef.current !== state.handle.preview_token;
-    if (signedPlain && !completeSignedWorkspacePlan(
+    // Every signed COMPANY import is exactly one complete Workspace,
+    // whether the .iwxa was opened directly or via the original native age
+    // decryptor. The latter is not an exception to company completeness.
+    // PERSON and ordinary T2 retain their existing selective routes.
+    if (signedWorkspaceScope && !completeSignedWorkspacePlan(
       state.handle,state.plan,localWorkspaces)) return;
     const previewWorkspaceIds =
       state.handle.preview.workspaces.map((workspace) => workspace.workspace_id);
@@ -800,12 +799,11 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       }
     }
   };
-  const signedPlain = signedWorkspaceScope && state.handle!==null &&
-    nativePreviewTokenRef.current !== state.handle.preview_token;
-  const signedFullReady = !signedPlain || completeSignedWorkspacePlan(
+  const signedCompany = signedWorkspaceScope && state.handle!==null;
+  const signedFullReady = !signedCompany || completeSignedWorkspacePlan(
     state.handle!,state.plan,localWorkspaces);
   return renderImport({
-    state, canPreview, signedPlain, signedFullReady,
+    state, canPreview, signedCompany, signedFullReady,
     canCommit:state.handle?canCommitToken(state.handle.preview_token):canCommit,
     canCancel:state.handle?canCancelToken(state.handle.preview_token):canCancel,
     canPlainPreview:kernel.hasOperation("t2.importPreview"),localWorkspaces,
@@ -823,7 +821,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
 interface RenderProps {
   state: ImportState;
   canPreview: boolean;
-  signedPlain: boolean;
+  signedCompany: boolean;
   signedFullReady: boolean;
   canPlainPreview: boolean;
   canCommit: boolean;
@@ -852,7 +850,7 @@ interface RenderProps {
 
 function renderImport(p: RenderProps) {
   const {
-    state, canPreview, signedPlain, signedFullReady, canCommit, canCancel, canPlainPreview, localWorkspaces,
+    state, canPreview, signedCompany, signedFullReady, canCommit, canCancel, canPlainPreview, localWorkspaces,
     onFile, runCommit, cancelActive, dispatch,
     pwaFileHandle, pwaReadBusy, pwaReadError, pwaUsed, openPwaFile,
     protectedExchange, ageFile, setAgeFile, ageBusy, ageError, openAgeFile,
@@ -991,7 +989,7 @@ function renderImport(p: RenderProps) {
             </p>
           )}
 
-          {signedPlain ? <p className="text-xs text-slate-300" data-testid="import-whole-company-workspace">
+          {signedCompany ? <p className="text-xs text-slate-300" data-testid="import-whole-company-workspace">
             Импортируется вся подписанная Workspace компании: объекты, история, вложения, связи и схемы.
             Частичный выбор содержимого недоступен.
           </p> : <>
@@ -1222,7 +1220,7 @@ function renderImport(p: RenderProps) {
             ))}
           </fieldset>
           </>}
-          {signedPlain && !signedFullReady && (
+          {signedCompany && !signedFullReady && (
             <p role="alert" data-testid="import-company-workspace-mismatch"
               className="text-xs text-amber-300">
               Весь пакет должен относиться к текущей подписанной Workspace и быть
