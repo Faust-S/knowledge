@@ -13,7 +13,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 55
     env:
-      SITE_SHA: 1e926843fd238f9b2d301d2f1de3794a1923e40f
+      SITE_SHA: d5459c9820f416536c71f1f936cd38e5f518ee63
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -228,10 +228,12 @@ jobs:
                 }
               }
             }
-            # Open four original tool forms through their published anchors.
+            # Open six real money/income forms through their published anchors.
             # A hidden heading alone is insufficient; native Edge must show
             # it within the real 375-pixel app window.
             $deepLinks=@(
+              @{code='money-payday';route='/tools/personal-economy/#club-cash-until-payday';heading='Сколько денег останется до ближайшего поступления?'}
+              @{code='money-regular';route='/tools/personal-economy/#club-cash-regular-bills';heading='Повторяющиеся платежи: аренда, кредит, услуги'}
               @{code='money-decisions';route='/tools/personal-economy/#club-family-scenario-heading';heading='Проверить будущие денежные решения'}
               @{code='income-contact';route='/tools/additional-income/#contact-work-ledger';heading='Моя смена в контакт-центре: звонки, качество и премия'}
               @{code='income-pvz';route='/tools/additional-income/#pvz-work-ledger';heading='Мои операции на пункте выдачи заказов'}
