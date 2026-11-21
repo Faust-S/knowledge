@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: 729aa42f178ffd5378f1fd9a41f1ed3d6922c07d
+          ref: d6b8a9ab5f324465125b65c16c13537eec0c34d2
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/learn
-          ref: 3541d6937e3d21324aa7bdaa8aae444943d0ef41
+          ref: 811e5c5edd1ee5bb9632acbc8aa5a94d0162624c
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/domain
@@ -46,8 +46,8 @@ jobs:
         run: |
           set -eu
           test "$(git -C private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
-          test "$(git -C private/site rev-parse HEAD)" = 729aa42f178ffd5378f1fd9a41f1ed3d6922c07d
-          test "$(git -C private/domain rev-parse HEAD)" = 3541d6937e3d21324aa7bdaa8aae444943d0ef41
+          test "$(git -C private/site rev-parse HEAD)" = d6b8a9ab5f324465125b65c16c13537eec0c34d2
+          test "$(git -C private/domain rev-parse HEAD)" = 811e5c5edd1ee5bb9632acbc8aa5a94d0162624c
           cmp private/domain/learning-journey/projection.ts private/site/t2/domain-modules/learn-results/learning-journey.ts
           cmp private/domain/learning-journey/today.ts private/site/t2/domain-modules/learn-results/learning-today.ts
           cmp private/domain/learning-journey/workplace-shifts.mjs private/site/practice/quick-arithmetic/engine/workplace-shifts.mjs
@@ -80,6 +80,7 @@ jobs:
           node --check private/site/practice/assets-r6-clean/practice-player-U4wosZfh.js
           node --check private/site/qa/d01-product-witness-2026-10-26/repeat-scenario-witness.mjs
           node --check private/site/practice/assets-r6-clean/results-b06FwAop.js
+          node --check private/site/practice/self-check-review.js
           node --check private/site/qa/d01-product-witness-2026-10-26/product-witness.mjs
           node --check private/site/study/my-routes/practice-link.mjs
           node --check private/site/study/my-routes/practice-repeat.mjs
@@ -91,7 +92,7 @@ jobs:
         env:
           D01_T2_CHECKOUT: ${{ github.workspace }}/private/t2
           D01_EXPECTED_T2_HEAD: 9c64951cd78411283e8a416641c36d71e169fc1d
-          D01_EXPECTED_SITE_HEAD: 729aa42f178ffd5378f1fd9a41f1ed3d6922c07d
+          D01_EXPECTED_SITE_HEAD: d6b8a9ab5f324465125b65c16c13537eec0c34d2
           D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
           D01_CASE_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-001-workplace-numeracy.json
           D01_CASE_002_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-002-price-label-check.json
