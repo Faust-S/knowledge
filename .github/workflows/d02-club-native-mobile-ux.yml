@@ -1,0 +1,229 @@
+name: d02-club-native-mobile-ux
+on:
+  push:
+    branches: [work/2026-11-18-d02-club-qualification]
+    paths: [.github/workflows/d02-club-native-mobile-ux.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-mobile:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      SITE_SHA: 89d52f9919fd5412d6841c8a1d0925a72251c284
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      CI: 'true'
+    steps:
+      - name: Preserve LF in exact private source checkouts
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Build exact integrated candidate for native visual layout inspection
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_T2_NPM_CACHE_DIR: ${{ runner.temp }}/d02-mobile-npm-cache
+        run: |
+          if((git rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D02_MOBILE_WRONG_SITE_SHA'}
+          if((git -C ../t2 rev-parse HEAD).Trim() -ne $env:T2_SHA){throw 'D02_MOBILE_WRONG_T2_SHA'}
+          & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'd02-mobile-npm.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D02_MOBILE_NPM_CI_FAILED'}
+          & npm run build *> (Join-Path $env:RUNNER_TEMP 'd02-mobile-build.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D02_MOBILE_INTEGRATED_BUILD_FAILED'}
+          if(!(Test-Path dist/projects/index.html) -or !(Test-Path dist/workspace/index.html)){
+            throw 'D02_MOBILE_REQUIRED_PAGES_MISSING'
+          }
+          Write-Output 'D02_MOBILE_EXACT_INTEGRATED_BUILD=PASS'
+      - name: Real Microsoft Edge validates 375px layouts and keyboard navigation
+        working-directory: site
+        env:
+          PORT: '55478'
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          Add-Type -AssemblyName System.Windows.Forms
+          $site=(Resolve-Path .).Path
+          $origin='http://localhost:55478'
+          $edge=@(
+            (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
+            (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
+          )|Where-Object{Test-Path $_}|Select-Object -First 1
+          if(!$edge){throw 'D02_MOBILE_NATIVE_EDGE_MISSING'}
+          # A self-contained one-use QA harness replaces the disposable 404
+          # response only. Actual projects, tools and workspace files are
+          # untouched. Neither test page nor built dist is uploaded or published.
+          $qa=@'
+          <!doctype html><html lang="ru"><head>
+          <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>Club native 375px inspection</title>
+          </head><body style="font:16px system-ui;padding:8px">
+          <button id="next" type="button">Следующий экран</button>
+          <p id="result" role="status" aria-live="polite">D02_MOBILE_BOOT</p>
+          <iframe id="target" title="Club measured viewport" width="375" height="812"
+           style="border:1px solid #999;display:block;max-width:none;width:375px;height:812px"></iframe>
+          <script>
+          const stages=[["PROJECTS","/projects/"],["TOOLS","/tools/"],["WORKSPACE","/workspace/"]];
+          const result=document.getElementById("result"),frame=document.getElementById("target");
+          let index=0,phase="LOADING",tick=0;
+          const mark=s=>{result.textContent=s;};
+          const current=()=>stages[index][0];
+          function fail(code){phase="FAIL";mark("D02_MOBILE_"+current()+"_FAIL_"+code);}
+          function measure(){
+           if(phase!=="LOADING")return;
+           const w=frame.contentWindow,d=frame.contentDocument;
+           if(!w||!d||!d.documentElement||!d.body)return;
+           tick++;
+           const nav=d.querySelector("[data-nav-toggle]");
+           const header=d.querySelector(".site-header"),root=d.querySelector("#root");
+           if(!nav||!header||(index===2&&!root)){
+            if(tick>180)fail("DOCUMENT_NOT_READY");return;
+           }
+           const width=w.innerWidth;
+           if(width!==375){fail("CSS_VIEWPORT_"+width);return;}
+           const docWidth=Math.max(d.documentElement.scrollWidth,d.body.scrollWidth);
+           if(docWidth>376){fail("HORIZONTAL_OVERFLOW_"+docWidth);return;}
+           const bounds=nav.getBoundingClientRect();
+           if(w.getComputedStyle(nav).display==="none"||bounds.width<40||bounds.height<40){
+            fail("MOBILE_MENU_TARGET");return;
+           }
+           const navPanel=d.querySelector("#club-main-nav");
+           if(!navPanel){fail("PRIMARY_NAVIGATION_MISSING");return;}
+           const h=header.getBoundingClientRect();
+           if(h.left< -2||h.right>377){fail("HEADER_CLIPPED");return;}
+           if(index===0&&!d.querySelector("[data-club-scenario]")){
+            if(tick>180)fail("SCENARIO_EDITOR_MISSING");return;
+           }
+           if(index===1&&!d.querySelector("[data-tool-level]")){
+            if(tick>180)fail("TOOLS_MISSING");return;
+           }
+           if(index===2&&!d.body.textContent.includes("Моя работа")){
+            if(tick>180)fail("WORKSPACE_NOT_READY");return;
+           }
+           phase="KEY_READY";nav.focus();mark("D02_MOBILE_"+current()+"_KEY_READY");
+          }
+          function observeKeyboard(){
+           if(phase==="LOADING"){measure();return;}
+           if(phase==="KEY_READY"){
+            const d=frame.contentDocument;
+            const nav=d?.querySelector("[data-nav-toggle]");
+            if(nav?.getAttribute("aria-expanded")==="true"&&d.querySelector("#club-main-nav.open")){
+             phase="MENU_OPEN";mark("D02_MOBILE_"+current()+"_MENU_OPEN");
+            }
+           }else if(phase==="MENU_OPEN"){
+            const d=frame.contentDocument,nav=d?.querySelector("#club-main-nav");
+            const focused=d?.activeElement;
+            if(nav?.contains(focused)&&focused.tagName==="A"){
+             const r=focused.getBoundingClientRect();
+             if(r.left< -2||r.right>377){fail("KEYBOARD_LINK_CLIPPED");return;}
+             phase="PASS";mark("D02_MOBILE_"+current()+"_PASS");
+            }
+           }
+          }
+          setInterval(observeKeyboard,150);
+          frame.addEventListener("load",()=>{tick=0;phase="LOADING";});
+          document.getElementById("next").addEventListener("click",()=>{
+           if(phase!=="PASS"||index>=stages.length-1)return;
+           index++;phase="LOADING";tick=0;frame.src=stages[index][1];
+          });
+          frame.src=stages[0][1];
+          </script>
+          </body></html>
+          '@
+          Set-Content -LiteralPath (Join-Path $site 'dist/404.html') -Value $qa -Encoding utf8
+          $scope=[System.Windows.Automation.TreeScope]::Descendants
+          function Find([string]$name){
+            $cond=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+            foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue |
+                Where-Object {$_.MainWindowHandle -ne 0})){
+              try{
+                $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                  [IntPtr]$p.MainWindowHandle)
+                $item=$root.FindFirst($scope,$cond)
+                if($item){return $item}
+              }catch{}
+            }
+            return $null
+          }
+          function Await([string]$name,[string]$code){
+            for($i=0;$i -lt 270;$i++){
+              $node=Find $name
+              if($node){return $node}
+              Start-Sleep -Milliseconds 300
+            }
+            throw $code
+          }
+          function PressNext(){
+            $node=Await 'Следующий экран' 'D02_MOBILE_NEXT_BUTTON_MISSING'
+            try{
+              $p=[System.Windows.Automation.InvokePattern]$node.GetCurrentPattern(
+                [System.Windows.Automation.InvokePattern]::Pattern)
+              $p.Invoke()
+            }catch{
+              $node.SetFocus()
+              [System.Windows.Forms.SendKeys]::SendWait(' ')
+            }
+          }
+          $server=$null;$browser=$null
+          try{
+            $server=Start-Process -FilePath node -WorkingDirectory $site -PassThru -ArgumentList @(
+              'scripts/serve-current-static.mjs','dist','--t2-loopback'
+            ) -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd02-mobile-http.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd02-mobile-http-error.private.log')
+            $ready=$false
+            for($i=0;$i -lt 85;$i++){
+              Start-Sleep -Milliseconds 250
+              try{
+                if((Invoke-WebRequest -Uri ($origin+'/projects/') -TimeoutSec 3).StatusCode -eq 200){
+                  $ready=$true;break
+                }
+              }catch{}
+            }
+            if(!$ready){throw 'D02_MOBILE_NATIVE_SITE_NOT_READY'}
+            $profile=Join-Path $env:RUNNER_TEMP 'd02-mobile-qa-profile'
+            $browser=Start-Process -FilePath $edge -PassThru -ArgumentList @(
+              '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
+              "--user-data-dir=$profile","--app=$origin/__d02_native_mobile_qa__"
+            )
+            foreach($name in @('PROJECTS','TOOLS','WORKSPACE')){
+              $null=Await "D02_MOBILE_${name}_KEY_READY" "D02_MOBILE_${name}_375_LAYOUT_FAILED"
+              [System.Windows.Forms.SendKeys]::SendWait(' ')
+              $null=Await "D02_MOBILE_${name}_MENU_OPEN" "D02_MOBILE_${name}_KEYBOARD_OPEN_FAILED"
+              [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+              $null=Await "D02_MOBILE_${name}_PASS" "D02_MOBILE_${name}_KEYBOARD_TAB_FAILED"
+              Write-Output "D02_MOBILE_${name}_375_KEYBOARD=PASS"
+              if($name -ne 'WORKSPACE'){PressNext}
+            }
+            Write-Output 'D02_MOBILE_EDGE_375_ALL_SCREENS=PASS'
+            Write-Output 'D02_MOBILE_PRIVATE_DIST_UPLOADED=FALSE'
+          }finally{
+            if($browser){try{$browser.Kill($true)}catch{}}
+            if($server){try{$server.Kill($true)}catch{}}
+          }
+      - name: Never upload private sources, dist or browser data
+        if: always()
+        run: |
+          Write-Output 'D02_MOBILE_NO_PRIVATE_ARTIFACTS=PASS'
