@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/hop.iwxa.ru
-          ref: cd3b9f18c5e2abaae664583a0bdc5bfe09d7d27a
+          ref: 2afc07827c385c008c56141a27d5a234314506f2
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Set up Node 24
@@ -39,7 +39,7 @@ jobs:
             exit 1
           }
           echo D09_SITE_TYPES=PASS
-          ./node_modules/.bin/vitest run src/content/__tests__/featured-works.test.ts src/components/workspace/__tests__/WorkspaceStartScreen.public-entry.test.tsx > "$RUNNER_TEMP/d09-ux-route-unit.log" 2>&1 || {
+          ./node_modules/.bin/vitest run src/content/__tests__/featured-works.test.ts src/components/workspace/__tests__/WorkspaceStartScreen.public-entry.test.tsx src/components/workspace/__tests__/GuidedEditor.artwork.test.tsx > "$RUNNER_TEMP/d09-ux-route-unit.log" 2>&1 || {
             echo D09_UX_ROUTE_UNIT=FAIL
             grep -E 'FAIL|AssertionError|expected|Error:' "$RUNNER_TEMP/d09-ux-route-unit.log" | tail -16 | cut -c1-210 || true
             exit 1
