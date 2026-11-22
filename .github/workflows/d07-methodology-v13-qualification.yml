@@ -76,6 +76,26 @@ jobs:
               process.exit(1);
             }
           '
+      - name: Preflight real 102nd service conversion without exposing private source
+        working-directory: site
+        run: |
+          node --import tsx --input-type=module -e '
+            try {
+              const {getServiceDirectory}=await import("./src/data/serviceDirectory.ts");
+              const {getService}=await import("./src/data/services.ts");
+              const {convertServiceMethodology}=await import("./src/domain/service-methodology-conversion.ts");
+              const row=getServiceDirectory().find(x=>x.categorySlug==="kompyutery-it-sayty"&&x.slug==="perenos-domena");
+              if(!row)throw Error("D07_102_CATALOG_ROW_MISSING");
+              const result=convertServiceMethodology(row,{service:getService(row.categorySlug,row.slug)});
+              if(result.execution.works.length!==12)throw Error("D07_102_WORK_COUNT_NOT_12");
+              process.stdout.write("D07_102_T2_METHOD_CONVERSION=PASS\\n");
+            } catch(error) {
+              const msg=String(error?.message??"");
+              const code=msg.match(/D07_[A-Z0-9_]+/)?.[0]??String(error?.code??error?.name??"UNKNOWN");
+              process.stdout.write("D07_102_T2_METHOD_CONVERSION=FAIL:"+code+"\\n");
+              process.exit(1);
+            }
+          '
       - name: Run professional methods, independent evidence and manual branching tests
         working-directory: site
         run: |
