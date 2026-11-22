@@ -76,7 +76,9 @@ test('not confirmed state blocks without network',async()=>{
 test('stale export or absent user acknowledgement blocks',async()=>{
   for(const patch of [{ackSensitive:false},{fileSavedConfirmed:false},{packageSnapshot:{workspaces:['other']}}]){
     const h=setup();h.update({...h.state,...patch});
-    await assert.rejects(h.handoff().publishConfirmedExport(),e=>e.code.startsWith('ORIGINAL_EXPORT_'));
+    await assert.rejects(h.handoff().publishConfirmedExport(),e=>
+      e.code==='ORIGINAL_EXPORT_NOT_CONFIRMED' ||
+      e.code==='ORIGINAL_EXCHANGE_FULL_WORKSPACE_REQUIRED');
     assert.equal(h.events.length,0);
   }
 });

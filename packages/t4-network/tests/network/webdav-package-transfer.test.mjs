@@ -45,15 +45,23 @@ test('real HTTPS roundtrip joins confirmed original Exchange-shaped artifact to 
   const workspace={workspace_id:'test-person-a'};
   const packageDigest='original-digest-fixture';
   const semanticDigest='original-semantic-fixture';
+  const full={workspaces:['test-person-a'],include_history:true,
+    include_assets:true,include_relations:true,include_schemas:true};
   const state={
     status:'confirmed',ackSensitive:true,fileSavedConfirmed:true,
-    packageSnapshot:{workspaces:['test-person-a']},
+    selection:full,previewSnapshot:full,packageSnapshot:full,
+    preview:{workspaces:['test-person-a']},
     artifact:{
       filename:'original.iwxa',bytes:data,size:data.byteLength,package_digest:packageDigest,
       semantic_digest:semanticDigest,
       manifest:{format:'iwxa.package',format_version:'1.1',encryption:'none',
-        package_digest:packageDigest,semantic_digest:semanticDigest,workspaces:['test-person-a']},
-      validation:{format:'iwxa.package.validation',ok:true}
+        package_digest:packageDigest,semantic_digest:semanticDigest,
+        workspaces:['test-person-a'],
+        options:{include_history:true,include_assets:true,
+          include_relations:true,include_schemas:true}},
+      validation:{format:'iwxa.package.validation',ok:true,
+        file_count:1,object_count:1,schema_issues:[],path_issues:[]},
+      summary:{workspaces:1}
     },
     receipt:{package_digest:packageDigest,workspace_ids:['test-person-a'],
       confirmed_at:'2026-11-21T00:00:00Z',confirmations:1}
