@@ -235,6 +235,39 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
     consolidated_delta = None
     if consolidated_comparable:
         consolidated_delta = f"{sum(external_cash['COOPERATION'],Decimal(0))-sum(external_cash['INDEPENDENT_ALTERNATIVE'],Decimal(0)):.2f}"
+    # A Work/Result can only be linked to already-declared monetary and
+    # non-cash records, never charged a second time merely because its
+    # original recipient reported quality. These record counts are not
+    # completeness, settlement or causal savings proof.
+    from .work_assurance import acceptance_gate
+    work_record_evidence: dict[str, dict[str, Any]] = {}
+    for work_id, work in sorted(works.items()):
+        cash_rows = {sc: 0 for sc in _SCENARIOS}
+        cost_rows = {sc: 0 for sc in _SCENARIOS}
+        for item in transfer_index.values():
+            if item["work"] == work_id:
+                cash_rows[item["scenario"]] += 1
+        for item in resource_index.values():
+            if item["work"] == work_id:
+                cost_rows[item["scenario"]] += 1
+        scoped_quality = getattr(work, "assurance_criteria", ())
+        quality_gate = acceptance_gate(work) if scoped_quality else "NOT_DECLARED"
+        work_record_evidence[work_id] = {
+            "original_result": getattr(work, "result", "UNKNOWN"),
+            "existing_transfer_rows": cash_rows,
+            "existing_noncash_resource_use_rows": cost_rows,
+            "original_model_quality_criteria_count": len(scoped_quality),
+            "original_model_quality_gate": quality_gate,
+            "prior_original_work_accepted_but_not_quality_certified": (
+                getattr(work, "result", "UNKNOWN") == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+            ),
+            "source_records_not_verified_actual_settlement": True,
+            "work_specific_alternative_scope": "NOT_QUALIFIED",
+            "quality_check_and_rework_cost_completeness": "NOT_QUALIFIED",
+            "economic_benefit_due_to_accepted_result": "NOT_IDENTIFIABLE",
+            "resource_use_and_cash_not_additive": True,
+        }
+
     output = {
         "evidence": "MODEL_ONLY",
         "period": period,
@@ -256,6 +289,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
         "consolidated_comparable_declared": consolidated_comparable,
         "consolidated_cash_difference_claimed_scope": consolidated_delta,
         "linked_work_result_states": dict(sorted(linked_works.items())),
+        "original_work_record_evidence": work_record_evidence,
         "resource_costs_additive_to_cash": False,
         "profit": "UNKNOWN",
         "economic_value_added": "NOT_IDENTIFIABLE",
