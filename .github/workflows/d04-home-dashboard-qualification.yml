@@ -1,0 +1,170 @@
+name: D04 home dashboard native qualification (private source)
+on:
+  push:
+    branches:
+      - work/2026-11-18-d04-life-os-qualification
+    paths:
+      - .github/workflows/d04-home-dashboard-qualification.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d04-home-dashboard-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  home:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify authorized source access, without revealing credentials
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo "D04_HOME_PRIVATE_ACCESS=UNAVAILABLE"; exit 1; }
+          for repo in Faust-S/bazmed.ru Faust-S/T2; do
+            gh api "repos/$repo" --jq '.id' >/dev/null 2>&1 ||
+              { echo "D04_HOME_PRIVATE_ACCESS=DENIED"; exit 1; }
+          done
+          echo "D04_HOME_PRIVATE_ACCESS=PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/bazmed.ru
+          ref: c9a58cc6f5e2011361d323ac3f9c055785f28edd
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/site
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 9c64951cd78411283e8a416641c36d71e169fc1d
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/t2
+          persist-credentials: false
+      - name: Check exact private code identity
+        run: |
+          set -euo pipefail
+          test "$(git -C d04-private/site rev-parse HEAD)" = c9a58cc6f5e2011361d323ac3f9c055785f28edd
+          test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
+          echo "D04_HOME_PINNED_SOURCES=PASS"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install private site dependencies in ephemeral runner
+        working-directory: d04-private/site
+        run: |
+          set -euo pipefail
+          if npm ci --no-audit --no-fund >"$RUNNER_TEMP/d04-home-npm.log" 2>&1; then
+            echo "D04_HOME_NPM_CI=PASS"
+          else
+            echo "D04_HOME_NPM_CI=FAIL"
+            exit 1
+          fi
+      - name: Test dashboard, navigation, scope and T2 original Host
+        working-directory: d04-private/site
+        run: |
+          set -euo pipefail
+          if node --test tests/life-os-home-dashboard.test.mjs                tests/life-os-entry-links.test.mjs                tests/life-os-entry-usability.test.mjs                tests/life-os-overview-focus.test.mjs                >"$RUNNER_TEMP/d04-home-tests.log" 2>&1; then
+            echo "D04_HOME_TARGETED_TESTS=PASS"
+            grep -E '^# (tests|pass|fail) [0-9]+' "$RUNNER_TEMP/d04-home-tests.log" |
+              sed 's/^# /D04_HOME_TARGETED_/' | tail -3 || true
+          else
+            echo "D04_HOME_TARGETED_TESTS=FAIL"
+            grep -E '^# (tests|pass|fail) [0-9]+' "$RUNNER_TEMP/d04-home-tests.log" |
+              sed 's/^# /D04_HOME_TARGETED_/' | tail -3 || true
+            grep -E '^not ok [0-9]+ - ' "$RUNNER_TEMP/d04-home-tests.log" |
+              sed -E 's/^not ok ([0-9]+) - .*/D04_HOME_FAILED_TEST_NUMBER=\1/' | head -8 || true
+            exit 1
+          fi
+      - name: Verify original T2 entry contracts
+        working-directory: d04-private/site
+        run: |
+          if npm run check:t2:entry >"$RUNNER_TEMP/d04-home-entry.log" 2>&1; then
+            echo "D04_HOME_T2_ENTRY=PASS"
+          else
+            echo "D04_HOME_T2_ENTRY=FAIL"
+            grep -E '^# (tests|pass|fail) [0-9]+' "$RUNNER_TEMP/d04-home-entry.log" |
+              sed 's/^# /D04_HOME_ENTRY_/' | tail -3 || true
+            exit 1
+          fi
+      - name: Type-check site and native dashboard
+        working-directory: d04-private/site
+        run: |
+          if npx tsc --noEmit --pretty false >"$RUNNER_TEMP/d04-home-types.log" 2>&1; then
+            echo "D04_HOME_TYPESCRIPT=PASS"
+          else
+            echo "D04_HOME_TYPESCRIPT=FAIL"
+            grep -Eo 'error TS[0-9]+' "$RUNNER_TEMP/d04-home-types.log" | sort -u | head -10 || true
+            exit 1
+          fi
+      - name: Build the original integrated T2 site (no uploads)
+        working-directory: d04-private/site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
+        run: |
+          set -euo pipefail
+          if npm run build:t2:site >"$RUNNER_TEMP/d04-home-build.log" 2>&1; then
+            echo "D04_HOME_INTEGRATED_BUILD=PASS"
+          else
+            echo "D04_HOME_INTEGRATED_BUILD=FAIL"
+            grep -Eo 'BAZMED_[A-Z0-9_]+|D04_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d04-home-build.log" |
+              sort -u | head -18 || true
+            exit 1
+          fi
+          test -s dist/index.html
+          test -s dist/workspace/index.html
+          test -s dist/workspace/exchange/index.html
+          test -s dist/_iwxa/current.json
+          grep -RqF 'life-os-demo-dashboard' dist/assets ||
+            { echo "D04_HOME_PUBLIC_BUNDLE=MISSING"; exit 1; }
+          grep -RqF 'life-os-personal-dashboard' dist/workspace/assets ||
+            { echo "D04_HOME_PERSONAL_HOST_BUNDLE=MISSING"; exit 1; }
+          echo "D04_HOME_BOTH_DASHBOARDS_IN_DIST=PASS"
+      - name: Install browser in runner for viewport and interactive entry check
+        run: |
+          set -euo pipefail
+          canonical="d04-private/t2/t2/current/final-successor/canonical-source"
+          if (cd "$canonical" && npm ci --no-audit --no-fund --include=dev && npx playwright install chromium) >"$RUNNER_TEMP/d04-home-browser-install.log" 2>&1; then
+            echo "D04_HOME_BROWSER_INSTALL=PASS"
+          else
+            echo "D04_HOME_BROWSER_INSTALL=FAIL"
+            exit 1
+          fi
+      - name: Test actual desktop/mobile T2 Host site entry
+        working-directory: d04-private/site
+        run: |
+          set -euo pipefail
+          node --input-type=module >"$RUNNER_TEMP/d04-home-browser.log" 2>&1 <<'NODE'
+          import {createRequire} from 'node:module';
+          import {resolve,join} from 'node:path';
+          import {pathToFileURL} from 'node:url';
+          const site=process.cwd();
+          const canonical=resolve(process.env.GITHUB_WORKSPACE,'d04-private/t2/t2/current/final-successor/canonical-source');
+          const {chromium}=createRequire(join(canonical,'package.json'))('playwright');
+          const {serveRealKernelHost}=await import(pathToFileURL(join(canonical,'scripts/real-kernel-e2e.mjs')).href);
+          const {runLifeOsEntryResponsiveBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-entry-responsive.browser.mjs')).href);
+          const server=await serveRealKernelHost(join(site,'dist'),{independentWitness:true,previewOrigin:true});
+          try{
+            const result=await runLifeOsEntryResponsiveBrowser({chromium,origin:server.origin});
+            if(result.status!=='PASS'||result.viewports.length!==4)throw Error('D04_HOME_BROWSER_RESULT_INCOMPLETE');
+            console.log('D04_HOME_VIEWPORTS='+result.viewports.length);
+            console.log('D04_HOME_INTERACTIVE_ENTRY=PASS');
+          }finally{
+            await new Promise(done=>server.server.close(done));
+          }
+          NODE
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            echo "D04_HOME_REAL_BROWSER=FAIL"
+            grep -Eo 'D04_UI_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -12 || true
+            exit "$code"
+          fi
+          grep '^D04_HOME_' "$RUNNER_TEMP/d04-home-browser.log" | tail -5
+          echo "D04_HOME_REAL_BROWSER=PASS"
+      # No public artifact, private dist, screenshots, code, or private logs are uploaded.
