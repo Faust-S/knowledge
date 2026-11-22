@@ -36,6 +36,7 @@ export declare function createIsolatedKernelClient(input: {
   port: MessagePort;
   isActive?: () => boolean;
   timeoutMs?: number;
+  readTimeoutMs?: number;
 }): IsolatedKernelClient;
 export declare function openOriginalKernelRealm(input: {
   frame: Window;
@@ -44,4 +45,5 @@ export declare function openOriginalKernelRealm(input: {
   sessionToken?: string | null;
   nonceFactory?: () => string;
   timeoutMs?: number;
+  readTimeoutMs?: number;
 }): Promise<IsolatedKernelClient>;
