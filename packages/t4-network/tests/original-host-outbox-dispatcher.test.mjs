@@ -17,7 +17,8 @@ function fixture() {
   const events=[structuredClone(initialEvent)],intents=new Map(),
     outbox=new Map(),attempts=new Map(),checkpoints=new Map(),
     remote=new Map();
-  let mode='T4_NETWORK',networkWrites=0,loseRemoteAck=false,relation=null;
+  let mode='T4_NETWORK',networkWrites=0,loseRemoteAck=false;
+  const relations=[];
   const getMode=()=>mode;
   const kernel={
     hasOperation:op=>['t1.putObject','t1.putRelation','t1.getObject',
@@ -25,15 +26,17 @@ function fixture() {
     putObject:async()=>({}),
     getObject:async()=>({
       object:{object_id:from,workspace_id:ws,revision:1,deleted:false},
-      relations:{outgoing:relation?[structuredClone(relation)]:[],incoming:[]},
+      relations:{outgoing:relations.map(row=>structuredClone(row)),incoming:[]},
     }),
     putRelation:async input=>{
-      assert.equal(relation,null);
-      relation={workspace_id:ws,relation_id:relationId,
+      assert.equal(relations.some(row=>row.relation_id===input.relation_id),false);
+      const relation={workspace_id:ws,relation_id:input.relation_id,
         from_object_id:from,to_object_id:to,kind:'related'};
-      const event={event_id:'event:2',event_type:input.event.event_type,
+      relations.push(relation);
+      const event={event_id:'event:'+String(events.length+1),
+        event_type:input.event.event_type,
         workspace_id:ws,object_id:from,service_id:'service:original',revision:null,
-        occurred_at:'2026-11-22T10:00:01Z',
+        occurred_at:'2026-11-22T10:00:'+String(events.length).padStart(2,'0')+'Z',
         idempotency_key:input.event.idempotency_key,
         payload:structuredClone(input.event.payload??{})};
       events.push(event);
@@ -112,6 +115,18 @@ function fixture() {
           event:{event_type:'business.link.created',payload:{}}},
       });
     },
+    async stageSecond(){
+      const first=outbox.get('capture:relation:1');
+      assert.ok(first);
+      await createT4OriginalHostCaptureAdapter(ports).putRelation({
+        captureRef:'capture:relation:2',
+        sourceCursor:first.sourceCursorAfter,
+        mutationInput:{workspace_id:ws,
+          relation_id:'original:relation:two',
+          from_object_id:from,to_object_id:to,kind:'related',
+          event:{event_type:'business.link.created',payload:{purpose:'second'}}},
+      });
+    },
     dispatcher:()=>createT4OriginalHostOutboxDispatcher(dispatcherPorts),
   };
 }
@@ -180,4 +195,31 @@ test('unchanged source outbox is preserved after a successful dispatch',async()=
   const before=structuredClone([...f.outbox.values()]);
   await f.dispatcher().drain({maxEntries:1});
   assert.deepEqual([...f.outbox.values()],before);
+});
+
+test('bounded Host ticks skip verified prefix and advance to next pending dependent event',async()=>{
+  const f=fixture();await f.stage();await f.stageSecond();
+  const first=await f.dispatcher().drain({maxEntries:1});
+  assert.equal(first.newlyVerifiedCount,1);
+  assert.equal(first.hasMore,true);
+  assert.equal(first.previouslyVerifiedCount,0);
+  assert.equal(f.writes(),1);
+  const resumed=await f.dispatcher().drain({maxEntries:1});
+  assert.equal(resumed.previouslyVerifiedCount,1);
+  assert.equal(resumed.newlyVerifiedCount,1);
+  assert.equal(resumed.hasMore,false);
+  assert.equal(f.writes(),2);
+  const idle=await f.dispatcher().drain({maxEntries:1});
+  assert.equal(idle.previouslyVerifiedCount,2);
+  assert.equal(idle.newlyVerifiedCount,0);
+  assert.equal(f.writes(),2);
+});
+test('dispatcher refuses missing middle source event before writing even when later entry is valid',async()=>{
+  const f=fixture();await f.stage();await f.stageSecond();
+  f.dispatcherPorts.listOriginalOutbox=async()=>[
+    f.outbox.get('capture:relation:2'),
+  ];
+  await assert.rejects(f.dispatcher().drain({maxEntries:1}),
+    err('DISPATCH_ORIGINAL_FRONTIER_GAP'));
+  assert.equal(f.writes(),0);
 });
