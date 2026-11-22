@@ -66,15 +66,20 @@ function Click([string]$label){
 function OpenWork([string]$title,[string]$status){
  $name="Работа 1: "+$title+"; состояние: "+$status
  $x=Await $name $null "D07_WORK_RESULT_NAMED_SUMMARY_NOT_FOUND"
+ # A previously expanded <details> can be restored by Edge after reload.
+ # Never toggle it closed while trying to reveal the Result editor.
+ if(Locate "Результат работы 1" ([System.Windows.Automation.ControlType]::Edit)){return}
  try{
-  $pattern=[System.Windows.Automation.InvokePattern]$x.GetCurrentPattern(
-   [System.Windows.Automation.InvokePattern]::Pattern)
-  $pattern.Invoke()
+  $p=[System.Windows.Automation.ExpandCollapsePattern]$x.GetCurrentPattern(
+   [System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+  if($p.Current.ExpandCollapseState -eq [System.Windows.Automation.ExpandCollapseState]::Collapsed){
+   $p.Expand()
+  }
  }catch{
   try{
-   $pattern=[System.Windows.Automation.LegacyIAccessiblePattern]$x.GetCurrentPattern(
-    [System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)
-   $pattern.DoDefaultAction()
+   $p=[System.Windows.Automation.InvokePattern]$x.GetCurrentPattern(
+    [System.Windows.Automation.InvokePattern]::Pattern)
+   $p.Invoke()
   }catch{
    $x.SetFocus()
    [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
@@ -140,21 +145,34 @@ function ColdReopen([int]$expected,[string]$name,[string]$status){
  $null=Await "Мои услуги" $null "D07_WORK_RESULT_REOPEN_UI_MISSING"
  $null=Await ("Работа 1: "+$name+"; состояние: "+$status) $null "D07_WORK_RESULT_STATUS_NOT_PERSISTED"
  $detail=Await "Технические сведения о записи" $null "D07_WORK_RESULT_TECHNICAL_DETAILS_NOT_FOUND"
- try{
-  $pattern=[System.Windows.Automation.InvokePattern]$detail.GetCurrentPattern(
-   [System.Windows.Automation.InvokePattern]::Pattern)
-  $pattern.Invoke()
- }catch{$detail.SetFocus();[System.Windows.Forms.SendKeys]::SendWait("{ENTER}")}
+ # The original Result ID must remain readable after reopening. Do not
+ # collapse technical data when the browser restores its expanded state.
+ $cold=Visible
+ if(!$cold.Contains("Object ID:") -or !$cold.Contains($script:expectedId)){
+  try{
+   $p=[System.Windows.Automation.ExpandCollapsePattern]$detail.GetCurrentPattern(
+    [System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+   if($p.Current.ExpandCollapseState -eq [System.Windows.Automation.ExpandCollapseState]::Collapsed){
+    $p.Expand()
+   }
+  }catch{$detail.SetFocus();[System.Windows.Forms.SendKeys]::SendWait("{ENTER}")}
+ }
  $matched=$false
  for($i=0;$i -lt 95;$i++){
   $visible=Visible
-  $idMatch=$visible.Contains("Object ID: "+$script:expectedId)
+  # The label and hex Object ID may occupy separate UIA nodes.
+  $idMatch=$visible.Contains("Object ID:") -and $visible.Contains($script:expectedId)
   $revMatch=$visible.Contains("редакция: "+$expected+";")
   $worksMatch=(@($script:titles|Where-Object {$visible.Contains($_)}).Count -eq 10)
   if($idMatch -and $revMatch -and $worksMatch){$matched=$true;break}
   Start-Sleep -Milliseconds 300
  }
- if(!$matched){throw "D07_WORK_RESULT_COLD_READBACK_ID_REVISION_OR_WORKS_CHANGED"}
+ if(!$matched){
+  Write-Output ("D07_WORK_RESULT_COLD_ID_MATCH="+$idMatch)
+  Write-Output ("D07_WORK_RESULT_COLD_REVISION_MATCH="+$revMatch)
+  Write-Output ("D07_WORK_RESULT_COLD_TEN_WORKS_MATCH="+$worksMatch)
+  throw "D07_WORK_RESULT_COLD_READBACK_ID_REVISION_OR_WORKS_CHANGED"
+ }
  Write-Output ("D07_WORK_RESULT_COLD_REVISION_"+$expected+"_EXACT_ID_TEN_WORKS=PASS")
 }
 try{
