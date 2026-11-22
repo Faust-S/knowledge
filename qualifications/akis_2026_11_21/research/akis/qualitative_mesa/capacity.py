@@ -75,6 +75,19 @@ class Reservation:
     units: int
 
 
+@dataclass(frozen=True)
+class FutureCapacityClaim:
+    """Owner-declared future planning envelope, never measured machine output."""
+    adoption: str
+    resource: str
+    source_id: str
+    source_revision: str
+    start: int
+    end: int
+    units: int
+    active: bool = True
+
+
 def _identifier(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip() or len(value) > 128:
         raise CapacityInputError(f"INVALID_{label.upper()}")
@@ -180,6 +193,8 @@ class CapacityLedger:
     def __init__(self, specs: Mapping[str, ResourceCapacity]):
         self.specs = dict(specs)
         self.reservations: list[Reservation] = []
+        # Part of this same reservation ledger, not a separate resource engine.
+        self.future_capacity_claims: dict[str, list[FutureCapacityClaim]] = {}
 
     def original_owners(self, needs: Sequence[ResourceNeed]) -> set[str]:
         return {self.specs[n.resource].owner for n in needs}
@@ -190,11 +205,48 @@ class CapacityLedger:
         calendar = self.specs[key].calendar
         if calendar is not None:
             points.update(point for w in calendar.windows for point in (w.start, w.end))
+        points.update(point for claim in self.future_capacity_claims.get(key, ())
+                      for point in (claim.start, claim.end))
         return sorted(points)
 
     def _capacity_at(self, key: str, t: int) -> int:
         spec = self.specs[key]
+        for claim in self.future_capacity_claims.get(key, ()):
+            if claim.active and claim.start <= t < claim.end:
+                return claim.units
         return spec.calendar.available_at(t) if spec.calendar is not None else spec.units
+
+    def declare_future_capacity(self, claim: FutureCapacityClaim) -> None:
+        """Apply only to unreserved future slots, preserving original obligations.
+
+        Event-time and planned slots are different axes: this conservative
+        restriction prevents a later owner declaration from revising any
+        already-reserved interval, irrespective of when that reservation starts.
+        """
+        key = claim.resource
+        spec = self.specs.get(key)
+        if spec is None or spec.basis != "MODEL_DECLARED":
+            raise CapacityBlocked("CAPABILITY_NEEDS_EXPLICIT_ORIGINAL_RESOURCE", key)
+        if spec.calendar is not None:
+            raise CapacityBlocked("CAPABILITY_CALENDAR_INTERACTION_NOT_QUALIFIED", key)
+        if type(claim.start) is not int or type(claim.end) is not int or not 0 <= claim.start < claim.end:
+            raise CapacityBlocked("CAPABILITY_INVALID_PLANNED_INTERVAL", key)
+        if type(claim.units) is not int or not 1 <= claim.units <= MAX_UNITS:
+            raise CapacityBlocked("CAPABILITY_INVALID_DECLARED_UNITS", key)
+        if any(max(r.start, claim.start) < min(r.end, claim.end)
+               for r in self.reservations if r.resource == key):
+            raise CapacityBlocked("CAPABILITY_CANNOT_RETROACTIVELY_CHANGE_RESERVED_WORK", key)
+        if any(max(old.start, claim.start) < min(old.end, claim.end)
+               for old in self.future_capacity_claims.get(key, ())):
+            raise CapacityBlocked("CAPABILITY_OVERLAPPING_OWNER_REVISIONS", key)
+        self.future_capacity_claims.setdefault(key, []).append(claim)
+
+    def set_future_capability_active(self, adoption: str, active: bool) -> None:
+        """Change evidence eligibility, not the historical original promise."""
+        for key, claims in self.future_capacity_claims.items():
+            for index, claim in enumerate(claims):
+                if claim.adoption == adoption and claim.active != active:
+                    claims[index] = replace(claim, active=active)
 
     def _violations(
         self, key: str, reservations: Sequence[Reservation], *,
@@ -307,6 +359,8 @@ class CapacityLedger:
         """Apply owner's MODEL_ONLY future planning declaration, preserving all promises."""
         if key not in self.specs:
             raise CapacityInputError("REQUIRED_RESOURCE_UNKNOWN")
+        if self.future_capacity_claims.get(key):
+            raise CapacityBlocked("CAPABILITY_CALENDAR_INTERACTION_NOT_QUALIFIED", key)
         self.specs[key] = replace(self.specs[key], calendar=calendar)
         return self.reservation_risks(resources={key})
 
@@ -343,6 +397,15 @@ class CapacityLedger:
                     "outside_windows": "ZERO_DECLARED_AVAILABILITY",
                     "windows": [vars(w) for w in spec.calendar.windows],
                 }
+            if self.future_capacity_claims.get(key):
+                value["future_owner_capability_projections"] = [
+                    {"adoption": c.adoption, "source_id": c.source_id,
+                     "source_revision": c.source_revision, "start": c.start,
+                     "end": c.end, "declared_capacity_units": c.units,
+                     "source_currently_usable": c.active,
+                     "real_capacity_change_independently_verified": False}
+                    for c in self.future_capacity_claims[key]
+                ]
             resources[key] = value
         result = {
             "evidence": "MODEL_ONLY",
@@ -351,7 +414,7 @@ class CapacityLedger:
             "physical_transport_and_critical_path": "NOT_MODELED",
             "economic_productivity": "NOT_IDENTIFIABLE",
         }
-        if any(spec.calendar is not None for spec in self.specs.values()):
+        if any(spec.calendar is not None for spec in self.specs.values()) or self.future_capacity_claims:
             result["reservation_risks"] = self.reservation_risks(outstanding=outstanding)
             result["planned_slot_axis"] = "SEPARATE_FROM_EVENT_DECISION_CLOCK"
         return result
