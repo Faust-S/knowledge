@@ -540,3 +540,38 @@ def test_nine_component_witness_cannot_count_dissolution_without_fresh_accepted_
         "original_dissolution_reconstitution_followed_by_accepted_work"
     ] == []
     assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+
+def test_dissolved_parent_cannot_fork_new_membership_successor_after_reconstitution():
+    d = original_dissolution_case()
+    d["events"].extend([
+        _e(
+            58, "cooperation_change_propose", "b",
+            cooperation_link="net-2", cooperation_source_revision="n-2",
+            org_revision="oc-1", change_id="illegal-branch",
+            change_kind="REVIEW_FUTURE_PARTICIPATION",
+            proposed_subject="a", economic_channel="TRANSACTION_COST",
+            change_source_ref="model://b/illegal-future-membership",
+        ),
+        _e(
+            59, "cooperation_membership_apply", "b",
+            cooperation_link="net-2", cooperation_source_revision="n-2",
+            org_revision="oc-1", change_id="illegal-branch",
+            pilot_work="w2", pilot_result_ref="model://w2-result",
+            pilot_decision_at=23, new_link_id="net-4",
+            new_link_revision="n-4",
+            new_link_source_ref="model://b/illegal-second-successor",
+        ),
+    ])
+    d["model_horizon"] = 63
+    out = simulate(d)
+    assert rows(out, "cooperation_change_propose")[-1]["reason"] == (
+        "COOPERATION_DISSOLVED_RELATION_CANNOT_PROPOSE_FUTURE_CHANGE"
+    )
+    assert rows(out, "cooperation_membership_apply")[-1]["reason"] == (
+        "COOPERATION_DISSOLVED_RELATION_CANNOT_GAIN_SECOND_SUCCESSOR"
+    )
+    assert "net-4" not in [x["id"] for x in out["cooperation"]["links"]]
+    assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w6"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
