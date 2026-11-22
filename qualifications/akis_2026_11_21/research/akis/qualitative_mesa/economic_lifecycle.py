@@ -103,8 +103,6 @@ def review_timed_original_lifecycle_costs(
         if (original["owner"] != owner or original["source"] != source
                 or sources.get(source, {}).get("owner") != owner):
             raise LifecycleInputError("LIFECYCLE_TIMED_OWNER_OR_SOURCE_MISMATCH")
-        if row["work_source_revision"] != work.source_revision:
-            raise LifecycleInputError("LIFECYCLE_TIMED_WORK_REVISION_MISMATCH")
         if original["work"] is not None:
             if original["work"] != work_id:
                 raise LifecycleInputError("LIFECYCLE_TIMED_WRONG_ORIGINAL_WORK")
@@ -119,6 +117,8 @@ def review_timed_original_lifecycle_costs(
             amount = Decimal(slices[rid])
             if amount <= 0 or amount > original["decimal_amount"]:
                 raise LifecycleInputError("LIFECYCLE_TIMED_COMMON_COST_ALLOCATION_INVALID")
+        if row["work_source_revision"] != work.source_revision:
+            raise LifecycleInputError("LIFECYCLE_TIMED_WORK_REVISION_MISMATCH")
         position = row["trace_position"]
         if type(position) is not int or position < 0 or position >= len(trace):
             raise LifecycleInputError("LIFECYCLE_TIMED_TRACE_POSITION_INVALID")

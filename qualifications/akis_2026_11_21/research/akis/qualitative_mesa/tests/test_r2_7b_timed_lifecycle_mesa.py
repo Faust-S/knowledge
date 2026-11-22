@@ -254,7 +254,7 @@ def test_rejected_blocked_customer_decision_is_not_applied_cost_evidence():
     d = case()
     last = max(e["at"] for e in d["events"])
     d["events"].append({"at":last+1,"action":"accept","actor":"op","work":"w2"})
-    d["model_horizon"]=max(d["model_horizon"],last+2)
+    d["model_horizon"]=max(d.get("model_horizon", last+2),last+2)
     out=simulate(d)
     assert out["trace"][-1]["outcome"]=="BLOCKED"
     row=d["economic_claims"]["lifecycle_costs"]["event_bindings"][1]
