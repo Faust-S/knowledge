@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 0953c788a32bc3cc43b296d34d592ffe5fb0b6cc
+      SITE_SHA: 2e37fa767837486690fc305aea16f4760d231474
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -84,6 +84,11 @@ jobs:
             throw 'D07_NATIVE_CARD_ORIGINAL_T2_BUILD_FAILED'
           }
           if(-not (Test-Path 'dist/workspace/index.html')){throw 'D07_NATIVE_CARD_T2_HOST_NOT_BUILT'}
+          $buildLog=Get-Content (Join-Path $env:RUNNER_TEMP 'd07-card-integrated-build.private.log') -Raw
+          if($buildLog -notmatch 'D07_RUNTIME_RESEARCH_REPORTS_EXCLUDED=11'){
+            throw 'D07_NATIVE_CARD_RESEARCH_REPORTS_NOT_EXCLUDED'
+          }
+          Write-Output 'D07_NATIVE_CARD_RUNTIME_REPORTS_EXCLUDED=11'
           foreach($slug in @('zamena-unitaza','ustanovka-rakoviny','razvodka-trub','ustranenie-protechki','prochistka-kanalizacii')){
             if(-not (Test-Path ("dist/uslugi/remont-dom-mastera/"+$slug+"/index.html"))){
               throw 'D07_NATIVE_CARD_SITE_HTML_NOT_BUILT'
