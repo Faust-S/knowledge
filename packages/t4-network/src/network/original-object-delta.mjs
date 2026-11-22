@@ -89,6 +89,9 @@ export async function prepareT4OriginalObjectDelta({
     !WINDOW_DIGEST(window.windowDigest)||
     !WINDOW_DIGEST(window.eventRefs[0].eventDigest))
     fail('OBJECT_DELTA_SINGLE_EVENT_WINDOW_REQUIRED');
+  const {windowDigest,...windowBody}=window;
+  if('sha256:'+packageSha256(encode(windowBody))!==windowDigest)
+    fail('OBJECT_DELTA_WINDOW_DIGEST_MISMATCH');
   if(!originalKernel||originalKernel.hasOperation?.('t1.getObject')!==true||
     typeof originalKernel.getObject!=='function'||typeof authorizeOriginalRead!=='function')
     fail('OBJECT_DELTA_ORIGINAL_READ_PORT_REQUIRED');

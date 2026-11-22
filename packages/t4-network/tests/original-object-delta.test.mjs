@@ -288,3 +288,10 @@ test('lost HTTPS PUT acknowledgement can be inspected without retry or cursor ad
  assert.equal(observed.safeToTreatAsOriginalReceipt,false);
  assert.equal(observed.cursorAdvanced,false);
 });
+
+test('modified event window references cannot be published as an original T3 delta',async()=>{
+ const {window}=await origin();
+ await assert.rejects(generate({window:{...window,
+   eventRefs:[{...window.eventRefs[0],sourceEventDigest:'sha256:'+'f'.repeat(64)}]}}),
+   code('OBJECT_DELTA_WINDOW_DIGEST_MISMATCH'));
+});
