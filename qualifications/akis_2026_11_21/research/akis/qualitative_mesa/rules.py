@@ -27,6 +27,7 @@ from .portfolio import (
     PortfolioInputError, parse_dependencies, validate_dependency_graph,
     readiness, portfolio_view,
 )
+from .capability_dynamics import CapabilityBlocked
 from .work_assurance import (
     QualityCriterion, AssuranceInputError, AssuranceBlocked,
     parse_criteria, assess_result_quality, acceptance_gate, assurance_view,
@@ -43,7 +44,7 @@ SELECTED_MODES = frozenset({"SOLE", "COLLEGIAL", "MIXED"})
 # UNSELECTED explicitly describes missing qualification, not tacit SOLE.
 MODES = SELECTED_MODES | {"UNSELECTED"}
 AVAILABILITY = frozenset({"AVAILABLE", "UNAVAILABLE", "UNKNOWN"})
-ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response"})
+ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "adopt_capability"})
 GOVERNED = frozenset({"authorize", "exclude"})
 
 
@@ -249,7 +250,7 @@ class QualitativeAKIS:
         last = -1
         for ev in events:
             _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
-             "criterion", "quality_verdict", "quality_evidence_ref"}, "EVENT")
+             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -258,6 +259,7 @@ class QualitativeAKIS:
                 self._parse_work(ev.get("work_spec"))
         self.context_basis: ContextBasis | None = None
         self.model_org_policy = None  # Optional MODEL_ONLY constraint on original new-Work actions.
+        self.capability_policy = None  # Optional owner gate, never an autonomous upgrade.
         if "context_evidence" in scenario:
             raw_context = scenario["context_evidence"]
             known_works = set(self.works)
@@ -361,6 +363,10 @@ class QualitativeAKIS:
         calendar_risks = None
         model_org_review = None
         linked_change_evidence = None
+        if self.capability_policy is not None:
+            # Time- and owner-source eligibility is refreshed before future
+            # commitments; historical reservations and Results are untouched.
+            self.capability_policy.refresh(self, at)
         org_code_model_escalation_target = (
             self.model_org_policy.reviewer_by_action.get(action)
             if self.model_org_policy is not None else None
@@ -380,6 +386,12 @@ class QualitativeAKIS:
                 if self.context_basis is None:
                     raise BlockedDecision("CONTEXT_BASIS_NOT_CONFIGURED")
                 self.context_basis.owner_update(ev)
+                if self.capability_policy is not None:
+                    self.capability_policy.refresh(self, at)
+            elif action == "adopt_capability":
+                if self.capability_policy is None:
+                    raise BlockedDecision("CAPABILITY_POLICY_NOT_CONFIGURED")
+                self.capability_policy.apply(self, ev, at)
             elif action == "participation_status":
                 self._set_participation_status(ev)
             elif action in {"cooperation_change_propose", "cooperation_change_response"}:
@@ -411,7 +423,7 @@ class QualitativeAKIS:
                 work = self.works[key]
                 self._work_action(work, ev, at)
             report = {"at": at, "action": action, "outcome": "APPLIED", "reason": "NONE", "org_revision": self.institution.revision}
-        except (BlockedDecision, ContextBlocked, MaterialBlocked, AssuranceBlocked, OrgCodeBlocked) as exc:
+        except (BlockedDecision, ContextBlocked, MaterialBlocked, AssuranceBlocked, OrgCodeBlocked, CapabilityBlocked) as exc:
             blocked_resource = getattr(exc, "resource", None)
             if isinstance(exc, OrgCodeBlocked):
                 org_code_model_escalation_target = exc.reviewer
@@ -494,6 +506,11 @@ class QualitativeAKIS:
             report["source_authentication"] = "MODEL_ONLY_DECLARED_UNVERIFIED"
         if action == "source_update":
             report["source"] = ev.get("source")
+        if action == "adopt_capability":
+            report["capability"] = ev.get("capability")
+            report["expected_capacity_revision"] = ev.get("expected_capacity_revision")
+            report["original_owner_capability_source_only"] = True
+            report["real_productivity_gain_or_IP_right_verified"] = False
         if action == "resource_calendar_update" and calendar_risks is not None:
             report["reservation_risks"] = calendar_risks
             report["calendar_revision"] = self.resource_specs[ev["resource"]].calendar.revision
@@ -618,6 +635,8 @@ class QualitativeAKIS:
         old = self.resource_specs[key]
         if old.basis == "LEGACY_FIXTURE_DEFAULT":
             raise BlockedDecision("RESOURCE_CAPACITY_UNSUPPORTED", key)
+        if self.capacity_ledger.future_capacity_claims.get(key):
+            raise BlockedDecision("CAPABILITY_CALENDAR_INTERACTION_NOT_QUALIFIED", key)
         expected = old.calendar.revision if old.calendar else "NONE"
         if ev.get("expected_calendar_revision") != expected:
             raise BlockedDecision("STALE_RESOURCE_CALENDAR_REVISION", key)
@@ -1021,7 +1040,7 @@ class QualitativeAKIS:
                 self.cooperation_links, self.works, self.resources, self.trace)
         if self.context_basis is not None:
             output["context_basis"] = self.context_basis.snapshot()
-        if self.capacity_strict or self.calendar_strict or any(spec.basis == "MODEL_DECLARED" for spec in self.resource_specs.values()) or any(
+        if self.capacity_strict or self.calendar_strict or bool(self.capacity_ledger.future_capacity_claims) or any(spec.basis == "MODEL_DECLARED" for spec in self.resource_specs.values()) or any(
             len(w.resource_requirements) > 1 for w in self.works.values()
         ):
             output["capacity"] = self.capacity_ledger.snapshot(outstanding=self._outstanding_work_ids())
