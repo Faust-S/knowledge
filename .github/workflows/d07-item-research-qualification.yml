@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 38bd8b96c5d7920980e6a31b7db6d6a206ec125f
+          ref: d4bac72c04c4208bda6703a6d51a60ef96c9885b
           token: ${{ secrets.DOMEN }}
           path: subject
           persist-credentials: false
@@ -29,19 +29,20 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: d09857a30078ce6eb17ee0efcba36a0d6e8fdcf0
+          ref: 11b191703d72b886c742c4594f37a28e4be21919
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify exact revisions and business logic parity
         run: |
-          test "$(git -C subject rev-parse HEAD)" = "38bd8b96c5d7920980e6a31b7db6d6a206ec125f"
-          test "$(git -C site rev-parse HEAD)" = "d09857a30078ce6eb17ee0efcba36a0d6e8fdcf0"
+          test "$(git -C subject rev-parse HEAD)" = "d4bac72c04c4208bda6703a6d51a60ef96c9885b"
+          test "$(git -C site rev-parse HEAD)" = "11b191703d72b886c742c4594f37a28e4be21919"
           cmp subject/src/domain/service-external-gap-research.ts site/src/domain/service-external-gap-research.ts
           cmp subject/src/domain/service-professional-gap-inventory.ts site/src/domain/service-professional-gap-inventory.ts
           cmp subject/src/domain/service-subject-plumbing-a.ts site/src/domain/service-subject-plumbing-a.ts
           cmp subject/src/domain/service-subject-flooring-a.ts site/src/domain/service-subject-flooring-a.ts
           cmp subject/src/domain/service-original-corroboration.ts site/src/domain/service-original-corroboration.ts
+          cmp subject/src/domain/service-professional-facet-coverage.ts site/src/domain/service-professional-facet-coverage.ts
           cmp subject/src/domain/service-subject-wallpaper-a.ts site/src/domain/service-subject-wallpaper-a.ts
           cmp subject/src/domain/service-subject-protocols.ts site/src/domain/service-subject-protocols.ts
           echo D07_ITEM_RESEARCH_PARITY=PASS
@@ -63,12 +64,12 @@ jobs:
             sudo apt-get install -y -qq poppler-utils > /dev/null
           fi
           echo D07_ITEM_POPPLER=PASS
-          for t in scripts/tests/d07-external-gap-research.test.mjs scripts/tests/d07-original-source-fetch.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs scripts/tests/d07-original-corroboration.test.mjs scripts/tests/d07-original-pdf-fetch.test.mjs scripts/tests/d07-mixed-original-sources.test.mjs scripts/tests/d07-wallpaper-professional-method.test.mjs; do node --check "$t"; done
+          for t in scripts/tests/d07-external-gap-research.test.mjs scripts/tests/d07-original-source-fetch.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs scripts/tests/d07-original-corroboration.test.mjs scripts/tests/d07-professional-facet-coverage.test.mjs scripts/tests/d07-original-pdf-fetch.test.mjs scripts/tests/d07-mixed-original-sources.test.mjs scripts/tests/d07-wallpaper-professional-method.test.mjs; do node --check "$t"; done
           echo D07_ITEM_RESEARCH_INSTALL_AND_SYNTAX=PASS
       - name: Test independent per-operation evidence and anti-fabrication checks
         working-directory: site
         run: |
-          node --import tsx --test scripts/tests/d07-external-gap-research.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs scripts/tests/d07-original-source-fetch.test.mjs scripts/tests/d07-original-corroboration.test.mjs scripts/tests/d07-original-pdf-fetch.test.mjs scripts/tests/d07-mixed-original-sources.test.mjs scripts/tests/d07-wallpaper-professional-method.test.mjs scripts/tests/d07-plumbing-professional-method.test.mjs scripts/tests/d07-flooring-professional-method.test.mjs scripts/tests/d07-professional-preview.test.mjs scripts/tests/d07-methodology-top500.test.mjs > "$RUNNER_TEMP/d07-item-tests.log" 2>&1 || {
+          node --import tsx --test scripts/tests/d07-external-gap-research.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs scripts/tests/d07-original-source-fetch.test.mjs scripts/tests/d07-original-corroboration.test.mjs scripts/tests/d07-professional-facet-coverage.test.mjs scripts/tests/d07-original-pdf-fetch.test.mjs scripts/tests/d07-mixed-original-sources.test.mjs scripts/tests/d07-wallpaper-professional-method.test.mjs scripts/tests/d07-plumbing-professional-method.test.mjs scripts/tests/d07-flooring-professional-method.test.mjs scripts/tests/d07-professional-preview.test.mjs scripts/tests/d07-methodology-top500.test.mjs > "$RUNNER_TEMP/d07-item-tests.log" 2>&1 || {
             echo D07_ITEM_RESEARCH_TESTS=FAIL
             grep -E '^not ok|^# (tests|pass|fail)|^[[:space:]]+(actual|expected|error):' "$RUNNER_TEMP/d07-item-tests.log" | tail -24 || true
             exit 1
@@ -104,5 +105,5 @@ jobs:
           }
           echo D07_ITEM_LIVE_ORIGINALS=PASS
           grep -E '^D07_(ORIGINAL|RESEARCH)' "$RUNNER_TEMP/d07-item-live.log" | tail -20
-          node -e "const f=require('fs');const x=JSON.parse(f.readFileSync(process.env.D07_RECEIPT_DEST,'utf8'));for(const r of x.receipts)console.log('D07_SOURCE_TEXT_SHA256='+r.sourceId+':'+r.textSha256);const n=x.research.reduce((s,r)=>s+r.individualTargetsSearched,0);console.log('D07_INDIVIDUAL_GAP_TARGETS='+n);if(n!==12||x.counts.approvedMethodologies!==0||x.counts.uniqueOriginalUrlsFetched!==8||x.counts.uniquePdfOriginalsFetched!==2||x.counts.verifiedExactPassages!==15||x.counts.corroboratedClaims!==14||x.counts.corroboratedOperations!==12||x.counts.sourceDriftRejections!==0||x.counts.foreignJurisdictionRejected!==1||x.corroborations.some(r=>r.methodContentComplete||r.methodologyApproved)||x.research.some(r=>!r.unresolvedItems.length))process.exit(1);console.log('D07_FOREIGN_GUIDANCE_JURISDICTION_CHECK='+x.counts.foreignJurisdictionRejected);console.log('D07_ITEM_RESEARCH_NO_FALSE_FINALIZATION=PASS')"
+          node -e "const f=require('fs');const x=JSON.parse(f.readFileSync(process.env.D07_RECEIPT_DEST,'utf8'));for(const r of x.receipts)console.log('D07_SOURCE_TEXT_SHA256='+r.sourceId+':'+r.textSha256);const n=x.research.reduce((s,r)=>s+r.individualTargetsSearched,0);console.log('D07_INDIVIDUAL_GAP_TARGETS='+n);if(n!==12||x.counts.approvedMethodologies!==0||x.counts.uniqueOriginalUrlsFetched!==8||x.counts.uniquePdfOriginalsFetched!==2||x.counts.verifiedExactPassages!==15||x.counts.corroboratedClaims!==14||x.counts.corroboratedOperations!==12||x.counts.sourceFacetAssignments!==14||x.counts.sourceFacetCompleteOperations!==0||x.counts.remainingRequiredFacetLinks<70||x.counts.sourceDriftRejections!==0||x.counts.foreignJurisdictionRejected!==1||x.corroborations.some(r=>r.methodContentComplete||r.methodologyApproved)||x.research.some(r=>!r.unresolvedItems.length))process.exit(1);console.log('D07_FOREIGN_GUIDANCE_JURISDICTION_CHECK='+x.counts.foreignJurisdictionRejected);console.log('D07_ITEM_RESEARCH_NO_FALSE_FINALIZATION=PASS')"
       # Private checkouts are ephemeral, no artifacts/source HTML/results uploaded.
