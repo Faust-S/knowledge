@@ -329,6 +329,8 @@ def _review_work_payment_progress(
         transfer_id = _identifier(row["transfer_id"], "PAYMENT_AMENDMENT_TRANSFER")
         if event_id in event_ids:
             raise EconomicInputError("DUPLICATE_PAYMENT_EVIDENCE_EVENT_ID")
+        if event_id in transfer_index:
+            raise EconomicInputError("PAYMENT_PROGRESS_EVENT_ID_CLASH_WITH_ORIGINAL_TRANSFER")
         event_ids.add(event_id)
         if transfer_id not in indexed_terms:
             raise EconomicInputError("PAYMENT_AMENDMENT_NOT_IN_ORIGINAL_WORK_TERMS")
@@ -418,6 +420,8 @@ def _review_work_payment_progress(
         transfer_id = _identifier(row["transfer_id"], "PAYMENT_SETTLEMENT_TRANSFER")
         if event_id in event_ids:
             raise EconomicInputError("DUPLICATE_PAYMENT_EVIDENCE_EVENT_ID")
+        if event_id in transfer_index:
+            raise EconomicInputError("PAYMENT_PROGRESS_EVENT_ID_CLASH_WITH_ORIGINAL_TRANSFER")
         event_ids.add(event_id)
         if transfer_id not in indexed_terms:
             raise EconomicInputError("PAYMENT_SETTLEMENT_NOT_IN_ORIGINAL_WORK_TERMS")
@@ -517,6 +521,15 @@ def _review_work_payment_progress(
             status != "BILATERAL_MODEL_DUE_CHANGE_UNVERIFIED_LEGALLY"
             for status in amendments_by_transfer.values()):
         original_view["status"] = "PAYMENT_PROGRESS_EVIDENCE_OR_AMENDMENT_CONFLICT"
+        return None
+    # An incomplete Work payment contract cannot make a subset of original
+    # payment claims appear to qualify the entire network trajectory.
+    if (original_view["original_work_transfer_without_terms_count"]
+            or original_view["contradictory_or_missing_timing_count"]
+            or original_view["unobserved_trigger_count"]):
+        original_view["settlement_progress"][
+            "conditional_network_claim_projection_held_due_to_incomplete_work_terms"
+        ] = True
         return None
     # Only use source-consistent claims as a CONDITIONAL CASH PATH. All other
     # original transfers stay in the original forecast; no realized bank fact.
