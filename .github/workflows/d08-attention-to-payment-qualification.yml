@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops
-          ref: 0bb9490f5ec9cbeb9a25e178513f059d490ea3e2
+          ref: c06c3c39461a9ae36994d29b33d2676e14afbeed
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: logic
@@ -33,14 +33,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops.ru
-          ref: f333f638b2dfb1f2229719e8b2c120e1f2a624f2
+          ref: 008a7e11d21908ec1dd43eebc1c7bb3e67bfbb08
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
       - name: Verify private revisions, never emit private source
         run: |
-          test "$(git -C logic rev-parse HEAD)" = "0bb9490f5ec9cbeb9a25e178513f059d490ea3e2" || exit 1
-          test "$(git -C site rev-parse HEAD)" = "f333f638b2dfb1f2229719e8b2c120e1f2a624f2" || exit 1
+          test "$(git -C logic rev-parse HEAD)" = "c06c3c39461a9ae36994d29b33d2676e14afbeed" || exit 1
+          test "$(git -C site rev-parse HEAD)" = "008a7e11d21908ec1dd43eebc1c7bb3e67bfbb08" || exit 1
           cmp logic/model/new-purchase-cash-review.mjs site/t2-site-module/marketops/decision/new-purchase-cash-review.mjs
           cmp logic/model/new-purchase-cash-review.d.mts site/t2-site-module/marketops/decision/new-purchase-cash-review.d.mts
           cmp logic/model/business-attention-queue.mjs site/t2-site-module/marketops/decision/business-attention-queue.mjs
@@ -58,7 +58,7 @@ jobs:
       - name: Subject-model regression suite
         working-directory: logic
         run: |
-          node --test tests/business-obligation.test.mjs tests/business-goods-cash-coordination.test.mjs tests/business-attention-queue.test.mjs tests/new-purchase-cash-review.test.mjs tests/business-payment-continuity.test.mjs tests/business-attention-navigation.test.mjs > "$RUNNER_TEMP/d08-model.log" 2>&1 || {
+          node --test tests/business-obligation.test.mjs tests/business-goods-cash-coordination.test.mjs tests/business-attention-queue.test.mjs tests/new-purchase-cash-review.test.mjs tests/business-payment-continuity.test.mjs tests/business-attention-navigation.test.mjs tests/business-obligation-allocation-passport.test.mjs > "$RUNNER_TEMP/d08-model.log" 2>&1 || {
             echo D08_MODEL_TESTS=FAIL
           grep -E '^not ok [0-9]+|^[[:space:]]*error:|^[[:space:]]*code:|^# (tests|pass|fail) ' "$RUNNER_TEMP/d08-model.log" | head -30 || true
           exit 1;
@@ -98,7 +98,7 @@ jobs:
       - name: T2 obligations and UI contracts
         working-directory: site
         run: |
-          node --import tsx --test tests/marketops-business-obligation.test.mjs tests/marketops-business-goods-cycle.test.mjs tests/marketops-business-attention.test.mjs tests/marketops-new-purchase-review.test.mjs tests/marketops-obligation-return-flow.test.mjs tests/marketops-attention-navigation.test.mjs > "$RUNNER_TEMP/d08-obligations.log" 2>&1 || {
+          node --import tsx --test tests/marketops-business-obligation.test.mjs tests/marketops-business-goods-cycle.test.mjs tests/marketops-business-attention.test.mjs tests/marketops-new-purchase-review.test.mjs tests/marketops-obligation-return-flow.test.mjs tests/marketops-attention-navigation.test.mjs tests/marketops-obligation-allocation-passport.test.mjs > "$RUNNER_TEMP/d08-obligations.log" 2>&1 || {
             echo D08_T2_OBLIGATIONS=FAIL
             grep -E '^not ok [0-9]+|^# (tests|pass|fail) ' "$RUNNER_TEMP/d08-obligations.log" | head -25 || true
             exit 1;
