@@ -84,3 +84,31 @@ def test_no_change_to_original_legacy_model_without_optional_capability():
     assert "capability_dynamics" not in original
     assert original["works"]["w3"]["obligation"] == "NOT_ACCEPTED"
     assert simulate(deepcopy(d)) == original
+
+
+def test_interfirm_original_knowledge_requires_explicit_source_scope():
+    from .test_competence_transfer_mesa import interfirm_case
+    d = interfirm_case()
+    source = next(x for x in d["context_evidence"]["sources"]
+                  if x["id"] == "license-a")
+    for k in ("core", "purposes", "operations", "valid_from"):
+        source.pop(k)
+    out = simulate(d)
+    claim = out["competence_reuse_dynamics"]["links"][0]
+    assert "REUSE_PERMISSION_EXPLICIT_SOURCE_SCOPE_REQUIRED" in claim["unqualified_reasons"]
+    assert claim["declared_metric_change_favourable_positive"] is None
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_measurement_quality_source_requires_explicit_purpose():
+    from .test_competence_measurement_mesa import measurement_case
+    d = measurement_case()
+    source = next(x for x in d["context_evidence"]["sources"]
+                  if x["id"] == "quality-protocol-c")
+    for k in ("core", "purposes", "operations", "valid_from"):
+        source.pop(k)
+    out = simulate(d)
+    result = out["competence_reuse_dynamics"]["declared_measurement_protocols"]["protocols"][0]
+    assert "MEASUREMENT_EXPLICIT_SOURCE_SCOPE_REQUIRED" in result["model_scope_reasons"]
+    assert result["declared_favourable_metric_difference"] is None
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
