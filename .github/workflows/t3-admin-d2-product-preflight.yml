@@ -1,0 +1,64 @@
+name: T3 Admin D2 original public product and One Dist preflight
+on:
+  push:
+    branches:
+      - work/2026-11-22-admin03-original-d2-read
+    paths:
+      - .github/workflows/t3-admin-d2-product-preflight.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-admin-product:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: 65cab2a85408d8899e8be00219f7b8afce6d894f
+          persist-credentials: false
+          sparse-checkout: |
+            runtime/iwxa-admin-center-original-t2-profile.json
+          path: .public-center
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check pinned original qualified Kernel source and exact product profile
+        shell: bash
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD:packages/t3-core/qualified-runtime)" = "1594274dbf5e38214b8422ba11e8c7114bd5425c"
+          test "$(git -C .public-center rev-parse HEAD)" = "65cab2a85408d8899e8be00219f7b8afce6d894f"
+          echo "D2_PUBLIC_EXACT_SOURCE_PINS_PASS"
+      - name: Build only existing original One Core
+        shell: bash
+        run: |
+          set -eu
+          npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+          npm run build --prefix packages/t3-core
+      - name: Stage original qualified T2 and exact Admin Center owned product
+        shell: bash
+        run: |
+          set -eu
+          root="$RUNNER_TEMP/d2-original-admin"
+          mkdir -p "$root/qualified"
+          unzip -q packages/t3-core/qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip -d "$root/qualified"
+          node packages/t3-core/scripts/materialize-original-admin-t2-product.mjs \
+            "$root/qualified" .public-center/runtime/iwxa-admin-center-original-t2-profile.json \
+            "$root/product" > "$root/product-stage.json"
+          node -e 'const s=require(process.argv[1]);if(s.productId!=="iwxa.admin-center"||s.originalKernelBytesUnchanged!==true)process.exit(1)' "$root/product-stage.json"
+          echo "D2_PUBLIC_CENTER_PRODUCT_STAGE_PASS"
+      - name: Assemble real inherited One Dist with original Admin service
+        shell: bash
+        run: |
+          set -eu
+          root="$RUNNER_TEMP/d2-original-admin"
+          node packages/t3-core/scripts/assemble-signed-control-dist.mjs \
+            "$root/product" packages/t3-core/dist "$root/one-dist" \
+            --installed-admin-d3 > "$root/one-dist-result.json"
+          node -e 'const s=require(process.argv[1]);if(s.schema!=="iwxa.t3.signed-control-one-dist/1"||s.original_admin_d3_schema_registered!==true||s.original_runtime_unchanged!==true)process.exit(1)' "$root/one-dist-result.json"
+          echo "D2_PUBLIC_ORIGINAL_ONE_DIST_ASSEMBLED_PASS"
