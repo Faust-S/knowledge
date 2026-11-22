@@ -272,3 +272,72 @@ def test_r1i_one_resource_owner_cannot_confirm_forming_for_another():
     )
     assert out["works"]["w1"]["obligation"] == "NOT_ACCEPTED"
     assert out["works"]["w1"]["result"] == "NOT_SUBMITTED"
+
+
+def two_cycle_with_formation_case(*, second_resource_phase=True):
+    d = formation_case()
+    second = deepcopy(d["events"][0]["work_spec"])
+    second.update(
+        id="w2", source_revision="d-2", slot_start=32, slot_end=41,
+        requires_accepted=["w1"],
+    )
+    d["general_akis"]["goals"].append({
+        "owner": "b", "source_ref": "model://b/goal-w2",
+        "revision": "oc-1", "available_at": 16, "expires_at": 50,
+        "work": "w2", "work_revision": "d-2",
+        "objective": "QUALITY", "priority": 2,
+    })
+    d["events"].append({
+        "at": 16, "action": "request", "actor": "b", "work_spec": second,
+    })
+    d["events"].extend([
+        {"at": phase + 16, "action": "formation_confirm",
+         "actor": owner, "work": "w2", "phase": phase,
+         "org_revision": "oc-1",
+         "formation_source_ref": f"model://{owner}/formation-{phase}"}
+        for phase, owner in ((1, "b"), (2, "b"), (3, "a"))
+        if second_resource_phase or phase != 3
+    ])
+    d["events"] += [
+        {"at": 20, "action": "offer", "actor": "op", "work": "w2"},
+        {"at": 21, "action": "authorize", "actor": "op", "work": "w2"},
+        {"at": 22, "action": "consent", "actor": "a", "work": "w2",
+         "source_revision": "d-2", "org_revision": "oc-1"},
+        {"at": 23, "action": "consent", "actor": "b", "work": "w2",
+         "source_revision": "d-2", "org_revision": "oc-1"},
+        {"at": 24, "action": "commit", "actor": "op", "work": "w2"},
+        {"at": 33, "action": "start", "actor": "a", "work": "w2"},
+        {"at": 34, "action": "complete", "actor": "a", "work": "w2",
+         "result_ref": "model://w2-result"},
+        {"at": 35, "action": "accept", "actor": "b", "work": "w2"},
+    ]
+    d["model_horizon"] = 45
+    return d
+
+
+def test_r1i_second_independent_work_requires_its_own_formation_confirmations():
+    d = two_cycle_with_formation_case()
+    out = simulate(d)
+    assert out["counts"]["blocked"] == 0, out["trace"]
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["obligation"] == "FULFILLED"
+    assert [row["work"] for row in trace_for(out, "formation_confirm")] == [
+        "w1", "w1", "w1", "w2", "w2", "w2"
+    ]
+    assert out["general_akis_model"]["first_three_formation_model_gate"][
+        "original_model_event_confirmations"] == 6
+    assert out["general_akis_model"]["first_three_formation_model_gate"][
+        "full_eight_author_formation_phases_completed"] is False
+    assert out == simulate(deepcopy(d))
+
+
+def test_r1i_second_cycle_cannot_borrow_first_cycle_resource_confirmation():
+    d = two_cycle_with_formation_case(second_resource_phase=False)
+    out = simulate(d)
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert trace_for(out, "commit")[-1]["reason"] == (
+        "FORMATION_PRIOR_OWNER_PHASE_CONFIRMATION_MISSING"
+    )
+    assert out["works"]["w2"]["obligation"] == "NOT_ACCEPTED"
+    assert out["works"]["w2"]["result"] == "NOT_SUBMITTED"
