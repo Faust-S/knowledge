@@ -218,7 +218,13 @@ export function SignedSelectedWorkspaceGate({
       trustedSelectedContext,create]);
 
   if(!required)return <>{children}</>;
-  if(phase==="ready")return <>{children}</>;
+  if(phase==="ready")return <>
+    <span role="status" className="sr-only"
+      data-testid="t3-d1-selected-workspace-ready">
+      Подписанная Workspace подтверждена в исходном Kernel
+    </span>
+    {children}
+  </>;
   return (
     <section aria-live="polite" data-testid="t3-d1-selected-workspace-gate"
       className="mx-auto max-w-xl p-6 space-y-3">
