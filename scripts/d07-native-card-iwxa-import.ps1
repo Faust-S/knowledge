@@ -334,7 +334,20 @@ try{
   }
   Start-Sleep -Milliseconds 300
  }
- if(!$receipt){throw 'D07_IMPORT_POST_IMPORT_REVISION_RECEIPT_MISSING'}
+ if(!$receipt){
+   # Report only public UI state flags, never order contents, IDs or other
+   # private data. A missing receipt is not proof of a failed Kernel write.
+   Write-Output ('D07_IMPORT_SAVE_BUTTON_ENABLED='+[bool](Locate 'Сохранить заказ' ([System.Windows.Automation.ControlType]::Button)))
+   Write-Output ('D07_IMPORT_SAVE_NOTICE_CONFIRMED='+[bool]($visible.Contains('Заказ сохранён и повторно прочитан.')))
+   Write-Output ('D07_IMPORT_SAVE_NOTICE_KERNEL_ERROR='+[bool]($visible.Contains('Запись T2 не подтверждена:')))
+   Write-Output ('D07_IMPORT_SAVE_NOTICE_IMPORT_REVIEW='+[bool]($visible.Contains('Нужно сверить импортированные данные')))
+   Write-Output ('D07_IMPORT_SAVE_NOTICE_PENDING='+[bool]($visible.Contains('Проверьте прежнее сохранение')))
+   Write-Output ('D07_IMPORT_SAVE_NOTICE_INVALID='+[bool]($visible.Contains('Проверьте заполнение заказа')))
+   $revisionMatches=[regex]::Matches($visible,'Редакция\\s+(\\d+)|редакция:\\s*(\\d+);')
+   $revisions=@($revisionMatches|ForEach-Object{if($_.Groups[1].Success){$_.Groups[1].Value}else{$_.Groups[2].Value}}|Select-Object -Unique)
+   Write-Output ('D07_IMPORT_VISIBLE_REVISION_NUMBERS='+($revisions -join ','))
+   throw 'D07_IMPORT_POST_IMPORT_REVISION_RECEIPT_MISSING'
+ }
  Write-Output 'D07_IWXA_NATIVE_POST_IMPORT_KERNEL_REVISION=PASS'
  # A second cold open must read the new task, revision and original works.
  try{$reopened.Kill($true)}catch{}
