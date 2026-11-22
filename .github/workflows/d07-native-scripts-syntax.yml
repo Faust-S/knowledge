@@ -48,6 +48,12 @@ jobs:
             throw 'D07_NATIVE_T2_ASYNC_BUTTON_GUARD_MISSING'
           }
           Write-Output 'D07_NATIVE_T2_ASYNC_BUTTON_GUARD=PASS'
+          if(!$import.Contains('D07_IWXA_NATIVE_EXACT_SUBJECT_WORKS_ROUNDTRIP=PASS') -or
+             !$import.Contains('D07_IMPORT_EXACT_TEN_WORKS_NOT_PRESERVED') -or
+             $import.Contains('Осмотр оборудования и доступа')){
+            throw 'D07_NATIVE_IMPORTED_PRIVATE_PROTOCOL_COVERAGE_INVALID'
+          }
+          Write-Output 'D07_NATIVE_IMPORT_SUBJECT_WORKS_GUARD=PASS'
           & node --check 'scripts/d07-verify-integrated-all-service-cards.mjs'
           if($LASTEXITCODE -ne 0){throw 'D07_INTEGRATED_ALL_CARDS_CHECKER_SYNTAX_FAILED'}
           Write-Output 'D07_INTEGRATED_ALL_CARDS_CHECKER_SYNTAX=PASS'
