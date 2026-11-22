@@ -2946,6 +2946,105 @@ def original_nine_component_cycle_evidence(
                     "real_external_identity_ownership_or_money_verified": False,
                 })
 
+    # R1-U1: the alternative consultation is not a realized coalition.
+    # Count a competition only when one consented original successor
+    # actually completes a distinct future Work with accepted Result.
+    original_competitive_member_choices: list[dict[str, Any]] = []
+    for rev in events:
+        if (rev.get("action") != "cooperation_membership_apply"
+                or rev.get("original_competing_coalition_selection_qualified")
+                    is not True):
+            continue
+        qualified = next((
+            row for row in original_coalition_successions
+            if row.get("prospective_successor_link") ==
+                rev.get("successor_link")
+            and row.get("original_cooperation_link") ==
+                rev.get("cooperation_link")
+            and row.get("new_original_accepted_work_ids")
+        ), None)
+        if qualified is None:
+            continue
+        options = [
+            row for row in events
+            if row.get("action") == "coalition_options_propose"
+            and row.get("coalition_competition_id") ==
+                rev.get("coalition_competition_id")
+            and row.get("cooperation_link") ==
+                rev.get("cooperation_link")
+            and row.get("coalition_comparison_fingerprint") ==
+                rev.get("coalition_comparison_fingerprint")
+            and type(row.get("at")) is int and row["at"] < rev["at"]
+        ]
+        if len(options) != 1:
+            continue
+        original_choice = options[0]
+        considered = set(original_choice.get("coalition_change_ids") or ())
+        if (len(considered) != 2
+                or rev.get("change_id") not in considered
+                or rev.get("coalition_unselected_change_id") not in considered
+                or rev.get("coalition_unselected_change_id") ==
+                    rev.get("change_id")):
+            continue
+        required = set(rev.get("coalition_independent_choice_smes") or ())
+        if not required:
+            continue
+        reviews = [
+            row for row in events
+            if row.get("action") == "coalition_option_assess"
+            and row.get("coalition_competition_id") ==
+                rev["coalition_competition_id"]
+            and row.get("coalition_comparison_fingerprint") ==
+                rev["coalition_comparison_fingerprint"]
+            and row.get("actor") in required
+            and row.get("coalition_preferred_change_id") ==
+                rev.get("change_id")
+            and row.get("coalition_willingness") == "WILLING"
+            and type(row.get("at")) is int
+            and original_choice["at"] < row["at"] < rev["at"]
+        ]
+        latest = {row["actor"]: row for row in reviews}
+        if set(latest) != required:
+            continue
+        if any(
+            not isinstance(row.get("coalition_owner_source_ref"), str)
+            or not row["coalition_owner_source_ref"].startswith(
+                f"model://{actor}/"
+            ) for actor, row in latest.items()
+        ):
+            continue
+        if any(
+            row.get("action") == "cooperation_membership_apply"
+            and row.get("change_id") ==
+                rev.get("coalition_unselected_change_id")
+            and row.get("cooperation_link") ==
+                rev.get("cooperation_link")
+            for row in events
+        ):
+            continue
+        original_competitive_member_choices.append({
+            "original_accepted_predecessor": qualified[
+                "original_accepted_pilot_work"
+            ],
+            "original_competition_id": rev["coalition_competition_id"],
+            "original_parent_relation": rev["cooperation_link"],
+            "two_original_competing_change_ids": list(
+                original_choice["coalition_change_ids"]
+            ),
+            "selected_original_change_id": rev["change_id"],
+            "unselected_proposal_no_original_successor": rev[
+                "coalition_unselected_change_id"
+            ],
+            "independent_original_owner_choice_subjects": sorted(required),
+            "selected_original_successor": rev["successor_link"],
+            "fresh_original_accepted_Work_Result": list(
+                qualified["new_original_accepted_work_ids"]
+            ),
+            "old_results_and_owner_consents_unchanged": True,
+            "unselected_alternative_not_counted_as_second_coalition": True,
+            "owner_choice_not_source_of_verified_profit": True,
+        })
+
     accepted_results = len(accepted_at)
     requested_count = len(requested_at)
     committed_count = len(original_committed_at)
@@ -3017,6 +3116,9 @@ def original_nine_component_cycle_evidence(
             "original_new_enterprise_source_registered_reproduction": (
                 new_original_enterprise_reproduction
             ),
+            "original_competing_coalition_choices_followed_by_accepted_work": (
+                original_competitive_member_choices
+            ),
             "contains_owner_work_and_model_source_identifiers": True,
             "safe_for_cross_enterprise_publication": False,
         },
@@ -3062,6 +3164,11 @@ def original_nine_component_cycle_evidence(
                 len(new_original_enterprise_reproduction)
             ),
             "new_subject_registration_alone_not_full_cooperation_lifecycle": True,
+            "independently_selected_competing_coalitions_with_accepted_work": (
+                len(original_competitive_member_choices)
+            ),
+            "unselected_alternative_not_a_second_realized_coalition": True,
+            "competing_coalition_comparison_not_verified_monetary_benefit": True,
             "subject_and_resource_model_sources_not_external_identity_proof": True,
             "verified_actual_productivity_or_transaction_savings": False,
             "source_scoped_membership_successors_are_not_legal_membership": True,

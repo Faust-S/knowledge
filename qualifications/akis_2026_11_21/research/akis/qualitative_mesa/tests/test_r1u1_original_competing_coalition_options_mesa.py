@@ -174,6 +174,30 @@ def test_r1u1_competitive_independent_owner_choice_then_original_work_quality_re
     assert set(out["works"]["w3"]["consenting_principals"]) == {"a", "b", "c"}
     assert out["resources"]["ra"]["owner"] == "a"
     assert out["resources"]["rc"]["owner"] == "c"
+    general = out["general_akis_model"]["system_causal_cycle_feedback"]
+    assert general[
+        "independently_selected_competing_coalitions_with_accepted_work"
+    ] == 1
+    assert general["unselected_alternative_not_a_second_realized_coalition"]
+    assert general["all_nine_component_original_causal_closure_proven"] is False
+    private = out["general_akis_private_cycle_evidence"][
+        "original_competing_coalition_choices_followed_by_accepted_work"
+    ]
+    assert len(private) == 1
+    assert private[0]["selected_original_change_id"] == "chg-w2"
+    assert private[0]["unselected_proposal_no_original_successor"] == (
+        "chg-w2-exit-a"
+    )
+    assert private[0]["fresh_original_accepted_Work_Result"] == ["w3"]
+    assert private[0]["owner_choice_not_source_of_verified_profit"] is True
+    relation = next(row for row in out["cooperation"]["system_projection"][
+        "relations"
+    ] if row["link"] == "l1")
+    exposures = relation["components"]["Э"]["transaction_coordination_exposures"]
+    assert exposures["observed_coordination_events"][
+        "RENEGOTIATION_AND_ADAPTATION"
+    ]["applied"] >= 4
+    assert exposures["event_counts_are_monetary_costs"] is False
     assert out["profit"]["system_increment"] == "UNKNOWN"
     assert simulate(deepcopy(d)) == out
 
@@ -186,6 +210,9 @@ def test_r1u1_each_original_enterprise_must_independently_review_both_alternativ
     )
     assert "l2" not in [l["id"] for l in out["cooperation"]["links"]]
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["general_akis_model"]["system_causal_cycle_feedback"][
+        "independently_selected_competing_coalitions_with_accepted_work"
+    ] == 0
 
 
 @pytest.mark.parametrize("actor", ["a", "b", "c"])
