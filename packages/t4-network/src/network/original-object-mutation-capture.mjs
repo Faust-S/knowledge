@@ -81,6 +81,14 @@ export async function captureT4OriginalObjectMutation({
     initial.object.schema_id!==mutationInput.schema_id||
     initial.object.schema_version!==mutationInput.schema_version)
     fail('OBJECT_CAPTURE_BASE_REVISION_CONFLICT');
+  const priorIntent=await readOriginalIntent(Object.freeze({
+    captureRef,workspaceId,objectId,originalWriteOwnerRef,
+  }));
+  networkMode(getMode);
+  if(await authorizeOriginalWrite(ctx)!==true)
+    fail('OBJECT_CAPTURE_ORIGINAL_AUTHORITY_DENIED');
+  if(priorIntent!==null&&priorIntent!==undefined)
+    fail('OBJECT_CAPTURE_REF_ALREADY_USED');
   const intent=Object.freeze({
     schema:'IWXA_T4_ORIGINAL_OBJECT_MUTATION_INTENT_V1',
     workspaceId,objectId,originalWriteOwnerRef,captureRef,
