@@ -143,6 +143,15 @@ def test_r1t2_full_strict_successor_original_accepted_result_role_and_liability_
     assert [x["actor"] for x in responses] == ["c", "a", "b"]
     assert all(x["outcome"] == "APPLIED" for x in responses)
     assert _applied_code(out)["model_code_function_change_applied"] is True
+    assert out["general_akis_model"]["model_organizational_code_review"][
+        "independent_affected_owner_function_responses"
+    ] == 3
+    assert out["general_akis_model"]["model_organizational_code_review"][
+        "accepted_prospective_function_accountability_revisions"
+    ] == 1
+    assert out["general_akis_model"]["model_organizational_code_review"][
+        "model_accountability_does_not_transfer_legal_obligations"
+    ] is True
     assert _applied_code(out)["original_resources_and_work_principals_preserved"]
     assert out["general_akis_model"]["model_organizational_code_review"][
         "original_model_source_edition"

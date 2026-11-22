@@ -1763,6 +1763,19 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
                 and row.get("outcome") == "APPLIED"
                 for row in state.trace
             ),
+            "independent_affected_owner_function_responses": sum(
+                row.get("action") == "model_code_function_response"
+                and row.get("outcome") == "APPLIED"
+                for row in state.trace
+            ),
+            "accepted_prospective_function_accountability_revisions": sum(
+                row.get("action") == "model_code_apply"
+                and row.get("outcome") == "APPLIED"
+                and row.get("model_code_function_change_applied") is True
+                for row in state.trace
+            ),
+            "future_model_roles_are_not_original_resource_ownership": True,
+            "model_accountability_does_not_transfer_legal_obligations": True,
             "historical_institutional_revision_unmodified_by_model_editions": True,
             "newcomer_role_legal_authority": "NOT_VERIFIED",
         },
