@@ -2,7 +2,7 @@ name: D07 native original T2 GUI script syntax preflight
 on:
   push:
     branches: [work/2026-11-22-d07-methodology-v13]
-    paths: [.github/workflows/d07-native-scripts-syntax.yml, scripts/d07-native-card-t2.ps1, scripts/d07-native-card-iwxa-export.ps1, scripts/d07-native-card-iwxa-import.ps1]
+    paths: [.github/workflows/d07-native-scripts-syntax.yml, scripts/d07-native-card-t2.ps1, scripts/d07-native-card-iwxa-export.ps1, scripts/d07-native-card-iwxa-import.ps1, scripts/d07-native-card-work-result.ps1]
   workflow_dispatch:
 permissions:
   contents: read
@@ -16,7 +16,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          foreach($file in @('scripts/d07-native-card-t2.ps1','scripts/d07-native-card-iwxa-export.ps1','scripts/d07-native-card-iwxa-import.ps1')){
+          foreach($file in @('scripts/d07-native-card-t2.ps1','scripts/d07-native-card-iwxa-export.ps1','scripts/d07-native-card-iwxa-import.ps1','scripts/d07-native-card-work-result.ps1')){
             $tokens=$null;$issues=$null
             $null=[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$issues)
             if($issues.Count -gt 0){
@@ -77,6 +77,16 @@ jobs:
             throw 'D07_NATIVE_POST_IMPORT_DURABLE_REVISION_GUARD_MISSING'
           }
           Write-Output 'D07_NATIVE_POST_IMPORT_DURABLE_REVISION_GUARD=PASS'
+          $result=Get-Content 'scripts/d07-native-card-work-result.ps1' -Raw
+          foreach($marker in @(
+            'D07_WORK_RESULT_REJECTION_DURABLE=PASS',
+            'D07_WORK_RESULT_NATIVE_REJECTION_CORRECTION_REVIEW_PERSISTED=PASS',
+            'D07_WORK_RESULT_COLD_READBACK_ID_REVISION_OR_WORKS_CHANGED',
+            'D07_WORK_RESULT_FULL_ORDER_ACCEPTANCE=NOT_RUN'
+          )){
+            if(!$result.Contains($marker)){throw 'D07_NATIVE_WORK_RESULT_EXPECTED_PROOF_MISSING'}
+          }
+          Write-Output 'D07_NATIVE_WORK_RESULT_PROOF_CONTRACT=PASS'
           & node --check 'scripts/d07-verify-integrated-all-service-cards.mjs'
           if($LASTEXITCODE -ne 0){throw 'D07_INTEGRATED_ALL_CARDS_CHECKER_SYNTAX_FAILED'}
           Write-Output 'D07_INTEGRATED_ALL_CARDS_CHECKER_SYNTAX=PASS'
