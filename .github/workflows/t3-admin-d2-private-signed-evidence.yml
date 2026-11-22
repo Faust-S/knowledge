@@ -80,6 +80,24 @@ jobs:
             throw 'D2_PRIVATE_SIGNED_DATA_TEST_HOLD'
           }
           Write-Host 'D2_ORIGINAL_SIGNED_DATA_TEST_PASS'
+      - name: Qualify real original signed Workspace DATA through One Core JIT
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'd2-private-workspace-jit.log'
+          & node packages/t3-core/tests/t3-d2-original-native-workspace-jit.mjs '.private/t3' *> $log
+          if($LASTEXITCODE -ne 0){
+            $matches=@()
+            foreach($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
+              $match=[regex]::Match([string]$line,
+                'D2_ORIGINAL_PRIVATE_WORKSPACE_JIT_MACHINE_CODE ([A-Z][A-Z0-9_]{4,99})')
+              if($match.Success){$matches+=$match.Groups[1].Value}
+            }
+            $machine=if($matches.Count){$matches[-1]}else{'D2_ORIGINAL_JIT_UNCLASSIFIED'}
+            Write-Host "D2_ORIGINAL_PRIVATE_WORKSPACE_JIT_FAILURE $machine"
+            throw 'D2_ORIGINAL_PRIVATE_WORKSPACE_JIT_HOLD'
+          }
+          Write-Host 'D2_ORIGINAL_PRIVATE_WORKSPACE_READ_JIT_PASS'
           Write-Host 'D2_NO_PRIVATE_SOURCE_OR_BINARY_ARTIFACTS'
 
   installed-original-d2:
