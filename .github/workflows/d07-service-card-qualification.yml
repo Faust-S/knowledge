@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: d54e5a66f8640e41badacfec78d718e6f65372ee
+          ref: 87b70cac3bf1e2060184e5939421a23f2817534a
           token: ${{ secrets.DOMEN }}
           path: subject
           persist-credentials: false
@@ -26,15 +26,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: f38cef27b809c005509df560650c73aee34530e0
+          ref: 29dcf7b3894d2b746b858b65c244235093507e15
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify private revisions, directory and technology parity
         run: |
-          test "$(git -C subject rev-parse HEAD)" = "d54e5a66f8640e41badacfec78d718e6f65372ee"
-          test "$(git -C site rev-parse HEAD)" = "f38cef27b809c005509df560650c73aee34530e0"
-          for f in service-subject-protocols.ts service-subject-it-router.ts service-subject-it-printer.ts service-subject-it-wifi.ts service-subject-it-software.ts service-subject-code-audit.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-site-release-gate.ts; do
+          test "$(git -C subject rev-parse HEAD)" = "87b70cac3bf1e2060184e5939421a23f2817534a"
+          test "$(git -C site rev-parse HEAD)" = "29dcf7b3894d2b746b858b65c244235093507e15"
+          for f in service-subject-protocols.ts service-subject-it-router.ts service-subject-it-printer.ts service-subject-it-wifi.ts service-subject-it-software.ts service-subject-code-audit.ts service-subject-it-batch-b.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-site-release-gate.ts; do
             cmp "subject/src/domain/$f" "site/src/domain/$f"
           done
           cmp subject/src/data/serviceDirectory.ts site/src/data/serviceDirectory.ts
@@ -72,7 +72,7 @@ jobs:
             scripts/tests/d07-plumbing-b-professional-methods.test.mjs \
             scripts/tests/d07-plumbing-c-professional-methods.test.mjs \
             scripts/tests/d07-it-network-peripheral-methods.test.mjs \
-            scripts/tests/d07-it-software-method.test.mjs scripts/tests/d07-it-code-audit.test.mjs \
+            scripts/tests/d07-it-software-method.test.mjs scripts/tests/d07-it-code-audit.test.mjs scripts/tests/d07-it-tls-variation.test.mjs \
             scripts/tests/d07-generated-service-plans.test.mjs \
             scripts/tests/d07-workspace-direct-entry.test.mjs \
             > "$RUNNER_TEMP/d07-card-tests.log" 2>&1 || {
