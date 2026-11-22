@@ -177,7 +177,15 @@ def test_r1u1_competitive_independent_owner_choice_then_original_work_quality_re
     general = out["general_akis_model"]["system_causal_cycle_feedback"]
     assert general[
         "independently_selected_competing_coalitions_with_accepted_work"
-    ] == 1
+    ] == 1, {
+        "membership": [x for x in reports(out, "cooperation_membership_apply")
+                       if x["outcome"] == "APPLIED"],
+        "successions": out["general_akis_private_cycle_evidence"][
+            "original_coalition_membership_successions"
+        ],
+        "comparison": reports(out, "coalition_options_propose"),
+        "assessments": reports(out, "coalition_option_assess"),
+    }
     assert general["unselected_alternative_not_a_second_realized_coalition"]
     assert general["all_nine_component_original_causal_closure_proven"] is False
     private = out["general_akis_private_cycle_evidence"][
