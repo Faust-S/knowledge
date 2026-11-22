@@ -85,6 +85,7 @@ class GeneralSystemDesign:
     enforce_model_result_conditioned_goals: bool = False
     enforce_model_result_conditioned_interests: bool = False
     enforce_model_result_conditioned_reconfiguration: bool = False
+    enforce_model_result_conditioned_capability_cooperation: bool = False
 
     @property
     def source_times(self) -> tuple[int, ...]:
@@ -779,6 +780,59 @@ class ModelFormationPolicy:
             return "FORMATION_RECONFIGURATION_ORIGINAL_PROPOSAL_SCOPE_MISMATCH", None
         return "NONE", proposal
 
+    def _source_qualified_capability_reconfiguration(
+            self, state: Any, work: Any, pilot: Any,
+            proposal: Mapping[str, Any], at: int) -> str:
+        """Joint R1-P witness: adopted owner capability BEFORE consultation.
+
+        Only Work requiring more than its ORIGINAL declared resource capacity
+        uses this additional gate. All physical planning and authorizations
+        remain in the existing CapacityLedger and original Work handlers.
+        """
+        if not self.design.enforce_model_result_conditioned_capability_cooperation:
+            return "NONE"
+        reason, decision = self._original_result_decision(state, pilot, at)
+        if reason != "NONE":
+            return reason
+        if decision["action"] != "accept":
+            return "FORMATION_CAPABILITY_ACCEPTED_ORIGINAL_PILOT_REQUIRED"
+        pilot_at = decision["at"]
+        proposal_at = proposal.get("at")
+        if type(proposal_at) is not int or not pilot_at < proposal_at < at:
+            return "FORMATION_CAPABILITY_PROPOSAL_AFTER_PILOT_REQUIRED"
+        for need in work.resource_requirements:
+            spec = state.capacity_ledger.specs[need.resource]
+            if need.units <= spec.units:
+                continue
+            owner_policy = state.capability_policy
+            if owner_policy is None:
+                return "FORMATION_CAPABILITY_ORIGINAL_OWNER_ADOPTION_REQUIRED"
+            matching = [
+                (cap, owner_policy.applied[cap.key])
+                for cap in owner_policy.declared.values()
+                if (cap.resource == need.resource
+                    and cap.owner == spec.owner
+                    and work.key in cap.authorized_future_works
+                    and cap.declared_units >= need.units
+                    and cap.from_slot <= work.slot_start
+                    and cap.to_slot >= work.slot_end
+                    and cap.key in owner_policy.applied)
+            ]
+            if not matching:
+                return "FORMATION_CAPABILITY_ORIGINAL_OWNER_ADOPTION_REQUIRED"
+            eligible = [
+                cap for cap, adopted_at in matching
+                if pilot_at < adopted_at < proposal_at
+            ]
+            if not eligible:
+                return "FORMATION_CAPABILITY_OWNER_ADOPTION_BEFORE_REVIEW_REQUIRED"
+            if not any(
+                owner_policy._original_source_status(state, cap, at) == "NONE"
+                for cap in eligible
+            ):
+                return "FORMATION_CAPABILITY_OWNER_SOURCE_NO_LONGER_CURRENT"
+        return "NONE"
+
     def recheck_reconfiguration_for_commit(self, state: Any, work: Any,
                                             at: int) -> str:
         if (not self.design.enforce_model_result_conditioned_reconfiguration
@@ -803,6 +857,11 @@ class ModelFormationPolicy:
         reason, proposal = self._reconfiguration_proposal(
             state, request | {"change_id": request["request_linked_change_id"]},
             pilot, at
+        )
+        if reason != "NONE":
+            return reason
+        reason = self._source_qualified_capability_reconfiguration(
+            state, work, pilot, proposal, at
         )
         if reason != "NONE":
             return reason
@@ -915,7 +974,14 @@ class ModelFormationPolicy:
                     state.institution.revision, at):
                 return "FORMATION_FOLLOWUP_OWNER_EVALUATION_SOURCE_EXPIRED"
         if self.design.enforce_model_result_conditioned_reconfiguration:
-            reason, _ = self._reconfiguration_proposal(state, request, pilot, at)
+            reason, proposal = self._reconfiguration_proposal(
+                state, request, pilot, at
+            )
+            if reason != "NONE":
+                return reason
+            reason = self._source_qualified_capability_reconfiguration(
+                state, new_work, pilot, proposal, at
+            )
             if reason != "NONE":
                 return reason
         # Existing attach_requested_work / original consent guards still
@@ -1118,7 +1184,8 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
                                    "enforce_model_formation_lifecycle",
                                    "enforce_model_result_conditioned_goals",
                                    "enforce_model_result_conditioned_interests",
-                                   "enforce_model_result_conditioned_reconfiguration"}):
+                                   "enforce_model_result_conditioned_reconfiguration",
+                                   "enforce_model_result_conditioned_capability_cooperation"}):
         raise GeneralSystemInputError("INVALID_GENERAL_DESIGN_FIELDS")
     enforce_model_code = raw.get("enforce_model_org_code", False)
     if type(enforce_model_code) is not bool:
@@ -1158,6 +1225,13 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
         raise GeneralSystemInputError("GENERAL_MODEL_RECONFIGURATION_GATE_MUST_BE_BOOLEAN")
     if enforce_reconfiguration and not enforce_interests:
         raise GeneralSystemInputError("FORMATION_RECONFIGURATION_REQUIRES_INDIVIDUAL_INTERESTS")
+    enforce_capability_cooperation = raw.get(
+        "enforce_model_result_conditioned_capability_cooperation", False
+    )
+    if type(enforce_capability_cooperation) is not bool:
+        raise GeneralSystemInputError("GENERAL_MODEL_CAPABILITY_COOPERATION_GATE_MUST_BE_BOOLEAN")
+    if enforce_capability_cooperation and not enforce_reconfiguration:
+        raise GeneralSystemInputError("FORMATION_CAPABILITY_COOPERATION_REQUIRES_RESULT_RECONFIGURATION")
     configurations = {x["id"] for x in cat["taxonomy"]["subject_configurations"]}
     config = _s(raw["configuration"], "CONFIGURATION")
     if config not in configurations:
@@ -1265,7 +1339,8 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
                                enforce_model_code, enforce_formation,
                                enforce_institutional, enforce_agent,
                                enforce_lifecycle, enforce_emergent,
-                               enforce_interests, enforce_reconfiguration)
+                               enforce_interests, enforce_reconfiguration,
+                               enforce_capability_cooperation)
 
 
 def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
@@ -1549,6 +1624,18 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
             "no_new_original_action_by_policy": True,
         },
         "formation_phases": phase_rows,
+        "result_capability_cooperation_gate": {
+            "opted_in": design.enforce_model_result_conditioned_capability_cooperation,
+            "original_owner_capability_actions": sum(
+                row.get("action") == "adopt_capability"
+                and row.get("outcome") == "APPLIED"
+                for row in state.trace
+            ),
+            "additional_resource_rights_created": False,
+            "original_owner_capacity_ledger_reused": True,
+            "measured_real_productivity_gain_established": False,
+            "complete_six_organizational_configurations": False,
+        },
         "post_result_cooperation_reconfiguration": {
             "opted_in": design.enforce_model_result_conditioned_reconfiguration,
             "original_result_conditioned_proposals": sum(

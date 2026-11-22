@@ -15,6 +15,7 @@ from .test_r1_formation_original_gates_mesa import trace_for
 def r1p_case(*, adopt=True):
     d = r1o_case()
     g = d["general_akis"]
+    g["enforce_model_result_conditioned_capability_cooperation"] = True
     # All R1-I/O source gates must remain ORIGINAL, with a later bounded
     # validity window for a THIRD original cycle in the SAME scheduler.
     for category in ("goals", "formation_phases", "context_cores",
@@ -241,6 +242,9 @@ def test_r1p_original_three_work_cycle_unites_competence_owner_adoption_and_revi
     assert find(out, "request", work="w3")[0]["outcome"] == "APPLIED"
     assert find(out, "commit", work="w3")[0]["outcome"] == "APPLIED"
     assert out["capability_dynamics"]["original_owner_adopted_count"] == 1
+    assert out["general_akis_model"]["result_capability_cooperation_gate"][
+        "opted_in"
+    ] is True
     assert out["capability_dynamics"]["declarations"][0][
         "actual_resource_capacity_or_causal_learning_verified"
     ] is False
@@ -252,7 +256,57 @@ def test_r1p_owner_declared_learning_without_adoption_never_creates_capacity():
     d = r1p_case(adopt=False)
     out = simulate(d)
     assert out["capability_dynamics"]["original_owner_adopted_count"] == 0
-    assert find(out, "request", work="w3")[0]["outcome"] == "APPLIED"
-    assert find(out, "commit", work="w3")[0]["outcome"] == "BLOCKED"
+    assert find(out, "request", work="w3")[0]["reason"] == (
+        "FORMATION_CAPABILITY_ORIGINAL_OWNER_ADOPTION_REQUIRED"
+    )
+    assert "w3" not in out["works"]
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
-    assert out["works"]["w3"]["result"] == "NOT_SUBMITTED"
+
+
+def test_r1p_owner_capability_adopted_only_after_consultation_cannot_backdate_it():
+    d = r1p_case()
+    cap = next(e for e in d["events"] if e["action"] == "adopt_capability")
+    cap["at"] = 74  # review closes at 73, original request at 83
+    d["events"].sort(key=lambda e: e["at"])
+    out = simulate(d)
+    assert find(out, "adopt_capability")[0]["outcome"] == "APPLIED"
+    assert find(out, "request", work="w3")[0]["reason"] == (
+        "FORMATION_CAPABILITY_OWNER_ADOPTION_BEFORE_REVIEW_REQUIRED"
+    )
+    assert "w3" not in out["works"]
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_r1p_owner_source_revoked_after_adoption_before_request_invalidates_future_capability():
+    d = r1p_case()
+    d["events"].append({
+        "at": 80, "action": "source_update", "actor": "a",
+        "source": "capability-r1p-a", "new_revision": "capacity-v2",
+        "status": "UNKNOWN", "usable_by": ["a"],
+    })
+    d["events"].sort(key=lambda e: e["at"])
+    out = simulate(d)
+    assert find(out, "adopt_capability")[0]["outcome"] == "APPLIED"
+    assert find(out, "source_update")[0]["outcome"] == "APPLIED"
+    assert find(out, "request", work="w3")[0]["reason"] == (
+        "FORMATION_CAPABILITY_OWNER_SOURCE_NO_LONGER_CURRENT"
+    )
+    assert "w3" not in out["works"]
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_r1p_capability_cooperation_requires_the_original_post_result_review():
+    d = r1p_case()
+    d["general_akis"]["enforce_model_result_conditioned_reconfiguration"] = False
+    import pytest
+    with pytest.raises(ValueError, match="FORMATION_CAPABILITY_COOPERATION_REQUIRES_RESULT_RECONFIGURATION"):
+        simulate(d)
+
+
+def test_r1p_capability_owner_cannot_claim_foreign_original_resource():
+    d = r1p_case()
+    d["capability_adoptions"][0]["owner"] = "b"
+    import pytest
+    with pytest.raises(ValueError, match="CAPABILITY_ORIGINAL_RESOURCE_OWNER_MISMATCH"):
+        simulate(d)
