@@ -780,7 +780,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           mime:previous.asset.mime,base_revision:previous.asset.revision,
           bytes:new TextEncoder().encode(changedAssetText),
           event:{event_type:'t4.original.asset.updated',
-            payload:{asset_id:assetId},idempotency_key:'source-asset-'+randomUUID()},
+            payload:{asset_id:assetId},idempotency_key:'source-asset-'+globalThis.crypto.randomUUID()},
         });
         const read=await kernel.t1.getAsset(workspaceId,assetId);
         return{saved,read:{asset:read.asset,bytes:Array.from(read.bytes)},
