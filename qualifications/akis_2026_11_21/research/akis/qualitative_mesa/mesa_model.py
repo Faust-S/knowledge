@@ -1194,6 +1194,12 @@ class OperatorAKISModel(mesa.Model):
             # private cash amount, money, grant or original event is emitted.
             cash = output["economics"].get("cash_timing", {})
             lifecycle = output["economics"].get("lifecycle_resource_costs", {})
+            network_timing = cash.get("joint_network_settlement", {})
+            network_scenarios = network_timing.get("scenarios", {})
+            source_qualified_network_clock = bool(network_scenarios) and all(
+                item.get("status") == "SOURCE_DECLARED_JOINT_SETTLEMENT_ARITHMETIC_ONLY"
+                for item in network_scenarios.values()
+            )
             if cash or lifecycle:
                 counts = cash.get("cross_owner_nonfinancial_status_counts", {})
                 output["general_akis_model"]["economic_time_and_cost_feedback"] = {
@@ -1216,6 +1222,14 @@ class OperatorAKISModel(mesa.Model):
                     "independent_owner_financial_decision": "NOT_AUTHENTICATED",
                     "empirically_realized_cooperative_saving": "NOT_ESTABLISHED",
                     "private_owner_cash_and_cost_values": "NOT_REDISCLOSED",
+                    "network_original_interparty_cash_time_reconciled": source_qualified_network_clock,
+                    "network_internal_transfers_create_no_money": bool(
+                        network_timing.get("same_original_internal_transfer_only_one_joint_date")
+                    ),
+                    "joint_posting_is_not_contractual_payment_deferral": bool(
+                        network_timing.get("joint_posting_does_not_reschedule_original_legal_due_dates")
+                    ),
+                    "no_private_network_member_cash_paths_redisclosed": True,
                     "owner_cooperation_vs_outside_cash_risk_separately_modelled": bool(
                         cash.get("per_original_owner_private_research_projection")
                     ),
