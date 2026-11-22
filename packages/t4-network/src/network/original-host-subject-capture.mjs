@@ -150,7 +150,8 @@ function checkOutbox(outbox,expected,prepared,nextCursor,sourceWindow){
     outbox.key!==prepared.key||outbox.sha256!==prepared.sha256||
     !equal(outbox.sourceCursorBefore,expected.sourceCursor)||
     !equal(outbox.sourceCursorAfter,nextCursor)||
-    !equal(outbox.sourceWindow,sourceWindow)||
+    (outbox.sourceWindow!==undefined&&
+      !equal(outbox.sourceWindow,sourceWindow))||
     outbox.originalT3MutationConfirmed!==true||
     outbox.networkPublished!==false||outbox.recipientApplied!==false||
     !SHA(outbox.sha256)||typeof outbox.bytesBase64!=='string'||
