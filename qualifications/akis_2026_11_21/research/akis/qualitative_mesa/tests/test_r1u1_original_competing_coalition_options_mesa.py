@@ -177,15 +177,21 @@ def test_r1u1_competitive_independent_owner_choice_then_original_work_quality_re
     general = out["general_akis_model"]["system_causal_cycle_feedback"]
     assert general[
         "independently_selected_competing_coalitions_with_accepted_work"
-    ] == 1, {
-        "membership": [x for x in reports(out, "cooperation_membership_apply")
-                       if x["outcome"] == "APPLIED"],
-        "successions": out["general_akis_private_cycle_evidence"][
-            "original_coalition_membership_successions"
-        ],
-        "comparison": reports(out, "coalition_options_propose"),
-        "assessments": reports(out, "coalition_option_assess"),
-    }
+    ] == 1, (
+        [(x["prospective_successor_link"],
+          x["original_accepted_pilot_work"],
+          x["new_original_accepted_work_ids"])
+         for x in out["general_akis_private_cycle_evidence"][
+             "original_coalition_membership_successions"]],
+        [(x.get("coalition_competition_id"),
+          x.get("coalition_comparison_fingerprint"),
+          x.get("coalition_independent_choice_smes"),
+          x.get("change_id"))
+         for x in reports(out, "cooperation_membership_apply")],
+        [(x["actor"], x.get("coalition_preferred_change_id"),
+          x.get("coalition_owner_source_ref"))
+         for x in reports(out, "coalition_option_assess")],
+    )
     assert general["unselected_alternative_not_a_second_realized_coalition"]
     assert general["all_nine_component_original_causal_closure_proven"] is False
     private = out["general_akis_private_cycle_evidence"][
