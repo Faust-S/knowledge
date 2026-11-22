@@ -25,7 +25,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $src=(& git rev-parse 'HEAD:packages/t3-core/src').Trim()
           $t2=(& git rev-parse 'HEAD:packages/t3-core/qualified-runtime').Trim()
-          if($src -cne '93ccb7cb2359fcad6c4cbfbdf1ba52b81ec4b48a' -or
+          if($src -cne 'c4c1638f18827dbfa07e3f42910aa735b6fa1fa2' -or
              $t2 -cne '1594274dbf5e38214b8422ba11e8c7114bd5425c'){
             throw 'D2_PUBLIC_ORIGINAL_SOURCE_PIN_FAILED'
           }
@@ -96,7 +96,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $src=(& git rev-parse 'HEAD:packages/t3-core/src').Trim()
           $t2=(& git rev-parse 'HEAD:packages/t3-core/qualified-runtime').Trim()
-          if($src -cne '93ccb7cb2359fcad6c4cbfbdf1ba52b81ec4b48a' -or
+          if($src -cne 'c4c1638f18827dbfa07e3f42910aa735b6fa1fa2' -or
              $t2 -cne '1594274dbf5e38214b8422ba11e8c7114bd5425c'){
             throw 'D2_INSTALLED_EXACT_ORIGINAL_SOURCE_PIN_FAILED'
           }
