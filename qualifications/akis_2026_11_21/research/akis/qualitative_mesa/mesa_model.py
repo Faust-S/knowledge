@@ -882,6 +882,20 @@ class OperatorAKISModel(mesa.Model):
             # executing the next period at model_horizon + 1.
             self.run_until(float(self._model_end_at) + 0.5)
         output = self.qualitative.snapshot()
+        if (self.economic_claims is not None or self.owner_financial_claims or
+                self.qualitative.context_basis is not None):
+            # This executable research payload includes original owner-scoped
+            # sources and may include other principals' cash values. A safe
+            # nine-component projection is not a permission to disclose the
+            # complete JSON to every member. Role-aware filtering belongs to
+            # the already existing IWXA authority/ToolProvider boundary.
+            output["research_export_boundary"] = {
+                "entire_raw_result_safe_for_cross_enterprise_distribution": False,
+                "role_filtered_real_export_implemented_here": False,
+                "original_owner_financial_and_source_values_may_be_present": True,
+                "requires_existing_external_owner_authorization_and_redaction": True,
+                "model_only_not_a_corporate_IAM_decision": True,
+            }
         if self.capability_enabled:
             projection = self.qualitative.capability_policy.snapshot(
                 self.qualitative, int(self.time))
