@@ -282,7 +282,24 @@ function WaitForOriginalNativeDataReader(){
   }
   return $false
 }
-function EnsureOriginalSignedWorkspaceProvisioned(){
+function IsTransientOriginalSignedKernelReadTimeout(){
+  # UIA only. The exact public timeout codes may trigger ONE fresh signed
+  # realm READ. A missing Workspace, revoked permission or unrelated owner
+  # denial must never be classified as a transient read interruption.
+  $root=DesktopRoot
+  $all=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.Condition]::TrueCondition)
+  foreach($item in $all){
+    try{
+      $name=[string]$item.Current.Name
+      if($name -match 'Код:\s*T3_D1_(?:ISOLATED_KERNEL_TIMEOUT|READ_TIMEOUT_[A-Z0-9_]{4,80})(?![A-Z0-9_])'){
+        return $true
+      }
+    }catch{}
+  }
+  return $false
+}
+function EnsureOriginalSignedWorkspaceProvisioned([bool]$allowCreate=$true){
   # Kernel connected != selected corporate Workspace present in T2.
   # The signed owner already grants a SEPARATE workspace.create ACTION.
   # The original SignedSelectedWorkspaceGate owns create and readback.
@@ -314,7 +331,11 @@ function EnsureOriginalSignedWorkspaceProvisioned(){
       # button should be clicked under revoked/absent or mismatched authority.
       NativeD2BoundedRefusal
       NativeD2RefusalStage
-      Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_ACCESS_DENIED'
+      if(IsTransientOriginalSignedKernelReadTimeout){
+        Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_TRANSIENT_READ_TIMEOUT'
+      }else{
+        Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_ACCESS_DENIED'
+      }
       return $false
     }
     if($missing){$sawMissing=$true}
@@ -363,7 +384,7 @@ function EnsureOriginalSignedWorkspaceProvisioned(){
         return $false
       }
     }
-    if($missing -and $i -ge 38 -and -not $clicked){
+    if($allowCreate -and $missing -and $i -ge 38 -and -not $clicked){
       $button=$null
       try{$button=FindName 'Создать выбранную Workspace' 'Button' 1}catch{}
       if($button -and $button.Current.IsEnabled){
@@ -712,7 +733,43 @@ try{
     ClickButton 'Открыть Workspace T3'
     Check (WaitForText 'К приёмке' 90) 'D2_INSTALLED_NATIVE_SIGNED_WORKSPACE_NOT_VISIBLE'
     Check (WaitForOriginalKernelReady) 'D2_INSTALLED_NATIVE_ORIGINAL_KERNEL_NOT_READY'
-    Check (EnsureOriginalSignedWorkspaceProvisioned) 'D2_INSTALLED_NATIVE_ORIGINAL_WORKSPACE_PROVISION_NOT_CONFIRMED'
+    $selectedReady=EnsureOriginalSignedWorkspaceProvisioned
+    if(-not $selectedReady -and (IsTransientOriginalSignedKernelReadTimeout)){
+      # A timed-out read may leave the existing MessagePort/Control channel
+      # unavailable. The product already tells the manager to restart its
+      # signed Workspace. Exercise exactly that UI recovery ONCE, without
+      # re-issuing the earlier, outcome-unknown workspace.create.
+      Write-Host 'D2_INSTALLED_ORIGINAL_SELECTED_WORKSPACE_FRESH_READ_ONLY_REOPEN'
+      $script:phase='D2_NATIVE_RETURN_FOR_READ_ONLY_REOPEN'
+      ClickButton 'К приёмке'
+      Check (WaitForNativeCenterReviewToolbar) 'D2_INSTALLED_READ_ONLY_REOPEN_TOOLBAR_NOT_READY'
+      ClickButton 'Завершить подписанную Workspace T3'
+      $canReopen=$false
+      for($poll=0;$poll -lt 150;$poll++){
+        $next=$null
+        try{$next=FindName 'Открыть Workspace T3' 'Button' 1}catch{}
+        if($next){
+          try{
+            if($next.Current.IsEnabled -and -not $next.Current.IsOffscreen){
+              $canReopen=$true;break
+            }
+          }catch{}
+        }
+        Start-Sleep -Milliseconds 300
+      }
+      Check $canReopen 'D2_INSTALLED_READ_ONLY_REOPEN_SIGNED_OWNER_UNAVAILABLE'
+      $script:phase='D2_NATIVE_FRESH_SIGNED_KERNEL_READ_ONLY_REOPEN'
+      ClickButton 'Открыть Workspace T3'
+      Check (WaitForText 'К приёмке' 90) 'D2_INSTALLED_READ_ONLY_REOPEN_WORKSPACE_NOT_VISIBLE'
+      Check (WaitForOriginalKernelReady) 'D2_INSTALLED_READ_ONLY_REOPEN_KERNEL_NOT_READY'
+      # Even if the previous create committed and ACK was lost, this fresh
+      # session may ONLY issue original getWorkspace, NEVER another create.
+      $selectedReady=EnsureOriginalSignedWorkspaceProvisioned $false
+      if($selectedReady){
+        Write-Host 'D2_INSTALLED_ORIGINAL_SELECTED_WORKSPACE_FRESH_READ_ONLY_REOPEN_PASS'
+      }
+    }
+    Check $selectedReady 'D2_INSTALLED_NATIVE_ORIGINAL_WORKSPACE_PROVISION_NOT_CONFIRMED'
     $script:phase='D2_NATIVE_HIDE_SAME_KERNEL'
     ClickButton 'К приёмке'
     Check (WaitForNativeCenterReviewToolbar) 'D2_INSTALLED_NATIVE_SIGNED_WORKSPACE_NOT_HIDDEN'
@@ -759,7 +816,9 @@ try{
     ClickButton 'Открыть Workspace T3'
     Check (WaitForText 'К приёмке' 90) 'D2_INSTALLED_COLD_WORKSPACE_NOT_OPEN'
     Check (WaitForOriginalKernelReady) 'D2_INSTALLED_COLD_ORIGINAL_KERNEL_NOT_READY'
-    Check (EnsureOriginalSignedWorkspaceProvisioned) 'D2_INSTALLED_COLD_ORIGINAL_WORKSPACE_PROVISION_NOT_CONFIRMED'
+    # A separate cold process MUST only read the previously created exact
+    # original Workspace. It cannot silently provision another one.
+    Check (EnsureOriginalSignedWorkspaceProvisioned $false) 'D2_INSTALLED_COLD_ORIGINAL_WORKSPACE_PROVISION_NOT_CONFIRMED'
     ClickButton 'К приёмке'
     Check (WaitForNativeCenterReviewToolbar) 'D2_INSTALLED_COLD_NATIVE_REVIEW_TOOLBAR_NOT_READY'
     ClickButton 'Обзор · Admin Center'
