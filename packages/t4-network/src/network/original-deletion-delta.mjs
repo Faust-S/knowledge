@@ -243,7 +243,7 @@ export async function fetchT4OriginalDeleteDelta({
 }
 export async function applyT4OriginalDeleteDelta({
   received,originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,
-  verifyOriginalUncertainRetry,getMode,
+  getMode,
 }={}){
   const exact=received?.delta&&validateEnvelope(received.delta);
   if(!exact||received.key!==exact.key||received.sha256!==exact.sha256)
@@ -282,12 +282,9 @@ export async function applyT4OriginalDeleteDelta({
     if(digest(actual)!==d.preImageDigest)
       fail('DELETE_ORIGINAL_RECIPIENT_CONFLICT');
   }else{
-    if(typeof verifyOriginalUncertainRetry!=='function'||
-      await verifyOriginalUncertainRetry(Object.freeze({
-        ...ctx,idempotencyKey:'t4-delete-'+exact.sha256,
-        originalMissingBeforeRetry:true,
-      }))!==true)
-      fail('DELETE_ORIGINAL_RECIPIENT_ABSENT_NO_PROOF');
+    // The released original T3 may not return an idempotent receipt after
+    // deletion. Re-executing an absent delete is not a reconciliation strategy.
+    fail('DELETE_ORIGINAL_RECIPIENT_ABSENT_REQUIRES_EVENT_RECONCILIATION');
   }
   const key='t4-delete-'+exact.sha256;
   const input=originalInput(d.kind,d.workspaceId,subjectId,key,pre);
@@ -301,8 +298,6 @@ export async function applyT4OriginalDeleteDelta({
     fail('DELETE_ORIGINAL_RECIPIENT_OUTCOME_UNKNOWN',{originalCode:error?.code??null,
       idempotencyKey:key,automaticRetryAllowed:false});
   }
-  if(absent&&receipt?.deduplicated!==true)
-    fail('DELETE_ORIGINAL_RECIPIENT_ABSENT_NOT_DEDUPLICATED');
   if(getMode()!=='T4_NETWORK'||await authorizeOriginalWrite(ctx)!==true)
     fail('DELETE_ORIGINAL_RECIPIENT_OUTCOME_UNKNOWN',{
       originalReceiptMayExist:true,automaticRetryAllowed:false});
@@ -336,6 +331,90 @@ export async function applyT4OriginalDeleteDelta({
     })
   });
 }
+export async function reconcileT4OriginalDeleteFromT3Event({
+  received,originalKernel,authorizeOriginalRead,authorizeOriginalWrite,
+  verifyOriginalSourceEvent,getMode,
+}={}){
+  const exact=received?.delta&&validateEnvelope(received.delta);
+  if(!exact||received.key!==exact.key||received.sha256!==exact.sha256)
+    fail('DELETE_RECEIVED_MISMATCH');
+  const d=exact.delta,pre=d.preImage,ops=originalOperations(d.kind);
+  if(originalKernel?.hasOperation?.('t1.listEventsSince')!==true||
+    originalKernel?.hasOperation?.(ops.read)!==true||
+    typeof originalKernel.listEventsSince!=='function'||
+    typeof originalKernel[d.kind==='RELATION_DELETE'?'getObject':'getAsset']!=='function'||
+    [authorizeOriginalRead,authorizeOriginalWrite,verifyOriginalSourceEvent]
+      .some(f=>typeof f!=='function'))
+    fail('DELETE_ORIGINAL_EVENT_RECOVERY_PORTS_REQUIRED');
+  networkMode(getMode);
+  const subjectId=d.kind==='RELATION_DELETE'?pre.relationId:pre.assetId;
+  const originalObjectId=d.kind==='RELATION_DELETE'?pre.fromObjectId:pre.objectId;
+  const ctx=Object.freeze({kind:d.kind,workspaceId:d.workspaceId,
+    originalWriteOwnerRef:d.originalWriteOwnerRef,
+    subjectId,originalObjectId,
+    operation:ops.write,expectedOriginalIdempotencyKey:'t4-delete-'+exact.sha256,
+    sourceEventId:d.sourceEventId,preImageDigest:d.preImageDigest});
+  const proof=Object.freeze({...ctx,
+    operation:'t4.original-delete.source-verify',
+    sourceEventDigest:d.sourceEventDigest,windowDigest:d.windowDigest,
+    originalEventType:d.originalEventType,captureRef:d.captureRef,
+    networkEnvelopeIsNotSignedEvidence:true});
+  if(await authorizeOriginalRead({...ctx,operation:'t1.listEventsSince'})!==true||
+    await authorizeOriginalWrite(ctx)!==true||
+    await verifyOriginalSourceEvent(proof)!==true)
+    fail('DELETE_ORIGINAL_EVENT_RECOVERY_AUTHORITY_DENIED');
+  const events=await originalKernel.listEventsSince(d.workspaceId);
+  if(!Array.isArray(events)||events.length>100000)
+    fail('DELETE_ORIGINAL_EVENT_HISTORY_INVALID');
+  networkMode(getMode);
+  if(await authorizeOriginalRead({...ctx,operation:'t1.listEventsSince'})!==true||
+    await authorizeOriginalWrite(ctx)!==true||
+    await verifyOriginalSourceEvent(proof)!==true)
+    fail('DELETE_ORIGINAL_EVENT_RECOVERY_AUTHORITY_DENIED');
+  const key='t4-delete-'+exact.sha256;
+  const matches=events.filter(row=>row?.idempotency_key===key);
+  if(matches.length!==1)
+    fail('DELETE_ORIGINAL_EVENT_NOT_PROVEN',{matchingEventCount:matches.length});
+  const event=matches[0];
+  const expectedType=d.kind==='RELATION_DELETE'?
+    'iwxa.t4.original.source.relation-deleted':
+    'iwxa.t4.original.source.asset-deleted';
+  const expectedField=d.kind==='RELATION_DELETE'?'relationId':'assetId';
+  if(!ID(event.event_id)||event.event_type!==expectedType||
+    event.workspace_id!==d.workspaceId||
+    (event.object_id!==undefined&&event.object_id!==originalObjectId)||
+    event.payload?.[expectedField]!==subjectId)
+    fail('DELETE_ORIGINAL_EVENT_SCOPE_MISMATCH');
+  const current=await readSource(originalKernel,d.kind,d.workspaceId,
+    subjectId,originalObjectId);
+  networkMode(getMode);
+  if(await authorizeOriginalWrite(ctx)!==true||
+    await authorizeOriginalRead({...ctx,operation:ops.read})!==true)
+    fail('DELETE_ORIGINAL_EVENT_RECOVERY_AUTHORITY_DENIED');
+  if(d.kind==='RELATION_DELETE'&&(!current?.object||
+    current.object.deleted===true))
+    fail('DELETE_ORIGINAL_RELATION_ENDPOINT_MISSING');
+  if(!isGone(d.kind,current,subjectId))
+    fail('DELETE_ORIGINAL_EVENT_STATE_NOT_REMOVED');
+  return Object.freeze({
+    schema:'IWXA_T4_ORIGINAL_DELETE_EVENT_RECONCILIATION_V1',
+    kind:d.kind,originalEvent:event,
+    originalReceiptRef:event.event_id,
+    originalT3EventProofPassed:true,
+    originalDeletionReadbackPassed:true,
+    originalOperationReceiptRecreated:false,
+    originalKernelDeleteRetried:false,
+    networkReceiptIsNotBusinessResult:true,
+    acknowledgement:Object.freeze({
+      schema:'IWXA_T4_ORIGINAL_RECIPIENT_ACK_V1',
+      state:'IMPORTED_BY_ORIGINAL_T3',workspaceId:d.workspaceId,
+      originalWriteOwnerRef:d.originalWriteOwnerRef,
+      lastEventId:d.sourceEventId,windowDigest:d.windowDigest,
+      originalReceiptRef:event.event_id,
+    }),
+  });
+}
+
 export async function advanceT4OriginalDeleteCursor({
   window,nextCursor,acknowledgement,verifyOriginalRecipient,
 }={}){
