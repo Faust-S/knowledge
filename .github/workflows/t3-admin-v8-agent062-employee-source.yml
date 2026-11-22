@@ -71,7 +71,30 @@ jobs:
             Pop-Location
           }
           if($exit -ne 0){
-            # No private fixture content, prompts, source paths or stack traces.
+            # Publish only a bounded failure class and numeric test count.
+            # The private traceback, test names, assertions, fixture text and
+            # installed paths stay in the runner temporary file.
+            $lines=@(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)
+            $ran=@($lines | Where-Object {$_ -match '^Ran [0-9]+ tests? in '})
+            $count=0
+            if($ran.Count){
+              $hit=[regex]::Match([string]$ran[-1],'^Ran ([0-9]+) tests? in ')
+              if($hit.Success){$count=[int]$hit.Groups[1].Value}
+            }
+            $classification='UNCLASSIFIED'
+            if(@($lines | Where-Object {$_ -match 'ModuleNotFoundError|No module named'}).Count){
+              $classification='MISSING_TEST_DEPENDENCY'
+            }elseif(@($lines | Where-Object {$_ -match '^ImportError:'}).Count){
+              $classification='IMPORT_CONTRACT_ERROR'
+            }elseif(@($lines | Where-Object {$_ -match '^FAILED ('}).Count){
+              $classification='TEST_ASSERTION_OR_ERROR'
+            }elseif(@($lines | Where-Object {$_ -match '^ERROR:|^FAIL:'}).Count){
+              $classification='TEST_RUNTIME_EXCEPTION'
+            }elseif(@($lines | Where-Object {$_ -match 'FileNotFoundError'}).Count){
+              $classification='MISSING_RUNTIME_FILE'
+            }
+            Write-Host "ADMIN_V8_AGENT062_ORIGINAL_EMPLOYEE_TEST_COUNT $count"
+            Write-Host "ADMIN_V8_AGENT062_ORIGINAL_EMPLOYEE_FAILURE_CLASS $classification"
             Write-Host 'ADMIN_V8_AGENT062_ORIGINAL_EMPLOYEE_SOURCE_HOLD'
             throw 'ADMIN_V8_AGENT062_ORIGINAL_EMPLOYEE_SOURCE_TEST_FAILED'
           }
