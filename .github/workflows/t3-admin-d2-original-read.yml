@@ -5,6 +5,14 @@ on:
       - work/2026-11-22-admin03-original-d2-read
     paths:
       - packages/t3-core/src/main-trusted-kernel-realm.ts
+      - packages/t3-core/src/main-isolated-signed-workspace.tsx
+      - packages/t3-core/src/t3/origin-isolated-kernel-transport.mjs
+      - packages/t3-core/src/t3/origin-isolated-kernel-transport.d.mts
+      - packages/t3-core/src/t3/subject-access-binding.mjs
+      - packages/t3-core/src/t3/index.d.mts
+      - packages/t3-core/src/workspace-host/context/create-kernel-facade.ts
+      - packages/t3-core/tests/t3-d1-origin-isolated-kernel.test.mjs
+      - packages/t3-core/tests/t3-subject-kernel-scope.test.mjs
       - packages/t3-core/src/t3/original-kernel-native-relay.mjs
       - packages/t3-core/src/t3/activity/**
       - packages/t3-core/tests/t3-original-kernel-native-relay.test.mjs
@@ -36,11 +44,15 @@ jobs:
           echo ORIGINAL_T2_AND_BLI_UNCHANGED_PASS
       - name: Node syntax for original D2 transport and reader
         run: |
+          node --check packages/t3-core/src/t3/origin-isolated-kernel-transport.mjs
+          node --check packages/t3-core/src/t3/subject-access-binding.mjs
           node --check packages/t3-core/src/t3/original-kernel-native-relay.mjs
           node --check packages/t3-core/src/t3/activity/kernel-reader.mjs
       - name: Verify exact original relay and D2 Activity reader
         run: |
           node --test packages/t3-core/tests/t3-original-kernel-native-relay.test.mjs
+          node --test packages/t3-core/tests/t3-d1-origin-isolated-kernel.test.mjs
+          node --test packages/t3-core/tests/t3-subject-kernel-scope.test.mjs
           node --test packages/t3-core/tests/t3-activity/kernel-reader.test.mjs
       - name: Install T3 inherited build dependencies
         run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
