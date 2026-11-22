@@ -547,3 +547,339 @@ def review_original_joint_purchase_cash(
         "true_savings_real_payment_delivery_and_group_rights_not_established": True,
         "plans": sorted(results, key=lambda row: row["plan"]),
     }
+
+
+# R2.7B2B2: do not create a second purchasing or monetary ledger.
+# Every ancillary payment is ONLY a reference to the same economic_claims.
+_BUYER_ANCILLARY = (
+    "outside_transaction_cash", "outside_marketing_cash",
+    "outside_logistics_cash", "cooperation_transaction_cash",
+    "cooperation_marketing_cash", "cooperation_logistics_cash",
+    "switching_cash",
+)
+_SHARED_ANCILLARY = ("transaction_cash", "marketing_cash", "logistics_cash")
+_ANCILLARY_ROW = frozenset({
+    "owner", "work", "work_source_revision", "category_bindings",
+    "shared_reimbursement",
+})
+_ANCILLARY_PLAN = frozenset({
+    "plan", "buyer_ancillary", "operator_shared_costs",
+})
+_ANCILLARY_OPERATOR = frozenset({
+    "owner", "category_bindings",
+})
+_ANCILLARY_POSITIVE = frozenset({"original_transfer_id", "original_resource_use_id"})
+_ANCILLARY_ZERO = frozenset({"declared_zero_source_ref"})
+_ANCILLARY_REIMBURSEMENT = frozenset({"original_transfer_id"})
+
+
+def review_original_joint_purchase_ancillary(
+    raw: Any, *, plans: Sequence[PurchasingPlan],
+    price_review: Mapping[str, Any], economic_claims: Mapping[str, Any],
+    works: Mapping[str, Any], links: Sequence[Any],
+    economic_view: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Reconcile buyer direct costs, operator external costs and internal fees.
+
+    One original transfer for each positive cost (and an existing noncash
+    reference) is required; an explicit owner-only model zero is required for
+    each declared absent cost. Missing is UNKNOWN. This arithmetic never
+    authenticates a supplier receipt, payment, invoice, interest or legality.
+    """
+    if not isinstance(raw, list) or len(raw) > _MAX_PLANS:
+        raise PurchasingInputError("PURCHASE_ANCILLARY_BINDING_COUNT_INVALID")
+    price_by_plan = {row["plan"]: row for row in price_review["plans"]}
+    plans_by_id = {plan.key: plan for plan in plans}
+    links_by_id = {link.key: link for link in links}
+    transfers = {row["id"]: row for row in economic_claims["transfers"]}
+    resources = {row["id"]: row for row in economic_claims["resource_uses"]}
+    sources = {row["id"]: row for row in economic_claims["sources"]}
+    used_transfer: set[str] = set()
+    used_resource: set[str] = set()
+    used_proof: set[str] = set()
+    for price_record in economic_claims["joint_purchasing_original_cash_bindings"]:
+        for row in price_record["buyer_bindings"]:
+            for name in ("cooperation_external_transfer_id", "outside_external_transfer_id"):
+                used_transfer.add(row[name])
+            for name in ("cooperation_resource_use_id", "outside_resource_use_id"):
+                used_resource.add(row[name])
+            used_proof.add(row["owner_reconciliation_ref"])
+    original_source_refs = {source["reference"] for source in sources.values()}
+
+    def original_source_owner(source_id: Any, owner: str) -> bool:
+        return sources.get(source_id, {}).get("owner") == owner
+
+    def zero_proof(value: Any, owner: str) -> None:
+        if not isinstance(value, dict) or set(value) != _ANCILLARY_ZERO:
+            raise PurchasingInputError("PURCHASE_ANCILLARY_EXPLICIT_OWNER_ZERO_REQUIRED")
+        proof = value["declared_zero_source_ref"]
+        prefix = f"model://{owner}/"
+        if (not isinstance(proof, str) or len(proof) <= len(prefix)
+                or len(proof) > 180 or not proof.startswith(prefix)
+                or proof in used_proof or proof in original_source_refs):
+            raise PurchasingInputError("PURCHASE_ANCILLARY_OWNER_ZERO_SOURCE_INVALID")
+        used_proof.add(proof)
+
+    def original_payment(value: Any, *, owner: str, scenario: str,
+                         work: str | None, payee: str, bucket: str,
+                         expected: Decimal, resource_required: bool) -> None:
+        required = (_ANCILLARY_POSITIVE if resource_required
+                    else _ANCILLARY_REIMBURSEMENT)
+        if not isinstance(value, dict) or set(value) != required:
+            raise PurchasingInputError("PURCHASE_ANCILLARY_ORIGINAL_PAYMENT_FIELDS_INVALID")
+        payment_id = _identifier(value["original_transfer_id"], "ANCILLARY_TRANSFER")
+        if payment_id in used_transfer:
+            raise PurchasingInputError("PURCHASE_ANCILLARY_ORIGINAL_TRANSFER_REUSED")
+        used_transfer.add(payment_id)
+        payment = transfers.get(payment_id)
+        if payment is None:
+            raise PurchasingInputError("PURCHASE_ANCILLARY_ORIGINAL_TRANSFER_MISSING")
+        if (payment["scenario"] != scenario or payment["payer"] != owner
+                or payment["payee"] != payee or payment["work"] != work):
+            raise PurchasingInputError("PURCHASE_ANCILLARY_ORIGINAL_CASH_SCOPE_MISMATCH")
+        if not original_source_owner(payment["source"], owner):
+            raise PurchasingInputError("PURCHASE_ANCILLARY_ORIGINAL_CASH_OWNER_SOURCE_INVALID")
+        if _money(payment["amount"]) != expected:
+            raise PurchasingInputError("PURCHASE_ANCILLARY_ORIGINAL_CASH_AMOUNT_MISMATCH")
+        if resource_required:
+            resource_id = _identifier(value["original_resource_use_id"],
+                                      "ANCILLARY_RESOURCE")
+            if resource_id in used_resource:
+                raise PurchasingInputError("PURCHASE_ANCILLARY_ORIGINAL_RESOURCE_REUSED")
+            used_resource.add(resource_id)
+            res = resources.get(resource_id)
+            if res is None:
+                raise PurchasingInputError("PURCHASE_ANCILLARY_ORIGINAL_RESOURCE_MISSING")
+            if (res["scenario"] != scenario or res["owner"] != owner
+                    or res["work"] != work or res["bucket"] != bucket):
+                raise PurchasingInputError("PURCHASE_ANCILLARY_ORIGINAL_RESOURCE_SCOPE_MISMATCH")
+            if not original_source_owner(res["source"], owner):
+                raise PurchasingInputError("PURCHASE_ANCILLARY_ORIGINAL_RESOURCE_OWNER_SOURCE_INVALID")
+
+    review: list[dict[str, Any]] = []
+    seen_plans: set[str] = set()
+    for record in raw:
+        if not isinstance(record, dict) or set(record) != _ANCILLARY_PLAN:
+            raise PurchasingInputError("PURCHASE_ANCILLARY_PLAN_FIELDS_INVALID")
+        key = _identifier(record["plan"], "ANCILLARY_PLAN")
+        if key in seen_plans or key not in plans_by_id or key not in price_by_plan:
+            raise PurchasingInputError("PURCHASE_ANCILLARY_PLAN_MISSING_OR_DUPLICATE")
+        seen_plans.add(key)
+        plan = plans_by_id[key]
+        price = price_by_plan[key]
+        if (price["status"] !=
+                "ORIGINAL_SUPPLIER_PRICE_AND_OWNER_CASH_ROWS_SOURCE_MATCHED_MODEL_ONLY"):
+            review.append({
+                "plan": key, "status": "PURCHASE_ANCILLARY_PRICE_SCOPE_INCOMPLETE",
+                "network_original_sourced_cash_difference": None,
+                "operator_internal_fee_contribution_model_only": None,
+                "owner_net_comparison_qualified_count": 0,
+                "underlying_purchase_price_qualified": False,
+                "original_duty_payment_or_goods_receipt_authenticated": False,
+                "real_causal_savings_or_profit": "NOT_ESTABLISHED",
+            })
+            continue
+        link = links_by_id.get(plan.relation)
+        if link is None or link.source_revision != plan.relation_revision:
+            raise PurchasingInputError("PURCHASE_ANCILLARY_ORIGINAL_RELATION_INVALID")
+        buyers = {buyer.owner: buyer for buyer in plan.buyers}
+        allocated = _shared_cents(plan, plan.buyers)
+        rows = record["buyer_ancillary"]
+        if not isinstance(rows, list) or len(rows) > len(buyers):
+            raise PurchasingInputError("PURCHASE_ANCILLARY_BUYER_COUNT_INVALID")
+        buyer_views: dict[str, Any] = {}
+        buyer_model_diff = Decimal("0")
+        outside_direct_total = Decimal("0")
+        coop_direct_total = Decimal("0")
+        internal_receipts = Decimal("0")
+        missing_buyer = False
+        for row in rows:
+            if not isinstance(row, dict) or set(row) != _ANCILLARY_ROW:
+                raise PurchasingInputError("PURCHASE_ANCILLARY_BUYER_FIELDS_INVALID")
+            owner = _identifier(row["owner"], "ANCILLARY_OWNER")
+            buyer = buyers.get(owner)
+            if buyer is None or owner in buyer_views:
+                raise PurchasingInputError("PURCHASE_ANCILLARY_BUYER_MISSING_OR_DUPLICATE")
+            work_obj = works.get(buyer.work)
+            if (row["work"] != buyer.work
+                    or row["work_source_revision"] != buyer.work_revision
+                    or work_obj is None or getattr(work_obj, "customer", None) != owner
+                    or buyer.work not in link.works):
+                raise PurchasingInputError("PURCHASE_ANCILLARY_ORIGINAL_WORK_OWNER_MISMATCH")
+            categories = row["category_bindings"]
+            if not isinstance(categories, dict) or not set(categories) <= set(_BUYER_ANCILLARY):
+                raise PurchasingInputError("PURCHASE_ANCILLARY_BUYER_CATEGORIES_INVALID")
+            unknown = sorted(set(_BUYER_ANCILLARY) - set(categories))
+            outside_direct = Decimal("0")
+            coop_direct = Decimal("0")
+            for category, cell in sorted(categories.items()):
+                expected = buyer.amounts[category]
+                scenario = ("INDEPENDENT_ALTERNATIVE" if category.startswith("outside_")
+                            else "COOPERATION")
+                bucket = ("EXIT" if category == "switching_cash"
+                          else "DELIVERY" if category.endswith("_logistics_cash")
+                          else "COORDINATION")
+                if expected == 0:
+                    zero_proof(cell, owner)
+                else:
+                    original_payment(
+                        cell, owner=owner, scenario=scenario, work=buyer.work,
+                        payee="EXTERNAL", bucket=bucket, expected=expected,
+                        resource_required=True,
+                    )
+                if scenario == "COOPERATION":
+                    coop_direct += expected
+                else:
+                    outside_direct += expected
+            reimburse = Decimal(allocated[owner]) / 100
+            pay = row["shared_reimbursement"]
+            if pay is None:
+                unknown.append("shared_reimbursement")
+            elif reimburse == 0:
+                zero_proof(pay, owner)
+            else:
+                original_payment(
+                    pay, owner=owner, scenario="COOPERATION",
+                    work=buyer.work, payee=link.coordinator,
+                    bucket="COORDINATION", expected=reimburse,
+                    resource_required=False,
+                )
+            complete_owner = not unknown
+            original_price_owner = price["original_buyer_private_model_views"][owner]
+            buyer_delta = (
+                Decimal(original_price_owner[
+                    "independent_minus_cooperation_purchase_price_only"
+                ]) + outside_direct - coop_direct - reimburse
+                if complete_owner else None
+            )
+            buyer_views[owner] = {
+                "original_work": buyer.work,
+                "missing_ancillary_source_categories": unknown,
+                "owner_all_ancillary_cash_sources_declared": complete_owner,
+                "model_original_ancillary_outside_direct_cash": (
+                    f"{outside_direct:.2f}" if complete_owner else None
+                ),
+                "model_original_ancillary_cooperation_direct_cash": (
+                    f"{coop_direct:.2f}" if complete_owner else None
+                ),
+                "model_internal_operator_reimbursement": (
+                    f"{reimburse:.2f}" if complete_owner else None
+                ),
+                "model_independent_minus_cooperation_buyer_cash_scope": (
+                    f"{buyer_delta:.2f}" if buyer_delta is not None else None
+                ),
+                "liquidity_reserve_and_due_eligibility_not_inferred": True,
+                "actual_payment_legal_purchase_or_profit_unverified": True,
+            }
+            if complete_owner:
+                buyer_model_diff += buyer_delta
+                outside_direct_total += outside_direct
+                coop_direct_total += coop_direct
+                internal_receipts += reimburse
+            else:
+                missing_buyer = True
+        op = record["operator_shared_costs"]
+        op_missing: list[str] = []
+        op_paid = Decimal("0")
+        if op is None:
+            op_missing = list(_SHARED_ANCILLARY)
+        else:
+            if not isinstance(op, dict) or set(op) != _ANCILLARY_OPERATOR:
+                raise PurchasingInputError("PURCHASE_ANCILLARY_OPERATOR_FIELDS_INVALID")
+            operator = link.coordinator
+            if (op["owner"] != operator or operator not in link.participants):
+                raise PurchasingInputError("PURCHASE_ANCILLARY_OPERATOR_NOT_ORIGINAL_COORDINATOR")
+            categories = op["category_bindings"]
+            if not isinstance(categories, dict) or not set(categories) <= set(_SHARED_ANCILLARY):
+                raise PurchasingInputError("PURCHASE_ANCILLARY_OPERATOR_CATEGORIES_INVALID")
+            op_missing = sorted(set(_SHARED_ANCILLARY) - set(categories))
+            for cat, cell in sorted(categories.items()):
+                amount = plan.shared_costs[cat]
+                if amount == 0:
+                    zero_proof(cell, operator)
+                else:
+                    original_payment(
+                        cell, owner=operator, scenario="COOPERATION",
+                        work=None, payee="EXTERNAL",
+                        bucket=("DELIVERY" if cat == "logistics_cash"
+                                else "COORDINATION"),
+                        expected=amount, resource_required=True,
+                    )
+                op_paid += amount
+        missing = sorted(set(buyers) - set(buyer_views))
+        complete = not missing and not missing_buyer and not op_missing
+        operator_scope = internal_receipts - op_paid if complete else None
+        network_scope = None
+        if complete:
+            coop_purchase = Decimal(price["group_original_supplier_external_cash_cooperation"])
+            alt_purchase = Decimal(price["group_original_supplier_external_cash_independent"])
+            network_scope = (alt_purchase + outside_direct_total -
+                             coop_purchase - coop_direct_total - op_paid)
+            if network_scope != buyer_model_diff + operator_scope:
+                raise PurchasingInputError("PURCHASE_ANCILLARY_NETWORK_CASH_CONSERVATION_FAILED")
+        related_works = {b.work for b in plan.buyers}
+        # An original transfer that touches a buyer's Work or the
+        # coordinator's unallocated shared scope but has no verified source
+        # annotation prevents treating even the modelled subset as complete.
+        candidate = {
+            x["id"] for x in economic_claims["transfers"]
+            if x["work"] in related_works or
+            (x["work"] is None and
+             (x["payer"] == link.coordinator or x["payee"] == link.coordinator))
+        }
+        unmapped_original = len(candidate - used_transfer)
+        if unmapped_original:
+            complete = False
+            network_scope = None
+            operator_scope = None
+        status = (
+            "MODEL_ORIGINAL_PURCHASE_ANCILLARY_AND_OPERATOR_CASH_SCOPE_RECONCILED"
+            if complete else "PURCHASE_ANCILLARY_ORIGINAL_CASH_SCOPE_INCOMPLETE"
+        )
+        review.append({
+            "plan": key, "status": status,
+            "buyer_count_with_owner_cash_sources": sum(
+                x["owner_all_ancillary_cash_sources_declared"]
+                for x in buyer_views.values()
+            ),
+            "missing_original_buyer_count": len(missing),
+            "missing_operator_source_categories": op_missing,
+            "unmapped_original_purchase_scope_transfer_count": unmapped_original,
+            "original_buyer_private_model_views": dict(sorted(buyer_views.items())),
+            "original_network_outside_minus_cooperation_external_cash_model_scope": (
+                f"{network_scope:.2f}" if network_scope is not None else None
+            ),
+            "original_buyer_outside_minus_cooperation_net_cash_model_scope": (
+                f"{buyer_model_diff:.2f}" if complete else None
+            ),
+            "operator_internal_fee_contribution_model_only": (
+                f"{operator_scope:.2f}" if operator_scope is not None else None
+            ),
+            "operator_fee_is_internal_network_not_external_value": True,
+            "full_original_purchase_ancillary_cash_source_scope_reconciled": complete,
+            "actual_operator_profit_or_liquidity_proven": False,
+            "original_due_dates_and_same_tick_cash_order_not_inferred": True,
+            "physical_supplier_receipt_and_quality_not_authenticated": True,
+            "legal_consent_and_actual_purchasing_contract_not_created": True,
+            "model_cash_source_arithmetic_not_real_caused_savings": True,
+        })
+    return {
+        "evidence": "ONE_ORIGINAL_ECONOMIC_CLAIMS_CASH_AND_RESOURCE_LEDGER_MODEL_ONLY",
+        "model_source_reconciled_complete_plan_count": sum(
+            p["status"] == "MODEL_ORIGINAL_PURCHASE_ANCILLARY_AND_OPERATOR_CASH_SCOPE_RECONCILED"
+            for p in review
+        ),
+        "model_source_incomplete_plan_count": len(review) - sum(
+            p["status"] == "MODEL_ORIGINAL_PURCHASE_ANCILLARY_AND_OPERATOR_CASH_SCOPE_RECONCILED"
+            for p in review
+        ),
+        "source_qualified_ancillary_original_transfer_reference_count": (
+            len(used_transfer)
+        ),
+        "source_qualified_ancillary_original_resource_reference_count": (
+            len(used_resource)
+        ),
+        "all_original_money_and_resource_use_amounts_unchanged": True,
+        "bank_settlement_actual_delivery_causal_profit_not_established": True,
+        "plans": sorted(review, key=lambda p: p["plan"]),
+    }

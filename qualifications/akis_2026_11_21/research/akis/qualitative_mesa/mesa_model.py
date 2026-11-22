@@ -34,6 +34,7 @@ from .economic_outlook import OutlookInputError, choose_outlook, parse_outlooks
 from .joint_purchasing import (
     PurchasingInputError, evaluate_plan, parse_plans,
     review_original_joint_purchase_cash,
+    review_original_joint_purchase_ancillary,
 )
 from .partner_discovery import DiscoveryInputError, parse_discovery, parse_formation_finance, discover
 from .general_system import GeneralSystemInputError, parse_general_system, general_system_view
@@ -1007,6 +1008,9 @@ class OperatorAKISModel(mesa.Model):
                 )
             except EconomicInputError as exc:
                 raise InputError(str(exc)) from exc
+            if ("joint_purchasing_ancillary_original_bindings" in self.economic_claims
+                    and "joint_purchasing_original_cash_bindings" not in self.economic_claims):
+                raise InputError("PURCHASE_ANCILLARY_REQUIRES_ORIGINAL_PURCHASE_PRICE_REFERENCES")
             if "joint_purchasing_original_cash_bindings" in self.economic_claims:
                 try:
                     original_purchasing = review_original_joint_purchase_cash(
@@ -1019,6 +1023,22 @@ class OperatorAKISModel(mesa.Model):
                     )
                     output["economics"]["joint_purchasing_original_cash_linkage"] = (
                         original_purchasing
+                    )
+                except PurchasingInputError as exc:
+                    raise InputError(str(exc)) from exc
+            if "joint_purchasing_ancillary_original_bindings" in self.economic_claims:
+                try:
+                    original_ancillary = review_original_joint_purchase_ancillary(
+                        self.economic_claims["joint_purchasing_ancillary_original_bindings"],
+                        plans=self.joint_purchasing_plans,
+                        price_review=output["economics"]["joint_purchasing_original_cash_linkage"],
+                        economic_claims=self.economic_claims,
+                        works=self.qualitative.works,
+                        links=self.qualitative.cooperation_links,
+                        economic_view=output["economics"],
+                    )
+                    output["economics"]["joint_purchasing_ancillary_original_cash"] = (
+                        original_ancillary
                     )
                 except PurchasingInputError as exc:
                     raise InputError(str(exc)) from exc
@@ -1393,6 +1413,26 @@ class OperatorAKISModel(mesa.Model):
                 "private_owner_quantities_prices_sources_and_supplier_quotes_redisclosed": False,
                 "actual_purchasing_savings_or_cash_settlement_proven": False,
                 "original_work_rights_results_and_money_unchanged": True,
+            }
+        if (self.general_akis_enabled and
+                "joint_purchasing_ancillary_original_cash" in output.get("economics", {})):
+            ancillary = output["economics"]["joint_purchasing_ancillary_original_cash"]
+            output["general_akis_model"]["joint_purchasing_original_ancillary_feedback"] = {
+                "source_declared_complete_ancillary_plan_count": ancillary[
+                    "model_source_reconciled_complete_plan_count"
+                ],
+                "source_declared_incomplete_ancillary_plan_count": ancillary[
+                    "model_source_incomplete_plan_count"
+                ],
+                "original_existing_cash_reference_count": ancillary[
+                    "source_qualified_ancillary_original_transfer_reference_count"
+                ],
+                "original_existing_resource_reference_count": ancillary[
+                    "source_qualified_ancillary_original_resource_reference_count"
+                ],
+                "private_costs_owner_prices_cash_and_sources_redisclosed": False,
+                "internal_operator_reimbursements_cannot_create_network_value": True,
+                "real_profit_or_liquidity_authenticated": False,
             }
         return output
 

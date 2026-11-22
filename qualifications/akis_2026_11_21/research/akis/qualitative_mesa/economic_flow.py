@@ -552,6 +552,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
                 "common_allocations", "work_payment_conditions",
                 "work_payment_settlement_claims", "work_payment_due_amendments",
                 "joint_purchasing_original_cash_bindings",
+                "joint_purchasing_ancillary_original_bindings",
             }):
         raise EconomicInputError("INVALID_ECONOMICS_FIELDS")
     doc = raw
