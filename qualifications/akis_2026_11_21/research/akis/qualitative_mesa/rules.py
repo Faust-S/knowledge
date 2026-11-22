@@ -27,6 +27,10 @@ from .portfolio import (
     PortfolioInputError, parse_dependencies, validate_dependency_graph,
     readiness, portfolio_view,
 )
+from .work_assurance import (
+    QualityCriterion, AssuranceInputError, AssuranceBlocked,
+    parse_criteria, assess_result_quality, acceptance_gate, assurance_view,
+)
 from .cooperation import (
     CooperationInputError, parse_cooperation_links, cooperation_view, attach_requested_work,
     latest_future_participation, propose_cooperation_change,
@@ -39,7 +43,7 @@ SELECTED_MODES = frozenset({"SOLE", "COLLEGIAL", "MIXED"})
 # UNSELECTED explicitly describes missing qualification, not tacit SOLE.
 MODES = SELECTED_MODES | {"UNSELECTED"}
 AVAILABILITY = frozenset({"AVAILABLE", "UNAVAILABLE", "UNKNOWN"})
-ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response"})
+ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response"})
 GOVERNED = frozenset({"authorize", "exclude"})
 
 
@@ -101,6 +105,9 @@ class Work:
     handoff_evidence: dict[tuple[str, str], dict[str, str]] = field(default_factory=dict)
     material_batches: tuple[MaterialBatch, ...] = ()
     material_states: dict[str, MaterialState] = field(default_factory=dict)
+    assurance_criteria: tuple[QualityCriterion, ...] = ()
+    assurance_reviews: dict[str, dict[str, str]] = field(default_factory=dict)
+    assurance_refs: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -241,7 +248,8 @@ class QualitativeAKIS:
             raise InputError("INVALID_EVENT_COUNT")
         last = -1
         for ev in events:
-            _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject"}, "EVENT")
+            _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
+             "criterion", "quality_verdict", "quality_evidence_ref"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -264,7 +272,8 @@ class QualitativeAKIS:
 
     def _parse_work(self, obj: Any) -> Work:
         _keys_exact(obj, {"id", "customer", "resource", "source_revision", "slot_start", "slot_end"},
-                    {"requires_accepted", "resource_requirements", "operations", "material_batches"}, "WORK")
+                    {"requires_accepted", "resource_requirements", "operations", "material_batches",
+                     "assurance_criteria"}, "WORK")
         key, customer, resource = (_id(obj[k], k) for k in ("id", "customer", "resource"))
         if customer not in self.subjects or resource not in self.resources:
             raise InputError("INVALID_OR_DUPLICATE_WORK")
@@ -300,12 +309,22 @@ class QualitativeAKIS:
                                                  strict=self.material_strict)
             except MaterialInputError as exc:
                 raise InputError(str(exc)) from exc
+        try:
+            assurance = parse_criteria(
+                obj.get("assurance_criteria"), customer=customer,
+                primary_resource=resource,
+                work_revision=obj["source_revision"],
+                operations=ops, resource_owners=self.resources,
+            )
+        except AssuranceInputError as exc:
+            raise InputError(str(exc)) from exc
         return Work(key, customer, resource, _id(obj["source_revision"], "source_revision"), a, b,
                     requires_accepted=dependencies, resource_requirements=resource_needs,
                     operations=ops, operation_states={op.key: "NOT_STARTED" for op in ops},
                     handoffs=handoffs, handoff_states={h.edge: "NOT_DISPATCHED" for h in handoffs},
                     material_batches=material_batches,
-                    material_states={batch.key: MaterialState() for batch in material_batches})
+                    material_states={batch.key: MaterialState() for batch in material_batches},
+                    assurance_criteria=assurance)
 
     def _authority(self, ev: dict, action: str) -> None:
         ins = self.institution
@@ -392,7 +411,7 @@ class QualitativeAKIS:
                 work = self.works[key]
                 self._work_action(work, ev, at)
             report = {"at": at, "action": action, "outcome": "APPLIED", "reason": "NONE", "org_revision": self.institution.revision}
-        except (BlockedDecision, ContextBlocked, MaterialBlocked, OrgCodeBlocked) as exc:
+        except (BlockedDecision, ContextBlocked, MaterialBlocked, AssuranceBlocked, OrgCodeBlocked) as exc:
             blocked_resource = getattr(exc, "resource", None)
             if isinstance(exc, OrgCodeBlocked):
                 org_code_model_escalation_target = exc.reviewer
@@ -417,6 +436,13 @@ class QualitativeAKIS:
             report["org_code_real_identity_authenticated"] = False
         if action in {"start_operation", "complete_operation"}:
             report["operation"] = ev.get("operation")
+        if action == "assess_result_quality" and report["outcome"] == "APPLIED":
+            report["criterion"] = ev.get("criterion")
+            report["quality_verdict"] = ev.get("quality_verdict")
+            report["assessed_result_ref"] = ev.get("result_ref")
+            report["quality_evidence_ref"] = ev.get("quality_evidence_ref")
+            report["source_authentication"] = "MODEL_ONLY_UNVERIFIED"
+            report["quality_assessment_is_not_result_acceptance"] = True
         if action in {"handoff_dispatch", "handoff_receive", "handoff_quality"}:
             report["from_operation"] = ev.get("from_operation")
             report["to_operation"] = ev.get("to_operation")
@@ -803,6 +829,11 @@ class QualitativeAKIS:
                     raise BlockedDecision("NEW_MODEL_ONLY_OPERATION_EVIDENCE_REQUIRED")
                 w.operation_states[op.key] = "COMPLETED"
                 w.operation_evidence[op.key] = ref
+        elif a == "assess_result_quality":
+            # The customer alone can record an independent modeled inspection
+            # of the current submitted Result. This is neither acceptance
+            # nor an external factual certification or legal liability.
+            assess_result_quality(w, ev)
         elif a == "complete":
             if actor != self.resources[w.resource] or w.execution != "IN_PROGRESS":
                 raise BlockedDecision("EXECUTION_OWNER_OR_ACTIVE_WORK_MISSING")
@@ -831,6 +862,10 @@ class QualitativeAKIS:
         elif a in {"accept", "reject"}:
             if actor != w.customer or w.result != "SUBMITTED":
                 raise BlockedDecision("ORIGINAL_CUSTOMER_RESULT_DECISION_REQUIRED")
+            if a == "accept":
+                quality_gate = acceptance_gate(w)
+                if quality_gate != "NONE":
+                    raise BlockedDecision(quality_gate)
             w.result = "ACCEPTED_BY_ORIGINAL_RECIPIENT" if a == "accept" else "REJECTED"
             w.obligation = "FULFILLED" if a == "accept" else "ACCEPTED_BY_ORIGINAL_PRINCIPALS"
             w.result_history.append({"transition": a, "model_ref": w.result_ref})
@@ -955,6 +990,8 @@ class QualitativeAKIS:
             "counts": {"applied": sum(e["outcome"] == "APPLIED" for e in self.trace), "blocked": sum(e["outcome"] == "BLOCKED" for e in self.trace)},
         }
         for key, work in self.works.items():
+            if work.assurance_criteria:
+                output["works"][key]["assurance"] = assurance_view(work)
             if work.operations:
                 output["works"][key]["technology"] = technology_view(
                     work.operations, work.operation_states, work.operation_evidence, self.resources)
