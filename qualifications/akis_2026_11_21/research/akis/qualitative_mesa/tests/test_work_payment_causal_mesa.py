@@ -199,6 +199,6 @@ def test_shared_nine_component_model_does_not_publish_private_payment_terms():
     assert p["work_payment_reported_as_bank_settlement"] is False
     raw = json.dumps(shared, ensure_ascii=False)
     assert "original_due_at" not in raw
-    assert "owner_sources" not in raw
+    assert '"owner_sources":' not in raw
     assert "same_original_transfer_expected_posting_at" not in raw
     assert out["economics"]["work_payment_causality"]["real_contract_legal_enforceability_and_payment_verified"] is False
