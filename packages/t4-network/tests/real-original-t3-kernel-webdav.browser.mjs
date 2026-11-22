@@ -705,15 +705,20 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           return checked.window.eventRefs[0].eventDigest===proof.sourceEventDigest;
         },
         verifyOriginalRecipient:async ctx=>
-          ctx.originalReceiptRef.startsWith('original:')&&
+          typeof ctx.originalReceiptRef==='string'&&
+          /^[a-f0-9-]{36}$/.test(ctx.originalReceiptRef)&&
           (await recipientLinked()).revision===
             originalEventRows.get(ctx.lastEventId)?.sourceRevision,
-        verifyOriginalResumeCursor:async ctx=>
-          ctx.planDigest===backlog.planDigest&&
-          ctx.originalWriteOwnerRef==='original:t2:exchange'&&
-          (await loadCursor())?.sourcePrefixDigest===ctx.resumeCursor.sourcePrefixDigest||
-          (ctx.resumeCursor.lastEventId===backlog.initialCursor.lastEventId&&
-            (await loadCursor())===null),
+        verifyOriginalResumeCursor:async ctx=>{
+          if(ctx.planDigest!==backlog.planDigest||
+            ctx.originalWriteOwnerRef!=='original:t2:exchange')return false;
+          const stored=await loadCursor();
+          return stored?
+            stored.lastEventId===ctx.resumeCursor.lastEventId&&
+              stored.sourcePrefixDigest===ctx.resumeCursor.sourcePrefixDigest:
+            ctx.resumeCursor.lastEventId===backlog.initialCursor.lastEventId&&
+              ctx.resumeCursor.sourcePrefixDigest===backlog.initialCursor.sourcePrefixDigest;
+        },
         persistVerifiedCursor:persistCursor,
         getMode:()=> 'T4_NETWORK',
       });
