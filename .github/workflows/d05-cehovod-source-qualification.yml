@@ -56,7 +56,7 @@ jobs:
             fi
             echo "D05_REVISION_${destination}=PASS"
           }
-          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "4b6e428950a74e3e8daae9ffc712285317b4b4f0" "site"
+          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "2b6a3c99301f2db5bf2a2dd52b6547bd08e7b6b8" "site"
           fetch_private "cehovod" "main" "72184644426c23e6cf8890a14010b1ad5267821b" "domain"
           unset header DOMEN
       - name: Install Node 22
@@ -98,6 +98,18 @@ jobs:
             echo "D05_NPM_CI=FAIL"
             exit 1
           fi
+      - name: Check changed file formatting privately
+        run: |
+          set -euo pipefail
+          cd site
+          for file in src/host/CehovodHostApp.tsx src/host/CehovodHostApp.ui-regression.test.ts src/host/production-progress.ts src/host/production-progress.test.ts; do
+            if npx --no-install prettier --check "$file" > "$RUNNER_TEMP/d05-prettier.log" 2>&1; then
+              echo "D05_FORMAT_$(basename "$file")=PASS"
+            else
+              echo "D05_FORMAT_$(basename "$file")=FAIL"
+              exit 1
+            fi
+          done
       - name: Run complete source gate privately
         run: |
           set -euo pipefail
