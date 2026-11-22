@@ -36,8 +36,10 @@ test('a stalled original read reports only its trusted finite stage and never a 
     port:ch.port1,isActive:()=>true,
     createSignedFacade:async(method,report)=>{
       assert.equal(method,'getWorkspace');
-      report('SIGNED_JIT');
-      return Object.freeze({getWorkspace:async()=>new Promise(()=>{})});
+      return Object.freeze({getWorkspace:async()=>{
+        report('SIGNED_JIT');
+        return new Promise(()=>{});
+      }});
     },
   });
   const client=createIsolatedKernelClient({port:ch.port2,timeoutMs:200});
