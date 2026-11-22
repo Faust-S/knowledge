@@ -26,14 +26,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 16110ff1aa3d8be63e878ee00a29fcc83de0f56f
+          ref: 3eb48413e18e5bda68890f6fe13efe2d0a7b0ed0
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify private revisions, directory and technology parity
         run: |
           test "$(git -C subject rev-parse HEAD)" = "b29f57121803d1949fd96ffdd38770e8edf3698a"
-          test "$(git -C site rev-parse HEAD)" = "16110ff1aa3d8be63e878ee00a29fcc83de0f56f"
+          test "$(git -C site rev-parse HEAD)" = "3eb48413e18e5bda68890f6fe13efe2d0a7b0ed0"
           for f in service-subject-protocols.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-site-release-gate.ts; do
             cmp "subject/src/domain/$f" "site/src/domain/$f"
           done
@@ -68,7 +68,7 @@ jobs:
             scripts/tests/d07-workspace-direct-entry.test.mjs \
             > "$RUNNER_TEMP/d07-card-tests.log" 2>&1 || {
               echo D07_CARD_REGRESSION=FAIL
-              grep -E '^not ok|^# (tests|pass|fail)|^[[:space:]]+(error|expected|actual|code|name):|^  ---|D07_CARD_' "$RUNNER_TEMP/d07-card-tests.log" | tail -35 || true
+              grep -E '^not ok|^# (tests|pass|fail)|^  (error|code|name):' "$RUNNER_TEMP/d07-card-tests.log" | tail -40 || true
               exit 1
             }
           echo D07_CARD_REGRESSION=PASS
