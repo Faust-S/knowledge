@@ -48,6 +48,14 @@ jobs:
           $ErrorActionPreference='Stop'
           $cases=@(
             @{Name='ORIGINAL_D3';Module='../interop/native-admin-d3.mjs';Symbol='runNativeAdminD3'},
+            @{Name='ORIGINAL_RUNTIME';Module='../interop/runtime.mjs';Symbol='openInterop'},
+            @{Name='ACCESS_REGISTRY';Module='../access-control/registry.mjs';Symbol='AccessRegistry'},
+            @{Name='LOCAL_VAULT';Module='../access-control/local-vault.mjs';Symbol='decryptVault'},
+            @{Name='SCOPED_WORKSPACE';Module='../access-control/scoped-workspace-host.mjs';Symbol='createPersonalWorkspaceHost'},
+            @{Name='SUBJECT_STORE';Module='../access-control/subject-scoped-store.mjs';Symbol='openSubjectScopedStore'},
+            @{Name='IWXA_CARRIER';Module='../access-control/iwxa-package.mjs';Symbol='createStoredZip'},
+            @{Name='RECON_ENGINE';Module='../reconciliation/engine.mjs';Symbol='OfflinePackageReconciler'},
+            @{Name='STATUS_TRANSFER';Module='../access-control/status-transfer.mjs';Symbol='exportStatusIwxa'},
             @{Name='WINDOWS_CREDENTIAL';Module='../access-control/windows-credential.mjs';Symbol='windowsIdentity'},
             @{Name='ORIGINAL_PROVISION';Module='../interop/provision.mjs';Symbol='provision'},
             @{Name='PRODUCT_TEST';Module='../access-control/product-license.mjs';Symbol='validateUnsignedProductRequest'},
