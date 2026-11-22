@@ -35,6 +35,10 @@ jobs:
         run: |
           test -f qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1t2_original_function_responsibility_mesa.py
           echo R1T2_ORIGINAL_OWNER_FUNCTION_QUALIFICATION_INPUT_PRESENT
+      - name: Confirm original technology route and independent QA tests
+        run: |
+          test -f qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1t3_original_technology_route_mesa.py
+          echo R1T3_ORIGINAL_WORK_TECHNOLOGY_AND_OWNER_QA_PRESENT
       - name: Native general AKIS Mesa and original model regression
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
