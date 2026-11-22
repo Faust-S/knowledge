@@ -458,3 +458,37 @@ def test_r1u1_operator_cannot_select_uncompared_third_coalition_to_skip_member_c
     )
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert "l2" not in [x["id"] for x in out["cooperation"]["links"]]
+
+
+
+def test_r1u1_compared_options_without_recipient_accepted_work_do_not_count_reproduction():
+    d = competing_original_coalitions_case()
+    d["events"] = [e for e in d["events"]
+                   if not (e["action"] == "assess_result_quality"
+                           and e.get("work") == "w3"
+                           and e.get("criterion") == "q-stage-c")]
+    out = simulate(d)
+    assert _selected(out)["outcome"] == "APPLIED"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w3"]["result"] == "SUBMITTED"
+    assert out["general_akis_model"]["system_causal_cycle_feedback"][
+        "independently_selected_competing_coalitions_with_accepted_work"
+    ] == 0
+    assert out["general_akis_private_cycle_evidence"][
+        "original_competing_coalition_choices_followed_by_accepted_work"
+    ] == []
+
+
+def test_r1u1_strict_original_context_cannot_be_bypassed_by_competition_proposal():
+    from research.akis.qualitative_mesa.rules import QualitativeAKIS
+    from .test_rules import fixture
+    state = QualitativeAKIS(fixture())
+    state.context_basis = SimpleNamespace(strict=True)
+    denied = state.apply({
+        "at": 1, "action": "coalition_options_propose", "actor": "a",
+    }, 1)
+    assert denied["outcome"] == "BLOCKED"
+    assert denied["reason"] == (
+        "COALITION_COMPETITION_SOURCE_RIGHTS_NOT_QUALIFIED"
+    )
+    assert state.works["w1"].result == "NOT_SUBMITTED"
