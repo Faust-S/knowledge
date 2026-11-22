@@ -756,7 +756,9 @@ try{
     # may satisfy these UIA observations. No direct native command dispatch,
     # mock browser state, or shadow read-only Store can supply the receipt.
     $script:phase='D2_NATIVE_OPEN_ORIGINAL_KERNEL'
-    ClickButton 'Открыть Workspace T3'
+    Check (WaitForText 'Одна Workspace. Вся работа организации.' 50) 'D2_INSTALLED_V8_WORKSPACE_ENTRY_NOT_RENDERED'
+    Write-Host 'D2_INSTALLED_V8_WHOLE_WORKSPACE_ENTRY_PASS'
+    ClickButton 'Открыть корпоративную Workspace'
     Check (WaitForText 'К приёмке' 90) 'D2_INSTALLED_NATIVE_SIGNED_WORKSPACE_NOT_VISIBLE'
     Check (WaitForOriginalKernelReady) 'D2_INSTALLED_NATIVE_ORIGINAL_KERNEL_NOT_READY'
     $script:d2SelectedWorkspaceCreateAttempted=$false
@@ -774,7 +776,7 @@ try{
       $reopenReady=$false
       for($i=0;$i -lt 135;$i++){
         $button=$null
-        try{$button=FindName 'Открыть Workspace T3' 'Button' 1}catch{}
+        try{$button=FindName 'Открыть корпоративную Workspace' 'Button' 1}catch{}
         if($button){
           try{
             if($button.Current.IsEnabled -and -not $button.Current.IsOffscreen){
@@ -786,7 +788,7 @@ try{
       }
       Check $reopenReady 'D2_INSTALLED_READ_RECOVERY_OWNER_NOT_AVAILABLE'
       $script:phase='D2_NATIVE_REOPEN_ORIGINAL_FOR_READ'
-      ClickButton 'Открыть Workspace T3'
+      ClickButton 'Открыть корпоративную Workspace'
       Check (WaitForText 'К приёмке' 90) 'D2_INSTALLED_READ_RECOVERY_WORKSPACE_NOT_OPEN'
       Check (WaitForOriginalKernelReady) 'D2_INSTALLED_READ_RECOVERY_ORIGINAL_KERNEL_NOT_READY'
       # Only when NO create was previously requested may this fresh
@@ -819,6 +821,8 @@ try{
       throw 'D2_INSTALLED_NATIVE_SIGNED_DATA_READ_FAILED'
     }
     Check (HasText 'Это метаданные исходных записей, не доказательство выполнения хозяйственных действий.') 'D2_INSTALLED_NATIVE_EVIDENCE_SCOPE_MISSING'
+    Check (WaitForText 'Время ожидания интерфейса:' 40) 'D2_INSTALLED_V8_DATA_WAIT_TIMING_MISSING'
+    Write-Host 'D2_INSTALLED_V8_DATA_WAIT_MEASURED_PASS'
     Write-Host 'D2_INSTALLED_ORIGINAL_KERNEL_DATA_READ_UI_PASS'
     $script:phase='D2_NATIVE_SAME_ORGANIZATION_CONTEXT'
     ClickButton 'Контекст организации'
@@ -841,7 +845,7 @@ try{
     Check (WaitForText 'G4WindowsOrganization' 100) 'D2_INSTALLED_COLD_ORGANIZATION_LOST'
     ClickButton 'Результаты'
     Check (WaitForText 'Подписанный T3 D3 получатель доступен' 120) 'D2_INSTALLED_COLD_OWNER_NOT_RESTORED'
-    ClickButton 'Открыть Workspace T3'
+    ClickButton 'Открыть корпоративную Workspace'
     Check (WaitForText 'К приёмке' 90) 'D2_INSTALLED_COLD_WORKSPACE_NOT_OPEN'
     Check (WaitForOriginalKernelReady) 'D2_INSTALLED_COLD_ORIGINAL_KERNEL_NOT_READY'
     # The second independent installed cold process may READ the known
