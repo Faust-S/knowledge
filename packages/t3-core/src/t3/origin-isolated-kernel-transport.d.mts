@@ -14,7 +14,8 @@ interface TrustedRealmServerArgs {
   event: MessageEvent;
   uiOrigin: string;
   parentWindow: Window;
-  createSignedFacade(method: string): Promise<KernelFacade> | KernelFacade;
+  createSignedFacade(method: string, reportReadStage:(stage:string)=>void):
+    Promise<KernelFacade> | KernelFacade;
   isActive(): boolean;
   describeOriginalSession?(): Promise<unknown> | unknown;
   validateOriginalObjects?(value: unknown): Promise<unknown> | unknown;
