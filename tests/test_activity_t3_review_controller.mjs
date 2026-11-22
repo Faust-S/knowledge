@@ -330,3 +330,30 @@ test('recovery is absent from read-only T3 Host, and read remains available',asy
   assert.equal((await c.readSelected()).status,'REVIEW');
   c.dispose();
 });
+
+test('malformed alias graph is rejected before React can render it',async()=>{
+  const source=makeHost(),correct=await source.host.readSelected();
+  const base=correct.structural_candidate[0];
+  const cases=[
+    {...correct,structural_candidate:[{...base,
+      observed_event_kinds:[...base.observed_event_kinds,base.observed_event_kinds[0]]}]},
+    {...correct,structural_candidate:[{...base,
+      object_local_successions:[...base.object_local_successions,{
+        ...base.object_local_successions[0],to:'event_type_999',
+      }]}]},
+    {...correct,structural_candidate:[{...base,
+      object_local_successions:[...base.object_local_successions,
+        {...base.object_local_successions[0]}]}]},
+    {...correct,structural_candidate:[base,structuredClone(base)]},
+  ];
+  for(const attack of cases){
+    const h=makeHost(),states=[];
+    h.host.readSelected=async()=>attack;
+    const c=createT3ReviewController({host:h.host,onUpdate:x=>states.push(x)});
+    assert.equal((await c.readSelected()).status,'HOLD');
+    assert.equal(states.at(-1).code,'T3_HOST_RESULT_UNVERIFIED');
+    assert.equal(states.at(-1).review,null);
+    assert.equal(JSON.stringify(states).includes(secret),false);
+    c.dispose();
+  }
+});
