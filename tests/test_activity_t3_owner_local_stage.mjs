@@ -308,7 +308,7 @@ test('original corporate Control Host binds signed read plus separate derivation
     },
   });
   assert.deepEqual(Object.keys(bridge.port).sort(),
-    ['readSelected','stageSelected','subscribeInvalidation']);
+    ['readSelected','recoverSelected','stageSelected','subscribeInvalidation']);
   for(const key of ['kernel','control','sourceSignedAccess','targetSignedAccess'])
     assert.equal(Object.hasOwn(bridge.port,key),false);
   const ui=createT3ReviewController({host:bridge.port,onUpdate:s=>states.push(s)});
@@ -564,7 +564,7 @@ test('original single-selection Activity bridge stages using a signed target, wi
     },
   });
   assert.deepEqual(Object.keys(bridge.port).sort(),
-    ['readSelected','stageSelected','subscribeInvalidation']);
+    ['readSelected','recoverSelected','stageSelected','subscribeInvalidation']);
   const state=[],ui=createT3ReviewController({host:bridge.port,onUpdate:x=>state.push(x)});
   assert.deepEqual(await ui.readSelected(),{status:'REVIEW'});
   assert.deepEqual(await ui.stageSelected(),{status:'STAGED'});
@@ -686,7 +686,7 @@ test('installed-shape original Control mounts Activity derive via ONE SSE and ON
   try{
     assert.equal(c.streams(),1,'a second Control SSE would break the original Host');
     assert.deepEqual(Object.keys(bound.port).sort(),
-      ['readSelected','stageSelected','subscribeInvalidation']);
+      ['readSelected','recoverSelected','stageSelected','subscribeInvalidation']);
     assert.deepEqual(await ui.readSelected(),{status:'REVIEW'});
     assert.deepEqual(await ui.stageSelected(),{status:'STAGED'});
     assert.equal(f.saved.size,1);assert.equal(f.state.writeCalls,1);
