@@ -106,6 +106,7 @@ def review_cost_attribution(
         raise ModernEconomicEvidenceError("INVALID_MODERN_ECONOMIC_BINDING_COUNT")
     used: set[str] = set()
     by_owner: dict[str, dict[str, list[str]]] = {}
+    by_owner_scenario: dict[str, dict[str, dict[str, list[str]]]] = {}
     for row in raw:
         if not isinstance(row, dict) or set(row) not in (BINDING_FIELDS, BINDING_SCOPED_FIELDS):
             raise ModernEconomicEvidenceError("INVALID_MODERN_ECONOMIC_BINDING")
@@ -131,6 +132,9 @@ def review_cost_attribution(
             raise ModernEconomicEvidenceError("MODERN_ECONOMIC_OWNER_SOURCE_SCOPE_MISMATCH")
         used.add(record_id)
         by_owner.setdefault(owner, {}).setdefault(cat, []).append(record_id)
+        by_owner_scenario.setdefault(owner, {}).setdefault(scenario, {}).setdefault(
+            cat, []
+        ).append(record_id)
     return {
         "evidence": "MODEL_ONLY_ORIGINAL_RESOURCE_USE_REFERENCE",
         "onboarding_9_historical_categories": list(ONBOARDING_CATEGORIES),
@@ -150,6 +154,21 @@ def review_cost_attribution(
                     category for category in categories if category in LEGACY_UNQUALIFIED_TAGS
                 ),
                 "bound_original_use_count": sum(len(uses) for uses in categories.values()),
+                "by_original_scenario": {
+                    scenario: {
+                        "categories_with_original_use": sorted(
+                            by_owner_scenario.get(owner, {}).get(scenario, {})
+                        ),
+                        "nine_categories_not_bound_in_this_scenario": [
+                            category for category in ONBOARDING_CATEGORIES
+                            if category not in by_owner_scenario.get(owner, {}).get(
+                                scenario, {}
+                            )
+                        ],
+                        "zero_cost_not_inferred_from_absence": True,
+                    }
+                    for scenario in SCENARIOS
+                },
                 "amounts_not_added_again_to_cash_or_real_resource_uses": True,
                 "missing_cost_is_not_zero": True,
                 "full_lifecycle_cost_completeness": "NOT_ESTABLISHED",
