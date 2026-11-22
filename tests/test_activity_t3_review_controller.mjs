@@ -9,9 +9,9 @@ const row=i=>({object_id:`obj:${i}`,revision:1,schema_id:'schema.private',
 const makeView=()=>({workspace_id:workspace,
   nodes:[0,1,2].map(row),events:[0,1,2].flatMap(i=>[
     {event_id:`start:${i}`,event_type:'private.start',semantic_kind:'Event',
-      occurred_at:'2026-11-11T11:00:00Z',object_ref:{object_id:`obj:${i}`,revision:1}},
+      epistemic_status:'observed',occurred_at:'2026-11-11T11:00:00Z',object_ref:{object_id:`obj:${i}`,revision:1}},
     {event_id:`end:${i}`,event_type:'private.end',semantic_kind:'Event',
-      occurred_at:'2026-11-11T11:02:00Z',object_ref:{object_id:`obj:${i}`,revision:1}},
+      epistemic_status:'observed',occurred_at:'2026-11-11T11:02:00Z',object_ref:{object_id:`obj:${i}`,revision:1}},
   ]),relations:[],unresolved:[],unmapped:{object_ids:[],event_ids:[],relation_ids:[]}});
 function makeHost(options={}) {
   const selectionListeners=new Set(), ownerListeners=new Set();
