@@ -39,3 +39,34 @@ test('all nineteen user-facing routes and owner-only safety states are reachable
  assert.match(inner,/HOLD · выпуск закрыт/);
  assert.doesNotMatch(inner,/new Kernel|createWorkspace\(|putObject\(|exportPackage\(/);
 });
+
+test('pinned source dashboard uses existing Actions, not stale results of a previous source',()=>{
+ const ui=load('../desktop/src/ActivityWorkspace.tsx');
+ assert.match(ui,/w\.source==='a1'\?<button onClick=\{\(\)=>choose\('a1'\)\}/);
+ assert.match(ui,/w\.source==='ocel'\?<button onClick=\{\(\)=>choose\('ocel'\)\}/);
+ assert.match(ui,/w\.source==='t3'\?<button onClick=\{\(\)=>choose\('t3'\)\}/);
+ assert.match(ui,/w\.source==='current'\?current:w\.source===current\?w\.source:'none'/);
+ assert.match(ui,/sourceHeading/);
+ assert.match(ui,/sourceDetail/);
+ assert.match(ui,/reviewStatus==='HOLD'/);
+});
+test('saved and recovered D2 drafts stay separate from an export permission',()=>{
+ const ui=load('../desktop/src/ActivityWorkspace.tsx');
+ const details=load('../desktop/src/ActivityInnerPage.tsx');
+ assert.match(ui,/data\.t3Review\?\.recovered/);
+ assert.match(details,/Восстановление подтверждено/);
+ assert.match(details,/Сохранение не подтверждено/);
+ assert.match(details,/data\.t3Review\?\.stageBlocked/);
+ assert.match(details,/data\.t3Review\?\.status==='STAGED'/);
+ assert.match(details,/Выпуск \.iwxa и передача результата остаются закрыты/);
+ assert.doesNotMatch(details,/createWorkspace\(|putObject\(|new Kernel/);
+});
+test('widget controls expose exact UI Automation names for installed Windows user flow',()=>{
+ const ui=load('../desktop/src/ActivityWorkspace.tsx');
+ const witness=load('../desktop/tests/installed-windows-ui.ps1');
+ assert.match(ui,/Перетащить блок: /);
+ assert.match(ui,/Добавить: /);
+ assert.match(witness,/IWXA_ACTIVITY_V7_NATIVE_WIDGET_ADDED_PASS/);
+ assert.match(witness,/IWXA_ACTIVITY_V7_NATIVE_REORDER_PASS/);
+ assert.match(witness,/IWXA_ACTIVITY_V7_NATIVE_COLD_LAYOUT_PASS/);
+});
