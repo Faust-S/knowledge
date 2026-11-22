@@ -8,12 +8,17 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-EXPECTED_MEANINGS = (
-    "NEED_CHANGES_PROCESS", "AGENT_FUNCTION_IS_DERIVED",
-    "SCOPED_RESOURCES_NEED_OWNER_CONFIRMATION",
-    "WORK_AND_ACCEPTANCE_ARE_SEPARATE_OWNER_EVENTS",
-    "REAL_EVENTS_SUPPORT_SPECIFIC_ECONOMIC_OBSERVATIONS",
-    "PROPOSE_REVISION_NOT_AUTOMATIC_OVERRIDE_OF_OWNERS",
+# Public qualification may contain only the public author taxonomy, not
+# the closed full doctorate/monograph map. These six previously verified
+# original relations are deliberately fixed here and cross-checked against
+# the full original concept map when the latter is available locally.
+AUTHOR_EDGES = (
+    ("Ц", "П", "NEED_CHANGES_PROCESS"),
+    ("П,ОК,КПБ", "А", "AGENT_FUNCTION_IS_DERIVED"),
+    ("У,П", "RESOURCE_FEASIBILITY", "SCOPED_RESOURCES_NEED_OWNER_CONFIRMATION"),
+    ("П,А,У", "КЖ", "WORK_AND_ACCEPTANCE_ARE_SEPARATE_OWNER_EVENTS"),
+    ("КЖ,REAL_RESOURCES", "Э", "REAL_EVENTS_SUPPORT_SPECIFIC_ECONOMIC_OBSERVATIONS"),
+    ("Э,КЖ,w_t", "ЖЦ,ОК,П", "PROPOSE_REVISION_NOT_AUTOMATIC_OVERRIDE_OF_OWNERS"),
 )
 
 class CausalContractInputError(ValueError):
@@ -26,10 +31,17 @@ def assess_author_causal_edges(
     work_counterfactual: Mapping[str, Any] | None = None,
     at: float,
 ) -> dict[str, Any]:
-    model = design.catalog["integrated_operator_model"]["dynamics_revision_2026_11_20"]
-    edges = model["dependency_relations"]
-    if not isinstance(edges, list) or tuple(x.get("meaning") for x in edges) != EXPECTED_MEANINGS:
+    source_model = design.catalog.get("integrated_operator_model", {})
+    revision = source_model.get("dynamics_revision_2026_11_20", {})
+    original_edges = revision.get("dependency_relations")
+    if original_edges is not None and (
+        not isinstance(original_edges, list) or
+        tuple((v.get("from"), v.get("to"), v.get("meaning"))
+              for v in original_edges) != AUTHOR_EDGES
+    ):
         raise CausalContractInputError("AKIS_AUTHOR_ORIGINAL_CAUSAL_LINKS_CHANGED")
+    edges = [{"from": from_component, "to": to_component, "meaning": meaning}
+             for from_component, to_component, meaning in AUTHOR_EDGES]
     original_trace = original.trace
     applied = [x for x in original_trace if x.get("outcome") == "APPLIED"]
     accepted = {k for k,v in original.works.items()
@@ -111,6 +123,8 @@ def assess_author_causal_edges(
         raise CausalContractInputError("AKIS_AUTHOR_NINE_COMPONENTS_MISSING")
     return {
         "evidence": "SOURCE_DECLARED_MODEL_ONLY_SIX_AUTHOR_RELATIONS",
+        "full_private_author_map_crosschecked": original_edges is not None,
+        "public_taxonomy_only_falls_back_to_preverified_original_edges": original_edges is None,
         "author_original_nine_components": list(components),
         "six_author_original_dependency_relations": items,
         "declared_current_goals_without_original_request": sorted(claimed_goals - requested),
