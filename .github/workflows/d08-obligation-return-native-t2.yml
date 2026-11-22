@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: d08-obligation-return-t2-${{ github.ref }}
+  group: d08-obligation-return-final-t2-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   real-host-exchange:
@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops.ru
-          ref: 7d2a11c2251d8dec2fb73c7fd56ec78c0c03ac0e
+          ref: e37212d2f82cffcc05b2d63b3ae5d9b937cf2cb7
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -44,7 +44,7 @@ jobs:
           path: t2
       - name: Verify clean pinned private identities without outputting source
         run: |
-          test "$(git -C site rev-parse HEAD)" = "7d2a11c2251d8dec2fb73c7fd56ec78c0c03ac0e" || exit 1
+          test "$(git -C site rev-parse HEAD)" = "e37212d2f82cffcc05b2d63b3ae5d9b937cf2cb7" || exit 1
           test "$(git -C t2 rev-parse HEAD)" = "49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7" || exit 1
           test -z "$(git -C t2 status --porcelain)" || exit 1
           test -f site/tests/d08-obligation-native-t2-roundtrip.mjs || exit 1
