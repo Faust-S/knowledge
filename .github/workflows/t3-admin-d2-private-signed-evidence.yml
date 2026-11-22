@@ -1,0 +1,83 @@
+name: T3 D2 signed DATA original private owner (public isolated Windows runner)
+on:
+  push:
+    branches:
+      - work/2026-11-22-admin03-original-d2-read
+    paths:
+      - .github/workflows/t3-admin-d2-private-signed-evidence.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: t3-admin-d2-proof-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  signed-data-proof:
+    runs-on: windows-2022
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Pin original T2 and successor source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=(& git rev-parse 'HEAD:packages/t3-core/src').Trim()
+          $t2=(& git rev-parse 'HEAD:packages/t3-core/qualified-runtime').Trim()
+          if($src -cne '93ccb7cb2359fcad6c4cbfbdf1ba52b81ec4b48a' -or
+             $t2 -cne '1594274dbf5e38214b8422ba11e8c7114bd5425c'){
+            throw 'D2_PUBLIC_ORIGINAL_SOURCE_PIN_FAILED'
+          }
+          Write-Host 'D2_PUBLIC_ORIGINAL_T2_SOURCE_PIN_PASS'
+      - name: Stage original signed owner privately in transient public runner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: da9ad2a5c44e53092dd1a245b5bc3ab7aa860bed
+          token: ${{ secrets.T3 || secrets.DOMEN }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            access-control
+            interop
+            reconciliation
+            tests
+            package.json
+          path: .private/t3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pin private source without logging source or paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $owner=(& git -C .private/t3 rev-parse HEAD).Trim()
+          if($owner -cne 'da9ad2a5c44e53092dd1a245b5bc3ab7aa860bed'){
+            throw 'D2_ORIGINAL_PRIVATE_SOURCE_PIN_FAILED'
+          }
+          Write-Host 'D2_ORIGINAL_PRIVATE_SOURCE_PIN_PASS'
+      - name: Check original signer and prove independent DATA right
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'd2-signed-data-private.log'
+          & node --check .private/t3/interop/runtime.mjs *> $log
+          if($LASTEXITCODE -ne 0){throw 'D2_PRIVATE_RUNTIME_SYNTAX_FAILED'}
+          & node --check .private/t3/interop/native-admin-d3.mjs *> $log
+          if($LASTEXITCODE -ne 0){throw 'D2_PRIVATE_NATIVE_SYNTAX_FAILED'}
+          & node --test .private/t3/tests/t3-admin-activity-original-data-grant.test.mjs *> $log
+          if($LASTEXITCODE -ne 0){
+            $codes=@()
+            foreach($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
+              foreach($hit in [regex]::Matches([string]$line,
+                '(?<![A-Z0-9_])(?:T3_D3|INTEROP|APPLICATION|D2_PRIVATE|ERR_ASSERTION)_[A-Z0-9_]{3,80}(?![A-Z0-9_])')){
+                $codes+=([string]$hit.Value)
+              }
+            }
+            $reason=if($codes.Count){$codes[-1]}else{'UNCLASSIFIED'}
+            Write-Host "D2_PRIVATE_TEST_MACHINE_CODE $reason"
+            throw 'D2_PRIVATE_SIGNED_DATA_TEST_HOLD'
+          }
+          Write-Host 'D2_ORIGINAL_SIGNED_DATA_TEST_PASS'
+          Write-Host 'D2_NO_PRIVATE_SOURCE_OR_BINARY_ARTIFACTS'
