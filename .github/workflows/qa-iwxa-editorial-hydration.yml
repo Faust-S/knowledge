@@ -1,0 +1,80 @@
+name: IWXA editorial hydration diagnosis
+on:
+  push:
+    branches:
+      - qa/2026-11-22-iwxa-editorial-20
+    paths:
+      - .github/workflows/qa-iwxa-editorial-hydration.yml
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: work/2026-11-22-interactive-editorial-20
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Diagnose actual client hydration on 3 routes
+        shell: bash
+        working-directory: .private/site
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile > /tmp/editorial-diagnostic-install.log 2>&1 || { tail -n 70 /tmp/editorial-diagnostic-install.log; exit 1; }
+          bunx vite --host 127.0.0.1 --port 4173 > /tmp/editorial-diagnostic-vite.log 2>&1 &
+          echo $! > /tmp/editorial-diagnostic.pid
+          for n in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:4173/articles/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node --input-type=module <<'JS'
+          import puppeteer from 'puppeteer';
+          const binary=process.env.EDITORIAL_CHROME||'/usr/bin/google-chrome';
+          const browser=await puppeteer.launch({headless:true,executablePath:binary,args:['--no-sandbox','--disable-dev-shm-usage']});
+          try{
+            const page=await browser.newPage();
+            page.on('pageerror',e=>console.log('CLIENT_PAGE_ERROR',e.message.slice(0,500)));
+            page.on('console',m=>{if(m.type()==='error')console.log('CLIENT_CONSOLE_ERROR',m.text().slice(0,400));});
+            page.on('requestfailed',r=>console.log('CLIENT_REQUEST_FAILED',r.url().slice(0,180),r.failure()?.errorText));
+            for(const route of ['/','/articles/','/articles/zachem-dvenadcat-napravleniy/']){
+              console.log('DIAG_ROUTE',route);
+              await page.goto('http://127.0.0.1:4173'+route,{waitUntil:'domcontentloaded',timeout:45000});
+              await new Promise(r=>setTimeout(r,4500));
+              const d=await page.evaluate(()=>({
+                title:document.title,
+                hasMain:!!document.querySelector('main'),
+                ready:document.querySelector('main')?.dataset.clientReady||null,
+                h1:document.querySelector('h1')?.textContent?.slice(0,90),
+                bodyLength:document.body.textContent?.length,
+                scripts:[...document.querySelectorAll('script[src]')].map(s=>s.src.split('/').slice(-2).join('/')).slice(0,10),
+                buttons:document.querySelectorAll('.ed-experiment__choices button').length,
+              }));
+              console.log('DIAG_STATE',route,JSON.stringify(d));
+              if(d.buttons){
+                const before=await page.$eval('.ed-experiment__result',el=>el.textContent);
+                await page.click('.ed-experiment__choices button:nth-child(2)');
+                await new Promise(r=>setTimeout(r,300));
+                const after=await page.$eval('.ed-experiment__result',el=>el.textContent);
+                console.log('DIAG_INTERACTION',before===after?'NO_CHANGE':'CHANGED');
+              }
+            }
+          }finally{await browser.close();}
+          JS
+          echo EDITORIAL_DIAG_COMPLETE
+      - name: Remove private checkout
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/editorial-diagnostic.pid ]; then kill "$(cat /tmp/editorial-diagnostic.pid)" 2>/dev/null || true; fi
+          rm -rf .private/site
+          rm -f /tmp/editorial-diagnostic*.log /tmp/editorial-diagnostic.pid
+          test ! -e .private/site && echo PRIVATE_SOURCE_PURGED
