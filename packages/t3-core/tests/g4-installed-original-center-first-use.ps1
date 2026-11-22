@@ -221,6 +221,7 @@ function EnsureOriginalSignedWorkspaceProvisioned(){
   # by calling T2/native methods directly, and never retry an unknown write.
   $sawMissing=$false
   $clicked=$false
+  $buttonObserved=$false
   for($i=0;$i -lt 240;$i++){
     $missing=HasText 'Подписанная Workspace недоступна'
     $denied=HasText 'Подписанный доступ Workspace не подтверждён'
@@ -239,6 +240,22 @@ function EnsureOriginalSignedWorkspaceProvisioned(){
     }
     if($missing -and (HasText 'Код: T3_D1_WORKSPACE_CREATE_GRANT_REQUIRED')){
       Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_SIGNED_CREATE_GRANT_REQUIRED'
+      return $false
+    }
+    if($missing -and $i -eq 38){
+      # Bounded UIA signals: never emit signed context, native logs, or
+      # arbitrary user text. A missing button and a rejected write are
+      # independent failures and require different engineering fixes.
+      $buttonVisible=HasText 'Создать выбранную Workspace'
+      Write-Host "D2_INSTALLED_SIGNED_GATE_CREATE_BUTTON_TEXT_VISIBLE $buttonVisible"
+      $button=$null
+      try{$button=FindName 'Создать выбранную Workspace' 'Button' 1}catch{}
+      $buttonObserved=($null -ne $button)
+      Write-Host "D2_INSTALLED_SIGNED_GATE_CREATE_BUTTON_UIA_AVAILABLE $buttonObserved"
+    }
+    if($missing -and $clicked -and (HasText 'Не удалось подтвердить создание в исходном Kernel')){
+      NativeD2BoundedRefusal
+      Write-Host 'D2_INSTALLED_SIGNED_GATE_CREATE_ACTION_NOT_CONFIRMED'
       return $false
     }
     if($missing -and $i -ge 38 -and -not $clicked){
@@ -266,6 +283,11 @@ function EnsureOriginalSignedWorkspaceProvisioned(){
   }
   if(HasText 'Подписанная Workspace недоступна'){
     NativeD2BoundedRefusal
+    if(-not $clicked){
+      Write-Host 'D2_INSTALLED_SIGNED_GATE_NO_EXPLICIT_CREATE_DISPATCH'
+    }else{
+      Write-Host 'D2_INSTALLED_SIGNED_GATE_CREATE_DISPATCH_WITHOUT_READBACK'
+    }
     Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_GATE_STILL_MISSING'
     return $false
   }
