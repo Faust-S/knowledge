@@ -31,7 +31,10 @@ from .owner_forecast_revisions import (
     ForecastRevisionInputError, parse_forecast_revisions, private_forecast_override,
 )
 from .economic_outlook import OutlookInputError, choose_outlook, parse_outlooks
-from .joint_purchasing import PurchasingInputError, evaluate_plan, parse_plans
+from .joint_purchasing import (
+    PurchasingInputError, evaluate_plan, parse_plans,
+    review_original_joint_purchase_cash,
+)
 from .partner_discovery import DiscoveryInputError, parse_discovery, parse_formation_finance, discover
 from .general_system import GeneralSystemInputError, parse_general_system, general_system_view
 from .org_code_policy import OrgCodeInputError, parse_org_code_policy
@@ -1004,6 +1007,41 @@ class OperatorAKISModel(mesa.Model):
                 )
             except EconomicInputError as exc:
                 raise InputError(str(exc)) from exc
+            if "joint_purchasing_original_cash_bindings" in self.economic_claims:
+                try:
+                    original_purchasing = review_original_joint_purchase_cash(
+                        self.economic_claims["joint_purchasing_original_cash_bindings"],
+                        plans=self.joint_purchasing_plans,
+                        economic_claims=self.economic_claims,
+                        works=self.qualitative.works,
+                        links=self.qualitative.cooperation_links,
+                        org_revision=self.qualitative.institution.revision,
+                    )
+                    output["economics"]["joint_purchasing_original_cash_linkage"] = (
+                        original_purchasing
+                    )
+                    if self.general_akis_enabled:
+                        output["general_akis_model"][
+                            "joint_purchasing_original_price_feedback"
+                        ] = {
+                            "model_only_source_matched_original_plan_count": original_purchasing[
+                                "original_matched_plan_count"
+                            ],
+                            "incomplete_original_plan_count": original_purchasing[
+                                "original_incomplete_plan_count"
+                            ],
+                            "original_existing_transfer_reference_count": original_purchasing[
+                                "source_declared_existing_original_transfer_count"
+                            ],
+                            "original_existing_resource_reference_count": original_purchasing[
+                                "source_declared_existing_original_resource_use_count"
+                            ],
+                            "private_owner_quantities_prices_sources_and_supplier_quotes_redisclosed": False,
+                            "actual_purchasing_savings_or_cash_settlement_proven": False,
+                            "original_work_rights_results_and_money_unchanged": True,
+                        }
+                except PurchasingInputError as exc:
+                    raise InputError(str(exc)) from exc
         if self.competence_reuse_raw is not None:
             try:
                 permissions = (review_permissions(

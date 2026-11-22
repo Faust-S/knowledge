@@ -322,3 +322,228 @@ def evaluate_plan(plan: PurchasingPlan, *, at: float, org_revision: str,
             "prospective_quantity_units": quote["units"],
             "tier_minimum_units": quote["threshold"],
             "positions": positions}
+
+# R2.7B2B1: read-only references to pre-existing original money and
+# noncash resources. These annotations are NOT new transfers, settlement,
+# supplier delivery, owner consent, causal savings, or a second purchasing
+# calculation. Joint group quotations remain prospective until originals
+# establish independent execution, delivery, cash and legal sources.
+_ORIGINAL_PURCHASE_PLAN_FIELDS = frozenset({
+    "plan", "supplier_source_ref", "quote_at", "buyer_bindings",
+})
+_ORIGINAL_PURCHASE_BUYER_FIELDS = frozenset({
+    "owner", "work", "work_source_revision", "owner_reconciliation_ref",
+    "cooperation_external_transfer_id", "outside_external_transfer_id",
+    "cooperation_resource_use_id", "outside_resource_use_id",
+})
+
+
+def review_original_joint_purchase_cash(
+    raw: Any, *, plans: Sequence[PurchasingPlan],
+    economic_claims: Mapping[str, Any], works: Mapping[str, Any],
+    links: Sequence[Any], org_revision: str,
+) -> dict[str, Any]:
+    """Match original price *claims* to the one economic_claims ledger.
+
+    Does not validate cash settlement or goods receipt. In particular, the
+    supplier quote is a separate model-only claim, not an authenticated offer.
+    Buyer ancillary costs (marketing, freight, operator fees, switching and
+    transaction costs) are outside the price-only reconciliation. Full net
+    benefit and actual network savings always remain unknown.
+    """
+    if not isinstance(raw, list) or len(raw) > _MAX_PLANS:
+        raise PurchasingInputError("PURCHASE_ORIGINAL_LINK_COUNT_INVALID")
+    if not isinstance(economic_claims, dict):
+        raise PurchasingInputError("PURCHASE_REQUIRES_ORIGINAL_ECONOMIC_CLAIMS")
+    if not isinstance(org_revision, str):
+        raise PurchasingInputError("PURCHASE_ORIGINAL_ORG_REVISION_UNKNOWN")
+    plan_by_id = {plan.key: plan for plan in plans}
+    link_by_id = {link.key: link for link in links}
+    transfers = {row["id"]: row for row in economic_claims["transfers"]}
+    resources = {row["id"]: row for row in economic_claims["resource_uses"]}
+    sources = {row["id"]: row for row in economic_claims["sources"]}
+    coverage = economic_claims["coverage"]
+    feasible = economic_claims["outside_feasibility"]
+    used_cash: set[str] = set()
+    used_resources: set[str] = set()
+    used_model_proofs: set[str] = set()
+    seen_plans: set[str] = set()
+    results: list[dict[str, Any]] = []
+    for record in raw:
+        if not isinstance(record, dict) or set(record) != _ORIGINAL_PURCHASE_PLAN_FIELDS:
+            raise PurchasingInputError("PURCHASE_ORIGINAL_LINK_FIELDS_INVALID")
+        key = _identifier(record["plan"], "ORIGINAL_PLAN_ID")
+        plan = plan_by_id.get(key)
+        if plan is None or key in seen_plans:
+            raise PurchasingInputError("PURCHASE_ORIGINAL_PLAN_MISSING_OR_DUPLICATE")
+        seen_plans.add(key)
+        link = link_by_id.get(plan.relation)
+        if (link is None or link.source_revision != plan.relation_revision
+                or org_revision != plan.org_revision):
+            raise PurchasingInputError("PURCHASE_ORIGINAL_RELATION_OR_CODE_STALE")
+        if (economic_claims["period"] != plan.period
+                or economic_claims["currency"] != plan.currency):
+            raise PurchasingInputError("PURCHASE_ORIGINAL_PERIOD_CURRENCY_MISMATCH")
+        if record["supplier_source_ref"] != plan.supplier_source:
+            raise PurchasingInputError("PURCHASE_ORIGINAL_SUPPLIER_QUOTE_SOURCE_MISMATCH")
+        at = record["quote_at"]
+        if (type(at) is not int or
+                not plan.supplier_start <= at < plan.supplier_end):
+            raise PurchasingInputError("PURCHASE_ORIGINAL_SUPPLIER_QUOTE_EXPIRED")
+        declared_units = sum(b.quantity for b in plan.buyers)
+        if declared_units > plan.capacity:
+            raise PurchasingInputError("PURCHASE_ORIGINAL_GROUP_CAPACITY_EXCEEDED")
+        tiers = [(threshold, price) for threshold, price in plan.tiers
+                 if threshold <= declared_units]
+        if not tiers:
+            raise PurchasingInputError("PURCHASE_ORIGINAL_PRICE_TIER_UNAVAILABLE")
+        threshold, price = tiers[-1]
+        rows = record["buyer_bindings"]
+        if not isinstance(rows, list) or len(rows) > len(plan.buyers):
+            raise PurchasingInputError("PURCHASE_ORIGINAL_BUYER_BINDING_COUNT_INVALID")
+        plan_buyers = {b.owner: b for b in plan.buyers}
+        seen_buyers: set[str] = set()
+        owner_views: dict[str, dict[str, Any]] = {}
+        coop_gross = Decimal("0")
+        outside_gross = Decimal("0")
+        for row in rows:
+            if not isinstance(row, dict) or set(row) != _ORIGINAL_PURCHASE_BUYER_FIELDS:
+                raise PurchasingInputError("PURCHASE_ORIGINAL_BUYER_FIELDS_INVALID")
+            owner = _identifier(row["owner"], "ORIGINAL_BUYER_OWNER")
+            buyer = plan_buyers.get(owner)
+            if buyer is None or owner in seen_buyers:
+                raise PurchasingInputError("PURCHASE_ORIGINAL_BUYER_NOT_IN_PLAN_OR_DUPLICATE")
+            seen_buyers.add(owner)
+            work = works.get(buyer.work)
+            if (row["work"] != buyer.work or
+                    row["work_source_revision"] != buyer.work_revision or
+                    work is None or getattr(work, "customer", None) != owner or
+                    getattr(work, "source_revision", None) != buyer.work_revision or
+                    buyer.work not in link.works):
+                raise PurchasingInputError("PURCHASE_ORIGINAL_BUYER_WORK_SCOPE_MISMATCH")
+            if not buyer.available_at <= at < buyer.expires_at:
+                raise PurchasingInputError("PURCHASE_ORIGINAL_BUYER_NEED_OUTSIDE_QUOTE")
+            proof = row["owner_reconciliation_ref"]
+            if (not isinstance(proof, str) or not proof.startswith(f"model://{owner}/")
+                    or proof in used_model_proofs
+                    or proof in (buyer.source, plan.supplier_source)
+                    or len(proof) > 180 or len(proof) <= len(f"model://{owner}/")):
+                raise PurchasingInputError("PURCHASE_ORIGINAL_INDEPENDENT_OWNER_PROOF_REQUIRED")
+            used_model_proofs.add(proof)
+            expected = {
+                "COOPERATION": buyer.quantity * price,
+                "INDEPENDENT_ALTERNATIVE": (
+                    buyer.quantity * buyer.amounts["outside_unit_cash"]
+                ),
+            }
+            observed: dict[str, Decimal] = {}
+            for scenario, transfer_field, resource_field in (
+                ("COOPERATION", "cooperation_external_transfer_id",
+                 "cooperation_resource_use_id"),
+                ("INDEPENDENT_ALTERNATIVE", "outside_external_transfer_id",
+                 "outside_resource_use_id"),
+            ):
+                cash_id = _identifier(row[transfer_field], "ORIGINAL_TRANSFER_ID")
+                resource_id = _identifier(row[resource_field], "ORIGINAL_RESOURCE_USE_ID")
+                if cash_id in used_cash or resource_id in used_resources:
+                    raise PurchasingInputError("PURCHASE_ORIGINAL_CASH_OR_RESOURCE_REUSED")
+                used_cash.add(cash_id)
+                used_resources.add(resource_id)
+                transfer = transfers.get(cash_id)
+                resource = resources.get(resource_id)
+                if transfer is None or resource is None:
+                    raise PurchasingInputError("PURCHASE_ORIGINAL_CASH_AND_RESOURCE_REQUIRED")
+                if (transfer["scenario"] != scenario or
+                        transfer["payer"] != owner or transfer["payee"] != "EXTERNAL"
+                        or transfer["work"] != buyer.work):
+                    raise PurchasingInputError("PURCHASE_ORIGINAL_EXTERNAL_BUYER_PAYMENT_SCOPE")
+                if (resource["scenario"] != scenario or resource["owner"] != owner
+                        or resource["work"] != buyer.work or resource["bucket"] != "DELIVERY"):
+                    raise PurchasingInputError("PURCHASE_ORIGINAL_BUYER_RESOURCE_SCOPE")
+                if (sources.get(transfer["source"], {}).get("owner") != owner
+                        or sources.get(resource["source"], {}).get("owner") != owner):
+                    raise PurchasingInputError("PURCHASE_ORIGINAL_OWNER_SOURCE_MISMATCH")
+                declared_amount = _money(transfer["amount"])
+                if declared_amount != expected[scenario]:
+                    raise PurchasingInputError("PURCHASE_ORIGINAL_UNIT_PRICE_CASH_MISMATCH")
+                observed[scenario] = declared_amount
+            is_originally_covered = all(
+                owner in coverage[sc] for sc in
+                ("COOPERATION", "INDEPENDENT_ALTERNATIVE")
+            )
+            is_outside_feasible = (
+                feasible.get(owner, {}).get("state") == "FEASIBLE_DECLARED"
+            )
+            source_complete = is_originally_covered and is_outside_feasible
+            owner_views[owner] = {
+                "original_work": buyer.work,
+                "original_buyer_source_ref": proof,
+                "declared_purchase_quantity_units": buyer.quantity,
+                "cooperation_original_supplier_cash": f"{observed['COOPERATION']:.2f}",
+                "independent_original_supplier_cash": (
+                    f"{observed['INDEPENDENT_ALTERNATIVE']:.2f}"
+                ),
+                "independent_minus_cooperation_purchase_price_only": (
+                    f"{observed['INDEPENDENT_ALTERNATIVE']-observed['COOPERATION']:.2f}"
+                    if source_complete else None
+                ),
+                "owner_outside_feasibility_and_cash_coverage_declared": source_complete,
+                "real_purchase_delivery_payment_or_discount_authenticated": False,
+                "price_alone_does_not_include_operator_logistics_advertising_or_risk": True,
+            }
+            coop_gross += observed["COOPERATION"]
+            outside_gross += observed["INDEPENDENT_ALTERNATIVE"]
+        missing = sorted(set(plan_buyers) - seen_buyers)
+        complete = not missing and all(
+            row["owner_outside_feasibility_and_cash_coverage_declared"]
+            for row in owner_views.values()
+        )
+        results.append({
+            "plan": key,
+            "status": ("ORIGINAL_SUPPLIER_PRICE_AND_OWNER_CASH_ROWS_SOURCE_MATCHED_MODEL_ONLY"
+                       if complete else "PURCHASE_ORIGINAL_OWNER_PRICE_SCOPE_INCOMPLETE"),
+            "declared_model_tier_minimum_quantity": threshold,
+            "declared_model_group_quantity_units": declared_units,
+            "source_matched_original_owner_count": len(owner_views),
+            "missing_original_buyer_count": len(missing),
+            "original_owner_outside_or_coverage_unknown_count": sum(
+                not row["owner_outside_feasibility_and_cash_coverage_declared"]
+                for row in owner_views.values()
+            ),
+            "original_buyer_private_model_views": dict(sorted(owner_views.items())),
+            "group_original_supplier_external_cash_cooperation": (
+                f"{coop_gross:.2f}" if complete else None
+            ),
+            "group_original_supplier_external_cash_independent": (
+                f"{outside_gross:.2f}" if complete else None
+            ),
+            "group_independent_minus_cooperation_supplier_price_claim_only": (
+                f"{outside_gross-coop_gross:.2f}" if complete else None
+            ),
+            "full_ancillary_and_operator_purchase_costs_reconciled": False,
+            "original_work_results_or_supplier_delivery_accepted_proven": False,
+            "actual_external_bank_settlement_proven": False,
+            "full_network_economic_gain_or_profits_proven": False,
+            "original_transfer_and_resource_amounts_unchanged": True,
+            "supplier_quote_source_not_authenticated": True,
+            "group_consent_or_new_contract_created": False,
+        })
+    return {
+        "evidence": "SOURCE_DECLARED_ORIGINAL_LEDGER_REFERENCES_MODEL_ONLY",
+        "original_matched_plan_count": sum(
+            row["status"] ==
+            "ORIGINAL_SUPPLIER_PRICE_AND_OWNER_CASH_ROWS_SOURCE_MATCHED_MODEL_ONLY"
+            for row in results
+        ),
+        "original_incomplete_plan_count": len(results) - sum(
+            row["status"] ==
+            "ORIGINAL_SUPPLIER_PRICE_AND_OWNER_CASH_ROWS_SOURCE_MATCHED_MODEL_ONLY"
+            for row in results
+        ),
+        "source_declared_existing_original_transfer_count": len(used_cash),
+        "source_declared_existing_original_resource_use_count": len(used_resources),
+        "unreviewed_purchasing_plan_count": len(plans) - len(results),
+        "original_network_cash_and_resource_ledgers_unchanged": True,
+        "true_savings_real_payment_delivery_and_group_rights_not_established": True,
+        "plans": sorted(results, key=lambda row: row["plan"]),
+    }
