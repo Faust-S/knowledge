@@ -5,7 +5,8 @@
 import {copy,digest,identifier,insist,iso,timestamp} from './core.mjs';
 import {validateCorporateLicenseRequest,validateCorporateLicensePayload,
   createCorporateLicenseCandidate,signCorporateLicenseCandidate,
-  inspectSignedCorporateLicense,CORPORATE_LICENSE_SCHEMA
+  inspectSignedCorporateLicense,signCorporateLicenseStatus,
+  inspectSignedCorporateLicenseStatus,CORPORATE_LICENSE_SCHEMA
 } from './corporate-product-license.mjs';
 
 export const ORIGINAL_PRODUCT_ISSUE_LEDGER_SCHEMA='IWXA_T3_PRODUCT_LICENSE_ISSUE_LEDGER/1';
@@ -135,4 +136,122 @@ export function issueCorporateProductLicenseOnce({
     signedLicense:copy(signedLicense),ledgerRevision:ledger.revision+1,
     activeSeats:0,assignablePersonalAgentSeats:0,
     recipientConfirmed:false});
+}
+
+
+function originalCorporateLicense(ownerState,licenseId,inspectLegacyLedger){
+  identifier(licenseId);
+  const ledger=inspectOriginalLedger(ownerState?.productLicenseIssueLedger,
+    ownerState,inspectLegacyLedger);
+  const found=Object.values(ledger.records)
+    .filter(row=>row.signedLicense?.payload?.id===licenseId);
+  insist(found.length===1,'CORP_ORIGINAL_SIGNED_LICENSE_UNIQUE_REQUIRED');
+  const license=copy(found[0].signedLicense);
+  const p=validateCorporateLicensePayload(license.payload);
+  inspectSignedCorporateLicense({envelope:license,installedTrust:ownerState,
+    organizationId:p.subject.id,now:timestamp(p.notBefore)});
+  return {ledger,license,p};
+}
+function signedStatusPair(ownerState,license,priorFloor){
+  const status=ownerState.productLicenseStatusEnvelopes?.[license.payload.id];
+  insist(Boolean(status)===Boolean(priorFloor),
+    'CORP_ORIGINAL_STATUS_PAIR_REQUIRED');
+  if(!status)return null;
+  const read=inspectSignedCorporateLicenseStatus({
+    license,statusEnvelope:status,installedTrust:ownerState,
+    organizationId:license.payload.subject.id,priorFloor,
+    now:timestamp(status.payload?.issuedAt)
+  });
+  insist(digest(read.floor)===digest(priorFloor),
+    'CORP_ORIGINAL_STATUS_FLOOR_READBACK_MISMATCH');
+  return {statusEnvelope:copy(status),checked:read};
+}
+
+/** Sign corporate STATUS into the ORIGINAL T3 status envelopes and status
+ * floors, in the SAME atomic owner state. Never start a second STATUS Store.
+ * The caller first performs the existing original owner authorization and
+ * hands this function its pre-enrolled STATUS-only signer.
+ */
+export function changeCorporateLicenseStatusOnce({
+  licenseId,nextStatus,expectedSequence,validUntil,
+  ownerState,statusSigner,persist,inspectLegacyLedger,now=Date.now()
+}={}){
+  insist(Number.isSafeInteger(now)&&now>=0&&
+    now>=timestamp(ownerState?.lastObservedAt??iso(0))&&
+    Number.isSafeInteger(ownerState?.revision)&&
+    Number.isSafeInteger(ownerState.revision+1),
+    'CORP_ORIGINAL_STATUS_STATE_INVALID');
+  insist(Number.isSafeInteger(expectedSequence)&&expectedSequence>=0,
+    'CORP_ORIGINAL_STATUS_EXPECTED_SEQUENCE_REQUIRED');
+  insist(['ACTIVE','SUSPENDED','REVOKED'].includes(nextStatus),
+    'CORP_ORIGINAL_STATUS_STATE_DENIED');
+  const {ledger,license,p}=originalCorporateLicense(ownerState,licenseId,
+    inspectLegacyLedger);
+  const floor=ownerState.productLicenseStatusFloors?.[licenseId]??null;
+  const previous=signedStatusPair(ownerState,license,floor);
+  const sequence=floor?.sequence??0;
+  insist(sequence===expectedSequence,'CORP_ORIGINAL_STATUS_SEQUENCE_STALE');
+  insist(floor?.state!=='REVOKED','CORP_ORIGINAL_TERMINAL_REVOKE');
+  insist(typeof persist==='function','CORP_ORIGINAL_STATUS_ATOMIC_PERSIST_REQUIRED');
+  const statusEnvelope=signCorporateLicenseStatus({license,ownerState,
+    signer:statusSigner,sequence:sequence+1,state:nextStatus,
+    validUntil,now});
+  const verified=inspectSignedCorporateLicenseStatus({
+    license,statusEnvelope,installedTrust:ownerState,
+    organizationId:p.subject.id,priorFloor:previous?.checked.floor??null,now});
+  const next=copy(ownerState);
+  next.revision++;
+  next.lastObservedAt=iso(now);
+  next.productLicenseStatusFloors={
+    ...(next.productLicenseStatusFloors??{}),[licenseId]:copy(verified.floor)
+  };
+  next.productLicenseStatusEnvelopes={
+    ...(next.productLicenseStatusEnvelopes??{}),[licenseId]:copy(statusEnvelope)
+  };
+  const receipt=persist(copy(next),{expectedStateRevision:ownerState.revision,
+    expectedLedgerRevision:ledger.revision});
+  insist(receipt?.durable===true&&receipt.stateRevision===next.revision&&
+    receipt.ledgerRevision===ledger.revision,
+    'CORP_ORIGINAL_DURABLE_STATUS_RECEIPT_REQUIRED');
+  return Object.freeze({outcome:'CORPORATE_STATUS_RECORDED',
+    licenseId,state:nextStatus,statusEnvelope:copy(statusEnvelope),
+    floor:copy(verified.floor),stateRevision:next.revision,
+    recipientConfirmed:false,assignablePersonalAgentSeats:0,
+    productionActivation:false});
+}
+
+/** Historical original issuer readback only. It confirms signed bytes
+ * persisted at issuance, not current recipient status or employee rights.
+ * This gives lost-ACK recovery an exact owner-side pair to compare without
+ * reissuing a license or incrementing STATUS sequence.
+ */
+export function inspectCorporateOriginalOwnerSignedReadback({
+  ownerState,licenseId,inspectLegacyLedger
+}={}){
+  insist(Number.isSafeInteger(ownerState?.revision)&&ownerState.revision>=0,
+    'CORP_ORIGINAL_SIGNED_READBACK_STATE_REQUIRED');
+  const {ledger,license,p}=originalCorporateLicense(ownerState,licenseId,
+    inspectLegacyLedger);
+  const floor=ownerState.productLicenseStatusFloors?.[licenseId]??null;
+  const prior=signedStatusPair(ownerState,license,floor);
+  return Object.freeze({
+    operation:'CORPORATE_SIGNED_READBACK',
+    source:'ORIGINAL_T3_PRODUCT_ISSUE_LEDGER',
+    licenseId,requestId:p.requestId,
+    organizationId:p.subject.id,productId:p.product.id,
+    productVersion:p.product.version,
+    issuerAuthorityId:p.issuerAuthorityId,
+    tariffId:p.tariff.id,tariffRevision:p.tariff.revision,
+    licenseEnvelopeSha256:digest(license),
+    licenseSignatureVerifiedAtIssuance:true,
+    statusEnvelopeSha256:prior?digest(prior.statusEnvelope):null,
+    statusSignatureVerifiedAtIssuance:Boolean(prior),
+    statusFloorVerified:Boolean(prior),
+    status:prior?.checked.status??'NOT_ACTIVATED',
+    sequence:prior?.checked.sequence??0,
+    statusValidUntil:prior?.checked.statusValidUntil??null,
+    ledgerRevision:ledger.revision,stateRevision:ownerState.revision,
+    recipientConfirmed:false,activeSeats:0,assignablePersonalAgentSeats:0,
+    productionActivation:false
+  });
 }
