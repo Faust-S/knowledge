@@ -62,3 +62,17 @@ test('recovered target review is not misrepresented as an attested link to curre
   assert.match(recovery,/sourceScoped\.getWorkspace\(sourceOwner\.workspace_id\)/);
   assert.match(recovery,/T3_ACTIVITY_RECOVERY_SOURCE_WORKSPACE_UNAVAILABLE/);
 });
+
+test('T3 evidence passport explains source gaps without displaying source rows or fake scores',()=>{
+  const app=file('../desktop/src/App.tsx');
+  const evidence=file('../modules/activity-base-anonymizer/t3-evidence-passport.mjs');
+  const style=file('../desktop/src/styles.css');
+  assert.match(app,/buildT3EvidencePassport\(review\)/);
+  assert.match(app,/Паспорт достаточности фактов/);
+  assert.match(app,/Остальные вопросы к исходным данным/);
+  assert.match(app,/Экспорт закрыт/);
+  assert.match(style,/\.evidence-audit-heading/);
+  assert.match(style,/summary:focus-visible/);
+  assert.doesNotMatch(evidence,/fetch\(|XMLHttpRequest|WebSocket|putObject|exportPackage|createWorkspace/);
+  assert.doesNotMatch(evidence,/source_id|source_object|credential|grantId|sourceWorkspaceId/);
+});

@@ -84,3 +84,23 @@ h2 {margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.025em;}
 .observed-order {padding:12px 16px;display:flex;flex-direction:column;gap:5px;border-top:1px solid var(--line, #e6e7ef);font-size:12px}
 .observed-order strong {font-size:12px;overflow-wrap:anywhere;line-height:1.5}
 .risk-result {font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+/* Evidence readiness is a read-only explanation of original signed T3 D2.
+   No new control surface, source IDs or sensitive labels enter the renderer. */
+.evidence-audit {margin-top:14px;padding:14px 15px;background:#211f31;border:1px solid #4c405f;border-radius:10px;}
+.evidence-audit-heading {display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.evidence-audit-heading strong {font-size:12px;font-weight:750;}
+.evidence-audit-count {font-size:10px;color:#dbc7fd;font-variant-numeric:tabular-nums;}
+.evidence-audit-result {font-size:12px !important;font-weight:680;color:#eedafa !important;margin:8px 0 4px !important;}
+.evidence-audit-boundary {font-size:11px !important;line-height:1.55;color:#bdb5ce !important;margin:7px 0 12px !important;}
+.evidence-audit-next {display:block;margin:13px 0 8px;font-size:11px;color:#d2c3ed;}
+.evidence-audit-steps {display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:8px;}
+.evidence-step {display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:11px;border-radius:8px;background:#292438;border:1px solid #453a58;min-width:0;}
+.evidence-step-source {font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:#bba4e4;}
+.evidence-step strong {font-size:11px;line-height:1.35;color:#eee3ff;overflow-wrap:anywhere;}
+.evidence-step p {font-size:11px !important;color:#c5bbd4 !important;line-height:1.5 !important;margin:0 !important;overflow-wrap:anywhere;}
+.evidence-audit-more {margin-top:10px;border-top:1px solid #453a58;padding-top:9px;}
+.evidence-audit-more summary {cursor:pointer;color:#d2b5ff;font-size:11px;line-height:1.6;user-select:none;}
+.evidence-audit-more summary:focus-visible {outline:2px solid #cdbaff;outline-offset:3px;}
+.evidence-audit-more .evidence-audit-steps {margin-top:10px;}
+.evidence-audit-info {margin:12px 0 0 !important;font-size:10px !important;color:#afbcad !important;}
+@media (max-width:1100px) {.evidence-audit {padding:11px;} .evidence-audit-steps {grid-template-columns:minmax(0,1fr);}}

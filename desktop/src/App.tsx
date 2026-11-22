@@ -1,5 +1,6 @@
 import {useLayoutEffect, useRef, useState} from 'react';
 import {createT3ReviewController} from '../../modules/activity-base-anonymizer/t3-review-controller.mjs';
+import {buildT3EvidencePassport} from '../../modules/activity-base-anonymizer/t3-evidence-passport.mjs';
 import type {T3ReviewHost, T3ReviewState} from '../../modules/activity-base-anonymizer/t3-review-controller.mjs';
 import type {T3ActivityReview, T3StructuralCandidate} from '../../modules/activity-base-anonymizer/t3-selected-host.mjs';
 import {ActivityHold, buildSyntheticExample} from '../../modules/activity-base-anonymizer/engine.mjs';
@@ -94,53 +95,50 @@ function T3ViewCard({view, number}: {view: T3StructuralCandidate; number: number
   </section>;
 }
 
-// Source gaps are interpreted from the original trusted A2 reason codes.
-// Never infer operations, performers or execution quality from a Kernel event.
-const T3_EVIDENCE_GAPS = [
-  {code:'T3_D2_EVENT_STATUS_NOT_DECLARED',
-    issue:'Для событий не указан уровень доказанности',
-    action:'В предметной модели T3 нужно указать, является событие наблюдённым фактом, сообщением или предположением. Неуказанное значение нельзя считать исполнением.'},
-  {code:'T3_D2_UNVERIFIED_EVENT_STEP',
-    issue:'Исполнение операций не подтверждено',
-    action:'Записи имеют статус сообщения, декларации или предположения. Нужны наблюдённые события выполнения из предметной системы.'},
-  {code:'T3_D2_UNMAPPED_SOURCE_RECORD',
-    issue:'Не все события или объекты сопоставлены',
-    action:'Уточнить предметные схемы D2 у владельца источника. Нельзя достраивать пропущенные операции предположениями.'},
-  {code:'T3_D2_UNRESOLVED_SOURCE_LINK',
-    issue:'Не установлены связи событий с объектами',
-    action:'В исходной системе должны быть проверяемые ссылки на соответствующие заказы, работы или результаты.'},
-  {code:'T3_D2_EVENT_OBJECT_UNVERIFIED',
-    issue:'Часть событий не относится к доказанному объекту',
-    action:'Требуется уточнение происхождения события и его связи с исходной работой.'},
-  {code:'T3_D2_NO_OBSERVED_ACTIVITY',
-    issue:'Нет зафиксированных хозяйственных действий',
-    action:'Создание Workspace и служебные записи не заменяют фактическое выполнение операций.'},
-  {code:'T3_D2_OBJECT_EVENT_ORDER_UNKNOWN',
-    issue:'Хронология действий не установлена',
-    action:'Одинаковые или недостаточно точные времена событий не дают права придумывать порядок работ.'},
-  {code:'T3_D2_OBJECT_WITHOUT_EVENTS',
-    issue:'У части объектов отсутствует история действий',
-    action:'Для восстановления траектории нужны фактические переходы состояния из источника.'},
-  {code:'T3_D2_RARE_OBJECT_ROUTE',
-    issue:'Маршрут может раскрыть участника или уникальный заказ',
-    action:'Редкие последовательности остаются внутренними. Требуется отдельная оценка раскрытия.'},
-  {code:'T3_D2_RARE_OBJECT_RELATION',
-    issue:'Редкая связь объектов требует отдельной проверки',
-    action:'Не включать уникальные связи в передаваемую модель автоматически.'},
-  {code:'T3_D2_RELATION_PRIVACY_REVIEW_REQUIRED',
-    issue:'Связи объектов требуют оценки раскрытия',
-    action:'Подтвердить применимость и безопасность производной модели до передачи.'},
-] as const;
-
+// The original trusted T3 Host has already removed all source identifiers.
+// Present only deterministic descriptions of allowed D2 reason codes, never
+// source rows, raw timestamps, guessed operations or a confidence percentage.
 function T3EvidenceGaps({review}: {review: T3ActivityReview}) {
-  const reasons=new Set(review.reason_codes);
-  const gaps=T3_EVIDENCE_GAPS.filter(x=>reasons.has(x.code)).slice(0,2);
-  if (!gaps.length) return <p className="panel-copy">Структурный кандидат доступен только
-    для внутренней проверки. Права на передачу и отсутствие риска раскрытия ещё не доказаны.</p>;
-  return <section aria-label="Что мешает восстановлению процесса">
-    <strong>Что нужно уточнить в исходных фактах</strong>
-    {gaps.map(gap=><p className="panel-copy" key={gap.code}>
-      <strong>{gap.issue}.</strong> {gap.action}
+  const passport=buildT3EvidencePassport(review);
+  const tasks=passport.groups.flatMap(group=>
+    group.items.map(item=>({...item,groupLabel:group.label})));
+  return <section className="evidence-audit" aria-label="Паспорт достаточности фактов">
+    <div className="evidence-audit-heading">
+      <strong>Паспорт достаточности фактов</strong>
+      <span className="evidence-audit-count">{passport.actionCount} вопросов к источнику</span>
+    </div>
+    <p className="evidence-audit-result">
+      {passport.result==='INSUFFICIENT_FOR_RECONSTRUCTION'
+        ? 'Недостаточно доказательств для восстановления процесса'
+        : 'Разрешён только внутренний просмотр структурного кандидата'}
+    </p>
+    <p className="evidence-audit-boundary">
+      Подтверждение физического исполнения и причинности не установлено.
+      Экспорт закрыт. Это не процент достоверности и не оценка стоимости потерь.
+    </p>
+    {tasks.length ? <>
+      <strong className="evidence-audit-next">Что проверить в первую очередь</strong>
+      <div className="evidence-audit-steps">
+        {tasks.slice(0,2).map(task=><div className="evidence-step" key={task.code}>
+          <span className="evidence-step-source">{task.groupLabel}</span>
+          <strong>{task.issue}</strong>
+          <p>{task.next}</p>
+        </div>)}
+      </div>
+      {tasks.length>2 ? <details className="evidence-audit-more">
+        <summary>Остальные вопросы к исходным данным ({tasks.length-2})</summary>
+        <div className="evidence-audit-steps">
+          {tasks.slice(2).map(task=><div className="evidence-step" key={task.code}>
+            <span className="evidence-step-source">{task.groupLabel}</span>
+            <strong>{task.issue}</strong>
+            <p>{task.next}</p>
+          </div>)}
+        </div>
+      </details> : null}
+    </> : <p className="evidence-audit-boundary">Уточнений по текущим кодам D2 нет,
+      но это не удостоверяет производство, анонимность или разрешение на передачу.</p>}
+    {passport.info.map(item=><p className="evidence-audit-info" key={item.code}>
+      {item.issue}. {item.next}
     </p>)}
   </section>;
 }
@@ -359,7 +357,7 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
               : 'Изменившееся или неподтверждённое разрешение не используется повторно.'}</p></div> : null}
           {!preview && !objectEvidence && !t3Review?.review && !problem &&
             !['HOLD','STAGING','RECOVERING','STAGED'].includes(t3Review?.status ?? '') ? <div className="empty-state"><div className="empty-icon">IX</div>
-            <strong>Выберите базу для анализа</strong><p>Автоматически появятся обнаруженные процессы, этапы и роли. Для начала доступен встроенный синтетический пример.</p></div> : null}
+            <strong>Выберите базу для анализа</strong><p>Подтверждённая структура появится только при достаточности исходных событий и действующих правах T3. Для начала доступен встроенный синтетический пример.</p></div> : null}
           {t3Review?.status === 'READING' ? <div className="empty-state" role="status">
             <div className="empty-icon">T3</div><strong>Чтение выбранного Workspace</strong>
             <p>Доступ подтверждается T3 при каждом обращении. Источник не изменяется.</p>
