@@ -109,6 +109,68 @@ try{
     "D2_ORIGINAL_WORKSPACE_CREATE_GRANT_NOT_DISTINCT");
   console.log("D2_ORIGINAL_PRIVATE_WORKSPACE_READ_JIT_PASS");
   console.log("D2_ORIGINAL_PRIVATE_SEPARATE_CREATE_GRANT_PASS");
+  // Deterministic T2 facade stub for an at-most-once signed JIT contract
+  // regression. This does NOT count as installed original Kernel evidence.
+  // The real installed D2 job below must independently perform that read.
+  let kernelCreateCalls=0,created=null;
+  const createKernel={
+    sessionInfo:{contract_version:"1.3.0",runtime_version:"0.3.6"},
+    hasOperation:op=>op==="t1.getWorkspace"||op==="t1.createWorkspace",
+    getWorkspace:async id=>created?.workspace_id===id?created:null,
+    createWorkspace:async input=>{
+      kernelCreateCalls++;
+      created={...input,deleted_at:null};
+      return created;
+    },
+  };
+  const authorizedCreate=await nativeHost.controlKernelOwnerFor(
+    {scope:"kernel",operation:"createWorkspace"},createSignedAccessHostPort);
+  const first=createSubjectKernelBinding({
+    kernel:createKernel,access:authorizedCreate,clock:()=>NOW,
+  });
+  const firstReceipt=await first.createWorkspace({
+    workspace_id:I.workspace,profile:"generic",
+  });
+  check(firstReceipt?.workspace_id===I.workspace&&kernelCreateCalls===1,
+    "D2_ORIGINAL_FIRST_SIGNED_CREATE_NOT_DISPATCHED");
+  const replay=async binding=>{
+    try{await binding.createWorkspace({
+      workspace_id:I.workspace,profile:"generic",
+    });}catch(error){
+      check(code(error)==="T3_D1_WORKSPACE_CREATE_REPLAY_BLOCKED",
+        "D2_ORIGINAL_CREATE_REPLAY_WRONG_REFUSAL");
+      return;
+    }
+    check(false,"D2_ORIGINAL_CREATE_REPLAY_ADMITTED");
+  };
+  await replay(first);
+  check(kernelCreateCalls===1,"D2_ORIGINAL_CREATE_REPLAY_T2_CALLED");
+  console.log("D2_ORIGINAL_SIGNED_CREATE_SAME_SESSION_FENCE_PASS");
+  // Cold-open the ORIGINAL private T3 Owner from the SAME original profile,
+  // including its already existing workspace.json. No new identity or grant.
+  nativeHost.close();nativeHost=null;
+  owner.close();owner=null;
+  owner=openInterop({root:join(root,"admin"),product:"admin",
+    passphrase,clock:()=>NOW});
+  owner.selectOperator("reviewer");
+  nativeHost=createOriginalAdminD3HostPort({
+    runtime:owner,isHostActive:()=>true,currentHostEpoch:async()=>1,
+    confirmHumanReview:async()=>false,
+  });
+  const coldCreate=await nativeHost.controlKernelOwnerFor(
+    {scope:"kernel",operation:"createWorkspace"},createSignedAccessHostPort);
+  await replay(createSubjectKernelBinding({
+    kernel:createKernel,access:coldCreate,clock:()=>NOW,
+  }));
+  check(kernelCreateCalls===1,"D2_ORIGINAL_COLD_CREATE_REPLAY_T2_CALLED");
+  const coldRead=await nativeHost.controlKernelOwnerFor(
+    {scope:"kernel",operation:"getWorkspace"},createSignedAccessHostPort);
+  check((await createSubjectKernelBinding({
+    kernel:createKernel,access:coldRead,clock:()=>NOW,
+  }).getWorkspace(I.workspace))?.workspace_id===I.workspace,
+    "D2_ORIGINAL_COLD_READ_ONLY_RECOVERY_DENIED");
+  console.log("D2_ORIGINAL_SIGNED_CREATE_COLD_REPLAY_FENCE_PASS");
+  console.log("D2_ORIGINAL_COLD_READ_ONLY_RECOVERY_JIT_PASS");
 }catch(error){
   console.error("D2_ORIGINAL_PRIVATE_WORKSPACE_JIT_MACHINE_CODE "+code(error));
   process.exitCode=1;
