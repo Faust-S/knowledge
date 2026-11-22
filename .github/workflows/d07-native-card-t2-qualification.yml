@@ -109,6 +109,13 @@ jobs:
             }
           }
           Write-Output 'D07_NATIVE_CARD_ONE_DIST_ORIGINAL_T2=PASS'
+      - name: All subject technologies must be real HTML cards in integrated original T2 dist
+        working-directory: site
+        run: |
+          & node --import tsx '../scripts/d07-verify-integrated-all-service-cards.mjs' '.'
+          if($LASTEXITCODE -ne 0){
+            throw 'D07_INTEGRATED_SUBJECT_CARD_HTML_INCOMPLETE'
+          }
       - name: Real Microsoft Edge UIAutomation for five cards and T2 order save
         id: native_order
         env:
