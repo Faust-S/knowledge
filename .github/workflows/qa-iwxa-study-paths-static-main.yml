@@ -185,6 +185,14 @@ jobs:
             console.log('PUBLISHED_HTML_CHROME_PASS',checks);
           }finally{await browser.close();}
           JS
+      - name: Package site-only output as one-day release backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-static-release-ready-for-hosting
+          path: .private/site/dist-static/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 5
       - name: Commit complete static output on private IWXA main
         working-directory: .private/site
         shell: bash
