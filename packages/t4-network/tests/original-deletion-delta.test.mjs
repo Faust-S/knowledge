@@ -237,13 +237,13 @@ test('a deleted recipient record does not imply valid original receipt',async()=
    code('DELETE_ORIGINAL_RECIPIENT_ABSENT_REQUIRES_EVENT_RECONCILIATION'));
  assert.equal(r.writes.length,1);
 });
-test('unknown original deletion ACK requires explicit verified recovery and original idempotent receipt',async()=>{
+test('unknown original deletion ACK requires live original T3 Event evidence, never a second delete',async()=>{
  const c=await capture('RELATION_DELETE'),{received}=await delivery(c),r=recipient('RELATION_DELETE');
  r.loseAck();
  await assert.rejects(r.apply(received),e=>e?.code==='DELETE_ORIGINAL_RECIPIENT_OUTCOME_UNKNOWN'&&
    e.details.automaticRetryAllowed===false);
  assert.equal(r.relation(),null);
- await assert.rejects(r.apply(received),code('DELETE_ORIGINAL_RECIPIENT_ABSENT_NO_PROOF'));
+ await assert.rejects(r.apply(received),code('DELETE_ORIGINAL_RECIPIENT_ABSENT_REQUIRES_EVENT_RECONCILIATION'));
  const applied=await reconcileT4OriginalDeleteFromT3Event({
    received,originalKernel:r.kernel,
    authorizeOriginalRead:async()=>true,authorizeOriginalWrite:async()=>true,
@@ -256,7 +256,7 @@ test('unknown original deletion ACK requires explicit verified recovery and orig
  assert.equal(applied.originalReceiptRef,'event:original:deleted');
  assert.equal(r.writes.length,1);
 });
-test('unknown original Asset deletion ACK requires prior proof and exact idempotent retry',async()=>{
+test('unknown original Asset deletion ACK requires matching original T3 Event, not an idempotent retry',async()=>{
  const c=await capture('ASSET_DELETE'),{received}=await delivery(c),r=recipient('ASSET_DELETE');
  r.loseAck();
  await assert.rejects(r.apply(received),code('DELETE_ORIGINAL_RECIPIENT_OUTCOME_UNKNOWN'));
