@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 14b12b0ae5ca1e978248e16b37587cc0dab02682
+          ref: cf0a9023e5c5940d6106df395cc16895011697dc
           token: ${{ secrets.DOMEN }}
           path: subject
           persist-credentials: false
@@ -26,20 +26,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 98cde2b49baf9ae307b104f05525eac223d0cad3
+          ref: 0e620860893f03e208e7b18ee16006318e671996
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify pinned revision and domain/site parity
         run: |
-          test "$(git -C subject rev-parse HEAD)" = "14b12b0ae5ca1e978248e16b37587cc0dab02682"
-          test "$(git -C site rev-parse HEAD)" = "98cde2b49baf9ae307b104f05525eac223d0cad3"
-          for file in service-subject-protocols.ts service-subject-it-router.ts service-subject-it-printer.ts service-subject-it-wifi.ts service-subject-it-batch-a.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-professional-facet-coverage.ts service-original-corroboration.ts; do
+          test "$(git -C subject rev-parse HEAD)" = "cf0a9023e5c5940d6106df395cc16895011697dc"
+          test "$(git -C site rev-parse HEAD)" = "0e620860893f03e208e7b18ee16006318e671996"
+          for file in service-subject-protocols.ts service-subject-it-router.ts service-subject-it-printer.ts service-subject-it-wifi.ts service-subject-it-software.ts service-subject-it-batch-a.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-professional-facet-coverage.ts service-original-corroboration.ts; do
             cmp "subject/src/domain/$file" "site/src/domain/$file"
           done
           cmp subject/src/data/services/kompyutery-it-sayty/nastroyka-routera.ts site/src/data/services/kompyutery-it-sayty/nastroyka-routera.ts
           cmp subject/src/data/services/kompyutery-it-sayty/nastroyka-printera.ts site/src/data/services/kompyutery-it-sayty/nastroyka-printera.ts
           cmp subject/src/data/services/kompyutery-it-sayty/nastroyka-wifi.ts site/src/data/services/kompyutery-it-sayty/nastroyka-wifi.ts
+          cmp subject/src/data/services/kompyutery-it-sayty/ustanovka-po.ts site/src/data/services/kompyutery-it-sayty/ustanovka-po.ts
           echo D07_V13_DOMAIN_SITE_PARITY=PASS
       - uses: actions/setup-node@v4
         with:
@@ -55,7 +56,7 @@ jobs:
       - name: Run professional methods, independent evidence and manual branching tests
         working-directory: site
         run: |
-          node --import tsx --test scripts/tests/d07-subject-protocols.test.mjs scripts/tests/d07-it-network-peripheral-methods.test.mjs scripts/tests/d07-plumbing-b-professional-methods.test.mjs scripts/tests/d07-plumbing-c-professional-methods.test.mjs scripts/tests/d07-manual-variant-closure.test.mjs scripts/tests/d07-professional-facet-coverage.test.mjs scripts/tests/d07-original-corroboration.test.mjs scripts/tests/d07-professional-finalization-gate.test.mjs scripts/tests/d07-professional-source-intake.test.mjs scripts/tests/d07-professional-fragment-assembly.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs scripts/tests/d07-methodology-top500.test.mjs > "$RUNNER_TEMP/d07-v13-tests.log" 2>&1 || {
+          node --import tsx --test scripts/tests/d07-subject-protocols.test.mjs scripts/tests/d07-it-network-peripheral-methods.test.mjs scripts/tests/d07-it-software-method.test.mjs scripts/tests/d07-plumbing-b-professional-methods.test.mjs scripts/tests/d07-plumbing-c-professional-methods.test.mjs scripts/tests/d07-manual-variant-closure.test.mjs scripts/tests/d07-professional-facet-coverage.test.mjs scripts/tests/d07-original-corroboration.test.mjs scripts/tests/d07-professional-finalization-gate.test.mjs scripts/tests/d07-professional-source-intake.test.mjs scripts/tests/d07-professional-fragment-assembly.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs scripts/tests/d07-methodology-top500.test.mjs > "$RUNNER_TEMP/d07-v13-tests.log" 2>&1 || {
             echo D07_V13_TESTS=FAIL
             grep -E '^not ok|^# (tests|pass|fail)|^[[:space:]]+(actual|expected|error):|D07_TOP500_CHILD_FAILURE:' "$RUNNER_TEMP/d07-v13-tests.log" | tail -30 || true
             exit 1
@@ -99,7 +100,7 @@ jobs:
           const unresolvedManual=manual.services.reduce((n,s)=>n+s.unresolvedBranches,0);
           if(!Number.isSafeInteger(unresolvedManual)||unresolvedManual<0)
             throw Error('D07_V13_VARIATION_BACKLOG_COUNTER_INVALID');
-          if(registered<94||manualCount<41)throw Error('D07_V13_EXPECTED_EDITORIAL_COVERAGE_MISSING');
+          if(registered<95||manualCount<48)throw Error('D07_V13_EXPECTED_EDITORIAL_COVERAGE_MISSING');
           console.log('D07_V13_500=PASS');
           console.log('D07_V13_INDIVIDUAL_TECHNOLOGIES='+registered);
           console.log('D07_V13_MANUAL_BRANCHES_RESOLVED='+manualCount);
