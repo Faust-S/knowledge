@@ -260,6 +260,7 @@ export function SignedSelectedWorkspaceGate({
             </p>
           )}
           {createError&&<p role="alert" data-testid="t3-d1-create-workspace-error"
+            aria-label={createErrorCode?`${createError} Код: ${createErrorCode}.`:undefined}
             className="text-sm text-amber-300">{createError}
             {createErrorCode&&<> Код: {createErrorCode}.</>}
           </p>}
