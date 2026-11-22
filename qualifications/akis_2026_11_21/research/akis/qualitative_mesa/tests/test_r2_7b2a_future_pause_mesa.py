@@ -11,9 +11,37 @@ import pytest
 
 from research.akis.qualitative_mesa.mesa_model import simulate
 from research.akis.qualitative_mesa.rules import InputError
-from .test_cooperation_akis_integration import linked_world
-from .test_cooperation_participation_integration import availability_event
+from .test_technology import world
 from .test_economic_flow import fixture as economic_fixture
+
+
+def linked_world():
+    original = world()
+    original["cooperation_links"] = [{
+        "id":"network-1",
+        "purpose":"joint access to complementary capabilities",
+        "coordinator":"op",
+        "participants":["a","b","c","op"],
+        "works":["w1"],
+        "mechanisms":[
+            "TRANSACTION_COST","JOINT_PURCHASING","MEMBER_SOURCING",
+            "SHARED_MARKETING","SHARED_LOGISTICS",
+        ],
+        "source_ref":"model://network-1", "source_revision":"nw-r1",
+    }]
+    return original
+
+
+def availability_event(at, actor="b", status="PAUSED_NEW_WORK", **updates):
+    row = {
+        "at":at, "action":"participation_status", "actor":actor,
+        "cooperation_link":"network-1",
+        "cooperation_source_revision":"nw-r1", "org_revision":"oc-1",
+        "new_participation":status, "economic_channel":"TRANSACTION_COST",
+        "participation_evidence_ref":f"model://owner-{actor}-{at}",
+    }
+    row.update(updates)
+    return row
 from .test_general_system_mesa_integration import design
 
 
