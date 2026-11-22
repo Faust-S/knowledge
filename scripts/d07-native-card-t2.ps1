@@ -53,7 +53,15 @@ function ClickUi([string]$name,$kind){
   if($candidate -and $candidate.Current.IsEnabled){$v=$candidate;break}
   Start-Sleep -Milliseconds 400
  }
- if(!$v){throw "D07_NATIVE_CARD_UI_ACTION_NOT_ENABLED"}
+ if(!$v){
+   $observed=FindUi $name $kind
+   Write-Output ("D07_NATIVE_CARD_ACTION_PRESENT="+[bool]$observed)
+   if($observed){
+     Write-Output ("D07_NATIVE_CARD_ACTION_ENABLED="+$observed.Current.IsEnabled)
+     Write-Output ("D07_NATIVE_CARD_ACTION_OFFSCREEN="+$observed.Current.IsOffscreen)
+   }
+   throw "D07_NATIVE_CARD_UI_ACTION_NOT_ENABLED"
+ }
  # An enabled button may simply be below the fold in the real browser.
  if($v.Current.IsOffscreen){
    try{
