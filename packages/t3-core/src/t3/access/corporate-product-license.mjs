@@ -6,7 +6,7 @@ import {copy,digest,fields,identifier,insist,iso,signRecord,
   timestamp,verifyRecord} from './core.mjs';
 
 export const CORPORATE_REQUEST_SCHEMA='IWXA_T3_CORPORATE_LICENSE_REQUEST/1';
-export const CORPORATE_LICENSE_SCHEMA='IWXA_T3_PRODUCT_LICENSE/2';
+export const CORPORATE_LICENSE_SCHEMA='IWXA_T3_PRODUCT_LICENSE/3';
 export const CORPORATE_STATUS_SCHEMA='IWXA_T3_PRODUCT_LICENSE_STATUS/3';
 const PRODUCT='IWXA_ADMIN_CENTER',DAY=86400000;
 const STATES=new Set(['ACTIVE','SUSPENDED','REVOKED']);
