@@ -226,7 +226,7 @@ export function SignedSelectedWorkspaceGate({
           </p>
           {phase==="denied"&&inspection.reason&&<p role="status" data-testid="t3-d1-selected-workspace-refusal-code"
             className="text-xs text-amber-300">Код: {inspection.reason}</p>}
-          {phase==="missing"&&!kernel?.hasOperation("t1.createWorkspace")&&(
+          {phase==="missing"&&(typeof kernel?.hasOperation!=="function"||!kernel.hasOperation("t1.createWorkspace"))&&(
             <p role="alert" data-testid="t3-d1-selected-workspace-create-unavailable"
               className="text-sm text-amber-300">
               Исходный Kernel не разрешает создание Workspace для этого профиля.
