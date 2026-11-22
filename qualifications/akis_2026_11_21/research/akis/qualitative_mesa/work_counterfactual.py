@@ -101,6 +101,14 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
     bindings = econ.get("lifecycle_costs", {}).get("bindings", [])
     lifecycle_by_resource = {record["resource_use_id"]: record for record in bindings}
     modern = {b["resource_use_id"]: b for b in econ.get("modern_cost_bindings", [])}
+    allocation = economic_view.get("common_work_allocations")
+    by_work = allocation["by_work"] if allocation is not None else {}
+    remainders = allocation["unallocated_remainders"] if allocation is not None else {}
+
+    def unassigned(original: Mapping[str, Any]) -> bool:
+        # Full assignment to any other original Work is NOT an additional
+        # unattributed expense for this Work; partial assignment is UNKNOWN.
+        return Decimal(remainders.get(original["id"], original["amount"])) > 0
     for work_id, (claim, eq, proofs, comparison_source) in history.items():
         work = state.works[work_id]
         actor_status = {}
@@ -116,10 +124,18 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
             party_data = {}
             external = Decimal("0")
             internal = 0
+            common_slices = by_work.get(work_id, {}).get(sc, {})
+            cash_slices = common_slices.get("TRANSFER", {})
+            noncash_slices = common_slices.get("RESOURCE_USE", {})
             for transfer in raw_transfers:
-                if transfer["scenario"] != sc or transfer["work"] != work_id:
+                if transfer["scenario"] != sc:
                     continue
-                amt = Decimal(transfer["amount"])
+                if transfer["work"] == work_id:
+                    amt = Decimal(transfer["amount"])
+                elif transfer["work"] is None and transfer["id"] in cash_slices:
+                    amt = Decimal(cash_slices[transfer["id"]])
+                else:
+                    continue
                 if transfer["payer"] == "EXTERNAL":
                     external += amt
                 elif transfer["payee"] == "EXTERNAL":
@@ -132,21 +148,34 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
                              and t["work"] == work_id and owner in (t["payer"], t["payee"])]
                 resource = [c for c in raw_resource_uses if c["scenario"] == sc
                             and c["work"] == work_id and c["owner"] == owner]
+                allocated_transfers = [t for t in raw_transfers if t["scenario"] == sc
+                                       and t["work"] is None and
+                                       t["id"] in cash_slices and
+                                       owner in (t["payer"], t["payee"])]
+                allocated_resource = [c for c in raw_resource_uses if c["scenario"] == sc
+                                      and c["work"] is None and
+                                      c["id"] in noncash_slices and c["owner"] == owner]
                 unallocated = [c for c in raw_resource_uses if c["scenario"] == sc
-                               and c["work"] is None and c["owner"] == owner]
+                               and c["work"] is None and c["owner"] == owner
+                               and unassigned(c)]
                 unallocated_cash = [t for t in raw_transfers if t["scenario"] == sc
                                     and t["work"] is None and
-                                    owner in (t["payer"], t["payee"])]
+                                    owner in (t["payer"], t["payee"]) and unassigned(t)]
                 cash = sum((Decimal(t["amount"]) * (1 if t["payee"] == owner else -1)
                             for t in transfers), Decimal(0))
+                cash += sum((Decimal(cash_slices[t["id"]]) *
+                             (1 if t["payee"] == owner else -1)
+                             for t in allocated_transfers), Decimal(0))
                 noncash = sum((Decimal(c["amount"]) for c in resource), Decimal(0))
+                noncash += sum((Decimal(noncash_slices[c["id"]])
+                                for c in allocated_resource), Decimal(0))
                 reasons = []
                 if proof is None or not proof["complete"]:
                     reasons.append("ORIGINAL_OWNER_WORK_COST_SCOPE_NOT_COMPLETE_DECLARED")
                 if proof is not None:
-                    if not transfers and not proof["declared_zero_cash"]:
+                    if not transfers and not allocated_transfers and not proof["declared_zero_cash"]:
                         reasons.append("ZERO_CASH_NOT_OWNER_ATTESTED")
-                    if not resource and not proof["declared_zero_noncash"]:
+                    if not resource and not allocated_resource and not proof["declared_zero_noncash"]:
                         reasons.append("ZERO_NONCASH_COST_NOT_OWNER_ATTESTED")
                 if owner not in economic_view["coverage_proof_sources"].get(sc, {}):
                     reasons.append("ORIGINAL_OWNER_GENERAL_ECONOMIC_COVERAGE_MISSING")
@@ -158,17 +187,21 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
                     # Unknown allocation is not zero and cannot establish a
                     # complete owner/network Work counterfactual.
                     reasons.append("COMMON_CASH_FLOW_NOT_ATTRIBUTED_TO_WORK")
-                if any(c["id"] not in lifecycle_by_resource for c in resource):
+                if any(c["id"] not in lifecycle_by_resource
+                       for c in resource + allocated_resource):
                     reasons.append("WORK_COST_NOT_LIFECYCLE_CLASSIFIED")
                 outside = economic_view["per_subject"][owner]["outside_feasibility"]
                 if outside != "FEASIBLE_DECLARED":
                     reasons.append("INDEPENDENT_ALTERNATIVE_NOT_FEASIBLE_DECLARED")
                 stage_costs = {}
-                for use in resource:
+                for use in resource + allocated_resource:
                     category = lifecycle_by_resource.get(use["id"], {}).get("stage")
                     if category is not None:
-                        stage_costs[category] = stage_costs.get(category, Decimal(0)) + Decimal(use["amount"])
-                onboarding_9 = sorted({modern[use["id"]]["category"] for use in resource
+                        cost_amount = (Decimal(noncash_slices[use["id"]])
+                                       if use["id"] in noncash_slices
+                                       else Decimal(use["amount"]))
+                        stage_costs[category] = stage_costs.get(category, Decimal(0)) + cost_amount
+                onboarding_9 = sorted({modern[use["id"]]["category"] for use in resource + allocated_resource
                                        if use["id"] in modern and
                                        modern[use["id"]]["category"] in ONBOARDING_CATEGORIES})
                 party_data[owner] = {
@@ -177,6 +210,8 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
                     "original_work_noncash_resource_uses": _money(noncash),
                     "cash_row_count": len(transfers),
                     "noncash_row_count": len(resource),
+                    "allocated_original_common_cash_row_count": len(allocated_transfers),
+                    "allocated_original_common_noncash_row_count": len(allocated_resource),
                     "unallocated_common_cost_count": len(unallocated),
                     "unallocated_common_cash_count": len(unallocated_cash),
                     "declared_lifecycle_stage_costs": {k:_money(v) for k,v in sorted(stage_costs.items())},
@@ -235,6 +270,7 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
                        else "COUNTERFACTUAL_WORK_SCOPE_NOT_QUALIFIED"),
             "global_reasons": global_reasons,
             "original_internal_transfers_not_new_network_value": True,
+            "shared_costs_only_original_owner_declared_views": True,
             "real_profit_and_causal_competence_gain": "NOT_ESTABLISHED",
             "full_work_lifecycle_and_onboarding_nine_real_costs_verified": False,
         })
