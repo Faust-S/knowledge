@@ -35,3 +35,26 @@ export function createTrustedT3ReviewPort(input: {
   readSelected: () => Promise<T3ActivityReview>;
   subscribeInvalidation: (listener: () => void) => (() => void);
 };
+
+// Trusted installed ORIGINAL corporate D3 owner's signed state + D2 DATA
+// readback, not the Activity WebView. Raw rows never reach the renderer.
+export type T3OriginalNativeSignedView = {
+  status: 'D3_OWNER_READY';
+  snapshot: {
+    product: 'admin';
+    organizationId: string;
+    workspaceId: string;
+    actorId: string;
+    contextId: string;
+    contextEpoch: number;
+    d2ActivityReaderConnected: true;
+  };
+};
+export function createTrustedOriginalT3NativeReadPort(input: {
+  currentSignedView: () => Promise<T3OriginalNativeSignedView>;
+  readActivityReadback: () => Promise<unknown>;
+  subscribeInvalidation: (listener: () => void) => (() => void);
+}): {
+  readSelected: () => Promise<T3ActivityReview>;
+  subscribeInvalidation: (listener: () => void) => (() => void);
+};
