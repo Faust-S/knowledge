@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 29bf1419dcbbee4a736f3244104f20ad5eb14eb8
+          ref: b57907c2b0563118d45e95e7125201b283cd2baa
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           filter: blob:none
@@ -38,7 +38,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((& git -C .private/t3 rev-parse HEAD).Trim() -cne '29bf1419dcbbee4a736f3244104f20ad5eb14eb8'){
+          if((& git -C .private/t3 rev-parse HEAD).Trim() -cne 'b57907c2b0563118d45e95e7125201b283cd2baa'){
             throw 'D2_BUN_IMPORT_ORIGINAL_SOURCE_PIN_FAILED'
           }
           Write-Host 'D2_BUN_IMPORT_ORIGINAL_SOURCE_PIN_PASS'
@@ -47,7 +47,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $cases=@(
-            @{Name='ORIGINAL_STATIC_ASSET_SERVER';Module='../interop/server.mjs';Symbol='t3StaticAsset'},
+            @{Name='ORIGINAL_STATIC_ASSET_POLICY';Module='../interop/t3-static-asset.mjs';Symbol='t3StaticAsset'},
             @{Name='ORIGINAL_D3';Module='../interop/native-admin-d3.mjs';Symbol='runNativeAdminD3'},
             @{Name='ORIGINAL_RUNTIME';Module='../interop/runtime.mjs';Symbol='openInterop'},
             @{Name='ACCESS_REGISTRY';Module='../access-control/registry.mjs';Symbol='AccessRegistry'},
