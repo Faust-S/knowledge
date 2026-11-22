@@ -61,7 +61,11 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
     recipientProfile=join(root,'recipient-browser');
   mkdirSync(dist);
   const workspaceId='t4:original:'+randomUUID(),objectId='t4:work:'+randomUUID(),
-    title='Real original T2 result transferred over T4 network '+randomUUID();
+    linkedObjectId='t4:linked:'+randomUUID(),relationId='t4:relation:'+randomUUID(),
+    assetId='t4:asset:'+randomUUID(),
+    title='Real original T2 result transferred over T4 network '+randomUUID(),
+    linkedTitle='Linked work from the complete original T2 Workspace',
+    assetText='Original T2 file content preserved across T4 network transfer';
   const kernelRuntimePath=join(dist,'_iwxa/runtime/0.3.6/runtime.js');
   let live=null,sourceContext=null,recipientContext=null,transport=null;
   try{
@@ -102,7 +106,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
 
     sourceContext=await launch(sourceProfile);
     const sourcePage=await opened(sourceContext);
-    const actual=await sourcePage.evaluate(async({SERVICE,workspaceId,objectId,title})=>{
+    const actual=await sourcePage.evaluate(async({SERVICE,workspaceId,objectId,title,linkedObjectId,linkedTitle,relationId,assetId,assetText})=>{
       const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
       const required=['t1.createWorkspace','t1.putObject','t1.getObject','t2.exportPreview',
         't2.exportPackage','t2.confirmExport'];
@@ -116,9 +120,28 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         event:{event_type:'t4.original.work.created',payload:{title}},
       });
       if(stored?.object?.object_id!==objectId)throw Error('ORIGINAL_T2_OBJECT_WRITE_FAILED');
+      await kernel.t1.putObject({
+        workspace_id:workspaceId,object_id:linkedObjectId,schema_id:'iwxa.demo.note',
+        schema_version:'1.0.0',data:{title:linkedTitle},extensions:{future:{preserve:'yes'}},
+        base_revision:0,event:{event_type:'t4.original.linked.work.created',payload:{}},
+      });
+      await kernel.t1.putRelation({
+        workspace_id:workspaceId,relation_id:relationId,from_object_id:objectId,
+        to_object_id:linkedObjectId,kind:'related',
+        event:{event_type:'t4.original.relation.created',payload:{}},
+      });
+      await kernel.t1.putAsset({
+        workspace_id:workspaceId,asset_id:assetId,object_id:objectId,
+        mime:'text/plain',bytes:new TextEncoder().encode(assetText),
+        event:{event_type:'t4.original.asset.created',payload:{}},
+      });
       const options={workspaces:[workspaceId],include_history:true,
         include_assets:true,include_relations:true,include_schemas:true};
       const preview=await kernel.t2.exportPreview(options);
+      if(preview.counts?.objects!==2||preview.counts?.relations!==1||
+        preview.counts?.assets!==1||preview.counts?.schemas<1||
+        preview.counts?.events<4)
+        throw Error('ORIGINAL_T2_FULL_WORKSPACE_INVENTORY_MISSING');
       const artifact=await kernel.t2.exportPackage(options);
       const receipt=await kernel.t2.confirmExport({
         package_digest:artifact.package_digest,workspace_ids:[workspaceId],
@@ -126,7 +149,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       return {preview,artifact:{...artifact,bytes:Array.from(artifact.bytes)},
         receipt,grants:kernel.granted_operations,contract:kernel.contract_version,
         runtime:kernel.runtime_version};
-    },{SERVICE,workspaceId,objectId,title});
+    },{SERVICE,workspaceId,objectId,title,linkedObjectId,linkedTitle,relationId,assetId,assetText});
     assert.equal(actual.runtime,ORIGINAL_KERNEL);
     assert.equal(actual.contract,'1.3.0');
     assert.ok(actual.artifact.bytes.length>0);
@@ -198,15 +221,31 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
     },{SERVICE,handle:{preview_token:handle.preview_token,package_digest:handle.package_digest},
       workspaceId,mode});
     assert.ok(commit,'original T2 Kernel did not commit import');
-    const verify=async page=>page.evaluate(async({SERVICE,workspaceId,objectId})=>{
+    const verify=async page=>page.evaluate(async({SERVICE,workspaceId,objectId,linkedObjectId,assetId})=>{
       const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
       const workspace=await kernel.t1.getWorkspace(workspaceId);
       const object=await kernel.t1.getObject(workspaceId,objectId);
+      const linked=await kernel.t1.getObject(workspaceId,linkedObjectId);
+      const asset=await kernel.t1.getAsset(workspaceId,assetId);
+      const inventory=await kernel.t2.exportPreview({
+        workspaces:[workspaceId],include_history:true,
+        include_assets:true,include_relations:true,include_schemas:true,
+      });
       return {workspace:workspace?.workspace_id,object:object?.object?.object_id,
-        title:object?.object?.data?.title};
-    },{SERVICE,workspaceId,objectId});
+        title:object?.object?.data?.title,linkedTitle:linked?.object?.data?.title,
+        linkedExtension:linked?.object?.extensions?.future?.preserve,
+        assetText:asset?new TextDecoder().decode(asset.bytes):null,
+        assetMime:asset?.asset?.mime??null,objects:inventory.counts.objects,
+        relations:inventory.counts.relations,assets:inventory.counts.assets,
+        schemas:inventory.counts.schemas,events:inventory.counts.events};
+    },{SERVICE,workspaceId,objectId,linkedObjectId,assetId});
     const initial=await verify(recipientPage);
-    assert.deepEqual(initial,{workspace:workspaceId,object:objectId,title});
+    assert.deepEqual(initial,{
+      workspace:workspaceId,object:objectId,title,linkedTitle,
+      linkedExtension:'yes',assetText,assetMime:'text/plain',objects:2,
+      relations:1,assets:1,schemas:initial.schemas,events:initial.events,
+    });
+    assert.ok(initial.schemas>=1 && initial.events>=4);
     await recipientContext.close();recipientContext=null;
 
     for(let attempt=1;attempt<=2;attempt++){
@@ -221,6 +260,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         originalPackageBytes:actual.artifact.bytes.length,
         sha256:published.sha256,independentProfiles:2,
         recipientColdBrowserProcessRestarts:2,
+        verifiedObjects:initial.objects,verifiedRelations:initial.relations,
+        verifiedAssets:initial.assets,verifiedSchemas:initial.schemas,
+        verifiedEvents:initial.events,verifiedAssetBytes:true,
         signedCorporateNativeOwnerTested:false,installedProductTested:false,
         physicalSecondDeviceTested:false}));
   }finally{
