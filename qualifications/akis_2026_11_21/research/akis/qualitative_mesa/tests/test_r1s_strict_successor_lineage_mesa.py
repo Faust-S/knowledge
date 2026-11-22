@@ -179,6 +179,16 @@ def strict_entrant_resource_case():
         "phase": 3, "owner": "c", "source_ref": "model://c/formation-3",
         "revision": "oc-1", "available_at": 0, "expires_at": 160,
     })
+    # The original 13-field MODEL code must explicitly know the potential
+    # SME and its role. This is only a declared identity/role restriction:
+    # it cannot create membership, ownership of foreign assets or consent.
+    code = {r["field"]: r["control"]
+            for r in data["general_akis"]["organizational_code"]}
+    code["С"]["subjects"].append("c")
+    code["ИД"]["model_identified"].append("c")
+    code["Рол"]["role_bindings"].append({
+        "subject": "c", "items": ["RESOURCE_OWNER"],
+    })
     # Reserve three event positions INSIDE the original W3 sequence.
     # Original future slot, source revisions and all prior Result times remain.
     for row in data["events"]:
