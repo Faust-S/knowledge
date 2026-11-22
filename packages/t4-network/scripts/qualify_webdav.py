@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Isolated actual Apache HTTPS/WebDAV test; not a production deployment."""
 from __future__ import annotations
-import base64, datetime, hashlib, json, os, pathlib, re, secrets, shutil, socket, ssl, subprocess, tempfile, time
+import base64, datetime, hashlib, json, os, pathlib, secrets, shutil, socket, ssl, subprocess, tempfile, time
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 OUT=pathlib.Path(os.environ.get('T4_TEST_OUTPUT_DIR') or pathlib.Path(tempfile.gettempdir())/('iwxa-t4-network-'+str(os.getpid()))); OUT.mkdir(parents=True,exist_ok=True)
 for command in ('apache2','htpasswd','openssl','node'):
@@ -47,7 +47,14 @@ with tempfile.TemporaryDirectory(prefix='iwxa-t4-dav-') as temp:
   suite=subprocess.run(['node','--test','tests/network/webdav-package-transfer.test.mjs'],cwd=ROOT,env=env,capture_output=True,text=True)
   (OUT/'node-network-tests.log').write_text(suite.stdout+suite.stderr);print(suite.stdout,end='')
   if suite.returncode:raise RuntimeError('Network test failure; see log')
-  tap=lambda key: re.findall(r'(?m)^# '+key+r' (\\d+)\\s*
+  totals={}
+  for line in suite.stdout.splitlines():
+   parts=line.split()
+   if len(parts)==3 and parts[0]=='#' and parts[1] in ('tests','pass','fail') and parts[2].isdigit():
+    totals[parts[1]]=int(parts[2])
+  if totals.get('tests') is None or totals.get('pass')!=totals['tests'] or totals.get('fail')!=0:
+   raise RuntimeError('Network TAP summary missing or inconsistent')
+  original_run_passed=False
   if os.environ.get('IWXA_T2_QUALIFIED_KERNEL_DIST'):
    original=subprocess.run(['node','--experimental-strip-types','--test',
      '../t4-network/tests/real-original-t3-kernel-webdav.browser.mjs'],cwd=ROOT.parent/'t3-core',env=env,
@@ -82,49 +89,7 @@ if(r.bytes.toString('base64')!==c.text)throw Error('cold mismatch');t.close();co
   negative=run(['node','--input-type=module','-e',"try { await fetch(process.env.T4_TEST_URL);process.exit(2); } catch(e) { if(!String(e.cause?.code).match(/CERT|SELF_SIGNED/)) throw e;console.log('UNTRUSTED_TLS_REJECTED'); }"],cwd=ROOT,env=untrusted)
   (OUT/'tls-negative.log').write_text(negative.stdout)
   paths=['src/network/webdav-package-transfer.mjs','src/contracts/hosted-context-boundary.mjs','tests/network/webdav-package-transfer.test.mjs','scripts/qualify_webdav.py','scripts/transfer_cli.mjs']
-  summary={'schema':'IWXA_T4_NETWORK_QUALIFICATION/1.0','date':datetime.date.today().isoformat(),'environment':'Linux container; real Apache HTTPS/WebDAV; loopback','node':run(['node','--version']).stdout.strip(),'apache':run(['apache2','-v']).stdout.splitlines()[0],'tests_passed':counts['pass'],'tests_failed':counts['fail'],'cli_checks_passed':3,'cold_server_restart_and_fresh_node':'PASS','untrusted_tls':'REJECTED','payload':'OPAQUE_TRANSPORT_FIXTURES_NOT_ORIGINAL_IWXA','original_kernel_webdav_readback':'PASS' if original_run_passed else 'NOT_RUN','original_owner_binding':'PUBLIC_ORIGINAL_T2_KERNEL_NOT_PRIVATE_SIGNED_ISSUER' if original_run_passed else 'NOT_RUN','physical_remote_device':'NOT_RUN','nextcloud':'NOT_RUN','windows':'SEPARATE_WINDOWS_CONTRACT_JOB','full_existing_t4_suite':'NOT_RUN','T4_READY':False,'source_sha256':{p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in paths}}
-  (OUT/'summary.json').write_text(json.dumps(summary,indent=2)+'\n');print(result.stdout.strip());print(negative.stdout.strip())
- finally:
-  if process is not None:stop(process)
-,suite.stdout)
-  counts={key:int(tap(key)[-1]) if tap(key) else None for key in ('tests','pass','fail')}
-  if counts['tests'] is None or counts['pass'] is None or counts['fail'] is None or counts['pass']!=counts['tests'] or counts['fail']!=0:
-   raise RuntimeError('Network TAP summary missing or inconsistent')
-  original_run_passed=False
-  if os.environ.get('IWXA_T2_QUALIFIED_KERNEL_DIST'):
-   original=subprocess.run(['node','--experimental-strip-types','--test',
-     '../t4-network/tests/real-original-t3-kernel-webdav.browser.mjs'],cwd=ROOT.parent/'t3-core',env=env,
-     capture_output=True,text=True,timeout=240)
-   (OUT/'original-kernel-webdav.log').write_text(original.stdout+original.stderr)
-   print(original.stdout,end='')
-   if original.returncode:raise RuntimeError('Original T2/T3 kernel WebDAV E2E failed')
-  reference_policy={'objectFamily':'owner-exported-package','workspaceId':'test-person-a','authorityRoot':'original-owner-a','writeOwnerRef':'original-exchange-a','primaryPlacement':'LOCAL_PRIMARY_HOSTED_REPLICA','allowedLocations':['test-webdav'],'retentionClass':'test','recoveryClass':'test','universalCloudMaster':False,'subjectActionAuthority':False}
-  config={'baseUrl':env['T4_TEST_URL'],'locationRef':'test-webdav','placementPolicy':reference_policy,'networkConsent':True,'referenceOnlyAcknowledged':True,'allowedOperations':['t4.package.publish','t4.package.read']}
-  (d/'cli.json').write_text(json.dumps(config));payload=b'opaque-cli-transport-fixture-not-original-iwxa';(d/'input.iwxa').write_bytes(payload)
-  cli_env=env.copy();cli_env['T4_AUTHORIZATION']=env['T4_TEST_AUTH']
-  published=run(['node','scripts/transfer_cli.mjs','put',str(d/'cli.json'),str(d/'input.iwxa')],cwd=ROOT,env=cli_env)
-  digest=json.loads(published.stdout)['sha256']
-  run(['node','scripts/transfer_cli.mjs','get',str(d/'cli.json'),str(d/'output.iwxa'),digest],cwd=ROOT,env=cli_env)
-  assert (d/'output.iwxa').read_bytes()==payload
-  duplicate=subprocess.run(['node','scripts/transfer_cli.mjs','get',str(d/'cli.json'),str(d/'output.iwxa'),digest],cwd=ROOT,env=cli_env,capture_output=True,text=True)
-  assert duplicate.returncode!=0 and (d/'output.iwxa').read_bytes()==payload
-  (OUT/'cli-tests.log').write_text('CLI_PUT_PASS\nCLI_GET_PASS\nCLI_NO_OVERWRITE_PASS\n')
-  stop(process);process=None;process=start()
-  cold="""
-import {readFileSync} from 'node:fs';
-import {createWebDavPackageTransport} from './src/network/webdav-package-transfer.mjs';
-const c=JSON.parse(readFileSync(process.env.T4_TEST_CHECKPOINT,'utf8'));
-const p={objectFamily:'owner-exported-package',workspaceId:'test-person-a',authorityRoot:'original-owner-a',writeOwnerRef:'original-exchange-a',primaryPlacement:'LOCAL_PRIMARY_HOSTED_REPLICA',allowedLocations:['test-webdav'],retentionClass:'test',recoveryClass:'test',universalCloudMaster:false,subjectActionAuthority:false};
-const t=createWebDavPackageTransport({baseUrl:process.env.T4_TEST_URL,locationRef:'test-webdav',placementPolicy:p,getMode:()=> 'T4_NETWORK',authorize:async()=>true,getAuthorizationHeader:async()=>process.env.T4_TEST_AUTH});
-const r=await t.getSnapshot({key:c.key,expectedSha256:c.sha256});
-if(r.bytes.toString('base64')!==c.text)throw Error('cold mismatch');t.close();console.log('COLD_READBACK_PASS');
-"""
-  result=run(['node','--input-type=module','-e',cold],cwd=ROOT,env=env);(OUT/'cold-readback.log').write_text(result.stdout)
-  untrusted=env.copy();untrusted.pop('NODE_EXTRA_CA_CERTS',None)
-  negative=run(['node','--input-type=module','-e',"try { await fetch(process.env.T4_TEST_URL);process.exit(2); } catch(e) { if(!String(e.cause?.code).match(/CERT|SELF_SIGNED/)) throw e;console.log('UNTRUSTED_TLS_REJECTED'); }"],cwd=ROOT,env=untrusted)
-  (OUT/'tls-negative.log').write_text(negative.stdout)
-  paths=['src/network/webdav-package-transfer.mjs','src/contracts/hosted-context-boundary.mjs','tests/network/webdav-package-transfer.test.mjs','scripts/qualify_webdav.py','scripts/transfer_cli.mjs']
-  summary={'schema':'IWXA_T4_NETWORK_QUALIFICATION/1.0','date':'2026-11-16','environment':'Linux container; real Apache HTTPS/WebDAV; loopback','node':run(['node','--version']).stdout.strip(),'apache':run(['apache2','-v']).stdout.splitlines()[0],'tests_passed':26,'tests_failed':0,'cli_checks_passed':3,'cold_server_restart_and_fresh_node':'PASS','untrusted_tls':'REJECTED','payload':'OPAQUE_TRANSPORT_FIXTURES_NOT_ORIGINAL_IWXA','original_owner_binding':'NOT_BOUND','physical_remote_device':'NOT_RUN','nextcloud':'NOT_RUN','windows':'NOT_RUN','full_existing_t4_suite':'NOT_RUN','T4_READY':False,'source_sha256':{p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in paths}}
+  summary={'schema':'IWXA_T4_NETWORK_QUALIFICATION/1.0','date':datetime.date.today().isoformat(),'environment':'Linux container; real Apache HTTPS/WebDAV; loopback','node':run(['node','--version']).stdout.strip(),'apache':run(['apache2','-v']).stdout.splitlines()[0],'tests_passed':totals['pass'],'tests_failed':totals['fail'],'cli_checks_passed':3,'cold_server_restart_and_fresh_node':'PASS','untrusted_tls':'REJECTED','payload':'OPAQUE_TRANSPORT_FIXTURES_NOT_ORIGINAL_IWXA','original_kernel_webdav_readback':'PASS' if original_run_passed else 'NOT_RUN','original_owner_binding':'PUBLIC_ORIGINAL_T2_KERNEL_NOT_PRIVATE_SIGNED_ISSUER' if original_run_passed else 'NOT_RUN','physical_remote_device':'NOT_RUN','nextcloud':'NOT_RUN','windows':'SEPARATE_WINDOWS_CONTRACT_JOB','full_existing_t4_suite':'NOT_RUN','T4_READY':False,'source_sha256':{p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in paths}}
   (OUT/'summary.json').write_text(json.dumps(summary,indent=2)+'\n');print(result.stdout.strip());print(negative.stdout.strip())
  finally:
   if process is not None:stop(process)
