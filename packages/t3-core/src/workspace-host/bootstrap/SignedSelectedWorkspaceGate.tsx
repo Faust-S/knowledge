@@ -226,7 +226,12 @@ export function SignedSelectedWorkspaceGate({
         <p role="status">Проверяем выбранную подписанную Workspace через Control…</p>
       ):(
         <>
-          <h2 className="font-semibold">{phase==="missing"
+          <h2 className="font-semibold" aria-label={
+            phase==="denied"&&inspection.reason
+              ?"Подписанный доступ Workspace не подтверждён. Код: "+
+                inspection.reason+". Этап: "+(inspection.stage??"UNCLASSIFIED")
+              :undefined
+          }>{phase==="missing"
             ?"Подписанная Workspace недоступна"
             :"Подписанный доступ Workspace не подтверждён"}</h2>
           <p role="alert" data-testid="t3-d1-selected-workspace-message">
