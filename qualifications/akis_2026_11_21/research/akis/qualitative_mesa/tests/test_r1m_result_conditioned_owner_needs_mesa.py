@@ -259,12 +259,16 @@ def test_r1m_resource_owner_controls_capacity_between_new_goal_and_original_comm
     d = result_goal_case()
     # The new owner goal is valid, but the original resource's readiness
     # can change in its own original event path before second commitment.
+    # Re-time only the original second commitment, without changing its
+    # authorization or independent consents, to leave room for owner updates.
+    next(row for row in d["events"]
+         if row["action"] == "commit" and row["work"] == "w2")["at"] = 52
     d["events"].extend([
-        {"at": 50, "action": "resource_status", "actor": "a",
+        {"at": 51, "action": "resource_status", "actor": "a",
          "resource": "ra", "availability": "UNAVAILABLE"},
-        {"at": 52, "action": "resource_status", "actor": "a",
+        {"at": 53, "action": "resource_status", "actor": "a",
          "resource": "ra", "availability": "AVAILABLE"},
-        {"at": 53, "action": "commit", "actor": "op", "work": "w2"},
+        {"at": 54, "action": "commit", "actor": "op", "work": "w2"},
     ])
     d["events"].sort(key=lambda e: e["at"])
     out = simulate(d)
@@ -272,7 +276,7 @@ def test_r1m_resource_owner_controls_capacity_between_new_goal_and_original_comm
     assert find(out, "request", work="w2")[0]["outcome"] == "APPLIED"
     commits = find(out, "commit", work="w2")
     assert [(row["at"], row["outcome"]) for row in commits] == [
-        (51, "BLOCKED"), (53, "APPLIED")
+        (52, "BLOCKED"), (54, "APPLIED")
     ]
     assert commits[0]["reason"] == (
         "FORMATION_ORIGINAL_RESOURCE_CAPACITY_NOT_DECLARED_READY"
