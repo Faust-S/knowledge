@@ -80,7 +80,7 @@ jobs:
             grep -E '^# (tests|pass|fail) [0-9]+' "$RUNNER_TEMP/d04-home-tests.log" |
               sed 's/^# /D04_HOME_TARGETED_/' | tail -3 || true
             grep -E '^not ok [0-9]+ - ' "$RUNNER_TEMP/d04-home-tests.log" |
-              sed -E 's/^not ok ([0-9]+) - .*/D04_HOME_FAILED_TEST_NUMBER=\1/' | head -8 || true
+              sed -E 's/^not ok ([0-9]+) - (.{0,110}).*/D04_HOME_FAILED_TEST_\1=\2/' | head -8 || true
             exit 1
           fi
       - name: Verify original T2 entry contracts
