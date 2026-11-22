@@ -309,8 +309,16 @@ class CapacityLedger:
                         continue
                     active_rows = [r for r in combined if r.resource == key
                                    and r.start <= t < r.end]
-                    if (sum(r.units for r in active_rows) > self.specs[key].units
-                            and any(r.work not in claim.allowed_works for r in active_rows)):
+                    # The original baseline is still available to unrelated
+                    # Work. Only consumption ABOVE that baseline is scoped
+                    # to the owner's named future Works. A blanket rejection
+                    # of any unrelated Work incorrectly blocks lawful baseline
+                    # use after capacity adoption.
+                    outside_scope_units = sum(
+                        r.units for r in active_rows
+                        if r.work not in claim.allowed_works
+                    )
+                    if outside_scope_units > self.specs[key].units:
                         raise CapacityBlocked("CAPABILITY_FUTURE_WORK_NOT_OWNER_AUTHORIZED", key)
             if self._violations(key, combined, proposals=proposals):
                 reason = ("RESOURCE_CALENDAR_CAPACITY_EXCEEDED"
