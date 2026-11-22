@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops.ru
-          ref: 7748a25ed19714dcb3a800cc168b244ed8fe1fdd
+          ref: 727b36a261cf16b7b0919630e80c8828b676803f
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -44,7 +44,7 @@ jobs:
           path: t2
       - name: Exact identity and test syntax
         run: |
-          test "$(git -C site rev-parse HEAD)" = "7748a25ed19714dcb3a800cc168b244ed8fe1fdd" || exit 1
+          test "$(git -C site rev-parse HEAD)" = "727b36a261cf16b7b0919630e80c8828b676803f" || exit 1
           test "$(git -C t2 rev-parse HEAD)" = "49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7" || exit 1
           test -z "$(git -C t2 status --porcelain)" || exit 1
           node --check site/tests/d08-original-kernel-schema-probe.mjs || exit 1
@@ -86,5 +86,17 @@ jobs:
           grep -q '^D08_ORIGINAL_KERNEL_DIAG_BUSINESS=PASS$' "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
           grep -q '^D08_ORIGINAL_KERNEL_DIAG_DATED=PASS,CODE=NONE,PATH=NONE$' "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
           grep -q '^D08_ORIGINAL_KERNEL_DIAG_UNDATED=PASS,CODE=NONE,PATH=NONE$' "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
+          grep -q '^D08_ORIGINAL_KERNEL_DIAG_DATED_READBACK=PASS
+      # Only safe fixed-state markers appear. No private files, source, dist or logs are uploaded.
+ "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
+          grep -q '^D08_ORIGINAL_KERNEL_DIAG_DATED_RELATION=PASS
+      # Only safe fixed-state markers appear. No private files, source, dist or logs are uploaded.
+ "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
+          grep -q '^D08_ORIGINAL_KERNEL_DIAG_UNDATED_READBACK=PASS
+      # Only safe fixed-state markers appear. No private files, source, dist or logs are uploaded.
+ "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
+          grep -q '^D08_ORIGINAL_KERNEL_DIAG_UNDATED_RELATION=PASS
+      # Only safe fixed-state markers appear. No private files, source, dist or logs are uploaded.
+ "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
           echo D08_ORIGINAL_KERNEL_SCHEMA_PROBE=PASS
       # Only safe fixed-state markers appear. No private files, source, dist or logs are uploaded.
