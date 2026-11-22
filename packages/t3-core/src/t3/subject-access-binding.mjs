@@ -120,6 +120,7 @@ function authorizedDecision(decision,context,now) {
 export function createSubjectKernelBinding({
   kernel, access, clock = Date.now, commitObjectGraphPrecondition = null,
   isHostActive = () => true, onCommitObjectGraphDispatch = null,
+  onReadStage = null,
 } = {}) {
   if (!kernel || typeof kernel.hasOperation !== "function" ||
       !kernel.sessionInfo || kernel.sessionInfo.contract_version !== "1.3.0" ||
@@ -130,7 +131,8 @@ export function createSubjectKernelBinding({
   }
   if (typeof isHostActive !== "function" ||
       (onCommitObjectGraphDispatch !== null &&
-       typeof onCommitObjectGraphDispatch !== "function")) {
+       typeof onCommitObjectGraphDispatch !== "function") ||
+      (onReadStage !== null && typeof onReadStage !== "function")) {
     refused("T3_D3_ORIGINAL_KERNEL_LIFECYCLE_INVALID");
   }
   const active = () => { try { return isHostActive() === true; } catch { return false; } };
@@ -150,12 +152,20 @@ export function createSubjectKernelBinding({
     catch { refused("T3_KERNEL_INPUT_NOT_CLONEABLE"); }
   }
   async function invoke(method, input, workspace_id, boundPurge = null, boundImport = null) {
+    // Read-only stage markers contain no subject, grants or Object bytes.
+    // They never affect authorization or the result of a Kernel operation.
+    const mark=stage=>{
+      if(method!=="getWorkspace"||onReadStage===null)return;
+      try{onReadStage(stage);}catch{/* telemetry is not authority */}
+    };
+    mark("SUBJECT_CONTEXT");
     requireActive();
     requiredId(workspace_id,"WORKSPACE_ID");
     // Freeze the caller's command BEFORE any asynchronous native-owner call.
     // Otherwise a pending currentContext() could permit a mutated object.
     const command = snapshotCommand(input);
     const context = await selected(access);
+    mark("SIGNED_CONTEXT_SELECTED");
     // The caller cannot override a Host-selected PERSONAL/CORP context.
     if (context.workspace_id !== workspace_id) refused("T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE");
     // T2 Exchange addresses workspaces through an array rather than a
@@ -229,7 +239,9 @@ export function createSubjectKernelBinding({
     const operation = OPERATIONS[method];
     if (!kernel.hasOperation(operation)) refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     if (typeof kernel[method] !== "function") refused("T3_KERNEL_OPERATION_UNAVAILABLE");
+    mark("SIGNED_ACTION");
     const action = await access.actionFor(operation);
+    mark("SIGNED_ACTION_SELECTED");
     requiredId(action,"ACTION");
     // The original Access canonicalizer intentionally accepts PLAIN DATA,
     // not Uint8Array. Bind the imported archive's exact bytes to the same
@@ -253,9 +265,11 @@ export function createSubjectKernelBinding({
         archive_sha256:[...rawDigest].map(x=>x.toString(16).padStart(2,"0")).join(""),
       };
     }
+    mark("SIGNED_DIGEST");
     const operationDigest = await access.operationDigest({
       operation,input:signedInput,context,
     });
+    mark("SIGNED_DIGEST_DONE");
     if (typeof operationDigest !== "string" || !HEX.test(operationDigest)) {
       refused("T3_ACCESS_OPERATION_DIGEST_REQUIRED");
     }
@@ -270,14 +284,18 @@ export function createSubjectKernelBinding({
       purpose:context.purpose,realmId:context.realm_id,
       operationDigest,
     });
+    mark("SIGNED_JIT");
     const decision = await access.authorize(request);
+    mark("SIGNED_JIT_RETURNED");
     if (await access.verifyDecisionBinding(request,decision) !== true) {
       refused("T3_ACCESS_DECISION_BINDING_INVALID");
     }
     authorizedDecision(decision,context,Number(clock()));
+    mark("SIGNED_CONTEXT_RECHECK");
     if (identity(context) !== identity(await selected(access))) {
       refused("T3_SUBJECT_CONTEXT_CHANGED");
     }
+    mark("SIGNED_CONTEXT_RECHECKED");
     requireActive();
     if (!kernel.hasOperation(operation)) refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     if (method === "commitObjectGraph" && commitObjectGraphPrecondition !== null) {
@@ -296,6 +314,7 @@ export function createSubjectKernelBinding({
     // This is the exact boundary where the original Kernel operation starts.
     // Observers may record uncertainty, but cannot issue a second operation.
     if (method === "commitObjectGraph") onCommitObjectGraphDispatch?.();
+    mark("ORIGINAL_T2_KERNEL_CALL");
     const result = method === "getObject"
       ? await kernel.getObject(workspace_id,command.object_id)
       : method === "getWorkspace"
@@ -315,6 +334,7 @@ export function createSubjectKernelBinding({
                     : method === "importCommit"
                       ? await kernel.importCommit(command)
                       : await kernel[method](command);
+    mark("ORIGINAL_T2_KERNEL_RETURNED");
     const scoped = (record,code) => {
       if (!record || typeof record !== "object" ||
           record.workspace_id !== workspace_id) refused(code);
