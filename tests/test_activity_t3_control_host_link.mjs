@@ -10,9 +10,9 @@ function source(){
     schema_id:'private.order',schema_version:'1.0.0',semantic_kind:'Process'}));
   return {workspace_id:W,nodes,events:nodes.flatMap((n,i)=>[
     {event_id:`e:${i}:1`,event_type:'private.start',semantic_kind:'Event',
-      occurred_at:'2026-11-11T11:00:00Z',object_ref:{object_id:n.object_id,revision:1}},
+      epistemic_status:'observed',occurred_at:'2026-11-11T11:00:00Z',object_ref:{object_id:n.object_id,revision:1}},
     {event_id:`e:${i}:2`,event_type:'private.end',semantic_kind:'Event',
-      occurred_at:'2026-11-11T11:01:00Z',object_ref:{object_id:n.object_id,revision:1}},
+      epistemic_status:'observed',occurred_at:'2026-11-11T11:01:00Z',object_ref:{object_id:n.object_id,revision:1}},
   ]),relations:[],unresolved:[],unmapped:{object_ids:[],event_ids:[],relation_ids:[]}};
 }
 function fixture(opts={}){
