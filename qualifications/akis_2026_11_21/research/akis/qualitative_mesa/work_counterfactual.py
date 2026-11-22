@@ -134,6 +134,9 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
                             and c["work"] == work_id and c["owner"] == owner]
                 unallocated = [c for c in raw_resource_uses if c["scenario"] == sc
                                and c["work"] is None and c["owner"] == owner]
+                unallocated_cash = [t for t in raw_transfers if t["scenario"] == sc
+                                    and t["work"] is None and
+                                    owner in (t["payer"], t["payee"])]
                 cash = sum((Decimal(t["amount"]) * (1 if t["payee"] == owner else -1)
                             for t in transfers), Decimal(0))
                 noncash = sum((Decimal(c["amount"]) for c in resource), Decimal(0))
@@ -149,6 +152,12 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
                     reasons.append("ORIGINAL_OWNER_GENERAL_ECONOMIC_COVERAGE_MISSING")
                 if unallocated:
                     reasons.append("COMMON_NONCASH_COST_NOT_ATTRIBUTED_TO_WORK")
+                if unallocated_cash:
+                    # Work-specific comparison may not silently discard shared
+                    # original cash flows (operator overhead, settlement, etc.).
+                    # Unknown allocation is not zero and cannot establish a
+                    # complete owner/network Work counterfactual.
+                    reasons.append("COMMON_CASH_FLOW_NOT_ATTRIBUTED_TO_WORK")
                 if any(c["id"] not in lifecycle_by_resource for c in resource):
                     reasons.append("WORK_COST_NOT_LIFECYCLE_CLASSIFIED")
                 outside = economic_view["per_subject"][owner]["outside_feasibility"]
@@ -169,6 +178,7 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
                     "cash_row_count": len(transfers),
                     "noncash_row_count": len(resource),
                     "unallocated_common_cost_count": len(unallocated),
+                    "unallocated_common_cash_count": len(unallocated_cash),
                     "declared_lifecycle_stage_costs": {k:_money(v) for k,v in sorted(stage_costs.items())},
                     "historical_nine_onboarding_categories_with_bound_rows": onboarding_9,
                     "status": ("MODEL_WORK_SCOPE_ARITHMETIC_ELIGIBLE" if not reasons
