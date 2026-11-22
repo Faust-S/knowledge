@@ -156,6 +156,7 @@ export async function captureT4OriginalObjectMutation({
     sourceEventId:captured.window.lastEventId,
     sha256:captured.prepared.sha256,key:captured.prepared.key,
     sourceCursorBefore:sourceCursor,sourceCursorAfter:captured.nextCursor,
+    sourceWindow:captured.window,
     bytesBase64:captured.prepared.bytes.toString('base64'),
     originalT3MutationConfirmed:true,inputDigest,
     networkPublished:false,
@@ -169,6 +170,7 @@ export async function captureT4OriginalObjectMutation({
   if(!observed||observed.captureRef!==captureRef||
     observed.key!==outbox.key||observed.sha256!==outbox.sha256||
     !same(observed.sourceCursorAfter,outbox.sourceCursorAfter)||
+    !same(observed.sourceWindow,outbox.sourceWindow)||
     typeof observed.bytesBase64!=='string'||
     observed.bytesBase64!==outbox.bytesBase64||
     !SHA(observed.sha256)||
