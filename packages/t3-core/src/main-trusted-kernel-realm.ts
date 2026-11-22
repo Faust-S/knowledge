@@ -213,11 +213,14 @@ async function attach(event:MessageEvent){
        !("session" in kernel))
       throw reject("T3_D1_ORIGINAL_KERNEL_UNAVAILABLE");
     const originalSession=kernel.session;
-    const signed=createKernelFacade({
-      session:originalSession,
-      signedKernelAccess:owner.signedKernelAccess,
-      isHostActive:()=>live,
-    });
+    const signedFacadeFor=(onReadStage?: (stage:string)=>void)=>
+      createKernelFacade({
+        session:originalSession,
+        signedKernelAccess:owner.signedKernelAccess,
+        isHostActive:()=>live,
+        onReadStage,
+      });
+    const signed=signedFacadeFor();
     // The only execution of signed KernelFacade and original T2 happens
     // in this realm. The UI cannot access window.IWXA, IndexedDB or signer.
     receiver=acceptOriginalKernelRealmChannel({
@@ -226,14 +229,7 @@ async function attach(event:MessageEvent){
       // session and original Control owner. It cannot cache an authorization,
       // change the selected Workspace or construct a second Store/Kernel.
       createSignedFacade:(method:string,report:(stage:string)=>void)=>
-        method==="getWorkspace"
-          ? createKernelFacade({
-              session:originalSession,
-              signedKernelAccess:owner.signedKernelAccess,
-              isHostActive:()=>live,
-              onReadStage:report,
-            })
-          : signed,
+        method==="getWorkspace"?signedFacadeFor(report):signed,
       isActive:()=>live,
       describeOriginalSession:()=>({
         contract_version:originalSession.contract_version,
