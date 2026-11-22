@@ -391,19 +391,11 @@ jobs:
               $label=Locate 'Объектов' ''
               if($label){
                 $next=[System.Windows.Automation.TreeWalker]::ControlViewWalker.GetNextSibling($label)
-                if($next -and $next.Current.Name -match '^[0-9]+
-        if: always()
-        run: |
-          Write-Output 'D02_PERSONAL_NO_PRIVATE_ARTIFACTS=PASS'
-){$previewObjects=$next.Current.Name}
+                if($next -and $next.Current.Name -match '^[0-9]+$'){$previewObjects=$next.Current.Name}
               }
             }catch{}
             Write-Output ('D02_EXCHANGE_PREVIEW_OBJECTS='+$previewObjects)
-            if($previewObjects -notmatch '^[0-9]+
-        if: always()
-        run: |
-          Write-Output 'D02_PERSONAL_NO_PRIVATE_ARTIFACTS=PASS'
- -or [int]$previewObjects -lt 1){
+            if($previewObjects -notmatch '^[0-9]+$' -or [int]$previewObjects -lt 1){
               throw 'D02_EXCHANGE_PROFILE_NOT_INCLUDED'
             }
             Activate 'Скачать .iwxa' 'D02_EXCHANGE_DOWNLOAD_NOT_AVAILABLE'
@@ -743,8 +735,8 @@ jobs:
             }
             $null=Await 'Объектов создано' '' 'D02_IMPORT_OBJECT_COUNT_MISSING'
             Write-Output 'D02_IMPORT_NATIVE_ORIGINAL_COMMIT_RECEIPT=PASS'
-            # A different, empty browser profile must independently read
-            # the original imported T2 Result after a cold Edge process restart.
+            # Independently inspect the imported T2 Result in a fresh Edge
+            # profile after the import commit and cold process restart.
             try{$browser.Kill($true)}catch{}
             Get-Process msedge -ErrorAction SilentlyContinue |
               Stop-Process -Force -ErrorAction SilentlyContinue
