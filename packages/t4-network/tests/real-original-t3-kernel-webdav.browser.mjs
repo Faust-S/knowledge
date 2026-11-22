@@ -36,6 +36,8 @@ import {captureT4OriginalObjectMutation}
   from '../src/network/original-object-mutation-capture.mjs';
 import {reconcileT4OriginalMutationIntent}
   from '../src/network/original-object-intent-recovery.mjs';
+import {createT4OriginalHostCaptureAdapter}
+  from '../src/network/original-host-capture-adapter.mjs';
 import {createT4NetworkTopology,executeT4NetworkRoute}
   from '../src/network/network-topology.mjs';
 import {prepareT4OriginalObjectDelta,publishT4OriginalObjectDelta,
@@ -1476,21 +1478,21 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           return saved;
         },
       };
-      await assert.rejects(captureT4OriginalObjectMutation({
-        workspaceId,objectId:linkedObjectId,
-        originalWriteOwnerRef:'original:t2:exchange',
-        captureRef:uncertainCaptureRef,
-        sourceCursor:currentSourceCursor,
-        mutationInput:unknownInput,
+      const originalHostWithAckLoss=createT4OriginalHostCaptureAdapter({
         originalKernel:sourceWithAckLoss,
+        originalWriteOwnerRef:'original:t2:exchange',
+        getMode:()=> 'T4_NETWORK',
         authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
         authorizeOriginalWrite:async ctx=>actual.grants.includes(ctx.operation),
         readOriginalEvents:readSourceEvents,
-        getMode:()=> 'T4_NETWORK',
         persistOriginalIntent:payload=>persistSourceTechnical('intent',payload),
         readOriginalIntent:payload=>readSourceTechnical('intent',payload.captureRef),
         persistOriginalOutbox:payload=>persistSourceTechnical('outbox',payload),
         readOriginalOutbox:payload=>readSourceTechnical('outbox',payload.captureRef),
+      });
+      await assert.rejects(originalHostWithAckLoss.putObject({
+        sourceCursor:currentSourceCursor,captureRef:uncertainCaptureRef,
+        mutationInput:unknownInput,
       }),error=>error.code==='OBJECT_CAPTURE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'&&
         error.details.automaticRetryAllowed===false);
       assert.equal((await sourceKernel.getObject(workspaceId,linkedObjectId))
@@ -1504,17 +1506,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       activeSourcePage=await opened(sourceContext);
       assert.equal((await sourceKernel.getObject(workspaceId,linkedObjectId))
         .object.revision,7);
-      const recoveredSource=await reconcileT4OriginalMutationIntent({
+      const recoveredSource=await originalHostWithAckLoss.reconcileObjectMutation({
         captureRef:uncertainCaptureRef,workspaceId,objectId:linkedObjectId,
-        originalWriteOwnerRef:'original:t2:exchange',
-        originalKernel:mutationKernel,
-        authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
-        authorizeOriginalWrite:async ctx=>actual.grants.includes(ctx.operation),
-        readOriginalEvents:readSourceEvents,
-        readOriginalIntent:payload=>readSourceTechnical('intent',payload.captureRef),
-        persistOriginalOutbox:payload=>persistSourceTechnical('outbox',payload),
-        readOriginalOutbox:payload=>readSourceTechnical('outbox',payload.captureRef),
-        getMode:()=> 'T4_NETWORK',
       });
       assert.equal(recoveredSource.originalSourceEventVerified,true);
       assert.equal(recoveredSource.originalMutationRetried,false);
@@ -1574,6 +1567,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           sourceRevisionAfterUnknownWrite:7,
           coldRestartBetweenOriginalCommitAndOutbox:true,
           originalIntentAndSourceEventReconciled:true,
+          originalHostCaptureAdapterUsed:true,
           originalPutObjectNotRetried:true,
           originalOperationReceiptNotInvented:true,
           originalT3OutboxCreatedAfterRecovery:true,
