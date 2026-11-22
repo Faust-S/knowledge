@@ -17,7 +17,7 @@ const [{SUBJECT_PROTOCOLS},{getService},{getServiceDirectory},{priority500},{pre
 const dir=getServiceDirectory(),ranked=priority500(dir);
 const keys=new Set(ranked.selected.map(x=>x.categorySlug+"/"+x.slug));
 const gaps=new Map();
-let full=0,startable=0,reviewable=0,sourceVerified=0,cardOnly=0;
+let full=0,startable=0,reviewable=0,sourceLeads=0,cardOnly=0;
 for(const p of SUBJECT_PROTOCOLS){
  const key=p.categorySlug+"/"+p.serviceSlug;
  if(!keys.has(key))throw Error("D07_FULL_CARD_NOT_IN_TOP500");
@@ -38,7 +38,11 @@ for(const p of SUBJECT_PROTOCOLS){
   if(!service.resultFormats||service.resultFormats.length<3)missing.push("HANDOVER_CONTENT_SHALLOW");
  }
  if(!p.manualResolutions?.length)missing.push("NO_MANUAL_VARIATIONS");
- if(p.references.length>=2&&p.operations.length>=10)sourceVerified++;
+ // Many legacy authored methods have no declared source references.
+ // Do not crash and never call a source link independently verified evidence.
+ const sourceRefs=p.references?.length??0;
+ if(sourceRefs>=2&&p.operations.length>=10)sourceLeads++;
+ else missing.push("INSUFFICIENT_REFERENCE_LEADS");
  if(missing.length===0)reviewable++;
  else{
   cardOnly++;
@@ -49,6 +53,7 @@ console.log("D07_FULL_CARD_AUDIT_SUBJECTS="+SUBJECT_PROTOCOLS.length);
 console.log("D07_FULL_CARD_AUDIT_STARTABLE="+startable);
 console.log("D07_FULL_CARD_AUDIT_CUSTOMER_OBJECTS="+full);
 console.log("D07_FULL_CARD_AUDIT_STRUCTURAL_COMPLETE="+reviewable);
+console.log("D07_FULL_CARD_AUDIT_REFERENCE_LEADS_ONLY="+sourceLeads);
 console.log("D07_FULL_CARD_AUDIT_STILL_NEEDS_ENRICHMENT="+cardOnly);
 for(const [k,v] of [...gaps].sort((a,b)=>a[0].localeCompare(b[0])))
  console.log("D07_FULL_CARD_GAP_"+k+"="+v);
