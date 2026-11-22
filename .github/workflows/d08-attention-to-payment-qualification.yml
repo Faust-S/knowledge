@@ -75,6 +75,28 @@ jobs:
             echo D08_INSTALL=FAIL; exit 1;
           }
           echo D08_INSTALL=PASS
+      - name: Classify generated checkout changes without printing private source
+        working-directory: site
+        run: |
+          npx tsx scripts/build-partners-index.ts > "$RUNNER_TEMP/d08-generate-partners.log" 2>&1 || exit 1
+          npx tsx scripts/generate-sitemap.ts > "$RUNNER_TEMP/d08-generate-sitemap.log" 2>&1 || exit 1
+          node scripts/refresh-route-tree.mjs > "$RUNNER_TEMP/d08-route-tree.log" 2>&1 || exit 1
+          node - <<'NODE'
+          const cp=require("node:child_process");
+          const lines=cp.execFileSync("git",["status","--porcelain"],{encoding:"utf8"})
+            .split(/\\r?\\n/).filter(Boolean);
+          const allowed={
+            ROUTES:"src/routeTree.gen.ts",
+            PARTNERS:"src/data/partners-index.generated.ts",
+            SITEMAP:"public/sitemap.xml",
+          };
+          for(const [name,path] of Object.entries(allowed)){
+            const flag=lines.some(x=>x.slice(3)===path);
+            console.log("D08_GENERATED_"+name+"_DIRTY="+Number(flag));
+          }
+          console.log("D08_GENERATED_UNKNOWN_COUNT="+lines.filter(x=>
+            !Object.values(allowed).includes(x.slice(3))).length);
+          NODE
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
