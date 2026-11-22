@@ -5,3 +5,4 @@ export * from './network/operator-connection.mjs';
 export * from './network/network-topology.mjs';
 export * from './network/original-event-window.mjs';
 export * from './network/original-object-delta.mjs';
+export * from './network/original-object-backlog.mjs';
