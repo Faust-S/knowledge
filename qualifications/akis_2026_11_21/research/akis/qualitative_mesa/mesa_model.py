@@ -202,7 +202,7 @@ class OperatorAKISModel(mesa.Model):
     })
 
     def __init__(self, scenario: dict[str, Any]) -> None:
-        super().__init__(seed=0)
+        super().__init__(rng=0)
         if not isinstance(scenario, dict):
             raise InputError("INPUT_MUST_BE_OBJECT")
         research_input = dict(scenario)
