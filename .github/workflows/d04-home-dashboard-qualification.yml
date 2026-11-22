@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: c9a58cc6f5e2011361d323ac3f9c055785f28edd
+          ref: d5cca89b49a29cfda81a27f9fca25971fe76d4c7
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -51,7 +51,7 @@ jobs:
       - name: Check exact private code identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = c9a58cc6f5e2011361d323ac3f9c055785f28edd
+          test "$(git -C d04-private/site rev-parse HEAD)" = d5cca89b49a29cfda81a27f9fca25971fe76d4c7
           test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
           echo "D04_HOME_PINNED_SOURCES=PASS"
       - uses: actions/setup-node@v4
@@ -137,6 +137,12 @@ jobs:
             echo "D04_HOME_BROWSER_INSTALL=FAIL"
             exit 1
           fi
+      - name: Check native witness source syntax
+        working-directory: d04-private/site
+        run: |
+          node --check qualification/life-os-home-dashboard.browser.mjs
+          node --check qualification/life-os-entry-responsive.browser.mjs
+          echo "D04_HOME_NATIVE_WITNESS_SYNTAX=PASS"
       - name: Test actual desktop/mobile T2 Host site entry
         working-directory: d04-private/site
         run: |
@@ -150,12 +156,19 @@ jobs:
           const {chromium}=createRequire(join(canonical,'package.json'))('playwright');
           const {serveRealKernelHost}=await import(pathToFileURL(join(canonical,'scripts/real-kernel-e2e.mjs')).href);
           const {runLifeOsEntryResponsiveBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-entry-responsive.browser.mjs')).href);
+          const {runLifeOsHomeDashboardBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-home-dashboard.browser.mjs')).href);
+          console.log('D04_HOME_BROWSER_STAGE=SERVER_BOOT');
           const server=await serveRealKernelHost(join(site,'dist'),{independentWitness:true,previewOrigin:true});
           try{
+            console.log('D04_HOME_BROWSER_STAGE=PUBLIC_ENTRY');
             const result=await runLifeOsEntryResponsiveBrowser({chromium,origin:server.origin});
             if(result.status!=='PASS'||result.viewports.length!==4)throw Error('D04_HOME_BROWSER_RESULT_INCOMPLETE');
             console.log('D04_HOME_VIEWPORTS='+result.viewports.length);
             console.log('D04_HOME_INTERACTIVE_ENTRY=PASS');
+            console.log('D04_HOME_BROWSER_STAGE=PUBLIC_TO_NATIVE_CREATION');
+            const personal=await runLifeOsHomeDashboardBrowser({chromium,origin:server.origin});
+            if(personal.status!=='PASS'||personal.viewports.length!==2)throw Error('D04_HOME_PERSONAL_BROWSER_RESULT_INCOMPLETE');
+            console.log('D04_HOME_CREATE_AND_COLD=PASS');
           }finally{
             await new Promise(done=>server.server.close(done));
           }
@@ -163,7 +176,21 @@ jobs:
           code=$?
           if [ "$code" -ne 0 ]; then
             echo "D04_HOME_REAL_BROWSER=FAIL"
-            grep -Eo 'D04_UI_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -12 || true
+            grep -E '^D04_HOME_BROWSER_STAGE=' "$RUNNER_TEMP/d04-home-browser.log" | tail -3 || true
+            grep -Eo 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -12 || true
+            if ! grep -Eq 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log"; then
+              if grep -q 'TimeoutError' "$RUNNER_TEMP/d04-home-browser.log"; then
+                echo "D04_HOME_BROWSER_ERROR_CLASS=TIMEOUT"
+              elif grep -q 'ERR_MODULE_NOT_FOUND' "$RUNNER_TEMP/d04-home-browser.log"; then
+                echo "D04_HOME_BROWSER_ERROR_CLASS=MODULE_NOT_FOUND"
+              elif grep -q 'EADDRINUSE' "$RUNNER_TEMP/d04-home-browser.log"; then
+                echo "D04_HOME_BROWSER_ERROR_CLASS=PORT_CONFLICT"
+              elif grep -q 'Error: ' "$RUNNER_TEMP/d04-home-browser.log"; then
+                echo "D04_HOME_BROWSER_ERROR_CLASS=UNCLASSIFIED_THROW"
+              else
+                echo "D04_HOME_BROWSER_ERROR_CLASS=EARLY_PROCESS_EXIT"
+              fi
+            fi
             exit "$code"
           fi
           grep '^D04_HOME_' "$RUNNER_TEMP/d04-home-browser.log" | tail -5
