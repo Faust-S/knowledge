@@ -86,17 +86,9 @@ jobs:
           grep -q '^D08_ORIGINAL_KERNEL_DIAG_BUSINESS=PASS$' "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
           grep -q '^D08_ORIGINAL_KERNEL_DIAG_DATED=PASS,CODE=NONE,PATH=NONE$' "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
           grep -q '^D08_ORIGINAL_KERNEL_DIAG_UNDATED=PASS,CODE=NONE,PATH=NONE$' "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
-          grep -q '^D08_ORIGINAL_KERNEL_DIAG_DATED_READBACK=PASS
-      # Only safe fixed-state markers appear. No private files, source, dist or logs are uploaded.
- "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
-          grep -q '^D08_ORIGINAL_KERNEL_DIAG_DATED_RELATION=PASS
-      # Only safe fixed-state markers appear. No private files, source, dist or logs are uploaded.
- "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
-          grep -q '^D08_ORIGINAL_KERNEL_DIAG_UNDATED_READBACK=PASS
-      # Only safe fixed-state markers appear. No private files, source, dist or logs are uploaded.
- "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
-          grep -q '^D08_ORIGINAL_KERNEL_DIAG_UNDATED_RELATION=PASS
-      # Only safe fixed-state markers appear. No private files, source, dist or logs are uploaded.
- "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
+          grep -q '^D08_ORIGINAL_KERNEL_DIAG_DATED_READBACK=PASS$' "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
+          grep -q '^D08_ORIGINAL_KERNEL_DIAG_DATED_RELATION=PASS$' "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
+          grep -q '^D08_ORIGINAL_KERNEL_DIAG_UNDATED_READBACK=PASS$' "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
+          grep -q '^D08_ORIGINAL_KERNEL_DIAG_UNDATED_RELATION=PASS$' "$RUNNER_TEMP/d08-kernel-schema-probe.log" || exit 1
           echo D08_ORIGINAL_KERNEL_SCHEMA_PROBE=PASS
       # Only safe fixed-state markers appear. No private files, source, dist or logs are uploaded.
