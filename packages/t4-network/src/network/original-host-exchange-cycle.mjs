@@ -145,6 +145,7 @@ export function createT4OriginalHostExchangeCycle({
       if(error instanceof T4OriginalHostExchangeCycleError)throw error;
       fail('EXCHANGE_CYCLE_ORIGINAL_HOST_STEP_STOPPED',{
         originalCode:error?.code??null,
+        originalNestedCode:error?.details?.originalCode??null,
         automaticRetryAllowed:false,
         sourceNetworkWriteMayHaveCommitted:true,
         recipientT3MutationMayHaveCommitted:true,
