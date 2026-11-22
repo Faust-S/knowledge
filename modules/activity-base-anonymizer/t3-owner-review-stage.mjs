@@ -306,3 +306,119 @@ export function createTrustedT3ActivityStagePort(config) {
     },
   });
 }
+
+
+/**
+ * Read-only independent recovery after a lost stage ACK or a cold restart.
+ * Inspect the SAME originally selected, separately signed derive Workspace.
+ * Never use a caller-supplied object ID, never write, and never recreate
+ * the target Workspace on absence. The original T2 Kernel/Store owns both
+ * the prior write and this independently authorized readback.
+ */
+export async function recoverSelectedT3ActivityReview({
+  sourceContext,sourceSignedAccess,targetContext=null,targetWorkspaceId=null,
+  targetKernel=null,targetSignedAccess,createSubjectKernelBinding,
+}={}) {
+  const sourceChoice=selected(sourceContext);
+  const legacyTarget=targetContext!==null;
+  const targetChoice=legacyTarget?selected(targetContext):null;
+  if(legacyTarget)need(sourceContext.kernel===targetContext.kernel&&targetKernel===null,
+    'T3_ACTIVITY_SAME_ORIGINAL_KERNEL_REQUIRED');
+  need(typeof createSubjectKernelBinding==='function'&&
+    sourceSignedAccess!==targetSignedAccess&&
+    typeof sourceSignedAccess?.currentContext==='function'&&
+    typeof targetSignedAccess?.currentContext==='function'&&
+    typeof targetSignedAccess?.actionFor==='function',
+    'T3_ACTIVITY_INDEPENDENT_SIGNED_ACCESS_REQUIRED');
+  const sourceOwner=await sourceSignedAccess.currentContext();
+  const targetOwner=await targetSignedAccess.currentContext();
+  need(good(sourceOwner)&&good(targetOwner)&&
+    sourceOwner.workspace_id===sourceChoice.workspace_id&&
+    targetOwner.workspace_id===(legacyTarget?targetChoice.workspace_id:targetWorkspaceId),
+    'T3_ACTIVITY_OWNER_WORKSPACE_MISMATCH');
+  sameOwner(sourceOwner,targetOwner);
+  const sourceIdentity=JSON.stringify(sourceOwner);
+  const targetIdentity=JSON.stringify(targetOwner);
+  for(const operation of ['t1.getWorkspace','t1.listObjects','t1.getObject'])
+    need(await targetSignedAccess.actionFor(operation)==='activity.derive',
+      'T3_ACTIVITY_DERIVE_ACTION_REQUIRED');
+  let sourceChanged=false,targetChanged=false;
+  let stopSource=null,stopTarget=null;
+  try {
+    stopSource=sourceContext.currentWorkspace.subscribe(()=>{sourceChanged=true;});
+    if(legacyTarget)stopTarget=targetContext.currentWorkspace.subscribe(
+      ()=>{targetChanged=true;});
+    need(typeof stopSource==='function'&&
+      (!legacyTarget||typeof stopTarget==='function'),
+      'T3_ACTIVITY_OWNER_SUBSCRIPTION_REQUIRED');
+    const check=async()=>{
+      await stable(sourceContext,sourceChoice,sourceIdentity,sourceSignedAccess,
+        ()=>sourceChanged);
+      if(legacyTarget)
+        await stable(targetContext,targetChoice,targetIdentity,targetSignedAccess,
+          ()=>targetChanged);
+      else need(!targetChanged&&
+        JSON.stringify(await targetSignedAccess.currentContext())===targetIdentity,
+        'T3_ACTIVITY_SIGNED_OWNER_CHANGED');
+    };
+    await check();
+    const scoped=createSubjectKernelBinding({
+      kernel:targetKernel??sourceContext.kernel,access:targetSignedAccess,
+    });
+    const target=targetOwner.workspace_id;
+    const workspace=await scoped.getWorkspace(target);
+    await check();
+    need(workspace?.workspace_id===target&&!workspace.deleted_at,
+      'T3_ACTIVITY_TARGET_WORKSPACE_UNAVAILABLE');
+    const objects=await scoped.listObjects({
+      workspace_id:target,include_deleted:true,
+    });
+    await check();
+    need(Array.isArray(objects),'T3_ACTIVITY_RECOVERY_SOURCE_INVALID');
+    need(objects.length===1,'T3_ACTIVITY_RECOVERY_NOT_CONFIRMED');
+    const object=objects[0];
+    need(good(object)&&object.workspace_id===target&&
+      typeof object.object_id==='string'&&
+      /^activity-review:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(object.object_id)&&
+      object.revision===1&&
+      object.schema_id===T3_ACTIVITY_OWNER_REVIEW_SCHEMA&&
+      object.schema_version==='1.0.0'&&
+      !object.deleted_at,
+      'T3_ACTIVITY_RECOVERY_OBJECT_INVALID');
+    const detail=await scoped.getObject(target,object.object_id);
+    await check();
+    const actual=detail?.object;
+    need(good(actual)&&actual.workspace_id===target&&
+      actual.object_id===object.object_id&&actual.revision===1&&
+      actual.schema_id===T3_ACTIVITY_OWNER_REVIEW_SCHEMA&&
+      actual.schema_version==='1.0.0'&&
+      JSON.stringify(actual.data)===JSON.stringify(object.data),
+      'T3_ACTIVITY_RECOVERY_READBACK_INVALID');
+    const data=actual.data;
+    const fields=['status','source_review_schema','source_status',
+      'semantic_mapping','reason_codes','anonymity','disclosure_status',
+      'export_allowed','candidate'];
+    need(good(data)&&Object.keys(data).length===fields.length&&
+      fields.every(key=>Object.hasOwn(data,key))&&
+      data.status==='OWNER_REVIEW_DRAFT'&&
+      data.source_review_schema===T3_SELECTED_VIEW_SCHEMA&&
+      ['HOLD','STRUCTURE_PRESERVED_REVIEW_REQUIRED'].includes(data.source_status)&&
+      data.semantic_mapping==='T0_T1_D2_ONLY_NOT_OCEL2_CONFORMANCE'&&
+      Array.isArray(data.reason_codes)&&data.reason_codes.length<=16&&
+      data.reason_codes.every(code=>typeof code==='string'&&
+        /^[A-Z][A-Z0-9_]{2,127}$/.test(code))&&
+      data.anonymity==='NOT_ESTABLISHED'&&
+      data.disclosure_status==='NOT_EVALUATED'&&
+      data.export_allowed===false&&
+      (data.source_status==='HOLD'
+        ?data.candidate===null
+        :Array.isArray(data.candidate)&&data.candidate.length>0),
+      'T3_ACTIVITY_RECOVERY_DATA_INVALID');
+    await check();
+    // Never project object IDs, source traces, actor, target or receipt.
+    return Object.freeze({status:'OWNER_REVIEW_DRAFT',
+      readback:true,export_allowed:false});
+  }finally{
+    stopSource?.();stopTarget?.();
+  }
+}
