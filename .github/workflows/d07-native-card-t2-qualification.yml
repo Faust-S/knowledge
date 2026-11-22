@@ -80,6 +80,8 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_SIZE_CRITERIA_FAILED'}
           & node --import tsx 'scripts/generate-d07-methodology-top500.mjs' $stage *> (Join-Path $env:RUNNER_TEMP 'd07-sized-plans.private.log')
           if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_SIZE_PLANS_FAILED'}
+          & node --import tsx '../scripts/d07-verify-subject-t2-proposals.mjs' '.' (Join-Path $stage 'service-plan-suggestions.generated.json')
+          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_SUBJECT_T2_PLAN_PARITY_FAILED'}
           $criteriaBytes=(Get-Item (Join-Path $stage 'service-criteria.generated.json')).Length
           $planBytes=(Get-Item (Join-Path $stage 'service-plan-suggestions.generated.json')).Length
           $sourceBytes=(Get-ChildItem -Recurse -File 't2-site-module/uslugovod' | Measure-Object -Property Length -Sum).Sum
