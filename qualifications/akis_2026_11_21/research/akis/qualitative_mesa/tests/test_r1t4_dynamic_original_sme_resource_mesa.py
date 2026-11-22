@@ -202,6 +202,18 @@ def test_r1t4_true_absent_initial_sme_and_resource_become_original_mesa_actor_an
         "accepted_original_cross_owner_technology_routes_with_handoff_and_quality"
     ] == 1
     assert out["general_akis_model"]["system_causal_cycle_feedback"][
+        "independently_registered_new_original_sme_resource_with_accepted_work"
+    ] == 1
+    full = out["general_akis_private_cycle_evidence"][
+        "original_new_enterprise_source_registered_reproduction"
+    ]
+    assert len(full) == 1
+    assert full[0]["new_original_subject"] == "c"
+    assert full[0]["new_original_resource"] == "rc"
+    assert full[0]["original_accepted_pilot_work"] == "w2"
+    assert full[0]["accepted_original_technology_work"] == "w3"
+    assert full[0]["real_external_identity_ownership_or_money_verified"] is False
+    assert out["general_akis_model"]["system_causal_cycle_feedback"][
         "all_nine_component_original_causal_closure_proven"
     ] is False
     assert out["profit"]["system_increment"] == "UNKNOWN"
@@ -247,6 +259,9 @@ def test_r1t4_missing_resource_independent_review_does_not_create_resource(missi
     assert "c" in model._by_id
     assert "rc" not in model.qualitative.resources
     assert "rc" not in model.qualitative.capacity_ledger.specs
+    assert out["general_akis_model"]["system_causal_cycle_feedback"][
+        "independently_registered_new_original_sme_resource_with_accepted_work"
+    ] == 0
     assert len(applied(out, "resource_registration_apply")) == 0
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
 
@@ -353,3 +368,22 @@ def test_r1t4_duplicate_accepted_subject_registration_is_not_second_agent():
     )
     assert sum(x.party_id == "c" for x in model.parties) == 1
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_r1t4_original_resource_in_the_new_mesa_cannot_bypass_customer_result_quality():
+    d = new_original_enterprise_case()
+    d["events"] = [
+        r for r in d["events"]
+        if not (r["action"] == "assess_result_quality"
+                and r.get("work") == "w3"
+                and r.get("criterion") == "q-stage-c")
+    ]
+    out = simulate(d)
+    assert out["subjects"]["c"]["kind"] == "SME"
+    assert out["resources"]["rc"]["owner"] == "c"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w3"]["result"] == "SUBMITTED"
+    assert out["general_akis_model"]["system_causal_cycle_feedback"][
+        "independently_registered_new_original_sme_resource_with_accepted_work"
+    ] == 0
+    assert out["profit"]["system_increment"] == "UNKNOWN"

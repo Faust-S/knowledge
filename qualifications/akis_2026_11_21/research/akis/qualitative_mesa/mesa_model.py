@@ -359,7 +359,13 @@ class OperatorAKISModel(mesa.Model):
                     and row["at"] < reg["at"]
                 ), None)
                 if proposal is not None:
-                    prospective[proposal["new_subject"]] = reg["at"]
+                    key = proposal["new_subject"]
+                    # Replayed/late APPLY events are negative decisions, not
+                    # a redefinition of when the original source first
+                    # allowed a future owner. Preserve the earliest time.
+                    prospective[key] = min(
+                        reg["at"], prospective.get(key, reg["at"])
+                    )
             preflight_subjects = dict(self.qualitative.subjects)
             preflight_subjects.update({
                 key: SimpleNamespace(kind="SME", active=False)

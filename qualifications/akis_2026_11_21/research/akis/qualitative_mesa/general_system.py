@@ -2832,6 +2832,120 @@ def original_nine_component_cycle_evidence(
             "real_production_quality_or_economic_gain_verified": False,
         })
 
+    # R1-T4: count a truly NEW original Mesa subject and its own resource
+    # only after independent source reviews AND a later accepted ORIGINAL
+    # Work in the changed coalition with technological/QA evidence.
+    # Registration alone must not be confused with cooperative reproduction.
+    new_original_enterprise_reproduction: list[dict[str, Any]] = []
+    for registered in events:
+        if registered.get("action") != "subject_registration_apply":
+            continue
+        entrant = registered.get("registered_original_subject")
+        s_id = registered.get("subject_registration_id")
+        original_proposals = [
+            row for row in events
+            if row.get("action") == "subject_registration_propose"
+            and row.get("outcome") == "APPLIED"
+            and row.get("subject_registration_id") == s_id
+            and row.get("new_subject") == entrant
+            and row.get("at") < registered["at"]
+        ]
+        if len(original_proposals) != 1:
+            continue
+        proposal = original_proposals[0]
+        prior = proposal.get("pilot_work")
+        if (prior not in accepted_at
+                or accepted_at[prior] >= proposal["at"]
+                or proposal.get("pilot_result_ref") !=
+                    original.works[prior].result_ref):
+            continue
+        if not any(
+            row.get("action") == "subject_registration_attest"
+            and row.get("outcome") == "APPLIED"
+            and row.get("subject_registration_id") == s_id
+            and row.get("actor") == entrant
+            and row.get("registration_willingness") == "WILLING"
+            and proposal["at"] < row["at"] < registered["at"]
+            for row in events
+        ):
+            continue
+        for added in events:
+            if (added.get("action") != "resource_registration_apply"
+                    or added.get("new_subject") != entrant
+                    or added.get("at", 0) <= registered["at"]):
+                continue
+            resource = added.get("registered_resource")
+            spec = original.capacity_ledger.specs.get(resource)
+            if (spec is None or spec.owner != entrant
+                    or original.resources.get(resource) != entrant
+                    or original.resource_availability_origin.get(resource)
+                        != "OWNER_REGISTERED_MODEL_SOURCE"):
+                continue
+            for witness in original_technology_route_successions:
+                later = witness["accepted_future_original_work"]
+                work = original.works[later]
+                if (witness["previous_original_accepted_result"] != prior
+                        or entrant not in witness[
+                            "independent_original_route_owner_decisions"
+                        ]
+                        or entrant not in witness[
+                            "fresh_original_work_principal_consents"
+                        ]
+                        or resource not in {
+                            need.resource for need in work.resource_requirements
+                        }
+                        or not registered["at"] < added["at"] <
+                            requested_at[later] < accepted_at[later]):
+                    continue
+                membership = [
+                    row for row in events
+                    if row.get("action") == "cooperation_membership_apply"
+                    and row.get("outcome") == "APPLIED"
+                    and row.get("newly_admitted_model_party") == entrant
+                    and row.get("successor_link") ==
+                        witness["original_cooperation_link"]
+                    and row.get("pilot_work") == prior
+                    and added["at"] < row["at"] < requested_at[later]
+                ]
+                if len(membership) != 1:
+                    continue
+                oc_proposals = [
+                    row for row in events
+                    if row.get("action") == "model_code_propose"
+                    and row.get("outcome") == "APPLIED"
+                    and row.get("proposed_subject") == entrant
+                    and row.get("proposed_model_role") == "RESOURCE_OWNER"
+                    and membership[0]["at"] < row["at"] <
+                        requested_at[later]
+                ]
+                if not oc_proposals or not any(
+                    row.get("action") == "model_code_apply"
+                    and row.get("outcome") == "APPLIED"
+                    and row.get("model_code_change_id") ==
+                        oc_proposals[-1]["model_code_change_id"]
+                    and oc_proposals[-1]["at"] < row["at"] <
+                        requested_at[later]
+                    for row in events
+                ):
+                    continue
+                new_original_enterprise_reproduction.append({
+                    "original_accepted_pilot_work": prior,
+                    "new_original_subject": entrant,
+                    "new_original_resource": resource,
+                    "registration_source_proposal_at": proposal["at"],
+                    "original_subject_registered_at": registered["at"],
+                    "original_resource_registered_at": added["at"],
+                    "accepted_original_technology_work": later,
+                    "accepted_original_cooperation_successor": (
+                        witness["original_cooperation_link"]
+                    ),
+                    "entrant_independent_new_work_consent": True,
+                    "founder_and_original_owners_sources_reused_not_forged": True,
+                    "original_work_result_and_capacity_ledger_reused": True,
+                    "original_old_work_result_not_rewritten": True,
+                    "real_external_identity_ownership_or_money_verified": False,
+                })
+
     accepted_results = len(accepted_at)
     requested_count = len(requested_at)
     committed_count = len(original_committed_at)
@@ -2900,6 +3014,9 @@ def original_nine_component_cycle_evidence(
             "original_cross_owner_technology_route_successions": (
                 original_technology_route_successions
             ),
+            "original_new_enterprise_source_registered_reproduction": (
+                new_original_enterprise_reproduction
+            ),
             "contains_owner_work_and_model_source_identifiers": True,
             "safe_for_cross_enterprise_publication": False,
         },
@@ -2941,6 +3058,11 @@ def original_nine_component_cycle_evidence(
                 len(original_technology_route_successions)
             ),
             "route_consultation_not_equivalent_to_original_Work_obligation": True,
+            "independently_registered_new_original_sme_resource_with_accepted_work": (
+                len(new_original_enterprise_reproduction)
+            ),
+            "new_subject_registration_alone_not_full_cooperation_lifecycle": True,
+            "subject_and_resource_model_sources_not_external_identity_proof": True,
             "verified_actual_productivity_or_transaction_savings": False,
             "source_scoped_membership_successors_are_not_legal_membership": True,
             "all_nine_components_partially_observed_in_one_institutional_cycle": (
