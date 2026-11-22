@@ -131,7 +131,7 @@ def test_source_update_with_expected_revision_cannot_overwrite_newer_owner_evide
     assert first["outcome"] == "APPLIED"
     assert stale["outcome"] == "BLOCKED"
     assert stale["reason"] == "CONTEXT_STALE_SOURCE_UPDATE_REVISION"
-    assert out["context_evidence"]["sources"]["b-capacity"]["revision"] == "bc2"
+    assert out["context_basis"]["sources"]["b-capacity"]["revision"] == "bc2"
     assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
 
 
