@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: fb7be3efec90e76bcb6dbeca4a7978caaca2815d
-      SUBJECT_SHA: dce9a27515cc8c5b0cd193de147b6f5314a4260d
+      SITE_SHA: 05282a41c534f1c19a5e96bd3e4cfc640f5ee113
+      SUBJECT_SHA: 2179aaa240f97e0f06709a910ddbab486656ad84
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
       CI: "true"
@@ -31,14 +31,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: dce9a27515cc8c5b0cd193de147b6f5314a4260d
+          ref: 2179aaa240f97e0f06709a910ddbab486656ad84
           path: subject
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: fb7be3efec90e76bcb6dbeca4a7978caaca2815d
+          ref: 05282a41c534f1c19a5e96bd3e4cfc640f5ee113
           path: site
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
@@ -59,7 +59,7 @@ jobs:
           for file in service-subject-protocols.ts service-subject-next500-batch-a.ts service-subject-apartment-acceptance.ts service-subject-fns-reconciliation.ts service-subject-ozon-product-card.ts service-subject-next500-batch-b1.ts service-subject-next500-batch-b2.ts; do
             cmp "subject/src/domain/$file" "site/src/domain/$file"
           done
-          for file in services.ts service-next500-cards.ts service-next500-five-b.ts; do
+          for file in services.ts service-next500-cards.ts service-next500-five-b.ts service-subject-evidence-projection.ts; do
             cmp "subject/src/data/$file" "site/src/data/$file"
           done
           echo D07_NEXT500_SUBJECT_SITE_PARITY=PASS
@@ -89,6 +89,7 @@ jobs:
           node --import tsx --test --test-reporter=tap \
             scripts/tests/d07-next500-five-professional.test.mjs \
             scripts/tests/d07-next500-five-b-professional.test.mjs \
+            scripts/tests/d07-subject-evidence-projection.test.mjs \
             scripts/tests/d07-it-data-recovery-professional.test.mjs \
             scripts/tests/d07-marketing-contextual-advertising-professional.test.mjs \
             > "$RUNNER_TEMP/d07-next500-tests.private.log" 2>&1 || {
