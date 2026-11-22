@@ -63,7 +63,7 @@ jobs:
           Set-Content -LiteralPath $script -Value $source -Encoding utf8NoBOM
           $exe=Join-Path $env:RUNNER_TEMP 't3-bun-argv-public-probe.exe'
           $log=Join-Path $env:RUNNER_TEMP 't3-bun-argv-build.log'
-          & bun build --compile --target=bun-windows-x64 --windows-hide-console $script --outfile $exe *> $log
+          & bun build --compile --target=bun-windows-x64 $script --outfile $exe *> $log
           if($LASTEXITCODE -ne 0){throw 'D2_PUBLIC_BUN_ARGV_PROBE_BUILD_FAILED'}
           $raw=(& $exe d3-enroll root-sentinel org-sentinel request-sentinel)
           if($LASTEXITCODE -ne 0){throw 'D2_PUBLIC_BUN_ARGV_PROBE_RUN_FAILED'}
@@ -147,7 +147,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $exe=Join-Path $env:RUNNER_TEMP 'iwxa-d2-compiled-original.exe'
           $log=Join-Path $env:RUNNER_TEMP 'd2-private-bun.log'
-          & bun build --compile --target=bun-windows-x64 --windows-hide-console .private/t3/scripts/product-license-windows-owner-cli.mjs --outfile $exe *> $log
+          & bun build --compile --target=bun-windows-x64 .private/t3/scripts/product-license-windows-owner-cli.mjs --outfile $exe *> $log
           if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $exe)){
             throw 'D2_ORIGINAL_COMPILED_OWNER_BUILD_HOLD'
           }
