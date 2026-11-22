@@ -34,3 +34,16 @@ export function createTrustedT3ActivityStagePort(input: Parameters<
     status: 'OWNER_REVIEW_DRAFT'; readback: true; export_allowed: false;
   }>;
 }>;
+
+/** Independent ORIGINAL T2 Kernel readback. Does not write or retry. */
+export function recoverSelectedT3ActivityReview(input: {
+  sourceContext: unknown;
+  sourceSignedAccess: unknown;
+  targetContext?: unknown;
+  targetWorkspaceId?: string;
+  targetKernel?: unknown;
+  targetSignedAccess: unknown;
+  createSubjectKernelBinding: Function;
+}): Promise<Readonly<{
+  status: 'OWNER_REVIEW_DRAFT'; readback: true; export_allowed: false;
+}>>;
