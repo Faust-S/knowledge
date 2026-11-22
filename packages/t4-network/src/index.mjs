@@ -10,3 +10,4 @@ export * from './network/original-asset-delta.mjs';
 export * from './network/original-relation-delta.mjs';
 export * from './network/original-deletion-delta.mjs';
 export * from './network/original-object-mutation-capture.mjs';
+export * from './network/original-object-intent-recovery.mjs';
