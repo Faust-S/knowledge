@@ -13,7 +13,11 @@ import {PublisherLicensePanel} from "@/modules/exchange/features/packages/Publis
 
 type SignedResolver=CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
 type Phase="checking"|"ready"|"missing"|"denied";
-interface Inspection {kernel:KernelFacade|null;phase:Phase;reason:string|null}
+type InspectionStage="SIGNED_CONTEXT"|"ORIGINAL_KERNEL_READ"|"SIGNED_ENUMERATION";
+interface Inspection {
+  kernel:KernelFacade|null;phase:Phase;reason:string|null;
+  stage?:InspectionStage;
+}
 type FirstRunExchange=Readonly<{
   kernel:KernelFacade;
   commands:CommandsFacade;
@@ -25,7 +29,7 @@ const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 // The original Owner's exact denial is allowed to cross only as a bounded
 // machine code. Never display exception messages, signed claims or local
 // filesystem paths in an installed manager's Workspace gate.
-const SAFE_CODE=/^(?:T3|CEN|CONTROL|WORKSPACE|OPERATION)_[A-Z0-9_]{4,90}$/;
+const SAFE_CODE=/^(?:T3|CEN|CONTROL|INTEROP|WORKSPACE|OPERATION)_[A-Z0-9_]{4,90}$/;
 function refusalCode(error:unknown):string {
   const code=error&&typeof error==="object"&&"code" in error
     ?(error as {code?:unknown}).code:null;
@@ -77,6 +81,9 @@ export function SignedSelectedWorkspaceGate({
     // The installed original Control has no generic listWorkspaces grant.
     // Its signed getWorkspace context selects ONE exact Workspace ID.
     // Do not enumerate other organizations as a first-run prerequisite.
+    // A diagnostic stage is safe to display, unlike signed claims or
+    // native exception text. It never changes the D1 authorization outcome.
+    let readStage:InspectionStage="SIGNED_CONTEXT";
     void (async()=>{
       if(trustedSelectedContext){
         const context=await trustedSelectedContext("getWorkspace");
@@ -86,6 +93,7 @@ export function SignedSelectedWorkspaceGate({
            typeof selected!=="string"||!ID.test(selected)||
            context?.resource!==selected)
           throw denied("T3_D1_SELECTED_CONTEXT_NOT_TRUSTED");
+        readStage="ORIGINAL_KERNEL_READ";
         const original=await readSelectedBeforeWrite(kernel,selected);
         if(ticket!==generation.current)return;
         if(original&&(original.workspace_id!==selected||
@@ -97,6 +105,7 @@ export function SignedSelectedWorkspaceGate({
         return;
       }
       // Other existing signed Hosts keep their original bounded discovery.
+      readStage="SIGNED_ENUMERATION";
       const rows=await kernel.listWorkspaces({include_deleted:false});
       if(ticket!==generation.current)return;
       if(!Array.isArray(rows)||rows.length>1||
@@ -108,7 +117,8 @@ export function SignedSelectedWorkspaceGate({
         ? "ready":"missing",reason:null});
     })().catch(error=>{
       if(ticket===generation.current)
-        setInspection({kernel,phase:"denied",reason:refusalCode(error)});
+        setInspection({kernel,phase:"denied",reason:refusalCode(error),
+          stage:readStage});
     });
     return ()=>{generation.current++;};
   },[required,kernel,retry,trustedSelectedContext,profile]);
@@ -224,8 +234,9 @@ export function SignedSelectedWorkspaceGate({
               ? "Для выбранного профиля пока нет рабочей области в исходном Kernel. При наличии отдельного разрешения её можно создать здесь."
               : "Control не подтвердил чтение выбранной Workspace. Проверьте профиль и его полномочия в локальном Control."}
           </p>
-          {phase==="denied"&&inspection.reason&&<p role="status" data-testid="t3-d1-selected-workspace-refusal-code"
-            className="text-xs text-amber-300">Код: {inspection.reason}</p>}
+          {phase==="denied"&&inspection.reason&&<p role="alert" data-testid="t3-d1-selected-workspace-refusal-code"
+            className="text-xs text-amber-300">Код: {inspection.reason}.
+            Этап: {inspection.stage??"ORIGINAL_KERNEL_READ"}.</p>}
           {phase==="missing"&&(typeof kernel?.hasOperation!=="function"||!kernel.hasOperation("t1.createWorkspace"))&&(
             <p role="alert" data-testid="t3-d1-selected-workspace-create-unavailable"
               className="text-sm text-amber-300">
