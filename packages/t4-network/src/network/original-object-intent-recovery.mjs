@@ -133,11 +133,18 @@ export async function reconcileT4OriginalMutationIntent({
     event.payload?.[ORIGINAL_DIGEST]!==intent.originalInputDigest||
     !ID(event.event_id))
     fail('OBJECT_RECOVERY_SOURCE_EVENT_SCOPE_MISMATCH');
-  const {window,nextCursor}=await readT4OriginalEventWindow({
-    workspaceId,originalWriteOwnerRef,cursor:intent.sourceCursor,maxEvents:1,
-    authorizeOriginalRead:async context=>authorizeOriginalRead(context),
-    readOriginalEvents:async()=>source,
-  });
+  let window,nextCursor;
+  try{
+    ({window,nextCursor}=await readT4OriginalEventWindow({
+      workspaceId,originalWriteOwnerRef,cursor:intent.sourceCursor,maxEvents:1,
+      authorizeOriginalRead:async context=>authorizeOriginalRead(context),
+      readOriginalEvents:async()=>source,
+    }));
+  }catch(error){
+    if(error?.code==='ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED')
+      fail('OBJECT_RECOVERY_ORIGINAL_PERMISSION_DENIED');
+    throw error;
+  }
   if(window.count!==1||window.hasMore||window.lastEventId!==event.event_id||
     window.eventRefs[0].eventId!==event.event_id||
     window.eventRefs[0].revision!==event.revision)
