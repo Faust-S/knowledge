@@ -2398,6 +2398,150 @@ def original_nine_component_cycle_evidence(
             "real_coalition_transaction_savings_verified": False,
         })
 
+    # R1-S: a stricter, read-only witness. Counting accepted successor Work
+    # alone (R1-Q) is insufficient: the SAME source-bound trace must also
+    # show the goal, prior owners' judgments, adopted productive capacity,
+    # original consultation, newcomer-owned input and own Work consent.
+    # This is MODEL_ONLY and never upgrades all nine to completed status.
+    strict_successor_links: list[dict[str, Any]] = []
+    all_strict_gates = all((
+        design.enforce_model_formation_lifecycle,
+        design.enforce_model_result_conditioned_goals,
+        design.enforce_model_result_conditioned_interests,
+        design.enforce_model_result_conditioned_reconfiguration,
+        design.enforce_model_result_conditioned_capability_cooperation,
+    ))
+    if all_strict_gates:
+        for revision in events:
+            if (revision.get("action") != "cooperation_membership_apply"
+                    or revision.get("change_kind") != "ADD_FUTURE_PARTICIPANT"
+                    or not revision.get("new_entrant_independently_assessed_model_only")):
+                continue
+            parent = relation_index.get(revision.get("cooperation_link"))
+            successor = relation_index.get(revision.get("successor_link"))
+            pilot_id = revision.get("pilot_work")
+            pilot = original.works.get(pilot_id)
+            entrant = revision.get("newly_admitted_model_party")
+            if parent is None or successor is None or pilot is None:
+                continue
+            t_change = revision["at"]
+            t_pilot = accepted_at.get(pilot_id)
+            if t_pilot is None or not t_pilot < t_change:
+                continue
+            proposal = [
+                row for row in events
+                if row.get("action") == "cooperation_change_propose"
+                and row.get("change_id") == revision["change_id"]
+                and row.get("cooperation_link") == parent.key
+                and row.get("pilot_work") == pilot_id
+                and t_pilot < row["at"] < t_change
+            ]
+            if len(proposal) != 1:
+                continue
+            earlier_owners = original.capacity_ledger.original_owners(
+                pilot.resource_requirements
+            ) | {pilot.customer}
+            for work_id in successor.works:
+                work = original.works[work_id]
+                owners = original.capacity_ledger.original_owners(
+                    work.resource_requirements
+                ) | {work.customer}
+                if (work_id not in accepted_at or entrant not in owners
+                        or entrant not in successor.participants
+                        or pilot_id not in work.requires_accepted
+                        or set(work.consents) != owners):
+                    continue
+                matching_requests = [
+                    row for row in events
+                    if row.get("action") == "request"
+                    and row.get("work") == work_id
+                    and row.get("request_linked_change_id") == revision["change_id"]
+                    and row.get("request_original_predecessor_link") == parent.key
+                    and row.get("requested_cooperation_link") == successor.key
+                    and row.get("requested_cooperation_source_revision") ==
+                        successor.source_revision
+                    and t_change < row["at"] < accepted_at[work_id]
+                ]
+                if len(matching_requests) != 1:
+                    continue
+                request = matching_requests[0]
+                t_request = request["at"]
+                t_commit = original_committed_at.get(work_id)
+                if t_commit is None or not t_request < t_commit < accepted_at[work_id]:
+                    continue
+                needs = [
+                    row for row in events
+                    if row.get("action") == "need_emerge"
+                    and row.get("actor") == work.customer
+                    and row.get("work") == work_id
+                    and row.get("cooperation_link") == successor.key
+                    and row.get("cooperation_source_revision") ==
+                        successor.source_revision
+                    and row.get("pilot_work") == pilot_id
+                    and row.get("pilot_result_ref") == pilot.result_ref
+                    and row.get("goal_source_ref") ==
+                        request.get("emergent_goal_source_ref")
+                    and t_change < row["at"] < t_request
+                ]
+                if len(needs) != 1:
+                    continue
+                if not all(any(
+                    row.get("action") == "participation_status"
+                    and row.get("actor") == owner
+                    and row.get("evaluated_work") == pilot_id
+                    and row.get("evaluated_result_ref") == pilot.result_ref
+                    and row.get("participation_link") == (
+                        successor.key if owner in successor.participants else parent.key
+                    )
+                    and row.get("participation_value") == "OPEN_TO_NEW_WORK"
+                    and t_pilot < row["at"] < t_request
+                    for row in events
+                ) for owner in earlier_owners):
+                    continue
+                adopted = [
+                    row for row in events
+                    if row.get("action") == "adopt_capability"
+                    and t_pilot < row["at"] < proposal[0]["at"]
+                    and any(
+                        need.resource == row.get("resource")
+                        and need.units >
+                            original.capacity_ledger.specs[need.resource].units
+                        for need in work.resource_requirements
+                    )
+                ]
+                if not adopted:
+                    continue
+                entry_interests = [
+                    row for row in events
+                    if row.get("action") == "interest_update"
+                    and row.get("work") == work_id
+                    and row.get("actor") == entrant
+                    and row.get("interest_willingness") == "WILLING"
+                    and row.get("interest_entry_change_id") == revision["change_id"]
+                    and row.get("interest_relation") == successor.key
+                    and t_request < row["at"] < t_commit
+                ]
+                if not entry_interests or not any(
+                    row.get("action") == "consent"
+                    and row.get("work") == work_id
+                    and row.get("actor") == entrant
+                    and entry_interests[-1]["at"] < row["at"] < t_commit
+                    for row in events
+                ):
+                    continue
+                strict_successor_links.append({
+                    "original_parent_relation": parent.key,
+                    "original_successor_relation": successor.key,
+                    "accepted_parent_pilot_work": pilot_id,
+                    "accepted_successor_work": work_id,
+                    "entrant_resource_principal": entrant,
+                    "entrant_interest_is_own_not_borrowed_result": True,
+                    "original_accepted_work_distinct_and_consented": True,
+                    "owner_adopted_capability_before_change": True,
+                    "all_r1_m_to_r1_p_strict_original_gates_enabled": True,
+                    "real_legal_rights_or_measured_economic_gain_verified": False,
+                })
+
     accepted_results = len(accepted_at)
     requested_count = len(requested_at)
     committed_count = len(original_committed_at)
@@ -2457,6 +2601,9 @@ def original_nine_component_cycle_evidence(
             "original_coalition_membership_successions": (
                 original_coalition_successions
             ),
+            "strict_original_entrant_resource_successor_links": (
+                strict_successor_links
+            ),
             "contains_owner_work_and_model_source_identifiers": True,
             "safe_for_cross_enterprise_publication": False,
         },
@@ -2483,6 +2630,12 @@ def original_nine_component_cycle_evidence(
             ),
             "source_scoped_original_coalition_successions_without_accepted_work": (
                 len(original_coalition_successions) - original_membership_successions
+            ),
+            "strict_original_entry_to_accepted_resource_work_link_count": (
+                len(strict_successor_links)
+            ),
+            "strict_original_entry_individual_interests_and_consent_checked": (
+                len(strict_successor_links) > 0
             ),
             "source_scoped_membership_successors_are_not_legal_membership": True,
             "all_nine_components_partially_observed_in_one_institutional_cycle": (

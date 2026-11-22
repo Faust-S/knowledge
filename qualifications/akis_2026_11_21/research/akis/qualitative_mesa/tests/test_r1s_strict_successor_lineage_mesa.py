@@ -110,6 +110,9 @@ def test_r1s_strict_original_goals_interests_review_capability_and_membership_su
     )
     assert result["capability_dynamics"]["original_owner_adopted_count"] == 1
     assert result["profit"]["system_increment"] == "UNKNOWN"
+    assert result["general_akis_model"]["system_causal_cycle_feedback"][
+        "strict_original_entry_to_accepted_resource_work_link_count"
+    ] == 0  # New participant c is not yet a RESOURCE OWNER of w3.
     assert simulate(deepcopy(d)) == result
 
 
@@ -246,6 +249,16 @@ def test_r1s_new_entrant_resource_requires_own_interests_phase_and_work_consent(
         "new_entrant_previous_pilot_experience_not_imputed"
     ] is True
     assert out["profit"]["system_increment"] == "UNKNOWN"
+    common = out["general_akis_model"]["system_causal_cycle_feedback"]
+    assert common["strict_original_entry_to_accepted_resource_work_link_count"] == 1
+    assert common["all_nine_component_original_causal_closure_proven"] is False
+    private = out["general_akis_private_cycle_evidence"][
+        "strict_original_entrant_resource_successor_links"
+    ]
+    assert len(private) == 1
+    assert private[0]["entrant_resource_principal"] == "c"
+    assert private[0]["original_successor_relation"] == "l2"
+    assert private[0]["real_legal_rights_or_measured_economic_gain_verified"] is False
     assert simulate(deepcopy(d)) == out
 
 
@@ -315,3 +328,24 @@ def test_r1s_newcomer_must_consent_to_concrete_work_in_addition_to_membership():
     assert final["reason"] == "INDEPENDENT_ACCEPTANCE_MISSING"
     assert out["works"]["w3"]["result"] == "NOT_SUBMITTED"
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_r1s_entry_assessment_counts_as_coordination_not_invented_cash():
+    from research.akis.qualitative_mesa.cooperation import (
+        cooperative_coordination_observations,
+    )
+    from research.akis.qualitative_mesa.rules import QualitativeAKIS
+    from .test_r1r_independent_entrant_assessment_mesa import entry_case
+
+    d = entry_case()
+    model = QualitativeAKIS({
+        k: deepcopy(v) for k, v in d.items() if k != "model_horizon"
+    })
+    for event in d["events"]:
+        model.apply(event, event["at"])
+    parent = next(link for link in model.cooperation_links if link.key == "net")
+    observed = cooperative_coordination_observations(parent, model.trace)
+    assert observed["observed_coordination_events"][
+        "RENEGOTIATION_AND_ADAPTATION"
+    ]["applied"] == 7
+    assert observed["real_transaction_cost_amount"] is None

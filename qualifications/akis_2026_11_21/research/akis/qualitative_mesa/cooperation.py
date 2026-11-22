@@ -825,7 +825,7 @@ def qualify_cooperation_change_reference(
     if (proposal.get("change_kind") in {
             "ADD_FUTURE_PARTICIPANT", "REVIEW_FUTURE_PARTICIPATION"
         } and proposal.get("cooperation_link") != link.key):
-        previous = state_pilot = next(
+        previous = next(
             (item for item in (work.requires_accepted or ())
              if any(row.get("action") == "cooperation_membership_apply"
                     and row.get("outcome") == "APPLIED"
@@ -1264,6 +1264,7 @@ _COORDINATION_ACTIONS = {
     "cooperation_change_propose": "RENEGOTIATION_AND_ADAPTATION",
     "cooperation_change_response": "RENEGOTIATION_AND_ADAPTATION",
     "cooperation_membership_apply": "RENEGOTIATION_AND_ADAPTATION",
+    "cooperation_entry_assess": "RENEGOTIATION_AND_ADAPTATION",
 }
 
 
