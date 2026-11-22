@@ -75,11 +75,13 @@ jobs:
           function FindName([string]$name,[string]$kind) {
             $cond=[System.Windows.Automation.PropertyCondition]::new(
               [System.Windows.Automation.AutomationElement]::NameProperty,$name)
-            if($kind -eq 'button') {
+            if($kind -eq 'button' -or $kind -eq 'edit' -or $kind -eq 'check') {
+              $type=if($kind -eq 'button'){[System.Windows.Automation.ControlType]::Button}
+                elseif($kind -eq 'edit'){[System.Windows.Automation.ControlType]::Edit}
+                else{[System.Windows.Automation.ControlType]::CheckBox}
               $cond=[System.Windows.Automation.AndCondition]::new(
                 $cond,[System.Windows.Automation.PropertyCondition]::new(
-                  [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                  [System.Windows.Automation.ControlType]::Button))
+                  [System.Windows.Automation.AutomationElement]::ControlTypeProperty,$type))
             }
             foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
               Where-Object {$_.MainWindowHandle -ne 0})) {
@@ -122,6 +124,25 @@ jobs:
               }catch{throw $fail}
             }
           }
+          function EnterText([string]$label,[string]$value,[string]$fail){
+            $item=AwaitName $label 'edit' $fail
+            try{
+              Add-Type -AssemblyName System.Windows.Forms
+              $item.SetFocus()
+              Set-Clipboard -Value $value -ErrorAction Stop
+              [System.Windows.Forms.SendKeys]::SendWait('^a')
+              [System.Windows.Forms.SendKeys]::SendWait('^v')
+            }catch{throw $fail}
+          }
+          function ConfirmChoice([string]$label,[string]$fail){
+            $item=AwaitName $label 'check' $fail
+            try{
+              $toggle=[System.Windows.Automation.TogglePattern]$item.GetCurrentPattern(
+                [System.Windows.Automation.TogglePattern]::Pattern)
+              if($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On)
+                {$toggle.Toggle()}
+            }catch{throw $fail}
+          }
           $server=$null;$browser=$null
           try{
             $server=Start-Process -FilePath node -WorkingDirectory $site -PassThru -ArgumentList @(
@@ -156,9 +177,35 @@ jobs:
             if($resume){InvokeButton 'Открыть мои записи' 'D02_PERSONAL_COLD_FOCUS_DENIED'}
             $null=AwaitName 'Мои дела и планы' '' 'D02_PERSONAL_COLD_READBACK_NOT_CONFIRMED'
             Write-Output 'D02_PERSONAL_EDGE_COLD_REOPEN_SAME_PROFILE=PASS'
+            # A real person starts on a public Club form, saves its Result
+            # through the original T2 Host, then recovers it after a cold restart.
+            Activate 'Мой профиль' 'D02_PERSONAL_PROFILE_LINK_MISSING'
+            $null=AwaitName 'Как к вам обращаться' 'edit' 'D02_PERSONAL_PROFILE_FORM_MISSING'
+            EnterText 'Как к вам обращаться' 'Нативная проверка Club' 'D02_PERSONAL_PROFILE_ALIAS_FAILED'
+            EnterText 'Цели' 'Сохранить личные данные для продолжения' 'D02_PERSONAL_PROFILE_GOALS_FAILED'
+            InvokeButton 'Сохранить профиль' 'D02_PERSONAL_PROFILE_FORM_SUBMIT_FAILED'
+            $null=AwaitName 'Сохранить результат' '' 'D02_PERSONAL_PROFILE_RESULT_LINK_MISSING'
+            Activate 'Сохранить результат' 'D02_PERSONAL_PROFILE_HOST_ENTRY_FAILED'
+            $null=AwaitName 'Сохранить результат' '' 'D02_PERSONAL_PROFILE_HOST_PREVIEW_MISSING'
+            ConfirmChoice 'Подтверждаю сохранение выбранных результатов на этом устройстве.' 'D02_PERSONAL_PROFILE_CONSENT_NOT_VISIBLE'
+            InvokeButton 'Сохранить выбранное' 'D02_PERSONAL_PROFILE_KERNEL_WRITE_NOT_READY'
+            $null=AwaitName 'Профиль участия: Сохранено' '' 'D02_PERSONAL_PROFILE_KERNEL_RECEIPT_MISSING'
+            Write-Output 'D02_PERSONAL_EDGE_PUBLIC_PROFILE_KERNEL_RECEIPT=PASS'
+            Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 3
+            $browser=Start-Process -FilePath $edge -PassThru -ArgumentList $args
+            $null=AwaitName 'Моё в Клубе' '' 'D02_PERSONAL_PROFILE_COLD_HOST_MISSING'
+            $resume=FindName 'Открыть мои записи' 'button'
+            if($resume){InvokeButton 'Открыть мои записи' 'D02_PERSONAL_PROFILE_COLD_FOCUS_FAILED'}
+            $null=AwaitName 'Сохранённых записей: 1' '' 'D02_PERSONAL_PROFILE_KERNEL_COLD_READBACK_MISSING'
+            Write-Output 'D02_PERSONAL_EDGE_PROFILE_KERNEL_COLD_READBACK=PASS'
             # Task-first public tools must inherit the exact personal Workspace
             # only as a hint. The original Host verifies focus again.
-            Activate 'Посчитать деньги' 'D02_PERSONAL_PUBLIC_MONEY_LINK_MISSING'
+            if(FindName 'Посчитать деньги' '') {
+              Activate 'Посчитать деньги' 'D02_PERSONAL_PUBLIC_MONEY_LINK_MISSING'
+            } else {
+              Activate 'Мои деньги' 'D02_PERSONAL_PUBLIC_MONEY_LINK_MISSING'
+            }
             $null=AwaitName 'Открыть сохранённое' '' 'D02_PERSONAL_CONTEXTUAL_RESUME_MISSING'
             Write-Output 'D02_PERSONAL_EDGE_PUBLIC_SERVICE_ENTRY=PASS'
             Activate 'Открыть сохранённое' 'D02_PERSONAL_CONTEXTUAL_RESUME_CLICK_FAILED'
