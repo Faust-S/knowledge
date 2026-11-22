@@ -8,6 +8,9 @@ NOT included in the former 13-field OC source records.
 from copy import deepcopy
 
 from research.akis.qualitative_mesa.mesa_model import simulate
+from research.akis.qualitative_mesa.org_code_policy import (
+    original_model_code_fingerprint,
+)
 from .test_r1s_strict_successor_lineage_mesa import (
     strict_entrant_resource_case,
 )
@@ -38,6 +41,7 @@ def model_edition_case(*, omission=None, objection=None,
         row["available_at"] = 84
         row["expires_at"] = 160
         row["source_ref"] = f"model://op/r1t-policy-v2-{row['field']}"
+    fingerprint = original_model_code_fingerprint(future)
     # Keep all Work slots, Result IDs and pilot acceptance times fixed.
     # Shift ONLY future event instants and corresponding packet references.
     for row in d["events"]:
@@ -51,6 +55,7 @@ def model_edition_case(*, omission=None, objection=None,
         "at": 80, "action": "model_code_propose", "actor": "op",
         "org_revision": "oc-1",
         "model_code_change_id": "r1t-code-1",
+        "model_code_fingerprint": fingerprint,
         "expected_model_edition": "OLD" if wrong_expected else "BASE",
         "new_model_edition": "model-oc-2",
         "original_cooperation_change_id": "chg-w2",
@@ -67,6 +72,7 @@ def model_edition_case(*, omission=None, objection=None,
             "at": at, "action": "model_code_response", "actor": actor,
             "org_revision": "oc-1",
             "model_code_change_id": "r1t-code-1",
+            "model_code_fingerprint": fingerprint,
             "new_model_edition": "model-oc-2",
             "model_code_decision": (
                 "OBJECT_MODEL_REVISION" if actor == objection
@@ -80,6 +86,7 @@ def model_edition_case(*, omission=None, objection=None,
         "at": 84, "action": "model_code_apply", "actor": "op",
         "org_revision": "oc-1",
         "model_code_change_id": "r1t-code-1",
+        "model_code_fingerprint": fingerprint,
         "expected_model_edition": "BASE",
         "new_model_edition": "model-oc-2",
         "model_code_records": future,
@@ -90,6 +97,18 @@ def model_edition_case(*, omission=None, objection=None,
 
 def _one(output, action):
     return reports(output, action)[0]
+
+
+def rebind_reviewed_document(d):
+    """For one focused test, make all founder responses review the new content."""
+    records = next(e["model_code_records"] for e in d["events"]
+                   if e["action"] == "model_code_apply")
+    digest = original_model_code_fingerprint(records)
+    for row in d["events"]:
+        if row["action"] in {
+            "model_code_propose", "model_code_response", "model_code_apply"
+        }:
+            row["model_code_fingerprint"] = digest
 
 
 def test_r1t_first_original_newcomer_work_requires_new_fully_reviewed_model_code():
@@ -194,6 +213,7 @@ def test_r1t_new_code_cannot_broaden_preexisting_rights_without_review():
                      if e["action"] == "model_code_apply")["model_code_records"]
     next(row for row in candidate if row["field"] == "Событ")[
         "control"]["new_work_events"].remove("interest_update")
+    rebind_reviewed_document(d)
     out = simulate(d)
     assert _one(out, "model_code_apply")["reason"] == (
         "OC_MODEL_EDITION_OTHER_RIGHTS_OR_FUNCTIONS_UNREVIEWED"
@@ -206,6 +226,7 @@ def test_r1t_new_model_sources_must_not_be_retroactively_effective():
     candidate = next(e for e in d["events"]
                      if e["action"] == "model_code_apply")["model_code_records"]
     candidate[0]["available_at"] = 0
+    rebind_reviewed_document(d)
     out = simulate(d)
     assert _one(out, "model_code_apply")["reason"] == (
         "OC_MODEL_EDITION_CURRENT_SOURCE_TIME_REQUIRED"
@@ -236,3 +257,47 @@ def test_r1t_prospective_policy_cannot_authorize_unrecognized_entrant_without_me
         "OC_MODEL_EDITION_INDEPENDENT_ENTRANT_MEMBERSHIP_REQUIRED"
     )
     assert _one(out, "model_code_apply")["outcome"] == "BLOCKED"
+
+
+def test_r1t_approved_digest_fails_if_operator_substitutes_actual_model_code():
+    d = model_edition_case()
+    records = next(e["model_code_records"] for e in d["events"]
+                   if e["action"] == "model_code_apply")
+    next(row for row in records if row["field"] == "Рол")[
+        "source_ref"
+    ] = "model://op/swapped-after-founder-review"
+    out = simulate(d)
+    assert _one(out, "model_code_apply")["reason"] == (
+        "OC_MODEL_EDITION_CONTENT_CHANGED_AFTER_REVIEW"
+    )
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w3"]["result"] == "NOT_SUBMITTED"
+
+
+def test_r1t_individual_founder_must_bind_response_to_same_model_code_contents():
+    d = model_edition_case()
+    response = next(r for r in d["events"]
+                    if r["action"] == "model_code_response"
+                    and r["actor"] == "a")
+    response["model_code_fingerprint"] = "0" * 64
+    out = simulate(d)
+    assert [r for r in reports(out, "model_code_response")
+            if r["actor"] == "a"][0]["reason"] == (
+        "OC_MODEL_EDITION_FOUNDERS_MUST_REVIEW_EXACT_CONTENT"
+    )
+    assert _one(out, "model_code_apply")["reason"] == (
+        "OC_MODEL_EDITION_ALL_FOUNDERS_RESPONSE_REQUIRED"
+    )
+
+
+def test_r1t_original_new_work_and_review_store_actual_source_edition_at_event_time():
+    d = model_edition_case()
+    out = simulate(d)
+    consent_c = [r for r in reports(out, "consent")
+                 if r["actor"] == "c" and r["work"] == "w3"][0]
+    assert consent_c["org_code_model_source_edition"] == "model-oc-2"
+    old_consents = [r for r in reports(out, "consent")
+                    if r["work"] in {"w1", "w2"}]
+    assert all(row["org_code_model_source_edition"] == "BASE"
+               for row in old_consents)
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"

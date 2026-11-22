@@ -259,7 +259,8 @@ class QualitativeAKIS:
              "model_code_change_id", "model_code_source_ref", "model_code_decision",
              "model_code_decision_source_ref", "new_model_edition",
              "expected_model_edition", "proposed_model_role",
-             "original_cooperation_change_id", "model_code_records"}, "EVENT")
+             "original_cooperation_change_id", "model_code_records",
+             "model_code_fingerprint"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -544,6 +545,7 @@ class QualitativeAKIS:
             report["org_code_real_identity_authenticated"] = False
         if action in {"model_code_propose", "model_code_response", "model_code_apply"}:
             report["model_code_change_id"] = ev.get("model_code_change_id")
+            report["model_code_fingerprint"] = ev.get("model_code_fingerprint")
             report["new_model_edition"] = ev.get("new_model_edition")
             report["expected_model_edition"] = ev.get("expected_model_edition")
             report["model_code_institution_revision_unchanged"] = (

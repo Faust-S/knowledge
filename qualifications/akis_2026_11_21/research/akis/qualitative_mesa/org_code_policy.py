@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Mapping
+import hashlib
+import json
 
 FIELDS = ("С", "ИД", "Рол", "Пр", "Запр", "Ист", "Событ", "Прав", "Авт",
           "Эск", "Отв", "Журн", "Пересм")
@@ -264,6 +266,26 @@ def parse_org_code_policy(claims: Any, subjects: Mapping[str, Any],
 # R1-T: qualification of a prospective MODEL-ONLY edition of the same
 # original thirteen-field code. No second policy engine, IAM, signature or
 # new organizational regime. Every source event stays in QualitativeAKIS.trace.
+def original_model_code_fingerprint(claims: Any) -> str:
+    """Canonical source-document binding of 13 model-only records.
+
+    Does NOT prove authenticity of their sources or sign for principals.
+    """
+    try:
+        serialized = json.dumps(
+            claims, sort_keys=True, ensure_ascii=False,
+            separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise OrgCodeBlocked("OC_MODEL_EDITION_SOURCE_DOCUMENT_INVALID") from exc
+    return hashlib.sha256(serialized).hexdigest()
+
+
+def _valid_original_model_code_fingerprint(value: Any) -> bool:
+    return (isinstance(value, str) and len(value) == 64
+            and all(char in "0123456789abcdef" for char in value))
+
+
 def _original_model_edition_proposal(trace: Any, change: Any):
     if not isinstance(change, str) or not change or len(change) > 128:
         raise OrgCodeBlocked("OC_MODEL_EDITION_CHANGE_ID_REQUIRED")
@@ -307,6 +329,10 @@ def qualify_model_code_proposal(state: Any, event: Mapping[str, Any],
                 and row.get("outcome") == "APPLIED" for row in state.trace)):
         raise OrgCodeBlocked("OC_MODEL_EDITION_DUPLICATE_PROPOSAL")
     _edition_source(event.get("model_code_source_ref"), operator)
+    if not _valid_original_model_code_fingerprint(
+        event.get("model_code_fingerprint")
+    ):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_SOURCE_FINGERPRINT_REQUIRED")
     applicant = event.get("proposed_subject")
     if (applicant not in state.subjects
             or not state.subjects[applicant].active
@@ -343,6 +369,10 @@ def qualify_model_code_response(state: Any, event: Mapping[str, Any],
         raise OrgCodeBlocked("OC_MODEL_EDITION_RESPONSE_STALE")
     if type(proposal.get("at")) is not int or at <= proposal["at"]:
         raise OrgCodeBlocked("OC_MODEL_EDITION_RESPONSE_TIME_INVALID")
+    if event.get("model_code_fingerprint") != proposal.get(
+        "model_code_fingerprint"
+    ):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_FOUNDERS_MUST_REVIEW_EXACT_CONTENT")
     if event.get("model_code_decision") not in {
             "SUPPORT_MODEL_REVISION", "OBJECT_MODEL_REVISION"}:
         raise OrgCodeBlocked("OC_MODEL_EDITION_FOUNDER_POSITION_REQUIRED")
@@ -375,6 +405,10 @@ def qualify_model_code_apply(state: Any, event: Mapping[str, Any],
         raise OrgCodeBlocked("OC_MODEL_EDITION_APPLY_STALE")
     if event.get("new_model_edition") in state.model_org_code_editions:
         raise OrgCodeBlocked("OC_MODEL_EDITION_REUSE_FORBIDDEN")
+    if event.get("model_code_fingerprint") != proposal.get(
+        "model_code_fingerprint"
+    ):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_APPLIED_SOURCE_FINGERPRINT_STALE")
     applicant = proposal.get("proposed_subject")
     if (applicant not in state.subjects
             or not state.subjects[applicant].active
@@ -411,6 +445,10 @@ def qualify_model_code_apply(state: Any, event: Mapping[str, Any],
     claims = event.get("model_code_records")
     if not isinstance(claims, list) or len(claims) != len(FIELDS):
         raise OrgCodeBlocked("OC_MODEL_EDITION_ALL_THIRTEEN_RECORDS_REQUIRED")
+    if original_model_code_fingerprint(claims) != proposal[
+        "model_code_fingerprint"
+    ]:
+        raise OrgCodeBlocked("OC_MODEL_EDITION_CONTENT_CHANGED_AFTER_REVIEW")
     for row in claims:
         if (not isinstance(row, dict) or row.get("owner") != operator
                 or row.get("revision") != state.institution.revision
