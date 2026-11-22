@@ -28,7 +28,7 @@ const entryKind=e=>e?.schema==='IWXA_T4_ORIGINAL_OBJECT_DELTA_OUTBOX_V1'
   ?'OBJECT_PUT':e?.schema==='IWXA_T4_ORIGINAL_SUBJECT_DELTA_OUTBOX_V1'
     ?e.kind:null;
 const subjectId=e=>entryKind(e)==='OBJECT_PUT'?e.objectId:e.subjectId;
-function validateEntries(rows,workspaceId,originalWriteOwnerRef) {
+function validateEntries(rows,workspaceId,originalWriteOwnerRef,frontier) {
   if(!Array.isArray(rows)||rows.length>4096)
     fail('DISPATCH_ORIGINAL_OUTBOX_LIST_INVALID');
   const entries=rows.map(row=>{
@@ -49,6 +49,10 @@ function validateEntries(rows,workspaceId,originalWriteOwnerRef) {
       subjectId:id,sourceEventId:row.sourceEventId,
       before:row.sourceCursorBefore,after:row.sourceCursorAfter});
   }).sort((a,b)=>a.before.seenEventCount-b.before.seenEventCount);
+  if(entries.length&&!matchingCursor(entries[0].before,frontier))
+    fail('DISPATCH_ORIGINAL_FRONTIER_GAP',{
+      firstCaptureRef:entries[0].captureRef,networkWritesStarted:false,
+    });
   const captures=new Set(),events=new Set(),positions=new Set();
   for(const [index,item] of entries.entries()){
     const pos=item.before.seenEventCount;
@@ -162,7 +166,8 @@ async function execute(params,maxEntries){
       'authorizeNetworkPublish','listOriginalOutbox',
       'readOriginalIntent','readOriginalOutbox','readOriginalEvents',
       'readOriginalDeliveryAttempt','persistOriginalDeliveryAttempt',
-      'readOriginalDeliveryCheckpoint','persistOriginalDeliveryCheckpoint']
+      'readOriginalDeliveryCheckpoint','persistOriginalDeliveryCheckpoint',
+      'readOriginalDeliveryFrontier']
       .some(port=>typeof params[port]!=='function'))
     fail('DISPATCH_ORIGINAL_HOST_PORTS_REQUIRED');
   await allowed(params,'outbox-list');
@@ -173,8 +178,17 @@ async function execute(params,maxEntries){
     kindFilter:Object.freeze(['OBJECT_PUT','ASSET_PUT','RELATION_PUT']),
   }));
   mode(params);
+  await allowed(params,'frontier-read');
+  const frontier=await params.readOriginalDeliveryFrontier(Object.freeze({
+    workspaceId:params.workspaceId,originalWriteOwnerRef:params.originalWriteOwnerRef,
+    networkTargetRef:params.networkTargetRef,
+    originalHostCursorRequired:true,
+  }));
+  if(!validCursor(frontier,params.workspaceId,params.originalWriteOwnerRef))
+    fail('DISPATCH_ORIGINAL_FRONTIER_INVALID');
+  mode(params);
   const entries=validateEntries(rows,params.workspaceId,
-    params.originalWriteOwnerRef);
+    params.originalWriteOwnerRef,frontier);
   let verified=0,previouslyVerified=0,examined=0;
   const results=[];
   for(const item of entries){
