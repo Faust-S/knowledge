@@ -162,7 +162,9 @@ function ColdReopen([int]$expected,[string]$name,[string]$status){
   $visible=Visible
   # The label and hex Object ID may occupy separate UIA nodes.
   $idMatch=$visible.Contains("Object ID:") -and $visible.Contains($script:expectedId)
-  $revMatch=$visible.Contains("редакция: "+$expected+";")
+  # Current revision is an accessible status derived from the opened T2 Result,
+  # not an event from the history or another saved order.
+  $revMatch=$visible.Contains("Текущая редакция открытого заказа: "+$expected)
   $worksMatch=(@($script:titles|Where-Object {$visible.Contains($_)}).Count -eq 10)
   if($idMatch -and $revMatch -and $worksMatch){$matched=$true;break}
   Start-Sleep -Milliseconds 300
