@@ -165,6 +165,34 @@ jobs:
                 {$toggle.Toggle()}
             }catch{throw $fail}
           }
+          function ResumeAfterCold([string]$fail){
+            $clicked=$false
+            for($i=0;$i -lt 160;$i++){
+              if(FindName 'Мои дела и планы' ''){return}
+              if(-not $clicked){
+                $resume=FindName 'Открыть мои записи' 'button'
+                if($resume){
+                  InvokeButton 'Открыть мои записи' 'D02_PERSONAL_COLD_FOCUS_DENIED'
+                  $clicked=$true
+                }
+              }
+              Start-Sleep -Milliseconds 350
+            }
+            # Report only known UI status flags; no user profile content.
+            foreach($name in @('Включить сохранение',
+              'Продолжить с сохранёнными данными','Ищем ваши сохранённые записи...',
+              'Мои дела и планы')){
+              $seen=[bool](FindName $name '')
+              Write-Output ("D02_PERSONAL_COLD_DIAGNOSTIC_"+
+                $(switch($name){
+                  'Включить сохранение' {'FIRST_USE'}
+                  'Продолжить с сохранёнными данными' {'RESUME_PROMPT'}
+                  'Ищем ваши сохранённые записи...' {'LOADING'}
+                  default {'MY_WORK'}
+                })+"="+$seen)
+            }
+            throw $fail
+          }
           $server=$null;$browser=$null
           try{
             $server=Start-Process -FilePath node -WorkingDirectory $site -PassThru -ArgumentList @(
@@ -194,10 +222,9 @@ jobs:
             Start-Sleep -Seconds 3
             $browser=Start-Process -FilePath $edge -PassThru -ArgumentList $args
             $null=AwaitName 'Моё в Клубе' '' 'D02_PERSONAL_COLD_REOPEN_FAILED'
-            # Host may intentionally require explicit focus on cold restart.
-            $resume=FindName 'Открыть мои записи' 'button'
-            if($resume){InvokeButton 'Открыть мои записи' 'D02_PERSONAL_COLD_FOCUS_DENIED'}
-            $null=AwaitName 'Мои дела и планы' '' 'D02_PERSONAL_COLD_READBACK_NOT_CONFIRMED'
+            # The public heading renders before the async native catalog.
+            # Wait for the actual Host-controlled resume action or verified content.
+            ResumeAfterCold 'D02_PERSONAL_COLD_READBACK_NOT_CONFIRMED'
             Write-Output 'D02_PERSONAL_EDGE_COLD_REOPEN_SAME_PROFILE=PASS'
             # A real person starts on a public Club form, saves its Result
             # through the original T2 Host, then recovers it after a cold restart.
@@ -220,8 +247,7 @@ jobs:
             Start-Sleep -Seconds 3
             $browser=Start-Process -FilePath $edge -PassThru -ArgumentList $args
             $null=AwaitName 'Моё в Клубе' '' 'D02_PERSONAL_PROFILE_COLD_HOST_MISSING'
-            $resume=FindName 'Открыть мои записи' 'button'
-            if($resume){InvokeButton 'Открыть мои записи' 'D02_PERSONAL_PROFILE_COLD_FOCUS_FAILED'}
+            ResumeAfterCold 'D02_PERSONAL_PROFILE_COLD_FOCUS_FAILED'
             $null=AwaitName 'Сохранённых записей: 1' '' 'D02_PERSONAL_PROFILE_KERNEL_COLD_READBACK_MISSING'
             Write-Output 'D02_PERSONAL_EDGE_PROFILE_KERNEL_COLD_READBACK=PASS'
             # Task-first public tools must inherit the exact personal Workspace
