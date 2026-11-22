@@ -5,6 +5,10 @@ export type T3ControlActivityPort = {
   stageSelected?: () => Promise<{
     status: 'OWNER_REVIEW_DRAFT'; readback: true; export_allowed: false;
   }>;
+  /** Independent original T2 readback, never another write. */
+  recoverSelected?: () => Promise<{
+    status: 'OWNER_REVIEW_DRAFT'; readback: true; export_allowed: false;
+  }>;
 };
 export type T3ControlActivityBinding = {
   readonly port: T3ControlActivityPort;
