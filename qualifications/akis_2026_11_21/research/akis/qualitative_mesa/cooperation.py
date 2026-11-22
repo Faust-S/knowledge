@@ -884,6 +884,7 @@ _COORDINATION_ACTIONS = {
     "reject": "INFORMATION_AND_VERIFICATION",
     "handoff_receive": "INFORMATION_AND_VERIFICATION",
     "handoff_quality": "INFORMATION_AND_VERIFICATION",
+    "assess_result_quality": "INFORMATION_AND_VERIFICATION",
     "interest_update": "RENEGOTIATION_AND_ADAPTATION",
     "participation_status": "RENEGOTIATION_AND_ADAPTATION",
     "cooperation_change_propose": "RENEGOTIATION_AND_ADAPTATION",
