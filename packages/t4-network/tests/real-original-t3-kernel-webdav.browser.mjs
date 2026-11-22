@@ -13,7 +13,7 @@ import {INITIAL_EXPORT_STATE,exportReducer}
   from '../../t3-core/src/modules/exchange/features/state/export-machine.ts';
 import {createT4OriginalExchangeHandoff}
   from '../src/network/original-exchange-handoff.mjs';
-import {createWebDavPackageTransport}
+import {createWebDavPackageTransport,packageSha256}
   from '../src/network/webdav-package-transfer.mjs';
 import {readT4OriginalEventWindow}
   from '../src/network/original-event-window.mjs';
