@@ -315,3 +315,184 @@ def test_dissolved_relation_cannot_be_reconstituted_twice():
         "COOPERATION_LIFECYCLE_ALREADY_RECONSTITUTED"
     )
     assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+
+def test_old_consents_without_original_commit_never_survive_dissolution_as_commit():
+    d = membership_case()
+    events = d["events"]
+    events.extend([
+        _e(24, "request", "b", cooperation_link="net-2",
+           cooperation_source_revision="n-2",
+           work_spec=_new_work("w3", "rc", 60, 70)),
+        _e(25, "offer", "op", work="w3"),
+        _e(26, "authorize", "op", work="w3"),
+        _e(27, "consent", "b", work="w3",
+           source_revision="source-w3", org_revision="oc-1"),
+        _e(28, "consent", "c", work="w3",
+           source_revision="source-w3", org_revision="oc-1"),
+    ])
+    digest = _lifecycle_document(
+        _link(), "DISSOLVE", "w2", "model://w2-result", 23, ()
+    )
+    events.append(_proposal("DISSOLVE", 29, "close-pending", digest))
+    for i, member in enumerate(("a", "b", "c", "op")):
+        events.append(_response(30 + i, "close-pending", digest, member))
+    events.extend([
+        _apply(34, "close-pending", digest),
+        _e(35, "commit", "op", work="w3"),
+    ])
+    d["events"] = sorted(events, key=lambda x: x["at"])
+    d["model_horizon"] = 38
+    out = simulate(d)
+    assert rows(out, "cooperation_lifecycle_apply")[0]["outcome"] == "APPLIED"
+    assert rows(out, "commit")[-1]["reason"] == (
+        "COOPERATION_RELATION_DISSOLVED_FOR_FUTURE_WORK"
+    )
+    assert out["works"]["w3"]["obligation"] == "NOT_ACCEPTED"
+    assert out["works"]["w3"]["result"] == "NOT_SUBMITTED"
+    assert out["works"]["w3"]["consenting_principals"] == ["b", "c"]
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_explicit_original_exit_then_dissolution_then_new_accepted_result():
+    d = membership_case(change="REVIEW_FUTURE_PARTICIPATION")
+    # R1-Q already executed the independent departure of 'a'. Its original
+    # Work/Result remains historical; the future successor is 'b,op'.
+    digest_close = _lifecycle_document(
+        _link(exited=True), "DISSOLVE", "w2",
+        "model://w2-result", 23, ()
+    )
+    digest_restore = _lifecycle_document(
+        _link(exited=True), "RECONSTITUTE", "w2",
+        "model://w2-result", 23, ("b", "op")
+    )
+    d["events"].extend([
+        _proposal("DISSOLVE", 24, "exit-close", digest_close),
+        _response(25, "exit-close", digest_close, "b"),
+        _response(26, "exit-close", digest_close, "op"),
+        _apply(27, "exit-close", digest_close),
+        _proposal(
+            "RECONSTITUTE", 28, "exit-reconstitute", digest_restore,
+            parties=("b", "op"),
+        ),
+        _response(29, "exit-reconstitute", digest_restore, "b"),
+        _response(30, "exit-reconstitute", digest_restore, "op"),
+        _apply(
+            31, "exit-reconstitute", digest_restore,
+            new_link_id="net-3", new_link_revision="n-3",
+            new_link_source_ref="model://b/exit-restored-link",
+        ),
+        _e(
+            32, "request", "b", cooperation_link="net-3",
+            cooperation_source_revision="n-3",
+            work_spec=_new_work("w3", "rb", 42, 52),
+        ),
+        _e(33, "offer", "op", work="w3"),
+        _e(34, "authorize", "op", work="w3"),
+        _e(35, "consent", "b", work="w3",
+           source_revision="source-w3", org_revision="oc-1"),
+        _e(36, "commit", "op", work="w3"),
+        _e(37, "start", "b", work="w3"),
+        _e(38, "complete", "b", work="w3",
+           result_ref="model://b/w3-after-reconstitution"),
+        _e(39, "accept", "b", work="w3"),
+    ])
+    d["model_horizon"] = 44
+    out = simulate(d)
+    assert out["counts"]["blocked"] == 0, [
+        (x["at"], x["action"], x["reason"])
+        for x in out["trace"] if x["outcome"] == "BLOCKED"
+    ]
+    links = {x["id"]: x for x in out["cooperation"]["links"]}
+    assert links["net"]["future_cooperation_status"] == (
+        "SUPERSEDED_FOR_FUTURE_WORK"
+    )
+    assert links["net-2"]["future_cooperation_status"] == (
+        "DISSOLVED_FOR_FUTURE_WORK"
+    )
+    assert links["net-3"]["original_participants"] == ["b", "op"]
+    assert links["net-3"]["works"] == ["w3"]
+    assert links["net-3"]["reconstituted_from"] == "net-2"
+    assert all(out["works"][k]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+               for k in ("w1", "w2", "w3"))
+    assert out["resources"]["ra"]["owner"] == "a"
+    assert out["works"]["w1"]["consenting_principals"] == ["a", "b"]
+    assert out["subjects"]["a"]["active_for_new_work"] is True
+
+
+def test_foreign_original_source_cannot_impersonate_a_coalition_owner():
+    d = original_dissolution_case(no_restoration=True)
+    forged = next(
+        x for x in d["events"]
+        if x["action"] == "cooperation_lifecycle_response"
+        and x["actor"] == "c"
+    )
+    forged["lifecycle_response_source_ref"] = "model://b/false-c-response"
+    out = simulate(d)
+    assert next(
+        x for x in rows(out, "cooperation_lifecycle_response")
+        if x["actor"] == "c"
+    )["reason"] == "COOPERATION_LIFECYCLE_INDEPENDENT_OWNER_SOURCE_REQUIRED"
+    assert rows(out, "cooperation_lifecycle_apply")[0]["reason"] == (
+        "COOPERATION_LIFECYCLE_INDEPENDENT_RESPONSES_MISSING"
+    )
+    assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_operator_cannot_author_original_lifecycle_for_enterprise():
+    d = original_dissolution_case(no_restoration=True)
+    proposal = next(
+        x for x in d["events"]
+        if x["action"] == "cooperation_lifecycle_propose"
+    )
+    proposal["actor"] = "op"
+    out = simulate(d)
+    assert rows(out, "cooperation_lifecycle_propose")[0]["reason"] == (
+        "COOPERATION_LIFECYCLE_ORIGINAL_SME_AND_REVISION_REQUIRED"
+    )
+    assert rows(out, "cooperation_lifecycle_apply")[0]["reason"] == (
+        "COOPERATION_LIFECYCLE_ORIGINAL_PROPOSAL_REQUIRED"
+    )
+    assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_reconstitution_repeated_apply_does_not_create_second_successor():
+    d = original_dissolution_case()
+    digest = _lifecycle_document(
+        _link(), "RECONSTITUTE", "w2", "model://w2-result", 23,
+        ("b", "c", "op"),
+    )
+    d["events"].append(_apply(
+        58, "restore-1", digest,
+        new_link_id="net-4", new_link_revision="n-4",
+        new_link_source_ref="model://b/second-illegal-successor",
+    ))
+    d["model_horizon"] = 63
+    out = simulate(d)
+    assert rows(out, "cooperation_lifecycle_apply")[-1]["reason"] == (
+        "COOPERATION_LIFECYCLE_ALREADY_RECONSTITUTED"
+    )
+    assert "net-4" not in [x["id"] for x in out["cooperation"]["links"]]
+    assert out["works"]["w6"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_missing_true_accepted_result_cannot_be_used_as_dissolution_basis():
+    d = membership_case()
+    d["events"] = [
+        x for x in d["events"]
+        if not (x["action"] == "accept" and x.get("work") == "w2")
+    ]
+    digest = _lifecycle_document(
+        _link(), "DISSOLVE", "w2", "model://w2-result", 23, ()
+    )
+    d["events"].append(_proposal(
+        "DISSOLVE", 24, "not-accepted-pilot", digest
+    ))
+    d["model_horizon"] = 27
+    out = simulate(d)
+    assert rows(out, "cooperation_lifecycle_propose")[0]["reason"] == (
+        "COOPERATION_LIFECYCLE_ACCEPTED_ORIGINAL_RESULT_REQUIRED"
+    )
+    assert out["works"]["w2"]["result"] == "SUBMITTED"
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
