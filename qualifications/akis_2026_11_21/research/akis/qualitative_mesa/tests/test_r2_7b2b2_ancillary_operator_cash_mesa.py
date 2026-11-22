@@ -346,3 +346,47 @@ def test_no_cash_schedule_means_payment_reserve_and_bank_authentication_unknown(
     assert row["original_due_dates_and_same_tick_cash_order_not_inferred"]
     assert row["model_cash_source_arithmetic_not_real_caused_savings"]
     assert "cash_timing" not in out["economics"]
+
+
+def test_operator_positive_cash_scope_still_has_earlier_original_liquidity_shortfall():
+    d = full_case()
+    owners = (*OWNERS, "op")
+    d["economic_claims"]["cash_timing"] = {
+        "horizon_end": 10,
+        "owner_positions": [{
+            "owner": owner, "source": f"{owner}-money",
+            "opening_cash": "10000.00" if owner != "op" else "0.00",
+            "reserve_cash": "0.00",
+        } for owner in owners],
+        "transfer_windows": [{
+            "transfer_id": transfer["id"],
+            "at": (2 if transfer["payer"] == "op"
+                   and transfer["payee"] == "EXTERNAL"
+                   else 7 if transfer["payee"] == "op"
+                   else 5),
+            "owner_sources": {
+                owner: f"{owner}-money"
+                for owner in (transfer["payer"], transfer["payee"])
+                if owner != "EXTERNAL"
+            },
+        } for transfer in d["economic_claims"]["transfers"]],
+    }
+    out = inspect(d)
+    econ = out["economics"]
+    row = econ["joint_purchasing_ancillary_original_cash"]["plans"][0]
+    assert row["operator_internal_fee_contribution_model_only"] == "40.00"
+    assert row["original_network_outside_minus_cooperation_external_cash_model_scope"] == "257.00"
+    assert row["original_full_transfer_timing_sources_declared"] is True
+    assert row["coordinator_original_cooperative_due_stress"] == (
+        "SOURCE_DECLARED_LIQUIDITY_GAP_IN_ALL_SAME_TICK_ORDERINGS"
+    )
+    assert row["original_buyer_private_model_views"]["a"][
+        "existing_original_owner_private_liquidity_status"] != "NOT_QUALIFIED"
+    assert econ["cash_timing"]["missing_transfer_window_count"] == 0
+    assert not row["actual_operator_profit_or_liquidity_proven"]
+    assert econ["cash_timing"]["no_invented_credit_or_finance_cost"]
+    assert out["general_akis_model"]["joint_purchasing_original_ancillary_feedback"][
+        "real_profit_or_liquidity_authenticated"] is False
+    assert "coordinator_original_cooperative_due_stress" not in json.dumps(
+        out["general_akis_model"]
+    )

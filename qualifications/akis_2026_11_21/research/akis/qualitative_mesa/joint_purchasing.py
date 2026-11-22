@@ -597,6 +597,14 @@ def review_original_joint_purchase_ancillary(
     used_transfer: set[str] = set()
     used_resource: set[str] = set()
     used_proof: set[str] = set()
+    liquidity_model = economic_view.get("cash_timing", {})
+    owner_liquidity = liquidity_model.get(
+        "per_original_owner_private_research_projection", {}
+    )
+    cash_timing_full = (
+        liquidity_model.get("missing_transfer_window_count") == 0
+        and "missing_transfer_window_count" in liquidity_model
+    )
     for price_record in economic_claims["joint_purchasing_original_cash_bindings"]:
         for row in price_record["buyer_bindings"]:
             for name in ("cooperation_external_transfer_id", "outside_external_transfer_id"):
@@ -768,6 +776,19 @@ def review_original_joint_purchase_ancillary(
                 "model_independent_minus_cooperation_buyer_cash_scope": (
                     f"{buyer_delta:.2f}" if buyer_delta is not None else None
                 ),
+                "existing_original_owner_private_liquidity_status": owner_liquidity.get(
+                    owner, {}
+                ).get("status", "NOT_QUALIFIED"),
+                "existing_original_owner_cooperative_due_stress": owner_liquidity.get(
+                    owner, {}
+                ).get("scenario_paths", {}).get(
+                    "COOPERATION", {}
+                ).get("declared_late_case", {}).get("status", "NOT_QUALIFIED"),
+                "existing_original_owner_outside_due_stress": owner_liquidity.get(
+                    owner, {}
+                ).get("scenario_paths", {}).get(
+                    "INDEPENDENT_ALTERNATIVE", {}
+                ).get("declared_late_case", {}).get("status", "NOT_QUALIFIED"),
                 "liquidity_reserve_and_due_eligibility_not_inferred": True,
                 "actual_payment_legal_purchase_or_profit_unverified": True,
             }
@@ -855,6 +876,15 @@ def review_original_joint_purchase_ancillary(
             "operator_internal_fee_contribution_model_only": (
                 f"{operator_scope:.2f}" if operator_scope is not None else None
             ),
+            "coordinator_original_private_liquidity_status": owner_liquidity.get(
+                link.coordinator, {}
+            ).get("status", "NOT_QUALIFIED"),
+            "coordinator_original_cooperative_due_stress": owner_liquidity.get(
+                link.coordinator, {}
+            ).get("scenario_paths", {}).get(
+                "COOPERATION", {}
+            ).get("declared_late_case", {}).get("status", "NOT_QUALIFIED"),
+            "original_full_transfer_timing_sources_declared": cash_timing_full,
             "operator_fee_is_internal_network_not_external_value": True,
             "full_original_purchase_ancillary_cash_source_scope_reconciled": complete,
             "actual_operator_profit_or_liquidity_proven": False,
@@ -880,6 +910,7 @@ def review_original_joint_purchase_ancillary(
             len(used_resource)
         ),
         "all_original_money_and_resource_use_amounts_unchanged": True,
+        "read_only_original_cash_timing_consulted_not_recomputed": True,
         "bank_settlement_actual_delivery_causal_profit_not_established": True,
         "plans": sorted(review, key=lambda p: p["plan"]),
     }
