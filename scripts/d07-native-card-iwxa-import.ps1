@@ -56,6 +56,28 @@ function Click([string]$name,[string]$code){
 function StartEdge([string]$url){
  Start-Process -FilePath $edge -ArgumentList @('--force-renderer-accessibility','--ignore-certificate-errors','--no-first-run','--no-default-browser-check',"--user-data-dir=$profile","--app=$url") -PassThru
 }
+function NativeOpenFileDialog {
+ $desktop=[System.Windows.Automation.AutomationElement]::RootElement
+ $windows=$desktop.FindAll([System.Windows.Automation.TreeScope]::Children,
+   [System.Windows.Automation.Condition]::TrueCondition)
+ for($i=0;$i -lt $windows.Count;$i++){
+  $item=$windows.Item($i)
+  try{
+   if($item.Current.IsEnabled -and $item.Current.ClassName -eq '#32770'){
+    return $item
+   }
+  }catch{}
+ }
+ return $null
+}
+function AwaitNativeOpenFileDialog([int]$attempts){
+ for($i=0;$i -lt $attempts;$i++){
+  $dialog=NativeOpenFileDialog
+  if($dialog){return $dialog}
+  Start-Sleep -Milliseconds 250
+ }
+ return $null
+}
 function ActivateImportTab {
  $tab=Await 'Импортировать' ([System.Windows.Automation.ControlType]::TabItem) 'D07_IMPORT_TAB_NOT_FOUND'
  try{$selection=[System.Windows.Automation.SelectionItemPattern]$tab.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern);$selection.Select()}
@@ -131,6 +153,7 @@ try{
    if(!$focus){throw 'D07_IMPORT_NATIVE_FILE_FOCUS_MISSING'}
    $focusType=$focus.Current.ControlType.ProgrammaticName
    Write-Output ('D07_IMPORT_NATIVE_FIRST_TAB_FOCUS_TYPE='+$focusType)
+   Write-Output ('D07_IMPORT_NATIVE_FIRST_TAB_FILE_ACTION='+[bool]($focus.Current.Name -match 'файл|file|choose|browse|обзор|выбрать'))
    if($focusType -notmatch 'Button|Edit|Group|SplitButton'){
      throw 'D07_IMPORT_NATIVE_FILE_FOCUS_WRONG_CONTROL'
    }
@@ -138,7 +161,19 @@ try{
    $trigger='keyboard-tab-from-import'
  }
  Write-Output ('D07_IMPORT_FILE_PICKER_TRIGGER='+$trigger)
- Start-Sleep -Milliseconds 700
+ $dialog=AwaitNativeOpenFileDialog 36
+ if(!$dialog){
+  Write-Output 'D07_IMPORT_DIALOG_FIRST_TRIGGER_PRESENT=FALSE'
+  if($trigger -eq 'keyboard-tab-from-import'){
+   try{$focus.SetFocus()}catch{}
+   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+   $dialog=AwaitNativeOpenFileDialog 36
+  }
+ }
+ if(!$dialog){throw 'D07_IMPORT_NATIVE_OPEN_FILE_DIALOG_MISSING'}
+ Write-Output 'D07_IMPORT_NATIVE_OS_FILE_DIALOG=PASS'
+ try{$dialog.SetFocus()}catch{}
+ Start-Sleep -Milliseconds 300
  # Use the *real* Windows chooser and keyboard to supply the archive,
  # without reading private file bytes into this public test harness.
  Set-Clipboard -Value $archive
