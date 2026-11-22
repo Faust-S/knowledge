@@ -353,6 +353,56 @@ def respond_to_cooperation_change(event: Mapping[str, Any],
     # An inactive principal may still contest a proposed revision of its rights.
 
 
+def assess_cooperation_entry(
+    event: Mapping[str, Any], links: Sequence[CooperationLink],
+    subjects: Mapping[str, Any], trace: Sequence[Mapping[str, Any]],
+) -> None:
+    """One entrant's independent prospective assessment, not past experience.
+
+    It belongs to the original model trace. The entrant must originate goals
+    and an alternative claim, but is not made a principal of the old Result.
+    """
+    change = _id(event.get("change_id"), "CHANGE_ID")
+    proposal = _applied_proposal(trace, change)
+    if proposal is None or proposal.get("change_kind") != "ADD_FUTURE_PARTICIPANT":
+        raise CooperationInputError("COOPERATION_ENTRY_ADD_PROPOSAL_REQUIRED")
+    parent = _declared_link(links, event.get("cooperation_link"))
+    actor = event.get("actor")
+    if (proposal.get("cooperation_link") != parent.key or
+            proposal.get("cooperation_source_revision") != parent.source_revision or
+            event.get("cooperation_source_revision") != parent.source_revision or
+            event.get("org_revision") != proposal.get("org_revision")):
+        raise CooperationInputError("COOPERATION_ENTRY_ORIGINAL_REVISION_STALE")
+    if (actor != proposal.get("proposed_subject") or
+            actor not in subjects or not subjects[actor].active or
+            subjects[actor].kind != "SME" or actor in parent.participants):
+        raise CooperationInputError("COOPERATION_ENTRY_ORIGINAL_ENTRANT_REQUIRED")
+    if (type(event.get("at")) is not int or
+            type(proposal.get("at")) is not int or
+            event["at"] <= proposal["at"]):
+        raise CooperationInputError("COOPERATION_ENTRY_AFTER_PROPOSAL_REQUIRED")
+    if any(row.get("action") == "cooperation_membership_apply"
+           and row.get("outcome") == "APPLIED"
+           and row.get("cooperation_link") == parent.key for row in trace):
+        raise CooperationInputError("COOPERATION_ENTRY_PARENT_ALREADY_SUCCEEDED")
+    for key in ("entry_goal_source_ref", "entry_alternative_source_ref",
+                "entry_assessment_source_ref"):
+        source = _model_reference(
+            event.get(key), "COOPERATION_ENTRY_INDEPENDENT_SOURCE_REQUIRED"
+        )
+        if not source.startswith(f"model://{actor}/") or len(source) <= len(f"model://{actor}/"):
+            raise CooperationInputError("COOPERATION_ENTRY_SOURCE_OWNER_REQUIRED")
+    if event.get("entry_willingness") not in {"WILLING", "DECLINES", "UNKNOWN"}:
+        raise CooperationInputError("COOPERATION_ENTRY_WILLINGNESS_REQUIRED")
+    if event.get("entry_outside_option") not in {
+        "COOPERATION_PREFERRED", "OUTSIDE_PREFERRED", "UNKNOWN"
+    }:
+        raise CooperationInputError("COOPERATION_ENTRY_ALTERNATIVE_REQUIRED")
+    valid_until = event.get("entry_valid_until")
+    if type(valid_until) is not int or not event["at"] < valid_until <= 10000:
+        raise CooperationInputError("COOPERATION_ENTRY_VALIDITY_REQUIRED")
+
+
 # Exact thirteen ORIGINAL organizational-code fields (doctoral formula 3.4).
 # This inventory is evidence-oriented, not a new rule schema or authorization.
 ORIGINAL_ORGANIZATIONAL_CODE_FIELDS = (
@@ -384,6 +434,7 @@ def apply_cooperation_membership_revision(
     event: Mapping[str, Any], links: Sequence[CooperationLink],
     subjects: Mapping[str, Any], works: Mapping[str, Any],
     trace: Sequence[Mapping[str, Any]], *, org_revision: str, at: int,
+    require_entry_assessment: bool = False,
 ) -> tuple[tuple[CooperationLink, ...], dict[str, Any]]:
     """Create a prospective SUCCESSOR of the original cooperation relation.
 
@@ -459,6 +510,32 @@ def apply_cooperation_membership_revision(
         raise CooperationInputError("COOPERATION_MEMBERSHIP_INDEPENDENT_SUPPORT_INCOMPLETE")
     if any(name not in subjects or not subjects[name].active for name in consultees):
         raise CooperationInputError("COOPERATION_MEMBERSHIP_PARTICIPANT_UNAVAILABLE")
+    entrant_assessment = None
+    if kind == "ADD_FUTURE_PARTICIPANT" and require_entry_assessment:
+        entrant = proposal.get("proposed_subject")
+        entry_rows = [
+            row for row in trace
+            if row.get("action") == "cooperation_entry_assess"
+            and row.get("outcome") == "APPLIED"
+            and row.get("change_id") == change
+            and row.get("cooperation_link") == parent.key
+            and row.get("cooperation_source_revision") == parent.source_revision
+            and row.get("org_revision") == org_revision
+            and row.get("actor") == entrant
+            and type(row.get("at")) is int and origin < row["at"] < at
+        ]
+        if not entry_rows:
+            raise CooperationInputError("COOPERATION_MEMBERSHIP_ENTRANT_ASSESSMENT_REQUIRED")
+        entrant_assessment = entry_rows[-1]
+        # An actual prospective evaluation precedes the applicant's latest
+        # affirmative consultation; a later change of view cannot be ignored.
+        if entrant_assessment["at"] >= latest[entrant]["at"]:
+            raise CooperationInputError("COOPERATION_MEMBERSHIP_ENTRANT_NEW_RESPONSE_REQUIRED")
+        if (type(entrant_assessment.get("entry_valid_until")) is not int or
+                at >= entrant_assessment["entry_valid_until"]):
+            raise CooperationInputError("COOPERATION_MEMBERSHIP_ENTRANT_ASSESSMENT_EXPIRED")
+        if entrant_assessment.get("entry_willingness") != "WILLING":
+            raise CooperationInputError("COOPERATION_MEMBERSHIP_ENTRANT_INTEREST_NOT_ESTABLISHED")
     successor = _id(event.get("new_link_id"), "NEW_LINK_ID")
     if any(link.key == successor for link in links):
         raise CooperationInputError("COOPERATION_MEMBERSHIP_SUCCESSOR_ALREADY_EXISTS")
@@ -505,6 +582,16 @@ def apply_cooperation_membership_revision(
         "newly_admitted_model_party": candidate if kind == "ADD_FUTURE_PARTICIPANT" else None,
         "former_model_party": candidate if kind == "REVIEW_FUTURE_PARTICIPATION" else None,
         "old_original_results_and_consent_unchanged": True,
+        "new_entrant_prospective_assessment_required": bool(
+            kind == "ADD_FUTURE_PARTICIPANT" and require_entry_assessment
+        ),
+        "new_entrant_independently_assessed_model_only": entrant_assessment is not None,
+        "new_entrant_previous_pilot_experience_not_imputed": True,
+        "new_entrant_outside_option": (
+            entrant_assessment["entry_outside_option"]
+            if entrant_assessment is not None else "NOT_ASSESSED"
+        ),
+        "new_entrant_own_economic_advantage_proven": False,
         "legal_membership_or_IP_rights_authenticated": False,
         "prospective_model_relation_only": True,
     }
