@@ -230,6 +230,31 @@ it("original T2 Kernel read timeout is not falsely classified as a missing Works
   expect(createWorkspace).not.toHaveBeenCalled();
 });
 
+it("stage-specific isolated read timeout remains a transport failure, never a revoked grant or missing Workspace",async()=>{
+  const createWorkspace=vi.fn();
+  const candidate={
+    getWorkspace:vi.fn(async()=>{throw Object.assign(
+      new Error("T3_D1_READ_TIMEOUT_SIGNED_JIT"),
+      {code:"T3_D1_READ_TIMEOUT_SIGNED_JIT"});}),
+    createWorkspace,hasOperation:()=>true,
+  } as unknown as KernelFacade;
+  render(<SignedSelectedWorkspaceGate required kernel={candidate}
+    profile="generic" autoCreateSignedCorporate={false}
+    trustedSelectedContext={async()=>({
+      kind:"CORP",workspace_id:"ws:stalled",resource:"ws:stalled",
+      organization_id:"org:current",
+    })}>
+    <p data-testid="no-timeout-bypass">Never shown</p>
+  </SignedSelectedWorkspaceGate>);
+  const refusal=await screen.findByTestId("t3-d1-selected-workspace-refusal-code");
+  expect(refusal.textContent).toContain("T3_D1_READ_TIMEOUT_SIGNED_JIT");
+  expect(screen.getByTestId("t3-d1-selected-workspace-message").textContent)
+    .toContain("не ответил на чтение Workspace");
+  expect(screen.queryByTestId("t3-d1-create-selected-workspace")).toBeNull();
+  expect(screen.queryByTestId("no-timeout-bypass")).toBeNull();
+  expect(createWorkspace).not.toHaveBeenCalled();
+});
+
 it("untrusted exception strings never reach the signed Workspace UI",async()=>{
   const candidate={
     getWorkspace:vi.fn(async()=>{throw Error("private path /vault/issuer.json");}),
