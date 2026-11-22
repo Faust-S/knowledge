@@ -44,7 +44,7 @@ jobs:
           }
           Write-Output 'D07_NATIVE_PRIVATE_PROTOCOL_BOUNDARY=PASS'
           if(!$source.Contains('D07_NATIVE_CARD_UI_ACTION_NOT_ENABLED') -or
-             !$source.Contains('if($node.Current.IsEnabled -and !$node.Current.IsOffscreen)')){
+             !$source.Contains('if($node.Current.IsEnabled){return $node}')){
             throw 'D07_NATIVE_T2_ASYNC_BUTTON_GUARD_MISSING'
           }
           Write-Output 'D07_NATIVE_T2_ASYNC_BUTTON_GUARD=PASS'
