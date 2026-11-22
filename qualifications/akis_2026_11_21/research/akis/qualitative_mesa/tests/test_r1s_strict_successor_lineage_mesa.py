@@ -98,7 +98,7 @@ def test_r1s_strict_original_goals_interests_review_capability_and_membership_su
         "ACCEPTED_BY_ORIGINAL_RECIPIENT",
     ] * 3
     links = {row["id"]: row for row in result["cooperation"]["links"]}
-    assert links["l1"]["works"] == ["w1", "w2"]
+    assert links["l1"]["works"] == ["w0", "w1", "w2"]
     assert links["l2"]["works"] == ["w3"]
     assert links["l1"]["original_participants"] == ["a", "b", "op"]
     assert links["l2"]["original_participants"] == ["a", "b", "op", "c"]
