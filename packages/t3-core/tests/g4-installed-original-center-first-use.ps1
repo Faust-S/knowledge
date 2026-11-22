@@ -237,6 +237,21 @@ function WaitForOriginalKernelReady(){
   }
   return $false
 }
+function WaitForOriginalDataReadReceipt([string]$stage){
+  # The ORIGINAL native Rust owner has a 90-second bounded response timeout.
+  # A 32-second UIA-only wait can fail BEFORE that owner has returned a typed
+  # denial. This diagnostic waits for the definitive outcome; a slow
+  # successful read is still recorded for product performance qualification.
+  $timer=[System.Diagnostics.Stopwatch]::StartNew()
+  $observed=WaitForText 'Оригинальный T2 Kernel' 415
+  $timer.Stop()
+  $elapsed=[int][Math]::Round($timer.Elapsed.TotalSeconds)
+  Write-Host "D2_INSTALLED_NATIVE_DATA_READ_WAIT_SECONDS_$stage $elapsed"
+  if($observed){
+    Write-Host "D2_INSTALLED_NATIVE_DATA_READ_UI_CONFIRMED_$stage"
+  }
+  return $observed
+}
 function WaitForOriginalNativeDataReader(){
   # The signed React Workspace can show KernelStatus READY before its
   # asynchronous native D3 relay attaches. Only the ORIGINAL native owner
@@ -634,7 +649,7 @@ try{
     Check (WaitForOriginalNativeDataReader) 'D2_INSTALLED_NATIVE_ORIGINAL_READER_NOT_ATTACHED'
     $script:phase='D2_NATIVE_READ_ORIGINAL_KERNEL'
     ClickButton 'Перечитать Object/Event через T3 DATA'
-    if(-not(WaitForText 'Оригинальный T2 Kernel' 130)){
+    if(-not(WaitForOriginalDataReadReceipt 'OVERVIEW')){
       NativeD2BoundedRefusal
       throw 'D2_INSTALLED_NATIVE_SIGNED_DATA_READ_FAILED'
     }
@@ -647,7 +662,7 @@ try{
     Check (WaitForText 'Task в оригинальном T3:' 120) 'D2_INSTALLED_NATIVE_CONTEXT_SIGNED_OWNER_MISSING'
     Check (WaitForOriginalNativeDataReader) 'D2_INSTALLED_NATIVE_CONTEXT_READER_NOT_ATTACHED'
     ClickButton 'Перечитать Object/Event через T3 DATA'
-    if(-not(WaitForText 'Оригинальный T2 Kernel' 130)){
+    if(-not(WaitForOriginalDataReadReceipt 'CONTEXT')){
       NativeD2BoundedRefusal
       throw 'D2_INSTALLED_NATIVE_CONTEXT_DATA_READ_FAILED'
     }
@@ -671,7 +686,7 @@ try{
     Check (WaitForText 'Task в оригинальном T3:' 120) 'D2_INSTALLED_COLD_CONTEXT_NOT_READ'
     Check (WaitForOriginalNativeDataReader) 'D2_INSTALLED_COLD_NATIVE_READER_NOT_ATTACHED'
     ClickButton 'Перечитать Object/Event через T3 DATA'
-    if(-not(WaitForText 'Оригинальный T2 Kernel' 130)){
+    if(-not(WaitForOriginalDataReadReceipt 'COLD')){
       NativeD2BoundedRefusal
       throw 'D2_INSTALLED_COLD_ORIGINAL_KERNEL_DATA_READ_FAILED'
     }
