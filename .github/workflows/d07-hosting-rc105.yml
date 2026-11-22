@@ -1,8 +1,5 @@
 name: D07 RC105 private hosting ZIP qualification
 on:
-  push:
-    branches: [work/2026-11-22-d07-methodology-v13]
-    paths: [.github/workflows/d07-hosting-rc105.yml]
   workflow_dispatch:
 permissions:
   contents: read
@@ -154,7 +151,7 @@ jobs:
       - name: Deposit candidate ZIP only in a draft release of the private site repository
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.DOMEN }}
+          GH_TOKEN: ${{ secrets.D07_RELEASE_TOKEN || secrets.DOMEN }}
         run: |
           set -euo pipefail
           if [ -z "$GH_TOKEN" ]; then echo D07_RC105_PRIVATE_HANDOFF=BLOCKED_NO_TOKEN; exit 1; fi
