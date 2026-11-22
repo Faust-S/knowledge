@@ -82,6 +82,9 @@ def evaluate_cash_timing(
     - Only existing transfers carry signed cash. Resource uses never become
       cash a second time, nor does a stock of opening cash become system income.
     - Shortfalls are research constraints, not legal insolvency or a bank fact.
+    - Late receipts are adverse to the owner; current contractual outflow
+      obligations stay at their expected date in the owner's stress view.
+      The stress is owner-specific, NOT a single joint settlement forecast.
     - Late dates must themselves be supplied; no random delay, credit or rate.
     """
     if not isinstance(raw, dict) or set(raw) != {
@@ -164,7 +167,11 @@ def evaluate_cash_timing(
                     signed = amount if rec["payee"] == owner else -amount
                     at, late_at = windows[key]
                     expected.append((at, signed))
-                    stress.append((late_at, signed))
+                    # Critical invariant: late receivables do not silently
+                    # postpone a participant's payable obligations. Moving
+                    # both sides to late_at could manufacture solvency for
+                    # an operator even though suppliers are still due today.
+                    stress.append((late_at if signed > 0 else at, signed))
                 outcome[scenario] = {
                     "status": "SOURCE_DECLARED_TIMING_ARITHMETIC_ONLY",
                     "expected": _bounds(opening, expected, reserve),
@@ -191,8 +198,48 @@ def evaluate_cash_timing(
         else:
             verdict = "DECLARED_LIQUIDITY_RESERVE_MET_FOR_BOTH_ALTERNATIVES"
             scoped_counts["qualified_reserve_both_scenarios"] += 1
+        # The two alternatives are distinct individual options, not a
+        # combined network balance. Do not label cooperative feasibility
+        # equivalent to a more/less favourable outside option.
+        coop_path = outcome["COOPERATION"]
+        alt_path = outcome["INDEPENDENT_ALTERNATIVE"]
+        if any(path["status"] != "SOURCE_DECLARED_TIMING_ARITHMETIC_ONLY"
+               for path in (coop_path, alt_path)):
+            classification = "INCOMPLETE_INDIVIDUAL_LIQUIDITY_COMPARISON"
+        elif outside.get(owner) != "FEASIBLE_DECLARED":
+            classification = "OUTSIDE_ALTERNATIVE_FEASIBILITY_NOT_QUALIFIED"
+        else:
+            left = coop_path["declared_late_case"]["status"]
+            right = alt_path["declared_late_case"]["status"]
+            gap = "SOURCE_DECLARED_LIQUIDITY_GAP_IN_ALL_SAME_TICK_ORDERINGS"
+            met = "SOURCE_DECLARED_RESERVE_MET_IN_ALL_SAME_TICK_ORDERINGS"
+            if left == gap and right == met:
+                classification = "COOPERATION_DECLARED_GAP_WHILE_OUTSIDE_RESERVE_MET"
+            elif left == met and right == gap:
+                classification = "COOPERATION_DECLARED_RESERVE_MET_WHILE_OUTSIDE_GAP"
+            elif left == gap and right == gap:
+                classification = "BOTH_ALTERNATIVES_DECLARED_LIQUIDITY_GAP"
+            elif left == met and right == met:
+                classification = "BOTH_ALTERNATIVES_DECLARED_RESERVE_MET"
+            else:
+                classification = "SETTLEMENT_ORDER_PREVENTS_LIQUIDITY_COMPARISON"
         per_owner[owner] = {
             "status": verdict,
+            "original_owner_liquidity_comparison": {
+                "classification": classification,
+                "model_cooperation_stress": (
+                    coop_path.get("declared_late_case", {}).get("status", "NOT_IDENTIFIABLE")
+                ),
+                "model_independent_stress": (
+                    alt_path.get("declared_late_case", {}).get("status", "NOT_IDENTIFIABLE")
+                ),
+                "individual_owner_alternatives_not_pooled": True,
+                "independent_alternative_real_feasibility_verified": False,
+                "positive_net_cash_is_not_liquidity_proof": True,
+                "late_receipts_not_assumed_to_postpone_outgoing_obligations": True,
+                "stress_paths_not_joint_network_settlement_scenario": True,
+                "real_bank_payment_capacity_and_lending_not_proven": True,
+            },
             "scenario_paths": outcome,
             "owner_scope_only": True,
             "real_bank_balance_verified": False,
@@ -213,4 +260,7 @@ def evaluate_cash_timing(
         "original_money_and_resource_uses_unchanged": True,
         "real_liquidity_and_payments_not_authenticated": True,
         "operator_cash_position_is_independent": True,
+        "adverse_receipts_late_obligations_due_in_owner_private_stress": True,
+        "per_owner_stress_is_not_one_simultaneously_consistent_network_schedule": True,
+        "outside_comparison_is_not_actual_profit_or_legal_consent": True,
     }
