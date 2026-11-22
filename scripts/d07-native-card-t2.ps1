@@ -221,33 +221,26 @@ try{
     @($exactTitles|Where-Object{![string]::IsNullOrWhiteSpace($_)}).Count -ne 10){
    throw "D07_NATIVE_CARD_SUBJECT_OPERATION_SET_INVALID"
  }
- $summary=WaitUi "Посмотреть все работы" $null 35
- try {
-   $invoke=[System.Windows.Automation.InvokePattern]$summary.GetCurrentPattern(
-     [System.Windows.Automation.InvokePattern]::Pattern)
-   $invoke.Invoke()
- }catch{
-   $summary.SetFocus()
-   [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+ # Edge UIA does not expose children of a collapsed <details>. Verify
+ # exact authored operations after the genuine "add to order" action instead.
+ $initialText=AccessibleText
+ if($initialText -notmatch "Замена унитаза" -or
+    $initialText -notmatch "Работы для выбранной услуги"){
+   throw "D07_NATIVE_CARD_T2_WRONG_SELECTED_SERVICE"
  }
- $matches=0
- for($attempt=0;$attempt -lt 22;$attempt++){
-   Start-Sleep -Milliseconds 300
+ ClickUi "Добавить работы в заказ" ([System.Windows.Automation.ControlType]::Button)
+ $matches=0;$added=$false
+ for($attempt=0;$attempt -lt 65;$attempt++){
+   Start-Sleep -Milliseconds 350
    $text=AccessibleText
    $matches=@($exactTitles|Where-Object{$text.Contains($_)}).Count
-   if($matches -eq $exactTitles.Count){break}
+   if($matches -eq 10 -and $text -match 'Работ:\s*10'){
+     $added=$true;break
+   }
  }
- Write-Output ("D07_NATIVE_CARD_EXACT_OPERATION_MATCHES="+$matches)
- if($text -notmatch "Замена унитаза" -or $matches -ne 10){
-  throw "D07_NATIVE_CARD_WRONG_T2_TECHNOLOGY"
- }
- Write-Output "D07_NATIVE_CARD_T2_EXACT_PLAN=PASS"
- ClickUi "Добавить работы в заказ" ([System.Windows.Automation.ControlType]::Button)
- $added=$false
- for($i=0;$i -lt 60;$i++){Start-Sleep -Milliseconds 350
-  if((AccessibleText) -match "Работ:\s*10"){$added=$true;break}
- }
+ Write-Output ("D07_NATIVE_CARD_DRAFT_OPERATION_MATCHES="+$matches)
  if(!$added){throw "D07_NATIVE_CARD_T2_PLAN_NOT_APPLIED"}
+ Write-Output "D07_NATIVE_CARD_T2_EXACT_PLAN=PASS"
  Write-Output "D07_NATIVE_CARD_T2_PLAN_APPLIED=PASS"
  # Current T2 Host checks the candidate against Kernel and the current
  # Workspace directly; the obsolete consent checkbox must not be invented.
