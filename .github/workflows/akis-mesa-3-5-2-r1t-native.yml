@@ -1,0 +1,34 @@
+name: AKIS Mesa 3.5.2 R1-T prospective original OC edition
+
+on:
+  push:
+    branches:
+      - work/2026-11-22-akis-r1t-model-code-revision-native
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-mesa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install verified pinned Mesa and test runner
+        run: |
+          python -m pip install --disable-pip-version-check "mesa==3.5.2" "pytest>=8,<10"
+          python -c "import mesa; assert mesa.__version__ == '3.5.2', mesa.__version__; print('PINNED_MESA_VERSION_PASS')"
+      - name: Compile original copied research code
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: |
+          python -m compileall -q qualifications/akis_2026_11_21/research
+      - name: Native general AKIS Mesa and original model regression
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: |
+          python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests

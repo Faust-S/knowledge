@@ -260,3 +260,192 @@ def parse_org_code_policy(claims: Any, subjects: Mapping[str, Any],
                               req_scoped, allowed_events, require_admitted,
                               autonomy, reviewer_by_action, responsibility_by_action,
                               institution.revision, True)
+
+# R1-T: qualification of a prospective MODEL-ONLY edition of the same
+# original thirteen-field code. No second policy engine, IAM, signature or
+# new organizational regime. Every source event stays in QualitativeAKIS.trace.
+def _original_model_edition_proposal(trace: Any, change: Any):
+    if not isinstance(change, str) or not change or len(change) > 128:
+        raise OrgCodeBlocked("OC_MODEL_EDITION_CHANGE_ID_REQUIRED")
+    rows = [r for r in trace
+            if r.get("action") == "model_code_propose"
+            and r.get("outcome") == "APPLIED"
+            and r.get("model_code_change_id") == change]
+    if len(rows) != 1:
+        raise OrgCodeBlocked("OC_MODEL_EDITION_ORIGINAL_PROPOSAL_REQUIRED")
+    return rows[0]
+
+
+def _edition_source(value: Any, original: str) -> None:
+    prefix = "model://" + original + "/"
+    if not isinstance(value, str) or not value.startswith(prefix) or not (
+            len(prefix) < len(value) <= 180):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_OWNER_SOURCE_REQUIRED")
+
+
+def qualify_model_code_proposal(state: Any, event: Mapping[str, Any],
+                                at: int) -> None:
+    """Propose only a model role for a NEW original participant, no rights."""
+    old = state.model_org_policy
+    if old is None or not old.active(state, at):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_ACTIVE_ORIGINAL_CODE_REQUIRED")
+    operator = state.institution.operator
+    if event.get("actor") != operator:
+        raise OrgCodeBlocked("OC_MODEL_EDITION_ORIGINAL_OPERATOR_REQUIRED")
+    if event.get("org_revision") != state.institution.revision:
+        raise OrgCodeBlocked("OC_MODEL_EDITION_INSTITUTION_REVISION_STALE")
+    if event.get("expected_model_edition") != state.model_org_code_edition:
+        raise OrgCodeBlocked("OC_MODEL_EDITION_EXPECTED_REVISION_STALE")
+    edition = event.get("new_model_edition")
+    if (not isinstance(edition, str) or not edition or len(edition) > 128
+            or edition in state.model_org_code_editions):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_REUSE_FORBIDDEN")
+    change = event.get("model_code_change_id")
+    if (not isinstance(change, str) or not change or len(change) > 128 or
+            any(row.get("model_code_change_id") == change
+                and row.get("action") == "model_code_propose"
+                and row.get("outcome") == "APPLIED" for row in state.trace)):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_DUPLICATE_PROPOSAL")
+    _edition_source(event.get("model_code_source_ref"), operator)
+    applicant = event.get("proposed_subject")
+    if (applicant not in state.subjects
+            or not state.subjects[applicant].active
+            or state.subjects[applicant].kind != "SME"
+            or applicant in old.controlled_subjects
+            or event.get("proposed_model_role") != "RESOURCE_OWNER"
+            or not any(owner == applicant for owner in state.resources.values())):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_NEW_ORIGINAL_RESOURCE_OWNER_REQUIRED")
+    membership = [
+        row for row in state.trace
+        if row.get("action") == "cooperation_membership_apply"
+        and row.get("outcome") == "APPLIED"
+        and row.get("change_id") == event.get("original_cooperation_change_id")
+        and row.get("newly_admitted_model_party") == applicant
+        and row.get("new_entrant_independently_assessed_model_only") is True
+        and type(row.get("at")) is int and row["at"] < at
+    ]
+    if len(membership) != 1:
+        raise OrgCodeBlocked("OC_MODEL_EDITION_INDEPENDENT_ENTRANT_MEMBERSHIP_REQUIRED")
+
+
+def qualify_model_code_response(state: Any, event: Mapping[str, Any],
+                                at: int) -> None:
+    proposal = _original_model_edition_proposal(
+        state.trace, event.get("model_code_change_id")
+    )
+    actor = event.get("actor")
+    if actor not in state.institution.founders:
+        raise OrgCodeBlocked("OC_MODEL_EDITION_ORIGINAL_FOUNDER_REQUIRED")
+    if (event.get("org_revision") != state.institution.revision
+            or proposal.get("org_revision") != state.institution.revision
+            or proposal.get("expected_model_edition") != state.model_org_code_edition
+            or event.get("new_model_edition") != proposal.get("new_model_edition")):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_RESPONSE_STALE")
+    if type(proposal.get("at")) is not int or at <= proposal["at"]:
+        raise OrgCodeBlocked("OC_MODEL_EDITION_RESPONSE_TIME_INVALID")
+    if event.get("model_code_decision") not in {
+            "SUPPORT_MODEL_REVISION", "OBJECT_MODEL_REVISION"}:
+        raise OrgCodeBlocked("OC_MODEL_EDITION_FOUNDER_POSITION_REQUIRED")
+    _edition_source(event.get("model_code_decision_source_ref"), actor)
+
+
+def qualify_model_code_apply(state: Any, event: Mapping[str, Any],
+                             at: int, *, actions: set[str]) -> ModelOrgCodePolicy:
+    """Validate complete replacement controls BEFORE one atomic policy swap.
+
+    The institution revision and every Work/Result remain original. Only the
+    opt-in, model-scoped predicate gains a prospective role after the entrant's
+    historical membership and distinct founder source responses.
+    """
+    old = state.model_org_policy
+    if old is None or not old.active(state, at):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_ACTIVE_ORIGINAL_CODE_REQUIRED")
+    operator = state.institution.operator
+    if event.get("actor") != operator:
+        raise OrgCodeBlocked("OC_MODEL_EDITION_ORIGINAL_OPERATOR_REQUIRED")
+    proposal = _original_model_edition_proposal(
+        state.trace, event.get("model_code_change_id")
+    )
+    if (event.get("org_revision") != state.institution.revision
+            or proposal.get("org_revision") != state.institution.revision
+            or proposal.get("expected_model_edition") != state.model_org_code_edition
+            or event.get("expected_model_edition") != state.model_org_code_edition
+            or event.get("new_model_edition") != proposal.get("new_model_edition")
+            or type(proposal.get("at")) is not int or proposal["at"] >= at):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_APPLY_STALE")
+    if event.get("new_model_edition") in state.model_org_code_editions:
+        raise OrgCodeBlocked("OC_MODEL_EDITION_REUSE_FORBIDDEN")
+    applicant = proposal.get("proposed_subject")
+    if (applicant not in state.subjects
+            or not state.subjects[applicant].active
+            or not any(owner == applicant for owner in state.resources.values())
+            or applicant in old.controlled_subjects):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_NEW_ORIGINAL_RESOURCE_OWNER_REQUIRED")
+    # Independently recheck still-applicable membership, not just the
+    # operator's earlier proposed change.
+    if not any(
+        row.get("action") == "cooperation_membership_apply"
+        and row.get("outcome") == "APPLIED"
+        and row.get("change_id") == proposal.get("original_cooperation_change_id")
+        and row.get("newly_admitted_model_party") == applicant
+        and row.get("new_entrant_independently_assessed_model_only") is True
+        and row.get("at", at) < at
+        for row in state.trace
+    ):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_INDEPENDENT_ENTRANT_MEMBERSHIP_REQUIRED")
+    latest = {}
+    for row in state.trace:
+        if (row.get("action") == "model_code_response"
+                and row.get("outcome") == "APPLIED"
+                and row.get("model_code_change_id") == proposal["model_code_change_id"]
+                and row.get("new_model_edition") == proposal["new_model_edition"]
+                and row.get("org_revision") == state.institution.revision
+                and row.get("actor") in state.institution.founders
+                and type(row.get("at")) is int
+                and proposal["at"] < row["at"] < at):
+            latest[row["actor"]] = row["model_code_decision"]
+    if set(latest) != set(state.institution.founders):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_ALL_FOUNDERS_RESPONSE_REQUIRED")
+    if any(value != "SUPPORT_MODEL_REVISION" for value in latest.values()):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_FOUNDER_OBJECTION")
+    claims = event.get("model_code_records")
+    if not isinstance(claims, list) or len(claims) != len(FIELDS):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_ALL_THIRTEEN_RECORDS_REQUIRED")
+    for row in claims:
+        if (not isinstance(row, dict) or row.get("owner") != operator
+                or row.get("revision") != state.institution.revision
+                or type(row.get("available_at")) is not int
+                or row.get("available_at") != at
+                or type(row.get("expires_at")) is not int
+                or row["expires_at"] <= at):
+            raise OrgCodeBlocked("OC_MODEL_EDITION_CURRENT_SOURCE_TIME_REQUIRED")
+        _edition_source(row.get("source_ref"), operator)
+        if (row.get("field") not in old.records
+                or row.get("source_ref") == old.records[row["field"]]["source_ref"]):
+            raise OrgCodeBlocked("OC_MODEL_EDITION_FRESH_THIRTEEN_SOURCES_REQUIRED")
+    try:
+        candidate = parse_org_code_policy(
+            claims, state.subjects, state.institution, actions=actions
+        )
+    except OrgCodeInputError as exc:
+        raise OrgCodeBlocked("OC_MODEL_EDITION_INVALID_ORIGINAL_THIRTEEN_CONTROLS:" +
+                             str(exc)) from exc
+    # This first prospective stage adds exactly one entrant-owned role.
+    # Role reassignment and changes to the other ten fields need a separate
+    # independent owner and liability review; never silently broaden scope.
+    if (set(candidate.controlled_subjects) - set(old.controlled_subjects) != {applicant}
+            or set(old.controlled_subjects) - set(candidate.controlled_subjects)
+            or set(candidate.asserted_identity) - set(old.asserted_identity) != {applicant}
+            or set(old.asserted_identity) - set(candidate.asserted_identity)
+            or candidate.roles.get(applicant) != (proposal["proposed_model_role"],)
+            or any(candidate.roles.get(name) != roles
+                   for name, roles in old.roles.items())):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_ONLY_INDEPENDENT_NEW_ENTRANT_ALLOWED")
+    if any(
+        candidate.records[field]["control"] != old.records[field]["control"]
+        for field in FIELDS if field not in {"С", "ИД", "Рол"}
+    ):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_OTHER_RIGHTS_OR_FUNCTIONS_UNREVIEWED")
+    if not candidate.active(state, at):
+        raise OrgCodeBlocked("OC_MODEL_EDITION_NEW_SOURCE_NOT_ACTIVE")
+    return candidate

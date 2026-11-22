@@ -203,7 +203,7 @@ class OperatorAKISModel(mesa.Model):
         "initial_subject_evaluation", "goal_source_available", "goal_source_expired",
         "request", "offer", "authorize", "resource_status", "change_mode", "exclude", "commit",
         "complete", "reject", "resubmit", "accept", "source_update", "resource_calendar_update",
-        "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "adopt_capability",
+        "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "model_code_propose", "model_code_response", "model_code_apply", "adopt_capability",
         "economic_outlook_available", "economic_outlook_expired",
         "joint_purchasing_quote_change",
         "owner_finance_source_available", "owner_finance_source_expired",
@@ -587,6 +587,7 @@ class OperatorAKISModel(mesa.Model):
             {"components": view["components"],
              "phases": view["formation_phases"],
              "org": view["organizational_code"],
+             "org_model_edition": view["model_organizational_code_review"],
              "contexts": view["context_cores"],
              "configuration_dynamics": view["configuration_dynamics"],
              "bounded_agent_process": view["bounded_process_function_outputs"]},
@@ -778,8 +779,10 @@ class OperatorAKISModel(mesa.Model):
                 need.resource == event["resource"] for need in work.resource_requirements)]
         elif action == "source_update":
             impacted = state.context_basis.affected_works(event["source"]) if state.context_basis else []
-        elif action == "change_mode":
+        elif action in {"change_mode", "model_code_apply"}:
             impacted = [work.key for work in state.works.values() if work.obligation == "NOT_ACCEPTED"]
+        elif action in {"model_code_propose", "model_code_response"}:
+            impacted = []
         elif action in {"participation_status", "cooperation_change_propose", "cooperation_change_response"}:
             link = next((link for link in state.cooperation_links
                          if link.key == event["cooperation_link"]), None)

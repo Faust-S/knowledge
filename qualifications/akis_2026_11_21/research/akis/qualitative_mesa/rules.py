@@ -10,7 +10,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .context_basis import ContextBasis, ContextBlocked, ContextInputError
-from .org_code_policy import OrgCodeBlocked, NEW_WORK_ACTIONS
+from .org_code_policy import (
+    OrgCodeBlocked, NEW_WORK_ACTIONS, qualify_model_code_proposal,
+    qualify_model_code_response, qualify_model_code_apply,
+)
 from .capacity import (
     CapacityBlocked, CapacityInputError, CapacityLedger, ResourceNeed,
     parse_resource_calendar, parse_resource_capacity, parse_resource_needs,
@@ -45,7 +48,7 @@ SELECTED_MODES = frozenset({"SOLE", "COLLEGIAL", "MIXED"})
 # UNSELECTED explicitly describes missing qualification, not tacit SOLE.
 MODES = SELECTED_MODES | {"UNSELECTED"}
 AVAILABILITY = frozenset({"AVAILABLE", "UNAVAILABLE", "UNKNOWN"})
-ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "cooperation_entry_assess", "cooperation_membership_apply", "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge"})
+ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "cooperation_entry_assess", "cooperation_membership_apply", "model_code_propose", "model_code_response", "model_code_apply", "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge"})
 GOVERNED = frozenset({"authorize", "exclude"})
 
 
@@ -252,7 +255,11 @@ class QualitativeAKIS:
         for ev in events:
             _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
              "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref", "interest_valid_until",
-             "new_link_id", "new_link_revision", "new_link_source_ref", "entry_goal_source_ref", "entry_alternative_source_ref", "entry_assessment_source_ref", "entry_willingness", "entry_outside_option", "entry_valid_until", "entry_change_id", "entry_assessment_source_ref"}, "EVENT")
+             "new_link_id", "new_link_revision", "new_link_source_ref", "entry_goal_source_ref", "entry_alternative_source_ref", "entry_assessment_source_ref", "entry_willingness", "entry_outside_option", "entry_valid_until", "entry_change_id", "entry_assessment_source_ref",
+             "model_code_change_id", "model_code_source_ref", "model_code_decision",
+             "model_code_decision_source_ref", "new_model_edition",
+             "expected_model_edition", "proposed_model_role",
+             "original_cooperation_change_id", "model_code_records"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -261,6 +268,8 @@ class QualitativeAKIS:
                 self._parse_work(ev.get("work_spec"))
         self.context_basis: ContextBasis | None = None
         self.model_org_policy = None  # Optional MODEL_ONLY constraint on original new-Work actions.
+        self.model_org_code_edition = "BASE"  # Source-edition only, NOT institutional OC revision.
+        self.model_org_code_editions = {"BASE"}
         self.formation_policy = None  # Optional source/owner phase gates, original trace only.
         self.capability_policy = None  # Optional owner gate, never an autonomous upgrade.
         if "context_evidence" in scenario:
@@ -380,6 +389,34 @@ class QualitativeAKIS:
                 model_org_review = self.model_org_policy.inspect(self, ev, at)
             if action == "change_mode":
                 self._change_mode(ev)
+            elif action == "model_code_propose":
+                qualify_model_code_proposal(self, ev, at)
+            elif action == "model_code_response":
+                qualify_model_code_response(self, ev, at)
+            elif action == "model_code_apply":
+                candidate = qualify_model_code_apply(
+                    self, ev, at, actions=set(ACTIONS)
+                )
+                entrant = next(
+                    row["proposed_subject"] for row in self.trace
+                    if row.get("action") == "model_code_propose"
+                    and row.get("outcome") == "APPLIED"
+                    and row.get("model_code_change_id") == ev["model_code_change_id"]
+                )
+                # Previously admitted, unfinished Work involving the new
+                # entrant must acquire fresh individual authorization and
+                # consent under this model edition. Never rewrite accepted Work.
+                for work in self.works.values():
+                    if (work.obligation == "NOT_ACCEPTED"
+                            and (work.customer == entrant or
+                                 any(self.resources[n.resource] == entrant
+                                     for n in work.resource_requirements))):
+                        work.consents.clear()
+                        work.admitted = False
+                        work.authorization_org_revision = None
+                self.model_org_policy = candidate
+                self.model_org_code_edition = ev["new_model_edition"]
+                self.model_org_code_editions.add(ev["new_model_edition"])
             elif action == "request":
                 linked_change_evidence = self._request_work(ev, at)
             elif action == "resource_status":
@@ -502,8 +539,36 @@ class QualitativeAKIS:
                 if model_org_review is not None else []
             )
             report["org_code_model_source_revision"] = self.model_org_policy.revision
+            report["org_code_model_source_edition"] = self.model_org_code_edition
             report["org_code_escalation_is_inquiry_only"] = True
             report["org_code_real_identity_authenticated"] = False
+        if action in {"model_code_propose", "model_code_response", "model_code_apply"}:
+            report["model_code_change_id"] = ev.get("model_code_change_id")
+            report["new_model_edition"] = ev.get("new_model_edition")
+            report["expected_model_edition"] = ev.get("expected_model_edition")
+            report["model_code_institution_revision_unchanged"] = (
+                self.institution.revision == previous_revision
+            )
+            report["model_code_legal_rights_authenticated"] = False
+            if action == "model_code_propose":
+                report["proposed_subject"] = ev.get("proposed_subject")
+                report["proposed_model_role"] = ev.get("proposed_model_role")
+                report["original_cooperation_change_id"] = ev.get(
+                    "original_cooperation_change_id"
+                )
+                report["model_code_source_ref"] = ev.get("model_code_source_ref")
+            if action == "model_code_response":
+                report["model_code_decision"] = ev.get("model_code_decision")
+                report["model_code_decision_source_ref"] = ev.get(
+                    "model_code_decision_source_ref"
+                )
+            if action == "model_code_apply" and report["outcome"] == "APPLIED":
+                report["model_code_current_source_edition"] = (
+                    self.model_org_code_edition
+                )
+                report["model_code_all_thirteen_source_records_requalified"] = True
+                report["historical_accepted_results_and_consents_preserved"] = True
+                report["new_entrant_independent_work_consent_still_required"] = True
         if action in {"start_operation", "complete_operation"}:
             report["operation"] = ev.get("operation")
         if action == "assess_result_quality" and report["outcome"] == "APPLIED":

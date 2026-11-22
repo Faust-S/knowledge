@@ -1738,6 +1738,21 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
             "all_thirteen_model_controls_active": model_code_active,
             "real_identity_and_legal_authority": "NOT_VERIFIED",
             "no_new_original_action_by_policy": True,
+            "original_model_source_edition": getattr(
+                state, "model_org_code_edition", "BASE"
+            ),
+            "accepted_prospective_model_editions": sum(
+                row.get("action") == "model_code_apply"
+                and row.get("outcome") == "APPLIED"
+                for row in state.trace
+            ),
+            "source_qualified_founder_model_responses": sum(
+                row.get("action") == "model_code_response"
+                and row.get("outcome") == "APPLIED"
+                for row in state.trace
+            ),
+            "historical_institutional_revision_unmodified_by_model_editions": True,
+            "newcomer_role_legal_authority": "NOT_VERIFIED",
         },
         "formation_phases": phase_rows,
         "result_capability_cooperation_gate": {
