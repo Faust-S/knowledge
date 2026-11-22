@@ -1,0 +1,71 @@
+name: D08 original T2 isolated runtime-contract and module-stage preflight
+on:
+  push:
+    branches: [work/2026-11-22-d08-attention-to-payment-qualification]
+    paths: [.github/workflows/d08-stage-runtime-contract.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d08-stage-runtime-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Read only pinned MarketOps source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: d041d5d0364ec8f3ad1bffe52ed2756db7638c73
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - name: Read only original accepted T2 source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check original T2 runtime contract and exact external module overlay
+        run: |
+          test "$(git -C site rev-parse HEAD)" = "d041d5d0364ec8f3ad1bffe52ed2756db7638c73"
+          test "$(git -C t2 rev-parse HEAD)" = "49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7"
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const src='t2/t2/current/final-successor/canonical-source';
+          fs.cpSync(src,'stage',{recursive:true,filter:p=>
+            !['node_modules','.git','dist'].includes(p.split(/[\\/]/).at(-1))});
+          NODE
+          node t2/t2/current/final-successor/canonical-source/scripts/stage-t2-external-module.mjs \
+            "$PWD/stage" "$PWD/site/t2-site-module/marketops" \
+            iwxa.domain.marketops marketops > "$RUNNER_TEMP/d08-stage.log" 2>&1 || {
+              echo D08_CANONICAL_MODULE_STAGE=FAIL
+              exit 1
+            }
+          echo D08_CANONICAL_MODULE_STAGE=PASS
+          node stage/scripts/check-active-runtime-contract.mjs \
+            > "$RUNNER_TEMP/d08-runtime-contract.log" 2>&1 || {
+              if grep -q 'T2_ACTIVE_RUNTIME_CONTRACT_HOLD' "$RUNNER_TEMP/d08-runtime-contract.log"; then
+                echo D08_T2_ACTIVE_CONTRACT=HOLD
+              else
+                echo D08_T2_ACTIVE_CONTRACT=UNEXPECTED_FAILURE
+              fi
+              exit 1
+            }
+          grep -q 'T2_ACTIVE_RUNTIME_CONTRACT_SOURCE_PASS' "$RUNNER_TEMP/d08-runtime-contract.log"
+          echo D08_T2_ACTIVE_CONTRACT=PASS
+      # No source, staged module, build artifacts or logs uploaded.
