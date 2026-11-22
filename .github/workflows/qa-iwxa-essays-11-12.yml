@@ -172,7 +172,7 @@ jobs:
       - name: Purge private source and logs
         if: always()
         run: |
-          if [ -f /tmp/iwxa-1112-browser.pid ]; then kill "$(cat /tmp/iwxa-1112-browser.pid")" 2>/dev/null || true; fi
+          if [ -f /tmp/iwxa-1112-browser.pid ]; then pid=$(cat /tmp/iwxa-1112-browser.pid); kill "$pid" 2>/dev/null || true; fi
           rm -rf .private/site
           rm -f /tmp/iwxa-1112-browser*.log /tmp/iwxa-1112-browser.pid
           test ! -e .private/site && echo PRIVATE_SOURCE_PURGED
