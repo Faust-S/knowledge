@@ -1,0 +1,194 @@
+name: IWXA essays 05-06 published main qualification
+on:
+  push:
+    branches:
+      - qa/2026-11-22-projects-essays-01-02
+    paths:
+      - .github/workflows/qa-iwxa-essays-05-06.yml
+permissions:
+  contents: read
+jobs:
+  unit-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: main
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Exercise public economics, permissions and every existing editorial test
+        shell: bash
+        working-directory: .private/site
+        run: |
+          set -euo pipefail
+          echo SITE_SOURCE_SHA=$(git rev-parse HEAD)
+          bun install --frozen-lockfile > /tmp/iwxa-56-install.log 2>&1 || { tail -n 75 /tmp/iwxa-56-install.log; exit 1; }
+          node --import tsx --test scripts/check-editorial-series.test.ts scripts/check-projects-and-first-essays.test.ts scripts/check-deep-essays-03-04.test.ts scripts/check-essays-05-06.test.ts
+          echo SIX_ESSAYS_TESTS_PASS
+          bunx vite build > /tmp/iwxa-56-build.log 2>&1 || { tail -n 120 /tmp/iwxa-56-build.log; exit 1; }
+          bunx tsc --noEmit > /tmp/iwxa-56-types.log 2>&1 || { tail -n 120 /tmp/iwxa-56-types.log; exit 1; }
+          echo SIX_ESSAYS_VITE_TYPES_PASS
+      - name: Purge private source
+        if: always()
+        run: |
+          rm -rf .private/site
+          rm -f /tmp/iwxa-56-*.log
+          test ! -e .private/site && echo PRIVATE_SITE_PURGED
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: main
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Actual Chrome, adaptive IWXA typography and genuine decisions
+        shell: bash
+        working-directory: .private/site
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile > /tmp/iwxa-56-browser-install.log 2>&1 || { tail -n 75 /tmp/iwxa-56-browser-install.log; exit 1; }
+          bunx vite --host 127.0.0.1 --port 4173 > /tmp/iwxa-56-browser-vite.log 2>&1 &
+          echo $! > /tmp/iwxa-56-browser.pid
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:4173/projects/iwxa/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node --input-type=module <<'JS'
+          import puppeteer from 'puppeteer';
+          const routes=[
+            '/projects/iwxa/',
+            '/articles/shest-programm-vokrug-zakaza/',
+            '/articles/kogda-kooperaciya-okupaetsya/',
+          ];
+          const browser=await puppeteer.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox','--disable-dev-shm-usage']});
+          let checks=0;
+          try{
+            const page=await browser.newPage();
+            page.on('pageerror',e=>console.log('CLIENT_PAGE_ERROR',e.message.slice(0,280)));
+            for(const width of [1440,375]){
+              await page.setViewport({width,height:width===375?812:900,deviceScaleFactor:1});
+              for(const route of routes){
+                console.log('BROWSER_ROUTE',width,route);
+                const res=await page.goto('http://127.0.0.1:4173'+route,{waitUntil:'domcontentloaded',timeout:60000});
+                if(!res?.ok())throw Error('HTTP '+route+' '+res?.status());
+                await page.waitForFunction(()=>document.querySelector('main')?.dataset.clientReady===location.pathname,{timeout:115000});
+                const view=await page.evaluate(()=>({
+                  h1:document.querySelector('h1')?.textContent?.trim(),
+                  overflow:document.documentElement.scrollWidth-innerWidth,
+                  font:getComputedStyle(document.querySelector('h1')).fontFamily,
+                }));
+                if(!view.h1||view.overflow>3)throw Error('LAYOUT '+width+' '+route+' '+JSON.stringify(view));
+                if(!view.font.includes('Inter Tight'))throw Error('FONT '+view.font);
+                if(route==='/projects/iwxa/'){
+                  const cards=await page.$$eval('.iwproj-publications>a',els=>els.length);
+                  if(cards!==6)throw Error('SIX_CARDS '+cards);
+                }
+                if(route.includes('shest-programm')){
+                  const initial=await page.$eval('.sxe-order-grid>div:nth-child(4)>strong',el=>el.textContent?.trim());
+                  if(initial!=='День 11')throw Error('DEFAULT_ORDER '+initial);
+                  const opts=await page.$$('.sxe-controls input[type=checkbox]');
+                  if(opts.length!==6)throw Error('EXPECTED_SIX_OPTIONS '+opts.length);
+                  await opts[2].click();
+                  await opts[3].click();
+                  const changed=await page.$eval('.sxe-order-grid>div:nth-child(4)>strong',el=>el.textContent?.trim());
+                  if(changed!=='День 8')throw Error('UNAPPROVED_STILL_SELECTED '+changed);
+                  await opts[4].click();
+                  const accepted=await page.$eval('.sxe-order-grid>div:nth-child(5)>strong',el=>el.textContent?.trim());
+                  if(accepted!=='День 8')throw Error('QUALITY_ACCEPTANCE '+accepted);
+                  await opts[5].click();
+                  const release=await page.$eval('.sxe-verdict>strong',el=>el.textContent?.trim());
+                  if(!release?.includes('совместимого'))throw Error('RELEASE_BOUNDARY '+release);
+                  const order=await page.$eval('.sxe-order-grid>div:nth-child(4)>strong',el=>el.textContent?.trim());
+                  if(order!=='День 8')throw Error('RELEASE_CHANGED_PHYSICAL_ORDER');
+                }
+                if(route.includes('kogda-kooperaciya')){
+                  const actors=await page.$$eval('.nxe-person',els=>els.length);
+                  if(actors!==4)throw Error('EXPECTED_FOUR_ACTORS '+actors);
+                  const agreed=await page.$eval('.nxe-sum>p',el=>el.textContent?.trim());
+                  if(!agreed?.includes('У всех четырёх'))throw Error('BASELINE_NOT_VIABLE '+agreed);
+                  const reconciliation=await page.$eval('.nxe-sum__check',el=>el.textContent||'');
+                  if(!reconciliation.includes('0 ₽'))throw Error('RECONCILIATION_FAILED');
+                  await page.click('.nxe-payment__switch button:nth-child(2)');
+                  const shortfall=await page.$eval('.nxe-shortfall',el=>el.textContent?.trim());
+                  if(!shortfall?.includes('630'))throw Error('CASH_SHORTFALL '+shortfall);
+                  const total=await page.$eval('.nxe-sum>div>strong',el=>el.textContent?.trim());
+                  if(!total?.includes('2')||!total?.includes('110'))throw Error('TOTAL_CHANGED_WITH_PAYMENT_DATE '+total);
+                }
+                console.log('BROWSER_PASS',width,route);
+                checks++;
+              }
+            }
+            console.log('IWXA_ESSAYS_05_06_CHROME_PASS',checks);
+          }finally{await browser.close();}
+          JS
+      - name: Purge private checkout
+        if: always()
+        run: |
+          if [ -f /tmp/iwxa-56-browser.pid ]; then kill "$(cat /tmp/iwxa-56-browser.pid)" 2>/dev/null || true; fi
+          rm -rf .private/site
+          rm -f /tmp/iwxa-56-browser*.log /tmp/iwxa-56-browser.pid
+          test ! -e .private/site && echo PRIVATE_SITE_PURGED
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: main
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Verify Apache-ready output for IWXA project and essays 05-06
+        shell: bash
+        working-directory: .private/site
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+          IWXA_PRERENDER_ROUTES: /projects/iwxa/,/articles/shest-programm-vokrug-zakaza/,/articles/kogda-kooperaciya-okupaetsya/
+        run: |
+          set -euo pipefail
+          echo STATIC_MAIN_SOURCE_SHA=$(git rev-parse HEAD)
+          bun install --frozen-lockfile > /tmp/iwxa-56-static-install.log 2>&1 || { tail -n 75 /tmp/iwxa-56-static-install.log; exit 1; }
+          bunx tsx scripts/build-static.ts > /tmp/iwxa-56-static-build.log 2>&1 || { tail -n 130 /tmp/iwxa-56-static-build.log; exit 1; }
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const routes=['/projects/iwxa/','/articles/shest-programm-vokrug-zakaza/','/articles/kogda-kooperaciya-okupaetsya/'];
+          for(const route of routes){
+            const file='dist-static'+route+'index.html';
+            if(!fs.existsSync(file))throw Error('MISSING '+file);
+            const html=fs.readFileSync(file,'utf8');
+            if(!html.includes('<h1')||!html.includes('https://iwxa.ru'+route)||html.includes('localhost:4319'))throw Error('SEO '+route);
+            if(route.includes('shest-programm')&&!html.includes('Одно изменение, разные рабочие решения'))throw Error('MISSING_WORKING_MODEL');
+            if(route.includes('kogda-kooperaciya')&&!html.includes('У сети есть экономия'))throw Error('MISSING_NETWORK_MODEL');
+            if(route==='/projects/iwxa/'&&!html.includes('Когда кооперация окупается для каждой стороны?'))throw Error('PROJECT_MISSING_ESSAY');
+            console.log('STATIC_PASS',route,html.length);
+          }
+          JS
+      - name: Remove private source
+        if: always()
+        run: |
+          rm -rf .private/site
+          rm -f /tmp/iwxa-56-static-*.log
+          test ! -e .private/site && echo PRIVATE_SITE_PURGED
