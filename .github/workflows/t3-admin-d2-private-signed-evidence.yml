@@ -197,8 +197,17 @@ jobs:
             }
             Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_OWNER_CENTER_BUILT_PASS'
           }catch{
-            # Private source, build stdout, binary and temp paths remain
-            # ephemeral and never enter the PUBLIC CI log or artifacts.
+            # Exactly the same safe classifier used by the accepted original
+            # installed owner pipeline. NEVER print private source or raw logs.
+            node packages/t3-core/tests/g4-compiled-owner-diagnostics.mjs $log
+            # PRIVATE source and build logs remain on this temporary runner.
+            $class=$_.Exception.GetType().Name
+            if($class -notin @('RuntimeException','CommandNotFoundException',
+                'ParseException','ParameterBindingException',
+                'ParentContainsErrorRecordException','ItemNotFoundException')){
+              $class='UNCLASSIFIED'
+            }
+            Write-Host "D2_INSTALLED_ORIGINAL_BUILD_FAILURE_CLASS $class"
             $codes=@()
             foreach($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
               foreach($hit in [regex]::Matches([string]$line,
@@ -206,7 +215,16 @@ jobs:
                 $codes+=([string]$hit.Value)
               }
             }
+            $caught=[string]$_.Exception.Message
+            foreach($hit in [regex]::Matches($caught,
+              '(?<![A-Z0-9_])(?:T3_D3|T3_D1|G4|CEN_D3|INTEROP|D2_INSTALLED|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{3,90}(?![A-Z0-9_])')){
+              $codes+=([string]$hit.Value)
+            }
             $reason=if($codes.Count){$codes[-1]}else{'UNCLASSIFIED'}
+            $logs=if(Test-Path -LiteralPath $log){
+              @((Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)).Count
+            }else{0}
+            Write-Host "D2_INSTALLED_ORIGINAL_BUILD_LOG_LINE_COUNT $logs"
             Write-Host "D2_INSTALLED_ORIGINAL_BUILD_MACHINE_CODE $reason"
             throw 'D2_INSTALLED_ORIGINAL_BUILD_HOLD'
           }
