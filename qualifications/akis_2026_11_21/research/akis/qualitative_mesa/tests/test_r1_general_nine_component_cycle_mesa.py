@@ -174,3 +174,62 @@ def test_no_general_akis_opt_in_no_new_model_or_private_cycle_observations():
     assert "general_akis_private_cycle_evidence" not in out
     assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert out["works"]["w2"]["obligation"] == "NOT_ACCEPTED"
+
+
+def full_second_original_work_case(*, follow_on_accept=True):
+    d=need_to_next_order_case()
+    # The next owner-owned need and its technology share the ORIGINAL
+    # dependency: first Result must be accepted BEFORE the second Work.
+    d["future_need_signals"][0]["expires_at"]=22
+    d["future_need_signals"][0]["work_spec"]["requires_accepted"]=["w1"]
+    d["events"][-1]["work_spec"]["requires_accepted"]=["w1"]
+    d["model_horizon"]=22
+    d["events"] += [
+        {"at":10,"action":"offer","actor":"op","work":"w2"},
+        {"at":11,"action":"authorize","actor":"op","work":"w2"},
+        {"at":12,"action":"consent","actor":"a","work":"w2",
+         "source_revision":"spec-w2-1","org_revision":"oc-1"},
+        {"at":13,"action":"consent","actor":"b","work":"w2",
+         "source_revision":"spec-w2-1","org_revision":"oc-1"},
+        {"at":14,"action":"commit","actor":"op","work":"w2"},
+        {"at":15,"action":"start","actor":"a","work":"w2"},
+        {"at":16,"action":"complete","actor":"a","work":"w2",
+         "result_ref":"model://w2-second-result"},
+    ]
+    if follow_on_accept:
+        d["events"].append({
+            "at":17,"action":"accept","actor":"b","work":"w2",
+        })
+    return d
+
+
+def test_original_two_accepted_work_cycles_have_two_distinct_original_recipient_results():
+    d=full_second_original_work_case()
+    result=simulate(d)
+    shared=projection(result)
+    assert shared["historical_result_to_owner_new_request_model_link_count"]==1
+    assert shared["accepted_follow_on_original_work_link_count"]==1
+    assert shared["original_recipient_accepted_result_event_count"]==2
+    assert shared["original_accepted_work_commit_event_count"]==2
+    assert result["works"]["w1"]["result"]=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert result["works"]["w2"]["result"]=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert result["works"]["w2"]["obligation"]=="ACCEPTED_BY_ORIGINAL_PRINCIPALS"
+    assert result["works"]["w2"]["commitment_org_revision"]=="oc-1"
+    assert result["counts"]=={"applied":17,"blocked":0}
+    # Two accepted Work/Result objects do NOT establish legal original
+    # delegation, real profit, endogenously generated demand, or AKIS closure.
+    assert shared["all_nine_component_original_causal_closure_proven"] is False
+    assert shared["author_agent_A_F_P_OC_KPB_executable"] is False
+    assert not shared["all_eight_formation_phases_executable"]
+    assert result["general_akis_model"]["new_agent_runtime_created"] is False
+    assert result==simulate(deepcopy(d))
+
+
+def test_without_second_recipient_acceptance_no_false_completed_second_cycle():
+    d=full_second_original_work_case(follow_on_accept=False)
+    result=simulate(d)
+    assert result["works"]["w2"]["result"]=="SUBMITTED"
+    assert projection(result)["historical_result_to_owner_new_request_model_link_count"]==1
+    assert projection(result)["accepted_follow_on_original_work_link_count"]==0
+    assert projection(result)["original_recipient_accepted_result_event_count"]==1
+    assert projection(result)["all_nine_component_original_causal_closure_proven"] is False
