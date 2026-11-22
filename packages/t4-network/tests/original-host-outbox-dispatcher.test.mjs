@@ -170,7 +170,9 @@ test('revoked network authority prevents any outbox delivery',async()=>{
 test('broken source prefix before publish blocks pending delivery',async()=>{
   const f=fixture();await f.stage();
   f.events[1].payload.tampered=true;
-  await assert.rejects(f.dispatcher().drain(),err('DISPATCH_REMOTE_OUTCOME_UNKNOWN'));
+  await assert.rejects(f.dispatcher().drain(),error=>
+    error?.code==='DISPATCH_REMOTE_INSPECTION_FAILED'&&
+    error.details.originalCode==='OUTBOX_ORIGINAL_EVENT_HISTORY_DIVERGED');
   assert.equal(f.writes(),0);
 });
 test('unchanged source outbox is preserved after a successful dispatch',async()=>{
