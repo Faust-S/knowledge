@@ -1,0 +1,62 @@
+name: IWXA interactive editorial static release qualification
+on:
+  push:
+    branches:
+      - qa/2026-11-22-iwxa-editorial-20
+    paths:
+      - .github/workflows/qa-iwxa-editorial-static.yml
+permissions:
+  contents: read
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: work/2026-11-22-interactive-editorial-20
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Build precisely 21 new static routes
+        shell: bash
+        working-directory: .private/site
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile > /tmp/iwxa-articles-static-install.log 2>&1 || { tail -n 70 /tmp/iwxa-articles-static-install.log; exit 1; }
+          chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)"
+          if [ -n "$chrome" ]; then
+            export PUPPETEER_EXECUTABLE_PATH="$chrome"
+          else
+            bunx puppeteer browsers install chrome > /tmp/iwxa-articles-static-chrome.log 2>&1 || { tail -n 80 /tmp/iwxa-articles-static-chrome.log; exit 1; }
+          fi
+          export IWXA_PRERENDER_ROUTES="$(node --import tsx --input-type=module -e 'import { EDITORIAL_STORIES, editorialHref } from "./src/data/editorial-stories.ts"; console.log(["/articles/",...EDITORIAL_STORIES.map(s=>editorialHref(s.slug))].join(","))')"
+          echo "STATIC_ARTICLES_SOURCE_SHA=$(git rev-parse HEAD)"
+          bunx tsx scripts/build-static.ts > /tmp/iwxa-articles-static-build.log 2>&1 || { tail -n 120 /tmp/iwxa-articles-static-build.log; exit 1; }
+          node --import tsx --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import { EDITORIAL_STORIES, editorialHref } from './src/data/editorial-stories.ts';
+          const routes=['/articles/', ...EDITORIAL_STORIES.map(s=>editorialHref(s.slug))];
+          for(const route of routes){
+            const path='dist-static'+route+'index.html';
+            if(!fs.existsSync(path))throw Error('Missing HTML '+route);
+            const html=fs.readFileSync(path,'utf8');
+            const article=EDITORIAL_STORIES.find(s=>editorialHref(s.slug)===route);
+            if(!html.includes('<h1') || !html.includes('https://iwxa.ru'+route) || html.includes('localhost:4319'))throw Error('Bad static SEO or H1 '+route);
+            if(article && !html.includes(article.title))throw Error('Missing heading '+route);
+          }
+          console.log('EDITORIAL_21_STATIC_HTML_PASS',JSON.stringify({pages:routes.length,sha:process.env.GITHUB_SHA}));
+          JS
+      - name: Remove private source and generated pages
+        if: always()
+        shell: bash
+        run: |
+          rm -rf .private/site
+          rm -f /tmp/iwxa-articles-static-*.log
+          test ! -e .private/site && echo IWXA_PRIVATE_DATA_PURGED
