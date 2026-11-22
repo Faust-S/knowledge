@@ -24,6 +24,7 @@ def assess_author_causal_edges(
     design: Any, original: Any, general_view: Mapping[str, Any], *,
     economics: Mapping[str, Any] | None = None,
     work_counterfactual: Mapping[str, Any] | None = None,
+    at: float,
 ) -> dict[str, Any]:
     model = design.catalog["integrated_operator_model"]["dynamics_revision_2026_11_20"]
     edges = model["dependency_relations"]
@@ -35,7 +36,8 @@ def assess_author_causal_edges(
                 if v.result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"}
     claimed_goals = {v["work"] for v in design.declarations["goals"]}
     valid_goals = {v["work"] for v in design.declarations["goals"]
-                   if v["revision"] == original.institution.revision}
+                   if (v["revision"] == original.institution.revision and
+                       v["available_at"] <= at < v["expires_at"])}
     requested = {r.get("work") for r in applied if r.get("action") == "request"}
     goal_to_work = valid_goals & requested
     approved_works = {
