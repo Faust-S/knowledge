@@ -1,7 +1,7 @@
 import {useLayoutEffect, useRef, useState} from 'react';
 import {createT3ReviewController} from '../../modules/activity-base-anonymizer/t3-review-controller.mjs';
 import type {T3ReviewHost, T3ReviewState} from '../../modules/activity-base-anonymizer/t3-review-controller.mjs';
-import type {T3StructuralCandidate} from '../../modules/activity-base-anonymizer/t3-selected-host.mjs';
+import type {T3ActivityReview, T3StructuralCandidate} from '../../modules/activity-base-anonymizer/t3-selected-host.mjs';
 import {ActivityHold, buildSyntheticExample} from '../../modules/activity-base-anonymizer/engine.mjs';
 import {screenSyntheticDisclosure} from '../../modules/activity-base-anonymizer/risk.mjs';
 import {layoutObservedGraph} from '../../modules/activity-base-anonymizer/graph-order.mjs';
@@ -91,6 +91,54 @@ function T3ViewCard({view, number}: {view: T3StructuralCandidate; number: number
       <span>Идентификаторы субъектов и исходные события не отображаются</span>
       <span>Ни BPMN, ни DMN не подтверждены</span>
     </footer>
+  </section>;
+}
+
+// Source gaps are interpreted from the original trusted A2 reason codes.
+// Never infer operations, performers or execution quality from a Kernel event.
+const T3_EVIDENCE_GAPS = [
+  {code:'T3_D2_UNVERIFIED_EVENT_STEP',
+    issue:'Исполнение операций не подтверждено',
+    action:'Записи имеют статус сообщения, декларации или предположения. Нужны наблюдённые события выполнения из предметной системы.'},
+  {code:'T3_D2_UNMAPPED_SOURCE_RECORD',
+    issue:'Не все события или объекты сопоставлены',
+    action:'Уточнить предметные схемы D2 у владельца источника. Нельзя достраивать пропущенные операции предположениями.'},
+  {code:'T3_D2_UNRESOLVED_SOURCE_LINK',
+    issue:'Не установлены связи событий с объектами',
+    action:'В исходной системе должны быть проверяемые ссылки на соответствующие заказы, работы или результаты.'},
+  {code:'T3_D2_EVENT_OBJECT_UNVERIFIED',
+    issue:'Часть событий не относится к доказанному объекту',
+    action:'Требуется уточнение происхождения события и его связи с исходной работой.'},
+  {code:'T3_D2_NO_OBSERVED_ACTIVITY',
+    issue:'Нет зафиксированных хозяйственных действий',
+    action:'Создание Workspace и служебные записи не заменяют фактическое выполнение операций.'},
+  {code:'T3_D2_OBJECT_EVENT_ORDER_UNKNOWN',
+    issue:'Хронология действий не установлена',
+    action:'Одинаковые или недостаточно точные времена событий не дают права придумывать порядок работ.'},
+  {code:'T3_D2_OBJECT_WITHOUT_EVENTS',
+    issue:'У части объектов отсутствует история действий',
+    action:'Для восстановления траектории нужны фактические переходы состояния из источника.'},
+  {code:'T3_D2_RARE_OBJECT_ROUTE',
+    issue:'Маршрут может раскрыть участника или уникальный заказ',
+    action:'Редкие последовательности остаются внутренними. Требуется отдельная оценка раскрытия.'},
+  {code:'T3_D2_RARE_OBJECT_RELATION',
+    issue:'Редкая связь объектов требует отдельной проверки',
+    action:'Не включать уникальные связи в передаваемую модель автоматически.'},
+  {code:'T3_D2_RELATION_PRIVACY_REVIEW_REQUIRED',
+    issue:'Связи объектов требуют оценки раскрытия',
+    action:'Подтвердить применимость и безопасность производной модели до передачи.'},
+] as const;
+
+function T3EvidenceGaps({review}: {review: T3ActivityReview}) {
+  const reasons=new Set(review.reason_codes);
+  const gaps=T3_EVIDENCE_GAPS.filter(x=>reasons.has(x.code)).slice(0,2);
+  if (!gaps.length) return <p className="panel-copy">Структурный кандидат доступен только
+    для внутренней проверки. Права на передачу и отсутствие риска раскрытия ещё не доказаны.</p>;
+  return <section aria-label="Что мешает восстановлению процесса">
+    <strong>Что нужно уточнить в исходных фактах</strong>
+    {gaps.map(gap=><p className="panel-copy" key={gap.code}>
+      <strong>{gap.issue}.</strong> {gap.action}
+    </p>)}
   </section>;
 }
 
@@ -323,7 +371,9 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
                 <h3>Структура выбранной базы T3</h3>
                 <p>Структурное представление получено через подключённый T3 Host. Исходные данные и полномочия проверяет сам Host; интерфейс не получает ключи, grant или Kernel.</p>
                 <p className="risk-result">Статус: {t3Review.review.status}. Остаточный риск не установлен; причинность и правила решений не доказаны.</p>
-                <p>{t3Review.review.reason_codes.join(' · ')}</p>
+                <T3EvidenceGaps review={t3Review.review} />
+                <details><summary>Коды диагностики T3</summary>
+                  <p>{t3Review.review.reason_codes.join(' · ')}</p></details>
               </div>
               <div className="verification-right"><span className="hold-chip">HOLD · ВЫПУСК ЗАКРЫТ</span>
                 <span>Анонимность и независимый импорт .iwxa пока не подтверждены.</span>
