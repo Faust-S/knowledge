@@ -128,7 +128,7 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     if (!bound) {
       bound = createSubjectKernelBinding({
         kernel: inherited as unknown as KernelFacade, access,
-        onReadStage: input.onReadStage ?? null,
+        onReadStage: input.onReadStage,
       });
       instances.set(access, bound);
     }
