@@ -48,7 +48,7 @@ function signed(){
   }),ownerState:state,signer:keyObjectSigner('key:license',a.privateKey),now:NOW});
   const status=signCorporateLicenseStatus({license,ownerState:state,
     signer:keyObjectSigner('key:status',b.privateKey),
-    sequence:1,state:'ACTIVE',validUntil:iso(NOW+48*3600000),now:NOW});
+    sequence:1,state:'ACTIVE',validUntil:iso(NOW+12*3600000),now:NOW});
   return {state,license,status};
 }
 test('original signed corporate T3 LICENSE/STATUS flows into existing D7 Human review without activating employee seats',async()=>{
