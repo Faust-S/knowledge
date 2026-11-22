@@ -40,6 +40,7 @@ from .competence_reuse import ReuseInputError, evaluate_competence_reuse
 from .competence_transfer import CompetencePermissionInputError, review_permissions
 from .work_counterfactual import WorkCounterfactualInputError, review_work_counterfactuals
 from .competence_measurement import MeasurementProtocolInputError, review_measurement_protocols
+from .capability_dynamics import CapabilityAdoptionPolicy, CapabilityInputError
 from .cooperation import (
     cooperation_system_view, cooperative_model_readiness,
     cooperative_readiness_evolution, latest_owner_interest_claim, latest_future_participation,
@@ -194,7 +195,7 @@ class OperatorAKISModel(mesa.Model):
         "initial_subject_evaluation", "goal_source_available", "goal_source_expired",
         "request", "offer", "authorize", "resource_status", "change_mode", "exclude", "commit",
         "complete", "reject", "resubmit", "accept", "source_update", "resource_calendar_update",
-        "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response",
+        "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "adopt_capability",
         "economic_outlook_available", "economic_outlook_expired",
         "joint_purchasing_quote_change",
         "owner_finance_source_available", "owner_finance_source_expired",
@@ -231,6 +232,8 @@ class OperatorAKISModel(mesa.Model):
                 (type(requested_horizon) is not int or
                  not 0 <= requested_horizon <= 10000)):
             raise InputError("MODEL_HORIZON_MUST_BE_NONNEGATIVE_INTEGER")
+        raw_capability_adoptions = research_input.pop("capability_adoptions", None)
+        self.capability_enabled = raw_capability_adoptions is not None
         self.competence_reuse_raw = research_input.pop("competence_reuse_evidence", None)
         self.competence_permissions_raw = research_input.pop("competence_reuse_permissions", None)
         self.competence_measurement_raw = research_input.pop("competence_measurement_protocols", None)
@@ -245,6 +248,18 @@ class OperatorAKISModel(mesa.Model):
         self.adaptation_enabled = "adaptation_requests" in research_input
         raw_reviews = research_input.pop("adaptation_requests", [])
         self.qualitative = QualitativeAKIS(research_input)
+        if self.capability_enabled:
+            try:
+                self.qualitative.capability_policy = CapabilityAdoptionPolicy(
+                    raw_capability_adoptions, self.qualitative,
+                    reuse_raw=self.competence_reuse_raw,
+                    permissions_raw=self.competence_permissions_raw,
+                    measurement_raw=self.competence_measurement_raw,
+                )
+            except CapabilityInputError as exc:
+                raise InputError(str(exc)) from exc
+        self.capability_evolution: list[dict[str, Any]] = []
+        self._capability_last_signature: str | None = None
         try:
             self.owner_financial_claims = parse_owner_finance(
                 raw_owner_finance, state=self.qualitative,
@@ -368,6 +383,7 @@ class OperatorAKISModel(mesa.Model):
             or self._future_participation_events_present
             or self._cooperation_change_events_present
             or self.partner_discovery_enabled
+            or self.capability_enabled
             or any(spec.calendar is not None for spec in self.qualitative.resource_specs.values())
             or any(ev["action"] == "resource_calendar_update" for ev in self.qualitative.events)
             or any(work.requires_accepted for work in self.qualitative.works.values())
@@ -469,6 +485,14 @@ class OperatorAKISModel(mesa.Model):
                 instants.update((claim.available_at, claim.expires_at))
             for at in sorted(t for t in instants if t <= self._model_end_at):
                 callback = self._capture_partner_discovery
+                self._callbacks.append(callback)
+                self.schedule_event(callback, at=float(at), priority=Priority.LOW)
+        if self.capability_enabled:
+            # Existing Mesa scheduler, after original high-priority actions.
+            # One immutable observation per changed source/owner status.
+            for at in sorted({0, self._model_end_at} |
+                             {ev["at"] for ev in self.qualitative.events}):
+                callback = self._capture_capability_state
                 self._callbacks.append(callback)
                 self.schedule_event(callback, at=float(at), priority=Priority.LOW)
         if self.general_akis_enabled:
@@ -649,6 +673,23 @@ class OperatorAKISModel(mesa.Model):
             "group_status": result["status"],
         }
 
+    def _capture_capability_state(self) -> None:
+        if not self.capability_enabled:
+            return
+        policy = self.qualitative.capability_policy
+        policy.refresh(self.qualitative, int(self.time))
+        current = policy.snapshot(self.qualitative, int(self.time))
+        signature = json.dumps(current["declarations"], sort_keys=True, ensure_ascii=False)
+        if signature == self._capability_last_signature:
+            return
+        self._capability_last_signature = signature
+        self.capability_evolution.append({
+            "at": float(self.time),
+            "original_event_trace_position": len(self.qualitative.trace),
+            "original_owner_capability_declarations": current["declarations"],
+            "new_original_work_created": False,
+        })
+
     def _capture_future_need_state(self) -> None:
         if not self.future_needs:
             return
@@ -716,7 +757,7 @@ class OperatorAKISModel(mesa.Model):
         state = self.qualitative
         if action == "request":
             impacted = [event["work_spec"]["id"]]
-        elif action in {"resource_status", "resource_calendar_update"}:
+        elif action in {"resource_status", "resource_calendar_update", "adopt_capability"}:
             impacted = [work.key for work in state.works.values() if any(
                 need.resource == event["resource"] for need in work.resource_requirements)]
         elif action == "source_update":
@@ -841,6 +882,16 @@ class OperatorAKISModel(mesa.Model):
             # executing the next period at model_horizon + 1.
             self.run_until(float(self._model_end_at) + 0.5)
         output = self.qualitative.snapshot()
+        if self.capability_enabled:
+            projection = self.qualitative.capability_policy.snapshot(
+                self.qualitative, int(self.time))
+            output["capability_dynamics"] = {
+                **projection,
+                "read_only_evolution": list(self.capability_evolution),
+                "current_planned_capacity_is_model_declared_not_physical": True,
+                "original_economic_ledger_still_required_for_net_value": True,
+                "single_existing_mesa_scheduler": True,
+            }
         if self.decision_profiles or self.endogenous_subjects_enabled or self.economic_outlooks or self.joint_purchasing_plans or self.partner_discovery_enabled or self._interest_events_present or self._future_participation_events_present or self._cooperation_change_events_present:
             output["decision_observations"] = list(self.decision_observations)
             output["decision_observations_truncated"] = self.assessment_truncated
@@ -995,6 +1046,16 @@ class OperatorAKISModel(mesa.Model):
                 "single_original_scheduler": True,
                 "original_results_and_org_code_unmodified": True,
             }
+            if "capability_dynamics" in output:
+                cap = output["capability_dynamics"]
+                output["general_akis_model"]["capability_reproduction_feedback"] = {
+                    "original_owner_source_declarations": cap["declared_count"],
+                    "model_owner_adopted_count": cap["original_owner_adopted_count"],
+                    "original_owner_capability_evolution_count": len(cap["read_only_evolution"]),
+                    "original_work_and_capacity_ledger_preserved": True,
+                    "real_physical_capacity_and_causal_profit_verified": False,
+                    "no_automatic_new_work_consent_or_payment": True,
+                }
             if "competence_reuse_dynamics" in output:
                 reuse = output["competence_reuse_dynamics"]
                 output["general_akis_model"]["competence_reproduction_feedback"] = {
