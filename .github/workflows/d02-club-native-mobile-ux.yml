@@ -14,7 +14,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      SITE_SHA: 89d52f9919fd5412d6841c8a1d0925a72251c284
+      SITE_SHA: 76abf54a0bfb529fe2519b70c4770dba22226f57
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -120,7 +120,7 @@ jobs:
            if(index===1&&!d.querySelector("[data-tool-level]")){
             if(tick>180)fail("TOOLS_MISSING");return;
            }
-           if(index===2&&!d.body.textContent.includes("Моя работа")){
+           if(index===2&&!d.body.textContent.includes("Моё в Клубе")){
             if(tick>180)fail("WORKSPACE_NOT_READY");return;
            }
            phase="KEY_READY";nav.focus();mark("D02_MOBILE_"+current()+"_KEY_READY");
