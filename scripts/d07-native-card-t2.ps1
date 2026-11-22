@@ -184,7 +184,7 @@ try{
   $html=$response.Content -replace "&amp;","&"
   if($html -notmatch "d07-professional-service-card" -or
      $html -notmatch "d07-professional-start-order" -or
-     $html -notmatch "/workspace/\\?new=1"){
+     $html -notmatch "/workspace/\?new=1"){
     throw "D07_NATIVE_NEW_CARD_T2_LAUNCH_MISSING"
   }
   $native=OpenEdge $url
