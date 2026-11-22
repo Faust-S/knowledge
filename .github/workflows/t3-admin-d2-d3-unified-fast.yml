@@ -5,6 +5,7 @@ on:
       - work/2026-11-22-admin03-d2-d3-unified-proof
     paths:
       - .github/workflows/t3-admin-d2-d3-unified-fast.yml
+      - packages/t3-core/tests/t3-d3-original-windows-native-first-use.mjs
       - packages/t3-core/tests/t3-d2-original-native-workspace-jit.mjs
   workflow_dispatch:
 permissions:
@@ -100,3 +101,42 @@ jobs:
             [ref]$tokens,[ref]$errors) | Out-Null
           if($errors.Count -ne 0) {throw 'ADMIN03_UNIFIED_ORIGINAL_OWNER_BUILDER_PARSE_FAILED'}
           Write-Host 'ADMIN03_UNIFIED_ORIGINAL_BUILDER_PARSE_PASS'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Real original private Windows first-use and cold DPAPI owner read
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'admin03-original-native-first-use.log'
+          $env:IWXA_T3_FIRST_USE_PROBE='1'
+          & node packages/t3-core/tests/t3-d3-original-windows-native-first-use.mjs .private/t3 *> $log
+          $exit=$LASTEXITCODE
+          Remove-Item Env:IWXA_T3_FIRST_USE_PROBE -ErrorAction SilentlyContinue
+          if($exit -ne 0){
+            $codes=@(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue |
+              ForEach-Object{
+                $match=[regex]::Match([string]$_,
+                  '^ADMIN03_ORIGINAL_NATIVE_WINDOWS_FIRST_USE_HOLD ([A-Z][A-Z0-9_]{4,99})
+)
+                if($match.Success){$match.Groups[1].Value}
+              })
+            $stages=@(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue |
+              ForEach-Object{
+                $match=[regex]::Match([string]$_,'^T3_D3_PROBE_STAGE_([A-Z_]+)
+)
+                if($match.Success){$match.Groups[1].Value}
+              })
+            $reason=if($codes.Count){$codes[-1]}else{'ADMIN03_NATIVE_FIRST_USE_UNCLASSIFIED'}
+            $stage=if($stages.Count){$stages[-1]}else{'NO_PROBE_STAGE'}
+            Write-Host "ADMIN03_UNIFIED_WINDOWS_SOURCE_FIRST_USE_HOLD $reason"
+            Write-Host "ADMIN03_UNIFIED_WINDOWS_SOURCE_LAST_STAGE $stage"
+            throw 'ADMIN03_UNIFIED_WINDOWS_SOURCE_FIRST_USE_FAILED'
+          }
+          if(-not (Select-String -LiteralPath $log -Pattern
+            '^ADMIN03_ORIGINAL_NATIVE_WINDOWS_DPAPI_COLD_FIRST_USE_PASS
+ -Quiet)){
+            throw 'ADMIN03_UNIFIED_WINDOWS_SOURCE_PASS_MISSING'
+          }
+          Write-Host 'ADMIN03_UNIFIED_ORIGINAL_NATIVE_WINDOWS_DPAPI_AND_COLD_READ_PASS'
+
