@@ -15,6 +15,7 @@ from typing import Any, Mapping
 from .configuration_behavior import configuration_dynamics
 from .scope_policy import source_link_status, OPERATIONS as CONTEXT_OPERATIONS
 from .process_preparation import perform_bounded_process_step
+from .cooperation import original_membership_predecessor
 
 
 class GeneralSystemInputError(ValueError):
@@ -536,7 +537,13 @@ class ModelFormationPolicy:
             return "FORMATION_EVALUATION_ORIGINAL_PILOT_WORK_REQUIRED"
         link = next((l for l in state.cooperation_links
                      if l.key == event.get("cooperation_link")), None)
-        if link is None or key not in link.works:
+        if link is None:
+            return "FORMATION_EVALUATION_PILOT_COOPERATION_RELATION_REQUIRED"
+        if key not in link.works and original_membership_predecessor(
+            state.cooperation_links, state.trace,
+            successor_id=link.key, successor_revision=link.source_revision,
+            pilot=work, at=at, org_revision=state.institution.revision,
+        ) is None:
             return "FORMATION_EVALUATION_PILOT_COOPERATION_RELATION_REQUIRED"
         actor = event.get("actor")
         owners = self._resource_owners(state, work) | {work.customer}
@@ -613,9 +620,14 @@ class ModelFormationPolicy:
         if link is None or actor not in link.participants:
             return "FORMATION_EMERGENT_ORIGINAL_RELATION_REQUIRED"
         pilot = state.works.get(event.get("pilot_work"))
-        if (pilot is None or pilot.key not in link.works or
-                pilot.customer != actor or
+        if (pilot is None or pilot.customer != actor or
                 pilot.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"):
+            return "FORMATION_EMERGENT_CUSTOMER_ACCEPTED_PILOT_REQUIRED"
+        if pilot.key not in link.works and original_membership_predecessor(
+            state.cooperation_links, state.trace,
+            successor_id=link.key, successor_revision=link.source_revision,
+            pilot=pilot, at=at, org_revision=state.institution.revision,
+        ) is None:
             return "FORMATION_EMERGENT_CUSTOMER_ACCEPTED_PILOT_REQUIRED"
         if event.get("pilot_result_ref") != pilot.result_ref:
             return "FORMATION_EMERGENT_PILOT_RESULT_REVISION_MISMATCH"
@@ -768,16 +780,29 @@ class ModelFormationPolicy:
         if len(matches) != 1:
             return "FORMATION_RECONFIGURATION_POST_RESULT_PROPOSAL_REQUIRED", None
         proposal = matches[0]
+        requested_link = (request.get("cooperation_link")
+                          or request.get("requested_cooperation_link"))
+        requested_revision = (request.get("cooperation_source_revision")
+                              or request.get("requested_cooperation_source_revision"))
         if (proposal.get("pilot_work") != pilot.key or
                 proposal.get("pilot_result_ref") != pilot.result_ref or
-                proposal.get("cooperation_link") !=
-                    (request.get("cooperation_link") or
-                     request.get("requested_cooperation_link")) or
-                proposal.get("cooperation_source_revision") !=
-                    (request.get("cooperation_source_revision") or
-                     request.get("requested_cooperation_source_revision")) or
                 proposal.get("org_revision") != state.institution.revision):
             return "FORMATION_RECONFIGURATION_ORIGINAL_PROPOSAL_SCOPE_MISMATCH", None
+        if (proposal.get("cooperation_link") != requested_link or
+                proposal.get("cooperation_source_revision") != requested_revision):
+            # A revised relationship legitimately has a DIFFERENT source
+            # from its historical accepted pilot and original consultation.
+            lineage = original_membership_predecessor(
+                state.cooperation_links, state.trace,
+                successor_id=requested_link, successor_revision=requested_revision,
+                pilot=pilot, at=at, org_revision=state.institution.revision,
+            )
+            if (lineage is None
+                    or lineage.get("change_id") != change_id
+                    or lineage.get("cooperation_link") != proposal.get("cooperation_link")
+                    or lineage.get("cooperation_source_revision") !=
+                        proposal.get("cooperation_source_revision")):
+                return "FORMATION_RECONFIGURATION_ORIGINAL_PROPOSAL_SCOPE_MISMATCH", None
         return "NONE", proposal
 
     def _source_qualified_capability_reconfiguration(
@@ -932,10 +957,39 @@ class ModelFormationPolicy:
             and state.works[row["work"]].result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
             and type(row.get("at")) is int and row["at"] < at
         ]
+        lineage = None
         if not completed:
-            if request.get("pilot_work") is not None:
-                return "FORMATION_FOLLOWUP_ACCEPTED_PILOT_RESULT_REQUIRED"
-            return "NONE"
+            # The first Work of a successor L1 has NO accepted Work within
+            # L1. The causal pilot belongs to immutable L0: never bypass all
+            # strict gates merely because the successor is initially empty.
+            pilot = state.works.get(request.get("pilot_work"))
+            if pilot is not None:
+                lineage = original_membership_predecessor(
+                    state.cooperation_links, state.trace,
+                    successor_id=link.key, successor_revision=link.source_revision,
+                    pilot=pilot, at=at, org_revision=state.institution.revision,
+                )
+            if lineage is not None:
+                decisions = [
+                    row for row in state.trace
+                    if row.get("action") == "accept"
+                    and row.get("outcome") == "APPLIED"
+                    and row.get("work") == pilot.key
+                    and row.get("at") == lineage["pilot_decision_at"]
+                    and type(row.get("at")) is int and row["at"] < at
+                ]
+                if len(decisions) == 1:
+                    completed = [(decisions[0], pilot)]
+            if not completed:
+                is_successor = any(
+                    row.get("action") == "cooperation_membership_apply"
+                    and row.get("outcome") == "APPLIED"
+                    and row.get("successor_link") == link.key
+                    for row in state.trace
+                )
+                if is_successor or request.get("pilot_work") is not None:
+                    return "FORMATION_FOLLOWUP_ACCEPTED_PILOT_RESULT_REQUIRED"
+                return "NONE"
         decision, pilot = completed[-1]
         if request.get("pilot_work") != pilot.key:
             return "FORMATION_FOLLOWUP_LATEST_ACCEPTED_PILOT_REFERENCE_REQUIRED"
@@ -952,13 +1006,20 @@ class ModelFormationPolicy:
             return "FORMATION_FOLLOWUP_PILOT_RESULT_EVENT_STALE"
         original_owners = self._resource_owners(state, pilot) | {pilot.customer}
         for actor in sorted(original_owners):
+            # Former members may still evaluate their OWN accepted history,
+            # but do not acquire membership or consent in the successor.
+            review_link_id = (link.key if actor in link.participants or lineage is None
+                              else lineage["cooperation_link"])
+            review_revision = (link.source_revision
+                               if review_link_id == link.key
+                               else lineage["cooperation_source_revision"])
             current = next((
                 row for row in reversed(state.trace)
                 if row.get("action") == "participation_status"
                 and row.get("outcome") == "APPLIED"
                 and row.get("actor") == actor
-                and row.get("participation_link") == link_id
-                and row.get("participation_relation_revision") == link.source_revision
+                and row.get("participation_link") == review_link_id
+                and row.get("participation_relation_revision") == review_revision
             ), None)
             if current is None or current.get("evaluated_work") != pilot.key:
                 return "FORMATION_FOLLOWUP_EACH_ORIGINAL_OWNER_EVALUATION_REQUIRED"
@@ -1004,9 +1065,16 @@ class ModelFormationPolicy:
                 or pilot.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"):
             return "FORMATION_INTEREST_ACCEPTED_PILOT_REQUIRED", None, None
         link_id = request.get("requested_cooperation_link")
-        if not any(link.key == link_id and
-                   work.key in link.works and pilot.key in link.works
-                   for link in state.cooperation_links):
+        link = next((link for link in state.cooperation_links
+                     if link.key == link_id and work.key in link.works), None)
+        if link is None or (
+            pilot.key not in link.works
+            and original_membership_predecessor(
+                state.cooperation_links, state.trace,
+                successor_id=link.key, successor_revision=link.source_revision,
+                pilot=pilot, at=at, org_revision=state.institution.revision,
+            ) is None
+        ):
             return "FORMATION_INTEREST_ORIGINAL_LINK_REQUIRED", None, None
         reason, decision = self._original_result_decision(state, pilot, at)
         if reason != "NONE":
@@ -1029,8 +1097,39 @@ class ModelFormationPolicy:
         pilot, decision = context
         relation = request["requested_cooperation_link"]
         principals = self._resource_owners(state, pilot) | {pilot.customer}
+        entrant_assessment = None
+        lineage = None
         if actor not in principals:
-            return "FORMATION_INTEREST_NEW_PARTY_NEEDS_SEPARATE_PILOT_REVIEW"
+            lineage = original_membership_predecessor(
+                state.cooperation_links, state.trace,
+                successor_id=relation,
+                successor_revision=request["requested_cooperation_source_revision"],
+                pilot=pilot, at=at, org_revision=state.institution.revision,
+            )
+            if (lineage is None or
+                    lineage.get("newly_admitted_model_party") != actor or
+                    not lineage.get("new_entrant_independently_assessed_model_only")):
+                return "FORMATION_INTEREST_NEW_PARTY_NEEDS_SEPARATE_PILOT_REVIEW"
+            assessments_entrant = [
+                row for row in state.trace
+                if row.get("action") == "cooperation_entry_assess"
+                and row.get("outcome") == "APPLIED"
+                and row.get("actor") == actor
+                and row.get("change_id") == lineage["change_id"]
+                and row.get("cooperation_link") == lineage["cooperation_link"]
+                and row.get("cooperation_source_revision") ==
+                    lineage["cooperation_source_revision"]
+                and row.get("org_revision") == state.institution.revision
+                and type(row.get("at")) is int
+                and row["at"] < lineage["at"] < at
+            ]
+            if not assessments_entrant:
+                return "FORMATION_INTEREST_ENTRANT_OWN_ASSESSMENT_REQUIRED"
+            entrant_assessment = assessments_entrant[-1]
+            if (entrant_assessment.get("entry_willingness") != "WILLING"
+                    or type(entrant_assessment.get("entry_valid_until")) is not int
+                    or at >= entrant_assessment["entry_valid_until"]):
+                return "FORMATION_INTEREST_ENTRANT_ASSESSMENT_NO_LONGER_CURRENT"
         assessments = [
             row for row in state.trace
             if row.get("action") == "participation_status"
@@ -1042,20 +1141,29 @@ class ModelFormationPolicy:
             and row.get("org_revision") == state.institution.revision
             and type(row.get("at")) is int and row["at"] < at
         ]
-        if not assessments:
-            return "FORMATION_INTEREST_INDEPENDENT_RESULT_EVALUATION_REQUIRED"
-        latest_assessment = assessments[-1]
-        if (latest_assessment.get("participation_value") != "OPEN_TO_NEW_WORK"
-                or not self._source_active(
-                    8, actor, latest_assessment.get("formation_phase_source_ref"),
-                    state.institution.revision, at)):
-            return "FORMATION_INTEREST_OWNER_EVALUATION_NO_LONGER_CURRENT"
+        if entrant_assessment is None:
+            if not assessments:
+                return "FORMATION_INTEREST_INDEPENDENT_RESULT_EVALUATION_REQUIRED"
+            latest_assessment = assessments[-1]
+            if (latest_assessment.get("participation_value") != "OPEN_TO_NEW_WORK"
+                    or not self._source_active(
+                        8, actor, latest_assessment.get("formation_phase_source_ref"),
+                        state.institution.revision, at)):
+                return "FORMATION_INTEREST_OWNER_EVALUATION_NO_LONGER_CURRENT"
         if current_event is not None:
             ev = current_event
-            if (ev.get("pilot_work") != pilot.key
-                    or ev.get("pilot_result_ref") != pilot.result_ref
-                    or ev.get("pilot_decision_at") != decision["at"]):
-                return "FORMATION_INTEREST_ORIGINAL_RESULT_BINDING_REQUIRED"
+            if entrant_assessment is None:
+                if (ev.get("pilot_work") != pilot.key
+                        or ev.get("pilot_result_ref") != pilot.result_ref
+                        or ev.get("pilot_decision_at") != decision["at"]):
+                    return "FORMATION_INTEREST_ORIGINAL_RESULT_BINDING_REQUIRED"
+            elif (ev.get("pilot_work") is not None
+                    or ev.get("pilot_result_ref") is not None
+                    or ev.get("pilot_decision_at") is not None
+                    or ev.get("entry_change_id") != lineage["change_id"]
+                    or ev.get("entry_assessment_source_ref") !=
+                        entrant_assessment["entry_assessment_source_ref"]):
+                return "FORMATION_INTEREST_ENTRANT_OWN_SOURCE_BINDING_REQUIRED"
             source = ev.get("interest_evidence_ref")
             if (not isinstance(source, str) or
                     not source.startswith("model://" + actor + "/") or
@@ -1075,9 +1183,17 @@ class ModelFormationPolicy:
             and row.get("interest_relation") == relation
             and row.get("interest_relation_revision") ==
                 request.get("requested_cooperation_source_revision")
-            and row.get("interest_pilot_work") == pilot.key
-            and row.get("interest_pilot_result_ref") == pilot.result_ref
-            and row.get("interest_pilot_decision_at") == decision["at"]
+            and (
+                (entrant_assessment is None
+                 and row.get("interest_pilot_work") == pilot.key
+                 and row.get("interest_pilot_result_ref") == pilot.result_ref
+                 and row.get("interest_pilot_decision_at") == decision["at"])
+                or
+                (entrant_assessment is not None
+                 and row.get("interest_entry_change_id") == lineage["change_id"]
+                 and row.get("interest_entry_assessment_source_ref") ==
+                    entrant_assessment["entry_assessment_source_ref"])
+            )
             and type(row.get("at")) is int and row["at"] < at
         ]
         if not claims:
