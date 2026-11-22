@@ -261,7 +261,11 @@ jobs:
             Write-Output 'D02_PERSONAL_EDGE_PUBLIC_SERVICE_ENTRY=PASS'
             Activate 'Открыть сохранённое' 'D02_PERSONAL_CONTEXTUAL_RESUME_CLICK_FAILED'
             $null=AwaitName 'Открыть мои сохранённые записи' '' 'D02_PERSONAL_NATIVE_RESTORE_NOT_OPEN'
-            $null=AwaitPrefix 'Тема: Карта личной экономики' 'D02_PERSONAL_RESTORE_WRONG_TOPIC'
+            # The selected-topic control is a native accessible button.
+            # Static paragraph text can be merged into a parent Name by Edge.
+            $topic=[bool](FindName 'Показать все мои записи' 'button')
+            Write-Output ('D02_PERSONAL_NATIVE_TOPIC_FILTER_VISIBLE='+$topic)
+            $null=AwaitName 'Показать все мои записи' 'button' 'D02_PERSONAL_RESTORE_TOPIC_FILTER_MISSING'
             # Profile data is already saved, so the area is not empty.
             # An empty MONEY topic with a non-empty verified inventory
             # proves topic filtering and fresh Kernel readback together.
