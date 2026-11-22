@@ -456,12 +456,50 @@ it("a delayed original create ACK is reconciled by one explicit READ-only retry,
   expect(document.body.textContent).not.toContain("ephemeral private native stderr");
   expect(screen.queryByTestId("delayed-create-confirmed")).toBeNull();
   expect(createWorkspace).toHaveBeenCalledTimes(1);
+  expect(screen.getByTestId("t3-d1-create-selected-workspace")
+    .hasAttribute("disabled")).toBe(true);
+  expect(screen.getByTestId("t3-d1-create-once-readback-only").textContent)
+    .toContain("Повторная запись");
+  fireEvent.click(screen.getByTestId("t3-d1-create-selected-workspace"));
+  expect(createWorkspace).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole("button",{name:"Проверить повторно"}));
   await screen.findByTestId("delayed-create-confirmed");
   expect(getWorkspace).toHaveBeenCalledTimes(4);
   expect(createWorkspace).toHaveBeenCalledTimes(1);
   expect(screen.getByTestId("t3-d1-selected-workspace-ready").textContent)
     .toContain("подтверждена в исходном Kernel");
+});
+
+it("after an uncertain signed write and failed readback, repeated read-only checks never re-enable create",async()=>{
+  const createWorkspace=vi.fn(async()=>{throw Object.assign(
+    new Error("private write result unknown"),
+    {code:"T3_D1_ISOLATED_KERNEL_TIMEOUT"});});
+  const getWorkspace=vi.fn(async()=>null);
+  const candidate={getWorkspace,createWorkspace,
+    hasOperation:(method:string)=>method==="t1.createWorkspace"} as unknown as KernelFacade;
+  render(<SignedSelectedWorkspaceGate required kernel={candidate}
+    profile="generic" autoCreateSignedCorporate={false}
+    trustedSelectedContext={async()=>({
+      kind:"CORP",organization_id:"org:unknown",workspace_id:"ws:unknown",
+      resource:"ws:unknown",
+    })}>
+    <p data-testid="unconfirmed-create-forbidden">Must never show</p>
+  </SignedSelectedWorkspaceGate>);
+  const createButton=await screen.findByTestId("t3-d1-create-selected-workspace");
+  fireEvent.click(createButton);
+  await screen.findByTestId("t3-d1-create-workspace-error");
+  expect(screen.getByTestId("t3-d1-create-once-readback-only").textContent)
+    .toContain("только чтение");
+  expect(createButton.hasAttribute("disabled")).toBe(true);
+  fireEvent.click(createButton);
+  expect(createWorkspace).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button",{name:"Проверить повторно"}));
+  await waitFor(()=>expect(getWorkspace).toHaveBeenCalledTimes(4));
+  expect(screen.getByTestId("t3-d1-create-selected-workspace")
+    .hasAttribute("disabled")).toBe(true);
+  expect(screen.queryByTestId("unconfirmed-create-forbidden")).toBeNull();
+  expect(createWorkspace).toHaveBeenCalledTimes(1);
+  expect(document.body.textContent).not.toContain("private write result");
 });
 
 it("uncertain Kernel acknowledgement is recovered by exact original ID readback",async()=>{
