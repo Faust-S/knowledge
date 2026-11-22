@@ -520,3 +520,43 @@ test('original relation cannot publish under a different owner or Workspace',asy
    err('OUTBOX_ORIGINAL_INTENT_OR_ENTRY_INVALID'));
  assert.equal(transport.counts.puts,0);
 });
+
+test('LOCAL_T3 leaves original deleteObject exactly as the released T3 Host did',async()=>{
+  const f=fixture();
+  const originalHasOperation=f.originalKernel.hasOperation;
+  f.originalKernel.hasOperation=op=>op==='t1.deleteObject'||
+    originalHasOperation(op);
+  const calls=[];
+  f.originalKernel.deleteObject=async input=>{
+    calls.push(input);
+    return{object:{workspace_id:ws,object_id:objectFrom,
+      revision:2,deleted:true},
+      event:{event_id:'original:delete:event:one'}};
+  };
+  const input={workspace_id:ws,object_id:objectFrom,base_revision:1,
+    event:{event_type:'business.object.deleted',payload:{reason:'finished'}}};
+  const local=adapter(f,()=> 'LOCAL_T3');
+  const result=await local.deleteObject({mutationInput:input});
+  assert.equal(result.t4Mode,'LOCAL_T3');
+  assert.equal(result.originalReceipt.object.deleted,true);
+  assert.equal(result.capture,null);
+  assert.equal(result.networkPublished,false);
+  assert.deepEqual(calls,[input]);
+  assert.equal(f.outbox.size,0);
+  assert.equal(f.intents.size,0);
+});
+test('T4_NETWORK blocks original deleteObject before any destructive write',async()=>{
+  const f=fixture();
+  const originalHasOperation=f.originalKernel.hasOperation;
+  f.originalKernel.hasOperation=op=>op==='t1.deleteObject'||
+    originalHasOperation(op);
+  let deleteCalls=0;
+  f.originalKernel.deleteObject=async()=>{deleteCalls++;throw Error('unexpected');};
+  const network=adapter(f);
+  await assert.rejects(network.deleteObject({mutationInput:{
+    workspace_id:ws,object_id:objectFrom,base_revision:1,
+    event:{event_type:'business.object.deleted',payload:{}},
+  }}),err('ORIGINAL_HOST_T4_OBJECT_DELETE_NOT_QUALIFIED'));
+  assert.equal(deleteCalls,0);
+  assert.equal(f.outbox.size,0);
+});
