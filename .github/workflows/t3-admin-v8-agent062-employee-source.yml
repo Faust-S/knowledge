@@ -63,11 +63,17 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $log=Join-Path $env:RUNNER_TEMP 'agent062-corporate-original-employee-source.log'
+          $previousPythonPath=$env:PYTHONPATH
           Push-Location '.private/agent'
           try {
-            & python -B tests/test_agent06_corporate_t3_employee.py *> $log
+            # Python script-path execution makes tests/ sys.path[0] and hides
+            # sibling runtime/. Discover from the original repository root.
+            $env:PYTHONPATH=(Get-Location).Path
+            & python -B -m unittest discover -s tests -p 'test_agent06_corporate_t3_employee.py' *> $log
             $exit=$LASTEXITCODE
           } finally {
+            if($null -ne $previousPythonPath){$env:PYTHONPATH=$previousPythonPath}
+            else{Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue}
             Pop-Location
           }
           if($exit -ne 0){
