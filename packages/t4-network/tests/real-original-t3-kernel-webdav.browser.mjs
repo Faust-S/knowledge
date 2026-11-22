@@ -363,7 +363,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           ctx.operatorRef==='operator:apache'&&
           ctx.originalWriteOwnerRef==='original:t2:exchange',
         authorizeOriginalOperation:async ctx=>
-          ctx.capability===undefined&&authorization(),
+          ctx.operation===capability&&authorization(),
         executeTransport,
       });
     const deltaTransport=createWebDavPackageTransport({
