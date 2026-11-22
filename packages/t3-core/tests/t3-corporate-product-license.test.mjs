@@ -160,6 +160,15 @@ test('candidate rejects inferred agent seats, missing tariff edition and over-ce
    lineageId:'lineage:other',now:NOW}),
   'CORP_LICENSE_LIMIT_OUTSIDE_ISSUER_SCOPE');
 });
+test('original issuer refuses corporate Agent seats without explicit signed feature',()=>{
+  const f=fixture();
+  const modified={...f.request,featureIds:['CORPORATE_TASKS']};
+  fail(()=>validateCorporateLicenseRequest(modified),'CORP_AGENT_FEATURE_REQUIRED');
+  fail(()=>createCorporateLicenseCandidate({request:modified,ownerState:f.ownerState,
+    issuerAuthorityId:'publisher:iwxa',licenseId:'license:no-agent-feature',
+    lineageId:'lineage:no-agent-feature',now:NOW}),
+    'CORP_AGENT_FEATURE_REQUIRED');
+});
 test('commercial profile cannot be produced by TEST publisher or alternative product',()=>{
  const f=fixture(),req={...f.request};
  fail(()=>validateCorporateLicenseRequest({...req,environment:'TEST'}),
