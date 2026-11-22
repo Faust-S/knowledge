@@ -134,7 +134,7 @@ try {
     'import {createSubjectKernelBinding} from "./subject-access-binding.mjs";',
     originalD2,
     'export {createSubjectKernelBinding} from "./subject-access-binding.mjs";',
-  ].join('\\n');
+  ].join('\n');
   mkdirSync(join(dist,'_t3','activity'),{recursive:true});
   writeFileSync(join(dist,'_t3/index.mjs'),browserD2);
   for(const name of ['subject-access-binding.mjs','control-loopback-owner.mjs']){
