@@ -693,6 +693,26 @@ def cooperation_system_view(links: Sequence[CooperationLink], works: Mapping[str
     for link in links:
         base = next(row for row in existing["links"] if row["id"] == link.key)
         own_works = [works[key] for key in link.works]
+        # Existing Work owns the Quality assertions and original Result;
+        # this diagnostic merely reads the SAME states and event trace.
+        from .work_assurance import assurance_view
+        quality_views = {
+            w.key: assurance_view(w)
+            for w in own_works if w.assurance_criteria
+        }
+        quality_summary = {
+            key: {
+                "model_declared_criteria": row["required_count"],
+                "original_recipient_model_met_count": row["model_reported_met_count"],
+                "current_result_gate": row["current_result_quality_gate"],
+                "original_result": works[key].result,
+                "accepted_with_all_declared_model_quality": (
+                    works[key].result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+                    and row["current_result_quality_gate"] == "NONE"
+                ),
+                "factual_independent_quality_certification": "NOT_ESTABLISHED",
+            } for key, row in quality_views.items()
+        }
         owner_active = {name: bool(subjects[name].active) for name in link.participants}
         linked_events = [row for row in trace if row.get("work") in link.works]
         applied = [row for row in linked_events if row.get("outcome") == "APPLIED"]
@@ -774,6 +794,10 @@ def cooperation_system_view(links: Sequence[CooperationLink], works: Mapping[str
                       else "MODEL_ONLY_INVITATION_POSSIBLE_NOT_AUTHORIZED"
                   ),
                   "original_works": list(link.works),
+                  "quality_scoped_original_work_count": len(quality_views),
+                  "quality_criteria_declared": sum(
+                      row["required_count"] for row in quality_views.values()
+                  ),
                   "all_original_obligations_accepted": signed,
                   "new_original_works_referencing_prior_consultation": referenced_new_works,
                   "original_new_work_rights_still_need_separate_consent": True},
@@ -788,6 +812,8 @@ def cooperation_system_view(links: Sequence[CooperationLink], works: Mapping[str
                   "change_consultation_is_not_authorization": True},
             "КЖ": {"status": "ORIGINAL_RESULT_AND_EVENT_TRACE_ONLY",
                   "results_by_work": base["work_results"],
+                  "work_quality_acceptance_evidence": quality_summary,
+                  "quality_reports_are_not_independent_field_certs": True,
                   "original_result_references": "OWNER_SCOPED_NOT_REDISCLOSED",
                   "work_results_after_reconfiguration_review": referenced_results,
                   "last_applied_event_at": last_at,
@@ -796,6 +822,8 @@ def cooperation_system_view(links: Sequence[CooperationLink], works: Mapping[str
             "Э": {"status": cost_status, "source_declared_channel_count": len(own_channels),
                   "comparable_declared_channel_count": comparable,
                   "profit": "NOT_IDENTIFIABLE",
+                  "cost_of_work_quality_inspection_and_rework": "NOT_IDENTIFIABLE_WITHOUT_ORIGINAL_RESOURCE_USE",
+                  "quality_acceptance_not_proof_of_transaction_savings": True,
                   "costs_after_participation_change": (
                       "REESTIMATE_TRANSACTION_COSTS_AND_SHARED_CAPABILITIES" if
                       any(v == "PAUSED_NEW_WORK" for v in future_participation.values())
@@ -824,6 +852,7 @@ def cooperation_system_view(links: Sequence[CooperationLink], works: Mapping[str
                         else "NOT_AUTOMATIC"
                     ),
                     "organizational_change": "NOT_AUTOMATIC",
+                    "accepted_model_quality_is_not_verified_learning_or_reusable_capability": True,
                     "reconfiguration_reviews": [
                         {"change_id": row["change_id"], "status": row["review_status"],
                          "source_linked_new_original_work_count":
