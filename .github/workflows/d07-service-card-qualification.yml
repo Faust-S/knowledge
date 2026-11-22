@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 3987ad6f43d81b74f07d93f8951fe8ff03786dda
+          ref: cd488c3944623c314b6f1e21b77992fe53ab2289
           token: ${{ secrets.DOMEN }}
           path: subject
           persist-credentials: false
@@ -26,14 +26,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 12fbc69bb19296c4fd1abfdc724fa73ff67a41d2
+          ref: 95c6ca18778e4b05b3c94ff853f405be49543038
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify private revisions, directory and technology parity
         run: |
-          test "$(git -C subject rev-parse HEAD)" = "3987ad6f43d81b74f07d93f8951fe8ff03786dda"
-          test "$(git -C site rev-parse HEAD)" = "12fbc69bb19296c4fd1abfdc724fa73ff67a41d2"
+          test "$(git -C subject rev-parse HEAD)" = "cd488c3944623c314b6f1e21b77992fe53ab2289"
+          test "$(git -C site rev-parse HEAD)" = "95c6ca18778e4b05b3c94ff853f405be49543038"
           for f in service-subject-protocols.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-site-release-gate.ts; do
             cmp "subject/src/domain/$f" "site/src/domain/$f"
           done
