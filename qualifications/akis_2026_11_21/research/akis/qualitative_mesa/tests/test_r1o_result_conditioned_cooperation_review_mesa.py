@@ -87,6 +87,18 @@ def test_r1o_full_original_result_owner_assessments_consultation_interests_and_t
     assert gate["work_requests_citing_prior_original_review"] == 1
     assert gate["new_membership_or_legal_rights_created_by_consultation"] is False
     assert gate["real_transaction_savings_established"] is False
+    cycle = out["general_akis_model"]["system_causal_cycle_feedback"]
+    assert cycle["original_post_result_institutional_reproduction_link_count"] == 1
+    assert cycle["same_original_causal_chain_includes_capability_and_institutional_change"] is False
+    private = out["general_akis_private_cycle_evidence"][
+        "original_post_result_institutional_reproduction_links"
+    ]
+    assert len(private) == 1
+    assert private[0]["all_original_pilot_principals_evaluated_before_change"]
+    assert private[0]["original_consultation_complete_before_request"]
+    assert private[0]["individual_interests_and_fresh_consents_confirmed"]
+    assert private[0]["second_original_result_accepted_after_new_commit"]
+    assert private[0]["model_institutional_reproduction_witness"] != "NOT_CAUSALLY_QUALIFIED"
     assert out["profit"]["system_increment"] == "UNKNOWN"
     assert out == simulate(deepcopy(d))
 
@@ -270,3 +282,34 @@ def test_r1o_after_reconsideration_both_original_owners_must_reconsent():
     assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert out == simulate(deepcopy(d))
+
+
+def test_r1o_nine_component_witness_rejects_coincidental_late_objection_and_blocked_second_result():
+    d = r1o_case()
+    commit = next(ev for ev in d["events"] if ev["action"] == "commit"
+                  and ev["work"] == "w2")
+    at = commit["at"]
+    for event in d["events"]:
+        if event["at"] >= at:
+            event["at"] += 1
+    d["events"].append({
+        "at": at, "action": "cooperation_change_response", "actor": "b",
+        "org_revision": "oc-1", "change_id": "chg-w1",
+        "cooperation_link": "l1", "cooperation_source_revision": "rel-1",
+        "change_decision": "OBJECT_MODEL_PROPOSAL",
+        "change_source_ref": "model://b/late-against-second-work",
+    })
+    d["events"].sort(key=lambda e: e["at"])
+    out = simulate(d)
+    assert out["general_akis_model"]["system_causal_cycle_feedback"][
+        "original_post_result_institutional_reproduction_link_count"
+    ] == 0
+    proof = out["general_akis_private_cycle_evidence"][
+        "original_post_result_institutional_reproduction_links"
+    ]
+    assert len(proof) == 1
+    assert proof[0]["model_institutional_reproduction_witness"] == (
+        "NOT_CAUSALLY_QUALIFIED"
+    )
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["obligation"] == "NOT_ACCEPTED"

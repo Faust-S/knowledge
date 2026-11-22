@@ -1839,6 +1839,190 @@ def original_nine_component_cycle_evidence(
             "no_new_original_work_or_permission_created": True,
         })
 
+    # R1-O: a COMPLETE institutional reproduction witness must be a single,
+    # chronologically coherent ORIGINAL history. Independent model declarations
+    # and separate positive outcomes are not enough. This read-only projection
+    # does not modify the old coalition, Work, Result, owner interest or money.
+    institutional_witnesses = []
+    for req in events:
+        if (req.get("action") != "request" or
+                not req.get("pilot_work") or
+                not req.get("request_linked_change_id")):
+            continue
+        new_key, pilot_key = req["work"], req["pilot_work"]
+        new_work = original.works.get(new_key)
+        pilot = original.works.get(pilot_key)
+        t_req = req["at"]
+        t_pilot = accepted_at.get(pilot_key)
+        t_commit = original_committed_at.get(new_key)
+        if (pilot is None or new_work is None or
+                t_pilot is None or t_commit is None):
+            continue
+        originals = original.capacity_ledger.original_owners(
+            pilot.resource_requirements
+        ) | {pilot.customer}
+        next_owners = original.capacity_ledger.original_owners(
+            new_work.resource_requirements
+        ) | {new_work.customer}
+        change = req["request_linked_change_id"]
+        proposals = [
+            row for row in events
+            if row.get("action") == "cooperation_change_propose"
+            and row.get("change_id") == change
+            and row.get("cooperation_link") ==
+                req.get("requested_cooperation_link")
+            and row.get("cooperation_source_revision") ==
+                req.get("requested_cooperation_source_revision")
+            and row.get("pilot_work") == pilot_key
+            and row.get("pilot_result_ref") == pilot.result_ref
+            and row.get("pilot_decision_at") == t_pilot
+            and row.get("actor") in originals
+            and t_pilot < row["at"] < t_req
+        ]
+        proposal = proposals[0] if len(proposals) == 1 else None
+        t_proposal = proposal["at"] if proposal else None
+        original_reviews = bool(proposal) and all(
+            any(
+                row.get("action") == "participation_status"
+                and row.get("actor") == owner
+                and row.get("participation_link") ==
+                    proposal["cooperation_link"]
+                and row.get("evaluated_work") == pilot_key
+                and row.get("evaluated_result_ref") == pilot.result_ref
+                and row.get("evaluated_decision_at") == t_pilot
+                and t_pilot < row["at"] < t_proposal
+                for row in events
+            ) for owner in originals
+        )
+        consultation_before_request = False
+        current_consultation_at_commit = False
+        last_post_request_response = None
+        if proposal is not None:
+            required = set(proposal.get("original_consultees") or ())
+            frozen_parties = set(
+                proposal.get("original_relation_participants") or ()
+            )
+            link = next((
+                item for item in original.cooperation_links
+                if item.key == proposal["cooperation_link"]
+            ), None)
+            last_at_request = {}
+            last_at_commit = {}
+            if required and link is not None and frozen_parties == set(
+                    link.participants):
+                for row in events:
+                    if (row.get("action") == "cooperation_change_response"
+                            and row.get("change_id") == change
+                            and row.get("cooperation_link") == link.key
+                            and row.get("actor") in required
+                            and t_proposal < row["at"] < t_req):
+                        last_at_request[row["actor"]] = row
+                    if (row.get("action") == "cooperation_change_response"
+                            and row.get("change_id") == change
+                            and row.get("cooperation_link") == link.key
+                            and row.get("actor") in required
+                            and t_proposal < row["at"] < t_commit):
+                        last_at_commit[row["actor"]] = row
+                        if t_req < row["at"]:
+                            last_post_request_response = row["at"]
+                consultation_before_request = (
+                    set(last_at_request) == required and all(
+                        row["change_decision"] == "SUPPORT_MODEL_PROPOSAL"
+                        for row in last_at_request.values()
+                    )
+                )
+                current_consultation_at_commit = (
+                    set(last_at_commit) == required and all(
+                        row["change_decision"] == "SUPPORT_MODEL_PROPOSAL"
+                        for row in last_at_commit.values()
+                    )
+                )
+        owner_goal = any(
+            row.get("action") == "need_emerge"
+            and row.get("actor") == new_work.customer
+            and row.get("work") == new_key
+            and row.get("work_source_revision") == new_work.source_revision
+            and row.get("pilot_work") == pilot_key
+            and row.get("pilot_result_ref") == pilot.result_ref
+            and row.get("goal_source_ref") == req.get("emergent_goal_source_ref")
+            and type(row.get("goal_expires_at")) is int
+            and row["goal_expires_at"] > t_req
+            and t_pilot < row["at"] < t_req
+            for row in events
+        )
+        owner_interests_and_consents = True
+        for owner in sorted(next_owners):
+            interest = next((
+                row for row in reversed(events)
+                if row.get("action") == "interest_update"
+                and row.get("actor") == owner and row.get("work") == new_key
+                and row.get("interest_relation") ==
+                    req.get("requested_cooperation_link")
+                and row.get("interest_pilot_work") == pilot_key
+                and row.get("interest_pilot_result_ref") == pilot.result_ref
+                and row.get("interest_pilot_decision_at") == t_pilot
+                and row.get("interest_source_revision") ==
+                    new_work.source_revision
+                and row.get("interest_willingness") == "WILLING"
+                and type(row.get("interest_valid_until")) is int
+                and t_req < row["at"] < t_commit
+                and row["interest_valid_until"] > t_commit
+            ), None)
+            if not interest:
+                owner_interests_and_consents = False
+                break
+            min_consent_time = max(
+                interest["at"], last_post_request_response or -1
+            )
+            if not any(
+                row.get("action") == "consent"
+                and row.get("actor") == owner and row.get("work") == new_key
+                and row.get("org_revision") ==
+                    original.institution.revision
+                and min_consent_time < row["at"] < t_commit
+                for row in events
+            ):
+                owner_interests_and_consents = False
+                break
+        second_result_accepted = bool(
+            new_work.result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+            and new_key in accepted_at
+            and t_pilot < t_req < t_commit < accepted_at[new_key]
+            and pilot_key in new_work.requires_accepted
+        )
+        qualified = bool(
+            proposal and original_reviews and consultation_before_request
+            and current_consultation_at_commit and owner_goal
+            and owner_interests_and_consents and second_result_accepted
+        )
+        institutional_witnesses.append({
+            "original_pilot_work": pilot_key,
+            "following_original_work": new_key,
+            "original_cooperation_change_id": change,
+            "all_original_pilot_principals_evaluated_before_change": bool(
+                original_reviews
+            ),
+            "original_consultation_complete_before_request": bool(
+                consultation_before_request
+            ),
+            "independent_review_still_current_at_commit": bool(
+                current_consultation_at_commit
+            ),
+            "owner_goal_created_after_original_result": bool(owner_goal),
+            "individual_interests_and_fresh_consents_confirmed": bool(
+                owner_interests_and_consents
+            ),
+            "second_original_result_accepted_after_new_commit": bool(
+                second_result_accepted
+            ),
+            "model_institutional_reproduction_witness": (
+                "ORIGINAL_ACCEPTED_RESULT_TO_OWNER_EVALUATIONS_COOPERATION_REVIEW"
+                "_TO_NEW_GOAL_INTEREST_CONSENT_AND_ACCEPTED_RESULT"
+                if qualified else "NOT_CAUSALLY_QUALIFIED"
+            ),
+            "actual_membership_change_or_profit_verified": False,
+        })
+
     accepted_results = len(accepted_at)
     requested_count = len(requested_at)
     committed_count = len(original_committed_at)
@@ -1855,6 +2039,11 @@ def original_nine_component_cycle_evidence(
         == "ORIGINAL_ACCEPTED_RESULT_REUSE_OWNER_ADOPTION_AND_LATER_ACCEPTED_WORK"
         for row in capability_witnesses
     )
+    original_institutional_sequences = sum(
+        row["model_institutional_reproduction_witness"]
+        != "NOT_CAUSALLY_QUALIFIED"
+        for row in institutional_witnesses
+    )
     components = general["components"]
     # All nine remain distinct. This is a *component coverage diagnosis*, not
     # a substitute for the author's full A=F(P,OC,KPB) or eight executable
@@ -1869,13 +2058,19 @@ def original_nine_component_cycle_evidence(
         "ОК": bool(components["ОК"]["model_13_control_predicates_active"]),
         "КЖ": bool(accepted_results),
         "Э": bool(final_output.get("economics")),
-        "ЖЦ": bool(linked_needs or current_capacity_sequences),
+        "ЖЦ": bool(
+            linked_needs or current_capacity_sequences
+            or original_institutional_sequences
+        ),
     }
     assert tuple(current_partial_observation) == COMPONENTS
     return {
         "private_research_witnesses": {
             "source_declared_follow_on_need_links": need_witnesses,
             "owner_adopted_capability_reuse_links": capability_witnesses,
+            "original_post_result_institutional_reproduction_links": (
+                institutional_witnesses
+            ),
             "contains_owner_work_and_model_source_identifiers": True,
             "safe_for_cross_enterprise_publication": False,
         },
@@ -1894,6 +2089,15 @@ def original_nine_component_cycle_evidence(
             "owner_adopted_result_to_future_accepted_work_model_link_count": (
                 current_capacity_sequences
             ),
+            "original_post_result_institutional_reproduction_link_count": (
+                original_institutional_sequences
+            ),
+            "all_nine_components_partially_observed_in_one_institutional_cycle": (
+                original_institutional_sequences > 0
+                and all(current_partial_observation.values())
+            ),
+            "same_original_causal_chain_includes_capability_and_institutional_change": False,
+            "six_author_organizational_forms_executable": False,
             "seven_constitutive_signs_fully_qualified": False,
             "all_eight_formation_phases_executable": False,
             "author_agent_A_F_P_OC_KPB_executable": False,
