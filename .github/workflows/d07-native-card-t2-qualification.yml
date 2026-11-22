@@ -73,6 +73,11 @@ jobs:
             if(-not $script.Contains($marker)){throw 'D07_NATIVE_POST_IMPORT_PROOF_SCRIPT_INCOMPLETE'}
           }
           $result=Get-Content 'scripts/d07-native-card-work-result.ps1' -Raw
+          if(-not $result.Contains('function AwaitForRead(') -or
+             -not $result.Contains('$note=AwaitForRead "Проверка результата работы 1"') -or
+             -not $result.Contains('D07_WORK_RESULT_NATIVE_REJECTION_CORRECTION_REVIEW_PERSISTED=PASS')){
+            throw 'D07_NATIVE_ACCEPTED_EVIDENCE_READ_ONLY_PROOF_MISSING'
+          }
           if(-not $result.Contains('D07_WORK_RESULT_COLD_ID_MATCH=') -or
              -not $result.Contains('D07_WORK_RESULT_COLD_READBACK_ID_REVISION_OR_WORKS_CHANGED')){
             throw 'D07_NATIVE_WORK_RESULT_COLD_WITNESS_MISSING'
