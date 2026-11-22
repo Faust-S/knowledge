@@ -16,7 +16,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 57af20a8c534ba7b2ffa2fbd101a04d7ad77f72e
+      SITE_SHA: f35cd6c8feb17dd6fffc1b656aa8d4987df50dd0
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -100,9 +100,11 @@ jobs:
           $nativeCard=Get-Content 'scripts/d07-native-card-t2.ps1' -Raw
           foreach($extra in @(
             'D07_NATIVE_ADDITIONAL_CARD_',
-            'D07_NATIVE_ADDITIONAL_TWO_CARDS_EDGE_UIA=PASS',
+            'D07_NATIVE_ADDITIONAL_FOUR_CARDS_EDGE_UIA=PASS',
             'seo-prodvizhenie',
-            'remont-kompyutera'
+            'remont-kompyutera',
+            'vosstanovlenie-dannyh',
+            'kontekstnaya-reklama'
           )){
             if(-not $nativeCard.Contains($extra)){throw 'D07_NATIVE_NEW_CARD_UIA_GUARD_MISSING'}
           }
