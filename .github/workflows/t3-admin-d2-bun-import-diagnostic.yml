@@ -1,0 +1,85 @@
+name: T3 D2 original Bun compiled dependency import diagnostics
+on:
+  push:
+    branches:
+      - work/2026-11-22-admin03-original-d2-read
+    paths:
+      - .github/workflows/t3-admin-d2-bun-import-diagnostic.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-import-probes:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check out exact private original owner in transient public Windows runner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 9ba2d4afb86174a3b8da0314757a419dec5d370f
+          token: ${{ secrets.T3 || secrets.DOMEN }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            access-control
+            interop
+            reconciliation
+            scripts
+            package.json
+          path: .private/t3
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.0'
+      - name: Verify private T3 source pin without revealing content
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((& git -C .private/t3 rev-parse HEAD).Trim() -cne '9ba2d4afb86174a3b8da0314757a419dec5d370f'){
+            throw 'D2_BUN_IMPORT_ORIGINAL_SOURCE_PIN_FAILED'
+          }
+          Write-Host 'D2_BUN_IMPORT_ORIGINAL_SOURCE_PIN_PASS'
+      - name: Compile and execute unchanged original T3 modules independently
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $cases=@(
+            @{Name='ORIGINAL_D3';Module='../interop/native-admin-d3.mjs';Symbol='runNativeAdminD3'},
+            @{Name='WINDOWS_CREDENTIAL';Module='../access-control/windows-credential.mjs';Symbol='windowsIdentity'},
+            @{Name='ORIGINAL_PROVISION';Module='../interop/provision.mjs';Symbol='provision'},
+            @{Name='PRODUCT_TEST';Module='../access-control/product-license.mjs';Symbol='validateUnsignedProductRequest'},
+            @{Name='PRODUCT_PERSON';Module='../access-control/product-license-person.mjs';Symbol='validateUnsignedPersonProductRequest'},
+            @{Name='PRODUCT_OPERATOR';Module='../access-control/product-license-windows-operator.mjs';Symbol='openEnrolledWindowsTestProductOperator'}
+          )
+          $count=0
+          foreach($spec in $cases){
+            $source=Join-Path '.private/t3/scripts' 'd2-import-probe.mjs'
+            $script="import * as original from '$($spec.Module)';"+[Environment]::NewLine+
+              "if(typeof original['$($spec.Symbol)']!=='function') process.exit(2);"+[Environment]::NewLine+
+              "console.log('D2_ORIGINAL_IMPORT_PROBE_OK');"
+            Set-Content -LiteralPath $source -Value $script -Encoding utf8NoBOM
+            $exe=Join-Path $env:RUNNER_TEMP ("d2-original-import-"+$spec.Name+'.exe')
+            $buildLog=Join-Path $env:RUNNER_TEMP ('d2-original-import-build-'+$spec.Name+'.log')
+            & bun build --compile --target=bun-windows-x64 --windows-hide-console $source --outfile $exe *> $buildLog
+            if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $exe)){
+              Write-Host ('D2_BUN_ORIGINAL_IMPORT_'+$spec.Name+'_BUILD_FAILED')
+              $count++;continue
+            }
+            $log=Join-Path $env:RUNNER_TEMP ('d2-original-import-'+$spec.Name+'.log')
+            & $exe *> $log
+            if($LASTEXITCODE -ne 0 -or
+              !(@(Get-Content $log -ErrorAction SilentlyContinue |
+                Where-Object {$_ -eq 'D2_ORIGINAL_IMPORT_PROBE_OK'}).Count -eq 1)){
+              $enoent=@(Get-Content $log -ErrorAction SilentlyContinue |
+                Where-Object {$_ -match '\bENOENT\b'}).Count
+              $reason=if($enoent){'ENOENT'}else{'OTHER'}
+              Write-Host ('D2_BUN_ORIGINAL_IMPORT_'+$spec.Name+'_FAILED_'+$reason)
+              $count++;continue
+            }
+            Write-Host ('D2_BUN_ORIGINAL_IMPORT_'+$spec.Name+'_PASS')
+          }
+          if($count -gt 0){throw 'D2_ORIGINAL_BUN_MODULE_IMPORT_HOLD'}
+          Write-Host 'D2_BUN_ORIGINAL_ALL_MODULE_IMPORTS_PASS'
