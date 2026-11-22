@@ -1,0 +1,115 @@
+name: D08 isolated original T2 Host Vite qualification
+on:
+  push:
+    branches: [work/2026-11-22-d08-attention-to-payment-qualification]
+    paths: [.github/workflows/d08-isolated-original-t2-vite.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d08-isolated-original-t2-vite-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  host:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    env:
+      NODE_ENV: production
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - name: Checkout exact read-only MarketOps site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: d041d5d0364ec8f3ad1bffe52ed2756db7638c73
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - name: Checkout accepted original T2 source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: t2/t2/current/final-successor/canonical-source/package-lock.json
+      - name: Stage product-only Host and trusted MarketOps module
+        run: |
+          test "$(git -C site rev-parse HEAD)" = "d041d5d0364ec8f3ad1bffe52ed2756db7638c73"
+          test "$(git -C t2 rev-parse HEAD)" = "49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7"
+          node - <<'NODE'
+          const fs=require("node:fs");
+          const src="t2/t2/current/final-successor/canonical-source";
+          fs.cpSync(src,"stage",{recursive:true,filter:p=>
+            !["node_modules",".git","dist"].includes(p.split(/[\\/]/).at(-1))});
+          const viteFile="stage/vite.config.ts";
+          const routesFile="stage/scripts/materialize-static-routes.mjs";
+          const studio='        studio: path.resolve(__dirname, "studio.html"),';
+          const route=[
+            '  {','    source: "studio.html",',
+            '    target: "studio/index.html",',
+            '    base: "/workspace/studio/",','  },',''
+          ].join("\n");
+          const vite=fs.readFileSync(viteFile,"utf8");
+          const routes=fs.readFileSync(routesFile,"utf8");
+          if(vite.split(studio).length!==2||routes.split(route).length!==2)
+            throw Error("D08_ISOLATED_STUDIO_FILTER_MISMATCH");
+          fs.writeFileSync(viteFile,vite.replace(studio,""));
+          fs.writeFileSync(routesFile,routes.replace(route,""));
+          NODE
+          node t2/t2/current/final-successor/canonical-source/scripts/stage-t2-external-module.mjs \
+            "$PWD/stage" "$PWD/site/t2-site-module/marketops" \
+            iwxa.domain.marketops marketops > "$RUNNER_TEMP/d08-stage.log" 2>&1 || {
+              echo D08_ISOLATED_MODULE_STAGE=FAIL; exit 1
+            }
+          echo D08_ISOLATED_MODULE_STAGE=PASS
+      - name: Install original Host dependencies without private mirrors
+        working-directory: stage
+        run: |
+          npm ci --no-audit --no-fund --include=dev > "$RUNNER_TEMP/d08-host-ci.log" 2>&1 || {
+            echo D08_ISOLATED_HOST_NPM=FAIL; exit 1;
+          }
+          echo D08_ISOLATED_HOST_NPM=PASS
+      - name: Original Host check runtime and Vite build
+        working-directory: stage
+        run: |
+          npm run build > "$RUNNER_TEMP/d08-host-build.log" 2>&1 || {
+            node - <<'NODE'
+          const fs=require("node:fs");
+          const s=fs.readFileSync(process.env.RUNNER_TEMP+"/d08-host-build.log","utf8");
+          const patterns={
+            RUNTIME_CONTRACT_HOLD:/T2_ACTIVE_RUNTIME_CONTRACT_HOLD/,
+            RUNTIME_CONTRACT_PASS:/T2_ACTIVE_RUNTIME_CONTRACT_SOURCE_PASS/,
+            VITE_ENTERED:/vite v[0-9]+[.]/i,
+            ROLLUP_RESOLVE:/failed to resolve|could not resolve|RollupError/i,
+            INVALID_EXPORT:/is not exported by|does not provide an export/i,
+            TRANSFORM_ERROR:/transform failed|TransformError|Parse error|Unexpected token/i,
+            VITE_MEMORY:/heap out of memory|allocation failed|ENOMEM/i,
+            FILE_SYSTEM:/EACCES|EPERM|ENOSPC|ENOENT/i,
+            MODULE_STAGE:/T2_EXTERNAL_MODULE_/,
+            FAILED_VITE:/error during build|Build failed with [0-9]+ errors/i
+          };
+          for(const [name,pattern] of Object.entries(patterns))
+            console.log("D08_ORIGINAL_T2_HOST_"+name+"="+(pattern.test(s)?"YES":"NO"));
+          const codes=[...new Set([...s.matchAll(/\b(?:ERR_[A-Z0-9_]+|TS[0-9]{4}|T2_[A-Z0-9_]+)\b/g)]
+            .map(x=>x[0]))].slice(0,20);
+          console.log("D08_ORIGINAL_T2_HOST_ERROR_CODES="+(codes.join(",")||"NONE"));
+          NODE
+            echo D08_ORIGINAL_T2_HOST_BUILD=FAIL
+            exit 1
+          }
+          test -f dist/index.html || exit 1
+          echo D08_ORIGINAL_T2_HOST_BUILD=PASS
+      # Never upload Host bundles, source maps, logs, private source or artifacts.
