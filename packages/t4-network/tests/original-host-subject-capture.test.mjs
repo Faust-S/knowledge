@@ -496,7 +496,7 @@ test('original T3 source Event mutation is detected before publication',async()=
  f.events.at(-1).payload.businessPurpose='forged';
  await assert.rejects(publishT4OriginalHostOutbox(outboxParams(
    f,'RELATION_PUT','t4:relation:event-tampered',relationId,transport)),
-   err('ORIGINAL_T3_EVENT_HISTORY_DIVERGED'));
+   err('OUTBOX_ORIGINAL_EVENT_HISTORY_DIVERGED'));
  assert.equal(transport.counts.puts,0);
 });
 test('intent cannot be changed independently of original outbox and still authorize publishing',async()=>{
