@@ -63,6 +63,41 @@ try {
     if (!(Find-Accessible $window.Root 'Добавить блок')) {
         throw 'INSTALLED_ACTIVITY_V7_WIDGET_LIBRARY_MISSING'
     }
+    # Qualify the actual dashboard configuration in installed Tauri/WebView2.
+    # UIAutomation only: no JS injection, browser driver or simulated Store data.
+    $addButton = Find-Accessible $window.Root 'Добавить блок' 10
+    $addButton.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $libraryDialog = Find-Accessible $window.Root 'Библиотека блоков' 10
+    if (!$libraryDialog) { throw 'INSTALLED_ACTIVITY_V7_WIDGET_LIBRARY_NOT_OPEN' }
+    $addOcel = Find-Accessible $libraryDialog 'Добавить: Объекты и события' 10
+    if (!$addOcel) { throw 'INSTALLED_ACTIVITY_V7_OCEL_WIDGET_NOT_AVAILABLE' }
+    $addOcel.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $configDialog = Find-Accessible $window.Root 'Настройка блока' 10
+    if (!$configDialog) { throw 'INSTALLED_ACTIVITY_V7_WIDGET_SETTINGS_NOT_OPEN' }
+    $finishConfig = Find-Accessible $configDialog 'Готово' 10
+    if (!$finishConfig) { throw 'INSTALLED_ACTIVITY_V7_WIDGET_SETTINGS_DONE_MISSING' }
+    $finishConfig.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    if (!(Find-Accessible $window.Root 'Перетащить блок: Объекты и события' 10)) {
+        throw 'INSTALLED_ACTIVITY_V7_OCEL_WIDGET_NOT_ADDED'
+    }
+    Write-Host 'IWXA_ACTIVITY_V7_NATIVE_WIDGET_ADDED_PASS source=OCEL'
+    # Adding a widget puts the dashboard in Edit mode, with explicit move controls.
+    $overview = Find-Accessible $window.Root 'Перетащить блок: Сводка источника' 10
+    $processes = Find-Accessible $window.Root 'Перетащить блок: Реконструированные процессы' 10
+    if (!$overview -or !$processes) { throw 'INSTALLED_ACTIVITY_V7_DEFAULT_WIDGETS_MISSING' }
+    $oldOverviewTop = $overview.Current.BoundingRectangle.Top
+    $oldProcessTop = $processes.Current.BoundingRectangle.Top
+    if ($oldOverviewTop -ge $oldProcessTop) { throw 'INSTALLED_ACTIVITY_V7_WIDGET_BASE_ORDER_BAD' }
+    $moveNext = Find-Accessible $window.Root 'Позже →' 10
+    if (!$moveNext) { throw 'INSTALLED_ACTIVITY_V7_WIDGET_MOVE_NOT_VISIBLE' }
+    $moveNext.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Start-Sleep -Milliseconds 500
+    $newOverviewTop = (Find-Accessible $window.Root 'Перетащить блок: Сводка источника' 10).Current.BoundingRectangle.Top
+    $newProcessTop = (Find-Accessible $window.Root 'Перетащить блок: Реконструированные процессы' 10).Current.BoundingRectangle.Top
+    if ($newOverviewTop -le $newProcessTop) {
+        throw 'INSTALLED_ACTIVITY_V7_WIDGET_ORDER_DID_NOT_CHANGE'
+    }
+    Write-Host 'IWXA_ACTIVITY_V7_NATIVE_REORDER_PASS real_window=YES'
     # Native 820x650 single-window check. No browser, screenshot or second app.
     Add-Type -TypeDefinition @'
 using System;
@@ -136,6 +171,16 @@ try {
     if (!(Find-Accessible $second.Root 'Моя панель деятельности')) {
         throw 'INSTALLED_ACTIVITY_V7_COLD_DASHBOARD_NOT_READY'
     }
+    if (!(Find-Accessible $second.Root 'Перетащить блок: Объекты и события' 10)) {
+        throw 'INSTALLED_ACTIVITY_V7_WIDGET_ADDITION_NOT_PERSISTED'
+    }
+    $savedOverview = Find-Accessible $second.Root 'Перетащить блок: Сводка источника' 10
+    $savedProcesses = Find-Accessible $second.Root 'Перетащить блок: Реконструированные процессы' 10
+    if (!$savedOverview -or !$savedProcesses) { throw 'INSTALLED_ACTIVITY_V7_SAVED_ORDER_MISSING' }
+    if ($savedOverview.Current.BoundingRectangle.Top -le $savedProcesses.Current.BoundingRectangle.Top) {
+        throw 'INSTALLED_ACTIVITY_V7_SAVED_WIDGET_ORDER_NOT_PERSISTED'
+    }
+    Write-Host 'IWXA_ACTIVITY_V7_NATIVE_COLD_LAYOUT_PASS widget=OCEL reordered=YES'
     $sourcePage = Find-Accessible $second.Root 'Источники'
     if (!$sourcePage) { throw 'INSTALLED_ACTIVITY_V7_COLD_SOURCE_NAV_MISSING' }
     $sourcePage.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
