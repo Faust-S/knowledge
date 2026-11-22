@@ -75,10 +75,13 @@ export function createT3ReviewController({host, onUpdate} = {}) {
   let detached = false;
   let currentReview = null;
   let stagePending = false;
+  // An interrupted write may already be committed in the original Kernel.
+  // Do not dispatch a second stage within this mounted signed Host session.
+  let stageAttempted = false;
   const invalidate = () => {
     generation += 1;
     currentReview = null;
-    stagePending = false;
+    // Invalidation must not release an in-flight or already attempted write.
     if (!detached) onUpdate({status: 'READY_TO_READ', review: null});
   };
   let unowner;
@@ -110,10 +113,11 @@ export function createT3ReviewController({host, onUpdate} = {}) {
     },
     async stageSelected() {
       if (detached) return {status: 'DETACHED'};
-      if (stagePending || !currentReview ||
+      if (stagePending || stageAttempted || !currentReview ||
           typeof host.stageSelected !== 'function') return {status: 'UNAVAILABLE'};
       const id = ++generation;
       stagePending = true;
+      stageAttempted = true;
       currentReview = null;
       onUpdate({status: 'STAGING', review: null});
       try {
