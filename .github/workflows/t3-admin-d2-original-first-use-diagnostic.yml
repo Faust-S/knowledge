@@ -45,6 +45,37 @@ jobs:
             throw 'D2_ORIGINAL_OWNER_SOURCE_PIN_FAILED'
           }
           Write-Host 'D2_ORIGINAL_OWNER_SOURCE_PIN_PASS'
+      - name: Independent Bun compiled argv shape, no private data
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $script=Join-Path $env:RUNNER_TEMP 't3-bun-argv-public-probe.mjs'
+          $source=@'
+          console.log(JSON.stringify({
+            schema:'T3_BUN_COMPILED_ARGV_PROBE/1',
+            length:process.argv.length,
+            verbIndex:process.argv.indexOf('d3-enroll'),
+            rootIndex:process.argv.indexOf('root-sentinel'),
+            orgIndex:process.argv.indexOf('org-sentinel'),
+            pathIndex:process.argv.indexOf('request-sentinel'),
+          }));
+          '@
+          Set-Content -LiteralPath $script -Value $source -Encoding utf8NoBOM
+          $exe=Join-Path $env:RUNNER_TEMP 't3-bun-argv-public-probe.exe'
+          $log=Join-Path $env:RUNNER_TEMP 't3-bun-argv-build.log'
+          & bun build --compile --target=bun-windows-x64 --windows-hide-console $script --outfile $exe *> $log
+          if($LASTEXITCODE -ne 0){throw 'D2_PUBLIC_BUN_ARGV_PROBE_BUILD_FAILED'}
+          $raw=(& $exe d3-enroll root-sentinel org-sentinel request-sentinel)
+          if($LASTEXITCODE -ne 0){throw 'D2_PUBLIC_BUN_ARGV_PROBE_RUN_FAILED'}
+          $parsed=$raw|ConvertFrom-Json
+          if($parsed.schema -ne 'T3_BUN_COMPILED_ARGV_PROBE/1'){
+            throw 'D2_PUBLIC_BUN_ARGV_PROBE_INVALID'
+          }
+          Write-Host "D2_BUN_COMPILED_ARGV_LENGTH $($parsed.length)"
+          Write-Host "D2_BUN_COMPILED_ARGV_VERB_INDEX $($parsed.verbIndex)"
+          Write-Host "D2_BUN_COMPILED_ARGV_ROOT_INDEX $($parsed.rootIndex)"
+          Write-Host "D2_BUN_COMPILED_ARGV_ORG_INDEX $($parsed.orgIndex)"
+          Write-Host "D2_BUN_COMPILED_ARGV_REQUEST_INDEX $($parsed.pathIndex)"
       - name: Original source Ed25519 and DPAPI first-use on real Windows
         shell: pwsh
         run: |
