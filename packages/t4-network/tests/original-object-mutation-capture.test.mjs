@@ -5,6 +5,8 @@ import {captureT4OriginalObjectMutation}
   from '../src/network/original-object-mutation-capture.mjs';
 import {reconcileT4OriginalMutationIntent}
   from '../src/network/original-object-intent-recovery.mjs';
+import {createT4OriginalHostCaptureAdapter}
+  from '../src/network/original-host-capture-adapter.mjs';
 import {packageSha256} from '../src/network/webdav-package-transfer.mjs';
 
 const ws='workspace:original',objectId='object:one',owner='original:t3:writer';
@@ -309,5 +311,76 @@ test('reserved trace field cannot be overwritten by source business data',async(
    mutationInput:{...mutation(1),event:{event_type:'t4.object.updated',
      payload:{iwxa_t4_capture_ref:'forged'}}},
  }),code('OBJECT_CAPTURE_EVENT_TRACE_COLLISION'));
+ assert.equal(f.writes.length,0);
+});
+
+function originalAdapter(f,getMode=()=> 'T4_NETWORK'){
+ return createT4OriginalHostCaptureAdapter({
+   ...f.ports,originalWriteOwnerRef:owner,getMode,
+ });
+}
+test('optional original Host adapter leaves local T3 write and business event untouched with T4 disabled',async()=>{
+ const f=originalFixture(),adapter=originalAdapter(f,()=> 'LOCAL_T3');
+ const result=await adapter.putObject({mutationInput:mutation(1)});
+ assert.equal(result.t4Mode,'LOCAL_T3');
+ assert.equal(result.originalT3OperationUsed,true);
+ assert.equal(result.originalHostUnchanged,true);
+ assert.equal(result.capture,null);
+ assert.equal(result.originalReceipt.object.revision,2);
+ assert.equal(f.writes.length,1);
+ assert.deepEqual(f.events[1].payload,{next:2});
+ assert.equal(f.intents.size,0);
+ assert.equal(f.outbox.size,0);
+});
+test('enabled original Host adapter captures exact original mutation before returning original receipt',async()=>{
+ const f=originalFixture(),adapter=originalAdapter(f);
+ const result=await adapter.putObject({mutationInput:mutation(1),
+   sourceCursor:await firstCursor(f),captureRef:'host:original:put:1'});
+ assert.equal(result.t4Mode,'T4_NETWORK');
+ assert.equal(result.capture.originalT3OutboxVerified,true);
+ assert.equal(result.originalReceipt.object.revision,2);
+ assert.equal(f.outbox.get('host:original:put:1').sha256,
+   result.capture.prepared.sha256);
+ assert.equal(adapter.createsIndependentStore,false);
+ assert.equal(adapter.createsIndependentHost,false);
+ assert.equal(adapter.createsIndependentTaskEngine,false);
+});
+test('original Host recovers unknown original put through its own Event and Store without resubmitting write',async()=>{
+ const f=originalFixture(),adapter=originalAdapter(f);
+ f.loseAck();
+ await assert.rejects(adapter.putObject({mutationInput:mutation(1),
+   sourceCursor:await firstCursor(f),captureRef:'host:original:lost:1'}),
+   code('OBJECT_CAPTURE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+ const recovered=await adapter.reconcileObjectMutation({
+   captureRef:'host:original:lost:1',workspaceId:ws,objectId,
+ });
+ assert.equal(recovered.originalSourceEventVerified,true);
+ assert.equal(recovered.originalOperationReceiptRecreated,false);
+ assert.equal(recovered.originalMutationRetried,false);
+ assert.equal(f.writes.length,1);
+ assert.equal(f.outbox.size,1);
+});
+test('original Host local mode cannot read network outbox or reconcile unknown mutation',async()=>{
+ const f=originalFixture(),adapter=originalAdapter(f,()=> 'LOCAL_T3');
+ await assert.rejects(adapter.reconcileObjectMutation({
+   captureRef:'host:original:missing',workspaceId:ws,objectId,
+ }),code('ORIGINAL_HOST_RECOVERY_REQUIRES_T4'));
+ assert.equal(f.outbox.size,0);
+});
+test('unknown original Host mode refuses work without modifying T3',async()=>{
+ const f=originalFixture(),adapter=originalAdapter(f,()=> 'T4_UNKNOWN');
+ await assert.rejects(adapter.putObject({mutationInput:mutation(1)}),
+   code('ORIGINAL_HOST_CAPTURE_MODE_UNKNOWN'));
+ assert.equal(f.writes.length,0);
+});
+test('T4 enabled without original Host write authority fails closed before original mutation',async()=>{
+ const f=originalFixture(),adapter=createT4OriginalHostCaptureAdapter({
+   originalKernel:f.ports.originalKernel,originalWriteOwnerRef:owner,
+   getMode:()=> 'T4_NETWORK'
+ });
+ await assert.rejects(adapter.putObject({
+   mutationInput:mutation(1),sourceCursor:await firstCursor(f),
+   captureRef:'host:original:missing-ports'
+ }),code('ORIGINAL_HOST_T4_CAPTURE_PORTS_REQUIRED'));
  assert.equal(f.writes.length,0);
 });
