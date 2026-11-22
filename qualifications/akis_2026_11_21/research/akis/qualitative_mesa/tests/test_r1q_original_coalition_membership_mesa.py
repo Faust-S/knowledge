@@ -308,3 +308,109 @@ def test_r1q_exit_new_relation_and_prior_relation_are_two_distinct_original_mode
             assert next(x.participants for x in model.cooperation_links
                         if x.key == "net-2") == ("b", "op")
     assert model.works["w2"].result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def two_membership_revisions_case(*, exit_vote="SUPPORT_MODEL_PROPOSAL"):
+    d = membership_case()
+    d["events"].extend([
+        {
+            "at": 24, "action": "cooperation_change_propose",
+            "actor": "b", "cooperation_link": "net-2",
+            "cooperation_source_revision": "n-2", "org_revision": "oc-1",
+            "change_id": "member-2", "change_kind": "REVIEW_FUTURE_PARTICIPATION",
+            "proposed_subject": "c", "economic_channel": "TRANSACTION_COST",
+            "change_source_ref": "model://b/after-second-result-exit-review",
+        },
+        *[
+            {
+                "at": t, "action": "cooperation_change_response",
+                "actor": actor, "cooperation_link": "net-2",
+                "cooperation_source_revision": "n-2", "org_revision": "oc-1",
+                "change_id": "member-2",
+                "change_decision": (exit_vote if actor == "c"
+                                    else "SUPPORT_MODEL_PROPOSAL"),
+                "change_source_ref": f"model://{actor}/second-consultation-{t}",
+            }
+            for t, actor in ((25, "a"), (26, "b"), (27, "op"), (28, "c"))
+        ],
+        {
+            "at": 29, "action": "cooperation_membership_apply", "actor": "b",
+            "cooperation_link": "net-2", "cooperation_source_revision": "n-2",
+            "org_revision": "oc-1", "change_id": "member-2",
+            "pilot_work": "w2", "pilot_result_ref": "model://w2-result",
+            "pilot_decision_at": 23,
+            "new_link_id": "net-3", "new_link_revision": "n-3",
+            "new_link_source_ref": "model://b/third-relation",
+        },
+        {"at": 30, "action": "request", "actor": "b",
+         "cooperation_link": "net-3", "cooperation_source_revision": "n-3",
+         "work_spec": {
+             "id": "w3", "customer": "b", "resource": "ra",
+             "source_revision": "d-3", "slot_start": 40, "slot_end": 50,
+             "requires_accepted": ["w2"],
+         }},
+        {"at": 31, "action": "offer", "actor": "op", "work": "w3"},
+        {"at": 32, "action": "authorize", "actor": "op", "work": "w3"},
+        {"at": 33, "action": "consent", "actor": "a", "work": "w3",
+         "source_revision": "d-3", "org_revision": "oc-1"},
+        {"at": 34, "action": "consent", "actor": "b", "work": "w3",
+         "source_revision": "d-3", "org_revision": "oc-1"},
+        {"at": 35, "action": "commit", "actor": "op", "work": "w3"},
+        {"at": 36, "action": "start", "actor": "a", "work": "w3"},
+        {"at": 37, "action": "complete", "actor": "a", "work": "w3",
+         "result_ref": "model://w3-result"},
+        {"at": 38, "action": "accept", "actor": "b", "work": "w3"},
+    ])
+    d["model_horizon"] = 42
+    return d
+
+
+def test_r1q_multiple_original_membership_eras_entry_then_exit_then_three_results():
+    from .test_general_system_mesa_integration import design
+    d = two_membership_revisions_case()
+    d["general_akis"] = design()
+    out = simulate(d)
+    assert out["counts"]["blocked"] == 0, [
+        (r["at"], r["action"], r["reason"]) for r in out["trace"]
+        if r["outcome"] == "BLOCKED"
+    ]
+    revisions = reports(out, "cooperation_membership_apply")
+    assert [r["successor_link"] for r in revisions] == ["net-2", "net-3"]
+    assert [r["change_kind"] for r in revisions] == [
+        "ADD_FUTURE_PARTICIPANT", "REVIEW_FUTURE_PARTICIPATION"
+    ]
+    links = {r["id"]: r for r in out["cooperation"]["links"]}
+    assert links["net"]["original_participants"] == ["a", "b", "op"]
+    assert links["net-2"]["original_participants"] == ["a", "b", "op", "c"]
+    assert links["net-3"]["original_participants"] == ["a", "b", "op"]
+    assert [links[l]["works"] for l in ("net", "net-2", "net-3")] == [
+        ["w1"], ["w2"], ["w3"]
+    ]
+    assert [out["works"][w]["consenting_principals"]
+            for w in ("w1", "w2", "w3")] == [
+        ["a", "b"], ["b", "c"], ["a", "b"]
+    ]
+    assert all(out["works"][w]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+               for w in ("w1", "w2", "w3"))
+    evidence = out["general_akis_model"]["system_causal_cycle_feedback"]
+    assert evidence["source_scoped_original_coalition_successions_with_accepted_work"] == 2
+    assert evidence["all_nine_component_original_causal_closure_proven"] is False
+    assert out["profit"]["system_increment"] == "UNKNOWN"
+    assert out == simulate(deepcopy(d))
+
+
+def test_r1q_new_entrant_refuses_later_exit_and_old_two_results_stay_accepted():
+    d = two_membership_revisions_case(exit_vote="OBJECT_MODEL_PROPOSAL")
+    out = simulate(d)
+    revisions = reports(out, "cooperation_membership_apply")
+    assert revisions[0]["outcome"] == "APPLIED"
+    assert revisions[1]["reason"] == (
+        "COOPERATION_MEMBERSHIP_INDEPENDENT_SUPPORT_INCOMPLETE"
+    )
+    assert sorted(link["id"] for link in out["cooperation"]["links"]) == [
+        "net", "net-2"
+    ]
+    assert reports(out, "request")[-1]["reason"] == "COOPERATION_LINK_UNKNOWN"
+    assert "w3" not in out["works"]
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
