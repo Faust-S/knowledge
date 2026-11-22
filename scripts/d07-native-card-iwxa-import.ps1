@@ -193,6 +193,35 @@ try{
    throw 'D07_IMPORT_OBJECT_IDENTITY_MISMATCH'
  }
  Write-Output 'D07_IWXA_NATIVE_ORIGINAL_OBJECT_ID_ROUNDTRIP=PASS'
+ # Also verify that all exact subject works survived the physical archive.
+ # Read expected titles from the pinned private subject protocol, not from
+ # this public qualification script or a newly generated generic template.
+ $code='import {findSubjectProtocol} from "./src/domain/service-subject-protocols.ts";const p=findSubjectProtocol("remont-dom-mastera","zamena-unitaza");if(!p)process.exit(3);process.stdout.write(JSON.stringify(p.operations.filter(x=>x.billing!=="separately-agreed").map(x=>x.title)));'
+ Push-Location $site
+ try{
+   $titlesJson=& node --import tsx --input-type=module -e $code
+   if($LASTEXITCODE -ne 0){throw 'D07_IMPORT_PRIVATE_SUBJECT_PROTOCOL_UNAVAILABLE'}
+   $titles=@($titlesJson|ConvertFrom-Json)
+ }finally{Pop-Location}
+ if($titles.Count -ne 10){throw 'D07_IMPORT_PRIVATE_SUBJECT_OPERATIONS_INVALID'}
+ $matchCount=0
+ for($attempt=0;$attempt -lt 45;$attempt++){
+   $visibleNames=[System.Collections.Generic.List[string]]::new()
+   foreach($root in @(Roots)){
+     $nodes=$root.FindAll($scope,[System.Windows.Automation.Condition]::TrueCondition)
+     foreach($node in $nodes){
+       $name=$node.Current.Name
+       if($name -and $name.Length -lt 400){$visibleNames.Add($name)}
+     }
+   }
+   $fullText=[string]::Join([Environment]::NewLine,$visibleNames)
+   $matchCount=@($titles|Where-Object{$fullText.Contains($_)}).Count
+   if($matchCount -eq $titles.Count){break}
+   Start-Sleep -Milliseconds 350
+ }
+ Write-Output ('D07_IWXA_NATIVE_IMPORTED_EXACT_WORKS='+$matchCount)
+ if($matchCount -ne 10){throw 'D07_IMPORT_EXACT_TEN_WORKS_NOT_PRESERVED'}
+ Write-Output 'D07_IWXA_NATIVE_EXACT_SUBJECT_WORKS_ROUNDTRIP=PASS'
  Write-Output 'D07_IWXA_NATIVE_CUSTOMER_RESULT_ACCEPTANCE=NOT_RUN'
 }finally{
  if($browser){try{$browser.Kill($true)}catch{}}
