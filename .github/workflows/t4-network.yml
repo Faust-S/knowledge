@@ -69,3 +69,44 @@ jobs:
           node --check src/network/original-exchange-handoff.mjs
           node --check src/network/operator-connection.mjs
           npm test
+
+  original-kernel-webdav:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install original T3 browser-test dependencies
+        run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+      - name: Verify and stage original qualified T2 Kernel 0.3.6
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t4-original-kernel
+        run: |
+          set -eu
+          archive=qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip
+          echo "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68  $archive" | sha256sum -c -
+          mkdir -p "$IWXA_T2_QUALIFIED_KERNEL_DIST"
+          unzip -q "$archive" -d "$IWXA_T2_QUALIFIED_KERNEL_DIST"
+          node --input-type=module -e 'import {assertQualifiedKernelArtifact} from "./src/factory2/products/domain-completion/independent-browser-witness.mjs";assertQualifiedKernelArtifact(process.env.IWXA_T2_QUALIFIED_KERNEL_DIST,{kernel:"0.3.6",contract:"1.3.0",artifactId:"iwxa-kernel-k036-same-store-history-20261019-qualified.1"});'
+      - name: Install original browser
+        working-directory: packages/t3-core
+        run: npx --no-install playwright install chromium
+      - name: Install ephemeral HTTPS/WebDAV dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apache2 apache2-utils openssl
+      - name: Real original T2 Kernel to T4 WebDAV to independent recipient and two cold reads
+        working-directory: packages/t4-network
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t4-original-kernel
+          T4_TEST_OUTPUT_DIR: ${{ runner.temp }}/t4-original-kernel-webdav
+        run: python3 scripts/qualify_webdav.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t4-original-kernel-webdav
+          path: ${{ runner.temp }}/t4-original-kernel-webdav/
+          if-no-files-found: ignore

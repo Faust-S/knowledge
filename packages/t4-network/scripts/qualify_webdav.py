@@ -47,6 +47,13 @@ with tempfile.TemporaryDirectory(prefix='iwxa-t4-dav-') as temp:
   suite=subprocess.run(['node','--test','tests/network/webdav-package-transfer.test.mjs'],cwd=ROOT,env=env,capture_output=True,text=True)
   (OUT/'node-network-tests.log').write_text(suite.stdout+suite.stderr);print(suite.stdout,end='')
   if suite.returncode:raise RuntimeError('Network test failure; see log')
+  if os.environ.get('IWXA_T2_QUALIFIED_KERNEL_DIST'):
+   original=subprocess.run(['node','--experimental-strip-types','--test',
+     'tests/real-original-t3-kernel-webdav.browser.mjs'],cwd=ROOT,env=env,
+     capture_output=True,text=True,timeout=240)
+   (OUT/'original-kernel-webdav.log').write_text(original.stdout+original.stderr)
+   print(original.stdout,end='')
+   if original.returncode:raise RuntimeError('Original T2/T3 kernel WebDAV E2E failed')
   reference_policy={'objectFamily':'owner-exported-package','workspaceId':'test-person-a','authorityRoot':'original-owner-a','writeOwnerRef':'original-exchange-a','primaryPlacement':'LOCAL_PRIMARY_HOSTED_REPLICA','allowedLocations':['test-webdav'],'retentionClass':'test','recoveryClass':'test','universalCloudMaster':False,'subjectActionAuthority':False}
   config={'baseUrl':env['T4_TEST_URL'],'locationRef':'test-webdav','placementPolicy':reference_policy,'networkConsent':True,'referenceOnlyAcknowledged':True,'allowedOperations':['t4.package.publish','t4.package.read']}
   (d/'cli.json').write_text(json.dumps(config));payload=b'opaque-cli-transport-fixture-not-original-iwxa';(d/'input.iwxa').write_bytes(payload)
