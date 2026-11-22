@@ -176,18 +176,19 @@ try{
  # Edge UIA can split the count in "10 основных работ" across separate
  # accessibility text nodes. Verify the exact *ten source operations* instead
  # of accepting a generic template or relying on a fragile text-node join.
- $exactTitles=@(
-   "Осмотр оборудования и доступа",
-   "Проверка комплектности нового изделия",
-   "Согласование схемы монтажа и границ цены",
-   "Отключение и демонтаж прежнего прибора",
-   "Подготовка выпуска и крепления",
-   "Фиксация чаши и подключение канализации",
-   "Арматура бачка и водоснабжение",
-   "Контроль герметичности и смыва",
-   "Сверка объёма и дополнительных работ",
-   "Передача и рекомендации эксплуатации"
- )
+ # Read exact operation titles from the PINNED PRIVATE subject model in the
+ # disposable runner. The public workflow contains no proprietary methods.
+ $program='import {findSubjectProtocol} from "./src/domain/service-subject-protocols.ts";const p=findSubjectProtocol("remont-dom-mastera","zamena-unitaza");if(!p)process.exit(3);process.stdout.write(JSON.stringify(p.operations.filter(o=>o.billing!=="separately-agreed").map(o=>o.title)));'
+ Push-Location $site
+ try{
+   $titlesJson=& node --import tsx --input-type=module -e $program
+   if($LASTEXITCODE -ne 0){throw "D07_NATIVE_CARD_PRIVATE_PROTOCOL_UNAVAILABLE"}
+   $exactTitles=@($titlesJson|ConvertFrom-Json)
+ }finally{Pop-Location}
+ if($exactTitles.Count -ne 10 -or
+    @($exactTitles|Where-Object{![string]::IsNullOrWhiteSpace($_)}).Count -ne 10){
+   throw "D07_NATIVE_CARD_SUBJECT_OPERATION_SET_INVALID"
+ }
  $summary=WaitUi "Посмотреть все работы" $null 35
  try {
    $invoke=[System.Windows.Automation.InvokePattern]$summary.GetCurrentPattern(
