@@ -1,0 +1,787 @@
+name: d02-club-personal-iwxa-independent
+on:
+  push:
+    branches: [work/2026-11-18-d02-club-qualification]
+    paths: [.github/workflows/d02-club-personal-iwxa-independent.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  first-use:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    env:
+      SITE_SHA: 71303f22e45edb58bd7c7f87a5ddf9dcbd63820f
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PORT: '55478'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      CI: 'true'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Retain exact LF bytes
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Build canonical Club and original T2 Host
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_T2_NPM_CACHE_DIR: ${{ runner.temp }}/d02-personal-first-use-cache
+        run: |
+          if((git rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D02_PERSONAL_SITE_PIN_MISMATCH'}
+          if((git -C ../t2 rev-parse HEAD).Trim() -ne $env:T2_SHA){throw 'D02_PERSONAL_T2_PIN_MISMATCH'}
+          & npm ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'd02-first-use-npm.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D02_PERSONAL_NPM_INSTALL_FAIL'}
+          & npm run test:club-personal-space-start *> (Join-Path $env:RUNNER_TEMP 'd02-first-use-test.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D02_PERSONAL_START_TEST_FAIL'}
+          & npm run build *> (Join-Path $env:RUNNER_TEMP 'd02-first-use-build.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D02_PERSONAL_INTEGRATED_BUILD_FAIL'}
+          if(-not (Test-Path dist/workspace/index.html)){throw 'D02_PERSONAL_WORKSPACE_MISSING'}
+          Write-Output 'D02_PERSONAL_ORIGINAL_T2_AND_SOURCE_TEST=PASS'
+      - name: Verify actual first-use creation and cold reopen in native Microsoft Edge
+        working-directory: site
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          $site=(Resolve-Path .).Path
+          $origin='http://localhost:55478'
+          $edge=@(
+            (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
+            (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
+          ) | Where-Object {Test-Path $_} | Select-Object -First 1
+          if(!$edge){throw 'D02_PERSONAL_EDGE_MISSING'}
+          $scope=[System.Windows.Automation.TreeScope]::Descendants
+          function FindName([string]$name,[string]$kind) {
+            $cond=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+            if($kind -eq 'button' -or $kind -eq 'edit' -or $kind -eq 'check') {
+              $type=if($kind -eq 'button'){[System.Windows.Automation.ControlType]::Button}
+                elseif($kind -eq 'edit'){[System.Windows.Automation.ControlType]::Edit}
+                else{[System.Windows.Automation.ControlType]::CheckBox}
+              $cond=[System.Windows.Automation.AndCondition]::new(
+                $cond,[System.Windows.Automation.PropertyCondition]::new(
+                  [System.Windows.Automation.AutomationElement]::ControlTypeProperty,$type))
+            }
+            foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
+              Where-Object {$_.MainWindowHandle -ne 0})) {
+              try{
+                $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$p.MainWindowHandle)
+                if(!$root){continue}
+                $item=$root.FindFirst($scope,$cond)
+                if($item -and $item.Current.IsEnabled){return $item}
+              }catch{}
+            }
+            return $null
+          }
+          function AwaitName([string]$name,[string]$kind,[string]$fail) {
+            for($i=0;$i -lt 180;$i++){
+              $item=FindName $name $kind
+              if($item){return $item}
+              Start-Sleep -Milliseconds 350
+            }
+            throw $fail
+          }
+          # UI Automation can merge nested static text into a parent Name.
+          # Require the same visible human phrase while allowing a suffix.
+          function AwaitPrefix([string]$prefix,[string]$fail){
+            for($i=0;$i -lt 105;$i++){
+              foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
+                Where-Object {$_.MainWindowHandle -ne 0})){
+                try{
+                  $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                    [IntPtr]$p.MainWindowHandle)
+                  if(!$root){continue}
+                  $all=$root.FindAll($scope,
+                    [System.Windows.Automation.Condition]::TrueCondition)
+                  foreach($element in $all){
+                    $name=$element.Current.Name
+                    if($name -and $name.StartsWith($prefix)){return $element}
+                  }
+                }catch{}
+              }
+              Start-Sleep -Milliseconds 350
+            }
+            throw $fail
+          }
+          function InvokeButton([string]$name,[string]$fail){
+            $button=AwaitName $name 'button' $fail
+            try{
+              $pattern=[System.Windows.Automation.InvokePattern]$button.GetCurrentPattern(
+                [System.Windows.Automation.InvokePattern]::Pattern)
+              $pattern.Invoke()
+            }catch{throw $fail}
+          }
+          function Activate([string]$label,[string]$fail){
+            $item=AwaitName $label '' $fail
+            try{
+              $pattern=[System.Windows.Automation.InvokePattern]$item.GetCurrentPattern(
+                [System.Windows.Automation.InvokePattern]::Pattern)
+              $pattern.Invoke()
+            }catch{
+              try{
+                Add-Type -AssemblyName System.Windows.Forms
+                $item.SetFocus()
+                [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+              }catch{throw $fail}
+            }
+          }
+          function EnterText([string]$label,[string]$value,[string]$fail){
+            $item=AwaitName $label 'edit' $fail
+            try{
+              Add-Type -AssemblyName System.Windows.Forms
+              $item.SetFocus()
+              Set-Clipboard -Value $value -ErrorAction Stop
+              [System.Windows.Forms.SendKeys]::SendWait('^a')
+              [System.Windows.Forms.SendKeys]::SendWait('^v')
+            }catch{throw $fail}
+          }
+          function ConfirmChoice([string]$label,[string]$fail){
+            $item=AwaitName $label 'check' $fail
+            try{
+              $toggle=[System.Windows.Automation.TogglePattern]$item.GetCurrentPattern(
+                [System.Windows.Automation.TogglePattern]::Pattern)
+              if($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On)
+                {$toggle.Toggle()}
+            }catch{throw $fail}
+          }
+          function ResumeAfterCold([string]$fail){
+            $clicked=$false
+            for($i=0;$i -lt 160;$i++){
+              if(FindName 'Мои дела и планы' ''){return}
+              if(-not $clicked){
+                $resume=FindName 'Открыть мои записи' 'button'
+                if($resume){
+                  InvokeButton 'Открыть мои записи' 'D02_PERSONAL_COLD_FOCUS_DENIED'
+                  $clicked=$true
+                }
+              }
+              Start-Sleep -Milliseconds 350
+            }
+            # Report only known UI status flags; no user profile content.
+            foreach($name in @('Включить сохранение',
+              'Продолжить с сохранёнными данными','Ищем ваши сохранённые записи...',
+              'Мои дела и планы')){
+              $seen=[bool](FindName $name '')
+              Write-Output ("D02_PERSONAL_COLD_DIAGNOSTIC_"+
+                $(switch($name){
+                  'Включить сохранение' {'FIRST_USE'}
+                  'Продолжить с сохранёнными данными' {'RESUME_PROMPT'}
+                  'Ищем ваши сохранённые записи...' {'LOADING'}
+                  default {'MY_WORK'}
+                })+"="+$seen)
+            }
+            throw $fail
+          }
+          $server=$null;$browser=$null
+          try{
+            $server=Start-Process -FilePath node -WorkingDirectory $site -PassThru -ArgumentList @(
+              'scripts/serve-current-static.mjs','dist','--t2-loopback'
+            ) -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd02-first-use-server.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd02-first-use-server-error.private.log')
+            $ready=$false
+            for($i=0;$i -lt 90;$i++){
+              Start-Sleep -Milliseconds 350
+              try {
+                if((Invoke-WebRequest -Uri ($origin+'/workspace/') -TimeoutSec 3).StatusCode -eq 200){
+                  $ready=$true;break
+                }
+              }catch{}
+            }
+            if(!$ready){throw 'D02_PERSONAL_PREVIEW_UNAVAILABLE'}
+            $profile=Join-Path $env:RUNNER_TEMP 'd02-personal-first-use-edge-profile'
+            $args=@('--force-renderer-accessibility','--no-first-run',
+              '--no-default-browser-check',"--user-data-dir=$profile","--app=$origin/workspace/")
+            $browser=Start-Process -FilePath $edge -PassThru -ArgumentList $args
+            $null=AwaitName 'Моё в Клубе' '' 'D02_PERSONAL_ENTRY_NOT_RENDERED'
+            Write-Output 'D02_PERSONAL_EDGE_FIRST_PAINT=PASS'
+            InvokeButton 'Включить сохранение' 'D02_PERSONAL_CREATE_NOT_AVAILABLE'
+            $null=AwaitName 'Мои дела и планы' '' 'D02_PERSONAL_CREATE_OR_FOCUS_NOT_CONFIRMED'
+            Write-Output 'D02_PERSONAL_EDGE_CREATE_READBACK_FOCUS=PASS'
+            # Cold close ALL Edge processes so reopening does not reuse a tab.
+            Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 3
+            $browser=Start-Process -FilePath $edge -PassThru -ArgumentList $args
+            $null=AwaitName 'Моё в Клубе' '' 'D02_PERSONAL_COLD_REOPEN_FAILED'
+            # The public heading renders before the async native catalog.
+            # Wait for the actual Host-controlled resume action or verified content.
+            ResumeAfterCold 'D02_PERSONAL_COLD_READBACK_NOT_CONFIRMED'
+            Write-Output 'D02_PERSONAL_EDGE_COLD_REOPEN_SAME_PROFILE=PASS'
+            # A real person starts on a public Club form, saves its Result
+            # through the original T2 Host, then recovers it after a cold restart.
+            Activate 'Мой профиль' 'D02_PERSONAL_PROFILE_LINK_MISSING'
+            $null=AwaitName 'Как к вам обращаться' 'edit' 'D02_PERSONAL_PROFILE_FORM_MISSING'
+            EnterText 'Как к вам обращаться' 'Нативная проверка Club' 'D02_PERSONAL_PROFILE_ALIAS_FAILED'
+            EnterText 'Цели' 'Сохранить личные данные для продолжения' 'D02_PERSONAL_PROFILE_GOALS_FAILED'
+            InvokeButton 'Сохранить профиль' 'D02_PERSONAL_PROFILE_FORM_SUBMIT_FAILED'
+            # The original public link has an explicit accessible name,
+            # different from its visible short text.
+            $saveLink='Открыть подтверждение сохранения результата на этом устройстве'
+            $null=AwaitName $saveLink '' 'D02_PERSONAL_PROFILE_RESULT_LINK_MISSING'
+            Activate $saveLink 'D02_PERSONAL_PROFILE_HOST_ENTRY_FAILED'
+            $null=AwaitName 'Сохранить результат' '' 'D02_PERSONAL_PROFILE_HOST_PREVIEW_MISSING'
+            ConfirmChoice 'Подтверждаю сохранение выбранных результатов на этом устройстве.' 'D02_PERSONAL_PROFILE_CONSENT_NOT_VISIBLE'
+            InvokeButton 'Сохранить выбранное' 'D02_PERSONAL_PROFILE_KERNEL_WRITE_NOT_READY'
+            $null=AwaitPrefix 'Профиль участия: Сохранено' 'D02_PERSONAL_PROFILE_KERNEL_RECEIPT_MISSING'
+            Write-Output 'D02_PERSONAL_EDGE_PUBLIC_PROFILE_KERNEL_RECEIPT=PASS'
+            Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 3
+            $browser=Start-Process -FilePath $edge -PassThru -ArgumentList $args
+            $null=AwaitName 'Моё в Клубе' '' 'D02_PERSONAL_PROFILE_COLD_HOST_MISSING'
+            ResumeAfterCold 'D02_PERSONAL_PROFILE_COLD_FOCUS_FAILED'
+            $null=AwaitName 'Сохранённых записей: 1' '' 'D02_PERSONAL_PROFILE_KERNEL_COLD_READBACK_MISSING'
+            Write-Output 'D02_PERSONAL_EDGE_PROFILE_KERNEL_COLD_READBACK=PASS'
+            # Task-first public tools must inherit the exact personal Workspace
+            # only as a hint. The original Host verifies focus again.
+            if(FindName 'Посчитать деньги' '') {
+              Activate 'Посчитать деньги' 'D02_PERSONAL_PUBLIC_MONEY_LINK_MISSING'
+            } else {
+              Activate 'Мои деньги' 'D02_PERSONAL_PUBLIC_MONEY_LINK_MISSING'
+            }
+            $null=AwaitName 'Открыть сохранённое' '' 'D02_PERSONAL_CONTEXTUAL_RESUME_MISSING'
+            Write-Output 'D02_PERSONAL_EDGE_PUBLIC_SERVICE_ENTRY=PASS'
+            Activate 'Открыть сохранённое' 'D02_PERSONAL_CONTEXTUAL_RESUME_CLICK_FAILED'
+            $null=AwaitName 'Открыть мои сохранённые записи' '' 'D02_PERSONAL_NATIVE_RESTORE_NOT_OPEN'
+            $null=AwaitPrefix 'Тема: Карта личной экономики' 'D02_PERSONAL_RESTORE_WRONG_TOPIC'
+            # Profile data is already saved, so the area is not empty.
+            # An empty MONEY topic with a non-empty verified inventory
+            # proves topic filtering and fresh Kernel readback together.
+            $null=AwaitPrefix 'По выбранной теме записей нет.' 'D02_PERSONAL_HOST_AUTO_FOCUS_AND_READBACK_MISSING'
+            Write-Output 'D02_PERSONAL_EDGE_PUBLIC_TO_NATIVE_RESUME=PASS'
+            Write-Output 'D02_PERSONAL_EDGE_PRIVATE_DATA_EXPORTED=FALSE'
+          } finally {
+            Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            if($server){try{$server.Kill($true)}catch{}}
+          }
+      - name: Original T2 Exchange exports a real saved personal profile into one physical .iwxa
+        id: physical_export
+        working-directory: site
+        env:
+          PORT: '55478'
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          $site=(Resolve-Path .).Path
+          $origin='http://localhost:55478'
+          $edge=@(
+            (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
+            (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
+          )|Where-Object{Test-Path $_}|Select-Object -First 1
+          if(!$edge){throw 'D02_EXCHANGE_EDGE_MISSING'}
+          $profile=Join-Path $env:RUNNER_TEMP 'd02-personal-first-use-edge-profile'
+          $download=Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads'
+          New-Item -Path $download -ItemType Directory -Force | Out-Null
+          $server=$null;$browser=$null
+          $scope=[System.Windows.Automation.TreeScope]::Descendants
+          function Roots(){
+            foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
+              Where-Object {$_.MainWindowHandle -ne 0})){
+              $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                [IntPtr]$p.MainWindowHandle)
+              if($root){Write-Output $root}
+            }
+          }
+          function Locate([string]$name,[string]$kind){
+            $cond=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+            if($kind -eq 'button'){
+              $cond=[System.Windows.Automation.AndCondition]::new(
+                $cond,[System.Windows.Automation.PropertyCondition]::new(
+                  [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                  [System.Windows.Automation.ControlType]::Button))
+            }
+            foreach($root in @(Roots)){
+              $match=$root.FindFirst($scope,$cond)
+              if($match -and $match.Current.IsEnabled){return $match}
+            }
+            return $null
+          }
+          function Await([string]$label,[string]$kind,[string]$code){
+            for($i=0;$i -lt 75;$i++){
+              $found=Locate $label $kind
+              if($found){return $found}
+              Start-Sleep -Milliseconds 500
+            }
+            throw $code
+          }
+          function Activate([string]$name,[string]$code){
+            $control=Await $name 'button' $code
+            try{
+              $pattern=[System.Windows.Automation.InvokePattern]$control.GetCurrentPattern(
+                [System.Windows.Automation.InvokePattern]::Pattern)
+              $pattern.Invoke()
+            }catch{throw $code}
+          }
+          try{
+            $server=Start-Process -FilePath node -WorkingDirectory $site -ArgumentList @(
+              'scripts/serve-current-static.mjs','dist','--t2-loopback'
+            ) -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd02-exchange-http.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd02-exchange-error.private.log') -PassThru
+            $ready=$false
+            for($i=0;$i -lt 60;$i++){
+              Start-Sleep -Milliseconds 500
+              try{
+                if((Invoke-WebRequest -Uri ('http://127.0.0.1:55478/workspace/exchange/') -TimeoutSec 2).StatusCode -eq 200){$ready=$true;break}
+              }catch{}
+            }
+            if(!$ready){throw 'D02_EXCHANGE_ORIGINAL_HOST_HTTP_UNAVAILABLE'}
+            $browser=Start-Process -FilePath $edge -PassThru -ArgumentList @(
+              '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
+              "--user-data-dir=$profile","--app=$origin/workspace/exchange/#/home"
+            )
+            $null=Await 'Перенос данных' '' 'D02_EXCHANGE_NATIVE_HOST_NOT_VISIBLE'
+            if(Locate 'Операция «Перенос данных» не предоставлена ядром в текущем режиме.' ''){
+              throw 'D02_EXCHANGE_ORIGINAL_CAPABILITY_NOT_GRANTED'
+            }
+            $null=Await 'Экспортировать' '' 'D02_EXCHANGE_EXPORT_TAB_MISSING'
+            $controls=[System.Collections.Generic.List[object]]::new()
+            $condition=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+              [System.Windows.Automation.ControlType]::CheckBox)
+            for($i=0;$i -lt 50;$i++){
+              $controls.Clear()
+              foreach($root in @(Roots)){
+                $found=$root.FindAll($scope,$condition)
+                foreach($node in $found){
+                  if(!$node.Current.IsOffscreen -and $node.Current.IsEnabled){
+                    $name=$node.Current.Name
+                    if($name -and $name -notmatch '^(?:История событий|Ассеты$|Связи$|Схемы$)'){
+
+                      $controls.Add($node)
+                    }
+                  }
+                }
+              }
+              if($controls.Count -gt 0){break}
+              Start-Sleep -Milliseconds 500
+            }
+            Write-Output ('D02_EXCHANGE_NATIVE_WORKSPACE_CHOICES='+$controls.Count)
+            if($controls.Count -ne 1){throw 'D02_EXCHANGE_NATIVE_WORKSPACE_SELECTION_AMBIGUOUS'}
+            try{
+              $toggle=[System.Windows.Automation.TogglePattern]$controls[0].GetCurrentPattern(
+                [System.Windows.Automation.TogglePattern]::Pattern)
+              if($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On){
+                $toggle.Toggle()
+              }
+            }catch{throw 'D02_EXCHANGE_NATIVE_WORKSPACE_SELECTION_FAILED'}
+            Activate 'Предпросмотр' 'D02_EXCHANGE_PREVIEW_BUTTON_DISABLED'
+            Activate 'Собрать архив' 'D02_EXCHANGE_ORIGINAL_PACKAGING_FAILED'
+            # Numeric count only; never print archive contents or a user profile.
+            $previewObjects='UNOBSERVED'
+            try{
+              $label=Locate 'Объектов' ''
+              if($label){
+                $next=[System.Windows.Automation.TreeWalker]::ControlViewWalker.GetNextSibling($label)
+                if($next -and $next.Current.Name -match '^[0-9]+
+        if: always()
+        run: |
+          Write-Output 'D02_PERSONAL_NO_PRIVATE_ARTIFACTS=PASS'
+){$previewObjects=$next.Current.Name}
+              }
+            }catch{}
+            Write-Output ('D02_EXCHANGE_PREVIEW_OBJECTS='+$previewObjects)
+            if($previewObjects -notmatch '^[0-9]+
+        if: always()
+        run: |
+          Write-Output 'D02_PERSONAL_NO_PRIVATE_ARTIFACTS=PASS'
+ -or [int]$previewObjects -lt 1){
+              throw 'D02_EXCHANGE_PROFILE_NOT_INCLUDED'
+            }
+            Activate 'Скачать .iwxa' 'D02_EXCHANGE_DOWNLOAD_NOT_AVAILABLE'
+            $file=$null
+            for($i=0;$i -lt 60;$i++){
+              $files=@(Get-ChildItem -Path $download -Filter '*.iwxa' -File -ErrorAction SilentlyContinue |
+                Where-Object {$_.Length -gt 128})
+              if($files.Count -eq 1){$file=$files[0];break}
+              Start-Sleep -Milliseconds 500
+            }
+            if(!$file){throw 'D02_EXCHANGE_PHYSICAL_ARCHIVE_NOT_FOUND'}
+            $data=[System.IO.File]::ReadAllBytes($file.FullName)
+            $digest=[System.Security.Cryptography.SHA256]::HashData($data)
+            if($digest.Length -ne 32 -or $data.Length -lt 129){throw 'D02_EXCHANGE_PHYSICAL_ARCHIVE_CORRUPT'}
+            Write-Output 'D02_EXCHANGE_NATIVE_PHYSICAL_EXPORT=PASS'
+            Activate 'Подтвердить приём' 'D02_EXCHANGE_CONFIRM_NOT_AVAILABLE'
+            $null=Await 'Приём подтверждён' '' 'D02_EXCHANGE_ORIGINAL_RECEIPT_MISSING'
+            Write-Output 'D02_EXCHANGE_NATIVE_ORIGINAL_CONFIRM_RECEIPT=PASS'
+          }finally{
+            if($browser){try{$browser.Kill($true)}catch{}}
+            if($server){try{$server.Kill($true)}catch{}}
+          }
+      - name: Independently import the physical archive with original Exchange into fresh Edge profile
+        id: independent_import
+        if: steps.physical_export.outcome == 'success'
+        working-directory: site
+        env:
+          PORT: '55478'
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          Add-Type -AssemblyName System.Windows.Forms
+          $site=(Resolve-Path .).Path
+          $origin='http://localhost:55478'
+          $download=Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads'
+          $files=@(Get-ChildItem -Path $download -Filter '*.iwxa' -File -ErrorAction SilentlyContinue |
+            Where-Object {$_.Length -gt 128})
+          if($files.Count -ne 1){throw 'D02_IMPORT_ORIGINAL_ARCHIVE_NOT_UNIQUE'}
+          $archive=$files[0]
+          $profile=Join-Path $env:RUNNER_TEMP 'd02-independent-import-profile'
+          if(Test-Path $profile){throw 'D02_IMPORT_PROFILE_NOT_FRESH'}
+          $edge=@(
+            (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
+            (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
+          )|Where-Object{Test-Path $_}|Select-Object -First 1
+          if(!$edge){throw 'D02_IMPORT_EDGE_MISSING'}
+          $scope=[System.Windows.Automation.TreeScope]::Descendants
+          function Roots(){
+            # Edge can place the app window in a child process whose command
+            # line does not repeat --user-data-dir. Include verified children
+            # of the new importer root, never any older source-profile window.
+            $procs=@(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'")
+            $pids=[System.Collections.Generic.HashSet[int]]::new()
+            foreach($p in $procs){
+              if($p.CommandLine -and $p.CommandLine.Contains("--user-data-dir=$profile")){
+                [void]$pids.Add([int]$p.ProcessId)
+              }
+            }
+            for($depth=0;$depth -lt 9;$depth++){
+              $added=$false
+              foreach($p in $procs){
+                if($pids.Contains([int]$p.ParentProcessId) -and
+                   $pids.Add([int]$p.ProcessId)){$added=$true}
+              }
+              if(!$added){break}
+            }
+            $windows=@(Get-Process msedge -ErrorAction SilentlyContinue |
+              Where-Object {$_.MainWindowHandle -ne 0})
+            $matched=0
+            foreach($p in $windows){
+              if(!$pids.Contains([int]$p.Id)){continue}
+              try{
+                $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                  [IntPtr]$p.MainWindowHandle)
+                if($root){$matched++;Write-Output $root}
+              }catch{}
+            }
+            if($matched -gt 0){return}
+            # If Edge hands off to a newly spawned main window without a
+            # traceable parent, accept only a single window created after this
+            # fresh profile was launched and visibly rendering the known
+            # Exchange/Workspace UI. Never search an old generic Edge window.
+            if(!$browser){return}
+            try{$started=$browser.StartTime.AddSeconds(-6)}catch{return}
+            $recent=@($windows|Where-Object{
+              try{$_.StartTime -ge $started}catch{$false}
+            })
+            if($recent.Count -ne 1){return}
+            try{
+              $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                [IntPtr]$recent[0].MainWindowHandle)
+              foreach($title in @('Перенос данных','Моя работа')){
+                $condition=[System.Windows.Automation.PropertyCondition]::new(
+                  [System.Windows.Automation.AutomationElement]::NameProperty,$title)
+                if($root.FindFirst($scope,$condition)){
+                  Write-Output $root
+                  return
+                }
+              }
+            }catch{}
+          }
+          function Locate([string]$name,[string]$type){
+            $cond=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+            if($type -eq 'button' -or $type -eq 'combo' -or $type -eq 'tab' -or $type -eq 'edit'){
+              $control=if($type -eq 'combo'){
+                [System.Windows.Automation.ControlType]::ComboBox
+              }elseif($type -eq 'tab'){
+                [System.Windows.Automation.ControlType]::TabItem
+              }elseif($type -eq 'edit'){
+                [System.Windows.Automation.ControlType]::Edit
+              }else{[System.Windows.Automation.ControlType]::Button}
+              $cond=[System.Windows.Automation.AndCondition]::new(
+                $cond,[System.Windows.Automation.PropertyCondition]::new(
+                  [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                  $control))
+            }
+            foreach($root in @(Roots)){
+              $found=$root.FindFirst($scope,$cond)
+              if($found -and $found.Current.IsEnabled){return $found}
+            }
+            return $null
+          }
+          function Await([string]$name,[string]$type,[string]$code){
+            for($i=0;$i -lt 100;$i++){
+              $found=Locate $name $type
+              if($found){return $found}
+              Start-Sleep -Milliseconds 500
+            }
+            throw $code
+          }
+          function Click([string]$name,[string]$code){
+            $node=Await $name 'button' $code
+            try{
+              $pattern=[System.Windows.Automation.InvokePattern]$node.GetCurrentPattern(
+                [System.Windows.Automation.InvokePattern]::Pattern)
+              $pattern.Invoke()
+            }catch{throw $code}
+          }
+          # Actual Windows mouse input to the real Edge window. The UIA
+          # TabItem can receive focus without dispatching a DOM click.
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class D02NativeMouse {
+            [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+            [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+          }
+          '@
+          function NativeClick($control,[string]$code){
+            try{
+              try{$control.SetFocus()}catch{}
+              $point=$control.GetClickablePoint()
+              $x=[int][Math]::Round($point.X)
+              $y=[int][Math]::Round($point.Y)
+              if(-not [D02NativeMouse]::SetCursorPos($x,$y)){throw $code}
+              Start-Sleep -Milliseconds 100
+              [D02NativeMouse]::mouse_event(0x0002,0,0,0,[UIntPtr]::Zero)
+              [D02NativeMouse]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero)
+            }catch{throw $code}
+          }
+          function ExistsUIName([string]$name){
+            # Unlike Locate, this includes disabled buttons. Export Download
+            # is disabled on an empty export panel, but still visible there.
+            $cond=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+            foreach($root in @(Roots)){
+              if($root.FindFirst($scope,$cond)){return $true}
+            }
+            return $false
+          }
+          function ImportTabSelected($tab){
+            try{
+              $pattern=[System.Windows.Automation.SelectionItemPattern]$tab.GetCurrentPattern(
+                [System.Windows.Automation.SelectionItemPattern]::Pattern)
+              return [bool]$pattern.Current.IsSelected
+            }catch{return $false}
+          }
+          function ActivateTab([string]$name,[string]$code){
+            # Edge exposes HTML <button role="tab"> as UIA TabItem. Mouse
+            # GetClickablePoint may be unavailable in a Windows CI session;
+            # use accessible UI actions and real keyboard events first.
+            $tab=Await $name 'tab' $code
+            $method='none'
+            try{
+              $pattern=[System.Windows.Automation.SelectionItemPattern]$tab.GetCurrentPattern(
+                [System.Windows.Automation.SelectionItemPattern]::Pattern)
+              $pattern.Select()
+              $method='uia-selection'
+            }catch{
+              Write-Output 'D02_IMPORT_TAB_UIA_SELECTION_UNAVAILABLE=TRUE'
+            }
+            Start-Sleep -Milliseconds 200
+            if(-not (ImportTabSelected $tab)){
+              try{
+                $legacy=[System.Windows.Automation.LegacyIAccessiblePattern]$tab.GetCurrentPattern(
+                  [System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)
+                $legacy.DoDefaultAction()
+                $method='legacy-default-action'
+              }catch{
+                Write-Output 'D02_IMPORT_TAB_LEGACY_DEFAULT_UNAVAILABLE=TRUE'
+              }
+            }
+            Start-Sleep -Milliseconds 200
+            if(-not (ImportTabSelected $tab)){
+              try{
+                $tab.SetFocus()
+                [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                Start-Sleep -Milliseconds 100
+                [System.Windows.Forms.SendKeys]::SendWait(' ')
+                $method='native-keyboard'
+              }catch{
+                Write-Output 'D02_IMPORT_TAB_KEYBOARD_UNAVAILABLE=TRUE'
+              }
+            }
+            Start-Sleep -Milliseconds 250
+            if(-not (ImportTabSelected $tab) -and (ExistsUIName 'Скачать .iwxa')){
+              # Final native pointer fallback; its absence is a CI desktop
+              # limitation, not evidence that the original Kernel denied import.
+              try{
+                NativeClick $tab $code
+                $method='native-pointer'
+              }catch{
+                Write-Output 'D02_IMPORT_TAB_POINTER_UNAVAILABLE=TRUE'
+              }
+            }
+            Start-Sleep -Milliseconds 250
+            $selected=ImportTabSelected $tab
+            Write-Output "D02_IMPORT_NATIVE_TAB_ACTION=$method"
+            Write-Output "D02_IMPORT_NATIVE_TAB_SELECTED=$selected"
+            Write-Output ("D02_IMPORT_EXPORT_PANEL_PRESENT=" + (ExistsUIName 'Скачать .iwxa'))
+            if(-not $selected -and (ExistsUIName 'Скачать .iwxa')){
+              throw 'D02_IMPORT_TAB_DID_NOT_SWITCH'
+            }
+          }
+          function AwaitPrefix([string]$prefix,[string]$code){
+            for($i=0;$i -lt 100;$i++){
+              foreach($root in @(Roots)){
+                foreach($node in $root.FindAll($scope,
+                  [System.Windows.Automation.Condition]::TrueCondition)){
+                  $name=$node.Current.Name
+                  if($name -and $name.StartsWith($prefix)){return $name}
+                }
+              }
+              Start-Sleep -Milliseconds 500
+            }
+            throw $code
+          }
+          $server=$null;$browser=$null;$reopened=$null;$weekBrowser=$null;$weekReopened=$null
+          try{
+            $server=Start-Process -FilePath node -WorkingDirectory $site -ArgumentList @(
+              'scripts/serve-current-static.mjs','dist','--t2-loopback'
+            ) -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd02-import-http.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd02-import-error.private.log') -PassThru
+            $ready=$false
+            for($i=0;$i -lt 60;$i++){
+              Start-Sleep -Milliseconds 500
+              try{
+                if((Invoke-WebRequest -Uri ('http://127.0.0.1:55478/workspace/exchange/') -TimeoutSec 2).StatusCode -eq 200){$ready=$true;break}
+              }catch{}
+            }
+            if(!$ready){throw 'D02_IMPORT_ORIGINAL_HOST_HTTP_UNAVAILABLE'}
+            $browser=Start-Process -FilePath $edge -PassThru -ArgumentList @(
+              '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
+              "--user-data-dir=$profile","--app=$origin/workspace/exchange/#/home"
+            )
+            $null=Await 'Перенос данных' '' 'D02_IMPORT_NATIVE_EXCHANGE_NOT_VISIBLE'
+            if(Locate 'Операция «Перенос данных» не предоставлена ядром в текущем режиме.' ''){
+              throw 'D02_IMPORT_ORIGINAL_CAPABILITY_NOT_GRANTED'
+            }
+            ActivateTab 'Импортировать' 'D02_IMPORT_NATIVE_TAB_MISSING'
+            $choose=$null
+            for($i=0;$i -lt 50;$i++){
+              foreach($label in @('Выберите файл .iwxa','Выбрать файл','Choose File','Choose file','Browse...')){
+                $choose=Locate $label ''
+                if($choose){break}
+              }
+              if($choose){break}
+              Start-Sleep -Milliseconds 250
+            }
+            if($choose){
+              Write-Output 'D02_IMPORT_NATIVE_FILE_CONTROL_FOUND=PASS'
+              try{
+                $pattern=[System.Windows.Automation.InvokePattern]$choose.GetCurrentPattern(
+                  [System.Windows.Automation.InvokePattern]::Pattern)
+                $pattern.Invoke()
+              }catch{
+                try{
+                  $choose.SetFocus()
+                  [System.Windows.Forms.SendKeys]::SendWait(' ')
+                  Write-Output 'D02_IMPORT_FILE_PICKER_TRIGGER=KEYBOARD_ON_CONTROL'
+                }catch{NativeClick $choose 'D02_IMPORT_NATIVE_FILE_PICKER_NOT_OPENED'}
+              }
+            }else{
+              # Chromium may expose <input type=file> as a nested OS chooser
+              # without its HTML aria-label. The first keyboard Tab after
+              # the selected Import tab goes to that native file input.
+              # Do not inspect or print filenames or profile contents.
+              $tab=Locate 'Импортировать' 'tab'
+              if(!$tab -or !(ImportTabSelected $tab) -or
+                 (ExistsUIName 'Скачать .iwxa')){
+                throw 'D02_IMPORT_TAB_OR_PANEL_NOT_CONFIRMED'
+              }
+              try{
+                $tab.SetFocus()
+                [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+                Start-Sleep -Milliseconds 200
+                $focus=[System.Windows.Automation.AutomationElement]::FocusedElement
+                if(!$focus){throw 'D02_IMPORT_FILE_FOCUS_MISSING'}
+                $focusType=$focus.Current.ControlType.ProgrammaticName
+                Write-Output "D02_IMPORT_FIRST_FOCUS_TYPE=$focusType"
+                if($focusType -notmatch 'Button|Edit|Group|SplitButton'){
+                  throw 'D02_IMPORT_FOCUSED_NON_FILE_CONTROL'
+                }
+                [System.Windows.Forms.SendKeys]::SendWait(' ')
+                Write-Output 'D02_IMPORT_FILE_PICKER_TRIGGER=KEYBOARD_TAB_FROM_IMPORT'
+              }catch{
+                throw 'D02_IMPORT_NATIVE_FILE_PICKER_KEYBOARD_FAILED'
+              }
+            }
+            Start-Sleep -Milliseconds 700
+            # The standard Windows file chooser belongs to Edge. Entering an
+            # actual file path here is a genuine native user operation; no
+            # page.evaluate, simulated Kernel command or fabricated package.
+            Set-Clipboard -Value $archive.FullName
+            [System.Windows.Forms.SendKeys]::SendWait('%n')
+            Start-Sleep -Milliseconds 300
+            [System.Windows.Forms.SendKeys]::SendWait('^v')
+            [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+            Write-Output 'D02_IMPORT_NATIVE_FILE_CHOOSER_USED=TRUE'
+            $null=Await 'Импортировать (1)' 'button' 'D02_IMPORT_PREVIEW_OR_PLAN_NOT_READY'
+            Write-Output 'D02_IMPORT_ORIGINAL_PREVIEW=PASS'
+            Click 'Импортировать (1)' 'D02_IMPORT_COMMIT_BUTTON_DISABLED'
+            $null=Await 'Отчёт' '' 'D02_IMPORT_ORIGINAL_RECEIPT_MISSING'
+            if(Locate 'Импорт выполнен не полностью' ''){
+              throw 'D02_IMPORT_PARTIAL_COMMIT'
+            }
+            $null=Await 'Объектов создано' '' 'D02_IMPORT_OBJECT_COUNT_MISSING'
+            Write-Output 'D02_IMPORT_NATIVE_ORIGINAL_COMMIT_RECEIPT=PASS'
+            # A different, empty browser profile must independently read
+            # the original imported T2 Result after a cold Edge process restart.
+            try{$browser.Kill($true)}catch{}
+            Get-Process msedge -ErrorAction SilentlyContinue |
+              Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 3
+            $reopened=Start-Process -FilePath $edge -PassThru -ArgumentList @(
+              '--force-renderer-accessibility','--no-first-run','--no-default-browser-check',
+              "--user-data-dir=$profile","--app=$origin/workspace/"
+            )
+            $null=Await 'Моё в Клубе' '' 'D02_IWXA_IMPORTED_CLUB_NOT_VISIBLE'
+            $restored=$false
+            for($i=0;$i -lt 150;$i++){
+              if(Locate 'Сохранённых записей: 1' ''){$restored=$true;break}
+              $resume=Locate 'Открыть мои записи' 'button'
+              if($resume){
+                try{
+                  $pattern=[System.Windows.Automation.InvokePattern]$resume.GetCurrentPattern(
+                    [System.Windows.Automation.InvokePattern]::Pattern)
+                  $pattern.Invoke()
+                }catch{}
+              }
+              Start-Sleep -Milliseconds 350
+            }
+            if(!$restored){throw 'D02_IWXA_FRESH_PROFILE_KERNEL_READBACK_MISSING'}
+            Write-Output 'D02_IWXA_INDEPENDENT_PROFILE_COUNT=PASS'
+            $topics=Await 'Посмотреть записи по темам' '' 'D02_IWXA_PROFILE_FAMILY_UNAVAILABLE'
+            try{
+              $topics.SetFocus()
+              [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+            }catch{throw 'D02_IWXA_PROFILE_FAMILY_CANNOT_OPEN'}
+            $null=AwaitPrefix 'Последняя запись: Нативная проверка Club' 'D02_IWXA_PROFILE_ALIAS_READBACK_MISMATCH'
+            Write-Output 'D02_IWXA_INDEPENDENT_ORIGINAL_PROFILE_CONTENT=PASS'
+            Write-Output 'D02_IWXA_PERSONAL_PROFILE_INDEPENDENT_ROUNDTRIP=PASS'
+          }finally{
+            foreach($p in @($reopened,$browser)){if($p){try{$p.Kill($true)}catch{}}}
+            if($server){try{$server.Kill($true)}catch{}}
+          }
+      - name: No private artifacts
+        if: always()
+        run: |
+          Write-Output 'D02_PERSONAL_NO_PRIVATE_ARTIFACTS=PASS'
