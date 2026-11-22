@@ -193,6 +193,19 @@ function NativeD2BoundedRefusal(){
       }
     }catch{}
   }
+  # A not-yet-attached native D2 reader and an in-flight read are distinct
+  # from a rejected signed grant. Report only fixed UI states, not source
+  # Object/Event text or the original owner's private stderr.
+  $signals=@(
+    'T3 DATA: исходный Kernel подключён к нативному читателю',
+    'T3 DATA: нативный читатель Object/Event ещё не подключён',
+    'Читаем исходный Kernel...',
+    'Исходные Object/Event не прочитаны.',
+    'Оригинальный T3 не подтвердил чтение корпоративного контекста.'
+  )
+  for($i=0;$i -lt $signals.Count;$i++){
+    Write-Host "D2_INSTALLED_NATIVE_READ_FAILURE_SIGNAL_$i $(HasText $signals[$i])"
+  }
   Write-Host 'D2_INSTALLED_NATIVE_SOURCE_REFUSAL UNCLASSIFIED'
 }
 function NativeD2RefusalStage(){
@@ -221,6 +234,36 @@ function WaitForOriginalKernelReady(){
       return $false
     }
     Start-Sleep -Milliseconds 250
+  }
+  return $false
+}
+function WaitForOriginalNativeDataReader(){
+  # The signed React Workspace can show KernelStatus READY before its
+  # asynchronous native D3 relay attaches. Only the ORIGINAL native owner
+  # advertises d2ActivityReaderConnected. A UI button, signed Task list or
+  # unverified corporate draft cannot substitute this exact observation.
+  for($i=0;$i -lt 72;$i++){
+    if(HasText 'T3 DATA: исходный Kernel подключён к нативному читателю'){
+      Write-Host 'D2_INSTALLED_NATIVE_READER_ATTACHED_PASS'
+      return $true
+    }
+    if($i -eq 20 -and
+       (HasText 'T3 DATA: нативный читатель Object/Event ещё не подключён')){
+      # A second read of original native STATE is harmless; never repeat a
+      # signer command or createWorkspace on an unknown outcome.
+      $button=$null
+      try{$button=FindName 'Обновить подписанные сведения T3' 'Button' 1}catch{}
+      if($button -and $button.Current.IsEnabled){
+        ClickButton 'Обновить подписанные сведения T3'
+        Write-Host 'D2_INSTALLED_NATIVE_READER_STATE_READ_ONLY_REFRESH'
+      }
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  if(HasText 'T3 DATA: нативный читатель Object/Event ещё не подключён'){
+    Write-Host 'D2_INSTALLED_NATIVE_READER_NOT_ATTACHED'
+  }else{
+    Write-Host 'D2_INSTALLED_NATIVE_READER_STATE_UNAVAILABLE'
   }
   return $false
 }
@@ -580,6 +623,7 @@ try{
     $script:phase='D2_NATIVE_MANAGER_OWNER_REREAD'
     ClickButton 'Обновить подписанные сведения T3'
     Check (WaitForText 'Task в оригинальном T3:' 120) 'D2_INSTALLED_NATIVE_SIGNED_CONTEXT_NOT_READ'
+    Check (WaitForOriginalNativeDataReader) 'D2_INSTALLED_NATIVE_ORIGINAL_READER_NOT_ATTACHED'
     $script:phase='D2_NATIVE_READ_ORIGINAL_KERNEL'
     ClickButton 'Перечитать Object/Event через T3 DATA'
     if(-not(WaitForText 'Оригинальный T2 Kernel' 130)){
@@ -593,6 +637,7 @@ try{
     Check (WaitForText 'Поиск по доступному контексту' 75) 'D2_INSTALLED_NATIVE_CORPORATE_CONTEXT_NOT_OPEN'
     ClickButton 'Обновить подписанные сведения T3'
     Check (WaitForText 'Task в оригинальном T3:' 120) 'D2_INSTALLED_NATIVE_CONTEXT_SIGNED_OWNER_MISSING'
+    Check (WaitForOriginalNativeDataReader) 'D2_INSTALLED_NATIVE_CONTEXT_READER_NOT_ATTACHED'
     ClickButton 'Перечитать Object/Event через T3 DATA'
     if(-not(WaitForText 'Оригинальный T2 Kernel' 130)){
       NativeD2BoundedRefusal
@@ -616,6 +661,7 @@ try{
     ClickButton 'Обзор'
     ClickButton 'Обновить подписанные сведения T3'
     Check (WaitForText 'Task в оригинальном T3:' 120) 'D2_INSTALLED_COLD_CONTEXT_NOT_READ'
+    Check (WaitForOriginalNativeDataReader) 'D2_INSTALLED_COLD_NATIVE_READER_NOT_ATTACHED'
     ClickButton 'Перечитать Object/Event через T3 DATA'
     if(-not(WaitForText 'Оригинальный T2 Kernel' 130)){
       NativeD2BoundedRefusal
