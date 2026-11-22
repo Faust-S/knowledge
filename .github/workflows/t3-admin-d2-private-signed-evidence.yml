@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 2cddd14d588eff2a742f461f9b64e044d094a76a
+          ref: 1bc9f13f1574ec716a1b9109bc2ea7757f71507f
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           filter: blob:none
@@ -53,7 +53,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $owner=(& git -C .private/t3 rev-parse HEAD).Trim()
-          if($owner -cne '2cddd14d588eff2a742f461f9b64e044d094a76a'){
+          if($owner -cne '1bc9f13f1574ec716a1b9109bc2ea7757f71507f'){
             throw 'D2_ORIGINAL_PRIVATE_SOURCE_PIN_FAILED'
           }
           Write-Host 'D2_ORIGINAL_PRIVATE_SOURCE_PIN_PASS'
@@ -105,7 +105,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 2cddd14d588eff2a742f461f9b64e044d094a76a
+          ref: 1bc9f13f1574ec716a1b9109bc2ea7757f71507f
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           filter: blob:none
@@ -150,7 +150,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
           $center=(& git -C .private/center rev-parse HEAD).Trim()
-          if($t3 -cne '2cddd14d588eff2a742f461f9b64e044d094a76a' -or
+          if($t3 -cne '1bc9f13f1574ec716a1b9109bc2ea7757f71507f' -or
              $center -cne 'df6365aa6f83f60b7fa73224316d81bcbebbd59f'){
             throw 'D2_INSTALLED_ORIGINAL_PRIVATE_SOURCE_PIN_CHANGED'
           }
@@ -187,7 +187,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $log=Join-Path $env:RUNNER_TEMP 'd2-private-owner-build.log'
           try{
-            & ./.private/t3/scripts/build-admin-center-d3-owner.ps1 -CenterRoot '.private/center' -OneCoreRoot '.' -QualifiedT2Dist $env:D2_QUALIFIED_T2_DIST -BunCommand bun -BuildCenter *> $log
+            & ./.private/t3/scripts/build-admin-center-d3-owner.ps1 -CenterRoot '.private/center' -OneCoreRoot '.' -QualifiedT2Dist $env:D2_QUALIFIED_T2_DIST -BunCommand bun -BuildCenter -QualifyOriginalCompiledFirstUse *> $log
             if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_PRIVATE_BUILD_FAILED'}
             $setup='.private/center/artifacts/iwxa-setup-core-center-private-d3.exe'
             $owner='.private/center/src-tauri/private-distribution/iwxa-t3-product-owner.exe'
@@ -225,6 +225,35 @@ jobs:
               @((Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)).Count
             }else{0}
             Write-Host "D2_INSTALLED_ORIGINAL_BUILD_LOG_LINE_COUNT $logs"
+            foreach($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
+              $clean=([string]$line).Trim()
+              if($clean -match '^T3_D3_ORIGINAL_COMPILED_SHIM_(?:STAGE T3_D3_PROBE_[A-Z_]+|MACHINE_CODE [A-Z0-9_]+)
+            throw 'D2_INSTALLED_ORIGINAL_BUILD_HOLD'
+          }
+      - name: Install original owner and verify native Windows Admin GUI
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference='Stop'
+          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha 'df6365aa6f83f60b7fa73224316d81bcbebbd59f' -ExpectedT3Sha '1bc9f13f1574ec716a1b9109bc2ea7757f71507f'
+          if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_GUI_FAILED'}
+          Write-Host 'D2_INSTALLED_ORIGINAL_OWNER_SETUP_AND_GUI_PASS_NOT_FULL_E2E'
+      - name: Native Windows original signed D2 DATA and two independent cold UIA reads
+        shell: pwsh
+        timeout-minutes: 17
+        run: |
+          $ErrorActionPreference='Stop'
+          if([string]::IsNullOrWhiteSpace($env:G4_INSTALLED_CENTER_ROOT)){
+            throw 'D2_INSTALLED_ORIGINAL_SETUP_ROOT_NOT_FOUND'
+          }
+          & ./packages/t3-core/tests/g4-installed-original-center-first-use.ps1 -InstallRoot $env:G4_INSTALLED_CENTER_ROOT -RequireD2Read
+          if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_UIA_E2E_FAILED'}
+          Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_DATA_TWO_COLD_UIA_PASS'
+
+){
+                Write-Host "D2_INSTALLED_ORIGINAL_BUILD_WITNESS $clean"
+              }
+            }
             Write-Host "D2_INSTALLED_ORIGINAL_BUILD_MACHINE_CODE $reason"
             throw 'D2_INSTALLED_ORIGINAL_BUILD_HOLD'
           }
@@ -233,7 +262,7 @@ jobs:
         timeout-minutes: 8
         run: |
           $ErrorActionPreference='Stop'
-          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha 'df6365aa6f83f60b7fa73224316d81bcbebbd59f' -ExpectedT3Sha '2cddd14d588eff2a742f461f9b64e044d094a76a'
+          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha 'df6365aa6f83f60b7fa73224316d81bcbebbd59f' -ExpectedT3Sha '1bc9f13f1574ec716a1b9109bc2ea7757f71507f'
           if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_GUI_FAILED'}
           Write-Host 'D2_INSTALLED_ORIGINAL_OWNER_SETUP_AND_GUI_PASS_NOT_FULL_E2E'
       - name: Native Windows original signed D2 DATA and two independent cold UIA reads
