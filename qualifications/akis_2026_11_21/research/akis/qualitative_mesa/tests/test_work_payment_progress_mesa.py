@@ -140,7 +140,7 @@ def test_asserted_late_payment_does_not_revise_contractual_due_or_invent_financi
 def test_pre_due_bilateral_amendment_only_declares_model_revised_due():
     d=case()
     d["economic_claims"]["work_payment_due_amendments"]=[amendment()]
-    d["economic_claims"]["cash_timing"]["transfer_windows"][1]["at"]=11
+    d["economic_claims"]["cash_timing"]["transfer_windows"][1].update({"at":11,"late_at":11})
     e=view(d)
     b=e["work_payment_causality"]["bindings"][0]
     assert b["original_due_at"]==10
@@ -157,7 +157,7 @@ def test_retroactive_amendment_is_visible_not_accepted_to_relax_obligations():
     d=case()
     d["economic_claims"]["work_payment_due_amendments"]=[
         amendment(agreed_at=11,new_due_at=12)]
-    d["economic_claims"]["cash_timing"]["transfer_windows"][1]["at"]=11
+    d["economic_claims"]["cash_timing"]["transfer_windows"][1].update({"at":11,"late_at":11})
     p=view(d)["work_payment_causality"]
     assert p["bindings"][0]["model_amendment_status"]=="RETROACTIVE_DUE_AMENDMENT_NOT_QUALIFIED"
     assert p["bindings"][0]["status"]=="CASH_FORECAST_AFTER_DECLARED_DUE_WITHOUT_AMENDMENT"
