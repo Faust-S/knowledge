@@ -22,6 +22,9 @@ from .capacity import (
 from .technology import (
     Operation, TechnologyInputError, parse_operations, owners_summary,
     operation_reservations, technology_view,
+    TechnologyRouteBlocked, qualify_original_technology_route_proposal,
+    qualify_original_technology_route_response,
+    qualify_original_technology_route_request,
 )
 from .handoff import Handoff, HandoffInputError, declare_handoffs, handoffs_view
 from .material import (MaterialBatch, MaterialState, MaterialInputError, MaterialBlocked,
@@ -50,7 +53,8 @@ SELECTED_MODES = frozenset({"SOLE", "COLLEGIAL", "MIXED"})
 MODES = SELECTED_MODES | {"UNSELECTED"}
 AVAILABILITY = frozenset({"AVAILABLE", "UNAVAILABLE", "UNKNOWN"})
 ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "cooperation_entry_assess", "cooperation_membership_apply", "model_code_propose", "model_code_response",
-    "model_code_function_response", "model_code_apply", "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge"})
+    "model_code_function_response", "model_code_apply",
+    "technology_route_propose", "technology_route_response", "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge"})
 GOVERNED = frozenset({"authorize", "exclude"})
 
 
@@ -265,7 +269,12 @@ class QualitativeAKIS:
              "model_code_fingerprint", "model_code_change_kind",
              "expected_model_roles", "proposed_model_roles",
              "expected_model_commit_responsible",
-             "proposed_model_commit_responsible"}, "EVENT")
+             "proposed_model_commit_responsible",
+             "technology_route_id", "technology_route_work",
+             "technology_route_work_spec", "technology_route_fingerprint",
+             "technology_route_source_ref", "technology_route_valid_until",
+             "technology_route_decision", "technology_route_decision_source_ref",
+             "technology_route_model_code_change_id"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -382,6 +391,7 @@ class QualitativeAKIS:
         model_org_review = None
         linked_change_evidence = None
         membership_evidence = None
+        technology_route_evidence = None
         if self.capability_policy is not None:
             # Time- and owner-source eligibility is refreshed before future
             # commitments; historical reservations and Results are untouched.
@@ -401,6 +411,12 @@ class QualitativeAKIS:
                 qualify_model_code_response(self, ev, at)
             elif action == "model_code_function_response":
                 qualify_model_code_function_response(self, ev, at)
+            elif action == "technology_route_propose":
+                technology_route_evidence = qualify_original_technology_route_proposal(
+                    self, ev, at
+                )
+            elif action == "technology_route_response":
+                qualify_original_technology_route_response(self, ev, at)
             elif action == "model_code_apply":
                 candidate = qualify_model_code_apply(
                     self, ev, at, actions=set(ACTIONS)
@@ -533,7 +549,7 @@ class QualitativeAKIS:
                 work = self.works[key]
                 self._work_action(work, ev, at)
             report = {"at": at, "action": action, "outcome": "APPLIED", "reason": "NONE", "org_revision": self.institution.revision}
-        except (BlockedDecision, ContextBlocked, MaterialBlocked, AssuranceBlocked, OrgCodeBlocked, CapabilityBlocked) as exc:
+        except (BlockedDecision, ContextBlocked, MaterialBlocked, AssuranceBlocked, OrgCodeBlocked, CapabilityBlocked, TechnologyRouteBlocked) as exc:
             blocked_resource = getattr(exc, "resource", None)
             if isinstance(exc, OrgCodeBlocked):
                 org_code_model_escalation_target = exc.reviewer
@@ -599,6 +615,33 @@ class QualitativeAKIS:
                 report["original_resources_and_work_principals_preserved"] = True
                 report["historical_accepted_results_and_consents_preserved"] = True
                 report["new_entrant_independent_work_consent_still_required"] = True
+        if action in {"technology_route_propose", "technology_route_response"}:
+            report["technology_route_id"] = ev.get("technology_route_id")
+            report["technology_route_fingerprint"] = ev.get(
+                "technology_route_fingerprint"
+            )
+            report["technology_route_source_authentication"] = (
+                "MODEL_ONLY_DECLARED_UNVERIFIED"
+            )
+            report["technology_route_not_work_or_resource_permission"] = True
+            if action == "technology_route_propose" and report["outcome"] == "APPLIED":
+                report.update(technology_route_evidence)
+                report["technology_route_work"] = ev["technology_route_work"]
+                report["technology_route_valid_until"] = ev["technology_route_valid_until"]
+                report["technology_route_source_ref"] = ev["technology_route_source_ref"]
+                report["pilot_work"] = ev["pilot_work"]
+                report["pilot_result_ref"] = ev["pilot_result_ref"]
+                report["cooperation_link"] = ev["cooperation_link"]
+                report["cooperation_source_revision"] = ev["cooperation_source_revision"]
+                report["technology_route_model_code_change_id"] = ev[
+                    "technology_route_model_code_change_id"
+                ]
+                report["model_org_edition"] = self.model_org_code_edition
+            if action == "technology_route_response" and report["outcome"] == "APPLIED":
+                report["technology_route_decision"] = ev["technology_route_decision"]
+                report["technology_route_decision_source_ref"] = ev[
+                    "technology_route_decision_source_ref"
+                ]
         if action in {"start_operation", "complete_operation"}:
             report["operation"] = ev.get("operation")
         if action == "assess_result_quality" and report["outcome"] == "APPLIED":
@@ -795,6 +838,9 @@ class QualitativeAKIS:
             )
             if reason != "NONE":
                 raise BlockedDecision(reason)
+        technology_route_evidence = qualify_original_technology_route_request(
+            self, ev, work, at
+        )
         linked_change_evidence = None
         try:
             if "change_id" in ev:
@@ -821,7 +867,10 @@ class QualitativeAKIS:
         work.request_at = at
         self.works[work.key] = work  # a need is neither an operator offer nor an obligation
         self.cooperation_links = next_links  # research association only; no contractual consent
-        return linked_change_evidence
+        return {
+            **(linked_change_evidence or {}),
+            **(technology_route_evidence or {}),
+        } or None
 
     def _set_participation_status(self, ev: dict[str, Any]) -> None:
         # An original principal controls only the availability of its OWN
