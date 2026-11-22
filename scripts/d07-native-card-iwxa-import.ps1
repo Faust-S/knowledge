@@ -430,7 +430,9 @@ try{
   # The *exact* original ID and label must both be present in this order UI.
   $sameId=$sawIdLabel -and $sawExactId
   $sameWorks=(@($titles|Where-Object{$visible.Contains($_)}).Count -eq 10)
-  $sameRevision=$visible.Contains('редакция: '+$newRevision+';')
+  # Current revision is an accessible status derived from the opened T2 Result,
+  # not an event from the history or another saved order.
+  $sameRevision=$visible.Contains('Текущая редакция открытого заказа: '+$newRevision)
   if($sameId -and $sameWorks -and $sameRevision){break}
   if($i -eq 25 -or $i -eq 55){EnsureColdTechnicalVisible}
   Start-Sleep -Milliseconds 320
