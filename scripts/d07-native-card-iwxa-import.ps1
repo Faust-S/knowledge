@@ -221,34 +221,53 @@ try{
    [System.Windows.Automation.InvokePattern]::Pattern)
  $open.Invoke()
  $technical=Await 'Технические сведения о записи' $null 'D07_IMPORT_KERNEL_OBJECT_DETAILS_NOT_FOUND'
- try{
-   $pattern=[System.Windows.Automation.InvokePattern]$technical.GetCurrentPattern(
+ function InitialVisible {
+  $names=[System.Collections.Generic.List[string]]::new()
+  foreach($root in @(Roots)){
+   foreach($node in $root.FindAll($scope,[System.Windows.Automation.Condition]::TrueCondition)){
+    $value=$node.Current.Name
+    if($value -and $value.Length -lt 500){$names.Add($value)}
+   }
+  }
+  return [string]::Join([Environment]::NewLine,$names)
+ }
+ function EnsureInitialTechnical {
+  $visible=InitialVisible
+  if($visible.Contains('Object ID:') -and $visible.Contains($expectedId)){return}
+  # Edge can restore <details> expanded. Expand, never collapse, if supported.
+  try{
+   $p=[System.Windows.Automation.ExpandCollapsePattern]$technical.GetCurrentPattern(
+    [System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+   if($p.Current.ExpandCollapseState -eq [System.Windows.Automation.ExpandCollapseState]::Collapsed){
+    $p.Expand()
+   }
+  }catch{
+   try{
+    $p=[System.Windows.Automation.InvokePattern]$technical.GetCurrentPattern(
      [System.Windows.Automation.InvokePattern]::Pattern)
-   $pattern.Invoke()
- }catch{
-   $technical.SetFocus()
-   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
- }
- $importedId=$null
- for($i=0;$i -lt 65;$i++){
-   $names=[System.Collections.Generic.List[string]]::new()
-   foreach($root in @(Roots)){
-     $nodes=$root.FindAll($scope,[System.Windows.Automation.PropertyCondition]::new(
-       [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-       [System.Windows.Automation.ControlType]::Text))
-     foreach($node in $nodes){
-       $value=$node.Current.Name
-       if($value -and $value.Length -lt 400){$names.Add($value)}
-     }
+    $p.Invoke()
+   }catch{
+    $technical.SetFocus()
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
    }
-   $visible=[string]::Join([Environment]::NewLine,$names)
-   if($visible -match 'Object ID:\s*(d07:order:[a-f0-9]{64})'){
-     $importedId=$Matches[1];break
-   }
-   Start-Sleep -Milliseconds 400
+  }
  }
- if(!$importedId -or $importedId -ne $expectedId){
-   throw 'D07_IMPORT_OBJECT_IDENTITY_MISMATCH'
+ EnsureInitialTechnical
+ $initialExactId=$false;$initialLabel=$false
+ for($i=0;$i -lt 80;$i++){
+  $visible=InitialVisible
+  # Exact original ID and label must both be present; UIA text nodes can split.
+  $initialLabel=$visible.Contains('Object ID:')
+  $initialExactId=$visible.Contains($expectedId)
+  if($initialExactId -and $initialLabel){break}
+  if($i -eq 25 -or $i -eq 55){EnsureInitialTechnical}
+  Start-Sleep -Milliseconds 280
+ }
+ if(!$initialExactId -or !$initialLabel){
+  # Diagnostics do not print IDs, names, user data or private source.
+  Write-Output ('D07_IMPORT_INITIAL_ID_LABEL_VISIBLE='+$initialLabel)
+  Write-Output ('D07_IMPORT_INITIAL_EXACT_ID_VISIBLE='+$initialExactId)
+  throw 'D07_IMPORT_OBJECT_IDENTITY_MISMATCH'
  }
  Write-Output 'D07_IWXA_NATIVE_ORIGINAL_OBJECT_ID_ROUNDTRIP=PASS'
  # Also verify that all exact subject works survived the physical archive.
