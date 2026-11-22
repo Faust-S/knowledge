@@ -223,8 +223,24 @@ function EnsureOriginalSignedWorkspaceProvisioned(){
   $clicked=$false
   for($i=0;$i -lt 240;$i++){
     $missing=HasText 'Подписанная Workspace недоступна'
+    $denied=HasText 'Подписанный доступ Workspace не подтверждён'
     $checking=HasText 'Проверяем выбранную подписанную Workspace'
+    if($denied){
+      # A denied signed getWorkspace is NOT a missing Workspace. No create
+      # button should be clicked under revoked/absent or mismatched authority.
+      NativeD2BoundedRefusal
+      Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_ACCESS_DENIED'
+      return $false
+    }
     if($missing){$sawMissing=$true}
+    if($missing -and (HasText 'Код: T3_D1_KERNEL_CREATE_UNAVAILABLE')){
+      Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_T2_CREATE_UNAVAILABLE'
+      return $false
+    }
+    if($missing -and (HasText 'Код: T3_D1_WORKSPACE_CREATE_GRANT_REQUIRED')){
+      Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_SIGNED_CREATE_GRANT_REQUIRED'
+      return $false
+    }
     if($missing -and $i -ge 38 -and -not $clicked){
       $button=$null
       try{$button=FindName 'Создать выбранную Workspace' 'Button' 1}catch{}
@@ -249,6 +265,7 @@ function EnsureOriginalSignedWorkspaceProvisioned(){
     Start-Sleep -Milliseconds 250
   }
   if(HasText 'Подписанная Workspace недоступна'){
+    NativeD2BoundedRefusal
     Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_GATE_STILL_MISSING'
     return $false
   }
