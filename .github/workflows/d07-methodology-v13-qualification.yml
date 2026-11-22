@@ -1,0 +1,102 @@
+name: D07 V13 professional methodology and manual-variation qualification
+on:
+  push:
+    branches: [work/2026-11-22-d07-methodology-v13]
+    paths: [.github/workflows/d07-methodology-v13-qualification.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d07-v13-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  qualify-methodology:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out pinned private D07 domain
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod
+          ref: 423e6dbec878cd95aeaae56cc4580cd0648a8144
+          token: ${{ secrets.DOMEN }}
+          path: subject
+          persist-credentials: false
+      - name: Check out pinned private D07 website
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 19f9b8632f007719dff33a0e89768865a27c8ac1
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - name: Verify pinned revision and domain/site parity
+        run: |
+          test "$(git -C subject rev-parse HEAD)" = "423e6dbec878cd95aeaae56cc4580cd0648a8144"
+          test "$(git -C site rev-parse HEAD)" = "19f9b8632f007719dff33a0e89768865a27c8ac1"
+          for file in service-subject-protocols.ts service-subject-plumbing-b.ts service-manual-variant-closure.ts service-professional-facet-coverage.ts service-original-corroboration.ts; do
+            cmp "subject/src/domain/$file" "site/src/domain/$file"
+          done
+          echo D07_V13_DOMAIN_SITE_PARITY=PASS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.2"
+      - name: Install dependencies
+        working-directory: site
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-v13-install.log" 2>&1 || { echo D07_V13_DEPENDENCIES=FAIL; exit 1; }
+          echo D07_V13_DEPENDENCIES=PASS
+      - name: Run professional methods, independent evidence and manual branching tests
+        working-directory: site
+        run: |
+          node --import tsx --test scripts/tests/d07-subject-protocols.test.mjs scripts/tests/d07-plumbing-b-professional-methods.test.mjs scripts/tests/d07-manual-variant-closure.test.mjs scripts/tests/d07-professional-facet-coverage.test.mjs scripts/tests/d07-original-corroboration.test.mjs scripts/tests/d07-professional-finalization-gate.test.mjs scripts/tests/d07-professional-source-intake.test.mjs scripts/tests/d07-professional-fragment-assembly.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs scripts/tests/d07-methodology-top500.test.mjs > "$RUNNER_TEMP/d07-v13-tests.log" 2>&1 || {
+            echo D07_V13_TESTS=FAIL
+            grep -E '^not ok|^# (tests|pass|fail)|^[[:space:]]+(actual|expected|error):|D07_TOP500_CHILD_FAILURE:' "$RUNNER_TEMP/d07-v13-tests.log" | tail -30 || true
+            exit 1
+          }
+          echo D07_V13_TESTS=PASS
+          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d07-v13-tests.log" | tail -4
+      - name: TypeScript verification
+        working-directory: site
+        run: |
+          bun x tsc --noEmit > "$RUNNER_TEMP/d07-v13-types.log" 2>&1 || {
+            echo D07_V13_TYPES=FAIL
+            grep -E 'error TS[0-9]+' "$RUNNER_TEMP/d07-v13-types.log" | head -10 || true
+            exit 1
+          }
+          echo D07_V13_TYPES=PASS
+      - name: Generate all 500 and verify exact manual-variant identities
+        working-directory: site
+        run: |
+          node --import tsx scripts/generate-d07-methodology-top500.mjs "$RUNNER_TEMP/d07-v13-generated" --as-of=2026-11-22 > "$RUNNER_TEMP/d07-v13-generate.log" 2>&1 || {
+            echo D07_V13_TOP500=FAIL
+            grep -oE 'D07_[A-Z0-9_]+' "$RUNNER_TEMP/d07-v13-generate.log" | tail -8 || true
+            exit 1
+          }
+          node - <<'NODE'
+          const fs=require('fs');
+          const p=process.env.RUNNER_TEMP+'/d07-v13-generated/';
+          const methods=JSON.parse(fs.readFileSync(p+'service-methodology.top500.generated.json','utf8'));
+          const manual=JSON.parse(fs.readFileSync(p+'service-manual-variant-queue.top500.generated.json','utf8'));
+          const facets=JSON.parse(fs.readFileSync(p+'service-operation-facet-research.top500.generated.json','utf8'));
+          const final=JSON.parse(fs.readFileSync(p+'service-professional-finalization.top500.generated.json','utf8'));
+          if(methods.counts.selected!==500||manual.selected!==500||manual.services.length!==500||
+             facets.services.length!==500||final.counts.independentlyApprovedMethodologies!==0)
+             throw Error('D07_V13_COUNTS_OR_APPROVAL_INVALID');
+          const registered=methods.counts.withIndividualSubjectProtocols;
+          const targets=new Set(['zamena-unitaza','ustanovka-rakoviny']);
+          const arrivals=manual.services.filter(s=>targets.has(s.serviceSlug)&&s.categorySlug==='remont-dom-mastera');
+          if(arrivals.length!==2||arrivals.some(s=>s.manuallyRoutedBranches!==3||
+            s.unresolvedBranches!==0||!s.protocolId||s.methodologyApproved))
+            throw Error('D07_V13_MANUAL_PRODUCT_IDS_INVALID');
+          const manualCount=manual.services.reduce((n,s)=>n+s.manuallyRoutedBranches,0);
+          if(registered<89||manualCount<6)throw Error('D07_V13_EXPECTED_EDITORIAL_COVERAGE_MISSING');
+          console.log('D07_V13_500=PASS');
+          console.log('D07_V13_INDIVIDUAL_TECHNOLOGIES='+registered);
+          console.log('D07_V13_MANUAL_BRANCHES_RESOLVED='+manualCount);
+          console.log('D07_V13_FINALIZED_METHODS='+final.counts.independentlyApprovedMethodologies);
+          NODE
+      # No private source, output, document content, tokens or artifacts uploaded.
