@@ -11,7 +11,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 55
     env:
-      SITE_SHA: e798856177df33d46e514970716d2af236db33b0
+      SITE_SHA: 71303f22e45edb58bd7c7f87a5ddf9dcbd63820f
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PORT: '55478'
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -102,6 +102,28 @@ jobs:
             }
             throw $fail
           }
+          # UI Automation can merge nested static text into a parent Name.
+          # Require the same visible human phrase while allowing a suffix.
+          function AwaitPrefix([string]$prefix,[string]$fail){
+            for($i=0;$i -lt 105;$i++){
+              foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
+                Where-Object {$_.MainWindowHandle -ne 0})){
+                try{
+                  $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                    [IntPtr]$p.MainWindowHandle)
+                  if(!$root){continue}
+                  $all=$root.FindAll($scope,
+                    [System.Windows.Automation.Condition]::TrueCondition)
+                  foreach($element in $all){
+                    $name=$element.Current.Name
+                    if($name -and $name.StartsWith($prefix)){return $element}
+                  }
+                }catch{}
+              }
+              Start-Sleep -Milliseconds 350
+            }
+            throw $fail
+          }
           function InvokeButton([string]$name,[string]$fail){
             $button=AwaitName $name 'button' $fail
             try{
@@ -184,12 +206,15 @@ jobs:
             EnterText 'Как к вам обращаться' 'Нативная проверка Club' 'D02_PERSONAL_PROFILE_ALIAS_FAILED'
             EnterText 'Цели' 'Сохранить личные данные для продолжения' 'D02_PERSONAL_PROFILE_GOALS_FAILED'
             InvokeButton 'Сохранить профиль' 'D02_PERSONAL_PROFILE_FORM_SUBMIT_FAILED'
-            $null=AwaitName 'Сохранить результат' '' 'D02_PERSONAL_PROFILE_RESULT_LINK_MISSING'
-            Activate 'Сохранить результат' 'D02_PERSONAL_PROFILE_HOST_ENTRY_FAILED'
+            # The original public link has an explicit accessible name,
+            # different from its visible short text.
+            $saveLink='Открыть подтверждение сохранения результата на этом устройстве'
+            $null=AwaitName $saveLink '' 'D02_PERSONAL_PROFILE_RESULT_LINK_MISSING'
+            Activate $saveLink 'D02_PERSONAL_PROFILE_HOST_ENTRY_FAILED'
             $null=AwaitName 'Сохранить результат' '' 'D02_PERSONAL_PROFILE_HOST_PREVIEW_MISSING'
             ConfirmChoice 'Подтверждаю сохранение выбранных результатов на этом устройстве.' 'D02_PERSONAL_PROFILE_CONSENT_NOT_VISIBLE'
             InvokeButton 'Сохранить выбранное' 'D02_PERSONAL_PROFILE_KERNEL_WRITE_NOT_READY'
-            $null=AwaitName 'Профиль участия: Сохранено' '' 'D02_PERSONAL_PROFILE_KERNEL_RECEIPT_MISSING'
+            $null=AwaitPrefix 'Профиль участия: Сохранено' 'D02_PERSONAL_PROFILE_KERNEL_RECEIPT_MISSING'
             Write-Output 'D02_PERSONAL_EDGE_PUBLIC_PROFILE_KERNEL_RECEIPT=PASS'
             Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 3
@@ -210,8 +235,11 @@ jobs:
             Write-Output 'D02_PERSONAL_EDGE_PUBLIC_SERVICE_ENTRY=PASS'
             Activate 'Открыть сохранённое' 'D02_PERSONAL_CONTEXTUAL_RESUME_CLICK_FAILED'
             $null=AwaitName 'Открыть мои сохранённые записи' '' 'D02_PERSONAL_NATIVE_RESTORE_NOT_OPEN'
-            $null=AwaitName 'Тема: Карта личной экономики. Выберите нужную запись.' '' 'D02_PERSONAL_RESTORE_WRONG_TOPIC'
-            $null=AwaitName 'Здесь пока нет сохранённых записей Клуба.' '' 'D02_PERSONAL_HOST_AUTO_FOCUS_AND_READBACK_MISSING'
+            $null=AwaitPrefix 'Тема: Карта личной экономики' 'D02_PERSONAL_RESTORE_WRONG_TOPIC'
+            # Profile data is already saved, so the area is not empty.
+            # An empty MONEY topic with a non-empty verified inventory
+            # proves topic filtering and fresh Kernel readback together.
+            $null=AwaitPrefix 'По выбранной теме записей нет.' 'D02_PERSONAL_HOST_AUTO_FOCUS_AND_READBACK_MISSING'
             Write-Output 'D02_PERSONAL_EDGE_PUBLIC_TO_NATIVE_RESUME=PASS'
             Write-Output 'D02_PERSONAL_EDGE_PRIVATE_DATA_EXPORTED=FALSE'
           } finally {
