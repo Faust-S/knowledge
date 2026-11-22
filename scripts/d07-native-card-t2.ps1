@@ -169,6 +169,32 @@ try{
  }
  if(!$startHref){throw "D07_NATIVE_CARD_SEED_NOT_EXTRACTED"}
  Write-Output "D07_NATIVE_CARD_FIVE_EDGE_PAGES=PASS"
+
+ # Independently inspect current digital/technical service cards in real Edge,
+ # without changing the original ten-Work plumbing T2 roundtrip contract.
+ $moreCards=@(
+   @("kompyutery-it-sayty","seo-prodvizhenie"),
+   @("kompyutery-it-sayty","remont-kompyutera")
+ )
+ foreach($pair in $moreCards){
+  $category=[string]$pair[0];$slug=[string]$pair[1]
+  $url=$Origin+"/uslugi/"+$category+"/"+$slug+"/"
+  $response=Invoke-WebRequest -Uri $url -SkipCertificateCheck -TimeoutSec 15
+  if($response.StatusCode -ne 200){throw "D07_NATIVE_NEW_CARD_HTTP_INVALID"}
+  $html=$response.Content -replace "&amp;","&"
+  if($html -notmatch "d07-professional-service-card" -or
+     $html -notmatch "d07-professional-start-order" -or
+     $html -notmatch "/workspace/\\?new=1"){
+    throw "D07_NATIVE_NEW_CARD_T2_LAUNCH_MISSING"
+  }
+  $native=OpenEdge $url
+  $null=WaitUi "Начать заказ в Workspace" (
+    [System.Windows.Automation.ControlType]::Hyperlink) 100
+  Write-Output ("D07_NATIVE_ADDITIONAL_CARD_"+$slug+"=PASS")
+  CloseEdge $native
+ }
+ Write-Output "D07_NATIVE_ADDITIONAL_TWO_CARDS_EDGE_UIA=PASS"
+
  $browser=OpenEdge ($Origin+"/uslugi/remont-dom-mastera/zamena-unitaza/")
  $null=WaitUi "Замена унитаза" $null 90
  ClickUi "Начать заказ в Workspace" ([System.Windows.Automation.ControlType]::Hyperlink)
