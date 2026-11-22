@@ -85,6 +85,7 @@ class FutureCapacityClaim:
     start: int
     end: int
     units: int
+    allowed_works: tuple[str, ...]
     active: bool = True
 
 
@@ -293,6 +294,24 @@ class CapacityLedger:
         proposals = list(plan)
         combined = self.reservations + proposals
         for key in sorted({p.resource for p in proposals}):
+            # When a claim raises the resource ceiling, every work sharing
+            # the additional units must be in the owner's explicit scope.
+            # A third party cannot silently piggyback on another Work's grant.
+            for claim in self.future_capacity_claims.get(key, ()):
+                if not claim.active or claim.units <= self.specs[key].units:
+                    continue
+                boundaries = self._boundaries(key, combined)
+                for index in range(len(boundaries) - 1):
+                    t = boundaries[index]
+                    if not claim.start <= t < claim.end or not any(
+                        p.resource == key and p.start <= t < p.end for p in proposals
+                    ):
+                        continue
+                    active_rows = [r for r in combined if r.resource == key
+                                   and r.start <= t < r.end]
+                    if (sum(r.units for r in active_rows) > self.specs[key].units
+                            and any(r.work not in claim.allowed_works for r in active_rows)):
+                        raise CapacityBlocked("CAPABILITY_FUTURE_WORK_NOT_OWNER_AUTHORIZED", key)
             if self._violations(key, combined, proposals=proposals):
                 reason = ("RESOURCE_CALENDAR_CAPACITY_EXCEEDED"
                           if self.specs[key].calendar is not None
@@ -402,6 +421,7 @@ class CapacityLedger:
                     {"adoption": c.adoption, "source_id": c.source_id,
                      "source_revision": c.source_revision, "start": c.start,
                      "end": c.end, "declared_capacity_units": c.units,
+                     "original_works_authorized_for_future_use": list(c.allowed_works),
                      "source_currently_usable": c.active,
                      "real_capacity_change_independently_verified": False}
                     for c in self.future_capacity_claims[key]
