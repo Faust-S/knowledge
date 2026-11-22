@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops.ru
-          ref: d041d5d0364ec8f3ad1bffe52ed2756db7638c73
+          ref: c5b748a971032a4a05441e1516c1f6c5d80e6541
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -47,7 +47,7 @@ jobs:
           cache-dependency-path: t2/t2/current/final-successor/canonical-source/package-lock.json
       - name: Stage product-only Host and trusted MarketOps module
         run: |
-          test "$(git -C site rev-parse HEAD)" = "d041d5d0364ec8f3ad1bffe52ed2756db7638c73"
+          test "$(git -C site rev-parse HEAD)" = "c5b748a971032a4a05441e1516c1f6c5d80e6541"
           test "$(git -C t2 rev-parse HEAD)" = "49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7"
           node - <<'NODE'
           const fs=require("node:fs");
