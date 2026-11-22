@@ -74,9 +74,11 @@ def review_permissions(raw: Any, state: Any,
                     reasons.append("REUSE_PERMISSION_SOURCE_NOT_USABLE_BY_BOTH")
                 if source.valid_until is not None and source.valid_until < claim["applied_at"]:
                     reasons.append("REUSE_PERMISSION_SOURCE_EXPIRED")
-                if source.scope is not None and check_scope(
+                if source.scope is None:
+                    reasons.append("REUSE_PERMISSION_EXPLICIT_SOURCE_SCOPE_REQUIRED")
+                elif check_scope(
                     source.scope, core=source.scope.core,
-                    purpose="competence-reuse",operation="SHARE",
+                    purpose="competence-reuse", operation="SHARE",
                     at=claim["applied_at"]
                 ) != "MODEL_SOURCE_SCOPE_CONSISTENT":
                     reasons.append("REUSE_PERMISSION_CONTEXT_SCOPE_MISMATCH")
