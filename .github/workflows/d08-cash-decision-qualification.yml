@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops
-          ref: 0d4580c614c118128f6d5fd8e8aeefeff577e120
+          ref: 734ac2b612c0b2997e475a095b50e6cc6442cdb8
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: logic
@@ -33,14 +33,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops.ru
-          ref: b103bc323e5c1f55ef7676324de8e7f24e11fdac
+          ref: 3726028ead298134c71c1bcb8f1a819e7978f091
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
       - name: Verify private revisions, never emit private source
         run: |
-          test "$(git -C logic rev-parse HEAD)" = "0d4580c614c118128f6d5fd8e8aeefeff577e120" || exit 1
-          test "$(git -C site rev-parse HEAD)" = "b103bc323e5c1f55ef7676324de8e7f24e11fdac" || exit 1
+          test "$(git -C logic rev-parse HEAD)" = "734ac2b612c0b2997e475a095b50e6cc6442cdb8" || exit 1
+          test "$(git -C site rev-parse HEAD)" = "3726028ead298134c71c1bcb8f1a819e7978f091" || exit 1
           cmp logic/model/new-purchase-cash-review.mjs site/t2-site-module/marketops/decision/new-purchase-cash-review.mjs
           cmp logic/model/new-purchase-cash-review.d.mts site/t2-site-module/marketops/decision/new-purchase-cash-review.d.mts
           cmp logic/model/business-attention-queue.mjs site/t2-site-module/marketops/decision/business-attention-queue.mjs
