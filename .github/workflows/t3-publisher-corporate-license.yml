@@ -1,0 +1,36 @@
+name: T3 Publisher corporate license original Access qualification
+on:
+  push:
+    branches:
+      - work/2026-11-22-t3-corporate-license-publisher
+    paths:
+      - packages/t3-core/src/t3/access/corporate-product-license.mjs
+      - packages/t3-core/tests/t3-corporate-product-license.test.mjs
+      - .github/workflows/t3-publisher-corporate-license.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: t3-publisher-corporate-license-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  original-access-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Validate exact original T3 corporate source syntax
+        run: node --check packages/t3-core/src/t3/access/corporate-product-license.mjs
+      - name: Exercise original Ed25519 corporate LICENSE and independent STATUS
+        run: node --test packages/t3-core/tests/t3-corporate-product-license.test.mjs
+      - name: Recheck original two-company signed Access without new IAM
+        run: node --test packages/t3-core/tests/t3-d1-two-corporate-original-access.test.mjs
