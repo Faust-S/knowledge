@@ -301,3 +301,23 @@ def test_r1t_original_new_work_and_review_store_actual_source_edition_at_event_t
     assert all(row["org_code_model_source_edition"] == "BASE"
                for row in old_consents)
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_r1t_original_nine_component_time_evolution_keeps_old_code_snapshots():
+    out = simulate(model_edition_case())
+    revisions = [
+        (entry["at"], entry["projection"]["model_organizational_code_review"][
+            "original_model_source_edition"
+        ])
+        for entry in out["general_akis_model"]["read_only_evolution"]
+    ]
+    assert any(when < 84 and edition == "BASE" for when, edition in revisions)
+    assert any(when >= 84 and edition == "model-oc-2"
+               for when, edition in revisions)
+    assert out["general_akis_model"]["organizational_code"][
+        "missing_fields"
+    ] == []
+    assert out["general_akis_model"]["model_organizational_code_review"][
+        "all_thirteen_model_controls_active"
+    ] is True
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"

@@ -1472,6 +1472,18 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
                                     state.works[row["work"]].source_revision == row["work_revision"]))]
     model_code = getattr(state, "model_org_policy", None)
     model_code_active = bool(model_code is not None and model_code.active(state, at))
+    # R1-T: the current prospective thirteen-field edition is not the
+    # historical baseline declaration. A LIVE projection reads exactly the
+    # original model's currently installed source edition; older archived
+    # original read_only_evolution snapshots still keep their old evidence.
+    if model_code is not None and getattr(
+        state, "model_org_code_edition", "BASE"
+    ) != "BASE":
+        valid["organizational_code"] = [
+            row for row in model_code.records.values()
+            if row["revision"] == state.institution.revision
+            and row["available_at"] <= at < row["expires_at"]
+        ]
     code_fields = {x["field"] for x in valid["organizational_code"]}
     code_field_owners: dict[str, set[str]] = {}
     for source in valid["organizational_code"]:
