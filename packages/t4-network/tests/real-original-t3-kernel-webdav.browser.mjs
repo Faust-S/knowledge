@@ -24,6 +24,10 @@ import {prepareT4OriginalAssetDelta,publishT4OriginalAssetDelta,
   fetchT4OriginalAssetDelta,applyT4OriginalAssetDelta,
   advanceT4OriginalAssetCursor}
   from '../src/network/original-asset-delta.mjs';
+import {prepareT4OriginalRelationPutDelta,publishT4OriginalRelationPutDelta,
+  fetchT4OriginalRelationPutDelta,applyT4OriginalRelationPutDelta,
+  advanceT4OriginalRelationCursor}
+  from '../src/network/original-relation-delta.mjs';
 import {createT4NetworkTopology,executeT4NetworkRoute}
   from '../src/network/network-topology.mjs';
 import {prepareT4OriginalObjectDelta,publishT4OriginalObjectDelta,
@@ -894,6 +898,130 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           recipientOriginalAssetReadback:true,
           originalT3CursorVerifiedAfterReceipt:true,
         }));
+
+      // The original source adds a second real graph link, using original
+      // t1.putRelation and the existing original Workspace.
+      const additionalRelationId='t4:relation:additional:'+randomUUID();
+      const sourceRelation=await activeSourcePage.evaluate(async({
+        SERVICE,workspaceId,linkedObjectId,objectId,additionalRelationId
+      })=>{
+        const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+        const saved=await kernel.t1.putRelation({
+          workspace_id:workspaceId,relation_id:additionalRelationId,
+          from_object_id:linkedObjectId,to_object_id:objectId,kind:'related',
+          event:{event_type:'t4.original.relation.additional',
+            payload:{relation_id:additionalRelationId},
+            idempotency_key:'source-relation-'+globalThis.crypto.randomUUID()},
+        });
+        const sourceObject=await kernel.t1.getObject(workspaceId,linkedObjectId);
+        return {saved,sourceObject,
+          events:await kernel.t1.listEventsSince(workspaceId)};
+      },{SERVICE,workspaceId,linkedObjectId,objectId,additionalRelationId});
+      assert.equal(sourceRelation.saved.relation.relation_id,additionalRelationId);
+      const relationWindow=await readT4OriginalEventWindow({
+        ...originalEventPort,cursor:assetWindow.nextCursor,maxEvents:1,
+        readOriginalEvents:async()=>sourceRelation.events,
+      });
+      assert.equal(relationWindow.window.count,1);
+      assert.equal(relationWindow.window.lastEventId,sourceRelation.saved.event.event_id);
+      const relationPrepared=await prepareT4OriginalRelationPutDelta({
+        window:relationWindow.window,workspaceId,
+        relationId:additionalRelationId,fromObjectId:linkedObjectId,
+        originalWriteOwnerRef:'original:t2:exchange',
+        originalKernel:{
+          hasOperation:op=>actual.grants.includes(op),
+          getObject:async()=>sourceRelation.sourceObject,
+        },
+        authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
+        getMode:()=> 'T4_NETWORK',
+      });
+      const relationSent=await deltaRoute('delta.push',
+        ()=>actual.grants.includes('t1.getObject'),
+        ()=>publishT4OriginalRelationPutDelta({
+          prepared:relationPrepared,transport:deltaTransport,
+        }));
+      assert.equal(relationSent.cursorAdvanced,false);
+      const relationReceived=await deltaRoute('delta.pull',
+        ()=>receiving.operations.includes('t1.getObject'),
+        ()=>fetchT4OriginalRelationPutDelta({
+          transport:deltaTransport,key:relationSent.key,sha256:relationSent.sha256,
+          workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+        }));
+      let dropOriginalRelationAck=true;
+      const relationRecipient={
+        hasOperation:op=>receiving.operations.includes(op),
+        getObject:async(workspaceId,objectId)=>recipientPage.evaluate(
+          async({SERVICE,workspaceId,objectId})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.getObject(workspaceId,objectId);
+          },{SERVICE,workspaceId,objectId}),
+        putRelation:async input=>{
+          const saved=await recipientPage.evaluate(async({SERVICE,input})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.putRelation(input);
+          },{SERVICE,input});
+          if(dropOriginalRelationAck){
+            dropOriginalRelationAck=false;
+            throw Object.assign(new Error('SIMULATED_ORIGINAL_RELATION_ACK_LOST'),
+              {code:'NETWORK_TIMEOUT'});
+          }
+          return saved;
+        },
+      };
+      const relationApplication={
+        received:relationReceived,originalKernel:relationRecipient,
+        authorizeOriginalWrite:async ctx=>receiving.operations.includes(ctx.operation),
+        verifyOriginalSourceEvent:async proof=>{
+          if(proof.sourceEventId!==sourceRelation.saved.event.event_id||
+            proof.sourceEventDigest!==relationWindow.window.eventRefs[0].eventDigest||
+            proof.relationContentDigest!==relationPrepared.delta.relationContentDigest)
+            return false;
+          const currentEvents=await activeSourcePage.evaluate(async({
+            SERVICE,workspaceId
+          })=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.listEventsSince(workspaceId);
+          },{SERVICE,workspaceId});
+          const found=currentEvents.find(e=>e.event_id===proof.sourceEventId);
+          if(!found)return false;
+          const verified=await readT4OriginalEventWindow({
+            ...originalEventPort,readOriginalEvents:async()=>[found],maxEvents:1,
+          });
+          return verified.window.eventRefs[0].eventDigest===proof.sourceEventDigest;
+        },
+        getMode:()=> 'T4_NETWORK',
+      };
+      await assert.rejects(applyT4OriginalRelationPutDelta(relationApplication),
+        error=>error.code==='RELATION_DELTA_OUTCOME_UNKNOWN'&&
+          error.details.automaticRetryAllowed===false);
+      const afterLostRelationAck=await relationRecipient.getObject(
+        workspaceId,linkedObjectId);
+      assert.ok(afterLostRelationAck.relations.outgoing.some(
+        r=>r.relation_id===additionalRelationId));
+      const relationAccepted=await applyT4OriginalRelationPutDelta(
+        relationApplication);
+      assert.equal(relationAccepted.originalReceipt.deduplicated,true);
+      const relationCursor=await advanceT4OriginalRelationCursor({
+        window:relationWindow.window,nextCursor:relationWindow.nextCursor,
+        acknowledgement:relationAccepted.acknowledgement,
+        verifyOriginalRecipient:async ctx=>{
+          const checked=await relationRecipient.getObject(workspaceId,linkedObjectId);
+          return ctx.originalReceiptRef===relationAccepted.originalReceiptRef&&
+            checked.relations.outgoing.some(r=>
+              r.relation_id===additionalRelationId&&
+              r.from_object_id===linkedObjectId&&r.to_object_id===objectId);
+        },
+      });
+      assert.equal(relationCursor.verified,true);
+      const afterNewRelation=await verify(recipientPage);
+      assert.equal(afterNewRelation.relations,initial.relations+1);
+      console.log('T4_REAL_ORIGINAL_T3_RELATION_DELTA_ACK_RECOVERY_PASS',
+        JSON.stringify({originalKernel:ORIGINAL_KERNEL,
+          originalT3RelationAdded:true,recipientRelations:afterNewRelation.relations,
+          recipientOriginalPutRelationDeduplicated:true,
+          originalT3RelationReadback:true,originalEventWitnessVerified:true,
+          networkDeltaKey:relationSent.key,
+          originalHostCursorVerifiedAfterReceipt:true}));
     }finally{deltaTransport.close();}
     await sourceContext.close();sourceContext=null;
     const updatedAfterDelta=await verify(recipientPage);
