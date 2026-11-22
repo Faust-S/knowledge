@@ -223,7 +223,7 @@ def test_original_capacity_still_rejects_second_work_even_if_owner_reassesses():
 
 def test_strict_kpb_requires_individually_qualified_source_rights():
     d = original_parallel_case()
-    state = QualitativeAKIS(d)
+    state = QualitativeAKIS({k: v for k, v in d.items() if k != "model_horizon"})
     from types import SimpleNamespace
     state.context_basis = SimpleNamespace(strict=True)
     row = next(e for e in d["events"]
