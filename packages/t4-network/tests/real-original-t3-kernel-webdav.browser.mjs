@@ -62,7 +62,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
   mkdirSync(dist);
   const workspaceId='t4:original:'+randomUUID(),objectId='t4:work:'+randomUUID(),
     linkedObjectId='t4:linked:'+randomUUID(),relationId='t4:relation:'+randomUUID(),
-    assetId='t4:asset:'+randomUUID(),
+    assetId='t4-asset-'+randomUUID(),
     title='Real original T2 result transferred over T4 network '+randomUUID(),
     linkedTitle='Linked work from the complete original T2 Workspace',
     assetText='Original T2 file content preserved across T4 network transfer';
