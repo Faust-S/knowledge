@@ -26,14 +26,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 4825e4659e48923f69a3d2bda9722293785de3c8
+          ref: 98cde2b49baf9ae307b104f05525eac223d0cad3
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify private revisions, directory and technology parity
         run: |
           test "$(git -C subject rev-parse HEAD)" = "14b12b0ae5ca1e978248e16b37587cc0dab02682"
-          test "$(git -C site rev-parse HEAD)" = "4825e4659e48923f69a3d2bda9722293785de3c8"
+          test "$(git -C site rev-parse HEAD)" = "98cde2b49baf9ae307b104f05525eac223d0cad3"
           for f in service-subject-protocols.ts service-subject-it-router.ts service-subject-it-printer.ts service-subject-it-wifi.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-site-release-gate.ts; do
             cmp "subject/src/domain/$f" "site/src/domain/$f"
           done
