@@ -1919,10 +1919,16 @@ def original_nine_component_cycle_evidence(
             "later_original_accepted_work_ids": follow_on,
             "model_reproduction_sequence": (
                 "ORIGINAL_ACCEPTED_RESULT_REUSE_OWNER_ADOPTION_AND_LATER_ACCEPTED_WORK"
-                if follow_on and cap["available_for_new_original_work"]
-                else "NO_QUALIFIED_CURRENT_CAPABILITY_TO_ACCEPTED_WORK_SEQUENCE"
+                # A later source revocation changes FUTURE eligibility, not
+                # whether the already-accepted original Work used the
+                # owner-adopted capacity when it was qualified.
+                if follow_on
+                else "NO_QUALIFIED_HISTORICAL_CAPABILITY_TO_ACCEPTED_WORK_SEQUENCE"
             ),
             "owner_declared_capacity_not_field_verified": True,
+            "future_owner_source_still_current_at_horizon": bool(
+                cap["available_for_new_original_work"]
+            ),
             "no_new_original_work_or_permission_created": True,
         })
 
@@ -2176,7 +2182,6 @@ def original_nine_component_cycle_evidence(
                 for need in work.resource_requirements
             )
             if (not requested_increase or
-                    not declaration["available_for_new_original_work"] or
                     t_adoption is None or
                     not accepted_at[preceding] < t_adoption < t_proposal):
                 continue
@@ -2191,6 +2196,9 @@ def original_nine_component_cycle_evidence(
                     "original_cooperation_change_id"
                 ],
                 "actual_capacity_or_economic_effect_verified": False,
+                "future_owner_source_still_current_at_horizon": bool(
+                    declaration["available_for_new_original_work"]
+                ),
                 "original_shared_capacity_ledger_reused": True,
                 "owner_control_and_consent_preserved": True,
             })

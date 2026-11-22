@@ -367,3 +367,33 @@ def test_r1p_positive_consent_and_reconfiguration_are_not_real_measured_network_
         "all_nine_component_original_causal_closure_proven"
     ] is False
     assert out["profit"]["system_increment"] == "UNKNOWN"
+
+
+def test_r1p_retired_owner_capacity_after_third_accepted_result_does_not_erase_history():
+    d = r1p_case()
+    d["events"].append({
+        "at": 112, "action": "source_update", "actor": "a",
+        "source": "capability-r1p-a", "new_revision": "capacity-retired",
+        "status": "UNKNOWN", "usable_by": ["a"],
+    })
+    d["events"].sort(key=lambda event: event["at"])
+    out = simulate(d)
+    assert find(out, "source_update")[0]["outcome"] == "APPLIED"
+    assert all(
+        out["works"][work]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+        for work in ("w1", "w2", "w3")
+    )
+    assert out["capability_dynamics"]["declarations"][0][
+        "available_for_new_original_work"
+    ] is False
+    summary = out["general_akis_model"]["system_causal_cycle_feedback"]
+    assert summary["owner_capability_and_institutional_reproduction_link_count"] == 1
+    assert summary["same_original_causal_chain_includes_capability_and_institutional_change"]
+    prior = out["general_akis_private_cycle_evidence"][
+        "owner_capability_and_institutional_reproduction_links"
+    ]
+    assert len(prior) == 1
+    assert prior[0]["future_owner_source_still_current_at_horizon"] is False
+    assert prior[0]["actual_capacity_or_economic_effect_verified"] is False
+    assert out["profit"]["system_increment"] == "UNKNOWN"
+    assert simulate(deepcopy(d)) == out
