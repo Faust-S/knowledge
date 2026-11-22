@@ -38,4 +38,9 @@ jobs:
             throw 'D07_NATIVE_IWXA_IDENTITY_PROOF_MISSING'
           }
           Write-Output 'D07_NATIVE_IWXA_IDENTITY_CONTRACT=PASS'
+          if(!$source.Contains('D07_NATIVE_CARD_PRIVATE_PROTOCOL_UNAVAILABLE') -or
+             $source.Contains('Осмотр оборудования и доступа')){
+            throw 'D07_NATIVE_EXPECTED_METHOD_PRIVATE_BOUNDARY_INVALID'
+          }
+          Write-Output 'D07_NATIVE_PRIVATE_PROTOCOL_BOUNDARY=PASS'
           }
