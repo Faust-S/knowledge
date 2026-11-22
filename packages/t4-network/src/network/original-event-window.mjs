@@ -43,6 +43,7 @@ export async function readT4OriginalEventWindow({
     networkReadGrantsCreated:false});
   if(await authorizeOriginalRead(guard)!==true)fail('ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED');
   const raw=await readOriginalEvents(guard);
+  if(await authorizeOriginalRead(guard)!==true)fail('ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED');
   if(!Array.isArray(raw)||raw.length>100000)fail('ORIGINAL_T3_EVENT_STREAM_INVALID');
   const ids=new Set(),events=[];
   for(const event of raw){

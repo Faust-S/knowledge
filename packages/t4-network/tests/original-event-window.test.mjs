@@ -110,3 +110,12 @@ test('incorrect digest and unverified recipient acknowledgement are never accept
    verifyOriginalRecipient:async()=>false,
  }),code('ORIGINAL_RECIPIENT_ACK_NOT_VERIFIED'));
 });
+
+test('revocation while original T3 is reading stops the window before any data is returned',async()=>{
+ let current=true,reads=0;
+ await assert.rejects(run({
+   authorizeOriginalRead:async()=>current,
+   readOriginalEvents:async()=>{reads++;current=false;return events;}
+ }),code('ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED'));
+ assert.equal(reads,1);
+});
