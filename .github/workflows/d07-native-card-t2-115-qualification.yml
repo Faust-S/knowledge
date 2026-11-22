@@ -1,0 +1,298 @@
+name: D07 native 115 individual services with original T2 Edge UIA
+on:
+  push:
+    branches: [work/2026-11-22-d07-methodology-v13]
+    paths:
+      - .github/workflows/d07-native-card-t2-115-qualification.yml
+      - scripts/d07-native-card-t2-115.ps1
+      - scripts/d07-native-card-iwxa-import.ps1
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d07-native-card-t2-115-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  real-edge:
+    runs-on: windows-latest
+    timeout-minutes: 65
+    env:
+      SITE_SHA: fb7be3efec90e76bcb6dbeca4a7978caaca2815d
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      CI: 'true'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout public qualification scripts only
+        uses: actions/checkout@v4
+      - name: Checkout pinned private site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - name: Checkout original T2 source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          path: t2
+          persist-credentials: false
+      - name: Preflight native Edge and Exchange scripts syntax
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($file in @(
+            'scripts/d07-native-card-t2-115.ps1',
+            'scripts/d07-native-card-iwxa-export.ps1',
+            'scripts/d07-native-card-iwxa-import.ps1',
+            'scripts/d07-native-card-work-result.ps1'
+          )){
+            $tokens=$null;$errors=$null
+            $null=[System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $file).Path,[ref]$tokens,[ref]$errors)
+            if($errors.Count -ne 0){throw 'D07_NATIVE_CARD_POWERSHELL_SYNTAX_FAILED'}
+          }
+          Write-Output 'D07_NATIVE_CARD_SCRIPTS_SYNTAX=PASS'
+      - name: Assert independent revision and cold reopen are mandatory
+        run: |
+          $script=Get-Content 'scripts/d07-native-card-iwxa-import.ps1' -Raw
+          foreach($marker in @(
+            'D07_IWXA_NATIVE_POST_IMPORT_KERNEL_REVISION=PASS',
+            'D07_IMPORT_POST_IMPORT_REVISION_LOST',
+            'D07_IMPORT_POST_IMPORT_OBJECT_ID_CHANGED',
+            'D07_IMPORT_POST_IMPORT_TEN_WORKS_LOST',
+            'D07_IMPORT_INITIAL_ID_LABEL_VISIBLE',
+            'EnsureInitialTechnical',
+            'D07_IMPORT_SECOND_COLD_ID_LABEL_VISIBLE',
+            'EnsureColdTechnicalVisible',
+            'D07_IWXA_NATIVE_POST_IMPORT_DURABLE_CONTINUATION=PASS'
+          )){
+            if(-not $script.Contains($marker)){throw 'D07_NATIVE_POST_IMPORT_PROOF_SCRIPT_INCOMPLETE'}
+          }
+          $result=Get-Content 'scripts/d07-native-card-work-result.ps1' -Raw
+          if(-not $result.Contains('function AwaitForRead(') -or
+             -not $result.Contains('$note=AwaitForRead "Проверка результата работы 1"') -or
+             -not $result.Contains('D07_WORK_RESULT_NATIVE_REJECTION_CORRECTION_REVIEW_PERSISTED=PASS')){
+            throw 'D07_NATIVE_ACCEPTED_EVIDENCE_READ_ONLY_PROOF_MISSING'
+          }
+          if(-not $result.Contains('D07_WORK_RESULT_COLD_ID_MATCH=') -or
+             -not $result.Contains('D07_WORK_RESULT_COLD_READBACK_ID_REVISION_OR_WORKS_CHANGED')){
+            throw 'D07_NATIVE_WORK_RESULT_COLD_WITNESS_MISSING'
+          }
+          $importChooser=Get-Content 'scripts/d07-native-card-iwxa-import.ps1' -Raw
+          if(!$importChooser.Contains('D07_IMPORT_NATIVE_OS_FILE_DIALOG=PASS') -or
+             !$importChooser.Contains('AwaitNativeOpenFileDialog 36') -or
+             !$importChooser.Contains('D07_IMPORT_NATIVE_OPEN_FILE_DIALOG_MISSING')){
+            throw 'D07_IMPORT_NATIVE_DIALOG_CONFIRMATION_GUARD_MISSING'
+          }
+          if(-not $script.Contains('Текущая редакция открытого заказа: ') -or
+             -not $result.Contains('Текущая редакция открытого заказа: ')){
+            throw 'D07_NATIVE_CURRENT_RESULT_REVISION_WITNESS_MISSING'
+          }
+          foreach($marker in @(
+            'D07_WORK_RESULT_ALL_TEN_REVIEWED_BEFORE_SAVE=PASS',
+            'D07_WORK_RESULT_ALL_TEN_REVIEWED_COLD_PERSISTED=PASS',
+            'D07_WORK_RESULT_ALL_TEN_ACCEPTED_EVIDENCE_READ_ONLY=PASS',
+            'D07_WORK_RESULT_ACCEPTED_EVIDENCE_STILL_EDITABLE',
+            'D07_WORK_RESULT_FULL_ORDER_CUSTOMER_RESULT_ACCEPTANCE=NOT_RUN'
+          )){
+            if(!$result.Contains($marker)){throw 'D07_NATIVE_TEN_WORK_REVIEW_WITNESS_MISSING'}
+          }
+          $nativeCard=Get-Content 'scripts/d07-native-card-t2-115.ps1' -Raw
+          foreach($extra in @(
+            'D07_NATIVE_ADDITIONAL_CARD_',
+            'D07_NATIVE_ADDITIONAL_FOURTEEN_CARDS_EDGE_UIA=PASS',
+            'seo-prodvizhenie',
+            'remont-kompyutera',
+            'vosstanovlenie-dannyh',
+            'kontekstnaya-reklama',
+            'remont-posudomoechnoy-mashiny',
+            'kursy-excel',
+            'priemka-kvartiry',
+            'sverka-s-nalogovoy',
+            'kartochka-ozon',
+            'priemka-remonta',
+            'kursy-1c',
+            'reklama-v-vk',
+            'uborka-sklada',
+            'organizaciya-svadby'
+          )){
+            if(-not $nativeCard.Contains($extra)){throw 'D07_NATIVE_NEW_CARD_UIA_GUARD_MISSING'}
+          }
+          if($nativeCard.Contains('/workspace/\\?new=1')){
+            throw 'D07_NATIVE_CARD_QUERY_REGEX_DOUBLE_ESCAPED'
+          }
+          if(-not $nativeCard.Contains('/workspace/\?new=1')){
+            throw 'D07_NATIVE_CARD_QUERY_REGEX_GUARD_MISSING'
+          }
+          Write-Output 'D07_NATIVE_DURABLE_CONTINUATION_SCRIPT_GATE=PASS'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - name: Confirm original D07 Host Workspace selector is accessible
+        working-directory: site
+        run: |
+          $source=Get-Content 't2-site-module/uslugovod/UslugovodWorkspace.tsx' -Raw
+          if(-not $source.Contains('data-testid="d07-workspace-picker" aria-label="Рабочая область Услуговода"')){
+            throw 'D07_NATIVE_CARD_IMPORT_WORKSPACE_SELECT_UNLABELLED'
+          }
+          Write-Output 'D07_NATIVE_CARD_WORKSPACE_SELECTOR_ACCESSIBILITY=PASS'
+          if(-not $source.Contains('data-testid="d07-task-editor" aria-label="Задача текущего заказа"')){
+            throw 'D07_NATIVE_CARD_SAVED_ORDER_TASK_EDITOR_UNLABELLED'
+          }
+          if(-not $source.Contains('data-testid="d07-current-kernel-revision" role="status"') -or
+             -not $source.Contains('aria-label={"Текущая редакция открытого заказа: "+opened.revision}')){
+            throw 'D07_NATIVE_CURRENT_T2_REVISION_UNLABELLED'
+          }
+          Write-Output 'D07_NATIVE_CARD_SAVED_ORDER_TASK_EDITOR_ACCESSIBILITY=PASS'
+      - name: Build exact original T2 and all D07 cards in one dist
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+        run: |
+          $ErrorActionPreference='Stop'
+          git config --global core.autocrlf false
+          if((git rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D07_NATIVE_CARD_WRONG_SITE'}
+          if((git -C ../t2 rev-parse HEAD).Trim() -ne $env:T2_SHA){throw 'D07_NATIVE_CARD_WRONG_T2'}
+          & bun install --frozen-lockfile *> (Join-Path $env:RUNNER_TEMP 'd07-card-install.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_INSTALL_FAILED'}
+          Write-Output 'D07_NATIVE_CARD_INSTALL=PASS'
+          $stage=Join-Path $env:RUNNER_TEMP 'd07-card-module-sized'
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item 't2-site-module/uslugovod/manifest.json' (Join-Path $stage 'manifest.json')
+          & node --import tsx 'scripts/generate-d07-workspace-criteria.mjs' $stage *> (Join-Path $env:RUNNER_TEMP 'd07-sized-criteria.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_SIZE_CRITERIA_FAILED'}
+          & node --import tsx 'scripts/generate-d07-methodology-top500.mjs' $stage *> (Join-Path $env:RUNNER_TEMP 'd07-sized-plans.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_SIZE_PLANS_FAILED'}
+          & node --import tsx '../scripts/d07-verify-subject-t2-proposals.mjs' '.' (Join-Path $stage 'service-plan-suggestions.generated.json')
+          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_SUBJECT_T2_PLAN_PARITY_FAILED'}
+          $criteriaBytes=(Get-Item (Join-Path $stage 'service-criteria.generated.json')).Length
+          $planBytes=(Get-Item (Join-Path $stage 'service-plan-suggestions.generated.json')).Length
+          $sourceBytes=(Get-ChildItem -Recurse -File 't2-site-module/uslugovod' | Measure-Object -Property Length -Sum).Sum
+          $sizeTotal=$sourceBytes+$criteriaBytes+$planBytes-92
+          Write-Output ('D07_NATIVE_CARD_CRITERIA_BYTES='+$criteriaBytes)
+          Write-Output ('D07_NATIVE_CARD_PLAN_BYTES='+$planBytes)
+          Write-Output ('D07_NATIVE_CARD_MODULE_SOURCE_BYTES='+$sizeTotal)
+          if($sizeTotal -gt 33554432){throw 'D07_NATIVE_CARD_T2_MODULE_CAP_EXCEEDED'}
+          & bun run build:t2-integrated *> (Join-Path $env:RUNNER_TEMP 'd07-card-integrated-build.private.log')
+          if($LASTEXITCODE -ne 0){
+            $log=Get-Content (Join-Path $env:RUNNER_TEMP 'd07-card-integrated-build.private.log') -Raw
+            $patterns='D07_(BUILD|NPM|MISSING|SITE|CRITERIA|QUALIFIED|PRODUCT|HOST|KERNEL)[A-Z0-9_]*|T2_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|ERR_[A-Z0-9_]+|ENOENT|MODULE_NOT_FOUND|TS[0-9]{4}|Error: [A-Za-z _-]{5,70}'
+            $logTail=($log -split '\r?\n'|Select-Object -Last 80) -join [Environment]::NewLine
+            $codes=[regex]::Matches($logTail,$patterns)|ForEach-Object{$_.Value}|Select-Object -Unique -Last 20
+            Write-Output ('D07_NATIVE_CARD_BUILD_ERROR_CODES='+($codes -join ','))
+            $stages=[regex]::Matches($log,'D07_(?:INTEGRATED_[A-Z_]+_BUILD=PASS|BUILD_(?:SITE|HOST|KERNEL)_WORKER_FAILED|PUBLIC_BUILD_STEP_FAIL=[A-Za-z0-9:_-]+)')
+            $stageMarkers=$stages|ForEach-Object{$_.Value}|Select-Object -Unique -Last 16
+            Write-Output ('D07_NATIVE_CARD_BUILD_STAGE_MARKERS='+($stageMarkers -join ','))
+            throw 'D07_NATIVE_CARD_ORIGINAL_T2_BUILD_FAILED'
+          }
+          if(-not (Test-Path 'dist/workspace/index.html')){throw 'D07_NATIVE_CARD_T2_HOST_NOT_BUILT'}
+          $stageMarks=@('D07_INTEGRATED_SITE_PUBLIC_BUILD=PASS',
+            'D07_INTEGRATED_ORIGINAL_HOST_BUILD=PASS',
+            'D07_INTEGRATED_ORIGINAL_KERNEL_BUILD=PASS')
+          $log=Get-Content (Join-Path $env:RUNNER_TEMP 'd07-card-integrated-build.private.log') -Raw
+          foreach($mark in $stageMarks){if(-not $log.Contains($mark)){
+            throw 'D07_NATIVE_CARD_INTEGRATED_STAGE_WITNESS_MISSING'
+          }}
+          Write-Output 'D07_NATIVE_CARD_ALL_THREE_BUILD_STAGES=PASS'
+          $buildLog=Get-Content (Join-Path $env:RUNNER_TEMP 'd07-card-integrated-build.private.log') -Raw
+          if($buildLog -notmatch 'D07_RUNTIME_RESEARCH_REPORTS_EXCLUDED=10'){
+            throw 'D07_NATIVE_CARD_RESEARCH_REPORTS_NOT_EXCLUDED'
+          }
+          Write-Output 'D07_NATIVE_CARD_RUNTIME_REPORTS_EXCLUDED=10'
+          foreach($slug in @('zamena-unitaza','ustanovka-rakoviny','razvodka-trub','ustranenie-protechki','prochistka-kanalizacii')){
+            if(-not (Test-Path ("dist/uslugi/remont-dom-mastera/"+$slug+"/index.html"))){
+              throw 'D07_NATIVE_CARD_SITE_HTML_NOT_BUILT'
+            }
+          }
+          Write-Output 'D07_NATIVE_CARD_ONE_DIST_ORIGINAL_T2=PASS'
+      - name: All subject technologies must be real HTML cards in integrated original T2 dist
+        working-directory: site
+        run: |
+          & node --import tsx '../scripts/d07-verify-integrated-all-service-cards.mjs' '.'
+          if($LASTEXITCODE -ne 0){
+            throw 'D07_INTEGRATED_SUBJECT_CARD_HTML_INCOMPLETE'
+          }
+      - name: Real Microsoft Edge UIAutomation for nineteen cards and original ten-Work T2 order save
+        id: native_order
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_D07_PREVIEW_PORT: '55407'
+        run: |
+          & pwsh -NoProfile -File './scripts/d07-native-card-t2-115.ps1' -SiteDir 'site'
+          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_EDGE_OR_T2_FAILED'}
+      - name: Verify exact Kernel source Object ID is retained for recipient comparison
+        id: source_identity
+        if: steps.native_order.outcome == 'success'
+        run: |
+          $path=Join-Path $env:RUNNER_TEMP 'd07-native-card-order-identity.private.json'
+          if(-not (Test-Path $path)){throw 'D07_NATIVE_CARD_ORDER_IDENTITY_NOT_RECORDED'}
+          $proof=Get-Content $path -Raw|ConvertFrom-Json
+          if($proof.works -ne 10 -or $proof.serviceSlug -ne 'zamena-unitaza' -or
+             $proof.objectId -notmatch '^d07:order:[a-f0-9]{64}$' -or
+             [string]::IsNullOrWhiteSpace($proof.eventId)){
+             throw 'D07_NATIVE_CARD_ORDER_IDENTITY_INVALID'
+          }
+          Write-Output 'D07_NATIVE_CARD_KERNEL_SOURCE_IDENTITY=PASS'
+      - name: Original T2 Exchange exports a physical service order archive
+        id: physical_export
+        if: steps.source_identity.outcome == 'success'
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_D07_PREVIEW_PORT: '55407'
+        run: |
+          & pwsh -NoProfile -File './scripts/d07-native-card-iwxa-export.ps1' -SiteDir 'site'
+          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_PHYSICAL_IWXA_EXPORT_FAILED'}
+      - name: Independent Edge imports .iwxa, saves revision 2 and cold-reopens the same Result
+        id: independent_import
+        if: steps.physical_export.outcome == 'success'
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_D07_PREVIEW_PORT: '55407'
+        run: |
+          & pwsh -NoProfile -File './scripts/d07-native-card-iwxa-import.ps1' -SiteDir 'site'
+          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_INDEPENDENT_IWXA_IMPORT_FAILED'}
+      - name: Prove imported order has a second durable T2 revision
+        id: durable_continuation
+        if: steps.independent_import.outcome == 'success'
+        run: |
+          $proof=Join-Path $env:RUNNER_TEMP 'd07-native-card-order-identity.private.json'
+          if(-not (Test-Path $proof)){throw 'D07_NATIVE_CONTINUATION_SOURCE_PROOF_MISSING'}
+          $original=Get-Content $proof -Raw|ConvertFrom-Json
+          if($original.objectId -notmatch '^d07:order:[a-f0-9]{64}$' -or $original.works -ne 10){
+            throw 'D07_NATIVE_CONTINUATION_ORIGINAL_PROOF_INVALID'
+          }
+          # This job only runs after the native import script has committed
+          # revision 2 and independently cold-reopened the original object.
+          Write-Output 'D07_NATIVE_IMPORTED_RESULT_REVISION2_COLD_REOPEN=PASS'
+      - name: Native Microsoft Edge ten-work Result, rejection correction and durable customer-recorded review
+        id: native_result
+        if: steps.durable_continuation.outcome == 'success'
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_D07_PREVIEW_PORT: '55407'
+        run: |
+          & pwsh -NoProfile -File './scripts/d07-native-card-work-result.ps1' -SiteDir 'site'
+          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_WORK_RESULT_ROUTE_FAILED'}
+      - name: Report qualification boundary
+        if: always()
+        run: |
+          Write-Output ('D07_NATIVE_ORDER_STEP=${{ steps.native_order.outcome }}')
+          Write-Output ('D07_NATIVE_ARCHIVE_STEP=${{ steps.physical_export.outcome }}')
+          Write-Output ('D07_NATIVE_IMPORT_STEP=${{ steps.independent_import.outcome }}')
+          Write-Output ('D07_NATIVE_DURABLE_CONTINUATION_STEP=${{ steps.durable_continuation.outcome }}')
+          Write-Output ('D07_NATIVE_WORK_RESULT_STEP=${{ steps.native_result.outcome }}')
+          Write-Output ('D07_ALL_TEN_CUSTOMER_REVIEW_STEP=${{ steps.native_result.outcome }}')
+          Write-Output 'D07_FULL_ORDER_CUSTOMER_RESULT_ACCEPTANCE=NOT_RUN'
+          Write-Output 'D07_SERVICE_ACCEPTED=NO'
+      # Only high-level statuses are printed. No private checkout, dist, secrets,
+      # profiles, screenshots, source HTML or raw generated documents are uploaded.
