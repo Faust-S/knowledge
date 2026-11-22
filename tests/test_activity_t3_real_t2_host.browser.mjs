@@ -14,6 +14,8 @@ import {T3_ACTIVITY_OWNER_REVIEW_SCHEMA} from
   '../modules/activity-base-anonymizer/t3-owner-review-stage.mjs';
 import {T3_SELECTED_VIEW_SCHEMA} from
   '../modules/activity-base-anonymizer/t3-selected-host.mjs';
+import {createCehovodD05T3Bindings} from
+  '../modules/activity-base-anonymizer/d05-t3-evidence-binding.mjs';
 
 const core=resolve(process.env.IWXA_T3_PUBLIC_CORE_DIR??'');
 const qualified=resolve(process.env.IWXA_T2_QUALIFIED_KERNEL_DIST??'');
@@ -33,7 +35,8 @@ const requireCore=createRequire(pathToFileURL(join(core,'package.json')).href);
 const {chromium}=requireCore('playwright');
 const sha=value=>createHash('sha256').update(value).digest('hex');
 const kernel='0.3.6',contract='1.3.0',writer='iwxa.workspace.integration';
-const reviewer='iwxa.activity.reviewer',artifactId=
+const reviewer='iwxa.activity.reviewer',
+  d05Service='iwxa.activity.d05.witness',artifactId=
   'iwxa-kernel-k036-same-store-history-20261019-qualified.1';
 const proofData={
   status:'OWNER_REVIEW_DRAFT',
@@ -101,13 +104,66 @@ try {
     controlPlane:prepared.controlPlane,
   });
   assert.deepEqual(plan2,prepared);
-  writeFileSync(join(dist,'_iwxa/domain.json'),JSON.stringify(prepared.domain));
+  // Isolated ORIGINAL T2 test-only service, not the private CehoVod Host.
+  // Write permission belongs to this exact normal T2 service passport,
+  // never to Activity or the original workspace writer.
+  const sourceProfile=createCehovodD05T3Bindings();
+  const kinds=['production-order','production-execution','quality-check-result'];
+  const d05Schemas=kinds.map(kind=>{
+    const bound=sourceProfile.objects.find(x=>
+      x.schema_id==='ru.5ibs.productionops.'+kind);
+    assert.ok(bound&&bound.schema_version==='1.0.0');
+    return bound.schema_id;
+  });
+  const d05Path='/workspace/activity-d05-witness/';
+  const d05Passport={
+    service_id:d05Service,service_version:'1.0.0',
+    base_path:d05Path,supported_levels:['T1','T2'],
+    input_object_types:[],output_object_types:d05Schemas,
+    schemas:Object.fromEntries(d05Schemas.map(schema=>[schema,{
+      schema_version:'1.0.0',preserve_unknown:true,
+      json_schema:{type:'object'},embedded:{},
+    }])),
+    permissions:{
+      workspace:{list:false,read:true,create:false,soft_delete:false,
+        restore:false,purge:false},
+      objects:{read:d05Schemas,write:d05Schemas,delete:[]},
+      events:{read_scope:'service'},
+      packages:{export:false,import:false,
+        export_scope:'readable_objects',import_scope:'writable_objects'},
+    },
+  };
+  const d05File='_iwxa/services/'+d05Service+'.json';
+  const d05Bytes=JSON.stringify(d05Passport);
+  const d05Entry={service_id:d05Service,service_version:'1.0.0',
+    base_path:d05Path,supported_levels:['T1','T2'],
+    file:d05File,sha256:sha(d05Bytes)};
+  const withD05Domain={...prepared.domain,
+    modules:[...prepared.domain.modules,
+      {service_id:d05Service,base_path:d05Path}],
+    security:{...prepared.domain.security,
+      allowed_object_classes:[
+        ...prepared.domain.security.allowed_object_classes,...d05Schemas,
+      ]},
+  };
+  const withD05Catalog={...prepared.catalog,
+    entries:[...prepared.catalog.entries,d05Entry],
+    count:prepared.catalog.count+1};
+  const withD05Control={...prepared.controlPlane,
+    services:[...prepared.controlPlane.services,{
+      schema_version:'0.3.1',service_id:d05Service,
+      capability_control:'NONE',capability_ceiling:[],
+      activation_any_of:[],operation_guards:[],
+    }]};
+  writeFileSync(join(dist,d05File),d05Bytes);
+  assert.equal(sha(readFileSync(join(dist,d05File))),d05Entry.sha256);
+  writeFileSync(join(dist,'_iwxa/domain.json'),JSON.stringify(withD05Domain));
   writeFileSync(join(dist,'workspace/workspace.config.json'),
     JSON.stringify(host.workspaceConfig));
   writeFileSync(join(dist,'_iwxa/security/capability-control-plane.json'),
-    JSON.stringify(prepared.controlPlane));
+    JSON.stringify(withD05Control));
   writeFileSync(join(dist,'_iwxa/service-catalog.json'),
-    JSON.stringify(prepared.catalog));
+    JSON.stringify(withD05Catalog));
   writeFileSync(join(dist,prepared.passport_file),prepared.passport_bytes);
   assert.equal(sha(readFileSync(join(dist,prepared.passport_file))),
     prepared.passport_sha256,'ORIGINAL_T2_PASSPORT_DIGEST_MISMATCH');
@@ -143,7 +199,8 @@ try {
   for(const name of ['index.mjs','kernel-reader.mjs']){
     cpSync(join(core,'src/t3/activity',name),join(dist,'_t3/activity',name));
   }
-  const actFiles=['t3-selected-host.mjs','t3-control-host-link.mjs',
+  const actFiles=['d05-t3-evidence-binding.mjs','t3-selected-host.mjs',
+    't3-control-host-link.mjs',
     't3-owner-review-stage.mjs','t3-review-controller.mjs',
     't3-original-t2-owner-host.mjs'];
   mkdirSync(join(dist,'_activity'),{recursive:true});
