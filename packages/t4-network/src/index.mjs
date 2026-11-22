@@ -12,3 +12,4 @@ export * from './network/original-deletion-delta.mjs';
 export * from './network/original-object-mutation-capture.mjs';
 export * from './network/original-object-intent-recovery.mjs';
 export * from './network/original-host-capture-adapter.mjs';
+export * from './network/original-host-subject-capture.mjs';
