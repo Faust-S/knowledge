@@ -1,4 +1,4 @@
-name: D07 SEO official original pinned section qualification
+name: D07 SEO official original five-section discovery
 on:
   push:
     branches: [work/2026-11-22-d07-methodology-v13]
@@ -18,13 +18,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: b4dde686caecaeacf556ef4f128a6f169f7123d0
+          ref: 51ad4d232699cd8c54aa50d412ef4dc14e3dcb2b
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify private source identity and strict published-document boundaries
         run: |
-          test "$(git -C site rev-parse HEAD)" = "b4dde686caecaeacf556ef4f128a6f169f7123d0"
+          test "$(git -C site rev-parse HEAD)" = "51ad4d232699cd8c54aa50d412ef4dc14e3dcb2b"
           test -f site/scripts/d07-seo-original-discovery.mjs
           test -f site/scripts/research/d07-seo-official-originals.json
           test "$(grep -c 'expectedSectionSha256' site/scripts/research/d07-seo-official-originals.json)" = '2'
@@ -52,9 +52,9 @@ jobs:
             exit 1
           }
           echo D07_SEO_ORIGINAL_VALIDATION=PASS
-      - name: Verify two pinned Google original sections and their operation-specific professional facets
+      - name: Discover three additional official Google sections for new SEO operations
         working-directory: site
         run: |
-          node --import tsx scripts/d07-seo-original-discovery.mjs --require-pinned
-          echo D07_SEO_PINNED_FACETS_NOT_METHODOLOGY_APPROVAL=PASS
+          node --import tsx scripts/d07-seo-original-discovery.mjs
+          echo D07_SEO_FIVE_ORIGINAL_DISCOVERY_NOT_APPROVAL=PASS
       # No raw document, private source, Build dist, secrets, profiles or user files are uploaded.
