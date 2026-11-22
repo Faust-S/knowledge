@@ -1,0 +1,60 @@
+name: IWXA projects and first two essays static publish
+on:
+  push:
+    branches:
+      - qa/2026-11-22-projects-essays-01-02
+    paths:
+      - .github/workflows/qa-projects-essays-static.yml
+permissions:
+  contents: read
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: work/2026-11-22-projects-and-editorial-01-02
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Build real Apache static HTML and validate five changed routes
+        shell: bash
+        working-directory: .private/site
+        env:
+          IWXA_PRERENDER_ROUTES: /projects/,/projects/iwxa/,/articles/,/articles/zachem-dvenadcat-napravleniy/,/articles/ot-logisticheskogo-operatora-k-akis/
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          echo SOURCE_SHA=$(git rev-parse HEAD)
+          bun install --frozen-lockfile > /tmp/iwxa-projects-static-install.log 2>&1 || { tail -n 75 /tmp/iwxa-projects-static-install.log; exit 1; }
+          bunx tsx scripts/build-static.ts > /tmp/iwxa-projects-static-build.log 2>&1 || { tail -n 135 /tmp/iwxa-projects-static-build.log; exit 1; }
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const urls=['/projects/','/projects/iwxa/','/articles/','/articles/zachem-dvenadcat-napravleniy/','/articles/ot-logisticheskogo-operatora-k-akis/'];
+          for(const url of urls){
+            const p='dist-static'+url+'index.html';
+            if(!fs.existsSync(p))throw Error('Missing prerender '+url);
+            const html=fs.readFileSync(p,'utf8');
+            if(!html.includes('<h1')||html.includes('localhost:4319')||html.includes('127.0.0.1:4319'))throw Error('Invalid HTML '+url);
+            if(url==='/projects/' && !(html.includes('Ивикса')&&html.includes('Bazmed')&&html.includes('Learn')))throw Error('Projects incomplete');
+            if(url==='/articles/' && html.includes('Статьи и исследования'))throw Error('Old standalone section still visible');
+            if(url.includes('zachem-dvenadcat') && !html.includes('Переместите срок поставки'))throw Error('First essay missing');
+            if(url.includes('ot-logisticheskogo') && !html.includes('Попробуйте договориться'))throw Error('Second essay missing');
+            console.log('STATIC_CHECK_PASS',url,html.length);
+          }
+          console.log('IWXA_PROJECTS_ESSAYS_5_STATIC_PASS');
+          JS
+      - name: Purge private checkout and temporary logs
+        if: always()
+        shell: bash
+        run: |
+          rm -rf .private/site
+          rm -f /tmp/iwxa-projects-static-*.log
+          test ! -e .private/site && echo PRIVATE_SITE_PURGED
