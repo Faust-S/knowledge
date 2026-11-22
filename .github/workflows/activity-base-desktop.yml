@@ -72,13 +72,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Read exact original public T3 core (no private checkout)
+      - name: Read exact released T3 0.3.0 core (no private checkout)
         shell: bash
         run: |
           git clone --filter=blob:none --no-checkout https://github.com/Faust-S/knowledge.git ../t3-public-core
-          git -C ../t3-public-core checkout --detach ed0252749c1693bd5d86aef6bb5ad0abdb118b64
-          test "$(git -C ../t3-public-core rev-parse HEAD)" = "ed0252749c1693bd5d86aef6bb5ad0abdb118b64"
-          test "$(git -C ../t3-public-core rev-parse HEAD^{tree})" = "6ffb6293a2ea1fe7c856242cff0c4e2ac9eaa56e"
+          git -C ../t3-public-core checkout --detach fd927a1efb083219442d9504285f75fa738dbdda
+          test "$(git -C ../t3-public-core rev-parse HEAD)" = "fd927a1efb083219442d9504285f75fa738dbdda"
+          test "$(git -C ../t3-public-core rev-parse HEAD^{tree})" = "b6bda6b2851e80338277682897471b38864ab778"
       - name: Exercise ORIGINAL T3 Workspace D1/D2 reader with synthetic Host owner
         env:
           IWXA_T3_PUBLIC_CORE_DIR: ../t3-public-core/packages/t3-core
@@ -93,13 +93,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Reuse exact original public T3 and original qualified T2 artifact
+      - name: Reuse released T3 0.3.0 and original qualified T2 artifact
         shell: bash
         run: |
           set -eu
           git clone --filter=blob:none --no-checkout https://github.com/Faust-S/knowledge.git ../t3-public-core
-          git -C ../t3-public-core checkout --detach ed0252749c1693bd5d86aef6bb5ad0abdb118b64
-          test "$(git -C ../t3-public-core rev-parse HEAD^{tree})" = "6ffb6293a2ea1fe7c856242cff0c4e2ac9eaa56e"
+          git -C ../t3-public-core checkout --detach fd927a1efb083219442d9504285f75fa738dbdda
+          test "$(git -C ../t3-public-core rev-parse HEAD^{tree})" = "b6bda6b2851e80338277682897471b38864ab778"
           archive=../t3-public-core/packages/t3-core/qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip
           echo "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68  $archive" | sha256sum -c -
           mkdir -p "$IWXA_T2_QUALIFIED_KERNEL_DIST"
