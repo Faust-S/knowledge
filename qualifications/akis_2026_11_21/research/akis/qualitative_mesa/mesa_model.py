@@ -1123,6 +1123,11 @@ class OperatorAKISModel(mesa.Model):
                     "source_scoped_work_count": len(counterfactual["works"]),
                     "declared_arithmetic_eligible_work_count": counterfactual[
                         "declared_comparable_work_count"],
+                    "source_declared_nine_onboarding_comparable_work_count": counterfactual[
+                        "model_declared_nine_onboarding_comparable_work_count"],
+                    "nine_author_categories_derived_from_original_cost_rows": True,
+                    "nine_category_evidence_not_realized_savings": True,
+                    "owner_private_nine_costs_and_zero_sources_redisclosed": False,
                     "owner_operator_and_network_views_distinct": True,
                     "original_cash_and_cost_records_added": 0,
                     "realized_gain": "NOT_IDENTIFIABLE",
