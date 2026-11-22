@@ -208,3 +208,76 @@ def test_r1m_endogenous_gate_requires_original_eight_phase_lifecycle():
     d["general_akis"]["enforce_model_formation_lifecycle"] = False
     with pytest.raises(ValueError, match="FORMATION_EMERGENT_NEED_REQUIRES_RESULT_LIFECYCLE"):
         simulate(d)
+
+
+def test_r1m_predeclared_second_goal_cannot_replace_post_result_owner_action():
+    d = result_goal_case(include_need=False)
+    d["general_akis"]["goals"].append({
+        "owner": "b", "source_ref": "model://b/predeclared-goal-w2",
+        "revision": "oc-1", "available_at": 0, "expires_at": 90,
+        "work": "w2", "work_revision": "d-2",
+        "objective": "RESILIENCE", "priority": 2,
+    })
+    out = simulate(d)
+    assert find(out, "request", work="w2")[0]["reason"] == (
+        "FORMATION_EMERGENT_ORIGINAL_OWNER_GOAL_EVENT_REQUIRED"
+    )
+    assert "w2" not in out["works"]
+
+
+def test_r1m_need_may_arise_but_another_owner_can_pause_cooperation_independently():
+    d = result_goal_case()
+    owner = next(e for e in d["events"] if e["action"] == "participation_status"
+                 and e["actor"] == "a")
+    owner.update(new_participation="PAUSED_NEW_WORK",
+                 evaluation_verdict="ADVERSE_DECLARED")
+    out = simulate(d)
+    assert find(out, "need_emerge")[0]["outcome"] == "APPLIED"
+    assert find(out, "request", work="w2")[0]["reason"] == (
+        "COOPERATION_ORIGINAL_PARTY_PAUSED_NEW_WORK"
+    )
+    assert "w2" not in out["works"]
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["profit"]["system_increment"] == "UNKNOWN"
+
+
+def test_r1m_original_customer_pause_prevents_emergent_need_despite_accepted_result():
+    d = result_goal_case()
+    customer = next(e for e in d["events"]
+                    if e["action"] == "participation_status" and e["actor"] == "b")
+    customer.update(new_participation="PAUSED_NEW_WORK",
+                    evaluation_verdict="ADVERSE_DECLARED")
+    out = simulate(d)
+    assert find(out, "need_emerge")[0]["reason"] == (
+        "FORMATION_EMERGENT_OWN_POST_RESULT_DECISION_REQUIRED"
+    )
+    assert find(out, "request", work="w2")[0]["outcome"] == "BLOCKED"
+    assert "w2" not in out["works"]
+
+
+def test_r1m_resource_owner_controls_capacity_between_new_goal_and_original_commit():
+    d = result_goal_case()
+    # The new owner goal is valid, but the original resource's readiness
+    # can change in its own original event path before second commitment.
+    d["events"].extend([
+        {"at": 50, "action": "resource_status", "actor": "a",
+         "resource": "ra", "availability": "UNAVAILABLE"},
+        {"at": 52, "action": "resource_status", "actor": "a",
+         "resource": "ra", "availability": "AVAILABLE"},
+        {"at": 53, "action": "commit", "actor": "op", "work": "w2"},
+    ])
+    d["events"].sort(key=lambda e: e["at"])
+    out = simulate(d)
+    assert find(out, "need_emerge")[0]["outcome"] == "APPLIED"
+    assert find(out, "request", work="w2")[0]["outcome"] == "APPLIED"
+    commits = find(out, "commit", work="w2")
+    assert [(row["at"], row["outcome"]) for row in commits] == [
+        (51, "BLOCKED"), (53, "APPLIED")
+    ]
+    assert commits[0]["reason"] == (
+        "FORMATION_ORIGINAL_RESOURCE_CAPACITY_NOT_DECLARED_READY"
+    )
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["profit"]["system_increment"] == "UNKNOWN"
+    assert out == simulate(deepcopy(d))
