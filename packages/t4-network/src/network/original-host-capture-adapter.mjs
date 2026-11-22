@@ -1,5 +1,7 @@
 import {captureT4OriginalObjectMutation} from './original-object-mutation-capture.mjs';
 import {reconcileT4OriginalMutationIntent} from './original-object-intent-recovery.mjs';
+import {captureT4OriginalHostSubjectMutation,
+  reconcileT4OriginalHostSubjectMutation} from './original-host-subject-capture.mjs';
 
 export class T4OriginalHostCaptureAdapterError extends Error{
   constructor(code){super(code);this.name='T4OriginalHostCaptureAdapterError';this.code=code;}
@@ -64,6 +66,82 @@ export function createT4OriginalHostCaptureAdapter({
         t4Mode:'T4_NETWORK',originalReceipt:captured.originalT3Receipt,
         originalT3OperationUsed:true,originalHostUnchanged:true,
         capture:captured,networkPublished:false});
+    },
+    async putAsset({mutationInput,sourceCursor,captureRef}={}){
+      if(originalKernel.hasOperation('t1.putAsset')!==true||
+        typeof originalKernel.putAsset!=='function')
+        fail('ORIGINAL_HOST_T3_ASSET_PORT_REQUIRED');
+      if(mode()==='LOCAL_T3'){
+        if(!mutationInput||typeof mutationInput!=='object')
+          fail('ORIGINAL_HOST_MUTATION_REQUIRED');
+        const originalReceipt=await originalKernel.putAsset(mutationInput);
+        return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_PUT_RESULT_V1',
+          subjectKind:'ASSET_PUT',t4Mode:'LOCAL_T3',originalReceipt,
+          capture:null,originalT3OperationUsed:true,originalHostUnchanged:true,
+          networkPublished:false});
+      }
+      requiredOriginalHostCapturePorts();
+      if(!ID(captureRef)||!ID(mutationInput?.workspace_id)||
+        !ID(mutationInput?.asset_id))
+        fail('ORIGINAL_HOST_T4_MUTATION_SCOPE_REQUIRED');
+      const capture=await captureT4OriginalHostSubjectMutation({
+        ...hostCapturePorts(),kind:'ASSET_PUT',
+        workspaceId:mutationInput.workspace_id,captureRef,sourceCursor,
+        mutationInput,
+      });
+      return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_PUT_RESULT_V1',
+        subjectKind:'ASSET_PUT',t4Mode:'T4_NETWORK',capture,
+        originalReceipt:capture.originalReceipt,
+        originalT3OperationUsed:true,originalHostUnchanged:true,
+        networkPublished:false});
+    },
+    async putRelation({mutationInput,sourceCursor,captureRef}={}){
+      if(originalKernel.hasOperation('t1.putRelation')!==true||
+        typeof originalKernel.putRelation!=='function')
+        fail('ORIGINAL_HOST_T3_RELATION_PORT_REQUIRED');
+      if(mode()==='LOCAL_T3'){
+        if(!mutationInput||typeof mutationInput!=='object')
+          fail('ORIGINAL_HOST_MUTATION_REQUIRED');
+        const originalReceipt=await originalKernel.putRelation(mutationInput);
+        return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_PUT_RESULT_V1',
+          subjectKind:'RELATION_PUT',t4Mode:'LOCAL_T3',originalReceipt,
+          capture:null,originalT3OperationUsed:true,originalHostUnchanged:true,
+          networkPublished:false});
+      }
+      requiredOriginalHostCapturePorts();
+      if(!ID(captureRef)||!ID(mutationInput?.workspace_id)||
+        !ID(mutationInput?.relation_id))
+        fail('ORIGINAL_HOST_T4_MUTATION_SCOPE_REQUIRED');
+      const capture=await captureT4OriginalHostSubjectMutation({
+        ...hostCapturePorts(),kind:'RELATION_PUT',
+        workspaceId:mutationInput.workspace_id,captureRef,sourceCursor,
+        mutationInput,
+      });
+      return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_PUT_RESULT_V1',
+        subjectKind:'RELATION_PUT',t4Mode:'T4_NETWORK',capture,
+        originalReceipt:capture.originalReceipt,
+        originalT3OperationUsed:true,originalHostUnchanged:true,
+        networkPublished:false});
+    },
+    async reconcileAssetMutation({captureRef,workspaceId,assetId}={}){
+      if(mode()!=='T4_NETWORK')fail('ORIGINAL_HOST_RECOVERY_REQUIRES_T4');
+      requiredOriginalHostCapturePorts();
+      if(![captureRef,workspaceId,assetId].every(ID))
+        fail('ORIGINAL_HOST_T4_MUTATION_SCOPE_REQUIRED');
+      return reconcileT4OriginalHostSubjectMutation({
+        ...hostCapturePorts(),kind:'ASSET_PUT',captureRef,workspaceId,
+        subjectId:assetId,
+      });
+    },
+    async reconcileRelationMutation({captureRef,workspaceId,relationId}={}){
+      if(mode()!=='T4_NETWORK')fail('ORIGINAL_HOST_RECOVERY_REQUIRES_T4');
+      requiredOriginalHostCapturePorts();
+      if(![captureRef,workspaceId,relationId].every(ID))
+        fail('ORIGINAL_HOST_T4_MUTATION_SCOPE_REQUIRED');
+      return reconcileT4OriginalHostSubjectMutation({
+        ...hostCapturePorts(),kind:'RELATION_PUT',captureRef,workspaceId,
+        subjectId:relationId,
+      });
     },
     async reconcileObjectMutation({
       captureRef,workspaceId,objectId,
