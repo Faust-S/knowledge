@@ -1,0 +1,89 @@
+name: Admin Center D2 original signed create fence (fast public CI)
+on:
+  push:
+    branches:
+      - work/2026-11-22-admin03-original-d2-read
+    paths:
+      - .github/workflows/t3-admin-d2-fast-original-fence.yml
+      - packages/t3-core/tests/t3-d2-original-native-workspace-jit.mjs
+      - packages/t3-core/tests/t3-d1-signed-selected-workspace.dom.test.tsx
+      - packages/t3-core/src/workspace-host/bootstrap/SignedSelectedWorkspaceGate.tsx
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: admin03-d2-fast-fence-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  original-signer-jit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Pin original One Core source and qualified unchanged T2
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse 'HEAD:packages/t3-core/src')" = '783abd51f30ff475a24b041a01123659f7bb250c'
+          test "$(git rev-parse 'HEAD:packages/t3-core/qualified-runtime')" = '1594274dbf5e38214b8422ba11e8c7114bd5425c'
+          echo "D2_FAST_ORIGINAL_T2_AND_ONE_CORE_PIN_PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: ec1ac9faa61abb948460143323e33e140f72f92e
+          token: ${{ secrets.T3 || secrets.DOMEN }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            access-control
+            interop
+            reconciliation
+            tests
+            package.json
+          path: .private/t3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Real original private signer and cold at-most-once JIT
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C .private/t3 rev-parse HEAD)" = 'ec1ac9faa61abb948460143323e33e140f72f92e'
+          node --check .private/t3/interop/runtime.mjs
+          node --check .private/t3/interop/native-admin-d3.mjs
+          if ! node --test .private/t3/tests/t3-admin-activity-original-data-grant.test.mjs > "$RUNNER_TEMP/admin-d2-private-grants.log" 2>&1; then
+            echo "D2_FAST_ORIGINAL_PRIVATE_GRANT_TEST_HOLD"
+            exit 1
+          fi
+          if ! node packages/t3-core/tests/t3-d2-original-native-workspace-jit.mjs .private/t3 > "$RUNNER_TEMP/admin-d2-cold-fence.log" 2>&1; then
+            grep -E '^D2_ORIGINAL_PRIVATE_WORKSPACE_JIT_MACHINE_CODE [A-Z0-9_]+$' "$RUNNER_TEMP/admin-d2-cold-fence.log" | tail -1 || true
+            echo "D2_FAST_ORIGINAL_SIGNED_COLD_CREATE_FENCE_HOLD"
+            exit 1
+          fi
+          grep -q '^D2_ORIGINAL_SIGNED_CREATE_SAME_SESSION_FENCE_PASS$' "$RUNNER_TEMP/admin-d2-cold-fence.log"
+          grep -q '^D2_ORIGINAL_SIGNED_CREATE_COLD_REPLAY_FENCE_PASS$' "$RUNNER_TEMP/admin-d2-cold-fence.log"
+          grep -q '^D2_ORIGINAL_COLD_READ_ONLY_RECOVERY_JIT_PASS$' "$RUNNER_TEMP/admin-d2-cold-fence.log"
+          echo "D2_FAST_ORIGINAL_PRIVATE_SIGNED_JIT_AND_COLD_FENCE_PASS"
+          echo "D2_FAST_PRIVATE_SOURCE_NOT_PUBLISHED"
+  selected-workspace-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Install the same One Core source dependencies
+        shell: bash
+        run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+      - name: Original selected Workspace read-only recovery DOM regression
+        shell: bash
+        working-directory: packages/t3-core
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/vitest run tests/t3-d1-signed-selected-workspace.dom.test.tsx
+          echo "D2_FAST_ORIGINAL_SIGNED_WORKSPACE_DOM_PASS"
