@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: a6594ca997b175ef37a2daed701aec185f4ada4b
+          ref: 00008bcfd697c2f365a8a76a965db66b53e5adec
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           filter: blob:none
@@ -41,7 +41,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((& git -C .private/t3 rev-parse HEAD).Trim() -cne 'a6594ca997b175ef37a2daed701aec185f4ada4b'){
+          if((& git -C .private/t3 rev-parse HEAD).Trim() -cne '00008bcfd697c2f365a8a76a965db66b53e5adec'){
             throw 'D2_ORIGINAL_OWNER_SOURCE_PIN_FAILED'
           }
           Write-Host 'D2_ORIGINAL_OWNER_SOURCE_PIN_PASS'
