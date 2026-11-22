@@ -940,6 +940,33 @@ class OperatorAKISModel(mesa.Model):
                 "single_original_scheduler": True,
                 "original_results_and_org_code_unmodified": True,
             }
+            # Read the original recipient's Work/Result quality state only.
+            # Shared view contains counts, never source documents or cash.
+            quality_rows = [
+                (key, item["assurance"])
+                for key, item in output["works"].items()
+                if "assurance" in item
+            ]
+            if quality_rows:
+                output["general_akis_model"]["work_quality_feedback"] = {
+                    "model_only_original_work_count": len(quality_rows),
+                    "declared_criteria_count": sum(row["required_count"]
+                                                    for _, row in quality_rows),
+                    "model_recipient_attested_met_count": sum(
+                        row["model_reported_met_count"] for _, row in quality_rows
+                    ),
+                    "model_accepted_results_with_qualified_criteria": sum(
+                        output["works"][key]["result"] ==
+                            "ACCEPTED_BY_ORIGINAL_RECIPIENT" and
+                        row["current_result_quality_gate"] == "NONE"
+                        for key, row in quality_rows
+                    ),
+                    "one_original_work_and_result_trace": True,
+                    "independently_verified_field_quality": False,
+                    "accepted_quality_proves_reusable_competence": False,
+                    "causal_transaction_cost_reduction": "NOT_IDENTIFIABLE",
+                    "new_program_agent_or_authentication_grant": False,
+                }
             if self.future_needs:
                 output["general_akis_model"]["pre_order_need_feedback"] = {
                     "source": "MODEL_ONLY_INDEPENDENT_CUSTOMER_NEED",
