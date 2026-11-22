@@ -165,7 +165,8 @@ def test_two_original_parties_can_attribute_existing_internal_transfer_without_n
     assert work["per_original_owner"]["b"]["declared_work_cash_difference_cooperation_minus_alternative"]=="15.00"
     assert work["per_original_owner"]["op"]["declared_work_cash_difference_cooperation_minus_alternative"]=="28.00"
     assert work["per_scenario"]["COOPERATION"]["original_work_internal_transfer_count"] == 2
-    assert work["per_scenario"]["COOPERATION"]["owners"]["op"]["allocated_original_common_cash_row_count"] == 1
+    # The operator receives t2 and pays the independently attributed t-shared.
+    assert work["per_scenario"]["COOPERATION"]["owners"]["op"]["allocated_original_common_cash_row_count"] == 2
     assert work["per_scenario"]["COOPERATION"]["owners"]["b"]["allocated_original_common_cash_row_count"] == 1
     info=result["economics"]["common_work_allocations"]
     assert info["model_bilateral_internal_transfer_slices"] == 1
