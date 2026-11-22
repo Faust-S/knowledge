@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 861f467f7f462e6cd87cf4a69519a992a7a86b7c
-      SUBJECT_SHA: c0e74cd073c784a621f4022e68af8b3d6c1b33f5
+      SITE_SHA: 19f98f1c714ba849030bcdf59afbd5b506eaeaf7
+      SUBJECT_SHA: 43b54803c4f92b68fb9ce84e0f72b3b3c277cb66
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
       CI: "true"
@@ -31,14 +31,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: c0e74cd073c784a621f4022e68af8b3d6c1b33f5
+          ref: 43b54803c4f92b68fb9ce84e0f72b3b3c277cb66
           path: subject
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 861f467f7f462e6cd87cf4a69519a992a7a86b7c
+          ref: 19f98f1c714ba849030bcdf59afbd5b506eaeaf7
           path: site
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
@@ -93,6 +93,7 @@ jobs:
             > "$RUNNER_TEMP/d07-next500-tests.private.log" 2>&1 || {
               echo D07_NEXT500_TESTS=FAIL
               grep -E '^not ok|^# (tests|pass|fail)|^  error:' "$RUNNER_TEMP/d07-next500-tests.private.log" | tail -15 || true
+              grep -oE 'D07_[A-Z0-9_]+|ERR_[A-Z_]+|AssertionError|TypeError|ReferenceError|SyntaxError' "$RUNNER_TEMP/d07-next500-tests.private.log" | sort -u | tail -14 || true
               exit 1
             }
           grep '^# (tests|pass|fail)' -E "$RUNNER_TEMP/d07-next500-tests.private.log" || true
