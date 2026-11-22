@@ -1,0 +1,54 @@
+name: IWXA Agent V8 authentic browser screenshots
+
+on:
+  push:
+    branches:
+      - work/2026-11-22-agent-v8-capture
+    paths:
+      - .github/workflows/iwxa-agent-v8-real-capture.yml
+      - tests/agent-v8/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-v8-capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact fixture
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Restore original V8 source and verify SHA
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64,gzip,hashlib,pathlib
+          p=pathlib.Path('tests/agent-v8/iwxa_v8.html.gz.b64')
+          data=gzip.decompress(base64.b64decode(p.read_text().strip()))
+          want='d26f1d944dd9cbe7dcbcbf5559274919a012181d85187c00cb0b760c35588b2d'
+          actual=hashlib.sha256(data).hexdigest()
+          assert actual == want,(actual,want)
+          pathlib.Path('tests/agent-v8/iwxa_v8.html').write_bytes(data)
+          print(f'Original V8 verified: {len(data)} bytes SHA-256={actual}')
+          PY
+      - name: Install screenshot dependencies
+        shell: bash
+        run: |
+          npm install --prefix tests/agent-v8 --no-save --no-package-lock playwright sharp
+          ./tests/agent-v8/node_modules/.bin/playwright install --with-deps chromium
+      - name: Render actual V8 and validate scenes
+        shell: bash
+        run: node tests/agent-v8/capture.mjs
+      - name: Save original browser captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-v8-actual-browser-screens
+          path: screenshots/
+          if-no-files-found: warn
+          retention-days: 1
