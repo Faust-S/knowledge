@@ -250,7 +250,7 @@ class QualitativeAKIS:
         last = -1
         for ev in events:
             _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
-             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref"}, "EVENT")
+             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref", "interest_valid_until"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -525,6 +525,14 @@ class QualitativeAKIS:
             report["participation_cost_channel"] = ev.get("economic_channel")
             report["source_authentication"] = "MODEL_ONLY_DECLARED_UNVERIFIED"
         if action == "interest_update" and report["outcome"] == "APPLIED":
+            if (self.formation_policy is not None and
+                    self.formation_policy.design.enforce_model_result_conditioned_interests):
+                report["interest_relation_revision"] = ev.get("cooperation_source_revision")
+                report["interest_pilot_work"] = ev.get("pilot_work")
+                report["interest_pilot_result_ref"] = ev.get("pilot_result_ref")
+                report["interest_pilot_decision_at"] = ev.get("pilot_decision_at")
+                report["interest_valid_until"] = ev.get("interest_valid_until")
+                report["interest_remains_individual_unverified_claim"] = True
             report["interest_source_revision"] = ev.get("source_revision")
             report["interest_willingness"] = ev.get("new_willingness")
             report["interest_outside_option"] = ev.get("new_outside_option")
@@ -582,6 +590,9 @@ class QualitativeAKIS:
                 report["cooperation_relation_source"] = "MODEL_ONLY_DECLARED"
         if action == "request" and ev.get("cooperation_link") is not None:
             report["requested_cooperation_link"] = ev.get("cooperation_link")
+            report["requested_cooperation_source_revision"] = ev.get(
+                "cooperation_source_revision"
+            )
         if action == "request" and ev.get("pilot_work") is not None:
             report["pilot_work"] = ev.get("pilot_work")
             report["pilot_source"] = "ORIGINAL_ACCEPTED_RESULT_AND_OWNER_EVALUATIONS_ONLY"
@@ -851,6 +862,12 @@ class QualitativeAKIS:
             if (not isinstance(reference, str) or
                     not reference.startswith("model://") or len(reference) <= 8 or len(reference) > 180):
                 raise BlockedDecision("COOPERATION_INTEREST_MODEL_SOURCE_REQUIRED")
+            if self.formation_policy is not None:
+                issue = self.formation_policy.review_original_interest_event(
+                    self, ev, at
+                )
+                if issue != "NONE":
+                    raise BlockedDecision(issue)
         elif a == "commit":
             if actor != self.institution.operator:
                 raise BlockedDecision("OPERATOR_RECORDING_MANDATE_REQUIRED")

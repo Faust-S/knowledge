@@ -83,6 +83,7 @@ class GeneralSystemDesign:
     enforce_model_formation_agent_review: bool = False
     enforce_model_formation_lifecycle: bool = False
     enforce_model_result_conditioned_goals: bool = False
+    enforce_model_result_conditioned_interests: bool = False
 
     @property
     def source_times(self) -> tuple[int, ...]:
@@ -760,6 +761,151 @@ class ModelFormationPolicy:
         # enforce any owner's own PAUSED_NEW_WORK decision.
         return "NONE"
 
+    def _interest_pilot(self, state: Any, work: Any, at: int):
+        """Resolve ORIGINAL accepted pilot from the second Work's request."""
+        requests = [
+            row for row in state.trace
+            if row.get("action") == "request"
+            and row.get("outcome") == "APPLIED" and row.get("work") == work.key
+            and type(row.get("at")) is int and row["at"] < at
+        ]
+        if len(requests) != 1:
+            return "FORMATION_INTEREST_ORIGINAL_FOLLOWUP_REQUEST_REQUIRED", None, None
+        request = requests[0]
+        pilot = state.works.get(request.get("pilot_work"))
+        if (pilot is None or pilot.key not in work.requires_accepted
+                or pilot.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"):
+            return "FORMATION_INTEREST_ACCEPTED_PILOT_REQUIRED", None, None
+        link_id = request.get("requested_cooperation_link")
+        if not any(link.key == link_id and
+                   work.key in link.works and pilot.key in link.works
+                   for link in state.cooperation_links):
+            return "FORMATION_INTEREST_ORIGINAL_LINK_REQUIRED", None, None
+        reason, decision = self._original_result_decision(state, pilot, at)
+        if reason != "NONE":
+            return reason, None, None
+        if decision["action"] != "accept":
+            return "FORMATION_INTEREST_ACCEPTED_PILOT_REQUIRED", None, None
+        return "NONE", (pilot, decision), request
+
+    def _original_owner_interest(self, state: Any, work: Any,
+                                 actor: str, at: int, *,
+                                 current_event: Mapping[str, Any] | None = None) -> str:
+        """An independent principal's interest may REFUSE a new obligation.
+
+        Model economic preference does not establish actual outside profit.
+        An old consent cannot bypass a later independent change of position.
+        """
+        reason, context, request = self._interest_pilot(state, work, at)
+        if reason != "NONE":
+            return reason
+        pilot, decision = context
+        relation = request["requested_cooperation_link"]
+        principals = self._resource_owners(state, pilot) | {pilot.customer}
+        if actor not in principals:
+            return "FORMATION_INTEREST_NEW_PARTY_NEEDS_SEPARATE_PILOT_REVIEW"
+        assessments = [
+            row for row in state.trace
+            if row.get("action") == "participation_status"
+            and row.get("outcome") == "APPLIED" and row.get("actor") == actor
+            and row.get("participation_link") == relation
+            and row.get("evaluated_work") == pilot.key
+            and row.get("evaluated_result_ref") == pilot.result_ref
+            and row.get("evaluated_decision_at") == decision["at"]
+            and row.get("org_revision") == state.institution.revision
+            and type(row.get("at")) is int and row["at"] < at
+        ]
+        if not assessments:
+            return "FORMATION_INTEREST_INDEPENDENT_RESULT_EVALUATION_REQUIRED"
+        latest_assessment = assessments[-1]
+        if (latest_assessment.get("participation_value") != "OPEN_TO_NEW_WORK"
+                or not self._source_active(
+                    8, actor, latest_assessment.get("formation_phase_source_ref"),
+                    state.institution.revision, at)):
+            return "FORMATION_INTEREST_OWNER_EVALUATION_NO_LONGER_CURRENT"
+        if current_event is not None:
+            ev = current_event
+            if (ev.get("pilot_work") != pilot.key
+                    or ev.get("pilot_result_ref") != pilot.result_ref
+                    or ev.get("pilot_decision_at") != decision["at"]):
+                return "FORMATION_INTEREST_ORIGINAL_RESULT_BINDING_REQUIRED"
+            source = ev.get("interest_evidence_ref")
+            if (not isinstance(source, str) or
+                    not source.startswith("model://" + actor + "/") or
+                    len(source) <= len("model://" + actor + "/")):
+                return "FORMATION_INTEREST_OWNER_SOURCE_REQUIRED"
+            expiry = ev.get("interest_valid_until")
+            if type(expiry) is not int or not at < expiry <= 10000:
+                return "FORMATION_INTEREST_SOURCE_EXPIRY_REQUIRED"
+            return "NONE"
+        claims = [
+            row for row in state.trace
+            if row.get("action") == "interest_update"
+            and row.get("outcome") == "APPLIED"
+            and row.get("work") == work.key and row.get("actor") == actor
+            and row.get("interest_source_revision") == work.source_revision
+            and row.get("org_revision") == state.institution.revision
+            and row.get("interest_relation") == relation
+            and row.get("interest_relation_revision") ==
+                request.get("requested_cooperation_source_revision")
+            and row.get("interest_pilot_work") == pilot.key
+            and row.get("interest_pilot_result_ref") == pilot.result_ref
+            and row.get("interest_pilot_decision_at") == decision["at"]
+            and type(row.get("at")) is int and row["at"] < at
+        ]
+        if not claims:
+            return "FORMATION_INTEREST_INDEPENDENT_OWNER_POSITION_REQUIRED"
+        latest = claims[-1]
+        if (type(latest.get("interest_valid_until")) is not int or
+                at >= latest["interest_valid_until"]):
+            return "FORMATION_INTEREST_OWNER_SOURCE_EXPIRED"
+        if latest.get("interest_willingness") != "WILLING":
+            return ("FORMATION_INTEREST_ORIGINAL_OWNER_DECLINES"
+                    if latest.get("interest_willingness") == "DECLINES"
+                    else "FORMATION_INTEREST_ORIGINAL_OWNER_UNDECIDED")
+        if any(
+            row.get("action") == "participation_status"
+            and row.get("outcome") == "APPLIED" and row.get("actor") == actor
+            and row.get("participation_link") == relation
+            and type(row.get("at")) is int and latest["at"] < row["at"] < at
+            for row in state.trace
+        ):
+            return "FORMATION_INTEREST_OWNER_RECONSIDERED_AFTER_POSITION"
+        # The consent is still the ORIGINAL independent legal/model action,
+        # not an economic assertion. Require a NEW consent after the owner's
+        # latest preference to prevent laundering earlier consent.
+        if not any(
+            row.get("action") == "consent" and row.get("outcome") == "APPLIED"
+            and row.get("work") == work.key and row.get("actor") == actor
+            and row.get("org_revision") == state.institution.revision
+            and type(row.get("at")) is int and latest["at"] < row["at"] < at
+            for row in state.trace
+        ):
+            return "FORMATION_INTEREST_CONSENT_MUST_FOLLOW_LATEST_OWNER_POSITION"
+        return "NONE"
+
+    def review_original_interest_event(self, state: Any,
+                                      event: Mapping[str, Any], at: int) -> str:
+        if not self.design.enforce_model_result_conditioned_interests:
+            return "NONE"
+        work = state.works.get(event.get("work"))
+        if work is None or not work.requires_accepted:
+            return "NONE"
+        return self._original_owner_interest(
+            state, work, event["actor"], at, current_event=event
+        )
+
+    def _all_original_interests_ready(self, state: Any,
+                                      work: Any, at: int) -> str:
+        if (not self.design.enforce_model_result_conditioned_interests or
+                not work.requires_accepted):
+            return "NONE"
+        for actor in sorted(self._resource_owners(state, work) | {work.customer}):
+            reason = self._original_owner_interest(state, work, actor, at)
+            if reason != "NONE":
+                return reason
+        return "NONE"
+
     def before_commit(self, state: Any, work: Any, at: int,
                       *, include_agent: bool = True) -> str:
         for phase, owners in (
@@ -785,7 +931,11 @@ class ModelFormationPolicy:
                 if reason != "NONE":
                     return reason
         if include_agent and self.design.enforce_model_formation_agent_review:
-            return self._phase_six_ready(state, work, at)
+            reason = self._phase_six_ready(state, work, at)
+            if reason != "NONE":
+                return reason
+        if include_agent:
+            return self._all_original_interests_ready(state, work, at)
         return "NONE"
 
 
@@ -802,7 +952,8 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
                                    "enforce_model_formation_context_code",
                                    "enforce_model_formation_agent_review",
                                    "enforce_model_formation_lifecycle",
-                                   "enforce_model_result_conditioned_goals"}):
+                                   "enforce_model_result_conditioned_goals",
+                                   "enforce_model_result_conditioned_interests"}):
         raise GeneralSystemInputError("INVALID_GENERAL_DESIGN_FIELDS")
     enforce_model_code = raw.get("enforce_model_org_code", False)
     if type(enforce_model_code) is not bool:
@@ -830,6 +981,11 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
         raise GeneralSystemInputError("GENERAL_MODEL_RESULT_GOAL_GATE_MUST_BE_BOOLEAN")
     if enforce_emergent and not enforce_lifecycle:
         raise GeneralSystemInputError("FORMATION_EMERGENT_NEED_REQUIRES_RESULT_LIFECYCLE")
+    enforce_interests = raw.get("enforce_model_result_conditioned_interests", False)
+    if type(enforce_interests) is not bool:
+        raise GeneralSystemInputError("GENERAL_MODEL_RESULT_INTEREST_GATE_MUST_BE_BOOLEAN")
+    if enforce_interests and not enforce_emergent:
+        raise GeneralSystemInputError("FORMATION_INTEREST_REQUIRES_RESULT_CONDITIONED_GOALS")
     configurations = {x["id"] for x in cat["taxonomy"]["subject_configurations"]}
     config = _s(raw["configuration"], "CONFIGURATION")
     if config not in configurations:
@@ -936,7 +1092,8 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
     return GeneralSystemDesign(config, dict(morphology), parsed, cat,
                                enforce_model_code, enforce_formation,
                                enforce_institutional, enforce_agent,
-                               enforce_lifecycle, enforce_emergent)
+                               enforce_lifecycle, enforce_emergent,
+                               enforce_interests)
 
 
 def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
@@ -1220,6 +1377,27 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
             "no_new_original_action_by_policy": True,
         },
         "formation_phases": phase_rows,
+        "result_conditioned_owner_interests": {
+            "opted_in": design.enforce_model_result_conditioned_interests,
+            "original_individual_interest_claims": sum(
+                row.get("action") == "interest_update" and
+                row.get("outcome") == "APPLIED" and
+                row.get("interest_pilot_work") is not None
+                for row in state.trace
+            ),
+            "result_conditioned_owner_declines": sum(
+                row.get("action") == "interest_update" and
+                row.get("outcome") == "APPLIED" and
+                row.get("interest_pilot_work") is not None and
+                row.get("interest_willingness") == "DECLINES"
+                for row in state.trace
+            ),
+            "outside_option_preferences_not_verified_profit": True,
+            "real_market_price_or_owner_profit_proven": False,
+            "old_accepted_obligations_immutable": True,
+            "all_organizational_forms_executable": False,
+            "general_interest_learning_dynamics_complete": False,
+        },
         "result_conditioned_owner_goals": {
             "opted_in": design.enforce_model_result_conditioned_goals,
             "owner_origination_events": sum(
