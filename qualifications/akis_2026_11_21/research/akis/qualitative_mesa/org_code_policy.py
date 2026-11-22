@@ -566,7 +566,7 @@ def qualify_model_code_apply(state: Any, event: Mapping[str, Any],
         raise OrgCodeBlocked("OC_MODEL_EDITION_NEW_ORIGINAL_RESOURCE_OWNER_REQUIRED")
     # Independently recheck still-applicable membership, not just the
     # operator's earlier proposed change.
-    if not any(
+    if not role_change and not any(
         row.get("action") == "cooperation_membership_apply"
         and row.get("outcome") == "APPLIED"
         and row.get("change_id") == proposal.get("original_cooperation_change_id")
