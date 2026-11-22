@@ -642,6 +642,19 @@ class QualitativeAKIS:
                 report["technology_route_decision_source_ref"] = ev[
                     "technology_route_decision_source_ref"
                 ]
+                # Associate this original consultation with its SOURCE-SCOPED
+                # coalition for observable transaction-coordination exposure.
+                # No financial cost or additional cooperative membership.
+                route_proposal = next(
+                    row for row in self.trace
+                    if row.get("action") == "technology_route_propose"
+                    and row.get("outcome") == "APPLIED"
+                    and row.get("technology_route_id") == ev["technology_route_id"]
+                )
+                report["cooperation_link"] = route_proposal["cooperation_link"]
+                report["cooperation_source_revision"] = route_proposal[
+                    "cooperation_source_revision"
+                ]
         if action in {"start_operation", "complete_operation"}:
             report["operation"] = ev.get("operation")
         if action == "assess_result_quality" and report["outcome"] == "APPLIED":

@@ -234,6 +234,18 @@ def test_r1t3_full_original_cross_owner_work_operations_handoff_quality_accepted
     assert private[0]["real_production_quality_or_economic_gain_verified"] is False
     assert out["works"]["w1"]["consenting_principals"] == ["a", "b"]
     assert out["profit"]["system_increment"] == "UNKNOWN"
+    relation = next(
+        row for row in out["cooperation"]["relations"]
+        if row["link"] == "l2"
+    )
+    observed = relation["components"]["Э"][
+        "transaction_coordination_exposures"
+    ]
+    assert observed["observed_coordination_events"][
+        "RENEGOTIATION_AND_ADAPTATION"
+    ]["applied"] >= 4  # One route proposal and three own source responses.
+    assert observed["real_transaction_cost_amount"] is None
+    assert observed["event_counts_are_monetary_costs"] is False
     assert simulate(deepcopy(d)) == out
 
 
