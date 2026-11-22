@@ -4,6 +4,7 @@ on:
     branches:
       - work/2026-11-10-activity-base-anonymizer
       - work/2026-11-22-activity-v7-native
+      - work/2026-11-22-activity-v7-dashboard-flow
     paths:
       - modules/activity-base-anonymizer/**
       - desktop/**
