@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 05282a41c534f1c19a5e96bd3e4cfc640f5ee113
-      SUBJECT_SHA: 2179aaa240f97e0f06709a910ddbab486656ad84
+      SITE_SHA: 695b31212e5761da13e50aadc1413b4bce12a74c
+      SUBJECT_SHA: 566d3e897281938be8339938f2e96c958914ab09
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
       CI: "true"
@@ -31,14 +31,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 2179aaa240f97e0f06709a910ddbab486656ad84
+          ref: 566d3e897281938be8339938f2e96c958914ab09
           path: subject
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 05282a41c534f1c19a5e96bd3e4cfc640f5ee113
+          ref: 695b31212e5761da13e50aadc1413b4bce12a74c
           path: site
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
@@ -56,7 +56,7 @@ jobs:
           test "$(git -C subject rev-parse HEAD)" = "$SUBJECT_SHA"
           test "$(git -C site rev-parse HEAD)" = "$SITE_SHA"
           test "$(git -C t2 rev-parse HEAD)" = "$T2_SHA"
-          for file in service-subject-protocols.ts service-subject-next500-batch-a.ts service-subject-apartment-acceptance.ts service-subject-fns-reconciliation.ts service-subject-ozon-product-card.ts service-subject-next500-batch-b1.ts service-subject-next500-batch-b2.ts; do
+          for file in service-subject-protocols.ts service-subject-next500-batch-a.ts service-subject-apartment-acceptance.ts service-subject-fns-reconciliation.ts service-subject-ozon-product-card.ts service-subject-next500-batch-b1.ts service-subject-next500-batch-b2.ts service-subject-legacy-manual-first.ts; do
             cmp "subject/src/domain/$file" "site/src/domain/$file"
           done
           for file in services.ts service-next500-cards.ts service-next500-five-b.ts service-subject-evidence-projection.ts; do
@@ -90,6 +90,7 @@ jobs:
             scripts/tests/d07-next500-five-professional.test.mjs \
             scripts/tests/d07-next500-five-b-professional.test.mjs \
             scripts/tests/d07-subject-evidence-projection.test.mjs \
+            scripts/tests/d07-existing-socket-rug-upgrade.test.mjs \
             scripts/tests/d07-it-data-recovery-professional.test.mjs \
             scripts/tests/d07-marketing-contextual-advertising-professional.test.mjs \
             > "$RUNNER_TEMP/d07-next500-tests.private.log" 2>&1 || {
