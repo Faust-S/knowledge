@@ -65,6 +65,21 @@ export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
        !Number.isSafeInteger(request.id)||request.id<1||
        !Array.isArray(request.args)||request.args.length>4)return;
     const {id,method,args}=request;
+    // A strictly finite progress vocabulary for one READ-ONLY operation.
+    // No grant, resource ID, exception, native path or object metadata
+    // ever crosses the UI-origin MessagePort in this diagnostic.
+    const readStages=new Set([
+      "SIGNED_FACADE","SIGNED_KERNEL_READ","SUBJECT_CONTEXT",
+      "SIGNED_CONTEXT_SELECTED","SIGNED_ACTION","SIGNED_ACTION_SELECTED",
+      "SIGNED_DIGEST","SIGNED_DIGEST_DONE","SIGNED_JIT","SIGNED_JIT_RETURNED",
+      "SIGNED_CONTEXT_RECHECK","SIGNED_CONTEXT_RECHECKED",
+      "ORIGINAL_T2_KERNEL_CALL","ORIGINAL_T2_KERNEL_RETURNED",
+    ]);
+    const report=stage=>{
+      if(method!=="getWorkspace"||!readStages.has(stage)||!valid())return;
+      try{port.postMessage({schema:SCHEMA,kind:"progress",id,stage});}
+      catch{/* Observability never changes signed JIT */}
+    };
     if(pending.has(id)||pending.size>=16){
       if(valid())port.postMessage({schema:SCHEMA,kind:'error',id,
         code:'T3_D1_KERNEL_PORT_BUSY'});
@@ -138,7 +153,8 @@ export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
         port.postMessage({schema:SCHEMA,kind:'result',id,result});
         return;
       }
-      const signed=await createSignedFacade(method);
+      report("SIGNED_FACADE");
+      const signed=await createSignedFacade(method,report);
       if(!valid()||captured!==sequence)
         deny('T3_D1_ORIGINAL_KERNEL_CONTEXT_CHANGED');
       if(!signed||!Object.hasOwn(signed,method)||
@@ -146,6 +162,7 @@ export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
         deny('T3_D1_SIGNED_KERNEL_FACADE_REQUIRED');
       // Signed facade MUST invoke the original Control JIT on the final hop.
       // A sender is never allowed to select a native owner or raw session.
+      report("SIGNED_KERNEL_READ");
       const result=await signed[method](...args);
       if(!valid()||captured!==sequence)
         deny('T3_D1_ORIGINAL_KERNEL_CONTEXT_CHANGED');
@@ -186,6 +203,13 @@ export function createIsolatedKernelClient({port,isActive=()=>true,timeoutMs=150
     if(!Number.isSafeInteger(response.id))return;
     const pending=waiting.get(response.id);
     if(!pending)return;
+    if(response.kind==="progress"){
+      if(pending.method==="getWorkspace"&&
+         typeof response.stage==="string"&&
+         /^[A-Z][A-Z0-9_]{4,39}$/.test(response.stage))
+        pending.stage=response.stage;
+      return;
+    }
     waiting.delete(response.id);clearTimeout(pending.timer);
     if(response.kind==='result')pending.resolve(response.result);
     else if(response.kind==='error')pending.reject(fail(
@@ -233,12 +257,20 @@ export function createIsolatedKernelClient({port,isActive=()=>true,timeoutMs=150
       const operationTimeout=uncertainCode?30*60*1000:
         method==='nativeD7Request'||method==='nativeD6Request'?120000:timeoutMs;
       return new Promise((resolve,reject)=>{
+        // The one read-only request owns a finite local stage. A timeout
+        // does not imply a denied grant, missing Workspace or safe write.
+        let waitingStage=null;
         const timer=setTimeout(()=>{
           waiting.delete(id);
           reject(fail(uncertainCode??
-            'T3_D1_ISOLATED_KERNEL_TIMEOUT'));
+            (method==="getWorkspace"&&waitingStage
+              ?'T3_D1_READ_TIMEOUT_'+waitingStage
+              :'T3_D1_ISOLATED_KERNEL_TIMEOUT')));
         },operationTimeout);
-        waiting.set(id,{resolve,reject,timer,uncertainCode});
+        const state={resolve,reject,timer,uncertainCode,method,
+          get stage(){return waitingStage;},
+          set stage(value){waitingStage=value;}};
+        waiting.set(id,state);
         try{port.postMessage({schema:SCHEMA,kind:'call',id,method,args});}
         catch{waiting.delete(id);clearTimeout(timer);
           reject(fail('T3_D1_ISOLATED_KERNEL_MESSAGE_INVALID'));}
