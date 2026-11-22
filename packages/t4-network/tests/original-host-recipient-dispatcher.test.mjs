@@ -312,3 +312,35 @@ test('failure to persist original T3 checkpoint stops before cursor advancement'
   assert.equal(f.read().cursor.lastEventId,f.initialCursor.lastEventId);
   assert.equal(f.read().writes.objects,1);
 });
+
+test('original checkpoint survives lost Host cursor CAS and resumes without new object commit',async()=>{
+  const f=await fixture();
+  const original=f.ports.persistOriginalVerifiedCursor;
+  let loseNext=true;
+  f.ports.persistOriginalVerifiedCursor=async value=>{
+    if(loseNext){loseNext=false;return false;}
+    return original(value);
+  };
+  await assert.rejects(run(f,1),
+    e=>e.code==='RECIPIENT_BATCH_STOPPED'&&
+      e.details.originalCode==='RECIPIENT_ORIGINAL_CURSOR_NOT_PERSISTED');
+  assert.equal(f.checkpoints.size,1);
+  assert.equal(f.read().writes.objects,1);
+  assert.equal(f.read().cursor.lastEventId,f.initialCursor.lastEventId);
+  const resumed=await run(f,1);
+  assert.equal(resumed.results[0].state,'ORIGINAL_CHECKPOINT_VERIFIED');
+  assert.equal(resumed.processedCount,1);
+  assert.equal(f.read().writes.objects,1);
+  assert.equal(f.read().cursor.lastEventId,f.plan[1].sourceCursorAfter.lastEventId);
+});
+test('changed original Asset bytes after lost recipient ACK block reconciliation and every retry',async()=>{
+  const f=await fixture();await run(f,1);
+  f.loseAssetAck();await assert.rejects(run(f,1),err('RECIPIENT_BATCH_STOPPED'));
+  f.read().asset.bytes=Buffer.from('corrupted after original write');
+  await assert.rejects(run(f,1),
+    e=>e.code==='RECIPIENT_BATCH_STOPPED'&&
+      e.details.originalCode==='RECIPIENT_ORIGINAL_ASSET_STATE_DIVERGED'&&
+      e.details.automaticRetryAllowed===false);
+  assert.equal(f.read().writes.assets,1);
+  assert.equal(f.checkpoints.size,1);
+});
