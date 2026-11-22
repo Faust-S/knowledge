@@ -1,0 +1,207 @@
+name: IWXA Russian study paths and static main release
+on:
+  push:
+    branches:
+      - qa/2026-11-22-projects-essays-01-02
+    paths:
+      - .github/workflows/qa-iwxa-study-paths-static-main.yml
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-study-paths-static-main
+  cancel-in-progress: false
+jobs:
+  validate-build-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: main
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: true
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Verify publication contracts, test regressions, typecheck
+        working-directory: .private/site
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo PRIVATE_MAIN_SOURCE_SHA=$(git rev-parse HEAD)
+          bun install --frozen-lockfile > /tmp/iwxa-navigation-install.log 2>&1 || { tail -n 65 /tmp/iwxa-navigation-install.log; exit 1; }
+          node --import tsx --test scripts/check-editorial-navigation.test.ts scripts/check-editorial-series.test.ts scripts/check-projects-and-first-essays.test.ts scripts/check-deep-essays-03-04.test.ts scripts/check-essays-05-06.test.ts scripts/check-essays-07-08.test.ts scripts/check-essays-09-10.test.ts scripts/check-essays-11-12.test.ts
+          echo IWXA_NAVIGATION_ALL_TESTS_PASS
+          bunx tsc --noEmit > /tmp/iwxa-navigation-typecheck.log 2>&1 || { tail -n 100 /tmp/iwxa-navigation-typecheck.log; exit 1; }
+          echo IWXA_NAVIGATION_TYPES_PASS
+      - name: Build changed Russian public paths, preserve untouched pages and locales
+        working-directory: .private/site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+          IWXA_PRERENDER_ROUTES: /,/projects/,/ecosystem/,/projects/iwxa/,/projects/artbazy/,/projects/bazmed/,/projects/advice-logistics/,/articles/zachem-dvenadcat-napravleniy/,/articles/ot-logisticheskogo-operatora-k-akis/,/articles/chto-sohranyaetsya-pri-peredache-raboty/,/articles/ot-porucheniya-do-priznaniya/,/articles/shest-programm-vokrug-zakaza/,/articles/kogda-kooperaciya-okupaetsya/,/articles/learn-samostoyatelnyj-povtor/,/articles/club-komu-prinadlezhit-vklad/,/articles/artbazy-ot-obsledovaniya-k-akis/,/articles/bazmed-istoriya-nablyudeniya/,/articles/cehovod-cena-i-priemka-partii/,/articles/komplektovod-zamena-pozicii/,/tools/uslugovod/,/tools/market-ops/,/tools/
+        run: |
+          set -euo pipefail
+          cp -a dist-static /tmp/iwxa-static-original
+          bunx tsx scripts/build-static.ts > /tmp/iwxa-navigation-build.log 2>&1 || { tail -n 140 /tmp/iwxa-navigation-build.log; exit 1; }
+          echo RUSSIAN_PUBLIC_PAGES_PRERENDERED
+          rsync -a --ignore-existing /tmp/iwxa-static-original/ dist-static/
+          echo UNMODIFIED_STATIC_PATHS_RETAINED
+          for locale in en fr de pt zh es ar; do
+            if [ -d "/tmp/iwxa-static-original/$locale" ]; then
+              diff -qr "/tmp/iwxa-static-original/$locale" "dist-static/$locale" > "/tmp/iwxa-locale-$locale.log" || { tail -n 40 "/tmp/iwxa-locale-$locale.log"; exit 1; }
+              echo UNCHANGED_LOCALE_PASS=$locale
+            fi
+          done
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const routes = [
+            '/', '/projects/', '/ecosystem/', '/projects/iwxa/',
+            '/projects/artbazy/', '/projects/bazmed/', '/projects/advice-logistics/',
+            '/articles/zachem-dvenadcat-napravleniy/',
+            '/articles/ot-logisticheskogo-operatora-k-akis/',
+            '/articles/chto-sohranyaetsya-pri-peredache-raboty/',
+            '/articles/ot-porucheniya-do-priznaniya/',
+            '/articles/shest-programm-vokrug-zakaza/',
+            '/articles/kogda-kooperaciya-okupaetsya/',
+            '/articles/learn-samostoyatelnyj-povtor/',
+            '/articles/club-komu-prinadlezhit-vklad/',
+            '/articles/artbazy-ot-obsledovaniya-k-akis/',
+            '/articles/bazmed-istoriya-nablyudeniya/',
+            '/articles/cehovod-cena-i-priemka-partii/',
+            '/articles/komplektovod-zamena-pozicii/',
+            '/tools/uslugovod/', '/tools/market-ops/', '/tools/',
+          ];
+          const read = u => fs.readFileSync(path.join('dist-static',u,'index.html'),'utf8');
+          const homepage=read('/');
+          const catalogue=read('/projects/');
+          const ecosystem=read('/ecosystem/');
+          const iwxa=read('/projects/iwxa/');
+          if(!homepage.includes('/projects/')||!homepage.includes('/ecosystem/'))throw Error('HOME_PATHS_MISSING');
+          if(!catalogue.includes('Интерактивное исследование')||!catalogue.includes('Ивикса'))throw Error('PROJECT_REBUILD_MISSING');
+          if(catalogue.includes('Действующие бизнес-проекты'))throw Error('OLD_PROJECT_PAGE_STILL_ACTIVE');
+          if(!ecosystem.includes('Интерактивное исследование'))throw Error('ECOSYSTEM_STUDIES_MISSING');
+          if((iwxa.match(/Открыть исследование/g)||[]).length!==12)throw Error('NOT_TWELVE_STUDIES');
+          for(const route of routes){
+            const html=read(route);
+            if(!html.includes('<h1')||html.length<2500)throw Error('EMPTY_PUBLIC_PAGE '+route);
+            if(!html.includes('https://iwxa.ru'+route))throw Error('MISSING_CANONICAL '+route);
+            for(const match of html.matchAll(/(?:href|src)="(\/assets\/[^"]+)"/g)){
+              const asset=path.join('dist-static',match[1]);
+              if(!fs.existsSync(asset))throw Error('REFERENCED_ASSET_MISSING '+route+' '+match[1]);
+            }
+            console.log('STATIC_PATH_PASS',route,html.length);
+          }
+          for(const [route,href] of [
+            ['/projects/artbazy/','/articles/artbazy-ot-obsledovaniya-k-akis/'],
+            ['/projects/bazmed/','/articles/bazmed-istoriya-nablyudeniya/'],
+            ['/projects/advice-logistics/','/articles/ot-logisticheskogo-operatora-k-akis/'],
+          ]){
+            if(!read(route).includes(href))throw Error('CARD_STUDY_LINK_MISSING '+route);
+          }
+          const map=fs.readFileSync('dist-static/sitemap.xml','utf8');
+          if(!map.includes('/articles/komplektovod-zamena-pozicii/')||!map.includes('/projects/iwxa/'))throw Error('SITEMAP_OLD');
+          console.log('RUSSIAN_STATIC_NAVIGATION_PASS',routes.length);
+          JS
+      - name: Test published static HTML navigation in real Chrome on desktop and mobile
+        working-directory: .private/site
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4174 --bind 127.0.0.1 --directory dist-static >/tmp/iwxa-static-server.log 2>&1 &
+          echo $! > /tmp/iwxa-static-server.pid
+          for i in $(seq 1 55); do
+            if curl -fsS http://127.0.0.1:4174/projects/ >/dev/null; then break; fi
+            sleep 1
+          done
+          node --input-type=module <<'JS'
+          import puppeteer from 'puppeteer';
+          const browser=await puppeteer.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox','--disable-dev-shm-usage']});
+          let checks=0;
+          try{
+            const page=await browser.newPage();
+            let errors=[];
+            page.on('pageerror',e=>errors.push(e.message));
+            for(const width of [1440,375]){
+              await page.setViewport({width,height:width===375?812:900,deviceScaleFactor:1});
+              for(const target of [
+                '/projects/',
+                '/ecosystem/',
+                '/projects/iwxa/',
+                '/projects/artbazy/',
+                '/projects/bazmed/',
+                '/projects/advice-logistics/',
+                '/articles/artbazy-ot-obsledovaniya-k-akis/',
+              ]){
+                errors=[];
+                const response=await page.goto('http://127.0.0.1:4174'+target,{waitUntil:'domcontentloaded',timeout:55000});
+                if(!response?.ok())throw Error('STATIC_HTTP '+target+' '+response?.status());
+                const visible=await page.evaluate(()=>({
+                  h1:document.querySelector('h1')?.textContent?.trim(),
+                  horizontal:document.documentElement.scrollWidth-innerWidth,
+                }));
+                if(!visible.h1||visible.horizontal>3)throw Error('STATIC_LAYOUT '+width+' '+target+' '+JSON.stringify(visible));
+                if(target==='/projects/'){
+                  const links=await page.$$eval('.pdir-card__study',a=>a.length);
+                  if(links!==7)throw Error('PROJECT_TO_STUDY_LINKS '+links);
+                  if(await page.$$eval('.pdir-card__main',a=>a.length)<10)throw Error('ORIGINAL_PRODUCT_LINKS_GONE');
+                }
+                if(target==='/ecosystem/'){
+                  const links=await page.$$eval('article[id] a[href^="/articles/"]',a=>a.length);
+                  if(links!==8)throw Error('ECOSYSTEM_STUDY_LINKS '+links);
+                }
+                if(target==='/projects/iwxa/'){
+                  const links=await page.$$eval('.iwproj-publications a',a=>a.length);
+                  if(links!==12)throw Error('TWELVE_ARTICLES_MISSING '+links);
+                }
+                if(errors.length)throw Error('STATIC_JS_ERROR '+target+' '+errors.join('|'));
+                console.log('STATIC_BROWSER_PASS',width,target);
+                checks++;
+              }
+              const project=await page.goto('http://127.0.0.1:4174/projects/',{waitUntil:'domcontentloaded'});
+              await page.waitForSelector('.pdir-card__study[href="/articles/artbazy-ot-obsledovaniya-k-akis/"]');
+              await page.click('.pdir-card__study[href="/articles/artbazy-ot-obsledovaniya-k-akis/"]');
+              await page.waitForFunction(()=>location.pathname==='/articles/artbazy-ot-obsledovaniya-k-akis/',{timeout:35000});
+              const h1=await page.$eval('h1',e=>e.textContent);
+              if(!h1.includes('ArtBazy'))throw Error('USER_JOURNEY_STUDY_NOT_OPENED '+h1);
+              await page.click('.essay-head__breadcrumbs a[href="/projects/iwxa/"]');
+              await page.waitForFunction(()=>location.pathname==='/projects/iwxa/',{timeout:35000});
+              console.log('USER_JOURNEY_ROUNDTRIP_PASS',width);
+            }
+            console.log('PUBLISHED_HTML_CHROME_PASS',checks);
+          }finally{await browser.close();}
+          JS
+      - name: Commit complete static output on private IWXA main
+        working-directory: .private/site
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --name-only --diff-filter=D -- dist-static | grep -q .; then
+            echo DELETED_OLD_STATIC_FILES_NOT_ALLOWED
+            exit 1
+          fi
+          git add -A dist-static public/sitemap.xml
+          echo INDEXED_RELEASE_FILES=$(git diff --cached --name-only | wc -l)
+          if git diff --cached --quiet; then
+            echo STATIC_MAIN_ALREADY_CURRENT
+            exit 0
+          fi
+          git config user.name "IWXA Public QA"
+          git config user.email "140275131+Faust-S@users.noreply.github.com"
+          git commit -m "build(site): publish linked research journeys and renewed Russian static pages" > /tmp/iwxa-publish-commit.log 2>&1 || { tail -n 70 /tmp/iwxa-publish-commit.log; exit 1; }
+          echo FINAL_STATIC_RELEASE_COMMIT=$(git rev-parse HEAD)
+          git push origin HEAD:refs/heads/main > /tmp/iwxa-publish-push.log 2>&1 || { tail -n 30 /tmp/iwxa-publish-push.log; exit 1; }
+          echo PRIVATE_MAIN_STATIC_PUSH_SUCCESS
+      - name: Purge private checkout, temporary build, and credentials
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/iwxa-static-server.pid ]; then pid=$(cat /tmp/iwxa-static-server.pid); kill "$pid" 2>/dev/null || true; fi
+          rm -rf .private/site /tmp/iwxa-static-original
+          rm -f /tmp/iwxa-*.log /tmp/iwxa-static-server.pid
+          test ! -e .private/site && echo PRIVATE_SOURCE_PURGED
