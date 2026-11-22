@@ -99,9 +99,10 @@ export function ActivityWorkspace({brandSrc,data,actions,legacy}:ActivityWorkspa
    while(board.some(x=>x.id===id))id='db-custom-'+(idCounter.current++).toString(36);
    setBoard(rows=>[...rows,{id,kind,source:ACTIVITY_WIDGETS[kind].sources[0],size:'half'}]);
    setEditing(true);setLibrary(false);setPage('Главная');setWidgetConfig(id);};
- const choose=(source:'a1'|'ocel'|'file'|'t3')=>{
+ const choose=(source:'a1'|'ocel'|'file'|'t3',keepDashboard=false)=>{
    if(source==='a1')actions.loadExample();else if(source==='ocel')actions.loadOcelExample();
-   else if(source==='file')actions.pickFile();else actions.readT3();go('Источники');
+   else if(source==='file')actions.pickFile();else actions.readT3();
+   if(!keepDashboard)go('Источники');
  };
  const t3=data.t3Review?.status==='REVIEW'?data.t3Review.review:null;
  const candidates=t3?.structural_candidate??[];
@@ -131,11 +132,11 @@ export function ActivityWorkspace({brandSrc,data,actions,legacy}:ActivityWorkspa
   const empty=<div className="activity-v7-empty-widget"><Note>{w.source==='current'
     ?DEFAULT_NOTE
     :'Источник «'+SOURCE[w.source]+'» сейчас не выбран. Результат другой базы не подставляется.'}</Note>
-    {w.source==='a1'?<button onClick={()=>choose('a1')}>Открыть A1</button>
-    :w.source==='ocel'?<button onClick={()=>choose('ocel')}>Открыть OCEL 2.0</button>
-    :w.source==='t3'?<button onClick={()=>choose('t3')}>Подключить T3</button>
+    {w.source==='a1'?<button onClick={()=>choose('a1',true)}>Открыть A1</button>
+    :w.source==='ocel'?<button onClick={()=>choose('ocel',true)}>Открыть OCEL 2.0</button>
+    :w.source==='t3'?<button onClick={()=>choose('t3',true)}>Подключить T3</button>
     :<button onClick={()=>go('Источники')}>Выбрать источник</button>}</div>;
-  if(w.kind==='sources')return <div className="activity-v7-actions"><button onClick={()=>choose('a1')}>Пример A1</button><button onClick={()=>choose('ocel')}>Пример OCEL</button><button onClick={()=>choose('file')}>JSON</button><button onClick={()=>choose('t3')}>T3</button></div>;
+  if(w.kind==='sources')return <div className="activity-v7-actions"><button onClick={()=>choose('a1',true)}>Пример A1</button><button onClick={()=>choose('ocel',true)}>Пример OCEL</button><button onClick={()=>choose('file',true)}>JSON</button><button onClick={()=>choose('t3',true)}>T3</button></div>;
   if(w.kind==='sourceStatus')return <><b>{reviewStatus==='HOLD'
      ?'HOLD: '+(data.t3Review?.code??'T3_READ_NOT_CONFIRMED')
      :reviewStatus==='STAGED'?'Черновик T3 сохранён'
@@ -153,15 +154,17 @@ export function ActivityWorkspace({brandSrc,data,actions,legacy}:ActivityWorkspa
    <button onClick={()=>go('Черновик и восстановление')}>Открыть черновик</button></>;
   if(w.kind==='release')return <><b>HOLD · выпуск закрыт</b><p>Не установлены анонимность и право на внешний обмен.</p></>;
   if(w.kind==='qualification')return <><b>Корпоративный P1: NOT_ACCEPTED</b><p>Сборка и тестовый T3 не равны установленному корпоративному доступу.</p></>;
-  if(w.kind==='localFile')return <button onClick={()=>choose('file')}>Открыть локальный JSON</button>;
+  if(w.kind==='localFile')return <button onClick={()=>choose('file',true)}>Открыть локальный JSON</button>;
   if(w.kind==='overview'){
    if(source==='a1'&&data.preview)return <Stats rows={[[data.preview.processes.length,'Процессов'],[data.preview.selected_case_count,'Траекторий'],[data.preview.role_count,'Ролей']]}/>;
    if(source==='ocel'&&data.objectEvidence)return <Stats rows={[[data.objectEvidence.object_type_count,'Объектов'],[data.objectEvidence.event_type_count,'Событий'],[data.objectEvidence.shared_event_count,'Общих событий']]}/>;
    if(source==='t3'&&t3)return <Stats rows={[[candidates.length,'Типов объектов'],[candidates.reduce((s,x)=>s+x.observed_event_kinds.length,0),'Классов'],[candidates.reduce((s,x)=>s+x.object_local_successions.length,0),'Переходов']]}/>;
    return empty;
   }
-  if(w.kind==='processes')return source==='a1'&&data.preview?<div className="activity-v7-list">{data.preview.processes.map((p,i)=><button key={p.id} onClick={()=>{setProcessIndex(i);go('Реконструкция');}}>Процесс {i+1} · {p.trace_count} траектории</button>)}</div>:empty;
-  if(w.kind==='processMap')return source==='a1'&&data.preview?<div className="activity-v7-sequence">{data.preview.processes[0]?.states.map((x,i)=><span key={x.id}><button onClick={()=>openInspector('a1:'+x.id,x.id,['Роли: '+x.roles.join(', ')])}>{x.id}</button> {i<data.preview!.processes[0].states.length-1?'→ ':''}</span>)}</div>:empty;
+  if(w.kind==='processes')return source==='a1'&&data.preview?<div className="activity-v7-list">{data.preview.processes.slice(0,6).map((p,i)=><button key={p.id} onClick={()=>{setProcessIndex(i);go('Реконструкция');}}>Процесс {i+1} · {p.trace_count} траектории</button>)}
+    {data.preview.processes.length>6?<button onClick={()=>go('Реконструкция')}>Все процессы ({data.preview.processes.length})</button>:null}</div>:empty;
+  if(w.kind==='processMap')return source==='a1'&&data.preview?<div className="activity-v7-sequence">{data.preview.processes[0]?.states.slice(0,8).map((x,i)=><span key={x.id}><button onClick={()=>openInspector('a1:'+x.id,x.id,['Роли: '+x.roles.join(', ')])}>{x.id}</button> {i<7&&i<data.preview!.processes[0].states.length-1?'→ ':''}</span>)}
+    {(data.preview.processes[0]?.states.length??0)>8?<button onClick={()=>go('Карта процессов')}>Открыть всю карту</button>:null}</div>:empty;
   if(w.kind==='ocel')return source==='ocel'&&data.objectEvidence?<Stats rows={[[data.objectEvidence.object_type_count,'Типов объектов'],[data.objectEvidence.shared_event_count,'Общих событий'],[data.objectEvidence.declared_object_link_count,'O2O-связей']]}/>:empty;
   if(w.kind==='risks'){const r=source==='a1'?data.risk:source==='ocel'?data.objectEvidence:source==='t3'?t3:null;
    return r?<><b>{r.status}</b><p>Анонимность не установлена. Экспорт закрыт.</p><div className="activity-v7-list">{r.reason_codes.slice(0,3).map(code=><span key={code}>{code}</span>)}</div></>:empty;}
