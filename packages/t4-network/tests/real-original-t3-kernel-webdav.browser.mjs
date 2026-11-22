@@ -20,6 +20,10 @@ import {readT4OriginalEventWindow}
 import {createT4OriginalObjectBacklog,publishT4OriginalObjectBacklog,
   replayT4OriginalObjectBacklog}
   from '../src/network/original-object-backlog.mjs';
+import {prepareT4OriginalAssetDelta,publishT4OriginalAssetDelta,
+  fetchT4OriginalAssetDelta,applyT4OriginalAssetDelta,
+  advanceT4OriginalAssetCursor}
+  from '../src/network/original-asset-delta.mjs';
 import {createT4NetworkTopology,executeT4NetworkRoute}
   from '../src/network/network-topology.mjs';
 import {prepareT4OriginalObjectDelta,publishT4OriginalObjectDelta,
@@ -760,6 +764,135 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           replayDeduplicated:true,
           recipientFinalRevision:4,sourcePrefixContinuous:true,
           originalWriterStillT3:true,
+        }));
+
+      // A real binary Asset update is transferred after the original offline
+      // object backlog. The source and recipient use original T2 Asset APIs.
+      const changedAssetText='Original T3 revised file over T4 '+randomUUID();
+      const originalAssetUpdated=await activeSourcePage.evaluate(async({
+        SERVICE,workspaceId,assetId,changedAssetText,
+      })=>{
+        const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+        const previous=await kernel.t1.getAsset(workspaceId,assetId);
+        if(previous.asset.revision!==1)throw Error('ORIGINAL_ASSET_REVISION_NOT_ONE');
+        const saved=await kernel.t1.putAsset({
+          workspace_id:workspaceId,asset_id:assetId,object_id:previous.asset.object_id,
+          mime:previous.asset.mime,base_revision:previous.asset.revision,
+          bytes:new TextEncoder().encode(changedAssetText),
+          event:{event_type:'t4.original.asset.updated',
+            payload:{asset_id:assetId},idempotency_key:'source-asset-'+randomUUID()},
+        });
+        const read=await kernel.t1.getAsset(workspaceId,assetId);
+        return{saved,read:{asset:read.asset,bytes:Array.from(read.bytes)},
+          events:await kernel.t1.listEventsSince(workspaceId)};
+      },{SERVICE,workspaceId,assetId,changedAssetText});
+      assert.equal(originalAssetUpdated.saved.asset.revision,2);
+      const assetWindow=await readT4OriginalEventWindow({
+        ...originalEventPort,cursor:backlog.finalCursor,maxEvents:1,
+        readOriginalEvents:async()=>originalAssetUpdated.events,
+      });
+      assert.equal(assetWindow.window.count,1);
+      assert.equal(assetWindow.window.lastEventId,originalAssetUpdated.saved.event.event_id);
+      const assetPrepared=await prepareT4OriginalAssetDelta({
+        window:assetWindow.window,workspaceId,assetId,
+        originalWriteOwnerRef:'original:t2:exchange',
+        originalKernel:{
+          hasOperation:op=>actual.grants.includes(op),
+          getAsset:async()=>({asset:originalAssetUpdated.read.asset,
+            bytes:Uint8Array.from(originalAssetUpdated.read.bytes)}),
+        },
+        authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
+        getMode:()=> 'T4_NETWORK',
+      });
+      const assetPublished=await deltaRoute('delta.push',
+        ()=>actual.grants.includes('t1.getAsset'),
+        ()=>publishT4OriginalAssetDelta({
+          prepared:assetPrepared,transport:deltaTransport,
+        }));
+      assert.equal(assetPublished.originalRecipientApplied,false);
+      const assetReceived=await deltaRoute('delta.pull',
+        ()=>receiving.operations.includes('t1.getAsset'),
+        ()=>fetchT4OriginalAssetDelta({
+          transport:deltaTransport,key:assetPublished.key,sha256:assetPublished.sha256,
+          workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+        }));
+      const assetRecipient={
+        hasOperation:op=>receiving.operations.includes(op),
+        getAsset:async(workspaceId,assetId)=>{
+          const read=await recipientPage.evaluate(async({SERVICE,workspaceId,assetId})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            const result=await kernel.t1.getAsset(workspaceId,assetId);
+            return result?{asset:result.asset,bytes:Array.from(result.bytes)}:null;
+          },{SERVICE,workspaceId,assetId});
+          return read?{asset:read.asset,bytes:Uint8Array.from(read.bytes)}:null;
+        },
+        putAsset:async input=>{
+          const result=await recipientPage.evaluate(async({SERVICE,input})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.putAsset({...input,bytes:Uint8Array.from(input.bytes)});
+          },{SERVICE,input:{...input,bytes:Array.from(input.bytes)}});
+          if(assetAckLoss){
+            assetAckLoss=false;
+            throw Object.assign(new Error('SIMULATED_ORIGINAL_ASSET_ACK_LOST'),
+              {code:'NETWORK_TIMEOUT'});
+          }
+          return result;
+        },
+      };
+      let assetAckLoss=true;
+      const assetApply={
+        received:assetReceived,originalKernel:assetRecipient,
+        authorizeOriginalWrite:async ctx=>receiving.operations.includes(ctx.operation),
+        verifyOriginalSourceEvent:async proof=>{
+          const expected=assetWindow.window.eventRefs[0];
+          if(proof.sourceEventId!==expected.eventId||
+            proof.sourceEventDigest!==expected.eventDigest||
+            proof.sourceRevision!==2||
+            proof.assetBytesSha256!==assetPrepared.delta.assetBytesSha256)return false;
+          const currentEvents=await activeSourcePage.evaluate(async({SERVICE,workspaceId})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.listEventsSince(workspaceId);
+          },{SERVICE,workspaceId});
+          const found=currentEvents.find(e=>e.event_id===proof.sourceEventId);
+          if(!found)return false;
+          const verified=await readT4OriginalEventWindow({
+            ...originalEventPort,readOriginalEvents:async()=>[found],maxEvents:1,
+          });
+          return verified.window.eventRefs[0].eventDigest===expected.eventDigest;
+        },
+        getMode:()=> 'T4_NETWORK',
+      };
+      await assert.rejects(applyT4OriginalAssetDelta(assetApply),
+        error=>error.code==='ASSET_DELTA_OUTCOME_UNKNOWN'&&
+          error.details.automaticRetryAllowed===false);
+      const lostAckRead=await assetRecipient.getAsset(workspaceId,assetId);
+      assert.equal(lostAckRead.asset.revision,2);
+      assert.equal(new TextDecoder().decode(lostAckRead.bytes),changedAssetText);
+      const assetAccepted=await applyT4OriginalAssetDelta(assetApply);
+      assert.equal(assetAccepted.originalReceipt.deduplicated,true);
+      const assetCursor=await advanceT4OriginalAssetCursor({
+        window:assetWindow.window,nextCursor:assetWindow.nextCursor,
+        acknowledgement:assetAccepted.acknowledgement,
+        verifyOriginalRecipient:async ctx=>{
+          const state=await assetRecipient.getAsset(workspaceId,assetId);
+          return ctx.originalReceiptRef===assetAccepted.originalReceiptRef&&
+            state.asset.revision===2&&
+            new TextDecoder().decode(state.bytes)===changedAssetText;
+        },
+      });
+      assert.equal(assetCursor.verified,true);
+      const afterAsset=await verify(recipientPage);
+      assert.equal(afterAsset.assetText,changedAssetText);
+      assert.equal(afterAsset.assets,initial.assets);
+      console.log('T4_REAL_ORIGINAL_T3_ASSET_BINARY_DELTA_ACK_RECOVERY_PASS',
+        JSON.stringify({originalKernel:ORIGINAL_KERNEL,
+          sourceAssetRevision:2,recipientAssetRevision:2,
+          originalAssetBytesVerified:true,
+          originalKernelDeduplicatedAckLoss:true,
+          assetDeltaBytes:assetPrepared.bytes.length,
+          originalSourceEventVerified:true,
+          recipientOriginalAssetReadback:true,
+          originalT3CursorVerifiedAfterReceipt:true,
         }));
     }finally{deltaTransport.close();}
     await sourceContext.close();sourceContext=null;
