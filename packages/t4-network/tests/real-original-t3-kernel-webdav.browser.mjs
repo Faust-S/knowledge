@@ -1949,6 +1949,83 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalRecipientCursorsVerified:true,
           originalT3StoreSovereign:true,
         }));
+      // Isolated semantics audit of RELEASED original T3 deleteObject.
+      // Never publish a delete delta here; a lost original delete ACK is not
+      // permission to invoke the destructive operation a second time.
+      const deleteProbeObjectId='t4:source:delete-probe:'+randomUUID();
+      const preparedDeleteObject=await activeSourcePage.evaluate(
+        async({SERVICE,sourceCaptureWorkspace,deleteProbeObjectId})=>{
+          const kernel=await IWXA.connect({
+            service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.putObject({
+            workspace_id:sourceCaptureWorkspace,object_id:deleteProbeObjectId,
+            schema_id:'iwxa.demo.note',schema_version:'1.0.0',
+            data:{probe:'t4-original-delete-policy',phase:'created'},
+            extensions:{},base_revision:0,
+            event:{event_type:'t4.original.delete.probe.created',
+              payload:{probeObjectId:deleteProbeObjectId}},
+          });
+        },{SERVICE,sourceCaptureWorkspace,deleteProbeObjectId});
+      assert.equal(preparedDeleteObject.object.revision,1);
+      let originalDeleteObjectCalls=0;
+      await assert.rejects(async()=>{
+        originalDeleteObjectCalls++;
+        await activeSourcePage.evaluate(
+          async({SERVICE,sourceCaptureWorkspace,deleteProbeObjectId})=>{
+            const kernel=await IWXA.connect({
+              service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.deleteObject({
+              workspace_id:sourceCaptureWorkspace,object_id:deleteProbeObjectId,
+              base_revision:1,
+              event:{event_type:'t4.original.delete.probe.deleted',
+                payload:{probeObjectId:deleteProbeObjectId}},
+            });
+          },{SERVICE,sourceCaptureWorkspace,deleteProbeObjectId});
+        throw Object.assign(new Error('ORIGINAL_DELETE_ACK_INTENTIONALLY_LOST'),
+          {code:'NETWORK_TIMEOUT'});
+      },error=>error.code==='NETWORK_TIMEOUT');
+      assert.equal(originalDeleteObjectCalls,1);
+      const readDeleteProbe=()=>activeSourcePage.evaluate(
+        async({SERVICE,sourceCaptureWorkspace,deleteProbeObjectId})=>{
+          const kernel=await IWXA.connect({
+            service_id:SERVICE,required_levels:['T1','T2']});
+          const [record,catalog,events]=await Promise.all([
+            kernel.t1.getObject(sourceCaptureWorkspace,deleteProbeObjectId),
+            kernel.t1.listObjects({
+              workspace_id:sourceCaptureWorkspace,include_deleted:true}),
+            kernel.t1.listEventsSince(sourceCaptureWorkspace),
+          ]);
+          const matching=events.filter(row=>
+            row.object_id===deleteProbeObjectId&&
+            row.event_type==='t4.original.delete.probe.deleted');
+          return {
+            objectFound:record!==null,
+            objectDeleted:record?.object?.deleted??null,
+            objectRevision:record?.object?.revision??null,
+            listedIncludingDeleted:catalog.some(row=>
+              row.object_id===deleteProbeObjectId),
+            matchingDeleteEvents:matching.length,
+            sourceDeleteEventId:matching[0]?.event_id??null,
+          };
+        },{SERVICE,sourceCaptureWorkspace,deleteProbeObjectId});
+      const deletedBeforeCold=await readDeleteProbe();
+      assert.equal(deletedBeforeCold.matchingDeleteEvents,1);
+      assert.equal(typeof deletedBeforeCold.sourceDeleteEventId,'string');
+      await sourceContext.close();sourceContext=null;
+      sourceContext=await launch(sourceProfile);
+      activeSourcePage=await opened(sourceContext);
+      const deletedAfterCold=await readDeleteProbe();
+      assert.deepEqual(deletedAfterCold,deletedBeforeCold);
+      assert.equal(originalDeleteObjectCalls,1);
+      console.log('T4_REAL_ORIGINAL_T3_DELETE_OBJECT_SOURCE_SEMANTICS_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,
+          lostSourceDeleteACK:true,
+          originalDeleteObjectCalls,
+          coldRestartReadbackSame:true,
+          remoteDeleteDeltaPublished:false,
+          ...deletedAfterCold,
+        }));
     }finally{deltaTransport.close();}
     await sourceContext.close();sourceContext=null;
     const updatedAfterDelta=await verify(recipientPage);
