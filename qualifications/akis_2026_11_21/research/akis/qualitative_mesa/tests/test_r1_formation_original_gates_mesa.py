@@ -209,3 +209,66 @@ def test_r1i_non_operator_configuration_cannot_claim_full_original_phase_guards(
     d["general_akis"]["configuration"] = "macro"
     with pytest.raises(ValueError, match="OC_ENFORCEMENT_ONLY_ORIGINAL_OPERATOR_MODEL"):
         simulate(d)
+
+
+def two_independent_resource_owners_case(*, acknowledge_second_owner=True):
+    d = formation_case()
+    d["subjects"].append({"id": "c", "kind": "SME"})
+    d["resources"].append({
+        "id": "rc", "owner": "c", "availability": "AVAILABLE",
+        "capacity_units": 1, "capacity_unit": "UNIT",
+    })
+    d["events"][0]["work_spec"]["resource_requirements"] = [
+        {"resource": "ra", "units": 1},
+        {"resource": "rc", "units": 1},
+    ]
+    d["general_akis"]["formation_phases"].append({
+        "phase": 3, "owner": "c", "source_ref": "model://c/formation-3",
+        "revision": "oc-1", "available_at": 0, "expires_at": 30,
+    })
+    d["events"] = d["events"][:4] + (
+        [{
+            "at": 5, "action": "formation_confirm", "actor": "c",
+            "work": "w1", "phase": 3, "org_revision": "oc-1",
+            "formation_source_ref": "model://c/formation-3",
+        }] if acknowledge_second_owner else []
+    ) + [
+        {"at": 6, "action": "offer", "actor": "op", "work": "w1"},
+        {"at": 7, "action": "authorize", "actor": "op", "work": "w1"},
+        {"at": 8, "action": "consent", "actor": "a", "work": "w1",
+         "source_revision": "d-1", "org_revision": "oc-1"},
+        {"at": 9, "action": "consent", "actor": "b", "work": "w1",
+         "source_revision": "d-1", "org_revision": "oc-1"},
+        {"at": 10, "action": "consent", "actor": "c", "work": "w1",
+         "source_revision": "d-1", "org_revision": "oc-1"},
+        {"at": 11, "action": "commit", "actor": "op", "work": "w1"},
+        {"at": 13, "action": "start", "actor": "a", "work": "w1"},
+        {"at": 14, "action": "complete", "actor": "a", "work": "w1",
+         "result_ref": "model://two-owners-result"},
+        {"at": 15, "action": "accept", "actor": "b", "work": "w1"},
+    ]
+    return d
+
+
+def test_r1i_two_distinct_resource_owners_each_confirm_before_shared_commit():
+    d = two_independent_resource_owners_case()
+    out = simulate(d)
+    assert out["counts"]["blocked"] == 0, out["trace"]
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    phase_three = [row["actor"] for row in trace_for(out, "formation_confirm")
+                   if row["phase"] == 3 and row["outcome"] == "APPLIED"]
+    assert phase_three == ["a", "c"]
+    assert trace_for(out, "commit")[0]["outcome"] == "APPLIED"
+
+
+def test_r1i_one_resource_owner_cannot_confirm_forming_for_another():
+    d = two_independent_resource_owners_case(acknowledge_second_owner=False)
+    out = simulate(d)
+    assert [x["outcome"] for x in trace_for(out, "consent")] == [
+        "APPLIED", "APPLIED", "APPLIED"
+    ]
+    assert trace_for(out, "commit")[0]["reason"] == (
+        "FORMATION_PRIOR_OWNER_PHASE_CONFIRMATION_MISSING"
+    )
+    assert out["works"]["w1"]["obligation"] == "NOT_ACCEPTED"
+    assert out["works"]["w1"]["result"] == "NOT_SUBMITTED"
