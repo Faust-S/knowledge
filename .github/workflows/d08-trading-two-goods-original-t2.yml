@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops.ru
-          ref: 6a69cec8966ad819c86505a2397f5f04ddef5c9d
+          ref: af3ce2fe299a54b6b6798d931308a39818be5076
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -44,7 +44,7 @@ jobs:
           path: t2
       - name: Verify clean pinned private identities without outputting source
         run: |
-          test "$(git -C site rev-parse HEAD)" = "6a69cec8966ad819c86505a2397f5f04ddef5c9d" || exit 1
+          test "$(git -C site rev-parse HEAD)" = "af3ce2fe299a54b6b6798d931308a39818be5076" || exit 1
           test "$(git -C t2 rev-parse HEAD)" = "49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7" || exit 1
           test -z "$(git -C t2 status --porcelain)" || exit 1
           test -f site/tests/d08-trading-two-goods-native-t2.mjs || exit 1
@@ -195,11 +195,48 @@ jobs:
           test -f dist/workspace/exchange/index.html || exit 1
           test -f dist/_iwxa/runtime/0.3.6/runtime.js || exit 1
           echo D08_NATIVE_T2_BUILD=PASS
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate temporary production hosting ZIP (never upload it)
+        working-directory: site
+        run: |
+          if test -n "$(git status --porcelain)"; then
+            echo D08_RELEASE_SOURCE_CLEAN=FAIL
+            exit 1
+          fi
+          echo D08_RELEASE_SOURCE_CLEAN=PASS
+          python -m unittest discover -s tests -p test_package_hosting.py > "$RUNNER_TEMP/d08-packager.log" 2>&1 || {
+            echo D08_RELEASE_PACKAGER_TESTS=FAIL
+            exit 1
+          }
+          echo D08_RELEASE_PACKAGER_TESTS=PASS
+          python scripts/package-hosting.py --expected-head af3ce2fe299a54b6b6798d931308a39818be5076 --output "$RUNNER_TEMP/d08-ephemeral-hosting.zip" > "$RUNNER_TEMP/d08-hosting.log" 2>&1 || {
+            if grep -q 'Private/engineering file' "$RUNNER_TEMP/d08-hosting.log"; then
+              echo D08_RELEASE_PACKAGE_CAUSE=ENGINEERING_FILE_IN_DIST
+            elif grep -q 'Incomplete T2 product' "$RUNNER_TEMP/d08-hosting.log"; then
+              echo D08_RELEASE_PACKAGE_CAUSE=MISSING_PUBLIC_OR_T2_ASSET
+            elif grep -q 'Source checkout is dirty' "$RUNNER_TEMP/d08-hosting.log"; then
+              echo D08_RELEASE_PACKAGE_CAUSE=DIRTY_CHECKOUT
+            elif grep -q 'Original qualified Runtime' "$RUNNER_TEMP/d08-hosting.log"; then
+              echo D08_RELEASE_PACKAGE_CAUSE=T2_RUNTIME_MISMATCH
+            else
+              echo D08_RELEASE_PACKAGE_CAUSE=OTHER
+            fi
+            echo D08_RELEASE_PACKAGE=FAIL
+            exit 1
+          }
+          test -s "$RUNNER_TEMP/d08-ephemeral-hosting.zip" || exit 1
+          test -s "$RUNNER_TEMP/d08-ephemeral-hosting.manifest.json" || exit 1
+          echo D08_RELEASE_PACKAGE=PASS
+          # No compiled private assets may be uploaded to public Actions.
+          rm -f "$RUNNER_TEMP/d08-ephemeral-hosting.zip" "$RUNNER_TEMP/d08-ephemeral-hosting.manifest.json"
+          echo D08_RELEASE_PACKAGE_PURGED=PASS
       - name: Real GUI business obligation to independent iwxa import
         working-directory: site
         run: |
           node tests/d08-trading-two-goods-native-t2.mjs > "$RUNNER_TEMP/d08-trading-gui.log" 2>&1 || {
-            grep -E '^D08_TRADE_NATIVE_(FAILURE_PHASE|FAILURE_TYPE|FAILURE_CODE|WORKSPACE_FIRST|WORKSPACE_STATE|WORKSPACE_RELOADED|ATTENTION_STATE)=' \
+            grep -E '^D08_TRADE_NATIVE_(FAILURE_PHASE|FAILURE_TYPE|FAILURE_CODE|WORKSPACE_FIRST|WORKSPACE_STATE|WORKSPACE_RELOADED|ATTENTION_STATE|NEW_GOODS_RETURN_STATE)=' \
               "$RUNNER_TEMP/d08-trading-gui.log" | head -5 || true
             echo D08_NATIVE_TRADE_EXCHANGE=FAIL
             exit 1
