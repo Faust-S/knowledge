@@ -339,3 +339,56 @@ def test_r1k_revoking_source_after_first_result_does_not_erase_history_or_qualif
     assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert out["works"]["w2"]["result"] == "NOT_SUBMITTED"
     assert trace_for(out, "commit")[-1]["outcome"] == "BLOCKED"
+
+
+def changed_source_epoch_case(*, renew_packet=False):
+    d = agent_case()
+    for e in d["events"]:
+        if e["at"] >= 18:
+            e["at"] += (4 if renew_packet else 2)
+    d["events"].extend([
+        {"at": 18, "action": "source_update", "actor": "a",
+         "source": "basis-corporate", "status": "UNKNOWN"},
+        {"at": 19, "action": "source_update", "actor": "a",
+         "source": "basis-corporate", "status": "CONFIRMED"},
+    ])
+    if renew_packet:
+        d["events"].extend([
+            {"at": 20, "action": "function_prepare", "actor": "op",
+             "org_revision": "oc-1", "work": "w1",
+             "function_id": "approval-w1",
+             "function_source_ref": "model://op/packet-approval-w1",
+             "function_phase_source_ref": "model://op/formation-6"},
+            {"at": 21, "action": "function_review", "actor": "b",
+             "org_revision": "oc-1", "work": "w1",
+             "function_id": "approval-w1", "prepared_at": 20,
+             "human_decision": "APPROVE",
+             "review_source_ref": "model://b/second-independent-review"},
+        ])
+    d["events"].sort(key=lambda x: x["at"])
+    d["model_horizon"] = 44
+    return d
+
+
+def test_r1k_reconfirming_recalled_context_does_not_reactivate_old_agent_packet():
+    d = changed_source_epoch_case()
+    out = simulate(d)
+    assert [row["outcome"] for row in trace_for(out, "source_update")] == [
+        "APPLIED", "APPLIED"
+    ]
+    assert out["context_basis"]["sources"]["basis-corporate"]["status"] == "CONFIRMED"
+    assert trace_for(out, "commit")[0]["reason"] == (
+        "FORMATION_AGENT_ORIGINAL_KPB_CHANGED_AFTER_PACKET"
+    )
+    assert out["works"]["w1"]["result"] == "NOT_SUBMITTED"
+
+
+def test_r1k_fresh_packet_and_new_customer_approval_after_restoration_allow_commit():
+    d = changed_source_epoch_case(renew_packet=True)
+    out = simulate(d)
+    assert out["counts"]["blocked"] == 0, out["trace"]
+    assert [row["at"] for row in trace_for(out, "function_prepare")] == [12, 20]
+    assert [row["prepared_at"] for row in trace_for(out, "function_review")] == [12, 20]
+    assert trace_for(out, "commit")[0]["outcome"] == "APPLIED"
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out == simulate(deepcopy(d))

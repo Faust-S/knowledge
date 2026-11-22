@@ -364,6 +364,25 @@ class ModelFormationPolicy:
         reason, _ = self._agent_packet(state, work, fn["id"], at)
         if reason != "NONE":
             return reason
+        # Even a subsequently restored source must not silently reactivate a
+        # packet computed against an older context epoch. The original trace,
+        # not a secondary version store, establishes the intervening change.
+        packet_sources = {
+            row.get("basis_source")
+            for row in self.design.declarations["context_cores"]
+            if row["revision"] == state.institution.revision
+            and row.get("basis_source")
+        }
+        packet_sources.add(fn.get("basis_source"))
+        if any(
+            row.get("action") == "source_update"
+            and row.get("outcome") == "APPLIED"
+            and row.get("source") in packet_sources
+            and type(row.get("at")) is int
+            and prep["at"] < row["at"] < at
+            for row in state.trace
+        ):
+            return "FORMATION_AGENT_ORIGINAL_KPB_CHANGED_AFTER_PACKET"
         reviews = [
             row for row in state.trace
             if row.get("action") == "function_review"
