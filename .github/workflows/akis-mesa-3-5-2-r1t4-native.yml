@@ -39,6 +39,11 @@ jobs:
         run: |
           test -f qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1t3_original_technology_route_mesa.py
           echo R1T3_ORIGINAL_WORK_TECHNOLOGY_AND_OWNER_QA_PRESENT
+      - name: Confirm R1-T4 true new actor and Resource testing files
+        run: |
+          test -f qualifications/akis_2026_11_21/research/akis/qualitative_mesa/source_registration.py
+          test -f qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1t4_dynamic_original_sme_resource_mesa.py
+          echo R1T4_ORIGINAL_NATIVE_DYNAMIC_REGISTRATION_PRESENT
       - name: Native general AKIS Mesa and original model regression
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
