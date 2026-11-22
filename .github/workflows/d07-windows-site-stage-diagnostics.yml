@@ -1,0 +1,50 @@
+name: D07 Windows public card build standalone diagnosis
+on:
+  push:
+    branches: [work/2026-11-22-d07-methodology-v13]
+    paths: [.github/workflows/d07-windows-site-stage-diagnostics.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  site-only:
+    runs-on: windows-latest
+    timeout-minutes: 22
+    env:
+      SITE_SHA: 2e37fa767837486690fc305aea16f4760d231474
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - name: Install original locked site dependencies
+        shell: pwsh
+        working-directory: site
+        run: |
+          & bun install --frozen-lockfile *> (Join-Path $env:RUNNER_TEMP 'd07-site-windows-install.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D07_WIN_SITE_DEPS_FAIL'}
+          Write-Output 'D07_WIN_SITE_DEPS=PASS'
+      - name: Locate Windows-only build stage without exposing site source
+        shell: pwsh
+        working-directory: site
+        run: |
+          & node scripts/build-d07-clean.mjs *> (Join-Path $env:RUNNER_TEMP 'd07-site-windows-public.private.log')
+          $exit=$LASTEXITCODE
+          $lines=Get-Content (Join-Path $env:RUNNER_TEMP 'd07-site-windows-public.private.log')
+          $steps=@($lines|Where-Object{$_ -match '^D07_PUBLIC_BUILD_STEP_(PASS|FAIL|START)='})
+          foreach($step in $steps){Write-Output $step}
+          if($exit -ne 0){
+            $codes=[regex]::Matches(($lines -join [Environment]::NewLine),'(?:D07|ERR|TS)[A-Z0-9_:-]{4,120}')|ForEach-Object{$_.Value}|Select-Object -Unique -Last 12
+            Write-Output ('D07_WIN_SITE_BUILD_ERROR_CODES='+($codes -join ','))
+            throw 'D07_WIN_SITE_PUBLIC_BUILD_FAIL'
+          }
+          Write-Output 'D07_WIN_SITE_PUBLIC_BUILD=PASS'
