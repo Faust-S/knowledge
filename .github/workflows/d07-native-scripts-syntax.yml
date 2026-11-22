@@ -2,7 +2,7 @@ name: D07 native original T2 GUI script syntax preflight
 on:
   push:
     branches: [work/2026-11-22-d07-methodology-v13]
-    paths: [.github/workflows/d07-native-scripts-syntax.yml]
+    paths: [.github/workflows/d07-native-scripts-syntax.yml, scripts/d07-native-card-t2.ps1, scripts/d07-native-card-iwxa-export.ps1, scripts/d07-native-card-iwxa-import.ps1]
   workflow_dispatch:
 permissions:
   contents: read
@@ -69,6 +69,14 @@ jobs:
             throw 'D07_NATIVE_IWXA_REAL_FILE_CHOOSER_GUARD_MISSING'
           }
           Write-Output 'D07_NATIVE_IWXA_REAL_FILE_CHOOSER_GUARD=PASS'
+          if(!$import.Contains('D07_IWXA_NATIVE_POST_IMPORT_KERNEL_REVISION=PASS') -or
+             !$import.Contains('D07_IWXA_NATIVE_POST_IMPORT_SECOND_COLD_REOPEN=PASS') -or
+             !$import.Contains('D07_IWXA_NATIVE_POST_IMPORT_ID_TEN_WORKS_PRESERVED=PASS') -or
+             !$import.Contains('D07_IMPORT_POST_IMPORT_OBJECT_ID_CHANGED') -or
+             !$import.Contains('D07_IMPORT_POST_IMPORT_TEN_WORKS_LOST')){
+            throw 'D07_NATIVE_POST_IMPORT_DURABLE_REVISION_GUARD_MISSING'
+          }
+          Write-Output 'D07_NATIVE_POST_IMPORT_DURABLE_REVISION_GUARD=PASS'
           & node --check 'scripts/d07-verify-integrated-all-service-cards.mjs'
           if($LASTEXITCODE -ne 0){throw 'D07_INTEGRATED_ALL_CARDS_CHECKER_SYNTAX_FAILED'}
           Write-Output 'D07_INTEGRATED_ALL_CARDS_CHECKER_SYNTAX=PASS'
