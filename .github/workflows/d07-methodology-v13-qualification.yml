@@ -61,6 +61,21 @@ jobs:
         run: |
           bun install --frozen-lockfile > "$RUNNER_TEMP/d07-v13-install.log" 2>&1 || { echo D07_V13_DEPENDENCIES=FAIL; exit 1; }
           echo D07_V13_DEPENDENCIES=PASS
+      - name: Load professional subject registry and report error code only
+        working-directory: site
+        run: |
+          node --import tsx --input-type=module -e '
+            try {
+              const {SUBJECT_PROTOCOLS}=await import("./src/domain/service-subject-protocols.ts");
+              if(!SUBJECT_PROTOCOLS.length)throw Error("D07_EMPTY_SUBJECT_REGISTRY");
+              process.stdout.write("D07_SUBJECT_REGISTRY_IMPORT=PASS\\n");
+            } catch(error) {
+              const msg=String(error?.message??"");
+              const code=msg.match(/D07_[A-Z0-9_]+/)?.[0]??String(error?.name??"UNKNOWN");
+              process.stdout.write("D07_SUBJECT_REGISTRY_IMPORT=FAIL:"+code+"\\n");
+              process.exit(1);
+            }
+          '
       - name: Run professional methods, independent evidence and manual branching tests
         working-directory: site
         run: |
