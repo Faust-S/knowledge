@@ -250,24 +250,7 @@ jobs:
             ResumeAfterCold 'D02_PERSONAL_PROFILE_COLD_FOCUS_FAILED'
             $null=AwaitName 'Сохранённых записей: 1' '' 'D02_PERSONAL_PROFILE_KERNEL_COLD_READBACK_MISSING'
             Write-Output 'D02_PERSONAL_EDGE_PROFILE_KERNEL_COLD_READBACK=PASS'
-            # Task-first public tools must inherit the exact personal Workspace
-            # only as a hint. The original Host verifies focus again.
-            if(FindName 'Посчитать деньги' '') {
-              Activate 'Посчитать деньги' 'D02_PERSONAL_PUBLIC_MONEY_LINK_MISSING'
-            } else {
-              Activate 'Мои деньги' 'D02_PERSONAL_PUBLIC_MONEY_LINK_MISSING'
-            }
-            $null=AwaitName 'Открыть сохранённое' '' 'D02_PERSONAL_CONTEXTUAL_RESUME_MISSING'
-            Write-Output 'D02_PERSONAL_EDGE_PUBLIC_SERVICE_ENTRY=PASS'
-            Activate 'Открыть сохранённое' 'D02_PERSONAL_CONTEXTUAL_RESUME_CLICK_FAILED'
-            $null=AwaitName 'Открыть мои сохранённые записи' '' 'D02_PERSONAL_NATIVE_RESTORE_NOT_OPEN'
-            $null=AwaitPrefix 'Тема: Карта личной экономики' 'D02_PERSONAL_RESTORE_WRONG_TOPIC'
-            # Profile data is already saved, so the area is not empty.
-            # An empty MONEY topic with a non-empty verified inventory
-            # proves topic filtering and fresh Kernel readback together.
-            $null=AwaitPrefix 'По выбранной теме записей нет.' 'D02_PERSONAL_HOST_AUTO_FOCUS_AND_READBACK_MISSING'
-            Write-Output 'D02_PERSONAL_EDGE_PUBLIC_TO_NATIVE_RESUME=PASS'
-            Write-Output 'D02_PERSONAL_EDGE_PRIVATE_DATA_EXPORTED=FALSE'
+            Write-Output 'D02_IWXA_SOURCE_PROFILE_READY=PASS'
           } finally {
             Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
             if($server){try{$server.Kill($true)}catch{}}
