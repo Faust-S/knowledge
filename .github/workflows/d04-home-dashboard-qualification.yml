@@ -46,6 +46,7 @@ jobs:
           ref: 9c64951cd78411283e8a416641c36d71e169fc1d
           token: ${{ secrets.DOMEN }}
           path: d04-private/t2
+          fetch-depth: 0
           persist-credentials: false
       - name: Check exact private code identity
         run: |
