@@ -186,7 +186,7 @@ function NativeD2BoundedRefusal(){
     try{
       $name=[string]$element.Current.Name
       $match=[regex]::Match($name,
-        'Код:\s*((?:CEN_D2|CEN_D3|T3_D1|T3_D2|T3_D3|T3_OWNER|T3_SUBJECT|WORKSPACE|SOURCE|OPERATION)_[A-Z0-9_]{4,90})')
+        'Код:\s*((?:CEN_D2|CEN_D3|T3_D1|T3_D2|T3_D3|T3_OWNER|T3_SUBJECT|T3_ACCESS|T3_KERNEL|T3_HOST|WORKSPACE|SOURCE|OPERATION)_[A-Z0-9_]{4,90})')
       if($match.Success){
         Write-Host ('D2_INSTALLED_NATIVE_SOURCE_REFUSAL '+$match.Groups[1].Value)
         return
