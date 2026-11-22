@@ -167,6 +167,8 @@ it("installed corporate preflight exposes only bounded refusal code and never le
   const refusal=await screen.findByTestId("t3-d1-selected-workspace-refusal-code");
   expect(refusal.textContent).toContain("T3_ACCESS_NOT_PERMITTED");
   expect(refusal.textContent).toContain("Этап: ORIGINAL_KERNEL_READ");
+  expect(screen.getByRole("heading").getAttribute("aria-label"))
+    .toContain("Код: T3_ACCESS_NOT_PERMITTED. Этап: ORIGINAL_KERNEL_READ");
   expect(screen.getByRole("heading").textContent)
     .toBe("Подписанный доступ Workspace не подтверждён");
   expect(screen.queryByTestId("t3-d1-create-selected-workspace")).toBeNull();
