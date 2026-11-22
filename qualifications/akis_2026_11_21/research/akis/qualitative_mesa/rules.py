@@ -37,6 +37,7 @@ from .cooperation import (
     latest_future_participation, propose_cooperation_change,
     respond_to_cooperation_change, original_cooperation_consultees,
     qualify_cooperation_change_reference, apply_cooperation_membership_revision,
+    assess_cooperation_entry,
 )
 
 SCHEMA = "IWXA_AKIS_QUALITATIVE_INPUT/0.1"
@@ -44,7 +45,7 @@ SELECTED_MODES = frozenset({"SOLE", "COLLEGIAL", "MIXED"})
 # UNSELECTED explicitly describes missing qualification, not tacit SOLE.
 MODES = SELECTED_MODES | {"UNSELECTED"}
 AVAILABILITY = frozenset({"AVAILABLE", "UNAVAILABLE", "UNKNOWN"})
-ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "cooperation_membership_apply", "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge"})
+ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "cooperation_entry_assess", "cooperation_membership_apply", "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge"})
 GOVERNED = frozenset({"authorize", "exclude"})
 
 
@@ -251,7 +252,7 @@ class QualitativeAKIS:
         for ev in events:
             _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
              "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref", "interest_valid_until",
-             "new_link_id", "new_link_revision", "new_link_source_ref"}, "EVENT")
+             "new_link_id", "new_link_revision", "new_link_source_ref", "entry_goal_source_ref", "entry_alternative_source_ref", "entry_assessment_source_ref", "entry_willingness", "entry_outside_option", "entry_valid_until"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -437,6 +438,17 @@ class QualitativeAKIS:
                                                       self.subjects, self.trace)
                 except CooperationInputError as exc:
                     raise BlockedDecision(str(exc)) from exc
+            elif action == "cooperation_entry_assess":
+                # A NEW participant has no first-hand evaluation of a prior
+                # Result. The event is its own prospective, sourced judgment.
+                if ev.get("org_revision") != self.institution.revision:
+                    raise BlockedDecision("STALE_ORGANIZATIONAL_CODE")
+                try:
+                    assess_cooperation_entry(
+                        ev, self.cooperation_links, self.subjects, self.trace
+                    )
+                except CooperationInputError as exc:
+                    raise BlockedDecision(str(exc)) from exc
             elif action == "cooperation_membership_apply":
                 # Source-ground original model relation revision only. It
                 # creates no legal membership, access right, Resource or Work.
@@ -447,7 +459,11 @@ class QualitativeAKIS:
                 try:
                     revised, membership_evidence = apply_cooperation_membership_revision(
                         ev, self.cooperation_links, self.subjects, self.works,
-                        self.trace, org_revision=self.institution.revision, at=at
+                        self.trace, org_revision=self.institution.revision, at=at,
+                        require_entry_assessment=bool(
+                            self.formation_policy is not None
+                            and self.formation_policy.design.enforce_model_result_conditioned_interests
+                        ),
                     )
                 except CooperationInputError as exc:
                     raise BlockedDecision(str(exc)) from exc
@@ -536,6 +552,15 @@ class QualitativeAKIS:
                 )
             else:
                 report["change_decision"] = ev.get("change_decision")
+            report["source_authentication"] = "MODEL_ONLY_DECLARED_UNVERIFIED"
+        if action == "cooperation_entry_assess" and report["outcome"] == "APPLIED":
+            for name in ("cooperation_link", "cooperation_source_revision",
+                         "change_id", "entry_goal_source_ref",
+                         "entry_alternative_source_ref", "entry_assessment_source_ref",
+                         "entry_willingness", "entry_outside_option", "entry_valid_until"):
+                report[name] = ev.get(name)
+            report["prospective_own_assessment_not_prior_result_experience"] = True
+            report["outside_option_not_verified_economic_benefit"] = True
             report["source_authentication"] = "MODEL_ONLY_DECLARED_UNVERIFIED"
         if action == "cooperation_membership_apply" and report["outcome"] == "APPLIED":
             report.update(membership_evidence)
