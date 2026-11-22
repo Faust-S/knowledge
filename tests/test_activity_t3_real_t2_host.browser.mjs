@@ -209,6 +209,7 @@ try {
   const source='d05-production-'+randomUUID();
   const target='activity-private-review-'+randomUUID();
   const signedTarget='activity-signed-review-'+randomUUID();
+  const d05Workspace='d05-case001-reported-'+randomUUID();
   const token=randomBytes(32).toString('base64url');
   const listen=new Set();
   let contextEpoch=1;
@@ -260,6 +261,9 @@ try {
     });
     await sourceWriter.t1.createWorkspace({
       workspace_id:args.signedTarget,profile:'generic',
+    });
+    await sourceWriter.t1.createWorkspace({
+      workspace_id:args.d05Workspace,profile:'generic',
     });
     const sourceWrite=await sourceWriter.t1.putObject({
       workspace_id:args.source,object_id:'d05:source-bracket',
@@ -352,13 +356,73 @@ try {
       reviewer_service:targetReviewer.service.service_id,
       export_denied:exportDenied,source_denied:foreignDenied,
     };
-  },{source,target,signedTarget,writer,reviewer,objectId:'activity-review:original-kernel',
+  },{source,target,signedTarget,d05Workspace,writer,reviewer,
+    objectId:'activity-review:original-kernel',
     schema:T3_ACTIVITY_OWNER_REVIEW_SCHEMA,data:proofData});
   assert.equal(first.source_revision,1);
   assert.equal(first.draft_revision,1);
   assert.equal(first.reviewer_service,reviewer);
   assert.equal(first.export_denied,true);
   assert.equal(first.source_denied,true);
+  // Additional D05-shaped records are written through a THIRD, separately
+  // restricted normal T2 TEST service. No real production is asserted.
+  const d05Saved=await browser.page.evaluate(async args=>{
+    const client=await globalThis.IWXA.connect({service_id:args.service});
+    if(client.contract_version!=='1.3.0'||client.runtime_version!=='0.3.6'||
+      !client.granted_operations.includes('t1.putObject')||
+      client.granted_operations.includes('t1.createWorkspace')||
+      client.granted_operations.includes('t2.exportPackage'))
+      throw Error('D05_WITNESS_T2_PASSPORT_NOT_ISOLATED');
+    const schema='ru.5ibs.productionops.';
+    const entries=[
+      ['d05:case001:order','production-order','cehovod.result.saved'],
+      ['d05:case001:execution','production-execution','cehovod.operation.transitioned'],
+      ['d05:case001:quality','quality-check-result','cehovod.result.saved'],
+    ];
+    for(const [id,type,eventType] of entries){
+      const saved=await client.t1.putObject({
+        workspace_id:args.workspace,object_id:id,
+        schema_id:schema+type,schema_version:'1.0.0',base_revision:0,
+        data:{
+          object_id:id,object_type:type,source_schema_version:'1.0.0',
+          display_label:'INTERNAL_MODEL_ORDER',source_service_id:args.service,
+          status:'reported',summary_markdown:'MODEL_ONLY',
+          algorithm_version:null,
+          value:{quantity:120,evidence:'NOT_INDEPENDENTLY_CONFIRMED'},
+        },extensions:{},
+        event:{event_type:eventType,
+          payload:{object_id:id,actor_role:'test_operator',
+            action:'recorded_not_observed'}},
+      });
+      if(saved?.object?.revision!==1||
+        saved?.event?.correlation_id!==saved?.transaction_id)
+        throw Error('D05_WITNESS_ORIGINAL_T2_WRITE_RECEIPT_INVALID');
+    }
+    const previous=await client.t1.getObject(args.workspace,'d05:case001:order');
+    const updated=await client.t1.putObject({
+      workspace_id:args.workspace,object_id:'d05:case001:order',
+      schema_id:schema+'production-order',schema_version:'1.0.0',
+      base_revision:1,data:{...previous.object.data,status:'approved'},
+      extensions:{},event:{event_type:'cehovod.order.transitioned',
+        payload:{object_id:'d05:case001:order',action:'approve',
+          actor_role:'test_manager',previous_status:'reported',
+          next_status:'approved'}},
+    });
+    const records=await client.t1.listObjects({
+      workspace_id:args.workspace,include_deleted:true,
+    });
+    const history=await client.t1.listEventsSince(args.workspace);
+    const observed=history.filter(x=>[
+      'cehovod.result.saved','cehovod.operation.transitioned',
+      'cehovod.order.transitioned',
+    ].includes(x.event_type));
+    if(updated?.object?.revision!==2||records.length!==3||observed.length!==4)
+      throw Error('D05_WITNESS_ORIGINAL_T2_READBACK_INVALID');
+    return {object_count:records.length,event_count:observed.length,
+      revision:updated.object.revision};
+  },{workspace:d05Workspace,service:d05Service});
+  assert.deepEqual(d05Saved,{object_count:3,event_count:4,revision:2});
+
   // Full SAME-host signed D1 Activity Read and separate signed Derive over
   // one REAL original T2 Kernel facade, with one selected source Workspace.
   // No synthetic authorize callback, no second Store, no separate Control EXE.
