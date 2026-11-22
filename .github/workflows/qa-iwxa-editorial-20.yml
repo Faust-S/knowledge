@@ -1,0 +1,107 @@
+name: IWXA interactive editorial 20 CI
+on:
+  push:
+    branches:
+      - qa/2026-11-22-iwxa-editorial-20
+    paths:
+      - .github/workflows/qa-iwxa-editorial-20.yml
+permissions:
+  contents: read
+jobs:
+  editorial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout private site through authorized token
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: work/2026-11-22-interactive-editorial-20
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Install, check all 20 narratives and mathematics
+        shell: bash
+        working-directory: .private/site
+        run: |
+          set -euo pipefail
+          echo "EDITORIAL_TEST_SHA=$(git rev-parse HEAD)"
+          bun install --frozen-lockfile > /tmp/iwxa-editorial-install.log 2>&1 || { tail -n 80 /tmp/iwxa-editorial-install.log; exit 1; }
+          node --import tsx --test scripts/check-editorial-series.test.ts
+          echo EDITORIAL_20_DATA_PASS
+      - name: Build, compile and verify route generator
+        working-directory: .private/site
+        shell: bash
+        run: |
+          set -euo pipefail
+          bunx tsx scripts/generate-sitemap.ts
+          bunx vite build > /tmp/iwxa-editorial-build.log 2>&1 || { tail -n 120 /tmp/iwxa-editorial-build.log; exit 1; }
+          bunx tsc --noEmit > /tmp/iwxa-editorial-tsc.log 2>&1 || { tail -n 100 /tmp/iwxa-editorial-tsc.log; exit 1; }
+          echo EDITORIAL_BUILD_TYPECHECK_PASS
+      - name: Launch site and inspect real responsive browser routes
+        working-directory: .private/site
+        shell: bash
+        run: |
+          set -euo pipefail
+          bunx vite --host 127.0.0.1 --port 4173 > /tmp/iwxa-editorial-vite.log 2>&1 &
+          echo $! > /tmp/iwxa-editorial-vite.pid
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:4173/articles/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import puppeteer from 'puppeteer';
+          const reg=fs.readFileSync('src/data/editorial-stories.ts','utf8');
+          const slugs=[...reg.matchAll(/number:\s*\d+,\s*slug:\s*"([^"]+)"/g)].map(m=>m[1]);
+          if(slugs.length!==20)throw Error('Expected 20 slugs, got '+slugs.length);
+          const browser=await puppeteer.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+          const page=await browser.newPage();
+          let checks=0;
+          try {
+            for(const width of [1440,375]) {
+              await page.setViewport({width,height:width===375?812:900,deviceScaleFactor:1});
+              for(const route of ['/articles/',...slugs.map(s=>'/articles/'+s+'/')]) {
+                const res=await page.goto('http://127.0.0.1:4173'+route,{waitUntil:'domcontentloaded',timeout:60000});
+                if(!res?.ok())throw Error('HTTP '+res?.status()+' '+route);
+                await page.waitForSelector('.ed-catalog__grid,.ed-story__experiment',{timeout:25000});
+                const d=await page.evaluate(()=>({
+                  title:document.title,
+                  h1:document.querySelector('h1')?.textContent?.trim(),
+                  scroll:document.documentElement.scrollWidth,
+                  inner:window.innerWidth,
+                  choices:document.querySelectorAll('.ed-experiment__choices button').length,
+                  chapters:document.querySelectorAll('.ed-chapters__track button').length,
+                  words:document.querySelector('.ed-story')?.textContent?.trim()?.length??0,
+                }));
+                if(!d.h1||d.scroll>d.inner+3)throw Error('Layout/h1 '+route+' '+JSON.stringify(d));
+                if(route!='/articles/'){
+                  if(d.choices!==3||d.chapters!==4||d.words<1800)throw Error('Article incomplete '+route+' '+JSON.stringify(d));
+                  const before=await page.$eval('.ed-experiment__result',el=>el.textContent);
+                  await page.click('.ed-experiment__choices button:nth-child(2)');
+                  const after=await page.$eval('.ed-experiment__result',el=>el.textContent);
+                  if(before===after)throw Error('Branch not interactive '+route);
+                  const initial=await page.$eval('.ed-chapters__selected',el=>el.textContent);
+                  await page.click('.ed-chapters__track button:nth-child(3)');
+                  const changed=await page.$eval('.ed-chapters__selected',el=>el.textContent);
+                  if(initial===changed)throw Error('Chapter not interactive '+route);
+                }
+                checks++;
+              }
+            }
+            console.log('EDITORIAL_BROWSER_PASS',JSON.stringify({pages:21,viewports:2,checks,caseChoices:20,stagePanels:20}));
+          }finally{await browser.close();}
+          JS
+      - name: Purge private checkout and runtime
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/iwxa-editorial-vite.pid ]; then kill "$(cat /tmp/iwxa-editorial-vite.pid)" 2>/dev/null || true; fi
+          rm -rf .private/site
+          rm -f /tmp/iwxa-editorial-*.log /tmp/iwxa-editorial-vite.pid
+          test ! -e .private/site && echo EDITORIAL_PRIVATE_SOURCE_PURGED
