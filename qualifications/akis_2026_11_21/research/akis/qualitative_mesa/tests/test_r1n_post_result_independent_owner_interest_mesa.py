@@ -255,3 +255,46 @@ def test_r1n_new_interest_gate_requires_existing_result_conditioned_goals():
     d["general_akis"]["enforce_model_result_conditioned_goals"] = False
     with pytest.raises(ValueError, match="FORMATION_INTEREST_REQUIRES_RESULT_CONDITIONED_GOALS"):
         simulate(d)
+
+
+def test_r1n_owner_can_withdraw_willingness_after_both_consents_before_new_commit():
+    d = r1n_case()
+    revoked = deepcopy(next(e for e in d["events"]
+                            if e["action"] == "interest_update" and e["actor"] == "a"))
+    revoked.update(
+        at=54, new_willingness="DECLINES",
+        interest_evidence_ref="model://a/changed-decline-after-consent"
+    )
+    next(e for e in d["events"] if e["action"] == "commit"
+         and e["work"] == "w2")["at"] = 55
+    d["events"].append(revoked)
+    d["events"].sort(key=lambda e: e["at"])
+    out = simulate(d)
+    assert [r["outcome"] for r in find(out, "consent", work="w2")] == [
+        "APPLIED", "APPLIED"
+    ]
+    assert find(out, "interest_update", work="w2")[-1]["outcome"] == "APPLIED"
+    assert find(out, "commit", work="w2")[0]["reason"] == (
+        "FORMATION_INTEREST_ORIGINAL_OWNER_DECLINES"
+    )
+    assert out["works"]["w2"]["obligation"] == "NOT_ACCEPTED"
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_r1n_explicit_thirteen_component_code_prohibition_overrides_owner_interest():
+    d = r1n_case()
+    controls = next(r for r in d["general_akis"]["organizational_code"]
+                    if r["field"] == "Запр")["control"]
+    controls["denied"].append({
+        "subject": "RESOURCE_OWNER", "items": ["interest_update"]
+    })
+    out = simulate(d)
+    assert find(out, "interest_update", work="w2")[0]["reason"] == (
+        "OC_EXPLICIT_PROHIBITION"
+    )
+    assert find(out, "interest_update", work="w2")[1]["outcome"] == "APPLIED"
+    assert find(out, "commit", work="w2")[0]["reason"] == (
+        "FORMATION_INTEREST_INDEPENDENT_OWNER_POSITION_REQUIRED"
+    )
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["result"] == "NOT_SUBMITTED"
