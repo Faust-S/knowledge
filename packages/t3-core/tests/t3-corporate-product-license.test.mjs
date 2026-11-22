@@ -11,7 +11,7 @@ import {
 } from '../src/t3/access/corporate-product-license.mjs';
 
 const NOW=Date.parse('2026-11-22T12:00:00.000Z');
-const future=iso(NOW+48*3600000);
+const future=iso(NOW+12*3600000);
 const config=()=>({
   environment:'PRODUCTION',productId:'IWXA_ADMIN_CENTER',
   licenseKeyId:'key:corporate-license',statusKeyId:'key:corporate-status',
@@ -87,7 +87,7 @@ test('original T3 Ed25519 signs corporate license with actual tariff identity, l
  assert.equal(verified.publisherCommercialIdentityConfirmed,false);
  assert.equal(verified.originalHolderReceiptRequired,true);
  assert.deepEqual(verified.floor,{licenseId:p.id,sequence:1,
-   statusDigest:digest(st),state:'ACTIVE'});
+   statusDigest:digest(st),state:'ACTIVE',issuedAt:iso(NOW)});
 });
 test('real Ed25519 verification rejects edited price-independent tariff, agent ceiling and product',()=>{
  const f=fixture(),signed=f.license();
@@ -184,6 +184,20 @@ test('commercial profile cannot be produced by TEST publisher or alternative pro
    issuerAuthorityId:'publisher:iwxa',licenseId:'license:other',
    lineageId:'lineage:other',now:NOW}),
   'CORP_PREINSTALLED_PRODUCTION_TRUST_REQUIRED');
+});
+test('corporate STATUS uses original T3 offline TTL and five-field durable floor',()=>{
+ const f=fixture(),l=f.license();
+ fail(()=>f.status(l,'ACTIVE',1,iso(NOW+48*3600000)),
+    'CORP_STATUS_OFFLINE_LIMIT_EXCEEDED');
+ const st=f.status(l);
+ const original=f.inspect(l,st);
+ assert.deepEqual(Object.keys(original.floor).sort(),
+   ['issuedAt','licenseId','sequence','state','statusDigest'].sort());
+ const corrupt={...original.floor,issuedAt:iso(NOW+1000)};
+ fail(()=>f.inspect(l,st,corrupt),'CORP_STATUS_TIME_ROLLBACK_DENIED');
+ const legacy={...original.floor};
+ delete legacy.issuedAt;
+ fail(()=>f.inspect(l,st,legacy),'MISSING_FIELD');
 });
 test('expired STATUS or signing time does not become usable product entitlement',()=>{
  const f=fixture(),l=f.license(),st=f.status(l);
