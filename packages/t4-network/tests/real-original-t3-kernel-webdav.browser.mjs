@@ -2026,6 +2026,106 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           remoteDeleteDeltaPublished:false,
           ...deletedAfterCold,
         }));
+      // Separate dependent Object deletion qualification: original T3 owns
+      // both relation and asset semantics; T4 must not infer a cascade.
+      const dependencyProbe={
+        deletedId:'t4:source:delete-dependent:'+randomUUID(),
+        linkedId:'t4:source:delete-target:'+randomUUID(),
+        assetId:'t4:source:delete-asset:'+randomUUID(),
+        relationId:'t4:source:delete-relation:'+randomUUID(),
+      };
+      const dependencyDeleteOutcome=await activeSourcePage.evaluate(
+        async({SERVICE,sourceCaptureWorkspace,dependencyProbe})=>{
+          const kernel=await IWXA.connect({
+            service_id:SERVICE,required_levels:['T1','T2']});
+          for(const objectId of [dependencyProbe.deletedId,
+            dependencyProbe.linkedId]){
+            await kernel.t1.putObject({
+              workspace_id:sourceCaptureWorkspace,object_id:objectId,
+              schema_id:'iwxa.demo.note',schema_version:'1.0.0',
+              data:{probe:'t4-delete-dependent',objectId},
+              extensions:{},base_revision:0,
+              event:{event_type:'t4.original.delete.dependency.object-created',
+                payload:{objectId}},
+            });
+          }
+          await kernel.t1.putRelation({
+            workspace_id:sourceCaptureWorkspace,
+            relation_id:dependencyProbe.relationId,
+            from_object_id:dependencyProbe.deletedId,
+            to_object_id:dependencyProbe.linkedId,
+            kind:'related',
+            event:{event_type:'t4.original.delete.dependency.relation-created',
+              payload:{relationId:dependencyProbe.relationId}},
+          });
+          await kernel.t1.putAsset({
+            workspace_id:sourceCaptureWorkspace,
+            asset_id:dependencyProbe.assetId,
+            object_id:dependencyProbe.deletedId,
+            mime:'text/plain',base_revision:0,
+            bytes:new TextEncoder().encode('Original T3 asset dependency'),
+            event:{event_type:'t4.original.delete.dependency.asset-created',
+              payload:{assetId:dependencyProbe.assetId}},
+          });
+          const current=await kernel.t1.getObject(
+            sourceCaptureWorkspace,dependencyProbe.deletedId);
+          let result;
+          try{
+            const receipt=await kernel.t1.deleteObject({
+              workspace_id:sourceCaptureWorkspace,
+              object_id:dependencyProbe.deletedId,
+              base_revision:current.object.revision,
+              event:{event_type:'t4.original.delete.dependency.attempt',
+                payload:{probe:'linked-object-delete'}},
+            });
+            result={kind:'COMMITTED',receiptEventId:receipt?.event?.event_id??null};
+          }catch(error){
+            result={kind:'REJECTED',errorCode:error?.code??'UNCLASSIFIED'};
+          }
+          return result;
+        },{SERVICE,sourceCaptureWorkspace,dependencyProbe});
+      const readDependencyState=()=>activeSourcePage.evaluate(
+        async({SERVICE,sourceCaptureWorkspace,dependencyProbe})=>{
+          const kernel=await IWXA.connect({
+            service_id:SERVICE,required_levels:['T1','T2']});
+          const [record,asset,other,events]=await Promise.all([
+            kernel.t1.getObject(sourceCaptureWorkspace,
+              dependencyProbe.deletedId),
+            kernel.t1.getAsset(sourceCaptureWorkspace,
+              dependencyProbe.assetId),
+            kernel.t1.getObject(sourceCaptureWorkspace,
+              dependencyProbe.linkedId),
+            kernel.t1.listEventsSince(sourceCaptureWorkspace),
+          ]);
+          return {
+            objectFound:record!==null,
+            objectDeleted:record?.object?.deleted??null,
+            objectRevision:record?.object?.revision??null,
+            relationPresent:(record?.relations?.outgoing??[]).some(
+              link=>link.relation_id===dependencyProbe.relationId),
+            relationIncomingToTarget:(other?.relations?.incoming??[]).some(
+              link=>link.relation_id===dependencyProbe.relationId),
+            assetPresent:asset!==null,
+            assetRevision:asset?.asset?.revision??null,
+            objectDeleteEvents:events.filter(row=>
+              row.object_id===dependencyProbe.deletedId&&
+              row.event_type==='t4.original.delete.dependency.attempt').length,
+          };
+        },{SERVICE,sourceCaptureWorkspace,dependencyProbe});
+      const dependencyBeforeCold=await readDependencyState();
+      await sourceContext.close();sourceContext=null;
+      sourceContext=await launch(sourceProfile);
+      activeSourcePage=await opened(sourceContext);
+      const dependencyAfterCold=await readDependencyState();
+      assert.deepEqual(dependencyAfterCold,dependencyBeforeCold);
+      console.log('T4_REAL_ORIGINAL_T3_DELETE_OBJECT_DEPENDENCY_POLICY_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,
+          ...dependencyDeleteOutcome,...dependencyAfterCold,
+          coldRestartReadbackSame:true,
+          t4NetworkObjectDeleteEnabled:false,
+          objectDeleteRetried:false,
+        }));
     }finally{deltaTransport.close();}
     await sourceContext.close();sourceContext=null;
     const updatedAfterDelta=await verify(recipientPage);
