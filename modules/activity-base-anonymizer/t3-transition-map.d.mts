@@ -10,6 +10,7 @@ export type T3TransitionMapNode=Readonly<{
 export type T3TransitionMap=Readonly<{
   nodes:readonly T3TransitionMapNode[];
   transitions:readonly T3TransitionMapEdge[];
+  too_complex:boolean;
   cyclic:boolean;branched:boolean;linear:boolean;
   branch_points:number;convergence_points:number;
   isolated_event_kinds:number;
