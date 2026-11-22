@@ -250,7 +250,7 @@ class QualitativeAKIS:
         last = -1
         for ev in events:
             _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
-             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "prepared_at", "human_decision", "review_source_ref"}, "EVENT")
+             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "formation_phase_source_ref"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -503,6 +503,15 @@ class QualitativeAKIS:
                 report["change_decision"] = ev.get("change_decision")
             report["source_authentication"] = "MODEL_ONLY_DECLARED_UNVERIFIED"
         if action == "participation_status" and report["outcome"] == "APPLIED":
+            if (self.formation_policy is not None and
+                    self.formation_policy.design.enforce_model_formation_lifecycle):
+                report["evaluated_work"] = ev.get("evaluated_work")
+                report["evaluated_work_revision"] = ev.get("evaluated_work_revision")
+                report["evaluated_result_ref"] = ev.get("evaluated_result_ref")
+                report["evaluated_decision_at"] = ev.get("evaluated_decision_at")
+                report["evaluation_verdict"] = ev.get("evaluation_verdict")
+                report["formation_phase_source_ref"] = ev.get("formation_phase_source_ref")
+                report["evaluation_is_owner_judgment_not_measured_impact"] = True
             report["participation_link"] = ev.get("cooperation_link")
             report["participation_relation_revision"] = ev.get("cooperation_source_revision")
             report["participation_value"] = ev.get("new_participation")
@@ -567,6 +576,9 @@ class QualitativeAKIS:
                 report["cooperation_relation_source"] = "MODEL_ONLY_DECLARED"
         if action == "request" and ev.get("cooperation_link") is not None:
             report["requested_cooperation_link"] = ev.get("cooperation_link")
+        if action == "request" and ev.get("pilot_work") is not None:
+            report["pilot_work"] = ev.get("pilot_work")
+            report["pilot_source"] = "ORIGINAL_ACCEPTED_RESULT_AND_OWNER_EVALUATIONS_ONLY"
         if action == "request" and report["outcome"] == "APPLIED" and linked_change_evidence:
             report.update(linked_change_evidence)
         self.trace.append(report)
@@ -584,6 +596,12 @@ class QualitativeAKIS:
             raise BlockedDecision("REQUESTER_NOT_AVAILABLE")
         if any(dep not in self.works for dep in work.requires_accepted):
             raise BlockedDecision("DEPENDENCY_WORK_UNKNOWN")
+        if self.formation_policy is not None:
+            reason = self.formation_policy.before_followup_request(
+                self, ev, work, at
+            )
+            if reason != "NONE":
+                raise BlockedDecision(reason)
         linked_change_evidence = None
         try:
             if "change_id" in ev:
@@ -638,6 +656,12 @@ class QualitativeAKIS:
         if (not isinstance(ref, str) or len(ref) <= 8 or len(ref) > 180
                 or not ref.startswith("model://")):
             raise BlockedDecision("PARTICIPATION_MODEL_SOURCE_REQUIRED")
+        if self.formation_policy is not None:
+            reason = self.formation_policy.post_result_owner_evaluation(
+                self, ev, ev["at"]
+            )
+            if reason != "NONE":
+                raise BlockedDecision(reason)
         # If applied, the ONLY model status is in the one original trace.
 
     def _assert_future_cooperation_available(self, w: Work,

@@ -81,6 +81,7 @@ class GeneralSystemDesign:
     enforce_model_formation_phases: bool = False
     enforce_model_formation_context_code: bool = False
     enforce_model_formation_agent_review: bool = False
+    enforce_model_formation_lifecycle: bool = False
 
     @property
     def source_times(self) -> tuple[int, ...]:
@@ -471,6 +472,146 @@ class ModelFormationPolicy:
         # execution, acceptance of Work, or a grant to a program agent.
         return "NONE"
 
+    def _original_result_decision(self, state: Any, work: Any,
+                                  at: int) -> tuple[str, Any]:
+        """Only the existing recipient decision, never a result declaration."""
+        choices = [
+            row for row in state.trace
+            if row.get("action") in {"accept", "reject"}
+            and row.get("outcome") == "APPLIED"
+            and row.get("work") == work.key
+            and row.get("actor") == work.customer
+            and type(row.get("at")) is int and row["at"] < at
+        ]
+        if not choices:
+            return "FORMATION_PILOT_ORIGINAL_RECIPIENT_DECISION_REQUIRED", None
+        decision = choices[-1]
+        expected = ("ACCEPTED_BY_ORIGINAL_RECIPIENT"
+                    if decision["action"] == "accept" else "REJECTED")
+        if (work.result != expected or
+                not work.result_ref or
+                not work.result_history or
+                work.result_history[-1].get("transition") != decision["action"] or
+                work.result_history[-1].get("model_ref") != work.result_ref):
+            return "FORMATION_PILOT_CURRENT_RESULT_REVISION_MISMATCH", None
+        if not any(
+            row["phase"] == 7 and row["owner"] == work.customer
+            and row["revision"] == decision.get("org_revision")
+            and row["available_at"] <= decision["at"] < row["expires_at"]
+            for row in self.design.declarations["formation_phases"]
+        ):
+            return "FORMATION_PILOT_SEVENTH_PHASE_CUSTOMER_SOURCE_REQUIRED", None
+        # A rejected result is authentic *negative* model evidence. It cannot
+        # satisfy an accepted-result dependency of a follow-up Work.
+        return "NONE", decision
+
+    def post_result_owner_evaluation(self, state: Any,
+                                     event: Mapping[str, Any], at: int) -> str:
+        """Restrict the ORIGINAL participation_status to a real pilot Result."""
+        if not self.design.enforce_model_formation_lifecycle:
+            return "NONE"
+        key = event.get("evaluated_work")
+        work = state.works.get(key)
+        if work is None:
+            return "FORMATION_EVALUATION_ORIGINAL_PILOT_WORK_REQUIRED"
+        link = next((l for l in state.cooperation_links
+                     if l.key == event.get("cooperation_link")), None)
+        if link is None or key not in link.works:
+            return "FORMATION_EVALUATION_PILOT_COOPERATION_RELATION_REQUIRED"
+        actor = event.get("actor")
+        owners = self._resource_owners(state, work) | {work.customer}
+        if actor not in owners:
+            return "FORMATION_EVALUATION_ORIGINAL_WORK_PRINCIPAL_REQUIRED"
+        if event.get("evaluated_work_revision") != work.source_revision:
+            return "FORMATION_EVALUATION_PILOT_WORK_REVISION_STALE"
+        if event.get("evaluated_result_ref") != work.result_ref:
+            return "FORMATION_EVALUATION_PILOT_RESULT_REFERENCE_MISMATCH"
+        reason, decision = self._original_result_decision(state, work, at)
+        if reason != "NONE":
+            return reason
+        if event.get("evaluated_decision_at") != decision["at"]:
+            return "FORMATION_EVALUATION_ORIGINAL_DECISION_TIME_MISMATCH"
+        if event.get("evaluation_verdict") not in {
+                "FAVOURABLE_DECLARED", "ADVERSE_DECLARED", "UNKNOWN_DECLARED"}:
+            return "FORMATION_EVALUATION_OWNER_ECONOMIC_VERDICT_REQUIRED"
+        source = event.get("formation_phase_source_ref")
+        if not self._source_active(
+                8, actor, source, state.institution.revision, at):
+            return "FORMATION_EVALUATION_OWNER_EIGHTH_PHASE_SOURCE_REQUIRED"
+        owner_source = event.get("participation_evidence_ref")
+        if (not isinstance(owner_source, str)
+                or not owner_source.startswith("model://" + actor + "/")):
+            return "FORMATION_EVALUATION_ORIGINAL_OWNER_SOURCE_REQUIRED"
+        # Model-only economic judgment is not a quantified or proven benefit.
+        # Participation_status itself already controls future engagement.
+        return "NONE"
+
+    def before_followup_request(self, state: Any, request: Mapping[str, Any],
+                                new_work: Any, at: int) -> str:
+        """Require original separate evaluations before another linked Work.
+
+        No automatic request, revision, Result, or governance act is created.
+        This is checked *before* the caller mutates Work or relation membership.
+        """
+        if not self.design.enforce_model_formation_lifecycle:
+            return "NONE"
+        link_id = request.get("cooperation_link")
+        if link_id is None:
+            return ("FORMATION_FOLLOWUP_PILOT_WITHOUT_RELATION"
+                    if request.get("pilot_work") is not None else "NONE")
+        link = next((l for l in state.cooperation_links if l.key == link_id), None)
+        if link is None:
+            return "FORMATION_FOLLOWUP_COOPERATION_RELATION_UNKNOWN"
+        completed = [
+            (row, state.works[row["work"]])
+            for row in state.trace
+            if row.get("outcome") == "APPLIED"
+            and row.get("action") == "accept"
+            and row.get("work") in link.works
+            and state.works[row["work"]].result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+            and type(row.get("at")) is int and row["at"] < at
+        ]
+        if not completed:
+            if request.get("pilot_work") is not None:
+                return "FORMATION_FOLLOWUP_ACCEPTED_PILOT_RESULT_REQUIRED"
+            return "NONE"
+        decision, pilot = completed[-1]
+        if request.get("pilot_work") != pilot.key:
+            return "FORMATION_FOLLOWUP_LATEST_ACCEPTED_PILOT_REFERENCE_REQUIRED"
+        if pilot.key not in new_work.requires_accepted:
+            return "FORMATION_FOLLOWUP_ACCEPTED_RESULT_DEPENDENCY_REQUIRED"
+        reason, current_decision = self._original_result_decision(state, pilot, at)
+        if reason != "NONE":
+            return reason
+        if current_decision["at"] != decision["at"]:
+            return "FORMATION_FOLLOWUP_PILOT_RESULT_EVENT_STALE"
+        original_owners = self._resource_owners(state, pilot) | {pilot.customer}
+        for actor in sorted(original_owners):
+            current = next((
+                row for row in reversed(state.trace)
+                if row.get("action") == "participation_status"
+                and row.get("outcome") == "APPLIED"
+                and row.get("actor") == actor
+                and row.get("participation_link") == link_id
+                and row.get("participation_relation_revision") == link.source_revision
+            ), None)
+            if current is None or current.get("evaluated_work") != pilot.key:
+                return "FORMATION_FOLLOWUP_EACH_ORIGINAL_OWNER_EVALUATION_REQUIRED"
+            if (current.get("evaluated_result_ref") != pilot.result_ref
+                    or current.get("evaluated_decision_at") != decision["at"]
+                    or current.get("evaluated_work_revision") != pilot.source_revision
+                    or current.get("org_revision") != state.institution.revision
+                    or type(current.get("at")) is not int
+                    or current["at"] <= decision["at"] or current["at"] >= at):
+                return "FORMATION_FOLLOWUP_OWNER_EVALUATION_STALE"
+            if not self._source_active(
+                    8, actor, current.get("formation_phase_source_ref"),
+                    state.institution.revision, at):
+                return "FORMATION_FOLLOWUP_OWNER_EVALUATION_SOURCE_EXPIRED"
+        # Existing attach_requested_work / original consent guards still
+        # enforce any owner's own PAUSED_NEW_WORK decision.
+        return "NONE"
+
     def before_commit(self, state: Any, work: Any, at: int,
                       *, include_agent: bool = True) -> str:
         for phase, owners in (
@@ -511,7 +652,8 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
     if (not isinstance(raw, dict) or not required <= set(raw) or
             set(raw) - required - {"enforce_model_org_code", "enforce_model_formation_phases",
                                    "enforce_model_formation_context_code",
-                                   "enforce_model_formation_agent_review"}):
+                                   "enforce_model_formation_agent_review",
+                                   "enforce_model_formation_lifecycle"}):
         raise GeneralSystemInputError("INVALID_GENERAL_DESIGN_FIELDS")
     enforce_model_code = raw.get("enforce_model_org_code", False)
     if type(enforce_model_code) is not bool:
@@ -529,6 +671,11 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
         raise GeneralSystemInputError("GENERAL_MODEL_AGENT_REVIEW_GATE_MUST_BE_BOOLEAN")
     if enforce_agent and not enforce_institutional:
         raise GeneralSystemInputError("FORMATION_AGENT_REVIEW_REQUIRES_KPB_OC_GATES")
+    enforce_lifecycle = raw.get("enforce_model_formation_lifecycle", False)
+    if type(enforce_lifecycle) is not bool:
+        raise GeneralSystemInputError("GENERAL_MODEL_LIFECYCLE_GATE_MUST_BE_BOOLEAN")
+    if enforce_lifecycle and not enforce_agent:
+        raise GeneralSystemInputError("FORMATION_LIFECYCLE_REQUIRES_ORIGINAL_AGENT_REVIEW")
     configurations = {x["id"] for x in cat["taxonomy"]["subject_configurations"]}
     config = _s(raw["configuration"], "CONFIGURATION")
     if config not in configurations:
@@ -634,7 +781,8 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
                                                                 x["owner"], x["source_ref"])))
     return GeneralSystemDesign(config, dict(morphology), parsed, cat,
                                enforce_model_code, enforce_formation,
-                               enforce_institutional, enforce_agent)
+                               enforce_institutional, enforce_agent,
+                               enforce_lifecycle)
 
 
 def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
@@ -918,6 +1066,36 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
             "no_new_original_action_by_policy": True,
         },
         "formation_phases": phase_rows,
+        "post_result_lifecycle_model_gate": {
+            "opted_in": design.enforce_model_formation_lifecycle,
+            "original_customer_result_acceptances": sum(
+                row.get("action") == "accept" and
+                row.get("outcome") == "APPLIED" for row in state.trace
+            ),
+            "original_customer_result_rejections": sum(
+                row.get("action") == "reject" and
+                row.get("outcome") == "APPLIED" for row in state.trace
+            ),
+            "independent_owner_post_result_evaluations": sum(
+                row.get("action") == "participation_status" and
+                row.get("outcome") == "APPLIED" and
+                "evaluated_work" in row for row in state.trace
+            ),
+            "adverse_owner_economic_judgments": sum(
+                row.get("action") == "participation_status" and
+                row.get("outcome") == "APPLIED" and
+                row.get("evaluation_verdict") == "ADVERSE_DECLARED"
+                for row in state.trace
+            ),
+            "accepted_followup_work_requests": sum(
+                row.get("action") == "request" and
+                row.get("outcome") == "APPLIED" and
+                row.get("pilot_work") is not None for row in state.trace
+            ),
+            "real_economic_effect_established": False,
+            "original_results_modified_by_evaluation": False,
+            "all_eight_author_phases_executable": False,
+        },
         "agent_function_formation_model_gate": {
             "opted_in": design.enforce_model_formation_agent_review,
             "original_bounded_preparations": sum(
