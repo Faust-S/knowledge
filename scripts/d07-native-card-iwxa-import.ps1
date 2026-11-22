@@ -280,6 +280,116 @@ try{
  Write-Output ('D07_IWXA_NATIVE_IMPORTED_EXACT_WORKS='+$matchCount)
  if($matchCount -ne 10){throw 'D07_IMPORT_EXACT_TEN_WORKS_NOT_PRESERVED'}
  Write-Output 'D07_IWXA_NATIVE_EXACT_SUBJECT_WORKS_ROUNDTRIP=PASS'
+ # Resume the genuine imported object and save a new Kernel revision.
+ $previousRevision=$null
+ for($i=0;$i -lt 40;$i++){
+  $names=[System.Collections.Generic.List[string]]::new()
+  foreach($root in @(Roots)){
+   foreach($node in $root.FindAll($scope,[System.Windows.Automation.Condition]::TrueCondition)){
+    $name=$node.Current.Name
+    if($name -and $name.Length -lt 500){$names.Add($name)}
+   }
+  }
+  $visible=[string]::Join([Environment]::NewLine,$names)
+  if($visible -match 'Заказ: Замена унитаза;\s*редакция:\s*([1-9][0-9]*)'){
+   $previousRevision=[int]$Matches[1];break
+  }
+  Start-Sleep -Milliseconds 300
+ }
+ if(!$previousRevision){throw 'D07_IMPORT_BASE_REVISION_NOT_VISIBLE'}
+ $editor=Await 'Задача текущего заказа' ([System.Windows.Automation.ControlType]::Edit) 'D07_IMPORT_SAVED_TASK_EDITOR_MISSING'
+ $pattern=[System.Windows.Automation.ValuePattern]$editor.GetCurrentPattern(
+  [System.Windows.Automation.ValuePattern]::Pattern)
+ $oldTask=[string]$pattern.Current.Value
+ $marker='Проверка новой редакции после независимого переноса.'
+ if($oldTask.Contains($marker) -or $oldTask.Length -gt 6000){throw 'D07_IMPORT_TASK_UNSAFE_FOR_TEST'}
+ $nextTask=if($oldTask.Trim()){$oldTask.TrimEnd()+[Environment]::NewLine+$marker}else{$marker}
+ $editor.SetFocus()
+ Set-Clipboard -Value $nextTask
+ [System.Windows.Forms.SendKeys]::SendWait('^a')
+ [System.Windows.Forms.SendKeys]::SendWait('^v')
+ $edited=$false
+ for($i=0;$i -lt 45;$i++){
+  $current=Locate 'Задача текущего заказа' ([System.Windows.Automation.ControlType]::Edit)
+  if($current){
+   try{
+    $value=[System.Windows.Automation.ValuePattern]$current.GetCurrentPattern(
+     [System.Windows.Automation.ValuePattern]::Pattern)
+    if($value.Current.Value -ceq $nextTask){$edited=$true;break}
+   }catch{}
+  }
+  Start-Sleep -Milliseconds 200
+ }
+ if(!$edited){throw 'D07_IMPORT_TASK_KEYBOARD_EDIT_NOT_APPLIED'}
+ Write-Output 'D07_IWXA_NATIVE_IMPORTED_TASK_EDIT=PASS'
+ Click 'Сохранить заказ' 'D07_IMPORT_NEXT_REVISION_SAVE_BUTTON_DISABLED'
+ $newRevision=$previousRevision+1
+ $receipt=$false
+ for($i=0;$i -lt 110;$i++){
+  $names=[System.Collections.Generic.List[string]]::new()
+  foreach($root in @(Roots)){
+   foreach($node in $root.FindAll($scope,[System.Windows.Automation.Condition]::TrueCondition)){
+    $name=$node.Current.Name
+    if($name -and $name.Length -lt 500){$names.Add($name)}
+   }
+  }
+  $visible=[string]::Join([Environment]::NewLine,$names)
+  if($visible.Contains('Запись T2 не подтверждена:')){throw 'D07_IMPORT_POST_IMPORT_KERNEL_SAVE_FAILED'}
+  if($visible.Contains('Заказ сохранён и повторно прочитан.') -and
+     $visible.Contains('Редакция '+$newRevision+'. Событие:')){
+   $receipt=$true;break
+  }
+  Start-Sleep -Milliseconds 300
+ }
+ if(!$receipt){throw 'D07_IMPORT_POST_IMPORT_REVISION_RECEIPT_MISSING'}
+ Write-Output 'D07_IWXA_NATIVE_POST_IMPORT_KERNEL_REVISION=PASS'
+ # A second cold open must read the new task, revision and original works.
+ try{$reopened.Kill($true)}catch{}
+ $reopened=$null
+ Start-Sleep -Milliseconds 1300
+ $reopened=StartEdge ($Origin+'/workspace/')
+ $null=Await 'Мои услуги' $null 'D07_IMPORT_SECOND_COLD_HOST_NOT_OPENED'
+ $taskRecovered=$false
+ for($i=0;$i -lt 105;$i++){
+  $task=Locate 'Задача текущего заказа' ([System.Windows.Automation.ControlType]::Edit)
+  if($task){
+   try{
+    $value=[System.Windows.Automation.ValuePattern]$task.GetCurrentPattern(
+     [System.Windows.Automation.ValuePattern]::Pattern)
+    if($value.Current.Value -ceq $nextTask){$taskRecovered=$true;break}
+   }catch{}
+  }
+  Start-Sleep -Milliseconds 380
+ }
+ if(!$taskRecovered){throw 'D07_IMPORT_SECOND_COLD_TASK_NOT_PERSISTED'}
+ Write-Output 'D07_IWXA_NATIVE_POST_IMPORT_SECOND_COLD_REOPEN=PASS'
+ $details=Await 'Технические сведения о записи' $null 'D07_IMPORT_SECOND_COLD_DETAILS_MISSING'
+ try{
+  $pattern=[System.Windows.Automation.InvokePattern]$details.GetCurrentPattern(
+   [System.Windows.Automation.InvokePattern]::Pattern)
+  $pattern.Invoke()
+ }catch{$details.SetFocus();[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')}
+ $sameId=$false;$sameWorks=$false;$sameRevision=$false
+ for($i=0;$i -lt 85;$i++){
+  $names=[System.Collections.Generic.List[string]]::new()
+  foreach($root in @(Roots)){
+   foreach($node in $root.FindAll($scope,[System.Windows.Automation.Condition]::TrueCondition)){
+    $name=$node.Current.Name
+    if($name -and $name.Length -lt 500){$names.Add($name)}
+   }
+  }
+  $visible=[string]::Join([Environment]::NewLine,$names)
+  $sameId=$visible.Contains('Object ID: '+$expectedId)
+  $sameWorks=(@($titles|Where-Object{$visible.Contains($_)}).Count -eq 10)
+  $sameRevision=$visible.Contains('редакция: '+$newRevision+';')
+  if($sameId -and $sameWorks -and $sameRevision){break}
+  Start-Sleep -Milliseconds 320
+ }
+ if(!$sameId){throw 'D07_IMPORT_POST_IMPORT_OBJECT_ID_CHANGED'}
+ if(!$sameRevision){throw 'D07_IMPORT_POST_IMPORT_REVISION_LOST'}
+ if(!$sameWorks){throw 'D07_IMPORT_POST_IMPORT_TEN_WORKS_LOST'}
+ Write-Output 'D07_IWXA_NATIVE_POST_IMPORT_ID_TEN_WORKS_PRESERVED=PASS'
+ Write-Output 'D07_IWXA_NATIVE_POST_IMPORT_DURABLE_CONTINUATION=PASS'
  Write-Output 'D07_IWXA_NATIVE_CUSTOMER_RESULT_ACCEPTANCE=NOT_RUN'
 }finally{
  if($browser){try{$browser.Kill($true)}catch{}}
