@@ -1030,6 +1030,35 @@ class OperatorAKISModel(mesa.Model):
                 )
             except WorkCounterfactualInputError as exc:
                 raise InputError(str(exc)) from exc
+        if self.capability_enabled:
+            # Economic readiness is a strict read of the SAME original ledger.
+            # A new capability never manufactures new work-level money or value.
+            comparisons = {
+                item["work"]: item for item in
+                output.get("work_counterfactual_dynamics", {}).get("works", [])
+            }
+            future_work_economics = []
+            for declaration in output["capability_dynamics"]["declarations"]:
+                for work_id in declaration["authorized_follow_on_work_ids"]:
+                    comparison = comparisons.get(work_id)
+                    future_work_economics.append({
+                        "capability": declaration["id"], "work": work_id,
+                        "work_economy": (
+                            "MODEL_DECLARED_COMPARABLE_CASH_AND_RESOURCE_ONLY"
+                            if comparison is not None and comparison["status"] ==
+                               "DECLARED_WORK_SCOPE_CASH_AND_RESOURCE_ARITHMETIC_ONLY"
+                            else "WORK_SPECIFIC_ECONOMIC_SCOPE_NOT_QUALIFIED"
+                        ),
+                        "source_declared_net_value_or_learning_causality": False,
+                    })
+            output["capability_dynamics"]["future_original_work_economics"] = {
+                "read_only_original_economic_claims": True,
+                "source_qualification": future_work_economics,
+                "private_owner_cash_amounts_redisclosed": False,
+                "independent_owner_liquidity_not_imputed": True,
+                "operator_and_network_new_profit": "NOT_IDENTIFIABLE",
+                "new_cash_or_noncash_ledger_records_created": 0,
+            }
         if self.general_akis_enabled:
             current = general_system_view(
                 self.general_design, self.qualitative, at=float(self.time),
