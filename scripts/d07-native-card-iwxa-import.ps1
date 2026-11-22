@@ -3,6 +3,14 @@ $ErrorActionPreference="Stop"
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class D07NativeImportMouse {
+ [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+ [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
+}
+"@
 $site=(Resolve-Path $SiteDir).Path
 $edge=@((Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),(Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe'))|Where-Object{Test-Path $_}|Select-Object -First 1
 if(!$edge){throw 'D07_IMPORT_NATIVE_EDGE_MISSING'}
@@ -73,25 +81,72 @@ try{
  if(Locate 'Операция «Перенос данных» не предоставлена ядром в текущем режиме.' $null){throw 'D07_IMPORT_KERNEL_CAPABILITY_NOT_GRANTED'}
  $tab=ActivateImportTab
  if(Locate 'Скачать .iwxa' $null){throw 'D07_IMPORT_EXPORT_PANEL_STILL_SELECTED'}
+ # The original Exchange may not expose the file control until React
+ # finishes switching tabs. This is a native OS file picker, not an API upload.
  $choose=$null
- foreach($label in @('Выберите файл .iwxa','Выбрать файл','Choose File','Choose file','Browse...')){
-  $choose=Locate $label $null
-  if($choose){break}
+ for($attempt=0;$attempt -lt 50;$attempt++){
+   foreach($label in @('Выберите файл .iwxa','Выбрать файл',
+     'Choose File','Choose file','Browse...')){
+     $choose=Locate $label $null
+     if($choose){break}
+   }
+   if($choose){break}
+   Start-Sleep -Milliseconds 250
  }
+ Write-Output ('D07_IMPORT_NATIVE_FILE_CONTROL_PRESENT='+[bool]$choose)
+ $trigger='none'
  if($choose){
-  try{$inv=[System.Windows.Automation.InvokePattern]$choose.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern);$inv.Invoke()}
-  catch{$choose.SetFocus();[System.Windows.Forms.SendKeys]::SendWait(' ')}
+   try{
+     $inv=[System.Windows.Automation.InvokePattern]$choose.GetCurrentPattern(
+       [System.Windows.Automation.InvokePattern]::Pattern)
+     $inv.Invoke()
+     $trigger='uia-invoke'
+   }catch{
+     try{
+       $choose.SetFocus()
+       [System.Windows.Forms.SendKeys]::SendWait(' ')
+       $trigger='keyboard-on-file-control'
+     }catch{
+       try{
+         $point=$choose.GetClickablePoint()
+         $px=[int][Math]::Round($point.X)
+         $py=[int][Math]::Round($point.Y)
+         if(-not [D07NativeImportMouse]::SetCursorPos($px,$py)){
+           throw 'D07_IMPORT_NATIVE_MOUSE_LOCATION_DENIED'
+         }
+         Start-Sleep -Milliseconds 100
+         [D07NativeImportMouse]::mouse_event(0x0002,0,0,0,[UIntPtr]::Zero)
+         [D07NativeImportMouse]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero)
+         $trigger='native-pointer'
+       }catch{throw 'D07_IMPORT_NATIVE_FILE_CONTROL_NOT_ACTIVATED'}
+     }
+   }
  }else{
-  $tab.SetFocus()
-  [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
-  [System.Windows.Forms.SendKeys]::SendWait(' ')
+   # On Chromium the hidden file input often has no stable UIA name.
+   # The first Tab from the selected import panel reaches its chooser.
+   $tab.SetFocus()
+   [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+   Start-Sleep -Milliseconds 200
+   $focus=[System.Windows.Automation.AutomationElement]::FocusedElement
+   if(!$focus){throw 'D07_IMPORT_NATIVE_FILE_FOCUS_MISSING'}
+   $focusType=$focus.Current.ControlType.ProgrammaticName
+   Write-Output ('D07_IMPORT_NATIVE_FIRST_TAB_FOCUS_TYPE='+$focusType)
+   if($focusType -notmatch 'Button|Edit|Group|SplitButton'){
+     throw 'D07_IMPORT_NATIVE_FILE_FOCUS_WRONG_CONTROL'
+   }
+   [System.Windows.Forms.SendKeys]::SendWait(' ')
+   $trigger='keyboard-tab-from-import'
  }
- Start-Sleep -Milliseconds 750
+ Write-Output ('D07_IMPORT_FILE_PICKER_TRIGGER='+$trigger)
+ Start-Sleep -Milliseconds 700
+ # Use the *real* Windows chooser and keyboard to supply the archive,
+ # without reading private file bytes into this public test harness.
  Set-Clipboard -Value $archive
  [System.Windows.Forms.SendKeys]::SendWait('%n')
  Start-Sleep -Milliseconds 300
  [System.Windows.Forms.SendKeys]::SendWait('^v')
  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+ Write-Output 'D07_IMPORT_NATIVE_FILE_CHOOSER_USED=TRUE'
  $null=Await 'Импортировать (1)' ([System.Windows.Automation.ControlType]::Button) 'D07_IMPORT_PREVIEW_NOT_READY'
  Write-Output 'D07_IWXA_NATIVE_INDEPENDENT_PREVIEW=PASS'
  Click 'Импортировать (1)' 'D07_IMPORT_COMMIT_DISABLED'
