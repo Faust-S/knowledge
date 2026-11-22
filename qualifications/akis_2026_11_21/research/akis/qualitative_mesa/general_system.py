@@ -3045,6 +3045,137 @@ def original_nine_component_cycle_evidence(
             "owner_choice_not_source_of_verified_profit": True,
         })
 
+    # R1-U3: a declared dissolution cannot itself prove reproduction.
+    # Reconstitution counts only after its OWN original successor Work
+    # has been newly requested, committed, independently consented,
+    # and accepted by the original recipient. Old outstanding Work stays
+    # in the dissolved parent's original Work/Result history.
+    original_reconstituted_cooperation_cycles: list[dict[str, Any]] = []
+    for restoration in events:
+        if (restoration.get("action") != "cooperation_lifecycle_apply"
+                or restoration.get("lifecycle_kind") != "RECONSTITUTE"):
+            continue
+        parent = relation_index.get(restoration.get("cooperation_link"))
+        successor = relation_index.get(
+            restoration.get("lifecycle_successor_link")
+        )
+        if parent is None or successor is None:
+            continue
+        t_restore = restoration["at"]
+        t_close_record = [
+            row for row in events
+            if row.get("action") == "cooperation_lifecycle_apply"
+            and row.get("lifecycle_kind") == "DISSOLVE"
+            and row.get("cooperation_link") == parent.key
+            and row.get("cooperation_source_revision") ==
+                parent.source_revision
+            and row["at"] < t_restore
+        ]
+        if len(t_close_record) != 1:
+            continue
+        closure = t_close_record[0]
+        t_close = closure["at"]
+        proposals = [
+            row for row in events
+            if row.get("action") == "cooperation_lifecycle_propose"
+            and row.get("lifecycle_kind") == "RECONSTITUTE"
+            and row.get("lifecycle_id") == restoration.get("lifecycle_id")
+            and row.get("cooperation_link") == parent.key
+            and row.get("cooperation_source_revision") ==
+                parent.source_revision
+            and row.get("lifecycle_fingerprint") ==
+                restoration.get("lifecycle_fingerprint")
+            and t_close < row["at"] < t_restore
+        ]
+        if len(proposals) != 1:
+            continue
+        proposal = proposals[0]
+        pilot = original.works.get(proposal.get("pilot_work"))
+        if (pilot is None or pilot.key not in parent.works
+                or pilot.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+                or pilot.result_ref != proposal.get("pilot_result_ref")
+                or accepted_at.get(pilot.key) !=
+                    proposal.get("pilot_decision_at")
+                or accepted_at[pilot.key] >= proposal["at"]
+                or successor.source_revision !=
+                    restoration.get("lifecycle_successor_revision")
+                or successor.source_ref !=
+                    restoration.get("lifecycle_successor_source_ref")
+                or list(successor.participants) !=
+                    restoration.get("lifecycle_successor_participants")
+                or set(successor.works) & set(parent.works)
+                or not set(successor.participants).issubset(
+                    parent.participants)):
+            continue
+        new_accepted: list[str] = []
+        for work_id in successor.works:
+            work = original.works[work_id]
+            requested = requested_at.get(work_id)
+            committed = original_committed_at.get(work_id)
+            received = accepted_at.get(work_id)
+            if (requested is None or committed is None or received is None
+                    or not t_restore < requested < committed < received
+                    or work.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"):
+                continue
+            actual_request = [
+                row for row in events
+                if row.get("action") == "request"
+                and row.get("work") == work_id
+                and row.get("actor") == work.customer
+                and row.get("requested_cooperation_link") == successor.key
+                and row.get("requested_cooperation_source_revision") ==
+                    successor.source_revision and row["at"] == requested
+            ]
+            owners = original.capacity_ledger.original_owners(
+                work.resource_requirements
+            ) | {work.customer}
+            old_dep = [
+                name for name in work.requires_accepted
+                if name in parent.works
+                and name in accepted_at and accepted_at[name] < requested
+            ]
+            if (len(actual_request) != 1
+                    or not old_dep
+                    or not owners.issubset(successor.participants)
+                    or set(work.consents) != owners):
+                continue
+            new_accepted.append(work_id)
+        if not new_accepted:
+            continue
+        old_pending = closure.get(
+            "lifecycle_old_original_outstanding_work", []
+        )
+        if (not isinstance(old_pending, list)
+                or any(name not in parent.works
+                       or original_committed_at.get(name, t_close) >= t_close
+                       for name in old_pending)):
+            continue
+        old_completed_after_close = sorted(
+            name for name in old_pending
+            if accepted_at.get(name, -1) > t_close
+            and original.works[name].result ==
+                "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+        )
+        original_reconstituted_cooperation_cycles.append({
+            "dissolved_original_relation": parent.key,
+            "dissolution_original_at": t_close,
+            "outstanding_original_work_at_dissolution": sorted(old_pending),
+            "original_work_completed_after_dissolution": old_completed_after_close,
+            "restored_original_relation": successor.key,
+            "restoration_original_at": t_restore,
+            "original_accepted_pilot_work": pilot.key,
+            "independent_reconstitution_participants": sorted(
+                restoration["lifecycle_independent_original_respondents"]
+            ),
+            "former_original_members_not_rejoined": sorted(
+                restoration.get("lifecycle_not_rejoined_original_members", [])
+            ),
+            "fresh_original_accepted_work_ids": sorted(new_accepted),
+            "original_ongoing_work_does_not_transfer_to_new_relation": True,
+            "historical_original_obligations_and_result_immutable": True,
+            "contractual_release_or_bank_settlement_not_verified": True,
+        })
+
     accepted_results = len(accepted_at)
     requested_count = len(requested_at)
     committed_count = len(original_committed_at)
@@ -3088,6 +3219,7 @@ def original_nine_component_cycle_evidence(
         "ЖЦ": bool(
             linked_needs or current_capacity_sequences
             or original_institutional_sequences or original_membership_successions
+            or original_reconstituted_cooperation_cycles
         ),
     }
     assert tuple(current_partial_observation) == COMPONENTS
@@ -3118,6 +3250,9 @@ def original_nine_component_cycle_evidence(
             ),
             "original_competing_coalition_choices_followed_by_accepted_work": (
                 original_competitive_member_choices
+            ),
+            "original_dissolution_reconstitution_followed_by_accepted_work": (
+                original_reconstituted_cooperation_cycles
             ),
             "contains_owner_work_and_model_source_identifiers": True,
             "safe_for_cross_enterprise_publication": False,
@@ -3169,6 +3304,15 @@ def original_nine_component_cycle_evidence(
             ),
             "unselected_alternative_not_a_second_realized_coalition": True,
             "competing_coalition_comparison_not_verified_monetary_benefit": True,
+            "dissolved_cooperation_restored_with_new_original_accepted_work": (
+                len(original_reconstituted_cooperation_cycles)
+            ),
+            "previously_outstanding_original_work_accepted_after_dissolution": sum(
+                len(row["original_work_completed_after_dissolution"])
+                for row in original_reconstituted_cooperation_cycles
+            ),
+            "dissolution_without_new_accepted_Result_not_system_reproduction": True,
+            "original_unfinished_obligations_not_discarded_by_dissolution": True,
             "subject_and_resource_model_sources_not_external_identity_proof": True,
             "verified_actual_productivity_or_transaction_savings": False,
             "source_scoped_membership_successors_are_not_legal_membership": True,
