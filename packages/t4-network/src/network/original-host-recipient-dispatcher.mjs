@@ -195,6 +195,7 @@ async function originalEvent(p,item){
       captureRef:item.captureRef,matchingOriginalEvents:matches.length,
     });
   const ev=matches[0];
+  await allowed(p,'t1.listEventsSince','recipient-event-readback',item);
   if(!ID(ev.event_id)||ev.workspace_id!==p.workspaceId||
     ev.event_type!==spec.type||
     ev.payload?.originalEventId!==item.event.eventId||
@@ -339,7 +340,8 @@ async function execute(p,entries,initialCursor,maxEntries){
           ...body}=checkpoint;
         if(!same(body,expected)||!ID(originalRecipientEventId)||
           !ID(originalReceiptRef)||originalRecipientVerified!==true||
-          originalOperationReceiptRecreated!==false)
+          originalOperationReceiptRecreated!==false||
+          originalReceiptRef!==originalRecipientEventId)
           fail('RECIPIENT_ORIGINAL_CHECKPOINT_TAMPERED');
         const event=await originalEvent(p,item);
         if(event.event_id!==originalRecipientEventId)
@@ -415,12 +417,14 @@ async function execute(p,entries,initialCursor,maxEntries){
       await advance(p,item,acknowledgement);
       const savedCheckpoint=frozen({...witness(item,p,CHECKPOINT),
         originalRecipientEventId:evidence.eventId,
-        originalReceiptRef:evidence.receiptRef,
+        // Checkpoints store the real original recipient Event ID, never
+        // reconstruct a missing original transaction receipt.
+        originalReceiptRef:evidence.eventId,
         originalRecipientVerified:true,
         originalOperationReceiptRecreated:false});
       await persistHost(p,'persistOriginalApplyCheckpoint',
         'readOriginalApplyCheckpoint',savedCheckpoint,item);
-      await ensureCursor(p,item,cursor,evidence.receiptRef);
+      await ensureCursor(p,item,cursor,evidence.eventId);
       cursor=item.after;processed++;
       results.push(frozen({captureRef:item.captureRef,
         state:evidence.recoveredFromOriginalEvent?
