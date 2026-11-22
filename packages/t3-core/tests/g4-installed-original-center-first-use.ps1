@@ -276,7 +276,16 @@ function EnsureOriginalSignedWorkspaceProvisioned(){
   $sawMissing=$false
   $clicked=$false
   $buttonObserved=$false
+  $unconfirmedGateReported=$false
   for($i=0;$i -lt 240;$i++){
+    # Only the original SignedSelectedWorkspaceGate can emit this signal
+    # after an exact authorized T2 getWorkspace readback. KernelStatus
+    # READY and absence of a gate are insufficient for installed D2.
+    $ready=HasText 'Подписанная Workspace подтверждена в исходном Kernel'
+    if($ready){
+      Write-Host 'D2_INSTALLED_ORIGINAL_SELECTED_WORKSPACE_KERNEL_READBACK_PASS'
+      return $true
+    }
     $missing=HasText 'Подписанная Workspace недоступна'
     $denied=HasText 'Подписанный доступ Workspace не подтверждён'
     $checking=HasText 'Проверяем выбранную подписанную Workspace'
@@ -323,16 +332,15 @@ function EnsureOriginalSignedWorkspaceProvisioned(){
         $clicked=$true
       }
     }
-    if($sawMissing -and -not $missing -and -not $checking){
-      Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_GATE_RESOLVED'
-      return $true
+    if($sawMissing -and -not $missing -and -not $checking -and
+       -not $unconfirmedGateReported){
+      Write-Host 'D2_INSTALLED_SIGNED_GATE_HIDDEN_AWAIT_ORIGINAL_KERNEL_READBACK'
+      $unconfirmedGateReported=$true
     }
-    if(-not $sawMissing -and -not $checking -and $i -ge 36){
-      # Could already exist, or the signed auto-provisioner could have
-      # completed before observation. Only the later D2 Kernel readback
-      # proves source readiness; no success claim is made here.
-      Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_NO_GATE_OBSERVED'
-      return $true
+    if(-not $sawMissing -and -not $checking -and $i -eq 36){
+      # The host's React runtime can still be mounting. An absent gate
+      # is NOT proof of an existing corporate T2 Workspace.
+      Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_NO_GATE_UNCONFIRMED'
     }
     Start-Sleep -Milliseconds 250
   }
@@ -346,7 +354,7 @@ function EnsureOriginalSignedWorkspaceProvisioned(){
     Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_GATE_STILL_MISSING'
     return $false
   }
-  Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_GATE_NOT_SETTLED'
+  Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_NO_KERNEL_READBACK'
   return $false
 }
 function WaitForOrdinaryWorkspace([string]$name){
