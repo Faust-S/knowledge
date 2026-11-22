@@ -33,14 +33,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops.ru
-          ref: 7d2a11c2251d8dec2fb73c7fd56ec78c0c03ac0e
+          ref: ff814c6947b3b54b25fba3a0b62ed1234a6f38db
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
       - name: Verify private revisions, never emit private source
         run: |
           test "$(git -C logic rev-parse HEAD)" = "f54d97a11e7a1c6e5a265e064dc00003ce57782a" || exit 1
-          test "$(git -C site rev-parse HEAD)" = "7d2a11c2251d8dec2fb73c7fd56ec78c0c03ac0e" || exit 1
+          test "$(git -C site rev-parse HEAD)" = "ff814c6947b3b54b25fba3a0b62ed1234a6f38db" || exit 1
           cmp logic/model/new-purchase-cash-review.mjs site/t2-site-module/marketops/decision/new-purchase-cash-review.mjs
           cmp logic/model/new-purchase-cash-review.d.mts site/t2-site-module/marketops/decision/new-purchase-cash-review.d.mts
           cmp logic/model/business-attention-queue.mjs site/t2-site-module/marketops/decision/business-attention-queue.mjs
@@ -99,7 +99,9 @@ jobs:
         working-directory: site
         run: |
           node --import tsx --test tests/marketops-business-obligation.test.mjs tests/marketops-business-goods-cycle.test.mjs tests/marketops-business-attention.test.mjs tests/marketops-new-purchase-review.test.mjs tests/marketops-obligation-return-flow.test.mjs > "$RUNNER_TEMP/d08-obligations.log" 2>&1 || {
-            echo D08_T2_OBLIGATIONS=FAIL; exit 1;
+            echo D08_T2_OBLIGATIONS=FAIL
+            grep -E '^not ok [0-9]+|^# (tests|pass|fail) ' "$RUNNER_TEMP/d08-obligations.log" | head -25 || true
+            exit 1;
           }
           echo D08_T2_OBLIGATIONS=PASS
       - name: Whole site TypeScript and D08 adapters
