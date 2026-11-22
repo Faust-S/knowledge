@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 43db812d29d23b0656d445fd9519b189c62e5ca9
+          ref: 9391a0e6bd9ee643e0288c8051e94b22e9dda4c2
           token: ${{ secrets.DOMEN }}
           path: subject
           persist-credentials: false
@@ -29,14 +29,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: f52e2931e46c29a2962a53b33e8e1f49b6b7de11
+          ref: 30634438c37b59bde3b71fb5eff14f351179f3c1
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify exact revisions and business logic parity
         run: |
-          test "$(git -C subject rev-parse HEAD)" = "43db812d29d23b0656d445fd9519b189c62e5ca9"
-          test "$(git -C site rev-parse HEAD)" = "f52e2931e46c29a2962a53b33e8e1f49b6b7de11"
+          test "$(git -C subject rev-parse HEAD)" = "9391a0e6bd9ee643e0288c8051e94b22e9dda4c2"
+          test "$(git -C site rev-parse HEAD)" = "30634438c37b59bde3b71fb5eff14f351179f3c1"
           cmp subject/src/domain/service-external-gap-research.ts site/src/domain/service-external-gap-research.ts
           cmp subject/src/domain/service-professional-gap-inventory.ts site/src/domain/service-professional-gap-inventory.ts
           cmp subject/src/domain/service-subject-plumbing-a.ts site/src/domain/service-subject-plumbing-a.ts
@@ -92,6 +92,7 @@ jobs:
           }
           echo D07_ITEM_RESEARCH_GENERATION=PASS
           node -e "const f=require('fs');const p=process.env.RUNNER_TEMP+'/d07-item-500/service-professional-finalization.top500.generated.json';const d=JSON.parse(f.readFileSync(p,'utf8'));if(d.counts.selected!==500||d.counts.independentlyApprovedMethodologies!==0)process.exit(1);console.log('D07_ITEM_RESEARCH_500_CANDIDATES=PASS')"
+          node -e "const fs=require('fs');const path=process.env.RUNNER_TEMP+'/d07-item-500/service-external-gap-research.top500.generated.json';const data=JSON.parse(fs.readFileSync(path,'utf8'));const methods=data.services.filter(x=>x.technologyResearchStage==='per-operation-original-facets').length;const tasks=data.services.reduce((n,x)=>n+x.facetGaps.length,0);const legacy=data.services.reduce((n,x)=>n+x.itemGaps.length,0);console.log('D07_500_INDIVIDUAL_METHODOLOGIES='+methods);console.log('D07_500_TECHNOLOGY_REQUIRED='+(500-methods));console.log('D07_500_FACET_RESEARCH_TASKS='+tasks);console.log('D07_500_ORIGINAL_ITEM_GAPS='+legacy);if(methods!==87||tasks<1000||data.services.length!==500)process.exit(1)"
       - name: Live verify pinned mixed HTML and PDF originals by item
         working-directory: site
         env:
