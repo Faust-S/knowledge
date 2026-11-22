@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 03293f3f2807ed8ed5ac20846c133c836f8566e8
+          ref: c484190ac3603a295b78bcf55067f3b56370c5a8
           token: ${{ secrets.DOMEN }}
           path: subject
           persist-credentials: false
@@ -26,15 +26,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 57af20a8c534ba7b2ffa2fbd101a04d7ad77f72e
+          ref: bb5213549d7bd436f5975f4cd520da2f3039645d
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify private revisions, directory and technology parity
         run: |
-          test "$(git -C subject rev-parse HEAD)" = "03293f3f2807ed8ed5ac20846c133c836f8566e8"
-          test "$(git -C site rev-parse HEAD)" = "57af20a8c534ba7b2ffa2fbd101a04d7ad77f72e"
-          for f in service-subject-protocols.ts service-subject-it-router.ts service-subject-it-printer.ts service-subject-it-wifi.ts service-subject-it-software.ts service-subject-code-audit.ts service-subject-it-batch-b.ts service-subject-antivirus-inspection.ts service-subject-video-surveillance.ts service-subject-database.ts service-subject-laptop-cleaning.ts service-subject-crm-setup.ts service-subject-laptop-repair.ts service-subject-domain-transfer.ts service-subject-seo.ts service-subject-desktop-pc-repair.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-site-release-gate.ts; do
+          test "$(git -C subject rev-parse HEAD)" = "c484190ac3603a295b78bcf55067f3b56370c5a8"
+          test "$(git -C site rev-parse HEAD)" = "bb5213549d7bd436f5975f4cd520da2f3039645d"
+          for f in service-subject-protocols.ts service-subject-it-router.ts service-subject-it-printer.ts service-subject-it-wifi.ts service-subject-it-software.ts service-subject-code-audit.ts service-subject-it-batch-b.ts service-subject-antivirus-inspection.ts service-subject-video-surveillance.ts service-subject-database.ts service-subject-laptop-cleaning.ts service-subject-crm-setup.ts service-subject-laptop-repair.ts service-subject-domain-transfer.ts service-subject-seo.ts service-subject-desktop-pc-repair.ts service-subject-data-recovery.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-site-release-gate.ts; do
             cmp "subject/src/domain/$f" "site/src/domain/$f"
           done
           cmp subject/src/data/serviceDirectory.ts site/src/data/serviceDirectory.ts
@@ -52,6 +52,7 @@ jobs:
           cmp subject/src/data/services/kompyutery-it-sayty/perenos-domena.ts site/src/data/services/kompyutery-it-sayty/perenos-domena.ts
           cmp subject/src/data/services/kompyutery-it-sayty/seo-prodvizhenie.ts site/src/data/services/kompyutery-it-sayty/seo-prodvizhenie.ts
           cmp subject/src/data/services/kompyutery-it-sayty/remont-kompyutera.ts site/src/data/services/kompyutery-it-sayty/remont-kompyutera.ts
+          cmp subject/src/data/services/kompyutery-it-sayty/vosstanovlenie-dannyh.ts site/src/data/services/kompyutery-it-sayty/vosstanovlenie-dannyh.ts
           echo D07_SITE_CARD_PARITY=PASS
       - uses: actions/setup-node@v4
         with:
@@ -81,7 +82,7 @@ jobs:
             scripts/tests/d07-plumbing-b-professional-methods.test.mjs \
             scripts/tests/d07-plumbing-c-professional-methods.test.mjs \
             scripts/tests/d07-it-network-peripheral-methods.test.mjs \
-            scripts/tests/d07-it-software-method.test.mjs scripts/tests/d07-it-code-audit.test.mjs scripts/tests/d07-it-tls-variation.test.mjs scripts/tests/d07-it-antivirus-method.test.mjs scripts/tests/d07-it-mail-variation.test.mjs scripts/tests/d07-it-cctv-professional.test.mjs scripts/tests/d07-it-database-professional.test.mjs scripts/tests/d07-it-laptop-cleaning.test.mjs scripts/tests/d07-it-crm-professional.test.mjs scripts/tests/d07-it-laptop-repair.test.mjs scripts/tests/d07-domain-transfer-professional.test.mjs scripts/tests/d07-it-seo-professional.test.mjs scripts/tests/d07-it-desktop-repair-professional.test.mjs \
+            scripts/tests/d07-it-software-method.test.mjs scripts/tests/d07-it-code-audit.test.mjs scripts/tests/d07-it-tls-variation.test.mjs scripts/tests/d07-it-antivirus-method.test.mjs scripts/tests/d07-it-mail-variation.test.mjs scripts/tests/d07-it-cctv-professional.test.mjs scripts/tests/d07-it-database-professional.test.mjs scripts/tests/d07-it-laptop-cleaning.test.mjs scripts/tests/d07-it-crm-professional.test.mjs scripts/tests/d07-it-laptop-repair.test.mjs scripts/tests/d07-domain-transfer-professional.test.mjs scripts/tests/d07-it-seo-professional.test.mjs scripts/tests/d07-it-desktop-repair-professional.test.mjs scripts/tests/d07-it-data-recovery-professional.test.mjs \
             scripts/tests/d07-generated-service-plans.test.mjs \
             scripts/tests/d07-workspace-direct-entry.test.mjs \
             > "$RUNNER_TEMP/d07-card-tests.log" 2>&1 || {
