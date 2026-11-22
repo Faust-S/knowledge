@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 9391a0e6bd9ee643e0288c8051e94b22e9dda4c2
+          ref: 4321541e312aa0e4e33d362af1c8d34cb808a91b
           token: ${{ secrets.DOMEN }}
           path: subject
           persist-credentials: false
@@ -29,14 +29,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: ae7d02044ef4c8a443f2e00e94309d016093ba8f
+          ref: 089ea95fd63a1e6d2554a7cb21797cdaa75a2e41
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify exact revisions and business logic parity
         run: |
-          test "$(git -C subject rev-parse HEAD)" = "9391a0e6bd9ee643e0288c8051e94b22e9dda4c2"
-          test "$(git -C site rev-parse HEAD)" = "ae7d02044ef4c8a443f2e00e94309d016093ba8f"
+          test "$(git -C subject rev-parse HEAD)" = "4321541e312aa0e4e33d362af1c8d34cb808a91b"
+          test "$(git -C site rev-parse HEAD)" = "089ea95fd63a1e6d2554a7cb21797cdaa75a2e41"
           cmp subject/src/domain/service-external-gap-research.ts site/src/domain/service-external-gap-research.ts
           cmp subject/src/domain/service-professional-gap-inventory.ts site/src/domain/service-professional-gap-inventory.ts
           cmp subject/src/domain/service-subject-plumbing-a.ts site/src/domain/service-subject-plumbing-a.ts
