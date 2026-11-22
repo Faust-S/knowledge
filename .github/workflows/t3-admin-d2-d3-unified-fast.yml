@@ -1,0 +1,93 @@
+name: Admin Center 0.3 unified original D2 plus employee D3 (public isolated)
+on:
+  push:
+    branches:
+      - work/2026-11-22-admin03-d2-d3-unified-proof
+    paths:
+      - .github/workflows/t3-admin-d2-d3-unified-fast.yml
+      - packages/t3-core/tests/t3-d2-original-native-workspace-jit.mjs
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: admin03-unified-original-d2-d3-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  original-native-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 1490ff259a3fd1393d25cde729cfbb81fd669f79
+          token: ${{ secrets.T3 || secrets.DOMEN }}
+          persist-credentials: false
+          path: .private/t3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Check original private unified D2 D3 owner pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C .private/t3 rev-parse HEAD)" = '1490ff259a3fd1393d25cde729cfbb81fd669f79'
+          node --check .private/t3/interop/native-admin-d3.mjs
+          node --check .private/t3/interop/runtime.mjs
+          node --check .private/t3/interop/provision.mjs
+          node --check .private/t3/access-control/domain-registry.mjs
+          echo "ADMIN03_UNIFIED_PRIVATE_ORIGINAL_SOURCE_CHECK_PASS"
+      - name: Original signed employee and workspace-owner test contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_original() {
+            local name="$1"; shift
+            if ! "$@" > "$RUNNER_TEMP/${name}.log" 2>&1; then
+              echo "ADMIN03_UNIFIED_${name}_HOLD"
+              exit 1
+            fi
+            echo "ADMIN03_UNIFIED_${name}_PASS"
+          }
+          run_original EMPLOYEE_MULTI_OWNER node --test .private/t3/tests/multi-employee-admin.test.mjs
+          run_original EMPLOYEE_PROVISIONING node --test .private/t3/tests/multi-employee-provisioning.test.mjs
+          run_original ORIGINAL_D2_DATA_GRANT node --test .private/t3/tests/t3-admin-activity-original-data-grant.test.mjs
+          run_original COLD_CREATE_FENCE node packages/t3-core/tests/t3-d2-original-native-workspace-jit.mjs .private/t3
+          grep -q '^D2_ORIGINAL_SIGNED_CREATE_COLD_REPLAY_FENCE_PASS$' "$RUNNER_TEMP/COLD_CREATE_FENCE.log"
+          grep -q '^D2_ORIGINAL_COLD_READ_ONLY_RECOVERY_JIT_PASS$' "$RUNNER_TEMP/COLD_CREATE_FENCE.log"
+          echo "ADMIN03_UNIFIED_ORIGINAL_SIGNED_D2_D3_CONTRACT_PASS"
+      - name: Original One Core employee registry and Kernel evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs > "$RUNNER_TEMP/original-employee-kernel.log" 2>&1 || { echo "ADMIN03_UNIFIED_ORIGINAL_EMPLOYEE_KERNEL_HOLD"; exit 1; }
+          echo "ADMIN03_UNIFIED_ORIGINAL_EMPLOYEE_KERNEL_PASS"
+  original-windows-builder:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 1490ff259a3fd1393d25cde729cfbb81fd669f79
+          token: ${{ secrets.T3 || secrets.DOMEN }}
+          persist-credentials: false
+          path: .private/t3
+      - name: Parse private original compiled-owner Windows builder without running private Actions
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git -C .private/t3 rev-parse HEAD).Trim() -ne '1490ff259a3fd1393d25cde729cfbb81fd669f79') {throw 'ADMIN03_UNIFIED_PRIVATE_OWNER_PIN_CHANGED'}
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path '.private/t3/scripts/build-admin-center-d3-owner.ps1').Path,
+            [ref]$tokens,[ref]$errors) | Out-Null
+          if($errors.Count -ne 0) {throw 'ADMIN03_UNIFIED_ORIGINAL_OWNER_BUILDER_PARSE_FAILED'}
+          Write-Host 'ADMIN03_UNIFIED_ORIGINAL_BUILDER_PARSE_PASS'
