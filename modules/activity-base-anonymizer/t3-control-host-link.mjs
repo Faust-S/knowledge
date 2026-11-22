@@ -143,9 +143,6 @@ export function bindT3ControlActivityReview({
         need(!stagePending,'T3_CONTROL_ACTIVITY_STAGE_IN_PROGRESS');
         need(!stageAttempted,'T3_CONTROL_ACTIVITY_STAGE_ALREADY_DISPATCHED');
         stagePending=true;
-        // The trusted Host, not only a mounted React controller, owns the
-        // at-most-once boundary. Remount/invalidation cannot reissue a write.
-        stageAttempted=true;
         const epoch=generation;
         const selected=context.currentWorkspace.get();
         const targetSelected=signedTargetOnly
@@ -172,6 +169,11 @@ export function bindT3ControlActivityReview({
             createSubjectKernelBinding:derivation.createSubjectKernelBinding,
             targetKernel:signedTargetOnly?derivation.targetKernel??null:null,
           });
+          // Mark only at the real material dispatch boundary. A definitive
+          // preflight refusal (no signed derive grant) is safe to retry after
+          // the original owner independently changes its authorization.
+          // After dispatch, React remount cannot send a second write.
+          stageAttempted=true;
           started=true;
           const receipt=await ownerStage.stageSelected();
           const after=snapshot();
