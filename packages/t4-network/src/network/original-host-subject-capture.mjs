@@ -199,7 +199,8 @@ async function capturePayload({
     event.event_type!==writeInput.event.event_type||
     !ID(event.event_id)||
     (event.object_id!==null&&event.object_id!==undefined&&
-      event.object_id!==originalIdFrom(kind,writeInput))||
+      event.object_id!==originalIdFrom(kind,writeInput)&&
+      event.object_id!==subject)||
     (kind==='ASSET_PUT'&&event.revision!==null&&
       event.revision!==undefined&&event.revision!==intent.expectedRevision))
     fail('SUBJECT_CAPTURE_ORIGINAL_EVENT_SCOPE_MISMATCH');
