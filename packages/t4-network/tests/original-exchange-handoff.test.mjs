@@ -5,19 +5,27 @@ import {packageSha256} from '../src/network/webdav-package-transfer.mjs';
 
 function setup(overrides = {}) {
   const bytes = Buffer.from('opaque-fixture-not-real-iwxa');
+  const full = {
+    workspaces: ['company-a'], include_history: true, include_assets: true,
+    include_relations: true, include_schemas: true,
+  };
   const original = {
     filename: 'original.iwxa', bytes, size: bytes.length,
     package_digest: 'original-package-digest', semantic_digest: 'original-semantic-digest',
     manifest: {
       format: 'iwxa.package', format_version: '1.1', encryption: 'none',
       package_digest: 'original-package-digest', semantic_digest: 'original-semantic-digest',
-      workspaces: ['company-a'],
+      workspaces: ['company-a'], options: {include_history: true,include_assets: true,
+        include_relations: true,include_schemas: true},
     },
-    validation: {format: 'iwxa.package.validation', ok: true},
+    validation: {format: 'iwxa.package.validation', ok: true,
+      file_count: 1,object_count: 1,schema_issues: [],path_issues: []},
+    summary: {workspaces: 1},
   };
   const state = {
     status: 'confirmed', fileSavedConfirmed: true, ackSensitive: true, artifact: original,
-    packageSnapshot: {workspaces: ['company-a']},
+    selection: full, previewSnapshot: full, packageSnapshot: full,
+    preview: {workspaces: ['company-a']},
     receipt: {
       package_digest: 'original-package-digest', workspace_ids: ['company-a'],
       confirmed_at: '2026-11-21T00:00:00Z', confirmations: 1,
@@ -145,4 +153,30 @@ test('focus changed during original preview cancels original preview token',asyn
     matchesCode('ORIGINAL_WORKSPACE_FOCUS_CHANGED'));
   assert.deepEqual(h.events.map(e=>e[0]),['getSnapshot','importCancel']);
   assert.equal(h.events[1][1],'token-to-cancel');
+});
+
+test('original full-company release contract prevents incomplete exported workspace reaching network',async()=>{
+  const current=setup();
+  const missing=[
+    {...current.state,selection:{...current.state.selection,include_history:false}},
+    {...current.state,previewSnapshot:null},
+    {...current.state,packageSnapshot:{...current.state.packageSnapshot,include_assets:false}},
+    {...current.state,preview:{workspaces:['other-company']}},
+    {...current.state,artifact:{...current.original,manifest:{...current.original.manifest,
+      options:{...current.original.manifest.options,include_relations:false}}}},
+  ];
+  for(const next of missing){
+    const h=setup();h.update(next);
+    await assert.rejects(h.handoff().publishConfirmedExport(),
+      matchesCode('ORIGINAL_EXCHANGE_FULL_WORKSPACE_REQUIRED'));
+    assert.equal(h.events.length,0);
+  }
+});
+test('invalid original validation detail cannot pass as a confirmed export',async()=>{
+  const h=setup();h.update({...h.state,artifact:{...h.original,validation:{
+    ...h.original.validation,object_count:NaN,
+  }}});
+  await assert.rejects(h.handoff().publishConfirmedExport(),
+    matchesCode('ORIGINAL_EXPORT_RECEIPT_MISMATCH'));
+  assert.equal(h.events.length,0);
 });

@@ -13,6 +13,11 @@ const fail = (code, details) => { throw new T4OriginalExchangeHandoffError(code,
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
 const same = (a, b) => Array.isArray(a) && Array.isArray(b) &&
   a.length === b.length && new Set(a).size === a.length && a.every(id => b.includes(id));
+const fullContent = options => options?.include_history === true &&
+  options.include_assets === true && options.include_relations === true &&
+  options.include_schemas === true;
+const fullSingleWorkspace = (selection, workspaceId) =>
+  same(selection?.workspaces, [workspaceId]) && fullContent(selection);
 
 export function createT4OriginalExchangeHandoff({
   transport, originalKernel, currentWorkspace, readOriginalExportState, workspaceId,
@@ -45,6 +50,13 @@ export function createT4OriginalExchangeHandoff({
     if (state?.status !== 'confirmed' || state.fileSavedConfirmed !== true ||
       state.ackSensitive !== true) fail('ORIGINAL_EXPORT_NOT_CONFIRMED');
     const artifact = state.artifact, receipt = state.receipt, manifest = artifact?.manifest;
+    if (!fullSingleWorkspace(state.selection, workspaceId) ||
+      !fullSingleWorkspace(state.previewSnapshot, workspaceId) ||
+      !fullSingleWorkspace(state.packageSnapshot, workspaceId) ||
+      !fullContent(manifest?.options) ||
+      !same(state.preview?.workspaces, [workspaceId])) {
+      fail('ORIGINAL_EXCHANGE_FULL_WORKSPACE_REQUIRED');
+    }
     if (!(artifact?.bytes instanceof Uint8Array) || !artifact.bytes.byteLength ||
       artifact.size !== artifact.bytes.byteLength ||
       !nonempty(artifact.filename) || !artifact.filename.endsWith('.iwxa') ||
@@ -56,6 +68,13 @@ export function createT4OriginalExchangeHandoff({
       manifest.semantic_digest !== artifact.semantic_digest ||
       artifact.validation?.format !== 'iwxa.package.validation' ||
       artifact.validation.ok !== true ||
+      !Number.isSafeInteger(artifact.validation.file_count) ||
+      artifact.validation.file_count < 0 ||
+      !Number.isSafeInteger(artifact.validation.object_count) ||
+      artifact.validation.object_count < 0 ||
+      !Array.isArray(artifact.validation.schema_issues) ||
+      !Array.isArray(artifact.validation.path_issues) ||
+      artifact.summary == null ||
       !same(manifest.workspaces, [workspaceId]) ||
       !same(state.packageSnapshot?.workspaces, [workspaceId]) ||
       !receipt || receipt.package_digest !== artifact.package_digest ||
