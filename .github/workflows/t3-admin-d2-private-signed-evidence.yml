@@ -1,8 +1,8 @@
-name: T3 D2 signed DATA original private owner (public isolated Windows runner)
+name: Admin Center V8 original signed D2 installed Windows acceptance
 on:
   push:
     branches:
-      - work/2026-11-22-admin03-original-d2-read
+      - work/2026-11-22-admin03-v8-installed-d2-acceptance
     paths:
       - .github/workflows/t3-admin-d2-private-signed-evidence.yml
       - packages/t3-core/tests/t3-d2-original-native-workspace-jit.mjs
@@ -13,7 +13,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: t3-admin-d2-proof-${{ github.ref }}
+  group: admin03-v8-original-d2-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   signed-data-proof:
@@ -142,7 +142,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/Center
-          ref: 6656c82ae865af1b0751ed656fb7f44a0b9c3024
+          ref: f7111be9cbbef94bcf68ef2166f290bc964ccc13
           persist-credentials: false
           path: .private/center
       - name: Stage original Atlas owner
@@ -173,7 +173,7 @@ jobs:
           $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
           $center=(& git -C .private/center rev-parse HEAD).Trim()
           if($t3 -cne '63d9f4b083477b134275ab000850bc2ce7d20399' -or
-             $center -cne '6656c82ae865af1b0751ed656fb7f44a0b9c3024'){
+             $center -cne 'f7111be9cbbef94bcf68ef2166f290bc964ccc13'){
             throw 'D2_INSTALLED_ORIGINAL_PRIVATE_SOURCE_PIN_CHANGED'
           }
           Add-Content -LiteralPath '.git/info/exclude' -Value '/.private/'
@@ -261,7 +261,7 @@ jobs:
         timeout-minutes: 8
         run: |
           $ErrorActionPreference='Stop'
-          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha '6656c82ae865af1b0751ed656fb7f44a0b9c3024' -ExpectedT3Sha '63d9f4b083477b134275ab000850bc2ce7d20399'
+          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha 'f7111be9cbbef94bcf68ef2166f290bc964ccc13' -ExpectedT3Sha '63d9f4b083477b134275ab000850bc2ce7d20399'
           if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_GUI_FAILED'}
           Write-Host 'D2_INSTALLED_ORIGINAL_OWNER_SETUP_AND_GUI_PASS_NOT_FULL_E2E'
       - name: Native Windows original signed D2 DATA and two independent cold UIA reads
