@@ -222,7 +222,15 @@ async function attach(event:MessageEvent){
     // in this realm. The UI cannot access window.IWXA, IndexedDB or signer.
     receiver=acceptOriginalKernelRealmChannel({
       event,uiOrigin:cfg.ui_origin,parentWindow:window.parent,
-      createSignedFacade:()=>signed,
+      createSignedFacade:(method:string,report:(stage:string)=>void)=>
+        method==="getWorkspace"
+          ? createKernelFacade({
+              session:originalSession,
+              signedKernelAccess:owner.signedKernelAccess,
+              isHostActive:()=>live,
+              onReadStage:report,
+            })
+          : signed,
       isActive:()=>live,
       describeOriginalSession:()=>({
         contract_version:originalSession.contract_version,
