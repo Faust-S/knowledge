@@ -55,6 +55,19 @@ jobs:
             if($errors.Count -ne 0){throw 'D07_NATIVE_CARD_POWERSHELL_SYNTAX_FAILED'}
           }
           Write-Output 'D07_NATIVE_CARD_SCRIPTS_SYNTAX=PASS'
+      - name: Assert independent revision and cold reopen are mandatory
+        run: |
+          $script=Get-Content 'scripts/d07-native-card-iwxa-import.ps1' -Raw
+          foreach($marker in @(
+            'D07_IWXA_NATIVE_POST_IMPORT_KERNEL_REVISION=PASS',
+            'D07_IMPORT_POST_IMPORT_REVISION_LOST',
+            'D07_IMPORT_POST_IMPORT_OBJECT_ID_CHANGED',
+            'D07_IMPORT_POST_IMPORT_TEN_WORKS_LOST',
+            'D07_IWXA_NATIVE_POST_IMPORT_DURABLE_CONTINUATION=PASS'
+          )){
+            if(-not $script.Contains($marker)){throw 'D07_NATIVE_POST_IMPORT_PROOF_SCRIPT_INCOMPLETE'}
+          }
+          Write-Output 'D07_NATIVE_DURABLE_CONTINUATION_SCRIPT_GATE=PASS'
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
