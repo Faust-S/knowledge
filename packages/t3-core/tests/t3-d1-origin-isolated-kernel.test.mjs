@@ -30,6 +30,23 @@ test('signed facade is the only writer and foreign organizational reads fail clo
   }finally{client.close();receiver.close();}
 });
 
+test('a stalled original read reports only its trusted finite stage and never a missing Workspace',async()=>{
+  const ch=new MessageChannel();
+  const receiver=bindSignedOriginalKernelPort({
+    port:ch.port1,isActive:()=>true,
+    createSignedFacade:async(method,report)=>{
+      assert.equal(method,'getWorkspace');
+      report('SIGNED_JIT');
+      return Object.freeze({getWorkspace:async()=>new Promise(()=>{})});
+    },
+  });
+  const client=createIsolatedKernelClient({port:ch.port2,timeoutMs:200});
+  try{
+    await assert.rejects(client.invoke('getWorkspace',id),
+      {code:'T3_D1_READ_TIMEOUT_SIGNED_JIT'});
+  }finally{client.close();receiver.close();}
+});
+
 test('unknown and inherited method names never resolve a signed facade',async()=>{
   const ch=new MessageChannel();let called=0;
   const receiver=bindSignedOriginalKernelPort({port:ch.port1,
