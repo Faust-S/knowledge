@@ -305,6 +305,117 @@ def _edition_source(value: Any, original: str) -> None:
         raise OrgCodeBlocked("OC_MODEL_EDITION_OWNER_SOURCE_REQUIRED")
 
 
+
+def _model_function_scope(state: Any, proposal: Mapping[str, Any],
+                          at: int, old: ModelOrgCodePolicy) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
+    """A SOURCE-DECLARED future-function change, never property transfer.
+
+    The accepted pilot can belong to the historical parent of the successor.
+    The proposer cannot reassign another party's authority by itself.
+    """
+    target = proposal.get("proposed_subject")
+    if (not isinstance(target, str) or target not in old.controlled_subjects
+            or target not in old.asserted_identity or target not in old.roles
+            or target not in state.subjects
+            or not state.subjects[target].active
+            or state.subjects[target].kind != "SME"):
+        raise OrgCodeBlocked("OC_MODEL_FUNCTION_EXISTING_SUBJECT_REQUIRED")
+    current = proposal.get("expected_model_roles")
+    proposed = proposal.get("proposed_model_roles")
+    if (not isinstance(current, list) or not isinstance(proposed, list)
+            or tuple(current) != old.roles[target]
+            or len(set(proposed)) != len(proposed) or not proposed
+            or any(role not in {"ENTERPRISE", "CUSTOMER", "RESOURCE_OWNER"}
+                   for role in proposed)
+            or tuple(proposed) == old.roles[target]):
+        raise OrgCodeBlocked("OC_MODEL_FUNCTION_EXPECTED_AND_FUTURE_ROLES_REQUIRED")
+    if ("RESOURCE_OWNER" in proposed
+            and not any(owner == target for owner in state.resources.values())):
+        raise OrgCodeBlocked("OC_MODEL_FUNCTION_RESOURCE_OWNERSHIP_CANNOT_BE_ASSUMED")
+    if ("CUSTOMER" in proposed and "CUSTOMER" not in old.roles[target]
+            and not any(work.customer == target for work in state.works.values())):
+        raise OrgCodeBlocked("OC_MODEL_FUNCTION_CUSTOMER_SCOPE_UNPROVEN")
+    prior = proposal.get("expected_model_commit_responsible")
+    future = proposal.get("proposed_model_commit_responsible")
+    old_owners = old.responsible_by_action.get("commit", ())
+    if (not isinstance(prior, list) or tuple(prior) != old_owners
+            or not isinstance(future, list) or not future
+            or len(future) != len(set(future))
+            or tuple(future) == old_owners
+            or any(name not in state.subjects or
+                   not state.subjects[name].active or
+                   state.subjects[name].kind != "SME" for name in future)):
+        raise OrgCodeBlocked("OC_MODEL_FUNCTION_INDEPENDENT_RESPONSIBILITY_SCOPE_REQUIRED")
+    link = next((
+        row for row in state.cooperation_links
+        if row.key == proposal.get("cooperation_link")
+        and row.source_revision == proposal.get("cooperation_source_revision")
+    ), None)
+    if (link is None or target not in link.participants or
+            any(actor not in link.participants
+                for actor in set(old_owners) | set(future))):
+        raise OrgCodeBlocked("OC_MODEL_FUNCTION_SUCCESSOR_PARTICIPANTS_REQUIRED")
+    # Strict original trace witness: applied membership and historical
+    # accepted pilot. No borrowing the entrant's nonexistent prior review.
+    change = proposal.get("original_cooperation_change_id")
+    pilot_id = proposal.get("pilot_work")
+    pilot = state.works.get(pilot_id)
+    if (pilot is None or pilot.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+            or pilot.result_ref != proposal.get("pilot_result_ref")):
+        raise OrgCodeBlocked("OC_MODEL_FUNCTION_ORIGINAL_ACCEPTED_PILOT_REQUIRED")
+    related = [
+        row for row in state.trace
+        if row.get("action") == "cooperation_membership_apply"
+        and row.get("outcome") == "APPLIED"
+        and row.get("change_id") == change
+        and row.get("successor_link") == link.key
+        and row.get("successor_revision") == link.source_revision
+        and row.get("pilot_work") == pilot_id
+        and row.get("pilot_result_ref") == pilot.result_ref
+        and row.get("pilot_decision_at") == proposal.get("pilot_decision_at")
+        and type(row.get("at")) is int and row["at"] < at
+    ]
+    if len(related) != 1 or not any(
+        row.get("action") == "accept" and row.get("outcome") == "APPLIED"
+        and row.get("work") == pilot_id
+        and row.get("at") == proposal.get("pilot_decision_at")
+        and type(row.get("at")) is int and row["at"] < related[0]["at"]
+        for row in state.trace
+    ):
+        raise OrgCodeBlocked("OC_MODEL_FUNCTION_APPLIED_MEMBERSHIP_LINEAGE_REQUIRED")
+    return target, tuple(proposed), tuple(future)
+
+
+def qualify_model_code_function_response(
+    state: Any, event: Mapping[str, Any], at: int
+) -> None:
+    proposal = _original_model_edition_proposal(
+        state.trace, event.get("model_code_change_id")
+    )
+    if proposal.get("model_code_change_kind") != "REASSIGN_EXISTING_MODEL_FUNCTIONS":
+        raise OrgCodeBlocked("OC_MODEL_FUNCTION_ORIGINAL_REASSIGNMENT_REQUIRED")
+    if (event.get("org_revision") != state.institution.revision
+            or proposal.get("org_revision") != state.institution.revision
+            or proposal.get("expected_model_edition") != state.model_org_code_edition
+            or event.get("new_model_edition") != proposal.get("new_model_edition")
+            or event.get("model_code_fingerprint") !=
+                proposal.get("model_code_fingerprint")
+            or type(proposal.get("at")) is not int or at <= proposal["at"]):
+        raise OrgCodeBlocked("OC_MODEL_FUNCTION_RESPONSE_STALE_OR_CONTENT_MISMATCH")
+    subject, _, future = _model_function_scope(
+        state, proposal, at, state.model_org_policy
+    )
+    affected = set(proposal["expected_model_commit_responsible"]) | set(future) | {subject}
+    actor = event.get("actor")
+    if actor not in affected:
+        raise OrgCodeBlocked("OC_MODEL_FUNCTION_INDEPENDENT_AFFECTED_OWNER_REQUIRED")
+    if event.get("model_code_decision") not in {
+        "SUPPORT_FUNCTION_CHANGE", "OBJECT_FUNCTION_CHANGE"
+    }:
+        raise OrgCodeBlocked("OC_MODEL_FUNCTION_INDEPENDENT_POSITION_REQUIRED")
+    _edition_source(event.get("model_code_decision_source_ref"), actor)
+
+
 def qualify_model_code_proposal(state: Any, event: Mapping[str, Any],
                                 at: int) -> None:
     """Propose only a model role for a NEW original participant, no rights."""
@@ -333,6 +444,13 @@ def qualify_model_code_proposal(state: Any, event: Mapping[str, Any],
         event.get("model_code_fingerprint")
     ):
         raise OrgCodeBlocked("OC_MODEL_EDITION_SOURCE_FINGERPRINT_REQUIRED")
+    if event.get("model_code_change_kind") == "REASSIGN_EXISTING_MODEL_FUNCTIONS":
+        _model_function_scope(state, event, at, old)
+        return
+    if event.get("model_code_change_kind") not in {
+        None, "ADMIT_NEW_MODEL_RESOURCE_OWNER"
+    }:
+        raise OrgCodeBlocked("OC_MODEL_EDITION_UNKNOWN_CHANGE_KIND")
     applicant = event.get("proposed_subject")
     if (applicant not in state.subjects
             or not state.subjects[applicant].active
@@ -409,8 +527,39 @@ def qualify_model_code_apply(state: Any, event: Mapping[str, Any],
         "model_code_fingerprint"
     ):
         raise OrgCodeBlocked("OC_MODEL_EDITION_APPLIED_SOURCE_FINGERPRINT_STALE")
+    role_change = (
+        proposal.get("model_code_change_kind")
+        == "REASSIGN_EXISTING_MODEL_FUNCTIONS"
+    )
     applicant = proposal.get("proposed_subject")
-    if (applicant not in state.subjects
+    if role_change:
+        target, roles, future_responsible = _model_function_scope(
+            state, proposal, at, old
+        )
+        affected = (set(proposal["expected_model_commit_responsible"])
+                    | set(future_responsible) | {target})
+        latest_positions: dict[str, str] = {}
+        for row in state.trace:
+            if (row.get("action") == "model_code_function_response"
+                    and row.get("outcome") == "APPLIED"
+                    and row.get("model_code_change_id") ==
+                        proposal["model_code_change_id"]
+                    and row.get("new_model_edition") ==
+                        proposal["new_model_edition"]
+                    and row.get("model_code_fingerprint") ==
+                        proposal["model_code_fingerprint"]
+                    and row.get("actor") in affected
+                    and row.get("org_revision") ==
+                        state.institution.revision
+                    and type(row.get("at")) is int
+                    and proposal["at"] < row["at"] < at):
+                latest_positions[row["actor"]] = row["model_code_decision"]
+        if set(latest_positions) != affected:
+            raise OrgCodeBlocked("OC_MODEL_FUNCTION_ALL_AFFECTED_RESPONSES_REQUIRED")
+        if any(answer != "SUPPORT_FUNCTION_CHANGE"
+               for answer in latest_positions.values()):
+            raise OrgCodeBlocked("OC_MODEL_FUNCTION_AFFECTED_PARTY_OBJECTED")
+    elif (applicant not in state.subjects
             or not state.subjects[applicant].active
             or not any(owner == applicant for owner in state.resources.values())
             or applicant in old.controlled_subjects):
@@ -468,9 +617,30 @@ def qualify_model_code_apply(state: Any, event: Mapping[str, Any],
     except OrgCodeInputError as exc:
         raise OrgCodeBlocked("OC_MODEL_EDITION_INVALID_ORIGINAL_THIRTEEN_CONTROLS:" +
                              str(exc)) from exc
-    # This first prospective stage adds exactly one entrant-owned role.
-    # Role reassignment and changes to the other ten fields need a separate
-    # independent owner and liability review; never silently broaden scope.
+    # R1-T2 allows a SINGLE model-functional reassignment, but only after
+    # EVERY original affected owner's independent source-bound decision.
+    # Actual Work principals, resource owners and accepted Results are
+    # never changed by reclassifying a role.
+    if role_change:
+        if (candidate.controlled_subjects != old.controlled_subjects
+                or candidate.asserted_identity != old.asserted_identity
+                or candidate.roles.get(target) != roles
+                or any(candidate.roles.get(owner) != declared
+                       for owner, declared in old.roles.items()
+                       if owner != target)
+                or candidate.responsible_by_action.get("commit", ())
+                    != future_responsible
+                or any(candidate.responsible_by_action.get(action) != original
+                       for action, original in old.responsible_by_action.items()
+                       if action != "commit")
+                or any(candidate.records[field]["control"]
+                       != old.records[field]["control"]
+                       for field in FIELDS if field not in {"Рол", "Отв"})):
+            raise OrgCodeBlocked("OC_MODEL_FUNCTION_ONLY_APPROVED_SCOPE_ALLOWED")
+        if not candidate.active(state, at):
+            raise OrgCodeBlocked("OC_MODEL_EDITION_NEW_SOURCE_NOT_ACTIVE")
+        return candidate
+    # R1-T1 adds exactly one entrant-owned role without rewriting others.
     if (set(candidate.controlled_subjects) - set(old.controlled_subjects) != {applicant}
             or set(old.controlled_subjects) - set(candidate.controlled_subjects)
             or set(candidate.asserted_identity) - set(old.asserted_identity) != {applicant}

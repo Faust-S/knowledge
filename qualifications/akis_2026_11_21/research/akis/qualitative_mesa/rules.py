@@ -12,7 +12,8 @@ from typing import Any
 from .context_basis import ContextBasis, ContextBlocked, ContextInputError
 from .org_code_policy import (
     OrgCodeBlocked, NEW_WORK_ACTIONS, qualify_model_code_proposal,
-    qualify_model_code_response, qualify_model_code_apply,
+    qualify_model_code_response, qualify_model_code_function_response,
+    qualify_model_code_apply,
 )
 from .capacity import (
     CapacityBlocked, CapacityInputError, CapacityLedger, ResourceNeed,
@@ -48,7 +49,8 @@ SELECTED_MODES = frozenset({"SOLE", "COLLEGIAL", "MIXED"})
 # UNSELECTED explicitly describes missing qualification, not tacit SOLE.
 MODES = SELECTED_MODES | {"UNSELECTED"}
 AVAILABILITY = frozenset({"AVAILABLE", "UNAVAILABLE", "UNKNOWN"})
-ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "cooperation_entry_assess", "cooperation_membership_apply", "model_code_propose", "model_code_response", "model_code_apply", "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge"})
+ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "cooperation_entry_assess", "cooperation_membership_apply", "model_code_propose", "model_code_response",
+    "model_code_function_response", "model_code_apply", "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge"})
 GOVERNED = frozenset({"authorize", "exclude"})
 
 
@@ -260,7 +262,10 @@ class QualitativeAKIS:
              "model_code_decision_source_ref", "new_model_edition",
              "expected_model_edition", "proposed_model_role",
              "original_cooperation_change_id", "model_code_records",
-             "model_code_fingerprint"}, "EVENT")
+             "model_code_fingerprint", "model_code_change_kind",
+             "expected_model_roles", "proposed_model_roles",
+             "expected_model_commit_responsible",
+             "proposed_model_commit_responsible"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -394,23 +399,32 @@ class QualitativeAKIS:
                 qualify_model_code_proposal(self, ev, at)
             elif action == "model_code_response":
                 qualify_model_code_response(self, ev, at)
+            elif action == "model_code_function_response":
+                qualify_model_code_function_response(self, ev, at)
             elif action == "model_code_apply":
                 candidate = qualify_model_code_apply(
                     self, ev, at, actions=set(ACTIONS)
                 )
-                entrant = next(
-                    row["proposed_subject"] for row in self.trace
+                proposal = next(
+                    row for row in self.trace
                     if row.get("action") == "model_code_propose"
                     and row.get("outcome") == "APPLIED"
                     and row.get("model_code_change_id") == ev["model_code_change_id"]
                 )
-                # Previously admitted, unfinished Work involving the new
-                # entrant must acquire fresh individual authorization and
-                # consent under this model edition. Never rewrite accepted Work.
+                entrant = proposal["proposed_subject"]
+                affected = {entrant}
+                if proposal.get("model_code_change_kind") == (
+                    "REASSIGN_EXISTING_MODEL_FUNCTIONS"
+                ):
+                    affected.update(proposal["expected_model_commit_responsible"])
+                    affected.update(proposal["proposed_model_commit_responsible"])
+                # Only uncommitted Work involving changed model responsibilities
+                # loses prospective approvals. Accepted and ongoing obligations
+                # retain their original binding principal/source history.
                 for work in self.works.values():
                     if (work.obligation == "NOT_ACCEPTED"
-                            and (work.customer == entrant or
-                                 any(self.resources[n.resource] == entrant
+                            and (work.customer in affected or
+                                 any(self.resources[n.resource] in affected
                                      for n in work.resource_requirements))):
                         work.consents.clear()
                         work.admitted = False
@@ -543,8 +557,10 @@ class QualitativeAKIS:
             report["org_code_model_source_edition"] = self.model_org_code_edition
             report["org_code_escalation_is_inquiry_only"] = True
             report["org_code_real_identity_authenticated"] = False
-        if action in {"model_code_propose", "model_code_response", "model_code_apply"}:
+        if action in {"model_code_propose", "model_code_response",
+                      "model_code_function_response", "model_code_apply"}:
             report["model_code_change_id"] = ev.get("model_code_change_id")
+            report["model_code_change_kind"] = ev.get("model_code_change_kind")
             report["model_code_fingerprint"] = ev.get("model_code_fingerprint")
             report["new_model_edition"] = ev.get("new_model_edition")
             report["expected_model_edition"] = ev.get("expected_model_edition")
@@ -559,7 +575,14 @@ class QualitativeAKIS:
                     "original_cooperation_change_id"
                 )
                 report["model_code_source_ref"] = ev.get("model_code_source_ref")
-            if action == "model_code_response":
+                for name in ("expected_model_roles", "proposed_model_roles",
+                             "expected_model_commit_responsible",
+                             "proposed_model_commit_responsible",
+                             "cooperation_link", "cooperation_source_revision",
+                             "pilot_work", "pilot_result_ref", "pilot_decision_at"):
+                    if name in ev:
+                        report[name] = ev[name]
+            if action in {"model_code_response", "model_code_function_response"}:
                 report["model_code_decision"] = ev.get("model_code_decision")
                 report["model_code_decision_source_ref"] = ev.get(
                     "model_code_decision_source_ref"
@@ -569,6 +592,11 @@ class QualitativeAKIS:
                     self.model_org_code_edition
                 )
                 report["model_code_all_thirteen_source_records_requalified"] = True
+                report["model_code_function_change_applied"] = (
+                    proposal["model_code_change_kind"]
+                    == "REASSIGN_EXISTING_MODEL_FUNCTIONS"
+                ) if "model_code_change_kind" in proposal else False
+                report["original_resources_and_work_principals_preserved"] = True
                 report["historical_accepted_results_and_consents_preserved"] = True
                 report["new_entrant_independent_work_consent_still_required"] = True
         if action in {"start_operation", "complete_operation"}:
